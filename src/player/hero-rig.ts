@@ -1,0 +1,334 @@
+import * as THREE from 'three';
+import { VoxelModel } from '../core/voxel';
+
+/**
+ * Voxel hero: a charming Cube World adventurer, ~1.9 units tall.
+ * Built as a hierarchy of pivot groups so the animator can pose joints:
+ *
+ *   root (player position, yaw)
+ *    └ body (bob / lean / squash)
+ *       ├ legL, legR        (hip pivots)
+ *       └ torso (twist)
+ *          ├ head            (neck pivot)
+ *          ├ armL (+shield)  (shoulder pivot)
+ *          └ armR (+sword)   (shoulder pivot)
+ */
+export interface HeroRig {
+  root: THREE.Group;
+  body: THREE.Group;
+  torso: THREE.Group;
+  head: THREE.Group;
+  armL: THREE.Group;
+  armR: THREE.Group;
+  legL: THREE.Group;
+  legR: THREE.Group;
+  sword: THREE.Group;
+  shield: THREE.Group;
+  /** every material in the rig, for damage flash */
+  materials: THREE.MeshStandardMaterial[];
+}
+
+// -- palette ---------------------------------------------------------------
+const SKIN = 0xf6c69a;
+const SKIN_EAR = 0xefb684;
+const BLUSH = 0xf59f7d;
+const MOUTH = 0xa9603f;
+const EYE = 0x2c2833;
+const GLINT = 0xffffff;
+const HAIR = 0xa5622a;
+const HAIR_D = 0x84491d;
+const HAIR_L = 0xb97a3d; // sun-lightened strands (back of head)
+const STRAP = 0xc9a24f;  // gold-tan backpack straps
+const TUNIC = 0x3f8fd6;
+const TUNIC_D = 0x3374b3;
+const TRIM = 0xf2d98b;
+const BELT = 0x63452a;
+const BELT_D = 0x4c3420;
+const PANTS = 0x597040; // forest green pants
+const BOOT = 0x7d5433;
+const BOOT_D = 0x654325;
+// Steel reads a full stop darker than the sky dome (0xcfe8f4) so the blade is a
+// silhouette against it instead of vanishing into the same value.
+const STEEL = 0xa9b8c6;
+const STEEL_L = 0xeef4f9;
+const STEEL_D = 0x76858f;
+const GOLD = 0xe6a93c;
+const GRIP = 0x5b3f26;
+const WOOD = 0xa06f41;
+const POUCH = 0x8a6238;
+
+const S = 0.1; // voxel scale: 1 voxel = 0.1 m
+
+const HIP_Y = 0.6;
+const TORSO_Y = 0.55;
+const SHOULDER_LOCAL_Y = 0.53; // within torso group
+const SHOULDER_X = 0.43; // mitts tuck against the torso instead of floating wide
+const NECK_LOCAL_Y = 0.58;
+/** Head is shrunk relative to the body to match Cube World's head:body ratio. */
+const HEAD_SCALE = 0.7;
+
+function buildHead(): THREE.Mesh {
+  const v = new VoxelModel();
+  // skull
+  v.box(-4, 0, -4, 3, 5, 3, SKIN);
+  // hair: chunky cap with a one-voxel overhang all around
+  v.box(-5, 4, -5, 4, 6, 4, HAIR);
+  // darker under-layer at the back, flowing down the neck
+  v.box(-5, 1, -5, 4, 3, -4, HAIR_D);
+  // back strands: recolor the outer back layer (z=-5) with 2-tone columns so
+  // the rear view reads as falling hair, not a flat slab (no shape change)
+  for (const y of [1, 2, 3]) v.set(-4, y, -5, HAIR);
+  for (const y of [2, 3]) v.set(0, y, -5, HAIR);
+  for (const y of [1, 2]) v.set(3, y, -5, HAIR);
+  for (const y of [1, 2, 3]) v.set(-2, y, -5, HAIR_L);
+  v.set(2, 3, -5, HAIR_L);
+  // carry the variation up into the back of the cap
+  v.set(-3, 4, -5, HAIR_D);
+  v.set(1, 4, -5, HAIR_D);
+  v.set(-1, 5, -5, HAIR_L);
+  v.set(3, 4, -5, HAIR_D);
+  // jagged fringe over the brow
+  for (const x of [-5, -3, -1, 2, 4]) v.set(x, 3, 4, HAIR);
+  for (const x of [-4, 0, 3]) v.set(x, 3, 4, HAIR_D);
+  // cowlick tuft
+  v.set(-1, 7, -1, HAIR);
+  v.set(0, 7, 0, HAIR);
+  v.set(0, 8, -1, HAIR_D);
+  // ears
+  v.set(-5, 2, 0, SKIN_EAR);
+  v.set(4, 2, 0, SKIN_EAR);
+  // eyes: 2x2 dark with a white glint, on the front face layer
+  for (let y = 2; y <= 3; y++) {
+    v.set(-3, y, 3, EYE);
+    v.set(-2, y, 3, EYE);
+    v.set(1, y, 3, EYE);
+    v.set(2, y, 3, EYE);
+  }
+  v.set(-2, 3, 3, GLINT);
+  v.set(1, 3, 3, GLINT);
+  // little smile + rosy cheeks
+  v.set(-1, 0, 3, MOUTH);
+  v.set(0, 0, 3, MOUTH);
+  v.set(-4, 1, 3, BLUSH);
+  v.set(3, 1, 3, BLUSH);
+  const mesh = v.build(S, true);
+  mesh.position.y = -0.03;
+  return mesh;
+}
+
+function buildTorso(): THREE.Mesh {
+  const v = new VoxelModel();
+  // tunic
+  v.box(-4, 0, -2, 3, 5, 1, TUNIC);
+  // shaded sides for a bit of volume
+  v.box(-4, 1, -2, -4, 4, 1, TUNIC_D);
+  v.box(3, 1, -2, 3, 4, 1, TUNIC_D);
+  // belt + gold buckle
+  v.box(-4, 0, -2, 3, 0, 1, BELT);
+  v.set(0, 0, 1, GOLD);
+  v.set(-1, 0, 1, GOLD);
+  // collar trim
+  v.box(-4, 5, -2, 3, 5, 1, TRIM);
+  // satchel strap: diagonal across the chest
+  for (let i = 0; i <= 5; i++) v.set(3 - i, i, 1, BELT_D);
+  // backpack straps: gold-tan X crossing the tunic back (flush recolor of the
+  // z=-2 back layer, so the silhouette is untouched); stops below the collar
+  for (let i = 0; i <= 4; i++) {
+    v.set(3 - i, i, -2, STRAP);  // right shoulder -> left hip
+    v.set(-4 + i, i, -2, STRAP); // left shoulder -> right hip
+  }
+  return v.build(S, true);
+}
+
+function buildLeg(): THREE.Mesh {
+  const v = new VoxelModel();
+  v.box(-1, 2, -1, 1, 5, 1, PANTS);
+  v.box(-1, 0, -1, 1, 1, 1, BOOT);
+  // boot cuff + toe cap
+  v.box(-1, 2, -1, 1, 2, 1, BOOT_D);
+  v.box(-1, 0, 2, 1, 0, 2, BOOT);
+  const mesh = v.build(S, true);
+  mesh.position.y = -HIP_Y;
+  return mesh;
+}
+
+/**
+ * Cube World-style arm: a dark rounded pauldron at the shoulder flowing
+ * straight into an oversized spherical mitt — no thin forearm in between.
+ */
+function buildArm(braced: boolean): THREE.Mesh {
+  const v = new VoxelModel();
+  // pauldron cap sitting on the shoulder, tucked against the torso
+  v.ellipsoid(0, 4.2, 0, 2.0, 1.7, 2.0, TUNIC_D);
+  v.ellipsoid(0, 4.9, 0, 1.7, 1.1, 1.7, TRIM);
+  // short connective sleeve so the mitt reads as attached, not floating
+  v.box(-1, 1, -1, 1, 3, 1, TUNIC_D);
+  // big spherical hand
+  const glove = braced ? BELT : SKIN;
+  v.ellipsoid(0, 0.6, 0, 2.4, 2.3, 2.4, glove);
+  if (braced) {
+    // cuff band where the bracer meets the mitt
+    v.ellipsoid(0, 2.2, 0, 2.1, 0.6, 2.1, BELT_D);
+  } else {
+    v.ellipsoid(0, 2.2, 0, 2.1, 0.6, 2.1, SKIN_EAR);
+  }
+  const mesh = v.build(S, true);
+  mesh.position.y = -0.55;
+  return mesh;
+}
+
+function buildSword(): THREE.Mesh {
+  const v = new VoxelModel();
+  // The hilt is built 3 voxels deep (z -1..1) while the blade stays 1 deep, so
+  // pommel / grip / crossguard read as separate chunky parts from any angle
+  // instead of the whole weapon looking like one flat plank.
+  // pommel knob
+  v.box(0, -1, -1, 1, -1, 1, GOLD);
+  // leather-wrapped grip
+  v.box(0, 0, -1, 1, 2, 1, GRIP);
+  v.set(0, 1, -1, BELT_D); // wrap seams
+  v.set(1, 1, 1, BELT_D);
+  // crossguard: full-width bar with a deeper centre block and upturned tips
+  v.box(-1, 3, 0, 2, 3, 0, GOLD);
+  v.box(0, 3, -1, 1, 3, 1, GOLD);
+  v.set(-1, 4, 0, GOLD);
+  v.set(2, 4, 0, GOLD);
+  // blade: bright edge column + steel body, tapered tip.
+  // Kept short (tip at y=10): at full length the point punched through the
+  // ground below the boots at the back of the arm-swing arc.
+  for (let y = 4; y <= 8; y++) {
+    v.set(0, y, 0, STEEL_L);
+    v.set(1, y, 0, STEEL);
+  }
+  v.set(0, 9, 0, STEEL_L);
+  v.set(1, 9, 0, STEEL_D);
+  v.set(0, 10, 0, STEEL);
+  const mesh = v.build(S, true);
+  mesh.position.y = -0.15; // hand grips the hilt
+  return mesh;
+}
+
+function buildShield(): THREE.Mesh {
+  const v = new VoxelModel();
+  for (let y = 0; y <= 4; y++) {
+    const half = y === 0 || y === 4 ? 1 : 2;
+    for (let x = -half; x <= half; x++) {
+      const rim = Math.abs(x) === half || y === 0 || y === 4;
+      v.set(x, y, 0, rim ? STEEL_D : WOOD);
+    }
+  }
+  // blue emblem diamond + gold boss sticking out
+  v.set(0, 1, 0, TUNIC);
+  v.set(0, 3, 0, TUNIC);
+  v.set(-1, 2, 0, TUNIC);
+  v.set(1, 2, 0, TUNIC);
+  v.set(0, 2, 1, GOLD);
+  const mesh = v.build(S, true);
+  mesh.position.y = -0.24;
+  return mesh;
+}
+
+function buildSatchel(): THREE.Mesh {
+  const v = new VoxelModel();
+  v.box(0, 0, 0, 3, 2, 1, POUCH);
+  v.box(0, 3, 0, 3, 3, 1, BELT_D);
+  v.set(1, 2, 1, GOLD); // clasp
+  // rear detail: the local +x face points backward once the satchel is
+  // rotated onto the hip, so give it a dark seam + stud to read from behind
+  v.set(3, 0, 0, BELT_D);
+  v.set(3, 0, 1, BELT_D);
+  v.set(3, 2, 0, GOLD);
+  const mesh = v.build(S, true);
+  mesh.position.y = -0.2;
+  return mesh;
+}
+
+function buildScabbard(): THREE.Mesh {
+  // slim leather strip with a gold throat and steel chape; hangs below its
+  // pivot so the group can angle it from the belt line
+  const v = new VoxelModel();
+  v.box(0, 0, 0, 0, 4, 0, BELT_D);
+  v.set(0, 4, 0, GOLD);    // throat band at the belt
+  v.set(0, 0, 0, STEEL_D); // chape tip
+  const mesh = v.build(S, true);
+  mesh.position.y = -0.48;
+  return mesh;
+}
+
+export function buildHeroRig(): HeroRig {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+
+  const legL = new THREE.Group();
+  legL.position.set(-0.19, HIP_Y, 0);
+  legL.add(buildLeg());
+  const legR = new THREE.Group();
+  legR.position.set(0.19, HIP_Y, 0);
+  legR.add(buildLeg());
+  body.add(legL, legR);
+
+  const torso = new THREE.Group();
+  torso.position.y = TORSO_Y;
+  torso.add(buildTorso());
+  body.add(torso);
+
+  const head = new THREE.Group();
+  head.position.y = NECK_LOCAL_Y;
+  // Cube World proportions: the head is roughly a third of the body, not half.
+  head.scale.setScalar(HEAD_SCALE);
+  head.add(buildHead());
+  torso.add(head);
+
+  const armL = new THREE.Group();
+  armL.position.set(-SHOULDER_X, SHOULDER_LOCAL_Y, 0);
+  armL.add(buildArm(true));
+  const armR = new THREE.Group();
+  armR.position.set(SHOULDER_X, SHOULDER_LOCAL_Y, 0);
+  armR.add(buildArm(false));
+  torso.add(armL, armR);
+
+  // Rest pose: hilt sits in the mitt, blade angled back past the calf and
+  // yawed off-axis so the flat of the blade never faces the camera square-on.
+  // NOTE: the animator overwrites sword.rotation.x/.z every frame (idle x≈2.62),
+  // so rotation.x here is only the pre-animation pose; rotation.y and position
+  // are ours alone and are what actually shape the rest silhouette.
+  const sword = new THREE.Group();
+  sword.position.set(0.06, -0.30, -0.10);
+  sword.rotation.x = 2.35;
+  sword.rotation.y = 0.5;
+  sword.scale.setScalar(0.78); // shorter blade, in scale with the smaller head
+  sword.add(buildSword());
+  armR.add(sword);
+
+  const shield = new THREE.Group();
+  shield.position.set(-0.06, -0.3, 0.13);
+  shield.add(buildShield());
+  armL.add(shield);
+
+  const satchel = buildSatchel();
+  satchel.position.set(-0.47, 0.72, -0.02);
+  satchel.rotation.y = Math.PI / 2;
+  satchel.rotation.z = 0.08;
+  body.add(satchel);
+
+  // scabbard on the left hip, angled tip-back so it reads from behind.
+  // Kept low (top y~0.66) and behind (z<=-0.15): the arm swing arc only
+  // reaches z=-0.15 at y>~0.90, and the leg sweep stays inboard of x=-0.34.
+  const scabbard = new THREE.Group();
+  scabbard.position.set(-0.38, 0.66, -0.2);
+  scabbard.rotation.x = 0.3;
+  scabbard.rotation.z = -0.15;
+  scabbard.add(buildScabbard());
+  body.add(scabbard);
+
+  const materials: THREE.MeshStandardMaterial[] = [];
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh && mesh.material instanceof THREE.MeshStandardMaterial) {
+      materials.push(mesh.material);
+    }
+  });
+
+  return { root, body, torso, head, armL, armR, legL, legR, sword, shield, materials };
+}
