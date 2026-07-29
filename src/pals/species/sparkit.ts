@@ -9,14 +9,16 @@ import { makeGlowSprite } from './glowsprite';
 // big glinting eyes, orange cheek spark spots. ~0.6m tall, always jittery.
 // ---------------------------------------------------------------------------
 
-const YEL = 0xffd23f;
+// Body yellow, pulled down off pure saturation because at sun 2.55 / fill 0.52
+// the old 0xffd23f clipped to paper on every sun-facing face.
+const YEL = 0xe8b71e;
 const YEL_LIGHT = 0xffe57a;
 const YEL_DARK = 0xdfa71c;
-// Muzzle plate / belly. Deliberately a mid-tone ochre, NOT near-white: the eye
-// whites are the only pure white on the model and need something to pop off.
+// Belly only. The muzzle plate is gone: any pale plate on the face flanked the
+// dark eye cells and the whole head read as a welding mask.
 const CREAM = 0xe8cf7f;
 const INK = 0x26241f;
-const CHEEK = 0xff8b1f;
+const CHEEK = 0xff8a2b;
 const SPARK_CORE = 0xfff8d8;
 const EYE_GLINT = 0xffffff;
 const PAW = 0xffe9a8;
@@ -82,21 +84,18 @@ function buildRig(): PalRig {
   const head = pivot('head', body);
   const hm = new VoxelModel();
   hm.ellipsoid(0, 1.8, 0.2, 2.4, 2.0, 2.2, YEL);
-  hm.box(-3, 0, 2, 3, 3, 2, YEL); // flat face plate, wide enough to frame the eyes
-  // On a face only 7 cells wide, ANY ink framing around the eyes merges with
-  // the pupils into one dark bar across the whole muzzle — that was the real
-  // source of the "chequerboard" read, along with the (now deleted) under-eye
-  // stripes. So: no outline at all, just a clean 2x2 white sclera and one
-  // pupil, the way the pals that already photograph well do it.
+  hm.box(-3, 0, 2, 3, 3, 2, YEL); // flat face plate, all body yellow
+  // Two cells per eye and nothing else: a dark cell plus one white glint. Any
+  // larger pale sclera turned into a plate, and plates either side of a dark
+  // cell are a goggle read no matter where they sit on the face — which is
+  // exactly how this head kept photographing as a welding mask.
   for (const sx of [1, -1]) {
-    const inner = sx * 1;
-    const outer = sx * 2;
-    hm.box(inner, 1, 2, outer, 2, 2, EYE_GLINT);
-    hm.set(inner, 2, 2, INK); // pupil on the inner-top cell
+    hm.set(sx * 2, 2, 2, INK);        // eye
+    hm.set(sx * 2, 1, 2, EYE_GLINT);  // single glint under it
   }
-  // Cream muzzle wedge: gives the whites something mid-value to pop against
-  // instead of sitting straight on the bright yellow face.
-  hm.box(-1, 0, 3, 1, 1, 3, CREAM);
+  // Muzzle wedge in plain body yellow — the cream plate that used to sit here
+  // was half the mask read. Geometry stays so the nose has something to sit on.
+  hm.box(-1, 0, 3, 1, 1, 3, YEL);
   hm.set(0, 1, 4, INK); // button nose
   hm.set(0, 0, 3, EYE_GLINT); // buck tooth
   const headMesh = hm.build(S);
@@ -118,15 +117,16 @@ function buildRig(): PalRig {
   const mkSpark = (name: string): void => {
     const g = pivot(name, head);
     const sv = new VoxelModel();
-    sv.set(0, 1, 0, SPARK_CORE);
-    sv.set(-1, 1, 0, CHEEK);
-    sv.set(1, 1, 0, CHEEK);
-    sv.set(0, 0, 0, CHEEK);
-    sv.set(0, 2, 0, CHEEK);
-    sv.markEmissive(SPARK_CORE, 1.7); // white-hot spark heart
-    sv.markEmissive(CHEEK, 1.2);      // crackling electric ring
+    // ONE cell. The five-cell rosette was a plate on the cheek, and a plate on
+    // the cheek is a goggle strap; the cheeks are plain body yellow now and the
+    // spark is a single glowing dot plus its bloom sprite.
+    sv.set(0, 1, 0, CHEEK);
+    sv.markEmissive(CHEEK, 1.5); // crackling electric dot
     const m = sv.build(S);
-    m.position.y = -0.15;
+    // -0.05, not -0.15: build() anchors y=0 at the lowest voxel, and the single
+    // remaining cell is the old rosette's centre cell — this keeps the spark
+    // exactly where the core used to sit, under the bloom sprite.
+    m.position.y = -0.05;
     g.add(m);
     // Fake bloom: tiny electric-yellow halo on each cheek spark; pulses with
     // the spark because animate() scales this group.

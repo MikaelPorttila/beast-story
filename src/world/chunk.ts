@@ -49,6 +49,7 @@ export function buildTerrainMesh(
   const col: number[] = [];
   const idx: number[] = [];
   const seed = terrain.seed;
+  const gn = terrain.groundN;
 
   const quad = (
     ax: number, ay: number, az: number,
@@ -102,16 +103,18 @@ export function buildTerrainMesh(
       const occ =
         (hE > H ? 1 : 0) + (hW > H ? 1 : 0) + (hS > H ? 1 : 0) + (hN > H ? 1 : 0);
       const aoTop = occ > 0 ? 1 - Math.min(0.08 + occ * 0.03, 0.14) : 1;
-      // Per-voxel value noise. NO regular checker of any frequency: an
-      // alternating 1m grid reads as an untextured debug texture across the
-      // whole meadow. Instead two irregular hash scales — a ~3-voxel patch
-      // term carrying the bulk of the variation and a small per-cube term
-      // (+-0.045) breaking it up — so the ground reads as Cube World's
-      // clumpy per-cube patchwork rather than a lattice.
+      // Per-voxel value noise. NO integer division anywhere in here: hashing
+      // `Math.floor(wx / 3)` IS a grid — it just moves the chequerboard from
+      // 1m to 3m, and at ±10% it marched visibly across the plains and lit up
+      // on bright sand. Instead two smooth value-noise samples at irrational
+      // frequency pairs (0.19/0.23 and 0.061/0.071) that never phase-lock to
+      // the cube lattice: a ~5-voxel blotch term plus a ~15-voxel drift, with
+      // the per-cube hash (±0.045) on top to keep the chunky per-cube read.
       const jt = hashCell(seed, wx, H, wz);
-      const pj = hashCell(seed, Math.floor(wx / 3), 313, Math.floor(wz / 3));
+      const pn = gn.sample(wx * 0.19 + 0.37, wz * 0.23);
+      const bn = gn.sample(wx * 0.061, wz * 0.071);
       const mt =
-        (1 + (pj - 0.5) * 0.2 + (jt - 0.5) * 0.09) * slopeDark * aoTop * S_TOP;
+        (1 + pn * 0.11 + bn * 0.07 + (jt - 0.5) * 0.09) * slopeDark * aoTop * S_TOP;
       let r = topA[i3] * mt;
       let g = topA[i3 + 1] * mt;
       let b = topA[i3 + 2] * mt;

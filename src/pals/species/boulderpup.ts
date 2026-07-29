@@ -8,14 +8,16 @@ import { VoxelModel } from '../../core/voxel';
 // ---------------------------------------------------------------------------
 
 // Palette
-const G1 = 0xaba396;      // light granite (brightened: the old top course sat
-                          // too close to the mid tone, so the whole creature
-                          // read as one flat lump under any lighting)
-const STONE = 0x8f9096;   // cool grey slab — material contrast vs warm granite
+// Tuned for the 4.9:1 lighting ratio (sun 2.55, hemi 0.52): the top course is
+// warmer and a touch deeper so full sun reads as granite instead of blowing to
+// paper white, while the slate plates carry the bright value — under weak fill
+// they are what keeps the pup from photographing as a dog-shaped hole.
+const G1 = 0x9a8b78;      // light granite / top course (warm, sun-facing)
+const STONE = 0xa8b0b8;   // cool grey slate — material contrast vs warm granite
 const G2 = 0x7d746a;      // mid granite
 const G3 = 0x655d54;      // dark granite
 const BR = 0x8a7357;      // warm brown stratum
-const MOSS = 0x6cb04b;    // bright moss
+const MOSS = 0x6cb04a;    // bright moss
 const MOSS2 = 0x568f3a;   // deep moss
 const CRYS = 0xffb733;    // amber crystal
 const CRYS2 = 0xd98f1f;   // amber crystal base

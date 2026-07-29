@@ -161,8 +161,13 @@ function buildArm(braced: boolean): THREE.Mesh {
   // pauldron cap sitting on the shoulder, tucked against the torso
   v.ellipsoid(0, 4.2, 0, 2.0, 1.7, 2.0, TUNIC_D);
   v.ellipsoid(0, 4.9, 0, 1.7, 1.1, 1.7, TRIM);
-  // short connective sleeve so the mitt reads as attached, not floating
-  v.box(-1, 1, -1, 1, 3, 1, TUNIC_D);
+  // Connective upper arm. The old 3-wide sleeve pinched to a 3x3 waist right
+  // under the 5-wide pauldron, so from the play camera the mitt read as a
+  // detached cube hanging below the shoulder. The bridging ellipsoid is
+  // pauldron-width at the shoulder and mitt-width where it meets the hand, so
+  // the silhouette is continuous from pauldron to mitt.
+  v.box(-1, 1, -1, 1, 4, 1, TUNIC_D);
+  v.ellipsoid(0, 2.7, 0, 2.1, 1.8, 2.1, TUNIC_D);
   // big spherical hand
   const glove = braced ? BELT : SKIN;
   v.ellipsoid(0, 0.6, 0, 2.4, 2.3, 2.4, glove);
@@ -193,12 +198,16 @@ function buildSword(): THREE.Mesh {
   v.box(0, 3, -1, 1, 3, 1, GOLD);
   v.set(-1, 4, 0, GOLD);
   v.set(2, 4, 0, GOLD);
-  // blade: bright edge column + steel body, tapered tip.
-  // Kept short (tip at y=10): at full length the point punched through the
-  // ground below the boots at the back of the arm-swing arc.
+  // Blade: bright edge column + steel body + a spine ridge one voxel deep on
+  // the body column. The old blade was a single 1-voxel-thick plane, which the
+  // gameplay camera caught nearly edge-on behind the leg and lost entirely;
+  // the ridge gives it a stepped cross-section so at least one lit face always
+  // faces the camera. Kept short (tip at y=10): at full length the point
+  // punched through the ground below the boots at the back of the swing arc.
   for (let y = 4; y <= 8; y++) {
     v.set(0, y, 0, STEEL_L);
     v.set(1, y, 0, STEEL);
+    v.set(1, y, 1, STEEL_D);
   }
   v.set(0, 9, 0, STEEL_L);
   v.set(1, 9, 0, STEEL_D);
@@ -292,11 +301,14 @@ export function buildHeroRig(): HeroRig {
   // yawed off-axis so the flat of the blade never faces the camera square-on.
   // NOTE: the animator overwrites sword.rotation.x/.z every frame (idle x≈2.62),
   // so rotation.x here is only the pre-animation pose; rotation.y and position
-  // are ours alone and are what actually shape the rest silhouette.
+  // are ours alone and are what actually shape the rest silhouette. The blade
+  // was hidden behind the right leg, so the fix lives in the axes we own:
+  // yaw turns the flat of the blade towards the camera and the position pushes
+  // the whole weapon outboard of the calf and up out of the boot line.
   const sword = new THREE.Group();
-  sword.position.set(0.06, -0.30, -0.10);
-  sword.rotation.x = 2.35;
-  sword.rotation.y = 0.5;
+  sword.position.set(0.10, -0.26, -0.04);
+  sword.rotation.x = 2.05;
+  sword.rotation.y = 0.85;
   sword.scale.setScalar(0.78); // shorter blade, in scale with the smaller head
   sword.add(buildSword());
   armR.add(sword);

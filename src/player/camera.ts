@@ -13,15 +13,23 @@ function clamp(v: number, a: number, b: number): number {
 }
 
 /**
+ * Lateral over-the-shoulder offset, in metres along camera-right. The hero used
+ * to sit dead-centre, which put his hat directly under the reticle; shifting the
+ * pivot sideways parks him left of centre so the crosshair looks at clear world.
+ */
+const SHOULDER_OFFSET = 0.6;
+
+/**
  * Third-person orbit camera with spring-arm smoothing, terrain avoidance and
  * a light trauma-style shake for hits.
  */
 export class ThirdPersonCamera {
   yaw = Math.PI;   // behind a character facing +Z
-  pitch = 0.26;    // radians above the horizon (flatter = more hero on screen)
-  // Pulled in from 8 so the hero fills ~20% of frame height instead of ~12%.
-  private distTarget = 6.2;
-  private dist = 6.2;
+  pitch = 0.35;    // radians above the horizon (flatter = more hero on screen)
+  // Pulled back from 6.2: at close range the hero blocked the aim point and the
+  // world read as a corridor. 7.4 keeps him readable with room to see ahead.
+  private distTarget = 7.4;
+  private dist = 7.4;
   private readonly pos = new THREE.Vector3();
   private initialized = false;
   private shake = 0;
@@ -46,9 +54,16 @@ export class ThirdPersonCamera {
     this.distTarget = clamp(this.distTarget + input.wheelDelta * 0.01, 3.5, 11);
     this.dist += (this.distTarget - this.dist) * (1 - Math.exp(-8 * dt));
 
-    // pivot at upper chest so the hero frames just below screen centre and the
-    // aim marker sits above their head (Cube World framing)
-    _pivot.set(focus.x, focus.y + 1.28, focus.z);
+    // pivot at upper chest so the hero frames just below screen centre, then
+    // slid along camera-right so he sits off-centre and no longer occludes his
+    // own reticle. Camera-right for this yaw is (cos yaw, 0, -sin yaw); the
+    // offset lands on the pivot, so the arm origin and the look target (which
+    // is derived from the pivot below) move together and framing stays stable.
+    _pivot.set(
+      focus.x + Math.cos(this.yaw) * SHOULDER_OFFSET,
+      focus.y + 1.28,
+      focus.z - Math.sin(this.yaw) * SHOULDER_OFFSET,
+    );
     const cp = Math.cos(this.pitch);
     _dir.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
     _desired.copy(_pivot).addScaledVector(_dir, this.dist);

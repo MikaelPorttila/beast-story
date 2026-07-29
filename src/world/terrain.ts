@@ -90,6 +90,13 @@ export class Terrain {
   readonly seed: number;
   readonly flattens: FlattenDisc[] = [];
 
+  /**
+   * Ground-colour jitter field. Public because the chunk mesher bakes per-cube
+   * value variation into vertex colours and must draw from the same seeded
+   * field rather than inventing a grid of its own.
+   */
+  readonly groundN: Noise2D;
+
   private readonly continentN: Noise2D;
   private readonly hillN: Noise2D;
   private readonly ridgeN: Noise2D;
@@ -114,6 +121,7 @@ export class Terrain {
     this.patchN = new Noise2D(this.seed + 773);
     this.detailN = new Noise2D(this.seed + 887);
     this.plateauN = new Noise2D(this.seed + 1013);
+    this.groundN = new Noise2D(this.seed + 1279);
   }
 
   /** Continuous terrain height at any world xz (flatten discs applied). */
@@ -129,12 +137,21 @@ export class Terrain {
       const rd = this.ridgeN.ridged(x * 0.009, z * 0.009, 4);
       h += mk * rd * rd * 58;
     }
-    // Mesas: a broad plateau field quantised to 4m steps, so the skyline gets
-    // flat-topped tables with hard cliff edges between the ridges. One cheap
-    // value-noise sample (not fbm) — heightCont is on the collision hot path.
+    // Mesas: a broad plateau field. One cheap value-noise sample (not fbm) —
+    // heightCont is on the collision hot path.
+    //
+    // The 4m quantise used to be global, which terraced EVERY hill — gentle
+    // meadow swells came out as wedding cakes and the whole silhouette read as
+    // stair-stepped. Mesas are a HIGHLAND feature, so the quantise is gated
+    // behind the ridge mask: inside a range you get flat-topped tables with
+    // hard cliff edges, out on the plains the same field contributes a smooth
+    // (unquantised, gentler) swell.
     const pl = this.plateauN.sample(x * 0.0022, z * 0.0022) * 0.5 + 0.5;
     const mesa = smoothstep(0.55, 0.75, pl) * 14;
-    if (mesa > 0) h += Math.round(mesa * 0.25) * 4;
+    if (mesa > 0) {
+      if (mk > 0.45) h += Math.round(mesa * 0.25) * 4;
+      else h += mesa * 0.6;
+    }
     for (let i = 0; i < this.flattens.length; i++) {
       const f = this.flattens[i];
       const dx = x - f.x;

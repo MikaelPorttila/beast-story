@@ -58,17 +58,30 @@ function clamp01(v: number): number {
 }
 
 /**
- * Capture mode: `?photo=1` or `?hud=0` suppresses the dev-only title plate so
- * screenshots aren't stamped with a version chip. Read here rather than in
- * main.ts so the HUD stays self-contained.
+ * The `CUBE PALS v1.0` plate is a development affordance, not part of the game:
+ * opt in with `?debug=1`. It used to be shown by default and suppressed for
+ * captures, which made a version chip the loudest element of normal gameplay.
+ * Read here rather than in main.ts so the HUD stays self-contained.
  */
-function isCaptureMode(): boolean {
+function isDebugMode(): boolean {
   try {
-    const q = new URLSearchParams(window.location.search);
-    return q.get('photo') === '1' || q.get('hud') === '0';
+    return new URLSearchParams(window.location.search).get('debug') === '1';
   } catch {
     return false;
   }
+}
+
+/** Locked hotbar slot marker: a chunky closed padlock. */
+const LOCK_ICON =
+  '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+  '<path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" ' +
+  'd="M8.2 10.4V7.6a3.8 3.8 0 0 1 7.6 0v2.8"/>' +
+  '<rect fill="currentColor" x="5.4" y="10.2" width="13.2" height="9.6" rx="2.2"/>' +
+  '</svg>';
+
+/** Markup for an unearned hotbar slot (padlock + small key hint). */
+function lockedSlotHtml(index: number): string {
+  return `<span class="key">${index + 1}</span><span class="lock">${LOCK_ICON}</span>`;
 }
 
 interface PalCardRefs {
@@ -76,6 +89,8 @@ interface PalCardRefs {
   inner: HTMLDivElement;
   hpBar: HTMLElement;
   xpBar: HTMLElement;
+  /** the XP track itself, hidden while a fresh pal has nothing to show */
+  xpTrack: HTMLElement;
   sig: string;
 }
 
@@ -156,8 +171,8 @@ export class HUD {
 
     this.root = div('cp-root');
 
-    // title chip (dev plate; omitted in capture mode) -----------------------
-    if (!isCaptureMode()) {
+    // title chip (dev plate; only with ?debug=1) ----------------------------
+    if (isDebugMode()) {
       this.root.appendChild(div('cp-title cp-glass', '<b>CUBE PALS</b><span>v1.0</span>'));
     }
 
@@ -191,7 +206,7 @@ export class HUD {
     // hotbar ---------------------------------------------------------------
     const hotbar = div('cp-hotbar');
     for (let i = 0; i < 4; i++) {
-      const slot = div('cp-slot empty', `<span class="key">${i + 1}</span>`);
+      const slot = div('cp-slot empty', lockedSlotHtml(i));
       hotbar.appendChild(slot);
       this.slotRefs.push({
         el: slot,
@@ -267,7 +282,7 @@ export class HUD {
     const card = div(`cp-pal hidden ${primary ? 'primary' : 'support'}`);
     const inner = div('cp-pal-in');
     card.appendChild(inner);
-    return { card, inner, hpBar: inner, xpBar: inner, sig: '' };
+    return { card, inner, hpBar: inner, xpBar: inner, xpTrack: inner, sig: '' };
   }
 
   setPals(primary: PalHudInfo | null, support: PalHudInfo | null): void {
@@ -301,6 +316,7 @@ export class HUD {
         `</div>`;
       refs.hpBar = refs.inner.querySelector('.cp-micro.hp > i') as HTMLElement;
       refs.xpBar = refs.inner.querySelector('.cp-micro.xp > i') as HTMLElement;
+      refs.xpTrack = refs.inner.querySelector('.cp-micro.xp') as HTMLElement;
       if (animateSwap) {
         refs.inner.classList.remove('cp-swap');
         void refs.inner.offsetWidth; // restart animation
@@ -311,6 +327,12 @@ export class HUD {
     const xpPct = Math.round(clamp01(info.xpToNext > 0 ? info.xp / info.xpToNext : 0) * 1000) / 10;
     refs.hpBar.style.width = `${hpPct}%`;
     refs.xpBar.style.width = `${xpPct}%`;
+    // A dead-empty XP bar under a Lv 1 pal reads as a broken widget, so the
+    // track only appears once there is progress to show. Past level 1 it stays
+    // put (an empty track there is meaningful) and the faint pre-filled track
+    // styling in styles.ts keeps it from looking like a rendering failure.
+    const showXp = info.xpToNext > 0 && (info.xp > 0 || info.level > 1);
+    refs.xpTrack.style.display = showXp ? '' : 'none';
   }
 
   // -------------------------------------------------------------------------
@@ -324,7 +346,7 @@ export class HUD {
         if (refs.skillId !== '') {
           refs.skillId = '';
           refs.el.className = 'cp-slot empty';
-          refs.el.innerHTML = `<span class="key">${i + 1}</span>`;
+          refs.el.innerHTML = lockedSlotHtml(i);
           refs.el.removeAttribute('style');
           refs.prevReady = false;
           refs.lastSweepDeg = -1;
@@ -434,8 +456,12 @@ export class HUD {
     this.toastWrap.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
     this.toasts.push({ el, t: 3.2, hiding: false });
-    // cap the stack
-    while (this.toasts.length > 5) {
+    // Cap the stack. On a phone two stacked instruction panels swallowed a
+    // quarter of the screen, so there only the newest toast survives; the 3.2s
+    // lifetime in update() then clears it without any input.
+    const phone = window.innerWidth <= 620 || window.innerHeight <= 460;
+    const maxStack = phone ? 1 : 4;
+    while (this.toasts.length > maxStack) {
       const old = this.toasts.shift();
       old?.el.remove();
     }

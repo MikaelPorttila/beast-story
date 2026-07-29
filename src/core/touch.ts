@@ -36,8 +36,11 @@ const CSS = `
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 .cp-touch.hidden{display:none}
 
-/* left: movement stick. The base only appears once a finger lands. */
-.cp-stick{position:absolute;left:max(14px,env(safe-area-inset-left));bottom:max(14px,env(safe-area-inset-bottom));
+/* left: movement stick. The base only appears once a finger lands.
+   Inset 28px from the left and bottom edges: at 14px the ring visually collided
+   with (and on rounded-corner phones was clipped by) the viewport edge. */
+.cp-stick{position:absolute;left:max(28px,env(safe-area-inset-left));
+  bottom:max(28px,env(safe-area-inset-bottom));
   width:min(31vw,132px);aspect-ratio:1;pointer-events:auto;border-radius:50%;
   background:radial-gradient(circle,rgba(255,255,255,.09),rgba(255,255,255,.03) 70%);
   border:1px solid rgba(255,255,255,.16);transition:opacity .2s ease;opacity:.55}
@@ -70,9 +73,14 @@ const CSS = `
 .cp-btn.swap{grid-column:1;grid-row:1;
   background:linear-gradient(165deg,rgba(52,96,150,.85),rgba(24,52,92,.9))}
 
-/* skills sit above the action cluster, mirroring the desktop hotbar order */
+/* Skills sit above the action cluster, mirroring the desktop hotbar order.
+   The offset is derived from the cluster instead of guessed: the button grid is
+   two rows of clamp(46px,13vw,66px) with a 10px gap, so 2*row + gap clears it
+   exactly and the trailing 12px is the breathing room the critic asked for.
+   (The old fixed clamp(118px,30vw,168px) under-cleared the SWAP/ATK cluster at
+   some widths, so the 1-4 row overlapped it.) */
 .cp-skills{position:absolute;right:max(14px,env(safe-area-inset-right));
-  bottom:calc(max(14px,env(safe-area-inset-bottom)) + clamp(118px,30vw,168px));
+  bottom:calc(max(18px,env(safe-area-inset-bottom)) + 2 * clamp(46px,13vw,66px) + 22px);
   display:flex;gap:8px;pointer-events:none}
 .cp-skill{pointer-events:auto;width:clamp(42px,11.5vw,54px);aspect-ratio:1;border-radius:14px;
   display:grid;place-items:center;font-weight:900;font-size:clamp(13px,3.4vw,16px);color:#eef2f8;
@@ -85,8 +93,11 @@ const CSS = `
 
 /* very short screens (landscape phones): pull everything in */
 @media (max-height: 460px){
-  .cp-stick{width:min(30vw,132px)}
-  .cp-skills{bottom:calc(max(10px,env(safe-area-inset-bottom)) + clamp(96px,26vw,140px));gap:7px}
+  .cp-stick{width:min(30vw,132px);left:max(20px,env(safe-area-inset-left));
+    bottom:max(20px,env(safe-area-inset-bottom))}
+  /* same derivation as above, with the landscape 7px grid gap */
+  .cp-skills{bottom:calc(max(18px,env(safe-area-inset-bottom)) + 2 * clamp(46px,13vw,66px) + 19px);
+    gap:7px}
   .cp-btns{gap:7px}
 }
 `;

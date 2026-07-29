@@ -96,40 +96,63 @@ function findSpawn(terrain: Terrain): THREE.Vector3 {
 }
 
 // ---------------------------------------------------------------------------
-// Skill Den placement: ring of 4 flattened plateaus around spawn.
+// Skill Den placement: 4 flattened plateaus on widening rings around spawn.
 // ---------------------------------------------------------------------------
+
+/**
+ * Per-den ring radius. All four dens used to sit 13-20 units out, so every
+ * pagoda was in frame at once and the world read as a diorama on a lawn rather
+ * than a landscape with settlements in it. The first ring stays a short walk
+ * from spawn (there must always be a reachable shop); the rest step out so
+ * finding the next one is travel.
+ */
+const DEN_RINGS = [18, 34, 50, 66];
+/** Squared minimum spacing between two dens, and between a den and spawn. */
+const DEN_SEP2 = 27 * 27;
+const DEN_SPAWN_SEP2 = 15 * 15;
+
 function placeShops(terrain: Terrain, spawn: THREE.Vector3, seed: number): DenSpot[] {
   const rng = mulberry32(seed ^ 0x5158);
   const spots: DenSpot[] = [];
+
+  const commit = (x: number, z: number): void => {
+    const h = Math.max(Math.floor(terrain.heightCont(x, z)), WATER_LEVEL + 1);
+    spots.push({ x, z, h });
+    terrain.flattens.push({ x, z, h: h + 0.55, core: 4.5, blend: 9 });
+  };
+
   for (let k = 0; k < 4; k++) {
     const baseAng = (k / 4) * Math.PI * 2 + 0.62;
+    const ring = DEN_RINGS[k];
     let placed = false;
-    for (let attempt = 0; attempt < 26 && !placed; attempt++) {
-      const ang = baseAng + (rng() - 0.5) * 0.7;
-      const dist = 13 + rng() * 7 + attempt * 0.35;
+    // Wider angular window + more attempts than before: the outer rings have
+    // far more water/cliff to dodge, and a den that fails to place snaps back
+    // onto its ring anyway (see the fallback), so searching harder is cheap.
+    for (let attempt = 0; attempt < 44 && !placed; attempt++) {
+      const ang = baseAng + (rng() - 0.5) * 1.1;
+      const dist = ring + (rng() - 0.5) * 9 + attempt * 0.5;
       const x = Math.round(spawn.x + Math.sin(ang) * dist) + 0.5;
       const z = Math.round(spawn.z + Math.cos(ang) * dist) + 0.5;
       const hc = terrain.heightCont(x, z);
       if (hc < WATER_LEVEL + 0.8) continue;
+      const sx = x - spawn.x;
+      const sz = z - spawn.z;
+      if (sx * sx + sz * sz < DEN_SPAWN_SEP2) continue;
       let clear = true;
       for (const o of spots) {
         const dx = o.x - x;
         const dz = o.z - z;
-        if (dx * dx + dz * dz < 121) { clear = false; break; }
+        if (dx * dx + dz * dz < DEN_SEP2) { clear = false; break; }
       }
       if (!clear) continue;
-      const h = Math.max(Math.floor(hc), WATER_LEVEL + 1);
-      spots.push({ x, z, h });
-      terrain.flattens.push({ x, z, h: h + 0.55, core: 4.5, blend: 9 });
+      commit(x, z);
       placed = true;
     }
     if (!placed) {
-      const ang = baseAng;
-      const x = Math.round(spawn.x + Math.sin(ang) * 15) + 0.5;
-      const z = Math.round(spawn.z + Math.cos(ang) * 15) + 0.5;
-      const h = Math.max(Math.floor(terrain.heightCont(x, z)), WATER_LEVEL + 1);
-      spots.push({ x, z, h });
-      terrain.flattens.push({ x, z, h: h + 0.55, core: 4.5, blend: 9 });
+      commit(
+        Math.round(spawn.x + Math.sin(baseAng) * ring) + 0.5,
+        Math.round(spawn.z + Math.cos(baseAng) * ring) + 0.5,
+      );
     }
   }
   return spots;
@@ -154,9 +177,12 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
   motes.points.position.copy(spawnPoint);
   scene.add(motes.points);
 
+  // 'solid' — these discs hold trees, boulders, hedges and logs off the spawn
+  // clearing and the den decks, but grass, flowers and shells still carpet
+  // them. A blanket exclusion left a ~20m bare plane right under the camera.
   const exclusions: Exclusion[] = [
-    { x: spawnPoint.x, z: spawnPoint.z },
-    ...spots.map((s) => ({ x: s.x, z: s.z })),
+    { x: spawnPoint.x, z: spawnPoint.z, kind: 'solid' },
+    ...spots.map((s): Exclusion => ({ x: s.x, z: s.z, kind: 'solid' })),
   ];
 
   const chunks = new Map<string, ChunkRec>();

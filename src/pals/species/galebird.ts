@@ -14,14 +14,17 @@ const S = 0.1;
 const TEAL = 0x2fa9a4;      // main coat
 const DEEP = 0x1c7480;      // back cap / leading wing edges
 const DUSKTEAL = 0x145a66;  // wingtips
-const UNDER = 0x0f4750;     // shaded wing underside (TEAL * 0.78)
+const UNDER = 0x2f4a58;     // shaded wing underside — lifted well off black: at
+                            // sun 2.55 / fill 0.52 the old 0x0f4750 underside
+                            // was a void wherever the wing turned away.
 const MIST = 0xcdeee8;      // gradient step toward the belly
 const WHITE = 0xf6fdfb;     // belly
 const RUST = 0xe8744f;      // throat patch accent
 const BEAK = 0x2d2f3a;
 const EYE_WHITE = 0xffffff;
 const PUPIL = 0x1c1a24;
-const STREAM_TIP = 0x0d3d47;
+const STREAM_TIP = 0xbfd4dc; // pale tail-streamer tips: the dark tips vanished
+                             // against the ground, cutting the fork off the bird
 
 // Base pose constants (world/local units, must match buildRig)
 const BODY_Y = 0.3;
@@ -42,13 +45,10 @@ function makeTorso(): THREE.Mesh {
   m.ellipsoid(0, 0.9, 0.5, 1.9, 1.3, 3.2, MIST);    // gradient step
   m.ellipsoid(0, 0.4, 0.7, 1.6, 0.9, 2.7, WHITE);   // white belly
   m.ellipsoid(0, 1.9, -3.3, 1.2, 1.1, 1.4, DEEP);   // tapered rump
-  // Two tucked legs with small feet. Without them the bird stood on a single
-  // belly point — a T-on-a-stick silhouette whenever it perched.
-  for (const sx of [1, -1]) {
-    m.set(sx, -1, 0, BEAK);
-    m.set(sx, -2, 0, BEAK);
-    m.box(sx, -3, 0, sx, -3, 1, BEAK); // foot, toes forward
-  }
+  // ONE compact 2-wide foot block tucked under the belly. Two separate legs at
+  // this cell count read as loose dark rectangles hanging off the fuselage and
+  // broke the dart silhouette; at 10 cm per cell a dart beats anatomy.
+  m.box(-1, -2, 0, 0, -1, 1, BEAK);
   return m.build(S, true);
 }
 
@@ -76,36 +76,36 @@ function makeBeak(): THREE.Mesh {
 
 /**
  * Inner wing section. dir=1 builds toward +x (left), dir=-1 mirrors.
- * The chord steps in toward the tip and the root carries a darker underside
- * row — a flat untapered rectangle reads as a plank, not a wing.
+ * Straight trailing edge on purpose: stepping it in per column chopped the
+ * wing into a stack of offset rectangles. The taper lives in the outer
+ * section, so inner + outer read as one clean swept dart.
  */
 function makeWingInner(dir: 1 | -1): THREE.Mesh {
   const X = (x: number): number => (dir === 1 ? x : -1 - x);
   const m = new VoxelModel();
-  // per-column trailing edge: chord narrows as it runs outboard
-  const back = [-2, -2, -1];
   for (let x = 0; x <= 2; x++) {
-    m.box(X(x), 0, back[x], X(x), 0, 2, TEAL);
+    m.box(X(x), 0, -2, X(x), 0, 2, TEAL);
     m.set(X(x), 0, 2, DEEP);          // leading edge
-    m.set(X(x), 0, back[x], MIST);    // pale trailing edge
+    m.set(X(x), 0, -2, MIST);         // pale trailing edge, straight across
     // shaded underside gives the wing thickness from below
-    if (x < 2) m.box(X(x), -1, back[x] + 1, X(x), -1, 1, UNDER);
+    if (x < 2) m.box(X(x), -1, -1, X(x), -1, 1, UNDER);
   }
   return m.build(S, false);
 }
 
-/** Outer wing section, tapering to a single-voxel swept point. */
+/** Outer wing section: one straight 3-column taper to a swept tip. */
 function makeWingOuter(dir: 1 | -1): THREE.Mesh {
   const X = (x: number): number => (dir === 1 ? x : -1 - x);
   const m = new VoxelModel();
-  // chord: 4 cells at the elbow down to 1 at the tip
+  // Chord 4 -> 3 -> 2 with a straight trailing edge at z=-2; the leading edge
+  // does all the sweeping. Nothing pokes out behind the line of the wing.
   m.box(X(0), 0, -2, X(0), 0, 1, TEAL);
   m.box(X(1), 0, -2, X(1), 0, 0, TEAL);
-  m.box(X(2), 0, -3, X(2), 0, -1, DUSKTEAL); // swept pointed tip
+  m.box(X(2), 0, -2, X(2), 0, -1, DUSKTEAL); // swept tip
   m.set(X(0), 0, 1, DEEP);                   // leading edge
   m.set(X(1), 0, 0, DEEP);
   m.set(X(0), 0, -2, MIST);                  // trailing edge near body
-  m.box(X(0), -1, -1, X(0), -1, 0, UNDER);   // underside at the root only
+  m.box(X(0), -1, -1, X(0), -1, 0, UNDER);   // darker underside row at the root
   return m.build(S, false);
 }
 
@@ -131,7 +131,10 @@ function buildRig(): PalRig {
   root.add(body);
 
   const torso = makeTorso();
-  torso.position.set(0, -0.2, 0);
+  // -0.1, not -0.2: build() anchors y=0 at the lowest voxel and the merged foot
+  // block reaches one cell less far down than the old dangling legs did, so this
+  // keeps the fuselage at exactly the same altitude.
+  torso.position.set(0, -0.1, 0);
   body.add(torso);
 
   const head = new THREE.Group();

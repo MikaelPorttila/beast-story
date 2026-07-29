@@ -393,6 +393,23 @@ function hedgeClump(): Template {
   return bake(v, 0.24);
 }
 
+/**
+ * Knee-high hedge — the fourth rung on the size ladder. The world previously
+ * jumped grass (~0.4) -> hedgeClump (~1.7) -> tree (~5) with nothing between
+ * the first two, so every mid-ground bush repeated at one height. This one is
+ * deliberately ~60% of hedgeClump and rounder, and it reads as a different
+ * plant rather than a shrunk copy.
+ */
+function hedgeSmall(): Template {
+  const v = new VoxelModel();
+  v.ellipsoid(0, 1.3, 0, 1.8, 1.2, 1.6, 0x4d9c33);
+  v.ellipsoid(1.2, 1.1, 0.6, 1.1, 0.9, 1, 0x5cae3d);
+  v.ellipsoid(-1.1, 1, -0.5, 1, 0.8, 0.9, 0x43892c);
+  v.set(0, 3, 0, 0x6fc44b); // sprig off the crown
+  v.set(-1, 2, 1, 0x66bb44);
+  return bake(v, 0.24);
+}
+
 /** Tiny shell/pebble dots scattered on the sand. */
 function shells(): Template {
   const v = new VoxelModel();
@@ -449,6 +466,7 @@ export class PropLib {
   readonly driftwoodT = driftwood();
   readonly logT = fallenLog();
   readonly hedgeT = hedgeClump();
+  readonly hedgeSmallT = hedgeSmall();
   readonly shellT = shells();
   readonly flowerR = flower(0xef5d5d);
   readonly flowerY = flower(0xffd23f);
@@ -469,8 +487,24 @@ export interface ChunkProps {
   soft: THREE.Mesh | null;
 }
 
-/** World-space points props must keep clear of (spawn + shop dens). */
-export type Exclusion = { x: number; z: number };
+/**
+ * World-space points props must keep clear of (spawn + shop dens).
+ *
+ * `kind` splits the exclusion by prop class, which matters enormously:
+ *  - 'solid' (default) only holds back shadow-casting occluders — trees,
+ *    boulders, hedges, logs, cacti, mushrooms, driftwood. Grass billboards,
+ *    flowers, tufts and shells still grow right up to the pagoda deck.
+ *  - 'all' clears every class (use sparingly — a bare disc reads as a bug).
+ *
+ * The old code applied ONE 7.5m radius to every class around spawn AND each
+ * of the four dens, which merged into a single ~20m bald plane exactly where
+ * the camera lives. Soft props are the cheapest thing in the world and the
+ * only thing that makes the near ground read as ground, so they get no disc.
+ */
+export type Exclusion = { x: number; z: number; kind?: 'solid' | 'all' };
+
+/** Squared clearance radius for solid occluders (~4.5m). */
+const SOLID_CLEAR_R2 = 20;
 
 export function buildChunkProps(
   cx: number,
@@ -486,11 +520,23 @@ export function buildChunkProps(
   const oz = cz * CHUNK_SIZE;
   const ci: ColumnScratch = makeScratch();
 
-  const excluded = (wx: number, wz: number): boolean => {
+  /** Occluders (trees/rocks/hedges/logs/cacti) keep a small disc clear. */
+  const exSolid = (wx: number, wz: number): boolean => {
     for (let i = 0; i < exclusions.length; i++) {
       const dx = wx - exclusions[i].x;
       const dz = wz - exclusions[i].z;
-      if (dx * dx + dz * dz < 56) return true;
+      if (dx * dx + dz * dz < SOLID_CLEAR_R2) return true;
+    }
+    return false;
+  };
+
+  /** Grass/flowers/shells: only 'all' discs stop them. */
+  const exSoft = (wx: number, wz: number): boolean => {
+    for (let i = 0; i < exclusions.length; i++) {
+      if (exclusions[i].kind !== 'all') continue;
+      const dx = wx - exclusions[i].x;
+      const dz = wz - exclusions[i].z;
+      if (dx * dx + dz * dz < SOLID_CLEAR_R2) return true;
     }
     return false;
   };
@@ -517,7 +563,7 @@ export function buildChunkProps(
       const wz = oz + lz;
       terrain.columnInfo(wx, wz, ci);
       const h = ci.h;
-      if (excluded(wx + 0.5, wz + 0.5)) continue;
+      if (exSolid(wx + 0.5, wz + 0.5)) continue;
 
       let tpl: Template | null = null;
       let jitterMul = 1;
@@ -549,7 +595,30 @@ export function buildChunkProps(
   // between ankle height and 8m. 4-6 stamps per chunk — boulder clusters,
   // fallen logs, waist-high hedge clumps. Cheap (all reuse baked templates
   // merged into the existing two per-chunk meshes, no new draw calls).
-  const midCount = 4 + Math.floor(rng() * 3);
+  // Stamps `n` copies of one template in a loose knot around (mlx, mlz),
+  // re-grounding each on its own column. Defined once per chunk build.
+  const stampKnot = (
+    tpl: Template,
+    mlx: number, mlz: number,
+    n: number, spread: number,
+    sMin: number, sSpan: number, yOff: number,
+    t: number,
+  ): void => {
+    for (let b = 0; b < n; b++) {
+      const ang = rng() * Math.PI * 2;
+      const rad = b === 0 ? 0 : spread * (0.45 + rng());
+      const bx = mlx + Math.cos(ang) * rad;
+      const bz = mlz + Math.sin(ang) * rad;
+      if (bx < 0 || bz < 0 || bx >= CHUNK_SIZE || bz >= CHUNK_SIZE) continue;
+      terrain.columnInfo(ox + Math.floor(bx), oz + Math.floor(bz), ci);
+      if (ci.h < WATER_LEVEL + 1) continue;
+      const bt = t * (0.93 + rng() * 0.14);
+      solid.add(tpl, bx, ci.h + yOff, bz, rng() * Math.PI * 2,
+        sMin + rng() * sSpan, bt, bt * 1.02, bt * 0.95);
+    }
+  };
+
+  const midCount = 5 + Math.floor(rng() * 4);
   for (let m = 0; m < midCount; m++) {
     const mlx = 2 + rng() * (CHUNK_SIZE - 4);
     const mlz = 2 + rng() * (CHUNK_SIZE - 4);
@@ -562,12 +631,52 @@ export function buildChunkProps(
     const biome = ci.biome;
     if (h < WATER_LEVEL + 1) continue;
     if (biome === 'underwater') continue;
-    if (excluded(wx + 0.5, wz + 0.5)) continue;
+    if (exSolid(wx + 0.5, wz + 0.5)) continue;
     if (!flatEnough(wx, wz, h, 2)) continue;
     const t = 0.92 + rng() * 0.16;
     const green = biome === 'plains' || biome === 'forest';
 
-    if (kind < 0.42) {
+    // Size ladder for the mid ground, shortest to tallest: knee-high hedge
+    // knot (~1) -> lone log (~0.8 but long and low) -> tall hedge clump (~1.7)
+    // -> rock+log pair (~2) -> boulder outcrop (~2.5-3.5) -> tree (~4-6).
+    // Before this there was exactly ONE hedge size, so every bush-shaped
+    // silhouette in the mid ground repeated at the same height.
+    if (!green) {
+      // Desert/snow/beach: boulders only, at the old rate.
+      if (kind >= 0.42) continue;
+    } else if (kind >= 0.36) {
+      if (kind < 0.5) {
+        // Rock + log pair: a boulder with a trunk fetched up against it —
+        // one readable ~2m mass rather than two lone pebbles.
+        const rk = rng() < 0.5 ? lib.rockA : lib.rockB;
+        const rs = 1.8 + rng() * 0.8;
+        solid.add(rk, mlx, h - 0.3, mlz, yaw, rs, t, t, t);
+        const lang = yaw + 1.1 + rng() * 1.2;
+        const lx2 = mlx + Math.cos(lang) * (1.4 + rng() * 0.9);
+        const lz2 = mlz + Math.sin(lang) * (1.4 + rng() * 0.9);
+        if (lx2 >= 0 && lz2 >= 0 && lx2 < CHUNK_SIZE && lz2 < CHUNK_SIZE) {
+          terrain.columnInfo(ox + Math.floor(lx2), oz + Math.floor(lz2), ci);
+          if (ci.h >= WATER_LEVEL + 1) {
+            const lt = t * (0.95 + rng() * 0.1);
+            solid.add(lib.logT, lx2, ci.h - 0.05, lz2, lang + Math.PI * 0.5,
+              1.4 + rng() * 0.5, lt, lt * 0.98, lt * 0.92);
+          }
+        }
+      } else if (kind < 0.64) {
+        solid.add(lib.logT, mlx, h - 0.05, mlz, yaw, 0.9 + rng() * 0.5,
+          t, t * 0.98, t * 0.94);
+      } else if (kind < 0.84) {
+        // knee-high hedges: the rung between grass and the tall clump
+        stampKnot(lib.hedgeSmallT, mlx, mlz, 2 + Math.floor(rng() * 3), 1.5,
+          0.85 + rng() * 0.2, 0.35, -0.06, t);
+      } else {
+        stampKnot(lib.hedgeT, mlx, mlz, 1 + Math.floor(rng() * 3), 1.5,
+          0.95, 0.45, -0.08, t);
+      }
+      continue;
+    }
+
+    {
       // Boulder cluster: 2-3 existing rock templates at 1.4-2.2x, stamped
       // around a shared center so they read as one outcrop, not lone pebbles.
       const n = 2 + Math.floor(rng() * 2);
@@ -583,24 +692,6 @@ export function buildChunkProps(
         const bt = t * (0.94 + rng() * 0.12);
         solid.add(tpl, bx, ci.h - 0.3, bz, rng() * Math.PI * 2,
           1.4 + rng() * 0.8, bt, bt, bt);
-      }
-    } else if (kind < 0.7 && green) {
-      solid.add(lib.logT, mlx, h - 0.05, mlz, yaw, 0.9 + rng() * 0.5,
-        t, t * 0.98, t * 0.94);
-    } else if (green) {
-      // 1-3 hedge clumps in a loose knot, ~1.5m tall.
-      const n = 1 + Math.floor(rng() * 3);
-      for (let b = 0; b < n; b++) {
-        const ang = rng() * Math.PI * 2;
-        const rad = b === 0 ? 0 : 0.7 + rng() * 1.6;
-        const bx = mlx + Math.cos(ang) * rad;
-        const bz = mlz + Math.sin(ang) * rad;
-        if (bx < 0 || bz < 0 || bx >= CHUNK_SIZE || bz >= CHUNK_SIZE) continue;
-        terrain.columnInfo(ox + Math.floor(bx), oz + Math.floor(bz), ci);
-        if (ci.h < WATER_LEVEL + 1) continue;
-        const bt = t * (0.93 + rng() * 0.14);
-        solid.add(lib.hedgeT, bx, ci.h - 0.08, bz, rng() * Math.PI * 2,
-          0.95 + rng() * 0.45, bt, bt * 1.02, bt * 0.95);
       }
     }
   }
@@ -623,7 +714,9 @@ export function buildChunkProps(
     if (cb !== 'plains' && cb !== 'forest') continue;
     if (accept > (cb === 'plains' ? 0.8 : 0.42)) continue;
     if (ci.h < WATER_LEVEL + 1) continue;
-    if (excluded(wcx + 0.5, wcz + 0.5)) continue;
+    // Grass and flowers are welcome on the doorstep — only the bush below,
+    // which casts shadows and blocks the path, respects the den discs.
+    if (exSoft(wcx + 0.5, wcz + 0.5)) continue;
     const isForest = cb === 'forest';
     // +-8% per-cluster value jitter so whole clumps read lighter or darker.
     const cj = 0.92 + rng() * 0.16;
@@ -656,7 +749,7 @@ export function buildChunkProps(
       const bx = clx + (rng() - 0.5) * 2;
       const bz = clz + (rng() - 0.5) * 2;
       terrain.columnInfo(ox + Math.floor(bx), oz + Math.floor(bz), ci);
-      if (ci.h >= WATER_LEVEL + 1) {
+      if (ci.h >= WATER_LEVEL + 1 && !exSolid(ox + Math.floor(bx) + 0.5, oz + Math.floor(bz) + 0.5)) {
         solid.add(lib.bushT, bx, ci.h - 0.05, bz, rng() * Math.PI * 2,
           0.8 + rng() * 0.5, cj, cj, cj);
       }
@@ -681,7 +774,9 @@ export function buildChunkProps(
     terrain.columnInfo(wx, wz, ci);
     const h = ci.h;
     if (h < WATER_LEVEL + 1) continue;
-    if (excluded(wx + 0.5, wz + 0.5)) continue;
+    if (exSoft(wx + 0.5, wz + 0.5)) continue;
+    // Mixed pass: soft singles ignore the den discs, solid ones don't.
+    const noSolid = exSolid(wx + 0.5, wz + 0.5);
 
     const t = 0.9 + pick * 0.2;
     const ft = 0.9 + pick * 0.18; // subtle per-instance flower tint variety
@@ -692,25 +787,25 @@ export function buildChunkProps(
       case 'plains':
         if (roll < 0.22) soft.add(grass, x, h - 0.03, z, yaw, 0.6 + scl * 0.45, t * 0.96, t, t * 0.9);
         else if (roll < 0.245) soft.add(lib.tuft, x, h - 0.04, z, yaw, scl, t, t, t);
-        else if (roll < 0.257) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t, t, t);
+        else if (roll < 0.257 && !noSolid) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t, t, t);
         break;
       case 'forest':
         if (roll < 0.1) soft.add(grass, x, h - 0.03, z, yaw, 0.5 + scl * 0.45, t * 0.86, t, t * 0.84);
-        else if (roll < 0.127) solid.add(mushroomT, x, h - 0.04, z, yaw, scl, t, t, t);
-        else if (roll < 0.151) solid.add(pick < 0.5 ? lib.rockA : lib.rockB, x, h - 0.1, z, yaw, scl, t, t, t);
+        else if (roll < 0.127 && !noSolid) solid.add(mushroomT, x, h - 0.04, z, yaw, scl, t, t, t);
+        else if (roll < 0.151 && !noSolid) solid.add(pick < 0.5 ? lib.rockA : lib.rockB, x, h - 0.1, z, yaw, scl, t, t, t);
         else if (roll < 0.24) soft.add(lib.tuft, x, h - 0.04, z, yaw, scl, t * 0.92, t, t * 0.92);
         break;
       case 'beach':
         if (roll < 0.064) soft.add(lib.tuftDry, x, h - 0.04, z, yaw, scl, t, t, t);
-        else if (roll < 0.086) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t, t, t);
+        else if (roll < 0.086 && !noSolid) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t, t, t);
         break;
       case 'desert':
-        if (roll < 0.031) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t * 1.05, t, t * 0.9);
+        if (roll < 0.031 && !noSolid) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t * 1.05, t, t * 0.9);
         else if (roll < 0.082) soft.add(lib.tuftDry, x, h - 0.04, z, yaw, scl, t, t, t);
-        else if (roll < 0.095) solid.add(lib.cactusSmall, x, h - 0.04, z, yaw, scl, t, t, t);
+        else if (roll < 0.095 && !noSolid) solid.add(lib.cactusSmall, x, h - 0.04, z, yaw, scl, t, t, t);
         break;
       case 'snow':
-        if (roll < 0.031) solid.add(lib.rockSnow, x, h - 0.1, z, yaw, scl, t, t, t);
+        if (roll < 0.031 && !noSolid) solid.add(lib.rockSnow, x, h - 0.1, z, yaw, scl, t, t, t);
         break;
       case 'underwater':
         break;
@@ -731,7 +826,7 @@ export function buildChunkProps(
     if (ci.h < WATER_LEVEL + 1) continue;
     if (ci.hc < 9.8 || ci.hc > 11.6) continue;
     if (ci.biome !== 'beach' && ci.biome !== 'plains') continue;
-    if (excluded(wx + 0.5, wz + 0.5)) continue;
+    if (exSoft(wx + 0.5, wz + 0.5)) continue;
     const x = lx + 0.5 + (rng() - 0.5) * 0.8;
     const z = lz + 0.5 + (rng() - 0.5) * 0.8;
     const yaw = rng() * Math.PI * 2;
@@ -741,7 +836,8 @@ export function buildChunkProps(
     if (roll < 0.5 && ci.biome === 'beach') {
       const dune = rng() < 0.5 ? lib.grassDuneA : lib.grassDuneB;
       soft.add(dune, x, ci.h - 0.03, z, yaw, 0.7 + rng() * 0.5, t, t, t * 0.95);
-    } else if (roll < 0.56 && ci.biome === 'beach' && flatEnough(wx, wz, ci.h, 1)) {
+    } else if (roll < 0.56 && ci.biome === 'beach' && !exSolid(wx + 0.5, wz + 0.5)
+      && flatEnough(wx, wz, ci.h, 1)) {
       solid.add(lib.driftwoodT, x, ci.h - 0.02, z, yaw, 0.9 + rng() * 0.4, t, t, t);
     } else if (roll < 0.72 && ci.biome === 'beach') {
       soft.add(lib.shellT, x, ci.h - 0.02, z, yaw, 0.8 + rng() * 0.5, t, t, t);

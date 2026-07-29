@@ -191,19 +191,34 @@ if (photoMode) {
       return worst;
     };
 
+    /**
+     * Penalty for standing near a shop: buildings became the backdrop of three
+     * portraits, putting the subject in hard building shadow against a black
+     * wall. Anything within 14 units is heavily penalised.
+     */
+    const backdropPenalty = (x: number, z: number): number => {
+      let worst = 0;
+      for (const s of world.shopPositions) {
+        const d = Math.hypot(s.x - x, s.z - z);
+        if (d < 14) worst = Math.max(worst, (14 - d) * 0.5);
+      }
+      return worst;
+    };
+
     let best: THREE.Vector3 | null = null;
-    let bestFlat = Infinity;
+    let bestScore = Infinity;
     for (const radius of [16, 21, 26, 31, 12]) {
-      for (let k = -4; k <= 4 && !best; k++) {
+      for (let k = -4; k <= 4; k++) {
         const a = ring + k * 0.26;
         const x = base.x + Math.cos(a) * radius;
         const z = base.z + Math.sin(a) * radius;
         if (world.getHeight(x, z) < world.waterLevel + 0.6) continue; // not in the shallows
-        const f = flatness(x, z);
-        if (f < bestFlat) { bestFlat = f; best = new THREE.Vector3(x, 0, z); }
-        if (f < 0.7) break; // good enough, take it
+        // Score on level ground AND a clean backdrop, not flatness alone.
+        const score = flatness(x, z) + backdropPenalty(x, z);
+        if (score < bestScore) { bestScore = score; best = new THREE.Vector3(x, 0, z); }
+        if (score < 0.7) break; // good enough, take it
       }
-      if (bestFlat < 0.7) break;
+      if (bestScore < 0.7) break;
     }
 
     const spot = params.get('poff')
@@ -288,31 +303,56 @@ function frame(): void {
       const vFov = (engine.camera.fov * Math.PI) / 180;
       const fitDist = subject / (0.4 * 2 * Math.tan(vFov / 2));
       const dist = Number(params.get('dist') ?? Math.max(2.6, fitDist));
-      const cx = pal.position.x + Math.sin(ang) * dist;
-      const cz = pal.position.z + Math.cos(ang) * dist;
-      // True eye level with the subject's mid-height: looking down made ground
-      // pals read as specimens and hovering flyers look face-planted.
       const midY = pal.position.y + subject * 0.5;
-      // ...but never inside or behind terrain. Clear the camera's own ground,
-      // then walk the sight line and lift until nothing occludes the subject.
       const aimY = pal.position.y + subject * 0.42;
-      let camY = Math.max(midY, world.getHeight(cx, cz) + 0.9);
-      for (let s = 1; s <= 6; s++) {
-        const t = s / 7;
-        const gx = cx + (pal.position.x - cx) * t;
-        const gz = cz + (pal.position.z - cz) * t;
-        const clearance = world.getHeight(gx, gz) + 0.35;
-        // camY must be high enough that the ray camY->aimY passes above `clearance`
-        if (aimY + (camY - aimY) * (1 - t) < clearance) {
-          camY = aimY + (clearance - aimY) / Math.max(0.15, 1 - t);
+
+      /** Highest camera lift needed to clear terrain along the sight line. */
+      const requiredLift = (px: number, pz: number, d: number): number => {
+        let need = world.getHeight(px, pz) + 0.9;
+        for (let s = 1; s <= 6; s++) {
+          const t = s / 7;
+          const gx = px + (pal.position.x - px) * t;
+          const gz = pz + (pal.position.z - pz) * t;
+          const clearance = world.getHeight(gx, gz) + 0.35;
+          const y = aimY + (clearance - aimY) / Math.max(0.28, 1 - t);
+          if (y > need) need = y;
         }
+        return need;
+      };
+
+      // Eye level with the subject's mid-height, and never more than a little
+      // above it: an unbounded lift turned blocked shots into aerial specimen
+      // photos looking down on the subject's back. When the sight line is
+      // blocked, step CLOSER first, then swing the bearing — only accept a
+      // higher camera as a last resort.
+      const ceiling = midY + subject * 1.15;
+      let cx = 0, cz = 0, camY = 0;
+      let bestOver = Infinity, bx = 0, bz = 0, by = 0;
+      outer: for (const swing of [0, 0.45, -0.45, 0.9, -0.9]) {
+        for (const shrink of [1, 0.85, 0.72, 0.61]) {
+          const a2 = ang + swing;
+          const d2 = Math.max(1.8, dist * shrink);
+          const tx = pal.position.x + Math.sin(a2) * d2;
+          const tz = pal.position.z + Math.cos(a2) * d2;
+          const need = requiredLift(tx, tz, d2);
+          const y = Math.max(midY, need);
+          const over = y - ceiling;
+          if (over < bestOver) { bestOver = over; bx = tx; bz = tz; by = y; }
+          if (over <= 0) { cx = tx; cz = tz; camY = y; break outer; }
+        }
+      }
+      if (camY === 0) {
+        // Nothing was fully clear — take the least-elevated candidate and cap it.
+        cx = bx; cz = bz; camY = Math.min(by, ceiling);
       }
       engine.camera.position.set(cx, camY, cz);
       // Aim slightly low so the subject sits at ~0.45 frame height.
       engine.camera.lookAt(pal.position.x, aimY, pal.position.z);
-      // Turn the subject to face the camera, off by 20° for a 3/4 view (the
-      // camera's bearing from the pal is `ang`, so facing `ang` looks at it).
-      pal.facingOverride = ang - 0.35;
+      // Turn the subject to face the camera, off by 20° for a 3/4 view. This
+      // must use the FINAL bearing, not the requested `ang` — the occlusion
+      // search above may have swung the camera, which is how subjects ended up
+      // photographed from the flank.
+      pal.facingOverride = Math.atan2(cx - pal.position.x, cz - pal.position.z) - 0.35;
     } else {
       engine.camera.position.copy(photoCam);
       engine.camera.lookAt(photoLook);

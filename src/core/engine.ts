@@ -53,11 +53,14 @@ export class Engine {
     this.scene = new THREE.Scene();
     // Clear color matches the dome's horizon so any sliver of background blends.
     this.scene.background = new THREE.Color(0xcfe8f4);
-    // Fog starts late and reaches far so distant landmass stays a readable
-    // blue silhouette instead of dissolving into milk at ~200m. The fog tint
-    // is a shade deeper than the sky horizon so far ridges still separate
-    // from the backdrop rather than washing out to white.
-    this.scene.fog = new THREE.Fog(0xbcd8ec, 75, 420);
+    // Aerial perspective: the far plane is 600, so a fog end of 420 meant
+    // almost nothing in frame ever received atmospheric desaturation and
+    // distant mountains stayed as saturated as foreground grass. Ending at
+    // 250 puts the far ridgelines well inside the gradient so they read as
+    // pale blue depth cues, while a start of 95 keeps the playable bubble
+    // around the hero perfectly crisp. The tint is a touch deeper than the
+    // sky horizon (0xcfe8f4) so far ridges still separate from the backdrop.
+    this.scene.fog = new THREE.Fog(0xc2dcf2, 95, 250);
 
     // One-draw-call inverted sphere; follows the camera each frame (render()).
     this.skyDome = new THREE.Mesh(

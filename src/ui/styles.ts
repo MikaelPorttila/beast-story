@@ -38,13 +38,15 @@ const CSS = `
 @keyframes cpPop{0%{transform:scale(1)}45%{transform:scale(1.28)}100%{transform:scale(1)}}
 
 /* ---- crosshair --------------------------------------------------------- */
-/* Sits just ABOVE the character (who is framed at screen centre), like Cube
-   World's aim marker: a chunky 4-pixel cluster rather than a soft dot. Kept
-   close to the hero -- pushed far up it just reads as specks of dirt in the
-   grass. Each white cell carries a 1px dark ring so it survives light terrain.
-   Shadow order matters: white is listed first so it paints over the ring. */
-.cp-cross{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:0 0 0 -2px;
-  transform:translateY(-34px);background:transparent;
+/* Chunky 4-pixel cluster rather than a soft dot, like Cube World's aim marker.
+   It sits at TRUE screen centre: the camera now carries an over-the-shoulder
+   offset, so the hero is parked left of centre and the reticle looks at clear
+   world instead of landing on his hat (which is what the old -34px lift was
+   dodging). Each white cell carries a 1px dark ring so it survives light
+   terrain. Shadow order matters: white is listed first so it paints over the
+   ring. */
+.cp-cross{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;
+  transform:translateY(0);background:transparent;
   box-shadow:
     0 -7px 0 0 rgba(255,255,255,.95), 0 7px 0 0 rgba(255,255,255,.95),
     -7px 0 0 0 rgba(255,255,255,.95), 7px 0 0 0 rgba(255,255,255,.95),
@@ -91,6 +93,9 @@ const CSS = `
 .cp-micro+.cp-micro{margin-top:3px}
 .cp-micro>i{display:block;height:100%;border-radius:3px;transition:width .3s cubic-bezier(.22,1,.36,1)}
 .cp-micro.hp>i{background:linear-gradient(90deg,#4fb548,#7ed465)}
+/* The XP track keeps a faint amber wash of its own so a near-empty bar still
+   reads as "no progress yet" instead of a widget that failed to render. */
+.cp-micro.xp{background:linear-gradient(90deg,rgba(245,166,35,.2),rgba(255,210,63,.09)),rgba(0,0,0,.42)}
 .cp-micro.xp>i{background:linear-gradient(90deg,#f5a623,#ffd23f)}
 
 /* player hp: bottom section of the party panel, hairline divider instead of a gap */
@@ -115,9 +120,14 @@ const CSS = `
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   transition:transform .16s ease,box-shadow .25s ease;pointer-events:auto}
 .cp-slot:hover{transform:translateY(-3px)}
-.cp-slot.empty{border-style:dashed;border-color:rgba(255,255,255,.12);box-shadow:none;opacity:.55}
-.cp-slot.empty .key{top:50%;left:50%;transform:translate(-50%,-50%);font-size:21px;font-weight:800;
-  color:rgba(255,255,255,.3);text-shadow:none}
+/* Unearned slot: a solid-bordered slab with a padlock. The old dashed box with
+   a big grey numeral read as an unimplemented placeholder rather than content
+   the player has yet to unlock. */
+.cp-slot.empty{border-style:solid;border-color:rgba(255,255,255,.13);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);opacity:.72}
+.cp-slot.empty .key{color:rgba(255,255,255,.4)}
+.cp-slot.empty .lock{width:20px;height:20px;color:#eef2f8;opacity:.45}
+.cp-slot.empty .lock svg{width:100%;height:100%}
 .cp-slot.filled{border-color:transparent;
   box-shadow:inset 0 0 0 1.5px var(--el2),0 6px 16px rgba(0,0,0,.32)}
 .cp-slot .key{position:absolute;top:3px;left:7px;font-size:10px;font-weight:800;
@@ -265,7 +275,9 @@ const CSS = `
 @media (max-width: 620px), (max-height: 460px){
   /* The whole HUD scales down: at 393 CSS px the desktop sizes eat a third of
      the screen. Panel is compact and parked top-left under the title chip. */
-  .cp-left{width:min(48vw,168px);padding:5px;border-radius:13px;
+  /* Hard cap so the party panel can never dominate the frame: at ~350 CSS px
+     the old min(48vw,168px) was still eating nearly half the width. */
+  .cp-left{width:min(40vw,160px);max-width:62vw;padding:5px;border-radius:13px;
     bottom:auto;top:calc(max(12px,env(safe-area-inset-top)) + 38px)}
   .cp-pals{flex-direction:column;gap:1px}
   .cp-pal{padding:5px 7px;border-radius:9px}
@@ -291,12 +303,15 @@ const CSS = `
   /* touch has its own skill buttons; the desktop hotbar and key hints go away */
   .cp-hotbar{display:none}
   .cp-shop-foot{display:none}
-  .cp-cross{transform:translateY(-26px)}
   .cp-shop{width:96vw;max-height:82vh}
-  /* toasts: small, narrow, and clear of the control clusters */
+  /* Toasts: one at a time (see HUD.addToast), clear of the control clusters,
+     and clamped to two short lines so a long instruction string can never grow
+     into a screen-eating panel. */
   .cp-toasts{top:calc(max(12px,env(safe-area-inset-top)) + 38px);bottom:auto;
     left:auto;right:max(12px,env(safe-area-inset-right));transform:none;align-items:flex-end}
-  .cp-toast{font-size:11px;padding:7px 10px;max-width:min(46vw,190px);border-radius:10px}
+  .cp-toast{font-size:11px;line-height:1.35;padding:6px 9px;max-width:min(52vw,200px);
+    border-radius:10px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+    line-clamp:2;overflow:hidden}
   .cp-banner{font-size:11.5px;padding:8px 12px;max-width:78vw}
   .cp-hint{font-size:11px;padding:7px 11px}
 }

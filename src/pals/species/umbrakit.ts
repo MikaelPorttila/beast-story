@@ -17,9 +17,15 @@ const S = 0.085;
 // Lifted well clear of black: under ACES tone mapping the old 0x3a2f4d /
 // 0x2a2140 pair crushed into one unreadable void, so the cat silhouette was
 // invisible against its own cast shadow.
-const INK = 0x594a7a;      // body
+// Re-floored again for the 4.9:1 sun/fill lighting ratio (sun 2.55, hemi 0.52):
+// with that little fill, everything below ~0x60 collapses to black, so the body
+// tone and the rim row both had to come up and a pale chest patch was added to
+// separate the cat from its own shadow.
+const INK = 0x6b5a92;      // body
 const DUSK = 0x3b3159;     // shadowed underside / muzzle / haunches
 const VIOLET = 0x8f6fd6;   // sheen highlights, ear tips
+const RIM = 0x9d86c8;      // top rim rows — the silhouette's bright edge
+const PALE = 0xd8cef0;     // chest / belly patch (the form-separating light)
 const GLOW = 0x8f6fd8;     // underglow / dissolving tail
 const LAV = 0xcab6ff;      // brightest wisp / sparks
 const EYE = 0xf2ecff;      // eye whites (one bright cell per eye — no headlights)
@@ -52,8 +58,12 @@ function makeTorso(): THREE.Mesh {
   m.ellipsoid(0, 2.5, -0.6, 1.1, 0.6, 2.0, VIOLET);  // moonlit sheen along the spine
   // Crisp rim-light row along the very top of the back: without it the dark
   // body merges into its own cast shadow and loses its silhouette entirely.
-  m.ellipsoid(0, 2.95, -0.5, 1.2, 0.3, 2.2, VIOLET);
+  m.ellipsoid(0, 2.95, -0.5, 1.2, 0.3, 2.2, RIM);
   m.ellipsoid(0, 0.3, 0.2, 1.7, 0.7, 2.5, GLOW);     // soft purple underglow band
+  // Pale chest/belly patch: under a strong sun with almost no fill the dark coat
+  // and its own cast shadow merge, so the front carries a light mass to read the
+  // volume against. Painted after the glow band so it wins on the chest.
+  m.ellipsoid(0, 1.4, 1.4, 1.6, 1.2, 1.35, PALE);
   m.markEmissive(GLOW, 0.55);  // soft violet underglow — mysterious, not neon
   return m.build(S, true);
 }
@@ -62,7 +72,7 @@ function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
   m.ellipsoid(0, 1.2, 0.2, 2.0, 1.3, 1.7, INK);
   m.ellipsoid(0, 2.1, -0.1, 1.0, 0.5, 0.9, VIOLET);  // narrow brow sheen (was a slab)
-  m.ellipsoid(0, 2.45, -0.1, 0.9, 0.28, 0.85, VIOLET); // rim row over the skull
+  m.ellipsoid(0, 2.45, -0.1, 0.9, 0.28, 0.85, RIM); // rim row over the skull
   m.ellipsoid(0, 0.6, 1.4, 1.2, 0.8, 0.9, DUSK);     // muzzle
   m.box(-2, 1, 1, 2, 2, 1, INK);                     // flat cheek plate: the
   // eyes used to float a cell clear of the narrow skull, which is exactly why
