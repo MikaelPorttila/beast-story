@@ -80,20 +80,24 @@ function buildRig(): PalRig {
   const head = pivot('head', body);
   const hm = new VoxelModel();
   hm.ellipsoid(0, 1.8, 0.2, 2.4, 2.0, 2.2, YEL);
-  hm.box(-2, 1, 2, 2, 2, 2, YEL); // flat face plate
-  // Big friendly eyes: 2x2 white sclera with a single ink pupil on the
-  // inner-top cell (white shows below and outside each pupil).
-  hm.box(1, 1, 2, 2, 2, 2, EYE_GLINT); // right sclera
-  hm.box(-2, 1, 2, -1, 2, 2, EYE_GLINT); // left sclera
-  hm.set(1, 2, 2, INK); // pupils
-  hm.set(-1, 2, 2, INK);
-  // thin 1-voxel under-eye stripes — all that remains of the old black band
-  hm.set(1, 0, 2, INK);
-  hm.set(2, 0, 2, INK);
-  hm.set(-1, 0, 2, INK);
-  hm.set(-2, 0, 2, INK);
-  hm.set(0, 1, 3, INK); // button nose
-  hm.set(0, 0, 2, EYE_GLINT); // buck tooth
+  hm.box(-3, 0, 2, 3, 3, 2, YEL); // flat face plate, wide enough to frame the eyes
+  // Eyes: a 2x2 white sclera per side with ONE ink pupil, each ringed by a
+  // 1-voxel ink outline. The ring is what stops white-next-to-black-next-to-
+  // yellow from reading as a chequerboard; the old under-eye stripes completed
+  // that chequer and are gone entirely.
+  for (const sx of [1, -1]) {
+    const inner = sx * 1;
+    const outer = sx * 2;
+    // outline: a box one cell larger all round, painted first
+    hm.box(sx > 0 ? 0 : -3, 0, 2, sx > 0 ? 3 : 0, 3, 2, INK);
+    hm.box(inner, 1, 2, outer, 2, 2, EYE_GLINT);
+    hm.set(inner, 2, 2, INK); // pupil on the inner-top cell
+  }
+  // Cream muzzle wedge: gives the whites something mid-value to pop against
+  // instead of sitting straight on the bright yellow face.
+  hm.box(-1, 0, 3, 1, 1, 3, CREAM);
+  hm.set(0, 1, 4, INK); // button nose
+  hm.set(0, 0, 3, EYE_GLINT); // buck tooth
   const headMesh = hm.build(S);
   headMesh.position.set(0, -0.14, 0.02);
   head.add(headMesh);

@@ -8,7 +8,10 @@ import { VoxelModel } from '../../core/voxel';
 // ---------------------------------------------------------------------------
 
 // Palette
-const G1 = 0x9a9188;      // light granite
+const G1 = 0xaba396;      // light granite (brightened: the old top course sat
+                          // too close to the mid tone, so the whole creature
+                          // read as one flat lump under any lighting)
+const STONE = 0x8f9096;   // cool grey slab — material contrast vs warm granite
 const G2 = 0x7d746a;      // mid granite
 const G3 = 0x655d54;      // dark granite
 const BR = 0x8a7357;      // warm brown stratum
@@ -115,9 +118,14 @@ function buildRig(): PalRig {
   torso.box(-3, 1, -4, 3, 1, 3, G2);
   torso.box(-3, 2, -4, 3, 2, 3, BR);       // warm brown stratum
   torso.box(-3, 3, -4, 3, 3, 3, G1);
-  torso.box(-2, 4, -3, 2, 4, 2, G2);       // domed top course
+  torso.box(-2, 4, -3, 2, 4, 2, G1);       // domed top course (catches the sun)
+  // Cool grey slate plates across the back and shoulders: the warm-granite-only
+  // body had no material story, so it read as chocolate rather than rock.
+  torso.box(-2, 4, -1, 1, 4, 1, STONE);
+  torso.set(2, 3, -3, STONE); torso.set(-2, 3, -3, STONE);
+  torso.box(-3, 3, 1, -3, 3, 2, STONE);
   // moss patches (top and flanks)
-  torso.set(-1, 4, -2, MOSS); torso.set(0, 4, -2, MOSS); torso.set(-1, 4, -1, MOSS2);
+  torso.set(-1, 4, -2, MOSS); torso.set(0, 4, -2, MOSS); torso.set(1, 4, -2, MOSS2);
   torso.set(2, 4, 1, MOSS2); torso.set(2, 4, 2, MOSS);
   torso.set(3, 2, 0, MOSS); torso.set(3, 2, 1, MOSS2); torso.set(3, 1, 0, MOSS2);
   torso.set(-3, 3, -2, MOSS2); torso.set(-3, 3, -1, MOSS);

@@ -14,8 +14,11 @@ const S = 0.085;
 
 // Palette — dusky violet (NOT near-black: the silhouette must read as a
 // shadow creature with visible cat anatomy, never a hole in the frame)
-const INK = 0x3a2f4d;      // body
-const DUSK = 0x2a2140;     // shadowed underside / muzzle / haunches
+// Lifted well clear of black: under ACES tone mapping the old 0x3a2f4d /
+// 0x2a2140 pair crushed into one unreadable void, so the cat silhouette was
+// invisible against its own cast shadow.
+const INK = 0x594a7a;      // body
+const DUSK = 0x3b3159;     // shadowed underside / muzzle / haunches
 const VIOLET = 0x8f6fd6;   // sheen highlights, ear tips
 const GLOW = 0x8f6fd8;     // underglow / dissolving tail
 const LAV = 0xcab6ff;      // brightest wisp / sparks
@@ -47,6 +50,9 @@ function makeTorso(): THREE.Mesh {
   const m = new VoxelModel();
   m.ellipsoid(0, 1.5, -0.2, 2.2, 1.6, 3.0, INK);
   m.ellipsoid(0, 2.5, -0.6, 1.1, 0.6, 2.0, VIOLET);  // moonlit sheen along the spine
+  // Crisp rim-light row along the very top of the back: without it the dark
+  // body merges into its own cast shadow and loses its silhouette entirely.
+  m.ellipsoid(0, 2.95, -0.5, 1.2, 0.3, 2.2, VIOLET);
   m.ellipsoid(0, 0.3, 0.2, 1.7, 0.7, 2.5, GLOW);     // soft purple underglow band
   m.markEmissive(GLOW, 0.55);  // soft violet underglow — mysterious, not neon
   return m.build(S, true);
@@ -56,6 +62,7 @@ function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
   m.ellipsoid(0, 1.2, 0.2, 2.0, 1.3, 1.7, INK);
   m.ellipsoid(0, 2.1, -0.1, 1.0, 0.5, 0.9, VIOLET);  // narrow brow sheen (was a slab)
+  m.ellipsoid(0, 2.45, -0.1, 0.9, 0.28, 0.85, VIOLET); // rim row over the skull
   m.ellipsoid(0, 0.6, 1.4, 1.2, 0.8, 0.9, DUSK);     // muzzle
   m.box(-2, 1, 1, 2, 2, 1, INK);                     // flat cheek plate: the
   // eyes used to float a cell clear of the narrow skull, which is exactly why
