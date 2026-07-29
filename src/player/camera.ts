@@ -37,7 +37,8 @@ export class ThirdPersonCamera {
   }
 
   update(dt: number, input: Input, focus: THREE.Vector3, world: World, cam: THREE.PerspectiveCamera): void {
-    if (input.pointerLocked) {
+    // lookActive covers both captured-mouse and touch look-drag.
+    if (input.lookActive) {
       this.yaw -= input.mouseDX * 0.0028;
       this.pitch += input.mouseDY * 0.0026;
     }

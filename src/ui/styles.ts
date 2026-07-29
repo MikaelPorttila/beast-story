@@ -239,6 +239,67 @@ const CSS = `
 .cp-shop-foot{border-top:1px solid rgba(255,255,255,.1);padding:11px 20px;display:flex;gap:16px;
   flex-wrap:wrap;justify-content:center;font-size:11.5px;font-weight:600;color:rgba(238,242,248,.7)}
 .cp-shop-foot span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+
+/* ---- responsive ---------------------------------------------------------- */
+/* Respect notches/rounded corners on phones. */
+.cp-left{left:max(16px,env(safe-area-inset-left))}
+.cp-title{left:max(16px,env(safe-area-inset-left));top:max(14px,env(safe-area-inset-top))}
+.cp-shards{right:max(16px,env(safe-area-inset-right));top:max(14px,env(safe-area-inset-top))}
+
+/* Tablet / large phone: shrink the party panel and hotbar. */
+@media (max-width: 900px){
+  .cp-left{width:236px;padding:6px}
+  .cp-pal{padding:6px 8px}
+  .cp-pal .badge{width:32px;height:32px}
+  .cp-pal .badge svg{width:18px;height:18px}
+  .cp-pal .nm{font-size:12.5px}
+  .cp-hp .track{height:13px}
+  .cp-slot{width:50px;height:50px;border-radius:12px}
+  .cp-hotbar{gap:8px;bottom:26px}
+  .cp-shop{width:min(94vw,720px)}
+}
+
+/* Phone: the touch overlay owns the bottom corners, so the HUD moves out of
+   the way — party panel to the top-left under the title, keyboard hints and
+   the desktop hotbar hidden (touch has its own skill buttons). */
+@media (max-width: 620px), (max-height: 460px){
+  /* The whole HUD scales down: at 393 CSS px the desktop sizes eat a third of
+     the screen. Panel is compact and parked top-left under the title chip. */
+  .cp-left{width:min(48vw,168px);padding:5px;border-radius:13px;
+    bottom:auto;top:calc(max(12px,env(safe-area-inset-top)) + 38px)}
+  .cp-pals{flex-direction:column;gap:1px}
+  .cp-pal{padding:5px 7px;border-radius:9px}
+  .cp-pal .cp-pal-in{gap:7px}
+  .cp-pal .badge{width:24px;height:24px}
+  .cp-pal .badge svg{width:14px;height:14px}
+  .cp-pal.support .badge{width:22px;height:22px}
+  .cp-pal .nm{font-size:11px}
+  .cp-pal.support .nm{font-size:10.5px}
+  .cp-pal .lv{font-size:9px;padding:0 5px}
+  .cp-pal .row{margin-bottom:3px}
+  .cp-micro{height:4px}
+  .cp-hp{padding:6px 7px 2px;margin-top:4px}
+  .cp-hp .lbl{letter-spacing:.12em;font-size:9px}
+  .cp-hp .val{font-size:10.5px}
+  .cp-hp .track{height:11px;border-radius:7px}
+  .cp-title{padding:5px 10px 6px;border-radius:9px}
+  .cp-title b{font-size:10.5px;letter-spacing:.13em}
+  .cp-title span{font-size:8.5px}
+  .cp-shards{padding:5px 10px;gap:6px}
+  .cp-shards .ic{width:14px;height:14px}
+  .cp-shards .num{font-size:13px}
+  /* touch has its own skill buttons; the desktop hotbar and key hints go away */
+  .cp-hotbar{display:none}
+  .cp-shop-foot{display:none}
+  .cp-cross{transform:translateY(-26px)}
+  .cp-shop{width:96vw;max-height:82vh}
+  /* toasts: small, narrow, and clear of the control clusters */
+  .cp-toasts{top:calc(max(12px,env(safe-area-inset-top)) + 38px);bottom:auto;
+    left:auto;right:max(12px,env(safe-area-inset-right));transform:none;align-items:flex-end}
+  .cp-toast{font-size:11px;padding:7px 10px;max-width:min(46vw,190px);border-radius:10px}
+  .cp-banner{font-size:11.5px;padding:8px 12px;max-width:78vw}
+  .cp-hint{font-size:11px;padding:7px 11px}
+}
 `;
 
 /** Inject the HUD stylesheet once. Safe to call repeatedly. */

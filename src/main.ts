@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Engine } from './core/engine';
 import { DebugOverlay } from './core/debug-overlay';
 import { Input } from './core/input';
+import { TouchControls } from './core/touch';
 import { EventBus, type SkillDef, type Damageable } from './core/types';
 import { createWorld } from './world/index';
 import { Player } from './player/index';
@@ -226,8 +227,41 @@ const photoLook = parseVec(params.get('look'), new THREE.Vector3(0, 1, 0)).add(w
 const photoAnim = params.get('anim');
 let photoAnimTimer = 0;
 
+// Touch overlay: only exists on devices with a touch screen (null otherwise,
+// so nothing is added to the DOM and there is no per-frame cost).
+const touch = photoMode ? null : TouchControls.attach(input);
+
+// Probes for the automated input tests (tools/test-touch.mjs). Read-only.
+interface DebugProbes {
+  __dbgPlayerPos: () => { x: number; y: number; z: number };
+  __dbgCamYaw: () => number;
+}
+(window as unknown as DebugProbes).__dbgPlayerPos = () => ({
+  x: player.position.x, y: player.position.y, z: player.position.z,
+});
+(window as unknown as DebugProbes).__dbgCamYaw = () => Math.atan2(
+  engine.camera.position.x - player.position.x,
+  engine.camera.position.z - player.position.z,
+);
+(window as unknown as { __dbgInput: () => unknown }).__dbgInput = () => ({
+  axisFwd: input.axisFwd,
+  axisSide: input.axisSide,
+  lookActive: input.lookActive,
+  touchActive: input.touchActive,
+  touchOverlay: !!document.querySelector('.cp-touch'),
+  vel: { x: +player.velocity.x.toFixed(2), y: +player.velocity.y.toFixed(2), z: +player.velocity.z.toFixed(2) },
+  onGround: player.onGround,
+  isSwimming: player.isSwimming,
+  isDead: player.isDead,
+});
+
 let started = false;
-bus.emit({ type: 'toast', text: 'Welcome to Cube Pals! Click to play.' });
+bus.emit({
+  type: 'toast',
+  text: touch
+    ? 'Welcome to Cube Pals! Drag the right side to look, stick to move.'
+    : 'Welcome to Cube Pals! Click to play.',
+});
 
 // ?fps=<n> caps the frame rate (0 or absent = uncapped). F2 shows measured FPS.
 const fpsCap = Number(params.get('fps') ?? 0);
@@ -351,9 +385,18 @@ function frame(): void {
   hud.setSkills(slots);
   hud.update(dt);
 
-  if (!started && input.pointerLocked) {
+  // Hide the touch overlay while a modal shop is open so it can't be tapped
+  // through, and release any held virtual buttons.
+  touch?.setVisible(!shopOpen);
+
+  if (!started && (input.pointerLocked || input.touchActive)) {
     started = true;
-    bus.emit({ type: 'toast', text: 'WASD move · Space jump · LMB attack · 1-4 skills · Tab swap · ]/[ cycle pals · E shop' });
+    bus.emit({
+      type: 'toast',
+      text: touch
+        ? 'Stick moves · drag to look · ATK / JUMP / USE · 1-4 skills · SWAP pals'
+        : 'WASD move · Space jump · LMB attack · 1-4 skills · Tab swap · ]/[ cycle pals · E shop',
+    });
   }
 
   if (input.pressed('F2')) debug.toggle();

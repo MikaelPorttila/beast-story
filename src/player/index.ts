@@ -193,11 +193,14 @@ export class Player {
     const world = this.world;
 
     // ---- movement input, camera relative ----
-    const fwd = (input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0);
-    const side = (input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0);
+    // Analog axes: keyboard when keys are held, virtual stick on touch.
+    const fwd = input.axisFwd;
+    const side = input.axisSide;
     _wish.set(0, 0, 0)
       .addScaledVector(this.cam.forward, fwd)
       .addScaledVector(this.cam.right, side);
+    // Stick deflection scales speed; keyboard always reads as full tilt.
+    const tilt = Math.min(1, Math.hypot(fwd, side));
     const moving = _wish.lengthSq() > 1e-6;
     if (moving) _wish.normalize();
 
@@ -206,6 +209,8 @@ export class Player {
       ? SWIM_SPEED
       : WALK_SPEED * (this.sprinting ? SPRINT_MULT : 1);
     if (this.attack.active && this.onGround) targetSpeed *= 0.35; // planted swings
+    // A half-deflected stick walks; a full one runs. Keyboard tilt is always 1.
+    if (tilt > 0 && tilt < 0.98) targetSpeed *= Math.max(0.35, tilt);
 
     // ---- horizontal acceleration / friction ----
     const accel = this.isSwimming ? 14 : this.onGround ? GROUND_ACCEL : AIR_ACCEL;

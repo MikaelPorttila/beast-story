@@ -101,7 +101,18 @@ export class Engine {
     this.ambient = new THREE.HemisphereLight(0xcfe8ff, 0x6b7f52, 0.52);
     this.scene.add(this.ambient);
 
-    window.addEventListener('resize', () => this.onResize(container));
+    // Responsive: plain resizes, orientation flips, and the mobile URL bar
+    // collapsing (which fires on visualViewport, not window).
+    const resize = (): void => this.onResize(container);
+    window.addEventListener('resize', resize);
+    window.addEventListener('orientationchange', () => {
+      // iOS reports stale metrics during the flip; settle first.
+      setTimeout(resize, 120);
+    });
+    window.visualViewport?.addEventListener('resize', resize);
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(resize).observe(container);
+    }
   }
 
   /** Keep the shadow frustum centered on the action */
@@ -111,10 +122,20 @@ export class Engine {
   }
 
   private onResize(container: HTMLElement): void {
-    const w = container.clientWidth, h = container.clientHeight;
-    this.camera.aspect = w / h;
+    const w = Math.max(1, container.clientWidth);
+    const h = Math.max(1, container.clientHeight);
+    // Cap the backing-store scale on small screens: a 3x DPR phone rendering a
+    // shadow-mapped scene at native resolution tanks the frame rate for no
+    // visible gain at this art style's chunkiness.
+    const dprCap = Math.min(w, h) < 700 ? 1.6 : 2;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
+    // Narrow (portrait phone) viewports need a wider FOV or the character fills
+    // the frame; widen as aspect drops below 4:3.
+    const aspect = w / h;
+    this.camera.fov = aspect < 1.33 ? Math.min(72, 55 / Math.max(0.62, aspect / 1.33)) : 55;
+    this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h);
+    this.renderer.setSize(w, h, false);
   }
 
   /**
