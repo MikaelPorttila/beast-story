@@ -38,20 +38,21 @@ const CSS = `
 @keyframes cpPop{0%{transform:scale(1)}45%{transform:scale(1.28)}100%{transform:scale(1)}}
 
 /* ---- crosshair --------------------------------------------------------- */
-/* Chunky 4-pixel cluster rather than a soft dot, like Cube World's aim marker.
-   It sits at TRUE screen centre: the camera now carries an over-the-shoulder
-   offset, so the hero is parked left of centre and the reticle looks at clear
-   world instead of landing on his hat (which is what the old -34px lift was
-   dodging). Each white cell carries a 1px dark ring so it survives light
-   terrain. Shadow order matters: white is listed first so it paints over the
-   ring. */
-.cp-cross{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;
-  transform:translateY(0);background:transparent;
+/* Pure white voxel-style reticle: a centre pip plus four ticks.
+   Centring is done with a transform on a zero-size box, NOT negative margins
+   plus box-shadow offsets — the shadow construction made true centre depend on
+   the element's own width, which is exactly the kind of thing that drifts a
+   pixel or two off axis. With width/height 0 the element IS the centre point
+   and every tick is a symmetric shadow around it, so it cannot be off-axis.
+   A subtle drop-shadow keeps it legible on bright terrain without tinting it. */
+.cp-cross{position:absolute;left:50%;top:50%;width:0;height:0;margin:0;
+  transform:translate(-50%,-50%);border-radius:50%;
+  background:#fff;
   box-shadow:
-    0 -7px 0 0 rgba(255,255,255,.95), 0 7px 0 0 rgba(255,255,255,.95),
-    -7px 0 0 0 rgba(255,255,255,.95), 7px 0 0 0 rgba(255,255,255,.95),
-    0 -7px 0 1px rgba(0,0,0,.55), 0 7px 0 1px rgba(0,0,0,.55),
-    -7px 0 0 1px rgba(0,0,0,.55), 7px 0 0 1px rgba(0,0,0,.55);
+    0 0 0 1.5px #fff,
+    0 -8px 0 1px #fff, 0 8px 0 1px #fff,
+    -8px 0 0 1px #fff, 8px 0 0 1px #fff;
+  filter:drop-shadow(0 0 1.5px rgba(0,0,0,.65));
   transition:opacity .2s ease}
 .cp-root.shop-open .cp-cross{opacity:0}
 

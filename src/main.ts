@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Engine } from './core/engine';
 import { DebugOverlay } from './core/debug-overlay';
 import { Input } from './core/input';
-import { TouchControls } from './core/touch';
+import { TouchControls, isTouchPrimary } from './core/touch';
 import { EventBus, type SkillDef, type Damageable } from './core/types';
 import { createWorld } from './world/index';
 import { Player } from './player/index';
@@ -273,8 +273,10 @@ interface DebugProbes {
 let started = false;
 bus.emit({
   type: 'toast',
-  text: touch
-    ? 'Welcome to Cube Pals! Drag the right side to look, stick to move.'
+  // A touchscreen laptop driven by mouse gets the desktop hint: `touch` is
+  // non-null there (it ticks the camera stick) but stays hidden until a touch.
+  text: isTouchPrimary()
+    ? 'Welcome to Cube Pals! Left stick moves, right stick looks.'
     : 'Welcome to Cube Pals! Click to play.',
 });
 
@@ -289,6 +291,11 @@ function frame(): void {
   if (!engine.beginFrame()) return;
   const dt = engine.tick();
   const shopOpen = hud.isShopOpen();
+
+  // The camera stick is a rate control, so it must inject its look delta BEFORE
+  // the player/camera update consumes mouseDX this frame — ticking it later in
+  // the frame meant endFrame() wiped the delta before the camera ever saw it.
+  if (!shopOpen) touch?.update(dt);
 
   if (photoMode) {
     if (params.get('pal')) {
@@ -433,8 +440,8 @@ function frame(): void {
     started = true;
     bus.emit({
       type: 'toast',
-      text: touch
-        ? 'Stick moves · drag to look · ATK / JUMP / USE · 1-4 skills · SWAP pals'
+      text: touch?.isRevealed
+        ? 'Left stick moves · right stick looks · ATK / JUMP / USE · 1-4 skills · SWAP'
         : 'WASD move · Space jump · LMB attack · 1-4 skills · Tab swap · ]/[ cycle pals · E shop',
     });
   }
