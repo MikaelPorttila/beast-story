@@ -29,8 +29,10 @@ const BASE: Record<string, readonly [number, number, number, number, number, num
   head: [0, 0.22, 0.2, 0, 0, 0],
   earL: [0.1, 0.26, -0.04, -0.08, 0, 0.28],
   earR: [-0.1, 0.26, -0.04, -0.08, 0, -0.28],
-  sparkL: [0.25, 0.08, 0.1, 0, Math.PI / 2, 0],
-  sparkR: [-0.25, 0.08, 0.1, 0, -Math.PI / 2, 0],
+  // Cheek sparks sit low and well outboard: at eye height they merged with the
+  // eye row into one dark band with two glowing bars, i.e. goggles.
+  sparkL: [0.29, -0.02, 0.06, 0, Math.PI / 2, 0],
+  sparkR: [-0.29, -0.02, 0.06, 0, -Math.PI / 2, 0],
   tail: [0, 0.16, -0.26, -0.3, 0, 0],
   tailTip: [0, 0.36, -0.18, 0.55, 0, 0],
   legFL: [0.13, 0.06, 0.15, 0, 0, 0],
@@ -81,15 +83,14 @@ function buildRig(): PalRig {
   const hm = new VoxelModel();
   hm.ellipsoid(0, 1.8, 0.2, 2.4, 2.0, 2.2, YEL);
   hm.box(-3, 0, 2, 3, 3, 2, YEL); // flat face plate, wide enough to frame the eyes
-  // Eyes: a 2x2 white sclera per side with ONE ink pupil, each ringed by a
-  // 1-voxel ink outline. The ring is what stops white-next-to-black-next-to-
-  // yellow from reading as a chequerboard; the old under-eye stripes completed
-  // that chequer and are gone entirely.
+  // On a face only 7 cells wide, ANY ink framing around the eyes merges with
+  // the pupils into one dark bar across the whole muzzle — that was the real
+  // source of the "chequerboard" read, along with the (now deleted) under-eye
+  // stripes. So: no outline at all, just a clean 2x2 white sclera and one
+  // pupil, the way the pals that already photograph well do it.
   for (const sx of [1, -1]) {
     const inner = sx * 1;
     const outer = sx * 2;
-    // outline: a box one cell larger all round, painted first
-    hm.box(sx > 0 ? 0 : -3, 0, 2, sx > 0 ? 3 : 0, 3, 2, INK);
     hm.box(inner, 1, 2, outer, 2, 2, EYE_GLINT);
     hm.set(inner, 2, 2, INK); // pupil on the inner-top cell
   }

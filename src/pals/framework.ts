@@ -464,9 +464,11 @@ export class PalActor {
 
     // -- Facing + banking ---------------------------------------------------
     const prevYaw = this.yaw;
-    const targetYaw = horizSpeed > 0.4
+    // A staged facing wins outright — flyers hover with enough residual speed
+    // to trip the movement branch, which left photo subjects facing away.
+    const targetYaw = this.facingOverride ?? (horizSpeed > 0.4
       ? Math.atan2(this.vel.x, this.vel.z)
-      : (this.facingOverride ?? this.ownerHeading);
+      : this.ownerHeading);
     this.yaw = dampAngle(this.yaw, targetYaw, horizSpeed > 0.4 ? 8 : 3.5, dt);
     const turnVel = dt > 0 ? angleDelta(prevYaw, this.yaw) / dt : 0;
 

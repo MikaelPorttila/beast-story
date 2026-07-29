@@ -172,20 +172,45 @@ if (photoMode) {
   }
   const palId = params.get('pal');
   if (palId || params.get('poff')) {
-    // Portraits happen on open ground, clear of the spawn-village shops. Each
-    // species gets its own spot on a ring so ten portraits aren't ten copies
-    // of the same postcard.
+    // Portraits happen on open, FLAT ground so the camera never ends up buried
+    // in a hillside. Each species starts from its own bearing on a ring (so ten
+    // portraits aren't ten copies of the same postcard) then walks outward
+    // until it finds a level, dry patch.
     const idx = Math.max(0, roster.findIndex((p) => p.species.id === palId));
     const ring = (idx / roster.length) * Math.PI * 2;
-    const def = new THREE.Vector3(
-      Math.cos(ring) * 17 + Math.sin(ring * 2.7) * 5,
-      0,
-      Math.sin(ring) * 17 + Math.cos(ring * 1.9) * 5,
-    );
-    const off = parseVec(params.get('poff'), def);
-    player.position.x += off.x;
-    player.position.z += off.z;
-    player.position.y = Math.max(world.getHeight(player.position.x, player.position.z) + 0.1, world.waterLevel + 0.2);
+    const base = world.spawnPoint;
+
+    /** Max height deviation within ~3 units — low means level ground. */
+    const flatness = (x: number, z: number): number => {
+      const h = world.getHeight(x, z);
+      let worst = 0;
+      for (const [dx, dz] of [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2]]) {
+        worst = Math.max(worst, Math.abs(world.getHeight(x + dx, z + dz) - h));
+      }
+      return worst;
+    };
+
+    let best: THREE.Vector3 | null = null;
+    let bestFlat = Infinity;
+    for (const radius of [16, 21, 26, 31, 12]) {
+      for (let k = -4; k <= 4 && !best; k++) {
+        const a = ring + k * 0.26;
+        const x = base.x + Math.cos(a) * radius;
+        const z = base.z + Math.sin(a) * radius;
+        if (world.getHeight(x, z) < world.waterLevel + 0.6) continue; // not in the shallows
+        const f = flatness(x, z);
+        if (f < bestFlat) { bestFlat = f; best = new THREE.Vector3(x, 0, z); }
+        if (f < 0.7) break; // good enough, take it
+      }
+      if (bestFlat < 0.7) break;
+    }
+
+    const spot = params.get('poff')
+      ? parseVec(params.get('poff'), base).add(base)
+      : (best ?? base);
+    player.position.x = spot.x;
+    player.position.z = spot.z;
+    player.position.y = Math.max(world.getHeight(spot.x, spot.z) + 0.1, world.waterLevel + 0.2);
   }
   if (palId) {
     const idx = roster.findIndex((p) => p.species.id === palId);
@@ -221,19 +246,36 @@ function frame(): void {
       // Auto-frame the primary pal: 3/4 portrait tracking its live position.
       const pal = primary();
       const ang = (Number(params.get('a') ?? 35) * Math.PI) / 180;
-      // Subject fills ~58% of frame height, sized from its actual rig.
-      const subject = Math.max(0.45, pal.height);
+      // Frame the subject at ~40% of frame height. Sized from the rig's own
+      // extents (a small pal's ears/tail push well past its nominal height, and
+      // wingspan dominates for flyers) with a hard minimum distance: at 55° FOV
+      // anything closer than ~2.6 units distorts badly on a wide-angle lens.
+      const subject = Math.max(0.5, pal.height, pal.radius * 2.2);
       const vFov = (engine.camera.fov * Math.PI) / 180;
-      const fitDist = (subject / 0.58) / (2 * Math.tan(vFov / 2));
-      const dist = Number(params.get('dist') ?? Math.max(1.6, fitDist));
+      const fitDist = subject / (0.4 * 2 * Math.tan(vFov / 2));
+      const dist = Number(params.get('dist') ?? Math.max(2.6, fitDist));
       const cx = pal.position.x + Math.sin(ang) * dist;
       const cz = pal.position.z + Math.cos(ang) * dist;
       // True eye level with the subject's mid-height: looking down made ground
       // pals read as specimens and hovering flyers look face-planted.
       const midY = pal.position.y + subject * 0.5;
-      engine.camera.position.set(cx, Math.max(midY, world.getHeight(cx, cz) + 0.3), cz);
+      // ...but never inside or behind terrain. Clear the camera's own ground,
+      // then walk the sight line and lift until nothing occludes the subject.
+      const aimY = pal.position.y + subject * 0.42;
+      let camY = Math.max(midY, world.getHeight(cx, cz) + 0.9);
+      for (let s = 1; s <= 6; s++) {
+        const t = s / 7;
+        const gx = cx + (pal.position.x - cx) * t;
+        const gz = cz + (pal.position.z - cz) * t;
+        const clearance = world.getHeight(gx, gz) + 0.35;
+        // camY must be high enough that the ray camY->aimY passes above `clearance`
+        if (aimY + (camY - aimY) * (1 - t) < clearance) {
+          camY = aimY + (clearance - aimY) / Math.max(0.15, 1 - t);
+        }
+      }
+      engine.camera.position.set(cx, camY, cz);
       // Aim slightly low so the subject sits at ~0.45 frame height.
-      engine.camera.lookAt(pal.position.x, pal.position.y + subject * 0.42, pal.position.z);
+      engine.camera.lookAt(pal.position.x, aimY, pal.position.z);
       // Turn the subject to face the camera, off by 20° for a 3/4 view (the
       // camera's bearing from the pal is `ang`, so facing `ang` looks at it).
       pal.facingOverride = ang - 0.35;
