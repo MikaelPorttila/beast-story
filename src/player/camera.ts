@@ -13,11 +13,39 @@ function clamp(v: number, a: number, b: number): number {
 }
 
 /**
- * Lateral over-the-shoulder offset, in metres along camera-right. The hero used
- * to sit dead-centre, which put his hat directly under the reticle; shifting the
- * pivot sideways parks him left of centre so the crosshair looks at clear world.
+ * Framing: centred hero, reticle in the clear space above his head.
+ *
+ * History. The hero first sat dead-centre with the camera looking straight AT
+ * the pivot, which put his hat directly under the reticle. That was solved by a
+ * lateral over-the-shoulder offset (`SHOULDER_OFFSET = 0.6` m along camera-right,
+ * applied to the pivot so arm origin and look target moved together), parking him
+ * left of centre so the crosshair looked at clear world.
+ *
+ * That trade is now reversed: the brief is a centred hero, not an
+ * over-the-shoulder camera. The lateral offset is gone — the pivot is once again
+ * the focus in x/z, so the hero lands on the vertical screen centreline — and the
+ * occlusion it existed to prevent is instead solved VERTICALLY, by aiming the
+ * camera above the hero rather than at him.
+ *
+ * LOOK_LIFT is that aim offset, expressed as a fraction of the arm length so the
+ * framing is scale-free: the look target rides `dist * LOOK_LIFT` above the pivot,
+ * so the on-screen drop is `LOOK_LIFT / tan(fov/2) / 2` of the viewport height no
+ * matter where the wheel has left the zoom (3.5–11 m). It is a constant tilt added
+ * after the pitch clamp, not a change to `pitch`, so mouse-look still clamps
+ * exactly as before.
+ *
+ * 0.16 measured in-game at 1280x720, fov 55, dist 7.4, by projecting
+ * __dbgPlayerPos through __dbgCam: the chest pivot lands at x=640.0 (exactly the
+ * viewport centreline, i.e. under the reticle) and y=467 — 107 px, ~0.148 of the
+ * viewport, below the reticle at y=360, which it used to sit dead on. The top of
+ * the hat measures y≈425, so there is roughly one head of clear world between the
+ * hero and the crosshair. Smaller values close that gap back onto the hat; much
+ * larger ones push him toward the hotbar and eat the near ground.
+ *
+ * It also costs 9.1° of downward view (atan 0.16), which is why the default
+ * `pitch` below was raised to pay it back.
  */
-const SHOULDER_OFFSET = 0.6;
+const LOOK_LIFT = 0.16;
 
 /**
  * Vertical follow smoothing — "step smoothing".
@@ -67,7 +95,14 @@ const MAX_STEP_LAG = 1.6;
  */
 export class ThirdPersonCamera {
   yaw = Math.PI;   // behind a character facing +Z
-  pitch = 0.35;    // radians above the horizon (flatter = more hero on screen)
+  // Radians above the horizon (flatter = more hero on screen). Was 0.35 back
+  // when the camera looked straight AT the pivot and the arm angle WAS the view
+  // angle. LOOK_LIFT now tilts the view up 9.1° on top of the arm, so 0.35 left
+  // the game looking only 11° down: sky filled the upper third and the ground
+  // the hero walks on fell away. 0.46 measures -17.6° of view pitch, close to
+  // the -20.0° the 0.35 arm used to give, and the extra 2.4° of forward view is
+  // welcome now that the hero no longer sits off to one side of it.
+  pitch = 0.46;
   // Pulled back from 6.2: at close range the hero blocked the aim point and the
   // world read as a corridor. 7.4 keeps him readable with room to see ahead.
   private distTarget = 7.4;
@@ -118,16 +153,11 @@ export class ThirdPersonCamera {
       else if (lag < -MAX_STEP_LAG) this.followY = focus.y + MAX_STEP_LAG;
     }
 
-    // pivot at upper chest so the hero frames just below screen centre, then
-    // slid along camera-right so he sits off-centre and no longer occludes his
-    // own reticle. Camera-right for this yaw is (cos yaw, 0, -sin yaw); the
-    // offset lands on the pivot, so the arm origin and the look target (which
-    // is derived from the pivot below) move together and framing stays stable.
-    _pivot.set(
-      focus.x + Math.cos(this.yaw) * SHOULDER_OFFSET,
-      this.followY + 1.28,
-      focus.z - Math.sin(this.yaw) * SHOULDER_OFFSET,
-    );
+    // pivot at upper chest, on the hero's own x/z: the arm orbits him and the
+    // look target is derived from this point, so he stays on the vertical
+    // centreline of the frame directly under the reticle. (This used to carry a
+    // camera-right shoulder offset — see LOOK_LIFT for why it went.)
+    _pivot.set(focus.x, this.followY + 1.28, focus.z);
     const cp = Math.cos(this.pitch);
     _dir.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
     _desired.copy(_pivot).addScaledVector(_dir, this.dist);
@@ -157,7 +187,11 @@ export class ThirdPersonCamera {
     const sy = Math.sin(this.shakeT * 39.1 + 1.7) * 0.11 * sh;
 
     cam.position.set(this.pos.x + sx, this.pos.y + sy, this.pos.z - sx * 0.6);
-    _look.set(_pivot.x + sx * 0.7, _pivot.y + sy * 0.7, _pivot.z);
+    // Aim ABOVE the pivot, never at it: the aim point is what lands dead centre
+    // of frame, so lifting it drops the hero below the reticle without touching
+    // this.pitch (and therefore without touching its clamp). Scaled by the arm
+    // length so the on-screen drop is the same at every zoom — see LOOK_LIFT.
+    _look.set(_pivot.x + sx * 0.7, _pivot.y + sy * 0.7 + this.dist * LOOK_LIFT, _pivot.z);
     cam.lookAt(_look);
 
     this.forward.set(_pivot.x - cam.position.x, 0, _pivot.z - cam.position.z);
