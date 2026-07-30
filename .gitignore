@@ -41,6 +41,10 @@ build/Release
 node_modules/
 jspm_packages/
 
+# Bun is the package manager here and bun.lock is the lockfile of record; a
+# package-lock.json from a stray `npm install` describes a different tree.
+package-lock.json
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 

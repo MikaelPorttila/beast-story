@@ -15,8 +15,9 @@ Bun genuinely cannot do the job, and say so when you do.
 | `npx <tool>` | `bunx <tool>` |
 | `node tools/foo.mjs …` | `bun tools/foo.mjs …` |
 
-`bun.lock` is the lockfile of record. `package-lock.json` is a leftover — do not
-update it, and never mix `npm install` into a Bun-managed tree.
+`bun.lock` is the only lockfile. `package-lock.json` is gitignored — never mix
+`npm install` into a Bun-managed tree, and if one appears, delete it rather than
+committing it.
 
 ### The capture / lab tools
 
