@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type {
-  ElementType, EventBus, PalAction, PalAnimCtx, PalRig, PalSpecies, PalStats,
-  SkillDef, World,
+  ElementType, EventBus, FetchJob, PalAction, PalAnimCtx, PalRig, PalSpecies,
+  PalStats, SkillDef, World,
 } from '../core/types';
 
 // ---------------------------------------------------------------------------
@@ -63,6 +63,36 @@ const POOF_SECONDS = 0.5;
 const TRANSIENT_DURATIONS: Partial<Record<PalAction, number>> = {
   attack: 0.5, cast: 0.7, special: 0.95, hurt: 0.45, happy: 1.35,
 };
+
+// ---------------------------------------------------------------------------
+// Fetch errands
+// ---------------------------------------------------------------------------
+// A pal on an errand steers to a claimed drop instead of its station point,
+// grabs it, and hurries back. WHICH drops are worth fetching is not decided
+// here — main.ts offers the job (see beginFetch); this half only runs it, and
+// the two abort rules below exist so a bad offer cannot strand a pal.
+//
+// How far from the OWNER a drop may be and still be worth walking to. The
+// offer already filters on distance, so this is the pal's own bail-out for an
+// owner who runs off mid-errand.
+const FETCH_LEASH = 26;
+// Give up on an errand that takes this long. The case this exists for is a
+// drop on a ledge the pal cannot climb: without it the pal pushes into the
+// hillside until the drop expires 42 s later, station point abandoned.
+const FETCH_TIMEOUT = 12;
+// Horizontal grab reach, squared. 0.75 units — deliberately wider than the
+// player's own 0.67-unit collect radius, because a grounded pal arrives with
+// its feet at the drop while a flyer arrives above it.
+const FETCH_REACH_SQ = 0.75 * 0.75;
+// Seconds of hurrying back after a successful grab. Purely how it reads: the
+// pal turns straight around with the loot rather than sauntering, which is what
+// sells the trip as an errand instead of a wander.
+const FETCH_CARRY = 1.6;
+// Errand pace as a multiplier on follow speed. Kept small on purpose: the gait
+// is driven by speed01 normalised against the UNBOOSTED follow speed, so a big
+// multiplier pins the run cycle at full blend while the pal covers ground
+// faster than the legs claim to — it skates. 1.25 is not visible as a mismatch.
+const FETCH_HUSTLE = 1.25;
 
 // ---------------------------------------------------------------------------
 // Poof particle burst (teleport / revive flourish)
@@ -202,6 +232,11 @@ export class PalActor {
   private phase = Math.random() * TWO_PI;
   private ctx: PalAnimCtx = { action: 'idle', actionTime: 0, time: 0, moveSpeed: 0, dt: 0 };
 
+  // Fetch errand
+  private fetchJob: FetchJob | null = null;
+  private fetchTime = 0;
+  private carryTime = 0;
+
   // Timers / effects
   private supportTimer = 3 + Math.random() * 4;
   private idleTimer = 8 + Math.random() * 7;
@@ -227,7 +262,18 @@ export class PalActor {
       if ((o as THREE.Mesh).isMesh) {
         const m = o as THREE.Mesh;
         m.castShadow = true;
-        m.receiveShadow = true;
+        // Pals CAST but never RECEIVE. A pal is a handful of voxel parts a few
+        // centimetres apart, so the parts shadow each other: an ear prints a hard
+        // band across a muzzle, and faces near-parallel to the sun pick up the
+        // diagonal hatching of shadow-map acne. Both land on the read-at-a-glance
+        // parts — the face — and both vanish here.
+        //
+        // The cost is that a pal no longer darkens standing in shade, which is
+        // why castShadow stays on: its contact shadow is what keeps it planted on
+        // the ground. three has no per-object "receive the world's shadows but
+        // not my own", so this is the whole choice. See the hero's rig for the
+        // matching decision.
+        m.receiveShadow = false;
         const mat = m.material;
         if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
           this.materials.push(mat as THREE.MeshStandardMaterial);
@@ -309,6 +355,8 @@ export class PalActor {
       this.deadTimer = REVIVE_SECONDS;
       this.dieT = 0;
       this.transient = null;
+      this.abortFetch();   // put the drop back in play for whoever revives
+      this.carryTime = 0;
     } else {
       this.playAction('hurt');
       // Small knockback away from the source
@@ -346,6 +394,68 @@ export class PalActor {
     return true;
   }
 
+  // -- Fetch errands --------------------------------------------------------
+
+  /** True while walking to a claimed drop. */
+  get isFetching(): boolean { return this.fetchJob !== null; }
+  /** True for a moment after a grab, while hurrying the loot back. */
+  get isCarrying(): boolean { return this.carryTime > 0; }
+  /** Item the current errand is for, null when not on one. */
+  get fetchItemId(): string | null { return this.fetchJob ? this.fetchJob.itemId : null; }
+
+  /**
+   * Send this pal to collect a drop. Claims the job; returns false (leaving the
+   * drop for someone else) if the pal is busy, dead, or another fetcher got
+   * there first.
+   */
+  beginFetch(job: FetchJob): boolean {
+    if (this.fetchJob || this.isDead || this.poofT > 0) return false;
+    if (!job.claim()) return false;
+    this.fetchJob = job;
+    this.fetchTime = 0;
+    return true;
+  }
+
+  private abortFetch(): void {
+    this.fetchJob?.release();
+    this.fetchJob = null;
+    this.fetchTime = 0;
+  }
+
+  /**
+   * Advance the errand. Returns the job while the pal should still be steering
+   * at it — null once it has been grabbed, abandoned, or was never running.
+   */
+  private updateFetch(dt: number, owner: PalOwner): FetchJob | null {
+    if (this.carryTime > 0) this.carryTime -= dt;
+    const job = this.fetchJob;
+    if (!job) return null;
+    this.fetchTime += dt;
+
+    const lx = job.position.x - owner.position.x;
+    const lz = job.position.z - owner.position.z;
+    if (!job.valid || this.fetchTime > FETCH_TIMEOUT
+      || lx * lx + lz * lz > FETCH_LEASH * FETCH_LEASH) {
+      this.abortFetch();
+      return null;
+    }
+
+    const gx = job.position.x - this.position.x;
+    const gz = job.position.z - this.position.z;
+    if (gx * gx + gz * gz < FETCH_REACH_SQ) {
+      // Bookkeeping BEFORE the grab: collect() credits the player synchronously
+      // and emits on the bus, and a listener that wants to know WHICH pal just
+      // fetched something finds it by looking for the one that is carrying.
+      this.fetchJob = null;
+      this.fetchTime = 0;
+      this.carryTime = FETCH_CARRY;
+      this.playAction('happy', 0.9);
+      job.collect();
+      return null;
+    }
+    return job;
+  }
+
   setVisible(v: boolean): void {
     this.visibleFlag = v;
     this.rig.root.visible = v && !(this.isDead && this.dieT >= 1);
@@ -375,8 +485,8 @@ export class PalActor {
     const side = role === 'primary' ? 1 : -1;
     const cos = Math.cos(this.ownerHeading), sin = Math.sin(this.ownerHeading);
     const ox = side * 1.5, oz = -1.4;
-    const tx = owner.position.x + ox * cos + oz * sin;
-    const tz = owner.position.z + oz * cos - ox * sin;
+    let tx = owner.position.x + ox * cos + oz * sin;
+    let tz = owner.position.z + oz * cos - ox * sin;
 
     const dOwnX = owner.position.x - this.position.x;
     const dOwnZ = owner.position.z - this.position.z;
@@ -384,6 +494,13 @@ export class PalActor {
       this.teleportTo(tx, tz, !this.initialized);
       this.initialized = true;
     }
+
+    // -- Errand: steer at the drop instead of the station point -------------
+    // Note the order — the teleport check above still measures the OWNER, so a
+    // pal that falls far behind snaps to the party and drops the errand next
+    // frame (leash), rather than teleporting to the loot.
+    const errand = this.updateFetch(dt, owner);
+    if (errand) { tx = errand.position.x; tz = errand.position.z; }
 
     // -- Arrive steering ----------------------------------------------------
     const dx = tx - this.position.x, dz = tz - this.position.z;
@@ -403,9 +520,15 @@ export class PalActor {
 
     const baseSpeed = this.stats.speed * mediumMult;
     const catchup = dist > 7 ? Math.min(1.7, 1 + (dist - 7) * 0.12) : 1;
-    const slowR = 3.0, stopR = 0.3;
+    // On an errand the target is a thing to stand ON, not a station to hold
+    // near, so the arrive ramp is tight and only reaches zero at the drop
+    // itself. The follow ramp would still get close enough to grab (it stops
+    // 0.3 units out, inside the reach above) but it spends the last three
+    // units coasting, which reads as losing interest rather than arriving.
+    const slowR = errand ? 1.0 : 3.0, stopR = errand ? 0 : 0.3;
     const arrive = smoothstep01((dist - stopR) / (slowR - stopR));
-    const desiredSpeed = baseSpeed * catchup * arrive;
+    const hustle = errand || this.carryTime > 0 ? FETCH_HUSTLE : 1;
+    const desiredSpeed = baseSpeed * catchup * arrive * hustle;
 
     let desX = 0, desZ = 0;
     if (dist > 1e-4) {
@@ -545,8 +668,12 @@ export class PalActor {
       this.position.x + this.forward.x * 2.5,
       this.position.z + this.forward.z * 2.5,
     );
+    // A flyer on an errand drops to a hair under a metre so it visibly swoops
+    // on the drop and grabs it, instead of collecting from cruising altitude
+    // with a metre and a half of daylight under it.
+    const hover = this.fetchJob ? 0.85 : 1.55;
     const target = Math.max(surf, aheadY, this.world.waterLevel)
-      + 1.55 + Math.sin(this.time * 1.6 + this.phase) * 0.22;
+      + hover + Math.sin(this.time * 1.6 + this.phase) * 0.22;
     const prevY = this.position.y;
     this.position.y = damp(this.position.y, target, 2.6, dt);
     const vyNow = dt > 0 ? (this.position.y - prevY) / dt : 0;
@@ -643,6 +770,7 @@ export class PalActor {
   }
 
   dispose(): void {
+    this.abortFetch();
     this.scene.remove(this.rig.root);
     this.rig.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {

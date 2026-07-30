@@ -7,7 +7,7 @@ import type { World } from '../core/types';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
 import { buildWaterMesh, createWaterMaterial } from './water';
-import { PropLib, buildChunkProps, type Exclusion } from './props';
+import { PropLib, buildChunkProps, TREE_STRIDE, type Exclusion } from './props';
 import { Shops, type DenSpot } from './shops';
 import { Clouds, Motes } from './clouds';
 import { mulberry32 } from './noise';
@@ -30,6 +30,37 @@ interface ChunkRec {
 }
 
 const chunkKey = (cx: number, cz: number): string => `${cx},${cz}`;
+
+/**
+ * NUMERIC chunk key, for the trunk registry only.
+ *
+ * `chunkKey` builds a string, and climbTopAt runs inside the player's per-frame
+ * update — one template literal per lookup is exactly the kind of per-frame
+ * garbage this codebase does not produce. Multiplying keeps the key injective
+ * for |cz| < 2^21 chunks (67 million units out) and stays a safe integer for
+ * any cx a session can reach.
+ */
+const trunkKey = (cx: number, cz: number): number => cx * 4194304 + cz;
+
+/**
+ * How far outside a chunk a trunk's disc can reach, in world units.
+ *
+ * A tree is registered in the bucket of the chunk that PLACED it, so one
+ * standing near a chunk seam has to be findable from the neighbouring chunk
+ * too. The fattest bole in the game is the broad oak's, measured at 0.90 units
+ * of template radius; the girth roll tops out at 1.22 and the climbable disc
+ * adds TRUNK_GRAB, so the widest either query can ask about is ~1.44. 2 units
+ * of margin covers that with room for a fatter tree later.
+ */
+const TRUNK_MARGIN = 2;
+
+/**
+ * The same idea for the CROWN, which reaches far further: the widest canopy in
+ * the set (again the broad oak) measures 4.32 units of template radius, times
+ * the same 1.22 girth roll is 5.28. Used by climbTopAt, which has to find a
+ * tree rooted in the next chunk whose branches are over this column.
+ */
+const CROWN_MARGIN = 6;
 
 // ---------------------------------------------------------------------------
 // Spawn search: scenic flat grass, above water, with water in walking range.
@@ -196,6 +227,17 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
   ];
 
   const chunks = new Map<string, ChunkRec>();
+  /**
+   * Trees, bucketed by chunk: trunkKey -> the flat record buildChunkProps
+   * emitted, `[x, z, solidR^2, climbR^2, trunkTopY, crownR^2, crownCy, crownRy]`
+   * per tree (see ChunkProps.trunks / TREE_STRIDE).
+   *
+   * Per chunk rather than one world list because these are per-frame queries and
+   * the loaded world is ~90 chunks holding ~1000 trees: scanning all of them
+   * would be a thousand distance tests a frame, where one bucket is a dozen.
+   * Buckets appear when the props stage of a chunk runs and vanish with it.
+   */
+  const trunks = new Map<number, number[]>();
   const queue: Array<{ cx: number; cz: number; d: number }> = [];
   let lastCX = Infinity;
   let lastCZ = Infinity;
@@ -249,6 +291,7 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
           scene.add(m);
         }
       }
+      if (props.trunks.length > 0) trunks.set(trunkKey(cx, cz), props.trunks);
     }
   };
 
@@ -265,6 +308,7 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
       scene.remove(m);
       m.geometry.dispose();
     }
+    trunks.delete(trunkKey(rec.cx, rec.cz));
   };
 
   const refreshQueue = (fcx: number, fcz: number): void => {
@@ -309,6 +353,75 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
     spawnPoint,
     shopPositions: shops.positions,
     getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
+    /**
+     * Terrain, the top of a trunk, or the surface of a canopy — whichever is
+     * highest over this column. The whole tree holds weight: a player who
+     * mantles off a bole onto the leaves has to find something under him.
+     *
+     * The crown is modelled as a dome rather than a lid (see Template.trunk),
+     * so the surface falls away toward the rim the way the foliage does.
+     *
+     * Called from the player's per-frame update, so: no allocation, no string
+     * keys, and no scan of anything bigger than the chunk buckets that can hold
+     * a tree reaching this point. Two buckets is the common worst case (a point
+     * within CROWN_MARGIN of one seam); four only near a corner.
+     */
+    climbTopAt: (x: number, z: number): number => {
+      let top = terrain.getHeight(x, z);
+      const c0x = Math.floor((x - CROWN_MARGIN) / CHUNK_SIZE);
+      const c1x = Math.floor((x + CROWN_MARGIN) / CHUNK_SIZE);
+      const c0z = Math.floor((z - CROWN_MARGIN) / CHUNK_SIZE);
+      const c1z = Math.floor((z + CROWN_MARGIN) / CHUNK_SIZE);
+      for (let bx = c0x; bx <= c1x; bx++) {
+        for (let bz = c0z; bz <= c1z; bz++) {
+          const b = trunks.get(trunkKey(bx, bz));
+          if (b === undefined) continue;
+          for (let i = 0; i < b.length; i += TREE_STRIDE) {
+            const dx = x - b[i];
+            const dz = z - b[i + 1];
+            const d2 = dx * dx + dz * dz;
+            if (d2 <= b[i + 3] && b[i + 4] > top) top = b[i + 4]; // bole
+            const cr2 = b[i + 5];
+            if (d2 <= cr2) {                                     // canopy dome
+              const y = b[i + 6] + b[i + 7] * Math.sqrt(1 - d2 / cr2);
+              if (y > top) top = y;
+            }
+          }
+        }
+      }
+      return top;
+    },
+
+    /**
+     * Top of the solid bole at this column, or -Infinity where there is none.
+     *
+     * Only the trunk is here — the crown fields are not consulted at all. A
+     * canopy that blocked movement would fence off every tree in the world at
+     * ground level; walking under one has to keep working.
+     */
+    trunkSolidTopAt: (x: number, z: number): number => {
+      let top = -Infinity;
+      // The solid disc is the bark itself, so it never reaches as far out of
+      // its chunk as a crown does — but the seam handling is the same shape and
+      // one shared margin is cheaper to reason about than two.
+      const c0x = Math.floor((x - TRUNK_MARGIN) / CHUNK_SIZE);
+      const c1x = Math.floor((x + TRUNK_MARGIN) / CHUNK_SIZE);
+      const c0z = Math.floor((z - TRUNK_MARGIN) / CHUNK_SIZE);
+      const c1z = Math.floor((z + TRUNK_MARGIN) / CHUNK_SIZE);
+      for (let bx = c0x; bx <= c1x; bx++) {
+        for (let bz = c0z; bz <= c1z; bz++) {
+          const b = trunks.get(trunkKey(bx, bz));
+          if (b === undefined) continue;
+          for (let i = 0; i < b.length; i += TREE_STRIDE) {
+            const dx = x - b[i];
+            const dz = z - b[i + 1];
+            if (dx * dx + dz * dz > b[i + 2]) continue;
+            if (b[i + 4] > top) top = b[i + 4];
+          }
+        }
+      }
+      return top;
+    },
     isWater: (x: number, z: number): boolean => terrain.getHeight(x, z) < WATER_LEVEL,
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
@@ -360,6 +473,7 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
       disposed = true;
       for (const rec of chunks.values()) disposeChunk(rec);
       chunks.clear();
+      trunks.clear();
       scene.remove(shops.group);
       shops.dispose();
       if (clouds) {

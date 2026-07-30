@@ -8,6 +8,11 @@ import type { World } from '../core/types';
  * matches the real game minus the terrain itself.
  */
 export class StubWorld implements World {
+  /** Bare stage: the flat floor is the only thing to hold onto. */
+  climbTopAt(): number { return this.getHeight(); }
+  /** No props on the stage, so there is never a trunk in the way. */
+  trunkSolidTopAt(): number { return -Infinity; }
+
   readonly waterLevel: number;
   readonly shopPositions: THREE.Vector3[] = [];
   readonly spawnPoint = new THREE.Vector3(0, 0, 0);

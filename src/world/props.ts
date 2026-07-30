@@ -14,6 +14,29 @@ interface Template {
   nrm: Float32Array;
   col: Float32Array;
   idx: ArrayLike<number>;
+  /**
+   * The tree inside this template, if it is one, in TEMPLATE units — i.e.
+   * already multiplied by the bake scale, so a stamp only has to apply its own
+   * girth (`s`) and height (`sy`) factors on top.
+   *
+   *   r         half-width of the trunk shaft, from the model origin. This is
+   *             the SOLID part of a tree and the only part of it that is.
+   *   top       height of the shaft's top face above the model's base (y = 0)
+   *   crownR    horizontal reach of the foliage, from the same axis
+   *   crownCy   centre height of the foliage dome
+   *   crownRy   vertical semi-axis of that dome, so the climbable surface over
+   *             the crown is `crownCy + crownRy * sqrt(1 - d^2/crownR^2)`: a
+   *             rounded canopy you can stand on rather than a flat lid at the
+   *             tree's apex, which would leave a player who mantled onto the
+   *             RIM of a crown hovering metres above the leaves.
+   *
+   * Templates carrying this bake UNCENTRED (see `bake`), which puts the shaft
+   * axis exactly on the model origin. That matters twice over: the stamp yaws
+   * about the trunk instead of swinging it around the crown's bounding-box
+   * centre, and the world position recorded in the chunk's trunk registry is
+   * the line the player actually climbs.
+   */
+  trunk?: { r: number; top: number; crownR: number; crownCy: number; crownRy: number };
 }
 
 /**
@@ -59,8 +82,20 @@ export function relight(nrm: Float32Array, col: Float32Array): void {
   }
 }
 
-function bake(model: VoxelModel, scale: number): Template {
-  const mesh = model.build(scale, true);
+/**
+ * Bake a voxel model to a stampable template.
+ *
+ * `trunkR`/`trunkTop` are in VOXELS and turn the result into a climbable tree:
+ * passing them also flips `build` to its uncentred mode, so the model origin is
+ * voxel (0, ·, 0) — the axis every `trunk()` shaft is painted around — rather
+ * than the centre of a bounding box that an offset crown lobe can drag a voxel
+ * or two off the trunk. `build` puts y = 0 at the lowest voxel either way, and
+ * every tree here starts its trunk at y = 0, so `trunkTop` needs no y fixup.
+ */
+function bake(
+  model: VoxelModel, scale: number, trunkR?: number, trunkTop?: number,
+): Template {
+  const mesh = model.build(scale, trunkR === undefined);
   const g = mesh.geometry;
   const t: Template = {
     pos: (g.getAttribute('position') as THREE.BufferAttribute).array as Float32Array,
@@ -68,6 +103,50 @@ function bake(model: VoxelModel, scale: number): Template {
     col: (g.getAttribute('color') as THREE.BufferAttribute).array as Float32Array,
     idx: g.getIndex()!.array,
   };
+  if (trunkR !== undefined && trunkTop !== undefined) {
+    // The foliage envelope is MEASURED off the baked vertices rather than
+    // authored per species: every builder here already states its crown as a
+    // handful of overlapping clumps, and restating the union of them as a
+    // bounding dome by hand is exactly the sort of duplicated constant that
+    // goes stale the first time a clump moves.
+    //
+    // "Foliage" is anything further from the axis than the widest the bole ever
+    // gets (its root flare, `r + 1` voxels) AND above the halfway point of the
+    // shaft. Both halves are needed: the radial test alone lets `trunk`'s root
+    // buttresses in — they stick out two voxels at y = 0 — and that pinned every
+    // measured crown floor to the ground, which turned the dome below into one
+    // spanning the whole tree instead of just its head.
+    // The CORNER of the flared shaft, not its face: a square column of
+    // half-width w reaches w * sqrt(2) at its corners, and without that factor
+    // the trunk's own corner vertices land a hair outside the threshold and get
+    // counted as the lowest foliage in the tree.
+    const bole = (trunkR + 1) * scale * Math.SQRT2;
+    const foliageFloor = trunkTop * scale * 0.5;
+    let crownR = 0;
+    let crownLo = Infinity;
+    let crownHi = -Infinity;
+    for (let i = 0; i < t.pos.length; i += 3) {
+      const y = t.pos[i + 1];
+      if (y <= foliageFloor) continue;
+      const d = Math.hypot(t.pos[i], t.pos[i + 2]);
+      if (d <= bole) continue;
+      if (d > crownR) crownR = d;
+      if (y < crownLo) crownLo = y;
+      if (y > crownHi) crownHi = y;
+    }
+    if (crownLo === Infinity) { crownLo = trunkTop * scale; crownHi = crownLo; }
+    t.trunk = {
+      r: trunkR * scale,
+      top: trunkTop * scale,
+      // 0.84 of the measured reach: the outermost voxels of a canopy are the
+      // eroded, ragged ones (see Canopy.clump), so a disc drawn on the extreme
+      // is mostly air. Pulling it in keeps the walkable surface over foliage
+      // that is actually there.
+      crownR: crownR * 0.84,
+      crownCy: (crownHi + crownLo) / 2,
+      crownRy: (crownHi - crownLo) / 2,
+    };
+  }
   relight(t.nrm, t.col);
   (mesh.material as THREE.Material).dispose();
   return t;
@@ -230,29 +309,44 @@ class Canopy {
 }
 
 /**
- * Tapered, bark-varied trunk. `r0` is the half-width at the root (a 2r0-wide
- * flare), narrowing to a single voxel column at the top. Real trunks flare where
- * they meet the ground and every one of them has value variation up the bark;
- * the old straight 2x2 prism with two darker voxels read as a fence post.
+ * Tapered, bark-varied trunk. The shaft spans `[-r, r)` in x and z, so `r = 1`
+ * is the 2-voxel column every tree here used to have and `r = 2` is a 4-voxel
+ * bole; it tapers from `r0` at the root to `r1` under the crown, with a
+ * one-voxel flare at the foot. Real trunks flare where they meet the ground and
+ * every one of them has value variation up the bark; the old straight 2x2 prism
+ * with two darker voxels read as a fence post.
+ *
+ * The shaft is centred on voxel 0 deliberately — see `Template.trunk`. Every
+ * caller must therefore pass `trunkR`/`trunkTop` to `bake` so the model bakes
+ * uncentred and the painted shaft ends up on the model origin.
+ *
+ * Trunks got MUCH longer with the 2026-07 tree rescale (oak shafts 7 -> 13-20
+ * voxels), which is what carries the canopy clear of the hero and the camera;
+ * the taper exists so a 20-voxel shaft does not read as scaffolding.
  */
 function trunk(
-  v: VoxelModel, h: number, base: number, seed: number, r0 = 1,
+  v: VoxelModel, h: number, base: number, seed: number, r0 = 1, r1 = r0,
 ): void {
   let n = seed >>> 0;
   const rnd = (): number => {
     n = (n * 1664525 + 1013904223) >>> 0;
     return ((n >>> 9) & 0xffff) / 0x10000;
   };
+  const flareTo = Math.max(1, Math.round(h * 0.1));
   for (let y = 0; y <= h; y++) {
-    // flare only in the bottom ~18% of the trunk
-    const w = y < Math.max(1, h * 0.18) ? r0 : 0;
+    // Taper is finished by ~70% of the way up: the last third of the shaft is a
+    // clean column, so the crown sits on a trunk rather than on a spike.
+    const t = Math.min(1, (y / h) / 0.7);
+    let r = Math.max(1, Math.round(r0 + (r1 - r0) * t));
+    if (y < flareTo) r += 1; // root flare
     const m = 0.84 + rnd() * 0.3;
-    v.box(-w - 1, y, -w - 1, w, y, w, shade(base, m));
+    v.box(-r, y, -r, r - 1, y, r - 1, shade(base, m));
   }
   // A couple of root buttresses so the trunk grips the ground.
-  v.set(-2, 0, 0, shade(base, 0.78));
-  v.set(1, 0, -1, shade(base, 0.86));
-  v.set(0, 0, 1, shade(base, 0.8));
+  const b = r0 + 1;
+  v.set(-b - 1, 0, 0, shade(base, 0.78));
+  v.set(b, 0, -1, shade(base, 0.86));
+  v.set(0, 0, b, shade(base, 0.8));
 }
 
 // ---------------------------------------------------------------------------
@@ -283,33 +377,71 @@ const BIRCH_DEEP = 0x3a8c3a;
 const BIRCH_MID = 0x4aa044;
 const BIRCH_CROWN = 0x6cbe55;
 
+/**
+ * TREE SCALE (2026-07 rescale).
+ *
+ * Every tree in this file used to be a shrub. Measured off the baked templates:
+ * the standard oak stood 3.30 world units tall with a crown 2.8 units across,
+ * the big oak 4.59 by 3.9, the birch 3.00 by 1.7. The hero is 2 units tall, so
+ * the entire forest topped out at a bit over twice his height and the "canopy"
+ * was level with his hat — filed as "trees are too small".
+ *
+ * Two constraints set the new numbers:
+ *
+ *  - TRUNK CLEARANCE. The third-person camera rides ~7.4 units back and a couple
+ *    of units above the hero, so any foliage that starts below ~4 units fills
+ *    the frame the moment he walks under it. Every broadleaf here now carries a
+ *    bare shaft of 13-20 voxels (6-10 units), and the lowest crown voxel of the
+ *    lowest variant (oakD, the deliberately squat one) still sits ~4 units up.
+ *  - VERTEX COST. Props are ~78% of a chunk build against a 3 ms/frame budget
+ *    (BUILD_BUDGET_MS, world/index.ts), and a canopy's cost goes with its
+ *    SURFACE, so tripling a crown's radius in voxels would have been ~9x the
+ *    triangles per tree. Roughly two thirds of the size increase is therefore
+ *    bought with a bigger bake scale (0.22-0.27 -> 0.40-0.52 units per voxel,
+ *    still finer than the 1-unit terrain step and squarely in the chunky Cube
+ *    World register) and only one third with more voxels. The rest is paid for
+ *    by the tree grid going from 6x6 cells of 5 units to 4x4 cells of 8 — see
+ *    the tree pass in buildChunkProps.
+ *
+ * Trees land at 10-15.5 units before the per-instance 0.78-1.22 girth /
+ * 0.86-1.30 height rolls, i.e. 5-8x the hero, which is the proportion a real
+ * mature broadleaf has against a person.
+ */
+
 /** Tall, narrow oak with an offset lobe — breaks up the round-oak silhouette. */
 function oakTreeTall(): Template {
   const v = new VoxelModel();
-  trunk(v, 10, 0x7a5233, 0x51f7);
+  // The tallest thing in a plains/forest skyline: a 20-voxel shaft under a
+  // narrow crown, 15.5 units all in. 4.37 units before the rescale.
+  const H = 20;
+  trunk(v, H, 0x7a5233, 0x51f7, 2, 1);
   const c = new Canopy(v, 0x2731);
-  c.clump(-0.5, 12, -0.5, 3.8, 5.0, 3.8, CANOPY_MID);
-  c.clump(-0.5, 15.5, -0.5, 2.6, 2.8, 2.6, CANOPY_CROWN);
-  c.clump(2.0, 10.5, 1.2, 2.6, 2.2, 2.6, CANOPY_SIDE);
-  c.clump(-2.8, 13.5, 0.8, 2.2, 1.9, 2.2, CANOPY_LIT);
+  c.clump(-0.5, H + 3.0, -0.5, 5.6, 6.4, 5.6, CANOPY_MID);
+  c.clump(-0.5, H + 8.2, -0.5, 3.8, 3.2, 3.8, CANOPY_CROWN);
+  c.clump(3.2, H - 0.5, 1.8, 3.6, 2.8, 3.6, CANOPY_SIDE);
+  c.clump(-4.0, H + 4.2, 1.2, 3.2, 2.6, 3.2, CANOPY_LIT);
   c.bake();
-  return bake(v, 0.23);
+  return bake(v, 0.48, 1, H + 1);
 }
 
 function oakTree(big: boolean): Template {
   const v = new VoxelModel();
-  const h = big ? 9 : 7;
-  trunk(v, h, 0x7a5233, big ? 0x91c3 : 0x4b12);
+  const h = big ? 15 : 13;
+  trunk(v, h, 0x7a5233, big ? 0x91c3 : 0x4b12, 2, 1);
   const c = new Canopy(v, big ? 0x77ab : 0x1d0e);
   // Clumped, not one shell: a big shaded mass low and inboard, two mid clumps
-  // pushed out to opposite sides, and a bright crown catching the sky.
-  c.clump(-0.5, h + 2.2, -0.5, big ? 5.8 : 4.8, big ? 4.2 : 3.5, big ? 5.8 : 4.8, CANOPY_DEEP);
-  c.clump(2.2, h + 4.0, 1.0, big ? 3.6 : 3.0, 2.8, big ? 3.6 : 3.0, CANOPY_LIT);
-  c.clump(-3.0, h + 3.4, -2.0, big ? 3.3 : 2.8, 2.5, big ? 3.3 : 2.8, CANOPY_MID);
-  c.clump(0.5, h + 3.0, 2.6, 2.4, 2.0, 2.4, CANOPY_SIDE);
-  c.clump(-0.5, h + 5.4, -0.5, big ? 2.8 : 2.4, 1.9, big ? 2.8 : 2.4, CANOPY_CROWN);
+  // pushed out to opposite sides, and a bright crown catching the sky. The
+  // lobes are now expressed as fractions of the crown radius so the two
+  // variants stay the same TREE at two sizes rather than drifting into two
+  // different shapes.
+  const R = big ? 8.2 : 6.8;
+  c.clump(-0.6, h + 3.6, -0.6, R, R * 0.66, R, CANOPY_DEEP);
+  c.clump(R * 0.42, h + 6.4, R * 0.2, R * 0.56, R * 0.45, R * 0.56, CANOPY_LIT);
+  c.clump(-R * 0.46, h + 5.6, -R * 0.3, R * 0.52, R * 0.42, R * 0.52, CANOPY_MID);
+  c.clump(R * 0.1, h + 4.8, R * 0.46, R * 0.42, R * 0.34, R * 0.42, CANOPY_SIDE);
+  c.clump(-0.6, h + 8.6, -0.6, R * 0.46, R * 0.3, R * 0.46, CANOPY_CROWN);
   c.bake();
-  return bake(v, big ? 0.27 : 0.22);
+  return bake(v, big ? 0.52 : 0.46, 1.5, h + 1);
 }
 
 /**
@@ -317,53 +449,75 @@ function oakTree(big: boolean): Template {
  * The other three oaks are all taller than they are wide, so every plains tree
  * repeated the same vertical proportion; this one is the opposite shape and
  * changes the horizon wherever it lands.
+ *
+ * It is the shortest tree in the set and therefore the one that decides the
+ * camera clearance. Its measured foliage floor is the lowest of the eleven tree
+ * templates: 5.50 units on a 12-voxel shaft, against 5.98 for the standard oak
+ * and 4.40 for the short pine. The hero is 2 units and the camera rides a
+ * couple above him, so even the 0.86 end of the height roll keeps the leaves
+ * out of the lens. An 11-voxel shaft measured 5.00 and was the marginal case.
  */
 function oakTreeBroad(): Template {
   const v = new VoxelModel();
-  trunk(v, 5, 0x744d31, 0x3ac1, 1);
+  const H = 12;
+  trunk(v, H, 0x744d31, 0x3ac1, 2, 2);
   const c = new Canopy(v, 0x6f22);
-  c.clump(0, 7.0, 0, 6.4, 2.9, 6.0, CANOPY_DEEP);
-  c.clump(-2.6, 8.2, 1.4, 3.4, 2.3, 3.2, CANOPY_MID);
-  c.clump(3.0, 7.8, -1.6, 3.2, 2.1, 3.0, CANOPY_SIDE);
-  c.clump(0.4, 9.4, 0.2, 3.0, 1.9, 2.8, CANOPY_LIT);
-  c.clump(-0.8, 10.6, -0.6, 1.8, 1.2, 1.8, CANOPY_CROWN);
+  c.clump(0, H + 3.0, 0, 9.0, 5.2, 8.6, CANOPY_DEEP);
+  c.clump(-4.2, H + 5.0, 2.2, 4.6, 3.2, 4.4, CANOPY_MID);
+  c.clump(4.6, H + 4.4, -2.6, 4.4, 3.0, 4.2, CANOPY_SIDE);
+  c.clump(0.6, H + 6.6, 0.4, 4.2, 2.8, 4.0, CANOPY_LIT);
+  c.clump(-1.2, H + 8.4, -1.0, 2.6, 1.8, 2.6, CANOPY_CROWN);
   c.bake();
-  return bake(v, 0.26);
+  return bake(v, 0.50, 1.8, H + 1);
 }
 
 function birchTree(): Template {
   const v = new VoxelModel();
+  // The bole is a 2x2 column now, not a single voxel: at the new heights a
+  // 1-voxel stem was a 0.42-unit pole holding up an 11-unit tree, which is the
+  // "spindly" failure mode. Still the slimmest trunk in the set, as a birch's is.
   // low-contrast tan bands (~15%) so the trunk doesn't read as a survey pole
-  for (let y = 0; y <= 9; y++) {
-    v.set(0, y, 0, y === 2 || y === 5 ? 0x8f7752 : y === 7 ? 0xb59d78 : 0xc9b184);
+  const H = 18;
+  for (let y = 0; y <= H; y++) {
+    v.box(-1, y, -1, 0, y, 0,
+      y % 7 === 2 || y % 7 === 5 ? 0x8f7752 : y % 5 === 3 ? 0xb59d78 : 0xc9b184);
   }
-  v.set(-1, 0, 0, 0xb59d78);
+  v.set(-2, 0, 0, 0xb59d78);
   v.set(0, 0, 1, 0xa89066);
   const c = new Canopy(v, 0xbb31);
   // Birch keeps the lightest, yellowest foliage of the broadleaves — it is the
   // one tree that is SUPPOSED to read as a pale accent in a dark wood — but even
   // it now sits below the meadow so its outline holds against a hillside.
-  c.clump(0, 11.3, 0, 3.6, 3.0, 3.6, BIRCH_MID);
-  c.clump(1.2, 12.9, 0.6, 2.2, 1.7, 2.2, BIRCH_CROWN);
-  c.clump(-1.6, 10.6, -0.8, 2.0, 1.6, 2.0, BIRCH_DEEP);
+  c.clump(-0.5, H + 3.4, -0.5, 5.4, 4.6, 5.4, BIRCH_MID);
+  c.clump(2.0, H + 6.4, 1.0, 3.2, 2.4, 3.2, BIRCH_CROWN);
+  c.clump(-2.6, H + 2.0, -1.4, 3.0, 2.4, 3.0, BIRCH_DEEP);
   c.bake();
-  return bake(v, 0.2);
+  return bake(v, 0.42, 1, H + 1);
 }
 
 function pineTree(tall: boolean): Template {
   const v = new VoxelModel();
-  v.box(0, 0, 0, 0, 3, 0, 0x6b4a2e);
-  v.set(-1, 0, 0, 0x5a3d26);
-  v.set(0, 0, 1, 0x5a3d26);
   const g1 = 0x2f8442;
   const g2 = 0x3f9c50;
   const snow = 0xdcecf2;
+  // Conifers get a BARE SHAFT under the first tier now (8 voxels, 12 on the
+  // tall variant) where they used to start branching 3 voxels off the ground.
+  // Two reasons beyond scale: a snow forest whose foliage reaches the floor is
+  // an opaque wall to walk through, and a pine with no bare bole has no trunk to
+  // climb — climbTopAt would hand back a height barely off the ground.
+  const bare = tall ? 12 : 10;
+  trunk(v, bare, 0x6b4a2e, tall ? 0x3d71 : 0x71c4, 2, 1);
+  // [radius, y0, y1] tiers, stacked from `bare` up. Deeper tiers (3 voxels, not
+  // 2) so the cone stays a solid mass at the new size instead of a stack of
+  // plates with daylight between them.
   const layers: Array<[number, number, number]> = tall
-    ? [[4, 3, 4], [3, 5, 6], [3, 7, 8], [2, 9, 10], [1, 11, 12], [0, 13, 14]]
-    : [[4, 3, 4], [3, 5, 6], [2, 7, 8], [1, 9, 10], [0, 11, 12]];
+    ? [[6, 0, 3], [5, 4, 7], [4, 8, 11], [3, 12, 14], [2, 15, 17], [1, 18, 19]]
+    : [[5, 0, 3], [4, 4, 6], [3, 7, 9], [2, 10, 12], [1, 13, 14]];
   let n = 0x9e11;
   for (let li = 0; li < layers.length; li++) {
-    const [r, y0, y1] = layers[li];
+    const [r, ly0, ly1] = layers[li];
+    const y0 = bare + ly0;
+    const y1 = bare + ly1;
     const base = li % 2 === 0 ? g1 : g2;
     // Each tier is brighter than the one under it, and each voxel is jittered:
     // a conifer's tiers self-shade heavily, and flat-coloured tiers were reading
@@ -379,26 +533,28 @@ function pineTree(tall: boolean): Template {
         }
     v.box(-r, y1, -r, r, y1, r, snow); // snow dusting on every tier top
   }
-  return bake(v, tall ? 0.26 : 0.22);
+  return bake(v, tall ? 0.50 : 0.44, 1, bare);
 }
 
 /** Asymmetric pine — tier offsets wobble so the cone silhouette isn't a stamp. */
 function pineIrregular(): Template {
   const v = new VoxelModel();
-  v.box(0, 0, 0, 0, 3, 0, 0x6b4a2e);
+  const bare = 10;
+  trunk(v, bare, 0x6b4a2e, 0x1ac9, 2, 1);
   const g1 = 0x2f8244;
   const g2 = 0x3a9349;
   const snow = 0xdcecf2;
-  // [radius, y0, y1, xOffset, zOffset]
+  // [radius, y0, y1, xOffset, zOffset], y relative to the top of the bare shaft
   const layers: Array<[number, number, number, number, number]> = [
-    [4, 3, 4, 1, 0], [3, 5, 6, -1, 1], [3, 7, 8, 0, -1], [2, 9, 10, 1, 0], [1, 11, 12, 0, 1], [0, 13, 13, 0, 0],
+    [5, 0, 3, 1, 0], [5, 4, 6, -2, 1], [4, 7, 9, 0, -2], [3, 10, 12, 1, 0],
+    [2, 13, 15, 0, 1], [1, 16, 17, -1, 0],
   ];
   for (let li = 0; li < layers.length; li++) {
     const [r, y0, y1, dx, dz] = layers[li];
-    v.box(-r + dx, y0, -r + dz, r + dx, y1, r + dz, li % 2 === 0 ? g1 : g2);
-    v.box(-r + dx, y1, -r + dz, r + dx, y1, r + dz, snow);
+    v.box(-r + dx, bare + y0, -r + dz, r + dx, bare + y1, r + dz, li % 2 === 0 ? g1 : g2);
+    v.box(-r + dx, bare + y1, -r + dz, r + dx, bare + y1, r + dz, snow);
   }
-  return bake(v, 0.24);
+  return bake(v, 0.46, 1, bare);
 }
 
 /**
@@ -407,31 +563,40 @@ function pineIrregular(): Template {
  */
 function palmTree(fronds: number, lean: number, heightMul: number): Template {
   const v = new VoxelModel();
-  const trunk = 0x8a6238;
-  const H = Math.max(8, Math.round(11 * heightMul));
+  const trunkC = 0x8a6238;
+  // 22 voxels at 0.36 = a 7.9-unit bole, up from 11 at 0.20 (2.2 units). A palm
+  // is the one tree that is ALL trunk, so this is where the rescale shows most.
+  const H = Math.max(16, Math.round(22 * heightMul));
   let topX = 0;
   for (let y = 0; y <= H; y++) {
     const xo = Math.round(y * lean);
-    v.set(xo, y, 0, y % 3 === 0 ? 0x7a5530 : trunk);
+    // 2x2 bole. A 1-voxel stem held up a 2-unit palm well enough; at 8 units it
+    // was a wire.
+    v.box(xo - 1, y, -1, xo, y, 0, y % 3 === 0 ? 0x7a5530 : trunkC);
     topX = xo;
   }
   const topY = H + 1;
   const leaf = 0x3f9e45;
   const leafL = 0x55b858;
+  // Fronds run to 8 voxels (was 5) so the crown still spreads wider than the
+  // trunk is thick now that the trunk is twice as wide.
   for (let f = 0; f < fronds; f++) {
     const a = (f / fronds) * Math.PI * 2 + fronds * 0.73;
     const dx = Math.cos(a);
     const dz = Math.sin(a);
-    for (let k = 1; k <= 5; k++) {
-      const y = topY + (k <= 1 ? 1 : k <= 3 ? 0 : -(k - 3));
-      v.set(topX + Math.round(dx * k), y, Math.round(dz * k), k >= 4 ? leafL : leaf);
+    for (let k = 1; k <= 8; k++) {
+      const y = topY + (k <= 2 ? 1 : k <= 5 ? 0 : -(k - 5));
+      v.set(topX + Math.round(dx * k), y, Math.round(dz * k), k >= 6 ? leafL : leaf);
+      // A second cell of width at the shoulder, or the frond is a 1-voxel wire
+      // at this length.
+      if (k <= 4) v.set(topX + Math.round(dx * k), y, Math.round(dz * k) + 1, leaf);
     }
   }
-  v.set(topX, topY, 0, leaf);
-  v.set(topX, topY + 1, 0, leafL);
-  v.set(topX - 1, topY - 1, 0, 0x5c3d24);
+  v.box(topX - 1, topY, -1, topX, topY, 0, leaf);
+  v.box(topX - 1, topY + 1, -1, topX, topY + 1, 0, leafL);
+  v.set(topX - 2, topY - 1, 0, 0x5c3d24);
   v.set(topX + 1, topY - 1, 1, 0x5c3d24);
-  return bake(v, 0.2);
+  return bake(v, 0.36, 1, H);
 }
 
 function cactus(small: boolean): Template {
@@ -980,9 +1145,14 @@ export class PropLib {
   readonly pine = pineTree(false);
   readonly pineTall = pineTree(true);
   readonly pineIrr = pineIrregular();
-  readonly palm = palmTree(6, 0.25, 1.0);
-  readonly palmB = palmTree(5, 0.1, 0.82);
-  readonly palmC = palmTree(7, 0.34, 1.2);
+  // Leans are HALVED from 0.25/0.1/0.34. Lean is a slope, so it costs
+  // `height * lean` of horizontal drift, and once the bole went from 11 voxels
+  // to 22 the old slopes threw the crown 5+ voxels sideways — a palm bent
+  // almost flat, and one whose registered climbable trunk (recorded at the base,
+  // see the tree pass) no longer had much to do with where its head was.
+  readonly palm = palmTree(6, 0.12, 1.0);
+  readonly palmB = palmTree(5, 0.05, 0.82);
+  readonly palmC = palmTree(7, 0.17, 1.2);
   readonly cactusBig = cactus(false);
   readonly cactusSmall = cactus(true);
   readonly rockA = rock(0);
@@ -1055,7 +1225,32 @@ const clampTint = (v: number): number => (v < 0.5 ? 0.5 : v > 1.7 ? 1.7 : v);
 export interface ChunkProps {
   solid: THREE.Mesh | null;
   soft: THREE.Mesh | null;
+  /**
+   * Trees placed in this chunk, flat, stride `TREE_STRIDE`:
+   * `[worldX, worldZ, solidR^2, climbR^2, trunkTopY, crownR^2, crownCy, crownRy]`.
+   *
+   * Flat because this is read by `World.climbTopAt` and `trunkSolidTopAt` from
+   * the player's per-frame update — a short linear scan over one chunk's
+   * numbers, with no objects to chase and nothing allocated at the call site.
+   * The chunk that built it owns it; `world/index.ts` buckets it by chunk key
+   * and drops it on unload.
+   */
+  trunks: number[];
 }
+
+/** Numbers per tree in `ChunkProps.trunks`. */
+export const TREE_STRIDE = 8;
+
+/**
+ * Extra reach around a trunk's own half-width before it counts as CLIMBABLE, in
+ * world units. Roughly the hero's BODY_RADIUS (0.32): he grabs the bark when his
+ * shoulder is against it, not when his centre is inside it.
+ *
+ * Deliberately not applied to the solid radius, which stays the geometric bark:
+ * the player controller does its own body-width probing, and inflating the
+ * cylinder here as well would stop him a third of a unit short of the tree.
+ */
+const TRUNK_GRAB = 0.34;
 
 /**
  * World-space points props must keep clear of (spawn + shop dens).
@@ -1075,6 +1270,23 @@ export type Exclusion = { x: number; z: number; kind?: 'solid' | 'all' };
 
 /** Squared clearance radius for solid occluders (~4.5m). */
 const SOLID_CLEAR_R2 = 20;
+/**
+ * Squared clearance radius for TREES specifically (~9.5m).
+ *
+ * Trees need their own, much wider disc than boulders and hedges do, and the
+ * reason is the crown rather than the trunk: a canopy is 7-10 units across and
+ * starts 4-6 units up, so a tree rooted at the 4.5m occluder radius has its
+ * foliage hanging directly over the spawn point and the den decks. Captured at
+ * the old radius right after the tree rescale, the spawn frame was a third
+ * black — near crown voxels, each one now half a unit across, filling the
+ * screen between the camera and the hero.
+ *
+ * 9.5m is the crown radius (~5) plus the camera's arm (7.4) with the pitch
+ * taken out of it, i.e. the distance at which the nearest branch clears the
+ * lens. Boulders, hedges, logs and mushrooms still come right up to 4.5m, so
+ * the clearing reads as a glade rather than as a bald disc.
+ */
+const TREE_CLEAR_R2 = 90;
 
 export function buildChunkProps(
   cx: number,
@@ -1086,6 +1298,7 @@ export function buildChunkProps(
   const rng = mulberry32(Math.floor(hashCell(terrain.seed, cx, 91, cz) * 0xffffffff));
   const solid = new Accum();
   const soft = new Accum();
+  const trunks: number[] = [];
   const ox = cx * CHUNK_SIZE;
   const oz = cz * CHUNK_SIZE;
   const ci: ColumnScratch = makeScratch();
@@ -1096,6 +1309,16 @@ export function buildChunkProps(
       const dx = wx - exclusions[i].x;
       const dz = wz - exclusions[i].z;
       if (dx * dx + dz * dz < SOLID_CLEAR_R2) return true;
+    }
+    return false;
+  };
+
+  /** Trees keep a far wider disc than any other occluder — see TREE_CLEAR_R2. */
+  const exTree = (wx: number, wz: number): boolean => {
+    for (let i = 0; i < exclusions.length; i++) {
+      const dx = wx - exclusions[i].x;
+      const dz = wz - exclusions[i].z;
+      if (dx * dx + dz * dz < TREE_CLEAR_R2) return true;
     }
     return false;
   };
@@ -1171,10 +1394,25 @@ export function buildChunkProps(
   };
 
   // ---- tree pass: jittered grid keeps organic spacing ----------------------
-  for (let gx = 0; gx < 6; gx++) {
-    for (let gz = 0; gz < 6; gz++) {
-      const lx = gx * 5 + Math.floor(rng() * 5);
-      const lz = gz * 5 + Math.floor(rng() * 5);
+  // The lattice went from 6x6 cells of 5 units to 4x4 cells of 8 with the 2026-07
+  // tree rescale, and the biome acceptance rates went UP to partly compensate.
+  // Both halves are forced by the same thing: a crown is now 7-10 units across
+  // instead of 2.8-3.9, so 36 candidates on a 5-unit lattice would have merged
+  // into one continuous green ceiling with no individual trees readable in it —
+  // and cost about 2.5x the vertices a chunk spends today.
+  //
+  // Measured over a 17x17 block of chunks with the numbers below: forest 11.6
+  // trees a chunk at 46% canopy cover, snow 8.6 / 35%, plains 5.6 / 21%, beach
+  // 5.9 / 23%. (Cover is summed crown discs against the chunk's 1024 square
+  // units, using the deliberately conservative crown radius from `bake`, so the
+  // painted foliage covers rather more than those figures.) A forest is a wood
+  // whose crowns touch and overlap in places; plains stay meadow with specimen
+  // trees on it, which is why plains is the one biome that ends up with FEWER
+  // trees than before the rescale.
+  for (let gx = 0; gx < 4; gx++) {
+    for (let gz = 0; gz < 4; gz++) {
+      const lx = gx * 8 + Math.floor(rng() * 8);
+      const lz = gz * 8 + Math.floor(rng() * 8);
       const roll = rng();
       const yaw = rng() * Math.PI * 2;
       // Girth and height vary INDEPENDENTLY and over a much wider range than the
@@ -1192,24 +1430,33 @@ export function buildChunkProps(
       const wz = oz + lz;
       terrain.columnInfo(wx, wz, ci);
       const h = ci.h;
-      if (exSolid(wx + 0.5, wz + 0.5)) continue;
+      if (exTree(wx + 0.5, wz + 0.5)) continue;
 
+      // Acceptance is per CANDIDATE, and there are 16 candidates a chunk now
+      // instead of 36, so every rate here is up on what it was (forest
+      // 0.82 -> 0.80 of a much coarser lattice, snow 0.5 -> 0.62, beach
+      // 0.3 -> 0.5, desert 0.14 -> 0.3). Plains alone is effectively down —
+      // 0.34 of 36 candidates would have been a dozen huge oaks in a chunk,
+      // which is a wood rather than a meadow. Cacti and palms also pick up the
+      // 2.2x placement jitter, or a coarse lattice makes a desert read as a
+      // planted orchard.
       let tpl: Template | null = null;
       let jitterMul = 1;
-      if (ci.biome === 'forest' && roll < 0.82) {
+      if (ci.biome === 'forest' && roll < 0.80) {
         tpl = vroll < 0.24 ? lib.oakA : vroll < 0.44 ? lib.oakB
           : vroll < 0.62 ? lib.oakC : vroll < 0.8 ? lib.oakD : lib.birch;
-      } else if (ci.biome === 'plains' && roll < 0.34) {
+      } else if (ci.biome === 'plains' && roll < 0.30) {
         tpl = vroll < 0.32 ? lib.oakA : vroll < 0.54 ? lib.oakC
           : vroll < 0.78 ? lib.oakD : lib.birch;
-      } else if (ci.biome === 'snow' && roll < 0.5) {
+      } else if (ci.biome === 'snow' && roll < 0.62) {
         tpl = vroll < 0.36 ? lib.pine : vroll < 0.68 ? lib.pineTall : lib.pineIrr;
-      } else if (ci.biome === 'beach' && roll < 0.3 && ci.hc >= 8.6 && ci.hc <= 11.5) {
+      } else if (ci.biome === 'beach' && roll < 0.5 && ci.hc >= 8.6 && ci.hc <= 11.5) {
         // three distinct palms + extra scatter so beach lines feel organic
         tpl = vroll < 0.34 ? lib.palm : vroll < 0.67 ? lib.palmB : lib.palmC;
         jitterMul = 2.2;
-      } else if (ci.biome === 'desert' && roll < 0.14) {
+      } else if (ci.biome === 'desert' && roll < 0.3) {
         tpl = lib.cactusBig;
+        jitterMul = 2.2;
       }
       if (!tpl) continue;
       if (h < WATER_LEVEL + (ci.biome === 'beach' ? 0 : 1)) continue;
@@ -1220,11 +1467,33 @@ export function buildChunkProps(
       // hedge at distance, where a treeline of a dozen greens keeps some internal
       // structure even once each canopy is only a few pixels across.
       const t = 0.87 + tintRoll * 0.26;
-      // Trunk footprints are ~1.5 voxels wide; sink 0.3 so the root flare and the
-      // buttress voxels bed into the ground instead of resting on it.
-      solid.add(tpl, lx + 0.5 + jx * jitterMul, groundMin(wx, wz, 1) - 0.3,
-        lz + 0.5 + jz * jitterMul,
-        yaw, scl, t, t * (0.95 + tintRoll * 0.11), t * 0.97, sclY);
+      // Trunk footprints are ~1.5-3 units wide at the flare after the rescale
+      // (they were ~1.5 VOXELS), so the seating probe widens from r=1 to r=2 and
+      // the sink from 0.3 to 0.45: the root flare and buttress voxels have to
+      // bed into the ground instead of resting on it, and a bigger footprint
+      // spans more terrain steps.
+      const px = lx + 0.5 + jx * jitterMul;
+      const pz = lz + 0.5 + jz * jitterMul;
+      const baseY = groundMin(wx, wz, 2) - 0.45;
+      solid.add(tpl, px, baseY, pz, yaw, scl,
+        t, t * (0.95 + tintRoll * 0.11), t * 0.97, sclY);
+      // Register the tree. `scl` is girth and `sclY` height, exactly as the
+      // stamp applied them, so the registry describes the instance that was
+      // actually placed rather than the template. Keep the field order in step
+      // with ChunkProps.trunks / TREE_STRIDE.
+      if (tpl.trunk) {
+        const sr = tpl.trunk.r * scl;
+        const cr = tpl.trunk.crownR * scl;
+        const gr = sr + TRUNK_GRAB;
+        trunks.push(
+          ox + px, oz + pz,
+          sr * sr, gr * gr,
+          baseY + tpl.trunk.top * sclY,
+          cr * cr,
+          baseY + tpl.trunk.crownCy * sclY,
+          tpl.trunk.crownRy * sclY,
+        );
+      }
     }
   }
 
@@ -1630,5 +1899,5 @@ export function buildChunkProps(
     softMesh.matrixAutoUpdate = false;
     softMesh.updateMatrix();
   }
-  return { solid: solidMesh, soft: softMesh };
+  return { solid: solidMesh, soft: softMesh, trunks };
 }

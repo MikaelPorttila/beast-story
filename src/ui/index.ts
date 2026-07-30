@@ -1,5 +1,6 @@
 import type { ElementType, EventBus, SkillDef } from '../core/types';
 import { ELEMENT_COLORS } from '../core/types';
+import type { BagEntry } from '../core/items';
 import { injectStyles } from './styles';
 import { elementIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON } from './icons';
 
@@ -148,6 +149,10 @@ export class HUD {
   private shardsDisplayed = -1;
   private shardsInit = false;
 
+  // bag (stackable items)
+  private bagEl: HTMLDivElement;
+  private bagSig = '';
+
   // banner
   private bannerEl: HTMLDivElement;
   private bannerTimer = 0;
@@ -180,6 +185,10 @@ export class HUD {
     this.shardPillEl = div('cp-shards cp-glass', `<span class="ic">${SHARD_ICON}</span><span class="num">0</span>`);
     this.shardNumEl = this.shardPillEl.querySelector('.num') as HTMLElement;
     this.root.appendChild(this.shardPillEl);
+
+    // bag (stackable items) — empty until something is picked up ------------
+    this.bagEl = div('cp-bag');
+    this.root.appendChild(this.bagEl);
 
     // crosshair ------------------------------------------------------------
     this.root.appendChild(div('cp-cross'));
@@ -420,6 +429,34 @@ export class HUD {
       this.shardPillEl.classList.remove('cp-pop');
       void this.shardPillEl.offsetWidth;
       this.shardPillEl.classList.add('cp-pop');
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Bag
+  // -------------------------------------------------------------------------
+  /**
+   * Stackable items the player holds, one chip each. Call on CHANGE only — it
+   * rebuilds the chips (the signature guard below makes a redundant call cheap,
+   * but the caller still allocates the entry array to get here).
+   *
+   * This is also the readout for the support pal's fetch rule: a chip present
+   * is exactly the condition under which the pal will fetch more of that item.
+   */
+  setBag(entries: BagEntry[]): void {
+    const sig = entries.map((e) => `${e.def.id}:${e.count}`).join('|');
+    if (sig === this.bagSig) return;
+    this.bagSig = sig;
+    this.bagEl.innerHTML = entries.map((e) =>
+      `<div class="chip cp-glass"><i class="sw" style="background:${hexColor(e.def.color)};` +
+      `color:${hexColor(e.def.color)}"></i>` +
+      `<span class="nm">${escapeHtml(e.def.name)}</span>` +
+      `<span class="n">${e.count}</span></div>`,
+    ).join('');
+    if (entries.length) {
+      this.bagEl.classList.remove('cp-pop');
+      void this.bagEl.offsetWidth;
+      this.bagEl.classList.add('cp-pop');
     }
   }
 

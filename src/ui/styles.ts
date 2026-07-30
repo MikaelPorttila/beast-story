@@ -34,6 +34,16 @@ const CSS = `
 .cp-shards .ic svg{width:100%;height:100%}
 .cp-shards .num{font-variant-numeric:tabular-nums;font-weight:800;font-size:16px;letter-spacing:.02em;
   color:#dff5ff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+/* ---- bag (stackable items) --------------------------------------------- */
+/* Sits directly under the shard pill: money on top, stuff below it, both in
+   the same corner. Empty until the first pickup, so a fresh save shows nothing. */
+.cp-bag{position:absolute;top:58px;right:16px;display:flex;flex-direction:column;
+  align-items:flex-end;gap:6px;transform-origin:100% 0}
+.cp-bag .chip{display:flex;align-items:center;gap:8px;padding:5px 12px;border-radius:999px}
+.cp-bag .sw{width:11px;height:11px;border-radius:3px;box-shadow:0 0 9px currentColor}
+.cp-bag .nm{font-size:11.5px;font-weight:700;color:rgba(238,242,248,.82)}
+.cp-bag .n{font-variant-numeric:tabular-nums;font-weight:800;font-size:13.5px;color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,.5)}
 .cp-pop{animation:cpPop .38s cubic-bezier(.34,1.8,.64,1)}
 @keyframes cpPop{0%{transform:scale(1)}45%{transform:scale(1.28)}100%{transform:scale(1)}}
 
@@ -256,6 +266,7 @@ const CSS = `
 .cp-left{left:max(16px,env(safe-area-inset-left))}
 .cp-title{left:max(16px,env(safe-area-inset-left));top:max(14px,env(safe-area-inset-top))}
 .cp-shards{right:max(16px,env(safe-area-inset-right));top:max(14px,env(safe-area-inset-top))}
+.cp-bag{right:max(16px,env(safe-area-inset-right));top:calc(max(14px,env(safe-area-inset-top)) + 44px)}
 
 /* Tablet / large phone: shrink the party panel and hotbar. */
 @media (max-width: 900px){
@@ -301,6 +312,10 @@ const CSS = `
   .cp-shards{padding:5px 10px;gap:6px}
   .cp-shards .ic{width:14px;height:14px}
   .cp-shards .num{font-size:13px}
+  .cp-bag{top:calc(max(14px,env(safe-area-inset-top)) + 34px);gap:4px}
+  .cp-bag .chip{padding:3px 9px;gap:6px}
+  .cp-bag .nm{font-size:9.5px}
+  .cp-bag .n{font-size:11px}
   /* touch has its own skill buttons; the desktop hotbar and key hints go away */
   .cp-hotbar{display:none}
   .cp-shop-foot{display:none}

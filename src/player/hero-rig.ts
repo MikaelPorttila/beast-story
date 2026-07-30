@@ -337,7 +337,21 @@ export function buildHeroRig(): HeroRig {
   const materials: THREE.MeshStandardMaterial[] = [];
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (mesh.isMesh && mesh.material instanceof THREE.MeshStandardMaterial) {
+    if (!mesh.isMesh) return;
+    // The hero CASTS but never RECEIVES. VoxelModel.build() turns both on, and
+    // on a rig built from separate parts a few centimetres apart that means the
+    // hero shadows himself: the hat brim printed a hard band straight across his
+    // eyes, and faces near-parallel to the sun picked up the diagonal hatching
+    // of shadow-map acne. Both land on the one part that has to read at a
+    // glance, and both are gone with receiving off.
+    //
+    // castShadow stays ON — his contact shadow is what keeps him standing on the
+    // ground rather than floating over it. The cost is that he no longer darkens
+    // in shade, which matters more now that trees are tall enough to cast real
+    // shade; three has no per-object "receive the world's shadows but not my
+    // own", so it is one or the other. Pals make the same trade (pals/framework).
+    mesh.receiveShadow = false;
+    if (mesh.material instanceof THREE.MeshStandardMaterial) {
       materials.push(mesh.material);
     }
   });

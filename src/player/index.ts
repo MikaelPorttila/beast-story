@@ -40,10 +40,96 @@ const MAX_STEP_UP = 0.5;
  * horizontal collision volume in this game beyond this test.
  */
 const BODY_RADIUS = 0.32;
+
+// -- climbing --------------------------------------------------------------
+/**
+ * How far ahead of the hero's centre the climb probe looks for a wall.
+ *
+ * The step-up test above stops the hero with his shoulder at the face: it
+ * refuses the move once `centre + BODY_RADIUS` would enter the taller column,
+ * so a hero pressed against a cliff stands between 0 and BODY_RADIUS short of
+ * the column boundary. Terrain columns are 1x1 (Terrain.getHeight floors x/z),
+ * so a reach of 0.55 lands the probe at worst 0.23 inside the wall column and
+ * never more than 0.55 into it — it cannot skip a column and grab the one
+ * behind. Anything below ~0.35 would sometimes probe the hero's own column and
+ * find nothing to hold.
+ */
+const CLIMB_REACH = 0.55;
+/**
+ * Smallest rise that counts as a climbable FACE rather than a hill.
+ *
+ * Below MAX_STEP_UP (0.5) the hero simply walks up. A 1-unit terrace is what
+ * the jump exists for — JUMP_VEL/GRAVITY put the apex at 1.61, and the step
+ * test at the apex clears anything up to 2.11 — so a single block must stay a
+ * jump, not a climb, or Shift would grab every kerb in the world. 1.2 sits
+ * clear of the 1.0 terrace and well under the 2.0 face that is the first thing
+ * a running jump cannot reliably clear, which is exactly where climbing has to
+ * take over.
+ */
+const CLIMB_MIN_RISE = 1.2;
+/**
+ * Vertical climb rate. Deliberately about half WALK_SPEED: climbing is the slow
+ * way up, and a 6-unit cliff should feel like a commitment (~2 s) rather than a
+ * faster staircase. Sideways shuffling along a face is slower still.
+ */
+const CLIMB_SPEED = 3.2;
+const CLIMB_SIDE_SPEED = 2.0;
+/** Velocity smoothing on the face, in the house `1 - exp(-l*dt)` form. */
+const CLIMB_LAMBDA = 18;
+/**
+ * Feet within this of the top means the hero is at the lip — mantle.
+ * Small, because the mantle teleports him forward onto the ledge and doing that
+ * while his feet are still visibly below the surface reads as a pop.
+ */
+const CLIMB_TOP_EPS = 0.05;
+/**
+ * The hold is lost when the face drops this far BELOW the feet. Only a world
+ * change can do that (a chunk unloading, a felled tree), and the response is to
+ * simply fall, not to snap anywhere.
+ */
+const CLIMB_LOST = 0.6;
+/**
+ * Mantle step: how far along the climb direction the hero is placed when he
+ * tops out. Must clear the column boundary he was holding (up to 0.32 away)
+ * with room to spare, and stay under 1.0 so he lands in the column he climbed
+ * and not the one past it. 0.7 puts him ~0.38 inside it.
+ */
+const MANTLE_PUSH = 0.7;
+/**
+ * Re-grab lockout after deliberately letting go, so a still-held Shift does not
+ * re-attach on the very next slice. 0.35 s is long enough for the kick-off to
+ * carry the hero out of probe range (3.2 m/s x 0.35 = 1.1 m).
+ */
+const CLIMB_LOCKOUT = 0.35;
+/**
+ * Shuffling sideways needs this much face left above the feet, so running out
+ * of wall stops the hero instead of dropping him off the end of it.
+ */
+const CLIMB_SIDE_HOLD = 0.6;
+
 const COMBO_DURS = [0.42, 0.42, 0.58];
 const STRIKE_AT = 0.46;      // fraction of swing where damage lands
 const COMBO_COOLDOWN = 0.22;
 const RESPAWN_TIME = 3;
+
+/**
+ * Passive health regeneration.
+ *
+ * BASE_REGEN is the floor every player has with no items and no shrine: 1.6 hp
+ * a second out of 100, so a full bar takes just over a minute. Deliberately slow
+ * — it is the "walk it off between fights" rate, not a reason to stop fighting.
+ * Anything faster and a retreat of a few steps undoes a whole encounter.
+ *
+ * REGEN_DELAY holds it off after taking a hit, so regen never fights incoming
+ * damage mid-encounter; the clock restarts on every hit.
+ *
+ * `regenMultiplier` on the Player is the hook the rest of the game turns up:
+ * a potion sets it high for a few seconds, a healing well holds it high while
+ * the player stands in it. Nothing does that yet — the multiplier exists so
+ * those can be data rather than another special case in here.
+ */
+const BASE_REGEN = 1.6;
+const REGEN_DELAY = 5;
 
 const _wish = new THREE.Vector3();
 const _hvel = new THREE.Vector3();
@@ -78,6 +164,8 @@ export class Player {
   attackStat = 14;
   onGround = false;
   isSwimming = false;
+  /** True while hanging on a climbable face; gravity is off and Shift is grip. */
+  isClimbing = false;
   moveSpeedNorm = 0;
   onAttack?: (origin: THREE.Vector3, direction: THREE.Vector3) => void;
 
@@ -96,6 +184,29 @@ export class Player {
   private invulnT = 0;
   private deadT = 0;
   private sprinting = false;
+  /** Unit horizontal vector pointing INTO the face being held. */
+  private climbDirX = 0;
+  private climbDirZ = 1;
+  /** Signed climb progress, -1..1, for the animator's reach cycle. */
+  private climbRate = 0;
+  /** Blocks re-grabbing right after a deliberate let-go; see CLIMB_LOCKOUT. */
+  private climbLockout = 0;
+  /**
+   * Jump held on the PREVIOUS simulation slice, so a press edge can be derived
+   * from held state. input.pressed() stays true for a whole rendered frame and
+   * the sim can run several slices inside one, so the edge has to be latched
+   * here rather than read from the input layer.
+   */
+  private jumpWasHeld = false;
+  private jumpEdge = false;
+  /** Seconds left before passive regen resumes; reset by every hit taken. */
+  private regenHold = 0;
+  /**
+   * Scales passive regen. 1 = the base trickle. Potions and healing wells raise
+   * it; nothing does yet. Public so that gameplay policy (main.ts) can drive it
+   * without Player having to know what a potion is.
+   */
+  regenMultiplier = 1;
 
   private attack: AttackState = { active: false, combo: 0, t: 0, dur: COMBO_DURS[0] };
   private attackQueued = false;
@@ -120,6 +231,7 @@ export class Player {
   takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): void {
     if (this.isDead || this.invulnT > 0) return;
     this.hp = clamp(this.hp - amount, 0, this.maxHp);
+    this.regenHold = REGEN_DELAY;
     this.flash = 1;
     this.hurtT = 0.25;
     this.invulnT = 0.35;
@@ -138,6 +250,7 @@ export class Player {
   private die(): void {
     this.isDead = true;
     this.deadT = 0;
+    this.isClimbing = false;
     this.attack.active = false;
     this.cam.addShake(0.5);
     this.bus.emit({ type: 'toast', text: 'You fainted!' });
@@ -148,6 +261,8 @@ export class Player {
     this.hp = this.maxHp;
     this.flash = 0;
     this.hurtT = 0;
+    this.isClimbing = false;
+    this.climbLockout = 0;
     this.velocity.set(0, 0, 0);
     this.position.copy(this.world.spawnPoint);
     this.position.y = this.world.getHeight(this.position.x, this.position.z);
@@ -163,6 +278,19 @@ export class Player {
     if (this.hurtT > 0) this.hurtT -= dt;
     if (this.attackCooldown > 0) this.attackCooldown -= dt;
     this.landBump *= Math.exp(-6 * dt);
+
+    // Jump press edge, latched per simulation slice. Space is BOTH the jump and
+    // the "let go of the wall" button, and the second one must not fire twice
+    // when two sim slices land inside one rendered frame — see jumpWasHeld.
+    //
+    // `pressed` is OR-ed in on purpose: held state alone misses a tap shorter
+    // than one 16.7 ms slice (a virtual button, or an automated press), which is
+    // exactly the case the buffered jump below already handles. `pressed` stays
+    // true for the whole rendered frame, so the latch is what stops a two-slice
+    // frame from spending the same tap twice.
+    const jumpNow = input.down('Space') || input.pressed('Space');
+    this.jumpEdge = jumpNow && !this.jumpWasHeld;
+    this.jumpWasHeld = jumpNow;
 
     if (this.isDead) {
       this.deadT += dt;
@@ -197,6 +325,8 @@ export class Player {
       sprinting: this.sprinting,
       onGround: this.onGround,
       swimming: this.isSwimming,
+      climbing: this.isClimbing,
+      climbRate: this.climbRate,
       velY: this.velocity.y,
       attack: this.attack,
       dead: this.isDead,
@@ -210,9 +340,39 @@ export class Player {
     this.engine.updateSunFocus(this.position);
   }
 
+  /**
+   * Top of everything SOLID at a column: terrain, plus a tree's bole.
+   *
+   * Trees used to be scenery you walked straight through. A trunk is now an
+   * obstacle you go around — but only the trunk. `trunkSolidTopAt` deliberately
+   * ignores the crown (see world/index.ts): a canopy sits several units up, and
+   * because this test compares a column's TOP against the feet, a solid crown
+   * would read as an invisible wall ringing every tree and you could not walk
+   * under one at all.
+   *
+   * Returns -Infinity from the world where there is no trunk, so the max is just
+   * the terrain there.
+   */
+  private blockTop(x: number, z: number): number {
+    const ground = this.world.getHeight(x, z);
+    const trunk = this.world.trunkSolidTopAt(x, z);
+    return trunk > ground ? trunk : ground;
+  }
+
   private updateAlive(dt: number): void {
     const input = this.input;
     const world = this.world;
+
+    // ---- passive health regen ----
+    // Held off for REGEN_DELAY after each hit (takeDamage restarts the clock),
+    // so it tops the bar up between fights instead of tugging against damage
+    // during one. Scaled by regenMultiplier, which is what a potion or a healing
+    // well will raise.
+    if (this.regenHold > 0) {
+      this.regenHold -= dt;
+    } else if (this.hp < this.maxHp) {
+      this.hp = clamp(this.hp + BASE_REGEN * this.regenMultiplier * dt, 0, this.maxHp);
+    }
 
     // ---- movement input, camera relative ----
     // Analog axes: keyboard when keys are held, virtual stick on touch.
@@ -226,7 +386,34 @@ export class Player {
     const moving = _wish.lengthSq() > 1e-6;
     if (moving) _wish.normalize();
 
-    this.sprinting = moving && input.down('ShiftLeft') && !this.isSwimming;
+    // ---- Shift: sprint in the open, grip on a wall ----
+    // The SAME held key means both, and the surface is what disambiguates: with
+    // a climbable face within CLIMB_REACH of the hero's chest and the movement
+    // wish pushing into it, Shift is a grip; anywhere else it is the sprint it
+    // has always been. Nothing here reads a press edge, so it behaves the same
+    // whether the frame drains one simulation slice or four — running into a
+    // wall with Shift already down grabs it, and letting Shift go lets go.
+    if (this.climbLockout > 0) this.climbLockout -= dt;
+    const shiftHeld = input.down('ShiftLeft');
+    if (this.isClimbing) {
+      if (!shiftHeld) {
+        this.detachClimb(0);            // let go: slide off and fall
+      } else if (this.jumpEdge) {
+        // kick off the face: up, and away from it
+        this.velocity.y = JUMP_VEL * 0.8;
+        this.detachClimb(3.2);
+      }
+    } else if (shiftHeld && moving && !this.isSwimming && this.climbLockout <= 0) {
+      this.tryGrab();
+    }
+
+    this.sprinting = moving && shiftHeld && !this.isSwimming && !this.isClimbing;
+    if (this.isClimbing) {
+      this.updateClimb(dt);
+      this.finishAlive(dt, moving);
+      return;
+    }
+
     let targetSpeed = this.isSwimming
       ? SWIM_SPEED
       : WALK_SPEED * (this.sprinting ? SPRINT_MULT : 1);
@@ -296,12 +483,12 @@ export class Player {
       const stepCeil = feetY + MAX_STEP_UP;
       const nx = this.position.x + this.velocity.x * dt;
       const probeX = nx + Math.sign(this.velocity.x) * BODY_RADIUS;
-      if (world.getHeight(probeX, this.position.z) <= stepCeil) this.position.x = nx;
+      if (this.blockTop(probeX, this.position.z) <= stepCeil) this.position.x = nx;
       else this.velocity.x = 0;
 
       const nz = this.position.z + this.velocity.z * dt;
       const probeZ = nz + Math.sign(this.velocity.z) * BODY_RADIUS;
-      if (world.getHeight(this.position.x, probeZ) <= stepCeil) this.position.z = nz;
+      if (this.blockTop(this.position.x, probeZ) <= stepCeil) this.position.z = nz;
       else this.velocity.z = 0;
     }
     this.position.y += this.velocity.y * dt;
@@ -330,13 +517,28 @@ export class Player {
       gh < world.waterLevel - 0.7 && this.position.y < world.waterLevel - 1.0;
     if (this.isSwimming) this.onGround = false;
 
+    this.finishAlive(dt, moving);
+  }
+
+  /**
+   * Everything that happens after the hero has been moved, whichever way he was
+   * moved: facing, the melee combo, animation speed and footfall dust. The climb
+   * path and the walk path both end here so neither can quietly skip one.
+   */
+  private finishAlive(dt: number, moving: boolean): void {
+    const input = this.input;
+
     // ---- speed norm for animation / pals ----
     const hspeed = Math.hypot(this.velocity.x, this.velocity.z);
     this.moveSpeedNorm = clamp(hspeed / WALK_SPEED, 0, 1);
 
     // ---- facing ----
     let targetHeading = this.heading;
-    if (this.attack.active || input.attackHeld) {
+    if (this.isClimbing) {
+      // square up to the rock: the animator reaches along local -z/+y, so the
+      // hands only land on the face if the whole rig is turned to it.
+      targetHeading = Math.atan2(this.climbDirX, this.climbDirZ);
+    } else if (this.attack.active || input.attackHeld) {
       targetHeading = Math.atan2(this.cam.forward.x, this.cam.forward.z);
     } else if (moving) {
       targetHeading = Math.atan2(_wish.x, _wish.z);
@@ -356,6 +558,184 @@ export class Player {
         this.position.z - this.forward.z * 0.3,
       );
       this.dust.emit(_feet, 11, dt);
+    }
+  }
+
+  // ---- climbing -----------------------------------------------------------
+
+  /**
+   * Top of the climbable column `reach` ahead along (dx, dz), or -Infinity if
+   * what is there is not a face worth grabbing.
+   *
+   * `climbTopAt` is asked, not `getHeight`: climbable and solid are different
+   * sets. Terrain is both, a tree trunk is only the former — which is why the
+   * hero can stand inside a trunk's column and still find something to hold.
+   */
+  private probeFace(dx: number, dz: number, reach: number): number {
+    const top = this.world.climbTopAt(
+      this.position.x + dx * reach,
+      this.position.z + dz * reach,
+    );
+    return top - this.position.y >= CLIMB_MIN_RISE ? top : -Infinity;
+  }
+
+  /**
+   * Look for a face to grab in the direction the hero is leaning. Three probes,
+   * cheapest-and-most-likely first, and only ever on the slices where Shift is
+   * held with a movement wish — never per frame unconditionally:
+   *
+   *  1. the CARDINAL snap of the wish. Terrain faces are axis-aligned column
+   *     walls, so walking into a cliff at 45 degrees should still grab the wall
+   *     in front rather than the diagonal gap between two columns.
+   *  2. the raw wish, for anything that is not grid-aligned (a trunk beside you).
+   *  3. the hero's OWN column, because a trunk is climbable without being solid:
+   *     you walk into it and end up standing inside it with nothing ahead.
+   */
+  private tryGrab(): void {
+    const ax = Math.abs(_wish.x);
+    const az = Math.abs(_wish.z);
+    const cx = ax >= az ? Math.sign(_wish.x) : 0;
+    const cz = ax >= az ? 0 : Math.sign(_wish.z);
+
+    let top = this.probeFace(cx, cz, CLIMB_REACH);
+    let dx = cx, dz = cz;
+    if (top === -Infinity) {
+      top = this.probeFace(_wish.x, _wish.z, CLIMB_REACH);
+      dx = _wish.x; dz = _wish.z;
+      if (top === -Infinity) {
+        top = this.probeFace(_wish.x, _wish.z, 0);
+        if (top === -Infinity) return;
+      }
+    }
+
+    this.isClimbing = true;
+    this.climbDirX = dx;
+    this.climbDirZ = dz;
+    this.climbRate = 0;
+    this.onGround = false;
+    this.coyote = 0;
+    this.jumpBuffer = 0;
+    // Grabbing kills inherited momentum — a sprint into a cliff should stick to
+    // it, not bounce along it — and cancels a swing in progress; you cannot
+    // hold a rock face and a sword at the same time.
+    this.velocity.set(0, 0, 0);
+    this.attack.active = false;
+  }
+
+  /** Let go. `kick` pushes the hero away from the face (jump-off). */
+  private detachClimb(kick: number): void {
+    if (!this.isClimbing) return;
+    this.isClimbing = false;
+    this.climbRate = 0;
+    this.climbLockout = CLIMB_LOCKOUT;
+    this.jumpBuffer = 0;
+    this.coyote = 0;
+    if (kick > 0) {
+      this.velocity.x = -this.climbDirX * kick;
+      this.velocity.z = -this.climbDirZ * kick;
+    }
+  }
+
+  /**
+   * One slice on the wall. Gravity, the jump buffer and the step-up test are all
+   * out of the picture here; the face itself is the constraint.
+   *
+   * The wish is resolved against the face rather than against the world: its
+   * component INTO the rock drives the hero up (pushing towards what you are
+   * holding is the universal "climb" input, and with the camera behind him W is
+   * exactly that), and its component ALONG the rock shuffles him sideways. The
+   * hero never moves toward the face, so the standoff he grabbed at is the
+   * standoff he keeps.
+   */
+  private updateClimb(dt: number): void {
+    const world = this.world;
+    const top = world.climbTopAt(
+      this.position.x + this.climbDirX * CLIMB_REACH,
+      this.position.z + this.climbDirZ * CLIMB_REACH,
+    );
+    const rise = top - this.position.y;
+
+    // The face fell out from under the hands — a chunk unloaded, or whatever we
+    // were holding stopped existing. Fall; do not snap anywhere.
+    if (rise < -CLIMB_LOST) {
+      this.detachClimb(0);
+      return;
+    }
+
+    // At the lip. Mantle if there is somewhere to stand: the ledge column is
+    // checked for real (getHeight, the SOLID surface) and has to be level with
+    // what we climbed, so topping out on a trunk — climbable, but not something
+    // you can stand on — leaves the hero clinging at full stretch instead of
+    // being flung into the air above it.
+    let atTop = false;
+    if (rise <= CLIMB_TOP_EPS) {
+      const nx = this.position.x + this.climbDirX * MANTLE_PUSH;
+      const nz = this.position.z + this.climbDirZ * MANTLE_PUSH;
+      const dest = world.getHeight(nx, nz);
+      if (Math.abs(dest - top) <= MAX_STEP_UP) {
+        this.position.x = nx;
+        this.position.z = nz;
+        this.position.y = dest;
+        this.velocity.set(0, 0, 0);
+        this.isClimbing = false;
+        this.climbRate = 0;
+        this.onGround = true;
+        this.coyote = COYOTE_TIME;
+        return;
+      }
+      atTop = true;
+    }
+
+    // ---- resolve the wish against the face ----
+    const moving = _wish.lengthSq() > 1e-6;
+    const into = moving ? _wish.x * this.climbDirX + _wish.z * this.climbDirZ : 0;
+    // face tangent: the climb direction rotated a quarter turn about +y
+    const tanX = -this.climbDirZ;
+    const tanZ = this.climbDirX;
+    const along = moving ? _wish.x * tanX + _wish.z * tanZ : 0;
+
+    let vy = into * CLIMB_SPEED;
+    if (atTop && vy > 0) vy = 0;
+    const k = 1 - Math.exp(-CLIMB_LAMBDA * dt);
+    this.velocity.y += (vy - this.velocity.y) * k;
+    this.velocity.x += (tanX * along * CLIMB_SIDE_SPEED - this.velocity.x) * k;
+    this.velocity.z += (tanZ * along * CLIMB_SIDE_SPEED - this.velocity.z) * k;
+    this.climbRate = clamp(this.velocity.y / CLIMB_SPEED, -1, 1);
+
+    // ---- integrate ----
+    this.position.y += this.velocity.y * dt;
+    if (atTop && this.position.y > top) this.position.y = top;
+
+    // Sideways only where the face continues: the probe is taken from the
+    // DESTINATION, so shuffling off the end of a ledge stops at the corner
+    // rather than dropping the hero into space.
+    const nx = this.position.x + this.velocity.x * dt;
+    const nz = this.position.z + this.velocity.z * dt;
+    if (
+      world.climbTopAt(nx + this.climbDirX * CLIMB_REACH, nz + this.climbDirZ * CLIMB_REACH)
+      >= this.position.y + CLIMB_SIDE_HOLD
+    ) {
+      this.position.x = nx;
+      this.position.z = nz;
+    } else {
+      this.velocity.x = 0;
+      this.velocity.z = 0;
+    }
+
+    // ---- back on the floor / in the drink ----
+    const gh = world.getHeight(this.position.x, this.position.z);
+    if (this.position.y <= gh) {
+      this.position.y = gh;
+      this.velocity.y = 0;
+      this.onGround = true;
+      // Lockout, so climbing down to the bottom of a cliff ends standing on the
+      // ground rather than re-grabbing the same face on the next slice.
+      this.detachClimb(0);
+      return;
+    }
+    if (gh < world.waterLevel - 0.7 && this.position.y < world.waterLevel - 1.0) {
+      this.isSwimming = true; // hand over to the swim path next slice
+      this.detachClimb(0);
     }
   }
 
@@ -389,7 +769,9 @@ export class Player {
           this.attackCooldown = COMBO_COOLDOWN;
         }
       }
-    } else if (input.attackPressed && this.attackCooldown <= 0 && !this.isSwimming) {
+    } else if (
+      input.attackPressed && this.attackCooldown <= 0 && !this.isSwimming && !this.isClimbing
+    ) {
       a.active = true;
       a.combo = 0;
       a.dur = COMBO_DURS[0];

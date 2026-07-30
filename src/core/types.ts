@@ -103,6 +103,34 @@ export interface PalSpecies {
 export interface World {
   /** Terrain height at world xz (top surface, in world units) */
   getHeight(x: number, z: number): number;
+  /**
+   * Top of anything CLIMBABLE at world xz — terrain, and whatever else the world
+   * decides to let the player grab (tree trunks today; a boss's back later).
+   *
+   * This is deliberately the same shape as getHeight, so climbing code asks one
+   * question and does not care what it is holding onto. It is a separate query
+   * because climbable and solid are not the same set: a trunk is climbable but
+   * you can still walk through it, and terrain is both.
+   *
+   * Never below getHeight(x, z) — ground is always climbable-from.
+   */
+  climbTopAt(x: number, z: number): number;
+  /**
+   * Top of the SOLID part of a tree trunk at world xz, or -Infinity where the
+   * column holds no trunk.
+   *
+   * Separate from climbTopAt because a tree is climbable over its whole
+   * footprint and solid over almost none of it. A crown is 7-10 units across
+   * and sits several units up; making that column solid would ring every trunk
+   * with an invisible wall, because the player's step test compares a column's
+   * top against his feet and cannot tell "canopy overhead" from "cliff". So
+   * only the bole blocks movement — a cylinder from the ground to the height
+   * the crown starts — while the leaves above it merely hold weight.
+   *
+   * -Infinity rather than the ground height so a caller can tell "no trunk
+   * here" from "a trunk that happens to be short" without a second query.
+   */
+  trunkSolidTopAt(x: number, z: number): number;
   /** Water surface level (constant) */
   readonly waterLevel: number;
   isWater(x: number, z: number): boolean;
@@ -118,6 +146,49 @@ export interface World {
   /** Good spawn point on land */
   readonly spawnPoint: THREE.Vector3;
   dispose(): void;
+}
+
+// ---------------------------------------------------------------------------
+// Items
+// ---------------------------------------------------------------------------
+/**
+ * Two kinds, because the fetch rule only has to tell them apart:
+ *   currency   — the shard economy. One running total, always worth picking up.
+ *   stackable  — anything you keep a count of in the bag.
+ * Deliberately no equipment/consumable/quest kinds yet; add one when something
+ * actually behaves differently, not in advance.
+ */
+export type ItemKind = 'currency' | 'stackable';
+
+export interface ItemDef {
+  id: string;
+  name: string;
+  kind: ItemKind;
+  /** Tint for the dropped mote, its collect burst and the bag chip. */
+  color: number;
+}
+
+/**
+ * A dropped item offered to a pal as an errand. Implemented by the drop pool in
+ * src/combat/pickups.ts and consumed by PalActor, so that pals can run a fetch
+ * without importing combat (and combat never learns what a pal is).
+ *
+ * Instances are POOLED — one per drop slot, reused. `claim()` stamps the slot's
+ * generation onto the job, and every other member is dead once the slot is
+ * recycled, so a job held past the end of its errand is inert rather than wrong.
+ */
+export interface FetchJob {
+  readonly itemId: string;
+  /** Live position of the drop — it bobs, so re-read it every frame. */
+  readonly position: THREE.Vector3;
+  /** False once collected, expired, or recycled under us. */
+  readonly valid: boolean;
+  /** Take ownership of the drop. False if it was gone or already claimed. */
+  claim(): boolean;
+  /** Pal reached it: collect and credit the player. */
+  collect(): void;
+  /** Give up; the drop stays where it is and anyone may claim it again. */
+  release(): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +223,12 @@ export type GameEvent =
   | { type: 'skillCast'; skillId: string; casterName: string }
   | { type: 'damage'; amount: number; position: THREE.Vector3; element?: ElementType }
   | { type: 'shardsChanged'; total: number }
+  /**
+   * A drop left the ground. `byPal` is true when a support pal fetched it
+   * rather than the player walking over it — the bag in main.ts credits both
+   * the same way, only the toast differs.
+   */
+  | { type: 'itemPicked'; itemId: string; byPal: boolean }
   | { type: 'enemyKilled'; name: string; xp: number }
   | { type: 'shopOpened'; shopIndex: number }
   | { type: 'shopClosed' }

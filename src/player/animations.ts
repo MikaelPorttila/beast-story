@@ -16,6 +16,9 @@ export interface AnimInput {
   sprinting: boolean;
   onGround: boolean;
   swimming: boolean;
+  climbing: boolean;
+  /** Signed climb progress, -1 (descending) .. 1 (ascending); 0 = hanging. */
+  climbRate: number;
   velY: number;
   attack: AttackState;
   dead: boolean;
@@ -97,6 +100,7 @@ function evalSwing(combo: number, p: number): SwingPose {
 export class HeroAnimator {
   private runPhase = 0;
   private swimPhase = 0;
+  private climbPhase = 0;
 
   // damped joint state
   private bodyY = 0; private bRX = 0; private bRZ = 0;
@@ -117,6 +121,14 @@ export class HeroAnimator {
       this.runPhase += dt * (5 + 8.5 * m) * (s.sprinting ? 1.18 : 1);
     }
     if (s.swimming) this.swimPhase += dt * (3.2 + 3.5 * m);
+    // The climb cycle is driven by PROGRESS, not by a clock: it advances with
+    // the hero's vertical rate and runs backwards when he descends, so the arm
+    // that reached last is the one that gives the hold back. A hero simply
+    // hanging still sways (the 0.9 floor) instead of freezing into a statue.
+    if (s.climbing) {
+      const r = s.climbRate;
+      this.climbPhase += dt * (0.9 + 5.4 * Math.abs(r)) * (r < -0.02 ? -1 : 1);
+    }
 
     // ---- base locomotion targets ----
     const breath = Math.sin(t * 1.9);
@@ -141,7 +153,7 @@ export class HeroAnimator {
     let swZ = 0.14 * idleW;
 
     // ---- airborne ----
-    if (!s.onGround && !s.swimming) {
+    if (!s.onGround && !s.swimming && !s.climbing) {
       const fall = clamp01((-s.velY + 3) / 10); // 0 rising -> 1 falling fast
       const flail = Math.sin(t * 9);
       aLX = lerp(-0.9, -0.25 + flail * 0.12, fall);
@@ -172,6 +184,39 @@ export class HeroAnimator {
       lRX = -Math.sin(sp * 2.3) * (0.3 + 0.3 * m);
       tY = 0;
       swX = 2.6;
+    }
+
+    // ---- climbing ----
+    // Same shape as the swim cycle: one phase, one sine, every joint written
+    // from it. The hero is turned to face the rock by the Player, so "into the
+    // wall" is local +z and reaching means rotating the shoulders past -PI/2
+    // toward the -PI that points an arm straight up.
+    //
+    // Contralateral, like every other gait here: the arm that is high pairs with
+    // the opposite leg, so the body is always braced on a diagonal — the hold
+    // is hand + opposite foot, which is what stops the pose reading as a hug.
+    if (s.climbing) {
+      const cp = Math.sin(this.climbPhase);
+      // Chest in, hips out: the small forward pitch is what keeps him ON the
+      // face rather than floating a body-width off it at the camera's distance.
+      bodyY = 0.02 * cp;
+      bRX = 0.16;
+      bRZ = cp * 0.05;
+      tY = cp * 0.1;
+      hX = -0.3;          // eyes up the face, looking for the next hold
+      hY = cp * 0.1;
+      // -2.45 rad is a high overhead reach (-PI would be dead vertical); the
+      // +-0.45 swing is one arm reaching while the other pulls down past it.
+      aRX = -2.45 + cp * 0.45;
+      aLX = -2.45 - cp * 0.45;
+      aRZ = 0.3;          // elbows out so the mitts land on the rock, not the ears
+      aLZ = -0.3;
+      aRY = 0;
+      // Knees driven into the wall, alternating opposite the arms.
+      lRX = 0.42 + cp * 0.34;
+      lLX = 0.42 - cp * 0.34;
+      swX = 2.45;         // blade stays slung along the back leg, out of the way
+      swZ = 0.2;
     }
 
     // ---- melee combo: keyframed, blended over the base pose ----
@@ -219,7 +264,7 @@ export class HeroAnimator {
     // ---- squash & stretch ----
     let sclY = 1 - 0.26 * s.landBump;
     let sclXZ = 1 + 0.16 * s.landBump;
-    if (!s.onGround && !s.swimming && !s.dead) {
+    if (!s.onGround && !s.swimming && !s.dead && !s.climbing) {
       const stretch = clamp01(Math.abs(s.velY) * 0.016) * 0.07;
       sclY = 1 + stretch;
       sclXZ = 1 - stretch * 0.6;

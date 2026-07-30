@@ -4,6 +4,7 @@ import { DebugOverlay } from './core/debug-overlay';
 import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
 import { EventBus, type SkillDef, type Damageable } from './core/types';
+import { Inventory, itemDef } from './core/items';
 import { perf } from './core/profiler';
 import { flags } from './core/flags';
 import { createWorld } from './world/index';
@@ -68,10 +69,29 @@ function cyclePal(which: 'primary' | 'support', dirn: 1 | -1): void {
 let pickupTotal = 50;
 let spent = 0;
 const shards = () => pickupTotal - spent;
+
+// The bag holds STACKABLES only — shards stay the running total above. Combat
+// reports every drop that leaves the ground; what to do with it is policy, so
+// it is decided here.
+const bag = new Inventory();
+
 bus.on((e) => {
   if (e.type === 'shardsChanged') {
     pickupTotal = e.total;
     hud.setShards(shards());
+  }
+  if (e.type === 'itemPicked') {
+    const def = itemDef(e.itemId);
+    if (def.kind !== 'currency') {
+      const n = bag.add(e.itemId, 1);
+      hud.setBag(bag.entries());
+      if (e.byPal) {
+        // The fetcher is whichever pal is carrying right now — normally the
+        // support pal, but a Tab swap mid-errand must not misattribute it.
+        const fetcher = roster.find((p) => p.isCarrying) ?? support();
+        bus.emit({ type: 'toast', text: `${fetcher.species.name} fetched ${def.name} (${n})` });
+      }
+    }
   }
   if (e.type === 'enemyKilled') {
     primary().gainXp(e.xp);
@@ -79,6 +99,27 @@ bus.on((e) => {
   }
 });
 hud.setShards(shards());
+
+// ---------------------------------------------------------------------------
+// Fetch errands (support-pal AI, so it lives here)
+// ---------------------------------------------------------------------------
+// The rule, in one predicate:
+//   currency   — always worth a trip. Money is money.
+//   stackable  — only if the player ALREADY holds at least one. The pal tops up
+//                stacks you have chosen to carry and leaves everything else on
+//                the ground, so a fetcher never fills your bag with things you
+//                have never picked up yourself. Walking over an item is how you
+//                opt in to it, and from then on the pal collects that kind.
+// It is the SUPPORT pal that runs these: the primary stays at the player's
+// shoulder where its skills are aimed from.
+const FETCH_RADIUS = 16;      // how far from the player a drop may be to be offered
+const FETCH_SCAN = 0.4;       // seconds between scans; the pool is small but this is a poll
+let fetchScanT = 0;
+
+function worthFetching(itemId: string): boolean {
+  const def = itemDef(itemId);
+  return def.kind === 'currency' || bag.count(itemId) > 0;
+}
 
 // ---------------------------------------------------------------------------
 // Casting
@@ -287,9 +328,34 @@ const _dbgDir = new THREE.Vector3();
   touchOverlay: !!document.querySelector('.cp-touch'),
   vel: { x: +player.velocity.x.toFixed(2), y: +player.velocity.y.toFixed(2), z: +player.velocity.z.toFixed(2) },
   onGround: player.onGround,
+  isClimbing: player.isClimbing,
   isSwimming: player.isSwimming,
   isDead: player.isDead,
 });
+
+// Fetch-errand probes. `__dbgFetch` is read-only, the same contract as the
+// probes above; `__dbgDrop` is a TEST HOOK — the only way to stage a specific
+// item on the ground without farming enemies until the loot table obliges, and
+// what tools use to prove the fetch rule (currency always, stackables only when
+// already held) case by case.
+(window as unknown as { __dbgFetch: () => unknown }).__dbgFetch = () => ({
+  shards: shards(),
+  bag: bag.entries().map((e) => ({ id: e.def.id, count: e.count })),
+  drops: combat.dropSnapshot(),
+  support: {
+    name: support().species.name,
+    fetching: support().isFetching,
+    carrying: support().isCarrying,
+    item: support().fetchItemId,
+    pos: { x: +support().position.x.toFixed(2), z: +support().position.z.toFixed(2) },
+  },
+  primary: { name: primary().species.name, fetching: primary().isFetching },
+});
+(window as unknown as { __dbgDrop: (id: string, dx: number, dz: number) => void })
+  .__dbgDrop = (id, dx, dz) => {
+    const x = player.position.x + dx, z = player.position.z + dz;
+    combat.spawnDrop(id, x, world.getHeight(x, z) + 0.5, z);
+  };
 
 let started = false;
 bus.emit({
@@ -452,8 +518,18 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       if (input.pressed('BracketLeft')) cyclePal('support', 1);
     }
 
-    // Support pal auto-cast
+    // Support pal errands + auto-cast
     const sup = support();
+
+    fetchScanT -= dt;
+    if (fetchScanT <= 0) {
+      fetchScanT = FETCH_SCAN;
+      if (flags.pals && !sup.isFetching && !sup.isDead) {
+        const job = combat.findFetchJob(player.position, FETCH_RADIUS, worthFetching);
+        if (job) sup.beginFetch(job);
+      }
+    }
+
     if (sup.wantsSupportCast()) {
       const known = sup.knownSkillIds.map((id) => getSkill(id)).filter((s): s is SkillDef => !!s);
       const heal = known.find((s) => s.targeting === 'support' || s.targeting === 'self');
@@ -655,3 +731,13 @@ frame();
 
 // Profiler dump for the perf harness; null unless ?perf=1 recorded anything.
 (window as unknown as { __dbgPerf: () => unknown }).__dbgPerf = () => perf.dump();
+
+// World surface queries at an arbitrary column, for the climbing/collision
+// tests: `ground` is what blocks and supports, `trunkSolidTop` is the bole a
+// tree adds to that, and `climbTop` is what can be grabbed (bole or canopy).
+// Read-only, and the whole point of the three being separate — see World.
+(window as unknown as { __dbgWorld: (x: number, z: number) => unknown }).__dbgWorld = (x, z) => ({
+  ground: world.getHeight(x, z),
+  climbTop: world.climbTopAt(x, z),
+  trunkSolidTop: world.trunkSolidTopAt(x, z),
+});

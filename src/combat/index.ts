@@ -5,9 +5,11 @@ import {
   type Damageable,
   type ElementType,
   type EventBus,
+  type FetchJob,
   type SkillDef,
   type World,
 } from '../core/types';
+import { SHARD_ID, STACKABLE_IDS, itemDef } from '../core/items';
 import { VFX } from './vfx';
 import { DamageNumbers } from './damage-numbers';
 import { elementMultiplier } from './effectiveness';
@@ -83,9 +85,14 @@ export class CombatSystem {
   ) {
     this.vfx = new VFX(scene);
     this.numbers = new DamageNumbers(scene);
-    this.pickups = new Pickups(scene, this.vfx, () => {
-      this.shardTotal += 1;
-      this.bus.emit({ type: 'shardsChanged', total: this.shardTotal });
+    this.pickups = new Pickups(scene, this.vfx, (itemId, byPal) => {
+      // Currency is a running total owned here; everything else is just
+      // reported and the bag in main.ts decides what to do with it.
+      if (itemDef(itemId).kind === 'currency') {
+        this.shardTotal += 1;
+        this.bus.emit({ type: 'shardsChanged', total: this.shardTotal });
+      }
+      this.bus.emit({ type: 'itemPicked', itemId, byPal });
     });
     this.projCoreGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
     this.projShellGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
@@ -147,6 +154,26 @@ export class CombatSystem {
       if (d2 < bd) { bd = d2; best = e; }
     }
     return best;
+  }
+
+  // ----------------------------------------------------------------- drops
+
+  /** Put an item on the ground (enemy loot, and the fetch test hook in main). */
+  spawnDrop(itemId: string, x: number, y: number, z: number): void {
+    this.pickups.spawn(x, y, z, itemId);
+  }
+
+  /**
+   * Offer the nearest fetchable drop near `from`. `want` is the caller's
+   * policy — combat has no opinion on which items are worth a trip.
+   */
+  findFetchJob(from: THREE.Vector3, maxDist: number, want: (itemId: string) => boolean): FetchJob | null {
+    return this.pickups.findJob(from, maxDist, want);
+  }
+
+  /** Debug read-out of everything lying on the ground. Allocates. */
+  dropSnapshot(): { itemId: string; x: number; z: number; claimed: boolean; age: number }[] {
+    return this.pickups.snapshot();
   }
 
   // ---------------------------------------------------------------- update
@@ -561,7 +588,15 @@ export class CombatSystem {
     const xp = e.xp + ((Math.random() * 5) | 0);
     this.bus.emit({ type: 'enemyKilled', name: e.name, xp });
     const drops = 1 + ((Math.random() * 3) | 0);
-    for (let k = 0; k < drops; k++) this.pickups.spawn(px, py + 0.6, pz);
+    for (let k = 0; k < drops; k++) this.pickups.spawn(px, py + 0.6, pz, SHARD_ID);
+    // Stackable loot on top of the shards. 1-in-4 is a first pass, chosen to be
+    // frequent enough that both item kinds turn up in ordinary play and rare
+    // enough that the ground does not fill with cubes the support pal is under
+    // orders to ignore. Retune once there is something to spend them on.
+    if (Math.random() < 0.25) {
+      const id = STACKABLE_IDS[(Math.random() * STACKABLE_IDS.length) | 0];
+      this.pickups.spawn(px, py + 0.6, pz, id);
+    }
     this.removeEnemy(i);
   }
 
