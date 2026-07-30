@@ -623,7 +623,21 @@ function frame(): void {
     }
   }
   debug.update();
-  input.endFrame();
+
+  // Input edges belong to the SIMULATION, not to the frame.
+  //
+  // endFrame() clears the one-shot state — pressed-this-frame keys, the attack
+  // edge, accumulated mouse/wheel delta — and only a simulation slice ever reads
+  // any of it. Once the sim runs at a fixed 60 Hz and the renderer runs as fast
+  // as it likes, most frames drain no slice at all: at an uncapped 165 fps a
+  // slice lands on barely a third of them. Clearing regardless threw the other
+  // two thirds of every press away, measured at a 30% jump hit rate — you press
+  // space, nothing happens.
+  //
+  // So hold the edges until a slice has had the chance to consume them. Mouse
+  // delta wants exactly the same treatment: it is a quantity to integrate, and
+  // dropping it on a slice-less frame silently scaled look sensitivity down.
+  if (steps > 0) input.endFrame();
   perf.section('overlay');
   perf.end();
 }
