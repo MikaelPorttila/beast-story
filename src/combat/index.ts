@@ -13,6 +13,8 @@ import { DamageNumbers } from './damage-numbers';
 import { elementMultiplier } from './effectiveness';
 import { Enemy, ENEMY_DEFS, variantForHeight, type EnemyCtx } from './enemies';
 import { Pickups } from './pickups';
+import { perf } from '../core/profiler';
+import { flags } from '../core/flags';
 
 /**
  * CombatSystem: the orchestrator. Owns VFX, damage numbers, shard pickups and
@@ -159,16 +161,20 @@ export class CombatSystem {
     for (const f of friendlies) if (!f.isDead) this.targets.push(f);
 
     // ------------------------------------------------------------ spawner
-    if (!this.primed) {
-      this.primed = true;
-      for (let i = 0; i < 30 && this.enemies.length < 11; i++) {
-        this.trySpawn(player.position, true);
+    // `enemies=0` suppresses the whole population, initial priming included, so
+    // a measurement run can price the wild spawns (see core/flags.ts).
+    if (flags.enemies) {
+      if (!this.primed) {
+        this.primed = true;
+        for (let i = 0; i < 30 && this.enemies.length < 11; i++) {
+          this.trySpawn(player.position, true);
+        }
       }
-    }
-    this.spawnT -= dt;
-    if (this.spawnT <= 0) {
-      this.spawnT = this.enemies.length < SPAWN_MIN ? 0.35 : 2.4;
-      if (this.enemies.length < SPAWN_MAX) this.trySpawn(player.position, false);
+      this.spawnT -= dt;
+      if (this.spawnT <= 0) {
+        this.spawnT = this.enemies.length < SPAWN_MIN ? 0.35 : 2.4;
+        if (this.enemies.length < SPAWN_MAX) this.trySpawn(player.position, false);
+      }
     }
 
     // ------------------------------------------------------------ enemies
@@ -303,6 +309,41 @@ export class CombatSystem {
     // muzzle pop
     this.vfx.glowPulse(req.origin.x, req.origin.y, req.origin.z, hex, 1.1, 0.2);
     this.vfx.burst(req.origin.x, req.origin.y, req.origin.z, hex, 7, 2.2, 0.28, 0.18, 0, 0.3);
+  }
+
+  /**
+   * Shader warm-up (see warmUpShaders() in main.ts). Puts one of everything
+   * this system can draw in front of `at`: a live projectile with its glow and
+   * light, a damage number, a shard pickup, and the whole VFX set. `lights`
+   * additionally raises the visible point-light count, which is its own program
+   * key — see VFX.warmUpLights.
+   */
+  /** One more visible point light, for the count sweep. See VFX.warmUpLights. */
+  warmUpLight(at: THREE.Vector3): void {
+    this.vfx.warmUpLights(at.x, at.y, at.z, 1);
+  }
+
+  warmUp(at: THREE.Vector3, lights: number): void {
+    const p = this.projSlot();
+    if (p) {
+      p.active = true;
+      p.element = 'fire';
+      p.hex = 0xffffff;
+      p.rawBase = 0;
+      p.target = null;
+      p.life = 0.05;
+      p.trailT = 0;
+      p.spin = 0;
+      p.vel.set(0, 0, 0);
+      p.group.position.copy(at);
+      p.group.visible = true;
+      p.light = this.vfx.acquireLight(0xffffff, 0.001, 4);
+      if (p.light) p.light.position.copy(at);
+    }
+    this.numbers.spawn(at.x, at.y + 1, at.z, '1', 0xffffff, true);
+    this.pickups.spawn(at.x, at.y, at.z);
+    this.vfx.warmUp(at.x, at.y, at.z);
+    this.vfx.warmUpLights(at.x, at.y, at.z, lights);
   }
 
   private updateProjectiles(dt: number): void {
@@ -498,6 +539,7 @@ export class CombatSystem {
     const e = new Enemy(def.id, variant, x, z, this.world);
     this.scene.add(e.root);
     this.enemies.push(e);
+    perf.count('enemies');
     if (!silent) {
       const hex = ELEMENT_COLORS[e.element];
       this.vfx.dust(x, gy + 0.06, z, 12);

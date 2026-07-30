@@ -4,6 +4,8 @@ import { DebugOverlay } from './core/debug-overlay';
 import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
 import { EventBus, type SkillDef, type Damageable } from './core/types';
+import { perf } from './core/profiler';
+import { flags } from './core/flags';
 import { createWorld } from './world/index';
 import { Player } from './player/index';
 import { PalActor, registerSkillDefs } from './pals/framework';
@@ -38,8 +40,14 @@ const cooldowns = new Map<string, number>();
 function primary(): PalActor { return roster[primaryIdx]; }
 function support(): PalActor { return roster[supportIdx]; }
 
+// `pals=0` hides the party and skips its per-frame update, so a measurement run
+// can price what the two active pals cost to animate and draw. It does NOT skip
+// building the rigs — the roster is still constructed, because half of main.ts
+// reads primary()/support() and a null roster would need guards everywhere for
+// the sake of a diagnostic. Rig construction is a boot cost; read it off the
+// boot phase of a profile instead. See core/flags.ts.
 function refreshVisibility(): void {
-  roster.forEach((p, i) => p.setVisible(i === primaryIdx || i === supportIdx));
+  roster.forEach((p, i) => p.setVisible(flags.pals && (i === primaryIdx || i === supportIdx)));
 }
 refreshVisibility();
 
@@ -299,16 +307,207 @@ engine.setFpsCap(fpsCap);
 const debug = new DebugOverlay(engine.renderer, fpsCap);
 if (params.get('debug') === '1') debug.toggle();
 
-function frame(): void {
-  requestAnimationFrame(frame);
-  if (!engine.beginFrame()) return;
-  const dt = engine.tick();
+perf.enabled = params.get('perf') === '1';
+let lastPrograms = 0;
+
+// ---------------------------------------------------------------------------
+// Fixed-timestep simulation, decoupled from the render cadence.
+//
+// The world advances in SIM_DT slices regardless of how often we draw, and the
+// leftover time is carried to the next frame. Two things this buys:
+//
+//   - The simulation no longer changes shape with the display. On a 144 Hz panel
+//     it used to run 144 tiny steps a second, on a slow frame one 50 ms step
+//     (that being the clamp in Engine.tick, which is itself a symptom of a
+//     variable-dt sim), and steering, damping and gravity all behaved slightly
+//     differently in each case.
+//   - After a long stall the backlog is replayed in bounded steps instead of
+//     arriving as one enormous dt, so nothing tunnels through the ground.
+//
+// MAX_STEPS bounds the catch-up. Without it, a frame that takes longer than the
+// steps it queues makes the next frame queue even more — the classic spiral
+// where a hitch becomes a hang. When the cap is hit the backlog is DROPPED, not
+// carried: the world loses that time, which is the correct trade (a stalled
+// tab should not fast-forward when it returns).
+//
+// What this does NOT do is fix a hitch: measured, the freezes in this game are
+// first-use shader compilation in the GPU process, and JavaScript has one thread
+// for simulation and drawing either way. Decoupling makes the sim behave the
+// same on every machine; it cannot make a blocked GPU return sooner.
+//
+// `simhz=<n>` overrides the rate for experiments.
+const SIM_HZ = Math.max(20, Number(params.get('simhz') ?? 60));
+const SIM_DT = 1 / SIM_HZ;
+const MAX_STEPS = 4;
+let simAccumulator = 0;
+
+/**
+ * One simulation slice. Called with a fixed dt, possibly several times per
+ * rendered frame, possibly none.
+ *
+ * `first` is true only on the slice that owns this frame's input edges.
+ * input.pressed() stays true for the whole frame, so a discrete action read on
+ * every slice would fire twice whenever two slices land in one frame — a Tab
+ * swap would swap and swap back, and a shop would toggle open and shut. Held
+ * state (movement axes, attack-held) is intentionally NOT gated: reading it
+ * every slice is exactly right.
+ */
+/**
+ * Shader warm-up.
+ *
+ * THIS IS THE FIX FOR THE FREEZES, and it is worth saying why it looks so odd.
+ * A material's GPU program is compiled the first time it is actually drawn, and
+ * on ANGLE/D3D the driver defers that work until the draw call — so the cost
+ * lands in the GPU process a frame or two after three links the program, as a
+ * stall with no CPU time in it at all. Measured on an RTX 3070 Ti: a burst of
+ * 14 links when the support pal first cast a skill at 7.2 s was followed at
+ * 7.7 s by a 499 ms frame, 476 ms of which was outside our own callback.
+ *
+ * So: draw one of everything now, while the player is still looking at an empty
+ * canvas, and pay the whole bill up front. The camera is parked on a staging
+ * spot far under the world for the duration — these frames are rendered before
+ * the first gameplay frame is presented, and nothing is on screen to disturb.
+ *
+ * The light sweep is the non-obvious half. Program keys include the number of
+ * visible lights, so the count has to be walked from 1 to the pool's maximum,
+ * one render each; otherwise the second and third simultaneous projectile each
+ * trigger their own recompile mid-fight.
+ */
+function warmUpShaders(): void {
+  const camPos = engine.camera.position.clone();
+  const camQuat = engine.camera.quaternion.clone();
+
+  // The camera has to be looking at the REAL WORLD, not at an empty staging
+  // area. The light sweep below only recompiles materials that are actually
+  // drawn, and the materials that matter — terrain, props, water, pals, the
+  // shop — are the world's. An earlier version staged this 400 units under the
+  // map, which warmed the effects beautifully and left every lit surface in the
+  // game to recompile later; the 12-program burst simply moved.
+  const stage = world.spawnPoint.clone();
+  stage.y += 1;
+  engine.camera.position.set(stage.x, stage.y + 2, stage.z + 8);
+  engine.camera.lookAt(stage);
+
+  // One of everything, drawn once. This also takes the first pool light (the
+  // projectile's), so the sweep below starts from a count of 1.
+  combat.warmUp(stage, 0);
+  engine.render();
+
+  // Then one light at a time, one render each, to the pool's cap. EXACTLY one:
+  // adding two per pass leaves every odd count uncompiled, which is a real bug
+  // this code already had — three projectiles in flight at once then hit an
+  // unseen count mid-fight and recompiled twelve materials in one frame.
+  const POOL = 10; // VFX light pool cap
+  for (let i = 1; i < POOL; i++) {
+    combat.warmUpLight(stage);
+    engine.render();
+  }
+
+  // NOT renderer.compile(scene, camera). It was tried and measured: it linked
+  // 117 programs in one go and made boot dramatically WORSE (593 ms, 429 ms and
+  // 287 ms stalls in the first 1.5 s, against ~110 ms without it), because it
+  // links every permutation in the graph whether or not it will ever be drawn,
+  // and the driver then compiles the lot. Drawing one of each thing, as above,
+  // is both cheaper and closer to what the GPU actually needs.
+
+  // Expire everything the warm-up spawned: every effect above was given a life
+  // measured in hundredths of a second, so one long update clears the lot.
+  combat.update(5, player as unknown as Damageable, []);
+
+  engine.camera.position.copy(camPos);
+  engine.camera.quaternion.copy(camQuat);
+}
+
+function simulate(dt: number, first: boolean, interactive: boolean): void {
   const shopOpen = hud.isShopOpen();
 
   // The camera stick is a rate control, so it must inject its look delta BEFORE
   // the player/camera update consumes mouseDX this frame — ticking it later in
   // the frame meant endFrame() wiped the delta before the camera ever saw it.
-  if (!shopOpen) touch?.update(dt);
+  if (interactive && !shopOpen) touch?.update(dt);
+
+  // Photo mode drives the camera and the subject itself and must not have the
+  // player controller or the HUD fighting it, but it DOES need the world to
+  // stream and the pals to animate — everything below the branch.
+  if (!interactive) {
+    // fall through to the world update
+  } else if (!shopOpen) {
+    perf.section('input');
+    player.update(dt);
+    perf.section('player');
+
+    if (first) {
+      // Hotbar
+      const skills = hotbarSkills();
+      (['Digit1', 'Digit2', 'Digit3', 'Digit4'] as const).forEach((code, i) => {
+        if (input.pressed(code) && skills[i]) castFromPal(primary(), skills[i]);
+      });
+
+      // Pal management
+      if (input.pressed('Tab')) {
+        const t = primaryIdx; primaryIdx = supportIdx; supportIdx = t;
+        bus.emit({ type: 'toast', text: `${primary().species.name} takes the lead!` });
+      }
+      if (input.pressed('BracketRight')) cyclePal('primary', 1);
+      if (input.pressed('BracketLeft')) cyclePal('support', 1);
+    }
+
+    // Support pal auto-cast
+    const sup = support();
+    if (sup.wantsSupportCast()) {
+      const known = sup.knownSkillIds.map((id) => getSkill(id)).filter((s): s is SkillDef => !!s);
+      const heal = known.find((s) => s.targeting === 'support' || s.targeting === 'self');
+      const hurt = player.hp < player.maxHp * 0.7 || primary().hp < primary().maxHp * 0.7;
+      const pick = hurt && heal ? heal : known.find((s) => s.targeting !== 'support' && s.targeting !== 'self') ?? heal;
+      if (pick) castFromPal(sup, pick);
+    }
+
+    // Shop proximity
+    const near = world.shopPositions.some((s) => s.distanceTo(player.position) < 3.5);
+    if (near) {
+      hud.showHint('Press E — Skill Den');
+      if (first && input.pressed('KeyE')) tryOpenShop();
+    } else {
+      hud.hideHint();
+    }
+  } else if (first && (input.pressed('Escape') || input.pressed('KeyE'))) {
+    hud.closeShop();
+  }
+
+  // Cooldowns
+  for (const [id, t] of cooldowns) cooldowns.set(id, Math.max(0, t - dt));
+
+  // Pals follow
+  const owner = { position: player.position, velocity: player.velocity, isSwimming: player.isSwimming };
+  if (flags.pals) {
+    primary().update(dt, owner, 'primary', roster);
+    support().update(dt, owner, 'support', roster);
+  }
+  perf.section('pals');
+
+  world.update(player.position, dt, first);
+  perf.section('world');
+  combat.update(dt, player as unknown as Damageable, [primary(), support()] as unknown as Damageable[]);
+  perf.section('combat');
+}
+
+function frame(): void {
+  requestAnimationFrame(frame);
+  if (!engine.beginFrame()) return;
+  perf.begin();
+  const dt = engine.tick();
+  const shopOpen = hud.isShopOpen();
+
+  // Drain the accumulator in fixed slices; carry the remainder to next frame.
+  simAccumulator += dt;
+  let steps = 0;
+  while (simAccumulator >= SIM_DT && steps < MAX_STEPS) {
+    simulate(SIM_DT, steps === 0, !photoMode);
+    simAccumulator -= SIM_DT;
+    steps++;
+  }
+  // Hit the cap: drop the backlog rather than compound it into the next frame.
+  if (steps === MAX_STEPS) simAccumulator = 0;
 
   if (photoMode) {
     if (params.get('pal')) {
@@ -385,55 +584,7 @@ function frame(): void {
         primary().playAction(photoAnim as never);
       }
     }
-  } else if (!shopOpen) {
-    player.update(dt);
-
-    // Hotbar
-    const skills = hotbarSkills();
-    (['Digit1', 'Digit2', 'Digit3', 'Digit4'] as const).forEach((code, i) => {
-      if (input.pressed(code) && skills[i]) castFromPal(primary(), skills[i]);
-    });
-
-    // Pal management
-    if (input.pressed('Tab')) {
-      const t = primaryIdx; primaryIdx = supportIdx; supportIdx = t;
-      bus.emit({ type: 'toast', text: `${primary().species.name} takes the lead!` });
-    }
-    if (input.pressed('BracketRight')) cyclePal('primary', 1);
-    if (input.pressed('BracketLeft')) cyclePal('support', 1);
-
-    // Support pal auto-cast
-    const sup = support();
-    if (sup.wantsSupportCast()) {
-      const known = sup.knownSkillIds.map((id) => getSkill(id)).filter((s): s is SkillDef => !!s);
-      const heal = known.find((s) => s.targeting === 'support' || s.targeting === 'self');
-      const hurt = player.hp < player.maxHp * 0.7 || primary().hp < primary().maxHp * 0.7;
-      const pick = hurt && heal ? heal : known.find((s) => s.targeting !== 'support' && s.targeting !== 'self') ?? heal;
-      if (pick) castFromPal(sup, pick);
-    }
-
-    // Shop proximity
-    const near = world.shopPositions.some((s) => s.distanceTo(player.position) < 3.5);
-    if (near) {
-      hud.showHint('Press E — Skill Den');
-      if (input.pressed('KeyE')) tryOpenShop();
-    } else {
-      hud.hideHint();
-    }
-  } else if (input.pressed('Escape') || input.pressed('KeyE')) {
-    hud.closeShop();
   }
-
-  // Cooldowns
-  for (const [id, t] of cooldowns) cooldowns.set(id, Math.max(0, t - dt));
-
-  // Pals follow
-  const owner = { position: player.position, velocity: player.velocity, isSwimming: player.isSwimming };
-  primary().update(dt, owner, 'primary', roster);
-  support().update(dt, owner, 'support', roster);
-
-  world.update(player.position, dt);
-  combat.update(dt, player as unknown as Damageable, [primary(), support()] as unknown as Damageable[]);
 
   // HUD sync
   hud.setPlayerHp(player.hp, player.maxHp);
@@ -460,9 +611,33 @@ function frame(): void {
   }
 
   if (input.pressed('F2')) debug.toggle();
+  perf.section('hud');
 
   engine.render();
+  perf.section('render');
+  if (perf.enabled) {
+    const programs = engine.renderer.info.programs?.length ?? 0;
+    if (programs !== lastPrograms) {
+      perf.count('programs', programs - lastPrograms);
+      lastPrograms = programs;
+    }
+  }
   debug.update();
   input.endFrame();
+  perf.section('overlay');
+  perf.end();
+}
+// Pay for every shader before the first gameplay frame. `warmup=0` skips it,
+// which is how the freeze it prevents can be reproduced on demand.
+//
+// One simulation slice runs FIRST so there is something to warm: it primes the
+// enemy population and teleports the pals to the player, both of which are
+// still at the origin (and so out of frame, and so uncompiled) before it.
+if (params.get('warmup') !== '0') {
+  simulate(SIM_DT, true, !photoMode);
+  warmUpShaders();
 }
 frame();
+
+// Profiler dump for the perf harness; null unless ?perf=1 recorded anything.
+(window as unknown as { __dbgPerf: () => unknown }).__dbgPerf = () => perf.dump();

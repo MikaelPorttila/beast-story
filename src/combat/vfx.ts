@@ -9,6 +9,10 @@ import * as THREE from 'three';
 
 const _v = new THREE.Vector3();
 const _c = new THREE.Color();
+// Endpoints for the warm-up beam; module temps like the rest, even though the
+// warm-up runs once, so nothing here allocates.
+const _warmA = new THREE.Vector3();
+const _warmB = new THREE.Vector3();
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 function easeOutCubic(t: number): number { return 1 - Math.pow(1 - t, 3); }
@@ -661,6 +665,44 @@ export class VFX {
     this.flashEl.style.backgroundColor =
       `rgb(${Math.round(_c.r * 255)},${Math.round(_c.g * 255)},${Math.round(_c.b * 255)})`;
     this.flashOpacity = Math.max(this.flashOpacity, strength);
+  }
+
+  // ----------------------------------------------------------- warm-up
+
+  /**
+   * Shader warm-up: put one of every effect on screen so its program is linked
+   * and takes its first draw NOW, at boot, instead of the first time a pal
+   * casts. Measured, that first cast linked 14 programs and the GPU process
+   * then stalled a frame for ~500 ms. See warmUpShaders() in main.ts.
+   */
+  warmUp(x: number, y: number, z: number): void {
+    const hex = 0xffffff;
+    this.burst(x, y, z, hex, 6, 2, 0.3, 0.2);
+    this.rise(x, y, z, hex, 6, 0.5, 1, 0.3, 0.2, 1);
+    this.trail(x, y, z, hex, 0.2);
+    this.dust(x, y, z, 6);
+    this.debrisBurst(x, y, z, [hex], 6, 2, 0.2, y);
+    this.glowPulse(x, y, z, hex, 1, 0.3);
+    this.ring(x, y, z, hex, 1.5, 0.3);
+    _warmA.set(x, y, z);
+    _warmB.set(x + 2, y + 1, z);
+    this.beam(_warmA, _warmB, hex);
+    this.slash(x, y, z, 1, 0, hex);
+    this.scorch(x, y, z, hex, 1);
+  }
+
+  /**
+   * Make `n` more pool lights visible.
+   *
+   * This is the half that matters most and is the least obvious: three keys a
+   * program on the NUMBER OF LIGHTS in the scene, so every lit material gets a
+   * fresh program the first time one light is up, another the first time two
+   * are up, and so on. A firefight lighting three projectiles at once therefore
+   * recompiles the world at three separate moments. Warming the whole range
+   * costs one render per step at boot and buys all of them.
+   */
+  warmUpLights(x: number, y: number, z: number, n: number): void {
+    for (let i = 0; i < n; i++) this.flashLight(x, y, z, 0xffffff, 0.001, 4, 0.02);
   }
 
   // -------------------------------------------------------------- update

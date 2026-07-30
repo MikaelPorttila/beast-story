@@ -106,8 +106,13 @@ export interface World {
   /** Water surface level (constant) */
   readonly waterLevel: number;
   isWater(x: number, z: number): boolean;
-  /** Stream chunks around a focus point; call every frame */
-  update(focus: THREE.Vector3, dt: number): void;
+  /**
+   * Stream chunks around a focus point; call every simulation slice.
+   * `newFrame` marks the first slice of a rendered frame and resets the
+   * per-frame chunk-building time budget — pass false on catch-up slices, or
+   * a frame that runs several will do several frames' worth of building.
+   */
+  update(focus: THREE.Vector3, dt: number, newFrame?: boolean): void;
   /** Positions of interest (skill dens / shops) */
   readonly shopPositions: THREE.Vector3[];
   /** Good spawn point on land */

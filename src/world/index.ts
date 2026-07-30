@@ -11,9 +11,17 @@ import { PropLib, buildChunkProps, type Exclusion } from './props';
 import { Shops, type DenSpot } from './shops';
 import { Clouds, Motes } from './clouds';
 import { mulberry32 } from './noise';
+import { perf } from '../core/profiler';
+import { flags } from '../core/flags';
 
-const VIEW_RADIUS = 5;
-const UNLOAD_RADIUS = 6.5;
+const VIEW_RADIUS = flags.viewRadius ?? 5;
+const UNLOAD_RADIUS = VIEW_RADIUS + 1.5;
+/**
+ * Wall-clock budget per rendered frame for chunk building, in ms. At the ~7.8 ms
+ * frames this game runs at, 3 ms leaves the rest of the frame intact while still
+ * draining the queue in a couple of seconds of walking.
+ */
+const BUILD_BUDGET_MS = 3;
 
 interface ChunkRec {
   cx: number;
@@ -171,11 +179,13 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
   const shops = new Shops(spots, spawnPoint);
   scene.add(shops.group);
 
-  const clouds = new Clouds(seed);
-  scene.add(clouds.group);
-  const motes = new Motes(seed);
-  motes.points.position.copy(spawnPoint);
-  scene.add(motes.points);
+  const clouds = flags.clouds ? new Clouds(seed) : null;
+  if (clouds) scene.add(clouds.group);
+  const motes = flags.clouds ? new Motes(seed) : null;
+  if (motes) {
+    motes.points.position.copy(spawnPoint);
+    scene.add(motes.points);
+  }
 
   // 'solid' — these discs hold trees, boulders, hedges and logs off the spawn
   // clearing and the den decks, but grass, flowers and shells still carpet
@@ -191,19 +201,63 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
   let lastCZ = Infinity;
   let time = 0;
   let disposed = false;
+  /** The chunk currently part-built, and which stage comes next. */
+  let building: { rec: ChunkRec; stage: number } | null = null;
+  let buildBudgetLeft = 0;
 
-  const buildChunk = (cx: number, cz: number): void => {
+  /**
+   * A chunk is built in THREE STAGES, one per call, because building one in a
+   * single call is far too much work for one frame.
+   *
+   * Measured on an RTX 3070 Ti: a whole chunk is ~15 ms and the old budget did
+   * two of them in a frame, so streaming cost 30-51 ms spikes — the sawtooth you
+   * feel walking in a straight line. Props are ~78% of that (world's worst frame
+   * drops from 30 ms to 6.6 ms with `props=0`), which is why they are last: the
+   * ground and its water appear first and the scenery fills in a frame or two
+   * later, rather than the whole chunk popping in at the cost of a dropped frame.
+   *
+   * The record is registered in `chunks` at stage 0, so a half-built chunk is
+   * never re-queued by refreshQueue, and unloadFar can dispose it mid-build.
+   */
+  const startChunk = (cx: number, cz: number): ChunkRec | null => {
     const key = chunkKey(cx, cz);
-    if (chunks.has(key)) return;
-    const meshes: THREE.Mesh[] = [];
-    meshes.push(buildTerrainMesh(cx, cz, terrain, terrainMat));
-    const water = buildWaterMesh(cx, cz, terrain, waterMat);
-    if (water) meshes.push(water);
-    const props = buildChunkProps(cx, cz, terrain, propLib, exclusions);
-    if (props.solid) meshes.push(props.solid);
-    if (props.soft) meshes.push(props.soft);
-    for (const m of meshes) scene.add(m);
-    chunks.set(key, { cx, cz, meshes });
+    if (chunks.has(key)) return null;
+    const rec: ChunkRec = { cx, cz, meshes: [] };
+    chunks.set(key, rec);
+    return rec;
+  };
+
+  const buildStage = (rec: ChunkRec, stage: number): void => {
+    const { cx, cz } = rec;
+    if (stage === 0) {
+      const m = buildTerrainMesh(cx, cz, terrain, terrainMat);
+      rec.meshes.push(m);
+      scene.add(m);
+    } else if (stage === 1) {
+      if (!flags.water) return;
+      const water = buildWaterMesh(cx, cz, terrain, waterMat);
+      if (water) {
+        rec.meshes.push(water);
+        scene.add(water);
+      }
+    } else {
+      if (!flags.props) return;
+      const props = buildChunkProps(cx, cz, terrain, propLib, exclusions);
+      for (const m of [props.solid, props.soft]) {
+        if (m) {
+          rec.meshes.push(m);
+          scene.add(m);
+        }
+      }
+    }
+  };
+
+  /** Build a whole chunk now. Boot only — the streaming path stages it. */
+  const buildChunk = (cx: number, cz: number): void => {
+    const rec = startChunk(cx, cz);
+    if (!rec) return;
+    for (let s = 0; s <= 2; s++) buildStage(rec, s);
+    perf.count('chunks');
   };
 
   const disposeChunk = (rec: ChunkRec): void => {
@@ -234,6 +288,9 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
       const dx = rec.cx - fcx;
       const dz = rec.cz - fcz;
       if (dx * dx + dz * dz > lim) {
+        // The part-built chunk can be the one walking out of range; drop it or
+        // the next stage would add meshes to a record already disposed.
+        if (building && building.rec === rec) building = null;
         disposeChunk(rec);
         chunks.delete(key);
       }
@@ -254,12 +311,17 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
     getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
     isWater: (x: number, z: number): boolean => terrain.getHeight(x, z) < WATER_LEVEL,
 
-    update(focus: THREE.Vector3, dt: number): void {
+    update(focus: THREE.Vector3, dt: number, newFrame = true): void {
       if (disposed) return;
+      // The build budget is per RENDERED FRAME, not per simulation slice. The
+      // sim can run several slices in one frame (main.ts), and a per-slice
+      // budget multiplied by those slices is what turned a catch-up frame into
+      // six chunk stages and a 120 ms hitch.
+      if (newFrame) buildBudgetLeft = BUILD_BUDGET_MS;
       time += dt;
       waterMat.uniforms['uTime'].value = time;
-      clouds.update(focus, dt);
-      motes.update(focus, time, dt);
+      clouds?.update(focus, dt);
+      motes?.update(focus, time, dt);
       shops.update(time);
 
       const fcx = Math.floor(focus.x / CHUNK_SIZE);
@@ -270,14 +332,26 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
         refreshQueue(fcx, fcz);
         unloadFar(fcx, fcz);
       }
-      // Budgeted chunk builds: 2/frame while catching up, else 1.
-      let budget = queue.length > 14 ? 2 : 1;
-      while (budget > 0 && queue.length > 0) {
-        const q = queue.shift()!;
-        if (!chunks.has(chunkKey(q.cx, q.cz))) {
-          buildChunk(q.cx, q.cz);
-          budget--;
+      // Spend the frame's build budget one STAGE at a time, checking the clock
+      // after each. A stage is the smallest unit of work available here, so the
+      // budget is a floor, not a ceiling: one long props stage can overrun it.
+      // That is deliberate — the alternative is leaving the queue stalled while
+      // the player walks into unbuilt ground.
+      while (buildBudgetLeft > 0 && (building || queue.length > 0)) {
+        const t0 = performance.now();
+        if (!building) {
+          const q = queue.shift()!;
+          const rec = startChunk(q.cx, q.cz);
+          if (!rec) continue; // already built or in flight
+          building = { rec, stage: 0 };
         }
+        buildStage(building.rec, building.stage);
+        building.stage++;
+        if (building.stage > 2) {
+          perf.count('chunks');
+          building = null;
+        }
+        buildBudgetLeft -= performance.now() - t0;
       }
     },
 
@@ -288,10 +362,14 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
       chunks.clear();
       scene.remove(shops.group);
       shops.dispose();
-      scene.remove(clouds.group);
-      clouds.dispose();
-      scene.remove(motes.points);
-      motes.dispose();
+      if (clouds) {
+        scene.remove(clouds.group);
+        clouds.dispose();
+      }
+      if (motes) {
+        scene.remove(motes.points);
+        motes.dispose();
+      }
       terrainMat.dispose();
       waterMat.dispose();
       propLib.dispose();

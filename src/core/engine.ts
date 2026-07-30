@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PostFX, readPostOptions } from './post';
+import { flags } from './flags';
 
 /**
  * Rendering engine: renderer, scene, camera, sky, sun/ambient lighting, fog and
@@ -281,7 +282,10 @@ export class Engine {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
-    this.renderer.shadowMap.enabled = true;
+    // `shadows=0` drops the shadow map entirely (core/flags.ts) — a 4096^2 depth
+    // pass over every caster in the streamed world is the single most expensive
+    // thing a frame does, so pricing it is the first question any perf run asks.
+    this.renderer.shadowMap.enabled = flags.shadows;
     // PCF, not PCF_SOFT. Read three's shadowmap_pars_fragment: PCF_SOFT samples a
     // bilinear-weighted grid spanning -1..+2 texels, i.e. ~4 texels of penumbra,
     // while PCF's 17 taps span -1..+1 at shadowRadius 1, i.e. ~2. On a world made
