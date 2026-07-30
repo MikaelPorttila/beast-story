@@ -25,19 +25,22 @@ import type { Player } from './index';
 /**
  * Seconds of held F to climb into the saddle.
  *
- * 2.0 s is the brief. It is long enough that F cannot be hit by accident in a
- * fight and short enough that it never feels like a loading bar; the fill ring
- * gives it the feedback that makes the wait legible rather than unresponsive.
+ * 0.8 s, down from the 2.0 s this shipped with: two seconds was long enough to
+ * be legible but it read as waiting for the game rather than as an action, and
+ * mounting is something you do mid-stride. It is still far longer than any
+ * accidental brush of F in a fight, which is the only thing the hold is
+ * defending against.
  */
-const MOUNT_HOLD = 2.0;
+const MOUNT_HOLD = 0.8;
 /**
  * How fast the fill drains when F is let go early, as a fraction of the bar per
- * second. Faster than it fills (1/MOUNT_HOLD = 0.5/s) on purpose: at 2.5/s a
- * full bar is gone in 0.4 s, so mashing F can never accumulate progress across
- * taps — the only way to mount is one continuous hold — while still reading as
- * the bar falling back rather than blinking out.
+ * second. Deliberately faster than it fills (1/MOUNT_HOLD = 1.25/s): a full bar
+ * is gone in 0.16 s, so mashing F can never accumulate progress across taps —
+ * the only way to mount is one continuous hold — while still reading as the bar
+ * falling back rather than blinking out. Raised with MOUNT_HOLD to keep that
+ * relationship; at the old 2.5 the drain was barely quicker than the fill.
  */
-const RELEASE_DRAIN = 2.5;
+const RELEASE_DRAIN = 6.0;
 
 /**
  * Ground mounts gallop: the pal's own follow speed times this.
