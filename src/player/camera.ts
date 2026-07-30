@@ -20,6 +20,48 @@ function clamp(v: number, a: number, b: number): number {
 const SHOULDER_OFFSET = 0.6;
 
 /**
+ * Vertical follow smoothing — "step smoothing".
+ *
+ * Terrain collision is STEPPED: Terrain.getHeight floors the continuous height,
+ * so the walkable surface is whole-unit terraces and Player.updateAlive snaps
+ * position.y straight onto it. Walking up a hill or a den's stairs therefore
+ * moves the hero a FULL UNIT between two frames.
+ *
+ * The pivot below is both the arm origin and the look target, and it used to
+ * read focus.y directly. The arm survived it — this.pos is damped, so it merely
+ * lurched — but the look target was not damped at all, so the entire frame
+ * pitched a unit's worth in one frame every time the hero climbed a step. That
+ * is the "camera teleports" read: the character walks up, the world snaps.
+ *
+ * The fix is the one every third-person game uses: the camera follows its own
+ * vertical anchor that chases the character, rather than reading the character's
+ * Y. (Unreal solves the same discontinuity from the other end — after a step-up
+ * the character's mesh keeps a translation offset that is interpolated away.)
+ * Only Y is smoothed. Horizontal motion is velocity-driven and already
+ * continuous, and damping x/z as well makes the camera feel dragged in turns.
+ *
+ * Two rates, because grounded and airborne want opposite things:
+ *
+ *   GROUNDED 12  A 1-unit step becomes a glide: 63% in 83 ms, ~95% in 250 ms.
+ *                Fast enough to read as the camera keeping up with the hero,
+ *                slow enough that the discontinuity never lands in one frame.
+ *                Note the arm gets this IN SERIES with its own damping, so the
+ *                rate is deliberately higher than it would be on its own.
+ *   AIRBORNE 30  A jump or a fall is a deliberate arc the player is steering,
+ *                and it is already smooth in Y — there is no discontinuity to
+ *                hide, and lagging it drifts the hero toward the top of the
+ *                frame on the way up. This effectively tracks; it exists so that
+ *                walking off a ledge does not SNAP whatever step offset is still
+ *                decaying at that moment.
+ *
+ * MAX_STEP_LAG caps how far the anchor may trail, so a long fall cannot leave
+ * the camera hanging metres above the hero while an exponential catches up.
+ */
+const STEP_LAMBDA = 12;
+const AIR_LAMBDA = 30;
+const MAX_STEP_LAG = 1.6;
+
+/**
  * Third-person orbit camera with spring-arm smoothing, terrain avoidance and
  * a light trauma-style shake for hits.
  */
@@ -31,6 +73,8 @@ export class ThirdPersonCamera {
   private distTarget = 7.4;
   private dist = 7.4;
   private readonly pos = new THREE.Vector3();
+  /** Smoothed vertical anchor the pivot rides; see STEP_LAMBDA. */
+  private followY = 0;
   private initialized = false;
   private shake = 0;
   private shakeT = 0;
@@ -44,7 +88,14 @@ export class ThirdPersonCamera {
     this.shake = Math.min(1, this.shake + amount);
   }
 
-  update(dt: number, input: Input, focus: THREE.Vector3, world: World, cam: THREE.PerspectiveCamera): void {
+  update(
+    dt: number,
+    input: Input,
+    focus: THREE.Vector3,
+    grounded: boolean,
+    world: World,
+    cam: THREE.PerspectiveCamera,
+  ): void {
     // lookActive covers both captured-mouse and touch look-drag.
     if (input.lookActive) {
       this.yaw -= input.mouseDX * 0.0028;
@@ -54,6 +105,19 @@ export class ThirdPersonCamera {
     this.distTarget = clamp(this.distTarget + input.wheelDelta * 0.01, 3.5, 11);
     this.dist += (this.distTarget - this.dist) * (1 - Math.exp(-8 * dt));
 
+    // Vertical anchor: chase focus.y instead of reading it, so a terrace step
+    // becomes a glide. Runs before the pivot because the pivot rides it, and it
+    // seeds itself on the first frame so the camera does not fly in from y=0.
+    if (!this.initialized) {
+      this.followY = focus.y;
+    } else {
+      const lambda = grounded ? STEP_LAMBDA : AIR_LAMBDA;
+      this.followY += (focus.y - this.followY) * (1 - Math.exp(-lambda * dt));
+      const lag = focus.y - this.followY;
+      if (lag > MAX_STEP_LAG) this.followY = focus.y - MAX_STEP_LAG;
+      else if (lag < -MAX_STEP_LAG) this.followY = focus.y + MAX_STEP_LAG;
+    }
+
     // pivot at upper chest so the hero frames just below screen centre, then
     // slid along camera-right so he sits off-centre and no longer occludes his
     // own reticle. Camera-right for this yaw is (cos yaw, 0, -sin yaw); the
@@ -61,7 +125,7 @@ export class ThirdPersonCamera {
     // is derived from the pivot below) move together and framing stays stable.
     _pivot.set(
       focus.x + Math.cos(this.yaw) * SHOULDER_OFFSET,
-      focus.y + 1.28,
+      this.followY + 1.28,
       focus.z - Math.sin(this.yaw) * SHOULDER_OFFSET,
     );
     const cp = Math.cos(this.pitch);

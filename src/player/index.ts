@@ -18,6 +18,28 @@ const JUMP_VEL = 8.8;
 const COYOTE_TIME = 0.12;
 const JUMP_BUFFER = 0.12;
 const TURN_RATE = 14;
+/**
+ * Highest ledge the hero can walk onto. Above it, the move is refused and the
+ * player has to jump.
+ *
+ * Terrain collision is integer-stepped — Terrain.getHeight floors the continuous
+ * height — so every ledge in this world is a whole unit or more. Any value below
+ * 1.0 therefore means the same thing in practice: hills must be jumped. 0.5 is
+ * the middle of that range, leaving room for a future half-height prop to still
+ * be walkable without ever letting a full cube through.
+ *
+ * JUMP_VEL/GRAVITY put the apex at 8.8^2 / (2*24) = 1.61 units, so a single
+ * block is always clearable with a jump and a 2-unit face never is — that gap is
+ * the point, and moving either constant changes what the world is climbable.
+ */
+const MAX_STEP_UP = 0.5;
+/**
+ * Horizontal half-width for the step test, so the hero is stopped with his
+ * shoulder at the rock face rather than with his centre inside it. Roughly the
+ * rig's body width; it is a collision probe, not a capsule — there is no
+ * horizontal collision volume in this game beyond this test.
+ */
+const BODY_RADIUS = 0.32;
 const COMBO_DURS = [0.42, 0.42, 0.58];
 const STRIKE_AT = 0.46;      // fraction of swing where damage lands
 const COMBO_COOLDOWN = 0.22;
@@ -184,7 +206,7 @@ export class Player {
     });
 
     this.dust.update(dt, this.time);
-    this.cam.update(dt, input, this.position, world, this.engine.camera);
+    this.cam.update(dt, input, this.position, this.onGround, world, this.engine.camera);
     this.engine.updateSunFocus(this.position);
   }
 
@@ -247,7 +269,43 @@ export class Player {
     }
 
     // ---- integrate + terrain collision ----
-    this.position.addScaledVector(this.velocity, dt);
+    // Horizontal first, and refused when the destination column stands more than
+    // MAX_STEP_UP above the feet. There is no horizontal collision geometry in
+    // this world, so without the test walking into a taller column simply put the
+    // hero on top of it on the next lines down — every terrace was a staircase
+    // you could stroll up. Now a hill is something you jump.
+    //
+    // The axes resolve INDEPENDENTLY, which is what lets a blocked diagonal slide
+    // along the cliff instead of stopping dead, and each probes BODY_RADIUS along
+    // its own direction of travel so the stop happens at the rock face.
+    //
+    // The reference height is the feet BEFORE this frame's gravity, so the test
+    // asks "can he step onto that?" and not "did he sink a millimetre first?".
+    // Airborne, the same test reads as clearance: at the apex of a jump the feet
+    // are 1.61 units up, so a 1-unit ledge is no longer a wall — which is exactly
+    // how jumping gets you up a hill.
+    //
+    // Swimming is exempt. A swimmer floats ~1.15 units below the surface, so the
+    // rule would make every shoreline a wall and there would be no way out of the
+    // water.
+    const feetY = this.position.y;
+    if (this.isSwimming) {
+      this.position.x += this.velocity.x * dt;
+      this.position.z += this.velocity.z * dt;
+    } else {
+      const stepCeil = feetY + MAX_STEP_UP;
+      const nx = this.position.x + this.velocity.x * dt;
+      const probeX = nx + Math.sign(this.velocity.x) * BODY_RADIUS;
+      if (world.getHeight(probeX, this.position.z) <= stepCeil) this.position.x = nx;
+      else this.velocity.x = 0;
+
+      const nz = this.position.z + this.velocity.z * dt;
+      const probeZ = nz + Math.sign(this.velocity.z) * BODY_RADIUS;
+      if (world.getHeight(this.position.x, probeZ) <= stepCeil) this.position.z = nz;
+      else this.velocity.z = 0;
+    }
+    this.position.y += this.velocity.y * dt;
+
     const gh = world.getHeight(this.position.x, this.position.z);
     if (this.position.y <= gh) {
       if (!this.onGround && this.velocity.y < -7) {

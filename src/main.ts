@@ -249,11 +249,24 @@ const touch = photoMode ? null : TouchControls.attach(input);
 // Probes for the automated input tests (tools/test-touch.mjs). Read-only.
 interface DebugProbes {
   __dbgPlayerPos: () => { x: number; y: number; z: number };
+  __dbgCam: () => { x: number; y: number; z: number; pitch: number };
   __dbgCamYaw: () => number;
 }
 (window as unknown as DebugProbes).__dbgPlayerPos = () => ({
   x: player.position.x, y: player.position.y, z: player.position.z,
 });
+// Camera position AND view pitch, for measuring follow behaviour over terraced
+// ground. Pitch is the one that matters: the terrain steps a whole unit at a
+// time, and an unsmoothed look target turns that into a several-degree snap of
+// the whole frame in a single frame (see ThirdPersonCamera's step smoothing).
+const _dbgDir = new THREE.Vector3();
+(window as unknown as DebugProbes).__dbgCam = () => {
+  engine.camera.getWorldDirection(_dbgDir);
+  return {
+    x: engine.camera.position.x, y: engine.camera.position.y, z: engine.camera.position.z,
+    pitch: (Math.asin(Math.max(-1, Math.min(1, _dbgDir.y))) * 180) / Math.PI,
+  };
+};
 (window as unknown as DebugProbes).__dbgCamYaw = () => Math.atan2(
   engine.camera.position.x - player.position.x,
   engine.camera.position.z - player.position.z,
