@@ -1,25 +1,24 @@
 // Verifies touch support: overlay exists ONLY on touch devices, the virtual
 // stick moves the player, look-drag turns the camera, and buttons fire.
-// Usage: node tools/test-touch.mjs
-import { chromium, devices } from 'playwright';
+// Usage: bun tools/test-touch.mjs
+import { launchBrowser, newPage, newContextPage, wait, count, isVisible } from './browser.mjs';
 
-const args = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox'];
-const browser = await chromium.launch({ args });
+const browser = await launchBrowser();
 const results = {};
 
 // ---------- desktop: no overlay, no touch logic ----------
 {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const page = await newPage(browser, { width: 1280, height: 800 });
   await page.goto('http://localhost:5187/?fps=30', { waitUntil: 'load' });
   await page.waitForSelector('canvas');
-  await page.waitForTimeout(3500);
+  await wait(3500);
   results.desktop = {
     // Presence AND visibility: a hidden overlay is acceptable on a touchscreen
     // laptop, but a *visible* one on a mouse-driven machine is the bug.
-    overlayPresent: await page.locator('.cp-touch').count() > 0,
-    overlayVisible: await page.locator('.cp-touch').isVisible().catch(() => false),
+    overlayPresent: await count(page, '.cp-touch') > 0,
+    overlayVisible: await isVisible(page, '.cp-touch'),
     maxTouchPoints: await page.evaluate(() => navigator.maxTouchPoints),
-    hotbarVisible: await page.locator('.cp-hotbar').isVisible().catch(() => null),
+    hotbarVisible: await isVisible(page, '.cp-hotbar'),
     canvasSize: await page.evaluate(() => {
       const c = document.querySelector('canvas');
       return { w: c.clientWidth, h: c.clientHeight };
@@ -30,23 +29,21 @@ const results = {};
 
 // ---------- phone: overlay present and functional ----------
 {
-  const phone = devices['Pixel 5'];
-  const ctx = await browser.newContext({ ...phone, hasTouch: true, isMobile: true });
-  const page = await ctx.newPage();
+  const { ctx, page } = await newContextPage(browser, { width: 393, height: 851, phone: true });
   await page.goto('http://localhost:5187/?fps=30', { waitUntil: 'load' });
   await page.waitForSelector('canvas');
-  await page.waitForTimeout(4000);
+  await wait(4000);
 
-  const overlay = await page.locator('.cp-touch').count();
-  const stick = await page.locator('.cp-stick').count();
-  const moveStick = await page.locator('.cp-stick.move').count();
-  const lookStick = await page.locator('.cp-stick.look').count();
-  const skills = await page.locator('.cp-skill').count();
-  const buttons = await page.locator('.cp-btn').count();
-  const hotbarHidden = !(await page.locator('.cp-hotbar').isVisible().catch(() => false));
+  const overlay = await count(page, '.cp-touch');
+  const stick = await count(page, '.cp-stick');
+  const moveStick = await count(page, '.cp-stick.move');
+  const lookStick = await count(page, '.cp-stick.look');
+  const skills = await count(page, '.cp-skill');
+  const buttons = await count(page, '.cp-btn');
+  const hotbarHidden = !(await isVisible(page, '.cp-hotbar'));
 
   // drag the virtual stick forward and confirm the player actually moves
-  const box = await page.locator('.cp-stick.move').boundingBox();
+  const box = await (await page.$('.cp-stick.move')).boundingBox();
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   const before = await page.evaluate(() => window.__dbgPlayerPos?.());
@@ -65,12 +62,12 @@ const results = {};
     mk('touchstart', cx, cy);
     for (let i = 1; i <= 8; i++) mk('touchmove', cx, cy - i * 8);
   }, { cx, cy });
-  // NOTE: engine.tick() clamps dt to 0.05s, so under software GL (~2 fps) only
-  // ~0.05s of game time passes per real frame. Distance travelled is therefore
-  // a poor signal here — hold the stick and assert the player ACCELERATES.
-  await page.waitForTimeout(400);
+  // NOTE: engine.tick() clamps dt to 0.05s, so game time advances at most one
+  // clamped step per rendered frame. Distance travelled therefore depends on the
+  // host's frame rate — hold the stick and assert the player ACCELERATES instead.
+  await wait(400);
   results.stickState = await page.evaluate(() => window.__dbgInput?.());
-  await page.waitForTimeout(5000);
+  await wait(5000);
   results.stickHeldState = await page.evaluate(() => window.__dbgInput?.());
   const after = await page.evaluate(() => window.__dbgPlayerPos?.());
   await page.evaluate(() => {
@@ -88,7 +85,25 @@ const results = {};
   // look-drag on the right pad should change camera yaw
   // The RIGHT stick is a rate control: hold it deflected and the camera keeps
   // turning. So push it once and simply hold, rather than dragging repeatedly.
-  const yawBefore = await page.evaluate(() => window.__dbgCamYaw?.());
+  // __dbgCamYaw() is an atan2, so it wraps to ±π: a single before/after diff
+  // understates the turn as soon as the camera passes half a circle, which it
+  // does within the hold on a GPU-fast frame rate. Sum shortest-arc deltas.
+  const sampleYaw = () => page.evaluate(() => window.__dbgCamYaw?.());
+  const yawStart = await sampleYaw();
+  let prevYaw = yawStart, yawTotal = 0;
+  const holdAndAccumulate = async (ms) => {
+    for (let i = 0; i < Math.max(1, Math.round(ms / 200)); i++) {
+      await wait(200);
+      const y = await sampleYaw();
+      if (prevYaw !== undefined && y !== undefined) {
+        let d = y - prevYaw;
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d < -Math.PI) d += 2 * Math.PI;
+        yawTotal += Math.abs(d);
+      }
+      prevYaw = y;
+    }
+  };
   await page.evaluate(() => {
     const el = document.querySelector('.cp-stick.look');
     const r = el.getBoundingClientRect();
@@ -103,10 +118,9 @@ const results = {};
     mk('touchstart', cx, cy);
     mk('touchmove', cx + r.width * 0.4, cy); // hold right = pan right
   });
-  await page.waitForTimeout(400);
+  await holdAndAccumulate(400);
   results.lookState = await page.evaluate(() => window.__dbgInput?.());
-  await page.waitForTimeout(3000); // held: yaw should keep accumulating
-  const yawAfter = await page.evaluate(() => window.__dbgCamYaw?.());
+  await holdAndAccumulate(3000); // held: yaw should keep accumulating
   await page.evaluate(() => {
     const el = document.querySelector('.cp-stick.look');
     const t = new Touch({ identifier: 2, target: el, clientX: 0, clientY: 0 });
@@ -119,14 +133,13 @@ const results = {};
     overlayPresent: overlay > 0,
     stick, moveStick, lookStick, skills, buttons, hotbarHidden,
     playerMovedUnits: moved === null ? 'no probe' : +moved.toFixed(3),
-    yawChanged: yawBefore !== undefined && yawAfter !== undefined
-      ? +Math.abs(yawAfter - yawBefore).toFixed(3) : 'no probe',
+    yawTurnedRadians: yawStart === undefined ? 'no probe' : +yawTotal.toFixed(3),
     canvasSize: await page.evaluate(() => {
       const c = document.querySelector('canvas');
       return { w: c.clientWidth, h: c.clientHeight };
     }),
   };
-  await page.screenshot({ path: 'shots/touch-phone.png', timeout: 120000 });
+  await page.screenshot({ path: 'shots/touch-phone.png' });
   await ctx.close();
 }
 

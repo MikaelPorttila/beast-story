@@ -2,24 +2,22 @@
 // rendering the HUD over a flat dark backdrop and finding the centroid of the
 // bright pixels. DOM geometry can claim centred while the painted result drifts,
 // so this measures pixels.
-import { chromium, devices } from 'playwright';
 import { PNG } from 'pngjs';
 import fs from 'node:fs';
+import { launchBrowser, newContextPage, wait } from './browser.mjs';
 
-const args = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox'];
-const browser = await chromium.launch({ args });
+const browser = await launchBrowser();
 const out = {};
 
-for (const [name, viewport, ctxOpts] of [
-  ['desktop', { width: 1200, height: 800 }, {}],
-  ['phone-portrait', { width: 393, height: 851 }, { ...devices['Pixel 5'], hasTouch: true, isMobile: true }],
-  ['phone-landscape', { width: 851, height: 393 }, { ...devices['Pixel 5'], hasTouch: true, isMobile: true }],
+for (const [name, viewport] of [
+  ['desktop', { width: 1200, height: 800 }],
+  ['phone-portrait', { width: 393, height: 851, phone: true }],
+  ['phone-landscape', { width: 851, height: 393, phone: true }],
 ]) {
-  const ctx = await browser.newContext({ ...ctxOpts, viewport, deviceScaleFactor: 1 });
-  const page = await ctx.newPage();
+  const { ctx, page } = await newContextPage(browser, viewport);
   await page.goto('http://localhost:5187/?fps=30', { waitUntil: 'load' });
   await page.waitForSelector('canvas');
-  await page.waitForTimeout(3500);
+  await wait(3500);
   // Hide the 3D canvas and everything except the reticle, then paint the page
   // black so the only bright pixels ARE the crosshair.
   await page.addStyleTag({ content: `
@@ -28,9 +26,9 @@ for (const [name, viewport, ctxOpts] of [
     .cp-root>*:not(.cp-cross){display:none!important}
     .cp-touch,.cp-left,.cp-title,.cp-shards,.cp-toasts{display:none!important}
   ` });
-  await page.waitForTimeout(400);
+  await wait(400);
   const file = `shots/_cross-${name}.png`;
-  await page.screenshot({ path: file, timeout: 120000 });
+  await page.screenshot({ path: file });
   await ctx.close();
 
   const png = PNG.sync.read(fs.readFileSync(file));

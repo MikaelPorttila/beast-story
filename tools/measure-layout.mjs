@@ -1,23 +1,19 @@
 // Measures canvas vs viewport vs crosshair geometry in portrait and landscape
 // on an emulated touch device, so layout bugs are diagnosed by numbers rather
 // than by eyeballing screenshots.
-import { chromium, devices } from 'playwright';
+import { launchBrowser, newContextPage, wait } from './browser.mjs';
 
-const args = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox'];
-const browser = await chromium.launch({ args });
+const browser = await launchBrowser();
 const out = {};
 
 for (const [name, viewport] of [
   ['portrait', { width: 393, height: 851 }],
   ['landscape', { width: 851, height: 393 }],
 ]) {
-  const ctx = await browser.newContext({
-    ...devices['Pixel 5'], viewport, hasTouch: true, isMobile: true,
-  });
-  const page = await ctx.newPage();
+  const { ctx, page } = await newContextPage(browser, { ...viewport, phone: true });
   await page.goto('http://localhost:5187/?fps=30', { waitUntil: 'load' });
   await page.waitForSelector('canvas');
-  await page.waitForTimeout(4000);
+  await wait(4000);
   out[name] = await page.evaluate(() => {
     const rect = (sel) => {
       const el = document.querySelector(sel);
@@ -58,7 +54,7 @@ for (const [name, viewport] of [
       })(),
     };
   });
-  await page.screenshot({ path: `shots/layout-${name}.png`, timeout: 120000 });
+  await page.screenshot({ path: `shots/layout-${name}.png` });
   await ctx.close();
 }
 

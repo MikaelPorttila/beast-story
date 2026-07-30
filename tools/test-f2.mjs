@@ -1,14 +1,13 @@
 // Verifies the F2 debug overlay toggles and that the browser never sees F2.
-import { chromium } from 'playwright';
+import { launchBrowser, newPage, wait, glRenderer } from './browser.mjs';
 
 const target = process.argv[2] === 'lab' ? 'lab.html?pal=emberfox&fps=30' : '?play=1&fps=30';
-const browser = await chromium.launch({
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox'],
-});
-const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
+const browser = await launchBrowser();
+const page = await newPage(browser, { width: 900, height: 600 });
 await page.goto(`http://localhost:5187/${target}`, { waitUntil: 'load' });
 await page.waitForSelector('canvas');
-await page.waitForTimeout(2500);
+console.log('renderer:', await glRenderer(page));
+await wait(2500);
 
 // Track whether the browser got an unprevented F2.
 await page.evaluate(() => {
@@ -29,7 +28,7 @@ const overlayShown = async () => page.evaluate(() => {
 
 const before = await overlayShown();
 await page.keyboard.press('F2');
-await page.waitForTimeout(4000); // software GL runs ~2 fps; allow several frames
+await wait(2000); // let the readout accumulate a few frames before sampling
 const afterOn = await overlayShown();
 const text = await page.evaluate(() => {
   const el = [...document.body.children].find(
@@ -39,7 +38,7 @@ const text = await page.evaluate(() => {
 });
 console.log('readout:', text);
 await page.keyboard.press('F2');
-await page.waitForTimeout(2000);
+await wait(2000);
 const afterOff = await overlayShown();
 const leaked = await page.evaluate(() => window.__f2Default);
 

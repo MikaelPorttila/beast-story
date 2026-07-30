@@ -4,11 +4,12 @@
 no enemy spawner, no HUD, no gameplay loop. Use it to iterate on a model, an
 animation, a skill effect or an enemy without paying for a whole world.
 
-Screenshots that would take ~60 s through the game take ~10 s here, and the
-`t=` parameter makes them deterministic (same frame every run).
+A lab shot lands in a fraction of the time a game capture takes — it skips world
+streaming and most of the settle wait — and the `t=` parameter makes it
+deterministic, the same frame every run.
 
 ```bash
-node tools/lab-shot.mjs shots/lab-fox.png "pal=emberfox&t=2"
+bun tools/lab-shot.mjs shots/lab-fox.png "pal=emberfox&t=2"
 ```
 
 ## Rules
@@ -47,16 +48,17 @@ readout: measured FPS (wall-clock, not the cap), ms/frame, a 1%-low figure,
 whether a cap is set and what it is, plus draw calls, triangles and
 geometry/texture counts. `?debug=1` starts it already open, which is how
 capture runs show it. F2 is `preventDefault`ed so it never reaches the
-browser — verified by `node tools/test-f2.mjs [lab]`.
+browser — verified by `bun tools/test-f2.mjs [lab]`.
 
 ## Frame-rate cap
 
 `fps=<n>` works in both `lab.html` and the game (`index.html`). Both capture
-tools append `fps=30` automatically, since software GL gains nothing from
-more frames — pass an explicit `fps=` in the query to override (`fps=0` for
-uncapped, needed only when measuring real frame timing or capturing fast
-motion). Frozen (`t=`) lab shots render exactly once, so the cap does not
-apply to them.
+tools append `fps=30` automatically: a still gains nothing from more frames, and
+the cap stops an accelerated host rendering hundreds of them through the settle
+wait — pass an explicit `fps=` in the query to override (`fps=0` for uncapped,
+needed only when
+measuring real frame timing or capturing fast motion). Frozen (`t=`) lab shots
+render exactly once, so the cap does not apply to them.
 
 Run `labInfo()` in the browser console to list every valid pal, enemy and skill id.
 
@@ -64,16 +66,16 @@ Run `labInfo()` in the browser console to list every valid pal, enemy and skill 
 
 ```bash
 # every pal side by side
-node tools/lab-shot.mjs shots/lab-all.png "pals=all&t=1.5" 2000 700
+bun tools/lab-shot.mjs shots/lab-all.png "pals=all&t=1.5" 2000 700
 
 # one pal mid-cast, deterministic frame
-node tools/lab-shot.mjs shots/lab-cast.png "pal=drakelet&anim=cast&t=2.4"
+bun tools/lab-shot.mjs shots/lab-cast.png "pal=drakelet&anim=cast&t=2.4"
 
 # swimmer in water
-node tools/lab-shot.mjs shots/lab-swim.png "pal=aquaxol&water=1&t=3"
+bun tools/lab-shot.mjs shots/lab-swim.png "pal=aquaxol&water=1&t=3"
 
 # skill VFX against a plain backdrop
-node tools/lab-shot.mjs shots/lab-vfx.png "skill=emberfox.flame-dart&t=2.2&bg=202830"
+bun tools/lab-shot.mjs shots/lab-vfx.png "skill=emberfox.flame-dart&t=2.2&bg=202830"
 
 # live (not frozen) turntable in the browser
 #   http://localhost:5187/lab.html?pal=frostwing&spin=1
