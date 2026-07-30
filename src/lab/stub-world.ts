@@ -10,6 +10,9 @@ import type { World } from '../core/types';
 export class StubWorld implements World {
   /** Bare stage: the flat floor is the only thing to hold onto. */
   climbTopAt(): number { return this.getHeight(); }
+
+  /** Nothing to draw: the stage has no colliders but its floor. */
+  debugColliders(): void { /* no colliders on the lab stage */ }
   /** No props on the stage, so there is never a trunk in the way. */
   trunkSolidTopAt(): number { return -Infinity; }
 

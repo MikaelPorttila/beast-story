@@ -135,8 +135,38 @@ function bake(
       if (y > crownHi) crownHi = y;
     }
     if (crownLo === Infinity) { crownLo = trunkTop * scale; crownHi = crownLo; }
+
+    // The BOLE radius is measured off the baked vertices too, for the same
+    // reason the crown is — and because the authored `trunkR` is the wrong
+    // number to collide with.
+    //
+    // `trunkR` is the half-width of a SQUARE column, i.e. the distance to a
+    // face. A disc of that radius is INSCRIBED in the trunk, so all four corners
+    // of the mesh stand outside the collider and the hero walks visibly into the
+    // bark before anything stops him — which is exactly the mismatch that got
+    // filed. The circumscribing radius is what a cylinder has to use, and for a
+    // square that is a factor of sqrt(2) larger.
+    //
+    // Measured rather than multiplied, because the shaft is not a clean square:
+    // trunk() tapers it from root to crown and some species carry buttresses, so
+    // the real extent is whatever the vertices say. The band starts above the
+    // root flare — the flare is a one-voxel skirt in the bottom couple of voxels,
+    // and letting it set the radius for the whole column would fatten the
+    // collider by half again and stop the hero a stride short of the tree.
+    let boleR = 0;
+    const flareTop = 2 * scale;
+    for (let i = 0; i < t.pos.length; i += 3) {
+      const y = t.pos[i + 1];
+      if (y < flareTop || y > foliageFloor) continue;
+      const d = Math.hypot(t.pos[i], t.pos[i + 2]);
+      if (d > boleR) boleR = d;
+    }
+    // Degenerate shaft (a palm's bare stalk can sit entirely inside the band
+    // test): fall back to the authored half-width, corrected to the corner.
+    if (boleR <= 0) boleR = trunkR * scale * Math.SQRT2;
+
     t.trunk = {
-      r: trunkR * scale,
+      r: boleR,
       top: trunkTop * scale,
       // 0.84 of the measured reach: the outermost voxels of a canopy are the
       // eroded, ragged ones (see Canopy.clump), so a disc drawn on the extreme

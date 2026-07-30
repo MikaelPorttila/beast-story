@@ -7,6 +7,8 @@ import { EventBus, type SkillDef, type Damageable } from './core/types';
 import { Inventory, itemDef } from './core/items';
 import { perf } from './core/profiler';
 import { flags } from './core/flags';
+import { DevConsole } from './ui/console';
+import { ColliderView } from './core/collider-view';
 import { createWorld } from './world/index';
 import { Player } from './player/index';
 import { PalActor, registerSkillDefs } from './pals/framework';
@@ -377,6 +379,46 @@ perf.enabled = params.get('perf') === '1';
 let lastPrograms = 0;
 
 // ---------------------------------------------------------------------------
+// Developer console (§) and its commands. The console owns no game knowledge —
+// commands are registered here, where the systems they poke actually live, and
+// /help builds its listing from the registry so a new command lists itself.
+// ---------------------------------------------------------------------------
+const devConsole = photoMode ? null : new DevConsole();
+const colliderView = new ColliderView(engine.scene, world);
+// `colliders=1` starts them visible, which is how a staged capture can show the
+// cage against the mesh — photo mode has no console to type into.
+if (params.get('colliders') === '1') colliderView.setVisible(true);
+devConsole?.register({
+  name: 'show-colliders',
+  args: '[on|off]',
+  help: 'Toggle collision volumes: green = solid, blue = climbable. Ground excluded.',
+  run: (args) => {
+    const on = args[0] === 'on' ? true : args[0] === 'off' ? false : !colliderView.isVisible;
+    colliderView.setVisible(on);
+    return on
+      ? `colliders ON — ${colliderView.count} drawn (green solid, blue climb)`
+      : 'colliders OFF';
+  },
+});
+devConsole?.register({
+  name: 'tp',
+  args: '<dx> <dz>',
+  help: 'Move the hero by an offset, for reaching something to inspect.',
+  run: (args) => {
+    const dx = Number(args[0]);
+    const dz = Number(args[1]);
+    if (!Number.isFinite(dx) || !Number.isFinite(dz)) return 'usage: /tp <dx> <dz>';
+    player.position.x += dx;
+    player.position.z += dz;
+    player.position.y = Math.max(
+      world.getHeight(player.position.x, player.position.z),
+      world.waterLevel,
+    );
+    return `moved to ${player.position.x.toFixed(1)}, ${player.position.z.toFixed(1)}`;
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Fixed-timestep simulation, decoupled from the render cadence.
 //
 // The world advances in SIM_DT slices regardless of how often we draw, and the
@@ -485,7 +527,9 @@ function warmUpShaders(): void {
 }
 
 function simulate(dt: number, first: boolean, interactive: boolean): void {
-  const shopOpen = hud.isShopOpen();
+  // An open console is a modal: it has the keyboard, so the hero must not also
+  // act on it. Same treatment the shop already gets.
+  const shopOpen = hud.isShopOpen() || !!devConsole?.isOpen;
 
   // The camera stick is a rate control, so it must inject its look delta BEFORE
   // the player/camera update consumes mouseDX this frame — ticking it later in
@@ -687,6 +731,7 @@ function frame(): void {
   }
 
   if (input.pressed('F2')) debug.toggle();
+  colliderView.update(dt);
   perf.section('hud');
 
   engine.render();

@@ -331,6 +331,33 @@ const CSS = `
   .cp-banner{font-size:11.5px;padding:8px 12px;max-width:78vw}
   .cp-hint{font-size:11px;padding:7px 11px}
 }
+
+/* --- developer console (§) ------------------------------------------------
+   Deliberately plain and monospaced: it is an instrument, not part of the
+   game's look, and it must stay readable over any world behind it. Sits above
+   the HUD's z-index but below the F2 overlay. */
+.cp-console {
+  position: fixed; left: 0; right: 0; top: 0;
+  height: 42vh; min-height: 180px;
+  display: flex; flex-direction: column;
+  background: rgba(8, 12, 18, .92);
+  border-bottom: 1px solid rgba(140, 200, 255, .28);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .5);
+  z-index: 9000;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #d8f0ff;
+}
+.cp-console-log {
+  flex: 1; overflow-y: auto; padding: 10px 14px;
+  white-space: pre-wrap; word-break: break-word;
+}
+.cp-console-line { opacity: .92; }
+.cp-console-input {
+  border: 0; border-top: 1px solid rgba(140, 200, 255, .18);
+  background: rgba(0, 0, 0, .35);
+  color: #eaf6ff; font: inherit; padding: 9px 14px; outline: none;
+}
+.cp-console-input::placeholder { color: rgba(216, 240, 255, .38); }
 `;
 
 /** Inject the HUD stylesheet once. Safe to call repeatedly. */

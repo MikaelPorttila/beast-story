@@ -424,6 +424,20 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
     },
     isWater: (x: number, z: number): boolean => terrain.getHeight(x, z) < WATER_LEVEL,
 
+    /**
+     * Every loaded trunk collider, appended to `out` as
+     * [x, z, solidRadius, climbRadius, boleTopY]. For the console's
+     * /show-colliders; allocates nothing per collider and is never called from
+     * the frame loop.
+     */
+    debugColliders(out: number[]): void {
+      for (const b of trunks.values()) {
+        for (let i = 0; i < b.length; i += TREE_STRIDE) {
+          out.push(b[i], b[i + 1], Math.sqrt(b[i + 2]), Math.sqrt(b[i + 3]), b[i + 4]);
+        }
+      }
+    },
+
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
       if (disposed) return;
       // The build budget is per RENDERED FRAME, not per simulation slice. The

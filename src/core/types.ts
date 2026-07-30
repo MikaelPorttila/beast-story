@@ -141,6 +141,12 @@ export interface World {
    * a frame that runs several will do several frames' worth of building.
    */
   update(focus: THREE.Vector3, dt: number, newFrame?: boolean): void;
+  /**
+   * Debug: append every loaded collider as [x, z, solidRadius, climbRadius,
+   * topY]. Ground is deliberately excluded — it is the whole terrain and
+   * drawing it would cost more than the diagnostic is worth.
+   */
+  debugColliders(out: number[]): void;
   /** Positions of interest (skill dens / shops) */
   readonly shopPositions: THREE.Vector3[];
   /** Good spawn point on land */
