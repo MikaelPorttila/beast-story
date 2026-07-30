@@ -61,6 +61,18 @@ const ACCEL_LAMBDA = 5.5;
 /** Heading damping. Slower than the hero's TURN_RATE 14 — a mount has mass. */
 const TURN_LAMBDA = 7;
 const GRAVITY = 24;
+/**
+ * Jump velocity for a GROUND mount, against the hero's own JUMP_VEL of 8.8.
+ *
+ * Same gravity, so apex scales as v^2/2g: 10.8 gives 2.43 units against his
+ * 1.61 — half again as high, which is the point of being on an animal. It also
+ * changes what the world is: a 2-unit face is the first thing the hero cannot
+ * clear on foot (that gap is deliberate, see MAX_STEP_UP in player/index.ts),
+ * and a mount clears it with room to spare. Anything past ~12 starts clearing
+ * the 3-unit faces that climbing exists for, so the ceiling here is not comfort
+ * but keeping climbing worth doing.
+ */
+const MOUNT_JUMP_VEL = 10.8;
 
 /**
  * Highest ledge a ground mount walks onto, against the hero's MAX_STEP_UP 0.5.
@@ -155,6 +167,9 @@ export class MountController {
   private vel = new THREE.Vector3();
   private vy = 0;
   private grounded = true;
+  /** Space edge for the ground-mount jump; see update()/jumpEdge(). */
+  private jumpPressed = false;
+  private jumpWasHeld = false;
   private yaw = 0;
   private pitch = 0;
   private bank = 0;
@@ -201,6 +216,13 @@ export class MountController {
     return 'none';
   }
 
+  /** Take the pending Space edge, if any. One press, one jump. */
+  private consumeJump(): boolean {
+    if (!this.jumpPressed) return false;
+    this.jumpPressed = false;
+    return true;
+  }
+
   /**
    * One simulation slice. `candidate` is the pal F would mount — main.ts hands
    * over the primary — and may be null when the party is hidden.
@@ -214,6 +236,13 @@ export class MountController {
     const fHeld = input.down('KeyF') || input.pressed('KeyF');
     const fEdge = fHeld && !this.fWasHeld;
     this.fWasHeld = fHeld;
+
+    // Space, latched the same way, so a ground mount's jump fires once per press
+    // however many slices the frame drains. Consumed in updateGround(); a flyer
+    // reads Space as held altitude instead and never looks at this.
+    const jumpHeld = input.down('Space') || input.pressed('Space');
+    this.jumpPressed = jumpHeld && !this.jumpWasHeld;
+    this.jumpWasHeld = jumpHeld;
 
     if (this.pal) {
       // A tap of F gets off. The F that MOUNTED you is still down at this
@@ -399,6 +428,15 @@ export class MountController {
     if (this.blockTop(this.pos.x, nz + Math.sign(this.vel.z) * radius) <= stepCeil) this.pos.z = nz;
     else this.vel.z = 0;
 
+    // Space bounds a ground mount. The rider is a passenger — the pal jumps, so
+    // the jump is the pal's, not the hero's, and it clears more than he can on
+    // foot. Read as an EDGE (the same latched `pressed`-OR-`down` shape the rest
+    // of this file uses for F) so holding Space does not pogo, and gated on
+    // `grounded` so there is no second jump in mid-air.
+    if (this.grounded && this.consumeJump()) {
+      this.vy = MOUNT_JUMP_VEL;
+      this.grounded = false;
+    }
     this.vy -= GRAVITY * dt;
     this.pos.y += this.vy * dt;
 
