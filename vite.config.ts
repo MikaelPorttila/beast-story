@@ -13,6 +13,8 @@ export default defineConfig({
     },
   },
   server: {
+    // The capture and test tools in tools/ hardcode this port, so keep it
+    // pinned — strictPort makes a clash fail loudly instead of drifting to 5188.
     port: 5187,
     strictPort: true,
   },
