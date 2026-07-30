@@ -19,6 +19,8 @@ export interface AnimInput {
   climbing: boolean;
   /** Signed climb progress, -1 (descending) .. 1 (ascending); 0 = hanging. */
   climbRate: number;
+  /** Sitting in a pal's saddle; MountController owns where the hero is. */
+  riding: boolean;
   velY: number;
   attack: AttackState;
   dead: boolean;
@@ -101,6 +103,7 @@ export class HeroAnimator {
   private runPhase = 0;
   private swimPhase = 0;
   private climbPhase = 0;
+  private ridePhase = 0;
 
   // damped joint state
   private bodyY = 0; private bRX = 0; private bRZ = 0;
@@ -129,6 +132,9 @@ export class HeroAnimator {
       const r = s.climbRate;
       this.climbPhase += dt * (0.9 + 5.4 * Math.abs(r)) * (r < -0.02 ? -1 : 1);
     }
+    // Saddle bob: a slow sway at rest that quickens with the mount's gait, so a
+    // galloping fox jostles its rider and a parked one just breathes.
+    if (s.riding) this.ridePhase += dt * (2.1 + 7.5 * m);
 
     // ---- base locomotion targets ----
     const breath = Math.sin(t * 1.9);
@@ -153,7 +159,10 @@ export class HeroAnimator {
     let swZ = 0.14 * idleW;
 
     // ---- airborne ----
-    if (!s.onGround && !s.swimming && !s.climbing) {
+    // Riding is excluded: a flying mount holds the hero off the ground for
+    // minutes at a time, and the falling-flail pose is for a hero with nothing
+    // under him, not for one sitting in a saddle.
+    if (!s.onGround && !s.swimming && !s.climbing && !s.riding) {
       const fall = clamp01((-s.velY + 3) / 10); // 0 rising -> 1 falling fast
       const flail = Math.sin(t * 9);
       aLX = lerp(-0.9, -0.25 + flail * 0.12, fall);
@@ -219,6 +228,35 @@ export class HeroAnimator {
       swZ = 0.2;
     }
 
+    // ---- riding ----
+    // Astride, not standing on: the hip joints are the only leg articulation
+    // this rig has (there is no knee), so the whole leg swings forward to just
+    // past the horizontal — 1.18 rad — which from the follow camera reads as
+    // thighs over the mount's shoulders with the shins hanging down its flank.
+    // Anything past ~1.3 and the feet come up over the mount's head.
+    //
+    // The arms drop forward and inward onto an imaginary rein, and the whole
+    // upper body pitches into the wind with speed. The sway is contralateral
+    // with the mount's gait, as everywhere else here.
+    if (s.riding) {
+      const rp = Math.sin(this.ridePhase);
+      bodyY = 0.02 * rp * (0.3 + m);
+      bRX = 0.14 + 0.22 * m;
+      bRZ = rp * 0.045 * (0.4 + m);
+      tY = rp * 0.05;
+      hX = -0.08 - 0.05 * m;
+      hY = 0.06 * Math.sin(t * 0.4);
+      aLX = -0.92 + rp * 0.07;
+      aRX = -0.92 - rp * 0.07;
+      aLZ = -0.14;
+      aRZ = 0.14;
+      aRY = 0;
+      lLX = 1.18 + rp * 0.06;
+      lRX = 1.18 - rp * 0.06;
+      swX = 2.5;          // blade slung along the back, clear of the saddle
+      swZ = 0.22;
+    }
+
     // ---- melee combo: keyframed, blended over the base pose ----
     if (s.attack.active && !s.dead) {
       const p = clamp01(s.attack.t / s.attack.dur);
@@ -264,7 +302,7 @@ export class HeroAnimator {
     // ---- squash & stretch ----
     let sclY = 1 - 0.26 * s.landBump;
     let sclXZ = 1 + 0.16 * s.landBump;
-    if (!s.onGround && !s.swimming && !s.dead && !s.climbing) {
+    if (!s.onGround && !s.swimming && !s.dead && !s.climbing && !s.riding) {
       const stretch = clamp01(Math.abs(s.velY) * 0.016) * 0.07;
       sclY = 1 + stretch;
       sclXZ = 1 - stretch * 0.6;

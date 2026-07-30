@@ -11,6 +11,7 @@ import { DevConsole } from './ui/console';
 import { ColliderView } from './core/collider-view';
 import { createWorld } from './world/index';
 import { Player } from './player/index';
+import { MountController } from './player/mount';
 import { PalActor, registerSkillDefs } from './pals/framework';
 import { CombatSystem } from './combat/index';
 import { HUD, type PalHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
@@ -28,6 +29,11 @@ const hud = new HUD(bus);
 
 player.position.copy(world.spawnPoint);
 player.onAttack = (origin, dir) => combat.meleeStrike(origin, dir, player.attackStat);
+
+// Hold F to ride your pal. The controller owns the hold timer, the refusal
+// rules and a mounted pal's locomotion; which pal is offered (the primary, see
+// simulate) and where a mounted skill aims (below) are policy, so they live here.
+const mount = new MountController(player, world, input, bus);
 
 // ---------------------------------------------------------------------------
 // Pal roster: all 10 species instantiated; two active at a time.
@@ -126,25 +132,63 @@ function worthFetching(itemId: string): boolean {
 // ---------------------------------------------------------------------------
 // Casting
 // ---------------------------------------------------------------------------
+/**
+ * Aim for a mounted cast: the camera's own view direction.
+ *
+ * The crosshair is a DOM element pinned to the centre of the viewport and the
+ * camera looks THROUGH that point, so the camera's forward vector IS the
+ * crosshair ray — there is nothing to unproject. Kept as a module scratch
+ * because casting must not allocate any more than the rest of the frame does;
+ * combat copies out of `direction` and retains nothing.
+ */
+const _aim = new THREE.Vector3();
+/** Last cast's aim, for the automated tests. See __dbgMount. */
+const lastCast = { skill: '', aimed: false, homing: false, x: 0, y: 0, z: 0 };
+
 function castFromPal(pal: PalActor, skill: SkillDef): void {
   const cd = cooldowns.get(skill.id) ?? 0;
   if (cd > 0) return;
-  const target = combat.findNearestEnemy(pal.position, Math.max(skill.range, 12));
-  if (target) {
-    pal.forward.copy(target.position).sub(pal.position).setY(0).normalize();
+
+  // Riding it changes where its skills go: from the saddle you are the one
+  // aiming, so the crosshair wins outright and the auto-target is not even
+  // consulted. Nothing else about the cast changes — the pal still plays the
+  // cast animation and the shot still leaves from its muzzle.
+  const aimed = mount.isMounted && pal === mount.pal;
+  let target: Damageable | null = null;
+  if (aimed) {
+    engine.camera.getWorldDirection(_aim);
+    // Face the mount along the shot so the muzzle offset in beginCast points
+    // the right way; the vertical component stays on the projectile only.
+    if (Math.abs(_aim.x) + Math.abs(_aim.z) > 1e-4) {
+      pal.forward.set(_aim.x, 0, _aim.z).normalize();
+    }
+  } else {
+    target = combat.findNearestEnemy(pal.position, Math.max(skill.range, 12));
+    if (target) {
+      pal.forward.copy(target.position).sub(pal.position).setY(0).normalize();
+    }
   }
+
   const { origin, direction } = pal.beginCast(skill);
-  const dir = target
-    ? new THREE.Vector3().copy(target.position).sub(origin).normalize()
-    : direction;
+  const dir = aimed
+    ? _aim
+    : target
+      ? new THREE.Vector3().copy(target.position).sub(origin).normalize()
+      : direction;
   combat.cast({
     skill,
     caster: pal as unknown as Damageable & { forward: THREE.Vector3 },
     origin,
     direction: dir,
+    // No homing target while aiming by hand: a projectile that curves onto a
+    // nearby enemy would quietly undo the aim the player just took.
     target,
     attackStat: pal.stats.attack,
   });
+  lastCast.skill = skill.id;
+  lastCast.aimed = aimed;
+  lastCast.homing = !!target;
+  lastCast.x = dir.x; lastCast.y = dir.y; lastCast.z = dir.z;
   cooldowns.set(skill.id, skill.cooldown);
 }
 
@@ -300,7 +344,10 @@ const touch = photoMode ? null : TouchControls.attach(input);
 // Probes for the automated input tests (tools/test-touch.mjs). Read-only.
 interface DebugProbes {
   __dbgPlayerPos: () => { x: number; y: number; z: number };
-  __dbgCam: () => { x: number; y: number; z: number; pitch: number };
+  __dbgCam: () => {
+    x: number; y: number; z: number; pitch: number;
+    dir: { x: number; y: number; z: number };
+  };
   __dbgCamYaw: () => number;
 }
 (window as unknown as DebugProbes).__dbgPlayerPos = () => ({
@@ -316,6 +363,10 @@ const _dbgDir = new THREE.Vector3();
   return {
     x: engine.camera.position.x, y: engine.camera.position.y, z: engine.camera.position.z,
     pitch: (Math.asin(Math.max(-1, Math.min(1, _dbgDir.y))) * 180) / Math.PI,
+    // The camera looks THROUGH the centre of the viewport, and the crosshair is
+    // pinned there (proved pixel-wise by tools/test-crosshair.mjs), so this
+    // vector IS the crosshair ray. It is what a mounted cast aims along.
+    dir: { x: _dbgDir.x, y: _dbgDir.y, z: _dbgDir.z },
   };
 };
 (window as unknown as DebugProbes).__dbgCamYaw = () => Math.atan2(
@@ -332,7 +383,29 @@ const _dbgDir = new THREE.Vector3();
   onGround: player.onGround,
   isClimbing: player.isClimbing,
   isSwimming: player.isSwimming,
+  isMounted: player.isMounted,
   isDead: player.isDead,
+});
+
+// Mount state. Read-only, and the one probe the mount tests need: the hold
+// fill, which pal is under you and what it is, the rider's height and speed,
+// and the direction the last cast actually left in — `aimed` says whether that
+// direction came from the crosshair or from the auto-target.
+(window as unknown as { __dbgMount: () => unknown }).__dbgMount = () => ({
+  mounted: mount.isMounted,
+  pal: mount.pal?.species.id ?? null,
+  locomotion: mount.pal?.species.locomotion ?? null,
+  palSpeed: mount.pal ? +mount.pal.stats.speed.toFixed(2) : null,
+  hold: +mount.progress.toFixed(3),
+  speed: +mount.speed.toFixed(2),
+  /** Which way the mount itself is pointing — NOT where a mounted cast goes. */
+  yaw: mount.pal ? +Math.atan2(mount.pal.forward.x, mount.pal.forward.z).toFixed(3) : null,
+  forward: mount.pal
+    ? { x: +mount.pal.forward.x.toFixed(3), z: +mount.pal.forward.z.toFixed(3) }
+    : null,
+  y: +player.position.y.toFixed(2),
+  ground: +world.getHeight(player.position.x, player.position.z).toFixed(2),
+  lastCast: { ...lastCast },
 });
 
 // Fetch-errand probes. `__dbgFetch` is read-only, the same contract as the
@@ -398,6 +471,32 @@ devConsole?.register({
     return on
       ? `colliders ON — ${colliderView.count} drawn (green solid, blue climb)`
       : 'colliders OFF';
+  },
+});
+devConsole?.register({
+  name: 'mount',
+  args: '[off|<speciesId>]',
+  help: 'Ride the primary pal without the 2s hold; /mount off dismounts.',
+  run: (args) => {
+    const arg = args[0];
+    if (arg === 'off') {
+      if (!mount.isMounted) return 'not mounted';
+      const name = mount.pal!.species.name;
+      mount.dismount();
+      return `dismounted ${name}`;
+    }
+    if (mount.isMounted) return `already riding ${mount.pal!.species.name} — /mount off first`;
+    if (arg) {
+      const idx = roster.findIndex((p) => p.species.id === arg);
+      if (idx < 0) return `no such pal "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
+      if (idx === supportIdx) supportIdx = primaryIdx;
+      primaryIdx = idx;
+      refreshVisibility();
+    }
+    const why = mount.refusal(primary());
+    if (why !== 'none') return `cannot mount: ${why}`;
+    mount.mount(primary());
+    return `riding ${primary().species.name} (${primary().species.locomotion})`;
   },
 });
 devConsole?.register({
@@ -543,6 +642,13 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // fall through to the world update
   } else if (!shopOpen) {
     perf.section('input');
+    // Mounting runs BEFORE the player: while a pal is being ridden it writes
+    // the hero's position, velocity and saddle pose for this slice, and
+    // player.update() then animates and frames him from those. It is safe on
+    // every slice — the F edge is latched inside the controller, not read from
+    // input.pressed(). `flags.pals` gates it because a hidden party has nothing
+    // to climb on.
+    mount.update(dt, flags.pals ? primary() : null);
     player.update(dt);
     perf.section('player');
 
@@ -553,13 +659,23 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
         if (input.pressed(code) && skills[i]) castFromPal(primary(), skills[i]);
       });
 
-      // Pal management
-      if (input.pressed('Tab')) {
-        const t = primaryIdx; primaryIdx = supportIdx; supportIdx = t;
-        bus.emit({ type: 'toast', text: `${primary().species.name} takes the lead!` });
+      // Pal management. Swapping is locked out in the saddle: every mounted
+      // path here keys off primary() being the ridden pal — the hotbar aims
+      // from it, the follow update skips it — and a Tab mid-ride would make
+      // "the pal you are riding" and "the pal you are commanding" two different
+      // animals for no gain.
+      if (mount.isMounted) {
+        if (input.pressed('Tab') || input.pressed('BracketLeft') || input.pressed('BracketRight')) {
+          bus.emit({ type: 'toast', text: 'Dismount first (tap F).' });
+        }
+      } else {
+        if (input.pressed('Tab')) {
+          const t = primaryIdx; primaryIdx = supportIdx; supportIdx = t;
+          bus.emit({ type: 'toast', text: `${primary().species.name} takes the lead!` });
+        }
+        if (input.pressed('BracketRight')) cyclePal('primary', 1);
+        if (input.pressed('BracketLeft')) cyclePal('support', 1);
       }
-      if (input.pressed('BracketRight')) cyclePal('primary', 1);
-      if (input.pressed('BracketLeft')) cyclePal('support', 1);
     }
 
     // Support pal errands + auto-cast
@@ -600,8 +716,11 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // Pals follow
   const owner = { position: player.position, velocity: player.velocity, isSwimming: player.isSwimming };
   if (flags.pals) {
-    primary().update(dt, owner, 'primary', roster);
-    support().update(dt, owner, 'support', roster);
+    // The ridden pal has already been placed and animated by mount.update();
+    // running follow steering on top of that would fight the reins.
+    const ridden = mount.pal;
+    if (primary() !== ridden) primary().update(dt, owner, 'primary', roster);
+    if (support() !== ridden) support().update(dt, owner, 'support', roster);
   }
   perf.section('pals');
 
@@ -714,6 +833,11 @@ function frame(): void {
     return { def, cooldownRemaining: remaining, ready: remaining <= 0 };
   });
   hud.setSkills(slots);
+  hud.setMountHold(mount.progress);
+  hud.setMounted(
+    mount.pal ? mount.pal.species.name : null,
+    mount.pal ? mount.pal.species.locomotion === 'flying' : false,
+  );
   hud.update(dt);
 
   // Hide the touch overlay while a modal shop is open so it can't be tapped
@@ -726,7 +850,7 @@ function frame(): void {
       type: 'toast',
       text: touch?.isRevealed
         ? 'Left stick moves · right stick looks · ATK / JUMP / USE · 1-4 skills · SWAP'
-        : 'WASD move · Space jump · LMB attack · 1-4 skills · Tab swap · ]/[ cycle pals · E shop',
+        : 'WASD move · Space jump · LMB attack · 1-4 skills · hold F to ride · Tab swap · E shop',
     });
   }
 

@@ -66,6 +66,41 @@ const CSS = `
   transition:opacity .2s ease}
 .cp-root.shop-open .cp-cross{opacity:0}
 
+/* ---- hold-to-mount ring ------------------------------------------------ */
+/* An annulus around the reticle, filled by a conic-gradient sweep — the same
+   construction as the hotbar's cooldown, read the other way round (filling, not
+   draining). The hole is punched with a radial mask rather than an opaque inner
+   disc, because the HUD is a transparent overlay and there is no background
+   colour to fake a hole with. Inner radius 19px clears the crosshair's 8px
+   ticks with room to spare. */
+/* Zero-size box AT the reticle, children hung off it — the same trick the
+   crosshair uses, so the ring cannot drift off axis as the label changes width. */
+.cp-mounthold{position:absolute;left:50%;top:50%;width:0;height:0;
+  opacity:0;transition:opacity .18s ease}
+.cp-mounthold.show{opacity:1}
+.cp-mounthold .ring{position:absolute;left:-27px;top:-27px;width:54px;height:54px;border-radius:50%;
+  background:conic-gradient(#8ef0ff 0deg,rgba(255,255,255,.16) 0deg);
+  filter:drop-shadow(0 0 6px rgba(142,240,255,.45));
+  -webkit-mask:radial-gradient(circle,transparent 19px,#000 20px);
+  mask:radial-gradient(circle,transparent 19px,#000 20px)}
+.cp-mounthold .lbl{position:absolute;top:38px;left:50%;transform:translateX(-50%);
+  font-size:10.5px;font-weight:900;letter-spacing:.22em;white-space:nowrap;
+  color:rgba(238,242,248,.85);text-shadow:0 1px 3px rgba(0,0,0,.75)}
+
+/* ---- riding badge ------------------------------------------------------ */
+/* Top centre, NOT bottom centre. While the fill ring is a thing you are DOING
+   at the reticle, this is a state you are in — and the bottom middle of the
+   frame is exactly where the mount itself is drawn, so a badge there printed a
+   label across the animal it was labelling (captured; that is why it moved).
+   Above the toast stack and clear of the shard pill on the right. */
+.cp-riding{position:absolute;left:50%;top:18px;transform:translateX(-50%) translateY(-8px);
+  padding:7px 16px;border-radius:999px;font-size:11.5px;font-weight:800;letter-spacing:.06em;
+  color:#dff5ff;white-space:nowrap;opacity:0;
+  box-shadow:0 8px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08),
+    inset 3px 0 0 #8ef0ff;
+  transition:opacity .28s ease,transform .28s cubic-bezier(.34,1.56,.64,1)}
+.cp-riding.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
 /* ---- left cluster: one party panel (pals + player hp) ------------------ */
 /* Single continuous glass slab. The pal rows and the player HP block are
    sections inside it, not free-floating cards with a gap between them. */

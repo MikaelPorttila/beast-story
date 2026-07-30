@@ -166,6 +166,14 @@ export class Player {
   isSwimming = false;
   /** True while hanging on a climbable face; gravity is off and Shift is grip. */
   isClimbing = false;
+  /**
+   * True while sitting in a pal's saddle. The hero controller stops moving him
+   * entirely — MountController owns position, velocity and heading, and writes
+   * them here every slice — but everything that is ABOUT the hero rather than
+   * about his locomotion (regen, damage, the flash, the animator, the camera)
+   * still runs from update() exactly as it does on foot.
+   */
+  isMounted = false;
   moveSpeedNorm = 0;
   onAttack?: (origin: THREE.Vector3, direction: THREE.Vector3) => void;
 
@@ -184,6 +192,9 @@ export class Player {
   private invulnT = 0;
   private deadT = 0;
   private sprinting = false;
+  /** Saddle pose written by MountController; see setRidePose. */
+  private rideYaw = 0;
+  private rideSpeed01 = 0;
   /** Unit horizontal vector pointing INTO the face being held. */
   private climbDirX = 0;
   private climbDirZ = 1;
@@ -269,6 +280,51 @@ export class Player {
     this.bus.emit({ type: 'toast', text: 'Back on your feet!' });
   }
 
+  // ---- mounting -----------------------------------------------------------
+  // The hero exposes the camera basis and a saddle pose, and MountController
+  // (src/player/mount.ts) does the rest. Nothing about pals is known in here.
+
+  /** Horizontal camera forward — the basis movement input is resolved against. */
+  get camForward(): THREE.Vector3 { return this.cam.forward; }
+  /** Horizontal camera right. */
+  get camRight(): THREE.Vector3 { return this.cam.right; }
+
+  /** Re-frame the follow camera; (1, 0) is the hero on foot. See the camera. */
+  setCameraFraming(distScale: number, pivotDrop: number): void {
+    this.cam.setFraming(distScale, pivotDrop);
+  }
+
+  /**
+   * Climb into / out of the saddle. Everything the hero was doing on his own
+   * two feet is cancelled: a swing in progress, a held wall, the jump buffer.
+   * Position and velocity are the mount's business from here.
+   */
+  setMounted(on: boolean): void {
+    if (this.isMounted === on) return;
+    this.isMounted = on;
+    this.isClimbing = false;
+    this.climbLockout = CLIMB_LOCKOUT;
+    this.attack.active = false;
+    this.attackQueued = false;
+    this.jumpBuffer = 0;
+    this.coyote = 0;
+    if (on) {
+      this.isSwimming = false;
+      this.sprinting = false;
+    }
+  }
+
+  /**
+   * Where the saddle has the hero pointing this slice. `grounded` is passed
+   * straight through to the camera's step smoothing: a mount walking terraced
+   * terrain wants the grounded glide, a flyer's continuous climb does not.
+   */
+  setRidePose(yaw: number, speed01: number, grounded: boolean): void {
+    this.rideYaw = yaw;
+    this.rideSpeed01 = speed01;
+    this.onGround = grounded;
+  }
+
   update(dt: number): void {
     this.time += dt;
     const input = this.input;
@@ -303,6 +359,8 @@ export class Player {
       const gh = world.getHeight(this.position.x, this.position.z);
       if (this.position.y <= gh) { this.position.y = gh; this.velocity.y = 0; }
       this.moveSpeedNorm = 0;
+    } else if (this.isMounted) {
+      this.updateRiding(dt);
     } else {
       this.updateAlive(dt);
     }
@@ -327,6 +385,7 @@ export class Player {
       swimming: this.isSwimming,
       climbing: this.isClimbing,
       climbRate: this.climbRate,
+      riding: this.isMounted,
       velY: this.velocity.y,
       attack: this.attack,
       dead: this.isDead,
@@ -359,20 +418,51 @@ export class Player {
     return trunk > ground ? trunk : ground;
   }
 
-  private updateAlive(dt: number): void {
-    const input = this.input;
-    const world = this.world;
-
-    // ---- passive health regen ----
-    // Held off for REGEN_DELAY after each hit (takeDamage restarts the clock),
-    // so it tops the bar up between fights instead of tugging against damage
-    // during one. Scaled by regenMultiplier, which is what a potion or a healing
-    // well will raise.
+  /**
+   * Passive health regen. Held off for REGEN_DELAY after each hit (takeDamage
+   * restarts the clock), so it tops the bar up between fights instead of tugging
+   * against damage during one. Scaled by regenMultiplier, which is what a potion
+   * or a healing well will raise. Runs on foot and in the saddle alike.
+   */
+  private updateRegen(dt: number): void {
     if (this.regenHold > 0) {
       this.regenHold -= dt;
     } else if (this.hp < this.maxHp) {
       this.hp = clamp(this.hp + BASE_REGEN * this.regenMultiplier * dt, 0, this.maxHp);
     }
+  }
+
+  /**
+   * One slice in the saddle.
+   *
+   * There is deliberately no locomotion here at all: MountController has already
+   * written position, velocity and the saddle pose for this slice, and running
+   * gravity or the step test on top of that would fight it. What remains is the
+   * hero's own business — regen, and the facing/gait the animator reads.
+   *
+   * The melee combo is OFF while mounted (see updateAttack's guard): a sword arc
+   * swung from the saddle would land at the mount's feet, and a mounted attack
+   * is a feature with its own reach and animation, not a leftover of this one.
+   */
+  private updateRiding(dt: number): void {
+    this.updateRegen(dt);
+    this.sprinting = false;
+    this.isSwimming = false;
+    this.isClimbing = false;
+    this.climbRate = 0;
+    this.moveSpeedNorm = this.rideSpeed01;
+    // Snapped, not damped: the mount already smoothed this heading, and a second
+    // filter here would let the rider face out of the saddle through every turn.
+    this.heading = this.rideYaw;
+    this.root.rotation.y = this.heading;
+    this.forward.set(Math.sin(this.heading), 0, Math.cos(this.heading));
+  }
+
+  private updateAlive(dt: number): void {
+    const input = this.input;
+    const world = this.world;
+
+    this.updateRegen(dt);
 
     // ---- movement input, camera relative ----
     // Analog axes: keyboard when keys are held, virtual stick on touch.
@@ -770,7 +860,8 @@ export class Player {
         }
       }
     } else if (
-      input.attackPressed && this.attackCooldown <= 0 && !this.isSwimming && !this.isClimbing
+      input.attackPressed && this.attackCooldown <= 0
+      && !this.isSwimming && !this.isClimbing && !this.isMounted
     ) {
       a.active = true;
       a.combo = 0;

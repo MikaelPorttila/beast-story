@@ -165,6 +165,15 @@ export class HUD {
   private hintEl: HTMLDivElement;
   private hintText = '';
 
+  // mounting
+  private mountHoldEl: HTMLDivElement;
+  private mountRingEl: HTMLElement;
+  private ridingEl: HTMLDivElement;
+  private mountDeg = -1;
+  private ridingText = '';
+  private ridingPal: string | null = null;
+  private ridingFlying = false;
+
   // shop
   private shopWrap: HTMLDivElement;
   private shopOpen = false;
@@ -192,6 +201,18 @@ export class HUD {
 
     // crosshair ------------------------------------------------------------
     this.root.appendChild(div('cp-cross'));
+
+    // hold-to-mount ring, wrapped around the crosshair ----------------------
+    // It belongs AT the reticle: the thing being held is a commitment made
+    // where the player is already looking, and a bar in a corner of the screen
+    // would be feedback for an action happening somewhere else.
+    this.mountHoldEl = div('cp-mounthold', '<div class="ring"></div><div class="lbl">HOLD <kbd>F</kbd> TO MOUNT</div>');
+    this.mountRingEl = this.mountHoldEl.querySelector('.ring') as HTMLElement;
+    this.root.appendChild(this.mountHoldEl);
+
+    // "riding" badge, above the interact hint --------------------------------
+    this.ridingEl = div('cp-riding cp-glass');
+    this.root.appendChild(this.ridingEl);
 
     // left cluster: one panel holding the pal cards + player hp ------------
     const left = div('cp-left');
@@ -518,6 +539,56 @@ export class HUD {
 
   hideHint(): void {
     this.hintEl.classList.remove('show');
+  }
+
+  // -------------------------------------------------------------------------
+  // Mounting
+  // -------------------------------------------------------------------------
+  /**
+   * Hold-to-mount fill, 0..1. Called every frame; the whole body is guarded on
+   * the rounded sweep angle so a held key does not touch the DOM 60 times a
+   * second for a ring that only moves in whole degrees.
+   */
+  setMountHold(progress: number): void {
+    const deg = Math.round(clamp01(progress) * 360);
+    if (deg === this.mountDeg) return;
+    const was = this.mountDeg;
+    this.mountDeg = deg;
+    this.mountRingEl.style.background =
+      `conic-gradient(#8ef0ff ${deg}deg, rgba(255,255,255,.16) ${deg}deg)`;
+    if ((deg > 0) !== (was > 0)) this.mountHoldEl.classList.toggle('show', deg > 0);
+    // Full ring: one pop, on the frame the hold completes.
+    if (deg >= 360 && was < 360) {
+      this.mountHoldEl.classList.remove('cp-pop');
+      void this.mountHoldEl.offsetWidth;
+      this.mountHoldEl.classList.add('cp-pop');
+    }
+  }
+
+  /**
+   * Name of the pal being ridden, or null when on foot. Called every frame, so
+   * the inputs are compared BEFORE any string is built — the badge changes
+   * about twice a session and there is no reason to allocate a label per frame.
+   */
+  setMounted(palName: string | null, flying: boolean): void {
+    if (palName === this.ridingPal && flying === this.ridingFlying) return;
+    this.ridingPal = palName;
+    this.ridingFlying = flying;
+    const text = palName
+      ? (flying
+        ? `RIDING ${palName.toUpperCase()} · SPACE/C altitude · tap F to dismount`
+        : `RIDING ${palName.toUpperCase()} · tap F to dismount`)
+      : '';
+    if (text === this.ridingText) return;
+    this.ridingText = text;
+    if (!palName) {
+      this.ridingEl.classList.remove('show');
+      return;
+    }
+    this.ridingEl.innerHTML = escapeHtml(text)
+      .replace(/\bSPACE\/C\b/, '<kbd>Space</kbd>/<kbd>C</kbd>')
+      .replace(/\bF\b(?= to)/, '<kbd>F</kbd>');
+    this.ridingEl.classList.add('show');
   }
 
   // -------------------------------------------------------------------------

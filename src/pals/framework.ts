@@ -60,6 +60,65 @@ const TELEPORT_DIST = 40;
 const REVIVE_SECONDS = 8;
 const POOF_SECONDS = 0.5;
 
+// ---------------------------------------------------------------------------
+// Mount form
+// ---------------------------------------------------------------------------
+/**
+ * A ridden pal grows into a "mount form".
+ *
+ * Every pal in this game is knee-high: Emberfox's rig is a metre at the ears, a
+ * Galebird barely more than half that, against a 1.7-unit hero. Seating a rider
+ * on an unscaled pal puts a man on a housecat — captured, the hero completely
+ * occluded the fox he was riding, and the Galebird swallowed him. So the rig is
+ * scaled while ridden, eased over RIDE_SCALE_LAMBDA (~0.25 s to 90%) so it
+ * reads as the pal swelling into its mount form rather than popping.
+ *
+ * MOUNT_HEIGHT is what a mount is scaled TO, not by: 2.1 units puts the mount
+ * comfortably TALLER than its 1.7-unit rider, which is what makes the pair read
+ * as a mount and not as a man carrying a pet, and it means the seat height, the
+ * camera framing and the collision radius are one set of numbers rather than
+ * ten. MOUNT_MAX_SCALE caps the smallest rigs; past ~3x, an 0.08-unit voxel is
+ * a quarter-unit slab and the model stops reading as the pal you picked.
+ *
+ * It is scaled against the rig's MEASURED silhouette, not `rig.height` — that
+ * field is a nominal body height each species declares for spacing, and for a
+ * bird whose wings reach well past it, scaling by it seats the rider inside the
+ * mount. See `silhouetteTop`.
+ */
+const MOUNT_HEIGHT = 2.1;
+const MOUNT_MAX_SCALE = 3.2;
+const RIDE_SCALE_LAMBDA = 9;
+/**
+ * Where on that silhouette the saddle is, as a fraction of its full height.
+ *
+ * The silhouette is measured to the highest voxel, and on most of these rigs
+ * that is an ear, a horn or a raised tail rather than the back you would sit on.
+ * Measured rest-pose tops: Emberfox 1.21 to the ear tips with its back around
+ * 0.75, Galebird 0.80 with its back around 0.55 — so the back lands near 0.65
+ * of the total. 0.72 puts the rider's hips a hand's breadth above that, which
+ * captured as sitting ON the animal rather than sunk into it (0.88 was tried
+ * first and left him floating half a unit clear of a fox's shoulders).
+ */
+const SEAT_FRACTION = 0.72;
+
+/**
+ * Where the MountController wants a ridden pal this slice. A single instance is
+ * reused every frame — nothing here is retained past the call.
+ */
+export interface PalRideState {
+  x: number; y: number; z: number;
+  /** Final world yaw; the mount owns the smoothing, the pal just wears it. */
+  yaw: number;
+  pitch: number;
+  bank: number;
+  /** Horizontal velocity, so a dismount hands the pal its momentum back. */
+  vx: number; vz: number;
+  /** 0..1 gait blend, already normalised against the mount's own top speed. */
+  speed01: number;
+  /** Base action to animate: 'fly' for a flyer, 'run'/'walk'/'idle' on foot. */
+  action: PalAction;
+}
+
 const TRANSIENT_DURATIONS: Partial<Record<PalAction, number>> = {
   attack: 0.5, cast: 0.7, special: 0.95, hurt: 0.45, happy: 1.35,
 };
@@ -203,6 +262,13 @@ export class PalActor {
   /** Rig dimensions, exposed so callers (e.g. photo framing) can size shots. */
   readonly height: number;
   readonly radius: number;
+  /**
+   * MEASURED top of the rest-pose rig, in local units — ears, horns, wing tips
+   * and all. `height` is what a species declares for spacing and is routinely
+   * smaller than what it draws (Galebird: 0.55 declared); mounting needs the
+   * silhouette the player actually sees, so it is measured once here at boot.
+   */
+  readonly silhouetteTop: number;
 
   private rig: PalRig;
   private scene: THREE.Scene;
@@ -248,6 +314,12 @@ export class PalActor {
   private dieT = 0;
   private visibleFlag = true;
 
+  // Mount form (see MOUNT_HEIGHT). `rideScale` is the eased current value, so
+  // dismounting shrinks back over the same quarter second it grew.
+  private ridden = false;
+  private rideScale = 1;
+  private rideScaleTarget = 1;
+
   constructor(species: PalSpecies, scene: THREE.Scene, world: World, bus: EventBus) {
     this.species = species;
     this.scene = scene;
@@ -257,6 +329,9 @@ export class PalActor {
     this.rig = species.buildRig();
     this.height = this.rig.height;
     this.radius = this.rig.radius;
+    // Once, at boot, on the rest pose and before the root is placed: the rig is
+    // still at the origin here, so this is a local-space measurement.
+    this.silhouetteTop = Math.max(0.2, new THREE.Box3().setFromObject(this.rig.root).max.y);
     this.rig.root.rotation.order = 'YXZ';
     this.rig.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
@@ -461,6 +536,83 @@ export class PalActor {
     this.rig.root.visible = v && !(this.isDead && this.dieT >= 1);
   }
 
+  // -- Mounting -------------------------------------------------------------
+
+  /** Scale this species' rig reaches in mount form. See MOUNT_HEIGHT. */
+  get mountScale(): number {
+    return Math.min(MOUNT_MAX_SCALE, Math.max(1, MOUNT_HEIGHT / this.silhouetteTop));
+  }
+
+  /**
+   * LIVE height of the saddle above the pal's origin, mount-form growth
+   * included — so a rider seated the instant the growth starts rises with it
+   * instead of beginning in mid-air. See SEAT_FRACTION.
+   */
+  get saddleY(): number { return this.silhouetteTop * this.rideScale * SEAT_FRACTION; }
+
+  /** LIVE radius of the rig, mount-form growth included. Drives collision. */
+  get scaledRadius(): number { return this.rig.radius * this.rideScale; }
+
+  /** True while a rider holds the reins — the framework stops steering it. */
+  get isRidden(): boolean { return this.ridden; }
+
+  /**
+   * Take or give back the reins. Grabbing a pal cancels an errand in progress
+   * (the drop goes back in play for the other pal) and starts the mount-form
+   * growth; letting go starts the shrink and hands normal follow steering back
+   * from wherever the ride ended.
+   */
+  setRidden(on: boolean): void {
+    if (this.ridden === on) return;
+    this.ridden = on;
+    this.rideScaleTarget = on ? this.mountScale : 1;
+    // A puff at the changeover, the same burst a teleport uses. Mounting snaps
+    // the pal from the rider's shoulder to under him and starts the mount-form
+    // growth; without the cloud both of those read as a glitch rather than a
+    // flourish. Note it does NOT reset poofT — that scales the rig up from
+    // nothing, which would fight the growth this is announcing.
+    _dummy.position.copy(this.position);
+    _dummy.position.y += this.rig.height * 0.5;
+    this.puff.burst(_dummy.position, this.rig.radius);
+    if (on) {
+      this.abortFetch();
+      this.carryTime = 0;
+      this.transient = null;
+      this.playAction('happy', 0.7);
+    }
+  }
+
+  /**
+   * One slice with a rider in the saddle, called INSTEAD of update().
+   *
+   * Follow steering, the fetch errand and every bit of vertical motion are
+   * bypassed — MountController owns where a ridden pal is and it collides
+   * against the world itself. Everything cosmetic still runs, so a mount can be
+   * hurt, cast, level up and flash exactly as it does on the ground.
+   */
+  rideUpdate(dt: number, s: PalRideState): void {
+    this.time += dt;
+    if (this.isDead) {
+      // A mount that dies under its rider is dismounted by the caller on this
+      // same slice; until then just let the death animation play.
+      this.puff.update(dt);
+      return;
+    }
+    this.position.set(s.x, s.y, s.z);
+    this.vel.set(s.vx, 0, s.vz);
+    this.vy = 0;
+    this.grounded = s.action !== 'fly';
+    // No damping here on purpose: the mount smooths its own heading and the
+    // hero's rig is turned to the SAME angle, so a second filter in here would
+    // let the rider and the saddle disagree in every turn.
+    this.yaw = s.yaw;
+    this.pitch = s.pitch;
+    this.bank = s.bank;
+    this.forward.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+    this.speed01 = damp(this.speed01, s.speed01, 8, dt);
+    this.finishFrame(dt, s.action);
+  }
+
   // -- Per-frame update -----------------------------------------------------
 
   update(dt: number, owner: PalOwner, role: 'primary' | 'support', others: PalActor[]): void {
@@ -603,6 +755,16 @@ export class PalActor {
     }
     this.forward.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
 
+    this.finishFrame(dt, base);
+  }
+
+  /**
+   * Everything that happens once the pal has been PLACED, whoever placed it:
+   * the action state machine, the hurt flash, the scale flourishes, the rig
+   * transform and the species' own animate(). The follow path and the ridden
+   * path both end here so neither can quietly skip one.
+   */
+  private finishFrame(dt: number, base: PalAction): void {
     // -- Action state machine ----------------------------------------------
     if (this.transient) {
       this.transientTime += dt;
@@ -645,7 +807,11 @@ export class PalActor {
     }
     if (this.landSquash > 0) this.landSquash -= dt * 3.2;
     const sq = Math.max(0, this.landSquash);
-    this.rig.root.scale.set(s * (1 + sq * 0.28), s * (1 - sq * 0.38), s * (1 + sq * 0.28));
+    // Mount-form growth multiplies the poof/squash scale rather than replacing
+    // it, so a pal that is mounted mid-flourish keeps the flourish.
+    this.rideScale = damp(this.rideScale, this.rideScaleTarget, RIDE_SCALE_LAMBDA, dt);
+    const ms = s * this.rideScale;
+    this.rig.root.scale.set(ms * (1 + sq * 0.28), ms * (1 - sq * 0.38), ms * (1 + sq * 0.28));
 
     // -- Apply transform + animate -----------------------------------------
     this.rig.root.position.copy(this.position);
