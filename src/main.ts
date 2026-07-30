@@ -382,6 +382,7 @@ const _dbgDir = new THREE.Vector3();
   vel: { x: +player.velocity.x.toFixed(2), y: +player.velocity.y.toFixed(2), z: +player.velocity.z.toFixed(2) },
   onGround: player.onGround,
   isClimbing: player.isClimbing,
+  attacking: player.isAttacking,
   isSwimming: player.isSwimming,
   isMounted: player.isMounted,
   isDead: player.isDead,

@@ -107,6 +107,19 @@ const CLIMB_LOCKOUT = 0.35;
  */
 const CLIMB_SIDE_HOLD = 0.6;
 
+/**
+ * Sword strike from the saddle: how high above the hero's own origin the arc
+ * starts, and how far along his aim it is pushed.
+ *
+ * A mount is scaled to 2.1 units (see MOUNT_HEIGHT) and the rider sits on top of
+ * it, so a swing struck at the on-foot 1.25/0.35 lands inside the animal. 1.5
+ * puts it at the rider's chest and 1.1 clears the mount's shoulder, so the arc
+ * starts in open air ahead of the pair — which is also roughly where the
+ * crosshair is pointing.
+ */
+const MOUNTED_STRIKE_Y = 1.5;
+const MOUNTED_REACH = 1.1;
+
 const COMBO_DURS = [0.42, 0.42, 0.58];
 const STRIKE_AT = 0.46;      // fraction of swing where damage lands
 const COMBO_COOLDOWN = 0.22;
@@ -174,6 +187,8 @@ export class Player {
    * still runs from update() exactly as it does on foot.
    */
   isMounted = false;
+  /** True while a sword swing is in progress. Read-only; for tests and HUD. */
+  get isAttacking(): boolean { return this.attack.active; }
   moveSpeedNorm = 0;
   onAttack?: (origin: THREE.Vector3, direction: THREE.Vector3) => void;
 
@@ -361,6 +376,9 @@ export class Player {
       this.moveSpeedNorm = 0;
     } else if (this.isMounted) {
       this.updateRiding(dt);
+      // The sword works from the saddle, so the combo still ticks here. Only
+      // LOCOMOTION belongs to the mount; the rider keeps his own arms.
+      this.updateAttack(dt);
     } else {
       this.updateAlive(dt);
     }
@@ -838,10 +856,21 @@ export class Player {
       // strike frame: fire the hit callback exactly once per swing
       if (!this.struck && a.t >= a.dur * STRIKE_AT) {
         this.struck = true;
+        // In the saddle the swing comes from the RIDER and goes where he is
+        // looking, not where the mount happens to be pointing. Two reasons: the
+        // hero sits above the animal, so an arc struck at his own forward from
+        // hip height lands in the mount's back; and mounted skills already aim
+        // down the crosshair, so a sword that tracked the mount's nose instead
+        // would be the one thing in the saddle that ignores where you aim.
+        // MOUNTED_REACH pushes the origin out past the mount's own bulk, which
+        // is what stops a swing from a 2.1-unit animal connecting with nothing.
+        const mounted = this.isMounted;
+        // getWorldDirection writes into the temp, so this allocates nothing.
+        if (mounted) this.engine.camera.getWorldDirection(_dir);
+        else _dir.copy(this.forward);
         _origin.copy(this.position);
-        _origin.y += 1.25;
-        _origin.addScaledVector(this.forward, 0.35);
-        _dir.copy(this.forward);
+        _origin.y += mounted ? MOUNTED_STRIKE_Y : 1.25;
+        _origin.addScaledVector(_dir, mounted ? MOUNTED_REACH : 0.35);
         this.onAttack?.(_origin, _dir);
       }
       if (input.attackPressed && a.t > a.dur * 0.35 && a.combo < 2) {
@@ -860,8 +889,11 @@ export class Player {
         }
       }
     } else if (
+      // Mounted is deliberately NOT excluded: the sword works from the saddle,
+      // on the ground and in the air. Swimming and climbing still are — both
+      // occupy the hands, and neither has a swing pose.
       input.attackPressed && this.attackCooldown <= 0
-      && !this.isSwimming && !this.isClimbing && !this.isMounted
+      && !this.isSwimming && !this.isClimbing
     ) {
       a.active = true;
       a.combo = 0;
