@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
+import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
 // ---------------------------------------------------------------------------
 // Boulderpup — a puppy golem of stacked granite strata. Rock element, ground.
@@ -8,20 +9,50 @@ import { VoxelModel } from '../../core/voxel';
 // ---------------------------------------------------------------------------
 
 // Palette
-// Tuned for the 4.9:1 lighting ratio (sun 2.55, hemi 0.52): the top course is
-// warmer and a touch deeper so full sun reads as granite instead of blowing to
-// paper white, while the slate plates carry the bright value — under weak fill
-// they are what keeps the pup from photographing as a dog-shaped hole.
-const G1 = 0x9a8b78;      // light granite / top course (warm, sun-facing)
-const STONE = 0xa8b0b8;   // cool grey slate — material contrast vs warm granite
-const G2 = 0x7d746a;      // mid granite
-const G3 = 0x655d54;      // dark granite
-const BR = 0x8a7357;      // warm brown stratum
-const MOSS = 0x6cb04a;    // bright moss
-const MOSS2 = 0x568f3a;   // deep moss
+// Round 6: every stone tone came up a full value step. Photographed from any
+// bearing that put the sun behind it, the previous set (top course only 60%
+// luminance, mid granite 49%, dark granite 40%) collapsed into one silhouette so
+// dark that the amber eyes were the only thing visible in the frame — a literal
+// dog-shaped hole. Real granite in sunlight is a light material; treat it as one.
+// Every tone is warmer than it looks in a swatch, on purpose. The only light on a
+// shaded face here is blue sky bounce, so a neutral stone grey renders BLUE — the pup
+// photographed as a blue-grey mass three rounds running. Starting warm lands it on
+// neutral granite instead.
+const G1 = 0xdfc9a0;      // light granite / top course (warm, sun-facing)
+const G0 = 0xf5e9cd;      // sunlit crest — the rim course along every top edge
+const STONE = 0xd0c9b6;   // grey slate — material contrast vs warm granite, but no
+                          // longer the cool 0xccd4dc, which was the single bluest
+                          // thing on the model and it covered the whole back
+// The flank tones came up another step in round 6. A portrait that puts the sun
+// behind the pup shows nothing but side and front faces (baked at 0.88 and 0.80),
+// and at the old 0xa89b8b / 0x7e7466 those rendered darker than the pup's own cast
+// shadow: a critic described a "formless dark-grey mass ... the darkest object in
+// the frame while standing on the brightest ground", i.e. a dog-shaped hole.
+const G2 = 0xd3b994;      // mid granite
+const G3 = 0xb1997a;      // dark granite / shaded underside
+const BR = 0xb0906a;      // warm brown stratum
+const MOSS = 0x7ecc57;    // bright moss
+const MOSS2 = 0x5fa33e;   // deep moss
 const CRYS = 0xffb733;    // amber crystal
 const CRYS2 = 0xd98f1f;   // amber crystal base
-const NOSE = 0x453f38;    // stone nose
+const NOSE = 0x4a423a;    // stone nose
+// Eyes, third attempt. Attempt one was two emissive amber slabs filling the socket
+// (a furnace grate). Attempt two kept the slab shape but made it PALE BONE and lit
+// only the catchlight — which changed nothing, because a 2x3 near-white block on a
+// dark head is a glowing bar whether or not it is flagged emissive, and that is
+// exactly what the next critic called it. So the polarity is inverted: the iris is
+// now a dark ember-brown mass with a faint inner glow, and the bright cell is a
+// single catchlight. Three cells of dim amber per eye, not six of near-white.
+const EYE_IRIS = 0x36291d;  // dark warm stone. 0x4a2c14 plus even a trace of
+                            // emissive rendered as two red-hot squares, which is the
+                            // furnace read this rebuild exists to remove.
+const EYE_HOT = 0xfff0cf;   // catchlight, plain paint (a glowing catchlight blooms
+                            // into a star and eats the iris around it)
+const EYE_GLOW = 0.2;       // emissive intensity on the iris. Deliberately low: a
+                            // bloom pass amplifies this, the socket is one cell, and
+                            // at 0.32 the ember tone rendered as two red-hot squares
+                            // — closer to the furnace this rebuild is undoing than to
+                            // a gleam.
 
 const BODY_Y = 0.30;
 const HEAD_X = 0, HEAD_Y = 0.28, HEAD_Z = 0.24;
@@ -91,11 +122,9 @@ function buildLeg(kind: 'FL' | 'FR' | 'BL' | 'BR'): THREE.Mesh {
   } else if (kind === 'FR') {
     m.box(0, 0, 0, 1, 2, 1, G1);
     m.box(0, 1, 0, 1, 1, 1, BR);
-    m.set(1, 2, 1, MOSS2);
   } else if (kind === 'BL') {
     m.box(0, 0, 0, 2, 2, 1, G3);
     m.box(0, 0, 0, 2, 0, 1, G2);
-    m.set(0, 2, 0, MOSS);
   } else {
     m.box(0, 0, 0, 1, 2, 2, BR);
     m.box(0, 0, 0, 1, 0, 2, G3);
@@ -126,20 +155,33 @@ function buildRig(): PalRig {
   torso.box(-2, 4, -1, 1, 4, 1, STONE);
   torso.set(2, 3, -3, STONE); torso.set(-2, 3, -3, STONE);
   torso.box(-3, 3, 1, -3, 3, 2, STONE);
-  // moss patches (top and flanks)
-  torso.set(-1, 4, -2, MOSS); torso.set(0, 4, -2, MOSS); torso.set(1, 4, -2, MOSS2);
-  torso.set(2, 4, 1, MOSS2); torso.set(2, 4, 2, MOSS);
-  torso.set(3, 2, 0, MOSS); torso.set(3, 2, 1, MOSS2); torso.set(3, 1, 0, MOSS2);
-  torso.set(-3, 3, -2, MOSS2); torso.set(-3, 3, -1, MOSS);
+  // Moss lives ONLY on the top course (y = 4), i.e. on upward-facing faces, and is
+  // spread as several 1-cell patches rather than blocks. The flank cells this used
+  // to set at x = +/-3 presented their green to camera as isolated pure-green cubes
+  // stuck on grey stone, which read as a material error rather than as lichen —
+  // moss does not grow on a vertical granite face in full sun, and it did not look
+  // like it did either.
+  torso.set(-1, 4, -2, MOSS); torso.set(0, 4, -2, MOSS2); torso.set(1, 4, -2, MOSS);
+  torso.set(2, 4, 1, MOSS2); torso.set(-2, 4, 2, MOSS);
+  torso.set(0, 4, 0, MOSS2); torso.set(-1, 4, 1, MOSS);
   // chipped corners
   torso.set(3, 1, -4, G3); torso.set(-3, 1, 3, G3); torso.set(-3, 2, -4, G3);
+  // Sunlit crest and shaded belly: without them the stacked strata all sit at the
+  // same value from a side view and the pup reads as one solid brick.
+  rimTop(torso, G0, -3, 3, 0, 4, -4, 3);
+  shadeUnder(torso, G3, -3, 3, 0, 4, -4, 3);
   const torsoMesh = torso.build(0.1, true);
   torsoMesh.position.set(0, -0.06, 0);
   body.add(torsoMesh);
 
   // --- glowing amber crystal on the back ---------------------------------
   const crystal = new THREE.Group();
-  crystal.position.set(0, 0.40, -0.14);
+  // Pulled down and well aft of the old (0, 0.40, -0.14). From a three-quarter
+  // bearing that put the crystal directly above the skull, where it photographed as
+  // "an unexplained third glowing orange block on top of its head" — the pup looked
+  // like it had a pilot light. On the rump it reads as the back-crystal the skill
+  // descriptions talk about.
+  crystal.position.set(0, 0.30, -0.34);
   crystal.rotation.z = 0.12;
   body.add(crystal);
   const crys = new VoxelModel();
@@ -150,7 +192,9 @@ function buildRig(): PalRig {
   const crystalCore = crys.build(0.1, true);
   const crysMat = crystalCore.material as THREE.MeshStandardMaterial;
   crysMat.emissive = new THREE.Color(0xff9d20);
-  crysMat.emissiveIntensity = 0.9;
+  // 0.6, not 0.9. With a bloom pass on top, the back-crystal was the brightest thing
+  // in the frame — a lit orange bar on the rump out-reading the pup's own face.
+  crysMat.emissiveIntensity = 0.6;
   crysMat.roughness = 0.35;
   crystal.add(crystalCore);
 
@@ -159,44 +203,61 @@ function buildRig(): PalRig {
   headGroup.position.set(HEAD_X, HEAD_Y, HEAD_Z);
   body.add(headGroup);
 
+  // Head narrowed from 7 cells wide to 5. At the torso's full width it was the
+  // same block as the body with no neck break, so from the side the pup was one
+  // long brick; a smaller skull on a broad chest is what makes a puppy a puppy.
   const head = new VoxelModel();
-  head.box(-3, 0, 0, 3, 0, 4, G2);
-  head.box(-3, 1, 0, 3, 1, 4, G1);
-  // eye row: leave (±2, 2, 4) empty -> deep sockets
-  head.box(-3, 2, 0, 3, 2, 3, G1);
-  head.box(-3, 2, 4, -3, 2, 4, G1);
-  head.box(-1, 2, 4, 1, 2, 4, G1);
-  head.box(3, 2, 4, 3, 2, 4, G1);
-  head.box(-3, 3, 0, 3, 3, 4, G3);         // dark cap course
-  head.set(-2, 3, 5, G3); head.set(2, 3, 5, G3); // heavy brow ledges
-  head.box(-2, 0, 5, 2, 1, 5, BR);         // chunky muzzle
+  head.box(-2, 0, 0, 2, 0, 4, G2);         // jaw course
+  head.box(-2, 1, 0, 2, 1, 4, G1);
+  // eye course: leave (±1, ±2, 2, 4) open so the sockets are two cells wide and
+  // genuinely deep, with a single granite nose bridge between them
+  head.box(-2, 2, 0, 2, 2, 3, G1);
+  head.set(0, 2, 4, G1);
+  head.box(-2, 3, 0, 2, 3, 4, G2);         // cap course
+  head.box(-1, 4, 0, 1, 4, 3, G0);         // sunlit domed crown
+  // The brow ledge is no longer hand-stamped here: eyes2x2's `lid` + `browProud`
+  // put it exactly one row above the (now two-row) eye and hang it proud, which the
+  // old y=4 version could not do — it sat two rows up and shaded nothing.
+  head.box(-1, 0, 5, 1, 1, 5, BR);         // chunky muzzle
+  head.box(-1, 0, 6, 1, 0, 6, BR);         // blunt muzzle tip
+  // Lit top plane on the snout. Without it the muzzle's front face is the darkest
+  // thing on the head and photographs as an open hole below the eyes.
+  head.set(-1, 1, 5, G1); head.set(0, 1, 5, G0); head.set(1, 1, 5, G1);
   head.set(0, 1, 6, NOSE);                 // stone nose
-  head.set(-3, 1, 2, MOSS2);               // cheek moss
-  head.set(1, 3, 1, MOSS);                 // crown moss tuft
+  // No cheek moss: a lone green cell on a vertical granite face is the isolated
+  // "material error" cube a critic called out. Moss stays on top faces only.
+  head.set(1, 4, 1, MOSS);                 // crown moss tuft
+  shadeUnder(head, G3, -2, 2, 0, 2, 0, 6); // shadow under the jaw = a neck break
+  // Eyes stamped straight into the socket course. inner: 1 puts the pair either
+  // side of the single-cell granite nose bridge at x = 0, which is what a 5-cell
+  // skull has room for.
+  // `glow` routes the iris cells through setEmissive, so build() batches them into a
+  // single child mesh — which is what animate() dims for a squint. `lid` in the
+  // darkest granite is the socket rim: with no ambient AO in build(), a recess only
+  // looks recessed if it is painted that way.
+  eyes2x2(head, {
+    inner: 1, width: 1, y: 1, faceZ: 4, iris: EYE_IRIS, shine: EYE_HOT,
+    // bridge in G1, not the near-white G0: three bright cells between two one-cell
+    // eyes made the pale band the loudest thing on the face.
+    lid: G3, browProud: true, bridge: G1, glow: EYE_GLOW,
+  });
   const headMesh = head.build(0.1, true);
   headMesh.position.set(0, -0.20, 0.06);
   headGroup.add(headMesh);
-
-  // deep-set glowing amber eyes (recessed emissive cubes inside the sockets)
-  const eyeMat = new THREE.MeshStandardMaterial({
-    color: 0x1c1712, emissive: new THREE.Color(0xffb833), emissiveIntensity: 1.8,
-    roughness: 0.4, metalness: 0,
-  });
-  const eyeGeo = new THREE.BoxGeometry(0.08, 0.075, 0.06);
-  const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
-  eyeL.position.set(-0.2, 0.05, 0.16);
-  const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-  eyeR.position.set(0.2, 0.05, 0.16);
-  headGroup.add(eyeL, eyeR);
+  // The emissive iris batch build() attached as a child — the pup's banked fire.
+  const eyeGlow = headMesh.children[0] as THREE.Mesh;
 
   // --- slab ears ---------------------------------------------------------
   const mkEar = (sign: number): THREE.Group => {
     const g = new THREE.Group();
     g.position.set(sign * 0.20, 0.16, 0.02);
     g.rotation.set(-0.1, 0, -sign * EAR_TILT);
+    // Three courses tall, not two: a 2x2 slab was a pebble at gameplay distance
+    // and the pup had no ears in its silhouette at all.
     const ear = new VoxelModel();
-    ear.box(0, 0, 0, 1, 1, 0, G3);
-    ear.set(sign > 0 ? 0 : 1, 0, 0, G2);
+    ear.box(0, 0, 0, 1, 2, 0, G2);
+    ear.set(sign > 0 ? 0 : 1, 2, 0, G3); // chipped outer corner
+    ear.set(sign > 0 ? 1 : 0, 0, 0, G1);
     const mesh = ear.build(0.1, true);
     mesh.position.y = -0.02;
     g.add(mesh);
@@ -236,7 +297,7 @@ function buildRig(): PalRig {
     root,
     parts: {
       body, head: headGroup, earL, earR, tail: tailGroup,
-      crystal, crystalCore, eyeL, eyeR,
+      crystal, crystalCore, eyeGlow,
       legFL, legFR, legBL, legBR,
     },
     height: 0.85,
@@ -247,16 +308,30 @@ function buildRig(): PalRig {
 // ---------------------------------------------------------------------------
 // Animation
 // ---------------------------------------------------------------------------
+// A bloom pass now exists, so every emissive value below is scaled down on the
+// way out: the numbers the action cases pass were tuned when emissive only meant
+// "slightly brighter paint", and at face value they blow the sockets and the
+// back-crystal into white discs that swallow the surrounding stone detail.
+const GLOW_TRIM = 0.55;
+
+/**
+ * The eyes are voxels in the head mesh now, so there is nothing to scale — a
+ * squint is expressed as a dimming of the iris instead. At two cells of iris per
+ * eye a geometric squint would have been sub-pixel anyway, whereas the glow
+ * dropping away reads clearly at gameplay distance.
+ */
 function setEyes(P: Parts, intensity: number, squint: number): void {
-  const mat = (P.eyeL as THREE.Mesh).material as THREE.MeshStandardMaterial; // shared with eyeR
-  mat.emissiveIntensity = intensity;
-  P.eyeL.scale.set(1, 1 - squint, 1);
-  P.eyeR.scale.set(1, 1 - squint, 1);
+  const mat = (P.eyeGlow as THREE.Mesh).material as THREE.MeshStandardMaterial;
+  // The extra 0.5: the emissive cells are the dark iris now, so this is a warm
+  // interior gleam rather than a light source. Anything brighter and the ember tone
+  // washes out to the same near-white the old bone iris had, which is the exact
+  // failure this rebuild is undoing.
+  mat.emissiveIntensity = intensity * GLOW_TRIM * 0.5 * (1 - 0.7 * squint);
 }
 
 function setCrystal(P: Parts, intensity: number, scale: number, tilt: number): void {
   const mat = (P.crystalCore as THREE.Mesh).material as THREE.MeshStandardMaterial;
-  mat.emissiveIntensity = intensity;
+  mat.emissiveIntensity = intensity * GLOW_TRIM;
   P.crystal.scale.set(scale, scale, scale);
   P.crystal.rotation.z = 0.12 + tilt;
 }

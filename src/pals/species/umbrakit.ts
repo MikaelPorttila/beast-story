@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { makeGlowSprite } from './glowsprite';
+import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
 // ---------------------------------------------------------------------------
 // Umbrakit — a hovering shadow cat woven from dusk. It never walks: it floats
@@ -21,17 +22,23 @@ const S = 0.085;
 // with that little fill, everything below ~0x60 collapses to black, so the body
 // tone and the rim row both had to come up and a pale chest patch was added to
 // separate the cat from its own shadow.
-const INK = 0x6b5a92;      // body
-const DUSK = 0x3b3159;     // shadowed underside / muzzle / haunches
-const VIOLET = 0x8f6fd6;   // sheen highlights, ear tips
-const RIM = 0x9d86c8;      // top rim rows — the silhouette's bright edge
-const PALE = 0xd8cef0;     // chest / belly patch (the form-separating light)
+const INK = 0x8a76ba;      // body
+const DUSK = 0x584b80;     // shadowed underside / muzzle / haunches
+const VIOLET = 0x9c7fe0;   // sheen highlights, ear tips
+const RIM = 0xc2aef0;      // top rim rows — the silhouette's bright edge
+const PALE = 0xc4b6e6;     // chest / belly patch (the form-separating light) —
+// pulled down from 0xd8cef0, which under bloom lit up like a bib
 const GLOW = 0x8f6fd8;     // underglow / dissolving tail
-const LAV = 0xcab6ff;      // brightest wisp / sparks
-const EYE = 0xf2ecff;      // eye whites (one bright cell per eye — no headlights)
-const EYE_LID = 0x9c8cc4;  // muted lower lid, shrinks the white read
-const PUPIL = 0x1a1420;    // near-black slit pupil
-const NOSE = 0x8a68c9;
+const LAV = 0xd6c4ff;      // brightest wisp / sparks / eye catchlight
+// Eyes. Two rounds were spent trying to make a BRIGHT iris work here — pale gold,
+// then near-white gold — and both failed the same way: a 2x3 near-white block per
+// side on a mid-violet face is a lit panel, and a critic reading the portrait
+// described "two glowing pale bars". The polarity is inverted now. The iris is a very
+// dark violet (the coat hue at a fifth of its value) and the light lives in a single
+// lavender catchlight cell, which is the ONLY emissive cell on the head — a gleam in
+// a dark eye is exactly the right note for a creature woven from dusk.
+const IRIS = 0x2a1c40;     // dark violet iris
+const NOSE = 0xc79ae8;
 
 // Base pose constants (world/local units, must match buildRig)
 const BODY_Y = 0.42;       // hover: body underside sits ~0.3 above origin
@@ -63,39 +70,58 @@ function makeTorso(): THREE.Mesh {
   // Pale chest/belly patch: under a strong sun with almost no fill the dark coat
   // and its own cast shadow merge, so the front carries a light mass to read the
   // volume against. Painted after the glow band so it wins on the chest.
-  m.ellipsoid(0, 1.4, 1.4, 1.6, 1.2, 1.35, PALE);
-  m.markEmissive(GLOW, 0.55);  // soft violet underglow — mysterious, not neon
+  m.ellipsoid(0, 1.3, 1.5, 1.8, 1.35, 1.5, PALE);
+  rimTop(m, RIM, -2, 2, 1, 4, -3, 3);
+  m.markEmissive(GLOW, 0.35);  // soft violet underglow — mysterious, not neon,
+  // and trimmed from 0.55 now that a bloom pass amplifies it
   return m.build(S, true);
 }
 
 function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
-  m.ellipsoid(0, 1.2, 0.2, 2.0, 1.3, 1.7, INK);
-  m.ellipsoid(0, 2.1, -0.1, 1.0, 0.5, 0.9, VIOLET);  // narrow brow sheen (was a slab)
-  m.ellipsoid(0, 2.45, -0.1, 0.9, 0.28, 0.85, RIM); // rim row over the skull
-  m.ellipsoid(0, 0.6, 1.4, 1.2, 0.8, 0.9, DUSK);     // muzzle
-  m.box(-2, 1, 1, 2, 2, 1, INK);                     // flat cheek plate: the
-  // eyes used to float a cell clear of the narrow skull, which is exactly why
-  // they read as two detached headlights.
-  m.set(0, 1, 3, NOSE);
-  // 2x2 eyes: a single bright sclera cell over a muted lid, wrapped around a
-  // 2-voxel near-black vertical slit pupil. Small whites on purpose — the old
-  // full-white outer column read as headlights in a portrait crop.
-  for (const sx of [1, -1]) {
-    m.set(sx * 2, 2, 2, EYE);
-    m.set(sx * 2, 1, 2, EYE_LID);
-    m.set(sx * 1, 2, 2, PUPIL);
-    m.set(sx * 1, 1, 2, PUPIL);
-  }
-  m.markEmissive(EYE, 0.3); // faint moonlit sheen, not a beam
+  // Skull widened 2.0 -> 2.7 and given a proper face plate: the old head was too
+  // narrow to carry an eye pair, so the brow sheen, the pale sclera and the two
+  // pupils stacked into one pale band with two dark notches — the bandit mask
+  // that every portrait of this cat came back with.
+  m.ellipsoid(0, 1.3, 0.2, 2.7, 1.5, 1.7, INK);
+  m.ellipsoid(0, 2.3, -0.2, 1.2, 0.5, 1.0, VIOLET);  // narrow brow sheen
+  m.ellipsoid(0, 0.5, 1.4, 1.3, 0.8, 0.9, DUSK);     // muzzle
+  m.box(-3, 1, 2, 3, 3, 2, INK);                     // flat face plate
+  rimTop(m, RIM, -2, 2, 0, 4, -2, 2);
+  shadeUnder(m, DUSK, -3, 3, 0, 1, -2, 3);
+  // A stepped SNOUT, not a lone proud voxel. The old build set exactly one cell at
+  // (0, 1, 3): a 1x1x1 cube standing off a flat plate touches the face with one hidden
+  // rear facet and nothing else, so it photographed as "a nose voxel floating in front
+  // of the face" — which, visually, it was. Three cells wide with a dark tip in front
+  // of them reads as a muzzle.
+  for (let x = -1; x <= 1; x++) m.set(x, 1, 3, DUSK);
+  m.set(0, 1, 4, NOSE);
+  // ONLY the catchlight glows. An emissive iris put five lit cells in each socket and
+  // the cat photographed with two gold panels for a face.
+  eyes2x2(m, {
+    inner: 1, y: 1, faceZ: 2, iris: IRIS, shine: LAV,
+    lid: DUSK, bridge: RIM,
+  });
+  m.markEmissive(LAV, 0.45);
   return m.build(S, true);
 }
 
-function makeEar(tipX: number, innerX: number): THREE.Mesh {
+/**
+ * One ear, authored once and mirrored by `sign`. The old signature took a tipX and
+ * an innerX per side — hand-mirroring a bilateral feature, which is precisely how
+ * ears end up different colours on the two sides of a head.
+ */
+function makeEar(sign: number): THREE.Mesh {
   const m = new VoxelModel();
-  m.box(0, 0, 0, 1, 0, 0, INK);
-  m.set(tipX, 1, 0, VIOLET);       // pointed tip
-  m.setEmissive(innerX, 0, 1, GLOW, 0.55); // inner-ear glow facing forward
+  const X = (d: number): number => (sign > 0 ? d : -d - 1); // d: 0 inner, 1 outer
+  for (const d of [0, 1]) {
+    m.set(X(d), 0, 0, INK);
+    m.set(X(d), 1, 0, INK);
+  }
+  m.set(X(1), 1, 0, RIM);          // lit outer edge
+  m.set(X(1), 2, 0, VIOLET);       // pointed tip
+  m.set(X(0), 2, 0, VIOLET);       // two-cell tip band, so both ears read from any side
+  m.setEmissive(X(0), 0, 1, GLOW, 0.35); // inner-ear glow facing forward
   return m.build(S, true);
 }
 
@@ -122,7 +148,7 @@ function makeTailSeg2(): THREE.Mesh {
 function makeTailSeg3(): THREE.Mesh {
   const m = new VoxelModel();
   m.ellipsoid(0, 0.6, -0.7, 0.6, 0.6, 1.0, VIOLET);
-  m.setEmissive(0, 0, -2, GLOW, 0.6); // already coming apart at the end
+  m.setEmissive(0, 0, -2, GLOW, 0.4); // already coming apart at the end
   return m.build(S, true);
 }
 
@@ -139,7 +165,9 @@ function glowMaterial(mesh: THREE.Mesh, emissiveHex: number, intensity: number, 
 /** One detached tail mote — a single cube, never a stack: silhouette first. */
 function makeWisp(color: number, bright: boolean): THREE.Mesh {
   const m = new VoxelModel();
-  m.setEmissive(0, 0, 0, bright ? LAV : color, bright ? 1.0 : 0.9);
+  // Trimmed for the bloom pass: a wisp is a mote of dusk, and at 1.0 the three
+  // of them became white pinpricks brighter than the cat itself.
+  m.setEmissive(0, 0, 0, bright ? LAV : color, bright ? 0.6 : 0.5);
   const mesh = m.build(S, true);
   mesh.castShadow = false;
   return mesh;
@@ -150,7 +178,7 @@ function makeGlowPool(): THREE.Mesh {
   const m = new VoxelModel();
   m.box(-1, 0, -2, 1, 0, 2, GLOW);
   const mesh = m.build(S, true);
-  glowMaterial(mesh, 0x6b48c8, 0.8, 0.6);
+  glowMaterial(mesh, 0x6b48c8, 0.5, 0.6);
   mesh.castShadow = false;
   return mesh;
 }
@@ -192,7 +220,7 @@ function buildRig(): PalRig {
   earL.position.set(0.1, 0.13, -0.03);
   earL.rotation.z = -EAR_Z;
   head.add(earL);
-  const earLMesh = makeEar(1, 0);
+  const earLMesh = makeEar(1);
   earLMesh.position.set(0, -0.02, 0);
   earL.add(earLMesh);
 
@@ -200,7 +228,7 @@ function buildRig(): PalRig {
   earR.position.set(-0.1, 0.13, -0.03);
   earR.rotation.z = EAR_Z;
   head.add(earR);
-  const earRMesh = makeEar(0, 1);
+  const earRMesh = makeEar(-1);
   earRMesh.position.set(0, -0.02, 0);
   earR.add(earRMesh);
 

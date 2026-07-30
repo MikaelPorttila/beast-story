@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
+import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
 // ---------------------------------------------------------------------------
 // Sproutle — round leafy turtle-dino. Moss body, leaf-plate shell dome,
@@ -8,23 +9,39 @@ import { VoxelModel } from '../../core/voxel';
 // ---------------------------------------------------------------------------
 
 // Terrain grass is a bright yellow-green (~0x54c832), so the coat is pushed to
-// a cooler, mid-value moss and given a cream belly: value + hue separation from
-// any lawn it stands on.
-const MOSS = 0x5a9e46;
-const MOSS_LIGHT = 0x8fd45f; // sunlit leaf-green highlights
-const MOSS_DARK = 0x3f7530;
-const BELLY = 0xead9b0;      // cream belly / chin patch
-const SHELL = 0x3f8f3c;
-const SHELL_LIGHT = 0x5cb04e;
-const SHELL_DARK = 0x2c6b2a;
-const STEM = 0x4d9137;
-const LEAF = 0x69cf53;
-const LEAF_LIGHT = 0x97e37f;
-const FOOT = 0xcfbf82;
-const EYE_WHITE = 0xffffff;
-const PUPIL = 0x24241f;
-const BROW = 0x3c702c;
-const BLUSH = 0xef9d86;
+// a cooler moss and given a cream belly: value + hue separation from any lawn it
+// stands on. Round 6 raised every green a full step — standing in tree shade the
+// old set was one flat dark green mass, and the pal disappeared into the lawn it
+// was supposed to contrast with. Hue separation, not darkness, does that job.
+// Round 6 rotated every green about 20 degrees toward TEAL. Value alone was never
+// going to separate this pal from the lawn: the terrain grass is a yellow-green
+// (~0x54c832) and the coat was 0x74bd57, i.e. the same hue a little lighter, so in the
+// shade of a terrace the pal and the ground behind it were literally the same colour
+// and a critic could not find the creature in its own portrait. A cooler green stays
+// unmistakably plant, and the yellow-green now belongs only to the LEAF sprout — which
+// gives the pal an internal hue contrast it did not have either.
+const MOSS = 0x63c07e;
+const MOSS_LIGHT = 0x9ae8ab; // sunlit leaf-green highlights
+const MOSS_DARK = 0x3d8657;
+const BELLY = 0xf0e2bf;      // cream belly / chin patch
+const SHELL = 0x43a86d;
+const SHELL_LIGHT = 0x69cd8c;
+const SHELL_DARK = 0x2c7550;
+const STEM = 0x5aa340;
+const LEAF = 0x7cdc60;
+const LEAF_LIGHT = 0xaaf08c;
+const FOOT = 0xd8c88c;
+// Dark iris, bright catchlight. The cream 2x3 iris that was here sat within a few
+// percent of the cream chin right below it, so at portrait distance the whole lower
+// face was one pale field with two dark pupils in it — a critic saw exactly that and
+// called it dead eyes.
+const IRIS = 0x14301f;       // dark forest green — the coat hue at a fifth of value
+const SHINE = 0xf8fff0;      // single catchlight cell
+const BROW = 0x2f6b4a;       // socket rim / lid row
+// No cheek mark. The old salmon BLUSH cell sat one row under the OUTER eye column,
+// i.e. right on the silhouette edge of the face plate, and in shade a saturated
+// salmon goes red-brown: two dark red bars under the eyes that read as wounds or
+// rust streaks. A blush that only works in direct sun is not a blush.
 
 const S = 0.1; // voxel scale
 
@@ -33,9 +50,14 @@ const BASE: Record<string, readonly [number, number, number, number, number, num
   body: [0, 0.16, 0, 0, 0, 0],
   shell: [0, 0.26, -0.04, 0, 0, 0],
   head: [0, 0.28, 0.3, 0, 0, 0],
-  sprout: [0, 0.4, -0.02, 0, 0, 0],
-  leafL: [0, 0.16, 0, 0, 0.5, 0.45],
-  leafR: [0, 0.16, 0, 0, Math.PI - 0.5, 0.45],
+  // 0.30, not 0.40. The crown's top face is at ~0.42 and the old two-cell stem began
+  // at 0.40 — a 2 cm overlap, which the sprout's springy rotation immediately opened
+  // into daylight: a critic saw the leaf pair "hovering above the head with a clear
+  // gap". Dropped 10 cm and grown to three cells, the stem's base is buried a full
+  // cell inside the skull at every phase of the bounce.
+  sprout: [0, 0.30, -0.02, 0, 0, 0],
+  leafL: [0, 0.26, 0, 0, 0.5, 0.45],
+  leafR: [0, 0.26, 0, 0, Math.PI - 0.5, 0.45],
   tail: [0, 0.06, -0.36, 0.2, 0, 0],
   legFL: [0.2, 0.1, 0.22, 0, 0, 0],
   legFR: [-0.2, 0.1, 0.22, 0, 0, 0],
@@ -63,6 +85,8 @@ function buildRig(): PalRig {
   torso.ellipsoid(0, 2.6, 0, 3.6, 2.7, 4.2, MOSS);
   torso.ellipsoid(0, 2.6, 2.2, 3.2, 1.5, 2.2, MOSS_LIGHT); // sunlit shoulders
   torso.ellipsoid(0, 1.4, 1.0, 2.8, 1.8, 3.2, BELLY); // cream belly patch
+  rimTop(torso, MOSS_LIGHT, -3, 3, 0, 5, -4, 4);
+  shadeUnder(torso, MOSS_DARK, -3, 3, 0, 4, -4, 4);
   const torsoMesh = torso.build(S);
   torsoMesh.position.y = -0.02;
   body.add(torsoMesh);
@@ -91,21 +115,20 @@ function buildRig(): PalRig {
   // -- head -----------------------------------------------------------------
   const head = pivot('head', body);
   const hm = new VoxelModel();
-  hm.ellipsoid(0, 2.2, 0.1, 2.6, 2.2, 2.3, MOSS);
-  hm.ellipsoid(0, 3.4, -0.3, 2.2, 1.0, 2.0, MOSS_LIGHT); // lit crown
-  hm.box(-2, 1, 2, 2, 3, 2, MOSS); // flat friendly face plate
-  hm.ellipsoid(0, 1.0, 1.4, 2.2, 1.1, 1.6, BELLY); // cream chin / throat
+  // Skull widened from 2.6 to 3.0 so the eye pair can sit three cells apart with
+  // plain moss between them instead of touching over a pale bridge.
+  hm.ellipsoid(0, 2.2, 0.1, 3.0, 2.2, 2.3, MOSS);
+  hm.ellipsoid(0, 3.4, -0.3, 2.5, 1.0, 2.0, MOSS_LIGHT); // lit crown
+  hm.box(-3, 1, 2, 3, 4, 2, MOSS); // flat friendly face plate, all coat colour
+  hm.ellipsoid(0, 0.7, 1.5, 2.2, 0.9, 1.5, BELLY); // cream chin, dropped clear of
+  // the eye line: level with the eyes it merged with the sclera into one band
   hm.box(-1, 1, 3, 1, 1, 3, BELLY); // little snout
-  hm.box(1, 2, 2, 2, 3, 2, EYE_WHITE); // right eye 2x2
-  hm.box(-2, 2, 2, -1, 3, 2, EYE_WHITE); // left eye 2x2
-  hm.set(1, 2, 2, PUPIL); // pupils, inner-low = gentle look
-  hm.set(-1, 2, 2, PUPIL);
-  hm.set(1, 4, 2, BROW);
-  hm.set(2, 4, 2, BROW); // leafy brows
-  hm.set(-1, 4, 2, BROW);
-  hm.set(-2, 4, 2, BROW);
-  hm.set(2, 1, 2, BLUSH); // blush under the outer eyes
-  hm.set(-2, 1, 2, BLUSH);
+  rimTop(hm, MOSS_LIGHT, -3, 3, 0, 5, -3, 3);
+  shadeUnder(hm, MOSS_DARK, -3, 3, 0, 1, -3, 1);
+  eyes2x2(hm, {
+    inner: 1, y: 2, faceZ: 2, iris: IRIS, shine: SHINE,
+    lid: BROW, browProud: true, bridge: BELLY,
+  });
   const headMesh = hm.build(S);
   headMesh.position.set(0, -0.08, 0.02);
   head.add(headMesh);
@@ -113,7 +136,7 @@ function buildRig(): PalRig {
   // -- springy head sprout with two leaves ---------------------------------
   const sprout = pivot('sprout', head);
   const stem = new VoxelModel();
-  stem.box(0, 0, 0, 0, 1, 0, STEM);
+  stem.box(0, 0, 0, 0, 2, 0, STEM); // three cells: the lowest one lives in the skull
   sprout.add(stem.build(S));
 
   const mkLeaf = (name: string): void => {

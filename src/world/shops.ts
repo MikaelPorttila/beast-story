@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { VoxelModel, shade } from '../core/voxel';
 import { ELEMENT_COLORS, type ElementType } from '../core/types';
+import { relight } from './props';
 
 const DEN_ELEMENTS: ElementType[] = ['fire', 'water', 'grass', 'electric'];
 
@@ -237,6 +238,20 @@ export class Shops {
     }
 
     const buildingMesh = v.build(V, true);
+    // Undo VoxelModel's baked fake-sun face table — see `relight` in props.ts for
+    // the full argument. It matters more here than anywhere: a pagoda is mostly
+    // INTERIOR, and its side walls, shelf slots and counter faces are all
+    // vertical surfaces the sun never reaches, so the baked 0.80/0.88 multipliers
+    // landed on top of hemisphere-only light and turned the window openings and the
+    // seam under the deck into pure black holes. The critic read the whole shrine
+    // as "burnt-out rather than shaded", which is exactly right.
+    {
+      const g = buildingMesh.geometry;
+      relight(
+        (g.getAttribute('normal') as THREE.BufferAttribute).array as Float32Array,
+        (g.getAttribute('color') as THREE.BufferAttribute).array as Float32Array,
+      );
+    }
     den.add(buildingMesh);
     this.disposables.push(buildingMesh.geometry, buildingMesh.material as THREE.Material);
 

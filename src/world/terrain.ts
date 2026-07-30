@@ -2,7 +2,7 @@
  * Terrain height + biome authority. Pure functions of (seed, x, z) so
  * collision queries agree exactly with the rendered voxel columns.
  */
-import { Noise2D } from './noise';
+import { Noise2D, WaveField } from './noise';
 
 export const WATER_LEVEL = 8;
 export const CHUNK_SIZE = 32;
@@ -24,20 +24,43 @@ export interface RGB {
   b: number;
 }
 
+/**
+ * sRGB -> linear transfer. Terrain vertex colours are written straight into a
+ * BufferAttribute, which three.js consumes as LINEAR values, so a hex literal
+ * has to be decoded the same way `THREE.Color.setHex` would.
+ *
+ * This used to be a bare /255, i.e. sRGB numbers fed in as linear. Every ground
+ * colour then came out roughly `c^(1/2.2)` too bright and desaturated —
+ * 0x54c832 grass rendered as #99E67A pale mint — which is precisely why the
+ * meadows read as flat mint slabs no matter how much value noise was piled on
+ * top: the palette was sitting in the compressed top end of the transfer curve
+ * where nothing has contrast left. It also put the terrain on a different
+ * colour convention from every prop and creature (VoxelModel goes through
+ * THREE.Color, which converts), so ground and trees never matched.
+ */
+const s2l = (c: number): number =>
+  c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+
 const rgb = (hex: number): RGB => ({
-  r: ((hex >> 16) & 255) / 255,
-  g: ((hex >> 8) & 255) / 255,
-  b: (hex & 255) / 255,
+  r: s2l(((hex >> 16) & 255) / 255),
+  g: s2l(((hex >> 8) & 255) / 255),
+  b: s2l((hex & 255) / 255),
 });
 
 // -- Palette (vibrant Cube World grading) -----------------------------------
-// Boosted at source: ACES + hemisphere light + fog eat ~20% chroma, so these
-// are over-saturated here to land on-target on screen.
+// Authored as sRGB hex, exactly as they would be picked in an image editor;
+// `rgb()` above converts. Sun (2.55) + hemisphere fill land these at roughly
+// 0.9x, so what you pick is close to what you get before the grade.
 const PLAIN_GRASS = rgb(0x54c832);
 const WARM_GRASS = rgb(0x9ccc3a);
 const FOREST_GRASS = rgb(0x3fa832);
-const BEACH_SAND = rgb(0xefdca6);
-const DESERT_SAND = rgb(0xe0be74);
+// Sands are two steps darker than they were. At 0xefdca6 the beach sat so high
+// on the ACES curve that nothing applied to it survived to the screen — the
+// per-cube jitter, the litter and the slope shading all compressed into one
+// beige, and a shoreline could fill a third of a frame with a single value.
+// Dropping the base leaves room for all three to read.
+const BEACH_SAND = rgb(0xdfc891);
+const DESERT_SAND = rgb(0xd0ad63);
 const SNOW = rgb(0xf2f7fd);
 const DIRT = rgb(0x9a6a42);
 const DIRT_COLD = rgb(0x8d7a6f);
@@ -60,6 +83,12 @@ export interface ColumnScratch {
   dirtB: number;
   /** 0..1 blend toward warm sandstone strata in cliffs */
   stoneWarm: number;
+  /**
+   * 0..1 "this column is vegetated grass". The mesher gates its curvature
+   * tinting and clover litter on this so sand, snow and lake beds never sprout
+   * meadow detail.
+   */
+  grass: number;
   biome: BiomeId;
 }
 
@@ -69,6 +98,7 @@ export function makeScratch(): ColumnScratch {
     topR: 0, topG: 0, topB: 0,
     dirtR: 0, dirtG: 0, dirtB: 0,
     stoneWarm: 0,
+    grass: 0,
     biome: 'plains',
   };
 }
@@ -91,11 +121,22 @@ export class Terrain {
   readonly flattens: FlattenDisc[] = [];
 
   /**
-   * Ground-colour jitter field. Public because the chunk mesher bakes per-cube
-   * value variation into vertex colours and must draw from the same seeded
-   * field rather than inventing a grid of its own.
+   * Ground-colour drift field. Public because the chunk mesher bakes a
+   * landform-scale value wash into vertex colours and must draw from the same
+   * seeded field rather than inventing a grid of its own.
+   *
+   * A WaveField, not a Noise2D, for the reason spelled out at WaveField's
+   * declaration: every colour field this world ever put on a lattice ended up
+   * filed as a chequerboard.
    */
-  readonly groundN: Noise2D;
+  readonly groundW: WaveField;
+
+  /** Landform-scale meadow HUE drift (moss <-> sun-bleached), ~30 units. */
+  private readonly hueW: WaveField;
+  /** Mid-scale patch value wash, ~14 units. */
+  private readonly patchW: WaveField;
+  /** Near-cube-frequency surface tooth, ~3 units. */
+  private readonly toothW: WaveField;
 
   private readonly continentN: Noise2D;
   private readonly hillN: Noise2D;
@@ -103,8 +144,6 @@ export class Terrain {
   private readonly maskN: Noise2D;
   private readonly tempN: Noise2D;
   private readonly moistN: Noise2D;
-  private readonly patchN: Noise2D;
-  private readonly detailN: Noise2D;
   private readonly plateauN: Noise2D;
 
   private readonly tmpA: RGB = { r: 0, g: 0, b: 0 };
@@ -118,10 +157,15 @@ export class Terrain {
     this.maskN = new Noise2D(this.seed + 443);
     this.tempN = new Noise2D(this.seed + 557);
     this.moistN = new Noise2D(this.seed + 661);
-    this.patchN = new Noise2D(this.seed + 773);
-    this.detailN = new Noise2D(this.seed + 887);
     this.plateauN = new Noise2D(this.seed + 1013);
-    this.groundN = new Noise2D(this.seed + 1279);
+    // Base frequencies are radians per world unit: 2*PI/f is the coarsest
+    // feature size. 0.21 -> ~30 units, 0.45 -> ~14 units, 2.05 -> ~3 units
+    // (just above cube frequency, where a field stops being a readable shape and
+    // becomes surface tooth). Each gets its own seed so the three cannot align.
+    this.groundW = new WaveField(this.seed + 1279, 0.28);
+    this.hueW = new WaveField(this.seed + 1381, 0.21);
+    this.patchW = new WaveField(this.seed + 1487, 0.45);
+    this.toothW = new WaveField(this.seed + 1601, 2.05, 5, 1.47, 0.62);
   }
 
   /** Continuous terrain height at any world xz (flatten discs applied). */
@@ -129,6 +173,37 @@ export class Terrain {
     const c = this.continentN.fbm(x * 0.0045, z * 0.0045, 4);
     let h = 9.2 + c * 10.5;
     h += this.hillN.fbm(x * 0.02, z * 0.02, 3) * 2.6;
+    // Fine relief — the change that makes the ground read as Cube World rather
+    // than as a lawn.
+    //
+    // Everything above is smooth at a scale of 50+ units, so `floor()` produced
+    // enormous single-height plateaus: shots of the near meadow showed 10x10
+    // voxel expanses at exactly one y. On a flat plateau every column's eight
+    // neighbours are level, so the mesher's corner AO evaluates to "fully open"
+    // everywhere and bakes nothing at all — which is why the grass kept reading
+    // as flat mint slabs no matter how the colour was tuned. Cube World's ground
+    // steps by one block every few metres, and it is the AO in those steps that
+    // gives its meadows their tooth.
+    //
+    // Two samples, not one: a single value-noise field at this frequency lays its
+    // lattice diamonds straight into the landform, and a repeating diamond bump
+    // pattern would be a worse artefact than the one it fixes. Unrelated
+    // frequencies (~12 and ~27 units) on offset origins break it up. Combined
+    // amplitude is +-0.45 — under half a voxel, so it adds scattered single-block
+    // steps and gentle swells and never a wall the hero has to climb.
+    //
+    // The relief is DAMPED to a quarter under water. A lake bed is a silted plain,
+    // not a bumpy meadow, and more to the point the water shader's colour ramp is a
+    // steep function of depth: +-0.45 units of bed ripple at a 12-unit wavelength
+    // turned into pale/dark colour bands marching across every bay, which is
+    // exactly the "soft concentric arcs that read as map contour lines" finding
+    // reappearing from a completely different cause. Flattening the bed removes
+    // the input rather than flattening the ramp, which would have cost the depth
+    // gradient that the same finding also asked for.
+    const fine =
+      this.hillN.sample(x * 0.084 + 91.3, z * 0.084 - 44.7) * 0.29 +
+      this.hillN.sample(z * 0.037 - 12.9, x * 0.037 + 61.1) * 0.16;
+    h += fine * (0.25 + 0.75 * smoothstep(WATER_LEVEL - 1, WATER_LEVEL + 3, h));
     // Ridges: wide gate + higher mask frequency so most vistas contain a
     // ridgeline instead of an endless pancake. Cube World's identity is the
     // dramatic vertical read, so the multiplier and the ceiling both go up.
@@ -199,30 +274,49 @@ export class Terrain {
 
     const tA = this.tmpA;
     const tB = this.tmpB;
-    mix(tA, PLAIN_GRASS, WARM_GRASS, warmT);
-    mix(tA, tA, FOREST_GRASS, forestF * 0.85);
+    // Meadow HUE mottling rather than value. A ~30-unit field slides the grass
+    // between the cool forest green and the warm yellow-green, which is what
+    // stops a Cube World field from looking like painted card — and, crucially,
+    // it is the mottling that CAN be pushed hard without the ground reading as
+    // tiled. Value differences between neighbouring flat faces are what the eye
+    // resolves as a chequer; a hue drift over thirty units reads as terrain.
+    // Amplitude is up (0.42 -> 0.56) precisely because most of the VALUE
+    // variation below has been cut.
+    const hueDrift = this.hueW.sample(x, z);
+    mix(tA, PLAIN_GRASS, WARM_GRASS, clamp01(warmT + hueDrift * 0.56));
+    mix(tA, tA, FOREST_GRASS, clamp01(forestF * 0.85 + Math.max(-hueDrift, 0) * 0.42));
     mix(tB, BEACH_SAND, DESERT_SAND, clamp01(desertW * 1.5));
     mix(tA, tA, tB, sandW);
     mix(tA, tA, SNOW, snowW);
 
-    // Large-scale patchiness keeps meadows from reading flat.
-    const patch = this.patchN.sample(x * 0.06, z * 0.06) * 0.5 + 0.5;
-    const pm = 0.93 + patch * 0.12;
+    // Mid-scale patch value wash, ~14 units, ±2.5%. Small on purpose: this used
+    // to be a ±6% value-noise field and it was the single biggest contributor to
+    // the diamond plaid. Now that the field has no lattice it could carry more,
+    // but broad value drift is not what the ground was missing — hue was.
+    const pm = 1 + this.patchW.sample(x, z) * 0.025;
     tA.r *= pm;
     tA.g *= pm;
     tA.b *= pm;
 
-    // Second, fine-grain color octave (~4-voxel features, +-8.5% value) so
-    // close-ups don't collapse into a flat green void. Amplitude up and
-    // frequency down now that the mesher's 1-voxel checker is gone: the
-    // irregular blotching has to carry the ground read on its own.
-    const dm = 1 + this.detailN.sample(x * 0.28, z * 0.28) * 0.085;
+    // Surface tooth, ~3 units, ±3%. Just above cube frequency, so it never
+    // resolves into a shape; it just keeps two neighbouring cubes from ever
+    // being bit-identical. Halved from ±7% for the same reason as the patch
+    // field — at 3 units it was close enough to cube scale to read as a pattern.
+    const dm = 1 + this.toothW.sample(x, z) * 0.03;
     tA.r *= dm;
     tA.g *= dm;
     tA.b *= dm;
 
-    if (hc < WATER_LEVEL) {
-      const d = smoothstep(0, 6, WATER_LEVEL - hc);
+    // Lake bed, and — crucially — the damp strip just ABOVE the waterline. The
+    // cut used to be exactly at WATER_LEVEL, so a column whose continuous height
+    // landed a hair over it stayed full dry-beach brightness: sandbars sitting a
+    // few centimetres proud of a lagoon rendered as hard-edged tan slabs floating
+    // in the water, which is what got filed as "rectangular sand patches in the
+    // bay". Every shore has a darker, cooler wet band; ramping the bed colour in
+    // from 0.7 units above the surface gives it one, and the slabs read as
+    // sandbars instead of as artefacts.
+    if (hc < WATER_LEVEL + 0.7) {
+      const d = smoothstep(-0.7, 6, WATER_LEVEL - hc);
       mix(tA, UW_SAND, UW_DEEP, d);
     }
 
@@ -237,6 +331,8 @@ export class Terrain {
     out.dirtB = tB.b;
 
     out.stoneWarm = clamp01(desertW * 1.3 + sandW * 0.3);
+    // Vegetated-grass weight: everything that isn't sand, snow or lake bed.
+    out.grass = hc < WATER_LEVEL + 0.3 ? 0 : clamp01((1 - sandW) * (1 - snowW));
     out.h = h;
     out.hc = hc;
     out.biome =

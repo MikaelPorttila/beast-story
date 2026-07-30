@@ -1,15 +1,109 @@
 /**
  * Terrain chunk mesher. Emits only exposed faces of the column heightfield:
  * one top quad per column plus side quads down to each lower neighbor.
- * Per-voxel hue jitter + directional face shading baked into vertex colors.
+ * Per-voxel hue jitter, directional face shading and true per-VERTEX corner
+ * ambient occlusion baked into vertex colors.
  */
 import * as THREE from 'three';
 import { hashCell } from './noise';
-import { CHUNK_SIZE, STONE, STONE_WARM, Terrain, makeScratch } from './terrain';
+import { CHUNK_SIZE, STONE, STONE_WARM, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 
 const S_TOP = 1.0;
-const S_X = 0.86;
-const S_Z = 0.78;
+
+/**
+ * Baked side-face shade, indexed by the mesher's `dir` (0:+X, 1:-X, 2:+Z, 3:-Z).
+ *
+ * These used to be a single value per axis (0.86 for X, 0.78 for Z) — a baked
+ * fake sun. The scene has a REAL directional sun, so that baked term stacked with
+ * N.L and double-darkened exactly the faces that were already worst off: the sun
+ * sits at (170,160,113), so a -X or -Z face receives no direct light at all, and
+ * multiplying its ambient-only value by another 0.78 dropped a sunlit beach's
+ * north wall to near-black. That is the "solid near-black flat quadrilateral"
+ * finding — not a decal or a stray shadow quad, just a terrain step wall with
+ * nothing left in it.
+ *
+ * So the baked shade is now the INVERSE of the sun's azimuth: the faces the sun
+ * reaches carry the darkening (they have plenty of light to spare), and the faces
+ * it never reaches carry none. Cube faces still read at three distinct values, but
+ * the darkest face in the world gains about 28% and stops being a hole.
+ * Derived from normalize(170, 113) = (0.832, 0.554): shade = 0.78 + 0.22 * (1 -
+ * max(0, dot(n, sunXZ))). Re-derive if SUN_OFFSET in core/engine.ts moves.
+ */
+const SIDE_SHADE = [0.82, 1.22, 0.90, 1.18];
+
+/**
+ * How much of a warm bounce tint each side direction gets, 0..1, same `dir`
+ * index as SIDE_SHADE.
+ *
+ * The two anti-sun directions receive NO direct light at all — only the
+ * HemisphereLight, which is authored cool (sky 0xb8daff over ground 0x8fa4bd).
+ * A one-block sand terrace's north wall therefore rendered as a dark
+ * desaturated blue-grey quadrilateral, and the critic photographed exactly that
+ * and filed it as "a rectangular pit with flat untextured interior walls" that
+ * "reads as a missing chunk". It is not a hole and it is not missing — it is a
+ * step wall lit by nothing but a blue fill.
+ *
+ * Two baked terms fix it inside the terrain's own vertex colours, which is the
+ * only lever this file has (the scene lights live in core/engine.ts):
+ *
+ *  - SIDE_SHADE above now goes ABOVE 1.0 on those directions. That is not a
+ *    physical shade any more, it is a baked skylight+bounce boost, and it lifts
+ *    the darkest face in the world by about 20%.
+ *  - this array adds warmth on the same faces. Physically the bounce arriving at
+ *    a shaded wall has come off sunlit ground a metre away, so it is warm; and
+ *    perceptually a shaded face that keeps a hue reads as shade, while one that
+ *    goes neutral-blue reads as a hole. Which is the whole complaint.
+ */
+const SIDE_BOUNCE = [0, 1, 0.4, 0.9];
+
+/**
+ * Corner-AO darkening per occlusion level (3 = fully open, 0 = boxed in).
+ *
+ * This is the single biggest contributor to the Cube World read: every exposed
+ * face gets a per-vertex gradient from the solid cubes crowding its corners, so
+ * a grass step is no longer a flat slab — its uphill edge sits in shade and its
+ * downhill edge catches light. The ramp is steep — a 58% swing from open to fully
+ * occluded — because voxel silhouettes have no texture to carry form; the crevice
+ * darkening IS the texture.
+ *
+ * The floor is 0.42, not the 0.30 it started at. On a face the sun already misses
+ * entirely, a 0.30 multiplier on top of ambient-only light leaves nothing at all,
+ * and inside corners on shadowed walls were bottoming out to black. 0.42 keeps
+ * every crevice clearly darker than its face while leaving something in it.
+ */
+const AO = [0.42, 0.60, 0.80, 1.0];
+
+/** Classic voxel corner AO: two edge neighbours plus the diagonal. */
+const aoLevel = (s1: boolean, s2: boolean, c: boolean): number =>
+  s1 && s2 ? 0 : 3 - ((s1 ? 1 : 0) + (s2 ? 1 : 0) + (c ? 1 : 0));
+
+/**
+ * How submerged a face at world-y `y` is, 0 (dry) to 1 (a metre or more under).
+ *
+ * Everything below the surface gets its directional face shading and its corner
+ * AO flattened toward 1.0 by this factor, because underwater light is scattered:
+ * there is no crisp sun side and no black crevice down there. It is also the fix
+ * for the ugliest thing in every lake — the bed's own terraces were rendering
+ * with full side-face darkening and full contact AO, and even under 90% opaque
+ * water those near-black bands showed through as rows of hard blue bricks
+ * marching along the bottom, which read as broken geometry rather than as a lake
+ * floor. Flattened, the bed becomes the smooth pale plane it should be and the
+ * depth gradient in the water shader is what conveys the drop.
+ */
+const submerged = (y: number): number => {
+  // The surface floats 0.28 above WATER_LEVEL (see SURFACE_Y in water.ts) and the
+  // ramp is short: the shallowest flooded terrace is the one whose shading must
+  // be flat, because it is the one the thinnest water sits over.
+  // The ramp is SHORT — fully flat by 30cm down. It used to be 60cm, which left
+  // the shallowest flooded terrace (top face 28cm under the surface, i.e. the one
+  // that fills most of every bay) only half-flattened, and half of a hard dark
+  // terrace edge is still a hard dark terrace edge once you are looking at it
+  // through 90%-opaque water.
+  const d = WATER_LEVEL + 0.28 - y;
+  return d <= 0 ? 0 : d >= 0.3 ? 1 : d / 0.3;
+};
+/** Lerp a shading multiplier toward neutral by `t`. */
+const flatten = (m: number, t: number): number => m + (1 - m) * t;
 
 export function buildTerrainMesh(
   cx: number,
@@ -24,6 +118,7 @@ export function buildTerrainMesh(
   const topA = new Float32Array(n * 3);
   const dirtA = new Float32Array(n * 3);
   const warmA = new Float32Array(n);
+  const grassA = new Float32Array(n);
 
   const sc = makeScratch();
   const ox = cx * CHUNK_SIZE;
@@ -41,6 +136,7 @@ export function buildTerrainMesh(
       dirtA[i * 3 + 1] = sc.dirtG;
       dirtA[i * 3 + 2] = sc.dirtB;
       warmA[i] = sc.stoneWarm;
+      grassA[i] = sc.grass;
     }
   }
 
@@ -49,8 +145,44 @@ export function buildTerrainMesh(
   const col: number[] = [];
   const idx: number[] = [];
   const seed = terrain.seed;
-  const gn = terrain.groundN;
+  const gw2 = terrain.groundW;
 
+  /**
+   * Per-cube tonal jitter in [-1, 1], TRIANGULARLY distributed.
+   *
+   * A single `hashCell` is uniform, and that is what turned the meadow into a
+   * tiled kitchen floor: a uniform distribution puts as many cubes at the
+   * extremes as at the mean, so a flat plain was a mosaic of maximally-different
+   * flat tones and the eye immediately read the cube grid as a pattern. Averaging
+   * two independent hashes gives a triangular distribution — most cubes land
+   * within a third of the amplitude, a few stand out — which is what a real
+   * surface looks like: mostly even, with occasional individual blocks catching
+   * the eye. Amplitude at the call sites is also down to roughly a third of what
+   * it was, on the critic's advice; the baked corner AO carries the per-block
+   * read now, and AO is a shape signal so it can never form a chequer.
+   */
+  const jitter = (x: number, y: number, z: number): number =>
+    hashCell(seed, x, y, z) + hashCell(seed, x + 8191, y, z + 5077) - 1;
+
+  /**
+   * Emit one quad with per-vertex AO. `a0..a3` are AO multipliers for the four
+   * corners in the order they are pushed.
+   *
+   * Two triangles cannot represent a bilinear gradient: whichever diagonal the
+   * split runs along, the face centre takes the average of THAT diagonal's two
+   * corners instead of all four, and the error shows as a hard crease straight
+   * across the face. Flipping to the "better" diagonal (the usual trick) only
+   * reduces it, and at the AO contrast this ramp uses it stayed clearly visible —
+   * it was filed as "the mesh triangulation shows through as tonal creases", and
+   * on a single-corner-occluded cube top it is exactly that.
+   *
+   * So: quads whose four corners agree (every interior plateau cube — the large
+   * majority) stay two triangles, and only the ones with an actual gradient get
+   * a centre vertex and a four-triangle fan. The centre carries the true
+   * bilinear average, which makes the interpolation correct in every direction
+   * and leaves no diagonal at all. The extra cost lands only on the step-adjacent
+   * quads that need it.
+   */
   const quad = (
     ax: number, ay: number, az: number,
     bx: number, by: number, bz: number,
@@ -58,12 +190,32 @@ export function buildTerrainMesh(
     dx: number, dy: number, dz: number,
     nx: number, ny: number, nz: number,
     r: number, g: number, b: number,
+    a0: number, a1: number, a2: number, a3: number,
   ): void => {
     const base = pos.length / 3;
     pos.push(ax, ay, az, bx, by, bz, qcx, qcy, qcz, dx, dy, dz);
     nrm.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
-    col.push(r, g, b, r, g, b, r, g, b, r, g, b);
-    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    col.push(
+      r * a0, g * a0, b * a0,
+      r * a1, g * a1, b * a1,
+      r * a2, g * a2, b * a2,
+      r * a3, g * a3, b * a3,
+    );
+    if (a0 === a1 && a1 === a2 && a2 === a3) {
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      return;
+    }
+    const am = (a0 + a1 + a2 + a3) * 0.25;
+    pos.push((ax + qcx) * 0.5, (ay + qcy) * 0.5, (az + qcz) * 0.5);
+    nrm.push(nx, ny, nz);
+    col.push(r * am, g * am, b * am);
+    const m = base + 4;
+    idx.push(
+      base, base + 1, m,
+      base + 1, base + 2, m,
+      base + 2, base + 3, m,
+      base + 3, base, m,
+    );
   };
 
   // strata color for deep cliff cells (horizontal sedimentary bands)
@@ -99,25 +251,99 @@ export function buildTerrainMesh(
       const gz = (hcA[i + G] - hcA[i - G]) * 0.5;
       const slope = Math.sqrt(gx * gx + gz * gz);
       const slopeDark = 1 - Math.min(slope * 0.06, 0.12);
-      // Contact AO: tops boxed in by higher neighbor columns sit in shadow.
-      const occ =
-        (hE > H ? 1 : 0) + (hW > H ? 1 : 0) + (hS > H ? 1 : 0) + (hN > H ? 1 : 0);
-      const aoTop = occ > 0 ? 1 - Math.min(0.08 + occ * 0.03, 0.14) : 1;
-      // Per-voxel value noise. NO integer division anywhere in here: hashing
-      // `Math.floor(wx / 3)` IS a grid — it just moves the chequerboard from
-      // 1m to 3m, and at ±10% it marched visibly across the plains and lit up
-      // on bright sand. Instead two smooth value-noise samples at irrational
-      // frequency pairs (0.19/0.23 and 0.061/0.071) that never phase-lock to
-      // the cube lattice: a ~5-voxel blotch term plus a ~15-voxel drift, with
-      // the per-cube hash (±0.045) on top to keep the chunky per-cube read.
-      const jt = hashCell(seed, wx, H, wz);
-      const pn = gn.sample(wx * 0.19 + 0.37, wz * 0.23);
-      const bn = gn.sample(wx * 0.061, wz * 0.071);
-      const mt =
-        (1 + pn * 0.11 + bn * 0.07 + (jt - 0.5) * 0.09) * slopeDark * aoTop * S_TOP;
-      let r = topA[i3] * mt;
-      let g = topA[i3 + 1] * mt;
-      let b = topA[i3 + 2] * mt;
+      // Per-cube value jitter. Triangular (see `jitter`) and at ±5% for grass,
+      // ±3.5% for sand and snow — roughly a third of the ±15% this carried in the
+      // build the critic photographed as a chessboard. A pale desaturated surface
+      // gets the smaller share: saturated grass has a hue for the jitter to ride
+      // on, so it reads as material, while on sand there is nothing but value and
+      // the cube grid resolves as a chequer at a much lower amplitude.
+      const jt = jitter(wx, H, wz);
+      // An independent hue wobble on the r/b axis, so neighbouring cubes differ a
+      // little in warmth as well as value. Warmth differences are far safer than
+      // value differences — the eye pools them into "material" rather than
+      // resolving them as a grid — so this one keeps most of its amplitude.
+      const hw = jitter(wx, H + 31, wz) * 0.045;
+      // Landform-scale value wash from the lattice-free wave field, ~22 units.
+      // Broad and gentle: its job is to stop a big level plain being one number,
+      // not to be seen.
+      const drift = gw2.sample(wx, wz) * 0.05;
+      const gw = grassA[i];
+      // 0.048 for grass, 0.035 for sand/snow. Nudged back up from 0.035/0.020
+      // after a capture confirmed the chequer read was gone: the triangular
+      // distribution means most cubes stay within a third of this, so there is
+      // room for a little more tooth than the flat minimum the chessboard fix
+      // landed on.
+      const mt = (1 + drift + jt * (0.035 + gw * 0.013)) * slopeDark * S_TOP;
+
+      // Second material read, from the shape of the ground rather than noise.
+      // The discrete Laplacian of the CONTINUOUS height is a free curvature
+      // signal (the border ring is already meshed): positive = the column sits
+      // in a hollow, negative = it crowns a ridge. Cube World's meadows get
+      // their depth from exactly this — damp shaded moss collecting in dips,
+      // sun-bleached yellow-green on the swells — and noise alone can never
+      // fake it because it doesn't know where the landforms are.
+      const lap = (hcA[i + 1] + hcA[i - 1] + hcA[i + G] + hcA[i - G]) * 0.25 - hcA[i];
+      const hollow = Math.min(Math.max(lap * 2.4, 0), 1) * gw;
+      const crown = Math.min(Math.max(-lap * 2.4, 0), 1) * gw;
+
+      let r = topA[i3];
+      let g = topA[i3 + 1];
+      let b = topA[i3 + 2];
+      // Hollows: -14% value and pushed toward blue-green (deep moss).
+      // Crowns: +9% value and pushed toward yellow (bleached, dusty).
+      const hm = 1 - hollow * 0.14;
+      r *= hm * (1 - hollow * 0.10);
+      g *= hm;
+      b *= hm * (1 + hollow * 0.16);
+      const cm = 1 + crown * 0.09;
+      r *= cm * (1 + crown * 0.13);
+      g *= cm;
+      b *= cm * (1 - crown * 0.14);
+
+      // Dirt breaking through where the ground tips: gravel and bare earth show
+      // on the flanks of every real hillside long before it becomes cliff.
+      // Gated on `slope` (scale-free gradient) not on `steep` (which is 1 on
+      // every single grass terrace, so it would smear dirt over the whole map).
+      const dirtW = Math.min(Math.max((slope - 1.05) / 2.1, 0), 1) * 0.5 * gw;
+      if (dirtW > 0) {
+        r += (dirtA[i3] - r) * dirtW;
+        g += (dirtA[i3 + 1] - g) * dirtW;
+        b += (dirtA[i3 + 2] - b) * dirtW;
+      }
+
+      // Ground litter: a rare per-cube hash pick, so it scatters with no grid
+      // and no tiling. Clover reads as a darker blue-green cube in the sward;
+      // pebbles as a single grey cube.
+      const sp = hashCell(seed, wx, H + 7, wz);
+      if (gw > 0.35) {
+        if (sp > 0.94) {
+          r *= 0.76; g *= 0.90; b *= 0.80; // clover: deeper, bluer green
+        } else if (sp > 0.90) {
+          r *= 1.14; g *= 1.04; b *= 0.88; // dry straw tuft
+        } else if (sp < 0.028) {
+          const pw = 0.45; // a single pale pebble cube
+          r += (0.30 - r) * pw; g += (0.29 - g) * pw; b += (0.29 - b) * pw;
+        }
+      } else {
+        // Sand, snow and lake bed used to get NO litter at all, and they are the
+        // surfaces with the least going on: a beach filled a third of several
+        // frames as one unbroken beige. Bright sand also sits near the top of the
+        // tone curve, where the multiplicative jitter above loses most of its
+        // punch, so these picks are additive-ish and pushed harder. Damp grains
+        // and shell grit are what a real dune has instead of grass.
+        if (sp > 0.955) {
+          r *= 1.07; g *= 1.06; b *= 1.03; // sun-bleached grain
+        } else if (sp < 0.075) {
+          r *= 0.89; g *= 0.91; b *= 0.95; // damp / shaded grain, cooler
+        } else if (sp > 0.925 && sp < 0.938) {
+          const pw = 0.5; // shell grit / a dark pebble
+          r += (0.24 - r) * pw; g += (0.23 - g) * pw; b += (0.21 - b) * pw;
+        }
+      }
+
+      r *= mt * (1 + hw);
+      g *= mt;
+      b *= mt * (1 - hw);
       if (steep >= 3) {
         // steep crowns read as bare stone
         const cliffW = Math.min((steep - 2) / 3, 1) * 0.85;
@@ -126,14 +352,36 @@ export function buildTerrainMesh(
         g += (stg * mt - g) * cliffW;
         b += (stb * mt - b) * cliffW;
       }
+
+      // Corner AO for the top face: the eight columns around this one, each
+      // occluding when it rises above H (i.e. it has a cube in the layer that
+      // sits directly on this top face).
+      const oE = hE > H, oW = hW > H, oS = hS > H, oN = hN > H;
+      const oSE = hA[i + 1 + G] > H, oSW = hA[i - 1 + G] > H;
+      const oNE = hA[i + 1 - G] > H, oNW = hA[i - 1 - G] > H;
+      const subT = submerged(H) * 0.94;
       quad(
         lx, H, lz, lx, H, lz + 1, lx + 1, H, lz + 1, lx + 1, H, lz,
         0, 1, 0, r, g, b,
+        flatten(AO[aoLevel(oW, oN, oNW)], subT),
+        flatten(AO[aoLevel(oW, oS, oSW)], subT),
+        flatten(AO[aoLevel(oE, oS, oSE)], subT),
+        flatten(AO[aoLevel(oE, oN, oNE)], subT),
       );
 
       // ---- side faces (down to each lower neighbor) -----------------------
       for (let dir = 0; dir < 4; dir++) {
         const nH = dir === 0 ? hE : dir === 1 ? hW : dir === 2 ? hS : hN;
+        // Heights of the two columns flanking the neighbour column, in the
+        // face's tangential order (tangent A first, matching the vertex order
+        // v0=lowA, v1=highA, v2=highB, v3=lowB used by every branch below).
+        let hTA: number;
+        let hTB: number;
+        if (dir === 0) { hTA = hA[i + 1 - G]; hTB = hA[i + 1 + G]; }
+        else if (dir === 1) { hTA = hA[i - 1 + G]; hTB = hA[i - 1 - G]; }
+        else if (dir === 2) { hTA = hA[i + G + 1]; hTB = hA[i + G - 1]; }
+        else { hTA = hA[i - G - 1]; hTB = hA[i - G + 1]; }
+
         for (let y = nH + 1; y <= H; y++) {
           const depth = H - y;
           let br: number;
@@ -153,35 +401,76 @@ export function buildTerrainMesh(
             bg = stg;
             bb = stb;
           }
-          const j = hashCell(seed, wx, y, wz);
-          // Contact AO: side faces darken toward the base of the wall (the
-          // seam with the neighbor's floor), grounding cliffs and steps.
-          const contact = 1 - Math.min((y - nH - 1) * 0.45, 1);
-          const aoSide = 1 - contact * 0.17;
-          const shade = (dir < 2 ? S_X : S_Z) * (0.9 + j * 0.18) * aoSide;
-          br *= shade;
+          // Same per-cube value + hue treatment as the top faces, and for the
+          // same reason: a five-voxel cliff of one flat colour is a painted flat,
+          // while a wall whose every cube differs a little in value and warmth
+          // reads as stacked rock. Triangular and modest, like the tops — a wall
+          // of maximally-different cubes reads as static, not as rock.
+          const j = jitter(wx, y, wz);
+          const jw = jitter(wx, y + 31, wz) * 0.05 + SIDE_BOUNCE[dir] * 0.055;
+          // `y - 0.5` is the centre of this one-voxel-tall quad.
+          const sub = submerged(y - 0.5);
+          const shade = flatten(SIDE_SHADE[dir] * (1 + j * 0.09), sub * 0.9);
+          br *= shade * (1 + jw);
           bg *= shade;
-          bb *= shade;
+          bb *= shade * (1 - jw);
+          const subA = sub * 0.88;
+          // Corner AO in the plane of the face. The vertical neighbour for the
+          // lower corners is the neighbour column itself, which is solid at
+          // y-1 exactly on the bottom-most quad of a wall — so the classic
+          // formula reproduces the old hand-rolled "contact" darkening for
+          // free, and additionally shades the wall where a flanking column
+          // rises beside it (inside corners of every step and gully).
+          const upA = flatten(AO[aoLevel(hTA >= y, false, hTA >= y + 1)], subA);
+          const upB = flatten(AO[aoLevel(hTB >= y, false, hTB >= y + 1)], subA);
+          const loA = flatten(AO[aoLevel(hTA >= y, nH >= y - 1, hTA >= y - 1)], subA);
+          const loB = flatten(AO[aoLevel(hTB >= y, nH >= y - 1, hTB >= y - 1)], subA);
           const y0 = y - 1;
+          // Submerged walls get their SHADING NORMAL rotated up toward the sky.
+          //
+          // This is the fix for the single ugliest thing in the world, and three
+          // separate water findings are all this one artefact: "a row of opaque
+          // pale solid cubes stepping down like ice cubes with hard dark gaps",
+          // "soft concentric arcs that read as map contour lines" and "no depth
+          // gradient — the whole bay is one flat cyan". None of them are the water
+          // shader. They are the LAKE BED: the mesher terraces the bed in 1-unit
+          // steps, and a vertical wall receives a tiny fraction of the sun a
+          // horizontal top does, so every terrace printed through 90%-opaque water
+          // as a hard dark stripe following the bed contour. Flattening the baked
+          // shade (which the `flatten` calls above already do) cannot help, because
+          // the darkness comes from the REAL directional light and N.L.
+          //
+          // Turning the normal up makes a submerged wall take the same light as the
+          // bed around it, so the terraces disappear and the bed becomes the smooth
+          // pale plane it should be — leaving the water's own depth ramp as the only
+          // thing conveying the drop-off, which is exactly what it is for. Above
+          // water `sub` is 0 and nothing changes.
+          const nb = 1 - sub;
+          const ny = sub;
+          // Normalise the blend so a half-submerged wall is not lit as if it had a
+          // 1.4-long normal.
+          const nl = 1 / Math.sqrt(nb * nb + ny * ny);
+          const nh = nb * nl;
+          const nv = ny * nl;
           if (dir === 0) {
             quad(
               lx + 1, y0, lz, lx + 1, y, lz, lx + 1, y, lz + 1, lx + 1, y0, lz + 1,
-              1, 0, 0, br, bg, bb,
+              nh, nv, 0, br, bg, bb, loA, upA, upB, loB,
             );
           } else if (dir === 1) {
             quad(
               lx, y0, lz + 1, lx, y, lz + 1, lx, y, lz, lx, y0, lz,
-              -1, 0, 0, br, bg, bb,
+              -nh, nv, 0, br, bg, bb, loA, upA, upB, loB,
             );
           } else if (dir === 2) {
             quad(
-              lx, y0, lz + 1, lx + 1, y0, lz + 1, lx + 1, y, lz + 1, lx, y, lz + 1,
-              0, 0, 1, br, bg, bb,
+              lx + 1, y0, lz + 1, lx + 1, y, lz + 1, lx, y, lz + 1, lx, y0, lz + 1,
+              0, nv, nh, br, bg, bb, loA, upA, upB, loB,
             );
           } else {
             quad(
-              lx + 1, y0, lz, lx, y0, lz, lx, y, lz, lx + 1, y, lz,
-              0, 0, -1, br, bg, bb,
+              lx, y0, lz, lx, y, lz, lx + 1, y, lz, lx + 1, y0, lz,
+              0, nv, -nh, br, bg, bb, loA, upA, upB, loB,
             );
           }
         }

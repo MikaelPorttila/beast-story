@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { makeGlowSprite } from './glowsprite';
+import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
 // ---------------------------------------------------------------------------
 // Sparkit — crackling-fast electric rodent. Chrome-yellow body, black
@@ -9,18 +10,28 @@ import { makeGlowSprite } from './glowsprite';
 // big glinting eyes, orange cheek spark spots. ~0.6m tall, always jittery.
 // ---------------------------------------------------------------------------
 
-// Body yellow, pulled down off pure saturation because at sun 2.55 / fill 0.52
-// the old 0xffd23f clipped to paper on every sun-facing face.
-const YEL = 0xe8b71e;
-const YEL_LIGHT = 0xffe57a;
-const YEL_DARK = 0xdfa71c;
-// Belly only. The muzzle plate is gone: any pale plate on the face flanked the
-// dark eye cells and the whole head read as a welding mask.
-const CREAM = 0xe8cf7f;
-const INK = 0x26241f;
+// Chrome yellow. Round 6 brought it back up: 0xe8b71e photographed as dull brass
+// the moment the pal stood in tree shade, and an electric rodent whose whole
+// identity is "bright" cannot afford a 60%-luminance coat.
+const YEL = 0xffcb2e;
+const YEL_LIGHT = 0xfff09a;  // sunlit crest along the spine and skull
+const YEL_DARK = 0xd99a1c;   // shaded underside
+const CREAM = 0xf3dc93;      // belly only
+const INK = 0x211f1a;
 const CHEEK = 0xff8a2b;
-const SPARK_CORE = 0xfff8d8;
-const EYE_GLINT = 0xffffff;
+const SPARK_CORE = 0xfff2b8;  // warm gold, not near-white: bloom clips a white core
+                              // to a featureless block and the bolt shape is lost
+// Iris is a very dark COOL brown-black against the bright yellow coat, with a single
+// cool-white catchlight. The cool-white iris that was here read as two pale plates
+// with a dark dot in each; on a species whose coat is the brightest thing in frame,
+// the eye has to be the dark mass or it has no boundary at all.
+const IRIS = 0x3d2c11;       // dark warm ink — the coat hue at a tenth of value.
+                             // Warm on purpose: a neutral dark cell lit only by blue
+                             // sky bounce renders BLUE, and the eyes came back slate.
+const EYE_GLINT = 0xf2f7ff;  // cool-white catchlight
+const LID = 0xdfa41d;        // yellow at ~87%: the socket rim. At 70% the lid row
+                             // was a full-width brown band over both eyes and the pair
+                             // went straight back to reading as goggles.
 const PAW = 0xffe9a8;
 
 const S = 0.1; // voxel scale
@@ -62,6 +73,10 @@ function buildRig(): PalRig {
   const bm = new VoxelModel();
   bm.ellipsoid(0, 2.2, 0, 2.8, 2.3, 3.6, YEL);
   bm.ellipsoid(0, 1.3, 1.0, 2.0, 1.5, 2.5, CREAM); // cream belly
+  // Sunlit spine and shaded belly, painted BEFORE the bolt: both the rim and the
+  // bolt claim the topmost cell of a column, and the bolt has to win.
+  rimTop(bm, YEL_LIGHT, -3, 3, 0, 5, -4, 4);
+  shadeUnder(bm, YEL_DARK, -3, 3, 0, 3, -4, 4);
   const zig = [1, 2, 1, 0, 1, 2, 1]; // mirrored bolt path along the spine
   for (let z = -3; z <= 3; z++) {
     const xm = zig[z + 3];
@@ -83,21 +98,27 @@ function buildRig(): PalRig {
   // -- big-eyed head --------------------------------------------------------
   const head = pivot('head', body);
   const hm = new VoxelModel();
-  hm.ellipsoid(0, 1.8, 0.2, 2.4, 2.0, 2.2, YEL);
-  hm.box(-3, 0, 2, 3, 3, 2, YEL); // flat face plate, all body yellow
-  // Two cells per eye and nothing else: a dark cell plus one white glint. Any
-  // larger pale sclera turned into a plate, and plates either side of a dark
-  // cell are a goggle read no matter where they sit on the face — which is
-  // exactly how this head kept photographing as a welding mask.
-  for (const sx of [1, -1]) {
-    hm.set(sx * 2, 2, 2, INK);        // eye
-    hm.set(sx * 2, 1, 2, EYE_GLINT);  // single glint under it
-  }
-  // Muzzle wedge in plain body yellow — the cream plate that used to sit here
-  // was half the mask read. Geometry stays so the nose has something to sit on.
-  hm.box(-1, 0, 3, 1, 1, 3, YEL);
-  hm.set(0, 1, 4, INK); // button nose
-  hm.set(0, 0, 3, EYE_GLINT); // buck tooth
+  // Skull widened 2.4 -> 2.8 so a full 2x2 eye fits with three cells of plain
+  // yellow between the pair. The previous single-cell eye plus a glint below it
+  // was legible in a 1200px portrait and completely gone at gameplay distance —
+  // a 4px dot is not a face.
+  hm.ellipsoid(0, 1.9, 0.2, 2.8, 2.1, 2.2, YEL);
+  hm.box(-3, 0, 2, 3, 4, 2, YEL); // flat face plate, all body yellow
+  rimTop(hm, YEL_LIGHT, -2, 2, 0, 5, -2, 2);
+  shadeUnder(hm, YEL_DARK, -3, 3, 0, 1, -2, 1);
+  // lowerLid is off: with a lid row above AND below, the eye grew into a 2x4 dark
+  // column and the pair went back to reading as one band across the muzzle.
+  eyes2x2(hm, {
+    inner: 1, y: 2, faceZ: 2, iris: IRIS, shine: EYE_GLINT,
+    lid: LID, browProud: true, bridge: YEL_LIGHT,
+  });
+  // Muzzle wedge in plain body yellow — a cream plate here was half the old mask
+  // read. Geometry stays so the nose has something to sit on.
+  // ONE cell wide, not three: a 3-wide proud muzzle at z=3 stood directly in front
+  // of the inner column of each eye and hid a third of the iris.
+  hm.box(0, 1, 3, 0, 2, 3, YEL);
+  hm.set(0, 2, 4, INK); // button nose
+  hm.set(0, 1, 4, EYE_GLINT); // buck tooth
   const headMesh = hm.build(S);
   headMesh.position.set(0, -0.14, 0.02);
   head.add(headMesh);
@@ -121,7 +142,11 @@ function buildRig(): PalRig {
     // the cheek is a goggle strap; the cheeks are plain body yellow now and the
     // spark is a single glowing dot plus its bloom sprite.
     sv.set(0, 1, 0, CHEEK);
-    sv.markEmissive(CHEEK, 1.5); // crackling electric dot
+    // 0.9, not 1.5: a bloom pass now exists, and animate() scales this group up
+    // to 2.6x on a special — at the old intensity the cheeks became two white
+    // discs that erased the ears and the eye on that side.
+    sv.markEmissive(CHEEK, 0.45); // crackling electric dot — halved for bloom, which
+                                  // was turning the two cheek sparks into headlights
     const m = sv.build(S);
     // -0.05, not -0.15: build() anchors y=0 at the lowest voxel, and the single
     // remaining cell is the old rosette's centre cell — this keeps the spark
@@ -130,7 +155,7 @@ function buildRig(): PalRig {
     g.add(m);
     // Fake bloom: tiny electric-yellow halo on each cheek spark; pulses with
     // the spark because animate() scales this group.
-    const cheekGlow = makeGlowSprite(0xffe680, 0.16, 0.25);
+    const cheekGlow = makeGlowSprite(0xffe680, 0.16, 0.18);
     cheekGlow.position.set(0, 0, 0.06);
     g.add(cheekGlow);
   };
@@ -153,13 +178,19 @@ function buildRig(): PalRig {
   t2.box(0, 1, 1, 1, 2, 1, YEL_LIGHT);
   t2.box(-1, 3, 1, 2, 3, 1, YEL_LIGHT); // wide flare
   t2.box(0, 4, 1, 1, 4, 1, SPARK_CORE); // white-hot tip
-  t2.markEmissive(YEL_LIGHT, 1.2);      // electric-yellow glow up the bolt
-  t2.markEmissive(SPARK_CORE, 1.7);     // brightest at the very tip
+  // Trimmed for the bloom pass: the bolt tip should read as hot metal, not as a
+  // flashbulb that eats the tail's zigzag shape.
+  // Halved for the bloom pass. At 0.7 / 1.05 the tail tip photographed as a single
+  // clipped white cube the size of the pal's head, with the zigzag bolt shape gone
+  // inside it — the same failure the emberfox flame had, and just as fatal here since
+  // the bolt IS this species' silhouette read.
+  t2.markEmissive(YEL_LIGHT, 0.34);     // electric-yellow glow up the bolt
+  t2.markEmissive(SPARK_CORE, 0.5);     // brightest at the very tip
   const m2 = t2.build(S, false);
   m2.position.set(-0.1, 0, -0.05);
   tipG.add(m2);
   // Fake bloom: small halo on the white-hot bolt tip; rides the tail rig.
-  const tipGlow = makeGlowSprite(0xffe680, 0.3, 0.22);
+  const tipGlow = makeGlowSprite(0xffe680, 0.3, 0.16);
   tipGlow.position.set(0, 0.47, 0.05);
   tipG.add(tipGlow);
 

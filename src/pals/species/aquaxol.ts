@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
+import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
 // ---------------------------------------------------------------------------
 // Aquaxol — a perpetually smiling amphibious axolotl with party-streamer gills.
@@ -12,20 +13,35 @@ const S = 0.1;
 
 // Palette
 const AQUA = 0x79d4e4;      // soft aqua-blue body
-const AQUA_DEEP = 0x4fa9c4; // mottled back spots
+const AQUA_LIT = 0xa8ecf5;  // sunlit crest along back and crown
+const AQUA_DEEP = 0x4a9db8; // mottled back spots / shaded underside
 const BELLY = 0xd8f4f2;     // pale belly / chin / toes
-const GILL = 0xf06ca8;      // pink gill fronds
-const GILL_TIP = 0xffa6cb;  // lighter frond tips
+// Gill fronds are SOFT CORAL now, not hot pink. Both fans always painted from
+// the same two constants, so the "purple frill vs bubblegum frill" a critic saw
+// was never a material mismatch — it was one fan in sun and one in shade, and a
+// pink that saturated at 0xf87fb4 swings all the way to violet when the only light
+// on it is blue sky bounce. Coral has enough red left in shadow to stay coral, and
+// it stops fighting the teal body.
+const GILL = 0xf29391;      // coral gill fronds
+const GILL_TIP = 0xffc2ae;  // lighter, warmer frond tips
 const FIN = 0xb5e9f0;       // translucent-looking fin rim
-const EYE = 0x27333f;       // glossy dark axolotl eyes
-const SHINE = 0xffffff;
-const MOUTH = 0x35586b;     // wide friendly smile
-const BLUSH = 0xf6a0b8;
+// The eye is a DARK mass on a light face, not the other way round. The previous
+// build's near-white 2x3 iris was twelve cream cells on a five-by-four face plate —
+// 60% of the face — so a critic looking at the portrait saw "a huge cream cube ...
+// it reads as a floating mask", and the two dark pupils in it became the only
+// feature. Dark teal keeps the water hue instead of punching a black hole.
+const IRIS = 0x14323f;      // dark teal iris
+const SHINE = 0xf4ffff;     // single catchlight cell
+const MOUTH = 0x33566b;     // short inset smile line
+const BLUSH = 0xf7b0a4;
 
 // Base pose constants (must match buildRig)
 const BODY_Y = 0.24;
 const HEAD_Y = 0.1;
-const HEAD_Z = 0.32;
+// 0.26, not 0.32. Six centimetres of z is the difference between a skull sitting ON
+// the shoulders and a skull cantilevered in front of them, and at 0.32 a front-on
+// portrait had the head covering the whole chest.
+const HEAD_Z = 0.26;
 // Gill frond fan: base lift (rotZ) and back-sweep (rotY) per frond, front→back
 const GZ: readonly number[] = [0.55, 0.38, 0.2];
 const GY: readonly number[] = [0.25, 0.5, 0.75];
@@ -40,36 +56,71 @@ const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b 
 
 function makeTorso(): THREE.Mesh {
   const m = new VoxelModel();
-  m.ellipsoid(0, 2, 0, 2.8, 2.2, 3.2, AQUA);
-  m.ellipsoid(0, 0.8, 0, 2.5, 1.3, 2.9, BELLY);  // soft belly
-  m.box(0, 5, -1, 0, 5, 1, FIN);                  // little dorsal crest
+  // Torso grown 2.8/2.2/3.2 -> 3.4/2.6/3.6. The head is 7 cells wide however you
+  // shape it, and a 5-cell-wide body behind it is exactly why aquaxol
+  // photographed as a head with a scrap of body and one foot: the shoulder and hip
+  // masses were narrower than the skull, so they hid behind it from every bearing.
+  m.ellipsoid(0, 2.2, 0, 3.4, 2.6, 3.6, AQUA);
+  m.ellipsoid(0, 0.9, 0, 3.0, 1.5, 3.2, BELLY);  // soft belly
+  // Dorsal crest raised to two rows: with the skull now sitting in front of the
+  // chest, the crest is what shows ABOVE the head line and tells you there is a body
+  // back there at all.
+  m.box(0, 5, -2, 0, 5, 2, FIN);
+  m.box(0, 6, -1, 0, 6, 1, FIN);
   // mottled spots along the back
   m.set(2, 3, 1, AQUA_DEEP);
   m.set(-2, 3, -1, AQUA_DEEP);
   m.set(1, 4, 0, AQUA_DEEP);
   m.set(-1, 4, 0, AQUA_DEEP);
+  shadeUnder(m, AQUA_DEEP, -3, 3, 0, 2, -4, 4);
+  // Sunlit crest along the back, so the bigger barrel reads as a barrel and not a
+  // flat aqua field.
+  rimTop(m, AQUA_LIT, -3, 3, 2, 5, -4, 4);
   return m.build(S, true);
 }
 
 function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
-  m.ellipsoid(0, 2, 1, 3.4, 2.4, 2.4, AQUA);      // wide friendly head
-  m.ellipsoid(0, 0.9, 1.6, 2.8, 1.2, 1.9, BELLY); // chin
-  // wide smile with upturned corners
-  for (let x = -2; x <= 2; x++) m.set(x, 1, 3, MOUTH);
-  m.set(3, 2, 2, MOUTH);
-  m.set(-3, 2, 2, MOUTH);
-  // blush dots on the cheeks
-  for (const sx of [1, -1]) {
-    m.set(sx * 3, 2, 0, BLUSH);
-    m.set(sx * 3, 2, 1, BLUSH);
-    // glossy 2x2 eyes: white sclera with a dark inner-lower pupil, so white
-    // shows above and outside each pupil (open, friendly at a distance)
-    m.set(sx * 1, 2, 3, EYE);
-    m.set(sx * 2, 2, 3, SHINE);
-    m.set(sx * 1, 3, 3, SHINE);
-    m.set(sx * 2, 3, 3, SHINE);
-  }
+  // FIVE cells across, down from seven. A seven-wide face plate on a creature this
+  // size is a signboard: it eclipsed the entire torso in a head-on portrait, which
+  // is the whole reason aquaxol read as a floating head with one foot. The barrel
+  // behind it is seven wide, so the body now out-measures the skull from any bearing.
+  // Volume down another ~25% (2.6/2.2/2.2 -> 2.4/1.9/2.0). Cell width is unchanged
+  // at five, but the skull is a row shallower and a row less deep, which is what
+  // actually stops it eclipsing the barrel from a head-on bearing.
+  m.ellipsoid(0, 2, 1, 2.4, 1.9, 2.0, AQUA);      // wide friendly head
+  m.ellipsoid(0, 0.4, 1.6, 2.0, 1.0, 1.5, BELLY); // chin, underside only
+  m.box(-2, 1, 3, 2, 4, 3, AQUA);                  // flat face plate
+  // The plate is painted AFTER the chin on purpose: it covers the pale chin at the
+  // face plane and leaves it visible only underneath. The old build let the chin
+  // ellipsoid own the whole lower face, which with a proud dark mouth on top of it
+  // photographed as a tooth-plate and a bib rather than as a jaw.
+  rimTop(m, AQUA_LIT, -2, 2, 0, 5, -2, 3);
+  // Mouth: a SHORT dark line inset flush into the face plate, three cells wide.
+  // It used to be five cells stamped one cell PROUD at z=4, which is what turned it
+  // into a slab bolted across the muzzle.
+  // A CURVED smile, not a straight bar: centre cell low, the two outer cells one row
+  // up. Three cells in a row at one height is a letterbox slot; stepping the corners
+  // up is the whole difference between a slot and a grin, and this species is
+  // supposed to be perpetually delighted.
+  // Pale field first, then the smile on top of it. Painted the other way round the
+  // field erased the smile's own centre cell and left two floating corner dashes.
+  // A dark iris needs a light neighbour to read as an eye rather than a smudge, and
+  // on a face that is in shade in most portraits the coat teal cannot supply it.
+  for (let x = -2; x <= 2; x++) { m.set(x, 0, 3, BELLY); m.set(x, 1, 3, BELLY); }
+  m.set(0, 0, 3, MOUTH);
+  m.set(1, 1, 3, MOUTH); m.set(-1, 1, 3, MOUTH);
+  // width: 1 on a five-cell face — the classic dot / bridge / dot face, and about a
+  // fifth of the head's width, which is the proportion this macro aims for. inner: 1
+  // and NOT 2: at 2 the single eye column sits on the plate's outer edge, and the
+  // real-game portrait came back with the near eye swallowed by the head's own
+  // silhouette and the far one gone entirely.
+  eyes2x2(m, {
+    inner: 1, width: 1, y: 2, faceZ: 3, iris: IRIS, shine: SHINE,
+    // lid in mid AQUA, not AQUA_DEEP: the front of a pal's head is in shade in most
+    // portraits, and a deep tone there merged with the dark iris into one black band.
+    lid: AQUA, bridge: BELLY, cheek: BLUSH,
+  });
   return m.build(S, true);
 }
 
@@ -121,7 +172,10 @@ function buildRig(): PalRig {
   head.position.set(0, HEAD_Y, HEAD_Z);
   body.add(head);
   const headMesh = makeHead();
-  headMesh.position.set(0, -0.14, 0.1);
+  // 0.05, not 0.10: dropping the proud mouth row shortened the model by one cell in
+  // z, and build() re-centres on the bounding box, so the head would otherwise
+  // creep forward off the shoulders.
+  headMesh.position.set(0, -0.14, 0.05);
   head.add(headMesh);
 
   // Three pink gill fronds per side, fanned along the back of the head
@@ -130,14 +184,15 @@ function buildRig(): PalRig {
   const gy = [0.26, 0.24, 0.2];
   for (let i = 0; i < 3; i++) {
     const r = new THREE.Group();
-    r.position.set(0.28, gy[i], gz[i]);
+    r.position.set(0.16, gy[i], gz[i]); // a full cell INSIDE the 5-cell skull, so no
+                                        // frond pose can open a gap at the root
     r.rotation.set(0, GY[i], GZ[i]);
     head.add(r);
     r.add(makeFrond(1));
     gills[GR[i]] = r;
 
     const l = new THREE.Group();
-    l.position.set(-0.28, gy[i], gz[i]);
+    l.position.set(-0.16, gy[i], gz[i]);
     l.rotation.set(0, -GY[i], -GZ[i]);
     head.add(l);
     const lFrond = makeFrond(-1);
@@ -156,10 +211,12 @@ function buildRig(): PalRig {
     g.add(mesh);
     return g;
   };
-  const legFL = mkLegGroup(0.18, 0.22);
-  const legFR = mkLegGroup(-0.18, 0.22);
-  const legBL = mkLegGroup(0.18, -0.2);
-  const legBR = mkLegGroup(-0.18, -0.2);
+  // Pushed out from 0.18 to 0.26: the widened barrel swallowed the old leg
+  // positions whole, which is how a portrait ended up showing a single foot wedge.
+  const legFL = mkLegGroup(0.26, 0.24);
+  const legFR = mkLegGroup(-0.26, 0.24);
+  const legBL = mkLegGroup(0.26, -0.22);
+  const legBR = mkLegGroup(-0.26, -0.22);
 
   const tailBase = new THREE.Group();
   tailBase.position.set(0, 0.02, -0.26);
@@ -182,8 +239,8 @@ function buildRig(): PalRig {
       gillR1: gills.gillR1, gillR2: gills.gillR2, gillR3: gills.gillR3,
       gillL1: gills.gillL1, gillL2: gills.gillL2, gillL3: gills.gillL3,
     },
-    height: 0.7,
-    radius: 0.45,
+    height: 0.76,
+    radius: 0.48,
   };
 }
 

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { makeGlowSprite } from './glowsprite';
+import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
 // ---------------------------------------------------------------------------
 // Emberfox — a small, eager fire fox with a magnificent flame-tipped tail.
@@ -12,17 +13,32 @@ const S = 0.1;
 
 // Palette
 const ORANGE = 0xf3712b;   // ember-orange coat
-const RUSSET = 0xcc4e14;   // deeper saddle along the back
+const ORANGE_LIT = 0xff9c52; // sunlit crest along back, crown and tail
+const RUSSET = 0xcc4e14;   // deeper saddle along the back / shaded underside
 const CREAM = 0xffe9c4;    // chest / muzzle / belly
+const CREAM_DK = 0xe6c9a0; // muzzle top: a step below the chest cream so the eyes
+                           // stay the brightest thing on the face
+const MUZZLE_DK = 0xc9a877; // muzzle's forward step / underside
 const SOCK = 0x54322b;     // dark socks, ear tips, brows
 const NOSE = 0x33201c;
-const EYE_WHITE = 0xffffff;
-const PUPIL = 0x2a1b18;
+// The eye is the DARK mass and the face is light — the reverse of the previous
+// build, where a near-white iris dissolved into the cream muzzle and left one lone
+// black cell reading as a bandit dot. Dark RUST, not black: it keeps the fox's hue
+// so the eye is wet rather than a hole cut in the head.
+const IRIS = 0x2e1510;
+const EYE_SHINE = 0xfffdf4;  // single catchlight cell
+const LID = 0xd85c1e;        // coat one step down. On a CREAM mask the lid only has
+                             // to be a shade, not a shadow — pushed darker it merges
+                             // with the iris into one band and it is goggles again.
+const BRIDGE = 0xf6dcb4;     // snout ridge between the eyes: one step BELOW the
+                             // cream mask, not above it. Brighter than the mask it
+                             // became a pale block that read as the whole face.
 const EAR_PINK = 0xf2a38e;
 const FLAME_OUT = 0xffae33; // tail-tip outer flame
 const FLAME_MID = 0xffc93f;
 const FLAME_CORE = 0xffe066;
-const FLAME_HOT = 0xfff3a6;
+const FLAME_HOT = 0xffef9a;  // warm gold, not white: a white core clips to a
+                             // featureless blob the moment bloom touches it
 
 // Base pose constants (world / local units, must match buildRig)
 const BODY_Y = 0.34;
@@ -44,38 +60,89 @@ function makeTorso(): THREE.Mesh {
   m.ellipsoid(0, 0.4, 0, 2.1, 1.1, 3.2, CREAM);      // belly
   m.ellipsoid(0, 2.8, -0.5, 2.1, 1.2, 2.9, RUSSET);  // saddle
   m.ellipsoid(0, 1.4, 2.8, 1.8, 1.6, 1.4, CREAM);    // fluffy chest ruff
+  rimTop(m, ORANGE_LIT, -2, 2, 0, 5, -4, 4);
+  shadeUnder(m, RUSSET, -2, 2, 0, 3, -4, 4);
   return m.build(S, true);
 }
 
 function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
-  m.ellipsoid(0, 1.8, 0.4, 2.4, 2.0, 2.2, ORANGE);
+  // Skull widened 2.4 -> 2.8 so the face plate has room for an eye pair with plain
+  // coat between them rather than eyes hanging off the sides of the head.
+  m.ellipsoid(0, 1.8, 0.4, 2.8, 2.0, 2.2, ORANGE);
   // Cream stays low on the snout — when it climbed to the eye line the whole
   // face read as one pale band with two dark holes (bandit mask).
   m.ellipsoid(0, 0.6, 1.9, 1.7, 0.9, 1.2, CREAM);    // lower cheeks
-  m.box(-1, 1, 3, 1, 1, 4, CREAM);                    // muzzle
-  m.set(0, 2, 4, NOSE);                               // nose
-  // Flat coat-colored cheek plates so the eyes sit on a face, not in mid-air.
-  m.box(1, 2, 2, 3, 3, 2, ORANGE);
-  m.box(-3, 2, 2, -1, 3, 2, ORANGE);
-  // Eyes: 2x2 sclera with the pupil filling the inner column, and an orange
-  // bridge voxel between them so the two eyes never merge into one band.
-  for (const sx of [1, -1]) {
-    m.set(sx * 3, 3, 3, EYE_WHITE);
-    m.set(sx * 3, 2, 3, EYE_WHITE);
-    m.set(sx * 2, 3, 3, PUPIL);
-    m.set(sx * 2, 2, 3, PUPIL);
-    m.set(sx * 1, 3, 3, ORANGE);
-    m.set(sx * 1, 2, 3, ORANGE);
+  // Muzzle: a STEPPED snout with a jaw under it, not a cantilevered slab. The old
+  // build was a single 3x1x2 cream bar at y=1 projecting two cells past the skull
+  // with nothing beneath it — the bar-of-soap read.
+  //
+  // Two rows tall, topping out at y=1 (one row below the eye line), stepping down a
+  // value each z and ending in a single dark nose cell. Two rows is the ceiling: a
+  // three-row snout is a brick again, and its top row would stand proud of the face
+  // plate directly in front of the inner eye column and hide a third of the iris.
+  // The bottom row is coat-colour russet — that is the jaw the pale block sits on.
+  for (let x = -1; x <= 1; x++) {
+    m.set(x, 1, 3, CREAM_DK);    // lit top / front of the muzzle
+    m.set(x, 0, 3, RUSSET);      // jaw line underneath, in coat colour
+    m.set(x, 1, 4, MUZZLE_DK);   // second step, one value down
   }
+  m.set(0, 0, 4, RUSSET);        // chin point
+  m.set(0, 1, 5, NOSE);          // nose caps the taper: 3 wide -> 3 wide -> 1 wide
+  // Flat face plate so the eyes sit on a face, not in mid-air. One row taller than
+  // before (down to y=1) purely to carry the pale cheek band below the eyes.
+  m.box(-3, 1, 2, 3, 4, 2, ORANGE);
+  rimTop(m, ORANGE_LIT, -2, 2, 0, 4, -2, 2);
+  // z stops at 2, short of the muzzle: run out to z=4 and the cream snout is the
+  // lowest cell in its own column, so the shadow pass painted the nose russet.
+  shadeUnder(m, RUSSET, -3, 3, 0, 1, -2, 2);
+  // A full CREAM MASK over the eye rows — a real red fox's pale cheeks, and the one
+  // change that finally made this face read in the game rather than only in the lab.
+  // The front of a pal's head is in shade in most portraits (the sun is low and
+  // behind), so an orange face plate rendered at ~25% value and the dark iris on it
+  // had nothing to separate them. Cream at 25% is still clearly lighter than a dark
+  // iris, so the eye survives the shading. Painted after shadeUnder so the underside
+  // pass cannot repaint the bottom row russet.
+  for (let x = -3; x <= 3; x++) {
+    m.set(x, 1, 2, CREAM);
+    m.set(x, 2, 2, CREAM);
+    m.set(x, 3, 2, CREAM_DK); // upper mask a step down, so the brow above reads
+  }
+  // Iris rows at y=2,3, lid row landing on y=4 (the top row of the plate) so the
+  // brow reads as the fox's dark eyebrow marking rather than a floating ledge.
+  // inner: 1, not 2. Both were shot in the real game. At inner: 2 the eyes land on
+  // |x| = 2..3, i.e. hard against the edge of a seven-cell plate, and the three-cell
+  // bridge between them becomes a big pale block that reads as the face while the
+  // eyes wrap round the silhouette. inner: 1 leaves a cell of coat outboard of each
+  // eye, which is what keeps both of them presented at three-quarter bearings.
+  eyes2x2(m, {
+    inner: 1, y: 2, faceZ: 2, iris: IRIS, shine: EYE_SHINE,
+    lid: LID, browProud: true, bridge: BRIDGE,
+  });
   return m.build(S, true);
 }
 
-function makeEar(tipX: number, innerX: number): THREE.Mesh {
+/**
+ * One ear, authored once and mirrored by `sign`. The previous pair took separate
+ * tipX / innerX arguments per side, which is exactly the kind of hand-mirroring
+ * that lets two halves of a bilateral feature drift — and it gave each ear a
+ * single-voxel dark tip, so from three-quarters one ear showed its tip and the
+ * other showed a plain orange back and they read as two different ears.
+ */
+function makeEar(sign: number): THREE.Mesh {
   const m = new VoxelModel();
-  m.box(0, 0, 0, 1, 1, 0, ORANGE);
-  m.set(tipX, 2, 0, SOCK);         // dark pointed tip
-  m.set(innerX, 0, 1, EAR_PINK);   // pink inner-ear voxel facing forward
+  const X = (d: number): number => (sign > 0 ? d : -d - 1); // d: 0 inner, 1 outer
+  for (const d of [0, 1]) {
+    m.set(X(d), 0, 0, ORANGE);
+    m.set(X(d), 1, 0, ORANGE);
+    m.set(X(d), 0, 1, EAR_PINK);   // pink inner ear facing forward
+  }
+  // Dark tip as a three-cell diagonal wedge along the OUTER edge, not a full band
+  // across both columns: half the ear in near-black read as a rabbit ear.
+  m.set(X(0), 2, 0, ORANGE);
+  m.set(X(1), 2, 0, SOCK);
+  m.set(X(1), 3, 0, SOCK);         // point, leaning outward with the ear tilt
+  m.set(X(0), 1, 1, EAR_PINK);
   return m.build(S, true);
 }
 
@@ -109,11 +176,16 @@ function makeTailTip(): THREE.Mesh {
   m.ellipsoid(0, 1.4, -2.4, 1.1, 1.1, 1.5, FLAME_MID); // hotter toward the tip
   m.set(0, 1, -4, FLAME_CORE);                          // trailing licks
   m.set(0, 2, -4, FLAME_HOT);
-  // The flame glows for real: gradient brightens toward the tip.
-  m.markEmissive(FLAME_OUT, 1.2);
-  m.markEmissive(FLAME_MID, 1.4);
-  m.markEmissive(FLAME_CORE, 1.6);
-  m.markEmissive(FLAME_HOT, 1.8);
+  // The flame glows for real: gradient brightens toward the tip. Every value here
+  // is roughly half what it was — a bloom pass now amplifies emissive, and at the
+  // old 1.2-1.8 the tail was a single white star with no flame shape left in it.
+  // Halved again from 0.6-1.0. In real-game portraits the tail was a single blown
+  // white star with the flame shape entirely lost inside it; at 0.3-0.55 the
+  // gradient survives and a bloom pass adds the halo rather than the whole read.
+  m.markEmissive(FLAME_OUT, 0.30);
+  m.markEmissive(FLAME_MID, 0.38);
+  m.markEmissive(FLAME_CORE, 0.46);
+  m.markEmissive(FLAME_HOT, 0.55);
   return m.build(S, true);
 }
 
@@ -127,9 +199,9 @@ function makeFlame(): THREE.Mesh {
   m.set(0, 1, 0, FLAME_CORE);
   m.set(1, 1, 0, FLAME_CORE);
   m.set(0, 2, 0, FLAME_HOT);
-  m.markEmissive(FLAME_MID, 1.4);
-  m.markEmissive(FLAME_CORE, 1.6);
-  m.markEmissive(FLAME_HOT, 1.8);
+  m.markEmissive(FLAME_MID, 0.38);
+  m.markEmissive(FLAME_CORE, 0.46);
+  m.markEmissive(FLAME_HOT, 0.55);
   return m.build(S, true);
 }
 
@@ -155,14 +227,16 @@ function buildRig(): PalRig {
   head.position.set(0, HEAD_Y, HEAD_Z);
   body.add(head);
   const headMesh = makeHead();
-  headMesh.position.set(0, -0.16, 0.06);
+  // +0.11z, not +0.06: the stepped snout adds a cell of length and build() centres
+  // on the bounding box, so without it the whole skull slides back into the ruff.
+  headMesh.position.set(0, -0.16, 0.11);
   head.add(headMesh);
 
   const earL = new THREE.Group();
   earL.position.set(0.15, 0.26, -0.05);
   earL.rotation.z = -EAR_Z;
   head.add(earL);
-  const earLMesh = makeEar(1, 0);
+  const earLMesh = makeEar(1);
   earLMesh.position.set(0, -0.02, 0);
   earL.add(earLMesh);
 
@@ -170,7 +244,7 @@ function buildRig(): PalRig {
   earR.position.set(-0.15, 0.26, -0.05);
   earR.rotation.z = EAR_Z;
   head.add(earR);
-  const earRMesh = makeEar(0, 1);
+  const earRMesh = makeEar(-1);
   earRMesh.position.set(0, -0.02, 0);
   earR.add(earRMesh);
 
@@ -224,7 +298,7 @@ function buildRig(): PalRig {
   // Fake bloom: soft warm-orange halo on the flame tip (no postprocessing
   // pass exists). Parented to tailTip — not flame — so the flame's non-uniform
   // flicker scaling never distorts the billboard; it still rides the tail.
-  const flameGlow = makeGlowSprite(0xffb347, 0.38, 0.26);
+  const flameGlow = makeGlowSprite(0xffb347, 0.34, 0.12);
   flameGlow.position.set(0, 0.1, -0.28);
   tailTip.add(flameGlow);
 
@@ -232,12 +306,12 @@ function buildRig(): PalRig {
   const ember1 = new THREE.Group();
   ember1.position.set(0.13, 0.12, -0.34);
   tailTip.add(ember1);
-  ember1.add(makeEmber(FLAME_CORE, 1.6));
+  ember1.add(makeEmber(FLAME_CORE, 0.5));
 
   const ember2 = new THREE.Group();
   ember2.position.set(-0.11, 0.22, -0.2);
   tailTip.add(ember2);
-  ember2.add(makeEmber(FLAME_HOT, 1.8));
+  ember2.add(makeEmber(FLAME_HOT, 0.6));
 
   return {
     root,

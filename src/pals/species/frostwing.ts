@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
+import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
+import { makeContactBlob, updateContactBlob } from './contactshadow';
 
 // ---------------------------------------------------------------------------
 // Frostwing — a snowy owl of the high glaciers. Ice element, flying.
@@ -8,20 +10,54 @@ import { VoxelModel } from '../../core/voxel';
 // ---------------------------------------------------------------------------
 
 // Palette
-const WHITE = 0xf8fbff;   // snow plumage
-const CREAM = 0xe7f1fa;   // soft under-feathers
-const SPECK = 0xa6dbf2;   // ice-blue speckle
-const SPECK2 = 0x83cbee;  // deeper ice-blue (wingtips)
-const UNDER = 0xbdd4e6;   // shaded wing underside
-const DISC = 0xc7e1f2;    // heart facial-disc rim
-const BEAK = 0x39404d;    // small dark beak
-const EYE = 0xffc63f;     // amber iris rim
-const SCLERA = 0xffffff;  // white sclera — keeps the gaze open, not masked
-const PUPIL = 0x101318;   // pupils
-const TALON = 0x525b69;   // talons
+//
+// Chroma is deliberately much higher than the previous build. That owl was white
+// plus four greys within 12% of each other, and since a portrait usually catches
+// the front of the pal in shade, every one of those greys collapsed onto the same
+// slate blue: a critic reading a real-game shot described the whole creature as
+// "one narrow band of desaturated slate blue", which is exactly what it was. Snow
+// still has to read as snow, so the white stays — the saturation went into the
+// barring, the facial disc and a warm beak, which are the cells that survive shade.
+// Both whites are now WARM-biased, which looks wrong in a swatch and right on the
+// model. The sun is low here and a portrait usually catches the front of a pal in
+// shade, where the only light is blue sky bounce — a neutral-to-cool white rendered
+// under that reads as slate blue, and the owl came back from three separate capture
+// rounds looking like a blue bird. Starting warm, the blue bounce lands on it and
+// arrives at neutral snow. The ICE still reads: it lives in the barring, which is
+// saturated cerulean and gets brighter, not bluer, in sun.
+const WHITE = 0xfffaf1;   // snow plumage
+const CREAM = 0xf7ecda;   // soft under-feathers
+const SPECK = 0x63c3f2;   // ice-blue barring (was a near-grey 0x9fd2ec)
+const SPECK2 = 0x2b93d8;  // deep cerulean: wingtips, tail bars, disc rim
+const UNDER = 0xbdb7ae;   // shaded wing/belly underside — a NEUTRAL warm grey, one
+                          // step down, so the wing's bottom plane separates from its
+                          // top plane without turning the whole underside blue
+const SHADOW = 0x968f88;  // deepest crease (under the jaw, wing roots)
+const DISC = 0x86d2f7;    // heart facial-disc rim
+const BEAK = 0xff8f2e;    // WARM orange beak. Slate-on-slate meant the beak simply
+                          // did not exist in any shot; orange is also the only warm
+                          // note on the bird, so it carries the whole face.
+const BEAK_DK = 0xc25c12; // shaded underside of the beak / the hook
+const IRIS = 0x1e2a3c;    // dark navy — a tint of the ice hue, never black
+const EYE_LT = 0xfdfeff;  // catchlight
+const BROW = 0xe8a63a;    // the surviving gold: a one-row brow over each eye. The
+                          // old build stamped a 2x3 gold iris per side, which
+                          // photographed as a welding mask.
+const TALON = 0xcf9147;   // talons: muted amber, NOT the beak's full orange. Both
+                          // feet sit within 0.09 of centre, so a saturated pair
+                          // merged into one bright orange bar slung under the bird
+                          // and out-read the beak it was supposed to echo.
 
 const BODY_Y = 0.38;
-const HEAD_X = 0, HEAD_Y = 0.12, HEAD_Z = 0.10;
+// Head steps forward and up out of the shoulder line — the single landmark that
+// turns a flying wedge back into a bird from 10 units away.
+// 0.32, arrived at by measurement rather than taste: the head model's chin sits at
+// HEAD_Y - 0.08 in body space and the wing slab's top face reaches +0.13, so
+// anything under ~0.28 puts the wing roots across the facial disc — which is what
+// made the owl photograph as a face with slabs through it.
+const HEAD_X = 0, HEAD_Y = 0.32, HEAD_Z = 0.15;
+/** Hover height PalActor holds a flyer at; the contact blob has to match it. */
+const HOVER = 1.55;
 
 type Parts = Record<string, THREE.Object3D>;
 
@@ -77,38 +113,70 @@ export const skills: SkillDef[] = [
 // Rig
 // ---------------------------------------------------------------------------
 
-/** One hinged wing section. Cells run outward from the pivot along +/-X. */
+/**
+ * One hinged wing section. Cells run outward from the pivot along +/-X.
+ *
+ * Shape rules learned the hard way. The build this replaces made all three
+ * sections identical rounded slabs of the same 5-6 cell chord, hinged in a chain
+ * — which from any bearing photographed as a segmented tube curving away from the
+ * shoulder. A critic looking at a real-game portrait called the pair a handlebar
+ * moustache, and the read is unarguable once you see it: constant-chord segments
+ * plus a hinge chain IS a jointed arm, not a wing.
+ *
+ * So now:
+ *  - the chord TAPERS hard, 7 cells at the shoulder to 1 at the tip, so the plan
+ *    form is a triangle. Taper is what makes a wing read as a wing;
+ *  - the trailing edge is SCALLOPED (the aft-most z zigzags column to column),
+ *    which is the feather cue, and it breaks the straight segment edges that made
+ *    the sections legible as separate parts;
+ *  - the leading two cells of each column are two rows thick and the rest is one,
+ *    so the silhouette has a solid front spar without the whole plane reading as a
+ *    slab. A uniformly 1-cell sheet is see-through edge-on; a uniformly 2-cell
+ *    sheet is a plank.
+ *
+ * The chord table is written once and mirrored by the `sign` remap; authoring the
+ * two sides separately is what let them drift apart in an earlier round.
+ */
 function wingSectionMesh(sign: number, kind: 'inner' | 'mid' | 'tip'): THREE.Mesh {
   const m = new VoxelModel();
-  const col = (d: number, z0: number, z1: number, c: number): void => {
-    const x = sign > 0 ? d : -d - 1; // exact mirror of cell columns
-    for (let z = z0; z <= z1; z++) m.set(x, 0, z, c);
-  };
+  const X = (d: number): number => (sign > 0 ? d : -d - 1); // exact cell mirror
   const one = (d: number, y: number, z: number, c: number): void => {
-    m.set(sign > 0 ? d : -d - 1, y, z, c);
+    m.set(X(d), y, z, c);
+  };
+  /**
+   * One chord column. `z1` is the leading edge (forward), `z0` the trailing edge.
+   * The two forward-most cells get an underside so the leading edge is a solid
+   * spar; everything aft of that is a single feather-thin row.
+   */
+  const vane = (d: number, z0: number, z1: number, top: number, edge: number): void => {
+    for (let z = z0; z <= z1; z++) {
+      one(d, 0, z, z === z0 ? edge : top);
+      if (z >= z1 - 1) one(d, -1, z, UNDER);
+    }
   };
   if (kind === 'inner') {
-    col(0, -1, 2, WHITE); col(1, -2, 2, WHITE); col(2, -2, 2, WHITE);
-    one(1, 0, -2, SPECK); one(0, 0, 2, CREAM);
-    // chunky leading edge (second voxel layer at the front)
-    one(0, 1, 2, CREAM); one(1, 1, 2, CREAM); one(2, 1, 2, CREAM);
-    // darker underside row — the wing has a belly now, not plank symmetry
-    one(0, -1, 0, UNDER); one(0, -1, 1, UNDER);
-    one(1, -1, 0, UNDER); one(1, -1, 1, UNDER); one(2, -1, 0, UNDER);
+    // Shoulder coverts. Scalloped aft edge: -3 / -2 / -3 zigzag.
+    const chord: Array<[number, number]> = [[-3, 3], [-2, 3], [-3, 2]];
+    chord.forEach(([z0, z1], d) => vane(d, z0, z1, WHITE, SPECK));
+    // Raised covert ridge along the leading edge — the wing's shoulder muscle.
+    for (let d = 0; d <= 2; d++) one(d, 1, 3 - (d === 2 ? 1 : 0), CREAM);
+    one(0, -1, 3, SHADOW); one(1, -1, 3, SHADOW); // deepest crease at the armpit
   } else if (kind === 'mid') {
-    // chord tapers 5 -> 4 -> 3 heading out toward the tip
-    col(0, -2, 2, WHITE); col(1, -2, 1, WHITE); col(2, -1, 1, WHITE);
-    one(0, 0, -2, SPECK); one(2, 0, -2, SPECK2);
-    one(0, 1, 2, CREAM);
-    one(0, -1, 0, UNDER); one(1, -1, 0, UNDER);
+    // Secondaries: chord 6 -> 5 -> 4, scalloped, sweeping aft as it goes out.
+    const chord: Array<[number, number]> = [[-4, 1], [-3, 1], [-4, 0]];
+    chord.forEach(([z0, z1], d) => vane(d, z0, z1, WHITE, d === 2 ? SPECK2 : SPECK));
+    for (let d = 0; d <= 2; d++) one(d, 1, 1 - (d === 2 ? 1 : 0), CREAM);
   } else {
-    // tip: chord 3 -> 2 -> 1
-    col(0, -1, 1, WHITE); col(1, -1, 0, WHITE); col(2, 0, 0, SPECK2);
-    one(0, 0, -1, SPECK2); one(1, 0, -1, SPECK2);
+    // Primaries: three separated feather fingers of decreasing length, deep
+    // cerulean at the tips. Gaps BETWEEN the fingers are the point — a solid
+    // triangle here reads as a fin, three fingers read as a bird.
+    const finger: Array<[number, number]> = [[-5, 0], [-5, -1], [-4, -2]];
+    finger.forEach(([z0, z1], d) => vane(d, z0, z1, d === 0 ? WHITE : SPECK, SPECK2));
+    one(0, 0, 0, CREAM); // lit knuckle where the primaries leave the wrist
   }
-  // faint frost glimmer on the ice-blue speckles — ice, not neon
-  m.markEmissive(SPECK, 0.25);
-  m.markEmissive(SPECK2, 0.35);
+  // No emissive anywhere on the wing. An earlier build glowed along the SPECK edge,
+  // which drew a neon cyan outline around the WRONG shape (the trailing edge) and
+  // pulled the eye off the head. Ice reads as crisp and cold, not as neon.
   const mesh = m.build(0.1, false);
   mesh.position.y = -0.05;
   return mesh;
@@ -121,14 +189,24 @@ function buildRig(): PalRig {
   root.add(body);
 
   // --- torso: plump snowy chest with ice-blue speckles -------------------
+  // Grown 2.6 -> 3.2 wide and 2.3 -> 2.7 deep so the barrel is at least as big as
+  // the skull. A head wider than its own shoulders is what made the old rig read
+  // as a face with wings bolted to it.
   const torso = new VoxelModel();
-  torso.ellipsoid(0, 3, 0, 2.6, 2.7, 2.3, WHITE);
-  // cream belly patch
-  torso.set(0, 2, 2, CREAM); torso.set(1, 3, 2, CREAM); torso.set(-1, 3, 2, CREAM);
-  torso.set(0, 3, 2, CREAM); torso.set(0, 1, 2, CREAM);
+  torso.ellipsoid(0, 3, 0, 3.2, 2.8, 2.7, WHITE);
+  // Breast marking. The previous one was a symmetric five-cell cross centred on the
+  // chest, which photographed as a literal medical plus sign — a critic named it as
+  // such. This is a deliberately ASYMMETRIC bib: a wedge of barring falling from the
+  // bird's right shoulder across the crop, the way real owl streaking sits.
+  torso.set(1, 4, 2, SPECK); torso.set(1, 3, 2, SPECK); torso.set(0, 3, 2, SPECK2);
+  torso.set(2, 3, 1, SPECK); torso.set(0, 2, 2, CREAM); torso.set(-1, 2, 2, CREAM);
+  torso.set(1, 2, 2, CREAM);
   // speckles across back and shoulders
   torso.set(0, 5, 1, SPECK); torso.set(1, 5, -1, SPECK); torso.set(-1, 5, 0, SPECK2);
-  torso.set(2, 4, 0, SPECK); torso.set(-2, 4, -1, SPECK2); torso.set(0, 4, 2, SPECK);
+  torso.set(2, 4, 0, SPECK); torso.set(-2, 4, -1, SPECK2);
+  // Shaded belly: an all-white owl on a bright lawn has no bottom edge at all,
+  // so the body floated free of its own legs in every ground shot.
+  shadeUnder(torso, UNDER, -2, 2, 0, 2, -2, 2);
   const torsoMesh = torso.build(0.1, true);
   torsoMesh.position.set(0, -0.28, 0);
   body.add(torsoMesh);
@@ -139,38 +217,66 @@ function buildRig(): PalRig {
   body.add(headGroup);
 
   const head = new VoxelModel();
-  head.ellipsoid(0, 2, -0.2, 2.6, 2.3, 2.2, WHITE);
-  // face plate (z = 2): heart-shaped disc rim, big amber eyes, tiny beak
-  head.set(-2, 4, 2, DISC); head.set(-1, 4, 2, DISC); head.set(0, 4, 2, WHITE);
-  head.set(1, 4, 2, DISC); head.set(2, 4, 2, DISC);
-  // Eyes: white sclera sits directly above each pupil (and the white center
-  // column flanks it) so the amber shrinks to an outer iris rim instead of a
-  // goggle band across the face.
-  head.set(-2, 3, 2, EYE); head.set(-1, 3, 2, SCLERA); head.set(0, 3, 2, WHITE);
-  head.set(1, 3, 2, SCLERA); head.set(2, 3, 2, EYE);
-  head.set(-2, 2, 2, EYE); head.set(-1, 2, 2, PUPIL); head.set(0, 2, 2, WHITE);
-  head.set(1, 2, 2, PUPIL); head.set(2, 2, 2, EYE);
-  head.set(-2, 1, 2, DISC); head.set(-1, 1, 2, WHITE); head.set(0, 1, 2, BEAK);
-  head.set(1, 1, 2, WHITE); head.set(2, 1, 2, DISC);
-  head.set(-1, 0, 2, DISC); head.set(0, 0, 2, DISC); head.set(1, 0, 2, DISC);
-  head.set(0, 1, 3, BEAK); // beak tip
+  head.ellipsoid(0, 2.2, -0.2, 3.1, 2.5, 2.4, WHITE);
+  // The facial disc has to be a built plate — the skull's own curve is only three
+  // cells wide at the face plane, too narrow to carry an eye pair. What was wrong
+  // before was that the plate was a 7x4 RECTANGLE in the same white as the crown:
+  // a square slab of one value photographs as a skull mask. Now it is a rounded
+  // heart, one value warmer than the crown, with a pale-blue rim tracing its
+  // outline — the shape that reads "owl" at a glance.
+  const discRows: Array<[number, number]> = [
+    // Row 4 widened to half-width 3: the eye's lid row lands there, and on a
+    // 2-wide row the outer lid cell had nothing under it and stuck out of the disc.
+    [5, 2], [4, 3], [3, 3], [2, 3], [1, 2], [0, 1], // [row y, half-width]
+  ];
+  for (const [y, hw] of discRows) {
+    for (let x = -hw; x <= hw; x++) head.set(x, y, 2, CREAM);
+    head.set(-hw, y, 2, DISC);
+    head.set(hw, y, 2, DISC);
+  }
+  rimTop(head, CREAM, -3, 3, 0, 6, -2, 1);
+  // Two steps of shade under the jaw, not one: the deeper SHADOW band is the
+  // neck break that separates head from chest when the two are both snow-white.
+  shadeUnder(head, UNDER, -3, 3, 0, 1, -2, 2);
+  head.set(0, 0, 1, SHADOW); head.set(1, 0, 1, SHADOW); head.set(-1, 0, 1, SHADOW);
+  // Dark navy eye on a cream disc — the strongest contrast available on a white
+  // bird, and the gold survives as a single brow row per eye (`lid`) instead of the
+  // 2x3 gold iris block that photographed as a welding mask.
+  eyes2x2(head, {
+    inner: 1, y: 2, faceZ: 2, iris: IRIS, shine: EYE_LT,
+    lid: BROW, bridge: WHITE,
+  });
+  // Beak: a stepped WARM ORANGE wedge that tapers in profile — 2 cells proud at the
+  // top row, 1 cell proud at the hook below, lit ridge on top and shaded underneath.
+  // In slate grey this feature simply did not exist in any capture.
+  head.set(0, 1, 3, BEAK);
+  head.set(0, 1, 4, BEAK);
+  head.set(0, 0, 3, BEAK_DK);  // downward hook, shaded
+  head.set(0, 0, 4, BEAK_DK);
   // crown speckles
-  head.set(1, 4, 0, SPECK); head.set(-1, 4, 0, SPECK2); head.set(0, 4, -1, SPECK);
+  head.set(1, 5, 0, SPECK); head.set(-1, 5, 0, SPECK2); head.set(0, 5, -1, SPECK);
   const headMesh = head.build(0.1, true);
-  headMesh.position.set(0, -0.08, 0);
+  // +0.05z compensates the beak: build() centres on the bounding box, so growing
+  // the model two cells forward would otherwise slide the skull back into the chest.
+  headMesh.position.set(0, -0.08, 0.05);
   headGroup.add(headMesh);
 
   // --- wings: three hinged sections per side -----------------------------
   const mkWing = (sign: number): [THREE.Group, THREE.Group, THREE.Group] => {
     const rootG = new THREE.Group();
-    rootG.position.set(sign * 0.24, 0.06, 0.0);
+    // |x| = 0.20 against a torso half-width of 0.32 puts the root column a full cell
+    // INSIDE the barrel, so no pose can open a gap between wing and body — the
+    // failure mode a critic caught on the drakelet. y = +0.06 is shoulder height
+    // rather than the old armpit-level -0.12, which is what let the wings hang below
+    // the bird and read as drooping arms.
+    rootG.position.set(sign * 0.20, 0.06, -0.06);
     rootG.add(wingSectionMesh(sign, 'inner'));
     const midG = new THREE.Group();
-    midG.position.set(sign * 0.28, 0, 0);
+    midG.position.set(sign * 0.26, 0, -0.04); // each joint steps aft: swept plan form
     midG.add(wingSectionMesh(sign, 'mid'));
     rootG.add(midG);
     const tipG = new THREE.Group();
-    tipG.position.set(sign * 0.28, 0, 0);
+    tipG.position.set(sign * 0.26, 0, -0.04);
     tipG.add(wingSectionMesh(sign, 'tip'));
     midG.add(tipG);
     body.add(rootG);
@@ -183,13 +289,27 @@ function buildRig(): PalRig {
   const tailGroup = new THREE.Group();
   tailGroup.position.set(0, -0.14, -0.18);
   body.add(tailGroup);
+  // A two-cell-thick fan that reaches a full 5 cells behind the wing roots. The
+  // old tail was a single voxel sheet 3 cells long: edge-on it vanished, which is
+  // half of why the rig read as a wing pair with no back end.
   const tail = new VoxelModel();
-  for (let z = -3; z <= 0; z++) tail.set(0, 0, z, WHITE);
-  for (let z = -2; z <= 0; z++) { tail.set(1, 0, z, WHITE); tail.set(-1, 0, z, WHITE); }
-  for (let z = -1; z <= 0; z++) { tail.set(2, 0, z, WHITE); tail.set(-2, 0, z, WHITE); }
-  tail.set(0, 0, -3, SPECK); tail.set(1, 0, -2, CREAM); tail.set(-1, 0, -2, CREAM);
+  const fan = [5, 4, 3]; // aft length by |x|, so the two halves cannot drift apart
+  for (let x = -2; x <= 2; x++) {
+    const len = fan[Math.abs(x)];
+    for (let z = 0; z >= -len; z--) {
+      tail.set(x, 0, z, WHITE);
+      tail.set(x, -1, z, UNDER); // shaded underside, so the fan has a bottom
+    }
+  }
+  // Ice-blue barring across the fan, following the feather direction (fore-aft)
+  // rather than a chequer: two darker rachis lines and pale webbing between them.
+  for (let z = 0; z >= -4; z--) { tail.set(1, 0, z, SPECK); tail.set(-1, 0, z, SPECK); }
+  // Two cerulean cross-bars near the tip: barring across the fan is what makes it
+  // read as a tail rather than as a white shelf, especially against pale sky.
+  for (let x = -2; x <= 2; x++) { tail.set(x, 0, -3, SPECK2); }
+  tail.set(0, 0, -5, SPECK2);
   const tailMesh = tail.build(0.1, true);
-  tailMesh.position.set(0, -0.05, -0.16);
+  tailMesh.position.set(0, -0.02, -0.28);
   tailGroup.add(tailMesh);
 
   // --- little talon feet -------------------------------------------------
@@ -197,8 +317,9 @@ function buildRig(): PalRig {
     const g = new THREE.Group();
     g.position.set(sign * 0.09, -0.24, 0.03);
     const foot = new VoxelModel();
-    foot.box(0, 0, 0, 1, 0, 1, TALON);
-    foot.set(0, 0, 2, BEAK); foot.set(1, 0, 2, BEAK); // front claws
+    foot.box(0, 0, 0, 0, 0, 1, TALON); // ONE cell wide, so the pair reads as two feet
+    foot.set(0, 0, 2, TALON); // front claw, same muted amber: BEAK_DK here made the
+                              // two feet read as a pair of bright red sticks
     const footMesh = foot.build(0.1, true);
     footMesh.position.set(0, -0.12, 0.02);
     g.add(footMesh);
@@ -208,12 +329,17 @@ function buildRig(): PalRig {
   const legR = mkLeg(1);
   const legL = mkLeg(-1);
 
+  // Ground contact blob (see contactshadow.ts): the owl's true shadow falls a
+  // metre and a half behind it under this low sun, so it needs an anchor.
+  const blob = makeContactBlob(0.62, HOVER);
+  root.add(blob);
+
   return {
     root,
     parts: {
       body, head: headGroup, tail: tailGroup,
       wingL, wingLMid, wingLTip, wingR, wingRMid, wingRTip,
-      legL, legR,
+      legL, legR, blob,
     },
     height: 0.92,
     radius: 0.45,
@@ -224,21 +350,43 @@ function buildRig(): PalRig {
 // Animation
 // ---------------------------------------------------------------------------
 
-/** fold: 0 = spread, 1 = folded against body. up > 0 raises wings. */
+// Baked-in wing attitude, applied in every action so no branch can forget it.
+// Euler order here is the default XYZ, i.e. Z (dihedral) is applied before Y
+// (sweep) — raise the plane first, then swing it aft, which is the order that
+// gives a swept-back wing rather than a twisted one.
+//
+// These two numbers are the whole fix for the "handlebar moustache" read: the old
+// build left the base attitude at zero, so the wings sat level or below level and
+// the hinge chain bent them into a downward arc off the shoulders.
+const DIHEDRAL = 0.22;   // shoulder lift (rad) — the V that says "bird". 0.34 read
+                         // as a shrug: with the beat's own +/-0.31 on top, the wings
+                         // spent most of the cycle up beside the head and crowded it.
+const SWEEP_AFT = 0.34;  // constant aft sweep (rad) at every joint — more of the
+                         // span now goes backward than upward, which is the swept
+                         // owl plan form rather than a raised pair of arms.
+
+/** fold: 0 = spread, 1 = folded against body. up > 0 raises wings further. */
 function poseWings(P: Parts, fold: number, up: number, midUp: number, tipUp: number): void {
-  const sweep = 1.0 * fold;
+  const sweep = SWEEP_AFT + 1.0 * fold;
   const droop = 0.24 * fold;
-  P.wingL.rotation.set(0, -sweep, droop - up);
-  P.wingR.rotation.set(0, sweep, -droop + up);
-  P.wingLMid.rotation.set(0, -0.55 * fold, -midUp);
-  P.wingRMid.rotation.set(0, 0.55 * fold, midUp);
-  P.wingLTip.rotation.set(0, -0.5 * fold, -tipUp);
-  P.wingRTip.rotation.set(0, 0.5 * fold, tipUp);
+  const z0 = DIHEDRAL - droop + up;
+  const z1 = DIHEDRAL * 0.55 + midUp;   // wrist continues the lift, a little less
+  const z2 = DIHEDRAL * 0.35 + tipUp;   // primaries flatten out at the tip
+  P.wingL.rotation.set(0, -sweep, -z0);
+  P.wingR.rotation.set(0, sweep, z0);
+  P.wingLMid.rotation.set(0, -0.55 * fold - SWEEP_AFT * 0.6, -z1);
+  P.wingRMid.rotation.set(0, 0.55 * fold + SWEEP_AFT * 0.6, z1);
+  P.wingLTip.rotation.set(0, -0.5 * fold - SWEEP_AFT * 0.5, -z2);
+  P.wingRTip.rotation.set(0, 0.5 * fold + SWEEP_AFT * 0.5, z2);
 }
 
 function animate(rig: PalRig, ctx: PalAnimCtx): void {
   const P = rig.parts;
   const t = ctx.time, at = ctx.actionTime, ms = ctx.moveSpeed;
+
+  // The blob has to stay flat on the ground whatever the rig is doing, and it
+  // grows a little with the wingspan so the shadow matches the pose.
+  updateContactBlob(P.blob, rig.root, 1 + 0.35 * Math.max(0, -P.wingL.rotation.z));
 
   // Absolute base pose every frame (branches then layer motion on top).
   P.body.position.set(0, BODY_Y, 0);
@@ -311,11 +459,20 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       const g = smooth((Math.sin(t * 0.33) + 1) * 0.7 - 0.2); // glide mix, dwells at ends
       const ph = t * (3.6 + 2.6 * ms);
       const amp = (0.16 + 0.44 * (0.35 + 0.65 * ms)) * (1 - 0.82 * g);
+      // Positive base lift on all three sections = a shallow dihedral V. A bird
+      // gliding with level or drooping wings reads as a paper glider; the V is the
+      // silhouette that says "bird" at any distance, and it also keeps the wing
+      // roots clear of the head through the whole beat.
+      // The old per-branch +0.20/+0.14/+0.10 base lift is gone: DIHEDRAL in
+      // poseWings now owns the resting attitude, so every action inherits the V.
       poseWings(P, 0,
-        Math.sin(ph) * amp + 0.18 * g + 0.06,
+        Math.sin(ph) * amp + 0.18 * g,
         Math.sin(ph - 0.55) * amp * 0.8 + 0.10 * g,
         Math.sin(ph - 1.1) * amp * 0.95 + 0.05 * Math.sin(t * 7.3) * g);
-      const bank = Math.sin(t * 0.55) * (0.06 + 0.10 * g);
+      // Barely any idle roll. A hovering owl rolled even 0.16 rad photographs as
+      // one wing up and one wing down, which reads as a broken mirror rather than
+      // as a bank — and the pal hovers in place for every portrait.
+      const bank = Math.sin(t * 0.55) * (0.02 + 0.035 * g);
       const pitch = 0.16 + 0.12 * ms - 0.06 * Math.sin(ph - 0.9) * (1 - g);
       P.body.rotation.set(pitch, 0, bank);
       P.body.position.y = BODY_Y + Math.sin(ph - 0.95) * 0.05 * (1 - g) + Math.sin(t * 1.15) * 0.025 * g;

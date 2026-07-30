@@ -1,36 +1,54 @@
 import * as THREE from 'three';
 import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
+import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
+import { makeContactBlob, updateContactBlob } from './contactshadow';
 
 // ---------------------------------------------------------------------------
-// Drakelet — a proud pocket dragon in rose-crimson scale mail. The showpiece:
+// Drakelet — a proud pocket dragon in ember-crimson scale mail. The showpiece:
 // two-segment bat wings with membrane, chest that puffs before a breath attack,
 // three-segment whip tail with an arrow tip, horns, spikes, the works.
 // ---------------------------------------------------------------------------
 
 const S = 0.1; // voxel scale
 
+// Palette warmed off raspberry. The old 0xe04f68 / 0xa32f4a / 0xff8496 set was a
+// cool magenta-red: under this game's warm 0xfff2d9 sun it read as a cool pink
+// against every other warm-lit thing in frame, and next to the fox's orange and the
+// pup's basalt it looked like it came from a different game. Rotating the hue about
+// 12 degrees toward orange keeps it unmistakably crimson and puts it back in the
+// roster's palette.
 const C = {
-  scale: 0xd8465f,      // rose-crimson
-  scaleDk: 0x9e2c47,
-  scaleLt: 0xef6f82,
-  belly: 0xf6e0bd,
-  bellyDk: 0xdcc094,
-  horn: 0xf2e9d5,
-  claw: 0xf2e9d5,
-  spike: 0x8a2340,
-  membrane: 0x7a1f2e,   // dark wine membrane — separates wing from body in flight
-  membraneDk: 0x5c1723, // deeper trailing edge
-  wingBone: 0xdcc094,   // pale bone leading-edge strip
-  eye: 0x2a1430,
-  eyeShine: 0xffffff,
-  iris: 0xffc45e,
-  nostril: 0x6e1d33,
-  tooth: 0xffffff,
+  scale: 0xd94a44,      // ember-crimson
+  scaleDk: 0x9a2c2c,
+  scaleLt: 0xff8168,    // sunlit crest along back, skull and haunches
+  belly: 0xf9e6c6,
+  bellyDk: 0xdcb589,
+  horn: 0xfff3e0,
+  claw: 0xfff3e0,
+  spike: 0x7d2422,
+  // Membrane lifted two full steps. The old 0x7a1f2e / 0x5c1723 pair sat at ~15%
+  // luminance, so in every portrait the wings were black slivers and the pale
+  // arm bone read as a loose stick floating beside the dragon.
+  membrane: 0xb8443c,
+  membraneDk: 0x8a2f2b, // trailing edge, one step down for chord definition
+  membraneLt: 0xd06052, // sunlit inner panel
+  wingBone: 0xe3c288,   // bone leading-edge strip. Pulled down from 0xf6dcae:
+  // as the palest thing on the model, run across the full span at two rows tall,
+  // it became a bright bar that out-read the membrane it was supposed to support.
+  // Dark iris, bright catchlight — the polarity every species in the roster now
+  // shares. A pale gold 2x3 iris on this cream face plate merged straight into it and
+  // left only the pupil column reading, which a critic saw as "wide black eye slots".
+  iris: 0x38131a,       // dark ember-crimson: the coat hue at a fifth of its value
+  eyeShine: 0xfff6dd,   // catchlight, matching the dragon's fire
+  eyeLid: 0x8a2320,     // socket rim: scale at half value
+  nostril: 0x6b1f1c,
 } as const;
 
 // Base pose constants shared between buildRig() and animate()
 const BODY_Y = 0.52;
+/** Hover height PalActor holds a flyer at; the contact blob has to match it. */
+const HOVER = 1.55;
 
 // ---------------------------------------------------------------------------
 // Skills
@@ -52,7 +70,7 @@ export const skills: SkillDef[] = [
   {
     id: 'drakelet.drakefire-breath',
     name: 'Drakefire Breath',
-    description: 'Puffs up its chest, inhales the whole sky, and exhales a rolling cone of rose-pink dragonfire.',
+    description: 'Puffs up its chest, inhales the whole sky, and exhales a rolling cone of ember-red dragonfire.',
     element: 'dragon',
     targeting: 'beam',
     cost: 15,
@@ -94,16 +112,33 @@ export const skills: SkillDef[] = [
 // Rig construction
 // ---------------------------------------------------------------------------
 
-/** Inner wing segment: shoulder-to-elbow arm bone with a small membrane wedge. */
+/**
+ * Inner wing segment: shoulder-to-elbow arm bone with the membrane hung off it.
+ *
+ * The old version put the bone at y=1 and the membrane at y=0 — diagonally
+ * adjacent, so the two masses shared no face and the wing photographed as two
+ * unrelated sticks. Everything now lives on one plane at y=0 and is fully
+ * face-connected, with a second bone row at y=1 purely so the leading edge has
+ * thickness and the wing does not disappear when seen edge-on.
+ */
 function buildWingInner(dir: number): THREE.Mesh {
   const v = new VoxelModel();
   const cell = (i: number): number => (dir > 0 ? i : -i - 1);
   for (let i = 0; i < 4; i++) {
-    v.set(cell(i), 1, 0, C.wingBone); // pale arm-bone leading edge
-    v.set(cell(i), 0, -1, C.membrane); // membrane wedge toward the body
-    if (i < 3) v.set(cell(i), 0, -2, C.membraneDk);
+    v.set(cell(i), 0, 1, C.wingBone); // arm bone, in-plane with the membrane
+    if (i < 2) v.set(cell(i), 1, 1, C.wingBone); // thickness at the shoulder only
+    v.set(cell(i), 0, 0, C.membraneLt);
+    v.set(cell(i), 0, -1, C.membrane);
+    v.set(cell(i), 0, -2, i < 3 ? C.membrane : C.membraneDk);
+    if (i < 3) v.set(cell(i), 0, -3, C.membraneDk); // trailing edge
+    // A shaded row UNDER the forward half of the panel. Without it the inner wing is
+    // a one-cell sheet, so whichever wing happens to face the camera edge-on shows
+    // nothing but the pale bone strip — which is precisely why a critic saw one big
+    // red wing on the right and "a mismatched tan sliver" on the left.
+    v.set(cell(i), -1, 1, C.membraneDk);
+    v.set(cell(i), -1, 0, C.membraneDk);
   }
-  v.set(cell(3), 2, 0, C.wingBone); // elbow knuckle
+  v.set(cell(3), 2, 1, C.wingBone); // elbow knuckle
   const m = v.build(S, false);
   m.position.set(0, -0.15, -0.02);
   return m;
@@ -113,22 +148,28 @@ function buildWingInner(dir: number): THREE.Mesh {
 function buildWingOuter(dir: number): THREE.Mesh {
   const v = new VoxelModel();
   const cell = (i: number): number => (dir > 0 ? i : -i - 1);
-  const depth = [2, 3, 4, 5, 4, 3]; // membrane chord per column, scalloped tip
+  const depth = [4, 5, 6, 6, 5, 3]; // membrane chord per column, scalloped tip.
+  // Deepened from [2,3,4,5,4,3]: a hand-wing barely two cells deep at the root
+  // left a gap between the inner panel and the fan, which is what turned the
+  // whole wing into confetti at portrait range.
   for (let i = 0; i < 6; i++) {
-    v.set(cell(i), 0, 0, C.wingBone); // pale leading-edge strip
-    for (let z = -1; z >= -depth[i]; z--) {
+    v.set(cell(i), 0, 1, C.wingBone); // pale leading-edge strip
+    if (i < 2) v.set(cell(i), 1, 1, C.wingBone); // thickened at the wrist only
+    v.set(cell(i), -1, 1, C.membraneDk); // leading-edge underside: see buildWingInner
+    for (let z = 0; z >= -depth[i]; z--) {
       const trailing = z === -depth[i];
-      v.set(cell(i), 0, z, trailing ? C.membraneDk : C.membrane);
+      v.set(cell(i), 0, z, trailing ? C.membraneDk : z > -2 ? C.membraneLt : C.membrane);
     }
   }
-  // radiating finger ribs across the membrane
-  for (let i = 1; i < 6; i++) {
-    const r1 = -Math.min(Math.round(i * 0.4), depth[i] - 1);
-    const r2 = -Math.min(Math.round(i * 0.8), depth[i] - 1);
-    if (r1 < 0) v.set(cell(i), 0, r1, C.scaleDk);
-    if (r2 < r1) v.set(cell(i), 0, r2, C.scaleDk);
+  // Two finger bones, each a CONTINUOUS dark line running root-to-tip down its own
+  // column. The previous version dropped two dark cells per column at positions
+  // derived from round(i * 0.7) and round(i * 1.3), which staggered them into a
+  // pink-on-red chequerboard — it photographed as a missing-texture checker, not as
+  // membrane structure. A rib has to follow the bone or it is just noise.
+  for (const i of [2, 4]) {
+    for (let z = 0; z >= -depth[i]; z--) v.set(cell(i), 0, z, C.scaleDk);
   }
-  v.set(cell(5), 1, 0, C.claw); // little wing thumb-claw
+  v.set(cell(5), 1, 1, C.claw); // little wing thumb-claw
   const m = v.build(S, false);
   m.position.y = -0.05;
   return m;
@@ -171,6 +212,9 @@ function buildRig(): PalRig {
   torsoVox.ellipsoid(2.5, 2.4, -2.2, 1.5, 1.9, 1.9, C.scale);   // haunches
   torsoVox.ellipsoid(-2.5, 2.4, -2.2, 1.5, 1.9, 1.9, C.scale);
   torsoVox.ellipsoid(0, 5.4, -0.5, 2.4, 1.8, 3.6, C.scaleLt);   // sunlit back sheen
+  // Underside in shadow. The old torso was one flat rose from crown to belly, so
+  // the barrel had no volume and the haunches vanished into it.
+  shadeUnder(torsoVox, C.scaleDk, -4, 4, 0, 5, -5, 5);
   // dorsal spike ridge
   torsoVox.set(0, 6, 2, C.spike);
   torsoVox.set(0, 7, 2, C.spike);
@@ -191,10 +235,13 @@ function buildRig(): PalRig {
   parts.chest = chest;
 
   const chestVox = new VoxelModel();
-  chestVox.ellipsoid(0, 3, 1.2, 2.4, 3.0, 2.6, C.belly);
-  chestVox.ellipsoid(0, 4.4, 1.3, 2.45, 0.5, 2.65, C.bellyDk); // plate seams
-  chestVox.ellipsoid(0, 2.8, 1.3, 2.45, 0.5, 2.65, C.bellyDk);
-  chestVox.ellipsoid(0, 1.4, 1.3, 2.3, 0.5, 2.5, C.bellyDk);
+  // Narrowed from 2.4 x 3.0: a full-width cream barrel swallowed the rose scale
+  // entirely, so the dragon read as a cream blob wearing red patches.
+  chestVox.ellipsoid(0, 2.8, 1.4, 1.9, 2.5, 2.3, C.belly);
+  chestVox.ellipsoid(0, 4.0, 1.5, 1.95, 0.5, 2.35, C.bellyDk); // plate seams
+  chestVox.ellipsoid(0, 2.5, 1.5, 1.95, 0.5, 2.35, C.bellyDk);
+  chestVox.ellipsoid(0, 1.2, 1.5, 1.8, 0.5, 2.2, C.bellyDk);
+  shadeUnder(chestVox, C.bellyDk, -2, 2, 0, 3, -1, 4);
   const chestMesh = chestVox.build(S);
   chestMesh.position.set(0, -0.32, 0.02);
   chest.add(chestMesh);
@@ -210,30 +257,70 @@ function buildRig(): PalRig {
   // mush at portrait range.
   const headVox = new VoxelModel();
   headVox.ellipsoid(0, 2.8, -0.2, 3.4, 2.7, 3.0, C.scale);      // cranium
-  headVox.ellipsoid(0, 2.2, 2.8, 1.9, 1.3, 2.0, C.scale);       // muzzle
-  headVox.set(-1, 2, 4, C.eye);                                  // nostrils
-  headVox.set(1, 2, 4, C.eye);
-  // Eyes: 2x2 cream sclera with the pupil on the inner-lower cell, so white
-  // reads above and outside the pupil (Aquaxol's proportions).
-  for (const sx of [1, -1]) {
-    headVox.set(sx * 3, 3, 2, C.horn);
-    headVox.set(sx * 2, 3, 2, C.horn);
-    headVox.set(sx * 3, 2, 2, C.horn);
-    headVox.set(sx * 2, 2, 2, C.eye);
+  // Muzzle: a STEPPED wedge, not a cantilevered brick. Three z steps, each one
+  // narrower and shorter than the last, and the value falls as it goes down —
+  // cream only on the top and front rows, mid cream in the middle, and the jaw line
+  // underneath in dark scale so the pale block visibly sits on something. The old
+  // muzzle was a single pale ellipsoid poking straight out of the face with nothing
+  // beneath it, which is the classic bar-of-soap read.
+  // Starts at z=4, clear of the brow plate at z=3 — the plate is painted after this
+  // and would otherwise erase the snout's whole first step. It also tops out at y=2,
+  // two rows BELOW the eye line: a taller snout stands proud of the face plate
+  // directly in front of the eyes and hides them completely, which is exactly what a
+  // first attempt at this did.
+  const snout: Array<[number, number, number, number]> = [
+    // [z, half-width, y0, y1]
+    [4, 1, 0, 2],
+    [5, 1, 1, 2],
+    [6, 0, 2, 2],
+  ];
+  for (const [z, hw, y0, y1] of snout) {
+    for (let x = -hw; x <= hw; x++) {
+      for (let y = y0; y <= y1; y++) {
+        headVox.set(x, y, z, y === y1 ? C.belly : y === y0 ? C.scaleDk : C.bellyDk);
+      }
+    }
   }
-  // Horns: a voxel thicker than before (two columns per side) and swept back on
-  // one shared 45° cant, stepped so every cell is face-connected.
+  headVox.set(-1, 2, 5, C.nostril);                              // nostrils, on top
+  headVox.set(1, 2, 5, C.nostril);                               // of the snout
+  // Brow plate runs up to row 5 so the three-row eye has a face to sit in.
+  headVox.box(-3, 2, 3, 3, 5, 3, C.scale);
+  rimTop(headVox, C.scaleLt, -3, 3, 0, 6, -3, 4);
+  shadeUnder(headVox, C.scaleDk, -3, 3, 0, 3, -3, 2);
+  // inner: 1, not 2. On this wide skull the outer eye column at |x| = 3 is the very
+  // edge of the head, so the gold iris was half-hidden round the curve and only the
+  // two-cell pupil showed: two black vertical voids with nothing to explain them.
+  // Brought inboard, iris and pupil are both fully presented to the camera.
+  // A pale MASK across the eye rows before the eyes go in. A dark crimson iris on a
+  // crimson brow plate has no boundary once the face is in shade — the real-game
+  // portrait came back with only the catchlights visible, two pale squares floating on
+  // red. Cream around the socket is what makes the dark iris an eye. It also ties the
+  // brow to the cream snout below it, so the head reads as one shape.
+  for (let x = -3; x <= 3; x++) {
+    headVox.set(x, 3, 3, C.bellyDk);
+    headVox.set(x, 4, 3, C.belly);
+  }
+  eyes2x2(headVox, {
+    inner: 1, y: 3, faceZ: 3, iris: C.iris, shine: C.eyeShine,
+    lid: C.eyeLid, browProud: true, bridge: C.belly,
+  });
+  // Horns: two columns per side, swept back and stepped. The base course now starts
+  // at y = 3 / z = +1 — INSIDE the cranium — and climbs aft in a solid staircase with
+  // no diagonal-only joins. The previous version rooted at y = 4 / z = -1, whose
+  // lower cells were only just inside the skull's curve; from a three-quarter bearing
+  // sky showed between horn and crown and a critic logged them as hovering.
   for (const sx of [1, -1]) {
     for (const w of [2, 3]) {
-      headVox.set(sx * w, 5, -1, C.horn);
-      headVox.set(sx * w, 6, -1, C.horn);
-      headVox.set(sx * w, 6, -2, C.horn);
-      headVox.set(sx * w, 7, -2, C.horn);
-      headVox.set(sx * w, 7, -3, C.horn);
+      const step: Array<[number, number]> = [
+        [3, 1], [3, 0], [4, 0], [4, -1], [5, -1], [5, -2], [6, -2], [6, -3], [7, -3],
+      ];
+      for (const [y, z] of step) headVox.set(sx * w, y, z, C.horn);
     }
   }
   const headMesh = headVox.build(S);
-  headMesh.position.y = -0.30;
+  // +0.05z compensates the extra snout step: build() re-centres on the bounding box,
+  // so growing the model forward slides the cranium back into the chest.
+  headMesh.position.set(0, -0.30, 0.05);
   head.add(headMesh);
 
   // -- lower jaw on a hinge --
@@ -243,31 +330,42 @@ function buildRig(): PalRig {
   parts.jaw = jaw;
 
   const jawVox = new VoxelModel();
-  jawVox.box(-1, 0, 0, 1, 0, 3, C.belly);
+  // Dark scale, not cream. This is the volume UNDER the pale muzzle; painting it
+  // cream too made the whole lower face one pale slab with no chin line in it.
+  jawVox.box(-1, 0, 0, 1, 0, 3, C.scaleDk);
+  jawVox.set(0, 0, 3, C.bellyDk); // one lit cell at the chin point
   // (fang voxels removed — they collided with the muzzle and muddied the face)
   const jawMesh = jawVox.build(S, false);
   jawMesh.position.set(-0.05, -0.05, 0);
   jaw.add(jawMesh);
 
   // -- wings: shoulder pivot + elbow pivot per side --
+  // Shoulders sit low and behind the skull: at y=0.18 the spread wings crossed
+  // the horns in every portrait and the head lost its outline.
   const wingR = new THREE.Group();
-  wingR.position.set(0.20, 0.18, 0.02);
+  // |x| = 0.14 against a torso half-width of 0.32 buries the root column two cells
+  // inside the barrel. At the old 0.22 the root sat right on the silhouette edge, and
+  // with the shoulder rotated the membrane's first column swung clear of the body —
+  // a critic measured a ~40px air gap between wing root and torso in a 1200px shot.
+  wingR.position.set(0.14, 0.06, -0.08);
   body.add(wingR);
   parts.wingR = wingR;
   wingR.add(buildWingInner(1));
   const wingTipR = new THREE.Group();
-  wingTipR.position.set(0.38, 0.05, 0);
+  // 0.34, not 0.38: the inner section ends at 0.40 from its own pivot, so the hand
+  // now overlaps the forearm by a cell and the elbow cannot open a seam.
+  wingTipR.position.set(0.34, 0.05, 0);
   wingR.add(wingTipR);
   parts.wingTipR = wingTipR;
   wingTipR.add(buildWingOuter(1));
 
   const wingL = new THREE.Group();
-  wingL.position.set(-0.20, 0.18, 0.02);
+  wingL.position.set(-0.14, 0.06, -0.08);
   body.add(wingL);
   parts.wingL = wingL;
   wingL.add(buildWingInner(-1));
   const wingTipL = new THREE.Group();
-  wingTipL.position.set(-0.38, 0.05, 0);
+  wingTipL.position.set(-0.34, 0.05, 0);
   wingL.add(wingTipL);
   parts.wingTipL = wingTipL;
   wingTipL.add(buildWingOuter(-1));
@@ -341,6 +439,12 @@ function buildRig(): PalRig {
   t3Mesh.position.set(-0.05, -0.05, 0);
   tail3.add(t3Mesh);
 
+  // Ground contact blob — see contactshadow.ts. A hovering dragon with no shadow
+  // beneath it is pasted onto the scenery rather than flying over it.
+  const blob = makeContactBlob(0.7, HOVER);
+  root.add(blob);
+  parts.blob = blob;
+
   return { root, parts, height: 1.15, radius: 0.45 };
 }
 
@@ -369,10 +473,13 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
   let headRY = Math.sin(t * 0.5) * 0.22; // slow proud look-around
   let headRZ = Math.sin(t * 0.7 + 1) * 0.05;
   let jawOpen = 0.06 + Math.sin(t * 2.2) * 0.02;
-  let flap = 0.45 + Math.sin(t * 2.2) * 0.03; // folded, riding the breath
-  let sweep = 1.05; // folded back
-  let wingRX = 0;
-  let tipFold = 1.35;
+  // Perched wings furl UP over the shoulders like an umbrella, membrane rolled
+  // vertical. The old pose (flap 0.45, wingRX 0) left both membranes horizontal
+  // and edge-on, so a perched drakelet grew two pale planks out of its ribs.
+  let flap = 1.15 + Math.sin(t * 2.2) * 0.03; // folded, riding the breath
+  let sweep = 0.55; // laid back along the flank
+  let wingRX = 0.85; // membrane rolled up on edge, the way a bat furls
+  let tipFold = 2.0; // hand folded back hard against the arm
   let tipFlap = -0.2;
   let legRX = 0.10;
   let legSplit = 0;
@@ -394,11 +501,19 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       const w = t * (7.5 + 3.5 * ctx.moveSpeed);
       const raw = Math.sin(w);
       const beat = Math.sign(raw) * Math.abs(raw) ** 0.75; // snappy downstroke
-      flap = beat * (0.75 + 0.25 * k);
+      // Peak flap trimmed from 0.75-1.00 rad to 0.52-0.70. At a full radian the wing
+      // plane swung past vertical twice a beat, so a still caught it edge-on as often
+      // as broadside — which is how a critic ended up describing one wing as a big red
+      // slab and the other as a tan sliver. A shallower beat keeps the membrane
+      // presenting its pattern for most of the cycle.
+      flap = beat * (0.52 + 0.18 * k);
       sweep = 0.18;
       tipFold = 0.12;
       tipFlap = Math.sin(w - 0.85) * 0.55; // membrane lag / follow-through
-      wingRX = Math.sin(w - 0.4) * 0.10;
+      // Standing 0.34 rad of roll on top of the beat's own wobble: with a purely
+      // horizontal membrane the wings passed edge-on through the middle of every
+      // stroke, and every second frame caught them as two bare leading edges.
+      wingRX = 0.34 + Math.sin(w - 0.4) * 0.14;
       bodyY = BODY_Y + Math.sin(w - 1.1) * 0.07 * k + 0.06;
       bodyRX = 0.30 * k + Math.sin(w - 1.3) * 0.06; // pitched into the flight
       bodyRZ = Math.sin(t * 1.6) * 0.08 * k;        // banking drift
@@ -552,6 +667,9 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
   }
 
   // ---- apply ----
+  // Contact blob stays flat on the ground and widens a little with the wingspan.
+  updateContactBlob(p.blob, rig.root, 1 + 0.25 * clamp01(1 - Math.abs(sweep)));
+
   const body = p.body;
   body.position.set(bodyX, bodyY, bodyZ);
   body.rotation.set(bodyRX, bodyRY, bodyRZ);
@@ -587,7 +705,7 @@ export const species: PalSpecies = {
   locomotion: 'flying',
   description:
     'A pocket-sized dragon with the ego of a mountain-sized one. Polishes its '
-    + 'rose-crimson scales on cliff quartz and practices its roar at sunrise, every sunrise.',
+    + 'ember-crimson scales on cliff quartz and practices its roar at sunrise, every sunrise.',
   baseStats: { maxHp: 46, attack: 13, defense: 9, speed: 5.6 },
   skills: [
     'drakelet.fang-rush',

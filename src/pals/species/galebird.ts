@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
+import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
+import { makeContactBlob, updateContactBlob } from './contactshadow';
 
 // ---------------------------------------------------------------------------
 // Galebird — a swift teal swallow, the fastest set of wings in the valley.
@@ -10,28 +12,46 @@ import { VoxelModel } from '../../core/voxel';
 
 const S = 0.1;
 
-// Palette — teal-to-white gradient with a rust throat accent
-const TEAL = 0x2fa9a4;      // main coat
-const DEEP = 0x1c7480;      // back cap / leading wing edges
-const DUSKTEAL = 0x145a66;  // wingtips
-const UNDER = 0x2f4a58;     // shaded wing underside — lifted well off black: at
-                            // sun 2.55 / fill 0.52 the old 0x0f4750 underside
-                            // was a void wherever the wing turned away.
+// Palette — every teal was lifted a full value step in round 6. Flying against
+// dark tree canopy with its shaded side to camera, the old 0x2fa9a4 / 0x1c7480 /
+// 0x145a66 set photographed as one black smudge: the mid-tone was only ~40%
+// luminance and the fill light is 0.52 against a 2.55 sun.
+const TEAL = 0x54dbcd;      // main coat
+const RIM = 0xb2f6e9;       // sunlit crest along back, crown and leading edges
+const DEEP = 0x2f9cae;      // back cap
+const DUSKTEAL = 0x27889a;  // wingtips / trailing edge
+const UNDER = 0x5b93a4;     // shaded wing underside — mid, never a void
 const MIST = 0xcdeee8;      // gradient step toward the belly
 const WHITE = 0xf6fdfb;     // belly
-const RUST = 0xe8744f;      // throat patch accent
-const BEAK = 0x2d2f3a;
-const EYE_WHITE = 0xffffff;
-const PUPIL = 0x1c1a24;
-const STREAM_TIP = 0xbfd4dc; // pale tail-streamer tips: the dark tips vanished
+const RUST = 0xf2814f;      // throat patch accent
+const BEAK = 0xffc24d;      // warm amber beak: a near-black beak on a bird this
+                            // small simply disappeared into the head
+const BEAK_DK = 0xc07f21;   // lower mandible / shaded beak side, so the beak has
+                            // two values and stops reading as a flat gold ingot
+const FOOT = 0x4d5361;
+const TOE = 0x8f96a3;       // lit toe cells — the feet were one dark blob
+// Dark iris, light face — the inversion the whole roster now shares. The old pale
+// gold 2x3 iris on a tan face plate merged into it, leaving only the pupils, and a
+// critic reading the portrait called them "wide black eye slots".
+const IRIS = 0x0f2b33;      // dark teal iris
+const SHINE = 0xf2ffff;     // single catchlight cell
+const COLLAR = 0xd9f4ee;    // pale nape band: the head/body break
+const STREAM_TIP = 0xd8ecf2; // pale tail-streamer tips: the dark tips vanished
                              // against the ground, cutting the fork off the bird
 
 // Base pose constants (world/local units, must match buildRig)
 const BODY_Y = 0.3;
-const HEAD_Y = 0.1;
-const HEAD_Z = 0.3;
+// Head sits low and close: with the old 0.1 / 0.3 the big new skull eclipsed the
+// whole fuselage in a head-on portrait and the bird read as a floating face.
+// The skull steps UP and FORWARD out of the shoulder line (0.02/0.26 -> 0.07/0.30).
+// Flush with the fuselage there was no head/body break at all and the bird read as
+// one continuous teal lozenge with a bill stuck on the front.
+const HEAD_Y = 0.07;
+const HEAD_Z = 0.30;
 const STREAM_X = -0.55;  // resting streamer droop
 const STREAM_YAW = 0.14; // fork spread
+/** Hover height PalActor holds a flyer at; the contact blob has to match it. */
+const HOVER = 1.55;
 
 const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
 const smooth = (t: number): number => t * t * (3 - 2 * t);
@@ -40,86 +60,151 @@ const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b 
 
 function makeTorso(): THREE.Mesh {
   const m = new VoxelModel();
-  m.ellipsoid(0, 1.8, -0.2, 2.2, 1.8, 3.8, TEAL);   // sleek fuselage
+  // Fuselage widened 2.2 -> 2.6 at the same time as the skull came down from 3.0.
+  // Those two numbers being the wrong way round is the whole of the "80% head, no
+  // body" read: a 7-cell skull in front of a 5-cell body hides the body completely.
+  m.ellipsoid(0, 1.8, -0.2, 2.6, 1.9, 3.8, TEAL);   // sleek fuselage
   m.ellipsoid(0, 2.7, -0.8, 1.8, 1.2, 3.0, DEEP);   // dark back cap
   m.ellipsoid(0, 0.9, 0.5, 1.9, 1.3, 3.2, MIST);    // gradient step
   m.ellipsoid(0, 0.4, 0.7, 1.6, 0.9, 2.7, WHITE);   // white belly
   m.ellipsoid(0, 1.9, -3.3, 1.2, 1.1, 1.4, DEEP);   // tapered rump
-  // ONE compact 2-wide foot block tucked under the belly. Two separate legs at
-  // this cell count read as loose dark rectangles hanging off the fuselage and
-  // broke the dart silhouette; at 10 cm per cell a dart beats anatomy.
-  m.box(-1, -2, 0, 0, -1, 1, BEAK);
+  // Sunlit crest along the whole spine: one bright cell per column. Without it
+  // the fuselage is a single flat value from any angle that isn't top-down.
+  rimTop(m, RIM, -2, 2, 0, 5, -5, 4);
+  // Shaded keel along the belly's turn-under: the pale belly alone made the
+  // fuselage read as a flat white oval from below.
+  shadeUnder(m, UNDER, -2, 2, 0, 4, -5, 4);
+  // ONE compact foot block tucked under the belly, but with three lit toe cells
+  // pointing forward so it reads as feet rather than as a dark rectangle. Two
+  // fully separate legs at this cell count broke the dart silhouette; at 10 cm
+  // per cell a dart with toes beats anatomy.
+  // TWO legs, not one block. A single tucked rectangle was legible as "some dark
+  // thing under the belly" and a critic counted the bird as having no legs or feet at
+  // all; two separated columns with their own toes give the silhouette its third
+  // mass (head / body / limbs) even at portrait distance. Each leg's top cell is
+  // inside the belly ellipsoid, so no pose can open a gap at the hip.
+  for (const sx of [1, -1]) {
+    m.box(sx, -2, -1, sx, 0, 1, FOOT);
+    m.set(sx, -2, 2, TOE);        // forward toe
+    m.set(sx * 2, -2, 1, TOE);    // outboard toe: splays the foot so it reads wide
+    m.set(sx, -2, -2, FOOT);      // hind toe
+  }
+  // Pale nape band where the skull meets the shoulders. Head and fuselage were
+  // the same teal at the same value, which is why the bird photographed as one
+  // continuous mass with a beak stuck on the front.
+  // On the THROAT (front of the chest, under the chin) only. A first attempt also
+  // ran a band across the top of the shoulders at y=3, which from a head-on bearing
+  // appeared above the skull as a pale plate floating on the bird's head.
+  // (x = -1..1 is the widest the fuselage actually reaches at that row.)
+  for (let x = -1; x <= 1; x++) m.set(x, 2, 3, COLLAR);
   return m.build(S, true);
 }
 
 function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
-  m.ellipsoid(0, 1.3, 0.3, 2.0, 1.4, 1.7, TEAL);
-  m.ellipsoid(0, 1.9, 0.0, 1.7, 0.9, 1.4, DEEP);    // dark cap down to the eye line
-  m.ellipsoid(0, 0.5, 1.4, 1.2, 0.8, 0.9, RUST);    // rust throat patch
-  // Eyes: 2x2 white blocks proud of the face, pupil on the inner-lower cell
-  for (const sx of [1, -1]) {
-    m.set(sx * 1, 2, 2, EYE_WHITE);
-    m.set(sx * 2, 2, 2, EYE_WHITE);
-    m.set(sx * 2, 1, 2, EYE_WHITE);
-    m.set(sx * 1, 1, 2, PUPIL);
-  }
+  // Volume cut ~40% from the previous 3.0 x 2.1 x 1.8. That skull was SEVEN cells
+  // across on a five-cell fuselage; at bearing 275 the portrait was a teal cube
+  // filling a third of the frame with a strip of body behind it. Five cells across
+  // and one row shallower is still a chunky swallow head — it is just no longer
+  // bigger than the bird.
+  m.ellipsoid(0, 1.9, 0.1, 2.3, 1.8, 1.7, TEAL);
+  m.ellipsoid(0, 3.0, -0.3, 2.0, 0.9, 1.4, DEEP);   // dark crown cap
+  m.ellipsoid(0, 0.9, 1.2, 1.3, 0.8, 1.0, RUST);    // rust throat bib, kept small
+  // and high — as a full lower-face mass it read as a dark red wound under the beak
+  m.box(-2, 1, 2, 2, 4, 2, TEAL);                    // flat face plate the eyes
+  // hang on: on the bare ellipsoid the outer eye column floated free of the skull
+  rimTop(m, RIM, -2, 2, 0, 5, -2, 2);
+  // Shadow line under the jaw and cheeks: without it the head and the chest are
+  // the same value and the bird photographs as one continuous lozenge.
+  shadeUnder(m, DUSKTEAL, -2, 2, 0, 1, -2, 0);
+  // inner: 1 brackets a single-cell nose bridge, which is all a five-cell face has
+  // room for and is where a swallow's eyes actually sit. The bridge cell is stamped
+  // one cell PROUD by the macro, and that lit ridge is what stops the pair merging
+  // into one wide slot across the face.
+  // Pale mask across the eye rows before the eyes go in. On a teal face plate in shade
+  // a dark teal iris has no boundary at all; MIST gives each eye a light field to sit
+  // against, and it doubles as the swallow's pale cheek.
+  for (let x = -2; x <= 2; x++) { m.set(x, 2, 2, MIST); m.set(x, 3, 2, MIST); }
+  eyes2x2(m, {
+    inner: 1, width: 1, y: 2, faceZ: 2, iris: IRIS, shine: SHINE,
+    lid: DUSKTEAL, browProud: true, bridge: RIM,
+  });
   return m.build(S, true);
 }
 
 function makeBeak(): THREE.Mesh {
   const m = new VoxelModel();
-  m.set(0, 0, 0, BEAK);
-  m.set(0, 0, 1, BEAK); // tiny, sharp, two cells long
+  // A SMALL amber dagger: 3 cells wide and 2 tall at the base, dropping to a single
+  // centred cell two steps out. The previous beak was 3 x 2 x 3 solid — 0.3 x 0.2
+  // units on a 0.7-wide head, so it covered nearly half the face and photographed as
+  // a gold ingot glued on. A swallow's bill is barely there.
+  // ONE cell wide now, down from three. Cutting the skull from seven cells to five
+  // left the old 3-wide bill covering more than half the face, and a front-on portrait
+  // came back as a gold ingot with a bird behind it — the exact failure the previous
+  // round had already fixed once at the old head size.
+  m.set(0, 1, 0, BEAK);                 // upper mandible
+  m.set(0, 0, 0, BEAK_DK);              // lower mandible in shadow: two values
+  m.set(0, 1, 1, BEAK);
+  m.set(0, 1, 2, BEAK);                 // point
   return m.build(S, true);
 }
 
 /**
  * Inner wing section. dir=1 builds toward +x (left), dir=-1 mirrors.
- * Straight trailing edge on purpose: stepping it in per column chopped the
- * wing into a stack of offset rectangles. The taper lives in the outer
- * section, so inner + outer read as one clean swept dart.
+ * Two voxel layers thick over the full chord: a one-cell plank is literally
+ * invisible edge-on, which is why every side-on flyer portrait lost its wings.
+ * Straight trailing edge on purpose — the taper lives in the outer section, so
+ * inner + outer read as one clean swept dart.
  */
 function makeWingInner(dir: 1 | -1): THREE.Mesh {
   const X = (x: number): number => (dir === 1 ? x : -1 - x);
   const m = new VoxelModel();
   for (let x = 0; x <= 2; x++) {
-    m.box(X(x), 0, -2, X(x), 0, 2, TEAL);
-    m.set(X(x), 0, 2, DEEP);          // leading edge
-    m.set(X(x), 0, -2, MIST);         // pale trailing edge, straight across
-    // shaded underside gives the wing thickness from below
-    if (x < 2) m.box(X(x), -1, -1, X(x), -1, 1, UNDER);
+    m.box(X(x), 0, -3, X(x), 0, 2, TEAL); // top surface, chord widened to 6
+    m.set(X(x), 0, 2, RIM);               // bright leading edge catches the sun
+    m.set(X(x), 0, -3, DUSKTEAL);         // dark trailing edge defines the chord
+    // Full shaded underside: the wing has real thickness and a dark belly, so
+    // it reads as a wing whether you see the top, the bottom or just the edge.
+    m.box(X(x), -1, -3, X(x), -1, 1, UNDER);
   }
   return m.build(S, false);
 }
 
-/** Outer wing section: one straight 3-column taper to a swept tip. */
+/** Outer wing section: a straight 4-column taper to a swept tip. */
 function makeWingOuter(dir: 1 | -1): THREE.Mesh {
   const X = (x: number): number => (dir === 1 ? x : -1 - x);
   const m = new VoxelModel();
-  // Chord 4 -> 3 -> 2 with a straight trailing edge at z=-2; the leading edge
-  // does all the sweeping. Nothing pokes out behind the line of the wing.
-  m.box(X(0), 0, -2, X(0), 0, 1, TEAL);
-  m.box(X(1), 0, -2, X(1), 0, 0, TEAL);
-  m.box(X(2), 0, -2, X(2), 0, -1, DUSKTEAL); // swept tip
-  m.set(X(0), 0, 1, DEEP);                   // leading edge
-  m.set(X(1), 0, 0, DEEP);
-  m.set(X(0), 0, -2, MIST);                  // trailing edge near body
-  m.box(X(0), -1, -1, X(0), -1, 0, UNDER);   // darker underside row at the root
+  // Chord 5 -> 4 -> 3 -> 1 with a straight trailing edge at z=-2; the leading
+  // edge does all the sweeping so nothing pokes out behind the wing line.
+  const front = [1, 0, -1, -2];
+  for (let x = 0; x < 4; x++) {
+    m.box(X(x), 0, -3, X(x), 0, front[x], x === 3 ? DUSKTEAL : TEAL);
+    m.set(X(x), 0, front[x], x === 3 ? DUSKTEAL : RIM); // leading edge
+    m.set(X(x), 0, -3, DUSKTEAL);                        // trailing edge
+    if (x < 3) m.box(X(x), -1, -3, X(x), -1, front[x] - 1, UNDER);
+  }
   return m.build(S, false);
 }
 
 function makeTailFan(): THREE.Mesh {
   const m = new VoxelModel();
-  m.box(-1, 0, -2, 1, 0, 0, TEAL);
-  m.box(-1, 0, -2, 1, 0, -2, DEEP);
+  m.box(-2, 0, -3, 2, 0, 0, TEAL);   // wider swallow fan: the old 3x3 nub read
+  m.box(-2, 0, -3, 2, 0, -3, DEEP);  // as a lump rather than a steering surface
+  m.box(-1, -1, -2, 1, -1, 0, UNDER); // shaded underside for edge-on thickness
+  m.set(-2, 0, 0, MIST);
+  m.set(2, 0, 0, MIST);
   return m.build(S, true);
 }
 
 function makeStreamer(): THREE.Mesh {
   const m = new VoxelModel();
-  const colors = [DEEP, DEEP, DUSKTEAL, DUSKTEAL, STREAM_TIP, STREAM_TIP, STREAM_TIP];
-  for (let i = 0; i < colors.length; i++) m.set(0, 0, -i, colors[i]);
+  const colors = [DEEP, DEEP, TEAL, TEAL, STREAM_TIP, STREAM_TIP, STREAM_TIP];
+  for (let i = 0; i < colors.length; i++) {
+    m.set(0, 0, -i, colors[i]);
+    // Second cell of width for the first half of the streamer: a 1x1 ribbon was
+    // a single hairline pixel at gameplay distance and the fork vanished.
+    if (i < 4) m.set(1, 0, -i, colors[i]);
+  }
   return m.build(S, false);
 }
 
@@ -141,11 +226,15 @@ function buildRig(): PalRig {
   head.position.set(0, HEAD_Y, HEAD_Z);
   body.add(head);
   const headMesh = makeHead();
-  headMesh.position.set(0, -0.14, 0.02);
+  // -0.22, not -0.14: the taller skull adds a row below the old eye line, so the
+  // pivot has to drop with it or the head floats off the shoulders.
+  headMesh.position.set(0, -0.22, 0.02);
   head.add(headMesh);
 
   const beak = makeBeak();
-  beak.position.set(0, -0.03, 0.24);
+  // -0.16 puts the upper mandible level with the bottom eye row instead of straight
+  // across the middle of both eyes, where beak and irises merged into one gold bar.
+  beak.position.set(0, -0.16, 0.25);
   head.add(beak);
 
   // Wings: two hinged sections per side, pivots at the shoulder and elbow.
@@ -188,9 +277,16 @@ function buildRig(): PalRig {
   const streamerL = mkStreamer(1);
   const streamerR = mkStreamer(-1);
 
+  // Ground contact blob — see contactshadow.ts. Without it a hovering swallow
+  // sits in front of the scenery instead of over it.
+  const blob = makeContactBlob(0.5, HOVER);
+  root.add(blob);
+
   return {
     root,
-    parts: { body, head, beak, wingL, wingLOut, wingR, wingROut, tail, streamerL, streamerR },
+    parts: {
+      body, head, beak, wingL, wingLOut, wingR, wingROut, tail, streamerL, streamerR, blob,
+    },
     height: 0.55,
     radius: 0.35,
   };
@@ -202,6 +298,10 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
   const at = ctx.actionTime;
   const ms = clamp01(ctx.moveSpeed);
   const br = Math.sin(t * 2.2);
+
+  // Ground blob: flat on the terrain whatever the bird is doing, and a touch
+  // wider when the wings are spread.
+  updateContactBlob(p.blob, rig.root, 1 + 0.3 * clamp01(p.wingL.rotation.z));
 
   // Pose state — everything is written every frame.
   let bpx = 0, bpy = BODY_Y, bpz = 0;
@@ -217,14 +317,17 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
   switch (ctx.action) {
     case 'idle': {
       // Hovering flutter: quick shallow beats, curious looks, streamers swaying.
+      // Amplitude pulled down from 0.5 to 0.3 and centred on level: the old
+      // beat swung both wings up past vertical, so a head-on hover portrait
+      // caught them edge-on behind the skull instead of spread wide.
       const ph = t * 4.4;
-      flapL = flapR = 0.15 + 0.5 * Math.sin(ph);
-      outL = outR = 0.45 * Math.sin(ph - 0.9);
+      flapL = flapR = 0.02 + 0.3 * Math.sin(ph);
+      outL = outR = 0.3 * Math.sin(ph - 0.9);
       sweepL = sweepR = 0.12 + 0.05 * Math.sin(ph - 0.4);
       bpy += 0.035 * Math.sin(ph - 1.3) + 0.02 * Math.sin(t * 1.3);
       bsy = 1 + 0.02 * br;
       bsx = bsz = 1 - 0.008 * br;
-      brx = 0.1 + 0.02 * Math.sin(t * 1.1); // slightly nose-up hover
+      brx = 0.03 + 0.02 * Math.sin(t * 1.1); // near-level hover
       hrx = -0.08 + 0.05 * Math.sin(t * 1.2 + 0.5);
       hry = 0.3 * Math.sin(t * 0.33);
       hrz = 0.04 * Math.sin(t * 0.5) + 0.28 * Math.max(0, Math.sin(t * 0.41 + 1.7)) ** 12; // curious tilt
@@ -238,9 +341,31 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       sry = 0.16 * Math.sin(sw - 1.6);
       break;
     }
+    case 'swim': {
+      // Ditched-swallow paddle: rides low with the wings half-furled, sculling
+      // in short alternating strokes and holding the head high and dry. Shares
+      // nothing with the flight beat, which is the whole point of a separate case.
+      const ph = t * 3.4;
+      flapL = 0.1 + 0.34 * Math.sin(ph);
+      flapR = 0.1 + 0.34 * Math.sin(ph + Math.PI);
+      outL = 0.5 + 0.22 * Math.sin(ph - 0.7);
+      outR = 0.5 + 0.22 * Math.sin(ph + Math.PI - 0.7);
+      sweepL = sweepR = 0.85;              // wings furled against the flanks
+      bpy += 0.02 * Math.sin(t * 2.1) - 0.03;
+      brx = -0.12;                         // tail-down, breast-up trim
+      brz = 0.06 * Math.sin(ph);
+      hrx = 0.1 + 0.05 * Math.sin(t * 1.4);
+      hry = 0.22 * Math.sin(t * 0.5);
+      beakX = 0.25 * Math.max(0, Math.sin(t * 0.9)) ** 12;
+      tfx = -0.15;                          // fan trails flat on the surface
+      tfy = 0.1 * Math.sin(ph - 0.9);
+      slx = srx = STREAM_X - 0.55;          // streamers float out behind
+      sly = 0.3 * Math.sin(t * 1.6);
+      sry = 0.3 * Math.sin(t * 1.6 + 1.1);
+      break;
+    }
     case 'walk':
     case 'run':
-    case 'swim':
     case 'fly': {
       // Darting flight: flap bursts, brief glides, hard banks; wings tuck in dives.
       const f = 7.5 + 5 * ms;
@@ -319,14 +444,20 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       const k = clamp01(at / T);
       const arc = Math.sin(Math.PI * k);
       const flare = Math.sin(Math.PI * phase(at, T, T + 0.3)) * (1 - smooth(phase(at, T + 0.3, T + 0.7)));
+      // Weight settles after the brake: a damped sink with the wings drooping
+      // half a beat behind the body, so the roll ends on a breath instead of
+      // snapping straight back to the hover pose.
+      const settle = Math.exp(-4.5 * Math.max(0, at - (T + 0.3))) * smooth(phase(at, T + 0.25, T + 0.45));
       brz = Math.PI * 2 * smooth(k);
-      brx = -0.2 * arc - 0.3 * flare;
-      bpy += 0.3 * arc + 0.08 * flare;
-      flapL = flapR = 0.35 - 0.2 * arc + 1.0 * flare;
-      outL = outR = 0.2 + 0.5 * flare;
-      sweepL = sweepR = 0.15 + 0.6 * arc * (1 - flare);
+      brx = -0.2 * arc - 0.3 * flare + 0.14 * settle;
+      bpy += 0.3 * arc + 0.08 * flare - 0.07 * settle;
+      bsy = 1 - 0.09 * settle;
+      bsx = bsz = 1 + 0.05 * settle;
+      flapL = flapR = 0.35 - 0.2 * arc + 1.0 * flare - 0.4 * settle;
+      outL = outR = 0.2 + 0.5 * flare - 0.5 * settle;
+      sweepL = sweepR = 0.15 + 0.6 * arc * (1 - flare) + 0.3 * settle;
       hrz = -0.2 * flare;
-      hrx = -0.15 * flare;
+      hrx = -0.15 * flare + 0.2 * settle;
       beakX = 0.4 * flare;
       tfy = 0.3 * Math.sin(at * 16 + 1);
       slx = srx = STREAM_X + 0.5 * arc;

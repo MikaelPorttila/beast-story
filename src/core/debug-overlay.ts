@@ -1,8 +1,17 @@
 import type * as THREE from 'three';
+import { postStats } from './post';
 
 /**
  * F2 debug overlay: measured frame rate (not the cap — actually observed),
  * frame time, the configured cap, and renderer load. Hidden by default.
+ *
+ * Draw calls need a word of explanation. Engine turns off
+ * `renderer.info.autoReset` and clears the counters once per frame, because
+ * renderer.info resets itself on every render() call and a post-processing
+ * frame makes several — left alone, the readout showed the cost of one
+ * fullscreen quad. So `draws` here is the honest per-frame total, and the
+ * `scene` line separates out what the world itself cost (sampled by
+ * post.ts's StatsProbePass) from what post-processing added on top.
  */
 export class DebugOverlay {
   private el: HTMLDivElement;
@@ -87,11 +96,18 @@ export class DebugOverlay {
       ? `cap    ${this.fpsCap} fps  (?fps=0 to disable)`
       : 'cap    none (uncapped)';
     const low = this.worst > 0 ? 1000 / this.worst : 0;
+    // postStats.sceneCalls stays 0 when the composer is bypassed (?post=0), in
+    // which case the total IS the scene cost and the split line is noise.
+    const post = postStats.sceneCalls > 0
+      ? `scene  ${String(postStats.sceneCalls).padStart(6)}   +${info.render.calls - postStats.sceneCalls} post `
+        + `(${postStats.passes} passes, ${postStats.bloomObjects} glow)`
+      : 'scene  (post disabled)';
     this.el.textContent = [
       `FPS    ${this.fps.toFixed(1).padStart(6)}   (${this.ms.toFixed(2)} ms/frame)`,
       `1% low ${low.toFixed(1).padStart(6)}   (worst ${this.worst.toFixed(1)} ms)`,
       capLine,
       `draws  ${String(info.render.calls).padStart(6)}   tris ${info.render.triangles.toLocaleString()}`,
+      post,
       `geo ${info.memory.geometries}  tex ${info.memory.textures}      F2 to hide`,
     ].join('\n');
   }
