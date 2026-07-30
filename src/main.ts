@@ -143,6 +143,37 @@ function worthFetching(itemId: string): boolean {
  */
 const _aim = new THREE.Vector3();
 /** Last cast's aim, for the automated tests. See __dbgMount. */
+/**
+ * Steer strength for a shot fired down the crosshair, as a fraction of the full
+ * lock-on the auto-targeted cast uses. 0.35 closes a small aiming error over a
+ * projectile's flight without ever dragging a shot onto something you did not
+ * point at — turn it up and the crosshair stops being what decides the hit.
+ */
+const MOUNTED_HOMING = 0.35;
+/**
+ * Half-angle of the aim cone, as a cosine. 0.94 is ~20 degrees: wide enough
+ * that a moving enemy under the reticle qualifies, narrow enough that one off
+ * to the side never does.
+ */
+const AIM_CONE_COS = 0.94;
+
+/** The enemy the crosshair is on, or null. Not the nearest — the one aimed at. */
+function enemyInAim(from: THREE.Vector3, aim: THREE.Vector3, range: number): Damageable | null {
+  let best: Damageable | null = null;
+  let bestDot = AIM_CONE_COS;
+  for (const e of combat.enemies) {
+    if (e.isDead) continue;
+    const dx = e.position.x - from.x;
+    const dy = e.position.y + 0.55 - from.y;
+    const dz = e.position.z - from.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d > range || d < 1e-3) continue;
+    const dot = (dx * aim.x + dy * aim.y + dz * aim.z) / d;
+    if (dot > bestDot) { bestDot = dot; best = e as unknown as Damageable; }
+  }
+  return best;
+}
+
 const lastCast = { skill: '', aimed: false, homing: false, x: 0, y: 0, z: 0 };
 
 function castFromPal(pal: PalActor, skill: SkillDef): void {
@@ -162,6 +193,12 @@ function castFromPal(pal: PalActor, skill: SkillDef): void {
     if (Math.abs(_aim.x) + Math.abs(_aim.z) > 1e-4) {
       pal.forward.set(_aim.x, 0, _aim.z).normalize();
     }
+    // A LITTLE homing from the saddle: the shot leaves down the crosshair and
+    // then leans toward whatever the crosshair was actually on. The target is
+    // picked from the aim CONE, never "nearest enemy" — an enemy off to the
+    // side is not what you pointed at, and curving onto it would be the autoaim
+    // this deliberately is not.
+    target = enemyInAim(pal.position, _aim, Math.max(skill.range, 12));
   } else {
     target = combat.findNearestEnemy(pal.position, Math.max(skill.range, 12));
     if (target) {
@@ -180,9 +217,11 @@ function castFromPal(pal: PalActor, skill: SkillDef): void {
     caster: pal as unknown as Damageable & { forward: THREE.Vector3 },
     origin,
     direction: dir,
-    // No homing target while aiming by hand: a projectile that curves onto a
-    // nearby enemy would quietly undo the aim the player just took.
     target,
+    // Aimed shots steer at a fraction of full lock-on, so the crosshair stays
+    // the thing that decides where a shot goes and the assist only closes the
+    // last little error. Full strength would quietly undo the aim you took.
+    homingScale: aimed ? MOUNTED_HOMING : 1,
     attackStat: pal.stats.attack,
   });
   lastCast.skill = skill.id;

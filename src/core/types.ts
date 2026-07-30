@@ -219,6 +219,12 @@ export interface CastRequest {
   target?: Damageable | null;
   /** Attack stat of the caster for damage scaling */
   attackStat: number;
+  /**
+   * How hard a projectile is allowed to steer onto `target`, 0..1, default 1.
+   * Below 1 the shot keeps the heading it was fired on and only leans toward
+   * the target — which is what an aimed-by-hand shot wants: help, not autoaim.
+   */
+  homingScale?: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -58,6 +58,8 @@ interface Projectile {
   trailT: number;
   hex: number;
   spin: number;
+  /** 0..1 steer strength toward `target`; see CastRequest.homingScale. */
+  homing: number;
 }
 
 export class CombatSystem {
@@ -308,7 +310,7 @@ export class CombatSystem {
     const p: Projectile = {
       active: false, group, shellMat, glowMat, light: null,
       vel: new THREE.Vector3(), target: null, element: 'fire',
-      rawBase: 0, life: 0, trailT: 0, hex: 0xffffff, spin: 0,
+      rawBase: 0, life: 0, trailT: 0, hex: 0xffffff, spin: 0, homing: 1,
     };
     this.projectiles.push(p);
     return p;
@@ -326,6 +328,7 @@ export class CombatSystem {
     p.life = Math.max(0.8, (Math.max(8, skill.range) + 4) / PROJ_SPEED);
     p.trailT = 0;
     p.spin = Math.random() * Math.PI;
+    p.homing = req.homingScale ?? 1;
     p.vel.copy(req.direction).normalize().multiplyScalar(PROJ_SPEED);
     p.group.position.copy(req.origin).addScaledVector(req.direction, 0.45);
     p.shellMat.color.setHex(hex);
@@ -392,7 +395,9 @@ export class CombatSystem {
         );
         if (_leaf.lengthSq() > 1e-4) {
           _leaf.normalize().multiplyScalar(PROJ_SPEED);
-          p.vel.lerp(_leaf, Math.min(1, 3.4 * dt)).setLength(PROJ_SPEED);
+          // 3.4 is full lock-on; scaled down, the shot merely leans (see
+          // CastRequest.homingScale).
+          p.vel.lerp(_leaf, Math.min(1, 3.4 * p.homing * dt)).setLength(PROJ_SPEED);
         }
       }
       pos.addScaledVector(p.vel, dt);
