@@ -1,6 +1,7 @@
 import type { ElementType, EventBus, SkillDef } from '../core/types';
 import { ELEMENT_COLORS } from '../core/types';
-import type { BagEntry } from '../core/items';
+import { CURRENCY, itemName, type BagEntry } from '../core/items';
+import { t } from '../i18n';
 import { injectStyles } from './styles';
 import { elementIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON } from './icons';
 
@@ -166,10 +167,25 @@ interface ToastEntry {
   hiding: boolean;
 }
 
+/** `<kbd>` wrapper for a key name interpolated into a string-table entry. */
+function kbd(key: string): string {
+  return `<kbd>${key}</kbd>`;
+}
+
+/**
+ * Built once at module load, which is also when the language is resolved.
+ *
+ * Each hint is ONE table entry with a `{key}` placeholder rather than "key" +
+ * " move" glued together, because a language that puts the verb first has
+ * nowhere to stand in a concatenation.
+ */
 const SHOP_FOOT_HINTS =
-  '<span><kbd>WASD</kbd> move</span><span><kbd>Space</kbd> jump</span>' +
-  '<span><kbd>LMB</kbd> attack</span><span><kbd>1</kbd>–<kbd>4</kbd> skills</span>' +
-  '<span><kbd>Tab</kbd> swap pal</span><span><kbd>E</kbd> interact</span>';
+  `<span>${t('shop.foot.move', { key: kbd('WASD') })}</span>` +
+  `<span>${t('shop.foot.jump', { key: kbd('Space') })}</span>` +
+  `<span>${t('shop.foot.attack', { key: kbd('LMB') })}</span>` +
+  `<span>${t('shop.foot.skills', { key: `${kbd('1')}–${kbd('4')}` })}</span>` +
+  `<span>${t('shop.foot.swap', { key: kbd('Tab') })}</span>` +
+  `<span>${t('shop.foot.interact', { key: kbd('E') })}</span>`;
 
 // ---------------------------------------------------------------------------
 // HUD
@@ -195,8 +211,9 @@ export class HUD {
   // skills
   private slotRefs: SlotRefs[] = [];
 
-  // shards
+  // currency (the 'shard' item — displayed as "Cubloons", see src/i18n)
   private shardNumEl: HTMLElement;
+  private shardLblEl: HTMLElement;
   private shardPillEl: HTMLElement;
   private shopBalEl: HTMLElement | null = null;
   private shardsShown = 0;
@@ -256,9 +273,20 @@ export class HUD {
       this.root.appendChild(div('cp-title cp-glass', '<b>CUBE PALS</b><span>v1.0</span>'));
     }
 
-    // shard counter --------------------------------------------------------
-    this.shardPillEl = div('cp-shards cp-glass', `<span class="ic">${SHARD_ICON}</span><span class="num">0</span>`);
+    // currency counter -----------------------------------------------------
+    // The NAME is on the pill, not just the icon: money the player cannot name
+    // is money they cannot be told a price in. It is written from the string
+    // table in update(), on the same change guard as the number, so the label
+    // and the count can never disagree about singular vs plural.
+    this.shardPillEl = div(
+      'cp-shards cp-glass',
+      `<span class="ic">${SHARD_ICON}</span><span class="num">0</span><span class="lbl"></span>`,
+    );
     this.shardNumEl = this.shardPillEl.querySelector('.num') as HTMLElement;
+    this.shardLblEl = this.shardPillEl.querySelector('.lbl') as HTMLElement;
+    // Seeded in the plural form, which is what `shardsDisplayed = -1` claims is
+    // on screen; update()'s guard only rewrites it when the form actually flips.
+    this.shardLblEl.textContent = itemName(CURRENCY, 0);
     this.root.appendChild(this.shardPillEl);
 
     // bag (stackable items) — empty until something is picked up ------------
@@ -283,7 +311,10 @@ export class HUD {
     // It belongs AT the reticle: the thing being held is a commitment made
     // where the player is already looking, and a bar in a corner of the screen
     // would be feedback for an action happening somewhere else.
-    this.mountHoldEl = div('cp-mounthold', '<div class="ring"></div><div class="lbl">HOLD <kbd>F</kbd> TO MOUNT</div>');
+    this.mountHoldEl = div(
+      'cp-mounthold',
+      `<div class="ring"></div><div class="lbl">${t('hud.mountHold', { key: kbd('F') })}</div>`,
+    );
     this.mountRingEl = this.mountHoldEl.querySelector('.ring') as HTMLElement;
     this.root.appendChild(this.mountHoldEl);
 
@@ -301,7 +332,7 @@ export class HUD {
 
     const hp = div(
       'cp-hp',
-      '<div class="row"><span class="lbl">HP</span><span class="val"></span></div>' +
+      `<div class="row"><span class="lbl">${escapeHtml(t('hud.hp'))}</span><span class="val"></span></div>` +
       '<div class="track"><div class="ghost"></div><div class="fill"></div></div>',
     );
     this.hpFillEl = hp.querySelector('.fill') as HTMLElement;
@@ -332,7 +363,10 @@ export class HUD {
     this.root.appendChild(this.hintEl);
 
     // level-up banner ------------------------------------------------------
-    this.bannerEl = div('cp-banner cp-glass', '<div class="eyebrow">LEVEL UP</div><div class="txt"></div>');
+    this.bannerEl = div(
+      'cp-banner cp-glass',
+      `<div class="eyebrow">${escapeHtml(t('hud.levelUp'))}</div><div class="txt"></div>`,
+    );
     this.root.appendChild(this.bannerEl);
 
     // toasts ---------------------------------------------------------------
@@ -422,7 +456,8 @@ export class HUD {
       refs.inner.innerHTML =
         `<div class="badge">${elementIcon(info.element)}</div>` +
         `<div class="meta">` +
-        `<div class="row"><span class="nm">${escapeHtml(info.name)}</span><span class="lv">Lv ${info.level}</span></div>` +
+        `<div class="row"><span class="nm">${escapeHtml(info.name)}</span>` +
+        `<span class="lv">${escapeHtml(t('hud.level', { n: info.level }))}</span></div>` +
         `<div class="cp-micro hp"><i></i></div>` +
         `<div class="cp-micro xp"><i></i></div>` +
         `</div>`;
@@ -553,7 +588,7 @@ export class HUD {
     this.bagEl.innerHTML = entries.map((e) =>
       `<div class="chip cp-glass"><i class="sw" style="background:${hexColor(e.def.color)};` +
       `color:${hexColor(e.def.color)}"></i>` +
-      `<span class="nm">${escapeHtml(e.def.name)}</span>` +
+      `<span class="nm">${escapeHtml(itemName(e.def, e.count))}</span>` +
       `<span class="n">${e.count}</span></div>`,
     ).join('');
     if (entries.length) {
@@ -718,12 +753,16 @@ export class HUD {
       this.bannerEl.style.setProperty('--el', hexColor(el));
       this.bannerEl.style.boxShadow =
         `0 0 34px ${rgba(el, 0.35)}, 0 10px 30px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.1)`;
-      txt.innerHTML = `${name} reached Lv ${level} — learned <em>${escapeHtml(learned.name)}</em>!`;
+      // The skill name arrives already wrapped, so the TABLE decides where in
+      // the sentence it lands — the emphasis travels with it.
+      txt.innerHTML = t('hud.levelUpLearned', {
+        pal: name, level, skill: `<em>${escapeHtml(learned.name)}</em>`,
+      });
     } else {
       this.bannerEl.style.setProperty('--el', '#ffd23f');
       this.bannerEl.style.boxShadow =
         '0 0 34px rgba(255,210,63,.3), 0 10px 30px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.1)';
-      txt.innerHTML = `${name} reached Lv ${level}!`;
+      txt.innerHTML = t('hud.levelUpReached', { pal: name, level });
     }
     this.bannerEl.classList.remove('show');
     void this.bannerEl.offsetWidth;
@@ -800,10 +839,16 @@ export class HUD {
     if (palName === this.ridingPal && flying === this.ridingFlying) return;
     this.ridingPal = palName;
     this.ridingFlying = flying;
+    // Built from the table with the key caps already marked up, so the sentence
+    // can be reordered by a translation. Previously this glued the badge
+    // together in English and then went hunting for "SPACE/C" and "F" with
+    // regexes — which only ever worked because the words around them were fixed.
     const text = palName
-      ? (flying
-        ? `RIDING ${palName.toUpperCase()} · SPACE/C altitude · tap F to dismount`
-        : `RIDING ${palName.toUpperCase()} · tap F to dismount`)
+      ? t(flying ? 'hud.ridingFlying' : 'hud.riding', {
+        pal: escapeHtml(palName.toUpperCase()),
+        altitude: `${kbd('Space')}/${kbd('C')}`,
+        dismount: kbd('F'),
+      })
       : '';
     if (text === this.ridingText) return;
     this.ridingText = text;
@@ -811,9 +856,7 @@ export class HUD {
       this.ridingEl.classList.remove('show');
       return;
     }
-    this.ridingEl.innerHTML = escapeHtml(text)
-      .replace(/\bSPACE\/C\b/, '<kbd>Space</kbd>/<kbd>C</kbd>')
-      .replace(/\bF\b(?= to)/, '<kbd>F</kbd>');
+    this.ridingEl.innerHTML = text;
     this.ridingEl.classList.add('show');
   }
 
@@ -852,18 +895,19 @@ export class HUD {
       card.innerHTML =
         `<div class="accent" style="background:linear-gradient(90deg,${hexColor(el)},${rgba(el, 0.25)})"></div>` +
         `<div class="top"><span class="oic" style="--el2:${rgba(el, 0.18)}">${elementIcon(s.element)}</span>` +
-        `<div><h3>${escapeHtml(s.name)}</h3><div class="pal">for ${escapeHtml(offer.palName)}</div></div></div>` +
+        `<div><h3>${escapeHtml(s.name)}</h3>` +
+        `<div class="pal">${escapeHtml(t('shop.forPal', { pal: offer.palName }))}</div></div></div>` +
         `<p>${escapeHtml(s.description)}</p>` +
         `<div class="cp-chips">` +
-        `<span class="cp-chip">PWR <b>${s.power}</b></span>` +
-        `<span class="cp-chip">CD <b>${s.cooldown}s</b></span>` +
+        `<span class="cp-chip">${escapeHtml(t('shop.stat.power'))} <b>${s.power}</b></span>` +
+        `<span class="cp-chip">${escapeHtml(t('shop.stat.cooldown'))} <b>${s.cooldown}s</b></span>` +
         `<span class="cp-chip">${escapeHtml(s.targeting.toUpperCase())}</span>` +
         `</div>` +
         `<div class="foot"></div>`;
       const foot = card.querySelector('.foot') as HTMLElement;
 
       if (offer.owned) {
-        const owned = div('cp-buy owned', `${CHECK_ICON}<span>Learned</span>`);
+        const owned = div('cp-buy owned', `${CHECK_ICON}<span>${escapeHtml(t('shop.learned'))}</span>`);
         foot.appendChild(owned);
       } else {
         const price = div(
@@ -873,7 +917,7 @@ export class HUD {
         foot.appendChild(price);
         const btn = document.createElement('button');
         btn.className = 'cp-buy';
-        btn.textContent = 'BUY';
+        btn.textContent = t('shop.buy');
         btn.disabled = !offer.affordable;
         btn.addEventListener('click', () => onBuy(i));
         foot.appendChild(btn);
@@ -947,8 +991,14 @@ export class HUD {
     }
     const shown = Math.round(this.shardsShown);
     if (shown !== this.shardsDisplayed) {
+      const wasPlural = this.shardsDisplayed !== 1;
       this.shardsDisplayed = shown;
       this.shardNumEl.textContent = String(shown);
+      // Only when the FORM changes — 1 Cubloon / 2 Cubloons — not on every tick
+      // of a count-up, which would rewrite the same word sixty times a second.
+      if ((shown !== 1) !== wasPlural) {
+        this.shardLblEl.textContent = itemName(CURRENCY, shown);
+      }
       if (this.shopBalEl) this.shopBalEl.textContent = String(shown);
     }
 

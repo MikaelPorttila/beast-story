@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+// Type-only, so it is erased at build time and adds no import edge at runtime.
+import type { PluralKey } from '../i18n';
 
 // ---------------------------------------------------------------------------
 // Elements / typing (Pokemon-style)
@@ -413,8 +415,18 @@ export interface WorldBound {
 export type ItemKind = 'currency' | 'stackable';
 
 export interface ItemDef {
+  /**
+   * The stable IDENTIFIER. Saves, the drop table, the fetch rule and every
+   * `itemDef(id)` lookup key on this, so it never changes when the item is
+   * renamed — the currency is 'shard' and displays as "Cubloons".
+   */
   id: string;
-  name: string;
+  /**
+   * The DISPLAY name, as a string-table key rather than a string: see
+   * src/i18n/en.ts, and `itemName()` in core/items.ts for reading it. It is a
+   * plural base, so the table holds `<key>.one` and `<key>.other`.
+   */
+  nameKey: PluralKey;
   kind: ItemKind;
   /** Tint for the dropped mote, its collect burst and the bag chip. */
   color: number;

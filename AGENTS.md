@@ -187,8 +187,19 @@ that exist purely for those tools; keep them working.
 `anim=` / `a=<deg>` / `hud=0` stages captures; `fps=<n>` caps the frame rate;
 `debug=1` opens the F2 overlay; `fsprompt=1` forces the touch fullscreen offer
 past the device test and any remembered answer (`fsprompt=0` suppresses it, and
-it never appears in `photo=1`); plus every post-processing override above. Lab
-parameters are in [LAB.md](LAB.md).
+it never appears in `photo=1`); plus every post-processing override above.
+`lang=<iso639-1>` pins the display language (default `navigator.language`, then
+`en` — see **Strings** below). Lab parameters are in [LAB.md](LAB.md).
+
+**Strings.** Every player-visible name and sentence comes from
+[src/i18n/en.ts](src/i18n/en.ts), the BASE table and the source of truth for
+every key; other languages are `src/i18n/<iso639-1>.ts` holding only what they
+have translated, and anything missing falls back to `en` — never to a blank or a
+raw key. One lookup function, `t(key, vars?)` (plus `tn(base, count)` for
+one/other plurals), and keys are typed off the base table so a typo is a compile
+error. **IDs are keys; names are display**: the currency's id is still `'shard'`
+because saves, the drop table and the fetch rule key on it, while it displays as
+"Cubloons". Rename a thing by editing the table, never the id.
 
 ## Conventions
 

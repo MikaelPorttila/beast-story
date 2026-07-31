@@ -27,13 +27,18 @@ const CSS = `
   -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
 .cp-title span{font-size:10px;font-weight:600;color:rgba(238,242,248,.5);letter-spacing:.05em}
 
-/* ---- shard counter ----------------------------------------------------- */
+/* ---- currency counter --------------------------------------------------- */
+/* The pill names the money as well as counting it (see src/i18n): the number is
+   the loud part, the name a quieter chip-sized label beside it — same weight
+   relationship the bag chips below already use for name vs count. */
 .cp-shards{position:absolute;top:14px;right:16px;display:flex;align-items:center;gap:8px;
   padding:8px 14px;border-radius:999px}
 .cp-shards .ic{width:18px;height:18px;color:#69d9ff;filter:drop-shadow(0 0 5px rgba(105,217,255,.55))}
 .cp-shards .ic svg{width:100%;height:100%}
 .cp-shards .num{font-variant-numeric:tabular-nums;font-weight:800;font-size:16px;letter-spacing:.02em;
   color:#dff5ff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.cp-shards .lbl{margin-left:-2px;font-size:11.5px;font-weight:700;letter-spacing:.04em;
+  color:rgba(223,245,255,.72);text-shadow:0 1px 2px rgba(0,0,0,.5)}
 /* ---- bag (stackable items) --------------------------------------------- */
 /* Sits directly under the shard pill: money on top, stuff below it, both in
    the same corner. Empty until the first pickup, so a fresh save shows nothing. */
@@ -477,6 +482,9 @@ const CSS = `
   .cp-shards{padding:5px 10px;gap:6px}
   .cp-shards .ic{width:14px;height:14px}
   .cp-shards .num{font-size:13px}
+  /* Shrunk rather than hidden: a phone player needs to be able to name the
+     money too, and the pill still fits inside the right safe-area inset. */
+  .cp-shards .lbl{font-size:9.5px;letter-spacing:.02em}
   .cp-bag{top:calc(max(14px,env(safe-area-inset-top)) + 34px);gap:4px}
   .cp-bag .chip{padding:3px 9px;gap:6px}
   .cp-bag .nm{font-size:9.5px}

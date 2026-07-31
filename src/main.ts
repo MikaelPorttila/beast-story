@@ -7,7 +7,8 @@ import {
   EventBus,
   type CrownContact, type SkillDef, type Damageable, type World, type WorldBound,
 } from './core/types';
-import { Inventory, itemDef } from './core/items';
+import { Inventory, itemDef, itemName } from './core/items';
+import { t } from './i18n';
 import { perf } from './core/profiler';
 import { flags } from './core/flags';
 import { DevConsole } from './ui/console';
@@ -102,9 +103,13 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
  */
 let gateSite: { x: number; z: number } | null = null;
 
+// The zone ID is the identifier — 'overworld' is what ZoneManager, the gate
+// targets and `/zone <id>` all key on, and it does not change. Only `name` is
+// display, so it comes out of the string table (resolved once, at load, which is
+// also when the language is resolved).
 const OVERWORLD: ZoneDef = {
   id: 'overworld',
-  name: 'Embervale',
+  name: t('zone.overworld.name'),
   create: (scene) => createWorld(scene, 1337, (probe) => {
     gateSite = findGateSpot(probe);
     return [gateSite];
@@ -114,7 +119,7 @@ const OVERWORLD: ZoneDef = {
 
 const HOLD: ZoneDef = {
   id: 'hold',
-  name: 'The Sunken Hold',
+  name: t('zone.hold.name'),
   create: (scene) => createDungeon(scene, 0x5ea1ed),
   // The way out stands on the way in: you arrive on the return gateway, which
   // is exactly why it starts disarmed (see EXIT_R in world/zones.ts).
@@ -146,7 +151,7 @@ const zones = new ZoneManager({
     // owner is further than TELEPORT_DIST away, and a zone is by construction
     // further than that, so they poof in beside him on the next slice using the
     // new world's ground height.
-    bus.emit({ type: 'toast', text: `Entered ${def.name}` });
+    bus.emit({ type: 'toast', text: t('toast.enteredZone', { zone: def.name }) });
     // The compass markers are per-zone landmarks, so the set is rebuilt here
     // and nowhere else. `gate` is the ZoneDef's own answer, not a second search.
     const g = def.gate(w);
@@ -253,17 +258,24 @@ function cyclePal(which: 'primary' | 'support', dirn: 1 | -1): void {
     do { supportIdx = (supportIdx + dirn + n) % n; } while (supportIdx === primaryIdx);
   }
   refreshVisibility();
-  bus.emit({ type: 'toast', text: `${primary().species.name} leads · ${support().species.name} supports` });
+  bus.emit({
+    type: 'toast',
+    text: t('toast.palLeads', { lead: primary().species.name, support: support().species.name }),
+  });
 }
 
 // ---------------------------------------------------------------------------
-// Shards (pickups tracked by combat; purchases tracked here)
+// Currency (pickups tracked by combat; purchases tracked here)
+//
+// The item id is 'shard' and the event is `shardsChanged`; the DISPLAY name is
+// "Cubloons" and lives in src/i18n/en.ts. The identifiers were left alone on
+// purpose — renaming them would rename a save key to change a label.
 // ---------------------------------------------------------------------------
 let pickupTotal = 50;
 let spent = 0;
 const shards = () => pickupTotal - spent;
 
-// The bag holds STACKABLES only — shards stay the running total above. Combat
+// The bag holds STACKABLES only — currency stays the running total above. Combat
 // reports every drop that leaves the ground; what to do with it is policy, so
 // it is decided here.
 const bag = new Inventory();
@@ -282,7 +294,12 @@ bus.on((e) => {
         // The fetcher is whichever pal is carrying right now — normally the
         // support pal, but a Tab swap mid-errand must not misattribute it.
         const fetcher = roster.find((p) => p.isCarrying) ?? support();
-        bus.emit({ type: 'toast', text: `${fetcher.species.name} fetched ${def.name} (${n})` });
+        bus.emit({
+          type: 'toast',
+          text: t('toast.fetched', {
+            pal: fetcher.species.name, item: itemName(def, n), n,
+          }),
+        });
       }
     }
   }
@@ -447,15 +464,18 @@ function buildOffers(): ShopOffer[] {
 function tryOpenShop(): void {
   if (hud.isShopOpen()) return;
   document.exitPointerLock();
-  hud.openShop('Skill Den', buildOffers(), (i) => {
+  hud.openShop(t('shop.skillDen.title'), buildOffers(), (i) => {
     const offer = buildOffers()[i];
     if (!offer || offer.owned || !offer.affordable) return;
     spent += offer.price;
     const pal = [primary(), support()].find((p) => p.species.name === offer.palName);
     pal?.learnSkill(offer.skill.id);
     hud.setShards(shards());
-    bus.emit({ type: 'toast', text: `${offer.palName} learned ${offer.skill.name}!` });
-    hud.openShop('Skill Den', buildOffers(), () => {}, () => hud.closeShop());
+    bus.emit({
+      type: 'toast',
+      text: t('toast.learnedSkill', { pal: offer.palName, skill: offer.skill.name }),
+    });
+    hud.openShop(t('shop.skillDen.title'), buildOffers(), () => {}, () => hud.closeShop());
   }, () => hud.closeShop());
 }
 
@@ -729,9 +749,7 @@ bus.emit({
   type: 'toast',
   // A touchscreen laptop driven by mouse gets the desktop hint: `touch` is
   // non-null there (it ticks the camera stick) but stays hidden until a touch.
-  text: isTouchPrimary()
-    ? 'Welcome to Cube Pals! Left stick moves, right stick looks.'
-    : 'Welcome to Cube Pals! Click to play.',
+  text: t(isTouchPrimary() ? 'toast.welcome.touch' : 'toast.welcome.desktop'),
 });
 
 // ?fps=<n> caps the frame rate (0 or absent = uncapped). F2 shows measured FPS.
@@ -1074,12 +1092,12 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       // animals for no gain.
       if (mount.isMounted) {
         if (input.pressed('Tab') || input.pressed('BracketLeft') || input.pressed('BracketRight')) {
-          bus.emit({ type: 'toast', text: 'Dismount first (tap F).' });
+          bus.emit({ type: 'toast', text: t('toast.dismountFirst') });
         }
       } else {
         if (input.pressed('Tab')) {
-          const t = primaryIdx; primaryIdx = supportIdx; supportIdx = t;
-          bus.emit({ type: 'toast', text: `${primary().species.name} takes the lead!` });
+          const wasPrimary = primaryIdx; primaryIdx = supportIdx; supportIdx = wasPrimary;
+          bus.emit({ type: 'toast', text: t('toast.palTakesLead', { pal: primary().species.name }) });
         }
         if (input.pressed('BracketRight')) cyclePal('primary', 1);
         if (input.pressed('BracketLeft')) cyclePal('support', 1);
@@ -1141,7 +1159,10 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   zones.update(player.position, dt, first);
   perf.section('world');
 
-  const hint = portalHint ?? (nearShop ? 'Press E — Skill Den' : null);
+  // `t()` with no placeholders returns the table's own string — one lookup, no
+  // allocation — so calling it on the hint path every slice is free. Do NOT
+  // put an interpolated `t(key, vars)` here; that builds a string per slice.
+  const hint = portalHint ?? (nearShop ? t('hint.skillDen') : null);
   if (hint) hud.showHint(hint);
   else hud.hideHint();
 
@@ -1276,9 +1297,7 @@ function frame(): void {
     started = true;
     bus.emit({
       type: 'toast',
-      text: touch?.isRevealed
-        ? 'Left stick moves · right stick looks · ATK / JUMP / USE · 1-4 skills · SWAP'
-        : 'WASD move · Space jump · LMB attack · 1-4 skills · hold F to ride · Tab swap · E shop',
+      text: t(touch?.isRevealed ? 'toast.controls.touch' : 'toast.controls.desktop'),
     });
   }
 
