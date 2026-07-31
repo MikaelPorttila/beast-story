@@ -358,13 +358,29 @@ export interface World {
   /** Terrain height at world xz (top surface, in world units) */
   getHeight(x: number, z: number): number;
   /**
-   * Top of anything CLIMBABLE at world xz — terrain, and whatever else the world
-   * decides to let the player grab (tree trunks today; a boss's back later).
+   * Top of anything CLIMBABLE at world xz — terrain, tree trunks and crowns,
+   * and EVERY SOLID THING IN THE WORLD.
+   *
+   * THE RULE: if it stops you, you can climb it. There is no such thing as a
+   * collider that blocks movement but refuses to be grabbed, and adding one is
+   * the mistake this comment exists to prevent. Settlements shipped that way
+   * for exactly one commit — the boxes under `structureTopAt` were declared
+   * "not climbable" on the theory that a palisade you can grab is a palisade
+   * you step over, and the gate should be the only way in. That reasoning is
+   * about a single wall and it silently applied to every hut, crate, cart and
+   * fence in three settlements: a player who can climb a tree walks up to a
+   * waist-high box in his own start town and bounces off it. A rule the world
+   * follows everywhere is worth more than a locked front door, and if a
+   * particular wall must not be scaled it should be TALL, not exempt.
+   *
+   * So this is a SUPERSET of the solid surfaces, never a different set. It is
+   * still a separate query from getHeight because the reverse containment does
+   * not hold — a tree crown and a bole are climbable over a footprint far wider
+   * than the sliver of them that blocks movement (see trunkSolidTopAt), so
+   * climbable is the bigger set in both directions it can be.
    *
    * This is deliberately the same shape as getHeight, so climbing code asks one
-   * question and does not care what it is holding onto. It is a separate query
-   * because climbable and solid are not the same set: a trunk is climbable but
-   * you can still walk through it, and terrain is both.
+   * question and does not care what it is holding onto.
    *
    * It is also the SUPPORT surface: standing on a tree is the same query as
    * grabbing one, so the player resolves his feet against it too (see
@@ -415,9 +431,9 @@ export interface World {
    * than a volume: the boxes are authored to reach from the ground up, so
    * "highest thing here" and "what stops me" are the same number.
    *
-   * NOT CLIMBABLE. `climbTopAt` deliberately does not consult this — a palisade
-   * you could grab with Shift is a palisade the player steps over, and the
-   * gate exists so that there is exactly one way in.
+   * CLIMBABLE, like everything else that blocks. `climbTopAt` consults this,
+   * so a hut roof, a crate and a palisade span can all be scaled with Shift.
+   * The gate is still where you WALK in; it is no longer the only way over.
    *
    * The colliders are ORIENTED BOXES, because a hut is a rectangle: a disc
    * around one either admits the player to the corners or stops him a metre

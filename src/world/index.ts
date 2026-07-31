@@ -307,6 +307,25 @@ export function createWorld(
     : null;
   if (npcs) scene.add(npcs.group);
 
+  /**
+   * Top of any BUILT thing over this column — settlement boxes and the people
+   * standing among them — or -Infinity where the column is clear.
+   *
+   * Hoisted out of the World literal because TWO queries need it and they must
+   * not be able to disagree: `structureTopAt` (what stops you) and `climbTopAt`
+   * (what you can grab). Those were separate sets once, and the gap between
+   * them was the bug — see climbTopAt.
+   */
+  const structureTop = (x: number, z: number): number => {
+    if (!flags.solids) return -Infinity;
+    let top = towns ? towns.solids.topAt(x, z) : -Infinity;
+    if (npcs) {
+      const n = npcs.solids.topAt(x, z);
+      if (n > top) top = n;
+    }
+    return top;
+  };
+
   const clouds = flags.clouds ? new Clouds(seed) : null;
   if (clouds) scene.add(clouds.group);
   const motes = flags.clouds ? new Motes(seed) : null;
@@ -491,6 +510,10 @@ export function createWorld(
      */
     climbTopAt: (x: number, z: number): number => {
       let top = terrain.getHeight(x, z);
+      // EVERYTHING SOLID IS CLIMBABLE. A hut wall, a palisade span, a crate,
+      // a cart — if it stops you, you can get on top of it. See the contract.
+      const s = structureTop(x, z);
+      if (s > top) top = s;
       const c0x = Math.floor((x - CROWN_MARGIN) / CHUNK_SIZE);
       const c1x = Math.floor((x + CROWN_MARGIN) / CHUNK_SIZE);
       const c0z = Math.floor((z - CROWN_MARGIN) / CHUNK_SIZE);
@@ -563,15 +586,7 @@ export function createWorld(
      * index once. So each owns its own and the max is taken here, which is
      * exactly what `blockTop` already does with terrain and trunks.
      */
-    structureTopAt: (x: number, z: number): number => {
-      if (!flags.solids) return -Infinity;
-      let top = towns ? towns.solids.topAt(x, z) : -Infinity;
-      if (npcs) {
-        const n = npcs.solids.topAt(x, z);
-        if (n > top) top = n;
-      }
-      return top;
-    },
+    structureTopAt: structureTop,
     npcs,
     /**
      * Is this sphere inside a canopy? The third query over the same buckets,

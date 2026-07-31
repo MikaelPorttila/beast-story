@@ -7,14 +7,17 @@ import type { World } from './types';
  * Two primitives, drawn as they actually are:
  *
  *   - TREES are cylinders. Green for the SOLID disc that blocks movement, blue
- *     for the wider CLIMB disc that can be grabbed. Two colours because they are
- *     two different radii and a mismatch between either and the mesh is exactly
- *     what this exists to show.
+ *     for the wider disc that can only be GRABBED — the bole's reach and the
+ *     crown's. Two colours because they are two different radii and a mismatch
+ *     between either and the mesh is exactly what this exists to show.
  *   - STRUCTURES — huts, palisade spans, crates, carts, road furniture — are
- *     ORIENTED BOXES, and are drawn green like the solid discs because they
- *     block the same movement. Drawing them as circles would hide the one thing
- *     worth checking about a building's collider, which is whether its corners
- *     line up with its walls.
+ *     ORIENTED BOXES, and are drawn green. Drawing them as circles would hide
+ *     the one thing worth checking about a building's collider, which is whether
+ *     its corners line up with its walls.
+ *
+ * GREEN DOES NOT MEAN "not climbable". Everything solid is climbable; blue marks
+ * the surplus — the part of a tree you can hold that would not have stopped you
+ * anyway. A box has no surplus, so it is green all over and still grabbable.
  *
  * Ground is not drawn. Terrain collision is the whole heightfield, so the honest
  * visualisation of it is the terrain itself; drawing a cage per column would cost
