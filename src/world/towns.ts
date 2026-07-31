@@ -36,7 +36,7 @@ import { t, type StringKey } from '../i18n';
 import { Terrain, WATER_LEVEL, type GroundPatch } from './terrain';
 import {
   RoadNetwork, roadAt, roadLength, routeRoad, profileRoad, straightWetLength,
-  DECK_EDGE, NECK_MAX, type Road, type RoadClearance,
+  builtDeck, setTrimStart, DECK_EDGE, NECK_MAX, type Road, type RoadClearance,
 } from './roads';
 import { Accum, type PropLib, type Template } from './props';
 import { SolidStamp, StructureField } from './structures';
@@ -48,6 +48,38 @@ import { mulberry32 } from './noise';
 // ---------------------------------------------------------------------------
 // What towns exist
 // ---------------------------------------------------------------------------
+
+/**
+ * How much bigger the Encampment's timber is than the template it is baked at.
+ *
+ * Girth AND height, so a span runs 5.25 units instead of 4.2 and its logs top
+ * out at 4.90 instead of 3.92. That last number is the one that earns it: the
+ * gate arch's lintel sits at 5.04, so the wall now MEETS the arch instead of
+ * stopping a third of the way up it.
+ *
+ * `SolidStamp.add` passes both through to `StructureField.add`, so the collider
+ * grows with the mesh and there is no second number to keep in step.
+ *
+ * The watch posts are scaled with it. They are documented as the only thing in
+ * camp taller than the wall, and at 1.0 their platform (4.76) would have ended
+ * up BELOW a 4.90 wall top, leaving the guard looking at timber.
+ */
+const WALL_S = 1.25;
+
+/**
+ * Half a side of the Encampment's square wall, world units.
+ *
+ * 16.8 is within half a percent of `R * sqrt(PI) / 2 = 16.84`, the half-side
+ * that gives a square the SAME AREA as the 19-unit circle it replaces — so the
+ * camp changes shape without changing how much room its layout has. The four
+ * sides lose 2.2 units of depth and the four corners gain 4.8.
+ *
+ * The corners then reach `16.8 * sqrt(2) = 23.76`, which is past several things
+ * that were keyed on the footprint radius. That is what `outerRadius` on the
+ * site spec is for; without it, trees grow in the corners of the camp and the
+ * corner runs stand on ground the flatten only levelled 88% of the way.
+ */
+const CAMP_WALL_HALF = 16.8;
 
 interface SiteSpec {
   /**
@@ -68,6 +100,18 @@ interface SiteSpec {
   signKey: StringKey;
   kind: TownInfo['kind'];
   radius: number;
+  /**
+   * How far from the middle this settlement's PERIMETER actually reaches.
+   *
+   * `radius` is the nominal footprint every distance test uses and it stays a
+   * circle; this is the circle that CONTAINS the built wall, which for the
+   * Encampment's square is its corners at `CAMP_WALL_HALF * sqrt(2)` and for a
+   * hamlet is just `radius`. Levelling the ground under the wall, holding the
+   * road deck level with it, and keeping the forest out of it are all facts
+   * about the built thing, not about the nominal circle — and the corners of a
+   * square reach 41% further than its sides.
+   */
+  outerRadius: number;
   color: number;
   /**
    * Prefer a site with water in its footprint's outer ring rather than avoiding
@@ -87,20 +131,21 @@ interface SiteSpec {
 const SITES: readonly SiteSpec[] = [
   {
     id: 'encampment', nameKey: 'town.encampment.name', signKey: 'town.encampment.sign',
-    kind: 'camp', radius: 19, color: 0xffb45e,
+    kind: 'camp', radius: 19, outerRadius: CAMP_WALL_HALF * Math.SQRT2, color: 0xffb45e,
   },
   {
     id: 'redbriar', nameKey: 'town.redbriar.name', signKey: 'town.redbriar.sign',
-    kind: 'hamlet', radius: 15, color: 0x9ad46a, waterside: true,
+    kind: 'hamlet', radius: 15, outerRadius: 15, color: 0x9ad46a, waterside: true,
   },
   {
     id: 'stonewatch', nameKey: 'town.stonewatch.name', signKey: 'town.stonewatch.sign',
-    kind: 'hamlet', radius: 15, color: 0x8fc4e8,
+    kind: 'hamlet', radius: 15, outerRadius: 15, color: 0x8fc4e8,
   },
 ];
 
 /** Where the fingerpost at the fork stands, as far as a signpost is concerned. */
 const JUNCTION_SIGN_KEY = 'town.junction.sign' as const;
+
 
 // ---------------------------------------------------------------------------
 // Trodden ground
@@ -325,6 +370,38 @@ function gateOn(road: Road, cx: number, cz: number, radius: number, fromStart: b
   return { x: cx + Math.sin(a) * radius, z: cz + Math.cos(a) * radius, angle: a };
 }
 
+/**
+ * Where a road first crosses the plane `dot(p - c, n) = h`, walking from its
+ * start — INTERPOLATED, not snapped to a sample.
+ *
+ * `gateOn` returns a road SAMPLE, and samples are 3 units apart, so its answer
+ * can sit up to 3 units past the line it was looking for. That was harmless
+ * while the gate was only a compass chip and a bearing; it is not harmless once
+ * the gate is where the gravel stops and where an arch is stamped, because a
+ * three-unit error there is an arch standing off its own wall.
+ */
+function planeHit(
+  road: Road, cx: number, cz: number, nx: number, nz: number, h: number,
+): { x: number; z: number } {
+  const pts = road.pts;
+  const at = (i: number): number => (pts[i].x - cx) * nx + (pts[i].z - cz) * nz;
+  for (let i = 1; i < pts.length; i++) {
+    const a = at(i - 1);
+    const b = at(i);
+    if (b >= h && a < h) {
+      const t = (h - a) / (b - a);
+      return {
+        x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * t,
+        z: pts[i - 1].z + (pts[i].z - pts[i - 1].z) * t,
+      };
+    }
+  }
+  // The route never reaches the wall — it cannot, since it starts at the middle
+  // and ends outside — but a caller with a broken plane should get a point on
+  // the wall rather than a crash.
+  return { x: cx + nx * h, z: cz + nz * h };
+}
+
 export interface SettlementPlan {
   towns: TownRegistry;
   network: RoadNetwork;
@@ -419,7 +496,7 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   for (let i = 0; i < SITES.length; i++) {
     terrain.flattens.push({
       x: sitePos[i].x, z: sitePos[i].z, h: siteY[i] + 0.55,
-      core: SITES[i].radius + 2, blend: SITES[i].radius + 15,
+      core: SITES[i].outerRadius + 2, blend: SITES[i].outerRadius + 15,
     });
   }
 
@@ -444,7 +521,7 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
     network.add(road);
     return road;
   };
-  const hold = (i: number): number => SITES[i].radius + 2;
+  const hold = (i: number): number => SITES[i].outerRadius + 2;
 
   const trunk = mkRoad(
     'camp-junction', SITES[0].id, 'junction',
@@ -472,20 +549,45 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   terrain.flattens.push({
     x: jRaw.x, z: jRaw.z, h: junctionY + 0.55, core: 5, blend: 12,
   });
-  network.build();
-  terrain.roads = network;
-
   // -- 4. Gates, derived from where each road actually leaves its town.
+  //
+  // BEFORE `network.build()`, which it did not used to be. The Encampment's
+  // carriageway now STOPS at its gate, and a trim plane cannot be set until the
+  // gate is known — while the gate is, by design, wherever the route happens to
+  // cross the footprint. Nothing between `add()` and `build()` queries the
+  // network (`gateOn` walks `road.pts` directly), so the move is safe.
   const gates = [
     gateOn(trunk, camp.x, camp.z, SITES[0].radius, true),
     gateOn(spurRoads[0], hamletA.x, hamletA.z, SITES[1].radius, false),
     gateOn(spurRoads[1], hamletB.x, hamletB.z, SITES[2].radius, false),
   ];
+
+  // The camp's gate sits on a SQUARE wall, so the opening is where the route
+  // crosses that side's plane — not where it crosses the footprint circle the
+  // bearing was rolled from. Two steps and not one, because the square's
+  // orientation IS the gate bearing: the side cannot be chosen until the bearing
+  // is known, and the crossing cannot be found until the side is chosen.
+  {
+    const a = gates[0].angle;
+    const nx = Math.sin(a);
+    const nz = Math.cos(a);
+    const hit = planeHit(trunk, camp.x, camp.z, nx, nz, CAMP_WALL_HALF);
+    gates[0] = { x: hit.x, z: hit.z, angle: a };
+    // The carriageway lives on the far side of that plane, i.e. OUTSIDE the
+    // camp. Inside the wall the road is route only: the ground there is the
+    // camp's own trodden yard, which `WEAR.camp.tracks[0]` already paints bare
+    // and dry along exactly this line, in the road's own colour family.
+    setTrimStart(trunk, hit.x, hit.z, nx, nz);
+  }
+
+  network.build();
+  terrain.roads = network;
   for (let i = 0; i < SITES.length; i++) {
     towns.push({
       id: SITES[i].id, nameKey: SITES[i].nameKey, kind: SITES[i].kind,
       x: sitePos[i].x, y: siteY[i], z: sitePos[i].z,
-      radius: SITES[i].radius, color: SITES[i].color,
+      radius: SITES[i].radius, outerRadius: SITES[i].outerRadius,
+      color: SITES[i].color,
       gateX: gates[i].x, gateZ: gates[i].z, gateAngle: gates[i].angle,
     });
   }
@@ -646,10 +748,17 @@ export class Towns {
       const g = new THREE.Group();
       const solid = new SolidStamp(this.solids);
       const glow = new Accum();
+      // Furniture belongs to the BUILT carriageway, not to the route. It is
+      // placed by arc length from an end, so on the route the Encampment's
+      // first lamp landed at arc 13 and its fingerpost at arc 17 — both INSIDE
+      // the walls, lighting and signposting a stretch of camp yard. Measuring
+      // from the gate instead puts them 13 and 17 units OUTSIDE it, which is
+      // where a lamp on the approach was always meant to be.
+      const built = { ...road, pts: builtDeck(road) };
       buildRoadFurniture(
-        solid, glow, parts, road, plan.network, mulberry32(seed ^ road.pts.length),
+        solid, glow, parts, built, plan.network, mulberry32(seed ^ road.pts.length),
       );
-      addBridgeFurniture(solid, parts, road);
+      addBridgeFurniture(solid, parts, built);
       emit(solid.acc, props.solidMat, g, true);
       emit(glow, lampGlow, g, false);
 
@@ -826,33 +935,114 @@ function buildEncampment(
   solid: SolidStamp, glow: Accum, parts: TownParts, town: TownInfo,
   network: RoadNetwork, rng: () => number,
 ): void {
-  const { x: cx, z: cz, y: cy, radius: R, gateAngle } = town;
+  const { x: cx, z: cz, y: cy, gateAngle } = town;
   const taken: Spot[] = [];
   const at = (ang: number, dist: number): [number, number] =>
     [cx + Math.sin(ang) * dist, cz + Math.cos(ang) * dist];
+  /** Distance from the middle to the WALL on a bearing. */
+  const wall = (ang: number): number => {
+    const u = ang - gateAngle;
+    return CAMP_WALL_HALF / Math.max(Math.abs(Math.sin(u)), Math.abs(Math.cos(u)));
+  };
+  /**
+   * ...and to a line `k` INSIDE it, measured perpendicular to the nearest side.
+   *
+   * `wall(ang) - k` is the obvious version and it is wrong in the one place it
+   * matters: backing off k along a RADIUS near a corner only buys 0.71k of
+   * clearance from either wall. Scaling keeps the inset a true perpendicular
+   * distance, so a hut at `inset(a, 7.5)` is seven and a half units off the
+   * timber whether it sits behind a side or is tucked into a corner — which is
+   * what `R - 7.5` meant back when the wall was a circle.
+   */
+  const inset = (ang: number, k: number): number =>
+    wall(ang) * (1 - k / CAMP_WALL_HALF);
 
   // -- perimeter -----------------------------------------------------------
-  // Span length is the palisade template's own 4.2 units; the count is whatever
-  // divides the circumference nearest to that, so the ring closes exactly.
-  const spanLen = 15 * V;
-  const spans = Math.max(12, Math.round((2 * Math.PI * R) / spanLen));
-  // The gate is 8 units wide, so the gap is a little over that.
-  const gateGap = 5.6 / R;
-  // A third of the ring, opposite the gate, is a low stone wall instead of
-  // timber: two materials read as a camp that grew rather than one that was
-  // issued, and the stone goes on the side nobody drives a cart through.
-  for (let i = 0; i < spans; i++) {
-    const a = (i / spans) * Math.PI * 2;
-    let da = Math.abs(((a - gateAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-    if (da < gateGap) continue;
-    da = Math.abs(((a - gateAngle - Math.PI + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-    const stone = da < 1.05;
-    const [x, z] = at(a, R);
-    solid.add(stone ? parts.stoneWall : parts.palisade, x, cy, z, a + Math.PI / 2);
+  // FOUR RUNS AND FOUR CORNERS, squared to the gate rather than to the world
+  // axes. Side `s` faces outward along `gateAngle + s * PI/2`, so side 0 is the
+  // gate's: the arch sits flush on it and the road crosses it square-on, the
+  // `WEAR.camp.tracks` bearings (which are already relative to the gate) keep
+  // meaning what they meant, and every interior bearing below is already
+  // `gateAngle + something`, so the square's own frame falls out for free.
+  //
+  // ALL TIMBER. A third of the ring opposite the gate used to be a low stone
+  // wall — "two materials read as a camp that grew rather than one that was
+  // issued" — which was true and is no longer wanted. The variety it bought is
+  // gone with it; if the wall reads flat at distance the answer is a second
+  // palisade variant with a different log rhythm, not the rock back.
+  const spanLen = 15 * V * WALL_S;
+  // Where the road actually crosses the gate side, measured ALONG that side
+  // from its middle. Not assumed to be zero: the route is a greedy walk and the
+  // gate is derived from where it really crosses, so the opening goes where the
+  // cart goes.
+  const gateOff = (town.gateX - cx) * Math.cos(gateAngle)
+    - (town.gateZ - cz) * Math.sin(gateAngle);
+  /**
+   * Half the gate arch's own footprint. `gateArch` paints 29 voxels along +z at
+   * V and is stamped unscaled — the wall is 25% bigger, the arch is not, which
+   * is what brings the 4.90 wall top up to meet its 5.04 lintel.
+   */
+  const GATE_HALF = 29 * V * 0.5;
+  /**
+   * Lay a run of palisade from `u0` to `u1` along side `s`, ends flush.
+   *
+   * SPANS OVERLAP RATHER THAN GAP. A run is almost never a whole number of
+   * 5.25-unit templates, so the remainder has to go somewhere; `ceil` puts it
+   * into overlap, which reads as a denser stockade, where `round` or `floor`
+   * would leave a hole, which reads as a bug.
+   *
+   * The runs are laid PER SEGMENT rather than on one pitch across the whole
+   * side, and that is what the gate needs. A uniform pitch knows nothing about
+   * where the arch stands, so the spans nearest it get dropped for clearance
+   * and the wall stops ~3 units short of the posts on either side — captured
+   * that way (_camp-gate.png, first pass) as two obvious holes flanking the
+   * gate. Running outward FROM the arch's own faces instead puts timber against
+   * post with no gap to tune.
+   */
+  const run = (
+    nx: number, nz: number, tx: number, tz: number, f: number,
+    u0: number, u1: number,
+  ): void => {
+    const len = u1 - u0;
+    if (len <= 0.01) return;
+    const n = Math.ceil(len / spanLen);
+    const pitch = len / n;
+    for (let j = 0; j < n; j++) {
+      const u = u0 + (j + 0.5) * pitch;
+      solid.add(
+        parts.palisade,
+        cx + nx * CAMP_WALL_HALF + tx * u, cy, cz + nz * CAMP_WALL_HALF + tz * u,
+        f + Math.PI / 2, WALL_S, WALL_S,
+      );
+    }
+  };
+  for (let s = 0; s < 4; s++) {
+    const f = gateAngle + s * (Math.PI / 2);
+    const nx = Math.sin(f);
+    const nz = Math.cos(f);
+    const tx = Math.cos(f);
+    const tz = -Math.sin(f);
+    if (s === 0) {
+      run(nx, nz, tx, tz, f, -CAMP_WALL_HALF, gateOff - GATE_HALF);
+      run(nx, nz, tx, tz, f, gateOff + GATE_HALF, CAMP_WALL_HALF);
+    } else {
+      run(nx, nz, tx, tz, f, -CAMP_WALL_HALF, CAMP_WALL_HALF);
+    }
+    // A corner post at this side's leading corner, so four in all. Not for
+    // holes — the two runs already overlap in the corner cell — but because
+    // butt-jointed log ends read as two fences meeting, where a post with walls
+    // hung off it reads as a stockade.
+    solid.add(
+      parts.cornerPost,
+      cx + (nx + tx) * CAMP_WALL_HALF, cy, cz + (nz + tz) * CAMP_WALL_HALF,
+      f + Math.PI / 2, WALL_S, WALL_S,
+    );
   }
-  // The gate itself, straddling the road.
+  // The gate itself, ON the wall line and square to it.
   {
-    const [x, z] = at(gateAngle, R);
+    const f = gateAngle;
+    const x = cx + Math.sin(f) * CAMP_WALL_HALF + Math.cos(f) * gateOff;
+    const z = cz + Math.cos(f) * CAMP_WALL_HALF - Math.sin(f) * gateOff;
     solid.add(parts.gate, x, cy, z, gateAngle + Math.PI / 2);
     taken.push({ x, z, r: 6 });
   }
@@ -878,8 +1068,8 @@ function buildEncampment(
   // -- buildings ------------------------------------------------------------
   // Three huts, facing the fire, on the far half of the camp from the gate.
   for (let k = 0; k < 3; k++) {
-    const a = gateAngle + Math.PI + (k - 1) * 0.75 + (rng() - 0.5) * 0.2;
-    const [x, z] = at(a, R - 7.5);
+    const a = gateAngle + Math.PI + (k - 1) * 0.85 + (rng() - 0.5) * 0.2;
+    const [x, z] = at(a, inset(a, 7.5));
     if (!place(taken, network, x, z, 4.4, 7)) continue;
     // Door toward the fire.
     solid.add(parts.huts[k], x, cy, z, Math.atan2(fx - x, fz - z));
@@ -898,7 +1088,7 @@ function buildEncampment(
   let tentIdx = 0;
   for (let k = 0; k < 9 && tentIdx < 7; k++) {
     const a = gateAngle + 0.7 + (k / 9) * Math.PI * 1.6 + (rng() - 0.5) * 0.25;
-    const [x, z] = at(a, R - 5.5 - rng() * 4);
+    const [x, z] = at(a, inset(a, 5.5 + rng() * 4));
     if (!place(taken, network, x, z, 3.2, 6)) continue;
     if (tentIdx % 3 === 2) solid.add(parts.bell, x, cy, z, Math.atan2(fx - x, fz - z));
     else solid.add(parts.tents[tentIdx % parts.tents.length], x, cy, z, a + Math.PI / 2);
@@ -914,9 +1104,13 @@ function buildEncampment(
   // in it. Big, fixed structures claim their ground before the furniture does.
   for (let k = 0; k < 4; k++) {
     const a = gateAngle + Math.PI * 0.4 + (k / 4) * Math.PI * 1.2;
-    const [x, z] = at(a, R - 2.4);
+    const [x, z] = at(a, inset(a, 2.4));
     if (place(taken, network, x, z, 2.4, 5.5)) {
-      solid.add(parts.watch, x, cy, z, a);
+      // Scaled with the wall, and it has to be: at 1.0 the platform sits at
+      // 4.76 and the wall top is now 4.90, so the guard would be looking at
+      // timber. At WALL_S the platform is 5.95 and the post tops out at 7.00,
+      // which keeps town-parts.ts's claim that it is the tallest thing in camp.
+      solid.add(parts.watch, x, cy, z, a, WALL_S, WALL_S);
     }
   }
 
@@ -929,7 +1123,7 @@ function buildEncampment(
     let placed = 0;
     for (let k = 0; k < count * 4 && placed < count; k++) {
       const a = rng() * Math.PI * 2;
-      const [x, z] = at(a, 5 + rng() * (R - 7));
+      const [x, z] = at(a, inset(a, 2 + rng() * (CAMP_WALL_HALF - 7)));
       if (!place(taken, network, x, z, 1.4 * scl, 4.2)) continue;
       solid.add(tpl, x, cy, z, rng() * 6.28, scl);
       placed++;
@@ -938,7 +1132,7 @@ function buildEncampment(
   // Carts, parked off the road just inside the gate.
   for (const [dside, tpl] of [[1, parts.cartHood], [-1, parts.cartOpen]] as const) {
     const a = gateAngle + dside * 0.42;
-    const [x, z] = at(a, R - 8);
+    const [x, z] = at(a, inset(a, 8));
     if (place(taken, network, x, z, 3, 4.6)) {
       solid.add(tpl, x, cy, z, a + Math.PI / 2 + dside * 0.3);
     }
@@ -949,9 +1143,13 @@ function buildEncampment(
   // are the camp's night lighting and they are emissive voxels, not lights —
   // see the note on lampBody in town-parts.ts.
   const brazierSpots: Array<[number, number]> = [
-    [gateAngle + 0.30, R - 3.4], [gateAngle - 0.30, R - 3.4],
+    [gateAngle + 0.30, inset(gateAngle + 0.30, 3.4)],
+    [gateAngle - 0.30, inset(gateAngle - 0.30, 3.4)],
   ];
-  for (let k = 0; k < 5; k++) brazierSpots.push([gateAngle + 1.1 + (k / 5) * 4.4, R - 6 - rng() * 4]);
+  for (let k = 0; k < 5; k++) {
+    const a = gateAngle + 1.1 + (k / 5) * 4.4;
+    brazierSpots.push([a, inset(a, 6 + rng() * 4)]);
+  }
   for (const [a, d] of brazierSpots) {
     const [x, z] = at(a, d);
     if (!place(taken, network, x, z, 1.6, 4.0)) continue;

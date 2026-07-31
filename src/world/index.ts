@@ -359,7 +359,10 @@ export function createWorld(
     // and flowers still grow inside the palisade — only the occluders are held
     // off — which is what stops the camp floor reading as a bald disc.
     ...townReg.all.map((t): Exclusion => ({
-      x: t.x, z: t.z, kind: 'solid', r: t.radius + 2.5,
+      // outerRadius, not radius: the Encampment's wall is a square and its
+      // corners stand 41% further out than its sides. Keyed on the footprint
+      // circle, trees grew INSIDE the corners of the camp.
+      x: t.x, z: t.z, kind: 'solid', r: t.outerRadius + 2.5,
     })),
   ];
 

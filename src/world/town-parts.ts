@@ -244,26 +244,40 @@ function palisadeSpan(): Template {
     v.set(1, h + 1, z + 1, shade(c, 0.9));
     v.set(0, h + 2, z, shade(c, 1.2));
   }
-  // Lashed rail on the inside, and a stone footing course on the outside so the
-  // wall grows out of the ground instead of resting on it.
+  // Lashed rail on the inside, and a SILL LOG along the outside so the wall
+  // grows out of the ground instead of resting on it. That course was rock
+  // until the camp went all-timber; it is the same box in a dark log colour,
+  // because deleting it flattens the outer face and drops the base into the
+  // grass — the job it does is geometric, not material.
   v.box(2, 5, 0, 2, 5, 14, shade(PLANK_DARK, 1.05));
-  v.box(-1, 0, 0, -1, 1, 14, ROCK_DARK);
+  v.box(-1, 0, 0, -1, 1, 14, shade(LOG, 0.72));
   for (let z = 1; z < 14; z += 5) v.set(2, 6, z, ROPE);
   return bakeSolid(v, V);
 }
 
-/** A low stone wall run, same 4.2 units, for the stretches without timber. */
-function stoneWallSpan(): Template {
+/**
+ * The post a square wall turns on.
+ *
+ * Three voxels square and taller than the logs beside it, with a chamfered cap.
+ * Not structural — two runs meeting at a corner already overlap in that cell,
+ * so there is no hole to plug — but butt-jointed log ends read as two fences
+ * that happen to meet, where a post with walls hung off it reads as a stockade.
+ */
+function cornerPost(): Template {
   const v = new VoxelModel();
-  const r = rnd(0x3ba9);
-  for (let z = 0; z < 15; z++) {
-    const h = 4 + (r() < 0.35 ? 1 : 0);
-    for (let y = 0; y <= h; y++) {
-      v.box(-1, y, z, 1, y, z, shade(y === h ? ROCK : ROCK_DARK, 0.86 + r() * 0.3));
-    }
+  const r = rnd(0x6c17);
+  const H = 13;
+  for (let y = 0; y <= H; y++) {
+    const c = shade(LOG, 0.76 + r() * 0.3);
+    v.box(-1, y, -1, 1, y, 1, c);
   }
+  // Chamfer: the top course loses its corners, the one above is a single cap.
+  v.box(0, H + 1, -1, 0, H + 1, 1, shade(LOG, 1.14));
+  v.box(-1, H + 1, 0, 1, H + 1, 0, shade(LOG, 1.14));
+  v.set(0, H + 2, 0, shade(LOG, 1.22));
   return bakeSolid(v, V);
 }
+
 
 /**
  * The gate: two heavy posts, a lintel, a hanging banner and a pair of braced
@@ -828,7 +842,7 @@ function bridgeRail(): Template {
 /** Every baked piece, built once. towns.ts stamps from here. */
 export class TownParts {
   readonly palisade = palisadeSpan();
-  readonly stoneWall = stoneWallSpan();
+  readonly cornerPost = cornerPost();
   readonly gate = gateArch();
   readonly watch = watchPost();
   readonly tents = [ridgeTent(0, 16), ridgeTent(1, 13), ridgeTent(2, 18)];

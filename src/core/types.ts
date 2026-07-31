@@ -233,6 +233,16 @@ export interface TownInfo {
   readonly z: number;
   /** Footprint: inside this radius of (x, z) you are in the town. */
   readonly radius: number;
+  /**
+   * How far the town's built PERIMETER reaches from (x, z).
+   *
+   * `radius` is the nominal footprint and stays a circle — arrival tests,
+   * culling and keep-outs all use it. This is the circle that contains the
+   * actual wall, which for a SQUARE one is its corners, 41% further out than
+   * its sides. Anything levelling or clearing ground for the structures to
+   * stand on wants this; anything asking "am I in the town" wants `radius`.
+   */
+  readonly outerRadius: number;
   /** The one road entrance, and the bearing atan2(dx, dz) it lies on. */
   readonly gateX: number;
   readonly gateZ: number;

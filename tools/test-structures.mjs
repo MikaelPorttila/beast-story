@@ -170,13 +170,22 @@ async function run(solids, geom = null) {
     // ---- the perimeter, on the side away from the gate -------------------
     // Camps have a palisade; hamlets have a fence arc. Either way, walk in from
     // outside on the far bearing and see whether the hero reaches the middle.
+    //
+    // `endCentreDist` is REPORTED, not asserted on, and that is the fix for a
+    // wrong result this test gave once: it used to call the walk a pass when the
+    // hero ended further out than `radius - 1`, which quietly assumed the wall
+    // stands ON the footprint circle. The Encampment's wall is now a SQUARE with
+    // a half-side of 16.8 inside a footprint of 19, so a hero stopped dead
+    // against the timber ends up ~17.6 from the middle and the old test called
+    // that "got inside" — it had blocked him perfectly. Whether a wall stopped
+    // him is a question about the same walk with the wall removed, which is the
+    // control arm this tool already runs; compare the two.
     {
       const wallAng = gAng + Math.PI;
       const [sx, sz] = pt(wallAng, town.radius + 5);
       const w = await drive(`${town.id}/perimeter`, sx, sz, town.x, town.z);
       w.endCentreDist = round(Math.hypot(w.end.x - town.x, w.end.z - town.z));
       w.townRadius = town.radius;
-      w.gotInside = w.endCentreDist < town.radius - 1;
     }
 
     // ---- the gate: this one MUST let him through --------------------------
@@ -185,7 +194,8 @@ async function run(solids, geom = null) {
       const g = await drive(`${town.id}/gate`, sx, sz, town.x, town.z);
       g.endCentreDist = round(Math.hypot(g.end.x - town.x, g.end.z - town.z));
       g.townRadius = town.radius;
-      g.gotInside = g.endCentreDist < town.radius - 1;
+      // The gate's assertion is the comparison, not a radius: it must land him
+      // as deep in as the walk with no collision at all.
     }
   }
 
