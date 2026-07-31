@@ -43,6 +43,12 @@ export class ColliderView {
     this.scene.add(this.group);
   }
 
+  /** Rebind to another zone's World (see world/zones.ts) and redraw. */
+  setWorld(world: World): void {
+    this.world = world;
+    if (this.visible) this.rebuild();
+  }
+
   get isVisible(): boolean { return this.visible; }
 
   setVisible(v: boolean): void {

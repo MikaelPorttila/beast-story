@@ -19,7 +19,11 @@ export class StubWorld implements World {
   readonly waterLevel: number;
   readonly shopPositions: THREE.Vector3[] = [];
   readonly spawnPoint = new THREE.Vector3(0, 0, 0);
+  /** The stage is one mesh built in the constructor: nothing ever streams. */
+  readonly chunksLoaded = 1;
+  readonly streaming = false;
   private disposables: Array<{ dispose(): void }> = [];
+  private meshes: THREE.Mesh[] = [];
 
   /**
    * @param scene    stage scene
@@ -50,6 +54,7 @@ export class StubWorld implements World {
     floor.position.y = groundY;
     floor.receiveShadow = true;
     scene.add(floor);
+    this.meshes.push(floor);
     this.disposables.push(geo, mat);
 
     if (flooded) {
@@ -61,6 +66,7 @@ export class StubWorld implements World {
       const water = new THREE.Mesh(wgeo, wmat);
       water.position.y = this.waterLevel;
       scene.add(water);
+      this.meshes.push(water);
       this.disposables.push(wgeo, wmat);
     }
   }
@@ -75,6 +81,17 @@ export class StubWorld implements World {
 
   update(): void {
     /* nothing streams in the lab */
+  }
+
+  /** The stage has no lights of its own, so this is just the floor. */
+  setVisible(v: boolean): void {
+    for (const m of this.meshes) m.visible = v;
+  }
+
+  /** One floor mesh: there is nothing here worth spreading over frames. */
+  disposeStep(): boolean {
+    this.dispose();
+    return true;
   }
 
   dispose(): void {

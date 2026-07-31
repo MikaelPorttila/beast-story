@@ -199,7 +199,33 @@ function placeShops(terrain: Terrain, spawn: THREE.Vector3, seed: number): DenSp
 
 // ---------------------------------------------------------------------------
 
-export function createWorld(scene: THREE.Scene, seed = 20260729): World {
+/**
+ * What a landmark chooser is allowed to look at: the world after it has decided
+ * where spawn and the dens are, but before a single chunk exists. See the
+ * `landmarks` argument of createWorld.
+ */
+export interface LandmarkProbe {
+  readonly spawnPoint: THREE.Vector3;
+  readonly waterLevel: number;
+  readonly shopPositions: THREE.Vector3[];
+  getHeight(x: number, z: number): number;
+}
+
+/**
+ * @param landmarks Optional: claim CLEARINGS before anything is built. Each one
+ *   gets the den treatment — the terrain is flattened under it and props are
+ *   kept off it — which is the only way to guarantee level, tree-free ground for
+ *   something that is about to be placed there. It has to run here, not after
+ *   the world is returned, because a chunk's props are baked into its mesh when
+ *   the chunk is built and the 3x3 around spawn is built below. The zone
+ *   gateway (main.ts) is the one user: captured without it, the arch stood in a
+ *   thicket with a trunk through the middle of it.
+ */
+export function createWorld(
+  scene: THREE.Scene,
+  seed = 20260729,
+  landmarks?: (probe: LandmarkProbe) => Array<{ x: number; z: number }>,
+): World {
   const terrain = new Terrain(seed);
   const terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   const waterMat = createWaterMaterial();
@@ -221,9 +247,23 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
   // 'solid' — these discs hold trees, boulders, hedges and logs off the spawn
   // clearing and the den decks, but grass, flowers and shells still carpet
   // them. A blanket exclusion left a ~20m bare plane right under the camera.
+  const sites = landmarks?.({
+    spawnPoint,
+    waterLevel: WATER_LEVEL,
+    shopPositions: shops.positions,
+    getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
+  }) ?? [];
+  for (const s of sites) {
+    // Narrower than a den's 4.5/9 — a gateway is one arch, not a building, and
+    // a wide flatten this far from spawn plants a visible pancake on a hillside.
+    const h = Math.max(Math.floor(terrain.heightCont(s.x, s.z)), WATER_LEVEL + 1);
+    terrain.flattens.push({ x: s.x, z: s.z, h: h + 0.55, core: 3.5, blend: 7 });
+  }
+
   const exclusions: Exclusion[] = [
     { x: spawnPoint.x, z: spawnPoint.z, kind: 'solid' },
     ...spots.map((s): Exclusion => ({ x: s.x, z: s.z, kind: 'solid' })),
+    ...sites.map((s): Exclusion => ({ x: s.x, z: s.z, kind: 'solid' })),
   ];
 
   const chunks = new Map<string, ChunkRec>();
@@ -352,6 +392,10 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
     waterLevel: WATER_LEVEL,
     spawnPoint,
     shopPositions: shops.positions,
+    get chunksLoaded(): number { return chunks.size; },
+    // A part-built chunk counts: its props stage has not run, so its trees are
+    // not in the trunk registry yet and walking in would find no colliders.
+    get streaming(): boolean { return building !== null || queue.length > 0; },
     getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
     /**
      * Terrain, the top of a trunk, or the surface of a canopy — whichever is
@@ -480,6 +524,37 @@ export function createWorld(scene: THREE.Scene, seed = 20260729): World {
         }
         buildBudgetLeft -= performance.now() - t0;
       }
+    },
+
+    setVisible(v: boolean): void {
+      for (const rec of chunks.values()) for (const m of rec.meshes) m.visible = v;
+      // The den lamps live under shops.group, so this is also what takes the
+      // world's four point lights out of the scene's light count. See World.
+      shops.group.visible = v;
+      if (clouds) clouds.group.visible = v;
+      if (motes) motes.points.visible = v;
+    },
+
+    /**
+     * A handful of chunks per call, then everything else. See World for the
+     * measurement that made this necessary.
+     *
+     * 6 per frame empties the 90-110 chunks a walked-in world holds in under
+     * 20 frames — a third of a second, all of it while the hero is somewhere
+     * else entirely.
+     */
+    disposeStep(): boolean {
+      if (disposed) return true;
+      let n = 6;
+      for (const [key, rec] of chunks) {
+        if (n <= 0) return false;
+        n--;
+        if (building && building.rec === rec) building = null;
+        disposeChunk(rec);
+        chunks.delete(key);
+      }
+      this.dispose();
+      return true;
     },
 
     dispose(): void {

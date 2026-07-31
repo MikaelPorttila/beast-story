@@ -108,6 +108,37 @@ export class CombatSystem {
     };
   }
 
+  /**
+   * Rebind to another zone's World (see world/zones.ts).
+   *
+   * Unlike the hero and the pals, most of what combat holds is ZONE-LOCAL and
+   * has to go: wild enemies were spawned on the old ground and each captured
+   * that world themselves, projectiles are in flight over it, and drops are
+   * lying on it. What survives is the running shard total — the one piece of
+   * player state this system owns — and the pooled geometry, materials and
+   * lights, which is the reason to rebind rather than rebuild: reconstructing
+   * CombatSystem would throw away every warmed shader program with it.
+   *
+   * `primed` is cleared so the new zone gets its own starting population
+   * instead of inheriting an empty one.
+   */
+  setWorld(world: World): void {
+    this.world = world;
+    this.enemyCtx.world = world;
+    for (let i = this.enemies.length - 1; i >= 0; i--) this.removeEnemy(i);
+    for (const p of this.projectiles) {
+      if (!p.active) continue;
+      p.active = false;
+      p.group.visible = false;
+      if (p.light) { this.vfx.releaseLight(p.light); p.light = null; }
+    }
+    this.pickups.clear();
+    this.targets.length = 0;
+    this.lastPlayer = null;
+    this.primed = false;
+    this.spawnT = 0;
+  }
+
   // ------------------------------------------------------------------ cast
 
   cast(req: CastRequest): void {
@@ -351,6 +382,38 @@ export class CombatSystem {
   /** One more visible point light, for the count sweep. See VFX.warmUpLights. */
   warmUpLight(at: THREE.Vector3): void {
     this.vfx.warmUpLights(at.x, at.y, at.z, 1);
+  }
+
+  /**
+   * Put one dropped shard in front of `at` for a warm-up render, and take it
+   * away again afterwards. Its three materials (additive mesh, core, glow
+   * sprite) are drawn nowhere else, so a zone that has never seen a drop links
+   * them the first time something dies in it — measured, three programs on the
+   * arrival frame. See Pickups.warmUpDrop.
+   */
+  warmUpDrop(at: THREE.Vector3): void {
+    this.pickups.warmUpDrop(at.x, at.y + 0.4, at.z);
+  }
+
+  endWarmUpDrop(): void {
+    this.pickups.retireWarmUpDrop();
+  }
+
+  /**
+   * The whole VFX set, with no light and no projectile, for a zone's warm-up
+   * sweep — the effect materials have to be drawn at the destination's light
+   * counts too, and several of them (the ring, the beam, the scorch decal) are
+   * textured MeshBasics whose programs are keyed separately from everything
+   * else's.
+   *
+   * Staged 0.8 UNDER the point given, i.e. inside the floor. A program is
+   * linked when its material is bound for a draw, not when its fragments
+   * survive the depth test, so burying the burst costs nothing — and it is what
+   * stops the sweep from leaving a scorch decal (7 s of life) on the pad the
+   * hero is about to walk out onto.
+   */
+  warmUpEffects(at: THREE.Vector3): void {
+    this.vfx.warmUp(at.x, at.y - 0.8, at.z);
   }
 
   warmUp(at: THREE.Vector3, lights: number): void {

@@ -140,8 +140,35 @@ export class Pickups {
 
   /** Launch a drop from a death point with a small celebratory arc. */
   spawn(x: number, y: number, z: number, itemId: string = SHARD_ID): void {
+    this.spawnSlot(x, y, z, itemId);
+  }
+
+  /**
+   * Stage one drop for a shader warm-up render, and take it away again with
+   * `retireWarmUpDrop()` once the render is done.
+   *
+   * A drop is three materials — an additive mesh, its core and a glow SPRITE —
+   * that exist nowhere else in the game, so a zone entered without them ever
+   * having been drawn links their programs the first time an enemy dies in it.
+   * The slot is remembered rather than the whole pool being cleared, because a
+   * warm-up that runs mid-game must not sweep up loot the player has not walked
+   * over yet.
+   */
+  warmUpDrop(x: number, y: number, z: number): void {
+    this.warmSlot = this.spawnSlot(x, y, z, SHARD_ID);
+  }
+
+  retireWarmUpDrop(): void {
+    if (!this.warmSlot) return;
+    this.retire(this.warmSlot);
+    this.warmSlot = null;
+  }
+
+  private warmSlot: Drop | null = null;
+
+  private spawnSlot(x: number, y: number, z: number, itemId: string): Drop | null {
     const s = this.slot();
-    if (!s) return;
+    if (!s) return null;
     const def = itemDef(itemId);
     s.active = true;
     s.grounded = false;
@@ -162,6 +189,7 @@ export class Pickups {
     s.group.scale.setScalar(0.01);
     s.mat.opacity = 0.92;
     s.group.visible = true;
+    return s;
   }
 
   /**
@@ -217,6 +245,15 @@ export class Pickups {
     s.claimed = false;
     s.gen++;
     s.group.visible = false;
+  }
+
+  /**
+   * Retire every drop without collecting it. Used when the ground they are
+   * lying on stops existing — a zone change. Bumping `gen` in retire() is what
+   * makes any FetchJob a pal is still holding go inert rather than wrong.
+   */
+  clear(): void {
+    for (const s of this.pool) if (s.active) this.retire(s);
   }
 
   update(dt: number, magnet: THREE.Vector3, world: World): void {

@@ -3,13 +3,15 @@ import { Engine } from './core/engine';
 import { DebugOverlay } from './core/debug-overlay';
 import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
-import { EventBus, type SkillDef, type Damageable } from './core/types';
+import { EventBus, type SkillDef, type Damageable, type World, type WorldBound } from './core/types';
 import { Inventory, itemDef } from './core/items';
 import { perf } from './core/profiler';
 import { flags } from './core/flags';
 import { DevConsole } from './ui/console';
 import { ColliderView } from './core/collider-view';
-import { createWorld } from './world/index';
+import { createWorld, type LandmarkProbe } from './world/index';
+import { createDungeon } from './world/dungeon';
+import { ZoneManager, type ZoneDef } from './world/zones';
 import { Player } from './player/index';
 import { MountController } from './player/mount';
 import { PalActor, registerSkillDefs } from './pals/framework';
@@ -22,7 +24,121 @@ const engine = new Engine(app);
 const input = new Input(engine.renderer.domElement);
 const bus = new EventBus();
 
-const world = createWorld(engine.scene, 1337);
+// ---------------------------------------------------------------------------
+// Zones. There are two: the streamed overworld and one dungeon instance. The
+// ZoneManager owns both, preloads the destination while the hero walks toward a
+// gateway, and rebinds every subsystem in `bound` on a switch — see
+// world/zones.ts for the enter/exit/dwell numbers and why each is what it is.
+// Gameplay policy on arrival (where the hero lands, dismounting, the toast) is
+// this file's business, so it lives in `onArrive` below.
+// ---------------------------------------------------------------------------
+
+/** Offsets probed for level ground under the gateway. */
+const GATE_PROBES: ReadonlyArray<readonly [number, number]> =
+  [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2]];
+
+/**
+ * Where the overworld's gateway stands.
+ *
+ * 34-42 units from spawn, and the lower bound is the load-bearing part: the
+ * preload band is 30 units wide, so anything closer would put the hero INSIDE
+ * it at spawn and the dungeon would be built during boot whether or not he ever
+ * walks that way. Measured at a first-pass 20 units, that is exactly what
+ * happened — `__dbgZone().pending` came back fully built and warmed before the
+ * player had moved. At 34 the band is entered by walking toward the arch, which
+ * is what it is for. The upper bound is just "still a landmark you find by
+ * looking around", the first skill den being 18 units out for comparison.
+ *
+ * Scored on level, dry ground clear of the dens: the arch is 5 units tall with
+ * pillars 4.6 apart, and half of it buried in a hillside or clipping a pagoda
+ * reads as a bug rather than as a landmark.
+ */
+function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
+  const base = w.spawnPoint;
+  let best = { x: base.x + 34.5, z: base.z + 0.5 };
+  let bestScore = Infinity;
+  for (const radius of [34, 38, 31, 42]) {
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2 + 0.9;
+      const x = Math.round(base.x + Math.cos(a) * radius) + 0.5;
+      const z = Math.round(base.z + Math.sin(a) * radius) + 0.5;
+      const h = w.getHeight(x, z);
+      if (h < w.waterLevel + 1) continue;
+      let worst = 0;
+      for (const [dx, dz] of GATE_PROBES) {
+        worst = Math.max(worst, Math.abs(w.getHeight(x + dx, z + dz) - h));
+      }
+      let shopPenalty = 0;
+      for (const s of w.shopPositions) {
+        const d = Math.hypot(s.x - x, s.z - z);
+        if (d < 12) shopPenalty += 12 - d;
+      }
+      const score = worst * 3 + shopPenalty;
+      if (score < bestScore) { bestScore = score; best = { x, z }; }
+      if (score === 0) return best;
+    }
+  }
+  return best;
+}
+
+/**
+ * Chosen inside createWorld (so the terrain can be flattened and the props kept
+ * off it) and read back by `gate` a moment later. A module-level handoff rather
+ * than running the search twice: it is a scan over a few hundred columns, and
+ * two runs of it would be two chances to disagree.
+ */
+let gateSite: { x: number; z: number } | null = null;
+
+const OVERWORLD: ZoneDef = {
+  id: 'overworld',
+  name: 'Embervale',
+  create: (scene) => createWorld(scene, 1337, (probe) => {
+    gateSite = findGateSpot(probe);
+    return [gateSite];
+  }),
+  gate: () => ({ to: 'hold', x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff }),
+};
+
+const HOLD: ZoneDef = {
+  id: 'hold',
+  name: 'The Sunken Hold',
+  create: (scene) => createDungeon(scene, 0x5ea1ed),
+  // The way out stands on the way in: you arrive on the return gateway, which
+  // is exactly why it starts disarmed (see EXIT_R in world/zones.ts).
+  gate: (w) => ({ to: 'overworld', x: w.spawnPoint.x, z: w.spawnPoint.z, hex: 0xffc46b }),
+};
+
+/** Everything that captured a World at construction; rebound on every switch. */
+const bound: WorldBound[] = [];
+/** Set by the zone manager each slice; consumed by the HUD hint below. */
+let portalHint: string | null = null;
+
+const zones = new ZoneManager({
+  scene: engine.scene,
+  zones: [OVERWORLD, HOLD],
+  start: 'overworld',
+  bind: bound,
+  warm: (stage, lights) => warmUpFrame(stage, lights),
+  onArrive: (w, def) => {
+    world = w;
+    // A saddle pose is computed against one world's heightfield; applying it in
+    // another is precisely the teleport-into-rock this rebinding exists to stop.
+    if (mount.isMounted) mount.dismount();
+    player.position.copy(w.spawnPoint);
+    player.position.y = Math.max(
+      w.getHeight(w.spawnPoint.x, w.spawnPoint.z), w.waterLevel,
+    );
+    player.velocity.set(0, 0, 0);
+    // The pals need no placement: their follow update teleports any pal whose
+    // owner is further than TELEPORT_DIST away, and a zone is by construction
+    // further than that, so they poof in beside him on the next slice using the
+    // new world's ground height.
+    bus.emit({ type: 'toast', text: `Entered ${def.name}` });
+  },
+  onHint: (t) => { portalHint = t; },
+});
+
+let world: World = zones.world;
 const player = new Player(engine, world, input, bus);
 const combat = new CombatSystem(engine.scene, world, bus);
 const hud = new HUD(bus);
@@ -42,6 +158,10 @@ registerSkillDefs(SKILLS.values());
 const roster: PalActor[] = ALL_SPECIES.map(
   (sp) => new PalActor(sp, engine.scene, world, bus),
 );
+// The rebind list. Order does not matter — every setWorld is independent — but
+// the roster is the reason the list exists at all: a pal's level, xp and known
+// skills are the save game, and rebuilding one to change zones would delete it.
+bound.push(player, mount, combat, ...roster);
 let primaryIdx = 0; // Emberfox
 let supportIdx = 6; // Galebird
 const cooldowns = new Map<string, number>();
@@ -466,6 +586,17 @@ const _dbgDir = new THREE.Vector3();
   },
   primary: { name: primary().species.name, fetching: primary().isFetching },
 });
+// TEST HOOK, like __dbgDrop below: put the hero at an absolute column in the
+// ACTIVE zone. The zone tools need to place him at an exact distance from a
+// gateway and hold him there — "walk for 1.4 s and hope" cannot demonstrate
+// that a 3.0-unit enter radius and a 5.0-unit exit radius behave differently,
+// and the oscillation test needs to cross a boundary at a known rate.
+(window as unknown as { __dbgTp: (x: number, z: number) => void }).__dbgTp = (x, z) => {
+  player.position.x = x;
+  player.position.z = z;
+  player.position.y = Math.max(world.getHeight(x, z), world.waterLevel);
+  player.velocity.set(0, 0, 0);
+};
 (window as unknown as { __dbgDrop: (id: string, dx: number, dz: number) => void })
   .__dbgDrop = (id, dx, dz) => {
     const x = player.position.x + dx, z = player.position.z + dz;
@@ -498,6 +629,7 @@ let lastPrograms = 0;
 // ---------------------------------------------------------------------------
 const devConsole = photoMode ? null : new DevConsole();
 const colliderView = new ColliderView(engine.scene, world);
+bound.push(colliderView);
 // `colliders=1` starts them visible, which is how a staged capture can show the
 // cage against the mesh — photo mode has no console to type into.
 if (params.get('colliders') === '1') colliderView.setVisible(true);
@@ -537,6 +669,21 @@ devConsole?.register({
     if (why !== 'none') return `cannot mount: ${why}`;
     mount.mount(primary());
     return `riding ${primary().species.name} (${primary().species.locomotion})`;
+  },
+});
+devConsole?.register({
+  name: 'zone',
+  args: '[<id>]',
+  help: 'Show the active zone, or switch to one now (skips the gateway dwell).',
+  run: (args) => {
+    if (!args[0]) {
+      return `${zones.id} (${zones.name}) — ${zones.world.chunksLoaded} chunks, `
+        + `${zones.transitions} transition(s). Zones: ${zones.zoneIds.join(', ')}`;
+    }
+    // A forced switch builds and warms the destination synchronously, which is
+    // one long frame. That is the frame the preload band exists to avoid, and
+    // seeing the difference is half of what this command is for.
+    return zones.switchTo(args[0]);
   },
 });
 devConsole?.register({
@@ -620,35 +767,95 @@ let simAccumulator = 0;
  * one render each; otherwise the second and third simultaneous projectile each
  * trigger their own recompile mid-fight.
  */
-function warmUpShaders(): void {
-  const camPos = engine.camera.position.clone();
-  const camQuat = engine.camera.quaternion.clone();
+const _warmPos = new THREE.Vector3();
+const _warmQuat = new THREE.Quaternion();
+const _warmStage = new THREE.Vector3();
 
+/**
+ * ONE warm-up render: park the camera on `stage`, add `lights` pool lights,
+ * draw, put the camera back.
+ *
+ * Split out of warmUpShaders() because a ZONE TRANSITION needs exactly the same
+ * work done against a different world, and it cannot afford to do it all in one
+ * frame the way boot can. ZoneManager calls this once every third frame while
+ * the destination is preloaded and the hero is still walking, so the whole sweep
+ * costs one extra scene render on ~11 frames instead of a 400 ms stall on the
+ * frame he crosses the threshold.
+ *
+ * `lights` is how many to ADD, not a target count: at boot nothing expires
+ * between calls so the counts accumulate 1..10, and during a transition the
+ * previous step's lights have expired by the time the next one runs (see
+ * WARM_STRIDE), so k added is k visible. Both give the sweep every count.
+ *
+ * The sun focus moves with the camera and back again. It is not cosmetic: the
+ * shadow frustum is what decides which casters get a depth pass, so warming a
+ * world outside it would link its colour programs and leave every depth program
+ * to be linked on arrival — the same stall, one pass later.
+ */
+function warmUpFrame(stage: THREE.Vector3, lights: number, effects = false): void {
+  _warmPos.copy(engine.camera.position);
+  _warmQuat.copy(engine.camera.quaternion);
+  // A HIGH, WIDE view rather than a ground-level one.
+  //
+  // Programs do not care where the camera is, but BUFFER UPLOADS do: three
+  // uploads a geometry's vertex data on its first DRAW, and a draw only happens
+  // if the object survives frustum culling. Warming a zone from eye level at its
+  // spawn uploads the six or seven chunks in that 55-degree cone and leaves the
+  // rest to arrive on the frame the hero walks in. 250 up and 40 back frames the
+  // hold's whole 160x160 footprint (spawn is in a corner room) well inside the
+  // 600-unit far plane, so every chunk is drawn at least once during the
+  // approach.
+  //
+  // Honest note: this did NOT remove the one residual stall after a transition
+  // — a ~320 ms frame a few frames past arrival, with under 10 ms of CPU in it.
+  // That one survived every suspect tried (shadows off, enemies off, disposal
+  // at 1 chunk per frame instead of 6, disposal skipped altogether, this wide
+  // view), only appears in long sessions, and has a smaller twin (~107 ms) in
+  // sessions with no zone change at all. What is left that fits is a major GC:
+  // both chunk meshers build their vertex data in plain `number[]`, and a zone
+  // built in one burst is megabytes of it. Fixing that means preallocating the
+  // meshers, which is a separate job.
+  engine.camera.position.set(stage.x, stage.y + 250, stage.z + 40);
+  engine.camera.lookAt(stage.x, stage.y, stage.z);
+  engine.updateSunFocus(stage);
+  if (effects) combat.warmUp(stage, 0);
+  // A dropped shard and the effect set on every step, so their materials are
+  // drawn at every light count too — a zone entered without them is a zone that
+  // links their programs the first time something dies in it. The drop is
+  // retired again immediately below (a warm-up that runs mid-game must not
+  // disturb loot lying on the ground elsewhere) and the effects are staged
+  // inside the floor. `effects` on top of that is the BOOT path, which
+  // additionally wants the projectile and its light.
+  if (!effects) combat.warmUpEffects(stage);
+  combat.warmUpDrop(stage);
+  for (let i = 0; i < lights; i++) combat.warmUpLight(stage);
+  engine.render();
+  combat.endWarmUpDrop();
+  engine.camera.position.copy(_warmPos);
+  engine.camera.quaternion.copy(_warmQuat);
+  engine.updateSunFocus(player.position);
+}
+
+function warmUpShaders(): void {
   // The camera has to be looking at the REAL WORLD, not at an empty staging
   // area. The light sweep below only recompiles materials that are actually
   // drawn, and the materials that matter — terrain, props, water, pals, the
   // shop — are the world's. An earlier version staged this 400 units under the
   // map, which warmed the effects beautifully and left every lit surface in the
   // game to recompile later; the 12-program burst simply moved.
-  const stage = world.spawnPoint.clone();
-  stage.y += 1;
-  engine.camera.position.set(stage.x, stage.y + 2, stage.z + 8);
-  engine.camera.lookAt(stage);
+  _warmStage.copy(world.spawnPoint);
+  _warmStage.y += 1;
 
   // One of everything, drawn once. This also takes the first pool light (the
   // projectile's), so the sweep below starts from a count of 1.
-  combat.warmUp(stage, 0);
-  engine.render();
+  warmUpFrame(_warmStage, 0, true);
 
   // Then one light at a time, one render each, to the pool's cap. EXACTLY one:
   // adding two per pass leaves every odd count uncompiled, which is a real bug
   // this code already had — three projectiles in flight at once then hit an
   // unseen count mid-fight and recompiled twelve materials in one frame.
   const POOL = 10; // VFX light pool cap
-  for (let i = 1; i < POOL; i++) {
-    combat.warmUpLight(stage);
-    engine.render();
-  }
+  for (let i = 1; i < POOL; i++) warmUpFrame(_warmStage, 1);
 
   // NOT renderer.compile(scene, camera). It was tried and measured: it linked
   // 117 programs in one go and made boot dramatically WORSE (593 ms, 429 ms and
@@ -660,15 +867,16 @@ function warmUpShaders(): void {
   // Expire everything the warm-up spawned: every effect above was given a life
   // measured in hundredths of a second, so one long update clears the lot.
   combat.update(5, player as unknown as Damageable, []);
-
-  engine.camera.position.copy(camPos);
-  engine.camera.quaternion.copy(camQuat);
 }
+
+/** Set by the shop-proximity test, read by the hint decision after the zone update. */
+let nearShop = false;
 
 function simulate(dt: number, first: boolean, interactive: boolean): void {
   // An open console is a modal: it has the keyboard, so the hero must not also
   // act on it. Same treatment the shop already gets.
   const shopOpen = hud.isShopOpen() || !!devConsole?.isOpen;
+  nearShop = false;
 
   // The camera stick is a rate control, so it must inject its look delta BEFORE
   // the player/camera update consumes mouseDX this frame — ticking it later in
@@ -738,14 +946,11 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       if (pick) castFromPal(sup, pick);
     }
 
-    // Shop proximity
-    const near = world.shopPositions.some((s) => s.distanceTo(player.position) < 3.5);
-    if (near) {
-      hud.showHint('Press E — Skill Den');
-      if (first && input.pressed('KeyE')) tryOpenShop();
-    } else {
-      hud.hideHint();
-    }
+    // Shop proximity. The prompt itself is decided after the zone update below,
+    // because a gateway prompt has to win: both are "you are standing on
+    // something", and the gateway is the one with a countdown running.
+    nearShop = world.shopPositions.some((s) => s.distanceTo(player.position) < 3.5);
+    if (nearShop && first && input.pressed('KeyE')) tryOpenShop();
   } else if (first && (input.pressed('Escape') || input.pressed('KeyE'))) {
     hud.closeShop();
   }
@@ -764,8 +969,17 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   }
   perf.section('pals');
 
-  world.update(player.position, dt, first);
+  // Streams the active zone, runs the gateway's arm/dwell rules, and builds and
+  // warms whatever is being preloaded. It can swap `world` out from under this
+  // slice (see onArrive), which is safe here: everything above has finished
+  // with it, and combat below is rebound by the same call.
+  zones.update(player.position, dt, first);
   perf.section('world');
+
+  const hint = portalHint ?? (nearShop ? 'Press E — Skill Den' : null);
+  if (hint) hud.showHint(hint);
+  else hud.hideHint();
+
   combat.update(dt, player as unknown as Damageable, [primary(), support()] as unknown as Damageable[]);
   perf.section('combat');
 }
@@ -949,4 +1163,53 @@ frame();
   ground: world.getHeight(x, z),
   climbTop: world.climbTopAt(x, z),
   trunkSolidTop: world.trunkSolidTopAt(x, z),
+});
+
+/**
+ * Every shader program three currently holds, as `type|cacheKey`.
+ *
+ * This is the instrument the zone warm-up was built with, and it earns its
+ * place: `perf.count('programs')` says a program was linked, this says WHICH,
+ * and a cacheKey is a comma-joined dump of the parameters three keys on — the
+ * define set, then the light counts. Snapshot it either side of an event and
+ * diff, and a stall stops being a mystery. Doing exactly that is what showed
+ * that walking into the dungeon linked 25 programs at point-light counts 0 and
+ * 1, because the overworld's four den lamps put a floor of 4 under every count
+ * it had ever compiled. Read-only, allocates, never called from the loop.
+ */
+(window as unknown as { __dbgProgKeys: () => string[] }).__dbgProgKeys = () =>
+  (engine.renderer.info.programs ?? []).map(
+    (p) => `${(p as unknown as { type: string }).type}|${(p as unknown as { cacheKey: string }).cacheKey}`,
+  );
+
+// Zone state, and — in the same call — everything a transition is supposed to
+// leave untouched. The two belong together: the only way to show that a switch
+// preserved the hero's hp and a pal's level is to read them either side of the
+// same event, and a probe that needs three calls to do it invites a race.
+// Read-only, allocates, never called from the frame loop.
+(window as unknown as { __dbgZone: () => unknown }).__dbgZone = () => ({
+  ...(zones.debug() as Record<string, unknown>),
+  // Live GPU-side totals, which is how "the overworld really did unload" is
+  // shown rather than asserted: geometries is three's own count of live buffer
+  // geometries, and it drops by the whole chunk set on a switch.
+  geometries: engine.renderer.info.memory.geometries,
+  programs: engine.renderer.info.programs?.length ?? 0,
+  sceneObjects: engine.scene.children.length,
+  player: {
+    hp: +player.hp.toFixed(2),
+    maxHp: player.maxHp,
+    x: +player.position.x.toFixed(2),
+    y: +player.position.y.toFixed(2),
+    z: +player.position.z.toFixed(2),
+  },
+  shards: shards(),
+  bag: bag.entries().map((e) => ({ id: e.def.id, count: e.count })),
+  pals: roster.map((p) => ({
+    id: p.species.id,
+    level: p.level,
+    xp: p.xp,
+    hp: +p.hp.toFixed(2),
+    maxHp: p.maxHp,
+    skills: p.knownSkillIds.slice(),
+  })),
 });

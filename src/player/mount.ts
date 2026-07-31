@@ -195,6 +195,16 @@ export class MountController {
     private bus: EventBus,
   ) {}
 
+  /**
+   * Rebind to another zone's ground (see world/zones.ts). The caller dismounts
+   * first — a saddle pose computed against one world's heightfield and applied
+   * in another is exactly the teleport-into-rock this whole rebinding exists to
+   * avoid — so there is no ride state left to fix up here.
+   */
+  setWorld(world: World): void {
+    this.world = world;
+  }
+
   get isMounted(): boolean { return this.pal !== null; }
   /** 0..1 fill for the indicator. */
   get progress(): number { return clamp(this.hold / MOUNT_HOLD, 0, 1); }

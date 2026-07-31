@@ -912,6 +912,25 @@ export class PalActor {
     }
   }
 
+  /**
+   * Rebind to another zone's ground (see world/zones.ts).
+   *
+   * A pal is the clearest case for rebinding rather than rebuilding: its level,
+   * xp and known-skill list ARE the save game. Nothing else is touched — the
+   * follow update already teleports a pal whose owner is further than
+   * TELEPORT_DIST away, and a zone change is by construction further than that,
+   * so the pal poofs in beside the hero on the first slice in the new world with
+   * the height read from the new world. Any fetch errand is dropped: the item it
+   * was walking to belonged to the zone we just left.
+   */
+  setWorld(world: World): void {
+    this.world = world;
+    this.abortFetch();
+    this.carryTime = 0;
+    this.vel.set(0, 0, 0);
+    this.vy = 0;
+  }
+
   private teleportTo(x: number, z: number, silent: boolean): void {
     this.position.x = x;
     this.position.z = z;

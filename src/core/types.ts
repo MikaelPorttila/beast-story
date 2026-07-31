@@ -151,7 +151,67 @@ export interface World {
   readonly shopPositions: THREE.Vector3[];
   /** Good spawn point on land */
   readonly spawnPoint: THREE.Vector3;
+  /**
+   * Chunks this world currently holds meshes for. A diagnostic, and the number
+   * that proves a zone really was unloaded rather than merely hidden.
+   */
+  readonly chunksLoaded: number;
+  /**
+   * True while anything is queued or part-built around the last focus.
+   *
+   * This is the ZoneManager's readiness test, not decoration: a destination is
+   * only walked into once it has stopped streaming, which is what moves the
+   * building work into the approach (the preload band) instead of into the
+   * frame the player crosses the threshold on.
+   */
+  readonly streaming: boolean;
+  /**
+   * Show or hide everything this world has put in the scene — meshes AND
+   * lights.
+   *
+   * It exists for the zone warm-up, and the LIGHTS are why. three keys a shader
+   * program on the number of visible lights in the whole scene, not on what is
+   * in frame, so warming a destination while the zone you are leaving is still
+   * resident compiles it at the WRONG counts: measured, the overworld's four
+   * skill-den lamps put a floor of 4 under every count, and walking into a
+   * dungeon that has no lamps of its own then linked 25 programs at counts 0 and
+   * 1 on arrival — the exact stall the warm-up is supposed to prevent. Standing
+   * the source zone down for the duration of one warm-up render fixes it, and
+   * costs nothing else: the render happens before the real one in the same
+   * frame, and visibility is restored immediately after.
+   */
+  setVisible(v: boolean): void;
+  /**
+   * Give this world's GPU resources back A FEW AT A TIME. Returns true once
+   * there is nothing left; call again on the next frame until it does.
+   *
+   * `dispose()` is the same work done all at once, which is right at shutdown
+   * and wrong at a zone change: a walked-in overworld holds ~100 chunks and
+   * ~300 buffer geometries, and handing the driver all of those deletions in
+   * the single frame the hero crosses a threshold is the kind of spike every
+   * other budget in this codebase exists to avoid.
+   *
+   * Honesty about what this did NOT fix: there is a ~330 ms non-CPU stall a few
+   * frames after a transition in long sessions, and it is not this. It is
+   * unchanged whether the old zone is disposed at 6 chunks a frame, at 1, or
+   * not at all. See the note in warmUpFrame() in main.ts for what was ruled out
+   * and what is left.
+   */
+  disposeStep(): boolean;
   dispose(): void;
+}
+
+/**
+ * A subsystem that captured the active zone's `World` at construction and can
+ * be handed a different one.
+ *
+ * Every one of these holds state that must SURVIVE a zone change — the hero's
+ * hp, a pal's level and known skills, the shard total — so rebuilding them on
+ * the far side of a portal is not an option. Rebinding is: the object stays,
+ * the ground under it changes.
+ */
+export interface WorldBound {
+  setWorld(world: World): void;
 }
 
 // ---------------------------------------------------------------------------

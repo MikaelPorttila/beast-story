@@ -254,6 +254,25 @@ export class Player {
     engine.scene.add(this.root);
   }
 
+  /**
+   * Move the hero to a different zone's ground (see world/zones.ts).
+   *
+   * The world was captured at construction, and reconstructing the hero to
+   * change it would throw away the one thing that must survive a transition —
+   * his hp, and everything else on this object. So the reference is rebound and
+   * nothing else moves; the caller places him at the new spawn afterwards,
+   * because where he arrives is gameplay policy and not the controller's
+   * business. `respawn()` reads `this.world` too, so dying in the new zone puts
+   * him back in the new zone.
+   */
+  setWorld(world: World): void {
+    this.world = world;
+    this.isClimbing = false;
+    this.climbLockout = 0;
+    this.isSwimming = false;
+    this.velocity.set(0, 0, 0);
+  }
+
   takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): void {
     if (this.isDead || this.invulnT > 0) return;
     this.hp = clamp(this.hp - amount, 0, this.maxHp);
