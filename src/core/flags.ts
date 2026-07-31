@@ -26,14 +26,22 @@
  *   view=<n>    chunk streaming radius, in chunks (default 5)
  *   haptics=<n> 0..1, controller rumble strength; 0 issues no effect at all
  *   shake=<n>   0..1, camera-shake strength
+ *   invx=<0|1>  invert the controller's horizontal look axis
+ *   invy=<0|1>  invert the controller's vertical look axis (default on)
  *
- * The last two OVERRIDE the stored player preference (see core/prefs.ts) for
- * this load only, and never write it back. Resolution is always
+ * Those four OVERRIDE the stored player preference (see core/prefs.ts) for this
+ * load only, and never write it back. Resolution is always
  * `flag ?? pref ?? default`. They are still diagnostics by the definition
  * above — `haptics=0` is how you prove a rumble came from the cue you think it
- * did, and `shake=0` is how you tell a camera problem from a shake problem —
- * but they are the first two that shadow something the player chose, so the
- * direction matters: a measurement run can pin a value, and cannot corrupt one.
+ * did, `shake=0` is how you tell a camera problem from a shake problem, and
+ * `invy=0` is how tools/test-gamepad.mjs asserts the inversion is a real switch
+ * rather than a constant — but they are the first that shadow something the
+ * player chose, so the direction matters: a measurement run can pin a value,
+ * and cannot corrupt one.
+ *
+ * Note `invx`/`invy` are TRI-STATE and do not use `on()` below. `on()` reads a
+ * missing parameter as true, which is right for a feature that defaults on and
+ * wrong here: "absent" has to mean "whatever the player chose", not "inverted".
  *
  * They are diagnostics, not game settings: nothing outside a measurement run
  * should be setting them, and no gameplay code should branch on them beyond the
@@ -42,6 +50,16 @@
 const p = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
 
 const on = (key: string): boolean => p.get(key) !== '0';
+
+/**
+ * A 0/1 override, or null when the parameter is absent.
+ *
+ * Tri-state, unlike `on()`: null means "defer to the stored preference".
+ */
+const tri = (key: string): boolean | null => {
+  const raw = p.get(key);
+  return raw === null ? null : raw !== '0';
+};
 
 /** A 0..1 override, or null when the parameter is absent or not a number. */
 const unit = (key: string): number | null => {
@@ -63,9 +81,11 @@ export const flags = {
   sway: on('sway'),
   /** Streaming radius in chunks; null means "use the module default". */
   viewRadius: p.get('view') !== null ? Math.max(1, Number(p.get('view'))) : null,
-  /** Feedback overrides; null means "use the stored preference". */
+  /** Feedback and look overrides; null means "use the stored preference". */
   haptics: unit('haptics'),
   shake: unit('shake'),
+  invertLookX: tri('invx'),
+  invertLookY: tri('invy'),
   /**
    * Staged-capture mode. NOT a diagnostic toggle like the rest of this file —
    * it lives here because two modules now need the same answer: main.ts, which

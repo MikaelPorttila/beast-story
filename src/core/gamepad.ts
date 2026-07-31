@@ -155,9 +155,23 @@ function shape(x: number, y: number, dz: number, expo: number): boolean {
   return true;
 }
 
+/**
+ * Which way each look axis runs. See `GamepadControls.setLookAxes`.
+ *
+ * A partial of this is what a settings screen will hand over; the stored
+ * defaults live in core/prefs.ts and the per-load override in core/flags.ts.
+ */
+export interface LookAxes {
+  invertX: boolean;
+  invertY: boolean;
+}
+
 export class GamepadControls {
   private padIndex = -1;
   private pad: Gamepad | null = null;
+  /** +1 straight through, -1 inverted. Defaults match DEFAULT_PREFS. */
+  private lookSignX = 1;
+  private lookSignY = -1;
   private prev = new Uint8Array(BUTTON_COUNT);
   private zoomStep = 1;
   private modal = false;
@@ -197,9 +211,31 @@ export class GamepadControls {
    * API is missing entirely on a non-secure origin, which is worth knowing when
    * testing over a LAN IP: everything degrades to keyboard and touch.
    */
-  static attach(input: Input, opts?: { onSkill?: (i: number) => void }): GamepadControls | null {
+  static attach(
+    input: Input,
+    opts?: { onSkill?: (i: number) => void; look?: Partial<LookAxes> },
+  ): GamepadControls | null {
     if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null;
-    return new GamepadControls(input, opts?.onSkill);
+    const g = new GamepadControls(input, opts?.onSkill);
+    if (opts?.look) g.setLookAxes(opts.look);
+    return g;
+  }
+
+  /**
+   * Flip either look axis, at any time.
+   *
+   * A setter rather than a constructor argument because this is destined for a
+   * settings toggle: a player changing it mid-session must not have to reload,
+   * and nothing here caches a derived value that a later change would miss.
+   * Partial, so a caller may set one axis without asserting the other.
+   */
+  setLookAxes(a: Partial<LookAxes>): void {
+    if (a.invertX !== undefined) this.lookSignX = a.invertX ? -1 : 1;
+    if (a.invertY !== undefined) this.lookSignY = a.invertY ? -1 : 1;
+  }
+
+  get lookAxes(): LookAxes {
+    return { invertX: this.lookSignX < 0, invertY: this.lookSignY < 0 };
   }
 
   get connected(): boolean { return this.padIndex >= 0 && this.pad !== null; }
@@ -263,22 +299,18 @@ export class GamepadControls {
     const moving = shape(pad.axes[0], -pad.axes[1], DZ_MOVE, EXPO_MOVE);
     this.input.setStick(_stick.x, _stick.y, 'gamepad');
 
-    // INVERTED PITCH: pushing the right stick up looks DOWN.
+    // Look inversion, per axis, as a SIGN — never a branch. Both axes go through
+    // the same multiply whichever way they are set, so there is no second code
+    // path that only one setting exercises and only one setting can regress.
     //
-    // Axis 3 reads +down and so does `mouseDY`, so passing it straight through
-    // gives the mouse's own mapping — stick up looks up. That is what shipped
-    // first and it read as backwards in the hand on real hardware, so the axis
-    // is negated here. This is the flight-stick convention a lot of players
-    // expect on a pad and nobody expects on a mouse, which is exactly why the
-    // two devices do not agree and the mouse path is untouched.
-    //
-    // Also NOT the same question as the touch overlay's flip, which only
+    // Y defaults to inverted (see `setLookAxes`), which is the flight-stick
+    // convention a pad wants and nobody wants on a mouse. That the two devices
+    // disagree here is correct: the mouse does not pass through this at all.
+    // Also not the same question as the touch overlay's flip, which merely
     // cancels its own stick reporting +y as screen-up.
-    //
-    // There is no preference for this yet. If one is wanted it belongs in
-    // core/prefs.ts next to the feedback intensities, as a sign applied right
-    // here — not as a second code path.
-    const looking = shape(pad.axes[2], -pad.axes[3], DZ_LOOK, EXPO_LOOK);
+    const looking = shape(
+      pad.axes[2] * this.lookSignX, pad.axes[3] * this.lookSignY, DZ_LOOK, EXPO_LOOK,
+    );
     if (looking) {
       this.input.addLook(_stick.x * LOOK_PX_PER_SEC_X * dt, _stick.y * LOOK_PX_PER_SEC_Y * dt);
     }
@@ -358,6 +390,8 @@ export class GamepadControls {
       active: this.active,
       modal: this.modal,
       zoomStep: this.zoomStep,
+      invertLookX: this.lookSignX < 0,
+      invertLookY: this.lookSignY < 0,
       axes: this.pad ? Array.from(this.pad.axes) : [],
       pressed: this.pad
         ? this.pad.buttons.map((x, i) => (x.pressed || x.value > TRIGGER_ON ? i : -1)).filter((i) => i >= 0)

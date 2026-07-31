@@ -322,7 +322,36 @@ const results = {};
   await page.close();
 }
 
-// ---------- 4. glyph detection ----------
+// ---------- 4. look inversion is a real switch ----------
+//
+// The defaults are asserted in section 2 (stick up looks down). This runs the
+// same stick push with `?invy=0` and requires the camera to go the OTHER way —
+// which is what separates a working setting from a hardcoded constant with a
+// preference sitting unread beside it.
+{
+  const page = await newPage(browser, { width: 1280, height: 800 });
+  await installFakePad(page, 'Xbox Wireless Controller');
+  await page.goto(`${URL}&invy=0`, { waitUntil: 'load' });
+  await page.waitForSelector('canvas');
+  await wait(3500);
+  await page.evaluate(() => window.__connectPad());
+  await wait(200);
+
+  const before = (await probe(page, '__dbgCam'))?.pitch;
+  await setAxes(page, [0, 0, 0, -1]);
+  await wait(300);
+  const after = (await probe(page, '__dbgCam'))?.pitch;
+  await setAxes(page, [0, 0, 0, 0]);
+
+  results.invertOverride = {
+    reportedInvertY: (await probe(page, '__dbgPad'))?.invertLookY,
+    viewElevationDeltaOnStickUp: +(after - before).toFixed(2),
+    stickUpLooksUp: after > before,
+  };
+  await page.close();
+}
+
+// ---------- 5. glyph detection ----------
 {
   const page = await newPage(browser, { width: 1280, height: 800 });
   await installFakePad(page, 'DualSense Wireless Controller (Vendor: 054c Product: 0ce6)');

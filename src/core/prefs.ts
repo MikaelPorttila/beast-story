@@ -29,12 +29,28 @@ export interface Prefs {
    * full volume for everyone who had already tuned the other two.
    */
   volume: number;
+  /**
+   * Controller look inversion, per axis.
+   *
+   * `invertLookY` DEFAULTS TO TRUE, and that is the shipped feel rather than an
+   * arbitrary choice: passing the stick's raw axis through gives the mouse's own
+   * mapping (stick up looks up), which was tested on hardware and read as
+   * backwards in the hand. The flight-stick convention is what a pad wants.
+   *
+   * Deliberately pad-only. The mouse is not routed through these and must not
+   * be — nobody expects an inverted mouse, and the two devices disagreeing here
+   * is correct rather than an inconsistency to tidy away.
+   */
+  invertLookX: boolean;
+  invertLookY: boolean;
 }
 
 export const DEFAULT_PREFS: Readonly<Prefs> = {
   hapticIntensity: 1,
   shakeIntensity: 1,
   volume: 0.8,
+  invertLookX: false,
+  invertLookY: true,
 };
 
 const STORAGE_KEY = 'cp:prefs';
@@ -57,6 +73,18 @@ function clamp01(v: unknown, fallback: number): number {
     : fallback;
 }
 
+/**
+ * Same discipline for the booleans.
+ *
+ * Strictly `typeof === 'boolean'`, not a truthiness test: a stored `"false"`
+ * string — which is what a hand-edit or a naive older writer produces — is
+ * truthy, and would silently turn an inversion ON for someone who had turned it
+ * off. Anything that is not a real boolean falls back to the default.
+ */
+function bool(v: unknown, fallback: boolean): boolean {
+  return typeof v === 'boolean' ? v : fallback;
+}
+
 export function loadPrefs(): Prefs {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -66,6 +94,8 @@ export function loadPrefs(): Prefs {
       hapticIntensity: clamp01(o.hapticIntensity, DEFAULT_PREFS.hapticIntensity),
       shakeIntensity: clamp01(o.shakeIntensity, DEFAULT_PREFS.shakeIntensity),
       volume: clamp01(o.volume, DEFAULT_PREFS.volume),
+      invertLookX: bool(o.invertLookX, DEFAULT_PREFS.invertLookX),
+      invertLookY: bool(o.invertLookY, DEFAULT_PREFS.invertLookY),
     };
   } catch {
     // Unreadable, unparseable, or storage denied: the stock feel.

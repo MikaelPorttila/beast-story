@@ -618,14 +618,20 @@ const touch = photoMode ? null : TouchControls.attach(input);
 // Gamepad: non-null wherever the API exists, whether or not anything is plugged
 // in yet — a pad can arrive mid-session and the connect listener has to be live
 // to catch it. It stays free until one does; see core/gamepad.ts.
-const pad = photoMode ? null : GamepadControls.attach(input);
+// Stored player choices, read once. URL beats preference and never writes back
+// — see core/flags.ts.
+const prefs = loadPrefs();
+const pad = photoMode ? null : GamepadControls.attach(input, {
+  look: {
+    invertX: flags.invertLookX ?? prefs.invertLookX,
+    invertY: flags.invertLookY ?? prefs.invertLookY,
+  },
+});
 
 // Rumble and camera shake, driven off the bus. Null in photo mode for the same
 // reason the touch overlay is: a staged capture must not have the camera kicked
 // out from under it by whatever happened to be hitting the hero.
 //
-// URL beats preference, and neither writes the other — see core/flags.ts.
-const prefs = loadPrefs();
 const feedback = photoMode ? null : new FeedbackSystem({
   bus,
   camera: player.cam,
@@ -936,6 +942,29 @@ devConsole?.register({
   args: '[<0..1>]',
   help: 'Show or set camera-shake strength. Persists.',
   run: (args) => setFeedbackPref('shakeIntensity', args[0], flags.shake),
+});
+devConsole?.register({
+  name: 'invertlook',
+  args: '<x|y> [0|1]',
+  help: 'Show or set controller look inversion. Persists. Y is on by default.',
+  run: (args) => {
+    const axis = (args[0] ?? '').toLowerCase();
+    if (axis !== 'x' && axis !== 'y') return 'usage: /invertlook <x|y> [0|1]';
+    const key = axis === 'x' ? 'invertLookX' : 'invertLookY';
+    const pinned = axis === 'x' ? flags.invertLookX : flags.invertLookY;
+    if (args[1] === undefined) {
+      const at = pinned ?? loadPrefs()[key];
+      return `${key} = ${at}${pinned !== null ? ' (pinned by URL)' : ''}`;
+    }
+    if (args[1] !== '0' && args[1] !== '1') return 'usage: 0 or 1';
+    const on = args[1] === '1';
+    savePrefs({ [key]: on });
+    if (pinned !== null) return `saved ${key} = ${on}, but this load is pinned to ${pinned}`;
+    // Applied live rather than at the next load: this is the one setting whose
+    // effect you can only judge with the stick in your hand.
+    pad?.setLookAxes(axis === 'x' ? { invertX: on } : { invertY: on });
+    return `${key} = ${on}`;
+  },
 });
 devConsole?.register({
   name: 'zone',
