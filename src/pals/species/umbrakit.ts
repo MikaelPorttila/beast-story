@@ -96,13 +96,19 @@ function makeHead(): THREE.Mesh {
   // of them reads as a muzzle.
   for (let x = -1; x <= 1; x++) m.set(x, 1, 3, DUSK);
   m.set(0, 1, 4, NOSE);
-  // ONLY the catchlight glows. An emissive iris put five lit cells in each socket and
-  // the cat photographed with two gold panels for a face.
+  // NOTHING on the head glows. The previous build made the catchlight emissive at
+  // 0.45, which is the one thing eyes2x2 explicitly forbids ("a glowing catchlight
+  // blooms into a star and eats the iris around it") — and it did exactly that. In a
+  // lab close-up at dist 1.7 the cat's face was two pale near-white blocks with a
+  // pink dot between them and no visible iris at all: the bloom halo off each 8.5 cm
+  // catchlight cell covered the dark cells beside it, so the face went straight back
+  // to the "two glowing pale bars" read that inverting the polarity was supposed to
+  // cure. LAV is 0.80 luminance against an 0.13 iris as plain paint; that is already
+  // the brightest contrast on the model and it needs no help from the bloom pass.
   eyes2x2(m, {
     inner: 1, y: 1, faceZ: 2, iris: IRIS, shine: LAV,
     lid: DUSK, bridge: RIM,
   });
-  m.markEmissive(LAV, 0.45);
   return m.build(S, true);
 }
 
@@ -216,8 +222,16 @@ function buildRig(): PalRig {
   headMesh.position.set(0, -0.11, 0.02);
   head.add(headMesh);
 
+  // |x| = 0.155, out from 0.10. The skull is 2.7 cells of half-width, i.e. 0.23
+  // units, so at 0.10 the two ears sat side by side over the middle of a wide head
+  // and the crown read as one smooth dome with a couple of bumps on it. At 0.155
+  // they stand on the skull's outer corners, which is where a cat's ears are and
+  // what gives the head its triangular top. The ear MESH is untouched on purpose:
+  // its top cell is the highest voxel on the rig, so growing it would move
+  // `silhouetteTop` and with it the mount-form scale PalActor derives from it.
+  // Sliding the ears sideways buys the silhouette at zero cost to that.
   const earL = new THREE.Group();
-  earL.position.set(0.1, 0.13, -0.03);
+  earL.position.set(0.155, 0.13, -0.03);
   earL.rotation.z = -EAR_Z;
   head.add(earL);
   const earLMesh = makeEar(1);
@@ -225,7 +239,7 @@ function buildRig(): PalRig {
   earL.add(earLMesh);
 
   const earR = new THREE.Group();
-  earR.position.set(-0.1, 0.13, -0.03);
+  earR.position.set(-0.155, 0.13, -0.03);
   earR.rotation.z = EAR_Z;
   head.add(earR);
   const earRMesh = makeEar(-1);

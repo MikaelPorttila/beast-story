@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ELEMENT_COLORS } from '../core/types';
 import type {
   ElementType, EventBus, FetchJob, PalAction, PalAnimCtx, PalRig, PalSpecies,
   PalStats, SkillDef, World,
@@ -230,6 +231,315 @@ class PoofPuff {
 }
 
 // ---------------------------------------------------------------------------
+// Strike FX — the swipe arc and the dust a pal kicks up
+// ---------------------------------------------------------------------------
+/**
+ * WHY THIS EXISTS. A critic reading a real-game frame of a mid-attack Drakelet
+ * reported "no arc trail, no anticipation smear, no dust puff at the feet, no
+ * squash-and-stretch — a rigid static pose", and half of that was unfair: every
+ * species DOES author a coil/lunge/recover with squash on the body. What the
+ * frame genuinely lacked is the layer Cube World puts over the top of a swing —
+ * a bright arc through the air and a scuff on the ground. A pose alone cannot
+ * sell an impact in a still, because a still has no motion blur and no velocity;
+ * the arc IS the velocity, drawn.
+ *
+ * Both effects are drawn as VOXELS out of the poof burst's own unit-box geometry
+ * rather than as textured ribbons or sprites, for two reasons:
+ *
+ * 1. It is the game's language. Nothing in this world is a texture; a swipe made
+ *    of shrinking cubes reads as belonging to it, where a soft additive ribbon
+ *    reads as a different game's particle system pasted on.
+ * 2. SHADER COST IS ZERO. Both materials are configured with exactly the same
+ *    key set as `puffMat` — `{color, emissive, emissiveIntensity, roughness}` on
+ *    a MeshStandardMaterial drawn through an InstancedMesh — and three keys its
+ *    program cache on material parameters, never on colour values. So these
+ *    share the poof's already-linked program and add no permutation for
+ *    warmUpShaders() to miss. Nothing here is transparent for the same reason:
+ *    the fade is done by shrinking the cube to nothing, which is also what the
+ *    poof does and what reads correctly at this art scale.
+ *
+ * The arc's emissive is the species' element colour, saturated, at intensity
+ * 1.35 — over both of PostFX's selective-bloom thresholds (emissiveIntensity
+ * >= 0.30 and a max-min channel spread > 0.12, see post.ts tagSources), so the
+ * slash blooms. The dust's emissive is a near-neutral 0x6b6152 at 0.25, under
+ * BOTH thresholds on purpose: a glowing dust cloud is a smoke grenade.
+ */
+// 13, up from 9. A slash is a RIBBON, and nine segments long enough to overlap
+// into one had to be 0.42 of the reach each — photographed, that made the
+// Emberfox's swing four white slabs the size of its own head, each individually
+// legible as a box. More, smaller segments buy the same continuous blade out of
+// pieces small enough that none of them reads as a box on its own.
+const ARC_SEGS = 13;
+/** Seconds a swipe arc lives. Shorter than any attack transient — the arc is the
+ *  strike, not the recovery, and one that outlives the lunge reads as a banner. */
+const ARC_TIME = 0.26;
+/** Fraction of the sweep the trail lags behind the leading edge. 0.55 gives a
+ *  comet: a bright head with five or six segments still alive behind it. At 0.25
+ *  the arc was three cubes and read as a spark, at 1.0 the whole arc is lit at
+ *  once and reads as a static crescent decal. */
+const ARC_TRAIL = 0.55;
+const _white = new THREE.Color(0xffffff);
+
+/**
+ * Frames a strike-FX mesh stays visible-but-degenerate after it is built, so its
+ * program is LINKED DURING BOOT.
+ *
+ * This is the expensive mistake this codebase makes available, and measuring for
+ * it caught it: `?perf=1` over a photo-mode run with `anim=attack` reported
+ * exactly one program link at frame 12, while the identical run without the
+ * attack reported none. The theory that a MeshStandardMaterial configured with
+ * the same key set as `puffMat` would share its already-linked program was
+ * simply wrong in practice — most likely because the poof's own program is not
+ * linked at boot either (a pal's first teleport is silent, so nothing ever
+ * bursts during warmUpShaders).
+ *
+ * The fix costs nothing and needs no cooperation from main.ts, which owns
+ * warmUpShaders() and is another agent's file: both meshes are born VISIBLE with
+ * every instance matrix scaled to 1e-4, so warmUpShaders' eleven staged renders
+ * draw them — a handful of sub-pixel triangles — and link the program while the
+ * loading screen is still up. The counter is decremented from update(), which
+ * the warm-up renders never call, so the meshes cannot go dark before the sweep
+ * has seen them however long boot takes.
+ */
+const FX_WARM_FRAMES = 8;
+
+/** Park every instance of a strike-FX mesh at a sub-pixel scale. */
+function parkInstances(mesh: THREE.InstancedMesh, y: number): void {
+  _dummy.position.set(0, y, 0);
+  _dummy.rotation.set(0, 0, 0);
+  _dummy.scale.setScalar(0.0001);
+  _dummy.updateMatrix();
+  for (let i = 0; i < mesh.count; i++) mesh.setMatrixAt(i, _dummy.matrix);
+  mesh.instanceMatrix.needsUpdate = true;
+}
+
+class SwipeArc {
+  private mesh: THREE.InstancedMesh;
+  private mat: THREE.MeshStandardMaterial;
+  private life = 0;
+  private dir: 1 | -1 = 1;
+  private reach = 0.6;
+  private cy = 0.4;
+  private cz = 0.2;
+  private rise = 0.12;
+
+  constructor(parent: THREE.Object3D, element: ElementType) {
+    puffGeo ??= new THREE.BoxGeometry(1, 1, 1);
+    const c = ELEMENT_COLORS[element];
+    // Albedo is the element colour lifted 55% toward white, emissive is the
+    // element colour at full saturation. Both halves earn their keep: the first
+    // capture of this used the raw element colour for both and the Emberfox's
+    // fire-orange slash crossed a fire-orange fox — a warm smear over the muzzle
+    // that a still could not tell from the pal's own paint. A near-white blade
+    // with a coloured glow separates from ANY species' body, including its own
+    // element's, which is the case that has to work.
+    this.mat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(c).lerp(_white, 0.40).getHex(),
+      emissive: c, emissiveIntensity: 0.8, roughness: 1,
+    });
+    this.mesh = new THREE.InstancedMesh(puffGeo, this.mat, ARC_SEGS);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // Never a caster and never a receiver: a slash is light, and a hard-edged
+    // shadow of nine boxes swinging under the pal is instantly a bug.
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = false;
+    this.mesh.frustumCulled = false;
+    parkInstances(this.mesh, 0);   // see FX_WARM_FRAMES — born visible, drawn at 1e-4
+    parent.add(this.mesh);
+  }
+
+  private warm = FX_WARM_FRAMES;
+
+  /**
+   * Rig-space geometry of the swing. Called once, after the rig is measured.
+   *
+   * The swing is a 1.9-radius circle whose centre is pushed THREE QUARTERS OF A
+   * RADIUS FORWARD, not one centred on the pal.
+   *
+   * Two captures got here. At reach 1.55r centred on the origin the blade's own
+   * thickness put it inside the pal: on the Emberfox (radius 0.35) the leading
+   * segment landed across the muzzle and read as a lens flare on the face. At
+   * 2.4r, still centred, it cleared the flanks but swept straight THROUGH the
+   * skull and both ears, which is worse — it hides the one part of a pal that
+   * carries its read. Offsetting the centre forward puts the whole arc ahead of
+   * the animal: nearest point 1.85 radii out, midpoint 2.65 radii out, ends 1.5
+   * radii to each side. At 0.5r of offset the blade still clipped the Emberfox's
+   * muzzle mid-sweep; 0.75r clears it.
+   *
+   * Height likewise dropped from 0.6h +- 0.26h (which started ABOVE the ear
+   * tips) to 0.5h +- 0.22h, so the rake runs chest-high down to knee-high — a
+   * claw's path, not a halo's.
+   */
+  configure(radius: number, height: number): void {
+    this.reach = radius * 1.9;
+    this.cz = radius * 0.75;
+    this.cy = height * 0.5;
+    this.rise = height * 0.22;
+  }
+
+  /** Start a swing. Alternating direction so a combo does not repeat one pose. */
+  swing(): void {
+    this.life = ARC_TIME;
+    this.dir = this.dir === 1 ? -1 : 1;
+    this.mesh.visible = true;
+  }
+
+  update(dt: number): void {
+    if (this.warm > 0 && --this.warm === 0 && this.life <= 0) this.mesh.visible = false;
+    if (this.life <= 0) return;
+    this.life -= dt;
+    if (this.life <= 0) { this.mesh.visible = this.warm > 0; return; }
+    const u = 1 - this.life / ARC_TIME;
+    // Ease the head out so the arc leaves fast and settles — a linear sweep
+    // reads as a windscreen wiper.
+    const head = (1 - (1 - u) * (1 - u)) * (1 + ARC_TRAIL);
+    const R = this.reach;
+    for (let i = 0; i < ARC_SEGS; i++) {
+      const fi = i / (ARC_SEGS - 1);
+      const age = head - fi;
+      // Crescent profile, not a wedge. `1 - age/TRAIL` put the biggest segment
+      // at the LEADING edge, and captured in the real game (shots/_pa2-m-28)
+      // that made the swing a solid white plate across a third of the fox with
+      // its blunt end pointing the way it was travelling — the exact opposite of
+      // a slash. sin(pi*x)^0.7 tapers to a point at BOTH ends and swells in the
+      // middle, which is the shape every hand-drawn swipe in the genre has.
+      const x = age / ARC_TRAIL;
+      const w = age < 0 || age > ARC_TRAIL ? 0 : Math.sin(Math.PI * x) ** 0.7;
+      if (w <= 0.001) {
+        _dummy.position.set(0, this.cy, 0);
+        _dummy.rotation.set(0, 0, 0);
+        _dummy.scale.setScalar(0.0001);
+      } else {
+        // Sweep 0.95 rad to -0.95 rad about the rig's own Y, i.e. a 109-degree
+        // rake across the front. `a` also drives the height, so the blade comes
+        // DOWN as it crosses instead of staying a flat halo. Narrowed from
+        // +-1.15: at 132 degrees the two ends sat almost beside the pal's hips,
+        // where a camera behind the shoulder cannot see them, so a third of the
+        // swing was spent off-screen.
+        const a = this.dir * (0.95 - 1.9 * fi);
+        _dummy.position.set(
+          Math.sin(a) * R, this.cy + a * this.rise, this.cz + Math.cos(a) * R,
+        );
+        // rotation.y = a puts local +X on the arc TANGENT (the position is at
+        // angle a from +Z, so the tangent is (cos a, 0, -sin a) — exactly local
+        // +X after the yaw). The z-roll rakes the blade over as it travels.
+        _dummy.rotation.set(0, a, -a * 0.5);
+        // Long on the tangent so consecutive segments overlap into one blade,
+        // tall enough to read, thin radially: 0.26/0.30/0.10 of the reach.
+        // Segment pitch along the arc is R*1.9/12 = 0.158R, so 0.26R overlaps
+        // 1.6x — continuous, with no gaps at the fast end of the sweep. Height
+        // came down from 0.55R to 0.30R and then to 0.22R: at 0.55 the blade was
+        // 0.46 units on a 0.62-unit-tall fox, a slash three quarters as tall as
+        // the animal making it; at 0.30 it still photographed as a plate rather
+        // than a ribbon. The tangent length is deliberately NOT cut with it —
+        // long and thin is what makes a swipe read as speed.
+        _dummy.scale.set(0.26 * R * w, 0.22 * R * w, 0.09 * R * w);
+      }
+      _dummy.updateMatrix();
+      this.mesh.setMatrixAt(i, _dummy.matrix);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.mesh.removeFromParent();
+    this.mesh.dispose();
+    this.mat.dispose();
+  }
+}
+
+const DUST_COUNT = 10;
+const DUST_LIFE = 0.42;
+let dustMat: THREE.MeshStandardMaterial | null = null;
+
+class DustPuff {
+  private mesh: THREE.InstancedMesh;
+  private dirs: Float32Array;
+  private seeds: Float32Array;
+  private life = 0;
+  private center = new THREE.Vector3();
+  private spread = 0.4;
+  private power = 1;
+
+  constructor(private scene: THREE.Scene) {
+    puffGeo ??= new THREE.BoxGeometry(1, 1, 1);
+    // Warm pale grit. See the class comment above for why the emissive is a
+    // desaturated 0x6b6152 at 0.25 — it must fall UNDER both bloom thresholds.
+    dustMat ??= new THREE.MeshStandardMaterial({
+      color: 0xd6cbb4, emissive: 0x6b6152, emissiveIntensity: 0.25, roughness: 1,
+    });
+    this.mesh = new THREE.InstancedMesh(puffGeo, dustMat, DUST_COUNT);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = false;
+    this.mesh.frustumCulled = false;
+    parkInstances(this.mesh, 0);   // see FX_WARM_FRAMES — born visible, drawn at 1e-4
+    this.dirs = new Float32Array(DUST_COUNT * 3);
+    this.seeds = new Float32Array(DUST_COUNT * 2);
+    for (let i = 0; i < DUST_COUNT; i++) {
+      const theta = Math.random() * TWO_PI;
+      // Dust goes OUT, barely up. A ground scuff that rises like a poof is
+      // smoke; 0.10-0.45 of vertical against a full unit of radial keeps it
+      // hugging the floor, which is what makes it read as the floor's material.
+      this.dirs[i * 3] = Math.cos(theta);
+      this.dirs[i * 3 + 1] = 0.10 + Math.random() * 0.35;
+      this.dirs[i * 3 + 2] = Math.sin(theta);
+      this.seeds[i * 2] = 0.6 + Math.random() * 0.8;      // speed
+      this.seeds[i * 2 + 1] = 0.5 + Math.random() * 0.85; // size
+    }
+    scene.add(this.mesh);
+  }
+
+  /** `power` 0..1 scales both the throw distance and the grain size. */
+  burst(x: number, y: number, z: number, radius: number, power: number): void {
+    // A second burst inside the first restarts it rather than queuing: at this
+    // size two overlapping clouds are indistinguishable from one.
+    this.center.set(x, y, z);
+    this.spread = radius;
+    this.power = power;
+    this.life = DUST_LIFE;
+    this.mesh.visible = true;
+  }
+
+  private warm = FX_WARM_FRAMES;
+
+  update(dt: number): void {
+    if (this.warm > 0 && --this.warm === 0 && this.life <= 0) this.mesh.visible = false;
+    if (this.life <= 0) return;
+    this.life -= dt;
+    if (this.life <= 0) { this.mesh.visible = this.warm > 0; return; }
+    const t = 1 - this.life / DUST_LIFE;
+    // Decelerating throw (1-(1-t)^2): grit leaves fast and stops, it does not
+    // drift at constant speed the way a smoke puff does.
+    const out = this.spread * (0.35 + (1 - (1 - t) * (1 - t)) * 1.35 * this.power);
+    for (let i = 0; i < DUST_COUNT; i++) {
+      const sp = this.seeds[i * 2], sz = this.seeds[i * 2 + 1];
+      _dummy.position.set(
+        this.center.x + this.dirs[i * 3] * out * sp,
+        this.center.y + this.dirs[i * 3 + 1] * out * sp * 0.75,
+        this.center.z + this.dirs[i * 3 + 2] * out * sp,
+      );
+      // Shrink to nothing rather than fade: no transparency, no new program.
+      // 0.30 of the pal's radius, up from 0.17. At 0.17 a grain on the Emberfox
+      // (radius 0.35) was 0.05 units — smaller than one of the fox's own 0.08
+      // voxels, so the cloud photographed as sand-coloured noise on the sand.
+      // A grain has to be at least a body voxel to read as debris.
+      const s = Math.max(0.0001, (1 - t) * 0.30 * sz * this.spread * (0.55 + 0.45 * this.power));
+      _dummy.scale.setScalar(s);
+      _dummy.rotation.set(t * 2.2 * sp, t * 3.1 * sz, 0);
+      _dummy.updateMatrix();
+      this.mesh.setMatrixAt(i, _dummy.matrix);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.scene.remove(this.mesh);
+    this.mesh.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // PalOwner — the thing pals follow (the player controller)
 // ---------------------------------------------------------------------------
 export interface PalOwner {
@@ -275,6 +585,8 @@ export class PalActor {
   private world: World;
   private bus: EventBus;
   private puff: PoofPuff;
+  private arc: SwipeArc;
+  private dust: DustPuff;
   private materials: THREE.MeshStandardMaterial[] = [];
 
   // Motion state
@@ -310,6 +622,12 @@ export class PalActor {
   private flashDirty = false;
   private poofT = 0;
   private landSquash = 0;
+  /** Action the strike FX have already fired for; cleared when the action ends. */
+  private struckFor: PalAction | null = null;
+  /** Metres of ground covered since the last running scuff. */
+  private scuffAccum = 0;
+  /** Along-forward speed last slice, for the acceleration lean. */
+  private prevAlong = 0;
   private deadTimer = 0;
   private dieT = 0;
   private visibleFlag = true;
@@ -357,6 +675,11 @@ export class PalActor {
     });
     scene.add(this.rig.root);
     this.puff = new PoofPuff(scene);
+    this.dust = new DustPuff(scene);
+    // AFTER the traverse above, deliberately: that traverse turns castShadow on
+    // for every mesh it finds, and the arc must never be a caster.
+    this.arc = new SwipeArc(this.rig.root, species.element);
+    this.arc.configure(this.rig.radius, this.rig.height);
 
     this.stats = this.computeStats();
     this.maxHp = this.stats.maxHp;
@@ -596,6 +919,8 @@ export class PalActor {
       // A mount that dies under its rider is dismounted by the caller on this
       // same slice; until then just let the death animation play.
       this.puff.update(dt);
+      this.arc.update(dt);
+      this.dust.update(dt);
       return;
     }
     this.position.set(s.x, s.y, s.z);
@@ -621,6 +946,10 @@ export class PalActor {
     if (this.isDead) {
       this.updateDead(dt, owner, role);
       this.puff.update(dt);
+      // A pal killed mid-swing still has to retire its arc and its dust, or the
+      // last frame of both hangs in the air until it revives.
+      this.arc.update(dt);
+      this.dust.update(dt);
       return;
     }
 
@@ -751,9 +1080,52 @@ export class PalActor {
       const targetBank = Math.max(-0.55, Math.min(0.55, -turnVel * 0.28));
       this.bank = damp(this.bank, targetBank, 5, dt);
     } else {
-      this.bank = damp(this.bank, 0, 8, dt);
+      // Ground pals lean into a turn too, they just lean far less than a bird.
+      // Previously `bank` was pinned at 0 for everything with legs, so a pal
+      // circling a standing hero — which is the single most-watched pal motion
+      // in the game, it happens every time the player stops — carved a flat
+      // rigid arc like a shopping trolley. 0.11 rad per rad/s against the
+      // flyer's 0.28, capped at 0.20 rad (11.5 degrees): a hard turn tips the
+      // outer feet about 0.08 units off the floor at a 0.4-unit radius, which
+      // reads as weight rather than as clipping. Scaled by gait so a pal
+      // pivoting on the spot to face the hero does not list like a sinking ship.
+      const turnLean = Math.max(-0.20, Math.min(0.20, -turnVel * 0.11));
+      // ...and a standing pal shifts its weight. Every species' idle already
+      // breathes, flicks an ear and waves a tail, but all of that happens inside
+      // the rig while the rig itself stands perfectly plumb — which is why the
+      // ten-pal lineup photographs as a shelf of figurines: eight upright
+      // columns at identical attitudes. A 0.035 rad (2 degree) sway on a 5.5 s
+      // period, cross-faded against the turn lean by gait so it never fights a
+      // real turn, is small enough that no single frame looks tilted and large
+      // enough that the row stops being a row. `phase` is randomised per actor
+      // at construction, so two pals of the same species never sway together.
+      const sway = 0.035 * Math.sin(this.time * 1.15 + this.phase);
+      const targetBank = turnLean * this.speed01 + sway * (1 - this.speed01);
+      this.bank = damp(this.bank, targetBank, 6, dt);
     }
     this.forward.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+
+    // -- Running scuff -------------------------------------------------------
+    // Distance-driven, not time-driven, so the puffs stay locked to the ground a
+    // pal is actually covering instead of firing at a fixed rate whatever the
+    // speed. One every 1.6 units at a 0.4-unit stride is roughly every fourth
+    // footfall — enough to trail a pal at a gallop, sparse enough that it never
+    // becomes a smoke machine. Only at a real run (>0.62 gait): a walking pal
+    // that raises dust looks like it is on fire.
+    if (this.grounded && !swimming && loco !== 'flying') {
+      if (this.speed01 > 0.62) {
+        this.scuffAccum += horizSpeed * dt;
+        if (this.scuffAccum > 1.6) {
+          this.scuffAccum = 0;
+          this.dust.burst(
+            this.position.x - this.forward.x * this.rig.radius * 0.5,
+            this.position.y + 0.03,
+            this.position.z - this.forward.z * this.rig.radius * 0.5,
+            this.rig.radius * this.rideScale, 0.28,
+          );
+        }
+      } else this.scuffAccum = 1.4; // primed, so the first stride of a sprint puffs
+    }
 
     this.finishFrame(dt, base);
   }
@@ -768,16 +1140,61 @@ export class PalActor {
     // -- Action state machine ----------------------------------------------
     if (this.transient) {
       this.transientTime += dt;
-      if (this.transientTime >= this.transientDur) this.transient = null;
+      if (this.transientTime >= this.transientDur) { this.transient = null; this.struckFor = null; }
+    } else this.struckFor = null;
+
+    // -- Strike FX ----------------------------------------------------------
+    // The arc fires ONE frame into the lunge, not on the frame the action
+    // starts: every species spends its first sixth of a second coiling, and an
+    // arc drawn over the wind-up reads as the slash happening before the swing.
+    // Measured against the two most-authored attacks in the roster — Emberfox
+    // lunges over at 0.12-0.26 s, Drakelet over 0.16-0.30 s — so 0.13 s lands
+    // the head of the arc on the frame the body is leaving the coil in both.
+    // `special` is a longer flourish (0.95 s) whose peak is around a third in.
+    if (this.transient && this.transient !== this.struckFor) {
+      const strikeAt = this.transient === 'special' ? 0.34
+        : this.transient === 'attack' ? 0.13 : -1;
+      if (strikeAt >= 0 && this.transientTime >= strikeAt) {
+        this.struckFor = this.transient;
+        this.arc.swing();
+        // A grounded strike also scuffs the floor it pushed off. Flyers get the
+        // arc alone — dust from something hovering a metre and a half up is the
+        // sort of detail that reads as a bug the moment anyone notices it.
+        if (this.grounded) {
+          this.dust.burst(
+            this.position.x + this.forward.x * this.rig.radius * 0.6,
+            this.position.y + 0.04,
+            this.position.z + this.forward.z * this.rig.radius * 0.6,
+            this.rig.radius * this.rideScale, 0.75,
+          );
+        }
+      }
     }
+    this.arc.update(dt);
+    this.dust.update(dt);
     if (base !== this.baseAction) { this.baseAction = base; this.baseTime = 0; }
     else this.baseTime += dt;
 
     // Idle flourish: happy wiggle every 8-15 s when standing around
     if (this.facingOverride !== null) {
       // Staged (photo) pose: hold a calm idle instead of random flourishes.
+      //
+      // This used to read `this.transient = null`, unconditionally, every frame
+      // — and that quietly broke the whole `anim=` staging parameter in BOTH
+      // entry points. `photo=1&pal=emberfox&anim=attack` sets facingOverride
+      // (main.ts:1067) and then calls playAction('attack') every 2.5 s; this
+      // line then cleared the transient on the very next frame, so the attack
+      // was one 16 ms frame of wind-up and nothing else, forever. Four separate
+      // 40-frame bursts of the real game were captured hunting a strike effect
+      // that could not possibly be on screen. The lab does the same thing
+      // (lab/index.ts:172) for a single subject.
+      //
+      // Only the pal's OWN idle flourish is suppressed now. That is what the
+      // comment always meant: a portrait should not have the subject randomly
+      // wiggling, but an action the caller explicitly asked for is the entire
+      // point of asking for it.
       this.idleTimer = 30;
-      this.transient = null;
+      if (this.transient === 'happy') this.transient = null;
     } else if (!this.transient && this.baseAction === 'idle') {
       this.idleTimer -= dt;
       if (this.idleTimer <= 0) {
@@ -849,6 +1266,12 @@ export class PalActor {
   }
 
   private updateGrounded(dt: number, horizSpeed: number, groundY: number): void {
+    // Along-forward acceleration, sampled every slice INCLUDING airborne ones so
+    // that touching down does not read a stale sample as one huge spike.
+    const along = this.vel.x * this.forward.x + this.vel.z * this.forward.z;
+    const accel = dt > 1e-4 ? (along - this.prevAlong) / dt : 0;
+    this.prevAlong = along;
+
     if (this.grounded) {
       if (groundY < this.position.y - 0.45) {
         // Walked off a ledge — fall
@@ -870,13 +1293,38 @@ export class PalActor {
       this.position.y += this.vy * dt;
       this.pitch = damp(this.pitch, Math.max(-0.28, Math.min(0.3, -this.vy * 0.035)), 6, dt);
       if (this.position.y <= groundY) {
-        if (this.vy < -5.5) this.landSquash = 0.32;
+        if (this.vy < -5.5) {
+          this.landSquash = 0.32;
+          // The squash alone was the whole landing. It is a body deformation
+          // lasting a third of a second and it happens INSIDE the silhouette, so
+          // at gameplay distance a pal dropping off a terrace simply arrived.
+          // The dust is the part the eye actually catches. Scaled by impact
+          // speed so a hop-up landing is a scuff and a real fall is a cloud.
+          const impact = Math.min(1, (-this.vy - 5.5) / 7);
+          this.dust.burst(
+            this.position.x, groundY + 0.04, this.position.z,
+            this.rig.radius * this.rideScale, 0.35 + 0.65 * impact,
+          );
+        }
         this.position.y = groundY;
         this.vy = 0;
         this.grounded = true;
       }
     } else {
-      this.pitch = damp(this.pitch, 0, 8, dt);
+      // Lean into acceleration, sit back under braking.
+      //
+      // Nothing else on a grounded pal used `pitch` at all — it was damped to
+      // zero and stayed there — so a pal leaving a standstill to chase the hero
+      // went from 0 to full gallop as a rigid board sliding forward, and stopped
+      // the same way. Species animate() code cannot fix this: it is handed a
+      // normalised `moveSpeed`, never its derivative. 0.014 rad per unit of
+      // acceleration puts a pal accelerating at 10 u/s^2 about 8 degrees nose
+      // down, which is visible in motion and invisible in a portrait; the clamp
+      // stops a teleport-frame acceleration spike snapping it face-first into
+      // the floor. Positive pitch is nose DOWN here — see updateFlying, where a
+      // climb produces a negative one.
+      const lean = Math.max(-0.14, Math.min(0.16, accel * 0.014));
+      this.pitch = damp(this.pitch, lean, 8, dt);
     }
   }
 
@@ -957,6 +1405,12 @@ export class PalActor {
   dispose(): void {
     this.abortFetch();
     this.scene.remove(this.rig.root);
+    // BEFORE the traverse, and this ordering is load-bearing: the arc is a child
+    // of the rig root, and the traverse below disposes every mesh geometry it
+    // finds — which for the arc is the SHARED `puffGeo` that every pal's poof
+    // burst also draws. Detaching it first is what stops one pal's disposal
+    // deleting the box every other pal's particles are made of.
+    this.arc.dispose();
     this.rig.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
         const m = o as THREE.Mesh;
@@ -967,5 +1421,6 @@ export class PalActor {
       }
     });
     this.puff.dispose();
+    this.dust.dispose();
   }
 }

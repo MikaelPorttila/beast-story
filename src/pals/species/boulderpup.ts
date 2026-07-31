@@ -29,8 +29,26 @@ const STONE = 0xd0c9b6;   // grey slate — material contrast vs warm granite, b
 // shadow: a critic described a "formless dark-grey mass ... the darkest object in
 // the frame while standing on the brightest ground", i.e. a dog-shaped hole.
 const G2 = 0xd3b994;      // mid granite
-const G3 = 0xb1997a;      // dark granite / shaded underside
-const BR = 0xb0906a;      // warm brown stratum
+// Round 7. Rounds 3-6 fought the "dog-shaped hole" by raising every tone, and
+// won that fight so completely that the pup arrived at a 1.6:1 value range —
+// measured off the palette, every structural tone sat between 0.57 and 0.90
+// relative luminance, and the only cells darker than 0.5 on the whole model were
+// one nose voxel and two irises. A lab portrait at angle 30 came back as a
+// featureless beige lump with no legible head, and that is a worse failure than
+// the dark one: a dark silhouette at least has a silhouette.
+//
+// The fix is not to lower the average, it is to widen the RANGE. G3 and BR each
+// drop a full step so the model has a genuine shadow tone and one dark stratum
+// band, while G0/G1/G2/STONE stay exactly where round 6 put them. Range is now
+// 0.38:0.90, i.e. 2.4:1, on a body whose lit mass is unchanged.
+const G3 = 0x94795c;      // dark granite / shaded underside (was 0xb1997a, 0.60 —
+                          // a "shadow" only 1.3:1 against the lit crest, which is
+                          // no shadow at all). 0.44 now.
+const BR = 0x7a6047;      // ironstone stratum (was 0xb0906a, 0.57). This is the one
+                          // dark band through the middle of the pup and it is what
+                          // makes the stacked courses read as strata rather than as
+                          // one moulded lump; it also carries the muzzle, so the
+                          // snout finally separates from the pale face plate.
 const MOSS = 0x7ecc57;    // bright moss
 const MOSS2 = 0x5fa33e;   // deep moss
 const CRYS = 0xffb733;    // amber crystal

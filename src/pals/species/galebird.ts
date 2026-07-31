@@ -170,18 +170,31 @@ function makeWingInner(dir: 1 | -1): THREE.Mesh {
   return m.build(S, false);
 }
 
-/** Outer wing section: a straight 4-column taper to a swept tip. */
+/** Outer wing section: a six-column scythe with both edges raked aft. */
 function makeWingOuter(dir: 1 | -1): THREE.Mesh {
   const X = (x: number): number => (dir === 1 ? x : -1 - x);
   const m = new VoxelModel();
-  // Chord 5 -> 4 -> 3 -> 1 with a straight trailing edge at z=-2; the leading
-  // edge does all the sweeping so nothing pokes out behind the wing line.
-  const front = [1, 0, -1, -2];
-  for (let x = 0; x < 4; x++) {
-    m.box(X(x), 0, -3, X(x), 0, front[x], x === 3 ? DUSKTEAL : TEAL);
-    m.set(X(x), 0, front[x], x === 3 ? DUSKTEAL : RIM); // leading edge
-    m.set(X(x), 0, -3, DUSKTEAL);                        // trailing edge
-    if (x < 3) m.box(X(x), -1, -3, X(x), -1, front[x] - 1, UNDER);
+  // Six columns, not four. A swallow's defining shape is a wing far longer than
+  // its own body, and at four columns the tip reached only 0.85 units from
+  // centreline — 84% of the frostwing's, on a bird with two thirds the frostwing's
+  // fuselage. In the four-flyer lab lineup the galebird read as a teal fish with
+  // fins while every other flyer read as winged. Six columns put the tip at 1.05,
+  // i.e. the longest wing in the roster relative to its owner, which is the point.
+  //
+  // Both edges now rake aft (leading 1 -> -4, trailing -3 -> -5) instead of a
+  // straight trailing edge at -3. A straight trailing edge on a long wing is a
+  // rectangle with a bevel; raking both gives the scimitar plan form, and the
+  // chord still tapers 5 -> 2 so the tip comes to a point.
+  const front = [1, 0, -1, -2, -3, -4];
+  const back = [-3, -3, -4, -4, -5, -5];
+  for (let x = 0; x < 6; x++) {
+    // Last two columns are the dark primaries: a swallow's wingtip is nearly
+    // black against sky, and it is what stops the taper fading into the backdrop.
+    const tip = x >= 4;
+    m.box(X(x), 0, back[x], X(x), 0, front[x], tip ? DUSKTEAL : TEAL);
+    m.set(X(x), 0, front[x], tip ? DUSKTEAL : RIM); // leading edge
+    m.set(X(x), 0, back[x], DUSKTEAL);              // trailing edge
+    if (x < 4) m.box(X(x), -1, back[x], X(x), -1, front[x] - 1, UNDER);
   }
   return m.build(S, false);
 }
@@ -321,8 +334,12 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       // beat swung both wings up past vertical, so a head-on hover portrait
       // caught them edge-on behind the skull instead of spread wide.
       const ph = t * 4.4;
-      flapL = flapR = 0.02 + 0.3 * Math.sin(ph);
-      outL = outR = 0.3 * Math.sin(ph - 0.9);
+      // Same wrist rule as the flight beat: the outer section trails the inner
+      // at 0.6x and 0.45 rad rather than matching it a near-half-cycle behind,
+      // which is what creased the wing shut at mid-stroke. Centre lifted to 0.09
+      // so the resting hover holds a shallow V.
+      flapL = flapR = 0.09 + 0.3 * Math.sin(ph);
+      outL = outR = 0.18 * Math.sin(ph - 0.45);
       sweepL = sweepR = 0.12 + 0.05 * Math.sin(ph - 0.4);
       bpy += 0.035 * Math.sin(ph - 1.3) + 0.02 * Math.sin(t * 1.3);
       bsy = 1 + 0.02 * br;
@@ -375,10 +392,20 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       const g = glide * (1 - dive);
       const amp = (0.55 + 0.45 * ms) * (1 - 0.85 * g) * (1 - 0.9 * dive);
       const bank = 0.42 * Math.sin(t * 0.77) * ms * (1 - dive);
-      flapL = amp * Math.sin(ph) + 0.1 + 0.15 * g - 0.55 * dive + 0.1 * bank;
-      flapR = amp * Math.sin(ph + 0.07) + 0.1 + 0.15 * g - 0.55 * dive - 0.1 * bank;
-      outL = amp * 1.3 * Math.sin(ph - 0.75) + 0.05 - 0.35 * dive;
-      outR = amp * 1.3 * Math.sin(ph - 0.68) + 0.05 - 0.35 * dive;
+      // Wrist FOLLOWS the shoulder, it does not fight it. The previous outer
+      // section ran at 1.3x the inner amplitude a full 0.75 rad behind, so both
+      // joints hit their extremes together and the wing spent the whole beat
+      // creased into a deep V — measured off a four-flyer lab lineup at
+      // t = 1.50/1.62/1.74, the galebird's wing presented as a pair of backswept
+      // FINS in every frame while the frostwing beside it (outer 0.8x, lag 0.55)
+      // held a readable plane. 0.62x at 0.42 rad keeps the wing near-planar
+      // through the stroke and leaves just enough lag to read as feather whip.
+      // Beat centre lifted 0.10 -> 0.17: a swallow hovers on a shallow dihedral V,
+      // and at 0.10 the mean pose was flat, which is the paper-glider silhouette.
+      flapL = amp * Math.sin(ph) + 0.17 + 0.15 * g - 0.55 * dive + 0.1 * bank;
+      flapR = amp * Math.sin(ph + 0.07) + 0.17 + 0.15 * g - 0.55 * dive - 0.1 * bank;
+      outL = amp * 0.62 * Math.sin(ph - 0.42) + 0.05 - 0.35 * dive;
+      outR = amp * 0.62 * Math.sin(ph - 0.35) + 0.05 - 0.35 * dive;
       sweepL = sweepR = 0.18 + 0.25 * ms + 0.85 * dive - 0.12 * g; // tuck hard in dives
       brz = bank;
       bry = 0.16 * Math.sin(t * 0.77 - 0.5) * ms;

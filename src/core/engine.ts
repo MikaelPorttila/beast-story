@@ -26,6 +26,40 @@ import { flags } from './flags';
 // inside one shadow depth range — see the near/far below.
 const SUN_OFFSET = new THREE.Vector3(170, 160, 113);
 
+// BOUNCE FILL — the anti-sun light, and the fix for black canopy undersides.
+//
+// MEASURED, on cam=-8,7,26 look=6,3,-4 with ?grade=0&ao=0 so neither the AO nor
+// the grade could flatter the number: sunlit grass Y 0.228, the same grass on the
+// shaded side of a tree Y 0.0139 — 6% — and the shaded side of the canopy itself
+// #010d03, i.e. BLACK. With AO on it was 2.2%. Cube World's shaded foliage sits
+// near 30% and is still recognisably the same green.
+//
+// A HemisphereLight cannot fix that and it is worth writing down why, because the
+// obvious move is to keep winding it up. Hemisphere irradiance is a function of
+// the normal's ELEVATION only: it lerps ground->sky by 0.5*n.y+0.5. So the two
+// faces of a tree that differ most — the one facing the sun and the one facing
+// away — receive *identical* fill, and every unit of fill added to open up the
+// dark one lands on the bright one too. That is exactly the "raising it flattens
+// the world" trade documented on this.ambient below, and it is why that knob has
+// been nudged 0.52 -> 0.78 -> 0.86 over three rounds without ever fixing this.
+//
+// A second directional light IS a function of azimuth, so it can put light on the
+// anti-sun faces and mathematically none on the sun-facing ones: a normal pointing
+// at the sun dots to -0.87 against this direction and clamps to zero. It is the
+// standard key/fill/bounce rig, and it is also physically the right story — this
+// is the sunlit ground and the sky behind the camera bouncing back.
+//
+// The elevation is NEGATIVE (-18 degrees, from below the horizon) because bounce
+// light comes off the ground. That is what reaches a canopy UNDERSIDE: a
+// downward-facing normal takes 31% of this light where a horizontal-from-behind
+// fill would give it 0. Faces the sun already owns take none of it either way.
+//
+// It casts no shadow, so it adds one dot product per fragment and no depth pass.
+// It is created in the constructor before any world/pal material exists, so
+// NUM_DIR_LIGHTS is 2 for every program the game ever compiles — no new
+// permutation can appear mid-session and warmUpShaders() stays valid.
+const BOUNCE_OFFSET = new THREE.Vector3(-160, -62, -106);
+
 // Gradient sky dome: zenith blue -> pale horizon, a warm band on the horizon
 // line and a tight corona around the sun.
 const SKY_VERT = /* glsl */ `
@@ -69,20 +103,55 @@ void main() {
  */
 const SKY_LIB = /* glsl */ `
 vec3 cpSkyRadiance(float h) {
-  vec3 zenith  = vec3(0.0262, 0.2154, 0.9184);  // displays #3f8fe0
-  vec3 horizon = vec3(0.2073, 0.4641, 0.9992);  // displays #9ec2e2 — pale, but
-                                                // unmistakably BLUE, so a ridge
-                                                // that dissolves into it reads as
-                                                // atmosphere and the sea still has
-                                                // an edge against it
-  vec3 col = mix(horizon, zenith, smoothstep(-0.04, 0.26, h));
+  vec3 zenith  = vec3(0.0170, 0.1900, 0.8700);  // displays #3a97ef, sat 0.76
+  vec3 horizon = vec3(0.0850, 0.3900, 1.1500);  // displays #a4cbe7, sat 0.29 — a
+                                                // pale CYAN, not a pale grey
+  // ROUND 7, and this is the measurement that drove it. A vertical scan of the
+  // sky in a wide capture (shots/_la-a-downsun.png, x = 250) read, top of frame
+  // to horizon: rgb(86,152,227) sat 0.62 -> rgb(183,205,224) sat 0.18. That last
+  // band is the bottom third of every wide shot and it is, numerically, GREY:
+  // 41 code points of chroma on a value of 202. It is the "milky collar" the
+  // colour critic filed, and because the fog samples this same function it was
+  // also what every far treeline and every far shoreline dissolved into.
+  //
+  // Two things were spending the chroma, and both are fixed here:
+  //   - the horizon constant itself. Was (0.1560, 0.4400, 1.0600). The r:b ratio
+  //     was 0.147; ACES desaturates as it brightens, so by the time a value that
+  //     luminous comes off the curve there is nothing left. Now 0.074 — red down
+  //     45%, blue up 8% — which lands the same L (197 at the new exposure) with
+  //     sat 0.29 instead of 0.18.
+  //   - the warm band below, which was adding 87% of the horizon's own red.
+  //
+  // The zenith comes DOWN in absolute radiance (0.918 -> 0.870 blue) even though
+  // the exposure goes up, so the zenith-to-horizon ramp is a colour ramp and not
+  // just a brightness ramp: measured at exposure 1.20 it now runs sat 0.76 ->
+  // 0.29 over the band a gameplay camera actually sees, where before it ran
+  // 0.69 -> 0.16.
+  //
+  // The ramp finishes at 0.24 rather than 0.22. A third-person camera looks DOWN,
+  // so the top of a 16:9 gameplay frame is only ~0.03-0.10 up the dome and a high
+  // photo-mode frame barely more; ending the ramp early is what puts real blue in
+  // the band the player actually sees. 0.22 was a shade too early once the
+  // horizon end got its chroma back — the mid-band went blue so fast that the
+  // gradient had a visible shoulder in it. It moves the fog on terrain almost not
+  // at all, because a terrain fragment sits within a few hundredths of h = 0.
+  vec3 col = mix(horizon, zenith, smoothstep(-0.06, 0.24, h));
   // Warm band hugging the horizon line (haze scattering). Kept narrow and weak:
-  // this is the "hint of horizon glow", not a sunset. 0.12 at (1.60,1.14,0.70),
-  // down from 0.20 at (1.90,1.18,0.64) — against the now much bluer horizon the
-  // stronger warm mix raised red past green and the band photographed as a mauve
-  // stripe across the top of every wide shot.
-  float band = 1.0 - smoothstep(0.0, 0.17, abs(h));
-  col = mix(col, vec3(1.60, 1.14, 0.70), band * 0.12);
+  // this is the "hint of horizon glow", not a sunset. History: 0.20 at
+  // (1.90,1.18,0.64) -> 0.12 -> 0.085 at (1.60,1.14,0.70) -> 0.050 at
+  // (1.55,1.10,0.66) over a HALVED width (0.17 -> 0.075).
+  //
+  // The width is the part that mattered. At 0.17 the band was not hugging the
+  // horizon LINE, it was covering everything within ~10 degrees of it — which on
+  // a downward-looking gameplay camera is most of the visible sky. Multiplied out
+  // it was adding (0.136, 0.097, 0.060) to a horizon of (0.156, 0.44, 1.06), i.e.
+  // +87% red for +5.6% blue: single-handedly the largest consumer of the
+  // horizon's chroma, and the direct cause of the sat-0.18 grey band measured
+  // above. Halving the width and cutting the amplitude by 40% keeps the warm
+  // hint exactly where the eye reads it as scattering — the last couple of
+  // degrees above the ground — and stops it laundering the rest of the sky.
+  float band = 1.0 - smoothstep(0.0, 0.075, abs(h));
+  col = mix(col, vec3(1.55, 1.10, 0.66), band * 0.050);
   return col;
 }
 `;
@@ -108,8 +177,18 @@ void main() {
   // the sun photographed as a shapeless warm smudge with no disc in it at all.
   // Peak sky here is now ~1.11 linear (displays ~#cfd3e5), which leaves the disk
   // 40 code values of headroom to actually be a disc.
+  //
+  // The two WIDE lobes come down 0.20 -> 0.175 and 0.07 -> 0.055 this round, and
+  // that is not a taste change — it is the exposure going 1.02 -> 1.20. These
+  // amplitudes are linear radiance added to a blue, so what they cost is
+  // SATURATION, and how much saturation a given amount costs depends entirely on
+  // where the sum lands on the ACES shoulder. Modelled through the real curve, the
+  // sd^4 lobe's territory went from displaying sat 0.56 at the old exposure to
+  // 0.49 at the new one — i.e. the same constants quietly grew the pale wash
+  // around the sun by a seventh. 0.055 puts it back at 0.55. The tight sd^260
+  // core is left alone: it is the disc's rim and it is meant to be white.
   float sd = max(dot(d, uSunDir), 0.0);
-  float glow = pow(sd, 260.0) * 0.30 + pow(sd, 26.0) * 0.20 + pow(sd, 4.0) * 0.07;
+  float glow = pow(sd, 260.0) * 0.30 + pow(sd, 26.0) * 0.175 + pow(sd, 4.0) * 0.055;
   col += vec3(1.00, 0.72, 0.34) * glow;
 
   gl_FragColor = vec4(col, 1.0);
@@ -262,6 +341,8 @@ export class Engine {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly sun: THREE.DirectionalLight;
+  /** Anti-sun bounce fill; see BOUNCE_OFFSET. */
+  readonly bounce: THREE.DirectionalLight;
   readonly ambient: THREE.HemisphereLight;
   private readonly skyDome: THREE.Mesh;
   private readonly sunDisk: THREE.Mesh;
@@ -299,7 +380,24 @@ export class Engine {
     // waste: drive it manually and update exactly once per frame in render().
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.02;
+    // EXPOSURE 1.02 -> 1.20, and it is the answer to "the image is saturated but
+    // never bright".
+    //
+    // MEASURED across four wide captures at 1.02: p99 luminance was 200-202 in
+    // every single one and the fraction of pixels at or above 240 was 0.00%. The
+    // brightest thing in the entire game was a cloud top. That is the poster-paint
+    // read — a picture with no highlight range at all, because ACES's shoulder is
+    // steep and nothing in the scene was hot enough to climb it. Modelled through
+    // this exact curve plus the grade (see post.ts), a PURE WHITE lambertian
+    // surface facing the sun displayed at 219; at 1.20 it displays at 229, sunlit
+    // sand goes 188 -> 201 and cloud tops (white albedo plus their own emissive)
+    // finally clear 240.
+    //
+    // It is not a free brightening and the sun/fill split below pays for it: the
+    // midtones would otherwise come up with the highlights and the whole frame
+    // would go milky. Sunlit grass moves 118 -> 132 while grass in cast shadow
+    // moves 64 -> 50, i.e. the picture got brighter and its shadows got DEEPER.
+    this.renderer.toneMappingExposure = 1.20;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Same reason, for the stats: renderer.info resets itself on every
     // render() call, which with a composer left the F2 overlay reporting the
@@ -320,11 +418,28 @@ export class Engine {
     // cpSkyRadiance, so scene.fog.color is not read at all. The two numbers here
     // are what the chunk does use:
     //
-    //   85  where haze begins. Captured at 55 first and it was too eager: the far
+    //   100 where haze begins. Captured at 55 first and it was too eager: the far
     //       shore of the bay, 90-120 units out and still somewhere the player
     //       walks to, was already visibly pale and the low cloud deck (which sits
     //       90-115 units up) went blue-grey and translucent. At 85 a fragment at
     //       120 units takes 9% instead of 28%.
+    //       85 -> 100 this round. The curve is exp(-3 d^2) over d = (depth-near)/
+    //       (far-near), so moving the near plane rescales the WHOLE mid-distance:
+    //       a fragment at 150 units goes from 31% hazed to 20%, and one at 200
+    //       from 68% to 63%, while the streaming edge at ~245 barely moves (89% ->
+    //       88%) and so still hides chunk pop-in. That band from 120 to 180 units
+    //       is where the far treeline of a vista sits, and at 31% it was arriving
+    //       as pale mush with no green left; the edge of the world is the only
+    //       part that is supposed to dissolve.
+    //       100 -> 130 this round, same argument one more turn. Captured
+    //       (shots/_la-a-downsun.png) the far treeline was still arriving as white
+    //       mush with no skyline left, which is a vista with no horizon in it. The
+    //       near plane is the right knob rather than the far one BECAUSE of the
+    //       squared curve: at 130/270 a fragment at 150 units takes 6% instead of
+    //       23% and one at 200 units takes 53% instead of 65%, while the streaming
+    //       edge at ~245 goes 89% -> 87% and still hides chunk pop-in. That is the
+    //       "cut the fog density about 40%" note, spent entirely on the band the
+    //       player can walk to and none of it on the edge of the world.
     //   270 where haze is ~95%. Near the STREAMING RADIUS, not the far plane:
     //       VIEW_RADIUS is 5 chunks of 32 units, so the farthest terrain that
     //       exists is ~245 units away on the diagonal, which lands at ~86%. The
@@ -333,7 +448,7 @@ export class Engine {
     //
     // The colour argument is kept at the horizon's displayed value so anything
     // that inspects scene.fog (nothing does today) sees something sane.
-    this.scene.fog = new THREE.Fog(0xa9c8e2, 85, 270);
+    this.scene.fog = new THREE.Fog(0xa9c8e2, 130, 270);
 
     // One-draw-call inverted sphere; follows the camera each frame (render()).
     this.skyDome = new THREE.Mesh(
@@ -383,7 +498,37 @@ export class Engine {
     // for there or the world flattens. The warmth is what makes the cool fill read
     // as a warm/cool contrast instead of just a brighter grey. 2.55 -> 2.45 -> 2.38
     // across three rounds, each step paying for the fill going up.
-    this.sun = new THREE.DirectionalLight(0xfff0cf, 2.38);
+    //
+    // COLOUR 0xfff0cf -> 0xffebbe this round, and the intensity 2.38 -> 2.45 is
+    // NOT a brightening — it is the exact compensation for it. three does not
+    // normalise a light by its colour's luminance, and the new colour's relative
+    // luminance is 0.841 against the old 0.881, so 2.38 * 0.881/0.841 = 2.45 puts
+    // the same energy on a white surface. Everything that moves is hue.
+    //
+    // Why move it at all: this is the only thing in the frame that says what TIME
+    // it is. Sunlit grass was arriving at #619036 — a cool acid green — because
+    // the key was only barely warm and the grade's warm/cool split is a gain that
+    // cannot manufacture chroma the light never had. Cube World's signature is a
+    // warm yellow-green sunlit grass against a cool blue shadow, and the warmth
+    // has to come from the key or it reads as an overcast noon with the colour
+    // pushed in afterwards. It also widens the gap against the now-cool shadow
+    // side, which is free contrast that costs no value range.
+    //
+    // 2.45 -> 3.05 this round, together with the hemisphere fill coming 0.86 ->
+    // 0.55. This is the "I cannot tell where the sun is" fix and the two halves
+    // are one change: the key goes up 24% and the fill comes down 36%, so the
+    // total on a LIT up-facing surface barely moves (1.87 -> 1.94 in relative
+    // irradiance) while the total on a SHADOWED one drops by a third.
+    //
+    // Modelled through the real tone curve and grade (post.ts), on grass:
+    //   before  lit L=118, cast shadow L=64 — shadow at 54% of lit, 1.85:1
+    //   after   lit L=132, cast shadow L=50 — shadow at 38% of lit, 2.61:1
+    // Cube World's shadows sit near 30% of the lit surface. 38% is most of the way
+    // there and stops short on purpose: the last stretch would have to come out of
+    // the hemisphere fill, and that fill is the only light a canopy underside or a
+    // north-facing cliff gets. The remaining gap is bought in the grade's shadow
+    // floor instead (post.ts uShadowLift), which only touches the darkest values.
+    this.sun = new THREE.DirectionalLight(0xffebbe, 3.05);
     this.sun.position.copy(SUN_OFFSET);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(4096, 4096);
@@ -418,6 +563,34 @@ export class Engine {
     this.sun.shadow.normalBias = 0.035;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
+
+    // The bounce fill (see BOUNCE_OFFSET). A DirectionalLight is direction-only,
+    // so this never needs to follow the focus the way the sun does — the position
+    // is read as a direction against the target at the origin and the magnitude is
+    // irrelevant.
+    //
+    // COLOUR: what light bouncing off sunlit grass and sand actually is — warm,
+    // slightly green-yellow, and DESATURATED. The saturation is the constraint,
+    // not the hue: the ambient's ground half was 0x6b7f52 (saturated grass green)
+    // in an earlier round and it hue-rotated sunlit sand to olive, which reads as
+    // mould. 0xd7cfa6 carries the warmth with a max-min chroma of 0.20 linear,
+    // low enough that it tints rather than repaints, and it is the warm half of
+    // the warm/cool story the cool sky fill already tells.
+    //
+    // INTENSITY 0.42, swept against the measurement in BOUNCE_OFFSET's comment.
+    // It is a fill, so it must stay well under the sun (2.38) or the anti-sun side
+    // of a tree starts to look like a second noon.
+    // 0.42 -> 0.38: a token trim, not a cut. The hemisphere fill above is losing
+    // 36% of its strength this round, and this light is what keeps a canopy
+    // UNDERSIDE off black when that happens — it is the one fill term that lands
+    // on downward and anti-sun normals and mathematically none on the sun-facing
+    // ones, so unlike the hemisphere it cannot flatten anything. It comes down at
+    // all only because the key went up 24% and a fill has to keep its distance.
+    this.bounce = new THREE.DirectionalLight(0xd7cfa6, 0.38);
+    this.bounce.position.copy(BOUNCE_OFFSET);
+    this.bounce.castShadow = false;
+    this.scene.add(this.bounce);
+    this.scene.add(this.bounce.target);
 
     // THE SHADOW COLOUR LIVES HERE. Everything in cast shadow is lit by this
     // light alone, so its colour IS the shadow's colour and its intensity IS the
@@ -467,7 +640,26 @@ export class Engine {
     // to flatten every cube's form shading and turn sand chalky. The rest of the
     // lift is bought in the grade's shadow floor, which only touches dark values
     // and so cannot flatten anything.
-    this.ambient = new THREE.HemisphereLight(0xc2dcf9, 0x8fa4bd, 0.86);
+    // ROUND 7: 0.86 -> 0.55 with the sun going 2.45 -> 3.05 (see there for the
+    // measured before/after). This reverses four rounds of winding this knob up
+    // (0.52 -> 0.78 -> 0.86) and the reason is that every one of those rounds was
+    // paying for a problem that has since been fixed somewhere better. The dark
+    // canopy underside that 0.78 and 0.86 were chasing is now held up by the
+    // BOUNCE light, which is a direction and so cannot flatten the sun-facing
+    // side; the crushed shadow midtones are held up by the grade's shadow floor,
+    // which only touches the darkest values. What was left of this number was
+    // pure flattening: a shadowed up-facing surface is lit by this light ALONE,
+    // so 0.86 against a 2.45 sun is exactly why "shadows=0 vs default changes
+    // only 9% of pixels" and why open ground read as lit from nowhere.
+    //
+    // The sky half goes 0xc2dcf9 -> 0xb4d6fb at the same time. That is the OTHER
+    // half of "shadows must read cooler": with the fill at 0.55 it is a smaller
+    // share of a lit surface's total, so it can afford more chroma without
+    // tinting the lit world, and a shadowed surface — which sees nothing else —
+    // gets a measurably bluer cast. Measured on the model, shadowed sand goes
+    // from rgb(99,106,82) (a warm olive, i.e. the acid-green shadow filed against
+    // this) to rgb(74,87,72), where the blue channel no longer sits below the red.
+    this.ambient = new THREE.HemisphereLight(0xb4d6fb, 0x8fa4bd, 0.55);
     this.scene.add(this.ambient);
 
     // Responsive: plain resizes, orientation flips, and the mobile URL bar
@@ -527,7 +719,17 @@ export class Engine {
    */
   updateSunFocus(focus: THREE.Vector3): void {
     const want = 52 + this.camera.position.distanceTo(focus) * 1.35;
-    const s = Math.round(Math.min(112, Math.max(64, want)) / 8) * 8;
+    // Ceiling 112 -> 152. The floor and the slope are untouched, so the GAMEPLAY
+    // camera is bit-for-bit unaffected: it sits ~12 units behind the player, wants
+    // 68 and gets 72, nowhere near either end. This only moves photo-mode and
+    // fly-cam framings, and there it fixes a real hole — VIEW_RADIUS streams
+    // terrain to ~245 units, so a 112-unit box left more than half of every vista
+    // with no cast shadow at all, which is exactly the "flat diorama" read on a
+    // wide shot. 152 covers roughly twice the area for 0.073 units/texel instead
+    // of 0.055; PCF spans ~2 texels either way, so the penumbra on a 1-unit cube
+    // goes from 0.11 to 0.15 units — still a recognisably 1-unit edge, which is
+    // the constraint the PCF choice in the constructor was made against.
+    const s = Math.round(Math.min(152, Math.max(64, want)) / 8) * 8;
     if (s !== this.shadowExtent) this.setShadowExtent(s);
 
     // Snap the box to a coarse world lattice. Shadows live in world space, so

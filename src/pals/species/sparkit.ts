@@ -153,9 +153,11 @@ function buildRig(): PalRig {
     // exactly where the core used to sit, under the bloom sprite.
     m.position.y = -0.05;
     g.add(m);
-    // Fake bloom: tiny electric-yellow halo on each cheek spark; pulses with
-    // the spark because animate() scales this group.
-    const cheekGlow = makeGlowSprite(0xffe680, 0.16, 0.18);
+    // Tiny electric-yellow halo on each cheek spark; pulses with the spark
+    // because animate() scales this group. 0.13 / 0.08, down from 0.16 / 0.18 —
+    // the sprite and the real bloom pass were compounding into two orange discs
+    // on the cheeks that read as blush rather than as sparks. See glowsprite.ts.
+    const cheekGlow = makeGlowSprite(0xffe680, 0.13, 0.08);
     cheekGlow.position.set(0, 0, 0.06);
     g.add(cheekGlow);
   };
@@ -164,9 +166,15 @@ function buildRig(): PalRig {
 
   // -- tall zigzag lightning tail: base segment + flared tip ---------------
   const tailG = pivot('tail', body);
+  // The bolt runs DARK at the root and gets hotter every step, instead of being
+  // one flat body-yellow zigzag. The tail stands a good 0.6 units clear above the
+  // skull, so it is never occluded — but photographed against sky in a six-pal lab
+  // lineup it simply was not there: YEL / YEL_LIGHT on a bright sky is pale on pale,
+  // and this bolt IS the whole electric read. A dark root also separates the tail
+  // from the yellow body it grows out of, which the old YEL_DARK base did not.
   const t1 = new VoxelModel();
-  t1.box(0, 0, 0, 1, 1, 0, YEL_DARK); // staircase up and back
-  t1.box(0, 1, -1, 1, 2, -1, YEL);
+  t1.box(0, 0, 0, 1, 1, 0, INK);       // shadowed root: the bolt grows out of the coat
+  t1.box(0, 1, -1, 1, 2, -1, YEL_DARK); // staircase up and back, charging as it goes
   t1.box(0, 2, -2, 1, 3, -2, YEL);
   const m1 = t1.build(S, false);
   m1.position.set(-0.1, 0, -0.05);
@@ -177,6 +185,13 @@ function buildRig(): PalRig {
   t2.box(0, 0, 0, 1, 1, 0, YEL); // kinks back forward — classic bolt
   t2.box(0, 1, 1, 1, 2, 1, YEL_LIGHT);
   t2.box(-1, 3, 1, 2, 3, 1, YEL_LIGHT); // wide flare
+  // Ink caps on both ends of the flare. The flare is the widest part of the bolt
+  // and therefore the part that decides its shape against sky; in pale yellow its
+  // two ends dissolved and the flare read as a blob under the tip glow. Two dark
+  // cells give the zigzag hard corners — the same INK the back stripes use, so it
+  // is the species' own language rather than an outline bolted on.
+  t2.set(-1, 3, 1, INK);
+  t2.set(2, 3, 1, INK);
   t2.box(0, 4, 1, 1, 4, 1, SPARK_CORE); // white-hot tip
   // Trimmed for the bloom pass: the bolt tip should read as hot metal, not as a
   // flashbulb that eats the tail's zigzag shape.
@@ -189,8 +204,12 @@ function buildRig(): PalRig {
   const m2 = t2.build(S, false);
   m2.position.set(-0.1, 0, -0.05);
   tipG.add(m2);
-  // Fake bloom: small halo on the white-hot bolt tip; rides the tail rig.
-  const tipGlow = makeGlowSprite(0xffe680, 0.3, 0.16);
+  // Small halo on the white-hot bolt tip; rides the tail rig. 0.20 / 0.07, down
+  // from 0.30 / 0.16: the bolt IS this species' silhouette read, and a 0.30-unit
+  // additive disc plus the bloom pass on the emissive tip buried the zigzag in a
+  // pale ball half the size of the pal's head — visible as a blown blob over the
+  // sparkit's head in the ten-pal lab lineup. See glowsprite.ts.
+  const tipGlow = makeGlowSprite(0xffe680, 0.20, 0.07);
   tipGlow.position.set(0, 0.47, 0.05);
   tipG.add(tipGlow);
 

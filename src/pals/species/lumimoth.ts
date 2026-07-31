@@ -345,17 +345,23 @@ function buildRig(): PalRig {
   abdomen.add(glow);
   parts.glow = glow;
 
-  // Fake bloom: warm-gold halo hugging the lantern. Parented to the abdomen
-  // (not to the lantern mesh) so it still swings with every animation while
-  // glow.children[0] stays the emissive voxel batch. Never frustum-culled.
-  const lanternGlow = makeGlowSprite(C.glowEmissive, 0.32, 0.18);
+  // Warm-gold halo hugging the lantern. Parented to the abdomen (not to the
+  // lantern mesh) so it still swings with every animation while glow.children[0]
+  // stays the emissive voxel batch. Never frustum-culled.
+  // 0.22 / 0.08, down from 0.32 / 0.18. Same compounding as everywhere else: the
+  // lantern voxels are already emissive at 0.5 and the bloom pass takes them from
+  // there, so the sprite was a second halo twice the lantern's own size. In the
+  // ten-pal lab lineup it presented as a blown gold blob at the moth's wing root
+  // with no lantern shape inside it. See glowsprite.ts.
+  const lanternGlow = makeGlowSprite(C.glowEmissive, 0.22, 0.08);
   lanternGlow.position.set(0, -0.21, -0.62);
   lanternGlow.frustumCulled = false;
   abdomen.add(lanternGlow);
 
   // Slightly larger, very soft halo behind the wings — ambient light-moth
-  // aura, deliberately faint so it never becomes a blown-out orb.
-  const wingHalo = makeGlowSprite(0xffe08a, 0.5, 0.08);
+  // aura, deliberately faint so it never becomes a blown-out orb. Trimmed
+  // 0.5 / 0.08 -> 0.34 / 0.04 with the rest of the fake-bloom pass.
+  const wingHalo = makeGlowSprite(0xffe08a, 0.34, 0.04);
   wingHalo.position.set(0, 0.1, -0.08);
   wingHalo.frustumCulled = false;
   body.add(wingHalo);

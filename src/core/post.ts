@@ -654,7 +654,7 @@ const TonemapGradeShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
     /** Mirrors renderer.toneMappingExposure; PostFX.render() keeps it in sync. */
-    uExposure: { value: 1.02 },
+    uExposure: { value: 1.20 },
     /**
      * Highlight rolloff knee, in linear radiance. THE FIX FOR WHITE EMISSIVE
      * PLATEAUX. ACES desaturates as it saturates: emberfox's flame core renders
@@ -686,11 +686,21 @@ const TonemapGradeShader = {
      * even when the pass was working. That misread cost a whole review round.
      */
     uDebug: { value: 0 },
-    // 0.13. The S-curve's lower half is a black-crusher, and between it and the
+    // 0.18. The S-curve's lower half is a black-crusher, and between it and the
     // baked corner AO the shadowed treeline was collapsing into one unreadable
-    // mass. Most of the midtone separation the curve was buying is now bought by
-    // the mesher's corner AO instead, for free.
-    uContrast: { value: 0.13 },
+    // mass — which is why this was cut to 0.13. Most of the midtone separation the
+    // curve was buying is now bought by the mesher's corner AO instead, for free.
+    //
+    // Back up to 0.18 this round because the thing it was backing away from is
+    // gone: the treeline was collapsing because the anti-sun side of foliage was
+    // rendering at #010d03, and the bounce light in engine.ts now puts it in the
+    // midtones where an S-curve separates rather than crushes. Measured against
+    // the same framing, the shaded canopy sits near l = 0.17 after the curve, and
+    // smoothstep's slope there is well above 1, so this now BUYS separation in
+    // exactly the band it used to destroy. It is also what stops the frame reading
+    // flat now that the darks have been opened up — opening shadows without
+    // restoring contrast just makes a hazy picture.
+    uContrast: { value: 0.18 },
     // Saturation, as a pair: darks get more than lights. A single global figure
     // cannot win here — 1.05 everywhere left every face the sun misses reading as
     // grey cardboard (a dirt wall measured #1e211e, i.e. no hue at all), while
@@ -698,29 +708,62 @@ const TonemapGradeShader = {
     // the shadows is free: that is exactly where tone mapping and the ambient fill
     // have eaten the chroma.
     uSatDark: { value: 1.12 },
-    uSatLit: { value: 1.04 },
+    // 1.04 -> 1.10, and the crossover in the shader moves 0.06..0.42 -> 0.10..0.58
+    // with it. Both are compensation for the exposure going 1.02 -> 1.20 in
+    // engine.ts, and the second matters more than the first: this is a smoothstep
+    // on DISPLAY luminance, so brightening the whole picture slides every lit
+    // surface up past the crossover and into the "lights" bucket, where the gain
+    // is smallest. MEASURED on the four capture set, mean frame saturation fell
+    // 0.68 -> 0.56 (gameplay) and 0.72 -> 0.59 (wide) purely from that slide —
+    // the frame got brighter and quietly lost its colour confidence, which is the
+    // one thing Cube World never does. Moving the crossover up puts sunlit grass
+    // back on the dark side of it (modelled: sat 0.78 -> 0.82) and leaves sand and
+    // sky, which are genuinely near-neutral, where they were.
+    uSatLit: { value: 1.10 },
     // 0.042. The cheapest part of "shadows must read cooler, never hue-rotated":
     // it is a gain, so it cannot shift a neutral, but it pulls the shaded midtones
     // toward blue and the sunlit ones toward amber. Above ~0.06 it starts to look
     // like a teal-and-orange film LUT, which is the opposite of Cube World.
     uSplit: { value: 0.042 },
-    // Shadow floor. 0.17, up from 0.10. Measured on a gameplay frame this takes
-    // grass in cast shadow from 17% of its sunlit luminance to ~30%, which is
-    // where Cube World's shadows sit — they are a darker, cooler version of the
-    // surface, not a hole in the picture.
-    uShadowLift: { value: 0.17 },
-    // How much of the lift follows the pixel's OWN hue rather than the cool tint,
-    // BEFORE the saturation weighting in the shader. Two opposite failures have to
-    // be fixed by one term, which is why it is weighted rather than fixed:
+    // Shadow floor. History 0.10 -> 0.17 -> 0.13. It went up when the shadows
+    // were genuinely holes (grass in cast shadow at 17% of its sunlit luminance);
+    // it comes back down now that engine.ts has cut the hemisphere fill 0.86 ->
+    // 0.55 and put the same lift into the LIGHT instead, where it belongs.
+    //
+    // Modelled through this whole chain on grass, with the new key/fill split:
+    // at 0.17 a cast shadow lands at 43% of the lit surface, at 0.13 it lands at
+    // 38%. Cube World sits near 30%, so this is still the generous side — the
+    // floor exists so a shadow reads as a darker, cooler version of the surface
+    // rather than as a hole, and 38% keeps the hue in it. Going lower here is the
+    // wrong lever anyway: this term is a display-referred additive that also
+    // flattens the shadow's own internal contrast, whereas the same darkening
+    // taken out of the fill costs nothing.
+    uShadowLift: { value: 0.13 },
+    // How much the lift is pulled toward the COOL tint rather than following the
+    // pixel's own hue. 0 = pure hue-following, 1 = pure cool achromatic lift.
+    //
+    // This used to be the opposite knob, scaled by the pixel's chroma so that
+    // already-saturated pixels got the *purely cool* lift. The reasoning was sound
+    // and the result was not, and the failure was only visible once the lift was
+    // measured against the ungraded frame: shaded canopy renders at #010d03 (see
+    // engine.ts BOUNCE_OFFSET), and at that value the additive lift is not a lift,
+    // it IS the pixel — a near-black green plus 0.17*(0.86,0.97,1.20) comes out
+    // #242e33, a blue-grey with no green left in it at all. Chroma-weighting made
+    // it worse rather than better, because a dark saturated green scores maximum
+    // chroma and so got 100% of the achromatic tint.
+    //
+    // A fixed, moderate cool blend fixes both of the failures the old weighting
+    // was built for, and this one:
     //   - a shaded DIRT wall (low saturation, brown) went to neutral grey under a
-    //     purely cool achromatic lift — measured, 25% saturation down to 4%;
-    //   - shaded GRASS (very high saturation, green with no red left in it at all,
-    //     because the fill is blue and the albedo is green) goes MORE saturated
-    //     under a hue-following lift, which is the "near-black olive green" read.
-    // So the shader scales this by (1 - saturation): near-neutral pixels are lifted
-    // along their own hue, already-saturated ones get the neutral cool lift that
-    // opens them up instead of deepening them.
-    uLiftHue: { value: 0.85 },
+    //     purely cool achromatic lift — measured, 25% saturation down to 4%. At
+    //     0.42 it keeps ~15%, which still reads as brown.
+    //   - shaded GRASS goes MORE saturated under a pure hue-following lift (the
+    //     "near-black olive green" read). The 0.42 of cool is what desaturates and
+    //     opens it instead.
+    //   - shaded FOLIAGE keeps its hue instead of being repainted blue-grey.
+    // The real lift is now done by the bounce light in engine.ts, in linear
+    // radiance where it belongs; this is only the last few percent on top.
+    uLiftCool: { value: 0.42 },
     // 0.07, with its falloff pushed outward (see the shader). At 0.16 with
     // crushed corners the frame was losing real detail — the treeline in the
     // top-right of a gameplay shot went to a single value.
@@ -739,7 +782,7 @@ const TonemapGradeShader = {
     uniform float uSatLit;
     uniform float uSplit;
     uniform float uShadowLift;
-    uniform float uLiftHue;
+    uniform float uLiftCool;
     uniform float uVignette;
     varying vec2 vUv;
 
@@ -819,7 +862,7 @@ const TonemapGradeShader = {
       float l = dot(graded, LUMA);
 
       // 4. Saturation, weighted toward the shadows (see uSatDark).
-      float sat = mix(uSatDark, uSatLit, smoothstep(0.06, 0.42, l));
+      float sat = mix(uSatDark, uSatLit, smoothstep(0.10, 0.58, l));
       graded = mix(vec3(l), graded, sat);
 
       // 5. Warm/cool split so sunlight reads warm and shade reads cool. Applied
@@ -835,16 +878,19 @@ const TonemapGradeShader = {
       //    at the strength needed here visibly lifted lit grass; a thresholded
       //    smoothstep puts a hard edge into the gradient where it crosses over.
       //
-      //    The TINT is saturation-weighted — see uLiftHue for the two failures it
-      //    has to fix at once.
+      //    The TINT follows the pixel's own hue with a fixed cool bias — see
+      //    uLiftCool for the three failures that one blend has to survive.
       float dark = 1.0 - l;
       dark *= dark;
       dark *= dark;
-      float mx = max(max(graded.r, graded.g), graded.b);
-      float mn = min(min(graded.r, graded.g), graded.b);
-      float chromaAmt = 1.0 - mn / max(mx, 0.02);
-      vec3 hueDir = graded / max(l, 0.05);
-      vec3 tint = mix(vec3(0.86, 0.97, 1.20), hueDir, uLiftHue * (1.0 - chromaAmt));
+      // hueDir is the pixel normalised to unit luma, i.e. its colour with the
+      // brightness divided out, so adding a multiple of it opens a shadow along
+      // its OWN hue. The clamp matters: a nearly-black pixel with one live channel
+      // (a dark saturated green is exactly that) has an unbounded ratio, and
+      // without the ceiling the lift would inject a slug of pure green into it and
+      // print the neon fringe the old chroma weighting was trying to dodge.
+      vec3 hueDir = min(graded / max(l, 0.06), vec3(2.2));
+      vec3 tint = mix(hueDir, vec3(0.86, 0.97, 1.20), uLiftCool);
       graded += uShadowLift * dark * tint;
 
       // 7. Vignette. Elliptical in screen space (deliberately not aspect
@@ -1063,12 +1109,23 @@ export function readPostOptions(search: string): {
   };
   return {
     enabled: p.get('post') !== '0',
-    // 1.35. GTAOPass's blend lerps white toward the AO buffer by this factor, so
+    // 1.15. GTAOPass's blend lerps white toward the AO buffer by this factor, so
     // above 1.0 it darkens harder than the geometry says. Swept at 1.0/1.2/1.35/
     // 1.6 on the hero+pal framing: 1.0 grounded the characters but you had to look
     // for it, 1.6 started dimming whole pal bodies (the emberfox's belly went
     // grubby). 1.35 plants a foot on the ground and stops there.
-    ao: num('ao', 1.35),
+    //
+    // Down from 1.35 this round, and the reason is that overshooting past 1.0 is
+    // only free where the surface is already lit. This AO multiplies the WHOLE
+    // lighting result, direct sun included — GTAOPass has no way to apply it to
+    // the ambient term alone — so under a canopy, where the pixel is already at a
+    // few percent of a sunlit one, it is not a contact ring, it is a second
+    // darkening on top of the mesher's baked corner AO. Measured on
+    // cam=-8,7,26 look=6,3,-4 with ?grade=0: grass in the shade of a tree went
+    // Y 0.0139 with ?ao=0 to Y 0.0051 with the pass at 1.35, i.e. AO alone took
+    // 63% of what little light was there. 1.15 still overshoots enough to plant a
+    // foot and costs that region ~20% instead of 63%.
+    ao: num('ao', 1.15),
     // World units (see the pass). 1.8 — a shade over a pal's height and nearly
     // twice a terrain cube, i.e. the reach over which a foot, a rock's base or a
     // shop's stilt darkens the ground it stands on. 2.5+ wraps a whole creature
@@ -1102,7 +1159,26 @@ export function readPostOptions(search: string): {
     // without the blob coming back.
     bloom: num('bloom', 0.40),
     sceneBloom: num('sbloom', 1.2),
-    sceneBloomThreshold: num('sbt', 0.80),
+    // 0.80 -> 0.95. This is a LINEAR-RADIANCE threshold, so it has to move with
+    // the key: engine.ts took the sun 2.45 -> 3.05, which lifts sunlit sand's max
+    // channel from 0.495 to 0.535 and a white sunward face from 0.725 to 0.828.
+    // 0.95 keeps the old margin above the brightest ordinary lit ground.
+    //
+    // SWEPT AND MEASURED (photo cam=-5,3.2,7 look=0,2.2,0, fraction of pixels
+    // differing from ?sbloom=0 by more than 8/255): 0.55 -> 31.5%, 0.78 -> 2.49%,
+    // 0.95 -> 2.52%. 0.78 and 0.95 are the SAME PICTURE, which says something the
+    // old comment got wrong and worth writing down: nothing in this world sits
+    // between 0.78 and 0.95 linear, and the 2.5% that blooms at either value is
+    // the tagged emissives, not the daylight. The scene-highlight term is
+    // therefore close to inert, and it cannot be woken up by lowering the
+    // threshold — the cloud deck's tops render DARKER in linear than sunlit sand
+    // (measured on the finished frame, cloud L=196 against sand L=201), so every
+    // threshold that spares the beach also spares the clouds, and 0.55, which
+    // finally catches the clouds, catches a third of the frame with them. Fixing
+    // that belongs to the cloud material's albedo/emissive in world/clouds.ts, not
+    // here. 0.95 is kept because it is the safe end of an interval that costs
+    // nothing to sit at.
+    sceneBloomThreshold: num('sbt', 0.95),
     // Highlight rolloff knee in linear radiance; see TonemapGradeShader. 0
     // disables it, which is the fastest way to see the white-plateau failure it
     // exists to fix.

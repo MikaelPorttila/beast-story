@@ -295,10 +295,19 @@ function buildRig(): PalRig {
   flameMesh.position.set(0, -0.02, 0);
   flame.add(flameMesh);
 
-  // Fake bloom: soft warm-orange halo on the flame tip (no postprocessing
-  // pass exists). Parented to tailTip — not flame — so the flame's non-uniform
-  // flicker scaling never distorts the billboard; it still rides the tail.
-  const flameGlow = makeGlowSprite(0xffb347, 0.34, 0.12);
+  // Soft warm-orange halo on the flame tip. Parented to tailTip — not flame —
+  // so the flame's non-uniform flicker scaling never distorts the billboard; it
+  // still rides the tail.
+  //
+  // 0.20 / 0.06, down from 0.34 / 0.12. The old pair was written when this sprite
+  // WAS the glow; a selective emissive bloom pass exists now and blooms the flame
+  // voxels too, so the sprite was adding a second, larger, perfectly round halo on
+  // top. A real-game capture (cam=2.6,2.4,3.0, look=0,1.6,0) showed the result as a
+  // shapeless warm orb about as wide as the fox's head, hanging at head height
+  // where the tail curls up over the back — the flame's own tapered shape was
+  // entirely inside it. At 0.20/0.06 the halo is a hint of heat-haze around a
+  // flame you can still see the shape of. See glowsprite.ts.
+  const flameGlow = makeGlowSprite(0xffb347, 0.20, 0.06);
   flameGlow.position.set(0, 0.1, -0.28);
   tailTip.add(flameGlow);
 

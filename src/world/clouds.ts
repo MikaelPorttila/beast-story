@@ -26,17 +26,77 @@ import { mulberry32 } from './noise';
  * the scene's linear fog (150..420) has faded a cloud to pure haze colour, so
  * there is nothing to gain by going further.
  */
-const BAND_WRAP = [165, 235, 305];
-/** Base altitude of each band, and its random span. */
-const BAND_Y = [80, 104, 120];
-const BAND_SPAN = [16, 20, 22];
+const BAND_WRAP = [165, 235, 305, 360];
 /**
- * Instance scale per band. The far band is scaled up hard: at 300 units the
+ * Base altitude of each band, and its random span.
+ *
+ * Band 3 is the HORIZON band, and it is the one that makes a sky read as
+ * weather rather than as decoration. Bands 0-2 sit 80-142 units up inside a
+ * field that wraps at 305, so from a camera at eye level the lowest cloud in the
+ * sky is 19 degrees above the horizon — and _veg-a-forest.png (camera 16 units
+ * up, looking level) is the result: a vast empty blue field with two cloud
+ * fragments clipped by the top of the frame. Everything a player actually looks
+ * at while walking around is below that 19-degree line.
+ *
+ * Band 3 is far (360) and LOW (58-70), which puts it 6-10 degrees up: a row of
+ * cumulus sitting on the ridgeline, seen in PROFILE rather than from underneath,
+ * which is also the only angle from which the towers built by `cloudGeo` are
+ * visible at all. The scene's linear fog (150..420) has blended it ~78% into the
+ * sky by then, and that is correct rather than a loss — a distant cumulus is a
+ * low-contrast pale shape against a pale horizon, and the aerial-perspective
+ * patch makes it take the sky's own colour in that direction.
+ *
+ * `VoxelModel.build` puts y = 0 at the model's LOWEST voxel, so these are the
+ * altitude of a puff's underside and `sy` only ever grows it upward. `BAND_SPAN`
+ * is now the spread between one CLUSTER and the next rather than between one
+ * puff and its neighbour — see the condensation-level note in the placement
+ * loop — so it is trimmed ~12% to keep the same overall band thickness once the
+ * clusters no longer scatter internally as well.
+ */
+const BAND_Y = [80, 104, 120, 96];
+const BAND_SPAN = [14, 18, 20, 12];
+/**
+ * Instance scale per band. The far bands are scaled up hard: at 300 units the
  * scene's linear fog has already blended it ~55% into the haze colour, so a
  * small shape there is a faint smudge, while a big one reads as a proper hazy
  * distant cloud — which is what closes the empty band above the horizon.
  */
-const BAND_SCALE = [1.05, 1.5, 2.4];
+const BAND_SCALE = [1.05, 1.5, 2.4, 1.7];
+
+/**
+ * The horizon band's altitude and scale AT THE WRAP EDGE. Between the focus and
+ * the edge an instance is linearly interpolated from `BAND_Y[3]`/`BAND_SCALE[3]`
+ * to these, by its current distance from the focus.
+ *
+ * Why interpolate at all: a real cumulus deck is one altitude, and distant
+ * clouds appear near the horizon purely through perspective — at 100 units up
+ * you need 570 units of ground distance to reach 10 degrees of elevation, and
+ * the scene's linear fog (150..420) has erased anything that far. So the deck
+ * has to be faked low. Faking it low as a FLAT band does not work: the field
+ * wraps cartesianly around the focus, so roughly a tenth of the band is inside
+ * 120 units at any moment, and a 3.1x instance at 58 units up is a 90-unit white
+ * slab hanging directly over the player — captured in _veg-b-forest.png, where
+ * it read as a floating island, not as weather.
+ *
+ * Grading by distance gives both: far instances sit 54 units up at 3.2x, i.e. 6
+ * degrees above the horizon and big enough to survive 80% haze, while anything
+ * that drifts near rises and shrinks to ordinary near-band proportions. The
+ * drift is ~0.5 units/s over a 360-unit half-extent, so an instance takes about
+ * twelve minutes to cross the field and the altitude change is invisible.
+ */
+const HORIZON_Y_FAR = 54;
+const HORIZON_SCALE_FAR = 2.6;
+/**
+ * Extra vertical squash applied to the horizon band as it recedes.
+ *
+ * A cumulus row on a distant skyline reads WIDE, and the reason is not the
+ * cloud's own shape: you are looking at it from level, so its width subtends its
+ * full extent while its height is foreshortened by nothing and simply loses to
+ * the width of a deck ten kilometres across. At 2.6x an un-squashed shape stood
+ * 125 units tall on the horizon and read as a white cliff. 0.78 restores the
+ * proportion without touching the geometry the near bands share.
+ */
+const HORIZON_FLATTEN = 0.78;
 
 /** Condensation level: every boll is clipped flat at this voxel row. */
 const BASE_Y = 4;
@@ -140,8 +200,14 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
   // spire, with the smallest lobes too few voxels across to voxelise into anything
   // but prongs. One or two storeys at 84%, sunk so they overlap by 60% of their
   // own height, gives a mass that bulges upward — a cumulus, not a spike.
+  // One or two storeys, and NOT always two. Forcing two (plus a gentler 0.86
+  // taper) was tried and reverted: _veg-c-sky.png came out as a field of chunky
+  // white cliffs taller than they were wide, and at the horizon band's 3.2x that
+  // became 150-unit vertical columns hanging in the haze. Fair-weather cumulus
+  // are broader than they are tall; the vertical read has to come from the
+  // turrets and the domed base, not from stacking storeys.
   const stackN = high ? 1 : 1 + (variant % 2);
-  let sr = fatR * 0.84;
+  let sr = fatR * 0.85;
   let sy = fatTop;
   for (let k = 0; k < stackN; k++) {
     const ry = sr * (0.74 + rng() * 0.18);
@@ -151,17 +217,22 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
     lobe(cx, cy, cz, sr, ry, sr * (0.88 + rng() * 0.2));
     crowns.push([cx, cy + ry * 0.35, cz, sr]);
     sy = cy + ry;
-    sr *= 0.84;
+    sr *= 0.85;
   }
 
-  // One turret, and a FAT one (55-80% of the boll it grows from, not 44-70%):
-  // a small turret on a small crown is a prong, and prongs are what the whole
-  // rebuild was trying to get rid of.
-  {
+  // One or two turrets, and FAT ones (55-80% of the boll they grow from, not
+  // 44-70%): a small turret on a small crown is a prong, and prongs are what the
+  // whole rebuild was trying to get rid of. The second turret exists because one
+  // bump on one crown is a bump — two boiling off the same mass at different
+  // heights is the cauliflower read a cumulus needs, and it only shows in
+  // profile, which is exactly the view the horizon band added.
+  const turrets = 1 + (variant % 2);
+  for (let t = 0; t < turrets; t++) {
     const [bx, by, bz, br] = crowns[Math.floor(rng() * crowns.length)];
     const tr = br * (0.55 + rng() * 0.25);
     lobe(
-      bx + (rng() - 0.5) * br * 0.5, by + tr * 0.2, bz + (rng() - 0.5) * br * 0.4,
+      bx + (rng() - 0.5) * br * 0.6, by + tr * (0.2 + t * 0.26),
+      bz + (rng() - 0.5) * br * 0.5,
       tr, tr * (0.75 + rng() * 0.25), tr * (0.88 + rng() * 0.22),
     );
   }
@@ -331,7 +402,12 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
 
 interface CloudItem {
   x: number;
-  y: number;
+  /**
+   * Altitude of this puff's underside. `VoxelModel.build` datums the geometry at
+   * its lowest voxel, so this is both the instance origin and the height a
+   * cluster's members have to agree on — see the placement loop.
+   */
+  base: number;
   z: number;
   rot: number;
   sx: number;
@@ -340,6 +416,8 @@ interface CloudItem {
   vz: number;
   /** Per-INSTANCE wrap half-extent: bands wrap at different radii. */
   wrap: number;
+  /** Horizon band only: altitude and scale reached at the wrap edge. */
+  graded: boolean;
 }
 
 interface Deck {
@@ -405,11 +483,16 @@ export class Clouds {
     // batches, so the whole sky costs six draw calls regardless. 22 clusters left
     // roughly seven per band, which is few enough that a given view direction
     // could legitimately contain none and the sky read as empty.
-    const CLUSTERS = 34;
+    // 46 clusters x 3-5 puffs ~= 180 instances over four bands, still over the
+    // same six instanced batches, so the whole sky costs six draw calls
+    // regardless. Up from 34 over three bands because the fourth band is the
+    // horizon one, and a horizon band with only a dozen clusters spread over a
+    // 360-unit wrap leaves most bearings with a bare skyline.
+    const CLUSTERS = 46;
     for (let c = 0; c < CLUSTERS; c++) {
-      // Bands are weighted toward the two outer ones: they cover far more solid
+      // Bands are weighted toward the outer ones: they cover far more solid
       // angle, and the near band is what fills the frame when the camera tilts up.
-      const band = c % 3;
+      const band = c % 4;
       const wrap = BAND_WRAP[band];
       let cxp = 0;
       let czp = 0;
@@ -431,35 +514,73 @@ export class Clouds {
       centres.push([cxp, czp, band]);
 
       const members = 3 + Math.floor(rng() * 3);
-      const spread = BAND_WRAP[band] * 0.10;
+      // 0.10 -> 0.16 of the band's wrap radius. At 0.10 a band-0 cluster packed
+      // three to five puffs, each ~20 units across, into a 16-unit disc, and
+      // once the shared condensation level below welded their undersides into
+      // one plane the group stopped reading as a cluster of clouds and started
+      // reading as a single 45-unit raft — a floating island, which is the exact
+      // failure the horizon band was already re-tuned once to avoid. Widening it
+      // leaves the members overlapping at their skirts, which is what a cumulus
+      // FIELD looks like: distinct heaps all sitting on the same shelf.
+      const spread = BAND_WRAP[band] * 0.16;
       // One drift velocity per cluster: a cluster whose members separate over a
       // minute is not a cluster.
-      const vx = (1.3 + rng() * 1.0) * (band === 0 ? 1 : band === 1 ? 0.75 : 0.5);
+      // Drift slows with distance so the whole deck reads as one wind at one
+      // speed seen from four ranges, rather than four decks racing each other.
+      const vFall = [1, 0.75, 0.5, 0.42][band];
+      const vx = (1.3 + rng() * 1.0) * vFall;
       const vz = (0.3 + rng() * 0.5) * (band === 0 ? 1 : 0.6);
+      // ONE condensation level per cluster.
+      //
+      // This is the single thing that separates a cumulus field from a heap of
+      // rubble, and it was the loudest defect in _veg2a-sky.png: every puff drew
+      // its own altitude out of a 16-22 unit span, so the three to five members
+      // of a cluster interpenetrated at staggered heights and the composite
+      // silhouette came out as a jagged mass with square notches bitten out of
+      // its underside and single-puff prongs hanging below it. Photographs of
+      // fair-weather cumulus all share one feature — the bases are all at the
+      // SAME height, because that height is where rising air reaches saturation,
+      // and it is a property of the air mass, not of the cloud. Sharing it
+      // within a cluster turns those five puffs into one mass with a flat
+      // underside and a lumpy top, which is the read the whole `cloudGeo`
+      // rebuild was after and could not reach from the shape alone.
+      //
+      // +-1.2 units of per-member slack, because a perfectly ruled plane looks
+      // machined, and that is under half a cloud voxel (2.05 units) so it cannot
+      // reopen the notches.
+      const clusterBase = BAND_Y[band] + (rng() - 0.5) * BAND_SPAN[band];
       for (let m = 0; m < members; m++) {
         const ang = rng() * Math.PI * 2;
         const rad = m === 0 ? 0 : spread * (0.4 + rng());
         const sx = BAND_SCALE[band] * (0.78 + rng() * 0.62);
+        // Band 2 (the high far deck) uses the two "high" geometries — fewer
+        // turrets, calmer profile, which is what a cloud almost overhead and
+        // mostly seen as a base should be. The horizon band gets the FULL
+        // shapes: it is the only band seen in profile, so it is the one that
+        // needs the towers. Same generator either way so there is exactly one
+        // voxel scale in the sky.
+        const gi = band === 2
+          ? 4 + Math.floor(rng() * 1.999)
+          : Math.floor(rng() * 3.999);
         const it: CloudItem = {
           x: cxp + Math.cos(ang) * rad,
-          y: BAND_Y[band] + rng() * BAND_SPAN[band],
+          base: clusterBase + (rng() - 0.5) * 2.4,
           z: czp + Math.sin(ang) * rad,
           rot: rng() * Math.PI * 2,
           sx,
           // Vertical scale varies independently — the shape already carries its
           // own vertical development, so this only needs to keep two neighbouring
-          // puffs from being the same proportion.
-          sy: sx * (0.82 + rng() * 0.28),
+          // puffs from being the same proportion. The spread is NARROWER than the
+          // 0.82-1.10 it was: with the bases now locked to a plane, any vertical
+          // stretch shows entirely in the tops, and at 1.10 the tallest member of
+          // a cluster stood a third higher than the shortest and the group read
+          // as a skyline rather than as one cloud.
+          sy: sx * (0.86 + rng() * 0.2),
           vx,
           vz,
           wrap,
+          graded: band === 3,
         };
-        // Far bands use the two "high" geometries (fewer turrets, calmer
-        // profile); near bands use the four full ones. Same generator either way
-        // so there is exactly one voxel scale in the sky.
-        const gi = band === 2
-          ? 4 + Math.floor(rng() * 1.999)
-          : Math.floor(rng() * 3.999);
         slots[gi].push(it);
       }
     }
@@ -484,13 +605,33 @@ export class Clouds {
     this.writeMatrices();
   }
 
+  /** Focus the last `update` used, so `writeMatrices` can grade by distance. */
+  private fx = 0;
+  private fz = 0;
+
   private writeMatrices(): void {
     for (const deck of this.decks) {
       for (let i = 0; i < deck.items.length; i++) {
         const it = deck.items[i];
-        tmpPos.set(it.x, it.y, it.z);
+        let y = it.base;
+        let sx = it.sx;
+        let sy = it.sy;
+        if (it.graded) {
+          // Linear in distance, not in its square: the eye reads the band as a
+          // receding row, and a squared falloff kept every instance at nearly
+          // full altitude until it was most of the way out, which put the
+          // "horizon" clouds back up at 20 degrees where they started.
+          const dx = it.x - this.fx;
+          const dz = it.z - this.fz;
+          const k = Math.min(1, Math.sqrt(dx * dx + dz * dz) / it.wrap);
+          y += (HORIZON_Y_FAR - BAND_Y[3]) * k;
+          const g = 1 + (HORIZON_SCALE_FAR / BAND_SCALE[3] - 1) * k;
+          sx *= g;
+          sy *= g * (1 + (HORIZON_FLATTEN - 1) * k);
+        }
+        tmpPos.set(it.x, y, it.z);
         tmpQuat.setFromAxisAngle(yAxis, it.rot);
-        tmpScale.set(it.sx, it.sy, it.sx);
+        tmpScale.set(sx, sy, sx);
         deck.mesh.setMatrixAt(i, tmpMat.compose(tmpPos, tmpQuat, tmpScale));
       }
       deck.mesh.instanceMatrix.needsUpdate = true;
@@ -498,6 +639,8 @@ export class Clouds {
   }
 
   update(focus: THREE.Vector3, dt: number): void {
+    this.fx = focus.x;
+    this.fz = focus.z;
     for (const deck of this.decks) {
       for (const it of deck.items) {
         const w = it.wrap;

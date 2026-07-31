@@ -1,11 +1,24 @@
 import * as THREE from 'three';
 
 // ---------------------------------------------------------------------------
-// Shared fake-bloom helper for species files. There is no postprocessing bloom
-// pass in this game, so emissive voxels read as slightly-brighter paint. Glow
-// focal points (flames, lanterns, cheek sparks, underglows) get a small soft
-// radial-gradient sprite instead. Keep scales ~0.3-0.4 and opacities ~0.2-0.3:
-// subtle halo, not a blown-out orb.
+// Shared soft-halo helper for species files.
+//
+// HISTORY, and it matters for every number below. This started life as a
+// FAKE-bloom helper, written when the sentence "there is no postprocessing bloom
+// pass in this game" was true: emissive voxels read as slightly-brighter paint,
+// so a glow focal point (flame, lantern, cheek spark, underglow) needed a soft
+// radial sprite to sell it. PostFX now has a selective emissive bloom pass
+// (src/core/post.ts), and the two have been compounding ever since — the sprite
+// blooms, the emissive voxels behind it bloom, and the result is one shapeless
+// orb where a shaped glow was intended. Photographed in the real game at
+// cam=2.6,2.4,3.0, the Emberfox's tail flame was a featureless warm blob roughly
+// the size of the fox's own head, sitting at head height: a critic reading that
+// frame reported the fox as "on fire and stuck that way" rather than as fire-typed.
+//
+// So the sprite's job is now much smaller: take the hard edge off the emissive
+// voxels' own bloom, not BE the glow. Keep scales ~0.15-0.25 and opacities
+// ~0.05-0.08, and let the voxel shape carry the read. Anything past that and the
+// bloom pass amplifies a disc you did not want.
 // ---------------------------------------------------------------------------
 
 let glowTexture: THREE.CanvasTexture | null = null;

@@ -51,9 +51,41 @@ const rgb = (hex: number): RGB => ({
 // Authored as sRGB hex, exactly as they would be picked in an image editor;
 // `rgb()` above converts. Sun (2.55) + hemisphere fill land these at roughly
 // 0.9x, so what you pick is close to what you get before the grade.
-const PLAIN_GRASS = rgb(0x54c832);
-const WARM_GRASS = rgb(0x9ccc3a);
-const FOREST_GRASS = rgb(0x3fa832);
+// The greens all carry a RED AND BLUE FLOOR now, and that is a measured fix, not
+// a taste change. At 0x54c832 the red channel is 0.0885 LINEAR; the mesher then
+// runs a saturation link that can push chroma out by another 30%, and the critic
+// sampled sunlit grass tops at rgb(0, 112, 3) and rgb(1, 106, 12) — literally no
+// red left. A surface with a zero red channel cannot receive the sun's 0xffebbe
+// warmth or the sky's blue fill, so the entire warm-key/cool-shadow scheme the
+// engine is built around was being discarded on the single largest surface in the
+// game, and every grass pixel in the world collapsed onto one hue.
+//
+// 0x54c832 -> 0x6ec84a raises red 0.0885 -> 0.154 and blue 0.0319 -> 0.0684
+// without touching green, so the hue barely moves (it is still a clean mid green)
+// but there is now headroom for the light to tint it. Same treatment for the warm
+// and forest stops.
+const PLAIN_GRASS = rgb(0x6ec84a);
+const WARM_GRASS = rgb(0xa8cf55);
+const FOREST_GRASS = rgb(0x53a742);
+/**
+ * Two LANDFORM-scale grass stops the plain/warm/forest blend is pulled toward
+ * after the fact, driven by altitude rather than by noise.
+ *
+ * The colour survey's headline was that the world has six hues total — one green,
+ * one sand, one rock, one water, one sky, one trunk — and that Cube World re-tints
+ * its ground per biome and per elevation. Everything the meadow varied by until
+ * now was a noise field, and noise cannot know where the landforms are: a hillside
+ * and the valley floor beside it got statistically identical grass, so a vista had
+ * no colour structure at the only scale a vista reads at.
+ *
+ * UPLAND is a cool, desaturated sage — what grass looks like on thin, exposed,
+ * wind-scoured ground approaching the treeline. LUSH is the deep wet green of a
+ * valley bottom near standing water. They are blended by height, so a single frame
+ * that contains a shore, a meadow and a ridge now contains three greens that a
+ * squint can separate.
+ */
+const UPLAND_GRASS = rgb(0x7f9e66);
+const LUSH_GRASS = rgb(0x3d9e3d);
 // Sands are two steps darker than they were. At 0xefdca6 the beach sat so high
 // on the ACES curve that nothing applied to it survived to the screen — the
 // per-cube jitter, the litter and the slope shading all compressed into one
@@ -210,7 +242,26 @@ export class Terrain {
     const mk = smoothstep(-0.10, 0.32, this.maskN.fbm(x * 0.0042, z * 0.0042, 3));
     if (mk > 0) {
       const rd = this.ridgeN.ridged(x * 0.009, z * 0.009, 4);
-      h += mk * rd * rd * 58;
+      // A HIGHLAND term rides on top of the existing ridge, gated by a smoothstep
+      // that is exactly zero for all but the top few percent of the field.
+      //
+      // The silhouette survey's landform finding was that a 300-unit view spans
+      // about 8 units of relief and "no cliff, ridge, mesa or peak exists
+      // anywhere". The obvious fix — raise the ridge exponent — was tried and
+      // captured first, and it is a trap: `ridged` averages about 0.49 here, so
+      // rd^3*88 replaces 13.9 units of typical relief with 10.4, the whole map
+      // sinks a couple of units, and in _tw2-b-vista.png the entire foreground
+      // meadow dropped below the beach threshold (smoothstep(11.6, 9.7, hc)) and
+      // came out as one beige expanse. Everything in this world is placed on the
+      // plains; the plains must not move.
+      //
+      // So the term is additive and gated instead. Below rd 0.62 — which is most
+      // of the map — it contributes exactly nothing and heights are bit-identical
+      // to before. At rd 0.81 it adds 21 units, at 0.92 it adds 33 and the 78-unit
+      // ceiling starts to clip. That turns the rare strong ridge into an actual
+      // peak with a skyline, and leaves the meadow, the shoreline and the spawn
+      // basin untouched.
+      h += mk * (rd * rd * 58 + smoothstep(0.62, 0.95, rd) * 34);
     }
     // Mesas: a broad plateau field. One cheap value-noise sample (not fbm) —
     // heightCont is on the collision hot path.
@@ -282,10 +333,62 @@ export class Terrain {
     // resolves as a chequer; a hue drift over thirty units reads as terrain.
     // Amplitude is up (0.42 -> 0.56) precisely because most of the VALUE
     // variation below has been cut.
+    //
+    // TWO scales of hue, not one. The ~30-unit field alone is a smooth gradient
+    // across a whole hillside, and in a vista (_tw-r6-vista.png) a hillside is
+    // twenty metres of frame — so the meadow reads as one wash with a slow ramp
+    // across it, which is not what a Cube World field looks like. The ~14-unit
+    // patch field, until now spent entirely on a ±2.5% value wash, is added to the
+    // same blend at roughly half the weight: at fourteen cubes across it is far too
+    // coarse to interact with the cube grid, so it costs nothing in chequer risk
+    // and buys visible patches of yellow-green sitting in deeper green.
     const hueDrift = this.hueW.sample(x, z);
-    mix(tA, PLAIN_GRASS, WARM_GRASS, clamp01(warmT + hueDrift * 0.56));
-    mix(tA, tA, FOREST_GRASS, clamp01(forestF * 0.85 + Math.max(-hueDrift, 0) * 0.42));
+    const patchHue = this.patchW.sample(x, z);
+    mix(tA, PLAIN_GRASS, WARM_GRASS, clamp01(warmT + hueDrift * 0.56 + patchHue * 0.30));
+    mix(tA, tA, FOREST_GRASS, clamp01(
+      forestF * 0.85 + Math.max(-hueDrift, 0) * 0.42 + Math.max(-patchHue, 0) * 0.22,
+    ));
+
+    // ---- landform-scale grass structure ------------------------------------
+    // Altitude tint. `lowW` runs up as a column approaches the water table,
+    // `altW` as it climbs toward the snow line, and both are functions of the
+    // TERRAIN, so a hillside and the valley under it can never come out the same
+    // green however the noise falls. This is the answer to "the world has six
+    // hues total" and to "the entire right 60% of the squinted frame is
+    // undifferentiated green mush": at a squint the vista now reads as a dark
+    // valley floor, a mid meadow and a pale ridge.
+    const lowW = smoothstep(14.5, 9.5, hc);
+    const altW = smoothstep(16, snowLine - 3, hc);
+    mix(tA, tA, LUSH_GRASS, lowW * 0.42);
+    mix(tA, tA, UPLAND_GRASS, altW * 0.62);
+    // Regional richness, off the ~250-unit moisture field that already decides
+    // where forest goes. Dry country bleaches its sward pale and dusty, wet
+    // country deepens it — ±11% of value at the scale of a whole valley, which is
+    // far too coarse to interact with the cube grid and so carries no chequer
+    // risk at all. It is the cheapest landform-scale variation available: the fbm
+    // is already sampled for `forestF`.
+    const rich = 0.905 + smoothstep(-0.28, 0.30, moist) * 0.215;
+    tA.r *= rich;
+    tA.g *= rich;
+    tA.b *= rich;
+
     mix(tB, BEACH_SAND, DESERT_SAND, clamp01(desertW * 1.5));
+    // DUNE-scale sand drift, ~30 units of value and ~14 units of warmth, reusing
+    // the two wave fields already sampled above.
+    //
+    // Sand had nothing but per-CUBE jitter, and that is the wrong scale for it:
+    // a pale desaturated surface has no hue for a per-cube jitter to ride on, so
+    // the jitter arrives as pure value and the eye resolves the cube grid as a
+    // chequer — filed by the life-and-detail survey as "a per-block two-tone
+    // chequer that reads as a texture-atlas debug grid". The fix is not less
+    // variation, it is variation at the scale of DUNES: ±8.5% of value over
+    // thirty units reads as a beach that undulates, and it frees the mesher to
+    // cut the per-cube value share (see chunk.ts) that was causing the grid.
+    const duneV = 1 + hueDrift * 0.085 + patchHue * 0.048;
+    const duneW = patchHue * 0.062 - hueDrift * 0.038;
+    tB.r *= duneV * (1 + duneW);
+    tB.g *= duneV;
+    tB.b *= duneV * (1 - duneW * 1.5);
     mix(tA, tA, tB, sandW);
     mix(tA, tA, SNOW, snowW);
 
@@ -293,7 +396,7 @@ export class Terrain {
     // to be a ±6% value-noise field and it was the single biggest contributor to
     // the diamond plaid. Now that the field has no lattice it could carry more,
     // but broad value drift is not what the ground was missing — hue was.
-    const pm = 1 + this.patchW.sample(x, z) * 0.025;
+    const pm = 1 + patchHue * 0.025;
     tA.r *= pm;
     tA.g *= pm;
     tA.b *= pm;

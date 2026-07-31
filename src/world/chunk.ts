@@ -28,8 +28,51 @@ const S_TOP = 1.0;
  * the darkest face in the world gains about 28% and stops being a hole.
  * Derived from normalize(170, 113) = (0.832, 0.554): shade = 0.78 + 0.22 * (1 -
  * max(0, dot(n, sunXZ))). Re-derive if SUN_OFFSET in core/engine.ts moves.
+ *
+ * ROUND 2: the whole set drops by roughly a third, [0.82, 1.22, 0.90, 1.18] ->
+ * [0.60, 0.97, 0.70, 0.95]. The SHAPE above is kept — the anti-sun faces still
+ * carry the least baked darkening, so nothing goes back to being a hole — but the
+ * TOP now wins by a wide margin, which it did not before.
+ *
+ * Worked through the actual rig rather than eyeballed. Sun 2.45 at 0xffebbe from
+ * (170,160,113), hemi 0.86 (sky 0xc2dcf9 / ground 0x8fa4bd), bounce 0.42 at
+ * 0xd7cfa6 from (-160,-62,-106). Green-channel irradiance per face:
+ *
+ *     top 1.872   +X 1.803   +Z 1.355   -X 0.675   -Z 0.605
+ *
+ * The sun sits at only 38 degrees of elevation, so a SUNWARD VERTICAL FACE
+ * receives MORE direct light than the ground does (N.L 0.655 against 0.617). With
+ * the old bake the rendered grass came out top 187 / +X 171 in sRGB code value —
+ * a 1.09:1 ratio — and the silhouette survey photographed the consequence: "a
+ * single grass cliff face ~800px wide is one flat saturated green, essentially the
+ * same luminance as the top surface capping it... landforms have no readable form,
+ * only outline". The colour survey measured the same two faces and reached the
+ * opposite prescription — make the sunward face BRIGHTER, since physically it is.
+ * That is physically right and pictorially wrong: a voxel world has no texture, so
+ * the per-face value ramp IS the form shading, and Cube World's is unambiguously
+ * top-bright.
+ *
+ * The new numbers were solved backwards through ACES at exposure 1.02 for a target
+ * of top 187 / +X 150 / +Z 140 / -X 115 / -Z 108 on lit grass — a 1.25:1 top-to-
+ * sunward-side ratio in code value (1.6:1 in linear radiance) where it was 1.09:1.
+ * Nothing here touches a face's SHADOWED value: the two anti-sun faces get no sun
+ * to lose and the bounce fill casts no shadow, so a shadowed wall is unchanged.
+ *
+ * RE-DERIVED against the rig as it stands after the lighting pass that landed in
+ * the same round (sun 3.05, hemi 0.55 at 0xb4d6fb, bounce 0.38, exposure 1.20).
+ * Green-channel irradiance is now:
+ *
+ *     top 1.935   +X 1.950   +Z 1.393   -X 0.475   -Z 0.412
+ *
+ * — note the sunward face has now overtaken the top OUTRIGHT, because cutting the
+ * hemisphere hurts the horizontal normal most. Without this bake the world would
+ * be flatter after that pass than before it. Multiplied through, faces land at
+ * 1.00 / 0.60 / 0.50 / 0.24 / 0.20 of the top in linear radiance, which measures
+ * on a real frame (_tw2-g-scan2.png, a face-on sand bank at x=800) as top faces
+ * at L=193-197 over side faces at L=142-158, and on grass tops L=141-167 over
+ * wall L=92-110. Re-derive again if the light rig moves.
  */
-const SIDE_SHADE = [0.82, 1.22, 0.90, 1.18];
+const SIDE_SHADE = [0.60, 0.97, 0.70, 0.95];
 
 /**
  * How much of a warm bounce tint each side direction gets, 0..1, same `dir`
@@ -46,9 +89,11 @@ const SIDE_SHADE = [0.82, 1.22, 0.90, 1.18];
  * Two baked terms fix it inside the terrain's own vertex colours, which is the
  * only lever this file has (the scene lights live in core/engine.ts):
  *
- *  - SIDE_SHADE above now goes ABOVE 1.0 on those directions. That is not a
- *    physical shade any more, it is a baked skylight+bounce boost, and it lifts
- *    the darkest face in the world by about 20%.
+ *  - SIDE_SHADE above is far LIGHTER on those directions than a physical shade
+ *    would be (0.97/0.95 against 0.60/0.70 on the sunward pair). It went past 1.0
+ *    for a round, which was a baked skylight+bounce boost; round 2 pulled the
+ *    whole set down to restore top-vs-side form, but kept the anti-sun faces
+ *    within 3-5% of neutral so they remain the least-punished faces in the world.
  *  - this array adds warmth on the same faces. Physically the bounce arriving at
  *    a shaded wall has come off sunlit ground a metre away, so it is warm; and
  *    perceptually a shaded face that keeps a hue reads as shade, while one that
@@ -262,18 +307,69 @@ export function buildTerrainMesh(
       // little in warmth as well as value. Warmth differences are far safer than
       // value differences — the eye pools them into "material" rather than
       // resolving them as a grid — so this one keeps most of its amplitude.
-      const hw = jitter(wx, H + 31, wz) * 0.045;
+      // Grass now gets nearly double what sand does (±8.5% vs ±4%), for the reason
+      // in `mt` below.
+      const gw = grassA[i];
+      // Sand's warmth wobble goes UP (±6% -> ±7.5%) as its value jitter comes
+      // down: warmth is where a pale surface has headroom, because ochre-vs-bone
+      // neighbours read as mineral grains where light-vs-dark neighbours read as
+      // tiles.
+      const hw = jitter(wx, H + 31, wz) * (0.075 + gw * 0.045);
       // Landform-scale value wash from the lattice-free wave field, ~22 units.
       // Broad and gentle: its job is to stop a big level plain being one number,
       // not to be seen.
-      const drift = gw2.sample(wx, wz) * 0.05;
-      const gw = grassA[i];
-      // 0.048 for grass, 0.035 for sand/snow. Nudged back up from 0.035/0.020
-      // after a capture confirmed the chequer read was gone: the triangular
-      // distribution means most cubes stay within a third of this, so there is
-      // room for a little more tooth than the flat minimum the chessboard fix
-      // landed on.
-      const mt = (1 + drift + jt * (0.035 + gw * 0.013)) * slopeDark * S_TOP;
+      // ±5% -> ±7% in round 2. Every point of amplitude moved out of the per-cube
+      // jitter below has to land somewhere, and this field is the safe place for
+      // it: WaveField has no lattice (see noise.ts) and a 22-unit period cannot
+      // interact with a 1-unit grid, so it can carry value without ever forming a
+      // chequer. Landform-scale value variation was also exactly what the colour
+      // survey asked for — "the left hillside covers roughly 15% of the frame and
+      // 80% of its pixels sit inside a 19-value luminance band".
+      const drift = gw2.sample(wx, wz) * 0.07;
+      // ±10% for grass, ±4.2% for sand/snow, up from ±4.8%/±3.5%.
+      //
+      // Measured, not guessed: at ±4.8% in LINEAR radiance, the sRGB code-value
+      // difference between two neighbouring grass cubes is 4.8% / 2.4 ≈ 2%, i.e.
+      // about four levels out of 255 — and because `jitter` is triangular, the
+      // TYPICAL pair differs by a third of that. _tw-b-ground.png (a 6-unit-high
+      // shot straight down onto a meadow, where a cube is ~120 px across) shows
+      // exactly what that predicts: one flat green sheet with no per-block read at
+      // all, which is the single biggest gap against Cube World.
+      //
+      // ±10% survives the earlier chessboard finding because it does not arrive as
+      // pure value: the saturation link below ties it to a hue shift, so a brighter
+      // cube is also a bleached one and a darker cube a lusher one. The eye pools a
+      // value+saturation pair as "different clump of grass" where it resolves a
+      // pure value pair as "different tile". Sand keeps the small share it had —
+      // there is no hue there for the jitter to ride on.
+      // Sand's own share went the other way — UP from ±3.5% to ±4.2%, and its hue
+      // wobble from ±4.5% to ±6% — because _tw-b-bay.png shows a sand basin forty
+      // cubes across at one value. The chequer risk that kept it low is real, but
+      // it comes from VALUE, and warmth is where sand's headroom is: a beach is
+      // mineral grains of different colours, so ochre-vs-bone neighbours read as
+      // grains where light-vs-dark neighbours read as tiles.
+      // ROUND 2: sand's per-cube VALUE share is cut again, 4.2% -> 2.6%, and
+      // grass's is raised to keep its total where it was (10.0% -> 10.4%).
+      //
+      // This is the "kill the checkerboard on the sand biome" finding, and the
+      // previous round's reasoning was half right: a forty-cube basin at one value
+      // IS dead, but per-CUBE value is the wrong medicine for it, because on a
+      // surface with no chroma the eye has nothing to pool the variation into and
+      // resolves the grid instead — "a per-block two-tone chequer that reads as a
+      // texture-atlas debug grid". The variation the basin was missing has moved
+      // to terrain.ts as a ±8.5% DUNE-scale wash over thirty units, which is the
+      // scale a beach actually undulates at and far too coarse to alias with the
+      // cube grid. What is left here is the small grain-to-grain component.
+      // GRASS's value share comes down too, 10.0% -> 6.6%, and its warmth wobble
+      // goes up to ±12% to pay for it. _tw2-c-down.png is a nine-unit-high shot
+      // straight onto the meadow, where a cube is ~55 px: at ±10% the sward was an
+      // unmistakable chequerboard of light and dark green squares — the exact
+      // artefact this file's history keeps rediscovering, arrived at from the
+      // other side after the previous round pushed the amplitude up to fight
+      // flatness. Warmth carries it instead. In the same capture the SAND is now
+      // the well-behaved surface, which is the dune-scale wash in terrain.ts
+      // doing the work per-cube value used to be asked to do.
+      const mt = (1 + drift + jt * (0.026 + gw * 0.032)) * slopeDark * S_TOP;
 
       // Second material read, from the shape of the ground rather than noise.
       // The discrete Laplacian of the CONTINUOUS height is a free curvature
@@ -317,12 +413,20 @@ export function buildTerrainMesh(
       const sp = hashCell(seed, wx, H + 7, wz);
       if (gw > 0.35) {
         if (sp > 0.94) {
-          r *= 0.76; g *= 0.90; b *= 0.80; // clover: deeper, bluer green
-        } else if (sp > 0.90) {
-          r *= 1.14; g *= 1.04; b *= 0.88; // dry straw tuft
-        } else if (sp < 0.028) {
-          const pw = 0.45; // a single pale pebble cube
-          r += (0.30 - r) * pw; g += (0.29 - g) * pw; b += (0.29 - b) * pw;
+          r *= 0.72; g *= 0.88; b *= 0.82; // clover: deeper, bluer green
+        } else if (sp > 0.895) {
+          r *= 1.18; g *= 1.05; b *= 0.84; // dry straw tuft
+        } else if (sp > 0.855) {
+          r *= 0.80; g *= 1.06; b *= 0.72; // deep lush blade clump
+        } else if (sp < 0.020) {
+          // A stone in the sward, MOSSY not pale. This used to lerp 45% toward
+          // (0.30, 0.29, 0.29), a mid grey — and against saturated grass that is a
+          // near-white square. _tw-b-ground.png has several of them scattered
+          // across the meadow and they read as missing-texture artefacts rather
+          // than as pebbles. A stone lying in grass is dark, damp and carries the
+          // grass's own hue in its lichen; this one is a third the luminance.
+          const pw = 0.55;
+          r += (0.105 - r) * pw; g += (0.115 - g) * pw; b += (0.090 - b) * pw;
         }
       } else {
         // Sand, snow and lake bed used to get NO litter at all, and they are the
@@ -331,19 +435,53 @@ export function buildTerrainMesh(
         // tone curve, where the multiplicative jitter above loses most of its
         // punch, so these picks are additive-ish and pushed harder. Damp grains
         // and shell grit are what a real dune has instead of grass.
-        if (sp > 0.955) {
-          r *= 1.07; g *= 1.06; b *= 1.03; // sun-bleached grain
-        } else if (sp < 0.075) {
-          r *= 0.89; g *= 0.91; b *= 0.95; // damp / shaded grain, cooler
-        } else if (sp > 0.925 && sp < 0.938) {
+        // Picks widened from ~11% of cubes to ~19%, and the grit made both darker
+        // and three times as common. On a surface with no hue to jitter, scattered
+        // individual grains ARE the texture, and at the old rates a forty-cube
+        // basin got two of them.
+        if (sp > 0.945) {
+          r *= 1.09; g *= 1.07; b *= 1.02; // sun-bleached grain
+        } else if (sp < 0.110) {
+          r *= 0.87; g *= 0.90; b *= 0.96; // damp / shaded grain, cooler
+        } else if (sp > 0.905 && sp < 0.938) {
           const pw = 0.5; // shell grit / a dark pebble
-          r += (0.24 - r) * pw; g += (0.23 - g) * pw; b += (0.21 - b) * pw;
+          r += (0.20 - r) * pw; g += (0.19 - g) * pw; b += (0.17 - b) * pw;
         }
       }
 
       r *= mt * (1 + hw);
       g *= mt;
       b *= mt * (1 - hw);
+      // Saturation link. The per-cube VALUE jitter above is doubled from what it
+      // was, and a doubled pure-value jitter is exactly the chessboard this file's
+      // history warns about. Tying saturation to it inversely is what buys the
+      // amplitude back: a cube the hash made brighter is also pulled toward grey
+      // (sun-bleached, dusty), a cube it made darker is pushed away from grey
+      // (lush, damp). That is how a real sward varies, and the eye reads the pair
+      // as two clumps of grass rather than as two tiles of one floor.
+      //
+      // Grass only. On sand and snow there is barely any chroma to move, and the
+      // ±3% value jitter they keep does not need the cover.
+      if (gw > 0) {
+        // ASYMMETRIC. The link used to be `1 - jt * 0.30`, i.e. saturation ran
+        // 0.70..1.30, and the 1.30 end is where the "sunlit grass tops read
+        // rgb(0,112,3) — literally zero red" measurement came from: grass linear
+        // red is around a sixth of its luminance, so pushing chroma out by 30%
+        // subtracts more red than the albedo has and the clamp below eats the
+        // rest. Once red is pinned at zero the surface cannot receive the sun's
+        // warm key at all. Pulling toward grey is safe at full strength (it can
+        // only ever move a channel toward the mean), so only the outward half is
+        // halved — the visible variation is almost unchanged and no channel is
+        // driven out of gamut.
+        const sat = jt >= 0 ? 1 - jt * 0.28 * gw : 1 - jt * 0.20 * gw;
+        const lum = (r + g + b) * 0.3333;
+        r = lum + (r - lum) * sat;
+        g = lum + (g - lum) * sat;
+        b = lum + (b - lum) * sat;
+        if (r < 0) r = 0;
+        if (g < 0) g = 0;
+        if (b < 0) b = 0;
+      }
       if (steep >= 3) {
         // steep crowns read as bare stone
         const cliffW = Math.min((steep - 2) / 3, 1) * 0.85;

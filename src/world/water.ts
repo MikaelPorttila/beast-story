@@ -58,8 +58,18 @@ varying vec3 vWorldPos;
 // voxels deep, so the whole visible gradient used to be squeezed into the first
 // stop and a shallow lagoon rendered as one flat pale cyan; splitting the shore
 // end gives the shallows somewhere to go.
-const vec3 WETSAND = vec3(0.290, 0.660, 0.520); // #9bd7c1 sun on sand through 20cm
-const vec3 SHALLOW = vec3(0.108, 0.620, 0.545); // #5fd4c6 inviting turquoise
+//
+// WETSAND is DESATURATED-DOWN from #9bd7c1 to #64d5be, i.e. its red channel is
+// less than half what it was (0.290 -> 0.130 linear). Red is what made it milk:
+// at 0.290 linear it tone-mapped to ~0.57 sRGB, and since this stop covered every
+// shallow in the world (see the ramp below) the result was the "near half of every
+// lake is a milky white-cyan blowout" finding — measured in _tw-b-lake1.png, where
+// the entire shelf around the bay and every small pond read as one pale mint wash.
+// Cutting red keeps the same luminance but turns the wash into a saturated aqua.
+const vec3 WETSAND = vec3(0.130, 0.660, 0.505); // #64d5be sun on sand through 20cm
+// Pushed bluer and a step deeper (#5fd4c6 -> #37c3c9) so it separates from the new
+// WETSAND rather than being a near-duplicate of it.
+const vec3 SHALLOW = vec3(0.035, 0.545, 0.578); // #37c3c9 inviting turquoise
 const vec3 MID     = vec3(0.016, 0.283, 0.478); // #269bc9
 // #1c5c98. The old DEEP was #123a68, which after the tone curve rendered as a
 // near-black strip wherever a bay dropped off — that is the "crack between sand
@@ -90,13 +100,46 @@ const vec3 SUN_COL = vec3(1.0, 0.949, 0.851);
  * high-frequency normal field turns into a field of aliasing fireflies past
  * ~60 units; damping the slopes instead makes the far water read as one broad
  * sheet of sun, which is what it looks like in life.
+ *
+ * ROUND 2: every slope amplitude is roughly DOUBLED, and this is the fix for
+ * "there is not one sun glint on a whole lake" / "no water pixel in any capture
+ * exceeds L=155". The specular exponents were not the problem — the NORMAL FIELD
+ * was too flat for any exponent to bite. Summed, the old amplitudes gave a maximum
+ * facet tilt of atan(0.157) = 8.9 degrees. In the framing that matters most (eye a
+ * few units above the surface, looking down-sun, which is every wide shot of this
+ * bay) the half-vector sits about 14 degrees off vertical, so the BEST facet in
+ * the world could only reach N.H = cos(5.1 deg) = 0.996 — and pow(0.996, 800) is
+ * 0.04. The lake was mathematically incapable of a highlight.
+ *
+ * At double amplitude the maximum tilt is ~17 degrees, so facets on the sun side
+ * of a crest reach N.H = 1.0 exactly while the troughs fall to cos(31 deg) = 0.86,
+ * where the same lobe evaluates to zero. That difference — nothing in the trough,
+ * everything on the crest — is what a glint path IS. Distance attenuation is
+ * unchanged and still does its job: att drives the field toward flat, and a flat
+ * facet gives N.H = cos(14 deg) = 0.970, which the tight lobe reads as 0.001, so
+ * the far water stays a smooth sheet instead of aliasing.
  */
 vec3 waveNormal(vec2 p, float t, float att) {
   vec2 slope = vec2(0.0);
-  slope += vec2(0.85, 0.42) * 0.055 * cos(dot(vec2(0.85, 0.42), p) + t * 1.6);
-  slope += vec2(-0.38, 0.92) * 0.048 * cos(dot(vec2(-0.38, 0.92), p) + t * 1.25);
-  slope += vec2(1.90, -1.35) * 0.017 * cos(dot(vec2(1.90, -1.35), p) + t * 2.4);
-  slope += vec2(0.21, 0.17) * 0.090 * cos(dot(vec2(0.21, 0.17), p) + t * 0.55);
+  // SIX waves in round 2, not four, and every wavelength is deliberately
+  // mismatched. The old set had its two strongest terms at (0.85,0.42) and
+  // (-0.38,0.92): 28 and 112 degrees apart with wavelengths of 6.6 and 6.3 —
+  // i.e. a near-perfect SQUARE LATTICE. That was invisible while the field was
+  // flat, but the moment the specular could see it (_tw2-d-sun.png) the sun path
+  // came back as a regular grid of white dashes, which reads as a bug rather
+  // than as glitter. Same lesson WaveField's declaration in noise.ts spells out
+  // for ground colour: below about five waves you can find the pattern.
+  //
+  // Wavelengths now run 30 / 6.6 / 4.5 / 2.7 / 2.4 / 1.7 units, directions are
+  // spread by roughly the golden angle, and no two ratios are simple. The two
+  // shortest terms carry almost no slope of their own; they exist to chop the
+  // long crests so the glint scatters instead of pooling into blobs.
+  slope += vec2(0.17, 0.21) * 0.190 * cos(dot(vec2(0.17, 0.21), p) + t * 0.55);
+  slope += vec2(0.83, 0.46) * 0.115 * cos(dot(vec2(0.83, 0.46), p) + t * 1.60);
+  slope += vec2(-0.63, 1.24) * 0.088 * cos(dot(vec2(-0.63, 1.24), p) - t * 1.25);
+  slope += vec2(1.71, -1.53) * 0.050 * cos(dot(vec2(1.71, -1.53), p) + t * 2.40);
+  slope += vec2(-2.44, -1.06) * 0.034 * cos(dot(vec2(-2.44, -1.06), p) - t * 2.85);
+  slope += vec2(2.19, 2.87) * 0.026 * cos(dot(vec2(2.19, 2.87), p) + t * 3.40);
   return normalize(vec3(-slope.x * att, 1.0, -slope.y * att));
 }
 
@@ -111,9 +154,15 @@ void main() {
   // never mixed in at ALL and the whole lake sat between WETSAND and MID — which
   // is precisely the "a 1-unit shallow and a 20-unit deep are the same colour"
   // finding. Same reason the mid stop moved in.
-  float dWet   = smoothstep(0.05, 0.85, vDepth);
-  float dShore = smoothstep(0.65, 1.70, vDepth);
-  float dDeep  = smoothstep(1.40, 3.60, vDepth);
+  // All three ramps are pulled SHOREWARD (0.85/1.70/3.60 -> 0.45/1.30/3.20).
+  // Measured off _tw-b-lake1.png: the shelf around a bay sits at 0.3-0.8 units of
+  // depth and covers roughly a third of the water in any low shot, so with the old
+  // first ramp that whole shelf never got past the WETSAND stop and read as one
+  // pale wash. Reaching SHALLOW by 45cm turns the shelf turquoise and leaves
+  // WETSAND as the thin lighter line along the tide mark it is supposed to be.
+  float dWet   = smoothstep(0.02, 0.45, vDepth);
+  float dShore = smoothstep(0.40, 1.30, vDepth);
+  float dDeep  = smoothstep(1.10, 3.20, vDepth);
   vec3 col = mix(WETSAND, SHALLOW, dWet);
   col = mix(col, MID, dShore);
   col = mix(col, DEEP, dDeep);
@@ -128,6 +177,38 @@ void main() {
   // and the dominant term in any real body of water. Grazing angles (every
   // wide shot) turn the surface into a mirror of the sky, which is what makes
   // a lake read as a lake instead of a hole cut in the terrain.
+  // Ripple SHADING, which is what actually makes the wave normal visible.
+  //
+  // Everything the normal fed before this line is view-dependent and vanishes in
+  // the two framings that matter most. Looking down on a bay (_tw-r2-lake1.png)
+  // the Fresnel term collapses to its 0.025 floor and the reflection contributes
+  // ~0.7%; and because the ripple field's steepest facet is only about 12 degrees
+  // while a grazing sun path needs ~22, the specular lobes below never light up
+  // either. The result was a lake with a mathematically correct normal field and
+  // not one pixel of evidence for it — "no readable wave normal" in the survey.
+  //
+  // Tilting the body colour by the facet's alignment with the sun's azimuth is
+  // view-INDEPENDENT, so the swell reads from every angle. +-9% at full strength,
+  // faded out with the same att factor as the normal itself so the far water stays a
+  // smooth sheet instead of aliasing into fireflies.
+  //
+  // ADDITIVE, not multiplicative. The first attempt scaled the body colour by
+  // 1 +- 9% and was almost invisible (_tw-r3-lake1.png, first version): deep water
+  // is around (0.02, 0.15, 0.32) linear, so a proportional term moves it by
+  // hundredths and the tone curve then compresses what is left. Adding a fixed
+  // pale-cyan facet radiance instead gives the crests the same absolute lift
+  // wherever they are, which is also what a real swell does — the crest catches
+  // more sky than the trough regardless of how deep the water under it is.
+  // Weight 2.0 -> 1.15 in round 2, which is NOT a retreat: the wave normal it
+  // reads got twice as steep in the same round, so the product is close to
+  // unchanged. Kept level deliberately — at the full 2.0 against the new normal,
+  // _tw2-c-shore.png came out corrugated, the swell resolving into regular
+  // light/dark stripes across the near bay because a 6-unit wavelength viewed
+  // from 4 units up compresses into horizontal banding. The extra steepness is
+  // meant to be spent on the specular below, where it produces a glint path,
+  // not here where it produces stripes.
+  col += vec3(0.030, 0.110, 0.145) * dot(N.xz, SUN_DIR.xz) * att * 1.15;
+
   vec3 R = reflect(-V, N);
   vec3 sky = mix(SKY_HORIZON, SKY_ZENITH, smoothstep(0.0, 0.45, R.y));
   // Tint the reflection toward the water's own hue. Physically the reflection is
@@ -146,7 +227,17 @@ void main() {
   // the depth ramp into the single wash the critic measured. A reflection has to
   // be strong enough to say "surface" and weak enough to leave the body colour
   // legible; below 0.3 it does both.
-  float refl = fres * mix(0.12, 0.28, dShore);
+  // ROUND 2: the DEEP end of the ceiling goes back up, 0.28 -> 0.50, while the
+  // shallow end barely moves (0.12 -> 0.14). Splitting them is the point — the
+  // previous round cut both together to stop the shallows washing out, and took
+  // the open water's only source of brightness with it. Measured on
+  // _tw2-a-shore.png (eye 4 units up, half the frame lake): the water sat darker
+  // than the sky it was supposedly reflecting and read as matte turquoise
+  // plastic, "a static flat cyan plane". A real lake at a grazing angle is close
+  // to a mirror; at 0.50 the deep water finally lifts toward the sky at the
+  // horizon and the surface reads as a surface, while dShore keeps the shallows —
+  // the ones you are meant to see the sand through — at their old value.
+  float refl = fres * mix(0.14, 0.50, dShore);
   col = mix(col, sky, refl);
 
   // Sun glint: one tight lobe for the sparkle, one broad one for sheen. The
@@ -163,10 +254,44 @@ void main() {
   // nothing at the scale a glint reads at: the sparkle was sub-pixel at any
   // distance and the sheen was a flat haze over everything, so a shot could
   // legitimately be filed as having "zero specular sun glint".
+  // Exponents up hard and weights down hard: 220/60/16 at 1.8/0.34/0.055 becomes
+  // 800/150/26 at 1.10/0.10/0.028. This is the "milky white-cyan blowout" that has
+  // been read as a foam problem and as a bloom problem in turn, and it is neither
+  // — it is arithmetic in this line.
+  //
+  // Worked at the framing that shows it worst (_tw-r4-shore2.png, eye 5 units over
+  // the water looking down-sun): the view sits ~9.5 degrees above the surface, so
+  // the half-vector is about 14 degrees off vertical, and the ripple field's
+  // steepest facet is ~12 degrees. That means N.H does not fall off across most of
+  // the near bay — it sits at 0.99+ over hundreds of square metres — and
+  // pow(0.994, 220) is still 0.27. With the old weights the three lobes together
+  // added ~0.77 of white to a body colour whose green channel is 0.55. A third of
+  // the lake went to paper.
+  //
+  // At the new exponents the same 0.994 facet contributes 0.074, while a facet
+  // actually square to the half-vector still reaches ~0.86 — so the glitter path
+  // becomes a scatter of bright crests riding the swell instead of one flat sheet,
+  // which is what it is supposed to look like.
+  //
+  // ROUND 2, and it is the SAME arithmetic run the other way. With the ripple
+  // field now twice as steep (see waveNormal), N.H genuinely spans 1.0 down to
+  // 0.86 across a down-sun bay instead of sitting pinned at 0.994, so the
+  // exponents no longer have to be extreme to avoid blanketing — a pow-220 lobe
+  // that reads 0.74 on a crest reads 0.0 in the trough beside it, which is a
+  // sparkle path rather than a haze. 800/150/26 at 1.10/0.10/0.028 becomes
+  // 260/48/12 at 0.62/0.13/0.040.
+  //
+  // The weights were 1.55/0.20/0.055 for one capture. That put ~1.35 of white on
+  // every crest and _tw2-c-sun.png came back with a large blown mush of white
+  // across the near bay — the failure mode this shader has hit twice before, from
+  // the other direction. 0.62 lands a crest at roughly 0.55 above the body
+  // colour, which tone-maps bright without clipping, so the path reads as a lit
+  // scatter and the survey's "not one water pixel exceeds L=155 / there is not
+  // one sun glint on a whole lake" is answered without repainting the lake white.
   col += SUN_COL * (
-      pow(ndh, 220.0) * 1.8
-    + pow(ndh, 60.0) * 0.34
-    + pow(ndh, 16.0) * 0.055
+      pow(ndh, 260.0) * 0.62
+    + pow(ndh, 48.0) * 0.13
+    + pow(ndh, 12.0) * 0.040
   );
 
   // Shore foam, driven by DISTANCE TO THE COAST rather than by depth.
@@ -179,8 +304,13 @@ void main() {
   // nearest dry column, so the band traces the actual waterline — every notch and
   // spit of it — and nothing else. The threshold breathes with the tide so the
   // wash advances and retreats instead of sitting as a painted stripe.
+  // The band is NARROWER: 2.4 cells -> 1.65. At 2.4 (widened again by the three
+  // tent passes that smooth the distance field) the wash reached most of the way
+  // across every shallow bay, and a small pond was foam edge to edge — visible in
+  // _tw-b-bay.png as a pond rendered entirely white. Surf belongs on the waterline,
+  // not on the bay.
   float tide = sin(uTime * 0.55 + vWorldPos.x * 0.055 + vWorldPos.z * 0.047);
-  float foam = smoothstep(2.4 + tide * 0.4, 0.45, vShore);
+  float foam = smoothstep(1.65 + tide * 0.35, 0.30, vShore);
   // Wash texture from three sines on rotated, mutually irrational directions.
   // This was sin(x*2.6) * sin(z*2.4) — a SEPARABLE product, which is a
   // chequerboard: viewed across a bay at a grazing angle its rows lined up into
@@ -194,13 +324,37 @@ void main() {
   // A brighter, narrower crest rides the outer edge of the wash so the foam has
   // a leading line instead of fading off as a smear. Both bands are kept tight:
   // a wide wash spread over a shallow bay reads as milk, not surf.
-  float crest = smoothstep(1.35, 0.4, vShore) * (0.55 + 0.45 * fw);
+  // The crest is the LINE of surf, so it is narrow and bright rather than wide and
+  // weak: it keeps roughly the band it always had and takes the weight the wash
+  // gave up. Capture-driven — with the wash alone (_tw-r1-vista.png) the sand met
+  // the water at a bare edge with no surf at all, which read as a decal cut rather
+  // than a coast.
+  //
+  // The inner stop CANNOT go much under 0.3, which cost a capture to learn: a water
+  // quad only exists on a WET cell, so aShore is a chamfer distance that bottoms
+  // out near 1.0 at the waterline and only the three tent passes pull it lower. An
+  // attempt at smoothstep(0.80, 0.05) therefore evaluated to exactly zero at every
+  // vertex in the world and switched the surf off completely (_tw-r4-shore2.png:
+  // water meets sand at a bare cyan edge).
+  float crest = smoothstep(1.55, 0.30, vShore) * (0.55 + 0.45 * fw);
   // Weights are down (0.72/0.50 -> 0.52/0.40) so the wash NEVER reaches the full
   // FOAM colour. At the old weights the band saturated to near-opaque white a
   // block or two out from every shore, and a saturated band on a stepped coast is
   // indistinguishable from a row of white cubes — which is exactly what it was
   // filed as. Capped like this the foam always keeps some water under it.
-  col = mix(col, FOAM, clamp(foam * 0.52 + crest * 0.40, 0.0, 1.0));
+  // The WASH is down (0.52 -> 0.36) and the CREST is up (0.40 -> 0.52): together
+  // with the narrower bands above, that is the whole shape change — the broad milk
+  // halo becomes a bright line hugging the waterline with a short wash behind it.
+  // ROUND 2: the CREST goes 0.46 -> 0.62 and its band widens 1.25 -> 1.55 cells,
+  // while the wash stays where it is. Measured on _tw2-a-shore.png and
+  // _tw2-a-sun.png, both taken low over the bay: the sand met the water at a bare
+  // cyan edge with no surf visible at all at 1280px, which is the "no shore foam"
+  // and "the shoreline is a hard white rim with no wet-sand darkening" pair of
+  // findings. The previous round's cut was aimed at a broad milk halo, and that
+  // halo is the WASH term — leaving it low and putting the weight on the narrow
+  // crest gives a bright line hugging the waterline, which is what surf is,
+  // without re-flooding the bay.
+  col = mix(col, FOAM, clamp(foam * 0.34 + crest * 0.62, 0.0, 1.0));
 
   // Opacity has to climb FAST, and from a HIGH floor. Bays here are only a voxel
   // or two deep, so anything gentler left the pale sand bed showing through
@@ -237,7 +391,29 @@ export function createWaterMaterial(): THREE.ShaderMaterial {
     uniforms,
     vertexShader: VERT,
     fragmentShader: FRAG,
-    transparent: true,
+    // NOT `transparent`, even though it blends. This is the fix for the "soft
+    // concentric arcs that read as map contour lines" artefact, which survived
+    // three separate rounds of work inside this shader because it was never in
+    // this shader at all: it is GTAO.
+    //
+    // OpaqueGTAOPass (core/post.ts) builds its depth/normal G-buffer by
+    // re-rendering the scene and hiding everything whose material reports
+    // `transparent`. The water was hidden; the LAKE BED was not. So the AO buffer
+    // contained the bed's 1-unit terraces, GTAO correctly found a contact crease at
+    // the foot of every terrace wall, and that AO was then multiplied into the
+    // beauty image at pixels covered by fully OPAQUE water. The result is a set of
+    // thin dark dithered lines tracing the bed's height contours across the middle
+    // of every bay. Verified by capture: `?ao=0` removes them completely and
+    // changes nothing else about the water (_tw-b-lake1.png vs _tw-b-lake1-ao0.png).
+    //
+    // `transparent: false` puts the surface in the opaque render list, where its
+    // renderOrder of 2 still sorts it behind every other opaque object, and
+    // `blending` is applied from the material regardless of which list it is in —
+    // so the beauty pass is pixel-identical. What changes is that GTAO now sees the
+    // water plane, which occludes the bed and is itself flat, so there is nothing
+    // left for it to crease. depthWrite stays false so the surface never clips the
+    // transparent VFX and contact shadows that draw after it.
+    transparent: false,
     depthWrite: false,
     fog: true,
   });
@@ -391,6 +567,15 @@ export function buildWaterMesh(
   const depths = new Float32Array(G * G);
   const shore = new Float32Array(G * G);
   const positions = new Float32Array(G * G * 3);
+  // A flat +Y normal, which this surface's OWN shader never reads (it derives the
+  // ripple normal analytically in the fragment stage). It exists for the GTAO
+  // pass's MeshNormalMaterial override: now that the water is in the opaque list
+  // and therefore in the AO G-buffer (see createWaterMaterial), a missing `normal`
+  // attribute would read as (0,0,0), normalize() would give NaN and GTAO would
+  // report the whole lake fully occluded — the "lake turned solid black" failure
+  // already documented in core/post.ts. 12 bytes per vertex, ~13 KB per water
+  // chunk, written once at build.
+  const normals = new Float32Array(G * G * 3);
   for (let iz = 0; iz < G; iz++) {
     for (let ix = 0; ix < G; ix++) {
       const i = iz * G + ix;
@@ -400,6 +585,7 @@ export function buildWaterMesh(
       positions[i * 3] = ix;
       positions[i * 3 + 1] = 0;
       positions[i * 3 + 2] = iz;
+      normals[i * 3 + 1] = 1;
     }
   }
 
@@ -418,6 +604,7 @@ export function buildWaterMesh(
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   geo.setAttribute('aDepth', new THREE.BufferAttribute(depths, 1));
   geo.setAttribute('aShore', new THREE.BufferAttribute(shore, 1));
   geo.setIndex(idx);

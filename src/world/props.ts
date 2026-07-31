@@ -154,7 +154,21 @@ function bake(
     // and letting it set the radius for the whole column would fatten the
     // collider by half again and stop the hero a stride short of the tree.
     let boleR = 0;
-    const flareTop = 2 * scale;
+    // How high the flare reaches, in voxels, plus a hair.
+    //
+    // This was a flat `2 * scale`, which is a one-voxel skirt plus one voxel of
+    // slack — correct only while `trunk()`'s own `flareTo` is 1. `flareTo` is
+    // `round(h * 0.1)`, so any shaft 15 voxels or taller flares over TWO voxels,
+    // and voxel 1's top vertices then sit at exactly `2 * scale`: whether they
+    // clear a strict `<` depends on whether the product is exactly representable.
+    // It is for the dead snag (scale 0.50) and is not for the big oak (0.52), so
+    // the snag's registered bark radius measured 2.12 units against a shaft
+    // 1.41 wide — the hero would have stopped a metre and a half short of it —
+    // while the oak beside it measured correctly. Deriving the band floor from
+    // the same `round(h * 0.1)` rule, plus a whole voxel of slack and an epsilon,
+    // removes the coincidence. Verified template by template: every radius except
+    // the two snags is unchanged to the last digit.
+    const flareTop = (Math.max(2, Math.round(trunkTop * 0.1) + 1) + 0.01) * scale;
     for (let i = 0; i < t.pos.length; i += 3) {
       const y = t.pos[i + 1];
       if (y < flareTop || y > foliageFloor) continue;
@@ -296,13 +310,88 @@ class Canopy {
           const dx = (x - cx) / rx, dy = (y - cy) / ry, dz = (z - cz) / rz;
           const d = dx * dx + dy * dy + dz * dz;
           if (d > 1.0) continue;
-          // Only the outermost shell erodes, and only sometimes. Chewing deeper
-          // than this (or above ~25%) does not read as ragged foliage — it
-          // detaches single voxels and the canopy becomes floating confetti.
-          if (d > 0.84 && this.rnd() < ragged) continue;
-          // ±10% per-voxel leaf value so a clump has texture inside its outline
-          this.put(x, y, z, shade(color, 0.9 + this.rnd() * 0.2));
+          // Erosion is GRADED by depth rather than a flat coin-flip on the
+          // outermost shell. At a flat `ragged` over `d > 0.84` the rim came off
+          // in a uniform speckle, which at the 2026-07 tree scale (a canopy voxel
+          // is half a world unit) reads as a machined sphere with sandpaper on it
+          // — measured in _veg-a-forest.png, a near oak crown was an unbroken
+          // convex mass of flat green. Weighting the probability by how far out
+          // the voxel is chews the extreme rim hard while barely touching the
+          // shell under it, so the outline breaks into lobes instead of thinning
+          // evenly. The 0.80 floor is still shallow enough that nothing detaches:
+          // a voxel at d = 0.80 has its inboard neighbours at d < 0.8 kept.
+          if (d > 0.80 && this.rnd() < ragged * ((d - 0.80) / 0.20) * 1.9) continue;
+          // Leaf value jitter, in TWO frequencies.
+          //
+          // A flat ±10% per-voxel roll is white noise, and white noise on a
+          // surface whose voxels are half a unit across averages out to nothing
+          // the moment the tree is more than a few metres away — which is why a
+          // canopy that has jitter in the data still rendered as large flat
+          // facets of one green. Correlating the coarse term over 2x2x2 blocks
+          // gives clumps of leaves that hold their tone over four or five voxels,
+          // so the mass keeps internal structure at distance; the fine term then
+          // breaks up each block so it does not read as a checkerboard.
+          // Total spread is ~0.83..1.21 against the old 0.90..1.10.
+          const cell = (((x >> 1) * 73856093) ^ ((y >> 1) * 19349663)
+            ^ ((z >> 1) * 83492791)) >>> 0;
+          const coarse = 0.88 + ((cell >>> 7) & 0xff) / 255 * 0.26;
+          this.put(x, y, z, shade(color, coarse * (0.945 + this.rnd() * 0.11)));
         }
+  }
+
+  /**
+   * A rectangular block, recorded the same way a clump is so the shading pass
+   * sees it.
+   *
+   * `clump` is the only painter here and it is an ellipsoid, which is why every
+   * boulder in this file came out as a rounded lump: stone fractures along
+   * planes, and a stylised boulder needs at least one FLAT face and one hard
+   * edge before it reads as rock rather than as a potato. Painting the slab
+   * straight into the VoxelModel is not an option — the model is write-only, so
+   * the top-to-bottom shading pass would not see the block and the block would
+   * keep whatever flat tone it was painted with, which is the same defect from
+   * the other end.
+   */
+  slab(
+    x0: number, y0: number, z0: number,
+    x1: number, y1: number, z1: number,
+    color: number,
+  ): void {
+    for (let x = x0; x <= x1; x++)
+      for (let y = y0; y <= y1; y++)
+        for (let z = z0; z <= z1; z++) {
+          const cell = (((x >> 1) * 73856093) ^ ((y >> 1) * 19349663)
+            ^ ((z >> 1) * 83492791)) >>> 0;
+          this.put(x, y, z, shade(color, 0.9 + ((cell >>> 7) & 0xff) / 255 * 0.2));
+        }
+  }
+
+  /**
+   * Repaint the topmost recorded voxel of a PATCH of columns.
+   *
+   * Lichen and moss on a boulder: they grow on the sky-facing faces and they
+   * grow in patches, never as an even sprinkle. The patch shape comes from a
+   * coarse hash on `(x >> 1, z >> 1)` — 2x2 blocks of columns share a roll — so
+   * the crust reads as two or three colonies rather than as salt-and-pepper
+   * noise, which at a boulder's four-or-five-voxel scale is the difference
+   * between "mossy rock" and "dithering artefact".
+   *
+   * Must run AFTER `bake()`: the shading pass rewrites every recorded voxel from
+   * the stored albedo, so moss painted before it would be repainted as stone.
+   * It writes straight to the model for the same reason.
+   */
+  speckleTop(color: number, prob: number, seed: number): void {
+    for (let x = this.minX; x <= this.maxX; x++)
+      for (let z = this.minZ; z <= this.maxZ; z++) {
+        let hi = -Infinity;
+        for (let y = this.minY; y <= this.maxY; y++) {
+          if (this.cells.has(`${x},${y},${z}`)) hi = y;
+        }
+        if (hi === -Infinity) continue;
+        const h = ((((x >> 1) * 374761393) ^ ((z >> 1) * 668265263) ^ seed) >>> 0);
+        if (((h >>> 11) & 0xff) / 255 > prob) continue;
+        this.v.set(x, hi, z, shade(color, 0.86 + ((h >>> 3) & 0x3f) / 63 * 0.28));
+      }
   }
 
   /**
@@ -328,8 +417,20 @@ class Canopy {
           const c = this.cells.get(`${x},${y},${z}`);
           if (c !== undefined) this.v.set(x, y, z, shade(c, m));
         };
-        at(hi, scaled(1.18));
-        if (hi - 1 > lo) at(hi - 1, scaled(1.07));
+        // The crown boost is graded by how high THIS column's top sits in the
+        // whole volume, not applied flat at 1.18 to every column top.
+        //
+        // Flat, it bleaches the entire upper shell to one value, and since a
+        // canopy is convex the upper shell is most of what you see: measured in
+        // _veg-a-forest.png the top third of a near oak was a single flat green
+        // with the per-voxel jitter invisible under it. Grading it puts a dome of
+        // light on the tree — the apex is 1.28, the shoulders barely lifted at
+        // 1.02 — which is both what actually happens (the highest leaves see the
+        // whole sky, the shoulders see a slice of it) and the thing that tells the
+        // eye the crown is a rounded volume rather than a painted lid.
+        const rel = (hi - this.minY) / Math.max(1, this.maxY - this.minY);
+        at(hi, scaled(1.02 + 0.26 * rel));
+        if (hi - 1 > lo) at(hi - 1, scaled(0.98 + 0.16 * rel));
         at(lo, scaled(0.62));
         if (lo + 1 < hi) at(lo + 1, scaled(0.78));
         if (lo + 2 < hi) at(lo + 2, scaled(0.9));
@@ -529,7 +630,10 @@ function pineTree(tall: boolean): Template {
   const v = new VoxelModel();
   const g1 = 0x2f8442;
   const g2 = 0x3f9c50;
-  const snow = 0xdcecf2;
+  // 0xdcecf2 -> 0xd2e4ee: one step off blinding. It was the brightest albedo on
+  // any prop in the world and it sat directly against the darkest green, which
+  // is a contrast pairing nothing else in the palette comes near.
+  const snow = 0xd2e4ee;
   // Conifers get a BARE SHAFT under the first tier now (8 voxels, 12 on the
   // tall variant) where they used to start branching 3 voxels off the ground.
   // Two reasons beyond scale: a snow forest whose foliage reaches the floor is
@@ -553,15 +657,43 @@ function pineTree(tall: boolean): Template {
     // a conifer's tiers self-shade heavily, and flat-coloured tiers were reading
     // as a stack of green plates.
     const tierM = 0.78 + (li / Math.max(1, layers.length - 1)) * 0.44;
+    // ROUND tiers, not square ones.
+    //
+    // Each tier used to be a filled `v.box(-r..r, -r..r)`, i.e. a square slab,
+    // and a conifer built of five square slabs is a ziggurat: from any bearing
+    // off the diagonal it shows two long straight edges and a hard 90-degree
+    // corner, which is why the distant conifers in _veg2c-meadow.png read as
+    // drill bits rather than as trees. Clipping to a disc costs nothing (it
+    // REMOVES about a fifth of the voxels in every tier, and pines are 60% of
+    // the trees in a snow chunk) and gives the cone the stepped-circular plan a
+    // spruce actually has.
+    const r2 = (r + 0.45) * (r + 0.45);
     for (let x = -r; x <= r; x++)
-      for (let z = -r; z <= r; z++)
+      for (let z = -r; z <= r; z++) {
+        const d2 = x * x + z * z;
+        if (d2 > r2) continue;
         for (let y = y0; y <= y1; y++) {
           n = (n * 1664525 + 1013904223) >>> 0;
           const j = 0.9 + ((n >>> 12) & 0xff) / 255 * 0.2;
           // underside of each tier is the shaded one
           v.set(x, y, z, shade(base, tierM * j * (y === y0 ? 0.74 : 1)));
         }
-    v.box(-r, y1, -r, r, y1, r, snow); // snow dusting on every tier top
+        // Snow dusting, PATCHY and rim-weighted rather than a solid plate.
+        //
+        // `v.box(...y1...)` capped every tier with an unbroken near-white lid,
+        // and since the tier above hides the middle of that lid, what actually
+        // rendered was a continuous white RING at every tier — five of them up
+        // the tree, evenly spaced, at maximum contrast against the darkest green
+        // in the world. That is a barber pole, and at the distance a treeline is
+        // read at it is the loudest thing in the frame. Weighting the roll by
+        // how close the column is to the rim (0.2 on the axis, 0.8 at the edge)
+        // keeps the dusting where snow would actually sit on a bough, and
+        // leaving four columns in ten bare breaks the ring into drifts.
+        n = (n * 1664525 + 1013904223) >>> 0;
+        if (((n >>> 9) & 0xff) / 255 < 0.2 + (d2 / r2) * 0.6) {
+          v.set(x, y1, z, shade(snow, 0.88 + ((n >>> 19) & 0x3f) / 63 * 0.22));
+        }
+      }
   }
   return bake(v, tall ? 0.50 : 0.44, 1, bare);
 }
@@ -573,18 +705,89 @@ function pineIrregular(): Template {
   trunk(v, bare, 0x6b4a2e, 0x1ac9, 2, 1);
   const g1 = 0x2f8244;
   const g2 = 0x3a9349;
-  const snow = 0xdcecf2;
+  const snow = 0xd2e4ee;
   // [radius, y0, y1, xOffset, zOffset], y relative to the top of the bare shaft
   const layers: Array<[number, number, number, number, number]> = [
     [5, 0, 3, 1, 0], [5, 4, 6, -2, 1], [4, 7, 9, 0, -2], [3, 10, 12, 1, 0],
     [2, 13, 15, 0, 1], [1, 16, 17, -1, 0],
   ];
+  // Round tiers and patchy rim snow, for the reasons documented at length in
+  // `pineTree` — square slabs read as a ziggurat and a solid white lid on every
+  // tier reads as a barber pole. This variant's tiers are also OFFSET from the
+  // axis, so its discs overhang on one side, which is the whole point of it.
+  let n = 0x51c7;
   for (let li = 0; li < layers.length; li++) {
     const [r, y0, y1, dx, dz] = layers[li];
-    v.box(-r + dx, bare + y0, -r + dz, r + dx, bare + y1, r + dz, li % 2 === 0 ? g1 : g2);
-    v.box(-r + dx, bare + y1, -r + dz, r + dx, bare + y1, r + dz, snow);
+    const base = li % 2 === 0 ? g1 : g2;
+    const r2 = (r + 0.45) * (r + 0.45);
+    for (let x = -r; x <= r; x++)
+      for (let z = -r; z <= r; z++) {
+        const d2 = x * x + z * z;
+        if (d2 > r2) continue;
+        for (let y = bare + y0; y <= bare + y1; y++) {
+          n = (n * 1664525 + 1013904223) >>> 0;
+          const j = 0.9 + ((n >>> 12) & 0xff) / 255 * 0.2;
+          v.set(x + dx, y, z + dz, shade(base, j * (y === bare + y0 ? 0.78 : 1)));
+        }
+        n = (n * 1664525 + 1013904223) >>> 0;
+        if (((n >>> 9) & 0xff) / 255 < 0.2 + (d2 / r2) * 0.6) {
+          v.set(x + dx, bare + y1, z + dz, shade(snow, 0.88 + ((n >>> 19) & 0x3f) / 63 * 0.22));
+        }
+      }
   }
   return bake(v, 0.46, 1, bare);
+}
+
+/**
+ * Dead standing snag: a bare, broken-topped bole with a few upswept limbs and
+ * no foliage at all.
+ *
+ * Silhouette variety across a treeline is the hardest thing to buy in this file,
+ * because every other lever (girth, height, yaw, tint, five broadleaf templates)
+ * still produces a green blob on a brown stick, and at the distance a treeline is
+ * read at, a green blob on a brown stick is one shape. A snag is the one tree
+ * that is not that shape: it is all silhouette and no mass, so it punches a
+ * ragged vertical hole in a canopy line and the eye immediately reads the line as
+ * a collection of individual trees rather than as a hedge. It is also the
+ * cheapest tree in the set by an order of magnitude — a few dozen voxels against
+ * a canopy's few thousand — so raising the tree count with snags costs almost
+ * nothing.
+ *
+ * Every limb starts ABOVE the halfway point of the shaft, and that is load
+ * bearing rather than aesthetic: `bake` measures the solid trunk radius over the
+ * band from the root flare up to `trunkTop * 0.5`, so a limb rooted below that
+ * line would be counted as bole and inflate the climb/collide cylinder to the
+ * limb's reach — the hero would stop walking a metre short of the trunk.
+ */
+function deadSnag(tall: boolean): Template {
+  const v = new VoxelModel();
+  // 15/20 voxels at 0.50/0.54 units, i.e. 7.5 and 10.8 units of bare bole before
+  // the limbs. First captured at 12/17 at 0.42/0.46 (5.0 and 7.8 units) and it
+  // was too short by a clear margin — _veg-e-snag1.png has one standing among
+  // 10-15 unit broadleaves and it read as a stump, not as a dead tree. A snag is
+  // one of the SAME trees with its leaves gone, so its bole has to reach roughly
+  // where their crowns start or the silhouette gain is lost.
+  const H = tall ? 20 : 15;
+  const bark = 0x6f5c45;
+  trunk(v, H, bark, tall ? 0x2c81 : 0x5f31, 2, 1);
+  // Broken crown: a jagged stub, not a sawn end.
+  v.set(0, H + 1, 0, shade(bark, 1.12));
+  v.set(-1, H + 1, 0, shade(bark, 0.9));
+  v.set(-1, H + 2, 0, shade(bark, 1.04));
+  // [dx, dz, y0, length]; limbs rise as they reach out.
+  const limbs: Array<[number, number, number, number]> = tall
+    ? [[1, 0, 12, 5], [-1, 0, 14, 4], [0, 1, 16, 4], [0, -1, 17, 3]]
+    : [[1, 0, 9, 4], [-1, 0, 11, 3], [0, 1, 12, 3]];
+  for (const [dx, dz, y0, len] of limbs) {
+    for (let k = 1; k <= len; k++) {
+      const y = y0 + Math.floor(k * 0.7);
+      v.set(dx * k, y, dz * k, shade(bark, k > len - 2 ? 1.14 : 0.94));
+      // The limb's underside cell keeps the run face-connected wherever the
+      // rise steps up; without it the limb is a dotted line of floating cubes.
+      v.set(dx * k, y - 1, dz * k, shade(bark, 0.84));
+    }
+  }
+  return bake(v, tall ? 0.54 : 0.50, 1, H);
 }
 
 /**
@@ -614,12 +817,23 @@ function palmTree(fronds: number, lean: number, heightMul: number): Template {
     const a = (f / fronds) * Math.PI * 2 + fronds * 0.73;
     const dx = Math.cos(a);
     const dz = Math.sin(a);
+    // Width is laid out along the frond's own PERPENDICULAR, not always along
+    // +z. With a fixed +z offset the fronds pointing along z got their extra
+    // cell stacked in line with themselves and stayed one voxel wide, so a palm
+    // crown had two fat fronds and four wires depending on bearing — visible in
+    // _veg-e-snag1.png as a beach line of palms with sparse, spidery heads.
+    const qx = Math.round(-dz);
+    const qz = Math.round(dx);
     for (let k = 1; k <= 8; k++) {
       const y = topY + (k <= 2 ? 1 : k <= 5 ? 0 : -(k - 5));
-      v.set(topX + Math.round(dx * k), y, Math.round(dz * k), k >= 6 ? leafL : leaf);
-      // A second cell of width at the shoulder, or the frond is a 1-voxel wire
-      // at this length.
-      if (k <= 4) v.set(topX + Math.round(dx * k), y, Math.round(dz * k) + 1, leaf);
+      const cx = topX + Math.round(dx * k);
+      const cz = Math.round(dz * k);
+      v.set(cx, y, cz, k >= 6 ? leafL : leaf);
+      // Two cells of width out to the shoulder and one to the tip: a frond that
+      // is a 1-voxel wire for most of its length disappears at gameplay
+      // distance, and the palm reads as a bare pole with a smudge on it.
+      if (k <= 6) v.set(cx + qx, y, cz + qz, k >= 5 ? leafL : leaf);
+      if (k >= 2 && k <= 5) v.set(cx - qx, y, cz - qz, leaf);
     }
   }
   v.box(topX - 1, topY, -1, topX, topY, 0, leaf);
@@ -649,7 +863,7 @@ function cactus(small: boolean): Template {
   return bake(v, small ? 0.16 : 0.18);
 }
 
-function rock(kind: 0 | 1 | 2): Template {
+function rock(kind: 0 | 1 | 2, mossy = false): Template {
   const v = new VoxelModel();
   // A wider warm mineral range than before. Three near-identical greys spanning
   // only 0x7d..0x9a gave a boulder about 12% of internal contrast, which after
@@ -674,12 +888,21 @@ function rock(kind: 0 | 1 | 2): Template {
   // rock through it — rather than straight into the VoxelModel, which is
   // write-only and so invisible to the second pass — is what lets the crown
   // catch sky while the base sits in contact shade.
+  // Every boulder now carries at least one FLAT, FRACTURED plane on top of its
+  // rounded mass (see Canopy.slab). A pile of ellipsoids is a pile of potatoes;
+  // captured in _veg-a-tree.png a mid-ground boulder read as a smooth grey lump
+  // with no orientation to it at all. One slab cutting across the lump gives the
+  // rock a bedding plane, a hard horizontal edge that catches the sun on its top
+  // face, and a corner — which is the whole difference between "stone" and
+  // "blob" at gameplay distance.
   const g = new Canopy(v, 0x51a3 + kind * 71);
   if (kind === 0) {
     g.clump(0, 0.8, 0, 3, 2, 2.4, warmB, 0.12);
     g.clump(0.8, 1.8, 0.2, 1.5, 1, 1.2, warmA, 0);
     // A darker shelf bedded low on one flank: real boulders sit in the ground.
     g.clump(-1.6, 0.2, -0.9, 1.9, 0.9, 1.6, warmD, 0.2);
+    // Cleaved cap: a flat lid over the crown, offset so it overhangs one side.
+    g.slab(-1, 2, -2, 2, 2, 1, warmA);
     // satellite pebbles break the lone-boulder silhouette
     v.set(4, -1, 1, shade(warmC, 0.96));
     v.box(-4, -1, -1, -4, 0, -1, shade(warmA, 0.9));
@@ -688,16 +911,41 @@ function rock(kind: 0 | 1 | 2): Template {
     g.clump(-1.4, 1.2, 0.8, 2, 1.6, 1.6, warmB, 0);
     g.clump(1.6, 2.4, -0.6, 1.4, 1, 1.2, warmA, 0);
     g.clump(1.2, 0.1, 1.8, 2.2, 1.0, 1.8, warmD, 0.2);
+    // A whole tilted block sheared off the flank, plus a stratum of the darkest
+    // mineral running through the middle of the mass.
+    g.slab(-3, 1, -2, -1, 2, 1, warmB);
+    g.slab(-3, 0, -1, 3, 0, 2, warmD);
     v.box(5, -1, 2, 5, 0, 2, shade(warmB, 0.92));
     v.set(-4, -1, -3, shade(warmA, 0.88));
   } else {
     g.clump(0, 0.8, 0, 3, 2, 2.4, warmC, 0.12);
     g.clump(-1.4, 0.2, 1.0, 1.8, 0.9, 1.5, warmD, 0.2);
+    g.slab(-2, 1, -1, 1, 1, 2, warmB);
     v.set(4, -1, 0, shade(warmB, 0.94));
   }
   // 0.6 strength: a boulder is only four or five voxels tall, so the full ramp
   // (tuned for a tree canopy) would turn it into a two-tone stack.
   g.bake(0.6);
+  // Lichen crust on the sky-facing faces, for the boulders that stand in grass.
+  //
+  // Every rock in the world was the same neutral mineral grey, and after the
+  // 2026-07 slab pass gave each one flat cleaved planes and hard corners, a
+  // mid-ground outcrop in _veg2a-forest.png read as poured CONCRETE steps — the
+  // silhouette said "cut stone" and the palette had no hue to argue otherwise.
+  // Grey is also the one colour in this world with no biome behind it. Two
+  // greens on the crown fix both at once: they say weathered-and-outdoors rather
+  // than freshly-cast, and they tie the boulder to the meadow it sits in, which
+  // is exactly what Cube World's mossy rocks do. Placement picks the mossy
+  // variants only in plains and forest, so nothing green appears on a dune.
+  //
+  // ~55% coverage over 2x2 column patches, in two tones so the crust itself has
+  // internal variation. Deliberately DESATURATED against the sward (0x4a7a38 is
+  // roughly a third of the meadow's chroma) — a boulder wearing meadow-green
+  // stops reading as stone entirely.
+  if (mossy) {
+    g.speckleTop(0x4a7a38, 0.55, 0x51a3 + kind * 71);
+    g.speckleTop(0x5c8a3c, 0.22, 0x9c17 + kind * 37);
+  }
   // The snow cap goes on AFTER the shading pass, which rewrites every voxel the
   // Canopy recorded — painted before, the cap would be overwritten with shaded
   // rock wherever the two volumes overlap.
@@ -763,32 +1011,66 @@ function grassTuft(dry: boolean, variant = 0): Template {
   // 0.72 units after scale, three quarters of a terrain step, which is a reed bed.
   // The tallest cell here is 3 voxels ≈ 0.33 units, i.e. ground cover.
   //
-  // [x, z, height] over face-connected 2x2 cells. Every set is asymmetric.
+  // [x, z, height] over face-connected 1x1 cells. Every set is asymmetric.
+  //
+  // ONE-voxel columns at roughly double the bake scale, not 2x2 columns — the
+  // same silhouette at a third of the triangles. This matters far more than it
+  // looks: the tussock is now the load-bearing ground cover and there are two of
+  // them per meadow clump, and a 2x2 column of n layers shows 8n side faces
+  // against a 1x1 column's 4n. Measured over 81 chunks, raising the tussock
+  // count on the 2x2 shapes took the prop pass from 5.3 ms to 9.1 ms a chunk
+  // against a 3 ms/frame build budget (soft-mesh vertices 31k -> 56.5k); the same
+  // count on these shapes lands back near the original. Bigger cubes are also
+  // the more Cube-World read of the two.
   const SHAPES: Array<Array<[number, number, number]>> = [
     // 0 — a knot leaning hard to +x, tallest on the lee side
-    [[0, 0, 2], [2, 0, 3], [2, 2, 1], [0, -2, 1], [-2, 0, 0], [4, 0, 0]],
+    [[0, 0, 1], [1, 0, 2], [1, 1, 0], [0, -1, 0], [-1, 0, 0], [2, 0, 0]],
     // 1 — a low ridge running along z with one tall end
-    [[0, -2, 0], [0, 0, 1], [0, 2, 3], [2, 2, 2], [0, 4, 1], [-2, 0, 0]],
-    // 2 — two separate humps sharing a thin bridge
-    [[0, 0, 3], [2, 0, 1], [4, 0, 2], [4, 2, 1], [0, 2, 0]],
+    [[0, -1, 0], [0, 0, 0], [0, 1, 2], [1, 1, 1], [0, 2, 0], [-1, 0, 0]],
+    // 2 — two humps sharing a thin bridge
+    [[0, 0, 2], [1, 0, 0], [2, 0, 1], [2, 1, 0], [0, 1, 0]],
     // 3 — a broad low mat with a single spike off-centre
-    [[0, 0, 1], [2, 0, 1], [0, 2, 0], [2, 2, 4], [-2, 0, 0], [-2, 2, 0], [2, 4, 0]],
+    [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 2], [-1, 0, 0], [-1, 1, 0], [1, 2, 0]],
   ];
   const cells = SHAPES[variant % SHAPES.length];
   for (let s = 0; s < cells.length; s++) {
     const [x, z, h] = cells[s];
     for (let y = 0; y <= h; y++) {
-      v.box(x, y, z, x + 1, y, z + 1, y === 0 ? root : (s % 3 === 0 ? a : b));
+      v.set(x, y, z, y === 0 ? root : (s % 3 === 0 ? a : b));
     }
     // Only the tallest cells get bright tips — capping every cell with the light
     // tone is what turned the old tuft into a pale claw.
-    if (h >= 2) v.box(x, h, z, x + 1, h, z + 1, c);
+    if (h >= 2) v.set(x, h, z, c);
   }
-  // 0.09 units per voxel, down from 0.12. At the old size a broad variant stamped
-  // at 1.2x came out nearly a full block wide and half a block tall, and a smooth
-  // rounded mass that size reads as a pillow or a small bush, not as a tussock.
-  // Ground cover has to stay clearly under half a terrain step in every dimension.
-  return bake(v, 0.09);
+  // 0.19 units per voxel on 1x1 cells, i.e. the same WORLD size the shapes had at
+  // 0.09-0.105 on 2x2 cells, at a third of the triangles. History: 0.12 -> 0.09
+  // because a broad variant stamped at 1.2x came out nearly a full block wide and
+  // a smooth rounded mass that size reads as a pillow, not a tussock; then back
+  // up, because the solid tussock turned out to be the ONLY ground cover in this
+  // file that survives to the screen — the billboards beside it are near-
+  // invisible by construction (up normal, sward albedo) — and at 0.09 the tallest
+  // cell stood 0.45 units and was barely readable from the 2-unit camera height
+  // in _veg-a-grass.png. The tallest cell is now 3 voxels = 0.57 units, just over
+  // half a terrain step at 1x and 0.77 at the top of the per-instance roll.
+  // Trimmed to 0.175 after looking at _veg-g-ground.png: at 0.19 the top of the
+  // scale roll put a metre-wide tussock in the near foreground and it read as a
+  // small bush rather than as grass.
+  //
+  // Back up to 0.21, and this time with the placement numbers behind it. Around
+  // the spawn (72, -5) the terrain is 58% plains, so the meadow pass accepts
+  // 0.72 of its 115 candidates and plants ~83 clumps in every 32x32 chunk — one
+  // per 3.5 units square. A frame of the near meadow (_veg2c-macro.png, camera
+  // 3.4 units up) therefore contains roughly a dozen clumps, and it shows ONE
+  // readable object: the blades are invisible by construction (up normal, sward
+  // albedo, admitted above) and a 0.52-unit tussock four voxels across is a few
+  // pixels at 10 metres. The count is not the problem and never was; the
+  // per-clump readable MASS is. Scaling the tussock costs nothing at all in
+  // triangles — it is the same 14 cells — where raising the count costs
+  // linearly, so it is the first knob to turn. Tallest cell is now 0.63 units at
+  // 1x, 0.76 at the top of the clump roll: still under a terrain step, still
+  // ground cover, but it clears the meadow's own 1-unit relief instead of
+  // hiding behind it.
+  return bake(v, 0.21);
 }
 
 /**
@@ -847,8 +1129,20 @@ function grassBillboard(
   // the ground, and a field of pale lime cards on saturated grass reads as paper
   // scraps. Anchoring the root just under the meadow and the tip only just over it
   // is what makes a blade look like it grew there.
-  rootC: [number, number, number] = lin(0x479526),
-  tipC: [number, number, number] = lin(0x7cc043),
+  //
+  // The ROOT is now a full stop darker (0x479526 -> 0x2f6b1c) while the tip moves
+  // barely at all. That correction had gone one step too far: a blade whose
+  // albedo, normal AND light are all identical to the block it stands on is
+  // literally invisible, and _veg-a-grass.png (camera 2 units up, standing in a
+  // meadow) showed exactly that — a bare green plate with a flower and two solid
+  // tussocks on it and not one readable blade, despite ~770 of them in the chunk.
+  // Widening the root-to-tip gradient puts the contrast INSIDE the blade instead
+  // of between the blade and the ground: each card now carries its own contact
+  // shade at the base, which is what makes a tuft read as standing up out of the
+  // sward, and the mean value of the card still sits under the meadow so a field
+  // of them cannot go back to reading as paper scraps.
+  rootC: [number, number, number] = lin(0x2f6b1c),
+  tipC: [number, number, number] = lin(0x82c745),
 ): Template {
   const pos: number[] = [];
   const nrm: number[] = [];
@@ -947,12 +1241,21 @@ function bush(): Template {
   const c = new Canopy(v, 0x4a17);
   // No erosion at this size: the bush is barely three voxels tall, so its
   // "outer shell" is nearly the whole prop and any nibbling detaches voxels.
-  c.clump(0, 1.1, 0, 2.7, 1.5, 2.5, 0x35872c, 0);
-  c.clump(1.3, 1.6, 0.7, 1.6, 1.1, 1.5, 0x4aa338, 0);
-  c.clump(-1.4, 1.4, -0.6, 1.5, 1.0, 1.4, 0x2c7526, 0);
+  // A step darker and cooler again (0x35872c -> 0x2d7325). Captured against the
+  // 2026-07 meadow in _veg2e-meadow.png these sat at or just above the sward's
+  // own value, so the "anchor" of a grass clump had no silhouette against the
+  // grass it was supposed to anchor. A shrub is a mass of leaves shading itself;
+  // it is always darker than the open lawn beside it.
+  c.clump(0, 1.1, 0, 2.7, 1.5, 2.5, 0x2d7325, 0);
+  c.clump(1.3, 1.6, 0.7, 1.6, 1.1, 1.5, 0x3f8e30, 0);
+  c.clump(-1.4, 1.4, -0.6, 1.5, 1.0, 1.4, 0x25631f, 0);
   c.bake(0.45);
-  v.set(1, 3, 0, 0x69c04e); // highlight sprig
-  return bake(v, 0.13);
+  v.set(1, 3, 0, 0x5aa843); // highlight sprig
+  // 0.13 -> 0.155. The bush is the anchor of a meadow clump and at 0.13 it stood
+  // 0.52 units tall against tussocks that now reach 0.63 — i.e. the "anchor" was
+  // the SHORTEST thing in its own clump. 0.62 units at 1x puts it back on top of
+  // the size ladder's bottom rung, still well under hedgeSmall's 0.85.
+  return bake(v, 0.155);
 }
 
 /**
@@ -960,28 +1263,71 @@ function bush(): Template {
  * needs something wider than a grass blade and shorter than a bush, and a fern's
  * splayed silhouette reads instantly as undergrowth at gameplay distance.
  */
-function fern(): Template {
+function fern(variant: number): Template {
   const v = new VoxelModel();
-  const dark = 0x2f7a2a;
-  const mid = 0x3f9634;
-  const light = 0x59b348;
-  // Solid crown, then six arched fronds. Every frond is a CONTIGUOUS run (each
-  // cell face- or edge-adjacent to the last) and carries a second cell of width
-  // at its shoulder. Marching `round(cos(a) * k)` outward instead — the obvious
-  // way to write this — drops cells wherever the rounding repeats, and the prop
-  // renders as a handful of unconnected floating voxels.
+  // A full step darker than it was (0x2f7a2a/0x3f9634/0x59b348). A fern grows on
+  // a forest FLOOR, under a canopy, and the old set was brighter than the meadow
+  // it stood on — which is backwards, and is half of why these read as decals
+  // stuck on the grass rather than as plants growing in shade.
+  const dark = 0x27661f;
+  const mid = 0x35802a;
+  const light = 0x4a9c39;
+  // THE PLUS-SIGN FIX.
+  //
+  // The previous fern was a 3-voxel stalk with six arms of IDENTICAL length at
+  // identical height, four of them on the cardinal axes — i.e. a symmetric plus
+  // built from isolated cubes. Two consequences, both visible right across
+  // _veg2b-forest.png, where roughly a dozen of them dot the mid-ground: the
+  // shape reads as a map SYMBOL rather than as a plant, and (because it is
+  // 4-fold symmetric about y) the random yaw every instance gets does nothing at
+  // all to its outline, so a wood floor is the same green cross repeated. That
+  // is the identical trap documented on `grassTuft` — rotational symmetry
+  // cancels yaw variety — and it was never applied here.
+  //
+  // So: three variants, each with five to seven fronds drawn from the eight
+  // compass directions, no variant using a symmetric subset, and every frond a
+  // different length. Each frond carries a cell of WIDTH at its shoulder and a
+  // cell UNDER its drooping tip, so it reads as a leaf with a spine rather than
+  // as a row of dots — the same two corrections the palm frond needed.
+  const DIRS: Array<[number, number]> = [
+    [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1],
+  ];
+  /** [direction index, length] per variant. */
+  const SETS: Array<Array<[number, number]>> = [
+    [[0, 4], [1, 2], [2, 3], [4, 3], [5, 4], [6, 2]],
+    [[0, 3], [2, 4], [3, 2], [4, 4], [6, 3], [7, 3], [1, 2]],
+    [[1, 4], [2, 2], [3, 3], [5, 2], [6, 4], [7, 3]],
+  ];
   v.box(0, 0, 0, 0, 3, 0, dark);
   v.set(0, 4, 0, light);
-  const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]];
-  for (let f = 0; f < dirs.length; f++) {
-    const [dx, dz] = dirs[f];
-    v.set(dx, 3, dz, mid);
-    v.set(dx * 2, 3, dz * 2, light);
-    v.set(dx * 2, 2, dz * 2, light); // the tip droops back down
+  for (const [d, len] of SETS[variant % SETS.length]) {
+    const [dx, dz] = DIRS[d];
+    // Perpendicular, for the shoulder cell — laid out along the frond's own
+    // normal rather than a fixed axis, or the fronds pointing along z stack
+    // their width cell in line with themselves and stay one voxel wide.
+    const px = -dz;
+    const pz = dx;
+    for (let k = 1; k <= len; k++) {
+      const tip = k === len;
+      const y = tip ? 2 : 3;
+      v.set(dx * k, y, dz * k, tip ? light : mid);
+      // Width at the shoulder only — ONE cell, not two. Two put the fern at 600
+      // vertices, which is more than a boulder (544) for a prop that is scattered
+      // at 9% of 320 forest rolls, i.e. ~29 a chunk. The shoulder cell is the one
+      // that does the work; the second just thickened a frond that is already
+      // reading.
+      if (k === 1) v.set(dx + px, y, dz + pz, mid);
+      // Bridge under the step down to the tip, so the droop is face-connected
+      // to the frond instead of hanging off its corner.
+      if (tip && len >= 2) v.set(dx * (k - 1), y, dz * (k - 1), mid);
+    }
   }
-  // Roughly as tall as it is wide. An earlier version splayed to radius 4 at a
-  // height of 3 and read as a flat green ring stamped on the ground.
-  return bake(v, 0.19);
+  // 0.19 -> 0.135 units per voxel. A frond now runs four cells instead of two,
+  // so the same bake scale would have doubled the prop's world size; at 0.135 a
+  // long-frond variant spans ~1.1 units against the old 0.76, i.e. a fern that
+  // is now clearly WIDER than it is tall (0.68). Splayed and low is the read
+  // that says undergrowth; the old proportions said shrub.
+  return bake(v, 0.135);
 }
 
 /**
@@ -1078,16 +1424,45 @@ function fallenLog(): Template {
   return bake(v, 0.22);
 }
 
-/** Waist-high hedge/bush clump — the missing size class between grass and tree. */
+/**
+ * Waist-high hedge/bush clump — the missing size class between grass and tree.
+ *
+ * RASTERISED AT ROUGHLY 1.6x THE VOXEL COUNT IT USED TO BE, at the same world
+ * size. This is the fix for the loudest defect in the near field: an ellipsoid
+ * of radius 1.8 voxels does not rasterise to a rounded mass, it rasterises to a
+ * PLUS SIGN — the axial cells are inside the radius and the diagonal ones are
+ * not — and _veg2a-ground.png is full of them, waist-high green crosses sitting
+ * on the meadow like map symbols. Nothing about voxel chunkiness requires that;
+ * Cube World's shrubs are chunky AND rounded, which needs about five voxels
+ * across the short axis before the rasteriser has enough cells to describe a
+ * curve. Radii are up ~1.6x and the bake scale down by the same factor, so
+ * every stamp in the world keeps the size it had.
+ *
+ * They also now paint through `Canopy` rather than straight into the
+ * `VoxelModel`. Raw `v.ellipsoid` writes one flat colour per lobe, so a hedge
+ * was three flat green patches; `Canopy` jitters each voxel on the way in and
+ * then runs the crown-to-belly ramp over the finished volume, which is the same
+ * treatment every tree canopy in this file gets and the reason those read as
+ * volumes while these read as decals.
+ *
+ * Greens are a step DARKER and cooler than they were (0x347f2a -> 0x2c6f24 for
+ * the body). A shrub standing on lit meadow has to be darker than the sward or
+ * it has no silhouette; the old set sat at or above the grass's own value and
+ * the crosses read as bright green rather than as shade.
+ */
 function hedgeClump(): Template {
   const v = new VoxelModel();
-  v.box(0, 0, 0, 0, 1, 0, 0x6a5233);
-  v.ellipsoid(0, 2.2, 0, 3.4, 2.4, 2.8, 0x347f2a);
-  v.ellipsoid(2.6, 2.6, -1, 2.2, 1.9, 2, 0x3f9331);
-  v.ellipsoid(-2.4, 2, 1.2, 2, 1.7, 1.9, 0x2a7024);
-  v.ellipsoid(0.4, 4.2, 0.2, 1.6, 1.1, 1.5, 0x50aa3c);
-  v.set(-1, 5, 1, 0x66c148); // stray sprig breaks the dome
-  return bake(v, 0.24);
+  v.box(0, 0, 0, 0, 2, 0, 0x6a5233);
+  const c = new Canopy(v, 0x7c31);
+  c.clump(0, 3.5, 0, 5.4, 3.8, 4.5, 0x2c6f24, 0.34);
+  c.clump(4.1, 4.1, -1.6, 3.5, 3.0, 3.2, 0x387f2c, 0.34);
+  c.clump(-3.8, 3.2, 1.9, 3.2, 2.7, 3.0, 0x235c1e, 0.30);
+  c.clump(0.6, 6.6, 0.3, 2.6, 1.9, 2.4, 0x428a33, 0.38);
+  // 0.85, not the canopy's full 1.0: a hedge is about a third of a tree crown's
+  // height, so the ramp's five rows cover proportionally more of it.
+  c.bake(0.85);
+  v.set(-2, 8, 2, 0x5fb542); // stray sprig breaks the dome
+  return bake(v, 0.152);
 }
 
 /**
@@ -1096,15 +1471,21 @@ function hedgeClump(): Template {
  * the first two, so every mid-ground bush repeated at one height. This one is
  * deliberately ~60% of hedgeClump and rounder, and it reads as a different
  * plant rather than a shrunk copy.
+ *
+ * Same rasterisation and shading rebuild as `hedgeClump` above, and the same
+ * reason: at radius 1.8 voxels this was the worst plus-sign in the file, and it
+ * is also the most numerous mid-ground prop (2-4 per knot, ~1.5 knots a chunk).
  */
 function hedgeSmall(): Template {
   const v = new VoxelModel();
-  v.ellipsoid(0, 1.3, 0, 1.8, 1.2, 1.6, 0x3a8a2c);
-  v.ellipsoid(1.2, 1.1, 0.6, 1.1, 0.9, 1, 0x489c36);
-  v.ellipsoid(-1.1, 1, -0.5, 1, 0.8, 0.9, 0x317826);
-  v.set(0, 3, 0, 0x5cb340); // sprig off the crown
-  v.set(-1, 2, 1, 0x55aa3c);
-  return bake(v, 0.24);
+  const c = new Canopy(v, 0x91f7);
+  c.clump(0, 2.1, 0, 3.1, 2.1, 2.8, 0x316f26, 0.32);
+  c.clump(2.1, 1.9, 1.0, 1.9, 1.6, 1.7, 0x3d8530, 0.32);
+  c.clump(-1.9, 1.7, -0.9, 1.7, 1.4, 1.5, 0x275c1e, 0.28);
+  c.bake(0.8);
+  v.set(0, 5, 0, 0x51a13a); // sprig off the crown
+  v.set(-2, 4, 2, 0x4a9835);
+  return bake(v, 0.14);
 }
 
 /**
@@ -1175,6 +1556,8 @@ export class PropLib {
   readonly pine = pineTree(false);
   readonly pineTall = pineTree(true);
   readonly pineIrr = pineIrregular();
+  readonly snag = deadSnag(false);
+  readonly snagTall = deadSnag(true);
   // Leans are HALVED from 0.25/0.1/0.34. Lean is a slope, so it costs
   // `height * lean` of horizontal drift, and once the bole went from 11 voxels
   // to 22 the old slopes threw the crown 5+ voxels sideways — a palm bent
@@ -1188,6 +1571,9 @@ export class PropLib {
   readonly rockA = rock(0);
   readonly rockB = rock(1);
   readonly rockSnow = rock(2);
+  /** Same two boulders wearing a lichen crust — see `rock`. Grass biomes only. */
+  readonly rockAMoss = rock(0, true);
+  readonly rockBMoss = rock(1, true);
   /** Four asymmetric wet-meadow tussocks, and four dune ones. */
   readonly tufts = [0, 1, 2, 3].map((k) => grassTuft(false, k));
   readonly tuftsDry = [0, 1, 2, 3].map((k) => grassTuft(true, k));
@@ -1195,12 +1581,19 @@ export class PropLib {
   // terrain step (see grassBillboard) and the tufts are correspondingly WIDER
   // relative to their height than before: short and broad reads as ground cover,
   // tall and thin reads as reeds.
-  readonly grassA = grassBillboard(0.03, 0.02, 0.30, 0.10);
-  readonly grassB = grassBillboard(-0.05, 0.03, 0.36, 0.115);
-  readonly grassC = grassBillboard(0.02, -0.04, 0.22, 0.085);
+  // Heights up ~30% (0.30/0.36/0.22 -> 0.39/0.46/0.29) and widths ~15%. The old
+  // set was tuned down from a 0.42-0.95 range that read as a reed swamp, and the
+  // correction overshot: at 0.22-0.36 units against a 1-unit terrain step a blade
+  // was shorter than the ground's own relief and never broke the silhouette of
+  // the terrace behind it, so nothing in a meadow registered as grass at all. The
+  // tallest ordinary blade is still under half a step, which is the line that
+  // separates ground cover from reeds.
+  readonly grassA = grassBillboard(0.03, 0.02, 0.39, 0.115);
+  readonly grassB = grassBillboard(-0.05, 0.03, 0.46, 0.132);
+  readonly grassC = grassBillboard(0.02, -0.04, 0.29, 0.098);
   // A slightly taller, yellower tussock for the odd anchor in a meadow — still
   // barely half a step, so it adds a second height without adding reeds.
-  readonly grassTall = grassBillboard(-0.03, 0.05, 0.50, 0.105, lin(0x4a8f26), lin(0x8ebb45));
+  readonly grassTall = grassBillboard(-0.03, 0.05, 0.62, 0.12, lin(0x35701c), lin(0x93c14a));
   // Dune grass for the grass/sand transition band. Sits just off the sand's own
   // value the way the meadow blades sit just off the sward's — the old pair were
   // a fixed khaki that clashed wherever the sand ran light.
@@ -1210,7 +1603,8 @@ export class PropLib {
   readonly grassDuneA = grassBillboard(0.04, 0.02, 0.30, 0.062, lin(0x8a8049), lin(0xb0a468));
   readonly grassDuneB = grassBillboard(-0.04, -0.03, 0.23, 0.055, lin(0x8a8049), lin(0xb0a468));
   readonly bushT = bush();
-  readonly fernT = fern();
+  /** Three asymmetric fern rosettes — see `fern` for why one was not enough. */
+  readonly ferns = [0, 1, 2].map((k) => fern(k));
   readonly reedsT = reeds();
   readonly deadwoodT = deadwood();
   readonly driftwoodT = driftwood();
@@ -1453,6 +1847,7 @@ export function buildChunkProps(
       const scl = 0.78 + rng() * 0.44;
       const sclY = scl * (0.86 + rng() * 0.32);
       const tintRoll = rng();
+      const hueRoll = rng(); // foliage hue, decoupled from foliage VALUE
       const vroll = rng(); // variant pick, decoupled from density roll
       const jx = (rng() - 0.5) * 1.3;
       const jz = (rng() - 0.5) * 1.3;
@@ -1472,14 +1867,21 @@ export function buildChunkProps(
       // planted orchard.
       let tpl: Template | null = null;
       let jitterMul = 1;
+      // Roughly one tree in eleven is a dead snag (one in fourteen on plains,
+      // where a lone dead tree in open meadow is a strong enough silhouette that
+      // more of them would read as blight). See `deadSnag` for why: it is the
+      // only template in the set whose outline is not a blob on a stick, and a
+      // treeline needs one every few trees before it stops reading as a hedge.
       if (ci.biome === 'forest' && roll < 0.80) {
-        tpl = vroll < 0.24 ? lib.oakA : vroll < 0.44 ? lib.oakB
-          : vroll < 0.62 ? lib.oakC : vroll < 0.8 ? lib.oakD : lib.birch;
+        tpl = vroll < 0.22 ? lib.oakA : vroll < 0.41 ? lib.oakB
+          : vroll < 0.58 ? lib.oakC : vroll < 0.75 ? lib.oakD
+          : vroll < 0.91 ? lib.birch : vroll < 0.96 ? lib.snag : lib.snagTall;
       } else if (ci.biome === 'plains' && roll < 0.30) {
-        tpl = vroll < 0.32 ? lib.oakA : vroll < 0.54 ? lib.oakC
-          : vroll < 0.78 ? lib.oakD : lib.birch;
+        tpl = vroll < 0.30 ? lib.oakA : vroll < 0.51 ? lib.oakC
+          : vroll < 0.74 ? lib.oakD : vroll < 0.93 ? lib.birch : lib.snag;
       } else if (ci.biome === 'snow' && roll < 0.62) {
-        tpl = vroll < 0.36 ? lib.pine : vroll < 0.68 ? lib.pineTall : lib.pineIrr;
+        tpl = vroll < 0.34 ? lib.pine : vroll < 0.64 ? lib.pineTall
+          : vroll < 0.9 ? lib.pineIrr : lib.snagTall;
       } else if (ci.biome === 'beach' && roll < 0.5 && ci.hc >= 8.6 && ci.hc <= 11.5) {
         // three distinct palms + extra scatter so beach lines feel organic
         tpl = vroll < 0.34 ? lib.palm : vroll < 0.67 ? lib.palmB : lib.palmC;
@@ -1492,11 +1894,22 @@ export function buildChunkProps(
       if (h < WATER_LEVEL + (ci.biome === 'beach' ? 0 : 1)) continue;
       if (!flatEnough(wx, wz, h, 2)) continue;
 
-      // Per-instance tint spread widened from ±8% to ±13%, with the green channel
-      // sliding independently: a treeline of one green crushes to a single black
-      // hedge at distance, where a treeline of a dozen greens keeps some internal
-      // structure even once each canopy is only a few pixels across.
-      const t = 0.87 + tintRoll * 0.26;
+      // Per-instance tint: VALUE and HUE on independent rolls.
+      //
+      // The spread went ±8% -> ±13% with "the green channel sliding
+      // independently", but it was not independent — the green multiplier was
+      // driven by the same `tintRoll` as the value, so a bright tree was always
+      // the greenest tree and the whole family lay on one line through colour
+      // space. Measured off _veg-d-treeline.png, two dozen broadleaves in one
+      // frame still read as a single green.
+      //
+      // `hw` runs -1 (cool blue-green: red down, blue up) to +1 (warm
+      // yellow-green), at ±11% red against ∓13% blue, which is about the spread
+      // between a lime and a spruce and is applied on top of a ±15% value roll.
+      // Two independent axes is what puts a dozen distinguishable trees in a
+      // treeline instead of a dozen exposures of one.
+      const t = 0.85 + tintRoll * 0.30;
+      const hw = hueRoll * 2 - 1;
       // Trunk footprints are ~1.5-3 units wide at the flare after the rescale
       // (they were ~1.5 VOXELS), so the seating probe widens from r=1 to r=2 and
       // the sink from 0.3 to 0.45: the root flare and buttress voxels have to
@@ -1506,7 +1919,7 @@ export function buildChunkProps(
       const pz = lz + 0.5 + jz * jitterMul;
       const baseY = groundMin(wx, wz, 2) - 0.45;
       solid.add(tpl, px, baseY, pz, yaw, scl,
-        t, t * (0.95 + tintRoll * 0.11), t * 0.97, sclY);
+        t * (1 + hw * 0.11), t * (1 + hw * 0.02), t * (1 - hw * 0.13), sclY);
       // Register the tree. `scl` is girth and `sclY` height, exactly as the
       // stamp applied them, so the registry describes the instance that was
       // actually placed rather than the template. Keep the field order in step
@@ -1587,7 +2000,8 @@ export function buildChunkProps(
       if (kind < 0.5) {
         // Rock + log pair: a boulder with a trunk fetched up against it —
         // one readable ~2m mass rather than two lone pebbles.
-        const rk = rng() < 0.5 ? lib.rockA : lib.rockB;
+        // `green` is true in this branch, so these are always the mossy pair.
+        const rk = rng() < 0.5 ? lib.rockAMoss : lib.rockBMoss;
         // Capped at 1.95 (was 2.6). rock(1) bakes at 0.28 units/voxel with a
         // 3.6-voxel radius, so 2.6x produced a boulder over 5 units across, and one
         // of those a few units from a photo-mode camera filled a third of the frame
@@ -1636,7 +2050,9 @@ export function buildChunkProps(
         if (bx < 0 || bz < 0 || bx >= CHUNK_SIZE || bz >= CHUNK_SIZE) continue;
         terrain.columnInfo(ox + Math.floor(bx), oz + Math.floor(bz), ci);
         if (ci.h < WATER_LEVEL + 1) continue;
-        const tpl = biome === 'snow' ? lib.rockSnow : rng() < 0.5 ? lib.rockA : lib.rockB;
+        const tpl = biome === 'snow' ? lib.rockSnow
+          : green ? (rng() < 0.5 ? lib.rockAMoss : lib.rockBMoss)
+            : rng() < 0.5 ? lib.rockA : lib.rockB;
         const bt = t * (0.94 + rng() * 0.12);
         const gy = groundMin(ox + Math.floor(bx), oz + Math.floor(bz), 2);
         // Per-boulder warm/cool tint. Stamped with a flat neutral tint (bt,bt,bt)
@@ -1667,11 +2083,28 @@ export function buildChunkProps(
     terrain.columnInfo(wcx, wcz, ci);
     const cb = ci.biome;
     if (cb !== 'plains' && cb !== 'forest') continue;
-    // Acceptance is DOWN (0.80/0.42 -> 0.56/0.30). 115 candidates at 0.80 accepted
-    // a clump every ~11 cells with a 1.7-unit radius, i.e. a continuous carpet with
-    // no gaps — and a continuous carpet of anything reads as texture, not as
-    // vegetation. Bare ground between clumps is what makes the clumps read.
-    if (accept > (cb === 'plains' ? 0.56 : 0.30)) continue;
+    // Acceptance went 0.80/0.42 -> 0.56/0.30 to stop the meadow reading as a
+    // continuous carpet (a continuous carpet of anything reads as texture, not as
+    // vegetation — bare ground between clumps is what makes the clumps read), and
+    // is now back up to 0.72/0.44. The carpet risk was real but it was measured
+    // against blades that RENDERED, and these mostly do not: with the billboards
+    // sitting invisibly at the sward's own value the accepted clumps only ever
+    // show their tussocks and their one flower, so 0.56 of 115 candidates put
+    // roughly one readable object every 4 metres on open plains. _veg-a-ground.png
+    // is the evidence — the whole foreground third of the frame is bare terrace.
+    //
+    // And now DOWN again to 0.58/0.36, in exchange for the fatter clumps below
+    // (2-4 tussocks in a 2.1-unit disc instead of 1-3 in a 2.6-unit one, at a
+    // 20% larger bake scale). This is a trade, and it was measured:
+    // `buildChunkProps` over the 16 chunks around the spawn cost 7.32 ms and
+    // 26.3k soft vertices a chunk with the old clump contents and 9.13 ms /
+    // 29.5k with the new ones — the same regime that got the 2x2 tussock
+    // reverted last round, against a ~3 ms/frame build budget. Cutting the clump
+    // COUNT by a fifth pays for the extra mass inside each one. It is also the
+    // better art: the same total cover gathered into fewer, denser patches is
+    // what the "thickets and clearings, not Poisson spread" note asks for, and
+    // one patch that reads is worth three that do not.
+    if (accept > (cb === 'plains' ? 0.58 : 0.36)) continue;
     if (ci.h < WATER_LEVEL + 1) continue;
     // Grass and flowers are welcome on the doorstep — only the bush below,
     // which casts shadows and blocks the path, respects the den discs.
@@ -1683,7 +2116,13 @@ export function buildChunkProps(
     // instance count, is what makes a meadow read: the same blades spread over a
     // 2.7-unit disc vanished into the ground, gathered into a 1.7-unit tussock
     // they occlude each other and register as grass.
-    const members = 9 + Math.floor(rng() * 8);
+    // 9-16 -> 7-12. These are the billboard blades, and this file has now
+    // admitted twice that they barely render; they are also the single biggest
+    // vertex consumer in the meadow (four quads, eight triangles each). Trimming
+    // them buys back the triangles the extra tussocks below spend, so the meadow
+    // pass stays within its build budget while what a player actually SEES goes
+    // up. See the tussock bake scale for the measurement behind that.
+    const members = 7 + Math.floor(rng() * 6);
     const grass = grasses[Math.floor(rng() * 2.999)];
     // One knee-high tussock anchors roughly a fifth of the clumps, so the
     // meadow has a second height in it instead of one uniform nap.
@@ -1697,14 +2136,29 @@ export function buildChunkProps(
     // is genuinely a patch with clear ground around it. Scale spans +/-20% and yaw
     // the full circle, which now changes the outline because the four silhouettes
     // are asymmetric.
-    const tuftN = rng() < 0.55 ? 1 + Math.floor(rng() * 2) : 0;
+    // 1-3 per clump, never zero (was 0-2, zero 45% of the time). The tussock is
+    // the load-bearing piece of ground cover — see the note on its bake scale —
+    // so a clump that rolled none of them contributed a flower and nothing else.
+    // Now 2-4, inside a TIGHTER disc (1.3 -> 1.05). Both halves matter: with a
+    // mean of two spread over a 2.6-unit circle a "clump" was two isolated
+    // specks three metres apart, which is a sprinkle by another name. Three
+    // tussocks inside a 2-unit circle overlap each other's silhouettes and the
+    // group reads as one patch of grass, which is the unit Cube World's meadows
+    // are actually built from.
+    const tuftN = 2 + Math.floor(rng() * 3);
     for (let m = 0; m < tuftN; m++) {
       const ang = rng() * Math.PI * 2;
-      const rad = rng() * 1.3;
+      const rad = rng() * 1.05;
       const tx = clx + Math.cos(ang) * rad;
       const tz = clz + Math.sin(ang) * rad;
       if (tx < 0 || tz < 0 || tx >= CHUNK_SIZE || tz >= CHUNK_SIZE) continue;
-      addTuft(false, tx, tz, rng() * Math.PI * 2, 0.85 + rng() * 0.35,
+      // Scale roll 0.85-1.20 -> 1.00-1.45. Free — a tussock is 144 vertices at
+      // any size — and it is the only remaining lever on the meadow's read that
+      // costs nothing: measured off _veg2f-macro.png, a clump's tussocks at
+      // 0.85x subtend about 25 px from a 3.4-unit camera 10 metres away, which
+      // is a speck. At 1.45x the tallest reaches 0.91 units, just under a
+      // terrain step, which is where Cube World's grass tufts actually sit.
+      addTuft(false, tx, tz, rng() * Math.PI * 2, 1.0 + rng() * 0.45,
         cj * (isForest ? 0.94 : 1));
     }
     terrain.columnInfo(wcx, wcz, ci); // addTuft clobbers ci; restore the cluster's
@@ -1731,7 +2185,14 @@ export function buildChunkProps(
           rng() * Math.PI * 2, 0.8 + rng() * 0.4, ft, ft, ft);
       }
     }
-    if (rng() < 0.16) { // occasional bush anchoring the clump
+    // 0.16 -> 0.28. With the clump count cut a fifth, the bush is the only thing
+    // in a meadow patch that reads as a MASS rather than as detail, and at 0.16
+    // only one patch in six had one — so five patches in six were a scatter of
+    // small pale things with no anchor. It is also the one piece of ground cover
+    // in the meadow that lands in the shadow-casting `solid` bucket, which is
+    // where the "canopy shadows are the dominant ground pattern" note applies at
+    // knee height.
+    if (rng() < 0.28) { // bush anchoring the clump
       const bx = clx + (rng() - 0.5) * 2;
       const bz = clz + (rng() - 0.5) * 2;
       terrain.columnInfo(ox + Math.floor(bx), oz + Math.floor(bz), ci);
@@ -1777,19 +2238,22 @@ export function buildChunkProps(
         // Lone tussocks are DOWN from 7% of rolls to 4%: the meadow pass below now
         // plants them in clumps, and an even sprinkle on top of that is what made
         // the field read as uniform fuzz with no bare ground anywhere.
-        else if (roll < 0.262) addTuft(false, x, z, yaw, 0.8 + scl * 0.5, t);
-        else if (roll < 0.257 && !noSolid) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t, t, t);
+        // Scale roll narrowed from 1.20-1.45 to 1.04-1.24: this was the widest
+        // tussock stamp in the file and the one that produced the near-foreground
+        // "small bush" in _veg-g-ground.png.
+        else if (roll < 0.262) addTuft(false, x, z, yaw, 0.72 + scl * 0.4, t);
+        else if (roll < 0.257 && !noSolid) solid.add(lib.rockAMoss, x, h - 0.1, z, yaw, scl, t, t, t);
         else if (roll < 0.271) soft.add(lib.grassTall, x, h - 0.03, z, yaw, 0.8 + scl * 0.3, t, t, t * 0.94);
         else if (roll < 0.281) soft.add(lib.deadwoodT, x, h - 0.02, z, yaw, scl, t, t, t);
         break;
       case 'forest':
         if (roll < 0.1) soft.add(grass, x, h - 0.03, z, yaw, 0.5 + scl * 0.45, t * 0.86, t, t * 0.84);
         else if (roll < 0.127 && !noSolid) solid.add(mushroomT, x, h - 0.04, z, yaw, scl, t, t, t);
-        else if (roll < 0.151 && !noSolid) solid.add(pick < 0.5 ? lib.rockA : lib.rockB, x, h - 0.1, z, yaw, scl, t, t, t);
+        else if (roll < 0.151 && !noSolid) solid.add(pick < 0.5 ? lib.rockAMoss : lib.rockBMoss, x, h - 0.1, z, yaw, scl, t, t, t);
         else if (roll < 0.211) addTuft(false, x, z, yaw, 0.8 + scl * 0.5, t * 0.95);
         // Undergrowth: ferns and fallen sticks are what makes a wood read as a
         // wood floor rather than a lawn with trunks standing on it.
-        else if (roll < 0.30) soft.add(lib.fernT, x, h - 0.04, z, yaw, 0.85 + scl * 0.35, t * 0.9, t, t * 0.88);
+        else if (roll < 0.30) soft.add(lib.ferns[Math.floor(pick * 2.999)], x, h - 0.04, z, yaw, 0.85 + scl * 0.35, t * 0.9, t, t * 0.88);
         else if (roll < 0.325) soft.add(lib.deadwoodT, x, h - 0.02, z, yaw, scl, t, t, t);
         break;
       case 'beach':
