@@ -190,6 +190,17 @@ export class Player {
   /** True while a sword swing is in progress. Read-only; for tests and HUD. */
   get isAttacking(): boolean { return this.attack.active; }
   moveSpeedNorm = 0;
+  /**
+   * Horizontal half-width of the body — the same BODY_RADIUS the step test
+   * probes with, published so that anything asking "is he touching that?" uses
+   * the collision probe's own idea of how wide he is instead of a second number
+   * that can drift away from it.
+   *
+   * With `position` and `velocity` above it also makes the hero a `ContactMover`
+   * (world/touch-particles.ts) structurally, so the contact-particle system can
+   * be handed a mount or a pal instead without knowing what either is.
+   */
+  readonly radius = BODY_RADIUS;
   onAttack?: (origin: THREE.Vector3, direction: THREE.Vector3) => void;
 
   private rig: HeroRig;

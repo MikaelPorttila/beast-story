@@ -3,7 +3,7 @@
  * skill dens + sky ambience, exposed through the shared World contract.
  */
 import * as THREE from 'three';
-import type { World } from '../core/types';
+import type { CrownContact, World } from '../core/types';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
 import { buildWaterMesh, createWaterMaterial } from './water';
@@ -465,6 +465,62 @@ export function createWorld(
         }
       }
       return top;
+    },
+    /**
+     * Is this sphere inside a canopy? The third query over the same buckets,
+     * and the only one that treats the crown as a VOLUME — see World.
+     *
+     * Same shape as trunkSolidTopAt on purpose: one margin, two nested bucket
+     * loops, no allocation, no string keys. It runs once per simulation slice
+     * from the contact-particle system, so the ordering of the three tests
+     * inside the tree loop is chosen to reject a tree as early as possible:
+     *
+     *   1. the VERTICAL band, which is one subtraction and one compare and
+     *      throws out essentially every tree in the bucket — the hero is under
+     *      the canopy line almost always, and a bucket holds a dozen trees;
+     *   2. the horizontal disc, which costs the one sqrt in here;
+     *   3. the ellipsoid itself, for the trees that survived both.
+     *
+     * The sphere is folded into the dome by inflating both semi-axes, which is
+     * a slightly generous test near the rim (a Minkowski sum of an ellipsoid and
+     * a sphere is not an ellipsoid). That errs the right way: `bake` already
+     * pulls crownR in to 0.84 of the measured foliage reach because the
+     * outermost canopy voxels are mostly air, so the painted leaves stand ~19%
+     * further out than this dome and the generous rim still lands inside them.
+     */
+    crownContactAt(x: number, y: number, z: number, radius: number, out: CrownContact): boolean {
+      const c0x = Math.floor((x - CROWN_MARGIN) / CHUNK_SIZE);
+      const c1x = Math.floor((x + CROWN_MARGIN) / CHUNK_SIZE);
+      const c0z = Math.floor((z - CROWN_MARGIN) / CHUNK_SIZE);
+      const c1z = Math.floor((z + CROWN_MARGIN) / CHUNK_SIZE);
+      for (let bx = c0x; bx <= c1x; bx++) {
+        for (let bz = c0z; bz <= c1z; bz++) {
+          const b = trunks.get(trunkKey(bx, bz));
+          if (b === undefined) continue;
+          for (let i = 0; i < b.length; i += TREE_STRIDE) {
+            const cr2 = b[i + 5];
+            // A tree with no foliage worth the name — a cactus, or a snag whose
+            // bare branches measured almost nothing. Nothing to knock off it.
+            if (cr2 < 0.25) continue;
+            const ry = b[i + 7] + radius;
+            const dy = y - b[i + 6];
+            if (dy * dy > ry * ry) continue;
+            const dx = x - b[i];
+            const dz = z - b[i + 1];
+            const d2 = dx * dx + dz * dz;
+            const cr = Math.sqrt(cr2) + radius;
+            if (d2 > cr * cr) continue;
+            if (d2 / (cr * cr) + (dy * dy) / (ry * ry) > 1) continue;
+            out.treeX = b[i];
+            out.treeZ = b[i + 1];
+            out.crownR = cr - radius;
+            out.crownCy = b[i + 6];
+            out.crownRy = b[i + 7];
+            return true;
+          }
+        }
+      }
+      return false;
     },
     isWater: (x: number, z: number): boolean => terrain.getHeight(x, z) < WATER_LEVEL,
 

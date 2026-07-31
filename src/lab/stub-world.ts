@@ -15,6 +15,8 @@ export class StubWorld implements World {
   debugColliders(): void { /* no colliders on the lab stage */ }
   /** No props on the stage, so there is never a trunk in the way. */
   trunkSolidTopAt(): number { return -Infinity; }
+  /** No canopy on the stage either: nothing to brush leaves out of. */
+  crownContactAt(): boolean { return false; }
 
   readonly waterLevel: number;
   readonly shopPositions: THREE.Vector3[] = [];

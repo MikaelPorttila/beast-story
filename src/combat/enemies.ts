@@ -201,6 +201,76 @@ function buildPeckit(root: THREE.Group, v: Variant): Record<string, THREE.Object
 }
 
 // ---------------------------------------------------------------------------
+// Melee reach in the vertical
+// ---------------------------------------------------------------------------
+/**
+ * How far a GROUND melee attack may reach above and below the attacker's own
+ * feet. Both `position.y` values compared are feet (an enemy is pinned to
+ * `world.getHeight`, the hero's origin is his soles), so these are feet-to-feet.
+ *
+ * Why this exists at all: every ground strike below used to test
+ * `dx*dx + dz*dz` only — an infinite vertical column. That was invisible while
+ * the world was a gentle heightfield and everything stood at roughly the same
+ * altitude, and it became the "I climbed a tree and a Gloopling on the ground
+ * still bit me" bug the moment trunks became climbable and cliffs 2-6 units
+ * tall. A lunging bite covers GROUND, not altitude.
+ *
+ * Why a cylinder (horizontal radius + these caps) and not a plain 3D sphere:
+ * a sphere of the existing ~1.3-unit radius would also shrink the HORIZONTAL
+ * reach as soon as there was any height difference at all, so hits would start
+ * missing on slopes and against a mounted hero — it would re-tune melee on flat
+ * ground, which is not what is broken. The cylinder leaves ground combat
+ * bit-for-bit as tuned and only adds the ceiling that was missing.
+ *
+ * UP = 1.5 is the smallest value that keeps the legitimate cases working:
+ *  - a mounted hero rides +0.91 above the mount's feet (saddleY 2.1*0.72 = 1.51
+ *    minus HERO_HIP_Y 0.6, see player/mount.ts), and a Snortle must still be
+ *    able to shove a rider;
+ *  - the hero walks up steps of MAX_STEP_UP (0.5) without climbing, so two
+ *    bodies standing "next to" each other on a slope can already differ by that
+ *    much before anyone has left the ground.
+ * 0.91 + 0.5 = 1.41, so 1.5. It refuses everything the report is about: the
+ * smallest cliff in the world is 2 units and a trunk carries the hero 5-8x his
+ * own height up.
+ *
+ * DOWN = 2.5 is deliberately looser. Swinging downhill is the easy direction,
+ * and a tight downward cap would just invent the mirror exploit — stand in a
+ * ditch, become invulnerable. Being hit by something on the ledge above you
+ * reads as fair in a way that being bitten by something 8 units below does not.
+ *
+ * Flying attackers are NOT subject to this: Peckit's dive already measured true
+ * 3D distance to the target and it is supposed to come down out of the sky.
+ * Ranged/projectile attacks likewise keep their reach.
+ */
+const MELEE_UP_REACH = 1.5;
+const MELEE_DOWN_REACH = 2.5;
+
+// TEMP INSTRUMENTATION — remove before finishing.
+const _ms = {
+  tried: 0, landed: 0, blocked: 0, maxDy: 0,
+  hitGloopling: 0, hitSnortle: 0, hitPeckit: 0,
+};
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__dbgMelee = () => ({ ..._ms });
+  (window as unknown as Record<string, unknown>).__dbgMeleeReset = () => {
+    _ms.tried = 0; _ms.landed = 0; _ms.blocked = 0; _ms.maxDy = 0;
+    _ms.hitGloopling = 0; _ms.hitSnortle = 0; _ms.hitPeckit = 0;
+  };
+}
+const _live = new Set<Enemy>();
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__dbgEnemies = () => [..._live].map((e) => ({
+    species: e.species, hp: e.hp, dead: e.isDead, hasTarget: !!e.target,
+    x: +e.position.x.toFixed(2), y: +e.position.y.toFixed(2), z: +e.position.z.toFixed(2),
+  }));
+}
+function _mshit(s: EnemySpeciesId): void {
+  if (s === 'gloopling') _ms.hitGloopling++;
+  else if (s === 'snortle') _ms.hitSnortle++;
+  else _ms.hitPeckit++;
+}
+
+// ---------------------------------------------------------------------------
 // Enemy
 // ---------------------------------------------------------------------------
 const _dir = new THREE.Vector3();
@@ -320,6 +390,7 @@ export class Enemy implements Damageable {
     this.root.add(this.barSprite);
     this.barSprite.position.set(0, this.height + 0.4, 0);
     this.drawBar();
+    _live.add(this);
   }
 
   takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): void {
@@ -352,6 +423,23 @@ export class Enemy implements Damageable {
     this.barTex.needsUpdate = true;
   }
 
+  /**
+   * Pick a target, and decide when to give one up.
+   *
+   * DELIBERATELY HORIZONTAL, both for acquiring and for the leash — unlike the
+   * melee strike tests, which now carry a vertical cap (see MELEE_UP_REACH).
+   * Noticing you and being able to bite you are different questions: a monster
+   * that forgets you the instant you step on a rock is broken in the other
+   * direction, and the honest fantasy of scrambling up a tree is that the thing
+   * below mills around waiting for you, not that it shrugs and wanders off. So
+   * an enemy under a climber keeps chasing, keeps facing, keeps charging past —
+   * and simply lands nothing until you come down.
+   *
+   * The leash was previously a 3D `distanceTo`, which meant altitude alone could
+   * spend the aggro budget (a hero 20 units up a trunk read as 20 units away).
+   * It is horizontal now so that the only thing which drops a target is walking
+   * away from it, which is the rule the numbers were tuned for.
+   */
   private retarget(ctx: EnemyCtx): void {
     this.retargetT -= 0.0166;
     if (this.retargetT > 0) return;
@@ -369,9 +457,29 @@ export class Enemy implements Damageable {
     if (best) {
       this.target = best;
     } else if (this.target) {
-      const d = this.target.position.distanceTo(this.position);
-      if (this.target.isDead || d > this.aggro * 2.2) { this.target = null; this.provoked = false; }
+      const dx = this.target.position.x - this.position.x;
+      const dz = this.target.position.z - this.position.z;
+      const leash = this.aggro * 2.2;
+      if (this.target.isDead || dx * dx + dz * dz > leash * leash) {
+        this.target = null; this.provoked = false;
+      }
     }
+  }
+
+  /**
+   * Vertical half of a ground melee test — see MELEE_UP_REACH.
+   *
+   * Called by every contact/charge/shove strike AFTER the horizontal radius
+   * check has passed, so the pair together describe a squat cylinder around the
+   * attacker rather than the infinite column the code used to have.
+   */
+  private inMeleeHeight(t: Damageable): boolean {
+    const dy = t.position.y - this.position.y;
+    const ok = dy <= MELEE_UP_REACH && dy >= -MELEE_DOWN_REACH;
+    _ms.tried++;
+    if (ok) _ms.landed++; else _ms.blocked++;
+    if (Math.abs(dy) > Math.abs(_ms.maxDy)) _ms.maxDy = +dy.toFixed(2);
+    return ok;
   }
 
   private faceToward(x: number, z: number, dt: number, rate: number): void {
@@ -483,11 +591,13 @@ export class Enemy implements Damageable {
     body.scale.set(1 + sq * 0.5 + breathe, 1 - sq * 0.55 - breathe, 1 + sq * 0.5 + breathe);
     body.position.y = this.gHopY;
 
-    // contact attack
+    // Contact attack. Horizontal radius as tuned, plus the vertical cap: a
+    // hopping blob touches what is beside it, not what is up a tree.
     if (this.target && this.atkCd <= 0 && !this.target.isDead) {
       const dx = this.target.position.x - this.position.x;
       const dz = this.target.position.z - this.position.z;
-      if (dx * dx + dz * dz < (this.radius + 0.8) ** 2) {
+      if (dx * dx + dz * dz < (this.radius + 0.8) ** 2 && this.inMeleeHeight(this.target)) {
+        _mshit(this.species);
         ctx.hit(this.target, this.atk, this.element, this.position.x, this.position.y + 0.4, this.position.z);
         this.atkCd = 1.3;
         this.knock.set(-dx, 0, -dz).normalize().multiplyScalar(2.2);
@@ -515,11 +625,15 @@ export class Enemy implements Damageable {
             this.stateT = 0.55;
             break;
           }
+          // `dist` is HORIZONTAL by construction (_dir was built with y = 0),
+          // which is what steering wants — keep walking under a target that is
+          // above you. Only the shove is gated on height.
           if (dist > this.radius + 0.9) {
             this.moveGround(dt, _dir.x, _dir.z, this.speed, ctx);
             moveAmt = this.speed;
-          } else if (this.atkCd <= 0 && !this.target.isDead) {
+          } else if (this.atkCd <= 0 && !this.target.isDead && this.inMeleeHeight(this.target)) {
             // close-range shove
+            _mshit(this.species);
             ctx.hit(this.target, this.atk * 0.6, this.element, this.position.x, this.position.y + 0.6, this.position.z);
             this.atkCd = 1.1;
           }
@@ -583,12 +697,16 @@ export class Enemy implements Damageable {
           this.dustT = 0.05;
           ctx.vfx.dust(this.position.x, this.position.y + 0.05, this.position.z, 2);
         }
-        // hit anything in the way
+        // Hit anything in the way — "in the way" meaning at roughly this
+        // animal's own altitude. A charge is a ground lunge; it ploughs through
+        // whatever is standing on the floor and passes harmlessly under
+        // anything on a ledge or up a trunk.
         for (const t of ctx.targets) {
           if (t.isDead) continue;
           const dx = t.position.x - this.position.x;
           const dz = t.position.z - this.position.z;
-          if (dx * dx + dz * dz < (this.radius + 0.85) ** 2) {
+          if (dx * dx + dz * dz < (this.radius + 0.85) ** 2 && this.inMeleeHeight(t)) {
+            _mshit(this.species);
             ctx.hit(t, this.atk * 1.5, this.element, this.position.x, this.position.y + 0.6, this.position.z);
             this.state = 'recover'; this.stateT = 0.9; this.chargeCd = 3.5;
             break;
@@ -661,9 +779,14 @@ export class Enemy implements Damageable {
       if (dist > 0.01) _dir.divideScalar(dist);
       this.vel.lerp(_tmp.copy(_dir).multiplyScalar(11), Math.min(1, 8 * dt));
       ctx.vfx.trail(this.position.x, this.position.y + 0.35, this.position.z, 0xd8ecff, 0.11);
+      // NOT gated by MELEE_UP_REACH, on purpose: this is already a true 3D
+      // proximity test, and Peckit is a flyer whose whole attack is arriving
+      // from a different altitude. A dive that could not reach a hero on a
+      // branch would be the opposite bug.
       if (this.target && !this.diveHit && !this.target.isDead) {
         const d2 = _tmp.copy(this.target.position).setY(this.target.position.y + 0.8).distanceToSquared(this.position);
         if (d2 < 1.9) {
+          _mshit(this.species);
           ctx.hit(this.target, this.atk, this.element, this.position.x, this.position.y, this.position.z);
           this.diveHit = true;
         }
@@ -699,6 +822,7 @@ export class Enemy implements Damageable {
   }
 
   dispose(): void {
+    _live.delete(this);
     this.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) {

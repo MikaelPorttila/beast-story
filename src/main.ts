@@ -3,7 +3,10 @@ import { Engine } from './core/engine';
 import { DebugOverlay } from './core/debug-overlay';
 import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
-import { EventBus, type SkillDef, type Damageable, type World, type WorldBound } from './core/types';
+import {
+  EventBus,
+  type CrownContact, type SkillDef, type Damageable, type World, type WorldBound,
+} from './core/types';
 import { Inventory, itemDef } from './core/items';
 import { perf } from './core/profiler';
 import { flags } from './core/flags';
@@ -13,6 +16,7 @@ import { createWorld, type LandmarkProbe } from './world/index';
 import { createDungeon } from './world/dungeon';
 import { ZoneManager, type ZoneDef } from './world/zones';
 import { Underwater } from './world/underwater';
+import { TouchParticles } from './world/touch-particles';
 import { Player } from './player/index';
 import { MountController } from './player/mount';
 import { PalActor, registerSkillDefs } from './pals/framework';
@@ -156,6 +160,14 @@ player.onAttack = (origin, dir) => combat.meleeStrike(origin, dir, player.attack
 // simulate) and where a mounted skill aims (below) are policy, so they live here.
 const mount = new MountController(player, world, input, bus);
 
+// Contact particles: the world sheds when you brush it. One element today —
+// leaves knocked out of a tree crown — behind a fixed pool and one draw call.
+// Constructed HERE, above the frame loop and above warmUpShaders(), because its
+// mesh has to be in the scene for the boot warm-up to link its program; a pool
+// that first appears when the hero walks into a tree links a shader mid-game,
+// which is a several-hundred-millisecond stall (see warmUpShaders).
+const touchFx = new TouchParticles(engine.scene, world);
+
 // ---------------------------------------------------------------------------
 // Pal roster: all 10 species instantiated; two active at a time.
 // ---------------------------------------------------------------------------
@@ -166,7 +178,7 @@ const roster: PalActor[] = ALL_SPECIES.map(
 // The rebind list. Order does not matter — every setWorld is independent — but
 // the roster is the reason the list exists at all: a pal's level, xp and known
 // skills are the save game, and rebuilding one to change zones would delete it.
-bound.push(player, mount, combat, ...roster);
+bound.push(player, mount, combat, touchFx, ...roster);
 let primaryIdx = 0; // Emberfox
 let supportIdx = 6; // Galebird
 const cooldowns = new Map<string, number>();
@@ -616,6 +628,24 @@ const _dbgDir = new THREE.Vector3();
   player.position.y = Math.max(world.getHeight(x, z), world.waterLevel);
   player.velocity.set(0, 0, 0);
 };
+/** Scratch for the crown probe below; the query never allocates. */
+const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, crownRy: 0 };
+// Contact-particle pool. Read-only, and the only way to state the recycling
+// rule as a number rather than as a claim: `recycledAirborne` must be 0 for the
+// life of the process, `retired` counts settled particles shrunk out early to
+// make room, and `dropped` counts bursts refused because everything was in the
+// air. `ms` is the pool's own update cost (populated under ?perf=1 only).
+(window as unknown as { __dbgTouchFx: () => unknown }).__dbgTouchFx = () => ({
+  ...touchFx.stats(),
+  crown: world.crownContactAt(
+    player.position.x, player.position.y + 1, player.position.z, 0.65, _dbgCrown,
+  ) ? { ..._dbgCrown } : null,
+});
+// TEST HOOK, like __dbgDrop. Force a burst without finding a tree first, which
+// is the only practical way to drive the pool to exhaustion on demand and show
+// what the policy does there. Returns how many of `n` were actually placed.
+(window as unknown as { __dbgTouchBurst: (n: number) => number }).__dbgTouchBurst =
+  (n) => touchFx.forceBurst(player, n);
 (window as unknown as { __dbgDrop: (id: string, dx: number, dz: number) => void })
   .__dbgDrop = (id, dx, dz) => {
     const x = player.position.x + dx, z = player.position.z + dz;
@@ -902,6 +932,10 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // act on it. Same treatment the shop already gets.
   const shopOpen = hud.isShopOpen() || !!devConsole?.isOpen;
   nearShop = false;
+  // Whose contact the particle system tests this slice, or null. It integrates
+  // on EVERY slice either way — a modal overlay freezes the hero, not the leaves
+  // already falling behind it — so only the contact test needs someone to test.
+  let toucher: Player | null = null;
 
   // The camera stick is a rate control, so it must inject its look delta BEFORE
   // the player/camera update consumes mouseDX this frame — ticking it later in
@@ -923,6 +957,9 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // to climb on.
     mount.update(dt, flags.pals ? primary() : null);
     player.update(dt);
+    // The hero is the only thing that brushes the world today. A mount's gallop
+    // dust would pass `mount.pal` here instead — same interface, same pool.
+    toucher = player;
     perf.section('player');
 
     if (first) {
@@ -979,6 +1016,11 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   } else if (first && (input.pressed('Escape') || input.pressed('KeyE'))) {
     hud.closeShop();
   }
+
+  // Contact particles. Sits between the `player` and `pals` profiler markers, so
+  // its cost is measured in the `pals` slot — its own timing is on
+  // `__dbgTouchFx().ms`, which is finer grained than a section anyway.
+  touchFx.update(dt, toucher);
 
   // Cooldowns
   for (const [id, t] of cooldowns) cooldowns.set(id, Math.max(0, t - dt));

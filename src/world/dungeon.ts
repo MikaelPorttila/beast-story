@@ -588,6 +588,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     },
     /** No trees underground. Walls are terrain, and terrain blocks already. */
     trunkSolidTopAt(): number { return -Infinity; },
+    /** No canopy either, so nothing here is ever brushed for leaves. */
+    crownContactAt(): boolean { return false; },
     isWater(): boolean { return false; },
     /** Nothing but terrain here, and debugColliders deliberately excludes it. */
     debugColliders(): void { /* no discrete colliders in the hold */ },
