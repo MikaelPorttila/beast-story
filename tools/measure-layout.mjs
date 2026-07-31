@@ -39,16 +39,46 @@ for (const [name, viewport] of [
         : null,
       stick: rect('.cp-stick'),
       lookPad: rect('.cp-look'),
+      // .cp-skills / .cp-btns are ZERO-SIZED origin points parked on a stick's
+      // centre — each button is placed off them by a polar transform — so their
+      // own rect says nothing about where the controls are. The per-button list
+      // below is what to read, and what the overflow check walks.
       skills: rect('.cp-skills'),
       btns: rect('.cp-btns'),
+      buttons: [...document.querySelectorAll('.cp-btn,.cp-skill')].map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          label: el.textContent,
+          x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1),
+        };
+      }),
+      // How close the nearest control edge comes to the reticle. This is the
+      // number the layout exists to protect: the centre of the frame is where
+      // the player is aiming and it must stay clear.
+      nearestControlToCross: (() => {
+        if (!crossR) return null;
+        const cx = crossR.x + crossR.width / 2, cy = crossR.y + crossR.height / 2;
+        let best = Infinity, who = null;
+        for (const el of document.querySelectorAll('.cp-btn,.cp-skill,.cp-stick')) {
+          const r = el.getBoundingClientRect();
+          const dx = Math.max(r.left - cx, 0, cx - r.right);
+          const dy = Math.max(r.top - cy, 0, cy - r.bottom);
+          const d = Math.hypot(dx, dy);
+          if (d < best) { best = d; who = el.className + ':' + el.textContent; }
+        }
+        return { px: +best.toFixed(1), el: who };
+      })(),
       party: rect('.cp-left'),
       overflowsRight: (() => {
         const bad = [];
-        for (const sel of ['.cp-stick', '.cp-skills', '.cp-btns', '.cp-left']) {
-          const r = rect(sel);
-          if (r && (r.x < 0 || r.y < 0 || r.x + r.w > innerWidth + 0.5 || r.y + r.h > innerHeight + 0.5)) {
-            bad.push(sel);
-          }
+        const off = (r, name) => {
+          if (r && (r.x < -0.5 || r.y < -0.5
+            || r.x + r.w > innerWidth + 0.5 || r.y + r.h > innerHeight + 0.5)) bad.push(name);
+        };
+        for (const sel of ['.cp-stick', '.cp-look', '.cp-left']) off(rect(sel), sel);
+        for (const el of document.querySelectorAll('.cp-btn,.cp-skill')) {
+          const r = el.getBoundingClientRect();
+          off({ x: r.x, y: r.y, w: r.width, h: r.height }, `${el.className}:${el.textContent}`);
         }
         return bad;
       })(),

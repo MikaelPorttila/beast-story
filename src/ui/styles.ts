@@ -442,7 +442,14 @@ const CSS = `
     border-radius:10px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
     line-clamp:2;overflow:hidden}
   .cp-banner{font-size:11.5px;padding:8px 12px;max-width:78vw}
-  .cp-hint{font-size:11px;padding:7px 11px}
+  /* The interaction prompt has to clear the touch fans. Their topmost buttons
+     (skill 1 on the right, SWAP on the left) reach 217px up from the bottom
+     edge in BOTH orientations — the fan is sized in vmin, so it is the same
+     cluster turned 90° — hence 232px here rather than the desktop 118px.
+     Measured on a Pixel 5: portrait the pill lands at y 587-619, under the hero
+     and above the arc; landscape at y 131-161, above the reticle and clear of
+     the toast stack in the top-right. */
+  .cp-hint{font-size:11px;padding:7px 11px;bottom:232px}
 }
 
 /* --- developer console (§) ------------------------------------------------
