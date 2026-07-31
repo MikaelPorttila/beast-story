@@ -9,7 +9,16 @@ import { VoxelModel, shade } from '../core/voxel';
 import { hashCell, mulberry32 } from './noise';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch, type ColumnScratch } from './terrain';
 
-interface Template {
+/**
+ * A baked, stampable voxel model.
+ *
+ * Exported because the TOWNS are built out of exactly the same machinery — bake
+ * a tent or a barrel once, stamp it forty times into one merged mesh on the
+ * shared prop material — and forking a second copy of `bake`/`Accum` into
+ * world/town-parts.ts would have been two implementations of the vertex layout,
+ * the relight correction and the yaw stamp to keep in step. See `bakeProp`.
+ */
+export interface Template {
   pos: Float32Array;
   nrm: Float32Array;
   col: Float32Array;
@@ -196,7 +205,28 @@ function bake(
   return t;
 }
 
-class Accum {
+/**
+ * Bake a voxel model with no tree in it — the town builder's entry point.
+ *
+ * A named re-export rather than exporting `bake` directly, because `bake`'s
+ * optional trunk arguments also flip it into its uncentred mode and nothing
+ * outside this file should have to know that. A building, a barrel and a
+ * signpost all want the plain centred bake.
+ */
+export function bakeProp(model: VoxelModel, scale: number): Template {
+  return bake(model, scale);
+}
+
+/**
+ * Vertex accumulator for a merged, multi-stamp mesh. See `add`.
+ *
+ * Exported for the town builder, which merges a whole encampment — palisade
+ * spans, tents, carts, crates — into two meshes on the shared prop materials,
+ * for the same reason a chunk merges its props into two: a camp built as forty
+ * `THREE.Mesh`es would be forty draw calls and forty materials, and a new
+ * material is a new shader program and a first-use stall.
+ */
+export class Accum {
   pos: number[] = [];
   nrm: number[] = [];
   col: number[] = [];
@@ -1839,7 +1869,51 @@ const TRUNK_GRAB = 0.34;
  * the camera lives. Soft props are the cheapest thing in the world and the
  * only thing that makes the near ground read as ground, so they get no disc.
  */
-export type Exclusion = { x: number; z: number; kind?: 'solid' | 'all' };
+export type Exclusion = {
+  x: number;
+  z: number;
+  kind?: 'solid' | 'all';
+  /**
+   * Clearance radius override, world units. Absent means the default pair below
+   * (4.5m for occluders, 9.5m for trees), which is sized for a single building.
+   *
+   * A TOWN needs its own number and cannot use a scaled default: the Encampment
+   * is a 19-unit footprint, so a 4.5m disc would leave oaks growing through the
+   * tents and boulders inside the palisade. Given explicitly, this radius is
+   * used for BOTH classes plus the tree margin, so a town keeps its own ground
+   * and the treeline starts a few metres outside the wall.
+   */
+  r?: number;
+};
+
+/**
+ * How far a solid prop, and a tree, must stay from a road centreline.
+ *
+ * The road is 5.6 units wide and its earthworks reach 13, so these are not about
+ * the carriageway being blocked — nothing collides with a tree's crown — but
+ * about what a road LOOKS like. A boulder half-buried in the verge reads as a
+ * bug, and an oak rooted 7 metres out puts a ten-metre canopy directly over the
+ * road, which is the same "the near crown fills the frame" problem TREE_CLEAR_R2
+ * was raised for. Beyond these the forest closes back in, which is what makes
+ * the corridor read as cut.
+ */
+const ROAD_SOLID_CLEAR = 7.5;
+const ROAD_TREE_CLEAR = 12;
+/**
+ * Soft props — grass, flowers, sprigs — stop at the ribbon's rim.
+ *
+ * The one place in this world where a blanket soft exclusion is right. Soft
+ * props are otherwise never held back (see Exclusion: a bare disc reads as a
+ * bug), but a carriageway with meadow tussocks growing out of it is not a road,
+ * and the ribbon covers the ground here anyway so there is no bald patch to
+ * leave behind. DECK_EDGE + 0.4, so the sward closes right up to the verge.
+ */
+const ROAD_SOFT_CLEAR = 5.4;
+
+/** What `buildChunkProps` needs to know about the road network, and no more. */
+export interface RoadClearance {
+  distanceTo(x: number, z: number): number;
+}
 
 /** Squared clearance radius for solid occluders (~4.5m). */
 const SOLID_CLEAR_R2 = 20;
@@ -1867,6 +1941,7 @@ export function buildChunkProps(
   terrain: Terrain,
   lib: PropLib,
   exclusions: readonly Exclusion[],
+  roads: RoadClearance | null = null,
 ): ChunkProps {
   const rng = mulberry32(Math.floor(hashCell(terrain.seed, cx, 91, cz) * 0xffffffff));
   const solid = new Accum();
@@ -1879,21 +1954,31 @@ export function buildChunkProps(
   /** Occluders (trees/rocks/hedges/logs/cacti) keep a small disc clear. */
   const exSolid = (wx: number, wz: number): boolean => {
     for (let i = 0; i < exclusions.length; i++) {
-      const dx = wx - exclusions[i].x;
-      const dz = wz - exclusions[i].z;
-      if (dx * dx + dz * dz < SOLID_CLEAR_R2) return true;
+      const e = exclusions[i];
+      const dx = wx - e.x;
+      const dz = wz - e.z;
+      const r2 = e.r === undefined ? SOLID_CLEAR_R2 : e.r * e.r;
+      if (dx * dx + dz * dz < r2) return true;
     }
-    return false;
+    return roads !== null && roads.distanceTo(wx, wz) < ROAD_SOLID_CLEAR;
   };
 
   /** Trees keep a far wider disc than any other occluder — see TREE_CLEAR_R2. */
   const exTree = (wx: number, wz: number): boolean => {
     for (let i = 0; i < exclusions.length; i++) {
-      const dx = wx - exclusions[i].x;
-      const dz = wz - exclusions[i].z;
-      if (dx * dx + dz * dz < TREE_CLEAR_R2) return true;
+      const e = exclusions[i];
+      const dx = wx - e.x;
+      const dz = wz - e.z;
+      // A town's own radius plus a CROWN's reach, not a trunk's. Measured at
+      // +4 (_town-camp-in2.png): oaks rooted 25 units from the Encampment's
+      // centre hung their canopies four metres inside the palisade, so the camp
+      // was roofed over by a forest that was technically outside it. A crown is
+      // 7-10 units across, hence +9.
+      const r = e.r === undefined ? 0 : e.r + 9;
+      const r2 = e.r === undefined ? TREE_CLEAR_R2 : r * r;
+      if (dx * dx + dz * dz < r2) return true;
     }
-    return false;
+    return roads !== null && roads.distanceTo(wx, wz) < ROAD_TREE_CLEAR;
   };
 
   /** Grass/flowers/shells: only 'all' discs stop them. */
@@ -1904,7 +1989,7 @@ export function buildChunkProps(
       const dz = wz - exclusions[i].z;
       if (dx * dx + dz * dz < SOLID_CLEAR_R2) return true;
     }
-    return false;
+    return roads !== null && roads.distanceTo(wx, wz) < ROAD_SOFT_CLEAR;
   };
 
   const flatEnough = (wx: number, wz: number, h: number, tol: number): boolean =>

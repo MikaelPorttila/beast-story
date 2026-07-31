@@ -78,6 +78,13 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
         const d = Math.hypot(s.x - x, s.z - z);
         if (d < 12) shopPenalty += 12 - d;
       }
+      // A town is a far bigger object than a den, so its penalty is its own
+      // footprint plus the arch's clearance rather than a fixed 12.
+      for (const t of w.towns.all) {
+        const keep = t.radius + 10;
+        const d = Math.hypot(t.x - x, t.z - z);
+        if (d < keep) shopPenalty += (keep - d) * 3;
+      }
       const score = worst * 3 + shopPenalty;
       if (score < bestScore) { bestScore = score; best = { x, z }; }
       if (score === 0) return best;
@@ -173,6 +180,18 @@ function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: num
   hud.setCompassMarkers([
     // Dens in the shard-shop amber the hint pill and price tags already use.
     ...w.shopPositions.map((s, i) => ({ id: `den${i}`, x: s.x, z: s.z, color: 0xffd23f })),
+    // TOWNS, straight off the registry — one line, and it is the same list a
+    // quest would enumerate. The chip points at the GATE rather than the centre
+    // because that is where you actually have to arrive, and it carries the
+    // town's own colour so the strip distinguishes them. The label is the first
+    // four characters of the id, which is all a chip has room for.
+    ...w.towns.all.map((t) => ({
+      id: `town:${t.id}`,
+      x: t.gateX,
+      z: t.gateZ,
+      color: t.color,
+      label: t.id.slice(0, 4).toUpperCase(),
+    })),
     // The gateway takes the colour of its own arch, so the chip and the thing
     // it points at are the same object on screen.
     { id: 'gate', x: gateX, z: gateZ, color: gateHex, label: 'GATE' },
@@ -945,6 +964,32 @@ function warmUpShaders(): void {
   const POOL = 10; // VFX light pool cap
   for (let i = 1; i < POOL; i++) warmUpFrame(_warmStage, 1);
 
+  // THE TOWNS AND THE ROADS. They are built at world creation and stand
+  // hundreds of units from spawn, so the staged render above — a 250-unit-high
+  // view framing roughly a 130-unit radius — never draws them.
+  //
+  // Two costs would otherwise land on the frame the player first sees the camp.
+  // The obvious one is the GLOW material (the only new program this whole
+  // feature adds): campfire, braziers, lamps and the forge share it, and it is
+  // linked the first time any of them is drawn. The bigger one is BUFFER
+  // UPLOAD — three uploads a geometry's vertex data on its first draw, and the
+  // Encampment alone is ~100k vertices — which is the same reason warmUpFrame
+  // stages a zone from high and wide rather than from eye level (see its note).
+  //
+  // One frame per site is enough: an upload is per GEOMETRY, not per triangle in
+  // frustum, so a mesh drawn at all is a mesh fully resident.
+  for (const t of world.towns.all) {
+    _warmStage.set(t.x, world.getHeight(t.x, t.z) + 1, t.z);
+    warmUpFrame(_warmStage, 0);
+  }
+  for (const r of world.towns.roads) {
+    const m = Math.floor(r.path.length / 6) * 3;
+    _warmStage.set(r.path[m], r.path[m + 1] + 1, r.path[m + 2]);
+    warmUpFrame(_warmStage, 0);
+  }
+  _warmStage.copy(world.spawnPoint);
+  _warmStage.y += 1;
+
   // The two underwater programs (screen tint, bubbles). They are drawn by
   // nothing above — the camera is in the air at boot, so the sweep never touches
   // them — and the frame they would otherwise link on is the frame the hero's
@@ -1274,6 +1319,85 @@ frame();
 
 // Profiler dump for the perf harness; null unless ?perf=1 recorded anything.
 (window as unknown as { __dbgPerf: () => unknown }).__dbgPerf = () => perf.dump();
+
+/**
+ * The settled world, exactly as a quest system would see it: the registry, plus
+ * the road polylines with the SURFACE height sampled under every deck sample.
+ *
+ * That last part is the whole assertion behind "a carved road is walkable". A
+ * road's deck is a continuous surface where the rest of the world is floored to
+ * whole units (see Terrain.getHeight), so what has to be shown is that walking
+ * one never meets a rise the hero cannot step over: `maxStep` is the largest
+ * upward change in `world.getHeight` between two points 0.25 units apart along
+ * the deck, and MAX_STEP_UP is 0.5. Read-only, allocates, never called from the
+ * frame loop.
+ */
+(window as unknown as { __dbgTowns: () => unknown }).__dbgTowns = () => ({
+  spawn: {
+    x: +world.spawnPoint.x.toFixed(2),
+    y: +world.spawnPoint.y.toFixed(2),
+    z: +world.spawnPoint.z.toFixed(2),
+  },
+  towns: world.towns.all.map((t) => ({
+    id: t.id,
+    name: t.name,
+    kind: t.kind,
+    x: +t.x.toFixed(1), y: t.y, z: +t.z.toFixed(1),
+    radius: t.radius,
+    gate: { x: +t.gateX.toFixed(1), z: +t.gateZ.toFixed(1) },
+    gateBearingDeg: +((t.gateAngle * 180) / Math.PI).toFixed(1),
+    fromSpawn: +Math.hypot(t.x - world.spawnPoint.x, t.z - world.spawnPoint.z).toFixed(1),
+  })),
+  roads: world.towns.roads.map((r) => {
+    const n = r.path.length / 3;
+    let len = 0;
+    let maxStep = 0;
+    let maxGrade = 0;
+    /** Deck samples standing over open water — i.e. the bridges. */
+    const spans: Array<{ x: number; z: number; y: number }> = [];
+    let prevH = world.getHeight(r.path[0], r.path[2]);
+    for (let i = 1; i < n; i++) {
+      const ax = r.path[(i - 1) * 3];
+      const az = r.path[(i - 1) * 3 + 2];
+      const bx = r.path[i * 3];
+      const bz = r.path[i * 3 + 2];
+      const seg = Math.hypot(bx - ax, bz - az);
+      len += seg;
+      // Sample the walking surface finely, not just at the deck samples: a step
+      // is a property of the surface between them.
+      const steps = Math.max(1, Math.ceil(seg / 0.25));
+      for (let k = 1; k <= steps; k++) {
+        const t = k / steps;
+        const x = ax + (bx - ax) * t;
+        const z = az + (bz - az) * t;
+        const h = world.getHeight(x, z);
+        const rise = h - prevH;
+        if (rise > maxStep) maxStep = rise;
+        const g = Math.abs(rise) / (seg / steps);
+        if (g > maxGrade) maxGrade = g;
+        prevH = h;
+      }
+      if (r.bridge[i - 1]) {
+        spans.push({
+          x: +ax.toFixed(1), z: +az.toFixed(1),
+          y: +r.path[(i - 1) * 3 + 1].toFixed(2),
+        });
+      }
+    }
+    return {
+      id: r.id, from: r.from, to: r.to,
+      length: +len.toFixed(1),
+      samples: n,
+      /** Largest upward change in the walking surface over 0.25 units. */
+      maxStep: +maxStep.toFixed(3),
+      maxGrade: +maxGrade.toFixed(3),
+      /** Deck height where it is lowest — never under the waterline. */
+      minDeckY: +Math.min(...Array.from({ length: n }, (_, i) => r.path[i * 3 + 1])).toFixed(2),
+      bridge: spans,
+      path: Array.from(r.path, (v) => +v.toFixed(1)),
+    };
+  }),
+});
 
 // World surface queries at an arbitrary column, for the climbing/collision
 // tests: `ground` is what blocks and supports, `trunkSolidTop` is the bole a

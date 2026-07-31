@@ -12,6 +12,9 @@
  *   enemies=0   no wild spawns
  *   pals=0      no pal actors at all (nothing built, nothing updated)
  *   shadows=0   no shadow map
+ *   towns=0     no settlements and no roads — the world before world/towns.ts.
+ *               The terrain corridor goes with them, so this also prices what
+ *               the road field costs `heightCont` on the collision hot path.
  *   view=<n>    chunk streaming radius, in chunks (default 5)
  *
  * They are diagnostics, not game settings: nothing outside a measurement run
@@ -29,6 +32,7 @@ export const flags = {
   enemies: on('enemies'),
   pals: on('pals'),
   shadows: on('shadows'),
+  towns: on('towns'),
   /** Streaming radius in chunks; null means "use the module default". */
   viewRadius: p.get('view') !== null ? Math.max(1, Number(p.get('view'))) : null,
 };
@@ -36,4 +40,4 @@ export const flags = {
 /** True when any toggle is off its default — used to keep captures honest. */
 export const anyFlagSet = (): boolean =>
   !flags.props || !flags.clouds || !flags.water || !flags.enemies
-  || !flags.pals || !flags.shadows || flags.viewRadius !== null;
+  || !flags.pals || !flags.shadows || !flags.towns || flags.viewRadius !== null;

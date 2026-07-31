@@ -18,6 +18,41 @@ export interface FlattenDisc {
   blend: number;
 }
 
+/**
+ * The carved-road corridor, as the height field sees it.
+ *
+ * Declared HERE rather than imported from world/roads.ts so the dependency runs
+ * one way: terrain knows there is *a* road field, roads.ts knows what a Terrain
+ * is, and neither module has to import the other's implementation. Same reason
+ * `flattens` is a plain array of discs rather than a reference to the shop
+ * system that fills it.
+ *
+ * Two questions, because a road changes the ground in two different ways:
+ *
+ *  - `carveAt` is the EARTHWORKS. It answers "how strongly is the terrain here
+ *    pulled toward the roadbed, and to what height" and is folded into
+ *    `heightCont` alongside the flatten discs, so the cut through a hillside and
+ *    the embankment across a dip are real terrain that the mesher, the props and
+ *    every other height query see for free.
+ *  - `surfaceAt` is the DECK. The carriageway is a CONTINUOUS surface — the
+ *    whole point of carving a road is that you can walk it, and a floored
+ *    integer column can only ever step a whole unit, which MAX_STEP_UP (0.5)
+ *    refuses. So on the road, and only on the road, `getHeight` hands back the
+ *    smooth deck height instead of the stepped column, and ramps back onto the
+ *    column over a two-unit verge so there is no step at the edge either.
+ */
+export interface RoadField {
+  /**
+   * Carve weight 0..1 at (x, z); the target height is left in `carveTarget`,
+   * which is only meaningful when the return value is > 0. Split that way to
+   * keep the query allocation-free on the collision hot path.
+   */
+  carveAt(x: number, z: number): number;
+  readonly carveTarget: number;
+  /** The walking surface: `ground` off the road, the deck (or verge ramp) on it. */
+  surfaceAt(x: number, z: number, ground: number): number;
+}
+
 export interface RGB {
   r: number;
   g: number;
@@ -151,6 +186,17 @@ function mix(out: RGB, a: RGB, b: RGB, t: number): void {
 export class Terrain {
   readonly seed: number;
   readonly flattens: FlattenDisc[] = [];
+
+  /**
+   * The road corridor, or null in a world that has no roads.
+   *
+   * Assigned once by `createWorld` after the routes are planned, and never
+   * reassigned — the routes are planned by asking THIS terrain for its natural
+   * heights, so the field has to be absent while that happens and present
+   * forever after. Public and mutable rather than a constructor argument for
+   * exactly that ordering reason; `flattens` is filled the same way.
+   */
+  roads: RoadField | null = null;
 
   /**
    * Ground-colour drift field. Public because the chunk mesher bakes a
@@ -383,6 +429,15 @@ export class Terrain {
         h += (f.h - h) * w;
       }
     }
+    // Roads LAST, after the flatten discs, so a road running into a town is cut
+    // through whatever the town levelled rather than fighting it. The two agree
+    // anyway — a road's end height is where the town takes its own level from —
+    // but the order makes that an invariant instead of a coincidence.
+    const rf = this.roads;
+    if (rf !== null) {
+      const w = rf.carveAt(x, z);
+      if (w > 0) h += (rf.carveTarget - h) * w;
+    }
     return h < 1.2 ? 1.2 : h > 78 ? 78 : h;
   }
 
@@ -392,9 +447,54 @@ export class Terrain {
     return h < 1 ? 1 : h;
   }
 
-  /** Collision authority: stepped, matches rendered voxels exactly. */
+  /**
+   * Collision authority: stepped, and matching the rendered voxels exactly —
+   * EXCEPT on a road, where it is the continuous deck and matches the road
+   * ribbon instead.
+   *
+   * That exception is the entire point of carving a road. Flooring the height
+   * means every ledge in the world is a whole unit, and MAX_STEP_UP refuses all
+   * of them, so a road built out of terrain columns would be a staircase. The
+   * corridor hands back a smooth surface and ramps it back onto the (levelled)
+   * shoulder over the verge, so a walk down a road meets no step at all in
+   * either direction — see roads.ts.
+   *
+   * Still pure, still allocation-free, and still the single answer everything in
+   * the game resolves against: pals, enemies, drops and the camera walk the
+   * bridge over the lake for free, without any of them knowing what a bridge is.
+   */
   getHeight(x: number, z: number): number {
-    return this.columnHeight(Math.floor(x), Math.floor(z));
+    const g = this.columnHeight(Math.floor(x), Math.floor(z));
+    const rf = this.roads;
+    return rf === null ? g : rf.surfaceAt(x, z, g);
+  }
+
+  /**
+   * How SNOW-COVERED this column is, 0..1 — `columnInfo`'s `snowW` on its own,
+   * without the colour work.
+   *
+   * The same number three ways: the weight the ground colour is mixed toward
+   * SNOW with, the gate (>0.5) that makes `biome` 'snow' and puts snow-capped
+   * pines in a chunk instead of oaks, and — the reason it is public — what a
+   * caller outside the mesher needs to ask "is the thing at this column under
+   * snow". Deliberately the CONTINUUM and not the biome boolean: the snow line
+   * is a 5-unit-tall smoothstep around an altitude that itself wanders 6 units
+   * with the temperature field, so half-covered ground is a real state the world
+   * spends a lot of area in, and a caller that wants a threshold can take one.
+   *
+   * Cost: one `heightCont` plus one fbm — about the same as `getHeight`, and an
+   * eighth of a `columnInfo`. Cheap enough for a per-contact query (the contact
+   * particles ask once per burst, not once per particle), not for a per-column
+   * loop that could have used `columnInfo` and got this for free.
+   *
+   * Takes CONTINUOUS world x/z, like `heightCont` and unlike `columnInfo`, whose
+   * arguments are cell indices.
+   */
+  snowCoverAt(x: number, z: number): number {
+    const hc = this.heightCont(x, z);
+    const temp = this.tempN.fbm(x * 0.0035, z * 0.0035, 3);
+    const snowLine = 23 + temp * 6;
+    return smoothstep(snowLine - 2.5, snowLine + 2.5, hc);
   }
 
   /** Full biome/color info for one column (writes into `out`, no allocs). */

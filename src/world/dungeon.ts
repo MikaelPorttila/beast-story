@@ -571,6 +571,13 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     spawnPoint,
     /** No skill dens down here yet. */
     shopPositions: [],
+    /**
+     * Nobody LIVES in the hold, so its registry is permanently empty. That is a
+     * real answer rather than a stub: a quest that asks the active zone what
+     * towns it has gets "none" and behaves, instead of the caller having to know
+     * which zone it is in before it may ask.
+     */
+    towns: { all: [], roads: [], get: () => undefined, nearest: () => null },
     get chunksLoaded(): number { return chunks.size; },
     get streaming(): boolean { return building !== null || queue.length > 0; },
 
@@ -597,6 +604,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     /** No canopy either, so nothing here is ever brushed for leaves. */
     crownContactAt(): boolean { return false; },
     isWater(): boolean { return false; },
+    /** It does not snow in a hold cut out of rock. */
+    snowCoverAt(): number { return 0; },
     /** Nothing but terrain here, and debugColliders deliberately excludes it. */
     debugColliders(): void { /* no discrete colliders in the hold */ },
 

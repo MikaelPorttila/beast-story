@@ -141,6 +141,24 @@ without touching loaded chunks. `createWorld()` streams 32-unit chunks around th
 focus (`VIEW_RADIUS` 5, 1–2 builds per frame) and assembles terrain + water +
 props + skill dens + clouds behind the `World` interface.
 
+**Towns and roads.** [src/world/towns.ts](src/world/towns.ts) sites the named
+settlements, cuts the roads between them and picks the player's spawn — a point
+on the road to the start town, not in it. Towns are OVERWORLD LANDMARKS, not
+zones: you walk in and out and nothing loads. The `TownRegistry` it returns is
+on the `World` contract (`world.towns`), and everything else is derived from it —
+the roads, the spawn, the compass chips, and whatever a quest system asks next;
+nothing outside these files reads town geometry. Roads are CARVED:
+[src/world/roads.ts](src/world/roads.ts) folds a corridor into `heightCont` and
+makes `getHeight` return a CONTINUOUS deck inside the carriageway, because a
+floored column can only step a whole unit and `MAX_STEP_UP` is 0.5 — read the
+header there before touching either. All of it (both towns' meshes, the road
+ribbons, the lamps, fences, fingerposts and bridges) is built ONCE at world
+creation on the shared prop/terrain materials, so the chunk streamer is
+untouched; [src/world/town-parts.ts](src/world/town-parts.ts) holds the voxel
+builders and the three rules they obey. `towns=0` removes the lot, and
+`__dbgTowns()` reports the registry plus each road's measured worst step and
+grade.
+
 **Pals.** Each species is one self-contained file in `src/pals/species/` exporting
 `species: PalSpecies` and `skills: SkillDef[]`, building its body with `VoxelModel`
 ([src/core/voxel.ts](src/core/voxel.ts)) and animating procedurally in

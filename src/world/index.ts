@@ -3,12 +3,14 @@
  * skill dens + sky ambience, exposed through the shared World contract.
  */
 import * as THREE from 'three';
-import type { CrownContact, World } from '../core/types';
+import type { CrownContact, TownRegistry, World } from '../core/types';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
 import { buildWaterMesh, createWaterMaterial } from './water';
 import { PropLib, buildChunkProps, TREE_STRIDE, type Exclusion } from './props';
 import { Shops, type DenSpot } from './shops';
+import { Towns, planSettlements } from './towns';
+import { TownParts } from './town-parts';
 import { Clouds, Motes } from './clouds';
 import { mulberry32 } from './noise';
 import { perf } from '../core/profiler';
@@ -64,6 +66,13 @@ const CROWN_MARGIN = 6;
 
 // ---------------------------------------------------------------------------
 // Spawn search: scenic flat grass, above water, with water in walking range.
+//
+// SUPERSEDED for the overworld, and kept because it is the fallback and because
+// it is the only thing that answers "somewhere sane to stand" without a road
+// network. The hero now starts on the ROAD to the Encampment (see
+// `pickRoadSpawn` in towns.ts) — a town does not own the spawn point, and the
+// spawn point is not in the town. This runs only if the settlement planner
+// somehow hands back a spot in the water, which its own scoring already refuses.
 // ---------------------------------------------------------------------------
 function findSpawn(terrain: Terrain): THREE.Vector3 {
   const sc = makeScratch();
@@ -150,9 +159,22 @@ const DEN_RINGS = [18, 34, 50, 66];
 const DEN_SEP2 = 27 * 27;
 const DEN_SPAWN_SEP2 = 15 * 15;
 
-function placeShops(terrain: Terrain, spawn: THREE.Vector3, seed: number): DenSpot[] {
+function placeShops(
+  terrain: Terrain, spawn: THREE.Vector3, seed: number, towns: TownRegistry,
+): DenSpot[] {
   const rng = mulberry32(seed ^ 0x5158);
   const spots: DenSpot[] = [];
+
+  /** A den may not land inside a town — the town owns that ground. */
+  const inTown = (x: number, z: number): boolean => {
+    for (const t of towns.all) {
+      const dx = t.x - x;
+      const dz = t.z - z;
+      const r = t.radius + 9;
+      if (dx * dx + dz * dz < r * r) return true;
+    }
+    return false;
+  };
 
   const commit = (x: number, z: number): void => {
     const h = Math.max(Math.floor(terrain.heightCont(x, z)), WATER_LEVEL + 1);
@@ -174,6 +196,7 @@ function placeShops(terrain: Terrain, spawn: THREE.Vector3, seed: number): DenSp
       const z = Math.round(spawn.z + Math.cos(ang) * dist) + 0.5;
       const hc = terrain.heightCont(x, z);
       if (hc < WATER_LEVEL + 0.8) continue;
+      if (inTown(x, z)) continue;
       const sx = x - spawn.x;
       const sz = z - spawn.z;
       if (sx * sx + sz * sz < DEN_SPAWN_SEP2) continue;
@@ -208,6 +231,13 @@ export interface LandmarkProbe {
   readonly spawnPoint: THREE.Vector3;
   readonly waterLevel: number;
   readonly shopPositions: THREE.Vector3[];
+  /**
+   * The towns, so a landmark chooser can keep out of one. The zone gateway is
+   * placed 31-42 units from spawn and spawn is now a point on the road ~52 units
+   * from the Encampment, so without this the arch had a real chance of standing
+   * in the middle of the camp.
+   */
+  readonly towns: TownRegistry;
   getHeight(x: number, z: number): number;
 }
 
@@ -231,10 +261,29 @@ export function createWorld(
   const waterMat = createWaterMaterial();
   const propLib = new PropLib();
 
-  const spawnPoint = findSpawn(terrain);
-  const spots = placeShops(terrain, spawnPoint, seed);
+  // TOWNS AND ROADS FIRST, and the order inside `planSettlements` is load
+  // bearing: it routes against the NATURAL height field, then installs the
+  // corridor on the terrain. Everything after this line — the spawn, the dens,
+  // the gateway, every chunk — sees a world that already has roads cut into it.
+  const plan = flags.towns ? planSettlements(terrain, seed) : null;
+  const townReg: TownRegistry = plan
+    ? plan.towns
+    : { all: [], roads: [], get: () => undefined, nearest: () => null };
+  const spawnPoint = plan ? plan.spawn : findSpawn(terrain);
+  // The planner scores its candidates dry, so this is a guard rather than a
+  // path: if a seed ever produced no usable stretch of road, fall back to the
+  // old scenic-clearing search rather than starting the player in a lake.
+  if (terrain.getHeight(spawnPoint.x, spawnPoint.z) < WATER_LEVEL) {
+    spawnPoint.copy(findSpawn(terrain));
+  }
+  spawnPoint.y = terrain.getHeight(spawnPoint.x, spawnPoint.z);
+
+  const spots = placeShops(terrain, spawnPoint, seed, townReg);
   const shops = new Shops(spots, spawnPoint);
   scene.add(shops.group);
+
+  const towns = plan ? new Towns(plan, new TownParts(), propLib, terrainMat, seed) : null;
+  if (towns) scene.add(towns.group);
 
   const clouds = flags.clouds ? new Clouds(seed) : null;
   if (clouds) scene.add(clouds.group);
@@ -251,6 +300,7 @@ export function createWorld(
     spawnPoint,
     waterLevel: WATER_LEVEL,
     shopPositions: shops.positions,
+    towns: townReg,
     getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
   }) ?? [];
   for (const s of sites) {
@@ -264,6 +314,12 @@ export function createWorld(
     { x: spawnPoint.x, z: spawnPoint.z, kind: 'solid' },
     ...spots.map((s): Exclusion => ({ x: s.x, z: s.z, kind: 'solid' })),
     ...sites.map((s): Exclusion => ({ x: s.x, z: s.z, kind: 'solid' })),
+    // A town gets its whole footprint, plus a couple of metres of yard. Grass
+    // and flowers still grow inside the palisade — only the occluders are held
+    // off — which is what stops the camp floor reading as a bald disc.
+    ...townReg.all.map((t): Exclusion => ({
+      x: t.x, z: t.z, kind: 'solid', r: t.radius + 2.5,
+    })),
   ];
 
   const chunks = new Map<string, ChunkRec>();
@@ -324,7 +380,7 @@ export function createWorld(
       }
     } else {
       if (!flags.props) return;
-      const props = buildChunkProps(cx, cz, terrain, propLib, exclusions);
+      const props = buildChunkProps(cx, cz, terrain, propLib, exclusions, plan?.network ?? null);
       for (const m of [props.solid, props.soft]) {
         if (m) {
           rec.meshes.push(m);
@@ -392,6 +448,7 @@ export function createWorld(
     waterLevel: WATER_LEVEL,
     spawnPoint,
     shopPositions: shops.positions,
+    towns: townReg,
     get chunksLoaded(): number { return chunks.size; },
     // A part-built chunk counts: its props stage has not run, so its trees are
     // not in the trunk registry yet and walking in would find no colliders.
@@ -523,6 +580,10 @@ export function createWorld(
       return false;
     },
     isWater: (x: number, z: number): boolean => terrain.getHeight(x, z) < WATER_LEVEL,
+    // Straight through to the terrain field, like getHeight: snow cover is a
+    // pure function of the column and owes nothing to what is loaded, so a
+    // caller can ask about a tree at the edge of the streamed radius.
+    snowCoverAt: (x: number, z: number): number => terrain.snowCoverAt(x, z),
 
     /**
      * Every loaded trunk collider, appended to `out` as
@@ -550,6 +611,7 @@ export function createWorld(
       clouds?.update(focus, dt);
       motes?.update(focus, time, dt);
       shops.update(time);
+      towns?.update(time, focus);
 
       const fcx = Math.floor(focus.x / CHUNK_SIZE);
       const fcz = Math.floor(focus.z / CHUNK_SIZE);
@@ -587,6 +649,9 @@ export function createWorld(
       // The den lamps live under shops.group, so this is also what takes the
       // world's four point lights out of the scene's light count. See World.
       shops.group.visible = v;
+      // The towns add no lights at all (see town-parts.ts), so this is purely
+      // about not drawing an overworld camp into a dungeon's warm-up render.
+      if (towns) towns.group.visible = v;
       if (clouds) clouds.group.visible = v;
       if (motes) motes.points.visible = v;
     },
@@ -621,6 +686,10 @@ export function createWorld(
       trunks.clear();
       scene.remove(shops.group);
       shops.dispose();
+      if (towns) {
+        scene.remove(towns.group);
+        towns.dispose();
+      }
       if (clouds) {
         scene.remove(clouds.group);
         clouds.dispose();

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { World } from '../core/types';
+import type { TownRegistry, World } from '../core/types';
 
 /**
  * Minimal World implementation for the lab: a flat (optionally water-filled)
@@ -24,6 +24,8 @@ export class StubWorld implements World {
 
   readonly waterLevel: number;
   readonly shopPositions: THREE.Vector3[] = [];
+  /** The stage is not a place; it has no settlements. */
+  readonly towns: TownRegistry = { all: [], roads: [], get: () => undefined, nearest: () => null };
   readonly spawnPoint = new THREE.Vector3(0, 0, 0);
   /** The stage is one mesh built in the constructor: nothing ever streams. */
   readonly chunksLoaded = 1;
@@ -84,6 +86,9 @@ export class StubWorld implements World {
   isWater(): boolean {
     return this.waterLevel > this.groundY;
   }
+
+  /** The stage has no weather: nothing on it is ever under snow. */
+  snowCoverAt(): number { return 0; }
 
   update(): void {
     /* nothing streams in the lab */

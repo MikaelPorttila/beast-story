@@ -158,6 +158,81 @@ export interface CrownContact {
   crownRy: number;
 }
 
+/**
+ * A named place on the map — the whole of what anything outside world/towns.ts
+ * is allowed to know about a settlement.
+ *
+ * This is the QUEST-FACING contract and it is deliberately geometry-free: an
+ * objective that wants to send the player to Stonewatch needs an id to key on, a
+ * name to print, a point to aim a marker at and a radius to test arrival
+ * against, and none of those require it to know that a town is a merged voxel
+ * mesh or that its ground is a flatten disc. `gateX`/`gateZ` are here for the
+ * same reason — "arrive at the gate" is a better objective than "arrive at the
+ * centroid", and computing it from the road network is not something a quest
+ * should be doing.
+ */
+export interface TownInfo {
+  /** Stable across sessions and seeds; what a quest stores. */
+  readonly id: string;
+  /** Display name, e.g. "The Encampment". */
+  readonly name: string;
+  /** 'camp' is the walled start town; 'hamlet' is an open settlement. */
+  readonly kind: 'camp' | 'hamlet';
+  readonly x: number;
+  /** Levelled ground height at the centre. */
+  readonly y: number;
+  readonly z: number;
+  /** Footprint: inside this radius of (x, z) you are in the town. */
+  readonly radius: number;
+  /** The one road entrance, and the bearing atan2(dx, dz) it lies on. */
+  readonly gateX: number;
+  readonly gateZ: number;
+  readonly gateAngle: number;
+  /** Map/compass chip colour, 0xRRGGBB. */
+  readonly color: number;
+}
+
+/**
+ * Every town in a world. Empty in zones that have none.
+ *
+ * Three methods and no more, because those are the three questions asked of it:
+ * enumerate them (a map screen, a fast-travel list), resolve one by id (a quest
+ * objective), and find the one you are standing in or nearest to (an arrival
+ * test, a "you have discovered..." toast).
+ */
+export interface TownRegistry {
+  readonly all: readonly TownInfo[];
+  get(id: string): TownInfo | undefined;
+  nearest(x: number, z: number): TownInfo | null;
+  /**
+   * The roads BETWEEN those towns, each as its deck polyline flattened to
+   * [x0, y0, z0, x1, y1, z1, ...].
+   *
+   * Here rather than buried in the world implementation because a road is a
+   * gameplay object in the same way a town is: an escort that has to follow one,
+   * a patrol that spawns along one, a "meet me at the crossway" objective, and —
+   * today — the road tests, which walk the polyline asserting that the surface
+   * under it never steps more than the hero can walk up. Flat numbers rather
+   * than points because the consumer is usually iterating, and this is the same
+   * layout the chunk trunk registry uses for the same reason.
+   *
+   * `from`/`to` are town ids, or 'junction' for the fork the network hangs off.
+   */
+  readonly roads: ReadonlyArray<{
+    readonly id: string;
+    readonly from: string;
+    readonly to: string;
+    readonly path: Float32Array;
+    /**
+     * 1 where the matching `path` sample is a BRIDGE — the deck stands over open
+     * water and the ground under it was left as lake bed. Parallel to `path`
+     * rather than a list of spans because every consumer walks the polyline
+     * anyway, and "is this bit of road a bridge" is the question they ask.
+     */
+    readonly bridge: Uint8Array;
+  }>;
+}
+
 export interface World {
   /** Terrain height at world xz (top surface, in world units) */
   getHeight(x: number, z: number): number;
@@ -220,6 +295,23 @@ export interface World {
    * answer to "what did I just walk into".
    */
   crownContactAt(x: number, y: number, z: number, radius: number, out: CrownContact): boolean;
+  /**
+   * How SNOW-COVERED this column is, 0..1. 0 in a zone that has no weather at
+   * all (the dungeon, the lab stage).
+   *
+   * A CONTINUUM, not a biome flag, and that is the whole reason it is on the
+   * interface: the overworld's snow line is a smoothstep several units tall
+   * around an altitude that itself wanders with temperature, so "under snow" is
+   * a weight, and anything reacting to it — the contact particles mix snow into
+   * whatever an element sheds in proportion to this — gets to fade in over the
+   * treeline instead of snapping on at a threshold. A caller that genuinely
+   * wants the boolean can compare against 0.5, which is where `BiomeId` cuts.
+   *
+   * Deliberately narrow. The alternative was exposing the whole column record,
+   * which would have put the mesher's colour scratch in the cross-module
+   * contract to serve one number.
+   */
+  snowCoverAt(x: number, z: number): number;
   /** Water surface level (constant) */
   readonly waterLevel: number;
   isWater(x: number, z: number): boolean;
@@ -238,6 +330,11 @@ export interface World {
   debugColliders(out: number[]): void;
   /** Positions of interest (skill dens / shops) */
   readonly shopPositions: THREE.Vector3[];
+  /**
+   * The named settlements in this zone, and the only sanctioned way to ask
+   * where one is. See TownRegistry.
+   */
+  readonly towns: TownRegistry;
   /** Good spawn point on land */
   readonly spawnPoint: THREE.Vector3;
   /**
