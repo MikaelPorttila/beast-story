@@ -334,6 +334,28 @@ export const en = {
   'touch.jump': 'JUMP',
   'touch.interact': 'USE',
   'touch.swap': 'SWAP',
+
+  // ---- start menu ----------------------------------------------------------
+  // The title screen in src/ui/menu.ts. The game's own name is deliberately NOT
+  // here: it is the logo artwork (public/menu-logo.webp), which is a picture of
+  // the words and cannot be translated by editing this file. `menu.title` is the
+  // logo's alt text, which is all a screen reader gets of it.
+  'menu.title': 'Beast Story: Bonds of Red',
+  'menu.pressStart': 'Press start...',
+  'menu.newGame': 'New Game',
+  'menu.load': 'Load',
+  /** Sits under Load, which is inert until there is a save system to load from. */
+  'menu.load.unavailable': 'No saved game',
+  'menu.settings': 'Settings',
+  'menu.back': 'Back',
+  'menu.settings.title': 'Settings',
+  'menu.settings.invertX': 'Invert look X',
+  'menu.settings.invertY': 'Invert look Y',
+  /** Both toggles are pad-only, and saying so stops them reading as mouse bugs. */
+  'menu.settings.controllerNote': 'Controller only — the mouse is never inverted.',
+  'menu.settings.language': 'Language',
+  'menu.on': 'ON',
+  'menu.off': 'OFF',
 } as const;
 
 /**

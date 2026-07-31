@@ -91,4 +91,35 @@ export const sv: Translation = {
   'toast.fetched': '{beast} hämtade {item} ({n})',
   'toast.enteredZone': 'Du kom fram till {zone}',
   'toast.beastTakesLead': '{beast} tar ledningen!',
+
+  // The start menu is translated in FULL, and that is a deliberate exception to
+  // this file's "leave a hole" rule. The menu is where the language picker
+  // lives, so it is the surface a player watches while switching: a half
+  // English menu there reads as a broken switch rather than as the fallback
+  // doing its job. The fallback proof is untouched — the beasts, the skills and
+  // the zone names above still have their holes.
+  //
+  // The game's NAME is not here because it is not a string: the logo is
+  // artwork. `menu.title` is its alt text, and it is translated because a
+  // screen reader is the one place the name IS a string.
+  'menu.title': 'Beast Story: Bonds of Red',
+  'menu.pressStart': 'Tryck på start...',
+  'menu.newGame': 'Nytt spel',
+  'menu.load': 'Ladda',
+  'menu.load.unavailable': 'Inget sparat spel',
+  'menu.settings': 'Inställningar',
+  'menu.back': 'Tillbaka',
+  'menu.settings.title': 'Inställningar',
+  'menu.settings.invertX': 'Invertera sikte X',
+  'menu.settings.invertY': 'Invertera sikte Y',
+  'menu.settings.controllerNote': 'Gäller bara handkontroll — musen inverteras aldrig.',
+  'menu.settings.language': 'Språk',
+  'menu.on': 'PÅ',
+  'menu.off': 'AV',
+
+  // The fullscreen offer, which the menu now asks as its own step on a phone —
+  // the first thing a Swedish player is asked, so it cannot be a hole either.
+  'fs.prompt': 'Spela i helskärm?',
+  'fs.yes': 'JA',
+  'fs.no': 'NEJ',
 };

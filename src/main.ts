@@ -12,7 +12,7 @@ import {
   type World, type WorldBound,
 } from './core/types';
 import { Inventory, itemDef, itemName } from './core/items';
-import { t } from './i18n';
+import { t, onLanguageChange } from './i18n';
 import { perf } from './core/profiler';
 import { flags } from './core/flags';
 import { DevConsole } from './ui/console';
@@ -28,7 +28,7 @@ import { MountController } from './player/mount';
 import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem } from './combat/index';
 import { HUD, kbd, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
-import { FullscreenPrompt } from './ui/fullscreen';
+import { StartMenu } from './ui/menu';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
 const app = document.getElementById('app')!;
@@ -110,11 +110,18 @@ let gateSite: { x: number; z: number } | null = null;
 
 // The zone ID is the identifier — 'overworld' is what ZoneManager, the gate
 // targets and `/zone <id>` all key on, and it does not change. Only `name` is
-// display, so it comes out of the string table (resolved once, at load, which is
-// also when the language is resolved).
+// display, so it comes out of the string table.
+//
+// A GETTER, not a stored string, and that is the point: the start menu can
+// change the language after these objects are built, and a name captured at
+// load would put "Embervale" in a Swedish arrival toast forever. `name` is read
+// when a zone is entered — twice a session, not per frame — so looking it up at
+// each read costs nothing and cannot go stale. The zones are the only load-time
+// strings that get this treatment rather than the `onLanguageChange` re-derive
+// below, because they are the only ones behind an interface someone else owns.
 const OVERWORLD: ZoneDef = {
   id: 'overworld',
-  name: t('zone.overworld.name'),
+  get name() { return t('zone.overworld.name'); },
   create: (scene) => createWorld(scene, 1337, (probe) => {
     gateSite = findGateSpot(probe);
     return [gateSite];
@@ -124,7 +131,7 @@ const OVERWORLD: ZoneDef = {
 
 const HOLD: ZoneDef = {
   id: 'hold',
-  name: t('zone.hold.name'),
+  get name() { return t('zone.hold.name'); },
   create: (scene) => createDungeon(scene, 0x5ea1ed),
   // The way out stands on the way in: you arrive on the return gateway, which
   // is exactly why it starts disarmed (see EXIT_R in world/zones.ts).
@@ -137,15 +144,20 @@ const bound: WorldBound[] = [];
 let portalHint: string | null = null;
 
 /**
- * The interact prompt, composed ONCE at load.
+ * The interact prompt, composed once at load and again on a language change.
  *
  * The hint pill is HTML and the key cap arrives inside the `{key}` placeholder
  * (see HUD.showHint and `kbd`), so this is a `t(key, vars)` call — which
  * allocates. It is hoisted out of the frame loop for exactly that reason: the
- * text never changes, and the loop below runs it every frame the hero is stood
- * near a den. Same argument as SHOP_FOOT_HINTS in src/ui/index.ts.
+ * loop below runs it every frame the hero is stood near a den. Same argument as
+ * SHOP_FOOT_HINTS in src/ui/index.ts.
+ *
+ * A `let` rather than a `const` only because the start menu can now change the
+ * language under it — see `onLanguageChange` below, which is the ONE place that
+ * writes it. It is still composed a handful of times per session, never per
+ * frame.
  */
-const SKILL_DEN_HINT = t('hint.skillDen', { key: kbd('E') });
+let skillDenHint = t('hint.skillDen', { key: kbd('E') });
 
 const zones = new ZoneManager({
   scene: engine.scene,
@@ -615,6 +627,31 @@ let photoAnimTimer = 0;
 // so nothing is added to the DOM and there is no per-frame cost).
 const touch = photoMode ? null : TouchControls.attach(input);
 
+// ---------------------------------------------------------------------------
+// The display language can change while the game is running — the start menu's
+// Settings picker calls `setLanguage`. Almost nothing needs to hear about it,
+// because almost every string in this file is looked up on its way to the HUD
+// each slice and arrives translated on its own. What is listed here is the
+// exhaustive set of places that CAPTURED a string earlier and would otherwise
+// hold yesterday's language:
+//
+//   - the two composed hint pills and the dialogue footer above, which are
+//     hoisted out of the frame loop precisely because they allocate;
+//   - the per-NPC prompt cache, which is keyed by person, not by language;
+//   - the HUD's and the touch overlay's own baked-in captions, each of which
+//     knows its own list (see `relabel` in both).
+//
+// The zone names are absent on purpose: they are getters now, so they cannot go
+// stale. Nothing here runs per frame; this fires when a player picks a language.
+// ---------------------------------------------------------------------------
+onLanguageChange(() => {
+  skillDenHint = t('hint.skillDen', { key: kbd('E') });
+  dialogueFoot = t('npc.dialogue.close', { key: kbd('E') });
+  npcHints.clear();
+  hud.relabel();
+  touch?.relabel();
+});
+
 // Gamepad: non-null wherever the API exists, whether or not anything is plugged
 // in yet — a pad can arrive mid-session and the connect listener has to be live
 // to catch it. It stays free until one does; see core/gamepad.ts.
@@ -640,18 +677,49 @@ const feedback = photoMode ? null : new FeedbackSystem({
   shakeIntensity: flags.shake ?? prefs.shakeIntensity,
 });
 
-// "Play fullscreen?" — null on desktop, on browsers with no Fullscreen API, and
-// once the player has answered (see ui/fullscreen.ts for the whole gate).
+// ---------------------------------------------------------------------------
+// The title screen.
 //
-// It deliberately does NOT get the shop's modal treatment: `simulate()` freezes
-// the hero while a shop or the console is open because those TAKE the input
-// device, and this pill takes nothing but its own 330x50 of screen. It shows up
-// next to the welcome toast, so stopping the world for a display preference
-// would be a much heavier interruption than the question deserves — the sticks
-// stay live under it and a player who ignores it can just walk off.
-// No handle is kept: the pill owns its own lifetime — either button deletes the
-// node — and nothing in the frame loop has anything to say to it.
-if (!photoMode) FullscreenPrompt.offer();
+// It is the FIRST thing on screen and the game does not begin until it says so:
+// `menuOpen()` below stands the hero down every slice while it is up. The world
+// keeps streaming behind it, which is the entire reason it is a gate rather
+// than a separate page — by the time New Game is pressed the chunks around
+// spawn are built, so the poster fades onto a world that is already there
+// instead of onto a hitch.
+//
+// The "play fullscreen?" pill USED to be raised here, on the game's first
+// frame, next to the welcome toast. The menu owns it now, as its own step
+// straight after "Press start..." (ui/menu.ts), which is both a better moment
+// to ask and the reason the pill stopped remembering an answer — see the header
+// of ui/fullscreen.ts.
+//
+// Null in photo mode, and null under `menu=0`, which is what every probe in
+// tools/ passes: a title screen in front of the hero would make each of them
+// measure the menu instead of the thing they exist to measure.
+// ---------------------------------------------------------------------------
+const startMenu = StartMenu.offer({
+  // The poster has begun dissolving, so the world behind it is being looked at
+  // again: back to whatever frame rate this load actually asked for. See
+  // MENU_FPS below for what was standing it down and why.
+  onLeave: () => engine.setFpsCap(fpsCap),
+  onStart: () => {
+    // Deferred to here rather than emitted at load: a toast lives about four
+    // seconds, and raised behind the poster it would have expired before the
+    // player ever saw the game.
+    bus.emit({
+      type: 'toast',
+      // A touchscreen laptop driven by mouse gets the desktop hint: `touch` is
+      // non-null there (it ticks the camera stick) but stays hidden until a touch.
+      text: t(isTouchPrimary() ? 'toast.welcome.touch' : 'toast.welcome.desktop'),
+    });
+  },
+  // Straight through to the pad, which takes a change at any time by design —
+  // see GamepadControls.setLookAxes. The preference itself is saved by the menu.
+  onLookAxes: (a) => pad?.setLookAxes(a),
+});
+
+/** True while the title screen is up and the hero must not move. */
+const menuOpen = (): boolean => startMenu?.isOpen ?? false;
 
 // Probes for the automated input tests (tools/test-touch.mjs). Read-only.
 interface DebugProbes {
@@ -835,18 +903,40 @@ const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, cro
   };
 
 let started = false;
-bus.emit({
-  type: 'toast',
-  // A touchscreen laptop driven by mouse gets the desktop hint: `touch` is
-  // non-null there (it ticks the camera stick) but stays hidden until a touch.
-  text: t(isTouchPrimary() ? 'toast.welcome.touch' : 'toast.welcome.desktop'),
-});
+// The welcome toast moved into the title screen's `onStart` above — it is the
+// first thing the player is told, and it has to be said when they are looking
+// at the game rather than at a poster. Photo mode and `menu=0` have no menu to
+// fire it, and neither wants a toast in shot.
 
 // ?fps=<n> caps the frame rate (0 or absent = uncapped). F2 shows measured FPS.
 const fpsCap = Number(params.get('fps') ?? 0);
 engine.setFpsCap(fpsCap);
 const debug = new DebugOverlay(engine.renderer, fpsCap);
 if (params.get('debug') === '1') debug.toggle();
+
+/**
+ * Frame cap while the title screen COVERS the game, and the reason it exists.
+ *
+ * Uncapped, the renderer draws as fast as the display asks — 165 frames a
+ * second on the machine this was measured on — and while the poster is up every
+ * one of those frames is a full pass of the world plus GTAO, bloom and SMAA
+ * behind an opaque picture. Measured over a 6 s window at 1920x1080: 96.9% of
+ * the main thread with the menu up, of which 93.4% was the game and about 3.5
+ * the poster itself. Capped to 20 it is 27%. The fans spinning up on what looks
+ * like a still image is the whole complaint, and this is the whole fix — the
+ * menu's own lantern pulse and fairies are CSS animations on the compositor and
+ * do not care what the game's loop is doing.
+ *
+ * 20 rather than 10 (19.7%, so barely cheaper) because the world is still
+ * STREAMING behind the poster at one or two chunks a frame, and that is the
+ * point of rendering at all rather than stopping dead: 20 fps fills the ring
+ * around spawn in a few seconds, which is faster than anyone reads a title
+ * screen. It is restored on `onLeave` — the start of the exit fade, half a
+ * second before the game is handed over — so the dissolve itself runs at full
+ * rate and the world gets that half second uncapped to finish anything left.
+ */
+const MENU_FPS = 20;
+if (startMenu?.isOpen) engine.setFpsCap(MENU_FPS);
 
 perf.enabled = params.get('perf') === '1';
 let lastPrograms = 0;
@@ -1221,7 +1311,7 @@ function npcHint(npc: NpcInfo): string {
   return html;
 }
 /** The dialogue panel's footer. Composed once, like the hints above. */
-const DIALOGUE_FOOT = t('npc.dialogue.close', { key: kbd('E') });
+let dialogueFoot = t('npc.dialogue.close', { key: kbd('E') });
 
 /**
  * How far a wild beast can be and still be worth reporting to the world.
@@ -1430,7 +1520,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // A person you can talk to outranks a building you can shop in, and both
   // yield to a gateway with a countdown running. `npcHint` is a map lookup
   // after the first sighting, so this stays allocation-free like the rest.
-  const hint = portalHint ?? (nearNpc ? npcHint(nearNpc) : nearShop ? SKILL_DEN_HINT : null);
+  const hint = portalHint ?? (nearNpc ? npcHint(nearNpc) : nearShop ? skillDenHint : null);
   if (hint) hud.showHint(hint);
   else hud.hideHint();
 
@@ -1438,7 +1528,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // allocation, and the HUD compares each field before writing it, so rendering
   // this every slice costs nothing while a talk is open.
   const talk = world.npcs?.talking ?? null;
-  if (talk) hud.showDialogue(t(talk.nameKey), t(talk.lineKey), DIALOGUE_FOOT);
+  if (talk) hud.showDialogue(t(talk.nameKey), t(talk.lineKey), dialogueFoot);
   else hud.hideDialogue();
 
   combat.update(dt, player as unknown as Damageable, [primary(), support()] as unknown as Damageable[]);
@@ -1466,7 +1556,12 @@ function frame(): void {
   simAccumulator += dt;
   let steps = 0;
   while (simAccumulator >= SIM_DT && steps < MAX_STEPS) {
-    simulate(SIM_DT, steps === 0, !photoMode);
+    // `interactive` is what decides whether the hero reads the input device this
+    // slice. The title screen turns it off for the same reason photo mode does:
+    // the world must go on streaming and rendering behind the poster, but a key
+    // press belongs to the menu and must not also walk the hero into a tree
+    // before the player has pressed New Game.
+    simulate(SIM_DT, steps === 0, !photoMode && !menuOpen());
     simAccumulator -= SIM_DT;
     steps++;
   }

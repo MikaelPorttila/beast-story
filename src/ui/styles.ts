@@ -442,6 +442,244 @@ const CSS = `
   background:linear-gradient(180deg,#ffd94f,#f5a623);
   box-shadow:0 3px 8px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.45)}
 .bs-fs-btn:active{filter:brightness(1.2);transform:translateY(1px) scale(.98)}
+/* Raised by the start menu as its own step (ui/menu.ts) instead of over a live
+   game. The 264px perch above exists to clear the touch sticks; a title screen
+   has none, so the pill comes back to the middle and sits under the logo, where
+   the options are about to appear. */
+.bs-fsprompt.in-menu{bottom:auto;top:62%;z-index:60;max-width:min(360px,86vw)}
+
+/* ---- start menu ---------------------------------------------------------- */
+/* The title screen. Two images and CSS — see src/ui/menu.ts for what the layers
+   are and why the art sits inside an explicitly sized plate.
+
+   z-index 50 puts it over the HUD (20) and the touch overlay (30) but under the
+   fullscreen pill's in-menu perch (60), which it raises itself. Unlike the rest
+   of this sheet it OPTS IN to pointer events wholesale: while the title screen
+   is up, nothing behind it should be clickable, and step one accepts a click
+   anywhere on the poster. */
+.bs-menu{position:fixed;inset:0;z-index:50;overflow:hidden;pointer-events:auto;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:#fff;user-select:none;-webkit-user-select:none;background:#0a0e14;
+  opacity:0;transition:opacity .45s ease}
+.bs-menu.show{opacity:1}
+.bs-menu.leaving{opacity:0;transition:opacity .5s ease}
+.bs-menu *{box-sizing:border-box;margin:0;padding:0}
+/* photo=1&menu=1 — a staged capture of the title screen. Every animation on
+   it stops, so two runs produce identical pixels; the same reason world/sway.ts
+   freezes the wind clock. Also honoured for anyone who asked their OS for less
+   motion, which wants exactly the same thing for a different reason. */
+.bs-menu.photo *{animation-play-state:paused!important}
+@media (prefers-reduced-motion:reduce){
+  .bs-menu *{animation-play-state:paused!important}
+  .bs-menu .logo,.bs-menu .panel{transition:none}
+}
+
+.bs-menu .stage{position:absolute;inset:0;overflow:hidden}
+/* background-size:cover, written out, so the glows below can be positioned in
+   PER CENT OF THE PICTURE and stay on their lanterns at every aspect ratio.
+   1672/941 is the source art's own ratio; both axes are max()'d against the
+   viewport so whichever dimension binds, the other overflows and is clipped. */
+.bs-menu .plate{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:max(100vw,calc(100dvh * 1672 / 941));height:max(100dvh,calc(100vw * 941 / 1672))}
+.bs-menu .art{width:100%;height:100%;object-fit:fill;display:block}
+/* One lantern. plus-lighter adds light rather than painting a pale disc over
+   the glass — a normal-blended white circle reads as a smudge on the lens.
+   The pulse is opacity AND scale together: a flame that brightens without
+   growing reads as a UI fade, and one that grows without brightening reads as a
+   zoom. Peak 1.0 is only ~18% above the trough, which is a lantern breathing
+   rather than a light switch. */
+.bs-menu .lamp{position:absolute;left:var(--x);top:var(--y);width:var(--r);aspect-ratio:1;
+  transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;
+  mix-blend-mode:plus-lighter;
+  background:radial-gradient(circle,
+    rgba(255,236,170,.85) 0%,rgba(255,203,110,.45) 26%,
+    rgba(255,168,66,.16) 52%,rgba(255,150,50,0) 74%);
+  animation:bsLamp var(--p) ease-in-out infinite alternate}
+@keyframes bsLamp{
+  from{opacity:.62;transform:translate(-50%,-50%) scale(.9)}
+  to{opacity:1;transform:translate(-50%,-50%) scale(1.06)}}
+
+/* Fairies. Two nested elements so the crossing and the bobbing keep independent
+   periods without any JS: the outer travels, the inner wobbles and twinkles.
+   Sized off --sz with the glow scaled to match, so one number sets a sprite. */
+.bs-menu .flies{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.bs-menu .fly{position:absolute;top:var(--top);left:0;width:var(--sz);height:var(--sz);
+  will-change:transform;animation:bsFlyX var(--dur) linear var(--delay) infinite}
+.bs-menu .fly.rev{animation-name:bsFlyXrev}
+/* White CORE, coloured halo. A fairy that is amber all the way through washes
+   out against a sunlit cloud; a white centre keeps a hard highlight the sky
+   cannot match, and the halo does the colouring around it. */
+.bs-menu .fly b{display:block;width:100%;height:100%;border-radius:50%;
+  background:radial-gradient(circle,#fff 0%,#fff6d2 28%,rgba(255,214,120,.75) 52%,rgba(255,190,90,0) 76%);
+  box-shadow:0 0 calc(var(--sz) * 2.6) calc(var(--sz) * .8) rgba(255,208,120,.65),
+             0 0 calc(var(--sz) * .9) rgba(255,255,255,.9);
+  animation:bsFlyY var(--bob) ease-in-out infinite alternate,
+            bsFlyTwinkle calc(var(--bob) * .61) ease-in-out infinite alternate}
+/* A minority are cool-toned, which is what stops seven identical amber dots
+   reading as dust on the screen. Matches the blue beast in the artwork. */
+.bs-menu .fly.cool b{
+  background:radial-gradient(circle,#fff 0%,#e6fbff 28%,rgba(150,225,255,.75) 52%,rgba(110,205,255,0) 76%);
+  box-shadow:0 0 calc(var(--sz) * 2.6) calc(var(--sz) * .8) rgba(150,222,255,.65),
+             0 0 calc(var(--sz) * .9) rgba(255,255,255,.9)}
+@keyframes bsFlyX{from{transform:translate3d(-6vw,0,0)}to{transform:translate3d(106vw,0,0)}}
+@keyframes bsFlyXrev{from{transform:translate3d(106vw,0,0)}to{transform:translate3d(-6vw,0,0)}}
+@keyframes bsFlyY{from{transform:translateY(calc(var(--bobY) * -1))}to{transform:translateY(var(--bobY))}}
+/* Bright end FIRST, for the same reason the press pulse runs that way: paused at
+   0% under photo=1, a dim-first keyframe froze all seven fairies at 35% opacity
+   and the staged still came out with none of them visible. */
+@keyframes bsFlyTwinkle{from{opacity:1}to{opacity:.45}}
+
+/* The art is bright noon daylight and the type on top of it is white. This is
+   what makes the words legible without dimming the painting into mud: darkened
+   at top and bottom where the logo and the buttons live, untouched across the
+   middle band where the castle and the characters are. */
+.bs-menu .vign{position:absolute;inset:0;pointer-events:none;
+  background:
+    linear-gradient(180deg,rgba(6,10,18,.55) 0%,rgba(6,10,18,.12) 26%,
+      rgba(6,10,18,0) 46%,rgba(6,10,18,.28) 72%,rgba(6,10,18,.72) 100%),
+    radial-gradient(120% 90% at 50% 40%,rgba(6,10,18,0) 40%,rgba(6,10,18,.45) 100%)}
+
+/* Logo and panel share one grid cell and are each translated out of it, so the
+   logo's slide is a transform on a stationary box rather than a reflow. */
+.bs-menu .fore{position:absolute;inset:0;display:grid;place-items:center;
+  padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom))}
+.bs-menu .logo,.bs-menu .panel{grid-area:1/1}
+/* "Centred but offset upwards" is --ly at the press step; every later step
+   lifts it further and shrinks it to open the space the options need. */
+/* Sized against BOTH dimensions, and the max-height is the load-bearing half.
+   Width alone (min(560px,74vw)) gave a 960x540 window the same 560px logo a
+   1920x1080 one gets, while the lift and drop below — both percentages of
+   viewport height — halved. Captured: "Bonds of Red" ended up resting on the
+   New Game button. Capping the height ties the logo to whichever dimension is
+   actually scarce, and at 1080 it is slack by four pixels, so the desktop
+   framing is unchanged. */
+.bs-menu .logo{width:min(560px,74vw);height:auto;max-height:34vh;
+  filter:drop-shadow(0 14px 34px rgba(0,0,0,.55));
+  transform:translateY(var(--ly,-9vh)) scale(var(--ls,1));
+  transition:transform .55s cubic-bezier(.3,.9,.28,1)}
+.bs-menu[data-step="fullscreen"] .logo,
+.bs-menu[data-step="options"] .logo,
+.bs-menu[data-step="settings"] .logo{--ly:-23vh;--ls:.72}
+.bs-menu .panel{position:relative;width:min(400px,86vw);
+  transform:translateY(var(--py,20vh));
+  transition:transform .55s cubic-bezier(.3,.9,.28,1)}
+.bs-menu[data-step="options"] .panel,
+.bs-menu[data-step="settings"] .panel{--py:15vh}
+/* A soft pool of shade under the list, and nothing more solid than that.
+   Captured without it, the rows sat over a village, a red banner and the hero's
+   arm, and every one of those read THROUGH the wood — the buttons looked
+   translucent when they are not. A hard panel would have fixed it too and hidden
+   the painting the screen exists to show; this darkens what is directly behind
+   the type and fades out well before the frame edges. */
+.bs-menu[data-step="options"] .panel::before,
+.bs-menu[data-step="settings"] .panel::before{content:"";position:absolute;
+  inset:-30px -46px;border-radius:34px;pointer-events:none;
+  background:radial-gradient(72% 66% at 50% 50%,
+    rgba(6,10,18,.78) 0%,rgba(6,10,18,.58) 52%,rgba(6,10,18,0) 100%)}
+
+/* "Press start..." — the one piece of type with no box around it, so it needs
+   its own hard shadow to survive being over sky in one crop and over a tree in
+   the next. */
+/* Over the middle of the painting, which is the busiest part of it — a village,
+   a path and two characters — so the type carries its own contrast rather than
+   relying on the vignette, which is deliberately weakest exactly here. Four
+   stacked shadows: a tight black core that separates the strokes from whatever
+   is behind them, then a wide soft one, then the warm bloom that ties it to the
+   lanterns.
+
+   The pulse runs from FULL, not to it: paused at 0% under photo=1 a
+   trough-first keyframe froze the words at 42% opacity and a still of the title
+   screen came out looking like a bug. */
+.bs-menu .press{text-align:center;font-size:clamp(16px,2.4vw,23px);font-weight:900;
+  letter-spacing:.16em;text-transform:uppercase;
+  text-shadow:0 1px 2px rgba(0,0,0,.95),0 2px 12px rgba(0,0,0,.9),
+    0 0 30px rgba(255,196,90,.5);
+  animation:bsPressPulse 1.9s ease-in-out infinite}
+@keyframes bsPressPulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+/* Positioned, so it paints ABOVE the panel's absolutely-positioned shade —
+   without this the ::before above would cover the buttons rather than sit
+   behind them. */
+.bs-menu .opts{position:relative;z-index:1;
+  display:flex;flex-direction:column;align-items:stretch;gap:10px}
+.bs-menu .opts h2{font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+  text-align:center;color:rgba(255,255,255,.72);text-shadow:0 2px 6px rgba(0,0,0,.8);
+  margin-bottom:2px}
+.bs-menu .note{font-size:11.5px;font-weight:600;line-height:1.35;text-align:center;
+  color:rgba(255,255,255,.62);text-shadow:0 1px 4px rgba(0,0,0,.85);margin:-4px 0 2px}
+/* Wood-and-gold, taken from the logo rather than from the HUD's cool glass:
+   this screen belongs to the painting, not to the interface that comes after. */
+.bs-menu-btn{display:flex;align-items:center;justify-content:center;gap:10px;
+  width:100%;padding:13px 18px;border-radius:12px;cursor:pointer;
+  font-family:inherit;font-size:15px;font-weight:800;letter-spacing:.05em;
+  color:#f4e7cd;text-shadow:0 1px 2px rgba(0,0,0,.6);
+  /* OPAQUE. At 92% the red gate banner behind the settings list came through
+     the wood as a pink rectangle inside the row — captured, and it read as a
+     rendering fault rather than as translucency. The shade behind the panel is
+     where the art is allowed to show; the buttons themselves are solid. */
+  background:linear-gradient(180deg,#5b3d24,#33210f);
+  border:1px solid rgba(255,214,140,.3);
+  box-shadow:0 6px 18px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,226,170,.22);
+  transition:transform .14s cubic-bezier(.34,1.5,.64,1),filter .14s ease,box-shadow .14s ease}
+.bs-menu-btn:hover:not([disabled]){filter:brightness(1.16);transform:translateY(-1px)}
+.bs-menu-btn:active:not([disabled]){transform:translateY(1px) scale(.985);filter:brightness(1.24)}
+/* The focus ring is the pad's cursor as much as the keyboard's, so it is loud on
+   purpose — on a controller it is the ONLY thing saying where you are. */
+.bs-menu-btn:focus-visible{outline:none;
+  box-shadow:0 0 0 2px rgba(255,214,120,.95),0 0 22px rgba(255,196,90,.6),
+    0 6px 18px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,226,170,.22)}
+.bs-menu-btn.primary{color:#3a2703;border-color:transparent;
+  background:linear-gradient(180deg,#ffd94f,#f0a12a);
+  box-shadow:0 6px 20px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.5)}
+.bs-menu-btn[disabled]{cursor:default;opacity:.42;filter:grayscale(.5)}
+/* A settings row: label left, state pill right. */
+.bs-menu-btn.row{justify-content:space-between;font-size:14px;padding:12px 14px 12px 18px}
+.bs-menu-btn.row .lbl{font-weight:700;letter-spacing:.02em}
+.bs-menu-btn.row .pill{flex:none;min-width:46px;padding:4px 10px 5px;border-radius:999px;
+  font-size:11px;font-weight:900;letter-spacing:.1em;
+  background:rgba(0,0,0,.38);border:1px solid rgba(255,214,140,.24);
+  color:rgba(244,231,205,.6)}
+.bs-menu-btn.row[aria-pressed="true"] .pill{color:#3a2703;border-color:transparent;
+  background:linear-gradient(180deg,#ffd94f,#f0a12a)}
+.bs-menu .row.lang{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:2px 4px 2px 18px;font-size:14px;font-weight:700;
+  text-shadow:0 1px 3px rgba(0,0,0,.8)}
+.bs-menu .langs{display:flex;gap:6px}
+.bs-menu-btn.chip{width:auto;padding:8px 13px;font-size:12.5px;letter-spacing:.04em;border-radius:999px}
+.bs-menu-btn.chip.on{color:#3a2703;border-color:transparent;
+  background:linear-gradient(180deg,#ffd94f,#f0a12a)}
+
+/* Short screens — a phone held sideways, which is how this game is played on
+   one. Both boxes STOP being centred here.
+
+   Everywhere else the logo and the panel share the middle of the screen and are
+   translated out of it by a percentage of the viewport height, which is what
+   makes the slide a single smooth transform. On 390px of height that arithmetic
+   runs out: captured at the first pass, a lift of 17vh and a drop of 11vh left
+   the New Game button sitting across the word "Story". Percentages of a small
+   number are a small number, and no pair of them fixes it.
+
+   So on a short screen the logo is pinned to the TOP of the frame and the list
+   to the BOTTOM, with the grid's own padding as the margin. They cannot overlap
+   at any height, because neither one is positioned relative to the other any
+   more — and the logo still shrinks between steps, so the transition remains. */
+@media (max-height:520px){
+  .bs-menu .logo{align-self:start;width:min(240px,30vw);max-height:42vh;--ly:0;--ls:1}
+  .bs-menu[data-step="fullscreen"] .logo,
+  .bs-menu[data-step="options"] .logo,
+  .bs-menu[data-step="settings"] .logo{--ly:0;--ls:.74}
+  .bs-menu .panel{--py:0}
+  .bs-menu[data-step="options"] .panel,
+  .bs-menu[data-step="settings"] .panel{align-self:end;--py:0}
+  .bs-menu-btn{padding:9px 16px;font-size:13.5px}
+  .bs-menu-btn.row{padding:8px 12px 8px 16px}
+  .bs-menu .opts{gap:7px}
+  .bs-menu .press{font-size:15px}
+  /* The pill has the same problem: 62% of a short viewport lands it on the
+     logo. Pin it to the bottom, where the options are about to appear. */
+  .bs-fsprompt.in-menu{top:auto;bottom:max(18px,env(safe-area-inset-bottom))}
+}
 
 /* ---- responsive ---------------------------------------------------------- */
 /* Respect notches/rounded corners on phones. */

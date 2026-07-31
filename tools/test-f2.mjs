@@ -1,7 +1,12 @@
 // Verifies the F2 debug overlay toggles and that the browser never sees F2.
 import { launchBrowser, newPage, wait, glRenderer } from './browser.mjs';
 
-const target = process.argv[2] === 'lab' ? 'lab.html?beast=emberfox&fps=30' : '?play=1&fps=30';
+// menu=0 on the game entry: the F2 overlay is a property of the running game,
+// and a title screen in front of it would just be measuring the poster. The lab
+// has no menu to suppress.
+const target = process.argv[2] === 'lab'
+  ? 'lab.html?beast=emberfox&fps=30'
+  : '?play=1&fps=30&menu=0';
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 900, height: 600 });
 await page.goto(`http://localhost:5187/${target}`, { waitUntil: 'load' });

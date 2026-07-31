@@ -15,7 +15,7 @@
 // Usage: bun tools/test-gamepad.mjs
 import { launchBrowser, newPage, wait } from './browser.mjs';
 
-const URL = 'http://localhost:5187/?fps=30';
+const URL = 'http://localhost:5187/?fps=30&menu=0';
 
 // Standard-mapping indices, mirrored from core/gamepad.ts.
 const B = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, L3: 10, R3: 11, DUP: 12, DDOWN: 13, DLEFT: 14, DRIGHT: 15 };
