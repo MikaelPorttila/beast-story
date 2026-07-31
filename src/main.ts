@@ -12,6 +12,7 @@ import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { createDungeon } from './world/dungeon';
 import { ZoneManager, type ZoneDef } from './world/zones';
+import { Underwater } from './world/underwater';
 import { Player } from './player/index';
 import { MountController } from './player/mount';
 import { PalActor, registerSkillDefs } from './pals/framework';
@@ -139,6 +140,10 @@ const zones = new ZoneManager({
 });
 
 let world: World = zones.world;
+// Submerged-camera treatment. Scene-level and zone-agnostic (it takes the world
+// only as a per-frame "is there water under the lens" answer), so it survives a
+// zone switch without being in `bound`.
+const underwater = new Underwater(engine.scene, engine.camera, engine.renderer.domElement);
 const player = new Player(engine, world, input, bus);
 const combat = new CombatSystem(engine.scene, world, bus);
 const hud = new HUD(bus);
@@ -547,6 +552,20 @@ const _dbgDir = new THREE.Vector3();
   isDead: player.isDead,
 });
 
+// Submerged-camera state. Read-only, and the only way to assert on an effect
+// that is otherwise a screen-space colour: `amount` is the smoothed 0..1 ramp
+// the tint, the murk and the bubbles all key off, `depth` is how far the LENS is
+// under the surface (which is not how deep the hero is — see world/underwater.ts)
+// and `fogNear` shows the murk actually reached the scene.
+(window as unknown as { __dbgUnder: () => unknown }).__dbgUnder = () => ({
+  amount: +underwater.amount.toFixed(3),
+  depth: +underwater.depth.toFixed(2),
+  camY: +engine.camera.position.y.toFixed(2),
+  overWater: world.isWater(engine.camera.position.x, engine.camera.position.z),
+  fogNear: +((engine.scene.fog as THREE.Fog | null)?.near ?? -1).toFixed(1),
+  fogFar: +((engine.scene.fog as THREE.Fog | null)?.far ?? -1).toFixed(1),
+});
+
 // Mount state. Read-only, and the one probe the mount tests need: the hold
 // fill, which pal is under you and what it is, the rider's height and speed,
 // and the direction the last cast actually left in — `aimed` says whether that
@@ -857,6 +876,12 @@ function warmUpShaders(): void {
   const POOL = 10; // VFX light pool cap
   for (let i = 1; i < POOL; i++) warmUpFrame(_warmStage, 1);
 
+  // The two underwater programs (screen tint, bubbles). They are drawn by
+  // nothing above — the camera is in the air at boot, so the sweep never touches
+  // them — and the frame they would otherwise link on is the frame the hero's
+  // head goes under, which is a stall in the middle of a swim.
+  underwater.warmUp(() => engine.render());
+
   // NOT renderer.compile(scene, camera). It was tried and measured: it linked
   // 117 programs in one go and made boot dramatically WORSE (593 ms, 429 ms and
   // 287 ms stalls in the first 1.5 s, against ~110 ms without it), because it
@@ -1111,6 +1136,11 @@ function frame(): void {
   if (input.pressed('F2')) debug.toggle();
   colliderView.update(dt);
   perf.section('hud');
+
+  // AFTER every camera decision this frame (the player controller's, or photo
+  // mode's above) and before the render: the effect keys off where the lens
+  // actually ends up, and a frame late is a frame of clear water at the surface.
+  underwater.update(dt, world.isWater(engine.camera.position.x, engine.camera.position.z));
 
   engine.render();
   perf.section('render');

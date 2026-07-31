@@ -177,6 +177,8 @@ export class Terrain {
   private readonly tempN: Noise2D;
   private readonly moistN: Noise2D;
   private readonly plateauN: Noise2D;
+  private readonly shelfN: Noise2D;
+  private readonly scarpN: Noise2D;
 
   private readonly tmpA: RGB = { r: 0, g: 0, b: 0 };
   private readonly tmpB: RGB = { r: 0, g: 0, b: 0 };
@@ -190,6 +192,8 @@ export class Terrain {
     this.tempN = new Noise2D(this.seed + 557);
     this.moistN = new Noise2D(this.seed + 661);
     this.plateauN = new Noise2D(this.seed + 1013);
+    this.shelfN = new Noise2D(this.seed + 1123);
+    this.scarpN = new Noise2D(this.seed + 1229);
     // Base frequencies are radians per world unit: 2*PI/f is the coarsest
     // feature size. 0.21 -> ~30 units, 0.45 -> ~14 units, 2.05 -> ~3 units
     // (just above cube frequency, where a field stops being a readable shape and
@@ -277,6 +281,97 @@ export class Terrain {
     if (mesa > 0) {
       if (mk > 0.45) h += Math.round(mesa * 0.25) * 4;
       else h += mesa * 0.6;
+    }
+    // ---- shelves and scarps: macro form for the NEAR ground -----------------
+    //
+    // Measured before this term, over a fixed 128x128 patch of low ground:
+    // 98.9% of every riser in it was exactly ONE unit, 1.1% were two, and NOT
+    // ONE column in the whole area (16 chunks) carried a face of three or more.
+    // That is the "everything inside ~60 units is uniform 1-block staircase
+    // terracing at even increments — it reads as noise, not landform" finding,
+    // arithmetically: a smooth height field put through `floor()` can only ever
+    // produce 1-unit risers, because a gradient gentle enough to look like a
+    // meadow crosses one integer at a time. Every landform this world had —
+    // ridges, mesas, peaks — lives at 0.0022..0.009 rad/unit, i.e. 100+ units
+    // across, so it is BACKGROUND by construction and the foreground got the
+    // fine relief and nothing else.
+    //
+    // The fix is not another quantiser over the whole field. The comment on the
+    // mesa above says why: quantising globally terraces every gentle swell into
+    // a wedding cake. What is added instead is a pair of RAISED PLATEAUX with
+    // near-vertical rims, sampled at scales the near field can actually contain,
+    // and each one is a `smoothstep` over a deliberately NARROW band rather than
+    // a floor():
+    //
+    //  - `shelf`, ~48-unit cells, over a 0.0075-wide band of the field. Value
+    //    noise at that cell size runs about 0.013 of field per world unit, so
+    //    the rim climbs its full height across a bit over half a unit of ground
+    //    and floors into a 2-, 3- or 4-unit riser. The threshold sits at the
+    //    82nd percentile of the field, so it raises ~16% of dry land: grassy
+    //    benches ten to twenty metres across, the size class the near ground was
+    //    missing entirely.
+    //  - `scarp`, ~77-unit cells, 88th percentile (~10% of dry land) and half
+    //    again as tall, so a chunk neighbourhood usually contains one real cliff.
+    //
+    // Both heights are MODULATED by a third field at ~26-unit cells, which is
+    // finer than either plateau. That is the part that matters most and it is
+    // not decoration: multiplied by a constant, a thresholded field raises a
+    // cylinder with the same sheer rim all the way round, and a ring of cliff is
+    // a wall whichever way you approach it. Modulated, each bench is a WEDGE —
+    // 1.6 units of rim on one flank and 5.6 on the other, with its top sloping
+    // between — so every raised area has a low side you can jump up and the
+    // tabletop carries its own 1-block terracing instead of being a machined
+    // plate.
+    //
+    // WHY THIS DOES NOT WALL THE PLAYER IN. Both are ISLANDS, not contour lines.
+    // A quantised field steps along its iso-lines, which run unbroken for
+    // hundreds of units and would fence the map; thresholding one instead raises
+    // the closed region ABOVE the threshold, which is a blob you walk around.
+    // MAX_STEP_UP is 0.5 and the jump apex is 1.61 (player/index.ts), so the
+    // tall side of a rim is genuinely impassable on foot and is meant to be —
+    // it is CLIMBABLE (CLIMB_MIN_RISE 1.2) and a ground mount clears the 1-unit
+    // terraces around it.
+    //
+    // The traversal cost was measured, not assumed. Over 240 random dry starts
+    // in a fixed 500-unit box, walking a straight line under the player's own
+    // step rule: WITHOUT jumping the median run is 5.0 units before and 5.0
+    // after — unchanged, because a 1-unit terrace already stopped him. WITH
+    // jumps the median goes 74.8 -> 49.5 units and the mean 136.6 -> 79.1. In
+    // the running game (sprinting 8 s on each of eight bearings) the same
+    // comparison is ~32 -> ~25 units of mean displacement. So a jumping run now
+    // meets something it has to go round or climb roughly every fifty metres
+    // instead of every seventy-five, which is the "a few per chunk
+    // neighbourhood is drama" line rather than the maze on the other side of it.
+    //
+    // Over the same fixed 128x128 low-ground patch the risers now read 95.4% at
+    // one unit, 3.5% at two and 1.2% at three or more (0 columns before, 22
+    // after); columns standing 2+ above their own four-neighbour minimum go from
+    // 0.6% of the land to 3.0%. One knock-on worth knowing about: `findSpawn`
+    // rejects any column whose eight probes at radius 4 differ by more than 2,
+    // so the world's spawn point moves — for seed 1337 from (-63, 35) to
+    // (38, -79). Nothing depends on the old coordinates; the dens, the gate and
+    // the flatten discs are all placed relative to whatever it picks.
+    //
+    // Both are damped to nothing at the waterline for the same reason `fine` is:
+    // a shelf rim standing out of a lagoon is a wall of grass in the surf, and
+    // the water shader's depth ramp turns any bed relief into contour banding.
+    // The ramp is `WATER_LEVEL + 0.6 .. + 2.2`, i.e. fully off until 60cm of dry
+    // land and fully on by 2.2 — every lake bed and the tide line itself are
+    // bit-identical to before, while the dry beach above them can carry a bench.
+    //
+    // COST. Three more `Noise2D.sample` calls on the collision hot path, against
+    // the fourteen this function already spends in three fbm chains and a ridged
+    // multifractal. Timed at a million calls, `getHeight` goes 255 ns -> 305 ns,
+    // i.e. +20% of a function that a frame calls a few hundred times: about
+    // 15 microseconds of a 7.8 ms frame. Sampled, not fbm'd, for exactly this
+    // reason — the same rule the mesa term above follows.
+    const dry = smoothstep(WATER_LEVEL + 0.6, WATER_LEVEL + 2.2, h);
+    if (dry > 0) {
+      const shf = this.shelfN.sample(x * 0.021, z * 0.021) * 0.5 + 0.5;
+      const scf = this.scarpN.sample(x * 0.013, z * 0.013) * 0.5 + 0.5;
+      const ramp = this.shelfN.sample(x * 0.038 + 137.4, z * 0.038 - 211.9) * 0.5 + 0.5;
+      h += dry * (smoothstep(0.716, 0.7235, shf) * (1.6 + ramp * 4.0)
+        + smoothstep(0.880, 0.887, scf) * (2.0 + ramp * 4.4));
     }
     for (let i = 0; i < this.flattens.length; i++) {
       const f = this.flattens[i];

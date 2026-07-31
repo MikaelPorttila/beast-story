@@ -1074,6 +1074,140 @@ function grassTuft(dry: boolean, variant = 0): Template {
 }
 
 /**
+ * The CARPET primitive: a two-or-three-voxel sprig, deliberately the cheapest
+ * readable piece of ground cover in the file.
+ *
+ * "The terrain is largely bare polygon between sparse bushes. Cube World's ground
+ * plane is densely carpeted; this reads as an untextured mesh by comparison."
+ * That is a DENSITY finding, and every previous round answered it by making the
+ * individual tussock bigger, because the tussock is expensive and raising its
+ * count kept blowing the 3 ms chunk-build budget (the history at `grassTuft`'s
+ * bake scale is three rounds of exactly that trade). A bigger tussock cannot
+ * carpet anything; only more objects can.
+ *
+ * So this is a tussock with the mass taken out: one to three voxels on one or
+ * two face-connected cells against the tussock's nine on six. Measured off the
+ * baked templates, the four sprigs are 24 / 40 / 56 / 40 vertices against
+ * `grassTuft`'s 144 / 144 / 136 / 136 — three and a half sprigs for the price of
+ * one tussock — and the meadow pass now plants four to eight of them per clump
+ * around the one to three tussocks that anchor it, with another ~70 a chunk
+ * scattered between the clumps. The tussocks stay the readable objects; these
+ * fill the bare polygon between them.
+ *
+ * They also cost nothing at the CALL site, which matters as much as the vertex
+ * count: `addSprig` seats them on `columnHeight` (one `heightCont`) and inherits
+ * the clump's already-sampled ground tint, where `addTuft` runs a full
+ * `columnInfo` — two fbm(3) fields and the whole biome colour blend — per
+ * instance. A carpet is hundreds of stamps a chunk; it cannot afford to ask the
+ * terrain a question each time.
+ *
+ * Four silhouettes, and unusually they carry four DIFFERENT bake scales rather
+ * than four different voxel counts at one scale. That is the whole economy of
+ * the thing: at this size a voxel is pure cost and a bake scale is free, so the
+ * cheapest variant is one cube blown up to 0.34 units (24 vertices) and the
+ * dearest is three cubes at 0.22 (56), and stamped together at random they read
+ * as a mixed sward rather than as one repeated object. Mean 40 vertices against
+ * the tussock's 140.
+ *
+ * A lone cube is normally a trap here — `shells` documents it: on bright sand a
+ * 1x1x1 prop shows one lit top over vertical faces the sun never reaches and
+ * prints as a cream-topped black die. Grass gets away with it for two reasons
+ * that do not hold on sand. `relight` (above) lifts every non-top face back to
+ * ~0.96 of neutral, so the baked fake sun that caused most of that contrast is
+ * gone; and the sward is a SATURATED surface, so a side face that keeps its hue
+ * and loses some value reads as shade rather than as a hole.
+ */
+function grassSprig(dry: boolean, variant = 0): Template {
+  const v = new VoxelModel();
+  // Same band as `grassTuft`, one notch apart so a sprig standing beside a
+  // tussock is not a shrunk copy of it: mid tone just under the sward, root in
+  // contact shade, only the tip over the ground's own value.
+  const a = dry ? 0xc0b070 : 0x54a339;
+  const b = dry ? 0xaf9d63 : 0x4a9233;
+  const c = dry ? 0xd6c68a : 0x83c657;
+  const root = dry ? 0x8b7d50 : 0x33682a;
+  /** [x, z, height] over face-connected 1x1 cells, and the bake scale. */
+  const SHAPES: Array<{ cells: Array<[number, number, number]>; s: number }> = [
+    // A single cube, big. 24 vertices — the cheapest readable ground cover in
+    // the file by a factor of six.
+    { cells: [[0, 0, 0]], s: 0.34 },
+    // A two-voxel stalk. Rotationally symmetric, which normally cancels the
+    // random yaw (see `grassTuft`), but a 0.26 x 0.52 pillar has no outline for
+    // yaw to change anyway and it is the cheapest way to get a SECOND height
+    // into the carpet.
+    { cells: [[0, 0, 1]], s: 0.26 },
+    // An L: a two-voxel stalk with a single cube leaning off it.
+    { cells: [[0, 0, 1], [1, 0, 0]], s: 0.22 },
+    // A flat pair, the low mat of the set.
+    { cells: [[0, 0, 0], [0, 1, 0]], s: 0.28 },
+  ];
+  const sh = SHAPES[variant % SHAPES.length];
+  for (let s = 0; s < sh.cells.length; s++) {
+    const [x, z, h] = sh.cells[s];
+    for (let y = 0; y <= h; y++) {
+      // The dark contact-shade root only exists on cells that HAVE something
+      // above it. A one-voxel sprig painted `root` would be a dark chip on lit
+      // grass, which is the failure the tussock palette was rebuilt to avoid.
+      v.set(x, y, z, h > 0 && y === 0 ? root : (s % 2 === 0 ? a : b));
+    }
+    if (h >= 1) v.set(x, h, z, c);
+  }
+  // Scales land every variant between 0.28 and 0.56 units tall before the
+  // per-instance roll — under half a terrain step, squarely ground cover, and a
+  // clear rung below the tussock's 0.63-0.91.
+  return bake(v, sh.s);
+}
+
+/**
+ * A low mat of flowering ground cover, ~1.5 units across and a third of a unit
+ * tall, in a NON-GREEN hue.
+ *
+ * "Add at least one non-green ground-cover mass per biome patch at a scale
+ * visible from distance — the existing flower voxels are far too small to
+ * register." Measured: `flower` bakes at 0.11 units per voxel over a 3-voxel
+ * head, so its whole blossom is a 0.33-unit object of which the coloured part is
+ * two voxels — about 9 pixels at 40 units, which is under the threshold where a
+ * hue reads as anything but noise. One blossom per clump therefore contributed
+ * nothing to the meadow's colour at any distance a vista is read at.
+ *
+ * A MAT is the fix rather than a bigger blossom: real meadow colour arrives as
+ * drifts of one species, not as scattered individual flowers, and a drift is
+ * both the right art and the cheaper geometry (a flat mass of one-voxel cells
+ * has almost no side faces to pay for). This is 12-16 cells laid out as an
+ * eroded disc, mostly one voxel tall with a few two-voxel heads, so it reads as
+ * a colour patch pressed into the sward rather than as a prop standing on it.
+ *
+ * `petal` is the crown tone and `rim` the shaded outer/lower one, exactly as in
+ * `flower`, and both are pulled well off full chroma for the same reason: a
+ * saturated chip in an otherwise green/tan world reads as a decal.
+ */
+function bloomMat(petal: number, rim: number, leaf: number): Template {
+  const v = new VoxelModel();
+  // An eroded disc of radius ~3.5 cells. [dx, dz] offsets, deliberately not
+  // symmetric about either axis so the random yaw each stamp gets changes the
+  // outline (the trap documented on `grassTuft`).
+  const CELLS: Array<[number, number, number]> = [
+    [0, 0, 1], [1, 0, 1], [2, 0, 0], [-1, 0, 0], [3, 1, 0],
+    [0, 1, 1], [1, 1, 0], [-1, 1, 0], [2, 1, 1],
+    [0, -1, 0], [1, -1, 1], [2, -1, 0], [0, 2, 0],
+  ];
+  for (let i = 0; i < CELLS.length; i++) {
+    const [dx, dz, tall] = CELLS[i];
+    // A leaf base under every cell so the mat has a green foot in the sward and
+    // the colour sits on top of it, the way a flowering plant actually looks.
+    v.set(dx, 0, dz, shade(leaf, 0.82 + ((i * 37) % 7) / 7 * 0.24));
+    v.set(dx, 1, dz, i % 3 === 0 ? rim : petal);
+    if (tall) v.set(dx, 2, dz, i % 4 === 0 ? rim : petal);
+  }
+  // 0.155 units per voxel: the disc spans 6 cells, i.e. ~0.93 units across and
+  // 0.31-0.46 tall before the per-instance scale roll. At the 1.0-1.5x the
+  // meadow pass stamps it at, a drift is 0.9-1.4 units wide — comfortably the
+  // largest piece of ground cover in the file and the only one carrying a hue
+  // the sward does not.
+  return bake(v, 0.155);
+}
+
+/**
  * Crossed-quad grass billboard: two intersecting quads with a vertex-color
  * gradient (dark at the root, bright at the tip), slight tilt and taper baked
  * per variant. No textures — pure vertex color, rendered double-sided in the
@@ -1577,6 +1711,21 @@ export class PropLib {
   /** Four asymmetric wet-meadow tussocks, and four dune ones. */
   readonly tufts = [0, 1, 2, 3].map((k) => grassTuft(false, k));
   readonly tuftsDry = [0, 1, 2, 3].map((k) => grassTuft(true, k));
+  /** The carpet: the same two palettes at a third of the tussock's vertices. */
+  readonly sprigs = [0, 1, 2, 3].map((k) => grassSprig(false, k));
+  readonly sprigsDry = [0, 1, 2, 3].map((k) => grassSprig(true, k));
+  /**
+   * Non-green ground-cover drifts. Five hues, each a step off full chroma: two
+   * that a temperate meadow really carries (heather and buttercup), a clover
+   * red, a chalk-white yarrow and a rust for dry ground. Placement picks one per
+   * clump-cluster and holds it over the whole drift, so a hillside shows
+   * PATCHES of one colour rather than a confetti of five.
+   */
+  readonly bloomHeather = bloomMat(0x9b82c4, 0x77619c, 0x3f7a35);
+  readonly bloomButter = bloomMat(0xe3c95e, 0xbfa544, 0x437f37);
+  readonly bloomClover = bloomMat(0xcf7f76, 0xa85f58, 0x3d7a33);
+  readonly bloomYarrow = bloomMat(0xe4dcc6, 0xbdb39c, 0x467f38);
+  readonly bloomRust = bloomMat(0xc98a55, 0xa16a3e, 0x6e7a3a);
   // Width is the HALF-width of a quad. Heights are all a fraction of the 1-unit
   // terrain step (see grassBillboard) and the tufts are correspondingly WIDER
   // relative to their height than before: short and broad reads as ground cover,
@@ -1786,6 +1935,36 @@ export function buildChunkProps(
       clampTint(1 - B + B * (ci.topG / ref[1])) * vmul,
       clampTint(1 - B + B * (ci.topB / ref[2])) * vmul,
     );
+  };
+
+  /**
+   * Stamp one carpet sprig. Deliberately NOT a cheaper `addTuft`: it takes the
+   * tint already computed for the clump and asks the terrain only for a column
+   * height, where `addTuft` runs a full `columnInfo` (two fbm(3) fields plus the
+   * whole biome colour blend) for every single instance.
+   *
+   * That difference is what makes a carpet affordable. `columnInfo` is the
+   * dominant cost in this whole file: the terrain mesher spends 1.9 ms a chunk
+   * doing almost nothing BUT calling it 1156 times, so at ~500 sprigs a chunk a
+   * per-instance call would have been most of a millisecond on its own — the
+   * same order as the vertices they cost. The ground colour does not
+   * meaningfully vary across the two metres of one clump, so there is nothing
+   * to buy by re-sampling it.
+   *
+   * Whole-pass cost with the carpet in, measured best-of-4 over the 81 chunks
+   * around the spawn: prop build 5.98 -> 6.85 ms a chunk mean and 11.99 ->
+   * 13.7 ms worst, soft vertices 28.1k -> 34.7k. In the running game
+   * (`?perf=1`, walking a loop), the `world` section's worst frame goes from
+   * ~23 ms to ~24-26 ms against a 3 ms/frame build budget it already overshoots.
+   */
+  const addSprig = (
+    dry: boolean, x: number, z: number, yaw: number, scl: number,
+    tr: number, tg: number, tb: number,
+  ): void => {
+    const h = terrain.columnHeight(ox + Math.floor(x), oz + Math.floor(z));
+    if (h < WATER_LEVEL + 1) return;
+    const tpl = (dry ? lib.sprigsDry : lib.sprigs)[Math.floor(rng() * 3.999)];
+    soft.add(tpl, x, h - 0.06, z, yaw, scl, tr, tg, tb);
   };
 
   /**
@@ -2074,6 +2253,9 @@ export function buildChunkProps(
   // even scatter, but meadows gain rhythm — dense pockets with breathing room.
   const flowers = [lib.flowerR, lib.flowerY, lib.flowerP, lib.flowerW, lib.flowerO];
   const grasses = [lib.grassA, lib.grassB, lib.grassC];
+  const blooms = [
+    lib.bloomHeather, lib.bloomButter, lib.bloomClover, lib.bloomYarrow, lib.bloomRust,
+  ];
   for (let k = 0; k < 115; k++) {
     const clx = 1 + rng() * (CHUNK_SIZE - 2);
     const clz = 1 + rng() * (CHUNK_SIZE - 2);
@@ -2104,7 +2286,19 @@ export function buildChunkProps(
     // better art: the same total cover gathered into fewer, denser patches is
     // what the "thickets and clearings, not Poisson spread" note asks for, and
     // one patch that reads is worth three that do not.
-    if (accept > (cb === 'plains' ? 0.58 : 0.36)) continue;
+    //
+    // 0.58/0.36 -> 0.88/0.64, and this time the extra mass inside each clump is
+    // paid for in a different currency rather than in clump count. Every round
+    // above traded density against per-clump readability because the only ground
+    // cover available was the 232-vertex tussock and the 3 ms build budget could
+    // not carry more of them. `grassSprig` breaks that trade: at 96 vertices and
+    // no `columnInfo` per stamp it is the first piece of ground cover in this
+    // file cheap enough to CARPET with, which is what the finding actually asks
+    // for — "the terrain is largely bare polygon between sparse bushes ... Cube
+    // World's ground plane is densely carpeted". At 0.82 of 115 candidates a
+    // plains chunk plants ~94 clumps, one per 3.3 units square, and each one is
+    // now a metre-and-a-half patch rather than a pom-pom, so the patches touch.
+    if (accept > (cb === 'plains' ? 0.82 : 0.46)) continue;
     if (ci.h < WATER_LEVEL + 1) continue;
     // Grass and flowers are welcome on the doorstep — only the bush below,
     // which casts shadows and blocks the path, respects the den discs.
@@ -2122,8 +2316,24 @@ export function buildChunkProps(
     // them buys back the triangles the extra tussocks below spend, so the meadow
     // pass stays within its build budget while what a player actually SEES goes
     // up. See the tussock bake scale for the measurement behind that.
-    const members = 7 + Math.floor(rng() * 6);
+    //
+    // 7-12 -> 4-7, a third time and for the last time. The billboards are now
+    // the ONLY thing in a clump that does not survive to the screen (this file
+    // has admitted it twice and measured it once), and with the clump count up
+    // by half they were about to become the meadow's largest vertex line item
+    // again. What they still buy is the soft fringe between the solid props —
+    // four of them under a tussock reads as the grass the tussock stands in —
+    // so they are trimmed rather than removed.
+    const members = 3 + Math.floor(rng() * 4);
     const grass = grasses[Math.floor(rng() * 2.999)];
+    // The clump's ground tint, resolved ONCE. `addTuft` re-derives this per
+    // instance because it re-samples the column; the sprig carpet below is far
+    // too numerous to pay for that and the ground colour does not meaningfully
+    // move across two metres. Same blend and the same clamp as `addTuft`.
+    const B = 0.45;
+    const sprR = clampTint(1 - B + B * (ci.topR / TUFT_REF[0])) * cj;
+    const sprG = clampTint(1 - B + B * (ci.topG / TUFT_REF[1])) * cj;
+    const sprB = clampTint(1 - B + B * (ci.topB / TUFT_REF[2])) * cj;
     // One knee-high tussock anchors roughly a fifth of the clumps, so the
     // meadow has a second height in it instead of one uniform nap.
     if (rng() < 0.22) {
@@ -2145,7 +2355,35 @@ export function buildChunkProps(
     // tussocks inside a 2-unit circle overlap each other's silhouettes and the
     // group reads as one patch of grass, which is the unit Cube World's meadows
     // are actually built from.
-    const tuftN = 2 + Math.floor(rng() * 3);
+    // THE CARPET. 7-12 sprigs in a 2.2-unit disc around the clump's two or
+    // three tussocks — the same footprint, filled in rather than dotted.
+    //
+    // The radius is deliberately WIDER than the tussocks' 1.05: the tussocks are
+    // the readable objects and want to overlap each other, while the sprigs' job
+    // is to close the gap between one clump and the next. At ~100 clumps a
+    // plains chunk on a 3.2-unit pitch, a 2.2-unit sprig disc means neighbouring
+    // clumps' carpets touch and the ground plane stops being bare polygon
+    // anywhere, which is the finding. They are stamped BEFORE the tussocks so
+    // `ci` still holds the cluster's own column.
+    const sprigN = 4 + Math.floor(rng() * 5);
+    for (let m = 0; m < sprigN; m++) {
+      const ang = rng() * Math.PI * 2;
+      // sqrt so the sample is uniform over the DISC rather than piled at the
+      // centre — a carpet with a hot spot in the middle of every clump is a
+      // pom-pom, which is the shape three rounds of tuning have been trying to
+      // get away from.
+      const rad = Math.sqrt(rng()) * 2.2;
+      const sx = clx + Math.cos(ang) * rad;
+      const sz = clz + Math.sin(ang) * rad;
+      if (sx < 0 || sz < 0 || sx >= CHUNK_SIZE || sz >= CHUNK_SIZE) continue;
+      addSprig(false, sx, sz, rng() * Math.PI * 2, 0.85 + rng() * 0.6,
+        sprR * (isForest ? 0.93 : 1), sprG, sprB * (isForest ? 0.9 : 1));
+    }
+    // 2-4 -> 1-3. The tussock is still the readable OBJECT in a clump, but it is
+    // no longer the thing carrying coverage — the sprigs are — and at 140
+    // vertices against a sprig's 40 it is the wrong place to spend the meadow's
+    // budget now that there is a cheaper way to fill ground.
+    const tuftN = 1 + Math.floor(rng() * 3);
     for (let m = 0; m < tuftN; m++) {
       const ang = rng() * Math.PI * 2;
       const rad = rng() * 1.05;
@@ -2175,7 +2413,43 @@ export function buildChunkProps(
       soft.add(grass, mx, ci.h - 0.03, mz, rng() * Math.PI * 2, 0.65 + rng() * 0.5,
         isForest ? t * 0.9 : t * 0.97, t, isForest ? t * 0.86 : t * 0.9);
     }
-    if (rng() < 0.7) { // usually one flower per clump
+    // ---- non-green drift --------------------------------------------------
+    // "Add at least one non-green ground-cover mass per biome patch at a scale
+    // visible from distance — the existing flower voxels are far too small to
+    // register." See `bloomMat` for why a mat rather than a bigger blossom.
+    //
+    // Which hue and whether there is one at all are decided by a hash of the
+    // 32-unit REGION, not by this clump's rng, and that is the whole design: a
+    // per-clump roll scatters five colours evenly and the meadow reads as
+    // confetti, while a per-region one puts a heather bank on this hillside and
+    // a buttercup bank on the next. Roughly two regions in five carry a drift,
+    // and inside one it lands on a third of the clumps — so a drift is a
+    // recognisable patch of ten or fifteen mats, and the meadow between drifts
+    // stays green.
+    const reg = hashCell(terrain.seed, wcx >> 5, 401, wcz >> 5);
+    if (reg < 0.42 && rng() < 0.24) {
+      const bl = blooms[Math.floor(
+        hashCell(terrain.seed, (wcx >> 5) + 77, 907, (wcz >> 5) - 31) * 4.999,
+      )];
+      const mats = 1 + Math.floor(rng() * 2);
+      for (let m = 0; m < mats; m++) {
+        const ang = rng() * Math.PI * 2;
+        const rad = m === 0 ? 0 : 0.6 + rng() * 1.6;
+        const mx = clx + Math.cos(ang) * rad;
+        const mz = clz + Math.sin(ang) * rad;
+        if (mx < 0 || mz < 0 || mx >= CHUNK_SIZE || mz >= CHUNK_SIZE) continue;
+        const mh = terrain.columnHeight(ox + Math.floor(mx), oz + Math.floor(mz));
+        if (mh < WATER_LEVEL + 1) continue;
+        const bt = cj * (0.94 + rng() * 0.12);
+        soft.add(bl, mx, mh - 0.06, mz, rng() * Math.PI * 2,
+          1.0 + rng() * 0.5, bt, bt, bt);
+      }
+    }
+    // 0.7 -> 0.38. The single blossom was the meadow's only non-green note and
+    // it never registered (168 vertices for two coloured voxels 0.33 units off
+    // the ground); the drift above now does that job at a scale a vista can
+    // resolve, so the lone flower goes back to being an occasional grace note.
+    if (rng() < 0.38) { // a flower in about a third of the clumps
       const fx = clx + (rng() - 0.5) * 1.4;
       const fz = clz + (rng() - 0.5) * 1.4;
       terrain.columnInfo(ox + Math.floor(fx), oz + Math.floor(fz), ci);
@@ -2241,10 +2515,22 @@ export function buildChunkProps(
         // Scale roll narrowed from 1.20-1.45 to 1.04-1.24: this was the widest
         // tussock stamp in the file and the one that produced the near-foreground
         // "small bush" in _veg-g-ground.png.
-        else if (roll < 0.262) addTuft(false, x, z, yaw, 0.72 + scl * 0.4, t);
-        else if (roll < 0.257 && !noSolid) solid.add(lib.rockAMoss, x, h - 0.1, z, yaw, scl, t, t, t);
-        else if (roll < 0.271) soft.add(lib.grassTall, x, h - 0.03, z, yaw, 0.8 + scl * 0.3, t, t, t * 0.94);
-        else if (roll < 0.281) soft.add(lib.deadwoodT, x, h - 0.02, z, yaw, scl, t, t, t);
+        // The lone mossy boulder is FIRST in the ladder now. It used to sit
+        // after the tussock band on `roll < 0.257`, which is below that band's
+        // own `roll < 0.262` ceiling, so the branch was unreachable and open
+        // plains have been getting no lone boulders at all. Bands are otherwise
+        // unchanged: rock 0.5%, tussock 4.2%, tall blade 0.9%, stick 1.0%.
+        else if (roll < 0.225 && !noSolid) solid.add(lib.rockAMoss, x, h - 0.1, z, yaw, scl, t, t, t);
+        else if (roll < 0.267) addTuft(false, x, z, yaw, 0.72 + scl * 0.4, t);
+        else if (roll < 0.276) soft.add(lib.grassTall, x, h - 0.03, z, yaw, 0.8 + scl * 0.3, t, t, t * 0.94);
+        else if (roll < 0.286) soft.add(lib.deadwoodT, x, h - 0.02, z, yaw, scl, t, t, t);
+        // Carpet BETWEEN the clumps. The meadow pass fills its own 2.2-unit
+        // discs; without this the ground between two discs is still the bare
+        // polygon the finding is about, just in smaller pieces. 22% of 320 rolls
+        // is ~70 sprigs a chunk on top of the ~500 the clumps plant, and this
+        // loop has already paid for the `columnInfo` these need.
+        else if (roll < 0.50) addSprig(false, x, z, yaw, 0.8 + scl * 0.4,
+          t * 0.98, t, t * 0.94);
         break;
       case 'forest':
         if (roll < 0.1) soft.add(grass, x, h - 0.03, z, yaw, 0.5 + scl * 0.45, t * 0.86, t, t * 0.84);
@@ -2255,6 +2541,12 @@ export function buildChunkProps(
         // wood floor rather than a lawn with trunks standing on it.
         else if (roll < 0.30) soft.add(lib.ferns[Math.floor(pick * 2.999)], x, h - 0.04, z, yaw, 0.85 + scl * 0.35, t * 0.9, t, t * 0.88);
         else if (roll < 0.325) soft.add(lib.deadwoodT, x, h - 0.02, z, yaw, scl, t, t, t);
+        // Same carpet as plains, a shade darker and cooler: a wood floor is the
+        // one surface where "bare polygon between sparse bushes" was most
+        // literally true, because the canopy shadow over it hides everything
+        // that is not a mass.
+        else if (roll < 0.50) addSprig(false, x, z, yaw, 0.75 + scl * 0.4,
+          t * 0.88, t, t * 0.86);
         break;
       case 'beach':
         if (roll < 0.064) addTuft(true, x, z, yaw, scl, t);
@@ -2343,7 +2635,14 @@ export function buildChunkProps(
     const z = lz + 0.5 + (rng() - 0.5) * 0.8;
     const yaw = rng() * Math.PI * 2;
     const t = 0.92 + rng() * 0.16;
-    if (roll < 0.17) {
+    // The roll ladder is re-cut to make room for the dry sprig carpet, and it is
+    // very nearly free. Bands, in points of the roll: dune blade 17 -> 14, dry
+    // TUSSOCK 25 -> 18, shell grit 18 -> 14, bleached stick 8 -> 7, driftwood 6
+    // unchanged, and the 28 points recovered go to the sprig. Per 200
+    // candidates that is -6 blades (16 vertices each) and -14 tussocks (140)
+    // against +56 sprigs (40) — a wash on the vertex budget for roughly twice
+    // as many objects on an empty dune.
+    if (roll < 0.14) {
       // Dune blades are HALVED in rate. An upright card with an up-facing normal
       // takes full sun on both sides, so on bright sand a khaki blade renders as a
       // pale flat sheet — at close range they read as scraps of paper stuck in the
@@ -2351,9 +2650,11 @@ export function buildChunkProps(
       // The dry tussock below now carries most of the dune cover.
       const dune = rng() < 0.5 ? lib.grassDuneA : lib.grassDuneB;
       soft.add(dune, x, ci.h - 0.03, z, yaw, 0.7 + rng() * 0.4, t, t, t * 0.95);
-    } else if (roll < 0.42) {
+    } else if (roll < 0.32) {
       addTuft(true, x, z, yaw, 0.75 + rng() * 0.45, t);
     } else if (roll < 0.60) {
+      addSprig(true, x, z, yaw, 0.8 + rng() * 0.5, t, t, t * 0.96);
+    } else if (roll < 0.74) {
       // Squashed to 45% height. A shell dot is one voxel tall, and a CUBE that
       // small still shows four vertical faces as tall as it is wide — faces the
       // sun barely reaches, which on bright sand print as black dashes with a
@@ -2362,12 +2663,12 @@ export function buildChunkProps(
       // beach actually looks like.
       const ss = 0.5 + rng() * 0.32;
       soft.add(lib.shellT, x, ci.h - 0.02, z, yaw, ss, t, t, t, ss * 0.45);
-    } else if (roll < 0.68) {
+    } else if (roll < 0.81) {
       // Bleached sticks: the dry-land equivalent of shell grit, and the cheapest
       // thing that puts a shadow on an empty dune.
       const ds = 0.9 + rng() * 0.5;
       soft.add(lib.deadwoodT, x, ci.h - 0.02, z, yaw, ds, t, t, t * 0.94, ds * 0.7);
-    } else if (roll < 0.74 && !exSolid(wx + 0.5, wz + 0.5)
+    } else if (roll < 0.87 && !exSolid(wx + 0.5, wz + 0.5)
       && flatEnough(wx, wz, ci.h, 1)) {
       solid.add(lib.driftwoodT, x, ci.h - 0.02, z, yaw, 0.9 + rng() * 0.4, t, t, t);
     }

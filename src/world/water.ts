@@ -12,13 +12,17 @@ const VERT = /* glsl */ `
 uniform float uTime;
 attribute float aDepth;
 attribute float aShore;
+/** 0 on the water surface, 1 on the wet-sand apron. See buildWaterMesh. */
+attribute float aLand;
 varying float vDepth;
 varying float vShore;
+varying float vLand;
 varying vec3 vWorldPos;
 #include <fog_pars_vertex>
 void main() {
   vDepth = aDepth;
   vShore = aShore;
+  vLand = aLand;
   vec3 p = position;
   float d = clamp(aDepth, 0.0, 1.5);
   vec4 wp4 = modelMatrix * vec4(p, 1.0);
@@ -49,8 +53,14 @@ void main() {
 const FRAG = /* glsl */ `
 uniform float uTime;
 varying float vDepth;
-/** Distance in cells to the nearest dry column, clamped to 5. See buildWaterMesh. */
+/**
+ * On the water surface: distance in cells to the nearest dry column, clamped to
+ * 5. On the apron: distance in cells INLAND from the waterline. See
+ * buildWaterMesh — the two fields are the two halves of the same chamfer.
+ */
 varying float vShore;
+/** 0 on the water surface, 1 on the wet-sand apron. */
+varying float vLand;
 varying vec3 vWorldPos;
 #include <fog_pars_fragment>
 
@@ -144,6 +154,103 @@ vec3 waveNormal(vec2 p, float t, float att) {
 }
 
 void main() {
+  // ---- the beat both halves of the shoreline share -------------------------
+  //
+  // tide and the wash texture fw are computed BEFORE the water/land split
+  // because the surf on the water and the run-up on the sand are one event seen
+  // either side of the waterline. Driving them from two different phases is
+  // instantly readable as two effects that happen to be adjacent: the white band
+  // on the water advances while the wash on the sand retreats. Same sine, same
+  // world-space phase, so a wave arrives everywhere along a stretch of coast at
+  // once and the whole shore breathes together.
+  float tide = sin(uTime * 0.55 + vWorldPos.x * 0.055 + vWorldPos.z * 0.047);
+  // Wash texture from three sines on rotated, mutually irrational directions.
+  // This was sin(x*2.6) * sin(z*2.4) — a SEPARABLE product, which is a
+  // chequerboard: viewed across a bay at a grazing angle its rows lined up into
+  // the horizontal banding that got filed against the shallows. A sum of
+  // obliquely-oriented waves has no rows to line up.
+  float fw = 0.58
+    + 0.16 * sin(dot(vWorldPos.xz, vec2(2.31, 1.07)) + uTime * 2.1)
+    + 0.15 * sin(dot(vWorldPos.xz, vec2(-1.13, 2.44)) - uTime * 1.7)
+    + 0.11 * sin(dot(vWorldPos.xz, vec2(3.71, -2.93)) + uTime * 3.1);
+
+  // ---- wet sand -----------------------------------------------------------
+  //
+  // The apron is the strip of beach the water has just left: a translucent decal
+  // 5 cm over the first dry terrace, part of this same mesh and material (see
+  // buildWaterMesh). Before it, sand met water on a bare geometric edge — the
+  // single hardest cut in the world, and the reason a coast read as a decal
+  // pasted onto the terrain rather than as a place where two materials meet.
+  //
+  // Two bands live here. The DAMP band is the wider one, a dark warm tint about
+  // a metre and a half deep; the RUN-UP is a thin sheet of foam that
+  // actually crosses the waterline and slides up over the sand, and it is the
+  // half that sells the motion, because a band that only ever changes brightness
+  // reads as a texture while a band that MOVES reads as water.
+  if (vLand > 0.5) {
+    // Damp sand. Tinted, not painted: this is alpha-blended over the terrain's
+    // own lit sand, so the sun/shadow shading underneath still comes through and
+    // a shadowed beach does not suddenly get a bright wet stripe on it.
+    //
+    // THE FIRST PASS AT THIS WAS INVISIBLE, and the reason is the tone curve, not
+    // the blend. (0.16,0.13,0.09) at 40% over sunlit sand takes the buffer from
+    // ~0.89 linear to ~0.60 — a third of the light gone — and that photographed
+    // (_wat-a-surf.png) as an 18-code-value step, i.e. nothing. Sunlit sand sits
+    // at sRGB ~232 here, right up on ACES's shoulder where 0.89 and 0.60 land
+    // almost on top of each other. Anything meant to READ against sunlit sand has
+    // to move the linear value by a FACTOR, not by a percentage. What shipped is
+    // (0.145,0.115,0.080) at 70%, which takes 0.89 linear down to ~0.31 — about
+    // a third of the light, displaying near sRGB 175 against the dry beach's 232.
+    // Scanned off the frame (_wat-shore.png, a column crossing the waterline) the
+    // real profile runs 190,164,109 at the tide mark up to 230,199,127 a metre
+    // inland; that ~40-code ramp is the band.
+    //
+    // The PROFILE is flat-topped and NARROW, and both halves of that were bought
+    // with captures. Flat-topped: the first version ramped from full strength at
+    // the water to nothing 2.3 cells inland, which put all its weight under the
+    // run-up below and left no band you could see. Narrow: the second version was
+    // flat out to 1.9 cells and 2.55 at the fade, and from a low camera that
+    // covers the ENTIRE visible beach (_wat-a-shore.png) — a wet band with no dry
+    // sand next to it is not a band, it is a slightly duller beach. 1.6 cells with
+    // the fade starting at 0.95 leaves bright sand above it in every framing, and
+    // a strip roughly a metre wide is what a real tide line looks like anyway.
+    float damp = smoothstep(1.60, 0.95, vShore) * (0.80 + 0.20 * tide);
+    // The run-up. vShore here is distance INLAND, so the threshold IS the edge
+    // of the sheet of water sliding up the beach: at low tide it sits back at
+    // 0.13 cells (barely past the waterline), at high tide it reaches 0.97.
+    // That is a band sweeping ~0.8 units up and down the sand twice per wave
+    // period, and it stays INSIDE the damp band above (which reaches 1.6) so
+    // there is always dark wet sand showing ahead of the foam — and because the
+    // damp band itself does NOT move, what the eye
+    // reads is the dark strip getting narrower and wider as the sea breathes,
+    // which is far more legible than the white itself. That matters more than it
+    // sounds: sunlit sand here sits at sRGB ~232, so white foam laid over it is
+    // worth ten code values and the wash CANNOT be read by brightness alone.
+    float reach = 0.55 + 0.42 * tide;
+    float sheet = smoothstep(reach, max(0.0, reach - 0.40), vShore);
+    // The leading lip of the sheet is brighter than the body of it — that is
+    // where the air is, and it is what makes a run-up read as foam rather than
+    // as a wet patch.
+    float lip = smoothstep(reach - 0.20, reach, vShore) * smoothstep(reach + 0.12, reach, vShore);
+    float run = clamp(sheet * (0.55 + 0.45 * fw) + lip * 0.90, 0.0, 1.0);
+    // FOAM * 1.32, not FOAM. Same arithmetic as the damp band, run the other way:
+    // FOAM is 0.93-1.00 linear and sunlit sand is ~0.89, so foam laid on a beach
+    // at its authored radiance is four code values brighter than the sand it is
+    // supposed to stand out from. Overdriving it puts the sheet above the sand
+    // rather than level with it — and it is still under the emissive-bloom
+    // threshold, so it brightens without hazing.
+    //
+    // What actually makes the run-up read at 40 units, though, is the DAMP BAND
+    // UNDER IT: a bright line against a dark line is legible at any distance,
+    // where a bright line against bright sand is not. The two bands are one
+    // effect, which is why they share a threshold.
+    vec3 col = mix(vec3(0.145, 0.115, 0.080), FOAM * 1.32, run);
+    float alpha = clamp(max(damp * 0.70, run * 0.88), 0.0, 1.0);
+    gl_FragColor = vec4(col, alpha);
+    #include <fog_fragment>
+    return;
+  }
+
   // Three ramps over four stops. Depth runs from ~0 right at the waterline to
   // ~0.8 over the shallowest flooded terrace and on down (see buildWaterMesh for
   // where the offset comes from). Stops are placed so the tide line is wet sand,
@@ -172,6 +279,12 @@ void main() {
   vec3 V = toCam / max(camDist, 0.001);
   float att = 0.22 + 0.78 * (1.0 - smoothstep(14.0, 70.0, camDist));
   vec3 N = waveNormal(vWorldPos.xz, uTime, att);
+  // Underside: the material is DoubleSide so the surface still exists when the
+  // camera is below it, and a normal pointing away from the viewer would give a
+  // negative Fresnel term (floor 0.025, no reflection) and a dead specular — the
+  // ceiling of the lake would read as flat matte nothing. Flipped, the same
+  // ripple field shades from below.
+  if (!gl_FrontFacing) N = -N;
 
   // Fresnel sky reflection — the cheap stand-in for a real reflection pass,
   // and the dominant term in any real body of water. Grazing angles (every
@@ -309,17 +422,8 @@ void main() {
   // across every shallow bay, and a small pond was foam edge to edge — visible in
   // _tw-b-bay.png as a pond rendered entirely white. Surf belongs on the waterline,
   // not on the bay.
-  float tide = sin(uTime * 0.55 + vWorldPos.x * 0.055 + vWorldPos.z * 0.047);
+  // (tide and fw are computed at the top of main, shared with the apron.)
   float foam = smoothstep(1.65 + tide * 0.35, 0.30, vShore);
-  // Wash texture from three sines on rotated, mutually irrational directions.
-  // This was sin(x*2.6) * sin(z*2.4) — a SEPARABLE product, which is a
-  // chequerboard: viewed across a bay at a grazing angle its rows lined up into
-  // the horizontal banding that got filed against the shallows. A sum of
-  // obliquely-oriented waves has no rows to line up.
-  float fw = 0.58
-    + 0.16 * sin(dot(vWorldPos.xz, vec2(2.31, 1.07)) + uTime * 2.1)
-    + 0.15 * sin(dot(vWorldPos.xz, vec2(-1.13, 2.44)) - uTime * 1.7)
-    + 0.11 * sin(dot(vWorldPos.xz, vec2(3.71, -2.93)) + uTime * 3.1);
   foam = clamp(foam * fw * (0.85 + 0.15 * tide), 0.0, 1.0);
   // A brighter, narrower crest rides the outer edge of the wash so the foam has
   // a leading line instead of fading off as a smear. Both bands are kept tight:
@@ -336,7 +440,21 @@ void main() {
   // attempt at smoothstep(0.80, 0.05) therefore evaluated to exactly zero at every
   // vertex in the world and switched the surf off completely (_tw-r4-shore2.png:
   // water meets sand at a bare cyan edge).
-  float crest = smoothstep(1.55, 0.30, vShore) * (0.55 + 0.45 * fw);
+  //
+  // ROUND 3: the crest band BREATHES (+ tide * 0.30) instead of standing
+  // still. The wash threshold above has always moved with the tide, but the
+  // crest — the bright line, the part you actually see from 30 units away — was
+  // a fixed band, so the surf shimmered without ever advancing. Now the whole
+  // white edge swings ~0.6 units in and out on the same sine the apron's run-up
+  // uses, and the two read as one wave crossing the waterline.
+  // The band also TIGHTENS, 1.50 -> 1.25 cells, with the weight up 0.62 -> 0.76.
+  // Measured on _wat-shore.png: the old band peaked at ~0.85 of FOAM and then
+  // fell off over a cell and a half, which photographs as a pale wash spreading
+  // out from the beach rather than as a line of surf. Narrower and hotter is the
+  // whole difference between "the water is milky near the shore" — the failure
+  // this shader has hit three times — and "there is a line of foam at the
+  // waterline".
+  float crest = smoothstep(1.25 + tide * 0.28, 0.20, vShore) * (0.55 + 0.45 * fw);
   // Weights are down (0.72/0.50 -> 0.52/0.40) so the wash NEVER reaches the full
   // FOAM colour. At the old weights the band saturated to near-opaque white a
   // block or two out from every shore, and a saturated band on a stepped coast is
@@ -354,7 +472,8 @@ void main() {
   // halo is the WASH term — leaving it low and putting the weight on the narrow
   // crest gives a bright line hugging the waterline, which is what surf is,
   // without re-flooding the bay.
-  col = mix(col, FOAM, clamp(foam * 0.34 + crest * 0.62, 0.0, 1.0));
+  float surf = clamp(foam * 0.34 + crest * 0.76, 0.0, 1.0);
+  col = mix(col, FOAM, surf);
 
   // Opacity has to climb FAST, and from a HIGH floor. Bays here are only a voxel
   // or two deep, so anything gentler left the pale sand bed showing through
@@ -376,7 +495,30 @@ void main() {
   //
   // A short ramp is kept over the first 30cm of depth purely so the waterline
   // itself is a soft edge instead of a hard cut against the beach.
-  float alpha = smoothstep(0.02, 0.30, vDepth);
+  //
+  // ROUND 3 — THE WATER IS TRANSPARENT AGAIN, and the paragraph above is only
+  // half right. Two things had made the lake a solid sheet of paint, and one of
+  // them was not deliberate at all (see createWaterMaterial: transparent:false
+  // with NormalBlending makes three set NoBlending, so this alpha was being
+  // DISCARDED and even the 30cm ramp never ran). With blending restored, the
+  // opacity here is what the player sees, so it is worth stating what it buys:
+  //
+  //   - a FLOOR of 0.46 at the tide line, not 1.0. Over the first metre of depth
+  //     you look through to the sunlit sand, which is the single most inviting
+  //     thing a stylised lake can do, and it is a read no painted colour stop can
+  //     fake — the bed's own light and its own shading come through it.
+  //   - OPAQUE by 1.4 units. That is the ceiling the old comment was defending
+  //     and it still holds: past a metre and a half the bed's 1-unit terraces (and
+  //     the real shadow-map shadows on their walls) start printing through as
+  //     contour stripes. Deep water hides them, and the depth gradient carries the
+  //     drop-off instead.
+  //   - SURF IS OPAQUE. The foam band forces alpha to 0.95 regardless of depth:
+  //     white surf over a see-through waterline would be a pale ghost of a line
+  //     at gameplay distance, which is exactly the "no shore foam" finding. It is
+  //     the alpha, not the colour, that makes the band read across a bay.
+  float edge = smoothstep(0.02, 0.16, vDepth);
+  float alpha = edge * mix(0.46, 1.0, smoothstep(0.12, 1.40, vDepth));
+  alpha = max(alpha, surf * 0.95);
   gl_FragColor = vec4(col, alpha);
   #include <fog_fragment>
 }
@@ -407,13 +549,59 @@ export function createWaterMaterial(): THREE.ShaderMaterial {
     // changes nothing else about the water (_tw-b-lake1.png vs _tw-b-lake1-ao0.png).
     //
     // `transparent: false` puts the surface in the opaque render list, where its
-    // renderOrder of 2 still sorts it behind every other opaque object, and
-    // `blending` is applied from the material regardless of which list it is in —
-    // so the beauty pass is pixel-identical. What changes is that GTAO now sees the
-    // water plane, which occludes the bed and is itself flat, so there is nothing
-    // left for it to crease. depthWrite stays false so the surface never clips the
-    // transparent VFX and contact shadows that draw after it.
+    // renderOrder of 2 still sorts it behind every other opaque object. What
+    // changes is that GTAO now sees the water plane, which occludes the bed and is
+    // itself flat, so there is nothing left for it to crease. depthWrite stays
+    // false so the surface never clips the transparent VFX and contact shadows
+    // that draw after it.
     transparent: false,
+
+    // THE BLENDING IS EXPLICIT, AND THAT IS THE WHOLE BUG.
+    //
+    // The paragraph above used to end "...and `blending` is applied from the
+    // material regardless of which list it is in — so the beauty pass is
+    // pixel-identical". It is not, and this is where "the water stopped being
+    // transparent" came from. three's WebGLState.setMaterial reads:
+    //
+    //     material.blending === NormalBlending && material.transparent === false
+    //       ? setBlending( NoBlending )
+    //       : setBlending( material.blending, ... )
+    //
+    // i.e. NormalBlending is treated as "the default, which an opaque material
+    // does not want" and the blend equation is switched OFF entirely. The
+    // fragment shader's alpha was still computed, still written, and then thrown
+    // away by the fixed-function stage: every lake in the world became a solid
+    // sheet of paint the moment `transparent` went false, whatever the depth ramp
+    // said. The AO fix and the transparency were never actually in conflict —
+    // only that one `? :` was.
+    //
+    // Naming the same source/destination factors explicitly takes the `===
+    // NormalBlending` branch out of play, so the surface keeps its own alpha AND
+    // stays in the opaque list where GTAO can see it. Both wins, no trade.
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+
+    // Seen from BELOW. The camera dips under the surface whenever the hero swims
+    // (see world/underwater.ts), and a FrontSide plane simply vanishes from under
+    // there — you would be swimming in an open-topped box with the sky in it.
+    // DoubleSide is a render-state change only, not a program permutation, so it
+    // costs nothing at warm-up; the fragment stage flips its analytic normal on
+    // gl_FrontFacing so the underside shades like a surface rather than like a
+    // plane lit from the wrong hemisphere.
+    side: THREE.DoubleSide,
+
+    // The surface and the wet-sand apron both sit a few centimetres over
+    // geometry they are meant to tint (the lake bed, the first dry terrace) with
+    // depthWrite off, so at 60+ units the depth buffer cannot always separate
+    // them. A small offset toward the camera settles it; nothing is coplanar with
+    // the water for this to disturb.
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -2,
     depthWrite: false,
     fog: true,
   });
@@ -439,7 +627,7 @@ export function createWaterMaterial(): THREE.ShaderMaterial {
  * the next contour (which stands a clean 0.7+ above the water and reads as a
  * proper bank), and every beach gains an inviting shallow fringe.
  */
-const SURFACE_Y = WATER_LEVEL + 0.28;
+export const SURFACE_Y = WATER_LEVEL + 0.28;
 
 /**
  * Build the water surface for a chunk; returns null when the chunk is dry.
@@ -479,7 +667,17 @@ export function buildWaterMesh(
   // padded array's own border for coastline.
   const SHORE_MAX = 5;
   const dist = new Float32Array(GG * GG);
+  // The SAME chamfer run from the other side: distance in cells from a DRY
+  // column back to the water. It is what the wet-sand apron is cut from, and
+  // deriving it here rather than in the mesher is the point — this file already
+  // knows where the waterline is to sub-cell accuracy, and terrain/chunk own the
+  // land. One extra Float32Array and two sweeps over the padded grid per chunk
+  // build (~2 KB, ~8k relaxations, measured at well under a tenth of the fbm
+  // sampling that already happens above).
+  const inland = new Float32Array(GG * GG);
   const dry = new Uint8Array(GG * GG);
+  /** Integer column height, for picking the beach terrace. */
+  const hgt = new Int16Array(GG * GG);
   for (let iz = 0; iz < GG; iz++)
     for (let ix = 0; ix < GG; ix++) {
       const i = iz * GG + ix;
@@ -488,15 +686,29 @@ export function buildWaterMesh(
       const hc = terrain.heightCont(ox + ix - PAD + 0.5, oz + iz - PAD + 0.5);
       const h = Math.max(1, Math.floor(hc));
       buf[i] = SURFACE_Y - (hc - 0.5);
+      hgt[i] = h;
       dry[i] = h > WATER_LEVEL ? 1 : 0;
       dist[i] = dry[i] ? 0 : SHORE_MAX;
+      inland[i] = dry[i] ? SHORE_MAX : 0;
     }
 
+  // Two questions, not one. `anyWet` is "does this chunk need a water surface";
+  // `anyNear` is "does it touch water at all", which is the one that decides
+  // whether there is anything to build — because the wet-sand apron below lives
+  // on DRY cells, and a coastline running just inside a chunk boundary puts its
+  // beach in the next chunk over. Returning null on the old interior-only test
+  // chopped that beach off at a 32-unit grid line: the damp band and the foam
+  // run-up simply stopped dead on a straight edge wherever the coast came within
+  // a couple of cells of a chunk seam. `anyNear` scans the PADDED grid, so a dry
+  // chunk with water within PAD cells still gets built — as an apron-only mesh,
+  // with no water grid in it at all (see NG below).
   let anyWet = false;
   for (let iz = 0; iz < CHUNK_SIZE && !anyWet; iz++)
     for (let ix = 0; ix < CHUNK_SIZE; ix++)
       if (!dry[(iz + PAD) * GG + (ix + PAD)]) { anyWet = true; break; }
-  if (!anyWet) return null;
+  let anyNear = anyWet;
+  for (let i = 0; i < GG * GG && !anyNear; i++) if (!dry[i]) anyNear = true;
+  if (!anyNear) return null;
 
   // ---- depth attribute, low-pass filtered ---------------------------------
   // The colour and opacity ramps are non-linear functions of a per-vertex
@@ -525,22 +737,26 @@ export function buildWaterMesh(
   // diagonal). Computed over the PADDED grid so the value on a chunk edge is
   // identical from either side and the foam band crosses chunk seams unbroken.
   const D = 1, Q = 1.4142;
-  const relax = (i: number, from: number, w: number): void => {
-    const v = dist[from] + w;
-    if (v < dist[i]) dist[i] = v;
+  const chamfer = (f: Float32Array): void => {
+    const relax = (i: number, from: number, w: number): void => {
+      const v = f[from] + w;
+      if (v < f[i]) f[i] = v;
+    };
+    for (let iz = 1; iz < GG; iz++)
+      for (let ix = 1; ix < GG - 1; ix++) {
+        const i = iz * GG + ix;
+        relax(i, i - GG, D); relax(i, i - 1, D);
+        relax(i, i - GG - 1, Q); relax(i, i - GG + 1, Q);
+      }
+    for (let iz = GG - 2; iz >= 0; iz--)
+      for (let ix = GG - 2; ix >= 1; ix--) {
+        const i = iz * GG + ix;
+        relax(i, i + GG, D); relax(i, i + 1, D);
+        relax(i, i + GG + 1, Q); relax(i, i + GG - 1, Q);
+      }
   };
-  for (let iz = 1; iz < GG; iz++)
-    for (let ix = 1; ix < GG - 1; ix++) {
-      const i = iz * GG + ix;
-      relax(i, i - GG, D); relax(i, i - 1, D);
-      relax(i, i - GG - 1, Q); relax(i, i - GG + 1, Q);
-    }
-  for (let iz = GG - 2; iz >= 0; iz--)
-    for (let ix = GG - 2; ix >= 1; ix--) {
-      const i = iz * GG + ix;
-      relax(i, i + GG, D); relax(i, i + 1, D);
-      relax(i, i + GG + 1, Q); relax(i, i + GG - 1, Q);
-    }
+  chamfer(dist);
+  chamfer(inland);
 
   // Low-pass the distance field the same way `buf` was low-passed above, and for
   // a sharper reason. A chamfer transform of a BLOCKY coastline is a cone field
@@ -551,22 +767,89 @@ export function buildWaterMesh(
   // as the "row of teeth". Three tent passes round the cones into a smooth
   // shore-proximity field, so the foam traces the coast without printing its
   // staircase. Done on the PADDED grid so chunk edges still agree.
-  for (let pass = 0; pass < 3; pass++) {
-    for (let iz = 0; iz < GG; iz++)
-      for (let ix = 1; ix < GG - 1; ix++) {
-        const i = iz * GG + ix;
-        tmp[i] = (dist[i - 1] + dist[i] * 2 + dist[i + 1]) * 0.25;
-      }
-    for (let iz = 1; iz < GG - 1; iz++)
-      for (let ix = 1; ix < GG - 1; ix++) {
-        const i = iz * GG + ix;
-        dist[i] = (tmp[i - GG] + tmp[i] * 2 + tmp[i + GG]) * 0.25;
-      }
-  }
+  const tent = (f: Float32Array, passes: number): void => {
+    for (let pass = 0; pass < passes; pass++) {
+      for (let iz = 0; iz < GG; iz++)
+        for (let ix = 1; ix < GG - 1; ix++) {
+          const i = iz * GG + ix;
+          tmp[i] = (f[i - 1] + f[i] * 2 + f[i + 1]) * 0.25;
+        }
+      for (let iz = 1; iz < GG - 1; iz++)
+        for (let ix = 1; ix < GG - 1; ix++) {
+          const i = iz * GG + ix;
+          f[i] = (tmp[i - GG] + tmp[i] * 2 + tmp[i + GG]) * 0.25;
+        }
+    }
+  };
+  tent(dist, 3);
+  // The inland field gets TWO passes rather than three. It drives a band that is
+  // supposed to advance and retreat over ~1.2 cells, and a third pass smears the
+  // 45-degree chamfer facets so far that the run-up's leading lip loses its edge
+  // — the wash stops looking like a sheet of water with a front and starts
+  // looking like an airbrushed gradient. Two is enough to kill the diamond
+  // facets, which is what the smoothing is for.
+  tent(inland, 2);
 
-  const depths = new Float32Array(G * G);
-  const shore = new Float32Array(G * G);
-  const positions = new Float32Array(G * G * 3);
+  // ---- the wet-sand apron -------------------------------------------------
+  //
+  // A skirt of quads laid 5 cm over the first DRY terrace, inside this same mesh
+  // and this same material, carrying the damp band and the foam run-up (see the
+  // `vLand` branch in the fragment shader).
+  //
+  // Why it lives here and not in the terrain mesher: this file is the only place
+  // that knows where the waterline is to sub-cell accuracy — `inland` above is
+  // the chamfer field that produced it — and painting the band into the terrain's
+  // vertex colours would quantise it to whole cells and freeze it, when the whole
+  // value of the band is that it MOVES. As geometry in the water mesh it also
+  // streams, disposes and z-sorts with the water it belongs to, for free.
+  //
+  // Selection is deliberately strict, and it is a beach test rather than a
+  // proximity test:
+  //
+  //   - `hgt === WATER_LEVEL + 1` — the FIRST dry terrace only. The surface floats
+  //     at 8.28 (see SURFACE_Y) so that terrace's top face stands 0.72 above the
+  //     water: it is the strip a wave can reach. The next one up is 1.72 above and
+  //     a wet band on it would read as a painted contour line, which is precisely
+  //     the artefact the depth-driven foam was moved away from.
+  //   - `inland <= APRON` — within 2.6 cells of water. A flat sand basin can have
+  //     hundreds of cells at exactly this height (they exist all over this world);
+  //     without the distance cut the whole basin would go damp.
+  //
+  // A cliff dropping straight into the water simply has no cell at this height,
+  // so it gets no apron — which is correct. Wet sand is what a shelving beach has.
+  const APRON = 2.6;
+  const apPos: number[] = [];
+  const apShore: number[] = [];
+  const apIdx: number[] = [];
+  // Corner sample of the inland field: the mean of the four cells that meet at
+  // the min corner of cell `p`. Sampling per CORNER rather than per cell is what
+  // keeps the band a smooth curve — a per-cell constant would step the run-up in
+  // whole cells and put a staircase back on the coast.
+  const cor = (p: number): number =>
+    (inland[p] + inland[p - 1] + inland[p - GG] + inland[p - GG - 1]) * 0.25;
+  for (let iz = 0; iz < CHUNK_SIZE; iz++) {
+    for (let ix = 0; ix < CHUNK_SIZE; ix++) {
+      const p = (iz + PAD) * GG + (ix + PAD);
+      if (!dry[p] || hgt[p] !== WATER_LEVEL + 1 || inland[p] > APRON) continue;
+      // 5 cm of lift. Small enough that nothing standing on the beach (a pebble,
+      // a grass tuft, the hero's feet) is visibly floated by it, large enough
+      // that the depth test still separates the two surfaces at the far end of a
+      // vista; the material's polygonOffset covers the rest.
+      const y = hgt[p] + 0.05 - SURFACE_Y;
+      const base = apPos.length / 3;
+      apPos.push(ix, y, iz, ix + 1, y, iz, ix, y, iz + 1, ix + 1, y, iz + 1);
+      apShore.push(cor(p), cor(p + 1), cor(p + GG), cor(p + GG + 1));
+      apIdx.push(base, base + 2, base + 3, base, base + 3, base + 1);
+    }
+  }
+  const AP = apPos.length / 3;
+  /** Water-grid vertex count: zero in an apron-only chunk (see anyNear above). */
+  const NG = anyWet ? G * G : 0;
+
+  const depths = new Float32Array(NG + AP);
+  const shore = new Float32Array(NG + AP);
+  const land = new Float32Array(NG + AP);
+  const positions = new Float32Array((NG + AP) * 3);
   // A flat +Y normal, which this surface's OWN shader never reads (it derives the
   // ripple normal analytically in the fragment stage). It exists for the GTAO
   // pass's MeshNormalMaterial override: now that the water is in the opaque list
@@ -575,8 +858,8 @@ export function buildWaterMesh(
   // report the whole lake fully occluded — the "lake turned solid black" failure
   // already documented in core/post.ts. 12 bytes per vertex, ~13 KB per water
   // chunk, written once at build.
-  const normals = new Float32Array(G * G * 3);
-  for (let iz = 0; iz < G; iz++) {
+  const normals = new Float32Array((NG + AP) * 3);
+  for (let iz = 0; iz < G && anyWet; iz++) {
     for (let ix = 0; ix < G; ix++) {
       const i = iz * G + ix;
       const p = (iz + PAD) * GG + (ix + PAD);
@@ -588,18 +871,34 @@ export function buildWaterMesh(
       normals[i * 3 + 1] = 1;
     }
   }
+  // Apron vertices append to the same buffers: one geometry, one draw call, one
+  // material. aDepth stays 0 on them, which is also what keeps them out of the
+  // vertex shader's swell (its amplitude is scaled by depth), so the skirt lies
+  // flat on the sand while the water beside it heaves.
+  for (let v = 0; v < AP; v++) {
+    const i = NG + v;
+    positions[i * 3] = apPos[v * 3];
+    positions[i * 3 + 1] = apPos[v * 3 + 1];
+    positions[i * 3 + 2] = apPos[v * 3 + 2];
+    normals[i * 3 + 1] = 1;
+    shore[i] = apShore[v];
+    land[i] = 1;
+  }
 
   const idx: number[] = [];
-  for (let iz = 0; iz < CHUNK_SIZE; iz++) {
-    for (let ix = 0; ix < CHUNK_SIZE; ix++) {
-      if (dry[(iz + PAD) * GG + (ix + PAD)]) continue;
-      const a = iz * G + ix;
-      const b = a + 1;
-      const c = a + G;
-      const d = c + 1;
-      idx.push(a, c, d, a, d, b);
+  if (anyWet) {
+    for (let iz = 0; iz < CHUNK_SIZE; iz++) {
+      for (let ix = 0; ix < CHUNK_SIZE; ix++) {
+        if (dry[(iz + PAD) * GG + (ix + PAD)]) continue;
+        const a = iz * G + ix;
+        const b = a + 1;
+        const c = a + G;
+        const d = c + 1;
+        idx.push(a, c, d, a, d, b);
+      }
     }
   }
+  for (let k = 0; k < apIdx.length; k++) idx.push(NG + apIdx[k]);
   if (idx.length === 0) return null;
 
   const geo = new THREE.BufferGeometry();
@@ -607,6 +906,7 @@ export function buildWaterMesh(
   geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   geo.setAttribute('aDepth', new THREE.BufferAttribute(depths, 1));
   geo.setAttribute('aShore', new THREE.BufferAttribute(shore, 1));
+  geo.setAttribute('aLand', new THREE.BufferAttribute(land, 1));
   geo.setIndex(idx);
   geo.computeBoundingSphere();
 
