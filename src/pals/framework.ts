@@ -798,7 +798,16 @@ export class PalActor {
           learned ??= skillRegistry.get(id);
         }
       });
-      this.bus.emit({ type: 'palLevelUp', palId: this.species.id, level: this.level, learned });
+      // Both halves of the pal's identity: the id for anything that has to know
+      // WHICH pal, the name key for anything that has to PRINT it. The HUD used
+      // to be handed only the id and title-case it into a name.
+      this.bus.emit({
+        type: 'palLevelUp',
+        palId: this.species.id,
+        nameKey: this.species.nameKey,
+        level: this.level,
+        learned,
+      });
       this.playAction('happy', 1.5);
     }
   }
@@ -840,7 +849,7 @@ export class PalActor {
 
   beginCast(skill: SkillDef): { origin: THREE.Vector3; direction: THREE.Vector3 } {
     this.playAction(skill.castAnim);
-    this.bus.emit({ type: 'skillCast', skillId: skill.id, casterName: this.species.name });
+    this.bus.emit({ type: 'skillCast', skillId: skill.id, casterNameKey: this.species.nameKey });
     const origin = new THREE.Vector3(
       this.position.x + this.forward.x * this.rig.radius * 0.7,
       this.position.y + this.rig.height * 0.62,

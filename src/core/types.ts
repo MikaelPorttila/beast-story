@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 // Type-only, so it is erased at build time and adds no import edge at runtime.
-import type { PluralKey } from '../i18n';
+import type { PluralKey, StringKey } from '../i18n';
 
 // ---------------------------------------------------------------------------
 // Elements / typing (Pokemon-style)
@@ -21,9 +21,17 @@ export const ELEMENT_COLORS: Record<ElementType, number> = {
 export type SkillTargeting = 'projectile' | 'melee' | 'aoe' | 'self' | 'beam' | 'support';
 
 export interface SkillDef {
+  /**
+   * The stable IDENTIFIER, namespaced by species ('emberfox.flame-dart'). The
+   * hotbar, the cooldown map, `knownSkillIds` and the shop's already-learned
+   * test all key on it, so it never changes when the skill is renamed — see
+   * ItemDef.id for the same argument about the currency.
+   */
   id: string;
-  name: string;
-  description: string;
+  /** DISPLAY name, as a string-table key. Read it with `t(def.nameKey)`. */
+  nameKey: StringKey;
+  /** DISPLAY blurb, as a string-table key. The shop card's paragraph. */
+  descriptionKey: StringKey;
   element: ElementType;
   targeting: SkillTargeting;
   /** Mana/stamina cost */
@@ -121,11 +129,18 @@ export interface PalAnimCtx {
 }
 
 export interface PalSpecies {
+  /**
+   * The stable IDENTIFIER ('emberfox'). The roster, `?pal=`, `/mount <id>`, the
+   * lab's pal list and any future save key on it; renaming the pal is an edit to
+   * src/i18n/en.ts and nothing else.
+   */
   id: string;
-  name: string;
+  /** DISPLAY name, as a string-table key. Read it with `t(species.nameKey)`. */
+  nameKey: StringKey;
+  /** DISPLAY blurb, as a string-table key. */
+  descriptionKey: StringKey;
   element: ElementType;
   locomotion: Locomotion;
-  description: string;
   baseStats: PalStats;
   /** Skill ids in learn order; SkillDef.learnAtLevel governs when */
   skills: string[];
@@ -176,8 +191,11 @@ export interface CrownContact {
 export interface TownInfo {
   /** Stable across sessions and seeds; what a quest stores. */
   readonly id: string;
-  /** Display name, e.g. "The Encampment". */
-  readonly name: string;
+  /**
+   * DISPLAY name as a string-table key — `t(town.nameKey)` gives "The
+   * Encampment". A quest prints this; it stores `id`.
+   */
+  readonly nameKey: StringKey;
   /** 'camp' is the walled start town; 'hamlet' is an open settlement. */
   readonly kind: 'camp' | 'hamlet';
   readonly x: number;
@@ -488,9 +506,27 @@ export interface CastRequest {
 // ---------------------------------------------------------------------------
 // Events (simple global bus)
 // ---------------------------------------------------------------------------
+/**
+ * Events carry IDS and STRING-TABLE KEYS, never rendered names.
+ *
+ * `palLevelUp` used to hand the HUD only `palId`, which left the banner
+ * title-casing 'emberfox' into "Emberfox" — deriving a display name from an
+ * identifier, which is the exact thing the string table exists to stop, and
+ * which produces "Boulderpup" in every language forever. Widening the event was
+ * the fix rather than letting the HUD import the pal registry: a subsystem
+ * contract belongs in this file, not in a new import edge from ui to pals.
+ */
 export type GameEvent =
-  | { type: 'palLevelUp'; palId: string; level: number; learned?: SkillDef }
-  | { type: 'skillCast'; skillId: string; casterName: string }
+  | {
+    type: 'palLevelUp';
+    /** Identifier, for anything that has to know WHICH pal. */
+    palId: string;
+    /** Display name key — `t(nameKey)`. */
+    nameKey: StringKey;
+    level: number;
+    learned?: SkillDef;
+  }
+  | { type: 'skillCast'; skillId: string; casterNameKey: StringKey }
   | { type: 'damage'; amount: number; position: THREE.Vector3; element?: ElementType }
   | { type: 'shardsChanged'; total: number }
   /**
@@ -499,7 +535,12 @@ export type GameEvent =
    * the same way, only the toast differs.
    */
   | { type: 'itemPicked'; itemId: string; byPal: boolean }
-  | { type: 'enemyKilled'; name: string; xp: number }
+  /**
+   * `nameKey` is display, and nothing renders it yet — main.ts reads only `xp`.
+   * It is a key rather than a name so that the first kill feed, quest counter or
+   * damage log to show it is translated on the day it is written.
+   */
+  | { type: 'enemyKilled'; nameKey: StringKey; xp: number }
   | { type: 'shopOpened'; shopIndex: number }
   | { type: 'shopClosed' }
   | { type: 'toast'; text: string };

@@ -421,8 +421,8 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 export const skills: SkillDef[] = [
   {
     id: 'sproutle.leaf-flick',
-    name: 'Leaf Flick',
-    description: 'Snaps its head forward and flings a spinning razor leaf that whistles as it flies.',
+    nameKey: 'skill.sproutle.leaf-flick.name',
+    descriptionKey: 'skill.sproutle.leaf-flick.desc',
     element: 'grass',
     targeting: 'projectile',
     cost: 6,
@@ -434,8 +434,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'sproutle.shell-spin',
-    name: 'Shell Spin',
-    description: 'Tucks in tight and whirls like a leafy top, batting away everything within reach.',
+    nameKey: 'skill.sproutle.shell-spin.name',
+    descriptionKey: 'skill.sproutle.shell-spin.desc',
     element: 'grass',
     targeting: 'melee',
     cost: 12,
@@ -447,8 +447,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'sproutle.verdant-veil',
-    name: 'Verdant Veil',
-    description: 'The head-sprout spins up like a propeller, showering allies in glittering pollen that mends wounds.',
+    nameKey: 'skill.sproutle.verdant-veil.name',
+    descriptionKey: 'skill.sproutle.verdant-veil.desc',
     element: 'grass',
     targeting: 'support',
     cost: 16,
@@ -460,8 +460,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'sproutle.bramble-burst',
-    name: 'Bramble Burst',
-    description: 'Stomps its stubby feet and erupts a ring of snapping thorn vines from the earth around it.',
+    nameKey: 'skill.sproutle.bramble-burst.name',
+    descriptionKey: 'skill.sproutle.bramble-burst.desc',
     element: 'grass',
     targeting: 'aoe',
     cost: 21,
@@ -479,12 +479,10 @@ export const skills: SkillDef[] = [
 
 export const species: PalSpecies = {
   id: 'sproutle',
-  name: 'Sproutle',
+  nameKey: 'pal.sproutle.name',
   element: 'grass',
   locomotion: 'ground',
-  description:
-    'A round mossy turtle-dino whose shell is a garden of overlapping leaf plates. ' +
-    'It plods along at its own unhurried pace, head-sprout bobbing, utterly unbothered by anything.',
+  descriptionKey: 'pal.sproutle.desc',
   baseStats: { maxHp: 58, attack: 9, defense: 14, speed: 3.2 },
   skills: skills.map((s) => s.id),
   buildRig,

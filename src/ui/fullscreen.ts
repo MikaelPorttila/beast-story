@@ -1,4 +1,5 @@
 import { isTouchPrimary } from '../core/touch';
+import { t } from '../i18n';
 import { injectStyles } from './styles';
 
 /**
@@ -149,9 +150,9 @@ export class FullscreenPrompt {
     const el = document.createElement('div');
     el.className = 'cp-fsprompt';
     el.innerHTML =
-      '<div class="txt">Play fullscreen?</div>' +
-      '<button class="cp-fs-btn no" type="button">NO</button>' +
-      '<button class="cp-fs-btn yes" type="button">YES</button>';
+      `<div class="txt">${t('fs.prompt')}</div>` +
+      `<button class="cp-fs-btn no" type="button">${t('fs.no')}</button>` +
+      `<button class="cp-fs-btn yes" type="button">${t('fs.yes')}</button>`;
     this.el = el;
 
     const yes = el.querySelector('.cp-fs-btn.yes') as HTMLButtonElement;

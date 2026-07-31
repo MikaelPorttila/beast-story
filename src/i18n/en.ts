@@ -38,6 +38,192 @@ export const en = {
   'zone.overworld.name': 'Embervale',
   'zone.hold.name': 'The Sunken Hold',
 
+  // ---- towns ---------------------------------------------------------------
+  // Keyed by the SiteSpec id in world/towns.ts. The id is what a quest stores
+  // and what the road network and the compass chip key on; only these move.
+  //
+  // `.sign` is what a fingerpost ARM reads, and it is the one string in this
+  // file with a HARD CHARACTER LIMIT. Signposts are voxel letters out of the
+  // 3x5 bitmap font in world/town-parts.ts, which knows A-Z, 0-9, '-', an
+  // apostrophe and a space — and nothing else. Anything outside that set is
+  // folded (Å/Ä -> A, Ö -> O, É -> E; see `signText`) and whatever survives the
+  // fold is dropped, so a sign written in kanji renders as a blank plank. Keep
+  // signs upper-case, <= 10 characters, and inside the Latin alphabet; put the
+  // pretty form in `.name`, which has a real font behind it.
+  'town.encampment.name': 'The Encampment',
+  'town.encampment.sign': 'ENCAMPMENT',
+  'town.redbriar.name': 'Redbriar Mill',
+  'town.redbriar.sign': 'REDBRIAR',
+  'town.stonewatch.name': 'Stonewatch',
+  'town.stonewatch.sign': 'STONEWATCH',
+  /** The fork the road network hangs off — a sign, but not a town. */
+  'town.junction.sign': 'CROSSWAY',
+
+  // ---- pal species ---------------------------------------------------------
+  // Keyed by the species id in src/pals/species/*.ts. The id is what the roster,
+  // the ?pal= capture parameter, /mount and every save key on; the name and the
+  // flavour blurb are display and live here.
+  'pal.aquaxol.name': 'Aquaxol',
+  'pal.aquaxol.desc':
+    'A perpetually smiling axolotl that waddles on land and ripples through water, gills fluttering like party streamers.',
+  'pal.boulderpup.name': 'Boulderpup',
+  'pal.boulderpup.desc':
+    'A puppy chiseled from mountain strata by a very sentimental earthquake. Moss grows where it naps too long, and the amber crystal on its back glows brighter the happier it gets.',
+  'pal.drakelet.name': 'Drakelet',
+  'pal.drakelet.desc':
+    'A pocket-sized dragon with the ego of a mountain-sized one. Polishes its ember-crimson scales on cliff quartz and practices its roar at sunrise, every sunrise.',
+  'pal.emberfox.name': 'Emberfox',
+  'pal.emberfox.desc':
+    'An eager little fox whose oversized tail smolders when it is excited — which is always.',
+  'pal.frostwing.name': 'Frostwing',
+  'pal.frostwing.desc':
+    'A snowy owl born in the heart of a glacier. It drifts on silent wings, watching everything with polite, unblinking curiosity, and its speckles glitter like fresh frost at dawn.',
+  'pal.galebird.name': 'Galebird',
+  'pal.galebird.desc':
+    'A wind-stitched swallow that treats gravity as a polite suggestion — the fastest wings in the valley.',
+  'pal.lumimoth.name': 'Lumimoth',
+  'pal.lumimoth.desc':
+    'A radiant moth that drifts between lantern posts at dusk, its glowing tail-light said to guide lost travelers home. Collects starlight on its wing-spots.',
+  'pal.sparkit.name': 'Sparkit',
+  'pal.sparkit.desc':
+    'A hyperactive spark rodent that physically cannot sit still. Its tall zigzag tail is a living lightning rod, and its cheek spots crackle whenever it gets excited — so, always.',
+  'pal.sproutle.name': 'Sproutle',
+  'pal.sproutle.desc':
+    'A round mossy turtle-dino whose shell is a garden of overlapping leaf plates. It plods along at its own unhurried pace, head-sprout bobbing, utterly unbothered by anything.',
+  'pal.umbrakit.name': 'Umbrakit',
+  'pal.umbrakit.desc':
+    'A hovering wisp of a cat woven from dusk. Its tail keeps drifting apart and lazily reassembling.',
+
+  // ---- skills --------------------------------------------------------------
+  // Keyed by the SkillDef id, which is already namespaced by species and is what
+  // the hotbar, the cooldown map and the shop's "already learned" test key on.
+  'skill.aquaxol.bubble-pop.name': 'Bubble Pop',
+  'skill.aquaxol.bubble-pop.desc':
+    'Blows a wobbling bubble that bursts with a surprisingly rude POP.',
+  'skill.aquaxol.tide-swirl.name': 'Tide Swirl',
+  'skill.aquaxol.tide-swirl.desc':
+    'Spins its paddle tail to whip up a chilly whirlpool around itself.',
+  'skill.aquaxol.soothing-slime.name': 'Soothing Slime',
+  'skill.aquaxol.soothing-slime.desc':
+    'Sheds a film of regenerative slime that patches up nearby friends. Slightly gross, extremely effective.',
+  'skill.aquaxol.hydro-jet.name': 'Hydro Jet',
+  'skill.aquaxol.hydro-jet.desc':
+    'Gulps, aims, and fires a pressure-washer stream of water. Do not stand in front of the smile.',
+  'skill.boulderpup.pebble-pop.name': 'Pebble Pop',
+  'skill.boulderpup.pebble-pop.desc': 'Sneezes a hot pebble at surprising velocity. Bless you.',
+  'skill.boulderpup.stomp-quake.name': 'Stomp Quake',
+  'skill.boulderpup.stomp-quake.desc':
+    'Slams all four paws down at once; the ground complains loudly.',
+  'skill.boulderpup.moss-mantle.name': 'Moss Mantle',
+  'skill.boulderpup.moss-mantle.desc':
+    'Fluffs up its back-moss into a springy cushion that soaks up scrapes.',
+  'skill.boulderpup.amber-avalanche.name': 'Amber Avalanche',
+  'skill.boulderpup.amber-avalanche.desc':
+    'The back-crystal flares white-hot and hurls a fan of molten amber boulders.',
+  'skill.drakelet.fang-rush.name': 'Fang Rush',
+  'skill.drakelet.fang-rush.desc':
+    'Darts in with a snap of needle fangs and far too much confidence for its size.',
+  'skill.drakelet.drakefire-breath.name': 'Drakefire Breath',
+  'skill.drakelet.drakefire-breath.desc':
+    'Puffs up its chest, inhales the whole sky, and exhales a rolling cone of ember-red dragonfire.',
+  'skill.drakelet.tailspin-tempest.name': 'Tailspin Tempest',
+  'skill.drakelet.tailspin-tempest.desc':
+    'Whirls its arrow-tipped tail into a shredding cyclone that batters everything in reach.',
+  'skill.drakelet.comet-crash.name': 'Comet Crash',
+  'skill.drakelet.comet-crash.desc':
+    'Climbs, tucks its wings, and falls like a burning star. The landing is not subtle.',
+  'skill.emberfox.flame-dart.name': 'Flame Dart',
+  'skill.emberfox.flame-dart.desc':
+    'Spits a zippy bolt of foxfire that pops in a shower of sparks.',
+  'skill.emberfox.ember-pounce.name': 'Ember Pounce',
+  'skill.emberfox.ember-pounce.desc': 'A gleeful flaming pounce — equal parts play and ambush.',
+  'skill.emberfox.tail-flare.name': 'Tail Flare',
+  'skill.emberfox.tail-flare.desc':
+    'Whirls its magnificent tail into a ring of cinders that singes everything nearby.',
+  'skill.emberfox.foxfire-beam.name': 'Foxfire Beam',
+  'skill.emberfox.foxfire-beam.desc':
+    'Rears up and exhales a roaring ribbon of blue-white foxfire.',
+  'skill.frostwing.frost-dart.name': 'Frost Dart',
+  'skill.frostwing.frost-dart.desc':
+    'Flicks a razor feather of ice that chills whatever it pricks.',
+  'skill.frostwing.blizzard-wing.name': 'Blizzard Wing',
+  'skill.frostwing.blizzard-wing.desc':
+    'One mighty wingbeat whips up a stinging ring of snow around the owl.',
+  'skill.frostwing.aurora-veil.name': 'Aurora Veil',
+  'skill.frostwing.aurora-veil.desc':
+    'Weaves shimmering polar light overhead that gently mends allies beneath it.',
+  'skill.frostwing.comet-dive.name': 'Comet Dive',
+  'skill.frostwing.comet-dive.desc':
+    'Folds its wings and falls like a frozen star. Impact included, free of charge.',
+  'skill.galebird.gust-dart.name': 'Gust Dart',
+  'skill.galebird.gust-dart.desc':
+    'Snaps its wings shut and flings a whistling blade of compressed air.',
+  'skill.galebird.skyshear-dive.name': 'Skyshear Dive',
+  'skill.galebird.skyshear-dive.desc':
+    'Folds into a teardrop and shears past the target, wingtips slicing like scissors.',
+  'skill.galebird.tailwind.name': 'Tailwind',
+  'skill.galebird.tailwind.desc':
+    'Carves a lazy circle overhead, kicking up a tailwind that hurries the whole team along.',
+  'skill.galebird.cyclone-waltz.name': 'Cyclone Waltz',
+  'skill.galebird.cyclone-waltz.desc':
+    'Spins a pirouette so fast the sky joins in, wrapping everything nearby in a shrieking tornado.',
+  'skill.lumimoth.glimmer-dart.name': 'Glimmer Dart',
+  'skill.lumimoth.glimmer-dart.desc':
+    'Flicks a needle of condensed moonlight from a wingtip. Travels fast, stings brighter.',
+  'skill.lumimoth.prismbeam.name': 'Prismbeam',
+  'skill.lumimoth.prismbeam.desc':
+    'Focuses lantern-light through shimmering wings into a piercing ray of dawn.',
+  'skill.lumimoth.dust-waltz.name': 'Dust Waltz',
+  'skill.lumimoth.dust-waltz.desc':
+    'A twirling blizzard of luminous wing-dust that dazzles everything nearby.',
+  'skill.lumimoth.lantern-blessing.name': 'Lantern Blessing',
+  'skill.lumimoth.lantern-blessing.desc':
+    'The abdomen-lantern flares with gentle warmth, mending wounds in its soft halo.',
+  'skill.sparkit.static-zap.name': 'Static Zap',
+  'skill.sparkit.static-zap.desc':
+    'Flicks a stinging bead of static off its cheek spots. Cheap, cheerful, and mildly rude.',
+  'skill.sparkit.volt-dash.name': 'Volt Dash',
+  'skill.sparkit.volt-dash.desc':
+    'Blinks forward in a crackle of afterimages and shoulder-checks the target at full charge.',
+  'skill.sparkit.thunder-coil.name': 'Thunder Coil',
+  'skill.sparkit.thunder-coil.desc':
+    'Winds its zigzag tail like a spring, then releases a snapping ring of lightning around itself.',
+  'skill.sparkit.gigavolt-crash.name': 'Gigavolt Crash',
+  'skill.sparkit.gigavolt-crash.desc':
+    'Every stripe on its back lights up as it fires a searing bolt-beam straight down the line.',
+  'skill.sproutle.leaf-flick.name': 'Leaf Flick',
+  'skill.sproutle.leaf-flick.desc':
+    'Snaps its head forward and flings a spinning razor leaf that whistles as it flies.',
+  'skill.sproutle.shell-spin.name': 'Shell Spin',
+  'skill.sproutle.shell-spin.desc':
+    'Tucks in tight and whirls like a leafy top, batting away everything within reach.',
+  'skill.sproutle.verdant-veil.name': 'Verdant Veil',
+  'skill.sproutle.verdant-veil.desc':
+    'The head-sprout spins up like a propeller, showering allies in glittering pollen that mends wounds.',
+  'skill.sproutle.bramble-burst.name': 'Bramble Burst',
+  'skill.sproutle.bramble-burst.desc':
+    'Stomps its stubby feet and erupts a ring of snapping thorn vines from the earth around it.',
+  'skill.umbrakit.gloom-bolt.name': 'Gloom Bolt',
+  'skill.umbrakit.gloom-bolt.desc':
+    'Coughs up a purring orb of night that unravels into claws on impact.',
+  'skill.umbrakit.phantom-claw.name': 'Phantom Claw',
+  'skill.umbrakit.phantom-claw.desc':
+    'Its paw never moves — the shadow of the paw does the raking.',
+  'skill.umbrakit.veil-of-dusk.name': 'Veil of Dusk',
+  'skill.umbrakit.veil-of-dusk.desc':
+    'Pulls the evening over itself like a blanket and dares the world to find it.',
+  'skill.umbrakit.midnight-bloom.name': 'Midnight Bloom',
+  'skill.umbrakit.midnight-bloom.desc':
+    'Plants a seed of midnight underfoot; it blooms into a garden of grasping shadows.',
+
+  // ---- wild enemies --------------------------------------------------------
+  // Keyed by the EnemySpeciesId in src/combat/enemies.ts. Nothing renders these
+  // yet — the kill is reported on the bus and only the XP is read — so they are
+  // here so that whatever renders one FIRST is already translated.
+  'enemy.gloopling.name': 'Gloopling',
+  'enemy.snortle.name': 'Snortle',
+  'enemy.peckit.name': 'Peckit',
+
   // ---- HUD ---------------------------------------------------------------
   'hud.hp': 'HP',
   'hud.level': 'Lv {n}',
@@ -51,7 +237,17 @@ export const en = {
   'hud.ridingFlying': 'RIDING {pal} · {altitude} altitude · tap {dismount} to dismount',
 
   // ---- hints -------------------------------------------------------------
-  'hint.skillDen': 'Press E — Skill Den',
+  // The hint pill is HTML, and `{key}` arrives already wrapped in `<kbd>` — the
+  // same shape the riding badge and the shop footer use. It used to be plain
+  // text that the HUD then ran `/\bPress (\S+)/` over to find the key cap in,
+  // which worked in English and produced an unstyled key in every other
+  // language. A translation puts `{key}` wherever its own grammar wants it.
+  'hint.skillDen': 'Press {key} — Skill Den',
+  // The gateway countdown. ONE key each rather than "Entering " + name + "… " +
+  // pct + "%": Swedish wants the verb and the destination in the other order,
+  // and there is nowhere in a concatenation for a translator to stand.
+  'hint.zoneEntering': 'Entering {zone}… {pct}%',
+  'hint.zoneStand': 'Stand in the gateway — {zone}',
 
   // ---- shop --------------------------------------------------------------
   'shop.skillDen.title': 'Skill Den',
@@ -80,6 +276,39 @@ export const en = {
   'toast.dismountFirst': 'Dismount first (tap F).',
   'toast.fetched': '{pal} fetched {item} ({n})',
   'toast.learnedSkill': '{pal} learned {skill}!',
+  'toast.fainted': 'You fainted!',
+  'toast.revived': 'Back on your feet!',
+
+  // ---- mounting ------------------------------------------------------------
+  // The pal's name lands INSIDE each of these, which is the whole reason they
+  // are one key apiece with a `{pal}` placeholder rather than a name glued to a
+  // fixed tail. These surfaced with the species rename: `mount.ts` was building
+  // them out of `species.name`.
+  'toast.mount.flying': '{pal} spreads its wings — hold on!',
+  'toast.mount.ground': "{pal} kneels — you're in the saddle!",
+  'toast.dismounted': 'Dismounted {pal}',
+  'toast.mount.palDown': '{pal} is down!',
+  'toast.mount.refuse.swimming': 'Too deep to mount — get out of the water first.',
+  'toast.mount.refuse.climbing': 'Not while you are on the wall.',
+  'toast.mount.refuse.palDead': '{pal} is in no shape to carry you.',
+  'toast.mount.refuse.noPal': 'No pal to ride.',
+  'toast.mount.refuse.other': 'Not now.',
+
+  // ---- fullscreen offer (touch devices only) -------------------------------
+  'fs.prompt': 'Play fullscreen?',
+  'fs.yes': 'YES',
+  'fs.no': 'NO',
+
+  // ---- touch overlay buttons -----------------------------------------------
+  // Thumb-sized caps: 3-5 characters is what the button geometry in
+  // src/core/touch.ts leaves room for, and a longer word will overflow rather
+  // than resize the button. Abbreviate rather than translate literally.
+  'touch.move': 'MOVE',
+  'touch.look': 'LOOK',
+  'touch.attack': 'ATK',
+  'touch.jump': 'JUMP',
+  'touch.interact': 'USE',
+  'touch.swap': 'SWAP',
 } as const;
 
 /**

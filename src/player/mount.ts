@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Input } from '../core/input';
 import type { EventBus, World } from '../core/types';
+import { t } from '../i18n';
 import type { PalActor, PalRideState } from '../pals/framework';
 import type { Player } from './index';
 
@@ -263,7 +264,9 @@ export class MountController {
       // true when the mount happened — you have to let go and press again.
       if (fEdge) { this.dismount(); return; }
       if (this.pal.isDead || this.player.isDead) {
-        this.dismount(this.pal.isDead ? `${this.pal.species.name} is down!` : undefined);
+        this.dismount(this.pal.isDead
+          ? t('toast.mount.palDown', { pal: t(this.pal.species.nameKey) })
+          : undefined);
         return;
       }
       this.updateRide(dt);
@@ -322,9 +325,9 @@ export class MountController {
       type: 'toast',
       // The persistent badge already spells the controls out, so the toast is
       // the flourish, not a second copy of the key hints.
-      text: this.flying
-        ? `${pal.species.name} spreads its wings — hold on!`
-        : `${pal.species.name} kneels — you're in the saddle!`,
+      text: t(this.flying ? 'toast.mount.flying' : 'toast.mount.ground', {
+        pal: t(pal.species.nameKey),
+      }),
     });
   }
 
@@ -359,7 +362,10 @@ export class MountController {
       this.player.onGround = false;
     }
     this.player.velocity.set(this.vel.x, this.flying ? 0 : this.vy, this.vel.z);
-    this.bus.emit({ type: 'toast', text: reason ?? `Dismounted ${pal.species.name}` });
+    this.bus.emit({
+      type: 'toast',
+      text: reason ?? t('toast.dismounted', { pal: t(pal.species.nameKey) }),
+    });
   }
 
   // -- ride ------------------------------------------------------------------
@@ -517,9 +523,11 @@ export class MountController {
 
 function refusalText(why: MountRefusal, candidate: PalActor | null): string {
   switch (why) {
-    case 'swimming': return 'Too deep to mount — get out of the water first.';
-    case 'climbing': return 'Not while you are on the wall.';
-    case 'palDead': return candidate ? `${candidate.species.name} is in no shape to carry you.` : 'No pal to ride.';
-    default: return 'Not now.';
+    case 'swimming': return t('toast.mount.refuse.swimming');
+    case 'climbing': return t('toast.mount.refuse.climbing');
+    case 'palDead': return candidate
+      ? t('toast.mount.refuse.palDead', { pal: t(candidate.species.nameKey) })
+      : t('toast.mount.refuse.noPal');
+    default: return t('toast.mount.refuse.other');
   }
 }

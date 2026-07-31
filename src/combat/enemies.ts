@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { VoxelModel, shade } from '../core/voxel';
 import type { Damageable, ElementType, World } from '../core/types';
+import type { StringKey } from '../i18n';
 import type { VFX } from './vfx';
 
 /**
@@ -59,14 +60,21 @@ const PECKIT_VARIANTS: readonly Variant[] = [
 ];
 
 interface SpeciesStats {
-  name: string; hp: number; atk: number; speed: number; xp: number;
+  /** DISPLAY name as a string-table key; the id is the `EnemySpeciesId` below. */
+  nameKey: StringKey;
+  hp: number; atk: number; speed: number; xp: number;
   radius: number; height: number; aggro: number;
 }
 
+// Keyed by EnemySpeciesId — 'gloopling' is the identifier the spawner, the
+// variant tables and the builders switch on, and it does not move when the
+// display name does. Nothing renders these names YET (the kill goes out on the
+// bus and main.ts reads only the xp off it), so this is pre-emptive: the day a
+// kill feed or a bestiary lands it is already looking at a key.
 const STATS: Record<EnemySpeciesId, SpeciesStats> = {
-  gloopling: { name: 'Gloopling', hp: 32, atk: 6, speed: 2.3, xp: 8, radius: 0.5, height: 0.95, aggro: 9 },
-  snortle: { name: 'Snortle', hp: 62, atk: 11, speed: 2.9, xp: 16, radius: 0.62, height: 1.15, aggro: 10 },
-  peckit: { name: 'Peckit', hp: 26, atk: 9, speed: 5.2, xp: 12, radius: 0.45, height: 0.8, aggro: 12 },
+  gloopling: { nameKey: 'enemy.gloopling.name', hp: 32, atk: 6, speed: 2.3, xp: 8, radius: 0.5, height: 0.95, aggro: 9 },
+  snortle: { nameKey: 'enemy.snortle.name', hp: 62, atk: 11, speed: 2.9, xp: 16, radius: 0.62, height: 1.15, aggro: 10 },
+  peckit: { nameKey: 'enemy.peckit.name', hp: 26, atk: 9, speed: 5.2, xp: 12, radius: 0.45, height: 0.8, aggro: 12 },
 };
 
 // ---------------------------------------------------------------------------
@@ -269,7 +277,8 @@ export class Enemy implements Damageable {
   readonly root = new THREE.Group();
   readonly parts: Record<string, THREE.Object3D>;
   readonly element: ElementType;
-  readonly name: string;
+  /** DISPLAY name key; `species` above is the identifier. */
+  readonly nameKey: StringKey;
   readonly xp: number;
   readonly radius: number;
   readonly height: number;
@@ -327,7 +336,7 @@ export class Enemy implements Damageable {
     const variants = species === 'gloopling' ? GLOOP_VARIANTS : species === 'snortle' ? SNORTLE_VARIANTS : PECKIT_VARIANTS;
     const v = variants[Math.min(variantIdx, variants.length - 1)];
     this.element = v.element;
-    this.name = stats.name;
+    this.nameKey = stats.nameKey;
     this.xp = stats.xp;
     this.hp = stats.hp; this.maxHp = stats.hp;
     this.atk = stats.atk;

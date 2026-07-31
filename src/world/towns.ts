@@ -32,6 +32,7 @@
  */
 import * as THREE from 'three';
 import type { TownInfo, TownRegistry } from '../core/types';
+import { t, type StringKey } from '../i18n';
 import { Terrain, WATER_LEVEL, type GroundPatch } from './terrain';
 import {
   RoadNetwork, roadAt, roadLength, routeRoad, profileRoad, straightWetLength,
@@ -48,10 +49,22 @@ import { mulberry32 } from './noise';
 // ---------------------------------------------------------------------------
 
 interface SiteSpec {
+  /**
+   * The stable IDENTIFIER. The road network, the compass chip, `TownRegistry.get`
+   * and any quest that stores "go to Stonewatch" all key on it, so it does not
+   * move when the town is renamed or translated.
+   */
   id: string;
-  name: string;
-  /** Short, upper-case, <= 10 characters: what a fingerpost arm reads. */
-  sign: string;
+  /** DISPLAY name, as a string-table key. */
+  nameKey: StringKey;
+  /**
+   * What a fingerpost arm reads, as a string-table key. Short, upper-case,
+   * <= 10 characters — and inside the 3x5 voxel font, which is A-Z, 0-9, '-',
+   * an apostrophe and a space. `signArm` folds accents (Ö -> O) and drops
+   * anything left over; see `signText` in town-parts.ts and the note on the
+   * `town.*.sign` block in src/i18n/en.ts.
+   */
+  signKey: StringKey;
   kind: TownInfo['kind'];
   radius: number;
   color: number;
@@ -72,21 +85,21 @@ interface SiteSpec {
  */
 const SITES: readonly SiteSpec[] = [
   {
-    id: 'encampment', name: 'The Encampment', sign: 'ENCAMPMENT',
+    id: 'encampment', nameKey: 'town.encampment.name', signKey: 'town.encampment.sign',
     kind: 'camp', radius: 19, color: 0xffb45e,
   },
   {
-    id: 'redbriar', name: 'Redbriar Mill', sign: 'REDBRIAR',
+    id: 'redbriar', nameKey: 'town.redbriar.name', signKey: 'town.redbriar.sign',
     kind: 'hamlet', radius: 15, color: 0x9ad46a, waterside: true,
   },
   {
-    id: 'stonewatch', name: 'Stonewatch', sign: 'STONEWATCH',
+    id: 'stonewatch', nameKey: 'town.stonewatch.name', signKey: 'town.stonewatch.sign',
     kind: 'hamlet', radius: 15, color: 0x8fc4e8,
   },
 ];
 
 /** Where the fingerpost at the fork stands, as far as a signpost is concerned. */
-const JUNCTION_SIGN = 'CROSSWAY';
+const JUNCTION_SIGN_KEY = 'town.junction.sign' as const;
 
 // ---------------------------------------------------------------------------
 // Trodden ground
@@ -453,7 +466,7 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   ];
   for (let i = 0; i < SITES.length; i++) {
     towns.push({
-      id: SITES[i].id, name: SITES[i].name, kind: SITES[i].kind,
+      id: SITES[i].id, nameKey: SITES[i].nameKey, kind: SITES[i].kind,
       x: sitePos[i].x, y: siteY[i], z: sitePos[i].z,
       radius: SITES[i].radius, color: SITES[i].color,
       gateX: gates[i].x, gateZ: gates[i].z, gateAngle: gates[i].angle,
@@ -645,7 +658,7 @@ export class Towns {
         const id = first ? road.toId : road.fromId;
         const site = SITES.find((s) => s.id === id);
         if (!site) continue;
-        dests.push([site.sign, Math.atan2(b.x - a.x, b.z - a.z)]);
+        dests.push([t(site.signKey), Math.atan2(b.x - a.x, b.z - a.z)]);
       }
       dests.forEach(([text, ang], i) => {
         solid.add(signArm(text, SIGN_V), j.x, armY[i % armY.length], j.z, ang, 1, 1, 1, 1);
@@ -973,8 +986,10 @@ function buildRoadFurniture(
 
   // Fingerposts: one at each end that names where the road goes, set back from
   // the town so it is read on the approach rather than at the gate.
+  // The road's `toId`/`fromId` are IDS; what goes on the board is the looked-up
+  // sign string, folded to the font by `signArm`.
   const label = (id: string): string =>
-    SITES.find((q) => q.id === id)?.sign ?? JUNCTION_SIGN;
+    t(SITES.find((q) => q.id === id)?.signKey ?? JUNCTION_SIGN_KEY);
   const ends: Array<[number, string, number]> = [
     [Math.min(len * 0.4, 17), road.toId, 1],
     [Math.max(len * 0.6, len - 17), road.fromId, -1],

@@ -65,6 +65,7 @@
  */
 import * as THREE from 'three';
 import type { World, WorldBound } from '../core/types';
+import { t } from '../i18n';
 import { Gateway } from './portal';
 
 export interface ZoneDef {
@@ -163,8 +164,13 @@ export interface ZoneManagerOpts {
    * this is where gameplay policy (teleport, dismount, toast) happens.
    */
   onArrive(world: World, def: ZoneDef, from: ZoneDef | null): void;
-  /** Player-facing prompt while near a gateway; null clears it. */
-  onHint?(text: string | null): void;
+  /**
+   * Player-facing prompt while near a gateway; null clears it.
+   *
+   * HTML, and already localised — it comes out of the string table whole. The
+   * HUD's hint pill writes it as innerHTML (see HUD.showHint).
+   */
+  onHint?(html: string | null): void;
 }
 
 export class ZoneManager {
@@ -305,11 +311,21 @@ export class ZoneManager {
     // undo the whole wait.
 
     if (this.opts.onHint) {
+      // ONE table entry per state with the destination and the percentage as
+      // placeholders. This used to be four fragments glued around the values,
+      // which pins the word order to English — a language that says "into
+      // {zone} you are walking" has nowhere to stand in a concatenation. The
+      // zone's `name` is itself already a table lookup (see ZoneDef in main.ts);
+      // `active.to` is the ID and only ever appears if a def is missing, which
+      // is a bug rather than a string.
+      const zone = this.defs.get(active.to)?.name ?? active.to;
       this.opts.onHint(
         d2 < EXIT_R2 && active.armed
           ? active.dwell > 0
-            ? `Entering ${this.defs.get(active.to)?.name ?? active.to}… ${Math.round((active.dwell / DWELL) * 100)}%`
-            : `Stand in the gateway — ${this.defs.get(active.to)?.name ?? active.to}`
+            ? t('hint.zoneEntering', {
+              zone, pct: Math.round((active.dwell / DWELL) * 100),
+            })
+            : t('hint.zoneStand', { zone })
           : null,
       );
     }

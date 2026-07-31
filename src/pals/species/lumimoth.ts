@@ -60,8 +60,8 @@ const LO_SWEEP = 0.42;  // lower wings swept back more
 export const skills: SkillDef[] = [
   {
     id: 'lumimoth.glimmer-dart',
-    name: 'Glimmer Dart',
-    description: 'Flicks a needle of condensed moonlight from a wingtip. Travels fast, stings brighter.',
+    nameKey: 'skill.lumimoth.glimmer-dart.name',
+    descriptionKey: 'skill.lumimoth.glimmer-dart.desc',
     element: 'light',
     targeting: 'projectile',
     cost: 6,
@@ -73,8 +73,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'lumimoth.prismbeam',
-    name: 'Prismbeam',
-    description: 'Focuses lantern-light through shimmering wings into a piercing ray of dawn.',
+    nameKey: 'skill.lumimoth.prismbeam.name',
+    descriptionKey: 'skill.lumimoth.prismbeam.desc',
     element: 'light',
     targeting: 'beam',
     cost: 14,
@@ -86,8 +86,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'lumimoth.dust-waltz',
-    name: 'Dust Waltz',
-    description: 'A twirling blizzard of luminous wing-dust that dazzles everything nearby.',
+    nameKey: 'skill.lumimoth.dust-waltz.name',
+    descriptionKey: 'skill.lumimoth.dust-waltz.desc',
     element: 'light',
     targeting: 'aoe',
     cost: 16,
@@ -99,8 +99,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'lumimoth.lantern-blessing',
-    name: 'Lantern Blessing',
-    description: 'The abdomen-lantern flares with gentle warmth, mending wounds in its soft halo.',
+    nameKey: 'skill.lumimoth.lantern-blessing.name',
+    descriptionKey: 'skill.lumimoth.lantern-blessing.desc',
     element: 'light',
     targeting: 'support',
     cost: 20,
@@ -599,12 +599,10 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 // ---------------------------------------------------------------------------
 export const species: PalSpecies = {
   id: 'lumimoth',
-  name: 'Lumimoth',
+  nameKey: 'pal.lumimoth.name',
   element: 'light',
   locomotion: 'flying',
-  description:
-    'A radiant moth that drifts between lantern posts at dusk, its glowing tail-light '
-    + 'said to guide lost travelers home. Collects starlight on its wing-spots.',
+  descriptionKey: 'pal.lumimoth.desc',
   baseStats: { maxHp: 34, attack: 9, defense: 6, speed: 5.2 },
   skills: [
     'lumimoth.glimmer-dart',

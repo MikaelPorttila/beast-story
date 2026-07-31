@@ -572,8 +572,8 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 export const skills: SkillDef[] = [
   {
     id: 'galebird.gust-dart',
-    name: 'Gust Dart',
-    description: 'Snaps its wings shut and flings a whistling blade of compressed air.',
+    nameKey: 'skill.galebird.gust-dart.name',
+    descriptionKey: 'skill.galebird.gust-dart.desc',
     element: 'wind',
     targeting: 'projectile',
     cost: 5,
@@ -585,8 +585,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'galebird.skyshear-dive',
-    name: 'Skyshear Dive',
-    description: 'Folds into a teardrop and shears past the target, wingtips slicing like scissors.',
+    nameKey: 'skill.galebird.skyshear-dive.name',
+    descriptionKey: 'skill.galebird.skyshear-dive.desc',
     element: 'wind',
     targeting: 'melee',
     cost: 11,
@@ -598,8 +598,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'galebird.tailwind',
-    name: 'Tailwind',
-    description: 'Carves a lazy circle overhead, kicking up a tailwind that hurries the whole team along.',
+    nameKey: 'skill.galebird.tailwind.name',
+    descriptionKey: 'skill.galebird.tailwind.desc',
     element: 'wind',
     targeting: 'support',
     cost: 12,
@@ -611,8 +611,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'galebird.cyclone-waltz',
-    name: 'Cyclone Waltz',
-    description: 'Spins a pirouette so fast the sky joins in, wrapping everything nearby in a shrieking tornado.',
+    nameKey: 'skill.galebird.cyclone-waltz.name',
+    descriptionKey: 'skill.galebird.cyclone-waltz.desc',
     element: 'wind',
     targeting: 'aoe',
     cost: 23,
@@ -626,11 +626,10 @@ export const skills: SkillDef[] = [
 
 export const species: PalSpecies = {
   id: 'galebird',
-  name: 'Galebird',
+  nameKey: 'pal.galebird.name',
   element: 'wind',
   locomotion: 'flying',
-  description:
-    'A wind-stitched swallow that treats gravity as a polite suggestion — the fastest wings in the valley.',
+  descriptionKey: 'pal.galebird.desc',
   baseStats: { maxHp: 36, attack: 12, defense: 4, speed: 8.0 },
   skills: skills.map((s) => s.id),
   buildRig,

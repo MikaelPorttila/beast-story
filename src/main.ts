@@ -22,7 +22,7 @@ import { Player } from './player/index';
 import { MountController } from './player/mount';
 import { PalActor, registerSkillDefs } from './pals/framework';
 import { CombatSystem } from './combat/index';
-import { HUD, type PalHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
+import { HUD, kbd, type PalHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
 import { FullscreenPrompt } from './ui/fullscreen';
 import { ALL_SPECIES, SKILLS, getSkill } from './pals/registry';
 
@@ -130,6 +130,17 @@ const HOLD: ZoneDef = {
 const bound: WorldBound[] = [];
 /** Set by the zone manager each slice; consumed by the HUD hint below. */
 let portalHint: string | null = null;
+
+/**
+ * The interact prompt, composed ONCE at load.
+ *
+ * The hint pill is HTML and the key cap arrives inside the `{key}` placeholder
+ * (see HUD.showHint and `kbd`), so this is a `t(key, vars)` call — which
+ * allocates. It is hoisted out of the frame loop for exactly that reason: the
+ * text never changes, and the loop below runs it every frame the hero is stood
+ * near a den. Same argument as SHOP_FOOT_HINTS in src/ui/index.ts.
+ */
+const SKILL_DEN_HINT = t('hint.skillDen', { key: kbd('E') });
 
 const zones = new ZoneManager({
   scene: engine.scene,
@@ -260,7 +271,9 @@ function cyclePal(which: 'primary' | 'support', dirn: 1 | -1): void {
   refreshVisibility();
   bus.emit({
     type: 'toast',
-    text: t('toast.palLeads', { lead: primary().species.name, support: support().species.name }),
+    text: t('toast.palLeads', {
+      lead: t(primary().species.nameKey), support: t(support().species.nameKey),
+    }),
   });
 }
 
@@ -297,7 +310,7 @@ bus.on((e) => {
         bus.emit({
           type: 'toast',
           text: t('toast.fetched', {
-            pal: fetcher.species.name, item: itemName(def, n), n,
+            pal: t(fetcher.species.nameKey), item: itemName(def, n), n,
           }),
         });
       }
@@ -453,7 +466,8 @@ function buildOffers(): ShopOffer[] {
         skill: def,
         price: def.storePrice,
         owned: pal.knownSkillIds.includes(id),
-        palName: pal.species.name,
+        palId: pal.species.id,
+        palName: t(pal.species.nameKey),
         affordable: shards() >= def.storePrice,
       });
     }
@@ -468,12 +482,17 @@ function tryOpenShop(): void {
     const offer = buildOffers()[i];
     if (!offer || offer.owned || !offer.affordable) return;
     spent += offer.price;
-    const pal = [primary(), support()].find((p) => p.species.name === offer.palName);
+    // By ID, not by name. This matched on the display name until the species
+    // names moved into the string table, at which point a translated build would
+    // have failed the lookup and charged for a skill nobody learned.
+    const pal = [primary(), support()].find((p) => p.species.id === offer.palId);
     pal?.learnSkill(offer.skill.id);
     hud.setShards(shards());
     bus.emit({
       type: 'toast',
-      text: t('toast.learnedSkill', { pal: offer.palName, skill: offer.skill.name }),
+      text: t('toast.learnedSkill', {
+        pal: offer.palName, skill: t(offer.skill.nameKey),
+      }),
     });
     hud.openShop(t('shop.skillDen.title'), buildOffers(), () => {}, () => hud.closeShop());
   }, () => hud.closeShop());
@@ -483,7 +502,10 @@ function tryOpenShop(): void {
 // Main loop
 // ---------------------------------------------------------------------------
 const palHud = (p: PalActor): PalHudInfo => ({
-  name: p.species.name,
+  // Resolved here, not in the HUD: `PalHudInfo` is a snapshot of what to DRAW.
+  // `t(key)` with no vars hands back the table's own string, so this allocates
+  // nothing even though it runs every frame.
+  name: t(p.species.nameKey),
   element: p.species.element,
   level: p.level,
   xp: p.xp,
@@ -701,13 +723,15 @@ const _compassFwd = new THREE.Vector3();
   bag: bag.entries().map((e) => ({ id: e.def.id, count: e.count })),
   drops: combat.dropSnapshot(),
   support: {
-    name: support().species.name,
+    // Probes report the IDENTIFIER, not the display name: a tool asserting on
+    // `__dbgFetch().support.id` must not start failing under `?lang=sv`.
+    id: support().species.id,
     fetching: support().isFetching,
     carrying: support().isCarrying,
     item: support().fetchItemId,
     pos: { x: +support().position.x.toFixed(2), z: +support().position.z.toFixed(2) },
   },
-  primary: { name: primary().species.name, fetching: primary().isFetching },
+  primary: { id: primary().species.id, fetching: primary().isFetching },
 });
 // TEST HOOK, like __dbgDrop below: put the hero at an absolute column in the
 // ACTIVE zone. The zone tools need to place him at an exact distance from a
@@ -790,13 +814,16 @@ devConsole?.register({
   help: 'Ride the primary pal without the 2s hold; /mount off dismounts.',
   run: (args) => {
     const arg = args[0];
+    // The console is a DEVELOPER surface: it stays in English and it answers in
+    // SPECIES IDS, which is also what its own argument takes. A localised name
+    // here would mean `/mount` printing something you cannot type back at it.
     if (arg === 'off') {
       if (!mount.isMounted) return 'not mounted';
-      const name = mount.pal!.species.name;
+      const id = mount.pal!.species.id;
       mount.dismount();
-      return `dismounted ${name}`;
+      return `dismounted ${id}`;
     }
-    if (mount.isMounted) return `already riding ${mount.pal!.species.name} — /mount off first`;
+    if (mount.isMounted) return `already riding ${mount.pal!.species.id} — /mount off first`;
     if (arg) {
       const idx = roster.findIndex((p) => p.species.id === arg);
       if (idx < 0) return `no such pal "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
@@ -807,7 +834,7 @@ devConsole?.register({
     const why = mount.refusal(primary());
     if (why !== 'none') return `cannot mount: ${why}`;
     mount.mount(primary());
-    return `riding ${primary().species.name} (${primary().species.locomotion})`;
+    return `riding ${primary().species.id} (${primary().species.locomotion})`;
   },
 });
 devConsole?.register({
@@ -1097,7 +1124,10 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       } else {
         if (input.pressed('Tab')) {
           const wasPrimary = primaryIdx; primaryIdx = supportIdx; supportIdx = wasPrimary;
-          bus.emit({ type: 'toast', text: t('toast.palTakesLead', { pal: primary().species.name }) });
+          bus.emit({
+            type: 'toast',
+            text: t('toast.palTakesLead', { pal: t(primary().species.nameKey) }),
+          });
         }
         if (input.pressed('BracketRight')) cyclePal('primary', 1);
         if (input.pressed('BracketLeft')) cyclePal('support', 1);
@@ -1162,7 +1192,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // `t()` with no placeholders returns the table's own string — one lookup, no
   // allocation — so calling it on the hint path every slice is free. Do NOT
   // put an interpolated `t(key, vars)` here; that builds a string per slice.
-  const hint = portalHint ?? (nearShop ? t('hint.skillDen') : null);
+  const hint = portalHint ?? (nearShop ? SKILL_DEN_HINT : null);
   if (hint) hud.showHint(hint);
   else hud.hideHint();
 
@@ -1284,7 +1314,7 @@ function frame(): void {
   );
   hud.setMountHold(mount.progress);
   hud.setMounted(
-    mount.pal ? mount.pal.species.name : null,
+    mount.pal ? t(mount.pal.species.nameKey) : null,
     mount.pal ? mount.pal.species.locomotion === 'flying' : false,
   );
   hud.update(dt);
@@ -1371,15 +1401,17 @@ frame();
     y: +world.spawnPoint.y.toFixed(2),
     z: +world.spawnPoint.z.toFixed(2),
   },
-  towns: world.towns.all.map((t) => ({
-    id: t.id,
-    name: t.name,
-    kind: t.kind,
-    x: +t.x.toFixed(1), y: t.y, z: +t.z.toFixed(1),
-    radius: t.radius,
-    gate: { x: +t.gateX.toFixed(1), z: +t.gateZ.toFixed(1) },
-    gateBearingDeg: +((t.gateAngle * 180) / Math.PI).toFixed(1),
-    fromSpawn: +Math.hypot(t.x - world.spawnPoint.x, t.z - world.spawnPoint.z).toFixed(1),
+  towns: world.towns.all.map((town) => ({
+    id: town.id,
+    // The looked-up name, so `?lang=sv` shows what the fingerpost shows. The
+    // probe's own field names, and every other string it prints, stay English.
+    name: t(town.nameKey),
+    kind: town.kind,
+    x: +town.x.toFixed(1), y: town.y, z: +town.z.toFixed(1),
+    radius: town.radius,
+    gate: { x: +town.gateX.toFixed(1), z: +town.gateZ.toFixed(1) },
+    gateBearingDeg: +((town.gateAngle * 180) / Math.PI).toFixed(1),
+    fromSpawn: +Math.hypot(town.x - world.spawnPoint.x, town.z - world.spawnPoint.z).toFixed(1),
   })),
   roads: world.towns.roads.map((r) => {
     const n = r.path.length / 3;

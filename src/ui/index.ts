@@ -1,7 +1,7 @@
 import type { ElementType, EventBus, SkillDef } from '../core/types';
 import { ELEMENT_COLORS } from '../core/types';
 import { CURRENCY, itemName, type BagEntry } from '../core/items';
-import { t } from '../i18n';
+import { t, type StringKey } from '../i18n';
 import { injectStyles } from './styles';
 import { elementIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON } from './icons';
 
@@ -52,6 +52,14 @@ export interface ShopOffer {
   skill: SkillDef;
   price: number;
   owned: boolean;
+  /**
+   * WHICH pal this offer belongs to. The buy handler in main.ts used to find the
+   * pal by matching `palName`, which is a display string — under `?lang=sv` the
+   * match failed and the purchase silently taught nobody anything. Identity is
+   * an id; the name below is only ever printed.
+   */
+  palId: string;
+  /** Display name, already looked up. Rendered under the skill title. */
   palName: string;
   affordable: boolean;
 }
@@ -69,9 +77,6 @@ function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-function titleCase(id: string): string {
-  return id.replace(/[-_]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
 }
 function div(className: string, html = ''): HTMLDivElement {
   const el = document.createElement('div');
@@ -167,8 +172,15 @@ interface ToastEntry {
   hiding: boolean;
 }
 
-/** `<kbd>` wrapper for a key name interpolated into a string-table entry. */
-function kbd(key: string): string {
+/**
+ * `<kbd>` wrapper for a key name interpolated into a string-table entry.
+ *
+ * Exported because the hint pill's text is composed by the CALLER (main.ts owns
+ * which key opens a skill den), and the markup has to travel INSIDE the
+ * placeholder value — that is the whole mechanism that let the `/\bPress (\S+)/`
+ * regex in showHint go away.
+ */
+export function kbd(key: string): string {
   return `<kbd>${key}</kbd>`;
 }
 
@@ -393,7 +405,7 @@ export class HUD {
     bus.on((e) => {
       if (e.type === 'toast') this.addToast(e.text);
       else if (e.type === 'shardsChanged') this.setShards(e.total);
-      else if (e.type === 'palLevelUp') this.showLevelUp(e.palId, e.level, e.learned);
+      else if (e.type === 'palLevelUp') this.showLevelUp(e.nameKey, e.level, e.learned);
     });
   }
 
@@ -516,7 +528,7 @@ export class HUD {
           `<span class="key">${i + 1}</span>` +
           `<span class="ic">${elementIcon(def.element)}</span>` +
           `<span class="cd"></span><span class="cdnum"></span>` +
-          `<span class="nm">${escapeHtml(def.name)}</span>`;
+          `<span class="nm">${escapeHtml(t(def.nameKey))}</span>`;
         refs.cd = refs.el.querySelector('.cd') as HTMLElement;
         refs.cdNum = refs.el.querySelector('.cdnum') as HTMLElement;
         refs.prevReady = slot.ready;
@@ -745,8 +757,14 @@ export class HUD {
   // -------------------------------------------------------------------------
   // Level-up banner
   // -------------------------------------------------------------------------
-  private showLevelUp(palId: string, level: number, learned?: SkillDef): void {
-    const name = escapeHtml(titleCase(palId));
+  /**
+   * `nameKey` rather than `palId`: the banner used to title-case the identifier
+   * ('emberfox' -> "Emberfox"), which happens to look right in English and is
+   * wrong everywhere else — a name derived from an id can never be translated,
+   * and would not follow a rename either. The event carries both halves now.
+   */
+  private showLevelUp(nameKey: StringKey, level: number, learned?: SkillDef): void {
+    const name = escapeHtml(t(nameKey));
     const txt = this.bannerEl.querySelector('.txt') as HTMLElement;
     if (learned) {
       const el = ELEMENT_COLORS[learned.element];
@@ -756,7 +774,7 @@ export class HUD {
       // The skill name arrives already wrapped, so the TABLE decides where in
       // the sentence it lands — the emphasis travels with it.
       txt.innerHTML = t('hud.levelUpLearned', {
-        pal: name, level, skill: `<em>${escapeHtml(learned.name)}</em>`,
+        pal: name, level, skill: `<em>${escapeHtml(t(learned.nameKey))}</em>`,
       });
     } else {
       this.bannerEl.style.setProperty('--el', '#ffd23f');
@@ -793,11 +811,24 @@ export class HUD {
   // -------------------------------------------------------------------------
   // Hint
   // -------------------------------------------------------------------------
-  showHint(text: string): void {
-    if (text !== this.hintText) {
-      this.hintText = text;
-      this.hintEl.innerHTML = escapeHtml(text)
-        .replace(/\bPress (\S+)/, 'Press <kbd>$1</kbd>');
+  /**
+   * The interact / gateway pill. `html` is composed by the caller out of the
+   * string table, with any key cap already wrapped by `kbd()` — the same shape
+   * the riding badge and the shop footer use.
+   *
+   * It used to take plain text and go hunting for the key with
+   * `/\bPress (\S+)/`, which is a rule about ENGLISH grammar living in the HUD:
+   * it found nothing in "Tryck på E" and produced an unstyled letter, and it
+   * would have matched the wrong word in any sentence that happened to contain
+   * "press". A placeholder carrying the markup as a VALUE lets the translation
+   * put the key wherever its own grammar wants it, so the regex is gone.
+   *
+   * Still guarded on change, so a held-still frame near a den writes nothing.
+   */
+  showHint(html: string): void {
+    if (html !== this.hintText) {
+      this.hintText = html;
+      this.hintEl.innerHTML = html;
     }
     this.hintEl.classList.add('show');
   }
@@ -895,9 +926,9 @@ export class HUD {
       card.innerHTML =
         `<div class="accent" style="background:linear-gradient(90deg,${hexColor(el)},${rgba(el, 0.25)})"></div>` +
         `<div class="top"><span class="oic" style="--el2:${rgba(el, 0.18)}">${elementIcon(s.element)}</span>` +
-        `<div><h3>${escapeHtml(s.name)}</h3>` +
+        `<div><h3>${escapeHtml(t(s.nameKey))}</h3>` +
         `<div class="pal">${escapeHtml(t('shop.forPal', { pal: offer.palName }))}</div></div></div>` +
-        `<p>${escapeHtml(s.description)}</p>` +
+        `<p>${escapeHtml(t(s.descriptionKey))}</p>` +
         `<div class="cp-chips">` +
         `<span class="cp-chip">${escapeHtml(t('shop.stat.power'))} <b>${s.power}</b></span>` +
         `<span class="cp-chip">${escapeHtml(t('shop.stat.cooldown'))} <b>${s.cooldown}s</b></span>` +

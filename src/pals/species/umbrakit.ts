@@ -573,8 +573,8 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 export const skills: SkillDef[] = [
   {
     id: 'umbrakit.gloom-bolt',
-    name: 'Gloom Bolt',
-    description: 'Coughs up a purring orb of night that unravels into claws on impact.',
+    nameKey: 'skill.umbrakit.gloom-bolt.name',
+    descriptionKey: 'skill.umbrakit.gloom-bolt.desc',
     element: 'shadow',
     targeting: 'projectile',
     cost: 6,
@@ -586,8 +586,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'umbrakit.phantom-claw',
-    name: 'Phantom Claw',
-    description: 'Its paw never moves — the shadow of the paw does the raking.',
+    nameKey: 'skill.umbrakit.phantom-claw.name',
+    descriptionKey: 'skill.umbrakit.phantom-claw.desc',
     element: 'shadow',
     targeting: 'melee',
     cost: 9,
@@ -599,8 +599,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'umbrakit.veil-of-dusk',
-    name: 'Veil of Dusk',
-    description: 'Pulls the evening over itself like a blanket and dares the world to find it.',
+    nameKey: 'skill.umbrakit.veil-of-dusk.name',
+    descriptionKey: 'skill.umbrakit.veil-of-dusk.desc',
     element: 'shadow',
     targeting: 'self',
     cost: 12,
@@ -612,8 +612,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'umbrakit.midnight-bloom',
-    name: 'Midnight Bloom',
-    description: 'Plants a seed of midnight underfoot; it blooms into a garden of grasping shadows.',
+    nameKey: 'skill.umbrakit.midnight-bloom.name',
+    descriptionKey: 'skill.umbrakit.midnight-bloom.desc',
     element: 'shadow',
     targeting: 'aoe',
     cost: 25,
@@ -627,11 +627,10 @@ export const skills: SkillDef[] = [
 
 export const species: PalSpecies = {
   id: 'umbrakit',
-  name: 'Umbrakit',
+  nameKey: 'pal.umbrakit.name',
   element: 'shadow',
   locomotion: 'ground',
-  description:
-    'A hovering wisp of a cat woven from dusk. Its tail keeps drifting apart and lazily reassembling.',
+  descriptionKey: 'pal.umbrakit.desc',
   baseStats: { maxHp: 44, attack: 13, defense: 5, speed: 5.4 },
   skills: skills.map((s) => s.id),
   buildRig,

@@ -22,6 +22,43 @@ export const sv: Translation = {
   'item.shard.one': 'Kubloon',
   'item.shard.other': 'Kubloner',
 
+  // A DELIBERATE SUBSET of the new names, so a single frame shows both halves
+  // of the fallback: Emberfox and Sproutle are translated, the other eight pals
+  // are not and render their English names from `en.ts`. Same for the skills —
+  // Flame Dart moved, Ember Pounce did not.
+  'pal.emberfox.name': 'Glödräv',
+  'pal.emberfox.desc':
+    'En ivrig liten räv vars överdimensionerade svans pyr när den är upprymd — vilket är jämt.',
+  'pal.sproutle.name': 'Grodd',
+  'skill.emberfox.flame-dart.name': 'Eldpil',
+  'skill.emberfox.flame-dart.desc':
+    'Spottar en snabb rävelds-blixt som brister i ett regn av gnistor.',
+
+  // Both halves of a town: the pretty name, and the SIGN.
+  //
+  // The sign is written in natural Swedish, accents and all, and `signText` in
+  // world/town-parts.ts folds it to the 3x5 voxel font on the way to the plank
+  // (Ö -> O, Ä -> A) — captured: this renders "RODBRIAR" on the fingerpost.
+  // Without that fold the old code would have carved a BLANK where the Ö is,
+  // because `letters()` draws an unknown glyph as empty space. A translator
+  // writes the word; they do not have to know what the carver can cut.
+  // Stonewatch and the Encampment are left in English on purpose.
+  'town.redbriar.name': 'Rödbriars Kvarn',
+  'town.redbriar.sign': 'RÖDBRIAR',
+
+  // The gateway hints, which are the concatenation this pass removed. Swedish
+  // puts the destination after the preposition and the percentage last, and the
+  // second line reverses the clause order outright — neither is expressible in
+  // "Entering " + name + "… " + pct + "%".
+  'hint.zoneEntering': 'På väg in i {zone}… {pct}%',
+  'hint.zoneStand': 'Ställ dig i porten för att resa till {zone}',
+  // `{key}` arrives already wrapped in <kbd>, so it can land mid-sentence here
+  // where English puts it second. This is what replaced the `Press (\S+)` regex.
+  'hint.skillDen': 'Tryck {key} för Färdighetslyan',
+
+  'toast.fainted': 'Du svimmade!',
+  'toast.revived': 'På benen igen!',
+
   'hud.hp': 'HP',
   'hud.level': 'Nivå {n}',
   'hud.levelUp': 'NY NIVÅ',

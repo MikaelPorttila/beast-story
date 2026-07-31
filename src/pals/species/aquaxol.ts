@@ -463,8 +463,8 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 export const skills: SkillDef[] = [
   {
     id: 'aquaxol.bubble-pop',
-    name: 'Bubble Pop',
-    description: 'Blows a wobbling bubble that bursts with a surprisingly rude POP.',
+    nameKey: 'skill.aquaxol.bubble-pop.name',
+    descriptionKey: 'skill.aquaxol.bubble-pop.desc',
     element: 'water',
     targeting: 'projectile',
     cost: 5,
@@ -476,8 +476,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'aquaxol.tide-swirl',
-    name: 'Tide Swirl',
-    description: 'Spins its paddle tail to whip up a chilly whirlpool around itself.',
+    nameKey: 'skill.aquaxol.tide-swirl.name',
+    descriptionKey: 'skill.aquaxol.tide-swirl.desc',
     element: 'water',
     targeting: 'aoe',
     cost: 12,
@@ -489,8 +489,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'aquaxol.soothing-slime',
-    name: 'Soothing Slime',
-    description: 'Sheds a film of regenerative slime that patches up nearby friends. Slightly gross, extremely effective.',
+    nameKey: 'skill.aquaxol.soothing-slime.name',
+    descriptionKey: 'skill.aquaxol.soothing-slime.desc',
     element: 'water',
     targeting: 'support',
     cost: 16,
@@ -502,8 +502,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'aquaxol.hydro-jet',
-    name: 'Hydro Jet',
-    description: 'Gulps, aims, and fires a pressure-washer stream of water. Do not stand in front of the smile.',
+    nameKey: 'skill.aquaxol.hydro-jet.name',
+    descriptionKey: 'skill.aquaxol.hydro-jet.desc',
     element: 'water',
     targeting: 'beam',
     cost: 20,
@@ -517,11 +517,10 @@ export const skills: SkillDef[] = [
 
 export const species: PalSpecies = {
   id: 'aquaxol',
-  name: 'Aquaxol',
+  nameKey: 'pal.aquaxol.name',
   element: 'water',
   locomotion: 'amphibious',
-  description:
-    'A perpetually smiling axolotl that waddles on land and ripples through water, gills fluttering like party streamers.',
+  descriptionKey: 'pal.aquaxol.desc',
   baseStats: { maxHp: 54, attack: 9, defense: 8, speed: 3.6 },
   skills: skills.map((s) => s.id),
   buildRig,

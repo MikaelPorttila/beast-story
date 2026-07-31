@@ -119,6 +119,30 @@ const FONT: Record<string, readonly string[]> = {
 /** Glyph columns including the one-column gap that follows. */
 const GLYPH_ADV = 4;
 
+/**
+ * Fold an arbitrary display string down to what the font above can actually
+ * carve, and say so out loud.
+ *
+ * The FONT is the hard limit on this world's signage: A-Z, 0-9, '-', an
+ * apostrophe and a space. Now that sign text comes out of the string table
+ * (`town.<id>.sign`), a Swedish or German translation is one edit away from
+ * handing a fingerpost an "Ö" — and `letters()` renders an unknown glyph as a
+ * blank, so the first translated town would have quietly read "R DBRIAR".
+ *
+ * The fold is NFD + strip-combining, which is exactly right for the Latin
+ * languages this game is plausibly translated into: Å/Ä -> A, Ö -> O, É -> E,
+ * Ç -> C. Anything still outside the set after that (kanji, Cyrillic) is
+ * dropped rather than drawn as a hole, because a board with a gap in the middle
+ * of a word reads as a rendering bug and a shorter board reads as a short name.
+ * The rest of that argument, and the character budget, is in src/i18n/en.ts.
+ */
+export function signText(text: string): string {
+  let out = '';
+  const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  for (const ch of folded) if (ch in FONT) out += ch;
+  return out;
+}
+
 /** Width in voxels a label occupies. */
 export function labelWidth(text: string): number {
   return text.length * GLYPH_ADV - 1;
@@ -724,8 +748,11 @@ function signPost(): Template {
  * cells the board already has, so a labelled board and a blank one are the same
  * number of triangles.
  */
-export function signArm(text: string, scale: number): Template {
+export function signArm(label: string, scale: number): Template {
   const v = new VoxelModel();
+  // Folded HERE rather than at the call site, so there is exactly one place a
+  // board can be handed a character the font does not have. See signText.
+  const text = signText(label);
   const w = labelWidth(text);
   const len = w + 5;
   for (let z = 0; z <= len; z++) {

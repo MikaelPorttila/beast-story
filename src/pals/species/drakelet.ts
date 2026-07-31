@@ -56,8 +56,8 @@ const HOVER = 1.55;
 export const skills: SkillDef[] = [
   {
     id: 'drakelet.fang-rush',
-    name: 'Fang Rush',
-    description: 'Darts in with a snap of needle fangs and far too much confidence for its size.',
+    nameKey: 'skill.drakelet.fang-rush.name',
+    descriptionKey: 'skill.drakelet.fang-rush.desc',
     element: 'dragon',
     targeting: 'melee',
     cost: 5,
@@ -69,8 +69,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'drakelet.drakefire-breath',
-    name: 'Drakefire Breath',
-    description: 'Puffs up its chest, inhales the whole sky, and exhales a rolling cone of ember-red dragonfire.',
+    nameKey: 'skill.drakelet.drakefire-breath.name',
+    descriptionKey: 'skill.drakelet.drakefire-breath.desc',
     element: 'dragon',
     targeting: 'beam',
     cost: 15,
@@ -82,8 +82,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'drakelet.tailspin-tempest',
-    name: 'Tailspin Tempest',
-    description: 'Whirls its arrow-tipped tail into a shredding cyclone that batters everything in reach.',
+    nameKey: 'skill.drakelet.tailspin-tempest.name',
+    descriptionKey: 'skill.drakelet.tailspin-tempest.desc',
     element: 'dragon',
     targeting: 'aoe',
     cost: 18,
@@ -95,8 +95,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'drakelet.comet-crash',
-    name: 'Comet Crash',
-    description: 'Climbs, tucks its wings, and falls like a burning star. The landing is not subtle.',
+    nameKey: 'skill.drakelet.comet-crash.name',
+    descriptionKey: 'skill.drakelet.comet-crash.desc',
     element: 'dragon',
     targeting: 'projectile',
     cost: 24,
@@ -709,12 +709,10 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 // ---------------------------------------------------------------------------
 export const species: PalSpecies = {
   id: 'drakelet',
-  name: 'Drakelet',
+  nameKey: 'pal.drakelet.name',
   element: 'dragon',
   locomotion: 'flying',
-  description:
-    'A pocket-sized dragon with the ego of a mountain-sized one. Polishes its '
-    + 'ember-crimson scales on cliff quartz and practices its roar at sunrise, every sunrise.',
+  descriptionKey: 'pal.drakelet.desc',
   baseStats: { maxHp: 46, attack: 13, defense: 9, speed: 5.6 },
   skills: [
     'drakelet.fang-rush',

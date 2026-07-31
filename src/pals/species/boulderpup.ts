@@ -96,32 +96,32 @@ function bump(t: number, a: number, b: number, riseFrac = 0.4): number {
 export const skills: SkillDef[] = [
   {
     id: 'boulderpup.pebble-pop',
-    name: 'Pebble Pop',
-    description: 'Sneezes a hot pebble at surprising velocity. Bless you.',
+    nameKey: 'skill.boulderpup.pebble-pop.name',
+    descriptionKey: 'skill.boulderpup.pebble-pop.desc',
     element: 'rock', targeting: 'projectile',
     cost: 5, cooldown: 1.5, power: 9, range: 14,
     learnAtLevel: 1, castAnim: 'attack',
   },
   {
     id: 'boulderpup.stomp-quake',
-    name: 'Stomp Quake',
-    description: 'Slams all four paws down at once; the ground complains loudly.',
+    nameKey: 'skill.boulderpup.stomp-quake.name',
+    descriptionKey: 'skill.boulderpup.stomp-quake.desc',
     element: 'rock', targeting: 'aoe',
     cost: 13, cooldown: 5.5, power: 21, range: 5,
     learnAtLevel: 4, castAnim: 'cast',
   },
   {
     id: 'boulderpup.moss-mantle',
-    name: 'Moss Mantle',
-    description: 'Fluffs up its back-moss into a springy cushion that soaks up scrapes.',
+    nameKey: 'skill.boulderpup.moss-mantle.name',
+    descriptionKey: 'skill.boulderpup.moss-mantle.desc',
     element: 'grass', targeting: 'self',
     cost: 12, cooldown: 8, power: 16, range: 0,
     storePrice: 160, castAnim: 'cast',
   },
   {
     id: 'boulderpup.amber-avalanche',
-    name: 'Amber Avalanche',
-    description: 'The back-crystal flares white-hot and hurls a fan of molten amber boulders.',
+    nameKey: 'skill.boulderpup.amber-avalanche.name',
+    descriptionKey: 'skill.boulderpup.amber-avalanche.desc',
     element: 'rock', targeting: 'aoe',
     cost: 24, cooldown: 12, power: 44, range: 7,
     storePrice: 380, castAnim: 'special',
@@ -591,13 +591,10 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 // ---------------------------------------------------------------------------
 export const species: PalSpecies = {
   id: 'boulderpup',
-  name: 'Boulderpup',
+  nameKey: 'pal.boulderpup.name',
   element: 'rock',
   locomotion: 'ground',
-  description:
-    'A puppy chiseled from mountain strata by a very sentimental earthquake. '
-    + 'Moss grows where it naps too long, and the amber crystal on its back '
-    + 'glows brighter the happier it gets.',
+  descriptionKey: 'pal.boulderpup.desc',
   baseStats: { maxHp: 64, attack: 11, defense: 16, speed: 4.2 },
   skills: skills.map((s) => s.id),
   buildRig,

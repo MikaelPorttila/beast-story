@@ -589,8 +589,8 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 export const skills: SkillDef[] = [
   {
     id: 'emberfox.flame-dart',
-    name: 'Flame Dart',
-    description: 'Spits a zippy bolt of foxfire that pops in a shower of sparks.',
+    nameKey: 'skill.emberfox.flame-dart.name',
+    descriptionKey: 'skill.emberfox.flame-dart.desc',
     element: 'fire',
     targeting: 'projectile',
     cost: 6,
@@ -602,8 +602,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'emberfox.ember-pounce',
-    name: 'Ember Pounce',
-    description: 'A gleeful flaming pounce — equal parts play and ambush.',
+    nameKey: 'skill.emberfox.ember-pounce.name',
+    descriptionKey: 'skill.emberfox.ember-pounce.desc',
     element: 'fire',
     targeting: 'melee',
     cost: 10,
@@ -615,8 +615,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'emberfox.tail-flare',
-    name: 'Tail Flare',
-    description: 'Whirls its magnificent tail into a ring of cinders that singes everything nearby.',
+    nameKey: 'skill.emberfox.tail-flare.name',
+    descriptionKey: 'skill.emberfox.tail-flare.desc',
     element: 'fire',
     targeting: 'aoe',
     cost: 15,
@@ -628,8 +628,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'emberfox.foxfire-beam',
-    name: 'Foxfire Beam',
-    description: 'Rears up and exhales a roaring ribbon of blue-white foxfire.',
+    nameKey: 'skill.emberfox.foxfire-beam.name',
+    descriptionKey: 'skill.emberfox.foxfire-beam.desc',
     element: 'fire',
     targeting: 'beam',
     cost: 22,
@@ -643,11 +643,10 @@ export const skills: SkillDef[] = [
 
 export const species: PalSpecies = {
   id: 'emberfox',
-  name: 'Emberfox',
+  nameKey: 'pal.emberfox.name',
   element: 'fire',
   locomotion: 'ground',
-  description:
-    'An eager little fox whose oversized tail smolders when it is excited — which is always.',
+  descriptionKey: 'pal.emberfox.desc',
   baseStats: { maxHp: 46, attack: 12, defense: 6, speed: 5.2 },
   skills: skills.map((s) => s.id),
   buildRig,

@@ -85,32 +85,32 @@ function bump(t: number, a: number, b: number, riseFrac = 0.4): number {
 export const skills: SkillDef[] = [
   {
     id: 'frostwing.frost-dart',
-    name: 'Frost Dart',
-    description: 'Flicks a razor feather of ice that chills whatever it pricks.',
+    nameKey: 'skill.frostwing.frost-dart.name',
+    descriptionKey: 'skill.frostwing.frost-dart.desc',
     element: 'ice', targeting: 'projectile',
     cost: 6, cooldown: 1.8, power: 11, range: 20,
     learnAtLevel: 1, castAnim: 'attack',
   },
   {
     id: 'frostwing.blizzard-wing',
-    name: 'Blizzard Wing',
-    description: 'One mighty wingbeat whips up a stinging ring of snow around the owl.',
+    nameKey: 'skill.frostwing.blizzard-wing.name',
+    descriptionKey: 'skill.frostwing.blizzard-wing.desc',
     element: 'ice', targeting: 'aoe',
     cost: 14, cooldown: 6, power: 22, range: 6,
     learnAtLevel: 5, castAnim: 'cast',
   },
   {
     id: 'frostwing.aurora-veil',
-    name: 'Aurora Veil',
-    description: 'Weaves shimmering polar light overhead that gently mends allies beneath it.',
+    nameKey: 'skill.frostwing.aurora-veil.name',
+    descriptionKey: 'skill.frostwing.aurora-veil.desc',
     element: 'ice', targeting: 'support',
     cost: 18, cooldown: 9, power: 20, range: 8,
     storePrice: 220, castAnim: 'cast',
   },
   {
     id: 'frostwing.comet-dive',
-    name: 'Comet Dive',
-    description: 'Folds its wings and falls like a frozen star. Impact included, free of charge.',
+    nameKey: 'skill.frostwing.comet-dive.name',
+    descriptionKey: 'skill.frostwing.comet-dive.desc',
     element: 'ice', targeting: 'melee',
     cost: 22, cooldown: 11, power: 40, range: 4,
     storePrice: 360, castAnim: 'special',
@@ -590,13 +590,10 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 // ---------------------------------------------------------------------------
 export const species: PalSpecies = {
   id: 'frostwing',
-  name: 'Frostwing',
+  nameKey: 'pal.frostwing.name',
   element: 'ice',
   locomotion: 'flying',
-  description:
-    'A snowy owl born in the heart of a glacier. It drifts on silent wings, '
-    + 'watching everything with polite, unblinking curiosity, and its speckles '
-    + 'glitter like fresh frost at dawn.',
+  descriptionKey: 'pal.frostwing.desc',
   baseStats: { maxHp: 44, attack: 13, defense: 7, speed: 6.5 },
   skills: skills.map((s) => s.id),
   buildRig,

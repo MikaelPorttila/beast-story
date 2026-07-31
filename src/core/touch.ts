@@ -1,4 +1,5 @@
 import type { Input } from './input';
+import { t } from '../i18n';
 
 /**
  * Touch controls: a left analog stick for movement, a right look pad, and the
@@ -311,10 +312,10 @@ export class TouchControls {
     lookPad.className = 'cp-look';
     this.root.appendChild(lookPad);
 
-    this.moveStick = new Stick('move', 'MOVE', () => {
+    this.moveStick = new Stick('move', t('touch.move'), () => {
       this.input.setStick(this.moveStick.x, this.moveStick.y);
     });
-    this.lookStick = new Stick('look', 'LOOK', () => {
+    this.lookStick = new Stick('look', t('touch.look'), () => {
       this.input.setTouchLooking(true);
     }, lookPad);
     this.root.appendChild(this.moveStick.el);
@@ -375,14 +376,16 @@ export class TouchControls {
     // Both ends of the right fan are the shortest reach from where the thumb
     // pivots; the middle is ~30px further. So the two buttons held during play
     // take the ends and the skills sit between them.
-    mkButton(btns, 68, 'attack', 'ATK',
+    // The CSS class is the identifier ('attack'), the cap is display: the
+    // stylesheet and the touch tool key on the former, never on the word.
+    mkButton(btns, 68, 'attack', t('touch.attack'),
       () => this.input.setVirtualAttack(true),
       () => this.input.setVirtualAttack(false));
-    mkButton(btns, 202, 'jump', 'JUMP',
+    mkButton(btns, 202, 'jump', t('touch.jump'),
       () => this.input.setVirtualButton('Space', true),
       () => this.input.setVirtualButton('Space', false));
-    mkButton(nearBtns, 55, 'interact', 'USE', () => this.input.tapVirtual('KeyE'));
-    mkButton(nearBtns, 105, 'swap', 'SWAP', () => this.input.tapVirtual('Tab'));
+    mkButton(nearBtns, 55, 'interact', t('touch.interact'), () => this.input.tapVirtual('KeyE'));
+    mkButton(nearBtns, 105, 'swap', t('touch.swap'), () => this.input.tapVirtual('Tab'));
     this.root.appendChild(btns);
     this.root.appendChild(nearBtns);
 

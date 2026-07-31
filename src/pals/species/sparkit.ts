@@ -495,8 +495,8 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 export const skills: SkillDef[] = [
   {
     id: 'sparkit.static-zap',
-    name: 'Static Zap',
-    description: 'Flicks a stinging bead of static off its cheek spots. Cheap, cheerful, and mildly rude.',
+    nameKey: 'skill.sparkit.static-zap.name',
+    descriptionKey: 'skill.sparkit.static-zap.desc',
     element: 'electric',
     targeting: 'projectile',
     cost: 5,
@@ -508,8 +508,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'sparkit.volt-dash',
-    name: 'Volt Dash',
-    description: 'Blinks forward in a crackle of afterimages and shoulder-checks the target at full charge.',
+    nameKey: 'skill.sparkit.volt-dash.name',
+    descriptionKey: 'skill.sparkit.volt-dash.desc',
     element: 'electric',
     targeting: 'melee',
     cost: 10,
@@ -521,8 +521,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'sparkit.thunder-coil',
-    name: 'Thunder Coil',
-    description: 'Winds its zigzag tail like a spring, then releases a snapping ring of lightning around itself.',
+    nameKey: 'skill.sparkit.thunder-coil.name',
+    descriptionKey: 'skill.sparkit.thunder-coil.desc',
     element: 'electric',
     targeting: 'aoe',
     cost: 18,
@@ -534,8 +534,8 @@ export const skills: SkillDef[] = [
   },
   {
     id: 'sparkit.gigavolt-crash',
-    name: 'Gigavolt Crash',
-    description: 'Every stripe on its back lights up as it fires a searing bolt-beam straight down the line.',
+    nameKey: 'skill.sparkit.gigavolt-crash.name',
+    descriptionKey: 'skill.sparkit.gigavolt-crash.desc',
     element: 'electric',
     targeting: 'beam',
     cost: 24,
@@ -553,12 +553,10 @@ export const skills: SkillDef[] = [
 
 export const species: PalSpecies = {
   id: 'sparkit',
-  name: 'Sparkit',
+  nameKey: 'pal.sparkit.name',
   element: 'electric',
   locomotion: 'ground',
-  description:
-    'A hyperactive spark rodent that physically cannot sit still. Its tall zigzag tail is a ' +
-    'living lightning rod, and its cheek spots crackle whenever it gets excited — so, always.',
+  descriptionKey: 'pal.sparkit.desc',
   baseStats: { maxHp: 42, attack: 13, defense: 7, speed: 5.4 },
   skills: skills.map((s) => s.id),
   buildRig,

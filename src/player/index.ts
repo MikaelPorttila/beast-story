@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Engine } from '../core/engine';
 import type { Input } from '../core/input';
 import type { ElementType, EventBus, World } from '../core/types';
+import { t } from '../i18n';
 import { buildHeroRig, type HeroRig } from './hero-rig';
 import { ThirdPersonCamera } from './camera';
 import { HeroAnimator, type AttackState } from './animations';
@@ -366,7 +367,7 @@ export class Player {
     this.onCanopy = false;
     this.attack.active = false;
     this.cam.addShake(0.5);
-    this.bus.emit({ type: 'toast', text: 'You fainted!' });
+    this.bus.emit({ type: 'toast', text: t('toast.fainted') });
   }
 
   private respawn(): void {
@@ -380,7 +381,7 @@ export class Player {
     this.velocity.set(0, 0, 0);
     this.position.copy(this.world.spawnPoint);
     this.position.y = this.world.getHeight(this.position.x, this.position.z);
-    this.bus.emit({ type: 'toast', text: 'Back on your feet!' });
+    this.bus.emit({ type: 'toast', text: t('toast.revived') });
   }
 
   // ---- mounting -----------------------------------------------------------
