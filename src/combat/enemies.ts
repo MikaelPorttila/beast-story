@@ -241,34 +241,17 @@ function buildPeckit(root: THREE.Group, v: Variant): Record<string, THREE.Object
  * Flying attackers are NOT subject to this: Peckit's dive already measured true
  * 3D distance to the target and it is supposed to come down out of the sky.
  * Ranged/projectile attacks likewise keep their reach.
+ *
+ * Measured in the real game, hero hanging 8.3 units up a trunk with an aggroed
+ * Gloopling at its foot, 25 s per trace:
+ *   caps off  strike tests 17, ALL landed at dy up to +10.9, hero 88 hp -> dead
+ *   caps on   strike tests 1042, ALL refused (max dy +8.9), hero 100 hp -> 100
+ *   caps on, hero back on the ground beside it: 15 tests, 15 landed, 100 -> dead
+ * The enemy kept its target through the whole climb trace — it waits at the
+ * foot of the tree rather than losing interest. See retarget().
  */
 const MELEE_UP_REACH = 1.5;
 const MELEE_DOWN_REACH = 2.5;
-
-// TEMP INSTRUMENTATION — remove before finishing.
-const _ms = {
-  tried: 0, landed: 0, blocked: 0, maxDy: 0,
-  hitGloopling: 0, hitSnortle: 0, hitPeckit: 0,
-};
-if (typeof window !== 'undefined') {
-  (window as unknown as Record<string, unknown>).__dbgMelee = () => ({ ..._ms });
-  (window as unknown as Record<string, unknown>).__dbgMeleeReset = () => {
-    _ms.tried = 0; _ms.landed = 0; _ms.blocked = 0; _ms.maxDy = 0;
-    _ms.hitGloopling = 0; _ms.hitSnortle = 0; _ms.hitPeckit = 0;
-  };
-}
-const _live = new Set<Enemy>();
-if (typeof window !== 'undefined') {
-  (window as unknown as Record<string, unknown>).__dbgEnemies = () => [..._live].map((e) => ({
-    species: e.species, hp: e.hp, dead: e.isDead, hasTarget: !!e.target,
-    x: +e.position.x.toFixed(2), y: +e.position.y.toFixed(2), z: +e.position.z.toFixed(2),
-  }));
-}
-function _mshit(s: EnemySpeciesId): void {
-  if (s === 'gloopling') _ms.hitGloopling++;
-  else if (s === 'snortle') _ms.hitSnortle++;
-  else _ms.hitPeckit++;
-}
 
 // ---------------------------------------------------------------------------
 // Enemy
@@ -390,7 +373,6 @@ export class Enemy implements Damageable {
     this.root.add(this.barSprite);
     this.barSprite.position.set(0, this.height + 0.4, 0);
     this.drawBar();
-    _live.add(this);
   }
 
   takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): void {
@@ -475,11 +457,7 @@ export class Enemy implements Damageable {
    */
   private inMeleeHeight(t: Damageable): boolean {
     const dy = t.position.y - this.position.y;
-    const ok = dy <= MELEE_UP_REACH && dy >= -MELEE_DOWN_REACH;
-    _ms.tried++;
-    if (ok) _ms.landed++; else _ms.blocked++;
-    if (Math.abs(dy) > Math.abs(_ms.maxDy)) _ms.maxDy = +dy.toFixed(2);
-    return ok;
+    return dy <= MELEE_UP_REACH && dy >= -MELEE_DOWN_REACH;
   }
 
   private faceToward(x: number, z: number, dt: number, rate: number): void {
@@ -597,7 +575,6 @@ export class Enemy implements Damageable {
       const dx = this.target.position.x - this.position.x;
       const dz = this.target.position.z - this.position.z;
       if (dx * dx + dz * dz < (this.radius + 0.8) ** 2 && this.inMeleeHeight(this.target)) {
-        _mshit(this.species);
         ctx.hit(this.target, this.atk, this.element, this.position.x, this.position.y + 0.4, this.position.z);
         this.atkCd = 1.3;
         this.knock.set(-dx, 0, -dz).normalize().multiplyScalar(2.2);
@@ -633,7 +610,6 @@ export class Enemy implements Damageable {
             moveAmt = this.speed;
           } else if (this.atkCd <= 0 && !this.target.isDead && this.inMeleeHeight(this.target)) {
             // close-range shove
-            _mshit(this.species);
             ctx.hit(this.target, this.atk * 0.6, this.element, this.position.x, this.position.y + 0.6, this.position.z);
             this.atkCd = 1.1;
           }
@@ -706,7 +682,6 @@ export class Enemy implements Damageable {
           const dx = t.position.x - this.position.x;
           const dz = t.position.z - this.position.z;
           if (dx * dx + dz * dz < (this.radius + 0.85) ** 2 && this.inMeleeHeight(t)) {
-            _mshit(this.species);
             ctx.hit(t, this.atk * 1.5, this.element, this.position.x, this.position.y + 0.6, this.position.z);
             this.state = 'recover'; this.stateT = 0.9; this.chargeCd = 3.5;
             break;
@@ -786,7 +761,6 @@ export class Enemy implements Damageable {
       if (this.target && !this.diveHit && !this.target.isDead) {
         const d2 = _tmp.copy(this.target.position).setY(this.target.position.y + 0.8).distanceToSquared(this.position);
         if (d2 < 1.9) {
-          _mshit(this.species);
           ctx.hit(this.target, this.atk, this.element, this.position.x, this.position.y, this.position.z);
           this.diveHit = true;
         }
@@ -822,7 +796,6 @@ export class Enemy implements Damageable {
   }
 
   dispose(): void {
-    _live.delete(this);
     this.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) {
