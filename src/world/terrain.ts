@@ -7,7 +7,14 @@ import { Noise2D, WaveField } from './noise';
 export const WATER_LEVEL = 8;
 export const CHUNK_SIZE = 32;
 
-export type BiomeId = 'plains' | 'forest' | 'beach' | 'desert' | 'snow' | 'underwater';
+/**
+ * 'trampled' is not a climate — it is the yard of a SETTLEMENT, and it is a
+ * biome for one reason: `props.ts` dispatches its whole vegetation scatter off
+ * this enum, so a column that reports 'trampled' grows nothing without a single
+ * new test anywhere in that file. See `GroundPatch`.
+ */
+export type BiomeId =
+  'plains' | 'forest' | 'beach' | 'desert' | 'snow' | 'underwater' | 'trampled';
 
 export interface FlattenDisc {
   x: number;
@@ -16,6 +23,63 @@ export interface FlattenDisc {
   h: number;
   core: number;
   blend: number;
+}
+
+/**
+ * TRODDEN GROUND — the ground a settlement has worn out, as a colour field.
+ *
+ * A town is already three things stacked on the same coordinates (a flatten
+ * disc, a prop exclusion and a merged mesh — see towns.ts); this is the fourth,
+ * and it is the one that makes the other three read as a place people live in
+ * rather than a model dropped on a lawn. Months of feet do two things to
+ * ground: they kill the grass, and they leave a surface that is dry packed
+ * earth where the traffic is heaviest and churned mud everywhere else.
+ *
+ * DECLARED HERE, LIKE `FlattenDisc`, AND FOR THE SAME REASON: terrain knows
+ * there are *patches*, towns.ts knows what a Terrain is, and neither imports
+ * the other's implementation. Every field is derivable from a `TownInfo`, so a
+ * fourth entry in `SITES` gets trodden ground with no new code.
+ *
+ * WHY IT IS A COLOUR PATCH AND NOT A MESH. The road solves the same problem
+ * with a RIBBON — a strip of geometry on the terrain material, drawn over the
+ * carriageway (town-parts.ts `buildRoadRibbon`) — and that is right for a road,
+ * whose surface is a graded deck the terrain underneath is deliberately NOT.
+ * A camp yard is not a deck: it is the ground itself, at the ground's own
+ * height, with the ground's own 1-unit steps and corner AO. Baking it into
+ * `columnInfo` instead costs no geometry, no draw call and no material, and it
+ * arrives with every one of the mesher's existing tricks (per-cube churn, the
+ * curvature read, the litter picks) already applied to it.
+ *
+ * COST. `trampleAt` runs in `columnInfo` — chunk build, ~1156 columns a chunk —
+ * and NEVER in `heightCont`/`getHeight`, which are on the collision hot path.
+ * A world has a handful of patches and each is rejected by one squared-distance
+ * compare, so a column outside every settlement pays three compares.
+ */
+export interface GroundPatch {
+  x: number;
+  z: number;
+  /** Wear is undiminished inside this radius... */
+  fade: number;
+  /** ...and gone by this one. A soft rim, so a town is not a disc from the air. */
+  edge: number;
+  /** How worn the ground is away from any beaten track, 0..1. */
+  base: number;
+  /**
+   * The beaten tracks, four numbers each: the far end of a line that starts at
+   * the settlement's centre (dx, dz, relative to x/z), the half-width of the
+   * track, and how worn it is at its middle.
+   *
+   * A flat `Float32Array` rather than an array of objects because this is
+   * scanned once per column of every chunk that touches a settlement, and the
+   * query must not chase pointers or allocate — the same reason
+   * `RoadNetwork.seg` is one.
+   */
+  paths: Float32Array;
+  /**
+   * Bias toward damp mud rather than dry packed earth, 0..1. A military camp
+   * churns; a farming hamlet mostly wears its grass thin.
+   */
+  damp: number;
 }
 
 /**
@@ -134,6 +198,33 @@ const DIRT_COLD = rgb(0x8d7a6f);
 const DIRT_SAND = rgb(0xc7a468);
 const UW_SAND = rgb(0xd9c68f);
 const UW_DEEP = rgb(0x587a70);
+/**
+ * TRODDEN SETTLEMENT GROUND, two stops: earth beaten dry and hard along the
+ * lines people walk, and the dark churned mud that gathers everywhere else.
+ *
+ * Picked in the ROAD's colour family (town-parts.ts: RUT 0x6b5843 under the
+ * wheels, EARTH 0x8a7a60, GRAVEL 0x9a8f79 at the verge) and deliberately NOT in
+ * the terrain's own DIRT 0x9a6a42, which is a red subsoil for cliff faces. The
+ * carved road runs THROUGH the gate and into the camp, so the ribbon's verge
+ * and the camp's own ground are adjacent surfaces a couple of metres apart: a
+ * red-brown yard against a grey-brown road would draw exactly the seam this
+ * treatment exists to remove. 0x8e7c5a sits between the road's EARTH and its
+ * GRAVEL, so the gate line is a change of texture rather than of hue.
+ *
+ * The mud is DARK — under a third of the earth's luminance. Sun (3.05) plus the
+ * hemisphere fill land these near 0.9x, so a yard blotched between them carries
+ * a 3:1 value spread, which is what makes it read as churned rather than as one
+ * flat brown plate — the whole failure mode a single dirt colour has.
+ *
+ * Both are two steps DOWN from the first pass (0x8e7c5a / 0x4f3d2c), which
+ * captured (_camp-ground.png) as a pale olive-khaki rather than as earth: at
+ * that value the yard sat above the road ribbon it is supposed to meet, so the
+ * gate showed the seam the palette was chosen to hide, and the residual green
+ * left by a wear of 0.92 tinted the whole thing toward moss. The camp's wear is
+ * now a flat 1.0 as well, so no grass survives in the mix to do that.
+ */
+const TRAMPLED_EARTH = rgb(0x83704e);
+const TRAMPLED_MUD = rgb(0x463626);
 export const STONE: RGB = rgb(0x8f9096);
 export const STONE_WARM: RGB = rgb(0xc09a67);
 
@@ -156,6 +247,16 @@ export interface ColumnScratch {
    * meadow detail.
    */
   grass: number;
+  /**
+   * 0..1 "a settlement has worn this column out" — see `GroundPatch`.
+   *
+   * A CONTINUUM rather than the `biome` boolean, and both exist for the same
+   * reason `snowCoverAt` is a continuum: the wear fades over several metres at
+   * the edge of a town, and that ring is where the world stops being a camp and
+   * starts being a meadow again. `biome` flips to 'trampled' only in the worn
+   * heart, so the prop passes have this to thin the sward out with on the way.
+   */
+  trample: number;
   biome: BiomeId;
 }
 
@@ -166,6 +267,7 @@ export function makeScratch(): ColumnScratch {
     dirtR: 0, dirtG: 0, dirtB: 0,
     stoneWarm: 0,
     grass: 0,
+    trample: 0,
     biome: 'plains',
   };
 }
@@ -186,6 +288,12 @@ function mix(out: RGB, a: RGB, b: RGB, t: number): void {
 export class Terrain {
   readonly seed: number;
   readonly flattens: FlattenDisc[] = [];
+  /**
+   * The settlements' trodden yards. Filled by `planSettlements` in the same
+   * pass that pushes the flatten discs, and empty in a world with no towns
+   * (`towns=0`) or in the dungeon.
+   */
+  readonly grounds: GroundPatch[] = [];
 
   /**
    * The road corridor, or null in a world that has no roads.
@@ -215,6 +323,27 @@ export class Terrain {
   private readonly patchW: WaveField;
   /** Near-cube-frequency surface tooth, ~3 units. */
   private readonly toothW: WaveField;
+  /**
+   * RUT-scale churn for trodden ground, ~7 units, and the reason it is its own
+   * field rather than more of `toothW`.
+   *
+   * The first pass drove the camp's churn off `toothW` at ±9% and captured
+   * (_camp-ground.png) as an unmistakable one-cube chequerboard — the artefact
+   * this file's history keeps rediscovering, arrived at from a new direction.
+   * `toothW` is deliberately built with five waves at a 1.47 ratio from
+   * 2.05 rad/unit, so its top harmonic is 9.6 rad/unit: a 0.65-unit wavelength,
+   * BELOW cube frequency, which aliases into a chequer the moment it is sampled
+   * at cube centres with real amplitude. At ±3% that is invisible and the field
+   * earns its keep; at ±9% it is the grid.
+   *
+   * This one is built the other way round on purpose: four waves at 1.35 from
+   * 0.85 rad/unit, so the coarsest feature is ~7.4 units and the FINEST is
+   * still 3.0 — above cube frequency by a factor of three, with nothing in the
+   * spectrum that can alias however hard it is driven. Seven units is also the
+   * scale a churned yard actually varies at: a cart rut, a puddle, the patch in
+   * front of a tent door.
+   */
+  private readonly churnW: WaveField;
 
   private readonly continentN: Noise2D;
   private readonly hillN: Noise2D;
@@ -228,6 +357,10 @@ export class Terrain {
 
   private readonly tmpA: RGB = { r: 0, g: 0, b: 0 };
   private readonly tmpB: RGB = { r: 0, g: 0, b: 0 };
+
+  /** Filled by `trampleAt`; see there. Never read from outside this class. */
+  private trampleTrack = 0;
+  private trampleDamp = 0;
 
   constructor(seed: number) {
     this.seed = seed | 0;
@@ -248,6 +381,7 @@ export class Terrain {
     this.hueW = new WaveField(this.seed + 1381, 0.21);
     this.patchW = new WaveField(this.seed + 1487, 0.45);
     this.toothW = new WaveField(this.seed + 1601, 2.05, 5, 1.47, 0.62);
+    this.churnW = new WaveField(this.seed + 1721, 0.85, 4, 1.35, 0.68);
   }
 
   /** Continuous terrain height at any world xz (flatten discs applied). */
@@ -497,6 +631,66 @@ export class Terrain {
     return smoothstep(snowLine - 2.5, snowLine + 2.5, hc);
   }
 
+  /**
+   * How worn a settlement has left the ground at (x, z), 0..1, with two
+   * by-products left in `trampleTrack` and `trampleDamp` for the caller that
+   * wants to colour it.
+   *
+   * Split that way — a return value plus two fields — for the same reason
+   * `RoadField.carveAt` leaves `carveTarget` behind: the three numbers come out
+   * of one scan and returning them together would mean allocating an object per
+   * column. `trampleTrack` is the wear from the beaten tracks ALONE, before the
+   * rim fade, and it is what tells the colour which columns are packed dry road
+   * and which are the mud between.
+   *
+   * NOT for the collision path. This is a `columnInfo` query (chunk build); the
+   * ground a settlement stands on is levelled by an ordinary `FlattenDisc`, and
+   * how it is COLOURED is no business of `getHeight`.
+   */
+  trampleAt(x: number, z: number): number {
+    let best = 0;
+    this.trampleTrack = 0;
+    this.trampleDamp = 0;
+    for (let i = 0; i < this.grounds.length; i++) {
+      const p = this.grounds[i];
+      const dx = x - p.x;
+      const dz = z - p.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= p.edge * p.edge) continue;
+      // The tracks, as distance to a segment from the centre outwards. `place`
+      // in towns.ts keeps every tent, hut and barrel off the carriageway with
+      // the same primitive; this is the inverse question — where the ground
+      // BETWEEN those buildings is walked flat.
+      const q = p.paths;
+      let track = 0;
+      for (let k = 0; k < q.length; k += 4) {
+        const ax = q[k];
+        const az = q[k + 1];
+        const len2 = ax * ax + az * az;
+        let t = len2 > 1e-9 ? (dx * ax + dz * az) / len2 : 0;
+        if (t < 0) t = 0; else if (t > 1) t = 1;
+        const px = dx - ax * t;
+        const pz = dz - az * t;
+        const hw = q[k + 2];
+        // Soft-edged: a footpath has no kerb. Full strength for the inner 45%
+        // of its width, gone at the rim.
+        const s = q[k + 3] * (1 - smoothstep(hw * 0.45, hw, Math.sqrt(px * px + pz * pz)));
+        if (s > track) track = s;
+      }
+      // The rim. Wear does not stop on a circle — from the air that is exactly
+      // what a settlement must not look like — so everything above is faded out
+      // over the several metres between `fade` and `edge`.
+      const rim = 1 - smoothstep(p.fade, p.edge, Math.sqrt(d2));
+      const w = (track > p.base ? track : p.base) * rim;
+      if (w > best) {
+        best = w;
+        this.trampleTrack = track * rim;
+        this.trampleDamp = p.damp;
+      }
+    }
+    return best;
+  }
+
   /** Full biome/color info for one column (writes into `out`, no allocs). */
   columnInfo(cx: number, cz: number, out: ColumnScratch): void {
     const x = cx + 0.5;
@@ -600,10 +794,74 @@ export class Terrain {
     // resolves into a shape; it just keeps two neighbouring cubes from ever
     // being bit-identical. Halved from ±7% for the same reason as the patch
     // field — at 3 units it was close enough to cube scale to read as a pattern.
-    const dm = 1 + this.toothW.sample(x, z) * 0.03;
+    const tooth = this.toothW.sample(x, z);
+    const dm = 1 + tooth * 0.03;
     tA.r *= dm;
     tA.g *= dm;
     tA.b *= dm;
+
+    // ---- trodden settlement ground ------------------------------------------
+    // Whatever this column would have been, a town has been standing on it. See
+    // `GroundPatch`; the arithmetic here is the whole difference between a camp
+    // floor and a brown dinner plate, so it is worth spelling out.
+    //
+    // MUD vs PACKED EARTH is a per-column blend, driven by four things that
+    // pull in different directions. Three of the fields are free — they are
+    // already sampled above for the meadow — and only `churnW` is new, and only
+    // for columns a settlement actually covers:
+    //
+    //  - `patchHue`, the ~14-unit field, at the largest weight. This is the one
+    //    that does the work: it puts puddle-sized blotches of dark churn in a
+    //    dry yard at exactly the scale a person walking through the camp reads
+    //    as "wet patch" rather than as "different biome".
+    //  - `hueDrift`, ~30 units, at half that, so one quarter of a big camp is
+    //    generally wetter than the other instead of the blotches being evenly
+    //    stirred.
+    //  - `churnW`, ~7 units, which is rut and puddle scale — the size a person
+    //    walking through the camp reads as one wet patch.
+    //  - the BEATEN TRACKS, negatively and hardest of all. Ground that is walked
+    //    every day is packed too hard to hold water: the gate-to-fire line and
+    //    the paths out to the huts come out pale and dry, which is what turns a
+    //    field of mud into a place with routes through it.
+    const wear = this.grounds.length > 0 ? this.trampleAt(x, z) : 0;
+    if (wear > 0) {
+      // The ~7-unit churn field joins the two hue fields in choosing mud, so
+      // the wet patches come at three scales at once (quarter of a camp, a
+      // puddle, a rut) instead of one.
+      const churn = this.churnW.sample(x, z);
+      // 0.75, not the 0.95 of the first pass. At 0.95 a track cleared the mud
+      // term outright, and with nine tracks radiating from the middle of a camp
+      // that left the whole central disc clamped at zero: measured over the
+      // 15x15 columns around the Encampment's centre the luminance ran 114-122
+      // out of 255 — an eight-value plateau, i.e. exactly the flat brown plate
+      // this is supposed to avoid, with all the mud pushed out to the wedges
+      // between the spokes. A cart track HAS ruts and ruts hold water; at 0.75
+      // roughly a third of the columns on a path still take some mud and the
+      // path stays clearly the drier surface.
+      const mud = clamp01(
+        this.trampleDamp + patchHue * 0.85 + hueDrift * 0.40 + churn * 0.55
+        - this.trampleTrack * 0.75,
+      );
+      mix(tB, TRAMPLED_EARTH, TRAMPLED_MUD, mud);
+      // CHURN VALUE: ±17% at ~7 units, plus a small dust lift where the traffic
+      // packs the surface. Five times the meadow's per-cube share and safe at
+      // that amplitude precisely because it is NOT per-cube — see `churnW`. It
+      // needs to be that big to be seen at all: sRGB is a ~1/2.4 power of this,
+      // so ±17% of linear radiance is only about seven code values on screen.
+      const ch = 1 + churn * 0.17 + patchHue * 0.05 + tooth * 0.025
+        + this.trampleTrack * 0.06;
+      tB.r *= ch;
+      tB.g *= ch;
+      tB.b *= ch;
+      // COLOUR LEADS THE PROPS. `1 - (1 - wear)^2` rather than `wear`, so a
+      // half-worn column is 75% earth by colour while `out.trample` still culls
+      // its grass at 50%. That gap IS the reference picture: ground that has
+      // gone to bare earth with tussocks still standing on it, thinning as you
+      // walk in. Mixing on the raw weight instead left Redbriar Mill — a hamlet
+      // in a snowfield, so the most demanding case — reading as pale beige,
+      // because half of pure white is still nearly white.
+      mix(tA, tA, tB, wear * (2 - wear));
+    }
 
     // Lake bed, and — crucially — the damp strip just ABOVE the waterline. The
     // cut used to be exactly at WATER_LEVEL, so a column whose continuous height
@@ -629,12 +887,27 @@ export class Terrain {
     out.dirtB = tB.b;
 
     out.stoneWarm = clamp01(desertW * 1.3 + sandW * 0.3);
-    // Vegetated-grass weight: everything that isn't sand, snow or lake bed.
-    out.grass = hc < WATER_LEVEL + 0.3 ? 0 : clamp01((1 - sandW) * (1 - snowW));
+    // Vegetated-grass weight: everything that isn't sand, snow, lake bed — or
+    // trodden into the ground by a settlement. Handing the wear to `grass` is
+    // what switches the mesher off the meadow treatment automatically: the
+    // curvature moss/bleach read, the clover-and-blade litter picks and the
+    // saturation link all gate on it, and a camp yard should have none of them.
+    // What it gets instead is the sparse-surface litter (grit, a dark pebble)
+    // and the smaller per-cube value share, which is the right texture for dirt.
+    out.grass = hc < WATER_LEVEL + 0.3 ? 0
+      : clamp01((1 - sandW) * (1 - snowW) * (1 - wear));
+    out.trample = wear;
     out.h = h;
     out.hc = hc;
+    // 0.6, not "any wear at all". The threshold is where props.ts stops
+    // thinning the sward and starts refusing it outright (see the cull there),
+    // and it has to sit inside the settlement rather than at its rim: measured
+    // on seed 1337 the Encampment's palisade stands at wear 0.84 and the apron
+    // outside the gate falls through 0.6 about two metres beyond it, so the
+    // ground is bare to the wall and the last tussocks survive just outside it.
     out.biome =
       hc < WATER_LEVEL + 0.4 ? 'underwater'
+      : wear > 0.6 ? 'trampled'
       : snowW > 0.5 ? 'snow'
       : desertW > 0.5 ? 'desert'
       : beachW > 0.5 ? 'beach'

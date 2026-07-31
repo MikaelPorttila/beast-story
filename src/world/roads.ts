@@ -39,9 +39,15 @@
  * every 0.25 units along each deck polyline — see the `roads` block of the
  * `__dbgTowns()` probe in main.ts, which is where that number comes from:
  *
- *     camp-junction        72 units   maxStep 0.015   maxGrade 0.088
+ *     camp-junction        72 units   maxStep 0.018   maxGrade 0.100
  *     junction-redbriar   174 units   maxStep 0.025   maxGrade 0.102
  *     junction-stonewatch 144 units   maxStep 0.025   maxGrade 0.102
+ *
+ * (The camp road was 0.015 / 0.088 before `profileRoad` grew its level HOLD at
+ * the town ends — see there. Holding a deck flat across a footprint and then
+ * decaying the correction costs a little grade and buys a settlement with no
+ * terrace running down its high street; MAX_STEP_UP is still twenty-eight times
+ * the largest step on the network.)
  *
  * MAX_STEP_UP is 0.5, so the largest rise anywhere on the network is a twentieth
  * of what the hero can walk over. Driven for real rather than only sampled: from
@@ -512,12 +518,25 @@ function resample(
  *
  * `startY`/`endY` may be NaN, which means "whatever the profile says" — that is
  * how the FIRST road out of a town gets to decide what height the town sits at.
+ *
+ * `startHold`/`endHold` are how far, in world units, the deck is held DEAD
+ * LEVEL at that end's anchor height before the correction is allowed to decay.
+ * Pass a town's footprint and the road inside the town is level with the town,
+ * which is not a nicety: the earthworks level the shoulder to `round(deck)`, so
+ * a deck that has drifted half a unit below the town's own height by the time
+ * it reaches the gate lays a 1-unit terrace down the length of the high street.
+ * Measured on seed 1337 before this argument existed, Redbriar Mill's interior
+ * held 253 columns a full unit below the other 2200 — all of them inside the
+ * road's 13-unit blend — and the same road's approach into the Encampment was
+ * within 0.17. Which of the two a seed gives you is luck; the hold removes it.
  */
 export function profileRoad(
   terrain: Terrain,
   route: Array<{ x: number; z: number }>,
   startY: number,
   endY: number,
+  startHold = 0,
+  endHold = 0,
 ): RoadSample[] {
   const n = route.length;
   const nat = new Float32Array(n);
@@ -569,13 +588,19 @@ export function profileRoad(
       for (let i = n - 2; i >= 0; i--) if (y[i] < y[i + 1] - rise) y[i] = y[i + 1] - rise;
     }
   };
-  const anchor = (idx: number, target: number, dir: 1 | -1): void => {
+  const anchor = (idx: number, target: number, dir: 1 | -1, hold: number): void => {
     if (!Number.isFinite(target)) return;
     const delta = target - y[idx];
-    for (let k = 0; k < ANCHOR; k++) {
+    // `hold` samples pinned flat, then ANCHOR more of linear decay. The decay
+    // still starts from the FULL delta, so the two pieces meet without a kink,
+    // and over ANCHOR * SEG_LEN = 42 units a correction of a unit or so costs
+    // about 0.024 of grade against MAX_GRADE 0.10 — invisible next to the
+    // terrain the road is crossing.
+    const flat = Math.round(hold / SEG_LEN);
+    for (let k = 0; k < flat + ANCHOR; k++) {
       const j = idx + dir * k;
       if (j < 0 || j >= n) break;
-      y[j] += delta * (1 - k / ANCHOR);
+      y[j] = k < flat ? target : y[j] + delta * (1 - (k - flat) / ANCHOR);
     }
   };
 
@@ -590,8 +615,8 @@ export function profileRoad(
   for (let it = 0; it < 2; it++) {
     floorWater();
     slopeLimit(2);
-    anchor(0, startY, 1);
-    anchor(n - 1, endY, -1);
+    anchor(0, startY, 1, startHold);
+    anchor(n - 1, endY, -1, endHold);
   }
   floorWater();
 

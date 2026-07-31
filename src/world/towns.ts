@@ -4,9 +4,11 @@
  * A town here is an OVERWORLD LANDMARK, not an instanced zone: you walk in and
  * out of it seamlessly, there is no boundary and nothing loads. (The zone system
  * in world/zones.ts exists and is deliberately not used — it is for the dungeon,
- * where the point is that the overworld unloads.) A town is therefore three
+ * where the point is that the overworld unloads.) A town is therefore four
  * ordinary things stacked on the same coordinates: a flatten disc in the height
- * field, an exclusion that keeps the forest off it, and a merged voxel mesh.
+ * field, an exclusion that keeps the forest off it, a `GroundPatch` that wears
+ * its grass away into trodden mud, and a merged voxel mesh. All four are
+ * derived from the same registry entry, so adding a settlement adds all four.
  *
  * THE REGISTRY IS THE PRODUCT. `planSettlements` returns a `TownRegistry`
  * (core/types.ts) carrying a stable id, a display name, a world position, a
@@ -30,7 +32,7 @@
  */
 import * as THREE from 'three';
 import type { TownInfo, TownRegistry } from '../core/types';
-import { Terrain, WATER_LEVEL } from './terrain';
+import { Terrain, WATER_LEVEL, type GroundPatch } from './terrain';
 import {
   RoadNetwork, roadAt, roadLength, routeRoad, profileRoad, straightWetLength,
   DECK_EDGE, NECK_MAX, type Road,
@@ -85,6 +87,131 @@ const SITES: readonly SiteSpec[] = [
 
 /** Where the fingerpost at the fork stands, as far as a signpost is concerned. */
 const JUNCTION_SIGN = 'CROSSWAY';
+
+// ---------------------------------------------------------------------------
+// Trodden ground
+// ---------------------------------------------------------------------------
+
+/**
+ * HOW A SETTLEMENT WEARS ITS GROUND, by kind.
+ *
+ * Every number is a fraction of the town's OWN radius or a bearing relative to
+ * its OWN gate, so this table plus a `TownInfo` is a complete `GroundPatch` —
+ * which is the point: a fourth entry in `SITES` gets a trodden yard with no new
+ * code, and the yard is the right shape for it because the layout functions
+ * below place their huts and tents off the same two quantities.
+ *
+ * The two kinds are deliberately not the same surface, and the difference is
+ * the difference between the buildings that stand on them:
+ *
+ *   - a CAMP is churned edge to edge (`base` 0.92). Sixty people, four watch
+ *     posts and a cart road inside a nineteen-unit palisade do not leave a
+ *     lawn; the tracks here only decide which parts are packed DRY.
+ *   - a HAMLET wears bare where feet go and keeps its grass in between
+ *     (`base` 0.36, narrower tracks). A mill has a yard and a green, and the
+ *     thing that makes the start town feel like a stronghold is that the others
+ *     are not one — the same argument `buildHamlet` makes about the palisade.
+ */
+interface WearSpec {
+  /** Wear away from any track, 0..1. */
+  base: number;
+  /** Where the wear starts fading, in radii. */
+  fade: number;
+  /** Where it has faded to nothing, in radii. */
+  edge: number;
+  /** Bias toward damp mud over dry packed earth, 0..1. */
+  damp: number;
+  /**
+   * The beaten tracks: bearing RELATIVE TO THE GATE, length in radii, half
+   * width in world units, and how worn the track is. Every one of them points
+   * at something the layout below actually builds.
+   */
+  tracks: ReadonlyArray<readonly [number, number, number, number]>;
+}
+
+const HALF_PI = Math.PI / 2;
+
+const WEAR: Record<TownInfo['kind'], WearSpec> = {
+  camp: {
+    // FLAT 1.0, not 0.92. Eight percent of the meadow left in the mix was
+    // enough to tint the whole yard olive (_camp-ground.png, first pass) —
+    // grass is the most saturated surface in the world and a trace of it
+    // survives any amount of brown.
+    base: 1.0,
+    // 0.90 / 1.30: at the palisade (1.00 radii) the rim still holds 0.91, so
+    // the ground is bare right up to the wall, and it falls through the 0.6
+    // 'trampled' threshold about two units outside it — a worn apron round the
+    // gate rather than a disc that stops dead on the timber.
+    fade: 0.90,
+    edge: 1.30,
+    damp: 0.55,
+    tracks: [
+      // THE THOROUGHFARE, gate to the middle of camp and out through the gate.
+      // Wide and dead straight because it is the cart road: `buildEncampment`
+      // refuses to place anything within reach of the carriageway, so this is
+      // the one line in the camp that is guaranteed to be clear ground.
+      [0, 1.25, 4.4, 1.0],
+      // THE FIRE. It stands a quarter-turn off the road axis at 5.4 units, on a
+      // side rolled per seed — so both sides get a path, and the one that has
+      // no fire on it has the log seats and braziers instead.
+      [HALF_PI, 0.34, 3.6, 1.0],
+      [-HALF_PI, 0.34, 3.6, 1.0],
+      // THE HUTS, three of them on the far half of the camp at R - 7.5, facing
+      // the fire — i.e. these tracks are the line people walk between the two.
+      [Math.PI - 0.75, 0.62, 2.6, 0.95],
+      [Math.PI, 0.62, 2.6, 0.95],
+      [Math.PI + 0.75, 0.62, 2.6, 0.95],
+      // THE TENT LINES, which fill the arc from the gate round to the huts.
+      [1.5, 0.66, 2.4, 0.88],
+      [2.6, 0.66, 2.4, 0.88],
+      [3.8, 0.66, 2.4, 0.88],
+    ],
+  },
+  hamlet: {
+    // Half the camp's, and that IS the "different intensity" — a mill has a
+    // yard and a green where a camp has only a parade ground. Captured at 0.36
+    // (_hamlet-aerial.png, first pass) the difference read as two dirt spots in
+    // a meadow rather than as a settlement, so the yard goes up while the
+    // TRACKS stay narrow: what should distinguish a hamlet is that you can see
+    // where its feet go, not that it is uniformly less brown.
+    base: 0.52,
+    fade: 0.80,
+    edge: 1.28,
+    damp: 0.30,
+    tracks: [
+      [0, 1.20, 3.8, 1.0], // the road in
+      [HALF_PI, 0.36, 3.2, 1.0], // the well, at gateAngle + PI/2 and 4.2 out
+      [Math.PI * 0.55, 0.60, 2.4, 0.95], // the four cottages
+      [Math.PI * 1.0, 0.60, 2.4, 0.95],
+      [Math.PI * 1.45, 0.60, 2.4, 0.95],
+      [-0.9, 0.55, 2.2, 0.88], // the tents and the paddock cart
+      [-1.8, 0.55, 2.2, 0.88],
+    ],
+  },
+};
+
+/** The `GroundPatch` a town wears, entirely derived from its registry entry. */
+function wearPatch(t: TownInfo): GroundPatch {
+  const spec = WEAR[t.kind];
+  const paths = new Float32Array(spec.tracks.length * 4);
+  for (let i = 0; i < spec.tracks.length; i++) {
+    const [rel, len, hw, s] = spec.tracks[i];
+    const a = t.gateAngle + rel;
+    const d = len * t.radius;
+    paths[i * 4] = Math.sin(a) * d;
+    paths[i * 4 + 1] = Math.cos(a) * d;
+    paths[i * 4 + 2] = hw;
+    paths[i * 4 + 3] = s;
+  }
+  return {
+    x: t.x, z: t.z,
+    fade: spec.fade * t.radius,
+    edge: spec.edge * t.radius,
+    base: spec.base,
+    damp: spec.damp,
+    paths,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Placement
@@ -284,25 +411,36 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
 
   // -- 3. Roads. Anchored at both ends to heights the towns have committed to.
   const network = new RoadNetwork();
+  // A road INSIDE a settlement is level with the settlement, which is what the
+  // hold arguments buy — see `profileRoad`. The distance held is the flatten's
+  // own core (radius + 2), so the deck and the levelled ground it is cut into
+  // agree over exactly the same footprint rather than nearly the same one.
   const mkRoad = (
     id: string, fromId: string, toId: string,
     ax: number, az: number, ay: number, bx: number, bz: number, by: number, s: number,
+    aHold = 0, bHold = 0,
   ): Road => {
     const route = routeRoad(terrain, ax, az, bx, bz, s);
-    const road: Road = { id, fromId, toId, pts: profileRoad(terrain, route, ay, by) };
+    const road: Road = {
+      id, fromId, toId, pts: profileRoad(terrain, route, ay, by, aHold, bHold),
+    };
     network.add(road);
     return road;
   };
+  const hold = (i: number): number => SITES[i].radius + 2;
 
   const trunk = mkRoad(
     'camp-junction', SITES[0].id, 'junction',
     camp.x, camp.z, campY, jRaw.x, jRaw.z, junctionY, seed ^ 0x11,
+    hold(0), 0,
   );
   const spurRoads = [
     mkRoad('junction-' + SITES[1].id, 'junction', SITES[1].id,
-      jRaw.x, jRaw.z, junctionY, hamletA.x, hamletA.z, siteY[1], seed ^ 0x22),
+      jRaw.x, jRaw.z, junctionY, hamletA.x, hamletA.z, siteY[1], seed ^ 0x22,
+      0, hold(1)),
     mkRoad('junction-' + SITES[2].id, 'junction', SITES[2].id,
-      jRaw.x, jRaw.z, junctionY, hamletB.x, hamletB.z, siteY[2], seed ^ 0x33),
+      jRaw.x, jRaw.z, junctionY, hamletB.x, hamletB.z, siteY[2], seed ^ 0x33,
+      0, hold(2)),
   ];
   network.build();
   terrain.roads = network;
@@ -321,6 +459,11 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
       gateX: gates[i].x, gateZ: gates[i].z, gateAngle: gates[i].angle,
     });
   }
+
+  // -- 5. The ground each town has worn out, derived from the registry entry
+  // that was just written. AFTER the gates, because the tracks are bearings
+  // relative to the gate; before any chunk is built, like the flattens.
+  for (const t of towns) terrain.grounds.push(wearPatch(t));
 
   return {
     towns: new Registry(towns, network.roads),

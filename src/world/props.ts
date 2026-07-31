@@ -1992,6 +1992,28 @@ export function buildChunkProps(
     return roads !== null && roads.distanceTo(wx, wz) < ROAD_SOFT_CLEAR;
   };
 
+  /**
+   * Has a settlement worn the grass off this column? — the SOFT half of the
+   * trodden-ground treatment (terrain.ts `GroundPatch` is the colour half).
+   *
+   * Two things about how this is written matter more than the rule itself.
+   *
+   * A PURE HASH, not `rng()`. Drawing here would advance the per-chunk stream,
+   * and that stream places every tree, boulder and tussock in the world — a
+   * single extra draw in one branch re-scatters the vegetation of every chunk
+   * on the map. `hashCell` on the column is deterministic, costs the same, and
+   * is bit-for-bit inert where there are no settlements.
+   *
+   * 1/0.6, not 1. `ci.trample` ramps down over the several metres at the edge
+   * of a town, and `columnInfo` flips `biome` to 'trampled' — which every pass
+   * here rejects outright — at 0.6. So the cull has to have taken everything by
+   * the time it gets there, or the sward would drop from 40% to nothing on a
+   * circle. Scaled this way the two meet at zero and the grass thins smoothly
+   * from the meadow to the bare yard, which is what a camp edge looks like.
+   */
+  const trodden = (wx: number, wz: number, wear: number): boolean =>
+    hashCell(terrain.seed, wx, 313, wz) < wear * (1 / 0.6);
+
   const flatEnough = (wx: number, wz: number, h: number, tol: number): boolean =>
     Math.abs(terrain.getHeight(wx + 1, wz) - h) <= tol &&
     Math.abs(terrain.getHeight(wx - 1, wz) - h) <= tol &&
@@ -2385,6 +2407,7 @@ export function buildChunkProps(
     // now a metre-and-a-half patch rather than a pom-pom, so the patches touch.
     if (accept > (cb === 'plains' ? 0.82 : 0.46)) continue;
     if (ci.h < WATER_LEVEL + 1) continue;
+    if (ci.trample > 0 && trodden(wcx, wcz, ci.trample)) continue;
     // Grass and flowers are welcome on the doorstep — only the bush below,
     // which casts shadows and blocks the path, respects the den discs.
     if (exSoft(wcx + 0.5, wcz + 0.5)) continue;
@@ -2581,6 +2604,7 @@ export function buildChunkProps(
     const h = ci.h;
     if (h < WATER_LEVEL + 1) continue;
     if (exSoft(wx + 0.5, wz + 0.5)) continue;
+    if (ci.trample > 0 && trodden(wx, wz, ci.trample)) continue;
     // Mixed pass: soft singles ignore the den discs, solid ones don't.
     const noSolid = exSolid(wx + 0.5, wz + 0.5);
 
@@ -2646,6 +2670,10 @@ export function buildChunkProps(
         if (roll < 0.031 && !noSolid) solid.add(lib.rockSnow, x, h - 0.1, z, yaw, scl, t, t, t);
         break;
       case 'underwater':
+        break;
+      case 'trampled':
+        // A camp yard grows nothing, and this empty case is the whole of how
+        // that is enforced in this file. See terrain.ts `GroundPatch`.
         break;
     }
   }

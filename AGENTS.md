@@ -146,8 +146,9 @@ settlements, cuts the roads between them and picks the player's spawn — a poin
 on the road to the start town, not in it. Towns are OVERWORLD LANDMARKS, not
 zones: you walk in and out and nothing loads. The `TownRegistry` it returns is
 on the `World` contract (`world.towns`), and everything else is derived from it —
-the roads, the spawn, the compass chips, and whatever a quest system asks next;
-nothing outside these files reads town geometry. Roads are CARVED:
+the roads, the spawn, the compass chips, the trodden mud each settlement wears
+its ground down to (`Terrain.grounds`, a `GroundPatch` per entry), and whatever a
+quest system asks next; nothing outside these files reads town geometry. Roads are CARVED:
 [src/world/roads.ts](src/world/roads.ts) folds a corridor into `heightCont` and
 makes `getHeight` return a CONTINUOUS deck inside the carriageway, because a
 floored column can only step a whole unit and `MAX_STEP_UP` is 0.5 — read the
