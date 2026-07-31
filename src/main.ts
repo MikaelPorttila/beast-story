@@ -139,6 +139,10 @@ const zones = new ZoneManager({
     // further than that, so they poof in beside him on the next slice using the
     // new world's ground height.
     bus.emit({ type: 'toast', text: `Entered ${def.name}` });
+    // The compass markers are per-zone landmarks, so the set is rebuilt here
+    // and nowhere else. `gate` is the ZoneDef's own answer, not a second search.
+    const g = def.gate(w);
+    syncCompassMarkers(w, g.x, g.z, g.hex);
   },
   onHint: (t) => { portalHint = t; },
 });
@@ -154,6 +158,30 @@ const hud = new HUD(bus);
 
 player.position.copy(world.spawnPoint);
 player.onAttack = (origin, dir) => combat.meleeStrike(origin, dir, player.attackStat);
+
+// ---------------------------------------------------------------------------
+// Compass markers. Which landmarks are worth a chip is gameplay policy, so the
+// list lives here rather than in the HUD or the world.
+//
+// Today that is the four skill dens and the zone gateway. Adding one more is a
+// single hud.addCompassMarker({ id, x, z, color, label? }) call from wherever
+// the thing is created — a town, a quest objective, a downed pal. The id is the
+// identity: call it again with the same id to move or recolour the chip, and
+// hud.removeCompassMarker(id) when the objective is done.
+// ---------------------------------------------------------------------------
+function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: number): void {
+  hud.setCompassMarkers([
+    // Dens in the shard-shop amber the hint pill and price tags already use.
+    ...w.shopPositions.map((s, i) => ({ id: `den${i}`, x: s.x, z: s.z, color: 0xffd23f })),
+    // The gateway takes the colour of its own arch, so the chip and the thing
+    // it points at are the same object on screen.
+    { id: 'gate', x: gateX, z: gateZ, color: gateHex, label: 'GATE' },
+  ]);
+}
+{
+  const g = OVERWORLD.gate(world);
+  syncCompassMarkers(world, g.x, g.z, g.hex);
+}
 
 // Hold F to ride your pal. The controller owns the hold timer, the refusal
 // rules and a mounted pal's locomotion; which pal is offered (the primary, see
@@ -534,6 +562,8 @@ interface DebugProbes {
 // time, and an unsmoothed look target turns that into a several-degree snap of
 // the whole frame in a single frame (see ThirdPersonCamera's step smoothing).
 const _dbgDir = new THREE.Vector3();
+/** Scratch for the compass's per-frame camera forward. Never allocate in frame(). */
+const _compassFwd = new THREE.Vector3();
 (window as unknown as DebugProbes).__dbgCam = () => {
   engine.camera.getWorldDirection(_dbgDir);
   return {
@@ -545,6 +575,11 @@ const _dbgDir = new THREE.Vector3();
     dir: { x: _dbgDir.x, y: _dbgDir.y, z: _dbgDir.z },
   };
 };
+// Compass state: the heading under the pointer and where every marker landed
+// on the strip. `rel` is the signed shortest-arc bearing to the marker in
+// degrees, `clamped` says it fell off the end of the strip and is parked at the
+// edge. Read-only.
+(window as unknown as { __dbgCompass: () => unknown }).__dbgCompass = () => hud.compassDebug();
 (window as unknown as DebugProbes).__dbgCamYaw = () => Math.atan2(
   engine.camera.position.x - player.position.x,
   engine.camera.position.z - player.position.z,
@@ -557,6 +592,10 @@ const _dbgDir = new THREE.Vector3();
   touchOverlay: !!document.querySelector('.cp-touch'),
   vel: { x: +player.velocity.x.toFixed(2), y: +player.velocity.y.toFixed(2), z: +player.velocity.z.toFixed(2) },
   onGround: player.onGround,
+  // Which SURFACE is holding him up: false is the terrain, true is a tree crown
+  // (the one-way platform — see World.climbTopAt). The pair is what tells a
+  // treetop apart from a hilltop in a trace.
+  onCanopy: player.onCanopy,
   isClimbing: player.isClimbing,
   attacking: player.isAttacking,
   isSwimming: player.isSwimming,
@@ -1154,6 +1193,15 @@ function frame(): void {
     return { def, cooldownRemaining: remaining, ready: remaining <= 0 };
   });
   hud.setSkills(slots);
+  // Compass. Presentation, so it belongs here and not in simulate(): the strip
+  // shows where the LENS points, and the lens is placed by this frame's camera
+  // update, not by the fixed-rate sim (which may have run 0..n times above).
+  // North is world -Z, the direction three's default camera looks down.
+  engine.camera.getWorldDirection(_compassFwd);
+  hud.setCompass(
+    Math.atan2(_compassFwd.x, -_compassFwd.z) * (180 / Math.PI),
+    player.position.x, player.position.z,
+  );
   hud.setMountHold(mount.progress);
   hud.setMounted(
     mount.pal ? mount.pal.species.name : null,

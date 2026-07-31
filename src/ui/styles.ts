@@ -47,6 +47,70 @@ const CSS = `
 .cp-pop{animation:cpPop .38s cubic-bezier(.34,1.8,.64,1)}
 @keyframes cpPop{0%{transform:scale(1)}45%{transform:scale(1.28)}100%{transform:scale(1)}}
 
+/* ---- compass ------------------------------------------------------------ */
+/* Horizontal heading tape across the top centre, the Skyrim/Far Cry idiom: the
+   direction the CAMERA looks sits under the amber pointer and the letters slide
+   past as you turn.
+
+   Styled against the rest of the HUD on purpose. Everything else here is soft
+   rounded glass, which a critic filed as sharing no visual language with the
+   chunky voxel world, so the compass is the opposite: zero border-radius, no
+   blur, flat fills, 2px rules, and letters carried by a hard 1px black outline
+   in four directions rather than a soft shadow. That outline is also what keeps
+   it readable over both bright sand and dark canopy — the same failure mode the
+   crosshair was filed for.
+
+   Geometry, top down: pointer 0..9, band 9..35. The riding badge, level-up
+   banner and toast stack below it were each pushed down by 34px to make room
+   (they used to start at 18/58/96). */
+.cp-compass{position:absolute;left:50%;top:10px;transform:translateX(-50%);
+  width:min(420px,44vw);height:35px;transition:opacity .2s ease}
+.cp-root.shop-open .cp-compass{opacity:0}
+/* The window clips the tape. The 16px mask fade at each end is the one soft
+   edge in the widget and it earns its place: without it letters pop in and out
+   at full opacity mid-glyph, which reads as a rendering fault.
+   Fill alpha .6, up from a first pass at .52: captured facing south over open
+   water the band read fine, but facing north into the canopy it disappeared
+   into the dark green and only the two white rules were left holding the shape.
+   Much past .6 and it starts to read as an opaque letterbox bar. */
+.cp-compass .win{position:absolute;left:0;right:0;top:9px;height:26px;overflow:hidden;
+  background:rgba(6,10,17,.6);
+  border-top:2px solid rgba(238,242,248,.9);border-bottom:2px solid rgba(238,242,248,.9);
+  -webkit-mask:linear-gradient(90deg,transparent 0,#000 16px,#000 calc(100% - 16px),transparent 100%);
+  mask:linear-gradient(90deg,transparent 0,#000 16px,#000 calc(100% - 16px),transparent 100%)}
+/* Centre rule, drawn last so it sits over tape AND markers: the pointer has to
+   be unambiguous about which pixel column it is reading. */
+.cp-compass .win::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;
+  margin-left:-1px;background:rgba(255,210,63,.5)}
+.cp-compass .tape{position:absolute;left:0;top:0;height:100%;will-change:transform}
+.cp-compass .t{position:absolute;bottom:2px;width:2px;height:5px;margin-left:-1px;
+  background:rgba(238,242,248,.62)}
+.cp-compass .t.maj{height:8px;background:#eef2f8}
+.cp-compass .lb{position:absolute;top:0;transform:translateX(-50%);font-weight:900;line-height:1;
+  color:#fff;white-space:nowrap;
+  text-shadow:1px 1px 0 #05070c,-1px 1px 0 #05070c,1px -1px 0 #05070c,-1px -1px 0 #05070c}
+.cp-compass .lb.card{font-size:12px;letter-spacing:.06em}
+.cp-compass .lb.ord{font-size:8.5px;top:2px;letter-spacing:.08em;color:rgba(238,242,248,.7)}
+/* Markers ride OVER the tape — a marker occluding the letter behind it is the
+   correct priority, and it is what keeps the widget one band tall. */
+.cp-compass .marks{position:absolute;inset:0}
+.cp-compass .mk{position:absolute;left:50%;top:0;height:13px;min-width:11px;
+  display:flex;align-items:center;justify-content:center;padding:0 3px;
+  background:var(--mc);border:2px solid #05070c;
+  font-size:8.5px;font-weight:900;letter-spacing:.08em;color:#05070c;
+  will-change:transform}
+/* Behind you: the chip parks at the end of the strip and turns into an arrow
+   pointing the short way round to it. */
+.cp-compass .mk.edge{padding:0;min-width:0;width:0;height:0;border:0;
+  border-top:6px solid transparent;border-bottom:6px solid transparent;
+  background:transparent;overflow:hidden;color:transparent;
+  filter:drop-shadow(0 0 1px #05070c)}
+.cp-compass .mk.edge.l{border-right:9px solid var(--mc)}
+.cp-compass .mk.edge.r{border-left:9px solid var(--mc)}
+.cp-compass .ptr{position:absolute;left:50%;top:0;width:0;height:0;margin-left:-7px;
+  border-left:7px solid transparent;border-right:7px solid transparent;
+  border-top:10px solid #ffd23f;filter:drop-shadow(0 1px 0 rgba(0,0,0,.85))}
+
 /* ---- crosshair --------------------------------------------------------- */
 /* Pure white voxel-style reticle: a centre pip plus four ticks.
    Centring is done with a transform on a zero-size box, NOT negative margins
@@ -92,8 +156,9 @@ const CSS = `
    at the reticle, this is a state you are in — and the bottom middle of the
    frame is exactly where the mount itself is drawn, so a badge there printed a
    label across the animal it was labelling (captured; that is why it moved).
-   Above the toast stack and clear of the shard pill on the right. */
-.cp-riding{position:absolute;left:50%;top:18px;transform:translateX(-50%) translateY(-8px);
+   Above the toast stack and clear of the shard pill on the right.
+   top was 18px before the compass took the top band; see .cp-compass. */
+.cp-riding{position:absolute;left:50%;top:52px;transform:translateX(-50%) translateY(-8px);
   padding:7px 16px;border-radius:999px;font-size:11.5px;font-weight:800;letter-spacing:.06em;
   color:#dff5ff;white-space:nowrap;opacity:0;
   box-shadow:0 8px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08),
@@ -203,7 +268,8 @@ const CSS = `
 .cp-hint.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 /* ---- level-up banner --------------------------------------------------- */
-.cp-banner{position:absolute;top:58px;left:50%;transform:translateX(-50%) translateY(-26px) scale(.94);
+/* top was 58px before the compass took the top band; see .cp-compass. */
+.cp-banner{position:absolute;top:92px;left:50%;transform:translateX(-50%) translateY(-26px) scale(.94);
   opacity:0;padding:11px 30px 13px;border-radius:16px;text-align:center;
   transition:transform .45s cubic-bezier(.34,1.56,.64,1),opacity .35s ease}
 .cp-banner.show{transform:translateX(-50%) translateY(0) scale(1);opacity:1}
@@ -213,7 +279,8 @@ const CSS = `
 .cp-banner .txt em{font-style:normal;color:var(--el,#ffd23f);filter:saturate(1.3) brightness(1.35)}
 
 /* ---- toasts ------------------------------------------------------------ */
-.cp-toasts{position:absolute;top:96px;left:50%;transform:translateX(-50%);display:flex;
+/* top was 96px before the compass took the top band; see .cp-compass. */
+.cp-toasts{position:absolute;top:130px;left:50%;transform:translateX(-50%);display:flex;
   flex-direction:column;gap:8px;align-items:center}
 /* Same glass slab + accent-bar treatment as the party panel, so a toast never
    reads as an unstyled browser box dropped on top of a custom UI. */
@@ -301,10 +368,12 @@ const CSS = `
 .cp-left{left:max(16px,env(safe-area-inset-left))}
 .cp-title{left:max(16px,env(safe-area-inset-left));top:max(14px,env(safe-area-inset-top))}
 .cp-shards{right:max(16px,env(safe-area-inset-right));top:max(14px,env(safe-area-inset-top))}
+.cp-compass{top:max(10px,env(safe-area-inset-top))}
 .cp-bag{right:max(16px,env(safe-area-inset-right));top:calc(max(14px,env(safe-area-inset-top)) + 44px)}
 
 /* Tablet / large phone: shrink the party panel and hotbar. */
 @media (max-width: 900px){
+  .cp-compass{width:min(340px,46vw)}
   .cp-left{width:236px;padding:6px}
   .cp-pal{padding:6px 8px}
   .cp-pal .badge{width:32px;height:32px}
@@ -324,6 +393,15 @@ const CSS = `
      the screen. Panel is compact and parked top-left under the title chip. */
   /* Hard cap so the party panel can never dominate the frame: at ~350 CSS px
      the old min(48vw,168px) was still eating nearly half the width. */
+  /* No compass on a phone. The top band is the one strip of screen the touch
+     layout leaves alone, but the party panel (top-left), shard pill and toast
+     stack (top-right) already close in on it from both sides, and a 170px strip
+     between them shows barely 50° — a heading readout you have to squint at is
+     worse than none. With it gone the three elements below it go back to the
+     positions they had before the compass existed. */
+  .cp-compass{display:none}
+  .cp-riding{top:18px}
+  .cp-banner{top:58px}
   .cp-left{width:min(40vw,160px);max-width:62vw;padding:5px;border-radius:13px;
     bottom:auto;top:calc(max(12px,env(safe-area-inset-top)) + 38px)}
   .cp-pals{flex-direction:column;gap:1px}

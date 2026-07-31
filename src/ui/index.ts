@@ -23,6 +23,30 @@ export interface SkillSlot {
   ready: boolean;
 }
 
+/**
+ * A world-anchored marker on the compass strip.
+ *
+ * Everything a caller has to provide is here, and adding one is a one-liner:
+ *
+ *     hud.addCompassMarker({ id: 'town', x: 118, z: -46, color: 0xffd23f, label: 'TOWN' });
+ *
+ * `id` is the identity — re-adding the same id moves and restyles the existing
+ * chip rather than duplicating it, which is also how a marker on something that
+ * moves is kept up to date (call it again with a new x/z; it is one style write,
+ * not a DOM rebuild). `removeCompassMarker(id)` takes it away. Height is
+ * deliberately not a field: a heading strip has no vertical axis to put it on.
+ */
+export interface CompassMarker {
+  id: string;
+  /** World position. Only the horizontal plane is read. */
+  x: number;
+  z: number;
+  /** Chip fill, 0xRRGGBB. */
+  color: number;
+  /** Optional short tag inside the chip (~4 chars); omit for a plain square. */
+  label?: string;
+}
+
 export interface ShopOffer {
   skill: SkillDef;
   price: number;
@@ -105,6 +129,37 @@ interface SlotRefs {
   lastCdText: string;
 }
 
+/**
+ * Compass strip scale. 3.4 px per degree puts ~123° across the 420px window at
+ * 1280 wide: wide enough that the letter you are walking toward is on screen
+ * well before you are pointed at it, tight enough that two cardinals are never
+ * both under the pointer's half of the strip (at 2 px/deg it showed 210° and
+ * read as a ruler rather than a heading).
+ */
+const CP_PX_PER_DEG = 3.4;
+/** Tick every 15°, label every 45°. */
+const CP_TICK_STEP = 15;
+/**
+ * The tape is three copies of the circle laid end to end and simply slid, so
+ * there is no seam to hide and no element is ever rebuilt: any heading in
+ * [0,360) is drawn from the middle copy with a full turn of runway either side.
+ */
+const CP_TAPE_DEG = 1080;
+/** Clamped markers park this far inside the window, clear of the 16px mask fade. */
+const CP_EDGE_PAD = 24;
+const CP_RAD2DEG = 180 / Math.PI;
+
+interface MarkerRefs {
+  m: CompassMarker;
+  el: HTMLDivElement;
+  /** Last written px offset from centre; NaN forces the next write. */
+  lastPx: number;
+  /** -1 clamped left, 0 on strip, 1 clamped right; 2 = never written. */
+  lastEdge: number;
+  /** Signed bearing relative to the view, degrees. For __dbgCompass only. */
+  rel: number;
+}
+
 interface ToastEntry {
   el: HTMLDivElement;
   t: number;
@@ -153,6 +208,17 @@ export class HUD {
   private bagEl: HTMLDivElement;
   private bagSig = '';
 
+  // compass
+  private compassWinEl: HTMLDivElement;
+  private compassTapeEl: HTMLDivElement;
+  private compassMarksEl: HTMLDivElement;
+  private markers: MarkerRefs[] = [];
+  private markerIdx = new Map<string, MarkerRefs>();
+  /** Measured window width; the visible span is this / CP_PX_PER_DEG degrees. */
+  private compassW = 0;
+  private lastTapeX = NaN;
+  private compassHeading = 0;
+
   // banner
   private bannerEl: HTMLDivElement;
   private bannerTimer = 0;
@@ -198,6 +264,17 @@ export class HUD {
     // bag (stackable items) — empty until something is picked up ------------
     this.bagEl = div('cp-bag');
     this.root.appendChild(this.bagEl);
+
+    // compass --------------------------------------------------------------
+    const compass = div('cp-compass');
+    this.compassWinEl = div('win');
+    this.compassTapeEl = this.buildCompassTape();
+    this.compassMarksEl = div('marks');
+    this.compassWinEl.appendChild(this.compassTapeEl);
+    this.compassWinEl.appendChild(this.compassMarksEl);
+    compass.appendChild(this.compassWinEl);
+    compass.appendChild(div('ptr'));
+    this.root.appendChild(compass);
 
     // crosshair ------------------------------------------------------------
     this.root.appendChild(div('cp-cross'));
@@ -267,6 +344,11 @@ export class HUD {
     this.root.appendChild(this.shopWrap);
 
     document.body.appendChild(this.root);
+    // The strip's visible span is a measurement, not a constant: the width is
+    // min(420px,44vw) and the phone breakpoint hides it entirely, so marker
+    // clamping has to follow whatever the layout actually gave us.
+    this.measureCompass();
+    window.addEventListener('resize', () => this.measureCompass());
 
     this.escHandler = (e: KeyboardEvent) => {
       if (e.code === 'Escape' && this.shopOpen) this.requestShopClose();
@@ -479,6 +561,150 @@ export class HUD {
       void this.bagEl.offsetWidth;
       this.bagEl.classList.add('cp-pop');
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Compass
+  // -------------------------------------------------------------------------
+  /**
+   * Ticks and letters, built once and never touched again. ~290 absolutely
+   * positioned children sounds like a lot, but they are laid out once at boot
+   * and after that the ONLY per-frame DOM work in the whole widget is one
+   * transform on their parent — which is the entire point of a sliding tape.
+   */
+  private buildCompassTape(): HTMLDivElement {
+    const tape = div('tape');
+    const NAMES = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    let html = '';
+    for (let d = 0; d <= CP_TAPE_DEG; d += CP_TICK_STEP) {
+      const x = (d * CP_PX_PER_DEG).toFixed(1);
+      const a = d % 360;
+      if (a % 45 === 0) {
+        const name = NAMES[(a / 45) | 0];
+        const card = a % 90 === 0;
+        html += `<i class="t maj" style="left:${x}px"></i>` +
+          `<span class="lb ${card ? 'card' : 'ord'}" style="left:${x}px">${name}</span>`;
+      } else {
+        html += `<i class="t" style="left:${x}px"></i>`;
+      }
+    }
+    tape.innerHTML = html;
+    tape.style.width = `${CP_TAPE_DEG * CP_PX_PER_DEG}px`;
+    return tape;
+  }
+
+  private measureCompass(): void {
+    this.compassW = this.compassWinEl.clientWidth;
+    // Force the next setCompass through the change guards at the new width.
+    this.lastTapeX = NaN;
+    for (const r of this.markers) { r.lastPx = NaN; r.lastEdge = 2; }
+  }
+
+  /** Replace the whole marker set — a zone change, not a per-frame call. */
+  setCompassMarkers(list: CompassMarker[]): void {
+    this.compassMarksEl.innerHTML = '';
+    this.markers.length = 0;
+    this.markerIdx.clear();
+    for (const m of list) this.addCompassMarker(m);
+  }
+
+  /** Add or update one marker. See CompassMarker for what a caller supplies. */
+  addCompassMarker(m: CompassMarker): void {
+    let refs = this.markerIdx.get(m.id);
+    if (!refs) {
+      refs = { m, el: div('mk'), lastPx: NaN, lastEdge: 2, rel: 0 };
+      this.compassMarksEl.appendChild(refs.el);
+      this.markers.push(refs);
+      this.markerIdx.set(m.id, refs);
+    }
+    refs.m = m;
+    refs.lastPx = NaN;
+    refs.el.style.setProperty('--mc', hexColor(m.color));
+    refs.el.textContent = m.label ?? '';
+  }
+
+  removeCompassMarker(id: string): void {
+    const refs = this.markerIdx.get(id);
+    if (!refs) return;
+    refs.el.remove();
+    this.markerIdx.delete(id);
+    this.markers.splice(this.markers.indexOf(refs), 1);
+  }
+
+  /**
+   * Slide the strip to `headingDeg` and place every marker relative to it.
+   * Called once per RENDERED frame from main.ts's presentation block.
+   *
+   * `headingDeg` is compass bearing — 0 = north = world -Z, 90 = east = +X —
+   * and it comes from the CAMERA's forward vector, not the hero's facing: the
+   * crosshair is pinned to the viewport centre, so what the lens points at is
+   * what is under the pointer. `originX/originZ` is where marker bearings are
+   * measured FROM, which is the hero (the camera trails him by a few units and
+   * a marker you are standing next to would swing wildly off that).
+   *
+   * Every write is guarded on a tenth of a pixel of actual movement, so a
+   * standing still frame touches the DOM zero times and a turning frame touches
+   * it once for the tape plus once per marker that moved.
+   */
+  setCompass(headingDeg: number, originX: number, originZ: number): void {
+    if (this.compassW <= 0) return;                       // hidden (phone, hud=0)
+    let h = headingDeg % 360;
+    if (h < 0) h += 360;
+    this.compassHeading = h;
+
+    const half = this.compassW * 0.5;
+    // Draw from the MIDDLE copy of the circle: h + 360.
+    const tx = Math.round((half - (h + 360) * CP_PX_PER_DEG) * 10) / 10;
+    if (tx !== this.lastTapeX) {
+      this.lastTapeX = tx;
+      this.compassTapeEl.style.transform = `translate3d(${tx}px,0,0)`;
+    }
+
+    const limit = half - CP_EDGE_PAD;
+    for (let i = 0; i < this.markers.length; i++) {
+      const r = this.markers[i];
+      // Shortest-arc bearing relative to the view, in (-180, 180].
+      let rel = Math.atan2(r.m.x - originX, -(r.m.z - originZ)) * CP_RAD2DEG - h;
+      rel = ((rel + 540) % 360) - 180;
+      r.rel = rel;
+      let px = rel * CP_PX_PER_DEG;
+      let edge = 0;
+      if (px < -limit) { px = -limit; edge = -1; }
+      else if (px > limit) { px = limit; edge = 1; }
+      px = Math.round(px * 10) / 10;
+      if (px !== r.lastPx) {
+        r.lastPx = px;
+        // translateX twice rather than a calc(): the -50% has to resolve
+        // against the chip's own width, which changes with its label.
+        r.el.style.transform = `translateX(${px}px) translateX(-50%)`;
+      }
+      if (edge !== r.lastEdge) {
+        r.lastEdge = edge;
+        r.el.classList.toggle('edge', edge !== 0);
+        r.el.classList.toggle('l', edge < 0);
+        r.el.classList.toggle('r', edge > 0);
+      }
+    }
+  }
+
+  /** Read-only snapshot for the __dbgCompass probe. Allocates; not per frame. */
+  compassDebug(): unknown {
+    return {
+      heading: +this.compassHeading.toFixed(2),
+      cardinal: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][
+        Math.round(this.compassHeading / 45) % 8
+      ],
+      width: this.compassW,
+      spanDeg: +(this.compassW / CP_PX_PER_DEG).toFixed(1),
+      tapeX: this.lastTapeX,
+      markers: this.markers.map((r) => ({
+        id: r.m.id,
+        rel: +r.rel.toFixed(2),
+        px: r.lastPx,
+        clamped: r.lastEdge !== 0,
+        side: r.lastEdge === -1 ? 'left' : r.lastEdge === 1 ? 'right' : 'on',
+      })),
+    };
   }
 
   // -------------------------------------------------------------------------
