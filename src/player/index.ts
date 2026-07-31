@@ -246,7 +246,16 @@ export class Player {
   onAttack?: (origin: THREE.Vector3, direction: THREE.Vector3) => void;
 
   private rig: HeroRig;
-  private cam = new ThirdPersonCamera();
+  /**
+   * The follow camera.
+   *
+   * Public (read-only) only so main.ts can hand it to the feedback layer as a
+   * shake sink. It used to be private, which is precisely why the three shake
+   * calls in this file existed here at all: nothing else in the game could
+   * reach the camera, so every impact worth a kick had to be one the hero
+   * already knew about. Combat could not shake it for a crit, and never did.
+   */
+  readonly cam = new ThirdPersonCamera();
   private animator = new HeroAnimator();
   private dust: DustSystem;
 
@@ -328,14 +337,16 @@ export class Player {
     this.velocity.set(0, 0, 0);
   }
 
-  takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): void {
-    if (this.isDead || this.invulnT > 0) return;
+  takeDamage(amount: number, from: THREE.Vector3, element?: ElementType): boolean {
+    if (this.isDead || this.invulnT > 0) return false;
     this.hp = clamp(this.hp - amount, 0, this.maxHp);
     this.regenHold = REGEN_DELAY;
     this.flash = 1;
     this.hurtT = 0.25;
     this.invulnT = 0.35;
-    this.cam.addShake(0.32);
+    // The camera kick that used to be here is now the `playerHurt` cue in
+    // src/feedback/cues.ts, at the same 0.32, alongside the rumble it belongs
+    // with. Same for `die()` and the hard landing below.
     // knockback away from the source
     _knock.set(this.position.x - from.x, 0, this.position.z - from.z);
     if (_knock.lengthSq() < 1e-4) _knock.copy(this.forward).multiplyScalar(-1);
@@ -345,6 +356,21 @@ export class Player {
     this.velocity.y += 2.5;
     this.onGround = false;
     if (this.hp <= 0) this.die();
+    // Emitted only past the i-frame gate above, which is the whole point: this
+    // is the event a controller rumbles on, so it has to mean "he was hit", not
+    // "something swung at him". `_knock` is already the unit heading away from
+    // the attacker, so the direction costs nothing to carry.
+    this.bus.emit({
+      type: 'playerHurt',
+      amount,
+      amountFrac: amount / this.maxHp,
+      hpFrac: this.hp / this.maxHp,
+      element,
+      dirX: _knock.x,
+      dirZ: _knock.z,
+      fatal: this.isDead,
+    });
+    return true;
   }
 
   private die(): void {
@@ -356,7 +382,7 @@ export class Player {
     // leaves the dead path cannot see.
     this.onCanopy = false;
     this.attack.active = false;
-    this.cam.addShake(0.5);
+    this.bus.emit({ type: 'playerDied' });
     this.bus.emit({ type: 'toast', text: t('toast.fainted') });
   }
 
@@ -371,6 +397,7 @@ export class Player {
     this.velocity.set(0, 0, 0);
     this.position.copy(this.world.spawnPoint);
     this.position.y = this.world.getHeight(this.position.x, this.position.z);
+    this.bus.emit({ type: 'playerRevived' });
     this.bus.emit({ type: 'toast', text: t('toast.revived') });
   }
 
@@ -810,7 +837,11 @@ export class Player {
         this.landBump = clamp((-this.velocity.y - 6) / 13, 0, 1);
         _feet.set(this.position.x, support + 0.05, this.position.z);
         this.dust.burst(_feet, Math.min(14, Math.floor(-this.velocity.y)));
-        if (this.velocity.y < -15) this.cam.addShake(0.15);
+        // The same ramp the hero's own squash uses, so the cue and the body's
+        // compression read one number. The shake this replaced only fired below
+        // -15 while the squash starts at -7; the cue table keeps that gap as
+        // `playerLanded.shakeMin`.
+        this.bus.emit({ type: 'playerLanded', impact: this.landBump });
       }
       this.position.y = support;
       this.velocity.y = 0;

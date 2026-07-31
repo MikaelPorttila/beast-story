@@ -321,6 +321,7 @@ export class MountController {
     this.player.setMounted(true);
     this.player.setCameraFraming(MOUNT_CAM_SCALE, MOUNT_CAM_DROP);
     this.seatHero();
+    this.bus.emit({ type: 'mounted', palId: pal.species.id, flying: this.flying });
     this.bus.emit({
       type: 'toast',
       // The persistent badge already spells the controls out, so the toast is
@@ -362,6 +363,7 @@ export class MountController {
       this.player.onGround = false;
     }
     this.player.velocity.set(this.vel.x, this.flying ? 0 : this.vy, this.vel.z);
+    this.bus.emit({ type: 'dismounted', palId: pal.species.id });
     this.bus.emit({
       type: 'toast',
       text: reason ?? t('toast.dismounted', { pal: t(pal.species.nameKey) }),

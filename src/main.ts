@@ -3,6 +3,9 @@ import { Engine } from './core/engine';
 import { DebugOverlay } from './core/debug-overlay';
 import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
+import { GamepadControls } from './core/gamepad';
+import { FeedbackSystem } from './feedback';
+import { loadPrefs, savePrefs } from './core/prefs';
 import {
   EventBus,
   type CrownContact, type NpcInfo, type SkillDef, type Damageable,
@@ -612,6 +615,25 @@ let photoAnimTimer = 0;
 // so nothing is added to the DOM and there is no per-frame cost).
 const touch = photoMode ? null : TouchControls.attach(input);
 
+// Gamepad: non-null wherever the API exists, whether or not anything is plugged
+// in yet — a pad can arrive mid-session and the connect listener has to be live
+// to catch it. It stays free until one does; see core/gamepad.ts.
+const pad = photoMode ? null : GamepadControls.attach(input);
+
+// Rumble and camera shake, driven off the bus. Null in photo mode for the same
+// reason the touch overlay is: a staged capture must not have the camera kicked
+// out from under it by whatever happened to be hitting the hero.
+//
+// URL beats preference, and neither writes the other — see core/flags.ts.
+const prefs = loadPrefs();
+const feedback = photoMode ? null : new FeedbackSystem({
+  bus,
+  camera: player.cam,
+  pad: () => pad?.current ?? null,
+  hapticIntensity: flags.haptics ?? prefs.hapticIntensity,
+  shakeIntensity: flags.shake ?? prefs.shakeIntensity,
+});
+
 // "Play fullscreen?" — null on desktop, on browsers with no Fullscreen API, and
 // once the player has answered (see ui/fullscreen.ts for the whole gate).
 //
@@ -644,6 +666,8 @@ interface DebugProbes {
 const _dbgDir = new THREE.Vector3();
 /** Scratch for the compass's per-frame camera forward. Never allocate in frame(). */
 const _compassFwd = new THREE.Vector3();
+/** Scratch for `__dbgHurt`'s source position. */
+const _hurtFrom = new THREE.Vector3();
 (window as unknown as DebugProbes).__dbgCam = () => {
   engine.camera.getWorldDirection(_dbgDir);
   return {
@@ -670,6 +694,9 @@ const _compassFwd = new THREE.Vector3();
   lookActive: input.lookActive,
   touchActive: input.touchActive,
   touchOverlay: !!document.querySelector('.cp-touch'),
+  // Buttons, edges and per-source sticks. ADDITIVE — tools/test-touch.mjs dumps
+  // this object wholesale, so keys may be added here but never renamed.
+  ...(input.debugState() as object),
   vel: { x: +player.velocity.x.toFixed(2), y: +player.velocity.y.toFixed(2), z: +player.velocity.z.toFixed(2) },
   onGround: player.onGround,
   // Which SURFACE is holding him up: false is the terrain, true is a tree crown
@@ -682,6 +709,26 @@ const _compassFwd = new THREE.Vector3();
   isMounted: player.isMounted,
   isDead: player.isDead,
 });
+
+// Controller state: what is plugged in, which faces the HUD is printing, and the
+// raw axes/pressed set. Read-only. `connected` stays false until the pad's first
+// button press on Chrome, which is the browser's rule, not ours.
+(window as unknown as { __dbgPad: () => unknown }).__dbgPad = () => pad?.debugState() ?? null;
+
+// The feedback layer: how many cues drained, the rumble mixer's mode and level,
+// and the silent audio channel's call count. Read-only. `haptics.issues` is the
+// number of actual playEffect calls, which is what proves the 12 Hz cadence is
+// doing its job rather than the mixer re-issuing every frame.
+(window as unknown as { __dbgFeedback: () => unknown }).__dbgFeedback =
+  () => feedback?.debugState() ?? null;
+
+// TEST HOOK, like `__dbgTp`: hurt the hero for a fixed amount from a fixed
+// direction. Waiting for a real enemy to connect is not deterministic enough to
+// assert feedback timing — or the invulnerability window — against.
+(window as unknown as { __dbgHurt: (n: number) => void }).__dbgHurt = (n: number) => {
+  _hurtFrom.set(player.position.x, player.position.y, player.position.z - 1);
+  player.takeDamage(n, _hurtFrom);
+};
 
 // Submerged-camera state. Read-only, and the only way to assert on an effect
 // that is otherwise a screen-space colour: `amount` is the smoothed 0..1 ramp
@@ -850,6 +897,45 @@ devConsole?.register({
     mount.mount(primary());
     return `riding ${primary().species.id} (${primary().species.locomotion})`;
   },
+});
+/**
+ * Read or write one feedback preference, honouring the URL override.
+ *
+ * A pinned flag is reported and NOT written through: a measurement run may
+ * shadow what the player chose for the length of that load, and must not
+ * quietly become what they chose.
+ */
+function setFeedbackPref(
+  key: 'hapticIntensity' | 'shakeIntensity', raw: string | undefined, pinned: number | null,
+): string {
+  if (raw === undefined) {
+    const at = pinned ?? loadPrefs()[key];
+    return `${key} = ${at}${pinned !== null ? ' (pinned by URL)' : ''}`;
+  }
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v < 0 || v > 1) return 'usage: 0..1';
+  savePrefs({ [key]: v });
+  if (pinned !== null) return `saved ${key} = ${v}, but this load is pinned to ${pinned}`;
+  feedback?.setOptions({ [key === 'hapticIntensity' ? 'hapticIntensity' : 'shakeIntensity']: v });
+  return `${key} = ${v}`;
+}
+
+// Feedback tuning, which is the whole settings surface for now — there is no
+// options panel, and one would be its own problem (pause semantics, pad focus
+// navigation, a string key per label). These two plus `?haptics=` / `?shake=`
+// cover both tuning and a bug report; a real panel lands when there is a second
+// reason for one.
+devConsole?.register({
+  name: 'haptics',
+  args: '[<0..1>]',
+  help: 'Show or set controller rumble strength. Persists.',
+  run: (args) => setFeedbackPref('hapticIntensity', args[0], flags.haptics),
+});
+devConsole?.register({
+  name: 'shake',
+  args: '[<0..1>]',
+  help: 'Show or set camera-shake strength. Persists.',
+  run: (args) => setFeedbackPref('shakeIntensity', args[0], flags.shake),
 });
 devConsole?.register({
   name: 'zone',
@@ -1337,6 +1423,16 @@ function frame(): void {
   const dt = engine.tick();
   const shopOpen = hud.isShopOpen();
 
+  // Poll the pad ONCE PER RENDERED FRAME, and before the slices below.
+  //
+  // Both halves matter. Look delta accumulated here behaves exactly like mouse
+  // movement — integrated over wall-clock, consumed by whichever slice runs —
+  // whereas polling per slice would multiply the turn rate by the slice count.
+  // And the edges land before slice 0, the one `first` is true for, which is
+  // what the hotbar, Tab, the pal cycles and the shop key are all gated on.
+  pad?.setModal(shopOpen || !!devConsole?.isOpen);
+  pad?.poll(dt);
+
   // Drain the accumulator in fixed slices; carry the remainder to next frame.
   simAccumulator += dt;
   let steps = 0;
@@ -1442,6 +1538,9 @@ function frame(): void {
     Math.atan2(_compassFwd.x, -_compassFwd.z) * (180 / Math.PI),
     player.position.x, player.position.z,
   );
+  // Key caps or controller faces. Cheap: returns on the first line unless the
+  // device actually changed, which happens at most once or twice a session.
+  hud.setPadPrompts(input.padActive && pad ? pad.glyphs : null);
   hud.setMountHold(mount.progress);
   hud.setMounted(
     mount.pal ? t(mount.pal.species.nameKey) : null,
@@ -1453,11 +1552,20 @@ function frame(): void {
   // through, and release any held virtual buttons.
   touch?.setVisible(!shopOpen);
 
-  if (!started && (input.pointerLocked || input.touchActive)) {
+  // `padActive` is part of the gate, not decoration: a player on a controller
+  // never clicks and never taps, so without it they would be the one player who
+  // is never told what the controls are.
+  if (!started && (input.pointerLocked || input.touchActive || input.padActive)) {
     started = true;
+    // Whichever of those three it was, it was a real user gesture — which is
+    // exactly what a browser requires before a page may make noise or buzz a
+    // phone. See src/feedback/audio.ts.
+    feedback?.unlock();
     bus.emit({
       type: 'toast',
-      text: t(touch?.isRevealed ? 'toast.controls.touch' : 'toast.controls.desktop'),
+      text: t(input.padActive
+        ? 'toast.controls.gamepad'
+        : touch?.isRevealed ? 'toast.controls.touch' : 'toast.controls.desktop'),
     });
   }
 
@@ -1469,6 +1577,11 @@ function frame(): void {
   // mode's above) and before the render: the effect keys off where the lens
   // actually ends up, and a frame late is a frame of clear water at the surface.
   underwater.update(dt, world.isWater(engine.camera.position.x, engine.camera.position.z));
+
+  // Every cue this frame produced, played together, once. The sim slices above
+  // only QUEUED them — see src/feedback for why dispatching per slice is
+  // actively wrong for rumble rather than merely untidy.
+  feedback?.drain(dt);
 
   engine.render();
   perf.section('render');

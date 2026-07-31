@@ -122,7 +122,10 @@ if (skillDef) {
   dummy = {
     position: new THREE.Vector3(0, 0.6, 6),
     hp: 9999, maxHp: 9999, isDead: false, faction: 'wild',
-    takeDamage: () => {},
+    // The stage dummy is a target to aim skills at, not a thing that reacts:
+    // it soaks every hit and reports it landed, so the caster's own VFX and
+    // damage numbers behave exactly as they do in the game.
+    takeDamage: () => true,
   };
   subjectHeight = 1.4;
 }

@@ -15,6 +15,11 @@ const CSS = `
 .cp-root kbd{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
   border-bottom-width:2px;border-radius:5px;padding:0 6px;font:inherit;font-size:.86em;font-weight:700;
   line-height:1.5;vertical-align:baseline}
+/* Controller faces are round, and the shape alone tells the player which device
+   the HUD is describing. The flat bottom border goes with it: a keycap has depth
+   because a key travels, and a pad face reads as a printed circle. */
+.cp-root kbd.pad{border-radius:50%;border-bottom-width:1px;padding:0;min-width:1.5em;
+  text-align:center;margin:0 1px}
 .cp-glass{background:var(--glass);border:1px solid var(--stroke);border-radius:14px;
   box-shadow:0 8px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}

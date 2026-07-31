@@ -814,8 +814,8 @@ export class PalActor {
 
   // -- Combat interface (Damageable-compatible so PalActor can be a caster) --
 
-  takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): void {
-    if (this.isDead || this.poofT > 0) return;
+  takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): boolean {
+    if (this.isDead || this.poofT > 0) return false;
     const mitigated = amount * (100 / (100 + this.stats.defense));
     this.hp = Math.max(0, this.hp - mitigated);
     this.hurtFlash = 0.22;
@@ -837,6 +837,7 @@ export class PalActor {
         this.vel.z += (dz / d) * 3.5;
       }
     }
+    return true;
   }
 
   // -- Actions / casting ----------------------------------------------------

@@ -156,7 +156,7 @@ export class CombatSystem {
         this.meleeArc(
           req.origin.x, req.origin.y, req.origin.z, _a.x, _a.z,
           Math.max(2.4, Math.min(3.4, skill.range)), 0.42,
-          this.skillBase(skill, req.attackStat), skill.element, hex, 1.9,
+          this.skillBase(skill, req.attackStat), skill.element, hex, 1.9, true,
         );
         break;
       }
@@ -172,7 +172,7 @@ export class CombatSystem {
     _a.set(direction.x, 0, direction.z);
     if (_a.lengthSq() < 1e-6) return;
     _a.normalize();
-    this.meleeArc(origin.x, origin.y, origin.z, _a.x, _a.z, 2.2, 0.643, attackStat * 1.2, undefined, 0xdfe9ff, 1.6);
+    this.meleeArc(origin.x, origin.y, origin.z, _a.x, _a.z, 2.2, 0.643, attackStat * 1.2, undefined, 0xdfe9ff, 1.6, false);
   }
 
   findNearestEnemy(pos: THREE.Vector3, range: number): Damageable | null {
@@ -265,28 +265,48 @@ export class CombatSystem {
    */
   private dealSkillDamage(
     enemy: Enemy, rawBase: number, element: ElementType | undefined,
-    fromX: number, fromY: number, fromZ: number,
+    fromX: number, fromY: number, fromZ: number, bySkill: boolean,
   ): void {
     const mult = elementMultiplier(element, enemy.element);
     const crit = Math.random() < CRIT_CHANCE;
     const dmg = Math.max(1, Math.round(rawBase * mult * (crit ? CRIT_MULT : 1)));
     _from.set(fromX, fromY, fromZ);
-    enemy.takeDamage(dmg, _from, element);
+    if (!enemy.takeDamage(dmg, _from, element)) return;
     const hex = crit ? CRIT_HEX : element ? ELEMENT_COLORS[element] : 0xf2f6ff;
     const px = enemy.position.x, py = enemy.position.y, pz = enemy.position.z;
     this.numbers.spawn(px, py + enemy.height + 0.35, pz, String(dmg), hex, crit);
     this.vfx.burst(px, py + enemy.height * 0.5, pz, hex, crit ? 14 : 8, 3.6, 0.32, 0.22, -2, 0.4);
     if (mult > 1) this.vfx.glowPulse(px, py + enemy.height * 0.5, pz, hex, 1.6, 0.22);
+    this.bus.emit({
+      type: 'hitDealt',
+      amount: dmg,
+      crit,
+      superEffective: mult > 1,
+      element,
+      bySkill,
+      x: px, y: py + enemy.height * 0.5, z: pz,
+    });
   }
 
-  /** Enemy -> player/pal hit (EnemyCtx callback). */
+  /**
+   * Enemy -> player/pal hit (EnemyCtx callback).
+   *
+   * Everything below the gate is CONDITIONAL on the hit having landed, which it
+   * did not used to be. `Player.takeDamage` has always refused hits inside its
+   * 0.35 s invulnerability window, but this function could not see that, so an
+   * absorbed hit still spawned a damage number, a burst and a red screen flash —
+   * the player was told they took damage they did not take, and a snortle
+   * grinding along a wall next to them strobed the screen. Cosmetically that was
+   * survivable. It stopped being survivable when the same moment started driving
+   * a controller's motors.
+   */
   private onEnemyHit(
     target: Damageable, amount: number, element: ElementType,
     fromX: number, fromY: number, fromZ: number,
   ): void {
     const dmg = Math.max(1, Math.round(amount));
     _from.set(fromX, fromY, fromZ);
-    target.takeDamage(dmg, _from, element);
+    if (!target.takeDamage(dmg, _from, element)) return;
     const px = target.position.x, py = target.position.y, pz = target.position.z;
     this.numbers.spawn(px, py + 1.5, pz, String(dmg), 0xff6b57, false);
     this.vfx.burst(px, py + 0.9, pz, ELEMENT_COLORS[element], 9, 3.2, 0.32, 0.2, -2, 0.4);
@@ -298,6 +318,7 @@ export class CombatSystem {
     ox: number, oy: number, oz: number, dx: number, dz: number,
     reach: number, arcCos: number, rawBase: number,
     element: ElementType | undefined, hex: number, slashScale: number,
+    bySkill: boolean,
   ): void {
     this.vfx.slash(ox + dx * 1.05, oy + 0.15, oz + dz * 1.05, dx, dz, hex, slashScale);
     this.vfx.flashLight(ox + dx * 1.1, oy + 0.5, oz + dz * 1.1, hex, 2.4, 5, 0.14);
@@ -309,7 +330,7 @@ export class CombatSystem {
       if (d > reach + e.radius) continue;
       if (d > 0.2 && (ex / d) * dx + (ez / d) * dz < arcCos) continue;
       // dealSkillDamage's knockback pushes away from (ox,oz) — the small shove
-      this.dealSkillDamage(e, rawBase, element, ox, oy, oz);
+      this.dealSkillDamage(e, rawBase, element, ox, oy, oz, bySkill);
     }
   }
 
@@ -505,7 +526,7 @@ export class CombatSystem {
     const gy = this.world.getHeight(x, z);
     this.vfx.ring(x, gy, z, p.hex, 1.9, 0.45);
     if (y - gy < 1.2) this.vfx.scorch(x, gy, z, p.hex, 1.1);
-    if (direct) this.dealSkillDamage(direct, p.rawBase, p.element, x, y, z);
+    if (direct) this.dealSkillDamage(direct, p.rawBase, p.element, x, y, z, true);
     // small splash around the blast
     for (const e of this.enemies) {
       if (e.isDead || e === direct) continue;
@@ -513,7 +534,7 @@ export class CombatSystem {
       const dz = e.position.z - z;
       const rr = 1.9 + e.radius;
       if (dx * dx + dz * dz < rr * rr) {
-        this.dealSkillDamage(e, p.rawBase * 0.55, p.element, x, y, z);
+        this.dealSkillDamage(e, p.rawBase * 0.55, p.element, x, y, z, true);
       }
     }
   }
@@ -558,7 +579,7 @@ export class CombatSystem {
     if (best) {
       this.dealSkillDamage(
         best, this.skillBase(req.skill, req.attackStat), req.skill.element,
-        req.origin.x, req.origin.y, req.origin.z,
+        req.origin.x, req.origin.y, req.origin.z, true,
       );
     }
   }
@@ -587,7 +608,7 @@ export class CombatSystem {
       const dz = e.position.z - cz;
       const rr = radius + e.radius;
       if (dx * dx + dz * dz < rr * rr) {
-        this.dealSkillDamage(e, base, skill.element, cx, gy + 0.4, cz);
+        this.dealSkillDamage(e, base, skill.element, cx, gy + 0.4, cz, true);
       }
     }
   }

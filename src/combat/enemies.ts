@@ -385,8 +385,8 @@ export class Enemy implements Damageable {
     this.drawBar();
   }
 
-  takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): void {
-    if (this.isDead) return;
+  takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): boolean {
+    if (this.isDead) return false;
     this.hp -= amount;
     this.hpDirty = true;
     this.flashT = 0.14;
@@ -401,6 +401,7 @@ export class Enemy implements Damageable {
       this.hp = 0;
       this.isDead = true;
     }
+    return true;
   }
 
   private drawBar(): void {

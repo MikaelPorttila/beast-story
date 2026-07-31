@@ -2,6 +2,7 @@ import type { ElementType, EventBus, SkillDef } from '../core/types';
 import { ELEMENT_COLORS } from '../core/types';
 import { CURRENCY, itemName, type BagEntry } from '../core/items';
 import { t, type StringKey } from '../i18n';
+import { PAD_GLYPHS, type PadGlyphs } from '../core/gamepad';
 import { injectStyles } from './styles';
 import { elementIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON } from './icons';
 
@@ -111,8 +112,8 @@ const LOCK_ICON =
   '</svg>';
 
 /** Markup for an unearned hotbar slot (padlock + small key hint). */
-function lockedSlotHtml(index: number): string {
-  return `<span class="key">${index + 1}</span><span class="lock">${LOCK_ICON}</span>`;
+function lockedSlotHtml(index: number, p: Prompts): string {
+  return `<span class="key">${p.slot(index)}</span><span class="lock">${LOCK_ICON}</span>`;
 }
 
 interface PalCardRefs {
@@ -185,19 +186,86 @@ export function kbd(key: string): string {
 }
 
 /**
- * Built once at module load, which is also when the language is resolved.
+ * The same, for a CONTROLLER face. Styled rounder in styles.ts, because a pad
+ * button is round and a keycap is not, and at a glance the shape is what tells
+ * a player which device the HUD is talking about.
+ */
+export function padKey(key: string): string {
+  return `<kbd class="pad">${key}</kbd>`;
+}
+
+/**
+ * The key caps every prompt in the HUD prints, for one input device.
+ *
+ * A device is described in ONE place so that adding a third never means hunting
+ * for the next hardcoded `kbd('F')`. There is no touch entry, deliberately: the
+ * touch build hides the hotbar and the shop's hint row outright (see the
+ * viewport query in styles.ts) rather than restating them, so there is nothing
+ * for it to fill in.
+ */
+interface Prompts {
+  move: string;
+  jump: string;
+  attack: string;
+  skills: string;
+  swap: string;
+  interact: string;
+  altitude: string;
+  mount: string;
+  dismount: string;
+  /** What a hotbar slot badge shows for slot `i`. */
+  slot(i: number): string;
+}
+
+const KBM_PROMPTS: Prompts = {
+  move: kbd('WASD'),
+  jump: kbd('Space'),
+  attack: kbd('LMB'),
+  skills: `${kbd('1')}–${kbd('4')}`,
+  swap: kbd('Tab'),
+  interact: kbd('E'),
+  altitude: `${kbd('Space')}/${kbd('C')}`,
+  mount: kbd('F'),
+  dismount: kbd('F'),
+  slot: (i) => String(i + 1),
+};
+
+function padPrompts(set: PadGlyphs): Prompts {
+  const g = PAD_GLYPHS[set];
+  return {
+    move: padKey(g.move),
+    jump: padKey(g.jump),
+    attack: padKey(g.attack),
+    skills: `${padKey(g.skill1)}${padKey(g.skill2)}${padKey(g.skill3)}${padKey(g.skill4)}`,
+    swap: padKey(g.swap),
+    interact: padKey(g.interact),
+    altitude: `${padKey(g.altUp)}/${padKey(g.altDown)}`,
+    mount: padKey(g.mount),
+    dismount: padKey(g.dismount),
+    slot: (i) => [g.skill1, g.skill2, g.skill3, g.skill4][i] ?? String(i + 1),
+  };
+}
+
+/**
+ * The shop's footer hints, for the device in use.
+ *
+ * This was a module-level constant built once at load, which was correct while
+ * the keyboard was the only thing it could describe. It is a function now
+ * because a pad may connect at any point in a session — but it is still only
+ * called when the shop OPENS, so the six lookups cost nothing per frame.
  *
  * Each hint is ONE table entry with a `{key}` placeholder rather than "key" +
  * " move" glued together, because a language that puts the verb first has
  * nowhere to stand in a concatenation.
  */
-const SHOP_FOOT_HINTS =
-  `<span>${t('shop.foot.move', { key: kbd('WASD') })}</span>` +
-  `<span>${t('shop.foot.jump', { key: kbd('Space') })}</span>` +
-  `<span>${t('shop.foot.attack', { key: kbd('LMB') })}</span>` +
-  `<span>${t('shop.foot.skills', { key: `${kbd('1')}–${kbd('4')}` })}</span>` +
-  `<span>${t('shop.foot.swap', { key: kbd('Tab') })}</span>` +
-  `<span>${t('shop.foot.interact', { key: kbd('E') })}</span>`;
+function shopFootHints(p: Prompts): string {
+  return `<span>${t('shop.foot.move', { key: p.move })}</span>`
+    + `<span>${t('shop.foot.jump', { key: p.jump })}</span>`
+    + `<span>${t('shop.foot.attack', { key: p.attack })}</span>`
+    + `<span>${t('shop.foot.skills', { key: p.skills })}</span>`
+    + `<span>${t('shop.foot.swap', { key: p.swap })}</span>`
+    + `<span>${t('shop.foot.interact', { key: p.interact })}</span>`;
+}
 
 // ---------------------------------------------------------------------------
 // HUD
@@ -269,6 +337,15 @@ export class HUD {
   private dialogueLine = '';
   private dialogueFoot = '';
 
+  /**
+   * Which device's key caps every prompt prints. See `setPadPrompts`.
+   *
+   * A field rather than a lookup at each print site, and swapped only when the
+   * device changes, so nothing here does per-frame string work.
+   */
+  private prompts: Prompts = KBM_PROMPTS;
+  private padGlyphSet: PadGlyphs | null = null;
+
   // mounting
   private mountHoldEl: HTMLDivElement;
   private mountRingEl: HTMLElement;
@@ -334,7 +411,7 @@ export class HUD {
     // would be feedback for an action happening somewhere else.
     this.mountHoldEl = div(
       'cp-mounthold',
-      `<div class="ring"></div><div class="lbl">${t('hud.mountHold', { key: kbd('F') })}</div>`,
+      `<div class="ring"></div><div class="lbl">${t('hud.mountHold', { key: this.prompts.mount })}</div>`,
     );
     this.mountRingEl = this.mountHoldEl.querySelector('.ring') as HTMLElement;
     this.root.appendChild(this.mountHoldEl);
@@ -365,7 +442,7 @@ export class HUD {
     // hotbar ---------------------------------------------------------------
     const hotbar = div('cp-hotbar');
     for (let i = 0; i < 4; i++) {
-      const slot = div('cp-slot empty', lockedSlotHtml(i));
+      const slot = div('cp-slot empty', lockedSlotHtml(i, this.prompts));
       hotbar.appendChild(slot);
       this.slotRefs.push({
         el: slot,
@@ -524,7 +601,7 @@ export class HUD {
         if (refs.skillId !== '') {
           refs.skillId = '';
           refs.el.className = 'cp-slot empty';
-          refs.el.innerHTML = lockedSlotHtml(i);
+          refs.el.innerHTML = lockedSlotHtml(i, this.prompts);
           refs.el.removeAttribute('style');
           refs.prevReady = false;
           refs.lastSweepDeg = -1;
@@ -544,7 +621,7 @@ export class HUD {
           `linear-gradient(165deg, ${rgba(el, 0.26)}, ${rgba(el, 0.08)}), ` +
           `linear-gradient(165deg, rgba(30,38,54,.72), rgba(14,18,28,.82))`;
         refs.el.innerHTML =
-          `<span class="key">${i + 1}</span>` +
+          `<span class="key">${this.prompts.slot(i)}</span>` +
           `<span class="ic">${elementIcon(def.element)}</span>` +
           `<span class="cd"></span><span class="cdnum"></span>` +
           `<span class="nm">${escapeHtml(t(def.nameKey))}</span>`;
@@ -922,6 +999,42 @@ export class HUD {
    * the inputs are compared BEFORE any string is built — the badge changes
    * about twice a session and there is no reason to allocate a label per frame.
    */
+  /**
+   * Print controller faces instead of key caps, or `null` to go back.
+   *
+   * Called every frame from main.ts and returns immediately unless the device
+   * actually changed — a pad can connect at any moment, so there is no one
+   * point at boot where this could be decided once.
+   *
+   * The hotbar badges are rewritten in place rather than by invalidating
+   * `setSkills`' diff: that diff keys on the skill id, so forcing it would mean
+   * faking an id change and rebuilding four slots' worth of markup to alter one
+   * character in each.
+   */
+  setPadPrompts(glyphs: PadGlyphs | null): void {
+    if (glyphs === this.padGlyphSet) return;
+    this.padGlyphSet = glyphs;
+    this.prompts = glyphs ? padPrompts(glyphs) : KBM_PROMPTS;
+
+    const lbl = this.mountHoldEl.querySelector('.lbl');
+    if (lbl) lbl.innerHTML = t('hud.mountHold', { key: this.prompts.mount });
+
+    for (let i = 0; i < this.slotRefs.length; i++) {
+      const key = this.slotRefs[i].el.querySelector('.key');
+      if (key) key.textContent = this.prompts.slot(i);
+    }
+
+    // Force the riding badge to rebuild on its next update; it early-returns on
+    // unchanged text and the text is about to change under it.
+    this.ridingText = '';
+    this.ridingPal = null;
+
+    // The shop's footer is composed at open time, so an open shop needs the row
+    // replaced under it; a closed one picks the new device up for free.
+    const foot = this.shopWrap.querySelector('.cp-shop-foot');
+    if (foot) foot.innerHTML = shopFootHints(this.prompts);
+  }
+
   setMounted(palName: string | null, flying: boolean): void {
     if (palName === this.ridingPal && flying === this.ridingFlying) return;
     this.ridingPal = palName;
@@ -933,8 +1046,8 @@ export class HUD {
     const text = palName
       ? t(flying ? 'hud.ridingFlying' : 'hud.riding', {
         pal: escapeHtml(palName.toUpperCase()),
-        altitude: `${kbd('Space')}/${kbd('C')}`,
-        dismount: kbd('F'),
+        altitude: this.prompts.altitude,
+        dismount: this.prompts.dismount,
       })
       : '';
     if (text === this.ridingText) return;
@@ -1013,7 +1126,7 @@ export class HUD {
     });
     panel.appendChild(grid);
 
-    panel.appendChild(div('cp-shop-foot', SHOP_FOOT_HINTS));
+    panel.appendChild(div('cp-shop-foot', shopFootHints(this.prompts)));
     this.shopWrap.appendChild(panel);
 
     if (!this.shopOpen) {

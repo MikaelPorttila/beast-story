@@ -24,6 +24,16 @@
  *               flying through it — the meadow as static geometry, which is
  *               also the A/B world/sway.ts is verified against.
  *   view=<n>    chunk streaming radius, in chunks (default 5)
+ *   haptics=<n> 0..1, controller rumble strength; 0 issues no effect at all
+ *   shake=<n>   0..1, camera-shake strength
+ *
+ * The last two OVERRIDE the stored player preference (see core/prefs.ts) for
+ * this load only, and never write it back. Resolution is always
+ * `flag ?? pref ?? default`. They are still diagnostics by the definition
+ * above — `haptics=0` is how you prove a rumble came from the cue you think it
+ * did, and `shake=0` is how you tell a camera problem from a shake problem —
+ * but they are the first two that shadow something the player chose, so the
+ * direction matters: a measurement run can pin a value, and cannot corrupt one.
  *
  * They are diagnostics, not game settings: nothing outside a measurement run
  * should be setting them, and no gameplay code should branch on them beyond the
@@ -32,6 +42,14 @@
 const p = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
 
 const on = (key: string): boolean => p.get(key) !== '0';
+
+/** A 0..1 override, or null when the parameter is absent or not a number. */
+const unit = (key: string): number | null => {
+  const raw = p.get(key);
+  if (raw === null) return null;
+  const v = Number(raw);
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
+};
 
 export const flags = {
   props: on('props'),
@@ -45,6 +63,9 @@ export const flags = {
   sway: on('sway'),
   /** Streaming radius in chunks; null means "use the module default". */
   viewRadius: p.get('view') !== null ? Math.max(1, Number(p.get('view'))) : null,
+  /** Feedback overrides; null means "use the stored preference". */
+  haptics: unit('haptics'),
+  shake: unit('shake'),
   /**
    * Staged-capture mode. NOT a diagnostic toggle like the rest of this file —
    * it lives here because two modules now need the same answer: main.ts, which
@@ -69,8 +90,13 @@ export const flags = {
   npcTime: p.get('npct') !== null ? Number(p.get('npct')) : null,
 };
 
-/** True when any toggle is off its default — used to keep captures honest. */
+/**
+ * True when any toggle is off its default — used to keep captures honest.
+ *
+ * `shake` counts because it moves the camera and therefore the pixels; `haptics`
+ * does not, because no setting of it can change a frame.
+ */
 export const anyFlagSet = (): boolean =>
   !flags.props || !flags.clouds || !flags.water || !flags.enemies
   || !flags.pals || !flags.shadows || !flags.towns || !flags.solids
-  || !flags.sway || flags.viewRadius !== null;
+  || !flags.sway || flags.viewRadius !== null || flags.shake !== null;

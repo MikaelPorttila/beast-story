@@ -289,6 +289,12 @@ export const en = {
     'WASD move · Space jump · LMB attack · 1-4 skills · hold F to ride · Tab swap · E shop',
   'toast.controls.touch':
     'Left stick moves · right stick looks · ATK / JUMP / USE · 1-4 skills · SWAP',
+  // Face names rather than the {key} placeholder the HUD prompts use, because
+  // this is one flat sentence and threading eight glyph substitutions through it
+  // would cost every translator eight chances to lose one. The pad's own glyph
+  // table (core/gamepad.ts) is what the HUD prints where the layout matters.
+  'toast.controls.gamepad':
+    'Left stick moves · right stick looks · A jump · RT attack · D-pad skills · hold Y to ride · L3 swap · X shop',
   'toast.enteredZone': 'Entered {zone}',
   'toast.palLeads': '{lead} leads · {support} supports',
   'toast.palTakesLead': '{pal} takes the lead!',

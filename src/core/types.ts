@@ -667,7 +667,20 @@ export interface Damageable {
   hp: number;
   maxHp: number;
   isDead: boolean;
-  takeDamage(amount: number, from: THREE.Vector3, element?: ElementType): void;
+  /**
+   * Apply a hit. Returns whether it actually LANDED — false when the target was
+   * already dead or was inside its invulnerability window.
+   *
+   * The return value exists because a hit that does not land must not produce
+   * feedback. `Player.takeDamage` has always had an i-frame gate (`invulnT`), but
+   * `CombatSystem.onEnemyHit` could not see it: it called this and then spawned a
+   * damage number, a hit burst and a red screen flash unconditionally, so an
+   * absorbed hit still read on screen as a hit taken. That was survivable while
+   * the feedback was cosmetic; it is not once a controller rumbles in your hands
+   * for damage you did not take. Callers that genuinely do not care may still
+   * ignore the result.
+   */
+  takeDamage(amount: number, from: THREE.Vector3, element?: ElementType): boolean;
   /** faction: 'player' side or 'wild' side */
   faction: 'player' | 'wild';
 }
@@ -701,6 +714,23 @@ export interface CastRequest {
  * which produces "Boulderpup" in every language forever. Widening the event was
  * the fix rather than letting the HUD import the pal registry: a subsystem
  * contract belongs in this file, not in a new import edge from ui to pals.
+ *
+ * PAYLOADS ARE SCALARS, and a listener MUST NOT RETAIN THE EVENT OBJECT.
+ *
+ * `emit` runs its listeners synchronously, so an emitter is free to hand out a
+ * module-level scratch vector — several already do the equivalent, reusing
+ * `_from` across every hit in a frame. That is fine for a listener that reads
+ * and returns, and wrong for one that DEFERS: src/feedback drains its cues once
+ * per rendered frame, by which point a retained `THREE.Vector3` has been
+ * rewritten by the next hit and a retained event has aliased. Hence the position
+ * on `hitDealt` is three numbers rather than a Vector3, and the old `damage`
+ * variant — declared here for a long time and never once emitted — was replaced
+ * by it rather than revived.
+ *
+ * Re-entrant emission during dispatch is already normal (`enemyKilled` grants XP
+ * which emits `palLevelUp`) and is safe: a `Set` iterated while ADDED to is
+ * fine. Removing a listener mid-dispatch is not — do not unsubscribe from inside
+ * a handler.
  */
 export type GameEvent =
   | {
@@ -713,7 +743,63 @@ export type GameEvent =
     learned?: SkillDef;
   }
   | { type: 'skillCast'; skillId: string; casterNameKey: StringKey }
-  | { type: 'damage'; amount: number; position: THREE.Vector3; element?: ElementType }
+  /**
+   * The hero took damage that actually LANDED. Never emitted for a hit absorbed
+   * by the invulnerability window — see `Damageable.takeDamage`.
+   *
+   * `dirX`/`dirZ` are the unit knockback heading, pointing from the attacker
+   * toward the hero, which `takeDamage` has already computed to shove him with.
+   * Nothing consumes the direction yet; it is carried because a directional
+   * camera kick is the obvious next thing to want and re-deriving it later would
+   * mean widening this event again.
+   */
+  | {
+    type: 'playerHurt';
+    amount: number;
+    /**
+     * `amount` as a share of the whole health bar.
+     *
+     * Carried rather than left to the consumer because feedback strength should
+     * scale on how big the bite was, and a raw hp number cannot say that without
+     * also knowing maxHp — which would mean every listener growing a second
+     * field it does not otherwise want.
+     */
+    amountFrac: number;
+    /** hp AFTER the hit, over maxHp: how close this one came to finishing him. */
+    hpFrac: number;
+    element?: ElementType;
+    dirX: number;
+    dirZ: number;
+    fatal: boolean;
+  }
+  | { type: 'playerDied' }
+  | { type: 'playerRevived' }
+  /**
+   * The hero hit the ground hard. `impact` is the existing landing ramp, 0 at
+   * the threshold where a landing starts to register and 1 at a bone-shaker.
+   */
+  | { type: 'playerLanded'; impact: number }
+  /**
+   * Damage the PLAYER'S side dealt, and again only when it landed.
+   *
+   * `bySkill` separates the hero's own sword from a pal's skill, because they
+   * want different feedback: the sword is in your hands and the skill is across
+   * the field. `superEffective` is the element multiplier having come out above
+   * 1 — the pop that already gets its own glow.
+   */
+  | {
+    type: 'hitDealt';
+    amount: number;
+    crit: boolean;
+    superEffective: boolean;
+    element?: ElementType;
+    bySkill: boolean;
+    x: number;
+    y: number;
+    z: number;
+  }
+  | { type: 'mounted'; palId: string; flying: boolean }
+  | { type: 'dismounted'; palId: string }
   | { type: 'shardsChanged'; total: number }
   /**
    * A drop left the ground. `byPal` is true when a support pal fetched it
