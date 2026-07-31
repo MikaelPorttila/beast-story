@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "verify": "bun tools/verify-head.mjs",
     "snapshot": "bun tools/build-stamped.mjs",
     "preview": "vite preview"
   },

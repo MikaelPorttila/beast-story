@@ -90,6 +90,12 @@ once frames come quickly.
   reports the largest per-frame rotation delta at every rig joint. Everything
   should stay under ~0.35 rad; a joint above a radian is teleporting, not
   animating, which on screen reads as a flicker or an impossibly fast flap.
+- **Verify the COMMIT, not the working tree**: `bun run verify` typechecks HEAD in a
+  throwaway worktree. A partial commit checked against a full tree proves nothing —
+  `main.ts` once shipped referencing `player.onCanopy` one commit before
+  `player/index.ts` declared it, `tsc` passed locally the whole time because the
+  tree held both halves, and the deploy broke. Run it before every push, and always
+  when staging a subset of your changes.
 - Read [LAB.md](LAB.md) before iterating on models, animations or skill VFX;
   in particular, lab shots never count as sign-off — re-verify in `index.html`.
 
