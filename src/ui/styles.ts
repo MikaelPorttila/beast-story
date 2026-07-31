@@ -363,6 +363,58 @@ const CSS = `
   flex-wrap:wrap;justify-content:center;font-size:11.5px;font-weight:600;color:rgba(238,242,248,.7)}
 .cp-shop-foot span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 
+/* ---- fullscreen offer (touch devices only) ------------------------------- */
+/* A body-level SIBLING of .cp-root, not a child of it. .cp-root carries
+   z-index:20 and therefore opens its own stacking context, so nothing inside it
+   can ever hit-test above the touch overlay (.cp-touch, z-index:30) — and this
+   prompt is drawn right over the corner the look pad owns. Sitting at z-index:40
+   in the ROOT stacking context is what lets it take its own taps. The dev
+   console (9000) and the F2 overlay (9999) still win, as they should.
+
+   There is no wrapper and no scrim: the ONLY pixels this thing occupies are its
+   own, and both answers remove() the element outright, so nothing is left
+   behind to swallow a drag. pointer-events:auto sits on the pill itself rather
+   than on a parent, following the same opt-in rule the rest of the HUD uses.
+
+   bottom:264px is measured, not guessed. What has to be cleared is not the fan
+   buttons (topmost reach 217px up from the bottom edge in BOTH orientations —
+   the fan is sized in vmin, so landscape is the same cluster turned 90°) but the
+   INVISIBLE look pad behind them, which on an emulated Pixel 5 starts 232px up.
+   240px was tried first and left the pill's bottom edge 8px above the pad: no
+   overlap, but a thumb reaching for the top of the drag surface could clip the
+   NO button. 264px puts a 32px band between them, and still sits above
+   .cp-hint's 232px so the interaction prompt and this one never stack.
+   Measured at 264: portrait pill y 530-587, landscape y 72-129 — clear of every
+   stick and button, above the reticle at y 196 in landscape, and between the
+   party panel (top-left) and the toast stack (top-right). */
+.cp-fsprompt{position:fixed;left:50%;bottom:calc(264px + env(safe-area-inset-bottom));
+  z-index:40;pointer-events:auto;touch-action:manipulation;
+  display:flex;align-items:center;gap:10px;padding:9px 10px 9px 15px;
+  max-width:min(330px,90vw);border-radius:14px;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:#eef2f8;-webkit-user-select:none;user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  background:linear-gradient(165deg,rgba(30,38,54,.86),rgba(14,18,28,.92));
+  border:1px solid rgba(255,255,255,.16);
+  box-shadow:0 12px 30px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.09);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  /* The -50% centring lives in the transform, so every state below has to
+     restate it or the pill jumps half its width sideways as it animates. */
+  opacity:0;transform:translateX(-50%) translateY(10px);
+  transition:opacity .26s ease,transform .3s cubic-bezier(.34,1.5,.64,1)}
+.cp-fsprompt.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.cp-fsprompt .txt{flex:1;font-size:12.5px;font-weight:700;letter-spacing:.01em;
+  line-height:1.3;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.cp-fs-btn{flex:none;min-width:56px;padding:9px 14px 10px;border-radius:10px;
+  border:1px solid rgba(255,255,255,.18);font-family:inherit;font-weight:800;
+  font-size:12px;letter-spacing:.06em;cursor:pointer;
+  background:rgba(255,255,255,.08);color:rgba(238,242,248,.82);
+  transition:filter .12s ease,transform .12s ease}
+.cp-fs-btn.yes{border-color:transparent;color:#3a2703;
+  background:linear-gradient(180deg,#ffd94f,#f5a623);
+  box-shadow:0 3px 8px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.45)}
+.cp-fs-btn:active{filter:brightness(1.2);transform:translateY(1px) scale(.98)}
+
 /* ---- responsive ---------------------------------------------------------- */
 /* Respect notches/rounded corners on phones. */
 .cp-left{left:max(16px,env(safe-area-inset-left))}

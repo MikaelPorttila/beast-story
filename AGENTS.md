@@ -185,7 +185,9 @@ that exist purely for those tools; keep them working.
 
 **Game URL parameters.** `photo=1` with `cam=x,y,z` / `look=x,y,z` / `pal=<id>` /
 `anim=` / `a=<deg>` / `hud=0` stages captures; `fps=<n>` caps the frame rate;
-`debug=1` opens the F2 overlay; plus every post-processing override above. Lab
+`debug=1` opens the F2 overlay; `fsprompt=1` forces the touch fullscreen offer
+past the device test and any remembered answer (`fsprompt=0` suppresses it, and
+it never appears in `photo=1`); plus every post-processing override above. Lab
 parameters are in [LAB.md](LAB.md).
 
 ## Conventions

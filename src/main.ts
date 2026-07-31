@@ -22,6 +22,7 @@ import { MountController } from './player/mount';
 import { PalActor, registerSkillDefs } from './pals/framework';
 import { CombatSystem } from './combat/index';
 import { HUD, type PalHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
+import { FullscreenPrompt } from './ui/fullscreen';
 import { ALL_SPECIES, SKILLS, getSkill } from './pals/registry';
 
 const app = document.getElementById('app')!;
@@ -563,6 +564,19 @@ let photoAnimTimer = 0;
 // Touch overlay: only exists on devices with a touch screen (null otherwise,
 // so nothing is added to the DOM and there is no per-frame cost).
 const touch = photoMode ? null : TouchControls.attach(input);
+
+// "Play fullscreen?" — null on desktop, on browsers with no Fullscreen API, and
+// once the player has answered (see ui/fullscreen.ts for the whole gate).
+//
+// It deliberately does NOT get the shop's modal treatment: `simulate()` freezes
+// the hero while a shop or the console is open because those TAKE the input
+// device, and this pill takes nothing but its own 330x50 of screen. It shows up
+// next to the welcome toast, so stopping the world for a display preference
+// would be a much heavier interruption than the question deserves — the sticks
+// stay live under it and a player who ignores it can just walk off.
+// No handle is kept: the pill owns its own lifetime — either button deletes the
+// node — and nothing in the frame loop has anything to say to it.
+if (!photoMode) FullscreenPrompt.offer();
 
 // Probes for the automated input tests (tools/test-touch.mjs). Read-only.
 interface DebugProbes {
