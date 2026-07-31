@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 import { makeContactBlob, updateContactBlob } from './contactshadow';
@@ -50,7 +50,7 @@ const HEAD_Y = 0.07;
 const HEAD_Z = 0.30;
 const STREAM_X = -0.55;  // resting streamer droop
 const STREAM_YAW = 0.14; // fork spread
-/** Hover height PalActor holds a flyer at; the contact blob has to match it. */
+/** Hover height BeastActor holds a flyer at; the contact blob has to match it. */
 const HOVER = 1.55;
 
 const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -59,7 +59,7 @@ const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
 /**
- * The wingbeat, on a single integrated phase (PalAnimCtx.cycle) shared by every
+ * The wingbeat, on a single integrated phase (BeastAnimCtx.cycle) shared by every
  * branch that beats the wings. Hovering, paddling, cruising and the happy
  * bounce are all the same pair of wings changing PACE, so they must be the same
  * slot: the rate changes, the pose does not jump.
@@ -231,7 +231,7 @@ function makeStreamer(): THREE.Mesh {
   return m.build(S, false);
 }
 
-function buildRig(): PalRig {
+function buildRig(): BeastRig {
   const root = new THREE.Group();
 
   const body = new THREE.Group();
@@ -315,7 +315,7 @@ function buildRig(): PalRig {
   };
 }
 
-function animate(rig: PalRig, ctx: PalAnimCtx): void {
+function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const p = rig.parts;
   const t = ctx.time;
   const at = ctx.actionTime;
@@ -397,7 +397,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       // Darting flight: flap bursts, brief glides, hard banks; wings tuck in dives.
       // 7.5 rad/s hovering to 12.5 rad/s at a full dart — 1.2 to 2.0 Hz, a
       // swallow's cruise. INTEGRATED, not `t * f`: that multiplication was the
-      // flicker. Measured in-game with tools/test-palanim.mjs at a 35 s session
+      // flicker. Measured in-game with tools/test-beastanim.mjs at a 35 s session
       // clock, the moment moveSpeed ramped through a catch-up the wing z angle
       // moved 1.86 rad IN ONE FRAME — a 106 degree jump, six times the widest
       // step the beat itself ever takes. Same numbers, integrated: 0.28 rad.
@@ -624,12 +624,12 @@ export const skills: SkillDef[] = [
   },
 ];
 
-export const species: PalSpecies = {
+export const species: BeastSpecies = {
   id: 'galebird',
-  nameKey: 'pal.galebird.name',
+  nameKey: 'beast.galebird.name',
   element: 'wind',
   locomotion: 'flying',
-  descriptionKey: 'pal.galebird.desc',
+  descriptionKey: 'beast.galebird.desc',
   baseStats: { maxHp: 36, attack: 12, defense: 4, speed: 8.0 },
   skills: skills.map((s) => s.id),
   buildRig,

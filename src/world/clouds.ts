@@ -7,7 +7,7 @@
  * from a 4096 shadow map it printed a huge black quadrilateral with razor edges
  * (nothing else in frame had a shadow remotely like it), and a single cloud
  * drifting over the camera dumped the whole visible hillside — trees, props,
- * pals — into hemisphere-only light, i.e. near-black. Cube World's ground read
+ * beasts — into hemisphere-only light, i.e. near-black. Cube World's ground read
  * comes from object shadows on a fully sunlit landscape; the sky does not touch
  * it. Dropping the cast also halves what the shadow pass has to draw.
  */

@@ -230,7 +230,7 @@ const results = {};
     airborne,
     skillPressSeen: pressedDigits.includes('Digit1'),
     mountHold: mount?.hold ?? null,
-    mounted: !!mount?.pal,
+    mounted: !!mount?.beast,
   };
   await page.close();
 }
@@ -360,7 +360,7 @@ const results = {};
   await wait(3000);
   await page.evaluate(() => window.__connectPad());
   await wait(200);
-  const slotBefore = await page.evaluate(() => document.querySelector('.cp-slot .key')?.textContent);
+  const slotBefore = await page.evaluate(() => document.querySelector('.bs-slot .key')?.textContent);
   // The HUD only switches once the pad has actually been USED — a connected but
   // untouched controller must not relabel a keyboard player's hotbar.
   await setButton(page, B.START, true);
@@ -370,8 +370,8 @@ const results = {};
   results.glyphs = {
     dualsense: (await probe(page, '__dbgPad'))?.glyphs,
     hotbarKeyBeforeUse: slotBefore,
-    hotbarKeyAfterUse: await page.evaluate(() => document.querySelector('.cp-slot .key')?.textContent),
-    padCapsInDom: await page.evaluate(() => document.querySelectorAll('.cp-root kbd.pad').length),
+    hotbarKeyAfterUse: await page.evaluate(() => document.querySelector('.bs-slot .key')?.textContent),
+    padCapsInDom: await page.evaluate(() => document.querySelectorAll('.bs-root kbd.pad').length),
   };
   await page.close();
 }

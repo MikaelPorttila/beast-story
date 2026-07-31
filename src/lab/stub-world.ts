@@ -4,7 +4,7 @@ import type { TownRegistry, World } from '../core/types';
 /**
  * Minimal World implementation for the lab: a flat (optionally water-filled)
  * stage with no chunk streaming, no props and no shops. Everything that takes
- * a World — pals, enemies, combat — runs against this unchanged, so behaviour
+ * a World — beasts, enemies, combat — runs against this unchanged, so behaviour
  * matches the real game minus the terrain itself.
  */
 export class StubWorld implements World {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { makeGlowSprite } from './glowsprite';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
@@ -57,7 +57,7 @@ const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
 /**
- * Integrated cycle slots — see PalAnimCtx.cycle(). Every rate below is either
+ * Integrated cycle slots — see BeastAnimCtx.cycle(). Every rate below is either
  * scaled by the gait blend or different per action, and all four were being
  * multiplied into the session clock. The wisps were the most obvious: `wSpeed`
  * steps between 1.2 and 7 rad/s across the action list, so at a minute-old
@@ -201,7 +201,7 @@ function makeGlowPool(): THREE.Mesh {
   return mesh;
 }
 
-function buildRig(): PalRig {
+function buildRig(): BeastRig {
   const root = new THREE.Group();
 
   const body = new THREE.Group();
@@ -240,7 +240,7 @@ function buildRig(): PalRig {
   // they stand on the skull's outer corners, which is where a cat's ears are and
   // what gives the head its triangular top. The ear MESH is untouched on purpose:
   // its top cell is the highest voxel on the rig, so growing it would move
-  // `silhouetteTop` and with it the mount-form scale PalActor derives from it.
+  // `silhouetteTop` and with it the mount-form scale BeastActor derives from it.
   // Sliding the ears sideways buys the silhouette at zero cost to that.
   const earL = new THREE.Group();
   earL.position.set(0.155, 0.13, -0.03);
@@ -322,7 +322,7 @@ function buildRig(): PalRig {
   };
 }
 
-function animate(rig: PalRig, ctx: PalAnimCtx): void {
+function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const p = rig.parts;
   const t = ctx.time;
   const at = ctx.actionTime;
@@ -625,12 +625,12 @@ export const skills: SkillDef[] = [
   },
 ];
 
-export const species: PalSpecies = {
+export const species: BeastSpecies = {
   id: 'umbrakit',
-  nameKey: 'pal.umbrakit.name',
+  nameKey: 'beast.umbrakit.name',
   element: 'shadow',
   locomotion: 'ground',
-  descriptionKey: 'pal.umbrakit.desc',
+  descriptionKey: 'beast.umbrakit.desc',
   baseStats: { maxHp: 44, attack: 13, defense: 5, speed: 5.4 },
   skills: skills.map((s) => s.id),
   buildRig,

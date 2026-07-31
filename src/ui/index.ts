@@ -9,7 +9,7 @@ import { elementIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON } from './icons';
 // ---------------------------------------------------------------------------
 // Public data shapes (consumed by main.ts)
 // ---------------------------------------------------------------------------
-export interface PalHudInfo {
+export interface BeastHudInfo {
   name: string;
   element: ElementType;
   level: number;
@@ -54,14 +54,14 @@ export interface ShopOffer {
   price: number;
   owned: boolean;
   /**
-   * WHICH pal this offer belongs to. The buy handler in main.ts used to find the
-   * pal by matching `palName`, which is a display string — under `?lang=sv` the
+   * WHICH beast this offer belongs to. The buy handler in main.ts used to find the
+   * beast by matching `beastName`, which is a display string — under `?lang=sv` the
    * match failed and the purchase silently taught nobody anything. Identity is
    * an id; the name below is only ever printed.
    */
-  palId: string;
+  beastId: string;
   /** Display name, already looked up. Rendered under the skill title. */
-  palName: string;
+  beastName: string;
   affordable: boolean;
 }
 
@@ -90,7 +90,7 @@ function clamp01(v: number): number {
 }
 
 /**
- * The `CUBE PALS v1.0` plate is a development affordance, not part of the game:
+ * The `BEAST STORY v1.0` plate is a development affordance, not part of the game:
  * opt in with `?debug=1`. It used to be shown by default and suppressed for
  * captures, which made a version chip the loudest element of normal gameplay.
  * Read here rather than in main.ts so the HUD stays self-contained.
@@ -116,12 +116,12 @@ function lockedSlotHtml(index: number, p: Prompts): string {
   return `<span class="key">${p.slot(index)}</span><span class="lock">${LOCK_ICON}</span>`;
 }
 
-interface PalCardRefs {
+interface BeastCardRefs {
   card: HTMLDivElement;
   inner: HTMLDivElement;
   hpBar: HTMLElement;
   xpBar: HTMLElement;
-  /** the XP track itself, hidden while a fresh pal has nothing to show */
+  /** the XP track itself, hidden while a fresh beast has nothing to show */
   xpTrack: HTMLElement;
   sig: string;
 }
@@ -143,18 +143,18 @@ interface SlotRefs {
  * both under the pointer's half of the strip (at 2 px/deg it showed 210° and
  * read as a ruler rather than a heading).
  */
-const CP_PX_PER_DEG = 3.4;
+const BS_PX_PER_DEG = 3.4;
 /** Tick every 15°, label every 45°. */
-const CP_TICK_STEP = 15;
+const BS_TICK_STEP = 15;
 /**
  * The tape is three copies of the circle laid end to end and simply slid, so
  * there is no seam to hide and no element is ever rebuilt: any heading in
  * [0,360) is drawn from the middle copy with a full turn of runway either side.
  */
-const CP_TAPE_DEG = 1080;
+const BS_TAPE_DEG = 1080;
 /** Clamped markers park this far inside the window, clear of the 16px mask fade. */
-const CP_EDGE_PAD = 24;
-const CP_RAD2DEG = 180 / Math.PI;
+const BS_EDGE_PAD = 24;
+const BS_RAD2DEG = 180 / Math.PI;
 
 interface MarkerRefs {
   m: CompassMarker;
@@ -284,9 +284,9 @@ export class HUD {
   private lastGhostPct = -1;
   private lastHpText = '';
 
-  // pals
-  private palRefs: [PalCardRefs, PalCardRefs];
-  private prevPalNames: [string | null, string | null] = [null, null];
+  // beasts
+  private beastRefs: [BeastCardRefs, BeastCardRefs];
+  private prevBeastNames: [string | null, string | null] = [null, null];
 
   // skills
   private slotRefs: SlotRefs[] = [];
@@ -311,7 +311,7 @@ export class HUD {
   private compassMarksEl: HTMLDivElement;
   private markers: MarkerRefs[] = [];
   private markerIdx = new Map<string, MarkerRefs>();
-  /** Measured window width; the visible span is this / CP_PX_PER_DEG degrees. */
+  /** Measured window width; the visible span is this / BS_PX_PER_DEG degrees. */
   private compassW = 0;
   private lastTapeX = NaN;
   private compassHeading = 0;
@@ -352,7 +352,7 @@ export class HUD {
   private ridingEl: HTMLDivElement;
   private mountDeg = -1;
   private ridingText = '';
-  private ridingPal: string | null = null;
+  private ridingBeast: string | null = null;
   private ridingFlying = false;
 
   // shop
@@ -364,11 +364,11 @@ export class HUD {
   constructor(bus: EventBus) {
     injectStyles();
 
-    this.root = div('cp-root');
+    this.root = div('bs-root');
 
     // title chip (dev plate; only with ?debug=1) ----------------------------
     if (isDebugMode()) {
-      this.root.appendChild(div('cp-title cp-glass', '<b>CUBE PALS</b><span>v1.0</span>'));
+      this.root.appendChild(div('bs-title bs-glass', '<b>BEAST STORY</b><span>v1.0</span>'));
     }
 
     // currency counter -----------------------------------------------------
@@ -377,7 +377,7 @@ export class HUD {
     // table in update(), on the same change guard as the number, so the label
     // and the count can never disagree about singular vs plural.
     this.shardPillEl = div(
-      'cp-shards cp-glass',
+      'bs-shards bs-glass',
       `<span class="ic">${SHARD_ICON}</span><span class="num">0</span><span class="lbl"></span>`,
     );
     this.shardNumEl = this.shardPillEl.querySelector('.num') as HTMLElement;
@@ -388,11 +388,11 @@ export class HUD {
     this.root.appendChild(this.shardPillEl);
 
     // bag (stackable items) — empty until something is picked up ------------
-    this.bagEl = div('cp-bag');
+    this.bagEl = div('bs-bag');
     this.root.appendChild(this.bagEl);
 
     // compass --------------------------------------------------------------
-    const compass = div('cp-compass');
+    const compass = div('bs-compass');
     this.compassWinEl = div('win');
     this.compassTapeEl = this.buildCompassTape();
     this.compassMarksEl = div('marks');
@@ -403,33 +403,33 @@ export class HUD {
     this.root.appendChild(compass);
 
     // crosshair ------------------------------------------------------------
-    this.root.appendChild(div('cp-cross'));
+    this.root.appendChild(div('bs-cross'));
 
     // hold-to-mount ring, wrapped around the crosshair ----------------------
     // It belongs AT the reticle: the thing being held is a commitment made
     // where the player is already looking, and a bar in a corner of the screen
     // would be feedback for an action happening somewhere else.
     this.mountHoldEl = div(
-      'cp-mounthold',
+      'bs-mounthold',
       `<div class="ring"></div><div class="lbl">${t('hud.mountHold', { key: this.prompts.mount })}</div>`,
     );
     this.mountRingEl = this.mountHoldEl.querySelector('.ring') as HTMLElement;
     this.root.appendChild(this.mountHoldEl);
 
     // "riding" badge, above the interact hint --------------------------------
-    this.ridingEl = div('cp-riding cp-glass');
+    this.ridingEl = div('bs-riding bs-glass');
     this.root.appendChild(this.ridingEl);
 
-    // left cluster: one panel holding the pal cards + player hp ------------
-    const left = div('cp-left');
-    const pals = div('cp-pals');
-    this.palRefs = [this.makePalCard(true), this.makePalCard(false)];
-    pals.appendChild(this.palRefs[0].card);
-    pals.appendChild(this.palRefs[1].card);
-    left.appendChild(pals);
+    // left cluster: one panel holding the beast cards + player hp ----------
+    const left = div('bs-left');
+    const beasts = div('bs-beasts');
+    this.beastRefs = [this.makeBeastCard(true), this.makeBeastCard(false)];
+    beasts.appendChild(this.beastRefs[0].card);
+    beasts.appendChild(this.beastRefs[1].card);
+    left.appendChild(beasts);
 
     const hp = div(
-      'cp-hp',
+      'bs-hp',
       `<div class="row"><span class="lbl">${escapeHtml(t('hud.hp'))}</span><span class="val"></span></div>` +
       '<div class="track"><div class="ghost"></div><div class="fill"></div></div>',
     );
@@ -440,9 +440,9 @@ export class HUD {
     this.root.appendChild(left);
 
     // hotbar ---------------------------------------------------------------
-    const hotbar = div('cp-hotbar');
+    const hotbar = div('bs-hotbar');
     for (let i = 0; i < 4; i++) {
-      const slot = div('cp-slot empty', lockedSlotHtml(i, this.prompts));
+      const slot = div('bs-slot empty', lockedSlotHtml(i, this.prompts));
       hotbar.appendChild(slot);
       this.slotRefs.push({
         el: slot,
@@ -457,12 +457,12 @@ export class HUD {
     this.root.appendChild(hotbar);
 
     // hint pill ------------------------------------------------------------
-    this.hintEl = div('cp-hint cp-glass');
+    this.hintEl = div('bs-hint bs-glass');
     this.root.appendChild(this.hintEl);
 
     // dialogue panel --------------------------------------------------------
     this.dialogueEl = div(
-      'cp-dialogue cp-glass',
+      'bs-dialogue bs-glass',
       '<div class="who"></div><div class="line"></div><div class="foot"></div>',
     );
     this.dialogueWhoEl = this.dialogueEl.querySelector('.who') as HTMLElement;
@@ -472,17 +472,17 @@ export class HUD {
 
     // level-up banner ------------------------------------------------------
     this.bannerEl = div(
-      'cp-banner cp-glass',
+      'bs-banner bs-glass',
       `<div class="eyebrow">${escapeHtml(t('hud.levelUp'))}</div><div class="txt"></div>`,
     );
     this.root.appendChild(this.bannerEl);
 
     // toasts ---------------------------------------------------------------
-    this.toastWrap = div('cp-toasts');
+    this.toastWrap = div('bs-toasts');
     this.root.appendChild(this.toastWrap);
 
     // shop -----------------------------------------------------------------
-    this.shopWrap = div('cp-shopwrap');
+    this.shopWrap = div('bs-shopwrap');
     this.root.appendChild(this.shopWrap);
 
     document.body.appendChild(this.root);
@@ -501,7 +501,7 @@ export class HUD {
     bus.on((e) => {
       if (e.type === 'toast') this.addToast(e.text);
       else if (e.type === 'shardsChanged') this.setShards(e.total);
-      else if (e.type === 'palLevelUp') this.showLevelUp(e.nameKey, e.level, e.learned);
+      else if (e.type === 'beastLevelUp') this.showLevelUp(e.nameKey, e.level, e.learned);
     });
   }
 
@@ -530,26 +530,26 @@ export class HUD {
   }
 
   // -------------------------------------------------------------------------
-  // Pal cards
+  // Beast cards
   // -------------------------------------------------------------------------
-  private makePalCard(primary: boolean): PalCardRefs {
-    const card = div(`cp-pal hidden ${primary ? 'primary' : 'support'}`);
-    const inner = div('cp-pal-in');
+  private makeBeastCard(primary: boolean): BeastCardRefs {
+    const card = div(`bs-beast hidden ${primary ? 'primary' : 'support'}`);
+    const inner = div('bs-beast-in');
     card.appendChild(inner);
     return { card, inner, hpBar: inner, xpBar: inner, xpTrack: inner, sig: '' };
   }
 
-  setPals(primary: PalHudInfo | null, support: PalHudInfo | null): void {
+  setBeasts(primary: BeastHudInfo | null, support: BeastHudInfo | null): void {
     const swapped =
       primary !== null && support !== null &&
-      this.prevPalNames[0] === support.name && this.prevPalNames[1] === primary.name;
-    this.renderPal(this.palRefs[0], primary, swapped);
-    this.renderPal(this.palRefs[1], support, swapped);
-    this.prevPalNames[0] = primary?.name ?? null;
-    this.prevPalNames[1] = support?.name ?? null;
+      this.prevBeastNames[0] === support.name && this.prevBeastNames[1] === primary.name;
+    this.renderBeast(this.beastRefs[0], primary, swapped);
+    this.renderBeast(this.beastRefs[1], support, swapped);
+    this.prevBeastNames[0] = primary?.name ?? null;
+    this.prevBeastNames[1] = support?.name ?? null;
   }
 
-  private renderPal(refs: PalCardRefs, info: PalHudInfo | null, animateSwap: boolean): void {
+  private renderBeast(refs: BeastCardRefs, info: BeastHudInfo | null, animateSwap: boolean): void {
     if (!info) {
       refs.card.classList.add('hidden');
       refs.sig = '';
@@ -566,23 +566,23 @@ export class HUD {
         `<div class="meta">` +
         `<div class="row"><span class="nm">${escapeHtml(info.name)}</span>` +
         `<span class="lv">${escapeHtml(t('hud.level', { n: info.level }))}</span></div>` +
-        `<div class="cp-micro hp"><i></i></div>` +
-        `<div class="cp-micro xp"><i></i></div>` +
+        `<div class="bs-micro hp"><i></i></div>` +
+        `<div class="bs-micro xp"><i></i></div>` +
         `</div>`;
-      refs.hpBar = refs.inner.querySelector('.cp-micro.hp > i') as HTMLElement;
-      refs.xpBar = refs.inner.querySelector('.cp-micro.xp > i') as HTMLElement;
-      refs.xpTrack = refs.inner.querySelector('.cp-micro.xp') as HTMLElement;
+      refs.hpBar = refs.inner.querySelector('.bs-micro.hp > i') as HTMLElement;
+      refs.xpBar = refs.inner.querySelector('.bs-micro.xp > i') as HTMLElement;
+      refs.xpTrack = refs.inner.querySelector('.bs-micro.xp') as HTMLElement;
       if (animateSwap) {
-        refs.inner.classList.remove('cp-swap');
+        refs.inner.classList.remove('bs-swap');
         void refs.inner.offsetWidth; // restart animation
-        refs.inner.classList.add('cp-swap');
+        refs.inner.classList.add('bs-swap');
       }
     }
     const hpPct = Math.round(clamp01(info.maxHp > 0 ? info.hp / info.maxHp : 0) * 1000) / 10;
     const xpPct = Math.round(clamp01(info.xpToNext > 0 ? info.xp / info.xpToNext : 0) * 1000) / 10;
     refs.hpBar.style.width = `${hpPct}%`;
     refs.xpBar.style.width = `${xpPct}%`;
-    // A dead-empty XP bar under a Lv 1 pal reads as a broken widget, so the
+    // A dead-empty XP bar under a Lv 1 beast reads as a broken widget, so the
     // track only appears once there is progress to show. Past level 1 it stays
     // put (an empty track there is meaningful) and the faint pre-filled track
     // styling in styles.ts keeps it from looking like a rendering failure.
@@ -600,7 +600,7 @@ export class HUD {
       if (!slot) {
         if (refs.skillId !== '') {
           refs.skillId = '';
-          refs.el.className = 'cp-slot empty';
+          refs.el.className = 'bs-slot empty';
           refs.el.innerHTML = lockedSlotHtml(i, this.prompts);
           refs.el.removeAttribute('style');
           refs.prevReady = false;
@@ -614,7 +614,7 @@ export class HUD {
       if (refs.skillId !== def.id) {
         refs.skillId = def.id;
         const el = ELEMENT_COLORS[def.element];
-        refs.el.className = 'cp-slot filled';
+        refs.el.className = 'bs-slot filled';
         refs.el.style.setProperty('--el', hexColor(el));
         refs.el.style.setProperty('--el2', rgba(el, 0.55));
         refs.el.style.background =
@@ -654,9 +654,9 @@ export class HUD {
       refs.el.classList.toggle('ready', slot.ready);
       refs.el.classList.toggle('cooling', !slot.ready);
       if (slot.ready && !refs.prevReady) {
-        refs.el.classList.remove('cp-flash');
+        refs.el.classList.remove('bs-flash');
         void refs.el.offsetWidth;
-        refs.el.classList.add('cp-flash');
+        refs.el.classList.add('bs-flash');
       }
       refs.prevReady = slot.ready;
     }
@@ -672,9 +672,9 @@ export class HUD {
       this.shardsInit = true;
       this.shardsShown = n;
     } else if (n !== this.shardsDisplayed) {
-      this.shardPillEl.classList.remove('cp-pop');
+      this.shardPillEl.classList.remove('bs-pop');
       void this.shardPillEl.offsetWidth;
-      this.shardPillEl.classList.add('cp-pop');
+      this.shardPillEl.classList.add('bs-pop');
     }
   }
 
@@ -686,23 +686,23 @@ export class HUD {
    * rebuilds the chips (the signature guard below makes a redundant call cheap,
    * but the caller still allocates the entry array to get here).
    *
-   * This is also the readout for the support pal's fetch rule: a chip present
-   * is exactly the condition under which the pal will fetch more of that item.
+   * This is also the readout for the support beast's fetch rule: a chip present
+   * is exactly the condition under which the beast will fetch more of that item.
    */
   setBag(entries: BagEntry[]): void {
     const sig = entries.map((e) => `${e.def.id}:${e.count}`).join('|');
     if (sig === this.bagSig) return;
     this.bagSig = sig;
     this.bagEl.innerHTML = entries.map((e) =>
-      `<div class="chip cp-glass"><i class="sw" style="background:${hexColor(e.def.color)};` +
+      `<div class="chip bs-glass"><i class="sw" style="background:${hexColor(e.def.color)};` +
       `color:${hexColor(e.def.color)}"></i>` +
       `<span class="nm">${escapeHtml(itemName(e.def, e.count))}</span>` +
       `<span class="n">${e.count}</span></div>`,
     ).join('');
     if (entries.length) {
-      this.bagEl.classList.remove('cp-pop');
+      this.bagEl.classList.remove('bs-pop');
       void this.bagEl.offsetWidth;
-      this.bagEl.classList.add('cp-pop');
+      this.bagEl.classList.add('bs-pop');
     }
   }
 
@@ -719,8 +719,8 @@ export class HUD {
     const tape = div('tape');
     const NAMES = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
     let html = '';
-    for (let d = 0; d <= CP_TAPE_DEG; d += CP_TICK_STEP) {
-      const x = (d * CP_PX_PER_DEG).toFixed(1);
+    for (let d = 0; d <= BS_TAPE_DEG; d += BS_TICK_STEP) {
+      const x = (d * BS_PX_PER_DEG).toFixed(1);
       const a = d % 360;
       if (a % 45 === 0) {
         const name = NAMES[(a / 45) | 0];
@@ -732,7 +732,7 @@ export class HUD {
       }
     }
     tape.innerHTML = html;
-    tape.style.width = `${CP_TAPE_DEG * CP_PX_PER_DEG}px`;
+    tape.style.width = `${BS_TAPE_DEG * BS_PX_PER_DEG}px`;
     return tape;
   }
 
@@ -797,20 +797,20 @@ export class HUD {
 
     const half = this.compassW * 0.5;
     // Draw from the MIDDLE copy of the circle: h + 360.
-    const tx = Math.round((half - (h + 360) * CP_PX_PER_DEG) * 10) / 10;
+    const tx = Math.round((half - (h + 360) * BS_PX_PER_DEG) * 10) / 10;
     if (tx !== this.lastTapeX) {
       this.lastTapeX = tx;
       this.compassTapeEl.style.transform = `translate3d(${tx}px,0,0)`;
     }
 
-    const limit = half - CP_EDGE_PAD;
+    const limit = half - BS_EDGE_PAD;
     for (let i = 0; i < this.markers.length; i++) {
       const r = this.markers[i];
       // Shortest-arc bearing relative to the view, in (-180, 180].
-      let rel = Math.atan2(r.m.x - originX, -(r.m.z - originZ)) * CP_RAD2DEG - h;
+      let rel = Math.atan2(r.m.x - originX, -(r.m.z - originZ)) * BS_RAD2DEG - h;
       rel = ((rel + 540) % 360) - 180;
       r.rel = rel;
-      let px = rel * CP_PX_PER_DEG;
+      let px = rel * BS_PX_PER_DEG;
       let edge = 0;
       if (px < -limit) { px = -limit; edge = -1; }
       else if (px > limit) { px = limit; edge = 1; }
@@ -838,7 +838,7 @@ export class HUD {
         Math.round(this.compassHeading / 45) % 8
       ],
       width: this.compassW,
-      spanDeg: +(this.compassW / CP_PX_PER_DEG).toFixed(1),
+      spanDeg: +(this.compassW / BS_PX_PER_DEG).toFixed(1),
       tapeX: this.lastTapeX,
       markers: this.markers.map((r) => ({
         id: r.m.id,
@@ -854,7 +854,7 @@ export class HUD {
   // Level-up banner
   // -------------------------------------------------------------------------
   /**
-   * `nameKey` rather than `palId`: the banner used to title-case the identifier
+   * `nameKey` rather than `beastId`: the banner used to title-case the identifier
    * ('emberfox' -> "Emberfox"), which happens to look right in English and is
    * wrong everywhere else — a name derived from an id can never be translated,
    * and would not follow a rename either. The event carries both halves now.
@@ -870,13 +870,13 @@ export class HUD {
       // The skill name arrives already wrapped, so the TABLE decides where in
       // the sentence it lands — the emphasis travels with it.
       txt.innerHTML = t('hud.levelUpLearned', {
-        pal: name, level, skill: `<em>${escapeHtml(t(learned.nameKey))}</em>`,
+        beast: name, level, skill: `<em>${escapeHtml(t(learned.nameKey))}</em>`,
       });
     } else {
       this.bannerEl.style.setProperty('--el', '#ffd23f');
       this.bannerEl.style.boxShadow =
         '0 0 34px rgba(255,210,63,.3), 0 10px 30px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.1)';
-      txt.innerHTML = t('hud.levelUpReached', { pal: name, level });
+      txt.innerHTML = t('hud.levelUpReached', { beast: name, level });
     }
     this.bannerEl.classList.remove('show');
     void this.bannerEl.offsetWidth;
@@ -888,7 +888,7 @@ export class HUD {
   // Toasts
   // -------------------------------------------------------------------------
   private addToast(text: string): void {
-    const el = div('cp-toast');
+    const el = div('bs-toast');
     el.textContent = text;
     this.toastWrap.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
@@ -988,14 +988,14 @@ export class HUD {
     if ((deg > 0) !== (was > 0)) this.mountHoldEl.classList.toggle('show', deg > 0);
     // Full ring: one pop, on the frame the hold completes.
     if (deg >= 360 && was < 360) {
-      this.mountHoldEl.classList.remove('cp-pop');
+      this.mountHoldEl.classList.remove('bs-pop');
       void this.mountHoldEl.offsetWidth;
-      this.mountHoldEl.classList.add('cp-pop');
+      this.mountHoldEl.classList.add('bs-pop');
     }
   }
 
   /**
-   * Name of the pal being ridden, or null when on foot. Called every frame, so
+   * Name of the beast being ridden, or null when on foot. Called every frame, so
    * the inputs are compared BEFORE any string is built — the badge changes
    * about twice a session and there is no reason to allocate a label per frame.
    */
@@ -1027,32 +1027,32 @@ export class HUD {
     // Force the riding badge to rebuild on its next update; it early-returns on
     // unchanged text and the text is about to change under it.
     this.ridingText = '';
-    this.ridingPal = null;
+    this.ridingBeast = null;
 
     // The shop's footer is composed at open time, so an open shop needs the row
     // replaced under it; a closed one picks the new device up for free.
-    const foot = this.shopWrap.querySelector('.cp-shop-foot');
+    const foot = this.shopWrap.querySelector('.bs-shop-foot');
     if (foot) foot.innerHTML = shopFootHints(this.prompts);
   }
 
-  setMounted(palName: string | null, flying: boolean): void {
-    if (palName === this.ridingPal && flying === this.ridingFlying) return;
-    this.ridingPal = palName;
+  setMounted(beastName: string | null, flying: boolean): void {
+    if (beastName === this.ridingBeast && flying === this.ridingFlying) return;
+    this.ridingBeast = beastName;
     this.ridingFlying = flying;
     // Built from the table with the key caps already marked up, so the sentence
     // can be reordered by a translation. Previously this glued the badge
     // together in English and then went hunting for "SPACE/C" and "F" with
     // regexes — which only ever worked because the words around them were fixed.
-    const text = palName
+    const text = beastName
       ? t(flying ? 'hud.ridingFlying' : 'hud.riding', {
-        pal: escapeHtml(palName.toUpperCase()),
+        beast: escapeHtml(beastName.toUpperCase()),
         altitude: this.prompts.altitude,
         dismount: this.prompts.dismount,
       })
       : '';
     if (text === this.ridingText) return;
     this.ridingText = text;
-    if (!palName) {
+    if (!beastName) {
       this.ridingEl.classList.remove('show');
       return;
     }
@@ -1067,56 +1067,56 @@ export class HUD {
     this.shopOnClose = onClose;
     this.shopWrap.innerHTML = '';
 
-    const scrim = div('cp-scrim');
+    const scrim = div('bs-scrim');
     scrim.addEventListener('click', () => this.requestShopClose());
     this.shopWrap.appendChild(scrim);
 
-    const panel = div('cp-shop cp-glass');
+    const panel = div('bs-shop bs-glass');
 
-    const head = div('cp-shop-head');
+    const head = div('bs-shop-head');
     head.innerHTML =
       `<h2>${escapeHtml(title)}</h2>` +
       `<div class="bal"><span class="ic">${SHARD_ICON}</span><b>${Math.round(this.shardsTarget)}</b></div>`;
     this.shopBalEl = head.querySelector('.bal b') as HTMLElement;
     const closeBtn = document.createElement('button');
-    closeBtn.className = 'cp-shop-x';
+    closeBtn.className = 'bs-shop-x';
     closeBtn.innerHTML = CLOSE_ICON;
     closeBtn.addEventListener('click', () => this.requestShopClose());
     head.appendChild(closeBtn);
     panel.appendChild(head);
 
-    const grid = div('cp-offers');
+    const grid = div('bs-offers');
     offers.forEach((offer, i) => {
       const s = offer.skill;
       const el = ELEMENT_COLORS[s.element];
-      const card = div(`cp-offer${offer.owned ? '' : offer.affordable ? '' : ' locked'}`);
+      const card = div(`bs-offer${offer.owned ? '' : offer.affordable ? '' : ' locked'}`);
       card.style.setProperty('--el', hexColor(el));
       card.style.setProperty('--el2', rgba(el, 0.4));
       card.innerHTML =
         `<div class="accent" style="background:linear-gradient(90deg,${hexColor(el)},${rgba(el, 0.25)})"></div>` +
         `<div class="top"><span class="oic" style="--el2:${rgba(el, 0.18)}">${elementIcon(s.element)}</span>` +
         `<div><h3>${escapeHtml(t(s.nameKey))}</h3>` +
-        `<div class="pal">${escapeHtml(t('shop.forPal', { pal: offer.palName }))}</div></div></div>` +
+        `<div class="beast">${escapeHtml(t('shop.forBeast', { beast: offer.beastName }))}</div></div></div>` +
         `<p>${escapeHtml(t(s.descriptionKey))}</p>` +
-        `<div class="cp-chips">` +
-        `<span class="cp-chip">${escapeHtml(t('shop.stat.power'))} <b>${s.power}</b></span>` +
-        `<span class="cp-chip">${escapeHtml(t('shop.stat.cooldown'))} <b>${s.cooldown}s</b></span>` +
-        `<span class="cp-chip">${escapeHtml(s.targeting.toUpperCase())}</span>` +
+        `<div class="bs-chips">` +
+        `<span class="bs-chip">${escapeHtml(t('shop.stat.power'))} <b>${s.power}</b></span>` +
+        `<span class="bs-chip">${escapeHtml(t('shop.stat.cooldown'))} <b>${s.cooldown}s</b></span>` +
+        `<span class="bs-chip">${escapeHtml(s.targeting.toUpperCase())}</span>` +
         `</div>` +
         `<div class="foot"></div>`;
       const foot = card.querySelector('.foot') as HTMLElement;
 
       if (offer.owned) {
-        const owned = div('cp-buy owned', `${CHECK_ICON}<span>${escapeHtml(t('shop.learned'))}</span>`);
+        const owned = div('bs-buy owned', `${CHECK_ICON}<span>${escapeHtml(t('shop.learned'))}</span>`);
         foot.appendChild(owned);
       } else {
         const price = div(
-          `cp-price${offer.affordable ? '' : ' no'}`,
+          `bs-price${offer.affordable ? '' : ' no'}`,
           `<span class="ic">${SHARD_ICON}</span><span>${offer.price}</span>`,
         );
         foot.appendChild(price);
         const btn = document.createElement('button');
-        btn.className = 'cp-buy';
+        btn.className = 'bs-buy';
         btn.textContent = t('shop.buy');
         btn.disabled = !offer.affordable;
         btn.addEventListener('click', () => onBuy(i));
@@ -1126,7 +1126,7 @@ export class HUD {
     });
     panel.appendChild(grid);
 
-    panel.appendChild(div('cp-shop-foot', shopFootHints(this.prompts)));
+    panel.appendChild(div('bs-shop-foot', shopFootHints(this.prompts)));
     this.shopWrap.appendChild(panel);
 
     if (!this.shopOpen) {

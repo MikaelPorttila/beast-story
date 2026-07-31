@@ -2,20 +2,20 @@ import * as THREE from 'three';
 import type { Input } from '../core/input';
 import type { EventBus, World } from '../core/types';
 import { t } from '../i18n';
-import type { PalActor, PalRideState } from '../pals/framework';
+import type { BeastActor, BeastRideState } from '../beasts/framework';
 import type { Player } from './index';
 
 // ---------------------------------------------------------------------------
-// Mounting — hold F, ride your pal
+// Mounting — hold F, ride your beast
 // ---------------------------------------------------------------------------
 // The whole feature lives here: the hold-to-mount timer, the refusal rules, and
-// the locomotion of a mounted pal (which is the hero's locomotion problem, not
-// the pal framework's — a ridden pal is steered, not followed).
+// the locomotion of a mounted beast (which is the hero's locomotion problem, not
+// the beast framework's — a ridden beast is steered, not followed).
 //
 // Two things it deliberately does NOT own:
 //   - the aim of a mounted cast. That is main.ts's business; this class only
-//     answers "is a pal being ridden, and which one".
-//   - anything about which pal is mountable. main.ts offers a candidate (the
+//     answers "is a beast being ridden, and which one".
+//   - anything about which beast is mountable. main.ts offers a candidate (the
 //     primary) every slice and this class decides whether it can be climbed on.
 //
 // Everything below runs on a FIXED 60 Hz slice that may tick several times per
@@ -44,7 +44,7 @@ const MOUNT_HOLD = 0.8;
 const RELEASE_DRAIN = 6.0;
 
 /**
- * Ground mounts gallop: the pal's own follow speed times this.
+ * Ground mounts gallop: the beast's own follow speed times this.
  *
  * The speeds this multiplies are the species' (Sproutle 3.2 … Galebird 8.0)
  * against a hero who walks at 6 and sprints at 9.6, so the multiplier is what
@@ -119,9 +119,9 @@ const FLY_CEILING = 60;
 /**
  * The hero rig's hip height. His origin is at his FEET, but in the riding pose
  * nothing hangs below the hips (the legs swing forward over the mount's
- * shoulders), so the origin is placed a hip BELOW the pal's saddle and the seat
- * lands on the mount's back. Where that saddle is, is the pal's business —
- * PalActor.saddleY, measured off its own silhouette.
+ * shoulders), so the origin is placed a hip BELOW the beast's saddle and the seat
+ * lands on the mount's back. Where that saddle is, is the beast's business —
+ * BeastActor.saddleY, measured off its own silhouette.
  */
 const HERO_HIP_Y = 0.6;
 /**
@@ -158,11 +158,11 @@ function dampAngle(cur: number, target: number, lambda: number, dt: number): num
   return cur + angleDelta(cur, target) * (1 - Math.exp(-lambda * dt));
 }
 
-export type MountRefusal = 'swimming' | 'climbing' | 'dead' | 'palDead' | 'none';
+export type MountRefusal = 'swimming' | 'climbing' | 'dead' | 'beastDead' | 'none';
 
 export class MountController {
-  /** The pal being ridden, or null. */
-  pal: PalActor | null = null;
+  /** The beast being ridden, or null. */
+  beast: BeastActor | null = null;
   /** 0..1 hold progress, for the HUD ring. */
   hold = 0;
 
@@ -183,8 +183,8 @@ export class MountController {
   private fWasHeld = false;
   /** One refusal toast per hold attempt, not one per slice. */
   private refusedFor: MountRefusal = 'none';
-  /** Reused every slice; the pal copies out of it and keeps nothing. */
-  private ride: PalRideState = {
+  /** Reused every slice; the beast copies out of it and keeps nothing. */
+  private ride: BeastRideState = {
     x: 0, y: 0, z: 0, yaw: 0, pitch: 0, bank: 0, vx: 0, vz: 0,
     speed01: 0, action: 'idle',
   };
@@ -206,7 +206,7 @@ export class MountController {
     this.world = world;
   }
 
-  get isMounted(): boolean { return this.pal !== null; }
+  get isMounted(): boolean { return this.beast !== null; }
   /** 0..1 fill for the indicator. */
   get progress(): number { return clamp(this.hold / MOUNT_HOLD, 0, 1); }
   /** Horizontal speed of the mount, for probes and the HUD. */
@@ -222,11 +222,11 @@ export class MountController {
    * one keypress away, which makes refusing the honest answer instead of a
    * special case in three controllers.
    */
-  refusal(candidate: PalActor | null): MountRefusal {
+  refusal(candidate: BeastActor | null): MountRefusal {
     if (this.player.isDead) return 'dead';
     if (this.player.isSwimming) return 'swimming';
     if (this.player.isClimbing) return 'climbing';
-    if (!candidate || candidate.isDead) return 'palDead';
+    if (!candidate || candidate.isDead) return 'beastDead';
     return 'none';
   }
 
@@ -238,10 +238,10 @@ export class MountController {
   }
 
   /**
-   * One simulation slice. `candidate` is the pal F would mount — main.ts hands
+   * One simulation slice. `candidate` is the beast F would mount — main.ts hands
    * over the primary — and may be null when the party is hidden.
    */
-  update(dt: number, candidate: PalActor | null): void {
+  update(dt: number, candidate: BeastActor | null): void {
     const input = this.input;
     // `pressed` is OR-ed in for the same reason Player's jump does it: a tap
     // shorter than one 16.7 ms slice (a virtual button, an automated press)
@@ -258,14 +258,14 @@ export class MountController {
     this.jumpPressed = jumpHeld && !this.jumpWasHeld;
     this.jumpWasHeld = jumpHeld;
 
-    if (this.pal) {
+    if (this.beast) {
       // A tap of F gets off. The F that MOUNTED you is still down at this
       // point, and no edge can be produced from it because fWasHeld was already
       // true when the mount happened — you have to let go and press again.
       if (fEdge) { this.dismount(); return; }
-      if (this.pal.isDead || this.player.isDead) {
-        this.dismount(this.pal.isDead
-          ? t('toast.mount.palDown', { pal: t(this.pal.species.nameKey) })
+      if (this.beast.isDead || this.player.isDead) {
+        this.dismount(this.beast.isDead
+          ? t('toast.mount.beastDown', { beast: t(this.beast.species.nameKey) })
           : undefined);
         return;
       }
@@ -295,16 +295,16 @@ export class MountController {
 
   /**
    * Climb on. The ride starts at the HERO's own column rather than wherever the
-   * pal happens to be trotting, so mounting can never begin with the mount
-   * inside a hillside or a body-length away from its rider — the pal comes to
+   * beast happens to be trotting, so mounting can never begin with the mount
+   * inside a hillside or a body-length away from its rider — the beast comes to
    * you, which is also what it looks like.
    */
-  mount(pal: PalActor): void {
-    if (this.pal) return;
-    this.pal = pal;
+  mount(beast: BeastActor): void {
+    if (this.beast) return;
+    this.beast = beast;
     this.hold = 0;
-    this.flying = pal.species.locomotion === 'flying';
-    this.topSpeed = pal.stats.speed * (this.flying ? FLY_CRUISE : GALLOP);
+    this.flying = beast.species.locomotion === 'flying';
+    this.topSpeed = beast.stats.speed * (this.flying ? FLY_CRUISE : GALLOP);
 
     const p = this.player.position;
     this.pos.set(p.x, Math.max(this.world.getHeight(p.x, p.z), this.world.waterLevel - WADE_DEPTH), p.z);
@@ -317,17 +317,17 @@ export class MountController {
     this.bank = 0;
     this.speed01 = 0;
 
-    pal.setRidden(true);
+    beast.setRidden(true);
     this.player.setMounted(true);
     this.player.setCameraFraming(MOUNT_CAM_SCALE, MOUNT_CAM_DROP);
     this.seatHero();
-    this.bus.emit({ type: 'mounted', palId: pal.species.id, flying: this.flying });
+    this.bus.emit({ type: 'mounted', beastId: beast.species.id, flying: this.flying });
     this.bus.emit({
       type: 'toast',
       // The persistent badge already spells the controls out, so the toast is
       // the flourish, not a second copy of the key hints.
       text: t(this.flying ? 'toast.mount.flying' : 'toast.mount.ground', {
-        pal: t(pal.species.nameKey),
+        beast: t(beast.species.nameKey),
       }),
     });
   }
@@ -338,11 +338,11 @@ export class MountController {
    * the simplest rule and the one players expect.
    */
   dismount(reason?: string): void {
-    const pal = this.pal;
-    if (!pal) return;
-    this.pal = null;
+    const beast = this.beast;
+    if (!beast) return;
+    this.beast = null;
     this.hold = 0;
-    pal.setRidden(false);
+    beast.setRidden(false);
     this.player.setMounted(false);
     this.player.setCameraFraming(1, 0);
 
@@ -350,7 +350,7 @@ export class MountController {
     // the ground there if it is not a wall — otherwise stay where the saddle
     // was and let gravity sort it out.
     const side = this.player.camRight;
-    const r = pal.scaledRadius + 0.7;
+    const r = beast.scaledRadius + 0.7;
     const x = this.pos.x + side.x * r;
     const z = this.pos.z + side.z * r;
     const gh = this.world.getHeight(x, z);
@@ -363,10 +363,10 @@ export class MountController {
       this.player.onGround = false;
     }
     this.player.velocity.set(this.vel.x, this.flying ? 0 : this.vy, this.vel.z);
-    this.bus.emit({ type: 'dismounted', palId: pal.species.id });
+    this.bus.emit({ type: 'dismounted', beastId: beast.species.id });
     this.bus.emit({
       type: 'toast',
-      text: reason ?? t('toast.dismounted', { pal: t(pal.species.nameKey) }),
+      text: reason ?? t('toast.dismounted', { beast: t(beast.species.nameKey) }),
     });
   }
 
@@ -395,7 +395,7 @@ export class MountController {
   }
 
   private updateRide(dt: number): void {
-    const pal = this.pal!;
+    const beast = this.beast!;
     const input = this.input;
 
     // ---- steering: camera-relative, exactly as on foot ----
@@ -408,7 +408,7 @@ export class MountController {
     const moving = _wish.lengthSq() > 1e-6;
     if (moving) _wish.normalize();
 
-    // The mount's top speed is the PAL's, not the hero's — that is the whole
+    // The mount's top speed is the BEAST's, not the hero's — that is the whole
     // point of riding one. A half-deflected stick still walks.
     let target = this.topSpeed;
     if (tilt > 0 && tilt < 0.98) target *= Math.max(0.35, tilt);
@@ -431,14 +431,14 @@ export class MountController {
     this.bank += (targetBank - this.bank) * (1 - Math.exp(-5 * dt));
     this.speed01 = Math.min(1, speed / Math.max(0.001, this.topSpeed));
 
-    // ---- hand the pal its pose, and sit the hero on top of it ----
+    // ---- hand the beast its pose, and sit the hero on top of it ----
     const s = this.ride;
     s.x = this.pos.x; s.y = this.pos.y; s.z = this.pos.z;
     s.yaw = this.yaw; s.pitch = this.pitch; s.bank = this.bank;
     s.vx = this.vel.x; s.vz = this.vel.z;
     s.speed01 = this.speed01;
     s.action = this.flying ? 'fly' : this.speed01 > 0.5 ? 'run' : this.speed01 > 0.06 ? 'walk' : 'idle';
-    pal.rideUpdate(dt, s);
+    beast.rideUpdate(dt, s);
     this.seatHero();
   }
 
@@ -449,7 +449,7 @@ export class MountController {
     // the mount's own body radius and its higher step.
     const feetY = this.pos.y;
     const stepCeil = feetY + MOUNT_STEP_UP;
-    const radius = this.pal!.scaledRadius + BODY_MARGIN;
+    const radius = this.beast!.scaledRadius + BODY_MARGIN;
 
     const nx = this.pos.x + this.vel.x * dt;
     if (this.blockTop(nx + Math.sign(this.vel.x) * radius, this.pos.z) <= stepCeil) this.pos.x = nx;
@@ -459,8 +459,8 @@ export class MountController {
     if (this.blockTop(this.pos.x, nz + Math.sign(this.vel.z) * radius) <= stepCeil) this.pos.z = nz;
     else this.vel.z = 0;
 
-    // Space bounds a ground mount. The rider is a passenger — the pal jumps, so
-    // the jump is the pal's, not the hero's, and it clears more than he can on
+    // Space bounds a ground mount. The rider is a passenger — the beast jumps, so
+    // the jump is the beast's, not the hero's, and it clears more than he can on
     // foot. Read as an EDGE (the same latched `pressed`-OR-`down` shape the rest
     // of this file uses for F) so holding Space does not pogo, and gated on
     // `grounded` so there is no second jump in mid-air.
@@ -521,11 +521,11 @@ export class MountController {
 
   /** Put the hero in the saddle and tell him which way he is pointing. */
   private seatHero(): void {
-    const pal = this.pal!;
-    const back = pal.scaledRadius * SEAT_BACK;
+    const beast = this.beast!;
+    const back = beast.scaledRadius * SEAT_BACK;
     this.player.position.set(
       this.pos.x - Math.sin(this.yaw) * back,
-      this.pos.y + pal.saddleY - HERO_HIP_Y,
+      this.pos.y + beast.saddleY - HERO_HIP_Y,
       this.pos.z - Math.cos(this.yaw) * back,
     );
     this.player.velocity.set(this.vel.x, this.flying ? this.vy : 0, this.vel.z);
@@ -533,13 +533,13 @@ export class MountController {
   }
 }
 
-function refusalText(why: MountRefusal, candidate: PalActor | null): string {
+function refusalText(why: MountRefusal, candidate: BeastActor | null): string {
   switch (why) {
     case 'swimming': return t('toast.mount.refuse.swimming');
     case 'climbing': return t('toast.mount.refuse.climbing');
-    case 'palDead': return candidate
-      ? t('toast.mount.refuse.palDead', { pal: t(candidate.species.nameKey) })
-      : t('toast.mount.refuse.noPal');
+    case 'beastDead': return candidate
+      ? t('toast.mount.refuse.beastDead', { beast: t(candidate.species.nameKey) })
+      : t('toast.mount.refuse.noBeast');
     default: return t('toast.mount.refuse.other');
   }
 }

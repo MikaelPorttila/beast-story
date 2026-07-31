@@ -15,10 +15,10 @@ const results = {};
   results.desktop = {
     // Presence AND visibility: a hidden overlay is acceptable on a touchscreen
     // laptop, but a *visible* one on a mouse-driven machine is the bug.
-    overlayPresent: await count(page, '.cp-touch') > 0,
-    overlayVisible: await isVisible(page, '.cp-touch'),
+    overlayPresent: await count(page, '.bs-touch') > 0,
+    overlayVisible: await isVisible(page, '.bs-touch'),
     maxTouchPoints: await page.evaluate(() => navigator.maxTouchPoints),
-    hotbarVisible: await isVisible(page, '.cp-hotbar'),
+    hotbarVisible: await isVisible(page, '.bs-hotbar'),
     canvasSize: await page.evaluate(() => {
       const c = document.querySelector('canvas');
       return { w: c.clientWidth, h: c.clientHeight };
@@ -34,23 +34,23 @@ const results = {};
   await page.waitForSelector('canvas');
   await wait(4000);
 
-  const overlay = await count(page, '.cp-touch');
-  const stick = await count(page, '.cp-stick');
-  const moveStick = await count(page, '.cp-stick.move');
-  const lookStick = await count(page, '.cp-stick.look');
-  const skills = await count(page, '.cp-skill');
-  const buttons = await count(page, '.cp-btn');
-  const hotbarHidden = !(await isVisible(page, '.cp-hotbar'));
+  const overlay = await count(page, '.bs-touch');
+  const stick = await count(page, '.bs-stick');
+  const moveStick = await count(page, '.bs-stick.move');
+  const lookStick = await count(page, '.bs-stick.look');
+  const skills = await count(page, '.bs-skill');
+  const buttons = await count(page, '.bs-btn');
+  const hotbarHidden = !(await isVisible(page, '.bs-hotbar'));
 
   // drag the virtual stick forward and confirm the player actually moves
-  const box = await (await page.$('.cp-stick.move')).boundingBox();
+  const box = await (await page.$('.bs-stick.move')).boundingBox();
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   const before = await page.evaluate(() => window.__dbgPlayerPos?.());
   await page.touchscreen.tap(cx, cy); // wake
   // manual multi-step drag via CDP-free touch events
   await page.evaluate(({ cx, cy }) => {
-    const el = document.querySelector('.cp-stick.move');
+    const el = document.querySelector('.bs-stick.move');
     const mk = (type, x, y) => {
       const t = new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
       el.dispatchEvent(new TouchEvent(type, {
@@ -71,7 +71,7 @@ const results = {};
   results.stickHeldState = await page.evaluate(() => window.__dbgInput?.());
   const after = await page.evaluate(() => window.__dbgPlayerPos?.());
   await page.evaluate(() => {
-    const el = document.querySelector('.cp-stick.move');
+    const el = document.querySelector('.bs-stick.move');
     const t = new Touch({ identifier: 1, target: el, clientX: 0, clientY: 0 });
     el.dispatchEvent(new TouchEvent('touchend', {
       touches: [], changedTouches: [t], targetTouches: [], bubbles: true, cancelable: true,
@@ -105,7 +105,7 @@ const results = {};
     }
   };
   await page.evaluate(() => {
-    const el = document.querySelector('.cp-stick.look');
+    const el = document.querySelector('.bs-stick.look');
     const r = el.getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     const mk = (type, x, y) => {
@@ -122,7 +122,7 @@ const results = {};
   results.lookState = await page.evaluate(() => window.__dbgInput?.());
   await holdAndAccumulate(3000); // held: yaw should keep accumulating
   await page.evaluate(() => {
-    const el = document.querySelector('.cp-stick.look');
+    const el = document.querySelector('.bs-stick.look');
     const t = new Touch({ identifier: 2, target: el, clientX: 0, clientY: 0 });
     el.dispatchEvent(new TouchEvent('touchend', {
       touches: [], changedTouches: [t], targetTouches: [], bubbles: true, cancelable: true,

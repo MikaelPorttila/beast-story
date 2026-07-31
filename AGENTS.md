@@ -1,4 +1,4 @@
-# Agent guidelines — Cube Pals
+# Agent guidelines — Beast Story: Bonds of Red
 
 ## Use Bun, not Node/npm
 
@@ -28,7 +28,7 @@ bun tools/screenshot.mjs shots/overview.png "photo=1" 1920 1080 3500
 ```
 
 ```bash
-bun tools/lab-shot.mjs shots/lab-fox.png "pal=emberfox&t=2"
+bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 ```
 
 They need the dev server up (`bun run dev`) and `BROWSER_EXECUTABLE` set in
@@ -83,7 +83,7 @@ once frames come quickly.
   `bun run snapshot [label]` writes a timestamped, self-contained build to `dist/`.
 - There is no unit-test runner. The tests are browser probe scripts that print
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
-  `measure-layout.mjs`, `test-palanim.mjs`, `test-structures.mjs`,
+  `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
   `test-sway.mjs`.
   `tools/capture-set.ps1` (PowerShell, project root) captures the full critic
   shot set.
@@ -95,8 +95,8 @@ once frames come quickly.
   the output is a before/after of the identical walk. A hut, a barrel and the
   perimeter must STOP him; the gate must not — it should land him as deep in
   camp as the run with no collision at all. It also parks him against a wall and
-  reads `__dbgBodies` to check his pals and the wild spawns are not inside it.
-- `test-palanim.mjs` is the animation-continuity guard: it cycles the whole pal
+  reads `__dbgBodies` to check his beasts and the wild spawns are not inside it.
+- `test-beastanim.mjs` is the animation-continuity guard: it cycles the whole beast
   roster through the two active follow slots while yanking the hero around, and
   reports the largest per-frame rotation delta at every rig joint. Everything
   should stay under ~0.35 rad; a joint above a radian is teleporting, not
@@ -116,15 +116,15 @@ TypeScript + three.js, no framework and no asset files — every model, animatio
 and effect is generated in code. Vite serves two entries from the same modules.
 
 **The contract hub.** [src/core/types.ts](src/core/types.ts) holds every
-cross-module interface — `World`, `PalSpecies`/`PalRig`/`PalAnimCtx`, `SkillDef`,
+cross-module interface — `World`, `BeastSpecies`/`BeastRig`/`BeastAnimCtx`, `SkillDef`,
 `Damageable`, `CastRequest`, `EventBus`. Subsystems depend on this file, not on
-each other: combat never imports the world's implementation, pals never import
+each other: combat never imports the world's implementation, beasts never import
 combat. Widen a contract here rather than reaching across modules.
 
 **Composition roots.** [src/main.ts](src/main.ts) is the only place that wires
-Engine + World + Player + Pals + Combat + HUD together, and the only frame loop in
+Engine + World + Player + Beasts + Combat + HUD together, and the only frame loop in
 the game; gameplay policy that is no subsystem's own business (roster, hotbar,
-cooldowns, shop purchases, support-pal AI) lives there.
+cooldowns, shop purchases, support-beast AI) lives there.
 [src/lab/index.ts](src/lab/index.ts) is a second, much smaller loop over the *same*
 modules with a `StubWorld` in place of the streamed one. Never fork model,
 animation or VFX code into `src/lab/`.
@@ -180,7 +180,7 @@ is a rectangle; the footprint counts only material between `MAX_STEP_UP` and
 head height, which is what leaves the Encampment's gate an opening rather than a
 wall and lets a road run under a lamp's bracket. It reaches the player as
 `World.structureTopAt`, a third column-top query beside `getHeight` and
-`trunkSolidTopAt`, so everything that moves — hero, saddle, pal, enemy —
+`trunkSolidTopAt`, so everything that moves — hero, saddle, beast, enemy —
 resolves it against the same `MAX_STEP_UP` ([src/core/types.ts](src/core/types.ts))
 it already used for terrain. `solids=0` keeps the meshes and removes the
 blocking, which is the A/B `tools/test-structures.mjs` runs; `/show-colliders`
@@ -188,7 +188,7 @@ draws the boxes green.
 
 **People.** [src/world/npc.ts](src/world/npc.ts) is the generic half — placement,
 culling, the interact test, the talk state — and a character file is the other
-half, exactly the way `PalActor` and `src/pals/species/*` are split; today the
+half, exactly the way `BeastActor` and `src/beasts/species/*` are split; today the
 only one is [src/world/npc-gain.ts](src/world/npc-gain.ts), the Encampment's
 quest giver, who builds a body with `VoxelModel` and curls a dumbbell in
 `animate(rig, ctx)`. Placement goes THROUGH THE TOWN REGISTRY: a character names
@@ -220,13 +220,13 @@ gain(climb)`, and those two move together on a follower dragged over rising
 ground, so any assertion about clearance alone has to divide the climb term out
 first.
 
-**Pals.** Each species is one self-contained file in `src/pals/species/` exporting
-`species: PalSpecies` and `skills: SkillDef[]`, building its body with `VoxelModel`
+**Beasts.** Each species is one self-contained file in `src/beasts/species/` exporting
+`species: BeastSpecies` and `skills: SkillDef[]`, building its body with `VoxelModel`
 ([src/core/voxel.ts](src/core/voxel.ts)) and animating procedurally in
 `animate(rig, ctx)`. Adding a species means adding its import to
-[src/pals/registry.ts](src/pals/registry.ts) — that module list is what populates
+[src/beasts/registry.ts](src/beasts/registry.ts) — that module list is what populates
 `ALL_SPECIES` and `SKILLS`. `voxelshade.ts` / `glowsprite.ts` are shared helpers,
-not species. `PalActor` ([src/pals/framework.ts](src/pals/framework.ts)) is the
+not species. `BeastActor` ([src/beasts/framework.ts](src/beasts/framework.ts)) is the
 generic half: follow steering, per-locomotion vertical motion, the
 transient-over-base action state machine, XP/levels, damage, death and revive. It
 calls `species.animate()` once per frame with the resolved action; species code
@@ -238,13 +238,13 @@ switching on `SkillDef.targeting`. A new skill is usually data — a `SkillDef` 
 species file — not new code.
 
 **UI and input.** The HUD is a DOM overlay ([src/ui/index.ts](src/ui/index.ts),
-styles injected by `src/ui/styles.ts`), not canvas-drawn. Class names are `cp-*`
+styles injected by `src/ui/styles.ts`), not canvas-drawn. Class names are `bs-*`
 and the layout/crosshair/touch tools assert on them — renaming one breaks a tool.
 `TouchControls` builds the twin-stick overlay only on touch-primary devices.
 `main.ts` exposes read-only probes (`__dbgPlayerPos`, `__dbgCamYaw`, `__dbgInput`)
 that exist purely for those tools; keep them working.
 
-**Game URL parameters.** `photo=1` with `cam=x,y,z` / `look=x,y,z` / `pal=<id>` /
+**Game URL parameters.** `photo=1` with `cam=x,y,z` / `look=x,y,z` / `beast=<id>` /
 `anim=` / `a=<deg>` / `hud=0` stages captures. **`cam` and `look` are OFFSETS
 FROM `world.spawnPoint`, not world coordinates** — feeding them the absolute
 position of a thing you want to photograph silently puts the camera twice as far

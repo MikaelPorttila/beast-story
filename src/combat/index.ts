@@ -87,14 +87,14 @@ export class CombatSystem {
   ) {
     this.vfx = new VFX(scene);
     this.numbers = new DamageNumbers(scene);
-    this.pickups = new Pickups(scene, this.vfx, (itemId, byPal) => {
+    this.pickups = new Pickups(scene, this.vfx, (itemId, byBeast) => {
       // Currency is a running total owned here; everything else is just
       // reported and the bag in main.ts decides what to do with it.
       if (itemDef(itemId).kind === 'currency') {
         this.shardTotal += 1;
         this.bus.emit({ type: 'shardsChanged', total: this.shardTotal });
       }
-      this.bus.emit({ type: 'itemPicked', itemId, byPal });
+      this.bus.emit({ type: 'itemPicked', itemId, byBeast });
     });
     this.projCoreGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
     this.projShellGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
@@ -111,7 +111,7 @@ export class CombatSystem {
   /**
    * Rebind to another zone's World (see world/zones.ts).
    *
-   * Unlike the hero and the pals, most of what combat holds is ZONE-LOCAL and
+   * Unlike the hero and the beasts, most of what combat holds is ZONE-LOCAL and
    * has to go: wild enemies were spawned on the old ground and each captured
    * that world themselves, projectiles are in flight over it, and drops are
    * lying on it. What survives is the running shard total — the one piece of
@@ -289,7 +289,7 @@ export class CombatSystem {
   }
 
   /**
-   * Enemy -> player/pal hit (EnemyCtx callback).
+   * Enemy -> player/beast hit (EnemyCtx callback).
    *
    * Everything below the gate is CONDITIONAL on the hit having landed, which it
    * did not used to be. `Player.takeDamage` has always refused hits inside its
@@ -619,7 +619,7 @@ export class CombatSystem {
     const skill = req.skill;
     // caster swirl
     this.vfx.rise(req.origin.x, req.origin.y - 0.6, req.origin.z, hex, 14, 0.65, 2.0, 0.8, 0.4, 3.2);
-    // heal the most-hurt friendly (player + pals from the last update)
+    // heal the most-hurt friendly (player + beasts from the last update)
     let best: Damageable | null = null;
     let bestRatio = 0.999;
     for (const f of this.targets) {
@@ -680,7 +680,7 @@ export class CombatSystem {
     for (let k = 0; k < drops; k++) this.pickups.spawn(px, py + 0.6, pz, SHARD_ID);
     // Stackable loot on top of the shards. 1-in-4 is a first pass, chosen to be
     // frequent enough that both item kinds turn up in ordinary play and rare
-    // enough that the ground does not fill with cubes the support pal is under
+    // enough that the ground does not fill with cubes the support beast is under
     // orders to ignore. Retune once there is something to spend them on.
     if (Math.random() < 0.25) {
       const id = STACKABLE_IDS[(Math.random() * STACKABLE_IDS.length) | 0];

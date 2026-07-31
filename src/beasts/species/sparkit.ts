@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { makeGlowSprite } from './glowsprite';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
@@ -11,7 +11,7 @@ import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 // ---------------------------------------------------------------------------
 
 // Chrome yellow. Round 6 brought it back up: 0xe8b71e photographed as dull brass
-// the moment the pal stood in tree shade, and an electric rodent whose whole
+// the moment the beast stood in tree shade, and an electric rodent whose whole
 // identity is "bright" cannot afford a 60%-luminance coat.
 const YEL = 0xffcb2e;
 const YEL_LIGHT = 0xfff09a;  // sunlit crest along the spine and skull
@@ -54,7 +54,7 @@ const BASE: Record<string, readonly [number, number, number, number, number, num
   legBR: [-0.15, 0.06, -0.13, 0, 0, 0],
 };
 
-function buildRig(): PalRig {
+function buildRig(): BeastRig {
   const root = new THREE.Group();
   const parts: Record<string, THREE.Object3D> = {};
 
@@ -168,7 +168,7 @@ function buildRig(): PalRig {
   const tailG = pivot('tail', body);
   // The bolt runs DARK at the root and gets hotter every step, instead of being
   // one flat body-yellow zigzag. The tail stands a good 0.6 units clear above the
-  // skull, so it is never occluded — but photographed against sky in a six-pal lab
+  // skull, so it is never occluded — but photographed against sky in a six-beast lab
   // lineup it simply was not there: YEL / YEL_LIGHT on a bright sky is pale on pale,
   // and this bolt IS the whole electric read. A dark root also separates the tail
   // from the yellow body it grows out of, which the old YEL_DARK base did not.
@@ -196,7 +196,7 @@ function buildRig(): PalRig {
   // Trimmed for the bloom pass: the bolt tip should read as hot metal, not as a
   // flashbulb that eats the tail's zigzag shape.
   // Halved for the bloom pass. At 0.7 / 1.05 the tail tip photographed as a single
-  // clipped white cube the size of the pal's head, with the zigzag bolt shape gone
+  // clipped white cube the size of the beast's head, with the zigzag bolt shape gone
   // inside it — the same failure the emberfox flame had, and just as fatal here since
   // the bolt IS this species' silhouette read.
   t2.markEmissive(YEL_LIGHT, 0.34);     // electric-yellow glow up the bolt
@@ -207,8 +207,8 @@ function buildRig(): PalRig {
   // Small halo on the white-hot bolt tip; rides the tail rig. 0.20 / 0.07, down
   // from 0.30 / 0.16: the bolt IS this species' silhouette read, and a 0.30-unit
   // additive disc plus the bloom pass on the emissive tip buried the zigzag in a
-  // pale ball half the size of the pal's head — visible as a blown blob over the
-  // sparkit's head in the ten-pal lab lineup. See glowsprite.ts.
+  // pale ball half the size of the beast's head — visible as a blown blob over the
+  // sparkit's head in the ten-beast lab lineup. See glowsprite.ts.
   const tipGlow = makeGlowSprite(0xffe680, 0.20, 0.07);
   tipGlow.position.set(0, 0.47, 0.05);
   tipG.add(tipGlow);
@@ -252,7 +252,7 @@ function pulse(x: number, sharp: number): number {
 }
 
 /**
- * The scamper, on an integrated phase — see PalAnimCtx.cycle(). 9.5 rad/s
+ * The scamper, on an integrated phase — see BeastAnimCtx.cycle(). 9.5 rad/s
  * plodding to 15 flat out (1.5-2.4 Hz), scaled by the gait blend, which is
  * exactly the shape that made `t * freq` teleport the legs whenever the mouse
  * changed pace.
@@ -269,7 +269,7 @@ function resetPose(parts: Record<string, THREE.Object3D>): void {
   }
 }
 
-function animate(rig: PalRig, ctx: PalAnimCtx): void {
+function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const p = rig.parts;
   resetPose(p);
   const body = p['body'];
@@ -551,12 +551,12 @@ export const skills: SkillDef[] = [
 // Species
 // ---------------------------------------------------------------------------
 
-export const species: PalSpecies = {
+export const species: BeastSpecies = {
   id: 'sparkit',
-  nameKey: 'pal.sparkit.name',
+  nameKey: 'beast.sparkit.name',
   element: 'electric',
   locomotion: 'ground',
-  descriptionKey: 'pal.sparkit.desc',
+  descriptionKey: 'beast.sparkit.desc',
   baseStats: { maxHp: 42, attack: 13, defense: 7, speed: 5.4 },
   skills: skills.map((s) => s.id),
   buildRig,

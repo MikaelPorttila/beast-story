@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
@@ -155,7 +155,7 @@ function buildLeg(kind: 'FL' | 'FR' | 'BL' | 'BR'): THREE.Mesh {
   return mesh;
 }
 
-function buildRig(): PalRig {
+function buildRig(): BeastRig {
   const root = new THREE.Group();
   const body = new THREE.Group();
   body.position.set(0, BODY_Y, 0);
@@ -355,7 +355,7 @@ function setCrystal(P: Parts, intensity: number, scale: number, tilt: number): v
 }
 
 /**
- * Integrated cycle slots — see PalAnimCtx.cycle(). The stomp runs at 5.5 rad/s
+ * Integrated cycle slots — see BeastAnimCtx.cycle(). The stomp runs at 5.5 rad/s
  * walking, 8.5 running and 7.0 paddling, and the stone tail wag at 4 / 6; those
  * are three and two different rates on ONE set of legs and ONE tail. Multiplied
  * into the session clock, every walk<->run flip jump-cut the pose — and the
@@ -386,7 +386,7 @@ function stompGait(P: Parts, ph: number, amp: number, bob: number): void {
   P.crystal.rotation.z = 0.12 + 0.06 * Math.sin(ph * 2 - 1.0);
 }
 
-function animate(rig: PalRig, ctx: PalAnimCtx): void {
+function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const P = rig.parts;
   const t = ctx.time, at = ctx.actionTime, ms = ctx.moveSpeed;
 
@@ -589,12 +589,12 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 // ---------------------------------------------------------------------------
 // Species
 // ---------------------------------------------------------------------------
-export const species: PalSpecies = {
+export const species: BeastSpecies = {
   id: 'boulderpup',
-  nameKey: 'pal.boulderpup.name',
+  nameKey: 'beast.boulderpup.name',
   element: 'rock',
   locomotion: 'ground',
-  descriptionKey: 'pal.boulderpup.desc',
+  descriptionKey: 'beast.boulderpup.desc',
   baseStats: { maxHp: 64, attack: 11, defense: 16, speed: 4.2 },
   skills: skills.map((s) => s.id),
   buildRig,

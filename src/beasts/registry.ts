@@ -1,4 +1,4 @@
-import type { PalSpecies, SkillDef } from '../core/types';
+import type { BeastSpecies, SkillDef } from '../core/types';
 import * as emberfox from './species/emberfox';
 import * as aquaxol from './species/aquaxol';
 import * as sproutle from './species/sproutle';
@@ -15,7 +15,7 @@ const modules = [
   boulderpup, galebird, umbrakit, lumimoth, drakelet,
 ];
 
-export const ALL_SPECIES: PalSpecies[] = modules.map((m) => m.species);
+export const ALL_SPECIES: BeastSpecies[] = modules.map((m) => m.species);
 
 export const SKILLS: Map<string, SkillDef> = new Map();
 for (const m of modules) {

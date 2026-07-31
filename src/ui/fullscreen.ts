@@ -7,12 +7,12 @@ import { injectStyles } from './styles';
  *
  * WHY IT IS A SEPARATE OVERLAY AND NOT A HUD CHILD
  *
- * `.cp-root` is `z-index:20`, which makes it a stacking context, so a child of
+ * `.bs-root` is `z-index:20`, which makes it a stacking context, so a child of
  * it can never hit-test above the touch overlay at `z-index:30` — and the pill
  * has to sit over the corner the transparent look pad owns. So this is a
  * body-level sibling at `z-index:40`, built and removed by this module alone.
  * Its CSS still lives in `ui/styles.ts` with the rest of the HUD sheet
- * (`cp-fsprompt` / `cp-fs-btn`), and it follows the same rule everything else
+ * (`bs-fsprompt` / `bs-fs-btn`), and it follows the same rule everything else
  * there follows: the interactive element opts INTO pointer events, nothing else
  * does, and dismissing it deletes the node — there is no invisible wrapper left
  * over the play area to eat a drag.
@@ -40,7 +40,7 @@ import { injectStyles } from './styles';
  */
 
 /** localStorage key. Namespaced so a later save system can share the prefix. */
-const STORAGE_KEY = 'cp:fullscreen-prompt';
+const STORAGE_KEY = 'bs:fullscreen-prompt';
 
 type Answer = 'yes' | 'no';
 
@@ -148,15 +148,15 @@ export class FullscreenPrompt {
     injectStyles();
 
     const el = document.createElement('div');
-    el.className = 'cp-fsprompt';
+    el.className = 'bs-fsprompt';
     el.innerHTML =
       `<div class="txt">${t('fs.prompt')}</div>` +
-      `<button class="cp-fs-btn no" type="button">${t('fs.no')}</button>` +
-      `<button class="cp-fs-btn yes" type="button">${t('fs.yes')}</button>`;
+      `<button class="bs-fs-btn no" type="button">${t('fs.no')}</button>` +
+      `<button class="bs-fs-btn yes" type="button">${t('fs.yes')}</button>`;
     this.el = el;
 
-    const yes = el.querySelector('.cp-fs-btn.yes') as HTMLButtonElement;
-    const no = el.querySelector('.cp-fs-btn.no') as HTMLButtonElement;
+    const yes = el.querySelector('.bs-fs-btn.yes') as HTMLButtonElement;
+    const no = el.querySelector('.bs-fs-btn.no') as HTMLButtonElement;
 
     yes.addEventListener('click', () => {
       // FIRST — the browser only honours this while the activation from this

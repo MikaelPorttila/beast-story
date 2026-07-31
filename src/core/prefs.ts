@@ -7,7 +7,7 @@
  * Where both have an opinion, the URL wins — see `resolve`.
  *
  * PERSISTENCE follows ui/fullscreen.ts, which already owns the only other
- * localStorage key in the game and already established the shape: a `cp:`
+ * localStorage key in the game and already established the shape: a `bs:`
  * prefix so a later save system can share it, and try/catch on BOTH sides
  * because localStorage throws outright in some private-browsing modes. A
  * failure degrades to defaults, which is the harmless direction — the player
@@ -53,7 +53,7 @@ export const DEFAULT_PREFS: Readonly<Prefs> = {
   invertLookY: true,
 };
 
-const STORAGE_KEY = 'cp:prefs';
+const STORAGE_KEY = 'bs:prefs';
 
 /**
  * Clamp one stored number into 0..1, falling back to the default.

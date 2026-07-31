@@ -21,7 +21,7 @@ const JUMP_BUFFER = 0.12;
 const TURN_RATE = 14;
 // MAX_STEP_UP — the highest ledge the hero can walk onto — moved to
 // core/types.ts when settlements grew colliders: it is now the one rule the
-// hero, the saddle, a following pal, a wild enemy and the town builders'
+// hero, the saddle, a following beast, a wild enemy and the town builders'
 // footprint measurement all resolve against. Its derivation from JUMP_VEL and
 // GRAVITY, which still live here, is written on it there.
 /**
@@ -222,7 +222,7 @@ export class Player {
    */
   onCanopy = false;
   /**
-   * True while sitting in a pal's saddle. The hero controller stops moving him
+   * True while sitting in a beast's saddle. The hero controller stops moving him
    * entirely — MountController owns position, velocity and heading, and writes
    * them here every slice — but everything that is ABOUT the hero rather than
    * about his locomotion (regen, damage, the flash, the animator, the camera)
@@ -240,7 +240,7 @@ export class Player {
    *
    * With `position` and `velocity` above it also makes the hero a `ContactMover`
    * (world/touch-particles.ts) structurally, so the contact-particle system can
-   * be handed a mount or a pal instead without knowing what either is.
+   * be handed a mount or a beast instead without knowing what either is.
    */
   readonly radius = BODY_RADIUS;
   onAttack?: (origin: THREE.Vector3, direction: THREE.Vector3) => void;
@@ -403,7 +403,7 @@ export class Player {
 
   // ---- mounting -----------------------------------------------------------
   // The hero exposes the camera basis and a saddle pose, and MountController
-  // (src/player/mount.ts) does the rest. Nothing about pals is known in here.
+  // (src/player/mount.ts) does the rest. Nothing about beasts is known in here.
 
   /** Horizontal camera forward — the basis movement input is resolved against. */
   get camForward(): THREE.Vector3 { return this.cam.forward; }
@@ -782,7 +782,7 @@ export class Player {
     // Two surfaces can, and they are not the same kind of thing.
     //
     // The TERRAIN is solid: it catches the feet from any direction and is what
-    // pals, enemies, the camera and every drop resolve against too.
+    // beasts, enemies, the camera and every drop resolve against too.
     //
     // A TREE CROWN is a ONE-WAY PLATFORM. It has to be, and the reason is the
     // same one written on World.trunkSolidTopAt: a canopy is 7-10 units across
@@ -870,7 +870,7 @@ export class Player {
   private finishAlive(dt: number, moving: boolean): void {
     const input = this.input;
 
-    // ---- speed norm for animation / pals ----
+    // ---- speed norm for animation / beasts ----
     const hspeed = Math.hypot(this.velocity.x, this.velocity.z);
     this.moveSpeedNorm = clamp(hspeed / WALK_SPEED, 0, 1);
 

@@ -1,19 +1,19 @@
-// Pal animation continuity probe.
+// Beast animation continuity probe.
 //
-// Prints, per pal and per rig joint, the LARGEST rotation change between two
+// Prints, per beast and per rig joint, the LARGEST rotation change between two
 // consecutive rendered frames. A procedural cycle is continuous by
 // construction, so those deltas should stay in the tenths of a radian; a joint
 // that swings a radian or more between adjacent frames is not animating, it is
 // teleporting, and that is what reads on screen as a flicker or an impossibly
 // fast flap.
 //
-// The run deliberately provokes the cases where a pal's speed spikes: it lets
+// The run deliberately provokes the cases where a beast's speed spikes: it lets
 // the clock accumulate first (the phase error of a `time * freq` cycle scales
 // with elapsed time, so a fresh page hides the bug), then yanks the hero around
-// with __dbgTp so every pal slams from a standstill into full catch-up follow
+// with __dbgTp so every beast slams from a standstill into full catch-up follow
 // and back.
 //
-// Usage: bun tools/test-palanim.mjs [soakSeconds]
+// Usage: bun tools/test-beastanim.mjs [soakSeconds]
 import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
 
 const soak = Number(process.argv[2] ?? 30);
@@ -33,8 +33,8 @@ async function boot() {
   reloaded = false;
   await page.goto(url, { waitUntil: 'load', timeout: 30000 });
   await page.waitForSelector('canvas', { timeout: 15000 });
-  await page.waitForFunction('typeof __dbgPalAnim === "function"', { timeout: 15000 });
-  await page.waitForFunction('__dbgPalAnim().length > 0', { timeout: 20000 });
+  await page.waitForFunction('typeof __dbgBeastAnim === "function"', { timeout: 15000 });
+  await page.waitForFunction('__dbgBeastAnim().length > 0', { timeout: 20000 });
   reloaded = false;
   // Let the session clock run. The phase error of a `time * freq` cycle is
   // proportional to `time`, so measuring at t~0 understates it by an order of
@@ -43,7 +43,7 @@ async function boot() {
 }
 
 // Long enough to cycle the whole roster through the two active follow slots
-// (']' swaps the primary, '[' the support) — the eight pals parked in reserve
+// (']' swaps the primary, '[' the support) — the eight beasts parked in reserve
 // sit at moveSpeed 0 and cannot show the bug at all.
 const SAMPLE_MS = 26000;
 
@@ -51,7 +51,7 @@ const SAMPLE_MS = 26000;
 // alive for the whole sample dies the moment the renderer hiccups.
 const startCollector = (sampleMs) => page.evaluate((sampleMs) => {
   const LOCO = new Set(['idle', 'walk', 'run', 'fly', 'swim']);
-  const worst = new Map();   // "pal.part.axis" -> worst per-frame delta
+  const worst = new Map();   // "beast.part.axis" -> worst per-frame delta
   let prev = null;
   let hops = 0;
   const start = performance.now();
@@ -60,7 +60,7 @@ const startCollector = (sampleMs) => page.evaluate((sampleMs) => {
   const step = () => {
     const el = performance.now() - start;
     // Provoke the spike: shove the hero to a fresh column every 1.2 s so the
-    // pals alternate between arriving (moveSpeed -> 0) and full catch-up
+    // beasts alternate between arriving (moveSpeed -> 0) and full catch-up
     // (moveSpeed -> 1). That ramp is where a speed-scaled frequency does its
     // damage, and it is the "teleport / re-anchor" case from the report.
     if (el > hops * 1200) {
@@ -68,7 +68,7 @@ const startCollector = (sampleMs) => page.evaluate((sampleMs) => {
       const a = hops * 1.7;
       window.__dbgTp(Math.cos(a) * 14, Math.sin(a) * 14);
     }
-    const now = window.__dbgPalAnim();
+    const now = window.__dbgBeastAnim();
     window.__animProbeState.frames++;
     if (now[0]) window.__animProbeState.clock = now[0].time;
     if (prev) {
@@ -76,7 +76,7 @@ const startCollector = (sampleMs) => page.evaluate((sampleMs) => {
         const a = prev[i], b = now[i];
         if (a.id !== b.id) continue;
         // Only compare frames that are in the SAME action, and only the
-        // locomotion actions. An action change is a deliberate pose cut — a pal
+        // locomotion actions. An action change is a deliberate pose cut — a beast
         // snapping out of an attack into a run is meant to move a long way in
         // one frame — and counting those would drown out the thing under test,
         // which is whether a cycle stays continuous WHILE it runs.
@@ -86,7 +86,7 @@ const startCollector = (sampleMs) => page.evaluate((sampleMs) => {
           const pa = a.parts[k], pb = b.parts[k];
           // The contact blob counter-rotates against the rig root to stay flat
           // on the ground, so its local rotation wraps through +-pi every time
-          // the pal turns past south. That is a 2pi bookkeeping step, not
+          // the beast turns past south. That is a 2pi bookkeeping step, not
           // motion, and it drowns out everything real. Skip it.
           if (!pa || !pb || k === 'blob') continue;
           for (let ax = 0; ax < 3; ax++) {
@@ -109,12 +109,12 @@ const collect = () => page.evaluate(() => {
   const s = window.__animProbeState;
   const rows = [...s.worst.entries()].map(([k, v]) => ({ joint: k, d: v.d, action: v.action, ms: v.ms, t: v.t }));
   rows.sort((a, b) => b.d - a.d);
-  const perPal = new Map();
+  const perBeast = new Map();
   for (const r of rows) {
     const id = r.joint.split('.')[0];
-    if (!perPal.has(id)) perPal.set(id, r);
+    if (!perBeast.has(id)) perBeast.set(id, r);
   }
-  return { elapsed: s.clock, frames: s.frames, top: rows.slice(0, 12), perPal: [...perPal.values()] };
+  return { elapsed: s.clock, frames: s.frames, top: rows.slice(0, 12), perBeast: [...perBeast.values()] };
 });
 
 let result = null;
@@ -136,8 +136,8 @@ if (!result) { console.error('could not complete a sample without a reload'); pr
 
 const f = (n) => n.toFixed(3);
 console.log(`session clock ${f(result.elapsed)} s over ${result.frames} sampled frames`);
-console.log('\nWORST per-frame rotation delta, by pal:');
-for (const r of result.perPal) {
+console.log('\nWORST per-frame rotation delta, by beast:');
+for (const r of result.perBeast) {
   console.log(`  ${r.joint.padEnd(30)} ${f(r.d).padStart(9)} rad   (${r.action}, ms=${f(r.ms)}, clock=${f(r.t)}s)`);
 }
 console.log('\nWORST 12 joints overall:');

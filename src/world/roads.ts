@@ -11,7 +11,7 @@
  *      is what turns a crossing into a bridge;
  *   3. a HEIGHT FIELD (`RoadNetwork`, which implements `RoadField` from
  *      terrain.ts) that folds both back into the terrain, so collision, the
- *      mesher, pals, enemies and the camera all see the same road for free.
+ *      mesher, beasts, enemies and the camera all see the same road for free.
  *
  * WHY THE DECK IS CONTINUOUS AND THE REST OF THE WORLD IS NOT.
  *

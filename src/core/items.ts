@@ -4,10 +4,10 @@ import { tn } from '../i18n';
 /**
  * The item catalogue and the player's bag.
  *
- * This is deliberately the smallest thing that makes the pal fetch rule mean
+ * This is deliberately the smallest thing that makes the beast fetch rule mean
  * something: one currency, two stackables, and a bag of counts. There is no
  * rarity, weight, stack cap, equipment slot or crafting input here, and none
- * should be added until a system actually reads it — the drop pool, the pal
+ * should be added until a system actually reads it — the drop pool, the beast
  * errand and the HUD chip between them only need an id, a name key, a kind and
  * a colour.
  *

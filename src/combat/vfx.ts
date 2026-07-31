@@ -589,7 +589,7 @@ const SLASH_PITCH = -0.30;
 // -0.32 leaves it at chest-to-shoulder height, crossing the target, not the
 // caster.
 const SLASH_DROP = -0.32;
-// The callers' scales (1.6 for the sword, 1.9 for a pal's melee skill) were
+// The callers' scales (1.6 for the sword, 1.9 for a beast's melee skill) were
 // authored against a flat ground crescent whose apparent size collapsed with the
 // camera pitch. A ring facing the lens keeps its full size, so the same numbers
 // read about 20% too large; scaling here rather than asking every caller to
@@ -1258,7 +1258,7 @@ export class VFX {
 
   /**
    * Shader warm-up: put one of every effect on screen so its program is linked
-   * and takes its first draw NOW, at boot, instead of the first time a pal
+   * and takes its first draw NOW, at boot, instead of the first time a beast
    * casts. Measured, that first cast linked 14 programs and the GPU process
    * then stalled a frame for ~500 ms. See warmUpShaders() in main.ts.
    */

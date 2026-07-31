@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const ref = process.argv[2] ?? 'HEAD';
-const dir = mkdtempSync(join(tmpdir(), 'cp-verify-'));
+const dir = mkdtempSync(join(tmpdir(), 'bs-verify-'));
 
 const run = (cmd, args) =>
   spawnSync(cmd, args, { stdio: 'inherit', shell: true, encoding: 'utf8' });

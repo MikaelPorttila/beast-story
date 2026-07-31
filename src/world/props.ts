@@ -94,7 +94,7 @@ export interface Template {
    * enough on screen that bending them reads as a bug rather than as wind.
    *
    * `Accum` divides each vertex's own y by it and stores the ratio as the
-   * `cpSwayH` attribute — 0 at the root, 1 at the tip — which is the only thing
+   * `bsSwayH` attribute — 0 at the root, 1 at the tip — which is the only thing
    * world/sway.ts's vertex shader needs to know about a blade. See `withSway`,
    * and note that it is MEASURED off the baked vertices rather than authored.
    */
@@ -383,7 +383,7 @@ export class Accum {
       // number that only ever needs to say "roughly how far up the blade", and
       // 1/255 of a blade is far below what a bend of a third of a unit can
       // show.
-      geo.setAttribute('cpSwayH', new THREE.BufferAttribute(new Uint8Array(this.sway), 1, true));
+      geo.setAttribute('bsSwayH', new THREE.BufferAttribute(new Uint8Array(this.sway), 1, true));
       // The shader displaces vertices by up to SWAY_MAX_PUSH horizontally, and
       // the sphere computed above knows nothing about that. Grass at the rim of
       // a chunk would then be culled a frame before it left the screen, which

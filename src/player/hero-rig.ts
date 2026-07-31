@@ -349,7 +349,7 @@ export function buildHeroRig(): HeroRig {
     // ground rather than floating over it. The cost is that he no longer darkens
     // in shade, which matters more now that trees are tall enough to cast real
     // shade; three has no per-object "receive the world's shadows but not my
-    // own", so it is one or the other. Pals make the same trade (pals/framework).
+    // own", so it is one or the other. Beasts make the same trade (beasts/framework).
     mesh.receiveShadow = false;
     if (mesh.material instanceof THREE.MeshStandardMaterial) {
       materials.push(mesh.material);

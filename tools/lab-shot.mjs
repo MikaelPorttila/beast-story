@@ -2,8 +2,8 @@
 // Usage: bun tools/lab-shot.mjs <out.png> "<labQuery>" [width] [height]
 // The lab's ?t= parameter freezes a deterministic frame, so shots are
 // reproducible and need no settle time.
-//   bun tools/lab-shot.mjs shots/lab-fox.png "pal=emberfox&t=2&anim=cast"
-//   bun tools/lab-shot.mjs shots/lab-all.png "pals=all&t=1.5" 2000 700
+//   bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2&anim=cast"
+//   bun tools/lab-shot.mjs shots/lab-all.png "beasts=all&t=1.5" 2000 700
 import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
 
 const [out = 'lab.png', query = '', w = '1000', h = '800'] = process.argv.slice(2);

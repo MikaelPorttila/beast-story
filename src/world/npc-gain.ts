@@ -297,7 +297,7 @@ function mkMesh(model: VoxelModel, out: NpcRig): THREE.Mesh {
     (g.getAttribute('color') as THREE.BufferAttribute).array as Float32Array,
   );
   mesh.position.y = baseY * S;
-  // Casts but does not receive, exactly like the hero and the pals: a rig built
+  // Casts but does not receive, exactly like the hero and the beasts: a rig built
   // from separate parts a few centimetres apart shadows itself, and the band it
   // prints lands across the one part that has to read — his face.
   mesh.receiveShadow = false;
@@ -396,7 +396,7 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
  *
  * Every segment is a smoothstep, so the curve's slope is zero at each junction
  * and the whole thing is continuous in the FIRST derivative as well as the
- * value. That is the same standard `test-palanim.mjs` holds the pal rigs to: the
+ * value. That is the same standard `test-beastanim.mjs` holds the beast rigs to: the
  * fastest this moves is (1.5 / 0.30) / 4.6 = 1.09 of the range per second,
  * times a 1.65 rad range = 1.8 rad/s, i.e. 0.06 rad in a 30 fps frame and 0.12
  * at 15 fps — comfortably inside the ~0.35 rad ceiling a joint may move between
@@ -412,7 +412,7 @@ function repCurve(u: number): number {
 function animate(rig: NpcRig, ctx: NpcAnimCtx): void {
   const p = rig.parts;
   // A CONSTANT frequency, so multiplying the clock out is safe here — the
-  // discontinuity `PalAnimCtx.cycle` exists to avoid only appears when a rate
+  // discontinuity `BeastAnimCtx.cycle` exists to avoid only appears when a rate
   // changes, and nothing about this rep ever speeds up.
   const u = (ctx.time / REP) % 1;
   const c = repCurve(u);

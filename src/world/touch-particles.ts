@@ -36,7 +36,7 @@
  *            that is a flag on the kind, not new physics.
  *   dust     probe: the MOUNT's grounded speed over a threshold. The mover is
  *            the mount rather than the hero, which is why `ContactMover` is an
- *            interface and not `Player` — pass `mount.pal` and it works.
+ *            interface and not `Player` — pass `mount.beast` and it works.
  *
  * All three of those compose with SNOW for free: a source fills `ContactPoint.
  * snow` from `world.snowCoverAt` in its probe (`snowShare` does the curve) and
@@ -99,8 +99,8 @@ const _col = new THREE.Color();
 
 /**
  * Anything that can brush against the world. `Player` satisfies it structurally,
- * and so does a `PalActor` — which is how a mount's gallop dust would get in
- * without this file learning what a pal is.
+ * and so does a `BeastActor` — which is how a mount's gallop dust would get in
+ * without this file learning what a beast is.
  */
 export interface ContactMover {
   readonly position: THREE.Vector3;

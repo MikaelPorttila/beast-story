@@ -90,7 +90,7 @@ export const postStats = {
  * world. Rendering a second, emissive-only pass is the only clean split.
  *
  * The usual tradeoff of that approach is that the emissive pass has no occluders,
- * so glows shine straight through solid geometry — and it was NOT subtle: a pal's
+ * so glows shine straight through solid geometry — and it was NOT subtle: a beast's
  * flame behind a terrain cube printed a soft bright smudge on the middle of the
  * cube's shadowed face, which reads as a rendering bug.
  *
@@ -364,7 +364,7 @@ class EmissiveBloomPass extends Pass {
 
   /**
    * Decide, per material, what counts as a glow source. Runs every frame so
-   * transient emissives (the red hit flash pals get) light up too.
+   * transient emissives (the red hit flash beasts get) light up too.
    *
    * The one thing that must NOT get in is the cloud deck. Cloud voxels carry a
    * near-white emissive (`0xf7fafc`) purely as a diffuse brightener, and clouds
@@ -408,7 +408,7 @@ class EmissiveBloomPass extends Pass {
 
       // Opt-out for additive things whose halo is authored by hand rather than
       // blurred (the sun disk — see engine.ts).
-      if (obj.userData.cpNoBloom === true) {
+      if (obj.userData.bsNoBloom === true) {
         if (obj.layers.isEnabled(BLOOM_LAYER)) obj.layers.disable(BLOOM_LAYER);
         return;
       }
@@ -572,14 +572,14 @@ class EmissiveBloomPass extends Pass {
  * corner-AO table in world/chunk.ts), which is where it belongs.
  *
  * What is left is the thing screen-space AO is actually good at and baked vertex
- * AO cannot do at all: contact between SEPARATE objects. A pal standing on
+ * AO cannot do at all: contact between SEPARATE objects. A beast standing on
  * grass, a rock sitting in a meadow, a shop's stilts meeting sand — none of that
- * is in any mesh's vertex data. Hence a world-space radius of ~1.5 units (a pal
+ * is in any mesh's vertex data. Hence a world-space radius of ~1.5 units (a beast
  * is ~1.5 units tall, a terrain cube 1.0) and a gentle exponent, which reads as
  * a soft darkening ring where things touch the ground rather than as a grey film.
  *
  * A world-space radius is also why the two-scales problem from round 2 is gone:
- * it no longer matters that a pal's own voxels are 0.08 units while a terrain
+ * it no longer matters that a beast's own voxels are 0.08 units while a terrain
  * cube is 1.0, because we are no longer trying to shade either one's creases.
  *
  * GTAOPass rebuilds depth and normals by re-rendering the scene with a
@@ -701,7 +701,7 @@ class OpaqueGTAOPass extends GTAOPass {
  * bright, clean and saturated, not a teal-and-orange blockbuster.
  */
 const TonemapGradeShader = {
-  name: 'CubePalsOutput',
+  name: 'BeastStoryOutput',
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
     /** Mirrors renderer.toneMappingExposure; PostFX.render() keeps it in sync. */
@@ -844,7 +844,7 @@ const TonemapGradeShader = {
     // colour in this project was solved backwards through THIS curve, and the
     // ?post=0 fallback still uses the renderer's built-in copy of it.
     //
-    // THE cp PREFIX IS LOAD-BEARING. three injects tonemapping_pars_fragment —
+    // THE bs PREFIX IS LOAD-BEARING. three injects tonemapping_pars_fragment —
     // which defines RRTAndODTFit and ACESFilmicToneMapping — into any material
     // with toneMapped left on that renders to the DEFAULT FRAMEBUFFER. This pass
     // is normally followed by SMAA and so draws into a render target, where the
@@ -852,12 +852,12 @@ const TonemapGradeShader = {
     // and unprefixed names collided with "function already has a body". The
     // material also sets toneMapped = false (see the constructor) so the chunk is
     // never injected and the curve can never be applied twice.
-    vec3 cpRRTAndODTFit(vec3 v) {
+    vec3 bsRRTAndODTFit(vec3 v) {
       vec3 a = v * (v + 0.0245786) - 0.000090537;
       vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
       return a / b;
     }
-    vec3 cpAcesFilmic(vec3 color) {
+    vec3 bsAcesFilmic(vec3 color) {
       const mat3 ACESInputMat = mat3(
         vec3(0.59719, 0.07600, 0.02840),
         vec3(0.35458, 0.90834, 0.13383),
@@ -870,7 +870,7 @@ const TonemapGradeShader = {
       );
       color *= uExposure / 0.6;
       color = ACESInputMat * color;
-      color = cpRRTAndODTFit(color);
+      color = bsRRTAndODTFit(color);
       color = ACESOutputMat * color;
       return clamp(color, 0.0, 1.0);
     }
@@ -895,7 +895,7 @@ const TonemapGradeShader = {
       }
 
       // 1. The one HDR -> display step.
-      c = cpAcesFilmic(c);
+      c = bsAcesFilmic(c);
 
       // 2. sRGB encode. Same piecewise curve three's colorspace_fragment uses.
       c = mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(0.41666)) - 0.055,
@@ -1055,7 +1055,7 @@ export class PostFX {
       // spans 8 pixels of the final image. A wide contact term is smooth by
       // nature and wants more smoothing than the old crevice term did (3), but
       // three's default of 8 (16 effective) smeared occlusion a visible distance
-      // off silhouettes — worst on a pal against the sky.
+      // off silhouettes — worst on a beast against the sky.
       ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, rings: 2, samples: 16 });
       ao.blendIntensity = opts.ao;
       // ?aoview=1 renders the denoised AO buffer straight to screen. The only
@@ -1070,7 +1070,7 @@ export class PostFX {
     if (opts.bloom > 0) {
       // radius 0.38, not the 0.72 an Unreal preset uses: a wide radius spends the
       // energy on a big soft halo, which on a solid block of emissive voxels is
-      // exactly the "blob that ate the pal" failure. Biasing toward the tight mips
+      // exactly the "blob that ate the beast" failure. Biasing toward the tight mips
       // makes a shop crystal read as a bright gem you could reach out and touch
       // and still leaves the emberfox's tail a fox tail. (It was 0.50, which is the
       // one value where the weighting function collapses to uniform — see w() in
@@ -1091,7 +1091,7 @@ export class PostFX {
     // HDR -> display, plus the grade. Must come after everything that wants
     // linear values, and before SMAA, which needs display-referred colour.
     const output = new ShaderPass(TonemapGradeShader);
-    // See cpAcesFilmic: this shader does the tone curve itself, so three must not
+    // See bsAcesFilmic: this shader does the tone curve itself, so three must not
     // inject its own (which it does for any toneMapped material drawing to the
     // default framebuffer — i.e. whenever this pass is last, as with ?aa=0).
     output.material.toneMapped = false;
@@ -1166,8 +1166,8 @@ export function readPostOptions(search: string): {
     enabled: p.get('post') !== '0',
     // 1.15. GTAOPass's blend lerps white toward the AO buffer by this factor, so
     // above 1.0 it darkens harder than the geometry says. Swept at 1.0/1.2/1.35/
-    // 1.6 on the hero+pal framing: 1.0 grounded the characters but you had to look
-    // for it, 1.6 started dimming whole pal bodies (the emberfox's belly went
+    // 1.6 on the hero+beast framing: 1.0 grounded the characters but you had to look
+    // for it, 1.6 started dimming whole beast bodies (the emberfox's belly went
     // grubby). 1.35 plants a foot on the ground and stops there.
     //
     // Down from 1.35 this round, and the reason is that overshooting past 1.0 is
@@ -1181,7 +1181,7 @@ export function readPostOptions(search: string): {
     // 63% of what little light was there. 1.15 still overshoots enough to plant a
     // foot and costs that region ~20% instead of 63%.
     ao: num('ao', 1.15),
-    // World units (see the pass). 1.8 — a shade over a pal's height and nearly
+    // World units (see the pass). 1.8 — a shade over a beast's height and nearly
     // twice a terrain cube, i.e. the reach over which a foot, a rock's base or a
     // shop's stilt darkens the ground it stands on. 2.5+ wraps a whole creature
     // and reads as dirt rather than as contact.
@@ -1193,7 +1193,7 @@ export function readPostOptions(search: string): {
     // exceeds this, so it is the "how thick do I assume an occluder is" knob.
     // It is also the range over which a FOREGROUND object may darken the surface
     // behind it, i.e. the halo knob: at 1.6 with the old wide screen-space radius
-    // a pal standing a metre in front of a terrace wall printed a 30-pixel dark
+    // a beast standing a metre in front of a terrace wall printed a 30-pixel dark
     // aura all round its silhouette. 1.0 is matched to the contact radius, so the
     // worst case is a soft shadow a single cube deep behind a silhouette — which
     // is what a contact term is supposed to look like.
@@ -1209,7 +1209,7 @@ export function readPostOptions(search: string): {
     aoDiv: Math.max(1, num('aoq', 2)),
     // 0.40, not an Unreal-ish 0.85: every glow here is a solid block of emissive
     // voxels rather than a point source, and at 0.85 the emberfox's flame tail
-    // became a white blob that swallowed the pal's whole silhouette. Paired with
+    // became a white blob that swallowed the beast's whole silhouette. Paired with
     // the tight bloom radius below, 0.40 buys back the punch a shop crystal needs
     // without the blob coming back.
     bloom: num('bloom', 0.40),

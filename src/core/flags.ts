@@ -10,7 +10,7 @@
  *   clouds=0    no cloud deck, no drifting motes
  *   water=0     no water surface meshes
  *   enemies=0   no wild spawns
- *   pals=0      no pal actors at all (nothing built, nothing updated)
+ *   beasts=0    no beast actors at all (nothing built, nothing updated)
  *   shadows=0   no shadow map
  *   towns=0     no settlements and no roads — the world before world/towns.ts.
  *               The terrain corridor goes with them, so this also prices what
@@ -74,7 +74,7 @@ export const flags = {
   clouds: on('clouds'),
   water: on('water'),
   enemies: on('enemies'),
-  pals: on('pals'),
+  beasts: on('beasts'),
   shadows: on('shadows'),
   towns: on('towns'),
   solids: on('solids'),
@@ -118,5 +118,5 @@ export const flags = {
  */
 export const anyFlagSet = (): boolean =>
   !flags.props || !flags.clouds || !flags.water || !flags.enemies
-  || !flags.pals || !flags.shadows || !flags.towns || !flags.solids
+  || !flags.beasts || !flags.shadows || !flags.towns || !flags.solids
   || !flags.sway || flags.viewRadius !== null || flags.shake !== null;

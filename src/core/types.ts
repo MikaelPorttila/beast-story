@@ -39,20 +39,20 @@ export interface SkillDef {
   cooldown: number;           // seconds
   power: number;              // base damage or heal amount
   range: number;              // world units
-  /** Level at which a pal learns this naturally; undefined = store-only */
+  /** Level at which a beast learns this naturally; undefined = store-only */
   learnAtLevel?: number;
   /** Price in shards if buyable at a Skill Den; undefined = level-up only */
   storePrice?: number;
-  /** Animation the casting pal should play (key into its rig animations) */
+  /** Animation the casting beast should play (key into its rig animations) */
   castAnim: 'cast' | 'attack' | 'special';
 }
 
 // ---------------------------------------------------------------------------
-// Pal species
+// Beast species
 // ---------------------------------------------------------------------------
 export type Locomotion = 'ground' | 'flying' | 'swimming' | 'amphibious';
 
-export interface PalStats {
+export interface BeastStats {
   maxHp: number;
   attack: number;
   defense: number;
@@ -63,7 +63,7 @@ export interface PalStats {
  * A rig is a hierarchy of voxel-built body parts. The framework animates it by
  * calling the species' animate() every frame with the current action state.
  */
-export interface PalRig {
+export interface BeastRig {
   /** Root object added to the scene (position/rotation controlled by framework) */
   root: THREE.Group;
   /** Named parts the species' animate() manipulates (head, tail, wingL, ...) */
@@ -74,21 +74,21 @@ export interface PalRig {
   radius: number;
 }
 
-export type PalAction =
+export type BeastAction =
   | 'idle' | 'walk' | 'run' | 'swim' | 'fly'
   | 'attack' | 'cast' | 'special' | 'hurt' | 'happy';
 
 /**
  * How many independent cycles one species may integrate through
- * `PalAnimCtx.cycle()`. Four covers the roster: a gait/wingbeat, a tail wave
+ * `BeastAnimCtx.cycle()`. Four covers the roster: a gait/wingbeat, a tail wave
  * that runs at its own rate, a secondary flutter, and Umbrakit's orbiting
  * wisps. Raise it here if a species genuinely needs a fifth — the cost is four
- * more bytes per pal.
+ * more bytes per beast.
  */
-export const PAL_CYCLE_SLOTS = 4;
+export const BEAST_CYCLE_SLOTS = 4;
 
-export interface PalAnimCtx {
-  action: PalAction;
+export interface BeastAnimCtx {
+  action: BeastAction;
   /** Seconds since this action started */
   actionTime: number;
   /**
@@ -110,12 +110,12 @@ export interface PalAnimCtx {
    * phase is `time * freq`, so a change of `df` retroactively rewrites the
    * whole history and teleports the phase by `time * df`. With `time` being
    * accumulated session seconds that is enormous — a wing frequency scaled by
-   * moveSpeed jumps several whole cycles per frame while a pal accelerates,
+   * moveSpeed jumps several whole cycles per frame while a beast accelerates,
    * which is what the "wings flapping at impossible speed, like a flicker"
    * report was. Integration only ever changes the RATE from this instant on,
    * so the pose is continuous no matter how the frequency moves.
    *
-   * `slot` names which cycle this is, 0..PAL_CYCLE_SLOTS-1, and is per-pal
+   * `slot` names which cycle this is, 0..BEAST_CYCLE_SLOTS-1, and is per-beast
    * state — call a given slot at most once per frame, and use the SAME slot for
    * the same body motion across every action branch so that walk->run->fly
    * changes the beat rate instead of jump-cutting the pose. Constant multiples
@@ -128,10 +128,10 @@ export interface PalAnimCtx {
   cycle(slot: number, freq: number): number;
 }
 
-export interface PalSpecies {
+export interface BeastSpecies {
   /**
-   * The stable IDENTIFIER ('emberfox'). The roster, `?pal=`, `/mount <id>`, the
-   * lab's pal list and any future save key on it; renaming the pal is an edit to
+   * The stable IDENTIFIER ('emberfox'). The roster, `?beast=`, `/mount <id>`, the
+   * lab's beast list and any future save key on it; renaming the beast is an edit to
    * src/i18n/en.ts and nothing else.
    */
   id: string;
@@ -141,16 +141,16 @@ export interface PalSpecies {
   descriptionKey: StringKey;
   element: ElementType;
   locomotion: Locomotion;
-  baseStats: PalStats;
+  baseStats: BeastStats;
   /** Skill ids in learn order; SkillDef.learnAtLevel governs when */
   skills: string[];
   /** Build a fresh rig (voxel body). Must be self-contained, no async. */
-  buildRig(): PalRig;
+  buildRig(): BeastRig;
   /**
    * Procedurally animate the rig for the current frame.
-   * Must be cheap; called once per pal per frame.
+   * Must be cheap; called once per beast per frame.
    */
-  animate(rig: PalRig, ctx: PalAnimCtx): void;
+  animate(rig: BeastRig, ctx: BeastAnimCtx): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,12 +162,12 @@ export interface PalSpecies {
  *
  * Lived in src/player/index.ts until settlements grew colliders, and moved here
  * because it is now the ONE rule four separate movers resolve against — the hero
- * (Player.blockTop), the saddle (MountController.blockTop), a following pal
- * (PalActor) and a wild enemy (Enemy.moveGround) — and because the town builders
+ * (Player.blockTop), the saddle (MountController.blockTop), a following beast
+ * (BeastActor) and a wild enemy (Enemy.moveGround) — and because the town builders
  * measure their footprints with it (see `measureFootprint` in
  * world/structures.ts): a stack of voxels no taller than this is something you
  * step onto, so it is not part of any wall. A second copy of the number is a
- * crate the hero walks over and a pal walks through.
+ * crate the hero walks over and a beast walks through.
  *
  * Terrain collision is integer-stepped — Terrain.getHeight floors the continuous
  * height — so every ledge in the natural world is a whole unit or more. Any value
@@ -302,7 +302,7 @@ export interface TownRegistry {
  *
  * `id` is the IDENTIFIER ('gain') — what a quest stores, what `talk` takes and
  * what a hint cache keys on — and `nameKey` is DISPLAY, resolved with
- * `t(nameKey)`. Same split as TownInfo and PalSpecies.
+ * `t(nameKey)`. Same split as TownInfo and BeastSpecies.
  */
 export interface NpcInfo {
   readonly id: string;
@@ -402,7 +402,7 @@ export interface World {
    * anyone jumping beneath it; see trunkSolidTopAt for the same argument about
    * horizontal blocking.
    *
-   * Nothing but the player does this. Pals and enemies keep their footing on
+   * Nothing but the player does this. Beasts and enemies keep their footing on
    * getHeight, so widening this query never puts a wild pack on a treetop.
    *
    * Never below getHeight(x, z) — ground is always climbable-from.
@@ -510,8 +510,8 @@ export interface World {
    * track per id so the parted patch trails a runner and closes behind him
    * rather than snapping to his feet, and an id that changes from slice to
    * slice would show up as a body that keeps teleporting. Reserved: -1 for the
-   * hero (or his mount, which reports in his place), -2 for the primary pal, -3
-   * for the support pal. Anything else uses its own `Object3D.id`, which is
+   * hero (or his mount, which reports in his place), -2 for the primary beast, -3
+   * for the support beast. Anything else uses its own `Object3D.id`, which is
    * three's monotonic counter and never negative — hence the reserved ids being
    * the ones that are.
    *
@@ -608,7 +608,7 @@ export interface World {
  * be handed a different one.
  *
  * Every one of these holds state that must SURVIVE a zone change — the hero's
- * hp, a pal's level and known skills, the shard total — so rebuilding them on
+ * hp, a beast's level and known skills, the shard total — so rebuilding them on
  * the far side of a portal is not an option. Rebinding is: the object stays,
  * the ground under it changes.
  */
@@ -647,9 +647,9 @@ export interface ItemDef {
 }
 
 /**
- * A dropped item offered to a pal as an errand. Implemented by the drop pool in
- * src/combat/pickups.ts and consumed by PalActor, so that pals can run a fetch
- * without importing combat (and combat never learns what a pal is).
+ * A dropped item offered to a beast as an errand. Implemented by the drop pool in
+ * src/combat/pickups.ts and consumed by BeastActor, so that beasts can run a fetch
+ * without importing combat (and combat never learns what a beast is).
  *
  * Instances are POOLED — one per drop slot, reused. `claim()` stamps the slot's
  * generation onto the job, and every other member is dead once the slot is
@@ -663,7 +663,7 @@ export interface FetchJob {
   readonly valid: boolean;
   /** Take ownership of the drop. False if it was gone or already claimed. */
   claim(): boolean;
-  /** Pal reached it: collect and credit the player. */
+  /** Beast reached it: collect and credit the player. */
   collect(): void;
   /** Give up; the drop stays where it is and anyone may claim it again. */
   release(): void;
@@ -718,12 +718,12 @@ export interface CastRequest {
 /**
  * Events carry IDS and STRING-TABLE KEYS, never rendered names.
  *
- * `palLevelUp` used to hand the HUD only `palId`, which left the banner
+ * `beastLevelUp` used to hand the HUD only `beastId`, which left the banner
  * title-casing 'emberfox' into "Emberfox" — deriving a display name from an
  * identifier, which is the exact thing the string table exists to stop, and
  * which produces "Boulderpup" in every language forever. Widening the event was
- * the fix rather than letting the HUD import the pal registry: a subsystem
- * contract belongs in this file, not in a new import edge from ui to pals.
+ * the fix rather than letting the HUD import the beast registry: a subsystem
+ * contract belongs in this file, not in a new import edge from ui to beasts.
  *
  * PAYLOADS ARE SCALARS, and a listener MUST NOT RETAIN THE EVENT OBJECT.
  *
@@ -738,15 +738,15 @@ export interface CastRequest {
  * by it rather than revived.
  *
  * Re-entrant emission during dispatch is already normal (`enemyKilled` grants XP
- * which emits `palLevelUp`) and is safe: a `Set` iterated while ADDED to is
+ * which emits `beastLevelUp`) and is safe: a `Set` iterated while ADDED to is
  * fine. Removing a listener mid-dispatch is not — do not unsubscribe from inside
  * a handler.
  */
 export type GameEvent =
   | {
-    type: 'palLevelUp';
-    /** Identifier, for anything that has to know WHICH pal. */
-    palId: string;
+    type: 'beastLevelUp';
+    /** Identifier, for anything that has to know WHICH beast. */
+    beastId: string;
     /** Display name key — `t(nameKey)`. */
     nameKey: StringKey;
     level: number;
@@ -792,7 +792,7 @@ export type GameEvent =
   /**
    * Damage the PLAYER'S side dealt, and again only when it landed.
    *
-   * `bySkill` separates the hero's own sword from a pal's skill, because they
+   * `bySkill` separates the hero's own sword from a beast's skill, because they
    * want different feedback: the sword is in your hands and the skill is across
    * the field. `superEffective` is the element multiplier having come out above
    * 1 — the pop that already gets its own glow.
@@ -808,15 +808,15 @@ export type GameEvent =
     y: number;
     z: number;
   }
-  | { type: 'mounted'; palId: string; flying: boolean }
-  | { type: 'dismounted'; palId: string }
+  | { type: 'mounted'; beastId: string; flying: boolean }
+  | { type: 'dismounted'; beastId: string }
   | { type: 'shardsChanged'; total: number }
   /**
-   * A drop left the ground. `byPal` is true when a support pal fetched it
+   * A drop left the ground. `byBeast` is true when a support beast fetched it
    * rather than the player walking over it — the bag in main.ts credits both
    * the same way, only the toast differs.
    */
-  | { type: 'itemPicked'; itemId: string; byPal: boolean }
+  | { type: 'itemPicked'; itemId: string; byBeast: boolean }
   /**
    * `nameKey` is display, and nothing renders it yet — main.ts reads only `xp`.
    * It is a key rather than a name so that the first kill feed, quest counter or

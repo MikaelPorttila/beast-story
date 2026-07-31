@@ -439,7 +439,7 @@ function buildCrystals(plan: HoldPlan): { mesh: THREE.Mesh; dispose(): void } {
   geo.computeBoundingSphere();
 
   // `vertexColors` + `emissive` is deliberately the same DEFINE SET as the
-  // emissive batch a pal's voxel body uses (core/voxel.ts), which boot already
+  // emissive batch a beast's voxel body uses (core/voxel.ts), which boot already
   // warms in both the lit pass and the selective-bloom pass. Colour, roughness
   // and emissive strength are uniforms and cost nothing; the define set is what
   // decides whether this material needs a program of its own.
@@ -565,7 +565,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
 
   return {
     // Far below the floor: there is no water in the hold, and every consumer
-    // (the swim test, a pal's float height, the mount's wade depth) compares
+    // (the swim test, a beast's float height, the mount's wade depth) compares
     // against this, so it has to be somewhere nothing can reach.
     waterLevel: FLOOR_Y - 50,
     spawnPoint,

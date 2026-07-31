@@ -16,7 +16,7 @@
  *     did). Polling per slice instead would multiply the look rate by the slice
  *     count, so the camera would whip on a hitching machine.
  *   - Button edges land before slice 0, which is the slice `first` is true for —
- *     and the hotbar, Tab, the pal cycles and the shop key are ALL gated on
+ *     and the hotbar, Tab, the beast cycles and the shop key are ALL gated on
  *     `first`. Poll after it and every discrete action on the pad silently does
  *     nothing.
  *

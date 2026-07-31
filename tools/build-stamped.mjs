@@ -43,7 +43,7 @@ const git = (args) =>
 writeFileSync(
   join(outDir, 'BUILD.txt'),
   [
-    `Cube Pals snapshot ${dirName}`,
+    `Beast Story snapshot ${dirName}`,
     `built:  ${d.toISOString()}`,
     `commit: ${git(['rev-parse', '--short', 'HEAD'])} ${git(['log', '-1', '--format=%s'])}`,
     `branch: ${git(['rev-parse', '--abbrev-ref', 'HEAD'])}`,
@@ -62,7 +62,7 @@ const snaps = readdirSync('dist')
   .reverse();
 writeFileSync(
   join('dist', 'builds.html'),
-  `<!doctype html><meta charset="utf-8"><title>Cube Pals builds</title>
+  `<!doctype html><meta charset="utf-8"><title>Beast Story builds</title>
 <style>
   body{font:16px/1.6 system-ui,sans-serif;background:#141a1f;color:#e8eef2;margin:0;padding:2.5rem}
   h1{font-size:1.3rem;margin:0 0 1.5rem}
@@ -74,7 +74,7 @@ writeFileSync(
   .latest{outline:2px solid #4c8;color:#bfe8a0}
   span{color:#7d8b96;font-size:.85em}
 </style>
-<h1>Cube Pals — playable snapshots</h1>
+<h1>Beast Story — playable snapshots</h1>
 <ul>
 ${snaps
   .map(

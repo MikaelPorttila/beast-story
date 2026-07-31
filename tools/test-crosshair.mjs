@@ -23,8 +23,8 @@ for (const [name, viewport] of [
   await page.addStyleTag({ content: `
     canvas{display:none!important}
     html,body{background:#000!important}
-    .cp-root>*:not(.cp-cross){display:none!important}
-    .cp-touch,.cp-left,.cp-title,.cp-shards,.cp-toasts{display:none!important}
+    .bs-root>*:not(.bs-cross){display:none!important}
+    .bs-touch,.bs-left,.bs-title,.bs-shards,.bs-toasts{display:none!important}
   ` });
   await wait(400);
   const file = `shots/_cross-${name}.png`;

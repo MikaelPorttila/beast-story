@@ -1,7 +1,7 @@
 /**
  * The sound channel — A SEAM, NOT AN IMPLEMENTATION.
  *
- * There is no audio in Cube Pals: no `AudioContext`, no assets, no dependency
+ * There is no audio in Beast Story: no `AudioContext`, no assets, no dependency
  * (three is the only runtime one), no volume control. This file exists so that
  * the day sound is written it plugs into a feedback layer that is already
  * timed, already mixed with the rumble, already drained on the right frame, and

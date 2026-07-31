@@ -1,6 +1,6 @@
 // Verifies the grass-disturbance field (src/world/sway.ts): a walking body
 // parts the grass, the parted patch TRAILS the body and closes behind it, and a
-// low-flying pal's downwash grows as its clearance over the ground falls.
+// low-flying beast's downwash grows as its clearance over the ground falls.
 //
 // Usage: bun tools/test-sway.mjs        (dev server must be up)
 //
@@ -88,7 +88,7 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
   };
 }
 
-// ---------- flying: a low pal washes the grass, harder the lower it is ----------
+// ---------- flying: a low beast washes the grass, harder the lower it is ----------
 {
   // Cycle the primary slot through the roster looking for a flyer. Four of the
   // thirteen species are 'flying' (drakelet, frostwing, galebird, lumimoth), so

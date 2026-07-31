@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 import { makeContactBlob, updateContactBlob } from './contactshadow';
@@ -47,7 +47,7 @@ const C = {
 
 // Base pose constants shared between buildRig() and animate()
 const BODY_Y = 0.52;
-/** Hover height PalActor holds a flyer at; the contact blob has to match it. */
+/** Hover height BeastActor holds a flyer at; the contact blob has to match it. */
 const HOVER = 1.55;
 
 // ---------------------------------------------------------------------------
@@ -197,7 +197,7 @@ function buildArm(): THREE.Mesh {
   return m;
 }
 
-function buildRig(): PalRig {
+function buildRig(): BeastRig {
   const root = new THREE.Group();
   const parts: Record<string, THREE.Object3D> = {};
 
@@ -456,14 +456,14 @@ const easeOutCubic = (v: number): number => 1 - (1 - v) ** 3;
 const easeInOutSine = (v: number): number => 0.5 - 0.5 * Math.cos(Math.PI * v);
 
 /**
- * The wingbeat, on an integrated phase — see PalAnimCtx.cycle(). Its rate is
+ * The wingbeat, on an integrated phase — see BeastAnimCtx.cycle(). Its rate is
  * scaled by moveSpeed, so as `t * (7.5 + 3.5 * ms)` the phase was rewritten
  * retroactively every time the dragon changed pace, several whole beats at a
  * time once the session clock was a minute old.
  */
 const BEAT = 0;
 
-function animate(rig: PalRig, ctx: PalAnimCtx): void {
+function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const p = rig.parts;
   const t = ctx.time;
   const at = ctx.actionTime;
@@ -707,12 +707,12 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 // ---------------------------------------------------------------------------
 // Species
 // ---------------------------------------------------------------------------
-export const species: PalSpecies = {
+export const species: BeastSpecies = {
   id: 'drakelet',
-  nameKey: 'pal.drakelet.name',
+  nameKey: 'beast.drakelet.name',
   element: 'dragon',
   locomotion: 'flying',
-  descriptionKey: 'pal.drakelet.desc',
+  descriptionKey: 'beast.drakelet.desc',
   baseStats: { maxHp: 46, attack: 13, defense: 9, speed: 5.6 },
   skills: [
     'drakelet.fang-rush',

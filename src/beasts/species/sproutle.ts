@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
@@ -11,15 +11,15 @@ import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 // Terrain grass is a bright yellow-green (~0x54c832), so the coat is pushed to
 // a cooler moss and given a cream belly: value + hue separation from any lawn it
 // stands on. Round 6 raised every green a full step — standing in tree shade the
-// old set was one flat dark green mass, and the pal disappeared into the lawn it
+// old set was one flat dark green mass, and the beast disappeared into the lawn it
 // was supposed to contrast with. Hue separation, not darkness, does that job.
 // Round 6 rotated every green about 20 degrees toward TEAL. Value alone was never
-// going to separate this pal from the lawn: the terrain grass is a yellow-green
+// going to separate this beast from the lawn: the terrain grass is a yellow-green
 // (~0x54c832) and the coat was 0x74bd57, i.e. the same hue a little lighter, so in the
-// shade of a terrace the pal and the ground behind it were literally the same colour
+// shade of a terrace the beast and the ground behind it were literally the same colour
 // and a critic could not find the creature in its own portrait. A cooler green stays
 // unmistakably plant, and the yellow-green now belongs only to the LEAF sprout — which
-// gives the pal an internal hue contrast it did not have either.
+// gives the beast an internal hue contrast it did not have either.
 const MOSS = 0x63c07e;
 const MOSS_LIGHT = 0x9ae8ab; // sunlit leaf-green highlights
 const MOSS_DARK = 0x3d8657;
@@ -65,7 +65,7 @@ const BASE: Record<string, readonly [number, number, number, number, number, num
   legBR: [-0.2, 0.1, -0.2, 0, 0, 0],
 };
 
-function buildRig(): PalRig {
+function buildRig(): BeastRig {
   const root = new THREE.Group();
   const parts: Record<string, THREE.Object3D> = {};
 
@@ -204,7 +204,7 @@ function pulse(x: number, sharp: number): number {
 }
 
 /**
- * The plod, on an integrated phase — see PalAnimCtx.cycle(). 5 rad/s to 8
+ * The plod, on an integrated phase — see BeastAnimCtx.cycle(). 5 rad/s to 8
  * (0.8-1.3 Hz), scaled by the gait blend; as `t * freq` a change of pace
  * rewrote the whole phase history and jump-cut legs, shell, sprout and tail
  * together.
@@ -221,7 +221,7 @@ function resetPose(parts: Record<string, THREE.Object3D>): void {
   }
 }
 
-function animate(rig: PalRig, ctx: PalAnimCtx): void {
+function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const p = rig.parts;
   resetPose(p);
   const body = p['body'];
@@ -477,12 +477,12 @@ export const skills: SkillDef[] = [
 // Species
 // ---------------------------------------------------------------------------
 
-export const species: PalSpecies = {
+export const species: BeastSpecies = {
   id: 'sproutle',
-  nameKey: 'pal.sproutle.name',
+  nameKey: 'beast.sproutle.name',
   element: 'grass',
   locomotion: 'ground',
-  descriptionKey: 'pal.sproutle.desc',
+  descriptionKey: 'beast.sproutle.desc',
   baseStats: { maxHp: 58, attack: 9, defense: 14, speed: 3.2 },
   skills: skills.map((s) => s.id),
   buildRig,

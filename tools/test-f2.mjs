@@ -1,7 +1,7 @@
 // Verifies the F2 debug overlay toggles and that the browser never sees F2.
 import { launchBrowser, newPage, wait, glRenderer } from './browser.mjs';
 
-const target = process.argv[2] === 'lab' ? 'lab.html?pal=emberfox&fps=30' : '?play=1&fps=30';
+const target = process.argv[2] === 'lab' ? 'lab.html?beast=emberfox&fps=30' : '?play=1&fps=30';
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 900, height: 600 });
 await page.goto(`http://localhost:5187/${target}`, { waitUntil: 'load' });

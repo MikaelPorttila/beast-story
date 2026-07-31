@@ -25,11 +25,11 @@ import { Underwater } from './world/underwater';
 import { TouchParticles } from './world/touch-particles';
 import { Player } from './player/index';
 import { MountController } from './player/mount';
-import { PalActor, registerSkillDefs } from './pals/framework';
+import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem } from './combat/index';
-import { HUD, kbd, type PalHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
+import { HUD, kbd, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
 import { FullscreenPrompt } from './ui/fullscreen';
-import { ALL_SPECIES, SKILLS, getSkill } from './pals/registry';
+import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
 const app = document.getElementById('app')!;
 const engine = new Engine(app);
@@ -163,7 +163,7 @@ const zones = new ZoneManager({
       w.getHeight(w.spawnPoint.x, w.spawnPoint.z), w.waterLevel,
     );
     player.velocity.set(0, 0, 0);
-    // The pals need no placement: their follow update teleports any pal whose
+    // The beasts need no placement: their follow update teleports any beast whose
     // owner is further than TELEPORT_DIST away, and a zone is by construction
     // further than that, so they poof in beside him on the next slice using the
     // new world's ground height.
@@ -194,7 +194,7 @@ player.onAttack = (origin, dir) => combat.meleeStrike(origin, dir, player.attack
 //
 // Today that is the four skill dens and the zone gateway. Adding one more is a
 // single hud.addCompassMarker({ id, x, z, color, label? }) call from wherever
-// the thing is created — a town, a quest objective, a downed pal. The id is the
+// the thing is created — a town, a quest objective, a downed beast. The id is the
 // identity: call it again with the same id to move or recolour the chip, and
 // hud.removeCompassMarker(id) when the objective is done.
 // ---------------------------------------------------------------------------
@@ -224,8 +224,8 @@ function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: num
   syncCompassMarkers(world, g.x, g.z, g.hex);
 }
 
-// Hold F to ride your pal. The controller owns the hold timer, the refusal
-// rules and a mounted pal's locomotion; which pal is offered (the primary, see
+// Hold F to ride your beast. The controller owns the hold timer, the refusal
+// rules and a mounted beast's locomotion; which beast is offered (the primary, see
 // simulate) and where a mounted skill aims (below) are policy, so they live here.
 const mount = new MountController(player, world, input, bus);
 
@@ -238,35 +238,35 @@ const mount = new MountController(player, world, input, bus);
 const touchFx = new TouchParticles(engine.scene, world);
 
 // ---------------------------------------------------------------------------
-// Pal roster: all 10 species instantiated; two active at a time.
+// Beast roster: all 10 species instantiated; two active at a time.
 // ---------------------------------------------------------------------------
 registerSkillDefs(SKILLS.values());
-const roster: PalActor[] = ALL_SPECIES.map(
-  (sp) => new PalActor(sp, engine.scene, world, bus),
+const roster: BeastActor[] = ALL_SPECIES.map(
+  (sp) => new BeastActor(sp, engine.scene, world, bus),
 );
 // The rebind list. Order does not matter — every setWorld is independent — but
-// the roster is the reason the list exists at all: a pal's level, xp and known
+// the roster is the reason the list exists at all: a beast's level, xp and known
 // skills are the save game, and rebuilding one to change zones would delete it.
 bound.push(player, mount, combat, touchFx, ...roster);
 let primaryIdx = 0; // Emberfox
 let supportIdx = 6; // Galebird
 const cooldowns = new Map<string, number>();
 
-function primary(): PalActor { return roster[primaryIdx]; }
-function support(): PalActor { return roster[supportIdx]; }
+function primary(): BeastActor { return roster[primaryIdx]; }
+function support(): BeastActor { return roster[supportIdx]; }
 
-// `pals=0` hides the party and skips its per-frame update, so a measurement run
-// can price what the two active pals cost to animate and draw. It does NOT skip
+// `beasts=0` hides the party and skips its per-frame update, so a measurement run
+// can price what the two active beasts cost to animate and draw. It does NOT skip
 // building the rigs — the roster is still constructed, because half of main.ts
 // reads primary()/support() and a null roster would need guards everywhere for
 // the sake of a diagnostic. Rig construction is a boot cost; read it off the
 // boot phase of a profile instead. See core/flags.ts.
 function refreshVisibility(): void {
-  roster.forEach((p, i) => p.setVisible(flags.pals && (i === primaryIdx || i === supportIdx)));
+  roster.forEach((p, i) => p.setVisible(flags.beasts && (i === primaryIdx || i === supportIdx)));
 }
 refreshVisibility();
 
-function cyclePal(which: 'primary' | 'support', dirn: 1 | -1): void {
+function cycleBeast(which: 'primary' | 'support', dirn: 1 | -1): void {
   const n = roster.length;
   if (which === 'primary') {
     do { primaryIdx = (primaryIdx + dirn + n) % n; } while (primaryIdx === supportIdx);
@@ -276,7 +276,7 @@ function cyclePal(which: 'primary' | 'support', dirn: 1 | -1): void {
   refreshVisibility();
   bus.emit({
     type: 'toast',
-    text: t('toast.palLeads', {
+    text: t('toast.beastLeads', {
       lead: t(primary().species.nameKey), support: t(support().species.nameKey),
     }),
   });
@@ -308,14 +308,14 @@ bus.on((e) => {
     if (def.kind !== 'currency') {
       const n = bag.add(e.itemId, 1);
       hud.setBag(bag.entries());
-      if (e.byPal) {
-        // The fetcher is whichever pal is carrying right now — normally the
-        // support pal, but a Tab swap mid-errand must not misattribute it.
+      if (e.byBeast) {
+        // The fetcher is whichever beast is carrying right now — normally the
+        // support beast, but a Tab swap mid-errand must not misattribute it.
         const fetcher = roster.find((p) => p.isCarrying) ?? support();
         bus.emit({
           type: 'toast',
           text: t('toast.fetched', {
-            pal: t(fetcher.species.nameKey), item: itemName(def, n), n,
+            beast: t(fetcher.species.nameKey), item: itemName(def, n), n,
           }),
         });
       }
@@ -329,16 +329,16 @@ bus.on((e) => {
 hud.setShards(shards());
 
 // ---------------------------------------------------------------------------
-// Fetch errands (support-pal AI, so it lives here)
+// Fetch errands (support-beast AI, so it lives here)
 // ---------------------------------------------------------------------------
 // The rule, in one predicate:
 //   currency   — always worth a trip. Money is money.
-//   stackable  — only if the player ALREADY holds at least one. The pal tops up
+//   stackable  — only if the player ALREADY holds at least one. The beast tops up
 //                stacks you have chosen to carry and leaves everything else on
 //                the ground, so a fetcher never fills your bag with things you
 //                have never picked up yourself. Walking over an item is how you
-//                opt in to it, and from then on the pal collects that kind.
-// It is the SUPPORT pal that runs these: the primary stays at the player's
+//                opt in to it, and from then on the beast collects that kind.
+// It is the SUPPORT beast that runs these: the primary stays at the player's
 // shoulder where its skills are aimed from.
 const FETCH_RADIUS = 16;      // how far from the player a drop may be to be offered
 const FETCH_SCAN = 0.4;       // seconds between scans; the pool is small but this is a poll
@@ -396,37 +396,37 @@ function enemyInAim(from: THREE.Vector3, aim: THREE.Vector3, range: number): Dam
 
 const lastCast = { skill: '', aimed: false, homing: false, x: 0, y: 0, z: 0 };
 
-function castFromPal(pal: PalActor, skill: SkillDef): void {
+function castFromBeast(beast: BeastActor, skill: SkillDef): void {
   const cd = cooldowns.get(skill.id) ?? 0;
   if (cd > 0) return;
 
   // Riding it changes where its skills go: from the saddle you are the one
   // aiming, so the crosshair wins outright and the auto-target is not even
-  // consulted. Nothing else about the cast changes — the pal still plays the
+  // consulted. Nothing else about the cast changes — the beast still plays the
   // cast animation and the shot still leaves from its muzzle.
-  const aimed = mount.isMounted && pal === mount.pal;
+  const aimed = mount.isMounted && beast === mount.beast;
   let target: Damageable | null = null;
   if (aimed) {
     engine.camera.getWorldDirection(_aim);
     // Face the mount along the shot so the muzzle offset in beginCast points
     // the right way; the vertical component stays on the projectile only.
     if (Math.abs(_aim.x) + Math.abs(_aim.z) > 1e-4) {
-      pal.forward.set(_aim.x, 0, _aim.z).normalize();
+      beast.forward.set(_aim.x, 0, _aim.z).normalize();
     }
     // A LITTLE homing from the saddle: the shot leaves down the crosshair and
     // then leans toward whatever the crosshair was actually on. The target is
     // picked from the aim CONE, never "nearest enemy" — an enemy off to the
     // side is not what you pointed at, and curving onto it would be the autoaim
     // this deliberately is not.
-    target = enemyInAim(pal.position, _aim, Math.max(skill.range, 12));
+    target = enemyInAim(beast.position, _aim, Math.max(skill.range, 12));
   } else {
-    target = combat.findNearestEnemy(pal.position, Math.max(skill.range, 12));
+    target = combat.findNearestEnemy(beast.position, Math.max(skill.range, 12));
     if (target) {
-      pal.forward.copy(target.position).sub(pal.position).setY(0).normalize();
+      beast.forward.copy(target.position).sub(beast.position).setY(0).normalize();
     }
   }
 
-  const { origin, direction } = pal.beginCast(skill);
+  const { origin, direction } = beast.beginCast(skill);
   const dir = aimed
     ? _aim
     : target
@@ -434,7 +434,7 @@ function castFromPal(pal: PalActor, skill: SkillDef): void {
       : direction;
   combat.cast({
     skill,
-    caster: pal as unknown as Damageable & { forward: THREE.Vector3 },
+    caster: beast as unknown as Damageable & { forward: THREE.Vector3 },
     origin,
     direction: dir,
     target,
@@ -442,7 +442,7 @@ function castFromPal(pal: PalActor, skill: SkillDef): void {
     // the thing that decides where a shot goes and the assist only closes the
     // last little error. Full strength would quietly undo the aim you took.
     homingScale: aimed ? MOUNTED_HOMING : 1,
-    attackStat: pal.stats.attack,
+    attackStat: beast.stats.attack,
   });
   lastCast.skill = skill.id;
   lastCast.aimed = aimed;
@@ -463,16 +463,16 @@ function hotbarSkills(): SkillDef[] {
 // ---------------------------------------------------------------------------
 function buildOffers(): ShopOffer[] {
   const offers: ShopOffer[] = [];
-  for (const pal of [primary(), support()]) {
-    for (const id of pal.species.skills) {
+  for (const beast of [primary(), support()]) {
+    for (const id of beast.species.skills) {
       const def = getSkill(id);
       if (!def || def.storePrice === undefined) continue;
       offers.push({
         skill: def,
         price: def.storePrice,
-        owned: pal.knownSkillIds.includes(id),
-        palId: pal.species.id,
-        palName: t(pal.species.nameKey),
+        owned: beast.knownSkillIds.includes(id),
+        beastId: beast.species.id,
+        beastName: t(beast.species.nameKey),
         affordable: shards() >= def.storePrice,
       });
     }
@@ -490,13 +490,13 @@ function tryOpenShop(): void {
     // By ID, not by name. This matched on the display name until the species
     // names moved into the string table, at which point a translated build would
     // have failed the lookup and charged for a skill nobody learned.
-    const pal = [primary(), support()].find((p) => p.species.id === offer.palId);
-    pal?.learnSkill(offer.skill.id);
+    const beast = [primary(), support()].find((p) => p.species.id === offer.beastId);
+    beast?.learnSkill(offer.skill.id);
     hud.setShards(shards());
     bus.emit({
       type: 'toast',
       text: t('toast.learnedSkill', {
-        pal: offer.palName, skill: t(offer.skill.nameKey),
+        beast: offer.beastName, skill: t(offer.skill.nameKey),
       }),
     });
     hud.openShop(t('shop.skillDen.title'), buildOffers(), () => {}, () => hud.closeShop());
@@ -506,8 +506,8 @@ function tryOpenShop(): void {
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
-const palHud = (p: PalActor): PalHudInfo => ({
-  // Resolved here, not in the HUD: `PalHudInfo` is a snapshot of what to DRAW.
+const beastHud = (p: BeastActor): BeastHudInfo => ({
+  // Resolved here, not in the HUD: `BeastHudInfo` is a snapshot of what to DRAW.
   // `t(key)` with no vars hands back the table's own string, so this allocates
   // nothing even though it runs every frame.
   name: t(p.species.nameKey),
@@ -521,7 +521,7 @@ const palHud = (p: PalActor): PalHudInfo => ({
 
 // ---------------------------------------------------------------------------
 // Photo mode (for the visual critic pipeline):
-//   ?photo=1&cam=x,y,z&look=x,y,z&pal=<speciesId>&anim=<action>
+//   ?photo=1&cam=x,y,z&look=x,y,z&beast=<speciesId>&anim=<action>
 // cam/look are offsets relative to the spawn point.
 // ---------------------------------------------------------------------------
 const params = new URLSearchParams(location.search);
@@ -540,13 +540,13 @@ if (photoMode) {
     style.textContent = 'body > *:not(#app), #app > *:not(canvas) { display: none !important; }';
     document.head.appendChild(style);
   }
-  const palId = params.get('pal');
-  if (palId || params.get('poff')) {
+  const beastId = params.get('beast');
+  if (beastId || params.get('poff')) {
     // Portraits happen on open, FLAT ground so the camera never ends up buried
     // in a hillside. Each species starts from its own bearing on a ring (so ten
     // portraits aren't ten copies of the same postcard) then walks outward
     // until it finds a level, dry patch.
-    const idx = Math.max(0, roster.findIndex((p) => p.species.id === palId));
+    const idx = Math.max(0, roster.findIndex((p) => p.species.id === beastId));
     const ring = (idx / roster.length) * Math.PI * 2;
     const base = world.spawnPoint;
 
@@ -597,10 +597,10 @@ if (photoMode) {
     player.position.z = spot.z;
     player.position.y = Math.max(world.getHeight(spot.x, spot.z) + 0.1, world.waterLevel + 0.2);
   }
-  if (palId) {
-    const idx = roster.findIndex((p) => p.species.id === palId);
+  if (beastId) {
+    const idx = roster.findIndex((p) => p.species.id === beastId);
     if (idx >= 0) primaryIdx = idx;
-    // Staged portraits show ONE subject: hide the hero and every other pal so
+    // Staged portraits show ONE subject: hide the hero and every other beast so
     // the party stops intruding into the corner of every frame.
     roster.forEach((p, i) => p.setVisible(i === primaryIdx));
     player.root.visible = false;
@@ -699,7 +699,7 @@ const _hurtFrom = new THREE.Vector3();
   axisSide: input.axisSide,
   lookActive: input.lookActive,
   touchActive: input.touchActive,
-  touchOverlay: !!document.querySelector('.cp-touch'),
+  touchOverlay: !!document.querySelector('.bs-touch'),
   // Buttons, edges and per-source sticks. ADDITIVE — tools/test-touch.mjs dumps
   // this object wholesale, so keys may be added here but never renamed.
   ...(input.debugState() as object),
@@ -751,20 +751,20 @@ const _hurtFrom = new THREE.Vector3();
 });
 
 // Mount state. Read-only, and the one probe the mount tests need: the hold
-// fill, which pal is under you and what it is, the rider's height and speed,
+// fill, which beast is under you and what it is, the rider's height and speed,
 // and the direction the last cast actually left in — `aimed` says whether that
 // direction came from the crosshair or from the auto-target.
 (window as unknown as { __dbgMount: () => unknown }).__dbgMount = () => ({
   mounted: mount.isMounted,
-  pal: mount.pal?.species.id ?? null,
-  locomotion: mount.pal?.species.locomotion ?? null,
-  palSpeed: mount.pal ? +mount.pal.stats.speed.toFixed(2) : null,
+  beast: mount.beast?.species.id ?? null,
+  locomotion: mount.beast?.species.locomotion ?? null,
+  beastSpeed: mount.beast ? +mount.beast.stats.speed.toFixed(2) : null,
   hold: +mount.progress.toFixed(3),
   speed: +mount.speed.toFixed(2),
   /** Which way the mount itself is pointing — NOT where a mounted cast goes. */
-  yaw: mount.pal ? +Math.atan2(mount.pal.forward.x, mount.pal.forward.z).toFixed(3) : null,
-  forward: mount.pal
-    ? { x: +mount.pal.forward.x.toFixed(3), z: +mount.pal.forward.z.toFixed(3) }
+  yaw: mount.beast ? +Math.atan2(mount.beast.forward.x, mount.beast.forward.z).toFixed(3) : null,
+  forward: mount.beast
+    ? { x: +mount.beast.forward.x.toFixed(3), z: +mount.beast.forward.z.toFixed(3) }
     : null,
   y: +player.position.y.toFixed(2),
   ground: +world.getHeight(player.position.x, player.position.z).toFixed(2),
@@ -878,7 +878,7 @@ devConsole?.register({
 devConsole?.register({
   name: 'mount',
   args: '[off|<speciesId>]',
-  help: 'Ride the primary pal without the 2s hold; /mount off dismounts.',
+  help: 'Ride the primary beast without the 2s hold; /mount off dismounts.',
   run: (args) => {
     const arg = args[0];
     // The console is a DEVELOPER surface: it stays in English and it answers in
@@ -886,14 +886,14 @@ devConsole?.register({
     // here would mean `/mount` printing something you cannot type back at it.
     if (arg === 'off') {
       if (!mount.isMounted) return 'not mounted';
-      const id = mount.pal!.species.id;
+      const id = mount.beast!.species.id;
       mount.dismount();
       return `dismounted ${id}`;
     }
-    if (mount.isMounted) return `already riding ${mount.pal!.species.id} — /mount off first`;
+    if (mount.isMounted) return `already riding ${mount.beast!.species.id} — /mount off first`;
     if (arg) {
       const idx = roster.findIndex((p) => p.species.id === arg);
-      if (idx < 0) return `no such pal "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
+      if (idx < 0) return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
       if (idx === supportIdx) supportIdx = primaryIdx;
       primaryIdx = idx;
       refreshVisibility();
@@ -1049,7 +1049,7 @@ let simAccumulator = 0;
  * on ANGLE/D3D the driver defers that work until the draw call — so the cost
  * lands in the GPU process a frame or two after three links the program, as a
  * stall with no CPU time in it at all. Measured on an RTX 3070 Ti: a burst of
- * 14 links when the support pal first cast a skill at 7.2 s was followed at
+ * 14 links when the support beast first cast a skill at 7.2 s was followed at
  * 7.7 s by a 499 ms frame, 476 ms of which was outside our own callback.
  *
  * So: draw one of everything now, while the player is still looking at an empty
@@ -1134,7 +1134,7 @@ function warmUpFrame(stage: THREE.Vector3, lights: number, effects = false): voi
 function warmUpShaders(): void {
   // The camera has to be looking at the REAL WORLD, not at an empty staging
   // area. The light sweep below only recompiles materials that are actually
-  // drawn, and the materials that matter — terrain, props, water, pals, the
+  // drawn, and the materials that matter — terrain, props, water, beasts, the
   // shop — are the world's. An earlier version staged this 400 units under the
   // map, which warmed the effects beautifully and left every lit surface in the
   // game to recompile later; the 12-program burst simply moved.
@@ -1224,7 +1224,7 @@ function npcHint(npc: NpcInfo): string {
 const DIALOGUE_FOOT = t('npc.dialogue.close', { key: kbd('E') });
 
 /**
- * How far a wild pal can be and still be worth reporting to the world.
+ * How far a wild beast can be and still be worth reporting to the world.
  *
  * Past 24 units it cannot win one of the sway field's six slots against the
  * party standing on top of the camera, so reporting it is pure cost. One
@@ -1236,8 +1236,8 @@ const DISTURB_RANGE2 = 24 * 24;
  * Tell the world what is moving through it this slice — see `World.disturb`.
  *
  * Composition-root policy, which is why it is here and not in any subsystem:
- * the world does not know what a pal is, combat does not know what the hero is,
- * and this is the one place that knows all of them. Called after the pals have
+ * the world does not know what a beast is, combat does not know what the hero is,
+ * and this is the one place that knows all of them. Called after the beasts have
  * moved so their positions are the current ones, and before `zones.update`, so
  * the cost lands in the `world` profiler section next to the field it feeds.
  * The wild pack is a slice stale by construction — `combat.update` runs at the
@@ -1246,19 +1246,19 @@ const DISTURB_RANGE2 = 24 * 24;
  */
 function reportMovers(): void {
   if (!flags.props) return;
-  const ridden = mount.pal;
+  const ridden = mount.beast;
   if (ridden) {
     // The saddle, not the rider. A mounted hero's own position is a metre above
     // his mount's feet, and reporting THAT would read to the clearance test as a
     // body hovering — a galloping boarhound would blow the grass instead of
-    // trampling it. The ridden pal is deliberately not reported again below.
+    // trampling it. The ridden beast is deliberately not reported again below.
     world.disturb(-1, ridden.position.x, ridden.position.y, ridden.position.z,
       ridden.scaledRadius, ridden.species.locomotion === 'flying' ? 'fly' : 'walk');
   } else {
     world.disturb(-1, player.position.x, player.position.y, player.position.z,
       player.radius, 'walk');
   }
-  if (flags.pals) {
+  if (flags.beasts) {
     const p0 = primary();
     const p1 = support();
     if (p0 !== ridden && !p0.isDead) {
@@ -1270,7 +1270,7 @@ function reportMovers(): void {
         p1.species.locomotion === 'flying' ? 'fly' : 'walk');
     }
   }
-  // Wild pals part the grass too. Their id is their root Object3D's, three's own
+  // Wild beasts part the grass too. Their id is their root Object3D's, three's own
   // monotonic counter and the only handle an Enemy has that survives a respawn
   // of the one beside it; the party's reserved ids are negative precisely so
   // they cannot collide with it.
@@ -1302,21 +1302,21 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
 
   // Photo mode drives the camera and the subject itself and must not have the
   // player controller or the HUD fighting it, but it DOES need the world to
-  // stream and the pals to animate — everything below the branch.
+  // stream and the beasts to animate — everything below the branch.
   if (!interactive) {
     // fall through to the world update
   } else if (!shopOpen) {
     perf.section('input');
-    // Mounting runs BEFORE the player: while a pal is being ridden it writes
+    // Mounting runs BEFORE the player: while a beast is being ridden it writes
     // the hero's position, velocity and saddle pose for this slice, and
     // player.update() then animates and frames him from those. It is safe on
     // every slice — the F edge is latched inside the controller, not read from
-    // input.pressed(). `flags.pals` gates it because a hidden party has nothing
+    // input.pressed(). `flags.beasts` gates it because a hidden party has nothing
     // to climb on.
-    mount.update(dt, flags.pals ? primary() : null);
+    mount.update(dt, flags.beasts ? primary() : null);
     player.update(dt);
     // The hero is the only thing that brushes the world today. A mount's gallop
-    // dust would pass `mount.pal` here instead — same interface, same pool.
+    // dust would pass `mount.beast` here instead — same interface, same pool.
     toucher = player;
     perf.section('player');
 
@@ -1324,13 +1324,13 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       // Hotbar
       const skills = hotbarSkills();
       (['Digit1', 'Digit2', 'Digit3', 'Digit4'] as const).forEach((code, i) => {
-        if (input.pressed(code) && skills[i]) castFromPal(primary(), skills[i]);
+        if (input.pressed(code) && skills[i]) castFromBeast(primary(), skills[i]);
       });
 
-      // Pal management. Swapping is locked out in the saddle: every mounted
-      // path here keys off primary() being the ridden pal — the hotbar aims
+      // Beast management. Swapping is locked out in the saddle: every mounted
+      // path here keys off primary() being the ridden beast — the hotbar aims
       // from it, the follow update skips it — and a Tab mid-ride would make
-      // "the pal you are riding" and "the pal you are commanding" two different
+      // "the beast you are riding" and "the beast you are commanding" two different
       // animals for no gain.
       if (mount.isMounted) {
         if (input.pressed('Tab') || input.pressed('BracketLeft') || input.pressed('BracketRight')) {
@@ -1341,21 +1341,21 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
           const wasPrimary = primaryIdx; primaryIdx = supportIdx; supportIdx = wasPrimary;
           bus.emit({
             type: 'toast',
-            text: t('toast.palTakesLead', { pal: t(primary().species.nameKey) }),
+            text: t('toast.beastTakesLead', { beast: t(primary().species.nameKey) }),
           });
         }
-        if (input.pressed('BracketRight')) cyclePal('primary', 1);
-        if (input.pressed('BracketLeft')) cyclePal('support', 1);
+        if (input.pressed('BracketRight')) cycleBeast('primary', 1);
+        if (input.pressed('BracketLeft')) cycleBeast('support', 1);
       }
     }
 
-    // Support pal errands + auto-cast
+    // Support beast errands + auto-cast
     const sup = support();
 
     fetchScanT -= dt;
     if (fetchScanT <= 0) {
       fetchScanT = FETCH_SCAN;
-      if (flags.pals && !sup.isFetching && !sup.isDead) {
+      if (flags.beasts && !sup.isFetching && !sup.isDead) {
         const job = combat.findFetchJob(player.position, FETCH_RADIUS, worthFetching);
         if (job) sup.beginFetch(job);
       }
@@ -1366,7 +1366,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       const heal = known.find((s) => s.targeting === 'support' || s.targeting === 'self');
       const hurt = player.hp < player.maxHp * 0.7 || primary().hp < primary().maxHp * 0.7;
       const pick = hurt && heal ? heal : known.find((s) => s.targeting !== 'support' && s.targeting !== 'self') ?? heal;
-      if (pick) castFromPal(sup, pick);
+      if (pick) castFromBeast(sup, pick);
     }
 
     // Shop proximity. The prompt itself is decided after the zone update below,
@@ -1396,24 +1396,24 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     hud.closeShop();
   }
 
-  // Contact particles. Sits between the `player` and `pals` profiler markers, so
-  // its cost is measured in the `pals` slot — its own timing is on
+  // Contact particles. Sits between the `player` and `beasts` profiler markers, so
+  // its cost is measured in the `beasts` slot — its own timing is on
   // `__dbgTouchFx().ms`, which is finer grained than a section anyway.
   touchFx.update(dt, toucher);
 
   // Cooldowns
   for (const [id, t] of cooldowns) cooldowns.set(id, Math.max(0, t - dt));
 
-  // Pals follow
+  // Beasts follow
   const owner = { position: player.position, velocity: player.velocity, isSwimming: player.isSwimming };
-  if (flags.pals) {
-    // The ridden pal has already been placed and animated by mount.update();
+  if (flags.beasts) {
+    // The ridden beast has already been placed and animated by mount.update();
     // running follow steering on top of that would fight the reins.
-    const ridden = mount.pal;
+    const ridden = mount.beast;
     if (primary() !== ridden) primary().update(dt, owner, 'primary', roster);
     if (support() !== ridden) support().update(dt, owner, 'support', roster);
   }
-  perf.section('pals');
+  perf.section('beasts');
 
   reportMovers();
 
@@ -1458,7 +1458,7 @@ function frame(): void {
   // movement — integrated over wall-clock, consumed by whichever slice runs —
   // whereas polling per slice would multiply the turn rate by the slice count.
   // And the edges land before slice 0, the one `first` is true for, which is
-  // what the hotbar, Tab, the pal cycles and the shop key are all gated on.
+  // what the hotbar, Tab, the beast cycles and the shop key are all gated on.
   pad?.setModal(shopOpen || !!devConsole?.isOpen);
   pad?.poll(dt);
 
@@ -1474,28 +1474,28 @@ function frame(): void {
   if (steps === MAX_STEPS) simAccumulator = 0;
 
   if (photoMode) {
-    if (params.get('pal')) {
-      // Auto-frame the primary pal: 3/4 portrait tracking its live position.
-      const pal = primary();
+    if (params.get('beast')) {
+      // Auto-frame the primary beast: 3/4 portrait tracking its live position.
+      const beast = primary();
       const ang = (Number(params.get('a') ?? 35) * Math.PI) / 180;
       // Frame the subject at ~40% of frame height. Sized from the rig's own
-      // extents (a small pal's ears/tail push well past its nominal height, and
+      // extents (a small beast's ears/tail push well past its nominal height, and
       // wingspan dominates for flyers) with a hard minimum distance: at 55° FOV
       // anything closer than ~2.6 units distorts badly on a wide-angle lens.
-      const subject = Math.max(0.5, pal.height, pal.radius * 2.2);
+      const subject = Math.max(0.5, beast.height, beast.radius * 2.2);
       const vFov = (engine.camera.fov * Math.PI) / 180;
       const fitDist = subject / (0.4 * 2 * Math.tan(vFov / 2));
       const dist = Number(params.get('dist') ?? Math.max(2.6, fitDist));
-      const midY = pal.position.y + subject * 0.5;
-      const aimY = pal.position.y + subject * 0.42;
+      const midY = beast.position.y + subject * 0.5;
+      const aimY = beast.position.y + subject * 0.42;
 
       /** Highest camera lift needed to clear terrain along the sight line. */
       const requiredLift = (px: number, pz: number, d: number): number => {
         let need = world.getHeight(px, pz) + 0.9;
         for (let s = 1; s <= 6; s++) {
           const t = s / 7;
-          const gx = px + (pal.position.x - px) * t;
-          const gz = pz + (pal.position.z - pz) * t;
+          const gx = px + (beast.position.x - px) * t;
+          const gz = pz + (beast.position.z - pz) * t;
           const clearance = world.getHeight(gx, gz) + 0.35;
           const y = aimY + (clearance - aimY) / Math.max(0.28, 1 - t);
           if (y > need) need = y;
@@ -1515,8 +1515,8 @@ function frame(): void {
         for (const shrink of [1, 0.85, 0.72, 0.61]) {
           const a2 = ang + swing;
           const d2 = Math.max(1.8, dist * shrink);
-          const tx = pal.position.x + Math.sin(a2) * d2;
-          const tz = pal.position.z + Math.cos(a2) * d2;
+          const tx = beast.position.x + Math.sin(a2) * d2;
+          const tz = beast.position.z + Math.cos(a2) * d2;
           const need = requiredLift(tx, tz, d2);
           const y = Math.max(midY, need);
           const over = y - ceiling;
@@ -1530,12 +1530,12 @@ function frame(): void {
       }
       engine.camera.position.set(cx, camY, cz);
       // Aim slightly low so the subject sits at ~0.45 frame height.
-      engine.camera.lookAt(pal.position.x, aimY, pal.position.z);
+      engine.camera.lookAt(beast.position.x, aimY, beast.position.z);
       // Turn the subject to face the camera, off by 20° for a 3/4 view. This
       // must use the FINAL bearing, not the requested `ang` — the occlusion
       // search above may have swung the camera, which is how subjects ended up
       // photographed from the flank.
-      pal.facingOverride = Math.atan2(cx - pal.position.x, cz - pal.position.z) - 0.35;
+      beast.facingOverride = Math.atan2(cx - beast.position.x, cz - beast.position.z) - 0.35;
     } else {
       engine.camera.position.copy(photoCam);
       engine.camera.lookAt(photoLook);
@@ -1552,7 +1552,7 @@ function frame(): void {
 
   // HUD sync
   hud.setPlayerHp(player.hp, player.maxHp);
-  hud.setPals(palHud(primary()), palHud(support()));
+  hud.setBeasts(beastHud(primary()), beastHud(support()));
   const slots: SkillSlot[] = hotbarSkills().map((def) => {
     const remaining = cooldowns.get(def.id) ?? 0;
     return { def, cooldownRemaining: remaining, ready: remaining <= 0 };
@@ -1572,8 +1572,8 @@ function frame(): void {
   hud.setPadPrompts(input.padActive && pad ? pad.glyphs : null);
   hud.setMountHold(mount.progress);
   hud.setMounted(
-    mount.pal ? t(mount.pal.species.nameKey) : null,
-    mount.pal ? mount.pal.species.locomotion === 'flying' : false,
+    mount.beast ? t(mount.beast.species.nameKey) : null,
+    mount.beast ? mount.beast.species.locomotion === 'flying' : false,
   );
   hud.update(dt);
 
@@ -1644,7 +1644,7 @@ function frame(): void {
 // which is how the freeze it prevents can be reproduced on demand.
 //
 // One simulation slice runs FIRST so there is something to warm: it primes the
-// enemy population and teleports the pals to the player, both of which are
+// enemy population and teleports the beasts to the player, both of which are
 // still at the origin (and so out of frame, and so uncompiled) before it.
 if (params.get('warmup') !== '0') {
   simulate(SIM_DT, true, !photoMode);
@@ -1900,7 +1900,7 @@ frame();
 
 // Zone state, and — in the same call — everything a transition is supposed to
 // leave untouched. The two belong together: the only way to show that a switch
-// preserved the hero's hp and a pal's level is to read them either side of the
+// preserved the hero's hp and a beast's level is to read them either side of the
 // same event, and a probe that needs three calls to do it invites a race.
 // Read-only, allocates, never called from the frame loop.
 (window as unknown as { __dbgZone: () => unknown }).__dbgZone = () => ({
@@ -1920,7 +1920,7 @@ frame();
   },
   shards: shards(),
   bag: bag.entries().map((e) => ({ id: e.def.id, count: e.count })),
-  pals: roster.map((p) => ({
+  beasts: roster.map((p) => ({
     id: p.species.id,
     level: p.level,
     xp: p.xp,
@@ -1933,7 +1933,7 @@ frame();
 /**
  * Every body in the world that steers itself, and WHAT IT IS STANDING IN.
  *
- * "A pal walks through the hut its owner is leaning on" is the one way
+ * "A beast walks through the hut its owner is leaning on" is the one way
  * settlement collision can come out looking worse than no collision at all, and
  * the only honest way to check it is to read where the other movers actually
  * ended up rather than to trust that they share a code path. `structureTop`
@@ -1957,7 +1957,7 @@ frame();
     },
     // The two ACTIVE followers only: the rest of the roster is benched and
     // parked at the origin, where "is it inside a wall" means nothing.
-    pals: [primary(), support()].map((p) => ({
+    beasts: [primary(), support()].map((p) => ({
       id: p.species.id,
       locomotion: p.species.locomotion,
       x: +p.position.x.toFixed(2), y: +p.position.y.toFixed(2),

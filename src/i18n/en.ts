@@ -70,39 +70,39 @@ export const en = {
   'npc.gain.name': 'Deckard Gains Armstrong',
   'npc.gain.greeting': 'Hello, my friend. Stay awhile and... gain some knowledge.',
 
-  // ---- pal species ---------------------------------------------------------
-  // Keyed by the species id in src/pals/species/*.ts. The id is what the roster,
-  // the ?pal= capture parameter, /mount and every save key on; the name and the
+  // ---- beast species -------------------------------------------------------
+  // Keyed by the species id in src/beasts/species/*.ts. The id is what the roster,
+  // the ?beast= capture parameter, /mount and every save key on; the name and the
   // flavour blurb are display and live here.
-  'pal.aquaxol.name': 'Aquaxol',
-  'pal.aquaxol.desc':
+  'beast.aquaxol.name': 'Aquaxol',
+  'beast.aquaxol.desc':
     'A perpetually smiling axolotl that waddles on land and ripples through water, gills fluttering like party streamers.',
-  'pal.boulderpup.name': 'Boulderpup',
-  'pal.boulderpup.desc':
+  'beast.boulderpup.name': 'Boulderpup',
+  'beast.boulderpup.desc':
     'A puppy chiseled from mountain strata by a very sentimental earthquake. Moss grows where it naps too long, and the amber crystal on its back glows brighter the happier it gets.',
-  'pal.drakelet.name': 'Drakelet',
-  'pal.drakelet.desc':
+  'beast.drakelet.name': 'Drakelet',
+  'beast.drakelet.desc':
     'A pocket-sized dragon with the ego of a mountain-sized one. Polishes its ember-crimson scales on cliff quartz and practices its roar at sunrise, every sunrise.',
-  'pal.emberfox.name': 'Emberfox',
-  'pal.emberfox.desc':
+  'beast.emberfox.name': 'Emberfox',
+  'beast.emberfox.desc':
     'An eager little fox whose oversized tail smolders when it is excited — which is always.',
-  'pal.frostwing.name': 'Frostwing',
-  'pal.frostwing.desc':
+  'beast.frostwing.name': 'Frostwing',
+  'beast.frostwing.desc':
     'A snowy owl born in the heart of a glacier. It drifts on silent wings, watching everything with polite, unblinking curiosity, and its speckles glitter like fresh frost at dawn.',
-  'pal.galebird.name': 'Galebird',
-  'pal.galebird.desc':
+  'beast.galebird.name': 'Galebird',
+  'beast.galebird.desc':
     'A wind-stitched swallow that treats gravity as a polite suggestion — the fastest wings in the valley.',
-  'pal.lumimoth.name': 'Lumimoth',
-  'pal.lumimoth.desc':
+  'beast.lumimoth.name': 'Lumimoth',
+  'beast.lumimoth.desc':
     'A radiant moth that drifts between lantern posts at dusk, its glowing tail-light said to guide lost travelers home. Collects starlight on its wing-spots.',
-  'pal.sparkit.name': 'Sparkit',
-  'pal.sparkit.desc':
+  'beast.sparkit.name': 'Sparkit',
+  'beast.sparkit.desc':
     'A hyperactive spark rodent that physically cannot sit still. Its tall zigzag tail is a living lightning rod, and its cheek spots crackle whenever it gets excited — so, always.',
-  'pal.sproutle.name': 'Sproutle',
-  'pal.sproutle.desc':
+  'beast.sproutle.name': 'Sproutle',
+  'beast.sproutle.desc':
     'A round mossy turtle-dino whose shell is a garden of overlapping leaf plates. It plods along at its own unhurried pace, head-sprout bobbing, utterly unbothered by anything.',
-  'pal.umbrakit.name': 'Umbrakit',
-  'pal.umbrakit.desc':
+  'beast.umbrakit.name': 'Umbrakit',
+  'beast.umbrakit.desc':
     'A hovering wisp of a cat woven from dusk. Its tail keeps drifting apart and lazily reassembling.',
 
   // ---- skills --------------------------------------------------------------
@@ -239,13 +239,13 @@ export const en = {
   'hud.hp': 'HP',
   'hud.level': 'Lv {n}',
   'hud.levelUp': 'LEVEL UP',
-  'hud.levelUpReached': '{pal} reached Lv {level}!',
+  'hud.levelUpReached': '{beast} reached Lv {level}!',
   // {skill} arrives already wrapped in its own emphasis markup, so the
   // translation decides where in the sentence the skill name lands.
-  'hud.levelUpLearned': '{pal} reached Lv {level} — learned {skill}!',
+  'hud.levelUpLearned': '{beast} reached Lv {level} — learned {skill}!',
   'hud.mountHold': 'HOLD {key} TO MOUNT',
-  'hud.riding': 'RIDING {pal} · tap {dismount} to dismount',
-  'hud.ridingFlying': 'RIDING {pal} · {altitude} altitude · tap {dismount} to dismount',
+  'hud.riding': 'RIDING {beast} · tap {dismount} to dismount',
+  'hud.ridingFlying': 'RIDING {beast} · {altitude} altitude · tap {dismount} to dismount',
 
   // ---- hints -------------------------------------------------------------
   // The hint pill is HTML, and `{key}` arrives already wrapped in `<kbd>` — the
@@ -270,7 +270,7 @@ export const en = {
 
   // ---- shop --------------------------------------------------------------
   'shop.skillDen.title': 'Skill Den',
-  'shop.forPal': 'for {pal}',
+  'shop.forBeast': 'for {beast}',
   'shop.learned': 'Learned',
   'shop.buy': 'BUY',
   'shop.stat.power': 'PWR',
@@ -279,12 +279,12 @@ export const en = {
   'shop.foot.jump': '{key} jump',
   'shop.foot.attack': '{key} attack',
   'shop.foot.skills': '{key} skills',
-  'shop.foot.swap': '{key} swap pal',
+  'shop.foot.swap': '{key} swap beast',
   'shop.foot.interact': '{key} interact',
 
   // ---- toasts ------------------------------------------------------------
-  'toast.welcome.desktop': 'Welcome to Cube Pals! Click to play.',
-  'toast.welcome.touch': 'Welcome to Cube Pals! Left stick moves, right stick looks.',
+  'toast.welcome.desktop': 'Welcome to Beast Story! Click to play.',
+  'toast.welcome.touch': 'Welcome to Beast Story! Left stick moves, right stick looks.',
   'toast.controls.desktop':
     'WASD move · Space jump · LMB attack · 1-4 skills · hold F to ride · Tab swap · E shop',
   'toast.controls.touch':
@@ -296,27 +296,27 @@ export const en = {
   'toast.controls.gamepad':
     'Left stick moves · right stick looks · A jump · RT attack · D-pad skills · hold Y to ride · L3 swap · X shop',
   'toast.enteredZone': 'Entered {zone}',
-  'toast.palLeads': '{lead} leads · {support} supports',
-  'toast.palTakesLead': '{pal} takes the lead!',
+  'toast.beastLeads': '{lead} leads · {support} supports',
+  'toast.beastTakesLead': '{beast} takes the lead!',
   'toast.dismountFirst': 'Dismount first (tap F).',
-  'toast.fetched': '{pal} fetched {item} ({n})',
-  'toast.learnedSkill': '{pal} learned {skill}!',
+  'toast.fetched': '{beast} fetched {item} ({n})',
+  'toast.learnedSkill': '{beast} learned {skill}!',
   'toast.fainted': 'You fainted!',
   'toast.revived': 'Back on your feet!',
 
   // ---- mounting ------------------------------------------------------------
-  // The pal's name lands INSIDE each of these, which is the whole reason they
-  // are one key apiece with a `{pal}` placeholder rather than a name glued to a
+  // The beast's name lands INSIDE each of these, which is the whole reason they
+  // are one key apiece with a `{beast}` placeholder rather than a name glued to a
   // fixed tail. These surfaced with the species rename: `mount.ts` was building
   // them out of `species.name`.
-  'toast.mount.flying': '{pal} spreads its wings — hold on!',
-  'toast.mount.ground': "{pal} kneels — you're in the saddle!",
-  'toast.dismounted': 'Dismounted {pal}',
-  'toast.mount.palDown': '{pal} is down!',
+  'toast.mount.flying': '{beast} spreads its wings — hold on!',
+  'toast.mount.ground': "{beast} kneels — you're in the saddle!",
+  'toast.dismounted': 'Dismounted {beast}',
+  'toast.mount.beastDown': '{beast} is down!',
   'toast.mount.refuse.swimming': 'Too deep to mount — get out of the water first.',
   'toast.mount.refuse.climbing': 'Not while you are on the wall.',
-  'toast.mount.refuse.palDead': '{pal} is in no shape to carry you.',
-  'toast.mount.refuse.noPal': 'No pal to ride.',
+  'toast.mount.refuse.beastDead': '{beast} is in no shape to carry you.',
+  'toast.mount.refuse.noBeast': 'No beast to ride.',
   'toast.mount.refuse.other': 'Not now.',
 
   // ---- fullscreen offer (touch devices only) -------------------------------

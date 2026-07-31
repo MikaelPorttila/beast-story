@@ -1,5 +1,5 @@
 /**
- * Cube Pals Lab — isolated model/actor/VFX stage.
+ * Beast Story Lab — isolated model/actor/VFX stage.
  *
  * Renders ONE subject (or a lineup) on a neutral floor with no terrain
  * streaming, props, enemies, HUD or gameplay systems, so iteration and
@@ -7,12 +7,12 @@
  * verified in the real game (index.html) before it counts as done.
  *
  * URL parameters
- *   pal=<speciesId>        one pal (see src/pals/registry.ts)
- *   pals=all|a,b,c         lineup of pals, evenly spaced
+ *   beast=<speciesId>      one beast (see src/beasts/registry.ts)
+ *   beasts=all|a,b,c       lineup of beasts, evenly spaced
  *   enemy=gloopling|snortle|peckit
  *   hero=1                 the player character rig
  *   skill=<skillId>        fires that skill on a loop at a dummy target
- *   anim=<PalAction>       idle|walk|run|swim|fly|attack|cast|special|hurt|happy
+ *   anim=<BeastAction>     idle|walk|run|swim|fly|attack|cast|special|hurt|happy
  *   t=<seconds>            simulate this long, then render one frozen frame
  *                          (deterministic — use for screenshots)
  *   spin=1                 turntable the subject
@@ -24,9 +24,9 @@
 import * as THREE from 'three';
 import { Engine } from '../core/engine';
 import { DebugOverlay } from '../core/debug-overlay';
-import { EventBus, type PalAction, type Damageable } from '../core/types';
-import { PalActor, registerSkillDefs } from '../pals/framework';
-import { ALL_SPECIES, SKILLS, getSkill } from '../pals/registry';
+import { EventBus, type BeastAction, type Damageable } from '../core/types';
+import { BeastActor, registerSkillDefs } from '../beasts/framework';
+import { ALL_SPECIES, SKILLS, getSkill } from '../beasts/registry';
 import { Enemy, type EnemyCtx } from '../combat/enemies';
 import { VFX } from '../combat/vfx';
 import { CombatSystem } from '../combat/index';
@@ -59,7 +59,7 @@ if (params.get('grid') === '0') {
 }
 
 // -- subjects ----------------------------------------------------------------
-const pals: PalActor[] = [];
+const beasts: BeastActor[] = [];
 const marks: THREE.Vector3[] = [];
 const enemies: Enemy[] = [];
 let heroRoot: THREE.Group | null = null;
@@ -67,34 +67,34 @@ const subjectPos = new THREE.Vector3(0, 0, 0);
 let subjectHeight = 1;
 let lineupWidth = 0;
 
-const palsParam = params.get('pals');
-const palParam = params.get('pal');
-if (palsParam) {
-  const ids = palsParam === 'all'
+const beastsParam = params.get('beasts');
+const beastParam = params.get('beast');
+if (beastsParam) {
+  const ids = beastsParam === 'all'
     ? ALL_SPECIES.map((s) => s.id)
-    : palsParam.split(',').map((s) => s.trim());
+    : beastsParam.split(',').map((s) => s.trim());
   const chosen = ALL_SPECIES.filter((s) => ids.includes(s.id));
   const spacing = num('spacing', 2.0);
   chosen.forEach((sp, i) => {
-    const actor = new PalActor(sp, engine.scene, world, bus);
+    const actor = new BeastActor(sp, engine.scene, world, bus);
     const x = (i - (chosen.length - 1) / 2) * spacing;
     actor.position.set(x, 0, 0);
     actor.facingOverride = 0; // face +Z, toward the camera
-    pals.push(actor);
+    beasts.push(actor);
     marks.push(new THREE.Vector3(x, 0, 0));
   });
   lineupWidth = (chosen.length - 1) * spacing;
   subjectHeight = 1.4;
-} else if (palParam) {
-  const sp = ALL_SPECIES.find((s) => s.id === palParam);
+} else if (beastParam) {
+  const sp = ALL_SPECIES.find((s) => s.id === beastParam);
   if (sp) {
-    const actor = new PalActor(sp, engine.scene, world, bus);
+    const actor = new BeastActor(sp, engine.scene, world, bus);
     actor.facingOverride = 0;
-    pals.push(actor);
+    beasts.push(actor);
     marks.push(new THREE.Vector3(0, 0, 0));
     subjectHeight = 1.0;
   } else {
-    console.error(`[lab] unknown pal "${palParam}". Known:`, ALL_SPECIES.map((s) => s.id));
+    console.error(`[lab] unknown beast "${beastParam}". Known:`, ALL_SPECIES.map((s) => s.id));
   }
 }
 
@@ -151,7 +151,7 @@ function placeCamera(): void {
 
 // -- simulation --------------------------------------------------------------
 const owner = { position: new THREE.Vector3(0, 0, 0), velocity: new THREE.Vector3(), isSwimming: false };
-const animParam = params.get('anim') as PalAction | null;
+const animParam = params.get('anim') as BeastAction | null;
 let simTime = 0;
 let skillTimer = 0;
 
@@ -163,18 +163,18 @@ const enemyCtx: EnemyCtx = {
 function step(dt: number): void {
   simTime += dt;
 
-  for (let i = 0; i < pals.length; i++) {
-    const p = pals[i];
+  for (let i = 0; i < beasts.length; i++) {
+    const p = beasts[i];
     const mark = marks[i];
-    // Keep each pal parked on its mark: the owner sits where the pal stands,
+    // Keep each beast parked on its mark: the owner sits where the beast stands,
     // and horizontal drift from steering/separation is snapped back after the
     // update so a lineup stays a lineup (vertical motion stays free so flyers
     // still hover and swimmers still bob).
     // Single subject turns with the camera so it always presents a 3/4 view;
     // a lineup stays square to the lens.
-    if (pals.length === 1) p.facingOverride = angle - 0.35;
+    if (beasts.length === 1) p.facingOverride = angle - 0.35;
     owner.position.copy(p.position);
-    p.update(dt, owner, 'primary', pals);
+    p.update(dt, owner, 'primary', beasts);
     if (animParam && animParam !== 'idle') p.playAction(animParam, 0.9);
     p.position.x = mark.x;
     p.position.z = mark.z;
@@ -236,7 +236,7 @@ if (freezeAt !== null) {
 
 // Console helper so agents can introspect what is available.
 (window as unknown as { labInfo: () => void }).labInfo = () => {
-  console.log('pals:', ALL_SPECIES.map((s) => s.id).join(', '));
+  console.log('beasts:', ALL_SPECIES.map((s) => s.id).join(', '));
   console.log('enemies: gloopling, snortle, peckit');
   console.log('skills:', [...SKILLS.keys()].join(', '));
 };

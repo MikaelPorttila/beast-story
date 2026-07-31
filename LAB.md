@@ -1,4 +1,4 @@
-# Cube Pals Lab — isolated iteration stage
+# Beast Story Lab — isolated iteration stage
 
 `lab.html` renders **one subject on a bare stage**: no terrain streaming, no props,
 no enemy spawner, no HUD, no gameplay loop. Use it to iterate on a model, an
@@ -9,7 +9,7 @@ streaming and most of the settle wait — and the `t=` parameter makes it
 deterministic, the same frame every run.
 
 ```bash
-bun tools/lab-shot.mjs shots/lab-fox.png "pal=emberfox&t=2"
+bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 ```
 
 ## Rules
@@ -26,8 +26,8 @@ bun tools/lab-shot.mjs shots/lab-fox.png "pal=emberfox&t=2"
 
 | Parameter | Effect |
 | --- | --- |
-| `pal=<id>` | One pal — ids in `src/pals/registry.ts` |
-| `pals=all` or `pals=a,b,c` | Lineup, evenly spaced, framed to fit |
+| `beast=<id>` | One beast — ids in `src/beasts/registry.ts` |
+| `beasts=all` or `beasts=a,b,c` | Lineup, evenly spaced, framed to fit |
 | `spacing=<units>` | Lineup spacing (default 2.0) |
 | `enemy=gloopling\|snortle\|peckit` | One enemy (`variant=<n>` for palette variants) |
 | `hero=1` | The player character rig |
@@ -60,23 +60,23 @@ needed only when
 measuring real frame timing or capturing fast motion). Frozen (`t=`) lab shots
 render exactly once, so the cap does not apply to them.
 
-Run `labInfo()` in the browser console to list every valid pal, enemy and skill id.
+Run `labInfo()` in the browser console to list every valid beast, enemy and skill id.
 
 ## Examples
 
 ```bash
-# every pal side by side
-bun tools/lab-shot.mjs shots/lab-all.png "pals=all&t=1.5" 2000 700
+# every beast side by side
+bun tools/lab-shot.mjs shots/lab-all.png "beasts=all&t=1.5" 2000 700
 
-# one pal mid-cast, deterministic frame
-bun tools/lab-shot.mjs shots/lab-cast.png "pal=drakelet&anim=cast&t=2.4"
+# one beast mid-cast, deterministic frame
+bun tools/lab-shot.mjs shots/lab-cast.png "beast=drakelet&anim=cast&t=2.4"
 
 # swimmer in water
-bun tools/lab-shot.mjs shots/lab-swim.png "pal=aquaxol&water=1&t=3"
+bun tools/lab-shot.mjs shots/lab-swim.png "beast=aquaxol&water=1&t=3"
 
 # skill VFX against a plain backdrop
 bun tools/lab-shot.mjs shots/lab-vfx.png "skill=emberfox.flame-dart&t=2.2&bg=202830"
 
 # live (not frozen) turntable in the browser
-#   http://localhost:5187/lab.html?pal=frostwing&spin=1
+#   http://localhost:5187/lab.html?beast=frostwing&spin=1
 ```

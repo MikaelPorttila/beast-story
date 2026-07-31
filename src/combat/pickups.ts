@@ -12,9 +12,9 @@ import type { VFX } from './vfx';
  * draw as a tumbling cube, so "money" and "stuff" are one glance apart on the
  * ground. Both use the item's own colour.
  *
- * A drop can also be CLAIMED as a `FetchJob` by a pal running an errand. A
- * claimed drop stops answering the player's magnet: the pal is already walking
- * to it, and having the item yanked out from under it halfway left the pal
+ * A drop can also be CLAIMED as a `FetchJob` by a beast running an errand. A
+ * claimed drop stops answering the player's magnet: the beast is already walking
+ * to it, and having the item yanked out from under it halfway left the beast
  * jogging to an empty patch of grass. The claim is released the moment the
  * errand ends, and the drop expires on the same MAX_AGE clock either way.
  */
@@ -46,14 +46,14 @@ interface Drop {
 }
 
 /**
- * Pooled view of one drop, handed to a pal as an errand. Holds the generation
+ * Pooled view of one drop, handed to a beast as an errand. Holds the generation
  * it claimed at, so a job kept past the end of its errand reports `valid`
  * false instead of silently pointing at whatever landed in the slot next.
  */
 class DropJob implements FetchJob {
   private gen = -1;
 
-  constructor(private drop: Drop, private collectFn: (d: Drop, byPal: boolean) => void) {}
+  constructor(private drop: Drop, private collectFn: (d: Drop, byBeast: boolean) => void) {}
 
   get itemId(): string { return this.drop.itemId; }
   get position(): THREE.Vector3 { return this.drop.group.position; }
@@ -88,7 +88,7 @@ export class Pickups {
   constructor(
     private scene: THREE.Scene,
     private vfx: VFX,
-    private onCollect: (itemId: string, byPal: boolean) => void,
+    private onCollect: (itemId: string, byBeast: boolean) => void,
   ) {
     this.shardGeo = new THREE.OctahedronGeometry(0.16, 0);
     this.shardGeo.scale(1, 1.65, 1);
@@ -133,7 +133,7 @@ export class Pickups {
       itemId: SHARD_ID, claimed: false, gen: 0,
       job: null as unknown as DropJob,
     };
-    s.job = new DropJob(s, (d, byPal) => this.take(d, byPal));
+    s.job = new DropJob(s, (d, byBeast) => this.take(d, byBeast));
     this.pool.push(s);
     return s;
   }
@@ -202,7 +202,7 @@ export class Pickups {
     for (const s of this.pool) {
       if (!s.active || s.claimed) continue;
       // Give the drop a moment to land before anyone is sent after it, or a
-      // pal chases a mote that is still arcing through the air.
+      // beast chases a mote that is still arcing through the air.
       if (s.age < 0.5) continue;
       if (!want(s.itemId)) continue;
       const dx = s.group.position.x - from.x;
@@ -230,14 +230,14 @@ export class Pickups {
   }
 
   /** Collect + retire a drop, wherever the collector came from. */
-  private take(s: Drop, byPal: boolean): void {
+  private take(s: Drop, byBeast: boolean): void {
     const pos = s.group.position;
     const hex = itemDef(s.itemId).color;
     this.vfx.glowPulse(pos.x, pos.y, pos.z, hex, 1.7, 0.28);
     this.vfx.burst(pos.x, pos.y, pos.z, hex, 12, 3.4, 0.32, 0.22, 0, 0.4);
     this.vfx.flashLight(pos.x, pos.y, pos.z, hex, 2.6, 5, 0.2);
     this.retire(s);
-    this.onCollect(s.itemId, byPal);
+    this.onCollect(s.itemId, byBeast);
   }
 
   private retire(s: Drop): void {
@@ -250,7 +250,7 @@ export class Pickups {
   /**
    * Retire every drop without collecting it. Used when the ground they are
    * lying on stops existing — a zone change. Bumping `gen` in retire() is what
-   * makes any FetchJob a pal is still holding go inert rather than wrong.
+   * makes any FetchJob a beast is still holding go inert rather than wrong.
    */
   clear(): void {
     for (const s of this.pool) if (s.active) this.retire(s);
@@ -265,7 +265,7 @@ export class Pickups {
       _v.set(magnet.x - pos.x, magnet.y + 0.8 - pos.y, magnet.z - pos.z);
       const d2 = _v.lengthSq();
 
-      // A claimed drop belongs to the pal fetching it: no magnet, no walk-over.
+      // A claimed drop belongs to the beast fetching it: no magnet, no walk-over.
       if (!s.claimed && d2 < COLLECT_DIST_SQ && s.age > 0.3) {
         this.take(s, false);
         continue;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
@@ -55,9 +55,9 @@ const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
 /**
- * Integrated cycle slots — see PalAnimCtx.cycle(). Every one of these
+ * Integrated cycle slots — see BeastAnimCtx.cycle(). Every one of these
  * frequencies moves with the gait blend, so multiplying them into the session
- * clock made the pose teleport whenever the pal changed pace.
+ * clock made the pose teleport whenever the beast changed pace.
  */
 const GAIT = 0;   // legs + waddle roll, shared by the waddle and the swim
 const FROND = 1;  // the frond ripple, which tracks the gait rate at its own scale
@@ -125,7 +125,7 @@ function makeHead(): THREE.Mesh {
   // silhouette and the far one gone entirely.
   eyes2x2(m, {
     inner: 1, width: 1, y: 2, faceZ: 3, iris: IRIS, shine: SHINE,
-    // lid in mid AQUA, not AQUA_DEEP: the front of a pal's head is in shade in most
+    // lid in mid AQUA, not AQUA_DEEP: the front of a beast's head is in shade in most
     // portraits, and a deep tone there merged with the dark iris into one black band.
     lid: AQUA, bridge: BELLY, cheek: BLUSH,
   });
@@ -165,7 +165,7 @@ function makeTailPaddle(): THREE.Mesh {
   return m.build(S, true);
 }
 
-function buildRig(): PalRig {
+function buildRig(): BeastRig {
   const root = new THREE.Group();
 
   const body = new THREE.Group();
@@ -252,7 +252,7 @@ function buildRig(): PalRig {
   };
 }
 
-function animate(rig: PalRig, ctx: PalAnimCtx): void {
+function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const p = rig.parts;
   const t = ctx.time;
   const at = ctx.actionTime;
@@ -290,7 +290,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     case 'run': { // the famous belly waddle
       const isRun = ctx.action === 'run';
       // 5.5-8.5 rad/s waddling, 8-11 at a run. Integrated: measured with
-      // tools/test-palanim.mjs, `t * f` put 1.69 rad of leg swing into one
+      // tools/test-beastanim.mjs, `t * f` put 1.69 rad of leg swing into one
       // frame as the waddle spun up; the integrated cycle peaks at 0.29.
       const f = (isRun ? 8 : 5.5) + 3 * ms;
       const ph = ctx.cycle(GAIT, f);
@@ -515,12 +515,12 @@ export const skills: SkillDef[] = [
   },
 ];
 
-export const species: PalSpecies = {
+export const species: BeastSpecies = {
   id: 'aquaxol',
-  nameKey: 'pal.aquaxol.name',
+  nameKey: 'beast.aquaxol.name',
   element: 'water',
   locomotion: 'amphibious',
-  descriptionKey: 'pal.aquaxol.desc',
+  descriptionKey: 'beast.aquaxol.desc',
   baseStats: { maxHp: 54, attack: 9, defense: 8, speed: 3.6 },
   skills: skills.map((s) => s.id),
   buildRig,

@@ -1,7 +1,7 @@
 /**
  * NPCs — the people standing in the world, and the generic half of one.
  *
- * THE SPLIT IS THE PAL SPLIT. `PalActor` (pals/framework.ts) owns steering,
+ * THE SPLIT IS THE BEAST SPLIT. `BeastActor` (beasts/framework.ts) owns steering,
  * state and the frame tick while a species file owns a body and one
  * `animate(rig, ctx)`; this file owns placement, culling, the interact test, the
  * talk state and the per-frame tick, while a character file (npc-gain.ts) owns
@@ -42,7 +42,7 @@ import { GAIN } from './npc-gain';
  * A built body: a root to hang in the scene, the joints its `animate` poses,
  * and the footprint it blocks.
  *
- * `parts` rather than named fields, exactly like `PalRig`: the framework never
+ * `parts` rather than named fields, exactly like `BeastRig`: the framework never
  * touches a joint, so naming them here would be a list this file has to grow
  * every time a character has a different body plan.
  */
@@ -75,7 +75,7 @@ export interface NpcRig {
    * Per-instance scratch for the character's own smoothing, keyed by whatever
    * names it likes.
    *
-   * Here for the same reason `PalAnimCtx.cycle` keeps its phases per pal: an
+   * Here for the same reason `BeastAnimCtx.cycle` keeps its phases per beast: an
    * `animate` that has to smooth anything needs somewhere to keep the previous
    * value, and a module-level variable would make two of the same character
    * share one. Written in place every frame, so it allocates nothing.
@@ -127,7 +127,7 @@ export interface NpcCharacter {
   talk(): NpcTalk;
 }
 
-/** Every NPC in the game. The module list is the roster, like pals/registry.ts. */
+/** Every NPC in the game. The module list is the roster, like beasts/registry.ts. */
 const CHARACTERS: readonly NpcCharacter[] = [GAIN];
 
 // ---------------------------------------------------------------------------

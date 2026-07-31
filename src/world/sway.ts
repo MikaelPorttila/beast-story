@@ -11,7 +11,7 @@
  *   parting   a body walking through shoves blades outward and down, and the
  *             shove TRAILS the body (see LAG_LAMBDA) so the gap opens behind a
  *             runner and closes over about a third of a second once he stops.
- *   downwash  a pal flying low blows the grass under it: an outward-running
+ *   downwash  a beast flying low blows the grass under it: an outward-running
  *             ripple plus a steady flattening, both stronger the closer it is,
  *             and stronger again while it is climbing.
  *
@@ -40,9 +40,9 @@ import { flags } from '../core/flags';
 /**
  * How many bodies can disturb the grass at once.
  *
- * The party is three (hero-or-mount plus the two active pals) and the wild
+ * The party is three (hero-or-mount plus the two active beasts) and the wild
  * spawner puts packs of three or four near you, so six covers the party plus
- * the three nearest wild pals, and degrades by dropping the FURTHEST rather
+ * the three nearest wild beasts, and degrades by dropping the FURTHEST rather
  * than by flickering between them. The uniform cost is 6 * 2 + 2 = 14 vec4s
  * against WebGL2's guaranteed 256 vertex vec4s, of which MeshStandard uses
  * under 40 — not a constraint at this size.
@@ -90,7 +90,7 @@ const LAG_LAMBDA = 9;
 const VEL_LAMBDA = 8;
 
 /**
- * Asymmetric on purpose. In fast (0.08 s) so a pal swapped into the follow slot
+ * Asymmetric on purpose. In fast (0.08 s) so a beast swapped into the follow slot
  * does not visibly ramp up; out slow (0.25 s time constant, about 0.75 s to
  * nothing) so recycling a slot to a different body cannot snap a metre of grass
  * upright in one frame. Recycling is guaranteed — ten tracks over six slots.
@@ -133,7 +133,7 @@ const DIR_REF = 6;
 /**
  * The downwash window, in units of clearance over the ground.
  *
- * Measured against PalActor.updateFlying: a flyer damps its height toward
+ * Measured against BeastActor.updateFlying: a flyer damps its height toward
  * `max(ground, aheadY, waterLevel) + hover` with hover 1.55 cruising and 0.85
  * on a fetch errand, plus a +-0.22 bob. Real clearances are therefore 1.33-1.77
  * cruising and 0.63-1.07 swooping, so this window puts a cruise at about 55% of
@@ -193,11 +193,11 @@ const PHOTO_CLOCK = 11.0;
 const f = (n: number): string => n.toFixed(4);
 
 const SWAY_PARS = `
-attribute float cpSwayH;   // 0 at the root, 1 at the tip; 0 on every rigid prop
-uniform float cpSwayTime;
-uniform vec4  cpSwayArea;  // (x, z, r2, count) — one test skips the whole loop
-uniform vec4  cpSwayA[${SWAY_SLOTS}];  // (worldX, worldZ, radius, push)
-uniform vec4  cpSwayB[${SWAY_SLOTS}];  // (dirX, dirZ, wash, phase)
+attribute float bsSwayH;   // 0 at the root, 1 at the tip; 0 on every rigid prop
+uniform float bsSwayTime;
+uniform vec4  bsSwayArea;  // (x, z, r2, count) — one test skips the whole loop
+uniform vec4  bsSwayA[${SWAY_SLOTS}];  // (worldX, worldZ, radius, push)
+uniform vec4  bsSwayB[${SWAY_SLOTS}];  // (dirX, dirZ, wash, phase)
 `;
 
 /**
@@ -220,7 +220,7 @@ uniform vec4  cpSwayB[${SWAY_SLOTS}];  // (dirX, dirZ, wash, phase)
  * would cost a second program and a second geometry pass for nothing.
  */
 const SWAY_BODY = `
-if (cpSwayH > 0.004) {
+if (bsSwayH > 0.004) {
   // The chunk's model matrix is a PURE TRANSLATION — props.ts sets position
   // only, with matrixAutoUpdate off — so object-space xz and world-space xz
   // differ by a constant, and a displacement computed in one is valid in the
@@ -229,25 +229,25 @@ if (cpSwayH > 0.004) {
   // h squared is a cantilever: the root is pinned into the ground and the tip
   // carries the whole bend. Linear h slides the blade sideways as a rigid body,
   // which reads as the tuft sliding across the terrain rather than bending.
-  float h = cpSwayH * cpSwayH;
+  float h = bsSwayH * bsSwayH;
 
   // The prevailing wind. Two octaves, always on, no uniforms of its own beyond
   // the clock. The primary wavelength is about 18 units, so a gust crosses
   // several clumps at once and reads as weather rather than as per-blade
   // jitter, and the fixed diagonal makes it one wind rather than a shimmer.
-  float wind = sin(swXZ.x * 0.35 + swXZ.y * 0.21 + cpSwayTime * 1.15)
-             + 0.45 * sin(swXZ.x * 0.90 - swXZ.y * 0.70 + cpSwayTime * 2.30);
+  float wind = sin(swXZ.x * 0.35 + swXZ.y * 0.21 + bsSwayTime * 1.15)
+             + 0.45 * sin(swXZ.x * 0.90 - swXZ.y * 0.70 + bsSwayTime * 2.30);
   vec2 push = vec2(wind * ${f(0.045)}, wind * ${f(0.027)});
   float droop = 0.0;
 
-  vec2 area = swXZ - cpSwayArea.xy;
+  vec2 area = swXZ - bsSwayArea.xy;
   // ONE disc test, and it is what makes the loop affordable: every influencer
   // sits within ~25 units of the hero while the streamed soft meshes span 352,
   // so the great majority of drawn grass leaves here having paid a dot product.
-  if (dot(area, area) < cpSwayArea.z) {
+  if (dot(area, area) < bsSwayArea.z) {
     for (int i = 0; i < ${SWAY_SLOTS}; i++) {
-      vec4 A = cpSwayA[i];
-      vec4 B = cpSwayB[i];
+      vec4 A = bsSwayA[i];
+      vec4 B = bsSwayB[i];
       vec2 d = swXZ - A.xy;
       float r = length(d);
       // Branchless disable: an unused slot has radius 0, so the ratio saturates
@@ -267,7 +267,7 @@ if (cpSwayH > 0.004) {
       // beside it is what makes the shake read as pressure from above rather
       // than as more wind. Both sit under the walk push: air shakes grass, a
       // body shoves it.
-      push  += nd * (B.z * fo * sin(cpSwayTime * 13.0 - r * 2.2 + B.w) * ${f(0.13)});
+      push  += nd * (B.z * fo * sin(bsSwayTime * 13.0 - r * 2.2 + B.w) * ${f(0.13)});
       droop += B.z * fo * ${f(0.09)};
     }
   }
@@ -292,7 +292,7 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
  *
  * `lx/lz` is the LAGGED centre — the wake, not the body — and is what the
  * shader is given. `px/py/pz` is the last reported position, kept only so the
- * velocity and climb rate can be DERIVED here: PalActor, MountController and
+ * velocity and climb rate can be DERIVED here: BeastActor, MountController and
  * Enemy all keep their velocities private, and deriving from position deltas
  * means none of them has to change to make grass react to them.
  */
@@ -315,10 +315,10 @@ interface Track {
 
 export class SwayField {
   readonly uniforms = {
-    cpSwayTime: { value: 0 },
-    cpSwayArea: { value: new THREE.Vector4(0, 0, -1, 0) },
-    cpSwayA: { value: Array.from({ length: SWAY_SLOTS }, () => new THREE.Vector4()) },
-    cpSwayB: { value: Array.from({ length: SWAY_SLOTS }, () => new THREE.Vector4()) },
+    bsSwayTime: { value: 0 },
+    bsSwayArea: { value: new THREE.Vector4(0, 0, -1, 0) },
+    bsSwayA: { value: Array.from({ length: SWAY_SLOTS }, () => new THREE.Vector4()) },
+    bsSwayB: { value: Array.from({ length: SWAY_SLOTS }, () => new THREE.Vector4()) },
   };
 
   private readonly tracks: Track[] = Array.from({ length: TRACKS }, (_, i) => ({
@@ -354,7 +354,7 @@ export class SwayField {
    * where there is grass — and none afterwards.
    */
   install(mat: THREE.Material): void {
-    mat.customProgramCacheKey = (): string => 'cpSway';
+    mat.customProgramCacheKey = (): string => 'bsSway';
     mat.onBeforeCompile = (shader): void => {
       Object.assign(shader.uniforms, this.uniforms);
       shader.vertexShader = shader.vertexShader
@@ -383,7 +383,7 @@ export class SwayField {
 
   /** Resolve this slice's reports into tracks, then tracks into uniforms. */
   update(focus: THREE.Vector3, time: number, dt: number): void {
-    this.uniforms.cpSwayTime.value = flags.photo ? PHOTO_CLOCK : time;
+    this.uniforms.bsSwayTime.value = flags.photo ? PHOTO_CLOCK : time;
 
     const tracks = this.tracks;
     for (let i = 0; i < TRACKS; i++) tracks[i].seen = false;
@@ -469,8 +469,8 @@ export class SwayField {
    * copy, so it allocates nothing.
    */
   private writeSlots(focus: THREE.Vector3): void {
-    const A = this.uniforms.cpSwayA.value;
-    const B = this.uniforms.cpSwayB.value;
+    const A = this.uniforms.bsSwayA.value;
+    const B = this.uniforms.bsSwayB.value;
     let used = 0;
     let count = 0;
     // Area disc, accumulated as the slots are written: centroid first, extent
@@ -521,7 +521,7 @@ export class SwayField {
       count++;
     }
 
-    const area = this.uniforms.cpSwayArea.value;
+    const area = this.uniforms.bsSwayArea.value;
     if (count === 0) {
       // A negative squared radius fails the shader's `dot(d,d) < r2` test
       // everywhere, so an idle world pays for the wind and nothing else.
@@ -542,8 +542,8 @@ export class SwayField {
 
   /** Diagnostic snapshot for `__dbgSway()`. Allocates; never called per frame. */
   debug(): unknown {
-    const A = this.uniforms.cpSwayA.value;
-    const B = this.uniforms.cpSwayB.value;
+    const A = this.uniforms.bsSwayA.value;
+    const B = this.uniforms.bsSwayB.value;
     const slots = [];
     for (let s = 0; s < SWAY_SLOTS; s++) {
       if (A[s].z <= 0) continue;
@@ -557,9 +557,9 @@ export class SwayField {
       climb: t.climb, speed: Math.hypot(t.vx, t.vz),
       lag: Math.hypot(t.px - t.lx, t.pz - t.lz),
     }));
-    const area = this.uniforms.cpSwayArea.value;
+    const area = this.uniforms.bsSwayArea.value;
     return {
-      time: this.uniforms.cpSwayTime.value,
+      time: this.uniforms.bsSwayTime.value,
       frozen: flags.photo,
       area: { x: area.x, z: area.y, r: area.z > 0 ? Math.sqrt(area.z) : 0, count: area.w },
       slots,

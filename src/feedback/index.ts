@@ -117,7 +117,7 @@ export class FeedbackSystem {
         break;
       case 'enemyKilled': this.push('kill', 1); break;
       case 'mounted': this.push('mounted', 1); break;
-      case 'palLevelUp': this.push('levelUp', 1); break;
+      case 'beastLevelUp': this.push('levelUp', 1); break;
       case 'itemPicked': this.push('pickup', 1); break;
       default: break;
     }

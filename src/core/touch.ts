@@ -3,7 +3,7 @@ import { t } from '../i18n';
 
 /**
  * Touch controls: a left analog stick for movement, a right look pad, and the
- * action buttons (attack, jump, interact, four skills, pal swap) fanned around
+ * action buttons (attack, jump, interact, four skills, beast swap) fanned around
  * the two sticks.
  *
  * LAYOUT — why the buttons are on arcs and not in rows.
@@ -13,7 +13,7 @@ import { t } from '../i18n';
  * of buttons at y=241 in landscape — 45 px BELOW the reticle at y=196 — so the
  * one part of the frame the player is actually aiming at was covered by the
  * controls. Portrait was the same shape lower down: the rows sat across the
- * hero and the following pals.
+ * hero and the following beasts.
  *
  * Now every button sits on an arc centred on a stick, in the quarter each thumb
  * sweeps without regripping:
@@ -68,7 +68,7 @@ const CSS = `
    and a max-height:460px block to undo vw sizing when the phone was turned
    sideways (12vw is 47px portrait but 102px landscape on a Pixel 5); both are
    gone. */
-.cp-touch{position:fixed;left:0;top:0;width:100vw;width:100dvw;height:100vh;height:100dvh;
+.bs-touch{position:fixed;left:0;top:0;width:100vw;width:100dvw;height:100vh;height:100dvh;
   z-index:30;pointer-events:none;touch-action:none;overflow:hidden;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
@@ -98,7 +98,7 @@ const CSS = `
   --ml:max(var(--m),env(safe-area-inset-left));
   --mr:max(var(--m),env(safe-area-inset-right));
   --mb:max(var(--m),env(safe-area-inset-bottom))}
-.cp-touch.hidden{display:none}
+.bs-touch.hidden{display:none}
 
 /* The LOOK PAD is the drag surface, not the ring. It covers the whole
    bottom-right cluster — stick, fan and the gaps between the fan buttons — so a
@@ -108,27 +108,27 @@ const CSS = `
    also later in the DOM, so they hit-test above it.
    Sized to reach the far edge of the fan: corner inset + half a stick + the fan
    radius + half a button + a little slack. */
-.cp-look{position:absolute;right:0;bottom:0;pointer-events:auto;touch-action:none;
+.bs-look{position:absolute;right:0;bottom:0;pointer-events:auto;touch-action:none;
   width:calc(var(--mr) + var(--s)/2 + var(--r) + var(--atk)/2 + 10px);
   height:calc(var(--mb) + var(--s)/2 + var(--r) + var(--atk)/2 + 10px)}
 
 /* Twin sticks, one per bottom corner: left = movement, right = camera. */
-.cp-stick{position:absolute;bottom:var(--mb);
+.bs-stick{position:absolute;bottom:var(--mb);
   width:var(--s);aspect-ratio:1;pointer-events:auto;border-radius:50%;
   background:radial-gradient(circle,rgba(255,255,255,.09),rgba(255,255,255,.03) 70%);
   border:1px solid rgba(255,255,255,.16);transition:opacity .2s ease;opacity:.5}
-.cp-stick.move{left:var(--ml)}
+.bs-stick.move{left:var(--ml)}
 /* The look ring is a READOUT: the pad above owns the touch, and the ring jumps
    to wherever the thumb landed. pointer-events:none keeps it from stealing the
    pad's own drags at its edges. */
-.cp-stick.look{right:var(--mr);pointer-events:none}
-.cp-stick.active{opacity:1}
-.cp-stick .knob{position:absolute;left:50%;top:50%;width:38%;aspect-ratio:1;margin:0;
+.bs-stick.look{right:var(--mr);pointer-events:none}
+.bs-stick.active{opacity:1}
+.bs-stick .knob{position:absolute;left:50%;top:50%;width:38%;aspect-ratio:1;margin:0;
   transform:translate(-50%,-50%);border-radius:50%;
   background:radial-gradient(circle at 36% 30%,rgba(255,255,255,.9),rgba(210,228,245,.55) 60%,rgba(150,180,210,.4));
   box-shadow:0 4px 14px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.6)}
 /* tiny glyph so the two sticks are distinguishable at a glance */
-.cp-stick .tag{position:absolute;left:50%;bottom:8%;transform:translateX(-50%);
+.bs-stick .tag{position:absolute;left:50%;bottom:8%;transform:translateX(-50%);
   font-size:9px;font-weight:800;letter-spacing:.14em;color:rgba(255,255,255,.5)}
 
 /* Fan containers are ZERO-SIZED points parked on a stick's centre; each button
@@ -136,40 +136,40 @@ const CSS = `
    rotate(a) lands the box at (r cos a, -r sin a) and leaves the label upright,
    so an angle is the only thing a slot has to declare. Nothing here is touched
    per frame — the transforms are static CSS. */
-.cp-btns,.cp-skills{position:absolute;width:0;height:0;pointer-events:none;
+.bs-btns,.bs-skills{position:absolute;width:0;height:0;pointer-events:none;
   --rad:var(--r);
   right:calc(var(--mr) + var(--s)/2);bottom:calc(var(--mb) + var(--s)/2)}
 /* The mirror fan on the move stick. */
-.cp-btns.near{right:auto;left:calc(var(--ml) + var(--s)/2);--rad:var(--lr)}
+.bs-btns.near{right:auto;left:calc(var(--ml) + var(--s)/2);--rad:var(--lr)}
 
-.cp-btn,.cp-skill{position:absolute;left:0;top:0;pointer-events:auto;
+.bs-btn,.bs-skill{position:absolute;left:0;top:0;pointer-events:auto;
   display:grid;place-items:center;border-radius:50%;aspect-ratio:1;
   color:#eef2f8;letter-spacing:.04em;
   backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   transform:translate(-50%,-50%) rotate(calc(-1 * var(--a)))
     translateX(var(--rad)) rotate(var(--a));
   transition:filter .08s ease}
-.cp-btn{width:var(--b);font-weight:800;font-size:clamp(9px,2.6vmin,12px);
+.bs-btn{width:var(--b);font-weight:800;font-size:clamp(9px,2.6vmin,12px);
   background:linear-gradient(165deg,rgba(34,44,62,.82),rgba(16,20,30,.88));
   border:1px solid rgba(255,255,255,.18);
   box-shadow:0 6px 18px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1)}
-.cp-btn.attack{width:var(--atk);
+.bs-btn.attack{width:var(--atk);
   background:linear-gradient(165deg,rgba(214,86,52,.9),rgba(150,48,26,.92));
   box-shadow:0 6px 20px rgba(0,0,0,.45),0 0 18px -6px rgba(255,140,90,.7),
     inset 0 1px 0 rgba(255,255,255,.14)}
-.cp-btn.swap{background:linear-gradient(165deg,rgba(52,96,150,.85),rgba(24,52,92,.9))}
+.bs-btn.swap{background:linear-gradient(165deg,rgba(52,96,150,.85),rgba(24,52,92,.9))}
 /* Pressed state is filter/brightness only: the placement transform carries the
    polar position, so a scale() here would fling the button back to the origin. */
-.cp-btn:active,.cp-btn.on{filter:brightness(1.55)}
+.bs-btn:active,.bs-btn.on{filter:brightness(1.55)}
 
 /* Skills read as one group inside the fan — same circle, cooler fill and a
    cyan hairline, so the four numbered slots are visibly a set and not four more
    verbs. */
-.cp-skill{width:var(--b);font-weight:900;font-size:clamp(12px,3.4vmin,17px);
+.bs-skill{width:var(--b);font-weight:900;font-size:clamp(12px,3.4vmin,17px);
   background:linear-gradient(165deg,rgba(28,42,62,.84),rgba(12,18,30,.88));
   border:1px solid rgba(150,220,255,.3);
   box-shadow:0 5px 14px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.09)}
-.cp-skill:active{filter:brightness(1.55)}
+.bs-skill:active{filter:brightness(1.55)}
 `;
 
 interface StickState {
@@ -197,7 +197,7 @@ class Stick {
    */
   constructor(kind: 'move' | 'look', tag: string, onChange: () => void, pad?: HTMLElement) {
     this.el = document.createElement('div');
-    this.el.className = `cp-stick ${kind}`;
+    this.el.className = `bs-stick ${kind}`;
     this.knob = document.createElement('div');
     this.knob.className = 'knob';
     this.el.appendChild(this.knob);
@@ -304,12 +304,12 @@ export class TouchControls {
     document.head.appendChild(style);
 
     this.root = document.createElement('div');
-    this.root.className = 'cp-touch';
+    this.root.className = 'bs-touch';
 
     // -- twin sticks: movement bottom-left, camera bottom-right --------------
     // The look pad goes in FIRST so every button added below hit-tests above it.
     const lookPad = document.createElement('div');
-    lookPad.className = 'cp-look';
+    lookPad.className = 'bs-look';
     this.root.appendChild(lookPad);
 
     this.moveStick = new Stick('move', t('touch.move'), () => {
@@ -330,11 +330,11 @@ export class TouchControls {
     // Highest-frequency right-thumb verbs after ATK, so they get the arc rather
     // than the centred row they used to be.
     const skills = document.createElement('div');
-    skills.className = 'cp-skills';
+    skills.className = 'bs-skills';
     const SKILL_ANGLES = [97, 123, 149, 175];
     for (let i = 0; i < 4; i++) {
       const b = document.createElement('button');
-      b.className = 'cp-skill';
+      b.className = 'bs-skill';
       b.textContent = String(i + 1);
       place(b, SKILL_ANGLES[i]);
       b.addEventListener('touchstart', (e) => {
@@ -349,16 +349,16 @@ export class TouchControls {
 
     // -- action buttons ------------------------------------------------------
     const btns = document.createElement('div');
-    btns.className = 'cp-btns';
+    btns.className = 'bs-btns';
     // Mirror fan on the move stick for the two occasional verbs.
     const nearBtns = document.createElement('div');
-    nearBtns.className = 'cp-btns near';
+    nearBtns.className = 'bs-btns near';
     const mkButton = (
       into: HTMLDivElement, angle: number, cls: string, label: string,
       onDown: () => void, onUp?: () => void,
     ): void => {
       const b = document.createElement('button');
-      b.className = `cp-btn ${cls}`;
+      b.className = `bs-btn ${cls}`;
       b.textContent = label;
       place(b, angle);
       b.addEventListener('touchstart', (e) => {

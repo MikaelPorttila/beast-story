@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 import { makeContactBlob, updateContactBlob } from './contactshadow';
@@ -13,13 +13,13 @@ import { makeContactBlob, updateContactBlob } from './contactshadow';
 //
 // Chroma is deliberately much higher than the previous build. That owl was white
 // plus four greys within 12% of each other, and since a portrait usually catches
-// the front of the pal in shade, every one of those greys collapsed onto the same
+// the front of the beast in shade, every one of those greys collapsed onto the same
 // slate blue: a critic reading a real-game shot described the whole creature as
 // "one narrow band of desaturated slate blue", which is exactly what it was. Snow
 // still has to read as snow, so the white stays — the saturation went into the
 // barring, the facial disc and a warm beak, which are the cells that survive shade.
 // Both whites are now WARM-biased, which looks wrong in a swatch and right on the
-// model. The sun is low here and a portrait usually catches the front of a pal in
+// model. The sun is low here and a portrait usually catches the front of a beast in
 // shade, where the only light is blue sky bounce — a neutral-to-cool white rendered
 // under that reads as slate blue, and the owl came back from three separate capture
 // rounds looking like a blue bird. Starting warm, the blue bounce lands on it and
@@ -56,7 +56,7 @@ const BODY_Y = 0.38;
 // anything under ~0.28 puts the wing roots across the facial disc — which is what
 // made the owl photograph as a face with slabs through it.
 const HEAD_X = 0, HEAD_Y = 0.32, HEAD_Z = 0.15;
-/** Hover height PalActor holds a flyer at; the contact blob has to match it. */
+/** Hover height BeastActor holds a flyer at; the contact blob has to match it. */
 const HOVER = 1.55;
 
 type Parts = Record<string, THREE.Object3D>;
@@ -66,7 +66,7 @@ const smooth = (t: number): number => { const x = s01(t); return x * x * (3 - 2 
 const decay = (t: number, r: number): number => Math.exp(-r * Math.max(0, t));
 
 /**
- * The wing/leg cycle, on one integrated phase — see PalAnimCtx.cycle(). The owl
+ * The wing/leg cycle, on one integrated phase — see BeastAnimCtx.cycle(). The owl
  * runs three different rates on the same wings (6.5 rad/s hopping, 8.5 skimming,
  * 3.6-6.2 cruising), and all three used to be multiplied into the session clock,
  * so every gait change and every nudge of the gait blend jump-cut the pose.
@@ -190,7 +190,7 @@ function wingSectionMesh(sign: number, kind: 'inner' | 'mid' | 'tip'): THREE.Mes
   return mesh;
 }
 
-function buildRig(): PalRig {
+function buildRig(): BeastRig {
   const root = new THREE.Group();
   const body = new THREE.Group();
   body.position.set(0, BODY_Y, 0);
@@ -388,7 +388,7 @@ function poseWings(P: Parts, fold: number, up: number, midUp: number, tipUp: num
   P.wingRTip.rotation.set(0, 0.5 * fold + SWEEP_AFT * 0.5, z2);
 }
 
-function animate(rig: PalRig, ctx: PalAnimCtx): void {
+function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const P = rig.parts;
   const t = ctx.time, at = ctx.actionTime, ms = ctx.moveSpeed;
 
@@ -483,7 +483,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
         Math.sin(ph - 1.1) * amp * 0.95 + 0.05 * Math.sin(t * 7.3) * g);
       // Barely any idle roll. A hovering owl rolled even 0.16 rad photographs as
       // one wing up and one wing down, which reads as a broken mirror rather than
-      // as a bank — and the pal hovers in place for every portrait.
+      // as a bank — and the beast hovers in place for every portrait.
       const bank = Math.sin(t * 0.55) * (0.02 + 0.035 * g);
       const pitch = 0.16 + 0.12 * ms - 0.06 * Math.sin(ph - 0.9) * (1 - g);
       P.body.rotation.set(pitch, 0, bank);
@@ -588,12 +588,12 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 // ---------------------------------------------------------------------------
 // Species
 // ---------------------------------------------------------------------------
-export const species: PalSpecies = {
+export const species: BeastSpecies = {
   id: 'frostwing',
-  nameKey: 'pal.frostwing.name',
+  nameKey: 'beast.frostwing.name',
   element: 'ice',
   locomotion: 'flying',
-  descriptionKey: 'pal.frostwing.desc',
+  descriptionKey: 'beast.frostwing.desc',
   baseStats: { maxHp: 44, attack: 13, defense: 7, speed: 6.5 },
   skills: skills.map((s) => s.id),
   buildRig,

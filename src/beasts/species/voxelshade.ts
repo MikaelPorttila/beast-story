@@ -1,7 +1,7 @@
 import type { VoxelModel } from '../../core/voxel';
 
 // ---------------------------------------------------------------------------
-// Shared voxel-painting helpers for the pal species.
+// Shared voxel-painting helpers for the beast species.
 //
 // Two problems these solve, both diagnosed from real-game portraits:
 //

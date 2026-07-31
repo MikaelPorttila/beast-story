@@ -1,5 +1,5 @@
 // Verifies that a settlement's buildings, walls, crates and gate behave — and
-// that pals and enemies respect the same walls — by DRIVING bodies into them,
+// that beasts and enemies respect the same walls — by DRIVING bodies into them,
 // not by reasoning about the maths.
 //
 // Usage: bun tools/test-structures.mjs
@@ -199,9 +199,9 @@ async function run(solids, geom = null) {
     }
   }
 
-  // ---- pals and enemies -------------------------------------------------
+  // ---- beasts and enemies -----------------------------------------------
   // The one way settlement collision can come out WORSE than none at all is a
-  // pal standing inside the hut its owner is leaning on. So: park the hero
+  // beast standing inside the hut its owner is leaning on. So: park the hero
   // against a wall deep inside the camp, let his followers pile in behind him
   // and the wild spawns come to him, then read where every body actually is.
   {
@@ -225,7 +225,7 @@ async function run(solids, geom = null) {
     out.bodies = {
       hut,
       hero: { ...b.player, insideAWall: inWall(b.player) },
-      pals: b.pals.map((p) => ({
+      beasts: b.beasts.map((p) => ({
         ...p,
         insideAWall: inWall(p),
         distToHut: round(Math.hypot(p.x - hut.x, p.z - hut.z)),

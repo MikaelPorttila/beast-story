@@ -190,7 +190,7 @@ export function measureFootprint(model: VoxelModel, scale: number): SolidBox[] {
  * what almost every call in a session costs. The camp figure is a bucket of
  * five-ish boxes; scanning all 199 instead would be roughly forty times that
  * inner loop. Everything that moves asks this two or three times per axis per
- * simulation slice — the hero, the saddle, two pals, ten wild spawns, call it
+ * simulation slice — the hero, the saddle, two beasts, ten wild spawns, call it
  * 30 queries — so the grid costs ~1.2 us of a 7.8 ms frame where the flat scan
  * would cost ~50 us. Neither would have dropped a frame today; the grid is
  * fifteen lines and does not stop being true when a fourth town lands.
@@ -207,7 +207,7 @@ const cellKey = (cx: number, cz: number): number => cx * 4194304 + cz;
  * Built once at world creation alongside the town meshes and then never
  * touched: towns are not streamed (see towns.ts), so neither is this.
  *
- * `topAt` runs from the player's per-frame update and from every pal and enemy
+ * `topAt` runs from the player's per-frame update and from every beast and enemy
  * that moves, so it allocates nothing, chases no objects and does no trig — the
  * yaw is stored as its cosine and sine at stamp time.
  */

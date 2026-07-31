@@ -44,11 +44,11 @@ export class DevConsole {
 
   constructor() {
     this.root = document.createElement('div');
-    this.root.className = 'cp-console';
+    this.root.className = 'bs-console';
     this.log = document.createElement('div');
-    this.log.className = 'cp-console-log';
+    this.log.className = 'bs-console-log';
     this.input = document.createElement('input');
-    this.input.className = 'cp-console-input';
+    this.input.className = 'bs-console-input';
     this.input.type = 'text';
     this.input.spellcheck = false;
     this.input.autocapitalize = 'off';
@@ -73,7 +73,7 @@ export class DevConsole {
       run: () => { this.log.textContent = ''; },
     });
 
-    this.print('Cube Pals console. § closes it, /help lists commands.');
+    this.print('Beast Story console. § closes it, /help lists commands.');
   }
 
   /** Add a command. Later registrations of the same name replace earlier ones. */
@@ -96,7 +96,7 @@ export class DevConsole {
 
   print(line: string): void {
     const el = document.createElement('div');
-    el.className = 'cp-console-line';
+    el.className = 'bs-console-line';
     el.textContent = line;
     this.log.appendChild(el);
     while (this.log.childElementCount > MAX_LINES) this.log.removeChild(this.log.firstChild!);

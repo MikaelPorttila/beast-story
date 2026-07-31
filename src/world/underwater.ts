@@ -45,7 +45,7 @@ import { SURFACE_Y } from './water';
  *
  * Absorption is multiplicative in life (Beer-Lambert) and it is multiplicative
  * here: red goes first, then green, and blue survives. Multiplying keeps every
- * bit of the scene's own structure — the bed's shading, the terraces, a pal
+ * bit of the scene's own structure — the bed's shading, the terraces, a beast
  * swimming past — and simply drains the warm end out of it. And it composes
  * exactly right with the fog: fog ADDS the in-scattered light that makes deep
  * water glow rather than go black, this SUBTRACTS the absorbed part, which
@@ -208,7 +208,7 @@ export class Underwater {
     this.tint.visible = false;
     // Not a bloom source: a full-frame quad fed to the emissive pass would bloom
     // the entire image. See tagSources() in core/post.ts.
-    this.tint.userData.cpNoBloom = true;
+    this.tint.userData.bsNoBloom = true;
     this.scene.add(this.tint);
 
     this.bubblePos = new Float32Array(N_BUBBLES * 3);
@@ -242,7 +242,7 @@ export class Underwater {
     this.bubbles.frustumCulled = false;
     this.bubbles.renderOrder = 8999; // under the tint, over everything else
     this.bubbles.visible = false;
-    this.bubbles.userData.cpNoBloom = true;
+    this.bubbles.userData.bsNoBloom = true;
     this.scene.add(this.bubbles);
   }
 

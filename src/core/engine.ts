@@ -55,7 +55,7 @@ const SUN_OFFSET = new THREE.Vector3(170, 160, 113);
 // fill would give it 0. Faces the sun already owns take none of it either way.
 //
 // It casts no shadow, so it adds one dot product per fragment and no depth pass.
-// It is created in the constructor before any world/pal material exists, so
+// It is created in the constructor before any world/beast material exists, so
 // NUM_DIR_LIGHTS is 2 for every program the game ever compiles — no new
 // permutation can appear mid-session and warmUpShaders() stays valid.
 const BOUNCE_OFFSET = new THREE.Vector3(-160, -62, -106);
@@ -102,7 +102,7 @@ void main() {
  * the horizon end carries real chroma.
  */
 const SKY_LIB = /* glsl */ `
-vec3 cpSkyRadiance(float h) {
+vec3 bsSkyRadiance(float h) {
   vec3 zenith  = vec3(0.0170, 0.1900, 0.8700);  // displays #3a97ef, sat 0.76
   vec3 horizon = vec3(0.0850, 0.3900, 1.1500);  // displays #a4cbe7, sat 0.29 — a
                                                 // pale CYAN, not a pale grey
@@ -161,7 +161,7 @@ uniform vec3 uSunDir;
 varying vec3 vDir;
 void main() {
   vec3 d = normalize(vDir);
-  vec3 col = cpSkyRadiance(d.y);
+  vec3 col = bsSkyRadiance(d.y);
 
   // Sun-side glow: a tight corona, a mid halo, and a barely-there wide lobe.
   // The exponents are high on purpose. Adding a warm colour to a blue sky
@@ -204,7 +204,7 @@ void main() {
  * between two distances. Neither half is good enough here:
  *
  *  - the COLOUR has to vary with where the fragment sits in the sky, which is
- *    what cpSkyRadiance above provides. The elevation it needs is computed in the
+ *    what bsSkyRadiance above provides. The elevation it needs is computed in the
  *    vertex shader from data every material already has — `mvPosition` (view
  *    space) dotted with world up expressed in view space — so this needs no new
  *    uniforms and works on stock materials, on the water shader, and on anything
@@ -240,9 +240,9 @@ function installAerialPerspective(): void {
   // into every three-managed shader, so (viewMatrix * up) is world up in view
   // space and the dot gives exactly the elevation the sky dome samples. The length
   // guard is for shaders whose mvPosition is the camera origin itself (sprites).
-  vec3 cpFogRay = mvPosition.xyz;
-  vFogElev = dot(cpFogRay, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz))
-           / max(length(cpFogRay), 1e-4);
+  vec3 bsFogRay = mvPosition.xyz;
+  vFogElev = dot(bsFogRay, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz))
+           / max(length(bsFogRay), 1e-4);
 #endif
 `;
 
@@ -267,8 +267,8 @@ function installAerialPerspective(): void {
     float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
   #else
     // fogNear = where haze starts, fogFar = where it is ~95% of the way there.
-    float cpFogD = max(0.0, vFogDepth - fogNear) / max(1.0, fogFar - fogNear);
-    float fogFactor = 1.0 - exp(-3.0 * cpFogD * cpFogD);
+    float bsFogD = max(0.0, vFogDepth - fogNear) / max(1.0, fogFar - fogNear);
+    float fogFactor = 1.0 - exp(-3.0 * bsFogD * bsFogD);
   #endif
   // Haze is a GROUND LAYER, so it thins with altitude. vFogElev already says how
   // far above the horizon this fragment is seen, which is the cheap proxy: a ridge
@@ -284,9 +284,9 @@ function installAerialPerspective(): void {
   fogFactor *= 1.0 - smoothstep(0.10, 0.46, vFogElev) * 0.86;
   // Distance drops local contrast and lifts value before it takes hue: 28% toward
   // the fragment's own luma, 10% brighter, both scaled by the same factor.
-  float cpFogL = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(cpFogL * 1.10), 0.28 * fogFactor);
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, cpSkyRadiance(vFogElev), fogFactor);
+  float bsFogL = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(bsFogL * 1.10), 0.28 * fogFactor);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, bsSkyRadiance(vFogElev), fogFactor);
 #endif
 `;
 }
@@ -320,7 +320,7 @@ void main() {
   // rolloff knee is 1.55, so everything above ~2.6 lands on the same displayed
   // value. A hotter core cannot get brighter, it can only widen the plateau —
   // what makes the disc legible is keeping the SKY around it well under the knee
-  // (see SKY_FRAG) and keeping the disk out of the bloom (see cpNoBloom below).
+  // (see SKY_FRAG) and keeping the disk out of the bloom (see bsNoBloom below).
   vec3 c = vec3(1.0, 0.965, 0.90) * (core * 3.6) + vec3(1.0, 0.74, 0.38) * corona;
   gl_FragColor = vec4(c, 1.0);
   #include <tonemapping_fragment>
@@ -415,7 +415,7 @@ export class Engine {
     this.scene.background = this.ownBackground;
     // Aerial perspective. The CURVE and the COLOUR both live in the patched fog
     // chunk (installAerialPerspective) — the colour is sampled per fragment from
-    // cpSkyRadiance, so scene.fog.color is not read at all. The two numbers here
+    // bsSkyRadiance, so scene.fog.color is not read at all. The two numbers here
     // are what the chunk does use:
     //
     //   100 where haze begins. Captured at 55 first and it was too eager: the far
@@ -485,7 +485,7 @@ export class Engine {
     // over a couple of hundred pixels, which pushes that whole area past the knee
     // and produces exactly the flat white plateau with a square-ish edge that got
     // filed against this. See tagSources() in post.ts.
-    this.sunDisk.userData.cpNoBloom = true;
+    this.sunDisk.userData.bsNoBloom = true;
     this.scene.add(this.sunDisk);
 
     this.camera = new THREE.PerspectiveCamera(

@@ -594,7 +594,7 @@ export class Terrain {
    * either direction — see roads.ts.
    *
    * Still pure, still allocation-free, and still the single answer everything in
-   * the game resolves against: pals, enemies, drops and the camera walk the
+   * the game resolves against: beasts, enemies, drops and the camera walk the
    * bridge over the lake for free, without any of them knowing what a bridge is.
    */
   getHeight(x: number, z: number): number {

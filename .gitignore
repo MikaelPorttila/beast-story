@@ -150,7 +150,7 @@ vite.config.ts.timestamp-*
 .claude
 
 # Critic-loop scratch captures. The curated shots (shots/vista.png,
-# shots/pal-*.png, the layout/touch references) stay tracked as the visual
+# shots/beast-*.png, the layout/touch references) stay tracked as the visual
 # baseline; per-round working captures are throwaway and would otherwise add a
 # few hundred PNGs per session.
 shots/r[0-9]*-*.png

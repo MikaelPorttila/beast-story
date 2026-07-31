@@ -23,13 +23,13 @@ export const sv: Translation = {
   'item.shard.other': 'Kubloner',
 
   // A DELIBERATE SUBSET of the new names, so a single frame shows both halves
-  // of the fallback: Emberfox and Sproutle are translated, the other eight pals
+  // of the fallback: Emberfox and Sproutle are translated, the other eight beasts
   // are not and render their English names from `en.ts`. Same for the skills —
   // Flame Dart moved, Ember Pounce did not.
-  'pal.emberfox.name': 'Glödräv',
-  'pal.emberfox.desc':
+  'beast.emberfox.name': 'Glödräv',
+  'beast.emberfox.desc':
     'En ivrig liten räv vars överdimensionerade svans pyr när den är upprymd — vilket är jämt.',
-  'pal.sproutle.name': 'Grodd',
+  'beast.sproutle.name': 'Grodd',
   'skill.emberfox.flame-dart.name': 'Eldpil',
   'skill.emberfox.flame-dart.desc':
     'Spottar en snabb rävelds-blixt som brister i ett regn av gnistor.',
@@ -77,18 +77,18 @@ export const sv: Translation = {
   'hud.hp': 'HP',
   'hud.level': 'Nivå {n}',
   'hud.levelUp': 'NY NIVÅ',
-  'hud.levelUpReached': '{pal} nådde nivå {level}!',
-  'hud.levelUpLearned': '{pal} nådde nivå {level} — lärde sig {skill}!',
+  'hud.levelUpReached': '{beast} nådde nivå {level}!',
+  'hud.levelUpLearned': '{beast} nådde nivå {level} — lärde sig {skill}!',
   'hud.mountHold': 'HÅLL {key} FÖR ATT RIDA',
 
   'shop.buy': 'KÖP',
   'shop.learned': 'Inlärd',
-  'shop.forPal': 'till {pal}',
+  'shop.forBeast': 'till {beast}',
 
   // Word order differs from English here — "hämtade" takes the item before the
   // count, and the zone name lands after the verb. Exactly why these are single
   // keys with placeholders rather than concatenated fragments.
-  'toast.fetched': '{pal} hämtade {item} ({n})',
+  'toast.fetched': '{beast} hämtade {item} ({n})',
   'toast.enteredZone': 'Du kom fram till {zone}',
-  'toast.palTakesLead': '{pal} tar ledningen!',
+  'toast.beastTakesLead': '{beast} tar ledningen!',
 };

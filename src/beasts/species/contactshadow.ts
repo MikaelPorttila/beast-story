@@ -3,7 +3,7 @@ import * as THREE from 'three';
 // ---------------------------------------------------------------------------
 // Ground contact blob for the flyers.
 //
-// The flying rigs ARE in the shadow-caster set (PalActor turns castShadow on for
+// The flying rigs ARE in the shadow-caster set (BeastActor turns castShadow on for
 // every mesh it finds), but a flyer hovers ~1.55 units up and this world's sun is
 // low, so its real shadow lands a metre and a half behind it — often on a
 // different terrace, often out of frame. The result in portraits and in gameplay
@@ -69,7 +69,7 @@ const _q = new THREE.Quaternion();
  *
  * - The rig root carries pitch/yaw/bank, so the blob has to cancel the root's
  *   rotation or it banks with the creature and slices into the terrain.
- * - PalActor's constructor traverses the rig and sets castShadow on every mesh,
+ * - BeastActor's constructor traverses the rig and sets castShadow on every mesh,
  *   which would make this blob cast a hard-edged shadow of its own quad. Clearing
  *   the flag here (a plain boolean store, effectively free) is the only hook a
  *   species file has after that traverse has run.

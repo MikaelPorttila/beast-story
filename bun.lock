@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "cube-pals",
+      "name": "beast-story",
       "dependencies": {
         "three": "^0.185.1",
       },

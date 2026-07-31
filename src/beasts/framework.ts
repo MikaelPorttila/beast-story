@@ -1,17 +1,17 @@
 import * as THREE from 'three';
-import { ELEMENT_COLORS, MAX_STEP_UP, PAL_CYCLE_SLOTS } from '../core/types';
+import { ELEMENT_COLORS, MAX_STEP_UP, BEAST_CYCLE_SLOTS } from '../core/types';
 import type {
-  ElementType, EventBus, FetchJob, PalAction, PalAnimCtx, PalRig, PalSpecies,
-  PalStats, SkillDef, World,
+  ElementType, EventBus, FetchJob, BeastAction, BeastAnimCtx, BeastRig, BeastSpecies,
+  BeastStats, SkillDef, World,
 } from '../core/types';
 
 // ---------------------------------------------------------------------------
 // Skill definition registry
 // ---------------------------------------------------------------------------
 // The framework needs SkillDefs to know learnAtLevel and to include the
-// learned SkillDef in palLevelUp events. The skills module registers its
+// learned SkillDef in beastLevelUp events. The skills module registers its
 // defs here during boot. If a def is missing we fall back to an index-based
-// learn schedule so pals still progress.
+// learn schedule so beasts still progress.
 const skillRegistry = new Map<string, SkillDef>();
 
 export function registerSkillDefs(defs: Iterable<SkillDef>): void {
@@ -57,7 +57,7 @@ function smoothstep01(t: number): number {
 }
 
 /**
- * Ceiling on any cycle integrated through `PalAnimCtx.cycle()`, in rad/s.
+ * Ceiling on any cycle integrated through `BeastAnimCtx.cycle()`, in rad/s.
  * 50.3 rad/s = 8.0 Hz.
  *
  * Two numbers bracket it. Above: the fastest beat anyone authored is Lumimoth's
@@ -67,7 +67,7 @@ function smoothstep01(t: number): number {
  * per cycle, about the coarsest a beat can be sampled and still read as a beat
  * rather than as strobing; past ~15 Hz it aliases outright. Biology agrees that
  * this is the right neighbourhood — a swallow beats at 7-9 Hz and a sparrow at
- * ~13 Hz, so a pal-sized flyer belongs in single digits and never at the fifty
+ * ~13 Hz, so a beast-sized flyer belongs in single digits and never at the fifty
  * a runaway phase produced.
  *
  * The integration in cycle() is what actually fixed the flicker; this cap is
@@ -85,21 +85,21 @@ const POOF_SECONDS = 0.5;
 // Mount form
 // ---------------------------------------------------------------------------
 /**
- * A ridden pal grows into a "mount form".
+ * A ridden beast grows into a "mount form".
  *
- * Every pal in this game is knee-high: Emberfox's rig is a metre at the ears, a
+ * Every beast in this game is knee-high: Emberfox's rig is a metre at the ears, a
  * Galebird barely more than half that, against a 1.7-unit hero. Seating a rider
- * on an unscaled pal puts a man on a housecat — captured, the hero completely
+ * on an unscaled beast puts a man on a housecat — captured, the hero completely
  * occluded the fox he was riding, and the Galebird swallowed him. So the rig is
  * scaled while ridden, eased over RIDE_SCALE_LAMBDA (~0.25 s to 90%) so it
- * reads as the pal swelling into its mount form rather than popping.
+ * reads as the beast swelling into its mount form rather than popping.
  *
  * MOUNT_HEIGHT is what a mount is scaled TO, not by: 2.1 units puts the mount
  * comfortably TALLER than its 1.7-unit rider, which is what makes the pair read
  * as a mount and not as a man carrying a pet, and it means the seat height, the
  * camera framing and the collision radius are one set of numbers rather than
  * ten. MOUNT_MAX_SCALE caps the smallest rigs; past ~3x, an 0.08-unit voxel is
- * a quarter-unit slab and the model stops reading as the pal you picked.
+ * a quarter-unit slab and the model stops reading as the beast you picked.
  *
  * It is scaled against the rig's MEASURED silhouette, not `rig.height` — that
  * field is a nominal body height each species declares for spacing, and for a
@@ -123,54 +123,54 @@ const RIDE_SCALE_LAMBDA = 9;
 const SEAT_FRACTION = 0.72;
 
 /**
- * Where the MountController wants a ridden pal this slice. A single instance is
+ * Where the MountController wants a ridden beast this slice. A single instance is
  * reused every frame — nothing here is retained past the call.
  */
-export interface PalRideState {
+export interface BeastRideState {
   x: number; y: number; z: number;
-  /** Final world yaw; the mount owns the smoothing, the pal just wears it. */
+  /** Final world yaw; the mount owns the smoothing, the beast just wears it. */
   yaw: number;
   pitch: number;
   bank: number;
-  /** Horizontal velocity, so a dismount hands the pal its momentum back. */
+  /** Horizontal velocity, so a dismount hands the beast its momentum back. */
   vx: number; vz: number;
   /** 0..1 gait blend, already normalised against the mount's own top speed. */
   speed01: number;
   /** Base action to animate: 'fly' for a flyer, 'run'/'walk'/'idle' on foot. */
-  action: PalAction;
+  action: BeastAction;
 }
 
-const TRANSIENT_DURATIONS: Partial<Record<PalAction, number>> = {
+const TRANSIENT_DURATIONS: Partial<Record<BeastAction, number>> = {
   attack: 0.5, cast: 0.7, special: 0.95, hurt: 0.45, happy: 1.35,
 };
 
 // ---------------------------------------------------------------------------
 // Fetch errands
 // ---------------------------------------------------------------------------
-// A pal on an errand steers to a claimed drop instead of its station point,
+// A beast on an errand steers to a claimed drop instead of its station point,
 // grabs it, and hurries back. WHICH drops are worth fetching is not decided
 // here — main.ts offers the job (see beginFetch); this half only runs it, and
-// the two abort rules below exist so a bad offer cannot strand a pal.
+// the two abort rules below exist so a bad offer cannot strand a beast.
 //
 // How far from the OWNER a drop may be and still be worth walking to. The
-// offer already filters on distance, so this is the pal's own bail-out for an
+// offer already filters on distance, so this is the beast's own bail-out for an
 // owner who runs off mid-errand.
 const FETCH_LEASH = 26;
 // Give up on an errand that takes this long. The case this exists for is a
-// drop on a ledge the pal cannot climb: without it the pal pushes into the
+// drop on a ledge the beast cannot climb: without it the beast pushes into the
 // hillside until the drop expires 42 s later, station point abandoned.
 const FETCH_TIMEOUT = 12;
 // Horizontal grab reach, squared. 0.75 units — deliberately wider than the
-// player's own 0.67-unit collect radius, because a grounded pal arrives with
+// player's own 0.67-unit collect radius, because a grounded beast arrives with
 // its feet at the drop while a flyer arrives above it.
 const FETCH_REACH_SQ = 0.75 * 0.75;
 // Seconds of hurrying back after a successful grab. Purely how it reads: the
-// pal turns straight around with the loot rather than sauntering, which is what
+// beast turns straight around with the loot rather than sauntering, which is what
 // sells the trip as an errand instead of a wander.
 const FETCH_CARRY = 1.6;
 // Errand pace as a multiplier on follow speed. Kept small on purpose: the gait
 // is driven by speed01 normalised against the UNBOOSTED follow speed, so a big
-// multiplier pins the run cycle at full blend while the pal covers ground
+// multiplier pins the run cycle at full blend while the beast covers ground
 // faster than the legs claim to — it skates. 1.25 is not visible as a mismatch.
 const FETCH_HUSTLE = 1.25;
 
@@ -251,7 +251,7 @@ class PoofPuff {
 }
 
 // ---------------------------------------------------------------------------
-// Strike FX — the swipe arc and the dust a pal kicks up
+// Strike FX — the swipe arc and the dust a beast kicks up
 // ---------------------------------------------------------------------------
 /**
  * WHY THIS EXISTS. A critic reading a real-game frame of a mid-attack Drakelet
@@ -310,7 +310,7 @@ const _white = new THREE.Color(0xffffff);
  * attack reported none. The theory that a MeshStandardMaterial configured with
  * the same key set as `puffMat` would share its already-linked program was
  * simply wrong in practice — most likely because the poof's own program is not
- * linked at boot either (a pal's first teleport is silent, so nothing ever
+ * linked at boot either (a beast's first teleport is silent, so nothing ever
  * bursts during warmUpShaders).
  *
  * The fix costs nothing and needs no cooperation from main.ts, which owns
@@ -350,7 +350,7 @@ class SwipeArc {
     // element colour at full saturation. Both halves earn their keep: the first
     // capture of this used the raw element colour for both and the Emberfox's
     // fire-orange slash crossed a fire-orange fox — a warm smear over the muzzle
-    // that a still could not tell from the pal's own paint. A near-white blade
+    // that a still could not tell from the beast's own paint. A near-white blade
     // with a coloured glow separates from ANY species' body, including its own
     // element's, which is the case that has to work.
     this.mat = new THREE.MeshStandardMaterial({
@@ -360,7 +360,7 @@ class SwipeArc {
     this.mesh = new THREE.InstancedMesh(puffGeo, this.mat, ARC_SEGS);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     // Never a caster and never a receiver: a slash is light, and a hard-edged
-    // shadow of nine boxes swinging under the pal is instantly a bug.
+    // shadow of nine boxes swinging under the beast is instantly a bug.
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
     this.mesh.frustumCulled = false;
@@ -374,13 +374,13 @@ class SwipeArc {
    * Rig-space geometry of the swing. Called once, after the rig is measured.
    *
    * The swing is a 1.9-radius circle whose centre is pushed THREE QUARTERS OF A
-   * RADIUS FORWARD, not one centred on the pal.
+   * RADIUS FORWARD, not one centred on the beast.
    *
    * Two captures got here. At reach 1.55r centred on the origin the blade's own
-   * thickness put it inside the pal: on the Emberfox (radius 0.35) the leading
+   * thickness put it inside the beast: on the Emberfox (radius 0.35) the leading
    * segment landed across the muzzle and read as a lens flare on the face. At
    * 2.4r, still centred, it cleared the flanks but swept straight THROUGH the
-   * skull and both ears, which is worse — it hides the one part of a pal that
+   * skull and both ears, which is worse — it hides the one part of a beast that
    * carries its read. Offsetting the centre forward puts the whole arc ahead of
    * the animal: nearest point 1.85 radii out, midpoint 2.65 radii out, ends 1.5
    * radii to each side. At 0.5r of offset the blade still clipped the Emberfox's
@@ -433,7 +433,7 @@ class SwipeArc {
         // Sweep 0.95 rad to -0.95 rad about the rig's own Y, i.e. a 109-degree
         // rake across the front. `a` also drives the height, so the blade comes
         // DOWN as it crosses instead of staying a flat halo. Narrowed from
-        // +-1.15: at 132 degrees the two ends sat almost beside the pal's hips,
+        // +-1.15: at 132 degrees the two ends sat almost beside the beast's hips,
         // where a camera behind the shoulder cannot see them, so a third of the
         // swing was spent off-screen.
         const a = this.dir * (0.95 - 1.9 * fi);
@@ -540,7 +540,7 @@ class DustPuff {
         this.center.z + this.dirs[i * 3 + 2] * out * sp,
       );
       // Shrink to nothing rather than fade: no transparency, no new program.
-      // 0.30 of the pal's radius, up from 0.17. At 0.17 a grain on the Emberfox
+      // 0.30 of the beast's radius, up from 0.17. At 0.17 a grain on the Emberfox
       // (radius 0.35) was 0.05 units — smaller than one of the fox's own 0.08
       // voxels, so the cloud photographed as sand-coloured noise on the sand.
       // A grain has to be at least a body voxel to read as debris.
@@ -560,9 +560,9 @@ class DustPuff {
 }
 
 // ---------------------------------------------------------------------------
-// PalOwner — the thing pals follow (the player controller)
+// BeastOwner — the thing beasts follow (the player controller)
 // ---------------------------------------------------------------------------
-export interface PalOwner {
+export interface BeastOwner {
   position: THREE.Vector3;
   velocity: THREE.Vector3;
   isSwimming: boolean;
@@ -572,15 +572,15 @@ export interface PalOwner {
 // Animation probe
 // ---------------------------------------------------------------------------
 // Read-only diagnostic, the same contract as main.ts's __dbg* probes: a tool
-// samples every live pal's rig for a few hundred frames and asserts on how far
+// samples every live beast's rig for a few hundred frames and asserts on how far
 // a joint moved BETWEEN frames. It exists because "the wings flicker sometimes"
 // is not a thing a screenshot can prove or disprove — a per-frame rotation
-// delta is. Every pal registers here and deregisters in dispose(), so a walked
+// delta is. Every beast registers here and deregisters in dispose(), so a walked
 // -out zone does not leave rigs behind.
-const LIVE_ACTORS = new Set<PalActor>();
+const LIVE_ACTORS = new Set<BeastActor>();
 
 if (typeof window !== 'undefined') {
-  (window as unknown as { __dbgPalAnim: () => unknown }).__dbgPalAnim = () => {
+  (window as unknown as { __dbgBeastAnim: () => unknown }).__dbgBeastAnim = () => {
     const out: unknown[] = [];
     for (const a of LIVE_ACTORS) out.push(a.animProbe());
     return out;
@@ -588,14 +588,14 @@ if (typeof window !== 'undefined') {
 }
 
 // ---------------------------------------------------------------------------
-// PalActor
+// BeastActor
 // ---------------------------------------------------------------------------
-export class PalActor {
-  species: PalSpecies;
+export class BeastActor {
+  species: BeastSpecies;
   level = 1;
   xp = 0;
   xpToNext = 25;
-  stats: PalStats;
+  stats: BeastStats;
   position = new THREE.Vector3();
   forward = new THREE.Vector3(0, 0, 1);
   hp: number;
@@ -604,7 +604,7 @@ export class PalActor {
   faction: 'player' = 'player';
   knownSkillIds: string[] = [];
   /**
-   * World yaw (radians) the pal should turn to face while idle/slow, overriding
+   * World yaw (radians) the beast should turn to face while idle/slow, overriding
    * the follow heading. Used by photo mode to stage portraits. null = normal.
    */
   facingOverride: number | null = null;
@@ -619,7 +619,7 @@ export class PalActor {
    */
   readonly silhouetteTop: number;
 
-  private rig: PalRig;
+  private rig: BeastRig;
   private scene: THREE.Scene;
   private world: World;
   private bus: EventBus;
@@ -640,15 +640,15 @@ export class PalActor {
   private speed01 = 0;
 
   // Action state machine
-  private transient: PalAction | null = null;
+  private transient: BeastAction | null = null;
   private transientTime = 0;
   private transientDur = 0;
-  private baseAction: PalAction = 'idle';
+  private baseAction: BeastAction = 'idle';
   private baseTime = 0;
   private time = 0;
   private phase = Math.random() * TWO_PI;
   /**
-   * Integrated phase per cycle slot — see PalAnimCtx.cycle().
+   * Integrated phase per cycle slot — see BeastAnimCtx.cycle().
    *
    * Deliberately NOT wrapped to 0..2pi. Species derive trailing waves and
    * harmonics as constant multiples of a phase (`ph * 0.9`, `ph * 1.6`), and a
@@ -658,11 +658,11 @@ export class PalActor {
    * double still resolves 3e-11 rad, so nothing measurable is lost. Float32
    * would NOT do — it breaks down around 1e4 rad, roughly ten minutes in.
    */
-  private cycles = new Float64Array(PAL_CYCLE_SLOTS);
-  private ctx: PalAnimCtx = {
+  private cycles = new Float64Array(BEAST_CYCLE_SLOTS);
+  private ctx: BeastAnimCtx = {
     action: 'idle', actionTime: 0, time: 0, moveSpeed: 0, dt: 0,
     // Bound once, at construction, and closes over this actor's own phase
-    // array — no allocation on any frame, and no way for two pals to share a
+    // array — no allocation on any frame, and no way for two beasts to share a
     // cycle. `dt` is read off the ctx because finishFrame() has already written
     // the slice's dt there before calling species.animate().
     cycle: (slot: number, freq: number): number => {
@@ -685,7 +685,7 @@ export class PalActor {
   private poofT = 0;
   private landSquash = 0;
   /** Action the strike FX have already fired for; cleared when the action ends. */
-  private struckFor: PalAction | null = null;
+  private struckFor: BeastAction | null = null;
   /** Metres of ground covered since the last running scuff. */
   private scuffAccum = 0;
   /** Along-forward speed last slice, for the acceleration lean. */
@@ -700,7 +700,7 @@ export class PalActor {
   private rideScale = 1;
   private rideScaleTarget = 1;
 
-  constructor(species: PalSpecies, scene: THREE.Scene, world: World, bus: EventBus) {
+  constructor(species: BeastSpecies, scene: THREE.Scene, world: World, bus: EventBus) {
     this.species = species;
     this.scene = scene;
     this.world = world;
@@ -717,13 +717,13 @@ export class PalActor {
       if ((o as THREE.Mesh).isMesh) {
         const m = o as THREE.Mesh;
         m.castShadow = true;
-        // Pals CAST but never RECEIVE. A pal is a handful of voxel parts a few
+        // Beasts CAST but never RECEIVE. A beast is a handful of voxel parts a few
         // centimetres apart, so the parts shadow each other: an ear prints a hard
         // band across a muzzle, and faces near-parallel to the sun pick up the
         // diagonal hatching of shadow-map acne. Both land on the read-at-a-glance
         // parts — the face — and both vanish here.
         //
-        // The cost is that a pal no longer darkens standing in shade, which is
+        // The cost is that a beast no longer darkens standing in shade, which is
         // why castShadow stays on: its contact shadow is what keeps it planted on
         // the ground. three has no per-object "receive the world's shadows but
         // not my own", so this is the whole choice. See the hero's rig for the
@@ -757,14 +757,14 @@ export class PalActor {
 
   // -- Progression ----------------------------------------------------------
 
-  private computeStats(): PalStats {
+  private computeStats(): BeastStats {
     const b = this.species.baseStats;
     const f = Math.pow(1.08, this.level - 1);
     return {
       maxHp: Math.round(b.maxHp * f),
       attack: b.attack * f,
       defense: b.defense * f,
-      // Speed compounds much more gently or high-level pals outrun the camera.
+      // Speed compounds much more gently or high-level beasts outrun the camera.
       speed: b.speed * (1 + 0.015 * (this.level - 1)),
     };
   }
@@ -798,12 +798,12 @@ export class PalActor {
           learned ??= skillRegistry.get(id);
         }
       });
-      // Both halves of the pal's identity: the id for anything that has to know
-      // WHICH pal, the name key for anything that has to PRINT it. The HUD used
+      // Both halves of the beast's identity: the id for anything that has to know
+      // WHICH beast, the name key for anything that has to PRINT it. The HUD used
       // to be handed only the id and title-case it into a name.
       this.bus.emit({
-        type: 'palLevelUp',
-        palId: this.species.id,
+        type: 'beastLevelUp',
+        beastId: this.species.id,
         nameKey: this.species.nameKey,
         level: this.level,
         learned,
@@ -812,7 +812,7 @@ export class PalActor {
     }
   }
 
-  // -- Combat interface (Damageable-compatible so PalActor can be a caster) --
+  // -- Combat interface (Damageable-compatible so BeastActor can be a caster) --
 
   takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): boolean {
     if (this.isDead || this.poofT > 0) return false;
@@ -842,7 +842,7 @@ export class PalActor {
 
   // -- Actions / casting ----------------------------------------------------
 
-  playAction(action: PalAction, duration?: number): void {
+  playAction(action: BeastAction, duration?: number): void {
     this.transient = action;
     this.transientTime = 0;
     this.transientDur = duration ?? TRANSIENT_DURATIONS[action] ?? 0.6;
@@ -875,8 +875,8 @@ export class PalActor {
   get fetchItemId(): string | null { return this.fetchJob ? this.fetchJob.itemId : null; }
 
   /**
-   * Send this pal to collect a drop. Claims the job; returns false (leaving the
-   * drop for someone else) if the pal is busy, dead, or another fetcher got
+   * Send this beast to collect a drop. Claims the job; returns false (leaving the
+   * drop for someone else) if the beast is busy, dead, or another fetcher got
    * there first.
    */
   beginFetch(job: FetchJob): boolean {
@@ -894,10 +894,10 @@ export class PalActor {
   }
 
   /**
-   * Advance the errand. Returns the job while the pal should still be steering
+   * Advance the errand. Returns the job while the beast should still be steering
    * at it — null once it has been grabbed, abandoned, or was never running.
    */
-  private updateFetch(dt: number, owner: PalOwner): FetchJob | null {
+  private updateFetch(dt: number, owner: BeastOwner): FetchJob | null {
     if (this.carryTime > 0) this.carryTime -= dt;
     const job = this.fetchJob;
     if (!job) return null;
@@ -915,7 +915,7 @@ export class PalActor {
     const gz = job.position.z - this.position.z;
     if (gx * gx + gz * gz < FETCH_REACH_SQ) {
       // Bookkeeping BEFORE the grab: collect() credits the player synchronously
-      // and emits on the bus, and a listener that wants to know WHICH pal just
+      // and emits on the bus, and a listener that wants to know WHICH beast just
       // fetched something finds it by looking for the one that is carrying.
       this.fetchJob = null;
       this.fetchTime = 0;
@@ -940,7 +940,7 @@ export class PalActor {
   }
 
   /**
-   * LIVE height of the saddle above the pal's origin, mount-form growth
+   * LIVE height of the saddle above the beast's origin, mount-form growth
    * included — so a rider seated the instant the growth starts rises with it
    * instead of beginning in mid-air. See SEAT_FRACTION.
    */
@@ -953,8 +953,8 @@ export class PalActor {
   get isRidden(): boolean { return this.ridden; }
 
   /**
-   * Take or give back the reins. Grabbing a pal cancels an errand in progress
-   * (the drop goes back in play for the other pal) and starts the mount-form
+   * Take or give back the reins. Grabbing a beast cancels an errand in progress
+   * (the drop goes back in play for the other beast) and starts the mount-form
    * growth; letting go starts the shrink and hands normal follow steering back
    * from wherever the ride ended.
    */
@@ -963,7 +963,7 @@ export class PalActor {
     this.ridden = on;
     this.rideScaleTarget = on ? this.mountScale : 1;
     // A puff at the changeover, the same burst a teleport uses. Mounting snaps
-    // the pal from the rider's shoulder to under him and starts the mount-form
+    // the beast from the rider's shoulder to under him and starts the mount-form
     // growth; without the cloud both of those read as a glitch rather than a
     // flourish. Note it does NOT reset poofT — that scales the rig up from
     // nothing, which would fight the growth this is announcing.
@@ -982,11 +982,11 @@ export class PalActor {
    * One slice with a rider in the saddle, called INSTEAD of update().
    *
    * Follow steering, the fetch errand and every bit of vertical motion are
-   * bypassed — MountController owns where a ridden pal is and it collides
+   * bypassed — MountController owns where a ridden beast is and it collides
    * against the world itself. Everything cosmetic still runs, so a mount can be
    * hurt, cast, level up and flash exactly as it does on the ground.
    */
-  rideUpdate(dt: number, s: PalRideState): void {
+  rideUpdate(dt: number, s: BeastRideState): void {
     this.time += dt;
     if (this.isDead) {
       // A mount that dies under its rider is dismounted by the caller on this
@@ -1013,13 +1013,13 @@ export class PalActor {
 
   // -- Per-frame update -----------------------------------------------------
 
-  update(dt: number, owner: PalOwner, role: 'primary' | 'support', others: PalActor[]): void {
+  update(dt: number, owner: BeastOwner, role: 'primary' | 'support', others: BeastActor[]): void {
     this.time += dt;
 
     if (this.isDead) {
       this.updateDead(dt, owner, role);
       this.puff.update(dt);
-      // A pal killed mid-swing still has to retire its arc and its dust, or the
+      // A beast killed mid-swing still has to retire its arc and its dust, or the
       // last frame of both hangs in the air until it revives.
       this.arc.update(dt);
       this.dust.update(dt);
@@ -1051,7 +1051,7 @@ export class PalActor {
 
     // -- Errand: steer at the drop instead of the station point -------------
     // Note the order — the teleport check above still measures the OWNER, so a
-    // pal that falls far behind snaps to the party and drops the errand next
+    // beast that falls far behind snaps to the party and drops the errand next
     // frame (leash), rather than teleporting to the loot.
     const errand = this.updateFetch(dt, owner);
     if (errand) { tx = errand.position.x; tz = errand.position.z; }
@@ -1090,7 +1090,7 @@ export class PalActor {
       desZ = (dz / dist) * desiredSpeed;
     }
 
-    // Separation from sibling pals
+    // Separation from sibling beasts
     for (const other of others) {
       if (other === this || other.isDead) continue;
       const sx = this.position.x - other.position.x;
@@ -1109,18 +1109,18 @@ export class PalActor {
     this.vel.z += (desZ - this.vel.z) * accel;
 
     // -- integrate, refusing to walk into a building -------------------------
-    // A pal keeps its footing on `getHeight` and always has: it walks through
+    // A beast keeps its footing on `getHeight` and always has: it walks through
     // trees, up terraces and over anything the height field says is there. What
     // it may NOT do is walk through a settlement, because that is the one case
     // the player is standing right next to — a hero pressed against a hut wall
-    // with his pal's head poking out of it reads far worse than no collision at
+    // with his beast's head poking out of it reads far worse than no collision at
     // all.
     //
     // The same rule the hero uses, from the same constant: the destination is
     // refused when a structure there stands more than MAX_STEP_UP above the
-    // pal's own feet, probed a body radius along the direction of travel so it
+    // beast's own feet, probed a body radius along the direction of travel so it
     // stops with its shoulder at the wall. Per-axis, so a blocked diagonal
-    // slides along the palisade instead of pinning the pal against it.
+    // slides along the palisade instead of pinning the beast against it.
     //
     // Fliers and swimmers are exempt: a flyer cruises metres above the roof
     // (see updateFlying) and there is nothing built in deep water.
@@ -1147,7 +1147,7 @@ export class PalActor {
     const horizSpeed = Math.hypot(this.vel.x, this.vel.z);
 
     // -- Vertical motion per locomotion ------------------------------------
-    let base: PalAction;
+    let base: BeastAction;
     if (loco === 'flying') {
       base = 'fly';
       this.updateFlying(dt, groundY);
@@ -1186,25 +1186,25 @@ export class PalActor {
       const targetBank = Math.max(-0.55, Math.min(0.55, -turnVel * 0.28));
       this.bank = damp(this.bank, targetBank, 5, dt);
     } else {
-      // Ground pals lean into a turn too, they just lean far less than a bird.
-      // Previously `bank` was pinned at 0 for everything with legs, so a pal
-      // circling a standing hero — which is the single most-watched pal motion
+      // Ground beasts lean into a turn too, they just lean far less than a bird.
+      // Previously `bank` was pinned at 0 for everything with legs, so a beast
+      // circling a standing hero — which is the single most-watched beast motion
       // in the game, it happens every time the player stops — carved a flat
       // rigid arc like a shopping trolley. 0.11 rad per rad/s against the
       // flyer's 0.28, capped at 0.20 rad (11.5 degrees): a hard turn tips the
       // outer feet about 0.08 units off the floor at a 0.4-unit radius, which
-      // reads as weight rather than as clipping. Scaled by gait so a pal
+      // reads as weight rather than as clipping. Scaled by gait so a beast
       // pivoting on the spot to face the hero does not list like a sinking ship.
       const turnLean = Math.max(-0.20, Math.min(0.20, -turnVel * 0.11));
-      // ...and a standing pal shifts its weight. Every species' idle already
+      // ...and a standing beast shifts its weight. Every species' idle already
       // breathes, flicks an ear and waves a tail, but all of that happens inside
       // the rig while the rig itself stands perfectly plumb — which is why the
-      // ten-pal lineup photographs as a shelf of figurines: eight upright
+      // ten-beast lineup photographs as a shelf of figurines: eight upright
       // columns at identical attitudes. A 0.035 rad (2 degree) sway on a 5.5 s
       // period, cross-faded against the turn lean by gait so it never fights a
       // real turn, is small enough that no single frame looks tilted and large
       // enough that the row stops being a row. `phase` is randomised per actor
-      // at construction, so two pals of the same species never sway together.
+      // at construction, so two beasts of the same species never sway together.
       const sway = 0.035 * Math.sin(this.time * 1.15 + this.phase);
       const targetBank = turnLean * this.speed01 + sway * (1 - this.speed01);
       this.bank = damp(this.bank, targetBank, 6, dt);
@@ -1213,10 +1213,10 @@ export class PalActor {
 
     // -- Running scuff -------------------------------------------------------
     // Distance-driven, not time-driven, so the puffs stay locked to the ground a
-    // pal is actually covering instead of firing at a fixed rate whatever the
+    // beast is actually covering instead of firing at a fixed rate whatever the
     // speed. One every 1.6 units at a 0.4-unit stride is roughly every fourth
-    // footfall — enough to trail a pal at a gallop, sparse enough that it never
-    // becomes a smoke machine. Only at a real run (>0.62 gait): a walking pal
+    // footfall — enough to trail a beast at a gallop, sparse enough that it never
+    // becomes a smoke machine. Only at a real run (>0.62 gait): a walking beast
     // that raises dust looks like it is on fire.
     if (this.grounded && !swimming && loco !== 'flying') {
       if (this.speed01 > 0.62) {
@@ -1237,12 +1237,12 @@ export class PalActor {
   }
 
   /**
-   * Everything that happens once the pal has been PLACED, whoever placed it:
+   * Everything that happens once the beast has been PLACED, whoever placed it:
    * the action state machine, the hurt flash, the scale flourishes, the rig
    * transform and the species' own animate(). The follow path and the ridden
    * path both end here so neither can quietly skip one.
    */
-  private finishFrame(dt: number, base: PalAction): void {
+  private finishFrame(dt: number, base: BeastAction): void {
     // -- Action state machine ----------------------------------------------
     if (this.transient) {
       this.transientTime += dt;
@@ -1287,7 +1287,7 @@ export class PalActor {
       //
       // This used to read `this.transient = null`, unconditionally, every frame
       // — and that quietly broke the whole `anim=` staging parameter in BOTH
-      // entry points. `photo=1&pal=emberfox&anim=attack` sets facingOverride
+      // entry points. `photo=1&beast=emberfox&anim=attack` sets facingOverride
       // (main.ts:1067) and then calls playAction('attack') every 2.5 s; this
       // line then cleared the transient on the very next frame, so the attack
       // was one 16 ms frame of wind-up and nothing else, forever. Four separate
@@ -1295,7 +1295,7 @@ export class PalActor {
       // that could not possibly be on screen. The lab does the same thing
       // (lab/index.ts:172) for a single subject.
       //
-      // Only the pal's OWN idle flourish is suppressed now. That is what the
+      // Only the beast's OWN idle flourish is suppressed now. That is what the
       // comment always meant: a portrait should not have the subject randomly
       // wiggling, but an action the caller explicitly asked for is the entire
       // point of asking for it.
@@ -1331,7 +1331,7 @@ export class PalActor {
     if (this.landSquash > 0) this.landSquash -= dt * 3.2;
     const sq = Math.max(0, this.landSquash);
     // Mount-form growth multiplies the poof/squash scale rather than replacing
-    // it, so a pal that is mounted mid-flourish keeps the flourish.
+    // it, so a beast that is mounted mid-flourish keeps the flourish.
     this.rideScale = damp(this.rideScale, this.rideScaleTarget, RIDE_SCALE_LAMBDA, dt);
     const ms = s * this.rideScale;
     this.rig.root.scale.set(ms * (1 + sq * 0.28), ms * (1 - sq * 0.38), ms * (1 + sq * 0.28));
@@ -1403,7 +1403,7 @@ export class PalActor {
           this.landSquash = 0.32;
           // The squash alone was the whole landing. It is a body deformation
           // lasting a third of a second and it happens INSIDE the silhouette, so
-          // at gameplay distance a pal dropping off a terrace simply arrived.
+          // at gameplay distance a beast dropping off a terrace simply arrived.
           // The dust is the part the eye actually catches. Scaled by impact
           // speed so a hop-up landing is a scuff and a real fall is a cloud.
           const impact = Math.min(1, (-this.vy - 5.5) / 7);
@@ -1419,12 +1419,12 @@ export class PalActor {
     } else {
       // Lean into acceleration, sit back under braking.
       //
-      // Nothing else on a grounded pal used `pitch` at all — it was damped to
-      // zero and stayed there — so a pal leaving a standstill to chase the hero
+      // Nothing else on a grounded beast used `pitch` at all — it was damped to
+      // zero and stayed there — so a beast leaving a standstill to chase the hero
       // went from 0 to full gallop as a rigid board sliding forward, and stopped
       // the same way. Species animate() code cannot fix this: it is handed a
       // normalised `moveSpeed`, never its derivative. 0.014 rad per unit of
-      // acceleration puts a pal accelerating at 10 u/s^2 about 8 degrees nose
+      // acceleration puts a beast accelerating at 10 u/s^2 about 8 degrees nose
       // down, which is visible in motion and invisible in a portrait; the clamp
       // stops a teleport-frame acceleration spike snapping it face-first into
       // the floor. Positive pitch is nose DOWN here — see updateFlying, where a
@@ -1434,7 +1434,7 @@ export class PalActor {
     }
   }
 
-  private updateDead(dt: number, owner: PalOwner, role: 'primary' | 'support'): void {
+  private updateDead(dt: number, owner: BeastOwner, role: 'primary' | 'support'): void {
     this.deadTimer -= dt;
     if (this.dieT < 1) {
       this.dieT = Math.min(1, this.dieT + dt / 0.55);
@@ -1469,11 +1469,11 @@ export class PalActor {
   /**
    * Rebind to another zone's ground (see world/zones.ts).
    *
-   * A pal is the clearest case for rebinding rather than rebuilding: its level,
+   * A beast is the clearest case for rebinding rather than rebuilding: its level,
    * xp and known-skill list ARE the save game. Nothing else is touched — the
-   * follow update already teleports a pal whose owner is further than
+   * follow update already teleports a beast whose owner is further than
    * TELEPORT_DIST away, and a zone change is by construction further than that,
-   * so the pal poofs in beside the hero on the first slice in the new world with
+   * so the beast poofs in beside the hero on the first slice in the new world with
    * the height read from the new world. Any fetch errand is dropped: the item it
    * was walking to belonged to the zone we just left.
    */
@@ -1509,7 +1509,7 @@ export class PalActor {
   }
 
   /**
-   * Snapshot of every rig joint's local rotation, for __dbgPalAnim. Read-only
+   * Snapshot of every rig joint's local rotation, for __dbgBeastAnim. Read-only
    * and allocating — a diagnostic called by a test tool, never by the game.
    */
   animProbe(): unknown {
@@ -1530,9 +1530,9 @@ export class PalActor {
     this.scene.remove(this.rig.root);
     // BEFORE the traverse, and this ordering is load-bearing: the arc is a child
     // of the rig root, and the traverse below disposes every mesh geometry it
-    // finds — which for the arc is the SHARED `puffGeo` that every pal's poof
-    // burst also draws. Detaching it first is what stops one pal's disposal
-    // deleting the box every other pal's particles are made of.
+    // finds — which for the arc is the SHARED `puffGeo` that every beast's poof
+    // burst also draws. Detaching it first is what stops one beast's disposal
+    // deleting the box every other beast's particles are made of.
     this.arc.dispose();
     this.rig.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {

@@ -4,7 +4,7 @@ New-Item -ItemType Directory -Force shots | Out-Null
 
 # Distance is auto-fitted from each rig's height in photo mode; the per-species
 # camera bearing varies so ten portraits aren't ten identical postcards.
-$pals = @(
+$beasts = @(
   @{ id = 'emberfox';   a = 35 },
   @{ id = 'aquaxol';    a = 70 },
   @{ id = 'sproutle';   a = 110 },
@@ -17,8 +17,8 @@ $pals = @(
   @{ id = 'drakelet';   a = 60 }
 )
 
-foreach ($p in $pals) {
-  bun tools/screenshot.mjs "shots/pal-$($p.id).png" "photo=1&hud=0&pal=$($p.id)&a=$($p.a)" 1200 900 7000
+foreach ($p in $beasts) {
+  bun tools/screenshot.mjs "shots/beast-$($p.id).png" "photo=1&hud=0&beast=$($p.id)&a=$($p.a)" 1200 900 7000
 }
 
 # Vistas + hero + HUD

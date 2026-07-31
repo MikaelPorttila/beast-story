@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { makeGlowSprite } from './glowsprite';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
@@ -55,7 +55,7 @@ const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
 /**
- * The leg cycle, on one integrated phase (PalAnimCtx.cycle) shared by the trot,
+ * The leg cycle, on one integrated phase (BeastAnimCtx.cycle) shared by the trot,
  * the gallop and the paddle. They are one set of legs changing pace; giving
  * them one slot is what stops the walk/run threshold — which chatters, because
  * the gait blend is a damped value that can sit either side of 0.5 for frames
@@ -109,7 +109,7 @@ function makeHead(): THREE.Mesh {
   shadeUnder(m, RUSSET, -3, 3, 0, 1, -2, 2);
   // A full CREAM MASK over the eye rows — a real red fox's pale cheeks, and the one
   // change that finally made this face read in the game rather than only in the lab.
-  // The front of a pal's head is in shade in most portraits (the sun is low and
+  // The front of a beast's head is in shade in most portraits (the sun is low and
   // behind), so an orange face plate rendered at ~25% value and the dark iris on it
   // had nothing to separate them. Cream at 25% is still clearly lighter than a dark
   // iris, so the eye survives the shading. Painted after shadeUnder so the underside
@@ -223,7 +223,7 @@ function makeEmber(color: number, intensity: number): THREE.Mesh {
   return m.build(S, true);
 }
 
-function buildRig(): PalRig {
+function buildRig(): BeastRig {
   const root = new THREE.Group();
 
   const body = new THREE.Group();
@@ -344,7 +344,7 @@ function buildRig(): PalRig {
   };
 }
 
-function animate(rig: PalRig, ctx: PalAnimCtx): void {
+function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const p = rig.parts;
   const t = ctx.time;
   const at = ctx.actionTime;
@@ -385,12 +385,12 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     }
     case 'walk':
     case 'run':
-    case 'fly': { // ground pal: treat stray 'fly' as a sprint
+    case 'fly': { // ground beast: treat stray 'fly' as a sprint
       const isRun = ctx.action !== 'walk';
       // 5.5-8 rad/s trotting, 8.5-12 galloping. INTEGRATED rather than `t * f`:
       // both the moveSpeed term AND the walk/run step change this frequency, so
       // multiplying it into the session clock teleported the phase twice over.
-      // Measured with tools/test-palanim.mjs at a 42 s clock: 1.72 rad of leg
+      // Measured with tools/test-beastanim.mjs at a 42 s clock: 1.72 rad of leg
       // rotation in a single frame, and 0.72 rad at the tail tip — the "tails
       // flicker" half of the report. Integrated, the same run peaks at 0.24.
       const f = isRun ? 8.5 + 3.5 * ms : 5.5 + 2.5 * ms;
@@ -641,12 +641,12 @@ export const skills: SkillDef[] = [
   },
 ];
 
-export const species: PalSpecies = {
+export const species: BeastSpecies = {
   id: 'emberfox',
-  nameKey: 'pal.emberfox.name',
+  nameKey: 'beast.emberfox.name',
   element: 'fire',
   locomotion: 'ground',
-  descriptionKey: 'pal.emberfox.desc',
+  descriptionKey: 'beast.emberfox.desc',
   baseStats: { maxHp: 46, attack: 12, defense: 6, speed: 5.2 },
   skills: skills.map((s) => s.id),
   buildRig,

@@ -19,7 +19,7 @@ export interface AnimInput {
   climbing: boolean;
   /** Signed climb progress, -1 (descending) .. 1 (ascending); 0 = hanging. */
   climbRate: number;
-  /** Sitting in a pal's saddle; MountController owns where the hero is. */
+  /** Sitting in a beast's saddle; MountController owns where the hero is. */
   riding: boolean;
   velY: number;
   attack: AttackState;

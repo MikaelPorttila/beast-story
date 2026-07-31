@@ -22,7 +22,7 @@
  */
 
 export const PERF_SECTIONS = [
-  'input', 'player', 'pals', 'world', 'combat', 'hud', 'render', 'overlay',
+  'input', 'player', 'beasts', 'world', 'combat', 'hud', 'render', 'overlay',
 ] as const;
 export type PerfSection = (typeof PERF_SECTIONS)[number];
 

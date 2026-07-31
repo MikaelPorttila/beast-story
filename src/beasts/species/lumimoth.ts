@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PalSpecies, SkillDef, PalRig, PalAnimCtx } from '../../core/types';
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
 import { VoxelModel } from '../../core/voxel';
 import { makeGlowSprite } from './glowsprite';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
@@ -41,13 +41,13 @@ const C = {
 
 // Base pose constants shared between buildRig() and animate()
 const BODY_Y = 0.32;
-/** Hover height PalActor holds a flyer at; the contact blob has to match it. */
+/** Hover height BeastActor holds a flyer at; the contact blob has to match it. */
 const HOVER = 1.55;
 const ANT_RX = -0.55; // antennae tilt forward
 const ANT_RZ = 0.55;  // antennae splay
 const WING_REST = 0.16;
 // Sweep pulled well in (0.28 -> 0.12 and 0.72 -> 0.42). Both pairs used to rake
-// back hard, and since a pal always faces the camera in a portrait that meant all
+// back hard, and since a beast always faces the camera in a portrait that meant all
 // four wings were foreshortened at once: the moth photographed as a starburst of
 // gold bars radiating from a cream ball. Wings held closer to spanwise present
 // their pattern instead of their edge.
@@ -229,7 +229,7 @@ function buildLowerWing(dir: number): THREE.Mesh {
   return m;
 }
 
-function buildRig(): PalRig {
+function buildRig(): BeastRig {
   const root = new THREE.Group();
   const parts: Record<string, THREE.Object3D> = {};
 
@@ -351,7 +351,7 @@ function buildRig(): PalRig {
   // 0.22 / 0.08, down from 0.32 / 0.18. Same compounding as everywhere else: the
   // lantern voxels are already emissive at 0.5 and the bloom pass takes them from
   // there, so the sprite was a second halo twice the lantern's own size. In the
-  // ten-pal lab lineup it presented as a blown gold blob at the moth's wing root
+  // ten-beast lab lineup it presented as a blown gold blob at the moth's wing root
   // with no lantern shape inside it. See glowsprite.ts.
   const lanternGlow = makeGlowSprite(C.glowEmissive, 0.22, 0.08);
   lanternGlow.position.set(0, -0.21, -0.62);
@@ -413,7 +413,7 @@ const easeOutCubic = (v: number): number => 1 - (1 - v) ** 3;
 const easeInOutSine = (v: number): number => 0.5 - 0.5 * Math.cos(Math.PI * v);
 
 /**
- * The wingbeat, on an integrated phase — see PalAnimCtx.cycle(). This is the
+ * The wingbeat, on an integrated phase — see BeastAnimCtx.cycle(). This is the
  * fastest cycle in the roster (16-24 rad/s in flight, 2.5-3.8 Hz) and so was
  * the worst offender: as `t * (16 + 8 * ms)` a tenth of a point of gait blend
  * moved the phase by 0.8 * t radians, which at a minute-old session clock is
@@ -421,7 +421,7 @@ const easeInOutSine = (v: number): number => 0.5 - 0.5 * Math.cos(Math.PI * v);
  */
 const BEAT = 0;
 
-function animate(rig: PalRig, ctx: PalAnimCtx): void {
+function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const p = rig.parts;
   const t = ctx.time;
   const at = ctx.actionTime;
@@ -597,12 +597,12 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 // ---------------------------------------------------------------------------
 // Species
 // ---------------------------------------------------------------------------
-export const species: PalSpecies = {
+export const species: BeastSpecies = {
   id: 'lumimoth',
-  nameKey: 'pal.lumimoth.name',
+  nameKey: 'beast.lumimoth.name',
   element: 'light',
   locomotion: 'flying',
-  descriptionKey: 'pal.lumimoth.desc',
+  descriptionKey: 'beast.lumimoth.desc',
   baseStats: { maxHp: 34, attack: 9, defense: 6, speed: 5.2 },
   skills: [
     'lumimoth.glimmer-dart',
