@@ -59,6 +59,17 @@ export const en = {
   /** The fork the road network hangs off — a sign, but not a town. */
   'town.junction.sign': 'CROSSWAY',
 
+  // ---- NPCs ----------------------------------------------------------------
+  // Keyed by the NpcCharacter id in src/world/npc-gain.ts. The id ('gain') is
+  // what `talk(id)` takes, what the hint cache keys on and what a quest will
+  // store; the name and the line are display and live here.
+  //
+  // If a name ever has to reach a fingerpost or any other carved sign, mind the
+  // 3x5 voxel font — A-Z, 0-9, '-', an apostrophe and a space, see the `.sign`
+  // note above. 'Gain' is inside it; a translated one might not be.
+  'npc.gain.name': 'Gain',
+  'npc.gain.greeting': 'Stay awhile, and l... gain some knowledge.',
+
   // ---- pal species ---------------------------------------------------------
   // Keyed by the species id in src/pals/species/*.ts. The id is what the roster,
   // the ?pal= capture parameter, /mount and every save key on; the name and the
@@ -243,11 +254,19 @@ export const en = {
   // which worked in English and produced an unstyled key in every other
   // language. A translation puts `{key}` wherever its own grammar wants it.
   'hint.skillDen': 'Press {key} — Skill Den',
+  // {name} is an NPC's display name. Composed once per NPC and cached, not
+  // rebuilt per frame — see the hint cache in main.ts.
+  'hint.npcTalk': 'Press {key} — Talk to {name}',
   // The gateway countdown. ONE key each rather than "Entering " + name + "… " +
   // pct + "%": Swedish wants the verb and the destination in the other order,
   // and there is nowhere in a concatenation for a translator to stand.
   'hint.zoneEntering': 'Entering {zone}… {pct}%',
   'hint.zoneStand': 'Stand in the gateway — {zone}',
+
+  // ---- dialogue ------------------------------------------------------------
+  // The talk panel's footer. `{key}` arrives already wrapped in <kbd>, like
+  // every other key cap since the `Press (\S+)` regex went away.
+  'npc.dialogue.close': '{key} to leave',
 
   // ---- shop --------------------------------------------------------------
   'shop.skillDen.title': 'Skill Den',

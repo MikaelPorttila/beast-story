@@ -186,6 +186,23 @@ it already used for terrain. `solids=0` keeps the meshes and removes the
 blocking, which is the A/B `tools/test-structures.mjs` runs; `/show-colliders`
 draws the boxes green.
 
+**People.** [src/world/npc.ts](src/world/npc.ts) is the generic half — placement,
+culling, the interact test, the talk state — and a character file is the other
+half, exactly the way `PalActor` and `src/pals/species/*` are split; today the
+only one is [src/world/npc-gain.ts](src/world/npc-gain.ts), the Encampment's
+quest giver, who builds a body with `VoxelModel` and curls a dumbbell in
+`animate(rig, ctx)`. Placement goes THROUGH THE TOWN REGISTRY: a character names
+a town and how near the middle it wants to stand, and the search walks rings
+outward until it finds a spot clear of the carriageway and of everything the
+settlement built — which is why "the middle of camp" does not put him in the
+middle of the cart road that ends there. He is SOLID by the same primitive as a
+hut: the footprint is `measureFootprint` of his own body model, in his own
+`StructureField`, and `World.structureTopAt` returns the max of the town's and
+his. He reaches the rest of the game as `World.npcs` ([core/types.ts](src/core/types.ts)):
+`nearest` for the prompt, `talk(id)` for the conversation. `talk()` returns a
+PAYLOAD (`NpcTalk`) rather than a sentence — that is where a quest offer lands.
+`__dbgNpcs()` reports who is standing where, and whether anyone is mid-sentence.
+
 Grass NOTICES what walks through it.
 [src/world/sway.ts](src/world/sway.ts) is one vertex shader carrying three
 effects — a prevailing wind, a walker parting the blades, and a low flyer's
@@ -228,7 +245,13 @@ and the layout/crosshair/touch tools assert on them — renaming one breaks a to
 that exist purely for those tools; keep them working.
 
 **Game URL parameters.** `photo=1` with `cam=x,y,z` / `look=x,y,z` / `pal=<id>` /
-`anim=` / `a=<deg>` / `hud=0` stages captures; `fps=<n>` caps the frame rate;
+`anim=` / `a=<deg>` / `hud=0` stages captures. **`cam` and `look` are OFFSETS
+FROM `world.spawnPoint`, not world coordinates** — feeding them the absolute
+position of a thing you want to photograph silently puts the camera twice as far
+out, which renders a plausible picture of the wrong place rather than an error.
+Subtract the spawn (`__dbgTowns().spawn`) first. `npct=<seconds>` pins the NPC
+animation clock so two stills of the same 4.6 s curl are reproducible;
+`fps=<n>` caps the frame rate;
 `debug=1` opens the F2 overlay; `fsprompt=1` forces the touch fullscreen offer
 past the device test and any remembered answer (`fsprompt=0` suppresses it, and
 it never appears in `photo=1`); plus every post-processing override above.

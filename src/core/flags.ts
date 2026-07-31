@@ -53,6 +53,20 @@ export const flags = {
    * is reproducible from run to run.
    */
   photo: p.get('photo') === '1',
+  /**
+   * `npct=<seconds>` — PIN the NPC animation clock, so a staged capture of
+   * someone mid-movement is reproducible. Null (the world's own clock) unless
+   * asked for, and never set in play.
+   *
+   * Same idea as sway.ts freezing the wind clock under `photo=1`, and needed
+   * for the same reason: Gain's curl is a 4.6 s loop, so which part of it a
+   * still catches otherwise depends on how long the browser took to boot. It
+   * pins a PHASE rather than freezing, because the interesting captures are two
+   * poses of the same loop — `npct=0` is the weight at his hip and `npct=1.5`
+   * is the top of the rep. Not gated on `photo=1`: the shots that matter are
+   * the ones the hero walks into, which are not photo-mode shots.
+   */
+  npcTime: p.get('npct') !== null ? Number(p.get('npct')) : null,
 };
 
 /** True when any toggle is off its default — used to keep captures honest. */

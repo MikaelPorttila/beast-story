@@ -272,6 +272,24 @@ const CSS = `
   opacity:0;transition:opacity .28s ease,transform .28s cubic-bezier(.34,1.56,.64,1);white-space:nowrap}
 .cp-hint.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
+/* ---- dialogue panel ---------------------------------------------------- */
+/* Above the hint pill's 118px rather than in place of it: talking is not a
+   modal, so a gateway countdown can still be running underneath while someone
+   is mid-sentence. The accent bar is the toast's, in the amber this HUD already
+   uses for "something wants your attention". */
+.cp-dialogue{position:absolute;left:50%;bottom:158px;transform:translateX(-50%) translateY(10px);
+  width:min(560px,84vw);padding:12px 18px 13px;border-radius:14px;text-align:left;
+  box-shadow:0 14px 34px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.09),
+    inset 3px 0 0 #ffd23f;
+  opacity:0;transition:opacity .26s ease,transform .3s cubic-bezier(.34,1.5,.64,1)}
+.cp-dialogue.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.cp-dialogue .who{font-size:11px;font-weight:900;letter-spacing:.22em;color:#ffd23f;
+  text-transform:uppercase;text-shadow:0 0 10px rgba(255,210,63,.45);margin-bottom:4px}
+.cp-dialogue .line{font-size:15px;font-weight:700;line-height:1.35;color:#f2f5fa;
+  text-shadow:0 1px 3px rgba(0,0,0,.55)}
+.cp-dialogue .foot{margin-top:8px;font-size:11px;font-weight:700;letter-spacing:.02em;
+  color:rgba(230,236,245,.55)}
+
 /* ---- level-up banner --------------------------------------------------- */
 /* top was 58px before the compass took the top band; see .cp-compass. */
 .cp-banner{position:absolute;top:92px;left:50%;transform:translateX(-50%) translateY(-26px) scale(.94);
@@ -510,6 +528,12 @@ const CSS = `
      and above the arc; landscape at y 131-161, above the reticle and clear of
      the toast stack in the top-right. */
   .cp-hint{font-size:11px;padding:7px 11px;bottom:232px}
+  /* Same argument as the pill, one panel higher: the fans reach 217px up, the
+     pill takes the band at 232, and the dialogue sits above both. */
+  .cp-dialogue{bottom:274px;padding:9px 12px 10px;width:min(88vw,420px)}
+  .cp-dialogue .line{font-size:12.5px}
+  .cp-dialogue .who{font-size:9.5px;letter-spacing:.18em}
+  .cp-dialogue .foot{margin-top:5px;font-size:9.5px}
 }
 
 /* --- developer console (§) ------------------------------------------------

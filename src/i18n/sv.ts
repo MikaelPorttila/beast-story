@@ -55,6 +55,21 @@ export const sv: Translation = {
   // `{key}` arrives already wrapped in <kbd>, so it can land mid-sentence here
   // where English puts it second. This is what replaced the `Press (\S+)` regex.
   'hint.skillDen': 'Tryck {key} för Färdighetslyan',
+  // {name} is the NPC's display name, and it lands after the verb here where
+  // English puts it at the end of the clause.
+  'hint.npcTalk': 'Tryck {key} för att prata med {name}',
+
+  // GAIN. His name is left in English (a name is not translated) but his LINE
+  // is, and it is the best argument in this file for one key per sentence: the
+  // joke is a word cut off half way into his own name — "and l[isten]" becomes
+  // "…gain some knowledge" — and it cannot survive being reassembled out of
+  // fragments. Swedish gets the same joke with a different word: "lyssna"
+  // (listen) breaks at "ly…" and lands on Gain. Note the ellipsis and the
+  // trailing full stop are part of the line, in both languages.
+  'npc.gain.greeting': 'Stanna en stund, och ly... Gain lär dig något klokt.',
+  // 'npc.dialogue.close' is deliberately NOT translated: it puts an English
+  // footer under a Swedish line in the same panel, which is the fallback rule
+  // visible in one screenshot.
 
   'toast.fainted': 'Du svimmade!',
   'toast.revived': 'På benen igen!',

@@ -282,6 +282,69 @@ export interface TownRegistry {
   }>;
 }
 
+// ---------------------------------------------------------------------------
+// NPCs
+// ---------------------------------------------------------------------------
+
+/**
+ * Someone standing in the world, as far as anything outside world/npc.ts is
+ * concerned: an id, a name to print, and where they are.
+ *
+ * `id` is the IDENTIFIER ('gain') — what a quest stores, what `talk` takes and
+ * what a hint cache keys on — and `nameKey` is DISPLAY, resolved with
+ * `t(nameKey)`. Same split as TownInfo and PalSpecies.
+ */
+export interface NpcInfo {
+  readonly id: string;
+  readonly nameKey: StringKey;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
+/**
+ * WHAT A TALK RETURNS — and the seam a quest system drops into.
+ *
+ * The NPC module hands back a PAYLOAD rather than a fixed sentence, so the
+ * thing that decides what someone says can change without the HUD, the interact
+ * test or the frame loop changing shape. Today the payload is one line out of
+ * the table; a quest offer is another field on this interface (`offer?:
+ * QuestOffer`) plus a branch where main.ts renders it, and `NpcDef.talk()` in
+ * world/npc.ts is the one function that has to start consulting quest state to
+ * choose between them.
+ *
+ * `lineKey` and not a formatted string, because a caller may want the name and
+ * the line in one composed sentence, and because the frame loop must be able to
+ * ask for this without allocating — `t(key)` with no placeholders returns the
+ * table's own string.
+ */
+export interface NpcTalk {
+  readonly id: string;
+  readonly nameKey: StringKey;
+  /** The line spoken, as a string-table key. */
+  readonly lineKey: StringKey;
+}
+
+/**
+ * The NPCs of one zone, behind the three questions asked of them: who is within
+ * arm's reach, start talking to one, stop talking.
+ *
+ * Deliberately the same shape as TownRegistry — a query interface on the World
+ * contract, with the placement, the meshes and the animation on the far side of
+ * it. `nearest` runs every simulation slice from main.ts, so it allocates
+ * nothing and returns the module's own record.
+ */
+export interface NpcField {
+  readonly all: readonly NpcInfo[];
+  /** The closest NPC within `range` of (x, z), or null. Allocates nothing. */
+  nearest(x: number, z: number, range: number): NpcInfo | null;
+  /** Begin (or restart) a conversation. Returns what to show, or null. */
+  talk(id: string): NpcTalk | null;
+  /** The conversation in progress, or null. */
+  readonly talking: NpcTalk | null;
+  endTalk(): void;
+}
+
 /**
  * How a body moves, as far as anything reacting to it is concerned.
  *
@@ -457,6 +520,11 @@ export interface World {
    * where one is. See TownRegistry.
    */
   readonly towns: TownRegistry;
+  /**
+   * The people standing in this zone, or null where there are none (the
+   * dungeon, the lab stage). See NpcField.
+   */
+  readonly npcs: NpcField | null;
   /** Good spawn point on land */
   readonly spawnPoint: THREE.Vector3;
   /**

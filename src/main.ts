@@ -5,7 +5,8 @@ import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
 import {
   EventBus,
-  type CrownContact, type SkillDef, type Damageable, type World, type WorldBound,
+  type CrownContact, type NpcInfo, type SkillDef, type Damageable,
+  type World, type WorldBound,
 } from './core/types';
 import { Inventory, itemDef, itemName } from './core/items';
 import { t } from './i18n';
@@ -14,6 +15,7 @@ import { flags } from './core/flags';
 import { DevConsole } from './ui/console';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
+import { NPC_TALK_RANGE } from './world/npc';
 import { createDungeon } from './world/dungeon';
 import { ZoneManager, type ZoneDef } from './world/zones';
 import { Underwater } from './world/underwater';
@@ -1081,6 +1083,30 @@ function warmUpShaders(): void {
 
 /** Set by the shop-proximity test, read by the hint decision after the zone update. */
 let nearShop = false;
+/** The NPC in talk range this slice, or null. Same contract as `nearShop`. */
+let nearNpc: NpcInfo | null = null;
+
+/**
+ * One composed talk prompt per NPC, built the first time he is walked up to and
+ * kept.
+ *
+ * The same argument as SKILL_DEN_HINT above — the pill is HTML and the key cap
+ * arrives inside `{key}`, so composing it is a `t(key, vars)` call that
+ * allocates — but it cannot be one hoisted constant, because the sentence names
+ * the person. One entry per NPC in the game is the whole cache; it is written
+ * once each and read on every slice the player is stood in front of somebody.
+ */
+const npcHints = new Map<string, string>();
+function npcHint(npc: NpcInfo): string {
+  let html = npcHints.get(npc.id);
+  if (html === undefined) {
+    html = t('hint.npcTalk', { key: kbd('E'), name: t(npc.nameKey) });
+    npcHints.set(npc.id, html);
+  }
+  return html;
+}
+/** The dialogue panel's footer. Composed once, like the hints above. */
+const DIALOGUE_FOOT = t('npc.dialogue.close', { key: kbd('E') });
 
 /**
  * How far a wild pal can be and still be worth reporting to the world.
@@ -1148,6 +1174,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // act on it. Same treatment the shop already gets.
   const shopOpen = hud.isShopOpen() || !!devConsole?.isOpen;
   nearShop = false;
+  nearNpc = null;
   // Whose contact the particle system tests this slice, or null. It integrates
   // on EVERY slice either way — a modal overlay freezes the hero, not the leaves
   // already falling behind it — so only the contact test needs someone to test.
@@ -1231,7 +1258,25 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // because a gateway prompt has to win: both are "you are standing on
     // something", and the gateway is the one with a countdown running.
     nearShop = world.shopPositions.some((s) => s.distanceTo(player.position) < 3.5);
-    if (nearShop && first && input.pressed('KeyE')) tryOpenShop();
+
+    // People. `E` talks, exactly like `E` opens a den, and the two can never
+    // both be in range — a den is never sited inside a town (see placeShops) —
+    // but the NPC is tested first anyway so that the day one is, the person
+    // wins over the building he is standing next to.
+    //
+    // The talk STATE lives in the world's NPC field, not here: it is what
+    // decides that walking away ends a conversation, and it has the distances.
+    // This is only the keyboard edge and the rendering.
+    const npcField = world.npcs;
+    nearNpc = npcField && !npcField.talking
+      ? npcField.nearest(player.position.x, player.position.z, NPC_TALK_RANGE)
+      : null;
+    if (first && input.pressed('KeyE')) {
+      if (npcField?.talking) npcField.endTalk();
+      else if (nearNpc) npcField?.talk(nearNpc.id);
+      else if (nearShop) tryOpenShop();
+    }
+    if (first && npcField?.talking && input.pressed('Escape')) npcField.endTalk();
   } else if (first && (input.pressed('Escape') || input.pressed('KeyE'))) {
     hud.closeShop();
   }
@@ -1267,9 +1312,19 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // `t()` with no placeholders returns the table's own string — one lookup, no
   // allocation — so calling it on the hint path every slice is free. Do NOT
   // put an interpolated `t(key, vars)` here; that builds a string per slice.
-  const hint = portalHint ?? (nearShop ? SKILL_DEN_HINT : null);
+  // A person you can talk to outranks a building you can shop in, and both
+  // yield to a gateway with a countdown running. `npcHint` is a map lookup
+  // after the first sighting, so this stays allocation-free like the rest.
+  const hint = portalHint ?? (nearNpc ? npcHint(nearNpc) : nearShop ? SKILL_DEN_HINT : null);
   if (hint) hud.showHint(hint);
   else hud.hideHint();
+
+  // The conversation. `t()` with no placeholders is one map lookup and no
+  // allocation, and the HUD compares each field before writing it, so rendering
+  // this every slice costs nothing while a talk is open.
+  const talk = world.npcs?.talking ?? null;
+  if (talk) hud.showDialogue(t(talk.nameKey), t(talk.lineKey), DIALOGUE_FOOT);
+  else hud.hideDialogue();
 
   combat.update(dt, player as unknown as Damageable, [primary(), support()] as unknown as Damageable[]);
   perf.section('combat');
@@ -1457,6 +1512,41 @@ frame();
 
 // Profiler dump for the perf harness; null unless ?perf=1 recorded anything.
 (window as unknown as { __dbgPerf: () => unknown }).__dbgPerf = () => perf.dump();
+
+/**
+ * Who is standing in this zone, where, and whether anyone is mid-conversation.
+ *
+ * Read-only, like every other probe here: it reports the world's own answers
+ * (`World.npcs`) and cannot start or end a talk. Driving the interaction is the
+ * keyboard's job — walk up and press E — and a probe that could do it instead
+ * would be a test of a code path the player never takes.
+ *
+ * `ground` and `feet` are the check that he stands ON the trampled camp floor
+ * rather than in it: they are the terrain height under him and the height his
+ * root was placed at, and they must agree.
+ */
+(window as unknown as { __dbgNpcs: () => unknown }).__dbgNpcs = () => ({
+  talking: world.npcs?.talking
+    ? {
+      id: world.npcs.talking.id,
+      // Looked up, so `?lang=sv` reports the Swedish line the panel shows.
+      name: t(world.npcs.talking.nameKey),
+      line: t(world.npcs.talking.lineKey),
+    }
+    : null,
+  all: (world.npcs?.all ?? []).map((n) => ({
+    id: n.id,
+    name: t(n.nameKey),
+    x: +n.x.toFixed(2), y: +n.y.toFixed(2), z: +n.z.toFixed(2),
+    ground: +world.getHeight(n.x, n.z).toFixed(2),
+    town: world.towns.nearest(n.x, n.z)?.id ?? null,
+    fromTownCentre: ((): number => {
+      const t0 = world.towns.nearest(n.x, n.z);
+      return t0 ? +Math.hypot(t0.x - n.x, t0.z - n.z).toFixed(2) : -1;
+    })(),
+    fromPlayer: +Math.hypot(n.x - player.position.x, n.z - player.position.z).toFixed(2),
+  })),
+});
 
 /**
  * The settled world, exactly as a quest system would see it: the registry, plus

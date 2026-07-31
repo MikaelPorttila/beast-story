@@ -31,6 +31,8 @@ export class StubWorld implements World {
   readonly shopPositions: THREE.Vector3[] = [];
   /** The stage is not a place; it has no settlements. */
   readonly towns: TownRegistry = { all: [], roads: [], get: () => undefined, nearest: () => null };
+  /** ...and nobody lives on it. See World.npcs. */
+  readonly npcs = null;
   readonly spawnPoint = new THREE.Vector3(0, 0, 0);
   /** The stage is one mesh built in the constructor: nothing ever streams. */
   readonly chunksLoaded = 1;

@@ -11,6 +11,7 @@ import { PropLib, buildChunkProps, TREE_STRIDE, type Exclusion } from './props';
 import { Shops, type DenSpot } from './shops';
 import { Towns, planSettlements } from './towns';
 import { TownParts } from './town-parts';
+import { Npcs } from './npc';
 import { Clouds, Motes } from './clouds';
 import { SwayField } from './sway';
 import { mulberry32 } from './noise';
@@ -292,6 +293,20 @@ export function createWorld(
   const towns = plan ? new Towns(plan, new TownParts(), propLib, terrainMat, seed) : null;
   if (towns) scene.add(towns.group);
 
+  // THE PEOPLE, after the settlement and never before it: the placement search
+  // asks where the road is and what the camp already built, and both of those
+  // answers only exist once `Towns` has stamped its last box. Like the towns
+  // themselves they are made once and not streamed.
+  const npcs = plan && towns
+    ? new Npcs({
+      towns: plan.towns,
+      roads: plan.network,
+      getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
+      structureTopAt: (x: number, z: number): number => towns.solids.topAt(x, z),
+    })
+    : null;
+  if (npcs) scene.add(npcs.group);
+
   const clouds = flags.clouds ? new Clouds(seed) : null;
   if (clouds) scene.add(clouds.group);
   const motes = flags.clouds ? new Motes(seed) : null;
@@ -539,8 +554,25 @@ export function createWorld(
      * colliders are one flat grid that exists from boot. `towns=0` removes both
      * the meshes and this, which is the point of the flag.
      */
-    structureTopAt: (x: number, z: number): number =>
-      towns && flags.solids ? towns.solids.topAt(x, z) : -Infinity,
+    /**
+     * TWO FIELDS, one query. The settlement's boxes and the people standing in
+     * it are the same primitive (world/structures.ts) built at the same moment,
+     * but they belong to different owners — a `StructureField` is frozen by its
+     * builder at the end of its own constructor, and reaching into the town's
+     * to add a body afterwards would break the invariant that makes it safe to
+     * index once. So each owns its own and the max is taken here, which is
+     * exactly what `blockTop` already does with terrain and trunks.
+     */
+    structureTopAt: (x: number, z: number): number => {
+      if (!flags.solids) return -Infinity;
+      let top = towns ? towns.solids.topAt(x, z) : -Infinity;
+      if (npcs) {
+        const n = npcs.solids.topAt(x, z);
+        if (n > top) top = n;
+      }
+      return top;
+    },
+    npcs,
     /**
      * Is this sphere inside a canopy? The third query over the same buckets,
      * and the only one that treats the crown as a VOLUME — see World.
@@ -635,7 +667,11 @@ export function createWorld(
       // cage around something that is not actually stopping anyone: under
       // `solids=0` there is nothing to show, and a picture that disagreed with
       // the collision would be worse than no picture.
-      if (flags.solids) towns?.solids.debugBoxes(out);
+      if (!flags.solids) return;
+      towns?.solids.debugBoxes(out);
+      // The people too: they block by the same primitive, so /show-colliders
+      // has to draw them or the overlay would disagree with the collision.
+      npcs?.solids.debugBoxes(out);
     },
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
@@ -654,6 +690,7 @@ export function createWorld(
       motes?.update(focus, time, dt);
       shops.update(time);
       towns?.update(time, focus);
+      npcs?.update(dt, time, focus);
 
       const fcx = Math.floor(focus.x / CHUNK_SIZE);
       const fcz = Math.floor(focus.z / CHUNK_SIZE);
@@ -694,6 +731,7 @@ export function createWorld(
       // The towns add no lights at all (see town-parts.ts), so this is purely
       // about not drawing an overworld camp into a dungeon's warm-up render.
       if (towns) towns.group.visible = v;
+      if (npcs) npcs.setVisible(v);
       if (clouds) clouds.group.visible = v;
       if (motes) motes.points.visible = v;
     },
@@ -728,6 +766,10 @@ export function createWorld(
       trunks.clear();
       scene.remove(shops.group);
       shops.dispose();
+      if (npcs) {
+        scene.remove(npcs.group);
+        npcs.dispose();
+      }
       if (towns) {
         scene.remove(towns.group);
         towns.dispose();

@@ -578,6 +578,12 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      * which zone it is in before it may ask.
      */
     towns: { all: [], roads: [], get: () => undefined, nearest: () => null },
+    /**
+     * And nobody stands in it either — null rather than an empty field, which
+     * is the World contract's answer for "this zone has no people at all" and
+     * costs the frame loop one null check instead of a scan of nothing.
+     */
+    npcs: null,
     get chunksLoaded(): number { return chunks.size; },
     get streaming(): boolean { return building !== null || queue.length > 0; },
 

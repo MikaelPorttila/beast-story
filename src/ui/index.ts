@@ -260,6 +260,15 @@ export class HUD {
   private hintEl: HTMLDivElement;
   private hintText = '';
 
+  // dialogue
+  private dialogueEl: HTMLDivElement;
+  private dialogueWhoEl: HTMLElement;
+  private dialogueLineEl: HTMLElement;
+  private dialogueFootEl: HTMLElement;
+  private dialogueWho = '';
+  private dialogueLine = '';
+  private dialogueFoot = '';
+
   // mounting
   private mountHoldEl: HTMLDivElement;
   private mountRingEl: HTMLElement;
@@ -373,6 +382,16 @@ export class HUD {
     // hint pill ------------------------------------------------------------
     this.hintEl = div('cp-hint cp-glass');
     this.root.appendChild(this.hintEl);
+
+    // dialogue panel --------------------------------------------------------
+    this.dialogueEl = div(
+      'cp-dialogue cp-glass',
+      '<div class="who"></div><div class="line"></div><div class="foot"></div>',
+    );
+    this.dialogueWhoEl = this.dialogueEl.querySelector('.who') as HTMLElement;
+    this.dialogueLineEl = this.dialogueEl.querySelector('.line') as HTMLElement;
+    this.dialogueFootEl = this.dialogueEl.querySelector('.foot') as HTMLElement;
+    this.root.appendChild(this.dialogueEl);
 
     // level-up banner ------------------------------------------------------
     this.bannerEl = div(
@@ -835,6 +854,43 @@ export class HUD {
 
   hideHint(): void {
     this.hintEl.classList.remove('show');
+  }
+
+  // -------------------------------------------------------------------------
+  // Dialogue
+  // -------------------------------------------------------------------------
+  /**
+   * What an NPC is saying. Not a modal — the world keeps running behind it and
+   * the player can walk away mid-sentence, which is what ends it.
+   *
+   * `speaker` and `line` are PLAIN TEXT out of the string table and go in as
+   * `textContent`, so nothing in a name or a spoken sentence can be markup;
+   * `footHtml` is composed by the caller, because it carries a key cap inside a
+   * `{key}` placeholder and the markup has to travel as a value — the same
+   * shape `showHint` and the riding badge use.
+   *
+   * Called every simulation slice while a talk is open, so each field is
+   * compared BEFORE it is written and nothing here builds a string: a held
+   * conversation touches the DOM exactly once.
+   */
+  showDialogue(speaker: string, line: string, footHtml: string): void {
+    if (speaker !== this.dialogueWho) {
+      this.dialogueWho = speaker;
+      this.dialogueWhoEl.textContent = speaker;
+    }
+    if (line !== this.dialogueLine) {
+      this.dialogueLine = line;
+      this.dialogueLineEl.textContent = line;
+    }
+    if (footHtml !== this.dialogueFoot) {
+      this.dialogueFoot = footHtml;
+      this.dialogueFootEl.innerHTML = footHtml;
+    }
+    this.dialogueEl.classList.add('show');
+  }
+
+  hideDialogue(): void {
+    this.dialogueEl.classList.remove('show');
   }
 
   // -------------------------------------------------------------------------

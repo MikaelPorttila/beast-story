@@ -232,9 +232,15 @@ export class StructureField {
    * box describes the INSTANCE rather than the template — the log seats round
    * the camp fire are the woodpile at 0.55 girth and 0.4 height, and their
    * colliders are that shape too.
+   *
+   * The argument is "anything carrying a footprint" rather than a `Template`,
+   * because a `Template` is a stampable MESH and not everything solid is one:
+   * an NPC (world/npc.ts) is an animated rig whose body was measured with
+   * `measureFootprint` like everything else here, but whose vertices never go
+   * through an `Accum`. Every `Template` still satisfies it, so no caller moved.
    */
   add(
-    t: Template, x: number, y: number, z: number,
+    t: { solid?: readonly SolidBox[] }, x: number, y: number, z: number,
     yaw: number, s: number, sy: number,
   ): void {
     if (!t.solid) return;
