@@ -100,6 +100,8 @@ const REACH = ROAD_BLEND;
 const SEG_LEN = 3;
 /** Spatial grid cell, world units. See `buildIndex` for why it is not bigger. */
 const CELL = 8;
+/** Sampling pitch of `spanDistanceTo`. See there for the error it costs. */
+const SPAN_STEP = 0.35;
 
 const cellKey = (cx: number, cz: number): number => cx * 4194304 + cz;
 
@@ -117,6 +119,41 @@ export interface RoadSample {
    * furniture pass puts piers and railings here instead of lamps.
    */
   bridge: boolean;
+}
+
+/**
+ * THE ROAD, AS EVERY PLACER SEES IT.
+ *
+ * One interface, one implementation (`RoadNetwork`), and the rule that goes
+ * with it: ANYTHING THAT PUTS AN OBJECT ON THE GROUND ASKS THIS, and nothing
+ * re-derives "am I near a road" from a remembered bearing, a town's gate angle
+ * or the shape of the terrain.
+ *
+ * That rule is written down because the project has now shipped the same bug
+ * four times in different clothes. The order is fixed and it is not the
+ * intuitive one: the towns are sited and the roads are ROUTED AND CARVED at
+ * world creation (`planSettlements`, before `terrain.roads` is set), and
+ * everything else — the town's own furniture, the streamed chunk props, the
+ * fences that line the road — is placed AFTERWARDS, against a terrain that
+ * already has the corridor in it. A placer that consults only the height field
+ * is therefore describing a world that exists, but it is not asking the
+ * question it means to ask: "is there a road here" is a fact about the
+ * NETWORK, not about the ground, because the ground beside a carriageway and
+ * the ground under it are levelled to within half a unit of each other on
+ * purpose (see the header above).
+ *
+ * Two questions, because objects come in two shapes:
+ *
+ *  - `distanceTo` for a POINT — a tussock, a boulder, a barrel.
+ *  - `spanDistanceTo` for a RUN — a fence panel, a wall span, anything laid end
+ *    to end. A 4.2-unit panel whose midpoint clears the road by six units can
+ *    still be lying flat across it; see there.
+ */
+export interface RoadClearance {
+  /** Distance from (x, z) to the nearest carriageway centreline, or Infinity. */
+  distanceTo(x: number, z: number): number;
+  /** Nearest approach of the segment (ax,az)-(bx,bz) to any centreline. */
+  spanDistanceTo(ax: number, az: number, bx: number, bz: number): number;
 }
 
 export interface Road {
@@ -148,7 +185,7 @@ export function roadLength(r: Road): number {
  * the mesher calls 1156 times per chunk and the player calls a few hundred times
  * a frame, so neither query may allocate or chase objects.
  */
-export class RoadNetwork implements RoadField {
+export class RoadNetwork implements RoadField, RoadClearance {
   readonly roads: Road[] = [];
   /** [ax, az, ay, bx, bz, by] per segment. */
   private seg = new Float32Array(0);
@@ -317,6 +354,40 @@ export class RoadNetwork implements RoadField {
    */
   distanceTo(x: number, z: number): number {
     return this.nearest(x, z) ? this.nDist : Infinity;
+  }
+
+  /**
+   * Nearest approach of the SEGMENT (ax, az)-(bx, bz) to any carriageway
+   * centreline, or Infinity when the whole run is clear of the network.
+   *
+   * THE RUN VERSION OF `distanceTo`, and it exists because a fence panel is
+   * 4.2 units long. Asking the point query about a panel's midpoint says
+   * nothing about where its ENDS are, and on the inside of a bend that is
+   * exactly how panels end up lying flat across a carriageway their centres
+   * clear by six units: measured on the finished world, two of the panels
+   * `buildRoadFurniture` stamps had centres 1.41 and 3.88 units from a
+   * centreline even though every one of them is offset 6.5 units from its own
+   * road. See `FENCE_ROAD_CLEAR` in towns.ts.
+   *
+   * SAMPLED, not solved. Distance to a polyline is 1-Lipschitz, so a sample
+   * every SPAN_STEP over-reports the true minimum by at most half a step —
+   * under 0.18 at SPAN_STEP 0.35, which is inside the slack every caller's
+   * clearance already carries. A closed-form segment-to-polyline distance would
+   * have to sweep the spatial grid over the span's whole bounding box, which is
+   * more code and more work for a query that runs a few dozen times at world
+   * creation and never again.
+   */
+  spanDistanceTo(ax: number, az: number, bx: number, bz: number): number {
+    const dx = bx - ax;
+    const dz = bz - az;
+    const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / SPAN_STEP));
+    let best = Infinity;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const d = this.distanceTo(ax + dx * t, az + dz * t);
+      if (d < best) best = d;
+    }
+    return best;
   }
 }
 

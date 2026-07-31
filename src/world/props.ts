@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { VoxelModel, shade } from '../core/voxel';
 import { hashCell, mulberry32 } from './noise';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch, type ColumnScratch } from './terrain';
+import { DECK_EDGE, type RoadClearance } from './roads';
 
 /**
  * A baked, stampable voxel model.
@@ -1907,13 +1908,29 @@ const ROAD_TREE_CLEAR = 12;
  * bug), but a carriageway with meadow tussocks growing out of it is not a road,
  * and the ribbon covers the ground here anyway so there is no bald patch to
  * leave behind. DECK_EDGE + 0.4, so the sward closes right up to the verge.
+ *
+ * Derived from DECK_EDGE rather than written out as 5.4, because "the rim of
+ * the drawn road" is the fact this number is about and the two must not drift.
  */
-const ROAD_SOFT_CLEAR = 5.4;
+const ROAD_SOFT_CLEAR = DECK_EDGE + 0.4;
 
-/** What `buildChunkProps` needs to know about the road network, and no more. */
-export interface RoadClearance {
-  distanceTo(x: number, z: number): number;
-}
+/**
+ * How far a meadow clump throws its members from its own centre.
+ *
+ * The sprig carpet's disc is the widest of them (2.2 units — see the clump
+ * pass), so a clump centred further than `ROAD_SOFT_CLEAR + CLUMP_REACH` from a
+ * carriageway cannot put anything on one, and pays for no per-stamp road query
+ * at all. Every clump nearer than that tests each stamp individually.
+ *
+ * That split is the whole cost story of this fix, and it holds: measured by
+ * walking the trunk road with `?perf=1&fps=0` — the worst case, since every
+ * chunk streamed on that route carries the corridor — the `world` section over
+ * chunk-building frames is 12.5 ms mean before and 12.4 after, three
+ * interleaved runs each, against a run-to-run spread of about a millisecond.
+ * The per-stamp query is free at this resolution because it never fires
+ * anywhere but beside a road.
+ */
+const CLUMP_REACH = 2.2;
 
 /** Squared clearance radius for solid occluders (~4.5m). */
 const SOLID_CLEAR_R2 = 20;
@@ -1951,6 +1968,20 @@ export function buildChunkProps(
   const oz = cz * CHUNK_SIZE;
   const ci: ColumnScratch = makeScratch();
 
+  /**
+   * Distance from (x, z) to the nearest carriageway centreline, Infinity in a
+   * world with no roads — and the number is also left in `roadDist` for the
+   * callers that want it after an exclusion test has already paid for it.
+   *
+   * The one place in this file that talks to the road network. See
+   * `RoadClearance` in roads.ts for why every placer has to.
+   */
+  let roadDist = Infinity;
+  const roadDistAt = (wx: number, wz: number): number => {
+    roadDist = roads === null ? Infinity : roads.distanceTo(wx, wz);
+    return roadDist;
+  };
+
   /** Occluders (trees/rocks/hedges/logs/cacti) keep a small disc clear. */
   const exSolid = (wx: number, wz: number): boolean => {
     for (let i = 0; i < exclusions.length; i++) {
@@ -1960,7 +1991,7 @@ export function buildChunkProps(
       const r2 = e.r === undefined ? SOLID_CLEAR_R2 : e.r * e.r;
       if (dx * dx + dz * dz < r2) return true;
     }
-    return roads !== null && roads.distanceTo(wx, wz) < ROAD_SOLID_CLEAR;
+    return roadDistAt(wx, wz) < ROAD_SOLID_CLEAR;
   };
 
   /** Trees keep a far wider disc than any other occluder — see TREE_CLEAR_R2. */
@@ -1978,8 +2009,26 @@ export function buildChunkProps(
       const r2 = e.r === undefined ? TREE_CLEAR_R2 : r * r;
       if (dx * dx + dz * dz < r2) return true;
     }
-    return roads !== null && roads.distanceTo(wx, wz) < ROAD_TREE_CLEAR;
+    return roadDistAt(wx, wz) < ROAD_TREE_CLEAR;
   };
+
+  /**
+   * Is this point on the road surface? — the ONE road question this file asks,
+   * and it is asked about the point a thing is actually STAMPED at.
+   *
+   * That last clause is the whole of the "grass grows through the road floor"
+   * fix. Every pass below used to test the road at the CENTRE of a clump or at
+   * the centre of a column and then scatter its members up to 2.2 units away
+   * from it, so a clump centred 5.5 units off a carriageway — comfortably clear
+   * by its own test — planted sprigs 3.3 units off it, which is inside the
+   * ribbon. There they were seated on the floored terrain column, and the
+   * column beside a road is levelled to `round(deck)`: up to half a unit ABOVE
+   * the ramped surface the ribbon is drawn on (roads.ts, `carveAt`). Grass
+   * standing half a unit proud of a road it is not supposed to be on is exactly
+   * what a player sees as blades poking through the floor.
+   */
+  const onRoad = (wx: number, wz: number): boolean =>
+    roadDistAt(wx, wz) < ROAD_SOFT_CLEAR;
 
   /** Grass/flowers/shells: only 'all' discs stop them. */
   const exSoft = (wx: number, wz: number): boolean => {
@@ -1989,7 +2038,7 @@ export function buildChunkProps(
       const dz = wz - exclusions[i].z;
       if (dx * dx + dz * dz < SOLID_CLEAR_R2) return true;
     }
-    return roads !== null && roads.distanceTo(wx, wz) < ROAD_SOFT_CLEAR;
+    return onRoad(wx, wz);
   };
 
   /**
@@ -2014,6 +2063,39 @@ export function buildChunkProps(
   const trodden = (wx: number, wz: number, wear: number): boolean =>
     hashCell(terrain.seed, wx, 313, wz) < wear * (1 / 0.6);
 
+  /**
+   * The height a SOFT prop sits at, given the column height a caller already
+   * paid for.
+   *
+   * Near a road the column is run through the road field's `surfaceAt` — the
+   * same rule `Terrain.getHeight` uses and the same one the ribbon mesh is
+   * drawn on, so a soft prop stands on the DECK rather than on the terrace
+   * beside it. That matters because the floored column next to a carriageway is
+   * levelled to `round(deck)` and can sit half a unit ABOVE the surface the
+   * ribbon draws (roads.ts, `carveAt`).
+   *
+   * `rf.surfaceAt(x, z, column)` and not `terrain.getHeight(x, z)`, which would
+   * be the obvious call: `getHeight` re-derives the column from a fresh
+   * `heightCont`, and `heightCont` is the dominant cost in this whole file, so
+   * the obvious call pays for the same column twice. Handing it the one the
+   * caller already has makes the whole branch a single `nearest`. (Both
+   * versions measured the same on a road walk — 12.4 ms mean on the `world`
+   * section over chunk-building frames — because the branch only ever runs on
+   * stamps beside a carriageway. Doubling a chunk's dominant query on a path
+   * that could widen later is still not a thing to leave lying about.)
+   *
+   * With `ROAD_SOFT_CLEAR` at DECK_EDGE + 0.4 the two answers AGREE for every
+   * stamp that survives `onRoad`, because `surfaceAt` hands back the plain
+   * ground outside the rim; the sward is bit-identical with and without this.
+   * It is here so that stays true BY CONSTRUCTION rather than by the exclusion
+   * radius happening to exceed the ribbon's — shrink the clearance and the
+   * grass at the rim rides the deck instead of poking through it.
+   */
+  const softSeat = (x: number, z: number, column: number, nearRoad: boolean): number => {
+    const rf = terrain.roads;
+    return nearRoad && rf !== null ? rf.surfaceAt(ox + x, oz + z, column) : column;
+  };
+
   const flatEnough = (wx: number, wz: number, h: number, tol: number): boolean =>
     Math.abs(terrain.getHeight(wx + 1, wz) - h) <= tol &&
     Math.abs(terrain.getHeight(wx - 1, wz) - h) <= tol &&
@@ -2027,17 +2109,22 @@ export function buildChunkProps(
    * shadow of its own rather than resting on the surface.
    *
    * NOTE: clobbers `ci`. Every caller reads what it needs from `ci` first.
+   *
+   * `nearRoad` is the caller saying "this stamp is close enough to a
+   * carriageway that it has to be checked one by one" — see `softSeat`.
    */
   const addTuft = (
     dry: boolean, x: number, z: number, yaw: number, scl: number, vmul: number,
+    nearRoad = false,
   ): void => {
+    if (nearRoad && onRoad(ox + x, oz + z)) return;
     terrain.columnInfo(ox + Math.floor(x), oz + Math.floor(z), ci);
     if (ci.h < WATER_LEVEL + 1) return;
     const ref = dry ? TUFT_REF_DRY : TUFT_REF;
     const tpl = (dry ? lib.tuftsDry : lib.tufts)[Math.floor(rng() * 3.999)];
     const B = 0.45;
     soft.add(
-      tpl, x, ci.h - 0.07, z, yaw, scl,
+      tpl, x, softSeat(x, z, ci.h, nearRoad) - 0.07, z, yaw, scl,
       clampTint(1 - B + B * (ci.topR / ref[0])) * vmul,
       clampTint(1 - B + B * (ci.topG / ref[1])) * vmul,
       clampTint(1 - B + B * (ci.topB / ref[2])) * vmul,
@@ -2066,12 +2153,13 @@ export function buildChunkProps(
    */
   const addSprig = (
     dry: boolean, x: number, z: number, yaw: number, scl: number,
-    tr: number, tg: number, tb: number,
+    tr: number, tg: number, tb: number, nearRoad = false,
   ): void => {
+    if (nearRoad && onRoad(ox + x, oz + z)) return;
     const h = terrain.columnHeight(ox + Math.floor(x), oz + Math.floor(z));
     if (h < WATER_LEVEL + 1) return;
     const tpl = (dry ? lib.sprigsDry : lib.sprigs)[Math.floor(rng() * 3.999)];
-    soft.add(tpl, x, h - 0.06, z, yaw, scl, tr, tg, tb);
+    soft.add(tpl, x, softSeat(x, z, h, nearRoad) - 0.06, z, yaw, scl, tr, tg, tb);
   };
 
   /**
@@ -2141,7 +2229,6 @@ export function buildChunkProps(
       const wz = oz + lz;
       terrain.columnInfo(wx, wz, ci);
       const h = ci.h;
-      if (exTree(wx + 0.5, wz + 0.5)) continue;
 
       // Acceptance is per CANDIDATE, and there are 16 candidates a chunk now
       // instead of 36, so every rate here is up on what it was (forest
@@ -2203,6 +2290,16 @@ export function buildChunkProps(
       // spans more terrain steps.
       const px = lx + 0.5 + jx * jitterMul;
       const pz = lz + 0.5 + jz * jitterMul;
+      // THE EXCLUSION TEST GOES ON THE TRUNK, not on the column the candidate
+      // was rolled in. `jitterMul` reaches 2.2 on beaches and deserts, so the
+      // stamp lands up to 2 units off the tested centre — a fifth of the
+      // clearance ROAD_TREE_CLEAR was tuned to, and the same fraction of a
+      // den's or a town's disc. Moved down here rather than widened, because
+      // widening a radius to cover a jitter makes the clearing bigger
+      // everywhere; this makes it right where the tree is. No `rng()` is drawn
+      // between the old position and this one, so every tree the test still
+      // accepts is stamped exactly where it was before.
+      if (exTree(ox + px, oz + pz)) continue;
       const baseY = groundMin(wx, wz, 2) - 0.45;
       solid.add(tpl, px, baseY, pz, yaw, scl,
         t * (1 + hw * 0.11), t * (1 + hw * 0.02), t * (1 - hw * 0.13), sclY);
@@ -2239,7 +2336,7 @@ export function buildChunkProps(
     mlx: number, mlz: number,
     n: number, spread: number,
     sMin: number, sSpan: number, yOff: number,
-    t: number,
+    t: number, nearRoad: boolean,
   ): void => {
     for (let b = 0; b < n; b++) {
       const ang = rng() * Math.PI * 2;
@@ -2247,6 +2344,7 @@ export function buildChunkProps(
       const bx = mlx + Math.cos(ang) * rad;
       const bz = mlz + Math.sin(ang) * rad;
       if (bx < 0 || bz < 0 || bx >= CHUNK_SIZE || bz >= CHUNK_SIZE) continue;
+      if (nearRoad && roadDistAt(ox + bx, oz + bz) < ROAD_SOLID_CLEAR) continue;
       terrain.columnInfo(ox + Math.floor(bx), oz + Math.floor(bz), ci);
       if (ci.h < WATER_LEVEL + 1) continue;
       const bt = t * (0.93 + rng() * 0.14);
@@ -2270,6 +2368,13 @@ export function buildChunkProps(
     if (h < WATER_LEVEL + 1) continue;
     if (biome === 'underwater') continue;
     if (exSolid(wx + 0.5, wz + 0.5)) continue;
+    // Every shape below is a KNOT scattered around the candidate, not a stamp
+    // on it: the boulder cluster reaches 2.9 units, the paired log 2.3, a hedge
+    // knot 2.2. Against ROAD_SOLID_CLEAR's 7.5 that puts a boulder as close as
+    // 4.6 to a centreline — inside the ribbon's 5.0 rim, i.e. a rock sitting in
+    // the road. `exSolid` has just left the measured distance in `roadDist`, so
+    // deciding whether the satellites need testing individually is free.
+    const nearRoad = roadDist < ROAD_SOLID_CLEAR + 3;
     if (!flatEnough(wx, wz, h, 2)) continue;
     const t = 0.92 + rng() * 0.16;
     const green = biome === 'plains' || biome === 'forest';
@@ -2300,7 +2405,8 @@ export function buildChunkProps(
         const lang = yaw + 1.1 + rng() * 1.2;
         const lx2 = mlx + Math.cos(lang) * (1.4 + rng() * 0.9);
         const lz2 = mlz + Math.sin(lang) * (1.4 + rng() * 0.9);
-        if (lx2 >= 0 && lz2 >= 0 && lx2 < CHUNK_SIZE && lz2 < CHUNK_SIZE) {
+        if (lx2 >= 0 && lz2 >= 0 && lx2 < CHUNK_SIZE && lz2 < CHUNK_SIZE
+          && !(nearRoad && roadDistAt(ox + lx2, oz + lz2) < ROAD_SOLID_CLEAR)) {
           terrain.columnInfo(ox + Math.floor(lx2), oz + Math.floor(lz2), ci);
           if (ci.h >= WATER_LEVEL + 1) {
             const lt = t * (0.95 + rng() * 0.1);
@@ -2316,10 +2422,10 @@ export function buildChunkProps(
       } else if (kind < 0.84) {
         // knee-high hedges: the rung between grass and the tall clump
         stampKnot(lib.hedgeSmallT, mlx, mlz, 2 + Math.floor(rng() * 3), 1.5,
-          0.85 + rng() * 0.2, 0.35, -0.25, t);
+          0.85 + rng() * 0.2, 0.35, -0.25, t, nearRoad);
       } else {
         stampKnot(lib.hedgeT, mlx, mlz, 1 + Math.floor(rng() * 3), 1.5,
-          0.95, 0.45, -0.3, t);
+          0.95, 0.45, -0.3, t, nearRoad);
       }
       continue;
     }
@@ -2334,6 +2440,7 @@ export function buildChunkProps(
         const bx = mlx + Math.cos(ang) * rad;
         const bz = mlz + Math.sin(ang) * rad;
         if (bx < 0 || bz < 0 || bx >= CHUNK_SIZE || bz >= CHUNK_SIZE) continue;
+        if (nearRoad && roadDistAt(ox + bx, oz + bz) < ROAD_SOLID_CLEAR) continue;
         terrain.columnInfo(ox + Math.floor(bx), oz + Math.floor(bz), ci);
         if (ci.h < WATER_LEVEL + 1) continue;
         const tpl = biome === 'snow' ? lib.rockSnow
@@ -2411,6 +2518,15 @@ export function buildChunkProps(
     // Grass and flowers are welcome on the doorstep — only the bush below,
     // which casts shadows and blocks the path, respects the den discs.
     if (exSoft(wcx + 0.5, wcz + 0.5)) continue;
+    // THE CLUMP CENTRE CLEARING A ROAD SAYS NOTHING ABOUT ITS MEMBERS, which
+    // scatter up to CLUMP_REACH from it. `exSoft` has already thrown out a
+    // clump whose own centre is on the road; this decides whether the stamps
+    // below are tested one by one, which is the only way the sward can stop
+    // exactly at the ribbon's rim rather than 2.2 units short of it — or 2.2
+    // units into it, which is the bug. No second query: `exSoft` just left the
+    // measured distance in `roadDist`, and a duplicate `distanceTo` here would
+    // land on all 115 clump candidates of every chunk in the world.
+    const nearRoad = roadDist < ROAD_SOFT_CLEAR + CLUMP_REACH;
     const isForest = cb === 'forest';
     // +-8% per-cluster value jitter so whole clumps read lighter or darker.
     const cj = 0.92 + rng() * 0.16;
@@ -2485,7 +2601,7 @@ export function buildChunkProps(
       const sz = clz + Math.sin(ang) * rad;
       if (sx < 0 || sz < 0 || sx >= CHUNK_SIZE || sz >= CHUNK_SIZE) continue;
       addSprig(false, sx, sz, rng() * Math.PI * 2, 0.85 + rng() * 0.6,
-        sprR * (isForest ? 0.93 : 1), sprG, sprB * (isForest ? 0.9 : 1));
+        sprR * (isForest ? 0.93 : 1), sprG, sprB * (isForest ? 0.9 : 1), nearRoad);
     }
     // 2-4 -> 1-3. The tussock is still the readable OBJECT in a clump, but it is
     // no longer the thing carrying coverage — the sprigs are — and at 140
@@ -2505,7 +2621,7 @@ export function buildChunkProps(
       // is a speck. At 1.45x the tallest reaches 0.91 units, just under a
       // terrain step, which is where Cube World's grass tufts actually sit.
       addTuft(false, tx, tz, rng() * Math.PI * 2, 1.0 + rng() * 0.45,
-        cj * (isForest ? 0.94 : 1));
+        cj * (isForest ? 0.94 : 1), nearRoad);
     }
     terrain.columnInfo(wcx, wcz, ci); // addTuft clobbers ci; restore the cluster's
     for (let m = 0; m < members; m++) {
@@ -2514,11 +2630,13 @@ export function buildChunkProps(
       const mx = clx + Math.cos(ang) * rad;
       const mz = clz + Math.sin(ang) * rad;
       if (mx < 0 || mz < 0 || mx >= CHUNK_SIZE || mz >= CHUNK_SIZE) continue;
+      if (nearRoad && onRoad(ox + mx, oz + mz)) continue;
       terrain.columnInfo(ox + Math.floor(mx), oz + Math.floor(mz), ci);
       if (ci.h < WATER_LEVEL + 1) continue;
       if (ci.biome !== 'plains' && ci.biome !== 'forest') continue;
       const t = cj * (0.96 + rng() * 0.08);
-      soft.add(grass, mx, ci.h - 0.03, mz, rng() * Math.PI * 2, 0.65 + rng() * 0.5,
+      soft.add(grass, mx, softSeat(mx, mz, ci.h, nearRoad) - 0.03, mz,
+        rng() * Math.PI * 2, 0.65 + rng() * 0.5,
         isForest ? t * 0.9 : t * 0.97, t, isForest ? t * 0.86 : t * 0.9);
     }
     // ---- non-green drift --------------------------------------------------
@@ -2546,11 +2664,12 @@ export function buildChunkProps(
         const mx = clx + Math.cos(ang) * rad;
         const mz = clz + Math.sin(ang) * rad;
         if (mx < 0 || mz < 0 || mx >= CHUNK_SIZE || mz >= CHUNK_SIZE) continue;
+        if (nearRoad && onRoad(ox + mx, oz + mz)) continue;
         const mh = terrain.columnHeight(ox + Math.floor(mx), oz + Math.floor(mz));
         if (mh < WATER_LEVEL + 1) continue;
         const bt = cj * (0.94 + rng() * 0.12);
-        soft.add(bl, mx, mh - 0.06, mz, rng() * Math.PI * 2,
-          1.0 + rng() * 0.5, bt, bt, bt);
+        soft.add(bl, mx, softSeat(mx, mz, mh, nearRoad) - 0.06, mz,
+          rng() * Math.PI * 2, 1.0 + rng() * 0.5, bt, bt, bt);
       }
     }
     // 0.7 -> 0.38. The single blossom was the meadow's only non-green note and
@@ -2561,9 +2680,10 @@ export function buildChunkProps(
       const fx = clx + (rng() - 0.5) * 1.4;
       const fz = clz + (rng() - 0.5) * 1.4;
       terrain.columnInfo(ox + Math.floor(fx), oz + Math.floor(fz), ci);
-      if (ci.h >= WATER_LEVEL + 1) {
+      if (ci.h >= WATER_LEVEL + 1 && !(nearRoad && onRoad(ox + fx, oz + fz))) {
         const ft = cj * (0.94 + rng() * 0.12);
-        soft.add(flowers[Math.floor(rng() * 4.999)], fx, ci.h - 0.04, fz,
+        soft.add(flowers[Math.floor(rng() * 4.999)], fx,
+          softSeat(fx, fz, ci.h, nearRoad) - 0.04, fz,
           rng() * Math.PI * 2, 0.8 + rng() * 0.4, ft, ft, ft);
       }
     }
@@ -2578,7 +2698,9 @@ export function buildChunkProps(
       const bx = clx + (rng() - 0.5) * 2;
       const bz = clz + (rng() - 0.5) * 2;
       terrain.columnInfo(ox + Math.floor(bx), oz + Math.floor(bz), ci);
-      if (ci.h >= WATER_LEVEL + 1 && !exSolid(ox + Math.floor(bx) + 0.5, oz + Math.floor(bz) + 0.5)) {
+      // The BUSH's own position, not its column's centre — same reason as the
+      // grass above, and it strays a full unit from the clump centre.
+      if (ci.h >= WATER_LEVEL + 1 && !exSolid(ox + bx, oz + bz)) {
         solid.add(lib.bushT, bx, ci.h - 0.05, bz, rng() * Math.PI * 2,
           0.8 + rng() * 0.5, cj, cj, cj);
       }
@@ -2600,18 +2722,25 @@ export function buildChunkProps(
     const jz = (rng() - 0.5) * 0.8;
     const wx = ox + lx;
     const wz = oz + lz;
+    // The JITTERED stamp position, resolved before the exclusion tests rather
+    // than after them. `jx`/`jz` carry a stamp up to 0.57 units off its own
+    // column's centre, so a roll tested at the centre and cleared could still
+    // land inside the ribbon — the same off-by-a-footprint that put grass
+    // through the road in the clump pass above.
+    const x = lx + 0.5 + jx;
+    const z = lz + 0.5 + jz;
     terrain.columnInfo(wx, wz, ci);
     const h = ci.h;
     if (h < WATER_LEVEL + 1) continue;
-    if (exSoft(wx + 0.5, wz + 0.5)) continue;
+    if (exSoft(ox + x, oz + z)) continue;
+    // `exSoft` has just left the measured road distance in `roadDist`.
+    const nearRoad = roadDist < ROAD_SOFT_CLEAR + 1;
     if (ci.trample > 0 && trodden(wx, wz, ci.trample)) continue;
     // Mixed pass: soft singles ignore the den discs, solid ones don't.
-    const noSolid = exSolid(wx + 0.5, wz + 0.5);
+    const noSolid = exSolid(ox + x, oz + z);
 
     const t = 0.9 + pick * 0.2;
     const ft = 0.9 + pick * 0.18; // subtle per-instance flower tint variety
-    const x = lx + 0.5 + jx;
-    const z = lz + 0.5 + jz;
     const grass = grasses[Math.floor(pick * 2.999)];
     switch (ci.biome) {
       case 'plains':
@@ -2630,7 +2759,7 @@ export function buildChunkProps(
         // plains have been getting no lone boulders at all. Bands are otherwise
         // unchanged: rock 0.5%, tussock 4.2%, tall blade 0.9%, stick 1.0%.
         else if (roll < 0.225 && !noSolid) solid.add(lib.rockAMoss, x, h - 0.1, z, yaw, scl, t, t, t);
-        else if (roll < 0.267) addTuft(false, x, z, yaw, 0.72 + scl * 0.4, t);
+        else if (roll < 0.267) addTuft(false, x, z, yaw, 0.72 + scl * 0.4, t, nearRoad);
         else if (roll < 0.276) soft.add(lib.grassTall, x, h - 0.03, z, yaw, 0.8 + scl * 0.3, t, t, t * 0.94);
         else if (roll < 0.286) soft.add(lib.deadwoodT, x, h - 0.02, z, yaw, scl, t, t, t);
         // Carpet BETWEEN the clumps. The meadow pass fills its own 2.2-unit
@@ -2639,13 +2768,13 @@ export function buildChunkProps(
         // is ~70 sprigs a chunk on top of the ~500 the clumps plant, and this
         // loop has already paid for the `columnInfo` these need.
         else if (roll < 0.50) addSprig(false, x, z, yaw, 0.8 + scl * 0.4,
-          t * 0.98, t, t * 0.94);
+          t * 0.98, t, t * 0.94, nearRoad);
         break;
       case 'forest':
         if (roll < 0.1) soft.add(grass, x, h - 0.03, z, yaw, 0.5 + scl * 0.45, t * 0.86, t, t * 0.84);
         else if (roll < 0.127 && !noSolid) solid.add(mushroomT, x, h - 0.04, z, yaw, scl, t, t, t);
         else if (roll < 0.151 && !noSolid) solid.add(pick < 0.5 ? lib.rockAMoss : lib.rockBMoss, x, h - 0.1, z, yaw, scl, t, t, t);
-        else if (roll < 0.211) addTuft(false, x, z, yaw, 0.8 + scl * 0.5, t * 0.95);
+        else if (roll < 0.211) addTuft(false, x, z, yaw, 0.8 + scl * 0.5, t * 0.95, nearRoad);
         // Undergrowth: ferns and fallen sticks are what makes a wood read as a
         // wood floor rather than a lawn with trunks standing on it.
         else if (roll < 0.30) soft.add(lib.ferns[Math.floor(pick * 2.999)], x, h - 0.04, z, yaw, 0.85 + scl * 0.35, t * 0.9, t, t * 0.88);
@@ -2655,15 +2784,15 @@ export function buildChunkProps(
         // literally true, because the canopy shadow over it hides everything
         // that is not a mass.
         else if (roll < 0.50) addSprig(false, x, z, yaw, 0.75 + scl * 0.4,
-          t * 0.88, t, t * 0.86);
+          t * 0.88, t, t * 0.86, nearRoad);
         break;
       case 'beach':
-        if (roll < 0.064) addTuft(true, x, z, yaw, scl, t);
+        if (roll < 0.064) addTuft(true, x, z, yaw, scl, t, nearRoad);
         else if (roll < 0.086 && !noSolid) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t, t, t);
         break;
       case 'desert':
         if (roll < 0.031 && !noSolid) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t * 1.05, t, t * 0.9);
-        else if (roll < 0.082) addTuft(true, x, z, yaw, scl, t);
+        else if (roll < 0.082) addTuft(true, x, z, yaw, scl, t, nearRoad);
         else if (roll < 0.095 && !noSolid) solid.add(lib.cactusSmall, x, h - 0.04, z, yaw, scl, t, t, t);
         break;
       case 'snow':
@@ -2708,6 +2837,10 @@ export function buildChunkProps(
     // every lake in an even sprinkle that read as stubble, not vegetation.
     if (roll > 0.055) continue;
     if (exSoft(wx + 0.5, wz + 0.5)) continue;
+    // A STAND strays up to 3 units from the candidate `exSoft` just cleared,
+    // which is further than any other clump in this file — and a road crosses
+    // exactly this ground wherever it bridges. `roadDist` is what `exSoft` left.
+    const nearRoad = roadDist < ROAD_SOFT_CLEAR + 3;
     const stand = 3 + Math.floor(rng() * 4);
     for (let s = 0; s < stand; s++) {
       const ang = rng() * Math.PI * 2;
@@ -2715,6 +2848,7 @@ export function buildChunkProps(
       const sx = lx + 0.5 + Math.cos(ang) * rad;
       const sz = lz + 0.5 + Math.sin(ang) * rad;
       if (sx < 0 || sz < 0 || sx >= CHUNK_SIZE || sz >= CHUNK_SIZE) continue;
+      if (nearRoad && onRoad(ox + sx, oz + sz)) continue;
       terrain.columnInfo(ox + Math.floor(sx), oz + Math.floor(sz), ci);
       if (ci.hc < WATER_LEVEL - 0.5 || ci.hc > WATER_LEVEL + 0.9) continue;
       const t = 0.9 + rng() * 0.2;
@@ -2744,8 +2878,14 @@ export function buildChunkProps(
     if (!sandy) continue;
     if (ci.biome === 'beach' && (ci.hc < 8.6 || ci.hc > 13.0)) continue;
     if (exSoft(wx + 0.5, wz + 0.5)) continue;
+    // Same off-by-a-footprint as the scatter pass: the stamp is jittered off
+    // the column `exSoft` tested. The draws stay where they are — moving them
+    // above the rejections would re-roll every beach in the world — so the
+    // stamp is re-tested instead, and only where a road is actually in reach.
+    const nearRoad = roadDist < ROAD_SOFT_CLEAR + 1;
     const x = lx + 0.5 + (rng() - 0.5) * 0.8;
     const z = lz + 0.5 + (rng() - 0.5) * 0.8;
+    if (nearRoad && onRoad(ox + x, oz + z)) continue;
     const yaw = rng() * Math.PI * 2;
     const t = 0.92 + rng() * 0.16;
     // The roll ladder is re-cut to make room for the dry sprig carpet, and it is
@@ -2764,9 +2904,9 @@ export function buildChunkProps(
       const dune = rng() < 0.5 ? lib.grassDuneA : lib.grassDuneB;
       soft.add(dune, x, ci.h - 0.03, z, yaw, 0.7 + rng() * 0.4, t, t, t * 0.95);
     } else if (roll < 0.32) {
-      addTuft(true, x, z, yaw, 0.75 + rng() * 0.45, t);
+      addTuft(true, x, z, yaw, 0.75 + rng() * 0.45, t, nearRoad);
     } else if (roll < 0.60) {
-      addSprig(true, x, z, yaw, 0.8 + rng() * 0.5, t, t, t * 0.96);
+      addSprig(true, x, z, yaw, 0.8 + rng() * 0.5, t, t, t * 0.96, nearRoad);
     } else if (roll < 0.74) {
       // Squashed to 45% height. A shell dot is one voxel tall, and a CUBE that
       // small still shows four vertical faces as tall as it is wide — faces the
@@ -2781,7 +2921,7 @@ export function buildChunkProps(
       // thing that puts a shadow on an empty dune.
       const ds = 0.9 + rng() * 0.5;
       soft.add(lib.deadwoodT, x, ci.h - 0.02, z, yaw, ds, t, t, t * 0.94, ds * 0.7);
-    } else if (roll < 0.87 && !exSolid(wx + 0.5, wz + 0.5)
+    } else if (roll < 0.87 && !exSolid(ox + x, oz + z)
       && flatEnough(wx, wz, ci.h, 1)) {
       solid.add(lib.driftwoodT, x, ci.h - 0.02, z, yaw, 0.9 + rng() * 0.4, t, t, t);
     }

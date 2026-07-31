@@ -36,7 +36,7 @@ import { t, type StringKey } from '../i18n';
 import { Terrain, WATER_LEVEL, type GroundPatch } from './terrain';
 import {
   RoadNetwork, roadAt, roadLength, routeRoad, profileRoad, straightWetLength,
-  DECK_EDGE, NECK_MAX, type Road,
+  DECK_EDGE, NECK_MAX, type Road, type RoadClearance,
 } from './roads';
 import { Accum, type PropLib, type Template } from './props';
 import {
@@ -617,7 +617,9 @@ export class Towns {
       const g = new THREE.Group();
       const solid = new Accum();
       const glow = new Accum();
-      buildRoadFurniture(solid, glow, parts, road, mulberry32(seed ^ road.pts.length));
+      buildRoadFurniture(
+        solid, glow, parts, road, plan.network, mulberry32(seed ^ road.pts.length),
+      );
       addBridgeFurniture(solid, parts, road);
       emit(solid, props.solidMat, g, true);
       emit(glow, lampGlow, g, false);
@@ -700,6 +702,67 @@ export class Towns {
 // ---------------------------------------------------------------------------
 // Layouts
 // ---------------------------------------------------------------------------
+
+/**
+ * Half the length of one fence panel, world units.
+ *
+ * `roughFence` paints 14 voxels along +z and bakes CENTRED, so a stamped panel
+ * reaches this far either side of the point it is stamped at. This is the
+ * number `spanDistanceTo` has to be handed; a panel's midpoint on its own says
+ * nothing about where its stakes land.
+ */
+const FENCE_HALF = 7 * V;
+
+/**
+ * How close a fence panel's timber may come to a carriageway centreline.
+ *
+ * `DECK_EDGE` (5.0) is the ribbon's rim — the outer edge of the surface that is
+ * both drawn and walked. The 0.6 on top covers the panel's own half-width (a
+ * stake is one voxel either side of the line, 0.28) and the 0.18 that
+ * `spanDistanceTo` may over-report at its sampling pitch, and leaves enough
+ * over that a panel which survives is visibly OFF the gravel rather than
+ * touching it.
+ *
+ * Measured on the finished world. 38 panels are stamped between the road runs
+ * and the two hamlet arcs, every road panel offset 6.5 units from its OWN
+ * road — and three of them still came within 0.13, 2.16 and 5.25 units of a
+ * centreline. The first two lay flat ACROSS the carriageway nine units from the
+ * player's own spawn (_fence-cross-before.png), because the trunk road doubles
+ * back at the junction and a run laid along the inside of that bend cuts the
+ * corner: the offset is measured against the road where the panel starts, and
+ * the road is somewhere else by the time the panel ends.
+ *
+ * Those three are cut and the other 35 stand; the closest survivor clears the
+ * centreline by 5.79, i.e. 0.79 outside the ribbon's rim.
+ */
+const FENCE_ROAD_CLEAR = DECK_EDGE + 0.6;
+
+/**
+ * Stamp one fence panel — unless its timber would land on a road.
+ *
+ * A run that meets a carriageway STOPS AT THE VERGE on both sides rather than
+ * being deleted: only the panels that actually reach the road are skipped, so
+ * what the player walks up to is a gap in a fence, which is what a field gate
+ * looks like, and the panels either side still end on their own stakes rather
+ * than on a post hanging over the gravel.
+ *
+ * The road is asked, not inferred. A fence run knows the arc length and the
+ * perpendicular of ITS OWN road and nothing else, which is precisely the
+ * information that cannot see a second road at a fork or the far side of a
+ * hairpin — see `RoadClearance` in roads.ts for why that is the shape of every
+ * one of these bugs.
+ */
+function fencePanel(
+  solid: Accum, parts: TownParts, network: RoadClearance,
+  x: number, y: number, z: number, yaw: number,
+): void {
+  // The panel lies along its own yaw: `Accum.add` maps local +z to
+  // (sin yaw, cos yaw).
+  const dx = Math.sin(yaw) * FENCE_HALF;
+  const dz = Math.cos(yaw) * FENCE_HALF;
+  if (network.spanDistanceTo(x - dx, z - dz, x + dx, z + dz) < FENCE_ROAD_CLEAR) return;
+  solid.add(parts.fence, x, y, z, yaw, 1, 1, 1, 1);
+}
 
 /** Reject a spot that overlaps something already placed, or the carriageway. */
 function place(
@@ -899,12 +962,22 @@ function buildHamlet(
       x, cy, z, a + Math.PI / 2, 1, 1, 1, 1);
   }
   // A fence arc on the side away from the road, and a paddock cart.
+  //
+  // Through `fencePanel` like every other run, and that is not belt and braces:
+  // the arc is laid out from the town's OWN radius and gate bearing, which is
+  // the one thing in `buildHamlet` that never consults the network — everything
+  // else here goes through `place`. Which side of the town the road leaves on
+  // is rolled per seed and the route is a greedy walk, so "the arc is opposite
+  // the gate, therefore it cannot meet the road" is a coincidence this seed
+  // happens to enjoy — every arc panel here clears the nearest deck by at least
+  // 6.5 units, and not one of them is cut — rather than a property of the
+  // layout.
   const fenceLen = 15 * V;
   const arc = Math.round((Math.PI * 0.7 * R) / fenceLen);
   for (let i = 0; i < arc; i++) {
     const a = gateAngle + Math.PI * 0.65 + (i / arc) * Math.PI * 0.7;
     const [x, z] = at(a, R - 1.2);
-    solid.add(parts.fence, x, cy, z, a + Math.PI / 2, 1, 1, 1, 1);
+    fencePanel(solid, parts, network, x, cy, z, a + Math.PI / 2);
   }
   for (let k = 0; k < 14; k++) {
     const a = rng() * Math.PI * 2;
@@ -939,7 +1012,8 @@ function buildHamlet(
  * the rise rather than in it.
  */
 function buildRoadFurniture(
-  solid: Accum, glow: Accum, parts: TownParts, road: Road, rng: () => number,
+  solid: Accum, glow: Accum, parts: TownParts, road: Road,
+  network: RoadClearance, rng: () => number,
 ): void {
   const len = roadLength(road);
   const at = { x: 0, y: 0, z: 0, dx: 0, dz: 0 };
@@ -975,10 +1049,14 @@ function buildRoadFurniture(
       const near = road.pts[Math.min(road.pts.length - 1, Math.round(sk / 3))];
       if (near.bridge) continue;
       const off = DECK_EDGE + 1.5;
-      solid.add(
-        parts.fence,
+      // The offset is measured against THIS road. `fencePanel` measures the
+      // finished panel against the whole network, which is the only way a run
+      // laid along one road can know about the other two at a fork — or about
+      // its own road, further along, on the inside of a bend.
+      fencePanel(
+        solid, parts, network,
         at.x - at.dz * fside * off, at.y, at.z + at.dx * fside * off,
-        Math.atan2(at.dx, at.dz), 1, 1, 1, 1,
+        Math.atan2(at.dx, at.dz),
       );
     }
     s += runs * fenceLen + 40 + rng() * 70;
