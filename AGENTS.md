@@ -83,8 +83,19 @@ once frames come quickly.
   `bun run snapshot [label]` writes a timestamped, self-contained build to `dist/`.
 - There is no unit-test runner. The tests are browser probe scripts that print
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
-  `measure-layout.mjs`, `test-palanim.mjs`. `tools/capture-set.ps1` (PowerShell,
-  project root) captures the full critic shot set.
+  `measure-layout.mjs`, `test-palanim.mjs`, `test-structures.mjs`,
+  `test-sway.mjs`.
+  `tools/capture-set.ps1` (PowerShell, project root) captures the full critic
+  shot set.
+- `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
+  than computes: for every town the registry reports it aims the camera at a
+  real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
+  seed), teleports the hero back along that bearing, holds W, and reads
+  `__dbgPlayerPos`. Every case runs twice, the second time with `solids=0`, so
+  the output is a before/after of the identical walk. A hut, a barrel and the
+  perimeter must STOP him; the gate must not — it should land him as deep in
+  camp as the run with no collision at all. It also parks him against a wall and
+  reads `__dbgBodies` to check his pals and the wild spawns are not inside it.
 - `test-palanim.mjs` is the animation-continuity guard: it cycles the whole pal
   roster through the two active follow slots while yanking the hero around, and
   reports the largest per-frame rotation delta at every rig joint. Everything
@@ -159,6 +170,38 @@ untouched; [src/world/town-parts.ts](src/world/town-parts.ts) holds the voxel
 builders and the three rules they obey. `towns=0` removes the lot, and
 `__dbgTowns()` reports the registry plus each road's measured worst step and
 grade.
+
+Settlements are SOLID, and the collider is never authored twice.
+[src/world/structures.ts](src/world/structures.ts) measures a footprint off the
+voxel model a builder just painted — the boxes are the mesh — and `SolidStamp`
+makes one call push both the vertices and the collider, so a hut cannot be
+placed without being made solid. The primitive is an ORIENTED BOX because a hut
+is a rectangle; the footprint counts only material between `MAX_STEP_UP` and
+head height, which is what leaves the Encampment's gate an opening rather than a
+wall and lets a road run under a lamp's bracket. It reaches the player as
+`World.structureTopAt`, a third column-top query beside `getHeight` and
+`trunkSolidTopAt`, so everything that moves — hero, saddle, pal, enemy —
+resolves it against the same `MAX_STEP_UP` ([src/core/types.ts](src/core/types.ts))
+it already used for terrain. `solids=0` keeps the meshes and removes the
+blocking, which is the A/B `tools/test-structures.mjs` runs; `/show-colliders`
+draws the boxes green.
+
+Grass NOTICES what walks through it.
+[src/world/sway.ts](src/world/sway.ts) is one vertex shader carrying three
+effects — a prevailing wind, a walker parting the blades, and a low flyer's
+downwash — driven by a fixed six-slot uniform array rather than a displacement
+texture, for the reasons in its header. Movers report themselves through
+`World.disturb(id, x, y, z, radius, kind)`, once per simulation slice and
+BEFORE `update`: the caller says what is where and the world decides what
+reacts, so dust, ripples or snow tracks would want the same report. `id` must be
+stable for the life of the mover, because the world keeps a lagged track per id
+— that lag is what makes the gap open behind a runner and close over about a
+third of a second. `sway=0` makes the meadow static geometry, `photo=1` freezes
+the wind clock so a still is reproducible, and `tools/test-sway.mjs` is the
+guard. Note when reading it: the shipped wash is `near(clearance) *
+gain(climb)`, and those two move together on a follower dragged over rising
+ground, so any assertion about clearance alone has to divide the climb term out
+first.
 
 **Pals.** Each species is one self-contained file in `src/pals/species/` exporting
 `species: PalSpecies` and `skills: SkillDef[]`, building its body with `VoxelModel`

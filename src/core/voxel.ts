@@ -59,6 +59,54 @@ export class VoxelModel {
   }
 
   /**
+   * Every painted voxel, in the model's own integer cell coordinates.
+   *
+   * Exists so a COLLISION footprint can be measured off the same cells the mesh
+   * is built from (see `measureFootprint` in world/structures.ts) instead of
+   * being restated by hand beside each builder. `bake` already measures a tree's
+   * bole and crown off the baked vertices for exactly that reason; this is the
+   * same argument one step earlier, where the voxel grid still exists and the
+   * gap under a gate's lintel is still visible as an empty cell rather than as
+   * an absence of triangles.
+   */
+  forEachCell(fn: (x: number, y: number, z: number) => void): void {
+    for (const key of this.cells.keys()) {
+      const c = key.split(',');
+      fn(+c[0], +c[1], +c[2]);
+    }
+  }
+
+  /**
+   * Cell bounds, and the ORIGIN `build` re-bases the mesh on.
+   *
+   * `ox`/`oz`/`oy` are the whole of that rule — x/z centred on the bounding box
+   * when `center`, y zeroed at the lowest voxel always — and it is a method
+   * rather than three lines inside `build` so that anything reasoning about
+   * where a baked model's voxels ENDED UP subtracts the same numbers `build`
+   * did. A second copy of `(min + max + 1) / 2` elsewhere is a collider that
+   * drifts half a voxel off its mesh the day the rule changes.
+   */
+  bounds(center = true): {
+    minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number;
+    ox: number; oy: number; oz: number;
+  } {
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const key of this.cells.keys()) {
+      const [x, y, z] = key.split(',').map(Number);
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    return {
+      minX, maxX, minY, maxY, minZ, maxZ,
+      ox: center ? (minX + maxX + 1) / 2 : 0,
+      oz: center ? (minZ + maxZ + 1) / 2 : 0,
+      oy: minY,
+    };
+  }
+
+  /**
    * Bake to a mesh. Origin: x/z centered if center=true; y=0 at the lowest voxel.
    * Faces get subtle directional shade baked into vertex colors so models read
    * as chunky even under flat lighting.
@@ -69,16 +117,10 @@ export class VoxelModel {
     const colors: number[] = [];
     const indices: number[] = [];
 
-    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
-    for (const key of this.cells.keys()) {
-      const [x, y, z] = key.split(',').map(Number);
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
-    }
-    const cx = center ? (minX + maxX + 1) / 2 : 0;
-    const cz = center ? (minZ + maxZ + 1) / 2 : 0;
-    const cy = minY;
+    const b = this.bounds(center);
+    const cx = b.ox;
+    const cz = b.oz;
+    const cy = b.oy;
 
     // face: [normal, 4 corners]
     const FACES: Array<{ n: [number, number, number]; c: number[][]; shade: number }> = [

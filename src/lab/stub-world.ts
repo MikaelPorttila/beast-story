@@ -15,10 +15,15 @@ export class StubWorld implements World {
    */
   climbTopAt(): number { return this.getHeight(); }
 
+  /** The stage has no props, so nothing on it reacts to being walked through. */
+  disturb(): void { /* no vegetation on the lab stage */ }
   /** Nothing to draw: the stage has no colliders but its floor. */
   debugColliders(): void { /* no colliders on the lab stage */ }
+  debugStructures(): void { /* nor any structure boxes */ }
   /** No props on the stage, so there is never a trunk in the way. */
   trunkSolidTopAt(): number { return -Infinity; }
+  /** The stage is bare floor: nothing is built on it to walk into. */
+  structureTopAt(): number { return -Infinity; }
   /** No canopy on the stage either: nothing to brush leaves out of. */
   crownContactAt(): boolean { return false; }
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ELEMENT_COLORS, PAL_CYCLE_SLOTS } from '../core/types';
+import { ELEMENT_COLORS, MAX_STEP_UP, PAL_CYCLE_SLOTS } from '../core/types';
 import type {
   ElementType, EventBus, FetchJob, PalAction, PalAnimCtx, PalRig, PalSpecies,
   PalStats, SkillDef, World,
@@ -1107,8 +1107,41 @@ export class PalActor {
     this.vel.x += (desX - this.vel.x) * accel;
     this.vel.z += (desZ - this.vel.z) * accel;
 
-    this.position.x += this.vel.x * dt;
-    this.position.z += this.vel.z * dt;
+    // -- integrate, refusing to walk into a building -------------------------
+    // A pal keeps its footing on `getHeight` and always has: it walks through
+    // trees, up terraces and over anything the height field says is there. What
+    // it may NOT do is walk through a settlement, because that is the one case
+    // the player is standing right next to — a hero pressed against a hut wall
+    // with his pal's head poking out of it reads far worse than no collision at
+    // all.
+    //
+    // The same rule the hero uses, from the same constant: the destination is
+    // refused when a structure there stands more than MAX_STEP_UP above the
+    // pal's own feet, probed a body radius along the direction of travel so it
+    // stops with its shoulder at the wall. Per-axis, so a blocked diagonal
+    // slides along the palisade instead of pinning the pal against it.
+    //
+    // Fliers and swimmers are exempt: a flyer cruises metres above the roof
+    // (see updateFlying) and there is nothing built in deep water.
+    if (loco === 'flying' || swimming) {
+      this.position.x += this.vel.x * dt;
+      this.position.z += this.vel.z * dt;
+    } else {
+      const stepCeil = this.position.y + MAX_STEP_UP;
+      const r = this.rig.radius;
+      const nx = this.position.x + this.vel.x * dt;
+      if (this.world.structureTopAt(nx + Math.sign(this.vel.x) * r, this.position.z) <= stepCeil) {
+        this.position.x = nx;
+      } else {
+        this.vel.x = 0;
+      }
+      const nz = this.position.z + this.vel.z * dt;
+      if (this.world.structureTopAt(this.position.x, nz + Math.sign(this.vel.z) * r) <= stepCeil) {
+        this.position.z = nz;
+      } else {
+        this.vel.z = 0;
+      }
+    }
 
     const horizSpeed = Math.hypot(this.vel.x, this.vel.z);
 

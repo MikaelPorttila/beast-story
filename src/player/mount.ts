@@ -375,11 +375,21 @@ export class MountController {
     return Math.max(this.world.getHeight(x, z), this.world.waterLevel) + FLY_CLEARANCE;
   }
 
-  /** Top of everything solid at a column — terrain, plus a tree's bole. */
+  /**
+   * Top of everything solid at a column — terrain, a tree's bole, and anything
+   * a settlement built there.
+   *
+   * Deliberately the same three queries the hero asks on foot (Player.blockTop):
+   * a mount that could walk through a hut its rider cannot would make riding
+   * into camp the way to get inside the buildings.
+   */
   private blockTop(x: number, z: number): number {
     const ground = this.world.getHeight(x, z);
     const trunk = this.world.trunkSolidTopAt(x, z);
-    return trunk > ground ? trunk : ground;
+    let top = trunk > ground ? trunk : ground;
+    const built = this.world.structureTopAt(x, z);
+    if (built > top) top = built;
+    return top;
   }
 
   private updateRide(dt: number): void {

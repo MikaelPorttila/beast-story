@@ -28,9 +28,19 @@
  *     0.15 — because a camp is thirty structures and a merged mesh's cost goes
  *     with the SURFACE voxel count, i.e. with 1/V^2. It also suits the subject:
  *     this is lashed timber and rough stone, not a lacquered pagoda.
+ *
+ * AND THE PIECES ARE SOLID. Everything you cannot walk through is baked with
+ * `bakeSolid` rather than `bakeProp`, which measures the model's own voxels into
+ * the oriented boxes that block movement (world/structures.ts) and hangs them on
+ * the `Template`. Nothing here states a size twice: the collider is the shape the
+ * builder just painted, so resizing a hut moves its walls. The handful of pieces
+ * that stay `bakeProp` are the ones a body genuinely passes through — a flame, a
+ * pier under a deck, a signboard three metres up — and each says so where it is
+ * baked.
  */
 import { VoxelModel, shade } from '../core/voxel';
-import { Accum, bakeProp, type Template } from './props';
+import { bakeProp, type Template } from './props';
+import { bakeSolid, SolidStamp } from './structures';
 import { DECK_EDGE, DECK_HALF, type Road } from './roads';
 import { WATER_LEVEL } from './terrain';
 import { hashCell } from './noise';
@@ -239,7 +249,7 @@ function palisadeSpan(): Template {
   v.box(2, 5, 0, 2, 5, 14, shade(PLANK_DARK, 1.05));
   v.box(-1, 0, 0, -1, 1, 14, ROCK_DARK);
   for (let z = 1; z < 14; z += 5) v.set(2, 6, z, ROPE);
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /** A low stone wall run, same 4.2 units, for the stretches without timber. */
@@ -252,7 +262,7 @@ function stoneWallSpan(): Template {
       v.box(-1, y, z, 1, y, z, shade(y === h ? ROCK : ROCK_DARK, 0.86 + r() * 0.3));
     }
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /**
@@ -287,7 +297,7 @@ function gateArch(): Template {
     v.box(3, 4, z0, 4, 4, z1, IRON);
     v.box(3, 10, z0, 4, 10, z1, IRON);
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /** A watch platform on stilts — the only thing in camp taller than the wall. */
@@ -307,7 +317,7 @@ function watchPost(): Template {
   v.box(-4, H + 3, -4, 3, H + 3, -4, shade(LOG, 0.95));
   // Ladder up one leg.
   for (let y = 1; y < H; y += 2) v.box(-3, y, 2, 0, y, 2, shade(ROPE, 0.9));
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +365,7 @@ function ridgeTent(hue: number, len: number): Template {
   for (let k = -3; k <= 3; k++) {
     for (let y = 0; y <= 4; y++) v.set(k, y, len, shade(SOOT, 1.0));
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /** A conical bell tent — a second silhouette on the same skyline. */
@@ -381,7 +391,7 @@ function bellTent(): Template {
   v.set(0, H + 4, 0, shade(CANVAS_RED, 1.15));
   // Doorway.
   for (let y = 0; y <= 5; y++) for (let x = -2; x <= 2; x++) v.set(x, y, R - 1, SOOT);
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /**
@@ -437,7 +447,7 @@ function hut(kind: 0 | 1 | 2): Template {
     v.box(4, 2, D + 3, 6, 2, D + 5, shade(IRON, 1.0));
     v.box(4, 3, D + 4, 7, 3, D + 4, shade(IRON, 1.15));
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 // ---------------------------------------------------------------------------
@@ -484,7 +494,7 @@ function cart(hooded: boolean): Template {
     v.box(-3, 6, -5, -1, 8, -2, shade(ROPE, 0.9));
     v.box(0, 6, 1, 3, 8, 5, shade(PLANK_DARK, 1.0));
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 function barrel(): Template {
@@ -501,7 +511,7 @@ function barrel(): Template {
       }
     }
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 function crate(tall: boolean): Template {
@@ -512,7 +522,7 @@ function crate(tall: boolean): Template {
   for (const [x, z] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) {
     v.box(x, 0, z, x, h, z, TIMBER);
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /** A stack of split logs in a rack. */
@@ -527,7 +537,7 @@ function woodpile(): Template {
     }
   }
   for (const [x, z] of [[-3, -8], [-3, 8], [3, -8], [3, 8]]) v.box(x, 0, z, x, 7, z, TIMBER);
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /** A rack of spears and shields — a camp is a garrison, not a market. */
@@ -542,7 +552,7 @@ function weaponRack(): Template {
   }
   v.box(-4, 1, 2, -1, 5, 2, shade(CANVAS_RED, 0.95));
   v.box(1, 1, 2, 4, 5, 2, shade(CANVAS_BLUE, 0.95));
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /** The village well, for the settlements. */
@@ -564,7 +574,7 @@ function well(): Template {
   v.box(-4, 14, -1, 4, 14, 1, shade(THATCH_DARK, 1.0));
   v.box(0, 8, 0, 0, 11, 0, ROPE);
   v.box(-1, 7, -1, 1, 8, 1, shade(LOG_PALE, 0.95));
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 // ---------------------------------------------------------------------------
@@ -588,7 +598,7 @@ function campfireBody(): Template {
       v.set(dx * k, y, dz * k, shade(k > 1 || k < -1 ? LOG : SOOT, 0.86 + r() * 0.3));
     }
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /** The flame itself. Goes on the glow material. */
@@ -625,7 +635,7 @@ function brazierBody(): Template {
       if (d2 > 5) v.set(x, 9, z, shade(IRON, 1.05));
     }
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 function brazierFlame(): Template {
@@ -668,7 +678,7 @@ function lampBody(): Template {
   }
   v.box(-1, LAMP_H - 1, 2, 1, LAMP_H - 1, 4, shade(IRON, 1.1));
   v.box(-1, LAMP_H - 6, 2, 1, LAMP_H - 6, 4, shade(IRON, 0.85));
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 function lampFlame(): Template {
@@ -723,7 +733,7 @@ function roughFence(): Template {
       v.set(r() < 0.5 ? 0 : -1, y + sag, z, shade(LOG_PALE, 0.82 + r() * 0.34));
     }
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /** The post half of a fingerpost. Arms are stamped onto it separately. */
@@ -736,7 +746,7 @@ function signPost(): Template {
   for (const [x, z] of [[-4, 0], [2, -3], [1, 3], [-3, 2]]) {
     v.box(x, 0, z, x + 1, 0, z + 1, shade(ROCK, 0.9));
   }
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 /**
@@ -769,10 +779,24 @@ export function signArm(label: string, scale: number): Template {
   // units a voxel would make ENCAMPMENT an eleven-unit board, longer than the
   // post is tall. At ~0.095 the arm is 4.2 units — a fingerpost — and a glyph is
   // 0.29 x 0.48, which measures ~58 px on a 1280-wide frame from six units away.
+  //
+  // `bakeProp`, NOT `bakeSolid`: an arm is stamped 2.1-3.6 units up the post it
+  // hangs off, and a footprint measured from the board's own base would be a
+  // four-unit invisible slab at ankle height beside every fingerpost. The POST
+  // is what you walk into, and it carries the collider.
   return bakeProp(v, scale);
 }
 
-/** A bridge pier: a stone stack rising out of the water to the deck. */
+/**
+ * A bridge pier: a stone stack rising out of the water to the deck.
+ *
+ * `bakeProp`, NOT `bakeSolid`. A pier is stamped from the lake bed and stretched
+ * so its top lands exactly ON the carriageway (see `addBridgeFurniture`), which
+ * is the one height a collider must not be: it stands on the road centreline, so
+ * a box topping out at deck level is a wall down the middle of the bridge that
+ * the hero's feet clear or fail to clear on a floating-point coin toss. The
+ * railings are what keep you on the deck, and they are solid.
+ */
 function bridgePier(): Template {
   const v = new VoxelModel();
   const r = rnd(0x5c27);
@@ -796,7 +820,7 @@ function bridgeRail(): Template {
   v.box(0, 3, 0, 0, 3, 10, shade(LOG_PALE, 0.95));
   v.box(0, 5, 0, 0, 5, 10, shade(LOG, 1.0));
   v.box(-1, 5, 0, 1, 5, 0, shade(LOG, 1.08));
-  return bakeProp(v, V);
+  return bakeSolid(v, V);
 }
 
 // ---------------------------------------------------------------------------
@@ -965,7 +989,7 @@ export function buildRoadRibbon(roads: readonly Road[], seed: number): {
 }
 
 /** Stamp piers and railings along every wet span of a road. */
-export function addBridgeFurniture(solid: Accum, parts: TownParts, road: Road): void {
+export function addBridgeFurniture(solid: SolidStamp, parts: TownParts, road: Road): void {
   const pts = road.pts;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
@@ -983,14 +1007,14 @@ export function addBridgeFurniture(solid: Accum, parts: TownParts, road: Road): 
       solid.add(
         parts.rail,
         p.x + px * sx * (DECK_HALF + 0.15), p.y, p.z + pz * sx * (DECK_HALF + 0.15),
-        yaw, 1, 1, 1, 1,
+        yaw,
       );
     }
     // A pier every fourth sample (12 units), stretched from the bed to the deck.
     if (i % 4 !== 0) continue;
     const foot = WATER_LEVEL - 1.6;
     solid.add(
-      parts.pier, p.x, foot, p.z, yaw, 1.25, 1, 1, 1,
+      parts.pier, p.x, foot, p.z, yaw, 1.25,
       Math.max(0.4, (p.y - foot) / (PIER_VOX * V)),
     );
   }

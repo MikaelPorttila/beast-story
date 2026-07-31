@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { VoxelModel, shade } from '../core/voxel';
+import { MAX_STEP_UP } from '../core/types';
 import type { Damageable, ElementType, World } from '../core/types';
 import type { StringKey } from '../i18n';
 import type { VFX } from './vfx';
@@ -521,11 +522,23 @@ export class Enemy implements Damageable {
     }
   }
 
-  /** Move horizontally, refusing to walk into water (ground species). */
+  /**
+   * Move horizontally, refusing to walk into water or into a building (ground
+   * species).
+   *
+   * Both refusals are all-or-nothing rather than per-axis, and that is the
+   * existing shape rather than a new decision: an enemy that meets a shoreline
+   * has always simply stopped. What it must not do is stand inside a hut wall
+   * the player is pressed against from the other side, which is why the
+   * structure test is here and uses the hero's own MAX_STEP_UP — a wild pack
+   * should be stopped by exactly the things that stop him, and step over
+   * exactly the things he steps over.
+   */
   private moveGround(dt: number, dirX: number, dirZ: number, spd: number, ctx: EnemyCtx): void {
     const nx = this.position.x + dirX * spd * dt;
     const nz = this.position.z + dirZ * spd * dt;
     if (ctx.world.isWater(nx, nz)) return;
+    if (ctx.world.structureTopAt(nx, nz) > this.position.y + MAX_STEP_UP) return;
     this.position.x = nx;
     this.position.z = nz;
   }
@@ -670,7 +683,11 @@ export class Enemy implements Damageable {
         head.rotation.z = 0;
         const nx = this.position.x + this.chargeDir.x * 8.5 * dt;
         const nz = this.position.z + this.chargeDir.z * 8.5 * dt;
-        if (ctx.world.isWater(nx, nz)) {
+        // A charge does not go through `moveGround`, so it repeats both of that
+        // method's refusals — and a snortle that slams into a palisade breaking
+        // off into 'recover' is the right answer anyway.
+        if (ctx.world.isWater(nx, nz)
+          || ctx.world.structureTopAt(nx, nz) > this.position.y + MAX_STEP_UP) {
           this.state = 'recover'; this.stateT = 0.8; this.chargeCd = 3.5;
           break;
         }

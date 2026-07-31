@@ -520,7 +520,10 @@ const palHud = (p: PalActor): PalHudInfo => ({
 // cam/look are offsets relative to the spawn point.
 // ---------------------------------------------------------------------------
 const params = new URLSearchParams(location.search);
-const photoMode = params.get('photo') === '1';
+// Read from flags rather than from `params` here, because world/sway.ts needs
+// the same answer to freeze its wind clock and two independent parses of the
+// same URL is one too many.
+const photoMode = flags.photo;
 const parseVec = (s: string | null, fallback: THREE.Vector3): THREE.Vector3 => {
   if (!s) return fallback;
   const [x, y, z] = s.split(',').map(Number);
@@ -744,6 +747,14 @@ const _compassFwd = new THREE.Vector3();
   player.position.y = Math.max(world.getHeight(x, z), world.waterLevel);
   player.velocity.set(0, 0, 0);
 };
+// The steering half of the same hook: swing the camera so that a held W means
+// "walk along THAT bearing". Movement is camera-relative, so a collision test
+// that cannot turn the camera can only ever drive the hero in one direction.
+// Takes a walk bearing, NOT the camera's own yaw — see Player.aimCamera — and
+// the swing arrives over a few hundred ms, so wait for __dbgCamYaw to agree.
+(window as unknown as { __dbgAim: (bearing: number) => void }).__dbgAim = (bearing) => {
+  player.aimCamera(bearing);
+};
 /** Scratch for the crown probe below; the query never allocates. */
 const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, crownRy: 0 };
 // Contact-particle pool. Read-only, and the only way to state the recycling
@@ -799,12 +810,13 @@ if (params.get('colliders') === '1') colliderView.setVisible(true);
 devConsole?.register({
   name: 'show-colliders',
   args: '[on|off]',
-  help: 'Toggle collision volumes: green = solid, blue = climbable. Ground excluded.',
+  help: 'Toggle collision volumes: green = solid (tree discs + structure boxes), blue = climbable.',
   run: (args) => {
     const on = args[0] === 'on' ? true : args[0] === 'off' ? false : !colliderView.isVisible;
     colliderView.setVisible(on);
     return on
-      ? `colliders ON — ${colliderView.count} drawn (green solid, blue climb)`
+      ? `colliders ON — ${colliderView.count} drawn, ${colliderView.boxCount} of them `
+        + 'settlement boxes (green solid, blue climb)'
       : 'colliders OFF';
   },
 });
@@ -1070,6 +1082,67 @@ function warmUpShaders(): void {
 /** Set by the shop-proximity test, read by the hint decision after the zone update. */
 let nearShop = false;
 
+/**
+ * How far a wild pal can be and still be worth reporting to the world.
+ *
+ * Past 24 units it cannot win one of the sway field's six slots against the
+ * party standing on top of the camera, so reporting it is pure cost. One
+ * squared distance per enemy per slice buys the whole cull.
+ */
+const DISTURB_RANGE2 = 24 * 24;
+
+/**
+ * Tell the world what is moving through it this slice — see `World.disturb`.
+ *
+ * Composition-root policy, which is why it is here and not in any subsystem:
+ * the world does not know what a pal is, combat does not know what the hero is,
+ * and this is the one place that knows all of them. Called after the pals have
+ * moved so their positions are the current ones, and before `zones.update`, so
+ * the cost lands in the `world` profiler section next to the field it feeds.
+ * The wild pack is a slice stale by construction — `combat.update` runs at the
+ * end of the slice — which at 60 Hz is 16 ms of lag on an effect whose own
+ * smoothing is measured in hundreds of milliseconds.
+ */
+function reportMovers(): void {
+  if (!flags.props) return;
+  const ridden = mount.pal;
+  if (ridden) {
+    // The saddle, not the rider. A mounted hero's own position is a metre above
+    // his mount's feet, and reporting THAT would read to the clearance test as a
+    // body hovering — a galloping boarhound would blow the grass instead of
+    // trampling it. The ridden pal is deliberately not reported again below.
+    world.disturb(-1, ridden.position.x, ridden.position.y, ridden.position.z,
+      ridden.scaledRadius, ridden.species.locomotion === 'flying' ? 'fly' : 'walk');
+  } else {
+    world.disturb(-1, player.position.x, player.position.y, player.position.z,
+      player.radius, 'walk');
+  }
+  if (flags.pals) {
+    const p0 = primary();
+    const p1 = support();
+    if (p0 !== ridden && !p0.isDead) {
+      world.disturb(-2, p0.position.x, p0.position.y, p0.position.z, p0.radius,
+        p0.species.locomotion === 'flying' ? 'fly' : 'walk');
+    }
+    if (p1 !== ridden && p1 !== p0 && !p1.isDead) {
+      world.disturb(-3, p1.position.x, p1.position.y, p1.position.z, p1.radius,
+        p1.species.locomotion === 'flying' ? 'fly' : 'walk');
+    }
+  }
+  // Wild pals part the grass too. Their id is their root Object3D's, three's own
+  // monotonic counter and the only handle an Enemy has that survives a respawn
+  // of the one beside it; the party's reserved ids are negative precisely so
+  // they cannot collide with it.
+  for (const e of combat.enemies) {
+    if (e.isDead) continue;
+    const dx = e.position.x - player.position.x;
+    const dz = e.position.z - player.position.z;
+    if (dx * dx + dz * dz > DISTURB_RANGE2) continue;
+    world.disturb(e.root.id, e.position.x, e.position.y, e.position.z, e.radius,
+      e.species === 'peckit' ? 'fly' : 'walk');
+  }
+}
+
 function simulate(dt: number, first: boolean, interactive: boolean): void {
   // An open console is a modal: it has the keyboard, so the hero must not also
   // act on it. Same treatment the shop already gets.
@@ -1181,6 +1254,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     if (support() !== ridden) support().update(dt, owner, 'support', roster);
   }
   perf.section('pals');
+
+  reportMovers();
 
   // Streams the active zone, runs the gateway's arm/dwell rules, and builds and
   // warms whatever is being preloaded. It can swap `world` out from under this
@@ -1401,6 +1476,31 @@ frame();
     y: +world.spawnPoint.y.toFixed(2),
     z: +world.spawnPoint.z.toFixed(2),
   },
+  /**
+   * What the settlements BLOCK — the same boxes /show-colliders draws, counted.
+   *
+   * Here and not in a probe of its own because the assertion is about the
+   * registry: every entry in it, camp and hamlet alike, has to have grown
+   * colliders, and a town that reports zero is one whose builder was missed.
+   */
+  structures: ((): unknown => {
+    const b: number[] = [];
+    world.debugStructures(b);
+    const within = (x: number, z: number, r: number): number => {
+      let n = 0;
+      for (let i = 0; i < b.length; i += 6) {
+        if (Math.hypot(b[i] - x, b[i + 1] - z) <= r) n++;
+      }
+      return n;
+    };
+    return {
+      boxes: b.length / 6,
+      perTown: world.towns.all.map((town) => ({
+        id: town.id,
+        boxes: within(town.x, town.z, town.radius + 4),
+      })),
+    };
+  })(),
   towns: world.towns.all.map((town) => ({
     id: town.id,
     // The looked-up name, so `?lang=sv` shows what the fingerpost shows. The
@@ -1466,13 +1566,88 @@ frame();
 
 // World surface queries at an arbitrary column, for the climbing/collision
 // tests: `ground` is what blocks and supports, `trunkSolidTop` is the bole a
-// tree adds to that, and `climbTop` is what can be grabbed (bole or canopy).
-// Read-only, and the whole point of the three being separate — see World.
+// tree adds to that, `structureTop` is what a settlement built there, and
+// `climbTop` is what can be grabbed (bole or canopy — deliberately NOT a
+// building; a palisade you can grab is a palisade you climb over).
+// Read-only, and the whole point of the four being separate — see World.
 (window as unknown as { __dbgWorld: (x: number, z: number) => unknown }).__dbgWorld = (x, z) => ({
   ground: world.getHeight(x, z),
   climbTop: world.climbTopAt(x, z),
   trunkSolidTop: world.trunkSolidTopAt(x, z),
+  structureTop: world.structureTopAt(x, z),
 });
+
+// The grass-disturbance field: the six uniform slots the shader is reading this
+// frame, and the tracks behind them. `slots[].push` and `.wash` are the two
+// numbers the effect is made of, and `tracks[].lag` is the distance between a
+// body and its own wake — the "spreads" this exists for, as a measurement
+// rather than as a claim. Null with `?sway=0` or `?props=0`.
+(window as unknown as { __dbgSway: () => unknown }).__dbgSway = () => world.swayDebug?.() ?? null;
+
+/**
+ * The settlement colliders near a point, biggest first — the same boxes
+ * /show-colliders draws, as numbers.
+ *
+ * The picture and the numbers answer different halves of the same question. A
+ * capture shows whether the cages line up with the walls; this is what lets a
+ * test AIM: "walk into the largest box within 20 units of the camp centre" finds
+ * a hut without anything having to remember where the layout put one, and
+ * without the test hard-coding a seed's coordinates. Read-only, allocates,
+ * never called from the frame loop.
+ */
+(window as unknown as {
+  __dbgStructures: (x: number, z: number, r?: number) => unknown[];
+}).__dbgStructures = (x, z, r = 30) => {
+  const b: number[] = [];
+  world.debugStructures(b);
+  const out: Array<Record<string, number>> = [];
+  for (let i = 0; i < b.length; i += 6) {
+    const d = Math.hypot(b[i] - x, b[i + 1] - z);
+    if (d > r) continue;
+    out.push({
+      x: +b[i].toFixed(2), z: +b[i + 1].toFixed(2),
+      hx: +b[i + 2].toFixed(2), hz: +b[i + 3].toFixed(2),
+      yaw: +b[i + 4].toFixed(3), top: +b[i + 5].toFixed(2),
+      ground: +world.getHeight(b[i], b[i + 1]).toFixed(2),
+      dist: +d.toFixed(2),
+      area: +(4 * b[i + 2] * b[i + 3]).toFixed(2),
+    });
+  }
+  out.sort((p, q) => q.area - p.area);
+  return out;
+};
+
+/**
+ * Nanoseconds per `structureTopAt` at a column — the price of settlement
+ * collision, measured rather than assumed.
+ *
+ * It exists because "do not linear-scan every collider in the world, but do not
+ * build a heavyweight index for sixty boxes either" is only answerable with a
+ * number. Call it in the middle of the Encampment (the worst case: a bucket with
+ * something in it) and out in open country (the common case: a bounds test and a
+ * failed Map.get), and the two answers together say whether the grid in
+ * world/structures.ts is earning its fifteen lines.
+ *
+ * Read-only, allocates once, never called from the frame loop.
+ */
+(window as unknown as {
+  __dbgBenchStructures: (x: number, z: number, n?: number) => unknown;
+}).__dbgBenchStructures = (x, z, n = 200000) => {
+  // Wander the sample point over a few units so the loop is not one branch
+  // predicted perfectly, and so a warm cache line is not doing all the work.
+  let sink = 0;
+  const run = (): number => {
+    const t0 = performance.now();
+    for (let i = 0; i < n; i++) {
+      const t = world.structureTopAt(x + (i % 97) * 0.05, z + (i % 89) * 0.05);
+      if (t > sink) sink = t;
+    }
+    return (performance.now() - t0) * 1e6 / n;
+  };
+  run();                                  // warm
+  const ns = Math.min(run(), run(), run());
+  return { x, z, calls: n, nsPerCall: +ns.toFixed(1), sink };
+};
 
 /**
  * Every shader program three currently holds, as `type|cacheKey`.
@@ -1522,3 +1697,47 @@ frame();
     skills: p.knownSkillIds.slice(),
   })),
 });
+
+/**
+ * Every body in the world that steers itself, and WHAT IT IS STANDING IN.
+ *
+ * "A pal walks through the hut its owner is leaning on" is the one way
+ * settlement collision can come out looking worse than no collision at all, and
+ * the only honest way to check it is to read where the other movers actually
+ * ended up rather than to trust that they share a code path. `structureTop`
+ * above a body's own feet means it is inside a wall.
+ *
+ * Fliers are listed with their locomotion because they are SUPPOSED to be over
+ * the roof — a frostwing cruising above a hut is not a bug, and a probe that
+ * cannot tell those apart would report one. Read-only, allocates, never called
+ * from the frame loop.
+ */
+(window as unknown as { __dbgBodies: () => unknown }).__dbgBodies = () => {
+  const at = (p: THREE.Vector3, feet: number): number | null => {
+    const t = world.structureTopAt(p.x, p.z);
+    return t === -Infinity ? null : +(t - feet).toFixed(2);
+  };
+  return {
+    player: {
+      x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2),
+      z: +player.position.z.toFixed(2),
+      overFeet: at(player.position, player.position.y),
+    },
+    // The two ACTIVE followers only: the rest of the roster is benched and
+    // parked at the origin, where "is it inside a wall" means nothing.
+    pals: [primary(), support()].map((p) => ({
+      id: p.species.id,
+      locomotion: p.species.locomotion,
+      x: +p.position.x.toFixed(2), y: +p.position.y.toFixed(2),
+      z: +p.position.z.toFixed(2),
+      /** Structure top MINUS the body's feet. Above ~0.5 it is in a wall. */
+      overFeet: at(p.position, p.position.y),
+    })),
+    enemies: combat.enemies.map((e) => ({
+      species: e.species,
+      x: +e.position.x.toFixed(2), y: +e.position.y.toFixed(2),
+      z: +e.position.z.toFixed(2),
+      overFeet: at(e.position, e.position.y),
+    })),
+  };
+};

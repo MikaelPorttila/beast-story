@@ -39,6 +39,7 @@ import {
   DECK_EDGE, NECK_MAX, type Road, type RoadClearance,
 } from './roads';
 import { Accum, type PropLib, type Template } from './props';
+import { SolidStamp, StructureField } from './structures';
 import {
   TownParts, V, addBridgeFurniture, buildRoadRibbon, signArm,
 } from './town-parts';
@@ -552,6 +553,18 @@ interface Spot { x: number; z: number; r: number }
  */
 export class Towns {
   readonly group = new THREE.Group();
+  /**
+   * What every piece stamped below BLOCKS — the world's answer to
+   * `World.structureTopAt`.
+   *
+   * Owned here rather than assembled by the caller because it is filled by the
+   * same `SolidStamp.add` calls that fill the meshes: the layout functions take
+   * one stamper, not an accumulator and a collider list, so a hut cannot be
+   * drawn without also being made solid. Populated in this constructor and
+   * frozen at the end of it; towns are built once and never streamed, so
+   * neither is this.
+   */
+  readonly solids = new StructureField();
   private readonly glowMats: THREE.MeshStandardMaterial[] = [];
   private readonly geos: THREE.BufferGeometry[] = [];
   /** Per-site groups and their centres, for the distance cull in `update`. */
@@ -601,12 +614,12 @@ export class Towns {
     // -- towns ---------------------------------------------------------------
     for (const town of plan.towns.all) {
       const g = new THREE.Group();
-      const solid = new Accum();
+      const solid = new SolidStamp(this.solids);
       const glow = new Accum();
       const rng = mulberry32((seed ^ 0x5eed) + town.id.length * 7919 + town.x * 31);
       if (town.kind === 'camp') buildEncampment(solid, glow, parts, town, plan.network, rng);
       else buildHamlet(solid, glow, parts, town, plan.network, rng);
-      emit(solid, props.solidMat, g, true);
+      emit(solid.acc, props.solidMat, g, true);
       emit(glow, fireGlow, g, false);
       this.group.add(g);
       this.sites.push({ g, x: town.x, z: town.z, r: town.radius });
@@ -615,13 +628,13 @@ export class Towns {
     // -- roads ---------------------------------------------------------------
     for (const road of plan.network.roads) {
       const g = new THREE.Group();
-      const solid = new Accum();
+      const solid = new SolidStamp(this.solids);
       const glow = new Accum();
       buildRoadFurniture(
         solid, glow, parts, road, plan.network, mulberry32(seed ^ road.pts.length),
       );
       addBridgeFurniture(solid, parts, road);
-      emit(solid, props.solidMat, g, true);
+      emit(solid.acc, props.solidMat, g, true);
       emit(glow, lampGlow, g, false);
 
       const rib = buildRoadRibbon([road], seed);
@@ -646,9 +659,9 @@ export class Towns {
     // -- the fingerpost at the fork -----------------------------------------
     {
       const g = new THREE.Group();
-      const solid = new Accum();
+      const solid = new SolidStamp(this.solids);
       const j = plan.junction;
-      solid.add(parts.post, j.x, j.y, j.z, 0, 1, 1, 1, 1);
+      solid.add(parts.post, j.x, j.y, j.z, 0);
       const armY = [j.y + 3.55, j.y + 2.85, j.y + 2.15];
       const dests: Array<[string, number]> = [];
       for (const road of plan.network.roads) {
@@ -663,12 +676,16 @@ export class Towns {
         dests.push([t(site.signKey), Math.atan2(b.x - a.x, b.z - a.z)]);
       }
       dests.forEach(([text, ang], i) => {
-        solid.add(signArm(text, SIGN_V), j.x, armY[i % armY.length], j.z, ang, 1, 1, 1, 1);
+        solid.add(signArm(text, SIGN_V), j.x, armY[i % armY.length], j.z, ang);
       });
-      emit(solid, props.solidMat, g, true);
+      emit(solid.acc, props.solidMat, g, true);
       this.group.add(g);
       this.sites.push({ g, x: j.x, z: j.z, r: 12 });
     }
+
+    // Every stamp is in. Freeze the boxes and index them; from here the field
+    // is read-only and answers `structureTopAt` for the life of the session.
+    this.solids.build();
   }
 
   /**
@@ -753,7 +770,7 @@ const FENCE_ROAD_CLEAR = DECK_EDGE + 0.6;
  * one of these bugs.
  */
 function fencePanel(
-  solid: Accum, parts: TownParts, network: RoadClearance,
+  solid: SolidStamp, parts: TownParts, network: RoadClearance,
   x: number, y: number, z: number, yaw: number,
 ): void {
   // The panel lies along its own yaw: `Accum.add` maps local +z to
@@ -761,7 +778,7 @@ function fencePanel(
   const dx = Math.sin(yaw) * FENCE_HALF;
   const dz = Math.cos(yaw) * FENCE_HALF;
   if (network.spanDistanceTo(x - dx, z - dz, x + dx, z + dz) < FENCE_ROAD_CLEAR) return;
-  solid.add(parts.fence, x, y, z, yaw, 1, 1, 1, 1);
+  solid.add(parts.fence, x, y, z, yaw);
 }
 
 /** Reject a spot that overlaps something already placed, or the carriageway. */
@@ -790,7 +807,7 @@ function place(
  * same field the player walks on, not a remembered bearing.
  */
 function buildEncampment(
-  solid: Accum, glow: Accum, parts: TownParts, town: TownInfo,
+  solid: SolidStamp, glow: Accum, parts: TownParts, town: TownInfo,
   network: RoadNetwork, rng: () => number,
 ): void {
   const { x: cx, z: cz, y: cy, radius: R, gateAngle } = town;
@@ -815,12 +832,12 @@ function buildEncampment(
     da = Math.abs(((a - gateAngle - Math.PI + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
     const stone = da < 1.05;
     const [x, z] = at(a, R);
-    solid.add(stone ? parts.stoneWall : parts.palisade, x, cy, z, a + Math.PI / 2, 1, 1, 1, 1);
+    solid.add(stone ? parts.stoneWall : parts.palisade, x, cy, z, a + Math.PI / 2);
   }
   // The gate itself, straddling the road.
   {
     const [x, z] = at(gateAngle, R);
-    solid.add(parts.gate, x, cy, z, gateAngle + Math.PI / 2, 1, 1, 1, 1);
+    solid.add(parts.gate, x, cy, z, gateAngle + Math.PI / 2);
     taken.push({ x, z, r: 6 });
   }
   // -- the fire, and the ring of life around it -----------------------------
@@ -829,7 +846,7 @@ function buildEncampment(
   // bonfire in the middle of a road.
   const side = rng() < 0.5 ? 1 : -1;
   const [fx, fz] = at(gateAngle + Math.PI / 2 * side, 5.4);
-  solid.add(parts.fire, fx, cy, fz, rng() * 6.28, 1, 1, 1, 1);
+  solid.add(parts.fire, fx, cy, fz, rng() * 6.28);
   glow.add(parts.fireGlow, fx, cy, fz, rng() * 6.28, 1, 1, 1, 1);
   taken.push({ x: fx, z: fz, r: 4.2 });
   // Log seats round the fire.
@@ -838,7 +855,7 @@ function buildEncampment(
     const x = fx + Math.sin(a) * 3.6;
     const z = fz + Math.cos(a) * 3.6;
     if (place(taken, network, x, z, 1.2, 3.4)) {
-      solid.add(parts.woodpile, x, cy, z, a + Math.PI / 2, 0.55, 1, 1, 1, 0.4);
+      solid.add(parts.woodpile, x, cy, z, a + Math.PI / 2, 0.55, 0.4);
     }
   }
 
@@ -849,7 +866,7 @@ function buildEncampment(
     const [x, z] = at(a, R - 7.5);
     if (!place(taken, network, x, z, 4.4, 7)) continue;
     // Door toward the fire.
-    solid.add(parts.huts[k], x, cy, z, Math.atan2(fx - x, fz - z), 1, 1, 1, 1);
+    solid.add(parts.huts[k], x, cy, z, Math.atan2(fx - x, fz - z));
     if (k === 2) {
       // Smithy: coals in the forge mouth, a stride out from the door.
       const dx = Math.sin(Math.atan2(fx - x, fz - z));
@@ -867,8 +884,8 @@ function buildEncampment(
     const a = gateAngle + 0.7 + (k / 9) * Math.PI * 1.6 + (rng() - 0.5) * 0.25;
     const [x, z] = at(a, R - 5.5 - rng() * 4);
     if (!place(taken, network, x, z, 3.2, 6)) continue;
-    if (tentIdx % 3 === 2) solid.add(parts.bell, x, cy, z, Math.atan2(fx - x, fz - z), 1, 1, 1, 1);
-    else solid.add(parts.tents[tentIdx % parts.tents.length], x, cy, z, a + Math.PI / 2, 1, 1, 1, 1);
+    if (tentIdx % 3 === 2) solid.add(parts.bell, x, cy, z, Math.atan2(fx - x, fz - z));
+    else solid.add(parts.tents[tentIdx % parts.tents.length], x, cy, z, a + Math.PI / 2);
     tentIdx++;
   }
 
@@ -883,7 +900,7 @@ function buildEncampment(
     const a = gateAngle + Math.PI * 0.4 + (k / 4) * Math.PI * 1.2;
     const [x, z] = at(a, R - 2.4);
     if (place(taken, network, x, z, 2.4, 5.5)) {
-      solid.add(parts.watch, x, cy, z, a, 1, 1, 1, 1);
+      solid.add(parts.watch, x, cy, z, a);
     }
   }
 
@@ -898,7 +915,7 @@ function buildEncampment(
       const a = rng() * Math.PI * 2;
       const [x, z] = at(a, 5 + rng() * (R - 7));
       if (!place(taken, network, x, z, 1.4 * scl, 4.2)) continue;
-      solid.add(tpl, x, cy, z, rng() * 6.28, scl, 1, 1, 1);
+      solid.add(tpl, x, cy, z, rng() * 6.28, scl);
       placed++;
     }
   }
@@ -907,7 +924,7 @@ function buildEncampment(
     const a = gateAngle + dside * 0.42;
     const [x, z] = at(a, R - 8);
     if (place(taken, network, x, z, 3, 4.6)) {
-      solid.add(tpl, x, cy, z, a + Math.PI / 2 + dside * 0.3, 1, 1, 1, 1);
+      solid.add(tpl, x, cy, z, a + Math.PI / 2 + dside * 0.3);
     }
   }
 
@@ -922,7 +939,7 @@ function buildEncampment(
   for (const [a, d] of brazierSpots) {
     const [x, z] = at(a, d);
     if (!place(taken, network, x, z, 1.6, 4.0)) continue;
-    solid.add(parts.brazier, x, cy, z, rng() * 6.28, 1, 1, 1, 1);
+    solid.add(parts.brazier, x, cy, z, rng() * 6.28);
     glow.add(parts.brazierGlow, x, cy, z, 0, 1, 1, 1, 1);
   }
 }
@@ -935,7 +952,7 @@ function buildEncampment(
  * feel like a stronghold is that the others are not one.
  */
 function buildHamlet(
-  solid: Accum, glow: Accum, parts: TownParts, town: TownInfo,
+  solid: SolidStamp, glow: Accum, parts: TownParts, town: TownInfo,
   network: RoadNetwork, rng: () => number,
 ): void {
   const { x: cx, z: cz, y: cy, radius: R, gateAngle } = town;
@@ -945,21 +962,21 @@ function buildHamlet(
 
   // The well is the centre of a hamlet the way a fire is the centre of a camp.
   const [wx, wz] = at(gateAngle + Math.PI / 2, 4.2);
-  solid.add(parts.well, wx, cy, wz, rng() * 6.28, 1, 1, 1, 1);
+  solid.add(parts.well, wx, cy, wz, rng() * 6.28);
   taken.push({ x: wx, z: wz, r: 3 });
 
   for (let k = 0; k < 4; k++) {
     const a = gateAngle + Math.PI * 0.55 + (k / 4) * Math.PI * 0.9 + (rng() - 0.5) * 0.2;
     const [x, z] = at(a, R - 5.5 - rng() * 3);
     if (!place(taken, network, x, z, 4.4, 7)) continue;
-    solid.add(parts.huts[k % parts.huts.length], x, cy, z, Math.atan2(wx - x, wz - z), 1, 1, 1, 1);
+    solid.add(parts.huts[k % parts.huts.length], x, cy, z, Math.atan2(wx - x, wz - z));
   }
   for (let k = 0; k < 3; k++) {
     const a = gateAngle - 0.5 - (k / 3) * 1.5;
     const [x, z] = at(a, R - 6 - rng() * 3);
     if (!place(taken, network, x, z, 3.2, 6)) continue;
     solid.add(k === 1 ? parts.bell : parts.tents[k % parts.tents.length],
-      x, cy, z, a + Math.PI / 2, 1, 1, 1, 1);
+      x, cy, z, a + Math.PI / 2);
   }
   // A fence arc on the side away from the road, and a paddock cart.
   //
@@ -984,19 +1001,19 @@ function buildHamlet(
     const [x, z] = at(a, 4 + rng() * (R - 6));
     const tpl = k % 3 === 0 ? parts.crateS : k % 3 === 1 ? parts.barrel : parts.woodpile;
     if (!place(taken, network, x, z, 1.4, 4.0)) continue;
-    solid.add(tpl, x, cy, z, rng() * 6.28, 1, 1, 1, 1);
+    solid.add(tpl, x, cy, z, rng() * 6.28);
   }
   {
     const [x, z] = at(gateAngle - 0.5, R - 7);
     if (place(taken, network, x, z, 3, 4.6)) {
-      solid.add(parts.cartOpen, x, cy, z, gateAngle, 1, 1, 1, 1);
+      solid.add(parts.cartOpen, x, cy, z, gateAngle);
     }
   }
   for (let k = 0; k < 3; k++) {
     const a = gateAngle + 0.4 + k * 2.1;
     const [x, z] = at(a, R - 4.5);
     if (!place(taken, network, x, z, 1.6, 4.0)) continue;
-    solid.add(parts.brazier, x, cy, z, 0, 1, 1, 1, 1);
+    solid.add(parts.brazier, x, cy, z, 0);
     glow.add(parts.brazierGlow, x, cy, z, 0, 1, 1, 1, 1);
   }
 }
@@ -1012,7 +1029,7 @@ function buildHamlet(
  * the rise rather than in it.
  */
 function buildRoadFurniture(
-  solid: Accum, glow: Accum, parts: TownParts, road: Road,
+  solid: SolidStamp, glow: Accum, parts: TownParts, road: Road,
   network: RoadClearance, rng: () => number,
 ): void {
   const len = roadLength(road);
@@ -1031,7 +1048,7 @@ function buildRoadFurniture(
     const x = at.x + px * off;
     const z = at.z + pz * off;
     const yaw = Math.atan2(-px, -pz); // bracket leans over the road
-    solid.add(parts.lamp, x, at.y, z, yaw, 1, 1, 1, 1);
+    solid.add(parts.lamp, x, at.y, z, yaw);
     glow.add(parts.lampGlow, x, at.y, z, yaw, 1, 1, 1, 1);
     lampSide = -lampSide;
   }
@@ -1080,10 +1097,10 @@ function buildRoadFurniture(
     const off = DECK_EDGE + 1.1;
     const x = at.x + px * off;
     const z = at.z + pz * off;
-    solid.add(parts.post, x, at.y, z, 0, 1, 1, 1, 1);
+    solid.add(parts.post, x, at.y, z, 0);
     solid.add(
       signArm(sign, SIGN_V), x, at.y + 3.4, z,
-      Math.atan2(at.dx * dir, at.dz * dir), 1, 1, 1, 1,
+      Math.atan2(at.dx * dir, at.dz * dir),
     );
   }
 }

@@ -154,6 +154,35 @@ export interface PalSpecies {
 }
 
 // ---------------------------------------------------------------------------
+// Collision
+// ---------------------------------------------------------------------------
+/**
+ * Highest ledge a body can walk onto. Above it, the move is refused and the
+ * player has to jump.
+ *
+ * Lived in src/player/index.ts until settlements grew colliders, and moved here
+ * because it is now the ONE rule four separate movers resolve against — the hero
+ * (Player.blockTop), the saddle (MountController.blockTop), a following pal
+ * (PalActor) and a wild enemy (Enemy.moveGround) — and because the town builders
+ * measure their footprints with it (see `measureFootprint` in
+ * world/structures.ts): a stack of voxels no taller than this is something you
+ * step onto, so it is not part of any wall. A second copy of the number is a
+ * crate the hero walks over and a pal walks through.
+ *
+ * Terrain collision is integer-stepped — Terrain.getHeight floors the continuous
+ * height — so every ledge in the natural world is a whole unit or more. Any value
+ * below 1.0 therefore means the same thing there: hills must be jumped. 0.5 is
+ * the middle of that range, which leaves room for a half-height PROP to be
+ * walkable without ever letting a full cube through.
+ *
+ * The hero's JUMP_VEL/GRAVITY put his apex at 8.8^2 / (2*24) = 1.61 units, so a
+ * single block is always clearable with a jump and a 2-unit face never is — that
+ * gap is the point, and moving either constant changes what the world is
+ * climbable.
+ */
+export const MAX_STEP_UP = 0.5;
+
+// ---------------------------------------------------------------------------
 // World
 // ---------------------------------------------------------------------------
 /**
@@ -253,6 +282,15 @@ export interface TownRegistry {
   }>;
 }
 
+/**
+ * How a body moves, as far as anything reacting to it is concerned.
+ *
+ * Two cases and not more, because they are physically different events rather
+ * than two settings of one: a walker SHOVES what it passes through with its
+ * body, a flyer BLOWS it from above and does not touch it at all.
+ */
+export type DisturbKind = 'walk' | 'fly';
+
 export interface World {
   /** Terrain height at world xz (top surface, in world units) */
   getHeight(x: number, z: number): number;
@@ -297,6 +335,32 @@ export interface World {
    * here" from "a trunk that happens to be short" without a second query.
    */
   trunkSolidTopAt(x: number, z: number): number;
+  /**
+   * Top of any BUILT structure standing over this column — a hut wall, a
+   * palisade span, a crate, a cart — or -Infinity where the column is clear.
+   *
+   * The third "what is over this column" query, and the same shape as the other
+   * two on purpose: every mover in the game already resolves a column top
+   * against MAX_STEP_UP, so a settlement becomes solid by being answered here
+   * rather than by anyone growing a second kind of collision.
+   *
+   * SOLID BOTH WAYS, unlike a canopy. A tree crown had to be a one-way platform
+   * because it is a lid several units above ground that would otherwise fence
+   * off the trunk it belongs to; a hut wall is material standing ON the ground
+   * over its whole footprint, so blocking it from every side is not a
+   * compromise, it is the answer. That is also why this is a plain top rather
+   * than a volume: the boxes are authored to reach from the ground up, so
+   * "highest thing here" and "what stops me" are the same number.
+   *
+   * NOT CLIMBABLE. `climbTopAt` deliberately does not consult this — a palisade
+   * you could grab with Shift is a palisade the player steps over, and the
+   * gate exists so that there is exactly one way in.
+   *
+   * The colliders are ORIENTED BOXES, because a hut is a rectangle: a disc
+   * around one either admits the player to the corners or stops him a metre
+   * short of the wall. See world/structures.ts.
+   */
+  structureTopAt(x: number, z: number): number;
   /**
    * Is the sphere (x, y, z, radius) inside a tree's CANOPY? Fills `out` with
    * the tree it hit and returns true; returns false and leaves `out` alone
@@ -343,11 +407,49 @@ export interface World {
    */
   update(focus: THREE.Vector3, dt: number, newFrame?: boolean): void;
   /**
+   * Tell the world that a body is moving through it. Call once per simulation
+   * slice per mover, BEFORE `update`.
+   *
+   * The argument is a BODY, not a bend, and that is the whole point of the
+   * shape: the caller says what is where, and the world decides what, if
+   * anything, reacts to it. Today that is grass — it parts around a walker and
+   * shakes under a low flyer's downwash, see world/sway.ts — and tomorrow the
+   * same report is what dust, ripples and snow tracks would want. A world with
+   * nothing to disturb implements it as a no-op.
+   *
+   * `id` must be STABLE for the life of the mover. The world keeps a lagged
+   * track per id so the parted patch trails a runner and closes behind him
+   * rather than snapping to his feet, and an id that changes from slice to
+   * slice would show up as a body that keeps teleporting. Reserved: -1 for the
+   * hero (or his mount, which reports in his place), -2 for the primary pal, -3
+   * for the support pal. Anything else uses its own `Object3D.id`, which is
+   * three's monotonic counter and never negative — hence the reserved ids being
+   * the ones that are.
+   *
+   * `y` is the body's FOOT height and `radius` its horizontal half-width, so
+   * the world can work out clearance over its own ground without the caller
+   * having to ask.
+   */
+  disturb(id: number, x: number, y: number, z: number, radius: number, kind: DisturbKind): void;
+  /**
    * Debug: append every loaded collider as [x, z, solidRadius, climbRadius,
    * topY]. Ground is deliberately excluded — it is the whole terrain and
    * drawing it would cost more than the diagnostic is worth.
    */
   debugColliders(out: number[]): void;
+  /** Debug: the sway field's slots and tracks, or null. Allocates. */
+  swayDebug?(): unknown;
+  /**
+   * Debug: append every structure collider as [cx, cz, hx, hz, yaw, topY].
+   *
+   * A SECOND method with its own stride rather than a widening of
+   * `debugColliders`, because these are a different primitive: a tree is a
+   * cylinder and a building is an oriented box, and squeezing a box into the
+   * cylinder's five numbers is exactly the mismatch /show-colliders exists to
+   * expose. See ColliderView, which draws these green like the solid discs —
+   * they block the same movement.
+   */
+  debugStructures(out: number[]): void;
   /** Positions of interest (skill dens / shops) */
   readonly shopPositions: THREE.Vector3[];
   /**

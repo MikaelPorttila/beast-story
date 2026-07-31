@@ -9,6 +9,35 @@ import { VoxelModel, shade } from '../core/voxel';
 import { hashCell, mulberry32 } from './noise';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch, type ColumnScratch } from './terrain';
 import { DECK_EDGE, type RoadClearance } from './roads';
+import { SWAY_BOUND_PAD } from './sway';
+import { flags } from '../core/flags';
+
+/**
+ * One box of a template's SOLID FOOTPRINT, in TEMPLATE units — i.e. already
+ * multiplied by the bake scale, exactly like `Template.trunk`, so a stamp only
+ * has to apply its own girth (`s`) and height (`sy`) factors on top.
+ *
+ * An axis-aligned rectangle in the template's OWN frame; the stamp's yaw turns
+ * it into an oriented box in the world. A rectangle rather than a disc because
+ * the things in a settlement are rectangles — a disc around a hut either lets
+ * the player into the corners or stops him a metre short of the wall, and a hut
+ * is the one shape a camp has thirty of.
+ *
+ * A template carries a LIST because one model is often several obstacles: the
+ * gate is two posts and two doors with a road through the middle, and a smithy
+ * is a building plus an anvil three voxels clear of its door. See
+ * `measureFootprint` in world/structures.ts, which derives them.
+ */
+export interface SolidBox {
+  /** Centre, relative to the template origin, on the template's own x/z. */
+  cx: number;
+  cz: number;
+  /** Half-extents along the same axes. */
+  hx: number;
+  hz: number;
+  /** Top face, above the template's base (y = 0). */
+  top: number;
+}
 
 /**
  * A baked, stampable voxel model.
@@ -47,6 +76,29 @@ export interface Template {
    * the line the player actually climbs.
    */
   trunk?: { r: number; top: number; crownR: number; crownCy: number; crownRy: number };
+  /**
+   * What this template BLOCKS, if anything. Absent means "scenery you walk
+   * through", which is what every chunk prop except a tree still is.
+   *
+   * Attached by `bakeSolid` (world/structures.ts) at the moment the mesh is
+   * baked, so a part cannot be resized without its collider moving with it, and
+   * travels WITH the template into `SolidStamp.add` — the same call that pushes
+   * the vertices pushes the box. That is the whole design: the builder that
+   * knows the hut's footprint is the thing that reports it.
+   */
+  solid?: readonly SolidBox[];
+  /**
+   * Height of this template's tallest vertex, in template units, marking it as
+   * something that BENDS — grass and reeds. Absent means rigid, which is what
+   * every other prop in this file still is: a fern rosette and a bush are stiff
+   * enough on screen that bending them reads as a bug rather than as wind.
+   *
+   * `Accum` divides each vertex's own y by it and stores the ratio as the
+   * `cpSwayH` attribute — 0 at the root, 1 at the tip — which is the only thing
+   * world/sway.ts's vertex shader needs to know about a blade. See `withSway`,
+   * and note that it is MEASURED off the baked vertices rather than authored.
+   */
+  swayHeight?: number;
 }
 
 /**
@@ -219,6 +271,29 @@ export function bakeProp(model: VoxelModel, scale: number): Template {
 }
 
 /**
+ * Mark a template as something that bends in the wind and under a passing body.
+ *
+ * The height is MEASURED off the baked vertices, not authored, for the same
+ * reason `bake` measures the foliage envelope rather than taking it as an
+ * argument: every builder here already states its own size, and restating it as
+ * a second constant is exactly the sort of duplicate that goes stale the first
+ * time somebody tunes it. `grassTuft`'s bake scale alone has moved four times
+ * (0.12 -> 0.09 -> 0.19 -> 0.175 -> 0.21, and the reasoning for each is in the
+ * comment there); a hand-written 0.63 beside it would already be wrong.
+ *
+ * `bake` puts y = 0 at the lowest voxel and `grassBillboard` emits its roots at
+ * y = 0, so a vertex's own y IS its height above the root, and the ratio
+ * survives the per-stamp height scale (`Accum.add`'s `sy`) because that scales
+ * both terms.
+ */
+function withSway(t: Template): Template {
+  let top = 0;
+  for (let i = 1; i < t.pos.length; i += 3) if (t.pos[i] > top) top = t.pos[i];
+  if (top > 0) t.swayHeight = top;
+  return t;
+}
+
+/**
  * Vertex accumulator for a merged, multi-stamp mesh. See `add`.
  *
  * Exported for the town builder, which merges a whole encampment — palisade
@@ -232,6 +307,21 @@ export class Accum {
   nrm: number[] = [];
   col: number[] = [];
   idx: number[] = [];
+  /**
+   * Per-vertex blade height, 0..1, or null on an accumulator that will never
+   * carry grass.
+   *
+   * Opt-in rather than always-on because it is a byte on every vertex and only
+   * ONE of the merged meshes in this codebase needs it: the chunk's soft mesh,
+   * which is the only user of `PropLib.softMat` and therefore the only mesh
+   * world/sway.ts's shader runs on. The solid mesh and the town builder's four
+   * accumulators emit onto other materials and pay nothing.
+   */
+  readonly sway: number[] | null;
+
+  constructor(sway = false) {
+    this.sway = sway ? [] : null;
+  }
 
   /**
    * Stamp one template. `sy` scales height independently of `s` (girth), which
@@ -255,6 +345,11 @@ export class Accum {
     const p = t.pos;
     const n = t.nrm;
     const cl = t.col;
+    // Hoisted out of the loop: a rigid template on a sway-carrying accumulator
+    // writes a column of zeroes, which is what keeps ferns, shells and driftwood
+    // standing still for free.
+    const sw = this.sway;
+    const inv = t.swayHeight ? 1 / t.swayHeight : 0;
     for (let i = 0; i < p.length; i += 3) {
       const px = p[i] * s;
       const py = p[i + 1] * sy;
@@ -264,6 +359,10 @@ export class Accum {
       const nz = n[i + 2];
       this.nrm.push(nx * c + nz * sn, n[i + 1], -nx * sn + nz * c);
       this.col.push(cl[i] * tr, cl[i + 1] * tg, cl[i + 2] * tb);
+      if (sw) {
+        const k = p[i + 1] * inv;
+        sw.push(k >= 1 ? 255 : (k * 255) | 0);
+      }
     }
     const ix = t.idx;
     for (let i = 0; i < ix.length; i++) this.idx.push(base + ix[i]);
@@ -277,6 +376,20 @@ export class Accum {
     geo.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
     geo.setIndex(this.idx);
     geo.computeBoundingSphere();
+    if (this.sway) {
+      // A NORMALISED BYTE, not a float. This is one more attribute on the
+      // heaviest geometry in the world — about 30k vertices a chunk over 121
+      // streamed chunks — so a float32 would be 15 MB of VRAM to express a
+      // number that only ever needs to say "roughly how far up the blade", and
+      // 1/255 of a blade is far below what a bend of a third of a unit can
+      // show.
+      geo.setAttribute('cpSwayH', new THREE.BufferAttribute(new Uint8Array(this.sway), 1, true));
+      // The shader displaces vertices by up to SWAY_MAX_PUSH horizontally, and
+      // the sphere computed above knows nothing about that. Grass at the rim of
+      // a chunk would then be culled a frame before it left the screen, which
+      // reads as a strip of meadow blinking at the edge of the view.
+      if (geo.boundingSphere) geo.boundingSphere.radius += SWAY_BOUND_PAD;
+    }
     return geo;
   }
 }
@@ -1101,7 +1214,7 @@ function grassTuft(dry: boolean, variant = 0): Template {
   // 1x, 0.76 at the top of the clump roll: still under a terrain step, still
   // ground cover, but it clears the meadow's own 1-unit relief instead of
   // hiding behind it.
-  return bake(v, 0.21);
+  return withSway(bake(v, 0.21));
 }
 
 /**
@@ -1186,7 +1299,7 @@ function grassSprig(dry: boolean, variant = 0): Template {
   // Scales land every variant between 0.28 and 0.56 units tall before the
   // per-instance roll — under half a terrain step, squarely ground cover, and a
   // clear rung below the tussock's 0.63-0.91.
-  return bake(v, sh.s);
+  return withSway(bake(v, sh.s));
 }
 
 /**
@@ -1361,12 +1474,12 @@ function grassBillboard(
   // One short offset blade breaks the perfect rosette so a clump of tufts does
   // not read as a stamped pattern.
   quad(C60, S60, 0.11, -0.08, 0.66);
-  return {
+  return withSway({
     pos: new Float32Array(pos),
     nrm: new Float32Array(nrm),
     col: new Float32Array(col),
     idx,
-  };
+  });
 }
 
 /**
@@ -1522,7 +1635,10 @@ function reeds(): Template {
     for (let y = 0; y <= h; y++) v.box(x, y, z, x + 1, y, z, y % 3 === 0 ? stemD : stem);
     v.box(x, h + 1, z, x + 1, h + 1, z, head);
   }
-  return bake(v, 0.17);
+  // Reeds bend with the grass. They are the one other stand of stems in the
+  // file, they grow where the wind has nothing to break it, and a reed bed that
+  // stayed rigid while the sward beside it waved would be the thing you notice.
+  return withSway(bake(v, 0.17));
 }
 
 /**
@@ -1962,7 +2078,11 @@ export function buildChunkProps(
 ): ChunkProps {
   const rng = mulberry32(Math.floor(hashCell(terrain.seed, cx, 91, cz) * 0xffffffff));
   const solid = new Accum();
-  const soft = new Accum();
+  // The soft mesh is the one that bends: it is the only user of `softMat`, and
+  // therefore the only mesh world/sway.ts's shader ever runs on. Gated on the
+  // flag so `?sway=0` prices the WHOLE feature — the attribute's byte a vertex
+  // and the bounding-sphere pad included — rather than just the shader.
+  const soft = new Accum(flags.sway);
   const trunks: number[] = [];
   const ox = cx * CHUNK_SIZE;
   const oz = cz * CHUNK_SIZE;

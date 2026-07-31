@@ -601,13 +601,21 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     },
     /** No trees underground. Walls are terrain, and terrain blocks already. */
     trunkSolidTopAt(): number { return -Infinity; },
+    /**
+     * No settlements either. The hold is cut out of rock, so everything solid
+     * in it is already in the height field.
+     */
+    structureTopAt(): number { return -Infinity; },
     /** No canopy either, so nothing here is ever brushed for leaves. */
     crownContactAt(): boolean { return false; },
     isWater(): boolean { return false; },
     /** It does not snow in a hold cut out of rock. */
     snowCoverAt(): number { return 0; },
+    /** Nothing grows in a hold cut out of rock, so there is nothing to part. */
+    disturb(): void { /* no vegetation underground */ },
     /** Nothing but terrain here, and debugColliders deliberately excludes it. */
     debugColliders(): void { /* no discrete colliders in the hold */ },
+    debugStructures(): void { /* nor any structure boxes */ },
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
       if (disposed) return;

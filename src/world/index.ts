@@ -12,6 +12,7 @@ import { Shops, type DenSpot } from './shops';
 import { Towns, planSettlements } from './towns';
 import { TownParts } from './town-parts';
 import { Clouds, Motes } from './clouds';
+import { SwayField } from './sway';
 import { mulberry32 } from './noise';
 import { perf } from '../core/profiler';
 import { flags } from '../core/flags';
@@ -260,6 +261,12 @@ export function createWorld(
   const terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   const waterMat = createWaterMaterial();
   const propLib = new PropLib();
+  // Grass that notices what walks and flies through it. Null when either toggle
+  // is off, and then `softMat` is never patched at all, so `?sway=0` really is
+  // the meadow as static geometry rather than the same shader with the numbers
+  // zeroed — which is what makes it an honest A/B.
+  const sway = flags.sway && flags.props ? new SwayField((x, z) => terrain.getHeight(x, z)) : null;
+  sway?.install(propLib.softMat);
 
   // TOWNS AND ROADS FIRST, and the order inside `planSettlements` is load
   // bearing: it routes against the NATURAL height field, then installs the
@@ -524,6 +531,17 @@ export function createWorld(
       return top;
     },
     /**
+     * The settlements' solid boxes — huts, palisades, crates, carts, road
+     * furniture. See world/structures.ts.
+     *
+     * Not bucketed by chunk like the trees, because towns are not streamed:
+     * they are built once at world creation and stay resident, so their
+     * colliders are one flat grid that exists from boot. `towns=0` removes both
+     * the meshes and this, which is the point of the flag.
+     */
+    structureTopAt: (x: number, z: number): number =>
+      towns && flags.solids ? towns.solids.topAt(x, z) : -Infinity,
+    /**
      * Is this sphere inside a canopy? The third query over the same buckets,
      * and the only one that treats the crown as a VOLUME — see World.
      *
@@ -591,12 +609,33 @@ export function createWorld(
      * /show-colliders; allocates nothing per collider and is never called from
      * the frame loop.
      */
+    disturb(id, x, y, z, radius, kind): void {
+      sway?.disturb(id, x, y, z, radius, kind);
+    },
+
+    swayDebug(): unknown {
+      return sway?.debug() ?? null;
+    },
+
     debugColliders(out: number[]): void {
       for (const b of trunks.values()) {
         for (let i = 0; i < b.length; i += TREE_STRIDE) {
           out.push(b[i], b[i + 1], Math.sqrt(b[i + 2]), Math.sqrt(b[i + 3]), b[i + 4]);
         }
       }
+    },
+
+    /**
+     * Every settlement collider as [cx, cz, hx, hz, yaw, topY], for the
+     * console's /show-colliders. The whole set, not the loaded part: towns do
+     * not stream.
+     */
+    debugStructures(out: number[]): void {
+      // Gated on the same flag as the query, so the overlay can never draw a
+      // cage around something that is not actually stopping anyone: under
+      // `solids=0` there is nothing to show, and a picture that disagreed with
+      // the collision would be worse than no picture.
+      if (flags.solids) towns?.solids.debugBoxes(out);
     },
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
@@ -608,6 +647,9 @@ export function createWorld(
       if (newFrame) buildBudgetLeft = BUILD_BUDGET_MS;
       time += dt;
       waterMat.uniforms['uTime'].value = time;
+      // Nothing to dispose on the far side of this: the field owns no GPU
+      // resource of its own, and the material it patched is `propLib`'s.
+      sway?.update(focus, time, dt);
       clouds?.update(focus, dt);
       motes?.update(focus, time, dt);
       shops.update(time);

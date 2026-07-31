@@ -4,10 +4,17 @@ import type { World } from './types';
 /**
  * Collider visualiser for the console's /show-colliders.
  *
- * Draws every loaded collider as a wireframe cylinder: green for the SOLID disc
- * that blocks movement, blue for the wider CLIMB disc that can be grabbed. Two
- * colours because they are two different radii and a mismatch between either and
- * the mesh is exactly what this exists to show.
+ * Two primitives, drawn as they actually are:
+ *
+ *   - TREES are cylinders. Green for the SOLID disc that blocks movement, blue
+ *     for the wider CLIMB disc that can be grabbed. Two colours because they are
+ *     two different radii and a mismatch between either and the mesh is exactly
+ *     what this exists to show.
+ *   - STRUCTURES — huts, palisade spans, crates, carts, road furniture — are
+ *     ORIENTED BOXES, and are drawn green like the solid discs because they
+ *     block the same movement. Drawing them as circles would hide the one thing
+ *     worth checking about a building's collider, which is whether its corners
+ *     line up with its walls.
  *
  * Ground is not drawn. Terrain collision is the whole heightfield, so the honest
  * visualisation of it is the terrain itself; drawing a cage per column would cost
@@ -31,6 +38,7 @@ export class ColliderView {
   private solid: THREE.LineSegments | null = null;
   private climb: THREE.LineSegments | null = null;
   private scratch: number[] = [];
+  private boxScratch: number[] = [];
   private timer = 0;
   private visible = false;
 
@@ -62,8 +70,10 @@ export class ColliderView {
     return this.visible;
   }
 
-  /** Number of colliders currently drawn. */
-  get count(): number { return this.scratch.length / 5; }
+  /** Number of colliders currently drawn: tree cylinders plus structure boxes. */
+  get count(): number { return this.scratch.length / 5 + this.boxScratch.length / 6; }
+  /** How many of those are settlement boxes. */
+  get boxCount(): number { return this.boxScratch.length / 6; }
 
   update(dt: number): void {
     if (!this.visible) return;
@@ -91,8 +101,53 @@ export class ColliderView {
       this.ring(solidPts, x, z, solidR, base, top);
       this.ring(climbPts, x, z, climbR, base, top);
     }
+
+    this.boxScratch.length = 0;
+    this.world.debugStructures(this.boxScratch);
+    for (let i = 0; i < this.boxScratch.length; i += 6) {
+      this.cage(
+        solidPts,
+        this.boxScratch[i], this.boxScratch[i + 1],
+        this.boxScratch[i + 2], this.boxScratch[i + 3],
+        this.boxScratch[i + 4],
+        // The box's own base is the ground under its centre. A palisade span on
+        // a slope draws a hair into or out of the bank; that is honest, because
+        // the collider genuinely is a top and a footprint and has no skirt.
+        this.world.getHeight(this.boxScratch[i], this.boxScratch[i + 1]),
+        this.boxScratch[i + 5],
+      );
+    }
     this.replace('solid', solidPts);
     this.replace('climb', climbPts);
+  }
+
+  /**
+   * An oriented box as line-segment pairs: a rectangle at the base, one at the
+   * top, and the four uprights joining them. Fewer rings than `ring` draws
+   * because a box has no curve to approximate — four corners say the whole
+   * shape, and the yaw is the point.
+   */
+  private cage(
+    out: number[], x: number, z: number, hx: number, hz: number,
+    yaw: number, base: number, top: number,
+  ): void {
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    // Same mapping `Accum.add` stamps with: local (lx, lz) -> world offset
+    // (lx*c + lz*s, -lx*s + lz*c).
+    const cornerX: number[] = [];
+    const cornerZ: number[] = [];
+    for (const [lx, lz] of [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]] as const) {
+      cornerX.push(x + lx * c + lz * s);
+      cornerZ.push(z - lx * s + lz * c);
+    }
+    for (let k = 0; k < 4; k++) {
+      const n = (k + 1) % 4;
+      for (const y of [base, top]) {
+        out.push(cornerX[k], y, cornerZ[k], cornerX[n], y, cornerZ[n]);
+      }
+      out.push(cornerX[k], base, cornerZ[k], cornerX[k], top, cornerZ[k]);
+    }
   }
 
   /** Rings at several heights plus vertical struts, as line-segment pairs. */

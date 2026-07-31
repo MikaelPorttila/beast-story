@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Engine } from '../core/engine';
 import type { Input } from '../core/input';
-import type { ElementType, EventBus, World } from '../core/types';
+import { MAX_STEP_UP, type ElementType, type EventBus, type World } from '../core/types';
 import { t } from '../i18n';
 import { buildHeroRig, type HeroRig } from './hero-rig';
 import { ThirdPersonCamera } from './camera';
@@ -19,21 +19,11 @@ const JUMP_VEL = 8.8;
 const COYOTE_TIME = 0.12;
 const JUMP_BUFFER = 0.12;
 const TURN_RATE = 14;
-/**
- * Highest ledge the hero can walk onto. Above it, the move is refused and the
- * player has to jump.
- *
- * Terrain collision is integer-stepped — Terrain.getHeight floors the continuous
- * height — so every ledge in this world is a whole unit or more. Any value below
- * 1.0 therefore means the same thing in practice: hills must be jumped. 0.5 is
- * the middle of that range, leaving room for a future half-height prop to still
- * be walkable without ever letting a full cube through.
- *
- * JUMP_VEL/GRAVITY put the apex at 8.8^2 / (2*24) = 1.61 units, so a single
- * block is always clearable with a jump and a 2-unit face never is — that gap is
- * the point, and moving either constant changes what the world is climbable.
- */
-const MAX_STEP_UP = 0.5;
+// MAX_STEP_UP — the highest ledge the hero can walk onto — moved to
+// core/types.ts when settlements grew colliders: it is now the one rule the
+// hero, the saddle, a following pal, a wild enemy and the town builders'
+// footprint measurement all resolve against. Its derivation from JUMP_VEL and
+// GRAVITY, which still live here, is written on it there.
 /**
  * Horizontal half-width for the step test, so the hero is stopped with his
  * shoulder at the rock face rather than with his centre inside it. Roughly the
@@ -399,6 +389,31 @@ export class Player {
   }
 
   /**
+   * TEST HOOK, like `__dbgTp` in main.ts: swing the follow camera so that
+   * holding W walks the hero along `bearing`, an atan2(dx, dz) heading.
+   *
+   * Movement is camera-relative, so the camera IS the steering wheel: without
+   * this a headless test can only ever walk the hero in whatever direction the
+   * camera happened to start, and "drive him into that hut" becomes "hope the
+   * hut is downwind". Mouse-look is the only other way to turn, and it needs
+   * pointer lock. Nothing in the game calls this.
+   *
+   * The half turn is the whole reason this takes a WALK bearing rather than
+   * `cam.yaw` itself: the camera's yaw is the ARM — where the camera sits
+   * relative to the hero, which is also what `__dbgCamYaw` reports — and the
+   * view runs the other way down it. A caller handed the raw field walks
+   * backwards, and does so silently.
+   *
+   * `cam.forward` is derived from the camera's SMOOTHED position, not from the
+   * yaw, so a large swing takes a few hundred milliseconds to arrive; a caller
+   * that drives immediately walks off along the old heading. Wait for
+   * `__dbgCamYaw` to agree before pressing anything.
+   */
+  aimCamera(bearing: number): void {
+    this.cam.yaw = bearing + Math.PI;
+  }
+
+  /**
    * Climb into / out of the saddle. Everything the hero was doing on his own
    * two feet is cancelled: a swing in progress, a held wall, the jump buffer.
    * Position and velocity are the mount's business from here.
@@ -510,7 +525,8 @@ export class Player {
   }
 
   /**
-   * Top of everything SOLID at a column: terrain, plus a tree's bole.
+   * Top of everything SOLID at a column: terrain, a tree's bole, and whatever a
+   * settlement has built there.
    *
    * Trees used to be scenery you walked straight through. A trunk is now an
    * obstacle you go around — but only the trunk. `trunkSolidTopAt` deliberately
@@ -519,13 +535,24 @@ export class Player {
    * would read as an invisible wall ringing every tree and you could not walk
    * under one at all.
    *
-   * Returns -Infinity from the world where there is no trunk, so the max is just
-   * the terrain there.
+   * TOWNS were scenery in exactly the same way until `structureTopAt` existed —
+   * you walked through the huts, the palisade, the well and the crates. A
+   * building needs no one-way trick, because unlike a canopy it is material
+   * standing on the ground over its whole footprint; the reason it can be
+   * blocked here without fencing off the world is that the FOOTPRINT already
+   * left out anything a body walks under. That is measured at bake time, which
+   * is what keeps the Encampment's gate an opening rather than a wall — see
+   * world/structures.ts.
+   *
+   * Both queries return -Infinity from the world where there is nothing, so the
+   * max is just the terrain there.
    */
   private blockTop(x: number, z: number): number {
     const ground = this.world.getHeight(x, z);
     const trunk = this.world.trunkSolidTopAt(x, z);
     let top = trunk > ground ? trunk : ground;
+    const built = this.world.structureTopAt(x, z);
+    if (built > top) top = built;
     // ...and, ONLY while he is standing on a crown, the crown itself. Up there
     // the leaves under his feet are the floor, so the step test has to see the
     // next column's leaves or walking up the inside of the dome would step off
@@ -740,10 +767,19 @@ export class Player {
     // it holds, and everything approaching from underneath passes straight
     // through as it always did.
     const gh = world.getHeight(this.position.x, this.position.z);
+    // A STRUCTURE is a floor as well as a wall, and it is the same floor from
+    // every direction — the exact opposite of a crown. The horizontal test above
+    // only ever lets the hero's centre into a column whose top is within
+    // MAX_STEP_UP of his feet, so the only box he can be standing over is one he
+    // just stepped onto; catching him on it here is what makes a low crate
+    // something you walk ON rather than something you sink into. Anything taller
+    // he was refused at the wall, and anything he jumped onto he lands on.
+    const built = world.structureTopAt(this.position.x, this.position.z);
+    const floor = built > gh ? built : gh;
     const canopy = this.canopyTop(this.position.x, this.position.z, gh);
     let support = -Infinity;
-    if (this.position.y <= gh) {
-      support = gh;                       // solid ground always wins
+    if (this.position.y <= floor) {
+      support = floor;                    // solid ground always wins
       this.onCanopy = false;
     } else if (
       canopy > -Infinity && this.velocity.y <= 0
@@ -779,9 +815,9 @@ export class Player {
       this.position.y = support;
       this.velocity.y = 0;
       this.onGround = true;
-    } else if (this.onGround && this.velocity.y <= 0 && this.position.y - gh < 0.35) {
+    } else if (this.onGround && this.velocity.y <= 0 && this.position.y - floor < 0.35) {
       // stay glued when running down slopes (jump sets velocity.y > 0)
-      this.position.y = gh;
+      this.position.y = floor;
       this.velocity.y = 0;
     } else {
       this.onGround = false;
