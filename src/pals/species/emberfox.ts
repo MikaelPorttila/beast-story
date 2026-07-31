@@ -54,6 +54,17 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
 const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
+/**
+ * The leg cycle, on one integrated phase (PalAnimCtx.cycle) shared by the trot,
+ * the gallop and the paddle. They are one set of legs changing pace; giving
+ * them one slot is what stops the walk/run threshold — which chatters, because
+ * the gait blend is a damped value that can sit either side of 0.5 for frames
+ * on end — from jump-cutting the pose every time it flips.
+ */
+const GAIT = 0;
+/** The idle tail wave, which drifts at its own rate rather than the gait's. */
+const TAIL = 1;
+
 function makeTorso(): THREE.Mesh {
   const m = new VoxelModel();
   m.ellipsoid(0, 1.8, 0, 2.6, 1.9, 3.8, ORANGE);
@@ -365,7 +376,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       erz += 0.35 * Math.max(0, Math.sin(t * 0.97 + 4.1)) ** 16;
       // eager little front-paw tap
       flrx = -0.5 * Math.max(0, Math.sin(t * 0.61 + 0.9)) ** 10;
-      const wave = t * 1.7;
+      const wave = ctx.cycle(TAIL, 1.7);
       tbx = TAIL_BASE_X + 0.05 * Math.sin(t * 1.1);
       tby = 0.28 * Math.sin(wave);
       tmy = 0.34 * Math.sin(wave - 0.8);
@@ -376,8 +387,14 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     case 'run':
     case 'fly': { // ground pal: treat stray 'fly' as a sprint
       const isRun = ctx.action !== 'walk';
+      // 5.5-8 rad/s trotting, 8.5-12 galloping. INTEGRATED rather than `t * f`:
+      // both the moveSpeed term AND the walk/run step change this frequency, so
+      // multiplying it into the session clock teleported the phase twice over.
+      // Measured with tools/test-palanim.mjs at a 42 s clock: 1.72 rad of leg
+      // rotation in a single frame, and 0.72 rad at the tail tip — the "tails
+      // flicker" half of the report. Integrated, the same run peaks at 0.24.
       const f = isRun ? 8.5 + 3.5 * ms : 5.5 + 2.5 * ms;
-      const ph = t * f;
+      const ph = ctx.cycle(GAIT, f);
       const amp = (isRun ? 0.85 : 0.55) * (0.5 + 0.5 * ms);
       if (isRun) {
         // gallop: front pair near-in-phase, back pair opposite
@@ -400,8 +417,12 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       hrx = -0.08 * ms - 0.04 * Math.sin(ph * 2 + 1.5);
       hry = 0.05 * Math.sin(ph);
       elx = erx = -0.45 * ms * (isRun ? 1 : 0.4) + 0.06 * Math.sin(ph * 2);
-      // tail streams behind and whips with the gait
-      const wave = ph * 0.9;
+      // Tail streams behind and whips with the gait — at 0.9x the leg rate, so
+      // it reads as following the body rather than being bolted to it. It goes
+      // through the TAIL slot at `f * 0.9` rather than being derived as
+      // `ph * 0.9`, so that the tail wave is continuous across idle/run/swim
+      // too and not just within the gait.
+      const wave = ctx.cycle(TAIL, f * 0.9);
       tbx = TAIL_BASE_X - 0.3 * ms * (isRun ? 1 : 0.5);
       tmx = TAIL_MID_X - 0.1 * ms;
       ttx = TAIL_TIP_X + 0.05 * Math.sin(ph * 2);
@@ -411,7 +432,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       break;
     }
     case 'swim': { // doggy paddle, nose proudly above water
-      const ph = t * 7;
+      const ph = ctx.cycle(GAIT, 7);
       brx = -0.22;
       bpy += 0.02 * Math.sin(t * 2.3);
       hrx = -0.25;
@@ -420,9 +441,10 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       blrx = 0.5 + 0.4 * Math.sin(ph + 1.5);
       brrx = 0.5 + 0.4 * Math.sin(ph + 1.5 + Math.PI);
       tbx = 0.15;
-      tby = 0.4 * Math.sin(t * 3);
-      tmy = 0.5 * Math.sin(t * 3 - 1);
-      tty = 0.6 * Math.sin(t * 3 - 2);
+      const wave = ctx.cycle(TAIL, 3);
+      tby = 0.4 * Math.sin(wave);
+      tmy = 0.5 * Math.sin(wave - 1);
+      tty = 0.6 * Math.sin(wave - 2);
       flameBoost = -0.4; // damp, guttering flame
       break;
     }

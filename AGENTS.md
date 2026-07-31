@@ -83,8 +83,13 @@ once frames come quickly.
   `bun run snapshot [label]` writes a timestamped, self-contained build to `dist/`.
 - There is no unit-test runner. The tests are browser probe scripts that print
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
-  `measure-layout.mjs`. `tools/capture-set.ps1` (PowerShell, project root)
-  captures the full critic shot set.
+  `measure-layout.mjs`, `test-palanim.mjs`. `tools/capture-set.ps1` (PowerShell,
+  project root) captures the full critic shot set.
+- `test-palanim.mjs` is the animation-continuity guard: it cycles the whole pal
+  roster through the two active follow slots while yanking the hero around, and
+  reports the largest per-frame rotation delta at every rig joint. Everything
+  should stay under ~0.35 rad; a joint above a radian is teleporting, not
+  animating, which on screen reads as a flicker or an impossibly fast flap.
 - Read [LAB.md](LAB.md) before iterating on models, animations or skill VFX;
   in particular, lab shots never count as sign-off — re-verify in `index.html`.
 

@@ -68,15 +68,54 @@ export type PalAction =
   | 'idle' | 'walk' | 'run' | 'swim' | 'fly'
   | 'attack' | 'cast' | 'special' | 'hurt' | 'happy';
 
+/**
+ * How many independent cycles one species may integrate through
+ * `PalAnimCtx.cycle()`. Four covers the roster: a gait/wingbeat, a tail wave
+ * that runs at its own rate, a secondary flutter, and Umbrakit's orbiting
+ * wisps. Raise it here if a species genuinely needs a fifth — the cost is four
+ * more bytes per pal.
+ */
+export const PAL_CYCLE_SLOTS = 4;
+
 export interface PalAnimCtx {
   action: PalAction;
   /** Seconds since this action started */
   actionTime: number;
-  /** Global time in seconds */
+  /**
+   * Free-running global clock in seconds.
+   *
+   * Fine for cycles whose frequency is a CONSTANT — breathing, ear flicks, the
+   * slow head-scan — because `time * k` then advances at a fixed rate forever.
+   * It is the wrong tool the moment the frequency can change; use cycle().
+   */
   time: number;
   /** 0..1 normalized speed (for gait blending) */
   moveSpeed: number;
   dt: number;
+  /**
+   * Phase (radians) of a cycle running at `freq` rad/s, INTEGRATED rather than
+   * multiplied out of the clock. Use it for every gait, wingbeat and tail wave.
+   *
+   * `Math.sin(ctx.time * freq)` is discontinuous whenever `freq` moves: the
+   * phase is `time * freq`, so a change of `df` retroactively rewrites the
+   * whole history and teleports the phase by `time * df`. With `time` being
+   * accumulated session seconds that is enormous — a wing frequency scaled by
+   * moveSpeed jumps several whole cycles per frame while a pal accelerates,
+   * which is what the "wings flapping at impossible speed, like a flicker"
+   * report was. Integration only ever changes the RATE from this instant on,
+   * so the pose is continuous no matter how the frequency moves.
+   *
+   * `slot` names which cycle this is, 0..PAL_CYCLE_SLOTS-1, and is per-pal
+   * state — call a given slot at most once per frame, and use the SAME slot for
+   * the same body motion across every action branch so that walk->run->fly
+   * changes the beat rate instead of jump-cutting the pose. Constant multiples
+   * of the returned phase (`ph * 2`, `ph * 0.9`) stay continuous and are the
+   * right way to derive a harmonic or a trailing wave.
+   *
+   * `freq` is clamped to a sane maximum by the framework, so no speed spike,
+   * teleport or zone switch can produce a physically absurd beat.
+   */
+  cycle(slot: number, freq: number): number;
 }
 
 export interface PalSpecies {
@@ -100,6 +139,25 @@ export interface PalSpecies {
 // ---------------------------------------------------------------------------
 // World
 // ---------------------------------------------------------------------------
+/**
+ * The tree whose canopy a body is standing inside — see `World.crownContactAt`.
+ *
+ * Deliberately the raw dome the tree registry already holds rather than a
+ * contact point: the caller knows where its own body is, and what it cannot get
+ * anywhere else is WHICH tree and how big that tree's crown is. `treeX`/`treeZ`
+ * are the trunk's axis, which is also a stable per-tree identity — the leaf
+ * system hashes it for a tint, so leaves off one tree always match.
+ */
+export interface CrownContact {
+  treeX: number;
+  treeZ: number;
+  /** Horizontal reach of the foliage dome, in world units. */
+  crownR: number;
+  /** Centre height of the dome, and its vertical semi-axis. */
+  crownCy: number;
+  crownRy: number;
+}
+
 export interface World {
   /** Terrain height at world xz (top surface, in world units) */
   getHeight(x: number, z: number): number;
@@ -131,6 +189,24 @@ export interface World {
    * here" from "a trunk that happens to be short" without a second query.
    */
   trunkSolidTopAt(x: number, z: number): number;
+  /**
+   * Is the sphere (x, y, z, radius) inside a tree's CANOPY? Fills `out` with
+   * the tree it hit and returns true; returns false and leaves `out` alone
+   * otherwise.
+   *
+   * The third query over the same per-chunk tree registry, and the first that is
+   * about the leaves rather than about standing on them: `climbTopAt` asks how
+   * HIGH the canopy is over a column, this asks whether a body is INSIDE it. A
+   * contact test needs the volume, not the surface — brushing through foliage
+   * happens from the side, where the dome's top is nowhere near you.
+   *
+   * `out` is a caller-owned scratch, so a per-frame contact test allocates
+   * nothing. Overlapping crowns resolve to the first tree found rather than the
+   * deepest: the bucket scan would have to run to completion to know which is
+   * deepest, and where two canopies interpenetrate either one is a defensible
+   * answer to "what did I just walk into".
+   */
+  crownContactAt(x: number, y: number, z: number, radius: number, out: CrownContact): boolean;
   /** Water surface level (constant) */
   readonly waterLevel: number;
   isWater(x: number, z: number): boolean;

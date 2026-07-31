@@ -251,6 +251,14 @@ function pulse(x: number, sharp: number): number {
   return s > 0 ? Math.pow(s, sharp) : 0;
 }
 
+/**
+ * The scamper, on an integrated phase — see PalAnimCtx.cycle(). 9.5 rad/s
+ * plodding to 15 flat out (1.5-2.4 Hz), scaled by the gait blend, which is
+ * exactly the shape that made `t * freq` teleport the legs whenever the mouse
+ * changed pace.
+ */
+const GAIT = 0;
+
 function resetPose(parts: Record<string, THREE.Object3D>): void {
   for (const k in BASE) {
     const o = parts[k];
@@ -310,7 +318,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     case 'fly': {
       const g = ctx.moveSpeed;
       const freq = 9.5 + g * 5.5; // scampering bound
-      const ph = t * freq;
+      const ph = ctx.cycle(GAIT, freq);
       const stride = 0.55 + g * 0.5;
       legFL.rotation.x += Math.sin(ph) * stride;
       legFR.rotation.x += Math.sin(ph + 0.35) * stride;

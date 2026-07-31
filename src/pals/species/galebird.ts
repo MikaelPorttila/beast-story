@@ -58,6 +58,16 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
 const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
+/**
+ * The wingbeat, on a single integrated phase (PalAnimCtx.cycle) shared by every
+ * branch that beats the wings. Hovering, paddling, cruising and the happy
+ * bounce are all the same pair of wings changing PACE, so they must be the same
+ * slot: the rate changes, the pose does not jump.
+ */
+const BEAT = 0;
+/** The forked streamers, which sway at their own leisurely rate. */
+const SWAY = 1;
+
 function makeTorso(): THREE.Mesh {
   const m = new VoxelModel();
   // Fuselage widened 2.2 -> 2.6 at the same time as the skull came down from 3.0.
@@ -333,7 +343,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       // Amplitude pulled down from 0.5 to 0.3 and centred on level: the old
       // beat swung both wings up past vertical, so a head-on hover portrait
       // caught them edge-on behind the skull instead of spread wide.
-      const ph = t * 4.4;
+      const ph = ctx.cycle(BEAT, 4.4);
       // Same wrist rule as the flight beat: the outer section trails the inner
       // at 0.6x and 0.45 rad rather than matching it a near-half-cycle behind,
       // which is what creased the wing shut at mid-stroke. Centre lifted to 0.09
@@ -351,7 +361,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       beakX = 0.3 * Math.max(0, Math.sin(t * 0.27 + 3)) ** 24; // occasional chirp
       tfx = 0.15 + 0.06 * Math.sin(t * 1.7);
       tfy = 0.08 * Math.sin(t * 0.9);
-      const sw = t * 1.5;
+      const sw = ctx.cycle(SWAY, 1.5);
       slx = STREAM_X + 0.08 * Math.sin(sw);
       srx = STREAM_X + 0.08 * Math.sin(sw + 0.7);
       sly = 0.16 * Math.sin(sw - 0.9);
@@ -362,7 +372,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       // Ditched-swallow paddle: rides low with the wings half-furled, sculling
       // in short alternating strokes and holding the head high and dry. Shares
       // nothing with the flight beat, which is the whole point of a separate case.
-      const ph = t * 3.4;
+      const ph = ctx.cycle(BEAT, 3.4);
       flapL = 0.1 + 0.34 * Math.sin(ph);
       flapR = 0.1 + 0.34 * Math.sin(ph + Math.PI);
       outL = 0.5 + 0.22 * Math.sin(ph - 0.7);
@@ -385,8 +395,14 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     case 'run':
     case 'fly': {
       // Darting flight: flap bursts, brief glides, hard banks; wings tuck in dives.
+      // 7.5 rad/s hovering to 12.5 rad/s at a full dart — 1.2 to 2.0 Hz, a
+      // swallow's cruise. INTEGRATED, not `t * f`: that multiplication was the
+      // flicker. Measured in-game with tools/test-palanim.mjs at a 35 s session
+      // clock, the moment moveSpeed ramped through a catch-up the wing z angle
+      // moved 1.86 rad IN ONE FRAME — a 106 degree jump, six times the widest
+      // step the beat itself ever takes. Same numbers, integrated: 0.28 rad.
       const f = 7.5 + 5 * ms;
-      const ph = t * f;
+      const ph = ctx.cycle(BEAT, f);
       const glide = Math.max(0, Math.sin(t * 0.47 + 2.0)) ** 6;
       const dive = smooth(clamp01((ms - 0.65) / 0.35)) * Math.max(0, Math.sin(t * 0.31 + 0.8)) ** 4;
       const g = glide * (1 - dive);
@@ -516,7 +532,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       // Giddy bounce-hover with chirps and streamer swishes.
       const hf = 5.4;
       const hop = Math.abs(Math.sin(at * hf));
-      const ph = t * 13;
+      const ph = ctx.cycle(BEAT, 13);
       bpy += 0.15 * hop;
       bry = 0.3 * Math.sin(at * 2.4);
       brz = 0.08 * Math.sin(at * hf * 2);

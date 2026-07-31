@@ -354,6 +354,17 @@ function setCrystal(P: Parts, intensity: number, scale: number, tilt: number): v
   P.crystal.rotation.z = 0.12 + tilt;
 }
 
+/**
+ * Integrated cycle slots — see PalAnimCtx.cycle(). The stomp runs at 5.5 rad/s
+ * walking, 8.5 running and 7.0 paddling, and the stone tail wag at 4 / 6; those
+ * are three and two different rates on ONE set of legs and ONE tail. Multiplied
+ * into the session clock, every walk<->run flip jump-cut the pose — and the
+ * gait blend is a damped value that can sit on the 0.5 threshold and flip for
+ * frames on end, which is the "tail flickers" half of the report.
+ */
+const GAIT = 0;
+const TAIL = 1;
+
 /** Heavy trot: diagonal leg pairs, sharp footfall weight, body settle. */
 function stompGait(P: Parts, ph: number, amp: number, bob: number): void {
   const a = Math.sin(ph);
@@ -418,29 +429,34 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     }
 
     case 'walk': {
-      stompGait(P, t * 5.5, 0.5, 0.035);
-      P.tail.rotation.y = Math.tanh(Math.sin(t * 4) * 2) * 0.25; // stiff stone wag
-      setCrystal(P, 0.9 + 0.2 * Math.abs(Math.sin(t * 5.5)), 1, 0.06 * Math.sin(t * 11 - 1));
+      const ph = ctx.cycle(GAIT, 5.5);
+      stompGait(P, ph, 0.5, 0.035);
+      P.tail.rotation.y = Math.tanh(Math.sin(ctx.cycle(TAIL, 4)) * 2) * 0.25; // stiff stone wag
+      // Crystal pulse rides the footfall: same phase as the gait, and its
+      // shimmer at twice it. Written as multiples of `ph` rather than as
+      // `t * 5.5` / `t * 11` so it cannot drift apart from the legs it belongs to.
+      setCrystal(P, 0.9 + 0.2 * Math.abs(Math.sin(ph)), 1, 0.06 * Math.sin(ph * 2 - 1));
       setEyes(P, 1.8, 0.8 * blink);
       break;
     }
 
     case 'run':
     case 'fly': {
-      stompGait(P, t * 8.5, 0.75, 0.05);
+      const ph = ctx.cycle(GAIT, 8.5);
+      stompGait(P, ph, 0.75, 0.05);
       P.body.rotation.x += 0.10 + 0.04 * ms; // eager forward lean
       P.head.rotation.x -= 0.08;
-      P.tail.rotation.y = Math.tanh(Math.sin(t * 6) * 2) * 0.2;
+      P.tail.rotation.y = Math.tanh(Math.sin(ctx.cycle(TAIL, 6)) * 2) * 0.2;
       P.earL.rotation.x -= 0.25; // ears pinned by speed
       P.earR.rotation.x -= 0.25;
-      setCrystal(P, 1.1 + 0.3 * Math.abs(Math.sin(t * 8.5)), 1, 0.08 * Math.sin(t * 17 - 1));
+      setCrystal(P, 1.1 + 0.3 * Math.abs(Math.sin(ph)), 1, 0.08 * Math.sin(ph * 2 - 1));
       setEyes(P, 2.0, 0.3);
       break;
     }
 
     case 'swim': {
       // Determined doggy paddle: nose up, legs churning.
-      const ph = t * 7.0;
+      const ph = ctx.cycle(GAIT, 7.0);
       P.body.rotation.set(-0.25, 0, 0.05 * Math.sin(ph * 0.5));
       P.body.position.y = BODY_Y + 0.03 * Math.sin(ph * 0.5);
       P.head.rotation.set(-0.2, 0.08 * Math.sin(t * 1.2), 0);

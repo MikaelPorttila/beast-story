@@ -56,6 +56,18 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
 const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
+/**
+ * Integrated cycle slots — see PalAnimCtx.cycle(). Every rate below is either
+ * scaled by the gait blend or different per action, and all four were being
+ * multiplied into the session clock. The wisps were the most obvious: `wSpeed`
+ * steps between 1.2 and 7 rad/s across the action list, so at a minute-old
+ * clock a single action change flung them several full orbits in one frame.
+ */
+const DRIFT = 0;  // serpentine body glide
+const TAIL = 1;   // the S-wave down the tail, 1.1x the drift while moving
+const SURGE = 2;  // the vertical bob, a hair faster than the drift
+const WISP = 3;   // detached tail wisps, trailing or orbiting
+
 function makeTorso(): THREE.Mesh {
   // Deliberately few masses: one clean cat body, a narrow spine sheen and the
   // underglow band. The old chest ruff / haunch / glint blobs read as a grape
@@ -347,7 +359,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       erz += 0.3 * Math.max(0, Math.sin(t * 0.89 + 4.7)) ** 16;
       pawL = PAW_X + 0.08 * Math.sin(t * 1.6 + 0.4);
       pawR = PAW_X + 0.08 * Math.sin(t * 1.6 + 2.5);
-      const wv = t * 1.15;
+      const wv = ctx.cycle(TAIL, 1.15);
       tbx = TAIL_BASE_X + 0.06 * Math.sin(t * 0.8);
       tby = 0.25 * Math.sin(wv);
       tmy = 0.32 * Math.sin(wv - 0.9);
@@ -360,12 +372,13 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     case 'fly':
     case 'swim': {
       // No legs, no gait: a serpentine gliding drift, nose down, wisps trailing.
-      const drift = t * (2.2 + 1.4 * ms);
+      // 2.2 rad/s drifting to 3.6 at speed (0.35-0.57 Hz).
+      const drift = ctx.cycle(DRIFT, 2.2 + 1.4 * ms);
       brx = 0.06 + 0.12 * ms;
       brz = 0.09 * Math.sin(drift) * (0.35 + 0.65 * ms);
       bry = 0.07 * Math.sin(drift - 0.7) * ms;
       bpx = 0.035 * Math.sin(drift) * ms;
-      bpy += 0.03 * Math.sin(t * (2.6 + 2.2 * ms)) * (0.4 + 0.6 * ms);
+      bpy += 0.03 * Math.sin(ctx.cycle(SURGE, 2.6 + 2.2 * ms)) * (0.4 + 0.6 * ms);
       bpz = 0.02 * Math.sin(t * 3.4) * ms; // faint surging
       bsz = 1 + 0.06 * ms; // stretched by its own speed
       bsx = 1 - 0.025 * ms;
@@ -377,7 +390,10 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       pawR = PAW_X - 0.4 * ms + 0.06 * Math.sin(t * 3.1 + 2.2);
       tbx = TAIL_BASE_X - 0.35 * ms; // tail streams out behind
       tmx = TAIL_MID_X - 0.15 * ms;
-      const wv = drift * 1.1;
+      // The tail wave rides 1.1x the body drift. It goes through the TAIL slot at
+      // that rate rather than being derived as `drift * 1.1`, so the wave is also
+      // continuous across the idle/moving boundary and not just within a branch.
+      const wv = ctx.cycle(TAIL, (2.2 + 1.4 * ms) * 1.1);
       tby = 0.22 * Math.sin(wv);
       tmy = 0.3 * Math.sin(wv - 1);
       tty = 0.4 * Math.sin(wv - 2);
@@ -525,9 +541,13 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 
   // Detached tail wisps: lag behind in a loose trail, or swing into a halo.
   const phases = [0, 2.09, 4.19];
+  // One integrated orbit phase for all three wisps; they differ only by a fixed
+  // offset, and the 1.6x / 0.9x / 2x harmonics below are constant multiples of
+  // it, which stay continuous.
+  const wa = ctx.cycle(WISP, wSpeed);
   for (let i = 0; i < 3; i++) {
     const w = p[`wisp${i + 1}`];
-    const a = t * wSpeed + phases[i];
+    const a = wa + phases[i];
     const r = wSpread * (0.7 + 0.3 * i);
     // Trail mode: loitering behind the dissolving tail tip.
     const trailX = r * Math.sin(a + i);

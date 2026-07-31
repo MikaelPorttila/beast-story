@@ -412,6 +412,15 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const easeOutCubic = (v: number): number => 1 - (1 - v) ** 3;
 const easeInOutSine = (v: number): number => 0.5 - 0.5 * Math.cos(Math.PI * v);
 
+/**
+ * The wingbeat, on an integrated phase — see PalAnimCtx.cycle(). This is the
+ * fastest cycle in the roster (16-24 rad/s in flight, 2.5-3.8 Hz) and so was
+ * the worst offender: as `t * (16 + 8 * ms)` a tenth of a point of gait blend
+ * moved the phase by 0.8 * t radians, which at a minute-old session clock is
+ * seven whole beats in one frame.
+ */
+const BEAT = 0;
+
 function animate(rig: PalRig, ctx: PalAnimCtx): void {
   const p = rig.parts;
   const t = ctx.time;
@@ -419,6 +428,15 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 
   // Contact blob: flat on the ground, wider while the wings are spread.
   updateContactBlob(p.blob, rig.root, 1 + 0.2 * clamp01(1 - p.wingUR.rotation.z));
+
+  // The wingbeat rate is picked BEFORE the phase is integrated, because a cycle
+  // slot must be advanced exactly once per frame — 9 rad/s hovering, 16-24 in
+  // flight. Deciding here rather than inside the switch is what lets the hover
+  // and the cruise share one continuous phase instead of jump-cutting between
+  // them the moment the moth starts or stops moving.
+  const moving = ctx.action === 'fly' || ctx.action === 'walk'
+    || ctx.action === 'run' || ctx.action === 'swim';
+  const w = ctx.cycle(BEAT, moving ? 16 + 8 * ctx.moveSpeed : 9);
 
   // ---- default hover-idle pose ----
   let bodyX = 0;
@@ -428,8 +446,8 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
   let bodyRY = 0;
   let bodyRZ = Math.sin(t * 1.1 + 1.7) * 0.05;
   let sq = 1;
-  let flap = Math.sin(t * 9) * 0.45 + 0.18;
-  let flapLo = Math.sin(t * 9 - 0.7) * 0.36 + 0.12;
+  let flap = Math.sin(w) * 0.45 + 0.18;
+  let flapLo = Math.sin(w - 0.7) * 0.36 + 0.12;
   let wingTilt = Math.sin(t * 1.6) * 0.14; // slow shimmer-tilt catchlight
   let headRX = Math.sin(t * 0.7) * 0.10;
   let headRY = Math.sin(t * 0.43) * 0.16;
@@ -446,7 +464,6 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     case 'run':
     case 'swim': {
       const k = 0.4 + 0.6 * ctx.moveSpeed;
-      const w = t * (16 + 8 * ctx.moveSpeed);
       const s = Math.sin(w);
       // Beat biased below level (-0.18) and amplitude trimmed: a symmetric stroke
       // put the wings vertical at both extremes, and a still frame lands on an

@@ -455,6 +455,14 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const easeOutCubic = (v: number): number => 1 - (1 - v) ** 3;
 const easeInOutSine = (v: number): number => 0.5 - 0.5 * Math.cos(Math.PI * v);
 
+/**
+ * The wingbeat, on an integrated phase — see PalAnimCtx.cycle(). Its rate is
+ * scaled by moveSpeed, so as `t * (7.5 + 3.5 * ms)` the phase was rewritten
+ * retroactively every time the dragon changed pace, several whole beats at a
+ * time once the session clock was a minute old.
+ */
+const BEAT = 0;
+
 function animate(rig: PalRig, ctx: PalAnimCtx): void {
   const p = rig.parts;
   const t = ctx.time;
@@ -498,7 +506,8 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     case 'run':
     case 'swim': {
       const k = 0.5 + 0.5 * ctx.moveSpeed;
-      const w = t * (7.5 + 3.5 * ctx.moveSpeed);
+      // 7.5 rad/s hovering to 11 at full chat — 1.2 to 1.75 Hz.
+      const w = ctx.cycle(BEAT, 7.5 + 3.5 * ctx.moveSpeed);
       const raw = Math.sin(w);
       const beat = Math.sign(raw) * Math.abs(raw) ** 0.75; // snappy downstroke
       // Peak flap trimmed from 0.75-1.00 rad to 0.52-0.70. At a full radian the wing

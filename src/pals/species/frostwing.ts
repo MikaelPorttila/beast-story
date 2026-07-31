@@ -64,6 +64,14 @@ type Parts = Record<string, THREE.Object3D>;
 const s01 = (t: number): number => Math.max(0, Math.min(1, t));
 const smooth = (t: number): number => { const x = s01(t); return x * x * (3 - 2 * x); };
 const decay = (t: number, r: number): number => Math.exp(-r * Math.max(0, t));
+
+/**
+ * The wing/leg cycle, on one integrated phase — see PalAnimCtx.cycle(). The owl
+ * runs three different rates on the same wings (6.5 rad/s hopping, 8.5 skimming,
+ * 3.6-6.2 cruising), and all three used to be multiplied into the session clock,
+ * so every gait change and every nudge of the gait blend jump-cut the pose.
+ */
+const BEAT = 0;
 /** Eased 0 -> 1 -> 0 bump inside [a, b]; riseFrac = fraction of window spent rising */
 function bump(t: number, a: number, b: number, riseFrac = 0.4): number {
   if (t <= a || t >= b) return 0;
@@ -421,7 +429,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 
     case 'walk': {
       // Ground travel = a bouncy sparrow-hop waddle.
-      const ph = t * 6.5;
+      const ph = ctx.cycle(BEAT, 6.5);
       const hop = Math.max(0, Math.sin(ph));
       const land = 1 - hop;
       P.body.position.y = BODY_Y + hop * 0.06;
@@ -438,7 +446,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
 
     case 'run': {
       // Fast travel: skimming powered flight low over the ground.
-      const ph = t * 8.5;
+      const ph = ctx.cycle(BEAT, 8.5);
       const amp = 0.5 + 0.15 * ms;
       poseWings(P, 0,
         Math.sin(ph) * amp + 0.06,
@@ -457,7 +465,11 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     case 'swim': {
       // Slow, powerful flaps alternating with long glides; head stays level.
       const g = smooth((Math.sin(t * 0.33) + 1) * 0.7 - 0.2); // glide mix, dwells at ends
-      const ph = t * (3.6 + 2.6 * ms);
+      // 3.6 rad/s hovering to 6.2 at cruise (0.57-0.99 Hz) — an owl's slow,
+      // deep beat. Integrated: as `t * (3.6 + 2.6 * ms)` this was the flyer
+      // half of the report, the wing rewriting its whole phase history every
+      // time the gait blend moved.
+      const ph = ctx.cycle(BEAT, 3.6 + 2.6 * ms);
       const amp = (0.16 + 0.44 * (0.35 + 0.65 * ms)) * (1 - 0.82 * g);
       // Positive base lift on all three sections = a shallow dihedral V. A bird
       // gliding with level or drooping wings reads as a paper glider; the V is the

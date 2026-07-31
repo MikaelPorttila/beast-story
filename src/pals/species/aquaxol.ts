@@ -54,6 +54,14 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
 const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
+/**
+ * Integrated cycle slots — see PalAnimCtx.cycle(). Every one of these
+ * frequencies moves with the gait blend, so multiplying them into the session
+ * clock made the pose teleport whenever the pal changed pace.
+ */
+const GAIT = 0;   // legs + waddle roll, shared by the waddle and the swim
+const FROND = 1;  // the frond ripple, which tracks the gait rate at its own scale
+
 function makeTorso(): THREE.Mesh {
   const m = new VoxelModel();
   // Torso grown 2.8/2.2/3.2 -> 3.4/2.6/3.6. The head is 7 cells wide however you
@@ -281,8 +289,11 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     case 'walk':
     case 'run': { // the famous belly waddle
       const isRun = ctx.action === 'run';
+      // 5.5-8.5 rad/s waddling, 8-11 at a run. Integrated: measured with
+      // tools/test-palanim.mjs, `t * f` put 1.69 rad of leg swing into one
+      // frame as the waddle spun up; the integrated cycle peaks at 0.29.
       const f = (isRun ? 8 : 5.5) + 3 * ms;
-      const ph = t * f;
+      const ph = ctx.cycle(GAIT, f);
       const amp = (isRun ? 0.9 : 0.65) * (0.5 + 0.5 * ms);
       brz = (isRun ? 0.17 : 0.13) * Math.sin(ph);       // roll waddle
       bry = 0.09 * Math.sin(ph - 0.4);                  // butt wiggle
@@ -305,7 +316,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
     case 'swim':
     case 'fly': { // graceful lateral undulation (fly never happens; swim it)
       const f = 4.5 + 3.5 * ms;
-      const ph = t * f;
+      const ph = ctx.cycle(GAIT, f);
       bry = 0.1 * Math.sin(ph);
       brz = 0.07 * Math.sin(ph - 0.6);                  // gentle banking roll
       brx = 0.03 + 0.04 * Math.sin(t * 1.5);
@@ -435,9 +446,15 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
   p.tailTip.rotation.set(ttx, tty, 0);
 
   // Gill fronds: mirrored fan, each with its own ripple phase.
+  //
+  // `gillFreq` is 1.8 rad/s at rest and the whole gait frequency while moving,
+  // so it is one of the frequencies that MOVES and has to be integrated. The
+  // sweep runs at 0.8x the ripple; taking that as a constant multiple of the
+  // integrated phase keeps the exact rate ratio and stays continuous.
+  const gw = ctx.cycle(FROND, gillFreq);
   for (let i = 0; i < 3; i++) {
-    const lift = GZ[i] + gillFlare + gillWaveAmp * Math.sin(t * gillFreq + gillPhase + i * 0.9);
-    const sweep = GY[i] + gillBack + gillSweepAmp * Math.sin(t * gillFreq * 0.8 + i * 0.7);
+    const lift = GZ[i] + gillFlare + gillWaveAmp * Math.sin(gw + gillPhase + i * 0.9);
+    const sweep = GY[i] + gillBack + gillSweepAmp * Math.sin(gw * 0.8 + i * 0.7);
     p[GR[i]].rotation.set(0, sweep, lift);
     p[GL[i]].rotation.set(0, -sweep, -lift);
   }

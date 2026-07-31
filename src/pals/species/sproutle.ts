@@ -203,6 +203,14 @@ function pulse(x: number, sharp: number): number {
   return s > 0 ? Math.pow(s, sharp) : 0;
 }
 
+/**
+ * The plod, on an integrated phase — see PalAnimCtx.cycle(). 5 rad/s to 8
+ * (0.8-1.3 Hz), scaled by the gait blend; as `t * freq` a change of pace
+ * rewrote the whole phase history and jump-cut legs, shell, sprout and tail
+ * together.
+ */
+const GAIT = 0;
+
 function resetPose(parts: Record<string, THREE.Object3D>): void {
   for (const k in BASE) {
     const o = parts[k];
@@ -257,7 +265,7 @@ function animate(rig: PalRig, ctx: PalAnimCtx): void {
       const g = ctx.moveSpeed;
       const spd = 0.4 + g * 0.6;
       const freq = 5.0 + g * 3.0; // determined little plod
-      const ph = t * freq;
+      const ph = ctx.cycle(GAIT, freq);
       const amp = 0.42 + g * 0.33;
       legFL.rotation.x += Math.sin(ph) * amp;
       legBR.rotation.x += Math.sin(ph + 0.25) * amp;

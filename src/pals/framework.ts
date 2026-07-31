@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ELEMENT_COLORS } from '../core/types';
+import { ELEMENT_COLORS, PAL_CYCLE_SLOTS } from '../core/types';
 import type {
   ElementType, EventBus, FetchJob, PalAction, PalAnimCtx, PalRig, PalSpecies,
   PalStats, SkillDef, World,
@@ -55,6 +55,26 @@ function smoothstep01(t: number): number {
   const x = Math.min(1, Math.max(0, t));
   return x * x * (3 - 2 * x);
 }
+
+/**
+ * Ceiling on any cycle integrated through `PalAnimCtx.cycle()`, in rad/s.
+ * 50.3 rad/s = 8.0 Hz.
+ *
+ * Two numbers bracket it. Above: the fastest beat anyone authored is Lumimoth's
+ * panic flap at 34 rad/s (5.4 Hz), and its cruising wingbeat tops out at
+ * 24 rad/s (3.8 Hz) — so 8 Hz clips nothing that exists and is a safety rail,
+ * not a tuning knob. Below: the sim runs a fixed 60 Hz, so 8 Hz is 7.5 samples
+ * per cycle, about the coarsest a beat can be sampled and still read as a beat
+ * rather than as strobing; past ~15 Hz it aliases outright. Biology agrees that
+ * this is the right neighbourhood — a swallow beats at 7-9 Hz and a sparrow at
+ * ~13 Hz, so a pal-sized flyer belongs in single digits and never at the fifty
+ * a runaway phase produced.
+ *
+ * The integration in cycle() is what actually fixed the flicker; this cap is
+ * what stops a future `freq` expression — or a moveSpeed that escapes 0..1 —
+ * from reintroducing it in a milder form.
+ */
+const MAX_CYCLE_RATE = 50.3;
 
 const GRAVITY = 22;
 const TELEPORT_DIST = 40;
@@ -549,6 +569,25 @@ export interface PalOwner {
 }
 
 // ---------------------------------------------------------------------------
+// Animation probe
+// ---------------------------------------------------------------------------
+// Read-only diagnostic, the same contract as main.ts's __dbg* probes: a tool
+// samples every live pal's rig for a few hundred frames and asserts on how far
+// a joint moved BETWEEN frames. It exists because "the wings flicker sometimes"
+// is not a thing a screenshot can prove or disprove — a per-frame rotation
+// delta is. Every pal registers here and deregisters in dispose(), so a walked
+// -out zone does not leave rigs behind.
+const LIVE_ACTORS = new Set<PalActor>();
+
+if (typeof window !== 'undefined') {
+  (window as unknown as { __dbgPalAnim: () => unknown }).__dbgPalAnim = () => {
+    const out: unknown[] = [];
+    for (const a of LIVE_ACTORS) out.push(a.animProbe());
+    return out;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // PalActor
 // ---------------------------------------------------------------------------
 export class PalActor {
@@ -608,7 +647,30 @@ export class PalActor {
   private baseTime = 0;
   private time = 0;
   private phase = Math.random() * TWO_PI;
-  private ctx: PalAnimCtx = { action: 'idle', actionTime: 0, time: 0, moveSpeed: 0, dt: 0 };
+  /**
+   * Integrated phase per cycle slot — see PalAnimCtx.cycle().
+   *
+   * Deliberately NOT wrapped to 0..2pi. Species derive trailing waves and
+   * harmonics as constant multiples of a phase (`ph * 0.9`, `ph * 1.6`), and a
+   * wrap at 2pi puts a discontinuity in every one of those whose factor is not
+   * an integer — the same pop this whole mechanism exists to remove. Float64
+   * carries it instead: an hour at the 8 Hz ceiling reaches 1.8e5 rad, where a
+   * double still resolves 3e-11 rad, so nothing measurable is lost. Float32
+   * would NOT do — it breaks down around 1e4 rad, roughly ten minutes in.
+   */
+  private cycles = new Float64Array(PAL_CYCLE_SLOTS);
+  private ctx: PalAnimCtx = {
+    action: 'idle', actionTime: 0, time: 0, moveSpeed: 0, dt: 0,
+    // Bound once, at construction, and closes over this actor's own phase
+    // array — no allocation on any frame, and no way for two pals to share a
+    // cycle. `dt` is read off the ctx because finishFrame() has already written
+    // the slice's dt there before calling species.animate().
+    cycle: (slot: number, freq: number): number => {
+      const w = freq > MAX_CYCLE_RATE ? MAX_CYCLE_RATE : freq > 0 ? freq : 0;
+      this.cycles[slot] += w * this.ctx.dt;
+      return this.cycles[slot];
+    },
+  };
 
   // Fetch errand
   private fetchJob: FetchJob | null = null;
@@ -680,6 +742,7 @@ export class PalActor {
     // for every mesh it finds, and the arc must never be a caster.
     this.arc = new SwipeArc(this.rig.root, species.element);
     this.arc.configure(this.rig.radius, this.rig.height);
+    LIVE_ACTORS.add(this);
 
     this.stats = this.computeStats();
     this.maxHp = this.stats.maxHp;
@@ -1402,7 +1465,24 @@ export class PalActor {
     }
   }
 
+  /**
+   * Snapshot of every rig joint's local rotation, for __dbgPalAnim. Read-only
+   * and allocating — a diagnostic called by a test tool, never by the game.
+   */
+  animProbe(): unknown {
+    const parts: Record<string, [number, number, number]> = {};
+    for (const k of Object.keys(this.rig.parts)) {
+      const o = this.rig.parts[k]!;
+      parts[k] = [o.rotation.x, o.rotation.y, o.rotation.z];
+    }
+    return {
+      id: this.species.id, action: this.ctx.action,
+      moveSpeed: this.ctx.moveSpeed, time: this.time, parts,
+    };
+  }
+
   dispose(): void {
+    LIVE_ACTORS.delete(this);
     this.abortFetch();
     this.scene.remove(this.rig.root);
     // BEFORE the traverse, and this ordering is load-bearing: the arc is a child
