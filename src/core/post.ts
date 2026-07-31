@@ -596,10 +596,24 @@ class EmissiveBloomPass extends Pass {
  *     the depth buffer and carve a hole of fake occlusion behind it.
  *
  * Both disappear once the AO G-buffer contains exactly what the opaque pass
- * contains. overrideVisibility/restoreVisibility are the pass's own hook for
- * this — the base call caches every object's `visible` flag first, so anything
- * hidden afterwards is restored for free.
+ * contains. The pass's own visibility hook is where that belongs — see
+ * _overrideVisibility below, and read its comment before renaming anything.
  */
+
+/**
+ * The r185 shape of GTAOPass's G-buffer visibility hook.
+ *
+ * @types/three 0.185.1 still describes the r170 PUBLIC pair
+ * (`overrideVisibility` / `restoreVisibility` / no cache), which the runtime no
+ * longer has, so the real members have to be reached through a cast. Keep this
+ * in step with GTAOPass.js if it moves again.
+ */
+interface GTAOVisibilityHook {
+  _overrideVisibility(): void;
+  /** Objects hidden for the G-buffer pass; _restoreVisibility() unhides these. */
+  _visibilityCache: THREE.Object3D[];
+}
+
 class OpaqueGTAOPass extends GTAOPass {
   /**
    * Resolution divisor for the whole AO chain (G-buffer re-render, the AO
@@ -620,14 +634,51 @@ class OpaqueGTAOPass extends GTAOPass {
     super.setSize(Math.max(1, Math.round(width / d)), Math.max(1, Math.round(height / d)));
   }
 
-  override overrideVisibility(): void {
-    super.overrideVisibility();
+  /**
+   * Hide everything that did not write depth in the beauty pass, so the AO
+   * G-buffer holds the opaque scene and nothing else.
+   *
+   * THE NAME OF THIS METHOD IS THE WHOLE BUG, and it cost a release. Until
+   * three r170 the hook was PUBLIC — `overrideVisibility()` / `restoreVisibility()`
+   * — and this class overrode it. r185 renamed the pair to `_overrideVisibility()`
+   * / `_restoreVisibility()`, so `GTAOPass.render()` stopped calling the override
+   * and every transparent VFX quad went back into the G-buffer.
+   *
+   * Nothing failed loudly, because @types/three 0.185.1 STILL DECLARES the old
+   * public names: `override overrideVisibility()` kept type-checking, kept
+   * compiling, and was simply never invoked again. Captured in the lab, an
+   * emberfox melee swing (shots/_b-melee-0.12.png, ?aoview=1 in
+   * shots/_aoview-melee.png) put a hard-edged BLACK stamp of the slash ribbon
+   * straight into the AO buffer, which then multiplied a dark rectangle over the
+   * picture wherever the effect passed within `aot` of a surface. ?ao=0 removed
+   * it completely (shots/_b-melee-ao0.png) — that is the signature of an AO
+   * problem, not a blending one.
+   *
+   * The other half of the rename is the CACHE. r170's base call recorded every
+   * object's `visible` flag before touching anything, so whatever this method
+   * hid afterwards was restored for free. r185's `_overrideVisibility()` only
+   * pushes the points/lines IT hides, and `_restoreVisibility()` unhides exactly
+   * that list — so anything hidden here has to be pushed onto the same list or
+   * it stays invisible for the rest of the run (a single cast would delete the
+   * VFX permanently).
+   *
+   * The predicate is `transparent`, deliberately, and world/water.ts depends on
+   * it from the other side: the lake surface declares `transparent: false` with
+   * explicit CustomBlending factors precisely so that it STAYS in this G-buffer
+   * and occludes its own bed. Do not widen this to "anything that blends".
+   */
+  _overrideVisibility(): void {
+    (GTAOPass.prototype as unknown as GTAOVisibilityHook)._overrideVisibility.call(this);
+    const cache = (this as unknown as GTAOVisibilityHook)._visibilityCache;
     this.scene.traverse((obj) => {
       if (obj.visible === false) return;
       const mat = (obj as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
       if (!mat) return;
       const m = Array.isArray(mat) ? mat[0] : mat;
-      if (m && (m.transparent || (obj as THREE.Sprite).isSprite)) obj.visible = false;
+      if (m && (m.transparent || (obj as THREE.Sprite).isSprite)) {
+        obj.visible = false;
+        cache.push(obj);
+      }
     });
   }
 }
