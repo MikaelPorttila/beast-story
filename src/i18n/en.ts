@@ -67,7 +67,7 @@ export const en = {
   // If a name ever has to reach a fingerpost or any other carved sign, mind the
   // 3x5 voxel font — A-Z, 0-9, '-', an apostrophe and a space, see the `.sign`
   // note above. 'Gain' is inside it; a translated one might not be.
-  'npc.gain.name': 'Deckard Gain Armstrong',
+  'npc.gain.name': 'Deckard Gains Armstrong',
   'npc.gain.greeting': 'Hello, my friend. Stay awhile and... gain some knowledge.',
 
   // ---- pal species ---------------------------------------------------------
