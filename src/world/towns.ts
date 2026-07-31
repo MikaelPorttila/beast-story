@@ -687,6 +687,15 @@ export class Towns {
   private readonly geos: THREE.BufferGeometry[] = [];
   /** Per-site groups and their centres, for the distance cull in `update`. */
   private readonly sites: Array<{ g: THREE.Group; x: number; z: number; r: number }> = [];
+  /**
+   * Where each settlement's fire ended up, by town id.
+   *
+   * Recorded rather than derived: the camp's fire is thrown to one side of the
+   * gate axis or the other on a coin flip off the town's own stream, so the
+   * only honest way to know which is to be told by the thing that placed it.
+   * `NpcSite.focusOf` reads this.
+   */
+  private readonly fires = new Map<string, { x: number; z: number }>();
 
   constructor(
     plan: SettlementPlan,
@@ -715,6 +724,17 @@ export class Towns {
     };
     const fireGlow = mkGlow();
     const lampGlow = mkGlow();
+    // A THIRD glow material, for the campfire alone.
+    //
+    // `fireGlow` is the material for every hot thing in a settlement — the
+    // braziers, the forge coals and, until now, the campfire — so its intensity
+    // was the only brightness knob the fire had, and turning it down turned the
+    // braziers down too. The camp's fire is the one that was washing the yard
+    // out, and it is the one thing here big enough to be worth its own draw
+    // call. Cheap by this file's own argument above: these three are the same
+    // shader program differing only in uniform values, so a third costs no
+    // program link.
+    const hearthGlow = mkGlow();
 
     const emit = (
       acc: Accum, mat: THREE.Material, parent: THREE.Group, shadows: boolean,
@@ -734,11 +754,17 @@ export class Towns {
       const g = new THREE.Group();
       const solid = new SolidStamp(this.solids);
       const glow = new Accum();
+      const hearth = new Accum();
       const rng = mulberry32((seed ^ 0x5eed) + town.id.length * 7919 + town.x * 31);
-      if (town.kind === 'camp') buildEncampment(solid, glow, parts, town, plan.network, rng);
-      else buildHamlet(solid, glow, parts, town, plan.network, rng);
+      if (town.kind === 'camp') {
+        const fire = buildEncampment(solid, glow, hearth, parts, town, plan.network, rng);
+        this.fires.set(town.id, fire);
+      } else {
+        buildHamlet(solid, glow, parts, town, plan.network, rng);
+      }
       emit(solid.acc, props.solidMat, g, true);
       emit(glow, fireGlow, g, false);
+      emit(hearth, hearthGlow, g, false);
       this.group.add(g);
       this.sites.push({ g, x: town.x, z: town.z, r: town.radius });
     }
@@ -828,10 +854,38 @@ export class Towns {
       + Math.sin(time * 2.3) * 0.13;
     this.glowMats[1].emissiveIntensity = 1.7 + Math.sin(time * 4.3 + 1.9) * 0.16
       + Math.sin(time * 9.7) * 0.08;
+    // The campfire, DIMMER than the braziers rather than brighter.
+    //
+    // 2.0 against an emissive of 0xff9a3c is 2.35 linear at the top of the
+    // flicker, and the tone chain's rolloff asymptotes at knee + head = 2.6:
+    // the fire was sitting within a fifth of the hardest value the compressor
+    // can pass, which is why it read as a white hole rather than an orange
+    // core. 1.5 peaks at 1.7, a whisker over the 1.55 knee, so the core is the
+    // brightest thing in camp and still resolves as ORANGE through the curve.
+    //
+    // Not lower, and 1.15 was: with the flame also down to a third of its old
+    // volume, that put the hearth DIMMER than the braziers standing round it,
+    // which is backwards for a camp — captured that way (_camp-far2.png, first
+    // pass) with a brazier reading as the brightest thing inside the walls.
+    // Most of the wash was the size; the intensity only has to stop the core
+    // clipping.
+    //
+    // Dimming cannot switch the glow off: the selective bloom tags on emissive
+    // CHROMA, not on intensity (post.ts, `tagSources`).
+    this.glowMats[2].emissiveIntensity = 1.5 + Math.sin(time * 5.3 + 0.7) * 0.14
+      + Math.sin(time * 2.9) * 0.06;
     for (const s of this.sites) {
       const d = Math.hypot(s.x - focus.x, s.z - focus.z) - s.r;
       s.g.visible = d < 420;
     }
+  }
+
+  /**
+   * Where this town's fire stands, or null for a settlement without one.
+   * `NpcSite.focusOf` in world/index.ts is the only caller.
+   */
+  fireOf(townId: string): { x: number; z: number } | null {
+    return this.fires.get(townId) ?? null;
   }
 
   dispose(): void {
@@ -932,9 +986,9 @@ function place(
  * same field the player walks on, not a remembered bearing.
  */
 function buildEncampment(
-  solid: SolidStamp, glow: Accum, parts: TownParts, town: TownInfo,
+  solid: SolidStamp, glow: Accum, hearth: Accum, parts: TownParts, town: TownInfo,
   network: RoadNetwork, rng: () => number,
-): void {
+): { x: number; z: number } {
   const { x: cx, z: cz, y: cy, gateAngle } = town;
   const taken: Spot[] = [];
   const at = (ang: number, dist: number): [number, number] =>
@@ -1053,7 +1107,7 @@ function buildEncampment(
   const side = rng() < 0.5 ? 1 : -1;
   const [fx, fz] = at(gateAngle + Math.PI / 2 * side, 5.4);
   solid.add(parts.fire, fx, cy, fz, rng() * 6.28);
-  glow.add(parts.fireGlow, fx, cy, fz, rng() * 6.28, 1, 1, 1, 1);
+  hearth.add(parts.fireGlow, fx, cy, fz, rng() * 6.28, 1, 1, 1, 1);
   taken.push({ x: fx, z: fz, r: 4.2 });
   // Log seats round the fire.
   for (let k = 0; k < 4; k++) {
@@ -1156,6 +1210,9 @@ function buildEncampment(
     solid.add(parts.brazier, x, cy, z, rng() * 6.28);
     glow.add(parts.brazierGlow, x, cy, z, 0, 1, 1, 1, 1);
   }
+  // The fire is the camp's social centre, and the NPC placer wants to know
+  // where it went. See `Towns.fires` / `NpcSite.focusOf`.
+  return { x: fx, z: fz };
 }
 
 /**

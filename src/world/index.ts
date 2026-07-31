@@ -303,6 +303,7 @@ export function createWorld(
       roads: plan.network,
       getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
       structureTopAt: (x: number, z: number): number => towns.solids.topAt(x, z),
+      focusOf: (id: string) => towns.fireOf(id),
     })
     : null;
   if (npcs) scene.add(npcs.group);

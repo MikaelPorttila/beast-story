@@ -110,6 +110,12 @@ export interface NpcCharacter {
    * only as far as it has to to get him off the road and out of the furniture.
    */
   homeOffset: number;
+  /**
+   * Stand on the far side of the town's focus from wherever he would otherwise
+   * have stood — see `NpcSite.focusOf`. Opt-in, because it only means anything
+   * in a settlement that HAS a focus.
+   */
+  acrossFocus?: boolean;
   build(): NpcRig;
   animate(rig: NpcRig, ctx: NpcAnimCtx): void;
   /**
@@ -199,6 +205,17 @@ export interface NpcSite {
    * brazier or a palisade on it without this file knowing what those are.
    */
   structureTopAt(x: number, z: number): number;
+  /**
+   * A settlement's SOCIAL CENTRE — the camp's fire, and whatever a later town
+   * kind puts in the same role — or null where it has none.
+   *
+   * Here because "stand across the fire" is a thing a character can want and
+   * this file cannot work out: the fire is stamped inside `buildEncampment`
+   * from a coin flip on the town's own stream, so it is not derivable from a
+   * `TownInfo` and not worth widening that contract for. A lookup keeps the
+   * geometry on the side of the file that owns it.
+   */
+  focusOf?(townId: string): { x: number; z: number } | null;
 }
 
 /**
@@ -226,7 +243,25 @@ export class Npcs implements NpcField {
       const town = site.towns.get(char.townId);
       if (!town) continue; // a zone without his town simply has no him
       const rig = char.build();
-      const spot = findSpot(site, town.x, town.z, char.homeOffset, rig.radius);
+      let spot = findSpot(site, town.x, town.z, char.homeOffset, rig.radius);
+      // ACROSS THE FIRE from wherever the plain search put him.
+      //
+      // Two passes and not one, because the mirror is defined against the spot
+      // the first pass chose: reflect it through the fire, take the bearing of
+      // that reflection from the middle of town, and search again preferring
+      // it. The second pass runs the same rings and the same `free` tests, so
+      // he cannot end up somewhere the first pass would have refused — if the
+      // far side is full, the preference simply loses to crowding and he stays
+      // where he was.
+      const focus = char.acrossFocus ? site.focusOf?.(char.townId) ?? null : null;
+      if (focus) {
+        const mx = 2 * focus.x - spot.x;
+        const mz = 2 * focus.z - spot.z;
+        spot = findSpot(
+          site, town.x, town.z, char.homeOffset, rig.radius,
+          Math.atan2(mx - town.x, mz - town.z),
+        );
+      }
       const y = site.getHeight(spot.x, spot.z);
       // Facing the GATE, so the first thing a visitor walking in off the road
       // sees is his face rather than the back of his mantle.
@@ -358,6 +393,7 @@ function approachAngle(cur: number, target: number, rate: number, dt: number): n
  */
 function findSpot(
   site: NpcSite, cx: number, cz: number, offset: number, radius: number,
+  preferBearing: number | null = null,
 ): { x: number; z: number } {
   const clearOf = radius + 0.35;
   const free = (x: number, z: number): boolean => {
@@ -395,7 +431,19 @@ function findSpot(
       const x = cx + Math.sin(a) * d;
       const z = cz + Math.cos(a) * d;
       if (!free(x, z)) continue;
-      const crowd = crowding(x, z);
+      // The tie-break LEARNS A SECOND TERM rather than being replaced: the ring
+      // order still decides how far out he stands, and every `free` test is
+      // untouched. A bearing preference costs the same as three units of
+      // crowding at the far side of the circle, which is enough to swing the
+      // choice between two comparably open spots and not enough to park him in
+      // a tent wall — the failure the crowding term was added to fix.
+      let crowd = crowding(x, z);
+      if (preferBearing !== null) {
+        let da = a - preferBearing;
+        while (da > Math.PI) da -= Math.PI * 2;
+        while (da < -Math.PI) da += Math.PI * 2;
+        crowd += (Math.abs(da) / Math.PI) * 3;
+      }
       if (crowd < bestCrowd) { bestCrowd = crowd; best = { x, z }; }
     }
     if (best) return best;

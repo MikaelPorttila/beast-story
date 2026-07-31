@@ -472,6 +472,11 @@ export const GAIN: NpcCharacter = {
   // world/npc.ts walks him outward until his feet are off the carriageway; he
   // lands beside the fire rather than in the middle of the road.
   homeOffset: 0,
+  // ...and then ACROSS THE FIRE from wherever that lands him. He is the camp's
+  // one fixed face, and the fire is what a visitor walks toward; standing him
+  // beyond it means you see him over the flames on the way in rather than
+  // finding him beside you as you pass. See `NpcCharacter.acrossFocus`.
+  acrossFocus: true,
   build,
   animate,
   // THE QUEST SEAM. Today: one line, always. Tomorrow this consults quest state

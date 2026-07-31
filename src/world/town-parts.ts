@@ -615,17 +615,35 @@ function campfireBody(): Template {
   return bakeSolid(v, V);
 }
 
-/** The flame itself. Goes on the glow material. */
+/**
+ * The flame itself. Goes on the glow material.
+ *
+ * SIZED AGAINST THE HERO, who is 1.8 units. It was 8 layers on a base radius
+ * of 3.2 voxels — 2.24 units tall and 1.96 wide, taller than the player and
+ * filling more than half the diameter of its own 3.64-unit stone ring, which is
+ * a bonfire and not a campfire. 5 layers on 2.4 is 1.40 by 1.40: it sits down
+ * inside the ring the way a fire that people cook on does.
+ *
+ * The size is also most of the brightness complaint, and this is why it is the
+ * first lever rather than the emissive: bloom energy goes with the LIT AREA, and
+ * that change takes the flame's silhouette from ~104 candidate cells to ~37, so
+ * roughly two thirds of the wash leaves with the volume. The other third is the
+ * emissive, which now has a material of its own — see `fireGlow` in towns.ts.
+ *
+ * The palette bands move with the layer count, or the whole thing goes pale:
+ * the old `y > 4` put FLAME_PALE on the top three of eight, and on five layers
+ * the same test would leave only embers.
+ */
 function campfireFlame(): Template {
   const v = new VoxelModel();
   const r = rnd(0x4d09);
-  for (let y = 0; y <= 7; y++) {
-    const rr = Math.max(0, 3.2 - y * 0.42);
+  for (let y = 0; y <= 4; y++) {
+    const rr = Math.max(0, 2.4 - y * 0.42);
     for (let x = -3; x <= 3; x++) {
       for (let z = -3; z <= 3; z++) {
         if (x * x + z * z > rr * rr) continue;
-        if (r() < 0.16 + y * 0.05) continue;
-        v.set(x, y + 1, z, y > 4 ? FLAME_PALE : y > 2 ? FLAME : EMBER);
+        if (r() < 0.16 + y * 0.07) continue;
+        v.set(x, y + 1, z, y > 3 ? FLAME_PALE : y > 1 ? FLAME : EMBER);
       }
     }
   }
