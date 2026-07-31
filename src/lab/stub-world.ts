@@ -8,7 +8,11 @@ import type { World } from '../core/types';
  * matches the real game minus the terrain itself.
  */
 export class StubWorld implements World {
-  /** Bare stage: the flat floor is the only thing to hold onto. */
+  /**
+   * Bare stage: the flat floor is the only thing to hold onto. Equal to
+   * getHeight, so the stage also has no one-way platforms — the player's canopy
+   * support only engages where this stands clear of the ground.
+   */
   climbTopAt(): number { return this.getHeight(); }
 
   /** Nothing to draw: the stage has no colliders but its floor. */

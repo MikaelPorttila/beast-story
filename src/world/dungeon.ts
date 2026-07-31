@@ -582,6 +582,12 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      * ("never below getHeight") is also its ceiling here. Walls can therefore
      * be scaled with Shift, which is a shortcut between two rooms and not a way
      * out — the rim is 26 units and there is nothing on the far side of it.
+     *
+     * Returning the terrain exactly also means the hold has no one-way platforms
+     * in it: the player's canopy support (see Player.canopyTop) only engages
+     * where this stands CLEAR of getHeight, and here the two are the same number
+     * by construction. Rock is solid from every side, which is what a wall
+     * underground should be.
      */
     climbTopAt(x: number, z: number): number {
       return localHeight(plan, Math.floor(x - HOLD_ORIGIN_X), Math.floor(z - HOLD_ORIGIN_Z));

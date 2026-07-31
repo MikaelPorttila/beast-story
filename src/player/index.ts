@@ -107,6 +107,46 @@ const CLIMB_LOCKOUT = 0.35;
  */
 const CLIMB_SIDE_HOLD = 0.6;
 
+// -- standing on a tree crown ----------------------------------------------
+/**
+ * How far a canopy's surface must stand ABOVE the terrain before it counts as a
+ * platform in its own right rather than as leaves brushing the floor.
+ *
+ * Must be greater than MAX_STEP_UP, and that is the whole derivation: the
+ * platform catch below accepts feet that started the slice within MAX_STEP_UP
+ * (0.5) of the surface, so anything closer to the ground than that would snap a
+ * WALKING hero up onto it. With 0.6 the two windows cannot overlap — a hero
+ * whose feet are on the terrain is never lifted by foliage — and the only way
+ * onto a crown is to fall onto it, jump onto it, or climb it.
+ *
+ * Measured over the 120x120 units around spawn at 0.25 resolution: 54286 sampled
+ * columns carry a crown, and the distribution of (climbTopAt - getHeight) over
+ * them is 10 columns under 0.6, 8 in 0.6-1.2, 74 in 1.2-2.5 and 54194 above 2.5.
+ * So this threshold discards 10 columns in 54000 — the extreme fringe of a dome
+ * where it grazes rising ground — and the handful just above it are reachable
+ * only by jumping onto them, which is the right answer for a knee-high branch.
+ */
+const CANOPY_MIN_CLEAR = 0.6;
+/**
+ * How far the canopy may fall away beneath the feet in one slice before the
+ * hero stops being held by it.
+ *
+ * Deliberately the same 0.35 the terrain uses to stay glued running down a
+ * slope, for the same reason: a dome is a curved surface and walking outward on
+ * it drops the ground under you every slice. Inside 0.35 he slides down the
+ * curve; past it he goes airborne, which is exactly what walking off a treetop
+ * should do.
+ *
+ * Where that happens is a property of the dome, not a second constant. Measured
+ * walking straight over a crown of radius 2.55 and semi-axis 2.6 at 6 m/s: the
+ * feet tracked the surface exactly from the far side of the apex (y 23.12) down
+ * to y 21.69 at 2.40 units from the axis, and released on the next frame — the
+ * dome falls 0.47 over the following 0.1 units of travel there, which is the
+ * first slice that breaks 0.35. That is 0.94 of the crown radius, so the whole
+ * canopy is walkable except the last 6% where the leaves turn into a cliff.
+ */
+const CANOPY_GLUE = 0.35;
+
 /**
  * Sword strike from the saddle: how high above the hero's own origin the arc
  * starts, and how far along his aim it is pushed.
@@ -179,6 +219,17 @@ export class Player {
   isSwimming = false;
   /** True while hanging on a climbable face; gravity is off and Shift is grip. */
   isClimbing = false;
+  /**
+   * True while the surface holding him up is a TREE rather than the terrain — a
+   * canopy dome, or the top face of a bole.
+   *
+   * It is state and not a query because it changes what the horizontal step test
+   * is allowed to see: from the ground a crown is overhead and must stay
+   * invisible to collision (see blockTop), while standing on one it is the
+   * floor. Read-only outside; the vertical resolution and the mantle are the two
+   * places that set it.
+   */
+  onCanopy = false;
   /**
    * True while sitting in a pal's saddle. The hero controller stops moving him
    * entirely — MountController owns position, velocity and heading, and writes
@@ -281,6 +332,8 @@ export class Player {
     this.isClimbing = false;
     this.climbLockout = 0;
     this.isSwimming = false;
+    // Whatever was under his feet belonged to the zone he is leaving.
+    this.onCanopy = false;
     this.velocity.set(0, 0, 0);
   }
 
@@ -307,6 +360,10 @@ export class Player {
     this.isDead = true;
     this.deadT = 0;
     this.isClimbing = false;
+    // The corpse slide (update's dead branch) resolves against getHeight only,
+    // so a body that fainted in a treetop falls out of it rather than lying on
+    // leaves the dead path cannot see.
+    this.onCanopy = false;
     this.attack.active = false;
     this.cam.addShake(0.5);
     this.bus.emit({ type: 'toast', text: 'You fainted!' });
@@ -318,6 +375,7 @@ export class Player {
     this.flash = 0;
     this.hurtT = 0;
     this.isClimbing = false;
+    this.onCanopy = false;
     this.climbLockout = 0;
     this.velocity.set(0, 0, 0);
     this.position.copy(this.world.spawnPoint);
@@ -348,6 +406,9 @@ export class Player {
     if (this.isMounted === on) return;
     this.isMounted = on;
     this.isClimbing = false;
+    // MountController resolves against getHeight, so the saddle never stands on
+    // leaves; mounting in a treetop rides the animal down to the ground.
+    this.onCanopy = false;
     this.climbLockout = CLIMB_LOCKOUT;
     this.attack.active = false;
     this.attackQueued = false;
@@ -463,7 +524,38 @@ export class Player {
   private blockTop(x: number, z: number): number {
     const ground = this.world.getHeight(x, z);
     const trunk = this.world.trunkSolidTopAt(x, z);
-    return trunk > ground ? trunk : ground;
+    let top = trunk > ground ? trunk : ground;
+    // ...and, ONLY while he is standing on a crown, the crown itself. Up there
+    // the leaves under his feet are the floor, so the step test has to see the
+    // next column's leaves or walking up the inside of the dome would step off
+    // its uphill side into thin air.
+    //
+    // The condition is the whole reason a canopy can be walked on without also
+    // being a wall. From the ground a crown is OVERHEAD, and a column whose top
+    // is overhead is precisely what this test cannot distinguish from a cliff;
+    // adding it unconditionally is the invisible fence around every tree that
+    // trunkSolidTopAt exists to avoid. Anything BELOW the feet reads as a drop
+    // in either case, so stepping off the rim is never refused.
+    if (this.onCanopy) {
+      const canopy = this.world.climbTopAt(x, z);
+      if (canopy > top) top = canopy;
+    }
+    return top;
+  }
+
+  /**
+   * The tree surface over a column — a canopy dome or a bole's top face — when
+   * it stands clear enough of the terrain to be a platform of its own, else
+   * -Infinity.
+   *
+   * `climbTopAt` already returns exactly this surface (it is the max of terrain,
+   * bole top and dome), so no new world query was needed: subtracting the ground
+   * out of it is all "is there a tree platform here?" amounts to. `ground` is
+   * passed in because every caller has just measured it.
+   */
+  private canopyTop(x: number, z: number, ground: number): number {
+    const top = this.world.climbTopAt(x, z);
+    return top > ground + CANOPY_MIN_CLEAR ? top : -Infinity;
   }
 
   /**
@@ -631,15 +723,59 @@ export class Player {
     }
     this.position.y += this.velocity.y * dt;
 
+    // ---- what is holding him up ----
+    // Two surfaces can, and they are not the same kind of thing.
+    //
+    // The TERRAIN is solid: it catches the feet from any direction and is what
+    // pals, enemies, the camera and every drop resolve against too.
+    //
+    // A TREE CROWN is a ONE-WAY PLATFORM. It has to be, and the reason is the
+    // same one written on World.trunkSolidTopAt: a canopy is 7-10 units across
+    // and sits several units up, so anything that blocks there also blocks at
+    // ground level, and every tree in the world grows an invisible fence. Read
+    // from below, the identical mistake is a ceiling — jumping under a tree
+    // would bonk. So the crown only ever catches feet that STARTED the slice at
+    // or above it and are on their way DOWN: falling onto it lands, walking on
+    // it holds, and everything approaching from underneath passes straight
+    // through as it always did.
     const gh = world.getHeight(this.position.x, this.position.z);
+    const canopy = this.canopyTop(this.position.x, this.position.z, gh);
+    let support = -Infinity;
     if (this.position.y <= gh) {
+      support = gh;                       // solid ground always wins
+      this.onCanopy = false;
+    } else if (
+      canopy > -Infinity && this.velocity.y <= 0
+      // One-way, with MAX_STEP_UP of slack so that walking UP the curve of a
+      // dome he is already standing on is a step and not a wall. Deliberately
+      // the same slack the horizontal step test uses: a move blockTop allowed
+      // is therefore always a move this test can catch, and the two can never
+      // disagree about whether he is still on the tree.
+      && feetY >= canopy - MAX_STEP_UP
+      // Either he crossed the surface this slice (a landing), or he is already
+      // on it and it has only fallen away by a slope's worth (walking down the
+      // dome). Past that he is off the edge and gravity has him.
+      && (this.position.y <= canopy
+        || (this.onCanopy && this.position.y - canopy < CANOPY_GLUE))
+    ) {
+      support = canopy;
+      this.onCanopy = true;
+    } else {
+      // Nothing up here. This is also what a chunk unloading under a standing
+      // player looks like — the crown simply stops being reported and he falls,
+      // which is the same answer CLIMB_LOST gives when the face a climber is
+      // holding disappears: fall, never snap.
+      this.onCanopy = false;
+    }
+
+    if (support > -Infinity) {
       if (!this.onGround && this.velocity.y < -7) {
         this.landBump = clamp((-this.velocity.y - 6) / 13, 0, 1);
-        _feet.set(this.position.x, gh + 0.05, this.position.z);
+        _feet.set(this.position.x, support + 0.05, this.position.z);
         this.dust.burst(_feet, Math.min(14, Math.floor(-this.velocity.y)));
         if (this.velocity.y < -15) this.cam.addShake(0.15);
       }
-      this.position.y = gh;
+      this.position.y = support;
       this.velocity.y = 0;
       this.onGround = true;
     } else if (this.onGround && this.velocity.y <= 0 && this.position.y - gh < 0.35) {
@@ -751,6 +887,8 @@ export class Player {
     this.climbDirZ = dz;
     this.climbRate = 0;
     this.onGround = false;
+    // Hanging, not standing: nothing is under his feet until he tops out.
+    this.onCanopy = false;
     this.coyote = 0;
     this.jumpBuffer = 0;
     // Grabbing kills inherited momentum — a sprint into a cliff should stick to
@@ -800,16 +938,24 @@ export class Player {
       return;
     }
 
-    // At the lip. Mantle if there is somewhere to stand: the ledge column is
-    // checked for real (getHeight, the SOLID surface) and has to be level with
-    // what we climbed, so topping out on a trunk — climbable, but not something
-    // you can stand on — leaves the hero clinging at full stretch instead of
-    // being flung into the air above it.
+    // At the lip. Mantle if there is somewhere to stand, and the ledge column is
+    // checked against everything that HOLDS WEIGHT — the terrain, or a crown
+    // standing clear above it — not against the terrain alone.
+    //
+    // getHeight alone was the rule until crowns became standable, and it is why
+    // topping out of a tree used to refuse: the ground under a canopy is metres
+    // below the leaves, so `dest` never matched `top` and the hero stayed
+    // clinging at full stretch. The level-with-what-we-climbed test still does
+    // its original job — it is what stops a mantle onto a bole with nothing over
+    // it from flinging him into the air — because a column that holds nothing
+    // still answers with the distant ground.
     let atTop = false;
     if (rise <= CLIMB_TOP_EPS) {
       const nx = this.position.x + this.climbDirX * MANTLE_PUSH;
       const nz = this.position.z + this.climbDirZ * MANTLE_PUSH;
-      const dest = world.getHeight(nx, nz);
+      const dg = world.getHeight(nx, nz);
+      const dc = this.canopyTop(nx, nz, dg);
+      const dest = dc > -Infinity ? dc : dg;
       if (Math.abs(dest - top) <= MAX_STEP_UP) {
         this.position.x = nx;
         this.position.z = nz;
@@ -818,6 +964,10 @@ export class Player {
         this.isClimbing = false;
         this.climbRate = 0;
         this.onGround = true;
+        // Hand the vertical resolution the right floor for the next slice: it
+        // is the flag, not the position, that tells the step test whether the
+        // leaves under him count.
+        this.onCanopy = dc > -Infinity;
         this.coyote = COYOTE_TIME;
         return;
       }

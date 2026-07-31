@@ -170,6 +170,19 @@ export interface World {
    * because climbable and solid are not the same set: a trunk is climbable but
    * you can still walk through it, and terrain is both.
    *
+   * It is also the SUPPORT surface: standing on a tree is the same query as
+   * grabbing one, so the player resolves his feet against it too (see
+   * Player.canopyTop). Where it rises clear of getHeight it is a ONE-WAY
+   * PLATFORM — it holds a body that was already above it and is coming down,
+   * and is not there at all for a body approaching from underneath. That
+   * asymmetry is not a refinement, it is the only way a canopy can be stood on
+   * without also being an invisible wall at ground level and a ceiling over
+   * anyone jumping beneath it; see trunkSolidTopAt for the same argument about
+   * horizontal blocking.
+   *
+   * Nothing but the player does this. Pals and enemies keep their footing on
+   * getHeight, so widening this query never puts a wild pack on a treetop.
+   *
    * Never below getHeight(x, z) — ground is always climbable-from.
    */
   climbTopAt(x: number, z: number): number;
