@@ -1051,7 +1051,11 @@ export class PostFX {
     this.output = output;
 
     if (opts.aa) {
-      this.composer.addPass(new SMAAPass(size.x, size.y));
+      // No size arguments: three dropped SMAAPass's (width, height) constructor
+      // — it takes its resolution from setSize(), which the composer already
+      // drives on every resize. Passing them was silently ignored before r18x
+      // and is a type error from r185 on.
+      this.composer.addPass(new SMAAPass());
     }
 
     postStats.passes = this.composer.passes.length;
