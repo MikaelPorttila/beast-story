@@ -103,6 +103,22 @@ const CELL = 8;
 /** Sampling pitch of `spanDistanceTo`. See there for the error it costs. */
 const SPAN_STEP = 0.35;
 
+/**
+ * How far INSIDE the surface's terminal plane the earthworks stop.
+ *
+ * The carve is sampled at COLUMN CENTRES and the ribbon is drawn on the plane
+ * itself, so a column whose centre falls a tenth of a unit inside the built
+ * side gets cut a whole unit down while up to half its area sticks out past the
+ * ribbon's end ring — a hand-wide, one-block-deep slot straight across the end,
+ * which is the same class of hole this whole mechanism exists to close, just
+ * narrower. Standing the carve's plane half a cell diagonal further in (0.707,
+ * rounded up) puts every sunk column wholly under cover.
+ *
+ * The 0.75 of ribbon that then lies on uncarved ground is lying on ground the
+ * town's own flatten already levelled to the deck height, so it sits flat.
+ */
+const CARVE_INSET = 0.75;
+
 const cellKey = (cx: number, cz: number): number => cx * 4194304 + cz;
 
 // ---------------------------------------------------------------------------
@@ -162,6 +178,85 @@ export interface Road {
   fromId: string;
   toId: string;
   pts: RoadSample[];
+  /**
+   * WHERE THE BUILT CARRIAGEWAY ENDS, as two inward half-planes:
+   * [px, pz, nx, nz] for the start then the same four for the end, the corridor
+   * living where `dot(q - p, n) >= 0`.
+   *
+   * A road has a ROUTE and it has a CARRIAGEWAY, and they are not the same
+   * thing. `pts` is the route — it is what every placer means by "is there a
+   * road here" — and this says how much of the route is actually surfaced.
+   *
+   * `build()` fills both from the end nodes even when nothing is trimmed,
+   * because a terminal needs a plane anyway. `nearest` clamps its segment
+   * parameter to [0, 1], so past an end node the distance is measured RADIALLY
+   * and the corridor closes in a dome that reaches DECK_HALF past the last
+   * sample at full sink depth — while `buildRoadRibbon` emits quads only
+   * BETWEEN rings and so draws nothing over it. That uncovered half-round pit
+   * was the "missing blocks" at the middle of the Encampment, and the same one
+   * sat at the fork and at both hamlet centres. A plane closes the corridor
+   * with a FLAT cross-section, which one ribbon ring covers exactly.
+   *
+   * Set before `build()` to move an end; `setTrimStart`/`setTrimEnd` do that.
+   */
+  trim: Float32Array;
+}
+
+/**
+ * Point a road's start (or end) plane at (px, pz) facing (nx, nz) INWARD.
+ *
+ * Separate setters rather than a raw array write so the slot order — start
+ * first, end second — lives in one place.
+ */
+export function setTrimStart(r: Road, px: number, pz: number, nx: number, nz: number): void {
+  r.trim[0] = px; r.trim[1] = pz; r.trim[2] = nx; r.trim[3] = nz;
+}
+export function setTrimEnd(r: Road, px: number, pz: number, nx: number, nz: number): void {
+  r.trim[4] = px; r.trim[5] = pz; r.trim[6] = nx; r.trim[7] = nz;
+}
+
+/**
+ * The samples that carry a BUILT carriageway, with the ends interpolated onto
+ * the trim planes.
+ *
+ * Lives here rather than in the ribbon builder so the drawing and the carving
+ * cannot disagree about where a road stops — the two halves of the same bug
+ * this whole mechanism exists to close.
+ */
+export function builtDeck(r: Road): RoadSample[] {
+  const out: RoadSample[] = [];
+  const inside = (p: RoadSample, o: number): number =>
+    (p.x - r.trim[o]) * r.trim[o + 2] + (p.z - r.trim[o + 1]) * r.trim[o + 3];
+  const lerp = (a: RoadSample, b: RoadSample, t: number): RoadSample => ({
+    x: a.x + (b.x - a.x) * t,
+    z: a.z + (b.z - a.z) * t,
+    y: a.y + (b.y - a.y) * t,
+    // A cut end inherits the span flag of the sample it was cut from: half a
+    // bridge is not a thing, and the abutment argument in `build` applies here.
+    bridge: a.bridge || b.bridge,
+  });
+  for (let i = 0; i < r.pts.length; i++) {
+    const p = r.pts[i];
+    const in0 = inside(p, 0) >= 0;
+    const in1 = inside(p, 4) >= 0;
+    if (in0 && in1) {
+      // Interpolate a terminal sample where the previous one was outside.
+      if (i > 0 && out.length === 0) {
+        const q = r.pts[i - 1];
+        const a = inside(q, 0);
+        const b = inside(p, 0);
+        if (b !== a) out.push(lerp(q, p, (0 - a) / (b - a)));
+      }
+      out.push(p);
+    } else if (out.length > 0 && !in1) {
+      const q = r.pts[i - 1];
+      const a = inside(q, 4);
+      const b = inside(p, 4);
+      if (b !== a) out.push(lerp(q, p, (0 - a) / (b - a)));
+      break;
+    }
+  }
+  return out;
 }
 
 /** Total length of a road's deck polyline, world units. */
@@ -190,6 +285,32 @@ export class RoadNetwork implements RoadField, RoadClearance {
   /** [ax, az, ay, bx, bz, by] per segment. */
   private seg = new Float32Array(0);
   private segBridge = new Uint8Array(0);
+  /**
+   * Which road owns each segment, and a one-entry-per-road cache of "is this
+   * query point past that road's trim planes".
+   *
+   * PER ROAD, NOT PER SEGMENT, and that is the whole subtlety. Skipping only
+   * the terminal segment does not work and fails SILENTLY: a point a tenth of a
+   * unit past the end node is still ~3 units from the segment before it, well
+   * inside DECK_EDGE, so the scan falls through and answers with a full-depth
+   * carve and a deck height anyway. The verdict has to cover every segment of
+   * the road it belongs to.
+   *
+   * `clipStamp` holds the query id that last decided a road, so the two dot
+   * products run at most once per road per query — one road almost everywhere,
+   * three only at the fork. Float64 and not Int32 so a long session cannot wrap
+   * the counter into a stale-cache hit.
+   *
+   * FREE at this resolution, measured on the worst case: walking the trunk road
+   * with `?perf=1&fps=0`, so every streamed chunk carries the corridor, taking
+   * the `world` section over the 97 frames that actually built a chunk. Three
+   * interleaved runs each way — before 11.57 / 12.04 / 10.02 ms, after 10.89 /
+   * 10.72 / 10.59. The run-to-run spread is larger than the difference.
+   */
+  private segRoad = new Uint8Array(0);
+  private clipStamp = new Float64Array(0);
+  private clipOut = new Uint8Array(0);
+  private queryId = 0;
   private grid = new Map<number, Int32Array>();
   private minX = Infinity;
   private maxX = -Infinity;
@@ -213,9 +334,29 @@ export class RoadNetwork implements RoadField, RoadClearance {
     for (const r of this.roads) n += r.pts.length - 1;
     this.seg = new Float32Array(n * 6);
     this.segBridge = new Uint8Array(n);
+    this.segRoad = new Uint8Array(n);
+    this.clipStamp = new Float64Array(this.roads.length);
+    this.clipOut = new Uint8Array(this.roads.length);
     let k = 0;
-    for (const r of this.roads) {
+    for (let ri = 0; ri < this.roads.length; ri++) {
+      const r = this.roads[ri];
+      // A road that nobody trimmed still gets planes, square to its own ends.
+      // The default is not "no clipping": it is what turns the terminal dome
+      // into a flat cross-section. See Road.trim.
+      if (r.trim[2] === 0 && r.trim[3] === 0) {
+        const a = r.pts[0];
+        const b = r.pts[1];
+        const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+        setTrimStart(r, a.x, a.z, (b.x - a.x) / l, (b.z - a.z) / l);
+      }
+      if (r.trim[6] === 0 && r.trim[7] === 0) {
+        const a = r.pts[r.pts.length - 1];
+        const b = r.pts[r.pts.length - 2];
+        const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+        setTrimEnd(r, a.x, a.z, (b.x - a.x) / l, (b.z - a.z) / l);
+      }
       for (let i = 1; i < r.pts.length; i++) {
+        this.segRoad[k] = ri;
         const a = r.pts[i - 1];
         const b = r.pts[i];
         const o = k * 6;
@@ -272,7 +413,7 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * False when nothing is within REACH — the common case, answered by a bounds
    * test and one failed `Map.get`.
    */
-  private nearest(x: number, z: number): boolean {
+  private nearest(x: number, z: number, built: boolean, inset = 0): boolean {
     if (x < this.minX || x > this.maxX || z < this.minZ || z > this.maxZ) return false;
     const bucket = this.grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
     if (bucket === undefined) return false;
@@ -280,7 +421,19 @@ export class RoadNetwork implements RoadField, RoadClearance {
     let deck = 0;
     let bridge = 0;
     const s = this.seg;
+    if (built) this.queryId++;
     for (let i = 0; i < bucket.length; i++) {
+      if (built) {
+        const ri = this.segRoad[bucket[i]];
+        if (this.clipStamp[ri] !== this.queryId) {
+          this.clipStamp[ri] = this.queryId;
+          const t = this.roads[ri].trim;
+          const p0 = (x - t[0]) * t[2] + (z - t[1]) * t[3];
+          const p1 = (x - t[4]) * t[6] + (z - t[5]) * t[7];
+          this.clipOut[ri] = p0 >= inset && p1 >= inset ? 0 : 1;
+        }
+        if (this.clipOut[ri] === 1) continue;
+      }
       const o = bucket[i] * 6;
       const ax = s[o];
       const az = s[o + 1];
@@ -306,7 +459,8 @@ export class RoadNetwork implements RoadField, RoadClearance {
   }
 
   carveAt(x: number, z: number): number {
-    if (!this.nearest(x, z)) return 0;
+    // CARVE_INSET, not 0: the earthworks stop short of the surface's own plane.
+    if (!this.nearest(x, z, true, CARVE_INSET)) return 0;
     // A bridge span leaves the ground alone. Raising a lake bed to meet the deck
     // would drain the crossing, which is the one place the road is supposed to
     // be in the air.
@@ -335,7 +489,7 @@ export class RoadNetwork implements RoadField, RoadClearance {
   }
 
   surfaceAt(x: number, z: number, ground: number): number {
-    if (!this.nearest(x, z)) return ground;
+    if (!this.nearest(x, z, true)) return ground;
     const d = this.nDist;
     if (d >= DECK_EDGE) return ground;
     const deck = this.nDeck;
@@ -353,7 +507,12 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * otherwise hears about, and for the town builder's clearance tests.
    */
   distanceTo(x: number, z: number): number {
-    return this.nearest(x, z) ? this.nDist : Infinity;
+    // NOT clipped to the built carriageway, deliberately. A placer asking "is
+    // there a road here" is asking about the ROUTE: the Encampment's
+    // thoroughfare from its gate to the middle of camp is still a road you may
+    // not pitch a tent on, even once no gravel is drawn along it. One polyline,
+    // two questions — see Road.trim.
+    return this.nearest(x, z, false) ? this.nDist : Infinity;
   }
 
   /**

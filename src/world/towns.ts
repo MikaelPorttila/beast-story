@@ -437,6 +437,9 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
     const route = routeRoad(terrain, ax, az, bx, bz, s);
     const road: Road = {
       id, fromId, toId, pts: profileRoad(terrain, route, ay, by, aHold, bHold),
+      // Left at zero; `network.build()` squares both planes to the road's own
+      // ends unless something set them first. See Road.trim.
+      trim: new Float32Array(8),
     };
     network.add(road);
     return road;
@@ -456,6 +459,19 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
       jRaw.x, jRaw.z, junctionY, hamletB.x, hamletB.z, siteY[2], seed ^ 0x33,
       0, hold(2)),
   ];
+  // The fork is levelled like a town, at a fifth of the size. Three carriageways
+  // stop on this one node, and CARVE_INSET deliberately leaves the node's own
+  // column to the natural ground — so without this, an unkind seed stands the
+  // junction fingerpost in a divot of its own roads' making.
+  //
+  // AFTER the routing, deliberately. Pushed before it, this flatten moves the
+  // height field the router is searching, and both spurs took a different line:
+  // measured, junction-stonewatch went from 145.0 units at grade 0.102 to 145.0
+  // at 0.123, for a levelling the route had no reason to care about. The deck is
+  // anchored at `junctionY` either way, so the profile does not need to see it.
+  terrain.flattens.push({
+    x: jRaw.x, z: jRaw.z, h: junctionY + 0.55, core: 5, blend: 12,
+  });
   network.build();
   terrain.roads = network;
 

@@ -41,7 +41,7 @@
 import { VoxelModel, shade } from '../core/voxel';
 import { bakeProp, type Template } from './props';
 import { bakeSolid, SolidStamp } from './structures';
-import { DECK_EDGE, DECK_HALF, type Road } from './roads';
+import { builtDeck, DECK_EDGE, DECK_HALF, type Road } from './roads';
 import { WATER_LEVEL } from './terrain';
 import { hashCell } from './noise';
 
@@ -911,8 +911,15 @@ export function buildRoadRibbon(roads: readonly Road[], seed: number): {
   const idx: number[] = [];
 
   for (const road of roads) {
-    const pts = road.pts;
+    // The BUILT deck, not the route. A road may be surfaced over less than it
+    // is routed over — the Encampment's is — and drawing the route would put
+    // gravel where no carriageway was carved. See Road.trim in roads.ts.
+    const pts = builtDeck(road);
+    if (pts.length < 2) continue;
     let ring0 = -1;
+    let ringFirst = -1;
+    let pxF = 0;
+    let pzF = 0;
     let px0 = 0;
     let pz0 = 0;
     for (let i = 0; i < pts.length; i++) {
@@ -980,10 +987,43 @@ export function buildRoadRibbon(roads: readonly Road[], seed: number): {
           idx.push(base, base + 3, base + 1, base, base + 2, base + 3);
         }
       }
+      if (ringFirst < 0) { ringFirst = ring; pxF = px; pzF = pz; }
       ring0 = ring;
       px0 = px;
       pz0 = pz;
     }
+
+    /**
+     * A skirt ACROSS an end, which the length rims above cannot supply.
+     *
+     * Without it the strip stops with an open edge and you see under the last
+     * ring — the ground beneath a terminus is carved lower than the deck by
+     * construction (roads.ts, `carveAt`), so there is always a lip there to
+     * hide, even now that the corridor ends flat instead of in a dome. The
+     * outward direction is the road's own tangent: `px = -tz, pz = tx`, so
+     * `t = (pz, -px)`, negated at the start.
+     */
+    const endSkirt = (ring: number, pxr: number, pzr: number, sign: number): void => {
+      if (ring < 0) return;
+      const nx = pzr * sign;
+      const nz = -pxr * sign;
+      const base = pos.length / 3;
+      for (let k = 0; k < XS.length; k++) {
+        const src = (ring + k) * 3;
+        pos.push(pos[src], pos[src + 1], pos[src + 2]);
+        pos.push(pos[src], pos[src + 1] - RIBBON_SKIRT, pos[src + 2]);
+        nrm.push(nx, 0, nz, nx, 0, nz);
+        for (let q = 0; q < 2; q++) col.push(RUT[0] * 0.7, RUT[1] * 0.7, RUT[2] * 0.7);
+      }
+      // Both windings, for the reason the rim skirts give above.
+      for (let k = 0; k < XS.length - 1; k++) {
+        const a0 = base + k * 2;
+        idx.push(a0, a0 + 1, a0 + 3, a0, a0 + 3, a0 + 2);
+        idx.push(a0, a0 + 3, a0 + 1, a0, a0 + 2, a0 + 3);
+      }
+    };
+    endSkirt(ringFirst, pxF, pzF, -1);
+    endSkirt(ring0, px0, pz0, 1);
   }
   return { pos, nrm, col, idx };
 }
