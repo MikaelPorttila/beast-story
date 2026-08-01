@@ -79,6 +79,32 @@ once frames come quickly.
 - Dev server: `bun run dev` → http://localhost:5187 (`index.html` = game,
   `lab.html` = isolated stage, see [LAB.md](LAB.md)). The port is pinned because
   every tool in `tools/` hardcodes it.
+- **ONE WORKTREE, ONE PORT. 5187 belongs to the main checkout.** Sessions in
+  `.claude/worktrees/*` run concurrently and each serves a DIFFERENT tree, so
+  sharing a port does not mean queueing for it — it means one session's probe
+  quietly measuring another session's code. `bun run dev` cannot be shared
+  either way: `vite.config.ts` pins 5187 with `strictPort`, so the second one to
+  start simply fails. In a worktree:
+
+  1. **Claim a port in 5190–5199.** The claims are already written down —
+     every worktree has its own `.claude/launch.json` (gitignored, per-worktree,
+     never in a commit), so read the siblings' and take the lowest free number.
+     Put it in yours as `"port"`, which is also what makes the Browser pane's
+     `preview_start` open on your server rather than refusing because 5187 is
+     busy.
+  2. **Serve it with the flag, not the config.** `bun x vite --port 5191
+     --strictPort`. Do not edit `vite.config.ts` to do this: 5187 is what every
+     tool in `tools/` hardcodes, and that pin is load-bearing for the main
+     checkout.
+  3. **`--strictPort`, ALWAYS.** Without it vite takes the next free port
+     instead, and nothing tells you: the run looks perfect while your probe
+     drives a game built from somebody else's branch. A hard failure is the only
+     acceptable outcome of a clash.
+  4. **Point probes at it with a throwaway COPY, and delete it.**
+     `sed 's|5187|5191|' tools/test-x.mjs > tools/_tmp-x.mjs`, run that, remove
+     it. Never edit the tool itself — the hardcoded 5187 is the contract for
+     everyone else. `_tmp-*.mjs` is not gitignored, so a forgotten copy lands in
+     the commit.
 - **STOP THE DEV SERVER WHEN THE WORK IS DONE — in the same turn you report it
   done, and say that you did.** A server an agent left running is not a stray
   process, it is a STATUS LIGHT pointing the wrong way: from the outside a live
@@ -87,14 +113,12 @@ once frames come quickly.
   started for a single probe run or one screenshot, not just to a long session —
   those are the ones that get forgotten, because they were only meant to live for
   a minute. It applies at the end of EVERY turn that finishes a piece of work,
-  not only the last one in a conversation.
-- **Never stop a server you did not start.** The pinned port cuts the other way
-  too: 5187 already up usually means the developer is running it, or another
-  agent session is. Two agents cannot share it — every tool hardcodes it — so a
-  worktree serves itself on another port and runs a COPY of the probe pointed
-  there (`sed 's|5187|5199|' tools/test-x.mjs > tools/_tmp-x.mjs`, run it, delete
-  it) rather than editing the tool or evicting whoever is on 5187. Delete the
-  copies; `_tmp-*.mjs` is not gitignored and will otherwise be in the commit.
+  not only the last one in a conversation. It also frees the port you claimed
+  above for the next session.
+- **Never stop a server you did not start.** The corollary of owning a port is
+  not touching anyone else's: 5187 already up means the developer or another
+  session is on it, and the answer is to take a port of your own, never to evict
+  them.
 - Typecheck + build: `bun run build` (runs `tsc --noEmit` first — keep it clean).
   `bun run snapshot [label]` writes a timestamped, self-contained build to `dist/`.
 - **To look at a BUILD, serve it statically** — `bun x vite preview --outDir dist`
