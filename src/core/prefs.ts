@@ -78,6 +78,23 @@ export interface Prefs {
   invertLookX: boolean;
   invertLookY: boolean;
   /**
+   * Go fullscreen when a game is STARTED — New Game today, Load when there is
+   * something to load. On by default.
+   *
+   * This replaced a "Play fullscreen?" question the title screen asked as a step
+   * of its own, and the reason is that the question was never the interesting
+   * part: a player who wants fullscreen wants it every time, and one who does
+   * not wants to be left alone. Doing it and offering a switch says the same
+   * thing in one fewer tap for everybody.
+   *
+   * IT CAN ONLY BE HONOURED FROM A GESTURE. `requestFullscreen()` needs a user
+   * activation, so it is issued from the New Game click/keypress itself and
+   * nowhere else — see `StartMenu.start`. A pad press is not an activation in
+   * any browser, so someone starting the game with a controller stays windowed
+   * whatever this says. That is a browser rule, not a decision.
+   */
+  autoFullscreen: boolean;
+  /**
    * Display language, as an ISO 639-1 code — or null for "whatever the browser
    * asks for", which is the shipped default and NOT the same as 'en'.
    *
@@ -101,6 +118,7 @@ export const DEFAULT_PREFS: Readonly<Prefs> = {
   volume: 0.8,
   invertLookX: false,
   invertLookY: true,
+  autoFullscreen: true,
   lang: null,
 };
 
@@ -123,6 +141,7 @@ export const STORAGE_KEYS: Readonly<Record<keyof Prefs, string>> = {
   invertLookX: 'game.settings.controls.invertLookX',
   invertLookY: 'game.settings.controls.invertLookY',
   shakeIntensity: 'game.settings.graphics.shakeIntensity',
+  autoFullscreen: 'game.settings.graphics.autoFullscreen',
   volume: 'game.settings.gameplay.volume',
   lang: 'game.settings.gameplay.language',
 };
@@ -259,6 +278,7 @@ export function loadPrefs(): Prefs {
     volume: num01(read('volume'), DEFAULT_PREFS.volume),
     invertLookX: bool(read('invertLookX'), DEFAULT_PREFS.invertLookX),
     invertLookY: bool(read('invertLookY'), DEFAULT_PREFS.invertLookY),
+    autoFullscreen: bool(read('autoFullscreen'), DEFAULT_PREFS.autoFullscreen),
     lang: langCode(read('lang')),
   };
 }

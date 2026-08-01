@@ -319,10 +319,6 @@ export const en = {
   'toast.mount.refuse.noBeast': 'No beast to ride.',
   'toast.mount.refuse.other': 'Not now.',
 
-  // ---- fullscreen offer (touch devices only) -------------------------------
-  'fs.prompt': 'Play fullscreen?',
-  'fs.yes': 'YES',
-  'fs.no': 'NO',
 
   // ---- touch overlay buttons -----------------------------------------------
   // Thumb-sized caps: 3-5 characters is what the button geometry in
@@ -359,6 +355,12 @@ export const en = {
   'menu.settings.invertY': 'Invert look Y',
   /** Both toggles are pad-only, and saying so stops them reading as mouse bugs. */
   'menu.settings.controllerNote': 'Controller only — the mouse is never inverted.',
+  /**
+   * The switch in front of the fullscreen the game takes on New Game. Worded as
+   * what it DOES rather than as "auto fullscreen", because the player never saw
+   * anything called that — they saw the game fill the screen when they started.
+   */
+  'menu.settings.autoFullscreen': 'Fullscreen on start',
   'menu.settings.language': 'Language',
   'menu.on': 'ON',
   'menu.off': 'OFF',

@@ -124,8 +124,8 @@ once frames come quickly.
   Game and he must travel what the identical hold travels under `menu=0`
   (measured: 0 then 6.77, against 6.77). Everything else it reports — any key
   leaving the splash, Settings opening and Escaping back, the language chips
-  re-captioning the menu live, the fullscreen question answered from the keyboard,
-  and the phone run through it — is about the flow; that pair is about the gate.
+  re-captioning the menu live, the "Fullscreen on start" switch being there and
+  on, and the phone run — is about the flow; that pair is about the gate.
 - `test-settings.mjs` is the settings-storage guard, and it drives the real menu
   rather than calling `savePrefs`: a fresh profile must store NOTHING (defaults
   are the absence of a key, which is what keeps "never chose a language" distinct
@@ -371,7 +371,7 @@ way to the DOM (`hud.interactPrompt`) and it is free; bake one in and you owe it
 screen and the GATE on the game starting: `main.ts` passes `interactive=false`
 into `simulate()` for as long as it is open, exactly as photo mode does, so the
 world streams and renders behind the poster while the hero stands still. Its
-steps are `press -> fullscreen -> options -> settings`, driven by
+steps are `press -> options -> settings`, driven by
 keyboard, pointer and a pad poll of its own (edges only — `GamepadControls` is
 for feeding a live hero and is the wrong shape for a menu). Everything moving on
 it is CSS: the lantern pulse, the fairies and the logo's slide cost no
@@ -393,17 +393,23 @@ those two numbers equal, the restore has been lost and the game is stuck at menu
 speed.
 
 Two more things there are easy to break. **`menu=0` is load-bearing for every
-tool in `tools/`** — see the probe note above. And the "play fullscreen?" pill
-([src/ui/fullscreen.ts](src/ui/fullscreen.ts)) is no longer raised by the game
-on its first frame, no longer remembers an answer, and is no longer touch-only:
-the menu asks it, always, on every device whose browser can honour the answer,
-as the step straight after "Press start...". That is why the
-`bs:fullscreen-prompt` localStorage key is gone and why `isTouchPrimary()` is
-not in that module any more — the only device test left is the feature detect,
-which still skips the step on an iPhone rather than offering a YES that cannot
-work. Its buttons join the menu's own focus ring, so the question is answerable
-from the keyboard; a PAD cannot answer YES, because `requestFullscreen()` needs
-a user activation and a gamepad press is not one in any browser.
+tool in `tools/`** — see the probe note above. And **FULLSCREEN IS TAKEN, NOT
+ASKED FOR**: New Game goes fullscreen, and `Prefs.autoFullscreen` ("Fullscreen
+on start", on by default) is the switch that stops it. There is no pill and no
+question left — [src/ui/fullscreen.ts](src/ui/fullscreen.ts) is now a feature
+detect and one `enterFullscreen()` call.
+
+The rule that governs the whole feature is the GESTURE rule.
+`requestFullscreen()` is honoured only while the browser can attribute it to a
+user activation, so it is issued as the very first statement of `StartMenu.start`
+— ahead of the class change, the hooks and the fade — and from nowhere else.
+Defer it by so much as a promise tick and it silently stops working. Two
+consequences fall straight out of that and neither is a bug: a PAD press is not
+a user activation in any browser, so starting from a controller stays windowed;
+and an iPhone has no element-level Fullscreen API at all, so nothing happens
+there either. `fs=0` overrides the preference for one load — every probe in
+`tools/` that clicks New Game passes it, or the viewport is resized under the
+measurement it is taking.
 
 **The vertical layout is a two-row grid meeting at a divider**, and that is
 load-bearing rather than incidental. The logo sits in row one aligned to its
@@ -425,9 +431,9 @@ out, which renders a plausible picture of the wrong place rather than an error.
 Subtract the spawn (`__dbgTowns().spawn`) first. `npct=<seconds>` pins the NPC
 animation clock so two stills of the same 4.6 s curl are reproducible;
 `fps=<n>` caps the frame rate;
-`debug=1` opens the F2 overlay; `fsprompt=0` suppresses the fullscreen step and
-`fsprompt=1` forces it past the "already fullscreen" test; plus every
-post-processing override above.
+`debug=1` opens the F2 overlay; `fs=<0|1>` overrides "fullscreen on start" for
+this load without writing the preference back; plus every post-processing
+override above.
 `menu=0` removes the title screen and starts the game immediately — what every
 probe in `tools/` passes, and what `photo=1` implies on its own; `menu=1` forces
 it back, INCLUDING in photo mode, which is how the title screen itself gets

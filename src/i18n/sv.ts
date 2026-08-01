@@ -114,13 +114,9 @@ export const sv: Translation = {
   'menu.settings.invertX': 'Invertera sikte X',
   'menu.settings.invertY': 'Invertera sikte Y',
   'menu.settings.controllerNote': 'Gäller bara handkontroll — musen inverteras aldrig.',
+  'menu.settings.autoFullscreen': 'Helskärm vid start',
   'menu.settings.language': 'Språk',
   'menu.on': 'PÅ',
   'menu.off': 'AV',
 
-  // The fullscreen offer, which the menu now asks as its own step on a phone —
-  // the first thing a Swedish player is asked, so it cannot be a hole either.
-  'fs.prompt': 'Spela i helskärm?',
-  'fs.yes': 'JA',
-  'fs.no': 'NEJ',
 };

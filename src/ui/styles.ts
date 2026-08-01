@@ -392,69 +392,6 @@ const CSS = `
 .bs-shop-foot span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 
 /* ---- fullscreen offer (touch devices only) ------------------------------- */
-/* A body-level SIBLING of .bs-root, not a child of it. .bs-root carries
-   z-index:20 and therefore opens its own stacking context, so nothing inside it
-   can ever hit-test above the touch overlay (.bs-touch, z-index:30) — and this
-   prompt is drawn right over the corner the look pad owns. Sitting at z-index:40
-   in the ROOT stacking context is what lets it take its own taps. The dev
-   console (9000) and the F2 overlay (9999) still win, as they should.
-
-   There is no wrapper and no scrim: the ONLY pixels this thing occupies are its
-   own, and both answers remove() the element outright, so nothing is left
-   behind to swallow a drag. pointer-events:auto sits on the pill itself rather
-   than on a parent, following the same opt-in rule the rest of the HUD uses.
-
-   bottom:264px is measured, not guessed. What has to be cleared is not the fan
-   buttons (topmost reach 217px up from the bottom edge in BOTH orientations —
-   the fan is sized in vmin, so landscape is the same cluster turned 90°) but the
-   INVISIBLE look pad behind them, which on an emulated Pixel 5 starts 232px up.
-   240px was tried first and left the pill's bottom edge 8px above the pad: no
-   overlap, but a thumb reaching for the top of the drag surface could clip the
-   NO button. 264px puts a 32px band between them, and still sits above
-   .bs-hint's 232px so the interaction prompt and this one never stack.
-   Measured at 264: portrait pill y 530-587, landscape y 72-129 — clear of every
-   stick and button, above the reticle at y 196 in landscape, and between the
-   party panel (top-left) and the toast stack (top-right). */
-.bs-fsprompt{position:fixed;left:50%;bottom:calc(264px + env(safe-area-inset-bottom));
-  z-index:40;pointer-events:auto;touch-action:manipulation;
-  display:flex;align-items:center;gap:10px;padding:9px 10px 9px 15px;
-  max-width:min(330px,90vw);border-radius:14px;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-  color:#eef2f8;-webkit-user-select:none;user-select:none;
-  -webkit-tap-highlight-color:transparent;
-  background:linear-gradient(165deg,rgba(30,38,54,.86),rgba(14,18,28,.92));
-  border:1px solid rgba(255,255,255,.16);
-  box-shadow:0 12px 30px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.09);
-  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-  /* The -50% centring lives in the transform, so every state below has to
-     restate it or the pill jumps half its width sideways as it animates. */
-  opacity:0;transform:translateX(-50%) translateY(10px);
-  transition:opacity .26s ease,transform .3s cubic-bezier(.34,1.5,.64,1)}
-.bs-fsprompt.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.bs-fsprompt .txt{flex:1;font-size:12.5px;font-weight:700;letter-spacing:.01em;
-  line-height:1.3;text-shadow:0 1px 2px rgba(0,0,0,.5)}
-.bs-fs-btn{flex:none;min-width:56px;padding:9px 14px 10px;border-radius:10px;
-  border:1px solid rgba(255,255,255,.18);font-family:inherit;font-weight:800;
-  font-size:12px;letter-spacing:.06em;cursor:pointer;
-  background:rgba(255,255,255,.08);color:rgba(238,242,248,.82);
-  transition:filter .12s ease,transform .12s ease}
-.bs-fs-btn.yes{border-color:transparent;color:#3a2703;
-  background:linear-gradient(180deg,#ffd94f,#f5a623);
-  box-shadow:0 3px 8px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.45)}
-.bs-fs-btn:active{filter:brightness(1.2);transform:translateY(1px) scale(.98)}
-/* The pill is answered with the keyboard now that the start menu asks it on a
-   desktop too, so it needs the same loud cursor the menu buttons have — it is
-   the only thing saying which of NO/YES an Enter will hit. */
-.bs-fs-btn:focus-visible{outline:none;
-  box-shadow:0 0 0 2px rgba(255,214,120,.95),0 0 18px rgba(255,196,90,.55)}
-/* Raised by the start menu as its own step (ui/menu.ts) instead of over a live
-   game. The 264px perch above exists to clear the touch sticks; a title screen
-   has none, so the pill comes back to the middle and takes the place the
-   options are about to appear in — the top of the panel's row, which is the
-   divider plus the same 44px gap the list will sit at. */
-.bs-fsprompt.in-menu{bottom:auto;top:calc(50% + 44px);z-index:60;
-  max-width:min(360px,86vw)}
-
 /* ---- start menu ---------------------------------------------------------- */
 /* The title screen. Two images and CSS — see src/ui/menu.ts for what the layers
    are and why the art sits inside an explicitly sized plate.
@@ -580,8 +517,21 @@ const CSS = `
    a tight gap at 1080 put the New Game button through the middle of the logo at
    540. Shared --slide moves the pair without ever changing the distance between
    them, so the "logo slides up to make room" transition survives intact. */
+/* FOUR ROWS: flexible, logo, panel, flexible. The two content rows size
+   themselves and the two fr rows split whatever is left equally, so the pair is
+   centred AS A GROUP and the divider between them is wherever the logo's own
+   height puts it — the gap is still exactly --gap, and the panel can grow
+   downward without the logo's row caring.
+
+   It was 1fr 1fr, a divider pinned to the middle, which is right only while the
+   list fits in half a screen. Adding a fourth settings row took the panel to
+   397px and the Back button fell off the bottom at 720 and at 540. Sizing the
+   second row minmax(auto,50%) did not fix it either — measured, the row took
+   the 50% and let its content overflow, because a panel of wrappable rows has a
+   min-content height well under its natural one. Rows that are simply auto
+   cannot do that. */
 .bs-menu .fore{position:absolute;inset:0;display:grid;
-  grid-template-rows:1fr 1fr;justify-items:center;
+  grid-template-rows:1fr auto auto 1fr;justify-items:center;
   padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom))}
 /* Sized against BOTH dimensions, and the max-height is the load-bearing half.
    Width alone (min(560px,74vw)) gave a 960x540 window the same 560px logo a
@@ -591,13 +541,13 @@ const CSS = `
    the options appeared, on the theory that it had to get out of their way; it
    does not, now that the gap is a constant, and the wordmark is the one thing
    on this screen that should never look like it is retreating. */
-.bs-menu .logo{grid-row:1;align-self:end;margin-bottom:var(--gap,13vh);
+.bs-menu .logo{grid-row:2;align-self:end;margin-bottom:var(--gap,13vh);
   width:min(560px,74vw);height:auto;max-height:34vh;
   filter:drop-shadow(0 14px 34px rgba(0,0,0,.55));
   transform:translateY(var(--slide,7vh));
   transition:transform .55s cubic-bezier(.3,.9,.28,1),
              margin-bottom .55s cubic-bezier(.3,.9,.28,1)}
-.bs-menu .panel{grid-row:2;align-self:start;position:relative;
+.bs-menu .panel{grid-row:3;align-self:start;position:relative;
   width:min(400px,86vw);
   transform:translateY(var(--slide,7vh));
   transition:transform .55s cubic-bezier(.3,.9,.28,1)}
@@ -708,7 +658,7 @@ const CSS = `
    did not fit — only the settings column is short of room, so only that is
    compacted. */
 @media (min-height:521px) and (max-height:660px){
-  .bs-menu[data-step="settings"] .fore{grid-template-rows:auto 1fr}
+  .bs-menu[data-step="settings"] .fore{grid-template-rows:0 auto auto 1fr}
   .bs-menu[data-step="settings"]{--gap:20px}
   .bs-menu[data-step="settings"] .opts{gap:7px}
   .bs-menu[data-step="settings"] .bs-menu-btn.row{padding:8px 12px 8px 16px}
@@ -726,7 +676,7 @@ const CSS = `
      the settings list half of 390px to fit 217px of rows in, and captured at
      844x390 the Back button was cut off by the bottom of the screen. The logo
      does not need half a phone; the list does need all of the rest. */
-  .bs-menu .fore{grid-template-rows:auto 1fr}
+  .bs-menu .fore{grid-template-rows:0 auto auto 1fr}
   .bs-menu .logo{width:min(210px,26vw);max-height:38vh}
   .bs-menu{--slide:3vh;--gap:7vh}
   .bs-menu[data-step="fullscreen"],
@@ -736,7 +686,6 @@ const CSS = `
   .bs-menu-btn.row{padding:8px 12px 8px 16px}
   .bs-menu .opts{gap:7px}
   .bs-menu .press{font-size:15px}
-  .bs-fsprompt.in-menu{top:calc(50% + 14px)}
 }
 
 /* Very short — a small phone in landscape, where the arithmetic simply does not
@@ -752,16 +701,30 @@ const CSS = `
    collapses to nothing and the panel centres in the whole frame, which at 320px
    of height leaves it 44px of air top and bottom. */
 @media (max-height:440px){
-  .bs-menu[data-step="fullscreen"] .logo,
   .bs-menu[data-step="options"] .logo,
   .bs-menu[data-step="settings"] .logo{display:none}
-  .bs-menu[data-step="fullscreen"] .fore,
+  /* 1fr above AND below the panel, so with no logo it is centred rather than
+     parked against the top with all the slack underneath it. */
   .bs-menu[data-step="options"] .fore,
-  .bs-menu[data-step="settings"] .fore{grid-template-rows:0 1fr}
-  .bs-menu[data-step="options"] .panel,
-  .bs-menu[data-step="settings"] .panel{align-self:center}
-  .bs-fsprompt.in-menu{top:50%;transform:translate(-50%,-50%)}
-  .bs-fsprompt.in-menu.show{transform:translate(-50%,-50%)}
+  .bs-menu[data-step="settings"] .fore{grid-template-rows:0 1fr auto 1fr}
+}
+
+/* The SETTINGS step alone, on anything under 600px of height: the wordmark
+   stands down and the list gets the screen.
+
+   Settings is the tallest panel by a distance — four toggles, a note, the
+   language row and Back come to 397px, where the options list is 200 — so it is
+   the only step that runs out of room first, and it runs out well before a
+   phone. Measured with the logo up: at 560 the Back button was 10px past the
+   bottom edge and at 480 it was 20px past, on window sizes a desktop player
+   really has. Compacting further would shrink type that is already at its
+   floor; the wordmark has had the press screen and the options to itself, and
+   once a player is reading a list of switches it is the thing that can go.
+   Anything roomier keeps the logo on every step — captured at 640, where the
+   panel ends 43px clear of the bottom. */
+@media (max-height:600px){
+  .bs-menu[data-step="settings"] .logo{display:none}
+  .bs-menu[data-step="settings"] .fore{grid-template-rows:0 1fr auto 1fr}
 }
 
 /* ---- responsive ---------------------------------------------------------- */
