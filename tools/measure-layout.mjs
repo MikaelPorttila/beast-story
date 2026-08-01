@@ -11,7 +11,7 @@ for (const [name, viewport] of [
   ['landscape', { width: 851, height: 393 }],
 ]) {
   const { ctx, page } = await newContextPage(browser, { ...viewport, phone: true });
-  await page.goto('http://localhost:5187/?fps=30', { waitUntil: 'load' });
+  await page.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(4000);
   out[name] = await page.evaluate(() => {

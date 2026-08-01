@@ -1035,6 +1035,55 @@ export class HUD {
     if (foot) foot.innerHTML = shopFootHints(this.prompts);
   }
 
+  /**
+   * Re-derive every string this panel captured at CONSTRUCTION time, after the
+   * display language changed under it. Wire it to `onLanguageChange` — see
+   * src/i18n/index.ts — and never call it per frame: it rewrites markup.
+   *
+   * Two kinds of string live in here and only the first kind needs this.
+   * Anything main.ts hands in each slice (beast names, skill names on a card,
+   * the hint pill, a dialogue line) is already re-looked-up upstream and arrives
+   * translated on its own. What is stuck is what was baked into markup once —
+   * the HP caption, the level-up eyebrow, the mount ring's label, the currency
+   * word — plus anything sitting behind a change guard that a language switch
+   * does NOT move: a skill slot keyed on `skillId` and a bag keyed on
+   * `id:count` both re-render only when their subject changes, and the subject
+   * has not changed, only its name. Those guards are invalidated here so the
+   * next ordinary update redraws them.
+   *
+   * The one string this cannot reach is a toast already on screen: it was
+   * formatted when it was raised and it keeps the words it was raised with for
+   * the couple of seconds it has left. Rewriting mid-flight would be worse.
+   */
+  relabel(): void {
+    const hpLbl = this.root.querySelector('.bs-hp .lbl');
+    if (hpLbl) hpLbl.textContent = t('hud.hp');
+
+    const eyebrow = this.bannerEl.querySelector('.eyebrow');
+    if (eyebrow) eyebrow.textContent = t('hud.levelUp');
+
+    const mountLbl = this.mountHoldEl.querySelector('.lbl');
+    if (mountLbl) mountLbl.innerHTML = t('hud.mountHold', { key: this.prompts.mount });
+
+    // The currency word is only rewritten when the plural FORM flips, which a
+    // language switch does not do, so it is written directly rather than by
+    // invalidating the count guard.
+    this.shardLblEl.textContent = itemName(CURRENCY, Math.max(0, this.shardsDisplayed));
+
+    // Guards whose subject is unchanged but whose text is not.
+    this.bagSig = '';
+    for (const refs of this.slotRefs) refs.skillId = '';
+    this.ridingText = '';
+    this.ridingBeast = null;
+
+    // An open shop keeps its cards until it is reopened — the footer is one
+    // element and worth replacing, the card list is a rebuild with a purchase
+    // possibly half made. In practice this is unreachable: the language picker
+    // is in the start menu, which cannot be up at the same time as a shop.
+    const foot = this.shopWrap.querySelector('.bs-shop-foot');
+    if (foot) foot.innerHTML = shopFootHints(this.prompts);
+  }
+
   setMounted(beastName: string | null, flying: boolean): void {
     if (beastName === this.ridingBeast && flying === this.ridingFlying) return;
     this.ridingBeast = beastName;

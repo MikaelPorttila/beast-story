@@ -1,9 +1,9 @@
-import { isTouchPrimary } from '../core/touch';
 import { t } from '../i18n';
 import { injectStyles } from './styles';
 
 /**
- * "Play fullscreen?" — a two-button pill, touch devices only.
+ * "Play fullscreen?" — a two-button pill, raised by the start menu as its own
+ * step, on every device that can honour the answer.
  *
  * WHY IT IS A SEPARATE OVERLAY AND NOT A HUD CHILD
  *
@@ -36,13 +36,22 @@ import { injectStyles } from './styles';
  * how an iframe or a policy says "the method exists but is forbidden") and the
  * prompt is simply never built where the answer could not be honoured.
  *
- * PERSISTENCE — see `readAnswer`.
+ * NOTHING IS REMEMBERED, and that is a deliberate reversal.
+ *
+ * This module used to store the answer under `bs:fullscreen-prompt` and never
+ * ask again, because it raised itself unbidden on the game's first frame and a
+ * pill that reappears mid-walk every session is a nag. It no longer raises
+ * itself: the start menu asks it, once, as the step between pressing start and
+ * choosing New Game (see ui/menu.ts). At that moment "you already answered this
+ * in another session" is not a reason to skip it — the answer frames the whole
+ * session, the player is deciding to play rather than being interrupted, and a
+ * phone that has since been rotated or lent to somebody else has a different
+ * right answer. With no gate left to read, there is nothing worth writing
+ * either, so the key is gone rather than left behind write-only.
  */
 
-/** localStorage key. Namespaced so a later save system can share the prefix. */
-const STORAGE_KEY = 'bs:fullscreen-prompt';
-
-type Answer = 'yes' | 'no';
+/** Which button was pressed. Reported to whoever raised the prompt. */
+export type Answer = 'yes' | 'no';
 
 /** The prefixed half of the API, as it exists on Safari/older WebKit. */
 type FsElement = HTMLElement & {
@@ -76,40 +85,18 @@ export function isFullscreen(): boolean {
   return !!(document.fullscreenElement ?? doc.webkitFullscreenElement ?? null);
 }
 
-/**
- * The stored answer, or null if never asked.
- *
- * BOTH answers are sticky and both suppress the prompt forever after.
- *
- * "No" obviously has to stick or it nags on every load. "Yes" sticks for the
- * same reason: the answer CANNOT be replayed automatically — entering
- * fullscreen needs a gesture and a page load is not one — so re-asking a player
- * who already said yes is the identical nag with a nicer story attached, and
- * quietly grabbing fullscreen off their first ATK tap instead would fire in the
- * middle of gameplay and read as a bug. So a "yes" session that ends (or a
- * system swipe out of fullscreen) simply leaves the game windowed, and
- * `?fsprompt=1` is the documented way back — the same URL-override culture the
- * post-processing knobs already use.
- *
- * localStorage throws in some private-browsing modes; a failure degrades to
- * "never asked", i.e. the prompt shows again next load, which is the harmless
- * direction to fail in.
- */
-function readAnswer(): Answer | null {
-  try {
-    const v = window.localStorage.getItem(STORAGE_KEY);
-    return v === 'yes' || v === 'no' ? v : null;
-  } catch {
-    return null;
-  }
-}
 
-function writeAnswer(a: Answer): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, a);
-  } catch {
-    /* private mode: the answer just does not persist */
-  }
+/** How a prompt is being raised. See `ask`. */
+export interface FullscreenAskOptions {
+  /**
+   * True when the start menu is showing it as its own step. It moves the pill
+   * off its in-game perch — the 264px clearance below exists to dodge the touch
+   * sticks, and on a title screen there are none — and centres it under the
+   * logo instead.
+   */
+  inMenu?: boolean;
+  /** Fired after either answer, once the pill has taken itself off the DOM. */
+  onAnswer?: (answer: Answer) => void;
 }
 
 export class FullscreenPrompt {
@@ -120,14 +107,23 @@ export class FullscreenPrompt {
    *
    * The gate, in order:
    *   - `?fsprompt=0` suppresses it outright (captures, tooling).
-   *   - `?fsprompt=1` forces it past the device test and any stored answer, so
-   *     it can be inspected on a desktop and re-offered after a "no". It does
-   *     NOT bypass the feature detect: a YES that does nothing stays impossible.
-   *   - otherwise: touch-primary device (the SAME `isTouchPrimary()` the touch
-   *     overlay uses — there is no second device test), API present, no stored
-   *     answer, and not already fullscreen.
+   *   - `?fsprompt=0` suppresses it outright (captures, tooling).
+   *   - `?fsprompt=1` forces it past the "already fullscreen" test.
+   *   - otherwise: the API is present and the page is not already fullscreen.
+   *
+   * EVERY DEVICE, not just touch. This asked only on touch-primary hardware
+   * at first, inheriting the gate from the days when it raised itself over a
+   * live game and a desktop player could hit F11 themselves. As a deliberate
+   * step in the start menu that reasoning is gone: a mouse-and-keyboard player
+   * has just as much reason to be asked once, at the moment they decide to
+   * play, and most of them do not think of F11.
+   *
+   * The feature detect stays, and it is the only device test left. On an iPhone
+   * there is no element-level Fullscreen API at all, so the step is skipped
+   * rather than offering a YES that cannot do anything. Also note what is NOT
+   * in the list any more: a stored answer. See the header.
    */
-  static offer(): FullscreenPrompt | null {
+  static ask(opts: FullscreenAskOptions = {}): FullscreenPrompt | null {
     let force = false;
     try {
       const p = new URLSearchParams(window.location.search).get('fsprompt');
@@ -136,19 +132,15 @@ export class FullscreenPrompt {
     } catch { /* no search params: fall through to the normal gate */ }
 
     if (!fullscreenSupported()) return null;
-    if (!force) {
-      if (!isTouchPrimary()) return null;
-      if (readAnswer() !== null) return null;
-      if (isFullscreen()) return null;
-    }
-    return new FullscreenPrompt();
+    if (!force && isFullscreen()) return null;
+    return new FullscreenPrompt(opts);
   }
 
-  private constructor() {
+  private constructor(private opts: FullscreenAskOptions = {}) {
     injectStyles();
 
     const el = document.createElement('div');
-    el.className = 'bs-fsprompt';
+    el.className = `bs-fsprompt${opts.inMenu ? ' in-menu' : ''}`;
     el.innerHTML =
       `<div class="txt">${t('fs.prompt')}</div>` +
       `<button class="bs-fs-btn no" type="button">${t('fs.no')}</button>` +
@@ -169,13 +161,11 @@ export class FullscreenPrompt {
       // not worth an error dialog — the game just stays windowed. Swallow it so
       // it does not surface as an unhandled rejection.
       void Promise.resolve(req).catch(() => {});
-      writeAnswer('yes');
-      this.close();
+      this.answer('yes');
     });
 
     no.addEventListener('click', () => {
-      writeAnswer('no');
-      this.close();
+      this.answer('no');
     });
 
     document.body.appendChild(el);
@@ -189,8 +179,20 @@ export class FullscreenPrompt {
   }
 
   /**
+   * Record an answer, take the pill down, and tell whoever raised it.
+   *
+   * The callback fires LAST, after the node is gone, because the start menu's
+   * handler moves straight on to the options — and the pill sits where those
+   * options are about to be drawn.
+   */
+  private answer(a: Answer): void {
+    this.close();
+    this.opts.onAnswer?.(a);
+  }
+
+  /**
    * Take the pill away without recording anything. Used by dispose(); an answer
-   * goes through the button handlers, which write first and then land here.
+   * goes through `answer` above, which writes first and then lands here.
    */
   private close(): void {
     this.el?.remove();

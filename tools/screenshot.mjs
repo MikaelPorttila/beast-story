@@ -8,7 +8,13 @@ const [out = 'shot.png', query = '', w = '1920', h = '1080', settle = '3500'] = 
 // cap stops an accelerated run from spinning the GPU at hundreds of fps while
 // the world settles. Pass an explicit fps= (e.g. fps=0) for uncapped runs.
 const q = /(^|&)fps=/.test(query) ? query : (query ? `${query}&fps=30` : 'fps=30');
-const url = `http://localhost:5187/${q ? '?' + q : ''}`;
+// The title screen is suppressed by default — a capture of the world with a
+// poster over it is not a capture of the world. Same opt-out shape as fps
+// above: pass an explicit menu= (menu=1) to shoot the title screen itself, and
+// pair it with photo=1 to freeze the lantern pulse and the fairies so two runs
+// produce the same pixels.
+const qm = /(^|&)menu=/.test(q) ? q : `${q}&menu=0`;
+const url = `http://localhost:5187/?${qm}`;
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: +w, height: +h });

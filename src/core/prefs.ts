@@ -43,6 +43,21 @@ export interface Prefs {
    */
   invertLookX: boolean;
   invertLookY: boolean;
+  /**
+   * Display language, as an ISO 639-1 code — or null for "whatever the browser
+   * asks for", which is the shipped default and NOT the same as 'en'.
+   *
+   * The distinction is the whole reason this is nullable. A Swedish player who
+   * has never opened Settings gets Swedish from `navigator.language`; if the
+   * default were the string 'en' instead, that same player would be pinned to
+   * English by a preference they never expressed. Only picking a language in the
+   * menu writes this, and from then on it outranks the browser — which is what
+   * someone who chose English on a Swedish machine expects.
+   *
+   * Validated by i18n/index.ts against the languages that actually exist, not
+   * here: this module has no business knowing which codes ship.
+   */
+  lang: string | null;
 }
 
 export const DEFAULT_PREFS: Readonly<Prefs> = {
@@ -51,6 +66,7 @@ export const DEFAULT_PREFS: Readonly<Prefs> = {
   volume: 0.8,
   invertLookX: false,
   invertLookY: true,
+  lang: null,
 };
 
 const STORAGE_KEY = 'bs:prefs';
@@ -85,6 +101,16 @@ function bool(v: unknown, fallback: boolean): boolean {
   return typeof v === 'boolean' ? v : fallback;
 }
 
+/**
+ * And for the language code. Shape only — a short lower-case ASCII word — since
+ * whether the code names a language that SHIPS is i18n's question, and it
+ * already answers it on read (an unknown code falls through to the browser).
+ * The length cap is what stops a hand-edited blob putting a kilobyte in here.
+ */
+function langCode(v: unknown): string | null {
+  return typeof v === 'string' && /^[a-z]{2,3}$/.test(v) ? v : null;
+}
+
 export function loadPrefs(): Prefs {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -96,6 +122,7 @@ export function loadPrefs(): Prefs {
       volume: clamp01(o.volume, DEFAULT_PREFS.volume),
       invertLookX: bool(o.invertLookX, DEFAULT_PREFS.invertLookX),
       invertLookY: bool(o.invertLookY, DEFAULT_PREFS.invertLookY),
+      lang: langCode(o.lang),
     };
   } catch {
     // Unreadable, unparseable, or storage denied: the stock feel.

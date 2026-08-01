@@ -86,7 +86,10 @@ async function walk(page, startX, startZ, yaw, holdMs = HOLD_MS) {
 async function run(solids, geom = null) {
   const page = await newPage(browser, { width: 1000, height: 640 });
   logPageErrors(page);
-  await page.goto(`http://localhost:5187/?fps=30${solids ? '' : '&solids=0'}`, { waitUntil: 'load' });
+  await page.goto(
+    `http://localhost:5187/?fps=30&menu=0${solids ? '' : '&solids=0'}`,
+    { waitUntil: 'load' },
+  );
   await page.waitForSelector('canvas');
   await wait(SETTLE);
 

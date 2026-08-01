@@ -15,7 +15,7 @@ for (const [name, viewport] of [
   ['phone-landscape', { width: 851, height: 393, phone: true }],
 ]) {
   const { ctx, page } = await newContextPage(browser, viewport);
-  await page.goto('http://localhost:5187/?fps=30', { waitUntil: 'load' });
+  await page.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(3500);
   // Hide the 3D canvas and everything except the reticle, then paint the page

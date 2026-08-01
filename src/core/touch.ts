@@ -1,5 +1,5 @@
 import type { Input } from './input';
-import { t } from '../i18n';
+import { t, type StringKey } from '../i18n';
 
 /**
  * Touch controls: a left analog stick for movement, a right look pad, and the
@@ -466,6 +466,29 @@ export class TouchControls {
       this.input.setVirtualAttack(false);
       this.input.setVirtualButton('Space', false);
     }
+  }
+
+  /**
+   * Re-cap the sticks and buttons after the display language changed. Wire it to
+   * `onLanguageChange` (see src/i18n/index.ts); it is never called per frame.
+   *
+   * The lookup is by CLASS, which is the identifier here — `.bs-btn.attack` is
+   * the button whatever its cap reads, and that is exactly the split the
+   * constructor already makes when it passes a class and a `t()` cap side by
+   * side. Nothing keys on the word, so re-capping cannot break the tool that
+   * asserts on these nodes.
+   */
+  relabel(): void {
+    const cap = (sel: string, key: StringKey): void => {
+      const el = this.root.querySelector(sel);
+      if (el) el.textContent = t(key);
+    };
+    cap('.bs-stick.move .tag', 'touch.move');
+    cap('.bs-stick.look .tag', 'touch.look');
+    cap('.bs-btn.attack', 'touch.attack');
+    cap('.bs-btn.jump', 'touch.jump');
+    cap('.bs-btn.interact', 'touch.interact');
+    cap('.bs-btn.swap', 'touch.swap');
   }
 
   dispose(): void {

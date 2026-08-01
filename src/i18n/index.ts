@@ -34,15 +34,30 @@
  * LANGUAGE SELECTION, in order:
  *   1. `?lang=<code>` — the same URL-override convention the post-processing
  *      knobs and core/flags.ts already use, and the only way a tool or a
- *      screenshot can pin a language.
- *   2. `navigator.language` ('sv-SE' -> 'sv').
- *   3. 'en'.
- * Resolved ONCE at module load. There is no live language switch: every caller
- * would have to re-render, and a page reload with `?lang=` is the whole feature
- * for a tenth of the machinery.
+ *      screenshot can pin a language. It also PINS: `setLanguage` still switches
+ *      the running game, but a reload puts the URL's choice back, which is what
+ *      makes a capture reproducible.
+ *   2. The stored preference (`Prefs.lang`), written only by picking a language
+ *      in the start menu.
+ *   3. `navigator.language` ('sv-SE' -> 'sv').
+ *   4. 'en'.
+ *
+ * SWITCHING AT RUNTIME. `setLanguage(code)` swaps the table and fires
+ * `onLanguageChange` listeners; the start menu re-renders itself, and the game
+ * surfaces that captured a string at CONSTRUCTION time (`HUD.relabel`,
+ * `TouchControls.relabel`, and main.ts's load-time hint strings) re-derive
+ * theirs from the same event. Everything else already calls `t()` on the way to
+ * the DOM each frame and needs nothing.
+ *
+ * ONE THING CANNOT FOLLOW A LIVE SWITCH: carved signs. A fingerpost arm in
+ * world/town-parts.ts is voxel GEOMETRY built once from `t(signKey)` at world
+ * creation, so a plank that reads RODBRIAR keeps reading it until the world is
+ * rebuilt. That is why the language picker lives in the start menu, before the
+ * world the player will walk through has been streamed.
  */
 import { en, type StringKey, type Translation } from './en';
 import { sv } from './sv';
+import { loadPrefs, savePrefs } from '../core/prefs';
 
 export type { StringKey, Translation } from './en';
 
@@ -53,6 +68,12 @@ type PluralForm = 'one' | 'other';
 
 interface Language {
   table: Translation;
+  /**
+   * What this language calls ITSELF, for the picker in the start menu. Always
+   * written in the language it names — someone looking for Swedish is looking
+   * for "Svenska", and cannot be expected to read the English word for it.
+   */
+  nativeName: string;
   /** Which form `tn` picks for a count. Default: English/Germanic one-or-other. */
   plural?: (n: number) => PluralForm;
 }
@@ -64,34 +85,110 @@ interface Language {
  * "text appears a frame late" bug that comes with one.
  */
 const LANGUAGES: Record<string, Language> = {
-  en: { table: en },
-  sv: { table: sv },
+  en: { table: en, nativeName: 'English' },
+  sv: { table: sv, nativeName: 'Svenska' },
 };
 
 const DEFAULT_PLURAL = (n: number): PluralForm => (n === 1 ? 'one' : 'other');
 
-function resolveCode(): string {
-  let requested: string | null = null;
-  try {
-    requested = new URLSearchParams(window.location.search).get('lang');
-  } catch { /* no window (tooling): fall through */ }
-  if (!requested) {
-    try {
-      requested = navigator.language;
-    } catch { /* no navigator: fall through */ }
-  }
+/** A request ('sv-SE', 'SV') reduced to a table that exists, or null. */
+function known(requested: string | null | undefined): string | null {
+  if (!requested) return null;
   // ISO 639-1 is the file name, so 'sv-SE' and 'sv' are the same table.
-  const code = (requested ?? 'en').slice(0, 2).toLowerCase();
-  return code in LANGUAGES ? code : 'en';
+  const c = requested.slice(0, 2).toLowerCase();
+  return c in LANGUAGES ? c : null;
 }
 
-const code = resolveCode();
-const active: Translation = LANGUAGES[code].table;
-const pluralOf = LANGUAGES[code].plural ?? DEFAULT_PLURAL;
+/** The `?lang=` pin, if there is one. Read on every call — it never changes. */
+function urlPin(): string | null {
+  try {
+    return known(new URLSearchParams(window.location.search).get('lang'));
+  } catch {
+    return null; // no window (tooling)
+  }
+}
+
+function resolveCode(): string {
+  const pinned = urlPin();
+  if (pinned) return pinned;
+
+  let stored: string | null = null;
+  try {
+    stored = known(loadPrefs().lang);
+  } catch { /* no storage: fall through */ }
+  if (stored) return stored;
+
+  try {
+    const browser = known(navigator.language);
+    if (browser) return browser;
+  } catch { /* no navigator: fall through */ }
+
+  return 'en';
+}
+
+let code = resolveCode();
+let active: Translation = LANGUAGES[code].table;
+let pluralOf = LANGUAGES[code].plural ?? DEFAULT_PLURAL;
 
 /** The ISO 639-1 code actually in use — 'en' when the request was unknown. */
 export function language(): string {
   return code;
+}
+
+/** Every language the picker may offer, base first, in registration order. */
+export function languages(): ReadonlyArray<{ code: string; nativeName: string }> {
+  return Object.entries(LANGUAGES).map(([c, l]) => ({ code: c, nativeName: l.nativeName }));
+}
+
+/**
+ * Listeners fired AFTER the table has been swapped, so a listener that calls
+ * `t()` gets the new language. A Set rather than an array: `dispose()` paths
+ * unsubscribe, and removing by identity from a Set does not shift the
+ * collection out from under an iteration.
+ */
+type LanguageListener = () => void;
+const listeners = new Set<LanguageListener>();
+
+/**
+ * Subscribe to language changes. Returns the unsubscribe — call it from the
+ * subscriber's own `dispose()`, or a torn-down HUD keeps being relabelled.
+ */
+export function onLanguageChange(fn: LanguageListener): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
+
+/**
+ * Switch the display language for the running game.
+ *
+ * Returns false for a language that does not ship, so a caller can tell "no
+ * such table" from "already in that language" (which returns true and does
+ * nothing — re-selecting the current language must not churn every listener).
+ *
+ * The choice is PERSISTED, including when `?lang=` is pinning this session. The
+ * two do not fight: the pin wins on the next load, so a capture stays
+ * reproducible, while the preference is what a player gets when they open the
+ * game normally. A listener that throws must not cost the others their
+ * notification, so each is called inside its own try.
+ */
+export function setLanguage(next: string): boolean {
+  const c = known(next);
+  if (!c) return false;
+  if (c === code) return true;
+
+  code = c;
+  active = LANGUAGES[c].table;
+  pluralOf = LANGUAGES[c].plural ?? DEFAULT_PLURAL;
+  savePrefs({ lang: c });
+
+  for (const fn of [...listeners]) {
+    try {
+      fn();
+    } catch (e) {
+      console.error('[i18n] language listener failed', e);
+    }
+  }
+  return true;
 }
 
 const PLACEHOLDER = /\{(\w+)\}/g;

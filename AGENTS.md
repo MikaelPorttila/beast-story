@@ -81,12 +81,39 @@ once frames come quickly.
   every tool in `tools/` hardcodes it.
 - Typecheck + build: `bun run build` (runs `tsc --noEmit` first — keep it clean).
   `bun run snapshot [label]` writes a timestamped, self-contained build to `dist/`.
+- **To look at a BUILD, serve it statically** — `bun x vite preview --outDir dist`
+  (what `bun run snapshot` prints), or any static server. Two ways that look
+  right and are not:
+  - `file://` cannot work at all. The game loads ES modules and the browser
+    refuses them cross-origin from that scheme; you get a blank page, no canvas.
+  - **`bun ./dist/index.html` is a bundler, not a static server.** Bun's HTML
+    entry point treats the page as SOURCE and re-bundles it, so pointing it at
+    already-built output re-processes the bundles, serves its own chunks, and
+    answers everything else with the index.html SPA fallback — measured:
+    `/assets/main-*.js` came back as `text/html`. Vite's `base:'./'` builds also
+    resolve assets through `import.meta.url`, which in Bun's re-bundle is a
+    `file://` path on disk, so the menu art ends up pointing outside the server
+    entirely. Nothing is wrong with the build when this happens.
+  - `bun ./index.html` on the SOURCE, however, works fine (Bun bundles
+    `src/main.ts` and serves the menu art from `/_bun/asset/`) — it is just not
+    the pinned dev server the tools talk to.
 - There is no unit-test runner. The tests are browser probe scripts that print
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
-  `test-sway.mjs`.
+  `test-sway.mjs`, `test-menu.mjs`.
   `tools/capture-set.ps1` (PowerShell, project root) captures the full critic
   shot set.
+- **Every probe that drives the game passes `menu=0`.** The title screen is a
+  gate — it holds the hero still until New Game — so a tool that forgets it
+  measures a poster. `tools/screenshot.mjs` adds it for you unless the query
+  already names `menu=`; the rest have it in their URL.
+- `test-menu.mjs` is the title-screen guard, and the assertion that matters is a
+  PAIR: hold W with the poster up and the hero must travel 0, hold W after New
+  Game and he must travel what the identical hold travels under `menu=0`
+  (measured: 0 then 6.77, against 6.77). Everything else it reports — any key
+  leaving the splash, Settings opening and Escaping back, the language chips
+  re-captioning the menu live, the fullscreen question answered from the keyboard,
+  and the phone run through it — is about the flow; that pair is about the gate.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -114,6 +141,22 @@ once frames come quickly.
 
 TypeScript + three.js, no framework and no asset files — every model, animation
 and effect is generated in code. Vite serves two entries from the same modules.
+
+The ONE exception is `src/ui/menu-bg.webp` and `src/ui/menu-logo.webp`, the
+title screen's painting and wordmark. They are not a crack in the rule: nothing
+the renderer draws comes from a file, and these are a 2D poster shown before the
+renderer is on screen at all — the one place where an image *is* the design
+rather than a shortcut around building one. Keep it that way. A texture, a
+model, a sprite sheet or a font file is still a no.
+
+They live in `src/` and are IMPORTED (`import bgUrl from './menu-bg.webp'`),
+not dropped in a `public/` folder — there is no `public/` in this project and
+adding one is the wrong move. `base:'./'` means a build can be served from any
+subfolder, Vite does not rewrite string literals in JS, and a `public/` asset
+therefore has to have its URL worked out at runtime against `document.baseURI`.
+Imported, the bundler emits it content-hashed into `assets/` beside `main-*.js`
+and writes the relative URL itself: if the page can load its own JavaScript it
+can load these, on every way of serving the build.
 
 **The contract hub.** [src/core/types.ts](src/core/types.ts) holds every
 cross-module interface — `World`, `BeastSpecies`/`BeastRig`/`BeastAnimCtx`, `SkillDef`,
@@ -244,6 +287,56 @@ and the layout/crosshair/touch tools assert on them — renaming one breaks a to
 `main.ts` exposes read-only probes (`__dbgPlayerPos`, `__dbgCamYaw`, `__dbgInput`)
 that exist purely for those tools; keep them working.
 
+**The title screen.** [src/ui/menu.ts](src/ui/menu.ts) is the first thing on
+screen and the GATE on the game starting: `main.ts` passes `interactive=false`
+into `simulate()` for as long as it is open, exactly as photo mode does, so the
+world streams and renders behind the poster while the hero stands still. Its
+steps are `press -> fullscreen -> options -> settings`, driven by
+keyboard, pointer and a pad poll of its own (edges only — `GamepadControls` is
+for feeding a live hero and is the wrong shape for a menu). Everything moving on
+it is CSS: the lantern pulse, the fairies and the logo's slide cost no
+JavaScript per frame, and the glows stay on the painting's lanterns at every
+aspect ratio because they are positioned inside `.plate`, which restates
+`background-size:cover` in explicit numbers.
+
+**While the poster is up the renderer is capped to 20 fps** (`MENU_FPS` in
+main.ts), and that is not a nicety. Uncapped, the game draws at the display's
+refresh rate — 165 fps on the machine this was measured on — and every one of
+those frames is the world plus GTAO, bloom and SMAA rendered behind an opaque
+picture. Measured over 6 s at 1920x1080: **96.9%** of the main thread with the
+title screen up, **28%** capped, and the poster itself is about 1-3 points of
+either figure. The cap is handed back on `onLeave`, the START of the exit fade,
+because that is when the game behind becomes visible again — half a second
+before `onStart`. `test-menu.mjs` asserts both halves off the F2 readout
+(measured: 17.9 behind the menu, 165.2 after starting); if a change ever makes
+those two numbers equal, the restore has been lost and the game is stuck at menu
+speed.
+
+Two more things there are easy to break. **`menu=0` is load-bearing for every
+tool in `tools/`** — see the probe note above. And the "play fullscreen?" pill
+([src/ui/fullscreen.ts](src/ui/fullscreen.ts)) is no longer raised by the game
+on its first frame, no longer remembers an answer, and is no longer touch-only:
+the menu asks it, always, on every device whose browser can honour the answer,
+as the step straight after "Press start...". That is why the
+`bs:fullscreen-prompt` localStorage key is gone and why `isTouchPrimary()` is
+not in that module any more — the only device test left is the feature detect,
+which still skips the step on an iPhone rather than offering a YES that cannot
+work. Its buttons join the menu's own focus ring, so the question is answerable
+from the keyboard; a PAD cannot answer YES, because `requestFullscreen()` needs
+a user activation and a gamepad press is not one in any browser.
+
+**The vertical layout is a two-row grid meeting at a divider**, and that is
+load-bearing rather than incidental. The logo sits in row one aligned to its
+bottom, the panel in row two aligned to its top, so the facing edges both land
+on the line between the rows and the distance between them is exactly `--gap`
+at every window size — they cannot overlap however tall the panel grows. The
+first version centred both in ONE cell and translated each away by a percentage
+of viewport HEIGHT while the panel's own height was a fixed pixel count; those
+do not scale together, and values tuned at 1080 put the New Game button through
+the middle of the word "Story" at 540. Below 440px of height the logo is hidden
+on the option steps entirely — at 844x390 the frame cannot hold a logo, a gap
+and a 232px settings list, and the wordmark has already had the press screen.
+
 **Game URL parameters.** `photo=1` with `cam=x,y,z` / `look=x,y,z` / `beast=<id>` /
 `anim=` / `a=<deg>` / `hud=0` stages captures. **`cam` and `look` are OFFSETS
 FROM `world.spawnPoint`, not world coordinates** — feeding them the absolute
@@ -252,11 +345,17 @@ out, which renders a plausible picture of the wrong place rather than an error.
 Subtract the spawn (`__dbgTowns().spawn`) first. `npct=<seconds>` pins the NPC
 animation clock so two stills of the same 4.6 s curl are reproducible;
 `fps=<n>` caps the frame rate;
-`debug=1` opens the F2 overlay; `fsprompt=1` forces the touch fullscreen offer
-past the device test and any remembered answer (`fsprompt=0` suppresses it, and
-it never appears in `photo=1`); plus every post-processing override above.
-`lang=<iso639-1>` pins the display language (default `navigator.language`, then
-`en` — see **Strings** below). Lab parameters are in [LAB.md](LAB.md).
+`debug=1` opens the F2 overlay; `fsprompt=0` suppresses the fullscreen step and
+`fsprompt=1` forces it past the "already fullscreen" test; plus every
+post-processing override above.
+`menu=0` removes the title screen and starts the game immediately — what every
+probe in `tools/` passes, and what `photo=1` implies on its own; `menu=1` forces
+it back, INCLUDING in photo mode, which is how the title screen itself gets
+captured (`photo=1` then freezes its animations so two runs match, and do NOT
+add `hud=0` — that hides every overlay including the menu).
+`lang=<iso639-1>` pins the display language (default: the stored preference,
+then `navigator.language`, then `en` — see **Strings** below). Lab parameters
+are in [LAB.md](LAB.md).
 
 **Strings.** Every player-visible name and sentence comes from
 [src/i18n/en.ts](src/i18n/en.ts), the BASE table and the source of truth for
@@ -267,6 +366,15 @@ one/other plurals), and keys are typed off the base table so a typo is a compile
 error. **IDs are keys; names are display**: the currency's id is still `'shard'`
 because saves, the drop table and the fetch rule key on it, while it displays as
 "Cubloons". Rename a thing by editing the table, never the id.
+
+The language SWITCHES at runtime — `setLanguage(code)` from the start menu's
+picker, persisted in `core/prefs.ts` — so the rule for new code is: look a
+string up on its way to the DOM, and it is free. Capture one at construction and
+you owe it a re-derive from `onLanguageChange`, which today is `HUD.relabel()`,
+`TouchControls.relabel()` and one small block in `main.ts` listing every hoisted
+string it holds. One thing cannot follow a live switch and is not meant to: a
+fingerpost's letters are voxel geometry carved once at world creation, which is
+why the picker lives in the menu, before the world is streamed.
 
 ## Conventions
 
