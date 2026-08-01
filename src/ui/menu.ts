@@ -5,21 +5,33 @@ import { t, language, languages, setLanguage, onLanguageChange } from '../i18n';
 import type { LookAxes } from '../core/gamepad';
 import { FullscreenPrompt } from './fullscreen';
 import { injectStyles } from './styles';
+import bgUrl from './menu-bg.webp';
+import logoUrl from './menu-logo.webp';
 
 /**
  * The title screen — splash, "Press start...", then New Game / Load / Settings.
  *
  * WHAT IT IS MADE OF
  *
- * Two pictures and CSS. `public/menu-bg.webp` and `public/menu-logo.webp` are
- * the only art files in the whole project, and they are a deliberate exception
- * to the "everything is generated in code" rule that governs the game itself:
- * this is a 2D poster, not a thing the renderer has to build, and a painted
- * splash is the one place where an image IS the design. Everything moving on
- * top of them — the lantern pulse, the fairies, the logo's slide — is CSS
- * animation, so the menu costs no JavaScript per frame. The only per-frame work
- * while it is up is the gamepad poll below, and that only runs if the page can
- * see a pad at all.
+ * Two pictures and CSS. `menu-bg.webp` and `menu-logo.webp`, sitting next to
+ * this file, are the only art files in the whole project, and they are a
+ * deliberate exception to the "everything is generated in code" rule that
+ * governs the game itself: this is a 2D poster, not a thing the renderer has to
+ * build, and a painted splash is the one place where an image IS the design.
+ * Everything moving on top of them — the lantern pulse, the fairies, the logo's
+ * slide — is CSS animation, so the menu costs no JavaScript per frame. The only
+ * per-frame work while it is up is the gamepad poll below, and that only runs
+ * if the page can see a pad at all.
+ *
+ * THEY ARE IMPORTED, NOT PUT IN `public/`, and that is a correctness choice
+ * rather than a filing one. `vite.config.ts` sets `base:'./'` so a build can be
+ * served from any subfolder — which is exactly what `bun run snapshot`
+ * produces — and Vite does not rewrite string literals in JS. Under `public/`
+ * the URL therefore had to be computed at RUNTIME against `document.baseURI`,
+ * which is one more thing that has to be right on every way of serving the
+ * build. Imported, the bundler emits the file with a content hash and writes
+ * the relative URL itself, by the same machinery that already resolves
+ * `main-*.js`: if the page can load its own JavaScript it can load these.
  *
  * WHY THE ART IS INSIDE A SIZED PLATE
  *
@@ -59,7 +71,7 @@ interface Lamp {
 }
 
 /**
- * Measured off `public/menu-bg.webp` (1672x941) by zooming on each lantern and
+ * Measured off `menu-bg.webp` (1672x941) by zooming on each lantern and
  * reading the centre of its glass: left post 84,670 — gate post 609,728 — right
  * post 1579,677. Written as fractions so they survive the day someone re-exports
  * the art at another size, as long as the framing is the same.
@@ -240,22 +252,6 @@ export class StartMenu {
   // Markup
   // -------------------------------------------------------------------------
 
-  /**
-   * A public/ asset's URL, resolved against the DOCUMENT rather than the site
-   * root.
-   *
-   * `vite.config.ts` sets `base:'./'` so a build can be served from any
-   * subfolder (that is what `bun run snapshot` produces), and a root-absolute
-   * `/menu-bg.webp` would 404 in exactly that case. Vite does not rewrite string
-   * literals in JS, so the relative resolve has to happen here: against
-   * `document.baseURI` it yields `/menu-bg.webp` on the dev server and
-   * `/2026-08-01_1030/menu-bg.webp` inside a snapshot, with no build step
-   * involved either time.
-   */
-  private asset(name: string): string {
-    return new URL(name, document.baseURI).href;
-  }
-
   private markup(): string {
     const lamps = LAMPS.map((l) =>
       `<i class="lamp" style="--x:${(l.x * 100).toFixed(2)}%;--y:${(l.y * 100).toFixed(2)}%;` +
@@ -268,14 +264,14 @@ export class StartMenu {
     return (
       '<div class="stage">' +
         '<div class="plate">' +
-          `<img class="art" src="${this.asset('menu-bg.webp')}" alt="" draggable="false">` +
+          `<img class="art" src="${bgUrl}" alt="" draggable="false">` +
           lamps +
         '</div>' +
         `<div class="flies">${fairies}</div>` +
         '<div class="vign"></div>' +
       '</div>' +
       '<div class="fore">' +
-        `<img class="logo" src="${this.asset('menu-logo.webp')}" ` +
+        `<img class="logo" src="${logoUrl}" ` +
         `alt="${escapeHtml(t('menu.title'))}" draggable="false">` +
         '<div class="panel"></div>' +
       '</div>'

@@ -337,7 +337,7 @@ export const en = {
 
   // ---- start menu ----------------------------------------------------------
   // The title screen in src/ui/menu.ts. The game's own name is deliberately NOT
-  // here: it is the logo artwork (public/menu-logo.webp), which is a picture of
+  // here: it is the logo artwork (src/ui/menu-logo.webp), which is a picture of
   // the words and cannot be translated by editing this file. `menu.title` is the
   // logo's alt text, which is all a screen reader gets of it.
   'menu.title': 'Beast Story: Bonds of Red',

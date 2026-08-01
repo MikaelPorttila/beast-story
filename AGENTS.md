@@ -126,12 +126,21 @@ once frames come quickly.
 TypeScript + three.js, no framework and no asset files — every model, animation
 and effect is generated in code. Vite serves two entries from the same modules.
 
-The ONE exception is `public/menu-bg.webp` and `public/menu-logo.webp`, the
+The ONE exception is `src/ui/menu-bg.webp` and `src/ui/menu-logo.webp`, the
 title screen's painting and wordmark. They are not a crack in the rule: nothing
 the renderer draws comes from a file, and these are a 2D poster shown before the
 renderer is on screen at all — the one place where an image *is* the design
 rather than a shortcut around building one. Keep it that way. A texture, a
 model, a sprite sheet or a font file is still a no.
+
+They live in `src/` and are IMPORTED (`import bgUrl from './menu-bg.webp'`),
+not dropped in a `public/` folder — there is no `public/` in this project and
+adding one is the wrong move. `base:'./'` means a build can be served from any
+subfolder, Vite does not rewrite string literals in JS, and a `public/` asset
+therefore has to have its URL worked out at runtime against `document.baseURI`.
+Imported, the bundler emits it content-hashed into `assets/` beside `main-*.js`
+and writes the relative URL itself: if the page can load its own JavaScript it
+can load these, on every way of serving the build.
 
 **The contract hub.** [src/core/types.ts](src/core/types.ts) holds every
 cross-module interface — `World`, `BeastSpecies`/`BeastRig`/`BeastAnimCtx`, `SkillDef`,
