@@ -1,15 +1,23 @@
 // The start-menu guard: does the title screen actually GATE the game?
 //
-// Three claims, and each is checked by driving the menu rather than by reading
-// a flag off it:
+// Four claims, and each is checked by driving the menu rather than by reading a
+// flag off it:
 //
-//   1. It is up at boot and the hero cannot move behind it. Holding W for a
-//      second with the poster on screen must leave __dbgPlayerPos where it was;
-//      the same hold after New Game must move him. That pair is the whole point
-//      — a menu that renders but does not gate is worse than no menu.
-//   2. "Press start" takes ANY key, and the steps advance in order: press ->
-//      options on a desktop, press -> fullscreen -> options on a phone.
-//   3. `menu=0` removes it, which is what every other tool in here relies on.
+//   1. THE POSTER IS FIRST. It has to be on screen within a fraction of a second
+//      of load, before the world is built — `menuShownAtMs`. This is the whole
+//      of issue #13: the game used to be assembled inside one unbroken 14.7 s
+//      task and the player watched a black page for all of it.
+//   2. NOTHING RUNS BEHIND IT. `playingBehindMenu` must be false — the frame
+//      loop is not started until New Game — and the hero cannot move: holding W
+//      for a second with the poster on screen must leave __dbgPlayerPos where it
+//      was, while the same hold after New Game must move him. That pair is the
+//      point; a menu that renders but does not gate is worse than no menu.
+//   3. THE WAIT IS REPORTED AND THEN OVER. The boot chip counts through its four
+//      phases (`bootStages`) and finishes at 100%, and New Game raises the
+//      full-screen loading cover rather than dropping the player into a
+//      half-built world.
+//   4. "Press start" takes ANY key, the steps advance in order, and `menu=0`
+//      removes the screen entirely — which is what every other tool relies on.
 //
 // It also reports the art's decoded size, because a 404 on either image leaves
 // a menu that is technically present and visually empty.
@@ -17,8 +25,17 @@
 //   bun tools/test-menu.mjs
 import { launchBrowser, newPage, newContextPage, wait, logPageErrors } from './browser.mjs';
 
-const BOOT = 3000;   // world build + first chunks
 const HOLD = 1200;   // long enough that a walking hero clears the noise floor
+/**
+ * How long to let the boot sequence run before giving up on it, in ms.
+ *
+ * Generous on purpose: the shader warm-up sweep is the long pole and it is
+ * driver-bound, measured at 13.5 s on a headless RTX 3070 Ti. The probe waits
+ * for the real signal (`__dbgBoot().prepDone`) rather than for a fixed BOOT
+ * interval, because a fixed one is either a lie on a slow host or dead time on
+ * a fast one.
+ */
+const PREP_TIMEOUT = 60000;
 
 const state = (page) => page.evaluate(() => {
   const m = document.querySelector('.bs-menu');
@@ -39,12 +56,34 @@ const state = (page) => page.evaluate(() => {
 
 const pos = (page) => page.evaluate(() => window.__dbgPlayerPos());
 
+/** The boot sequence's own account of itself. See __dbgBoot in src/main.ts. */
+const boot = (page) => page.evaluate(() => window.__dbgBoot?.() ?? null);
+
+/** The progress indicator: which face it is wearing, and what it says. */
+const loader = (page) => page.evaluate(() => {
+  const el = document.querySelector('.bs-load');
+  if (!el) return null;
+  return {
+    chip: el.classList.contains('chip'),
+    cover: el.classList.contains('cover'),
+    label: el.querySelector('.lbl')?.textContent ?? null,
+    pct: el.querySelector('.pct')?.textContent ?? null,
+    opacity: Number(getComputedStyle(el).opacity).toFixed(2),
+  };
+});
+
 /**
  * Rendered frames per second, read off the F2 overlay — the same readout
  * tools/test-f2.mjs asserts on, and the only place the game states its own
  * measured frame rate. NOT a requestAnimationFrame count: rAF fires at the
  * display's refresh rate whether or not the engine drew anything, so it reports
  * 165 on a 165 Hz panel no matter what the cap is set to.
+ *
+ * There is no longer a behind-the-menu figure to compare it against, and its
+ * absence IS the fix: the loop used to run behind the poster at a 20 fps cap
+ * (96.9% of the main thread uncapped, 27% capped) and now does not run at all,
+ * so the overlay has nothing to average. `playingBehindMenu` is the assertion
+ * that replaced that pair — see the header.
  */
 const renderedFps = (page) => page.evaluate(() => {
   const el = [...document.body.children].find(
@@ -54,6 +93,19 @@ const renderedFps = (page) => page.evaluate(() => {
   return m ? Number(m[1]) : null;
 });
 const moved = (a, b) => +Math.hypot(b.x - a.x, b.z - a.z).toFixed(2);
+
+/** Poll until the boot sequence says everything is built. Returns how long. */
+async function waitForPrep(page) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < PREP_TIMEOUT) {
+    // page.evaluate queues behind whatever phase is holding the main thread, so
+    // this polls far more slowly than the interval suggests. That is fine: the
+    // answer is still the first one available after the work finishes.
+    if ((await boot(page))?.prepDone) return Date.now() - t0;
+    await wait(250);
+  }
+  return -1;
+}
 
 /** Hold W for `ms` and report how far the hero travelled. */
 async function walk(page, ms) {
@@ -81,12 +133,32 @@ const out = {};
   // from that gesture — which resizes the viewport out from under the walk
   // being measured two lines later. The override never writes the preference
   // back; see core/flags.ts.
+  // Stamped from inside the page, before the app module runs: the ONE number
+  // issue #13 is about. It has to be a fraction of a second, and it has to stay
+  // that way whatever the world costs to build.
+  await page.evaluateOnNewDocument(() => {
+    window.__menuAt = null;
+    const iv = setInterval(() => {
+      if (document.querySelector('.bs-menu.show')) {
+        window.__menuAt = Math.round(performance.now());
+        clearInterval(iv);
+      }
+    }, 8);
+  });
   await page.goto('http://localhost:5187/?debug=1&fs=0', { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
-  await wait(BOOT);
+  await page.waitForSelector('.bs-menu');
+  out.menuShownAtMs = await page.evaluate(() => window.__menuAt);
+  // The chip is up and counting while the world is still being cut.
+  out.loaderWhileBuilding = await loader(page);
+
+  out.prepTookMs = await waitForPrep(page);
+  out.bootStages = (await boot(page))?.stages ?? null;
+  out.loaderWhenReady = await loader(page);
 
   out.atBoot = await state(page);
-  out.fpsBehindMenu = await renderedFps(page);
+  // The half of the old MENU_FPS pair that survived, in a stronger form: there
+  // is no frame loop behind the poster to measure.
+  out.playingBehindMenu = (await boot(page))?.playing ?? null;
   out.walkedBehindMenu = await walk(page, HOLD);
 
   // "Press start" takes any key — this one is neither Enter nor Space.
@@ -136,37 +208,78 @@ const out = {};
   out.focusAfterEscape = await page.evaluate(() =>
     document.activeElement?.dataset?.act ?? null);
 
+  // The handover, sampled from INSIDE the page at 25 ms. It has to be: a probe
+  // that asks from outside pays a round trip per sample and lands well after the
+  // half-second dissolve it is trying to watch — the first attempt read the
+  // cover already at 0.60 and fading and could not tell that from a bug.
+  await page.evaluate(() => {
+    window.__hand = [];
+    const iv = setInterval(() => {
+      const menu = document.querySelector('.bs-menu');
+      const el = document.querySelector('.bs-load');
+      window.__hand.push({
+        t: Math.round(performance.now()),
+        menu: menu ? Number(getComputedStyle(menu).opacity).toFixed(2) : null,
+        face: el ? (el.classList.contains('cover') ? 'cover' : 'chip') : null,
+        load: el ? Number(getComputedStyle(el).opacity).toFixed(2) : null,
+      });
+      if (window.__hand.length > 120) clearInterval(iv);
+    }, 25);
+  });
   // New Game, clicked rather than Entered: this assertion is about the poster
   // going away and the hero waking up, not about where the cursor was.
   await page.click('.bs-menu [data-act="new"]');
-  await wait(1200);
+  await wait(2000);
+  // What the poster dissolved INTO. `coverFullyUpWhileMenuVisible` is the claim:
+  // there was a moment where the loading screen was opaque and the menu was
+  // still on top of it, fading — which is the z-index inversion in
+  // LoadingScreen.cover doing its job. `menuFadeMs` is how long the poster
+  // lasted; it must be the half second the CSS asks for, not the 140 ms a
+  // bubbled button transition used to cut it to.
+  out.handover = await page.evaluate(() => {
+    const h = window.__hand;
+    const fadeStart = h.find((s) => s.menu !== null && Number(s.menu) < 0.99);
+    const lastMenu = [...h].reverse().find((s) => s.menu !== null);
+    return {
+      coverFullyUpWhileMenuVisible:
+        h.some((s) => s.menu !== null && s.face === 'cover' && Number(s.load) > 0.95),
+      menuFadeMs: fadeStart && lastMenu ? lastMenu.t - fadeStart.t : -1,
+      trace: h.filter((s) => s.menu !== null || s.face !== null)
+        .map((s) => `${s.t} menu=${s.menu} ${s.face}=${s.load}`).slice(0, 40),
+    };
+  });
+  await wait(200);
   out.afterStart = await state(page);
+  // ...and gone again once there is a game to look at.
+  out.loaderAfterStart = await loader(page);
   // The welcome toast MOVED — it used to be emitted at load, which behind a
   // poster would have expired before the player ever saw the game, so it is
   // fired from the menu's onStart instead. Read straight after starting,
   // before its ~4 s life runs out.
   out.welcomeToast = await page.evaluate(() =>
     document.querySelector('.bs-toasts')?.textContent?.trim() || null);
-  // The other half of the cap claim. `fpsBehindMenu` should be ~20 and this
-  // should be well clear of it — a run where both are 20 means the restore on
-  // the way out was lost and the game is stuck at menu speed forever, which is
-  // a far worse bug than the one the cap was added to fix.
-  await wait(1500);   // the readout averages, so let it forget the capped frames
+  // The renderer is now running at whatever rate this load asked for — no cap
+  // was ever imposed, so there is nothing to have failed to restore. The number
+  // is still reported because it is the only proof the loop is alive at all,
+  // and it must be paired with `playingBehindMenu: false` above.
+  await wait(1500);   // the readout averages over ~120 frames
   out.fpsAfterStart = await renderedFps(page);
+  out.playingAfterStart = (await boot(page))?.playing ?? null;
   out.walkedAfterStart = await walk(page, HOLD);
   await ctx.close();
 }
 
-// ---- phone: the fullscreen question is step two ----------------------------
+// ---- phone: the poster, and the chip that fits beside the notch -------------
 {
   const { ctx, page } = await newContextPage(browser, {
     width: 844, height: 390, phone: true,
   });
   logPageErrors(page);
   await page.goto('http://localhost:5187/?fps=30', { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
-  await wait(BOOT);
+  await page.waitForSelector('.bs-menu');
   out.phoneAtBoot = await state(page);
+  out.phoneLoader = await loader(page);
+  await waitForPrep(page);
   await page.tap('.bs-menu');
   await wait(500);
   out.phoneAfterTap = await state(page);
@@ -174,12 +287,16 @@ const out = {};
 }
 
 // ---- menu=0: what every other tool in here passes ---------------------------
+// No poster, so no staged boot and no progress indicator: the module runs
+// straight through and the game is playing by the time the probe looks, exactly
+// as it did before any of this. `loaderOff` being null is that claim.
 {
   const page = await newPage(browser, { width: 900, height: 600 });
   logPageErrors(page);
   await page.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
   await page.waitForSelector('canvas');
-  await wait(BOOT);
+  out.loaderOff = await loader(page);
+  out.playingWithMenuOff = (await boot(page))?.playing ?? null;
   out.menuOff = await state(page);
   out.walkedWithMenuOff = await walk(page, HOLD);
 }

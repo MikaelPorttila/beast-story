@@ -37,6 +37,7 @@ export class StubWorld implements World {
   /** The stage is one mesh built in the constructor: nothing ever streams. */
   readonly chunksLoaded = 1;
   readonly streaming = false;
+  readonly pendingChunks = 0;
   private disposables: Array<{ dispose(): void }> = [];
   private meshes: THREE.Mesh[] = [];
 
