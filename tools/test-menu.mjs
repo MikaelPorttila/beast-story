@@ -33,7 +33,7 @@ const state = (page) => page.evaluate(() => {
     logo: logo?.naturalWidth ?? 0,
     buttons: [...document.querySelectorAll('.bs-menu .panel button')]
       .map((b) => b.dataset.act ?? b.dataset.toggle ?? b.dataset.lang ?? '?'),
-    fsPill: !!document.querySelector('.bs-fsprompt'),
+    fullscreen: !!(document.fullscreenElement ?? document.webkitFullscreenElement),
   };
 });
 
@@ -77,7 +77,11 @@ const out = {};
   // way out, and an explicit cap would flatten both halves of that into one
   // number. `debug=1` opens the F2 overlay, which is where the measured rate is
   // published.
-  await page.goto('http://localhost:5187/?debug=1', { waitUntil: 'load' });
+  // fs=0 because this run CLICKS New Game, and the game now takes fullscreen
+  // from that gesture — which resizes the viewport out from under the walk
+  // being measured two lines later. The override never writes the preference
+  // back; see core/flags.ts.
+  await page.goto('http://localhost:5187/?debug=1&fs=0', { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(BOOT);
 
@@ -89,19 +93,11 @@ const out = {};
   await page.keyboard.press('KeyK');
   await wait(400);
   out.afterAnyKey = await state(page);
-  // The fullscreen question is step two on EVERY device that can honour the
-  // answer, desktop included, and it has to be answerable from the keyboard:
-  // the pill's buttons join the menu's focus ring, so Enter lands on one.
-  out.focusOnFsStep = await page.evaluate(() =>
-    document.activeElement?.className ?? null);
-  // YES is first in the pill, so NO is one step to the RIGHT of it.
-  await page.keyboard.press('ArrowRight');      // YES -> NO
-  await wait(150);
-  out.focusAfterArrow = await page.evaluate(() =>
-    document.activeElement?.className ?? null);
-  await page.keyboard.press('Enter');           // answer NO, on to the options
-  await wait(500);
-  out.afterFullscreenAnswer = await state(page);
+  // There is NO fullscreen step any more: any key goes straight to the options,
+  // and the game takes fullscreen itself when New Game is pressed. Nothing
+  // should have been left behind on the way.
+  out.noPillLeftBehind = await page.evaluate(() =>
+    document.querySelector('.bs-fsprompt') === null);
 
   // Into Settings and back out, which is also the language picker's home.
   // ONE ArrowDown, not two: Load is disabled, and a disabled button is not in
@@ -112,6 +108,11 @@ const out = {};
   await page.keyboard.press('Enter');
   await wait(400);
   out.settings = await state(page);
+  // The switch that replaced the question: present, and ON by default.
+  out.autoFullscreenRow = await page.evaluate(() => {
+    const b = document.querySelector('.bs-menu [data-toggle="autoFullscreen"]');
+    return b ? b.getAttribute('aria-pressed') : null;
+  });
   // The language picker, live: switching to Swedish has to re-caption the menu
   // under the player without reloading. `menu.newGame` is 'Nytt spel' in sv.ts.
   out.langButtons = await page.evaluate(() =>
@@ -169,11 +170,6 @@ const out = {};
   await page.tap('.bs-menu');
   await wait(500);
   out.phoneAfterTap = await state(page);
-  // Answering it — either button — has to hand the player on to the options.
-  const no = await page.$('.bs-fs-btn.no');
-  if (no) await no.click();
-  await wait(500);
-  out.phoneAfterAnswer = await state(page);
   await ctx.close();
 }
 

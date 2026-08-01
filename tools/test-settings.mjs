@@ -34,14 +34,10 @@ const stored = (page) => page.evaluate(() => {
 
 const feedback = (page) => page.evaluate(() => window.__dbgFeedback?.() ?? null);
 
-/** Walk the menu to the settings list: any key, answer the fullscreen step, in. */
+/** Walk the menu to the settings list: any key leaves the splash, then in. */
 async function openSettings(page) {
   await page.keyboard.press('KeyK');
   await wait(400);
-  if (await page.$('.bs-fs-btn.no')) {
-    await page.click('.bs-fs-btn.no');
-    await wait(400);
-  }
   await page.click('.bs-menu [data-act="settings"]');
   await wait(300);
 }
@@ -95,10 +91,6 @@ const out = {};
   // `menu.newGame` in sv.ts.
   await page.keyboard.press('KeyK');
   await wait(400);
-  if (await page.$('.bs-fs-btn.no')) {
-    await page.click('.bs-fs-btn.no');
-    await wait(400);
-  }
   out.migratedMenu = await page.evaluate(() =>
     [...document.querySelectorAll('.bs-menu .panel button')].map((b) => b.textContent.trim()));
   await ctx.close();

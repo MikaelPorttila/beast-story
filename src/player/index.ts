@@ -244,6 +244,20 @@ export class Player {
    */
   readonly radius = BODY_RADIUS;
   onAttack?: (origin: THREE.Vector3, direction: THREE.Vector3) => void;
+  /**
+   * Melee aim assist, asked once per swing on the strike frame.
+   *
+   * Nudges `direction` toward the enemy nearest the crosshair and returns
+   * whether it moved it. The hook is here rather than the logic because the
+   * three pieces live in three places and none of them should reach across:
+   * the enemy list is the combat system's, the policy is main.ts's, and the
+   * BODY is this class's — a swing that gets steered has to take the hero's
+   * facing with it, or the arc lands somewhere his sword visibly is not.
+   *
+   * It mutates in place, like every other vector on this path, so a swing
+   * allocates nothing.
+   */
+  aimAssist?: (origin: THREE.Vector3, direction: THREE.Vector3) => boolean;
 
   private rig: HeroRig;
   /**
@@ -1118,7 +1132,29 @@ export class Player {
         else _dir.copy(this.forward);
         _origin.copy(this.position);
         _origin.y += mounted ? MOUNTED_STRIKE_Y : 1.25;
+        // AIM ASSIST BEFORE THE ORIGIN IS PUSHED OUT, because the push is along
+        // the swing and the swing is what is about to move. Asked from the body,
+        // not from the offset point: 0.35 units cannot change which enemy is
+        // nearest the crosshair, and feeding it a point derived from the answer
+        // would be circular.
+        const steered = this.aimAssist?.(_origin, _dir) ?? false;
         _origin.addScaledVector(_dir, mounted ? MOUNTED_REACH : 0.35);
+        // Square up to the swing that is actually being thrown. Without this the
+        // arc — which is 100 degrees wide and drawn from `_dir` — can cut at up
+        // to the assist cone away from the shoulders it comes out of, and reads
+        // as a slash detached from the hero. A snap rather than a damp because
+        // it happens ON the strike frame of a fast animation, where it reads as
+        // a lunge; `targetHeading` goes on damping toward the camera from the
+        // next slice, so nothing is left twisted.
+        //
+        // On foot only. In the saddle the heading belongs to the mount, and the
+        // rider's swing already goes down the crosshair rather than along his
+        // body — see the note above.
+        if (steered && !mounted) {
+          this.heading = Math.atan2(_dir.x, _dir.z);
+          this.root.rotation.y = this.heading;
+          this.forward.set(Math.sin(this.heading), 0, Math.cos(this.heading));
+        }
         this.onAttack?.(_origin, _dir);
       }
       if (input.attackPressed && a.t > a.dur * 0.35 && a.combo < 2) {

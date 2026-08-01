@@ -3,7 +3,7 @@ import { loadPrefs, savePrefs, type Prefs } from '../core/prefs';
 import { flags } from '../core/flags';
 import { t, language, languages, setLanguage, onLanguageChange } from '../i18n';
 import type { LookAxes } from '../core/gamepad';
-import { FullscreenPrompt } from './fullscreen';
+import { enterFullscreen } from './fullscreen';
 import { injectStyles } from './styles';
 import bgUrl from './menu-bg.webp';
 import logoUrl from './menu-logo.webp';
@@ -46,12 +46,13 @@ import logoUrl from './menu-logo.webp';
  *
  * THE STEPS
  *
- *   press  -> fullscreen (touch only) -> options -> settings -> options
+ *   press -> options -> settings -> options
  *
- * `fullscreen` is a step rather than the free-floating pill the game used to
- * raise on its first frame: on a phone the answer decides how the whole session
- * is framed, so it is asked once, deliberately, between pressing start and
- * choosing anything. It is ALWAYS asked there — see `askedFullscreen`.
+ * There used to be a fullscreen step between the first two, asking "Play
+ * fullscreen?" on every launch. It is gone: the game goes fullscreen when New
+ * Game is pressed, and Settings carries a switch to stop it. See
+ * `Prefs.autoFullscreen` for why a question was the wrong shape, and
+ * ui/fullscreen.ts for why the request has to be issued from the gesture.
  *
  * INPUT. Keyboard, pointer and pad all work, and the options are real
  * `<button>`s so Enter/Space, tab order and focus rings come from the platform
@@ -130,7 +131,7 @@ const FAIRIES: ReadonlyArray<Fairy> = [
   { top: 11, size: 10, duration: 31, delay: -15, bob: 3.3, bobY: 20, reverse: false, hue: 'cool' },
 ];
 
-type Step = 'press' | 'fullscreen' | 'options' | 'settings';
+type Step = 'press' | 'options' | 'settings';
 
 /**
  * The settings this screen shows as an ON/OFF row.
@@ -141,7 +142,7 @@ type Step = 'press' | 'fullscreen' | 'options' | 'settings';
  * setting's name twice. What each one MEANS to the running game is still a
  * hook, because that differs per setting.
  */
-type ToggleKey = 'hapticFeedback' | 'invertLookX' | 'invertLookY';
+type ToggleKey = 'hapticFeedback' | 'invertLookX' | 'invertLookY' | 'autoFullscreen';
 
 export interface StartMenuHooks {
   /**
@@ -201,7 +202,6 @@ export class StartMenu {
   private padDown = new Uint8Array(20);
   private padEdge = new Uint8Array(20);
   private padAxisLatched = false;
-  private fsPrompt: FullscreenPrompt | null = null;
 
   /**
    * Build the menu, or return null when the game should just start.
@@ -252,7 +252,6 @@ export class StartMenu {
     this.pollPad();
 
     // Next frame so the entrance transition has a start state to move from —
-    // the same one-frame delay ui/fullscreen.ts uses for its pill.
     requestAnimationFrame(() => el.classList.add('show'));
   }
 
@@ -314,10 +313,6 @@ export class StartMenu {
 
     if (this.step === 'press') {
       panel.innerHTML = `<div class="press">${escapeHtml(t('menu.pressStart'))}</div>`;
-    } else if (this.step === 'fullscreen') {
-      // The pill builds and owns itself, exactly as it does in game; the panel
-      // stays empty so the logo is not sitting on top of two competing asks.
-      panel.innerHTML = '';
     } else if (this.step === 'options') {
       panel.innerHTML =
         '<div class="opts">' +
@@ -333,7 +328,11 @@ export class StartMenu {
           this.toggle('hapticFeedback', t('menu.settings.hapticFeedback'), this.prefs.hapticFeedback) +
           this.toggle('invertLookX', t('menu.settings.invertX'), this.prefs.invertLookX) +
           this.toggle('invertLookY', t('menu.settings.invertY'), this.prefs.invertLookY) +
+          // The note belongs to the two INVERT rows — it says the mouse is never
+          // inverted — so anything added below it must go after it, not between.
           `<div class="note">${escapeHtml(t('menu.settings.controllerNote'))}</div>` +
+          this.toggle('autoFullscreen', t('menu.settings.autoFullscreen'),
+            this.prefs.autoFullscreen) +
           `<div class="row lang"><span class="lbl">${escapeHtml(t('menu.settings.language'))}</span>` +
           `<div class="langs">${languages().map((l) =>
             `<button class="bs-menu-btn chip${l.code === language() ? ' on' : ''}" type="button" ` +
@@ -342,15 +341,7 @@ export class StartMenu {
         '</div>';
     }
 
-    // The fullscreen step's buttons are not in the panel — the pill is a
-    // body-level sibling that owns its own DOM (see ui/fullscreen.ts for why it
-    // has to be). It is still a step of this menu, so its buttons go into the
-    // same focus ring: that is what lets the question be answered with the
-    // keyboard on a desktop, where it is now also asked.
-    const scope: ParentNode = this.step === 'fullscreen'
-      ? document.querySelector('.bs-fsprompt') ?? panel
-      : panel;
-    this.focusables = Array.from(scope.querySelectorAll('button:not([disabled])'));
+    this.focusables = Array.from(panel.querySelectorAll('button:not([disabled])'));
     // Where the cursor lands is stated by whoever asked for this panel, never
     // inherited from the last one. Carrying an INDEX across a rebuild is what
     // put the cursor on Settings after a mouse click had moved it elsewhere —
@@ -359,7 +350,7 @@ export class StartMenu {
     // always the top of the new list.
     const want = this.pendingFocus;
     this.pendingFocus = null;
-    const found = want ? scope.querySelector<HTMLButtonElement>(want) : null;
+    const found = want ? panel.querySelector<HTMLButtonElement>(want) : null;
     this.focusIdx = found ? Math.max(0, this.focusables.indexOf(found)) : 0;
     this.focusables[this.focusIdx]?.focus();
   }
@@ -456,11 +447,10 @@ export class StartMenu {
       case 'ArrowUp': case 'w': case 'W':
         e.preventDefault(); this.moveFocus(-1); break;
       case 'ArrowLeft': case 'ArrowRight':
-        // Left/right is for the two things laid out as a ROW: the language
-        // chips inside the settings column, and the fullscreen question's
-        // NO/YES pair. Anywhere else it does nothing rather than jumping the
-        // list sideways for no reason.
-        if (this.step === 'fullscreen' || document.activeElement?.hasAttribute('data-lang')) {
+        // Left/right is for the one thing laid out as a ROW: the language
+        // chips inside the settings column. Anywhere else it does nothing
+        // rather than jumping the list sideways for no reason.
+        if (document.activeElement?.hasAttribute('data-lang')) {
           e.preventDefault();
           this.moveFocus(e.key === 'ArrowRight' ? 1 : -1);
         }
@@ -494,11 +484,10 @@ export class StartMenu {
    * that is about to be handed a live hero. Twenty bytes of previous-state and a
    * latch on the stick is the whole of it.
    *
-   * A pad CANNOT satisfy the fullscreen step: `requestFullscreen()` needs a user
-   * activation and a gamepad press is not one in any browser. That step is
-   * touch-only in practice, so this is a note rather than a guard — a pad press
-   * on YES leaves the game windowed, which is the same outcome the pill already
-   * tolerates when the browser refuses.
+   * A pad cannot take the game fullscreen: `requestFullscreen()` needs a user
+   * activation and a gamepad press is not one in any browser. Starting from a
+   * controller therefore stays windowed however `autoFullscreen` is set, which
+   * is a note rather than a guard — nothing here can route around it.
    */
   private pollPad = (): void => {
     if (!this.el) return;
@@ -564,47 +553,11 @@ export class StartMenu {
   // -------------------------------------------------------------------------
 
   /**
-   * Leave the splash. The next thing is the fullscreen question wherever the
-   * browser can honour an answer, and the options everywhere else.
+   * Leave the splash, straight to the options.
    */
   private advanceFromPress(): void {
     if (this.step !== 'press') return;
-    // YES is where the cursor starts: it is the affirmative answer and the one
-    // the question is really offering. Only reachable on a device that can be
-    // asked at all — where the pill declines to build, this falls straight
-    // through to the options.
-    if (this.askFullscreen()) this.goto('fullscreen', '.bs-fs-btn.yes');
-    else this.goto('options');
-  }
-
-  /**
-   * Raise the fullscreen pill as this step, and say whether it went up.
-   *
-   * ALWAYS ASKED, ON EVERY DEVICE — the two ways this differs from the pill the
-   * game used to raise on its own, and they have the same cause. That one
-   * interrupted a live game on a phone, so it remembered the answer (or it
-   * nagged) and it only appeared where there was no other way to go fullscreen.
-   * As a step in the start menu neither restriction survives contact: the
-   * question decides how the whole session is framed, it is asked at the one
-   * moment the player is deciding to play rather than mid-walk, and a
-   * mouse-and-keyboard player has as much reason to be offered it as anyone —
-   * F11 exists but most people never think of it. The cost is that someone who
-   * always says no is asked again next launch, which is one button on a screen
-   * they are already looking at.
-   *
-   * The feature detect is NOT bypassed. On an iPhone, where no element-level
-   * Fullscreen API exists, the step is skipped entirely rather than offering a
-   * YES that cannot do anything.
-   */
-  private askFullscreen(): boolean {
-    this.fsPrompt = FullscreenPrompt.ask({
-      inMenu: true,
-      onAnswer: () => {
-        this.fsPrompt = null;
-        this.goto('options');
-      },
-    });
-    return this.fsPrompt !== null;
+    this.goto('options');
   }
 
   private goto(step: Step, focus?: string): void {
@@ -614,14 +567,30 @@ export class StartMenu {
   }
 
   /**
-   * New Game: fade the poster out, take it off the DOM, and only then tell
-   * main.ts to run. The order matters — the hero's first frames are rendered
-   * behind nothing at all rather than behind a dissolving image the compositor
-   * is still blending.
+   * New Game: go fullscreen, fade the poster out, take it off the DOM, and only
+   * then tell main.ts to run. The order matters — the hero's first frames are
+   * rendered behind nothing at all rather than behind a dissolving image the
+   * compositor is still blending.
    */
   private start(): void {
     const el = this.el;
     if (!el) return;
+
+    // BEFORE ANYTHING ELSE, because this is the only statement here that has a
+    // deadline. `requestFullscreen()` is honoured only while the browser can
+    // attribute it to the user activation that got us here — the click or the
+    // Enter on New Game — so it goes ahead of the class change, the hooks and
+    // the transition. Deferring it by even a promise tick is how this silently
+    // stops working. See ui/fullscreen.ts.
+    //
+    // The URL beats the preference and never writes it back, the same
+    // resolution the look-axis and shake overrides use: `fs=0` is how every
+    // probe in tools/ that clicks New Game keeps the viewport from being
+    // resized under a measurement. A pad press is not a user activation in any
+    // browser, so starting the game from a controller stays windowed whatever
+    // this says, and that is a browser rule rather than a decision.
+    if (flags.autoFullscreen ?? this.prefs.autoFullscreen) enterFullscreen();
+
     el.classList.add('leaving');
     // FIRST, and before anything waits on a transition: from this moment the
     // poster is see-through and whatever is behind it is on screen.
@@ -645,8 +614,6 @@ export class StartMenu {
     this.unlisten?.();
     this.unlisten = null;
     window.removeEventListener('keydown', this.onKeyDown, true);
-    this.fsPrompt?.dispose();
-    this.fsPrompt = null;
     this.el?.remove();
     this.el = null;
   }
