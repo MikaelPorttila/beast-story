@@ -141,10 +141,15 @@ export class FullscreenPrompt {
 
     const el = document.createElement('div');
     el.className = `bs-fsprompt${opts.inMenu ? ' in-menu' : ''}`;
+    // YES FIRST. The order is the reading order and the focus order at once:
+    // this is an offer, so the thing being offered leads, and the cursor starts
+    // on it without having to be sent there against the grain of the markup.
+    // (It was NO then YES, which put the affirmative answer last and made the
+    // menu's default focus jump over a button to reach it.)
     el.innerHTML =
       `<div class="txt">${t('fs.prompt')}</div>` +
-      `<button class="bs-fs-btn no" type="button">${t('fs.no')}</button>` +
-      `<button class="bs-fs-btn yes" type="button">${t('fs.yes')}</button>`;
+      `<button class="bs-fs-btn yes" type="button">${t('fs.yes')}</button>` +
+      `<button class="bs-fs-btn no" type="button">${t('fs.no')}</button>`;
     this.el = el;
 
     const yes = el.querySelector('.bs-fs-btn.yes') as HTMLButtonElement;

@@ -94,7 +94,8 @@ const out = {};
   // the pill's buttons join the menu's focus ring, so Enter lands on one.
   out.focusOnFsStep = await page.evaluate(() =>
     document.activeElement?.className ?? null);
-  await page.keyboard.press('ArrowLeft');       // YES -> NO
+  // YES is first in the pill, so NO is one step to the RIGHT of it.
+  await page.keyboard.press('ArrowRight');      // YES -> NO
   await wait(150);
   out.focusAfterArrow = await page.evaluate(() =>
     document.activeElement?.className ?? null);
