@@ -76,6 +76,24 @@ export interface FeedbackDeps extends FeedbackOptions {
   camera: ShakeSink;
   /** This frame's pad snapshot, or null. Polled, so it must be read live. */
   pad: () => Gamepad | null;
+  /**
+   * Is the device that last produced input one the player is HOLDING?
+   *
+   * Polled every frame, like `pad`, because it changes as often as the player
+   * changes hands. A predicate rather than the input layer's own enum for the
+   * same reason `ShakeSink` is structural: this package does not need to know
+   * what a gamepad is, only whether the last thing touched can be felt.
+   *
+   * The rule it enforces is that rumble belongs to the thing in your hands. A
+   * controller left plugged in beside the keyboard sat buzzing through a
+   * keyboard player's whole session, because the only question anyone asked was
+   * "is a pad connected". A phone keeps buzzing, because there a finger IS the
+   * device — see `Haptics.pulse`'s `vibrate` branch.
+   *
+   * Camera shake is deliberately NOT gated on this. It is something you see,
+   * not something you feel, and it belongs to every player on every device.
+   */
+  tactileInput: () => boolean;
 }
 
 /**
@@ -100,6 +118,8 @@ export class FeedbackSystem {
   private audio = new AudioChannel();
   private unsubscribe: () => void;
   private lastKind: CueKind | null = null;
+  /** Last frame's `tactileInput()`, so the drain can act on the EDGE. */
+  private wasTactile = true;
 
   constructor(private deps: FeedbackDeps) {
     this.haptics = new Haptics(deps.pad);
@@ -152,13 +172,28 @@ export class FeedbackSystem {
   /** Play everything queued this frame, then advance the rumble mix. */
   drain(dt: number): void {
     const { hapticFeedback, hapticIntensity, shakeIntensity, camera } = this.deps;
+
+    // The second half of the vibration gate, checked in the same place as the
+    // first and for the same reason: this is the one point every cue passes
+    // through, so a rule applied here cannot be forgotten by the next thing
+    // that emits a hit.
+    const tactile = this.deps.tactileInput();
+    if (tactile !== this.wasTactile) {
+      this.wasTactile = tactile;
+      // Putting the pad down has to silence what is ALREADY ringing, not just
+      // stop the next cue — the identical argument as `setOptions` turning the
+      // switch off. An envelope runs up to a second, and `Haptics.update` would
+      // keep issuing it to a controller nobody is holding any more.
+      if (!tactile) this.haptics.stop();
+    }
+
     for (let i = 0; i < this.count; i++) {
       const { kind, intensity } = this.ring[i];
       const spec = CUES[kind];
       this.lastKind = kind;
       this.drained++;
 
-      if (hapticFeedback && hapticIntensity > 0) {
+      if (hapticFeedback && tactile && hapticIntensity > 0) {
         const strong = (spec.strong + spec.strongGain * intensity) * hapticIntensity;
         const weak = spec.weak * hapticIntensity;
         this.haptics.pulse(strong, weak, spec.dur);
@@ -179,6 +214,9 @@ export class FeedbackSystem {
       queued: this.count,
       lastKind: this.lastKind,
       hapticFeedback: this.deps.hapticFeedback,
+      // Both halves of the rumble gate, so a probe can tell "the player switched
+      // it off" apart from "the player is on the keyboard right now".
+      tactileInput: this.wasTactile,
       hapticIntensity: this.deps.hapticIntensity,
       shakeIntensity: this.deps.shakeIntensity,
       haptics: this.haptics.debugState(),

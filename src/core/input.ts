@@ -12,6 +12,21 @@
 export type StickSource = 'touch' | 'gamepad';
 
 /**
+ * Which physical device the player last actually used.
+ *
+ * Distinct from `padActive`/`touchActive`, which are LATCHES answering "has this
+ * device ever been used this session" — the right question for the start gate
+ * and the welcome toast, and the wrong one for the HUD. A player who tries the
+ * controller once and then plays on the keyboard for an hour was being shown
+ * controller faces for that whole hour, because a latch cannot un-set.
+ *
+ * So this is stamped on every real input and never latched: whatever moved
+ * last owns the labels, and the rumble. `'kbm'` to start, which is what the HUD
+ * prints before anyone has touched anything.
+ */
+export type InputSource = 'kbm' | 'touch' | 'gamepad';
+
+/**
  * Input manager: WASD + mouse-look (pointer lock) and skill hotkeys, plus a
  * virtual layer that touch controls and the gamepad drive so gameplay code
  * never has to know which device it is reading.
@@ -49,8 +64,15 @@ export class Input {
   private padLooking = false;
   /** Set once any touch input is seen, so we never mix modes mid-session. */
   touchActive = false;
-  /** Set once the pad has produced any input, for the HUD's button prompts. */
+  /**
+   * Set once the pad has produced any input. A LATCH, and still the right shape
+   * for what reads it — the start gate and the welcome toast, both of which ask
+   * "is there a controller player here at all". What the HUD asks is
+   * `lastSource`; see `InputSource`.
+   */
   padActive = false;
+  /** See `InputSource`. Written only through `noteSource`. */
+  private source: InputSource = 'kbm';
 
   /** Keys the game owns — the browser must never act on these (Tab focus, Space scroll, quick-find, etc.) */
   private static readonly CAPTURED = new Set([
@@ -64,6 +86,7 @@ export class Input {
     window.addEventListener('keydown', (e) => {
       if (Input.CAPTURED.has(e.code)) e.preventDefault();
       if (e.repeat) return;
+      this.noteSource('kbm');
       this.keys.add(e.code);
       this.press(e.code);
     });
@@ -80,6 +103,7 @@ export class Input {
     });
 
     el.addEventListener('mousedown', (e) => {
+      this.noteSource('kbm');
       // Never grab the pointer on a touch device: it would hide the finger's
       // own cursorless interaction model and break the overlay.
       if (!this.pointerLocked && !this.touchActive) el.requestPointerLock();
@@ -93,12 +117,44 @@ export class Input {
     });
     window.addEventListener('mousemove', (e) => {
       if (this.pointerLocked) {
+        // Gated on a NON-ZERO delta, not merely on the event. A locked pointer
+        // still reports the odd 0/0 move, and the pad's own look goes through
+        // `addLook` rather than this listener — so without the test a controller
+        // player turning the camera could have the labels stolen back by a mouse
+        // that never moved.
+        if (e.movementX !== 0 || e.movementY !== 0) this.noteSource('kbm');
         this.mouseDX += e.movementX;
         this.mouseDY += e.movementY;
       }
     });
-    window.addEventListener('wheel', (e) => { this.wheelDelta += e.deltaY; }, { passive: true });
+    window.addEventListener('wheel', (e) => {
+      this.noteSource('kbm');
+      this.wheelDelta += e.deltaY;
+    }, { passive: true });
   }
+
+  /**
+   * Record which device just produced input. See `InputSource`.
+   *
+   * Called from the listeners above, from `TouchControls` on the first touch of
+   * a gesture, and from `GamepadControls.poll` on every frame the pad is being
+   * used. Cheap on purpose — it is on the pad's per-frame path.
+   */
+  noteSource(s: InputSource): void { this.source = s; }
+
+  /** The device the player last actually used. See `InputSource`. */
+  get lastSource(): InputSource { return this.source; }
+
+  /**
+   * True while the device that last produced input is one the player is
+   * HOLDING — a pad or a touchscreen.
+   *
+   * This is the haptics question, and it is deliberately not "is a pad
+   * connected": rumble belongs to the thing in your hands, so a controller left
+   * plugged in beside the keyboard must sit still, and a phone must keep
+   * buzzing because a finger IS the device there.
+   */
+  get tactile(): boolean { return this.source !== 'kbm'; }
 
   private press(code: string): void {
     this.pressedThisFrame.add(code);
@@ -238,6 +294,8 @@ export class Input {
       mouseDY: this.mouseDY,
       wheelDelta: this.wheelDelta,
       padActive: this.padActive,
+      lastSource: this.source,
+      tactile: this.tactile,
       padLooking: this.padLooking,
       stick: {
         touch: { side: this.touchSide, fwd: this.touchFwd },

@@ -1003,16 +1003,21 @@ export class HUD {
    * Print controller faces instead of key caps, or `null` to go back.
    *
    * Called every frame from main.ts and returns immediately unless the device
-   * actually changed — a pad can connect at any moment, so there is no one
-   * point at boot where this could be decided once.
+   * actually changed. It changes BOTH WAYS now: the caller passes the device
+   * that last produced input rather than "a pad has been used at some point",
+   * so a player who puts the controller down and reaches for the keyboard gets
+   * key caps back mid-session. That round trip is why this reports whether it
+   * did anything — main.ts holds a few composed hint strings that have a key cap
+   * baked into them and has to re-derive them on the same edge, exactly as it
+   * does for a language change.
    *
    * The hotbar badges are rewritten in place rather than by invalidating
    * `setSkills`' diff: that diff keys on the skill id, so forcing it would mean
    * faking an id change and rebuilding four slots' worth of markup to alter one
    * character in each.
    */
-  setPadPrompts(glyphs: PadGlyphs | null): void {
-    if (glyphs === this.padGlyphSet) return;
+  setPadPrompts(glyphs: PadGlyphs | null): boolean {
+    if (glyphs === this.padGlyphSet) return false;
     this.padGlyphSet = glyphs;
     this.prompts = glyphs ? padPrompts(glyphs) : KBM_PROMPTS;
 
@@ -1033,7 +1038,20 @@ export class HUD {
     // replaced under it; a closed one picks the new device up for free.
     const foot = this.shopWrap.querySelector('.bs-shop-foot');
     if (foot) foot.innerHTML = shopFootHints(this.prompts);
+    return true;
   }
+
+  /**
+   * The interact cap — `E` or the pad's own face — already wrapped in its
+   * markup, ready to drop into a `{key}` placeholder.
+   *
+   * Exposed for the same reason `kbd` is exported: the hint pill's sentence is
+   * composed by main.ts, which owns which key opens a skill den and which one
+   * talks to somebody. Read it on the way to the DOM and it is always the right
+   * device; the callers that hoist it out of the frame loop re-derive on the
+   * edge `setPadPrompts` reports.
+   */
+  get interactPrompt(): string { return this.prompts.interact; }
 
   /**
    * Re-derive every string this panel captured at CONSTRUCTION time, after the

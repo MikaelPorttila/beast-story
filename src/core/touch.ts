@@ -432,6 +432,24 @@ export class TouchControls {
       this.revealed = true;
       this.root.classList.remove('hidden');
     }, { passive: true });
+
+    // Which device is LIVE, stamped per gesture — a finger takes the labels and
+    // the vibration back from the keyboard the same way the keyboard takes them
+    // back from a pad (see `InputSource`).
+    //
+    // CAPTURE PHASE, and that is the whole reason this is a second listener
+    // rather than a line inside the one above. Every stick and button in this
+    // overlay calls `stopPropagation()` on touchstart, so the bubble listener
+    // above only ever sees touches that land on the CANVAS. A phone player
+    // driving with the sticks and never poking the scenery would have stayed
+    // 'kbm' forever, and the rumble gate would have read that as "not holding
+    // anything" and silenced their phone. Capture runs before the target's own
+    // handlers, so nothing downstream can suppress it.
+    window.addEventListener(
+      'touchstart',
+      () => this.input.noteSource('touch'),
+      { passive: true, capture: true },
+    );
   }
 
   /**

@@ -342,6 +342,31 @@ and the layout/crosshair/touch tools assert on them — renaming one breaks a to
 `main.ts` exposes read-only probes (`__dbgPlayerPos`, `__dbgCamYaw`, `__dbgInput`)
 that exist purely for those tools; keep them working.
 
+**The HUD names ONE device, and it is whichever you touched last.** There are two
+different questions about a device and they need two different shapes, which is
+the distinction `Input` now draws. `padActive`/`touchActive` are LATCHES — "is
+there a controller player here at all" — and they are what the start gate and
+the welcome toast ask, once, and must never un-set. `Input.lastSource`
+(`'kbm' | 'touch' | 'gamepad'`) is a STAMP, rewritten on every real input, and it
+is what the key caps and the rumble ask every frame. Reading the latch for a
+per-frame question was the bug: a player who tried the pad once was shown
+controller faces for the rest of the session, because a latch cannot un-set.
+
+Two things about feeding it are easy to get wrong. A mouse stamp is gated on a
+NON-ZERO movement delta, or a locked pointer's stray 0/0 move would steal the
+labels from a controller player mid-turn. And the touch stamp is a CAPTURE-phase
+listener, because every stick and button in the overlay calls `stopPropagation()`
+on touchstart — a bubble listener only ever sees touches that land on the canvas,
+so a phone player driving with the sticks would have stayed `'kbm'` forever.
+`tools/test-gamepad.mjs` guards the round trip (pad -> keyboard -> pad, on the
+hotbar badge AND the pad-cap count) and `tools/test-touch.mjs` guards the phone.
+
+Anything that HOISTS a composed prompt out of the frame loop owes it a re-derive
+on that edge, exactly as it does for a language change — `setPadPrompts` returns
+whether it moved and `composeKeyHints()` in main.ts is the one writer of all
+three (the skill-den pill, the talk pill, the dialogue footer). Read a cap on its
+way to the DOM (`hud.interactPrompt`) and it is free; bake one in and you owe it.
+
 **The title screen.** [src/ui/menu.ts](src/ui/menu.ts) is the first thing on
 screen and the GATE on the game starting: `main.ts` passes `interactive=false`
 into `simulate()` for as long as it is open, exactly as photo mode does, so the
@@ -454,6 +479,15 @@ vibration (`game.settings.controls.hapticFeedback`, on by default) is checked in
 a pad motor or `navigator.vibrate`, and turning it off also stops what is
 already ringing. Adding a switch means a `Prefs` field, a `STORAGE_KEYS` entry,
 a row in the menu's `ToggleKey` list, an `en.ts` string — and one gate.
+
+**Rumble belongs to the device in your HANDS**, and that is a second gate at the
+same choke point rather than a second place to forget: `FeedbackDeps.tactileInput`
+is polled per frame off `Input.tactile` (`lastSource !== 'kbm'`), and putting the
+pad down stops what is already ringing for the same reason the switch does. A
+controller left plugged in beside the keyboard used to buzz through a keyboard
+player's whole session, because the only question asked was whether a pad was
+connected. A phone keeps buzzing — there a finger IS the device. Camera shake is
+deliberately NOT gated on it: it is something you see, not something you feel.
 
 ## Conventions
 
