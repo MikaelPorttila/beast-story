@@ -41,7 +41,7 @@
 import { VoxelModel, shade } from '../core/voxel';
 import { bakeProp, type Template } from './props';
 import { bakeSolid, SolidStamp } from './structures';
-import { builtDeck, DECK_EDGE, DECK_HALF, type Road } from './roads';
+import { builtDeck, DECK_EDGE, DECK_HALF, SHOULDER_IN, type Road } from './roads';
 import { WATER_LEVEL } from './terrain';
 import { hashCell } from './noise';
 
@@ -903,13 +903,33 @@ export class TownParts {
 const RIBBON_LIFT = 0.025;
 /** How far the ribbon's outer edge skirts down, hiding the ground's steps. */
 const RIBBON_SKIRT = 1.1;
+/**
+ * How far around a rim vertex the ribbon looks for ground it has to cover.
+ *
+ * Half a cell diagonal, rounded up — the same 0.707 that sets `CARVE_INSET` in
+ * roads.ts, and for the same reason: a terrain column is a 1-unit cell sampled
+ * at its centre, so the ground a rim vertex is responsible for hiding can be
+ * that far from the vertex. See where it is used.
+ */
+const RIM_GUARD = 0.75;
 
 /**
  * Cross-section offsets, in units from the centreline.
  *
- * SEVEN, at the router's own ring spacing, and both numbers are load-bearing
- * for how the road LOOKS rather than for where it is.
+ * NINE, at the router's own ring spacing, and both numbers are load-bearing for
+ * how the road LOOKS rather than for where it is.
  *
+ * The two at `DECK_EDGE - SHOULDER_IN` are not refinement — they are the corner
+ * the cross-section actually has. Outside `DECK_HALF` the walking surface ramps
+ * from the deck to `round(deck)` and REACHES it there, holding it out to the
+ * rim so that it matches the floored terrain column beside it (roads.ts,
+ * `SHOULDER_IN`). Without a vertex on that corner the ribbon draws one straight
+ * chord from the deck to the rim and passes UNDER the shoulder for the whole
+ * 1.4 units between: measured on seed 1337, 178 of 5267 cross-road samples had
+ * terrain drawn over the ribbon by up to 0.622 — the "ground clipping through
+ * on to the road" of issue #15, all of it in that band.
+ *
+
  * A ribbon is a smooth band laid over stepped ground — that is its whole job.
  * The rim sits at `round(deck)`, an integer that flips by a whole unit as the
  * deck passes each half, and at the router's ~3.4-unit spacing that flip is a
@@ -925,8 +945,11 @@ const RIBBON_SKIRT = 1.1;
  * instead of reproducing it. Correctness is `surfaceAt`'s job, and the honest
  * fix for the residue is upstream at the junction — see AGENTS.md.
  */
+const SHOULDER_AT = DECK_EDGE - SHOULDER_IN;
 const XS = [
-  -DECK_EDGE, -DECK_HALF, -DECK_HALF * 0.45, 0, DECK_HALF * 0.45, DECK_HALF, DECK_EDGE,
+  -DECK_EDGE, -SHOULDER_AT, -DECK_HALF, -DECK_HALF * 0.45,
+  0,
+  DECK_HALF * 0.45, DECK_HALF, SHOULDER_AT, DECK_EDGE,
 ];
 
 const s2l = (c: number): number =>
@@ -1022,7 +1045,57 @@ export function buildRoadRibbon(
         // A span is flat to its edge and has water under it; everything else
         // reads the walking surface at the vertex, rim pulled just inside.
         const sd = Math.sign(d) * Math.min(ad, DECK_EDGE - 0.02);
-        const y = p.bridge ? p.y : surfaceAt(p.x + px * sd, p.z + pz * sd);
+        let y = p.bridge ? p.y : surfaceAt(p.x + px * sd, p.z + pz * sd);
+        // AND THE RIM COVERS THE COLUMN IT IS THERE TO HIDE.
+        //
+        // Outside DECK_HALF the walking surface is `round(deck)` — an INTEGER,
+        // so that it matches the floored terrain column beside it (roads.ts,
+        // `carveAt`) — and `round` flips by a whole unit as the deck passes
+        // each half. The rim vertex and the cell it covers are up to half a
+        // cell diagonal apart, and on a bend they can project onto different
+        // road segments, so the two can land either side of that flip: measured
+        // on seed 1337, a ring whose deck was 16.479 on one side and 16.501 on
+        // the other drew both rims at shoulder 16 with the ground at 17 under
+        // one of them, and 0.898 units of grass stood up through the gravel.
+        // 193 of 5267 cross-road samples were poking that way.
+        //
+        // So a rim takes the HIGHEST surface within half a cell of itself. It
+        // can only rise, never sink, and it rises exactly where the ground it
+        // covers does — the outer 0.8 of verge banks up with the shoulder
+        // instead of cutting through it. Interior vertices are deliberately
+        // left alone: the deck is smooth and continuous, there is nothing there
+        // to cover, and a max taken at DECK_HALF would pull the carriageway's
+        // edge up onto the verge ramp and bury the player's feet in it.
+        //
+        // BOTH shoulder vertices, not only the rim. Between `SHOULDER_AT` and
+        // `DECK_EDGE` the ribbon is a chord between the two, so guarding the rim
+        // alone left the inner end of that chord free to drop under a flipped
+        // column — 57 of 5267 samples, every one of them in that 0.8-unit band,
+        // and 36 with both guarded.
+        //
+        // 22 SURVIVE, and they are the honest limit of this approach rather than
+        // a number to tune away. A ring is ~3 units long and the ribbon between
+        // two rings is a chord; where the deck runs along a bend or beside its
+        // own further stretch, `nearest` can hand two points a unit apart to
+        // different segments, and a chord between two correctly-guarded rings
+        // still passes under a column in the middle. Closing that means either
+        // subdividing the rings — which is the change that made the road read as
+        // torn paper, see above — or making the shoulder a property of the road
+        // sample rather than of the query point, which is a change to what
+        // `surfaceAt` MEANS and belongs with the fork work in AGENTS.md. What is
+        // left is thin flakes at the verge rather than blocks in the
+        // carriageway; `tools/test-road.mjs` reports the count.
+        if (!p.bridge && ad >= SHOULDER_AT) {
+          const out = Math.sign(d) * RIM_GUARD;
+          for (const [gx, gz] of [
+            [px * out, pz * out],
+            [tx * RIM_GUARD, tz * RIM_GUARD],
+            [-tx * RIM_GUARD, -tz * RIM_GUARD],
+          ] as const) {
+            const g = surfaceAt(p.x + px * sd + gx, p.z + pz * sd + gz);
+            if (g > y) y = g;
+          }
+        }
         pos.push(p.x + px * d, y + RIBBON_LIFT + liftBias, p.z + pz * d);
         nrm.push(0, 1, 0);
         const base = p.bridge ? DECK_PLANK

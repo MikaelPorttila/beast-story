@@ -29,8 +29,10 @@
  *   - the carve levels the shoulder to `deck + 0.5`, which floors to
  *     `round(deck)`: never more than half a unit from the deck, in either
  *     direction, anywhere along the road;
- *   - between `DECK_HALF` and `DECK_EDGE` the walking surface RAMPS from the
- *     deck to `round(deck)`, so the two meet at the verge with no step at all;
+ *   - between `DECK_HALF` and `DECK_EDGE - SHOULDER_IN` the walking surface
+ *     RAMPS from the deck to `round(deck)` and then holds it out to the rim, on
+ *     exactly the run over which the carve raises the ground to the same
+ *     height, so the two meet at the verge with no step at all;
  *   - the ribbon mesh (see town-parts.ts `buildRoadRibbon`) is drawn on exactly
  *     that surface, out to exactly that edge, so what you see is what you stand
  *     on and the ribbon can be neither buried nor left floating.
@@ -118,6 +120,31 @@ const SPAN_STEP = 0.35;
  * town's own flatten already levelled to the deck height, so it sits flat.
  */
 const CARVE_INSET = 0.75;
+
+/**
+ * How far INSIDE the ribbon's rim the shoulder has reached its full height.
+ *
+ * ONE NUMBER FOR TWO RAMPS, and it has to be, because they are the same ramp
+ * seen from either side: `carveAt` cuts the ground up to `deck + 0.5` (which
+ * floors to `round(deck)`) by this far inside `DECK_EDGE`, and `surfaceAt`
+ * ramps the walking surface — which is what the ribbon is drawn on — from the
+ * deck to `round(deck)` over exactly the same run.
+ *
+ * They used to disagree, and the band between them is where every one of issue
+ * #15's "ground clipping through on to the road" samples lives. The carve
+ * reached `round(deck)` at `DECK_EDGE - 0.8` while the surface went on ramping
+ * to the rim, so over the last 0.8 of every verge the terrain column stood at
+ * the shoulder height and the ribbon was still below it — a green step face
+ * poking up through the gravel, along both sides of the whole network.
+ *
+ * This is the first of four changes that share the band; the others are the
+ * `carveAt` target below, and `XS` and `RIM_GUARD` in town-parts.ts. Measured
+ * end to end on seed 1337 with `bun tools/test-road.mjs`, which sweeps the
+ * cross-section rim to rim: 300 of 5283 samples had terrain drawn over the
+ * ribbon by up to 0.929, and 22 of 5300 do now, by up to 0.569. What is left is
+ * the last of it, and it has a cause of its own — see `RIM_GUARD`.
+ */
+export const SHOULDER_IN = 0.8;
 
 const cellKey = (cx: number, cz: number): number => cx * 4194304 + cz;
 
@@ -458,6 +485,22 @@ export class RoadNetwork implements RoadField, RoadClearance {
     return true;
   }
 
+  /**
+   * The walking surface at distance `d` from a centreline whose deck is `deck`.
+   *
+   * ONE function, called by `surfaceAt` (which is what the player stands on and
+   * what the ribbon is drawn on) and by `carveAt` (which is what the terrain
+   * column under it is cut to). They are the two halves of "what you see is what
+   * you stand on" and they may not be two formulas that happen to agree.
+   */
+  private static surfaceOf(deck: number, d: number): number {
+    if (d <= DECK_HALF) return deck;
+    const t = (d - DECK_HALF) / (VERGE - SHOULDER_IN);
+    // Reaching the shoulder SHOULDER_IN inside the rim and then holding it out
+    // to the rim — see SHOULDER_IN.
+    return deck + (Math.round(deck) - deck) * (t > 1 ? 1 : t);
+  }
+
   carveAt(x: number, z: number): number {
     // CARVE_INSET, not 0: the earthworks stop short of the surface's own plane.
     if (!this.nearest(x, z, true, CARVE_INSET)) return 0;
@@ -467,24 +510,43 @@ export class RoadNetwork implements RoadField, RoadClearance {
     if (this.nBridge) return 0;
     const d = this.nDist;
     if (d >= ROAD_BLEND) return 0;
-    // THE ROADBED IS SUNK UNDER THE CARRIAGEWAY, and it has to be.
+    // THE GROUND IS CUT TO THE SURFACE DRAWN OVER IT, MINUS A SINK.
     //
-    // Outside the ribbon the target is `deck + 0.5`, which floors to
-    // `round(deck)` — within half a unit of the deck in either direction, which
-    // is what makes stepping off the road walkable. But `round(deck)` can be
-    // half a unit ABOVE the deck, and the ribbon is drawn AT the deck: captured
-    // with a single target across the whole corridor (_town-spawn.png, first
-    // pass) the road was invisible from the saddle, because on every stretch
-    // where frac(deck) > 0.5 the levelled ground had swallowed it.
+    // Two things have to be true at once and they used to be arranged by two
+    // separate formulas:
     //
-    // So under the carriageway the ground is cut a further 0.62 down — enough
-    // that the floored column is always strictly below the deck, never more than
-    // 1.62 below it, and entirely hidden by the ribbon and its skirt. The cut
-    // ramps back up to `deck + 0.5` and REACHES it 0.8 units INSIDE the ribbon's
-    // rim, so that every column whose centre could fall outside the rim is
-    // already at the shoulder height the rim is drawn at. Nothing walks on the
-    // sunk part: inside the rim the walking surface is the deck.
-    this.carveTarget = this.nDeck - 0.62 + smoothstep(DECK_HALF, DECK_EDGE - 0.8, d) * 1.12;
+    //   - the column may never stand ABOVE the walking surface, because the
+    //     ribbon is drawn on that surface and a column over it is a block of
+    //     grass standing up through the gravel;
+    //   - the column has to REACH `round(deck)` by the ribbon's rim, because
+    //     outside the rim that is what the walking surface is, and a step there
+    //     is a step you cannot see.
+    //
+    // Cutting to `surfaceOf(d)` and sinking the result gives both by
+    // construction. `floor` can only lower, so the first is free; at the rim the
+    // sink has faded and the target is `round(deck)` — an integer, so `floor`
+    // returns it exactly — which is the second.
+    //
+    // The version this replaces ramped a target of `deck - 0.62` to `deck + 0.5`
+    // on a smoothstep while the surface ramped from `deck` to `round(deck)`
+    // linearly. Those two curves cross: `floor(deck + 0.5)` reaches
+    // `round(deck)` at about 91% of the ramp while the surface is still 0.036
+    // short of it, and the ribbon's own chord between section vertices takes it
+    // further down again. Measured on seed 1337, 107 of 5267 cross-road samples
+    // had terrain drawn over the ribbon by up to 0.699 — the "ground clipping
+    // through on to the road" of issue #15, and all of it in that band.
+    //
+    // The SINK is why the carriageway itself is not merely floored: a column
+    // exactly at an integer deck would be coplanar with a ribbon 0.025 above it.
+    // 0.62 puts the floored column strictly under the deck, never more than 1.62
+    // below it, and entirely hidden by the ribbon and its skirt. Nothing walks
+    // on the sunk part: inside the rim the walking surface is the deck.
+    //
+    // The epsilon is against the blend in `Terrain.heightCont` returning
+    // 12.999999 for a target of 13 and flooring a whole unit low. It cannot
+    // raise a floor: an integer plus a thousandth floors to that integer.
+    this.carveTarget = RoadNetwork.surfaceOf(this.nDeck, d) + 0.001
+      - 0.62 * (1 - smoothstep(DECK_HALF, DECK_EDGE - SHOULDER_IN, d));
     return 1 - smoothstep(ROAD_CORE, ROAD_BLEND, d);
   }
 
@@ -496,9 +558,8 @@ export class RoadNetwork implements RoadField, RoadClearance {
     // A bridge deck is flat all the way to its edge and then there is nothing:
     // step off the side and you are in the water, which is what a bridge with no
     // handrail collision means and what the railings are drawn to warn about.
-    if (this.nBridge || d <= DECK_HALF) return deck;
-    const shoulder = Math.round(deck);
-    return deck + (shoulder - deck) * ((d - DECK_HALF) / VERGE);
+    if (this.nBridge) return deck;
+    return RoadNetwork.surfaceOf(deck, d);
   }
 
   /**
@@ -584,6 +645,60 @@ export function straightWetLength(
 export const NECK_MAX = 40;
 
 /**
+ * HOW FAR APART TWO ROADS HAVE TO RUN TO READ AS TWO ROADS.
+ *
+ * `DECK_EDGE` is 5, so a carriageway is ten units of drawn, walked surface;
+ * 18 between centrelines leaves eight units of ground down the middle, which is
+ * enough for the verges, a lamp and the grass to come back. Below about twelve
+ * the two ribbons touch and the pair reads as one wide, ragged apron rather
+ * than as a fork.
+ *
+ * Measured on seed 1337, sample by sample out of the fork: the trunk and the
+ * Stonewatch spur ran 0.63, 0.80, 0.91, 1.10, 1.53 and 1.94 units apart over
+ * their first twenty. Two ten-unit ribbons on two different deck profiles,
+ * drawn one over the other — which is what the report in issue #15 is a picture
+ * of, and also where the walking surface stepped 0.801 against a MAX_STEP_UP of
+ * 0.5, because `surfaceAt` answers with the nearest road and the nearest road
+ * changes from column to column when they are a unit apart.
+ */
+const AVOID_R = 18;
+/**
+ * What a step pays for landing dead on an existing centreline.
+ *
+ * IT HAS TO BE BIG, and the reason is that the charge is LINEAR in a distance
+ * the walk can only change 3 units at a time. A step's whole reward for moving
+ * away is `AVOID_COST * SEG_LEN / AVOID_R`, i.e. a sixth of this number, and it
+ * is paid against a turn charge of up to 1.68 and a climb term of 3.4 per unit.
+ * So the intuitive values do nothing at all.
+ *
+ * Measured on seed 1337 as the closest the trunk and the Stonewatch spur come
+ * to each other more than AVOID_FREE out of the fork, and how far out they are
+ * finally a full corridor (10 units) apart:
+ *
+ *      cost   min sep    10 apart by
+ *         3      1.10        24 units    (identical to no charge at all)
+ *         7      1.10        24 units    (likewise — a sixth of 7 is 1.2)
+ *        14      5.33        21 units
+ *        30      4.64        21 units
+ *        50     14.03        11 units
+ *        70     14.03        11 units    (saturated)
+ *
+ * 50 is where the arms leave the fork as separate roads rather than as one
+ * apron that narrows, and it is also the best `test-road.mjs` gets: the walking
+ * surface's worst step across the fork goes 0.047 -> 0.034 and the terrain
+ * poking through the ribbon 36 -> 22 samples. Above it nothing moves, because
+ * the walk is already taking the widest bearing it has on every step that
+ * matters.
+ */
+const AVOID_COST = 50;
+/**
+ * How much of an existing road, measured from the new route's own start, is
+ * exempt. A fork IS a shared point; the roads only have to part company once
+ * they are clear of it, and this is roughly the radius of the junction apron.
+ */
+const AVOID_FREE = 12;
+
+/**
  * Walk from (ax, az) to (bx, bz) preferring level ground.
  *
  * A greedy stepped walk rather than a proper least-cost search, and that is a
@@ -594,14 +709,16 @@ export const NECK_MAX = 40;
  * charges for climbing and for turning gives that in a few hundred height
  * queries — the whole network costs about as much as one chunk of terrain.
  *
- * The scoring is three terms: the climb (dominant — this is what makes the road
- * hug a contour), the turn away from the target (so it still arrives), and a
- * water charge that is heavy enough to route around a lake but not so heavy that
- * a narrow neck is never crossed. Crossing IS wanted occasionally; it is where
- * the bridges come from.
+ * The scoring is four terms: the climb (dominant — this is what makes the road
+ * hug a contour), the turn away from the target (so it still arrives), a water
+ * charge that is heavy enough to route around a lake but not so heavy that a
+ * narrow neck is never crossed (crossing IS wanted occasionally; it is where the
+ * bridges come from), and a charge for running alongside a road that already
+ * exists — see `avoid`.
  */
 export function routeRoad(
   terrain: Terrain, ax: number, az: number, bx: number, bz: number, seed: number,
+  avoid: readonly RoadSample[][] = [],
 ): Array<{ x: number; z: number }> {
   // GO ROUND, OR BUILD A BRIDGE — decided once, up front, from how much water
   // the straight line actually crosses.
@@ -631,6 +748,29 @@ export function routeRoad(
   // the walk must not second-guess it.
   const waterCost = neck ? 0 : 26;
   const depthCost = neck ? 0.5 : 1.2;
+
+  // TWO ROADS OUT OF ONE FORK MUST NOT BE ONE ROAD.
+  //
+  // Every sample of every road already routed, minus the ones near this route's
+  // own start — the fork is SHARED, so a walk leaving it is standing on the
+  // other road by definition and charging for that would pin it to the node.
+  // Past `AVOID_FREE` the two are supposed to be separate roads and the charge
+  // applies in full.
+  const others: RoadSample[] = [];
+  for (const road of avoid) {
+    for (const p of road) {
+      if (Math.hypot(p.x - ax, p.z - az) > AVOID_FREE) others.push(p);
+    }
+  }
+  /** Nearest existing carriageway to a candidate step, or Infinity. */
+  const nearOther = (x: number, z: number): number => {
+    let best = Infinity;
+    for (const p of others) {
+      const d = (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z);
+      if (d < best) best = d;
+    }
+    return Math.sqrt(best);
+  };
 
   const rng = mulberry32(seed);
   const pts: Array<{ x: number; z: number }> = [{ x: ax, z: az }];
@@ -668,8 +808,17 @@ export function routeRoad(
       // so a crossing that is going to happen happens at the narrowest, shallowest
       // point available.
       if (wet) score += waterCost + (WATER_LEVEL - nh) * depthCost;
+      // Keep clear of a road that is already there. Linear in how far inside
+      // AVOID_R the step lands, so the charge is a nudge at the edge of the
+      // corridor and unpayable on top of the other road's gravel.
+      if (others.length > 0) {
+        const dOther = nearOther(nx, nz);
+        if (dOther < AVOID_R) score += AVOID_COST * (1 - dOther / AVOID_R);
+      }
       // A whisper of noise so two roads leaving the same junction on similar
       // bearings do not lock onto the same contour and run as a double line.
+      // On its own it never did: it is a twelfth of what a single notch of turn
+      // costs, against a climb term that both roads read off the same hillside.
       score += rng() * 0.12;
       if (score < bestScore) {
         bestScore = score;
@@ -820,13 +969,32 @@ export function profileRoad(
   };
   const anchor = (idx: number, target: number, dir: 1 | -1, hold: number): void => {
     if (!Number.isFinite(target)) return;
-    const delta = target - y[idx];
-    // `hold` samples pinned flat, then ANCHOR more of linear decay. The decay
-    // still starts from the FULL delta, so the two pieces meet without a kink,
-    // and over ANCHOR * SEG_LEN = 42 units a correction of a unit or so costs
-    // about 0.024 of grade against MAX_GRADE 0.10 — invisible next to the
-    // terrain the road is crossing.
+    // `hold` samples pinned flat, then ANCHOR more of linear decay from the held
+    // height back onto the profile the road would otherwise have had. Over
+    // ANCHOR * SEG_LEN = 42 units a correction of a unit or so costs about 0.024
+    // of grade against MAX_GRADE 0.10 — invisible next to the terrain the road
+    // is crossing.
+    //
+    // THE DELTA IS MEASURED WHERE THE HOLD ENDS, not at the anchor sample, and
+    // that is the whole of the difference between a hold that joins and a hold
+    // that steps. The decay is a rigid shift of the profile that tapers to
+    // nothing — which is what keeps the road undulating with the land through
+    // the corrected stretch instead of being ironed flat by it — so it meets
+    // the held run only if the shift it starts from is the one that lands the
+    // FIRST DECAYING SAMPLE on `target`.
+    //
+    // With no hold the two are the same expression and this changes nothing.
+    // With one they are not: a town flattens its own footprint before the road
+    // is routed over it, so the ground under a town hold is level and the
+    // distinction never showed. The fork's flatten is a fifth of the size, and
+    // at `JUNCTION_HOLD` 20 the raw profile had climbed 2.1 units over the held
+    // stretch — so measuring at the anchor pinned twenty units of deck at the
+    // junction height and then resumed 2.1 units above it, in one 3-unit
+    // segment. Measured on seed 1337: `junction-redbriar` maxGrade 0.700 /
+    // maxStep 0.175, against 0.242 / 0.060 the way it is written here.
     const flat = Math.round(hold / SEG_LEN);
+    const join = idx + dir * flat;
+    const delta = target - (join >= 0 && join < n ? y[join] : y[idx]);
     for (let k = 0; k < flat + ANCHOR; k++) {
       const j = idx + dir * k;
       if (j < 0 || j >= n) break;

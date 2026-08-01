@@ -623,6 +623,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     /** Nothing but terrain here, and debugColliders deliberately excludes it. */
     debugColliders(): void { /* no discrete colliders in the hold */ },
     debugStructures(): void { /* nor any structure boxes */ },
+    /** Nor any road furniture: the hold has no roads. */
+    debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; },
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
       if (disposed) return;

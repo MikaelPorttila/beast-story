@@ -539,6 +539,15 @@ export interface World {
    * they block the same movement.
    */
   debugStructures(out: number[]): void;
+  /**
+   * Debug: every lamp and fingerpost the road pass stood up, as
+   * `{ kind, x, z }`, or an empty list where a zone has no roads.
+   *
+   * Here so a probe can measure what "lamps are too close to each other"
+   * (issue #15) actually means — the smallest gap on the network, in units —
+   * rather than argue it from a screenshot. Allocates; never called per frame.
+   */
+  debugFurniture(): Array<{ kind: string; x: number; z: number }>;
   /** Positions of interest (skill dens / shops) */
   readonly shopPositions: THREE.Vector3[];
   /**

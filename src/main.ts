@@ -2242,6 +2242,64 @@ beginPlay();
       })),
     };
   })(),
+  /**
+   * THE ROAD FURNITURE, AS A MEASUREMENT.
+   *
+   * "The lamps are too close to each other" and "the signposts are standing in
+   * the road" (issue #15) are both statements about numbers, and these are the
+   * numbers: the smallest gap between any two pieces, and how near the nearest
+   * carriageway CENTRELINE any of them comes. `DECK_EDGE` is 5, so anything
+   * under 5 is on the gravel; a lamp interval is 26, so the closest pair should
+   * be a good fraction of that.
+   */
+  furniture: ((): unknown => {
+    const f = world.debugFurniture();
+    const roadDist = (x: number, z: number): number => {
+      let best = Infinity;
+      for (const r of world.towns.roads) {
+        for (let i = 3; i < r.path.length; i += 3) {
+          // Point-to-segment, the same test the network's own clearance runs.
+          const ax = r.path[i - 3];
+          const az = r.path[i - 1];
+          const dx = r.path[i] - ax;
+          const dz = r.path[i + 2] - az;
+          const l2 = dx * dx + dz * dz;
+          let u = l2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
+          if (u < 0) u = 0; else if (u > 1) u = 1;
+          const d = Math.hypot(ax + dx * u - x, az + dz * u - z);
+          if (d < best) best = d;
+        }
+      }
+      return best;
+    };
+    let closestPair = Infinity;
+    let pairAt: { x: number; z: number } | null = null;
+    for (let i = 0; i < f.length; i++) {
+      for (let k = i + 1; k < f.length; k++) {
+        const d = Math.hypot(f[i].x - f[k].x, f[i].z - f[k].z);
+        if (d < closestPair) { closestPair = d; pairAt = { x: +f[i].x.toFixed(1), z: +f[i].z.toFixed(1) }; }
+      }
+    }
+    let onRoad = 0;
+    let nearestRoad = Infinity;
+    let roadAt: { x: number; z: number } | null = null;
+    for (const p of f) {
+      const d = roadDist(p.x, p.z);
+      if (d < 5) onRoad++;
+      if (d < nearestRoad) { nearestRoad = d; roadAt = { x: +p.x.toFixed(1), z: +p.z.toFixed(1) }; }
+    }
+    return {
+      count: f.length,
+      lamps: f.filter((p) => p.kind === 'lamp').length,
+      posts: f.filter((p) => p.kind === 'post').length,
+      closestPair: Number.isFinite(closestPair) ? +closestPair.toFixed(2) : null,
+      closestPairAt: pairAt,
+      /** How near a centreline the nearest piece comes. Under 5 is ON the road. */
+      nearestRoad: Number.isFinite(nearestRoad) ? +nearestRoad.toFixed(2) : null,
+      nearestRoadAt: roadAt,
+      onCarriageway: onRoad,
+    };
+  })(),
   towns: world.towns.all.map((town) => ({
     id: town.id,
     // The looked-up name, so `?lang=sv` shows what the fingerpost shows. The

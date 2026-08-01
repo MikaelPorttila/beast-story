@@ -146,6 +146,60 @@ const SITES: readonly SiteSpec[] = [
 /** Where the fingerpost at the fork stands, as far as a signpost is concerned. */
 const JUNCTION_SIGN_KEY = 'town.junction.sign' as const;
 
+/**
+ * How far, in world units, all three decks are held DEAD LEVEL across the fork.
+ *
+ * A junction is a town footprint with nothing built on it, and this is the same
+ * argument `profileRoad`'s hold arguments already make for a high street — but
+ * it is worth restating, because the fork is the one place in the world where
+ * three carriageways answer the same column and this is what stops them
+ * disagreeing.
+ *
+ * `RoadNetwork.surfaceAt` answers with the NEAREST road's deck. Where two decks
+ * of different heights overlap, that field JUMPS across the line equidistant
+ * from the two — a wall across the carriageway that cannot be seen, because the
+ * ribbon is drawn on the same query and steps with it. All three roads were
+ * already anchored to `junctionY` at the node itself, but the anchor's decay
+ * began at the very first sample, so a few units out the three had already
+ * parted company. Held level over a disc instead, every column inside it gets
+ * the same answer from whichever road wins, and `junctionY` is an integer
+ * (`levelAt` rounds), so `round(deck) === deck` there and the verge ramp is flat
+ * too — the shoulder cannot step against the deck it meets.
+ *
+ * NOT ON ITS OWN, and that is worth knowing before anyone tunes it. The three
+ * roads used to leave the fork within a unit of each other (see `AVOID_R` in
+ * roads.ts), and while they did, holding them level only moved the jump out to
+ * the rim of the held disc: measured, `worstStepOver025` went 0.801 -> 0.861
+ * with a hold of 10. It is the pair that works — three separate roads, each
+ * level across the node they share.
+ *
+ * Measured on seed 1337 with `bun tools/test-road.mjs`, with the router already
+ * keeping the arms apart. `worstStep` is the largest rise in the WALKING
+ * surface over 0.25 units on a carriageway, against MAX_STEP_UP 0.5:
+ *
+ *      hold   worstStep
+ *         0      0.656*
+ *         5      0.657*
+ *        14      0.399
+ *        18      0.245
+ *        20      0.147
+ *        24      0.080
+ *
+ * (* fails: an invisible wall the hero cannot walk over, and the first two
+ * stand nine units from his own spawn.) It is monotone, so the choice is how
+ * much of the road either side of a fork should be dead level. 20 is a little
+ * over the length of two carriageway widths — a junction apron, which is what
+ * a real fork on a hillside is — and it is where the step stops being anything
+ * a player could feel. Past it the gain is small and the level disc starts to
+ * read as a terrace cut across the hill.
+ *
+ * The flatten below is deliberately NOT widened to match. It is there so the
+ * junction's own column is not a divot (see where it is pushed), and it makes
+ * no difference to any of these numbers — the walking surface on a carriageway
+ * is the deck, not the ground the deck is cut into. Measured both ways: every
+ * row above is identical with the flatten at core 5 and at core `hold`.
+ */
+const JUNCTION_HOLD = 20;
 
 // ---------------------------------------------------------------------------
 // Trodden ground
@@ -506,12 +560,18 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   // hold arguments buy — see `profileRoad`. The distance held is the flatten's
   // own core (radius + 2), so the deck and the levelled ground it is cut into
   // agree over exactly the same footprint rather than nearly the same one.
+  //
+  // Each road is routed AGAINST the ones already routed, so the three arms of
+  // the fork leave it as three roads instead of as one wide apron — see
+  // `routeRoad`'s `avoid`. Order therefore matters: the trunk is laid first and
+  // the spurs give way to it, which is the right way round, because the trunk
+  // is the road the player is spawned on.
   const mkRoad = (
     id: string, fromId: string, toId: string,
     ax: number, az: number, ay: number, bx: number, bz: number, by: number, s: number,
     aHold = 0, bHold = 0,
   ): Road => {
-    const route = routeRoad(terrain, ax, az, bx, bz, s);
+    const route = routeRoad(terrain, ax, az, bx, bz, s, network.roads.map((r) => r.pts));
     const road: Road = {
       id, fromId, toId, pts: profileRoad(terrain, route, ay, by, aHold, bHold),
       // Left at zero; `network.build()` squares both planes to the road's own
@@ -526,15 +586,15 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   const trunk = mkRoad(
     'camp-junction', SITES[0].id, 'junction',
     camp.x, camp.z, campY, jRaw.x, jRaw.z, junctionY, seed ^ 0x11,
-    hold(0), 0,
+    hold(0), JUNCTION_HOLD,
   );
   const spurRoads = [
     mkRoad('junction-' + SITES[1].id, 'junction', SITES[1].id,
       jRaw.x, jRaw.z, junctionY, hamletA.x, hamletA.z, siteY[1], seed ^ 0x22,
-      0, hold(1)),
+      JUNCTION_HOLD, hold(1)),
     mkRoad('junction-' + SITES[2].id, 'junction', SITES[2].id,
       jRaw.x, jRaw.z, junctionY, hamletB.x, hamletB.z, siteY[2], seed ^ 0x33,
-      0, hold(2)),
+      JUNCTION_HOLD, hold(2)),
   ];
   // The fork is levelled like a town, at a fifth of the size. Three carriageways
   // stop on this one node, and CARVE_INSET deliberately leaves the node's own
@@ -652,7 +712,113 @@ function pickRoadSpawn(road: Road, cx: number, cz: number): THREE.Vector3 {
 /** Voxel scale for a signpost arm — see the note on the font in town-parts.ts. */
 const SIGN_V = 0.095;
 
-interface Spot { x: number; z: number; r: number }
+interface Spot { x: number; z: number; r: number; kind?: string }
+
+/**
+ * How close a LAMP or a FINGERPOST may come to a carriageway centreline.
+ *
+ * The same argument as `FENCE_ROAD_CLEAR`, which see, and the same failure: a
+ * road's furniture pass offsets everything from ITS OWN centreline, so at a
+ * fork "6.1 units off my road" and "in the middle of the next road" are the
+ * same place. There was no test at all until now — fences had one and lamps and
+ * fingerposts did not — and issue #15's screenshot is two signposts standing in
+ * the carriageway a few strides from the player's own spawn.
+ * `__dbgTowns().furniture` now reports how near a centreline the nearest piece
+ * in the world comes, which on seed 1337 is 5.62: outside the ribbon's rim, and
+ * nothing is on it.
+ *
+ * `DECK_EDGE` (5.0) is the rim of the drawn and walked surface. The 0.9 on top
+ * covers the widest thing a post carries at its foot (`signPost`'s cairn
+ * reaches 4 voxels, 1.12 units, off the post line) so that no part of it lands
+ * on the road, and leaves it visibly on the verge rather than touching.
+ */
+const POST_ROAD_CLEAR = DECK_EDGE + 0.9;
+/**
+ * The same for a LAMP, which is a bare post with the lantern held out over the
+ * road on a bracket — nothing at its foot but the post.
+ *
+ * It has to be under the 5.8 a lamp stands off its OWN centreline, or the test
+ * rejects every lamp in the world on the road it belongs to. Measured that way
+ * once, at 5.9: `__dbgTowns().furniture` reported 0 lamps and 3 posts.
+ */
+const LAMP_ROAD_CLEAR = DECK_EDGE + 0.5;
+
+/** How far a fingerpost's cairn spreads from the post line — see `signPost`. */
+const POST_FOOT = 1.2;
+
+/**
+ * Ground a fingerpost and a lamp each claim, so that nothing crowds them.
+ *
+ * These are radii and `place` adds them, so two lamps stand at least 22 units
+ * apart and a lamp keeps 16 off a fingerpost. LAMP_STEP is 26, so a road's own
+ * sequence is untouched and only a NEIGHBOURING road's furniture is turned
+ * away — which is the only thing that was ever wrong. Every road placed a lamp
+ * 13 units from each of its ends and a fingerpost at 17, so at a fork where
+ * three roads meet, six pieces landed inside twenty units of one another and of
+ * the fork's own post, each of them correctly spaced along its own road and
+ * none of them aware of the other two. That is "lamps are too close to each
+ * other" in issue #15.
+ *
+ * `__dbgTowns().furniture` now reports the smallest gap between any two pieces
+ * in the world: 16.19 on seed 1337, across 15 of them.
+ */
+const LAMP_CLEAR = 11;
+const POST_CLEAR = 5;
+
+/**
+ * The lowest walking surface under a footprint of radius `r`, so a thing is
+ * PLANTED rather than floating.
+ *
+ * Road furniture used to be stamped at the road's DECK height, which is right
+ * on the carriageway and nowhere else: a lamp stands 5.8 units out and a
+ * fingerpost 6.1, past `DECK_EDGE`, where the ground is the shoulder the carve
+ * levelled to `round(deck)` — up to half a unit under the deck, and further
+ * still once the corridor has faded back into natural ground. That half unit is
+ * the gap under the cairn stones in issue #15's screenshot.
+ *
+ * The MINIMUM over the footprint and not the centre, because the shoulder is
+ * floored to whole units: a post seated on its middle column with a corner over
+ * the next step up is half in the air on that side. Seated on the lowest, the
+ * high corner is buried instead, which reads as set into the bank.
+ */
+function seatOn(
+  surfaceAt: (x: number, z: number) => number, x: number, z: number, r: number,
+): number {
+  let y = surfaceAt(x, z);
+  for (const [dx, dz] of [[r, 0], [-r, 0], [0, r], [0, -r]] as const) {
+    const h = surfaceAt(x + dx, z + dz);
+    if (h < y) y = h;
+  }
+  return y;
+}
+
+/**
+ * The nearest spot to (x, z) that is clear of every carriageway.
+ *
+ * Rings outward, exactly as `NpcSite` does for the same reason: the caller has
+ * a place it WANTS to stand and one hard constraint, and the honest way to
+ * satisfy the constraint is to ask the network rather than to guess a bearing
+ * that ought to be clear. Falls back to the wanted point after the last ring,
+ * which cannot happen on any road network this planner builds — a corridor is
+ * 10 units wide and the search reaches 24 — but a caller should get a point
+ * rather than a null.
+ */
+function vergeNear(
+  network: RoadClearance, x: number, z: number, clear: number,
+): { x: number; z: number } {
+  for (let ring = 1; ring <= 8; ring++) {
+    const d = ring * 3;
+    // Sixteen bearings, offset per ring so the rings do not sample one line of
+    // spokes over and over.
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2 + ring * 0.2;
+      const px = x + Math.sin(a) * d;
+      const pz = z + Math.cos(a) * d;
+      if (network.distanceTo(px, pz) >= clear) return { x: px, z: pz };
+    }
+  }
+  return { x, z };
+}
 
 /**
  * The scene side of the town system: every settlement and every metre of road
@@ -683,6 +849,16 @@ export class Towns {
    * neither is this.
    */
   readonly solids = new StructureField();
+  /**
+   * Every lamp and fingerpost the road pass stood up, with the clear ground it
+   * claimed — the shared `taken` list, kept rather than dropped.
+   *
+   * It is a MEASUREMENT, not state: nothing in the game reads it, and
+   * `__dbgTowns().furniture` is what turns "lamps are too close to each other"
+   * from a matter of taste into the smallest gap in the world, in units. The
+   * list is a few dozen entries built once at world creation.
+   */
+  readonly furniture: readonly Spot[] = [];
   private readonly glowMats: THREE.MeshStandardMaterial[] = [];
   private readonly geos: THREE.BufferGeometry[] = [];
   /** Per-site groups and their centres, for the distance cull in `update`. */
@@ -704,14 +880,16 @@ export class Towns {
     terrainMat: THREE.Material,
     seed: number,
     /**
-     * The height field, for the road ribbon alone — it draws itself on
-     * `getHeight`, the walking surface, rather than on its own deck profile.
-     * See buildRoadRibbon for why that is the only way the two can agree where
-     * carriageways overlap. Must already have `terrain.roads` set, which
-     * `planSettlements` does.
+     * The height field, for the road ribbon and the road furniture — both draw
+     * themselves on `getHeight`, the walking surface, rather than on the road's
+     * own deck profile. See buildRoadRibbon for why that is the only way the
+     * two can agree where carriageways overlap, and `seatOn` for the same
+     * argument about a thing standing on the verge. Must already have
+     * `terrain.roads` set, which `planSettlements` does.
      */
     terrain: Terrain,
   ) {
+    const surfaceAt = (x: number, z: number): number => terrain.getHeight(x, z);
     // Two glow materials, not one: a camp fire and a lamp on the road are the
     // same shader program (three keys on the define set, and these differ only
     // in uniform values) but they must not pulse in lockstep, which is what a
@@ -777,8 +955,58 @@ export class Towns {
       this.sites.push({ g, x: town.x, z: town.z, r: town.radius });
     }
 
+    // -- the fingerpost at the fork -----------------------------------------
+    //
+    // BEFORE the roads, because it is the one piece of road furniture whose
+    // position is not negotiable — it names the fork and it has to stand at the
+    // fork — and `place` is first-come. Placed last, as it used to be, the
+    // approach lamps had already claimed the ground around it.
+    //
+    // `postSpots` is what every road's furniture pass then has to keep clear
+    // of, and it is shared across all three: a road knows its own arc lengths
+    // and nothing about the other two, which at a three-way fork is exactly the
+    // information needed to not stand a lamp on top of somebody else's.
+    const postSpots: Spot[] = [];
+    {
+      const g = new THREE.Group();
+      const solid = new SolidStamp(this.solids);
+      const j = plan.junction;
+      const dests: Array<[string, number]> = [];
+      for (const road of plan.network.roads) {
+        // Which end of this road is the junction, and where does it head?
+        const first = Math.hypot(road.pts[0].x - j.x, road.pts[0].z - j.z) < 6;
+        const a = first ? road.pts[0] : road.pts[road.pts.length - 1];
+        const b = first ? road.pts[Math.min(6, road.pts.length - 1)]
+          : road.pts[Math.max(0, road.pts.length - 7)];
+        const id = first ? road.toId : road.fromId;
+        const site = SITES.find((s) => s.id === id);
+        if (!site) continue;
+        dests.push([t(site.signKey), Math.atan2(b.x - a.x, b.z - a.z)]);
+      }
+      // ON THE VERGE, NOT IN THE ROAD. The post used to be stamped on the
+      // junction node itself, which is the middle of a three-way fork: a solid
+      // box in the one place every route through the world passes over, and it
+      // reads as dropped rather than placed. `vergeNear` walks out until it
+      // finds ground clear of all three carriageways — the same search the
+      // people placer runs, for the same reason.
+      const spot = vergeNear(plan.network, j.x, j.z, POST_ROAD_CLEAR);
+      const y = seatOn(surfaceAt, spot.x, spot.z, POST_FOOT);
+      solid.add(parts.post, spot.x, y, spot.z, 0);
+      const armY = [y + 3.55, y + 2.85, y + 2.15];
+      dests.forEach(([text, ang], i) => {
+        solid.add(signArm(text, SIGN_V), spot.x, armY[i % armY.length], spot.z, ang);
+      });
+      postSpots.push({ x: spot.x, z: spot.z, r: POST_CLEAR, kind: 'fork-post' });
+      emit(solid.acc, props.solidMat, g, true);
+      this.group.add(g);
+      this.sites.push({ g, x: j.x, z: j.z, r: 12 });
+    }
+
     // -- roads ---------------------------------------------------------------
     let roadIdx = 0;
+    // Every lamp and fingerpost already standing, shared by all three roads.
+    // See `postSpots` above.
+    const taken: Spot[] = postSpots;
     for (const road of plan.network.roads) {
       const g = new THREE.Group();
       const solid = new SolidStamp(this.solids);
@@ -792,6 +1020,7 @@ export class Towns {
       const built = { ...road, pts: builtDeck(road) };
       buildRoadFurniture(
         solid, glow, parts, built, plan.network, mulberry32(seed ^ road.pts.length),
+        surfaceAt, taken,
       );
       addBridgeFurniture(solid, parts, built);
       emit(solid.acc, props.solidMat, g, true);
@@ -830,33 +1059,7 @@ export class Towns {
       const mid = road.pts[Math.floor(road.pts.length / 2)];
       this.sites.push({ g, x: mid.x, z: mid.z, r: roadLength(road) * 0.5 + 20 });
     }
-
-    // -- the fingerpost at the fork -----------------------------------------
-    {
-      const g = new THREE.Group();
-      const solid = new SolidStamp(this.solids);
-      const j = plan.junction;
-      solid.add(parts.post, j.x, j.y, j.z, 0);
-      const armY = [j.y + 3.55, j.y + 2.85, j.y + 2.15];
-      const dests: Array<[string, number]> = [];
-      for (const road of plan.network.roads) {
-        // Which end of this road is the junction, and where does it head?
-        const first = Math.hypot(road.pts[0].x - j.x, road.pts[0].z - j.z) < 6;
-        const a = first ? road.pts[0] : road.pts[road.pts.length - 1];
-        const b = first ? road.pts[Math.min(6, road.pts.length - 1)]
-          : road.pts[Math.max(0, road.pts.length - 7)];
-        const id = first ? road.toId : road.fromId;
-        const site = SITES.find((s) => s.id === id);
-        if (!site) continue;
-        dests.push([t(site.signKey), Math.atan2(b.x - a.x, b.z - a.z)]);
-      }
-      dests.forEach(([text, ang], i) => {
-        solid.add(signArm(text, SIGN_V), j.x, armY[i % armY.length], j.z, ang);
-      });
-      emit(solid.acc, props.solidMat, g, true);
-      this.group.add(g);
-      this.sites.push({ g, x: j.x, z: j.z, r: 12 });
-    }
+    this.furniture = taken;
 
     // Every stamp is in. Freeze the boxes and index them; from here the field
     // is read-only and answers `structureTopAt` for the life of the session.
@@ -984,9 +1187,16 @@ function fencePanel(
   solid.add(parts.fence, x, y, z, yaw);
 }
 
-/** Reject a spot that overlaps something already placed, or the carriageway. */
+/**
+ * Reject a spot that overlaps something already placed, or the carriageway.
+ *
+ * `RoadClearance` and not `RoadNetwork`: the road furniture pass has only the
+ * clearance half of the interface, and this asks nothing more than that.
+ */
 function place(
-  taken: Spot[], network: RoadNetwork, x: number, z: number, r: number, roadClear: number,
+  taken: Spot[], network: RoadClearance, x: number, z: number, r: number, roadClear: number,
+  /** Labels the claim for `__dbgTowns().furniture`; layouts leave it off. */
+  kind?: string,
 ): boolean {
   if (network.distanceTo(x, z) < roadClear) return false;
   for (const t of taken) {
@@ -994,7 +1204,7 @@ function place(
     const dz = t.z - z;
     if (dx * dx + dz * dz < (t.r + r) * (t.r + r)) return false;
   }
-  taken.push({ x, z, r });
+  taken.push({ x, z, r, kind });
   return true;
 }
 
@@ -1315,20 +1525,77 @@ function buildHamlet(
 
 /**
  * What lines a road: lamps at intervals, rough tree fence on some stretches,
- * and a labelled fingerpost at each end.
+ * and a labelled fingerpost at the end that names a town.
  *
  * Everything here is placed by ARC LENGTH along the deck and offset along its
  * perpendicular, so the furniture follows the road round a bend instead of being
- * scattered near it, and everything sits on the deck height — which is the
- * continuous surface the player walks, so a lamp at the top of a rise stands on
- * the rise rather than in it.
+ * scattered near it. TWO things it may not decide for itself, and both were
+ * issue #15:
+ *
+ *  - WHERE THE GROUND IS. A piece stands on the verge, past `DECK_EDGE`, and
+ *    the verge is not the deck. `seatOn` asks the walking surface at the piece's
+ *    own column, the same query the ribbon draws itself on.
+ *  - WHETHER THE SPOT IS FREE. `taken` is shared by every road and by the fork's
+ *    own fingerpost, and `place` also asks the whole NETWORK how near a
+ *    carriageway the spot is — because "6.1 units off my road" and "in the
+ *    middle of the next road" are the same place at a fork. Fences have gone
+ *    through `fencePanel` for exactly this reason for a while; lamps and posts
+ *    did not, and stood in the road.
  */
 function buildRoadFurniture(
   solid: SolidStamp, glow: Accum, parts: TownParts, road: Road,
   network: RoadClearance, rng: () => number,
+  surfaceAt: (x: number, z: number) => number,
+  taken: Spot[],
 ): void {
   const len = roadLength(road);
   const at = { x: 0, y: 0, z: 0, dx: 0, dz: 0 };
+
+  // Fingerposts FIRST, before the lamps: a post names a road and has to stand
+  // where the road is read, and `place` is first-come. See the same ordering
+  // argument on the Encampment's watch platforms.
+  //
+  // ONE PER TOWN END, and none at the fork. A post stands near an end and names
+  // the OTHER end — "leaving here, that way to there" — so the pair is [where
+  // this post stands, what it says]. Every road in this network has a town at
+  // one end and the fork at the other, and the fork already carries a
+  // three-armed post naming all three destinations: a fourth board seventeen
+  // units up each arm put three signs and the post they duplicate inside sight
+  // of one another, which is the clutter reported in issue #15.
+  //
+  // The ids are IDS; what goes on the board is the looked-up sign string,
+  // folded to the font by `signArm`.
+  const ends: Array<[number, string, string, number]> = [
+    [Math.min(len * 0.4, 17), road.fromId, road.toId, 1],
+    [Math.max(len * 0.6, len - 17), road.toId, road.fromId, -1],
+  ];
+  for (const [sPos, standsAt, names, dir] of ends) {
+    if (!SITES.some((q) => q.id === standsAt)) continue;
+    const sign = t(SITES.find((q) => q.id === names)?.signKey ?? JUNCTION_SIGN_KEY);
+    // Walk BACK along the road from the nominal spot until the post is clear of
+    // every carriageway and of everything already standing. A post is not
+    // optional — it is the road's own name — so it moves rather than being
+    // dropped, and 3 units a try over 6 tries is the router's own segment
+    // length, i.e. one deck sample at a time.
+    for (let k = 0; k < 6; k++) {
+      const s = Math.max(2, Math.min(len - 2, sPos - dir * k * 3));
+      roadAt(road, s, at);
+      const px = -at.dz;
+      const pz = at.dx;
+      const off = DECK_EDGE + 1.1;
+      const x = at.x + px * off;
+      const z = at.z + pz * off;
+      if (!place(taken, network, x, z, POST_CLEAR, POST_ROAD_CLEAR, 'post')) continue;
+      const y = seatOn(surfaceAt, x, z, POST_FOOT);
+      solid.add(parts.post, x, y, z, 0);
+      solid.add(
+        signArm(sign, SIGN_V), x, y + 3.4, z,
+        Math.atan2(at.dx * dir, at.dz * dir),
+      );
+      break;
+    }
+  }
+
   const LAMP_STEP = 26;
   let lampSide = 1;
   for (let s = LAMP_STEP * 0.5; s < len; s += LAMP_STEP) {
@@ -1337,14 +1604,23 @@ function buildRoadFurniture(
     // planks over open water, and the railings already own that edge.
     const near = road.pts[Math.min(road.pts.length - 1, Math.round(s / 3))];
     if (near.bridge) continue;
-    const px = -at.dz * lampSide;
-    const pz = at.dx * lampSide;
-    const off = DECK_EDGE + 0.8;
-    const x = at.x + px * off;
-    const z = at.z + pz * off;
-    const yaw = Math.atan2(-px, -pz); // bracket leans over the road
-    solid.add(parts.lamp, x, at.y, z, yaw);
-    glow.add(parts.lampGlow, x, at.y, z, yaw, 1, 1, 1, 1);
+    // Alternating sides is the LOOK; which side is actually free is the
+    // network's call. Try the turn it is due first, then the other, then give
+    // up on this interval — a lamp is decoration and a gap in a line of them
+    // reads as a lamp that burned out, where one in the road does not.
+    for (const side of [lampSide, -lampSide]) {
+      const px = -at.dz * side;
+      const pz = at.dx * side;
+      const off = DECK_EDGE + 0.8;
+      const x = at.x + px * off;
+      const z = at.z + pz * off;
+      if (!place(taken, network, x, z, LAMP_CLEAR, LAMP_ROAD_CLEAR, 'lamp')) continue;
+      const y = seatOn(surfaceAt, x, z, 0.4);
+      const yaw = Math.atan2(-px, -pz); // bracket leans over the road
+      solid.add(parts.lamp, x, y, z, yaw);
+      glow.add(parts.lampGlow, x, y, z, yaw, 1, 1, 1, 1);
+      break;
+    }
     lampSide = -lampSide;
   }
 
@@ -1365,37 +1641,16 @@ function buildRoadFurniture(
       // finished panel against the whole network, which is the only way a run
       // laid along one road can know about the other two at a fork — or about
       // its own road, further along, on the inside of a bend.
+      const fx = at.x - at.dz * fside * off;
+      const fz = at.z + at.dx * fside * off;
+      // On the verge, like everything else here — and a panel is 4.2 units
+      // long, so the seat is taken over its own reach rather than its middle.
       fencePanel(
         solid, parts, network,
-        at.x - at.dz * fside * off, at.y, at.z + at.dx * fside * off,
+        fx, seatOn(surfaceAt, fx, fz, FENCE_HALF), fz,
         Math.atan2(at.dx, at.dz),
       );
     }
     s += runs * fenceLen + 40 + rng() * 70;
-  }
-
-  // Fingerposts: one at each end that names where the road goes, set back from
-  // the town so it is read on the approach rather than at the gate.
-  // The road's `toId`/`fromId` are IDS; what goes on the board is the looked-up
-  // sign string, folded to the font by `signArm`.
-  const label = (id: string): string =>
-    t(SITES.find((q) => q.id === id)?.signKey ?? JUNCTION_SIGN_KEY);
-  const ends: Array<[number, string, number]> = [
-    [Math.min(len * 0.4, 17), road.toId, 1],
-    [Math.max(len * 0.6, len - 17), road.fromId, -1],
-  ];
-  for (const [sPos, destId, dir] of ends) {
-    const sign = label(destId);
-    roadAt(road, sPos, at);
-    const px = -at.dz;
-    const pz = at.dx;
-    const off = DECK_EDGE + 1.1;
-    const x = at.x + px * off;
-    const z = at.z + pz * off;
-    solid.add(parts.post, x, at.y, z, 0);
-    solid.add(
-      signArm(sign, SIGN_V), x, at.y + 3.4, z,
-      Math.atan2(at.dx * dir, at.dz * dir),
-    );
   }
 }
