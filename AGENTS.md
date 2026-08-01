@@ -79,6 +79,22 @@ once frames come quickly.
 - Dev server: `bun run dev` → http://localhost:5187 (`index.html` = game,
   `lab.html` = isolated stage, see [LAB.md](LAB.md)). The port is pinned because
   every tool in `tools/` hardcodes it.
+- **STOP THE DEV SERVER WHEN THE WORK IS DONE — in the same turn you report it
+  done, and say that you did.** A server an agent left running is not a stray
+  process, it is a STATUS LIGHT pointing the wrong way: from the outside a live
+  `vite` says "still working" indefinitely, and there is nothing on the developer's
+  screen that distinguishes yours from their own. This applies to every server
+  started for a single probe run or one screenshot, not just to a long session —
+  those are the ones that get forgotten, because they were only meant to live for
+  a minute. It applies at the end of EVERY turn that finishes a piece of work,
+  not only the last one in a conversation.
+- **Never stop a server you did not start.** The pinned port cuts the other way
+  too: 5187 already up usually means the developer is running it, or another
+  agent session is. Two agents cannot share it — every tool hardcodes it — so a
+  worktree serves itself on another port and runs a COPY of the probe pointed
+  there (`sed 's|5187|5199|' tools/test-x.mjs > tools/_tmp-x.mjs`, run it, delete
+  it) rather than editing the tool or evicting whoever is on 5187. Delete the
+  copies; `_tmp-*.mjs` is not gitignored and will otherwise be in the commit.
 - Typecheck + build: `bun run build` (runs `tsc --noEmit` first — keep it clean).
   `bun run snapshot [label]` writes a timestamped, self-contained build to `dist/`.
 - **To look at a BUILD, serve it statically** — `bun x vite preview --outDir dist`
