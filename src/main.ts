@@ -1904,6 +1904,57 @@ frame();
   structureTop: world.structureTopAt(x, z),
 });
 
+/**
+ * What you SEE at a column, as opposed to what you STAND ON.
+ *
+ * `__dbgWorld().ground` is the walking surface — the number the player, the
+ * beasts and the camera all resolve against. This raycasts the actual scene
+ * straight down and reports the geometry that was actually built there. The
+ * two answering differently is a specific and nasty class of bug: the hero is
+ * exactly where the physics says he should be, and he looks buried, because the
+ * mesh in front of him was drawn above his feet. Nothing else in the probe set
+ * could see it — every existing test compares the world against itself.
+ *
+ * The ray starts `above` units over the WALKING surface rather than in the sky,
+ * and that is the whole trick: dropped from 400 it reports the cloud deck, the
+ * canopy and every eave it passes through on the way down, none of which is the
+ * ground. Starting just overhead asks the only question worth asking — what is
+ * drawn right where the feet are. Returns `sink` = surface - ground, how deep a
+ * figure standing there appears to be buried. Allocates and walks the whole
+ * scene graph; call it from a tool, never from a frame.
+ */
+const _surfRay = new THREE.Raycaster();
+const _surfFrom = new THREE.Vector3();
+const _surfDown = new THREE.Vector3(0, -1, 0);
+(window as unknown as {
+  __dbgSurfaceY: (x: number, z: number, above?: number) => unknown;
+}).__dbgSurfaceY = (x, z, above = 3) => {
+  const ground = world.getHeight(x, z);
+  _surfFrom.set(x, ground + above, z);
+  _surfRay.set(_surfFrom, _surfDown);
+  _surfRay.far = above + 40;
+  // Sprite.raycast reads `raycaster.camera.matrixWorld` and throws on a null
+  // one, and the world is full of glow sprites — so the camera has to be handed
+  // over even though nothing here cares what it sees.
+  _surfRay.camera = engine.camera;
+  // MESHES ONLY. A ray fired through this world also collects glow sprites and
+  // the drifting mote Points, and neither is something a hero can stand on or
+  // be hidden behind — left in, they were all this reported.
+  const hits = _surfRay.intersectObject(engine.scene, true)
+    .filter((h) => h.object.visible && (h.object as THREE.Mesh).isMesh);
+  const top = hits[0] ?? null;
+  return {
+    ground: +ground.toFixed(3),
+    surface: top ? +top.point.y.toFixed(3) : null,
+    hit: top ? (top.object.name || top.object.type) : null,
+    /** How far a figure standing on `ground` is buried by what is drawn. */
+    sink: top ? +(top.point.y - ground).toFixed(3) : null,
+    hits: hits.slice(0, 4).map((h) => ({
+      y: +h.point.y.toFixed(3), name: h.object.name || h.object.type,
+    })),
+  };
+};
+
 // The grass-disturbance field: the six uniform slots the shader is reading this
 // frame, and the tracks behind them. `slots[].push` and `.wash` are the two
 // numbers the effect is made of, and `tracks[].lag` is the distance between a

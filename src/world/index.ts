@@ -290,7 +290,9 @@ export function createWorld(
   const shops = new Shops(spots, spawnPoint);
   scene.add(shops.group);
 
-  const towns = plan ? new Towns(plan, new TownParts(), propLib, terrainMat, seed) : null;
+  const towns = plan
+    ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain)
+    : null;
   if (towns) scene.add(towns.group);
 
   // THE PEOPLE, after the settlement and never before it: the placement search

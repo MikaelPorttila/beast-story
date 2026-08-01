@@ -703,6 +703,14 @@ export class Towns {
     props: PropLib,
     terrainMat: THREE.Material,
     seed: number,
+    /**
+     * The height field, for the road ribbon alone — it draws itself on
+     * `getHeight`, the walking surface, rather than on its own deck profile.
+     * See buildRoadRibbon for why that is the only way the two can agree where
+     * carriageways overlap. Must already have `terrain.roads` set, which
+     * `planSettlements` does.
+     */
+    terrain: Terrain,
   ) {
     // Two glow materials, not one: a camp fire and a lamp on the road are the
     // same shader program (three keys on the define set, and these differ only
@@ -770,6 +778,7 @@ export class Towns {
     }
 
     // -- roads ---------------------------------------------------------------
+    let roadIdx = 0;
     for (const road of plan.network.roads) {
       const g = new THREE.Group();
       const solid = new SolidStamp(this.solids);
@@ -788,7 +797,17 @@ export class Towns {
       emit(solid.acc, props.solidMat, g, true);
       emit(glow, lampGlow, g, false);
 
-      const rib = buildRoadRibbon([road], seed);
+      // The ribbon is drawn on the WALKING SURFACE, queried per vertex — see
+      // buildRoadRibbon. `terrain.getHeight` is the same function the player,
+      // the beasts and the camera resolve against, so the two cannot drift.
+      // The bias is a third of a millimetre per road, which only matters where
+      // two ribbons now resolve onto the same surface at the fork and would
+      // otherwise be coplanar.
+      const rib = buildRoadRibbon(
+        [road], seed,
+        (x, z) => terrain.getHeight(x, z),
+        roadIdx++ * 0.003,
+      );
       if (rib.idx.length > 0) {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.Float32BufferAttribute(rib.pos, 3));
@@ -797,6 +816,11 @@ export class Towns {
         geo.setIndex(rib.idx);
         geo.computeBoundingSphere();
         const mesh = new THREE.Mesh(geo, terrainMat);
+        // Named so a raycast can say WHICH surface it hit. `__dbgSurfaceY` in
+        // main.ts compares what is drawn at a column against what you walk on,
+        // and "Mesh" for every hit made its answers useless — a hero buried by
+        // the road and a hero standing behind a bush read identically.
+        mesh.name = `road:${road.id}`;
         mesh.receiveShadow = true;
         mesh.matrixAutoUpdate = false;
         g.add(mesh);

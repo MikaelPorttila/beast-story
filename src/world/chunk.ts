@@ -624,6 +624,9 @@ export function buildTerrainMesh(
   geo.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(geo, material);
+  // Named for `__dbgSurfaceY` in main.ts, which raycasts a column and reports
+  // what is drawn there — the answer is only useful if it can name the surface.
+  mesh.name = `terrain:${ox},${oz}`;
   mesh.position.set(ox, 0, oz);
   mesh.castShadow = true;
   mesh.receiveShadow = true;

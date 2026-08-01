@@ -100,9 +100,21 @@ once frames come quickly.
 - There is no unit-test runner. The tests are browser probe scripts that print
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
-  `test-sway.mjs`, `test-menu.mjs`.
+  `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`.
   `tools/capture-set.ps1` (PowerShell, project root) captures the full critic
   shot set.
+- `test-road.mjs` asks the one question nothing else could: **is the road you
+  SEE the road you STAND ON?** Every other probe compares the world against
+  itself, so none of them can see a hero standing exactly where the physics puts
+  him and buried to the chest because the ribbon in front of him was drawn over
+  his feet. It raycasts the real scene just above the walking surface
+  (`__dbgSurfaceY` in main.ts, which is why the ribbon and chunk meshes carry
+  names) and reports two numbers. `worstSink` is how far the drawn surface
+  floats over the walked one — measured 0.19 / 0.03 / 0.49, against 1.66 at the
+  spawn before the ribbon was made to sample the surface. `worstStepOver025` is
+  the largest jump in the WALKING surface on a carriageway, and it is a KNOWN
+  FAILURE: **0.801 at the fork, where MAX_STEP_UP is 0.5** — a wall across the
+  road that cannot be seen or crossed. See the roads note below.
 - **Every probe that drives the game passes `menu=0`.** The title screen is a
   gate — it holds the hero still until New Game — so a tool that forgets it
   measures a poster. `tools/screenshot.mjs` adds it for you unless the query
@@ -213,6 +225,33 @@ untouched; [src/world/town-parts.ts](src/world/town-parts.ts) holds the voxel
 builders and the three rules they obey. `towns=0` removes the lot, and
 `__dbgTowns()` reports the registry plus each road's measured worst step and
 grade.
+
+**The ribbon draws itself on `getHeight`, per vertex.** `buildRoadRibbon` takes
+the walking-surface query and samples it at every vertex of every ring, rather
+than computing a cross-section from its own road's deck profile. That is not
+tidiness, it is the only arrangement in which "what you see is what you stand
+on" is true by CONSTRUCTION rather than by two formulas agreeing — and they
+stopped agreeing the moment carriageways overlapped. Near the fork each ribbon
+was drawn on its own deck while the surface underfoot is whichever road is
+NEAREST: measured, `road:junction-stonewatch` was drawn 1.66 above the ground at
+the spawn, so the hero stood exactly where the physics put him and was buried to
+the chest. The ring spacing (`RING_STEP`) and the cross-section (`CUT_STEP`) are
+fine because a sampled surface is only as good as the chords between samples.
+
+**KNOWN FAILURE, not yet fixed: the walking surface steps 0.801 at the fork**,
+where `MAX_STEP_UP` is 0.5 — an invisible wall across the carriageway, and the
+last 0.49 of ribbon float (`test-road.mjs` reports both). The cause is
+`RoadNetwork.surfaceAt` answering with the NEAREST road's deck: a field that
+jumps between two values across the line equidistant from two decks of different
+heights. Two fixes were tried against the measurement and both were reverted for
+making it worse — taking the HIGHEST road instead let a far road's verge ramp
+outrank a near road's carriageway (1.09 at the spawn), and an inverse-distance
+BLEND of all roads in range only reached 0.68 because the trim planes still cut
+a road's contribution off abruptly at the junction. The fix that would work is
+upstream in `profileRoad`: hold all three decks level across the junction the
+way they are already held level across a town footprint, so there is nothing to
+resolve where they overlap. Whoever does it: `bun tools/test-road.mjs` is the
+before/after.
 
 Settlements are SOLID, and the collider is never authored twice.
 [src/world/structures.ts](src/world/structures.ts) measures a footprint off the

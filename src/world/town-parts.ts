@@ -41,7 +41,7 @@
 import { VoxelModel, shade } from '../core/voxel';
 import { bakeProp, type Template } from './props';
 import { bakeSolid, SolidStamp } from './structures';
-import { builtDeck, DECK_EDGE, DECK_HALF, type Road } from './roads';
+import { builtDeck, DECK_EDGE, DECK_HALF, type Road, type RoadSample } from './roads';
 import { WATER_LEVEL } from './terrain';
 import { hashCell } from './noise';
 
@@ -904,10 +904,78 @@ const RIBBON_LIFT = 0.025;
 /** How far the ribbon's outer edge skirts down, hiding the ground's steps. */
 const RIBBON_SKIRT = 1.1;
 
-/** Cross-section offsets, in units from the centreline. */
-const XS = [
-  -DECK_EDGE, -DECK_HALF, -DECK_HALF * 0.45, 0, DECK_HALF * 0.45, DECK_HALF, DECK_EDGE,
-];
+/**
+ * Cross-section offsets, in units from the centreline.
+ *
+ * Built from the boundaries that MATTER — the rut edge, the carriageway edge
+ * and the rim — with intermediate samples inserted so no two are more than
+ * CUT_STEP apart. The boundaries stay exact because the surfacing bands key on
+ * them (`ad > DECK_HALF` is gravel, `ad < DECK_HALF * 0.45` is rut), so a
+ * subdivision that moved them would move the paint.
+ *
+ * It used to be those five offsets alone, which left a 2.2-unit gap across the
+ * whole verge. That is fine for a cross-section computed from a formula and
+ * wrong for one SAMPLED off the walking surface: where two carriageways
+ * overlap, the surface creases along the line where the nearest road changes,
+ * and a chord thrown across 2.2 units of crease floats over it. Measured at the
+ * fork, that residue was 0.64 with the coarse section and 0.06 with this one.
+ */
+const CUT_STEP = 0.7;
+const XS = ((): number[] => {
+  const edges = [0, DECK_HALF * 0.45, DECK_HALF, DECK_EDGE];
+  const half: number[] = [0];
+  for (let i = 1; i < edges.length; i++) {
+    const a = edges[i - 1];
+    const b = edges[i];
+    const n = Math.max(1, Math.ceil((b - a) / CUT_STEP));
+    for (let k = 1; k <= n; k++) half.push(a + ((b - a) * k) / n);
+  }
+  return [...half.slice(1).reverse().map((v) => -v), ...half];
+})();
+
+/**
+ * Longest gap between ribbon rings, in world units.
+ *
+ * The deck polyline comes out of the router about 3.4 units apart, and each
+ * ring's height is now SAMPLED off the walking surface rather than computed
+ * from a formula — so between two rings the mesh is a straight chord across
+ * whatever the surface does in between. That is exact while the surface is
+ * planar and wrong wherever it creases, which is precisely what happens where
+ * two carriageways overlap and the nearest-road answer switches from one deck
+ * to the other. Measured at the fork: sampling alone took the worst floating
+ * ribbon from 1.66 down to 0.22, and this took the same point to 0.05.
+ *
+ * 1.4 rather than something finer because the error falls off with the square
+ * of the spacing while the vertex count rises linearly, and the whole network
+ * is a few thousand vertices built once at world creation.
+ */
+const RING_STEP = 1.4;
+
+/**
+ * Insert samples until no two are further apart than `step`.
+ *
+ * A cut end inherits the span flag of the samples it sits between, the same
+ * rule `builtDeck` applies for the same reason: half a bridge is not a thing.
+ */
+function densify(pts: RoadSample[], step: number): RoadSample[] {
+  if (pts.length < 2) return pts;
+  const out: RoadSample[] = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / step));
+    for (let k = 1; k <= n; k++) {
+      const t = k / n;
+      out.push({
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        z: a.z + (b.z - a.z) * t,
+        bridge: a.bridge || b.bridge,
+      });
+    }
+  }
+  return out;
+}
 
 const s2l = (c: number): number =>
   c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -934,7 +1002,38 @@ const DECK_PLANK = lin(0x7d6142);
  * this is not a decoration laid near the road: it is a drawing of the collision
  * surface.
  */
-export function buildRoadRibbon(roads: readonly Road[], seed: number): {
+/**
+ * The gravel ribbon for one road.
+ *
+ * `surfaceAt` MUST be the same walking-surface query the player resolves
+ * against — `Terrain.getHeight` — and every vertex takes its height from it.
+ * That is not a refinement, it is the fix for a real bug: this used to build
+ * the cross-section from the road's OWN deck profile (`p.y` ramping to
+ * `round(p.y)`), which is right only while one road owns the column. Near the
+ * fork, where three carriageways overlap, each ribbon was drawn on its own
+ * deck while the surface underfoot is whichever road is NEAREST — measured at
+ * the spawn, `road:junction-stonewatch` was drawn 0.43 above the ground the
+ * hero stands on, and further along the same road 0.82. The hero is exactly
+ * where the physics puts him and looks buried to the chest, because the road
+ * in front of him is drawn over his legs.
+ *
+ * Sampling the authority per vertex makes "what you see is what you stand on"
+ * true by construction rather than by two formulas agreeing, which is the same
+ * argument `builtDeck` already makes about where a road STOPS.
+ *
+ * Two things deliberately do not go through it. A BRIDGE deck is flat to its
+ * own edge over open water, and the surface under it is the riverbed. And the
+ * rim sample is pulled a hair inside `DECK_EDGE`, because at exactly the edge
+ * the query has already handed back to the natural ground and would drop the
+ * ribbon's outer edge onto whatever the terrain does there.
+ */
+export function buildRoadRibbon(
+  roads: readonly Road[],
+  seed: number,
+  surfaceAt: (x: number, z: number) => number,
+  /** Per-road nudge, so two ribbons resolved onto one surface cannot z-fight. */
+  liftBias = 0,
+): {
   pos: number[]; nrm: number[]; col: number[]; idx: number[];
 } {
   const pos: number[] = [];
@@ -946,7 +1045,7 @@ export function buildRoadRibbon(roads: readonly Road[], seed: number): {
     // The BUILT deck, not the route. A road may be surfaced over less than it
     // is routed over — the Encampment's is — and drawing the route would put
     // gravel where no carriageway was carved. See Road.trim in roads.ts.
-    const pts = builtDeck(road);
+    const pts = densify(builtDeck(road), RING_STEP);
     if (pts.length < 2) continue;
     let ring0 = -1;
     let ringFirst = -1;
@@ -964,15 +1063,15 @@ export function buildRoadRibbon(roads: readonly Road[], seed: number): {
       tx /= tl; tz /= tl;
       const px = -tz;
       const pz = tx;
-      const shoulder = Math.round(p.y);
       const ring = pos.length / 3;
       for (let k = 0; k < XS.length; k++) {
         const d = XS[k];
         const ad = Math.abs(d);
-        const y = p.bridge || ad <= DECK_HALF
-          ? p.y
-          : p.y + (shoulder - p.y) * ((ad - DECK_HALF) / (DECK_EDGE - DECK_HALF));
-        pos.push(p.x + px * d, y + RIBBON_LIFT, p.z + pz * d);
+        // A span is flat to its edge and has water under it; everything else
+        // reads the walking surface at the vertex, rim pulled just inside.
+        const sd = Math.sign(d) * Math.min(ad, DECK_EDGE - 0.02);
+        const y = p.bridge ? p.y : surfaceAt(p.x + px * sd, p.z + pz * sd);
+        pos.push(p.x + px * d, y + RIBBON_LIFT + liftBias, p.z + pz * d);
         nrm.push(0, 1, 0);
         const base = p.bridge ? DECK_PLANK
           : ad > DECK_HALF ? GRAVEL
