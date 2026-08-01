@@ -1874,19 +1874,24 @@ function frame(): void {
   // both are read HERE rather than in a simulation slice because neither is a
   // gameplay action — a frame that drained no slice must still answer them.
   //
+  // `takePress`, NOT `pressed`. That is the whole difference between a toggle
+  // that works and one that works about half the time: an unconsumed edge
+  // survives every frame until a slice drains, and uncapped that is two or three
+  // frames, each of which toggles. See the note on takePress in core/input.ts.
+  //
   // F1 carries the gate `interactive` carries below, and needs it for the same
   // two reasons: the title screen owns the keyboard while it is up (its own
   // steps answer to any key), and photo mode must render the same picture twice.
   // F2 is deliberately outside it — measuring a capture's frame rate is the one
   // thing you want to do DURING a capture.
-  if (input.pressed('F1') && !photoMode && !menuOpen()) {
+  if (!photoMode && !menuOpen() && input.takePress('F1')) {
     // Hand the pointer back on the way IN, exactly as tryOpenShop does: the
     // sheet has a close button and a scrim to click at, and a locked pointer
     // has no cursor to click them with.
     if (!hud.isControlsOpen()) document.exitPointerLock();
     hud.toggleControls();
   }
-  if (input.pressed('F2')) debug.toggle();
+  if (input.takePress('F2')) debug.toggle();
   colliderView.update(dt);
   perf.section('hud');
 

@@ -172,6 +172,29 @@ export class Input {
   pressed(code: string): boolean { return this.pressedThisFrame.has(code); }
 
   /**
+   * True on the frame the key went down — and CONSUMES the edge.
+   *
+   * This is the read for a FRAME-loop toggle; `pressed()` is the read for a
+   * SIMULATION slice. What separates them is `endFrame()`, which only runs on a
+   * frame that actually drained a slice — see its call site in main.ts. A press
+   * therefore SURVIVES frames that ran no simulation, deliberately, because
+   * throwing it away was losing a third of every player's jumps.
+   *
+   * That is exactly wrong for a toggle. Uncapped at 165 Hz against a 60 Hz sim,
+   * roughly two frames in three drain nothing, so one press of F1 was read on
+   * two or three consecutive frames and toggled itself straight back off:
+   * measured, ten presses opened and closed the controls sheet in the pattern
+   * `0011011101` where `1010101010` is correct. At `fps=30` every frame drains
+   * two slices and the bug cannot occur, which is why every probe in tools/
+   * passed while the game misbehaved in the hand.
+   *
+   * The probe latch is untouched on purpose: `debugState` answers "what has been
+   * pressed since you last asked", which is a different question with a
+   * different consumer.
+   */
+  takePress(code: string): boolean { return this.pressedThisFrame.delete(code); }
+
+  /**
    * True while look input should drive the camera.
    *
    * The pad's clause is load-bearing rather than symmetric: a player on a

@@ -134,15 +134,19 @@ once frames come quickly.
   toggling a row must write exactly one key, take effect live in
   `__dbgFeedback()`, and still be true after a reload.
 - `test-keybinds.mjs` guards the F1 controls sheet, and the half worth knowing
-  about is not the DOM half. It scans src/ for every `pressed('…')` / `down('…')`
-  / `keys.has('…')` and requires each code to appear in the table in
+  about is not the DOM half. It scans src/ for every `pressed('…')` /
+  `takePress('…')` / `down('…')` / `keys.has('…')` and requires each code to
+  appear in the table in
   [src/ui/keybinds.ts](src/ui/keybinds.ts) — `unlisted` MUST be empty, which is
   how "update the sheet when you add a binding" became a run rather than a
   wish. `listedNotScanned` is expected to hold exactly `Digit1`–`Digit4`: the
   hotbar is read through a loop variable, which no regex over the source can
   see. It also opens the panel with F1, holds W to prove the sheet is a real
-  modal (measured: 0 units with it up, 6.97 with it down), closes it with Escape,
-  and picks up a synthetic DualSense mid-read to check the faces swap live.
+  modal (measured: 0 units with it up, 6.77 with it down), closes it with Escape,
+  and picks up a synthetic DualSense mid-read to check the faces swap live. Its
+  last section is the only one in `tools/` that runs UNCAPPED, and it has to be:
+  ten presses of F1 must give `1010101010`, which is exactly the assertion
+  `fps=30` cannot make — see the frame-edge note under Conventions.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -529,6 +533,17 @@ deliberately NOT gated on it: it is something you see, not something you feel.
   `_dummy`, …), instanced meshes and object pools are the norm; keep them that way.
 - **Frame-rate independence.** Smoothing uses `1 - exp(-lambda * dt)`, never a fixed
   lerp factor. `Engine.tick()` clamps `dt` to 0.05 s.
+- **A key edge read in the FRAME loop must be consumed; one read in a
+  SIMULATION slice must not.** `input.pressed()` deliberately survives frames
+  that drained no slice — `endFrame()` only runs when one did, and clearing
+  regardless was throwing away a third of every player's jumps. A toggle in
+  `frame()` therefore sees the SAME press on two or three consecutive frames at
+  165 Hz and toggles itself back off; `input.takePress()` is the read that
+  consumes, and F1/F2 use it. **This class of bug is invisible to every probe in
+  `tools/`**, because `fps=30` against a 60 Hz sim drains two slices on every
+  frame and so clears every press — measured, ten presses of F1 gave a clean
+  `1010101010` capped and `0011011101` uncapped. An assertion about a frame-loop
+  edge has to run with NO `fps=` in its URL; `test-keybinds.mjs` has one.
 - **Tuned constants carry their rationale.** The long comments explaining why a value
   is what it is — and what the previous value looked like when captured — are the
   point, not clutter. When you change such a value, update its comment with what you

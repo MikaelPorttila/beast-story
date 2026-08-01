@@ -44,8 +44,10 @@ function sources(dir) {
 
 // `has` is in here for WASD: core/input.ts reads the movement axes straight off
 // its own held set rather than through down(), and a sheet that forgot to
-// mention how you WALK would otherwise pass.
-const READ = /(?:pressed|down|has)\(\s*'([A-Za-z0-9]+)'\s*\)/g;
+// mention how you WALK would otherwise pass. `takePress` is the frame-loop read
+// F1 and F2 use — it is a separate word, and leaving it out silently dropped
+// both of them out of this scan.
+const READ = /(?:takePress|pressed|down|has)\(\s*'([A-Za-z0-9]+)'\s*\)/g;
 const scanned = new Set();
 for (const file of sources(SRC)) {
   // Skip the table itself: its `codes` arrays are not reads, and matching them
@@ -198,6 +200,40 @@ await page.close();
     changed: onKeyboard !== onPad,
   };
   await pad.close();
+}
+
+// ---------- 4. ten presses, UNCAPPED ---------------------------------------
+//
+// THE ASSERTION THIS FILE EXISTS FOR SECOND, and the one every other section
+// here is structurally blind to. `?fps=30` against a 60 Hz sim drains two
+// slices on every frame, so `endFrame()` runs every frame and a press can never
+// be read twice. Uncapped it runs at the display's refresh rate — 165 Hz on the
+// machine this was measured on — and two frames in three drain nothing at all.
+//
+// A frame-loop toggle reading an unconsumed `pressed()` therefore fired two or
+// three times per press and landed back where it started: measured before the
+// fix, ten presses of F1 gave `0011011101`. NO `fps=` HERE, deliberately, and if
+// a future edit adds one this assertion quietly stops testing anything.
+{
+  const fast = await newPage(browser, { width: 1280, height: 800 });
+  await fast.goto('http://localhost:5187/?menu=0', { waitUntil: 'load' });
+  await fast.waitForSelector('canvas');
+  await wait(3500);
+
+  const seq = [];
+  for (let i = 0; i < 10; i++) {
+    await fast.keyboard.press('F1');
+    await wait(350);
+    seq.push(await fast.evaluate(() =>
+      document.querySelector('.bs-keyswrap')?.classList.contains('open') ? 1 : 0));
+  }
+  const pattern = seq.join('');
+  results.uncappedToggle = {
+    pattern,
+    expected: '1010101010',
+    alternates: pattern === '1010101010',
+  };
+  await fast.close();
 }
 
 console.log(JSON.stringify(results, null, 2));
