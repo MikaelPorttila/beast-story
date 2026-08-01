@@ -410,6 +410,17 @@ export const en = {
    */
   'menu.settings.autoFullscreen': 'Fullscreen on start',
   'menu.settings.language': 'Language',
+
+  // ---- boot progress -------------------------------------------------------
+  // The corner chip while the title screen is up, and the loading screen the
+  // game is handed over behind (src/ui/loading.ts). They name the WORK, not a
+  // mood: a player watching a bar wants to know what is taking the time, and
+  // these are the four phases main.ts actually runs, in order.
+  'load.world': 'Building the world',
+  'load.actors': 'Waking the beasts',
+  'load.shaders': 'Compiling shaders',
+  'load.terrain': 'Growing the forest',
+  'load.ready': 'Ready',
   'menu.on': 'ON',
   'menu.off': 'OFF',
 } as const;

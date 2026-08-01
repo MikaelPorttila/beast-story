@@ -116,16 +116,25 @@ once frames come quickly.
   FAILURE: **0.801 at the fork, where MAX_STEP_UP is 0.5** — a wall across the
   road that cannot be seen or crossed. See the roads note below.
 - **Every probe that drives the game passes `menu=0`.** The title screen is a
-  gate — it holds the hero still until New Game — so a tool that forgets it
-  measures a poster. `tools/screenshot.mjs` adds it for you unless the query
-  already names `menu=`; the rest have it in their URL.
-- `test-menu.mjs` is the title-screen guard, and the assertion that matters is a
-  PAIR: hold W with the poster up and the hero must travel 0, hold W after New
-  Game and he must travel what the identical hold travels under `menu=0`
-  (measured: 0 then 6.77, against 6.77). Everything else it reports — any key
+  gate — the frame loop does not start until New Game — so a tool that forgets it
+  measures a poster. It is also what keeps the boot UNSTAGED: with no menu there
+  is no progress indicator, no yielding between phases and no waiting for the
+  streaming ring, so a probe sees the same immediate game it always did.
+  `tools/screenshot.mjs` adds it for you unless the query already names `menu=`;
+  the rest have it in their URL.
+- `test-menu.mjs` is the title-screen guard, and it now makes two assertions that
+  matter. The first is a PAIR: hold W with the poster up and the hero must travel
+  0, hold W after New Game and he must travel what the identical hold travels
+  under `menu=0` (measured: 0 then 6.87, against 6.97). The second is
+  `menuShownAtMs`, the moment the poster is actually on screen — measured 221 ms
+  against 14890 ms before the boot was staged, and the whole of the issue that
+  prompted it. Alongside them: `playingBehindMenu` must be false (there is no
+  frame loop behind the poster to run at all), and `handover` must show the
+  loading cover reaching full opacity while the menu is still visible on top of
+  it, over a `menuFadeMs` of about 450. Everything else it reports — any key
   leaving the splash, Settings opening and Escaping back, the language chips
   re-captioning the menu live, the "Fullscreen on start" switch being there and
-  on, and the phone run — is about the flow; that pair is about the gate.
+  on, and the phone run — is about the flow.
 - `test-settings.mjs` is the settings-storage guard, and it drives the real menu
   rather than calling `savePrefs`: a fresh profile must store NOTHING (defaults
   are the absence of a key, which is what keeps "never chose a language" distinct
@@ -200,7 +209,10 @@ combat. Widen a contract here rather than reaching across modules.
 **Composition roots.** [src/main.ts](src/main.ts) is the only place that wires
 Engine + World + Player + Beasts + Combat + HUD together, and the only frame loop in
 the game; gameplay policy that is no subsystem's own business (roster, hotbar,
-cooldowns, shop purchases, support-beast AI) lives there.
+cooldowns, shop purchases, support-beast AI) lives there. Its module body is
+`async` — it `await`s between boot phases so the title screen can paint before
+the world is cut — so adding a statement to it means knowing which phase it lands
+in. The note at the top of the file is the contract; read it first.
 [src/lab/index.ts](src/lab/index.ts) is a second, much smaller loop over the *same*
 modules with a `StubWorld` in place of the streamed one. Never fork model,
 animation or VFX code into `src/lab/`.
@@ -400,10 +412,11 @@ key. The panel is a MODAL (see `modal` in main.ts): a player who stopped to find
 out what a key does must not have walked off a cliff while reading.
 
 **The title screen.** [src/ui/menu.ts](src/ui/menu.ts) is the first thing on
-screen and the GATE on the game starting: `main.ts` passes `interactive=false`
-into `simulate()` for as long as it is open, exactly as photo mode does, so the
-world streams and renders behind the poster while the hero stands still. Its
-steps are `press -> options -> settings`, driven by
+screen and the GATE on the game starting, and it is a gate in the strongest sense
+available: there is no frame loop behind it. `frame()` is called by `beginPlay()`
+in main.ts and by nothing else, so while the poster is up nothing is simulated,
+nothing is drawn, and the hero cannot be walked into a tree by a key press that
+belonged to the menu. Its steps are `press -> options -> settings`, driven by
 keyboard, pointer and a pad poll of its own (edges only — `GamepadControls` is
 for feeding a live hero and is the wrong shape for a menu). Everything moving on
 it is CSS: the lantern pulse, the fairies and the logo's slide cost no
@@ -411,18 +424,35 @@ JavaScript per frame, and the glows stay on the painting's lanterns at every
 aspect ratio because they are positioned inside `.plate`, which restates
 `background-size:cover` in explicit numbers.
 
-**While the poster is up the renderer is capped to 20 fps** (`MENU_FPS` in
-main.ts), and that is not a nicety. Uncapped, the game draws at the display's
-refresh rate — 165 fps on the machine this was measured on — and every one of
-those frames is the world plus GTAO, bloom and SMAA rendered behind an opaque
-picture. Measured over 6 s at 1920x1080: **96.9%** of the main thread with the
-title screen up, **28%** capped, and the poster itself is about 1-3 points of
-either figure. The cap is handed back on `onLeave`, the START of the exit fade,
-because that is when the game behind becomes visible again — half a second
-before `onStart`. `test-menu.mjs` asserts both halves off the F2 readout
-(measured: 17.9 behind the menu, 165.2 after starting); if a change ever makes
-those two numbers equal, the restore has been lost and the game is stuck at menu
-speed.
+**THE POSTER GOES UP BEFORE THE GAME IS BUILT**, and the boot sequence that
+makes that true is the long note at the top of [src/main.ts](src/main.ts). Read
+it before changing the order of anything in that file. In short: the module body
+`await`s between four named phases — world, actors, shaders, terrain — each
+announced on a progress chip in the corner of the title screen
+([src/ui/loading.ts](src/ui/loading.ts)) and separated from the next by a real
+paint. New Game raises the same element as a full-screen loading cover UNDER the
+poster, so the menu's own dissolve is the transition into it, and the game is
+revealed only once every phase has finished. `__dbgBoot()` reports the phase
+timings; `menu=0` and `photo=1` skip the staging entirely.
+
+Everything below used to run in ONE unbroken task. Measured on the dev server at
+1280x800: a single **14702 ms** long task and first contentful paint at
+**15312 ms** — fifteen seconds of black page, because `createWorld`, ten beast
+rigs and the whole shader warm-up all ran before the browser was handed a frame.
+The same load now shows the title screen at **221 ms**. Nothing got faster; the
+work is the same 602 / 85 / 13477 / 1193 ms it always was, and the shader sweep
+is 88% of it (see `STAGES` in loading.ts for why a light sweep costs that much).
+The player simply stopped being made to wait in the dark for it.
+
+There USED to be a `MENU_FPS = 20` cap here instead, and it is worth knowing what
+it was for. The loop ran behind the poster; uncapped that was **96.9%** of the
+main thread at 1920x1080 (the world plus GTAO, bloom and SMAA, drawn behind an
+opaque picture at 165 fps), capped **27%**. The cap was a good answer to the
+wrong question — the point was to keep the world STREAMING, and rendering it was
+only the means, because the streamer spends its budget per rendered frame. The
+terrain phase now drains that queue directly and to completion, so there is no
+loop left to cap and an idle title screen costs the poster's CSS and nothing
+else.
 
 Two more things there are easy to break. **`menu=0` is load-bearing for every
 tool in `tools/`** — see the probe note above. And **FULLSCREEN IS TAKEN, NOT

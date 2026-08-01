@@ -500,6 +500,9 @@ export function createWorld(
     // A part-built chunk counts: its props stage has not run, so its trees are
     // not in the trunk registry yet and walking in would find no colliders.
     get streaming(): boolean { return building !== null || queue.length > 0; },
+    // The part-built one counts as pending for the same reason it counts as
+    // streaming: it is not finished, so the bar must not have spent it yet.
+    get pendingChunks(): number { return queue.length + (building !== null ? 1 : 0); },
     getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
     /**
      * Terrain, the top of a trunk, or the surface of a canopy — whichever is

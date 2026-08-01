@@ -797,6 +797,59 @@ const CSS = `
   .bs-menu[data-step="settings"] .fore{grid-template-rows:0 1fr auto 1fr}
 }
 
+/* ---- boot progress ------------------------------------------------------- */
+/* One element wearing two hats — see src/ui/loading.ts for the sequence.
+
+   The Z-INDEX INVERSION is the load-bearing part of this block. As a CHIP it
+   sits at 55, over the poster (50), because it is reporting on work happening
+   behind a picture that would otherwise hide it. As the COVER it drops to 45,
+   UNDER the poster and over the touch overlay (30) and the HUD (20), because
+   the menu's own half-second dissolve is then the transition INTO it: the
+   player watches the title screen melt away and finds a loading screen, not a
+   world in pieces. Nothing cross-fades and nothing is timed against anything;
+   the two faces just stand on opposite sides of one element that was already
+   fading. */
+.bs-load{position:fixed;pointer-events:none;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:#eef2f8;user-select:none;-webkit-user-select:none;
+  opacity:0;transition:opacity .4s ease}
+.bs-load.show{opacity:1}
+.bs-load.gone{opacity:0;transition:opacity .55s ease}
+
+.bs-load.chip{right:max(16px,env(safe-area-inset-right));
+  bottom:max(16px,env(safe-area-inset-bottom));z-index:55}
+.bs-load.chip .box{width:min(248px,52vw);padding:9px 13px 11px;border-radius:12px;
+  background:linear-gradient(165deg,rgba(30,38,54,.72),rgba(14,18,28,.84));
+  border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 8px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+
+/* Opaque, and the same near-black index.html paints the page with, so the seam
+   between "menu gone" and "loading screen up" is invisible even if a frame is
+   dropped between them. */
+.bs-load.cover{inset:0;z-index:45;display:grid;place-items:center;
+  background:radial-gradient(125% 95% at 50% 42%,#131c2b 0%,#0a0e14 72%)}
+.bs-load.cover .box{width:min(430px,74vw)}
+
+.bs-load .cap{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
+  color:rgba(238,242,248,.74);text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.bs-load.cover .cap{font-size:12.5px}
+.bs-load .pct{font-variant-numeric:tabular-nums;font-weight:700;letter-spacing:.06em;
+  color:rgba(238,242,248,.5)}
+.bs-load .track{margin-top:8px;height:4px;border-radius:999px;overflow:hidden;
+  background:rgba(255,255,255,.13)}
+.bs-load.cover .track{height:5px;margin-top:12px}
+/* The same amber the title chip and the shard prices already use, so the one
+   thing on screen before the game starts is wearing the game's colour. */
+.bs-load .fill{display:block;height:100%;width:0;border-radius:999px;
+  background:linear-gradient(90deg,#ffd23f,#ff8b4a 62%,#ff6b35);
+  box-shadow:0 0 10px rgba(255,150,70,.45);
+  transition:width .18s linear}
+@media (prefers-reduced-motion:reduce){
+  .bs-load .fill{transition:none}
+}
+
 /* ---- responsive ---------------------------------------------------------- */
 /* Respect notches/rounded corners on phones. */
 .bs-left{left:max(16px,env(safe-area-inset-left))}

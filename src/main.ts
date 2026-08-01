@@ -29,12 +29,157 @@ import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem, SWORD_REACH } from './combat/index';
 import { HUD, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
 import { StartMenu } from './ui/menu';
+import { LoadingScreen } from './ui/loading';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
 const app = document.getElementById('app')!;
 const engine = new Engine(app);
 const input = new Input(engine.renderer.domElement);
 const bus = new EventBus();
+
+// ---------------------------------------------------------------------------
+// BOOT ORDER, and why this module now has `await` in it.
+//
+// Everything below used to run in ONE unbroken task. Measured on the dev server
+// at 1280x800 with a long-task observer installed ahead of this module: a single
+// 14702 ms task starting at 140 ms, and first contentful paint at 15312 ms. For
+// fifteen seconds there was nothing on screen at all — no title screen, no
+// canvas, no spinner — because `createWorld` cut two towns and their roads, ten
+// beast rigs were built, and the whole shader warm-up sweep ran, all before the
+// browser was handed a single frame. Then the game LOOP started, and went on
+// simulating and drawing the world behind the poster, capped to 20 fps, for as
+// long as the player left the title screen up.
+//
+// The same load now has the title screen up at 221 ms (`menuShownAtMs` in
+// tools/test-menu.mjs), and reports the rest — 602 ms of world, 85 ms of actors,
+// 13477 ms of shader warm-up, 1193 ms of streaming — on a progress chip in the
+// corner of it. Nothing got faster; the player simply stopped being made to wait
+// in the dark for it.
+//
+// So the boot is now three named things instead of one:
+//
+//   1. THE POSTER GOES UP FIRST. The title screen and the progress chip are
+//      built here, out of nothing but the DOM, and the module then yields. They
+//      are on screen within a frame of the module being evaluated.
+//   2. THE GAME IS BUILT IN PHASES, each announced on the chip and each
+//      separated from the next by a real paint (see LoadingScreen.stage). The
+//      world, the actors, the shaders and the streaming ring, in that order.
+//      This is the only work happening while the menu is up.
+//   3. NOTHING RENDERS UNTIL THERE IS A PLAYER. `frame()` is called by
+//      `beginPlay()` and by nothing else. Preparation drives its own renders —
+//      the warm-up sweep IS a render, that is what compiles a shader — and once
+//      it is done the main thread goes quiet until New Game is pressed. The old
+//      MENU_FPS cap that made a 96.9% main thread into a 27% one is gone with
+//      it: the honest figure for an idle title screen is now neither, it is the
+//      CSS on the poster.
+//
+// The menu is LIVE throughout phase 2, which is the one thing this arrangement
+// costs. Its hooks can therefore fire before the systems they talk to exist —
+// hence the two `let`s below rather than the `const`s further down, and hence
+// `beginPlay()` being gated on `prepDone` rather than trusting the timing.
+// ---------------------------------------------------------------------------
+
+/**
+ * The pad and the feedback mixer, ASSIGNED further down where their
+ * dependencies exist.
+ *
+ * `let ... = null` rather than the `const`s they used to be, and the reason is
+ * the boot order above: the title screen's Settings panel is usable while the
+ * game is still being built, so `onLookAxes` and `onHapticFeedback` can be
+ * called before either of these has been constructed. A `const` declared later
+ * in the module would be in its temporal dead zone at that moment and the hook
+ * would THROW rather than harmlessly do nothing. Null is the right answer for
+ * "not built yet": the menu has already persisted the choice, and both are
+ * constructed from `loadPrefs()` below, so the switch is honoured either way.
+ */
+let pad: GamepadControls | null = null;
+let feedback: FeedbackSystem | null = null;
+
+/** True once every boot phase has finished; nothing may start playing before. */
+let prepDone = false;
+/** True once the title screen has handed over (or there was never one). */
+let handedOver = false;
+/** True once `frame()` is running. */
+let playing = false;
+
+const startMenu = StartMenu.offer({
+  // The poster has begun dissolving, which is the moment what is behind it
+  // starts being seen. Behind it is the loading screen, raised here so the
+  // menu's own half-second fade is the transition INTO it — see
+  // LoadingScreen.cover for why that needs no cross-fade of its own.
+  onLeave: () => loading?.cover(),
+  onStart: () => { handedOver = true; beginPlay(); },
+  // Straight through to the pad, which takes a change at any time by design —
+  // see GamepadControls.setLookAxes. The preference itself is saved by the menu,
+  // so a change thrown before `pad` exists is picked up when it is built.
+  onLookAxes: (a) => pad?.setLookAxes(a),
+  // Same shape for the vibration switch: the menu persists it, this hands it to
+  // the one system that issues haptics at all. Null in photo mode, where there
+  // is no feedback system and no menu either.
+  onHapticFeedback: (on) => feedback?.setOptions({ hapticFeedback: on }),
+});
+
+/**
+ * True when the boot is STAGED behind a title screen — the only case that wants
+ * a progress indicator, real paints between phases, and a game that waits.
+ *
+ * False for the two cases that must keep booting exactly as they did:
+ *   - `menu=0`, which every probe in `tools/` passes. They drive the hero within
+ *     a second of `load` and several read `__dbgPlayerPos` immediately; a boot
+ *     that spent ten frames yielding, or that held the frame loop back until the
+ *     streaming ring was full, would change what every one of them measures.
+ *   - `photo=1`, including `photo=1&menu=1` where the menu IS the subject of the
+ *     capture. A progress chip in the corner of a staged still is a bug.
+ */
+const staged = startMenu !== null && !flags.photo;
+const loading = staged ? new LoadingScreen() : null;
+if (!staged) handedOver = true;
+
+/**
+ * Start the game, once BOTH halves are true: everything is built, and the
+ * player has asked for it.
+ *
+ * Two callers — the end of the boot sequence and the menu's `onStart` — and
+ * whichever is last wins. That is the whole handshake, and it is a handshake
+ * rather than a sequence because the two events genuinely race: a player who
+ * clicks New Game while the shader sweep is still running has asked first, and
+ * a player who reads the title screen for a minute has asked last.
+ *
+ * The `prepDone` guard is also what makes the body safe to write against
+ * consts declared hundreds of lines below — `fpsCap`, `staged`, `hud`'s bus
+ * listener. `prepDone` is set on the last line of the boot sequence, so by the
+ * time any of this runs the whole module has been evaluated. Reorder that and
+ * the first thing you get is a temporal-dead-zone throw inside a click handler.
+ */
+function beginPlay(): void {
+  if (playing || !prepDone || !handedOver) return;
+  playing = true;
+  // Every key pressed at the title screen is still latched in `Input` — nothing
+  // has drained it, because `endFrame()` only runs inside `frame()` and
+  // `frame()` has not run yet. Unread, the first simulation slice would see the
+  // whole menu session at once: the Enter that started the game, the arrow keys
+  // that walked the list, the `E` somebody idly pressed. Drain it here, and the
+  // hero wakes up to an empty keyboard.
+  input.endFrame();
+  loading?.finish();
+  engine.setFpsCap(fpsCap);
+  if (staged) {
+    // Deferred to here rather than emitted when the menu closed: a toast lives
+    // about four seconds, and this is the first moment the player is looking at
+    // the game rather than at a poster or a loading bar.
+    bus.emit({
+      type: 'toast',
+      // A touchscreen laptop driven by mouse gets the desktop hint: `touch` is
+      // non-null there (it ticks the camera stick) but stays hidden until a touch.
+      text: t(isTouchPrimary() ? 'toast.welcome.touch' : 'toast.welcome.desktop'),
+    });
+  }
+  frame();
+}
+
+// Phase 1 ends here: the poster and the chip are on screen before the first
+// chunk exists. Everything past this point is phase 2.
+await loading?.stage('world');
 
 // ---------------------------------------------------------------------------
 // Zones. There are two: the streamed overworld and one dungeon instance. The
@@ -190,6 +335,10 @@ const zones = new ZoneManager({
   },
   onHint: (t) => { portalHint = t; },
 });
+
+// The world is cut. Next the things that stand on it: the hero, the camera, the
+// combat pools, the HUD and ten beast rigs.
+await loading?.stage('actors');
 
 let world: World = zones.world;
 // Submerged-camera treatment. Scene-level and zone-agnostic (it takes the world
@@ -714,8 +863,15 @@ onLanguageChange(() => {
 // to catch it. It stays free until one does; see core/gamepad.ts.
 // Stored player choices, read once. URL beats preference and never writes back
 // — see core/flags.ts.
+//
+// Both this and the feedback mixer below are ASSIGNMENTS, not declarations —
+// they are declared at the top of the file, above the title screen, because the
+// menu's Settings panel can throw either of their switches before this line has
+// run. See the boot-order note there. `loadPrefs()` is read HERE rather than at
+// the top for the same reason: a switch thrown while the world was being built
+// has already been persisted, and reading late is what picks it up.
 const prefs = loadPrefs();
-const pad = photoMode ? null : GamepadControls.attach(input, {
+pad = photoMode ? null : GamepadControls.attach(input, {
   look: {
     invertX: flags.invertLookX ?? prefs.invertLookX,
     invertY: flags.invertLookY ?? prefs.invertLookY,
@@ -726,7 +882,7 @@ const pad = photoMode ? null : GamepadControls.attach(input, {
 // reason the touch overlay is: a staged capture must not have the camera kicked
 // out from under it by whatever happened to be hitting the hero.
 //
-const feedback = photoMode ? null : new FeedbackSystem({
+feedback = photoMode ? null : new FeedbackSystem({
   bus,
   camera: player.cam,
   pad: () => pad?.current ?? null,
@@ -740,53 +896,10 @@ const feedback = photoMode ? null : new FeedbackSystem({
   shakeIntensity: flags.shake ?? prefs.shakeIntensity,
 });
 
-// ---------------------------------------------------------------------------
-// The title screen.
-//
-// It is the FIRST thing on screen and the game does not begin until it says so:
-// `menuOpen()` below stands the hero down every slice while it is up. The world
-// keeps streaming behind it, which is the entire reason it is a gate rather
-// than a separate page — by the time New Game is pressed the chunks around
-// spawn are built, so the poster fades onto a world that is already there
-// instead of onto a hitch.
-//
-// The "play fullscreen?" pill USED to be raised here, on the game's first
-// frame, next to the welcome toast. The menu owns it now, as its own step
-// straight after "Press start..." (ui/menu.ts), which is both a better moment
-// to ask and the reason the pill stopped remembering an answer — see the header
-// of ui/fullscreen.ts.
-//
-// Null in photo mode, and null under `menu=0`, which is what every probe in
-// tools/ passes: a title screen in front of the hero would make each of them
-// measure the menu instead of the thing they exist to measure.
-// ---------------------------------------------------------------------------
-const startMenu = StartMenu.offer({
-  // The poster has begun dissolving, so the world behind it is being looked at
-  // again: back to whatever frame rate this load actually asked for. See
-  // MENU_FPS below for what was standing it down and why.
-  onLeave: () => engine.setFpsCap(fpsCap),
-  onStart: () => {
-    // Deferred to here rather than emitted at load: a toast lives about four
-    // seconds, and raised behind the poster it would have expired before the
-    // player ever saw the game.
-    bus.emit({
-      type: 'toast',
-      // A touchscreen laptop driven by mouse gets the desktop hint: `touch` is
-      // non-null there (it ticks the camera stick) but stays hidden until a touch.
-      text: t(isTouchPrimary() ? 'toast.welcome.touch' : 'toast.welcome.desktop'),
-    });
-  },
-  // Straight through to the pad, which takes a change at any time by design —
-  // see GamepadControls.setLookAxes. The preference itself is saved by the menu.
-  onLookAxes: (a) => pad?.setLookAxes(a),
-  // Same shape for the vibration switch: the menu persists it, this hands it to
-  // the one system that issues haptics at all. Null in photo mode, where there
-  // is no feedback system and no menu either.
-  onHapticFeedback: (on) => feedback?.setOptions({ hapticFeedback: on }),
-});
-
-/** True while the title screen is up and the hero must not move. */
-const menuOpen = (): boolean => startMenu?.isOpen ?? false;
+// The title screen itself is built at the TOP of this file, before a single
+// chunk exists — see the boot-order note there. It is the first thing on screen
+// and the game does not begin until it says so, and it is now a gate in the
+// strongest sense available: `frame()` is not running behind it at all.
 
 // Probes for the automated input tests (tools/test-touch.mjs). Read-only.
 interface DebugProbes {
@@ -1024,10 +1137,10 @@ const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, cro
   };
 
 let started = false;
-// The welcome toast moved into the title screen's `onStart` above — it is the
+// The welcome toast lives in `beginPlay()` at the top of this file — it is the
 // first thing the player is told, and it has to be said when they are looking
-// at the game rather than at a poster. Photo mode and `menu=0` have no menu to
-// fire it, and neither wants a toast in shot.
+// at the game rather than at a poster or a loading bar. Photo mode and `menu=0`
+// never fire it, and neither wants a toast in shot.
 
 // ?fps=<n> caps the frame rate (0 or absent = uncapped). F2 shows measured FPS.
 const fpsCap = Number(params.get('fps') ?? 0);
@@ -1035,29 +1148,22 @@ engine.setFpsCap(fpsCap);
 const debug = new DebugOverlay(engine.renderer, fpsCap);
 if (params.get('debug') === '1') debug.toggle();
 
-/**
- * Frame cap while the title screen COVERS the game, and the reason it exists.
- *
- * Uncapped, the renderer draws as fast as the display asks — 165 frames a
- * second on the machine this was measured on — and while the poster is up every
- * one of those frames is a full pass of the world plus GTAO, bloom and SMAA
- * behind an opaque picture. Measured over a 6 s window at 1920x1080: 96.9% of
- * the main thread with the menu up, of which 93.4% was the game and about 3.5
- * the poster itself. Capped to 20 it is 27%. The fans spinning up on what looks
- * like a still image is the whole complaint, and this is the whole fix — the
- * menu's own lantern pulse and fairies are CSS animations on the compositor and
- * do not care what the game's loop is doing.
- *
- * 20 rather than 10 (19.7%, so barely cheaper) because the world is still
- * STREAMING behind the poster at one or two chunks a frame, and that is the
- * point of rendering at all rather than stopping dead: 20 fps fills the ring
- * around spawn in a few seconds, which is faster than anyone reads a title
- * screen. It is restored on `onLeave` — the start of the exit fade, half a
- * second before the game is handed over — so the dissolve itself runs at full
- * rate and the world gets that half second uncapped to finish anything left.
- */
-const MENU_FPS = 20;
-if (startMenu?.isOpen) engine.setFpsCap(MENU_FPS);
+// There USED to be a `MENU_FPS = 20` cap here, and the history is worth keeping
+// because it is what the current arrangement replaced.
+//
+// The game's loop ran behind the poster. Uncapped it drew at the display's
+// refresh rate — 165 fps on the machine this was measured on — and every one of
+// those frames was a full pass of the world plus GTAO, bloom and SMAA behind an
+// opaque picture. Measured over a 6 s window at 1920x1080: 96.9% of the main
+// thread with the menu up, of which 93.4% was the game; capped to 20 it was 27%.
+//
+// The cap was a good answer to the wrong question. What was wanted was for the
+// world to keep STREAMING behind the poster, and rendering it was only ever the
+// means: the streamer's budget is spent per rendered frame. The boot sequence
+// now drains that queue itself, on purpose and to completion, and then stops —
+// so there is no loop left to cap, an idle title screen costs the poster's CSS
+// and nothing else, and `beginPlay()` hands the renderer straight to the rate
+// this load actually asked for. See the boot-order note at the top of the file.
 
 perf.enabled = params.get('perf') === '1';
 let lastPrograms = 0;
@@ -1357,7 +1463,31 @@ function warmUpFrame(stage: THREE.Vector3, lights: number, effects = false): voi
   engine.updateSunFocus(player.position);
 }
 
-function warmUpShaders(): void {
+/** VFX light pool cap. The sweep below has to cover every count up to it. */
+const WARM_POOL = 10;
+
+/**
+ * How many staged renders `warmUpSteps` will yield, known before it runs.
+ *
+ * The boot progress bar needs a denominator, and counting the sweep's own terms
+ * is the only honest one: it grows with the settlement plan, so a seed that
+ * sites three towns must not silently make the bar stop at two thirds.
+ */
+function warmUpStepCount(): number {
+  return WARM_POOL + world.towns.all.length + world.towns.roads.length + 1;
+}
+
+/**
+ * The warm-up sweep, one staged render per `yield`.
+ *
+ * A GENERATOR rather than a plain function because the same sweep is now driven
+ * two ways and must stay ONE sequence: the staged boot drains it a few steps at
+ * a time so the progress bar keeps moving and the page keeps painting, and
+ * `menu=0` / photo mode drain it in a single loop exactly as before. Splitting
+ * it into two implementations is how the two would drift, and this one is the
+ * expensive, carefully ordered part of boot — see `warmUpShaders`.
+ */
+function* warmUpSteps(): Generator<void> {
   // The camera has to be looking at the REAL WORLD, not at an empty staging
   // area. The light sweep below only recompiles materials that are actually
   // drawn, and the materials that matter — terrain, props, water, beasts, the
@@ -1370,13 +1500,21 @@ function warmUpShaders(): void {
   // One of everything, drawn once. This also takes the first pool light (the
   // projectile's), so the sweep below starts from a count of 1.
   warmUpFrame(_warmStage, 0, true);
+  yield;
 
   // Then one light at a time, one render each, to the pool's cap. EXACTLY one:
   // adding two per pass leaves every odd count uncompiled, which is a real bug
   // this code already had — three projectiles in flight at once then hit an
   // unseen count mid-fight and recompiled twelve materials in one frame.
-  const POOL = 10; // VFX light pool cap
-  for (let i = 1; i < POOL; i++) warmUpFrame(_warmStage, 1);
+  //
+  // The `yield` between counts is free here and NOT the same lever as the zone
+  // warm-up's WARM_STRIDE: nothing is expiring between these steps at boot (see
+  // warmUpFrame's note on `lights` accumulating), so a step may follow the last
+  // one immediately or a frame later and the count it renders at is identical.
+  for (let i = 1; i < WARM_POOL; i++) {
+    warmUpFrame(_warmStage, 1);
+    yield;
+  }
 
   // THE TOWNS AND THE ROADS. They are built at world creation and stand
   // hundreds of units from spawn, so the staged render above — a 250-unit-high
@@ -1395,11 +1533,13 @@ function warmUpShaders(): void {
   for (const t of world.towns.all) {
     _warmStage.set(t.x, world.getHeight(t.x, t.z) + 1, t.z);
     warmUpFrame(_warmStage, 0);
+    yield;
   }
   for (const r of world.towns.roads) {
     const m = Math.floor(r.path.length / 6) * 3;
     _warmStage.set(r.path[m], r.path[m + 1] + 1, r.path[m + 2]);
     warmUpFrame(_warmStage, 0);
+    yield;
   }
   _warmStage.copy(world.spawnPoint);
   _warmStage.y += 1;
@@ -1409,6 +1549,7 @@ function warmUpShaders(): void {
   // them — and the frame they would otherwise link on is the frame the hero's
   // head goes under, which is a stall in the middle of a swim.
   underwater.warmUp(() => engine.render());
+  yield;
 
   // NOT renderer.compile(scene, camera). It was tried and measured: it linked
   // 117 programs in one go and made boot dramatically WORSE (593 ms, 429 ms and
@@ -1419,7 +1560,17 @@ function warmUpShaders(): void {
 
   // Expire everything the warm-up spawned: every effect above was given a life
   // measured in hundredths of a second, so one long update clears the lot.
+  //
+  // AFTER the last yield on purpose. Whatever the sweep left burning has to be
+  // cleaned up by the same pass that lit it, not left to a caller that might
+  // stop draining early — and no caller does, which is what makes putting it
+  // here safe rather than merely tidy.
   combat.update(5, player as unknown as Damageable, []);
+}
+
+/** Drain the whole sweep now. The unstaged boot path; see `warmUpSteps`. */
+function warmUpShaders(): void {
+  for (const _ of warmUpSteps()) { /* every step, one task */ }
 }
 
 /** Set by the shop-proximity test, read by the hint decision after the zone update. */
@@ -1727,11 +1878,12 @@ function frame(): void {
   let steps = 0;
   while (simAccumulator >= SIM_DT && steps < MAX_STEPS) {
     // `interactive` is what decides whether the hero reads the input device this
-    // slice. The title screen turns it off for the same reason photo mode does:
-    // the world must go on streaming and rendering behind the poster, but a key
-    // press belongs to the menu and must not also walk the hero into a tree
-    // before the player has pressed New Game.
-    simulate(SIM_DT, steps === 0, !photoMode && !menuOpen());
+    // slice, and photo mode is the only thing that turns it off now. The title
+    // screen used to be the other one — the loop ran behind the poster and the
+    // hero had to be stood down every slice — and it no longer needs to be:
+    // `frame()` is not called until `beginPlay()` says the player is playing, so
+    // there is no slice to stand down. See the boot-order note at the top.
+    simulate(SIM_DT, steps === 0, !photoMode);
     simAccumulator -= SIM_DT;
     steps++;
   }
@@ -1933,6 +2085,28 @@ function frame(): void {
   perf.section('overlay');
   perf.end();
 }
+
+/**
+ * How long a staged boot phase may hold the main thread before handing a frame
+ * back, in ms.
+ *
+ * Nothing else is running — no simulation, no render loop, just this — so the
+ * only thing this protects is the page's ability to PAINT: the progress bar, the
+ * poster's CSS animations, and the menu answering a click. 10 ms keeps a 60 Hz
+ * display inside its frame while still spending most of that frame on the work.
+ *
+ * It is a FLOOR on responsiveness, not a ceiling on the slice. The steps are
+ * indivisible — one warm-up render, one chunk stage — so a step that overruns
+ * simply overruns, and on this machine the light sweep's steps are a second
+ * each. What the budget buys is the streaming phase, where the steps are small:
+ * measured at 1193 ms with this budget against 1409 ms yielding after every
+ * single `zones.update`. That gap looks small only because headless Brave runs
+ * rAF unthrottled; on a vsync-limited display the one-call-per-frame form is
+ * bounded by 60 calls a second against ~267 chunk stages, which is four and a
+ * half seconds of doing almost nothing per frame.
+ */
+const BOOT_SLICE_MS = 10;
+
 // Pay for every shader before the first gameplay frame. `warmup=0` skips it,
 // which is how the freeze it prevents can be reproduced on demand.
 //
@@ -1941,9 +2115,84 @@ function frame(): void {
 // still at the origin (and so out of frame, and so uncompiled) before it.
 if (params.get('warmup') !== '0') {
   simulate(SIM_DT, true, !photoMode);
-  warmUpShaders();
+  if (loading) {
+    await loading.stage('shaders');
+    const total = warmUpStepCount();
+    let done = 0;
+    let mark = performance.now();
+    for (const _ of warmUpSteps()) {
+      loading.step(++done / total);
+      if (performance.now() - mark >= BOOT_SLICE_MS) {
+        await loading.breathe();
+        mark = performance.now();
+      }
+    }
+  } else {
+    warmUpShaders();
+  }
 }
-frame();
+
+/**
+ * The streaming ring around spawn, drained to EMPTY before the game is handed
+ * over — the last phase, and the one the issue behind all of this asked for.
+ *
+ * This is what the old `MENU_FPS` cap was really buying, and buying badly: the
+ * chunk streamer spends its budget per rendered frame, so "keep rendering the
+ * world behind the poster" was the only way it had of filling the ring, and it
+ * paid for that with a full pass of GTAO, bloom and SMAA on every one of those
+ * frames. Draining it here instead costs the chunk work and nothing else, and
+ * it CONVERGES: the loop ends when there is nothing left, so the player walks
+ * into a world that is finished rather than into one still popping in.
+ *
+ * The bound is a backstop, not a budget. `refreshQueue` fills the queue once
+ * from a fixed disc around the focus and nothing moves the focus while this
+ * runs, so the honest number of iterations is "however many the ring holds";
+ * 4096 is far past that and is here so a future streamer that re-queues can
+ * never hang the boot on a black screen.
+ *
+ * ONLY on the staged path. Under `menu=0` the game must start the instant it
+ * can — every probe in `tools/` reads `__dbgPlayerPos` within a second of load
+ * — and it streams as it plays exactly as it always has.
+ */
+if (loading) {
+  await loading.stage('terrain');
+  let mark = performance.now();
+  for (let i = 0; i < 4096 && world.streaming; i++) {
+    // dt 0, the same argument `ZoneManager.switchTo` drains with: this is
+    // building, not simulating. A real dt here would run the world's wind and
+    // water clocks forward through a loading screen nobody is watching, and
+    // accumulate dwell on a gateway 34 units from a hero who has not moved.
+    zones.update(player.position, 0, true);
+    const loaded = world.chunksLoaded;
+    loading.step(loaded / Math.max(1, loaded + world.pendingChunks));
+    if (performance.now() - mark >= BOOT_SLICE_MS) {
+      await loading.breathe();
+      mark = performance.now();
+    }
+  }
+}
+
+// Phase 2 is over. Whether that means "play now" or "wait for New Game" is
+// `beginPlay`'s to decide — see the handshake at the top of the file.
+prepDone = true;
+loading?.complete();
+beginPlay();
+
+/**
+ * What the boot actually cost, phase by phase. Read-only, and the reason the
+ * numbers in `STAGES` (src/ui/loading.ts) can be re-measured on any machine
+ * instead of taken on trust. `playing` is the assertion tools/test-menu.mjs
+ * cares about: the frame loop must NOT be running while the poster is up.
+ */
+(window as unknown as { __dbgBoot: () => unknown }).__dbgBoot = () => ({
+  staged,
+  prepDone,
+  handedOver,
+  playing,
+  menuOpen: startMenu?.isOpen ?? false,
+  stages: loading?.stageTimings ?? [],
+  totalMs: Math.round(performance.now()),
+});
 
 // Profiler dump for the perf harness; null unless ?perf=1 recorded anything.
 (window as unknown as { __dbgPerf: () => unknown }).__dbgPerf = () => perf.dump();

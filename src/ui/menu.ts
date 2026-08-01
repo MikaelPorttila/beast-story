@@ -604,7 +604,20 @@ export class StartMenu {
     // the case where the transition never runs at all (prefers-reduced-motion,
     // a background tab, a browser that dropped the frame). Whichever lands
     // first wins; `close()` is idempotent.
-    el.addEventListener('transitionend', done, { once: true });
+    //
+    // BOTH GUARDS ON THE EVENT ARE LOAD-BEARING, and the bug they fix was
+    // measured rather than imagined. `transitionend` BUBBLES, and the button
+    // that was just clicked has `transition: transform .14s, filter .14s`
+    // (see .bs-menu-btn) — so releasing `:active` on New Game fired one at the
+    // menu 140 ms in and closed the poster a third of the way through its own
+    // half-second dissolve. Sampled 180 ms after the click, the loading screen
+    // behind it was already at 0.60 opacity and fading: the player saw a cut,
+    // not a fade. Only this element, and only its opacity, ends the fade.
+    el.addEventListener('transitionend', function onEnd(e: TransitionEvent) {
+      if (e.target !== el || e.propertyName !== 'opacity') return;
+      el.removeEventListener('transitionend', onEnd);
+      done();
+    });
     window.setTimeout(done, 700);
   }
 

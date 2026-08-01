@@ -586,6 +586,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     npcs: null,
     get chunksLoaded(): number { return chunks.size; },
     get streaming(): boolean { return building !== null || queue.length > 0; },
+    get pendingChunks(): number { return queue.length + (building !== null ? 1 : 0); },
 
     getHeight(x: number, z: number): number {
       return localHeight(plan, Math.floor(x - HOLD_ORIGIN_X), Math.floor(z - HOLD_ORIGIN_Z));
