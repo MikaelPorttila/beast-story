@@ -31,6 +31,18 @@ const _b = new THREE.Vector3();
 const _from = new THREE.Vector3();
 const _leaf = new THREE.Vector3();
 
+/**
+ * The player's sword, as two numbers rather than two literals inside one call.
+ *
+ * Exported because the melee aim assist has to ask the SAME reach question the
+ * arc will ask — see `bestMeleeTarget`. A second copy of `2.2` living in main.ts
+ * would be a copy that can drift, and the failure it drifts into is silent: an
+ * assist aiming at something out of range simply makes the swing miss.
+ */
+export const SWORD_REACH = 2.2;
+/** cos of the arc's HALF-angle. 0.643 is ~50 degrees each side, ~100 total. */
+export const SWORD_ARC_COS = 0.643;
+
 const PROJ_SPEED = 16;
 const PROJ_CAP = 14;
 const CRIT_CHANCE = 0.1;
@@ -172,7 +184,81 @@ export class CombatSystem {
     _a.set(direction.x, 0, direction.z);
     if (_a.lengthSq() < 1e-6) return;
     _a.normalize();
-    this.meleeArc(origin.x, origin.y, origin.z, _a.x, _a.z, 2.2, 0.643, attackStat * 1.2, undefined, 0xdfe9ff, 1.6, false);
+    this.meleeArc(
+      origin.x, origin.y, origin.z, _a.x, _a.z,
+      SWORD_REACH, SWORD_ARC_COS, attackStat * 1.2, undefined, 0xdfe9ff, 1.6, false,
+    );
+  }
+
+  /**
+   * The wild enemy nearest the CROSSHAIR that a sword swing could actually
+   * reach, or null if there is nothing worth steering at.
+   *
+   * The query behind the melee aim assist. It exists on the combat system
+   * rather than in main.ts for the one reason a query ever moves: the enemy
+   * list is here. The POLICY — how wide the assist looks, and what it does with
+   * the answer — stays in the composition root, which is where the sword's
+   * swing direction is decided.
+   *
+   * TWO TESTS, both anchored at the HERO, both against the crosshair's bearing:
+   *
+   *  - REACH uses the identical `reach + radius` comparison `meleeArc` runs a
+   *    few lines below. An assist that could pick a target the swing cannot
+   *    land on is worse than no assist at all — it would steer the arc AWAY
+   *    from something it would have hit, toward something it cannot. Same
+   *    number, same source (`SWORD_REACH`), so the two cannot drift apart.
+   *  - NEAREST THE CROSSHAIR is the angle between where the player is aiming
+   *    (`aim`, the camera's forward — the crosshair is pinned to the centre of
+   *    the viewport, which tools/test-crosshair.mjs proves pixel-wise) and the
+   *    bearing from the HERO to the enemy. It both ranks the candidates and
+   *    bounds them, via `coneCos`.
+   *
+   * MEASURING THAT ANGLE AT THE LENS INSTEAD IS A TRAP, and it is worth the
+   * paragraph because it is the more obvious reading of "closest to the
+   * crosshair". The camera sits about four units behind the hero, so an enemy
+   * standing at his SHOULDER — 1.3 units away, 120 degrees off his facing — was
+   * measured at 3.75 degrees off the crosshair: all but centred on screen,
+   * because it is nearly in line with a lens that far back. Ranked and gated
+   * that way the assist selected it and would have spun the swing 164.9
+   * degrees, very nearly backwards. Anchored at the hero the same enemy reads
+   * 120 degrees and is refused. The angle a swing has to travel is subtended at
+   * the shoulders, not at the lens.
+   *
+   * Both are flattened to the XZ plane. That is not an approximation of a 3D
+   * test, it is the right test: `meleeArc` cuts a horizontal wedge and has no
+   * vertical term at all, so "which enemy is this swing meant for" is a
+   * question about bearing. It also avoids inventing a torso height for
+   * `Damageable`, which publishes a position and no bounds.
+   */
+  bestMeleeTarget(
+    from: THREE.Vector3,
+    aim: THREE.Vector3,
+    reach: number,
+    coneCos: number,
+  ): Damageable | null {
+    const al = Math.hypot(aim.x, aim.z);
+    // Looking straight down the Y axis: there is no bearing to be near.
+    if (al < 1e-6) return null;
+    const ux = aim.x / al;
+    const uz = aim.z / al;
+
+    let best: Enemy | null = null;
+    // Seeded with the cone, so "outside the cone" and "no enemies" are one
+    // branch and the loop never keeps a candidate it would then have to reject.
+    let bestDot = coneCos;
+    for (const e of this.enemies) {
+      if (e.isDead) continue;
+      const rx = e.position.x - from.x;
+      const rz = e.position.z - from.z;
+      const rd = Math.sqrt(rx * rx + rz * rz);
+      if (rd > reach + e.radius) continue;
+      // Standing inside the target: no bearing, and the arc hits it from
+      // wherever it swings.
+      if (rd < 1e-4) continue;
+      const dot = (rx / rd) * ux + (rz / rd) * uz;
+      if (dot > bestDot) { bestDot = dot; best = e; }
+    }
+    return best;
   }
 
   findNearestEnemy(pos: THREE.Vector3, range: number): Damageable | null {
