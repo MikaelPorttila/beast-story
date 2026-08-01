@@ -669,7 +669,19 @@ const CSS = `
 .bs-menu .note{font-size:11.5px;font-weight:600;line-height:1.35;text-align:center;
   color:rgba(255,255,255,.62);text-shadow:0 1px 4px rgba(0,0,0,.85);margin:-4px 0 2px}
 /* Wood-and-gold, taken from the logo rather than from the HUD's cool glass:
-   this screen belongs to the painting, not to the interface that comes after. */
+   this screen belongs to the painting, not to the interface that comes after.
+
+   THE RESTING SHADOW AND THE FOCUS RING ARE CUSTOM PROPERTIES, and exactly one
+   rule below composes them into a box-shadow. That is not tidiness, it is the
+   only arrangement in which a variant cannot delete the ring — and one did.
+   .primary sat two lines under :focus-visible restating box-shadow, and
+   .bs-menu-btn.primary and .bs-menu-btn:focus-visible are BOTH 0-2-0, so the
+   later rule won: New Game, the button every player lands on first and the
+   only cursor a pad has on this screen, was the one option that did not light
+   up when focused (issue #19 — measured, its computed box-shadow was the
+   primary's two shadows and no ring at all, while Settings beside it had the
+   full four). A variant now declares --rest, never box-shadow, so it no longer
+   takes part in the cascade it was winning. */
 .bs-menu-btn{display:flex;align-items:center;justify-content:center;gap:10px;
   width:100%;padding:13px 18px;border-radius:12px;cursor:pointer;
   font-family:inherit;font-size:15px;font-weight:800;letter-spacing:.05em;
@@ -680,18 +692,27 @@ const CSS = `
      where the art is allowed to show; the buttons themselves are solid. */
   background:linear-gradient(180deg,#5b3d24,#33210f);
   border:1px solid rgba(255,214,140,.3);
-  box-shadow:0 6px 18px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,226,170,.22);
+  --rest:0 6px 18px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,226,170,.22);
+  /* The focus ring is the pad's cursor as much as the keyboard's, so it is loud
+     on purpose — on a controller it is the ONLY thing saying where you are. */
+  --ring:0 0 0 2px rgba(255,214,120,.95),0 0 22px rgba(255,196,90,.6);
+  box-shadow:var(--rest);
   transition:transform .14s cubic-bezier(.34,1.5,.64,1),filter .14s ease,box-shadow .14s ease}
 .bs-menu-btn:hover:not([disabled]){filter:brightness(1.16);transform:translateY(-1px)}
 .bs-menu-btn:active:not([disabled]){transform:translateY(1px) scale(.985);filter:brightness(1.24)}
-/* The focus ring is the pad's cursor as much as the keyboard's, so it is loud on
-   purpose — on a controller it is the ONLY thing saying where you are. */
-.bs-menu-btn:focus-visible{outline:none;
-  box-shadow:0 0 0 2px rgba(255,214,120,.95),0 0 22px rgba(255,196,90,.6),
-    0 6px 18px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,226,170,.22)}
+.bs-menu-btn:focus-visible{outline:none;box-shadow:var(--ring),var(--rest)}
 .bs-menu-btn.primary{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a);
-  box-shadow:0 6px 20px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.5)}
+  --rest:0 6px 20px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.5)}
+/* The two GOLD faces — New Game, and the language chip you are already on —
+   need their own ring, because the shared one is the same gold they are. Put
+   back on a wooden button it is a bright edge against dark; put on these it is
+   gold touching gold, and the button reads as slightly larger rather than as
+   selected. So a dark hairline goes down FIRST, against the face, and the
+   bright ring sits outside that: the separation is what makes it a ring. */
+.bs-menu-btn.primary,.bs-menu-btn.chip.on{
+  --ring:0 0 0 2px rgba(58,39,3,.85),0 0 0 4px rgba(255,238,186,.95),
+    0 0 24px rgba(255,206,104,.75)}
 .bs-menu-btn[disabled]{cursor:default;opacity:.42;filter:grayscale(.5)}
 /* A settings row: label left, state pill right. */
 .bs-menu-btn.row{justify-content:space-between;font-size:14px;padding:12px 14px 12px 18px}

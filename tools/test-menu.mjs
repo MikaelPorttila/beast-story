@@ -18,6 +18,15 @@
 //      half-built world.
 //   4. "Press start" takes ANY key, the steps advance in order, and `menu=0`
 //      removes the screen entirely — which is what every other tool relies on.
+//   5. THE CURSOR IS VISIBLE WHEREVER IT IS. Every option the focus lands on has
+//      to draw the ring — `ringOn*.ring`, all true. This is issue #19, and it
+//      was only ever wrong on ONE button: `.bs-menu-btn.primary` restated
+//      `box-shadow` one rule below `:focus-visible` at equal specificity, so New
+//      Game — the entry a pad player lands on first, where the ring is the only
+//      thing saying where they are — was the single option that did not light
+//      up. Reading the COMPUTED shadow is the point: the rule was there and the
+//      class was on the element the whole time, and only the resolved value
+//      shows the cascade eating it.
 //
 // It also reports the art's decoded size, because a 404 on either image leaves
 // a menu that is technically present and visually empty.
@@ -94,6 +103,32 @@ const renderedFps = (page) => page.evaluate(() => {
 });
 const moved = (a, b) => +Math.hypot(b.x - a.x, b.z - a.z).toFixed(2);
 
+/**
+ * The focus ring, read off whichever button the cursor is standing on.
+ *
+ * `ring` is derived from the COMPUTED box-shadow rather than from the presence
+ * of a rule, because the bug it guards against (issue #19) was a rule that
+ * existed, matched, and lost the cascade — nothing short of the resolved value
+ * can tell that apart from a working ring.
+ *
+ * The test for one is SPREAD. Every resting shadow on this screen is a drop
+ * shadow or an inset highlight, all blur and zero spread; a ring is the one
+ * thing drawn as `0 0 0 Npx`, an offsetless, blurless band N pixels wide. So a
+ * non-zero fourth length is the ring and cannot be anything else — which also
+ * means this keeps working if the ring is restyled, as long as it stays a ring.
+ */
+const focusRing = (page) => page.evaluate(() => {
+  const a = document.activeElement;
+  if (!a || !a.classList.contains('bs-menu-btn')) return null;
+  const shadow = getComputedStyle(a).boxShadow;
+  return {
+    on: a.dataset.act ?? a.dataset.toggle ?? a.dataset.lang ?? '?',
+    variant: a.className.replace('bs-menu-btn', '').trim() || 'plain',
+    ring: /\b0px 0px 0px [1-9]\d*px/.test(shadow),
+    shadow,
+  };
+});
+
 /** Poll until the boot sequence says everything is built. Returns how long. */
 async function waitForPrep(page) {
   const t0 = Date.now();
@@ -165,6 +200,10 @@ const out = {};
   await page.keyboard.press('KeyK');
   await wait(400);
   out.afterAnyKey = await state(page);
+  // The cursor is on New Game the moment the options appear, and it is the ONE
+  // place on this screen where a player never chose to be — so it is also the
+  // one that has to look chosen. See claim 5 in the header.
+  out.ringOnNewGame = await focusRing(page);
   // There is NO fullscreen step any more: any key goes straight to the options,
   // and the game takes fullscreen itself when New Game is pressed. Nothing
   // should have been left behind on the way.
@@ -177,9 +216,23 @@ const out = {};
   // presses would wrap back to New Game and start the game instead, which is
   // exactly what this probe caught the first time it ran.
   await page.keyboard.press('ArrowDown');
+  // The comparison the issue was reported as: the wooden button beside the gold
+  // one, on the same screen, one keypress apart. Settings was always right, and
+  // that is what made New Game look like the bug it was.
+  out.ringOnSettings = await focusRing(page);
   await page.keyboard.press('Enter');
   await wait(400);
   out.settings = await state(page);
+  // A settings row and a language chip: the other two button shapes, and the
+  // chip is the second GOLD face on this screen, so it takes the same ring New
+  // Game does rather than the gold-on-gold one.
+  out.ringOnSettingsRow = await focusRing(page);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await wait(200);
+  out.ringOnLangChip = await focusRing(page);
   // The switch that replaced the question: present, and ON by default.
   out.autoFullscreenRow = await page.evaluate(() => {
     const b = document.querySelector('.bs-menu [data-toggle="autoFullscreen"]');
