@@ -81,6 +81,22 @@ once frames come quickly.
   every tool in `tools/` hardcodes it.
 - Typecheck + build: `bun run build` (runs `tsc --noEmit` first — keep it clean).
   `bun run snapshot [label]` writes a timestamped, self-contained build to `dist/`.
+- **To look at a BUILD, serve it statically** — `bun x vite preview --outDir dist`
+  (what `bun run snapshot` prints), or any static server. Two ways that look
+  right and are not:
+  - `file://` cannot work at all. The game loads ES modules and the browser
+    refuses them cross-origin from that scheme; you get a blank page, no canvas.
+  - **`bun ./dist/index.html` is a bundler, not a static server.** Bun's HTML
+    entry point treats the page as SOURCE and re-bundles it, so pointing it at
+    already-built output re-processes the bundles, serves its own chunks, and
+    answers everything else with the index.html SPA fallback — measured:
+    `/assets/main-*.js` came back as `text/html`. Vite's `base:'./'` builds also
+    resolve assets through `import.meta.url`, which in Bun's re-bundle is a
+    `file://` path on disk, so the menu art ends up pointing outside the server
+    entirely. Nothing is wrong with the build when this happens.
+  - `bun ./index.html` on the SOURCE, however, works fine (Bun bundles
+    `src/main.ts` and serves the menu art from `/_bun/asset/`) — it is just not
+    the pinned dev server the tools talk to.
 - There is no unit-test runner. The tests are browser probe scripts that print
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
