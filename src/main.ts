@@ -1424,8 +1424,10 @@ function reportMovers(): void {
 
 function simulate(dt: number, first: boolean, interactive: boolean): void {
   // An open console is a modal: it has the keyboard, so the hero must not also
-  // act on it. Same treatment the shop already gets.
-  const shopOpen = hud.isShopOpen() || !!devConsole?.isOpen;
+  // act on it. Same treatment the shop already gets — and the F1 controls sheet,
+  // which is the same bargain read the other way round: a player who stopped to
+  // find out what a key does must not have walked off a cliff while reading.
+  const modal = hud.isShopOpen() || hud.isControlsOpen() || !!devConsole?.isOpen;
   nearShop = false;
   nearNpc = null;
   // Whose contact the particle system tests this slice, or null. It integrates
@@ -1436,14 +1438,14 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // The camera stick is a rate control, so it must inject its look delta BEFORE
   // the player/camera update consumes mouseDX this frame — ticking it later in
   // the frame meant endFrame() wiped the delta before the camera ever saw it.
-  if (interactive && !shopOpen) touch?.update(dt);
+  if (interactive && !modal) touch?.update(dt);
 
   // Photo mode drives the camera and the subject itself and must not have the
   // player controller or the HUD fighting it, but it DOES need the world to
   // stream and the beasts to animate — everything below the branch.
   if (!interactive) {
     // fall through to the world update
-  } else if (!shopOpen) {
+  } else if (!modal) {
     perf.section('input');
     // Mounting runs BEFORE the player: while a beast is being ridden it writes
     // the hero's position, velocity and saddle pose for this slice, and
@@ -1531,7 +1533,14 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     }
     if (first && npcField?.talking && input.pressed('Escape')) npcField.endTalk();
   } else if (first && (input.pressed('Escape') || input.pressed('KeyE'))) {
-    hud.closeShop();
+    // Cancel closes the TOPMOST modal, which is the only reason this is an
+    // if/else rather than two calls: F1 can be pressed with a den open, the
+    // sheet draws over it (see the wrapper order in ui/index.ts), and one press
+    // of Escape must dismiss one thing. The pad reaches this too — B and Start
+    // tap Escape while a modal is up, which is how a controller player closes a
+    // sheet they have no button to open.
+    if (hud.isControlsOpen()) hud.closeControls();
+    else hud.closeShop();
   }
 
   // Contact particles. Sits between the `player` and `beasts` profiler markers, so
@@ -1588,7 +1597,10 @@ function frame(): void {
   if (!engine.beginFrame()) return;
   perf.begin();
   const dt = engine.tick();
-  const shopOpen = hud.isShopOpen();
+  // Everything that owns the screen: the shop, and the F1 controls sheet. Both
+  // stand the pad down and hide the touch overlay, for the same reason — a
+  // button held when the panel opened must not stay held behind it.
+  const modal = hud.isShopOpen() || hud.isControlsOpen();
 
   // Poll the pad ONCE PER RENDERED FRAME, and before the slices below.
   //
@@ -1597,7 +1609,7 @@ function frame(): void {
   // whereas polling per slice would multiply the turn rate by the slice count.
   // And the edges land before slice 0, the one `first` is true for, which is
   // what the hotbar, Tab, the beast cycles and the shop key are all gated on.
-  pad?.setModal(shopOpen || !!devConsole?.isOpen);
+  pad?.setModal(modal || !!devConsole?.isOpen);
   pad?.poll(dt);
 
   // Drain the accumulator in fixed slices; carry the remainder to next frame.
@@ -1727,9 +1739,9 @@ function frame(): void {
   );
   hud.update(dt);
 
-  // Hide the touch overlay while a modal shop is open so it can't be tapped
+  // Hide the touch overlay while a modal is open so it can't be tapped
   // through, and release any held virtual buttons.
-  touch?.setVisible(!shopOpen);
+  touch?.setVisible(!modal);
 
   // `padActive` is part of the gate, not decoration: a player on a controller
   // never clicks and never taps, so without it they would be the one player who
@@ -1748,6 +1760,22 @@ function frame(): void {
     });
   }
 
+  // F1 is the player's controls sheet, F2 the developer's frame readout, and
+  // both are read HERE rather than in a simulation slice because neither is a
+  // gameplay action — a frame that drained no slice must still answer them.
+  //
+  // F1 carries the gate `interactive` carries below, and needs it for the same
+  // two reasons: the title screen owns the keyboard while it is up (its own
+  // steps answer to any key), and photo mode must render the same picture twice.
+  // F2 is deliberately outside it — measuring a capture's frame rate is the one
+  // thing you want to do DURING a capture.
+  if (input.pressed('F1') && !photoMode && !menuOpen()) {
+    // Hand the pointer back on the way IN, exactly as tryOpenShop does: the
+    // sheet has a close button and a scrim to click at, and a locked pointer
+    // has no cursor to click them with.
+    if (!hud.isControlsOpen()) document.exitPointerLock();
+    hud.toggleControls();
+  }
   if (input.pressed('F2')) debug.toggle();
   colliderView.update(dt);
   perf.section('hud');

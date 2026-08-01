@@ -268,6 +268,51 @@ export const en = {
   // every other key cap since the `Press (\S+)` regex went away.
   'npc.dialogue.close': '{key} to leave',
 
+  // ---- controls sheet (F1) -------------------------------------------------
+  // The panel's own words. The KEYS it prints are not here and are not meant to
+  // be: `Space`, `Shift`, `Esc` and the pad's faces are moulded into hardware
+  // and read the same in every language — see the device-label note in
+  // src/ui/keybinds.ts, which is also where the rows themselves live.
+  'keys.title': 'Controls',
+  // `{key}` and `{esc}` arrive already wrapped in <kbd>, like every other cap.
+  'keys.foot': '{key} or {esc} to close',
+  // Column headings, printed once per section. Both have a hard-ish width in
+  // the panel (see .bs-keyrow in styles.ts) — keep them to about 12 characters.
+  'keys.col.kbm': 'Keyboard',
+  'keys.col.pad': 'Controller',
+  // The chips. HOLD is the highlighted one, because tapping a key that wants to
+  // be leaned on is the mistake this whole sheet exists to prevent.
+  'keys.mode.hold': 'HOLD',
+  'keys.mode.press': 'PRESS',
+  /** Printed in the controller column for a binding a pad does not have. */
+  'keys.none': '—',
+  'keys.section.movement': 'Movement',
+  'keys.section.combat': 'Combat',
+  'keys.section.beasts': 'Beasts',
+  'keys.section.world': 'World & interface',
+  'keys.move': 'Move',
+  'keys.look': 'Look',
+  'keys.sprint': 'Sprint',
+  'keys.climb': 'Grip a wall',
+  'keys.climb.note': 'The sprint key again — push into a climbable face and it grips.',
+  'keys.jump': 'Jump',
+  'keys.swim': 'Swim upward',
+  'keys.zoom': 'Zoom the camera',
+  'keys.attack': 'Attack',
+  'keys.attack.note': 'Tap again mid-swing to chain the combo.',
+  'keys.skills': 'Cast skill 1–4',
+  'keys.mount': 'Mount your lead beast',
+  'keys.dismount': 'Dismount',
+  'keys.ascend': 'Fly higher',
+  'keys.descend': 'Fly lower',
+  'keys.swap': 'Swap lead and support',
+  'keys.cycleLead': 'Next lead beast',
+  'keys.cycleSupport': 'Next support beast',
+  'keys.interact': 'Talk · open a skill den',
+  'keys.cancel': 'Close · cancel',
+  'keys.controls': 'This sheet',
+  'keys.debugOverlay': 'Performance overlay',
+
   // ---- shop --------------------------------------------------------------
   'shop.skillDen.title': 'Skill Den',
   'shop.forBeast': 'for {beast}',
@@ -285,8 +330,11 @@ export const en = {
   // ---- toasts ------------------------------------------------------------
   'toast.welcome.desktop': 'Welcome to Beast Story! Click to play.',
   'toast.welcome.touch': 'Welcome to Beast Story! Left stick moves, right stick looks.',
+  // Ends on F1, which is the only entry that is not a control but the way to
+  // find the other thirty: this toast shows once, and the sheet is there for the
+  // rest of the session.
   'toast.controls.desktop':
-    'WASD move · Space jump · LMB attack · 1-4 skills · hold F to ride · Tab swap · E shop',
+    'WASD move · Space jump · LMB attack · 1-4 skills · hold F to ride · Tab swap · E shop · F1 all controls',
   'toast.controls.touch':
     'Left stick moves · right stick looks · ATK / JUMP / USE · 1-4 skills · SWAP',
   // Face names rather than the {key} placeholder the HUD prompts use, because

@@ -3,6 +3,7 @@ import { ELEMENT_COLORS } from '../core/types';
 import { CURRENCY, itemName, type BagEntry } from '../core/items';
 import { t, type StringKey } from '../i18n';
 import { PAD_GLYPHS, type PadGlyphs } from '../core/gamepad';
+import { CONTROL_SECTIONS } from './keybinds';
 import { injectStyles } from './styles';
 import { elementIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON } from './icons';
 
@@ -189,9 +190,15 @@ export function kbd(key: string): string {
  * The same, for a CONTROLLER face. Styled rounder in styles.ts, because a pad
  * button is round and a keycap is not, and at a glance the shape is what tells
  * a player which device the HUD is talking about.
+ *
+ * A face is not always a face: `Start` and `Options` are WORDS printed beside a
+ * button, and a circle sized for one character clips them. Past two characters
+ * this hands out a pill instead — same border, same colour, still nothing like
+ * a keycap. Two is the threshold rather than one because `RT`, `L3` and `LB`
+ * all fit the circle, and they are most of the table.
  */
 export function padKey(key: string): string {
-  return `<kbd class="pad">${key}</kbd>`;
+  return `<kbd class="pad${key.length > 2 ? ' wide' : ''}">${key}</kbd>`;
 }
 
 /**
@@ -265,6 +272,48 @@ function shopFootHints(p: Prompts): string {
     + `<span>${t('shop.foot.skills', { key: p.skills })}</span>`
     + `<span>${t('shop.foot.swap', { key: p.swap })}</span>`
     + `<span>${t('shop.foot.interact', { key: p.interact })}</span>`;
+}
+
+/**
+ * The F1 controls sheet, as markup.
+ *
+ * Composed when the panel OPENS and thrown away when it closes, exactly like
+ * the shop's cards: thirty rows is nothing to build once, and a live panel would
+ * be a fifth surface for `setPadPrompts` to keep in step. The table it walks is
+ * src/ui/keybinds.ts — read the maintenance note there before adding a binding.
+ *
+ * `glyphs` is the pad the player is on, or null for nobody: an unrecognised or
+ * absent controller gets the Xbox faces, the same fallback `detectGlyphs` uses,
+ * because the sheet has to name SOME controller and that is both the commoner
+ * pad and the layout the W3C standard mapping is named after.
+ */
+function controlsHtml(glyphs: PadGlyphs | null): string {
+  const faces = PAD_GLYPHS[glyphs ?? 'xbox'];
+  let html = '';
+  for (const section of CONTROL_SECTIONS) {
+    // The section heading IS the column header row — one line doing two jobs,
+    // so the two device names stay directly over the columns they label however
+    // the sections reflow.
+    html += '<div class="bs-keys-sec">'
+      + `<div class="bs-keyrow head"><span class="nm">${escapeHtml(t(section.title))}</span>`
+      + `<span class="kbm">${escapeHtml(t('keys.col.kbm'))}</span>`
+      + `<span class="pad">${escapeHtml(t('keys.col.pad'))}</span><span class="mode"></span></div>`;
+    for (const b of section.rows) {
+      const caps = b.caps.map(kbd).join(b.join ?? ' ');
+      const pad = b.pad
+        ? b.pad.map((a) => padKey(faces[a])).join('')
+        : `<span class="none">${escapeHtml(t('keys.none'))}</span>`;
+      const hold = b.mode === 'hold';
+      html += '<div class="bs-keyrow">'
+        + `<span class="nm">${escapeHtml(t(b.label))}`
+        + (b.note ? `<em>${escapeHtml(t(b.note))}</em>` : '')
+        + `</span><span class="kbm">${caps}</span><span class="pad">${pad}</span>`
+        + `<span class="mode ${hold ? 'hold' : 'press'}">`
+        + `${escapeHtml(t(hold ? 'keys.mode.hold' : 'keys.mode.press'))}</span></div>`;
+    }
+    html += '</div>';
+  }
+  return html;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,6 +403,10 @@ export class HUD {
   private ridingText = '';
   private ridingBeast: string | null = null;
   private ridingFlying = false;
+
+  // controls sheet (F1)
+  private keysWrap: HTMLDivElement;
+  private controlsOpen = false;
 
   // shop
   private shopWrap: HTMLDivElement;
@@ -484,6 +537,13 @@ export class HUD {
     // shop -----------------------------------------------------------------
     this.shopWrap = div('bs-shopwrap');
     this.root.appendChild(this.shopWrap);
+
+    // controls sheet ---------------------------------------------------------
+    // Last child of the root, so it draws over the shop: F1 can be pressed with
+    // a den open, and the answer to "what closes this?" must not be underneath
+    // the thing it is answering for.
+    this.keysWrap = div('bs-keyswrap');
+    this.root.appendChild(this.keysWrap);
 
     document.body.appendChild(this.root);
     // The strip's visible span is a measurement, not a constant: the width is
@@ -1038,6 +1098,12 @@ export class HUD {
     // replaced under it; a closed one picks the new device up for free.
     const foot = this.shopWrap.querySelector('.bs-shop-foot');
     if (foot) foot.innerHTML = shopFootHints(this.prompts);
+
+    // Same for the controls sheet, and this one is not hypothetical: a pad's
+    // buttons are read for "the pad is the live device" BEFORE the modal branch
+    // in gamepad.ts, so picking the controller up WHILE READING THE SHEET swaps
+    // its faces under the player's eyes. That is the point of it.
+    if (this.controlsOpen) this.buildControls();
     return true;
   }
 
@@ -1100,6 +1166,13 @@ export class HUD {
     // is in the start menu, which cannot be up at the same time as a shop.
     const foot = this.shopWrap.querySelector('.bs-shop-foot');
     if (foot) foot.innerHTML = shopFootHints(this.prompts);
+
+    // The controls sheet is thirty translated rows, and unlike the shop it is
+    // cheap to rebuild whole — there is no half-made purchase inside it. Also
+    // unreachable in practice today (the picker is in the start menu), and
+    // written anyway so that an in-game language switch cannot leave the one
+    // panel a confused player opened stuck in the language that confused them.
+    if (this.controlsOpen) this.buildControls();
   }
 
   setMounted(beastName: string | null, flying: boolean): void {
@@ -1125,6 +1198,69 @@ export class HUD {
     }
     this.ridingEl.innerHTML = text;
     this.ridingEl.classList.add('show');
+  }
+
+  // -------------------------------------------------------------------------
+  // Controls sheet (F1)
+  // -------------------------------------------------------------------------
+  /**
+   * Show or hide the controls sheet. F1 is the only thing that calls this; see
+   * the frame loop in main.ts, which also treats an open sheet as a modal —
+   * the hero stands still while the player reads, exactly as he does for a shop.
+   */
+  toggleControls(): void {
+    if (this.controlsOpen) this.closeControls();
+    else this.openControls();
+  }
+
+  openControls(): void {
+    if (this.controlsOpen) return;
+    this.controlsOpen = true;
+    this.buildControls();
+    this.root.classList.add('keys-open');
+    // Let the DOM settle so the open transition plays, the same one-frame wait
+    // the shop takes.
+    requestAnimationFrame(() => {
+      if (this.controlsOpen) this.keysWrap.classList.add('open');
+    });
+  }
+
+  closeControls(): void {
+    if (!this.controlsOpen) return;
+    this.controlsOpen = false;
+    this.keysWrap.classList.remove('open');
+    this.root.classList.remove('keys-open');
+    // The markup stays where it is so the panel can fade out; the next open
+    // rebuilds it, which is also how it picks up a device change made while it
+    // was shut.
+  }
+
+  isControlsOpen(): boolean {
+    return this.controlsOpen;
+  }
+
+  private buildControls(): void {
+    this.keysWrap.innerHTML = '';
+
+    const scrim = div('bs-scrim');
+    scrim.addEventListener('click', () => this.closeControls());
+    this.keysWrap.appendChild(scrim);
+
+    const panel = div('bs-keys bs-glass');
+    const head = div('bs-keys-head', `<h2>${escapeHtml(t('keys.title'))}</h2>`);
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'bs-shop-x';
+    closeBtn.innerHTML = CLOSE_ICON;
+    closeBtn.addEventListener('click', () => this.closeControls());
+    head.appendChild(closeBtn);
+    panel.appendChild(head);
+
+    panel.appendChild(div('bs-keys-body', controlsHtml(this.padGlyphSet)));
+    panel.appendChild(div(
+      'bs-keys-foot',
+      t('keys.foot', { key: kbd('F1'), esc: kbd('Esc') }),
+    ));
+    this.keysWrap.appendChild(panel);
   }
 
   // -------------------------------------------------------------------------

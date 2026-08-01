@@ -100,9 +100,9 @@ once frames come quickly.
 - There is no unit-test runner. The tests are browser probe scripts that print
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
-  `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`.
-  `tools/capture-set.ps1` (PowerShell, project root) captures the full critic
-  shot set.
+  `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
+  `test-keybinds.mjs`. `tools/capture-set.ps1` (PowerShell, project root)
+  captures the full critic shot set.
 - `test-road.mjs` asks the one question nothing else could: **is the road you
   SEE the road you STAND ON?** Every other probe compares the world against
   itself, so none of them can see a hero standing exactly where the physics puts
@@ -133,6 +133,16 @@ once frames come quickly.
   `game.settings.*` keys and bring its language onto the screen with it, and
   toggling a row must write exactly one key, take effect live in
   `__dbgFeedback()`, and still be true after a reload.
+- `test-keybinds.mjs` guards the F1 controls sheet, and the half worth knowing
+  about is not the DOM half. It scans src/ for every `pressed('…')` / `down('…')`
+  / `keys.has('…')` and requires each code to appear in the table in
+  [src/ui/keybinds.ts](src/ui/keybinds.ts) — `unlisted` MUST be empty, which is
+  how "update the sheet when you add a binding" became a run rather than a
+  wish. `listedNotScanned` is expected to hold exactly `Digit1`–`Digit4`: the
+  hotbar is read through a loop variable, which no regex over the source can
+  see. It also opens the panel with F1, holds W to prove the sheet is a real
+  modal (measured: 0 units with it up, 6.97 with it down), closes it with Escape,
+  and picks up a synthetic DualSense mid-read to check the faces swap live.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -366,6 +376,24 @@ on that edge, exactly as it does for a language change — `setPadPrompts` retur
 whether it moved and `composeKeyHints()` in main.ts is the one writer of all
 three (the skill-den pill, the talk pill, the dialogue footer). Read a cap on its
 way to the DOM (`hud.interactPrompt`) and it is free; bake one in and you owe it.
+
+**F1 is the controls sheet, and its table is DECLARED, NOT DERIVED.** A binding
+is not a value anywhere in this codebase — the climb decision reads
+`down('ShiftLeft')` in the middle of `Player.update`, `mount.ts` reads `KeyF`
+inside its own hold latch, `core/gamepad.ts` translates pad buttons into those
+same codes — so there is no registry to walk and the sheet a player reads is
+written by hand in [src/ui/keybinds.ts](src/ui/keybinds.ts). **Add or change a
+binding and change that file in the same commit**; `tools/test-keybinds.mjs`
+fails on a code the game reads that no row names, which catches the omission but
+never a wrong word. Rows carry the KeyboardEvent `codes` (the machine's truth,
+what the guard scans) beside the printed `caps` (the player's — `]`, not
+`BracketRight`), and each says whether it is a HOLD or a PRESS, which is the
+distinction the whole panel exists for: F mounts by being held and dismounts by
+being tapped, and a player who taps a held action concludes the game is broken.
+Caps are DEVICE LABELS like the pad faces — `Space`, `Esc`, `LMB` are moulded
+into hardware and are not translated; everything that is a sentence is a string
+key. The panel is a MODAL (see `modal` in main.ts): a player who stopped to find
+out what a key does must not have walked off a cliff while reading.
 
 **The title screen.** [src/ui/menu.ts](src/ui/menu.ts) is the first thing on
 screen and the GATE on the game starting: `main.ts` passes `interactive=false`

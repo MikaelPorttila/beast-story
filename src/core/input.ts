@@ -79,7 +79,10 @@ export class Input {
     'Tab', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ',
     'Digit1', 'Digit2', 'Digit3', 'Digit4', 'BracketLeft', 'BracketRight',
     'ShiftLeft', 'Slash', 'Quote',
-    'F2', // debug overlay — must not reach the browser
+    // F1 opens the browser's own help in Chrome, Edge and Firefox, which is a
+    // new tab over the game; F2 is the debug overlay. Neither may reach the
+    // browser, and preventDefault on keydown is what stops both.
+    'F1', 'F2',
   ]);
 
   constructor(private el: HTMLElement) {
