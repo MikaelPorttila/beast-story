@@ -110,6 +110,7 @@ export const sv: Translation = {
   'menu.settings': 'Inställningar',
   'menu.back': 'Tillbaka',
   'menu.settings.title': 'Inställningar',
+  'menu.settings.hapticFeedback': 'Aktivera vibration i handkontrollen',
   'menu.settings.invertX': 'Invertera sikte X',
   'menu.settings.invertY': 'Invertera sikte Y',
   'menu.settings.controllerNote': 'Gäller bara handkontroll — musen inverteras aldrig.',

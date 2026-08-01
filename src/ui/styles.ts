@@ -690,6 +690,30 @@ const CSS = `
 .bs-menu-btn.chip.on{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
 
+/* The settings list is the tallest thing this screen ever shows, and the
+   controller-vibration row is what pushed it past what half a window holds. The
+   divider hands a panel the space BELOW it, so on a 1000x560 window the list
+   measured 335px against 280px of room and about 25px of the Back button sat
+   under the bottom edge. (Before the row: 273px, and it fitted at every height
+   down to the block below.)
+
+   So the band between that block and a full-size window gets a DENSER settings
+   list — the same row padding and gap the short-screen block already uses — a
+   tighter gap, and a first row that shrinks to the logo instead of holding half
+   the frame. Measured after: 240px of list, clear at every height in the band.
+
+   What it deliberately does NOT do is resize the logo or touch the press and
+   option steps. The wordmark is the same size at every step by design (see the
+   .bs-menu .logo rule above), and a two-button list was never the thing that
+   did not fit — only the settings column is short of room, so only that is
+   compacted. */
+@media (min-height:521px) and (max-height:660px){
+  .bs-menu[data-step="settings"] .fore{grid-template-rows:auto 1fr}
+  .bs-menu[data-step="settings"]{--gap:20px}
+  .bs-menu[data-step="settings"] .opts{gap:7px}
+  .bs-menu[data-step="settings"] .bs-menu-btn.row{padding:8px 12px 8px 16px}
+}
+
 /* Short screens — a phone held sideways, which is how this game is played on
    one. There is simply not enough height here for a 44px gap AND a logo sized
    for a desktop, so the logo gets narrower (a responsive size, the same at

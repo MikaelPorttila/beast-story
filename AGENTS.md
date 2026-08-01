@@ -100,7 +100,7 @@ once frames come quickly.
 - There is no unit-test runner. The tests are browser probe scripts that print
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
-  `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`.
+  `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`.
   `tools/capture-set.ps1` (PowerShell, project root) captures the full critic
   shot set.
 - `test-road.mjs` asks the one question nothing else could: **is the road you
@@ -126,6 +126,13 @@ once frames come quickly.
   leaving the splash, Settings opening and Escaping back, the language chips
   re-captioning the menu live, the fullscreen question answered from the keyboard,
   and the phone run through it — is about the flow; that pair is about the gate.
+- `test-settings.mjs` is the settings-storage guard, and it drives the real menu
+  rather than calling `savePrefs`: a fresh profile must store NOTHING (defaults
+  are the absence of a key, which is what keeps "never chose a language" distinct
+  from "chose English"), a seeded `bs:prefs` blob must migrate to the
+  `game.settings.*` keys and bring its language onto the screen with it, and
+  toggling a row must write exactly one key, take effect live in
+  `__dbgFeedback()`, and still be true after a reload.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -414,6 +421,30 @@ you owe it a re-derive from `onLanguageChange`, which today is `HUD.relabel()`,
 string it holds. One thing cannot follow a live switch and is not meant to: a
 fingerpost's letters are voxel geometry carved once at world creation, which is
 why the picker lives in the menu, before the world is streamed.
+
+**Settings.** [src/core/prefs.ts](src/core/prefs.ts) is the whole persistence
+layer, and it is ONE localStorage KEY PER SETTING, named
+`game.settings.<group>.<name>` — `controls`, `graphics` or `gameplay`, matching
+the panel a setting is shown in rather than the module that reads it. Values are
+plain strings (`'true'`/`'false'`, a decimal, an ISO 639-1 code); there is no
+JSON anywhere in it. `STORAGE_KEYS` is the only place a key is spelled, which is
+why `lang` can be a short field name and a readable `…gameplay.language` key at
+once. Everything is validated ON READ, so a hand-edited value lands on a default
+instead of a `NaN` in the haptics mixer. `savePrefs` touches only the fields it
+is given: two tabs no longer write each other's stale values back, which the old
+single `bs:prefs` blob did by construction. That blob still MIGRATES — once, on
+the first `loadPrefs()`, field by field through the same key map, never over a
+value the new keys already hold — and is then removed.
+
+The player's surface is the title screen's Settings panel (`ui/menu.ts`), which
+shows SWITCHES; the dials (`/haptics`, `/shake`, `/invertlook`, `/vibration`)
+are dev-console commands writing the same keys. **A setting has to be respected
+at ONE choke point, not at every site that could break it**: controller
+vibration (`game.settings.controls.hapticFeedback`, on by default) is checked in
+`FeedbackSystem.drain`, the single place every cue passes through on its way to
+a pad motor or `navigator.vibrate`, and turning it off also stops what is
+already ringing. Adding a switch means a `Prefs` field, a `STORAGE_KEYS` entry,
+a row in the menu's `ToggleKey` list, an `en.ts` string — and one gate.
 
 ## Conventions
 
