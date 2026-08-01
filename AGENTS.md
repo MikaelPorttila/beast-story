@@ -149,12 +149,17 @@ once frames come quickly.
   him and buried to the chest because the ribbon in front of him was drawn over
   his feet. It raycasts the real scene just above the walking surface
   (`__dbgSurfaceY` in main.ts, which is why the ribbon and chunk meshes carry
-  names) and reports two numbers. `worstSink` is how far the drawn surface
-  floats over the walked one — measured 0.22 / 0.03 / 0.65, against 1.66 / 0.08 /
+  names) and reports four numbers. `worstSink` is how far the drawn surface
+  floats over the walked one — measured 0.04 / 0.03 / 0.03, against 1.66 / 0.08 /
   0.82 before the ribbon was made to sample the surface. `worstStepOver025` is
-  the largest jump in the WALKING surface on a carriageway, and it is a KNOWN
-  FAILURE: **0.801 at the fork, where MAX_STEP_UP is 0.5** — a wall across the
-  road that cannot be seen or crossed. See the roads note below.
+  the largest jump in the WALKING surface on a carriageway, against a
+  `MAX_STEP_UP` of 0.5: **0.034**, and it was a known failure at **0.801** until
+  the fork was made three roads instead of one — see the roads note below.
+  `crossSection` sweeps the section rim to rim rather than the centreline, and
+  is the only thing that can see grass standing up THROUGH the gravel: 22 of
+  5300 samples, against 300 of 5283. `furniture` is where the lamps and
+  fingerposts ended up — the smallest gap between any two (16.19) and how near a
+  centreline the nearest one comes (5.62, i.e. off the road).
 - **Every probe that drives the game passes `menu=0`.** The title screen is a
   gate — the frame loop does not start until New Game — so a tool that forgets it
   measures a poster. It is also what keeps the boot UNSTAGED: with no menu there
@@ -300,8 +305,22 @@ ribbons, the lamps, fences, fingerposts and bridges) is built ONCE at world
 creation on the shared prop/terrain materials, so the chunk streamer is
 untouched; [src/world/town-parts.ts](src/world/town-parts.ts) holds the voxel
 builders and the three rules they obey. `towns=0` removes the lot, and
-`__dbgTowns()` reports the registry plus each road's measured worst step and
-grade.
+`__dbgTowns()` reports the registry, each road's measured worst step and grade,
+and where every lamp and fingerpost ended up.
+
+**Road furniture asks the NETWORK, and stands on the walking surface.** A lamp,
+a fingerpost and a fence panel are placed by arc length along one road and
+offset from its centreline, which is the right way to make them follow a bend
+and the wrong way to know anything about the road next to them: at a fork, "6.1
+units off my road" and "in the middle of the next road" are the same place.
+Everything now goes through `place` (the whole network's clearance, plus one
+`taken` list shared by all three roads and by the fork's own post) and is seated
+with `seatOn` on `getHeight` rather than on the road's deck — the verge is not
+the carriageway, and the deck is up to half a unit above it. That is issue #15's
+signposts standing in the road with their cairn stones in the air. The fork's
+three-armed post moved off the node onto the verge for the same reason, and a
+road end AT the fork no longer gets an approach fingerpost of its own: the post
+at the fork already names all three destinations.
 
 **The ribbon draws itself on `getHeight`, per vertex.** `buildRoadRibbon` takes
 the walking-surface query and samples it at every vertex of every ring, rather
@@ -324,20 +343,43 @@ read as torn paper instead of one mass of earth. It bought 0.65 -> 0.49 at one
 spot and was reverted; captured before/after, SSIM against the original was
 0.939 dense and 0.971 coarse.
 
-**KNOWN FAILURE, not yet fixed: the walking surface steps 0.801 at the fork**,
-where `MAX_STEP_UP` is 0.5 — an invisible wall across the carriageway, and the
-last 0.49 of ribbon float (`test-road.mjs` reports both). The cause is
-`RoadNetwork.surfaceAt` answering with the NEAREST road's deck: a field that
-jumps between two values across the line equidistant from two decks of different
-heights. Two fixes were tried against the measurement and both were reverted for
-making it worse — taking the HIGHEST road instead let a far road's verge ramp
-outrank a near road's carriageway (1.09 at the spawn), and an inverse-distance
-BLEND of all roads in range only reached 0.68 because the trim planes still cut
-a road's contribution off abruptly at the junction. The fix that would work is
-upstream in `profileRoad`: hold all three decks level across the junction the
-way they are already held level across a town footprint, so there is nothing to
-resolve where they overlap. Whoever does it: `bun tools/test-road.mjs` is the
-before/after.
+**A FORK IS THREE ROADS, and it took making it so to fix the step at it.** The
+walking surface used to jump 0.801 there against a `MAX_STEP_UP` of 0.5 — an
+invisible wall across the carriageway nine units from the player's spawn, with
+0.65 of ribbon float beside it. The proximate cause is `RoadNetwork.surfaceAt`
+answering with the NEAREST road's deck, a field that jumps across the line
+equidistant from two decks of different heights; three attempts to make that
+query better were all measured and all reverted (HIGHEST road instead: 1.09 at
+the spawn, because a far road's verge ramp outranks a near road's carriageway;
+an inverse-distance BLEND: 0.68, because the trim planes still cut a road off
+abruptly at the junction; holding the decks level with the roads still on top of
+one another: 0.861, the jump simply moved to the rim of the held disc).
+
+It was the wrong question. The trunk and the Stonewatch spur were running **0.63
+to 1.94 units apart for the first twenty units out of the fork** — two ten-unit
+ribbons on two different deck profiles, drawn one over the other. There was no
+fork to resolve; there was one wide ragged apron pretending to be two roads, and
+that is what issue #15's screenshot is a picture of. Two changes together fix it,
+and neither works alone: `routeRoad` now charges a route for running alongside a
+road that already exists (`AVOID_R` / `AVOID_COST`, roads.ts), so the arms leave
+the fork as separate roads; and `JUNCTION_HOLD` (towns.ts) holds all three decks
+dead level across the node they share, the way a town footprint already holds
+its high street level. Measured: step **0.801 -> 0.034**, worst ribbon float
+**0.65 -> 0.04**. `bun tools/test-road.mjs` is the before/after.
+
+**Still not clean: 22 of 5300 cross-section samples draw terrain over the
+ribbon**, down from 300, and they are thin flakes at the verge rather than the
+blocks in the carriageway that were reported. Four things had to agree to get
+there — `SHOULDER_IN` ties the carve's shoulder ramp and the walking surface's
+to one number, `carveAt` cuts the ground to that surface minus a sink so a
+column can never stand above what is drawn over it, `XS` puts a ribbon vertex on
+the corner where the ramp ends, and `RIM_GUARD` lets a rim vertex rise to cover
+the column beside it. What survives is a chord between two 3-unit-apart rings
+passing under a column whose shoulder rounded the other way. Closing it means
+either subdividing the rings (see the tessellation note above — that was tried
+for a different reason and made the road read as torn paper) or making the
+shoulder a property of the road SAMPLE rather than of the query point, which is
+a change to what `surfaceAt` means.
 
 Settlements are SOLID, and the collider is never authored twice.
 [src/world/structures.ts](src/world/structures.ts) measures a footprint off the

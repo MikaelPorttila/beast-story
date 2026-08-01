@@ -698,6 +698,12 @@ export function createWorld(
       npcs?.solids.debugBoxes(out);
     },
 
+    debugFurniture(): Array<{ kind: string; x: number; z: number }> {
+      return (towns?.furniture ?? []).map((f) => ({
+        kind: f.kind ?? '?', x: f.x, z: f.z,
+      }));
+    },
+
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
       if (disposed) return;
       // The build budget is per RENDERED FRAME, not per simulation slice. The
