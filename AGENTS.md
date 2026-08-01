@@ -110,8 +110,8 @@ once frames come quickly.
   his feet. It raycasts the real scene just above the walking surface
   (`__dbgSurfaceY` in main.ts, which is why the ribbon and chunk meshes carry
   names) and reports two numbers. `worstSink` is how far the drawn surface
-  floats over the walked one — measured 0.19 / 0.03 / 0.49, against 1.66 at the
-  spawn before the ribbon was made to sample the surface. `worstStepOver025` is
+  floats over the walked one — measured 0.22 / 0.03 / 0.65, against 1.66 / 0.08 /
+  0.82 before the ribbon was made to sample the surface. `worstStepOver025` is
   the largest jump in the WALKING surface on a carriageway, and it is a KNOWN
   FAILURE: **0.801 at the fork, where MAX_STEP_UP is 0.5** — a wall across the
   road that cannot be seen or crossed. See the roads note below.
@@ -242,8 +242,17 @@ stopped agreeing the moment carriageways overlapped. Near the fork each ribbon
 was drawn on its own deck while the surface underfoot is whichever road is
 NEAREST: measured, `road:junction-stonewatch` was drawn 1.66 above the ground at
 the spawn, so the hero stood exactly where the physics put him and was buried to
-the chest. The ring spacing (`RING_STEP`) and the cross-section (`CUT_STEP`) are
-fine because a sampled surface is only as good as the chords between samples.
+the chest.
+
+The TESSELLATION stays coarse, and that is a second decision that had to be made
+twice. A ribbon is a smooth band laid over stepped ground — its rim sits at
+`round(deck)`, a whole-unit staircase, and the router's ~3.4-unit ring spacing
+turns each step into a slope you cannot pick out. Subdividing the rings to 1.4
+and the section to 0.7, to chase the last tenth of a unit of float at the fork,
+turned every one of those into a 1-unit crease over 1.4 units and made the road
+read as torn paper instead of one mass of earth. It bought 0.65 -> 0.49 at one
+spot and was reverted; captured before/after, SSIM against the original was
+0.939 dense and 0.971 coarse.
 
 **KNOWN FAILURE, not yet fixed: the walking surface steps 0.801 at the fork**,
 where `MAX_STEP_UP` is 0.5 — an invisible wall across the carriageway, and the

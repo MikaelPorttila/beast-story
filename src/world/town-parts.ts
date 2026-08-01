@@ -41,7 +41,7 @@
 import { VoxelModel, shade } from '../core/voxel';
 import { bakeProp, type Template } from './props';
 import { bakeSolid, SolidStamp } from './structures';
-import { builtDeck, DECK_EDGE, DECK_HALF, type Road, type RoadSample } from './roads';
+import { builtDeck, DECK_EDGE, DECK_HALF, type Road } from './roads';
 import { WATER_LEVEL } from './terrain';
 import { hashCell } from './noise';
 
@@ -907,75 +907,27 @@ const RIBBON_SKIRT = 1.1;
 /**
  * Cross-section offsets, in units from the centreline.
  *
- * Built from the boundaries that MATTER — the rut edge, the carriageway edge
- * and the rim — with intermediate samples inserted so no two are more than
- * CUT_STEP apart. The boundaries stay exact because the surfacing bands key on
- * them (`ad > DECK_HALF` is gravel, `ad < DECK_HALF * 0.45` is rut), so a
- * subdivision that moved them would move the paint.
+ * SEVEN, at the router's own ring spacing, and both numbers are load-bearing
+ * for how the road LOOKS rather than for where it is.
  *
- * It used to be those five offsets alone, which left a 2.2-unit gap across the
- * whole verge. That is fine for a cross-section computed from a formula and
- * wrong for one SAMPLED off the walking surface: where two carriageways
- * overlap, the surface creases along the line where the nearest road changes,
- * and a chord thrown across 2.2 units of crease floats over it. Measured at the
- * fork, that residue was 0.64 with the coarse section and 0.06 with this one.
+ * A ribbon is a smooth band laid over stepped ground — that is its whole job.
+ * The rim sits at `round(deck)`, an integer that flips by a whole unit as the
+ * deck passes each half, and at the router's ~3.4-unit spacing that flip is a
+ * chord across 3.4 units: a gentle slope you cannot pick out. A pass that
+ * subdivided the rings to 1.4 and the section to 0.7, chasing the last tenth of
+ * a unit of ribbon float at the fork, turned every one of those flips into a
+ * 1-unit crease over 1.4 units — and where a deck hovers near `n + 0.5`,
+ * `round` oscillates between consecutive rings and the rim zigzags. Captured
+ * side by side, the road stopped reading as one mass of earth and started
+ * reading as torn paper. It bought 0.64 -> 0.49 at one spot.
+ *
+ * So the tessellation stays coarse and the ribbon goes on smoothing the ground
+ * instead of reproducing it. Correctness is `surfaceAt`'s job, and the honest
+ * fix for the residue is upstream at the junction — see AGENTS.md.
  */
-const CUT_STEP = 0.7;
-const XS = ((): number[] => {
-  const edges = [0, DECK_HALF * 0.45, DECK_HALF, DECK_EDGE];
-  const half: number[] = [0];
-  for (let i = 1; i < edges.length; i++) {
-    const a = edges[i - 1];
-    const b = edges[i];
-    const n = Math.max(1, Math.ceil((b - a) / CUT_STEP));
-    for (let k = 1; k <= n; k++) half.push(a + ((b - a) * k) / n);
-  }
-  return [...half.slice(1).reverse().map((v) => -v), ...half];
-})();
-
-/**
- * Longest gap between ribbon rings, in world units.
- *
- * The deck polyline comes out of the router about 3.4 units apart, and each
- * ring's height is now SAMPLED off the walking surface rather than computed
- * from a formula — so between two rings the mesh is a straight chord across
- * whatever the surface does in between. That is exact while the surface is
- * planar and wrong wherever it creases, which is precisely what happens where
- * two carriageways overlap and the nearest-road answer switches from one deck
- * to the other. Measured at the fork: sampling alone took the worst floating
- * ribbon from 1.66 down to 0.22, and this took the same point to 0.05.
- *
- * 1.4 rather than something finer because the error falls off with the square
- * of the spacing while the vertex count rises linearly, and the whole network
- * is a few thousand vertices built once at world creation.
- */
-const RING_STEP = 1.4;
-
-/**
- * Insert samples until no two are further apart than `step`.
- *
- * A cut end inherits the span flag of the samples it sits between, the same
- * rule `builtDeck` applies for the same reason: half a bridge is not a thing.
- */
-function densify(pts: RoadSample[], step: number): RoadSample[] {
-  if (pts.length < 2) return pts;
-  const out: RoadSample[] = [pts[0]];
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1];
-    const b = pts[i];
-    const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / step));
-    for (let k = 1; k <= n; k++) {
-      const t = k / n;
-      out.push({
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t,
-        z: a.z + (b.z - a.z) * t,
-        bridge: a.bridge || b.bridge,
-      });
-    }
-  }
-  return out;
-}
+const XS = [
+  -DECK_EDGE, -DECK_HALF, -DECK_HALF * 0.45, 0, DECK_HALF * 0.45, DECK_HALF, DECK_EDGE,
+];
 
 const s2l = (c: number): number =>
   c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -1045,7 +997,7 @@ export function buildRoadRibbon(
     // The BUILT deck, not the route. A road may be surfaced over less than it
     // is routed over — the Encampment's is — and drawing the route would put
     // gravel where no carriageway was carved. See Road.trim in roads.ts.
-    const pts = densify(builtDeck(road), RING_STEP);
+    const pts = builtDeck(road);
     if (pts.length < 2) continue;
     let ring0 = -1;
     let ringFirst = -1;
