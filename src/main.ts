@@ -26,7 +26,7 @@ import { TouchParticles } from './world/touch-particles';
 import { Player } from './player/index';
 import { MountController } from './player/mount';
 import { BeastActor, registerSkillDefs } from './beasts/framework';
-import { CombatSystem } from './combat/index';
+import { CombatSystem, SWORD_REACH } from './combat/index';
 import { HUD, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
 import { StartMenu } from './ui/menu';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
@@ -202,6 +202,62 @@ const hud = new HUD(bus);
 
 player.position.copy(world.spawnPoint);
 player.onAttack = (origin, dir) => combat.meleeStrike(origin, dir, player.attackStat);
+
+/**
+ * Melee aim assist: how far off the CROSSHAIR'S BEARING an enemy may sit, as
+ * seen from the hero, and still be the one the swing is meant for. cos of the
+ * half-angle, so ~75 degrees each side.
+ *
+ * Chosen against the arc rather than picked for feel. `SWORD_ARC_COS` is ~50
+ * degrees each side, so a cone at 50 would be almost inert — an enemy the assist
+ * could reach for is one the un-steered swing was about to hit anyway. The
+ * interesting band is the ~25 degrees OUTSIDE the arc, where a controller player
+ * is plainly aiming at something and plainly missing it, and 75 covers that with
+ * a little margin for the hero's heading lagging the camera (`TURN_RATE`) — the
+ * body-relative turn can exceed 75 by exactly that lag, which is correct: the
+ * assist aims where you are LOOKING, not where the shoulders have caught up to.
+ *
+ * Wider is wrong in a way worth recording, because the arc is a wedge and not a
+ * ray: steering it far enough sweeps the far edge OFF enemies it already
+ * covered. Past ~90 the assist starts costing hits in a crowd to buy one.
+ */
+const AIM_ASSIST_CONE_COS = Math.cos((75 * Math.PI) / 180);
+/** Scratch for the crosshair ray below. The strike path allocates nothing. */
+const _aimDir = new THREE.Vector3();
+
+/**
+ * Steer the sword onto the enemy nearest the crosshair, if one is in reach.
+ *
+ * Gameplay policy, so it lives in the composition root: the query belongs to
+ * combat (it owns the enemies) and the body belongs to the player (it owns the
+ * heading), and neither of them should be deciding how generous the game is.
+ *
+ * Deliberately NOT gated on the input device, though a controller is what asked
+ * for it. Aim assist that only exists on one device is a rule players cannot
+ * learn — and on a mouse it is close to inert anyway, because a mouse player is
+ * already pointing at the thing they mean and `bestMeleeTarget` will just hand
+ * back what the arc was going to hit. `?aim=0` turns it off for measurement.
+ */
+player.aimAssist = (origin, dir) => {
+  if (!flags.aimAssist) return false;
+  engine.camera.getWorldDirection(_aimDir);
+  const target = combat.bestMeleeTarget(origin, _aimDir, SWORD_REACH, AIM_ASSIST_CONE_COS);
+  if (!target) return false;
+  const dx = target.position.x - origin.x;
+  const dz = target.position.z - origin.z;
+  const d = Math.hypot(dx, dz);
+  // Standing inside the target: there is no bearing to steer onto, and the arc
+  // hits it from wherever it swings.
+  if (d < 1e-4) return false;
+  // Re-point the HORIZONTAL bearing and leave the vertical component alone. In
+  // the saddle `dir` is the pitched crosshair ray and its `y` is what lifts the
+  // strike origin over the mount's bulk (see MOUNTED_REACH); flattening it here
+  // would quietly drop the swing back into the animal's back.
+  const horiz = Math.hypot(dir.x, dir.z);
+  dir.x = (dx / d) * horiz;
+  dir.z = (dz / d) * horiz;
+  return true;
+};
 
 // ---------------------------------------------------------------------------
 // Compass markers. Which landmarks are worth a chip is gameplay policy, so the
@@ -889,6 +945,60 @@ const _hurtFrom = new THREE.Vector3();
 (window as unknown as { __dbgAim: (bearing: number) => void }).__dbgAim = (bearing) => {
   player.aimCamera(bearing);
 };
+// Melee aim assist, as the game would answer it RIGHT NOW: who the next swing
+// would be steered onto, how far off the crosshair they are, and how far the
+// swing would have to turn to reach them. Read-only, and it runs the shipped
+// query rather than a copy of it, so a change to the rule shows up here.
+//
+// `angleFromCrosshair` is the SELECTION criterion — the enemy's bearing from the
+// hero against the bearing the camera is pointing — and `turn` is what the swing
+// actually does, from the hero's current facing. They differ by however far his
+// heading is lagging the camera, which is the one thing that lets a turn come
+// out wider than the cone. See CombatSystem.bestMeleeTarget.
+// `inReach` beside it is what makes a REFUSAL checkable. It is the same shipped
+// query with the cone opened to 180 degrees — one argument apart, not a second
+// copy of the rule — so it answers "who was standing close enough to be steered
+// at, whatever the crosshair was doing". A null `target` next to a non-null
+// `inReach` is the cone doing its job; both null is nobody in range. Without the
+// pair, a tool can only ever prove the assist FIRED, never that it correctly
+// declined, and "declined" is half of what the issue asked for.
+(window as unknown as { __dbgAimAssist: () => unknown }).__dbgAimAssist = () => {
+  engine.camera.getWorldDirection(_aimDir);
+  _dbgStrike.copy(player.position);
+  _dbgStrike.y += 1.25;
+  const target = combat.bestMeleeTarget(_dbgStrike, _aimDir, SWORD_REACH, AIM_ASSIST_CONE_COS);
+  const inReach = combat.bestMeleeTarget(_dbgStrike, _aimDir, SWORD_REACH, -1);
+  const deg = (r: number): number => +((r * 180) / Math.PI).toFixed(2);
+  const bearing = (dx: number, dz: number): number => Math.atan2(dx, dz);
+  const aim = bearing(_aimDir.x, _aimDir.z);
+  const shortest = (a: number): number => {
+    while (a > Math.PI) a -= 2 * Math.PI;
+    while (a < -Math.PI) a += 2 * Math.PI;
+    return a;
+  };
+  const describe = (e: Damageable | null): unknown => {
+    if (!e) return null;
+    const dx = e.position.x - _dbgStrike.x;
+    const dz = e.position.z - _dbgStrike.z;
+    return {
+      x: +e.position.x.toFixed(2), z: +e.position.z.toFixed(2),
+      distance: +Math.hypot(dx, dz).toFixed(2),
+      angleFromCrosshair: deg(Math.abs(shortest(bearing(dx, dz) - aim))),
+      turn: deg(Math.abs(shortest(
+        bearing(dx, dz) - bearing(player.forward.x, player.forward.z),
+      ))),
+    };
+  };
+  return {
+    enabled: flags.aimAssist,
+    coneDeg: deg(Math.acos(AIM_ASSIST_CONE_COS)),
+    reach: SWORD_REACH,
+    target: describe(target),
+    inReach: describe(inReach),
+  };
+};
+/** Scratch for `__dbgAimAssist`'s strike point. */
+const _dbgStrike = new THREE.Vector3();
 /** Scratch for the crown probe below; the query never allocates. */
 const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, crownRy: 0 };
 // Contact-particle pool. Read-only, and the only way to state the recycling
@@ -2170,6 +2280,13 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       species: e.species,
       x: +e.position.x.toFixed(2), y: +e.position.y.toFixed(2),
       z: +e.position.z.toFixed(2),
+      // ADDITIVE. Health is here so a tool can assert a swing LANDED without a
+      // second probe — tools/test-aim-assist.mjs reads it either side of an
+      // attack, which is the only statement about aim assist that is about the
+      // game rather than about the maths.
+      hp: +e.hp.toFixed(2),
+      maxHp: e.maxHp,
+      isDead: e.isDead,
       overFeet: at(e.position, e.position.y),
     })),
   };
