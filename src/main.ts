@@ -673,6 +673,7 @@ const feedback = photoMode ? null : new FeedbackSystem({
   bus,
   camera: player.cam,
   pad: () => pad?.current ?? null,
+  hapticFeedback: prefs.hapticFeedback,
   hapticIntensity: flags.haptics ?? prefs.hapticIntensity,
   shakeIntensity: flags.shake ?? prefs.shakeIntensity,
 });
@@ -716,6 +717,10 @@ const startMenu = StartMenu.offer({
   // Straight through to the pad, which takes a change at any time by design —
   // see GamepadControls.setLookAxes. The preference itself is saved by the menu.
   onLookAxes: (a) => pad?.setLookAxes(a),
+  // Same shape for the vibration switch: the menu persists it, this hands it to
+  // the one system that issues haptics at all. Null in photo mode, where there
+  // is no feedback system and no menu either.
+  onHapticFeedback: (on) => feedback?.setOptions({ hapticFeedback: on }),
 });
 
 /** True while the title screen is up and the hero must not move. */
@@ -1016,16 +1021,31 @@ function setFeedbackPref(
   return `${key} = ${v}`;
 }
 
-// Feedback tuning, which is the whole settings surface for now — there is no
-// options panel, and one would be its own problem (pause semantics, pad focus
-// navigation, a string key per label). These two plus `?haptics=` / `?shake=`
-// cover both tuning and a bug report; a real panel lands when there is a second
-// reason for one.
+// Feedback tuning. The title screen's Settings panel is the PLAYER's surface
+// now, and it deliberately shows switches rather than dials — on/off is a
+// choice, 0.62 rumble is a tuning session. These commands are the dial half,
+// for that session and for a bug report, and they write the same keys the panel
+// does (core/prefs.ts) so the two never disagree. `?haptics=` / `?shake=` pin a
+// value for one load without writing anything.
 devConsole?.register({
   name: 'haptics',
   args: '[<0..1>]',
   help: 'Show or set controller rumble strength. Persists.',
   run: (args) => setFeedbackPref('hapticIntensity', args[0], flags.haptics),
+});
+devConsole?.register({
+  name: 'vibration',
+  args: '[0|1]',
+  help: 'Show or set the controller-vibration switch. Persists. On by default.',
+  run: (args) => {
+    if (args[0] === undefined) return `hapticFeedback = ${loadPrefs().hapticFeedback}`;
+    if (args[0] !== '0' && args[0] !== '1') return 'usage: 0 or 1';
+    const on = args[0] === '1';
+    savePrefs({ hapticFeedback: on });
+    // Live, like the menu's row: turning it off silences whatever is ringing.
+    feedback?.setOptions({ hapticFeedback: on });
+    return `hapticFeedback = ${on}`;
+  },
 });
 devConsole?.register({
   name: 'shake',

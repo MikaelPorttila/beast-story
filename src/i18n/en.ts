@@ -349,6 +349,12 @@ export const en = {
   'menu.settings': 'Settings',
   'menu.back': 'Back',
   'menu.settings.title': 'Settings',
+  /**
+   * Says "controller" rather than "haptics" or "rumble" on purpose: it is the
+   * word on the box, and the row has to be recognisable by someone who opened
+   * Settings because their pad keeps buzzing.
+   */
+  'menu.settings.hapticFeedback': 'Enable Controller Vibration',
   'menu.settings.invertX': 'Invert look X',
   'menu.settings.invertY': 'Invert look Y',
   /** Both toggles are pad-only, and saying so stops them reading as mouse bugs. */

@@ -53,6 +53,18 @@ export interface ShakeSink {
 }
 
 export interface FeedbackOptions {
+  /**
+   * The player's controller-vibration switch, and the master gate in front of
+   * every haptic this game issues.
+   *
+   * It is checked HERE rather than at the cue sites for the same reason the
+   * cues are buffered here: this is the one place all of them pass through, so
+   * a setting checked once at the drain is a setting that cannot be forgotten
+   * by the next thing that emits a hit. It gates the phone's `navigator.vibrate`
+   * as well as a pad's motors — `Haptics.pulse` is what routes to either, and
+   * nothing reaches it while this is false.
+   */
+  hapticFeedback: boolean;
   /** 0..1; 0 issues no haptic effect at all. */
   hapticIntensity: number;
   /** 0..1, scaling every cue's tuned shake. */
@@ -95,6 +107,13 @@ export class FeedbackSystem {
   }
 
   setOptions(patch: Partial<FeedbackOptions>): void {
+    if (patch.hapticFeedback !== undefined && patch.hapticFeedback !== this.deps.hapticFeedback) {
+      this.deps.hapticFeedback = patch.hapticFeedback;
+      // Turning it off has to silence what is ALREADY ringing, not just stop
+      // the next cue: an envelope is up to a second long and `Haptics.update`
+      // would keep re-issuing it to the motors after the switch said stop.
+      if (!patch.hapticFeedback) this.haptics.stop();
+    }
     if (patch.hapticIntensity !== undefined) this.deps.hapticIntensity = patch.hapticIntensity;
     if (patch.shakeIntensity !== undefined) this.deps.shakeIntensity = patch.shakeIntensity;
   }
@@ -132,14 +151,14 @@ export class FeedbackSystem {
 
   /** Play everything queued this frame, then advance the rumble mix. */
   drain(dt: number): void {
-    const { hapticIntensity, shakeIntensity, camera } = this.deps;
+    const { hapticFeedback, hapticIntensity, shakeIntensity, camera } = this.deps;
     for (let i = 0; i < this.count; i++) {
       const { kind, intensity } = this.ring[i];
       const spec = CUES[kind];
       this.lastKind = kind;
       this.drained++;
 
-      if (hapticIntensity > 0) {
+      if (hapticFeedback && hapticIntensity > 0) {
         const strong = (spec.strong + spec.strongGain * intensity) * hapticIntensity;
         const weak = spec.weak * hapticIntensity;
         this.haptics.pulse(strong, weak, spec.dur);
@@ -159,6 +178,7 @@ export class FeedbackSystem {
       dropped: this.dropped,
       queued: this.count,
       lastKind: this.lastKind,
+      hapticFeedback: this.deps.hapticFeedback,
       hapticIntensity: this.deps.hapticIntensity,
       shakeIntensity: this.deps.shakeIntensity,
       haptics: this.haptics.debugState(),

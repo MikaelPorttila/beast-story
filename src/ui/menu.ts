@@ -132,6 +132,17 @@ const FAIRIES: ReadonlyArray<Fairy> = [
 
 type Step = 'press' | 'fullscreen' | 'options' | 'settings';
 
+/**
+ * The settings this screen shows as an ON/OFF row.
+ *
+ * Every one of them is a boolean `Prefs` field, which is what lets `toggle()`
+ * read the current state and the click handler write the new one straight off
+ * the key in `data-toggle` — the row markup and the persistence never spell a
+ * setting's name twice. What each one MEANS to the running game is still a
+ * hook, because that differs per setting.
+ */
+type ToggleKey = 'hapticFeedback' | 'invertLookX' | 'invertLookY';
+
 export interface StartMenuHooks {
   /**
    * New Game. Fired once, after the menu has faded out and taken itself off the
@@ -154,6 +165,12 @@ export interface StartMenuHooks {
    * about to test it. Persisting is this module's job, not the caller's.
    */
   onLookAxes: (a: Partial<LookAxes>) => void;
+  /**
+   * The controller-vibration switch moved. Live for the same reason, and for
+   * one more: a player turning it OFF is usually asking for it to stop, and a
+   * setting that only takes effect at the next launch does not answer that.
+   */
+  onHapticFeedback: (on: boolean) => void;
 }
 
 /** `?menu=` — 0 suppresses the menu, 1 forces it into a staged capture. */
@@ -313,6 +330,7 @@ export class StartMenu {
       panel.innerHTML =
         '<div class="opts settings">' +
           `<h2>${escapeHtml(t('menu.settings.title'))}</h2>` +
+          this.toggle('hapticFeedback', t('menu.settings.hapticFeedback'), this.prefs.hapticFeedback) +
           this.toggle('invertLookX', t('menu.settings.invertX'), this.prefs.invertLookX) +
           this.toggle('invertLookY', t('menu.settings.invertY'), this.prefs.invertLookY) +
           `<div class="note">${escapeHtml(t('menu.settings.controllerNote'))}</div>` +
@@ -362,7 +380,7 @@ export class StartMenu {
    * an ON/OFF pill on its right, and `aria-pressed` carrying the state for
    * anything reading the page rather than looking at it.
    */
-  private toggle(key: 'invertLookX' | 'invertLookY', label: string, on: boolean): string {
+  private toggle(key: ToggleKey, label: string, on: boolean): string {
     return `<button class="bs-menu-btn row" type="button" data-toggle="${key}" ` +
       `aria-pressed="${on}"><span class="lbl">${escapeHtml(label)}</span>` +
       `<span class="pill">${escapeHtml(on ? t('menu.on') : t('menu.off'))}</span></button>`;
@@ -394,11 +412,12 @@ export class StartMenu {
       return;
     }
 
-    const toggle = btn.getAttribute('data-toggle') as 'invertLookX' | 'invertLookY' | null;
+    const toggle = btn.getAttribute('data-toggle') as ToggleKey | null;
     if (toggle) {
       const next = !this.prefs[toggle];
       this.prefs = savePrefs({ [toggle]: next });
-      this.hooks.onLookAxes(toggle === 'invertLookX' ? { invertX: next } : { invertY: next });
+      if (toggle === 'hapticFeedback') this.hooks.onHapticFeedback(next);
+      else this.hooks.onLookAxes(toggle === 'invertLookX' ? { invertX: next } : { invertY: next });
       // Rewrite the one pill rather than re-rendering the panel: a rebuild would
       // drop focus back to the top of the list mid-way through changing things.
       btn.setAttribute('aria-pressed', String(next));
