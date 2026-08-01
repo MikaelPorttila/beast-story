@@ -20,6 +20,9 @@ const CSS = `
    because a key travels, and a pad face reads as a printed circle. */
 .bs-root kbd.pad{border-radius:50%;border-bottom-width:1px;padding:0;min-width:1.5em;
   text-align:center;margin:0 1px}
+/* A face that is a WORD — Start, Options. See padKey in ui/index.ts: a circle
+   sized for one character clips them, so those get a pill. */
+.bs-root kbd.pad.wide{border-radius:999px;padding:0 7px}
 .bs-glass{background:var(--glass);border:1px solid var(--stroke);border-radius:14px;
   box-shadow:0 8px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
@@ -75,7 +78,7 @@ const CSS = `
    (they used to start at 18/58/96). */
 .bs-compass{position:absolute;left:50%;top:10px;transform:translateX(-50%);
   width:min(420px,44vw);height:35px;transition:opacity .2s ease}
-.bs-root.shop-open .bs-compass{opacity:0}
+.bs-root.shop-open .bs-compass,.bs-root.keys-open .bs-compass{opacity:0}
 /* The window clips the tape. The 16px mask fade at each end is the one soft
    edge in the widget and it earns its place: without it letters pop in and out
    at full opacity mid-glyph, which reads as a rendering fault.
@@ -138,7 +141,7 @@ const CSS = `
     -8px 0 0 1px #fff, 8px 0 0 1px #fff;
   filter:drop-shadow(0 0 1.5px rgba(0,0,0,.65));
   transition:opacity .2s ease}
-.bs-root.shop-open .bs-cross{opacity:0}
+.bs-root.shop-open .bs-cross,.bs-root.keys-open .bs-cross{opacity:0}
 
 /* ---- hold-to-mount ring ------------------------------------------------ */
 /* An annulus around the reticle, filled by a conic-gradient sweep — the same
@@ -390,6 +393,73 @@ const CSS = `
 .bs-shop-foot{border-top:1px solid rgba(255,255,255,.1);padding:11px 20px;display:flex;gap:16px;
   flex-wrap:wrap;justify-content:center;font-size:11.5px;font-weight:600;color:rgba(238,242,248,.7)}
 .bs-shop-foot span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+
+/* ---- controls sheet (F1) ------------------------------------------------ */
+/* Same wrapper/scrim/panel construction as the shop above, and deliberately so:
+   it is the second modal in the game and a player who has opened one has
+   already learned how this one dismisses. It reuses .bs-scrim and .bs-shop-x
+   outright for that reason.
+
+   The BODY is auto-fit columns rather than one long list. Twenty rows in a
+   single column is 900px of panel, which at 1080 needs the sheet to scroll
+   before the player has read the first section; in two columns of ~360px the
+   whole thing fits on screen at once and the sections reflow to one column on a
+   narrow window without a breakpoint. Each section is its own grid, so a wider
+   heading in one cannot push another's key columns out of line.
+
+   The key columns are FIXED widths, not auto: they are the same handful of caps
+   in every row, and letting them size to content made the ']' row's columns
+   half the width of the WASD row's, which reads as a broken table. 96/86 is
+   measured off the widest cell each has to hold: the Space cap in the keyboard
+   column, and the four D-pad arrows in the controller one. */
+.bs-keyswrap{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.bs-keys{position:relative;width:min(940px,94vw);max-height:88vh;display:flex;flex-direction:column;
+  border-radius:20px;opacity:0;transform:translateY(16px) scale(.96);
+  transition:opacity .3s ease,transform .34s cubic-bezier(.34,1.45,.64,1);
+  box-shadow:0 24px 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1)}
+.bs-keyswrap.open{pointer-events:auto}
+.bs-keyswrap.open .bs-scrim{opacity:1}
+.bs-keyswrap.open .bs-keys{opacity:1;transform:translateY(0) scale(1)}
+.bs-keys-head{display:flex;align-items:center;gap:14px;padding:16px 20px 14px;
+  border-bottom:1px solid rgba(255,255,255,.1)}
+.bs-keys-head h2{font-size:19px;font-weight:900;letter-spacing:.04em;flex:1;
+  text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.bs-keys-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));
+  gap:4px 28px;padding:14px 20px 4px;overflow-y:auto;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
+.bs-keys-sec{align-content:start;padding-bottom:12px}
+.bs-keyrow{display:grid;grid-template-columns:minmax(0,1fr) 96px 86px 54px;align-items:center;
+  gap:8px;padding:5px 8px;border-radius:9px;font-size:12.5px}
+.bs-keyrow:not(.head):nth-child(even){background:rgba(255,255,255,.04)}
+.bs-keyrow .nm{display:flex;flex-direction:column;gap:1px;font-weight:700;
+  color:rgba(238,242,248,.92)}
+/* The caveat under a row — the climb note, the combo note. Quiet on purpose:
+   it is the second thing the row says, and a player scanning for a key should
+   scan past it. */
+.bs-keyrow .nm em{font-style:normal;font-size:10.5px;font-weight:600;line-height:1.35;
+  color:rgba(238,242,248,.5)}
+.bs-keyrow .kbm,.bs-keyrow .pad{text-align:right;white-space:nowrap;
+  color:rgba(238,242,248,.9)}
+.bs-keyrow .pad .none{color:rgba(238,242,248,.32);font-weight:700}
+/* HOLD vs PRESS, and the whole reason the sheet is a table rather than a list.
+   HOLD is the loud one — amber fill, dark text, the hotbar's own "this is
+   ready" colour — because tapping a key that wants to be leaned on is the
+   mistake a player blames the game for. PRESS is deliberately almost invisible:
+   it is the default, and printing it as quietly as possible is what makes the
+   handful of HOLD rows jump off the page. */
+.bs-keyrow .mode{justify-self:end;padding:2px 7px 3px;border-radius:999px;
+  font-size:9.5px;font-weight:800;letter-spacing:.08em}
+.bs-keyrow .mode.hold{background:linear-gradient(180deg,#ffd94f,#f5a623);color:#3a2703;
+  box-shadow:0 1px 5px rgba(245,166,35,.35)}
+.bs-keyrow .mode.press{background:rgba(255,255,255,.07);color:rgba(238,242,248,.45)}
+.bs-keyrow.head{margin-top:4px;padding-bottom:7px;border-bottom:1px solid rgba(255,255,255,.1);
+  border-radius:0}
+.bs-keyrow.head .nm{font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;
+  color:#ffd23f}
+.bs-keyrow.head .kbm,.bs-keyrow.head .pad{font-size:9.5px;font-weight:800;letter-spacing:.06em;
+  text-transform:uppercase;color:rgba(238,242,248,.42)}
+.bs-keys-foot{border-top:1px solid rgba(255,255,255,.1);padding:11px 20px;text-align:center;
+  font-size:11.5px;font-weight:600;color:rgba(238,242,248,.7)}
 
 /* ---- fullscreen offer (touch devices only) ------------------------------- */
 /* ---- start menu ---------------------------------------------------------- */
@@ -800,6 +870,10 @@ const CSS = `
   .bs-slot{width:50px;height:50px;border-radius:12px}
   .bs-hotbar{gap:8px;bottom:26px}
   .bs-shop{width:min(94vw,720px)}
+  /* One column of sections below 900px: two 360px columns plus the panel's own
+     padding wants 800px of content box, which a 900px window no longer has. */
+  .bs-keys{width:min(94vw,560px)}
+  .bs-keys-body{grid-template-columns:1fr}
 }
 
 /* Phone: the touch overlay owns the bottom corners, so the HUD moves out of
@@ -853,6 +927,13 @@ const CSS = `
   .bs-hotbar{display:none}
   .bs-shop-foot{display:none}
   .bs-shop{width:96vw;max-height:82vh}
+  /* The sheet is REACHABLE on a phone but not reachable FROM one: there is no
+     F1 on a touchscreen, so this is what a player sees when a keyboard is
+     attached to a small window. Tightened rather than hidden — the notes are
+     what go, since a 96vw row cannot hold a caption and a key column. */
+  .bs-keys{width:96vw;max-height:86vh}
+  .bs-keyrow{grid-template-columns:minmax(0,1fr) 78px 74px 46px;font-size:11.5px;padding:4px 6px}
+  .bs-keyrow .nm em{display:none}
   /* Toasts: one at a time (see HUD.addToast), clear of the control clusters,
      and clamped to two short lines so a long instruction string can never grow
      into a screen-eating panel. */

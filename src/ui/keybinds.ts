@@ -1,0 +1,122 @@
+/**
+ * EVERY BINDING IN THE GAME, in one table — the data behind the F1 sheet.
+ *
+ * THIS TABLE IS DECLARED, NOT DERIVED, and that is the one thing to know about
+ * it. A binding is not a value anywhere in this codebase: `Player.update` reads
+ * `input.down('ShiftLeft')` in the middle of a climb decision, `mount.ts` reads
+ * `KeyF` inside its own hold latch, and `core/gamepad.ts` translates pad buttons
+ * into those same codes. There is no registry to walk, so the sheet a player
+ * reads is written by hand here.
+ *
+ * WHICH MEANS: **add or change a binding, and change this file in the same
+ * commit.** `tools/test-keybinds.mjs` is the guard — it scans src/ for every
+ * `pressed('…')` / `down('…')` / `keys.has('…')` and fails on a code the game
+ * reads that no row here names. It cannot catch a MISLABELLED row, so the words
+ * are still on you.
+ *
+ * `codes` is the machine's truth and `caps` is the player's: the game reads
+ * `BracketRight`, the player is looking for the key stamped `]`. They are two
+ * independent lists rather than a parallel pair — the four hotbar digits are one
+ * printed range, `1`–`4`.
+ *
+ * Caps are DEVICE LABELS, exactly like the pad faces in core/gamepad.ts, and
+ * for the same reason: `Space`, `Shift`, `Esc` and `F1` are the letters moulded
+ * into the key in every language, and a player looking down at their hands sees
+ * them. `LMB`, `Mouse` and `Wheel` sit in the same list — they name a piece of
+ * hardware, not an action. Everything that IS a sentence — the action names, the
+ * section headings, the HOLD/PRESS chips — is a string-table key.
+ */
+import type { PadAction } from '../core/gamepad';
+import type { StringKey } from '../i18n';
+
+/**
+ * Whether the key is TAPPED or LEANED ON.
+ *
+ * The distinction is the reason the sheet exists rather than a list of keys: F
+ * mounts by being held and dismounts by being tapped, Shift only ever does
+ * anything while it is down, and a player who taps the key a held action wants
+ * concludes the action is broken. `hold` is the highlighted chip in the panel.
+ */
+export type BindMode = 'press' | 'hold';
+
+export interface Binding {
+  /** The action's name, from the string table. */
+  label: StringKey;
+  /** See `BindMode`. */
+  mode: BindMode;
+  /**
+   * KeyboardEvent codes the game actually reads for this action. Empty for a
+   * mouse-only row. This is what tools/test-keybinds.mjs cross-checks against
+   * the source; nothing renders it.
+   */
+  codes: readonly string[];
+  /** What is PRINTED on the keyboard side — see the device-label note above. */
+  caps: readonly string[];
+  /** Separator between caps. Default is a space; `1`–`4` wants a dash. */
+  join?: string;
+  /** Controller faces, by action, or null where the pad has no binding at all. */
+  pad: readonly PadAction[] | null;
+  /** One quiet line under the row, for a binding that needs a caveat. */
+  note?: StringKey;
+}
+
+export interface BindSection {
+  title: StringKey;
+  rows: readonly Binding[];
+}
+
+export const CONTROL_SECTIONS: readonly BindSection[] = [
+  {
+    title: 'keys.section.movement',
+    rows: [
+      { label: 'keys.move', mode: 'hold', codes: ['KeyW', 'KeyA', 'KeyS', 'KeyD'], caps: ['WASD'], pad: ['move'] },
+      { label: 'keys.look', mode: 'hold', codes: [], caps: ['Mouse'], pad: ['look'] },
+      { label: 'keys.sprint', mode: 'hold', codes: ['ShiftLeft'], caps: ['Shift'], pad: ['sprint'] },
+      {
+        label: 'keys.climb', mode: 'hold', codes: ['ShiftLeft'], caps: ['Shift'], pad: ['sprint'],
+        note: 'keys.climb.note',
+      },
+      { label: 'keys.jump', mode: 'press', codes: ['Space'], caps: ['Space'], pad: ['jump'] },
+      { label: 'keys.swim', mode: 'hold', codes: ['Space'], caps: ['Space'], pad: ['jump'] },
+      { label: 'keys.zoom', mode: 'press', codes: [], caps: ['Wheel'], pad: ['zoom'] },
+    ],
+  },
+  {
+    title: 'keys.section.combat',
+    rows: [
+      {
+        label: 'keys.attack', mode: 'press', codes: [], caps: ['LMB'], pad: ['attack'],
+        note: 'keys.attack.note',
+      },
+      {
+        label: 'keys.skills', mode: 'press',
+        codes: ['Digit1', 'Digit2', 'Digit3', 'Digit4'], caps: ['1', '4'], join: '–',
+        pad: ['skill1', 'skill2', 'skill3', 'skill4'],
+      },
+    ],
+  },
+  {
+    title: 'keys.section.beasts',
+    rows: [
+      { label: 'keys.mount', mode: 'hold', codes: ['KeyF'], caps: ['F'], pad: ['mount'] },
+      { label: 'keys.dismount', mode: 'press', codes: ['KeyF'], caps: ['F'], pad: ['dismount'] },
+      { label: 'keys.ascend', mode: 'hold', codes: ['Space'], caps: ['Space'], pad: ['altUp'] },
+      { label: 'keys.descend', mode: 'hold', codes: ['KeyC'], caps: ['C'], pad: ['altDown'] },
+      { label: 'keys.swap', mode: 'press', codes: ['Tab'], caps: ['Tab'], pad: ['swap'] },
+      { label: 'keys.cycleLead', mode: 'press', codes: ['BracketRight'], caps: [']'], pad: ['cyclePrimary'] },
+      { label: 'keys.cycleSupport', mode: 'press', codes: ['BracketLeft'], caps: ['['], pad: ['cycleSupport'] },
+    ],
+  },
+  {
+    title: 'keys.section.world',
+    rows: [
+      { label: 'keys.interact', mode: 'press', codes: ['KeyE'], caps: ['E'], pad: ['interact'] },
+      { label: 'keys.cancel', mode: 'press', codes: ['Escape'], caps: ['Esc'], pad: ['menu'] },
+      // No pad row for either: every face on a controller is already spoken for
+      // by something a player does far more often, and neither of these is worth
+      // taking one back for. The sheet says so rather than leaving a blank.
+      { label: 'keys.controls', mode: 'press', codes: ['F1'], caps: ['F1'], pad: null },
+      { label: 'keys.debugOverlay', mode: 'press', codes: ['F2'], caps: ['F2'], pad: null },
+    ],
+  },
+];

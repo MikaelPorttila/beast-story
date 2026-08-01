@@ -164,6 +164,19 @@ function beginPlay(): void {
   loading?.finish();
   engine.setFpsCap(fpsCap);
   if (staged) {
+    // TAKE THE POINTER HERE, not on the player's first click in the world. New
+    // Game is a click on a BUTTON — the canvas never sees a mousedown — so
+    // without this the game opens with a cursor sitting over it and mouse look
+    // dead until you click, which is the same "why is it deaf?" the controls
+    // sheet used to cause on the way out. Touch is left alone: there is no
+    // pointer to lock and the overlay is the control scheme.
+    //
+    // Best-effort by construction (see `Input.requestLock`). A browser only
+    // grants this off a recent user activation, and while the New Game click is
+    // one, a machine slow enough to spend more than a few seconds on the boot
+    // after it will have let that expire — those players click once, as they
+    // always did. The unstaged path never asks at all.
+    if (!isTouchPrimary()) input.requestLock();
     // Deferred to here rather than emitted when the menu closed: a toast lives
     // about four seconds, and this is the first moment the player is looking at
     // the game rather than at a poster or a loading bar.
@@ -1685,8 +1698,10 @@ function reportMovers(): void {
 
 function simulate(dt: number, first: boolean, interactive: boolean): void {
   // An open console is a modal: it has the keyboard, so the hero must not also
-  // act on it. Same treatment the shop already gets.
-  const shopOpen = hud.isShopOpen() || !!devConsole?.isOpen;
+  // act on it. Same treatment the shop already gets — and the F1 controls sheet,
+  // which is the same bargain read the other way round: a player who stopped to
+  // find out what a key does must not have walked off a cliff while reading.
+  const modal = hud.isShopOpen() || hud.isControlsOpen() || !!devConsole?.isOpen;
   nearShop = false;
   nearNpc = null;
   // Whose contact the particle system tests this slice, or null. It integrates
@@ -1697,14 +1712,14 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // The camera stick is a rate control, so it must inject its look delta BEFORE
   // the player/camera update consumes mouseDX this frame — ticking it later in
   // the frame meant endFrame() wiped the delta before the camera ever saw it.
-  if (interactive && !shopOpen) touch?.update(dt);
+  if (interactive && !modal) touch?.update(dt);
 
   // Photo mode drives the camera and the subject itself and must not have the
   // player controller or the HUD fighting it, but it DOES need the world to
   // stream and the beasts to animate — everything below the branch.
   if (!interactive) {
     // fall through to the world update
-  } else if (!shopOpen) {
+  } else if (!modal) {
     perf.section('input');
     // Mounting runs BEFORE the player: while a beast is being ridden it writes
     // the hero's position, velocity and saddle pose for this slice, and
@@ -1792,7 +1807,14 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     }
     if (first && npcField?.talking && input.pressed('Escape')) npcField.endTalk();
   } else if (first && (input.pressed('Escape') || input.pressed('KeyE'))) {
-    hud.closeShop();
+    // Cancel closes the TOPMOST modal, which is the only reason this is an
+    // if/else rather than two calls: F1 can be pressed with a den open, the
+    // sheet draws over it (see the wrapper order in ui/index.ts), and one press
+    // of Escape must dismiss one thing. The pad reaches this too — B and Start
+    // tap Escape while a modal is up, which is how a controller player closes a
+    // sheet they have no button to open.
+    if (hud.isControlsOpen()) hud.closeControls();
+    else hud.closeShop();
   }
 
   // Contact particles. Sits between the `player` and `beasts` profiler markers, so
@@ -1849,7 +1871,15 @@ function frame(): void {
   if (!engine.beginFrame()) return;
   perf.begin();
   const dt = engine.tick();
-  const shopOpen = hud.isShopOpen();
+  // Everything that owns the screen: the shop, and the F1 controls sheet. Both
+  // stand the pad down and hide the touch overlay, for the same reason — a
+  // button held when the panel opened must not stay held behind it.
+  const modal = hud.isShopOpen() || hud.isControlsOpen();
+  // A modal does not turn the camera, and the controls sheet is the one that has
+  // to say so out loud: it keeps pointer lock (see the F1 read below), so unlike
+  // the shop it goes on collecting mouse delta that no slice will spend. See
+  // Input.clearLook for what that costs if it is left to pile up.
+  if (modal) input.clearLook();
 
   // Poll the pad ONCE PER RENDERED FRAME, and before the slices below.
   //
@@ -1858,7 +1888,7 @@ function frame(): void {
   // whereas polling per slice would multiply the turn rate by the slice count.
   // And the edges land before slice 0, the one `first` is true for, which is
   // what the hotbar, Tab, the beast cycles and the shop key are all gated on.
-  pad?.setModal(shopOpen || !!devConsole?.isOpen);
+  pad?.setModal(modal || !!devConsole?.isOpen);
   pad?.poll(dt);
 
   // Drain the accumulator in fixed slices; carry the remainder to next frame.
@@ -1989,9 +2019,9 @@ function frame(): void {
   );
   hud.update(dt);
 
-  // Hide the touch overlay while a modal shop is open so it can't be tapped
+  // Hide the touch overlay while a modal is open so it can't be tapped
   // through, and release any held virtual buttons.
-  touch?.setVisible(!shopOpen);
+  touch?.setVisible(!modal);
 
   // `padActive` is part of the gate, not decoration: a player on a controller
   // never clicks and never taps, so without it they would be the one player who
@@ -2010,7 +2040,35 @@ function frame(): void {
     });
   }
 
-  if (input.pressed('F2')) debug.toggle();
+  // F1 is the player's controls sheet, F2 the developer's frame readout, and
+  // both are read HERE rather than in a simulation slice because neither is a
+  // gameplay action — a frame that drained no slice must still answer them.
+  //
+  // `takePress`, NOT `pressed`. That is the whole difference between a toggle
+  // that works and one that works about half the time: an unconsumed edge
+  // survives every frame until a slice drains, and uncapped that is two or three
+  // frames, each of which toggles. See the note on takePress in core/input.ts.
+  //
+  // F1 carries the same gate `interactive` carries above, and for what is now
+  // the same single reason: photo mode must render the same picture twice. The
+  // title screen used to be the other half of this test and no longer needs to
+  // be — `frame()` does not run until `beginPlay()`, so there is no frame in
+  // which the poster is up and this line executes. (`beginPlay` also drains the
+  // key latch, so an F1 pressed AT the menu cannot arrive here late either.)
+  // F2 is deliberately outside the gate — measuring a capture's frame rate is
+  // the one thing you want to do DURING a capture.
+  if (!photoMode && input.takePress('F1')) {
+    // POINTER LOCK IS KEPT, and that is the difference between this and the
+    // shop. `tryOpenShop` hands the pointer back because a shop is a thing you
+    // CLICK — there are buy buttons and nothing else presses them. A controls
+    // sheet is a thing you READ, closed by the same key that opened it, and
+    // releasing the lock for it made a one-key glance cost a click to undo:
+    // press F1, read a line, press F1, then find the game deaf until you click
+    // it again. The X and the scrim are still there for a player who has no
+    // lock to lose (a pad player, or anyone who has not clicked yet).
+    hud.toggleControls();
+  }
+  if (input.takePress('F2')) debug.toggle();
   colliderView.update(dt);
   perf.section('hud');
 

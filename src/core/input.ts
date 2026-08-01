@@ -79,7 +79,10 @@ export class Input {
     'Tab', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ',
     'Digit1', 'Digit2', 'Digit3', 'Digit4', 'BracketLeft', 'BracketRight',
     'ShiftLeft', 'Slash', 'Quote',
-    'F2', // debug overlay — must not reach the browser
+    // F1 opens the browser's own help in Chrome, Edge and Firefox, which is a
+    // new tab over the game; F2 is the debug overlay. Neither may reach the
+    // browser, and preventDefault on keydown is what stops both.
+    'F1', 'F2',
   ]);
 
   constructor(private el: HTMLElement) {
@@ -169,6 +172,29 @@ export class Input {
   pressed(code: string): boolean { return this.pressedThisFrame.has(code); }
 
   /**
+   * True on the frame the key went down — and CONSUMES the edge.
+   *
+   * This is the read for a FRAME-loop toggle; `pressed()` is the read for a
+   * SIMULATION slice. What separates them is `endFrame()`, which only runs on a
+   * frame that actually drained a slice — see its call site in main.ts. A press
+   * therefore SURVIVES frames that ran no simulation, deliberately, because
+   * throwing it away was losing a third of every player's jumps.
+   *
+   * That is exactly wrong for a toggle. Uncapped at 165 Hz against a 60 Hz sim,
+   * roughly two frames in three drain nothing, so one press of F1 was read on
+   * two or three consecutive frames and toggled itself straight back off:
+   * measured, ten presses opened and closed the controls sheet in the pattern
+   * `0011011101` where `1010101010` is correct. At `fps=30` every frame drains
+   * two slices and the bug cannot occur, which is why every probe in tools/
+   * passed while the game misbehaved in the hand.
+   *
+   * The probe latch is untouched on purpose: `debugState` answers "what has been
+   * pressed since you last asked", which is a different question with a
+   * different consumer.
+   */
+  takePress(code: string): boolean { return this.pressedThisFrame.delete(code); }
+
+  /**
    * True while look input should drive the camera.
    *
    * The pad's clause is load-bearing rather than symmetric: a player on a
@@ -238,6 +264,43 @@ export class Input {
 
   /** Feed a zoom step (in the same units as a wheel notch). */
   addWheel(delta: number): void { this.wheelDelta += delta; }
+
+  /**
+   * Take the pointer, if there is one to take.
+   *
+   * The `mousedown` listener in the constructor is the usual way in, and it
+   * cannot be the only one: New Game is a click on a BUTTON, so the world never
+   * sees a mousedown and the player arrives in the game with a cursor over it
+   * and no mouse look until they click again. `beginPlay` in main.ts calls this.
+   *
+   * Same touch guard as mousedown, and the rejection is SWALLOWED rather than
+   * reported. A browser refuses a lock with no user activation behind it, which
+   * is exactly what an unstaged `menu=0` boot is — every probe in tools/ — and
+   * nothing is lost when it fails: the next click in the world takes the lock
+   * the way it always did.
+   */
+  requestLock(): void {
+    if (this.pointerLocked || this.touchActive) return;
+    // Older DOM lib types this `void`, newer ones a Promise. Both ship.
+    const pending = this.el.requestPointerLock() as unknown;
+    if (pending instanceof Promise) pending.catch(() => {});
+  }
+
+  /**
+   * Throw away look and zoom accumulated but not yet consumed.
+   *
+   * For a modal that KEEPS pointer lock — the F1 controls sheet. The mouse goes
+   * on reporting movement into `mouseDX` while the panel is up, and no
+   * simulation slice will spend it, but `endFrame()` only clears on a frame that
+   * drained one: a couple of frames' worth therefore survives to the frame the
+   * sheet closes and lands as a flick of the camera. The shop never needed this
+   * because it releases the lock, and `mousemove` is gated on holding it.
+   */
+  clearLook(): void {
+    this.mouseDX = 0;
+    this.mouseDY = 0;
+    this.wheelDelta = 0;
+  }
 
   setTouchLooking(v: boolean): void { this.touchLooking = v; }
   setPadLooking(v: boolean): void { this.padLooking = v; }

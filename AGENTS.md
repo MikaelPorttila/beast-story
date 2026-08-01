@@ -79,6 +79,46 @@ once frames come quickly.
 - Dev server: `bun run dev` → http://localhost:5187 (`index.html` = game,
   `lab.html` = isolated stage, see [LAB.md](LAB.md)). The port is pinned because
   every tool in `tools/` hardcodes it.
+- **ONE WORKTREE, ONE PORT. 5187 belongs to the main checkout.** Sessions in
+  `.claude/worktrees/*` run concurrently and each serves a DIFFERENT tree, so
+  sharing a port does not mean queueing for it — it means one session's probe
+  quietly measuring another session's code. `bun run dev` cannot be shared
+  either way: `vite.config.ts` pins 5187 with `strictPort`, so the second one to
+  start simply fails. In a worktree:
+
+  1. **Claim a port in 5190–5199.** The claims are already written down —
+     every worktree has its own `.claude/launch.json` (gitignored, per-worktree,
+     never in a commit), so read the siblings' and take the lowest free number.
+     Put it in yours as `"port"`, which is also what makes the Browser pane's
+     `preview_start` open on your server rather than refusing because 5187 is
+     busy.
+  2. **Serve it with the flag, not the config.** `bun x vite --port 5191
+     --strictPort`. Do not edit `vite.config.ts` to do this: 5187 is what every
+     tool in `tools/` hardcodes, and that pin is load-bearing for the main
+     checkout.
+  3. **`--strictPort`, ALWAYS.** Without it vite takes the next free port
+     instead, and nothing tells you: the run looks perfect while your probe
+     drives a game built from somebody else's branch. A hard failure is the only
+     acceptable outcome of a clash.
+  4. **Point probes at it with a throwaway COPY, and delete it.**
+     `sed 's|5187|5191|' tools/test-x.mjs > tools/_tmp-x.mjs`, run that, remove
+     it. Never edit the tool itself — the hardcoded 5187 is the contract for
+     everyone else. `_tmp-*.mjs` is not gitignored, so a forgotten copy lands in
+     the commit.
+- **STOP THE DEV SERVER WHEN THE WORK IS DONE — in the same turn you report it
+  done, and say that you did.** A server an agent left running is not a stray
+  process, it is a STATUS LIGHT pointing the wrong way: from the outside a live
+  `vite` says "still working" indefinitely, and there is nothing on the developer's
+  screen that distinguishes yours from their own. This applies to every server
+  started for a single probe run or one screenshot, not just to a long session —
+  those are the ones that get forgotten, because they were only meant to live for
+  a minute. It applies at the end of EVERY turn that finishes a piece of work,
+  not only the last one in a conversation. It also frees the port you claimed
+  above for the next session.
+- **Never stop a server you did not start.** The corollary of owning a port is
+  not touching anyone else's: 5187 already up means the developer or another
+  session is on it, and the answer is to take a port of your own, never to evict
+  them.
 - Typecheck + build: `bun run build` (runs `tsc --noEmit` first — keep it clean).
   `bun run snapshot [label]` writes a timestamped, self-contained build to `dist/`.
 - **To look at a BUILD, serve it statically** — `bun x vite preview --outDir dist`
@@ -100,9 +140,9 @@ once frames come quickly.
 - There is no unit-test runner. The tests are browser probe scripts that print
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
-  `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`.
-  `tools/capture-set.ps1` (PowerShell, project root) captures the full critic
-  shot set.
+  `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
+  `test-keybinds.mjs`. `tools/capture-set.ps1` (PowerShell, project root)
+  captures the full critic shot set.
 - `test-road.mjs` asks the one question nothing else could: **is the road you
   SEE the road you STAND ON?** Every other probe compares the world against
   itself, so none of them can see a hero standing exactly where the physics puts
@@ -142,6 +182,24 @@ once frames come quickly.
   `game.settings.*` keys and bring its language onto the screen with it, and
   toggling a row must write exactly one key, take effect live in
   `__dbgFeedback()`, and still be true after a reload.
+- `test-keybinds.mjs` guards the F1 controls sheet, and the half worth knowing
+  about is not the DOM half. It scans src/ for every `pressed('…')` /
+  `takePress('…')` / `down('…')` / `keys.has('…')` and requires each code to
+  appear in the table in
+  [src/ui/keybinds.ts](src/ui/keybinds.ts) — `unlisted` MUST be empty, which is
+  how "update the sheet when you add a binding" became a run rather than a
+  wish. `listedNotScanned` is expected to hold exactly `Digit1`–`Digit4`: the
+  hotbar is read through a loop variable, which no regex over the source can
+  see. It also opens the panel with F1, holds W to prove the sheet is a real
+  modal (measured: 0 units with it up, 6.77 with it down), closes it with Escape,
+  and picks up a synthetic DualSense mid-read to check the faces swap live. Its
+  last two sections are the only ones in `tools/` that leave the well-trodden
+  path, and both have to. One runs UNCAPPED — ten presses of F1 must give
+  `1010101010`, which is exactly the assertion `fps=30` cannot make, see the
+  frame-edge note under Conventions. The other drops `menu=0` and walks the
+  STAGED boot to New Game, because that is the only way to reach the handover:
+  an F1 pressed at the poster must not survive `beginPlay()`'s latch drain and
+  pop the sheet open on the first gameplay frame.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -379,6 +437,50 @@ whether it moved and `composeKeyHints()` in main.ts is the one writer of all
 three (the skill-den pill, the talk pill, the dialogue footer). Read a cap on its
 way to the DOM (`hud.interactPrompt`) and it is free; bake one in and you owe it.
 
+**F1 is the controls sheet, and its table is DECLARED, NOT DERIVED.** A binding
+is not a value anywhere in this codebase — the climb decision reads
+`down('ShiftLeft')` in the middle of `Player.update`, `mount.ts` reads `KeyF`
+inside its own hold latch, `core/gamepad.ts` translates pad buttons into those
+same codes — so there is no registry to walk and the sheet a player reads is
+written by hand in [src/ui/keybinds.ts](src/ui/keybinds.ts). **Add or change a
+binding and change that file in the same commit**; `tools/test-keybinds.mjs`
+fails on a code the game reads that no row names, which catches the omission but
+never a wrong word. Rows carry the KeyboardEvent `codes` (the machine's truth,
+what the guard scans) beside the printed `caps` (the player's — `]`, not
+`BracketRight`), and each says whether it is a HOLD or a PRESS, which is the
+distinction the whole panel exists for: F mounts by being held and dismounts by
+being tapped, and a player who taps a held action concludes the game is broken.
+Caps are DEVICE LABELS like the pad faces — `Space`, `Esc`, `LMB` are moulded
+into hardware and are not translated; everything that is a sentence is a string
+key. The panel is a MODAL (see `modal` in main.ts): a player who stopped to find
+out what a key does must not have walked off a cliff while reading.
+
+It is a modal that KEEPS POINTER LOCK, which is the one place it parts company
+with the shop, and the reason is what the player DOES with each. A shop is
+clicked — there are buy buttons and nothing else presses them — so `tryOpenShop`
+hands the pointer back. A sheet is read, and closed by the key that opened it.
+Releasing the lock for it made a one-key glance cost a click to undo: press F1,
+read a line, press F1, and the game is deaf until you click it, mouse look dead
+and a cursor sitting over the world. The X and the scrim stay for players with no
+lock to lose. Keeping it costs one thing — the mouse goes on reporting movement
+no simulation slice will spend, and `endFrame()` only clears on a frame that
+drained one — so `frame()` calls `Input.clearLook()` while any modal is up, or a
+couple of frames of it survive and land as a camera flick the moment the sheet
+closes. `test-keybinds.mjs` asserts the lock across a full open/close and that
+the yaw moves by 0 through both.
+
+**Who takes the pointer in the first place** is the same question one step
+earlier, and the answer used to be nobody. New Game is a click on a BUTTON, so
+the canvas never sees the `mousedown` that `Input`'s constructor listens for, and
+a player arrived in the world with a cursor over it and mouse look dead until
+they clicked. `beginPlay` calls `Input.requestLock()` for that, on the staged
+path only and never on touch. It is BEST-EFFORT by construction: a browser grants
+a lock only off a recent user activation, so a boot slow enough to outlast the
+click's (~5 s in Chrome) falls back to clicking, and the rejection is swallowed
+rather than logged. The unstaged `menu=0` path never asks — there was no gesture
+to ask with. Guarded by TURNING THE CAMERA with no click at all, because
+`pointerLockElement` alone would pass on a lock nothing is reading.
+
 **The title screen.** [src/ui/menu.ts](src/ui/menu.ts) is the first thing on
 screen and the GATE on the game starting, and it is a gate in the strongest sense
 available: there is no frame loop behind it. `frame()` is called by `beginPlay()`
@@ -531,6 +633,17 @@ deliberately NOT gated on it: it is something you see, not something you feel.
   `_dummy`, …), instanced meshes and object pools are the norm; keep them that way.
 - **Frame-rate independence.** Smoothing uses `1 - exp(-lambda * dt)`, never a fixed
   lerp factor. `Engine.tick()` clamps `dt` to 0.05 s.
+- **A key edge read in the FRAME loop must be consumed; one read in a
+  SIMULATION slice must not.** `input.pressed()` deliberately survives frames
+  that drained no slice — `endFrame()` only runs when one did, and clearing
+  regardless was throwing away a third of every player's jumps. A toggle in
+  `frame()` therefore sees the SAME press on two or three consecutive frames at
+  165 Hz and toggles itself back off; `input.takePress()` is the read that
+  consumes, and F1/F2 use it. **This class of bug is invisible to every probe in
+  `tools/`**, because `fps=30` against a 60 Hz sim drains two slices on every
+  frame and so clears every press — measured, ten presses of F1 gave a clean
+  `1010101010` capped and `0011011101` uncapped. An assertion about a frame-loop
+  edge has to run with NO `fps=` in its URL; `test-keybinds.mjs` has one.
 - **Tuned constants carry their rationale.** The long comments explaining why a value
   is what it is — and what the previous value looked like when captured — are the
   point, not clutter. When you change such a value, update its comment with what you
