@@ -442,11 +442,18 @@ const CSS = `
   background:linear-gradient(180deg,#ffd94f,#f5a623);
   box-shadow:0 3px 8px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.45)}
 .bs-fs-btn:active{filter:brightness(1.2);transform:translateY(1px) scale(.98)}
+/* The pill is answered with the keyboard now that the start menu asks it on a
+   desktop too, so it needs the same loud cursor the menu buttons have — it is
+   the only thing saying which of NO/YES an Enter will hit. */
+.bs-fs-btn:focus-visible{outline:none;
+  box-shadow:0 0 0 2px rgba(255,214,120,.95),0 0 18px rgba(255,196,90,.55)}
 /* Raised by the start menu as its own step (ui/menu.ts) instead of over a live
    game. The 264px perch above exists to clear the touch sticks; a title screen
-   has none, so the pill comes back to the middle and sits under the logo, where
-   the options are about to appear. */
-.bs-fsprompt.in-menu{bottom:auto;top:62%;z-index:60;max-width:min(360px,86vw)}
+   has none, so the pill comes back to the middle and takes the place the
+   options are about to appear in — the top of the panel's row, which is the
+   divider plus the same 44px gap the list will sit at. */
+.bs-fsprompt.in-menu{bottom:auto;top:calc(50% + 44px);z-index:60;
+  max-width:min(360px,86vw)}
 
 /* ---- start menu ---------------------------------------------------------- */
 /* The title screen. Two images and CSS — see src/ui/menu.ts for what the layers
@@ -470,8 +477,19 @@ const CSS = `
    freezes the wind clock. Also honoured for anyone who asked their OS for less
    motion, which wants exactly the same thing for a different reason. */
 .bs-menu.photo *{animation-play-state:paused!important}
+/* Reduced motion takes away MOVEMENT, not light.
+   This used to pause every animation on the screen, which is the blunt reading
+   and the wrong one: it left the fairies frozen mid-air, the lanterns stuck at
+   62% and a title screen that looked broken rather than calm. What actually
+   troubles someone who asks for less motion is travel — things flying across
+   the frame, things sliding, things scaling. So the crossing and the bob stop
+   and the logo's slide becomes a cut, while the two things that only change
+   BRIGHTNESS keep going. Note the fairies hold the positions their negative
+   delays put them in, so they stay scattered rather than stacking at one edge. */
 @media (prefers-reduced-motion:reduce){
-  .bs-menu *{animation-play-state:paused!important}
+  .bs-menu .fly{animation-play-state:paused}
+  .bs-menu .fly b{animation:bsFlyTwinkle calc(var(--bob) * .45) ease-in-out infinite alternate}
+  .bs-menu .lamp{animation-name:bsLampGlow}
   .bs-menu .logo,.bs-menu .panel{transition:none}
 }
 
@@ -499,6 +517,9 @@ const CSS = `
 @keyframes bsLamp{
   from{opacity:.62;transform:translate(-50%,-50%) scale(.9)}
   to{opacity:1;transform:translate(-50%,-50%) scale(1.06)}}
+/* The same breath with the swell taken out, for prefers-reduced-motion. The
+   flame still lives; it just stops growing. */
+@keyframes bsLampGlow{from{opacity:.62}to{opacity:1}}
 
 /* Fairies. Two nested elements so the crossing and the bobbing keep independent
    periods without any JS: the outer travels, the inner wobbles and twinkles.
@@ -514,8 +535,13 @@ const CSS = `
   background:radial-gradient(circle,#fff 0%,#fff6d2 28%,rgba(255,214,120,.75) 52%,rgba(255,190,90,0) 76%);
   box-shadow:0 0 calc(var(--sz) * 2.6) calc(var(--sz) * .8) rgba(255,208,120,.65),
              0 0 calc(var(--sz) * .9) rgba(255,255,255,.9);
+  /* The twinkle runs on its own clock at .45 of the bob — a prime-ish fraction,
+     so a fairy's brightest moment lands somewhere different on every pass
+     rather than always at the top of its arc. Down to 0.22 rather than the
+     first pass's 0.45: at a 9px dot over a sunlit sky, halving the opacity was
+     not a pulse anyone noticed, it was just a slightly dimmer dot. */
   animation:bsFlyY var(--bob) ease-in-out infinite alternate,
-            bsFlyTwinkle calc(var(--bob) * .61) ease-in-out infinite alternate}
+            bsFlyTwinkle calc(var(--bob) * .45) ease-in-out infinite alternate}
 /* A minority are cool-toned, which is what stops seven identical amber dots
    reading as dust on the screen. Matches the blue beast in the artwork. */
 .bs-menu .fly.cool b{
@@ -528,7 +554,7 @@ const CSS = `
 /* Bright end FIRST, for the same reason the press pulse runs that way: paused at
    0% under photo=1, a dim-first keyframe froze all seven fairies at 35% opacity
    and the staged still came out with none of them visible. */
-@keyframes bsFlyTwinkle{from{opacity:1}to{opacity:.45}}
+@keyframes bsFlyTwinkle{from{opacity:1}to{opacity:.22}}
 
 /* The art is bright noon daylight and the type on top of it is white. This is
    what makes the words legible without dimming the painting into mud: darkened
@@ -540,32 +566,46 @@ const CSS = `
       rgba(6,10,18,0) 46%,rgba(6,10,18,.28) 72%,rgba(6,10,18,.72) 100%),
     radial-gradient(120% 90% at 50% 40%,rgba(6,10,18,0) 40%,rgba(6,10,18,.45) 100%)}
 
-/* Logo and panel share one grid cell and are each translated out of it, so the
-   logo's slide is a transform on a stationary box rather than a reflow. */
-.bs-menu .fore{position:absolute;inset:0;display:grid;place-items:center;
+/* TWO ROWS MEETING AT A DIVIDER, which is what makes the gap a constant.
+
+   The logo sits in the top row aligned to its BOTTOM, the panel in the bottom
+   row aligned to its TOP, so the two edges that face each other both land on
+   the line between the rows. The distance between them is then exactly --gap,
+   at every window size, and they cannot overlap however tall the panel gets —
+   the divider is between them.
+
+   The previous arrangement had both boxes in ONE centred cell, each translated
+   away by a percentage of viewport HEIGHT while the panel's own height was a
+   fixed number of pixels. Those two do not scale together: values tuned to give
+   a tight gap at 1080 put the New Game button through the middle of the logo at
+   540. Shared --slide moves the pair without ever changing the distance between
+   them, so the "logo slides up to make room" transition survives intact. */
+.bs-menu .fore{position:absolute;inset:0;display:grid;
+  grid-template-rows:1fr 1fr;justify-items:center;
   padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom))}
-.bs-menu .logo,.bs-menu .panel{grid-area:1/1}
-/* "Centred but offset upwards" is --ly at the press step; every later step
-   lifts it further and shrinks it to open the space the options need. */
 /* Sized against BOTH dimensions, and the max-height is the load-bearing half.
    Width alone (min(560px,74vw)) gave a 960x540 window the same 560px logo a
-   1920x1080 one gets, while the lift and drop below — both percentages of
-   viewport height — halved. Captured: "Bonds of Red" ended up resting on the
-   New Game button. Capping the height ties the logo to whichever dimension is
-   actually scarce, and at 1080 it is slack by four pixels, so the desktop
-   framing is unchanged. */
-.bs-menu .logo{width:min(560px,74vw);height:auto;max-height:34vh;
+   1920x1080 one gets while every offset around it halved.
+
+   It does NOT change size between steps. An earlier pass shrank it to 72% once
+   the options appeared, on the theory that it had to get out of their way; it
+   does not, now that the gap is a constant, and the wordmark is the one thing
+   on this screen that should never look like it is retreating. */
+.bs-menu .logo{grid-row:1;align-self:end;margin-bottom:var(--gap,13vh);
+  width:min(560px,74vw);height:auto;max-height:34vh;
   filter:drop-shadow(0 14px 34px rgba(0,0,0,.55));
-  transform:translateY(var(--ly,-9vh)) scale(var(--ls,1));
+  transform:translateY(var(--slide,7vh));
+  transition:transform .55s cubic-bezier(.3,.9,.28,1),
+             margin-bottom .55s cubic-bezier(.3,.9,.28,1)}
+.bs-menu .panel{grid-row:2;align-self:start;position:relative;
+  width:min(400px,86vw);
+  transform:translateY(var(--slide,7vh));
   transition:transform .55s cubic-bezier(.3,.9,.28,1)}
-.bs-menu[data-step="fullscreen"] .logo,
-.bs-menu[data-step="options"] .logo,
-.bs-menu[data-step="settings"] .logo{--ly:-23vh;--ls:.72}
-.bs-menu .panel{position:relative;width:min(400px,86vw);
-  transform:translateY(var(--py,20vh));
-  transition:transform .55s cubic-bezier(.3,.9,.28,1)}
-.bs-menu[data-step="options"] .panel,
-.bs-menu[data-step="settings"] .panel{--py:15vh}
+/* Once there is a list to read, the pair rises to the middle and the gap closes
+   to something you can take in as one group — 44px, not a slab of sky. */
+.bs-menu[data-step="fullscreen"],
+.bs-menu[data-step="options"],
+.bs-menu[data-step="settings"]{--slide:0vh;--gap:44px}
 /* A soft pool of shade under the list, and nothing more solid than that.
    Captured without it, the rows sat over a village, a red banner and the hero's
    arm, and every one of those read THROUGH the wood — the buttons looked
@@ -651,34 +691,53 @@ const CSS = `
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
 
 /* Short screens — a phone held sideways, which is how this game is played on
-   one. Both boxes STOP being centred here.
-
-   Everywhere else the logo and the panel share the middle of the screen and are
-   translated out of it by a percentage of the viewport height, which is what
-   makes the slide a single smooth transform. On 390px of height that arithmetic
-   runs out: captured at the first pass, a lift of 17vh and a drop of 11vh left
-   the New Game button sitting across the word "Story". Percentages of a small
-   number are a small number, and no pair of them fixes it.
-
-   So on a short screen the logo is pinned to the TOP of the frame and the list
-   to the BOTTOM, with the grid's own padding as the margin. They cannot overlap
-   at any height, because neither one is positioned relative to the other any
-   more — and the logo still shrinks between steps, so the transition remains. */
+   one. There is simply not enough height here for a 44px gap AND a logo sized
+   for a desktop, so the logo gets narrower (a responsive size, the same at
+   every step — it still never shrinks on pressing start) and the gap collapses
+   to what is left. The divider keeps doing its job: whatever the panel grows
+   to, it grows downward into its own row. */
 @media (max-height:520px){
-  .bs-menu .logo{align-self:start;width:min(240px,30vw);max-height:42vh;--ly:0;--ls:1}
-  .bs-menu[data-step="fullscreen"] .logo,
-  .bs-menu[data-step="options"] .logo,
-  .bs-menu[data-step="settings"] .logo{--ly:0;--ls:.74}
-  .bs-menu .panel{--py:0}
-  .bs-menu[data-step="options"] .panel,
-  .bs-menu[data-step="settings"] .panel{align-self:end;--py:0}
+  /* The divider stops being the MIDDLE and becomes "just under the logo": row
+     one is content-sized, row two takes everything left. Splitting 50/50 gave
+     the settings list half of 390px to fit 217px of rows in, and captured at
+     844x390 the Back button was cut off by the bottom of the screen. The logo
+     does not need half a phone; the list does need all of the rest. */
+  .bs-menu .fore{grid-template-rows:auto 1fr}
+  .bs-menu .logo{width:min(210px,26vw);max-height:38vh}
+  .bs-menu{--slide:3vh;--gap:7vh}
+  .bs-menu[data-step="fullscreen"],
+  .bs-menu[data-step="options"],
+  .bs-menu[data-step="settings"]{--slide:0vh;--gap:14px}
   .bs-menu-btn{padding:9px 16px;font-size:13.5px}
   .bs-menu-btn.row{padding:8px 12px 8px 16px}
   .bs-menu .opts{gap:7px}
   .bs-menu .press{font-size:15px}
-  /* The pill has the same problem: 62% of a short viewport lands it on the
-     logo. Pin it to the bottom, where the options are about to appear. */
-  .bs-fsprompt.in-menu{top:auto;bottom:max(18px,env(safe-area-inset-bottom))}
+  .bs-fsprompt.in-menu{top:calc(50% + 14px)}
+}
+
+/* Very short — a small phone in landscape, where the arithmetic simply does not
+   close. Measured at 844x390: 16px of padding, a 136px logo, the gap and a
+   232px settings list want 410 of the 390 there are, and the Back button fell
+   off the bottom of the screen. Every way of squeezing that (a smaller logo, a
+   denser list, a thinner gap) buys ten or twenty pixels and breaks again the
+   day a sixth setting is added.
+
+   So the logo stands down instead — on the OPTION steps only. It has already
+   had the press screen to itself at full size, which is the moment it is doing
+   its job; once a list is up, the list is what the player is here for. Row one
+   collapses to nothing and the panel centres in the whole frame, which at 320px
+   of height leaves it 44px of air top and bottom. */
+@media (max-height:440px){
+  .bs-menu[data-step="fullscreen"] .logo,
+  .bs-menu[data-step="options"] .logo,
+  .bs-menu[data-step="settings"] .logo{display:none}
+  .bs-menu[data-step="fullscreen"] .fore,
+  .bs-menu[data-step="options"] .fore,
+  .bs-menu[data-step="settings"] .fore{grid-template-rows:0 1fr}
+  .bs-menu[data-step="options"] .panel,
+  .bs-menu[data-step="settings"] .panel{align-self:center}
+  .bs-fsprompt.in-menu{top:50%;transform:translate(-50%,-50%)}
+  .bs-fsprompt.in-menu.show{transform:translate(-50%,-50%)}
 }
 
 /* ---- responsive ---------------------------------------------------------- */

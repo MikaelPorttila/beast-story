@@ -1,9 +1,9 @@
-import { isTouchPrimary } from '../core/touch';
 import { t } from '../i18n';
 import { injectStyles } from './styles';
 
 /**
- * "Play fullscreen?" — a two-button pill, touch devices only.
+ * "Play fullscreen?" — a two-button pill, raised by the start menu as its own
+ * step, on every device that can honour the answer.
  *
  * WHY IT IS A SEPARATE OVERLAY AND NOT A HUD CHILD
  *
@@ -107,14 +107,21 @@ export class FullscreenPrompt {
    *
    * The gate, in order:
    *   - `?fsprompt=0` suppresses it outright (captures, tooling).
-   *   - `?fsprompt=1` forces it past the device test, so it can be inspected on
-   *     a desktop. It does NOT bypass the feature detect: a YES that does
-   *     nothing stays impossible.
-   *   - otherwise: touch-primary device (the SAME `isTouchPrimary()` the touch
-   *     overlay uses — there is no second device test), API present, and not
-   *     already fullscreen.
+   *   - `?fsprompt=0` suppresses it outright (captures, tooling).
+   *   - `?fsprompt=1` forces it past the "already fullscreen" test.
+   *   - otherwise: the API is present and the page is not already fullscreen.
    *
-   * Note what is NOT in that list any more: a stored answer. See the header.
+   * EVERY DEVICE, not just touch. This asked only on touch-primary hardware
+   * at first, inheriting the gate from the days when it raised itself over a
+   * live game and a desktop player could hit F11 themselves. As a deliberate
+   * step in the start menu that reasoning is gone: a mouse-and-keyboard player
+   * has just as much reason to be asked once, at the moment they decide to
+   * play, and most of them do not think of F11.
+   *
+   * The feature detect stays, and it is the only device test left. On an iPhone
+   * there is no element-level Fullscreen API at all, so the step is skipped
+   * rather than offering a YES that cannot do anything. Also note what is NOT
+   * in the list any more: a stored answer. See the header.
    */
   static ask(opts: FullscreenAskOptions = {}): FullscreenPrompt | null {
     let force = false;
@@ -125,10 +132,7 @@ export class FullscreenPrompt {
     } catch { /* no search params: fall through to the normal gate */ }
 
     if (!fullscreenSupported()) return null;
-    if (!force) {
-      if (!isTouchPrimary()) return null;
-      if (isFullscreen()) return null;
-    }
+    if (!force && isFullscreen()) return null;
     return new FullscreenPrompt(opts);
   }
 

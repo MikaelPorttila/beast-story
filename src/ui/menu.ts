@@ -324,7 +324,15 @@ export class StartMenu {
         '</div>';
     }
 
-    this.focusables = Array.from(panel.querySelectorAll('button:not([disabled])'));
+    // The fullscreen step's buttons are not in the panel — the pill is a
+    // body-level sibling that owns its own DOM (see ui/fullscreen.ts for why it
+    // has to be). It is still a step of this menu, so its buttons go into the
+    // same focus ring: that is what lets the question be answered with the
+    // keyboard on a desktop, where it is now also asked.
+    const scope: ParentNode = this.step === 'fullscreen'
+      ? document.querySelector('.bs-fsprompt') ?? panel
+      : panel;
+    this.focusables = Array.from(scope.querySelectorAll('button:not([disabled])'));
     // Where the cursor lands is stated by whoever asked for this panel, never
     // inherited from the last one. Carrying an INDEX across a rebuild is what
     // put the cursor on Settings after a mouse click had moved it elsewhere —
@@ -333,7 +341,7 @@ export class StartMenu {
     // always the top of the new list.
     const want = this.pendingFocus;
     this.pendingFocus = null;
-    const found = want ? panel.querySelector<HTMLButtonElement>(want) : null;
+    const found = want ? scope.querySelector<HTMLButtonElement>(want) : null;
     this.focusIdx = found ? Math.max(0, this.focusables.indexOf(found)) : 0;
     this.focusables[this.focusIdx]?.focus();
   }
@@ -429,9 +437,11 @@ export class StartMenu {
       case 'ArrowUp': case 'w': case 'W':
         e.preventDefault(); this.moveFocus(-1); break;
       case 'ArrowLeft': case 'ArrowRight':
-        // Left/right belongs to the language chips, which are a row inside a
-        // column; anywhere else it does nothing rather than jumping the list.
-        if (document.activeElement?.hasAttribute('data-lang')) {
+        // Left/right is for the two things laid out as a ROW: the language
+        // chips inside the settings column, and the fullscreen question's
+        // NO/YES pair. Anywhere else it does nothing rather than jumping the
+        // list sideways for no reason.
+        if (this.step === 'fullscreen' || document.activeElement?.hasAttribute('data-lang')) {
           e.preventDefault();
           this.moveFocus(e.key === 'ArrowRight' ? 1 : -1);
         }
@@ -535,26 +545,33 @@ export class StartMenu {
   // -------------------------------------------------------------------------
 
   /**
-   * Leave the splash. On a touch device the next thing is the fullscreen
-   * question; everywhere else it is the options.
+   * Leave the splash. The next thing is the fullscreen question wherever the
+   * browser can honour an answer, and the options everywhere else.
    */
   private advanceFromPress(): void {
     if (this.step !== 'press') return;
-    if (this.askFullscreen()) this.goto('fullscreen');
+    // YES is where the cursor starts: it is the affirmative answer and the one
+    // the question is really offering. Only reachable on a device that can be
+    // asked at all — where the pill declines to build, this falls straight
+    // through to the options.
+    if (this.askFullscreen()) this.goto('fullscreen', '.bs-fs-btn.yes');
     else this.goto('options');
   }
 
   /**
    * Raise the fullscreen pill as this step, and say whether it went up.
    *
-   * ALWAYS ASKED, which is the one way this differs from the pill the game used
-   * to raise on its own: that one remembered the answer and never asked twice,
-   * and here that is wrong. The question decides how the
-   * entire session is framed, it is being asked at the one moment the player is
-   * deciding to play rather than mid-walk, and a phone that was rotated or
-   * handed to somebody else since last time has a different right answer. The
-   * cost is that someone who always says no is asked again next launch — a
-   * two-button tap on a screen they are already looking at.
+   * ALWAYS ASKED, ON EVERY DEVICE — the two ways this differs from the pill the
+   * game used to raise on its own, and they have the same cause. That one
+   * interrupted a live game on a phone, so it remembered the answer (or it
+   * nagged) and it only appeared where there was no other way to go fullscreen.
+   * As a step in the start menu neither restriction survives contact: the
+   * question decides how the whole session is framed, it is asked at the one
+   * moment the player is deciding to play rather than mid-walk, and a
+   * mouse-and-keyboard player has as much reason to be offered it as anyone —
+   * F11 exists but most people never think of it. The cost is that someone who
+   * always says no is asked again next launch, which is one button on a screen
+   * they are already looking at.
    *
    * The feature detect is NOT bypassed. On an iPhone, where no element-level
    * Fullscreen API exists, the step is skipped entirely rather than offering a

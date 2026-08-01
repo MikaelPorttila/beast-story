@@ -112,8 +112,8 @@ once frames come quickly.
   Game and he must travel what the identical hold travels under `menu=0`
   (measured: 0 then 6.77, against 6.77). Everything else it reports — any key
   leaving the splash, Settings opening and Escaping back, the language chips
-  re-captioning the menu live, and the phone run where the fullscreen question
-  is step two — is about the flow; that pair is about the gate.
+  re-captioning the menu live, the fullscreen question answered from the keyboard,
+  and the phone run through it — is about the flow; that pair is about the gate.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -291,7 +291,7 @@ that exist purely for those tools; keep them working.
 screen and the GATE on the game starting: `main.ts` passes `interactive=false`
 into `simulate()` for as long as it is open, exactly as photo mode does, so the
 world streams and renders behind the poster while the hero stands still. Its
-steps are `press -> fullscreen (touch only) -> options -> settings`, driven by
+steps are `press -> fullscreen -> options -> settings`, driven by
 keyboard, pointer and a pad poll of its own (edges only — `GamepadControls` is
 for feeding a live hero and is the wrong shape for a menu). Everything moving on
 it is CSS: the lantern pulse, the fairies and the logo's slide cost no
@@ -315,9 +315,27 @@ speed.
 Two more things there are easy to break. **`menu=0` is load-bearing for every
 tool in `tools/`** — see the probe note above. And the "play fullscreen?" pill
 ([src/ui/fullscreen.ts](src/ui/fullscreen.ts)) is no longer raised by the game
-on its first frame and no longer remembers an answer: the menu asks it, always,
-as the step straight after "Press start...", which is why the `bs:fullscreen-prompt`
-localStorage key is gone.
+on its first frame, no longer remembers an answer, and is no longer touch-only:
+the menu asks it, always, on every device whose browser can honour the answer,
+as the step straight after "Press start...". That is why the
+`bs:fullscreen-prompt` localStorage key is gone and why `isTouchPrimary()` is
+not in that module any more — the only device test left is the feature detect,
+which still skips the step on an iPhone rather than offering a YES that cannot
+work. Its buttons join the menu's own focus ring, so the question is answerable
+from the keyboard; a PAD cannot answer YES, because `requestFullscreen()` needs
+a user activation and a gamepad press is not one in any browser.
+
+**The vertical layout is a two-row grid meeting at a divider**, and that is
+load-bearing rather than incidental. The logo sits in row one aligned to its
+bottom, the panel in row two aligned to its top, so the facing edges both land
+on the line between the rows and the distance between them is exactly `--gap`
+at every window size — they cannot overlap however tall the panel grows. The
+first version centred both in ONE cell and translated each away by a percentage
+of viewport HEIGHT while the panel's own height was a fixed pixel count; those
+do not scale together, and values tuned at 1080 put the New Game button through
+the middle of the word "Story" at 540. Below 440px of height the logo is hidden
+on the option steps entirely — at 844x390 the frame cannot hold a logo, a gap
+and a 232px settings list, and the wordmark has already had the press screen.
 
 **Game URL parameters.** `photo=1` with `cam=x,y,z` / `look=x,y,z` / `beast=<id>` /
 `anim=` / `a=<deg>` / `hud=0` stages captures. **`cam` and `look` are OFFSETS
@@ -327,9 +345,9 @@ out, which renders a plausible picture of the wrong place rather than an error.
 Subtract the spawn (`__dbgTowns().spawn`) first. `npct=<seconds>` pins the NPC
 animation clock so two stills of the same 4.6 s curl are reproducible;
 `fps=<n>` caps the frame rate;
-`debug=1` opens the F2 overlay; `fsprompt=1` forces the touch fullscreen offer
-past the device test so it can be inspected on a desktop (`fsprompt=0`
-suppresses it); plus every post-processing override above.
+`debug=1` opens the F2 overlay; `fsprompt=0` suppresses the fullscreen step and
+`fsprompt=1` forces it past the "already fullscreen" test; plus every
+post-processing override above.
 `menu=0` removes the title screen and starts the game immediately — what every
 probe in `tools/` passes, and what `photo=1` implies on its own; `menu=1` forces
 it back, INCLUDING in photo mode, which is how the title screen itself gets

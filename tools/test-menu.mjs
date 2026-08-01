@@ -89,6 +89,18 @@ const out = {};
   await page.keyboard.press('KeyK');
   await wait(400);
   out.afterAnyKey = await state(page);
+  // The fullscreen question is step two on EVERY device that can honour the
+  // answer, desktop included, and it has to be answerable from the keyboard:
+  // the pill's buttons join the menu's focus ring, so Enter lands on one.
+  out.focusOnFsStep = await page.evaluate(() =>
+    document.activeElement?.className ?? null);
+  await page.keyboard.press('ArrowLeft');       // YES -> NO
+  await wait(150);
+  out.focusAfterArrow = await page.evaluate(() =>
+    document.activeElement?.className ?? null);
+  await page.keyboard.press('Enter');           // answer NO, on to the options
+  await wait(500);
+  out.afterFullscreenAnswer = await state(page);
 
   // Into Settings and back out, which is also the language picker's home.
   // ONE ArrowDown, not two: Load is disabled, and a disabled button is not in
