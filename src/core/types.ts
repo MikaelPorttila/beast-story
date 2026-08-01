@@ -568,6 +568,18 @@ export interface World {
    */
   readonly streaming: boolean;
   /**
+   * How many chunks are queued or part-built right now.
+   *
+   * `streaming` answers "is there anything left", which is all the ZoneManager
+   * ever needed. This answers "how much", which is what a progress bar needs:
+   * `loaded / (loaded + pending)` is a real fraction of real work, where
+   * `chunksLoaded` on its own has no denominator — the ring's size falls out of
+   * VIEW_RADIUS and a distance test inside the streamer, and guessing it from
+   * outside would be a percentage that lies the day the radius changes. See
+   * the terrain stage of the boot sequence in main.ts.
+   */
+  readonly pendingChunks: number;
+  /**
    * Show or hide everything this world has put in the scene — meshes AND
    * lights.
    *

@@ -116,6 +116,13 @@ export const sv: Translation = {
   'menu.settings.controllerNote': 'Gäller bara handkontroll — musen inverteras aldrig.',
   'menu.settings.autoFullscreen': 'Helskärm vid start',
   'menu.settings.language': 'Språk',
+
+  // Uppstartsförloppet (src/ui/loading.ts).
+  'load.world': 'Bygger världen',
+  'load.actors': 'Väcker bestarna',
+  'load.shaders': 'Kompilerar shaders',
+  'load.terrain': 'Låter skogen växa',
+  'load.ready': 'Klar',
   'menu.on': 'PÅ',
   'menu.off': 'AV',
 
