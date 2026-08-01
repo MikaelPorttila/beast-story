@@ -136,6 +136,57 @@ await page.keyboard.press('Escape');
 await wait(400);
 results.escape = { openedAgain, closedByEscape: !(await sheet()).open };
 
+// A GLANCE MUST COST ONE KEY, NOT A KEY AND A CLICK.
+//
+// The sheet is READ, not clicked, so unlike the shop it keeps pointer lock. It
+// released it at first, and the cost only shows up in the hand: press F1, read a
+// line, press F1, and the game is deaf until you click it again — mouse look
+// dead, a cursor sitting over the world. Asserted on `pointerLockElement` either
+// side of a full open/close, which reproduces at `fps=30` and needs no fast host.
+//
+// The second half is what keeping the lock bought: the mouse goes on reporting
+// movement nobody spends, so the camera must not drift while the panel is up NOR
+// flick on the way out. Whipping the pointer around mid-read is the test — see
+// Input.clearLook.
+{
+  await page.mouse.click(640, 400);
+  await wait(400);
+  const locked = () => page.evaluate(() => document.pointerLockElement !== null);
+  const yaw = () => page.evaluate(() => window.__dbgCamYaw());
+  const arc = (a, b) => {
+    let d = b - a;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    return +Math.abs(d).toFixed(4);
+  };
+
+  const lockedBefore = await locked();
+  await page.keyboard.press('F1');
+  await wait(400);
+  const lockedWhileOpen = await locked();
+
+  const yawBefore = await yaw();
+  for (let i = 0; i < 12; i++) await page.mouse.move(200 + i * 60, 300 + (i % 3) * 80);
+  await wait(400);
+  const yawWhileOpen = await yaw();
+
+  await page.keyboard.press('F1');
+  await wait(400);
+  const lockedAfterClose = await locked();
+  await wait(200);
+
+  results.pointerLock = {
+    lockedBefore,
+    lockedWhileOpen,
+    lockedAfterClose,
+    // Both must be 0: no drift with the sheet up, no flick as it closes.
+    yawDriftWhileOpen: arc(yawBefore, yawWhileOpen),
+    yawFlickOnClose: arc(yawWhileOpen, await yaw()),
+    // The whole point, in one boolean. Measured false/false before the fix.
+    survivesAGlance: lockedBefore && lockedWhileOpen && lockedAfterClose,
+  };
+}
+
 await page.close();
 
 // ---------- 3. the sheet follows the device, WHILE IT IS OPEN ---------------

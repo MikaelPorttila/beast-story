@@ -455,6 +455,20 @@ into hardware and are not translated; everything that is a sentence is a string
 key. The panel is a MODAL (see `modal` in main.ts): a player who stopped to find
 out what a key does must not have walked off a cliff while reading.
 
+It is a modal that KEEPS POINTER LOCK, which is the one place it parts company
+with the shop, and the reason is what the player DOES with each. A shop is
+clicked — there are buy buttons and nothing else presses them — so `tryOpenShop`
+hands the pointer back. A sheet is read, and closed by the key that opened it.
+Releasing the lock for it made a one-key glance cost a click to undo: press F1,
+read a line, press F1, and the game is deaf until you click it, mouse look dead
+and a cursor sitting over the world. The X and the scrim stay for players with no
+lock to lose. Keeping it costs one thing — the mouse goes on reporting movement
+no simulation slice will spend, and `endFrame()` only clears on a frame that
+drained one — so `frame()` calls `Input.clearLook()` while any modal is up, or a
+couple of frames of it survive and land as a camera flick the moment the sheet
+closes. `test-keybinds.mjs` asserts the lock across a full open/close and that
+the yaw moves by 0 through both.
+
 **The title screen.** [src/ui/menu.ts](src/ui/menu.ts) is the first thing on
 screen and the GATE on the game starting, and it is a gate in the strongest sense
 available: there is no frame loop behind it. `frame()` is called by `beginPlay()`

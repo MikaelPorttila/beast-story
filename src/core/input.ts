@@ -265,6 +265,22 @@ export class Input {
   /** Feed a zoom step (in the same units as a wheel notch). */
   addWheel(delta: number): void { this.wheelDelta += delta; }
 
+  /**
+   * Throw away look and zoom accumulated but not yet consumed.
+   *
+   * For a modal that KEEPS pointer lock — the F1 controls sheet. The mouse goes
+   * on reporting movement into `mouseDX` while the panel is up, and no
+   * simulation slice will spend it, but `endFrame()` only clears on a frame that
+   * drained one: a couple of frames' worth therefore survives to the frame the
+   * sheet closes and lands as a flick of the camera. The shop never needed this
+   * because it releases the lock, and `mousemove` is gated on holding it.
+   */
+  clearLook(): void {
+    this.mouseDX = 0;
+    this.mouseDY = 0;
+    this.wheelDelta = 0;
+  }
+
   setTouchLooking(v: boolean): void { this.touchLooking = v; }
   setPadLooking(v: boolean): void { this.padLooking = v; }
 

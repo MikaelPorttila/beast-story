@@ -1862,6 +1862,11 @@ function frame(): void {
   // stand the pad down and hide the touch overlay, for the same reason — a
   // button held when the panel opened must not stay held behind it.
   const modal = hud.isShopOpen() || hud.isControlsOpen();
+  // A modal does not turn the camera, and the controls sheet is the one that has
+  // to say so out loud: it keeps pointer lock (see the F1 read below), so unlike
+  // the shop it goes on collecting mouse delta that no slice will spend. See
+  // Input.clearLook for what that costs if it is left to pile up.
+  if (modal) input.clearLook();
 
   // Poll the pad ONCE PER RENDERED FRAME, and before the slices below.
   //
@@ -2040,10 +2045,14 @@ function frame(): void {
   // F2 is deliberately outside the gate — measuring a capture's frame rate is
   // the one thing you want to do DURING a capture.
   if (!photoMode && input.takePress('F1')) {
-    // Hand the pointer back on the way IN, exactly as tryOpenShop does: the
-    // sheet has a close button and a scrim to click at, and a locked pointer
-    // has no cursor to click them with.
-    if (!hud.isControlsOpen()) document.exitPointerLock();
+    // POINTER LOCK IS KEPT, and that is the difference between this and the
+    // shop. `tryOpenShop` hands the pointer back because a shop is a thing you
+    // CLICK — there are buy buttons and nothing else presses them. A controls
+    // sheet is a thing you READ, closed by the same key that opened it, and
+    // releasing the lock for it made a one-key glance cost a click to undo:
+    // press F1, read a line, press F1, then find the game deaf until you click
+    // it again. The X and the scrim are still there for a player who has no
+    // lock to lose (a pad player, or anyone who has not clicked yet).
     hud.toggleControls();
   }
   if (input.takePress('F2')) debug.toggle();
