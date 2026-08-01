@@ -236,5 +236,67 @@ await page.close();
   await fast.close();
 }
 
+// ---------- 5. the REAL player path, through the staged boot ---------------
+//
+// Everything above passes `menu=0`, which is not how anybody plays: it skips the
+// title screen, and with it the whole staged boot — no progress indicator, no
+// waiting, and `frame()` running from the first moment. The path a player takes
+// starts at a poster, and `beginPlay()` DRAINS the key latch on the way through
+// (see main.ts: every key pressed at the menu is still sitting in `Input`,
+// because `endFrame()` only runs inside `frame()` and `frame()` had not run).
+//
+// So there are two things to check here that no `menu=0` run can. F1 pressed AT
+// the poster must not survive the handover and pop the sheet open on the first
+// gameplay frame — the menu itself ignores every `F\d` key by design, so the
+// press reaches `Input` and nothing else. And once playing, the toggle must work
+// exactly as it does under `menu=0`.
+{
+  const staged = await newPage(browser, { width: 1280, height: 800 });
+  // `fs=0`: New Game takes fullscreen now, and a headless page that goes
+  // fullscreen mid-run is measuring a different window than it started in.
+  await staged.goto('http://localhost:5187/?fs=0', { waitUntil: 'load' });
+  await staged.waitForSelector('.bs-menu');
+  await wait(600);
+
+  await staged.keyboard.press('F1');
+  await wait(700);
+  const stepAfterF1 = await staged.evaluate(() =>
+    document.querySelector('.bs-menu')?.dataset.step ?? null);
+
+  // Enter through whatever steps stand between the splash and the options list.
+  for (let i = 0; i < 4; i++) {
+    if (await staged.evaluate(() => !!document.querySelector('.bs-menu [data-act="new"]'))) break;
+    await staged.keyboard.press('Enter');
+    await wait(500);
+  }
+  await staged.click('.bs-menu [data-act="new"]');
+  await wait(6000);
+
+  const boot = await staged.evaluate(() => window.__dbgBoot?.());
+  const leaked = await staged.evaluate(() =>
+    !!document.querySelector('.bs-keyswrap')?.classList.contains('open'));
+
+  const seq = [];
+  for (let i = 0; i < 6; i++) {
+    await staged.keyboard.press('F1');
+    await wait(350);
+    seq.push(await staged.evaluate(() =>
+      document.querySelector('.bs-keyswrap')?.classList.contains('open') ? 1 : 0));
+  }
+
+  results.stagedBoot = {
+    // The menu's own rule, cross-checked from here: F-keys stay the browser's,
+    // so F1 does not leave the splash the way any other key does.
+    stepAfterF1AtPoster: stepAfterF1,
+    playing: boot?.playing,
+    menuOpen: boot?.menuOpen,
+    sheetLeakedFromMenuPress: leaked,
+    pattern: seq.join(''),
+    expected: '101010',
+    alternates: seq.join('') === '101010',
+  };
+  await staged.close();
+}
+
 console.log(JSON.stringify(results, null, 2));
 await browser.close();

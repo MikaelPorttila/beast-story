@@ -153,9 +153,13 @@ once frames come quickly.
   see. It also opens the panel with F1, holds W to prove the sheet is a real
   modal (measured: 0 units with it up, 6.77 with it down), closes it with Escape,
   and picks up a synthetic DualSense mid-read to check the faces swap live. Its
-  last section is the only one in `tools/` that runs UNCAPPED, and it has to be:
-  ten presses of F1 must give `1010101010`, which is exactly the assertion
-  `fps=30` cannot make — see the frame-edge note under Conventions.
+  last two sections are the only ones in `tools/` that leave the well-trodden
+  path, and both have to. One runs UNCAPPED — ten presses of F1 must give
+  `1010101010`, which is exactly the assertion `fps=30` cannot make, see the
+  frame-edge note under Conventions. The other drops `menu=0` and walks the
+  STAGED boot to New Game, because that is the only way to reach the handover:
+  an F1 pressed at the poster must not survive `beginPlay()`'s latch drain and
+  pop the sheet open on the first gameplay frame.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a

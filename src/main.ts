@@ -2031,12 +2031,15 @@ function frame(): void {
   // survives every frame until a slice drains, and uncapped that is two or three
   // frames, each of which toggles. See the note on takePress in core/input.ts.
   //
-  // F1 carries the gate `interactive` carries below, and needs it for the same
-  // two reasons: the title screen owns the keyboard while it is up (its own
-  // steps answer to any key), and photo mode must render the same picture twice.
-  // F2 is deliberately outside it — measuring a capture's frame rate is the one
-  // thing you want to do DURING a capture.
-  if (!photoMode && !menuOpen() && input.takePress('F1')) {
+  // F1 carries the same gate `interactive` carries above, and for what is now
+  // the same single reason: photo mode must render the same picture twice. The
+  // title screen used to be the other half of this test and no longer needs to
+  // be — `frame()` does not run until `beginPlay()`, so there is no frame in
+  // which the poster is up and this line executes. (`beginPlay` also drains the
+  // key latch, so an F1 pressed AT the menu cannot arrive here late either.)
+  // F2 is deliberately outside the gate — measuring a capture's frame rate is
+  // the one thing you want to do DURING a capture.
+  if (!photoMode && input.takePress('F1')) {
     // Hand the pointer back on the way IN, exactly as tryOpenShop does: the
     // sheet has a close button and a scrim to click at, and a locked pointer
     // has no cursor to click them with.
