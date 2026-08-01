@@ -129,9 +129,25 @@ const results = {};
     }));
   });
 
+  // A FINGER IS A DEVICE YOU HOLD, so the rumble gate has to say so — the phone
+  // buzzes through `navigator.vibrate`, and gating that on "is a controller the
+  // live input" would have silenced every touch player. Read after the stick
+  // drags above rather than after a tap on the scenery, because that is the
+  // case that nearly broke: every stick and button in the overlay stops
+  // touchstart from propagating, so the source stamp has to be a CAPTURE-phase
+  // listener (see core/touch.ts). A phone player who only ever touches the
+  // controls must still count as hands-on.
+  const src = await page.evaluate(() => {
+    const i = window.__dbgInput?.();
+    return { lastSource: i?.lastSource, tactile: i?.tactile, feedback: window.__dbgFeedback?.()?.tactileInput };
+  });
+
   results.phone = {
     overlayPresent: overlay > 0,
     stick, moveStick, lookStick, skills, buttons, hotbarHidden,
+    lastSource: src.lastSource,
+    tactile: src.tactile,
+    feedbackTactile: src.feedback,
     playerMovedUnits: moved === null ? 'no probe' : +moved.toFixed(3),
     yawTurnedRadians: yawStart === undefined ? 'no probe' : +yawTotal.toFixed(3),
     canvasSize: await page.evaluate(() => {

@@ -27,7 +27,7 @@ import { Player } from './player/index';
 import { MountController } from './player/mount';
 import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem } from './combat/index';
-import { HUD, kbd, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
+import { HUD, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
 import { StartMenu } from './ui/menu';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
@@ -144,7 +144,9 @@ const bound: WorldBound[] = [];
 let portalHint: string | null = null;
 
 /**
- * The interact prompt, composed once at load and again on a language change.
+ * The interact prompt, composed at load and again whenever the language or the
+ * input device moves under it. Empty until `composeKeyHints()` runs — it needs
+ * the HUD, which is built below.
  *
  * The hint pill is HTML and the key cap arrives inside the `{key}` placeholder
  * (see HUD.showHint and `kbd`), so this is a `t(key, vars)` call — which
@@ -152,12 +154,13 @@ let portalHint: string | null = null;
  * loop below runs it every frame the hero is stood near a den. Same argument as
  * SHOP_FOOT_HINTS in src/ui/index.ts.
  *
- * A `let` rather than a `const` only because the start menu can now change the
- * language under it — see `onLanguageChange` below, which is the ONE place that
- * writes it. It is still composed a handful of times per session, never per
- * frame.
+ * A `let` rather than a `const` because two things can move it: the start menu
+ * changing the language, and the player changing device — the cap inside it is
+ * `E` on a keyboard and a controller face on a pad. `composeKeyHints()` below is
+ * the ONE place that writes it, on both edges. It is still composed a handful of
+ * times per session, never per frame.
  */
-let skillDenHint = t('hint.skillDen', { key: kbd('E') });
+let skillDenHint = '';
 
 const zones = new ZoneManager({
   scene: engine.scene,
@@ -645,9 +648,7 @@ const touch = photoMode ? null : TouchControls.attach(input);
 // stale. Nothing here runs per frame; this fires when a player picks a language.
 // ---------------------------------------------------------------------------
 onLanguageChange(() => {
-  skillDenHint = t('hint.skillDen', { key: kbd('E') });
-  dialogueFoot = t('npc.dialogue.close', { key: kbd('E') });
-  npcHints.clear();
+  composeKeyHints();
   hud.relabel();
   touch?.relabel();
 });
@@ -673,6 +674,11 @@ const feedback = photoMode ? null : new FeedbackSystem({
   bus,
   camera: player.cam,
   pad: () => pad?.current ?? null,
+  // Live, per frame: rumble belongs to the device in the player's hands, so a
+  // controller left plugged in beside the keyboard stops buzzing the moment the
+  // keyboard is touched, and starts again the moment the pad is. See
+  // `FeedbackDeps.tactileInput` and `Input.tactile`.
+  tactileInput: () => input.tactile,
   hapticFeedback: prefs.hapticFeedback,
   hapticIntensity: flags.haptics ?? prefs.hapticIntensity,
   shakeIntensity: flags.shake ?? prefs.shakeIntensity,
@@ -1325,13 +1331,35 @@ const npcHints = new Map<string, string>();
 function npcHint(npc: NpcInfo): string {
   let html = npcHints.get(npc.id);
   if (html === undefined) {
-    html = t('hint.npcTalk', { key: kbd('E'), name: t(npc.nameKey) });
+    html = t('hint.npcTalk', { key: hud.interactPrompt, name: t(npc.nameKey) });
     npcHints.set(npc.id, html);
   }
   return html;
 }
-/** The dialogue panel's footer. Composed once, like the hints above. */
-let dialogueFoot = t('npc.dialogue.close', { key: kbd('E') });
+/** The dialogue panel's footer. Composed like the hints above. */
+let dialogueFoot = '';
+
+/**
+ * Re-compose every prompt this file hoisted out of the frame loop.
+ *
+ * The exhaustive list, and the only writer of all three. Two things invalidate
+ * them and neither is per-frame: the display language, and the DEVICE — each of
+ * these sentences has a key cap baked into it, and that cap is `E` on a keyboard
+ * and a controller face on a pad. `kbd('E')` is gone from the call sites for
+ * that reason; `hud.interactPrompt` is whichever the HUD is currently printing,
+ * so all four surfaces (hotbar, mount ring, shop footer, these pills) name one
+ * device at a time.
+ *
+ * The per-NPC cache goes with them: it is keyed by person, so nothing in it
+ * notices either change on its own.
+ */
+function composeKeyHints(): void {
+  const key = hud.interactPrompt;
+  skillDenHint = t('hint.skillDen', { key });
+  dialogueFoot = t('npc.dialogue.close', { key });
+  npcHints.clear();
+}
+composeKeyHints();
 
 /**
  * How far a wild beast can be and still be worth reporting to the world.
@@ -1682,9 +1710,16 @@ function frame(): void {
     Math.atan2(_compassFwd.x, -_compassFwd.z) * (180 / Math.PI),
     player.position.x, player.position.z,
   );
-  // Key caps or controller faces. Cheap: returns on the first line unless the
-  // device actually changed, which happens at most once or twice a session.
-  hud.setPadPrompts(input.padActive && pad ? pad.glyphs : null);
+  // Key caps or controller faces, following whatever the player LAST touched
+  // rather than whether a pad has ever been used — put the controller down,
+  // reach for the keyboard, and the labels come back. Cheap: returns on the
+  // first line unless the device actually changed.
+  //
+  // The composed hint pills have a cap baked in and are not redrawn from
+  // `this.prompts`, so they ride the same edge. See `composeKeyHints`.
+  if (hud.setPadPrompts(input.lastSource === 'gamepad' && pad ? pad.glyphs : null)) {
+    composeKeyHints();
+  }
   hud.setMountHold(mount.progress);
   hud.setMounted(
     mount.beast ? t(mount.beast.species.nameKey) : null,

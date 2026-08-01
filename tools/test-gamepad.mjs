@@ -351,7 +351,15 @@ const results = {};
   await page.close();
 }
 
-// ---------- 5. glyph detection ----------
+// ---------- 5. glyph detection, and the ROUND TRIP back to the keyboard ------
+//
+// The assertion that matters here is a PAIR, and only the second half is new.
+// A connected-but-untouched pad must not relabel a keyboard player's hotbar
+// (that was always true), and a pad that HAS been used must hand the labels
+// back the moment the keyboard is touched (issue #6 — it never did, because
+// `padActive` is a latch and latches cannot un-set). Asserted on the hotbar
+// badge and on the count of pad-shaped caps anywhere in the HUD, so a prompt
+// that switches one and forgets the other cannot pass.
 {
   const page = await newPage(browser, { width: 1280, height: 800 });
   await installFakePad(page, 'DualSense Wireless Controller (Vendor: 054c Product: 0ce6)');
@@ -360,19 +368,97 @@ const results = {};
   await wait(3000);
   await page.evaluate(() => window.__connectPad());
   await wait(200);
-  const slotBefore = await page.evaluate(() => document.querySelector('.bs-slot .key')?.textContent);
-  // The HUD only switches once the pad has actually been USED — a connected but
-  // untouched controller must not relabel a keyboard player's hotbar.
+
+  const hotbar = () => page.evaluate(() => document.querySelector('.bs-slot .key')?.textContent);
+  const padCaps = () => page.evaluate(() => document.querySelectorAll('.bs-root kbd.pad').length);
+  const source = async () => (await probe(page, '__dbgInput'))?.lastSource;
+
+  const beforeUse = { hotbar: await hotbar(), padCaps: await padCaps(), source: await source() };
+
   await setButton(page, B.START, true);
   await wait(150);
   await setButton(page, B.START, false);
   await wait(400);
+  const onPad = { hotbar: await hotbar(), padCaps: await padCaps(), source: await source() };
+
+  // Back to the keyboard. One keypress is the whole gesture — no pad
+  // disconnect, nothing unplugged; the controller is still sitting there
+  // connected, which is exactly the case that used to be stuck on faces.
+  await page.keyboard.press('w');
+  await wait(400);
+  const onKeyboard = { hotbar: await hotbar(), padCaps: await padCaps(), source: await source() };
+
+  // ...and back again, so this is a switch rather than a one-way door.
+  await setButton(page, B.START, true);
+  await wait(150);
+  await setButton(page, B.START, false);
+  await wait(400);
+  const backOnPad = { hotbar: await hotbar(), padCaps: await padCaps(), source: await source() };
+
   results.glyphs = {
     dualsense: (await probe(page, '__dbgPad'))?.glyphs,
-    hotbarKeyBeforeUse: slotBefore,
-    hotbarKeyAfterUse: await page.evaluate(() => document.querySelector('.bs-slot .key')?.textContent),
-    padCapsInDom: await page.evaluate(() => document.querySelectorAll('.bs-root kbd.pad').length),
+    beforeUse,
+    onPad,
+    onKeyboard,
+    backOnPad,
+    // The latch must survive the round trip: the start gate and the welcome
+    // toast still ask "is there a controller player here", and that answer does
+    // not become false because somebody typed.
+    padActiveStillLatched: (await probe(page, '__dbgInput'))?.padActive,
   };
+  await page.close();
+}
+
+// ---------- 6. rumble follows the hands, not the cable ----------------------
+//
+// The other half of issue #6. A controller left plugged in beside the keyboard
+// used to buzz through a keyboard player's entire session, because the only
+// question anyone asked was whether a pad was connected.
+//
+// The assertion is a PAIR for the same reason the i-frame test above is: the
+// cue must still DRAIN while the player is on the keyboard (so this is a gate
+// on the rumble, not the feedback channel having gone quiet) and must produce
+// no rumble call — then rumble again the moment the pad is picked back up.
+{
+  const page = await newPage(browser, { width: 1280, height: 800 });
+  await installFakePad(page, 'Xbox Wireless Controller', { rumble: true });
+  await page.goto(URL, { waitUntil: 'load' });
+  await page.waitForSelector('canvas');
+  await wait(3500);
+  await page.evaluate(() => window.__connectPad());
+  await wait(200);
+  await setButton(page, B.START, true);
+  await wait(120);
+  await setButton(page, B.START, false);
+  await wait(1200);
+
+  // In-page for the same reason as section 3: the hero's invulnerability window
+  // is 0.35 s and a CDP round-trip between hits is enough to swallow one.
+  const hurt = () => page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const before = { drained: window.__dbgFeedback().drained, rumble: window.__rumble.calls };
+    window.__dbgHurt(10);
+    await sleep(600);
+    return {
+      drained: window.__dbgFeedback().drained - before.drained,
+      rumbleCalls: window.__rumble.calls - before.rumble,
+      tactileInput: window.__dbgFeedback().tactileInput,
+    };
+  });
+
+  const onPad = await hurt();
+
+  await page.keyboard.press('w');
+  await wait(300);
+  const onKeyboard = await hurt();
+
+  await setButton(page, B.START, true);
+  await wait(120);
+  await setButton(page, B.START, false);
+  await wait(300);
+  const backOnPad = await hurt();
+
+  results.rumbleSource = { onPad, onKeyboard, backOnPad };
   await page.close();
 }
 

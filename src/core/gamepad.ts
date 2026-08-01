@@ -284,6 +284,16 @@ export class GamepadControls {
     const held = (i: number): boolean =>
       i < b.length && (b[i].pressed || b[i].value > TRIGGER_ON);
 
+    // Buttons are read for "the pad is the live device" BEFORE the modal branch,
+    // because a player working the shop with B and X is on the controller and the
+    // footer's hints have to say so. The sticks are stood down while a modal owns
+    // the screen, so they are checked on the other side of it.
+    //
+    // `anyPressed` used to be short-circuited by the one-shot latch and now runs
+    // every poll: a bounded scan of 17 buttons with an early exit, next to the
+    // `getGamepads()` array this line already allocated.
+    if (anyPressed(b)) this.noteUse();
+
     if (this.modal) {
       // B and Start cancel, X confirms — the two codes main.ts accepts to close
       // the shop. Nothing else reaches the game while a modal owns the screen.
@@ -340,12 +350,28 @@ export class GamepadControls {
     this.edge(B_DLEFT, () => this.skill(3), held);
 
     // ---- "a controller is in use" -----------------------------------------
-    if (!this.active && (moving || looking || anyPressed(b))) {
+    if (moving || looking) this.noteUse();
+
+    this.markPrev(held);
+  }
+
+  /**
+   * The pad produced input this frame.
+   *
+   * Two different lifetimes come out of one moment, and conflating them is the
+   * bug this split fixes. `input.padActive` is a LATCH — it answers "is there a
+   * controller player here", which the start gate and the welcome toast ask once
+   * and which must never un-set. `noteSource` is a STAMP — it answers "what is
+   * in the player's hands right now", which the HUD's key caps and the rumble
+   * gate ask every frame, and which has to hand back to the keyboard the moment
+   * the keyboard is touched.
+   */
+  private noteUse(): void {
+    this.input.noteSource('gamepad');
+    if (!this.active) {
       this.active = true;
       this.input.padActive = true;
     }
-
-    this.markPrev(held);
   }
 
   private hold(i: number, code: string, held: (i: number) => boolean): void {
