@@ -328,7 +328,13 @@ export const en = {
   'shop.foot.interact': '{key} interact',
 
   // ---- toasts ------------------------------------------------------------
-  'toast.welcome.desktop': 'Welcome to Beast Story! Click to play.',
+  // "Click to play" until New Game started taking the pointer itself (see
+  // `beginPlay`) — at which point the one instruction this toast carried was an
+  // instruction to do something already done. It says what is true now: the
+  // mouse is the camera, no click required. A player whose lock request was
+  // refused (a boot slow enough to outlast the click's activation) moves the
+  // mouse, sees a cursor, and clicks — which is the old behaviour, unprompted.
+  'toast.welcome.desktop': 'Welcome to Beast Story! Move the mouse to look around.',
   'toast.welcome.touch': 'Welcome to Beast Story! Left stick moves, right stick looks.',
   // Ends on F1, which is the only entry that is not a control but the way to
   // find the other thirty: this toast shows once, and the sheet is there for the

@@ -320,12 +320,33 @@ await page.close();
     await staged.keyboard.press('Enter');
     await wait(500);
   }
+  const clickedAt = await staged.evaluate(() => performance.now());
   await staged.click('.bs-menu [data-act="new"]');
-  await wait(6000);
+  await staged.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 30000 });
+  const startedAt = await staged.evaluate(() => performance.now());
+  await wait(800);
 
   const boot = await staged.evaluate(() => window.__dbgBoot?.());
   const leaked = await staged.evaluate(() =>
     !!document.querySelector('.bs-keyswrap')?.classList.contains('open'));
+
+  // THE POINTER MUST ARRIVE WITH THE GAME. New Game is a click on a BUTTON, so
+  // the canvas never sees a mousedown and nothing else would ever take the lock:
+  // the player lands in the world with a cursor over it and mouse look dead
+  // until they click. Asserted by TURNING THE CAMERA with no click at all —
+  // `pointerLockElement` alone would pass on a lock the game is not reading.
+  //
+  // `handoverMs` is reported because the grant depends on it: a browser only
+  // allows this off a recent user activation, so a boot slow enough to outlast
+  // the click's activation (~5 s in Chrome) legitimately falls back to clicking.
+  const lockedAtHandover = await staged.evaluate(() => document.pointerLockElement !== null);
+  const yawBefore = await staged.evaluate(() => window.__dbgCamYaw());
+  for (let i = 0; i < 10; i++) await staged.mouse.move(300 + i * 50, 400);
+  await wait(400);
+  const yawAfter = await staged.evaluate(() => window.__dbgCamYaw());
+  let turned = yawAfter - yawBefore;
+  while (turned > Math.PI) turned -= 2 * Math.PI;
+  while (turned < -Math.PI) turned += 2 * Math.PI;
 
   const seq = [];
   for (let i = 0; i < 6; i++) {
@@ -342,6 +363,10 @@ await page.close();
     playing: boot?.playing,
     menuOpen: boot?.menuOpen,
     sheetLeakedFromMenuPress: leaked,
+    handoverMs: Math.round(startedAt - clickedAt),
+    lockedAtHandover,
+    yawTurnedWithoutClicking: +Math.abs(turned).toFixed(4),
+    looksWithoutAClick: Math.abs(turned) > 0.01,
     pattern: seq.join(''),
     expected: '101010',
     alternates: seq.join('') === '101010',

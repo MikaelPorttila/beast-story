@@ -469,6 +469,18 @@ couple of frames of it survive and land as a camera flick the moment the sheet
 closes. `test-keybinds.mjs` asserts the lock across a full open/close and that
 the yaw moves by 0 through both.
 
+**Who takes the pointer in the first place** is the same question one step
+earlier, and the answer used to be nobody. New Game is a click on a BUTTON, so
+the canvas never sees the `mousedown` that `Input`'s constructor listens for, and
+a player arrived in the world with a cursor over it and mouse look dead until
+they clicked. `beginPlay` calls `Input.requestLock()` for that, on the staged
+path only and never on touch. It is BEST-EFFORT by construction: a browser grants
+a lock only off a recent user activation, so a boot slow enough to outlast the
+click's (~5 s in Chrome) falls back to clicking, and the rejection is swallowed
+rather than logged. The unstaged `menu=0` path never asks — there was no gesture
+to ask with. Guarded by TURNING THE CAMERA with no click at all, because
+`pointerLockElement` alone would pass on a lock nothing is reading.
+
 **The title screen.** [src/ui/menu.ts](src/ui/menu.ts) is the first thing on
 screen and the GATE on the game starting, and it is a gate in the strongest sense
 available: there is no frame loop behind it. `frame()` is called by `beginPlay()`

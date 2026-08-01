@@ -266,6 +266,27 @@ export class Input {
   addWheel(delta: number): void { this.wheelDelta += delta; }
 
   /**
+   * Take the pointer, if there is one to take.
+   *
+   * The `mousedown` listener in the constructor is the usual way in, and it
+   * cannot be the only one: New Game is a click on a BUTTON, so the world never
+   * sees a mousedown and the player arrives in the game with a cursor over it
+   * and no mouse look until they click again. `beginPlay` in main.ts calls this.
+   *
+   * Same touch guard as mousedown, and the rejection is SWALLOWED rather than
+   * reported. A browser refuses a lock with no user activation behind it, which
+   * is exactly what an unstaged `menu=0` boot is — every probe in tools/ — and
+   * nothing is lost when it fails: the next click in the world takes the lock
+   * the way it always did.
+   */
+  requestLock(): void {
+    if (this.pointerLocked || this.touchActive) return;
+    // Older DOM lib types this `void`, newer ones a Promise. Both ship.
+    const pending = this.el.requestPointerLock() as unknown;
+    if (pending instanceof Promise) pending.catch(() => {});
+  }
+
+  /**
    * Throw away look and zoom accumulated but not yet consumed.
    *
    * For a modal that KEEPS pointer lock — the F1 controls sheet. The mouse goes

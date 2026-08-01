@@ -164,6 +164,19 @@ function beginPlay(): void {
   loading?.finish();
   engine.setFpsCap(fpsCap);
   if (staged) {
+    // TAKE THE POINTER HERE, not on the player's first click in the world. New
+    // Game is a click on a BUTTON — the canvas never sees a mousedown — so
+    // without this the game opens with a cursor sitting over it and mouse look
+    // dead until you click, which is the same "why is it deaf?" the controls
+    // sheet used to cause on the way out. Touch is left alone: there is no
+    // pointer to lock and the overlay is the control scheme.
+    //
+    // Best-effort by construction (see `Input.requestLock`). A browser only
+    // grants this off a recent user activation, and while the New Game click is
+    // one, a machine slow enough to spend more than a few seconds on the boot
+    // after it will have let that expire — those players click once, as they
+    // always did. The unstaged path never asks at all.
+    if (!isTouchPrimary()) input.requestLock();
     // Deferred to here rather than emitted when the menu closed: a toast lives
     // about four seconds, and this is the first moment the player is looking at
     // the game rather than at a poster or a loading bar.
