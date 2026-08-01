@@ -58,27 +58,47 @@ export function hasTouchCapability(): boolean {
 
 const CSS = `
 /* The overlay always covers the game viewport — it is fixed to the viewport and
-   sized in dvw/dvh so it lies ON TOP of the canvas in both orientations rather
-   than ever being laid out beside it.
+   sized from --bs-vw/--bs-vh so it lies ON TOP of the canvas in both
+   orientations rather than ever being laid out beside it.
 
-   EVERY size below is in vmin, not vw. vmin is the SHORT screen edge, which is
-   the width in portrait and the height in landscape, so one phone gets one set
-   of physically identical controls in both orientations and the fan geometry
-   only has to be solved once. The old sheet needed a max-aspect-ratio block
-   and a max-height:460px block to undo vw sizing when the phone was turned
-   sideways (12vw is 47px portrait but 102px landscape on a Pixel 5); both are
-   gone. */
-.bs-touch{position:fixed;left:0;top:0;width:100vw;width:100dvw;height:100vh;height:100dvh;
+   THOSE TWO ARE MEASURED, and this overlay is why (see src/core/viewport.ts).
+   It used to be sized in dvw/dvh, and on a Samsung S22 entering fullscreen the
+   browser resolved 100dvh to 941.6 CSS px on an 832 CSS px display — issue #16,
+   in which the twin sticks and JUMP are 110 px below the bottom edge of the
+   screen and the rest of the fan is halfway there. Everything a thumb has to
+   reach hangs off the BOTTOM of this box, so it is the layer with the least
+   tolerance for a viewport that is a little too tall. dvw/dvh remain as the
+   fallback for the frames before the measurement lands.
+
+   EVERY size below is a fraction of --vm, the SHORT screen edge — the width in
+   portrait and the height in landscape — so one phone gets one set of
+   physically identical controls in both orientations and the fan geometry only
+   has to be solved once. The old sheet needed a max-aspect-ratio block and a
+   max-height:460px block to undo vw sizing when the phone was turned sideways
+   (12vw is 47px portrait but 102px landscape on a Pixel 5); both are gone.
+
+   --vm is min(--bs-vw, --bs-vh), i.e. measured, and falls back to the vmin
+   unit it used to be written in. That is the same argument as the box above one
+   step in: in LANDSCAPE the short edge is the height, so a browser that
+   mis-resolves viewport height mis-sizes every button and radius here too, and
+   a fan drawn for a taller screen than there is reaches past the corner it is
+   anchored to. Nothing in this stylesheet asks the browser for a viewport
+   length any more. */
+.bs-touch{position:fixed;left:0;top:0;
+  width:100vw;width:100dvw;width:var(--bs-vw,100dvw);
+  height:100vh;height:100dvh;height:var(--bs-vh,100dvh);
   z-index:30;pointer-events:none;touch-action:none;overflow:hidden;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
 
+  /* The short screen edge, measured, as ONE length every size below scales off. */
+  --vm:var(--bs-vmin,100vmin);
   /* Stick inset from the screen edge, stick diameter, ordinary button, the
      bigger attack button. */
-  --m:clamp(20px,5vmin,36px);
-  --s:min(30vmin,124px);
-  --b:clamp(40px,10.7vmin,52px);
-  --atk:clamp(46px,13vmin,62px);
+  --m:clamp(20px,calc(var(--vm) * .05),36px);
+  --s:min(calc(var(--vm) * .30),124px);
+  --b:clamp(40px,calc(var(--vm) * .107),52px);
+  --atk:clamp(46px,calc(var(--vm) * .13),62px);
   /* Fan radii, stick centre to button centre.
      --r is NOT the smallest radius that clears the stick (that would be
      s/2 + b/2 + gap = 88px on a Pixel 5). It is set by PACKING: six buttons
@@ -91,8 +111,8 @@ const CSS = `
      and SWAP live on the left fan.
      The inner edge of the fan still clears the stick by 38px, which is the gap
      a thumb drags through to look around. */
-  --r:clamp(104px,30vmin,142px);
-  --lr:clamp(80px,23vmin,112px);
+  --r:clamp(104px,calc(var(--vm) * .30),142px);
+  --lr:clamp(80px,calc(var(--vm) * .23),112px);
   /* Notch/rounded-corner aware edges, resolved once so the fan origins and the
      stick homes cannot drift apart. */
   --ml:max(var(--m),env(safe-area-inset-left));
@@ -149,7 +169,7 @@ const CSS = `
   transform:translate(-50%,-50%) rotate(calc(-1 * var(--a)))
     translateX(var(--rad)) rotate(var(--a));
   transition:filter .08s ease}
-.bs-btn{width:var(--b);font-weight:800;font-size:clamp(9px,2.6vmin,12px);
+.bs-btn{width:var(--b);font-weight:800;font-size:clamp(9px,calc(var(--vm) * .026),12px);
   background:linear-gradient(165deg,rgba(34,44,62,.82),rgba(16,20,30,.88));
   border:1px solid rgba(255,255,255,.18);
   box-shadow:0 6px 18px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1)}
@@ -165,7 +185,7 @@ const CSS = `
 /* Skills read as one group inside the fan — same circle, cooler fill and a
    cyan hairline, so the four numbered slots are visibly a set and not four more
    verbs. */
-.bs-skill{width:var(--b);font-weight:900;font-size:clamp(12px,3.4vmin,17px);
+.bs-skill{width:var(--b);font-weight:900;font-size:clamp(12px,calc(var(--vm) * .034),17px);
   background:linear-gradient(165deg,rgba(28,42,62,.84),rgba(12,18,30,.88));
   border:1px solid rgba(150,220,255,.3);
   box-shadow:0 5px 14px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.09)}

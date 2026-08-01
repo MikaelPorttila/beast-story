@@ -141,8 +141,8 @@ once frames come quickly.
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
-  `test-keybinds.mjs`. `tools/capture-set.ps1` (PowerShell, project root)
-  captures the full critic shot set.
+  `test-keybinds.mjs`, `test-viewport.mjs`. `tools/capture-set.ps1` (PowerShell,
+  project root) captures the full critic shot set.
 - `test-road.mjs` asks the one question nothing else could: **is the road you
   SEE the road you STAND ON?** Every other probe compares the world against
   itself, so none of them can see a hero standing exactly where the physics puts
@@ -205,6 +205,19 @@ once frames come quickly.
   STAGED boot to New Game, because that is the only way to reach the handover:
   an F1 pressed at the poster must not survive `beginPlay()`'s latch drain and
   pop the sheet open on the first gameplay frame.
+- `test-viewport.mjs` guards the box every full-screen layer is cut to, and it is
+  the only probe in `tools/` that lies to the browser on purpose. Its first two
+  sections are ordinary — desktop, where the measurement must equal
+  `innerWidth`/`innerHeight` exactly, and a phone turned portrait -> landscape ->
+  portrait, where no control may leave the frame. The third reproduces issue #16:
+  CDP takes the layout viewport and the display as SEPARATE numbers, so a page
+  told it has 961 px of viewport on an 851 px screen is in exactly the state a
+  Samsung S22 was in when it entered fullscreen and resolved `100dvh` to 941.6 px
+  on an 832 px display. Sized from the viewport the page believes in, the fan
+  hangs **96.3 px** below the bottom edge (`overflowBefore`, and the twin sticks
+  are entirely gone); sized from `src/core/viewport.ts` it is **0**. The one
+  synthetic number in the run is `window.screen`, which the probe stubs because
+  CDP's `screenWidth`/`screenHeight` are not reflected there.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -453,6 +466,40 @@ and the layout/crosshair/touch tools assert on them — renaming one breaks a to
 `TouchControls` builds the twin-stick overlay only on touch-primary devices.
 `main.ts` exposes read-only probes (`__dbgPlayerPos`, `__dbgCamYaw`, `__dbgInput`)
 that exist purely for those tools; keep them working.
+
+**THE VIEWPORT IS MEASURED, NOT ASKED FOR.** The game has three layers that must
+cover exactly what the player can see — `#app` (which the canvas and therefore
+the camera aspect follow), `.bs-touch` and `.bs-root` — and all three used to be
+sized in `dvh`/`inset:0`. [src/core/viewport.ts](src/core/viewport.ts) measures
+the visible box instead and publishes it as `--bs-vw` / `--bs-vh` / `--bs-vmin`;
+each layer reads `var(--bs-vw, 100dvw)` so the pre-JS frames still behave as they
+always did, and `installViewport()` runs BEFORE the engine because the renderer
+takes its first size from `#app`.
+
+The measurement is the SMALLEST of `innerHeight`, `documentElement.clientHeight`
+and — on a coarse-pointer device in fullscreen only — `screen.height`, because
+every failure in this class is an overhang: a layer taller than the screen puts
+controls where no thumb can reach, a slightly short one merely insets them. That
+last term is the one issue #16 needed and the one that is easy to get wrong
+elsewhere: a fullscreen page cannot be taller than the display it covers, but a
+WINDOWED page is legitimately shorter (the browser's chrome, which `innerHeight`
+already reports) and a DESKTOP page is legitimately taller (zoom to 50% and
+`innerHeight` doubles while the display does not), so the bound is applied
+nowhere else. Re-measured on `resize`, `visualViewport` resize/scroll,
+`orientationchange` and `fullscreenchange`, each followed by a settle sweep at
+60/180/400/900 ms because Android answers with pre-transition metrics for several
+frames into a transition it is still animating.
+
+Issue #16 is what this is: on a Samsung S22 in Brave, entering fullscreen left
+`100dvh` resolving to **941.6 CSS px on an 832 CSS px display** — fitting the fan
+geometry in core/touch.ts to the reporter's screenshot puts the overlay's bottom
+edge there from three different buttons — so the twin sticks and JUMP were 110 px
+below the bottom of the screen. Nothing re-resolved it because nothing in a
+CSS-unit layout re-asks; rotating the phone did, which is how it was found.
+`__dbgViewport()` reports every number the decision was made from (it lives in
+that module rather than main.ts, because the title screen is a full-screen layer
+too and is up long before the world is), and `tools/test-viewport.mjs` is the
+guard.
 
 **The HUD names ONE device, and it is whichever you touched last.** There are two
 different questions about a device and they need two different shapes, which is

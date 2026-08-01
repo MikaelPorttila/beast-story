@@ -4,7 +4,15 @@
  */
 
 const CSS = `
-.bs-root{position:fixed;inset:0;pointer-events:none;z-index:20;
+/* inset:0 is the layout viewport, which on a phone is not the same box as what
+   is on screen — it excludes nothing the browser's chrome is covering, and on an
+   Android device in fullscreen it was measured at 110 px taller than the display
+   (issue #16, see src/core/viewport.ts). Everything bottom-anchored here — the
+   hotbar, the interact pill, the dialogue panel — hangs off the same edge the
+   touch sticks fell through, so the HUD is sized from the same measurement, with
+   inset:0 left underneath as the fallback. */
+.bs-root{position:fixed;inset:0;width:var(--bs-vw,auto);height:var(--bs-vh,auto);
+  pointer-events:none;z-index:20;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   color:#eef2f8;user-select:none;-webkit-user-select:none;
   --glass:linear-gradient(165deg,rgba(30,38,54,.72),rgba(14,18,28,.82));

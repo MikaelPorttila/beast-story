@@ -3,6 +3,7 @@ import { Engine } from './core/engine';
 import { DebugOverlay } from './core/debug-overlay';
 import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
+import { installViewport } from './core/viewport';
 import { GamepadControls } from './core/gamepad';
 import { FeedbackSystem } from './feedback';
 import { loadPrefs, savePrefs } from './core/prefs';
@@ -33,6 +34,11 @@ import { LoadingScreen } from './ui/loading';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
 const app = document.getElementById('app')!;
+// BEFORE the engine, and before anything else measures itself: #app is sized
+// from the custom properties this publishes, and the renderer takes its first
+// size from #app. See src/core/viewport.ts for why the viewport is measured
+// rather than asked for in dvh.
+installViewport();
 const engine = new Engine(app);
 const input = new Input(engine.renderer.domElement);
 const bus = new EventBus();
