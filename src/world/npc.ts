@@ -127,8 +127,15 @@ export interface NpcCharacter {
   talk(): NpcTalk;
 }
 
-/** Every NPC in the game. The module list is the roster, like beasts/registry.ts. */
-const CHARACTERS: readonly NpcCharacter[] = [GAIN];
+/**
+ * Every NPC in the game. The module list is the roster, like beasts/registry.ts.
+ *
+ * EXPORTED for the same reason `ALL_SPECIES` is: `tools/test-zfight.mjs` builds
+ * every rig in the game and checks it for coincident surfaces, and a roster it
+ * has to be told about by hand is a roster that silently stops covering the
+ * character somebody added last week.
+ */
+export const CHARACTERS: readonly NpcCharacter[] = [GAIN];
 
 // ---------------------------------------------------------------------------
 // Tuning

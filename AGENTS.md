@@ -142,7 +142,16 @@ once frames come quickly.
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
   `test-keybinds.mjs`, `test-viewport.mjs`. `tools/capture-set.ps1` (PowerShell,
-  project root) captures the full critic shot set.
+  project root) captures the full critic shot set. The one exception is
+  `test-zfight.mjs`, which opens no browser at all — see the note below.
+- **`test-zfight.mjs` is the only probe that needs no dev server**, because
+  everything it asks about is arithmetic: it imports the rig builders straight
+  out of `src/`, builds every model in the game in headless three.js, poses each
+  one through its own animator, and looks for surfaces two models painted onto
+  the SAME PLANE. Run it after touching any builder — `bun tools/test-zfight.mjs`,
+  and `--verbose` names the two parts, the patch and where to put a camera to
+  see it. It is fast (~2 s) and it is the reason the rule below is a run rather
+  than a wish.
 - `test-road.mjs` asks the one question nothing else could: **is the road you
   SEE the road you STAND ON?** Every other probe compares the world against
   itself, so none of them can see a hero standing exactly where the physics puts
@@ -722,6 +731,25 @@ deliberately NOT gated on it: it is something you see, not something you feel.
   `_dummy`, …), instanced meshes and object pools are the norm; keep them that way.
 - **Frame-rate independence.** Smoothing uses `1 - exp(-lambda * dt)`, never a fixed
   lerp factor. `Engine.tick()` clamps `dt` to 0.05 s.
+- **TWO PARTS OF ONE BODY MUST NOT SHARE A FACE PLANE**, and the trap is that
+  nothing in a builder file looks like it is choosing one. `VoxelModel.build`
+  lays every face on a multiple of the voxel scale, re-based on that model's own
+  bounds — so two parts share a face grid in an axis exactly when the joint
+  between them is a whole multiple of the scale in that axis, which is what a
+  joint offset written as a round number always is. Where two shared-grid parts
+  also overlap in space, their faces are COINCIDENT, the depth buffer picks
+  between them at random, and it picks differently either side of a quad's
+  diagonal: the player sees a hard diagonal seam swimming across the model as
+  the camera moves. There are two ways out and Gain (`world/npc-gain.ts`) has
+  both — PART THE GRID at the joint, by offsetting the child group a fraction of
+  a voxel (`NECK_Z = 0.02`, which is also what `NECK_Y = 1.32` had been quietly
+  doing all along), or move the PAINT where an offset would show, as his cape
+  and his shoulder corners do. `bun tools/test-zfight.mjs` measures it, carries
+  a per-rig budget of the debt the roster already had, and fails on any increase.
+  A clean run is necessary and not sufficient: it finds surfaces that are
+  coincident, not two solids painted into the SAME voxel layer that sweep
+  through each other as a joint turns — which looks identical on screen and is
+  what his hair and his hood collar were also doing. Capture the model and look.
 - **A key edge read in the FRAME loop must be consumed; one read in a
   SIMULATION slice must not.** `input.pressed()` deliberately survives frames
   that drained no slice — `endFrame()` only runs when one did, and clearing

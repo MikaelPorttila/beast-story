@@ -68,6 +68,34 @@ const GRIP = 0x3a3128;      // knurled leather on the bar
 // pose and the parts can never disagree about where a joint is.
 const SHOULDER_Y = 1.15;
 const SHOULDER_X = 0.52;
+/**
+ * How far forward the head hangs off the neck — and the reason it is 0.02 and
+ * not 0 is a DEPTH BUFFER one, not an anatomical one.
+ *
+ * `VoxelModel.build` lays every face of a model on a multiple of S, re-based on
+ * that model's own bounds. Two parts therefore share a face grid in an axis
+ * exactly when the joint between them is a whole multiple of S in that axis —
+ * and where two shared-grid parts also overlap in space, their faces are
+ * COINCIDENT and the depth buffer has to pick one at random. It picks
+ * differently either side of a quad's diagonal, so what ships is a hard
+ * diagonal seam swimming across the model as the camera moves.
+ *
+ * That is what the back of this man's head was: his hair (z = -0.4) and the
+ * hood collar behind it (z = -0.4) were the same plane, cream against indigo,
+ * and the seam cut across the back of his skull. `NECK_Y = 1.32` had already
+ * parted the two grids in Y by 2 cm without anyone writing down that it was
+ * doing so; this is the same 2 cm in Z, stated on purpose. It is a fifth of a
+ * voxel, invisible on a 2 m man, and it takes every z-plane he has off the
+ * body's grid at once — the hood at the back and the beard against the lapels
+ * at the front.
+ *
+ * X is NOT parted, because the head has to stay centred on the body and an
+ * offset there is an asymmetry you can see. His X collisions are fixed in the
+ * paint instead — the cape is a voxel wider than the head and the torso's
+ * shoulder corners are filled out past it, both below.
+ * `bun tools/test-zfight.mjs` is what says whether that is still true.
+ */
+const NECK_Z = 0.02;
 /** Shoulder to elbow. Deliberately short — see ARM REACH below. */
 const UPPER_ARM = 0.45;
 /** Elbow to the middle of the fist. */
@@ -157,15 +185,40 @@ function buildBody(): VoxelModel {
   v.ellipsoid(-5, 11.5, -0.5, 1.9, 2.2, 2.4, ROBE);
   v.ellipsoid(4, 12.4, -0.5, 1.5, 1.2, 1.8, MANTLE_D); // the mantle over them
   v.ellipsoid(-5, 12.4, -0.5, 1.5, 1.2, 1.8, MANTLE_D);
+  // THE SHOULDER CORNERS, which the deltoids round off and therefore leave
+  // open: an ellipsoid 2.4 deep on a torso 6 deep does not reach the front and
+  // back columns, so the torso's own flanks stood bare on x = +-0.4 for the
+  // three rows either side of the collarbone. That is head height — his hair
+  // hangs down to y -3 — and the head is exactly as wide as the torso, so every
+  // one of those columns met a white hair panel on a shared plane. Filled here,
+  // the corners are mantle out to x = +-0.5 and the head meets nothing.
+  for (const x of [-5, 4]) {
+    v.box(x, 10, -4, x, 12, -3, MANTLE_D);
+    v.box(x, 10, 2, x, 12, 2, MANTLE_D);
+  }
 
   // -- mantle --------------------------------------------------------------
-  v.box(-4, 13, -4, 3, 14, 2, MANTLE);
+  // WIDER THAN THE HEAD, by one voxel a side, and that is load-bearing as well
+  // as right: at x -4..3 the cape's outer faces stood on x = +-0.4, which is
+  // exactly where the head's hair panels stand, and the two fought all the way
+  // down the side of his skull. A cape thrown over a pair of shoulders should
+  // overhang the head anyway. Mirrored about the -1 rule, so the origin is
+  // untouched (see `buildBody`'s header).
+  v.box(-5, 13, -4, 4, 14, 2, MANTLE);
   v.box(-4, 8, -4, 3, 12, -4, MANTLE_D);  // drapes down the back
   for (const x of [-3, 0, 3]) v.box(x, 8, -4, x, 12, -4, MANTLE); // fold highlights
-  // Standing hood collar behind the neck. Kept to z -4..-3 so it stands BEHIND
-  // the skull (which reaches z = -3) instead of inside it.
-  v.box(-3, 15, -4, 2, 17, -3, MANTLE);
-  v.box(-3, 15, -4, 2, 15, -3, MANTLE_D);
+  // Standing collar behind the neck — ONE voxel deep, at z = -4 and no longer
+  // also at -3, and narrowed to x -2..1 from -3..2. Both of those are the same
+  // fix. The head's own hair used to be painted at z = -4 as well, so the
+  // collar and the back of his head were not merely on shared planes, they were
+  // in the SAME CELLS: two solids occupying one layer, sweeping through each
+  // other every time he turned to look at somebody, and the boundary where they
+  // crossed read as a hard diagonal cutting across the back of his skull. The
+  // hair has moved forward a layer (see `buildHead`); this stays put and is now
+  // the 2 cm of collar standing proud behind it, which is what it was always
+  // meant to be.
+  v.box(-2, 15, -4, 1, 17, -4, MANTLE);
+  v.box(-2, 15, -4, 1, 15, -4, MANTLE_D);
 
   // -- satchel, on his right hip ------------------------------------------
   // The one prop off the reference that survived: he carries the Horadric
@@ -217,8 +270,15 @@ function buildHead(): VoxelModel {
   v.box(3, -1, -3, 3, 5, 1, HAIR);
   v.box(-4, -3, -3, -4, -2, -1, HAIR_D); // side locks, past the beard line
   v.box(3, -3, -3, 3, -2, -1, HAIR_D);
-  v.box(-3, -2, -4, 2, 5, -4, HAIR);     // the back of the head
-  v.box(-3, -2, -4, 2, -1, -4, HAIR_D);  // the length down his neck
+  // The back of the head, and the length down his neck — painted at z = -3, ON
+  // the skull's own rear layer, exactly as the panels above overwrite the
+  // temples. It used to be a layer ADDED behind the skull at z = -4, which is
+  // the same cell the mantle and the hood collar occupy: two solids in one
+  // layer, crossing each other as he nods and scans, and a hard diagonal where
+  // they crossed. Forward a layer, the whole head clears the cape with 2 cm to
+  // spare and the silhouette is a centimetre shallower.
+  v.box(-3, -2, -3, 2, 5, -3, HAIR);
+  v.box(-3, -2, -3, 2, -1, -3, HAIR_D);
   for (const x of [-4, 3]) for (const y of [0, 2, 4]) v.set(x, y, 1, HAIR_D);
 
   // Beard: full width at the jaw, tapering to a point that stops just above
@@ -327,7 +387,7 @@ function build(): NpcRig {
   rig.solid = measureFootprint(bodyModel, S);
 
   const head = new THREE.Group();
-  head.position.y = NECK_Y;
+  head.position.set(0, NECK_Y, NECK_Z);
   head.add(mkMesh(buildHead(), rig));
   body.add(head);
 
@@ -341,7 +401,12 @@ function build(): NpcRig {
     shoulder.position.set(SHOULDER_X * sx, SHOULDER_Y, -0.02);
     shoulder.add(mkMesh(buildUpperArm(), rig));
     const elbow = new THREE.Group();
-    elbow.position.y = -UPPER_ARM;
+    // Outboard by NECK_Z's 2 cm, for NECK_Z's reason and not an anatomical one:
+    // the forearm and the upper arm are two models on one joint whose offset is
+    // a whole number of voxels in x, so their outer faces stood on the same
+    // plane and fought down the outside of both arms. `sx` keeps him
+    // symmetrical — each forearm moves outward, neither moves left.
+    elbow.position.set(NECK_Z * sx, -UPPER_ARM, 0);
     elbow.add(mkMesh(buildForearm(), rig));
     shoulder.add(elbow);
     body.add(shoulder);
