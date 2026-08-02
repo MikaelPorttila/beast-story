@@ -263,6 +263,13 @@ once frames come quickly.
   collider budget that fails on any increase (64 / 39 / 26 today, of which 5 / 1 /
   1 are roofs) and a ceiling on how far a roof cylinder stands off its own thatch
   (0.577 against 0.6). See the settlement note below for why both exist.
+  Its `mounted` section is the only case in the file that is not on foot, and it
+  is a PAIR at one column for a reason: the hero must come to rest exactly on a
+  piece of camp furniture (13.96 on a 1.96-unit crate) and the rider must then
+  rest ABOVE it rather than inside it. Only asserting the mounted half would
+  pass in a world where nothing is solid at all. `riderY` is the rider and so
+  sits a saddle over the surface, which is what makes it a clean discriminator —
+  on the crate it is over `structureTop`, through it, under. It was 12.91.
 - `test-beastanim.mjs` is the animation-continuity guard: it cycles the whole beast
   roster through the two active follow slots while yanking the hero around, and
   reports the largest per-frame rotation delta at every rig joint. Everything
@@ -443,6 +450,29 @@ beast, enemy — resolves it against the same `MAX_STEP_UP`
 ([src/core/types.ts](src/core/types.ts)) it already used for terrain. `solids=0`
 keeps the meshes and removes the blocking, which is the A/B
 `tools/test-structures.mjs` runs; `/show-colliders` draws them green.
+
+**BEING STOPPED BY A THING AND STANDING ON IT ARE ONE QUESTION, AND THE SADDLE
+USED TO ANSWER THEM SEPARATELY.** Everything that moves keeps two column
+heights: the one it probes AHEAD to decide whether a step is legal, and the one
+it CLAMPS to when gravity has finished. Those must come from the same query or
+the mover is refused at a crate's wall and then falls through its lid — which is
+exactly what `MountController` did, because its step test asked `blockTop`
+(terrain + trunks + structures) and its vertical clamp asked `getHeight` alone.
+Measured on a 1.96-unit crate in the Encampment: hero on foot 13.96, rider
+12.91, a metre inside the box. That is issue #32, and there were THREE
+terrain-only queries to fix, not the one the screenshots show — mounting up
+while standing on something dropped the animal to the dirt, and the dismount
+step-off placed the hero inside whatever he got off beside. The third was
+invisible because the hero's own physics shoved him out on the next slice, which
+is precisely why it would have been the one left behind.
+
+A FOLLOWER and an ENEMY do the same split DELIBERATELY and must not be
+"fixed" to match: they are stopped by a settlement (a beast's head poking out of
+a hut wall beside you reads worse than no collision at all) but keep their
+footing on `getHeight`, so they walk up terraces and through trees like the
+height field says. The note at `BeastActor.updateGrounded`
+([src/beasts/framework.ts](src/beasts/framework.ts)) is the statement of that,
+and the mount is different only because a player is sitting on it.
 
 **There are TWO primitives, and picking the wrong one is issue #3.** An ORIENTED
 BOX is for anything that meets the ground as a rectangle and stops being

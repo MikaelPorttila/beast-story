@@ -337,10 +337,90 @@ const BUDGET = {
  */
 const ROOF_FIT_LIMIT = 0.6;
 
+/**
+ * Does a GROUND MOUNT stand on what the hero stands on?
+ *
+ * Every other case in this file drives the hero on foot, which is why none of
+ * them could see issue #32: `MountController` kept its own copy of "how high is
+ * the world here", and that copy asked the terrain alone. The horizontal step
+ * test used `blockTop` (terrain + trunks + anything a settlement built), so a
+ * crate STOPPED a mount at its wall — and then, once the mount was on top of
+ * one, the vertical clamp dropped it straight through to the dirt. Refused at
+ * the side, unsupported on top.
+ *
+ * The measurement is a PAIR at one column, which is the only way to tell "the
+ * mount fell through" from "there was nothing there to stand on": the hero on
+ * foot must come to rest exactly ON the built top, and the rider must then come
+ * to rest ABOVE it rather than a metre inside it.
+ *
+ * Mounting is staged through the dev console rather than by holding F next to a
+ * beast — `/mount <id>` is the same code path and it does not depend on where
+ * the follower happened to wander.
+ */
+async function rideOnFurniture() {
+  const page = await newPage(browser, { width: 1280, height: 800 });
+  logPageErrors(page);
+  await page.goto('http://localhost:5187/?menu=0&fs=0', { waitUntil: 'load' });
+  await page.waitForSelector('canvas');
+  await wait(SETTLE);
+
+  // Somewhere in camp with real furniture under it. The band is deliberate:
+  // below 0.6 there is nothing to fall through, and above ~2.4 it is a roof
+  // rather than something a player would ever be standing on.
+  const spot = await page.evaluate(() => {
+    const t = window.__dbgTowns().towns.find((n) => n.id === 'encampment');
+    const hits = [];
+    for (let dx = -26; dx <= 26; dx += 0.5) {
+      for (let dz = -26; dz <= 26; dz += 0.5) {
+        const x = t.x + dx;
+        const z = t.z + dz;
+        const w = window.__dbgWorld(x, z);
+        if (!Number.isFinite(w.structureTop)) continue;
+        const rise = w.structureTop - w.ground;
+        if (rise > 0.6 && rise < 2.4) hits.push({ x, z, ground: w.ground, top: w.structureTop, rise });
+      }
+    }
+    // The middle of the list rather than the first, which is always a rim.
+    return hits.length ? hits[Math.floor(hits.length / 2)] : null;
+  });
+  if (!spot) { await page.close(); return { found: false }; }
+
+  await page.evaluate((s) => window.__dbgTp(s.x, s.z), spot);
+  await wait(900);
+  const onFootY = (await page.evaluate(() => window.__dbgPlayerPos())).y;
+
+  await page.keyboard.press('Backquote');
+  await page.waitForSelector('.bs-console-input', { visible: true });
+  await page.type('.bs-console-input', '/mount emberfox');
+  await page.keyboard.press('Enter');
+  await wait(300);
+  await page.keyboard.press('Backquote');
+  await wait(1200);
+  const m = await page.evaluate(() => window.__dbgMount());
+  await page.close();
+
+  return {
+    found: true,
+    at: { x: round(spot.x), z: round(spot.z) },
+    ground: round(spot.ground),
+    structureTop: round(spot.top),
+    rise: round(spot.rise),
+    onFootY: round(onFootY),
+    locomotion: m.locomotion,
+    // `__dbgMount().y` is the RIDER, so this sits a saddle's height over the
+    // surface the animal is on. That is what makes it a clean discriminator:
+    // on top of the crate it is above `structureTop`, through it, it is below.
+    riderY: round(m.y),
+    /** How far the rider ended up UNDER the thing he should be sitting on. */
+    riderSink: round(spot.top - m.y),
+  };
+}
+
 const withCollision = await run(true);
 const withoutCollision = await run(false, withCollision.geometry);
 delete withCollision.geometry;
 delete withoutCollision.geometry;
+const mounted = await rideOnFurniture();
 await browser.close();
 
 const overBudget = [];
@@ -362,7 +442,26 @@ if (withCollision.colliders.worstRoofFit > ROOF_FIT_LIMIT) {
   });
 }
 
+// Issue #32. Both halves are asserted: the hero standing ON the furniture is
+// what makes the mounted number mean anything, and without it a world where
+// nothing is solid at all would pass.
+const mountFail = [];
+if (!mounted.found) {
+  mountFail.push('no standable furniture found in the Encampment to test against');
+} else {
+  if (Math.abs(mounted.onFootY - mounted.structureTop) > 0.05) {
+    mountFail.push(
+      `on foot the hero does not rest on the furniture (y ${mounted.onFootY}, top ${mounted.structureTop})`);
+  }
+  if (mounted.riderY < mounted.structureTop) {
+    mountFail.push(
+      `a ground mount sinks through it: rider ${mounted.riderY} is ${mounted.riderSink} below the ` +
+      `${mounted.structureTop} it should be sitting on`);
+  }
+}
+
 console.log(JSON.stringify({
+  mounted: { ...mounted, failures: mountFail, pass: mountFail.length === 0 },
   budget: {
     roofFitLimit: ROOF_FIT_LIMIT,
     perTown: withCollision.colliders.perTown,
@@ -374,4 +473,4 @@ console.log(JSON.stringify({
   withCollision,
   withoutCollision,
 }, null, 2));
-if (overBudget.length || unbudgeted.length) process.exitCode = 1;
+if (overBudget.length || unbudgeted.length || mountFail.length) process.exitCode = 1;
