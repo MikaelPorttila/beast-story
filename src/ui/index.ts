@@ -1026,6 +1026,25 @@ export class HUD {
     this.dialogueEl.classList.add('show');
   }
 
+  /**
+   * Clear everything transient on the HUD: toasts in flight, the interact hint,
+   * a conversation still on screen.
+   *
+   * For the one moment the game ends without the page going with it — Exit, in
+   * main.ts. Everything else here is a READOUT of state that is about to be
+   * reset anyway (health bars, beast cards, the purse) and redraws itself on the
+   * next frame from the numbers the reset wrote. These three do not: a toast is
+   * a timer, a hint is a latch, and a dialogue waits to be dismissed, so all
+   * three would otherwise be carried across the title screen into the next game.
+   */
+  reset(): void {
+    for (const toast of this.toasts) toast.el.remove();
+    this.toasts.length = 0;
+    this.hideHint();
+    this.hintText = '';
+    this.hideDialogue();
+  }
+
   hideDialogue(): void {
     this.dialogueEl.classList.remove('show');
   }

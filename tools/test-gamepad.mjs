@@ -13,56 +13,12 @@
 // reads it, and a fake that pretends to would be asserting on our own mock.
 //
 // Usage: bun tools/test-gamepad.mjs
-import { launchBrowser, newPage, wait } from './browser.mjs';
+import { launchBrowser, newPage, wait, installFakePad } from './browser.mjs';
 
 const URL = 'http://localhost:5187/?fps=30&menu=0';
 
 // Standard-mapping indices, mirrored from core/gamepad.ts.
 const B = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, L3: 10, R3: 11, DUP: 12, DDOWN: 13, DLEFT: 14, DRIGHT: 15 };
-
-/** Install the fake pad. `id` decides which glyph set the HUD should choose. */
-async function installFakePad(page, id, { rumble = false } = {}) {
-  await page.evaluateOnNewDocument((id, rumble) => {
-    const state = {
-      id,
-      index: 0,
-      connected: true,
-      mapping: 'standard',
-      axes: [0, 0, 0, 0],
-      buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
-    };
-    if (rumble) {
-      // Records calls so the mixer's re-issue cadence can be counted rather
-      // than assumed. `effects` is the current spec spelling.
-      window.__rumble = { calls: 0, last: null };
-      state.vibrationActuator = {
-        effects: ['dual-rumble'],
-        playEffect: (type, params) => {
-          window.__rumble.calls++;
-          window.__rumble.last = { type, ...params };
-          return Promise.resolve('complete');
-        },
-      };
-    }
-    window.__fakePad = state;
-    navigator.getGamepads = () => [state];
-    // Dispatched EXPLICITLY by the test once the game has booted, rather than
-    // off `load`. main.ts is a module and the module graph is served over many
-    // dev-server round-trips, so `load` is not a reliable "the game's listener
-    // exists now" signal — firing there raced the listener and the pad silently
-    // never connected. Chrome would fire this on the pad's first real press.
-    // NOT `new GamepadEvent(...)`: its constructor performs a real conversion to
-    // the platform Gamepad interface and rejects a plain object outright, and
-    // there is no way to mint a genuine Gamepad from script. A plain Event with
-    // the property defined on it delivers the exact shape the listener reads
-    // (`e.gamepad.index`, `e.gamepad.id`), which is what is under test.
-    window.__connectPad = () => {
-      const ev = new Event('gamepadconnected');
-      Object.defineProperty(ev, 'gamepad', { value: state });
-      window.dispatchEvent(ev);
-    };
-  }, id, rumble);
-}
 
 const setAxes = (page, ax) => page.evaluate((ax) => { window.__fakePad.axes = ax; }, ax);
 const setButton = (page, i, down) => page.evaluate((i, down) => {

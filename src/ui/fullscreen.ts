@@ -37,6 +37,7 @@ type FsElement = HTMLElement & {
 type FsDocument = Document & {
   webkitFullscreenElement?: Element | null;
   webkitFullscreenEnabled?: boolean;
+  webkitExitFullscreen?: () => Promise<void> | void;
 };
 
 /**
@@ -78,6 +79,30 @@ export function enterFullscreen(): boolean {
   const req = typeof el.requestFullscreen === 'function'
     ? el.requestFullscreen({ navigationUI: 'hide' })
     : el.webkitRequestFullscreen?.();
+  void Promise.resolve(req).catch(() => {});
+  return true;
+}
+
+/**
+ * Give the screen back. Returns whether a request was issued.
+ *
+ * The mirror of `enterFullscreen` and, unlike it, under NO gesture deadline —
+ * leaving fullscreen has never needed a user activation, which is what lets the
+ * in-game menu's Exit call it from a click handler several frames deep.
+ *
+ * Exit is the only caller, and the reason it is a caller at all is that
+ * fullscreen is a thing the game TOOK (see the note in ui/menu.ts): a player
+ * going back to the title screen is asking for the state they were in before
+ * they pressed New Game, and the browser has no reason to undo that by itself.
+ * A rejection is swallowed for the same reason as above — a page that stays
+ * fullscreen is not worth an error, and the player still has Escape.
+ */
+export function exitFullscreen(): boolean {
+  if (!isFullscreen()) return false;
+  const doc = document as FsDocument;
+  const req = typeof document.exitFullscreen === 'function'
+    ? document.exitFullscreen()
+    : doc.webkitExitFullscreen?.();
   void Promise.resolve(req).catch(() => {});
   return true;
 }

@@ -141,7 +141,7 @@ once frames come quickly.
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
-  `test-keybinds.mjs`, `test-viewport.mjs`. `tools/capture-set.ps1` (PowerShell,
+  `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`. `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
 - **`test-zfight.mjs` is the only probe that needs no dev server**, because
@@ -214,6 +214,17 @@ once frames come quickly.
   STAGED boot to New Game, because that is the only way to reach the handover:
   an F1 pressed at the poster must not survive `beginPlay()`'s latch drain and
   pop the sheet open on the first gameplay frame.
+- `test-pause.mjs` guards the in-game menu, and it is the second probe in
+  `tools/` that has to run TWO PAGES for one feature. Everything about the menu
+  itself is measured under the usual `menu=0` — Escape raises it, the hero
+  travels **0** with it up against 6.85 the moment Continue closes it, its
+  Settings step is the same four toggles the title screen shows with the
+  language chips disabled, and Escape inside that step goes BACK rather than
+  closing. `Exit to title` cannot be: it raises a `StartMenu`, and
+  `StartMenu.offer` refuses to build one under `menu=0`, so that arm drops the
+  flag and walks the staged boot — New Game, play, stand somewhere 47 units from
+  the spawn, Exit, and then round again to prove the second game is a game (back
+  at the spawn, and walking) rather than a husk. It exits non-zero.
 - `test-viewport.mjs` guards the box every full-screen layer is cut to, and it is
   the only probe in `tools/` that lies to the browser on purpose. Its first two
   sections are ordinary — desktop, where the measurement must equal
@@ -741,9 +752,54 @@ single `bs:prefs` blob did by construction. That blob still MIGRATES — once, o
 the first `loadPrefs()`, field by field through the same key map, never over a
 value the new keys already hold — and is then removed.
 
-The player's surface is the title screen's Settings panel (`ui/menu.ts`), which
-shows SWITCHES; the dials (`/haptics`, `/shake`, `/invertlook`, `/vibration`)
-are dev-console commands writing the same keys. **A setting has to be respected
+**THE SETTINGS PANEL IS ONE VIEW SHOWN FROM TWO PLACES**, and that is a rule
+rather than an observation: [src/ui/settings.ts](src/ui/settings.ts) owns the
+rows, what a click on one writes and what it tells the running game, and both
+the title screen ([ui/menu.ts](src/ui/menu.ts)) and the in-game menu
+([ui/pause.ts](src/ui/pause.ts)) render what it returns into a container of
+their own. A host owns the SCREEN — where the panel sits, what surrounds it,
+which button the cursor starts on, what "back" means; the panel owns the
+SETTINGS. Add a row here and it appears in both, which is the point: two copies
+do not diverge on the day they are written, they diverge on the day someone adds
+a row to one of them. The CSS follows the same rule — `.bs-opts` and
+`.bs-menu-btn` are deliberately NOT scoped to `.bs-menu`, because a selector
+naming one host is how a shared view stops being shared.
+
+It takes a `place` (`'title' | 'game'`), and that is load-bearing today rather
+than provision for later. LANGUAGE is disabled in game, with a line under it
+saying where to change it: `setLanguage` re-derives every string on its way to
+the DOM, but a fingerpost's letters are voxel geometry carved once at world
+creation and no live switch can re-cut them, so offering the picker mid-game
+would leave a player walking a world signposted in the language they just left.
+Disabled and explained rather than hidden — a setting that vanishes reads as a
+bug, and it keeps the two panels the same shape.
+
+**The in-game menu** is Escape, the pad's Start, and the touch overlay's MENU
+button (top-left, the one corner of the screen the HUD leaves empty and no thumb
+crosses mid-fight). All three arrive as the SAME key edge: Start and the touch
+button both tap a virtual `Escape` into `Input`, so main.ts reads it in one
+place for every device. Escape means "up one" — out of Settings, then out of the
+menu — which is what makes one key both the way in and the whole way out.
+
+It is a MODAL like the F1 sheet (the hero is frozen while you read), but it
+RELEASES POINTER LOCK like the shop, and the split is what the player does with
+each: a sheet is read and closed with the key that opened it, where this is
+clicked, and Exit needs a cursor that can reach it.
+
+`Exit to title` returns IN PROCESS — no navigation. Everything that is a play
+session is reset by the object that owns it (`Player.reset`, `BeastActor.reset`,
+`CombatSystem.reset`), so a field added to one of those is reset by the file that
+added it; `exitToTitle` in main.ts is the list of everything else. The engine,
+the world and the rigs are deliberately KEPT: rebuilding the world costs 602 ms
+and re-linking the shaders that come with it costs 13477 ms (see the boot note at
+the top of main.ts), so disposing them would put fifteen seconds behind the New
+Game that follows — and nothing in a world or a rig is per-session anyway, since
+terrain, towns and roads are pure functions of the seed. The seam is that one
+function if the trade ever needs revisiting.
+
+The player's surface is that Settings panel, which shows SWITCHES; the dials
+(`/haptics`, `/shake`, `/invertlook`, `/vibration`) are dev-console commands
+writing the same keys. **A setting has to be respected
 at ONE choke point, not at every site that could break it**: controller
 vibration (`game.settings.controls.hapticFeedback`, on by default) is checked in
 `FeedbackSystem.drain`, the single place every cue passes through on its way to

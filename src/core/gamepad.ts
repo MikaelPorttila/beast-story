@@ -175,6 +175,14 @@ export class GamepadControls {
   private prev = new Uint8Array(BUTTON_COUNT);
   private zoomStep = 1;
   private modal = false;
+  /**
+   * A modal just closed: re-assert the held mappings on the next poll.
+   *
+   * One flag rather than doing it inside `setModal`, because what a button is
+   * doing is only knowable from a fresh `getGamepads()` snapshot, and `setModal`
+   * is called from the frame loop before the poll. See `setModal`.
+   */
+  private resyncHolds = false;
   private active = false;
   private glyphSet: PadGlyphs = 'xbox';
   private readonly onConnect: (e: GamepadEvent) => void;
@@ -244,20 +252,44 @@ export class GamepadControls {
   get glyphs(): PadGlyphs { return this.glyphSet; }
 
   /**
-   * Modal UI (the shop, the dev console) is open: stand the pad down.
+   * Modal UI (the shop, the dev console, the in-game menu) is open: stand the
+   * pad down.
    *
    * Mirrors `TouchControls.setVisible(false)`. Everything held is released so a
    * button that happened to be down when the shop opened cannot stay down
    * behind it, and only cancel and confirm keep working — enough to get back
    * out. Choosing an offer is still mouse or touch; see the plan's follow-ups.
+   *
+   * `prev` IS NOT TOUCHED, and that is a fix rather than an omission. It used to
+   * be zeroed here along with the held mappings, and the two are different
+   * things: the mappings are OUTPUT the game is still acting on, where `prev` is
+   * the edge history — "was this button down at the last poll". Zeroing it tells
+   * the next poll that every button the player is still holding has just gone
+   * down, which manufactures a second edge out of one press.
+   *
+   * That is invisible for a button that only ever opens a modal, and fatal for
+   * one that toggles it. START opens the in-game menu and closes it, so a single
+   * press was read twice: the first edge opened the menu, `setModal(true)` wiped
+   * the history, and the very next poll saw Start still held against a zero and
+   * fired again — closing what it had just opened, one frame later. From the
+   * hand that is a Start button that "sometimes does nothing", and it is the
+   * same shape as the F1 double-toggle (see `takePress` in core/input.ts): one
+   * press, counted twice, by bookkeeping that was reset under it.
    */
   setModal(v: boolean): void {
     if (v === this.modal) return;
     this.modal = v;
     if (v) this.release();
+    // Coming OUT, the held mappings above have to be re-asserted: a player who
+    // held the sprint trigger through a shop still has it down, and `hold()`
+    // only writes on a CHANGE against `prev` — which correctly says "still
+    // held", so nothing would be written and the game would think it was up.
+    // This is what `prev.fill(0)` used to achieve as a side effect, now said
+    // once and without inventing edges to do it.
+    else this.resyncHolds = true;
   }
 
-  /** Drop every held mapping and zero the analog state. */
+  /** Drop every held mapping and zero the analog state. Edge history survives. */
   private release(): void {
     this.input.setStick(0, 0, 'gamepad');
     this.input.setPadLooking(false);
@@ -265,7 +297,6 @@ export class GamepadControls {
       this.input.setVirtualButton(code, false);
     }
     this.input.setVirtualAttack(false);
-    this.prev.fill(0);
   }
 
   poll(dt: number): void {
@@ -331,11 +362,17 @@ export class GamepadControls {
     // not keep clearing a virtual button, or on a phone with a controller
     // attached it would stamp out the touch overlay's held Space fifty times a
     // second.
-    this.hold(B_A, 'Space', held);
-    this.hold(B_B, 'KeyC', held);
-    this.hold(B_Y, 'KeyF', held);      // mount.ts reads down||pressed: hold AND tap
-    this.hold(B_LT, 'ShiftLeft', held);
-    if (held(B_RT) !== !!this.prev[B_RT]) this.input.setVirtualAttack(held(B_RT));
+    //
+    // The exception is the first poll after a modal closed, where `release()`
+    // cleared the mappings without changing what the player is holding — so
+    // there is no CHANGE to notice and the write has to be forced. See setModal.
+    const force = this.resyncHolds;
+    this.resyncHolds = false;
+    this.hold(B_A, 'Space', held, force);
+    this.hold(B_B, 'KeyC', held, force);
+    this.hold(B_Y, 'KeyF', held, force);      // mount.ts reads down||pressed: hold AND tap
+    this.hold(B_LT, 'ShiftLeft', held, force);
+    if (force || held(B_RT) !== !!this.prev[B_RT]) this.input.setVirtualAttack(held(B_RT));
 
     // ---- tapped buttons ----------------------------------------------------
     this.edge(B_X, () => this.input.tapVirtual('KeyE'), held);
@@ -374,9 +411,9 @@ export class GamepadControls {
     }
   }
 
-  private hold(i: number, code: string, held: (i: number) => boolean): void {
+  private hold(i: number, code: string, held: (i: number) => boolean, force = false): void {
     const now = held(i);
-    if (now !== !!this.prev[i]) this.input.setVirtualButton(code, now);
+    if (force || now !== !!this.prev[i]) this.input.setVirtualButton(code, now);
   }
 
   private edge(i: number, fn: () => void, held: (i: number) => boolean): void {

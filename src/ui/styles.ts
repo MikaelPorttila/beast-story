@@ -469,6 +469,46 @@ const CSS = `
 .bs-keys-foot{border-top:1px solid rgba(255,255,255,.1);padding:11px 20px;text-align:center;
   font-size:11.5px;font-weight:600;color:rgba(238,242,248,.7)}
 
+/* ---- in-game menu (Escape / Start / the touch overlay's MENU) ------------ */
+/* src/ui/pause.ts. It borrows the TITLE SCREEN's controls rather than the HUD's
+   panels — .bs-menu-btn for the rows, .bs-opts for the column — because it does
+   the title screen's job (settings, and ending the session) and a player
+   arriving here should recognise where they are. What it borrows from the HUD is
+   only .bs-scrim and .bs-glass, i.e. the way a modal sits over the world.
+
+   z-index 40 is the load-bearing number: over the HUD (20) and the touch overlay
+   (30), so nothing behind it can be tapped, and UNDER the title screen (50), so
+   that Exit's new poster covers this one during the frame between them.
+
+   The pane is WIDTH-CAPPED rather than sized to the viewport. A settings list is
+   the same list on a phone and on a 32-inch monitor, and letting it stretch put
+   an ON pill a third of a metre from the label it belongs to. */
+.bs-pause{position:fixed;inset:0;z-index:40;display:grid;place-items:center;
+  pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:#fff;user-select:none;-webkit-user-select:none}
+.bs-pause .bs-scrim{position:absolute;inset:0;background:rgba(5,9,17,.62);opacity:0;
+  transition:opacity .22s ease}
+.bs-pause.open .bs-scrim{opacity:1}
+.bs-pause .pane{position:relative;width:min(420px,90vw);max-height:88vh;overflow-y:auto;
+  padding:22px 20px;border-radius:18px;
+  /* Warm, so the wooden buttons sit on something related to them rather than on
+     the HUD's blue-grey. Same construction as .bs-glass, a different tint. */
+  background:linear-gradient(180deg,rgba(38,26,15,.93),rgba(20,14,8,.95));
+  border:1px solid rgba(255,214,140,.22);
+  box-shadow:0 24px 64px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,226,170,.14);
+  opacity:0;transform:translateY(14px) scale(.97);
+  transition:opacity .24s ease,transform .28s cubic-bezier(.34,1.45,.64,1);
+  scrollbar-width:thin;scrollbar-color:rgba(255,214,140,.3) transparent}
+.bs-pause.open .pane{opacity:1;transform:translateY(0) scale(1)}
+/* The disabled language row, and the note under it. Greyed as a whole rather
+   than only its chips, so it reads as "this row is not available here" instead
+   of as three broken buttons beside a live label. */
+.bs-opts .row.lang.off{opacity:.45}
+@media (prefers-reduced-motion:reduce){
+  .bs-pause .bs-scrim,.bs-pause .pane{transition:none}
+}
+
 /* ---- fullscreen offer (touch devices only) ------------------------------- */
 /* ---- start menu ---------------------------------------------------------- */
 /* The title screen. Two images and CSS — see src/ui/menu.ts for what the layers
@@ -666,15 +706,23 @@ const CSS = `
   animation:bsPressPulse 1.9s ease-in-out infinite}
 @keyframes bsPressPulse{0%,100%{opacity:1}50%{opacity:.45}}
 
-/* Positioned, so it paints ABOVE the panel's absolutely-positioned shade —
+/* A COLUMN OF OPTIONS, and everything from here to the language chips is
+   deliberately NOT scoped to .bs-menu. The settings list is one view shown from
+   two places (ui/settings.ts) — the title screen and the in-game menu — and a
+   selector naming one of its hosts is how a shared view stops being shared: the
+   markup moves, the rules do not follow it, and the second host silently renders
+   an unstyled list. .bs-opts is the contract instead, and both hosts emit it.
+   (No backticks in this file, ever: the whole sheet is one template literal.)
+
+   Positioned, so it paints ABOVE the title panel's absolutely-positioned shade —
    without this the ::before above would cover the buttons rather than sit
-   behind them. */
-.bs-menu .opts{position:relative;z-index:1;
+   behind them. Harmless anywhere with no such shade. */
+.bs-opts{position:relative;z-index:1;
   display:flex;flex-direction:column;align-items:stretch;gap:10px}
-.bs-menu .opts h2{font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+.bs-opts h2{font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
   text-align:center;color:rgba(255,255,255,.72);text-shadow:0 2px 6px rgba(0,0,0,.8);
   margin-bottom:2px}
-.bs-menu .note{font-size:11.5px;font-weight:600;line-height:1.35;text-align:center;
+.bs-opts .note{font-size:11.5px;font-weight:600;line-height:1.35;text-align:center;
   color:rgba(255,255,255,.62);text-shadow:0 1px 4px rgba(0,0,0,.85);margin:-4px 0 2px}
 /* Wood-and-gold, taken from the logo rather than from the HUD's cool glass:
    this screen belongs to the painting, not to the interface that comes after.
@@ -731,10 +779,10 @@ const CSS = `
   color:rgba(244,231,205,.6)}
 .bs-menu-btn.row[aria-pressed="true"] .pill{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
-.bs-menu .row.lang{display:flex;align-items:center;justify-content:space-between;gap:10px;
+.bs-opts .row.lang{display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:2px 4px 2px 18px;font-size:14px;font-weight:700;
   text-shadow:0 1px 3px rgba(0,0,0,.8)}
-.bs-menu .langs{display:flex;gap:6px}
+.bs-opts .langs{display:flex;gap:6px}
 .bs-menu-btn.chip{width:auto;padding:8px 13px;font-size:12.5px;letter-spacing:.04em;border-radius:999px}
 .bs-menu-btn.chip.on{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
@@ -759,7 +807,7 @@ const CSS = `
 @media (min-height:521px) and (max-height:660px){
   .bs-menu[data-step="settings"] .fore{grid-template-rows:0 auto auto 1fr}
   .bs-menu[data-step="settings"]{--gap:20px}
-  .bs-menu[data-step="settings"] .opts{gap:7px}
+  .bs-menu[data-step="settings"] .bs-opts{gap:7px}
   .bs-menu[data-step="settings"] .bs-menu-btn.row{padding:8px 12px 8px 16px}
 }
 
@@ -783,7 +831,7 @@ const CSS = `
   .bs-menu[data-step="settings"]{--slide:0vh;--gap:14px}
   .bs-menu-btn{padding:9px 16px;font-size:13.5px}
   .bs-menu-btn.row{padding:8px 12px 8px 16px}
-  .bs-menu .opts{gap:7px}
+  .bs-menu .bs-opts{gap:7px}
   .bs-menu .press{font-size:15px}
 }
 

@@ -287,6 +287,21 @@ export class Input {
   }
 
   /**
+   * Give the pointer back, if this page holds it.
+   *
+   * The counterpart of `requestLock`, and it exists for the modals that are
+   * CLICKED rather than read: the in-game menu has a cursor that has to reach
+   * three buttons and a settings list, and a locked pointer has no cursor at
+   * all. The F1 sheet deliberately does not call this — see `clearLook` below
+   * for what it does instead and why.
+   *
+   * Safe to call when nothing is locked; the browser ignores it.
+   */
+  releaseLock(): void {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  /**
    * Throw away look and zoom accumulated but not yet consumed.
    *
    * For a modal that KEEPS pointer lock — the F1 controls sheet. The mouse goes

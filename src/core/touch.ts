@@ -182,6 +182,29 @@ const CSS = `
    polar position, so a scale() here would fling the button back to the origin. */
 .bs-btn:active,.bs-btn.on{filter:brightness(1.55)}
 
+/* MENU, and the only control on this overlay that is not in a thumb fan.
+   Everything else here is placed for a thumb resting on a stick during play;
+   this one has to be reachable and NOT reachable by accident, because what it
+   does is stop the game. So it goes in the top-left corner, which is the one
+   region of the screen the HUD leaves empty (the compass strip is top-centre,
+   the currency pill top-right) and the one no thumb passes through mid-fight.
+
+   Sized off --vm like everything else, so a phone gets the same physical button
+   in both orientations, and inset by --m plus the safe area so it clears a
+   notch. It is smaller than an action button on purpose: a control you press
+   once a session does not need the target area of one you press in a fight. */
+.bs-pausebtn{position:absolute;
+  left:calc(var(--m) + env(safe-area-inset-left));
+  top:calc(var(--m) * .6 + env(safe-area-inset-top));
+  width:auto;height:auto;padding:calc(var(--vm) * .018) calc(var(--vm) * .034);
+  border-radius:999px;pointer-events:auto;
+  font-family:inherit;font-weight:800;letter-spacing:.08em;color:#eef2f8;
+  font-size:clamp(9px,calc(var(--vm) * .024),12px);
+  background:linear-gradient(165deg,rgba(34,44,62,.82),rgba(16,20,30,.88));
+  border:1px solid rgba(255,255,255,.18);
+  box-shadow:0 6px 18px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1)}
+.bs-pausebtn:active,.bs-pausebtn.on{filter:brightness(1.55)}
+
 /* Skills read as one group inside the fan — same circle, cooler fill and a
    cyan hairline, so the four numbered slots are visibly a set and not four more
    verbs. */
@@ -409,6 +432,25 @@ export class TouchControls {
     this.root.appendChild(btns);
     this.root.appendChild(nearBtns);
 
+    // MENU. A phone has no Escape key and no Start button, so this is the whole
+    // of "every device can open the in-game menu" — and it opens it the same way
+    // both of those do, by tapping the virtual Escape main.ts already routes.
+    // Nothing here knows the menu exists, which is what keeps one key edge as
+    // the single entry point rather than three.
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'bs-pausebtn';
+    menuBtn.textContent = t('touch.menu');
+    menuBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      menuBtn.classList.add('on');
+      this.input.tapVirtual('Escape');
+    }, { passive: false });
+    const menuUp = (): void => menuBtn.classList.remove('on');
+    menuBtn.addEventListener('touchend', menuUp);
+    menuBtn.addEventListener('touchcancel', menuUp);
+    this.root.appendChild(menuBtn);
+
     // Deferred (hybrid mouse+touch) devices keep the overlay hidden until the
     // user actually touches the screen; the instance still ticks, so nothing
     // depends on the DOM being attached.
@@ -527,6 +569,7 @@ export class TouchControls {
     cap('.bs-btn.jump', 'touch.jump');
     cap('.bs-btn.interact', 'touch.interact');
     cap('.bs-btn.swap', 'touch.swap');
+    cap('.bs-pausebtn', 'touch.menu');
   }
 
   dispose(): void {

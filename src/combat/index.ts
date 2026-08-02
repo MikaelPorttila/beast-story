@@ -151,6 +151,26 @@ export class CombatSystem {
     this.spawnT = 0;
   }
 
+  /**
+   * Back to a new game: no enemies, no drops on the ground, the starting purse.
+   *
+   * `setWorld` already does nine tenths of this and is called with the world it
+   * already has, which is not a trick — the reason that method clears everything
+   * it clears is that the population and the loose drops belong to a PLAY
+   * SESSION rather than to this object, and a new game is the same event as a
+   * new zone from their point of view. What it does not know about is the purse,
+   * which is the one number here that a zone switch must carry across and a new
+   * game must not.
+   *
+   * Not a rebuild, for the reason `setWorld` gives above its own body:
+   * reconstructing this would throw away every warmed shader program with it.
+   */
+  reset(): void {
+    this.setWorld(this.world);
+    this.shardTotal = 50;
+    this.bus.emit({ type: 'shardsChanged', total: this.shardTotal });
+  }
+
   // ------------------------------------------------------------------ cast
 
   cast(req: CastRequest): void {

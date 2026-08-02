@@ -72,6 +72,11 @@ export class Inventory {
     return this.stacks.get(itemId) ?? 0;
   }
 
+  /** Empty it. What a new game starts with, and the only way anything leaves. */
+  clear(): void {
+    this.stacks.clear();
+  }
+
   /** Returns the new stack size. */
   add(itemId: string, n = 1): number {
     const next = this.count(itemId) + n;
