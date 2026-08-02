@@ -192,10 +192,34 @@ const exit = {};
   exit.step = await page.evaluate(() =>
     document.querySelector('.bs-menu')?.getAttribute('data-step') ?? null);
 
-  // Round again. The second game has to be a GAME — the hero back at the spawn,
-  // and walking.
-  await page.evaluate(() => document.querySelector('.bs-menu [data-act="new"]')?.click());
+  // THE POINTER HAS TO BE BACK, and this is the one assertion here that a
+  // synthetic click cannot make for you. `close()` hands the pointer to the
+  // game (right on Continue) and `exitToTitle` then releases it, one call
+  // later — but `requestPointerLock()` resolves asynchronously, so the release
+  // used to look at an empty `document.pointerLockElement` and do nothing,
+  // and the lock landed a moment afterwards ON THE TITLE SCREEN. Issue #29:
+  // no cursor, and every click on New Game delivered to the canvas underneath
+  // the poster, which therefore sat there with its fairies and lit lanterns.
+  exit.lockAtTitle = await page.evaluate(() =>
+    document.pointerLockElement?.tagName ?? null);
+
+  // Round again, and with a REAL MOUSE CLICK rather than `el.click()`. That
+  // distinction is the whole point: a synthetic click is dispatched straight at
+  // the button and passes however the pointer is behaving, so the run above
+  // stayed green through the entire life of the bug. This one goes through the
+  // browser's hit testing, which is what a player has.
+  {
+    const btn = await page.waitForSelector('.bs-menu [data-act="new"]', { visible: true });
+    await btn.click();
+  }
   await wait(SETTLE);
+  // Nothing of the poster may outlive the handover — not the element, and not
+  // the fairies and lantern glows animating inside it.
+  exit.posterRemnants = await page.evaluate(() => ({
+    menus: document.querySelectorAll('.bs-menu').length,
+    flies: document.querySelectorAll('.fly').length,
+    lamps: document.querySelectorAll('.lamp').length,
+  }));
   const fresh = await pos(page);
   exit.secondGame = {
     menuGone: !(await has(page, '.bs-menu')),
@@ -240,9 +264,17 @@ check(exit.playingFirst && exit.travelFirstGame > 4, 'the staged boot reaches a 
 check(exit.movedAwayFromSpawn > 20, 'the first session was somewhere the second is not');
 check(exit.titleScreenBack && exit.pauseGone, 'Exit puts the title screen back');
 check(exit.step === 'options', 'and lands on the options, not the splash');
-check(exit.secondGame.menuGone, 'New Game works a second time');
+check(exit.lockAtTitle === null,
+  `the pointer is given back at the title screen (locked to ${exit.lockAtTitle})`);
+check(exit.secondGame.menuGone, 'New Game works a second time, from a real mouse click');
 check(exit.secondGame.fromSpawn < 3, 'and the second hero starts at the spawn');
 check(exit.secondGame.travel > 4, 'and can walk');
+// Belt and braces on the same handover: the element going is what `menuGone`
+// says, and these are the two things INSIDE it that the player actually sees.
+check(exit.posterRemnants.menus === 0, 'no poster survives the second handover');
+check(exit.posterRemnants.flies === 0 && exit.posterRemnants.lamps === 0,
+  `no fairies or lantern glows left over (${exit.posterRemnants.flies} flies, ` +
+  `${exit.posterRemnants.lamps} lamps)`);
 
 console.log(JSON.stringify({ menu, gamepad, exit, failures: fail, pass: fail.length === 0 }, null, 2));
 if (fail.length) process.exitCode = 1;

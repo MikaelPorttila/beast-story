@@ -811,6 +811,28 @@ RELEASES POINTER LOCK like the shop, and the split is what the player does with
 each: a sheet is read and closed with the key that opened it, where this is
 clicked, and Exit needs a cursor that can reach it.
 
+**THE LAST CALLER WINS, AND IT DID NOT USED TO.** `requestPointerLock()` resolves
+a tick or more after it is called, and `document.pointerLockElement` stays null
+for the whole of that window — so `Input.releaseLock`, which asked exactly that
+question, was a no-op against a lock that had been REQUESTED but not yet
+granted. `Exit to title` does both in that order and one call apart: `close()`
+hands the pointer back to the game (correct on Continue, and it cannot know
+which button was pressed), then `exitToTitle` releases it. The release lost, the
+grant landed a moment later, and the title screen came up with the pointer
+captured by the canvas UNDERNEATH the poster: no cursor, and every click on New
+Game delivered to the world instead of to the button, so the painting sat there
+with its fairies and lit lanterns and nothing the mouse did would start a game.
+That is issue #29. `Input` now keeps `lockWanted` beside `pointerLocked` — the
+INTENT beside the browser's answer — and hands back, in `pointerlockchange`, any
+lock that arrives after somebody asked for it to be given up. Fixed in `Input`
+rather than at either call site because the hazard belongs to the PAIR: any
+future take-then-give-back inside one turn of the event loop would have raced
+the same way. Note what this means for a probe: `el.click()` is dispatched
+straight at the button and passes however the pointer is behaving, so
+`test-pause.mjs` stayed green through the whole life of the bug — its second New
+Game is now a REAL mouse click, and it asserts the lock is null at the title
+screen and that no `.fly` or `.lamp` survives the handover.
+
 `Exit to title` returns IN PROCESS — no navigation. Everything that is a play
 session is reset by the object that owns it (`Player.reset`, `BeastActor.reset`,
 `CombatSystem.reset`), so a field added to one of those is reset by the file that
