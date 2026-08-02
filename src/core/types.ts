@@ -540,6 +540,17 @@ export interface World {
    */
   debugStructures(out: number[]): void;
   /**
+   * Debug: append every ROOF as [cx, cz, axisYaw, hl, r, yAxis, ry, fit] — a
+   * cylinder lying on its side along a ridge, see `SolidRidge` in
+   * world/props.ts. `fit` is how far it stands off the thatch at its worst.
+   *
+   * A THIRD list with a third stride, by the same argument the second one makes:
+   * a roof is neither a tree's upright cylinder nor a building's box, and the
+   * mismatch between a collider and the shape it is drawn as is the one thing
+   * /show-colliders exists to expose.
+   */
+  debugRidges(out: number[]): void;
+  /**
    * Debug: every lamp and fingerpost the road pass stood up, as
    * `{ kind, x, z }`, or an empty list where a zone has no roads.
    *

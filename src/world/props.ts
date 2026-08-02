@@ -40,6 +40,55 @@ export interface SolidBox {
 }
 
 /**
+ * A ROOF: one cylinder lying on its side along a ridge, in the same template
+ * units as `SolidBox`.
+ *
+ * The second collision primitive, and the only one this game needs beyond a box.
+ * A box is right for anything that meets the ground as a rectangle and stops
+ * being interesting above your head — a wall, a crate, a palisade span. It is
+ * wrong for the two shapes a settlement has most of, a thatched gable and a
+ * canvas ridge tent, because their whole character is a SLOPE and a box can only
+ * say "a slab at the ridge", which is issue #3: a cage floating a metre over the
+ * thatch, and no way to be on a roof rather than above it.
+ *
+ * A cylinder laid along the ridge says the slope in six numbers instead of the
+ * forty boxes a stepped decomposition of the same roof costs, and it says it
+ * smoothly — the surface a body stands on is continuous rather than a staircase
+ * of collider lids.
+ *
+ * ELLIPTIC rather than circular, which costs one number and buys two things: a
+ * roof is nearly always wider than it is tall, and `Accum` scales girth (`s`) and
+ * height (`sy`) independently, so a single radius could not survive a stamp that
+ * squashes a tent.
+ */
+export interface SolidRidge {
+  /** Centre of the axis, relative to the template origin, on its own x/z. */
+  cx: number;
+  cz: number;
+  /** Bearing of the axis in the template's frame; 0 runs along +z. */
+  axis: number;
+  /** Half-length along the axis — the roof's run, gable to gable. */
+  hl: number;
+  /** Horizontal semi-axis: half the span across the ridge, eaves to eaves. */
+  r: number;
+  /** Height of the cylinder's axis above the template base (y = 0). */
+  y: number;
+  /** Vertical semi-axis, so the crest stands at `y + ry`. */
+  ry: number;
+  /**
+   * Worst distance between this cylinder and the roof it was fitted to, in
+   * template units — how far the collider floats over the thatch at its worst
+   * point, or sinks into it.
+   *
+   * Carried rather than discarded because it is the one number that says whether
+   * a cylinder was the right shape for a given roof, and the only honest way to
+   * answer that is to keep measuring it. `__dbgRidges()` reports it and
+   * `measureRidge` explains what is being traded.
+   */
+  fitError: number;
+}
+
+/**
  * A baked, stampable voxel model.
  *
  * Exported because the TOWNS are built out of exactly the same machinery — bake
@@ -87,6 +136,14 @@ export interface Template {
    * knows the hut's footprint is the thing that reports it.
    */
   solid?: readonly SolidBox[];
+  /**
+   * The ROOFS on this template, if it has any — see `SolidRidge`.
+   *
+   * A list rather than one, because a building with two wings has two ridges and
+   * the fit is per bracketed region either way. Absent for everything that is not
+   * a roof, which is most of a camp: a crate has no slope to follow.
+   */
+  ridge?: readonly SolidRidge[];
   /**
    * Height of this template's tallest vertex, in template units, marking it as
    * something that BENDS — grass and reeds. Absent means rigid, which is what

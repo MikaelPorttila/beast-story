@@ -354,32 +354,38 @@ function ridgeTent(hue: number, len: number): Template {
   const W = 7;   // half-width at the eaves, voxels
   const A = 9;   // apex height, voxels
   const prof = (k: number): number => Math.round(A * (1 - k / (W + 0.6)));
-  for (let z = 0; z <= len; z++) {
-    // The canvas sags toward the mouth, which is what stops the tent reading as
-    // an extruded triangle.
-    const sag = z > len - 3 ? 1 : 0;
-    for (let k = 0; k <= W; k++) {
-      const yTop = Math.max(0, prof(k) - sag);
-      const yBot = k === W ? 0 : Math.max(0, prof(k + 1) - sag + 1);
-      for (let y = Math.min(yBot, yTop); y <= yTop; y++) {
-        const c = (z + k + y) % 8 === 0 ? stripe : CANVAS;
-        v.set(-k, y, z, shade(c, 0.86 + r() * 0.26));
-        v.set(k, y, z, shade(c, 0.86 + r() * 0.26));
+  // A TENT IS ALL ROOF — canvas, ridge pole and mouth alike — so the whole model
+  // is bracketed and its collider is one cylinder lying along the pole. See
+  // `measureRidge`. The pegs are outside it because they are not the tent: at a
+  // quarter of a unit they are under the step rule and measure as nothing at
+  // all, and inside the bracket they would widen the span by two cells.
+  const canvas = v.region(() => {
+    for (let z = 0; z <= len; z++) {
+      // The canvas sags toward the mouth, which is what stops the tent reading
+      // as an extruded triangle.
+      const sag = z > len - 3 ? 1 : 0;
+      for (let k = 0; k <= W; k++) {
+        const yTop = Math.max(0, prof(k) - sag);
+        const yBot = k === W ? 0 : Math.max(0, prof(k + 1) - sag + 1);
+        for (let y = Math.min(yBot, yTop); y <= yTop; y++) {
+          const c = (z + k + y) % 8 === 0 ? stripe : CANVAS;
+          v.set(-k, y, z, shade(c, 0.86 + r() * 0.26));
+          v.set(k, y, z, shade(c, 0.86 + r() * 0.26));
+        }
       }
+      v.set(0, prof(0) - sag, z, shade(CANVAS, 1.14));
     }
-    v.set(0, prof(0) - sag, z, shade(CANVAS, 1.14));
-  }
-  // Ridge pole ends and pegs.
-  v.box(0, A + 1, -1, 0, A + 1, len + 1, shade(LOG, 0.95));
+    v.box(0, A + 1, -1, 0, A + 1, len + 1, shade(LOG, 0.95));
+    // Dark mouth, so the tent has a way in.
+    for (let k = -3; k <= 3; k++) {
+      for (let y = 0; y <= 4; y++) v.set(k, y, len, shade(SOOT, 1.0));
+    }
+  });
   for (const z of [0, len]) {
     v.set(-W - 1, 0, z, shade(IRON, 1.0));
     v.set(W + 1, 0, z, shade(IRON, 1.0));
   }
-  // Dark mouth, so the tent has a way in.
-  for (let k = -3; k <= 3; k++) {
-    for (let y = 0; y <= 4; y++) v.set(k, y, len, shade(SOOT, 1.0));
-  }
-  return bakeSolid(v, V);
+  return bakeSolid(v, V, canvas);
 }
 
 /** A conical bell tent — a second silhouette on the same skyline. */
@@ -434,15 +440,21 @@ function hut(kind: 0 | 1 | 2): Template {
   for (let x = -2; x <= 2; x++) for (let y = 0; y <= 5; y++) v.set(x, y, D, SOOT);
   v.box(-3, 6, D, 3, 6, D, shade(LOG, 1.05));
   // Thatch: a gable running along x, laid in courses so it is not a smooth wedge.
-  for (let k = 0; k <= D + 1; k++) {
-    const y = H + 1 + k;
-    const c = k % 2 === 0 ? THATCH : THATCH_DARK;
-    for (let x = -W - 1; x <= W + 1; x++) {
-      v.set(x, y, -(D + 1 - k), shade(c, 0.86 + r() * 0.28));
-      v.set(x, y, D + 1 - k, shade(c, 0.86 + r() * 0.28));
+  // BRACKETED, so the collider for it is a cylinder along the ridge rather than
+  // a box at the height of it — see `measureRidge`. Everything at or above the
+  // lowest course here is out of the box measurement too, which is what leaves
+  // the hut two colliders with a chimney standing up the side of it.
+  const thatch = v.region(() => {
+    for (let k = 0; k <= D + 1; k++) {
+      const y = H + 1 + k;
+      const c = k % 2 === 0 ? THATCH : THATCH_DARK;
+      for (let x = -W - 1; x <= W + 1; x++) {
+        v.set(x, y, -(D + 1 - k), shade(c, 0.86 + r() * 0.28));
+        v.set(x, y, D + 1 - k, shade(c, 0.86 + r() * 0.28));
+      }
     }
-  }
-  for (let x = -W - 1; x <= W + 1; x++) v.set(x, H + D + 2, 0, shade(THATCH, 1.12));
+    for (let x = -W - 1; x <= W + 1; x++) v.set(x, H + D + 2, 0, shade(THATCH, 1.12));
+  });
   if (kind === 0) {
     v.box(-6, 4, -D, -3, 6, -D, shade(PLANK_DARK, 1.0));
     v.box(3, 4, -D, 6, 6, -D, shade(PLANK_DARK, 1.0));
@@ -461,7 +473,7 @@ function hut(kind: 0 | 1 | 2): Template {
     v.box(4, 2, D + 3, 6, 2, D + 5, shade(IRON, 1.0));
     v.box(4, 3, D + 4, 7, 3, D + 4, shade(IRON, 1.15));
   }
-  return bakeSolid(v, V);
+  return bakeSolid(v, V, thatch);
 }
 
 // ---------------------------------------------------------------------------

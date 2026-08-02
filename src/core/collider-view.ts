@@ -14,6 +14,10 @@ import type { World } from './types';
  *     ORIENTED BOXES, and are drawn green. Drawing them as circles would hide
  *     the one thing worth checking about a building's collider, which is whether
  *     its corners line up with its walls.
+ *   - ROOFS are cylinders lying on their sides along a ridge, drawn green as
+ *     arches: the cross-section at intervals down the run, and lines along the
+ *     length joining them. The whole question about one is whether the arch sits
+ *     on the thatch, so what is drawn is the arch and not the box round it.
  *
  * GREEN DOES NOT MEAN "not climbable". Everything solid is climbable; blue marks
  * the surplus — the part of a tree you can hold that would not have stopped you
@@ -33,6 +37,15 @@ const RING_SEGMENTS = 16;
 const REFRESH_SECONDS = 0.5;
 /** Rings up the height of a collider, so it reads as a volume not a footprint. */
 const RINGS = 3;
+/**
+ * Numbers per roof in `World.debugRidges` — [cx, cz, yaw, hl, r, y, ry, fit].
+ *
+ * Named rather than written into the loop, because it is a stride agreed with
+ * another file: reading it as 7 drew five roofs as six garbled ones, each one
+ * plausible enough on its own that the tent whose arch had gone missing was the
+ * only sign anything was wrong.
+ */
+const RIDGE_STRIDE = 8;
 
 export class ColliderView {
   private group = new THREE.Group();
@@ -42,6 +55,7 @@ export class ColliderView {
   private climb: THREE.LineSegments | null = null;
   private scratch: number[] = [];
   private boxScratch: number[] = [];
+  private ridgeScratch: number[] = [];
   private timer = 0;
   private visible = false;
 
@@ -73,10 +87,15 @@ export class ColliderView {
     return this.visible;
   }
 
-  /** Number of colliders currently drawn: tree cylinders plus structure boxes. */
-  get count(): number { return this.scratch.length / 5 + this.boxScratch.length / 6; }
+  /** Colliders currently drawn: tree cylinders, structure boxes and roofs. */
+  get count(): number {
+    return this.scratch.length / 5 + this.boxScratch.length / 6
+      + this.ridgeScratch.length / RIDGE_STRIDE;
+  }
   /** How many of those are settlement boxes. */
   get boxCount(): number { return this.boxScratch.length / 6; }
+  /** ...and how many are roof cylinders. */
+  get ridgeCount(): number { return this.ridgeScratch.length / RIDGE_STRIDE; }
 
   update(dt: number): void {
     if (!this.visible) return;
@@ -120,6 +139,17 @@ export class ColliderView {
         this.boxScratch[i + 5],
       );
     }
+
+    this.ridgeScratch.length = 0;
+    this.world.debugRidges(this.ridgeScratch);
+    for (let i = 0; i < this.ridgeScratch.length; i += RIDGE_STRIDE) {
+      this.arch(
+        solidPts,
+        this.ridgeScratch[i], this.ridgeScratch[i + 1], this.ridgeScratch[i + 2],
+        this.ridgeScratch[i + 3], this.ridgeScratch[i + 4],
+        this.ridgeScratch[i + 5], this.ridgeScratch[i + 6],
+      );
+    }
     this.replace('solid', solidPts);
     this.replace('climb', climbPts);
   }
@@ -150,6 +180,54 @@ export class ColliderView {
         out.push(cornerX[k], y, cornerZ[k], cornerX[n], y, cornerZ[n]);
       }
       out.push(cornerX[k], base, cornerZ[k], cornerX[k], top, cornerZ[k]);
+    }
+  }
+
+  /**
+   * A roof: the top half of a cylinder lying along a ridge, as line-segment
+   * pairs.
+   *
+   * Only the top half is drawn, and that is the honest picture rather than a
+   * saving. `structureTopAt` is a height field — the collider IS the surface
+   * over each column and has no underside to show — so an arch that closed
+   * underneath would be drawing a volume the game never asks about.
+   */
+  private arch(
+    out: number[], x: number, z: number, yaw: number,
+    hl: number, r: number, y: number, ry: number,
+  ): void {
+    // Axis direction and the horizontal normal to it; the same bearing
+    // convention as everything else (0 runs along +z).
+    const ax = Math.sin(yaw);
+    const az = Math.cos(yaw);
+    const nx = Math.cos(yaw);
+    const nz = -Math.sin(yaw);
+    /** Steps across the arch. 8 reads as a curve at the size a hut roof is. */
+    const ACROSS = 8;
+    /** Cross-sections down the run, including both gable ends. */
+    const SECTIONS = 5;
+    const px = (t: number, u: number): [number, number, number] => {
+      const s = Math.sqrt(Math.max(0, 1 - u * u));
+      return [
+        x + ax * t * hl + nx * u * r,
+        y + ry * s,
+        z + az * t * hl + nz * u * r,
+      ];
+    };
+    for (let sec = 0; sec < SECTIONS; sec++) {
+      const t = -1 + (2 * sec) / (SECTIONS - 1);
+      for (let k = 0; k < ACROSS; k++) {
+        const a = px(t, -1 + (2 * k) / ACROSS);
+        const b = px(t, -1 + (2 * (k + 1)) / ACROSS);
+        out.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+      }
+    }
+    // Along the run, so the arch reads as a solid rather than as loose hoops.
+    for (let k = 0; k <= ACROSS; k++) {
+      const u = -1 + (2 * k) / ACROSS;
+      const a = px(-1, u);
+      const b = px(1, u);
+      out.push(a[0], a[1], a[2], b[0], b[1], b[2]);
     }
   }
 
