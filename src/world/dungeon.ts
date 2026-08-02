@@ -623,6 +623,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     /** Nothing but terrain here, and debugColliders deliberately excludes it. */
     debugColliders(): void { /* no discrete colliders in the hold */ },
     debugStructures(): void { /* nor any structure boxes */ },
+    debugRidges(): void { /* nor any roofs */ },
     /** Nor any road furniture: the hold has no roads. */
     debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; },
 

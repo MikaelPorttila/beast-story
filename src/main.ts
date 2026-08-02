@@ -1206,8 +1206,8 @@ devConsole?.register({
     const on = args[0] === 'on' ? true : args[0] === 'off' ? false : !colliderView.isVisible;
     colliderView.setVisible(on);
     return on
-      ? `colliders ON — ${colliderView.count} drawn, ${colliderView.boxCount} of them `
-        + 'settlement boxes (green solid, blue climb)'
+      ? `colliders ON — ${colliderView.count} drawn, ${colliderView.boxCount} settlement `
+        + `boxes and ${colliderView.ridgeCount} roof arches (green solid, blue climb)`
       : 'colliders OFF';
   },
 });
@@ -2528,6 +2528,41 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
     });
   }
   out.sort((p, q) => q.area - p.area);
+  return out;
+};
+
+/**
+ * The ROOF cylinders near a point, biggest first — the arches /show-colliders
+ * draws, as numbers.
+ *
+ * `fit` is the one worth reading and the reason this exists rather than being
+ * folded into `__dbgStructures`: it is how far the cylinder stands off the
+ * thatch it was fitted to at its worst point, which is the entire question about
+ * whether a cylinder was the right shape for a given roof. A box could not
+ * report such a thing — it does not claim to follow anything. See `measureRidge`
+ * in world/structures.ts. Read-only, allocates, never called from the frame loop.
+ */
+(window as unknown as {
+  __dbgRidges: (x: number, z: number, r?: number) => unknown[];
+}).__dbgRidges = (x, z, r = 30) => {
+  const b: number[] = [];
+  world.debugRidges(b);
+  const out: Array<Record<string, number>> = [];
+  for (let i = 0; i < b.length; i += 8) {
+    const d = Math.hypot(b[i] - x, b[i + 1] - z);
+    if (d > r) continue;
+    out.push({
+      x: +b[i].toFixed(2), z: +b[i + 1].toFixed(2),
+      yaw: +b[i + 2].toFixed(3),
+      hl: +b[i + 3].toFixed(2), r: +b[i + 4].toFixed(2),
+      y: +b[i + 5].toFixed(2), ry: +b[i + 6].toFixed(2),
+      fit: +b[i + 7].toFixed(3),
+      crest: +(b[i + 5] + b[i + 6]).toFixed(2),
+      ground: +world.getHeight(b[i], b[i + 1]).toFixed(2),
+      dist: +d.toFixed(2),
+    });
+  }
+  out.sort((p, q) => q.hl * q.r - p.hl * p.r);
   return out;
 };
 

@@ -697,6 +697,15 @@ export function createWorld(
       // has to draw them or the overlay would disagree with the collision.
       npcs?.solids.debugBoxes(out);
     },
+    /**
+     * Every roof cylinder as [cx, cz, axisYaw, hl, r, y, ry]. Gated on the same
+     * flag and for the same reason as the boxes above; nobody but a settlement
+     * has a roof, so the NPC field never contributes one.
+     */
+    debugRidges(out: number[]): void {
+      if (!flags.solids) return;
+      towns?.solids.debugRidges(out);
+    },
 
     debugFurniture(): Array<{ kind: string; x: number; z: number }> {
       return (towns?.furniture ?? []).map((f) => ({

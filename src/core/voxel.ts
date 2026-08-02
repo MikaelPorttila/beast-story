@@ -1,6 +1,18 @@
 import * as THREE from 'three';
 
 /**
+ * A named part of a model — the cells one bracketed loop painted.
+ *
+ * Opaque on purpose: the caller gets a membership test and a count, not the key
+ * format, so `VoxelModel` stays free to store its grid however it likes. See
+ * `VoxelModel.region`.
+ */
+export interface VoxelRegion {
+  has(x: number, y: number, z: number): boolean;
+  readonly size: number;
+}
+
+/**
  * Voxel model builder: paint voxels into a sparse grid, then bake a single
  * merged BufferGeometry containing only exterior faces, with per-vertex colors
  * and slight per-face shading for that chunky hand-lit Cube World look.
@@ -11,9 +23,45 @@ export class VoxelModel {
   private cells = new Map<string, number>(); // key "x,y,z" -> color hex
   private emissiveCells = new Map<string, number>(); // key "x,y,z" -> intensity
   private emissiveColors = new Map<number, number>(); // color hex -> intensity
+  /** Cells painted inside the current `region` call, or null outside one. */
+  private recording: Set<string> | null = null;
 
   set(x: number, y: number, z: number, color: number): void {
-    this.cells.set(`${x},${y},${z}`, color);
+    const key = `${x},${y},${z}`;
+    this.cells.set(key, color);
+    this.recording?.add(key);
+  }
+
+  /**
+   * Run `paint` and hand back exactly the cells it painted.
+   *
+   * A collider is MEASURED off the model, never restated beside it (see
+   * `forEachCell`), and that leaves one thing a measurement cannot recover: which
+   * part of a model is which. A hut's collider is a box for the timber and a
+   * cylinder lying along the thatch, and no rule over the finished voxel grid
+   * separates those two as well as the loop that painted them already does —
+   * "everything above the eaves" also catches the chimney, and a shape test
+   * catches every gable in the world including the cart's hood.
+   *
+   * So the builder BRACKETS its roof rather than describing it, and the numbers
+   * are still all measured: `measureRidge` reads the ridge line, the span and
+   * the pitch off these cells. There is no size written down twice — wrapping
+   * the wrong loop makes the wrong shape, which is visible, where a stale
+   * constant is not.
+   */
+  region(paint: () => void): VoxelRegion {
+    const outer = this.recording;
+    const own = new Set<string>();
+    this.recording = own;
+    try {
+      paint();
+    } finally {
+      this.recording = outer;
+      // A nested region belongs to its parent too, so bracketing a roof inside a
+      // bracketed building does not silently take those cells out of the outer set.
+      if (outer) for (const k of own) outer.add(k);
+    }
+    return { has: (x, y, z) => own.has(`${x},${y},${z}`), size: own.size };
   }
 
   /** Paint a voxel and flag it emissive (glows with its own color). */

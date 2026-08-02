@@ -236,6 +236,11 @@ once frames come quickly.
   perimeter must STOP him; the gate must not — it should land him as deep in
   camp as the run with no collision at all. It also parks him against a wall and
   reads `__dbgBodies` to check his beasts and the wild spawns are not inside it.
+  Its last section is the only part that asks whether the collision is any GOOD
+  rather than whether it works, and it is the one that EXITS NON-ZERO: a per-town
+  collider budget that fails on any increase (64 / 39 / 26 today, of which 5 / 1 /
+  1 are roofs) and a ceiling on how far a roof cylinder stands off its own thatch
+  (0.577 against 0.6). See the settlement note below for why both exist.
 - `test-beastanim.mjs` is the animation-continuity guard: it cycles the whole beast
   roster through the two active follow slots while yanking the hero around, and
   reports the largest per-frame rotation delta at every rig joint. Everything
@@ -407,16 +412,46 @@ Settlements are SOLID, and the collider is never authored twice.
 [src/world/structures.ts](src/world/structures.ts) measures a footprint off the
 voxel model a builder just painted — the boxes are the mesh — and `SolidStamp`
 makes one call push both the vertices and the collider, so a hut cannot be
-placed without being made solid. The primitive is an ORIENTED BOX because a hut
-is a rectangle; the footprint counts only material between `MAX_STEP_UP` and
-head height, which is what leaves the Encampment's gate an opening rather than a
-wall and lets a road run under a lamp's bracket. It reaches the player as
-`World.structureTopAt`, a third column-top query beside `getHeight` and
-`trunkSolidTopAt`, so everything that moves — hero, saddle, beast, enemy —
-resolves it against the same `MAX_STEP_UP` ([src/core/types.ts](src/core/types.ts))
-it already used for terrain. `solids=0` keeps the meshes and removes the
-blocking, which is the A/B `tools/test-structures.mjs` runs; `/show-colliders`
-draws the boxes green.
+placed without being made solid. The footprint counts only material between
+`MAX_STEP_UP` and head height, which is what leaves the Encampment's gate an
+opening rather than a wall and lets a road run under a lamp's bracket. It
+reaches the player as `World.structureTopAt`, a third column-top query beside
+`getHeight` and `trunkSolidTopAt`, so everything that moves — hero, saddle,
+beast, enemy — resolves it against the same `MAX_STEP_UP`
+([src/core/types.ts](src/core/types.ts)) it already used for terrain. `solids=0`
+keeps the meshes and removes the blocking, which is the A/B
+`tools/test-structures.mjs` runs; `/show-colliders` draws them green.
+
+**There are TWO primitives, and picking the wrong one is issue #3.** An ORIENTED
+BOX is for anything that meets the ground as a rectangle and stops being
+interesting above your head — a wall, a crate, a palisade span, a cart. A ROOF is
+a cylinder lying along its ridge (`SolidRidge`), because the whole character of a
+gable or a ridge tent is its SLOPE, and the best a box can say about a slope is
+"a slab at the ridge": a cage floating a metre over the thatch, which is what the
+issue is a photograph of. A builder brackets the loop that paints its roof with
+`VoxelModel.region` and every number — ridge line, axis, span, run, pitch — is
+measured off those cells, so there is still no size written down twice. The
+bracket is the one thing a measurement cannot recover: "everything above the
+eaves" also catches the chimney, and a shape test catches every gable in the
+world including a cart's hood.
+
+**DO NOT ANSWER A SHAPE PROBLEM WITH MORE BOXES.** Decomposing each roof into
+boxes that follow its steps is the obvious fix, was tried, and was reverted: it
+took the world from 193 colliders to 2326 — about forty per hut — tripled
+`structureTopAt` inside a camp, and still could not make a slope smooth, because
+a staircase of box lids is what you get however many of them there are. A model
+should be a handful of colliders. A hut is two, a tent is one.
+
+That is a RUN rather than a wish. `tools/test-structures.mjs` carries a per-town
+collider budget that fails on any INCREASE and a ceiling on how far a roof
+cylinder may stand off its own thatch (`SolidRidge.fitError`, worst 0.577 today
+against a limit of 0.6; the aim is under `MAX_STEP_UP`, and getting there means a
+WEDGE primitive, not a finer fit). A town it has never seen is budgeted 0, so a
+new settlement has to be looked at. Add a building and you re-baseline the number
+in the same commit — the failure is the point, not a chore around it. The query
+COST is reported there and deliberately not asserted: it is host-dependent, so
+any threshold loose enough to be honest would have passed the 2326-box version
+anyway. `__dbgRidges()` reports every roof and its fit.
 
 **People.** [src/world/npc.ts](src/world/npc.ts) is the generic half — placement,
 culling, the interact test, the talk state — and a character file is the other
