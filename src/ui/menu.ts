@@ -1,9 +1,9 @@
 import { isTouchPrimary } from '../core/touch';
-import { loadPrefs, savePrefs, type Prefs } from '../core/prefs';
+import { loadPrefs, type Prefs } from '../core/prefs';
 import { flags } from '../core/flags';
-import { t, language, languages, setLanguage, onLanguageChange } from '../i18n';
-import type { LookAxes } from '../core/gamepad';
+import { t, language, onLanguageChange } from '../i18n';
 import { enterFullscreen } from './fullscreen';
+import { SettingsPanel, type SettingsHooks } from './settings';
 import { injectStyles } from './styles';
 import bgUrl from './menu-bg.webp';
 import logoUrl from './menu-logo.webp';
@@ -134,17 +134,11 @@ const FAIRIES: ReadonlyArray<Fairy> = [
 type Step = 'press' | 'options' | 'settings';
 
 /**
- * The settings this screen shows as an ON/OFF row.
- *
- * Every one of them is a boolean `Prefs` field, which is what lets `toggle()`
- * read the current state and the click handler write the new one straight off
- * the key in `data-toggle` — the row markup and the persistence never spell a
- * setting's name twice. What each one MEANS to the running game is still a
- * hook, because that differs per setting.
+ * What the title screen needs from its host, beyond the settings hooks it passes
+ * straight through to `SettingsPanel` (ui/settings.ts — the rows themselves, and
+ * everything they persist, moved there when the pause menu needed the same list).
  */
-type ToggleKey = 'hapticFeedback' | 'invertLookX' | 'invertLookY' | 'autoFullscreen';
-
-export interface StartMenuHooks {
+export interface StartMenuHooks extends SettingsHooks {
   /**
    * New Game. Fired once, after the menu has faded out and taken itself off the
    * DOM — the game gets a clear screen, not a fade it has to render behind.
@@ -160,18 +154,18 @@ export interface StartMenuHooks {
    * not there, or the dissolve is the one janky moment in the whole sequence.
    */
   onLeave?: () => void;
+}
+
+/** How a caller wants this instance to open. See `offer`. */
+export interface StartMenuOptions {
   /**
-   * A look-axis toggle moved. Applied LIVE rather than on close: the pad is
-   * already connected while the menu is up, and someone flipping "invert Y" is
-   * about to test it. Persisting is this module's job, not the caller's.
+   * Open on the OPTIONS step rather than on the splash.
+   *
+   * For the one caller that raises a second title screen in the same page: Exit
+   * to title, from the in-game menu (main.ts). Every other route here is a fresh
+   * load, where the splash is the first thing anyone sees and is the point.
    */
-  onLookAxes: (a: Partial<LookAxes>) => void;
-  /**
-   * The controller-vibration switch moved. Live for the same reason, and for
-   * one more: a player turning it OFF is usually asking for it to stop, and a
-   * setting that only takes effect at the next launch does not answer that.
-   */
-  onHapticFeedback: (on: boolean) => void;
+  skipSplash?: boolean;
 }
 
 /** `?menu=` — 0 suppresses the menu, 1 forces it into a staged capture. */
@@ -191,6 +185,8 @@ export class StartMenu {
   private el: HTMLDivElement | null = null;
   private step: Step = 'press';
   private prefs: Prefs;
+  /** The settings list, shared with the in-game menu. See ui/settings.ts. */
+  private settings: SettingsPanel;
   private unlisten: (() => void) | null = null;
   private padRaf = 0;
   /** Buttons of whichever panel is showing, in focus order. */
@@ -216,20 +212,28 @@ export class StartMenu {
    *   - otherwise: shown, unless `photo=1` — a staged capture of the world must
    *     not have a poster in front of it.
    */
-  static offer(hooks: StartMenuHooks): StartMenu | null {
+  static offer(hooks: StartMenuHooks, opts: StartMenuOptions = {}): StartMenu | null {
     const p = menuParam();
     if (p === '0') return null;
     if (p !== '1' && flags.photo) return null;
-    return new StartMenu(hooks, p === '1' && flags.photo);
+    return new StartMenu(hooks, p === '1' && flags.photo, opts);
   }
 
-  private constructor(private hooks: StartMenuHooks, private frozen: boolean) {
+  private constructor(
+    private hooks: StartMenuHooks, private frozen: boolean, opts: StartMenuOptions,
+  ) {
     injectStyles();
     this.prefs = loadPrefs();
+    this.settings = new SettingsPanel('title', hooks);
+    // Coming back from a game skips the splash. "Press start..." is an invitation
+    // to a player who has not started, and someone who just chose Exit to title
+    // has plainly started — making them press a key to be shown the menu they
+    // asked for is a step that answers nothing.
+    if (opts.skipSplash) this.step = 'options';
 
     const el = document.createElement('div');
     el.className = `bs-menu${this.frozen ? ' photo' : ''}`;
-    el.setAttribute('data-step', 'press');
+    el.setAttribute('data-step', this.step);
     el.innerHTML = this.markup();
     this.el = el;
     document.body.appendChild(el);
@@ -315,28 +319,18 @@ export class StartMenu {
       panel.innerHTML = `<div class="press">${escapeHtml(t('menu.pressStart'))}</div>`;
     } else if (this.step === 'options') {
       panel.innerHTML =
-        '<div class="opts">' +
+        '<div class="bs-opts">' +
           this.btn('new', t('menu.newGame'), 'primary') +
           this.btn('load', t('menu.load'), 'disabled') +
           `<div class="note">${escapeHtml(t('menu.load.unavailable'))}</div>` +
           this.btn('settings', t('menu.settings')) +
         '</div>';
     } else {
+      // The rows come from ui/settings.ts, which is also what the in-game menu
+      // shows. This screen contributes the column around them and the way out.
       panel.innerHTML =
-        '<div class="opts settings">' +
-          `<h2>${escapeHtml(t('menu.settings.title'))}</h2>` +
-          this.toggle('hapticFeedback', t('menu.settings.hapticFeedback'), this.prefs.hapticFeedback) +
-          this.toggle('invertLookX', t('menu.settings.invertX'), this.prefs.invertLookX) +
-          this.toggle('invertLookY', t('menu.settings.invertY'), this.prefs.invertLookY) +
-          // The note belongs to the two INVERT rows — it says the mouse is never
-          // inverted — so anything added below it must go after it, not between.
-          `<div class="note">${escapeHtml(t('menu.settings.controllerNote'))}</div>` +
-          this.toggle('autoFullscreen', t('menu.settings.autoFullscreen'),
-            this.prefs.autoFullscreen) +
-          `<div class="row lang"><span class="lbl">${escapeHtml(t('menu.settings.language'))}</span>` +
-          `<div class="langs">${languages().map((l) =>
-            `<button class="bs-menu-btn chip${l.code === language() ? ' on' : ''}" type="button" ` +
-            `data-lang="${l.code}">${escapeHtml(l.nativeName)}</button>`).join('')}</div></div>` +
+        '<div class="bs-opts settings">' +
+          this.settings.markup() +
           this.btn('back', t('menu.back')) +
         '</div>';
     }
@@ -361,22 +355,6 @@ export class StartMenu {
       `${escapeHtml(label)}</button>`;
   }
 
-  /**
-   * A settings row whose control is a button, not a checkbox.
-   *
-   * `<input type=checkbox>` would come with focus and keyboard behaviour for
-   * free, but it also comes with a native box that no amount of CSS makes match
-   * the rest of this screen, and the pad poll below drives everything by
-   * `.click()` on a button anyway. So the row IS the button, with the state as
-   * an ON/OFF pill on its right, and `aria-pressed` carrying the state for
-   * anything reading the page rather than looking at it.
-   */
-  private toggle(key: ToggleKey, label: string, on: boolean): string {
-    return `<button class="bs-menu-btn row" type="button" data-toggle="${key}" ` +
-      `aria-pressed="${on}"><span class="lbl">${escapeHtml(label)}</span>` +
-      `<span class="pill">${escapeHtml(on ? t('menu.on') : t('menu.off'))}</span></button>`;
-  }
-
   // -------------------------------------------------------------------------
   // Input
   // -------------------------------------------------------------------------
@@ -395,25 +373,11 @@ export class StartMenu {
     const btn = target.closest('button') as HTMLButtonElement | null;
     if (!btn) return;
 
-    const lang = btn.getAttribute('data-lang');
-    if (lang) {
-      // The re-render is driven by the language event, not from here, so the
-      // picker takes exactly the same path as any other language listener.
-      setLanguage(lang);
-      return;
-    }
-
-    const toggle = btn.getAttribute('data-toggle') as ToggleKey | null;
-    if (toggle) {
-      const next = !this.prefs[toggle];
-      this.prefs = savePrefs({ [toggle]: next });
-      if (toggle === 'hapticFeedback') this.hooks.onHapticFeedback(next);
-      else this.hooks.onLookAxes(toggle === 'invertLookX' ? { invertX: next } : { invertY: next });
-      // Rewrite the one pill rather than re-rendering the panel: a rebuild would
-      // drop focus back to the top of the list mid-way through changing things.
-      btn.setAttribute('aria-pressed', String(next));
-      const pill = btn.querySelector('.pill');
-      if (pill) pill.textContent = next ? t('menu.on') : t('menu.off');
+    // The settings list handles its own rows — the language chips and every
+    // toggle — and says so. Anything it does not claim is one of this screen's
+    // own buttons, below.
+    if (this.settings.handleClick(btn)) {
+      this.prefs = this.settings.values;
       return;
     }
 

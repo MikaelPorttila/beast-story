@@ -400,6 +400,34 @@ export class Player {
     this.bus.emit({ type: 'toast', text: t('toast.fainted') });
   }
 
+  /**
+   * Back to a new game's hero: full health, at the spawn, holding nothing.
+   *
+   * `respawn` below is the same shape and is deliberately NOT reused: it emits
+   * `playerRevived` and a "you are back on your feet" toast, which are true after
+   * fainting and false after New Game — the second would greet a player with a
+   * message about an injury they never took. What is shared is the LIST, and the
+   * two are three lines apart so a field added to one is visible from the other.
+   */
+  reset(): void {
+    this.isDead = false;
+    this.hp = this.maxHp;
+    this.flash = 0;
+    this.hurtT = 0;
+    this.regenHold = 0;
+    this.isClimbing = false;
+    this.isSwimming = false;
+    this.onCanopy = false;
+    this.climbLockout = 0;
+    this.attack.active = false;
+    this.velocity.set(0, 0, 0);
+    this.position.copy(this.world.spawnPoint);
+    this.position.y = Math.max(
+      this.world.getHeight(this.position.x, this.position.z), this.world.waterLevel,
+    );
+    this.root.position.copy(this.position);
+  }
+
   private respawn(): void {
     this.isDead = false;
     this.hp = this.maxHp;

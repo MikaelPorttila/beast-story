@@ -309,7 +309,13 @@ export const en = {
   'keys.cycleLead': 'Next lead beast',
   'keys.cycleSupport': 'Next support beast',
   'keys.interact': 'Talk · open a skill den',
-  'keys.cancel': 'Close · cancel',
+  /**
+   * ONE key, listed by what it does in priority order — it dismisses whatever is
+   * open, and opens the in-game menu when nothing is. Written as a list rather
+   * than as "menu" alone because a player reading this sheet has usually just
+   * had it close something.
+   */
+  'keys.cancel': 'Menu · close · cancel',
   'keys.controls': 'This sheet',
   'keys.debugOverlay': 'Performance overlay',
 
@@ -384,6 +390,8 @@ export const en = {
   'touch.jump': 'JUMP',
   'touch.interact': 'USE',
   'touch.swap': 'SWAP',
+  /** Top-left corner button: opens the in-game menu, which a phone cannot Escape into. */
+  'touch.menu': 'MENU',
 
   // ---- start menu ----------------------------------------------------------
   // The title screen in src/ui/menu.ts. The game's own name is deliberately NOT
@@ -416,6 +424,28 @@ export const en = {
    */
   'menu.settings.autoFullscreen': 'Fullscreen on start',
   'menu.settings.language': 'Language',
+  /**
+   * Under the language picker, and ONLY when Settings was opened from inside a
+   * game, where the chips are shown disabled.
+   *
+   * Says where the setting is rather than that it is unavailable, because the
+   * player asking is standing two button presses from the place it works. The
+   * reason it cannot change here is that a fingerpost's letters are voxel
+   * geometry carved once at world creation — see ui/settings.ts.
+   */
+  'menu.settings.languageInGame': 'Change the language from the title screen.',
+
+  // ---- in-game menu --------------------------------------------------------
+  // The pause menu (src/ui/pause.ts), on Escape / Start / the touch overlay's
+  // menu button. Settings is the SAME list the title screen shows.
+  'pause.title': 'Paused',
+  'pause.continue': 'Continue',
+  'pause.settings': 'Settings',
+  /**
+   * Back to the title screen, not out of the browser. "Exit" alone reads as
+   * quitting the application on desktop, and there is nothing to quit to.
+   */
+  'pause.exit': 'Exit to title',
 
   // ---- boot progress -------------------------------------------------------
   // The corner chip while the title screen is up, and the loading screen the

@@ -755,6 +755,54 @@ export class BeastActor {
     });
   }
 
+  /**
+   * Back to level 1, as if just constructed. What "New Game" means to a beast.
+   *
+   * A METHOD rather than the caller building a new `BeastActor`, and the reason
+   * is the rig: a beast owns ten to thirty voxel meshes and their materials, and
+   * throwing those away means the renderer has to LINK THE PROGRAMS AGAIN the
+   * first time the new ones are drawn. That link is the 13.5 s the boot spends
+   * in its shader phase (see the note at the top of main.ts and warmUpShaders),
+   * and paying any part of it again is a stall in the middle of what is supposed
+   * to be an instant New Game. Nothing about a rig is per-session; only the
+   * numbers on this object are, and this is all of them.
+   *
+   * Deliberately does NOT touch `position`, the animation clocks or the follow
+   * state. The caller is about to move the hero, and a beast teleports to an
+   * owner further away than TELEPORT_DIST on its next slice anyway — which a
+   * respawn always is.
+   */
+  reset(): void {
+    this.level = 1;
+    this.xp = 0;
+    this.xpToNext = 25;
+    this.stats = this.computeStats();
+    this.maxHp = this.stats.maxHp;
+    this.hp = this.maxHp;
+    this.isDead = false;
+    this.deadTimer = 0;
+    this.dieT = 0;
+    this.rig.root.scale.setScalar(1);
+    this.rig.root.visible = this.visibleFlag;
+    // A beast that died mid-fetch left a drop marked as being carried; putting
+    // it back is `abortFetch`'s whole job and it is safe when nothing is held.
+    this.abortFetch();
+    // The hurt flash is baked into the shared materials, so it outlives the
+    // numbers above unless it is cleared here.
+    if (this.flashDirty || this.hurtFlash > 0) {
+      this.hurtFlash = 0;
+      this.flashDirty = false;
+      for (const m of this.materials) m.emissive.setRGB(0, 0, 0);
+    }
+    // The same list the constructor builds, rebuilt rather than trimmed: a skill
+    // bought at a den is in here too, and a new game has not bought it.
+    this.knownSkillIds.length = 0;
+    this.species.skills.forEach((id, i) => {
+      const lv = this.learnLevelOf(id, i);
+      if (lv !== undefined && lv <= this.level) this.knownSkillIds.push(id);
+    });
+  }
+
   // -- Progression ----------------------------------------------------------
 
   private computeStats(): BeastStats {

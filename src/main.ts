@@ -4,7 +4,7 @@ import { DebugOverlay } from './core/debug-overlay';
 import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
 import { installViewport } from './core/viewport';
-import { GamepadControls } from './core/gamepad';
+import { GamepadControls, type LookAxes } from './core/gamepad';
 import { FeedbackSystem } from './feedback';
 import { loadPrefs, savePrefs } from './core/prefs';
 import {
@@ -30,6 +30,8 @@ import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem, SWORD_REACH } from './combat/index';
 import { HUD, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
 import { StartMenu } from './ui/menu';
+import { PauseMenu } from './ui/pause';
+import { exitFullscreen } from './ui/fullscreen';
 import { LoadingScreen } from './ui/loading';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
@@ -108,21 +110,36 @@ let handedOver = false;
 /** True once `frame()` is running. */
 let playing = false;
 
-const startMenu = StartMenu.offer({
+/**
+ * What a settings panel does to the running game, wherever it is shown from.
+ *
+ * ONE object for both screens, because there is one settings list (ui/settings.ts)
+ * and these are what it does — a second copy for the in-game menu would be two
+ * places to remember when a switch grows a third effect.
+ *
+ * Straight through to the pad and the feedback mixer, both of which take a change
+ * at any time by design. The preference itself is saved by the panel, so a change
+ * thrown before either exists — which the title screen's can be, see the boot
+ * order above — is picked up when it is built.
+ */
+const settingsHooks = {
+  onLookAxes: (a: Partial<LookAxes>) => pad?.setLookAxes(a),
+  onHapticFeedback: (on: boolean) => feedback?.setOptions({ hapticFeedback: on }),
+};
+
+/**
+ * The title screen. Reassignable, because Exit raises a NEW one — the poster is
+ * built, faded in and taken off the DOM by its own lifecycle, and the way back
+ * to it is another instance rather than a hidden one kept around all session.
+ */
+let startMenu = StartMenu.offer({
+  ...settingsHooks,
   // The poster has begun dissolving, which is the moment what is behind it
   // starts being seen. Behind it is the loading screen, raised here so the
   // menu's own half-second fade is the transition INTO it — see
   // LoadingScreen.cover for why that needs no cross-fade of its own.
   onLeave: () => loading?.cover(),
   onStart: () => { handedOver = true; beginPlay(); },
-  // Straight through to the pad, which takes a change at any time by design —
-  // see GamepadControls.setLookAxes. The preference itself is saved by the menu,
-  // so a change thrown before `pad` exists is picked up when it is built.
-  onLookAxes: (a) => pad?.setLookAxes(a),
-  // Same shape for the vibration switch: the menu persists it, this hands it to
-  // the one system that issues haptics at all. Null in photo mode, where there
-  // is no feedback system and no menu either.
-  onHapticFeedback: (on) => feedback?.setOptions({ hapticFeedback: on }),
 });
 
 /**
@@ -194,6 +211,106 @@ function beginPlay(): void {
     });
   }
   frame();
+}
+
+/**
+ * The in-game menu: Escape, the pad's Start, and the touch overlay's MENU.
+ *
+ * Built here rather than lazily on the first Escape, because it is the composition
+ * root's job to say what a settings switch does and this is the second screen
+ * that shows one. It costs nothing until it is opened — `open()` is what puts
+ * anything on the DOM.
+ */
+const pauseMenu = new PauseMenu({
+  ...settingsHooks,
+  // Mouse look is given BACK on the way in and taken again on the way out. This
+  // is the shop's bargain, not the controls sheet's, and the difference is what
+  // the player does with each: a sheet is READ and closed with the key that
+  // opened it (so keeping the lock saves a click), where this is CLICKED — three
+  // buttons and a settings list, with a cursor that has to be able to reach
+  // Exit. See the F1 note further down for the other half of the argument.
+  onOpen: () => input.releaseLock(),
+  onClose: () => { if (!isTouchPrimary()) input.requestLock(); },
+  onExit: () => exitToTitle(),
+});
+
+/**
+ * END THE SESSION and put the title screen back, in the same page.
+ *
+ * WHAT IS THROWN AWAY AND WHAT IS KEPT, which is the whole design.
+ *
+ * Thrown away: everything that is a PLAY SESSION. The hero's health and where he
+ * is standing, ten beasts' levels, xp and learned skills, the purse, the bag, the
+ * wild population, every drop on the ground, the roster picks, the cooldowns, the
+ * zone. Each of those is reset by the object that owns it — `Player.reset`,
+ * `BeastActor.reset`, `CombatSystem.reset` — rather than by this function
+ * reaching into them, so a field added to one of those is reset by the file that
+ * added it.
+ *
+ * Kept: the engine, the world and the rigs. That is a deliberate departure from
+ * "dispose everything", and the reason is the boot timings at the top of this
+ * file. Rebuilding the world costs 602 ms and re-linking the shader programs that
+ * come with it costs 13477 ms — so a New Game after an Exit would sit behind the
+ * loading screen for the better part of fifteen seconds, which is the exact cost
+ * an in-process return was chosen to avoid. Nothing in a world or a rig is
+ * per-session anyway: the terrain, the towns and the roads are pure functions of
+ * the seed and identical every game (see world/terrain.ts), and a beast's rig is
+ * geometry while its LEVEL is the save game.
+ *
+ * The seam is here if that trade ever needs revisiting: everything that would
+ * have to be disposed is reached from this one function.
+ */
+function exitToTitle(): void {
+  if (!playing) return;
+  // Stops the loop at the top of `frame()`. Nothing is torn down under a frame
+  // that is halfway through drawing it.
+  playing = false;
+  // Fullscreen was TAKEN on New Game (ui/menu.ts), so it is given back here:
+  // going to the title screen means going back to what you had before you
+  // started, and no browser undoes it on its own.
+  exitFullscreen();
+  input.releaseLock();
+
+  // Back to the overworld first, because the reset below places the hero at
+  // `world.spawnPoint` and a player who quit inside the dungeon would otherwise
+  // spawn a new game in it. The switch rebinds every `bound` subsystem, which is
+  // what makes the following three lines resolve against the right heightfield.
+  if (zones.id !== 'overworld') zones.switchTo('overworld');
+
+  player.reset();
+  mount.dismount();
+  combat.reset();
+  for (const b of roster) b.reset();
+  primaryIdx = 0;
+  supportIdx = 6;
+  refreshVisibility();
+  cooldowns.clear();
+  spent = 0;
+  bag.clear();
+  fetchScanT = 0;
+  nearShop = false;
+  nearNpc = null;
+  world.npcs?.endTalk();
+  hud.closeShop();
+  hud.closeControls();
+  hud.reset();
+  touch?.setVisible(true);
+
+  // The poster is a NEW instance, because the old one took itself off the DOM
+  // when the game started (see StartMenu.close). `handedOver` and `playing` go
+  // back to what they were before New Game was first pressed, so `beginPlay`'s
+  // handshake works a second time exactly as it did the first.
+  handedOver = false;
+  startMenu = StartMenu.offer({
+    ...settingsHooks,
+    onLeave: () => loading?.cover(),
+    onStart: () => { handedOver = true; beginPlay(); },
+  }, { skipSplash: true });
+  // `menu=0` and photo mode suppress the menu outright (see StartMenu.offer),
+  // and in those runs Exit cannot be reached — there is no menu to press it in.
+  // The guard is here so that stays true rather than becoming a black screen if
+  // one ever grows a way to.
+  if (!startMenu) { handedOver = true; beginPlay(); }
 }
 
 // Phase 1 ends here: the poster and the chip are on screen before the first
@@ -1707,7 +1824,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // act on it. Same treatment the shop already gets — and the F1 controls sheet,
   // which is the same bargain read the other way round: a player who stopped to
   // find out what a key does must not have walked off a cliff while reading.
-  const modal = hud.isShopOpen() || hud.isControlsOpen() || !!devConsole?.isOpen;
+  const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
+    || !!devConsole?.isOpen;
   nearShop = false;
   nearNpc = null;
   // Whose contact the particle system tests this slice, or null. It integrates
@@ -1811,7 +1929,24 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       else if (nearNpc) npcField?.talk(nearNpc.id);
       else if (nearShop) tryOpenShop();
     }
-    if (first && npcField?.talking && input.pressed('Escape')) npcField.endTalk();
+    // ESCAPE, WITH NOTHING OPEN, is one key with two meanings and they are in
+    // priority order: it backs out of a CONVERSATION first, and only opens the
+    // in-game menu when there is nothing smaller to dismiss. Same rule the modal
+    // branch below applies, one level further out — cancel always closes the
+    // topmost thing, and the menu is what is left when there is no topmost thing.
+    //
+    // All three devices arrive here and not just the keyboard: the pad's Start
+    // taps a virtual Escape (core/gamepad.ts) and so does the touch overlay's
+    // MENU button (core/touch.ts), so the edge is read in ONE place for every
+    // way of pressing it.
+    //
+    // `pressed`, not `takePress`, because this is a SIMULATION slice — see the
+    // note on takePress in core/input.ts and the F1 read further down, which is
+    // the other half of that rule.
+    if (first && input.pressed('Escape')) {
+      if (npcField?.talking) npcField.endTalk();
+      else pauseMenu.open();
+    }
   } else if (first && (input.pressed('Escape') || input.pressed('KeyE'))) {
     // Cancel closes the TOPMOST modal, which is the only reason this is an
     // if/else rather than two calls: F1 can be pressed with a den open, the
@@ -1819,7 +1954,17 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // of Escape must dismiss one thing. The pad reaches this too — B and Start
     // tap Escape while a modal is up, which is how a controller player closes a
     // sheet they have no button to open.
-    if (hud.isControlsOpen()) hud.closeControls();
+    //
+    // The in-game menu goes FIRST and answers for itself: inside its settings
+    // step Escape means "back to the list" rather than "close", so it is the one
+    // modal here that can decline to be dismissed. `onEscape` returns whether it
+    // spent the press. `KeyE` is the pad's X — confirm — so it activates the
+    // focused row instead of cancelling, which is what makes a controller able
+    // to work this menu with no other buttons.
+    if (pauseMenu.isOpen) {
+      if (input.pressed('Escape')) pauseMenu.onEscape();
+      else pauseMenu.activate();
+    } else if (hud.isControlsOpen()) hud.closeControls();
     else hud.closeShop();
   }
 
@@ -1873,14 +2018,20 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
 }
 
 function frame(): void {
+  // The loop OWNS ITS OWN SHUTDOWN, and this is the only way out of it. Exit
+  // clears `playing` (see exitToTitle) and the next frame simply does not
+  // schedule another — nothing is torn down under a frame halfway through
+  // drawing it, and `beginPlay` starting the loop again is what restarts it.
+  if (!playing) return;
   requestAnimationFrame(frame);
   if (!engine.beginFrame()) return;
   perf.begin();
   const dt = engine.tick();
-  // Everything that owns the screen: the shop, and the F1 controls sheet. Both
-  // stand the pad down and hide the touch overlay, for the same reason — a
-  // button held when the panel opened must not stay held behind it.
-  const modal = hud.isShopOpen() || hud.isControlsOpen();
+  // Everything that owns the screen: the shop, the F1 controls sheet and the
+  // in-game menu. All three stand the pad down and hide the touch overlay, for
+  // the same reason — a button held when the panel opened must not stay held
+  // behind it.
+  const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen;
   // A modal does not turn the camera, and the controls sheet is the one that has
   // to say so out loud: it keeps pointer lock (see the F1 read below), so unlike
   // the shop it goes on collecting mouse delta that no slice will spend. See
