@@ -258,10 +258,84 @@ async function run(solids, geom = null) {
     };
   }
 
+  // ---- how many colliders, and how well the roofs fit --------------------
+  // The budget's raw material. Counted per town rather than per template
+  // because that is what a probe standing in the world can see, and it is the
+  // number that moves when someone answers a shape problem with more boxes.
+  {
+    out.colliders = { perTown: [], roofs: 0, worstRoofFit: 0 };
+    for (const town of towns.towns) {
+      const r = town.radius + 4;
+      const [boxes, roofs] = await page.evaluate(
+        ([x, z, rad]) => [
+          window.__dbgStructures(x, z, rad).length,
+          window.__dbgRidges(x, z, rad),
+        ], [town.x, town.z, r],
+      );
+      out.colliders.perTown.push({
+        id: town.id, boxes, roofs: roofs.length, total: boxes + roofs.length,
+        worstRoofFit: roofs.reduce((m, o) => Math.max(m, o.fit), 0),
+      });
+    }
+    const all = await page.evaluate(() => window.__dbgRidges(0, 0, 1e6));
+    out.colliders.roofs = all.length;
+    out.colliders.worstRoofFit = round(all.reduce((m, o) => Math.max(m, o.fit), 0), 3);
+  }
+
   await page.close();
   out.geometry = { towns: measured, camp: campBoxes };
   return out;
 }
+
+/**
+ * THE COLLIDER BUDGET — what stops the next agent answering a shape problem
+ * with a thousand more boxes.
+ *
+ * Every other assertion in this file is about whether the collision WORKS. These
+ * two are about whether it is any good, and they exist because the collision can
+ * be perfect by every test above and still be the thing issue #3 was reported
+ * for. Two ways to get that wrong, one number each:
+ *
+ *   TOO MANY. Decomposing each roof into boxes that follow its steps took the
+ *   world from 193 colliders to 2326 and tripled `structureTopAt` inside a camp.
+ *   Nothing here failed. `total` per town fails on any INCREASE, exactly as
+ *   test-zfight's seam budget does, so a change that adds forty colliders to a
+ *   hut has to be looked at rather than merged.
+ *
+ *   BADLY SHAPED. `worstRoofFit` is how far a roof cylinder stands off the
+ *   thatch it was fitted to at its worst point (`SolidRidge.fitError`,
+ *   world/structures.ts). It is the whole of "does the collider follow the
+ *   model" as a number, and it is the one the issue's screenshots were of.
+ *
+ * A town missing from the table is a town this tool has never seen. Budget 0, so
+ * it has to be looked at — the same rule zfight applies to a new species.
+ *
+ * ADD A BUILDING AND YOU RE-BASELINE THESE IN THE SAME COMMIT, having looked at
+ * what it did. That is the point of the failure, not a chore around it.
+ *
+ * The query COST is deliberately not budgeted, though it is reported above. It
+ * is host-dependent — the same rule the frame-rate assertions in this repo obey
+ * — so any threshold loose enough to be honest on a software rasteriser would
+ * have passed the 2326-box version at 92 ns anyway. The count is the guard; the
+ * cost is the explanation.
+ */
+const BUDGET = {
+  //           colliders   of which roofs
+  encampment: { total: 64, roofs: 5 },   // 3 huts, 2 ridge tents, 59 boxes
+  redbriar: { total: 39, roofs: 1 },     // 1 hut
+  stonewatch: { total: 26, roofs: 1 },   // 1 hut
+};
+/**
+ * How far a roof cylinder may stand off its own thatch, world units.
+ *
+ * 0.6 is the debt the two roofs in the game already carry (0.394 on a hut,
+ * 0.577 on a ridge tent) and not a target. The target is MAX_STEP_UP, 0.5:
+ * under it the mismatch is smaller than a step the hero takes without noticing,
+ * over it he visibly floats over a roof or sinks into one. Getting there means a
+ * WEDGE primitive rather than a finer fit — a straight-sided gable is a shape no
+ * circle can be — so bring it down and lower this number in the same commit.
+ */
+const ROOF_FIT_LIMIT = 0.6;
 
 const withCollision = await run(true);
 const withoutCollision = await run(false, withCollision.geometry);
@@ -269,4 +343,35 @@ delete withCollision.geometry;
 delete withoutCollision.geometry;
 await browser.close();
 
-console.log(JSON.stringify({ withCollision, withoutCollision }, null, 2));
+const overBudget = [];
+const unbudgeted = [];
+for (const t of withCollision.colliders.perTown) {
+  const b = BUDGET[t.id];
+  if (!b) { unbudgeted.push(t.id); continue; }
+  if (t.total > b.total) {
+    overBudget.push({ id: t.id, what: 'colliders', is: t.total, budget: b.total });
+  }
+  if (t.roofs > b.roofs) {
+    overBudget.push({ id: t.id, what: 'roofs', is: t.roofs, budget: b.roofs });
+  }
+}
+if (withCollision.colliders.worstRoofFit > ROOF_FIT_LIMIT) {
+  overBudget.push({
+    id: 'world', what: 'roofFit',
+    is: withCollision.colliders.worstRoofFit, budget: ROOF_FIT_LIMIT,
+  });
+}
+
+console.log(JSON.stringify({
+  budget: {
+    roofFitLimit: ROOF_FIT_LIMIT,
+    perTown: withCollision.colliders.perTown,
+    worstRoofFit: withCollision.colliders.worstRoofFit,
+    overBudget,
+    unbudgeted,
+    pass: overBudget.length === 0 && unbudgeted.length === 0,
+  },
+  withCollision,
+  withoutCollision,
+}, null, 2));
+if (overBudget.length || unbudgeted.length) process.exitCode = 1;
