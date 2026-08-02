@@ -50,6 +50,27 @@ export class Input {
   mouseDY = 0;
   wheelDelta = 0;
   pointerLocked = false;
+  /**
+   * Whether anyone currently WANTS the pointer, as opposed to holding it.
+   *
+   * `requestPointerLock()` resolves a tick or more after it is called, and
+   * `document.pointerLockElement` stays null for that whole window — so
+   * `releaseLock()` asking "is anything locked" got `no` and did nothing, and
+   * the lock it was cancelling landed a moment later on whatever had replaced
+   * the game. That is issue #29: `Exit to title` closes the in-game menu (which
+   * hands the pointer BACK to the game, the right thing on Continue) and then
+   * runs `exitToTitle`, which releases it — in that order, one frame apart.
+   * The release lost the race, and the title screen came up with the pointer
+   * captured by the canvas underneath it: no cursor, and every click on New
+   * Game delivered to the world instead of to the button.
+   *
+   * Held here rather than fixed at either call site because the hazard belongs
+   * to the pair, not to the pause menu: any future "take it, no, give it back"
+   * within one turn of the event loop would have raced the same way. With this,
+   * the LAST call wins whatever the browser's timing does — see the
+   * `pointerlockchange` handler, which hangs up on a lock nobody wants any more.
+   */
+  private lockWanted = false;
   attackHeld = false;
   attackPressed = false;
 
@@ -107,9 +128,10 @@ export class Input {
 
     el.addEventListener('mousedown', (e) => {
       this.noteSource('kbm');
-      // Never grab the pointer on a touch device: it would hide the finger's
-      // own cursorless interaction model and break the overlay.
-      if (!this.pointerLocked && !this.touchActive) el.requestPointerLock();
+      // Through `requestLock` rather than straight to the DOM, so this way in
+      // records the same intent the explicit callers do — it carries the touch
+      // guard and the already-locked guard that used to be written out here.
+      this.requestLock();
       if (e.button === 0) { this.attackHeld = true; this.attackPressed = true; }
     });
     window.addEventListener('mouseup', (e) => {
@@ -117,6 +139,11 @@ export class Input {
     });
     document.addEventListener('pointerlockchange', () => {
       this.pointerLocked = document.pointerLockElement === el;
+      // THE LATE ARRIVAL. A lock granted after someone asked for it back is
+      // handed straight back here, which is what makes `releaseLock` final
+      // regardless of how long the browser took to answer the request it is
+      // cancelling. See `lockWanted`.
+      if (this.pointerLocked && !this.lockWanted) document.exitPointerLock();
     });
     window.addEventListener('mousemove', (e) => {
       if (this.pointerLocked) {
@@ -280,7 +307,12 @@ export class Input {
    * the way it always did.
    */
   requestLock(): void {
-    if (this.pointerLocked || this.touchActive) return;
+    if (this.touchActive) return;
+    // Recorded even when the lock is already held, so that a `releaseLock`
+    // arriving later has something to clear. The flag is the intent; the
+    // browser's answer is `pointerLocked`.
+    this.lockWanted = true;
+    if (this.pointerLocked) return;
     // Older DOM lib types this `void`, newer ones a Promise. Both ship.
     const pending = this.el.requestPointerLock() as unknown;
     if (pending instanceof Promise) pending.catch(() => {});
@@ -295,9 +327,13 @@ export class Input {
    * all. The F1 sheet deliberately does not call this — see `clearLook` below
    * for what it does instead and why.
    *
-   * Safe to call when nothing is locked; the browser ignores it.
+   * Safe to call when nothing is locked — and, since issue #29, safe to call
+   * while a lock is still IN FLIGHT, which is the case the old one-line body
+   * could not express. Clearing the intent is the half that survives the wait;
+   * `exitPointerLock` only covers a lock the browser has already granted.
    */
   releaseLock(): void {
+    this.lockWanted = false;
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
