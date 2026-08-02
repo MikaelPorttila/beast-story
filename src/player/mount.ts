@@ -307,7 +307,12 @@ export class MountController {
     this.topSpeed = beast.stats.speed * (this.flying ? FLY_CRUISE : GALLOP);
 
     const p = this.player.position;
-    this.pos.set(p.x, Math.max(this.world.getHeight(p.x, p.z), this.world.waterLevel - WADE_DEPTH), p.z);
+    // `blockTop`, not `getHeight`: mounting up while standing ON something —
+    // a crate, a cart, the low end of a tent — must not drop the animal to the
+    // dirt underneath it and leave the rider buried in the thing he was just
+    // standing on. Measured on a 1.96-unit crate in the Encampment while this
+    // read `getHeight`: on foot 13.96, mounted 12.91. See `blockTop`.
+    this.pos.set(p.x, Math.max(this.blockTop(p.x, p.z), this.world.waterLevel - WADE_DEPTH), p.z);
     if (this.flying) this.pos.y = this.floorFor(p.x, p.z);
     this.vel.set(0, 0, 0);
     this.vy = 0;
@@ -353,7 +358,13 @@ export class MountController {
     const r = beast.scaledRadius + 0.7;
     const x = this.pos.x + side.x * r;
     const z = this.pos.z + side.z * r;
-    const gh = this.world.getHeight(x, z);
+    // The third of the same query, and the reason all three are `blockTop` now
+    // rather than only the two the issue is a photograph of: a step-off that
+    // asks the terrain alone will put the rider inside the crate he dismounts
+    // beside, and will call a hut wall an empty patch of ground. His own
+    // physics would shove him out on the next slice, so this one was never
+    // visible — which is exactly why it would have been the one left behind.
+    const gh = this.blockTop(x, z);
     const p = this.player.position;
     if (!this.flying && gh <= this.pos.y + MOUNT_STEP_UP) {
       p.set(x, gh, z);
@@ -471,9 +482,21 @@ export class MountController {
     this.vy -= GRAVITY * dt;
     this.pos.y += this.vy * dt;
 
-    // Deep water is waded, not swum: there is no swimming gait for a mount, so
-    // the floor never goes further down than WADE_DEPTH below the surface.
-    const gh = Math.max(world.getHeight(this.pos.x, this.pos.z), world.waterLevel - WADE_DEPTH);
+    // WHAT HOLDS A MOUNT UP IS WHAT STOPPED IT GETTING HERE. This asked
+    // `getHeight` — terrain and nothing else — while the horizontal test a
+    // dozen lines above asked `blockTop`, so the two disagreed about every
+    // crate, cart, barrel and tent in the world: the mount was refused entry to
+    // a column by a box and then, once on top of one, sank straight through it
+    // to the dirt. That is issue #32, and it is the same defect the hero's own
+    // note calls "what makes a low crate something you walk ON rather than
+    // something you sink into" (Player.update). Measured on a 1.96-unit crate
+    // in the Encampment: hero 13.96, rider 12.91, a metre inside the box.
+    //
+    // Deep water is still waded, not swum: there is no swimming gait for a
+    // mount, so the floor never goes further down than WADE_DEPTH below the
+    // surface. `blockTop` already folds terrain in, so this is the same clamp
+    // it always was with two more solids in the maximum.
+    const gh = Math.max(this.blockTop(this.pos.x, this.pos.z), world.waterLevel - WADE_DEPTH);
     if (this.pos.y <= gh) {
       this.pos.y = gh;
       this.vy = 0;
