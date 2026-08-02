@@ -141,7 +141,7 @@ once frames come quickly.
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
-  `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`. `tools/capture-set.ps1` (PowerShell,
+  `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`. `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
 - **`test-zfight.mjs` is the only probe that needs no dev server**, because
@@ -238,6 +238,17 @@ once frames come quickly.
   are entirely gone); sized from `src/core/viewport.ts` it is **0**. The one
   synthetic number in the run is `window.screen`, which the probe stubs because
   CDP's `screenWidth`/`screenHeight` are not reflected there.
+- `test-npc.mjs` guards the talk test, and it is a PAIR in the same sense
+  `test-menu.mjs`'s two holds of W are: the same hero at the same xz either side
+  of one change of altitude. On the ground beside Gain the prompt must be up and
+  E must open a conversation; a long way over him the prompt must be gone, E
+  must do nothing, and a talk begun lower down must have ended by itself. Only
+  asserting the second half would pass just as well if the prompt were broken
+  everywhere. Between them sits the case that makes the number defensible: a
+  flying mount at REST hovers 2.21 units up, which is his head height, and is
+  deliberately still talkable — see `NPC_TALK_RISE`. It exits non-zero, and it
+  is the only probe in `tools/` that has to get the hero AIRBORNE, which it does
+  by typing `/mount galebird` at the dev console and holding Space.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -480,6 +491,20 @@ his. He reaches the rest of the game as `World.npcs` ([core/types.ts](src/core/t
 `nearest` for the prompt, `talk(id)` for the conversation. `talk()` returns a
 PAYLOAD (`NpcTalk`) rather than a sentence — that is where a quest offer lands.
 `__dbgNpcs()` reports who is standing where, and whether anyone is mid-sentence.
+
+**"NEAR HIM" IS A CYLINDER, AND IT HAS TO BE ASKED IN THREE AXES.** `nearest`
+took `(x, z)` and nothing else until issue #25, so a hero flying over the
+Encampment was offered a conversation with everyone in it — measured, the prompt
+was still up **36.92 units** above Gain's head on a climbing galebird. It now
+takes the caller's feet `y` as well, and both it and the conversation's own
+leave test in `NpcField.update` reject anyone outside `NPC_TALK_RISE` of his
+feet. A cylinder rather than a sphere on purpose: `NPC_TALK_RANGE` is tuned
+against a hero who walked up to him on the flat, and folding height into one
+radius would quietly shorten that reach on every slope to fix a defect nobody
+reported. Two questions — "did you come over to him" and "are you at his level"
+— so two numbers, and the constant's comment carries the four measurements it
+was picked from. The CULL stays flat: a man you are flying over is the case
+where you can see him best. `tools/test-npc.mjs` is the guard.
 
 Grass NOTICES what walks through it.
 [src/world/sway.ts](src/world/sway.ts) is one vertex shader carrying three

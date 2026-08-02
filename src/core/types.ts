@@ -346,8 +346,17 @@ export interface NpcTalk {
  */
 export interface NpcField {
   readonly all: readonly NpcInfo[];
-  /** The closest NPC within `range` of (x, z), or null. Allocates nothing. */
-  nearest(x: number, z: number, range: number): NpcInfo | null;
+  /**
+   * The closest NPC within `range` of (x, z) AND at roughly the caller's own
+   * height, or null. Allocates nothing.
+   *
+   * `y` is the caller's FEET, matching `NpcInfo.y`, and the test it feeds is a
+   * cylinder rather than a sphere — see NPC_TALK_RISE in world/npc.ts for the
+   * measurements and for why the two axes are two numbers. It is not optional:
+   * the query took (x, z) alone until issue #25, which is why a hero flying
+   * over a settlement was offered a conversation with everyone in it.
+   */
+  nearest(x: number, y: number, z: number, range: number): NpcInfo | null;
   /** Begin (or restart) a conversation. Returns what to show, or null. */
   talk(id: string): NpcTalk | null;
   /** The conversation in progress, or null. */
