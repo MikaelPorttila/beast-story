@@ -153,11 +153,45 @@ export const CHARACTERS: readonly NpcCharacter[] = [GAIN];
  */
 export const NPC_TALK_RANGE = 2.8;
 /**
+ * How far ABOVE OR BELOW him you may be and still be talking to him, in world
+ * units of separation between his feet and yours.
+ *
+ * A CYLINDER, not a sphere, and that is the point. `NPC_TALK_RANGE` above is
+ * tuned against a hero who walked up to him on flat camp ground; folding the
+ * height into one radius would quietly shorten that reach on every slope, for a
+ * defect nobody reported. The two questions are different — "did you come over
+ * to him" and "are you at his level" — so they get two numbers.
+ *
+ * There was no vertical test at all until issue #25: the query took (x, z) and
+ * nothing else, so a hero flying over the Encampment was offered "Press E —
+ * Talk to Deckard Gains Armstrong" the whole way across. Measured on a galebird
+ * climbing straight up out of the camp, the prompt was still up at dy 36.92.
+ *
+ * 2.5 is picked off the four cases that matter, all measured beside Gain:
+ *
+ *   standing next to him       dy 0.00   talks
+ *   jump apex, on foot         dy 1.54   talks — a hop must not blink the prompt
+ *   flying mount at rest hover dy 2.21   talks — that is his head height, and
+ *                                        a bobbing hover either side of a
+ *                                        tighter bound would flicker
+ *   half a second of climb     dy 4.88   silent
+ *
+ * The gap it has to fit in is 1.54..2.21, and 2.5 clears the jump by nearly a
+ * unit while leaving the settled hover comfortably inside rather than balanced
+ * on the edge. Anything a player reaches by CLIMBING is out on the first frame.
+ */
+const NPC_TALK_RISE = 2.5;
+/**
  * Where a conversation ends because you walked off. Deliberately wider than it
  * begins — a dialogue that blinked out the instant you shifted your weight at
  * the hysteresis edge would be worse than one that lingers a step too long.
+ *
+ * The same slack applies to the height, and for a stronger reason than the
+ * horizontal: a mount bobs on its hover where a walker does not, so a leave
+ * bound equal to the entry bound would end a conversation on the down-beat.
  */
 const NPC_LEAVE_RANGE = NPC_TALK_RANGE * 1.5;
+const NPC_LEAVE_RISE = NPC_TALK_RISE * 1.5;
 /**
  * Past this the body is not drawn or animated at all, in world units. The same
  * argument `Towns.update` makes about its 420: an NPC is resident for the life
@@ -289,10 +323,14 @@ export class Npcs implements NpcField {
 
   // -- NpcField -------------------------------------------------------------
 
-  nearest(x: number, z: number, range: number): NpcInfo | null {
+  nearest(x: number, y: number, z: number, range: number): NpcInfo | null {
     let best: NpcInfo | null = null;
     let bd2 = range * range;
     for (const p of this.placed) {
+      // Height first: it rejects the whole airborne case with one subtraction
+      // and an absolute, where the horizontal test cannot tell a hero standing
+      // in front of him from one thirty units over his head. See NPC_TALK_RISE.
+      if (Math.abs(p.info.y - y) > NPC_TALK_RISE) continue;
       const dx = p.info.x - x;
       const dz = p.info.z - z;
       const d2 = dx * dx + dz * dz;
@@ -334,13 +372,23 @@ export class Npcs implements NpcField {
       const dx = p.info.x - focus.x;
       const dz = p.info.z - focus.z;
       const d2 = dx * dx + dz * dz;
+      // CULLING STAYS FLAT. This one is about pixels on the screen, and a man
+      // you are flying over is the case where you can see him best — gating the
+      // draw on height would delete him from under his own shadow.
       const visible = d2 < NPC_CULL2;
       p.rig.root.visible = visible;
-      if (this.talkState?.id === p.char.id && d2 > NPC_LEAVE_RANGE * NPC_LEAVE_RANGE) {
+      // Whether you are STILL WITH HIM, though, is the same cylinder `nearest`
+      // uses, one hysteresis step wider: taking off mid-sentence ends it, the
+      // way walking away does. Without this the height check would only govern
+      // the prompt, and a talk begun on the ground would follow you into the
+      // sky and stay open there.
+      const near = d2 < NPC_LEAVE_RANGE * NPC_LEAVE_RANGE
+        && Math.abs(p.info.y - focus.y) <= NPC_LEAVE_RISE;
+      if (this.talkState?.id === p.char.id && !near) {
         this.talkState = null;
       }
       if (!visible) continue;
-      const attended = d2 < NPC_LEAVE_RANGE * NPC_LEAVE_RANGE;
+      const attended = near;
       // Frame-rate independent, per the convention: an exponential approach to
       // the wanted bearing, never a fixed lerp factor.
       const want = attended ? Math.atan2(focus.x - p.info.x, focus.z - p.info.z) : p.restYaw;

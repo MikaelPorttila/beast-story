@@ -1922,7 +1922,9 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // This is only the keyboard edge and the rendering.
     const npcField = world.npcs;
     nearNpc = npcField && !npcField.talking
-      ? npcField.nearest(player.position.x, player.position.z, NPC_TALK_RANGE)
+      ? npcField.nearest(
+        player.position.x, player.position.y, player.position.z, NPC_TALK_RANGE,
+      )
       : null;
     if (first && input.pressed('KeyE')) {
       if (npcField?.talking) npcField.endTalk();
@@ -2410,7 +2412,18 @@ beginPlay();
       const t0 = world.towns.nearest(n.x, n.z);
       return t0 ? +Math.hypot(t0.x - n.x, t0.z - n.z).toFixed(2) : -1;
     })(),
+    // HORIZONTAL, and its companion below is the height — reported as the two
+    // numbers the talk test actually asks about rather than as one slant
+    // distance, because a single figure cannot show which of the two refused.
+    // `abovePlayer` is negative when the hero is over him, which is issue #25's
+    // whole case (measured at -36.92 on a climbing galebird).
     fromPlayer: +Math.hypot(n.x - player.position.x, n.z - player.position.z).toFixed(2),
+    abovePlayer: +(n.y - player.position.y).toFixed(2),
+    // What the shipped query answers RIGHT NOW, run rather than re-derived, so
+    // a change to the rule shows up here instead of being asserted twice.
+    inTalkRange: world.npcs?.nearest(
+      player.position.x, player.position.y, player.position.z, NPC_TALK_RANGE,
+    )?.id === n.id,
   })),
 });
 
