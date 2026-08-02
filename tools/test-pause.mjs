@@ -20,7 +20,10 @@
 //
 // `fs=0` throughout: New Game takes fullscreen otherwise and resizes the
 // viewport under everything being measured.
-import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
+import {
+  launchBrowser, newPage, wait, logPageErrors,
+  installFakePad, setPadButton, PAD_BUTTON,
+} from './browser.mjs';
 
 const SETTLE = 5000;
 /** How long W is held per walk. At ~6 m/s that is a distance nothing rounds to 0. */
@@ -103,7 +106,58 @@ const menu = {};
 }
 
 // ---------------------------------------------------------------------------
-// Arm 2: Exit, which needs a title screen to come back to
+// Arm 2: START, ON A PAD, COUNTED ONCE
+//
+// The assertion this file exists for most, because it is the failure a player
+// reported and the one no other probe could see. Start opens this menu AND
+// closes it, so an edge counted twice is a button that "sometimes does nothing":
+// the first read opens, the second — one poll later, off the same unreleased
+// press — closes it again. Nothing is on screen and nothing looks broken.
+//
+// It is measured by HOLDING the button rather than tapping it. A tap can be over
+// before the second poll and would pass against the bug; the bug is specifically
+// about a button that is still down when the modal opens, which is every real
+// press. `GamepadControls.setModal(true)` used to zero its edge history at
+// exactly that moment — see the note there.
+// ---------------------------------------------------------------------------
+const gamepad = {};
+{
+  const page = await newPage(browser, { width: 1100, height: 700 });
+  logPageErrors(page);
+  await installFakePad(page, 'Xbox 360 Controller (STANDARD GAMEPAD Vendor: 045e Product: 028e)');
+  await page.goto('http://localhost:5187/?fps=30&menu=0&fs=0', { waitUntil: 'load' });
+  await page.waitForSelector('canvas');
+  await wait(SETTLE);
+  await page.evaluate(() => window.__connectPad());
+  await wait(300);
+
+  // HELD across many polls, then released.
+  await setPadButton(page, PAD_BUTTON.START, true);
+  await wait(900);
+  gamepad.openWhileHeld = await has(page, '.bs-pause');
+  await setPadButton(page, PAD_BUTTON.START, false);
+  await wait(400);
+  gamepad.openAfterRelease = await has(page, '.bs-pause');
+
+  // And again: the same press has to close it, once.
+  await setPadButton(page, PAD_BUTTON.START, true);
+  await wait(900);
+  await setPadButton(page, PAD_BUTTON.START, false);
+  await wait(400);
+  gamepad.closedBySecondPress = !(await has(page, '.bs-pause'));
+
+  // Third press reopens — proving the edge history survived a modal round trip
+  // rather than the menu simply having got stuck shut.
+  await setPadButton(page, PAD_BUTTON.START, true);
+  await wait(900);
+  await setPadButton(page, PAD_BUTTON.START, false);
+  await wait(400);
+  gamepad.reopenedByThirdPress = await has(page, '.bs-pause');
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
+// Arm 3: Exit, which needs a title screen to come back to
 // ---------------------------------------------------------------------------
 const exit = {};
 {
@@ -175,6 +229,13 @@ check(menu.escapeFromSettings.stillOpen && menu.escapeFromSettings.backOnTheList
   'Escape backs out of Settings rather than closing');
 check(menu.escapeFromSettings.focus === 'settings', 'and leaves the cursor where it went in');
 
+check(gamepad.openWhileHeld, 'Start opens the menu');
+// The one that fails on the double edge: the menu has to still be there when the
+// button comes up, not have been closed by a second edge off the same press.
+check(gamepad.openAfterRelease, 'and one press of Start is ONE edge');
+check(gamepad.closedBySecondPress, 'a second press closes it');
+check(gamepad.reopenedByThirdPress, 'and a third reopens it');
+
 check(exit.playingFirst && exit.travelFirstGame > 4, 'the staged boot reaches a playable game');
 check(exit.movedAwayFromSpawn > 20, 'the first session was somewhere the second is not');
 check(exit.titleScreenBack && exit.pauseGone, 'Exit puts the title screen back');
@@ -183,5 +244,5 @@ check(exit.secondGame.menuGone, 'New Game works a second time');
 check(exit.secondGame.fromSpawn < 3, 'and the second hero starts at the spawn');
 check(exit.secondGame.travel > 4, 'and can walk');
 
-console.log(JSON.stringify({ menu, exit, failures: fail, pass: fail.length === 0 }, null, 2));
+console.log(JSON.stringify({ menu, gamepad, exit, failures: fail, pass: fail.length === 0 }, null, 2));
 if (fail.length) process.exitCode = 1;

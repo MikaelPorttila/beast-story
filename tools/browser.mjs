@@ -98,3 +98,74 @@ export const logPageErrors = (page) => {
   page.on('console', (m) => { if (m.type() === 'error') console.error('[page]', m.text()); });
   page.on('pageerror', (e) => console.error('[pageerror]', e.message));
 };
+
+/**
+ * SYNTHETIC GAMEPAD, shared by every probe that needs one.
+ *
+ * Lives here rather than in one test because two now need it, and the second
+ * (test-pause.mjs) exists to catch a pad EDGE being counted twice — the kind of
+ * bug a second, slightly different copy of this harness would be perfectly
+ * capable of hiding.
+ *
+ * A real controller cannot be plugged into headless Brave, so
+ * `evaluateOnNewDocument` replaces `navigator.getGamepads` before any module
+ * loads and a `gamepadconnected` event wakes the game's own listener. That runs
+ * the real code path end to end and needs no test-only code in the bundle.
+ *
+ * The fake deliberately does NOT model `timestamp`: nothing in core/gamepad.ts
+ * reads it, and a fake that pretended to would be asserting on our own mock.
+ */
+/** Install the fake pad. `id` decides which glyph set the HUD should choose. */
+export async function installFakePad(page, id, { rumble = false } = {}) {
+  await page.evaluateOnNewDocument((id, rumble) => {
+    const state = {
+      id,
+      index: 0,
+      connected: true,
+      mapping: 'standard',
+      axes: [0, 0, 0, 0],
+      buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
+    };
+    if (rumble) {
+      // Records calls so the mixer's re-issue cadence can be counted rather
+      // than assumed. `effects` is the current spec spelling.
+      window.__rumble = { calls: 0, last: null };
+      state.vibrationActuator = {
+        effects: ['dual-rumble'],
+        playEffect: (type, params) => {
+          window.__rumble.calls++;
+          window.__rumble.last = { type, ...params };
+          return Promise.resolve('complete');
+        },
+      };
+    }
+    window.__fakePad = state;
+    navigator.getGamepads = () => [state];
+    // Dispatched EXPLICITLY by the test once the game has booted, rather than
+    // off `load`. main.ts is a module and the module graph is served over many
+    // dev-server round-trips, so `load` is not a reliable "the game's listener
+    // exists now" signal — firing there raced the listener and the pad silently
+    // never connected. Chrome would fire this on the pad's first real press.
+    // NOT `new GamepadEvent(...)`: its constructor performs a real conversion to
+    // the platform Gamepad interface and rejects a plain object outright, and
+    // there is no way to mint a genuine Gamepad from script. A plain Event with
+    // the property defined on it delivers the exact shape the listener reads
+    // (`e.gamepad.index`, `e.gamepad.id`), which is what is under test.
+    window.__connectPad = () => {
+      const ev = new Event('gamepadconnected');
+      Object.defineProperty(ev, 'gamepad', { value: state });
+      window.dispatchEvent(ev);
+    };
+  }, id, rumble);
+}
+
+/** Standard-mapping button indices, mirrored from core/gamepad.ts. */
+export const PAD_BUTTON = {
+  A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7,
+  START: 9, L3: 10, R3: 11, DUP: 12, DDOWN: 13, DLEFT: 14, DRIGHT: 15,
+};
+
+/** Press or release one button on the fake pad. */
+export const setPadButton = (page, i, down) => page.evaluate((i, down) => {
+  window.__fakePad.buttons[i] = { pressed: down, touched: down, value: down ? 1 : 0 };
+}, i, down);

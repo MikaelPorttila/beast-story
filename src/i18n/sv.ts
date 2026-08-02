@@ -116,6 +116,26 @@ export const sv: Translation = {
   'menu.settings.controllerNote': 'Gäller bara handkontroll — musen inverteras aldrig.',
   'menu.settings.autoFullscreen': 'Helskärm vid start',
   'menu.settings.language': 'Språk',
+  // Under språkväljaren, och bara när inställningarna öppnats inifrån ett spel
+  // där den är avstängd. Säger var inställningen finns, inte att den saknas.
+  'menu.settings.languageInGame': 'Byt språk från startskärmen.',
+
+  // Menyn i spelet (src/ui/pause.ts) — Escape, Start på handkontrollen eller
+  // MENY-knappen på pekskärmen.
+  //
+  // 'Meny' och inte 'Pausad': hjälten står stilla medan menyn är uppe, men
+  // världen bakom honom gör inte det — bestar följer, vilda varelser rör sig
+  // och klockan går. Samma resonemang som i en.ts.
+  'pause.title': 'Meny',
+  'pause.continue': 'Fortsätt',
+  'pause.settings': 'Inställningar',
+  'pause.exit': 'Avsluta till startskärmen',
+  // MENY-knappen uppe till vänster på pekskärmen. En knappetikett, så den är
+  // lika kort som den engelska — knappen växer inte med ordet.
+  'touch.menu': 'MENY',
+  // Raden för Escape i F1-arket. Samma ordning som originalet: det öppnar menyn
+  // när inget annat är uppe, och stänger det som är uppe när något är det.
+  'keys.cancel': 'Meny · stäng · avbryt',
 
   // Uppstartsförloppet (src/ui/loading.ts).
   'load.world': 'Bygger världen',

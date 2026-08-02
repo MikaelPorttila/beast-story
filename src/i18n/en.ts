@@ -436,9 +436,16 @@ export const en = {
   'menu.settings.languageInGame': 'Change the language from the title screen.',
 
   // ---- in-game menu --------------------------------------------------------
-  // The pause menu (src/ui/pause.ts), on Escape / Start / the touch overlay's
-  // menu button. Settings is the SAME list the title screen shows.
-  'pause.title': 'Paused',
+  // src/ui/pause.ts, on Escape / Start / the touch overlay's menu button.
+  // Settings is the SAME list the title screen shows.
+  /**
+   * NOT "Paused", which is what this said and what it is not. The HERO is
+   * frozen while the menu is up — he reads no input and takes no slice — but the
+   * world behind him is not: chunks stream, beasts follow, wild spawns move and
+   * the clock runs. Labelling that "Paused" tells a player they can walk away
+   * from the screen, which is the one thing it does not mean.
+   */
+  'pause.title': 'Menu',
   'pause.continue': 'Continue',
   'pause.settings': 'Settings',
   /**

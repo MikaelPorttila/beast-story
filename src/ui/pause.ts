@@ -1,5 +1,6 @@
 import { t, language, onLanguageChange } from '../i18n';
 import { SettingsPanel, type SettingsHooks } from './settings';
+import { enterFullscreen, isFullscreen } from './fullscreen';
 import { injectStyles } from './styles';
 
 /**
@@ -73,6 +74,8 @@ export class PauseMenu {
   private padDown = new Uint8Array(20);
   private padEdge = new Uint8Array(20);
   private padAxisLatched = false;
+  /** Fullscreen at the moment this opened. See `open` and `close`. */
+  private wasFullscreen = false;
 
   constructor(private hooks: PauseMenuHooks) {
     injectStyles();
@@ -93,6 +96,13 @@ export class PauseMenu {
   open(): void {
     if (this.el) return;
     this.step = 'menu';
+    // WAS THE PAGE FULLSCREEN WHEN THIS OPENED? Recorded because Escape is not
+    // ours to intercept: it is the browser's own "leave fullscreen" key, no
+    // page can preventDefault it, and the keydown reaches the game as well. So
+    // a player who presses Escape in fullscreen to see this menu gets the menu
+    // AND loses fullscreen, having asked for neither half of that. `close()`
+    // puts it back. See the note there for what it can and cannot do.
+    this.wasFullscreen = isFullscreen();
     const el = document.createElement('div');
     el.className = 'bs-pause';
     el.innerHTML = '<div class="bs-scrim"></div><div class="pane"></div>';
@@ -117,8 +127,27 @@ export class PauseMenu {
     this.hooks.onOpen?.();
   }
 
-  close(): void {
+  /**
+   * Shut the menu and give the game back.
+   *
+   * `restoreFullscreen` is false for the one caller that means it — Exit, which
+   * is deliberately going back to a windowed title screen.
+   *
+   * PUTTING FULLSCREEN BACK IS BEST-EFFORT, by construction rather than by
+   * sloppiness. `requestFullscreen()` is only honoured off a recent user
+   * activation, so this works when the menu is dismissed by a CLICK on Continue
+   * or the pointer — which is how it is dismissed on a mouse, and the case the
+   * player noticed. Closing with Escape or the pad reaches here from a
+   * simulation slice with no activation behind it, the request is refused, and
+   * the game stays windowed exactly as it does today. Half a fix beats none, and
+   * there is no arrangement in which a page can keep a fullscreen the browser
+   * has already taken back.
+   */
+  close(restoreFullscreen = true): void {
     if (!this.el) return;
+    // BEFORE the DOM work: a request issued from a click handler has a deadline
+    // measured in the same terms `StartMenu.start` obeys — see ui/fullscreen.ts.
+    if (restoreFullscreen && this.wasFullscreen && !isFullscreen()) enterFullscreen();
     if (this.padRaf) cancelAnimationFrame(this.padRaf);
     this.padRaf = 0;
     this.unlisten?.();
@@ -279,7 +308,9 @@ export class PauseMenu {
       case 'exit':
         // Closed FIRST, so the host's teardown runs with no menu on screen and
         // nothing of this session's DOM left to raise a title screen behind.
-        this.close();
+        // `false`: Exit is going somewhere windowed on purpose, and the host
+        // calls `exitFullscreen()` a line later anyway.
+        this.close(false);
         this.hooks.onExit();
         break;
       default: break;
