@@ -42,10 +42,11 @@
 // second change in the same commit. Alternating every 2.5 s over one stretch of
 // world, the drift cancels and the paired sign is readable.
 import { launchBrowser, newPage, wait, glRenderer } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const W = 1280;
 const H = 800;
-const BASE = 'http://localhost:5187/';
+const BASE = `${HOST}/`;
 const PLAY = `${BASE}?menu=0&fs=0&perf=1&debug=1`;
 // cam/look are offsets from world.spawnPoint, not world coordinates.
 const PHOTO = `${BASE}?photo=1&hud=0&beasts=0&enemies=0&cam=0,10,12&look=0,1,0`;

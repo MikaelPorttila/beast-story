@@ -3,7 +3,7 @@ import { loadPrefs, type Prefs } from '../core/prefs';
 import { flags } from '../core/flags';
 import { t, language, onLanguageChange } from '../i18n';
 import { enterFullscreen } from './fullscreen';
-import { SettingsPanel, type SettingsHooks } from './settings';
+import { SettingsPanel, isChip, type SettingsHooks } from './settings';
 import { injectStyles } from './styles';
 import bgUrl from './menu-bg.webp';
 import logoUrl from './menu-logo.webp';
@@ -516,10 +516,10 @@ export class StartMenu {
       case 'ArrowUp': case 'w': case 'W':
         e.preventDefault(); this.moveFocus(-1); break;
       case 'ArrowLeft': case 'ArrowRight':
-        // Left/right is for the one thing laid out as a ROW: the language
-        // chips inside the settings column. Anywhere else it does nothing
-        // rather than jumping the list sideways for no reason.
-        if (document.activeElement?.hasAttribute('data-lang')) {
+        // Left/right is for the things laid out as a ROW: the volume steps and
+        // the language chips inside the settings column. Anywhere else it does
+        // nothing rather than jumping the list sideways for no reason.
+        if (isChip(document.activeElement)) {
           e.preventDefault();
           this.moveFocus(e.key === 'ArrowRight' ? 1 : -1);
         }

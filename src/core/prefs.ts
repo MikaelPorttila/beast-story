@@ -58,9 +58,24 @@ export interface Prefs {
   /** Camera-shake strength, 0..1, scaling the tuned per-cue amounts. */
   shakeIntensity: number;
   /**
-   * Reserved for src/feedback/audio.ts, which is a seam with no sound behind it
-   * yet. Stored now so that the day audio lands it does not silently start at
-   * full volume for everyone who had already tuned the other two.
+   * MUSIC VOLUME, 0..1, and 0 is MUTE — not a quiet setting but the whole
+   * feature switched off: nothing is fetched, no element is constructed, and
+   * whatever was playing is unloaded (src/audio/music.ts).
+   *
+   * One number rather than a level plus a mute flag, and the argument is that
+   * the second field could only ever disagree with the first. "Muted at 80%"
+   * and "at 0%" sound identical and differ only in what a later un-mute
+   * restores, which is a convenience the panel already provides — the row is a
+   * strip of chips (OFF · 20 · 40 · 60 · 80 · 100), so coming back from OFF is
+   * the same one tap that leaving it was.
+   *
+   * 0.8 by default because music under a game is a bed, not the foreground, and
+   * because a player who finds it too loud reaches for a setting while one who
+   * finds it too quiet concludes there is none.
+   *
+   * NOT the SFX channel. src/feedback/audio.ts is still a seam with no sound
+   * behind it; when cues arrive they want a level of their own, since the
+   * balance between a song and a sword hit is not one slider's business.
    */
   volume: number;
   /**

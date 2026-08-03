@@ -1,5 +1,5 @@
 import { t, language, onLanguageChange } from '../i18n';
-import { SettingsPanel, type SettingsHooks } from './settings';
+import { SettingsPanel, isChip, type SettingsHooks } from './settings';
 import { enterFullscreen, isFullscreen, fullscreenWanted } from './fullscreen';
 import { injectStyles } from './styles';
 
@@ -277,10 +277,10 @@ export class PauseMenu {
       case 'ArrowUp': case 'w': case 'W':
         e.preventDefault(); this.moveFocus(-1); break;
       case 'ArrowLeft': case 'ArrowRight':
-        // Left/right is for the one thing laid out as a ROW, the language chips,
-        // and they are disabled in game — so this does nothing today and is kept
-        // because the row is shared markup and may not always be.
-        if (document.activeElement?.hasAttribute('data-lang')) {
+        // Left/right is for the panel's chip STRIPS. In game that means the
+        // volume steps: the language chips are the other strip and they are
+        // disabled here, so the cursor never lands on one.
+        if (isChip(document.activeElement)) {
           e.preventDefault();
           this.moveFocus(e.key === 'ArrowRight' ? 1 : -1);
         }

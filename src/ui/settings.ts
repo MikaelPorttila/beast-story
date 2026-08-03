@@ -57,6 +57,27 @@ export type SettingsPlace = 'title' | 'game';
  */
 type ToggleKey = 'hapticFeedback' | 'invertLookX' | 'invertLookY' | 'autoFullscreen';
 
+/**
+ * The music-volume row's steps, as percentages.
+ *
+ * CHIPS RATHER THAN A SLIDER, and rather than the −/+ stepper that was the
+ * other candidate. Three things decided it. Every control on this screen is a
+ * real `<button>`, because both hosts drive the panel from a pad by calling
+ * `.click()` on the focused one (see the polls in ui/menu.ts and ui/pause.ts) —
+ * an `<input type=range>` would need a bespoke path in two files and would
+ * still look like nothing else here. A stepper puts mute eight presses away,
+ * and "mute it completely" is the request. And a strip of chips is a shape this
+ * panel already has, in the language row directly below, so it costs one row of
+ * height rather than two — which matters, because the settings column is
+ * already the tallest thing the title screen shows (see the height media
+ * queries in ui/styles.ts).
+ *
+ * 0 is first and is labelled OFF rather than 0%: it is not a quiet setting, it
+ * is the feature switched off, and nothing is loaded at all while it is chosen.
+ * The steps are twenties so that the shipped default, 80, is one of them.
+ */
+const VOLUME_STEPS: ReadonlyArray<number> = [0, 20, 40, 60, 80, 100];
+
 export interface SettingsHooks {
   /**
    * A look-axis toggle moved. Applied LIVE rather than on close: the pad is
@@ -70,7 +91,26 @@ export interface SettingsHooks {
    * setting that only takes effect at the next launch does not answer that.
    */
   onHapticFeedback: (on: boolean) => void;
+  /**
+   * The music volume moved, 0..1. Live, and more obviously so than the other
+   * two: this is the one setting on the panel whose effect the player can
+   * already hear while they are looking at it.
+   */
+  onVolume: (v: number) => void;
 }
+
+/**
+ * Is this the focused element inside one of the panel's chip STRIPS — the
+ * volume steps or the language picker?
+ *
+ * Exported because it is a fact about this panel's markup that both hosts need:
+ * left/right moves the cursor along a strip and does nothing anywhere else, and
+ * each host owns its own key and pad handling. Asking here rather than each
+ * host testing for `data-lang` itself is what stopped the arrow keys silently
+ * skipping the volume row when it was added.
+ */
+export const isChip = (el: Element | null): boolean =>
+  !!el && (el.hasAttribute('data-vol') || el.hasAttribute('data-lang'));
 
 const escapeHtml = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -91,6 +131,21 @@ export class SettingsPanel {
   get values(): Prefs { return this.prefs; }
 
   /**
+   * Which volume chip is lit, as one of `VOLUME_STEPS`.
+   *
+   * NEAREST rather than exact. The stored value is a 0..1 decimal that a dev
+   * console command (`/volume 0.35`) or a hand edit can put between two steps,
+   * and a strip with nothing lit reads as a broken control. Rounding never
+   * WRITES anything, so the odd value survives until the player picks a step.
+   */
+  private get volumePc(): number {
+    const pc = this.prefs.volume * 100;
+    let best = VOLUME_STEPS[0];
+    for (const s of VOLUME_STEPS) if (Math.abs(s - pc) < Math.abs(best - pc)) best = s;
+    return best;
+  }
+
+  /**
    * The list, as HTML, for a host to put inside its own container.
    *
    * Returns the ROWS and not a wrapper, so a host decides what surrounds them —
@@ -109,6 +164,15 @@ export class SettingsPanel {
       // inverted — so anything added below it must go after it, not between.
       `<div class="note">${escapeHtml(t('menu.settings.controllerNote'))}</div>` +
       this.toggle('autoFullscreen', t('menu.settings.autoFullscreen'), this.prefs.autoFullscreen) +
+      // Above the language row rather than below it, so the two chip strips are
+      // adjacent and the "controller only" note stays attached to the two
+      // invert rows it explains.
+      `<div class="row vol">` +
+        `<span class="lbl">${escapeHtml(t('menu.settings.music'))}</span>` +
+        `<div class="vols">${VOLUME_STEPS.map((pc) =>
+          `<button class="bs-menu-btn chip${pc === this.volumePc ? ' on' : ''}" type="button" ` +
+          `data-vol="${pc}">${escapeHtml(pc === 0 ? t('menu.off') : `${pc}`)}</button>`,
+        ).join('')}</div></div>` +
       `<div class="row lang${inGame ? ' off' : ''}">` +
         `<span class="lbl">${escapeHtml(t('menu.settings.language'))}</span>` +
         `<div class="langs">${languages().map((l) =>
@@ -140,6 +204,21 @@ export class SettingsPanel {
       // The re-render is driven by the language event, not from here, so the
       // picker takes exactly the same path as any other language listener.
       setLanguage(lang);
+      return true;
+    }
+
+    const vol = btn.getAttribute('data-vol');
+    if (vol !== null) {
+      const pc = Number(vol);
+      this.prefs = savePrefs({ volume: pc / 100 });
+      this.hooks.onVolume(this.prefs.volume);
+      // The chips are rewritten in place for the same reason a toggle's pill is:
+      // a rebuild would drop the pad's cursor back to the top of the list while
+      // the player is still stepping through the levels. `this` is the chip that
+      // was pressed, so the class moves off its siblings and onto it.
+      for (const sib of Array.from(btn.parentElement?.children ?? [])) {
+        sib.classList.toggle('on', sib === btn);
+      }
       return true;
     }
 

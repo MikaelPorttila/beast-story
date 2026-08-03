@@ -115,6 +115,7 @@ export const sv: Translation = {
   'menu.settings.invertY': 'Invertera sikte Y',
   'menu.settings.controllerNote': 'Gäller bara handkontroll — musen inverteras aldrig.',
   'menu.settings.autoFullscreen': 'Helskärm vid start',
+  'menu.settings.music': 'Musik',
   'menu.settings.language': 'Språk',
   // Under språkväljaren, och bara när inställningarna öppnats inifrån ett spel
   // där den är avstängd. Säger var inställningen finns, inte att den saknas.
