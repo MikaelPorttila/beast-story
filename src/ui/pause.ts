@@ -1,6 +1,6 @@
 import { t, language, onLanguageChange } from '../i18n';
 import { SettingsPanel, type SettingsHooks } from './settings';
-import { enterFullscreen, isFullscreen } from './fullscreen';
+import { enterFullscreen, isFullscreen, fullscreenWanted } from './fullscreen';
 import { injectStyles } from './styles';
 
 /**
@@ -74,8 +74,6 @@ export class PauseMenu {
   private padDown = new Uint8Array(20);
   private padEdge = new Uint8Array(20);
   private padAxisLatched = false;
-  /** Fullscreen at the moment this opened. See `open` and `close`. */
-  private wasFullscreen = false;
 
   constructor(private hooks: PauseMenuHooks) {
     injectStyles();
@@ -96,18 +94,6 @@ export class PauseMenu {
   open(): void {
     if (this.el) return;
     this.step = 'menu';
-    // WAS THE PAGE FULLSCREEN WHEN THIS OPENED? A FALLBACK, and it is worth
-    // knowing which half of the problem it is the fallback for. Escape is the
-    // browser's own "leave fullscreen" key and no page can preventDefault that,
-    // so a player who pressed Escape to see this menu used to get the menu AND
-    // lose fullscreen, having asked for neither half of that. The fix is a
-    // KEYBOARD LOCK taken on entering fullscreen (ui/fullscreen.ts), which makes
-    // Escape an ordinary key the game swallows — where it exists. Firefox,
-    // Safari, an iframe and plain http have no such API, and there this is still
-    // the only thing standing between a player and a shrinking window: record
-    // the state, and let `close()` put it back. See the note there for what it
-    // can and cannot do.
-    this.wasFullscreen = isFullscreen();
     const el = document.createElement('div');
     el.className = 'bs-pause';
     el.innerHTML = '<div class="bs-scrim"></div><div class="pane"></div>';
@@ -138,21 +124,28 @@ export class PauseMenu {
    * `restoreFullscreen` is false for the one caller that means it — Exit, which
    * is deliberately going back to a windowed title screen.
    *
-   * PUTTING FULLSCREEN BACK IS BEST-EFFORT, by construction rather than by
-   * sloppiness. `requestFullscreen()` is only honoured off a recent user
-   * activation, so this works when the menu is dismissed by a CLICK on Continue
-   * or the pointer — which is how it is dismissed on a mouse, and the case the
-   * player noticed. Closing with Escape or the pad reaches here from a
-   * simulation slice with no activation behind it, the request is refused, and
-   * the game stays windowed exactly as it does today. Half a fix beats none, and
-   * there is no arrangement in which a page can keep a fullscreen the browser
-   * has already taken back.
+   * PUTTING FULLSCREEN BACK IS THE FALLBACK for browsers with no keyboard lock,
+   * and it is best-effort by construction rather than by sloppiness. Where the
+   * lock exists (ui/fullscreen.ts) Escape never reached the browser and there is
+   * nothing to put back. Where it does not — Brave nulls `navigator.keyboard`
+   * outright — Escape drops fullscreen before the page has any say, and this is
+   * the only way back into it.
+   *
+   * It asks the game's INTENT (`fullscreenWanted`) rather than sampling
+   * `isFullscreen()` when the menu opened, because by then the browser has
+   * usually already left: sampling gave `false` and the restore never fired at
+   * all. `requestFullscreen()` is honoured only off a recent user activation, so
+   * this works when the menu is dismissed by a CLICK on Continue — which is how
+   * it is dismissed on a mouse. Closing with Escape or the pad reaches here from
+   * a simulation slice with no activation behind it and the request is refused;
+   * there is no arrangement in which a page can retake a fullscreen without a
+   * gesture.
    */
   close(restoreFullscreen = true): void {
     if (!this.el) return;
     // BEFORE the DOM work: a request issued from a click handler has a deadline
     // measured in the same terms `StartMenu.start` obeys — see ui/fullscreen.ts.
-    if (restoreFullscreen && this.wasFullscreen && !isFullscreen()) enterFullscreen();
+    if (restoreFullscreen && fullscreenWanted() && !isFullscreen()) enterFullscreen();
     if (this.padRaf) cancelAnimationFrame(this.padRaf);
     this.padRaf = 0;
     this.unlisten?.();

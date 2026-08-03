@@ -250,6 +250,28 @@ const pauseMenu = new PauseMenu({
 });
 
 /**
+ * THE ESCAPE A BROWSER ATE, arriving as the key it was.
+ *
+ * A page holding pointer lock is not given the Escape that releases it — the
+ * browser spends the key itself — so in any browser without the keyboard lock
+ * (Brave nulls `navigator.keyboard`; see ui/fullscreen.ts) the menu key did
+ * nothing on the press that mattered and worked on the one after, because by
+ * then the lock was already gone. That is "Escape only opens the menu every
+ * other time", and it is one missing edge rather than a race.
+ *
+ * So the losing of the lock IS the edge, and it is tapped in as the same
+ * virtual Escape the pad's Start and the touch overlay's MENU button already
+ * tap. Nothing new decides what Escape MEANS — the one reader in `frame()`
+ * still does, so this closes the topmost modal when there is one and opens the
+ * menu when there is not, for every device at once.
+ *
+ * No timer and no correlation window: `tapVirtual` is one `press()` into a Set
+ * keyed by code, so a browser that delivers the real key AND drops the lock in
+ * the same frame still yields exactly ONE edge.
+ */
+input.onLockLost = () => { if (playing) input.tapVirtual('Escape'); };
+
+/**
  * END THE SESSION and put the title screen back, in the same page.
  *
  * WHAT IS THROWN AWAY AND WHAT IS KEPT, which is the whole design.

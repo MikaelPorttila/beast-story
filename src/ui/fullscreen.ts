@@ -105,6 +105,19 @@ export function isFullscreen(): boolean {
 }
 
 /**
+ * Does the GAME mean to be fullscreen right now?
+ *
+ * Set by `enterFullscreen`, cleared by `exitFullscreen`, and deliberately NOT
+ * cleared by the browser leaving fullscreen on its own — which is the whole
+ * point. Where there is no keyboard lock, Escape drops fullscreen before the
+ * page has any say, so `isFullscreen()` sampled when the menu opens says "no"
+ * and the state the player actually chose is lost. The intent survives it, and
+ * the menu restores from the intent on its way out.
+ */
+let wanted = false;
+export function fullscreenWanted(): boolean { return wanted; }
+
+/**
  * Ask for fullscreen. Call ONLY from inside a user-gesture handler, first.
  *
  * Returns whether a request was actually issued — false where the API is
@@ -115,7 +128,12 @@ export function isFullscreen(): boolean {
  * console as an unhandled rejection.
  */
 export function enterFullscreen(): boolean {
-  if (!fullscreenSupported() || isFullscreen()) return false;
+  if (!fullscreenSupported()) return false;
+  // INTENT, recorded before the early return and kept whatever the browser
+  // answers. It is what lets the in-game menu put back a fullscreen the browser
+  // took rather than one the game gave up — see `fullscreenWanted`.
+  wanted = true;
+  if (isFullscreen()) return false;
   const el = document.documentElement as FsElement;
   const req = typeof el.requestFullscreen === 'function'
     ? el.requestFullscreen({ navigationUI: 'hide' })
@@ -139,6 +157,7 @@ export function enterFullscreen(): boolean {
  * fullscreen is not worth an error, and the player still has Escape.
  */
 export function exitFullscreen(): boolean {
+  wanted = false;
   if (!isFullscreen()) return false;
   const doc = document as FsDocument;
   const req = typeof document.exitFullscreen === 'function'

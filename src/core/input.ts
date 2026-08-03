@@ -71,6 +71,22 @@ export class Input {
    * `pointerlockchange` handler, which hangs up on a lock nobody wants any more.
    */
   private lockWanted = false;
+  /**
+   * The browser took the pointer while the game still wanted it.
+   *
+   * There is exactly one thing a player does that causes this, and it is the
+   * reason this hook exists: pressing Escape. A page holding pointer lock does
+   * not receive that key at all — the browser spends it on releasing the lock —
+   * so the menu key silently did nothing on the press that mattered and worked
+   * on the next one, which is what "Escape only opens the menu every other
+   * time" was. Where the KEYBOARD LOCK is available (see ui/fullscreen.ts) that
+   * never happens, because Escape is delivered as an ordinary key and the lock
+   * is not dropped; where it is not — Brave nulls `navigator.keyboard` outright
+   * — this is the only evidence the page gets that the key was pressed.
+   *
+   * An alt-tab reaches this too, and pausing there is the right answer anyway.
+   */
+  onLockLost: (() => void) | null = null;
   attackHeld = false;
   attackPressed = false;
 
@@ -173,12 +189,21 @@ export class Input {
       if (e.button === 0) this.attackHeld = false;
     });
     document.addEventListener('pointerlockchange', () => {
+      const had = this.pointerLocked;
       this.pointerLocked = document.pointerLockElement === el;
       // THE LATE ARRIVAL. A lock granted after someone asked for it back is
       // handed straight back here, which is what makes `releaseLock` final
       // regardless of how long the browser took to answer the request it is
       // cancelling. See `lockWanted`.
-      if (this.pointerLocked && !this.lockWanted) document.exitPointerLock();
+      if (this.pointerLocked && !this.lockWanted) { document.exitPointerLock(); return; }
+      // TAKEN, rather than given up. Every deliberate release goes through
+      // `releaseLock`, which clears the intent first — so a lock that vanishes
+      // while `lockWanted` still stands was taken by the BROWSER, and Escape is
+      // how a player takes it. See `onLockLost`.
+      if (had && !this.pointerLocked && this.lockWanted) {
+        this.lockWanted = false;
+        this.onLockLost?.();
+      }
     });
     window.addEventListener('mousemove', (e) => {
       if (this.pointerLocked) {
