@@ -142,7 +142,7 @@ once frames come quickly.
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
-  `test-dive.mjs`, `test-gfx.mjs`. `tools/capture-set.ps1` (PowerShell,
+  `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`. `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
 - **THE FRAME RATE IS CAPPED AT 120 BY DEFAULT** (`DEFAULT_FPS_CAP` in main.ts;
@@ -372,6 +372,16 @@ once frames come quickly.
   up during them would be photographed at the surface. It drives the camera with
   a MONOTONIC mouse sweep on the way back up: under pointer lock the page sees
   deltas, so "jump back and drag again" nets zero.
+- `test-cursor.mjs` guards the in-game cursor, and it is written around the one
+  thing it CANNOT do: a headless browser draws no pointer, and
+  `getComputedStyle(document.body).cursor` reports the string we assigned rather
+  than anything a compositor drew — so reading that back would be asserting our
+  own assignment. What it checks instead is the sheet DECODING into sixteen
+  distinct states, Alt genuinely releasing and re-taking pointer lock (the
+  feature: a player who cannot reach the F3 panel does not care what the pointer
+  looks like), the resolver answering correctly at real targets driven through
+  the REAL mousemove listener, and the panel actually moving when its title bar
+  is dragged.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -412,8 +422,12 @@ once frames come quickly.
 TypeScript + three.js, no framework and no asset files — every model, animation
 and effect is generated in code. Vite serves two entries from the same modules.
 
-The ONE exception is `src/ui/menu-bg.webp` and `src/ui/menu-logo.webp`, the
-title screen's painting and wordmark. They are not a crack in the rule: nothing
+There are TWO exceptions and they are both 2D chrome the renderer never
+touches: `src/ui/menu-bg.webp` / `src/ui/menu-logo.webp`, the title screen's
+painting and wordmark, and `src/ui/cursors.webp`, the sixteen-state mouse
+cursor sheet (issue #38). Everything the RENDERER draws is still generated in
+code, which is the line that actually matters — a texture, a model or a font
+file is still a no. They are not a crack in the rule: nothing
 the renderer draws comes from a file, and these are a 2D poster shown before the
 renderer is on screen at all — the one place where an image *is* the design
 rather than a shortcut around building one. Keep it that way. A texture, a
@@ -809,6 +823,42 @@ peaks at 3.29 measured, which is `SWIM_SPEED`. There is no separate floor test:
 the vertical clamp runs for a swimmer exactly as for a walker, so the bed catches
 a diver for free (measured, he rests at 4.00 on a bed of 4.00).
 `tools/test-dive.mjs` is the guard.
+
+**ALT FREES THE MOUSE, AND IT IS A TOGGLE.** Pressed once the pointer is yours
+and mouse look stops; pressed again the game takes it back. A HOLD was the
+obvious build and is wrong twice: a player flipping several F3 rows would need
+Alt down for every click, and Alt+click is claimed by the window manager on most
+Linux desktops and parts of Windows, so those clicks land somewhere else
+entirely. It is NOT a modal — the hero keeps taking input, exactly as he does
+with the F3 panel open, because both exist to change something while the world
+carries on doing real work. What is traded away is mouse LOOK, which IS the
+pointer lock. `AltLeft`/`AltRight` are in `Input.CAPTURED` because Alt focuses
+the browser's own menu bar in Firefox and Edge.
+
+**THE CURSOR IS A CSS CURSOR, NOT A DIV THAT FOLLOWS THE MOUSE**
+([src/ui/cursor.ts](src/ui/cursor.ts)). A DOM cursor is composited a frame late,
+so at 120 fps it trails the pointer by 8 ms and every click feels like it landed
+behind where you aimed; a CSS cursor is drawn by the compositor against the OS
+pointer and cannot lag, and it keeps working while the main thread is building a
+chunk. `cursor: url(...)` needs one image per state, so the 4x4 sheet is sliced
+into sixteen data URIs once at boot rather than shipping sixteen files — the
+source art was 1254x1254 and 1.06 MB, repacked to 64px tiles it is 23.5 KB. 64
+is a ceiling rather than a taste: browsers refuse a cursor over 128x128 and fall
+back silently. Hotspots are MEASURED off each tile's opaque box — pointers act
+at their tip, everything else at the red gem the artist put on its centre.
+
+**SIXTEEN STATES NEED SIXTEEN HOMES, and finding them is most of the work.** The
+DOM answers for itself: an element declares `data-cursor`, or its tag decides
+(`BUTTON`/`[data-act]` clickable, `[disabled]` forbidden, `INPUT` text). Over the
+CANVAS the world is asked through one callback, which PROJECTS enemy and NPC
+positions to screen rather than raycasting — a matrix multiply each against
+walking hundreds of chunk meshes for an answer no more true. The six drag
+states are why the F3 panel is draggable and resizable at all: `grab`/`grabbing`
+on its title bar, `move` on its frame, and four resize cursors on four edges and
+four corners, which is what makes `resize-nwse` and `resize-nesw` two different
+answers instead of one generic one. Note the panel's rows scroll but THE PANEL
+DOES NOT — `overflow` on the panel clips the handles on its edges, and its
+scrollbar lands exactly where the east and south-east handles are.
 
 **F1 is the controls sheet, and its table is DECLARED, NOT DERIVED.** A binding
 is not a value anywhere in this codebase — the climb decision reads

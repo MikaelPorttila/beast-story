@@ -322,6 +322,10 @@ export const en = {
   'keys.controls': 'This sheet',
   'keys.debugOverlay': 'Performance overlay',
   'keys.perfPanel': 'Performance settings',
+  // Named for what it GIVES you rather than for what it costs. "Release mouse"
+  // is the accurate description and reads as a warning; the player is reaching
+  // for this because they want to click something.
+  'keys.cursor': 'Free the mouse cursor',
   // One row covering the keys that steer whatever panel is open — see the note
   // in ui/keybinds.ts for why they are not six rows.
   'keys.panelNav': 'Move / change / reset in a panel',

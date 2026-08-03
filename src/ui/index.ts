@@ -543,6 +543,10 @@ export class HUD {
     // a den open, and the answer to "what closes this?" must not be underneath
     // the thing it is answering for.
     this.keysWrap = div('bs-keyswrap');
+    // The controls sheet is where a player goes to find out what something
+    // does, which is exactly what the question-mark cursor means. It is the one
+    // honest home for `help` in this game — see ui/cursor.ts.
+    this.keysWrap.setAttribute('data-cursor', 'help');
     this.root.appendChild(this.keysWrap);
 
     document.body.appendChild(this.root);

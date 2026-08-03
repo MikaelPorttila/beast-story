@@ -1091,6 +1091,26 @@ const CSS = `
   padding-bottom:1px}
 .bs-perf-hint{font-size:10.5px;color:rgba(216,240,255,.42);padding:6px 4px 0;
   border-top:1px solid rgba(140,200,255,.14);margin-top:4px}
+/* Draggable and resizable — see beginDrag in ui/perf-panel.ts for why a debug
+   panel that cannot be moved is a debug panel covering the thing you are
+   debugging. overflow:auto so a panel resized smaller than its rows scrolls
+   rather than clipping them away with no way back. */
+.bs-perf{overflow:visible;display:flex;flex-direction:column}
+.bs-perf-body{overflow:auto;flex:1 1 auto;min-height:0}
+.bs-perf-title{user-select:none;flex:0 0 auto}
+.bs-perf-hint{flex:0 0 auto}
+/* 6px of grab area, half of it outside the border so the edge is reachable
+   without the pointer having to be exactly on the 1px line. Absolutely
+   positioned against the panel, which is fixed-position above. */
+.bs-perf-h{position:absolute;z-index:1}
+.bs-perf-h.n{left:6px;right:6px;top:-3px;height:6px}
+.bs-perf-h.s{left:6px;right:6px;bottom:-3px;height:6px}
+.bs-perf-h.w{top:6px;bottom:6px;left:-3px;width:6px}
+.bs-perf-h.e{top:6px;bottom:6px;right:-3px;width:6px}
+.bs-perf-h.nw{left:-3px;top:-3px;width:9px;height:9px}
+.bs-perf-h.ne{right:-3px;top:-3px;width:9px;height:9px}
+.bs-perf-h.sw{left:-3px;bottom:-3px;width:9px;height:9px}
+.bs-perf-h.se{right:-3px;bottom:-3px;width:9px;height:9px}
 `;
 
 /** Inject the HUD stylesheet once. Safe to call repeatedly. */
