@@ -62,6 +62,7 @@ const SOLO = new Set([
   // track starts, and it walks the staged boot to New Game — both of the things
   // that go wrong when three games share a GPU. SOLO is also the default.
   'music',
+  'textsize',      // stages the HUD through __dbgStageHud after a fixed wait
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output

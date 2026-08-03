@@ -146,7 +146,7 @@ once frames come quickly.
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`,
-  `test-nature.mjs`, `test-music.mjs`.
+  `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`.
   `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
@@ -1005,6 +1005,42 @@ and the layout/crosshair/touch tools assert on them — renaming one breaks a to
 `TouchControls` builds the twin-stick overlay only on touch-primary devices.
 `main.ts` exposes read-only probes (`__dbgPlayerPos`, `__dbgCamYaw`, `__dbgInput`)
 that exist purely for those tools; keep them working.
+
+**NO PLAYER-FACING TEXT IS UNDER 16px, ANYWHERE, AT ANY SCREEN SIZE.** Issue #17,
+and it is a hard floor rather than a target: the reporter's case is a TV across a
+room, where this HUD's smallest labels — 8.5px — were not small type but absent
+type, and the three the issue names are the mount prompt (10.5), the hotbar's key
+numbers (10) and the NPC interact pill (13.5). `tools/test-textsize.mjs` is the
+guard and it exits non-zero. It runs TWO passes because neither sees the whole
+surface: a static scan of `src/ui/styles.ts` and `src/core/touch.ts` that reads a
+lower bound on every `font-size` (so `clamp(9px,…)` counts as 9 and
+`max(16px,.86em)` as 16, which is why a responsive size is written as one of
+those rather than as a bare `calc()`), and a live computed-size sweep at desktop,
+both phone orientations and the title screen's settings step, which is the only
+thing that can see INHERITED sizes and a media query that undoes the floor.
+`__dbgStageHud()` is the test hook it drives: half the panels the floor covers are
+transient, so it raises the interact pill, the dialogue, the mount ring, the
+riding badge, a toast, the level-up banner and the shop in one call.
+
+**THE SCALE IS COMPRESSED, NOT MULTIPLIED**, which is the design decision the
+whole change rests on. Scaling the sheet by 16/8.5 to lift the floor takes the
+party panel to 540px and the hotbar to 109px slots — a HUD that eats the frame in
+order to be readable, i.e. one accessibility problem traded for another. What the
+old sheet spent on size this one spends on the axes it already used: weight,
+colour, letter-spacing and the glass. The range closed from 8.5–19 to 16–22, and
+the containers grew about a third. So when you add a row, **16 is a floor and not
+a size** — a quiet label sits exactly on it and the thing beside it is 17, not 19.
+
+Two consequences are worth knowing before touching either. On a PHONE there is no
+slack, so the rule in that media block is CUT CONTENT, NOT TYPE: the title chip's
+tagline is hidden outright, and the party panel and the toast column were
+re-fitted against each other (206 + 180 of 393) rather than sized alone. And the
+TOUCH FAN's arc packing was re-derived, because a button is as wide as the word on
+it — JUMP at 16px does not fit a 40px circle, so the diameters grew and `--r` with
+them; the arithmetic and what it costs are in the comment at `--b` in
+[src/core/touch.ts](src/core/touch.ts). EXEMPT: the developer instruments (the §
+console, the F2 overlay, the F3 panel), which are monospace readouts no player
+opens and are deliberately dense so F3 can be read beside F2.
 
 **THE VIEWPORT IS MEASURED, NOT ASKED FOR.** The game has three layers that must
 cover exactly what the player can see — `#app` (which the canvas and therefore

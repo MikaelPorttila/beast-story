@@ -4,6 +4,33 @@
  */
 
 const CSS = `
+/* ---- THE 16px FLOOR ------------------------------------------------------
+   Issue #17: "No text should be below 16px." The report is a TV — a player far
+   enough back that this HUD's smallest labels, which were 8.5px, are not small
+   type but absent type — and the three it names are the mount prompt (10.5), the
+   hotbar's key numbers (10) and the NPC interact pill (13.5).
+
+   THE SCALE IS COMPRESSED, NOT MULTIPLIED, and that is the whole design of this
+   change. Scaling the sheet by 16/8.5 to lift the floor would have taken the
+   party panel to 540px and the hotbar to 109px slots — a HUD that eats the frame
+   in order to be readable, which trades one accessibility problem for another.
+   What the old sheet spent on SIZE this one spends on the axes it was already
+   using: weight (600 to 900), colour, letter-spacing and the glass itself carry
+   the hierarchy, so the type range closes from 8.5–19 to 16–22 and the
+   containers grow by about a third rather than by double.
+
+   16 IS A FLOOR, NOT A SIZE. A quiet label sits exactly on it; the thing beside
+   it that used to be 3px larger is now 17, not 19. Read any pair of rules below
+   as "these two are still different" — at this range one point is a real
+   difference and three is a shout.
+
+   EXEMPT: the developer instruments at the bottom of this file — the § console
+   and the F3 panel — plus the F2 overlay. They are monospace readouts for
+   whoever is building the game, deliberately dense so F3 can be read beside F2
+   without either covering the world, and no player opens them.
+   tools/test-textsize.mjs holds everything else to the floor, in the stylesheet
+   AND on screen. */
+
 /* inset:0 is the layout viewport, which on a phone is not the same box as what
    is on screen — it excludes nothing the browser's chrome is covering, and on an
    Android device in fullscreen it was measured at 110 px taller than the display
@@ -21,7 +48,14 @@ const CSS = `
 .bs-root *{box-sizing:border-box;margin:0;padding:0}
 .bs-root svg{display:block}
 .bs-root kbd{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
-  border-bottom-width:2px;border-radius:5px;padding:0 6px;font:inherit;font-size:.86em;font-weight:700;
+  border-bottom-width:2px;border-radius:5px;padding:0 6px;font:inherit;font-weight:700;
+  /* A cap is a QUIET fraction of the sentence it sits in — .86em — right up
+     until the sentence is itself at the floor, at which point the fraction is
+     under it. max() keeps both readings: the cap shrinks relative to a large
+     line and stops at 16 (issue #17). Written this way rather than as a flat
+     16px because a <kbd> in the 19px dialogue line should still read as a cap
+     inside a sentence rather than as the same size as it. */
+  font-size:max(16px,.86em);
   line-height:1.5;vertical-align:baseline}
 /* Controller faces are round, and the shape alone tells the player which device
    the HUD is describing. The flat bottom border goes with it: a keycap has depth
@@ -38,10 +72,10 @@ const CSS = `
 /* ---- title chip -------------------------------------------------------- */
 .bs-title{position:absolute;top:14px;left:16px;display:flex;align-items:baseline;gap:8px;
   padding:8px 14px 9px;border-radius:12px}
-.bs-title b{font-weight:900;font-size:13px;letter-spacing:.18em;
+.bs-title b{font-weight:900;font-size:17px;letter-spacing:.18em;
   background:linear-gradient(92deg,#ffd23f 10%,#ff8b4a 55%,#ff6b35 90%);
   -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
-.bs-title span{font-size:10px;font-weight:600;color:rgba(238,242,248,.5);letter-spacing:.05em}
+.bs-title span{font-size:16px;font-weight:600;color:rgba(238,242,248,.5);letter-spacing:.05em}
 
 /* ---- currency counter --------------------------------------------------- */
 /* The pill names the money as well as counting it (see src/i18n): the number is
@@ -49,21 +83,21 @@ const CSS = `
    relationship the bag chips below already use for name vs count. */
 .bs-shards{position:absolute;top:14px;right:16px;display:flex;align-items:center;gap:8px;
   padding:8px 14px;border-radius:999px}
-.bs-shards .ic{width:18px;height:18px;color:#69d9ff;filter:drop-shadow(0 0 5px rgba(105,217,255,.55))}
+.bs-shards .ic{width:21px;height:21px;color:#69d9ff;filter:drop-shadow(0 0 5px rgba(105,217,255,.55))}
 .bs-shards .ic svg{width:100%;height:100%}
-.bs-shards .num{font-variant-numeric:tabular-nums;font-weight:800;font-size:16px;letter-spacing:.02em;
+.bs-shards .num{font-variant-numeric:tabular-nums;font-weight:800;font-size:19px;letter-spacing:.02em;
   color:#dff5ff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
-.bs-shards .lbl{margin-left:-2px;font-size:11.5px;font-weight:700;letter-spacing:.04em;
+.bs-shards .lbl{margin-left:-2px;font-size:16px;font-weight:700;letter-spacing:.04em;
   color:rgba(223,245,255,.72);text-shadow:0 1px 2px rgba(0,0,0,.5)}
 /* ---- bag (stackable items) --------------------------------------------- */
 /* Sits directly under the shard pill: money on top, stuff below it, both in
    the same corner. Empty until the first pickup, so a fresh save shows nothing. */
-.bs-bag{position:absolute;top:58px;right:16px;display:flex;flex-direction:column;
+.bs-bag{position:absolute;top:64px;right:16px;display:flex;flex-direction:column;
   align-items:flex-end;gap:6px;transform-origin:100% 0}
 .bs-bag .chip{display:flex;align-items:center;gap:8px;padding:5px 12px;border-radius:999px}
-.bs-bag .sw{width:11px;height:11px;border-radius:3px;box-shadow:0 0 9px currentColor}
-.bs-bag .nm{font-size:11.5px;font-weight:700;color:rgba(238,242,248,.82)}
-.bs-bag .n{font-variant-numeric:tabular-nums;font-weight:800;font-size:13.5px;color:#fff;
+.bs-bag .sw{width:12px;height:12px;border-radius:3px;box-shadow:0 0 9px currentColor}
+.bs-bag .nm{font-size:16px;font-weight:700;color:rgba(238,242,248,.82)}
+.bs-bag .n{font-variant-numeric:tabular-nums;font-weight:800;font-size:17px;color:#fff;
   text-shadow:0 1px 2px rgba(0,0,0,.5)}
 .bs-pop{animation:bsPop .38s cubic-bezier(.34,1.8,.64,1)}
 @keyframes bsPop{0%{transform:scale(1)}45%{transform:scale(1.28)}100%{transform:scale(1)}}
@@ -81,11 +115,29 @@ const CSS = `
    it readable over both bright sand and dark canopy — the same failure mode the
    crosshair was filed for.
 
-   Geometry, top down: pointer 0..9, band 9..35. The riding badge, level-up
+   Geometry, top down: pointer 0..10, band 10..46. The riding badge, level-up
    banner and toast stack below it were each pushed down by 34px to make room
-   (they used to start at 18/58/96). */
+   (they used to start at 18/58/96), and by a further 11 when the band grew for
+   the 16px floor.
+
+   THE BAND IS SIZED BY ITS LETTERS, which is why the floor (issue #17) moved
+   every number in this block. Cardinals were 12px and ordinals 8.5 in a 26px
+   window; at 17 and 16 the same row of type plus the tick band under it wants a
+   36px window, which is where the widget's own 46 comes from. The WIDTH follows
+   too — the tape is letters at fixed bearings, so wider letters over the same
+   span means fewer of them legible at once, and min(420px,44vw) had room for
+   barely three cardinals.
+
+   WHAT THE FLOOR COSTS HERE, stated because it is real and was measured rather
+   than guessed: a marker chip sized for a four-character tag at 16px is 60px
+   wide where it was about 34, and markers are drawn OVER the tape by design (see
+   .mk), so more of the strip is covered by a badge at any moment. Captured, a
+   560px window shows four labels and a two-marker zone hides one of them. The
+   alternatives are worse — shrinking the tag is the thing the issue forbids, and
+   moving the chips out of the band costs the widget another 20px of height for a
+   readout that already spans the top of the screen. */
 .bs-compass{position:absolute;left:50%;top:10px;transform:translateX(-50%);
-  width:min(420px,44vw);height:35px;transition:opacity .2s ease}
+  width:min(560px,52vw);height:46px;transition:opacity .2s ease}
 .bs-root.shop-open .bs-compass,.bs-root.keys-open .bs-compass{opacity:0}
 /* The window clips the tape. The 16px mask fade at each end is the one soft
    edge in the widget and it earns its place: without it letters pop in and out
@@ -94,7 +146,7 @@ const CSS = `
    water the band read fine, but facing north into the canopy it disappeared
    into the dark green and only the two white rules were left holding the shape.
    Much past .6 and it starts to read as an opaque letterbox bar. */
-.bs-compass .win{position:absolute;left:0;right:0;top:9px;height:26px;overflow:hidden;
+.bs-compass .win{position:absolute;left:0;right:0;top:10px;height:36px;overflow:hidden;
   background:rgba(6,10,17,.6);
   border-top:2px solid rgba(238,242,248,.9);border-bottom:2px solid rgba(238,242,248,.9);
   -webkit-mask:linear-gradient(90deg,transparent 0,#000 16px,#000 calc(100% - 16px),transparent 100%);
@@ -104,30 +156,40 @@ const CSS = `
 .bs-compass .win::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;
   margin-left:-1px;background:rgba(255,210,63,.5)}
 .bs-compass .tape{position:absolute;left:0;top:0;height:100%;will-change:transform}
-.bs-compass .t{position:absolute;bottom:2px;width:2px;height:5px;margin-left:-1px;
+.bs-compass .t{position:absolute;bottom:2px;width:2px;height:6px;margin-left:-1px;
   background:rgba(238,242,248,.62)}
-.bs-compass .t.maj{height:8px;background:#eef2f8}
+.bs-compass .t.maj{height:9px;background:#eef2f8}
 .bs-compass .lb{position:absolute;top:0;transform:translateX(-50%);font-weight:900;line-height:1;
   color:#fff;white-space:nowrap;
   text-shadow:1px 1px 0 #05070c,-1px 1px 0 #05070c,1px -1px 0 #05070c,-1px -1px 0 #05070c}
-.bs-compass .lb.card{font-size:12px;letter-spacing:.06em}
-.bs-compass .lb.ord{font-size:8.5px;top:2px;letter-spacing:.08em;color:rgba(238,242,248,.7)}
+.bs-compass .lb.card{font-size:17px;top:2px;letter-spacing:.06em}
+/* One point off the floor and not two: an ordinal is a two-letter word beside a
+   one-letter one, so it is already the wider mark, and the tape reads as one row
+   of type with a quiet half rather than as two sizes. The colour and the offset
+   carry the difference the size used to. */
+.bs-compass .lb.ord{font-size:16px;top:3px;letter-spacing:.06em;color:rgba(238,242,248,.7)}
 /* Markers ride OVER the tape — a marker occluding the letter behind it is the
    correct priority, and it is what keeps the widget one band tall. */
 .bs-compass .marks{position:absolute;inset:0}
-.bs-compass .mk{position:absolute;left:50%;top:0;height:13px;min-width:11px;
-  display:flex;align-items:center;justify-content:center;padding:0 3px;
+.bs-compass .mk{position:absolute;left:50%;top:0;height:22px;min-width:20px;
+  display:flex;align-items:center;justify-content:center;padding:0 5px;
   background:var(--mc);border:2px solid #05070c;
-  font-size:8.5px;font-weight:900;letter-spacing:.08em;color:#05070c;
+  font-size:16px;font-weight:900;letter-spacing:.04em;color:#05070c;
   will-change:transform}
+/* A LABEL-LESS MARKER IS A PLAIN SQUARE (see CompassMarker.label in ui/index.ts)
+   and must not inherit the box a four-character tag needs. Sized for 16px text
+   the chip is 20x22, and captured at that size an unlabelled one read as a
+   yellow slab across the tape rather than as a pin — so it keeps roughly the
+   11x13 it had, centred on the labelled chips' band. */
+.bs-compass .mk:empty{min-width:0;width:12px;height:14px;padding:0;top:4px}
 /* Behind you: the chip parks at the end of the strip and turns into an arrow
    pointing the short way round to it. */
 .bs-compass .mk.edge{padding:0;min-width:0;width:0;height:0;border:0;
-  border-top:6px solid transparent;border-bottom:6px solid transparent;
+  border-top:9px solid transparent;border-bottom:9px solid transparent;
   background:transparent;overflow:hidden;color:transparent;
   filter:drop-shadow(0 0 1px #05070c)}
-.bs-compass .mk.edge.l{border-right:9px solid var(--mc)}
-.bs-compass .mk.edge.r{border-left:9px solid var(--mc)}
+.bs-compass .mk.edge.l{border-right:13px solid var(--mc)}
+.bs-compass .mk.edge.r{border-left:13px solid var(--mc)}
 .bs-compass .ptr{position:absolute;left:50%;top:0;width:0;height:0;margin-left:-7px;
   border-left:7px solid transparent;border-right:7px solid transparent;
   border-top:10px solid #ffd23f;filter:drop-shadow(0 1px 0 rgba(0,0,0,.85))}
@@ -168,9 +230,14 @@ const CSS = `
   filter:drop-shadow(0 0 6px rgba(142,240,255,.45));
   -webkit-mask:radial-gradient(circle,transparent 19px,#000 20px);
   mask:radial-gradient(circle,transparent 19px,#000 20px)}
-.bs-mounthold .lbl{position:absolute;top:38px;left:50%;transform:translateX(-50%);
-  font-size:10.5px;font-weight:900;letter-spacing:.22em;white-space:nowrap;
-  color:rgba(238,242,248,.85);text-shadow:0 1px 3px rgba(0,0,0,.75)}
+/* "HOLD F TO MOUNT", named in issue #17 and the worst case of the three: it is
+   printed at the RETICLE, i.e. over whatever the player is aiming at, so it had
+   the least contrast of any label in the HUD as well as the second-smallest
+   size. Letter-spacing drops from .22em to .12em with the size — at 16px the old
+   tracking pushed the phrase past the ring on both sides. */
+.bs-mounthold .lbl{position:absolute;top:40px;left:50%;transform:translateX(-50%);
+  font-size:16px;font-weight:900;letter-spacing:.12em;white-space:nowrap;
+  color:rgba(238,242,248,.92);text-shadow:0 1px 3px rgba(0,0,0,.85)}
 
 /* ---- riding badge ------------------------------------------------------ */
 /* Top centre, NOT bottom centre. While the fill ring is a thing you are DOING
@@ -178,9 +245,10 @@ const CSS = `
    frame is exactly where the mount itself is drawn, so a badge there printed a
    label across the animal it was labelling (captured; that is why it moved).
    Above the toast stack and clear of the shard pill on the right.
-   top was 18px before the compass took the top band; see .bs-compass. */
-.bs-riding{position:absolute;left:50%;top:52px;transform:translateX(-50%) translateY(-8px);
-  padding:7px 16px;border-radius:999px;font-size:11.5px;font-weight:800;letter-spacing:.06em;
+   top was 18px before the compass took the top band, then 52px; see
+   .bs-compass, whose band grew again for the 16px floor. */
+.bs-riding{position:absolute;left:50%;top:64px;transform:translateX(-50%) translateY(-8px);
+  padding:7px 16px;border-radius:999px;font-size:17px;font-weight:800;letter-spacing:.04em;
   color:#dff5ff;white-space:nowrap;opacity:0;
   box-shadow:0 8px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08),
     inset 3px 0 0 #8ef0ff;
@@ -190,7 +258,10 @@ const CSS = `
 /* ---- left cluster: one party panel (beasts + player hp) ----------------- */
 /* Single continuous glass slab. The beast rows and the player HP block are
    sections inside it, not free-floating cards with a gap between them. */
-.bs-left{position:absolute;left:16px;bottom:16px;display:flex;flex-direction:column;width:288px;
+/* 288px before the 16px floor (issue #17). A beast row is a name, a level chip
+   and two bars, and the name is the part that ellipses — at 17px "Emberfox" and
+   a "Lv 12" chip want 340 to sit on one line without the name being cut. */
+.bs-left{position:absolute;left:16px;bottom:16px;display:flex;flex-direction:column;width:340px;
   padding:7px;border-radius:16px;background:var(--glass);border:1px solid var(--stroke);
   box-shadow:0 10px 28px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.09);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
@@ -204,7 +275,7 @@ const CSS = `
 .bs-beast.support{opacity:.62;filter:saturate(.7)}
 .bs-beast.support .badge{width:30px;height:30px}
 .bs-beast.support .badge svg{width:17px;height:17px}
-.bs-beast.support .nm{font-size:12px}
+.bs-beast.support .nm{font-size:16px}
 .bs-beast .bs-beast-in{display:flex;align-items:center;gap:10px}
 .bs-beast .bs-beast-in.bs-swap{animation:bsSwap .5s cubic-bezier(.34,1.56,.64,1)}
 @keyframes bsSwap{0%{transform:translateY(12px) scale(.9);opacity:.15}
@@ -216,10 +287,10 @@ const CSS = `
 .bs-beast .badge svg{width:21px;height:21px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.4))}
 .bs-beast .meta{flex:1;min-width:0}
 .bs-beast .row{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px}
-.bs-beast .nm{font-weight:800;font-size:13.5px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;
+.bs-beast .nm{font-weight:800;font-size:17px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;text-shadow:0 1px 2px rgba(0,0,0,.45)}
-.bs-beast .lv{font-size:10.5px;font-weight:800;color:var(--el);background:rgba(255,255,255,.09);
-  padding:1px 7px;border-radius:999px;flex:none;filter:saturate(1.3) brightness(1.35)}
+.bs-beast .lv{font-size:16px;font-weight:800;color:var(--el);background:rgba(255,255,255,.09);
+  padding:1px 8px 2px;border-radius:999px;flex:none;filter:saturate(1.3) brightness(1.35)}
 .bs-micro{height:5px;border-radius:3px;background:rgba(0,0,0,.42);overflow:hidden;
   box-shadow:inset 0 1px 2px rgba(0,0,0,.5)}
 .bs-micro+.bs-micro{margin-top:3px}
@@ -233,8 +304,8 @@ const CSS = `
 /* player hp: bottom section of the party panel, hairline divider instead of a gap */
 .bs-hp{padding:9px 10px 4px;margin-top:5px;border-top:1px solid rgba(255,255,255,.1)}
 .bs-hp .row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
-.bs-hp .lbl{font-size:10.5px;font-weight:900;letter-spacing:.22em;color:rgba(238,242,248,.72)}
-.bs-hp .val{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums;
+.bs-hp .lbl{font-size:16px;font-weight:900;letter-spacing:.18em;color:rgba(238,242,248,.72)}
+.bs-hp .val{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;
   text-shadow:0 1px 2px rgba(0,0,0,.5)}
 .bs-hp .track{position:relative;height:15px;border-radius:9px;background:rgba(0,0,0,.5);overflow:hidden;
   box-shadow:inset 0 2px 5px rgba(0,0,0,.55),inset 0 0 0 1px rgba(255,255,255,.07)}
@@ -245,8 +316,13 @@ const CSS = `
   border-radius:9px 9px 0 0;background:linear-gradient(rgba(255,255,255,.4),rgba(255,255,255,.04))}
 
 /* ---- hotbar ------------------------------------------------------------ */
-.bs-hotbar{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);display:flex;gap:11px}
-.bs-slot{width:58px;height:58px;border-radius:14px;position:relative;display:grid;place-items:center;
+.bs-hotbar{position:absolute;left:50%;bottom:38px;transform:translateX(-50%);display:flex;gap:11px}
+/* 58px before the 16px floor (issue #17). The slot holds three things at once —
+   a corner key cap, a centred icon and a cooldown numeral over both — and the
+   key cap is the one the issue names. At 16px in a 58px box it touched the
+   icon; 66 puts it back in its own corner without the row growing past what the
+   dialogue panel above it already spans. */
+.bs-slot{width:66px;height:66px;border-radius:15px;position:relative;display:grid;place-items:center;
   background:var(--glass);border:1px solid var(--stroke);
   box-shadow:0 6px 16px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.08);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -258,23 +334,27 @@ const CSS = `
 .bs-slot.empty{border-style:solid;border-color:rgba(255,255,255,.13);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.05);opacity:.72}
 .bs-slot.empty .key{color:rgba(255,255,255,.4)}
-.bs-slot.empty .lock{width:20px;height:20px;color:#eef2f8;opacity:.45}
+.bs-slot.empty .lock{width:22px;height:22px;color:#eef2f8;opacity:.45}
 .bs-slot.empty .lock svg{width:100%;height:100%}
 .bs-slot.filled{border-color:transparent;
   box-shadow:inset 0 0 0 1.5px var(--el2),0 6px 16px rgba(0,0,0,.32)}
-.bs-slot .key{position:absolute;top:3px;left:7px;font-size:10px;font-weight:800;
-  color:rgba(255,255,255,.62);text-shadow:0 1px 2px rgba(0,0,0,.6)}
-.bs-slot .ic{width:26px;height:26px;color:var(--el);transition:opacity .2s ease,filter .3s ease;
+/* THE NUMBER ON THE SLOT — issue #17's second named case. It was 10px at 62%
+   white, which is a watermark rather than a label: the one thing the row exists
+   to tell you is which key fires which skill. At the floor, and brighter, since
+   the size is no longer doing the work of pushing it into the background. */
+.bs-slot .key{position:absolute;top:3px;left:8px;font-size:16px;font-weight:800;
+  color:rgba(255,255,255,.78);text-shadow:0 1px 2px rgba(0,0,0,.75)}
+.bs-slot .ic{width:28px;height:28px;color:var(--el);transition:opacity .2s ease,filter .3s ease;
   filter:saturate(1.25) brightness(1.3) drop-shadow(0 1px 2px rgba(0,0,0,.5))}
 .bs-slot .ic svg{width:100%;height:100%}
 .bs-slot.ready .ic{animation:bsReadyGlow 2.4s ease-in-out infinite}
 @keyframes bsReadyGlow{0%,100%{filter:saturate(1.25) brightness(1.3) drop-shadow(0 0 2px var(--el))}
   50%{filter:saturate(1.4) brightness(1.55) drop-shadow(0 0 8px var(--el))}}
 .bs-slot.cooling .ic{opacity:.38;animation:none}
-.bs-slot .cd{position:absolute;inset:2px;border-radius:11px;pointer-events:none}
-.bs-slot .cdnum{position:absolute;inset:0;display:grid;place-items:center;font-size:15px;font-weight:900;
+.bs-slot .cd{position:absolute;inset:2px;border-radius:12px;pointer-events:none}
+.bs-slot .cdnum{position:absolute;inset:0;display:grid;place-items:center;font-size:20px;font-weight:900;
   font-variant-numeric:tabular-nums;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.85);pointer-events:none}
-.bs-slot .nm{position:absolute;bottom:-19px;left:50%;transform:translateX(-50%);font-size:11px;
+.bs-slot .nm{position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);font-size:16px;
   font-weight:700;letter-spacing:.03em;white-space:nowrap;color:#e8e2d8;
   text-shadow:0 1px 3px rgba(0,0,0,.8)}
 .bs-slot.bs-flash{animation:bsFlash .55s cubic-bezier(.34,1.56,.64,1)}
@@ -283,8 +363,11 @@ const CSS = `
   100%{box-shadow:inset 0 0 0 1.5px var(--el2),0 6px 16px rgba(0,0,0,.32);transform:scale(1)}}
 
 /* ---- hint pill --------------------------------------------------------- */
-.bs-hint{position:absolute;left:50%;bottom:118px;transform:translateX(-50%) translateY(8px);
-  padding:8px 18px;border-radius:999px;font-size:13.5px;font-weight:700;letter-spacing:.02em;
+/* "Press E — Talk to …", issue #17's third named case, and the one a player
+   meets first: it is how the game says an NPC or a den can be used at all.
+   118px before the hotbar's slots grew for the floor. */
+.bs-hint{position:absolute;left:50%;bottom:128px;transform:translateX(-50%) translateY(8px);
+  padding:9px 20px;border-radius:999px;font-size:18px;font-weight:700;letter-spacing:.02em;
   opacity:0;transition:opacity .28s ease,transform .28s cubic-bezier(.34,1.56,.64,1);white-space:nowrap}
 .bs-hint.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
@@ -293,38 +376,47 @@ const CSS = `
    modal, so a gateway countdown can still be running underneath while someone
    is mid-sentence. The accent bar is the toast's, in the amber this HUD already
    uses for "something wants your attention". */
-.bs-dialogue{position:absolute;left:50%;bottom:158px;transform:translateX(-50%) translateY(10px);
-  width:min(560px,84vw);padding:12px 18px 13px;border-radius:14px;text-align:left;
+.bs-dialogue{position:absolute;left:50%;bottom:174px;transform:translateX(-50%) translateY(10px);
+  width:min(620px,86vw);padding:12px 18px 13px;border-radius:14px;text-align:left;
   box-shadow:0 14px 34px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.09),
     inset 3px 0 0 #ffd23f;
   opacity:0;transition:opacity .26s ease,transform .3s cubic-bezier(.34,1.5,.64,1)}
 .bs-dialogue.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.bs-dialogue .who{font-size:11px;font-weight:900;letter-spacing:.22em;color:#ffd23f;
+.bs-dialogue .who{font-size:16px;font-weight:900;letter-spacing:.16em;color:#ffd23f;
   text-transform:uppercase;text-shadow:0 0 10px rgba(255,210,63,.45);margin-bottom:4px}
-.bs-dialogue .line{font-size:15px;font-weight:700;line-height:1.35;color:#f2f5fa;
+.bs-dialogue .line{font-size:19px;font-weight:700;line-height:1.35;color:#f2f5fa;
   text-shadow:0 1px 3px rgba(0,0,0,.55)}
-.bs-dialogue .foot{margin-top:8px;font-size:11px;font-weight:700;letter-spacing:.02em;
+.bs-dialogue .foot{margin-top:8px;font-size:16px;font-weight:700;letter-spacing:.02em;
   color:rgba(230,236,245,.55)}
 
 /* ---- level-up banner --------------------------------------------------- */
-/* top was 58px before the compass took the top band; see .bs-compass. */
-.bs-banner{position:absolute;top:92px;left:50%;transform:translateX(-50%) translateY(-26px) scale(.94);
+/* top was 58px before the compass took the top band, then 92px; see
+   .bs-compass, whose band grew again for the 16px floor. */
+.bs-banner{position:absolute;top:104px;left:50%;transform:translateX(-50%) translateY(-26px) scale(.94);
   opacity:0;padding:11px 30px 13px;border-radius:16px;text-align:center;
   transition:transform .45s cubic-bezier(.34,1.56,.64,1),opacity .35s ease}
 .bs-banner.show{transform:translateX(-50%) translateY(0) scale(1);opacity:1}
-.bs-banner .eyebrow{font-size:10px;font-weight:900;letter-spacing:.34em;color:#ffd23f;
+.bs-banner .eyebrow{font-size:16px;font-weight:900;letter-spacing:.26em;color:#ffd23f;
   text-shadow:0 0 10px rgba(255,210,63,.6);margin-bottom:2px}
-.bs-banner .txt{font-size:16px;font-weight:800;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.bs-banner .txt{font-size:22px;font-weight:800;text-shadow:0 1px 3px rgba(0,0,0,.5)}
 .bs-banner .txt em{font-style:normal;color:var(--el,#ffd23f);filter:saturate(1.3) brightness(1.35)}
 
 /* ---- toasts ------------------------------------------------------------ */
-/* top was 96px before the compass took the top band; see .bs-compass. */
-.bs-toasts{position:absolute;top:130px;left:50%;transform:translateX(-50%);display:flex;
+/* top was 96px before the compass took the top band, then 130px; see
+   .bs-compass, whose band grew again for the 16px floor.
+
+   184 CLEARS THE LEVEL-UP BANNER, which 130 did not: the banner is 57px tall and
+   started at 92, so a toast arriving while one was up was printed across its
+   bottom edge — captured, and it is the only place two panels in this HUD were
+   ever drawn over each other. The floor made the banner 71px, which turned a
+   19px overlap into a 41px one, so the stack is now placed BELOW the banner's
+   full height rather than at a number that predates it. */
+.bs-toasts{position:absolute;top:184px;left:50%;transform:translateX(-50%);display:flex;
   flex-direction:column;gap:8px;align-items:center}
 /* Same glass slab + accent-bar treatment as the party panel, so a toast never
    reads as an unstyled browser box dropped on top of a custom UI. */
-.bs-toast{padding:9px 15px 10px;border-radius:12px;font-size:12.5px;font-weight:700;letter-spacing:.01em;
-  max-width:340px;text-align:left;color:#eef2f8;text-shadow:0 1px 2px rgba(0,0,0,.5);
+.bs-toast{padding:9px 15px 10px;border-radius:12px;font-size:17px;font-weight:700;letter-spacing:.01em;
+  max-width:410px;text-align:left;color:#eef2f8;text-shadow:0 1px 2px rgba(0,0,0,.5);
   background:var(--glass);border:1px solid var(--stroke);
   box-shadow:0 10px 26px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.09),inset 3px 0 0 #ffd23f;
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -337,7 +429,7 @@ const CSS = `
 .bs-shopwrap{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
 .bs-scrim{position:absolute;inset:0;background:rgba(5,9,17,.58);opacity:0;transition:opacity .28s ease;
   backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
-.bs-shop{position:relative;width:min(880px,92vw);max-height:84vh;display:flex;flex-direction:column;
+.bs-shop{position:relative;width:min(1000px,94vw);max-height:84vh;display:flex;flex-direction:column;
   border-radius:20px;opacity:0;transform:translateY(16px) scale(.96);
   transition:opacity .3s ease,transform .34s cubic-bezier(.34,1.45,.64,1);
   box-shadow:0 24px 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1)}
@@ -346,19 +438,22 @@ const CSS = `
 .bs-shopwrap.open .bs-shop{opacity:1;transform:translateY(0) scale(1)}
 .bs-shop-head{display:flex;align-items:center;gap:14px;padding:16px 20px 14px;
   border-bottom:1px solid rgba(255,255,255,.1)}
-.bs-shop-head h2{font-size:19px;font-weight:900;letter-spacing:.04em;flex:1;
+.bs-shop-head h2{font-size:22px;font-weight:900;letter-spacing:.04em;flex:1;
   text-shadow:0 1px 3px rgba(0,0,0,.5)}
 .bs-shop-head .bal{display:flex;align-items:center;gap:7px;padding:6px 13px;border-radius:999px;
   background:rgba(105,217,255,.1);border:1px solid rgba(105,217,255,.28)}
-.bs-shop-head .bal .ic{width:15px;height:15px;color:#69d9ff}
+.bs-shop-head .bal .ic{width:17px;height:17px;color:#69d9ff}
 .bs-shop-head .bal .ic svg{width:100%;height:100%}
-.bs-shop-head .bal b{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;color:#dff5ff}
+.bs-shop-head .bal b{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;color:#dff5ff}
 .bs-shop-x{width:34px;height:34px;border-radius:10px;border:1px solid rgba(255,255,255,.16);
   background:rgba(255,255,255,.07);color:rgba(238,242,248,.8);display:grid;place-items:center;
   cursor:pointer;transition:background .15s,transform .15s;pointer-events:auto}
 .bs-shop-x:hover{background:rgba(255,90,80,.28);transform:scale(1.06);color:#fff}
 .bs-shop-x svg{width:15px;height:15px}
-.bs-offers{display:grid;grid-template-columns:repeat(auto-fill,minmax(244px,1fr));gap:12px;
+/* 244px before the 16px floor: an offer card is a title, a two-line description
+   and a row of stat chips, and at 16px the chips wrapped to three rows in a
+   244px column. 296 holds the same card in two rows again. */
+.bs-offers{display:grid;grid-template-columns:repeat(auto-fill,minmax(296px,1fr));gap:12px;
   padding:16px 20px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
 .bs-offer{position:relative;border-radius:14px;padding:15px 14px 13px;overflow:hidden;
   background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.1);
@@ -369,25 +464,29 @@ const CSS = `
 .bs-offer.locked:hover{transform:none;box-shadow:none;border-color:rgba(255,255,255,.1)}
 .bs-offer .accent{position:absolute;top:0;left:0;right:0;height:4px}
 .bs-offer .top{display:flex;align-items:center;gap:9px;margin-bottom:6px}
-.bs-offer .oic{width:30px;height:30px;border-radius:9px;flex:none;display:grid;place-items:center;
+.bs-offer .oic{width:34px;height:34px;border-radius:9px;flex:none;display:grid;place-items:center;
   background:var(--el2);color:var(--el);filter:saturate(1.2) brightness(1.25)}
-.bs-offer .oic svg{width:17px;height:17px}
-.bs-offer h3{font-size:14px;font-weight:800;letter-spacing:.01em}
-.bs-offer .beast{font-size:10.5px;font-weight:600;color:rgba(238,242,248,.55);margin-top:1px}
-.bs-offer p{font-size:11.5px;line-height:1.45;color:rgba(238,242,248,.78);min-height:32px;margin-bottom:8px}
+.bs-offer .oic svg{width:19px;height:19px}
+.bs-offer h3{font-size:17px;font-weight:800;letter-spacing:.01em}
+.bs-offer .beast{font-size:16px;font-weight:600;color:rgba(238,242,248,.55);margin-top:1px}
+/* min-height is THREE lines of the new size, not two. It exists so every card in
+   a row ends its buy button on the same baseline, and the longest description in
+   the game went from two lines to three at 16px — captured, Tailwind's card sat
+   24px taller than the two beside it. */
+.bs-offer p{font-size:16px;line-height:1.45;color:rgba(238,242,248,.78);min-height:70px;margin-bottom:8px}
 .bs-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
-.bs-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px 3px;border-radius:999px;
-  background:rgba(255,255,255,.09);font-size:10.5px;font-weight:700;color:rgba(238,242,248,.85)}
+.bs-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 9px 3px;border-radius:999px;
+  background:rgba(255,255,255,.09);font-size:16px;font-weight:700;color:rgba(238,242,248,.85)}
 .bs-chip b{color:#fff}
 .bs-offer .foot{display:flex;align-items:center;gap:10px}
-.bs-price{display:flex;align-items:center;gap:5px;font-weight:800;font-size:14px;
+.bs-price{display:flex;align-items:center;gap:5px;font-weight:800;font-size:17px;
   font-variant-numeric:tabular-nums;color:#dff5ff}
-.bs-price .ic{width:14px;height:14px;color:#69d9ff}
+.bs-price .ic{width:16px;height:16px;color:#69d9ff}
 .bs-price .ic svg{width:100%;height:100%}
 .bs-price.no{color:#ff8d84}
 .bs-price.no .ic{color:#ff8d84}
 .bs-buy{flex:1;padding:8px 0 9px;border-radius:10px;border:none;font-family:inherit;font-weight:800;
-  font-size:12.5px;letter-spacing:.05em;cursor:pointer;color:#3a2703;
+  font-size:17px;letter-spacing:.05em;cursor:pointer;color:#3a2703;
   background:linear-gradient(180deg,#ffd94f,#f5a623);
   box-shadow:0 3px 8px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.45);
   transition:transform .12s ease,filter .15s ease;pointer-events:auto}
@@ -397,9 +496,9 @@ const CSS = `
   box-shadow:none;transform:none;filter:none}
 .bs-buy.owned{background:rgba(109,191,75,.18);color:#8fe06b;border:1px solid rgba(109,191,75,.4);
   display:flex;align-items:center;justify-content:center;gap:6px;cursor:default;box-shadow:none}
-.bs-buy.owned svg{width:13px;height:13px}
+.bs-buy.owned svg{width:15px;height:15px}
 .bs-shop-foot{border-top:1px solid rgba(255,255,255,.1);padding:11px 20px;display:flex;gap:16px;
-  flex-wrap:wrap;justify-content:center;font-size:11.5px;font-weight:600;color:rgba(238,242,248,.7)}
+  flex-wrap:wrap;justify-content:center;font-size:16px;font-weight:600;color:rgba(238,242,248,.7)}
 .bs-shop-foot span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 
 /* ---- controls sheet (F1) ------------------------------------------------ */
@@ -417,11 +516,12 @@ const CSS = `
 
    The key columns are FIXED widths, not auto: they are the same handful of caps
    in every row, and letting them size to content made the ']' row's columns
-   half the width of the WASD row's, which reads as a broken table. 96/86 is
+   half the width of the WASD row's, which reads as a broken table. 118/104 is
    measured off the widest cell each has to hold: the Space cap in the keyboard
-   column, and the four D-pad arrows in the controller one. */
+   column, and the four D-pad arrows in the controller one. (96/86 before the
+   16px floor took the caps from 10.75 to 16 — see the .bs-root kbd rule.) */
 .bs-keyswrap{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
-.bs-keys{position:relative;width:min(940px,94vw);max-height:88vh;display:flex;flex-direction:column;
+.bs-keys{position:relative;width:min(1120px,96vw);max-height:88vh;display:flex;flex-direction:column;
   border-radius:20px;opacity:0;transform:translateY(16px) scale(.96);
   transition:opacity .3s ease,transform .34s cubic-bezier(.34,1.45,.64,1);
   box-shadow:0 24px 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1)}
@@ -430,21 +530,25 @@ const CSS = `
 .bs-keyswrap.open .bs-keys{opacity:1;transform:translateY(0) scale(1)}
 .bs-keys-head{display:flex;align-items:center;gap:14px;padding:16px 20px 14px;
   border-bottom:1px solid rgba(255,255,255,.1)}
-.bs-keys-head h2{font-size:19px;font-weight:900;letter-spacing:.04em;flex:1;
+.bs-keys-head h2{font-size:22px;font-weight:900;letter-spacing:.04em;flex:1;
   text-shadow:0 1px 3px rgba(0,0,0,.5)}
-.bs-keys-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));
-  gap:4px 28px;padding:14px 20px 4px;overflow-y:auto;
+.bs-keys-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));
+  gap:4px 28px;padding:12px 20px 2px;overflow-y:auto;
   scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
-.bs-keys-sec{align-content:start;padding-bottom:12px}
-.bs-keyrow{display:grid;grid-template-columns:minmax(0,1fr) 96px 86px 54px;align-items:center;
-  gap:8px;padding:5px 8px;border-radius:9px;font-size:12.5px}
+.bs-keys-sec{align-content:start;padding-bottom:5px}
+/* Row padding 3px, where it was 5. The sheet is meant to be read WITHOUT
+   scrolling at 1080 (see the note above), and thirty rows at the 16px floor are
+   about 120px taller than they were — so the space comes back out of the gaps
+   between rows rather than out of the rows themselves. */
+.bs-keyrow{display:grid;grid-template-columns:minmax(0,1fr) 118px 104px 68px;align-items:center;
+  gap:8px;padding:3px 8px;border-radius:9px;font-size:17px}
 .bs-keyrow:not(.head):nth-child(even){background:rgba(255,255,255,.04)}
 .bs-keyrow .nm{display:flex;flex-direction:column;gap:1px;font-weight:700;
   color:rgba(238,242,248,.92)}
 /* The caveat under a row — the climb note, the combo note. Quiet on purpose:
    it is the second thing the row says, and a player scanning for a key should
    scan past it. */
-.bs-keyrow .nm em{font-style:normal;font-size:10.5px;font-weight:600;line-height:1.35;
+.bs-keyrow .nm em{font-style:normal;font-size:16px;font-weight:600;line-height:1.35;
   color:rgba(238,242,248,.5)}
 .bs-keyrow .kbm,.bs-keyrow .pad{text-align:right;white-space:nowrap;
   color:rgba(238,242,248,.9)}
@@ -455,19 +559,19 @@ const CSS = `
    mistake a player blames the game for. PRESS is deliberately almost invisible:
    it is the default, and printing it as quietly as possible is what makes the
    handful of HOLD rows jump off the page. */
-.bs-keyrow .mode{justify-self:end;padding:2px 7px 3px;border-radius:999px;
-  font-size:9.5px;font-weight:800;letter-spacing:.08em}
+.bs-keyrow .mode{justify-self:end;padding:2px 8px 3px;border-radius:999px;
+  font-size:16px;font-weight:800;letter-spacing:.04em}
 .bs-keyrow .mode.hold{background:linear-gradient(180deg,#ffd94f,#f5a623);color:#3a2703;
   box-shadow:0 1px 5px rgba(245,166,35,.35)}
 .bs-keyrow .mode.press{background:rgba(255,255,255,.07);color:rgba(238,242,248,.45)}
-.bs-keyrow.head{margin-top:4px;padding-bottom:7px;border-bottom:1px solid rgba(255,255,255,.1);
+.bs-keyrow.head{margin-top:3px;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,.1);
   border-radius:0}
-.bs-keyrow.head .nm{font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;
+.bs-keyrow.head .nm{font-size:17px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;
   color:#ffd23f}
-.bs-keyrow.head .kbm,.bs-keyrow.head .pad{font-size:9.5px;font-weight:800;letter-spacing:.06em;
+.bs-keyrow.head .kbm,.bs-keyrow.head .pad{font-size:16px;font-weight:800;letter-spacing:.02em;
   text-transform:uppercase;color:rgba(238,242,248,.42)}
 .bs-keys-foot{border-top:1px solid rgba(255,255,255,.1);padding:11px 20px;text-align:center;
-  font-size:11.5px;font-weight:600;color:rgba(238,242,248,.7)}
+  font-size:16px;font-weight:600;color:rgba(238,242,248,.7)}
 
 /* ---- in-game menu (Escape / Start / the touch overlay's MENU) ------------ */
 /* src/ui/pause.ts. It borrows the TITLE SCREEN's controls rather than the HUD's
@@ -759,10 +863,10 @@ const CSS = `
    behind them. Harmless anywhere with no such shade. */
 .bs-opts{position:relative;z-index:1;
   display:flex;flex-direction:column;align-items:stretch;gap:10px}
-.bs-opts h2{font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+.bs-opts h2{font-size:17px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
   text-align:center;color:rgba(255,255,255,.72);text-shadow:0 2px 6px rgba(0,0,0,.8);
   margin-bottom:2px}
-.bs-opts .note{font-size:11.5px;font-weight:600;line-height:1.35;text-align:center;
+.bs-opts .note{font-size:16px;font-weight:600;line-height:1.35;text-align:center;
   color:rgba(255,255,255,.62);text-shadow:0 1px 4px rgba(0,0,0,.85);margin:-4px 0 2px}
 /* Wood-and-gold, taken from the logo rather than from the HUD's cool glass:
    this screen belongs to the painting, not to the interface that comes after.
@@ -780,7 +884,7 @@ const CSS = `
    takes part in the cascade it was winning. */
 .bs-menu-btn{display:flex;align-items:center;justify-content:center;gap:10px;
   width:100%;padding:13px 18px;border-radius:12px;cursor:pointer;
-  font-family:inherit;font-size:15px;font-weight:800;letter-spacing:.05em;
+  font-family:inherit;font-size:18px;font-weight:800;letter-spacing:.05em;
   color:#f4e7cd;text-shadow:0 1px 2px rgba(0,0,0,.6);
   /* OPAQUE. At 92% the red gate banner behind the settings list came through
      the wood as a pink rectangle inside the row — captured, and it read as a
@@ -811,28 +915,35 @@ const CSS = `
     0 0 24px rgba(255,206,104,.75)}
 .bs-menu-btn[disabled]{cursor:default;opacity:.42;filter:grayscale(.5)}
 /* A settings row: label left, state pill right. */
-.bs-menu-btn.row{justify-content:space-between;font-size:14px;padding:12px 14px 12px 18px}
+.bs-menu-btn.row{justify-content:space-between;font-size:17px;padding:12px 14px 12px 18px}
 .bs-menu-btn.row .lbl{font-weight:700;letter-spacing:.02em}
-.bs-menu-btn.row .pill{flex:none;min-width:46px;padding:4px 10px 5px;border-radius:999px;
-  font-size:11px;font-weight:900;letter-spacing:.1em;
+.bs-menu-btn.row .pill{flex:none;min-width:56px;padding:4px 10px 5px;border-radius:999px;
+  font-size:16px;font-weight:900;letter-spacing:.06em;
   background:rgba(0,0,0,.38);border:1px solid rgba(255,214,140,.24);
   color:rgba(244,231,205,.6)}
 .bs-menu-btn.row[aria-pressed="true"] .pill{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
 .bs-opts .row.lang,.bs-opts .row.vol{
   display:flex;align-items:center;justify-content:space-between;gap:10px;
-  padding:2px 4px 2px 18px;font-size:14px;font-weight:700;
+  padding:2px 4px 2px 18px;font-size:17px;font-weight:700;
   text-shadow:0 1px 3px rgba(0,0,0,.8)}
 .bs-opts .langs{display:flex;gap:6px}
 /* Six steps against two languages, so this strip is the one that can run out of
    room: the chips are narrower, the gap is tighter, and it WRAPS rather than
    pushing the label off the left edge of a phone held sideways. Wrapped lines
    stay flush RIGHT, under the strip they belong to, rather than drifting left
-   into the gap under the label. */
+   into the gap under the label.
+
+   THE CHIPS ARE NARROWER BY PADDING, NOT BY TYPE. They were 12px, which the
+   16px floor (issue #17) rules out — and a volume step is a NUMBER a player
+   reads to find the one they are on, so it is the last label in this panel that
+   should be small. The padding comes down instead and the wrap above absorbs
+   what is left: at 16px the six steps are one row on a desktop and two on a
+   phone held sideways, which is exactly what this rule was written for. */
 .bs-opts .vols{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}
-.bs-opts .vols .bs-menu-btn.chip{padding:7px 10px;font-size:12px;min-width:38px;
+.bs-opts .vols .bs-menu-btn.chip{padding:6px 9px;font-size:16px;min-width:44px;
   justify-content:center}
-.bs-menu-btn.chip{width:auto;padding:8px 13px;font-size:12.5px;letter-spacing:.04em;border-radius:999px}
+.bs-menu-btn.chip{width:auto;padding:8px 13px;font-size:16px;letter-spacing:.04em;border-radius:999px}
 .bs-menu-btn.chip.on{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
 
@@ -852,8 +963,13 @@ const CSS = `
    option steps. The wordmark is the same size at every step by design (see the
    .bs-menu .logo rule above), and a two-button list was never the thing that
    did not fit — only the settings column is short of room, so only that is
-   compacted. */
-@media (min-height:521px) and (max-height:660px){
+   compacted.
+
+   The band's top was 660px and is 760px: the 16px floor (issue #17) took a
+   settings row from 14px to 17px and the note under it from 11.5 to 16, which is
+   about 55px more list, so the height at which it stops fitting moved up with
+   it. */
+@media (min-height:521px) and (max-height:760px){
   .bs-menu[data-step="settings"] .fore{grid-template-rows:0 auto auto 1fr}
   .bs-menu[data-step="settings"]{--gap:20px}
   .bs-menu[data-step="settings"] .bs-opts{gap:7px}
@@ -878,10 +994,20 @@ const CSS = `
   .bs-menu[data-step="fullscreen"],
   .bs-menu[data-step="options"],
   .bs-menu[data-step="settings"]{--slide:0vh;--gap:14px}
-  .bs-menu-btn{padding:9px 16px;font-size:13.5px}
-  .bs-menu-btn.row{padding:8px 12px 8px 16px}
-  .bs-menu .bs-opts{gap:7px}
-  .bs-menu .press{font-size:15px}
+  /* PADDING, not type: the 16px floor (issue #17) is a floor at every screen
+     size, so a short window buys its room back from the box rather than from the
+     words in it. Measured at 851x393 with the music-volume row present, the
+     settings list wanted 401px of the 361 the padding leaves; the numbers below
+     take 6px off every row, 2px off every gap, and — the largest single saving —
+     stop the six volume chips WRAPPING to a second line, which alone was 40px.
+     After: 340px, and the Back button sits 21px clear of the bottom. */
+  .bs-menu-btn{padding:6px 14px;font-size:16px}
+  .bs-menu-btn.row{padding:6px 12px 6px 16px;font-size:16px}
+  .bs-menu .bs-opts{gap:5px}
+  .bs-menu .bs-opts .note{margin:-2px 0 0}
+  .bs-opts .vols{gap:4px}
+  .bs-opts .vols .bs-menu-btn.chip{padding:5px 7px;min-width:42px}
+  .bs-menu .press{font-size:16px}
 }
 
 /* Very short — a small phone in landscape, where the arithmetic simply does not
@@ -917,6 +1043,15 @@ const CSS = `
   .bs-menu[data-step="settings"] .bs-opts{gap:5px}
   .bs-menu[data-step="settings"] .vols .bs-menu-btn.chip{padding:5px 9px}
   .bs-menu[data-step="settings"] .langs .bs-menu-btn.chip{padding:6px 11px}
+  /* AND THE LAST TEN, bought when the 16px floor (issue #17) went in on top of
+     the music row: measured at 851x393 the Back button landed at 395 in a 393px
+     frame. The list itself has nothing left to give that is not type, so this
+     comes off the SCREEN MARGIN instead — the frame's own 16px inset, which is
+     breathing room rather than layout, and the only thing here that costs
+     nothing to lose. The safe-area insets still win where a device declares
+     them, which is the case the 16 was there for. After: 379 of 385. */
+  .bs-menu[data-step="settings"] .fore{
+    padding:max(4px,env(safe-area-inset-top)) 16px max(4px,env(safe-area-inset-bottom))}
 }
 
 /* The SETTINGS step alone, on anything under 600px of height: the wordmark
@@ -931,8 +1066,11 @@ const CSS = `
    floor; the wordmark has had the press screen and the options to itself, and
    once a player is reading a list of switches it is the thing that can go.
    Anything roomier keeps the logo on every step — captured at 640, where the
-   panel ends 43px clear of the bottom. */
-@media (max-height:600px){
+   panel ends 43px clear of the bottom.
+
+   600px before the 16px floor, for the same reason the dense band above moved:
+   the list is about 55px taller now, so it runs out of room 100px earlier. */
+@media (max-height:700px){
   .bs-menu[data-step="settings"] .logo{display:none}
   .bs-menu[data-step="settings"] .fore{grid-template-rows:0 1fr auto 1fr}
 }
@@ -958,7 +1096,7 @@ const CSS = `
 
 .bs-load.chip{right:max(16px,env(safe-area-inset-right));
   bottom:max(16px,env(safe-area-inset-bottom));z-index:55}
-.bs-load.chip .box{width:min(248px,52vw);padding:9px 13px 11px;border-radius:12px;
+.bs-load.chip .box{width:min(320px,62vw);padding:9px 13px 11px;border-radius:12px;
   background:linear-gradient(165deg,rgba(30,38,54,.72),rgba(14,18,28,.84));
   border:1px solid rgba(255,255,255,.14);
   box-shadow:0 8px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);
@@ -972,9 +1110,9 @@ const CSS = `
 .bs-load.cover .box{width:min(430px,74vw)}
 
 .bs-load .cap{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
-  font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
+  font-size:16px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
   color:rgba(238,242,248,.74);text-shadow:0 1px 2px rgba(0,0,0,.5)}
-.bs-load.cover .cap{font-size:12.5px}
+.bs-load.cover .cap{font-size:17px}
 .bs-load .pct{font-variant-numeric:tabular-nums;font-weight:700;letter-spacing:.06em;
   color:rgba(238,242,248,.5)}
 .bs-load .track{margin-top:8px;height:4px;border-radius:999px;overflow:hidden;
@@ -999,31 +1137,46 @@ const CSS = `
 .bs-bag{right:max(16px,env(safe-area-inset-right));top:calc(max(14px,env(safe-area-inset-top)) + 44px)}
 
 /* Tablet / large phone: shrink the party panel and hotbar. */
+/* Everything narrowed here is a BOX — panel width, badge, slot, padding. The
+   type is not, because the 16px floor (issue #17) does not have a wide-screen
+   clause: a small window is not a player sitting closer. */
 @media (max-width: 900px){
-  .bs-compass{width:min(340px,46vw)}
-  .bs-left{width:236px;padding:6px}
+  .bs-compass{width:min(420px,50vw)}
+  .bs-left{width:290px;padding:6px}
   .bs-beast{padding:6px 8px}
   .bs-beast .badge{width:32px;height:32px}
   .bs-beast .badge svg{width:18px;height:18px}
-  .bs-beast .nm{font-size:12.5px}
+  .bs-beast .nm{font-size:16px}
   .bs-hp .track{height:13px}
-  .bs-slot{width:50px;height:50px;border-radius:12px}
-  .bs-hotbar{gap:8px;bottom:26px}
-  .bs-shop{width:min(94vw,720px)}
-  /* One column of sections below 900px: two 360px columns plus the panel's own
-     padding wants 800px of content box, which a 900px window no longer has. */
-  .bs-keys{width:min(94vw,560px)}
+  .bs-slot{width:58px;height:58px;border-radius:13px}
+  .bs-hotbar{gap:8px;bottom:30px}
+  .bs-shop{width:min(94vw,760px)}
+  /* One column of sections below 900px: two 440px columns plus the panel's own
+     padding wants 960px of content box, which a 900px window no longer has. */
+  .bs-keys{width:min(94vw,620px)}
   .bs-keys-body{grid-template-columns:1fr}
 }
 
 /* Phone: the touch overlay owns the bottom corners, so the HUD moves out of
    the way — party panel to the top-left under the title, keyboard hints and
    the desktop hotbar hidden (touch has its own skill buttons). */
+/* PHONE, AND THE ONE PLACE THE 16px FLOOR COSTS SOMETHING (issue #17).
+   Everywhere else the floor is bought with a slightly larger box. Here there is
+   no slack: this block used to run the HUD down to 8.5–12.5px because at 393 CSS
+   px the desktop sizes eat a third of the screen, and holding the floor means
+   the boxes grow on the screen least able to give the room.
+
+   So the rule for this block is CUT CONTENT, NOT TYPE. The type is the same 16px
+   floor it is at every other width — a phone is not a player sitting closer —
+   and what pays for it is everything that is not a word: badges, padding, bar
+   heights, the title chip's tagline (hidden outright), and the party panel's own
+   ellipsis doing more work. Two elements had to be re-fitted against each other
+   rather than sized alone, because they share the top band and the type between
+   them has to fit across it: the party panel top-left and the toast stack
+   top-right were 160 + 200 of 393, and are 196 + 157 with a 12px lane between.
+   Sized independently for the floor they came to 206 + 180, which is 393 exactly
+   and printed the toast over the panel's right edge. */
 @media (max-width: 620px), (max-height: 460px){
-  /* The whole HUD scales down: at 393 CSS px the desktop sizes eat a third of
-     the screen. Panel is compact and parked top-left under the title chip. */
-  /* Hard cap so the party panel can never dominate the frame: at ~350 CSS px
-     the old min(48vw,168px) was still eating nearly half the width. */
   /* No compass on a phone. The top band is the one strip of screen the touch
      layout leaves alone, but the party panel (top-left), shard pill and toast
      stack (top-right) already close in on it from both sides, and a 170px strip
@@ -1031,38 +1184,46 @@ const CSS = `
      worse than none. With it gone the three elements below it go back to the
      positions they had before the compass existed. */
   .bs-compass{display:none}
-  .bs-riding{top:18px}
+  /* IT WRAPS HERE, and only here. The badge is one nowrap line on a desktop; at
+     the 16px floor that line is 357px of a 393px phone, which reaches from the
+     MENU button on one side to the toast column on the other. Capped and wrapped
+     it is two short lines in the middle of the top band, and the toast stack
+     below drops far enough to clear the second one. */
+  .bs-riding{top:18px;font-size:16px;letter-spacing:.02em;padding:6px 13px;
+    max-width:56vw;white-space:normal;text-align:center;line-height:1.25}
   .bs-banner{top:58px}
-  .bs-left{width:min(40vw,160px);max-width:62vw;padding:5px;border-radius:13px;
-    bottom:auto;top:calc(max(12px,env(safe-area-inset-top)) + 38px)}
+  .bs-left{width:min(50vw,196px);max-width:60vw;padding:5px;border-radius:13px;
+    bottom:auto;top:calc(max(12px,env(safe-area-inset-top)) + 40px)}
   .bs-beasts{flex-direction:column;gap:1px}
   .bs-beast{padding:5px 7px;border-radius:9px}
   .bs-beast .bs-beast-in{gap:7px}
-  .bs-beast .badge{width:24px;height:24px}
-  .bs-beast .badge svg{width:14px;height:14px}
-  .bs-beast.support .badge{width:22px;height:22px}
-  .bs-beast .nm{font-size:11px}
-  .bs-beast.support .nm{font-size:10.5px}
-  .bs-beast .lv{font-size:9px;padding:0 5px}
+  .bs-beast .badge{width:26px;height:26px}
+  .bs-beast .badge svg{width:15px;height:15px}
+  .bs-beast.support .badge{width:24px;height:24px}
+  .bs-beast .nm,.bs-beast.support .nm{font-size:16px}
+  .bs-beast .lv{font-size:16px;padding:0 6px}
   .bs-beast .row{margin-bottom:3px}
   .bs-micro{height:4px}
   .bs-hp{padding:6px 7px 2px;margin-top:4px}
-  .bs-hp .lbl{letter-spacing:.12em;font-size:9px}
-  .bs-hp .val{font-size:10.5px}
-  .bs-hp .track{height:11px;border-radius:7px}
+  .bs-hp .lbl{letter-spacing:.06em;font-size:16px}
+  .bs-hp .val{font-size:16px}
+  .bs-hp .track{height:12px;border-radius:7px}
   .bs-title{padding:5px 10px 6px;border-radius:9px}
-  .bs-title b{font-size:10.5px;letter-spacing:.13em}
-  .bs-title span{font-size:8.5px}
+  .bs-title b{font-size:16px;letter-spacing:.1em}
+  /* The tagline goes. It is the one purely decorative string in the HUD, and at
+     393 CSS px the chip and the currency pill share the top band with nothing
+     between them — so the choice is a legible title without a subtitle, or both
+     at a size the issue rules out. */
+  .bs-title span{display:none}
   .bs-shards{padding:5px 10px;gap:6px}
-  .bs-shards .ic{width:14px;height:14px}
-  .bs-shards .num{font-size:13px}
+  .bs-shards .ic{width:16px;height:16px}
+  .bs-shards .num{font-size:17px}
   /* Shrunk rather than hidden: a phone player needs to be able to name the
      money too, and the pill still fits inside the right safe-area inset. */
-  .bs-shards .lbl{font-size:9.5px;letter-spacing:.02em}
-  .bs-bag{top:calc(max(14px,env(safe-area-inset-top)) + 34px);gap:4px}
+  .bs-shards .lbl{font-size:16px;letter-spacing:0}
+  .bs-bag{top:calc(max(14px,env(safe-area-inset-top)) + 36px);gap:4px}
   .bs-bag .chip{padding:3px 9px;gap:6px}
-  .bs-bag .nm{font-size:9.5px}
-  .bs-bag .n{font-size:11px}
+  .bs-bag .nm,.bs-bag .n{font-size:16px}
   /* touch has its own skill buttons; the desktop hotbar and key hints go away */
   .bs-hotbar{display:none}
   .bs-shop-foot{display:none}
@@ -1072,17 +1233,28 @@ const CSS = `
      attached to a small window. Tightened rather than hidden — the notes are
      what go, since a 96vw row cannot hold a caption and a key column. */
   .bs-keys{width:96vw;max-height:86vh}
-  .bs-keyrow{grid-template-columns:minmax(0,1fr) 78px 74px 46px;font-size:11.5px;padding:4px 6px}
+  /* 78/74/46 at 11.5px before the floor. The caps inside these cells are
+     <kbd>, which now bottoms out at 16px (see .bs-root kbd), so the columns are
+     re-measured against the same widest cells the desktop rule names. */
+  .bs-keyrow{grid-template-columns:minmax(0,1fr) 98px 90px 62px;font-size:16px;padding:4px 6px}
+  .bs-keyrow.head .nm{font-size:16px}
   .bs-keyrow .nm em{display:none}
   /* Toasts: one at a time (see HUD.addToast), clear of the control clusters,
      and clamped to two short lines so a long instruction string can never grow
      into a screen-eating panel. */
-  .bs-toasts{top:calc(max(12px,env(safe-area-inset-top)) + 38px);bottom:auto;
+  /* +66 rather than +38: the riding badge above is two lines here (see
+     .bs-riding) and the stack has to start below the second one. */
+  .bs-toasts{top:calc(max(12px,env(safe-area-inset-top)) + 66px);bottom:auto;
     left:auto;right:max(12px,env(safe-area-inset-right));transform:none;align-items:flex-end}
-  .bs-toast{font-size:11px;line-height:1.35;padding:6px 9px;max-width:min(52vw,200px);
-    border-radius:10px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
-    line-clamp:2;overflow:hidden}
-  .bs-banner{font-size:11.5px;padding:8px 12px;max-width:78vw}
+  /* Three lines rather than two, and narrower: at 16px a two-line clamp cut
+     every instruction toast mid-sentence. The width is what the party panel
+     opposite it left over — see the note at the top of this block. */
+  .bs-toast{font-size:16px;line-height:1.35;padding:6px 9px;max-width:min(40vw,157px);
+    border-radius:10px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;
+    line-clamp:3;overflow:hidden}
+  .bs-banner{padding:8px 12px;max-width:82vw}
+  .bs-banner .eyebrow{letter-spacing:.16em}
+  .bs-banner .txt{font-size:18px}
   /* The interaction prompt has to clear the touch fans. Their topmost buttons
      (skill 1 on the right, SWAP on the left) reach 217px up from the bottom
      edge in BOTH orientations — the fan is sized in vmin, so it is the same
@@ -1090,13 +1262,34 @@ const CSS = `
      Measured on a Pixel 5: portrait the pill lands at y 587-619, under the hero
      and above the arc; landscape at y 131-161, above the reticle and clear of
      the toast stack in the top-right. */
-  .bs-hint{font-size:11px;padding:7px 11px;bottom:232px}
+  .bs-hint{font-size:16px;padding:7px 13px;bottom:232px;
+    max-width:88vw;white-space:normal;text-align:center}
   /* Same argument as the pill, one panel higher: the fans reach 217px up, the
      pill takes the band at 232, and the dialogue sits above both. */
-  .bs-dialogue{bottom:274px;padding:9px 12px 10px;width:min(88vw,420px)}
-  .bs-dialogue .line{font-size:12.5px}
-  .bs-dialogue .who{font-size:9.5px;letter-spacing:.18em}
-  .bs-dialogue .foot{margin-top:5px;font-size:9.5px}
+  /* 330, where the desktop pill it sits above needs only 174. The interact
+     prompt WRAPS at this width — "Press E — Talk to Deckard Gains Armstrong" is
+     three lines of 16px in a 393px frame, 85px tall against the desktop's 47 —
+     and the dialogue has to clear whatever it grows to, not the one-line height
+     it used to have. Measured, at 280 the panel's bottom edge was 29px inside
+     the pill. */
+  .bs-dialogue{bottom:330px;padding:9px 12px 10px;width:min(92vw,440px)}
+  .bs-dialogue .line{font-size:17px}
+  .bs-dialogue .who{font-size:16px;letter-spacing:.1em}
+  .bs-dialogue .foot{margin-top:5px;font-size:16px}
+}
+
+/* A PHONE HELD UPRIGHT, and the one rule that is about WIDTH rather than about
+   being a phone — so it is its own block rather than a line in the one above,
+   which landscape also matches. The level-up banner is centred and the party
+   panel is top-left, and at 393 CSS px there is not room for both on one band:
+   with the panel 160px wide and the banner 306 they already overlapped by 117,
+   and the 16px floor (issue #17) took the panel to 206. Captured, a level-up
+   printed straight across both beast rows. 200 clears the panel (which ends
+   about 190) and the toast column beside it, and is still well above the
+   reticle. In LANDSCAPE the same two sit side by side with room to spare and the
+   banner stays at 58 — pushing it to 200 there would park it on the hero. */
+@media (max-width: 620px){
+  .bs-banner{top:200px}
 }
 
 /* --- developer console (§) ------------------------------------------------
