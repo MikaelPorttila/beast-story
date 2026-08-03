@@ -1286,8 +1286,29 @@ let started = false;
 // at the game rather than at a poster or a loading bar. Photo mode and `menu=0`
 // never fire it, and neither wants a toast in shot.
 
-// ?fps=<n> caps the frame rate (0 or absent = uncapped). F2 shows measured FPS.
-const fpsCap = Number(params.get('fps') ?? 0);
+/**
+ * Frame-rate cap, in fps. `?fps=<n>` overrides it and `?fps=0` removes it.
+ *
+ * 120 BY DEFAULT, where this used to be uncapped. A browser already pins
+ * requestAnimationFrame to the display, so "uncapped" never meant unbounded —
+ * it meant "however fast this particular monitor happens to be", which on a
+ * 165 Hz panel is 165 frames of a scene whose cost is 4.97 ms of MAIN THREAD
+ * each. Measured there, walking: 80.5% of a core spent on frames, and `render`
+ * — draw submission, 549 calls and 3.1M triangles — is 67% of every one of
+ * them. The frame count is the only term in that product the game controls.
+ *
+ * 120 rather than 60 because this is an action game and the difference between
+ * 60 and 120 is something a player feels on a high-refresh panel, where the
+ * difference between 120 and 165 is not. On a 60 Hz display the cap never
+ * binds and nothing changes at all.
+ *
+ * It is a DEADLINE, not a sleep, and `Engine.beginFrame` explains why: rAF only
+ * offers times on the refresh grid, so an interval-based cap always undershoots
+ * (a 30 fps cap measured 26.7). Skipped frames roll their elapsed time into the
+ * next one, so the simulation is unaffected — see `Engine.tick`.
+ */
+const DEFAULT_FPS_CAP = 120;
+const fpsCap = Number(params.get('fps') ?? DEFAULT_FPS_CAP);
 engine.setFpsCap(fpsCap);
 const debug = new DebugOverlay(engine.renderer, fpsCap);
 if (params.get('debug') === '1') debug.toggle();

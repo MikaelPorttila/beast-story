@@ -145,6 +145,22 @@ once frames come quickly.
   `test-dive.mjs`. `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
+- **THE FRAME RATE IS CAPPED AT 120 BY DEFAULT** (`DEFAULT_FPS_CAP` in main.ts;
+  `?fps=<n>` overrides, `?fps=0` removes it). A browser already pins rAF to the
+  display, so "uncapped" never meant unbounded — it meant "as fast as this
+  particular monitor", which on a 165 Hz panel is 165 frames of a scene costing
+  4.97 ms of MAIN THREAD each. The frame COUNT is the only term in that product
+  the game controls. Measured on a 165 Hz display, walking: **80.5% of a core ->
+  55.5%**, fps 161.8 -> 118.7, with cpu/frame essentially unchanged. 120 rather
+  than 60 because the difference between 60 and 120 is something an action game
+  player feels and the difference between 120 and 165 is not; on a 60 Hz display
+  the cap never binds. Note what happens to the PER-FRAME gameplay sections when
+  you read the profiler under a cap: `world`, `combat` and `beasts` all go UP
+  (+42%, +49%, +29%) because each frame now drains more simulation slices and
+  more of the chunk-build budget. The total work is the same, spread over fewer
+  frames — which is exactly why `render` is the only section a cap actually
+  reduces, and why `cpu` x `fps` is the number to reason about rather than
+  either alone.
 - **PERFORMANCE HAS TWO INSTRUMENTS, AND NEITHER OF THEM IS FPS.** Press **F2**
   in game and the overlay now ends with a `where it went` block: every profiler
   section as a rolling mean with a bar, then `cpu` (time inside our own frame
