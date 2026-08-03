@@ -865,6 +865,39 @@ export function createWorld(
       for (const rec of chunks.values()) applyLayers(rec);
     },
 
+    /**
+     * Throw away every streamed chunk and build them again.
+     *
+     * The one thing a NATURE PARAMETER change needs (world/nature.ts): the
+     * densities are read inside `buildChunkProps`, so a chunk that is already
+     * standing holds the old world and nothing short of rebuilding it can say
+     * otherwise. Deliberately the whole set rather than the props meshes alone —
+     * a chunk's three stages share one `ChunkRec` and one entry in the trunk
+     * registry, and half-rebuilding it would leave trees in `climbTopAt` that
+     * are no longer drawn.
+     *
+     * It is a TUNING path, not a frame path: dropping ~90 chunks and streaming
+     * them back costs the same as walking into fresh ground and takes about as
+     * long. Nothing calls it in play.
+     *
+     * The hero cannot fall through the result — `getHeight` is a pure function
+     * of the seed (world/terrain.ts) and never consults a loaded chunk — so the
+     * rebuild can be left entirely to the streamer's own budget.
+     */
+    rebuildProps(): void {
+      if (disposed) return;
+      for (const rec of chunks.values()) disposeChunk(rec);
+      chunks.clear();
+      trunks.clear();
+      // The part-built chunk's record is gone; a further stage on it would add
+      // meshes to a record nothing owns. Same reason `unloadFar` drops it.
+      building = null;
+      // Force `update` to re-queue: it only refreshes when the focus crosses a
+      // chunk boundary, and standing still is the normal case while tuning.
+      lastCX = Infinity;
+      invalidateStaticShadows();
+    },
+
     setVisible(v: boolean): void {
       // SHOWING THE WORLD MEANS SHOWING IT AS CONFIGURED, which is why this
       // goes through `applyLayers` rather than setting every mesh true.

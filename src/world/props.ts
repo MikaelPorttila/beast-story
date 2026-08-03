@@ -10,6 +10,7 @@ import { hashCell, mulberry32 } from './noise';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch, type ColumnScratch } from './terrain';
 import { DECK_EDGE, type RoadClearance } from './roads';
 import { SWAY_BOUND_PAD } from './sway';
+import { nature, natureCount } from './nature';
 import { flags } from '../core/flags';
 
 /**
@@ -2241,6 +2242,28 @@ export function buildChunkProps(
     hashCell(terrain.seed, wx, 313, wz) < wear * (1 / 0.6);
 
   /**
+   * Should this ONE stamp be dropped to honour a nature density of `f`?
+   * True means drop it. See world/nature.ts.
+   *
+   * A PURE HASH, for exactly the reason `trodden` above gives: drawing here
+   * would advance the per-chunk stream and re-scatter the vegetation of every
+   * chunk in the world, so a density knob would change the placement of things
+   * it does not govern. `salt` separates the decisions — the same column must
+   * not lose its rock and its sprig together, or thinning would carve visible
+   * bald patches instead of thinning evenly.
+   *
+   * `f >= 1` returns false WITHOUT hashing, which is what makes the shipped
+   * world bit-for-bit what it was: at the baseline this function is inert.
+   *
+   * It only ever REMOVES. Placements that come in groups (a clump's tussocks, a
+   * boulder outcrop, a reed stand) scale their COUNT instead and so grow past 1;
+   * a lone stamp on a ladder band has nowhere to put a second one, and saying so
+   * is better than inventing a position for it.
+   */
+  const thin = (wx: number, wz: number, salt: number, f: number): boolean =>
+    f < 1 && hashCell(terrain.seed, wx, salt, wz) >= f;
+
+  /**
    * The height a SOFT prop sits at, given the column height a caller already
    * paid for.
    *
@@ -2417,26 +2440,32 @@ export function buildChunkProps(
       // planted orchard.
       let tpl: Template | null = null;
       let jitterMul = 1;
+      // The nature baseline for THIS candidate's area, scaling every acceptance
+      // rate below (world/nature.ts). At 1 — the shipped value — each product
+      // is the literal that was there before, so the measured figures in the
+      // comment above still describe the world. `roll` is drawn either way, so
+      // no factor can move a tree it did not remove.
+      const nTrees = nature.for(ci.biome).trees;
       // Roughly one tree in eleven is a dead snag (one in fourteen on plains,
       // where a lone dead tree in open meadow is a strong enough silhouette that
       // more of them would read as blight). See `deadSnag` for why: it is the
       // only template in the set whose outline is not a blob on a stick, and a
       // treeline needs one every few trees before it stops reading as a hedge.
-      if (ci.biome === 'forest' && roll < 0.80) {
+      if (ci.biome === 'forest' && roll < 0.80 * nTrees) {
         tpl = vroll < 0.22 ? lib.oakA : vroll < 0.41 ? lib.oakB
           : vroll < 0.58 ? lib.oakC : vroll < 0.75 ? lib.oakD
           : vroll < 0.91 ? lib.birch : vroll < 0.96 ? lib.snag : lib.snagTall;
-      } else if (ci.biome === 'plains' && roll < 0.30) {
+      } else if (ci.biome === 'plains' && roll < 0.30 * nTrees) {
         tpl = vroll < 0.30 ? lib.oakA : vroll < 0.51 ? lib.oakC
           : vroll < 0.74 ? lib.oakD : vroll < 0.93 ? lib.birch : lib.snag;
-      } else if (ci.biome === 'snow' && roll < 0.62) {
+      } else if (ci.biome === 'snow' && roll < 0.62 * nTrees) {
         tpl = vroll < 0.34 ? lib.pine : vroll < 0.64 ? lib.pineTall
           : vroll < 0.9 ? lib.pineIrr : lib.snagTall;
-      } else if (ci.biome === 'beach' && roll < 0.5 && ci.hc >= 8.6 && ci.hc <= 11.5) {
+      } else if (ci.biome === 'beach' && roll < 0.5 * nTrees && ci.hc >= 8.6 && ci.hc <= 11.5) {
         // three distinct palms + extra scatter so beach lines feel organic
         tpl = vroll < 0.34 ? lib.palm : vroll < 0.67 ? lib.palmB : lib.palmC;
         jitterMul = 2.2;
-      } else if (ci.biome === 'desert' && roll < 0.3) {
+      } else if (ci.biome === 'desert' && roll < 0.3 * nTrees) {
         tpl = lib.cactusBig;
         jitterMul = 2.2;
       }
@@ -2555,6 +2584,14 @@ export function buildChunkProps(
     if (!flatEnough(wx, wz, h, 2)) continue;
     const t = 0.92 + rng() * 0.16;
     const green = biome === 'plains' || biome === 'forest';
+    // Nature densities for this candidate's area (world/nature.ts). The band
+    // BOUNDARIES of the ladder below are deliberately left alone — they are a
+    // size ladder, and scaling one boundary would hand the width it gave up to
+    // whatever kind sits after it, so "fewer rocks" would silently mean "more
+    // hedges". Only the counts inside a branch and the one band that has
+    // nothing after it (`!green`, boulders and then the end of the ladder) are
+    // scaled; a lone stamp in the middle of the ladder is thinned by hash.
+    const nf = nature.for(biome);
 
     // Size ladder for the mid ground, shortest to tallest: knee-high hedge
     // knot (~1) -> lone log (~0.8 but long and low) -> tall hedge clump (~1.7)
@@ -2563,7 +2600,7 @@ export function buildChunkProps(
     // silhouette in the mid ground repeated at the same height.
     if (!green) {
       // Desert/snow/beach: boulders only, at the old rate.
-      if (kind >= 0.42) continue;
+      if (kind >= 0.42 * nf.rocks) continue;
     } else if (kind >= 0.36) {
       if (kind < 0.5) {
         // Rock + log pair: a boulder with a trunk fetched up against it —
@@ -2577,8 +2614,12 @@ export function buildChunkProps(
         // prop must stay smaller than the hero is tall by a clear margin.
         const rs = 1.45 + rng() * 0.5;
         const rw = 0.94 + rng() * 0.13;
-        solid.add(rk, mlx, groundMin(wx, wz, 2) - 0.45, mlz, yaw, rs,
-          t * rw, t, t * (1.94 - rw));
+        // Drawn, then possibly dropped: the rolls above must happen either way
+        // or a rock density would re-scatter the log beside it. See `thin`.
+        if (!thin(wx, wz, 617, nf.rocks)) {
+          solid.add(rk, mlx, groundMin(wx, wz, 2) - 0.45, mlz, yaw, rs,
+            t * rw, t, t * (1.94 - rw));
+        }
         const lang = yaw + 1.1 + rng() * 1.2;
         const lx2 = mlx + Math.cos(lang) * (1.4 + rng() * 0.9);
         const lz2 = mlz + Math.sin(lang) * (1.4 + rng() * 0.9);
@@ -2598,10 +2639,12 @@ export function buildChunkProps(
           0.9 + rng() * 0.5, t, t * 0.98, t * 0.94);
       } else if (kind < 0.84) {
         // knee-high hedges: the rung between grass and the tall clump
-        stampKnot(lib.hedgeSmallT, mlx, mlz, 2 + Math.floor(rng() * 3), 1.5,
+        stampKnot(lib.hedgeSmallT, mlx, mlz,
+          natureCount(2 + Math.floor(rng() * 3), nf.bushes), 1.5,
           0.85 + rng() * 0.2, 0.35, -0.25, t, nearRoad);
       } else {
-        stampKnot(lib.hedgeT, mlx, mlz, 1 + Math.floor(rng() * 3), 1.5,
+        stampKnot(lib.hedgeT, mlx, mlz,
+          natureCount(1 + Math.floor(rng() * 3), nf.bushes), 1.5,
           0.95, 0.45, -0.3, t, nearRoad);
       }
       continue;
@@ -2610,7 +2653,7 @@ export function buildChunkProps(
     {
       // Boulder cluster: 2-3 existing rock templates at 1.4-2.2x, stamped
       // around a shared center so they read as one outcrop, not lone pebbles.
-      const n = 2 + Math.floor(rng() * 2);
+      const n = natureCount(2 + Math.floor(rng() * 2), nf.rocks);
       for (let b = 0; b < n; b++) {
         const ang = rng() * Math.PI * 2;
         const rad = b === 0 ? 0 : 0.9 + rng() * 2;
@@ -2689,7 +2732,15 @@ export function buildChunkProps(
     // World's ground plane is densely carpeted". At 0.82 of 115 candidates a
     // plains chunk plants ~94 clumps, one per 3.3 units square, and each one is
     // now a metre-and-a-half patch rather than a pom-pom, so the patches touch.
-    if (accept > (cb === 'plains' ? 0.82 : 0.46)) continue;
+    // A CLUMP IS THE MEADOW'S UNIT, so `grass` scales the acceptance rate and
+    // everything inside a clump both — a field is made thicker by having more
+    // patches AND fuller ones, which is what a designer means by "more grass".
+    // The consequence is worth stating: `grass 0` in an area clears the clumps,
+    // and with them the flower and the bush a clump carries. That is the right
+    // reading of an area with no sward in it, and the mid-scale pass above still
+    // plants hedges there, so `bushes` is not lost with it.
+    const nm = nature.for(cb);
+    if (accept > (cb === 'plains' ? 0.82 : 0.46) * nm.grass) continue;
     if (ci.h < WATER_LEVEL + 1) continue;
     if (ci.trample > 0 && trodden(wcx, wcz, ci.trample)) continue;
     // Grass and flowers are welcome on the doorstep — only the bush below,
@@ -2725,7 +2776,7 @@ export function buildChunkProps(
     // again. What they still buy is the soft fringe between the solid props —
     // four of them under a tussock reads as the grass the tussock stands in —
     // so they are trimmed rather than removed.
-    const members = 3 + Math.floor(rng() * 4);
+    const members = natureCount(3 + Math.floor(rng() * 4), nm.grass);
     const grass = grasses[Math.floor(rng() * 2.999)];
     // The clump's ground tint, resolved ONCE. `addTuft` re-derives this per
     // instance because it re-samples the column; the sprig carpet below is far
@@ -2737,7 +2788,7 @@ export function buildChunkProps(
     const sprB = clampTint(1 - B + B * (ci.topB / TUFT_REF[2])) * cj;
     // One knee-high tussock anchors roughly a fifth of the clumps, so the
     // meadow has a second height in it instead of one uniform nap.
-    if (rng() < 0.22) {
+    if (rng() < 0.22 * nm.grass) {
       soft.add(lib.grassTall, clx, ci.h - 0.03, clz, rng() * Math.PI * 2,
         0.8 + rng() * 0.4, cj * 0.98, cj, cj * 0.92);
     }
@@ -2766,7 +2817,7 @@ export function buildChunkProps(
     // clumps' carpets touch and the ground plane stops being bare polygon
     // anywhere, which is the finding. They are stamped BEFORE the tussocks so
     // `ci` still holds the cluster's own column.
-    const sprigN = 4 + Math.floor(rng() * 5);
+    const sprigN = natureCount(4 + Math.floor(rng() * 5), nm.grass);
     for (let m = 0; m < sprigN; m++) {
       const ang = rng() * Math.PI * 2;
       // sqrt so the sample is uniform over the DISC rather than piled at the
@@ -2784,7 +2835,7 @@ export function buildChunkProps(
     // no longer the thing carrying coverage — the sprigs are — and at 140
     // vertices against a sprig's 40 it is the wrong place to spend the meadow's
     // budget now that there is a cheaper way to fill ground.
-    const tuftN = 1 + Math.floor(rng() * 3);
+    const tuftN = natureCount(1 + Math.floor(rng() * 3), nm.grass);
     for (let m = 0; m < tuftN; m++) {
       const ang = rng() * Math.PI * 2;
       const rad = rng() * 1.05;
@@ -2830,11 +2881,11 @@ export function buildChunkProps(
     // recognisable patch of ten or fifteen mats, and the meadow between drifts
     // stays green.
     const reg = hashCell(terrain.seed, wcx >> 5, 401, wcz >> 5);
-    if (reg < 0.42 && rng() < 0.24) {
+    if (reg < 0.42 && rng() < 0.24 * nm.flowers) {
       const bl = blooms[Math.floor(
         hashCell(terrain.seed, (wcx >> 5) + 77, 907, (wcz >> 5) - 31) * 4.999,
       )];
-      const mats = 1 + Math.floor(rng() * 2);
+      const mats = natureCount(1 + Math.floor(rng() * 2), nm.flowers);
       for (let m = 0; m < mats; m++) {
         const ang = rng() * Math.PI * 2;
         const rad = m === 0 ? 0 : 0.6 + rng() * 1.6;
@@ -2853,7 +2904,7 @@ export function buildChunkProps(
     // it never registered (168 vertices for two coloured voxels 0.33 units off
     // the ground); the drift above now does that job at a scale a vista can
     // resolve, so the lone flower goes back to being an occasional grace note.
-    if (rng() < 0.38) { // a flower in about a third of the clumps
+    if (rng() < 0.38 * nm.flowers) { // a flower in about a third of the clumps
       const fx = clx + (rng() - 0.5) * 1.4;
       const fz = clz + (rng() - 0.5) * 1.4;
       terrain.columnInfo(ox + Math.floor(fx), oz + Math.floor(fz), ci);
@@ -2871,7 +2922,7 @@ export function buildChunkProps(
     // in the meadow that lands in the shadow-casting `solid` bucket, which is
     // where the "canopy shadows are the dominant ground pattern" note applies at
     // knee height.
-    if (rng() < 0.28) { // bush anchoring the clump
+    if (rng() < 0.28 * nm.bushes) { // bush anchoring the clump
       const bx = clx + (rng() - 0.5) * 2;
       const bz = clz + (rng() - 0.5) * 2;
       terrain.columnInfo(ox + Math.floor(bx), oz + Math.floor(bz), ci);
@@ -2919,9 +2970,16 @@ export function buildChunkProps(
     const t = 0.9 + pick * 0.2;
     const ft = 0.9 + pick * 0.18; // subtle per-instance flower tint variety
     const grass = grasses[Math.floor(pick * 2.999)];
+    // Nature densities for this column's area. Every branch below is a band on
+    // one shared `roll` ladder, so a density THINS a band's stamps by hash (see
+    // `thin`) rather than moving the band — a boundary moved here would hand
+    // the width it gave up to whichever prop is next in the ladder. The bodies
+    // are braced for the same reason: an extra condition on the `else if` would
+    // fall THROUGH to the next band, so thinning grass would plant deadwood.
+    const ns = nature.for(ci.biome);
     switch (ci.biome) {
       case 'plains':
-        if (roll < 0.22) soft.add(grass, x, h - 0.03, z, yaw, 0.6 + scl * 0.45, t * 0.96, t, t * 0.9);
+        if (roll < 0.22) { if (!thin(wx, wz, 701, ns.grass)) soft.add(grass, x, h - 0.03, z, yaw, 0.6 + scl * 0.45, t * 0.96, t, t * 0.9); }
         // Solid tussocks at ~7% of rolls: enough that the meadow still reads as
         // grazed grass even where the billboard blades wash out.
         // Lone tussocks are DOWN from 7% of rolls to 4%: the meadow pass below now
@@ -2935,45 +2993,45 @@ export function buildChunkProps(
         // own `roll < 0.262` ceiling, so the branch was unreachable and open
         // plains have been getting no lone boulders at all. Bands are otherwise
         // unchanged: rock 0.5%, tussock 4.2%, tall blade 0.9%, stick 1.0%.
-        else if (roll < 0.225 && !noSolid) solid.add(lib.rockAMoss, x, h - 0.1, z, yaw, scl, t, t, t);
-        else if (roll < 0.267) addTuft(false, x, z, yaw, 0.72 + scl * 0.4, t, nearRoad);
-        else if (roll < 0.276) soft.add(lib.grassTall, x, h - 0.03, z, yaw, 0.8 + scl * 0.3, t, t, t * 0.94);
+        else if (roll < 0.225 && !noSolid) { if (!thin(wx, wz, 617, ns.rocks)) solid.add(lib.rockAMoss, x, h - 0.1, z, yaw, scl, t, t, t); }
+        else if (roll < 0.267) { if (!thin(wx, wz, 701, ns.grass)) addTuft(false, x, z, yaw, 0.72 + scl * 0.4, t, nearRoad); }
+        else if (roll < 0.276) { if (!thin(wx, wz, 701, ns.grass)) soft.add(lib.grassTall, x, h - 0.03, z, yaw, 0.8 + scl * 0.3, t, t, t * 0.94); }
         else if (roll < 0.286) soft.add(lib.deadwoodT, x, h - 0.02, z, yaw, scl, t, t, t);
         // Carpet BETWEEN the clumps. The meadow pass fills its own 2.2-unit
         // discs; without this the ground between two discs is still the bare
         // polygon the finding is about, just in smaller pieces. 22% of 320 rolls
         // is ~70 sprigs a chunk on top of the ~500 the clumps plant, and this
         // loop has already paid for the `columnInfo` these need.
-        else if (roll < 0.50) addSprig(false, x, z, yaw, 0.8 + scl * 0.4,
-          t * 0.98, t, t * 0.94, nearRoad);
+        else if (roll < 0.50) { if (!thin(wx, wz, 701, ns.grass)) addSprig(false, x, z, yaw, 0.8 + scl * 0.4,
+          t * 0.98, t, t * 0.94, nearRoad); }
         break;
       case 'forest':
-        if (roll < 0.1) soft.add(grass, x, h - 0.03, z, yaw, 0.5 + scl * 0.45, t * 0.86, t, t * 0.84);
+        if (roll < 0.1) { if (!thin(wx, wz, 701, ns.grass)) soft.add(grass, x, h - 0.03, z, yaw, 0.5 + scl * 0.45, t * 0.86, t, t * 0.84); }
         else if (roll < 0.127 && !noSolid) solid.add(mushroomT, x, h - 0.04, z, yaw, scl, t, t, t);
-        else if (roll < 0.151 && !noSolid) solid.add(pick < 0.5 ? lib.rockAMoss : lib.rockBMoss, x, h - 0.1, z, yaw, scl, t, t, t);
-        else if (roll < 0.211) addTuft(false, x, z, yaw, 0.8 + scl * 0.5, t * 0.95, nearRoad);
+        else if (roll < 0.151 && !noSolid) { if (!thin(wx, wz, 617, ns.rocks)) solid.add(pick < 0.5 ? lib.rockAMoss : lib.rockBMoss, x, h - 0.1, z, yaw, scl, t, t, t); }
+        else if (roll < 0.211) { if (!thin(wx, wz, 701, ns.grass)) addTuft(false, x, z, yaw, 0.8 + scl * 0.5, t * 0.95, nearRoad); }
         // Undergrowth: ferns and fallen sticks are what makes a wood read as a
         // wood floor rather than a lawn with trunks standing on it.
-        else if (roll < 0.30) soft.add(lib.ferns[Math.floor(pick * 2.999)], x, h - 0.04, z, yaw, 0.85 + scl * 0.35, t * 0.9, t, t * 0.88);
+        else if (roll < 0.30) { if (!thin(wx, wz, 701, ns.grass)) soft.add(lib.ferns[Math.floor(pick * 2.999)], x, h - 0.04, z, yaw, 0.85 + scl * 0.35, t * 0.9, t, t * 0.88); }
         else if (roll < 0.325) soft.add(lib.deadwoodT, x, h - 0.02, z, yaw, scl, t, t, t);
         // Same carpet as plains, a shade darker and cooler: a wood floor is the
         // one surface where "bare polygon between sparse bushes" was most
         // literally true, because the canopy shadow over it hides everything
         // that is not a mass.
-        else if (roll < 0.50) addSprig(false, x, z, yaw, 0.75 + scl * 0.4,
-          t * 0.88, t, t * 0.86, nearRoad);
+        else if (roll < 0.50) { if (!thin(wx, wz, 701, ns.grass)) addSprig(false, x, z, yaw, 0.75 + scl * 0.4,
+          t * 0.88, t, t * 0.86, nearRoad); }
         break;
       case 'beach':
-        if (roll < 0.064) addTuft(true, x, z, yaw, scl, t, nearRoad);
-        else if (roll < 0.086 && !noSolid) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t, t, t);
+        if (roll < 0.064) { if (!thin(wx, wz, 701, ns.grass)) addTuft(true, x, z, yaw, scl, t, nearRoad); }
+        else if (roll < 0.086 && !noSolid) { if (!thin(wx, wz, 617, ns.rocks)) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t, t, t); }
         break;
       case 'desert':
-        if (roll < 0.031 && !noSolid) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t * 1.05, t, t * 0.9);
-        else if (roll < 0.082) addTuft(true, x, z, yaw, scl, t, nearRoad);
+        if (roll < 0.031 && !noSolid) { if (!thin(wx, wz, 617, ns.rocks)) solid.add(lib.rockA, x, h - 0.1, z, yaw, scl, t * 1.05, t, t * 0.9); }
+        else if (roll < 0.082) { if (!thin(wx, wz, 701, ns.grass)) addTuft(true, x, z, yaw, scl, t, nearRoad); }
         else if (roll < 0.095 && !noSolid) solid.add(lib.cactusSmall, x, h - 0.04, z, yaw, scl, t, t, t);
         break;
       case 'snow':
-        if (roll < 0.031 && !noSolid) solid.add(lib.rockSnow, x, h - 0.1, z, yaw, scl, t, t, t);
+        if (roll < 0.031 && !noSolid) { if (!thin(wx, wz, 617, ns.rocks)) solid.add(lib.rockSnow, x, h - 0.1, z, yaw, scl, t, t, t); }
         break;
       case 'underwater':
         break;
@@ -3012,13 +3070,15 @@ export function buildChunkProps(
     // Few candidates, but each accepted one plants a whole STAND. Reeds grow in
     // beds with long clear beaches between them; one stem per candidate ringed
     // every lake in an even sprinkle that read as stubble, not vegetation.
-    if (roll > 0.055) continue;
+    // Resolved BEFORE the stand loop below, which re-samples `ci` per stem.
+    const nr = nature.for(ci.biome).reeds;
+    if (roll > 0.055 * nr) continue;
     if (exSoft(wx + 0.5, wz + 0.5)) continue;
     // A STAND strays up to 3 units from the candidate `exSoft` just cleared,
     // which is further than any other clump in this file — and a road crosses
     // exactly this ground wherever it bridges. `roadDist` is what `exSoft` left.
     const nearRoad = roadDist < ROAD_SOFT_CLEAR + 3;
-    const stand = 3 + Math.floor(rng() * 4);
+    const stand = natureCount(3 + Math.floor(rng() * 4), nr);
     for (let s = 0; s < stand; s++) {
       const ang = rng() * Math.PI * 2;
       const rad = s === 0 ? 0 : 0.8 + rng() * 2.2;
@@ -3072,7 +3132,19 @@ export function buildChunkProps(
     // candidates that is -6 blades (16 vertices each) and -14 tussocks (140)
     // against +56 sprigs (40) — a wash on the vertex budget for roughly twice
     // as many objects on an empty dune.
+    // Same ladder rule as the scatter pass: the bands stay put and a density
+    // thins what lands in one. Only the three vegetation bands are governed —
+    // shells, sticks and driftwood are mineral debris, not nature's growth.
+    //
+    // These three `continue` rather than wrapping their body, unlike the scatter
+    // pass, because each band draws INSIDE itself (`addTuft` and `addSprig` roll
+    // their own variation) and there is nothing to wrap without hoisting a tuned
+    // line out of its comment. The difference is only that a thinned candidate
+    // here also skips its own draws, so the stream past it moves — which is
+    // already true of any density below 1, and `thin` is inert at the baseline.
+    const nd = nature.for(ci.biome);
     if (roll < 0.14) {
+      if (thin(wx, wz, 701, nd.grass)) continue;
       // Dune blades are HALVED in rate. An upright card with an up-facing normal
       // takes full sun on both sides, so on bright sand a khaki blade renders as a
       // pale flat sheet — at close range they read as scraps of paper stuck in the
@@ -3081,8 +3153,10 @@ export function buildChunkProps(
       const dune = rng() < 0.5 ? lib.grassDuneA : lib.grassDuneB;
       soft.add(dune, x, ci.h - 0.03, z, yaw, 0.7 + rng() * 0.4, t, t, t * 0.95);
     } else if (roll < 0.32) {
+      if (thin(wx, wz, 701, nd.grass)) continue;
       addTuft(true, x, z, yaw, 0.75 + rng() * 0.45, t, nearRoad);
     } else if (roll < 0.60) {
+      if (thin(wx, wz, 701, nd.grass)) continue;
       addSprig(true, x, z, yaw, 0.8 + rng() * 0.5, t, t, t * 0.96, nearRoad);
     } else if (roll < 0.74) {
       // Squashed to 45% height. A shell dot is one voxel tall, and a CUBE that

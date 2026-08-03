@@ -664,6 +664,13 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      */
     setLayerVisible(): void { /* no streamed layers in the hold */ },
 
+    /**
+     * No-op: nothing grows in the hold, so there is no nature density that
+     * could have changed under it. The overworld rebuilds itself on the way
+     * back out only if something asked it to — see World.rebuildProps.
+     */
+    rebuildProps(): void { /* nothing grows down here */ },
+
     setVisible(v: boolean): void {
       for (const rec of chunks.values()) if (rec.mesh) rec.mesh.visible = v;
       // The crystal lamps live under `fixtures`, so this is also what takes the
