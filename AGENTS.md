@@ -142,7 +142,7 @@ once frames come quickly.
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
-  `test-dive.mjs`. `tools/capture-set.ps1` (PowerShell,
+  `test-dive.mjs`, `test-gfx.mjs`. `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
 - **THE FRAME RATE IS CAPPED AT 120 BY DEFAULT** (`DEFAULT_FPS_CAP` in main.ts;
@@ -161,6 +161,39 @@ once frames come quickly.
   frames — which is exactly why `render` is the only section a cap actually
   reduces, and why `cpu` x `fps` is the number to reason about rather than
   either alone.
+- **F3 IS THE REMEDY F2 DIAGNOSES.** The panel
+  ([src/ui/perf-panel.ts](src/ui/perf-panel.ts), model in
+  [src/core/gfx.ts](src/core/gfx.ts)) switches nine things off on a live frame —
+  frame cap, AO, glow, antialiasing, shadows, grass, trees, clouds, water — and
+  every row carries what it MEASURED at, because a wall of switches with no
+  numbers asks the player to guess which one is worth losing. It is meant to be
+  read beside F2: flip a row, watch the number move. `/gfx` sets the same
+  values from the console and `/gfx` alone lists them; `__dbgGfx(id, value)` is
+  the test hook. Settings persist one key per setting under
+  `game.settings.graphics.*`, the default is stored as the ABSENCE of a key, and
+  a `?` flag (`ao=0`, `bloom=0`, `shadows=0`) is a stronger statement that the
+  panel cannot undo — a pass that was never created stays absent.
+- **IT IS THE ONE PANEL IN THE GAME THAT IS NOT A MODAL**, and that is
+  deliberate rather than an oversight. Every other one freezes the hero so a
+  player who stopped to read does not walk off a cliff; this one must not,
+  because the whole point is to watch a frame that is doing real work get
+  cheaper, and a frozen world streams nothing and animates nothing.
+  `tools/test-gfx.mjs` asserts the hero still travels with it open.
+- **EVERY TOGGLE IS GUARDED BY A MEASUREMENT, NOT BY ITS OWN FLAG.** A settings
+  panel is the easiest thing in a codebase to get wrong in a way that tests
+  green — the row renders, the value flips, the key is written, and the renderer
+  never hears about it. So `test-gfx.mjs` judges each row by what the FRAME does:
+  AO 47 draw calls, trees 70, grass 44, glow 23, and the cap by the measured
+  frame rate (30 and 120 exactly). Two rows CANNOT be judged that way and the
+  file says so instead of inventing a number: shadows render into their own
+  target, which three does not add to `info.render.calls`, and antialiasing is
+  three fullscreen quads, inside the counter's own frame-to-frame variance.
+  Those two are checked for round-tripping.
+- **A NUMBER THAT WAS WRONG, kept because the mistake is repeatable.** The F2
+  line reads `scene 396 +229 post`, and an early reading attributed all of that
+  post figure to bloom. It is the whole chain, and AO is the larger half —
+  bloom alone is 23. If you quote a draw count for one pass, get it by
+  TOGGLING that pass, which is what the guard does.
 - **PERFORMANCE HAS TWO INSTRUMENTS, AND NEITHER OF THEM IS FPS.** Press **F2**
   in game and the overlay now ends with a `where it went` block: every profiler
   section as a rolling mean with a bar, then `cpu` (time inside our own frame

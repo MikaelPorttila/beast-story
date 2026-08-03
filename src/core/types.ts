@@ -373,7 +373,24 @@ export interface NpcField {
  */
 export type DisturbKind = 'walk' | 'fly';
 
+/**
+ * A slice of the world the F3 performance panel can hide.
+ *
+ * Named rather than a mesh list because the streamer keeps building: the world
+ * remembers which layers are off and applies it to chunks that arrive later.
+ * See `World.setLayerVisible` and `hiddenLayers` in world/index.ts.
+ */
+export type WorldLayer = 'grass' | 'props' | 'water' | 'clouds';
+
 export interface World {
+  /**
+   * Show or hide one layer, now and for everything streamed in afterwards.
+   *
+   * Distinct from `setVisible`, which takes the WHOLE world off screen for a
+   * zone switch. This is the player turning the grass off to get a frame back,
+   * and it has to survive walking forward into unbuilt chunks.
+   */
+  setLayerVisible(layer: WorldLayer, on: boolean): void;
   /** Terrain height at world xz (top surface, in world units) */
   getHeight(x: number, z: number): number;
   /**

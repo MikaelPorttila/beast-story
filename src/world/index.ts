@@ -3,7 +3,7 @@
  * skill dens + sky ambience, exposed through the shared World contract.
  */
 import * as THREE from 'three';
-import type { CrownContact, TownRegistry, World } from '../core/types';
+import type { CrownContact, TownRegistry, World, WorldLayer } from '../core/types';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
 import { buildWaterMesh, createWaterMaterial } from './water';
@@ -404,6 +404,26 @@ export function createWorld(
    * The record is registered in `chunks` at stage 0, so a half-built chunk is
    * never re-queued by refreshQueue, and unloadFar can dispose it mid-build.
    */
+  /**
+   * Layers the F3 panel has switched off, by mesh name.
+   *
+   * Kept HERE rather than read from the panel because the streamer outlives any
+   * one decision: a chunk built two seconds after the player hid the grass must
+   * arrive hidden. `applyLayers` is called on every finished stage for exactly
+   * that, and `setLayerVisible` sweeps the chunks that already exist.
+   */
+  const hiddenLayers: Record<WorldLayer, boolean> = {
+    grass: false, props: false, water: false, clouds: false,
+  };
+
+  const applyLayers = (rec: ChunkRec): void => {
+    for (const m of rec.meshes) {
+      if (m.name === 'chunk:grass') m.visible = !hiddenLayers.grass;
+      else if (m.name === 'chunk:props') m.visible = !hiddenLayers.props;
+      else if (m.name === 'chunk:water') m.visible = !hiddenLayers.water;
+    }
+  };
+
   const startChunk = (cx: number, cz: number): ChunkRec | null => {
     const key = chunkKey(cx, cz);
     if (chunks.has(key)) return null;
@@ -422,12 +442,21 @@ export function createWorld(
       if (!flags.water) return;
       const water = buildWaterMesh(cx, cz, terrain, waterMat);
       if (water) {
+        water.name = 'chunk:water';
         rec.meshes.push(water);
         scene.add(water);
       }
     } else {
       if (!flags.props) return;
       const props = buildChunkProps(cx, cz, terrain, propLib, exclusions, plan?.network ?? null);
+      // NAMED, so the F3 panel can hide one and not the other. The split is
+      // already there — `soft` is the grass and flowers, `solid` is everything
+      // that casts a shadow — but both ended up in one untagged array, and a
+      // player turning off "grass" to get a frame back does not want the trees
+      // to go with it. `__dbgSurfaceY` reports these names too, so a raycast
+      // that lands on a prop now says which kind it was.
+      if (props.solid) props.solid.name = 'chunk:props';
+      if (props.soft) props.soft.name = 'chunk:grass';
       for (const m of [props.solid, props.soft]) {
         if (m) {
           rec.meshes.push(m);
@@ -753,6 +782,9 @@ export function createWorld(
           building = { rec, stage: 0 };
         }
         buildStage(building.rec, building.stage);
+        // A stage that just added meshes has to honour whatever the F3 panel
+        // says right now — see hiddenLayers.
+        applyLayers(building.rec);
         building.stage++;
         if (building.stage > 2) {
           perf.count('chunks');
@@ -760,6 +792,19 @@ export function createWorld(
         }
         buildBudgetLeft -= performance.now() - t0;
       }
+    },
+
+    setLayerVisible(layer: WorldLayer, on: boolean): void {
+      hiddenLayers[layer] = !on;
+      if (layer === 'clouds') {
+        if (clouds) clouds.group.visible = on;
+        if (motes) motes.points.visible = on;
+        return;
+      }
+      // Already-streamed chunks now, `applyLayers` for the ones built later —
+      // a chunk that arrives after the switch was thrown has to arrive hidden,
+      // or walking forward quietly turns the setting back on.
+      for (const rec of chunks.values()) applyLayers(rec);
     },
 
     setVisible(v: boolean): void {

@@ -656,6 +656,14 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
       }
     },
 
+    /**
+     * No-op, deliberately. The hold is hand-built rooms rather than streamed
+     * chunks — none of the four layers the F3 panel names exists down here —
+     * and the panel's settings are re-applied on the way back out (`onArrive`
+     * in main.ts), so nothing is left in the wrong state.
+     */
+    setLayerVisible(): void { /* no streamed layers in the hold */ },
+
     setVisible(v: boolean): void {
       for (const rec of chunks.values()) if (rec.mesh) rec.mesh.visible = v;
       // The crystal lamps live under `fixtures`, so this is also what takes the

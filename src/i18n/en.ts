@@ -321,6 +321,10 @@ export const en = {
   'keys.cancel': 'Menu · close · cancel',
   'keys.controls': 'This sheet',
   'keys.debugOverlay': 'Performance overlay',
+  'keys.perfPanel': 'Performance settings',
+  // One row covering the keys that steer whatever panel is open — see the note
+  // in ui/keybinds.ts for why they are not six rows.
+  'keys.panelNav': 'Move / change / reset in a panel',
 
   // ---- shop --------------------------------------------------------------
   'shop.skillDen.title': 'Skill Den',
@@ -437,6 +441,40 @@ export const en = {
    * geometry carved once at world creation — see ui/settings.ts.
    */
   'menu.settings.languageInGame': 'Change the language from the title screen.',
+
+  // ---- F3 performance panel ------------------------------------------------
+  // src/ui/perf-panel.ts, driven by the list in src/core/gfx.ts.
+  //
+  // EVERY `.cost` STRING IS A MEASUREMENT and none of them is an estimate —
+  // walking, 1280x800, frame capped at 120 on a 165 Hz display. They are here
+  // rather than in the code because they are what the player is choosing
+  // between: a row of switches with no numbers on it asks somebody to guess.
+  // Re-measure them when the renderer changes, the same way a tuned constant's
+  // comment is re-measured; a stale number here is worse than none.
+  'gfx.title': 'Performance',
+  'gfx.hint': '↑↓ move · ← → or Enter change · R defaults · F3 closes',
+  'gfx.reset': 'All back to defaults.',
+  'gfx.on': 'on',
+  'gfx.off': 'off',
+  'gfx.uncapped': 'display',
+  'gfx.fpsCap': 'Frame rate cap',
+  'gfx.fpsCap.cost': 'the biggest lever — 80% of a core at 165 fps, 55% at 120',
+  'gfx.bloom': 'Glow (bloom)',
+  'gfx.bloom.cost': '23 draw calls and a chain of blurs',
+  'gfx.grass': 'Grass & ground cover',
+  'gfx.grass.cost': '44 draw calls, and the heaviest geometry in the world',
+  'gfx.ao': 'Ambient occlusion',
+  'gfx.ao.cost': '47 draw calls — it re-renders the scene to measure depth',
+  'gfx.shadows': 'Shadows',
+  'gfx.shadows.cost': 'a whole render pass — but the world floats without them',
+  'gfx.props': 'Trees & rocks',
+  'gfx.props.cost': '70 draw calls — the most of any row, and the most missed',
+  'gfx.aa': 'Antialiasing',
+  'gfx.aa.cost': 'three fullscreen passes; edges go jagged',
+  'gfx.clouds': 'Clouds & motes',
+  'gfx.clouds.cost': 'small — a few draws overhead',
+  'gfx.water': 'Water surface',
+  'gfx.water.cost': 'small unless you are looking at a lake',
 
   // ---- in-game menu --------------------------------------------------------
   // src/ui/pause.ts, on Escape / Start / the touch overlay's menu button.
