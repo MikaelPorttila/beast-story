@@ -860,6 +860,18 @@ is a ceiling rather than a taste: browsers refuse a cursor over 128x128 and fall
 back silently. Hotspots are MEASURED off each tile's opaque box — pointers act
 at their tip, everything else at the red gem the artist put on its centre.
 
+**THE CURSOR PROPERTY INHERITS, WHICH IS NOT THE SAME AS REACHING ANYTHING.**
+Setting it on `<body>` reaches the whole page right up until an element declares
+its own, and this stylesheet declares `cursor:pointer` on every button, menu
+row and buy button — an explicit declaration on an element beats an inherited
+value, so the custom cursor was correct everywhere except the things a player
+actually points at, and the native arrow came back over each one. `Cursors.enable`
+puts a class on the body and one rule turns those declarations into `inherit`
+for as long as the custom cursor is up, so ordinary hover behaviour is untouched
+whenever it is not. The GUARD for it reads the COMPUTED cursor off the element
+rather than asking the resolver what state it picked — the resolver was right
+the whole time, which is exactly why the first version of that test passed.
+
 **SIXTEEN STATES NEED SIXTEEN HOMES, and finding them is most of the work.** The
 DOM answers for itself: an element declares `data-cursor`, or its tag decides
 (`BUTTON`/`[data-act]` clickable, `[disabled]` forbidden, `INPUT` text). Over the

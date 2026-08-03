@@ -1095,6 +1095,15 @@ const CSS = `
    panel that cannot be moved is a debug panel covering the thing you are
    debugging. overflow:auto so a panel resized smaller than its rows scrolls
    rather than clipping them away with no way back. */
+/* THE CUSTOM CURSOR'S OVERRIDE. The cursor property inherits, so ui/cursor.ts
+   setting it on body reaches the whole page — except that this stylesheet declares
+   cursor:pointer on every button, menu row and buy button, and an explicit
+   declaration on an element beats an inherited value. The result was the custom
+   cursor working everywhere except the things a player actually points at.
+   Scoped to the class so ordinary hover behaviour is untouched whenever the
+   custom cursor is not up. See Cursors.enable. */
+body.bs-cursor * { cursor: inherit !important; }
+
 .bs-perf{overflow:visible;display:flex;flex-direction:column}
 .bs-perf-body{overflow:auto;flex:1 1 auto;min-height:0}
 .bs-perf-title{user-select:none;flex:0 0 auto}

@@ -202,6 +202,36 @@ const lock = () => page.evaluate(() => document.pointerLockElement?.tagName ?? n
   }
 }
 
+// ---------- and the custom cursor actually REACHES those elements -----------
+// THE ASSERTION THE FIRST VERSION WAS MISSING, and the bug it missed. Every
+// check above asks the resolver what state it picked, which is our own
+// bookkeeping — it says nothing about what the browser will draw. The HUD
+// declares `cursor:pointer` on every button, menu row and buy button, and an
+// explicit declaration on an element beats the value inherited from body, so
+// the custom cursor was correct everywhere except the things a player actually
+// points at and the native arrow came back over each one.
+//
+// So this reads the COMPUTED cursor off the element itself. A custom cursor is
+// a `url(...)` value; the native one is the keyword `pointer`.
+{
+  const computed = await page.evaluate(() => {
+    const out = {};
+    const take = (name, sel) => {
+      const el = document.querySelector(sel);
+      out[name] = el ? getComputedStyle(el).cursor.slice(0, 10) : 'missing';
+    };
+    take('panelRow', '.bs-perf-row');
+    take('panelTitle', '.bs-perf-title');
+    take('body', 'body');
+    return out;
+  });
+  results.computed = computed;
+  for (const [where, value] of Object.entries(computed)) {
+    check(value.startsWith('url('),
+      `the computed cursor on ${where} is "${value}" — the custom cursor is not reaching it`);
+  }
+}
+
 // ---------- the console input takes text ------------------------------------
 {
   await page.keyboard.press('Backquote');

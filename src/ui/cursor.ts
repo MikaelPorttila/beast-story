@@ -156,6 +156,29 @@ export class Cursors {
     this.el.style.cursor = 'none';
   }
 
+  /**
+   * ARM THE OVERRIDE, and this is the half that makes the whole thing work on
+   * anything the player actually points at.
+   *
+   * `cursor` INHERITS, so setting it on `<body>` reaches the whole page — until
+   * an element declares its own, and this HUD declares `cursor:pointer` on
+   * every button, every menu row and every buy button, which is precisely the
+   * set of things a player hovers. An explicit declaration on the element beats
+   * an inherited value, so the custom cursor was correct everywhere except the
+   * places it mattered and the native arrow came back over each one.
+   *
+   * The class turns those declarations into `inherit` for as long as the custom
+   * cursor is up, and stops when it comes down — so the ordinary
+   * pointer-over-a-button behaviour is exactly what it was whenever this system
+   * is not running. `!important` because the rules being overridden are plain
+   * element rules and there is no other way to outrank a more specific selector
+   * from one place.
+   */
+  enable(on: boolean): void {
+    document.body.classList.toggle('bs-cursor', on);
+    if (!on) this.clear();
+  }
+
   /** Hand the cursor back to the system, e.g. on dispose. */
   clear(): void {
     this.current = null;
@@ -220,8 +243,8 @@ export class CursorDirector {
   /** Turn the whole thing on or off — off means pointer lock owns the mouse. */
   setEnabled(on: boolean): void {
     this.enabled = on;
+    this.cursors.enable(on);
     if (on) this.refresh();
-    else this.cursors.hide();
   }
 
   /**
