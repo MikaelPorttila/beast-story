@@ -70,6 +70,55 @@ const SHALLOW_TINT = new THREE.Color(0.38, 0.80, 1.28);
 /** Deeper down: red is gone and green is going. */
 const DEEP_TINT = new THREE.Color(0.10, 0.42, 0.92);
 
+/**
+ * What the DISTANCE fades to, as a per-channel filter on the sky.
+ *
+ * This is the other half of the same absorption argument, and until issue #23
+ * there was no way to state it. The patched fog chunk fades a fragment toward
+ * `bsSkyRadiance(elevation)` — the point of aerial perspective — so underwater
+ * more fog meant BRIGHTER, not murkier, and the far wall of a lake dissolved
+ * into daylight. The file already knew: the murk numbers below were pulled from
+ * 2.5/34 back to 6/48 to keep the white-out off the near ground, which treated
+ * the symptom and cost the murk. Captured at that setting, a lens 2.08 units
+ * under the surface photographed as an almost white room with a faint blue cast
+ * — "everything becomes super shiny", which is the issue.
+ *
+ * `scene.fog.color` is now a multiplier on that sky radiance and is WHITE above
+ * water, so this is the only thing in the game that darkens it. The numbers are
+ * linear and they are a FILTER, not a colour: red is nearly all gone by the far
+ * wall, green is halved, and blue is the one that survives, which is the same
+ * ordering SHALLOW_TINT argues for and the reason the two compose instead of
+ * fighting. Blue is deliberately well under 1.0 here where the tint's is over
+ * it: the tint has to ADD apparent in-scattering to a directly-lit near field,
+ * where this is the far field, and the far field is the part that should go
+ * dark and blue rather than bright and blue.
+ */
+const WATER_ABSORB = new THREE.Color(0.06, 0.26, 0.58);
+
+/**
+ * Fraction of the daylight exposure the frame is graded at when fully under.
+ *
+ * The tint above is a MULTIPLY and it lands on linear HDR radiance, before ACES
+ * — so on a bright subject it cannot win. Sunlit lake bed renders near 2.6
+ * linear; 0.38 of that is still 1.0, which ACES takes to 201/255 and
+ * desaturates on the way. That is the whole of "everything becomes super shiny":
+ * measured, a lens 2.14 units under photographed at (201, 226, 232), saturation
+ * 0.131, against the same frame with `?post=0` — where the multiply lands after
+ * the curve instead — at (75, 175, 255), saturation 0.707.
+ *
+ * The fix is not to move the tint after tone mapping, because absorption really
+ * does happen in the scene. It is that there IS less light down there, and the
+ * exposure is the thing that says so. 0.45 puts the tinted radiance back on the
+ * part of the ACES curve that still carries chroma, which is what lets the tint
+ * and WATER_ABSORB do the job they were always written to do.
+ *
+ * Not lower: the bubbles and the near bed still have to READ. Not higher: by
+ * about 0.6 the bed's own highlights start climbing the shoulder again and the
+ * blue drains back out. It ramps with `amount`, so surfacing is the same curve
+ * run backwards and there is no step at the waterline.
+ */
+const UNDER_EXPOSURE = 0.38;
+
 const TINT_VERT = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -164,6 +213,17 @@ export class Underwater {
   /** Metres of water over the lens, unsmoothed. */
   depth = 0;
 
+  /**
+   * What to multiply the daylight exposure by this frame — 1 in the air.
+   *
+   * Read by main.ts into `Engine.setExposureScale`. It is a value rather than a
+   * call because this class owns no renderer and should not grow one: it knows
+   * how deep the lens is, and the engine knows what to do about it.
+   */
+  get exposureScale(): number {
+    return 1 + (UNDER_EXPOSURE - 1) * this.amount;
+  }
+
   private readonly tint: THREE.Mesh;
   private readonly tintMat: THREE.ShaderMaterial;
   private readonly bubbles: THREE.Points;
@@ -175,6 +235,7 @@ export class Underwater {
   /** scene.fog's own values, saved on the way in and put back on the way out. */
   private fogNear = 0;
   private fogFar = 0;
+  private readonly fogColor = new THREE.Color(1, 1, 1);
   private fogSaved = false;
 
   constructor(
@@ -296,18 +357,20 @@ export class Underwater {
       if (!this.fogSaved) {
         this.fogNear = fog.near;
         this.fogFar = fog.far;
+        this.fogColor.copy(fog.color);
         this.fogSaved = true;
       }
-      // 6 / 48 at full submersion, NOT the 2.5 / 34 this started at. The patched
-      // fog chunk fades toward the sky gradient rather than toward fog.color (see
-      // installAerialPerspective), which means more fog is BRIGHTER, not murkier:
-      // at 2.5/34 everything past a few metres went to pale sky and the frame
-      // came back as a white room (_wat-under.png). Pulled back to 6/48 the near
-      // and middle ground keep their own values — which the multiply tint can
-      // then colour — and only the far wall of a lake dissolves. That dissolve is
-      // the in-scattering term, and it is the reason deep water glows instead of
-      // going black.
-      this.tintLerpFog(fog, 6, 48);
+      // 4 / 40 at full submersion. The history here is the whole of issue #23
+      // and it is worth keeping: this started at 2.5 / 34, was pulled back to
+      // 6 / 48 because "more fog" meant BRIGHTER — the chunk faded toward the
+      // sky gradient and nothing could tell it the light had come through water
+      // — and 6/48 was still a white room, just a slightly smaller one. Now
+      // that `WATER_ABSORB` darkens the target, murk finally behaves like murk
+      // and the numbers can come most of the way back in. Not all the way: the
+      // dissolve is the in-scattering term and it is what makes deep water glow
+      // rather than go black, so the far wall of a lake should fade, not
+      // vanish.
+      this.tintLerpFog(fog, 4, 40);
     }
 
     // Bubbles: rise, sway, wrap in a box around the lens. No allocation.
@@ -349,6 +412,17 @@ export class Underwater {
   private tintLerpFog(fog: THREE.Fog, near: number, far: number): void {
     fog.near = this.fogNear + (near - this.fogNear) * this.amount;
     fog.far = this.fogFar + (far - this.fogFar) * this.amount;
+    // And what the distance fades TO. `fog.color` is a per-channel absorption
+    // multiplier on the sky the patched chunk samples (see
+    // installAerialPerspective), so this is the same Beer-Lambert idea as the
+    // tint quad applied to the in-scattered half instead of the direct half.
+    // Working colour space is linear-sRGB, so `setRGB` writes exactly these
+    // numbers and no transfer function touches them.
+    fog.color.setRGB(
+      1 + (WATER_ABSORB.r - 1) * this.amount,
+      1 + (WATER_ABSORB.g - 1) * this.amount,
+      1 + (WATER_ABSORB.b - 1) * this.amount,
+    );
   }
 
   private restoreFog(): void {
@@ -357,6 +431,7 @@ export class Underwater {
     if (fog && (fog as THREE.Fog).isFog) {
       fog.near = this.fogNear;
       fog.far = this.fogFar;
+      fog.color.copy(this.fogColor);
     }
     this.fogSaved = false;
   }

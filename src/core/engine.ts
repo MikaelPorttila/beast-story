@@ -286,7 +286,26 @@ function installAerialPerspective(): void {
   // the fragment's own luma, 10% brighter, both scaled by the same factor.
   float bsFogL = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
   gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(bsFogL * 1.10), 0.28 * fogFactor);
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, bsSkyRadiance(vFogElev), fogFactor);
+  // fogColor is an ABSORPTION MULTIPLIER on the sky, not a fog colour.
+  //
+  // three hands every fogged material a fogColor uniform and keeps it live
+  // from scene.fog.color, and until issue #23 this chunk declared it and then
+  // ignored it — the whole point of aerial perspective is that the target is
+  // the sky gradient rather than one constant. That left NO WAY to say "the
+  // light reaching you through this distance has been filtered", which is the
+  // only thing separating haze from water. Underwater the fog therefore faded
+  // the frame toward bright daylight: more fog was BRIGHTER, not murkier, and
+  // the world/underwater.ts murk made a white room out of a lake bed.
+  //
+  // Multiplying keeps aerial perspective exactly as it was — the target is
+  // still the per-fragment sky, so a ridge still hazes to the sky it is seen
+  // against — and adds one channel-wise filter in front of it. scene.fog.color
+  // is WHITE in the engine's own setup, so the above-water path is unchanged to
+  // the bit; world/underwater.ts drives it toward a water absorption while the
+  // lens is submerged. Multiplicative because absorption is (Beer-Lambert), and
+  // for the same reason the underwater tint quad multiplies rather than mixes —
+  // see the long note on SHALLOW_TINT.
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, bsSkyRadiance(vFogElev) * fogColor, fogFactor);
 #endif
 `;
 }
@@ -335,6 +354,14 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
+
+/**
+ * The exposure a sunlit frame is graded at. Every number in post.ts's grade was
+ * solved against this one, so it is the BASE that anything dimming the picture
+ * scales — see `setExposureScale`, and the long note at the assignment below for
+ * how 1.20 was arrived at.
+ */
+const DAYLIGHT_EXPOSURE = 1.20;
 
 export class Engine {
   readonly renderer: THREE.WebGLRenderer;
@@ -397,7 +424,7 @@ export class Engine {
     // midtones would otherwise come up with the highlights and the whole frame
     // would go milky. Sunlit grass moves 118 -> 132 while grass in cast shadow
     // moves 64 -> 50, i.e. the picture got brighter and its shadows got DEEPER.
-    this.renderer.toneMappingExposure = 1.20;
+    this.renderer.toneMappingExposure = DAYLIGHT_EXPOSURE;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Same reason, for the stats: renderer.info resets itself on every
     // render() call, which with a composer left the F2 overlay reporting the
@@ -446,9 +473,14 @@ export class Engine {
     //       old 420 was past the edge of the world entirely, which is why the
     //       mountains came back at full saturation — the fog never reached them.
     //
-    // The colour argument is kept at the horizon's displayed value so anything
-    // that inspects scene.fog (nothing does today) sees something sane.
-    this.scene.fog = new THREE.Fog(0xa9c8e2, 130, 270);
+    // WHITE, and that is now load-bearing rather than decorative. The colour
+    // argument used to be the horizon's displayed value on the grounds that
+    // nothing read it; the patched chunk now uses it as a per-channel
+    // ABSORPTION MULTIPLIER on the sky radiance it fades toward, so 1,1,1 means
+    // "nothing between you and the distance" and is what keeps the daylight
+    // path identical to what it was. world/underwater.ts is the only writer,
+    // and it puts this back on the way out. See installAerialPerspective.
+    this.scene.fog = new THREE.Fog(0xffffff, 130, 270);
 
     // One-draw-call inverted sphere; follows the camera each frame (render()).
     this.skyDome = new THREE.Mesh(
@@ -812,6 +844,33 @@ export class Engine {
   /** Returns dt in seconds, clamped */
   tick(): number {
     return Math.min(this.clock.getDelta(), 0.05);
+  }
+
+  /**
+   * Dim the whole picture, as a fraction of the daylight exposure.
+   *
+   * THE ONE KNOB THAT WORKS ON A FRAME THAT IS ALREADY TOO BRIGHT, and issue #23
+   * is why it exists. The underwater tint (world/underwater.ts) is a MULTIPLY,
+   * and a multiply lands on LINEAR HDR radiance here — before ACES, not after.
+   * Sunlit sand under two metres of water renders near 2.6 linear, so tinting it
+   * to 0.38 of its red still leaves 1.0, which ACES maps to 201/255 and
+   * desaturates on the way: the lake bed came back white whatever colour the
+   * tint was. Measured on the same dive, the identical frame with `?post=0` —
+   * where the multiply lands on already-tone-mapped values instead — read
+   * (75, 175, 255) at saturation 0.71 against (201, 226, 232) at 0.13.
+   *
+   * Absorption belongs in the scene, so the answer is not to move the tint after
+   * the curve; it is that there is LESS LIGHT down there, and the exposure is
+   * what says so. Dropping it puts the radiance back on the part of the curve
+   * that still has chroma, and the tint then colours a picture that can be
+   * coloured.
+   *
+   * Written through `renderer.toneMappingExposure` rather than to the output
+   * pass, deliberately: PostFX.render() reads that live precisely so the
+   * composer path and the `?post=0` fallback can never drift apart.
+   */
+  setExposureScale(k: number): void {
+    this.renderer.toneMappingExposure = DAYLIGHT_EXPOSURE * k;
   }
 
   render(): void {

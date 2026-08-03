@@ -141,7 +141,8 @@ once frames come quickly.
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
-  `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`. `tools/capture-set.ps1` (PowerShell,
+  `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
+  `test-dive.mjs`. `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
 - **`test-zfight.mjs` is the only probe that needs no dev server**, because
@@ -249,6 +250,24 @@ once frames come quickly.
   deliberately still talkable — see `NPC_TALK_RISE`. It exits non-zero, and it
   is the only probe in `tools/` that has to get the hero AIRBORNE, which it does
   by typing `/mount galebird` at the dev console and holding Space.
+- `test-dive.mjs` guards diving and the underwater view, and it is the only
+  probe in `tools/` that ASSERTS ON PIXELS. It has to: every number the
+  underwater effect is built from — `amount`, the fog, the tint colour — read
+  perfectly correct while the frame was white, because what broke it was the
+  tone curve downstream of all of them. So it screenshots the frame and requires
+  blue to lead by 20 code values, saturation over 0.30 (the white-out measured
+  0.131) and luma under 200 (it measured 221). Reading the canvas directly is
+  not an option — a WebGL context without `preserveDrawingBuffer` returns an
+  empty buffer through `drawImage`, and the first version of this reported
+  (0,0,0) above water too, which is how that was caught; the screenshot is taken
+  by the browser and handed back into the page to be decoded. The movement half
+  is ordinary: hold C and the hero must descend and STOP at the bed, release and
+  he must surface at under 6 units/s (uncapped buoyancy peaked near 10), and the
+  effect must clear when the lens comes back up. Note it holds KeyC across the
+  picture test — pitching the camera under takes seconds, and a hero who floated
+  up during them would be photographed at the surface. It drives the camera with
+  a MONOTONIC mouse sweep on the way back up: under pointer lock the page sees
+  deltas, so "jump back and drag again" nets zero.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -329,9 +348,31 @@ break unknowingly:
 - `installAerialPerspective()` monkey-patches three's fog `ShaderChunk`s *globally
   at module load*, so distance haze samples the sky gradient per fragment. Every
   fogged material inherits it; there are no per-material hooks to add.
+- **`scene.fog.color` is an ABSORPTION MULTIPLIER on that sky, not a fog colour**,
+  and it is WHITE above water. The patched chunk fades a fragment toward
+  `bsSkyRadiance(elevation)` rather than toward a constant, which is the whole
+  point of aerial perspective and left no way to say "the light reaching you
+  through this distance has been filtered" — so underwater more fog meant
+  BRIGHTER. `world/underwater.ts` is the only writer, and it restores white on
+  the way out. three keeps the `fogColor` uniform live from this on every fogged
+  material, which is why one number reaches every shader with no new uniform.
 - The scene renders into a **linear HDR** target and tone-maps in the output pass.
   Colour constants in shaders are linear radiance, not sRGB swatches — the comments
   state what each value displays as after ACES at exposure 1.02.
+- **A MULTIPLY LANDS BEFORE THE TONE CURVE, WHICH IS WHY DARKENING A BRIGHT FRAME
+  NEEDS THE EXPOSURE.** This is issue #23 and it is the trap in the point above.
+  The underwater tint is a multiplicative screen quad, and it multiplies linear
+  HDR radiance: sunlit lake bed renders near 2.6 linear, so taking its red to 0.38
+  still leaves 1.0, which ACES maps to 201/255 and desaturates on the way. Every
+  uniform in the effect read correct while the frame came back white. Measured on
+  one dive, the same view through the composer and through `?post=0` — where the
+  multiply lands on already-tone-mapped values instead — was (201, 226, 232) at
+  saturation 0.13 against (75, 175, 255) at 0.71. The fix is NOT to move the tint
+  after the curve, because absorption genuinely happens in the scene; it is that
+  there is less light down there. `Engine.setExposureScale(k)` says so, writing
+  `renderer.toneMappingExposure` (which `PostFX.render` reads live, so the
+  composer and the `post=0` fallback cannot drift). Anything that needs to darken
+  a whole frame wants that, not a bigger multiply.
 
 `PostFX` ([src/core/post.ts](src/core/post.ts)) is RenderPass → GTAO → selective
 emissive bloom → rolloff/ACES/grade → SMAA, in that order and for documented
@@ -635,6 +676,21 @@ on that edge, exactly as it does for a language change — `setPadPrompts` retur
 whether it moved and `composeKeyHints()` in main.ts is the one writer of all
 three (the skill-den pill, the talk pill, the dialogue footer). Read a cap on its
 way to the DOM (`hud.interactPrompt`) and it is free; bake one in and you owe it.
+
+**DIVING IS THE DESCEND KEY, NOT A NEW ONE.** Hold `KeyC` (pad B) in water out
+of your depth and the hero swims down; it is the same code `MountController`
+reads to bring a flyer lower, so the control learned on a galebird is the one
+that works in a lake, and `ui/keybinds.ts`'s existing row covers both. Two things
+in `Player` make it work and only one of them is the dive. `DIVE_ACCEL` fights
+the buoyancy rather than switching it off, so the hero bobs for a moment before
+he sinks. `SWIM_RISE_MAX` is the other, and it is the change diving forced: the
+buoyancy was an unclamped spring toward the float line, harmless while nothing
+could get more than about a metre under it and a CORK the moment you could reach
+the bed — from 4 units down it surfaced him at ~10 units/s. Capped, the ascent
+peaks at 3.29 measured, which is `SWIM_SPEED`. There is no separate floor test:
+the vertical clamp runs for a swimmer exactly as for a walker, so the bed catches
+a diver for free (measured, he rests at 4.00 on a bed of 4.00).
+`tools/test-dive.mjs` is the guard.
 
 **F1 is the controls sheet, and its table is DECLARED, NOT DERIVED.** A binding
 is not a value anywhere in this codebase — the climb decision reads

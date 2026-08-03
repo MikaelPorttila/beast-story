@@ -351,7 +351,35 @@ void main() {
   // horizon and the surface reads as a surface, while dShore keeps the shallows —
   // the ones you are meant to see the sand through — at their old value.
   float refl = fres * mix(0.14, 0.50, dShore);
-  col = mix(col, sky, refl);
+  // FROM UNDERNEATH, FRESNEL POINTS THE OTHER WAY, and getting that backwards is
+  // most of issue #23. Every line above is written for a viewer in the air, where
+  // a grazing angle turns the surface into a mirror of the sky — true, and the
+  // reason a lake reads as a lake. Under the water the same grazing angle is past
+  // the critical angle (48.6 degrees for water/air) and the surface is a mirror of
+  // the MURK: total internal reflection, the darkest thing in the frame, not the
+  // brightest. Running the air formula down there laid up to 50% of pale sky over
+  // the entire ceiling of the lake, and because the ceiling fills the frame the
+  // moment the lens dips, the whole picture went white — "everything becomes super
+  // shiny". Measured on a lens 2.14 units under: the frame came back at sat 0.03,
+  // essentially neutral.
+  //
+  // What replaces it is the one thing a viewer under water actually sees: SNELL'S
+  // WINDOW. The entire sky is refracted into a disc about 97 degrees wide straight
+  // overhead, and everything outside that disc is the mirrored bed. The up term is 1
+  // looking square at the ceiling and falls off toward grazing, so the smoothstep
+  // IS the rim of the window — bright in the middle, gone by the critical angle,
+  // which is a real and recognisable image rather than a fog of pale blue.
+  //
+  // Outside the window the reflection is kept but aimed at the body colour rather
+  // than the sky, which is the cheap stand-in for reflecting the murk: it costs no
+  // second sample and it cannot be brighter than the water already is.
+  if (gl_FrontFacing) {
+    col = mix(col, sky, refl);
+  } else {
+    float up = max(dot(N, V), 0.0);
+    float window = smoothstep(0.42, 0.86, up);
+    col = mix(col * 0.72, sky, window * 0.40);
+  }
 
   // Sun glint: one tight lobe for the sparkle, one broad one for sheen. The
   // broad lobe is down from 0.11 to 0.065 — at the old weight it covered a whole
@@ -401,11 +429,18 @@ void main() {
   // colour, which tone-maps bright without clipping, so the path reads as a lit
   // scatter and the survey's "not one water pixel exceeds L=155 / there is not
   // one sun glint on a whole lake" is answered without repainting the lake white.
-  col += SUN_COL * (
-      pow(ndh, 260.0) * 0.62
-    + pow(ndh, 48.0) * 0.13
-    + pow(ndh, 12.0) * 0.040
-  );
+  // Glint is a highlight of the sun ON TOP of the surface, so it belongs to the
+  // side the sun is on. Left running underneath, the broad pow-12 lobe alone put
+  // a sheet of SUN_COL across the ceiling of the lake — the same white-out as the
+  // reflection above, from a second source, and the one that survives looking
+  // straight down because the half-vector barely moves.
+  if (gl_FrontFacing) {
+    col += SUN_COL * (
+        pow(ndh, 260.0) * 0.62
+      + pow(ndh, 48.0) * 0.13
+      + pow(ndh, 12.0) * 0.040
+    );
+  }
 
   // Shore foam, driven by DISTANCE TO THE COAST rather than by depth.
   //

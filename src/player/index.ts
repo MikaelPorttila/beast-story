@@ -12,6 +12,32 @@ import { DustSystem } from './dust';
 const WALK_SPEED = 6;
 const SPRINT_MULT = 1.6;
 const SWIM_SPEED = 3.4;
+/**
+ * DIVING, and the three numbers it needs. Hold C (pad B) to swim down.
+ *
+ * The key is the one that already means "go down" — `MountController` reads the
+ * same `KeyC` to make a flyer descend, and core/gamepad.ts already maps the B
+ * face to it, so the control a player learns on a galebird is the control that
+ * works in a lake. No new binding, and ui/keybinds.ts's row already covers it.
+ *
+ * `DIVE_ACCEL` fights the buoyancy rather than switching it off, so the hero
+ * still bobs at the surface for the first moment and sinks once the key has been
+ * held — which is what tells you the water is pushing back. Terminal speed is
+ * SWIM_SPEED, so going down is exactly as fast as going along and the depth you
+ * reach is legible from how long you have held it.
+ *
+ * `SWIM_RISE_MAX` is the one that is not obvious, and it is the reason diving
+ * needs a change to the ASCENT at all. Buoyancy was an unclamped spring toward
+ * the float line: at the 1.15 units the hero used to be able to reach it pulls
+ * at 10 units/s^2, but the lake bed is 4 units down in places, and from there
+ * the same spring pulls at 36 and surfaces him at 10 units/s — three times swim
+ * speed, straight up, like a cork. Capping the spring makes the ascent a swim
+ * (terminal 12/3.5 = 3.4 units/s, SWIM_SPEED again) instead of a launch, and it
+ * costs nothing at the surface where the spring never reaches the cap anyway.
+ */
+const DIVE_ACCEL = 16;
+const DIVE_SPEED = 3.4;
+const SWIM_RISE_MAX = 12;
 const GROUND_ACCEL = 42;
 const AIR_ACCEL = 16;
 const GRAVITY = 24;
@@ -769,7 +795,21 @@ export class Player {
 
     if (this.isSwimming) {
       const floatY = world.waterLevel - 1.15;
-      this.velocity.y += ((floatY - this.position.y) * 9 - this.velocity.y * 3.5) * dt;
+      if (input.down('KeyC')) {
+        // Swim DOWN, against the buoyancy rather than instead of it — see
+        // DIVE_ACCEL. The bed catches him on the way: the vertical clamp
+        // further down runs for a swimmer exactly as it does for a walker, so
+        // there is no separate floor test here and no way to dive through the
+        // world.
+        this.velocity.y -= DIVE_ACCEL * dt;
+        if (this.velocity.y < -DIVE_SPEED) this.velocity.y = -DIVE_SPEED;
+      } else {
+        // Buoyancy, CAPPED. Uncapped this is a spring on the distance to the
+        // float line, which was harmless while nothing could get more than a
+        // metre under it and turns into a cork the moment diving exists.
+        const lift = Math.min((floatY - this.position.y) * 9, SWIM_RISE_MAX);
+        this.velocity.y += (lift - this.velocity.y * 3.5) * dt;
+      }
       if (input.down('Space')) this.velocity.y += 9 * dt; // paddle up
     } else {
       if (this.jumpBuffer > 0 && this.coyote > 0) {

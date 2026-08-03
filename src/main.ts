@@ -1132,6 +1132,14 @@ const _hurtFrom = new THREE.Vector3();
   overWater: world.isWater(engine.camera.position.x, engine.camera.position.z),
   fogNear: +((engine.scene.fog as THREE.Fog | null)?.near ?? -1).toFixed(1),
   fogFar: +((engine.scene.fog as THREE.Fog | null)?.far ?? -1).toFixed(1),
+  // The per-channel absorption the distance is filtered by — 1,1,1 above water.
+  // See installAerialPerspective in core/engine.ts and WATER_ABSORB in
+  // world/underwater.ts; this is the number that says whether the murk is
+  // fading toward daylight or toward water.
+  fogAbsorb: ((): number[] => {
+    const f = engine.scene.fog as THREE.Fog | null;
+    return f ? [+f.color.r.toFixed(3), +f.color.g.toFixed(3), +f.color.b.toFixed(3)] : [];
+  })(),
 });
 
 // Mount state. Read-only, and the one probe the mount tests need: the hold
@@ -2235,6 +2243,11 @@ function frame(): void {
   // mode's above) and before the render: the effect keys off where the lens
   // actually ends up, and a frame late is a frame of clear water at the surface.
   underwater.update(dt, world.isWater(engine.camera.position.x, engine.camera.position.z));
+  // And how bright to grade the result. The tint is a multiply on linear
+  // radiance, so on a sunlit lake bed it cannot darken the frame on its own —
+  // see UNDER_EXPOSURE in world/underwater.ts. 1.0 in the air, so this is a
+  // no-op everywhere except under the surface.
+  engine.setExposureScale(underwater.exposureScale);
 
   // Every cue this frame produced, played together, once. The sim slices above
   // only QUEUED them — see src/feedback for why dispatching per slice is
