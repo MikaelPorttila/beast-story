@@ -554,6 +554,38 @@ fog exactly as the bloom pass does, and falls back to a flat mid-distance under
 `grade=0`, `aa=0`, `aoview=1`, …) — isolate a visual problem with those before
 editing defaults.
 
+- **THE AO PASS CURATES ITS G-BUFFER TWICE, AND THE SECOND QUESTION IS NOT THE
+  FIRST.** "Did you write depth in the beauty pass" keeps transparent VFX out.
+  "Are you a thing another thing can rest against" is a different question, and
+  issue #39 is what answering only the first one looks like: the grass carpet
+  and the cloud deck are opaque, wrote depth, occluded — and printed a mottled
+  grey smear across the meadow around every hedge clump and dotted black dashes
+  down every crease where two cumulus meet. `excludeFromAO`
+  ([src/core/types.ts](src/core/types.ts)) is how the world says no, and it is a
+  statement about GEOMETRY rather than a performance knob: the bar is that the
+  occlusion is wrong, not that it is expensive. The chunk's SOFT prop mesh and
+  `Clouds.group` are the only two users; trees, rocks, huts, the hero and the
+  beasts all stay in.
+- **THAT DEFECT IS INVISIBLE TO A TWO-PAGE A/B.** Two separate loads of one
+  framing differ by **2.02 code values** everywhere from streaming and settling
+  alone, which is larger than the artefact being measured — three separate
+  metrics over pairs of page loads all read flat while the pictures were
+  obviously different. The `aoOccluders` section of `tools/test-gfx.mjs`
+  screenshots ONE page either side of a `__dbgGfx` toggle instead, so the frames
+  differ by exactly the layer that moved: hiding grass must move the AO buffer
+  by under 1 code value (**0.10** today, **16.30** on the build that shipped the
+  bug), hiding props must move it by more than 3 (**7.08**, the control that
+  stops a stuck capture passing the first assertion), and a frame full of
+  cumulus must be under 2% occluded (**0.034%**, against **13.98%**).
+- **THINGS THAT SOUND LIKE THE FIX FOR AO GRAIN AND ARE NOT.** Measured against
+  the same framing: replacing three's tiled 5×5 magic-square rotation noise with
+  a 64×64 one, adding the per-pixel radius jitter its generator disables, and
+  widening the Poisson denoise (radius 4 → 8, 24 samples, 3 rings) each moved
+  the picture by nothing an eye could find. Quadrupling the GTAO sample count
+  (32 → 128) does smooth it, at four times the fill, and still leaves the smear
+  — a smooth wrong answer. The grain was never the estimator's; it was what the
+  estimator was pointed at.
+
 **World.** [src/world/terrain.ts](src/world/terrain.ts) is the height/biome
 authority: pure functions of `(seed, x, z)`, so anything can ask for a height
 without touching loaded chunks. `createWorld()` streams 32-unit chunks around the

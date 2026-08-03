@@ -5,6 +5,7 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+import { isExcludedFromAO } from './types';
 
 /**
  * Post-processing stack. Owned by Engine; nothing else needs to know it exists.
@@ -598,6 +599,11 @@ class EmissiveBloomPass extends Pass {
  * Both disappear once the AO G-buffer contains exactly what the opaque pass
  * contains. The pass's own visibility hook is where that belongs — see
  * _overrideVisibility below, and read its comment before renaming anything.
+ *
+ * The G-buffer is curated a SECOND time on top of that, and issue #39 is why:
+ * "did you write depth" is not the same question as "are you a thing another
+ * thing can rest against". `excludeFromAO` (core/types.ts) is how the world says
+ * no to the second one; the measurements are at the exclusion below.
  */
 
 /**
@@ -666,12 +672,54 @@ class OpaqueGTAOPass extends GTAOPass {
    * it from the other side: the lake surface declares `transparent: false` with
    * explicit CustomBlending factors precisely so that it STAYS in this G-buffer
    * and occludes its own bed. Do not widen this to "anything that blends".
+   *
+   * THE SECOND PREDICATE IS `excludeFromAO`, AND IT IS ISSUE #39. Two surfaces
+   * are opaque, write depth, and still have no business occluding anything: the
+   * chunk's SOFT prop mesh (grass, ferns, flowers, the waist-high hedge clumps)
+   * and the CLOUD DECK. Both were reported as the same symptom — "a dirty grainy
+   * shadow around objects" — and it was measured to be theirs rather than the
+   * AO's by toggling one layer at a time through `__dbgGfx` inside a SINGLE page
+   * load, so the two frames differ by nothing else. A two-page A/B could not have
+   * answered it: two separate loads of the same framing differ by 2.02 code
+   * values everywhere from streaming and settling alone, which is larger than
+   * the artefact.
+   *
+   * With the soft mesh in, a hedge clump nine units from the camera lays a
+   * mottled grey smear over the meadow several times its own width; with
+   * `__dbgGfx('grass', false)` the same AO buffer is CLEAN WHITE there, and
+   * turning off `props` instead changes nothing — so it was never the bush's
+   * solid neighbours. The mechanism is that the soft mesh is a carpet of
+   * sub-pixel geometry (blade billboards, tussocks) and the AO chain runs at
+   * half res: each half-res texel lands on a blade or on the ground more or less
+   * at random, so the horizon search reads a different occluder per texel. Three
+   * things that all sound like fixes were measured and are not: a 64x64 rotation
+   * noise in place of three's tiled 5x5 magic square, a per-pixel radius jitter,
+   * and a wider Poisson denoise (radius 4 -> 8, 24 samples, 3 rings) each moved
+   * the picture by nothing an eye could find. Quadrupling the GTAO sample count
+   * (32 -> 128) DOES smooth it, at four times the fill, and still leaves the
+   * smear — a smooth wrong answer.
+   *
+   * The clouds are the same statement with a different reason. They are 80-142
+   * units up and hundreds wide, against a contact radius of 1.8, so the only
+   * thing the pass can resolve on one is the crease where two puffs merge — and
+   * that lands as the dotted black dashes down every vertical seam in the second
+   * screenshot on the issue. A cumulus is a volume of droplets; it has no
+   * contact shadow to cast in the first place.
+   *
+   * What this deliberately does NOT remove is every contact the pass exists for:
+   * trees, rocks, huts and carts are the SOLID prop mesh, and the hero, the
+   * beasts and the NPCs are their own rigs. All of them stay.
    */
   _overrideVisibility(): void {
     (GTAOPass.prototype as unknown as GTAOVisibilityHook)._overrideVisibility.call(this);
     const cache = (this as unknown as GTAOVisibilityHook)._visibilityCache;
     this.scene.traverse((obj) => {
       if (obj.visible === false) return;
+      if (isExcludedFromAO(obj)) {
+        obj.visible = false;
+        cache.push(obj);
+        return;
+      }
       const mat = (obj as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
       if (!mat) return;
       const m = Array.isArray(mat) ? mat[0] : mat;
