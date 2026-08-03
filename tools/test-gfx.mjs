@@ -102,7 +102,16 @@ await wait(2500);
 // is far steadier. A floor that only ever asks "did this do anything at all" is
 // what a guard against a dead switch needs; the panel's own cost strings carry
 // the representative numbers.
-for (const [id, minDrop] of [['ao', 40], ['bloom', 4], ['grass', 20], ['props', 40]]) {
+//
+// `props` came down 40 -> 20 when core/shadow-cache.ts landed, and the reason is
+// worth knowing rather than a loosened bolt. A tree used to be drawn four times
+// a frame — the scene, the AO prepass, the bloom pass and the SHADOW pass — and
+// the shadow one is now redrawn only when the cache goes stale, so switching
+// trees off stops saving it every frame. Measured 30 and 40 on two runs of the
+// same walk, against 70 before. Nothing else in the list moved: grass casts no
+// shadow at all (props.ts sets castShadow false on the soft mesh), and AO and
+// bloom are post passes the shadow map never touched.
+for (const [id, minDrop] of [['ao', 40], ['bloom', 4], ['grass', 20], ['props', 20]]) {
   const on = await draws();
   await gfxSet(id, false);
   await wait(900);

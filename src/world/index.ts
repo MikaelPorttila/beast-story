@@ -17,6 +17,9 @@ import { SwayField } from './sway';
 import { mulberry32 } from './noise';
 import { perf } from '../core/profiler';
 import { flags } from '../core/flags';
+import {
+  invalidateStaticShadows, invalidateStaticShadowsNear, markStaticShadowCaster,
+} from '../core/shadow-cache';
 
 const VIEW_RADIUS = flags.viewRadius ?? 5;
 const UNLOAD_RADIUS = VIEW_RADIUS + 1.5;
@@ -293,7 +296,16 @@ export function createWorld(
   const towns = plan
     ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain)
     : null;
-  if (towns) scene.add(towns.group);
+  if (towns) {
+    scene.add(towns.group);
+    // The settlements are built ONCE at world creation and never stream, so
+    // they are the other half of the static shadow set beside the chunks —
+    // and the denser half: a camp is a wall, a gate and a dozen huts standing
+    // where the shadow box spends most of its life. The shops (their crystals
+    // bob and spin) and the people (Gain curls a dumbbell) are deliberately NOT
+    // marked; see markStaticShadowCaster.
+    markStaticShadowCaster(towns.group);
+  }
 
   // THE PEOPLE, after the settlement and never before it: the placement search
   // asks where the road is and what the camp already built, and both of those
@@ -433,6 +445,13 @@ export function createWorld(
         ? !hiddenLayers[layer as WorldLayer]
         : true;
     }
+    // A hidden caster is a changed caster set. Every path that shows or hides
+    // chunk geometry goes through here — the streamer, the F3 grass/trees rows
+    // and the zone handover's hide/show — so this is the one line that keeps
+    // the cached shadow map honest about all three. Bounded by the chunk,
+    // because the streamer calls this on every stage of every build and an
+    // unbounded invalidation there is the whole cost of the cache.
+    for (const m of rec.meshes) invalidateStaticShadowsNear(m);
   };
 
   const startChunk = (cx: number, cz: number): ChunkRec | null => {
@@ -481,6 +500,13 @@ export function createWorld(
       }
       if (props.trunks.length > 0) trunks.set(trunkKey(cx, cz), props.trunks);
     }
+    // A CHUNK IS THE DEFINITION OF STATIC SHADOW GEOMETRY. Terrain, water,
+    // trees and grass are pure functions of the seed and never move again, so
+    // their shadow is drawn into the cache once and composited every frame
+    // afterwards (core/shadow-cache.ts). This is the same place and for the
+    // same reason as `applyLayers` below: the one function that adds a mesh to
+    // a chunk, rather than either of the two call sites that reach it.
+    for (const m of rec.meshes) markStaticShadowCaster(m);
     // HERE, at the bottom of the one function that adds meshes to a chunk, and
     // not at the call sites. There are two of those — the streamer's staged
     // path and `buildChunk`'s build-it-all-now path — and putting this in the
@@ -500,6 +526,8 @@ export function createWorld(
   };
 
   const disposeChunk = (rec: ChunkRec): void => {
+    // BEFORE the geometry goes: the invalidation measures its bounds off it.
+    for (const m of rec.meshes) invalidateStaticShadowsNear(m);
     for (const m of rec.meshes) {
       scene.remove(m);
       m.geometry.dispose();
@@ -853,6 +881,11 @@ export function createWorld(
       // Same rule for the sky ambience: a hidden layer stays hidden through a
       // hide/show cycle, so `&& !hiddenLayers.clouds` rather than a bare `v`.
       if (clouds) clouds.group.visible = v && !hiddenLayers.clouds;
+      // Once, at the bottom, for the whole sweep. `applyLayers` says it too on
+      // the way up, but the hide branch never calls it and the camp is hidden
+      // by a flag of its own — so the cached shadow map would otherwise have
+      // kept a whole settlement's shadows through a zone handover.
+      invalidateStaticShadows();
     },
 
     /**

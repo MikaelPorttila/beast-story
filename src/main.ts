@@ -2639,6 +2639,18 @@ beginPlay();
 (window as unknown as { __dbgPerf: () => unknown }).__dbgPerf = () => perf.dump();
 
 /**
+ * What the cached static shadow map is doing — whether it is on at all, how big
+ * the box is, and the number the whole feature is about: FRAMES PER REBUILD.
+ * See core/shadow-cache.ts, and tools/test-shadowcache.mjs for the guard.
+ */
+(window as unknown as { __dbgShadows: () => unknown }).__dbgShadows =
+  () => engine.shadowDebug();
+
+/** A/B the cache inside one page load; see `Engine.setShadowCacheEnabled`. */
+(window as unknown as { __dbgShadowCache: (on: boolean) => void }).__dbgShadowCache =
+  (on) => engine.setShadowCacheEnabled(on);
+
+/**
  * Who is standing in this zone, where, and whether anyone is mid-conversation.
  *
  * Read-only, like every other probe here: it reports the world's own answers
@@ -2881,6 +2893,12 @@ beginPlay();
  * scene graph; call it from a tool, never from a frame.
  */
 const _surfRay = new THREE.Raycaster();
+// EVERY LAYER, and this is not optional since core/shadow-cache.ts moved the
+// world's static geometry onto a layer of its own. A Raycaster starts on layer
+// 0 alone, so a default one now fires straight through the terrain, the trees
+// and the towns and reports whatever glow sprite it meets on the way — i.e.
+// exactly the surface question this exists to answer, answered about nothing.
+_surfRay.layers.enableAll();
 const _surfFrom = new THREE.Vector3();
 const _surfDown = new THREE.Vector3(0, -1, 0);
 (window as unknown as {
