@@ -64,6 +64,9 @@ import { BEAST_CYCLE_SLOTS } from '../src/core/types.ts';
 // process — but a BODY is code, it is what this tool looks at, and the record is
 // still the one place a body is named. See the note on it in src/world/npc.ts.
 import { NPC_BODIES } from '../src/world/npc.ts';
+// The settlement's pieces. A town part is a baked `Template` rather than a rig,
+// so it reaches this tool through `templateMesh` below — see the town section.
+import { TownParts } from '../src/world/town-parts.ts';
 
 // A 2D canvas, and nothing else, is the whole of the DOM a rig builder touches:
 // the glow billboards and the flyers' contact shadows bake a radial ramp into a
@@ -171,6 +174,23 @@ function localQuads(mesh) {
     });
   }
   return out;
+}
+
+/**
+ * A baked town `Template` as a mesh, so the rig machinery above can read it.
+ *
+ * A `Template` is the four attribute arrays `build()` produced and nothing else
+ * — towns.ts stamps them straight into a merged `Accum` and never makes a mesh
+ * per part — so this rebuilds the one thing `localQuads` needs to see. The
+ * arrays are the template's OWN, not copies: nothing here writes to them.
+ */
+function templateMesh(t) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(t.pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(t.nrm, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(t.col, 3));
+  g.setIndex(Array.from(t.idx));
+  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true }));
 }
 
 /** Every mesh under a rig root, labelled by the named part it hangs from. */
@@ -539,6 +559,50 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
   results.push(worst);
 }
 
+// -- town parts -------------------------------------------------------------
+//
+// A SETTLEMENT IS ASSEMBLED THE SAME WAY A BODY IS, and until this section
+// existed nothing looked at it. Every rig above is a tree of meshes; a town part
+// is a `Template` stamped into a merged `Accum`. Different pipeline, identical
+// hazard — and the same one, because the pieces that get stamped ON TOP of each
+// other are exactly the ones that cannot share a VoxelModel: a flame and the
+// thing holding it go into different accumulators on different MATERIALS (see
+// `bakeAt` in world/town-parts.ts), so the face culling inside `build()` can
+// never see across the pair. The campfire is what that costs when nobody checks:
+// its flame is painted into the same voxel volume as the cross-stacked logs.
+//
+// THE SWEEP HERE IS RELATIVE YAW, not a pose. towns.ts stamps a body and its
+// glow at one point with two INDEPENDENT `rng() * 6.28` draws, so the angle
+// between them is different in every world and no single arrangement is the one
+// to test. That randomness is also why the defect is subtler than it looks: a
+// yaw offset genuinely does part the two VERTICAL grids, so the seams that
+// survive it are the HORIZONTAL ones — a face whose normal is +Y is +Y at every
+// rotation, and `bakeAt` lands the flame's voxel layers on precisely the log's
+// own Y grid. Turning the fire cannot help a floor.
+{
+  const parts = new TownParts();
+  /** [name, body, glow] — every pair towns.ts stamps at one point. */
+  const PAIRS = [
+    ['campfire', parts.fire, parts.fireGlow],
+    ['brazier', parts.brazier, parts.brazierGlow],
+    ['lamp', parts.lamp, parts.lampGlow],
+  ];
+  /** Relative yaws swept, radians. Coarse and deliberately not aligned to pi/2. */
+  const YAWS = 12;
+  for (const [name, body, glow] of PAIRS) {
+    const root = new THREE.Group();
+    const bodyMesh = templateMesh(body);
+    const glowPivot = new THREE.Group();
+    const glowMesh = templateMesh(glow);
+    glowPivot.add(glowMesh);
+    root.add(bodyMesh, glowPivot);
+    const r = checkRig(name, root, { body: bodyMesh, glow: glowPivot }, (_t, i) => {
+      glowPivot.rotation.y = (i % YAWS) * (Math.PI * 2 / YAWS);
+    });
+    results.push(r);
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 /**
@@ -559,6 +623,8 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
  * paint where you cannot. Bring one down and lower its number in the same
  * commit; the aim is a file of zeroes.
  *
+ * The town parts at the bottom are not rigs and not debt — see the note there.
+ *
  * `worstSeamArea` is what to triage by — a 0.01 patch is a whole voxel face of
  * two colours flickering against each other, which is what the report that
  * prompted this tool was looking at.
@@ -576,6 +642,14 @@ const BUDGET = {
   lumimoth: 3,    // worst 0.00757
   drakelet: 2,    // worst 0.01022
   gain: 0,        // clean, and the only one
+  // The settlement's glow pairs, and they are a different kind of entry: these
+  // are not debt, they are a defect that was found and fixed. All three were
+  // seams the day this section was written — 0.0784 m2 on the campfire and the
+  // lamp, 0.0154 on a brazier — and `GLOW_PART` (world/town-parts.ts) took every
+  // one of them to nothing. Anything above 0 here is a regression, not history.
+  campfire: 0,
+  brazier: 0,
+  lamp: 0,
 };
 
 const over = results

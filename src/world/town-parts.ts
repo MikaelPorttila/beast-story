@@ -184,7 +184,49 @@ function letters(
 }
 
 /**
- * Bake, then shift the result by (dx, dy, dz) WORLD units.
+ * How far off the body's voxel grid every glow piece is nudged, in voxels.
+ *
+ * A FLAME AND THE THING HOLDING IT ARE TWO MODELS PAINTED INTO ONE VOLUME, and
+ * that is not an accident of any one builder — it is forced. `VoxelModel.build`
+ * culls a face whose neighbouring cell is painted, but it can only see cells in
+ * its OWN model, and a glow can never share a model with its body because the
+ * two go into different accumulators on different materials (see below). So the
+ * culling that keeps a single model free of internal surfaces is exactly what
+ * cannot run across the pair, and every place a flame overlaps its logs, its
+ * bowl or its cage, both models emit a face onto the same plane. The depth
+ * buffer then picks between them per triangle, and the player sees a hard
+ * diagonal seam swimming across a fire. Measured before this constant existed:
+ * 0.0784 m2 on the campfire and the lamp — one WHOLE voxel face of glowing
+ * orange flickering against a dark log — and 0.0154 on a brazier.
+ *
+ * TURNING THE PIECE CANNOT FIX IT, which is the part worth knowing before
+ * reaching for a yaw instead. towns.ts stamps the campfire's body and flame at
+ * two independent `rng() * 6.28` draws, and that genuinely does part the two
+ * VERTICAL grids almost always — but a face whose normal is +Y is +Y at every
+ * rotation, so the horizontal faces coincide at EVERY yaw, and `bakeAt` lands
+ * the flame's voxel layers on precisely the body's own Y grid. The other two
+ * pairs do not even get the vertical half: a lamp stamps body and lantern at
+ * one shared yaw so the bracket points the same way, and a hamlet's braziers
+ * are both stamped at 0.
+ *
+ * So the grid is parted here instead, in all three axes, which is the remedy
+ * AGENTS.md prescribes for two parts of one body sharing a face plane (Gain's
+ * `NECK_Z` is the same move on a rig). 0.08 of a voxel is 22 mm at V = 0.28:
+ * about eighty times the depth buffer's resolution at the distance a camp is
+ * read from, and a twelfth of a voxel on a model whose smallest feature is a
+ * whole one. It has to be applied on ALL THREE axes rather than just Y — the
+ * two aligned-yaw pairs above fight on their vertical faces too — and it works
+ * whatever the relative yaw, because a translation that is not a multiple of
+ * the voxel scale stays one after a rotation.
+ *
+ * `tools/test-zfight.mjs` is the guard, and its town section sweeps relative
+ * yaw for exactly this reason.
+ */
+const GLOW_PART = 0.08;
+
+/**
+ * Bake, then shift the result by (dx, dy, dz) WORLD units — and off the body's
+ * face grid by `GLOW_PART`.
  *
  * Every glow piece needs this and none of the solid ones do, because `bake`
  * re-bases each model on its OWN bounding box: x/z centred, and y zeroed at the
@@ -197,15 +239,20 @@ function letters(
  * The alternative was pairing every glow with its body in one VoxelModel, which
  * cannot work: the two go into different accumulators on different materials.
  * So the offset is stated where the pairing is known — in the builder.
+ *
+ * That same forced separation is what makes the parting necessary, and this is
+ * the one function every glow piece in the file already passes through, so a
+ * new one gets it without anyone having to remember. See `GLOW_PART`.
  */
 function bakeAt(
   model: VoxelModel, scale: number, dx: number, dy: number, dz: number,
 ): Template {
   const t = bakeProp(model, scale);
+  const part = GLOW_PART * scale;
   for (let i = 0; i < t.pos.length; i += 3) {
-    t.pos[i] += dx;
-    t.pos[i + 1] += dy;
-    t.pos[i + 2] += dz;
+    t.pos[i] += dx + part;
+    t.pos[i + 1] += dy + part;
+    t.pos[i + 2] += dz + part;
   }
   return t;
 }

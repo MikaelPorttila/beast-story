@@ -1747,6 +1747,27 @@ deliberately NOT gated on it: it is something you see, not something you feel.
   coincident, not two solids painted into the SAME voxel layer that sweep
   through each other as a joint turns — which looks identical on screen and is
   what his hair and his hood collar were also doing. Capture the model and look.
+- **A SETTLEMENT IS ASSEMBLED THE SAME WAY A BODY IS**, and the guard above
+  covered only rigs until a campfire was reported for exactly this. A glow piece
+  can NEVER share a `VoxelModel` with the thing holding it — the two go into
+  different accumulators on different MATERIALS — so the face culling inside
+  `build()` is precisely what cannot run across the pair, and everywhere a flame
+  overlapped its logs, its bowl or its cage both models painted a face onto one
+  plane. Measured: **0.0784 m2 on the campfire and on every road lamp**, one
+  WHOLE voxel face of glowing orange flickering against a dark log, and 0.0154
+  on a brazier. TURNING THE PIECE CANNOT FIX IT, which is the thing to know
+  before reaching for a yaw: the campfire's body and flame already take two
+  independent `rng() * 6.28` draws, and that parts the two VERTICAL grids while
+  doing nothing whatever for the horizontal ones, because a +Y normal is +Y at
+  every rotation. The other two do not even get that much — a lamp stamps body
+  and lantern at one shared yaw so the bracket leans over the road, and a
+  hamlet's braziers are both stamped at 0. `GLOW_PART`
+  ([src/world/town-parts.ts](src/world/town-parts.ts)) parts the grid in all
+  three axes inside `bakeAt`, the one function every glow piece in the file
+  already passes through, so a new one inherits it without anyone remembering.
+  `test-zfight.mjs` grew a town section to catch it, and that section sweeps
+  RELATIVE YAW rather than a pose, because the angle between a body and its glow
+  is a different number in every world.
 - **A key edge read in the FRAME loop must be consumed; one read in a
   SIMULATION slice must not.** `input.pressed()` deliberately survives frames
   that drained no slice — `endFrame()` only runs when one did, and clearing
