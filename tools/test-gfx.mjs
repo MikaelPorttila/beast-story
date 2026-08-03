@@ -1,6 +1,6 @@
 // Verifies the F3 performance panel (src/ui/perf-panel.ts, src/core/gfx.ts):
-// every switch is real, every switch is remembered, and the console can set
-// them too.
+// every switch is real, every switch is remembered, the console can set them
+// too — and the console is not painted through by the panels sharing its band.
 //
 // Usage: bun tools/test-gfx.mjs        (dev server must be up)
 //
@@ -256,6 +256,66 @@ for (const id of ['shadows', 'aa']) {
   const v = await gfxGet('bloom');
   results.console = { bloomAfterCommand: v };
   check(v === true, `/gfx bloom on did not take (${v})`);
+}
+
+// ---------- and nothing is painted through it -------------------------------
+// Issue #41. The three developer instruments all claim the top of the screen —
+// the console is a full-width sheet down the top 42vh, F3 sits top-left and F2
+// top-centre — so at the console's old z-index of 9000 both panels were drawn
+// straight through its log and through the line you were typing.
+//
+// F3 is judged by a HIT TEST rather than by reading a z-index back, because
+// elementFromPoint answers out of the same stacking computation the compositor
+// paints from: it is the browser's opinion about what is on top, where
+// getComputedStyle('zIndex') would only be our own assignment handed back.
+// F2 CANNOT be judged that way and the number below says so instead of
+// pretending otherwise — it is pointer-events:none, so a hit test falls through
+// it whichever way round the two are stacked. Comparing the computed values is
+// the strongest thing available there, and it still catches the case that
+// matters: a panel authored above the console (F2's is an inline style in
+// core/debug-overlay.ts, nowhere near the stylesheet the console's lives in).
+{
+  await page.keyboard.press('F3');
+  await wait(400);
+  await page.keyboard.press('Backquote');
+  await page.waitForSelector('.bs-console-input', { visible: true });
+  await wait(400);
+  const stack = await page.evaluate(() => {
+    const con = document.querySelector('.bs-console');
+    const perf = document.querySelector('.bs-perf');
+    const f2 = [...document.body.children].find(
+      (c) => c instanceof HTMLDivElement && (c.textContent || '').startsWith('FPS'));
+    const c = con.getBoundingClientRect();
+    const p = perf.getBoundingClientRect();
+    const l = Math.max(c.left, p.left), r = Math.min(c.right, p.right);
+    const t = Math.max(c.top, p.top), b = Math.min(c.bottom, p.bottom);
+    // The centre of the OVERLAP, so the sample is inside both by construction
+    // rather than by a coordinate written down here that a layout change would
+    // quietly move off one of them.
+    const x = (l + r) / 2, y = (t + b) / 2;
+    const hit = r > l && b > t ? document.elementFromPoint(x, y) : null;
+    const z = (el) => Number(getComputedStyle(el).zIndex);
+    return {
+      overlap: +Math.max(0, (r - l) * (b - t)).toFixed(0),
+      sample: [Math.round(x), Math.round(y)],
+      onTop: !hit ? null
+        : hit.closest('.bs-console') ? 'console'
+        : hit.closest('.bs-perf') ? 'perf' : (hit.className || hit.tagName),
+      z: { console: z(con), perf: z(perf), overlay: f2 ? z(f2) : null },
+    };
+  });
+  results.stacking = stack;
+  // Vacuous otherwise: if the two do not overlap there is nothing to be on top of.
+  check(stack.overlap > 1000,
+    `the F3 panel and the console overlap by only ${stack.overlap}px² — nothing was tested`);
+  check(stack.onTop === 'console',
+    `the console is under the F3 panel at ${stack.sample} (hit "${stack.onTop}")`);
+  check(stack.z.overlay !== null, 'the F2 overlay was not found — ?debug=1 should have it up');
+  check(stack.z.console > stack.z.overlay,
+    `the console (${stack.z.console}) is below the F2 overlay (${stack.z.overlay})`);
+  await page.keyboard.press('Backquote');
+  await page.keyboard.press('F3');
+  await wait(300);
 }
 
 // Leave the profile as we found it, so a later run does not inherit a

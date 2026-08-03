@@ -1038,8 +1038,17 @@ const CSS = `
 
 /* --- developer console (§) ------------------------------------------------
    Deliberately plain and monospaced: it is an instrument, not part of the
-   game's look, and it must stay readable over any world behind it. Sits above
-   the HUD's z-index but below the F2 overlay. */
+   game's look, and it must stay readable over any world behind it.
+
+   IT IS THE TOPMOST THING IN THE PAGE, above the F2 overlay (9999) and the F3
+   panel (9998), and that is the one number here that is not cosmetic. All three
+   developer instruments claim the SAME BAND — the console is a full-width sheet
+   down the top 42vh, F2 is pinned top-centre, F3 top-left — so at its old 9000
+   the two panels were painted straight through it: two monospace readouts
+   overlapping the log, and the prompt you were typing into sitting behind the
+   performance rows (issue #41). It wins because it is the only one of the three
+   you type INTO, and it is the only one that is transient — § puts F2 and F3
+   back, and F3 can be dragged out from under it besides. */
 .bs-console {
   position: fixed; left: 0; right: 0; top: 0;
   height: 42vh; min-height: 180px;
@@ -1047,7 +1056,7 @@ const CSS = `
   background: rgba(8, 12, 18, .92);
   border-bottom: 1px solid rgba(140, 200, 255, .28);
   box-shadow: 0 8px 32px rgba(0, 0, 0, .5);
-  z-index: 9000;
+  z-index: 10000;
   font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #d8f0ff;
 }
