@@ -1350,6 +1350,29 @@ const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, cro
     const x = player.position.x + dx, z = player.position.z + dz;
     combat.spawnDrop(id, x, world.getHeight(x, z) + 0.5, z);
   };
+// TEST HOOK, like __dbgDrop above, and the only way `tools/test-textsize.mjs`
+// can see MOST of the HUD at once. Half the panels the 16px floor applies to are
+// transient — the interact pill, the dialogue, the mount ring, the riding badge,
+// a toast, the level-up banner — and three of those are exactly what issue #17
+// named. Driving the game to produce all six for one screenshot means finding an
+// NPC, a den, a mount and a level-up in one run; this raises them directly, with
+// the same calls and the same markup a player gets. It is deliberately a HOOK
+// rather than the probe reaching into `hud`: the shop needs the real skill
+// registry and the real prices, which live here.
+(window as unknown as { __dbgStageHud: () => boolean }).__dbgStageHud = () => {
+  hud.showHint(t('hint.npcTalk', { key: hud.interactPrompt, name: t('npc.gain.name') }));
+  hud.showDialogue(
+    t('npc.gain.name'), t('npc.gain.greeting'),
+    t('npc.dialogue.close', { key: hud.interactPrompt }),
+  );
+  hud.setMountHold(0.42);
+  hud.setMounted(t('beast.emberfox.name'), false);
+  hud.setBag([{ def: itemDef('sunberry'), count: 3 }, { def: itemDef('glowpebble'), count: 12 }]);
+  bus.emit({ type: 'beastLevelUp', beastId: 'emberfox', nameKey: 'beast.emberfox.name', level: 4 });
+  bus.emit({ type: 'toast', text: t('toast.fetched', { beast: 'Emberfox', item: 'Sunberries', n: 3 }) });
+  tryOpenShop();
+  return true;
+};
 
 let started = false;
 // The welcome toast lives in `beginPlay()` at the top of this file — it is the

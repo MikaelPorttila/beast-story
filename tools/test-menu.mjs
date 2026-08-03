@@ -376,7 +376,7 @@ const out = {};
 {
   const { ctx, page } = await newContextPage(browser, { width: 1000, height: 640 });
   logPageErrors(page);
-  await page.goto('http://localhost:5187/?fs=0', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fs=0`, { waitUntil: 'load' });
   await page.waitForSelector('.bs-menu.intro', { timeout: 15000 });
   const layers = await page.evaluate(() => {
     window.__intro = document.getAnimations().filter(
@@ -406,7 +406,7 @@ const out = {};
 {
   const page = await newPage(browser, { width: 1000, height: 640 });
   logPageErrors(page);
-  await page.goto('http://localhost:5187/?photo=1&menu=1', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?photo=1&menu=1`, { waitUntil: 'load' });
   await page.waitForSelector('.bs-menu');
   await wait(600);
   out.photoIsLit = await page.evaluate(() => {

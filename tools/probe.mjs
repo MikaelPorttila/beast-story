@@ -57,6 +57,7 @@ const SOLO = new Set([
   'aim-assist',    // measured: selection angles collapse under load
   'f2',            // measured: reads null under load, and asserts nothing
   'settings',      // measured: drained cue count 2 -> 1, lastKind changed
+  'textsize',      // stages the HUD through __dbgStageHud after a fixed wait
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output

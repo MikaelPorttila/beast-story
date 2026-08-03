@@ -97,22 +97,40 @@ const CSS = `
      bigger attack button. */
   --m:clamp(20px,calc(var(--vm) * .05),36px);
   --s:min(calc(var(--vm) * .30),124px);
-  --b:clamp(40px,calc(var(--vm) * .107),52px);
-  --atk:clamp(46px,calc(var(--vm) * .13),62px);
+  /* A BUTTON IS AS WIDE AS THE WORD ON IT, which is what the 16px floor
+     (issue #17) changed here. These labels were 9–12px; the widest of them,
+     JUMP, is about 40px at 16px bold with the tracking taken out, so a 40px
+     circle could not hold its own caption. The diameters below are that
+     measurement plus a margin, not a taste. */
+  --b:clamp(50px,calc(var(--vm) * .128),62px);
+  --atk:clamp(58px,calc(var(--vm) * .15),72px);
   /* Fan radii, stick centre to button centre.
      --r is NOT the smallest radius that clears the stick (that would be
      s/2 + b/2 + gap = 88px on a Pixel 5). It is set by PACKING: six buttons
      have to fit on the arc between the screen's right edge and its bottom edge,
-     and the angular width of a button shrinks as the radius grows. 118px is
-     where 30.5deg (ATK to skill 1) + 4x26.2deg (skill to skill, and skill 4 to
-     JUMP) = 135deg fits inside the 140deg the edges leave. Below ~112px the
-     buttons start to overlap; above ~130px the far end of the arc reaches
-     across the screen. Eight buttons do not fit at ANY radius, which is why USE
-     and SWAP live on the left fan.
-     The inner edge of the fan still clears the stick by 38px, which is the gap
-     a thumb drags through to look around. */
-  --r:clamp(104px,calc(var(--vm) * .30),142px);
-  --lr:clamp(80px,calc(var(--vm) * .23),112px);
+     and the angular width of a button shrinks as the radius grows. Eight
+     buttons do not fit at ANY radius, which is why USE and SWAP live on the
+     left fan.
+
+     RE-DERIVED for the bigger buttons above; the ANGLES did not move, only the
+     radius they need. Two circles a degrees apart at radius r are separated by
+     a chord of 2r*sin(a/2), and that has to cover the mean of their diameters.
+     Measured on a Pixel 5 (--vm 393, so b 50.3, atk 59, r 125.8):
+
+       ATK -> skill 1   29deg   chord 63.0   needs 54.7   gap 8.3px
+       skill -> skill   26deg   chord 56.6   needs 50.3   gap 6.3px
+       skill 4 -> JUMP  27deg   chord 58.7   needs 50.3   gap 8.4px
+
+     and the whole span, 68deg to 202deg, is 134deg inside the 140deg the two
+     screen edges leave. At the old 118px radius the same buttons overlap by
+     about 4px between every adjacent pair. Below ~120px they overlap; the
+     ceiling is the LOOK PAD reaching across the frame, and in landscape the
+     highest button (skill 2, at 123deg) now tops out 12px above the reticle
+     rather than 7 — the one thing this change costs.
+     The inner edge of the fan clears the stick by 42px, up from 38, which is
+     the gap a thumb drags through to look around. */
+  --r:clamp(124px,calc(var(--vm) * .32),150px);
+  --lr:clamp(96px,calc(var(--vm) * .26),124px);
   /* Notch/rounded-corner aware edges, resolved once so the fan origins and the
      stick homes cannot drift apart. */
   --ml:max(var(--m),env(safe-area-inset-left));
@@ -148,8 +166,8 @@ const CSS = `
   background:radial-gradient(circle at 36% 30%,rgba(255,255,255,.9),rgba(210,228,245,.55) 60%,rgba(150,180,210,.4));
   box-shadow:0 4px 14px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.6)}
 /* tiny glyph so the two sticks are distinguishable at a glance */
-.bs-stick .tag{position:absolute;left:50%;bottom:8%;transform:translateX(-50%);
-  font-size:9px;font-weight:800;letter-spacing:.14em;color:rgba(255,255,255,.5)}
+.bs-stick .tag{position:absolute;left:50%;bottom:7%;transform:translateX(-50%);
+  font-size:16px;font-weight:800;letter-spacing:.06em;color:rgba(255,255,255,.55)}
 
 /* Fan containers are ZERO-SIZED points parked on a stick's centre; each button
    is placed by polar coordinates off that point. rotate(-a)/translateX(r)/
@@ -162,14 +180,17 @@ const CSS = `
 /* The mirror fan on the move stick. */
 .bs-btns.near{right:auto;left:calc(var(--ml) + var(--s)/2);--rad:var(--lr)}
 
+/* letter-spacing 0, where it was .04em: inside a circle every point of tracking
+   comes off the margin at both ends, and JUMP at the 16px floor has none to
+   spare. See the diameter note at --b. */
 .bs-btn,.bs-skill{position:absolute;left:0;top:0;pointer-events:auto;
   display:grid;place-items:center;border-radius:50%;aspect-ratio:1;
-  color:#eef2f8;letter-spacing:.04em;
+  color:#eef2f8;letter-spacing:0;
   backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   transform:translate(-50%,-50%) rotate(calc(-1 * var(--a)))
     translateX(var(--rad)) rotate(var(--a));
   transition:filter .08s ease}
-.bs-btn{width:var(--b);font-weight:800;font-size:clamp(9px,calc(var(--vm) * .026),12px);
+.bs-btn{width:var(--b);font-weight:800;font-size:clamp(16px,calc(var(--vm) * .036),19px);
   background:linear-gradient(165deg,rgba(34,44,62,.82),rgba(16,20,30,.88));
   border:1px solid rgba(255,255,255,.18);
   box-shadow:0 6px 18px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1)}
@@ -198,8 +219,8 @@ const CSS = `
   top:calc(var(--m) * .6 + env(safe-area-inset-top));
   width:auto;height:auto;padding:calc(var(--vm) * .018) calc(var(--vm) * .034);
   border-radius:999px;pointer-events:auto;
-  font-family:inherit;font-weight:800;letter-spacing:.08em;color:#eef2f8;
-  font-size:clamp(9px,calc(var(--vm) * .024),12px);
+  font-family:inherit;font-weight:800;letter-spacing:.04em;color:#eef2f8;
+  font-size:clamp(16px,calc(var(--vm) * .034),18px);
   background:linear-gradient(165deg,rgba(34,44,62,.82),rgba(16,20,30,.88));
   border:1px solid rgba(255,255,255,.18);
   box-shadow:0 6px 18px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1)}
@@ -208,7 +229,7 @@ const CSS = `
 /* Skills read as one group inside the fan — same circle, cooler fill and a
    cyan hairline, so the four numbered slots are visibly a set and not four more
    verbs. */
-.bs-skill{width:var(--b);font-weight:900;font-size:clamp(12px,calc(var(--vm) * .034),17px);
+.bs-skill{width:var(--b);font-weight:900;font-size:clamp(18px,calc(var(--vm) * .045),22px);
   background:linear-gradient(165deg,rgba(28,42,62,.84),rgba(12,18,30,.88));
   border:1px solid rgba(150,220,255,.3);
   box-shadow:0 5px 14px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.09)}

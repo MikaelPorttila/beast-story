@@ -375,7 +375,7 @@ for (const id of ['shadows', 'aa']) {
   // issue's first screenshot is of moves the control to 0.49, which is too
   // near the noise to prove anything.
   await shot.goto(
-    `http://localhost:5187/?${AOVIEW}&cam=12,4.5,4&look=20,2,-2`, { waitUntil: 'load' });
+    `${HOST}/?${AOVIEW}&cam=12,4.5,4&look=20,2,-2`, { waitUntil: 'load' });
   await shot.waitForSelector('canvas');
   await wait(6000);
   const withAll = await decode();
@@ -390,7 +390,7 @@ for (const id of ['shadows', 'aa']) {
   // Clouds: above the deck, where the frame is nothing but cumulus. Excluded,
   // every one of those pixels is untouched white.
   await shot.goto(
-    `http://localhost:5187/?${AOVIEW}&cam=0,120,0&look=80,115,40`, { waitUntil: 'load' });
+    `${HOST}/?${AOVIEW}&cam=0,120,0&look=80,115,40`, { waitUntil: 'load' });
   await shot.waitForSelector('canvas');
   await wait(6000);
   const sky = await decode();
