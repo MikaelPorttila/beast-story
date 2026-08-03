@@ -1108,6 +1108,11 @@ const _hurtFrom = new THREE.Vector3();
   isSwimming: player.isSwimming,
   isMounted: player.isMounted,
   isDead: player.isDead,
+  // The keys the game swallows before the browser can act on them. Reported so
+  // tools/test-keybinds.mjs can cross-check it against the bindings table
+  // rather than trusting that whoever added a key remembered — see the note on
+  // Input.CAPTURED, which has now been forgotten once per function key.
+  captured: Input.capturedCodes(),
 });
 
 // Controller state: what is plugged in, which faces the HUD is printing, and the
@@ -2916,7 +2921,24 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 (window as unknown as {
   __dbgGfx: (id?: string, value?: unknown) => unknown;
 }).__dbgGfx = (id, value) => {
-  if (id === undefined) return { open: perfPanel.isOpen, values: gfx.snapshot() };
+  if (id === undefined) {
+    // COUNTED OFF THE SCENE, not off the setting — which is the only way to see
+    // the failure this exists for. Grass switched off stayed off while standing
+    // still and came back in patches while walking, because chunks built
+    // through the immediate path never heard about the setting. A draw-call
+    // delta could not see it (walking changes the chunk set anyway); a count of
+    // VISIBLE grass meshes says it in one number.
+    const layers: Record<string, { shown: number; hidden: number }> = {
+      grass: { shown: 0, hidden: 0 },
+      props: { shown: 0, hidden: 0 },
+      water: { shown: 0, hidden: 0 },
+    };
+    engine.scene.traverse((o) => {
+      const key = o.name.startsWith('chunk:') ? o.name.slice(6) : null;
+      if (key && layers[key]) layers[key][o.visible ? 'shown' : 'hidden']++;
+    });
+    return { open: perfPanel.isOpen, values: gfx.snapshot(), layers };
+  }
   const opt = GFX_OPTIONS.find((o) => o.id === id);
   if (!opt) return null;
   if (value !== undefined) {

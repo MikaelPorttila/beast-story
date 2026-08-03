@@ -95,7 +95,14 @@ await wait(2500);
 // is inside the frame-to-frame variance of the draw counter (a chunk finishing,
 // a beast leaving the frustum). It is asserted as renderer state below with
 // `shadows`, which has the same problem for a different reason.
-for (const [id, minDrop] of [['ao', 40], ['bloom', 12], ['grass', 20], ['props', 40]]) {
+// The thresholds are FLOORS, not the measured values, and bloom's is
+// deliberately the loosest. Its cost is the number of glowing objects in frame,
+// which is a property of where the hero happens to be standing: measured 23 near
+// the spawn and 7 out by the gateway. The others scale with the chunk set, which
+// is far steadier. A floor that only ever asks "did this do anything at all" is
+// what a guard against a dead switch needs; the panel's own cost strings carry
+// the representative numbers.
+for (const [id, minDrop] of [['ao', 40], ['bloom', 4], ['grass', 20], ['props', 40]]) {
   const on = await draws();
   await gfxSet(id, false);
   await wait(900);
@@ -106,8 +113,14 @@ for (const [id, minDrop] of [['ao', 40], ['bloom', 12], ['grass', 20], ['props',
   results[id] = { drawsOn: on, drawsOff: off, drawsRestored: back, saved: on - off };
   check(on - off >= minDrop,
     `turning ${id} off saved ${on - off} draw calls, expected at least ${minDrop}`);
-  check(Math.abs(back - on) <= Math.max(8, on * 0.05),
-    `turning ${id} back on did not restore the draws (${on} -> ${back})`);
+  // RELATIVE to the off-state, not back to the on-state. The absolute count
+  // drifts while the streamer works — chunks arrive, chunks unload — so
+  // "within 5% of where it started" fails on scene drift rather than on a
+  // stuck switch (measured 488 -> 460 with nothing wrong). What the assertion
+  // is actually for is "did turning it back on put the work back", and the
+  // honest form of that is a comparison with the frame that had it off.
+  check(back - off >= minDrop * 0.5,
+    `turning ${id} back on put only ${back - off} draw calls back (removing it cost ${on - off})`);
 }
 
 // ---------- shadows and aa: state, because the frame cannot show them --------
@@ -149,6 +162,56 @@ for (const id of ['shadows', 'aa']) {
   results.fpsCap = { at30, at120 };
   check(at30 > 20 && at30 < 40, `a 30 fps cap measured ${at30}`);
   check(at120 > at30 + 20, `raising the cap did not raise the frame rate (${at30} -> ${at120})`);
+}
+
+// ---------- and it STAYS off as you walk into unbuilt chunks ----------------
+// The bug this exists for: grass switched off stayed off while standing still
+// and came back in patches while walking. `buildStage` has two callers — the
+// streamer's staged path and `buildChunk`'s build-it-all-now path — and only
+// the first re-applied the setting, so every chunk that arrived through the
+// other one arrived with its grass on. Standing still never builds a chunk,
+// which is exactly why no earlier assertion here could see it.
+{
+  // A FRESH PAGE, and that is the whole reproduction rather than fussiness.
+  //
+  // The cause is the ZoneManager's gateway PRELOAD: within 30 units of a gate it
+  // builds the destination, and to warm its shaders it hides the active world
+  // and turns it back on — with a blanket `visible = true` that re-showed every
+  // layer the panel had switched off. Reaching that needs the hero walking
+  // toward the gate from the spawn, which needs the camera pointing the way a
+  // fresh boot points it. Two earlier versions of this section drove the hero
+  // from wherever the previous assertions had left him, and both passed against
+  // the broken build because `KeyW` follows the camera and the camera had been
+  // turned. Measured on the broken build from a fresh page: 80 of 89 grass
+  // meshes came back on.
+  const ctx = await browser.createBrowserContext();
+  const fresh = await newPage(ctx, { width: 1280, height: 800 });
+  await fresh.goto('http://localhost:5187/?menu=0&fs=0', { waitUntil: 'load' });
+  await fresh.waitForSelector('canvas');
+  await wait(8000);
+  await fresh.focus('canvas').catch(() => {});
+
+  const freshLayers = () => fresh.evaluate(() => window.__dbgGfx().layers);
+  await fresh.evaluate(() => window.__dbgGfx('grass', false));
+  await wait(1500);
+  const atRest = await freshLayers();
+
+  await fresh.keyboard.down('KeyW');
+  await wait(8000);
+  await fresh.keyboard.up('KeyW');
+  await wait(2000);
+  const afterWalk = await freshLayers();
+  await ctx.close();
+
+  results.stillOffAfterWalking = { atRest: atRest.grass, afterWalk: afterWalk.grass };
+  check(atRest.grass.shown === 0,
+    `grass did not go off at all (${atRest.grass.shown} visible)`);
+  check(atRest.grass.hidden > 0, 'no grass meshes to hide — the world had not streamed');
+  check(afterWalk.grass.shown === 0,
+    `${afterWalk.grass.shown} grass meshes came back while walking `
+    + `(${afterWalk.grass.hidden} still hidden)`);
+  await gfxSet('grass', true);
+  await wait(900);
 }
 
 // ---------- it is remembered across a reload --------------------------------

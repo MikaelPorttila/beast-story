@@ -465,6 +465,14 @@ export function createWorld(
       }
       if (props.trunks.length > 0) trunks.set(trunkKey(cx, cz), props.trunks);
     }
+    // HERE, at the bottom of the one function that adds meshes to a chunk, and
+    // not at the call sites. There are two of those — the streamer's staged
+    // path and `buildChunk`'s build-it-all-now path — and putting this in the
+    // streamer only was a real bug: with grass switched off in the F3 panel it
+    // stayed off while you stood still and came back in patches as you walked,
+    // because the chunks that arrived through the other path never heard about
+    // the setting. A third caller would have made the same mistake again.
+    applyLayers(rec);
   };
 
   /** Build a whole chunk now. Boot only — the streaming path stages it. */
@@ -782,9 +790,6 @@ export function createWorld(
           building = { rec, stage: 0 };
         }
         buildStage(building.rec, building.stage);
-        // A stage that just added meshes has to honour whatever the F3 panel
-        // says right now — see hiddenLayers.
-        applyLayers(building.rec);
         building.stage++;
         if (building.stage > 2) {
           perf.count('chunks');
@@ -808,7 +813,22 @@ export function createWorld(
     },
 
     setVisible(v: boolean): void {
-      for (const rec of chunks.values()) for (const m of rec.meshes) m.visible = v;
+      // SHOWING THE WORLD MEANS SHOWING IT AS CONFIGURED, which is why this
+      // goes through `applyLayers` rather than setting every mesh true.
+      //
+      // This was the reported bug and it is a good one. The ZoneManager hides
+      // the active world for a moment to warm the DESTINATION zone's shaders
+      // against its own light population (zones.ts), then turns it back on —
+      // and a blanket `visible = true` there re-showed every layer the F3 panel
+      // had switched off. The symptom was exactly what you would expect and
+      // nothing like what you would guess: grass stayed off while you stood
+      // still, then came back in a lump the moment you wandered near a gateway
+      // and the preload started. Measured, 80 of 89 grass meshes lit up again.
+      if (v) {
+        for (const rec of chunks.values()) applyLayers(rec);
+      } else {
+        for (const rec of chunks.values()) for (const m of rec.meshes) m.visible = false;
+      }
       // The den lamps live under shops.group, so this is also what takes the
       // world's four point lights out of the scene's light count. See World.
       shops.group.visible = v;
@@ -816,8 +836,10 @@ export function createWorld(
       // about not drawing an overworld camp into a dungeon's warm-up render.
       if (towns) towns.group.visible = v;
       if (npcs) npcs.setVisible(v);
-      if (clouds) clouds.group.visible = v;
-      if (motes) motes.points.visible = v;
+      // Same rule for the sky ambience: a hidden layer stays hidden through a
+      // hide/show cycle, so `&& !hiddenLayers.clouds` rather than a bare `v`.
+      if (clouds) clouds.group.visible = v && !hiddenLayers.clouds;
+      if (motes) motes.points.visible = v && !hiddenLayers.clouds;
     },
 
     /**

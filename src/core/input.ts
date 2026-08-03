@@ -100,11 +100,31 @@ export class Input {
     'Tab', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ',
     'Digit1', 'Digit2', 'Digit3', 'Digit4', 'BracketLeft', 'BracketRight',
     'ShiftLeft', 'Slash', 'Quote',
-    // F1 opens the browser's own help in Chrome, Edge and Firefox, which is a
-    // new tab over the game; F2 is the debug overlay. Neither may reach the
-    // browser, and preventDefault on keydown is what stops both.
-    'F1', 'F2',
+    // FUNCTION KEYS AND ARROWS. Every one of these does something in a browser
+    // — F1 opens its help in a new tab over the game, F3 opens quick-find, the
+    // arrows scroll — so all of them have to be swallowed here.
+    //
+    // ADD A KEY TO THE GAME, ADD IT TO THIS SET. It has been forgotten twice
+    // now, once per F-key, and the failure is invisible in a probe: puppeteer
+    // dispatches the key straight at the page, the game reacts correctly, and
+    // nothing opens a help tab because there is no browser chrome in a headless
+    // run. It only ever shows up in a real browser, on a real player's machine.
+    // tools/test-keybinds.mjs now cross-checks this set against the bindings
+    // table so it is a run rather than a wish.
+    //
+    // Enter and KeyR are deliberately NOT here even though ui/perf-panel.ts
+    // reads them. Enter has real default behaviour inside a text field and the
+    // dev console handles its own in the capture phase; and this test is on the
+    // CODE alone, so capturing KeyR would swallow Ctrl+R and take reloading the
+    // page away with it.
+    'F1', 'F2', 'F3',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
   ]);
+
+  /** The capture list, for tools/test-keybinds.mjs. Read-only by convention. */
+  static capturedCodes(): string[] {
+    return [...Input.CAPTURED];
+  }
 
   constructor(private el: HTMLElement) {
     window.addEventListener('keydown', (e) => {

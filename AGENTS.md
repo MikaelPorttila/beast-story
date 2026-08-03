@@ -179,6 +179,25 @@ once frames come quickly.
   because the whole point is to watch a frame that is doing real work get
   cheaper, and a frozen world streams nothing and animates nothing.
   `tools/test-gfx.mjs` asserts the hero still travels with it open.
+- **"SHOW THE WORLD" MEANS "SHOW IT AS CONFIGURED".** `World.setVisible(true)`
+  goes through the same `applyLayers` the streamer uses rather than setting
+  every mesh visible, and that is a bug fix rather than a preference. The
+  ZoneManager hides the active world for a moment to warm the DESTINATION zone's
+  shaders against its own light population, then turns it back on — and a
+  blanket `visible = true` there re-showed every layer the F3 panel had switched
+  off. The symptom was exactly what a player reports and nothing like what you
+  would guess from the code: grass stayed off while you stood still and came
+  back in a lump as you wandered near a gateway. Measured, 80 of 89 grass meshes
+  lit up again. `hiddenLayers` is the world's own memory of the panel, and every
+  path that shows a mesh has to consult it.
+- **THAT GUARD NEEDS A FRESH PAGE, and the two versions of it that did not are
+  the lesson.** Reaching the preload means walking toward a gateway from the
+  spawn, `KeyW` follows the CAMERA, and by the time the earlier assertions in
+  `test-gfx.mjs` have run the camera is pointing somewhere else — so a section
+  that drove the hero from wherever he happened to be passed against the broken
+  build twice, once while walking and once while parked next to the gate. It
+  opens its own context now. A reproduction that depends on state the rest of
+  the file has been mutating is not a reproduction.
 - **EVERY TOGGLE IS GUARDED BY A MEASUREMENT, NOT BY ITS OWN FLAG.** A settings
   panel is the easiest thing in a codebase to get wrong in a way that tests
   green — the row renders, the value flips, the key is written, and the renderer
@@ -188,7 +207,10 @@ once frames come quickly.
   file says so instead of inventing a number: shadows render into their own
   target, which three does not add to `info.render.calls`, and antialiasing is
   three fullscreen quads, inside the counter's own frame-to-frame variance.
-  Those two are checked for round-tripping.
+  Those two are checked for round-tripping. The draw thresholds are FLOORS, not
+  the measured values, and the restore check is RELATIVE to the off-state: the
+  absolute count drifts while the streamer works, and "back to within 5% of
+  where it started" fails on scene drift rather than on a stuck switch.
 - **A NUMBER THAT WAS WRONG, kept because the mistake is repeatable.** The F2
   line reads `scene 396 +229 post`, and an early reading attributed all of that
   post figure to bloom. It is the whole chain, and AO is the larger half —
