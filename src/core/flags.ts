@@ -47,8 +47,9 @@
  *   invx=<0|1>  invert the controller's horizontal look axis
  *   invy=<0|1>  invert the controller's vertical look axis (default on)
  *   fs=<0|1>    go fullscreen on New Game (default on)
+ *   vol=<n>     0..1, music volume; 0 loads no track at all (see below)
  *
- * Those five OVERRIDE the stored player preference (see core/prefs.ts) for this
+ * Those six OVERRIDE the stored player preference (see core/prefs.ts) for this
  * load only, and never write it back. Resolution is always
  * `flag ?? pref ?? default`. They are still diagnostics by the definition
  * above — `haptics=0` is how you prove a rumble came from the cue you think it
@@ -115,6 +116,37 @@ export const flags = {
    * probe in `tools/` that starts a game passes `fs=0`.
    */
   autoFullscreen: tri('fs'),
+  /**
+   * `vol=<0..1>` — music volume for this load, overriding the stored preference
+   * and never writing it back. Same tri-state shape as `haptics` and `shake`,
+   * and `vol=0` is stronger than a mute: `MusicDirector` constructs no element
+   * and issues no request at all (see src/audio/music.ts).
+   */
+  volume: unit('vol'),
+  /**
+   * A boot NOBODY IS LISTENING TO — a probe or a staged capture — which is what
+   * makes silence the right default for it rather than the player's 80%.
+   *
+   * FOUR MARKERS, and each is one no player's URL carries. `menu=0` is the
+   * probe flag (every tool in tools/ passes it), `photo=1` is the capture flag,
+   * `fs=0` is what a probe that CLICKS New Game passes so the viewport is not
+   * resized under its measurement, and `fps=` is how a capture pins a cadence.
+   * Between them they cover every URL in tools/, which is the point: a rule that
+   * only covered `menu=0` would leave the staged-boot arms of test-menu,
+   * test-pause and test-keybinds streaming a song into a headless browser.
+   *
+   * `vol=` is how a change that DOES need audio turns it back on — `vol=0.01` is
+   * the one AGENTS.md recommends, loud enough for `__dbgMusic()` to prove the
+   * element is playing and quiet enough not to startle whoever is at the
+   * keyboard. It is checked FIRST wherever this is read, so an explicit volume
+   * always beats the inference.
+   *
+   * Doing it here rather than in each tool's URL is the difference between a
+   * rule and a wish: there are twenty probes, and the twenty-first would be
+   * written by copying one that has the parameter or one that does not.
+   */
+  silentBoot: p.get('menu') === '0' || p.get('photo') === '1'
+    || p.get('fs') === '0' || p.get('fps') !== null,
   /**
    * Staged-capture mode. NOT a diagnostic toggle like the rest of this file —
    * it lives here because two modules now need the same answer: main.ts, which

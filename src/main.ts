@@ -42,6 +42,7 @@ import {
   installEscapeLock, keyboardLockSupported, escapeIsLocked,
 } from './ui/fullscreen';
 import { LoadingScreen } from './ui/loading';
+import { MusicDirector } from './audio/music';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
 const app = document.getElementById('app')!;
@@ -139,7 +140,31 @@ let playing = false;
 const settingsHooks = {
   onLookAxes: (a: Partial<LookAxes>) => pad?.setLookAxes(a),
   onHapticFeedback: (on: boolean) => feedback?.setOptions({ hapticFeedback: on }),
+  // Live, and unlike the two above it there is no null to guard: the music is
+  // built BEFORE the menu, because the poster is the first thing it plays under.
+  onVolume: (v: number) => music.setVolume(v),
 };
+
+/**
+ * THE MUSIC, built before anything else it might play under.
+ *
+ * Ahead of the title screen because the splash track is the title screen's, and
+ * a director constructed after the poster would start it a phase late. It is
+ * the one system in this file with nothing behind it — no engine, no world, no
+ * DOM of its own — so there is nothing to be early FOR it.
+ *
+ * The volume resolves the same way every other overridable preference in this
+ * file does, `flag ?? pref` — with one addition that is not in the others:
+ * `flags.silentBoot`. A run under `menu=0` or `photo=1` is a probe or a staged
+ * capture, and neither has anyone listening to it; muting those by default is
+ * what makes "debug sessions are muted" a property of the build rather than a
+ * parameter twenty tools have to remember (see core/flags.ts, and the note in
+ * AGENTS.md). `?vol=0.01` is how a change that needs to hear something turns it
+ * back on for one load.
+ */
+const music = new MusicDirector(
+  flags.volume ?? (flags.silentBoot ? 0 : loadPrefs().volume),
+);
 
 /**
  * The title screen. Reassignable, because Exit raises a NEW one — the poster is
@@ -172,6 +197,11 @@ const staged = startMenu !== null && !flags.photo;
 const loading = staged ? new LoadingScreen() : null;
 if (!staged) handedOver = true;
 
+// The splash track, from the frame the poster goes up. Nothing starts when
+// there is no poster: the unstaged paths go straight to `beginPlay`, which asks
+// for the overworld's, and a photo run has `silentBoot` set anyway.
+if (startMenu) music.setScene('title');
+
 /**
  * Start the game, once BOTH halves are true: everything is built, and the
  * player has asked for it.
@@ -199,6 +229,12 @@ function beginPlay(): void {
   // hero wakes up to an empty keyboard.
   input.endFrame();
   loading?.finish();
+  // SCENE CHANGE: the splash track is faded out and unloaded, the overworld's
+  // starts. New Game is also the gesture that makes noise legal at all on a
+  // page nobody had touched — a title track the autoplay policy refused is
+  // dropped rather than faded, so what the player hears is the overworld
+  // starting and never a second of the poster's music behind them.
+  music.setScene('overworld');
   // Everything the F3 panel owns, pushed at the freshly built world — the frame
   // cap among it, which is why this replaced a bare `engine.setFpsCap(fpsCap)`
   // here. That line re-applied the URL/default cap on every New Game and would
@@ -323,6 +359,11 @@ function exitToTitle(): void {
   // started, and no browser undoes it on its own.
   exitFullscreen();
   input.releaseLock();
+  // Back to the splash track. The zone's is faded and UNLOADED on the way — a
+  // session that ended is a track nothing is going to play again, and leaving it
+  // paused-but-loaded is a buffer and a decoder held for the rest of the page's
+  // life. See src/audio/music.ts.
+  music.setScene('title');
 
   // Back to the overworld first, because the reset below places the hero at
   // `world.spawnPoint` and a player who quit inside the dungeon would otherwise
@@ -504,6 +545,12 @@ const zones = new ZoneManager({
   warm: (stage, lights) => warmUpFrame(stage, lights),
   onArrive: (w, def) => {
     world = w;
+    // The other scene change, and the only one that is not the session starting
+    // or ending. The dungeon has no track of its own yet, so arriving in it
+    // fades the overworld's out and unloads it — silence under the hold is a
+    // deliberate answer rather than a gap, and walking back out starts the
+    // overworld's song again from its head.
+    music.setScene(def.id === 'overworld' ? 'overworld' : 'hold');
     // A saddle pose is computed against one world's heightfield; applying it in
     // another is precisely the teleport-into-rock this rebinding exists to stop.
     if (mount.isMounted) mount.dismount();
@@ -1186,6 +1233,19 @@ const _hurtFrom = new THREE.Vector3();
 (window as unknown as { __dbgFeedback: () => unknown }).__dbgFeedback =
   () => feedback?.debugState() ?? null;
 
+// The music: which scene it thinks it is in, which file is loaded, whether the
+// element is playing, and what volume the envelope has it at right now. Read
+// only. `output` is the number to watch a fade on — `volume` is the master and
+// does not move during one. `blocked` true means the browser refused to play a
+// page nobody has touched yet, which is a normal state and not a failure.
+// See src/audio/music.ts, and tools/test-music.mjs for what it is asserted on.
+(window as unknown as { __dbgMusic: () => unknown }).__dbgMusic = () => music.debugState();
+// TEST HOOK, like `__dbgHurt`: move the playhead. The loop seam the fades exist
+// for is 85 seconds into the shortest track, which is not a thing a probe can
+// wait for — see `MusicDirector.seek`.
+(window as unknown as { __dbgMusicSeek: (t: number) => void }).__dbgMusicSeek =
+  (t: number) => music.seek(t);
+
 // TEST HOOK, like `__dbgTp`: hurt the hero for a fixed amount from a fixed
 // direction. Waiting for a real enemy to connect is not deterministic enough to
 // assert feedback timing — or the invulnerability window — against.
@@ -1758,6 +1818,35 @@ devConsole?.register({
     // Live, like the menu's row: turning it off silences whatever is ringing.
     feedback?.setOptions({ hapticFeedback: on });
     return `hapticFeedback = ${on}`;
+  },
+});
+/**
+ * The dial half of the music row, in the same shape as `/haptics` and `/shake`
+ * and writing the same key the panel does (`game.settings.gameplay.volume`).
+ *
+ * It is not redundant with the strip of chips in Settings: the panel offers six
+ * steps because a player choosing a level wants a level, and this takes any
+ * value in between — which is the one thing worth having while balancing a track
+ * against a scene. `?vol=` pins a value for one load without writing it.
+ */
+devConsole?.register({
+  name: 'volume',
+  args: '[<0..1>]',
+  help: 'Show or set music volume. Persists. 0 unloads the track entirely.',
+  run: (args) => {
+    if (args[0] === undefined) {
+      const at = flags.volume ?? (flags.silentBoot ? 0 : loadPrefs().volume);
+      const why = flags.volume !== null ? ' (pinned by URL)'
+        : flags.silentBoot ? ' (muted: menu=0 / photo=1 — pass ?vol= to hear it)' : '';
+      return `volume = ${at}${why}`;
+    }
+    const v = Number(args[0]);
+    if (!Number.isFinite(v) || v < 0 || v > 1) return 'usage: 0..1';
+    savePrefs({ volume: v });
+    if (flags.volume !== null) return `saved volume = ${v}, but this load is pinned to ${flags.volume}`;
+    // Live: this is the one preference whose effect is audible while you type.
+    music.setVolume(v);
+    return `volume = ${v}`;
   },
 });
 devConsole?.register({

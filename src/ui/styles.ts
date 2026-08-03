@@ -819,10 +819,19 @@ const CSS = `
   color:rgba(244,231,205,.6)}
 .bs-menu-btn.row[aria-pressed="true"] .pill{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
-.bs-opts .row.lang{display:flex;align-items:center;justify-content:space-between;gap:10px;
+.bs-opts .row.lang,.bs-opts .row.vol{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:2px 4px 2px 18px;font-size:14px;font-weight:700;
   text-shadow:0 1px 3px rgba(0,0,0,.8)}
 .bs-opts .langs{display:flex;gap:6px}
+/* Six steps against two languages, so this strip is the one that can run out of
+   room: the chips are narrower, the gap is tighter, and it WRAPS rather than
+   pushing the label off the left edge of a phone held sideways. Wrapped lines
+   stay flush RIGHT, under the strip they belong to, rather than drifting left
+   into the gap under the label. */
+.bs-opts .vols{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}
+.bs-opts .vols .bs-menu-btn.chip{padding:7px 10px;font-size:12px;min-width:38px;
+  justify-content:center}
 .bs-menu-btn.chip{width:auto;padding:8px 13px;font-size:12.5px;letter-spacing:.04em;border-radius:999px}
 .bs-menu-btn.chip.on{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
@@ -894,6 +903,20 @@ const CSS = `
      parked against the top with all the slack underneath it. */
   .bs-menu[data-step="options"] .fore,
   .bs-menu[data-step="settings"] .fore{grid-template-rows:0 1fr auto 1fr}
+  /* And the last twenty pixels, bought when the music row was added. Measured
+     at 844x390 with the row in and this block as it was: the list came to
+     376.5px and the Back button's bottom edge landed at 392.5 in a 390px frame
+     — two and a half pixels off the screen, which is exactly the failure the
+     block above was written for and exactly what "breaks again the day a sixth
+     setting is added" predicted.
+
+     The two CHIP STRIPS are what gives it back, because they are the only
+     controls here with padding to spare: a chip is a word, not a row, and at
+     this size the strips are what the list gained. 5px of gap and tighter chips
+     put the Back button at 371, which is 19 clear. */
+  .bs-menu[data-step="settings"] .bs-opts{gap:5px}
+  .bs-menu[data-step="settings"] .vols .bs-menu-btn.chip{padding:5px 9px}
+  .bs-menu[data-step="settings"] .langs .bs-menu-btn.chip{padding:6px 11px}
 }
 
 /* The SETTINGS step alone, on anything under 600px of height: the wordmark

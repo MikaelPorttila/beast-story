@@ -435,6 +435,17 @@ export const en = {
    * anything called that — they saw the game fill the screen when they started.
    */
   'menu.settings.autoFullscreen': 'Fullscreen on start',
+  /**
+   * The volume strip: OFF · 20 · 40 · 60 · 80 · 100. Says "Music" and not
+   * "Volume" because it is not the only sound the game will ever make — the SFX
+   * channel is a seam with a level of its own to come (src/feedback/audio.ts) —
+   * and a row labelled "Volume" would have to be renamed on the day it lands,
+   * by which time players will have learned where it is. The numbers on the
+   * chips are per cent and carry no unit: a `%` on six chips is six times the
+   * width for a fact the shape of the row already tells you. OFF is `menu.off`,
+   * the same word the toggles' pills use.
+   */
+  'menu.settings.music': 'Music',
   'menu.settings.language': 'Language',
   /**
    * Under the language picker, and ONLY when Settings was opened from inside a
