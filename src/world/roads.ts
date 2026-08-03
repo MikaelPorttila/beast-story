@@ -141,10 +141,51 @@ const CARVE_INSET = 0.75;
  * `carveAt` target below, and `XS` and `RIM_GUARD` in town-parts.ts. Measured
  * end to end on seed 1337 with `bun tools/test-road.mjs`, which sweeps the
  * cross-section rim to rim: 300 of 5283 samples had terrain drawn over the
- * ribbon by up to 0.929, and 22 of 5300 do now, by up to 0.569. What is left is
- * the last of it, and it has a cause of its own — see `RIM_GUARD`.
+ * ribbon by up to 0.929, and 0 of 5295 do now. The 22 that survived this change
+ * were all at the fork and went with `APRON_R`; the rest of the mechanism is
+ * `RIM_GUARD` and `XS` in town-parts.ts.
  */
 export const SHOULDER_IN = 0.8;
+
+/**
+ * WHERE AN ARM STOPS AND THE FORK BEGINS.
+ *
+ * A junction used to be nothing at all: three roads whose polylines happened to
+ * end on the same node, each drawing its own ten-unit ribbon over the same
+ * ground. Where they overlap — and they overlap for as long as their centrelines
+ * are under two carriageways apart, measured on seed 1337 the first ELEVEN units
+ * out of the node — you are looking at two or three gravel slabs stacked on one
+ * another, each ending in a square cross-section because that is what a road end
+ * is. Issue #45 is a photograph of exactly that: a rectangle with two
+ * right-angled corners lying across the middle of a bend.
+ *
+ * So each arm's ribbon now starts here rather than at the node, and one APRON is
+ * drawn over what is left (`buildJunctionApron`, town-parts.ts). 11 comes from
+ * the measured geometry rather than from taste: the arms leave at 48, 134 and
+ * 241 degrees and their separation grows about a unit per unit of arc — 4.00 at
+ * arc 4, 7.98 at 8, 11.96 at 12 — so two ribbons stop overlapping at a
+ * separation of 2 * DECK_EDGE = 10, and 11 clears that with a unit to spare.
+ *
+ * NOTHING IN THE HEIGHT FIELD KNOWS ABOUT THIS, and the first version that made
+ * it a disc there is why the point is worth making. The apron is bounded by the
+ * arms' own kerb lines, so every square unit of it is already inside a corridor
+ * one of them carves — it needs no earthworks of its own, and giving it some was
+ * actively wrong: a disc centred on the node sinks the ground by `carveAt`'s
+ * 0.62 in every direction, including the wedges BETWEEN the arms that the apron
+ * does not cover, and captured, each of those wedges was a one-unit trench with
+ * the apron's skirt standing in it. The three arms were already levelled dead
+ * flat across the node by `JUNCTION_HOLD` (towns.ts) before any of this; the
+ * junction is a drawing problem and it is fixed where the drawing is.
+ */
+export const APRON_R = DECK_EDGE + 6;
+
+/** A fork: the node three arms grow out of. Geometry only — see APRON_R. */
+export interface Junction {
+  x: number;
+  z: number;
+  /** Deck height, which every arm anchored to. */
+  y: number;
+}
 
 const cellKey = (cx: number, cz: number): number => cx * 4194304 + cz;
 
@@ -309,6 +350,11 @@ export function roadLength(r: Road): number {
  */
 export class RoadNetwork implements RoadField, RoadClearance {
   readonly roads: Road[] = [];
+  /**
+   * The forks, for the ribbon builder and for nothing else here — a junction is
+   * geometry, not a height field. See APRON_R.
+   */
+  readonly junctions: Junction[] = [];
   /** [ax, az, ay, bx, bz, by] per segment. */
   private seg = new Float32Array(0);
   private segBridge = new Uint8Array(0);
@@ -353,6 +399,11 @@ export class RoadNetwork implements RoadField, RoadClearance {
 
   add(road: Road): void {
     if (road.pts.length >= 2) this.roads.push(road);
+  }
+
+  /** Register a fork, so the arms know where to start. */
+  addJunction(x: number, z: number, y: number): void {
+    this.junctions.push({ x, z, y });
   }
 
   /** Flatten every road into segments and index them. Call once, after `add`. */

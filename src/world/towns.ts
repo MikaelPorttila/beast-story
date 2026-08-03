@@ -41,7 +41,7 @@ import {
 import { Accum, type PropLib, type Template } from './props';
 import { SolidStamp, StructureField } from './structures';
 import {
-  TownParts, V, addBridgeFurniture, buildRoadRibbon, signArm,
+  TownParts, V, addBridgeFurniture, buildJunctionApron, buildRoadRibbon, signArm,
 } from './town-parts';
 import { mulberry32 } from './noise';
 
@@ -609,6 +609,12 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   terrain.flattens.push({
     x: jRaw.x, z: jRaw.z, h: junctionY + 0.55, core: 5, blend: 12,
   });
+  // AND THE FORK IS A PIECE OF CARRIAGEWAY, not merely a place three of them
+  // stop. `junctionY` and nothing derived from it, because that is the height
+  // all three arms were just anchored to over `JUNCTION_HOLD` — the disc has to
+  // be the same deck they are, or the seam it exists to remove comes back as a
+  // step instead of a slab. See `JUNCTION_FLAT` in roads.ts.
+  network.addJunction(jRaw.x, jRaw.z, junctionY);
   // -- 4. Gates, derived from where each road actually leaves its town.
   //
   // BEFORE `network.build()`, which it did not used to be. The Encampment's
@@ -1036,6 +1042,7 @@ export class Towns {
         [road], seed,
         (x, z) => terrain.getHeight(x, z),
         roadIdx++ * 0.003,
+        plan.network.junctions,
       );
       if (rib.idx.length > 0) {
         const geo = new THREE.BufferGeometry();
@@ -1060,6 +1067,36 @@ export class Towns {
       this.sites.push({ g, x: mid.x, z: mid.z, r: roadLength(road) * 0.5 + 20 });
     }
     this.furniture = taken;
+
+    // -- the aprons ----------------------------------------------------------
+    //
+    // AFTER the arms, because it is the piece they grew out of and reading it
+    // in that order is the only way the geometry makes sense. One mesh per
+    // fork, on the same terrain material and named the same way, so
+    // `__dbgSurfaceY` and `tools/test-road.mjs` see the junction as road rather
+    // than as an anonymous `Mesh`.
+    for (const j of plan.network.junctions) {
+      const ap = buildJunctionApron(
+        j, plan.network.roads, seed, (x, z) => terrain.getHeight(x, z),
+        roadIdx++ * 0.003,
+      );
+      if (ap.idx.length === 0) continue;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(ap.pos, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(ap.nrm, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(ap.col, 3));
+      geo.setIndex(ap.idx);
+      geo.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geo, terrainMat);
+      mesh.name = 'road:junction';
+      mesh.receiveShadow = true;
+      mesh.matrixAutoUpdate = false;
+      const g = new THREE.Group();
+      g.add(mesh);
+      this.group.add(g);
+      this.geos.push(geo);
+      this.sites.push({ g, x: j.x, z: j.z, r: 24 });
+    }
 
     // Every stamp is in. Freeze the boxes and index them; from here the field
     // is read-only and answers `structureTopAt` for the life of the session.
