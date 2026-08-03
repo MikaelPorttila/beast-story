@@ -149,6 +149,12 @@ vite.config.ts.timestamp-*
 # Clankers
 .claude
 
+# Per-machine frame-cost baseline (tools/perf-baseline.mjs). Frame cost is a
+# property of the HARDWARE as much as of the code — a committed baseline would
+# fail for everyone whose GPU is not the one it was recorded on. Every developer
+# records their own with `bun tools/perf-baseline.mjs record`.
+.perf-baseline.json
+
 # Critic-loop scratch captures. The curated shots (shots/vista.png,
 # shots/beast-*.png, the layout/touch references) stay tracked as the visual
 # baseline; per-round working captures are throwaway and would otherwise add a

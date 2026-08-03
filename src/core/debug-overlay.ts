@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import { postStats } from './post';
+import { PERF_SECTIONS, perf } from './profiler';
 
 /**
  * F2 debug overlay: measured frame rate (not the cap — actually observed),
@@ -45,6 +46,9 @@ export class DebugOverlay {
   toggle(): void {
     this.visible = !this.visible;
     this.el.style.display = this.visible ? 'block' : 'none';
+    // Sampling costs ten performance.now() calls a frame, so it is paid only
+    // while somebody is looking. `hold` cannot switch off a `?perf=1` run.
+    perf.hold(this.visible);
     if (this.visible) {
       // start clean so the first reading isn't skewed by time spent hidden
       this.samples.length = 0;
@@ -92,9 +96,15 @@ export class DebugOverlay {
 
   private render(): void {
     const info = this.renderer.info;
+    // "uncapped" meant "no cap of OURS", and read as "runs unbounded" — which
+    // sent one performance investigation down a blind alley. A browser pins
+    // requestAnimationFrame to the display, so with no cap of our own the frame
+    // rate IS the refresh rate, the frame COUNT is fixed, and a cheaper frame is
+    // straightforwardly less CPU. The wording matters because the opposite
+    // reading suggests capping as the fix, when the machine already caps it.
     const capLine = this.fpsCap > 0
       ? `cap    ${this.fpsCap} fps  (?fps=0 to disable)`
-      : 'cap    none (uncapped)';
+      : 'cap    display (vsync; ?fps=<n> to cap lower)';
     const low = this.worst > 0 ? 1000 / this.worst : 0;
     // postStats.sceneCalls stays 0 when the composer is bypassed (?post=0), in
     // which case the total IS the scene cost and the split line is noise.
@@ -108,8 +118,58 @@ export class DebugOverlay {
       capLine,
       `draws  ${String(info.render.calls).padStart(6)}   tris ${info.render.triangles.toLocaleString()}`,
       post,
-      `geo ${info.memory.geometries}  tex ${info.memory.textures}      F2 to hide`,
+      `geo ${info.memory.geometries}  tex ${info.memory.textures}`,
+      ...this.breakdown(),
+      'F2 to hide',
     ].join('\n');
+  }
+
+  /**
+   * WHERE THE FRAME WENT, which is the question the numbers above cannot answer.
+   *
+   * FPS and draw calls say a frame is expensive; they never say which subsystem
+   * spent it, and the answer is rarely the one you would guess — measured on
+   * this project, `render` is 95% of our CPU and every gameplay system together
+   * is under 0.2 ms. Without this you optimise the thing you were thinking about
+   * rather than the thing that costs.
+   *
+   * THE LAST LINE IS THE IMPORTANT ONE. `cpu` is time inside our own frame
+   * callback; `off-cpu` is wall minus cpu — time the frame took that WE DID NOT
+   * SPEND. That is GPU work being waited on, compositing, or a collection, and
+   * no amount of making our JavaScript faster will move it. A frame that is
+   * mostly off-cpu and a frame that is mostly render need opposite fixes, and
+   * this is the only line that tells them apart.
+   *
+   * Percentages are of WALL, not of cpu, so the columns add up to the frame the
+   * player actually got.
+   */
+  private breakdown(): string[] {
+    const m = perf.means(120);
+    const wall = m[PERF_SECTIONS.length + 1];
+    const cpu = m[PERF_SECTIONS.length];
+    // Before the profiler has a frame in it there is nothing honest to draw.
+    if (wall <= 0) return ['', 'frame  (sampling…)'];
+
+    const rows: Array<[string, number]> = [];
+    for (let i = 0; i < PERF_SECTIONS.length; i++) rows.push([PERF_SECTIONS[i], m[i]]);
+    rows.sort((a, b) => b[1] - a[1]);
+
+    const bar = (ms: number): string => {
+      const n = Math.round((ms / wall) * 24);
+      return '█'.repeat(Math.min(24, n)) + '·'.repeat(Math.max(0, 24 - n));
+    };
+    const line = (name: string, ms: number): string =>
+      `${name.padEnd(8)}${ms.toFixed(2).padStart(6)} ${String(Math.round((ms / wall) * 100)).padStart(3)}%  ${bar(ms)}`;
+
+    const out = ['', `frame  ${wall.toFixed(2)} ms  ── where it went ──`];
+    for (const [name, ms] of rows) {
+      // Below a hundredth of a millisecond the bar is empty and the row is
+      // noise; naming them anyway is what makes "it is not gameplay" visible.
+      out.push(line(name, ms));
+    }
+    out.push(line('cpu', cpu));
+    out.push(line('off-cpu', Math.max(0, wall - cpu)));
+    return out;
   }
 
   dispose(): void {

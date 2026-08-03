@@ -1132,6 +1132,14 @@ const _hurtFrom = new THREE.Vector3();
   overWater: world.isWater(engine.camera.position.x, engine.camera.position.z),
   fogNear: +((engine.scene.fog as THREE.Fog | null)?.near ?? -1).toFixed(1),
   fogFar: +((engine.scene.fog as THREE.Fog | null)?.far ?? -1).toFixed(1),
+  // The per-channel absorption the distance is filtered by — 1,1,1 above water.
+  // See installAerialPerspective in core/engine.ts and WATER_ABSORB in
+  // world/underwater.ts; this is the number that says whether the murk is
+  // fading toward daylight or toward water.
+  fogAbsorb: ((): number[] => {
+    const f = engine.scene.fog as THREE.Fog | null;
+    return f ? [+f.color.r.toFixed(3), +f.color.g.toFixed(3), +f.color.b.toFixed(3)] : [];
+  })(),
 });
 
 // Mount state. Read-only, and the one probe the mount tests need: the hold
@@ -1278,8 +1286,29 @@ let started = false;
 // at the game rather than at a poster or a loading bar. Photo mode and `menu=0`
 // never fire it, and neither wants a toast in shot.
 
-// ?fps=<n> caps the frame rate (0 or absent = uncapped). F2 shows measured FPS.
-const fpsCap = Number(params.get('fps') ?? 0);
+/**
+ * Frame-rate cap, in fps. `?fps=<n>` overrides it and `?fps=0` removes it.
+ *
+ * 120 BY DEFAULT, where this used to be uncapped. A browser already pins
+ * requestAnimationFrame to the display, so "uncapped" never meant unbounded —
+ * it meant "however fast this particular monitor happens to be", which on a
+ * 165 Hz panel is 165 frames of a scene whose cost is 4.97 ms of MAIN THREAD
+ * each. Measured there, walking: 80.5% of a core spent on frames, and `render`
+ * — draw submission, 549 calls and 3.1M triangles — is 67% of every one of
+ * them. The frame count is the only term in that product the game controls.
+ *
+ * 120 rather than 60 because this is an action game and the difference between
+ * 60 and 120 is something a player feels on a high-refresh panel, where the
+ * difference between 120 and 165 is not. On a 60 Hz display the cap never
+ * binds and nothing changes at all.
+ *
+ * It is a DEADLINE, not a sleep, and `Engine.beginFrame` explains why: rAF only
+ * offers times on the refresh grid, so an interval-based cap always undershoots
+ * (a 30 fps cap measured 26.7). Skipped frames roll their elapsed time into the
+ * next one, so the simulation is unaffected — see `Engine.tick`.
+ */
+const DEFAULT_FPS_CAP = 120;
+const fpsCap = Number(params.get('fps') ?? DEFAULT_FPS_CAP);
 engine.setFpsCap(fpsCap);
 const debug = new DebugOverlay(engine.renderer, fpsCap);
 if (params.get('debug') === '1') debug.toggle();
@@ -1301,7 +1330,10 @@ if (params.get('debug') === '1') debug.toggle();
 // and nothing else, and `beginPlay()` hands the renderer straight to the rate
 // this load actually asked for. See the boot-order note at the top of the file.
 
-perf.enabled = params.get('perf') === '1';
+// PINNED rather than just enabled: the F2 overlay also turns sampling on while
+// it is open (see DebugOverlay.toggle), and closing it must not silence a run
+// the harness in tools/ asked for.
+if (params.get('perf') === '1') perf.pin();
 let lastPrograms = 0;
 
 // ---------------------------------------------------------------------------
@@ -2235,6 +2267,17 @@ function frame(): void {
   // mode's above) and before the render: the effect keys off where the lens
   // actually ends up, and a frame late is a frame of clear water at the surface.
   underwater.update(dt, world.isWater(engine.camera.position.x, engine.camera.position.z));
+  // And how bright to grade the result. There is genuinely less light down
+  // there, and this is the only knob that can say so before the tone curve —
+  // see UNDER_EXPOSURE in world/underwater.ts. 1.0 in the air, so it is a no-op
+  // everywhere except under the surface.
+  engine.setExposureScale(underwater.exposureScale);
+  // The view itself — colour, murk, refraction, caustics — is a block in the
+  // output pass rather than anything in the scene, because it has to run AFTER
+  // the tone curve to be able to darken a sunlit lake bed at all. Same three
+  // numbers the scene half uses, so the two can never disagree about how wet
+  // the lens is.
+  engine.setUnderwater(underwater.amount, underwater.depth, underwater.clock);
 
   // Every cue this frame produced, played together, once. The sim slices above
   // only QUEUED them — see src/feedback for why dispatching per slice is

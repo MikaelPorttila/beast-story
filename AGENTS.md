@@ -141,9 +141,57 @@ once frames come quickly.
   JSON: `bun tools/test-f2.mjs [lab]`, `test-touch.mjs`, `test-crosshair.mjs`,
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
-  `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`. `tools/capture-set.ps1` (PowerShell,
+  `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
+  `test-dive.mjs`. `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
+- **THE FRAME RATE IS CAPPED AT 120 BY DEFAULT** (`DEFAULT_FPS_CAP` in main.ts;
+  `?fps=<n>` overrides, `?fps=0` removes it). A browser already pins rAF to the
+  display, so "uncapped" never meant unbounded — it meant "as fast as this
+  particular monitor", which on a 165 Hz panel is 165 frames of a scene costing
+  4.97 ms of MAIN THREAD each. The frame COUNT is the only term in that product
+  the game controls. Measured on a 165 Hz display, walking: **80.5% of a core ->
+  55.5%**, fps 161.8 -> 118.7, with cpu/frame essentially unchanged. 120 rather
+  than 60 because the difference between 60 and 120 is something an action game
+  player feels and the difference between 120 and 165 is not; on a 60 Hz display
+  the cap never binds. Note what happens to the PER-FRAME gameplay sections when
+  you read the profiler under a cap: `world`, `combat` and `beasts` all go UP
+  (+42%, +49%, +29%) because each frame now drains more simulation slices and
+  more of the chunk-build budget. The total work is the same, spread over fewer
+  frames — which is exactly why `render` is the only section a cap actually
+  reduces, and why `cpu` x `fps` is the number to reason about rather than
+  either alone.
+- **PERFORMANCE HAS TWO INSTRUMENTS, AND NEITHER OF THEM IS FPS.** Press **F2**
+  in game and the overlay now ends with a `where it went` block: every profiler
+  section as a rolling mean with a bar, then `cpu` (time inside our own frame
+  callback) and `off-cpu` (wall minus cpu — GPU wait, compositing, a
+  collection). That last pair is the one that decides what to do next, because a
+  frame that is mostly `off-cpu` and a frame that is mostly `render` need
+  opposite fixes. Sampling is turned on only while the panel is open, so it
+  costs nothing the rest of the time; `?perf=1` still pins it on for the whole
+  run and closing the panel cannot silence that. Measured on this machine, the
+  answer is not what anyone guesses: `render` is 67% of the frame and every
+  gameplay system TOGETHER is 3%.
+- **`bun tools/perf-baseline.mjs record` writes a baseline that is YOURS, and
+  `bun tools/perf-baseline.mjs` compares against it.** `.perf-baseline.json` is
+  gitignored and must stay that way: frame cost is a property of the hardware as
+  much as of the code, so a committed baseline fails for everyone whose GPU is
+  not the one that recorded it. The file stores the GPU string and the viewport
+  and the comparison warns when either has moved. It exits non-zero when
+  cpu/frame is more than 8% over. Record on a quiet machine, on a commit you
+  trust; re-record after a deliberate change.
+- **THAT TOOL LEAVES VSYNC ALONE, AND THE REASON IS A MISTAKE WORTH NOT
+  REPEATING.** An investigation once passed `--disable-gpu-vsync` to "measure
+  properly", got 186-368 fps, and concluded from it that making the frame
+  cheaper does NOT reduce CPU — turning off the whole post chain halved the cost
+  of a frame and moved core load only 89% -> 80%. That is true of an unlocked
+  loop and true of nothing else: the loop simply ran more often and ate every
+  saving. A real player is pinned to their monitor, so the FRAME COUNT IS FIXED
+  and a cheaper frame is directly less CPU. Measured properly (vsync on, 165 Hz
+  display): 4.97 ms of CPU per frame and **80.5% of a core**, on `main`, before
+  any of the water work. `fps` is reported by the tool and is explicitly NOT the
+  regression signal — pinned to the display it barely moves until things are
+  dire. `cpu` is.
 - **`test-zfight.mjs` is the only probe that needs no dev server**, because
   everything it asks about is arithmetic: it imports the rig builders straight
   out of `src/`, builds every model in the game in headless three.js, poses each
@@ -249,6 +297,26 @@ once frames come quickly.
   deliberately still talkable — see `NPC_TALK_RISE`. It exits non-zero, and it
   is the only probe in `tools/` that has to get the hero AIRBORNE, which it does
   by typing `/mount galebird` at the dev console and holding Space.
+- `test-dive.mjs` guards diving and the underwater view, and it is the only
+  probe in `tools/` that ASSERTS ON PIXELS. It has to: every number the
+  underwater effect is built from — `amount`, the fog, the tint colour — read
+  perfectly correct while the frame was white, because what broke it was the
+  tone curve downstream of all of them. So it screenshots the frame and requires
+  blue to lead by 20 code values, saturation over 0.30 and luma under 200. The
+  three numbers it is defending against are the white-out: (201, 226, 232) at
+  saturation 0.131 and luma 221. It reads (25, 64, 111) at 0.775 and 59 today.
+  Reading the canvas directly is
+  not an option — a WebGL context without `preserveDrawingBuffer` returns an
+  empty buffer through `drawImage`, and the first version of this reported
+  (0,0,0) above water too, which is how that was caught; the screenshot is taken
+  by the browser and handed back into the page to be decoded. The movement half
+  is ordinary: hold C and the hero must descend and STOP at the bed, release and
+  he must surface at under 6 units/s (uncapped buoyancy peaked near 10), and the
+  effect must clear when the lens comes back up. Note it holds KeyC across the
+  picture test — pitching the camera under takes seconds, and a hero who floated
+  up during them would be photographed at the surface. It drives the camera with
+  a MONOTONIC mouse sweep on the way back up: under pointer lock the page sees
+  deltas, so "jump back and drag again" nets zero.
 - `test-structures.mjs` is the settlement-collision guard, and it DRIVES rather
   than computes: for every town the registry reports it aims the camera at a
   real collider (`__dbgStructures` finds them, so no coordinate is pinned to a
@@ -329,13 +397,49 @@ break unknowingly:
 - `installAerialPerspective()` monkey-patches three's fog `ShaderChunk`s *globally
   at module load*, so distance haze samples the sky gradient per fragment. Every
   fogged material inherits it; there are no per-material hooks to add.
+- **`scene.fog.color` is an ABSORPTION MULTIPLIER on that sky, not a fog colour**,
+  and it is WHITE above water. The patched chunk fades a fragment toward
+  `bsSkyRadiance(elevation)` rather than toward a constant, which is the whole
+  point of aerial perspective and left no way to say "the light reaching you
+  through this distance has been filtered" — so underwater more fog meant
+  BRIGHTER. `world/underwater.ts` is the only writer, and it restores white on
+  the way out. three keeps the `fogColor` uniform live from this on every fogged
+  material, which is why one number reaches every shader with no new uniform.
 - The scene renders into a **linear HDR** target and tone-maps in the output pass.
   Colour constants in shaders are linear radiance, not sRGB swatches — the comments
   state what each value displays as after ACES at exposure 1.02.
+- **A FULL-SCREEN EFFECT DRAWN IN THE SCENE LANDS BEFORE THE TONE CURVE, AND
+  THAT IS WHY THE UNDERWATER VIEW IS A POST PASS.** This is issue #23 and it is
+  the trap in the point above. The effect began as a multiplicative quad drawn
+  with the world, which multiplies linear HDR radiance: sunlit lake bed renders
+  near 2.6 linear, so taking its red to 0.38 still leaves 1.0, which ACES maps to
+  201/255 and desaturates on the way. Every uniform in the effect read correct
+  while the frame came back white — measured (201, 226, 232) at saturation 0.13,
+  against (75, 175, 255) at 0.71 for the same view under `?post=0`, where the
+  multiply lands on already-tone-mapped values instead. The colour, murk,
+  refraction and caustics now live in a block at the end of the OUTPUT PASS
+  (`uWaterAmt` and friends in post.ts), display-referred and after the grade,
+  where "drop the contrast and the saturation" mean what they say. It costs no
+  new program and no new round trip, and at amount 0 the whole thing sits behind
+  one branch — the daylight frame measures identically either side of the change
+  (71, 138, 165 at luma 126).
+- **TWO THINGS STILL HAVE TO HAPPEN BEFORE THAT PASS, and they are the reason
+  the effect is in two files.** Absorption genuinely happens in the scene, so
+  `Engine.setExposureScale(k)` dims the frame ahead of the curve — there is less
+  light down there and nothing after ACES can un-blow a blown highlight. And
+  bloom runs BEFORE the output pass, so by the time the grade could darken
+  anything the halos are already in the buffer: `PostFX.setUnderwater` damps
+  bloom strength with depth, which is the "everything shines" half of the
+  report. Both are driven from `world/underwater.ts`'s single smoothed `amount`,
+  so the scene half and the post half can never disagree about how wet the lens
+  is.
 
 `PostFX` ([src/core/post.ts](src/core/post.ts)) is RenderPass → GTAO → selective
-emissive bloom → rolloff/ACES/grade → SMAA, in that order and for documented
-reasons. Every knob has a URL override (`post=0`, `ao=`, `bloom=`, `roll=`,
+emissive bloom → rolloff/ACES/grade/underwater → SMAA, in that order and for
+documented reasons. The underwater block is the tail of the output pass rather
+than a pass of its own — it borrows the AO pass's depth texture for its distance
+fog exactly as the bloom pass does, and falls back to a flat mid-distance under
+`?ao=0` rather than disappearing. Every knob has a URL override (`post=0`, `ao=`, `bloom=`, `roll=`,
 `grade=0`, `aa=0`, `aoview=1`, …) — isolate a visual problem with those before
 editing defaults.
 
@@ -635,6 +739,21 @@ on that edge, exactly as it does for a language change — `setPadPrompts` retur
 whether it moved and `composeKeyHints()` in main.ts is the one writer of all
 three (the skill-den pill, the talk pill, the dialogue footer). Read a cap on its
 way to the DOM (`hud.interactPrompt`) and it is free; bake one in and you owe it.
+
+**DIVING IS THE DESCEND KEY, NOT A NEW ONE.** Hold `KeyC` (pad B) in water out
+of your depth and the hero swims down; it is the same code `MountController`
+reads to bring a flyer lower, so the control learned on a galebird is the one
+that works in a lake, and `ui/keybinds.ts`'s existing row covers both. Two things
+in `Player` make it work and only one of them is the dive. `DIVE_ACCEL` fights
+the buoyancy rather than switching it off, so the hero bobs for a moment before
+he sinks. `SWIM_RISE_MAX` is the other, and it is the change diving forced: the
+buoyancy was an unclamped spring toward the float line, harmless while nothing
+could get more than about a metre under it and a CORK the moment you could reach
+the bed — from 4 units down it surfaced him at ~10 units/s. Capped, the ascent
+peaks at 3.29 measured, which is `SWIM_SPEED`. There is no separate floor test:
+the vertical clamp runs for a swimmer exactly as for a walker, so the bed catches
+a diver for free (measured, he rests at 4.00 on a bed of 4.00).
+`tools/test-dive.mjs` is the guard.
 
 **F1 is the controls sheet, and its table is DECLARED, NOT DERIVED.** A binding
 is not a value anywhere in this codebase — the climb decision reads

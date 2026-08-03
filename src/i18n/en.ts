@@ -304,7 +304,10 @@ export const en = {
   'keys.mount': 'Mount your lead beast',
   'keys.dismount': 'Dismount',
   'keys.ascend': 'Fly higher',
-  'keys.descend': 'Fly lower',
+  // One key, two places it means "go down": a flying mount descends and a
+  // swimmer dives. Named for the action rather than for either context, so the
+  // row does not have to be split in two.
+  'keys.descend': 'Fly lower · dive',
   'keys.swap': 'Swap lead and support',
   'keys.cycleLead': 'Next lead beast',
   'keys.cycleSupport': 'Next support beast',

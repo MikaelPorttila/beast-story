@@ -819,6 +819,36 @@ const TonemapGradeShader = {
     // crushed corners the frame was losing real detail — the treeline in the
     // top-right of a gameplay shot went to a single value.
     uVignette: { value: 0.07 },
+
+    // ---- underwater (issue #23) --------------------------------------------
+    // WHY THE EFFECT LIVES IN THIS PASS AND NOT IN THE SCENE. It began as a
+    // multiplicative quad drawn with the world, which put it in LINEAR HDR ahead
+    // of the tone curve — and a multiply there cannot darken a bright subject,
+    // because ACES pulls whatever survives back up and desaturates it on the
+    // way. Sunlit lake bed renders near 2.6 linear; 0.38 of its red is still
+    // 1.0, which displays at 201/255. Measured, the submerged frame came back
+    // (201, 226, 232) at saturation 0.131 — a white room — while every uniform
+    // feeding it read exactly right.
+    //
+    // Here the frame is display-referred and already graded, so "drop the
+    // contrast, drop the saturation, pull it toward cyan" mean what they say and
+    // cannot be undone downstream. It also costs no new program and no new
+    // fullscreen round trip: this pass was already running for every frame in
+    // the game, and at amount 0 the whole block is behind one branch.
+    /** 0..1, smoothed by world/underwater.ts. 0 = the block does not run. */
+    uWaterAmt: { value: 0 },
+    /** Metres of water over the lens, for the shallow -> deep colour ramp. */
+    uWaterDepth: { value: 0 },
+    /** Seconds, for the refraction and the caustics. Frozen under ?photo=1. */
+    uWaterTime: { value: 0 },
+    /** Scene depth, borrowed from the AO pass. Null when ?ao=0 — see uHasDepth. */
+    tDepth: { value: null as THREE.Texture | null },
+    uHasDepth: { value: 0 },
+    uCamNear: { value: 0.1 },
+    uCamFar: { value: 1000 },
+    /** Near and far water colour, display-referred sRGB this time, not linear. */
+    uWaterNear: { value: new THREE.Vector3(0.16, 0.52, 0.62) },
+    uWaterFar: { value: new THREE.Vector3(0.04, 0.20, 0.38) },
   },
   vertexShader: QUAD_VERT,
   fragmentShader: /* glsl */ `
@@ -835,9 +865,42 @@ const TonemapGradeShader = {
     uniform float uShadowLift;
     uniform float uLiftCool;
     uniform float uVignette;
+    uniform float uWaterAmt;
+    uniform float uWaterDepth;
+    uniform float uWaterTime;
+    uniform sampler2D tDepth;
+    uniform float uHasDepth;
+    uniform float uCamNear;
+    uniform float uCamFar;
+    uniform vec3 uWaterNear;
+    uniform vec3 uWaterFar;
     varying vec2 vUv;
 
     const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+
+    /** Eye-space distance in world units from the depth buffer. */
+    float bsViewZ(vec2 uv) {
+      float d = texture2D(tDepth, uv).x;
+      // Perspective depth is hyperbolic; this is three's perspectiveDepthToViewZ
+      // inlined so the pass does not have to include packing_pars.
+      float nz = 2.0 * d - 1.0;
+      return (2.0 * uCamNear * uCamFar) / (uCamFar + uCamNear - nz * (uCamFar - uCamNear));
+    }
+
+    /**
+     * Two crossed sine lattices, ridged and multiplied — the cheap standard for
+     * caustics, and it is the right cheap standard here because the light in
+     * this world comes through a surface made of exactly this kind of crossed
+     * sine (see waveNormal in world/water.ts). Ridging with abs() and raising
+     * the result to a power is what turns smooth interference into the thin
+     * bright FILAMENTS that read as caustics rather than as a plaid rug.
+     */
+    float bsCaustics(vec2 p, float t) {
+      float a = sin(p.x * 5.7 + t * 1.30) + sin(p.y * 4.9 - t * 1.05);
+      float b = sin((p.x + p.y) * 3.9 + t * 1.70) + sin((p.x - p.y) * 4.4 - t * 0.85);
+      float v = 1.0 - abs(a + b) * 0.25;
+      return pow(clamp(v, 0.0, 1.0), 6.0);
+    }
 
     // three's ACESFilmicToneMapping, transcribed so the exposure can come from
     // our own uniform. Matching it exactly matters: every sky, fog and terrain
@@ -876,7 +939,21 @@ const TonemapGradeShader = {
     }
 
     void main() {
-      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      // REFRACTION, and it has to happen here because it is a change to WHERE we
+      // sample, not to what comes back. Two crossed sines at different rates so
+      // the warp never repeats on a short loop; the amplitude is a third of a
+      // percent of the frame, which is the level where a straight edge visibly
+      // breathes and text is still readable — this pass also carries the HUD's
+      // backdrop, and anything stronger made the hotbar swim.
+      vec2 uv = vUv;
+      if (uWaterAmt > 0.001) {
+        uv += vec2(
+          sin(vUv.y * 17.0 + uWaterTime * 1.35) + 0.5 * sin(vUv.y * 31.0 - uWaterTime * 2.10),
+          cos(vUv.x * 14.0 + uWaterTime * 1.05) + 0.5 * cos(vUv.x * 27.0 + uWaterTime * 1.75)
+        ) * 0.0022 * uWaterAmt;
+        uv = clamp(uv, vec2(0.0005), vec2(0.9995));
+      }
+      vec3 c = texture2D(tDiffuse, uv).rgb;
 
       if (uDebug > 0.5) {
         gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
@@ -953,6 +1030,55 @@ const TonemapGradeShader = {
 
       c = mix(c, graded, uGrade);
 
+      // ---- UNDERWATER -------------------------------------------------------
+      // Everything above has produced the daylight picture. This turns it into
+      // the same picture seen through water, in display-referred sRGB where
+      // "less contrast" and "less saturation" are single-line operations that
+      // nothing downstream can undo. Order matters: absorb by distance, THEN
+      // flatten, THEN add the light that is genuinely there (caustics), so the
+      // caustics are not themselves desaturated into grey streaks.
+      if (uWaterAmt > 0.001) {
+        // 1. Distance absorption. With the depth buffer this is a real fog on
+        //    eye-space distance; without it (?ao=0 leaves no depth texture)
+        //    fall back to a fixed mid-distance so the effect degrades to a flat
+        //    tint instead of disappearing.
+        float fogT = uHasDepth > 0.5
+          ? 1.0 - exp(-bsViewZ(uv) * 0.085)
+          : 0.55;
+        // The lens's own depth deepens the whole ramp: two metres down is a
+        // green-blue afternoon, ten metres down is a blue room.
+        float deep = clamp(uWaterDepth * 0.11, 0.0, 1.0);
+        vec3 water = mix(uWaterNear, uWaterFar, max(fogT, deep * 0.65));
+        c = mix(c, water, clamp(fogT * (0.62 + 0.30 * deep), 0.0, 0.95) * uWaterAmt);
+
+        // 2. Reduced contrast and saturation — "the view should be clear", which
+        //    means legible, not vivid. Water scatters light between you and
+        //    everything you are looking at, and scattering is exactly a loss of
+        //    both. Pulled toward the frame's own mid grey rather than toward
+        //    black so the shadows do not close up.
+        float wl = dot(c, LUMA);
+        c = mix(c, vec3(wl), 0.28 * uWaterAmt);              // desaturate
+        c = mix(c, vec3(0.42), 0.16 * uWaterAmt);            // flatten contrast
+
+        // 3. Blue/cyan cast over what is left. A gain, so it cannot lift a
+        //    black — it tilts the whole frame without washing it.
+        c *= mix(vec3(1.0), vec3(0.68, 1.02, 1.16), uWaterAmt);
+
+        // 4. Caustics. Screen space, which is a lie that reads correctly for the
+        //    same reason the bubbles do: they are near the LENS. Scaled by
+        //    1-fogT so they land on what is close enough to be lit and never on
+        //    the far murk, and killed as the lens goes deep — below about nine
+        //    metres no light gets down to make them.
+        float lit = (1.0 - fogT) * (1.0 - clamp(uWaterDepth / 9.0, 0.0, 1.0));
+        c += vec3(0.55, 0.95, 1.0) * bsCaustics(uv * vec2(9.0, 5.0), uWaterTime)
+             * 0.075 * lit * uWaterAmt;
+
+        // 5. A second, tighter vignette. A diving mask is a hole you look
+        //    through, and it is what stops the frame reading as a flat gel.
+        vec2 wd = vUv - 0.5;
+        c *= 1.0 - 0.42 * uWaterAmt * smoothstep(0.06, 0.52, dot(wd, wd));
+      }
+
       // 8. Ordered-ish dither at 1/255. The sky is a long smooth gradient and
       //    8-bit output bands it visibly; a static hash (not animated, so stills
       //    stay reproducible) breaks the steps up below the noise floor.
@@ -993,6 +1119,8 @@ export class PostFX {
   readonly ao: GTAOPass | null;
   readonly output: ShaderPass;
   private readonly renderer: THREE.WebGLRenderer;
+  /** Bloom's own strength, kept so the underwater damping can be undone. */
+  private bloomStrength = 0;
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -1084,6 +1212,7 @@ export class PostFX {
       );
       this.composer.addPass(bloom);
       this.bloom = bloom;
+      this.bloomStrength = bloom.strength;
     } else {
       this.bloom = null;
     }
@@ -1098,6 +1227,15 @@ export class PostFX {
     output.material.uniforms.uRollKnee.value = opts.roll;
     output.material.uniforms.uGrade.value = opts.grade ? 1 : 0;
     output.material.uniforms.uDebug.value = opts.aoView ? 1 : 0;
+    // Depth for the underwater distance fog, BORROWED from the AO pass exactly
+    // as the bloom pass borrows it — the alternative is a second depth
+    // prepass for one fullscreen read. `?ao=0` leaves none, and the shader
+    // falls back to a flat mid-distance rather than losing the effect; the
+    // camera planes are constants for the life of the run.
+    output.material.uniforms.tDepth.value = this.ao?.depthTexture ?? null;
+    output.material.uniforms.uHasDepth.value = this.ao?.depthTexture ? 1 : 0;
+    output.material.uniforms.uCamNear.value = camera.near;
+    output.material.uniforms.uCamFar.value = camera.far;
     this.composer.addPass(output);
     this.output = output;
 
@@ -1110,6 +1248,32 @@ export class PostFX {
     }
 
     postStats.passes = this.composer.passes.length;
+  }
+
+  /**
+   * Tell the output pass the lens is under water. See the uniform block.
+   *
+   * `amount` is world/underwater.ts's smoothed 0..1 and `depth` is metres over
+   * the lens; both are passed straight through. Calling it with 0 is what turns
+   * the whole thing off, so there is no separate enable.
+   *
+   * IT ALSO DAMPS BLOOM, and that is not decoration — it is the "everything
+   * shines" half of the report. Bloom runs BEFORE this pass, so by the time the
+   * grade could darken anything the halos are already baked into the buffer:
+   * every sunlit facet of the lake bed and every crest of the surface above
+   * arrives pre-smeared, and no amount of tinting afterwards makes a bloomed
+   * highlight read as something seen through six feet of water. Scattering is
+   * also the physical answer — light that has been through that much water does
+   * not come back as a tight specular — so the strength comes down with depth
+   * rather than being switched off, and a shop crystal seen from a shallow dive
+   * still glows.
+   */
+  setUnderwater(amount: number, depth: number, time: number): void {
+    const u = this.output.material.uniforms;
+    u.uWaterAmt.value = amount;
+    u.uWaterDepth.value = depth;
+    u.uWaterTime.value = time;
+    if (this.bloom) this.bloom.strength = this.bloomStrength * (1 - 0.78 * amount);
   }
 
   render(): void {
