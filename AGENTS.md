@@ -824,16 +824,29 @@ the vertical clamp runs for a swimmer exactly as for a walker, so the bed catche
 a diver for free (measured, he rests at 4.00 on a bed of 4.00).
 `tools/test-dive.mjs` is the guard.
 
-**ALT FREES THE MOUSE, AND IT IS A TOGGLE.** Pressed once the pointer is yours
-and mouse look stops; pressed again the game takes it back. A HOLD was the
-obvious build and is wrong twice: a player flipping several F3 rows would need
-Alt down for every click, and Alt+click is claimed by the window manager on most
-Linux desktops and parts of Windows, so those clicks land somewhere else
-entirely. It is NOT a modal — the hero keeps taking input, exactly as he does
-with the F3 panel open, because both exist to change something while the world
-carries on doing real work. What is traded away is mouse LOOK, which IS the
-pointer lock. `AltLeft`/`AltRight` are in `Input.CAPTURED` because Alt focuses
-the browser's own menu bar in Firefox and Edge.
+**ALT FREES THE MOUSE, AND IT IS A HOLD.** Keep it down and the pointer is
+yours; let go and the game takes it back. It shipped as a TOGGLE first, on the
+reasoning that flipping several F3 rows in a row would be easier that way, and
+that was the wrong trade: a hold has no state to get out of step with what the
+player believes and cannot strand anyone with the pointer released and no idea
+why. The cost is real and worth knowing — Alt+click is claimed by the window
+manager on most Linux desktops. It is NOT a modal: the hero keeps taking input,
+exactly as he does with the F3 panel open, because both exist to change
+something while the world carries on doing real work. What is traded away is
+mouse LOOK, which IS the pointer lock. `AltLeft`/`AltRight` are in
+`Input.CAPTURED` because Alt focuses the browser's own menu bar in Firefox and
+Edge.
+
+**A MENU SHOWS THE CURSOR TOO, and that is the ordinary case rather than a
+special one.** The title screen, the Escape menu, the shop and the F1 sheet are
+all things you CLICK and have all already released the pointer, so a player
+looking at buttons is shown something to click them with. Gated on
+`Input.lastSource === 'kbm'` rather than on a latch: a pad player driving the
+same menu with the stick gets no cursor, and touching the mouse brings it back
+on the next event. `updateCursorMode` is driven by DOM EVENTS as well as per
+frame, because `frame()` does not run until New Game — a cursor that only
+updated per frame would never appear on the poster, which is one of the two
+places it is explicitly wanted.
 
 **THE CURSOR IS A CSS CURSOR, NOT A DIV THAT FOLLOWS THE MOUSE**
 ([src/ui/cursor.ts](src/ui/cursor.ts)). A DOM cursor is composited a frame late,

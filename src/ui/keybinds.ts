@@ -118,11 +118,11 @@ export const CONTROL_SECTIONS: readonly BindSection[] = [
       { label: 'keys.controls', mode: 'press', codes: ['F1'], caps: ['F1'], pad: null },
       { label: 'keys.debugOverlay', mode: 'press', codes: ['F2'], caps: ['F2'], pad: null },
       { label: 'keys.perfPanel', mode: 'press', codes: ['F3'], caps: ['F3'], pad: null },
-      // A TOGGLE, and the sheet has to say so: pressed once the pointer is
-      // yours and mouse look stops, pressed again it goes back. A player who
-      // reads this as a hold concludes the game is broken, which is the exact
-      // distinction the mode column exists for.
-      { label: 'keys.cursor', mode: 'press', codes: ['AltLeft', 'AltRight'], caps: ['Alt'], pad: null },
+      // A HOLD, and the sheet has to say so: keep Alt down and the pointer is
+      // yours, let go and the game takes it back. This is exactly the
+      // distinction the mode column exists for — a player who reads a hold as a
+      // press concludes the game is broken.
+      { label: 'keys.cursor', mode: 'hold', codes: ['AltLeft', 'AltRight'], caps: ['Alt'], pad: null },
       // ONE ROW FOR SIX CODES, and it is honest rather than lazy: these do
       // nothing on their own, they steer whatever panel is open, and six rows
       // reading "Arrow up — move up a row" would bury the bindings a player

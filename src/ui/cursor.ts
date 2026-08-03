@@ -2,6 +2,9 @@
  * THE IN-GAME CURSOR — sixteen states cut out of one sprite sheet at boot and
  * handed to the browser as ordinary CSS cursors.
  *
+ * It is shown while ALT IS HELD, and whenever a menu that wants clicking is up
+ * and the player is on a mouse — see `updateCursorMode` in main.ts for both.
+ *
  * WHY CSS AND NOT A DIV THAT FOLLOWS THE MOUSE. The obvious build is an
  * absolutely-positioned element moved on `mousemove`, and it is wrong for the
  * one thing a cursor has to do: a DOM cursor is composited a frame late, so at

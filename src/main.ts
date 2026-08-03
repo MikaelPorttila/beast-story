@@ -1419,26 +1419,60 @@ const cursorDirector = new CursorDirector(cursors, {
 void cursors.load();
 
 /**
- * ALT FREES THE POINTER, and it is a TOGGLE rather than a hold.
+ * WHEN THE MOUSE CURSOR IS SHOWING, and there are two quite different reasons.
  *
- * The obvious build is "cursor while Alt is down", and it is wrong twice over.
- * A player using the F3 panel flips several rows in a row, so a hold turns
- * every click into a two-handed operation; and Alt+click is claimed by the
- * window manager on most Linux desktops (it drags windows) and by parts of
- * Windows, so the clicks would land somewhere else entirely. Pressed, released,
- * then click normally — nothing is holding Alt when the button goes down.
+ * ALT IS A HOLD. Keep it down and the pointer is yours; let go and the game
+ * takes it back. This started as a toggle on the reasoning that flipping
+ * several F3 rows in a row would be easier — that was the wrong trade. A hold
+ * has no state to get out of step with what the player believes, cannot strand
+ * anyone with the pointer released and no idea why, and matches the muscle
+ * memory every other engine's editor camera uses. Note it does mean Alt+click,
+ * which some window managers claim for dragging windows.
  *
- * It is NOT a modal: the hero keeps taking input, exactly as he does with the
- * F3 panel open, because the point of both is to change something while the
- * world carries on doing real work. What is lost is mouse LOOK, which is the
- * pointer lock, which is the thing being traded away on purpose.
+ * A MENU IS THE OTHER REASON, and it is not a special case so much as the
+ * ordinary one: the title screen, the Escape menu, the shop and the controls
+ * sheet are all things you CLICK, they have all already released the pointer,
+ * and a player looking at buttons should see something to click them with. It
+ * is gated on `lastSource` rather than on a latch — a pad player driving the
+ * same menu with the stick gets no cursor, and touching the mouse brings it
+ * back on the next event.
+ *
+ * Neither is a modal in the F3 sense: Alt leaves the hero taking input, because
+ * the whole point is to change something while the world carries on working.
  */
 let cursorFree = false;
-function setCursorFree(on: boolean): void {
-  cursorFree = on;
-  cursorDirector.setEnabled(on);
-  if (on) input.releaseLock();
-  else if (!isTouchPrimary()) input.requestLock();
+function updateCursorMode(): void {
+  const altHeld = input.down('AltLeft') || input.down('AltRight');
+  const menuUp = (startMenu?.isOpen ?? false) || pauseMenu.isOpen
+    || hud.isShopOpen() || hud.isControlsOpen();
+  // A controller player is not pointing at anything, and a phone has no pointer
+  // to draw. `lastSource` is the STAMP, rewritten on every real input — the
+  // per-frame question, not the latch. See the HUD note in AGENTS.md.
+  const want = altHeld || (menuUp && input.lastSource === 'kbm');
+  if (want === cursorFree) return;
+  cursorFree = want;
+  cursorDirector.setEnabled(want);
+  if (altHeld) {
+    input.releaseLock();
+  } else if (!menuUp && !isTouchPrimary()) {
+    // Only Alt trades the lock away. A menu released it on the way in and will
+    // take it back itself on the way out, and asking here would race that.
+    input.requestLock();
+  }
+}
+
+/**
+ * EVENT-DRIVEN, because the title screen has no frame loop to poll from.
+ *
+ * `frame()` does not run until New Game (see the boot note at the top of this
+ * file), so a cursor that only updated per frame would never appear on the
+ * poster — which is one of the two places it is explicitly wanted. Every input
+ * that can change the answer is a DOM event anyway: Alt up or down, the mouse
+ * moving, a key deciding the player is on the keyboard again.
+ */
+for (const ev of ['keydown', 'keyup', 'mousemove', 'mousedown', 'pointerlockchange']) {
+  (ev === 'pointerlockchange' ? document : window)
+    .addEventListener(ev, () => updateCursorMode(), true);
 }
 // A click anywhere reaches the panel first; it returns false unless the click
 // landed on one of its rows, so the world still gets every other click.
@@ -2432,9 +2466,9 @@ function frame(): void {
   // the whole point is to watch a working frame get cheaper, and a frozen world
   // streams nothing and animates nothing.
   if (input.takePress('F3')) perfPanel.toggle();
-  // Either Alt — a keyboard has two and a player reaches for whichever is
-  // nearer. Read as one edge so holding it does not strobe the pointer lock.
-  if (input.takePress('AltLeft') || input.takePress('AltRight')) setCursorFree(!cursorFree);
+  // Re-evaluated per frame as well as on input events: opening the shop or the
+  // controls sheet changes the answer and neither is a DOM event this file sees.
+  updateCursorMode();
   if (perfPanel.isOpen) {
     for (const code of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'KeyR']) {
       if (input.takePress(code)) perfPanel.onKey(code);
