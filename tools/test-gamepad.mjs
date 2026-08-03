@@ -125,12 +125,12 @@ const results = {};
   // Look: a pad player never clicks, so this also proves `lookActive` is true
   // without pointer lock. Asserted as a RATE, not a total.
   //
-  // EXPECT ROUGHLY 2x the nominal 3.22 rad/s here, and that is not a gamepad
-  // bug. `mouseDX` is cleared by endFrame() AFTER the slice loop, so every sim
-  // slice in a frame applies the SAME accumulated look delta; this tool runs at
-  // ?fps=30 against SIM_HZ 60, i.e. two slices per frame, so the turn lands
-  // twice. Mouse look has always behaved this way below 60 fps — see the note
-  // in the run summary. Asserted as a band wide enough to cover both.
+  // EXPECT THE NOMINAL 3.22 rad/s, at this or any other frame cap. It used to
+  // read roughly 2x here and that was never a gamepad bug: `mouseDX` was cleared
+  // by endFrame() AFTER the slice loop, so every sim slice in a frame re-applied
+  // the SAME accumulated delta, and this tool runs at ?fps=30 against SIM_HZ 60
+  // — two slices per frame, so the turn landed twice. That is issue #37 and it
+  // is fixed in Input.takeLook; section 7 below is the guard that keeps it so.
   await setAxes(page, [0, 0, 1, 0]);
   await wait(200);
   const lookState = await probe(page, '__dbgInput');
@@ -416,6 +416,60 @@ const results = {};
 
   results.rumbleSource = { onPad, onKeyboard, backOnPad };
   await page.close();
+}
+
+// ---------- 7. the look rate does not depend on the frame rate --------------
+//
+// ISSUE #37, and the one section in this file that is not about the pad at all —
+// the stick is only the one look source a headless run can hold steady, since a
+// mouse needs pointer lock and touch needs a phone. Whatever it measures here is
+// true of all three: they meet in `Input.mouseDX`.
+//
+// Look delta is a QUANTITY the camera integrates, and `ThirdPersonCamera.update`
+// runs once per SIMULATION SLICE while a rendered frame drains anywhere from
+// none to MAX_STEPS of them. Read rather than taken, it was therefore applied
+// once per slice — sensitivity multiplied by the slice count. Measured before
+// the fix, degrees of yaw per second at full deflection:
+//
+//   fps=120 174   fps=60 221   fps=40 263   fps=30 350   fps=20 511
+//
+// and after: 174.5 / 174.2 / 174.9 / 175.5 / 171.8. The player-facing symptom is
+// the hitch, not the low cap: a fight spawns bursts, damage numbers and light
+// counts nothing has linked a program for, and one 200 ms frame in the middle of
+// it spent 200 ms of mouse movement FOUR times over.
+//
+// 20 and 120 because they straddle SIM_HZ 60 by 3x — the widest ratio the cap
+// can buy — and the assertion is on the SPREAD between them, not on the absolute
+// figure, so it survives a host whose expo curve or frame pacing puts the
+// nominal somewhere slightly else.
+{
+  const rates = {};
+  for (const fps of [20, 120]) {
+    const page = await newPage(browser, { width: 1280, height: 800 });
+    await installFakePad(page, 'Xbox Wireless Controller');
+    await page.goto(`http://localhost:5187/?menu=0&fps=${fps}`, { waitUntil: 'load' });
+    await page.waitForSelector('canvas');
+    await wait(3500);
+    await page.evaluate(() => window.__connectPad());
+    await wait(200);
+    await setAxes(page, [0, 0, 1, 0]);
+    await wait(200);
+    const t0 = Date.now();
+    const yaw = await accumulateYaw(page, 2000);
+    rates[fps] = (yaw * 180) / Math.PI / ((Date.now() - t0) / 1000);
+    await setAxes(page, [0, 0, 0, 0]);
+    await page.close();
+  }
+  const lo = Math.min(rates[20], rates[120]);
+  const hi = Math.max(rates[20], rates[120]);
+  results.lookRateVsFrameRate = {
+    degPerSecAt20: +rates[20].toFixed(1),
+    degPerSecAt120: +rates[120].toFixed(1),
+    ratio: +(hi / lo).toFixed(3),
+    // 1.15 is measurement noise (frame pacing, the 200 ms sampling grid); the
+    // defect this guards against is a whole slice's worth, i.e. 2x or 3x.
+    frameRateIndependent: hi / lo < 1.15,
+  };
 }
 
 console.log(JSON.stringify(results, null, 2));
