@@ -203,13 +203,29 @@ for (const id of ['shadows', 'aa']) {
   const afterWalk = await freshLayers();
   await ctx.close();
 
-  results.stillOffAfterWalking = { atRest: atRest.grass, afterWalk: afterWalk.grass };
+  results.stillOffAfterWalking = {
+    atRest: { grass: atRest.grass, terrain: atRest.terrain },
+    afterWalk: { grass: afterWalk.grass, terrain: afterWalk.terrain },
+  };
   check(atRest.grass.shown === 0,
     `grass did not go off at all (${atRest.grass.shown} visible)`);
   check(atRest.grass.hidden > 0, 'no grass meshes to hide — the world had not streamed');
   check(afterWalk.grass.shown === 0,
     `${afterWalk.grass.shown} grass meshes came back while walking `
     + `(${afterWalk.grass.hidden} still hidden)`);
+  // AND THE GROUND IS STILL THERE. Hiding one layer must not take anything
+  // else with it, and the first fix for the grass did exactly that: it assigned
+  // visibility only to the layers it recognised, so after a gateway preload
+  // hid the world the terrain was never turned back on and the player got sky
+  // and nothing else. Asserting only the thing you changed is how a fix ships a
+  // worse bug than the one it closed.
+  for (const [when, snap] of [['at rest', atRest], ['after walking', afterWalk]]) {
+    check(snap.terrain.hidden === 0 && snap.terrain.shown > 0,
+      `${when}, ${snap.terrain.hidden} terrain chunks are INVISIBLE `
+      + `(${snap.terrain.shown} visible) — hiding grass took the ground with it`);
+    check(snap.water.hidden === 0,
+      `${when}, ${snap.water.hidden} water meshes are invisible though water is on`);
+  }
   await gfxSet('grass', true);
   await wait(900);
 }

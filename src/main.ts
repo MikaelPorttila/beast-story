@@ -2928,7 +2928,14 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
     // through the immediate path never heard about the setting. A draw-call
     // delta could not see it (walking changes the chunk set anyway); a count of
     // VISIBLE grass meshes says it in one number.
+    // TERRAIN IS IN HERE AND IS NOT A LAYER, deliberately. The ground cannot be
+    // switched off, which is exactly why it has to be counted: the first version
+    // of the layer logic assigned visibility only to the layers it recognised
+    // and left everything else at whatever the last `setVisible(false)` had
+    // done, so a player near a gateway got a world with no ground in it. A probe
+    // that only knows the names of things it can hide cannot see that.
     const layers: Record<string, { shown: number; hidden: number }> = {
+      terrain: { shown: 0, hidden: 0 },
       grass: { shown: 0, hidden: 0 },
       props: { shown: 0, hidden: 0 },
       water: { shown: 0, hidden: 0 },

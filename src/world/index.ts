@@ -416,11 +416,27 @@ export function createWorld(
     grass: false, props: false, water: false, clouds: false,
   };
 
+  /**
+   * Every mesh in a chunk gets a visibility, and ANYTHING NOT A TOGGLEABLE
+   * LAYER IS SHOWN. That default is the whole correctness of this function.
+   *
+   * The first version only ASSIGNED to the three named layers and left every
+   * other mesh alone, which reads as harmless and is not: `setVisible(false)`
+   * hides the lot, and if the matching show only re-shows what it recognises,
+   * the terrain never comes back. A player who walked near a gateway with grass
+   * switched off got a world with no ground and no water in it — the layer
+   * logic was right and the DEFAULT was missing.
+   *
+   * So this is exhaustive by construction: named layer -> its own flag,
+   * anything else -> visible. A mesh added to a chunk in future is shown unless
+   * somebody deliberately makes it a layer.
+   */
   const applyLayers = (rec: ChunkRec): void => {
     for (const m of rec.meshes) {
-      if (m.name === 'chunk:grass') m.visible = !hiddenLayers.grass;
-      else if (m.name === 'chunk:props') m.visible = !hiddenLayers.props;
-      else if (m.name === 'chunk:water') m.visible = !hiddenLayers.water;
+      const layer = m.name.startsWith('chunk:') ? m.name.slice(6) : '';
+      m.visible = layer in hiddenLayers
+        ? !hiddenLayers[layer as WorldLayer]
+        : true;
     }
   };
 
@@ -436,6 +452,11 @@ export function createWorld(
     const { cx, cz } = rec;
     if (stage === 0) {
       const m = buildTerrainMesh(cx, cz, terrain, terrainMat);
+      // NAMED even though it is not a layer and never will be — the ground is
+      // not optional. It is named so a probe can count it: the regression that
+      // made this necessary was terrain going invisible, and a test that only
+      // knows the names of the things it can hide cannot see that.
+      m.name = 'chunk:terrain';
       rec.meshes.push(m);
       scene.add(m);
     } else if (stage === 1) {
