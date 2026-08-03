@@ -414,6 +414,16 @@ once frames come quickly.
   `player/index.ts` declared it, `tsc` passed locally the whole time because the
   tree held both halves, and the deploy broke. Run it before every push, and always
   when staging a subset of your changes.
+- **A PR IS NOT REPORTED DONE UNTIL ITS PREVIEW URL IS IN THE CHAT.** Vercel
+  builds every pull request and posts the deployment as a comment on the PR
+  thread, which takes roughly a minute — so opening the PR is not the last step.
+  Wait for that comment, pull the preview URL out of it, and print the URL in
+  the session chat beside the PR link. The reason is that this is a GAME: the
+  reviewer's first question is "what does it look like", and a link they have to
+  go and find themselves is a link they open a day later. Poll rather than sleep
+  blindly — `gh pr view <n> --json comments` until the bot's comment is there —
+  and if it has not arrived after a few minutes, say so plainly and give the PR
+  link on its own rather than waiting in silence.
 - Read [LAB.md](LAB.md) before iterating on models, animations or skill VFX;
   in particular, lab shots never count as sign-off — re-verify in `index.html`.
 
@@ -1178,6 +1188,24 @@ deliberately NOT gated on it: it is something you see, not something you feel.
   frame and so clears every press — measured, ten presses of F1 gave a clean
   `1010101010` capped and `0011011101` uncapped. An assertion about a frame-loop
   edge has to run with NO `fps=` in its URL; `test-keybinds.mjs` has one.
+- **AN INTEGRATED QUANTITY MUST BE CONSUMED BY THE SLICE THAT SPENDS IT**, and
+  that is the same rule seen from the other end. Look and zoom delta
+  (`mouseDX`/`mouseDY`/`wheelDelta`) want the survival an edge gets — they are
+  accumulated over wall-clock, and dropping them on a slice-less frame scales
+  sensitivity DOWN at 165 Hz — and the exact opposite of an edge's tolerance for
+  being read twice: `ThirdPersonCamera.update` runs once per SLICE, so a delta
+  merely read there is applied once per slice and sensitivity is multiplied by
+  the frame's slice count. Measured on the pad's look stick at full deflection,
+  degrees of yaw per second against a nominal 184: **fps=120 174, fps=60 221,
+  fps=40 263, fps=30 350, fps=20 511**, i.e. 1x / 1.3x / 1.5x / 2x / 3x, and up
+  to `MAX_STEPS` = 4x on one long frame. That is issue #37 — the player-facing
+  report is a camera that "all of a sudden moves around" when an enemy connects,
+  because a hit is exactly when a frame hitches and one hitched frame spends the
+  whole hitch's worth of mouse movement four times over. `input.takeLook()` is
+  the read that consumes, the camera is its only caller, and `endFrame()` is now
+  only the backstop for a frame that ran no camera update at all. Section 7 of
+  `test-gamepad.mjs` is the guard: the same hold at `fps=20` and `fps=120` must
+  agree to within 15% (2.856 before, 1.025 after).
 - **Tuned constants carry their rationale.** The long comments explaining why a value
   is what it is — and what the previous value looked like when captured — are the
   point, not clutter. When you change such a value, update its comment with what you

@@ -2067,8 +2067,11 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   let toucher: Player | null = null;
 
   // The camera stick is a rate control, so it must inject its look delta BEFORE
-  // the player/camera update consumes mouseDX this frame — ticking it later in
-  // the frame meant endFrame() wiped the delta before the camera ever saw it.
+  // the player/camera update takes it this slice — ticking it later in the frame
+  // meant endFrame() wiped the delta before the camera ever saw it. It is per
+  // SLICE rather than per frame, unlike the pad's poll below, and that is right
+  // either way round now: each slice injects its own SIM_DT of turn and takes
+  // exactly that back out again.
   if (interactive && !modal) touch?.update(dt);
 
   // Photo mode drives the camera and the subject itself and must not have the
@@ -2520,8 +2523,12 @@ function frame(): void {
   // space, nothing happens.
   //
   // So hold the edges until a slice has had the chance to consume them. Mouse
-  // delta wants exactly the same treatment: it is a quantity to integrate, and
-  // dropping it on a slice-less frame silently scaled look sensitivity down.
+  // delta wants half of that treatment and the opposite of the other half: it is
+  // a quantity to integrate, so dropping it on a slice-less frame silently
+  // scaled look sensitivity DOWN — but leaving it here for the whole slice loop
+  // scaled it UP, once per slice, which is issue #37. The camera takes it on the
+  // first slice that runs (Input.takeLook) and this is now only the backstop for
+  // a frame that ran no camera update at all.
   if (steps > 0) input.endFrame();
   perf.section('overlay');
   perf.end();

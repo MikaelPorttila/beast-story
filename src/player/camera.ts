@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Input } from '../core/input';
+import type { Input, LookDelta } from '../core/input';
 import type { World } from '../core/types';
 
 const _dir = new THREE.Vector3();
@@ -7,6 +7,8 @@ const _pivot = new THREE.Vector3();
 const _desired = new THREE.Vector3();
 const _mid = new THREE.Vector3();
 const _look = new THREE.Vector3();
+/** Scratch for `Input.takeLook`; a slice must not allocate. */
+const _lookIn: LookDelta = { dx: 0, dy: 0, wheel: 0 };
 
 function clamp(v: number, a: number, b: number): number {
   return v < a ? a : v > b ? b : v;
@@ -167,13 +169,22 @@ export class ThirdPersonCamera {
     world: World,
     cam: THREE.PerspectiveCamera,
   ): void {
+    // TAKEN, not read. This method runs once per SIMULATION SLICE and a rendered
+    // frame drains anywhere from none to MAX_STEPS of them, so a delta merely
+    // read here is applied once per slice — sensitivity multiplied by the frame's
+    // slice count, and a hitch mid-fight spending the whole hitch's worth of
+    // mouse movement four times over. That is issue #37; see Input.takeLook for
+    // the measurements. Unconditional, ahead of the `lookActive` gate: a delta
+    // collected while look was inactive has to be dropped rather than banked for
+    // whenever it comes back.
+    input.takeLook(_lookIn);
     // lookActive covers both captured-mouse and touch look-drag.
     if (input.lookActive) {
-      this.yaw -= input.mouseDX * 0.0028;
-      this.pitch += input.mouseDY * 0.0026;
+      this.yaw -= _lookIn.dx * 0.0028;
+      this.pitch += _lookIn.dy * 0.0026;
     }
     this.pitch = clamp(this.pitch, -0.48, 1.25);
-    this.distTarget = clamp(this.distTarget + input.wheelDelta * 0.01, 3.5, 11);
+    this.distTarget = clamp(this.distTarget + _lookIn.wheel * 0.01, 3.5, 11);
     this.dist += (this.distTarget - this.dist) * (1 - Math.exp(-8 * dt));
     const kFrame = 1 - Math.exp(-DIST_SCALE_LAMBDA * dt);
     this.distScale += (this.distScaleTarget - this.distScale) * kFrame;

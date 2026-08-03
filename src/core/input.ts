@@ -27,6 +27,16 @@ export type StickSource = 'touch' | 'gamepad';
 export type InputSource = 'kbm' | 'touch' | 'gamepad';
 
 /**
+ * Where `Input.takeLook` writes. The caller owns one and passes it in, so a read
+ * on a simulation slice allocates nothing.
+ */
+export interface LookDelta {
+  dx: number;
+  dy: number;
+  wheel: number;
+}
+
+/**
  * Input manager: WASD + mouse-look (pointer lock) and skill hotkeys, plus a
  * virtual layer that touch controls and the gamepad drive so gameplay code
  * never has to know which device it is reading.
@@ -46,6 +56,14 @@ export class Input {
   private pressedLatch = new Set<string>();
   /** Buttons held by the touch overlay or the pad (same codes as keyboard). */
   private virtualHeld = new Set<string>();
+  /**
+   * Look and zoom accumulated since a simulation slice last spent them.
+   *
+   * READ THEM WITH `takeLook`, never directly. They are QUANTITIES TO
+   * INTEGRATE, and the frame loop drains a variable number of fixed slices —
+   * see the note on that method for what reading them twice in one frame did.
+   * Public because `debugState` reports them and the tools read that.
+   */
   mouseDX = 0;
   mouseDY = 0;
   wheelDelta = 0;
@@ -317,6 +335,46 @@ export class Input {
   addWheel(delta: number): void { this.wheelDelta += delta; }
 
   /**
+   * Hand the accumulated look and zoom to the camera — and CONSUME them, so a
+   * second simulation slice in the same rendered frame gets nothing.
+   *
+   * THIS IS THE OTHER HALF OF THE `takePress` / `pressed` RULE, and it runs the
+   * opposite way round. A key EDGE has to survive frames that drained no slice,
+   * because a tap shorter than 16.7 ms would otherwise be thrown away — so
+   * `endFrame()` only clears on a frame that ran one. Look delta is not an edge
+   * but a QUANTITY, and it wants the same survival across slice-less frames
+   * (integrating it over wall-clock is what keeps a mouse honest at 165 Hz) and
+   * the exact opposite behaviour when a frame runs SEVERAL slices: clearing
+   * after the loop meant every slice in that frame re-applied the SAME delta,
+   * so the camera turned once per slice.
+   *
+   * That is issue #37. Measured with the pad's look stick held at full
+   * deflection, degrees of yaw per second, against a nominal ~184:
+   *
+   *   fps=120  174     fps=60  221     fps=40  263     fps=30  350   fps=20  511
+   *
+   * i.e. sensitivity multiplied by the slice count — 1x above 60 fps, 2x at 30,
+   * 3x at 20, and up to `MAX_STEPS` = 4x on a single long frame. A fight is
+   * exactly where those land (a hit spawns a burst, a damage number, a screen
+   * flash and sometimes a light count nothing has linked a program for yet), so
+   * the report is a camera that "all of a sudden moves around" when something
+   * connects — one hitched frame spending 300 ms of mouse movement four times.
+   *
+   * Consumed here rather than at the end of the slice loop because the camera is
+   * the only reader (`ThirdPersonCamera.update`), and a quantity with one
+   * consumer should be spent where it is spent. `endFrame` still clears as a
+   * backstop for the frames no camera update runs at all — photo mode.
+   */
+  takeLook(out: LookDelta): void {
+    out.dx = this.mouseDX;
+    out.dy = this.mouseDY;
+    out.wheel = this.wheelDelta;
+    this.mouseDX = 0;
+    this.mouseDY = 0;
+    this.wheelDelta = 0;
+  }
+
+  /**
    * Take the pointer, if there is one to take.
    *
    * The `mousedown` listener in the constructor is the usual way in, and it
@@ -366,10 +424,11 @@ export class Input {
    *
    * For a modal that KEEPS pointer lock — the F1 controls sheet. The mouse goes
    * on reporting movement into `mouseDX` while the panel is up, and no
-   * simulation slice will spend it, but `endFrame()` only clears on a frame that
-   * drained one: a couple of frames' worth therefore survives to the frame the
-   * sheet closes and lands as a flick of the camera. The shop never needed this
-   * because it releases the lock, and `mousemove` is gated on holding it.
+   * simulation slice will spend it (a modal freezes the hero, so no camera
+   * update runs to `takeLook` it): a whole reading session's worth therefore
+   * survives to the frame the sheet closes and lands as a flick of the camera.
+   * The shop never needed this because it releases the lock, and `mousemove` is
+   * gated on holding it.
    */
   clearLook(): void {
     this.mouseDX = 0;
@@ -398,7 +457,15 @@ export class Input {
     this.attackHeld = held;
   }
 
-  /** Call at end of each frame */
+  /**
+   * Call at end of each frame that actually drained a simulation slice.
+   *
+   * The look/zoom clear is a BACKSTOP now rather than the mechanism: a camera
+   * update spends them through `takeLook` on the first slice of the frame, and
+   * what is left here is the frames where no camera update runs at all (photo
+   * mode drives the lens itself). Clearing them twice costs nothing; leaving a
+   * frame's worth of delta to be spent by a later, unrelated slice does not.
+   */
   endFrame(): void {
     this.mouseDX = 0;
     this.mouseDY = 0;
