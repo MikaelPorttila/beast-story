@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { Engine } from './core/engine';
 import { DebugOverlay } from './core/debug-overlay';
+import { Gfx, GFX_OPTIONS, type GfxSinks } from './core/gfx';
+import { PerfPanel } from './ui/perf-panel';
 import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
 import { installViewport } from './core/viewport';
@@ -185,7 +187,11 @@ function beginPlay(): void {
   // hero wakes up to an empty keyboard.
   input.endFrame();
   loading?.finish();
-  engine.setFpsCap(fpsCap);
+  // Everything the F3 panel owns, pushed at the freshly built world — the frame
+  // cap among it, which is why this replaced a bare `engine.setFpsCap(fpsCap)`
+  // here. That line re-applied the URL/default cap on every New Game and would
+  // have quietly undone a player's stored choice a moment after loading it.
+  gfx.applyAll();
   if (staged) {
     // TAKE THE POINTER HERE, not on the player's first click in the world. New
     // Game is a click on a BUTTON — the canvas never sees a mousedown — so
@@ -468,6 +474,10 @@ const zones = new ZoneManager({
     // and nowhere else. `gate` is the ZoneDef's own answer, not a second search.
     const g = def.gate(w);
     syncCompassMarkers(w, g.x, g.z, g.hex);
+    // A new zone is new meshes, and a visibility flag set on the old world's
+    // chunks went with them. Everything else in gfx is renderer state and
+    // survives a switch, but pushing the lot is one call and cannot go stale.
+    gfx.applyAll();
   },
   onHint: (t) => { portalHint = t; },
 });
@@ -1098,6 +1108,11 @@ const _hurtFrom = new THREE.Vector3();
   isSwimming: player.isSwimming,
   isMounted: player.isMounted,
   isDead: player.isDead,
+  // The keys the game swallows before the browser can act on them. Reported so
+  // tools/test-keybinds.mjs can cross-check it against the bindings table
+  // rather than trusting that whoever added a key remembered — see the note on
+  // Input.CAPTURED, which has now been forgotten once per function key.
+  captured: Input.capturedCodes(),
 });
 
 // Controller state: what is plugged in, which faces the HUD is printing, and the
@@ -1313,6 +1328,44 @@ engine.setFpsCap(fpsCap);
 const debug = new DebugOverlay(engine.renderer, fpsCap);
 if (params.get('debug') === '1') debug.toggle();
 
+/**
+ * The F3 panel's model, and the ten functions that make its switches real.
+ *
+ * COMPOSITION-ROOT POLICY, which is why the sinks live here and not in gfx.ts:
+ * that file knows "bloom is a boolean that defaults on"; this one is the only
+ * place that knows what a bloom pass, a chunk mesh and a frame cap are. Same
+ * shape as `FeedbackDeps` above.
+ *
+ * The world layers go through `world`, which is a `let` that the zone manager
+ * rebinds on a switch — so this reads it at call time rather than capturing it,
+ * and `gfx.applyAll()` runs again after a switch (see `bindZone`) because the
+ * new zone's meshes are new objects that never saw the setting.
+ */
+const gfx = new Gfx({
+  grass: (on) => world.setLayerVisible('grass', on),
+  props: (on) => world.setLayerVisible('props', on),
+  water: (on) => world.setLayerVisible('water', on),
+  clouds: (on) => world.setLayerVisible('clouds', on),
+  shadows: (on) => engine.setShadowsEnabled(on),
+  ao: (on) => engine.setPassEnabled('ao', on),
+  bloom: (on) => engine.setPassEnabled('bloom', on),
+  aa: (on) => engine.setPassEnabled('aa', on),
+  // `?fps=` beats the stored preference for this load and never writes it back,
+  // the same resolution the look-axis and shake overrides use — a measurement
+  // run can pin a value and cannot corrupt one.
+  fpsCap: (n) => {
+    const v = params.get('fps') !== null ? fpsCap : n;
+    engine.setFpsCap(v);
+    debug.setFpsCap(v);
+  },
+});
+const perfPanel = new PerfPanel(gfx);
+// A click anywhere reaches the panel first; it returns false unless the click
+// landed on one of its rows, so the world still gets every other click.
+window.addEventListener('mousedown', (e) => {
+  if (perfPanel.handleClick(e.target)) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+
 // There USED to be a `MENU_FPS = 20` cap here, and the history is worth keeping
 // because it is what the current arrangement replaced.
 //
@@ -1358,6 +1411,31 @@ devConsole?.register({
       ? `colliders ON — ${colliderView.count} drawn, ${colliderView.boxCount} settlement `
         + `boxes and ${colliderView.ridgeCount} roof arches (green solid, blue climb)`
       : 'colliders OFF';
+  },
+});
+devConsole?.register({
+  name: 'gfx',
+  args: '[<setting> [on|off|<n>]]',
+  help: 'Read or set the F3 performance toggles. No arguments lists them.',
+  run: (args) => {
+    const [id, raw] = args;
+    // No argument: the whole table, which is also what makes the command
+    // discoverable — the ids are the same strings the panel and __dbgGfx use.
+    if (!id) {
+      const snap = gfx.snapshot();
+      return GFX_OPTIONS.map((o) => `${o.id.padEnd(9)} ${String(snap[o.id])}`).join('\n')
+        + '\n(F3 opens the panel)';
+    }
+    const opt = GFX_OPTIONS.find((o) => o.id === id);
+    if (!opt) return `no such setting "${id}" — ${GFX_OPTIONS.map((o) => o.id).join(', ')}`;
+    if (raw === undefined) return `${opt.id} ${String(gfx.get(opt.id))}`;
+    // `on`/`off` for the switches and a bare number for the choice rows; the
+    // registry validates and answers with what it actually stored, so a value
+    // outside the list reports the default rather than silently doing nothing.
+    const value = opt.choices ? Number(raw) : raw !== 'off' && raw !== 'false' && raw !== '0';
+    const now = gfx.set(opt.id, value);
+    perfPanel.refresh();
+    return `${opt.id} ${String(now)}`;
   },
 });
 devConsole?.register({
@@ -2260,6 +2338,16 @@ function frame(): void {
     hud.toggleControls();
   }
   if (input.takePress('F2')) debug.toggle();
+  // F3 is the panel F2's numbers are FOR. Deliberately not gated on photo mode
+  // and deliberately not a modal — see the note at the top of ui/perf-panel.ts:
+  // the whole point is to watch a working frame get cheaper, and a frozen world
+  // streams nothing and animates nothing.
+  if (input.takePress('F3')) perfPanel.toggle();
+  if (perfPanel.isOpen) {
+    for (const code of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'KeyR']) {
+      if (input.takePress(code)) perfPanel.onKey(code);
+    }
+  }
   colliderView.update(dt);
   perf.section('hud');
 
@@ -2827,6 +2915,46 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 // preserved the hero's hp and a beast's level is to read them either side of the
 // same event, and a probe that needs three calls to do it invites a race.
 // Read-only, allocates, never called from the frame loop.
+// The F3 panel's state, and a way to drive it. `set` is a TEST HOOK in the same
+// sense as __dbgTp: a probe has to be able to flip a toggle and re-read the
+// draw count without simulating six arrow presses to reach the right row.
+(window as unknown as {
+  __dbgGfx: (id?: string, value?: unknown) => unknown;
+}).__dbgGfx = (id, value) => {
+  if (id === undefined) {
+    // COUNTED OFF THE SCENE, not off the setting — which is the only way to see
+    // the failure this exists for. Grass switched off stayed off while standing
+    // still and came back in patches while walking, because chunks built
+    // through the immediate path never heard about the setting. A draw-call
+    // delta could not see it (walking changes the chunk set anyway); a count of
+    // VISIBLE grass meshes says it in one number.
+    // TERRAIN IS IN HERE AND IS NOT A LAYER, deliberately. The ground cannot be
+    // switched off, which is exactly why it has to be counted: the first version
+    // of the layer logic assigned visibility only to the layers it recognised
+    // and left everything else at whatever the last `setVisible(false)` had
+    // done, so a player near a gateway got a world with no ground in it. A probe
+    // that only knows the names of things it can hide cannot see that.
+    const layers: Record<string, { shown: number; hidden: number }> = {
+      terrain: { shown: 0, hidden: 0 },
+      grass: { shown: 0, hidden: 0 },
+      props: { shown: 0, hidden: 0 },
+      water: { shown: 0, hidden: 0 },
+    };
+    engine.scene.traverse((o) => {
+      const key = o.name.startsWith('chunk:') ? o.name.slice(6) : null;
+      if (key && layers[key]) layers[key][o.visible ? 'shown' : 'hidden']++;
+    });
+    return { open: perfPanel.isOpen, values: gfx.snapshot(), layers };
+  }
+  const opt = GFX_OPTIONS.find((o) => o.id === id);
+  if (!opt) return null;
+  if (value !== undefined) {
+    gfx.set(opt.id, opt.choices ? Number(value) : Boolean(value));
+    perfPanel.refresh();
+  }
+  return gfx.get(opt.id);
+};
+
 (window as unknown as { __dbgZone: () => unknown }).__dbgZone = () => ({
   ...(zones.debug() as Record<string, unknown>),
   // Live GPU-side totals, which is how "the overworld really did unload" is

@@ -885,6 +885,38 @@ export class Engine {
     this.post?.setUnderwater(amount, depth, time);
   }
 
+  /** One post pass on or off, for the F3 panel. See `PostFX.setPassEnabled`. */
+  setPassEnabled(which: 'ao' | 'bloom' | 'aa', on: boolean): void {
+    this.post?.setPassEnabled(which, on);
+  }
+
+  /**
+   * Shadows on or off at runtime.
+   *
+   * The expensive half is not the flag, it is `needsUpdate`: whether a material
+   * receives shadows is a PROGRAM permutation in three, so every material in the
+   * scene has to be relinked when this changes — a stall of a few hundred
+   * milliseconds the first time each direction is taken, and nothing afterwards
+   * (the programs are cached, so flipping back is instant). That cost is
+   * acceptable for a setting a player changes once and unacceptable per frame,
+   * which is why this early-returns when nothing moved rather than trusting the
+   * caller.
+   *
+   * `?shadows=0` at construction is a stronger statement and this cannot undo
+   * it: with no shadow-casting light set up there is nothing to switch back on.
+   */
+  setShadowsEnabled(on: boolean): void {
+    if (!flags.shadows || this.renderer.shadowMap.enabled === on) return;
+    this.renderer.shadowMap.enabled = on;
+    this.renderer.shadowMap.needsUpdate = true;
+    this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (!m) return;
+      if (Array.isArray(m)) for (const x of m) x.needsUpdate = true;
+      else m.needsUpdate = true;
+    });
+  }
+
   render(): void {
     // Sky dome tracks the camera so the horizon never slides (no allocs).
     this.skyDome.position.copy(this.camera.position);

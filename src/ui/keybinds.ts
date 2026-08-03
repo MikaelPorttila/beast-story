@@ -117,6 +117,20 @@ export const CONTROL_SECTIONS: readonly BindSection[] = [
       // taking one back for. The sheet says so rather than leaving a blank.
       { label: 'keys.controls', mode: 'press', codes: ['F1'], caps: ['F1'], pad: null },
       { label: 'keys.debugOverlay', mode: 'press', codes: ['F2'], caps: ['F2'], pad: null },
+      { label: 'keys.perfPanel', mode: 'press', codes: ['F3'], caps: ['F3'], pad: null },
+      // ONE ROW FOR SIX CODES, and it is honest rather than lazy: these do
+      // nothing on their own, they steer whatever panel is open, and six rows
+      // reading "Arrow up — move up a row" would bury the bindings a player
+      // came to this sheet to find. It is also what keeps the scan in
+      // tools/test-keybinds.mjs satisfied — every code the game reads has to
+      // appear somewhere in this table, and these are read by ui/perf-panel.ts.
+      {
+        label: 'keys.panelNav',
+        mode: 'press',
+        codes: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'KeyR'],
+        caps: ['↑', '↓', '←', '→', 'Enter', 'R'],
+        pad: null,
+      },
     ],
   },
 ];

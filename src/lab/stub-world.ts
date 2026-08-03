@@ -106,6 +106,13 @@ export class StubWorld implements World {
   }
 
   /** The stage has no lights of its own, so this is just the floor. */
+  /**
+   * No-op: the lab stage has no streamed chunks, so there is no grass, no prop
+   * mesh and no water surface for the F3 panel to hide. It is on the `World`
+   * contract because anything taking a World may call it.
+   */
+  setLayerVisible(): void { /* nothing streamed here */ }
+
   setVisible(v: boolean): void {
     for (const m of this.meshes) m.visible = v;
   }

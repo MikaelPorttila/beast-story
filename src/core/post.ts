@@ -1118,6 +1118,8 @@ export class PostFX {
   readonly bloom: EmissiveBloomPass | null;
   readonly ao: GTAOPass | null;
   readonly output: ShaderPass;
+  /** The SMAA pass, kept only so the F3 panel can switch it off. */
+  private aa: Pass | null = null;
   private readonly renderer: THREE.WebGLRenderer;
   /** Bloom's own strength, kept so the underwater damping can be undone. */
   private bloomStrength = 0;
@@ -1244,7 +1246,9 @@ export class PostFX {
       // — it takes its resolution from setSize(), which the composer already
       // drives on every resize. Passing them was silently ignored before r18x
       // and is a type error from r185 on.
-      this.composer.addPass(new SMAAPass());
+      const smaa = new SMAAPass();
+      this.composer.addPass(smaa);
+      this.aa = smaa;
     }
 
     postStats.passes = this.composer.passes.length;
@@ -1274,6 +1278,21 @@ export class PostFX {
     u.uWaterDepth.value = depth;
     u.uWaterTime.value = time;
     if (this.bloom) this.bloom.strength = this.bloomStrength * (1 - 0.78 * amount);
+  }
+
+  /**
+   * Switch one pass off for the F3 panel.
+   *
+   * `Pass.enabled` rather than rebuilding the composer, which is the whole
+   * reason this is a one-liner: EffectComposer skips a disabled pass and every
+   * render target it owns stays allocated, so flipping a row costs nothing and
+   * flipping it back has no first-use stall. A pass that was never CREATED (the
+   * `?ao=0` / `?bloom=0` construction flags) stays absent and the call is a
+   * no-op — the URL flag is a stronger statement than the panel and outranks it.
+   */
+  setPassEnabled(which: 'ao' | 'bloom' | 'aa', on: boolean): void {
+    const pass = which === 'ao' ? this.ao : which === 'bloom' ? this.bloom : this.aa;
+    if (pass) pass.enabled = on;
   }
 
   render(): void {

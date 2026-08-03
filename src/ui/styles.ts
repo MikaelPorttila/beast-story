@@ -1062,6 +1062,35 @@ const CSS = `
   color: #eaf6ff; font: inherit; padding: 9px 14px; outline: none;
 }
 .bs-console-input::placeholder { color: rgba(216, 240, 255, .38); }
+
+/* ---- F3 performance panel ---------------------------------------------- */
+/* TOP LEFT, deliberately, and the one place in this HUD with nothing in it.
+   F2's readout is pinned top-centre and this is meant to be read BESIDE it —
+   flip a row here, watch the number move there — so it cannot take the middle
+   and it cannot take the bottom, where the hotbar and the touch sticks live.
+   Monospace and the same slate as the F2 panel because they are one tool.
+   pointer-events stay ON, unlike F2: the rows are clickable. */
+.bs-perf{position:fixed;top:10px;left:10px;z-index:9998;
+  font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color:#d8f0ff;background:rgba(8,14,22,.86);border:1px solid rgba(140,200,255,.22);
+  border-radius:8px;padding:8px 10px;min-width:330px;
+  box-shadow:0 6px 24px rgba(0,0,0,.45);letter-spacing:.02em}
+.bs-perf-title{font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  font-size:11px;color:#8fd0ff;padding:0 4px 6px}
+.bs-perf-row{display:grid;grid-template-columns:1fr auto;gap:0 10px;
+  padding:3px 4px;border-radius:5px;cursor:pointer}
+.bs-perf-row:hover{background:rgba(140,200,255,.10)}
+/* The cursor is a background rather than an outline so it cannot shift the
+   layout as it moves — a list that jiggles under the selection is unreadable. */
+.bs-perf-row.sel{background:rgba(140,200,255,.20)}
+.bs-perf-val{font-weight:700;color:#9ef5c0;justify-self:end}
+/* An OFF row keeps its label at full strength and greys the value: the player
+   is scanning for what they have already turned off, not for what exists. */
+.bs-perf-row.off .bs-perf-val{color:#ff9c8f}
+.bs-perf-cost{grid-column:1 / -1;font-size:10.5px;color:rgba(216,240,255,.45);
+  padding-bottom:1px}
+.bs-perf-hint{font-size:10.5px;color:rgba(216,240,255,.42);padding:6px 4px 0;
+  border-top:1px solid rgba(140,200,255,.14);margin-top:4px}
 `;
 
 /** Inject the HUD stylesheet once. Safe to call repeatedly. */

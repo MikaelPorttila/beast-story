@@ -65,6 +65,22 @@ for (const m of table.matchAll(/codes:\s*\[([^\]]*)\]/g)) {
   for (const c of m[1].matchAll(/'([^']+)'/g)) listed.add(c[1]);
 }
 
+/**
+ * Keys a BROWSER does something with, which the game must therefore swallow.
+ *
+ * This list is the whole point of the `uncaptured` check below. Every one of
+ * these has a default action — F1 opens the browser's help in a new tab over
+ * the game, F3 opens quick-find, Tab moves focus, Space and the arrows scroll —
+ * and `Input.CAPTURED` calling preventDefault is the only thing stopping it.
+ *
+ * IT HAS BEEN FORGOTTEN ONCE PER FUNCTION KEY, and it is invisible to every
+ * other probe in tools/: puppeteer dispatches the key straight at the page, the
+ * game reacts correctly, and no help tab opens because a headless run has no
+ * browser chrome to open one. It only ever fails on a real player's machine,
+ * which is exactly the kind of defect that has to be a run rather than a wish.
+ */
+const BROWSER_OWNS = /^(F\d+|Arrow|Tab$|Space$)/;
+
 const results = {
   table: {
     codesReadInSource: [...scanned].sort(),
@@ -80,6 +96,17 @@ const page = await newPage(browser, { width: 1280, height: 800 });
 await page.goto(URL, { waitUntil: 'load' });
 await page.waitForSelector('canvas');
 await wait(3500);
+
+// Every key the game reads that a browser also acts on must be in the capture
+// set. Read from the RUNNING game rather than parsed out of the source, so this
+// asserts against the set the player's browser is actually using.
+{
+  const captured = new Set((await page.evaluate(() => window.__dbgInput())).captured);
+  const owed = [...scanned].filter((c) => BROWSER_OWNS.test(c));
+  results.table.browserOwned = owed.sort();
+  results.table.captured = [...captured].sort();
+  results.table.uncaptured = owed.filter((c) => !captured.has(c)).sort();
+}
 
 const sheet = () => page.evaluate(() => {
   const wrap = document.querySelector('.bs-keyswrap');
@@ -376,3 +403,36 @@ await page.close();
 
 console.log(JSON.stringify(results, null, 2));
 await browser.close();
+
+// ---------------------------------------------------------------------------
+// What has to be true
+// ---------------------------------------------------------------------------
+// This file USED TO ONLY PRINT. AGENTS.md described `unlisted` as "a run rather
+// than a wish" and it was still a wish — nothing read the output, so a binding
+// added without a row, or a function key added without a preventDefault, sailed
+// through a green suite. Both have now happened. It exits non-zero.
+const fail = [];
+const check = (ok, what) => { if (!ok) fail.push(what); };
+
+check(results.table.unlisted.length === 0,
+  `the sheet does not name ${results.table.unlisted.join(', ')} — add a row to ui/keybinds.ts`);
+check(results.table.uncaptured.length === 0,
+  `${results.table.uncaptured.join(', ')} reach the BROWSER — add them to Input.CAPTURED`);
+// Read through a LOOP VARIABLE, which no regex over the source can see: the
+// hotbar digits (`input.pressed(code)` over an `as const` array in main.ts) and
+// the panel-navigation keys (the same shape, driving ui/perf-panel.ts). Anything
+// else appearing here is a row describing a key nothing reads.
+const expectUnscanned = [
+  'Digit1', 'Digit2', 'Digit3', 'Digit4',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'KeyR',
+];
+const strayRows = results.table.listedNotScanned.filter((c) => !expectUnscanned.includes(c));
+check(strayRows.length === 0, `the sheet names ${strayRows.join(', ')}, which nothing reads`);
+check(results.sheet?.afterOpen?.open !== false, 'F1 did not open the sheet');
+check(results.stagedBoot?.alternates !== false,
+  `F1 does not alternate uncapped (${results.stagedBoot?.pattern})`);
+
+if (fail.length) {
+  console.error(`\n${fail.length} failure(s):\n  ${fail.join('\n  ')}`);
+  process.exit(1);
+}

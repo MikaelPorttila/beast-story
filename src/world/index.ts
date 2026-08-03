@@ -3,7 +3,7 @@
  * skill dens + sky ambience, exposed through the shared World contract.
  */
 import * as THREE from 'three';
-import type { CrownContact, TownRegistry, World } from '../core/types';
+import type { CrownContact, TownRegistry, World, WorldLayer } from '../core/types';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
 import { buildWaterMesh, createWaterMaterial } from './water';
@@ -404,6 +404,42 @@ export function createWorld(
    * The record is registered in `chunks` at stage 0, so a half-built chunk is
    * never re-queued by refreshQueue, and unloadFar can dispose it mid-build.
    */
+  /**
+   * Layers the F3 panel has switched off, by mesh name.
+   *
+   * Kept HERE rather than read from the panel because the streamer outlives any
+   * one decision: a chunk built two seconds after the player hid the grass must
+   * arrive hidden. `applyLayers` is called on every finished stage for exactly
+   * that, and `setLayerVisible` sweeps the chunks that already exist.
+   */
+  const hiddenLayers: Record<WorldLayer, boolean> = {
+    grass: false, props: false, water: false, clouds: false,
+  };
+
+  /**
+   * Every mesh in a chunk gets a visibility, and ANYTHING NOT A TOGGLEABLE
+   * LAYER IS SHOWN. That default is the whole correctness of this function.
+   *
+   * The first version only ASSIGNED to the three named layers and left every
+   * other mesh alone, which reads as harmless and is not: `setVisible(false)`
+   * hides the lot, and if the matching show only re-shows what it recognises,
+   * the terrain never comes back. A player who walked near a gateway with grass
+   * switched off got a world with no ground and no water in it — the layer
+   * logic was right and the DEFAULT was missing.
+   *
+   * So this is exhaustive by construction: named layer -> its own flag,
+   * anything else -> visible. A mesh added to a chunk in future is shown unless
+   * somebody deliberately makes it a layer.
+   */
+  const applyLayers = (rec: ChunkRec): void => {
+    for (const m of rec.meshes) {
+      const layer = m.name.startsWith('chunk:') ? m.name.slice(6) : '';
+      m.visible = layer in hiddenLayers
+        ? !hiddenLayers[layer as WorldLayer]
+        : true;
+    }
+  };
+
   const startChunk = (cx: number, cz: number): ChunkRec | null => {
     const key = chunkKey(cx, cz);
     if (chunks.has(key)) return null;
@@ -416,18 +452,32 @@ export function createWorld(
     const { cx, cz } = rec;
     if (stage === 0) {
       const m = buildTerrainMesh(cx, cz, terrain, terrainMat);
+      // NAMED even though it is not a layer and never will be — the ground is
+      // not optional. It is named so a probe can count it: the regression that
+      // made this necessary was terrain going invisible, and a test that only
+      // knows the names of the things it can hide cannot see that.
+      m.name = 'chunk:terrain';
       rec.meshes.push(m);
       scene.add(m);
     } else if (stage === 1) {
       if (!flags.water) return;
       const water = buildWaterMesh(cx, cz, terrain, waterMat);
       if (water) {
+        water.name = 'chunk:water';
         rec.meshes.push(water);
         scene.add(water);
       }
     } else {
       if (!flags.props) return;
       const props = buildChunkProps(cx, cz, terrain, propLib, exclusions, plan?.network ?? null);
+      // NAMED, so the F3 panel can hide one and not the other. The split is
+      // already there — `soft` is the grass and flowers, `solid` is everything
+      // that casts a shadow — but both ended up in one untagged array, and a
+      // player turning off "grass" to get a frame back does not want the trees
+      // to go with it. `__dbgSurfaceY` reports these names too, so a raycast
+      // that lands on a prop now says which kind it was.
+      if (props.solid) props.solid.name = 'chunk:props';
+      if (props.soft) props.soft.name = 'chunk:grass';
       for (const m of [props.solid, props.soft]) {
         if (m) {
           rec.meshes.push(m);
@@ -436,6 +486,14 @@ export function createWorld(
       }
       if (props.trunks.length > 0) trunks.set(trunkKey(cx, cz), props.trunks);
     }
+    // HERE, at the bottom of the one function that adds meshes to a chunk, and
+    // not at the call sites. There are two of those — the streamer's staged
+    // path and `buildChunk`'s build-it-all-now path — and putting this in the
+    // streamer only was a real bug: with grass switched off in the F3 panel it
+    // stayed off while you stood still and came back in patches as you walked,
+    // because the chunks that arrived through the other path never heard about
+    // the setting. A third caller would have made the same mistake again.
+    applyLayers(rec);
   };
 
   /** Build a whole chunk now. Boot only — the streaming path stages it. */
@@ -762,8 +820,36 @@ export function createWorld(
       }
     },
 
+    setLayerVisible(layer: WorldLayer, on: boolean): void {
+      hiddenLayers[layer] = !on;
+      if (layer === 'clouds') {
+        if (clouds) clouds.group.visible = on;
+        if (motes) motes.points.visible = on;
+        return;
+      }
+      // Already-streamed chunks now, `applyLayers` for the ones built later —
+      // a chunk that arrives after the switch was thrown has to arrive hidden,
+      // or walking forward quietly turns the setting back on.
+      for (const rec of chunks.values()) applyLayers(rec);
+    },
+
     setVisible(v: boolean): void {
-      for (const rec of chunks.values()) for (const m of rec.meshes) m.visible = v;
+      // SHOWING THE WORLD MEANS SHOWING IT AS CONFIGURED, which is why this
+      // goes through `applyLayers` rather than setting every mesh true.
+      //
+      // This was the reported bug and it is a good one. The ZoneManager hides
+      // the active world for a moment to warm the DESTINATION zone's shaders
+      // against its own light population (zones.ts), then turns it back on —
+      // and a blanket `visible = true` there re-showed every layer the F3 panel
+      // had switched off. The symptom was exactly what you would expect and
+      // nothing like what you would guess: grass stayed off while you stood
+      // still, then came back in a lump the moment you wandered near a gateway
+      // and the preload started. Measured, 80 of 89 grass meshes lit up again.
+      if (v) {
+        for (const rec of chunks.values()) applyLayers(rec);
+      } else {
+        for (const rec of chunks.values()) for (const m of rec.meshes) m.visible = false;
+      }
       // The den lamps live under shops.group, so this is also what takes the
       // world's four point lights out of the scene's light count. See World.
       shops.group.visible = v;
@@ -771,8 +857,10 @@ export function createWorld(
       // about not drawing an overworld camp into a dungeon's warm-up render.
       if (towns) towns.group.visible = v;
       if (npcs) npcs.setVisible(v);
-      if (clouds) clouds.group.visible = v;
-      if (motes) motes.points.visible = v;
+      // Same rule for the sky ambience: a hidden layer stays hidden through a
+      // hide/show cycle, so `&& !hiddenLayers.clouds` rather than a bare `v`.
+      if (clouds) clouds.group.visible = v && !hiddenLayers.clouds;
+      if (motes) motes.points.visible = v && !hiddenLayers.clouds;
     },
 
     /**
