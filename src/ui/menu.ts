@@ -134,6 +134,56 @@ const FAIRIES: ReadonlyArray<Fairy> = [
 type Step = 'press' | 'options' | 'settings';
 
 /**
+ * THE POSTER ASSEMBLES ITSELF, IN THREE BEATS: logo, then painting, then the
+ * invitation to press something. Issue #49.
+ *
+ * The order is the argument. A splash that fades in as one flat image gives the
+ * wordmark and the art the same weight at the same instant, and the eye lands on
+ * whichever is brighter — which here is a noon sky, not the game's name. Lighting
+ * the logo first against the dark backing plate makes it the only thing on screen
+ * for half a second; the painting then arrives underneath something the player has
+ * already read.
+ *
+ * IT WAITS FOR THE PIXELS FIRST, which is the "load off screen, then fade" half
+ * of the request. An `<img>` fades in with whatever it has decoded, so a fade
+ * begun on a cold cache is a fade of nothing followed by a pop;
+ * `HTMLImageElement.decode()` resolves when the bitmap is ready to paint. Both
+ * images are in the markup from the first frame, so the browser starts both
+ * fetches immediately and this wait only orders the REVEAL, never the load —
+ * measured on a cold dev server, both decode by 1.08 s. The cap is the safety
+ * net: a decode that never resolves (or a browser without the method) must cost
+ * the splash its wait, not the whole screen.
+ *
+ * THEN THE BEATS THEMSELVES ARE CSS, AND THAT IS THE PART THAT HAD TO BE
+ * MEASURED. The obvious shape — light a layer, `setTimeout`, light the next — is
+ * the one thing that cannot work here, because the boot is running behind this
+ * poster and its phases are LONG TASKS: a timer set for 550 ms fired at 4066 ms,
+ * so the painting arrived four seconds after the wordmark and the whole sequence
+ * read as a stall. A compositor-driven opacity animation is immune to that; it
+ * kept running smoothly through the same block that starved the timer. So JS
+ * decides WHEN the sequence starts (the one thing a stylesheet cannot ask) and
+ * the stylesheet owns the whole of the ordering, in `animation-delay`.
+ *
+ * NOT UNDER photo=1, AND NOT ON THE WAY BACK FROM A GAME. A staged capture wants
+ * the finished poster and nothing in flight — `.bs-menu.photo` pauses animations,
+ * so a still taken mid-intro would be of a half-lit screen — and Exit to title
+ * raises a second menu whose art has been in the cache for the whole session,
+ * where re-introducing it reads as the game reloading. Both jump straight to the
+ * end state, which is the `lit` class rather than the `intro` one. A player who
+ * presses anything mid-intro gets the same jump; see `advanceFromPress`.
+ */
+const INTRO = {
+  /** How long a decode may hold the sequence up before it starts regardless. */
+  decodeCap: 2500,
+  /**
+   * Wall-clock length of the whole sequence, ms: logo .55 + art .7 + press .45.
+   * Must match the delays in ui/styles.ts. Read against `performance.now()`
+   * rather than counted down by a timer, for the long-task reason above.
+   */
+  total: 1700,
+} as const;
+
+/**
  * What the title screen needs from its host, beyond the settings hooks it passes
  * straight through to `SettingsPanel` (ui/settings.ts — the rows themselves, and
  * everything they persist, moved there when the pause menu needed the same list).
@@ -198,6 +248,11 @@ export class StartMenu {
   private padDown = new Uint8Array(20);
   private padEdge = new Uint8Array(20);
   private padAxisLatched = false;
+  /**
+   * When the three-beat entrance started, `performance.now()`. 0 = waiting for
+   * the images, -1 = there is no sequence (finished, skipped, or never run).
+   */
+  private introAt = 0;
 
   /**
    * Build the menu, or return null when the game should just start.
@@ -257,6 +312,56 @@ export class StartMenu {
 
     // Next frame so the entrance transition has a start state to move from —
     requestAnimationFrame(() => el.classList.add('show'));
+
+    // The poster is on screen from that frame; what it shows is the dark backing
+    // plate until the beats below light each layer. `.bs-menu.show` is what
+    // tools/test-menu.mjs times, and it is deliberately still the same frame it
+    // always was: the intro orders the REVEAL, it does not delay the screen.
+    if (this.frozen || opts.skipSplash) this.finishIntro();
+    else void this.runIntro();
+  }
+
+  // -------------------------------------------------------------------------
+  // Entrance
+  // -------------------------------------------------------------------------
+
+  /** Every layer up, no sequence. The end state, the skip, and photo mode. */
+  private finishIntro(): void {
+    this.introAt = -1;
+    this.el?.classList.remove('intro');
+    this.el?.classList.add('lit');
+  }
+
+  /** Has the sequence had its whole run? See INTRO.total for why it is a clock. */
+  private get introOver(): boolean {
+    return this.introAt < 0 || performance.now() - this.introAt >= INTRO.total;
+  }
+
+  /** Wait for an image's bitmap, capped. See INTRO. */
+  private static ready(img: HTMLImageElement | null): Promise<unknown> {
+    if (!img) return Promise.resolve();
+    return Promise.race([
+      img.decode?.().catch(() => undefined) ?? Promise.resolve(),
+      new Promise((r) => window.setTimeout(r, INTRO.decodeCap)),
+    ]);
+  }
+
+  private async runIntro(): Promise<void> {
+    const el = this.el;
+    if (!el) return;
+    // BOTH, in parallel. The images are ordered on SCREEN by the stylesheet, so
+    // there is nothing to gain by fetching them in series — and a logo lit while
+    // the painting is still arriving would put the first beat's whole length
+    // between them however short the fade is.
+    await Promise.all([
+      StartMenu.ready(el.querySelector<HTMLImageElement>('img.logo')),
+      StartMenu.ready(el.querySelector<HTMLImageElement>('img.art')),
+    ]);
+    // Disposed, or skipped by a keypress, while we waited: `lit` has already been
+    // set and starting the animations now would fade a poster back in from black.
+    if (this.el !== el || this.introAt !== 0) return;
+    this.introAt = performance.now();
+    el.classList.add('intro');
   }
 
   get isOpen(): boolean {
@@ -521,6 +626,13 @@ export class StartMenu {
    */
   private advanceFromPress(): void {
     if (this.step !== 'press') return;
+    // A press during the entrance FINISHES it rather than skipping past it. The
+    // words "press start" are not on screen yet, so the press was aimed at a
+    // splash the player is still being shown — dropping them straight into the
+    // options would answer a question they had not been asked, and would do it
+    // by taking the poster away mid-fade. One more press, on a screen that is
+    // now asking for it, costs nothing; the intro is a second and a quarter.
+    if (!this.introOver) { this.finishIntro(); return; }
     this.goto('options');
   }
 
