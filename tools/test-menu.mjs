@@ -33,6 +33,7 @@
 //
 //   bun tools/test-menu.mjs
 import { launchBrowser, newPage, newContextPage, wait, logPageErrors } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const HOLD = 1200;   // long enough that a walking hero clears the noise floor
 /**
@@ -180,7 +181,7 @@ const out = {};
       }
     }, 8);
   });
-  await page.goto('http://localhost:5187/?debug=1&fs=0', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?debug=1&fs=0`, { waitUntil: 'load' });
   await page.waitForSelector('.bs-menu');
   out.menuShownAtMs = await page.evaluate(() => window.__menuAt);
   // The chip is up and counting while the world is still being cut.
@@ -328,7 +329,7 @@ const out = {};
     width: 844, height: 390, phone: true,
   });
   logPageErrors(page);
-  await page.goto('http://localhost:5187/?fps=30', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30`, { waitUntil: 'load' });
   await page.waitForSelector('.bs-menu');
   out.phoneAtBoot = await state(page);
   out.phoneLoader = await loader(page);
@@ -346,7 +347,7 @@ const out = {};
 {
   const page = await newPage(browser, { width: 900, height: 600 });
   logPageErrors(page);
-  await page.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   out.loaderOff = await loader(page);
   out.playingWithMenuOff = (await boot(page))?.playing ?? null;

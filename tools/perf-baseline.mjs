@@ -29,6 +29,7 @@
 // signal here; pinned to the display, it barely moves until things are dire.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { launchBrowser, newPage, wait, glRenderer } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const FILE = new URL('../.perf-baseline.json', import.meta.url);
 const W = 1280;
@@ -55,7 +56,7 @@ async function measure() {
   const browser = await launchBrowser();
   const page = await newPage(browser, { width: W, height: H });
   page.on('pageerror', (e) => console.error('[page]', e.message));
-  await page.goto('http://localhost:5187/?menu=0&fs=0&perf=1&debug=1', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?menu=0&fs=0&perf=1&debug=1`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(8000);
   await page.focus('canvas').catch(() => {});

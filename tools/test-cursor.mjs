@@ -21,13 +21,14 @@
 //
 // Exits non-zero.
 import { launchBrowser, newPage, wait } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
 page.on('pageerror', (e) => console.error('[page]', e.message));
 // Through the MENU, because pointer lock is what this is about and `menu=0`
 // never takes one — see beginPlay in main.ts.
-await page.goto('http://localhost:5187/?fs=0', { waitUntil: 'load' });
+await page.goto(`${HOST}/?fs=0`, { waitUntil: 'load' });
 await page.waitForSelector('.bs-menu');
 
 const results = {};

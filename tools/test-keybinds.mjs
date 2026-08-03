@@ -26,8 +26,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { launchBrowser, newPage, wait } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
-const URL = 'http://localhost:5187/?fps=30&menu=0';
+const URL = `${HOST}/?fps=30&menu=0`;
 const SRC = 'src';
 
 // ---------- 1. the table vs. the source ------------------------------------
@@ -307,7 +308,7 @@ await page.close();
 // a future edit adds one this assertion quietly stops testing anything.
 {
   const fast = await newPage(browser, { width: 1280, height: 800 });
-  await fast.goto('http://localhost:5187/?menu=0', { waitUntil: 'load' });
+  await fast.goto(`${HOST}/?menu=0`, { waitUntil: 'load' });
   await fast.waitForSelector('canvas');
   await wait(3500);
 
@@ -345,7 +346,7 @@ await page.close();
   const staged = await newPage(browser, { width: 1280, height: 800 });
   // `fs=0`: New Game takes fullscreen now, and a headless page that goes
   // fullscreen mid-run is measuring a different window than it started in.
-  await staged.goto('http://localhost:5187/?fs=0', { waitUntil: 'load' });
+  await staged.goto(`${HOST}/?fs=0`, { waitUntil: 'load' });
   await staged.waitForSelector('.bs-menu');
   await wait(600);
 
@@ -449,7 +450,7 @@ await page.close();
       },
     });
   });
-  await fs.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
+  await fs.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
   await fs.waitForSelector('canvas');
   await wait(3000);
 

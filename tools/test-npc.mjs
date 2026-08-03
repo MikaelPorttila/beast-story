@@ -19,8 +19,9 @@
 //
 // Exits non-zero on failure.
 import { launchBrowser, newPage, wait } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
-const URL = 'http://localhost:5187/?menu=0&fs=0';
+const URL = `${HOST}/?menu=0&fs=0`;
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));

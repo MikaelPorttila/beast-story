@@ -5,6 +5,7 @@
 //   bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2&anim=cast"
 //   bun tools/lab-shot.mjs shots/lab-all.png "beasts=all&t=1.5" 2000 700
 import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const [out = 'lab.png', query = '', w = '1000', h = '800'] = process.argv.slice(2);
 const hasFreeze = /(^|&)t=/.test(query);
@@ -13,7 +14,7 @@ const hasFreeze = /(^|&)t=/.test(query);
 const q = hasFreeze || /(^|&)fps=/.test(query)
   ? query
   : (query ? `${query}&fps=30` : 'fps=30');
-const url = `http://localhost:5187/lab.html${q ? '?' + q : ''}`;
+const url = `${HOST}/lab.html${q ? '?' + q : ''}`;
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: +w, height: +h });

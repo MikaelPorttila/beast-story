@@ -35,6 +35,19 @@ const BRAVE_ARGS = ['--disable-brave-update', '--disable-sync', '--disable-compo
 const PHONE = KnownDevices['Pixel 5'];
 
 export async function launchBrowser({ args = [] } = {}) {
+  // A batch run (tools/probe.mjs) starts ONE browser and names it here, so the
+  // probes inside it skip a ~1 s launch each. `close()` is remapped to
+  // `disconnect()` because every probe ends by closing "its" browser and the
+  // next one in the batch still needs this to be alive. Note the launch `args`
+  // are ignored on this path by construction — a probe needing its own flags
+  // must not join the shared browser, which is why probe.mjs keeps a
+  // per-probe `solo` list rather than hoping.
+  const ws = process.env.BS_BROWSER_WS?.trim();
+  if (ws) {
+    const shared = await puppeteer.connect({ browserWSEndpoint: ws });
+    shared.close = shared.disconnect.bind(shared);
+    return shared;
+  }
   const executablePath = process.env.BROWSER_EXECUTABLE?.trim();
   if (!executablePath) {
     throw new Error(

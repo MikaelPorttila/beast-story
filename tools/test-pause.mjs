@@ -24,6 +24,7 @@ import {
   launchBrowser, newPage, wait, logPageErrors,
   installFakePad, setPadButton, PAD_BUTTON,
 } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const SETTLE = 5000;
 /** How long W is held per walk. At ~6 m/s that is a distance nothing rounds to 0. */
@@ -35,7 +36,7 @@ const round = (v, n = 2) => +v.toFixed(n);
 const open = async (query) => {
   const p = await newPage(browser, { width: 1100, height: 700 });
   logPageErrors(p);
-  await p.goto(`http://localhost:5187/?${query}`, { waitUntil: 'load' });
+  await p.goto(`${HOST}/?${query}`, { waitUntil: 'load' });
   await p.waitForSelector('canvas');
   await wait(SETTLE);
   return p;
@@ -190,7 +191,7 @@ const gamepad = {};
   const page = await newPage(browser, { width: 1100, height: 700 });
   logPageErrors(page);
   await installFakePad(page, 'Xbox 360 Controller (STANDARD GAMEPAD Vendor: 045e Product: 028e)');
-  await page.goto('http://localhost:5187/?fps=30&menu=0&fs=0', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30&menu=0&fs=0`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(SETTLE);
   await page.evaluate(() => window.__connectPad());

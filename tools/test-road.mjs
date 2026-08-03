@@ -35,11 +35,12 @@
 //
 //   bun tools/test-road.mjs
 import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 900, height: 600 });
 logPageErrors(page);
-await page.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
+await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
 await page.waitForSelector('canvas');
 await wait(5000);   // the corridor has to be streamed before it can be hit
 

@@ -10,8 +10,9 @@
 // be a different exact number on a faster machine. See AGENTS.md on
 // frame-rate-sensitive assertions.
 import { launchBrowser, newPage, wait } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
-const URL = 'http://localhost:5187/?fps=30&menu=0';
+const URL = `${HOST}/?fps=30&menu=0`;
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
 const results = {};
