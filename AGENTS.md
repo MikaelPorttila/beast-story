@@ -414,6 +414,16 @@ once frames come quickly.
   `player/index.ts` declared it, `tsc` passed locally the whole time because the
   tree held both halves, and the deploy broke. Run it before every push, and always
   when staging a subset of your changes.
+- **A PR IS NOT REPORTED DONE UNTIL ITS PREVIEW URL IS IN THE CHAT.** Vercel
+  builds every pull request and posts the deployment as a comment on the PR
+  thread, which takes roughly a minute — so opening the PR is not the last step.
+  Wait for that comment, pull the preview URL out of it, and print the URL in
+  the session chat beside the PR link. The reason is that this is a GAME: the
+  reviewer's first question is "what does it look like", and a link they have to
+  go and find themselves is a link they open a day later. Poll rather than sleep
+  blindly — `gh pr view <n> --json comments` until the bot's comment is there —
+  and if it has not arrived after a few minutes, say so plainly and give the PR
+  link on its own rather than waiting in silence.
 - Read [LAB.md](LAB.md) before iterating on models, animations or skill VFX;
   in particular, lab shots never count as sign-off — re-verify in `index.html`.
 
