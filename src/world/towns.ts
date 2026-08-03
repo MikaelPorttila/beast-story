@@ -14,10 +14,26 @@
  * (core/types.ts) carrying a stable id, a display name, a world position, a
  * footprint radius and a gate for every town, and EVERYTHING else is derived
  * from it: the roads run between registry entries, the player's spawn is a point
- * on the road out of `encampment`, the compass chips are one line per entry, and
- * a quest system that wants "where is Stonewatch" or "what towns are there" asks
- * `world.towns` and never touches geometry. Adding a fourth town is an entry in
- * `SITES` below.
+ * on the road out of the start town, the compass chips are one line per entry,
+ * and a quest system that wants "where is Stonewatch" or "what towns are there"
+ * asks `world.towns` and never touches geometry. Adding a fourth town is an
+ * asset in `src/content/data/core.json`.
+ *
+ * WHICH TOWNS EXIST IS CONTENT; SITING THEM IS THIS FILE. That is issue #60's
+ * line (src/content/types.ts §4.1) and the `SiteSpec` table that used to sit
+ * below is now `content.all('town')`. What moved is the STATEMENT — a name, a
+ * sign, a radius, a chip colour, whether it wants water, which layout builds it.
+ * What did not is every one of the behaviours those numbers feed: scoring a site
+ * against the height field, routing the road, cutting the flatten disc, wearing
+ * the ground down to mud and painting sixty thousand voxels. The layout is
+ * SELECTED by name off the `town-layout` factory kind, registered at the bottom
+ * of this file, so data chooses a builder and never supplies one.
+ *
+ * TWO POSITIONAL CONVENTIONS DIED WITH THE TABLE. `SITES[0]` was the start town
+ * and `SITES`' order was placement order; both are facts about an array index,
+ * which is exactly what a content id exists to replace. `data.start` and
+ * `data.order` say what was meant, and the content type checks that exactly one
+ * town claims the first.
  *
  * ONE ROAD EXIT PER TOWN, and it is the road that decides where. The route is
  * planned first, from a bearing rolled off the seed; the gate is then placed
@@ -33,6 +49,9 @@
 import * as THREE from 'three';
 import type { TownInfo, TownRegistry } from '../core/types';
 import { t, type StringKey } from '../i18n';
+import { content, defineFactory, resolveText, TOWN_LAYOUT_KIND, type TownData } from '../content';
+import type { ContentText } from '../content/types';
+import { displayKey, reportContentIssue } from '../core/content-bridge';
 import { Terrain, WATER_LEVEL, type GroundPatch } from './terrain';
 import {
   RoadNetwork, roadAt, roadLength, routeRoad, profileRoad, straightWetLength,
@@ -81,23 +100,45 @@ const WALL_S = 1.25;
  */
 const CAMP_WALL_HALF = 16.8;
 
-interface SiteSpec {
+/**
+ * One town as this file needs it: the content asset's statement, resolved
+ * against the engine's own types and against the layout that will build it.
+ *
+ * Everything here except `outerRadius` is a straight read of `TownData`. The
+ * record exists rather than the raw asset being passed around because the
+ * planner asks these questions in tight loops and because two of them —
+ * `outerRadius` and the narrowed `kind` — are answers the LAYOUT gives rather
+ * than answers the data holds.
+ */
+export interface TownSite {
   /**
-   * The stable IDENTIFIER. The road network, the compass chip, `TownRegistry.get`
-   * and any quest that stores "go to Stonewatch" all key on it, so it does not
-   * move when the town is renamed or translated.
+   * The stable IDENTIFIER — the `name` half of the content id, so `town:redbriar`
+   * is `redbriar`. The road network, the compass chip, `TownRegistry.get` and any
+   * quest that stores "go to Stonewatch" all key on it, so it does not move when
+   * the town is renamed or translated.
    */
   id: string;
-  /** DISPLAY name, as a string-table key. */
+  /** DISPLAY name, as a string-table key. See `displayKey`. */
   nameKey: StringKey;
   /**
-   * What a fingerpost arm reads, as a string-table key. Short, upper-case,
-   * <= 10 characters — and inside the 3x5 voxel font, which is A-Z, 0-9, '-',
-   * an apostrophe and a space. `signArm` folds accents (Ö -> O) and drops
-   * anything left over; see `signText` in town-parts.ts and the note on the
-   * `town.*.sign` block in src/i18n/en.ts.
+   * What a fingerpost arm reads. Short, upper-case, <= 10 characters — and
+   * inside the 3x5 voxel font, which is A-Z, 0-9, '-', an apostrophe and a
+   * space. `signArm` folds accents (Ö -> O) and drops anything left over; see
+   * `signText` in town-parts.ts and the note on the `town.*.sign` block in
+   * src/i18n/en.ts.
+   *
+   * A `ContentText` rather than a key, because a carved plank is a thing the
+   * game PRINTS: `resolveText` reads either form, and unlike a display name
+   * there is no contract downstream that has to be a `StringKey`.
    */
-  signKey: StringKey;
+  sign: ContentText;
+  /**
+   * Which registered `town-layout` builds it, narrowed to the two the engine
+   * implements. `TownInfo.kind` on the public contract carries the same value
+   * and has the same two members — the layout NAME and the settlement KIND are
+   * one fact, which is why nothing outside this file changed when the layout
+   * moved into data.
+   */
   kind: TownInfo['kind'];
   radius: number;
   /**
@@ -110,6 +151,15 @@ interface SiteSpec {
    * road deck level with it, and keeping the forest out of it are all facts
    * about the built thing, not about the nominal circle — and the corners of a
    * square reach 41% further than its sides.
+   *
+   * SUPPLIED BY THE LAYOUT, NOT BY THE DATA, and `TownData.outerRadius` says why
+   * at length: 23.76 is `CAMP_WALL_HALF * SQRT2`, derived from the same constant
+   * that builds the wall geometry a few hundred lines below. Copying it into
+   * JSON forks a load-bearing number — move the wall and the data silently keeps
+   * the old reach, which shows up as trees growing in the corners of the camp.
+   * The thing that knows how far a wall's corners reach is the layout that built
+   * it. Content may still OVERRIDE it, for a perimeter that is not a function of
+   * its layout, and that override is honoured below.
    */
   outerRadius: number;
   color: number;
@@ -119,29 +169,126 @@ interface SiteSpec {
    * BRIDGE in the road network reliably rather than by luck, because a town
    * across water is a town whose road has to cross it. See `siteCost`.
    */
-  waterside?: boolean;
+  waterside: boolean;
+  /** Placement order, ascending. Replaces the old array position. */
+  order: number;
+  /** The town the player starts on the road out of. Replaces `SITES[0]`. */
+  start: boolean;
 }
 
 /**
- * The world's towns, in placement order. The first is the START TOWN and is the
- * only one with a bespoke layout; the rest are assembled from the same pieces by
- * `buildHamlet`, which is the whole point of there being more than one — a town
- * system that only ever built the Encampment would not be a system.
+ * What a `town-layout` factory is: paint a settlement, and say where its social
+ * focus ended up.
+ *
+ * ONE SIGNATURE FOR BOTH, including the `hearth` accumulator only a camp fills
+ * and the fire position only a camp has. A factory kind whose members had
+ * different shapes would need the caller to know which member it had, which is
+ * the switch this whole arrangement exists to delete.
  */
-const SITES: readonly SiteSpec[] = [
-  {
-    id: 'encampment', nameKey: 'town.encampment.name', signKey: 'town.encampment.sign',
-    kind: 'camp', radius: 19, outerRadius: CAMP_WALL_HALF * Math.SQRT2, color: 0xffb45e,
-  },
-  {
-    id: 'redbriar', nameKey: 'town.redbriar.name', signKey: 'town.redbriar.sign',
-    kind: 'hamlet', radius: 15, outerRadius: 15, color: 0x9ad46a, waterside: true,
-  },
-  {
-    id: 'stonewatch', nameKey: 'town.stonewatch.name', signKey: 'town.stonewatch.sign',
-    kind: 'hamlet', radius: 15, outerRadius: 15, color: 0x8fc4e8,
-  },
-];
+export type TownLayout = (
+  solid: SolidStamp, glow: Accum, hearth: Accum, parts: TownParts, town: TownInfo,
+  network: RoadNetwork, rng: () => number,
+) => { x: number; z: number } | null;
+
+/** The layout names the engine implements — the two `defineFactory` calls below. */
+const LAYOUTS: ReadonlySet<string> = new Set<TownInfo['kind']>(['camp', 'hamlet']);
+
+/**
+ * How far out a layout's built perimeter reaches, given the footprint radius.
+ * See `TownSite.outerRadius` for why this is here and not in the JSON.
+ */
+function outerRadiusOf(kind: TownInfo['kind'], radius: number): number {
+  return kind === 'camp' ? CAMP_WALL_HALF * Math.SQRT2 : radius;
+}
+
+/**
+ * The world's towns, in placement order.
+ *
+ * ORDERED BY `data.order` rather than by load order, which is the whole reason
+ * the field exists: placement order decides who picks a site first, and a
+ * settlement's turn must not depend on which package delivered it or in what
+ * sequence. Ties are a `bad-field` warning from the content type; here they fall
+ * back to load order, which is stable within one load.
+ *
+ * A town is REFUSED, with a diagnostic, when the engine cannot build it: a
+ * layout no factory implements, or a name that is not a string-table key (see
+ * core/content-bridge.ts). Refusing is the only honest answer — a settlement
+ * nothing can paint would still cut a road to itself and wear a yard.
+ */
+function readSites(): readonly TownSite[] {
+  const assets = content.all<TownData>('town');
+  const sites: TownSite[] = [];
+  for (const asset of assets) {
+    const { data } = asset;
+    if (!LAYOUTS.has(data.layout)) {
+      reportContentIssue({
+        severity: 'error',
+        code: 'unknown-factory',
+        message: `"${asset.id}" wants layout "${data.layout}", which no builder implements`,
+        assetId: asset.id, assetType: asset.type, pkg: asset.pkg, source: asset.source,
+        field: 'data.layout',
+        fix: `one of ${[...LAYOUTS].join(', ')}`,
+      });
+      continue;
+    }
+    const nameKey = displayKey(asset);
+    if (nameKey === null) continue;
+    // `LAYOUTS.has` is the runtime narrowing this leans on; the assertion only
+    // tells the compiler what the Set membership already established.
+    const kind = data.layout as TownInfo['kind'];
+    sites.push({
+      // The `name` half of the content id. `parseId` is the content layer's own
+      // reader and this is the same split it makes; done here rather than
+      // imported because the type half is already on the asset.
+      id: asset.id.slice(asset.type.length + 1),
+      nameKey,
+      sign: data.sign,
+      kind,
+      radius: data.radius,
+      outerRadius: data.outerRadius ?? outerRadiusOf(kind, data.radius),
+      color: data.color,
+      waterside: data.waterside,
+      order: data.order,
+      start: data.start,
+    });
+  }
+  // `sort` is stable in ES2019+, so towns that tie on `order` — which the
+  // content type reports as a warning — keep load order rather than swapping
+  // about between builds.
+  return sites.sort((a, b) => a.order - b.order);
+}
+
+/** How many settlements hang off the fork. See `planSettlements`'s hub note. */
+const SPUR_COUNT = 2;
+
+/**
+ * The start town and the towns that hang off the fork, or null when this
+ * content cannot make the network below.
+ *
+ * THE NETWORK IS A HUB WITH EXACTLY THREE ARMS and that is a shape rather than a
+ * count: the start town has one exit, the fork carries a three-armed fingerpost,
+ * and the whole of `planSettlements` is written around those three roads. So a
+ * fourth settlement is reported and left unbuilt rather than silently dropped,
+ * and content that cannot fill the three arms leaves the world with no towns at
+ * all — which is `towns=0`, a state every caller already handles.
+ */
+function hub(sites: readonly TownSite[]): { start: TownSite; spurs: readonly TownSite[] } | null {
+  const start = sites.find((s) => s.start);
+  if (!start) return null;
+  const spurs = sites.filter((s) => s !== start);
+  if (spurs.length < SPUR_COUNT) return null;
+  for (const extra of spurs.slice(SPUR_COUNT)) {
+    reportContentIssue({
+      severity: 'warn',
+      code: 'unsupported',
+      message: `"town:${extra.id}" is not sited: the road network has ${SPUR_COUNT} spurs`,
+      assetId: `town:${extra.id}`,
+      assetType: 'town',
+      fix: 'the hub in world/towns.ts routes one trunk and two spurs',
+    });
+  }
+  return { start, spurs: spurs.slice(0, SPUR_COUNT) };
+}
 
 /** Where the fingerpost at the fork stands, as far as a signpost is concerned. */
 const JUNCTION_SIGN_KEY = 'town.junction.sign' as const;
@@ -459,10 +606,25 @@ function planeHit(
 export interface SettlementPlan {
   towns: TownRegistry;
   network: RoadNetwork;
-  /** Scenic point on the Encampment road; the world's spawn. */
+  /** Scenic point on the start town's road; the world's spawn. */
   spawn: THREE.Vector3;
   /** The three-way fork. */
   junction: { x: number; y: number; z: number };
+  /**
+   * The resolved content the registry was built from, in placement order.
+   *
+   * Here because the SIGN is not on `TownInfo` and must not be: `nameKey` is
+   * what a quest prints and what the compass chip reads, where a sign is ten
+   * upper-case characters that fit a 3x5 voxel font, and only this file's
+   * fingerposts ever want one. Carrying the sites on the plan keeps that
+   * distinction rather than widening a contract five other modules read.
+   */
+  sites: readonly TownSite[];
+}
+
+/** The resolved site with this id, or null — `'junction'` is not a town. */
+function siteOf(sites: readonly TownSite[], id: string): TownSite | null {
+  return sites.find((s) => s.id === id) ?? null;
 }
 
 class Registry implements TownRegistry {
@@ -502,13 +664,28 @@ class Registry implements TownRegistry {
  * MUST run before any chunk is built and before `terrain.roads` is set: the
  * router asks the terrain for its NATURAL heights, and a terrain that already
  * carries the corridor would have the road planning its route along itself.
- * `createWorld` calls this immediately after constructing the Terrain.
+ * `createWorld` calls this immediately after constructing the Terrain — and
+ * therefore after `bootstrapContent()`, which is what puts the towns in the
+ * registry this reads.
+ *
+ * RETURNS NULL WHEN THERE IS NOTHING TO PLAN — no content, a package that failed
+ * to validate, a roster the hub cannot fill. That is exactly the state
+ * `towns=0` produces, and `createWorld` already has a path for it, so a missing
+ * package costs the world its settlements rather than costing it a boot.
  */
-export function planSettlements(terrain: Terrain, seed: number): SettlementPlan {
+export function planSettlements(terrain: Terrain, seed: number): SettlementPlan | null {
+  const parts = hub(readSites());
+  if (!parts) return null;
+  // [start, ...spurs] — the order the rest of this function indexes, and the
+  // order the old `SITES` literal happened to be written in. It is a derived
+  // list now: `data.start` picks the trunk's town and `data.order` sorts the
+  // spurs, so neither is a fact about an array position any more.
+  const sites: readonly TownSite[] = [parts.start, ...parts.spurs];
+
   const rng = mulberry32(seed ^ 0x70b1);
   const towns: TownInfo[] = [];
 
-  // -- 1. Sites. The Encampment first, at a walkable distance from the origin;
+  // -- 1. Sites. The start town first, at a walkable distance from the origin;
   // the other two hang off the junction so the network is a hub and not a star.
   /**
    * The levelled height of a site.
@@ -520,7 +697,7 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   const levelAt = (x: number, z: number): number =>
     Math.max(WATER_LEVEL + 2, Math.round(terrain.heightCont(x, z)));
 
-  const camp = findSite(terrain, 0, 0, 88, 132, rng() * Math.PI * 2, Math.PI, SITES[0].radius, rng);
+  const camp = findSite(terrain, 0, 0, 88, 132, rng() * Math.PI * 2, Math.PI, sites[0].radius, rng);
   const campY = levelAt(camp.x, camp.z);
 
   // The gate bearing is rolled here and nowhere else — this single number is
@@ -537,20 +714,20 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   const spurA = jAngle + 0.95 + rng() * 0.5;
   const spurB = jAngle - 0.95 - rng() * 0.5;
   const hamletA = findSite(
-    terrain, jRaw.x, jRaw.z, 115, 165, spurA, 0.6, SITES[1].radius, rng, SITES[1].waterside,
+    terrain, jRaw.x, jRaw.z, 115, 165, spurA, 0.6, sites[1].radius, rng, sites[1].waterside,
   );
   const hamletB = findSite(
-    terrain, jRaw.x, jRaw.z, 115, 165, spurB, 0.6, SITES[2].radius, rng, SITES[2].waterside,
+    terrain, jRaw.x, jRaw.z, 115, 165, spurB, 0.6, sites[2].radius, rng, sites[2].waterside,
   );
   const sitePos = [camp, hamletA, hamletB];
   const siteY = [campY, levelAt(hamletA.x, hamletA.z), levelAt(hamletB.x, hamletB.z)];
 
   // -- 2. Level the ground under each town BEFORE routing, so the road's last
   // few samples already run over the ground the town will actually stand on.
-  for (let i = 0; i < SITES.length; i++) {
+  for (let i = 0; i < sites.length; i++) {
     terrain.flattens.push({
       x: sitePos[i].x, z: sitePos[i].z, h: siteY[i] + 0.55,
-      core: SITES[i].outerRadius + 2, blend: SITES[i].outerRadius + 15,
+      core: sites[i].outerRadius + 2, blend: sites[i].outerRadius + 15,
     });
   }
 
@@ -581,18 +758,18 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
     network.add(road);
     return road;
   };
-  const hold = (i: number): number => SITES[i].outerRadius + 2;
+  const hold = (i: number): number => sites[i].outerRadius + 2;
 
   const trunk = mkRoad(
-    'camp-junction', SITES[0].id, 'junction',
+    'camp-junction', sites[0].id, 'junction',
     camp.x, camp.z, campY, jRaw.x, jRaw.z, junctionY, seed ^ 0x11,
     hold(0), JUNCTION_HOLD,
   );
   const spurRoads = [
-    mkRoad('junction-' + SITES[1].id, 'junction', SITES[1].id,
+    mkRoad('junction-' + sites[1].id, 'junction', sites[1].id,
       jRaw.x, jRaw.z, junctionY, hamletA.x, hamletA.z, siteY[1], seed ^ 0x22,
       JUNCTION_HOLD, hold(1)),
-    mkRoad('junction-' + SITES[2].id, 'junction', SITES[2].id,
+    mkRoad('junction-' + sites[2].id, 'junction', sites[2].id,
       jRaw.x, jRaw.z, junctionY, hamletB.x, hamletB.z, siteY[2], seed ^ 0x33,
       JUNCTION_HOLD, hold(2)),
   ];
@@ -623,9 +800,9 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   // cross the footprint. Nothing between `add()` and `build()` queries the
   // network (`gateOn` walks `road.pts` directly), so the move is safe.
   const gates = [
-    gateOn(trunk, camp.x, camp.z, SITES[0].radius, true),
-    gateOn(spurRoads[0], hamletA.x, hamletA.z, SITES[1].radius, false),
-    gateOn(spurRoads[1], hamletB.x, hamletB.z, SITES[2].radius, false),
+    gateOn(trunk, camp.x, camp.z, sites[0].radius, true),
+    gateOn(spurRoads[0], hamletA.x, hamletA.z, sites[1].radius, false),
+    gateOn(spurRoads[1], hamletB.x, hamletB.z, sites[2].radius, false),
   ];
 
   // The camp's gate sits on a SQUARE wall, so the opening is where the route
@@ -648,12 +825,12 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
 
   network.build();
   terrain.roads = network;
-  for (let i = 0; i < SITES.length; i++) {
+  for (let i = 0; i < sites.length; i++) {
     towns.push({
-      id: SITES[i].id, nameKey: SITES[i].nameKey, kind: SITES[i].kind,
+      id: sites[i].id, nameKey: sites[i].nameKey, kind: sites[i].kind,
       x: sitePos[i].x, y: siteY[i], z: sitePos[i].z,
-      radius: SITES[i].radius, outerRadius: SITES[i].outerRadius,
-      color: SITES[i].color,
+      radius: sites[i].radius, outerRadius: sites[i].outerRadius,
+      color: sites[i].color,
       gateX: gates[i].x, gateZ: gates[i].z, gateAngle: gates[i].angle,
     });
   }
@@ -668,6 +845,7 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
     network,
     spawn: pickRoadSpawn(trunk, camp.x, camp.z),
     junction: { x: jRaw.x, y: trunk.pts[trunk.pts.length - 1].y, z: jRaw.z },
+    sites,
   };
 }
 
@@ -948,12 +1126,14 @@ export class Towns {
       const glow = new Accum();
       const hearth = new Accum();
       const rng = mulberry32((seed ^ 0x5eed) + town.id.length * 7919 + town.x * 31);
-      if (town.kind === 'camp') {
-        const fire = buildEncampment(solid, glow, hearth, parts, town, plan.network, rng);
-        this.fires.set(town.id, fire);
-      } else {
-        buildHamlet(solid, glow, parts, town, plan.network, rng);
-      }
+      // WHICH BUILDER, BY NAME. `TownInfo.kind` carries the town's `layout`
+      // (they are one fact — see `TownSite.kind`), and the factory registry is
+      // where a name becomes a function. `readSites` refuses a layout nothing
+      // registered, so the lookup cannot miss for a town that reached here; the
+      // guard is for a factory table emptied by something else entirely.
+      const layout = content.factory<TownLayout>(TOWN_LAYOUT_KIND, town.kind);
+      const fire = layout?.(solid, glow, hearth, parts, town, plan.network, rng) ?? null;
+      if (fire) this.fires.set(town.id, fire);
       emit(solid.acc, props.solidMat, g, true);
       emit(glow, fireGlow, g, false);
       emit(hearth, hearthGlow, g, false);
@@ -985,9 +1165,12 @@ export class Towns {
         const b = first ? road.pts[Math.min(6, road.pts.length - 1)]
           : road.pts[Math.max(0, road.pts.length - 7)];
         const id = first ? road.toId : road.fromId;
-        const site = SITES.find((s) => s.id === id);
+        const site = siteOf(plan.sites, id);
         if (!site) continue;
-        dests.push([t(site.signKey), Math.atan2(b.x - a.x, b.z - a.z)]);
+        // `resolveText` rather than `t`, because a sign is a `ContentText`: the
+        // shipped towns carry the key form and so read exactly as they did, and
+        // a pack that carries its words inline still gets a carved plank.
+        dests.push([resolveText(site.sign), Math.atan2(b.x - a.x, b.z - a.z)]);
       }
       // ON THE VERGE, NOT IN THE ROAD. The post used to be stamped on the
       // junction node itself, which is the middle of a three-way fork: a solid
@@ -1026,7 +1209,7 @@ export class Towns {
       const built = { ...road, pts: builtDeck(road) };
       buildRoadFurniture(
         solid, glow, parts, built, plan.network, mulberry32(seed ^ road.pts.length),
-        surfaceAt, taken,
+        surfaceAt, taken, plan.sites,
       );
       addBridgeFurniture(solid, parts, built);
       emit(solid.acc, props.solidMat, g, true);
@@ -1492,11 +1675,16 @@ function buildEncampment(
  * Deliberately not a smaller Encampment. It has no wall — a fence arc on the
  * weather side and nothing else — because the thing that makes the start town
  * feel like a stronghold is that the others are not one.
+ *
+ * `_hearth` is the `TownLayout` signature's, and a hamlet has nothing to put in
+ * it: the accumulator is the camp fire's own draw call (see `hearthGlow`), and a
+ * settlement with no hearth emits no geometry from it. Named rather than dropped
+ * so the shape of the seam is visible from here.
  */
 function buildHamlet(
-  solid: SolidStamp, glow: Accum, parts: TownParts, town: TownInfo,
+  solid: SolidStamp, glow: Accum, _hearth: Accum, parts: TownParts, town: TownInfo,
   network: RoadNetwork, rng: () => number,
-): void {
+): { x: number; z: number } | null {
   const { x: cx, z: cz, y: cy, radius: R, gateAngle } = town;
   const taken: Spot[] = [];
   const at = (ang: number, dist: number): [number, number] =>
@@ -1558,7 +1746,32 @@ function buildHamlet(
     solid.add(parts.brazier, x, cy, z, 0);
     glow.add(parts.brazierGlow, x, cy, z, 0, 1, 1, 1, 1);
   }
+  // A hamlet has no fire, so nothing for `NpcSite.focusOf` to point at.
+  return null;
 }
+
+// ---------------------------------------------------------------------------
+// The layout registry
+// ---------------------------------------------------------------------------
+
+/**
+ * The two behaviours a town's `layout` field may select.
+ *
+ * AT MODULE LOAD, WHICH IS BEFORE `bootstrapContent()`. Every module body in the
+ * game is evaluated before `main.ts`'s own body runs, so by the time the core
+ * package is parsed these names are registered — and registering also PUBLISHES
+ * them to the content type that validates against them, so `"layout": "capm"` is
+ * an `unknown-factory` finding on the field that holds it rather than a lookup
+ * that comes back undefined in the middle of world creation. See the header of
+ * src/content/index.ts.
+ *
+ * The two are adapted to one signature rather than one being made to look like
+ * the other: a camp fills a `hearth` accumulator and has a fire to report, a
+ * hamlet has neither, and `TownLayout` is the union of what the caller must be
+ * able to hand either of them.
+ */
+defineFactory(TOWN_LAYOUT_KIND, 'camp', buildEncampment satisfies TownLayout);
+defineFactory(TOWN_LAYOUT_KIND, 'hamlet', buildHamlet satisfies TownLayout);
 
 /**
  * What lines a road: lamps at intervals, rough tree fence on some stretches,
@@ -1584,6 +1797,8 @@ function buildRoadFurniture(
   network: RoadClearance, rng: () => number,
   surfaceAt: (x: number, z: number) => number,
   taken: Spot[],
+  /** The sited towns, for "is this end a town" and "what does its plank say". */
+  sites: readonly TownSite[],
 ): void {
   const len = roadLength(road);
   const at = { x: 0, y: 0, z: 0, dx: 0, dz: 0 };
@@ -1607,8 +1822,12 @@ function buildRoadFurniture(
     [Math.max(len * 0.6, len - 17), road.toId, road.fromId, -1],
   ];
   for (const [sPos, standsAt, names, dir] of ends) {
-    if (!SITES.some((q) => q.id === standsAt)) continue;
-    const sign = t(SITES.find((q) => q.id === names)?.signKey ?? JUNCTION_SIGN_KEY);
+    if (siteOf(sites, standsAt) === null) continue;
+    // The junction is not a town and has no asset, so its plank is the one
+    // sign left in the string table — it names a place the world builds rather
+    // than a place content declares.
+    const named = siteOf(sites, names);
+    const sign = named ? resolveText(named.sign) : t(JUNCTION_SIGN_KEY);
     // Walk BACK along the road from the nominal spot until the post is clear of
     // every carriageway and of everything already standing. A post is not
     // optional — it is the road's own name — so it moves rather than being

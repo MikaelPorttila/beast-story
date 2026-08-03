@@ -59,7 +59,11 @@ import { buildHeroRig } from '../src/player/hero-rig.ts';
 import { HeroAnimator } from '../src/player/animations.ts';
 import { ALL_SPECIES } from '../src/beasts/registry.ts';
 import { BEAST_CYCLE_SLOTS } from '../src/core/types.ts';
-import { CHARACTERS } from '../src/world/npc.ts';
+// NPC_BODIES and not a character roster: since issue #60 a person's identity,
+// placement and dialogue are content and there is no content runtime in this
+// process — but a BODY is code, it is what this tool looks at, and the record is
+// still the one place a body is named. See the note on it in src/world/npc.ts.
+import { NPC_BODIES } from '../src/world/npc.ts';
 
 // A 2D canvas, and nothing else, is the whole of the DOM a rig builder touches:
 // the glow billboards and the flyers' contact shadows bake a radial ramp into a
@@ -521,14 +525,14 @@ for (const sp of ALL_SPECIES) {
 }
 
 // -- npcs -------------------------------------------------------------------
-for (const ch of CHARACTERS) {
-  const rig = ch.build();
+for (const [id, body] of Object.entries(NPC_BODIES)) {
+  const rig = body.build();
   const ctx = { time: 0, dt: DT, attended: false };
   let worst = null;
   for (const attended of [false, true]) {
-    const r = checkRig(ch.id, rig.root, rig.parts, (t) => {
+    const r = checkRig(id, rig.root, rig.parts, (t) => {
       ctx.time = t; ctx.attended = attended;
-      ch.animate(rig, ctx);
+      body.animate(rig, ctx);
     });
     if (!worst || r.worstSeamArea > worst.worstSeamArea) worst = r;
   }

@@ -32,6 +32,20 @@ import { VFX } from '../combat/vfx';
 import { CombatSystem } from '../combat/index';
 import { buildHeroRig } from '../player/hero-rig';
 import { StubWorld } from './stub-world';
+import { bootstrapContent, content } from '../content';
+// See the long note at the same import in src/main.ts: the provider is imported
+// STATICALLY from the entry point so the bundler keeps `core.json` in this
+// entry's own chunk rather than splitting it out behind a request.
+import { BundledProvider } from '../content/storage/bundled';
+
+// An enemy's stats, palettes and the NAME of its voxel builder are content
+// (issue #60), so `?enemy=` cannot build one until the core package is in.
+// `await` at the top of the module for the same reason src/main.ts has one, and
+// unconditionally rather than only when `?enemy=` is present: the cost is one
+// bundled JSON parsed out of the main chunk, and a lab that loaded content only
+// on some URLs would be a lab whose boot order depends on the query string.
+content.addProvider(new BundledProvider());
+await bootstrapContent();
 
 const params = new URLSearchParams(location.search);
 const num = (k: string, d: number): number => {

@@ -146,7 +146,7 @@ once frames come quickly.
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`,
-  `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`.
+  `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`, `test-content.mjs`.
   `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
@@ -564,6 +564,84 @@ in. The note at the top of the file is the contract; read it first.
 modules with a `StubWorld` in place of the streamed one. Never fork model,
 animation or VFX code into `src/lab/`.
 
+**Content.** [src/content/](src/content/) is the data-driven content system —
+issue #60, and the second contract hub in the project. The engine implements
+reusable BEHAVIOUR; JSON describes what exists, where, when it is available and
+what happens when the player touches it. A settlement's name, radius and colour,
+an NPC's placement and dialogue, an enemy's stats and palette are CONTENT. The
+streamer, the voxel builders, the follow steering and the combat loop are ENGINE.
+[src/content/types.ts](src/content/types.ts) is the contract every module in there
+depends on instead of on each other, exactly as `core/types.ts` is for the game;
+read its header first, it argues the whole design.
+
+**CONTENT SELECTS A BEHAVIOUR BY NAME; IT NEVER CARRIES ONE.** A town says
+`"layout": "camp"`, an NPC says `"body": "gain"`, an enemy says
+`"model": "gloopling"`, and each of those is a lookup into a factory the engine
+registers (`town-layout`, `npc-body`, `enemy-model`). That is what keeps a voxel
+builder in TypeScript where it belongs while its CHOICE is data, and it is also
+the security property: remote JSON can be validated, inspected and migrated, and
+can never be a script. A layout name no builder implements is a diagnostic rather
+than a silent hamlet.
+
+**THE CORE PACKAGE IS IMPORTED, NOT FETCHED**, and that is what makes the issue's
+hard requirement true — the starting world must come up with no extra data loaded
+at all. [src/content/data/core.json](src/content/data/core.json) is a static
+`import`, so Vite inlines it into the main chunk beside `main.ts`: there is no
+request that can fail, no ordering to get wrong, and a build that shipped is a
+build whose content shipped. Everything else is lazy —
+`src/content/data/example-quest.json` is its own 1.99 kB chunk that nothing loads
+at boot, and `/content load example-quest` is how you watch the lazy path work.
+Measured: `bootstrapContent()` costs **2.4 ms**, inside the noise of a `world`
+stage that runs 381-422 ms, so it gets no progress chip of its own.
+
+**AN ID IS `type:name`, AND IT IS NEVER A POSITION.** `town:encampment`,
+`npc:gain`, `enemy:gloopling`. The type lives INSIDE the id so a reference is
+self-describing — a validator can tell that a `spawns` entry points at the wrong
+KIND of thing without loading the target — and the package does NOT, so an asset
+can move between packages without breaking a save. The start town used to be
+`SITES[0]`, i.e. a fact expressed as an array index; it is `"start": true` now,
+and `order` carries what the position used to mean. The same rule is why the save
+stores completed quest IDs rather than a `mainQuestProgress = 7`: inserting a
+quest into an existing line must not move an existing player backward, and it
+cannot when availability is recomputed from ids and flags.
+
+**ONE NUMBER IS DELIBERATELY NOT IN THE DATA.** A town's `outerRadius` is
+`CAMP_WALL_HALF * Math.SQRT2` — derived from the constant that builds the wall
+itself. Copying it into JSON would fork a load-bearing number, so the LAYOUT
+supplies it and the asset may only override it. When you are tempted to migrate a
+value, ask whether the thing that draws it already knows it.
+
+**THE ENGINE REFUSES A NAME IT CANNOT KEY.** `StringKey` is `keyof typeof en`,
+which is the one build-time guarantee the i18n design rests on, and data authored
+outside the repo cannot have it. So a `ContentText` is either `{ "key": … }` (the
+shipped table, checked at build time) or `{ "text": { "en": … } }` (carried
+inline, for content that arrives after the build). Everything migrated uses the
+key form, so nothing about `src/i18n/en.ts` changed.
+[src/core/content-bridge.ts](src/core/content-bridge.ts) is the one place the two
+meet: a town, an NPC or an enemy whose NAME is inline text is skipped with a
+diagnostic rather than given an invented key, because a nameless town in the world
+is issue #17's blank label. Resolution happens on the way to the DOM
+(`resolveText`), so content names follow a live language switch for free.
+
+**THE MIGRATION MOVED NOTHING.** Every value in `core.json` was copied from the
+table it replaced and verified line by line, and the assertion is not that the
+registry agrees with itself — it is that `__dbgTowns()` and `__dbgNpcs()` come
+back BYTE-IDENTICAL to the pre-migration baseline, which they do. The seven biome
+assets carry `nature` multipliers that are all exactly 1, and `setArea` DELETES an
+entry set to 1, so `nature.isDefault()` stays true and `test-nature.mjs`'s
+identity control never sees them. `tools/test-content.mjs` is the guard and it
+exits non-zero.
+
+**NOTHING UNDER `src/content/` MAY STATICALLY IMPORT `./storage/`.** The bundled
+provider uses Vite's `import.meta.glob`, which does not exist under plain Bun —
+and `tools/test-zfight.mjs` imports game modules straight into Bun with no Vite.
+So the two Vite entry points (`main.ts`, `lab/index.ts`) construct
+`BundledProvider` and hand it to `content.addProvider`, and `bootstrapContent`
+keeps a dynamic import only as a fallback. That fallback is why it is not the
+default: measured, dynamic-import-only put a fetch on the boot path and took
+`bootstrapContent` from 2.4 ms to **15.8 ms**, because a dynamic import is a chunk
+boundary.
+
 **Rendering.** `Engine` ([src/core/engine.ts](src/core/engine.ts)) owns renderer,
 scene, camera, sun, sky dome, fog and the post chain. Two things there are easy to
 break unknowingly:
@@ -708,7 +786,15 @@ creation on the shared prop/terrain materials, so the chunk streamer is
 untouched; [src/world/town-parts.ts](src/world/town-parts.ts) holds the voxel
 builders and the three rules they obey. `towns=0` removes the lot, and
 `__dbgTowns()` reports the registry, each road's measured worst step and grade,
-and where every lamp and fingerpost ended up.
+and where every lamp and fingerpost ended up. WHICH towns exist is no longer in
+this file: since issue #60 the sites come from `town:` assets in
+[src/content/data/core.json](src/content/data/core.json) — id, name, sign,
+layout, radius, colour, order, and which one the player starts at — and
+`towns.ts` owns only how they are SITED and BUILT. Adding a settlement is an
+asset plus, if it needs a shape neither `camp` nor `hamlet` has, a
+`town-layout` factory. Note the planner is a hub with one trunk and two spurs
+and is written around exactly three roads: a fourth town is reported and left
+unbuilt rather than silently misplaced.
 
 **Road furniture asks the NETWORK, and stands on the walking surface.** A lamp,
 a fingerpost and a fence panel are placed by arc length along one road and
@@ -901,6 +987,21 @@ his. He reaches the rest of the game as `World.npcs` ([core/types.ts](src/core/t
 `nearest` for the prompt, `talk(id)` for the conversation. `talk()` returns a
 PAYLOAD (`NpcTalk`) rather than a sentence — that is where a quest offer lands.
 `__dbgNpcs()` reports who is standing where, and whether anyone is mid-sentence.
+
+Since issue #60 the split is one file deeper, and along the line the content
+system draws everywhere else: `npc-gain.ts` keeps the BODY (`build`, `animate`,
+registered as the `npc-body/gain` factory) and everything else about him — which
+town, how near the middle, which side of the fire, and what he says — is the
+`npc:gain` asset. The quest seam the paragraph above promised is now literally
+data: `talk` is an ORDERED list of `{ when?, line, actions? }` and the engine
+takes the first entry whose condition passes, so an offer and a turn-in are two
+more entries rather than a rewrite. Gain ships with exactly one, ungated, which
+is why he says today what he said yesterday. `NPC_BODIES` in
+[src/world/npc.ts](src/world/npc.ts) is the code-side roster and stays a plain
+module constant for a reason: `tools/test-zfight.mjs` builds every rig in the
+game headless under Bun, where no content is bootstrapped, and a roster it could
+only get from the content runtime would come back empty and silently stop
+covering anybody.
 
 **"NEAR HIM" IS A CYLINDER, AND IT HAS TO BE ASKED IN THREE AXES.** `nearest`
 took `(x, z)` and nothing else until issue #25, so a hero flying over the

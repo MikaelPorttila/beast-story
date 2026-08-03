@@ -6,8 +6,22 @@
  * `animate(rig, ctx)`; this file owns placement, culling, the interact test, the
  * talk state and the per-frame tick, while a character file (npc-gain.ts) owns
  * a body and one `animate(rig, ctx)`. Adding a second NPC is a second character
- * file and one line in `CHARACTERS` below — no new placement code, no new
- * collider code, no new interaction code.
+ * file, one line in `NPC_BODIES` below, and an `npc:` asset — no new placement
+ * code, no new collider code, no new interaction code.
+ *
+ * AND SINCE ISSUE #60 THAT SPLIT HAS A SECOND CUT ACROSS IT: `build()` and
+ * `animate()` are BEHAVIOUR and stay in TypeScript, while who he is, which town
+ * he stands in, how far out he wants to be and what he says are CONTENT and live
+ * in `src/content/data/core.json`. Data selects a body by name off the
+ * `npc-body` factory kind (`"body": "gain"`) and never supplies one.
+ *
+ * WHICH IS WHY THE BODIES ARE A PLAIN MODULE CONSTANT. `tools/test-zfight.mjs`
+ * imports this file STRAIGHT INTO BUN to build every rig in the game and look
+ * for coincident surfaces, and there is no content runtime in that process and
+ * nothing to boot one with. `NPC_BODIES` is what it walks: a record of builders
+ * and animators, with no placement, no identity and no dependency on anything
+ * being loaded. WHAT HE SAYS is a question that needs content; WHAT HE LOOKS
+ * LIKE is not, and the tool only ever asked the second.
  *
  * PLACEMENT GOES THROUGH THE TOWN REGISTRY. A character says which town it
  * lives in and how near the middle it wants to stand; where exactly is decided
@@ -32,7 +46,10 @@ import { StructureField } from './structures';
 import type { SolidBox } from './props';
 import { DECK_EDGE, type RoadClearance } from './roads';
 import { flags } from '../core/flags';
-import { GAIN } from './npc-gain';
+import { GAIN_BODY } from './npc-gain';
+import { content, defineFactory, NPC_BODY_KIND, type NpcData, type NpcTalkLine } from '../content';
+import type { ContentText } from '../content/types';
+import { displayKey, reportContentIssue } from '../core/content-bridge';
 
 // ---------------------------------------------------------------------------
 // The contract a character file implements
@@ -97,11 +114,64 @@ export interface NpcAnimCtx {
   attended: boolean;
 }
 
-export interface NpcCharacter {
+/**
+ * A character's BODY: the half of him that is code.
+ *
+ * Everything else about a person — his name, his town, how near the middle he
+ * wants to stand, what he says — is content, and the two meet at
+ * `NpcData.body`, which names one of these.
+ */
+export interface NpcBody {
+  build(): NpcRig;
+  animate(rig: NpcRig, ctx: NpcAnimCtx): void;
+}
+
+/**
+ * Every character BODY in the game. The module list is the roster, like
+ * beasts/registry.ts.
+ *
+ * EXPORTED for the same reason `ALL_SPECIES` is, and the reason is sharper here
+ * than it used to be: `tools/test-zfight.mjs` builds every rig in the game and
+ * checks it for coincident surfaces, and it does that under plain Bun with no
+ * content runtime anywhere. A roster it has to be told about by hand is a roster
+ * that silently stops covering the character somebody added last week — so this
+ * is the one place a body is named, and both the tool and the factory
+ * registration below read it.
+ */
+export const NPC_BODIES: Readonly<Record<string, NpcBody>> = {
+  gain: GAIN_BODY,
+};
+
+/**
+ * Publish the bodies to the content layer, at module load and therefore before
+ * `bootstrapContent()` — see the same note at the bottom of world/towns.ts.
+ *
+ * DRIVEN OFF THE ROSTER rather than written out per character, so a body cannot
+ * be in `NPC_BODIES` and not registered, or registered and not in it. That is
+ * the failure the roster exists to prevent, and repeating the list would put it
+ * straight back.
+ */
+for (const [name, body] of Object.entries(NPC_BODIES)) {
+  defineFactory(NPC_BODY_KIND, name, body);
+}
+
+/**
+ * One placed character, as this file needs him: the content asset's statement
+ * resolved against a registered body.
+ *
+ * `nameKey` and `name` are the SAME text read two ways, and both are needed.
+ * `NpcInfo.nameKey` (core/types.ts) is a `StringKey` — the interact prompt and
+ * the compass are typed against the shipped table — while `NpcTalk.name` is a
+ * `ContentText`, because a conversation is a thing the game merely prints and a
+ * pack may legitimately carry its own words. See core/content-bridge.ts.
+ */
+interface Character {
   /** The stable IDENTIFIER — what a quest stores and what `talk(id)` takes. */
   id: string;
   /** DISPLAY name, as a string-table key. */
   nameKey: StringKey;
+  /** The same name, unresolved, for the dialogue payload. */
+  name: ContentText;
   /** Which settlement he stands in, by registry id. */
   townId: string;
   /**
@@ -115,27 +185,61 @@ export interface NpcCharacter {
    * have stood — see `NpcSite.focusOf`. Opt-in, because it only means anything
    * in a settlement that HAS a focus.
    */
-  acrossFocus?: boolean;
-  build(): NpcRig;
-  animate(rig: NpcRig, ctx: NpcAnimCtx): void;
+  acrossFocus: boolean;
+  body: NpcBody;
   /**
-   * What he says right now. THE QUEST SEAM: this returns a PAYLOAD (NpcTalk in
-   * core/types.ts), so the day quests land, this function starts choosing
-   * between an offer, a turn-in and this idle line, and nothing else in the NPC
-   * system, the HUD or the frame loop changes shape.
+   * What he might say, IN ORDER, first match wins. THE QUEST SEAM, and it is
+   * data now rather than a function: an entry carries an optional `when` and an
+   * optional list of actions, so an offer that is only available once a flag is
+   * set is a row in a JSON file. The shipped Gain has exactly one entry with no
+   * `when`, so he says what he always said.
    */
-  talk(): NpcTalk;
+  talk: readonly NpcTalkLine[];
 }
 
 /**
- * Every NPC in the game. The module list is the roster, like beasts/registry.ts.
+ * The roster, resolved from content.
  *
- * EXPORTED for the same reason `ALL_SPECIES` is: `tools/test-zfight.mjs` builds
- * every rig in the game and checks it for coincident surfaces, and a roster it
- * has to be told about by hand is a roster that silently stops covering the
- * character somebody added last week.
+ * A character is REFUSED, with a diagnostic, when the engine cannot build him: a
+ * body no factory implements, or a name that is not a string-table key. Refusing
+ * is the honest answer for the same reason it is in world/towns.ts — a person
+ * the prompt cannot name is a blank interact pill, which reads as a broken HUD
+ * rather than as missing content (issue #17, from the other end).
  */
-export const CHARACTERS: readonly NpcCharacter[] = [GAIN];
+function readCharacters(): readonly Character[] {
+  const out: Character[] = [];
+  for (const asset of content.all<NpcData>('npc')) {
+    const { data } = asset;
+    const body = content.factory<NpcBody>(NPC_BODY_KIND, data.body);
+    if (!body) {
+      reportContentIssue({
+        severity: 'error',
+        code: 'unknown-factory',
+        message: `"${asset.id}" wants body "${data.body}", which no builder implements`,
+        assetId: asset.id, assetType: asset.type, pkg: asset.pkg, source: asset.source,
+        field: 'data.body',
+        fix: `one of ${Object.keys(NPC_BODIES).join(', ')}`,
+      });
+      continue;
+    }
+    const nameKey = displayKey(asset);
+    if (nameKey === null || asset.name === undefined) continue;
+    out.push({
+      // The `name` half of the content id, the same split world/towns.ts makes.
+      id: asset.id.slice(asset.type.length + 1),
+      nameKey,
+      name: asset.name,
+      // ...and the town REFERENCE is an id, where `TownRegistry.get` keys on the
+      // name half. One split, made in one direction, in both files.
+      townId: data.town.slice(data.town.indexOf(':') + 1),
+      homeOffset: data.homeOffset,
+      acrossFocus: data.acrossFocus,
+      body,
+      talk: data.talk,
+    });
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -227,7 +331,7 @@ const SPOT_BEARINGS = 16;
 // ---------------------------------------------------------------------------
 
 interface Placed {
-  char: NpcCharacter;
+  char: Character;
   rig: NpcRig;
   info: NpcInfo;
   /** The bearing he faces when nobody is with him. */
@@ -280,10 +384,10 @@ export class Npcs implements NpcField {
 
   constructor(site: NpcSite) {
     const infos: NpcInfo[] = [];
-    for (const char of CHARACTERS) {
+    for (const char of readCharacters()) {
       const town = site.towns.get(char.townId);
       if (!town) continue; // a zone without his town simply has no him
-      const rig = char.build();
+      const rig = char.body.build();
       let spot = findSpot(site, town.x, town.z, char.homeOffset, rig.radius);
       // ACROSS THE FIRE from wherever the plain search put him.
       //
@@ -343,10 +447,26 @@ export class Npcs implements NpcField {
     return this.talkState;
   }
 
+  /**
+   * Begin (or restart) a conversation.
+   *
+   * FIRST MATCH WINS, which is what makes an entry with no `when` a DEFAULT
+   * rather than an alternative. The list is ordered by the author, `evaluate`
+   * answers against live `ContentState`, and an entry's actions run when it is
+   * the one chosen — so "offer the quest if it is available, otherwise say
+   * hello" is two rows in a JSON file rather than a branch in this function.
+   * Content's own validator warns when an unconditional entry has rows after it.
+   *
+   * A character every one of whose entries is refused says NOTHING and no
+   * conversation opens, rather than one opening with an empty panel in it.
+   */
   talk(id: string): NpcTalk | null {
     const p = this.placed.find((q) => q.char.id === id);
     if (!p) return null;
-    this.talkState = p.char.talk();
+    const entry = p.char.talk.find((line) => content.evaluate(line.when));
+    if (!entry) return null;
+    content.run(entry.actions);
+    this.talkState = { id: p.char.id, name: p.char.name, line: entry.line };
     return this.talkState;
   }
 
@@ -395,7 +515,7 @@ export class Npcs implements NpcField {
       p.yaw = approachAngle(p.yaw, want, TURN_LAMBDA, dt);
       p.rig.root.rotation.y = p.yaw;
       this.ctx.attended = attended;
-      p.char.animate(p.rig, this.ctx);
+      p.char.body.animate(p.rig, this.ctx);
     }
   }
 

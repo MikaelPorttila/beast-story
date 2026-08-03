@@ -235,6 +235,26 @@ export const en = {
   'enemy.snortle.name': 'Snortle',
   'enemy.peckit.name': 'Peckit',
 
+  // ---- biomes --------------------------------------------------------------
+  // Keyed by the BiomeId in src/world/terrain.ts, which is also the AREA key
+  // vegetation densities are set per (src/world/nature.ts) and the id of a
+  // `biome:` content asset. As with the enemies above, nothing renders these in
+  // the game yet — a debug readout and the content editor are what read them
+  // first — so they are here to keep the rule that content never carries a
+  // display string the base table has not seen.
+  //
+  // Two of the seven are not weather and read that way on purpose: 'trampled'
+  // is the worn yard of a settlement, and 'underwater' is a column below the
+  // water line rather than a climate. Both carry a "synthetic" tag in
+  // src/content/data/core.json for the same reason.
+  'biome.plains.name': 'Plains',
+  'biome.forest.name': 'Forest',
+  'biome.beach.name': 'Shore',
+  'biome.desert.name': 'Desert',
+  'biome.snow.name': 'Snowfield',
+  'biome.underwater.name': 'Lakebed',
+  'biome.trampled.name': 'Trodden Ground',
+
   // ---- HUD ---------------------------------------------------------------
   'hud.hp': 'HP',
   'hud.level': 'Lv {n}',

@@ -1,0 +1,234 @@
+/**
+ * QUESTS (spec §9) — the type that makes conditions and actions mean something.
+ *
+ * NOTHING IN THE GAME READS THIS YET, and that is deliberate rather than
+ * unfinished. There is no quest UI, no journal and no gameplay wiring in this
+ * change; what there is, is the shape a quest has, so that `Condition`,
+ * `Action`, `ContentState` and the reference graph have a subject. Every other
+ * type here describes a thing that already exists in the world and is being
+ * moved; this one describes the thing all of that machinery was built for, and
+ * `data/example-quest.json` is the end-to-end proof that a package can arrive
+ * later, reference content it did not ship with, and be unloaded again.
+ *
+ * PROGRESS IS TRACKED PER QUEST ID, AND NEVER AS A POSITION IN A LINE (spec
+ * §9.3). This is the rule the whole content design was shaped around and it is
+ * worth restating where a quest is defined rather than only where a save is
+ * written. `mainQuestProgress = 7` means "seven quests into the line AS THE LINE
+ * STOOD ON THE DAY THIS SAVE WAS WRITTEN": insert a quest into the middle and
+ * every existing player moves backward, the same 7 now naming a different quest,
+ * and no migration can fix it because the save never recorded what the player
+ * actually did. So a quest's place in the story is `prerequisites` — a set of
+ * ids — and `available`, a condition recomputed from the facts in
+ * `ContentState`. Reorder the line, split it across packages, add to it a year
+ * later from a remote pack: an old save keeps meaning what it meant. That is
+ * also why `ContentState` holds `completedQuests` and flags and holds no
+ * counter, and why `arc` below is a LABEL and carries no ordering.
+ *
+ * THE REWARDS FIELD IS COUNTS ONLY, AND THAT IS THE INTERESTING RESTRICTION.
+ * Anything a reward DOES — unlock a skill, hand over a named item with
+ * properties, open a gate — is an `onComplete` ACTION, because an action names a
+ * registered handler and is therefore inspectable, validatable and bounded by
+ * what the engine chose to expose (actions.ts). A free-form reward bag would be a
+ * second, unchecked way for content to reach the game, which is the exact thing
+ * §4.6 forbids. What is left is genuinely a table of amounts — xp, and the
+ * currency by its item ID (`shard`, which is what the drop table and the save
+ * key on, whatever it displays as) — so that is what it is typed as.
+ */
+
+import type {
+  Action,
+  Condition,
+  ContentAsset,
+  ContentId,
+  ContentText,
+  ContentTypeDef,
+  ParseCtx,
+  ValidateCtx,
+} from '../types';
+import {
+  actions as readActions,
+  condition,
+  idOf,
+  int,
+  isRecord,
+  list,
+  num,
+  obj,
+  opt,
+  readerFor,
+  record,
+  str,
+  text,
+} from '../schema';
+import type { Reader } from '../schema';
+import { isObjectiveName } from '../state';
+import { isKnownTextKey } from '../text';
+
+/**
+ * One thing the player has to do.
+ *
+ * `key` is what `ContentState.progress(quest, key)` counts against, so it is an
+ * IDENTIFIER and lives under the same rule every other identifier here does: it
+ * is stored in a save, it never changes when the wording does, and it may not
+ * contain `/` — the progress key is `questId + '/' + objective` split at its LAST
+ * slash, and a quest id may itself carry slashes (`quest:encampment/first-steps`),
+ * so one in the objective silently attributes a counter to the wrong quest.
+ * `isObjectiveName` in state.ts is where that rule is spelled; this reads it
+ * rather than restating the regex.
+ */
+export interface QuestObjective {
+  readonly key: string;
+  readonly text: ContentText;
+  /** How many. Absent means one, i.e. a boolean-shaped objective. */
+  readonly count?: number;
+}
+
+/** Amounts granted on completion. Keyed by what is granted — see the header. */
+export type QuestRewards = Readonly<Record<string, number>>;
+
+export interface QuestData {
+  readonly category: 'main' | 'side';
+  /**
+   * A story grouping, for a journal that wants headings. A LABEL and not an
+   * order: nothing may derive "which one is next" from it — see the header.
+   */
+  readonly arc?: string;
+  /** Who offers it. */
+  readonly giver?: ContentId;
+  /** Where it happens, for a marker and for a journal line. */
+  readonly location?: ContentId;
+  /** Quests that must be `completed` first. Ids, never positions. */
+  readonly prerequisites: readonly ContentId[];
+  /**
+   * When it may be offered, over and above the prerequisites.
+   *
+   * ABSENT MEANS ALWAYS, the same rule the envelope's `when` follows and for the
+   * same reason: most content is ungated, and making every author write
+   * `{"test":"always"}` is ceremony on the majority to serve the minority. A
+   * MALFORMED one is `NEVER` (schema.ts) — the asymmetry is that hidden content
+   * is a bug report and revealed content is a spoiler.
+   */
+  readonly available?: Condition;
+  readonly objectives: readonly QuestObjective[];
+  readonly onStart?: readonly Action[];
+  readonly onComplete?: readonly Action[];
+  readonly rewards?: QuestRewards;
+}
+
+const category = (value: unknown, ctx: Reader): 'main' | 'side' => {
+  const v = str(value, ctx, { min: 1, max: 32, what: 'a quest category', fallback: 'side' });
+  if (v === 'main' || v === 'side') return v;
+  ctx.report('error', 'bad-field', `expected "main" or "side", got "${v}"`);
+  return 'side';
+};
+
+function readObjective(value: unknown, ctx: Reader): QuestObjective {
+  const v: Record<string, unknown> = isRecord(value) ? value : {};
+  if (!isRecord(value)) {
+    ctx.report('error', 'bad-field', 'expected an objective object',
+      'write { "key": "talk-to-gain", "text": { "key": "…" } }');
+  }
+  const key = str(v.key, ctx.at('key'), { min: 1, max: 64, what: 'an objective key' });
+  if (key !== '' && !isObjectiveName(key)) {
+    ctx.at('key').report(
+      'error',
+      'bad-field',
+      `"${key}" is not usable as an objective key`,
+      'printable, no spaces, and no "/" — the progress key is "<quest>/<objective>"',
+    );
+  }
+  return {
+    key: isObjectiveName(key) ? key : '',
+    text: text(v.text, ctx.at('text')),
+    count: opt(v.count, ctx.at('count'), (n, c) =>
+      int(n, c, { min: 1, max: 1_000_000, what: 'how many' })),
+  };
+}
+
+function parse(body: unknown, ctx: ParseCtx): QuestData | null {
+  const r = readerFor(ctx, { knownTextKey: isKnownTextKey });
+  const b = obj(body, r);
+
+  const onStart = readActions(b.onStart, r.at('onStart'));
+  const onComplete = readActions(b.onComplete, r.at('onComplete'));
+
+  return {
+    category: category(b.category, r.at('category')),
+    arc: opt(b.arc, r.at('arc'), (v, c) => str(v, c, { min: 1, max: 64, what: 'an arc name' })),
+    giver: opt(b.giver, r.at('giver'), idOf('npc')),
+    location: opt(b.location, r.at('location'), idOf('town')),
+    prerequisites: opt(b.prerequisites, r.at('prerequisites'), list(idOf('quest'), { max: 64 })) ?? [],
+    available: opt(b.available, r.at('available'), condition),
+    objectives: list(readObjective, { min: 1, max: 64 })(b.objectives, r.at('objectives')),
+    // Absence is the default: an empty list is omitted so `serialize` cannot
+    // round-trip a field the author never wrote. Same rule as npc.ts's `actions`.
+    ...(onStart.length > 0 ? { onStart } : {}),
+    ...(onComplete.length > 0 ? { onComplete } : {}),
+    rewards: opt(b.rewards, r.at('rewards'), record(
+      (v, c) => num(v, c, { min: 0, max: 1_000_000, what: 'a reward amount' }),
+      { key: /^[a-z][a-z0-9-]*$/, max: 32 },
+    )),
+  };
+}
+
+/**
+ * Everything a quest points at: who gives it, where it is, and what must be done
+ * first. Extracted rather than authored, which is what makes "what breaks if I
+ * delete `npc:gain`" answerable (types.ts, spec §4.3).
+ */
+function* refs(data: QuestData): Iterable<ContentId> {
+  // The empty string is `idOf`'s fallback and can never parse — already reported
+  // at the field it came from.
+  if (data.giver !== undefined && data.giver !== '') yield data.giver;
+  if (data.location !== undefined && data.location !== '') yield data.location;
+  for (const id of data.prerequisites) if (id !== '') yield id;
+}
+
+function validate(asset: ContentAsset<QuestData>, ctx: ValidateCtx): void {
+  // A quest that requires itself can never start, and the central reference
+  // check cannot see it: the id resolves perfectly — to this asset.
+  if (asset.data.prerequisites.includes(asset.id)) {
+    ctx.report({
+      severity: 'error',
+      code: 'never-available',
+      message: 'lists itself as a prerequisite, so it can never become available',
+      field: 'data.prerequisites',
+      fix: 'remove it — a prerequisite is a quest that must be completed FIRST',
+    });
+  }
+
+  // Two objectives with one key share a progress counter, which reads as one of
+  // them completing itself the moment the other advances.
+  const seen = new Set<string>();
+  asset.data.objectives.forEach((objective, i) => {
+    if (objective.key === '' || !seen.has(objective.key)) {
+      seen.add(objective.key);
+      return;
+    }
+    ctx.report({
+      severity: 'error',
+      code: 'bad-field',
+      message: `two objectives share the key "${objective.key}"`,
+      field: `data.objectives[${i}].key`,
+      fix: 'progress is stored per "<quest>/<objective>", so the two would count as one',
+    });
+  });
+}
+
+export const QUEST_TYPE: ContentTypeDef<QuestData> = {
+  name: 'quest',
+  schema: 1,
+  parse,
+  refs,
+  validate,
+  template: {
+    id: 'quest:new-quest',
+    schema: 1,
+    name: { text: { en: 'New Quest' } },
+    data: {
+      category: 'side',
+      prerequisites: [],
+      objectives: [{ key: 'do-the-thing', text: { text: { en: 'Do the thing' } } }],
+    },
+  },
+};

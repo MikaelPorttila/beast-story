@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 // Type-only, so it is erased at build time and adds no import edge at runtime.
 import type { PluralKey, StringKey } from '../i18n';
+// Likewise type-only, and content/types.ts itself imports nothing but the i18n
+// key type — so the contract hub can name a `ContentText` (see `NpcTalk`)
+// without the game growing a runtime dependency on the content layer.
+import type { ContentText } from '../content/types';
 
 // ---------------------------------------------------------------------------
 // Elements / typing (Pokemon-style)
@@ -323,16 +327,29 @@ export interface NpcInfo {
  * world/npc.ts is the one function that has to start consulting quest state to
  * choose between them.
  *
- * `lineKey` and not a formatted string, because a caller may want the name and
- * the line in one composed sentence, and because the frame loop must be able to
- * ask for this without allocating — `t(key)` with no placeholders returns the
- * table's own string.
+ * UNRESOLVED TEXT AND NOT A FORMATTED STRING, because a caller may want the name
+ * and the line in one composed sentence, and because the frame loop must be able
+ * to ask for this without allocating — `resolveText` on the key form returns the
+ * table's own string and builds nothing.
+ *
+ * IT IS A `ContentText` RATHER THAN A `StringKey`, and that is the one widening
+ * issue #60 asked of this file. A talk line is CONTENT (src/content/types/npc.ts)
+ * and content may carry its words inline — a remote pack, a quest written by a
+ * tool, neither of which can have been checked against the string table this
+ * build shipped. Resolving it HERE rather than in world/npc.ts is what keeps the
+ * live language switch working: i18n's rule is that a string looked up on its
+ * way to the DOM is free and one captured at construction owes a re-derive, and
+ * a conversation begun before the player changes language must re-read, not
+ * remember. Nothing else in `core/types.ts` moves: `NpcInfo.nameKey` is still a
+ * `StringKey`, because the interact prompt is typed against the shipped table
+ * and the engine requires the key form for a name (core/content-bridge.ts).
  */
 export interface NpcTalk {
   readonly id: string;
-  readonly nameKey: StringKey;
-  /** The line spoken, as a string-table key. */
-  readonly lineKey: StringKey;
+  /** Who is speaking. Read with `resolveText`. */
+  readonly name: ContentText;
+  /** The line spoken. Read with `resolveText`. */
+  readonly line: ContentText;
 }
 
 /**

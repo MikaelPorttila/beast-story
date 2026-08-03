@@ -33,13 +33,15 @@ import { launchBrowser } from './browser.mjs';
 import { PORT } from './target.mjs';
 
 // Probes that assert on frame rate, elapsed motion or CPU cost. Never batched.
-// Three of these are here because a batch was RUN and the output moved, which
+// Four of these are here because a batch was RUN and the output moved, which
 // is the only evidence worth putting a name on either list for:
 //   sway        slots 3 -> 4, areaRadius 11.94 -> 18.56 (more movers per frame)
 //   aim-assist  widestSelected 66.29 deg -> 0.18, narrowestRefused null
 //   f2          the overlay had not been built yet 2.5 s after the canvas, so
 //               every reading came back null — AND THE PROBE STILL EXITED 0,
 //               because it asserts nothing. See the note on silent probes below.
+//   content     one key press in forty-odd assertions, and a batched page is a
+//               background tab with no rAF to consume it. See its entry below.
 const SOLO = new Set([
   'perf-baseline', // the whole point of it is a cpu/frame number
   'gamepad',       // section 7 compares look rate across fps caps
@@ -63,6 +65,22 @@ const SOLO = new Set([
   // that go wrong when three games share a GPU. SOLO is also the default.
   'music',
   'textsize',      // stages the HUD through __dbgStageHud after a fixed wait
+  // Nothing in it measures a frame, a distance or a CPU figure — it reads the
+  // content registry, the town/npc/enemy tables and the dev console — and it is
+  // gated on `__dbgBoot().playing` rather than on a settle, so on the face of it
+  // it belongs above. It is here because the A/B was RUN and named the reason:
+  // ONE KEY PRESS. Its identity section talks to Gain, and a key edge is
+  // consumed by the frame loop. A page that is not the shared browser's FRONT
+  // TAB reports `visibilityState: 'hidden'` and is given no requestAnimationFrame
+  // at all — measured with two pages in one browser, the background one held W
+  // for 1.2 s and travelled 0.00 units against the front one's 6.39, while its
+  // performance clock advanced normally (1507 ms against 1512) and every
+  // read-only hook went on answering. So batched it failed on exactly one line
+  // ("the sentence Gain actually says: got null") with all forty-odd other
+  // assertions green, which is the most misleading failure a batch can produce.
+  // `bringToFront()` is not the fix: four probes cannot all be the front tab.
+  // Drop the talk drive and it may move up.
+  'content',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output
@@ -77,6 +95,18 @@ const SOLO = new Set([
 // that read nothing, printed nulls and exited 0. Give a probe a readiness gate
 // (wait for `__dbgBoot().playing`, not for 2500 ms) and an assertion with an
 // exit code, and it can move up here; until then it runs alone.
+//
+// AND THERE IS A SECOND GATE NOBODY HAD WRITTEN DOWN, found by running the A/B
+// for `content`: A BATCHED PAGE IS A BACKGROUND TAB, AND A BACKGROUND TAB GETS
+// NO FRAMES. Only one page in the shared browser is the front one; the rest
+// report `visibilityState: 'hidden'`, and Chromium gives a hidden page no
+// requestAnimationFrame — measured, a hidden page held W for 1.2 s and travelled
+// 0.00 units against 6.39 on the visible one, while its performance clock and
+// every read-only debug hook carried on answering normally. So the bar for this
+// list is not only "no timing assertions": a probe that DRIVES THE HERO AT ALL —
+// a key edge, a held key, anything the frame loop has to consume — belongs in
+// SOLO however patient its polling is. That is the same root cause as `f2`
+// reading null under load, named.
 const PARALLEL = ['zfight', 'crosshair', 'viewport', 'cursor'];
 const ALL = [...PARALLEL, ...SOLO];
 

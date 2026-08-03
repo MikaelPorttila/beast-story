@@ -1,0 +1,210 @@
+{
+  "id": "core",
+  "version": "0.1.0",
+  "meta": {
+    "title": "Beast Story — core content",
+    "note": "The starting world. This file is IMPORTED by src/content/storage/bundled.ts, not fetched, so it lands in the main JS chunk beside main.ts: there is no request that can fail and a build that shipped is a build whose core content shipped. Everything here is a migration of a table that already existed in TypeScript — towns from src/world/towns.ts, Gain from src/world/npc-gain.ts, biomes from src/world/terrain.ts, enemies from src/combat/enemies.ts — and no value in it differs from the one the game shipped with.",
+    "json-has-no-comments": "Which is why this field exists. The reasoning behind every field lives in src/content/types/*.ts, beside the parser that reads it."
+  },
+  "assets": [
+    {
+      "id": "town:encampment",
+      "schema": 1,
+      "name": { "key": "town.encampment.name" },
+      "tags": ["settlement", "start"],
+      "data": {
+        "sign": { "key": "town.encampment.sign" },
+        "layout": "camp",
+        "radius": 19,
+        "color": "#ffb45e",
+        "waterside": false,
+        "order": 0,
+        "start": true
+      }
+    },
+    {
+      "id": "town:redbriar",
+      "schema": 1,
+      "name": { "key": "town.redbriar.name" },
+      "tags": ["settlement"],
+      "data": {
+        "sign": { "key": "town.redbriar.sign" },
+        "layout": "hamlet",
+        "radius": 15,
+        "color": "#9ad46a",
+        "waterside": true,
+        "order": 1,
+        "start": false
+      }
+    },
+    {
+      "id": "town:stonewatch",
+      "schema": 1,
+      "name": { "key": "town.stonewatch.name" },
+      "tags": ["settlement"],
+      "data": {
+        "sign": { "key": "town.stonewatch.sign" },
+        "layout": "hamlet",
+        "radius": 15,
+        "color": "#8fc4e8",
+        "waterside": false,
+        "order": 2,
+        "start": false
+      }
+    },
+
+    {
+      "id": "npc:gain",
+      "schema": 1,
+      "name": { "key": "npc.gain.name" },
+      "tags": ["resident", "quest-giver"],
+      "data": {
+        "town": "town:encampment",
+        "body": "gain",
+        "homeOffset": 0,
+        "acrossFocus": true,
+        "talk": [{ "line": { "key": "npc.gain.greeting" } }]
+      }
+    },
+
+    {
+      "id": "biome:plains",
+      "schema": 1,
+      "name": { "key": "biome.plains.name" },
+      "tags": ["climate", "start"],
+      "data": {
+        "startArea": true,
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+      }
+    },
+    {
+      "id": "biome:forest",
+      "schema": 1,
+      "name": { "key": "biome.forest.name" },
+      "tags": ["climate"],
+      "data": {
+        "startArea": false,
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+      }
+    },
+    {
+      "id": "biome:beach",
+      "schema": 1,
+      "name": { "key": "biome.beach.name" },
+      "tags": ["climate"],
+      "data": {
+        "startArea": false,
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+      }
+    },
+    {
+      "id": "biome:desert",
+      "schema": 1,
+      "name": { "key": "biome.desert.name" },
+      "tags": ["climate"],
+      "data": {
+        "startArea": false,
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+      }
+    },
+    {
+      "id": "biome:snow",
+      "schema": 1,
+      "name": { "key": "biome.snow.name" },
+      "tags": ["climate"],
+      "data": {
+        "startArea": false,
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+      }
+    },
+    {
+      "id": "biome:underwater",
+      "schema": 1,
+      "name": { "key": "biome.underwater.name" },
+      "tags": ["synthetic"],
+      "description": { "text": { "en": "Not a climate: a column below the water line, decided before any climate weight is consulted." } },
+      "data": {
+        "startArea": false,
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+      }
+    },
+    {
+      "id": "biome:trampled",
+      "schema": 1,
+      "name": { "key": "biome.trampled.name" },
+      "tags": ["synthetic"],
+      "description": { "text": { "en": "Not a climate: the worn yard of a settlement, which is a biome so that the prop scatter grows nothing there with no new test." } },
+      "data": {
+        "startArea": false,
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+      }
+    },
+
+    {
+      "id": "enemy:gloopling",
+      "schema": 1,
+      "name": { "key": "enemy.gloopling.name" },
+      "tags": ["wild", "ground"],
+      "data": {
+        "model": "gloopling",
+        "flying": false,
+        "hp": 32,
+        "atk": 6,
+        "speed": 2.3,
+        "xp": 8,
+        "radius": 0.5,
+        "height": 0.95,
+        "aggro": 9,
+        "variants": [
+          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" },
+          { "element": "shadow", "main": "#a06ce0", "dark": "#7245b0", "belly": "#d9b8ff", "accent": "#2c1450" },
+          { "element": "water", "main": "#3fb2f2", "dark": "#2a84c6", "belly": "#a8e8ff", "accent": "#0d2c48" }
+        ]
+      }
+    },
+    {
+      "id": "enemy:snortle",
+      "schema": 1,
+      "name": { "key": "enemy.snortle.name" },
+      "tags": ["wild", "ground"],
+      "data": {
+        "model": "snortle",
+        "flying": false,
+        "hp": 62,
+        "atk": 11,
+        "speed": 2.9,
+        "xp": 16,
+        "radius": 0.62,
+        "height": 1.15,
+        "aggro": 10,
+        "variants": [
+          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" },
+          { "element": "ice", "main": "#8fa8c0", "dark": "#5a728c", "belly": "#dae8f4", "accent": "#c4d6e8" },
+          { "element": "fire", "main": "#d4593a", "dark": "#8e3021", "belly": "#f2a468", "accent": "#f6c290" }
+        ]
+      }
+    },
+    {
+      "id": "enemy:peckit",
+      "schema": 1,
+      "name": { "key": "enemy.peckit.name" },
+      "tags": ["wild", "flying"],
+      "data": {
+        "model": "peckit",
+        "flying": true,
+        "hp": 26,
+        "atk": 9,
+        "speed": 5.2,
+        "xp": 12,
+        "radius": 0.45,
+        "height": 0.8,
+        "aggro": 12,
+        "variants": [
+          { "element": "wind", "main": "#3c4454", "dark": "#242a36", "belly": "#5e6e84", "accent": "#f0a032" },
+          { "element": "shadow", "main": "#4a3d74", "dark": "#2c2148", "belly": "#7159a6", "accent": "#ffd23f" },
+          { "element": "electric", "main": "#c08a3c", "dark": "#7c5522", "belly": "#e9d092", "accent": "#5a626e" }
+        ]
+      }
+    }
+  ]
+}
