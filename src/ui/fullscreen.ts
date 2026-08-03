@@ -28,12 +28,53 @@
  * feature-detects both spellings plus the `*fullscreenEnabled` flag (which is
  * how an iframe or a permissions policy says "the method is there and you may
  * not use it"), and `enterFullscreen` simply does nothing where the answer is no.
+ *
+ * ESCAPE IS THE GAME'S KEY, AND TAKING IT NEEDS A SECOND API.
+ *
+ * Escape opens the in-game menu (ui/pause.ts) and it is also the browser's own
+ * "leave fullscreen" key. `preventDefault` does NOT reach that half — the exit
+ * is a user-agent action taken before the page has a say — so for as long as
+ * this file was only the Fullscreen API, one press did both: the menu came up
+ * AND the screen shrank, having been asked for neither. `PauseMenu.close` puts
+ * fullscreen back where it can, which is a patch over the symptom and only
+ * works when the menu is dismissed by a CLICK (see the note there).
+ *
+ * The Keyboard Lock API is the part that actually says "this key is mine".
+ * `navigator.keyboard.lock(['Escape'])` routes Escape to the page while the
+ * document is fullscreen, INCLUDING the press that would otherwise have exited
+ * it, and it makes `preventDefault` on that keydown mean something — which is
+ * why `Input.CAPTURED` lists Escape. The browser keeps one escape hatch that no
+ * page may close: press and HOLD Escape for about a second and it leaves
+ * fullscreen anyway, showing its own "press and hold" notice. That is a
+ * deliberate anti-trap rule in the spec, not a gap in this code.
+ *
+ * WHERE IT CANNOT HAPPEN. Keyboard lock is Chromium-only today (Chrome, Edge,
+ * Brave, Opera), needs a SECURE CONTEXT — https or localhost, so the dev server
+ * qualifies and a plain-http LAN test does not — and only applies to a top-level
+ * document, so the game in an iframe keeps the old behaviour. Everywhere it is
+ * missing, nothing here throws and nothing changes: Escape still opens the menu,
+ * still drops fullscreen, and `PauseMenu.close` still tries to put it back.
+ *
+ * IT IS ARMED ON EVERY ENTRY, not once at boot. The lock is scoped to the
+ * fullscreen session — a document that leaves fullscreen has no lock afterwards
+ * — so `installEscapeLock()` re-takes it from a `fullscreenchange` listener and
+ * releases it on the way out, rather than relying on one call at start-up
+ * surviving a player who alt-tabs, F11s or press-and-holds their way out.
  */
 
 /** The prefixed half of the API, as it exists on Safari/older WebKit. */
 type FsElement = HTMLElement & {
   webkitRequestFullscreen?: () => Promise<void> | void;
 };
+/**
+ * Keyboard Lock, which lib.dom does not declare. Only the two methods are named
+ * — `getLayoutMap` is on the real interface and nothing here wants it.
+ */
+type KeyboardLock = {
+  lock: (codes?: string[]) => Promise<void>;
+  unlock: () => void;
+};
+type LockNavigator = Navigator & { keyboard?: KeyboardLock };
 type FsDocument = Document & {
   webkitFullscreenElement?: Element | null;
   webkitFullscreenEnabled?: boolean;
@@ -105,4 +146,82 @@ export function exitFullscreen(): boolean {
     : doc.webkitExitFullscreen?.();
   void Promise.resolve(req).catch(() => {});
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard lock — Escape belongs to the game. See the header.
+// ---------------------------------------------------------------------------
+
+/** The lock object, or null where the API is missing or the context forbids it. */
+function keyboard(): KeyboardLock | null {
+  if (typeof navigator === 'undefined') return null;
+  const kb = (navigator as LockNavigator).keyboard;
+  if (!kb || typeof kb.lock !== 'function' || typeof kb.unlock !== 'function') return null;
+  // A SECURE CONTEXT ONLY. Chromium exposes the object either way and rejects
+  // the call over plain http; asking here keeps the rejection out of the console
+  // and makes `keyboardLockSupported()` an honest answer for the probe.
+  if (typeof isSecureContext === 'boolean' && !isSecureContext) return null;
+  return kb;
+}
+
+/** True where `lock()` can actually be called. Chromium, secure context. */
+export function keyboardLockSupported(): boolean { return keyboard() !== null; }
+
+/**
+ * Whether the last lock attempt was GRANTED — the browser's answer, not ours.
+ *
+ * Kept beside the request because the two can disagree for reasons this code
+ * cannot see (an iframe, an enterprise policy), and a probe asserting on intent
+ * would pass in exactly the cases the feature is broken in.
+ */
+let escapeLocked = false;
+export function escapeIsLocked(): boolean { return escapeLocked; }
+
+/**
+ * Take Escape, if this browser lets us. Safe to call when already held — a
+ * second `lock()` replaces the first rather than stacking.
+ */
+function lockEscape(): void {
+  const kb = keyboard();
+  if (!kb) return;
+  kb.lock(['Escape']).then(
+    () => { escapeLocked = true; },
+    () => { escapeLocked = false; },
+  );
+}
+
+/** Give every key back. Called on the way out of fullscreen, and idempotent. */
+function unlockKeys(): void {
+  const kb = keyboard();
+  if (!kb) return;
+  escapeLocked = false;
+  try { kb.unlock(); } catch { /* nothing holds a lock; not worth an error */ }
+}
+
+let installed = false;
+
+/**
+ * Arm the lock for the life of the page: taken on entering fullscreen, released
+ * on leaving it.
+ *
+ * Call once, at boot. It is NOT a user-gesture call — unlike
+ * `requestFullscreen`, `keyboard.lock()` has no activation requirement, which is
+ * what lets it be driven off the change event rather than wedged into the New
+ * Game handler beside the fullscreen request.
+ *
+ * Both spellings of the event are listened for, because the browsers that use
+ * the `webkit` one are exactly the browsers where `keyboard()` returns null —
+ * the listener is then a no-op, and this file stays free of a second feature
+ * test that would have to be kept in step with the first.
+ */
+export function installEscapeLock(): void {
+  if (installed || typeof document === 'undefined') return;
+  installed = true;
+  const sync = () => { if (isFullscreen()) lockEscape(); else unlockKeys(); };
+  document.addEventListener('fullscreenchange', sync);
+  document.addEventListener('webkitfullscreenchange', sync);
+  // A page can be fullscreen already — a reload inside fullscreen keeps it, and
+  // a run can be launched into one — so do not wait for an edge. Only the LOCK
+  // half: an unlock at boot would be a call about a lock nobody has taken.
+  if (isFullscreen()) lockEscape();
 }

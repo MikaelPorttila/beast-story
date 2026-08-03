@@ -96,12 +96,17 @@ export class PauseMenu {
   open(): void {
     if (this.el) return;
     this.step = 'menu';
-    // WAS THE PAGE FULLSCREEN WHEN THIS OPENED? Recorded because Escape is not
-    // ours to intercept: it is the browser's own "leave fullscreen" key, no
-    // page can preventDefault it, and the keydown reaches the game as well. So
-    // a player who presses Escape in fullscreen to see this menu gets the menu
-    // AND loses fullscreen, having asked for neither half of that. `close()`
-    // puts it back. See the note there for what it can and cannot do.
+    // WAS THE PAGE FULLSCREEN WHEN THIS OPENED? A FALLBACK, and it is worth
+    // knowing which half of the problem it is the fallback for. Escape is the
+    // browser's own "leave fullscreen" key and no page can preventDefault that,
+    // so a player who pressed Escape to see this menu used to get the menu AND
+    // lose fullscreen, having asked for neither half of that. The fix is a
+    // KEYBOARD LOCK taken on entering fullscreen (ui/fullscreen.ts), which makes
+    // Escape an ordinary key the game swallows — where it exists. Firefox,
+    // Safari, an iframe and plain http have no such API, and there this is still
+    // the only thing standing between a player and a shrinking window: record
+    // the state, and let `close()` put it back. See the note there for what it
+    // can and cannot do.
     this.wasFullscreen = isFullscreen();
     const el = document.createElement('div');
     el.className = 'bs-pause';

@@ -310,13 +310,14 @@ once frames come quickly.
   see. It also opens the panel with F1, holds W to prove the sheet is a real
   modal (measured: 0 units with it up, 6.77 with it down), closes it with Escape,
   and picks up a synthetic DualSense mid-read to check the faces swap live. Its
-  last two sections are the only ones in `tools/` that leave the well-trodden
-  path, and both have to. One runs UNCAPPED — ten presses of F1 must give
+  last three sections are the only ones in `tools/` that leave the well-trodden
+  path, and all three have to. One runs UNCAPPED — ten presses of F1 must give
   `1010101010`, which is exactly the assertion `fps=30` cannot make, see the
-  frame-edge note under Conventions. The other drops `menu=0` and walks the
+  frame-edge note under Conventions. The second drops `menu=0` and walks the
   STAGED boot to New Game, because that is the only way to reach the handover:
   an F1 pressed at the poster must not survive `beginPlay()`'s latch drain and
-  pop the sheet open on the first gameplay frame.
+  pop the sheet open on the first gameplay frame. The third goes FULLSCREEN with
+  a stubbed `navigator.keyboard` — see the Escape note under the title screen.
 - `test-pause.mjs` guards the in-game menu, and it is the second probe in
   `tools/` that has to run TWO PAGES for one feature. Everything about the menu
   itself is measured under the usual `menu=0` — Escape raises it, the hero
@@ -990,6 +991,35 @@ and an iPhone has no element-level Fullscreen API at all, so nothing happens
 there either. `fs=0` overrides the preference for one load — every probe in
 `tools/` that clicks New Game passes it, or the viewport is resized under the
 measurement it is taking.
+
+**ESCAPE IS THE GAME'S KEY, AND TAKING IT NEEDS A SECOND API.** Escape opens the
+in-game menu and is also the browser's own "leave fullscreen" key, so one press
+did both: the menu came up AND the screen shrank, having been asked for neither
+half. `preventDefault` does not reach that — the exit is a user-agent action
+taken over the page's head, which is why `Input.CAPTURED` left Escape out for so
+long and why `PauseMenu` had to record `wasFullscreen` and put it back on the way
+out (best-effort, and only on a CLICK). The fix is the KEYBOARD LOCK:
+`installEscapeLock()` takes `navigator.keyboard.lock(['Escape'])` on every entry
+into fullscreen and releases it on every exit, and under that lock Escape is
+delivered to the page as an ordinary key — so it is in `Input.CAPTURED` now and
+the preventDefault means something. The browser keeps ONE escape hatch no page
+may close: press and HOLD Escape for about a second and it leaves fullscreen
+anyway, with its own notice. That is the spec's anti-trap rule, not a gap.
+
+Three things about it. It is armed off the `fullscreenchange` EVENT rather than
+beside the `requestFullscreen()` call, because `lock()` is under no gesture
+deadline and a lock is scoped to the fullscreen session — a player who alt-tabs
+or F11s out and back needs it re-taken. It is CHROMIUM-ONLY, needs a secure
+context and a top-level document; everywhere else `keyboardLockSupported()` is
+false, nothing throws, and the old `PauseMenu` restore is still the whole of the
+answer. And `escapeIsLocked()` is the browser's ANSWER kept beside the request,
+because the two disagree in exactly the cases the feature is broken in.
+`__dbgFullscreen()` reports all four numbers. Section 6 of
+`tools/test-keybinds.mjs` is the guard, and it lies to the browser to be one:
+`navigator.keyboard` is NULL in a headless Chromium, so a stub in its place
+records that entering fullscreen asks for exactly `Escape`, that leaving unlocks,
+and that a real Escape comes back `defaultPrevented`. What no headless run can
+see — a real lock refusing a real Escape — is stated there rather than faked.
 
 **The vertical layout is a two-row grid meeting at a divider**, and that is
 load-bearing rather than incidental. The logo sits in row one aligned to its

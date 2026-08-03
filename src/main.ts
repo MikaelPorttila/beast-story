@@ -34,7 +34,10 @@ import { CombatSystem, SWORD_REACH } from './combat/index';
 import { HUD, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
 import { StartMenu } from './ui/menu';
 import { PauseMenu } from './ui/pause';
-import { exitFullscreen } from './ui/fullscreen';
+import {
+  exitFullscreen, fullscreenSupported, isFullscreen,
+  installEscapeLock, keyboardLockSupported, escapeIsLocked,
+} from './ui/fullscreen';
 import { LoadingScreen } from './ui/loading';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
@@ -44,6 +47,11 @@ const app = document.getElementById('app')!;
 // size from #app. See src/core/viewport.ts for why the viewport is measured
 // rather than asked for in dvh.
 installViewport();
+// Escape is the game's key, not the browser's: this arms the keyboard lock that
+// makes that true for as long as the page is fullscreen. Installed here rather
+// than beside the `requestFullscreen` call in ui/menu.ts because it is driven by
+// the change EVENT and is under no gesture deadline — see ui/fullscreen.ts.
+installEscapeLock();
 const engine = new Engine(app);
 const input = new Input(engine.renderer.domElement);
 const bus = new EventBus();
@@ -1114,6 +1122,18 @@ const _hurtFrom = new THREE.Vector3();
   // rather than trusting that whoever added a key remembered — see the note on
   // Input.CAPTURED, which has now been forgotten once per function key.
   captured: Input.capturedCodes(),
+});
+
+// Fullscreen and the Escape key. `keyboardLock` is whether this browser CAN be
+// asked for Escape, `escapeLocked` is whether it granted it — two answers,
+// because they disagree in exactly the cases the feature is broken in (an
+// iframe, plain http, a policy), and a probe reading only the first would pass
+// through all of them. Read-only; see ui/fullscreen.ts.
+(window as unknown as { __dbgFullscreen: () => unknown }).__dbgFullscreen = () => ({
+  supported: fullscreenSupported(),
+  active: isFullscreen(),
+  keyboardLock: keyboardLockSupported(),
+  escapeLocked: escapeIsLocked(),
 });
 
 // Controller state: what is plugged in, which faces the HUD is printing, and the

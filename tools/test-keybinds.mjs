@@ -78,8 +78,16 @@ for (const m of table.matchAll(/codes:\s*\[([^\]]*)\]/g)) {
  * game reacts correctly, and no help tab opens because a headless run has no
  * browser chrome to open one. It only ever fails on a real player's machine,
  * which is exactly the kind of defect that has to be a run rather than a wish.
+ *
+ * ESCAPE IS THE NEWEST MEMBER AND THE ODD ONE. Its default — leave fullscreen,
+ * drop pointer lock — is not stopped by preventDefault alone; it takes the
+ * KEYBOARD LOCK the game holds while fullscreen (ui/fullscreen.ts) to make that
+ * call mean anything. It belongs in this list all the same: the lock delivers
+ * the key to the page and the preventDefault is what the page then does with
+ * it, so dropping either half puts the browser back in the middle of the menu
+ * key. `keyboardLock` below is the other half's own check.
  */
-const BROWSER_OWNS = /^(F\d+|Arrow|Tab$|Space$)/;
+const BROWSER_OWNS = /^(F\d+|Arrow|Tab$|Space$|Escape$)/;
 
 const results = {
   table: {
@@ -107,6 +115,11 @@ await wait(3500);
   results.table.captured = [...captured].sort();
   results.table.uncaptured = owed.filter((c) => !captured.has(c)).sort();
 }
+
+// The state of both halves on an ordinary windowed page, for the record: no
+// fullscreen, so no lock. `keyboardLock` is FALSE in a headless run and that is
+// the browser rather than the code — see section 6, which is the guard.
+results.fullscreen = await page.evaluate(() => window.__dbgFullscreen());
 
 const sheet = () => page.evaluate(() => {
   const wrap = document.querySelector('.bs-keyswrap');
@@ -401,6 +414,86 @@ await page.close();
   await staged.close();
 }
 
+// ---------- 6. ESCAPE IS THE GAME'S KEY --------------------------------------
+//
+// Escape opens the in-game menu and is ALSO the browser's "leave fullscreen"
+// key, so one press used to do both. The fix has two halves and this section is
+// the only place either can be seen: `Input.CAPTURED` calling preventDefault
+// (asserted on the real key, above and here), and the KEYBOARD LOCK the game
+// takes while fullscreen, which is what makes that call mean anything.
+//
+// IT LIES TO THE BROWSER, like test-viewport.mjs and for the same kind of
+// reason. `navigator.keyboard` is NULL in a headless Chromium — the property is
+// declared and the object is not there — so the real API cannot be exercised at
+// all, and a run that simply asked for it would report "unsupported" forever and
+// guard nothing. A stub in its place records what the game ASKS FOR, which is
+// the part this repo owns: that entering fullscreen locks exactly `Escape`, that
+// leaving unlocks, and that `escapeLocked` follows the browser's answer rather
+// than our intent.
+//
+// WHAT IT STILL CANNOT SEE, stated rather than faked: whether a real lock stops
+// a real Escape from dropping fullscreen. That is the browser's behaviour under
+// an API this browser does not have, and it needs a headful Chromium, a display
+// and a hand. Everything up to the request is here.
+{
+  const fs = await newPage(browser, { width: 1024, height: 768 });
+  await fs.evaluateOnNewDocument(() => {
+    window.__kbCalls = [];
+    // `configurable` because the real accessor is on Navigator.prototype and
+    // answers null; this shadows it on the instance for the life of the page.
+    Object.defineProperty(navigator, 'keyboard', {
+      configurable: true,
+      value: {
+        lock: (codes) => { window.__kbCalls.push(`lock:${(codes ?? []).join('+')}`); return Promise.resolve(); },
+        unlock: () => { window.__kbCalls.push('unlock'); },
+      },
+    });
+  });
+  await fs.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
+  await fs.waitForSelector('canvas');
+  await wait(3000);
+
+  const windowed = await fs.evaluate(() => window.__dbgFullscreen());
+  // A real click first: `requestFullscreen` is refused without a user
+  // activation, exactly as it is for a player pressing New Game.
+  await fs.mouse.click(512, 384);
+  await fs.evaluate(() => document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {}));
+  await wait(800);
+  const full = await fs.evaluate(() => window.__dbgFullscreen());
+  const callsWhileFull = await fs.evaluate(() => window.__kbCalls.slice());
+
+  // The preventDefault half, read off a REAL Escape rather than off the capture
+  // list: `Input`'s own window listener runs first (it was added first), so a
+  // listener added here sees what it decided.
+  // NOT awaited here: the evaluate resolves with the promise's value, so awaiting
+  // it would sit out the whole timeout before the key is ever pressed.
+  const prevented = fs.evaluate(() => new Promise((resolve) => {
+    const on = (e) => { window.removeEventListener('keydown', on); resolve(e.defaultPrevented); };
+    window.addEventListener('keydown', on);
+    setTimeout(() => resolve(null), 2000);
+  }));
+  await fs.keyboard.press('Escape');
+  const escapePrevented = await prevented;
+
+  await fs.evaluate(() => document.exitFullscreen?.());
+  await wait(600);
+  const afterExit = await fs.evaluate(() => window.__dbgFullscreen());
+  const calls = await fs.evaluate(() => window.__kbCalls.slice());
+
+  results.escapeLock = {
+    lockedWhileWindowed: windowed.escapeLocked,
+    enteredFullscreen: full.active,
+    lockedWhileFullscreen: full.escapeLocked,
+    // The exact request, because "some lock" is not the point — a lock over the
+    // wrong code list would take keys the player still needs.
+    lockedCodes: callsWhileFull.filter((c) => c.startsWith('lock:')).at(-1) ?? null,
+    escapePrevented,
+    releasedOnExit: afterExit.escapeLocked === false && calls.at(-1) === 'unlock',
+    calls,
+  };
+  await fs.close();
+}
+
 console.log(JSON.stringify(results, null, 2));
 await browser.close();
 
@@ -429,6 +522,17 @@ const expectUnscanned = [
 const strayRows = results.table.listedNotScanned.filter((c) => !expectUnscanned.includes(c));
 check(strayRows.length === 0, `the sheet names ${strayRows.join(', ')}, which nothing reads`);
 check(results.sheet?.afterOpen?.open !== false, 'F1 did not open the sheet');
+// Escape: both halves. See section 6 for what the stub can and cannot prove.
+check(results.escapeLock?.enteredFullscreen === true,
+  'the page never went fullscreen — the lock assertions below prove nothing');
+check(results.escapeLock?.lockedCodes === 'lock:Escape',
+  `fullscreen asked for ${results.escapeLock?.lockedCodes} — it must lock exactly Escape`);
+check(results.escapeLock?.lockedWhileFullscreen === true,
+  'the keyboard lock was not held in fullscreen — Escape would leave it');
+check(results.escapeLock?.releasedOnExit === true,
+  'the keyboard lock outlived fullscreen — leaving must give every key back');
+check(results.escapeLock?.escapePrevented === true,
+  'Escape reaches the BROWSER — it must be in Input.CAPTURED');
 check(results.stagedBoot?.alternates !== false,
   `F1 does not alternate uncapped (${results.stagedBoot?.pattern})`);
 

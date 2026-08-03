@@ -123,6 +123,17 @@ export class Input {
     // the keyboard from the game and cannot be got back without a click. It is
     // the cursor toggle (see setCursorFree in main.ts), so it is pressed often.
     'AltLeft', 'AltRight',
+    // ESCAPE opens the in-game menu, and is also the browser's key for leaving
+    // fullscreen and for dropping pointer lock. This line alone does NOT stop
+    // either of those: both are user-agent actions taken over the page's head,
+    // and for a long time this set left Escape out for exactly that reason —
+    // "you cannot preventDefault it" was true. It stopped being true with the
+    // KEYBOARD LOCK the game now takes on entering fullscreen (see
+    // ui/fullscreen.ts): under that lock Escape is delivered to the page as an
+    // ordinary key and this preventDefault is what keeps the browser out of it.
+    // Where there is no lock — Firefox, Safari, an iframe, plain http — the call
+    // is harmless and the old behaviour is unchanged.
+    'Escape',
   ]);
 
   /** The capture list, for tools/test-keybinds.mjs. Read-only by convention. */
