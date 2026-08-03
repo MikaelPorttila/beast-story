@@ -145,7 +145,8 @@ once frames come quickly.
   `measure-layout.mjs`, `test-beastanim.mjs`, `test-structures.mjs`,
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
-  `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`. `tools/capture-set.ps1` (PowerShell,
+  `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`.
+  `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
 - **`bun tools/probe.mjs <name...|all> [--jobs N] [--json]` runs a SET of them
@@ -533,6 +534,42 @@ break unknowingly:
 - `installAerialPerspective()` monkey-patches three's fog `ShaderChunk`s *globally
   at module load*, so distance haze samples the sky gradient per fragment. Every
   fogged material inherits it; there are no per-material hooks to add.
+- **THE SHADOW MAP IS TWO HALVES, AND ONLY ONE OF THEM IS REDRAWN PER FRAME.**
+  Terrain, trees, roads and the settlements are pure functions of the seed and
+  never move, so they are rendered ONCE into a cache of their own
+  ([src/core/shadow-cache.ts](src/core/shadow-cache.ts)) and composited back over
+  a live pass that draws only the actors. Measured on an RTX 3070 Ti at
+  1280x800: **681 draw calls -> 572 and 3.73M triangles -> 2.66M**, for -0.18 to
+  -0.26 ms of frame CPU standing and nothing readable walking. The split is by
+  LAYER (`STATIC_SHADOW_LAYER`, bit 1) and the STATIC side is the one that opts
+  in, deliberately: an actor wrongly marked static drags a frozen shadow behind
+  it, where scenery that nobody marked is merely redrawn every frame. So only
+  `markStaticShadowCaster` moves anything, and only world geometry calls it —
+  never the shop crystals (they bob and spin), never Gain (he curls a dumbbell),
+  never a beast. It is a real layer, so THE CAMERA HAS TO ENABLE IT and so does
+  any `Raycaster` (`__dbgSurfaceY` calls `layers.enableAll()` for exactly that).
+  `shadowcache=0` is the A/B and is the one flag in core/flags.ts that must move
+  no pixels; `tools/test-shadowcache.mjs` holds it to that against a control,
+  and separately steps the hero less than `SHADOW_RECENTER` to prove his shadow
+  still moves when the cache does not rebuild. `__dbgShadows()` reports
+  frames-per-rebuild and the caster census.
+- **THE BOX MOVES IN JUMPS, AND THE JUMPS ARE WHOLE SHADOW TEXELS.** A cached
+  static map is only valid while the light matrix it was rendered with is, so
+  `updateSunFocus` lets the focus wander `SHADOW_RECENTER` units inside the box
+  before recentring, and adds the same 8 units to the ortho extent so the
+  guaranteed shadowed radius around the hero is unchanged. The recentre is
+  quantised on the shadow camera's OWN axes rather than on a world lattice —
+  the previous 0.5-unit world rounding claimed in a comment to be a light-space
+  quantisation and was not (0.5 units is 14.2 texels), so every step re-rolled
+  which texel each shadow edge fell in.
+- **`scene.matrixWorldAutoUpdate` IS OFF, and `Engine.render()` calls
+  `scene.updateMatrixWorld()` once.** Required, because the shadow passes now run
+  before the post chain and read every caster's `matrixWorld` — and worth more
+  than the cache they were done for: a frame makes four `renderer.render()`
+  calls, three had nothing to recompute, and hoisting the traversal measured
+  **-0.46 ms standing and -0.58 ms walking**, unanimous across every alternation
+  of the A/B. Anything that moves an object AFTER that call in `render()` (the
+  sky dome and the sun disk do, a few lines earlier) has to be above it.
 - **`scene.fog.color` is an ABSORPTION MULTIPLIER on that sky, not a fog colour**,
   and it is WHITE above water. The patched chunk fades a fragment toward
   `bsSkyRadiance(elevation)` rather than toward a constant, which is the whole
@@ -1227,8 +1264,10 @@ Subtract the spawn (`__dbgTowns().spawn`) first. `npct=<seconds>` pins the NPC
 animation clock so two stills of the same 4.6 s curl are reproducible;
 `fps=<n>` caps the frame rate;
 `debug=1` opens the F2 overlay; `fs=<0|1>` overrides "fullscreen on start" for
-this load without writing the preference back; plus every post-processing
-override above.
+this load without writing the preference back; `shadowcache=0` redraws the whole
+shadow map from every caster every frame, the way it was before
+[src/core/shadow-cache.ts](src/core/shadow-cache.ts) — the one `?` flag that must
+not move a pixel; plus every post-processing override above.
 `menu=0` removes the title screen and starts the game immediately — what every
 probe in `tools/` passes, and what `photo=1` implies on its own; `menu=1` forces
 it back, INCLUDING in photo mode, which is how the title screen itself gets

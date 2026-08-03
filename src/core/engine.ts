@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PostFX, readPostOptions } from './post';
 import { flags } from './flags';
+import { StaticShadowCache, STATIC_SHADOW_LAYER, shadowCasterCensus } from './shadow-cache';
 
 /**
  * Rendering engine: renderer, scene, camera, sky, sun/ambient lighting, fog and
@@ -59,6 +60,49 @@ const SUN_OFFSET = new THREE.Vector3(170, 160, 113);
 // NUM_DIR_LIGHTS is 2 for every program the game ever compiles — no new
 // permutation can appear mid-session and warmUpShaders() stays valid.
 const BOUNCE_OFFSET = new THREE.Vector3(-160, -62, -106);
+
+/**
+ * How far the focus may drift from the shadow box's centre before the box is
+ * recentred — and so, directly, how long one cached static shadow map lives
+ * (core/shadow-cache.ts). At a walk of ~7 units/s this is a rebuild every 1.1 s,
+ * i.e. one frame in ~130 at the 120 cap.
+ *
+ * IT COSTS NO COVERAGE, because `updateSunFocus` adds the same 8 units to the
+ * ortho extent: the box is 8 units bigger and may sit up to 8 units behind the
+ * hero, so the guaranteed radius of shadowed world around him is exactly what
+ * it was. What it does cost is texel density — 80 units of half-extent instead
+ * of 72, so 0.039 units per texel instead of 0.035, and a PCF penumbra on a
+ * 1-unit cube of 0.078 units instead of 0.070. That is well inside the budget
+ * the PCF choice in the constructor was made against (0.15 at the photo-mode
+ * extent).
+ *
+ * Why not larger: the box is what the STATIC pass draws, so every unit of it is
+ * more scenery in the rebuild AND a coarser penumbra, while a rebuild is
+ * already amortised to about two draw calls a frame. Why not smaller: below
+ * about 4 units the walk recentres several times a second and the cache stops
+ * being one.
+ *
+ * MEASURED: 33 recentres over one straight 50-second walk, against 110 rebuilds
+ * from chunks streaming in near enough to matter. The box is NOT the thing
+ * costing rebuilds — see `takeDirty` in shadow-cache.ts for the one that is,
+ * and why those are legitimate.
+ */
+const SHADOW_RECENTER = 8;
+
+// The shadow camera's own axes, in world space. Constant, because the sun
+// direction is: three's LightShadow points the box from the light at its target
+// with `up` at +Y, so this is exactly the basis `Camera.lookAt` builds.
+//
+// They exist so `updateSunFocus` can snap the box centre to the SHADOW TEXEL
+// GRID, which is the thing that actually stops shadow edges crawling. Rounding
+// the centre in world space — which is what this used to do, to 0.5 units —
+// only stops the crawl if the step happens to be a whole number of texels along
+// each of these axes, and 0.5 units is 14.2 texels of a 72-unit box. Snapped
+// here instead, a recentre cannot re-roll which texel an edge lands in at all.
+const SHADOW_Z = new THREE.Vector3().copy(SUN_OFFSET).normalize();
+const SHADOW_X = new THREE.Vector3()
+  .crossVectors(new THREE.Vector3(0, 1, 0), SHADOW_Z).normalize();
+const SHADOW_Y = new THREE.Vector3().crossVectors(SHADOW_Z, SHADOW_X);
 
 // Gradient sky dome: zenith blue -> pale horizon, a warm band on the horizon
 // line and a tight corona around the sun.
@@ -376,8 +420,22 @@ export class Engine {
   /** The background the sky dome is painted to match; see render(). */
   private readonly ownBackground: THREE.Color;
   private post: PostFX | null = null;
+  /**
+   * The cached static half of the shadow map, or null under `shadowcache=0` /
+   * `shadows=0` — in which case render() falls back to the plain "redraw
+   * everything, every frame" it always did. See core/shadow-cache.ts.
+   */
+  private shadowCache: StaticShadowCache | null = null;
+  /** Runtime A/B switch over that cache; see `setShadowCacheEnabled`. */
+  private shadowCacheOn = true;
   /** Current shadow ortho half-extent; see updateSunFocus(). */
   private shadowExtent = 0;
+  /**
+   * Where the shadow box is actually centred — texel-snapped, and up to
+   * SHADOW_RECENTER units behind the focus. NaN until the first update, which is
+   * what makes the first call recentre unconditionally.
+   */
+  private readonly shadowBoxCenter = new THREE.Vector3(NaN, NaN, NaN);
   private sunDir = new THREE.Vector3().copy(SUN_OFFSET).normalize();
   private clock = new THREE.Clock();
   private minFrameMs = 0;
@@ -524,6 +582,11 @@ export class Engine {
       55, container.clientWidth / container.clientHeight, 0.1, 600,
     );
     this.camera.position.set(0, 12, 18);
+    // The cached-shadow layer is a REAL layer, and world geometry lives on it
+    // alone (see shadow-cache.ts) — so a camera that does not enable it renders
+    // a world with no ground in it. This one line is the whole cost of the
+    // split outside the shadow passes themselves.
+    this.camera.layers.enable(STATIC_SHADOW_LAYER);
 
     // Warm and deliberately not brighter than it has to be: the hemisphere fill
     // below is what lifts the shadows, and every step this goes up has to be paid
@@ -707,6 +770,23 @@ export class Engine {
       new ResizeObserver(resize).observe(container);
     }
 
+    // The scene's world matrices are updated ONCE, at the top of render(),
+    // rather than by three at the top of each renderer.render() call. Two
+    // reasons, and the first is a correctness one: the shadow work now happens
+    // before the post chain runs, and it reads the light's and every caster's
+    // matrixWorld. The second is that a frame makes half a dozen render() calls
+    // — the scene, the AO prepass, the bloom pass, and the two the shadow cache
+    // adds — and only one of them can possibly have anything to recompute.
+    //
+    // The second reason turned out to be worth more than the feature it was
+    // done for. Measured with the interleaved A/B in tools/test-shadowcache.mjs
+    // on an RTX 3070 Ti at 1280x800: **-0.46 ms standing and -0.58 ms walking**,
+    // unanimous across every alternation, on a 5-6 ms frame. Three walks the
+    // whole graph per render() whether or not anything in it moved, and a
+    // streamed world is a couple of thousand objects.
+    this.scene.matrixWorldAutoUpdate = false;
+    if (flags.shadows && flags.shadowCache) this.shadowCache = new StaticShadowCache();
+
     // Post-processing is built last: RenderPass needs the finished camera, and
     // GTAOPass sizes its G-buffer from the renderer's current drawing buffer.
     const opts = readPostOptions(location.search);
@@ -751,9 +831,9 @@ export class Engine {
    */
   updateSunFocus(focus: THREE.Vector3): void {
     const want = 52 + this.camera.position.distanceTo(focus) * 1.35;
-    // Ceiling 112 -> 152. The floor and the slope are untouched, so the GAMEPLAY
-    // camera is bit-for-bit unaffected: it sits ~12 units behind the player, wants
-    // 68 and gets 72, nowhere near either end. This only moves photo-mode and
+    // Ceiling 112 -> 152. The floor and the slope are untouched: the gameplay
+    // camera sits ~12 units behind the player, wants 68 and gets 72 (80 once the
+    // recentre margin below is added), nowhere near either end. This only moves photo-mode and
     // fly-cam framings, and there it fixes a real hole — VIEW_RADIUS streams
     // terrain to ~245 units, so a 112-unit box left more than half of every vista
     // with no cast shadow at all, which is exactly the "flat diorama" read on a
@@ -761,21 +841,41 @@ export class Engine {
     // of 0.055; PCF spans ~2 texels either way, so the penumbra on a 1-unit cube
     // goes from 0.11 to 0.15 units — still a recognisably 1-unit edge, which is
     // the constraint the PCF choice in the constructor was made against.
-    const s = Math.round(Math.min(152, Math.max(64, want)) / 8) * 8;
-    if (s !== this.shadowExtent) this.setShadowExtent(s);
+    // Plus SHADOW_RECENTER, so that the box may LAG the focus by that much
+    // without the shadowed radius around the hero shrinking. See the constant.
+    const s = Math.round(Math.min(152, Math.max(64, want)) / 8) * 8 + SHADOW_RECENTER;
+    const resized = s !== this.shadowExtent;
+    if (resized) this.setShadowExtent(s);
 
-    // Snap the box to a coarse world lattice. Shadows live in world space, so
-    // moving the box moves no shadow — the only thing an unsnapped box changes is
-    // WHICH shadow texel each edge lands on, and that re-rolls every frame as the
-    // player walks, which is the crawling/shimmering along shadow edges. 0.5 units
-    // is ~15 texels at the tightest cascade: coarse enough to be stable, far too
-    // small to shift coverage. The light direction is fixed, so quantising world
-    // space quantises light space too.
-    const fx = Math.round(focus.x * 2) * 0.5;
-    const fy = Math.round(focus.y * 2) * 0.5;
-    const fz = Math.round(focus.z * 2) * 0.5;
-    this.sun.target.position.set(fx, fy, fz);
-    this.sun.position.set(fx + SUN_OFFSET.x, fy + SUN_OFFSET.y, fz + SUN_OFFSET.z);
+    // THE BOX MOVES IN JUMPS NOW, and both halves of that are deliberate.
+    //
+    // It moves RARELY because a cached static shadow map is only valid while the
+    // light matrix it was rendered with is: recentring every frame would rebuild
+    // the cache every frame and the whole thing would be a fullscreen quad's
+    // worth of pure loss. So the focus is allowed to wander SHADOW_RECENTER
+    // units inside the box before the box follows it.
+    //
+    // It moves in whole TEXELS because that is what stops shadow edges crawling.
+    // The previous version rounded the centre to 0.5 world units and said in a
+    // comment that a fixed light direction made that a light-space quantisation
+    // too; it does not — 0.5 units is 14.2 texels of the box it was written for,
+    // so every step re-rolled which texel each edge fell in. Projecting onto the
+    // shadow camera's own axes (SHADOW_X/Y, constant because the sun is) and
+    // rounding THERE makes the claim true, and is what lets the box jump 8 units
+    // without a visible shimmer at the seam.
+    const texel = (2 * s) / this.sun.shadow.mapSize.x;
+    const drift = this.shadowBoxCenter.distanceToSquared(focus);
+    if (!resized && Number.isFinite(drift) && drift <= SHADOW_RECENTER * SHADOW_RECENTER) return;
+    const u = Math.round(focus.dot(SHADOW_X) / texel) * texel;
+    const v = Math.round(focus.dot(SHADOW_Y) / texel) * texel;
+    const w = focus.dot(SHADOW_Z);
+    this.shadowBoxCenter
+      .copy(SHADOW_X).multiplyScalar(u)
+      .addScaledVector(SHADOW_Y, v)
+      .addScaledVector(SHADOW_Z, w);
+    const c = this.shadowBoxCenter;
+    this.sun.target.position.copy(c);
+    this.sun.position.set(c.x + SUN_OFFSET.x, c.y + SUN_OFFSET.y, c.z + SUN_OFFSET.z);
   }
 
   private onResize(container: HTMLElement): void {
@@ -909,12 +1009,41 @@ export class Engine {
     if (!flags.shadows || this.renderer.shadowMap.enabled === on) return;
     this.renderer.shadowMap.enabled = on;
     this.renderer.shadowMap.needsUpdate = true;
+    // The cached half is stale by construction after a spell with the map
+    // switched off: nothing was drawn into it, and the world moved on.
+    this.shadowCache?.invalidate();
     this.scene.traverse((o) => {
       const m = (o as THREE.Mesh).material;
       if (!m) return;
       if (Array.isArray(m)) for (const x of m) x.needsUpdate = true;
       else m.needsUpdate = true;
     });
+  }
+
+  /**
+   * Switch the cache off and on at runtime, for A/B measurement only.
+   *
+   * `shadowcache=0` is the same A/B across two page loads and is what a capture
+   * uses; this is the form a PERFORMANCE run needs, because frame cost on a
+   * desktop drifts by more than the thing being measured over the minute two
+   * loads take. Interleaved in one page, against one stretch of world, the drift
+   * cancels — see tools/test-shadowcache.mjs.
+   */
+  setShadowCacheEnabled(on: boolean): void {
+    if (!this.shadowCache) return;
+    this.shadowCacheOn = on;
+    this.shadowCache.invalidate();
+  }
+
+  /** What the cache did this frame; see `__dbgShadows()`. */
+  shadowDebug(): Record<string, unknown> {
+    return {
+      enabled: this.renderer.shadowMap.enabled,
+      cached: this.shadowCache !== null && this.shadowCacheOn,
+      extent: this.shadowExtent,
+      ...(this.shadowCache?.debug() ?? {}),
+      ...shadowCasterCensus(this.scene),
+    };
   }
 
   render(): void {
@@ -933,10 +1062,32 @@ export class Engine {
     this.skyDome.visible = !plainBackdrop;
     this.sunDisk.visible = !plainBackdrop;
 
+    // EVERY WORLD MATRIX, ONCE, and it has to be here rather than at the top of
+    // the method: the sky dome and the sun disk are moved a few lines up, and
+    // with `scene.matrixWorldAutoUpdate` off (see the constructor) nothing else
+    // is going to pick that up. Everything below reads matrixWorld — the shadow
+    // passes directly, the post chain through three.
+    this.scene.updateMatrixWorld();
+
     // One shadow-map update and one stats window per frame, however many
     // renderer.render() calls the post chain makes (see the constructor).
-    this.renderer.shadowMap.needsUpdate = true;
+    //
+    // With the cache on, "one update" is one pass over the ACTORS plus a
+    // fullscreen quad carrying the world; without it, the plain flag that
+    // redraws every caster in the world. Both leave `needsUpdate` false behind
+    // them, so the chain's remaining render() calls add nothing either way.
+    // The stats window opens FIRST, so the shadow pass lands inside it. That is
+    // what lets a probe read the cache's saving straight off the draw counter
+    // (tools/test-shadowcache.mjs does) instead of having to infer it from a
+    // millisecond figure that moves with the weather on the host.
     this.renderer.info.reset();
+    if (this.shadowCache && this.shadowCacheOn && this.renderer.shadowMap.enabled) {
+      this.shadowCache.update(
+        this.renderer, this.scene, this.camera, this.sun, SHADOW_X, SHADOW_Y,
+      );
+    } else {
+      this.renderer.shadowMap.needsUpdate = true;
+    }
 
     if (this.post) this.post.render();
     else this.renderer.render(this.scene, this.camera);

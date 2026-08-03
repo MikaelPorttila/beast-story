@@ -12,6 +12,18 @@
  *   enemies=0   no wild spawns
  *   beasts=0    no beast actors at all (nothing built, nothing updated)
  *   shadows=0   no shadow map
+ *   shadowcache=0
+ *               the shadow map is redrawn from every caster in the world, every
+ *               frame, the way it was before core/shadow-cache.ts. Keeps the
+ *               shadows themselves, so it is the honest A/B for "is the cache
+ *               free": the same picture, from the same casters, with the only
+ *               difference being whether the static half was redrawn. That is
+ *               the pair tools/test-shadowcache.mjs measures, in both
+ *               directions — the frame it saves AND the pixels it must not
+ *               change. Deliberately NOT in `anyFlagSet` below, and that is a
+ *               CLAIM rather than an oversight: this flag is the one toggle in
+ *               the file that must not move a pixel, and the guard photographs
+ *               both settings to hold it to that.
  *   towns=0     no settlements and no roads — the world before world/towns.ts.
  *               The terrain corridor goes with them, so this also prices what
  *               the road field costs `heightCont` on the collision hot path.
@@ -83,6 +95,7 @@ export const flags = {
   enemies: on('enemies'),
   beasts: on('beasts'),
   shadows: on('shadows'),
+  shadowCache: on('shadowcache'),
   towns: on('towns'),
   solids: on('solids'),
   sway: on('sway'),
