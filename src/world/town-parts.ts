@@ -41,7 +41,10 @@
 import { VoxelModel, shade } from '../core/voxel';
 import { bakeProp, type Template } from './props';
 import { bakeSolid, SolidStamp } from './structures';
-import { builtDeck, DECK_EDGE, DECK_HALF, SHOULDER_IN, type Road } from './roads';
+import {
+  builtDeck, APRON_R, DECK_EDGE, DECK_HALF, SHOULDER_IN,
+  type Junction, type Road, type RoadSample,
+} from './roads';
 import { WATER_LEVEL } from './terrain';
 import { hashCell } from './noise';
 
@@ -954,8 +957,9 @@ const RIM_GUARD = 0.75;
  * reading as torn paper. It bought 0.64 -> 0.49 at one spot.
  *
  * So the tessellation stays coarse and the ribbon goes on smoothing the ground
- * instead of reproducing it. Correctness is `surfaceAt`'s job, and the honest
- * fix for the residue is upstream at the junction — see AGENTS.md.
+ * instead of reproducing it. Correctness is `surfaceAt`'s job, and the residue
+ * this was chasing turned out to be the junction's rather than the ribbon's —
+ * see `buildJunctionApron`.
  */
 const SHOULDER_AT = DECK_EDGE - SHOULDER_IN;
 const XS = [
@@ -974,6 +978,138 @@ const RUT = lin(0x6b5843);
 const EARTH = lin(0x8a7a60);
 const GRAVEL = lin(0x9a8f79);
 const DECK_PLANK = lin(0x7d6142);
+
+/**
+ * ONE CROSS-SECTION VERTEX, height and all — the ribbon's and the apron's.
+ *
+ * Shared rather than duplicated because the apron's rim IS the ribbon's first
+ * ring: the same nine offsets on the same sample, and the seam between them is
+ * invisible only while both arrive at the same number. Two copies of this
+ * arithmetic would agree on the day they were written.
+ */
+function sectionAt(
+  surfaceAt: (x: number, z: number) => number,
+  p: RoadSample, px: number, pz: number, tx: number, tz: number, d: number,
+): { x: number; y: number; z: number } {
+  const ad = Math.abs(d);
+  // A span is flat to its edge and has water under it; everything else reads
+  // the walking surface at the vertex, rim pulled just inside.
+  const sd = Math.sign(d) * Math.min(ad, DECK_EDGE - 0.02);
+  let y = p.bridge ? p.y : surfaceAt(p.x + px * sd, p.z + pz * sd);
+  // AND THE RIM COVERS THE COLUMN IT IS THERE TO HIDE.
+  //
+  // Outside DECK_HALF the walking surface is `round(deck)` — an INTEGER, so
+  // that it matches the floored terrain column beside it (roads.ts, `carveAt`)
+  // — and `round` flips by a whole unit as the deck passes each half. The rim
+  // vertex and the cell it covers are up to half a cell diagonal apart, and on
+  // a bend they can project onto different road segments, so the two can land
+  // either side of that flip: measured on seed 1337, a ring whose deck was
+  // 16.479 on one side and 16.501 on the other drew both rims at shoulder 16
+  // with the ground at 17 under one of them, and 0.898 units of grass stood up
+  // through the gravel. 193 of 5267 cross-road samples were poking that way.
+  //
+  // So a rim takes the HIGHEST surface within half a cell of itself. It can
+  // only rise, never sink, and it rises exactly where the ground it covers does
+  // — the outer 0.8 of verge banks up with the shoulder instead of cutting
+  // through it. Interior vertices are deliberately left alone: the deck is
+  // smooth and continuous, there is nothing there to cover, and a max taken at
+  // DECK_HALF would pull the carriageway's edge up onto the verge ramp and bury
+  // the player's feet in it.
+  //
+  // BOTH shoulder vertices, not only the rim. Between `SHOULDER_AT` and
+  // `DECK_EDGE` the ribbon is a chord between the two, so guarding the rim
+  // alone left the inner end of that chord free to drop under a flipped column
+  // — 57 of 5267 samples, every one of them in that 0.8-unit band, and 36 with
+  // both guarded.
+  //
+  // 22 SURVIVED THIS, AND EVERY ONE OF THEM WAS AT THE FORK. A ring is ~3 units
+  // long and the ribbon between two rings is a chord; where two arms overlapped
+  // near the junction, `nearest` handed two points a unit apart to different
+  // roads, and a chord between two correctly-guarded rings still passed under a
+  // column the other arm's shoulder had rounded the other way. Subdividing the
+  // rings would have closed it and is the change that made the road read as
+  // torn paper (see XS above); what actually closed it was removing the overlap
+  // — an arm now starts at the junction's rim and the apron draws the middle
+  // (`buildJunctionApron`). It is 0 of 5295 today; `tools/test-road.mjs`
+  // reports the count and the fork is the place to look if it moves.
+  if (!p.bridge && ad >= SHOULDER_AT) {
+    const out = Math.sign(d) * RIM_GUARD;
+    for (const [gx, gz] of [
+      [px * out, pz * out],
+      [tx * RIM_GUARD, tz * RIM_GUARD],
+      [-tx * RIM_GUARD, -tz * RIM_GUARD],
+    ] as const) {
+      const g = surfaceAt(p.x + px * sd + gx, p.z + pz * sd + gz);
+      if (g > y) y = g;
+    }
+  }
+  return { x: p.x + px * d, y, z: p.z + pz * d };
+}
+
+/** The colour of that vertex: rut down the middle, gravel at the verge. */
+function sectionColour(
+  seed: number, p: RoadSample, k: number, d: number,
+): [number, number, number] {
+  const ad = Math.abs(d);
+  const base = p.bridge ? DECK_PLANK
+    : ad > DECK_HALF ? GRAVEL
+      : ad < DECK_HALF * 0.5 ? RUT : EARTH;
+  // Planks band ACROSS a bridge deck; packed earth gets a mottle instead.
+  const m = p.bridge
+    ? (Math.round(p.x * 0.7 + p.z * 0.7) % 2 === 0 ? 1.1 : 0.88)
+    : 0.86 + hashCell(seed, Math.round(p.x), k, Math.round(p.z)) * 0.3;
+  return [base[0] * m, base[1] * m, base[2] * m];
+}
+
+/**
+ * The deck polyline with everything inside a fork's apron removed, and a
+ * terminal sample interpolated exactly onto the rim.
+ *
+ * ONE function for the ribbon and for the apron, for the same reason `builtDeck`
+ * is one function: the arm's first ring and the apron's rim in that direction
+ * are the same nine vertices, and they can only be the same nine vertices if
+ * both sides agree to the last bit about where the arm starts.
+ *
+ * Only the ENDS are trimmed. A road that dived into an apron and came out again
+ * would be a road that passes through its own junction, which the router cannot
+ * produce and which a mid-polyline clip would answer wrongly anyway (it would
+ * keep the far side and silently drop the near one).
+ */
+function clipToApron(pts: RoadSample[], aprons: readonly Junction[]): RoadSample[] {
+  if (aprons.length === 0 || pts.length < 2) return pts;
+  const inside = (p: RoadSample): boolean =>
+    aprons.some((a) => Math.hypot(p.x - a.x, p.z - a.z) < APRON_R);
+  /** Where the segment a->b crosses out of the apron b is outside of. */
+  const rim = (a: RoadSample, b: RoadSample): RoadSample => {
+    let lo = 0;
+    let hi = 1;
+    // Bisection rather than the quadratic's root: the polyline is resampled at
+    // SEG_LEN and a dozen halvings put the crossing inside a tenth of a
+    // millimetre, which is far under RIBBON_LIFT.
+    for (let i = 0; i < 24; i++) {
+      const t = (lo + hi) / 2;
+      const p = { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
+      if (aprons.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < APRON_R)) lo = t;
+      else hi = t;
+    }
+    return {
+      x: a.x + (b.x - a.x) * hi,
+      z: a.z + (b.z - a.z) * hi,
+      y: a.y + (b.y - a.y) * hi,
+      // A cut end inherits the span flag, exactly as `builtDeck`'s does.
+      bridge: a.bridge || b.bridge,
+    };
+  };
+  let lead = 0;
+  while (lead < pts.length && inside(pts[lead])) lead++;
+  let tail = pts.length - 1;
+  while (tail > lead && inside(pts[tail])) tail--;
+  if (tail - lead < 1) return [];
+  const out = pts.slice(lead, tail + 1);
+  if (lead > 0) out.unshift(rim(pts[lead - 1], pts[lead]));
+  if (tail < pts.length - 1) out.push(rim(pts[tail + 1], pts[tail]));
+  return out;
+}
 
 /**
  * The carriageway surface, as one merged geometry on the TERRAIN material.
@@ -1020,6 +1156,8 @@ export function buildRoadRibbon(
   surfaceAt: (x: number, z: number) => number,
   /** Per-road nudge, so two ribbons resolved onto one surface cannot z-fight. */
   liftBias = 0,
+  /** Forks this arm must not draw over. See `buildJunctionApron`. */
+  aprons: readonly Junction[] = [],
 ): {
   pos: number[]; nrm: number[]; col: number[]; idx: number[];
 } {
@@ -1032,7 +1170,11 @@ export function buildRoadRibbon(
     // The BUILT deck, not the route. A road may be surfaced over less than it
     // is routed over — the Encampment's is — and drawing the route would put
     // gravel where no carriageway was carved. See Road.trim in roads.ts.
-    const pts = builtDeck(road);
+    // ...and then the part of it that is not somebody else's junction. An arm
+    // GROWS FROM THE APRON: it starts on the rim and the apron covers the rest,
+    // which is the whole of issue #45 — three ribbons all drawn to the node,
+    // each ending in a square cross-section on top of the other two.
+    const pts = clipToApron(builtDeck(road), aprons);
     if (pts.length < 2) continue;
     let ring0 = -1;
     let ringFirst = -1;
@@ -1053,71 +1195,11 @@ export function buildRoadRibbon(
       const ring = pos.length / 3;
       for (let k = 0; k < XS.length; k++) {
         const d = XS[k];
-        const ad = Math.abs(d);
-        // A span is flat to its edge and has water under it; everything else
-        // reads the walking surface at the vertex, rim pulled just inside.
-        const sd = Math.sign(d) * Math.min(ad, DECK_EDGE - 0.02);
-        let y = p.bridge ? p.y : surfaceAt(p.x + px * sd, p.z + pz * sd);
-        // AND THE RIM COVERS THE COLUMN IT IS THERE TO HIDE.
-        //
-        // Outside DECK_HALF the walking surface is `round(deck)` — an INTEGER,
-        // so that it matches the floored terrain column beside it (roads.ts,
-        // `carveAt`) — and `round` flips by a whole unit as the deck passes
-        // each half. The rim vertex and the cell it covers are up to half a
-        // cell diagonal apart, and on a bend they can project onto different
-        // road segments, so the two can land either side of that flip: measured
-        // on seed 1337, a ring whose deck was 16.479 on one side and 16.501 on
-        // the other drew both rims at shoulder 16 with the ground at 17 under
-        // one of them, and 0.898 units of grass stood up through the gravel.
-        // 193 of 5267 cross-road samples were poking that way.
-        //
-        // So a rim takes the HIGHEST surface within half a cell of itself. It
-        // can only rise, never sink, and it rises exactly where the ground it
-        // covers does — the outer 0.8 of verge banks up with the shoulder
-        // instead of cutting through it. Interior vertices are deliberately
-        // left alone: the deck is smooth and continuous, there is nothing there
-        // to cover, and a max taken at DECK_HALF would pull the carriageway's
-        // edge up onto the verge ramp and bury the player's feet in it.
-        //
-        // BOTH shoulder vertices, not only the rim. Between `SHOULDER_AT` and
-        // `DECK_EDGE` the ribbon is a chord between the two, so guarding the rim
-        // alone left the inner end of that chord free to drop under a flipped
-        // column — 57 of 5267 samples, every one of them in that 0.8-unit band,
-        // and 36 with both guarded.
-        //
-        // 22 SURVIVE, and they are the honest limit of this approach rather than
-        // a number to tune away. A ring is ~3 units long and the ribbon between
-        // two rings is a chord; where the deck runs along a bend or beside its
-        // own further stretch, `nearest` can hand two points a unit apart to
-        // different segments, and a chord between two correctly-guarded rings
-        // still passes under a column in the middle. Closing that means either
-        // subdividing the rings — which is the change that made the road read as
-        // torn paper, see above — or making the shoulder a property of the road
-        // sample rather than of the query point, which is a change to what
-        // `surfaceAt` MEANS and belongs with the fork work in AGENTS.md. What is
-        // left is thin flakes at the verge rather than blocks in the
-        // carriageway; `tools/test-road.mjs` reports the count.
-        if (!p.bridge && ad >= SHOULDER_AT) {
-          const out = Math.sign(d) * RIM_GUARD;
-          for (const [gx, gz] of [
-            [px * out, pz * out],
-            [tx * RIM_GUARD, tz * RIM_GUARD],
-            [-tx * RIM_GUARD, -tz * RIM_GUARD],
-          ] as const) {
-            const g = surfaceAt(p.x + px * sd + gx, p.z + pz * sd + gz);
-            if (g > y) y = g;
-          }
-        }
-        pos.push(p.x + px * d, y + RIBBON_LIFT + liftBias, p.z + pz * d);
+        const v = sectionAt(surfaceAt, p, px, pz, tx, tz, d);
+        pos.push(v.x, v.y + RIBBON_LIFT + liftBias, v.z);
         nrm.push(0, 1, 0);
-        const base = p.bridge ? DECK_PLANK
-          : ad > DECK_HALF ? GRAVEL
-            : ad < DECK_HALF * 0.5 ? RUT : EARTH;
-        // Planks band ACROSS a bridge deck; packed earth gets a mottle instead.
-        const m = p.bridge
-          ? (Math.round(p.x * 0.7 + p.z * 0.7) % 2 === 0 ? 1.1 : 0.88)
-          : 0.86 + hashCell(seed, Math.round(p.x), k, Math.round(p.z)) * 0.3;
-        col.push(base[0] * m, base[1] * m, base[2] * m);
+        const c = sectionColour(seed, p, k, d);
+        col.push(c[0], c[1], c[2]);
       }
       if (ring0 >= 0) {
         // WINDING: the perpendicular runs (-tz, tx), so advancing k moves in the
@@ -1193,6 +1275,295 @@ export function buildRoadRibbon(
     endSkirt(ringFirst, pxF, pzF, -1);
     endSkirt(ring0, px0, pz0, 1);
   }
+  return { pos, nrm, col, idx };
+}
+
+/**
+ * Radial sampling of the apron, as fractions of each direction's rim radius.
+ *
+ * ELEVEN, and the count is set by the MOTTLE rather than by the shape. The
+ * surface only bends in the outer fifth — the disc is flat until the verge ramp
+ * — so three or four levels reproduce the geometry to within 0.06, and the
+ * first version used six. It looked wrong in a way the heights could not
+ * explain: a starburst of soft spokes radiating out of the node. A fan's
+ * triangles run from the middle to the rim, so with the levels far apart every
+ * ring vertex's own mottle — a per-cell value, the same noise the ribbon carries
+ * — is smeared along a triangle several units long and the noise stops being
+ * noise and becomes a ray. Levels roughly one unit apart, which is also the
+ * spacing between neighbouring directions at the rim, make the tessellation
+ * isotropic and the mottle reads as dirt again. It is 500-odd vertices for the
+ * whole junction either way.
+ */
+const APRON_T = [0.12, 0.24, 0.36, 0.48, 0.6, 0.71, 0.8, 0.875, 0.935, 0.975, 1];
+/** Rim pitch between two arms. ~5.7 degrees, so the arc reads as an arc. */
+const APRON_ARC = 0.1;
+
+/**
+ * THE FORK, DRAWN AS ONE PIECE, with the arms growing out of its rim.
+ *
+ * Issue #45. Three roads ended on one node and each drew its own ribbon all the
+ * way to it, so the middle of the junction was two or three ten-unit gravel
+ * slabs stacked on each other — and because a road end is a square
+ * cross-section, what you actually saw was a rectangle with two right-angled
+ * corners lying across a bend. No amount of z-fighting bias fixes that; the
+ * geometry is genuinely wrong, and the fix is to stop drawing three roads over
+ * one another and draw the junction instead.
+ *
+ * The apron is a fan from the node out to a rim whose radius VARIES WITH ANGLE,
+ * and that is the one non-obvious part. In the three directions an arm leaves
+ * on, the rim is that arm's own first ring — the same nine cross-section
+ * vertices `buildRoadRibbon` starts from, computed by the same `sectionAt` on
+ * the same `clipToApron` deck, so the seam is a shared edge rather than two
+ * edges that nearly meet. The ribbon and the apron therefore tile the ground
+ * exactly once: no overlap to fight, no gap to fall through.
+ *
+ * BETWEEN two arms the rim is NOT the circle of radius `APRON_R`, and the first
+ * version that made it one is why this is spelled out. A disc reaching eleven
+ * units in every direction paves a lobe of open meadow behind the fork that no
+ * road has any business on — captured, the junction read as a roundabout with a
+ * bite of grass missing beside it. The rim in a gap is instead the two arms' OWN
+ * OUTER EDGES, run on until they meet: `rimHit` intersects the ray from the node
+ * with the edge line through each neighbouring arm's rim corner, and the nearer
+ * of the two wins. That is the shape a junction actually has — one road's kerb
+ * running into the next one's — and it costs nothing to say, because the corner
+ * it starts from is already a vertex of the arm's first ring. It pinches to
+ * `DECK_EDGE / cos((pi - gap) / 2)`: 7.3 units between arms a right angle apart,
+ * 5.0 between two that are nearly one straight road.
+ *
+ * `surfaceAt` is the same walking-surface query the ribbon and the player use,
+ * and `RoadNetwork` now answers it for the disc as well (`JUNCTION_FLAT`) — so
+ * this is a drawing of the collision surface here exactly as the ribbon is one
+ * along an arm.
+ */
+export function buildJunctionApron(
+  apron: Junction,
+  roads: readonly Road[],
+  seed: number,
+  surfaceAt: (x: number, z: number) => number,
+  liftBias = 0,
+): {
+  pos: number[]; nrm: number[]; col: number[]; idx: number[];
+} {
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const col: number[] = [];
+  const idx: number[] = [];
+
+  const ang = (x: number, z: number): number => Math.atan2(x - apron.x, z - apron.z);
+  const wrap = (a: number): number => {
+    let v = a;
+    while (v <= -Math.PI) v += Math.PI * 2;
+    while (v > Math.PI) v -= Math.PI * 2;
+    return v;
+  };
+  // PURELY SPATIAL, and on the same cell the ribbon's own centre vertex hashes,
+  // so the packed earth of an arm and the packed earth of the apron are the
+  // same dirt where they meet. A mottle that took the ring index as well —
+  // which the ribbon's does, because along a road that index IS a position —
+  // banded the apron in rings and streaked it in spokes: the fan's triangles
+  // run from the middle to the rim, so any per-direction or per-level term is
+  // interpolated the whole way down them and reads as a starburst.
+  const mottle = (x: number, z: number): number =>
+    0.86 + hashCell(seed, Math.round(x), 4, Math.round(z)) * 0.3;
+
+  type Dir = { x: number; z: number; y: number; a: number; c: [number, number, number] };
+  /** A rim corner and the direction its arm's outer edge runs off in. */
+  type Edge = { x: number; z: number; tx: number; tz: number; a: number };
+  const dirs: Dir[] = [];
+  /** Each arm's angular claim, and the two edges bounding it. */
+  const arms: Array<{ lo: Edge; hi: Edge }> = [];
+
+  for (const road of roads) {
+    const pts = clipToApron(builtDeck(road), [apron]);
+    if (pts.length < 2) continue;
+    // WHICH END IS OURS, and is it ours at all — a road can pass a junction it
+    // does not join, and one that was clipped by a DIFFERENT apron has a
+    // terminal ring that is nothing to do with this one. Only an end sitting on
+    // this rim counts.
+    const head = Math.hypot(pts[0].x - apron.x, pts[0].z - apron.z)
+      <= Math.hypot(pts[pts.length - 1].x - apron.x, pts[pts.length - 1].z - apron.z);
+    const p = head ? pts[0] : pts[pts.length - 1];
+    if (Math.abs(Math.hypot(p.x - apron.x, p.z - apron.z) - APRON_R) > 0.05) continue;
+    // The tangent the ribbon uses at that ring, to the letter: its first ring
+    // looks forward and its last looks back, and `k` has to run the same way
+    // round or the two sides mottle differently across a shared edge.
+    const q = head ? pts[1] : pts[pts.length - 2];
+    let tx = head ? q.x - p.x : p.x - q.x;
+    let tz = head ? q.z - p.z : p.z - q.z;
+    const tl = Math.hypot(tx, tz) || 1;
+    tx /= tl; tz /= tl;
+    const px = -tz;
+    const pz = tx;
+    const ends: Edge[] = [];
+    for (let k = 0; k < XS.length; k++) {
+      const v = sectionAt(surfaceAt, p, px, pz, tx, tz, XS[k]);
+      const a = ang(v.x, v.z);
+      dirs.push({ x: v.x, z: v.z, y: v.y, a, c: sectionColour(seed, p, k, XS[k]) });
+      // The two rim corners are the ends of the ring, and the angle around the
+      // node runs monotonically along it — so they are also its angular extremes
+      // and there is nothing to search for.
+      if (k === 0 || k === XS.length - 1) ends.push({ x: v.x, z: v.z, tx, tz, a });
+    }
+    const rel = wrap(ends[1].a - ends[0].a);
+    arms.push(rel >= 0 ? { lo: ends[0], hi: ends[1] } : { lo: ends[1], hi: ends[0] });
+  }
+  if (arms.length === 0) return { pos, nrm, col, idx };
+  arms.sort((u, v) => u.lo.a - v.lo.a);
+
+  /** Where the ray at `th` crosses the kerb line through `e`, or 0. */
+  const rimHit = (e: Edge, th: number): number => {
+    const s = Math.sin(th);
+    const c = Math.cos(th);
+    const den = s * e.tz - c * e.tx;
+    if (Math.abs(den) < 1e-6) return 0;
+    const r = ((e.x - apron.x) * e.tz - (e.z - apron.z) * e.tx) / den;
+    return r > DECK_HALF ? r : 0;
+  };
+  /** No corner of the apron reaches past an arm's own ring corner. */
+  let cornerR = 0;
+  for (const a of arms) {
+    for (const e of [a.lo, a.hi]) {
+      const r = Math.hypot(e.x - apron.x, e.z - apron.z);
+      if (r > cornerR) cornerR = r;
+    }
+  }
+
+  // The gaps. Each runs from one arm's outer corner round to the next arm's,
+  // and the height is read a hair INSIDE the rim, for the reason the ribbon
+  // pulls its own rim sample in: at exactly DECK_EDGE the corridor query has
+  // already handed back to the natural ground.
+  for (let i = 0; i < arms.length; i++) {
+    const from = arms[i].hi;
+    const to = arms[(i + 1) % arms.length].lo;
+    const span = wrap(to.a - from.a);
+    if (span <= 0) continue;   // arms whose rings overlap in angle: no gap
+    const steps = Math.max(2, Math.ceil(span / APRON_ARC));
+    for (let k = 1; k < steps; k++) {
+      const a = from.a + (span * k) / steps;
+      // THE FARTHER KERB, NOT THE NEARER ONE, and getting that backwards is
+      // worth a sentence because the render looks deliberate either way. Two
+      // arms' kerb lines CROSS inside the junction — B's kerb, produced back
+      // past the node, runs straight over the middle of A's carriageway — so
+      // the nearer of the two is a line through the fork, and taking it cut the
+      // apron back to a five-unit star with the arms' ribbons hanging over the
+      // points of it. The boundary follows A's kerb outward from where the two
+      // cross to A's own ring corner, and that is the MAX. It pinches to
+      // `DECK_EDGE / cos((pi - gap) / 2)` where they cross: 7.3 units between
+      // arms a right angle apart, 5.0 between two that are nearly one straight
+      // road, which is where a kerb really would meet the next one.
+      const hit = Math.max(rimHit(from, a), rimHit(to, a));
+      const r = hit > 0 ? Math.min(hit, cornerR) : APRON_R;
+      const sx = Math.sin(a);
+      const sz = Math.cos(a);
+      const qx = apron.x + sx * (r - 0.02);
+      const qz = apron.z + sz * (r - 0.02);
+      // The same guard the ribbon's rim carries, for the same reason: the column
+      // a rim vertex is responsible for hiding sits up to half a cell away, and
+      // `round(deck)` flips by a whole unit between two of them.
+      let y = surfaceAt(qx, qz);
+      for (const [gx, gz] of [
+        [sx * RIM_GUARD, sz * RIM_GUARD],
+        [sz * RIM_GUARD, -sx * RIM_GUARD],
+        [-sz * RIM_GUARD, sx * RIM_GUARD],
+      ] as const) {
+        const g = surfaceAt(qx + gx, qz + gz);
+        if (g > y) y = g;
+      }
+      const m = mottle(qx, qz);
+      dirs.push({
+        x: apron.x + sx * r, z: apron.z + sz * r, y, a,
+        c: [GRAVEL[0] * m, GRAVEL[1] * m, GRAVEL[2] * m],
+      });
+    }
+  }
+
+  // Counter-clockwise seen from above, which is what makes (centre, i, i+1)
+  // and (i, i+1) between two levels both face up — see the winding note in
+  // buildRoadRibbon for what the wrong answer looks like.
+  dirs.sort((u, v) => u.a - v.a);
+
+  /**
+   * The apron's own colour at a point: rut in the middle wearing to gravel at
+   * the edge, which is the road's own banding turned inside out. An arm is worn
+   * down its LENGTH; a junction is worn in its MIDDLE, because that is the one
+   * patch every route through the world crosses.
+   *
+   * Banded on the ABSOLUTE distance from the node, not on the fraction of the
+   * way to the rim. The rim radius varies with angle — that is the whole of the
+   * fillet — so a fraction puts each band's edge at a different distance in
+   * every direction, and the fan's triangles run from the middle to the rim: the
+   * bands stopped being rings and became a starburst of wedges radiating out of
+   * the centre. Concentric is also simply what a worn junction looks like.
+   */
+  const ground = (x: number, z: number): [number, number, number] => {
+    const u = Math.hypot(x - apron.x, z - apron.z) / APRON_R;
+    // The same PROPORTIONS an arm's cross-section has — rut over the middle
+    // 28% of the half-width, packed earth to 56%, gravel past it — so the two
+    // read as the same road rather than as a road with a stain on it.
+    const base = u < 0.28 ? RUT : u < 0.6 ? EARTH : GRAVEL;
+    const m = mottle(x, z);
+    return [base[0] * m, base[1] * m, base[2] * m];
+  };
+
+  const cy = surfaceAt(apron.x, apron.z);
+  const c0 = ground(apron.x, apron.z);
+  pos.push(apron.x, cy + RIBBON_LIFT + liftBias, apron.z);
+  nrm.push(0, 1, 0);
+  col.push(c0[0], c0[1], c0[2]);
+
+  const n = dirs.length;
+  for (let l = 0; l < APRON_T.length; l++) {
+    const t = APRON_T[l];
+    for (const d of dirs) {
+      const x = apron.x + (d.x - apron.x) * t;
+      const z = apron.z + (d.z - apron.z) * t;
+      // The rim keeps the height its arm's ring gave it — that shared vertex is
+      // the whole point — and everything inboard reads the surface where it is.
+      const y = t >= 1 ? d.y : surfaceAt(x, z);
+      pos.push(x, y + RIBBON_LIFT + liftBias, z);
+      nrm.push(0, 1, 0);
+      // The rim has to arrive at the ARM's colour or the shared edge is a seam
+      // — an arm's rut stripe would meet apron gravel across the join — but the
+      // direction's colour must not bleed inward, or every one of them paints a
+      // spoke. So it is the apron's own ground everywhere except the outer
+      // fifth, where it crosses over.
+      const own = ground(x, z);
+      const w = t <= 0.8 ? 0 : (t - 0.8) / 0.2;
+      for (let c = 0; c < 3; c++) col.push(own[c] + (d.c[c] - own[c]) * w * w);
+    }
+  }
+
+  const ring = (l: number, i: number): number => 1 + l * n + (i % n);
+  for (let i = 0; i < n; i++) idx.push(0, ring(0, i), ring(0, i + 1));
+  for (let l = 0; l + 1 < APRON_T.length; l++) {
+    for (let i = 0; i < n; i++) {
+      const a0 = ring(l, i);
+      const a1 = ring(l, i + 1);
+      const b0 = ring(l + 1, i);
+      const b1 = ring(l + 1, i + 1);
+      idx.push(a0, b0, b1, a0, b1, a1);
+    }
+  }
+
+  // A skirt all the way round, so the carved lip outside the rim cannot show
+  // under it. Where an arm is, this sits behind that arm's own end skirt at the
+  // same line, the same depth and the same colour, so the pair is invisible
+  // whichever of them the depth buffer picks.
+  const skirt = pos.length / 3;
+  for (const d of dirs) {
+    pos.push(d.x, d.y + RIBBON_LIFT + liftBias, d.z, d.x, d.y - RIBBON_SKIRT, d.z);
+    const nx = (d.x - apron.x) / APRON_R;
+    const nz = (d.z - apron.z) / APRON_R;
+    nrm.push(nx, 0, nz, nx, 0, nz);
+    for (let q = 0; q < 2; q++) col.push(RUT[0] * 0.7, RUT[1] * 0.7, RUT[2] * 0.7);
+  }
+  for (let i = 0; i < n; i++) {
+    const a0 = skirt + i * 2;
+    const b0 = skirt + ((i + 1) % n) * 2;
+    idx.push(a0, a0 + 1, b0 + 1, a0, b0 + 1, b0);
+    idx.push(a0, b0 + 1, a0 + 1, a0, b0, b0 + 1);
+  }
+
   return { pos, nrm, col, idx };
 }
 

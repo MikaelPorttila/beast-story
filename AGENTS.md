@@ -268,8 +268,10 @@ once frames come quickly.
   `MAX_STEP_UP` of 0.5: **0.034**, and it was a known failure at **0.801** until
   the fork was made three roads instead of one — see the roads note below.
   `crossSection` sweeps the section rim to rim rather than the centreline, and
-  is the only thing that can see grass standing up THROUGH the gravel: 22 of
-  5300 samples, against 300 of 5283. `furniture` is where the lamps and
+  is the only thing that can see grass standing up THROUGH the gravel: **0 of
+  5295 samples**, against 22 of 5300 before the junction apron and 300 of 5283
+  before `SHOULDER_IN` tied the two ramps together. Every one of the last 22 was
+  at the fork — see the junction note below. `furniture` is where the lamps and
   fingerposts ended up — the smallest gap between any two (16.19) and how near a
   centreline the nearest one comes (5.62, i.e. off the road).
 - **Every probe that drives the game passes `menu=0`.** The title screen is a
@@ -611,19 +613,53 @@ dead level across the node they share, the way a town footprint already holds
 its high street level. Measured: step **0.801 -> 0.034**, worst ribbon float
 **0.65 -> 0.04**. `bun tools/test-road.mjs` is the before/after.
 
-**Still not clean: 22 of 5300 cross-section samples draw terrain over the
-ribbon**, down from 300, and they are thin flakes at the verge rather than the
-blocks in the carriageway that were reported. Four things had to agree to get
-there — `SHOULDER_IN` ties the carve's shoulder ramp and the walking surface's
-to one number, `carveAt` cuts the ground to that surface minus a sink so a
-column can never stand above what is drawn over it, `XS` puts a ribbon vertex on
-the corner where the ramp ends, and `RIM_GUARD` lets a rim vertex rise to cover
-the column beside it. What survives is a chord between two 3-unit-apart rings
-passing under a column whose shoulder rounded the other way. Closing it means
-either subdividing the rings (see the tessellation note above — that was tried
-for a different reason and made the road read as torn paper) or making the
-shoulder a property of the road SAMPLE rather than of the query point, which is
-a change to what `surfaceAt` means.
+**Clean now — 0 of 5295 cross-section samples draw terrain over the ribbon**,
+against 22 and, before that, 300. Five things had to agree to get there.
+`SHOULDER_IN` ties the carve's shoulder ramp and the walking surface's to one
+number, `carveAt` cuts the ground to that surface minus a sink so a column can
+never stand above what is drawn over it, `XS` puts a ribbon vertex on the corner
+where the ramp ends, and `RIM_GUARD` lets a rim vertex rise to cover the column
+beside it. The fifth is the apron below: the last 22 were every one of them at
+the fork, thin flakes where a chord between two 3-unit-apart rings of one arm
+passed under a column the OTHER arm's shoulder had rounded the other way. An arm
+that starts eleven units out has no such rings to draw.
+
+**THE FORK IS ONE PIECE, AND THE ARMS GROW OUT OF IT.** That is issue #45, and
+it is the other half of the fork work above rather than a new subject: making
+the arms three separate roads fixed what you WALK on at the junction and left
+what you LOOK at unchanged. Three ribbons still ran all the way to the node, so
+the middle of the fork was two or three ten-unit gravel slabs stacked on one
+another — and a road end is a square cross-section, so what the reporter
+photographed is a rectangle with two right-angled corners lying across a bend.
+Measured on seed 1337, 203 of the 2144 drawn columns within sixteen units of the
+node had more than one ribbon over them; it is 3 now, and those three are the
+apron's own fan meeting itself at its centre vertex.
+
+Each arm's ribbon now stops at `APRON_R` (11 — the arms separate about a unit per
+unit of arc, so two carriageways stop overlapping at 2 * `DECK_EDGE`), and
+`buildJunctionApron` (town-parts.ts) draws what is left as one fan. Two things
+about it are worth knowing before touching it. Its rim in the three directions
+an arm leaves on IS that arm's first ring — the same nine vertices from the same
+`sectionAt` on the same `clipToApron` deck, so the seam is a shared edge rather
+than two edges that nearly meet. And BETWEEN two arms the rim is the two arms'
+own kerb lines run on until they cross, which pinches to
+`DECK_EDGE / cos((pi - gap) / 2)`: 7.3 units between arms a right angle apart,
+5.0 between two that are nearly one straight road.
+
+**NOTHING IN THE HEIGHT FIELD KNOWS ABOUT THE APRON**, and the version that made
+it a disc in `RoadNetwork` is the mistake worth not repeating. Bounded by the
+arms' kerbs, every square unit of the apron is already inside a corridor one of
+them carves, so it needs no earthworks of its own — and giving it some was
+actively wrong. A disc centred on the node sinks the ground by `carveAt`'s 0.62
+in EVERY direction, including the wedges between the arms that the apron does not
+cover, and captured, each of those wedges was a one-unit trench with the apron's
+skirt standing in it. `JUNCTION_HOLD` had already levelled all three decks
+across the node; the junction was a drawing problem and it is fixed where the
+drawing is. Two more numbers from getting it wrong on the way: a rim that was a
+plain circle of radius 11 paved a lobe of meadow behind the fork and read as a
+roundabout, and taking the NEARER of two kerb lines instead of the farther cut
+the apron back to a five-unit star with the arms hanging over its points — two
+kerbs CROSS inside a junction, so the nearer one is a line straight through it.
 
 Settlements are SOLID, and the collider is never authored twice.
 [src/world/structures.ts](src/world/structures.ts) measures a footprint off the
