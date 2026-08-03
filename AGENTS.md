@@ -145,6 +145,37 @@ once frames come quickly.
   `test-dive.mjs`. `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
+- **PERFORMANCE HAS TWO INSTRUMENTS, AND NEITHER OF THEM IS FPS.** Press **F2**
+  in game and the overlay now ends with a `where it went` block: every profiler
+  section as a rolling mean with a bar, then `cpu` (time inside our own frame
+  callback) and `off-cpu` (wall minus cpu — GPU wait, compositing, a
+  collection). That last pair is the one that decides what to do next, because a
+  frame that is mostly `off-cpu` and a frame that is mostly `render` need
+  opposite fixes. Sampling is turned on only while the panel is open, so it
+  costs nothing the rest of the time; `?perf=1` still pins it on for the whole
+  run and closing the panel cannot silence that. Measured on this machine, the
+  answer is not what anyone guesses: `render` is 67% of the frame and every
+  gameplay system TOGETHER is 3%.
+- **`bun tools/perf-baseline.mjs record` writes a baseline that is YOURS, and
+  `bun tools/perf-baseline.mjs` compares against it.** `.perf-baseline.json` is
+  gitignored and must stay that way: frame cost is a property of the hardware as
+  much as of the code, so a committed baseline fails for everyone whose GPU is
+  not the one that recorded it. The file stores the GPU string and the viewport
+  and the comparison warns when either has moved. It exits non-zero when
+  cpu/frame is more than 8% over. Record on a quiet machine, on a commit you
+  trust; re-record after a deliberate change.
+- **THAT TOOL LEAVES VSYNC ALONE, AND THE REASON IS A MISTAKE WORTH NOT
+  REPEATING.** An investigation once passed `--disable-gpu-vsync` to "measure
+  properly", got 186-368 fps, and concluded from it that making the frame
+  cheaper does NOT reduce CPU — turning off the whole post chain halved the cost
+  of a frame and moved core load only 89% -> 80%. That is true of an unlocked
+  loop and true of nothing else: the loop simply ran more often and ate every
+  saving. A real player is pinned to their monitor, so the FRAME COUNT IS FIXED
+  and a cheaper frame is directly less CPU. Measured properly (vsync on, 165 Hz
+  display): 4.97 ms of CPU per frame and **80.5% of a core**, on `main`, before
+  any of the water work. `fps` is reported by the tool and is explicitly NOT the
+  regression signal — pinned to the display it barely moves until things are
+  dire. `cpu` is.
 - **`test-zfight.mjs` is the only probe that needs no dev server**, because
   everything it asks about is arithmetic: it imports the rig builders straight
   out of `src/`, builds every model in the game in headless three.js, poses each

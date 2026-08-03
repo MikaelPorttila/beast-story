@@ -1309,7 +1309,10 @@ if (params.get('debug') === '1') debug.toggle();
 // and nothing else, and `beginPlay()` hands the renderer straight to the rate
 // this load actually asked for. See the boot-order note at the top of the file.
 
-perf.enabled = params.get('perf') === '1';
+// PINNED rather than just enabled: the F2 overlay also turns sampling on while
+// it is open (see DebugOverlay.toggle), and closing it must not silence a run
+// the harness in tools/ asked for.
+if (params.get('perf') === '1') perf.pin();
 let lastPrograms = 0;
 
 // ---------------------------------------------------------------------------

@@ -49,14 +49,57 @@ const CPU_SLOT = PERF_SECTIONS.length;
 const WALL_SLOT = PERF_SECTIONS.length + 1;
 
 class Profiler {
+  /**
+   * What every entry point below checks first. Two things can raise it and they
+   * must not clobber each other: `?perf=1` pins it on for the life of the run
+   * (the harness in tools/ needs the whole history), and the F2 overlay holds it
+   * on only while it is on screen. `hold(false)` must not switch off a pinned
+   * run, which is what `pinned` is for.
+   */
   enabled = false;
+  private pinned = false;
 
   private buf = new Float64Array(CAP * STRIDE);
   private cbuf = new Int32Array(CAP * PERF_COUNTERS.length);
+  /** Reused by `means()`. Never handed out to anything that keeps it. */
+  private meanBuf = new Float64Array(STRIDE);
   private frames = 0;
   private frameStart = 0;
   private mark = 0;
   private prevStart = 0;
+
+  /** `?perf=1`: sample for the whole run, whatever the overlay does. */
+  pin(): void {
+    this.pinned = true;
+    this.enabled = true;
+  }
+
+  /** The F2 overlay, asking for sampling while it is on screen. */
+  hold(on: boolean): void {
+    this.enabled = this.pinned || on;
+  }
+
+  /**
+   * Rolling per-section means over the last `window` frames, in ms.
+   *
+   * Indexed exactly like a `dump()` row — the sections in order, then cpu, then
+   * wall — so a reader can use PERF_SECTIONS to label it. Returns a REUSED
+   * buffer and allocates nothing: the F2 overlay calls this several times a
+   * second, and a profiler that produces garbage changes the very GC behaviour
+   * it exists to observe.
+   */
+  means(window = 120): Float64Array {
+    const out = this.meanBuf;
+    out.fill(0);
+    const n = Math.min(this.frames, CAP, window);
+    if (n === 0) return out;
+    for (let k = 1; k <= n; k++) {
+      const f = (((this.frames - k) % CAP) + CAP) % CAP;
+      for (let i = 0; i < STRIDE; i++) out[i] += this.buf[f * STRIDE + i];
+    }
+    for (let i = 0; i < STRIDE; i++) out[i] /= n;
+    return out;
+  }
 
   /** Call first thing in the frame callback. */
   begin(): void {
