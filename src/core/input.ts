@@ -119,6 +119,10 @@ export class Input {
     // page away with it.
     'F1', 'F2', 'F3',
     'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    // ALT focuses the browser's own menu bar in Firefox and Edge, which steals
+    // the keyboard from the game and cannot be got back without a click. It is
+    // the cursor toggle (see setCursorFree in main.ts), so it is pressed often.
+    'AltLeft', 'AltRight',
   ]);
 
   /** The capture list, for tools/test-keybinds.mjs. Read-only by convention. */

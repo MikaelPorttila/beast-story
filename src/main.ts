@@ -3,6 +3,7 @@ import { Engine } from './core/engine';
 import { DebugOverlay } from './core/debug-overlay';
 import { Gfx, GFX_OPTIONS, type GfxSinks } from './core/gfx';
 import { PerfPanel } from './ui/perf-panel';
+import { Cursors, CursorDirector, CURSOR_STATES, type CursorState } from './ui/cursor';
 import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
 import { installViewport } from './core/viewport';
@@ -1360,11 +1361,133 @@ const gfx = new Gfx({
   },
 });
 const perfPanel = new PerfPanel(gfx);
+
+/**
+ * The custom cursor, and the one question the world has to answer for it.
+ *
+ * `at()` is called only while the pointer is free and only for points over the
+ * canvas, so it runs on mouse movement in a menu-ish mode rather than per frame
+ * — which is what makes a screen-space scan of every enemy affordable. It is a
+ * PROJECTION, not a raycast: projecting a few dozen positions into screen space
+ * costs a matrix multiply each, where a raycast against the streamed world would
+ * walk hundreds of chunk meshes for an answer no more true. Nearest wins, so a
+ * hostile standing in front of a friendly reads as the hostile.
+ */
+const cursors = new Cursors();
+const _curProj = new THREE.Vector3();
+/** Second scratch, so the NPC scan never clones. See the loop below. */
+const _curNpc = new THREE.Vector3();
+const cursorDirector = new CursorDirector(cursors, {
+  at: (px, py) => {
+    const rect = engine.renderer.domElement.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    /** Screen distance in px, or Infinity when the point is behind the lens. */
+    const screenGap = (p: THREE.Vector3, lift: number): number => {
+      _curProj.set(p.x, p.y + lift, p.z).project(engine.camera);
+      if (_curProj.z > 1) return Infinity;
+      const sx = rect.left + (_curProj.x * 0.5 + 0.5) * rect.width;
+      const sy = rect.top + (-_curProj.y * 0.5 + 0.5) * rect.height;
+      return Math.hypot(sx - px, sy - py);
+    };
+    // Generous, because these are small figures at gameplay distance and a
+    // pixel-exact hit test on a 2-metre creature 40 units away is unusable.
+    const REACH = 46;
+    // An OBJECT rather than two locals, and not for tidiness: TypeScript's
+    // control-flow analysis does not follow assignments made inside a closure,
+    // so a `let best = null` written only by `offer` narrows to `never` by the
+    // return and the property read fails to compile. A property on an object is
+    // not narrowed that way.
+    const best = { gap: Infinity, state: null as CursorState | null };
+    const offer = (gap: number, state: CursorState): void => {
+      if (gap < REACH && gap < best.gap) { best.gap = gap; best.state = state; }
+    };
+    for (const e of combat.enemies) {
+      if (e.hp > 0) offer(screenGap(e.position, 0.9), 'attack-target');
+    }
+    // `_curNpc` rather than a clone per NPC: this runs on every mouse move, and
+    // the no-per-frame-allocation rule covers anything on a movement path.
+    for (const n of world.npcs?.all ?? []) {
+      _curNpc.set(n.x, n.y, n.z);
+      offer(screenGap(_curNpc, 1.2), 'inspect');
+    }
+    // A skill den is a building you can walk into and read — the same
+    // "there is more to see here" the magnifier means.
+    for (const s of world.shopPositions) offer(screenGap(s, 1.5), 'inspect');
+    return best.state;
+  },
+});
+void cursors.load();
+
+/**
+ * WHEN THE MOUSE CURSOR IS SHOWING, and there are two quite different reasons.
+ *
+ * ALT IS A HOLD. Keep it down and the pointer is yours; let go and the game
+ * takes it back. This started as a toggle on the reasoning that flipping
+ * several F3 rows in a row would be easier — that was the wrong trade. A hold
+ * has no state to get out of step with what the player believes, cannot strand
+ * anyone with the pointer released and no idea why, and matches the muscle
+ * memory every other engine's editor camera uses. Note it does mean Alt+click,
+ * which some window managers claim for dragging windows.
+ *
+ * A MENU IS THE OTHER REASON, and it is not a special case so much as the
+ * ordinary one: the title screen, the Escape menu, the shop and the controls
+ * sheet are all things you CLICK, they have all already released the pointer,
+ * and a player looking at buttons should see something to click them with. It
+ * is gated on `lastSource` rather than on a latch — a pad player driving the
+ * same menu with the stick gets no cursor, and touching the mouse brings it
+ * back on the next event.
+ *
+ * Neither is a modal in the F3 sense: Alt leaves the hero taking input, because
+ * the whole point is to change something while the world carries on working.
+ */
+let cursorFree = false;
+function updateCursorMode(): void {
+  const altHeld = input.down('AltLeft') || input.down('AltRight');
+  const menuUp = (startMenu?.isOpen ?? false) || pauseMenu.isOpen
+    || hud.isShopOpen() || hud.isControlsOpen();
+  // A controller player is not pointing at anything, and a phone has no pointer
+  // to draw. `lastSource` is the STAMP, rewritten on every real input — the
+  // per-frame question, not the latch. See the HUD note in AGENTS.md.
+  const want = altHeld || (menuUp && input.lastSource === 'kbm');
+  if (want === cursorFree) return;
+  cursorFree = want;
+  cursorDirector.setEnabled(want);
+  if (altHeld) {
+    input.releaseLock();
+  } else if (!menuUp && !isTouchPrimary()) {
+    // Only Alt trades the lock away. A menu released it on the way in and will
+    // take it back itself on the way out, and asking here would race that.
+    input.requestLock();
+  }
+}
+
+/**
+ * EVENT-DRIVEN, because the title screen has no frame loop to poll from.
+ *
+ * `frame()` does not run until New Game (see the boot note at the top of this
+ * file), so a cursor that only updated per frame would never appear on the
+ * poster — which is one of the two places it is explicitly wanted. Every input
+ * that can change the answer is a DOM event anyway: Alt up or down, the mouse
+ * moving, a key deciding the player is on the keyboard again.
+ */
+for (const ev of ['keydown', 'keyup', 'mousemove', 'mousedown', 'pointerlockchange']) {
+  (ev === 'pointerlockchange' ? document : window)
+    .addEventListener(ev, () => updateCursorMode(), true);
+}
 // A click anywhere reaches the panel first; it returns false unless the click
 // landed on one of its rows, so the world still gets every other click.
 window.addEventListener('mousedown', (e) => {
-  if (perfPanel.handleClick(e.target)) { e.preventDefault(); e.stopPropagation(); }
+  if (perfPanel.handleClick(e.target, e)) { e.preventDefault(); e.stopPropagation(); }
 }, true);
+// A drag owns the cursor until it ends — the pointer leaves the handle within a
+// few pixels, and without this the picture would snap back mid-resize. The
+// panel does not know what a CursorState is; it says "dragging" and this
+// decides which one, which keeps ui/cursor.ts out of ui/perf-panel.ts.
+perfPanel.onDragCursor = (state, dragging) => {
+  if (!dragging) { cursorDirector.lock(null); return; }
+  cursorDirector.lock((state as CursorState | null)
+    ?? (cursors.debug().state ?? 'move'));
+};
 
 // There USED to be a `MENU_FPS = 20` cap here, and the history is worth keeping
 // because it is what the current arrangement replaced.
@@ -2343,6 +2466,9 @@ function frame(): void {
   // the whole point is to watch a working frame get cheaper, and a frozen world
   // streams nothing and animates nothing.
   if (input.takePress('F3')) perfPanel.toggle();
+  // Re-evaluated per frame as well as on input events: opening the shop or the
+  // controls sheet changes the answer and neither is a DOM event this file sees.
+  updateCursorMode();
   if (perfPanel.isOpen) {
     for (const code of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'KeyR']) {
       if (input.takePress(code)) perfPanel.onKey(code);
@@ -2953,6 +3079,20 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
     perfPanel.refresh();
   }
   return gfx.get(opt.id);
+};
+
+// The cursor: what is showing, whether the sheet decoded, and — as a TEST HOOK
+// — a way to ask what a screen point would resolve to without moving a real
+// mouse there. `states` is the count that proves all sixteen tiles were cut.
+(window as unknown as {
+  __dbgCursor: (x?: number, y?: number) => unknown;
+}).__dbgCursor = (x, y) => {
+  if (x !== undefined && y !== undefined) {
+    // Drive the real listener rather than a copy of it, so this reports what a
+    // player's mouse would get and cannot drift from it.
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y }));
+  }
+  return { ...cursors.debug(), free: cursorFree, known: CURSOR_STATES.length };
 };
 
 (window as unknown as { __dbgZone: () => unknown }).__dbgZone = () => ({
