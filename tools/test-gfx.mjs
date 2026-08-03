@@ -1,6 +1,6 @@
-// Verifies the F3 performance panel (src/ui/perf-panel.ts, src/core/gfx.ts):
+﻿// Verifies the F3 performance panel (src/ui/perf-panel.ts, src/core/gfx.ts):
 // every switch is real, every switch is remembered, the console can set them
-// too — and the console is not painted through by the panels sharing its band.
+// too â€” and the console is not painted through by the panels sharing its band.
 //
 // Usage: bun tools/test-gfx.mjs        (dev server must be up)
 //
@@ -8,12 +8,12 @@
 // A settings panel is the easiest thing in a codebase to get wrong in a way
 // that tests green: the row renders, the value flips, the key is written, and
 // the renderer never hears about it. So each one is judged by what the FRAME
-// does — draw calls for the ones that remove geometry or a pass, and the
-// measured frame rate for the cap — and the flag is not consulted at all.
+// does â€” draw calls for the ones that remove geometry or a pass, and the
+// measured frame rate for the cap â€” and the flag is not consulted at all.
 //
 // The one thing it cannot judge that way is `shadows`, which changes no draw
 // COUNT (the shadow pass renders into its own target, and three does not count
-// it in info.render.calls the way it counts scene draws) — so that row is
+// it in info.render.calls the way it counts scene draws) â€” so that row is
 // asserted on renderer state instead, and the file says so rather than
 // pretending the number means something.
 //
@@ -49,7 +49,7 @@ async function draws() {
   return Math.min(Number(a?.[1] ?? 0), Number(b?.[1] ?? 0));
 }
 // SET and READ are separate helpers on purpose. `page.evaluate` serialises its
-// argument as JSON, and JSON has no `undefined` — passing one turns into null,
+// argument as JSON, and JSON has no `undefined` â€” passing one turns into null,
 // which the hook reads as "a value was supplied" and writes Boolean(null), i.e.
 // false. A read that silently switches the thing off is a memorable way to lose
 // an afternoon.
@@ -78,7 +78,7 @@ await wait(2500);
   check(!!shown?.visible, 'F3 did not open the panel');
   check(shown?.rows === results.panel.options,
     `the panel shows ${shown?.rows} rows for ${results.panel.options} settings`);
-  // NOT a modal, deliberately — see the note at the top of ui/perf-panel.ts.
+  // NOT a modal, deliberately â€” see the note at the top of ui/perf-panel.ts.
   const before = await page.evaluate(() => window.__dbgPlayerPos());
   await page.keyboard.down('KeyW');
   await wait(900);
@@ -86,7 +86,7 @@ await wait(2500);
   const after = await page.evaluate(() => window.__dbgPlayerPos());
   results.panel.heroTravelled = +Math.hypot(after.x - before.x, after.z - before.z).toFixed(2);
   check(results.panel.heroTravelled > 2,
-    `the hero is frozen with the panel up (${results.panel.heroTravelled}) — it must NOT be a modal`);
+    `the hero is frozen with the panel up (${results.panel.heroTravelled}) â€” it must NOT be a modal`);
   await wait(1500);
 }
 
@@ -107,7 +107,7 @@ await wait(2500);
 //
 // `props` came down 40 -> 20 when core/shadow-cache.ts landed, and the reason is
 // worth knowing rather than a loosened bolt. A tree used to be drawn four times
-// a frame — the scene, the AO prepass, the bloom pass and the SHADOW pass — and
+// a frame â€” the scene, the AO prepass, the bloom pass and the SHADOW pass â€” and
 // the shadow one is now redrawn only when the cache goes stale, so switching
 // trees off stops saving it every frame. Measured 30 and 40 on two runs of the
 // same walk, against 70 before. Nothing else in the list moved: grass casts no
@@ -125,7 +125,7 @@ for (const [id, minDrop] of [['ao', 40], ['bloom', 4], ['grass', 20], ['props', 
   check(on - off >= minDrop,
     `turning ${id} off saved ${on - off} draw calls, expected at least ${minDrop}`);
   // RELATIVE to the off-state, not back to the on-state. The absolute count
-  // drifts while the streamer works — chunks arrive, chunks unload — so
+  // drifts while the streamer works â€” chunks arrive, chunks unload â€” so
   // "within 5% of where it started" fails on scene drift rather than on a
   // stuck switch (measured 488 -> 460 with nothing wrong). What the assertion
   // is actually for is "did turning it back on put the work back", and the
@@ -157,7 +157,7 @@ for (const id of ['shadows', 'aa']) {
   // OFF THE F2 READOUT, and counting rAF callbacks here instead was wrong in a
   // way worth recording: the cap does not skip CALLBACKS, it skips the work
   // inside them (see Engine.beginFrame), so requestAnimationFrame keeps firing
-  // at the display's 165 Hz whatever the cap says — measured, a 30 fps cap
+  // at the display's 165 Hz whatever the cap says â€” measured, a 30 fps cap
   // "read" 165.2. F2 counts RENDERED frames, which is the thing being capped.
   // The long wait is because that readout is a rolling mean of 120 of them: at
   // 30 fps the window takes four seconds to flush the old rate out.
@@ -177,8 +177,8 @@ for (const id of ['shadows', 'aa']) {
 
 // ---------- and it STAYS off as you walk into unbuilt chunks ----------------
 // The bug this exists for: grass switched off stayed off while standing still
-// and came back in patches while walking. `buildStage` has two callers — the
-// streamer's staged path and `buildChunk`'s build-it-all-now path — and only
+// and came back in patches while walking. `buildStage` has two callers â€” the
+// streamer's staged path and `buildChunk`'s build-it-all-now path â€” and only
 // the first re-applied the setting, so every chunk that arrived through the
 // other one arrived with its grass on. Standing still never builds a chunk,
 // which is exactly why no earlier assertion here could see it.
@@ -187,7 +187,7 @@ for (const id of ['shadows', 'aa']) {
   //
   // The cause is the ZoneManager's gateway PRELOAD: within 30 units of a gate it
   // builds the destination, and to warm its shaders it hides the active world
-  // and turns it back on — with a blanket `visible = true` that re-showed every
+  // and turns it back on â€” with a blanket `visible = true` that re-showed every
   // layer the panel had switched off. Reaching that needs the hero walking
   // toward the gate from the spawn, which needs the camera pointing the way a
   // fresh boot points it. Two earlier versions of this section drove the hero
@@ -220,7 +220,7 @@ for (const id of ['shadows', 'aa']) {
   };
   check(atRest.grass.shown === 0,
     `grass did not go off at all (${atRest.grass.shown} visible)`);
-  check(atRest.grass.hidden > 0, 'no grass meshes to hide — the world had not streamed');
+  check(atRest.grass.hidden > 0, 'no grass meshes to hide â€” the world had not streamed');
   check(afterWalk.grass.shown === 0,
     `${afterWalk.grass.shown} grass meshes came back while walking `
     + `(${afterWalk.grass.hidden} still hidden)`);
@@ -233,7 +233,7 @@ for (const id of ['shadows', 'aa']) {
   for (const [when, snap] of [['at rest', atRest], ['after walking', afterWalk]]) {
     check(snap.terrain.hidden === 0 && snap.terrain.shown > 0,
       `${when}, ${snap.terrain.hidden} terrain chunks are INVISIBLE `
-      + `(${snap.terrain.shown} visible) — hiding grass took the ground with it`);
+      + `(${snap.terrain.shown} visible) â€” hiding grass took the ground with it`);
     check(snap.water.hidden === 0,
       `${when}, ${snap.water.hidden} water meshes are invisible though water is on`);
   }
@@ -270,9 +270,9 @@ for (const id of ['shadows', 'aa']) {
 }
 
 // ---------- and nothing is painted through it -------------------------------
-// Issue #41. The three developer instruments all claim the top of the screen —
+// Issue #41. The three developer instruments all claim the top of the screen â€”
 // the console is a full-width sheet down the top 42vh, F3 sits top-left and F2
-// top-centre — so at the console's old z-index of 9000 both panels were drawn
+// top-centre â€” so at the console's old z-index of 9000 both panels were drawn
 // straight through its log and through the line you were typing.
 //
 // F3 is judged by a HIT TEST rather than by reading a z-index back, because
@@ -280,7 +280,7 @@ for (const id of ['shadows', 'aa']) {
 // paints from: it is the browser's opinion about what is on top, where
 // getComputedStyle('zIndex') would only be our own assignment handed back.
 // F2 CANNOT be judged that way and the number below says so instead of
-// pretending otherwise — it is pointer-events:none, so a hit test falls through
+// pretending otherwise â€” it is pointer-events:none, so a hit test falls through
 // it whichever way round the two are stacked. Comparing the computed values is
 // the strongest thing available there, and it still catches the case that
 // matters: a panel authored above the console (F2's is an inline style in
@@ -318,10 +318,10 @@ for (const id of ['shadows', 'aa']) {
   results.stacking = stack;
   // Vacuous otherwise: if the two do not overlap there is nothing to be on top of.
   check(stack.overlap > 1000,
-    `the F3 panel and the console overlap by only ${stack.overlap}px² — nothing was tested`);
+    `the F3 panel and the console overlap by only ${stack.overlap}pxÂ² â€” nothing was tested`);
   check(stack.onTop === 'console',
     `the console is under the F3 panel at ${stack.sample} (hit "${stack.onTop}")`);
-  check(stack.z.overlay !== null, 'the F2 overlay was not found — ?debug=1 should have it up');
+  check(stack.z.overlay !== null, 'the F2 overlay was not found â€” ?debug=1 should have it up');
   check(stack.z.console > stack.z.overlay,
     `the console (${stack.z.console}) is below the F2 overlay (${stack.z.overlay})`);
   await page.keyboard.press('Backquote');
@@ -331,7 +331,7 @@ for (const id of ['shadows', 'aa']) {
 
 // ---------- what is allowed to CAST ambient occlusion -----------------------
 // Issue #39: the grass carpet and the cloud deck were opaque, wrote depth, and
-// were therefore in the AO G-buffer — where a half-res horizon search over
+// were therefore in the AO G-buffer â€” where a half-res horizon search over
 // sub-pixel blade billboards printed a mottled grey smear across the meadow
 // around every hedge clump, and a 1.8-unit contact radius on a cumulus printed
 // dotted black dashes down every crease where two puffs meet.
@@ -341,7 +341,7 @@ for (const id of ['shadows', 'aa']) {
 //
 // TWO PAGES IS NOT AN OPTION FOR THE GRASS HALF. Two separate loads of the same
 // framing differ by 2.02 code values everywhere from streaming and settling
-// alone, which is larger than the artefact — so the A/B is two screenshots of
+// alone, which is larger than the artefact â€” so the A/B is two screenshots of
 // ONE page with `__dbgGfx` between them, and the frames then differ by exactly
 // the layer that was toggled.
 //
@@ -407,20 +407,20 @@ for (const id of ['shadows', 'aa']) {
   // 0.10 of a code value today against 16.30 on the build that shipped the bug,
   // so the threshold is nowhere near either. It is not zero and should not be:
   // hiding grass also UNCOVERS the terrain behind it, and that terrain has AO
-  // of its own. That confound is why the framing matters — the same pair reads
+  // of its own. That confound is why the framing matters â€” the same pair reads
   // 1.72 from the spawn, where grass fills a third of the frame.
   check(ao.grassMovesAo < 1,
-    `hiding grass moved the AO buffer by ${ao.grassMovesAo} code values — `
+    `hiding grass moved the AO buffer by ${ao.grassMovesAo} code values â€” `
     + 'the grass carpet is still an AO occluder');
-  // 7.08 today, 5.96 before — the control is a little STRONGER now, because a
+  // 7.08 today, 5.96 before â€” the control is a little STRONGER now, because a
   // tree's contact ring is no longer competing with a grey smear.
   check(ao.propsMovesAo > 3,
-    `hiding props moved the AO buffer by only ${ao.propsMovesAo} — the control `
+    `hiding props moved the AO buffer by only ${ao.propsMovesAo} â€” the control `
     + 'failed, so the grass measurement above proves nothing');
   // 0.034% today, and it is the horizon haze at the frame's rim rather than any
   // cloud; 13.98% on the build that shipped the bug, which is the crease dashes.
   check(ao.cloudPixelsOccluded < 2,
-    `${ao.cloudPixelsOccluded}% of a sky full of cumulus is ambient-occluded — `
+    `${ao.cloudPixelsOccluded}% of a sky full of cumulus is ambient-occluded â€” `
     + 'the cloud deck is still an AO occluder');
 }
 

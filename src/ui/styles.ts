@@ -923,10 +923,26 @@ const CSS = `
   color:rgba(244,231,205,.6)}
 .bs-menu-btn.row[aria-pressed="true"] .pill{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
-.bs-opts .row.lang{display:flex;align-items:center;justify-content:space-between;gap:10px;
+.bs-opts .row.lang,.bs-opts .row.vol{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:2px 4px 2px 18px;font-size:17px;font-weight:700;
   text-shadow:0 1px 3px rgba(0,0,0,.8)}
 .bs-opts .langs{display:flex;gap:6px}
+/* Six steps against two languages, so this strip is the one that can run out of
+   room: the chips are narrower, the gap is tighter, and it WRAPS rather than
+   pushing the label off the left edge of a phone held sideways. Wrapped lines
+   stay flush RIGHT, under the strip they belong to, rather than drifting left
+   into the gap under the label.
+
+   THE CHIPS ARE NARROWER BY PADDING, NOT BY TYPE. They were 12px, which the
+   16px floor (issue #17) rules out — and a volume step is a NUMBER a player
+   reads to find the one they are on, so it is the last label in this panel that
+   should be small. The padding comes down instead and the wrap above absorbs
+   what is left: at 16px the six steps are one row on a desktop and two on a
+   phone held sideways, which is exactly what this rule was written for. */
+.bs-opts .vols{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}
+.bs-opts .vols .bs-menu-btn.chip{padding:6px 9px;font-size:16px;min-width:44px;
+  justify-content:center}
 .bs-menu-btn.chip{width:auto;padding:8px 13px;font-size:16px;letter-spacing:.04em;border-radius:999px}
 .bs-menu-btn.chip.on{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
@@ -980,10 +996,17 @@ const CSS = `
   .bs-menu[data-step="settings"]{--slide:0vh;--gap:14px}
   /* PADDING, not type: the 16px floor (issue #17) is a floor at every screen
      size, so a short window buys its room back from the box rather than from the
-     words in it. */
-  .bs-menu-btn{padding:9px 16px;font-size:16px}
-  .bs-menu-btn.row{padding:8px 12px 8px 16px;font-size:16px}
-  .bs-menu .bs-opts{gap:7px}
+     words in it. Measured at 851x393 with the music-volume row present, the
+     settings list wanted 401px of the 361 the padding leaves; the numbers below
+     take 6px off every row, 2px off every gap, and — the largest single saving —
+     stop the six volume chips WRAPPING to a second line, which alone was 40px.
+     After: 340px, and the Back button sits 21px clear of the bottom. */
+  .bs-menu-btn{padding:6px 14px;font-size:16px}
+  .bs-menu-btn.row{padding:6px 12px 6px 16px;font-size:16px}
+  .bs-menu .bs-opts{gap:5px}
+  .bs-menu .bs-opts .note{margin:-2px 0 0}
+  .bs-opts .vols{gap:4px}
+  .bs-opts .vols .bs-menu-btn.chip{padding:5px 7px;min-width:42px}
   .bs-menu .press{font-size:16px}
 }
 
@@ -1006,6 +1029,29 @@ const CSS = `
      parked against the top with all the slack underneath it. */
   .bs-menu[data-step="options"] .fore,
   .bs-menu[data-step="settings"] .fore{grid-template-rows:0 1fr auto 1fr}
+  /* And the last twenty pixels, bought when the music row was added. Measured
+     at 844x390 with the row in and this block as it was: the list came to
+     376.5px and the Back button's bottom edge landed at 392.5 in a 390px frame
+     — two and a half pixels off the screen, which is exactly the failure the
+     block above was written for and exactly what "breaks again the day a sixth
+     setting is added" predicted.
+
+     The two CHIP STRIPS are what gives it back, because they are the only
+     controls here with padding to spare: a chip is a word, not a row, and at
+     this size the strips are what the list gained. 5px of gap and tighter chips
+     put the Back button at 371, which is 19 clear. */
+  .bs-menu[data-step="settings"] .bs-opts{gap:5px}
+  .bs-menu[data-step="settings"] .vols .bs-menu-btn.chip{padding:5px 9px}
+  .bs-menu[data-step="settings"] .langs .bs-menu-btn.chip{padding:6px 11px}
+  /* AND THE LAST TEN, bought when the 16px floor (issue #17) went in on top of
+     the music row: measured at 851x393 the Back button landed at 395 in a 393px
+     frame. The list itself has nothing left to give that is not type, so this
+     comes off the SCREEN MARGIN instead — the frame's own 16px inset, which is
+     breathing room rather than layout, and the only thing here that costs
+     nothing to lose. The safe-area insets still win where a device declares
+     them, which is the case the 16 was there for. After: 379 of 385. */
+  .bs-menu[data-step="settings"] .fore{
+    padding:max(4px,env(safe-area-inset-top)) 16px max(4px,env(safe-area-inset-bottom))}
 }
 
 /* The SETTINGS step alone, on anything under 600px of height: the wordmark

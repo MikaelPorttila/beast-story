@@ -23,6 +23,9 @@ import { DevConsole } from './ui/console';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { NPC_TALK_RANGE } from './world/npc';
+import {
+  nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId,
+} from './world/nature';
 import { createDungeon } from './world/dungeon';
 import { ZoneManager, type ZoneDef } from './world/zones';
 import { Underwater } from './world/underwater';
@@ -39,6 +42,7 @@ import {
   installEscapeLock, keyboardLockSupported, escapeIsLocked,
 } from './ui/fullscreen';
 import { LoadingScreen } from './ui/loading';
+import { MusicDirector } from './audio/music';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
 const app = document.getElementById('app')!;
@@ -136,7 +140,31 @@ let playing = false;
 const settingsHooks = {
   onLookAxes: (a: Partial<LookAxes>) => pad?.setLookAxes(a),
   onHapticFeedback: (on: boolean) => feedback?.setOptions({ hapticFeedback: on }),
+  // Live, and unlike the two above it there is no null to guard: the music is
+  // built BEFORE the menu, because the poster is the first thing it plays under.
+  onVolume: (v: number) => music.setVolume(v),
 };
+
+/**
+ * THE MUSIC, built before anything else it might play under.
+ *
+ * Ahead of the title screen because the splash track is the title screen's, and
+ * a director constructed after the poster would start it a phase late. It is
+ * the one system in this file with nothing behind it — no engine, no world, no
+ * DOM of its own — so there is nothing to be early FOR it.
+ *
+ * The volume resolves the same way every other overridable preference in this
+ * file does, `flag ?? pref` — with one addition that is not in the others:
+ * `flags.silentBoot`. A run under `menu=0` or `photo=1` is a probe or a staged
+ * capture, and neither has anyone listening to it; muting those by default is
+ * what makes "debug sessions are muted" a property of the build rather than a
+ * parameter twenty tools have to remember (see core/flags.ts, and the note in
+ * AGENTS.md). `?vol=0.01` is how a change that needs to hear something turns it
+ * back on for one load.
+ */
+const music = new MusicDirector(
+  flags.volume ?? (flags.silentBoot ? 0 : loadPrefs().volume),
+);
 
 /**
  * The title screen. Reassignable, because Exit raises a NEW one — the poster is
@@ -169,6 +197,11 @@ const staged = startMenu !== null && !flags.photo;
 const loading = staged ? new LoadingScreen() : null;
 if (!staged) handedOver = true;
 
+// The splash track, from the frame the poster goes up. Nothing starts when
+// there is no poster: the unstaged paths go straight to `beginPlay`, which asks
+// for the overworld's, and a photo run has `silentBoot` set anyway.
+if (startMenu) music.setScene('title');
+
 /**
  * Start the game, once BOTH halves are true: everything is built, and the
  * player has asked for it.
@@ -196,6 +229,12 @@ function beginPlay(): void {
   // hero wakes up to an empty keyboard.
   input.endFrame();
   loading?.finish();
+  // SCENE CHANGE: the splash track is faded out and unloaded, the overworld's
+  // starts. New Game is also the gesture that makes noise legal at all on a
+  // page nobody had touched — a title track the autoplay policy refused is
+  // dropped rather than faded, so what the player hears is the overworld
+  // starting and never a second of the poster's music behind them.
+  music.setScene('overworld');
   // Everything the F3 panel owns, pushed at the freshly built world — the frame
   // cap among it, which is why this replaced a bare `engine.setFpsCap(fpsCap)`
   // here. That line re-applied the URL/default cap on every New Game and would
@@ -320,6 +359,11 @@ function exitToTitle(): void {
   // started, and no browser undoes it on its own.
   exitFullscreen();
   input.releaseLock();
+  // Back to the splash track. The zone's is faded and UNLOADED on the way — a
+  // session that ended is a track nothing is going to play again, and leaving it
+  // paused-but-loaded is a buffer and a decoder held for the rest of the page's
+  // life. See src/audio/music.ts.
+  music.setScene('title');
 
   // Back to the overworld first, because the reset below places the hero at
   // `world.spawnPoint` and a player who quit inside the dungeon would otherwise
@@ -501,6 +545,12 @@ const zones = new ZoneManager({
   warm: (stage, lights) => warmUpFrame(stage, lights),
   onArrive: (w, def) => {
     world = w;
+    // The other scene change, and the only one that is not the session starting
+    // or ending. The dungeon has no track of its own yet, so arriving in it
+    // fades the overworld's out and unloads it — silence under the hold is a
+    // deliberate answer rather than a gap, and walking back out starts the
+    // overworld's song again from its head.
+    music.setScene(def.id === 'overworld' ? 'overworld' : 'hold');
     // A saddle pose is computed against one world's heightfield; applying it in
     // another is precisely the teleport-into-rock this rebinding exists to stop.
     if (mount.isMounted) mount.dismount();
@@ -1183,6 +1233,19 @@ const _hurtFrom = new THREE.Vector3();
 (window as unknown as { __dbgFeedback: () => unknown }).__dbgFeedback =
   () => feedback?.debugState() ?? null;
 
+// The music: which scene it thinks it is in, which file is loaded, whether the
+// element is playing, and what volume the envelope has it at right now. Read
+// only. `output` is the number to watch a fade on — `volume` is the master and
+// does not move during one. `blocked` true means the browser refused to play a
+// page nobody has touched yet, which is a normal state and not a failure.
+// See src/audio/music.ts, and tools/test-music.mjs for what it is asserted on.
+(window as unknown as { __dbgMusic: () => unknown }).__dbgMusic = () => music.debugState();
+// TEST HOOK, like `__dbgHurt`: move the playhead. The loop seam the fades exist
+// for is 85 seconds into the shortest track, which is not a thing a probe can
+// wait for — see `MusicDirector.seek`.
+(window as unknown as { __dbgMusicSeek: (t: number) => void }).__dbgMusicSeek =
+  (t: number) => music.seek(t);
+
 // TEST HOOK, like `__dbgTp`: hurt the hero for a fixed amount from a fixed
 // direction. Waiting for a real enemy to connect is not deterministic enough to
 // assert feedback timing — or the invulnerability window — against.
@@ -1649,6 +1712,60 @@ devConsole?.register({
     return `${opt.id} ${String(now)}`;
   },
 });
+// A CHANGED DENSITY REACHES THE GROUND YOU ARE STANDING ON, which is the whole
+// point of tuning from the console rather than from the URL. The listener is
+// wired here — the composition root — for the same reason `GfxSinks` is: the
+// parameter table knows what a number means and nothing about a streamer.
+// `world` is a `let` and is reassigned on a zone switch, so this always rebuilds
+// whichever world is current.
+nature.onChange(() => world.rebuildProps());
+devConsole?.register({
+  name: 'nature',
+  args: '[<param> [<value>] | <area>.<param> [<value>|reset] | reset]',
+  help: 'Read or set the world\'s nature densities. 1 is the baseline; an area '
+    + 'multiplies it. No arguments lists everything.',
+  run: (args) => {
+    const [lhs, raw] = args;
+    if (!lhs) {
+      const snap = nature.snapshot();
+      const rows = NATURE_PARAMS.map(
+        (p) => `${p.id.padEnd(8)} ${snap.baseline[p.id].toFixed(2)}  ${p.help}`,
+      );
+      const areas = Object.entries(snap.areas)
+        .map(([k, v]) => `${k.padEnd(16)} x${v.toFixed(2)}`);
+      return [
+        'baseline (1 = the designed world)',
+        ...rows,
+        areas.length ? `\nareas\n${areas.join('\n')}` : '\nno area overrides',
+        '\n/nature grass 0.5   /nature forest.trees 2   /nature forest.trees reset',
+      ].join('\n');
+    }
+    if (lhs === 'reset') {
+      nature.reset();
+      return 'nature reset — rebuilding the streamed chunks';
+    }
+    const dot = lhs.indexOf('.');
+    const id = (dot < 0 ? lhs : lhs.slice(dot + 1)) as NatureParamId;
+    if (!NATURE_PARAMS.some((p) => p.id === id)) {
+      return `no such parameter "${id}" — ${NATURE_PARAMS.map((p) => p.id).join(', ')}`;
+    }
+    if (dot < 0) {
+      if (raw === undefined) return `${id} ${nature.base(id).toFixed(2)}`;
+      return `${id} ${nature.setBase(id, Number(raw)).toFixed(2)} — rebuilding`;
+    }
+    // An AREA is a biome id today (world/nature.ts). Unvalidated on purpose:
+    // the set widens as the world grows named regions, and a typo shows up as
+    // an override that changes nothing rather than as a refusal that hides one.
+    const area = lhs.slice(0, dot) as NatureAreaId;
+    if (raw === undefined) return `${area}.${id} x${nature.areaFactor(area, id).toFixed(2)}`;
+    if (raw === 'reset') {
+      nature.setArea(area, id, null);
+      return `${area}.${id} back to the baseline — rebuilding`;
+    }
+    const v = nature.setArea(area, id, Number(raw));
+    return `${area}.${id} x${v.toFixed(2)} = ${(nature.base(id) * v).toFixed(2)} — rebuilding`;
+  },
+});
 devConsole?.register({
   name: 'mount',
   args: '[off|<speciesId>]',
@@ -1724,6 +1841,35 @@ devConsole?.register({
     // Live, like the menu's row: turning it off silences whatever is ringing.
     feedback?.setOptions({ hapticFeedback: on });
     return `hapticFeedback = ${on}`;
+  },
+});
+/**
+ * The dial half of the music row, in the same shape as `/haptics` and `/shake`
+ * and writing the same key the panel does (`game.settings.gameplay.volume`).
+ *
+ * It is not redundant with the strip of chips in Settings: the panel offers six
+ * steps because a player choosing a level wants a level, and this takes any
+ * value in between — which is the one thing worth having while balancing a track
+ * against a scene. `?vol=` pins a value for one load without writing it.
+ */
+devConsole?.register({
+  name: 'volume',
+  args: '[<0..1>]',
+  help: 'Show or set music volume. Persists. 0 unloads the track entirely.',
+  run: (args) => {
+    if (args[0] === undefined) {
+      const at = flags.volume ?? (flags.silentBoot ? 0 : loadPrefs().volume);
+      const why = flags.volume !== null ? ' (pinned by URL)'
+        : flags.silentBoot ? ' (muted: menu=0 / photo=1 — pass ?vol= to hear it)' : '';
+      return `volume = ${at}${why}`;
+    }
+    const v = Number(args[0]);
+    if (!Number.isFinite(v) || v < 0 || v > 1) return 'usage: 0..1';
+    savePrefs({ volume: v });
+    if (flags.volume !== null) return `saved volume = ${v}, but this load is pinned to ${flags.volume}`;
+    // Live: this is the one preference whose effect is audible while you type.
+    music.setVolume(v);
+    return `volume = ${v}`;
   },
 });
 devConsole?.register({
@@ -2740,6 +2886,45 @@ beginPlay();
  */
 (window as unknown as { __dbgShadows: () => unknown }).__dbgShadows =
   () => engine.shadowDebug();
+
+/**
+ * The world's nature densities, and a WRITER for them.
+ *
+ * The read half is the usual read-only probe: the baseline, the area overrides
+ * and whether anything has been touched at all. The write half is a TEST HOOK
+ * like `__dbgTp` — a probe cannot type at the developer console, and the whole
+ * assertion worth making about this feature is a before/after of the same
+ * chunks under two different densities. It rebuilds the streamed chunks through
+ * the same listener `/nature` does, so a probe drives exactly the player-facing
+ * path. See world/nature.ts and tools/test-nature.mjs.
+ */
+(window as unknown as { __dbgNature: () => unknown }).__dbgNature = () => {
+  // THE CENSUS IS THE ASSERTION. A snapshot of the settings only proves the
+  // table stored what it was given; what the feature claims is that the WORLD
+  // changed, so the vertex counts of the two prop meshes are reported beside
+  // it. Read off the scene rather than off the streamer, for the same reason
+  // tools/test-gfx.mjs reads draw calls: it is the frame's own answer.
+  let chunks = 0;
+  let props = 0;
+  let grass = 0;
+  engine.scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.name.startsWith('chunk:')) return;
+    const n = m.geometry.getAttribute('position')?.count ?? 0;
+    if (m.name === 'chunk:terrain') chunks++;
+    else if (m.name === 'chunk:props') props += n;
+    else if (m.name === 'chunk:grass') grass += n;
+  });
+  return { ...nature.snapshot(), census: { chunks, propVerts: props, grassVerts: grass } };
+};
+(window as unknown as {
+  __dbgSetNature: (id: string, value: number, area?: string) => unknown;
+}).__dbgSetNature = (id, value, area) => {
+  if (!NATURE_PARAMS.some((p) => p.id === id)) return null;
+  if (area === undefined) nature.setBase(id as NatureParamId, value);
+  else nature.setArea(area as NatureAreaId, id as NatureParamId, value);
+  return nature.snapshot();
+};
 
 /** A/B the cache inside one page load; see `Engine.setShadowCacheEnabled`. */
 (window as unknown as { __dbgShadowCache: (on: boolean) => void }).__dbgShadowCache =

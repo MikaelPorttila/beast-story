@@ -146,7 +146,7 @@ once frames come quickly.
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`,
-  `test-textsize.mjs`.
+  `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`.
   `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
@@ -308,6 +308,33 @@ once frames come quickly.
   streaming ring, so a probe sees the same immediate game it always did.
   `tools/screenshot.mjs` adds it for you unless the query already names `menu=`;
   the rest have it in their URL.
+- **A DEBUG SESSION IS MUTED, AND IT IS THE BUILD THAT MAKES IT SO.** There is
+  music now (see the Music note below), and a probe run should not put 2.4 MB of
+  song through a headless browser or startle whoever is at the keyboard. So
+  `flags.silentBoot` (core/flags.ts) resolves the volume to 0 for any load
+  carrying `menu=0`, `photo=1`, `fs=0` or `fps=` — the four markers no player's
+  URL has, and between them every URL in `tools/`. Nothing loads at zero: no
+  element, no request, nothing to unload.
+  **When a change DOES need audio, pass `vol=0.01`** — one per cent, which is
+  enough for `__dbgMusic()` to report the element playing and the envelope
+  moving, and quiet enough to run a batch beside. `vol=` beats the inference
+  everywhere it is read, and like `haptics=` and `shake=` it pins for one load
+  and never writes the preference back. The rule is a property of the build
+  rather than a parameter twenty tools have to remember, which is deliberate:
+  covering only `menu=0` would have left the staged-boot arms of `test-menu`,
+  `test-pause` and `test-keybinds` streaming a song each.
+- `test-music.mjs` is the music guard, and the only thing it CANNOT assert on is
+  sound — headless has no speakers, so the honest signal is the element's own
+  volume, read through `__dbgMusic()` as `output` (master x envelope x swap).
+  Six claims: a debug boot loads nothing at all, `vol=` beats that, the head of a
+  track fades in (0.005 at 0.19 s against a master of 0.5, and 0.5 by 2.4 s),
+  New Game and Exit to title are scene changes that unload the outgoing track
+  (`starts` 1 -> 2 -> 4 over one session), the OFF chip unloads and writes one
+  key, and the LOOP SEAM is what the fades are for. That last one is the reason
+  `__dbgMusicSeek` exists: the tail is 210 seconds in, so the probe moves the
+  playhead to 1.4 s from the end and watches the envelope come down (0.073 at
+  209.05), the wrap happen (`loops` 1) and the envelope come back up. A test
+  that waited for a real loop is a test nobody runs.
 - `test-menu.mjs` is the title-screen guard, and it now makes two assertions that
   matter. The first is a PAIR: hold W with the poster up and the hero must travel
   0, hold W after New Game and he must travel what the identical hold travels
@@ -491,16 +518,25 @@ once frames come quickly.
 TypeScript + three.js, no framework and no asset files — every model, animation
 and effect is generated in code. Vite serves two entries from the same modules.
 
-There are TWO exceptions and they are both 2D chrome the renderer never
-touches: `src/ui/menu-bg.webp` / `src/ui/menu-logo.webp`, the title screen's
-painting and wordmark, and `src/ui/cursors.webp`, the sixteen-state mouse
-cursor sheet (issue #38). Everything the RENDERER draws is still generated in
-code, which is the line that actually matters — a texture, a model or a font
+The exceptions are 2D chrome the renderer never touches and, since issue #42,
+the MUSIC: `src/ui/menu-bg.webp` / `src/ui/menu-logo.webp`, the title screen's
+painting and wordmark; `src/ui/cursors.webp`, the sixteen-state mouse cursor
+sheet (issue #38); and `src/audio/title.webm` / `src/audio/overworld.webm`, the
+two composed tracks. Everything the RENDERER draws is still generated in code,
+which is the line that actually matters — a texture, a model or a font
 file is still a no. They are not a crack in the rule: nothing
 the renderer draws comes from a file, and these are a 2D poster shown before the
 renderer is on screen at all — the one place where an image *is* the design
 rather than a shortcut around building one. Keep it that way. A texture, a
 model, a sprite sheet or a font file is still a no.
+
+A SONG IS THE SAME KIND OF EXCEPTION, and it is worth saying why it is not the
+one `src/feedback/audio.ts` forbids. That file's header says whatever lands in
+the SFX channel should be generated — oscillators and noise bursts shaped in
+code — and that stays true of a sword hit and a level-up, which genuinely are
+things a few oscillators do better than a sample. A composed two-minute piece is
+not a shortcut around building one; there is nothing to build. The renderer
+still touches nothing here. A sample-based sound EFFECT is still a no.
 
 They live in `src/` and are IMPORTED (`import bgUrl from './menu-bg.webp'`),
 not dropped in a `public/` folder — there is no `public/` in this project and
@@ -879,6 +915,55 @@ reported. Two questions — "did you come over to him" and "are you at his level
 — so two numbers, and the constant's comment carries the four measurements it
 was picked from. The CULL stays flat: a man you are flying over is the case
 where you can see him best. `tools/test-npc.mjs` is the guard.
+
+**HOW MUCH OF EACH THING GROWS IS A NAMED NUMBER, AND AN AREA ADJUSTS THE
+BASELINE RATHER THAN REPLACING IT.** That is issue #50, and it is why every
+parameter in [src/world/nature.ts](src/world/nature.ts) is a dimensionless
+MULTIPLIER whose default is exactly 1 — `trees`, `grass`, `flowers`, `bushes`,
+`rocks`, `reeds`. The baseline IS the tuned world `props.ts` already builds,
+with every measured threshold and every comment saying what it was captured at
+left where it is; an area then says "half the trees" instead of "trees at 0.40
+acceptance", so a per-area value cannot fork from the baseline it came from.
+Move the baseline and every area moves with it. An "area" is a `BiomeId` today,
+because that is the world's only existing notion of somewhere with its own
+character and `props.ts` already dispatches its whole scatter off it.
+
+`?nature=trees:0.5,forest.grass:0` before the first chunk, `/nature` live (no
+arguments lists the table), `__dbgNature()` to read and `__dbgSetNature` to
+write. A change fires `World.rebuildProps()`, which drops every streamed chunk
+and builds it again — the densities are read inside `buildChunkProps`, so
+nothing short of that reaches the ground already under your feet. It is a
+TUNING path and nothing in the frame loop calls it.
+
+**AT THE SHIPPED VALUES THE PLACEMENT IS BIT-FOR-BIT WHAT IT WAS**, and that is
+the property that makes a knob safe to add to code tuned against captures for
+months. It holds by construction rather than by luck: an acceptance rate is
+multiplied (`roll < 0.80 * f`), a count goes through `natureCount`, which is a
+`Math.round` of an integer at 1, and `thin` returns false WITHOUT hashing at
+`f >= 1`. `tools/test-nature.mjs` measures it — its identity section sets a
+parameter to its own baseline, rebuilds all 89 chunks and reads **drift 0**.
+That section is the CONTROL, and without it every other number in the file is
+equally consistent with "a rebuild changes the count".
+
+Three rules about where a factor may be applied, all of them learned from the
+shape of `props.ts`. A LADDER BAND is never moved — the scatter and mid-scale
+passes are one shared `roll` against cumulative thresholds, so a boundary that
+gives up width hands it to whatever prop is next, and "fewer rocks" would
+silently mean "more hedges"; a lone stamp on a band is thinned by `thin`
+instead, which is a positional hash and NOT an `rng()` draw, for exactly the
+reason `trodden` gives — a draw here would re-scatter the vegetation of every
+chunk in the world. An `else if` body is BRACED before a thinning test goes in
+it, or a thinned grass blade falls through to the next band and plants
+deadwood. And `thin` only ever REMOVES: things that come in groups (a clump's
+tussocks, a boulder outcrop, a reed stand) scale their COUNT and so grow past 1,
+where a lone stamp has nowhere to put a second one. Measured at the extremes:
+`grass 0` leaves 7.5% of the soft mesh standing (reeds, shells, driftwood — not
+grass), `trees 0` leaves 41% of the solid mesh (boulders, logs, hedges).
+
+One consequence worth stating rather than discovering: a meadow CLUMP is the
+unit `grass` scales, and a clump carries the flower and the bush inside it, so
+`grass 0` in an area takes those with it. The mid-scale pass still plants hedges
+there, so `bushes` is not lost with the sward.
 
 Grass NOTICES what walks through it.
 [src/world/sway.ts](src/world/sway.ts) is one vertex shader carrying three
@@ -1304,15 +1389,24 @@ animation clock so two stills of the same 4.6 s curl are reproducible;
 this load without writing the preference back; `shadowcache=0` redraws the whole
 shadow map from every caster every frame, the way it was before
 [src/core/shadow-cache.ts](src/core/shadow-cache.ts) — the one `?` flag that must
-not move a pixel; plus every post-processing override above.
+not move a pixel;
+`nature=<param>:<n>[,<area>.<param>:<n>]` sets the world's vegetation densities
+before the first chunk is built (see **nature parameters** above; a term with a
+dot is an area multiplier, one without is the baseline, and an unparseable term
+is ignored rather than thrown);
+plus every post-processing override above.
 `menu=0` removes the title screen and starts the game immediately — what every
 probe in `tools/` passes, and what `photo=1` implies on its own; `menu=1` forces
 it back, INCLUDING in photo mode, which is how the title screen itself gets
 captured (`photo=1` then freezes its animations so two runs match, and do NOT
 add `hud=0` — that hides every overlay including the menu).
 `lang=<iso639-1>` pins the display language (default: the stored preference,
-then `navigator.language`, then `en` — see **Strings** below). Lab parameters
-are in [LAB.md](LAB.md).
+then `navigator.language`, then `en` — see **Strings** below).
+`vol=<0..1>` pins the music volume for this load without writing the preference
+back, and is the ONLY way to hear anything in a debug session: `menu=0`,
+`photo=1`, `fs=0` and `fps=` each imply volume 0 (see the muted-debug rule
+above). `vol=0` is stronger than a mute — no element is created and nothing is
+fetched. Lab parameters are in [LAB.md](LAB.md).
 
 **Strings.** Every player-visible name and sentence comes from
 [src/i18n/en.ts](src/i18n/en.ts), the BASE table and the source of truth for
@@ -1332,6 +1426,56 @@ you owe it a re-derive from `onLanguageChange`, which today is `HUD.relabel()`,
 string it holds. One thing cannot follow a live switch and is not meant to: a
 fingerpost's letters are voxel geometry carved once at world creation, which is
 why the picker lives in the menu, before the world is streamed.
+
+**Music.** [src/audio/music.ts](src/audio/music.ts) is one `MusicDirector`
+playing one track at a time, keyed on a SCENE rather than on a zone: `title`,
+`overworld`, `hold`. main.ts is the only caller — the poster raises `title`,
+`beginPlay` swaps to `overworld`, the zone manager's `onArrive` follows a
+gateway, and `exitToTitle` goes back. A scene with no track in the map (the
+dungeon today) is SILENCE, which is a deliberate answer rather than a gap.
+
+It is an `<audio>` element and not the Web Audio API, and the reason is the
+size: `decodeAudioData` on these two would hold about 225 MB of decoded float in
+memory and would do the decoding in one go during a boot this project has spent
+a lot of effort making incremental. An element streams, and nothing here needs a
+filter or a sample-accurate schedule — it needs a volume and a fade.
+
+**BOTH TRACKS ARE CUT ROUGH, WHICH IS WHY THE FADE IS AN ENVELOPE AND NOT A
+SCHEDULE.** They start and end mid-phrase, so a raw loop clicks every 85
+seconds. The element loops natively (the wrap is the browser's and is
+sample-exact, where a `timeupdate` seek fires at ~250 ms granularity and would
+leave a hole at the seam) and a 50 ms timer shapes `volume` from `currentTime`:
+up over `FADE_IN`, down over `FADE_OUT`, squared on the way out because
+`HTMLMediaElement.volume` is linear amplitude and hearing is not. A TIMER rather
+than the frame loop, because `frame()` does not run while the title screen is up
+and that is exactly when the first track is playing.
+
+**STOPPING IS UNLOADING.** `pause()` alone leaves a decoder, a buffer and
+possibly a connection behind for a track nothing will play again, and dropping
+the reference does not oblige the GC to be prompt — so every path that retires a
+track empties `src` and calls `load()`. That is what a scene change does after
+its 0.9 s fade, and what volume 0 does at once.
+
+**VOLUME 0 IS THE FEATURE SWITCHED OFF, NOT A QUIET SETTING.** Nothing is
+constructed and nothing is requested — `MusicDirector` never makes an element at
+zero — which is what makes the muted debug boot above cost literally nothing.
+It is ONE preference (`volume`, `game.settings.gameplay.volume`, 0.8 by default)
+rather than a level plus a mute flag, because the second field could only ever
+disagree with the first: "muted at 80%" and "0%" sound identical. The panel row
+is a strip of chips (OFF · 20 · 40 · 60 · 80 · 100), so coming back from OFF is
+the same one tap that leaving it was; `/volume <0..1>` is the dial half, as
+`/haptics` is for rumble.
+
+**A BROWSER WILL NOT LET A PAGE MAKE NOISE BEFORE IT IS TOUCHED**, and a refused
+`play()` is a normal outcome rather than an error — the title screen is up
+before anyone has clicked anything (measured: `blocked: true` at the splash, and
+playing 1.19 s into the track after one key). The rejection arms capture-phase
+listeners that retry on the first real gesture. CAPTURE, for the reason
+core/input.ts stamps touches there: the menu's own handlers call
+`stopPropagation()`, so a bubble listener never sees the press that leaves the
+splash. And a track that was never allowed to play is DROPPED rather than faded
+when the scene changes, or the first thing a player hears after New Game is 0.9
+seconds of the poster's music behind them.
 
 **Settings.** [src/core/prefs.ts](src/core/prefs.ts) is the whole persistence
 layer, and it is ONE localStorage KEY PER SETTING, named
@@ -1414,9 +1558,17 @@ Game that follows — and nothing in a world or a rig is per-session anyway, sin
 terrain, towns and roads are pure functions of the seed. The seam is that one
 function if the trade ever needs revisiting.
 
-The player's surface is that Settings panel, which shows SWITCHES; the dials
-(`/haptics`, `/shake`, `/invertlook`, `/vibration`) are dev-console commands
-writing the same keys. **A setting has to be respected
+The player's surface is that Settings panel, which shows SWITCHES and one strip
+of STEPS; the dials (`/haptics`, `/shake`, `/invertlook`, `/vibration`,
+`/volume`) are dev-console commands writing the same keys. Music volume is the
+step strip, and it is the exception that proves the shape rather than a new
+pattern: on/off is a choice and 0.62 rumble is a tuning session, but "quieter"
+is a thing a player genuinely wants and cannot express with a switch. Six chips
+rather than a slider because every control on that panel is a real `<button>` —
+both hosts drive it from a pad by calling `.click()` on the focused one — and
+because a −/+ stepper puts mute eight presses away. `isChip` (ui/settings.ts) is
+what tells the two hosts a strip is under the cursor, so left/right walks it.
+**A setting has to be respected
 at ONE choke point, not at every site that could break it**: controller
 vibration (`game.settings.controls.hapticFeedback`, on by default) is checked in
 `FeedbackSystem.drain`, the single place every cue passes through on its way to

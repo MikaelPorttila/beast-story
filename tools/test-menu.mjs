@@ -1,14 +1,14 @@
-// The start-menu guard: does the title screen actually GATE the game?
+﻿// The start-menu guard: does the title screen actually GATE the game?
 //
 // Four claims, and each is checked by driving the menu rather than by reading a
 // flag off it:
 //
 //   1. THE POSTER IS FIRST. It has to be on screen within a fraction of a second
-//      of load, before the world is built — `menuShownAtMs`. This is the whole
+//      of load, before the world is built â€” `menuShownAtMs`. This is the whole
 //      of issue #13: the game used to be assembled inside one unbroken 14.7 s
 //      task and the player watched a black page for all of it.
-//   2. NOTHING RUNS BEHIND IT. `playingBehindMenu` must be false — the frame
-//      loop is not started until New Game — and the hero cannot move: holding W
+//   2. NOTHING RUNS BEHIND IT. `playingBehindMenu` must be false â€” the frame
+//      loop is not started until New Game â€” and the hero cannot move: holding W
 //      for a second with the poster on screen must leave __dbgPlayerPos where it
 //      was, while the same hold after New Game must move him. That pair is the
 //      point; a menu that renders but does not gate is worse than no menu.
@@ -17,13 +17,13 @@
 //      full-screen loading cover rather than dropping the player into a
 //      half-built world.
 //   4. "Press start" takes ANY key, the steps advance in order, and `menu=0`
-//      removes the screen entirely — which is what every other tool relies on.
+//      removes the screen entirely â€” which is what every other tool relies on.
 //   5. THE CURSOR IS VISIBLE WHEREVER IT IS. Every option the focus lands on has
-//      to draw the ring — `ringOn*.ring`, all true. This is issue #19, and it
+//      to draw the ring â€” `ringOn*.ring`, all true. This is issue #19, and it
 //      was only ever wrong on ONE button: `.bs-menu-btn.primary` restated
 //      `box-shadow` one rule below `:focus-visible` at equal specificity, so New
-//      Game — the entry a pad player lands on first, where the ring is the only
-//      thing saying where they are — was the single option that did not light
+//      Game â€” the entry a pad player lands on first, where the ring is the only
+//      thing saying where they are â€” was the single option that did not light
 //      up. Reading the COMPUTED shadow is the point: the rule was there and the
 //      class was on the element the whole time, and only the resolved value
 //      shows the cascade eating it.
@@ -83,7 +83,7 @@ const loader = (page) => page.evaluate(() => {
 });
 
 /**
- * Rendered frames per second, read off the F2 overlay — the same readout
+ * Rendered frames per second, read off the F2 overlay â€” the same readout
  * tools/test-f2.mjs asserts on, and the only place the game states its own
  * measured frame rate. NOT a requestAnimationFrame count: rAF fires at the
  * display's refresh rate whether or not the engine drew anything, so it reports
@@ -93,7 +93,7 @@ const loader = (page) => page.evaluate(() => {
  * absence IS the fix: the loop used to run behind the poster at a 20 fps cap
  * (96.9% of the main thread uncapped, 27% capped) and now does not run at all,
  * so the overlay has nothing to average. `playingBehindMenu` is the assertion
- * that replaced that pair — see the header.
+ * that replaced that pair â€” see the header.
  */
 const renderedFps = (page) => page.evaluate(() => {
   const el = [...document.body.children].find(
@@ -109,13 +109,13 @@ const moved = (a, b) => +Math.hypot(b.x - a.x, b.z - a.z).toFixed(2);
  *
  * `ring` is derived from the COMPUTED box-shadow rather than from the presence
  * of a rule, because the bug it guards against (issue #19) was a rule that
- * existed, matched, and lost the cascade — nothing short of the resolved value
+ * existed, matched, and lost the cascade â€” nothing short of the resolved value
  * can tell that apart from a working ring.
  *
  * The test for one is SPREAD. Every resting shadow on this screen is a drop
  * shadow or an inset highlight, all blur and zero spread; a ring is the one
  * thing drawn as `0 0 0 Npx`, an offsetless, blurless band N pixels wide. So a
- * non-zero fourth length is the ring and cannot be anything else — which also
+ * non-zero fourth length is the ring and cannot be anything else â€” which also
  * means this keeps working if the ring is restyled, as long as it stays a ring.
  */
 const focusRing = (page) => page.evaluate(() => {
@@ -166,7 +166,7 @@ const out = {};
   // number. `debug=1` opens the F2 overlay, which is where the measured rate is
   // published.
   // fs=0 because this run CLICKS New Game, and the game now takes fullscreen
-  // from that gesture — which resizes the viewport out from under the walk
+  // from that gesture â€” which resizes the viewport out from under the walk
   // being measured two lines later. The override never writes the preference
   // back; see core/flags.ts.
   // Stamped from inside the page, before the app module runs: the ONE number
@@ -197,12 +197,12 @@ const out = {};
   out.playingBehindMenu = (await boot(page))?.playing ?? null;
   out.walkedBehindMenu = await walk(page, HOLD);
 
-  // "Press start" takes any key — this one is neither Enter nor Space.
+  // "Press start" takes any key â€” this one is neither Enter nor Space.
   await page.keyboard.press('KeyK');
   await wait(400);
   out.afterAnyKey = await state(page);
   // The cursor is on New Game the moment the options appear, and it is the ONE
-  // place on this screen where a player never chose to be — so it is also the
+  // place on this screen where a player never chose to be â€” so it is also the
   // one that has to look chosen. See claim 5 in the header.
   out.ringOnNewGame = await focusRing(page);
   // There is NO fullscreen step any more: any key goes straight to the options,
@@ -213,7 +213,7 @@ const out = {};
 
   // Into Settings and back out, which is also the language picker's home.
   // ONE ArrowDown, not two: Load is disabled, and a disabled button is not in
-  // the focus ring — so the list the arrows walk is [New Game, Settings]. Two
+  // the focus ring â€” so the list the arrows walk is [New Game, Settings]. Two
   // presses would wrap back to New Game and start the game instead, which is
   // exactly what this probe caught the first time it ran.
   await page.keyboard.press('ArrowDown');
@@ -264,7 +264,7 @@ const out = {};
 
   // The handover, sampled from INSIDE the page at 25 ms. It has to be: a probe
   // that asks from outside pays a round trip per sample and lands well after the
-  // half-second dissolve it is trying to watch — the first attempt read the
+  // half-second dissolve it is trying to watch â€” the first attempt read the
   // cover already at 0.60 and fading and could not tell that from a bug.
   await page.evaluate(() => {
     window.__hand = [];
@@ -286,7 +286,7 @@ const out = {};
   await wait(2000);
   // What the poster dissolved INTO. `coverFullyUpWhileMenuVisible` is the claim:
   // there was a moment where the loading screen was opaque and the menu was
-  // still on top of it, fading — which is the z-index inversion in
+  // still on top of it, fading â€” which is the z-index inversion in
   // LoadingScreen.cover doing its job. `menuFadeMs` is how long the poster
   // lasted; it must be the half second the CSS asks for, not the 140 ms a
   // bubbled button transition used to cut it to.
@@ -306,13 +306,13 @@ const out = {};
   out.afterStart = await state(page);
   // ...and gone again once there is a game to look at.
   out.loaderAfterStart = await loader(page);
-  // The welcome toast MOVED — it used to be emitted at load, which behind a
+  // The welcome toast MOVED â€” it used to be emitted at load, which behind a
   // poster would have expired before the player ever saw the game, so it is
   // fired from the menu's onStart instead. Read straight after starting,
   // before its ~4 s life runs out.
   out.welcomeToast = await page.evaluate(() =>
     document.querySelector('.bs-toasts')?.textContent?.trim() || null);
-  // The renderer is now running at whatever rate this load asked for — no cap
+  // The renderer is now running at whatever rate this load asked for â€” no cap
   // was ever imposed, so there is nothing to have failed to restore. The number
   // is still reported because it is the only proof the loop is alive at all,
   // and it must be paired with `playingBehindMenu: false` above.
@@ -362,8 +362,8 @@ const out = {};
 // scrubs them to three moments, reading the computed opacity of each layer.
 //
 // Scrubbing rather than sampling in real time, because a real-time sample of
-// this is not available on this page at all. The boot's phases are long tasks —
-// a screenshot asked for at 1200 ms was delivered at 5695 ms — so every
+// this is not available on this page at all. The boot's phases are long tasks â€”
+// a screenshot asked for at 1200 ms was delivered at 5695 ms â€” so every
 // wall-clock reading lands after the sequence is over. That same fact is why the
 // beats are CSS in the first place (a `setTimeout(550)` for the second one fired
 // at 4066 ms), and it is why `animations` is asserted to be non-empty: an
@@ -371,7 +371,7 @@ const out = {};
 // on that line rather than on a subtle one.
 //
 // `photoIsLit` is the other half. A staged capture pauses every animation on the
-// poster, so a sequence that ran under photo=1 would freeze the still half-lit —
+// poster, so a sequence that ran under photo=1 would freeze the still half-lit â€”
 // menu.ts jumps straight to the end state there, and this is that claim.
 {
   const { ctx, page } = await newContextPage(browser, { width: 1000, height: 640 });
