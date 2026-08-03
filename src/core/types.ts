@@ -416,6 +416,15 @@ export interface World {
    * and it has to survive walking forward into unbuilt chunks.
    */
   setLayerVisible(layer: WorldLayer, on: boolean): void;
+  /**
+   * Drop every streamed chunk and build it again.
+   *
+   * A TUNING path, not a play path: the nature densities (world/nature.ts) are
+   * read while a chunk's props are being built, so a value changed at `/nature`
+   * only reaches the ground already under your feet by rebuilding it. Nothing in
+   * the frame loop calls this.
+   */
+  rebuildProps(): void;
   /** Terrain height at world xz (top surface, in world units) */
   getHeight(x: number, z: number): number;
   /**

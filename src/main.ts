@@ -23,6 +23,9 @@ import { DevConsole } from './ui/console';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { NPC_TALK_RANGE } from './world/npc';
+import {
+  nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId,
+} from './world/nature';
 import { createDungeon } from './world/dungeon';
 import { ZoneManager, type ZoneDef } from './world/zones';
 import { Underwater } from './world/underwater';
@@ -1626,6 +1629,60 @@ devConsole?.register({
     return `${opt.id} ${String(now)}`;
   },
 });
+// A CHANGED DENSITY REACHES THE GROUND YOU ARE STANDING ON, which is the whole
+// point of tuning from the console rather than from the URL. The listener is
+// wired here — the composition root — for the same reason `GfxSinks` is: the
+// parameter table knows what a number means and nothing about a streamer.
+// `world` is a `let` and is reassigned on a zone switch, so this always rebuilds
+// whichever world is current.
+nature.onChange(() => world.rebuildProps());
+devConsole?.register({
+  name: 'nature',
+  args: '[<param> [<value>] | <area>.<param> [<value>|reset] | reset]',
+  help: 'Read or set the world\'s nature densities. 1 is the baseline; an area '
+    + 'multiplies it. No arguments lists everything.',
+  run: (args) => {
+    const [lhs, raw] = args;
+    if (!lhs) {
+      const snap = nature.snapshot();
+      const rows = NATURE_PARAMS.map(
+        (p) => `${p.id.padEnd(8)} ${snap.baseline[p.id].toFixed(2)}  ${p.help}`,
+      );
+      const areas = Object.entries(snap.areas)
+        .map(([k, v]) => `${k.padEnd(16)} x${v.toFixed(2)}`);
+      return [
+        'baseline (1 = the designed world)',
+        ...rows,
+        areas.length ? `\nareas\n${areas.join('\n')}` : '\nno area overrides',
+        '\n/nature grass 0.5   /nature forest.trees 2   /nature forest.trees reset',
+      ].join('\n');
+    }
+    if (lhs === 'reset') {
+      nature.reset();
+      return 'nature reset — rebuilding the streamed chunks';
+    }
+    const dot = lhs.indexOf('.');
+    const id = (dot < 0 ? lhs : lhs.slice(dot + 1)) as NatureParamId;
+    if (!NATURE_PARAMS.some((p) => p.id === id)) {
+      return `no such parameter "${id}" — ${NATURE_PARAMS.map((p) => p.id).join(', ')}`;
+    }
+    if (dot < 0) {
+      if (raw === undefined) return `${id} ${nature.base(id).toFixed(2)}`;
+      return `${id} ${nature.setBase(id, Number(raw)).toFixed(2)} — rebuilding`;
+    }
+    // An AREA is a biome id today (world/nature.ts). Unvalidated on purpose:
+    // the set widens as the world grows named regions, and a typo shows up as
+    // an override that changes nothing rather than as a refusal that hides one.
+    const area = lhs.slice(0, dot) as NatureAreaId;
+    if (raw === undefined) return `${area}.${id} x${nature.areaFactor(area, id).toFixed(2)}`;
+    if (raw === 'reset') {
+      nature.setArea(area, id, null);
+      return `${area}.${id} back to the baseline — rebuilding`;
+    }
+    const v = nature.setArea(area, id, Number(raw));
+    return `${area}.${id} x${v.toFixed(2)} = ${(nature.base(id) * v).toFixed(2)} — rebuilding`;
+  },
+});
 devConsole?.register({
   name: 'mount',
   args: '[off|<speciesId>]',
@@ -2717,6 +2774,45 @@ beginPlay();
  */
 (window as unknown as { __dbgShadows: () => unknown }).__dbgShadows =
   () => engine.shadowDebug();
+
+/**
+ * The world's nature densities, and a WRITER for them.
+ *
+ * The read half is the usual read-only probe: the baseline, the area overrides
+ * and whether anything has been touched at all. The write half is a TEST HOOK
+ * like `__dbgTp` — a probe cannot type at the developer console, and the whole
+ * assertion worth making about this feature is a before/after of the same
+ * chunks under two different densities. It rebuilds the streamed chunks through
+ * the same listener `/nature` does, so a probe drives exactly the player-facing
+ * path. See world/nature.ts and tools/test-nature.mjs.
+ */
+(window as unknown as { __dbgNature: () => unknown }).__dbgNature = () => {
+  // THE CENSUS IS THE ASSERTION. A snapshot of the settings only proves the
+  // table stored what it was given; what the feature claims is that the WORLD
+  // changed, so the vertex counts of the two prop meshes are reported beside
+  // it. Read off the scene rather than off the streamer, for the same reason
+  // tools/test-gfx.mjs reads draw calls: it is the frame's own answer.
+  let chunks = 0;
+  let props = 0;
+  let grass = 0;
+  engine.scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.name.startsWith('chunk:')) return;
+    const n = m.geometry.getAttribute('position')?.count ?? 0;
+    if (m.name === 'chunk:terrain') chunks++;
+    else if (m.name === 'chunk:props') props += n;
+    else if (m.name === 'chunk:grass') grass += n;
+  });
+  return { ...nature.snapshot(), census: { chunks, propVerts: props, grassVerts: grass } };
+};
+(window as unknown as {
+  __dbgSetNature: (id: string, value: number, area?: string) => unknown;
+}).__dbgSetNature = (id, value, area) => {
+  if (!NATURE_PARAMS.some((p) => p.id === id)) return null;
+  if (area === undefined) nature.setBase(id as NatureParamId, value);
+  else nature.setArea(area as NatureAreaId, id as NatureParamId, value);
+  return nature.snapshot();
+};
 
 /** A/B the cache inside one page load; see `Engine.setShadowCacheEnabled`. */
 (window as unknown as { __dbgShadowCache: (on: boolean) => void }).__dbgShadowCache =

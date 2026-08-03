@@ -113,6 +113,9 @@ export class StubWorld implements World {
    */
   setLayerVisible(): void { /* nothing streamed here */ }
 
+  /** No-op for the same reason: the stage grows nothing to re-grow. */
+  rebuildProps(): void { /* nothing streamed here */ }
+
   setVisible(v: boolean): void {
     for (const m of this.meshes) m.visible = v;
   }
