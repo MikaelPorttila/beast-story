@@ -280,6 +280,11 @@ export class StartMenu {
     injectStyles();
     this.prefs = loadPrefs();
     this.settings = new SettingsPanel('title', hooks);
+    // A tab replaces every row under it, so the panel asks for a real rebuild
+    // rather than patching the DOM behind this screen's back — `focusables` is
+    // built by `renderPanel` and by nothing else. Same path a language change
+    // takes, and the selector is what keeps the cursor on the tab just pressed.
+    this.settings.onRebuild = (focus) => { this.pendingFocus = focus; this.renderPanel(); };
     // Coming back from a game skips the splash. "Press start..." is an invitation
     // to a player who has not started, and someone who just chose Exit to title
     // has plainly started — making them press a key to be shown the menu they

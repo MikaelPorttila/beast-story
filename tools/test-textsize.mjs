@@ -213,7 +213,26 @@ for (const [name, viewport, query] of [
     await wait(500);
     staged = opened ? 'settings' : 'options-only';
   }
-  live[name] = { staged, tooSmall: await page.evaluate(SWEEP, MIN_PX) };
+  let tooSmall = await page.evaluate(SWEEP, MIN_PX);
+  if (staged === 'settings') {
+    // EVERY SECTION, not just the one the panel opens on. The settings list is
+    // four tabs and only the visible one is in the DOM (ui/settings.ts), so a
+    // sweep that stopped here would never look at the graphics rows or the
+    // volume strip — which is precisely the half of the panel that is new, and
+    // precisely how a floor stops covering the thing it was written for.
+    for (const tab of ['controls', 'graphics', 'sound']) {
+      const opened = await page.evaluate((t) => {
+        const b = document.querySelector(`.bs-menu [data-tab="${t}"]`);
+        if (!b) return false;
+        b.click();
+        return true;
+      }, tab);
+      if (!opened) continue;
+      await wait(300);
+      tooSmall = tooSmall.concat(await page.evaluate(SWEEP, MIN_PX));
+    }
+  }
+  live[name] = { staged, tooSmall };
   await ctx.close();
 }
 

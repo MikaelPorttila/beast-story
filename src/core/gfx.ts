@@ -141,6 +141,40 @@ function parse(opt: GfxOption, raw: string | null): GfxValue {
   return opt.def;
 }
 
+/**
+ * One toggle's value, read straight out of storage with no live `Gfx`.
+ *
+ * The settings panel (ui/settings.ts) is the caller, and it needs this because
+ * of WHEN it is shown: the title screen's Settings step is usable all the way
+ * through the boot phases, and main.ts does not construct the `Gfx` that owns
+ * the sinks until the engine and the world it drives exist. There is nothing to
+ * ask at that moment — but there is something to read, and it is the same
+ * source of truth `Gfx`'s own constructor reads, because every `set` persists.
+ * So a panel that reads here can never disagree with one that read the instance.
+ */
+export function storedGfx(id: keyof GfxSinks): GfxValue {
+  const opt = GFX_OPTIONS.find((o) => o.id === id);
+  return opt ? parse(opt, readRaw(id)) : false;
+}
+
+/**
+ * Persist one toggle WITHOUT applying it — the other half of the pair above.
+ *
+ * The panel writes here and its host applies through the live `Gfx` when there
+ * is one, which is exactly the split a `Prefs` row already has: the panel saves,
+ * a hook tells the running game. A change made before the instance exists is
+ * picked up when it is built, since that constructor reads storage.
+ *
+ * The DEFAULT is stored as the ABSENCE of a key, the same rule `Gfx.set` obeys
+ * and the reason the two writers share this function rather than each spelling
+ * it out — two writers with two opinions about that is two different profiles.
+ */
+export function storeGfx(id: keyof GfxSinks, value: GfxValue): void {
+  const opt = GFX_OPTIONS.find((o) => o.id === id);
+  if (!opt) return;
+  writeRaw(id, value === opt.def ? null : String(value));
+}
+
 export class Gfx {
   private readonly values = new Map<string, GfxValue>();
 
@@ -173,8 +207,9 @@ export class Gfx {
     this.values.set(id, v);
     // The DEFAULT is stored as the absence of a key, which is what keeps
     // "never touched it" distinct from "chose the default" — the same rule
-    // prefs.ts states for the language.
-    writeRaw(id, v === opt.def ? null : String(v));
+    // prefs.ts states for the language. Through `storeGfx` so the settings
+    // panel, which writes without an instance, cannot spell that differently.
+    storeGfx(id, v);
     this.apply(id);
     return v;
   }

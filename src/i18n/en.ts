@@ -440,6 +440,41 @@ export const en = {
   'menu.back': 'Back',
   'menu.settings.title': 'Settings',
   /**
+   * The four SECTIONS of the settings panel, as the tabs across the top of it.
+   *
+   * They are the four questions a player arrives with — how the game plays, how
+   * it is driven, how it looks, how loud it is — and not the four localStorage
+   * groups, which are a namespace fixed on the day each setting shipped. Two
+   * settings sit under a group that no longer matches their tab (see the note in
+   * core/prefs.ts); renaming those keys would silently reset the choice of every
+   * player who already made one, which is a worse thing than a name.
+   */
+  'menu.settings.tab.gameplay': 'Gameplay',
+  'menu.settings.tab.controls': 'Controls',
+  'menu.settings.tab.graphics': 'Graphics',
+  'menu.settings.tab.sound': 'Sound',
+  /**
+   * The GRAPHICS tab's five rows. They switch exactly what the F3 performance
+   * panel's rows of the same name switch — one model, core/gfx.ts — and they are
+   * deliberately their OWN strings rather than a reuse of the `gfx.*` labels
+   * below.
+   *
+   * Two reasons, and the second is the one that decided it. The F3 panel is a
+   * DIAGNOSTIC: every row there names the geometry a switch deletes and carries
+   * a measured draw count, because it is read beside F2 by somebody hunting a
+   * frame. A settings menu is asked a different question — what does the game
+   * look like — which is why `gfx.grass`'s "Grass & ground cover" is "Foliage"
+   * here, the one word that covers the grass, the flowers and the low scatter
+   * that come and go together. And the F3 panel is a developer instrument that
+   * ships untranslated (see the exemptions in AGENTS.md), so a player-facing row
+   * pointed at those keys would have been an English word in a Swedish menu.
+   */
+  'menu.settings.ao': 'Ambient occlusion',
+  'menu.settings.bloom': 'Glow',
+  'menu.settings.aa': 'Antialiasing',
+  'menu.settings.shadows': 'Shadows',
+  'menu.settings.foliage': 'Foliage',
+  /**
    * Says "controller" rather than "haptics" or "rumble" on purpose: it is the
    * word on the box, and the row has to be recognisable by someone who opened
    * Settings because their pad keeps buzzing.

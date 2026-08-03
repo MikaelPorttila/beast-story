@@ -923,6 +923,23 @@ const CSS = `
   color:rgba(244,231,205,.6)}
 .bs-menu-btn.row[aria-pressed="true"] .pill{color:#3a2703;border-color:transparent;
   background:linear-gradient(180deg,#ffd94f,#f0a12a)}
+/* THE SETTINGS TABS — Gameplay · Controls · Graphics · Sound (ui/settings.ts).
+   Same chips as the language picker, because they are the same gesture and this
+   screen should not grow a second vocabulary for it; the hairline under the
+   strip is the only thing that says these choose a PAGE rather than a value.
+
+   FOUR ACROSS OR TWO BY TWO, decided by the words rather than by a breakpoint.
+   The column is min(400px,86vw), and four 16px labels (the floor — issue #17)
+   with room to press come to about 370 of it in English: one row on a desktop
+   and on a phone held sideways, two on a narrow portrait window or in a language
+   with longer words. So they WRAP rather than shrink: flex 1 0 auto grows a
+   short label into the spare space and never squeezes a long one, which is the
+   half that matters — a shrinking strip clips whichever tab a translator gave
+   the longest word to, and clipped is not a thing a player can widen. */
+.bs-opts .tabs{display:flex;flex-wrap:wrap;gap:5px;
+  padding-bottom:9px;margin-bottom:1px;border-bottom:1px solid rgba(255,214,140,.18)}
+.bs-opts .tabs .bs-menu-btn.chip{flex:1 0 auto;justify-content:center;
+  padding:8px 10px;letter-spacing:.02em;white-space:nowrap}
 .bs-opts .row.lang,.bs-opts .row.vol{
   display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:2px 4px 2px 18px;font-size:17px;font-weight:700;
@@ -965,11 +982,20 @@ const CSS = `
    did not fit — only the settings column is short of room, so only that is
    compacted.
 
-   The band's top was 660px and is 760px: the 16px floor (issue #17) took a
-   settings row from 14px to 17px and the note under it from 11.5 to 16, which is
-   about 55px more list, so the height at which it stops fitting moved up with
-   it. */
-@media (min-height:521px) and (max-height:760px){
+   The band's top was 660px, then 760px, and is 880px. Each move is the same
+   thing happening: the tallest the list can be went up, so the height at which
+   it stops fitting went up with it. 760 was the 16px floor (issue #17) taking a
+   row from 14px to 17px and the note under it from 11.5 to 16, about 55px of
+   list. 880 is the four SECTIONS (ui/settings.ts) — GRAPHICS is the tallest of
+   them at five rows plus the tab strip, and uncompacted it measured 486px of
+   list against 468 of room at 1280x800, with 18px of the Back button under the
+   bottom edge. Compacted it is 425 and clear.
+
+   Note the tabs did not make the list taller overall — the flat list they
+   replaced was 462px and it is 486 here — they moved the height that has to fit
+   from "every setting there is" to "the worst single section", which is what
+   stops the next row added to Controls or Sound from mattering at all. */
+@media (min-height:521px) and (max-height:880px){
   .bs-menu[data-step="settings"] .fore{grid-template-rows:0 auto auto 1fr}
   .bs-menu[data-step="settings"]{--gap:20px}
   .bs-menu[data-step="settings"] .bs-opts{gap:7px}
@@ -1007,6 +1033,10 @@ const CSS = `
   .bs-menu .bs-opts .note{margin:-2px 0 0}
   .bs-opts .vols{gap:4px}
   .bs-opts .vols .bs-menu-btn.chip{padding:5px 7px;min-width:42px}
+  /* The tab strip is a fixed cost every section pays, so it is the first thing
+     to give room back on a short screen — padding again, never the 16px type. */
+  .bs-opts .tabs{gap:4px;padding-bottom:6px}
+  .bs-opts .tabs .bs-menu-btn.chip{padding:5px 8px}
   .bs-menu .press{font-size:16px}
 }
 

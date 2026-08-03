@@ -120,6 +120,19 @@ export const sv: Translation = {
   'menu.settings': 'Inställningar',
   'menu.back': 'Tillbaka',
   'menu.settings.title': 'Inställningar',
+  // Flikarna över inställningarna. 'Spel' och inte 'Spelupplevelse': fliken står
+  // bredvid tre andra i en spalt som är 400 px bred, och ordet ska rymmas.
+  'menu.settings.tab.gameplay': 'Spel',
+  'menu.settings.tab.controls': 'Kontroller',
+  'menu.settings.tab.graphics': 'Grafik',
+  'menu.settings.tab.sound': 'Ljud',
+  // Grafikfliken. Samma reglage som F3-panelen, men med spelarens ord —
+  // 'Växtlighet' täcker gräs, blommor och markens småväxter tillsammans.
+  'menu.settings.ao': 'Omgivningsskuggning',
+  'menu.settings.bloom': 'Ljussken',
+  'menu.settings.aa': 'Kantutjämning',
+  'menu.settings.shadows': 'Skuggor',
+  'menu.settings.foliage': 'Växtlighet',
   'menu.settings.hapticFeedback': 'Aktivera vibration i handkontrollen',
   'menu.settings.invertX': 'Invertera sikte X',
   'menu.settings.invertY': 'Invertera sikte Y',

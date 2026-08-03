@@ -196,7 +196,11 @@ once frames come quickly.
   numbers asks the player to guess which one is worth losing. It is meant to be
   read beside F2: flip a row, watch the number move. `/gfx` sets the same
   values from the console and `/gfx` alone lists them; `__dbgGfx(id, value)` is
-  the test hook. Settings persist one key per setting under
+  the test hook. FIVE of the nine are also in the Settings menu's Graphics tab
+  (see the settings note below) — the same model and the same keys, so the two
+  panels can never disagree; this one keeps the measurements and the four rows
+  that delete the world rather than the way it is drawn. Settings persist one
+  key per setting under
   `game.settings.graphics.*`, the default is stored as the ABSENCE of a key, and
   a `?` flag (`ao=0`, `bloom=0`, `shadows=0`) is a stronger statement that the
   panel cannot undo — a pass that was never created stays absent.
@@ -379,7 +383,12 @@ once frames come quickly.
   from "chose English"), a seeded `bs:prefs` blob must migrate to the
   `game.settings.*` keys and bring its language onto the screen with it, and
   toggling a row must write exactly one key, take effect live in
-  `__dbgFeedback()`, and still be true after a reload.
+  `__dbgFeedback()`, and still be true after a reload. Its fifth claim is the
+  GRAPHICS tab, and the interesting half is not the key: a row flipped at the
+  title screen is flipped before the renderer it drives exists, so the assertion
+  is what `__dbgGfx` says once New Game has built one. Note that every probe
+  reaching a settings row now has to click its TAB first — only the visible
+  section is in the DOM, so a click on any other one is a click on nothing.
 - `test-keybinds.mjs` guards the F1 controls sheet, and the half worth knowing
   about is not the DOM half. It scans src/ for every `pressed('…')` /
   `takePress('…')` / `down('…')` / `keys.has('…')` and requires each code to
@@ -1614,6 +1623,48 @@ would leave a player walking a world signposted in the language they just left.
 Disabled and explained rather than hidden — a setting that vanishes reads as a
 bug, and it keeps the two panels the same shape.
 
+**IT IS FOUR SECTIONS BEHIND TABS — Gameplay · Controls · Graphics · Sound —
+AND ONLY THE ONE SHOWING IS IN THE DOM.** One flat column was right at five rows
+and is not at eleven: this list is the tallest thing the title screen shows, and
+the two height media queries in [ui/styles.ts](src/ui/styles.ts) written about
+nothing else exist because ONE added row put the Back button off the bottom of a
+1000x560 window. Measured, the tallest tab (Graphics) is 486px of list against
+462 for the whole flat list it replaced — so the tabs did not make anything
+shorter, they moved the height that has to fit from "every setting there is" to
+"the worst single section", which is what stops the next row added to Controls
+from mattering. The compaction band's top went 660 -> 760 -> 880px with it.
+
+A TAB IS NOT A STORAGE GROUP. Keys stay `game.settings.<group>.<name>` with the
+group fixed on the day each setting shipped, and two no longer match the tab they
+appear in — volume is `gameplay` and shows under Sound, `autoFullscreen` is
+`graphics` and shows under Gameplay. Renaming a key silently resets the choice of
+every player who already made one, which is worse than a name nobody sees.
+
+A tab click is the ONE control on this panel that asks its host to re-render
+(`onRebuild`, with the selector for the tab just pressed). Everything else
+rewrites its own pill in place, precisely so the host's `focusables` list stays
+valid and a pad cursor does not jump out from under the player's thumb; a tab
+replaces every row below it, so there is nothing left to patch.
+
+**THE GRAPHICS TAB IS THE F3 PANEL'S OWN SWITCHES, NOT A COPY OF THEM.** Five of
+the nine — ambient occlusion, glow, antialiasing, shadows, and grass under the
+player-facing name "Foliage" — through the same `Gfx` model, the same ids and the
+same `game.settings.graphics.*` keys, so a row flipped in one is flipped in the
+other. The four left out are left out on purpose: the frame cap is a choice row
+that means nothing without a measured frame rate beside it, and trees & rocks,
+clouds and the water surface delete the WORLD rather than the way it is drawn.
+The panel that offers those keeps its numbers next to them.
+
+WHAT THE PANEL DOES NOT DO IS APPLY THEM. It writes through `storeGfx`
+([core/gfx.ts](src/core/gfx.ts)) and tells its host, exactly as a `Prefs` row is
+saved here and applied by a hook — because of the boot order in
+[main.ts](src/main.ts): the title screen's Settings step is usable all the way
+through the boot phases and the `Gfx` that owns the sinks does not exist yet
+(`gfxLive` is the guard, and it is a flag rather than a `let ... = null` because
+eight other call sites read the const). A change made in that window is picked up
+by the constructor, which reads the same storage. `tools/test-settings.mjs` drives
+exactly that: AO off at the poster, New Game, and `__dbgGfx` says `ao: false`.
+
 **The in-game menu** is Escape, the pad's Start, and the touch overlay's MENU
 button (top-left, the one corner of the screen the HUD leaves empty and no thumb
 crosses mid-fight). All three arrive as the SAME key edge: Start and the touch
@@ -1668,7 +1719,8 @@ is a thing a player genuinely wants and cannot express with a switch. Six chips
 rather than a slider because every control on that panel is a real `<button>` —
 both hosts drive it from a pad by calling `.click()` on the focused one — and
 because a −/+ stepper puts mute eight presses away. `isChip` (ui/settings.ts) is
-what tells the two hosts a strip is under the cursor, so left/right walks it.
+what tells the two hosts a strip is under the cursor, so left/right walks it —
+the tab strip is one of those, which is how a pad steps between sections.
 **A setting has to be respected
 at ONE choke point, not at every site that could break it**: controller
 vibration (`game.settings.controls.hapticFeedback`, on by default) is checked in

@@ -81,12 +81,40 @@ const menu = {};
   await page.evaluate(() => document.querySelector('.bs-pause [data-act="settings"]')?.click());
   await wait(400);
   menu.settings = await page.evaluate(() => ({
+    tabs: [...document.querySelectorAll('.bs-pause [data-tab]')].map((b) => b.getAttribute('data-tab')),
+    // The tab it opens on, which is also the one holding the language row.
+    openTab: document.querySelector('.bs-pause [data-tab].on')?.getAttribute('data-tab') ?? null,
     toggles: [...document.querySelectorAll('.bs-pause [data-toggle]')]
       .map((b) => b.getAttribute('data-toggle')),
     langChips: document.querySelectorAll('.bs-pause [data-lang]').length,
     langAllDisabled: [...document.querySelectorAll('.bs-pause [data-lang]')].every((b) => b.disabled),
     langRowGreyed: !!document.querySelector('.bs-pause .row.lang.off'),
   }));
+
+  // EACH TAB SHOWS ITS OWN ROWS AND ONLY ITS OWN. The whole reason the list was
+  // split is that eleven rows do not fit the screens this game is played on, so
+  // "the graphics rows are somewhere in the DOM" is not the claim — one section
+  // at a time is. Driven through the real buttons, because a tab that switches
+  // `this.tab` and never rebuilds is exactly the failure worth catching.
+  const tabRows = async (tab) => {
+    await page.evaluate((t) => document.querySelector(`.bs-pause [data-tab="${t}"]`)?.click(), tab);
+    await wait(300);
+    return page.evaluate(() => ({
+      lit: document.querySelector('.bs-pause [data-tab].on')?.getAttribute('data-tab') ?? null,
+      toggles: [...document.querySelectorAll('.bs-pause [data-toggle]')]
+        .map((b) => b.getAttribute('data-toggle')),
+      gfx: [...document.querySelectorAll('.bs-pause [data-gfx]')].map((b) => b.getAttribute('data-gfx')),
+      vols: document.querySelectorAll('.bs-pause [data-vol]').length,
+      langs: document.querySelectorAll('.bs-pause [data-lang]').length,
+      // A pad has no mouse: the cursor has to land back on the tab just pressed,
+      // not at the top of a list that was rebuilt under it.
+      focus: document.activeElement?.getAttribute('data-tab') ?? null,
+    }));
+  };
+  menu.tabControls = await tabRows('controls');
+  menu.tabGraphics = await tabRows('graphics');
+  menu.tabSound = await tabRows('sound');
+  menu.tabGameplay = await tabRows('gameplay');
 
   // Escape means "up one", not "close": that is what makes one key both the way
   // in and the whole way out.
@@ -311,10 +339,32 @@ check(menu.focusOnOpen === 'continue', 'something is focused on open, for a pad'
 check(menu.travelWithMenuUp === 0, 'the hero is frozen while the menu is up');
 check(menu.travelAfterContinue > 4, 'Continue gives the game back');
 check(menu.closedByContinue, 'Continue closes the menu');
-check(menu.settings.toggles.length === 4, 'the settings list is the shared one');
+check(JSON.stringify(menu.settings.tabs)
+  === JSON.stringify(['gameplay', 'controls', 'graphics', 'sound']),
+  'the settings list is the shared one, in four sections');
+check(menu.settings.openTab === 'gameplay', 'and opens on Gameplay');
 check(menu.settings.langChips > 0 && menu.settings.langAllDisabled,
   'the language picker is disabled in game');
 check(menu.settings.langRowGreyed, 'and says so');
+// ONE SECTION AT A TIME, which is the point of the split — see ui/settings.ts.
+check(JSON.stringify(menu.tabControls.toggles)
+  === JSON.stringify(['hapticFeedback', 'invertLookX', 'invertLookY']),
+  'Controls holds the three controller rows');
+check(JSON.stringify(menu.tabGraphics.gfx)
+  === JSON.stringify(['ao', 'bloom', 'aa', 'shadows', 'grass']),
+  'Graphics holds the five renderer switches');
+check(menu.tabGraphics.toggles.length === 0 && menu.tabGraphics.langs === 0,
+  'and nothing from the other tabs is still on screen with them');
+check(menu.tabSound.vols === 6, 'Sound holds the volume steps');
+check(menu.tabGameplay.toggles.length === 1 && menu.tabGameplay.langs > 0,
+  'Gameplay holds fullscreen-on-start and the language picker');
+for (const [name, t] of Object.entries({
+  controls: menu.tabControls, graphics: menu.tabGraphics,
+  sound: menu.tabSound, gameplay: menu.tabGameplay,
+})) {
+  check(t.lit === name, `the ${name} tab lights when it is pressed (lit ${t.lit})`);
+  check(t.focus === name, `and keeps the cursor on itself through the rebuild (${t.focus})`);
+}
 check(menu.escapeFromSettings.stillOpen && menu.escapeFromSettings.backOnTheList,
   'Escape backs out of Settings rather than closing');
 check(menu.escapeFromSettings.focus === 'settings', 'and leaves the cursor where it went in');

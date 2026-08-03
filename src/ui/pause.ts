@@ -87,6 +87,10 @@ export class PauseMenu {
     // setting that cannot be answered with a world already streamed. See
     // ui/settings.ts.
     this.settings = new SettingsPanel('game', hooks);
+    // A tab replaces every row under it, so the panel asks for a real rebuild
+    // rather than patching the DOM behind this screen's back — `focusables` is
+    // built by `render` and by nothing else. Same path a language change takes.
+    this.settings.onRebuild = (focus) => { this.pendingFocus = focus; this.render(); };
   }
 
   get isOpen(): boolean { return this.el !== null; }
