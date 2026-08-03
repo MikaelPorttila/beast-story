@@ -146,7 +146,7 @@ once frames come quickly.
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`,
-  `test-music.mjs`.
+  `test-nature.mjs`, `test-music.mjs`.
   `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
@@ -916,6 +916,55 @@ reported. Two questions — "did you come over to him" and "are you at his level
 was picked from. The CULL stays flat: a man you are flying over is the case
 where you can see him best. `tools/test-npc.mjs` is the guard.
 
+**HOW MUCH OF EACH THING GROWS IS A NAMED NUMBER, AND AN AREA ADJUSTS THE
+BASELINE RATHER THAN REPLACING IT.** That is issue #50, and it is why every
+parameter in [src/world/nature.ts](src/world/nature.ts) is a dimensionless
+MULTIPLIER whose default is exactly 1 — `trees`, `grass`, `flowers`, `bushes`,
+`rocks`, `reeds`. The baseline IS the tuned world `props.ts` already builds,
+with every measured threshold and every comment saying what it was captured at
+left where it is; an area then says "half the trees" instead of "trees at 0.40
+acceptance", so a per-area value cannot fork from the baseline it came from.
+Move the baseline and every area moves with it. An "area" is a `BiomeId` today,
+because that is the world's only existing notion of somewhere with its own
+character and `props.ts` already dispatches its whole scatter off it.
+
+`?nature=trees:0.5,forest.grass:0` before the first chunk, `/nature` live (no
+arguments lists the table), `__dbgNature()` to read and `__dbgSetNature` to
+write. A change fires `World.rebuildProps()`, which drops every streamed chunk
+and builds it again — the densities are read inside `buildChunkProps`, so
+nothing short of that reaches the ground already under your feet. It is a
+TUNING path and nothing in the frame loop calls it.
+
+**AT THE SHIPPED VALUES THE PLACEMENT IS BIT-FOR-BIT WHAT IT WAS**, and that is
+the property that makes a knob safe to add to code tuned against captures for
+months. It holds by construction rather than by luck: an acceptance rate is
+multiplied (`roll < 0.80 * f`), a count goes through `natureCount`, which is a
+`Math.round` of an integer at 1, and `thin` returns false WITHOUT hashing at
+`f >= 1`. `tools/test-nature.mjs` measures it — its identity section sets a
+parameter to its own baseline, rebuilds all 89 chunks and reads **drift 0**.
+That section is the CONTROL, and without it every other number in the file is
+equally consistent with "a rebuild changes the count".
+
+Three rules about where a factor may be applied, all of them learned from the
+shape of `props.ts`. A LADDER BAND is never moved — the scatter and mid-scale
+passes are one shared `roll` against cumulative thresholds, so a boundary that
+gives up width hands it to whatever prop is next, and "fewer rocks" would
+silently mean "more hedges"; a lone stamp on a band is thinned by `thin`
+instead, which is a positional hash and NOT an `rng()` draw, for exactly the
+reason `trodden` gives — a draw here would re-scatter the vegetation of every
+chunk in the world. An `else if` body is BRACED before a thinning test goes in
+it, or a thinned grass blade falls through to the next band and plants
+deadwood. And `thin` only ever REMOVES: things that come in groups (a clump's
+tussocks, a boulder outcrop, a reed stand) scale their COUNT and so grow past 1,
+where a lone stamp has nowhere to put a second one. Measured at the extremes:
+`grass 0` leaves 7.5% of the soft mesh standing (reeds, shells, driftwood — not
+grass), `trees 0` leaves 41% of the solid mesh (boulders, logs, hedges).
+
+One consequence worth stating rather than discovering: a meadow CLUMP is the
+unit `grass` scales, and a clump carries the flower and the bush inside it, so
+`grass 0` in an area takes those with it. The mid-scale pass still plants hedges
+there, so `bushes` is not lost with the sward.
+
 Grass NOTICES what walks through it.
 [src/world/sway.ts](src/world/sway.ts) is one vertex shader carrying three
 effects — a prevailing wind, a walker parting the blades, and a low flyer's
@@ -1304,7 +1353,12 @@ animation clock so two stills of the same 4.6 s curl are reproducible;
 this load without writing the preference back; `shadowcache=0` redraws the whole
 shadow map from every caster every frame, the way it was before
 [src/core/shadow-cache.ts](src/core/shadow-cache.ts) — the one `?` flag that must
-not move a pixel; plus every post-processing override above.
+not move a pixel;
+`nature=<param>:<n>[,<area>.<param>:<n>]` sets the world's vegetation densities
+before the first chunk is built (see **nature parameters** above; a term with a
+dot is an area multiplier, one without is the baseline, and an unparseable term
+is ignored rather than thrown);
+plus every post-processing override above.
 `menu=0` removes the title screen and starts the game immediately — what every
 probe in `tools/` passes, and what `photo=1` implies on its own; `menu=1` forces
 it back, INCLUDING in photo mode, which is how the title screen itself gets
