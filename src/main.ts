@@ -3373,6 +3373,24 @@ beginPlay();
   }),
 });
 
+/**
+ * Where the skill dens are, and which way each faces.
+ *
+ * The dens are the one class of building that is not in the town registry, so
+ * `__dbgTowns` cannot find them and a probe aiming at one had nothing to aim
+ * with — which is the same reason `__dbgStructures` exists rather than tests
+ * pinning a seed's coordinates. `facing` is the bearing of the OPEN front (the
+ * counter, between the banners): a den is turned to look at the spawn, so this
+ * is where a player walks up from. Read-only, allocates.
+ */
+(window as unknown as {
+  __dbgShops: () => Array<Record<string, number>>;
+}).__dbgShops = () => world.shopPositions.map((p) => ({
+  x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2),
+  facing: +Math.atan2(world.spawnPoint.x - p.x, world.spawnPoint.z - p.z).toFixed(3),
+  distToSpawn: +p.distanceTo(world.spawnPoint).toFixed(2),
+}));
+
 // World surface queries at an arbitrary column, for the climbing/collision
 // tests: `ground` is what blocks and supports, `trunkSolidTop` is the bole a
 // tree adds to that, `structureTop` is what a settlement built there, and

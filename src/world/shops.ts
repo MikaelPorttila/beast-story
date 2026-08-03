@@ -2,11 +2,23 @@
  * Skill Dens — charming pagoda-tent shops with element-colored roofs,
  * hanging banners, a glowing crystal finial with orbiting sparks, a soft
  * point light and a gently bobbing floating icon.
+ *
+ * They are SOLID, by the same primitive and the same measurement a hut is (see
+ * world/structures.ts). They were scenery until this note existed — the hero
+ * walked in one side of the pagoda and out the other, through the back wall,
+ * the counter and the shelf of potion bottles — which is exactly what a town
+ * was before `structureTopAt` and is the last building in the game that was
+ * still drawn without being stamped.
+ *
+ * Nothing here authors a collider. `measureFootprint` reads the voxel model the
+ * builder just painted, so a den's boxes are its walls by construction and
+ * cannot drift when someone resizes the deck.
  */
 import * as THREE from 'three';
 import { VoxelModel, shade } from '../core/voxel';
 import { ELEMENT_COLORS, type ElementType } from '../core/types';
-import { relight } from './props';
+import { relight, type SolidBox } from './props';
+import { measureFootprint, StructureField } from './structures';
 
 const DEN_ELEMENTS: ElementType[] = ['fire', 'water', 'grass', 'electric'];
 
@@ -147,21 +159,38 @@ const TRIM_CREAM = 0xf0e4c8;
 export class Shops {
   readonly group = new THREE.Group();
   readonly positions: THREE.Vector3[] = [];
+  /**
+   * What the dens block, in world space — the third `StructureField` beside the
+   * settlements' and the people's, and its own for the same reason theirs are
+   * separate: a field is frozen by `build()` at the end of its owner's
+   * constructor, and the dens are placed before `Towns` exists. `createWorld`
+   * takes the max of the three (see `structureTop` in world/index.ts), which is
+   * what `blockTop` already does with terrain and trunks.
+   */
+  readonly solids = new StructureField();
   private readonly anims: DenAnim[] = [];
   private readonly disposables: Array<{ dispose(): void }> = [];
 
   constructor(spots: readonly DenSpot[], spawn: THREE.Vector3) {
     spots.forEach((s, i) => {
       const el = DEN_ELEMENTS[i % DEN_ELEMENTS.length];
-      const den = this.buildDen(el, i);
-      den.position.set(s.x, s.h, s.z);
-      den.rotation.y = Math.atan2(spawn.x - s.x, spawn.z - s.z);
-      this.group.add(den);
+      const built = this.buildDen(el, i);
+      // The den faces spawn, so its OPEN front — the counter, between the two
+      // banners — is the side a player walks up from.
+      const yaw = Math.atan2(spawn.x - s.x, spawn.z - s.z);
+      built.den.position.set(s.x, s.h, s.z);
+      built.den.rotation.y = yaw;
+      this.group.add(built.den);
       this.positions.push(new THREE.Vector3(s.x, s.h, s.z));
+      // The same call shape `SolidStamp.add` uses, at the pose the mesh was
+      // placed in — `StructureField.add` applies the yaw exactly as three's
+      // `rotation.y` does, so the boxes turn with the pagoda for free.
+      this.solids.add({ solid: built.solid }, s.x, s.h, s.z, yaw, 1, 1);
     });
+    this.solids.build();
   }
 
-  private buildDen(el: ElementType, index: number): THREE.Group {
+  private buildDen(el: ElementType, index: number): { den: THREE.Group; solid: SolidBox[] } {
     const den = new THREE.Group();
     const elHex = ELEMENT_COLORS[el];
     // roofs at ~18% lower saturation: tinted, not food-court neon
@@ -211,23 +240,33 @@ export class Shops {
       v.set(bx, 10, -9, 0xd8d2c2);
     }
     // pagoda roof — three element-tinted tiers with corner upturns
-    v.box(-14, 13, -14, 14, 14, 14, roofDark);
-    for (const sx of [-1, 1]) {
-      for (const sz of [-1, 1]) {
-        v.box(sx * 13, 15, sz * 13, sx * 14, 15, sz * 14, roofDark);
+    //
+    // BRACKETED, and the bracket is what keeps the shop a shop. The lowest
+    // course sits 1.95 units over the deck, a hair under `WALK_UNDER`'s 2.0, so
+    // measured as part of the body band the eaves are a lid: every column of the
+    // den is under one, the flood fill joins the whole model into a single
+    // 4.35-unit box, and the open front the player buys through becomes a wall.
+    // A roof is the line where a building stops being a wall — see
+    // `measureFootprint` — so nothing from here up is measured.
+    const roof = v.region(() => {
+      v.box(-14, 13, -14, 14, 14, 14, roofDark);
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          v.box(sx * 13, 15, sz * 13, sx * 14, 15, sz * 14, roofDark);
+        }
       }
-    }
-    v.box(-8, 15, -8, 8, 15, 8, cream);
-    v.box(-9, 16, -9, 9, 17, 9, roofC);
-    for (const sx of [-1, 1]) {
-      for (const sz of [-1, 1]) {
-        v.box(sx * 9, 18, sz * 9, sx * 9, 18, sz * 9, roofC);
+      v.box(-8, 15, -8, 8, 15, 8, cream);
+      v.box(-9, 16, -9, 9, 17, 9, roofC);
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          v.box(sx * 9, 18, sz * 9, sx * 9, 18, sz * 9, roofC);
+        }
       }
-    }
-    v.box(-4, 18, -4, 4, 18, 4, cream);
-    v.box(-5, 19, -5, 5, 20, 5, roofLight);
-    v.box(-2, 21, -2, 2, 22, 2, roofLight);
-    v.set(0, 23, 0, 0xffe9a0);
+      v.box(-4, 18, -4, 4, 18, 4, cream);
+      v.box(-5, 19, -5, 5, 20, 5, roofLight);
+      v.box(-2, 21, -2, 2, 22, 2, roofLight);
+      v.set(0, 23, 0, 0xffe9a0);
+    });
     // hanging banners flanking the entrance
     for (const sx of [-1, 1]) {
       const bx = sx * 10;
@@ -236,6 +275,19 @@ export class Shops {
       v.set(bx, 8, 13, 0xffffff);
       v.box(bx, 13, 12, bx, 13, 14, woodDark);
     }
+
+    // The footprint, measured off the finished model — one box per lump of den a
+    // body walks into: the back-and-sides shell with its shelf, the two front
+    // corner posts, the counter, and a banner apiece.
+    //
+    // NO RIDGE CYLINDER goes with it, and that is a statement about the shape
+    // rather than an omission. `measureRidge` fits a cylinder lying along a
+    // CREST, which a gable and a ridge tent are; a pagoda is a square stepped
+    // pyramid whose crest is a single finial voxel, so the best circle through
+    // it is a poor answer to a question nobody asks — the eaves are 1.95 units
+    // up, the roof is not walkable and there is nothing here to stand on it
+    // from. The walls are what stops you, and the walls are boxes.
+    const solid = measureFootprint(v, V, [roof]);
 
     const buildingMesh = v.build(V, true);
     // Undo VoxelModel's baked fake-sun face table — see `relight` in props.ts for
@@ -334,7 +386,7 @@ export class Shops {
       light,
       phase: index * 1.71,
     });
-    return den;
+    return { den, solid };
   }
 
   update(time: number): void {

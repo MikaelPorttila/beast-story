@@ -917,6 +917,42 @@ beast, enemy — resolves it against the same `MAX_STEP_UP`
 keeps the meshes and removes the blocking, which is the A/B
 `tools/test-structures.mjs` runs; `/show-colliders` draws them green.
 
+**THE SKILL DENS ARE BUILDINGS TOO, and they were the last one that was not.**
+A den ([src/world/shops.ts](src/world/shops.ts)) is not in the town registry —
+it is sited on its own ring out of `placeShops` — so it was never reached by any
+of the above, and the hero walked in one side of the pagoda and out the other,
+through the back wall, the counter and the shelf of potion bottles. It has its
+own `StructureField` for the same reason `Npcs` does (a field is frozen by
+`build()` at the end of its owner's constructor, and the dens are placed before
+`Towns` exists), and `structureTop` in world/index.ts takes the max of the
+THREE. 24 boxes, six per den: the back-and-sides shell, two front corner posts,
+the counter and a banner apiece. No town's budget moved — a den is never sited
+inside one.
+
+The ROOF is bracketed with `VoxelModel.region` and gets no ridge cylinder, and
+both halves of that are deliberate. Bracketed, because the lowest course sits
+1.95 units over the deck — a hair under `WALK_UNDER`'s 2.0 — so measured as body
+material the eaves are a lid over every column of the den, the flood fill joins
+the whole model into one 4.35-unit box, and the open front a player buys through
+becomes a wall. No cylinder, because `measureRidge` fits an arc along a CREST
+and a pagoda is a square stepped pyramid whose crest is a single finial voxel:
+the roof is 1.95 up, unwalkable, and there is nothing here to climb onto it
+from. The walls are what stops you, and the walls are boxes.
+
+Its guard is the `dens` section of `tools/test-structures.mjs`, and the thing
+worth knowing about it is that THE CONTROL ARM IS THE GATE. It walks in from
+BEHIND, where the wall is, and separately from the FRONT to assert the opposite
+thing — that the hero still ends within the 3.5 units `nearShop` opens a shop at,
+because a collider that stops him five units out passes every "is it solid" test
+there is and ships a shop nobody can buy from. Neither claim is made where the
+`solids=0` walk did not reach the den: measured, one of the four dens sits above
+ground that terraces a full unit against a `MAX_STEP_UP` of 0.5, so the terrace
+stops him in both arms and that walk says nothing about the shop. It is reported
+inconclusive, and the run fails only if no den could be measured at all. The
+front makes no claim about reaching the middle either — a pagoda is open along
+its sides between the counter and the corner posts, and a hero who walks in
+through that gap has gone through a doorway rather than a wall.
+
 **BEING STOPPED BY A THING AND STANDING ON IT ARE ONE QUESTION, AND THE SADDLE
 USED TO ANSWER THEM SEPARATELY.** Everything that moves keeps two column
 heights: the one it probes AHEAD to decide whether a step is legal, and the one

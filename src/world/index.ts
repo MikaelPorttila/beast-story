@@ -324,8 +324,8 @@ export function createWorld(
   if (npcs) scene.add(npcs.group);
 
   /**
-   * Top of any BUILT thing over this column — settlement boxes and the people
-   * standing among them — or -Infinity where the column is clear.
+   * Top of any BUILT thing over this column — settlement boxes, the skill dens
+   * and the people standing among them — or -Infinity where the column is clear.
    *
    * Hoisted out of the World literal because TWO queries need it and they must
    * not be able to disagree: `structureTopAt` (what stops you) and `climbTopAt`
@@ -334,7 +334,13 @@ export function createWorld(
    */
   const structureTop = (x: number, z: number): number => {
     if (!flags.solids) return -Infinity;
-    let top = towns ? towns.solids.topAt(x, z) : -Infinity;
+    // The dens first: they are the one set that exists in every world, towns
+    // being removable with `towns=0`.
+    let top = shops.solids.topAt(x, z);
+    if (towns) {
+      const t = towns.solids.topAt(x, z);
+      if (t > top) top = t;
+    }
     if (npcs) {
       const n = npcs.solids.topAt(x, z);
       if (n > top) top = n;
@@ -679,13 +685,14 @@ export function createWorld(
      * the meshes and this, which is the point of the flag.
      */
     /**
-     * TWO FIELDS, one query. The settlement's boxes and the people standing in
-     * it are the same primitive (world/structures.ts) built at the same moment,
-     * but they belong to different owners — a `StructureField` is frozen by its
-     * builder at the end of its own constructor, and reaching into the town's
-     * to add a body afterwards would break the invariant that makes it safe to
-     * index once. So each owns its own and the max is taken here, which is
-     * exactly what `blockTop` already does with terrain and trunks.
+     * THREE FIELDS, one query. The settlement's boxes, the skill dens and the
+     * people standing in the camp are the same primitive (world/structures.ts)
+     * built at the same moment, but they belong to different owners — a
+     * `StructureField` is frozen by its builder at the end of its own
+     * constructor, and reaching into the town's to add a body afterwards would
+     * break the invariant that makes it safe to index once. So each owns its
+     * own and the max is taken here, which is exactly what `blockTop` already
+     * does with terrain and trunks.
      */
     structureTopAt: structureTop,
     npcs,
@@ -774,9 +781,9 @@ export function createWorld(
     },
 
     /**
-     * Every settlement collider as [cx, cz, hx, hz, yaw, topY], for the
-     * console's /show-colliders. The whole set, not the loaded part: towns do
-     * not stream.
+     * Every built collider as [cx, cz, hx, hz, yaw, topY], for the console's
+     * /show-colliders. The whole set, not the loaded part: neither the towns nor
+     * the dens stream.
      */
     debugStructures(out: number[]): void {
       // Gated on the same flag as the query, so the overlay can never draw a
@@ -785,8 +792,10 @@ export function createWorld(
       // the collision would be worse than no picture.
       if (!flags.solids) return;
       towns?.solids.debugBoxes(out);
-      // The people too: they block by the same primitive, so /show-colliders
-      // has to draw them or the overlay would disagree with the collision.
+      // The dens and the people too: all three block by the same primitive, so
+      // /show-colliders has to draw them or the overlay would disagree with the
+      // collision.
+      shops.solids.debugBoxes(out);
       npcs?.solids.debugBoxes(out);
     },
     /**

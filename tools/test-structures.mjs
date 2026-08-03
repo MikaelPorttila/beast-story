@@ -30,6 +30,17 @@ import { BASE as HOST } from './target.mjs';
 const SETTLE = 5000;
 /** How long a movement key is held per case. At 6 m/s that is ~15 units. */
 const HOLD_MS = 2500;
+/** How far back along its own facing a den walk starts, world units. */
+const DEN_BACK = 8;
+/**
+ * How near the middle of a den the hero has to end up for the shop to still be
+ * openable — `nearShop` in main.ts is `distanceTo(...) < 3.5`.
+ *
+ * This is the assertion that makes the den case two-sided rather than one. A
+ * collider that stops the player five units out passes every "is it solid" test
+ * there is and ships a shop nobody can buy from.
+ */
+const DEN_SHOP_RANGE = 3.5;
 
 const browser = await launchBrowser();
 
@@ -200,6 +211,64 @@ async function run(solids, geom = null) {
       g.townRadius = town.radius;
       // The gate's assertion is the comparison, not a radius: it must land him
       // as deep in as the walk with no collision at all.
+    }
+  }
+
+  // ---- the skill dens ----------------------------------------------------
+  // The one class of building that is not in the town registry, and the one that
+  // was still scenery: the hero walked in one side of the pagoda and out the
+  // other, through the back wall, the counter and the shelf of bottles.
+  //
+  // TWO approaches per den, because they ask different questions and only one of
+  // them is about collision at all.
+  //
+  //   BACK is the wall. The far side of a den is a solid cream wall with beams,
+  //   and nothing may pass it — this is the case that fails on the build this
+  //   fixes, and its control arm walks the identical line with the blocking
+  //   removed.
+  //
+  //   FRONT is the shopfront, and it asserts the OPPOSITE thing: that the fix
+  //   did not go too far. A shop opens with E within 3.5 units of its middle
+  //   (`nearShop`, main.ts), so a collider that stopped the player further out
+  //   than that would be a shop nobody can buy from, which is worse than one you
+  //   walk through. It deliberately makes NO claim about reaching the middle: a
+  //   pagoda is open along its sides between the counter and the corner posts,
+  //   and a hero who walks in through that gap has gone through a doorway rather
+  //   than a wall. Measured, that is exactly what one of the four does.
+  //
+  // `passedCentreBy` is the discriminator on the back walk and `travelled` is
+  // not: BOTH arms end up far from the middle of the den — one stopped short of
+  // it, the other clean through and out the far side — so the signed progress
+  // along the approach is what tells those two apart.
+  {
+    const dens = await page.evaluate(() => window.__dbgShops());
+    out.dens = [];
+    for (let i = 0; i < dens.length; i++) {
+      const d = dens[i];
+      /** Walk in along `ang`, from DEN_BACK units out, and read where he got to. */
+      const approach = async (name, ang) => {
+        const sx = d.x + Math.sin(ang) * DEN_BACK;
+        const sz = d.z + Math.cos(ang) * DEN_BACK;
+        const r = await drive(`den${i}/${name}`, sx, sz, d.x, d.z, { den: d });
+        // Where he ended up along the approach line, measured from the middle of
+        // the den outward toward where he started: DEN_BACK at the start, 0 at
+        // the middle, negative out the far side.
+        const ahead = (r.end.x - d.x) * Math.sin(ang) + (r.end.z - d.z) * Math.cos(ang);
+        return {
+          endCentreDist: round(Math.hypot(r.end.x - d.x, r.end.z - d.z)),
+          /** Positive means he ended up out the FAR side of the den. */
+          passedCentreBy: round(-ahead),
+          travelled: r.travelled,
+          aimErrorDeg: r.aimErrorDeg,
+          startedInsideABox: r.startedInsideABox,
+        };
+      };
+      out.dens.push({
+        i,
+        den: d,
+        back: await approach('back', d.facing + Math.PI),
+        front: await approach('front', d.facing),
+      });
     }
   }
 
@@ -443,6 +512,65 @@ if (withCollision.colliders.worstRoofFit > ROOF_FIT_LIMIT) {
   });
 }
 
+// The dens. THE CONTROL ARM IS THE GATE, not a second opinion: "he stopped
+// before the middle" is equally true of a hero who never set off, so a claim
+// about a den is only made where the same walk with `solids=0` actually reached
+// it. Measured, one of the four cannot be measured from behind — the ground
+// there terraces a full unit against a MAX_STEP_UP of 0.5, so the terrace stops
+// him in BOTH arms and the walk says nothing about the shop.
+//
+// Reported as inconclusive rather than failed, and the run fails if NOTHING
+// could be measured. That is the difference between a test that is honest about
+// its reach and one that pins a seed's landscape.
+const denFail = [];
+const denInconclusive = [];
+let denMeasured = 0;
+if (!withCollision.dens?.length) {
+  denFail.push('no skill dens reported by __dbgShops');
+} else {
+  for (const d of withCollision.dens) {
+    const control = withoutCollision.dens.find((o) => o.i === d.i);
+    if (d.back.startedInsideABox || d.front.startedInsideABox) {
+      denFail.push(`den${d.i}: a walk started inside a collider, so it measures nothing`);
+      continue;
+    }
+    // BACK — the wall. Only asked where the control walked through it.
+    if (!control || control.back.passedCentreBy <= 0) {
+      denInconclusive.push(
+        `den${d.i}/back: the solids=0 control stopped ${control?.back.endCentreDist} units out ` +
+        `too, so terrain and not the shop is what ends this walk`);
+    } else {
+      denMeasured++;
+      if (d.back.passedCentreBy > 0) {
+        denFail.push(
+          `den${d.i}: walked THROUGH the back wall — ended ${d.back.passedCentreBy} units out ` +
+          `the far side, against ${control.back.passedCentreBy} with the blocking removed`);
+      }
+    }
+    // FRONT — the shopfront, and the opposite claim. Same gate: a hero the
+    // landscape never let near the counter says nothing about whether a collider
+    // walled it off.
+    //
+    // The gate is `passedCentreBy`, NOT the control's own `endCentreDist`: with
+    // the blocking removed the hero walks clean through the pagoda and finishes
+    // six units out the far side, so the control ends FURTHER from the middle
+    // than the blocked walk does. What it has to show is that it got there —
+    // that the landscape let him within shop range of the counter at all.
+    if (!control || control.front.passedCentreBy < -DEN_SHOP_RANGE) {
+      denInconclusive.push(
+        `den${d.i}/front: the control walk never got within ${DEN_SHOP_RANGE} of the middle ` +
+        `either, so the shop's reach cannot be judged from it`);
+    } else if (d.front.endCentreDist > DEN_SHOP_RANGE) {
+      denFail.push(
+        `den${d.i}: walking up to the front stops ${d.front.endCentreDist} units out, past the ` +
+        `${DEN_SHOP_RANGE} the shop opens within — solid, but unshoppable`);
+    }
+  }
+  if (denMeasured === 0) {
+    denFail.push('no den could be walked into from behind in the control arm — nothing was tested');
+  }
+}
+
 // Issue #32. Both halves are asserted: the hero standing ON the furniture is
 // what makes the mounted number mean anything, and without it a world where
 // nothing is solid at all would pass.
@@ -462,6 +590,15 @@ if (!mounted.found) {
 }
 
 console.log(JSON.stringify({
+  dens: {
+    shopRange: DEN_SHOP_RANGE,
+    solid: withCollision.dens,
+    control: withoutCollision.dens,
+    measuredFromBehind: denMeasured,
+    inconclusive: denInconclusive,
+    failures: denFail,
+    pass: denFail.length === 0,
+  },
   mounted: { ...mounted, failures: mountFail, pass: mountFail.length === 0 },
   budget: {
     roofFitLimit: ROOF_FIT_LIMIT,
@@ -474,4 +611,6 @@ console.log(JSON.stringify({
   withCollision,
   withoutCollision,
 }, null, 2));
-if (overBudget.length || unbudgeted.length || mountFail.length) process.exitCode = 1;
+if (overBudget.length || unbudgeted.length || mountFail.length || denFail.length) {
+  process.exitCode = 1;
+}
