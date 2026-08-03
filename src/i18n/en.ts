@@ -476,7 +476,7 @@ export const en = {
   'gfx.props.cost': '70 draw calls — the most of any row, and the most missed',
   'gfx.aa': 'Antialiasing',
   'gfx.aa.cost': 'three fullscreen passes; edges go jagged',
-  'gfx.clouds': 'Clouds & motes',
+  'gfx.clouds': 'Clouds',
   'gfx.clouds.cost': 'small — a few draws overhead',
   'gfx.water': 'Water surface',
   'gfx.water.cost': 'small unless you are looking at a lake',

@@ -12,7 +12,7 @@ import { Shops, type DenSpot } from './shops';
 import { Towns, planSettlements } from './towns';
 import { TownParts } from './town-parts';
 import { Npcs } from './npc';
-import { Clouds, Motes } from './clouds';
+import { Clouds } from './clouds';
 import { SwayField } from './sway';
 import { mulberry32 } from './noise';
 import { perf } from '../core/profiler';
@@ -331,11 +331,6 @@ export function createWorld(
 
   const clouds = flags.clouds ? new Clouds(seed) : null;
   if (clouds) scene.add(clouds.group);
-  const motes = flags.clouds ? new Motes(seed) : null;
-  if (motes) {
-    motes.points.position.copy(spawnPoint);
-    scene.add(motes.points);
-  }
 
   // 'solid' — these discs hold trees, boulders, hedges and logs off the spawn
   // clearing and the den decks, but grass, flowers and shells still carpet
@@ -784,7 +779,6 @@ export function createWorld(
       // resource of its own, and the material it patched is `propLib`'s.
       sway?.update(focus, time, dt);
       clouds?.update(focus, dt);
-      motes?.update(focus, time, dt);
       shops.update(time);
       towns?.update(time, focus);
       npcs?.update(dt, time, focus);
@@ -824,7 +818,6 @@ export function createWorld(
       hiddenLayers[layer] = !on;
       if (layer === 'clouds') {
         if (clouds) clouds.group.visible = on;
-        if (motes) motes.points.visible = on;
         return;
       }
       // Already-streamed chunks now, `applyLayers` for the ones built later —
@@ -860,7 +853,6 @@ export function createWorld(
       // Same rule for the sky ambience: a hidden layer stays hidden through a
       // hide/show cycle, so `&& !hiddenLayers.clouds` rather than a bare `v`.
       if (clouds) clouds.group.visible = v && !hiddenLayers.clouds;
-      if (motes) motes.points.visible = v && !hiddenLayers.clouds;
     },
 
     /**
@@ -904,10 +896,6 @@ export function createWorld(
       if (clouds) {
         scene.remove(clouds.group);
         clouds.dispose();
-      }
-      if (motes) {
-        scene.remove(motes.points);
-        motes.dispose();
       }
       terrainMat.dispose();
       waterMat.dispose();

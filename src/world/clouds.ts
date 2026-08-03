@@ -1,6 +1,13 @@
 /**
- * Sky ambience: drifting chunky voxel cumulus and a field of gently floating
- * light motes near the ground.
+ * Sky ambience: drifting chunky voxel cumulus.
+ *
+ * There USED to be a second element here — `Motes`, a field of 90 additive
+ * warm-gold points that hugged the ground and followed the camera focus. It was
+ * removed: a mote field that travels with you is not scenery, it is something
+ * stuck to the lens, and at 0.4-1.5 units off the ground it read as flying
+ * specks in front of the frame rather than as air in the world. The cumulus
+ * deck is the whole of this file now, and `flags.clouds` / the F3 row switch
+ * exactly that.
  *
  * The cumulus deck deliberately casts NO shadows. It used to, and a voxel cloud
  * is a hard-edged convex slab the size of a small hill: dropped onto flat sand
@@ -658,95 +665,6 @@ export class Clouds {
   dispose(): void {
     for (const deck of this.decks) deck.mesh.dispose();
     for (const g of this.geos) g.dispose();
-    this.mat.dispose();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Floating light motes
-// ---------------------------------------------------------------------------
-
-const MOTE_VERT = /* glsl */ `
-uniform float uTime;
-attribute float aPhase;
-attribute float aSize;
-varying float vA;
-void main() {
-  vec3 p = position;
-  p.x += sin(uTime * 0.35 + aPhase) * 1.6;
-  p.y += sin(uTime * 0.5 + aPhase * 1.7) * 0.9;
-  p.z += cos(uTime * 0.28 + aPhase * 0.6) * 1.6;
-  vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  float dist = max(1.0, -mv.z);
-  // Perspective size, CAPPED. Uncapped, 90/dist grows without limit: a mote that
-  // drifted within 3 units of the camera became a 240-pixel additive disc, and
-  // those showed up in gameplay frames as soft pale washes floating over the near
-  // ground that read as lens smudges or fog blobs, not as motes.
-  gl_PointSize = min(aSize * (90.0 / dist), 26.0);
-  // Fully faded beyond 20 units so motes never read as lens dirt at range, and
-  // faded out again inside 2.5 units so one drifting through the camera plane
-  // cannot wash out a quarter of the frame.
-  vA = (0.55 + 0.45 * sin(uTime * 1.4 + aPhase * 2.3))
-     * smoothstep(20.0, 8.0, dist) * smoothstep(1.6, 3.2, dist);
-  gl_Position = projectionMatrix * mv;
-}
-`;
-
-const MOTE_FRAG = /* glsl */ `
-varying float vA;
-void main() {
-  float d = length(gl_PointCoord - vec2(0.5));
-  float a = smoothstep(0.5, 0.08, d) * vA * 0.14;
-  gl_FragColor = vec4(1.0, 0.86, 0.55, a); // warm gold only
-}
-`;
-
-const tmpFocus = new THREE.Vector3();
-
-export class Motes {
-  readonly points: THREE.Points;
-  private readonly mat: THREE.ShaderMaterial;
-  private readonly geo: THREE.BufferGeometry;
-
-  constructor(seed: number) {
-    const rng = mulberry32(seed ^ 0x307e5);
-    const N = 90;
-    const pos = new Float32Array(N * 3);
-    const phase = new Float32Array(N);
-    const size = new Float32Array(N);
-    for (let i = 0; i < N; i++) {
-      // Tight, low field: motes hug the ground (max y ~2.4 incl. bob).
-      pos[i * 3] = (rng() - 0.5) * 44;
-      pos[i * 3 + 1] = 0.4 + rng() * 1.1;
-      pos[i * 3 + 2] = (rng() - 0.5) * 44;
-      phase[i] = rng() * Math.PI * 2;
-      size[i] = 3 + rng() * 5;
-    }
-    this.geo = new THREE.BufferGeometry();
-    this.geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.geo.setAttribute('aPhase', new THREE.BufferAttribute(phase, 1));
-    this.geo.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
-    this.mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 } },
-      vertexShader: MOTE_VERT,
-      fragmentShader: MOTE_FRAG,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    this.points = new THREE.Points(this.geo, this.mat);
-    this.points.frustumCulled = false;
-  }
-
-  update(focus: THREE.Vector3, time: number, dt: number): void {
-    this.mat.uniforms['uTime'].value = time;
-    tmpFocus.set(focus.x, focus.y - 2, focus.z);
-    const k = 1 - Math.exp(-dt * 1.5);
-    this.points.position.lerp(tmpFocus, k);
-  }
-
-  dispose(): void {
-    this.geo.dispose();
     this.mat.dispose();
   }
 }

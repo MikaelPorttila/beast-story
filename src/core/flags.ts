@@ -7,7 +7,7 @@
  * the world's contents and the actors in it.
  *
  *   props=0     no trees/boulders/grass in streamed chunks
- *   clouds=0    no cloud deck, no drifting motes
+ *   clouds=0    no cloud deck
  *   water=0     no water surface meshes
  *   enemies=0   no wild spawns
  *   beasts=0    no beast actors at all (nothing built, nothing updated)
