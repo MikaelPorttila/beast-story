@@ -18,6 +18,7 @@
 // pretending the number means something.
 //
 // Exits non-zero.
+import { PNG } from 'pngjs';
 import { launchBrowser, newPage, wait } from './browser.mjs';
 
 const browser = await launchBrowser();
@@ -316,6 +317,101 @@ for (const id of ['shadows', 'aa']) {
   await page.keyboard.press('Backquote');
   await page.keyboard.press('F3');
   await wait(300);
+}
+
+// ---------- what is allowed to CAST ambient occlusion -----------------------
+// Issue #39: the grass carpet and the cloud deck were opaque, wrote depth, and
+// were therefore in the AO G-buffer — where a half-res horizon search over
+// sub-pixel blade billboards printed a mottled grey smear across the meadow
+// around every hedge clump, and a 1.8-unit contact radius on a cumulus printed
+// dotted black dashes down every crease where two puffs meet.
+//
+// The frame is asked, not the flag. `?aoview=1` renders the denoised AO buffer
+// straight to screen, so both halves are a picture of the AO and nothing else.
+//
+// TWO PAGES IS NOT AN OPTION FOR THE GRASS HALF. Two separate loads of the same
+// framing differ by 2.02 code values everywhere from streaming and settling
+// alone, which is larger than the artefact — so the A/B is two screenshots of
+// ONE page with `__dbgGfx` between them, and the frames then differ by exactly
+// the layer that was toggled.
+//
+// The `props` arm is the CONTROL and it is not optional: without it, a capture
+// that silently returned the same bytes twice would pass the grass assertion
+// perfectly. Trees, rocks and huts are the solid prop mesh, they are still
+// occluders, and hiding them MUST move the AO buffer.
+{
+  const ctx = await browser.createBrowserContext();
+  const shot = await newPage(ctx, { width: 900, height: 620 });
+  const decode = async () => {
+    // Buffer.from, because puppeteer hands back a plain Uint8Array and pngjs
+    // reaches straight for Buffer's readUInt32BE.
+    const png = PNG.sync.read(Buffer.from(await shot.screenshot()));
+    const l = new Float64Array(png.width * png.height);
+    for (let i = 0; i < l.length; i++) {
+      l[i] = 0.2125 * png.data[i * 4] + 0.7154 * png.data[i * 4 + 1] + 0.0721 * png.data[i * 4 + 2];
+    }
+    return l;
+  };
+  const meanAbsDiff = (a, b) => {
+    let s = 0;
+    for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+    return +(s / a.length).toFixed(3);
+  };
+  const AOVIEW = 'menu=0&fs=0&photo=1&hud=0&aoview=1&aa=0&bloom=0&fps=30';
+
+  // A meadow of terraces carrying both kinds of prop, chosen because BOTH arms
+  // have to work in one framing: grass everywhere for the assertion, and trees
+  // and boulders in the same frame for the control. The tighter framing the
+  // issue's first screenshot is of moves the control to 0.49, which is too
+  // near the noise to prove anything.
+  await shot.goto(
+    `http://localhost:5187/?${AOVIEW}&cam=12,4.5,4&look=20,2,-2`, { waitUntil: 'load' });
+  await shot.waitForSelector('canvas');
+  await wait(6000);
+  const withAll = await decode();
+  await shot.evaluate(() => window.__dbgGfx('grass', false));
+  await wait(1500);
+  const withoutGrass = await decode();
+  await shot.evaluate(() => { window.__dbgGfx('grass', true); window.__dbgGfx('props', false); });
+  await wait(1500);
+  const withoutProps = await decode();
+  await shot.evaluate(() => window.__dbgGfx('props', true));
+
+  // Clouds: above the deck, where the frame is nothing but cumulus. Excluded,
+  // every one of those pixels is untouched white.
+  await shot.goto(
+    `http://localhost:5187/?${AOVIEW}&cam=0,120,0&look=80,115,40`, { waitUntil: 'load' });
+  await shot.waitForSelector('canvas');
+  await wait(6000);
+  const sky = await decode();
+  let dark = 0;
+  for (const v of sky) if (v < 245) dark++;
+  await ctx.close();
+
+  const ao = {
+    grassMovesAo: meanAbsDiff(withAll, withoutGrass),
+    propsMovesAo: meanAbsDiff(withAll, withoutProps),
+    cloudPixelsOccluded: +(100 * dark / sky.length).toFixed(3),
+  };
+  results.aoOccluders = ao;
+  // 0.10 of a code value today against 16.30 on the build that shipped the bug,
+  // so the threshold is nowhere near either. It is not zero and should not be:
+  // hiding grass also UNCOVERS the terrain behind it, and that terrain has AO
+  // of its own. That confound is why the framing matters — the same pair reads
+  // 1.72 from the spawn, where grass fills a third of the frame.
+  check(ao.grassMovesAo < 1,
+    `hiding grass moved the AO buffer by ${ao.grassMovesAo} code values — `
+    + 'the grass carpet is still an AO occluder');
+  // 7.08 today, 5.96 before — the control is a little STRONGER now, because a
+  // tree's contact ring is no longer competing with a grey smear.
+  check(ao.propsMovesAo > 3,
+    `hiding props moved the AO buffer by only ${ao.propsMovesAo} — the control `
+    + 'failed, so the grass measurement above proves nothing');
+  // 0.034% today, and it is the horizon haze at the frame's rim rather than any
+  // cloud; 13.98% on the build that shipped the bug, which is the crease dashes.
+  check(ao.cloudPixelsOccluded < 2,
+    `${ao.cloudPixelsOccluded}% of a sky full of cumulus is ambient-occluded — `
+    + 'the cloud deck is still an AO occluder');
 }
 
 // Leave the profile as we found it, so a later run does not inherit a

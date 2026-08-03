@@ -382,6 +382,31 @@ export type DisturbKind = 'walk' | 'fly';
  */
 export type WorldLayer = 'grass' | 'props' | 'water' | 'clouds';
 
+/**
+ * Say that a thing is DRAWN but is not an ambient-occlusion occluder.
+ *
+ * The AO pass curates its own G-buffer rather than re-rendering everything (see
+ * `OpaqueGTAOPass._overrideVisibility` in core/post.ts), and this is the second
+ * question it asks after "did you write depth in the beauty pass". It lives here
+ * rather than in either file because it is a statement the WORLD makes about its
+ * own geometry and the POST STACK reads — neither imports the other.
+ *
+ * It is not a performance knob and must not be reached for as one. The bar is
+ * that the AO the surface produces is WRONG, not that it is expensive: a grass
+ * carpet is the ground rather than a thing standing on it, and a cumulus is a
+ * volume of droplets with no contact shadow to cast. See issue #39, and the
+ * comment at the exclusion in post.ts for the measurements.
+ */
+export function excludeFromAO<T extends THREE.Object3D>(obj: T): T {
+  obj.userData.noAO = true;
+  return obj;
+}
+
+/** Reads the mark `excludeFromAO` writes. */
+export function isExcludedFromAO(obj: THREE.Object3D): boolean {
+  return obj.userData.noAO === true;
+}
+
 export interface World {
   /**
    * Show or hide one layer, now and for everything streamed in afterwards.

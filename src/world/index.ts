@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import type { CrownContact, TownRegistry, World, WorldLayer } from '../core/types';
+import { excludeFromAO } from '../core/types';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
 import { buildWaterMesh, createWaterMaterial } from './water';
@@ -330,7 +331,11 @@ export function createWorld(
   };
 
   const clouds = flags.clouds ? new Clouds(seed) : null;
-  if (clouds) scene.add(clouds.group);
+  // A cumulus is a volume of droplets, not a thing anything rests against — and
+  // at 80-142 units up the only feature a 1.8-unit contact radius can find on
+  // one is the seam where two puffs merge, which is issue #39's second
+  // screenshot: dotted black dashes down every vertical crease.
+  if (clouds) scene.add(excludeFromAO(clouds.group));
 
   // 'solid' — these discs hold trees, boulders, hedges and logs off the spawn
   // clearing and the den decks, but grass, flowers and shells still carpet
@@ -472,7 +477,13 @@ export function createWorld(
       // to go with it. `__dbgSurfaceY` reports these names too, so a raycast
       // that lands on a prop now says which kind it was.
       if (props.solid) props.solid.name = 'chunk:props';
-      if (props.soft) props.soft.name = 'chunk:grass';
+      // The same split decides who is an AO occluder, and for the same reason
+      // one line up: `solid` is the things that stand on the ground, `soft` is
+      // the carpet the ground wears. Screen-space AO cannot tell a blade from a
+      // wall, and a half-res G-buffer full of blade billboards is where issue
+      // #39's "dirty grainy shadow" came from — see _overrideVisibility in
+      // core/post.ts for the measurements.
+      if (props.soft) excludeFromAO(props.soft).name = 'chunk:grass';
       for (const m of [props.solid, props.soft]) {
         if (m) {
           rec.meshes.push(m);
