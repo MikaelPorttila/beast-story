@@ -291,7 +291,32 @@ once frames come quickly.
   it, over a `menuFadeMs` of about 450. Everything else it reports — any key
   leaving the splash, Settings opening and Escaping back, the language chips
   re-captioning the menu live, the "Fullscreen on start" switch being there and
-  on, and the phone run — is about the flow.
+  on, and the phone run — is about the flow. Its `intro` section is the only one
+  in `tools/` that STOPS THE CLOCK: the entrance below is 1.7 s long and every
+  wall-clock reading of it lands after it is over (a screenshot asked for at
+  1200 ms arrived at 5695 ms), so it pauses the animations it finds and scrubs
+  them — logo 0.84 with the art at 0 at 300 ms, art 0.91 under a full logo at
+  1000 ms, everything up at 1900 ms. Finding no animations to scrub is itself the
+  failure; see the entrance note below for why that is the assertion.
+- **THE POSTER ASSEMBLES ITSELF: logo, then painting, then "press start."**
+  Issue #49, and the order is the argument — the eye lands on whichever thing is
+  brightest, which on a fade-in-as-one-image splash is a noon sky rather than the
+  game's name. The wordmark lights alone against the dark plate for half a second
+  and the painting arrives underneath something already read. It waits for
+  `HTMLImageElement.decode()` on BOTH images first (measured: both decoded by
+  1.08 s on a cold dev server), because an `<img>` fades in with whatever it has
+  and a fade begun on a cold cache is a fade of nothing followed by a pop.
+- **THE BEATS ARE CSS ANIMATIONS, AND THE OBVIOUS SHAPE CANNOT WORK.** Light a
+  layer, `setTimeout`, light the next — measured, the second beat's 550 ms timer
+  fired at **4066 ms**, because the boot is running behind the poster and its
+  phases are long tasks. The painting turned up four seconds after the wordmark
+  and the whole thing read as a stall. A compositor opacity animation goes on
+  running through exactly that block, so JS decides only WHEN the sequence starts
+  and the stylesheet owns the ordering in `animation-delay`. `photo=1` and Exit
+  to title get the end state (`.lit`) rather than a run, the first being a screen
+  whose animations are all paused and the second a poster whose art has been in
+  the cache all session. Nothing about `menuShownAtMs` moved: 232 ms, and the
+  dark plate under the beats is the menu element's own background.
 - `test-settings.mjs` is the settings-storage guard, and it drives the real menu
   rather than calling `savePrefs`: a fresh profile must store NOTHING (defaults
   are the absence of a key, which is what keeps "never chose a language" distinct

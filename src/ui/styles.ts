@@ -545,8 +545,43 @@ const CSS = `
   .bs-menu .fly{animation-play-state:paused}
   .bs-menu .fly b{animation:bsFlyTwinkle calc(var(--bob) * .45) ease-in-out infinite alternate}
   .bs-menu .lamp{animation-name:bsLampGlow}
+  /* The entrance below is deliberately NOT paused here. It is three fades, and a
+     fade is light rather than travel — the same split the lanterns get. */
   .bs-menu .logo,.bs-menu .panel{transition:none}
 }
+
+/* ---- the entrance: logo, then painting, then "press start" --------------- */
+/* Issue #49. The long note at INTRO in src/ui/menu.ts is the why; this is the
+   whole of the WHEN. Three layers start at 0 and the sequence is three animation
+   delays adding up — .55 logo, then .7 painting, then .45 for the words — so
+   once menu.ts has added .intro nothing in JavaScript is involved again.
+
+   THAT IS THE POINT OF DOING IT HERE. The boot runs behind this poster in long
+   tasks, and a setTimeout(550) for the second beat was measured firing at
+   4066 ms: the painting turned up four seconds after the wordmark. A compositor
+   opacity animation goes on running through the same block.
+
+   .lit is the same three layers with no sequence — the end state, the skip, and
+   what photo=1 and Exit to title get instead of a run. It sits AFTER .intro so
+   it wins on order at equal specificity, and it restates the press pulse because
+   animation:none would otherwise take it away with the fades.
+
+   Note what is NOT gated: .bs-menu itself still fades up on .show at the frame it
+   always did, and the dark plate under all this is the element's own background.
+   The poster is on screen exactly as early as it was; what these rules stage is
+   what is PAINTED on it. */
+.bs-menu .stage,.bs-menu .logo,.bs-menu .press{opacity:0}
+.bs-menu.intro .logo{animation:bsIntroIn .55s ease both}
+.bs-menu.intro .stage{animation:bsIntroIn .7s ease .55s both}
+/* TWO animations on one property, which is how the words fade in and then keep
+   breathing. The pulse's delay puts it past the fade with no fill of its own, so
+   until 1.7 s only the first rule applies; after it, the later name in the list
+   wins. Both start from full opacity, so the handover is invisible. */
+.bs-menu.intro .press{animation:bsIntroIn .45s ease 1.25s both,
+  bsPressPulse 1.9s ease-in-out 1.7s infinite}
+.bs-menu.lit .stage,.bs-menu.lit .logo,.bs-menu.lit .press{opacity:1;animation:none}
+.bs-menu.lit .press{animation:bsPressPulse 1.9s ease-in-out infinite}
+@keyframes bsIntroIn{from{opacity:0}to{opacity:1}}
 
 .bs-menu .stage{position:absolute;inset:0;overflow:hidden}
 /* background-size:cover, written out, so the glows below can be positioned in
@@ -698,12 +733,17 @@ const CSS = `
 
    The pulse runs from FULL, not to it: paused at 0% under photo=1 a
    trough-first keyframe froze the words at 42% opacity and a still of the title
-   screen came out looking like a bug. */
+   screen came out looking like a bug.
+
+   IT IS NOT DECLARED HERE. The animation lives in the entrance block above, on
+   .bs-menu.lit-press .press, because these words are the last of the three
+   beats — an animation on opacity beats the transition that fades them in, so
+   a pulse declared on the bare element would put them on screen at full
+   brightness before the painting behind them had arrived. */
 .bs-menu .press{text-align:center;font-size:clamp(16px,2.4vw,23px);font-weight:900;
   letter-spacing:.16em;text-transform:uppercase;
   text-shadow:0 1px 2px rgba(0,0,0,.95),0 2px 12px rgba(0,0,0,.9),
-    0 0 30px rgba(255,196,90,.5);
-  animation:bsPressPulse 1.9s ease-in-out infinite}
+    0 0 30px rgba(255,196,90,.5)}
 @keyframes bsPressPulse{0%,100%{opacity:1}50%{opacity:.45}}
 
 /* A COLUMN OF OPTIONS, and everything from here to the language chips is

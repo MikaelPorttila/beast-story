@@ -354,5 +354,67 @@ const out = {};
   out.walkedWithMenuOff = await walk(page, HOLD);
 }
 
+// ---- the entrance: logo, then painting, then "press start" ------------------
+// Issue #49. The claim is an ORDER, and the only honest way to read an order off
+// a screen that assembles itself in 1.7 s is to stop the clock and step through
+// it: the probe waits for `.bs-menu.intro`, PAUSES the animations it finds and
+// scrubs them to three moments, reading the computed opacity of each layer.
+//
+// Scrubbing rather than sampling in real time, because a real-time sample of
+// this is not available on this page at all. The boot's phases are long tasks —
+// a screenshot asked for at 1200 ms was delivered at 5695 ms — so every
+// wall-clock reading lands after the sequence is over. That same fact is why the
+// beats are CSS in the first place (a `setTimeout(550)` for the second one fired
+// at 4066 ms), and it is why `animations` is asserted to be non-empty: an
+// entrance rebuilt on timers would leave nothing here to scrub, and would fail
+// on that line rather than on a subtle one.
+//
+// `photoIsLit` is the other half. A staged capture pauses every animation on the
+// poster, so a sequence that ran under photo=1 would freeze the still half-lit —
+// menu.ts jumps straight to the end state there, and this is that claim.
+{
+  const { ctx, page } = await newContextPage(browser, { width: 1000, height: 640 });
+  logPageErrors(page);
+  await page.goto('http://localhost:5187/?fs=0', { waitUntil: 'load' });
+  await page.waitForSelector('.bs-menu.intro', { timeout: 15000 });
+  const layers = await page.evaluate(() => {
+    window.__intro = document.getAnimations().filter(
+      (a) => a.animationName === 'bsIntroIn' || a.animationName === 'bsPressPulse');
+    window.__intro.forEach((a) => a.pause());
+    return window.__intro.map((a) => `${a.effect.target.className}:${a.animationName}`);
+  });
+  const at = async (ms) => {
+    await page.evaluate((t) => window.__intro.forEach((a) => { a.currentTime = t; }), ms);
+    return page.evaluate(() => {
+      const m = document.querySelector('.bs-menu');
+      const o = (s) => Number(getComputedStyle(m.querySelector(s)).opacity).toFixed(2);
+      return { logo: o('.logo'), art: o('.stage'), press: o('.press') };
+    });
+  };
+  out.intro = {
+    animations: layers,
+    // Mid-first-beat: the wordmark is arriving and nothing else is on screen.
+    at300: await at(300),
+    // Mid-second: the painting is coming up under a logo that is already full.
+    at1000: await at(1000),
+    // After the third: everything up, and the words have started breathing.
+    at1900: await at(1900),
+  };
+  await ctx.close();
+}
+{
+  const page = await newPage(browser, { width: 1000, height: 640 });
+  logPageErrors(page);
+  await page.goto('http://localhost:5187/?photo=1&menu=1', { waitUntil: 'load' });
+  await page.waitForSelector('.bs-menu');
+  await wait(600);
+  out.photoIsLit = await page.evaluate(() => {
+    const m = document.querySelector('.bs-menu');
+    const o = (s) => Number(getComputedStyle(m.querySelector(s)).opacity).toFixed(2);
+    return { lit: m.classList.contains('lit'), intro: m.classList.contains('intro'),
+      logo: o('.logo'), art: o('.stage'), press: o('.press') };
+  });
+}
+
 console.log(JSON.stringify(out, null, 2));
 await browser.close();
