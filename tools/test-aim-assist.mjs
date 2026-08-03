@@ -24,8 +24,9 @@
 //
 // Usage: bun tools/test-aim-assist.mjs        (dev server must be up)
 import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
-const BASE = 'http://localhost:5187/?fps=30&menu=0&fs=0';
+const BASE = `${HOST}/?fps=30&menu=0&fs=0`;
 const B_RT = 7;
 
 /** Inside `SWORD_REACH` (2.2) with room for the enemy's own radius. */

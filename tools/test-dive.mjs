@@ -24,6 +24,7 @@
 //
 // Exits non-zero.
 import { launchBrowser, newPage, wait } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
@@ -32,7 +33,7 @@ page.on('pageerror', (e) => console.error('[page]', e.message));
 // Through the MENU, not `menu=0`: mouse look needs the pointer lock that
 // beginPlay takes, and pitching the camera under the surface is how the view
 // half of this test is reached.
-await page.goto('http://localhost:5187/?fs=0', { waitUntil: 'load' });
+await page.goto(`${HOST}/?fs=0`, { waitUntil: 'load' });
 await page.waitForSelector('.bs-menu');
 await page.keyboard.press('Enter');
 await wait(700);

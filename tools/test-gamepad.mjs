@@ -14,8 +14,9 @@
 //
 // Usage: bun tools/test-gamepad.mjs
 import { launchBrowser, newPage, wait, installFakePad } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
-const URL = 'http://localhost:5187/?fps=30&menu=0';
+const URL = `${HOST}/?fps=30&menu=0`;
 
 // Standard-mapping indices, mirrored from core/gamepad.ts.
 const B = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, L3: 10, R3: 11, DUP: 12, DDOWN: 13, DLEFT: 14, DRIGHT: 15 };
@@ -447,7 +448,7 @@ const results = {};
   for (const fps of [20, 120]) {
     const page = await newPage(browser, { width: 1280, height: 800 });
     await installFakePad(page, 'Xbox Wireless Controller');
-    await page.goto(`http://localhost:5187/?menu=0&fps=${fps}`, { waitUntil: 'load' });
+    await page.goto(`${HOST}/?menu=0&fps=${fps}`, { waitUntil: 'load' });
     await page.waitForSelector('canvas');
     await wait(3500);
     await page.evaluate(() => window.__connectPad());

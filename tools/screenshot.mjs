@@ -2,6 +2,7 @@
 // Usage: bun tools/screenshot.mjs <outfile.png> [urlQuery] [width] [height] [settleMs]
 // Example: bun tools/screenshot.mjs shots/overview.png "photo=1&cam=10,14,18&look=0,9,0" 1920 1080 3500
 import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const [out = 'shot.png', query = '', w = '1920', h = '1080', settle = '3500'] = process.argv.slice(2);
 // Agent captures run at 30 fps: a still frame gains nothing from more, and the
@@ -14,7 +15,7 @@ const q = /(^|&)fps=/.test(query) ? query : (query ? `${query}&fps=30` : 'fps=30
 // pair it with photo=1 to freeze the lantern pulse and the fairies so two runs
 // produce the same pixels.
 const qm = /(^|&)menu=/.test(q) ? q : `${q}&menu=0`;
-const url = `http://localhost:5187/?${qm}`;
+const url = `${HOST}/?${qm}`;
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: +w, height: +h });

@@ -25,6 +25,7 @@
 // second arm died on `boxes[0]`. Both arms now walk at the same coordinates,
 // which is what makes them comparable anyway.
 import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const SETTLE = 5000;
 /** How long a movement key is held per case. At 6 m/s that is ~15 units. */
@@ -87,7 +88,7 @@ async function run(solids, geom = null) {
   const page = await newPage(browser, { width: 1000, height: 640 });
   logPageErrors(page);
   await page.goto(
-    `http://localhost:5187/?fps=30&menu=0${solids ? '' : '&solids=0'}`,
+    `${HOST}/?fps=30&menu=0${solids ? '' : '&solids=0'}`,
     { waitUntil: 'load' },
   );
   await page.waitForSelector('canvas');
@@ -360,7 +361,7 @@ const ROOF_FIT_LIMIT = 0.6;
 async function rideOnFurniture() {
   const page = await newPage(browser, { width: 1280, height: 800 });
   logPageErrors(page);
-  await page.goto('http://localhost:5187/?menu=0&fs=0', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?menu=0&fs=0`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(SETTLE);
 

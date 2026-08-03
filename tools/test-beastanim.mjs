@@ -15,9 +15,10 @@
 //
 // Usage: bun tools/test-beastanim.mjs [soakSeconds]
 import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const soak = Number(process.argv[2] ?? 30);
-const url = 'http://localhost:5187/?fps=0&menu=0';
+const url = `${HOST}/?fps=0&menu=0`;
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 960, height: 600 });

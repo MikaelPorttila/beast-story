@@ -20,8 +20,9 @@
 //
 // Usage: bun tools/test-viewport.mjs
 import { launchBrowser, newContextPage, newPage, wait } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
-const URL = 'http://localhost:5187/?fps=30&menu=0';
+const URL = `${HOST}/?fps=30&menu=0`;
 const PHONE = { width: 393, height: 851 };
 
 const browser = await launchBrowser();

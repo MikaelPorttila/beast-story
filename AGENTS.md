@@ -100,11 +100,14 @@ once frames come quickly.
      instead, and nothing tells you: the run looks perfect while your probe
      drives a game built from somebody else's branch. A hard failure is the only
      acceptable outcome of a clash.
-  4. **Point probes at it with a throwaway COPY, and delete it.**
-     `sed 's|5187|5191|' tools/test-x.mjs > tools/_tmp-x.mjs`, run that, remove
-     it. Never edit the tool itself — the hardcoded 5187 is the contract for
-     everyone else. `_tmp-*.mjs` is not gitignored, so a forgotten copy lands in
-     the commit.
+  4. **Probes find the port by themselves — there is nothing left to copy.**
+     [tools/target.mjs](tools/target.mjs) resolves it (`BS_PORT`, then this
+     worktree's `.claude/launch.json`, then 5187) and every tool imports it, so
+     `bun tools/test-x.mjs` runs against YOUR server with no edit and no
+     throwaway. The old instruction here was `sed 's|5187|5191|' tools/test-x.mjs
+     > tools/_tmp-x.mjs`, and it was a fork per run: `_tmp-*.mjs` is not
+     gitignored, so a forgotten copy lands in the commit. The DEFAULT is still
+     5187, which is why nothing changes for the main checkout.
 - **STOP THE DEV SERVER WHEN THE WORK IS DONE — in the same turn you report it
   done, and say that you did.** A server an agent left running is not a stray
   process, it is a STATUS LIGHT pointing the wrong way: from the outside a live
@@ -145,6 +148,28 @@ once frames come quickly.
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`. `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
+- **`bun tools/probe.mjs <name...|all> [--jobs N] [--json]` runs a SET of them
+  and answers in one screen** — a line per probe, the tail of anything that
+  failed, and a non-zero exit. It spawns the same `bun tools/test-x.mjs` you
+  would, so a probe behaves identically inside a batch, and shares one browser
+  with the batch (BS_BROWSER_WS; a launch is 288 ms, which is the small half).
+  The large half is CONCURRENCY: measured on five probes, **140 s serially ->
+  56 s at `--jobs 5`**. Read its SOLO list before adding to `--jobs`: a probe
+  that asserts on frames, motion or CPU is run alone, because three games
+  sharing one GPU are not one game. That list was written by RUNNING the A/B —
+  `sway` reported 3 movers instead of 4 and an 11.94 area radius instead of
+  18.56, `aim-assist`'s widest selected angle collapsed from 66.29 deg to 0.18 —
+  and by one worse case: `test-f2` read `null` for every field because the
+  overlay was not built 2.5 s after the canvas, **and still exited 0**, since it
+  asserts nothing. Fourteen of the probes assert nothing; that is what keeps the
+  parallel list at four.
+- **`bun tools/q.mjs "<expression>" [more...]` reads a debug hook without a
+  script.** `bun tools/q.mjs "__dbgTowns().spawn" "__dbgPlayerPos()"` boots the
+  game once and prints one JSON value per expression, in order, so several
+  questions cost one boot rather than one throwaway probe each. `--wait ms`,
+  `--url "?..."`, `--lab "beast=..."`, `--size WxH`, `--raw` for a bare scalar.
+  It is a READER: the value has to survive structuredClone, and driving input
+  over time is still a real probe's job.
 - **THE FRAME RATE IS CAPPED AT 120 BY DEFAULT** (`DEFAULT_FPS_CAP` in main.ts;
   `?fps=<n>` overrides, `?fps=0` removes it). A browser already pins rAF to the
   display, so "uncapped" never meant unbounded — it meant "as fast as this

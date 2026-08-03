@@ -19,6 +19,7 @@
 //
 //   bun tools/test-settings.mjs
 import { launchBrowser, newContextPage, wait, logPageErrors } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const BOOT = 2500;
 
@@ -58,7 +59,7 @@ const out = {};
 {
   const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
   logPageErrors(page);
-  await page.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(BOOT);
   out.freshKeys = await stored(page);
@@ -82,7 +83,7 @@ const out = {};
       lang: 'sv',
     }));
   });
-  await page.goto('http://localhost:5187/?fps=30', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(BOOT);
   out.migrated = await stored(page);
@@ -100,7 +101,7 @@ const out = {};
 {
   const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
   logPageErrors(page);
-  await page.goto('http://localhost:5187/?fps=30', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(BOOT);
   await openSettings(page);
@@ -121,7 +122,7 @@ const out = {};
   out.afterInvertKeys = await stored(page);
 
   // Same profile, fresh load: the choice has to survive.
-  await page.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(BOOT);
   out.afterReloadKeys = await stored(page);

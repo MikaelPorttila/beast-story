@@ -20,11 +20,12 @@
 // Exits non-zero.
 import { PNG } from 'pngjs';
 import { launchBrowser, newPage, wait } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
 page.on('pageerror', (e) => console.error('[page]', e.message));
-await page.goto('http://localhost:5187/?menu=0&fs=0&debug=1', { waitUntil: 'load' });
+await page.goto(`${HOST}/?menu=0&fs=0&debug=1`, { waitUntil: 'load' });
 await page.waitForSelector('canvas');
 await wait(8000);
 await page.focus('canvas').catch(() => {});
@@ -187,7 +188,7 @@ for (const id of ['shadows', 'aa']) {
   // meshes came back on.
   const ctx = await browser.createBrowserContext();
   const fresh = await newPage(ctx, { width: 1280, height: 800 });
-  await fresh.goto('http://localhost:5187/?menu=0&fs=0', { waitUntil: 'load' });
+  await fresh.goto(`${HOST}/?menu=0&fs=0`, { waitUntil: 'load' });
   await fresh.waitForSelector('canvas');
   await wait(8000);
   await fresh.focus('canvas').catch(() => {});

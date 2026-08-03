@@ -2,6 +2,7 @@
 // stick moves the player, look-drag turns the camera, and buttons fire.
 // Usage: bun tools/test-touch.mjs
 import { launchBrowser, newPage, newContextPage, wait, count, isVisible } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const browser = await launchBrowser();
 const results = {};
@@ -9,7 +10,7 @@ const results = {};
 // ---------- desktop: no overlay, no touch logic ----------
 {
   const page = await newPage(browser, { width: 1280, height: 800 });
-  await page.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(3500);
   results.desktop = {
@@ -30,7 +31,7 @@ const results = {};
 // ---------- phone: overlay present and functional ----------
 {
   const { ctx, page } = await newContextPage(browser, { width: 393, height: 851, phone: true });
-  await page.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(4000);
 

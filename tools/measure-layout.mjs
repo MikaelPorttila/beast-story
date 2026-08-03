@@ -2,6 +2,7 @@
 // on an emulated touch device, so layout bugs are diagnosed by numbers rather
 // than by eyeballing screenshots.
 import { launchBrowser, newContextPage, wait } from './browser.mjs';
+import { BASE as HOST } from './target.mjs';
 
 const browser = await launchBrowser();
 const out = {};
@@ -11,7 +12,7 @@ for (const [name, viewport] of [
   ['landscape', { width: 851, height: 393 }],
 ]) {
   const { ctx, page } = await newContextPage(browser, { ...viewport, phone: true });
-  await page.goto('http://localhost:5187/?fps=30&menu=0', { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(4000);
   out[name] = await page.evaluate(() => {
