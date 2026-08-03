@@ -89,6 +89,22 @@ export class Input {
    * `pointerlockchange` handler, which hangs up on a lock nobody wants any more.
    */
   private lockWanted = false;
+  /**
+   * The browser took the pointer while the game still wanted it.
+   *
+   * There is exactly one thing a player does that causes this, and it is the
+   * reason this hook exists: pressing Escape. A page holding pointer lock does
+   * not receive that key at all — the browser spends it on releasing the lock —
+   * so the menu key silently did nothing on the press that mattered and worked
+   * on the next one, which is what "Escape only opens the menu every other
+   * time" was. Where the KEYBOARD LOCK is available (see ui/fullscreen.ts) that
+   * never happens, because Escape is delivered as an ordinary key and the lock
+   * is not dropped; where it is not — Brave nulls `navigator.keyboard` outright
+   * — this is the only evidence the page gets that the key was pressed.
+   *
+   * An alt-tab reaches this too, and pausing there is the right answer anyway.
+   */
+  onLockLost: (() => void) | null = null;
   attackHeld = false;
   attackPressed = false;
 
@@ -141,6 +157,17 @@ export class Input {
     // the keyboard from the game and cannot be got back without a click. It is
     // the cursor toggle (see setCursorFree in main.ts), so it is pressed often.
     'AltLeft', 'AltRight',
+    // ESCAPE opens the in-game menu, and is also the browser's key for leaving
+    // fullscreen and for dropping pointer lock. This line alone does NOT stop
+    // either of those: both are user-agent actions taken over the page's head,
+    // and for a long time this set left Escape out for exactly that reason —
+    // "you cannot preventDefault it" was true. It stopped being true with the
+    // KEYBOARD LOCK the game now takes on entering fullscreen (see
+    // ui/fullscreen.ts): under that lock Escape is delivered to the page as an
+    // ordinary key and this preventDefault is what keeps the browser out of it.
+    // Where there is no lock — Firefox, Safari, an iframe, plain http — the call
+    // is harmless and the old behaviour is unchanged.
+    'Escape',
   ]);
 
   /** The capture list, for tools/test-keybinds.mjs. Read-only by convention. */
@@ -180,12 +207,21 @@ export class Input {
       if (e.button === 0) this.attackHeld = false;
     });
     document.addEventListener('pointerlockchange', () => {
+      const had = this.pointerLocked;
       this.pointerLocked = document.pointerLockElement === el;
       // THE LATE ARRIVAL. A lock granted after someone asked for it back is
       // handed straight back here, which is what makes `releaseLock` final
       // regardless of how long the browser took to answer the request it is
       // cancelling. See `lockWanted`.
-      if (this.pointerLocked && !this.lockWanted) document.exitPointerLock();
+      if (this.pointerLocked && !this.lockWanted) { document.exitPointerLock(); return; }
+      // TAKEN, rather than given up. Every deliberate release goes through
+      // `releaseLock`, which clears the intent first — so a lock that vanishes
+      // while `lockWanted` still stands was taken by the BROWSER, and Escape is
+      // how a player takes it. See `onLockLost`.
+      if (had && !this.pointerLocked && this.lockWanted) {
+        this.lockWanted = false;
+        this.onLockLost?.();
+      }
     });
     window.addEventListener('mousemove', (e) => {
       if (this.pointerLocked) {

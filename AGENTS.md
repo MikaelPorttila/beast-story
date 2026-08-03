@@ -310,13 +310,14 @@ once frames come quickly.
   see. It also opens the panel with F1, holds W to prove the sheet is a real
   modal (measured: 0 units with it up, 6.77 with it down), closes it with Escape,
   and picks up a synthetic DualSense mid-read to check the faces swap live. Its
-  last two sections are the only ones in `tools/` that leave the well-trodden
-  path, and both have to. One runs UNCAPPED — ten presses of F1 must give
+  last three sections are the only ones in `tools/` that leave the well-trodden
+  path, and all three have to. One runs UNCAPPED — ten presses of F1 must give
   `1010101010`, which is exactly the assertion `fps=30` cannot make, see the
-  frame-edge note under Conventions. The other drops `menu=0` and walks the
+  frame-edge note under Conventions. The second drops `menu=0` and walks the
   STAGED boot to New Game, because that is the only way to reach the handover:
   an F1 pressed at the poster must not survive `beginPlay()`'s latch drain and
-  pop the sheet open on the first gameplay frame.
+  pop the sheet open on the first gameplay frame. The third goes FULLSCREEN with
+  a stubbed `navigator.keyboard` — see the Escape note under the title screen.
 - `test-pause.mjs` guards the in-game menu, and it is the second probe in
   `tools/` that has to run TWO PAGES for one feature. Everything about the menu
   itself is measured under the usual `menu=0` — Escape raises it, the hero
@@ -327,7 +328,11 @@ once frames come quickly.
   `StartMenu.offer` refuses to build one under `menu=0`, so that arm drops the
   flag and walks the staged boot — New Game, play, stand somewhere 47 units from
   the spawn, Exit, and then round again to prove the second game is a game (back
-  at the spawn, and walking) rather than a husk. It exits non-zero.
+  at the spawn, and walking) rather than a husk. Its arm 1b is the ESCAPE THE
+  BROWSER ATE — a pointer lock taken away must raise the menu once, closing with
+  Escape must NOT take a fresh lock (the menu reopening itself), a click must,
+  and Alt freeing the cursor must raise nothing; see the Escape note under the
+  title screen. It exits non-zero.
 - `test-viewport.mjs` guards the box every full-screen layer is cut to, and it is
   the only probe in `tools/` that lies to the browser on purpose. Its first two
   sections are ordinary — desktop, where the measurement must equal
@@ -1000,6 +1005,88 @@ and an iPhone has no element-level Fullscreen API at all, so nothing happens
 there either. `fs=0` overrides the preference for one load — every probe in
 `tools/` that clicks New Game passes it, or the viewport is resized under the
 measurement it is taking.
+
+**ESCAPE IS THE GAME'S KEY, AND TAKING IT NEEDS A SECOND API.** Escape opens the
+in-game menu and is also the browser's own "leave fullscreen" key, so one press
+did both: the menu came up AND the screen shrank, having been asked for neither
+half. `preventDefault` does not reach that — the exit is a user-agent action
+taken over the page's head, which is why `Input.CAPTURED` left Escape out for so
+long and why `PauseMenu` had to record `wasFullscreen` and put it back on the way
+out (best-effort, and only on a CLICK). The fix is the KEYBOARD LOCK:
+`installEscapeLock()` takes `navigator.keyboard.lock(['Escape'])` on every entry
+into fullscreen and releases it on every exit, and under that lock Escape is
+delivered to the page as an ordinary key — so it is in `Input.CAPTURED` now and
+the preventDefault means something. The browser keeps ONE escape hatch no page
+may close: press and HOLD Escape for about a second and it leaves fullscreen
+anyway, with its own notice. That is the spec's anti-trap rule, not a gap.
+
+It is armed off the `fullscreenchange` EVENT rather than beside the
+`requestFullscreen()` call, because `lock()` is under no gesture deadline and a
+lock is scoped to the fullscreen session — a player who alt-tabs or F11s out and
+back needs it re-taken. `escapeIsLocked()` keeps the browser's ANSWER beside the
+request, because the two disagree in exactly the cases the feature is broken in,
+and `__dbgFullscreen()` reports both.
+
+**BRAVE HAS NO KEYBOARD LOCK, WHICH IS WHY THERE IS A SECOND MECHANISM.**
+Measured, headful, on this machine: Brave answers `navigator.brave: true` and
+`navigator.keyboard: null` — the property is declared and the object is not
+there, which is its fingerprinting protection removing the API — while Edge on
+the same page answers `[object Keyboard]`. It is null in headless Chromium too.
+So in the browser this project's own tools drive, the lock CANNOT be taken and
+Escape stays the browser's key, whatever this file would prefer.
+
+That costs more than fullscreen, and the second cost is the one a player
+reports. **A page holding pointer lock is never given the Escape that releases
+it** — the browser spends the key itself — so the menu key did nothing on the
+press that mattered and worked on the one after, by which time the lock was
+already gone. "Escape only opens the menu every other time" is that, and it is
+one missing edge rather than a race. `Input.onLockLost` is the answer: a lock
+that vanishes while `lockWanted` still stands was TAKEN, and main.ts taps the
+same virtual `Escape` the pad's Start and the touch MENU button already tap. One
+reader still decides what Escape MEANS, so it closes the topmost modal when
+there is one and opens the menu when there is not. No timer and no correlation
+window — `tapVirtual` is one `press()` into a Set keyed by code, so a browser
+that delivers the real key AND drops the lock in the same frame yields exactly
+one edge. Note what it must NOT do: every deliberate release (Alt freeing the
+cursor, a shop opening) goes through `releaseLock`, which clears the intent
+first, and a rule written as "the lock went away" instead of "the lock was
+taken" pops a menu in the player's face every time they hold Alt.
+
+**AND NOTHING MAY TAKE THE POINTER BACK INSIDE THAT SAME KEY.** The fallback
+above has a twin failure and it is the one that shipped first: closing the menu
+with Escape made it reopen a moment later, on its own. One Escape does two
+things a page cannot see, and they land as separate events — measured, LEAVING
+FULLSCREEN RELEASES THE POINTER LOCK 8 ms LATER. So a close that immediately
+re-took the lock handed the browser something to knock straight back out, and
+that loss is indistinguishable from the player pressing Escape again. There were
+TWO callers doing it, which is why the first fix did not take: `PauseMenu`'s own
+`onClose`, and `updateCursorMode`'s menu branch — the latter one keyup EARLIER,
+and against a comment that already said a menu takes its own pointer back and
+that asking there would race it. It now re-locks only for an Alt RELEASE, which
+is what that comment always claimed. `onClose` carries `by: 'key' | 'click'`,
+and the host re-takes the pointer after a click, or after a key when
+`escapeIsLocked()` says the browser is not spending Escape at all. After a key
+in a browser without the lock, nothing takes it back and nothing needs to: the
+next click does, as it always has.
+
+`fullscreenWanted()` is the same distinction for the other half. `PauseMenu`
+used to sample `isFullscreen()` when it opened, and where there is no keyboard
+lock the browser has usually LEFT fullscreen by then — so the sample said "no"
+and Continue restored nothing. The INTENT is set by `enterFullscreen`, cleared
+by `exitFullscreen`, and deliberately not cleared by the browser leaving on its
+own. A click on Continue then puts it back; Escape and the pad cannot, because
+`requestFullscreen` needs an activation and neither is one.
+
+Two guards, because there are two mechanisms. Section 6 of
+`tools/test-keybinds.mjs` covers the lock, and lies to the browser to do it:
+with `navigator.keyboard` null in headless, a stub in its place records that
+entering fullscreen asks for exactly `Escape`, that leaving unlocks, and that a
+real Escape comes back `defaultPrevented`. Arm 1b of `tools/test-pause.mjs`
+covers the fallback, driven by `document.exitPointerLock()` from the page —
+exactly what the browser does to that lock, and the only way in, since a
+synthetic Escape over CDP makes the browser release nothing. What NO automated
+run on this machine can see is a real lock refusing a real Escape: it needs a
+browser that has the API, a display and a hand.
 
 **The vertical layout is a two-row grid meeting at a divider**, and that is
 load-bearing rather than incidental. The logo sits in row one aligned to its

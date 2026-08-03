@@ -1,6 +1,6 @@
 import { t, language, onLanguageChange } from '../i18n';
 import { SettingsPanel, type SettingsHooks } from './settings';
-import { enterFullscreen, isFullscreen } from './fullscreen';
+import { enterFullscreen, isFullscreen, fullscreenWanted } from './fullscreen';
 import { injectStyles } from './styles';
 
 /**
@@ -41,12 +41,18 @@ import { injectStyles } from './styles';
  */
 
 type Step = 'menu' | 'settings';
+/** How the menu was dismissed. See `PauseMenuHooks.onClose`. */
+export type CloseBy = 'key' | 'click';
 
 export interface PauseMenuHooks extends SettingsHooks {
   /** The menu is up. The host freezes the hero and stands the pad down. */
   onOpen?: () => void;
-  /** The menu is gone, by Continue or by Escape. The game resumes. */
-  onClose?: () => void;
+  /**
+   * The menu is gone and the game resumes. `by` is HOW it was dismissed, and it
+   * is on this contract for one reason: taking the pointer lock back is safe
+   * after a CLICK and is not after a KEY. See the note on `close`.
+   */
+  onClose?: (by: CloseBy) => void;
   /**
    * Exit was chosen: end the session and put the title screen back.
    *
@@ -74,8 +80,6 @@ export class PauseMenu {
   private padDown = new Uint8Array(20);
   private padEdge = new Uint8Array(20);
   private padAxisLatched = false;
-  /** Fullscreen at the moment this opened. See `open` and `close`. */
-  private wasFullscreen = false;
 
   constructor(private hooks: PauseMenuHooks) {
     injectStyles();
@@ -96,13 +100,6 @@ export class PauseMenu {
   open(): void {
     if (this.el) return;
     this.step = 'menu';
-    // WAS THE PAGE FULLSCREEN WHEN THIS OPENED? Recorded because Escape is not
-    // ours to intercept: it is the browser's own "leave fullscreen" key, no
-    // page can preventDefault it, and the keydown reaches the game as well. So
-    // a player who presses Escape in fullscreen to see this menu gets the menu
-    // AND loses fullscreen, having asked for neither half of that. `close()`
-    // puts it back. See the note there for what it can and cannot do.
-    this.wasFullscreen = isFullscreen();
     const el = document.createElement('div');
     el.className = 'bs-pause';
     el.innerHTML = '<div class="bs-scrim"></div><div class="pane"></div>';
@@ -133,21 +130,39 @@ export class PauseMenu {
    * `restoreFullscreen` is false for the one caller that means it — Exit, which
    * is deliberately going back to a windowed title screen.
    *
-   * PUTTING FULLSCREEN BACK IS BEST-EFFORT, by construction rather than by
-   * sloppiness. `requestFullscreen()` is only honoured off a recent user
-   * activation, so this works when the menu is dismissed by a CLICK on Continue
-   * or the pointer — which is how it is dismissed on a mouse, and the case the
-   * player noticed. Closing with Escape or the pad reaches here from a
-   * simulation slice with no activation behind it, the request is refused, and
-   * the game stays windowed exactly as it does today. Half a fix beats none, and
-   * there is no arrangement in which a page can keep a fullscreen the browser
-   * has already taken back.
+   * PUTTING FULLSCREEN BACK IS THE FALLBACK for browsers with no keyboard lock,
+   * and it is best-effort by construction rather than by sloppiness. Where the
+   * lock exists (ui/fullscreen.ts) Escape never reached the browser and there is
+   * nothing to put back. Where it does not — Brave nulls `navigator.keyboard`
+   * outright — Escape drops fullscreen before the page has any say, and this is
+   * the only way back into it.
+   *
+   * It asks the game's INTENT (`fullscreenWanted`) rather than sampling
+   * `isFullscreen()` when the menu opened, because by then the browser has
+   * usually already left: sampling gave `false` and the restore never fired at
+   * all. `requestFullscreen()` is honoured only off a recent user activation, so
+   * this works when the menu is dismissed by a CLICK on Continue — which is how
+   * it is dismissed on a mouse. Closing with Escape or the pad reaches here from
+   * a simulation slice with no activation behind it and the request is refused;
+   * there is no arrangement in which a page can retake a fullscreen without a
+   * gesture.
+   *
+   * `by` EXISTS BECAUSE OF WHAT ONE ESCAPE DOES IN A BROWSER WITHOUT THE LOCK.
+   * That key is spent on the browser's own business — dropping pointer lock,
+   * leaving fullscreen — and those land as separate events several
+   * milliseconds apart. Measured: leaving fullscreen releases the pointer lock
+   * 8 ms later. So a close that immediately re-takes the lock hands the browser
+   * something to knock straight back out, and the loss reads as a fresh Escape:
+   * the menu closed and then reopened on its own. That is what `by` is for —
+   * the host re-takes the pointer after a CLICK, and waits for the next one
+   * after a KEY. Nothing here is timed; the host asks whether the browser is
+   * spending Escape at all (`escapeIsLocked`).
    */
-  close(restoreFullscreen = true): void {
+  close(restoreFullscreen = true, by: CloseBy = 'click'): void {
     if (!this.el) return;
     // BEFORE the DOM work: a request issued from a click handler has a deadline
     // measured in the same terms `StartMenu.start` obeys — see ui/fullscreen.ts.
-    if (restoreFullscreen && this.wasFullscreen && !isFullscreen()) enterFullscreen();
+    if (restoreFullscreen && fullscreenWanted() && !isFullscreen()) enterFullscreen();
     if (this.padRaf) cancelAnimationFrame(this.padRaf);
     this.padRaf = 0;
     this.unlisten?.();
@@ -159,7 +174,7 @@ export class PauseMenu {
     this.el.remove();
     this.el = null;
     this.focusables = [];
-    this.hooks.onClose?.();
+    this.hooks.onClose?.(by);
   }
 
   /**
@@ -176,7 +191,7 @@ export class PauseMenu {
   onEscape(): boolean {
     if (!this.el) return false;
     if (this.step === 'settings') this.goto('menu', '[data-act="settings"]');
-    else this.close();
+    else this.close(true, 'key');
     return true;
   }
 

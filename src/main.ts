@@ -34,7 +34,10 @@ import { CombatSystem, SWORD_REACH } from './combat/index';
 import { HUD, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
 import { StartMenu } from './ui/menu';
 import { PauseMenu } from './ui/pause';
-import { exitFullscreen } from './ui/fullscreen';
+import {
+  exitFullscreen, fullscreenSupported, isFullscreen,
+  installEscapeLock, keyboardLockSupported, escapeIsLocked,
+} from './ui/fullscreen';
 import { LoadingScreen } from './ui/loading';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
@@ -44,6 +47,11 @@ const app = document.getElementById('app')!;
 // size from #app. See src/core/viewport.ts for why the viewport is measured
 // rather than asked for in dvh.
 installViewport();
+// Escape is the game's key, not the browser's: this arms the keyboard lock that
+// makes that true for as long as the page is fullscreen. Installed here rather
+// than beside the `requestFullscreen` call in ui/menu.ts because it is driven by
+// the change EVENT and is under no gesture deadline — see ui/fullscreen.ts.
+installEscapeLock();
 const engine = new Engine(app);
 const input = new Input(engine.renderer.domElement);
 const bus = new EventBus();
@@ -237,9 +245,44 @@ const pauseMenu = new PauseMenu({
   // buttons and a settings list, with a cursor that has to be able to reach
   // Exit. See the F1 note further down for the other half of the argument.
   onOpen: () => input.releaseLock(),
-  onClose: () => { if (!isTouchPrimary()) input.requestLock(); },
+  // TAKING THE POINTER BACK IS SAFE AFTER A CLICK AND IS NOT AFTER A KEY, and
+  // the difference is what the BROWSER is still doing with that key. Where
+  // Escape is ours (the keyboard lock is held) the browser is spending nothing
+  // and this is the same call it always was. Where it is not, the Escape that
+  // closed this menu is at that moment also leaving fullscreen — which releases
+  // the pointer lock 8 ms later, measured — so a lock taken here is one the
+  // browser knocks straight back out, and that loss reads as a fresh Escape.
+  // The menu closed and reopened on its own. There is nothing to take back
+  // after a key: the next click does it, as it always has (see
+  // `Input`'s mousedown listener).
+  onClose: (by) => {
+    if (isTouchPrimary()) return;
+    if (by === 'click' || escapeIsLocked()) input.requestLock();
+  },
   onExit: () => exitToTitle(),
 });
+
+/**
+ * THE ESCAPE A BROWSER ATE, arriving as the key it was.
+ *
+ * A page holding pointer lock is not given the Escape that releases it — the
+ * browser spends the key itself — so in any browser without the keyboard lock
+ * (Brave nulls `navigator.keyboard`; see ui/fullscreen.ts) the menu key did
+ * nothing on the press that mattered and worked on the one after, because by
+ * then the lock was already gone. That is "Escape only opens the menu every
+ * other time", and it is one missing edge rather than a race.
+ *
+ * So the losing of the lock IS the edge, and it is tapped in as the same
+ * virtual Escape the pad's Start and the touch overlay's MENU button already
+ * tap. Nothing new decides what Escape MEANS — the one reader in `frame()`
+ * still does, so this closes the topmost modal when there is one and opens the
+ * menu when there is not, for every device at once.
+ *
+ * No timer and no correlation window: `tapVirtual` is one `press()` into a Set
+ * keyed by code, so a browser that delivers the real key AND drops the lock in
+ * the same frame still yields exactly ONE edge.
+ */
+input.onLockLost = () => { if (playing) input.tapVirtual('Escape'); };
 
 /**
  * END THE SESSION and put the title screen back, in the same page.
@@ -1116,6 +1159,18 @@ const _hurtFrom = new THREE.Vector3();
   captured: Input.capturedCodes(),
 });
 
+// Fullscreen and the Escape key. `keyboardLock` is whether this browser CAN be
+// asked for Escape, `escapeLocked` is whether it granted it — two answers,
+// because they disagree in exactly the cases the feature is broken in (an
+// iframe, plain http, a policy), and a probe reading only the first would pass
+// through all of them. Read-only; see ui/fullscreen.ts.
+(window as unknown as { __dbgFullscreen: () => unknown }).__dbgFullscreen = () => ({
+  supported: fullscreenSupported(),
+  active: isFullscreen(),
+  keyboardLock: keyboardLockSupported(),
+  escapeLocked: escapeIsLocked(),
+});
+
 // Controller state: what is plugged in, which faces the HUD is printing, and the
 // raw axes/pressed set. Read-only. `connected` stays false until the pad's first
 // button press on Chrome, which is the browser's rule, not ours.
@@ -1441,8 +1496,12 @@ void cursors.load();
  * the whole point is to change something while the world carries on working.
  */
 let cursorFree = false;
+/** Alt at the previous call, so this can tell a RELEASE from a menu closing. */
+let altWasHeld = false;
 function updateCursorMode(): void {
   const altHeld = input.down('AltLeft') || input.down('AltRight');
+  const altJustReleased = altWasHeld && !altHeld;
+  altWasHeld = altHeld;
   const menuUp = (startMenu?.isOpen ?? false) || pauseMenu.isOpen
     || hud.isShopOpen() || hud.isControlsOpen();
   // A controller player is not pointing at anything, and a phone has no pointer
@@ -1454,9 +1513,15 @@ function updateCursorMode(): void {
   cursorDirector.setEnabled(want);
   if (altHeld) {
     input.releaseLock();
-  } else if (!menuUp && !isTouchPrimary()) {
-    // Only Alt trades the lock away. A menu released it on the way in and will
-    // take it back itself on the way out, and asking here would race that.
+  } else if (altJustReleased && !menuUp && !isTouchPrimary()) {
+    // ONLY AN ALT RELEASE, which is what the line above this always claimed and
+    // what it did not do. `cursorFree` goes false for two different reasons —
+    // Alt let go, and a menu closing — and this branch took the pointer back for
+    // BOTH, one keyup ahead of the menu's own `onClose`. That is the second
+    // caller behind the menu reopening itself: closing with Escape re-took a
+    // lock here, the fullscreen exit from that same key released it 8 ms later,
+    // and the loss read as a fresh Escape. A menu released the pointer on the
+    // way in and is the only thing that may decide about it on the way out.
     input.requestLock();
   }
 }
