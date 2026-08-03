@@ -1,0 +1,50 @@
+{
+  "id": "example-quest",
+  "version": "0.1.0",
+  "requires": ["core"],
+  "meta": {
+    "title": "The lazy path, end to end",
+    "note": "NOTHING LOADS THIS AT BOOT, and that is the point of it. It is a second package: fetched on demand through import.meta.glob (its own content-hashed chunk, see src/content/storage/bundled.ts), declaring a dependency on `core`, and holding one quest that REFERENCES content core shipped — npc:gain and town:encampment. So it exercises every part of the design the core package cannot: a dependency resolved before the referring assets are read, a cross-package reference that the graph must resolve rather than report as dangling, a lease that can be dropped, and an unload that takes the definitions away while leaving the player's flags and quest statuses exactly where they are (spec §12.3).",
+    "text-is-inline": "Its strings are the { text } form rather than { key }, which is the OTHER half of ContentText being demonstrated: StringKey is a build-time guarantee and content authored outside the build cannot have it, so a package like this carries its words with it and falls back across languages the way t() does. Nothing in src/i18n/ has to know this package exists.",
+    "loading-it": "content.load('example-quest', 'quest'), and content.release('example-quest', 'quest') to put it back."
+  },
+  "assets": [
+    {
+      "id": "quest:encampment/first-steps",
+      "schema": 1,
+      "name": { "text": { "en": "First Steps", "sv": "Första stegen" } },
+      "description": {
+        "text": {
+          "en": "Someone in the Encampment has been waiting for a word with you.",
+          "sv": "Någon i lägret har väntat på att få tala med dig."
+        }
+      },
+      "tags": ["example", "tutorial"],
+      "data": {
+        "category": "main",
+        "arc": "encampment",
+        "giver": "npc:gain",
+        "location": "town:encampment",
+        "prerequisites": [],
+        "objectives": [
+          {
+            "key": "talk-to-gain",
+            "text": {
+              "text": {
+                "en": "Speak with Deckard Gains Armstrong",
+                "sv": "Tala med Deckard Gains Armstrong"
+              }
+            },
+            "count": 1
+          }
+        ],
+        "onStart": [{ "do": "flag.set", "flag": "first-steps-started" }],
+        "onComplete": [
+          { "do": "flag.set", "flag": "met-gain" },
+          { "do": "discover", "id": "town:encampment" }
+        ],
+        "rewards": { "xp": 25, "shard": 10 }
+      }
+    }
+  ]
+}

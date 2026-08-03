@@ -20,6 +20,20 @@ import { t, onLanguageChange } from './i18n';
 import { perf } from './core/profiler';
 import { flags } from './core/flags';
 import { DevConsole } from './ui/console';
+import {
+  bootstrapContent, content, resolveText, type BiomeData,
+} from './content';
+// THE ONE STATIC IMPORT OF A CONTENT PROVIDER, and it is in an entry point
+// rather than inside `src/content/` on purpose — see the header of
+// src/content/index.ts for the whole argument. In short: nothing under
+// `src/content/` may statically reach `storage/bundled.ts`, because it uses
+// Vite's `import.meta.glob` and tools/test-zfight.mjs imports game modules
+// straight into plain Bun; but leaving `bootstrapContent`'s dynamic fallback as
+// the ONLY route puts a chunk fetch on the boot path, measured at 15.8 ms
+// against 2.4 ms for the linked form. This file and src/lab/index.ts are the two
+// Vite entries, so they are the two places that may link it.
+import { BundledProvider } from './content/storage/bundled';
+import { contentIssues } from './core/content-bridge';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { NPC_TALK_RANGE } from './world/npc';
@@ -34,6 +48,7 @@ import { Player } from './player/index';
 import { MountController } from './player/mount';
 import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem, SWORD_REACH } from './combat/index';
+import { enemySpecies } from './combat/enemies';
 import { HUD, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
 import { StartMenu } from './ui/menu';
 import { PauseMenu } from './ui/pause';
@@ -336,6 +351,16 @@ input.onLockLost = () => { if (playing) input.tapVirtual('Escape'); };
  * reaching into them, so a field added to one of those is reset by the file that
  * added it.
  *
+ * CONTENT SPLITS DOWN THAT SAME LINE, and the split is the whole of the content
+ * design's §12.3. The STATE — every flag set, every quest started, every point
+ * of interest discovered — is a play session and is thrown away with the rest.
+ * The DEFINITIONS are not: which towns exist, who Gain is and what a Gloopling
+ * is worth are pure functions of the build, exactly as the terrain is a pure
+ * function of the seed, and nothing about them is per-session. So the packages
+ * stay LOADED and the `boot` lease is never released — releasing it would drop
+ * the graph the world standing behind this poster was cut from and make the next
+ * New Game rebuild it for no gain at all.
+ *
  * Kept: the engine, the world and the rigs. That is a deliberate departure from
  * "dispose everything", and the reason is the boot timings at the top of this
  * file. Rebuilding the world costs 602 ms and re-linking the shader programs that
@@ -374,6 +399,8 @@ function exitToTitle(): void {
   player.reset();
   mount.dismount();
   combat.reset();
+  // The facts, not the definitions — see the note above.
+  content.state.reset();
   for (const b of roster) b.reset();
   primaryIdx = 0;
   supportIdx = 6;
@@ -410,6 +437,63 @@ function exitToTitle(): void {
 // Phase 1 ends here: the poster and the chip are on screen before the first
 // chunk exists. Everything past this point is phase 2.
 await loading?.stage('world');
+
+// ---------------------------------------------------------------------------
+// CONTENT, and it is the first thing in the world phase rather than a phase of
+// its own.
+//
+// It has to be BEFORE `createWorld`, because `planSettlements` reads
+// `content.all('town')` to know what to site and the whole of world creation
+// runs off that. It is INSIDE the world stage rather than beside it because it
+// costs nothing worth a chip: measured on the dev server at 1280x800 it is
+// 2.4 / 2.5 / 2.3 ms (`__dbgContent().bootMs`) against a `world` stage of
+// ~390 ms and a shader sweep of ~10 s, so it disappears into the noise of
+// cutting three towns and their roads. A progress step a player cannot see the
+// needle move on is a step that makes the boot look slower than it is.
+//
+// It does not throw. `ok === false` means something in the package is broken and
+// the world will come up short of a town or an enemy; `__dbgContent()` and
+// `/content check` are where the findings are read, which is the same bargain
+// every other diagnostic in this project strikes — degrade with a placeholder
+// and say so, rather than refuse to start.
+//
+// `engineFlags` names the flags ENGINE code sets that no content ever writes,
+// because the reachability check cannot see a `setFlag` in this file and would
+// otherwise report each one as a quest that can never start. There are none yet;
+// the argument is here so the first one has somewhere to go.
+const contentBootStart = performance.now();
+content.addProvider(new BundledProvider());
+const contentBoot = await bootstrapContent({ engineFlags: [] });
+/** What the phase above cost. Reported by `__dbgContent`; see the note there. */
+const contentBootMs = performance.now() - contentBootStart;
+
+/**
+ * The biomes' vegetation multipliers, applied before the first chunk is built.
+ *
+ * EVERY SHIPPED VALUE IS EXACTLY 1, AND `setArea` DELETES AN ENTRY SET TO 1 —
+ * so this loop leaves `nature`'s tables empty, `isDefault()` true, and
+ * `tools/test-nature.mjs`'s identity control reading a drift of 0. The migration
+ * cannot move a blade of grass, and it cannot by CONSTRUCTION rather than
+ * because the numbers happen to match (src/content/types/biome.ts says the same
+ * from the other end). Verified by running the probe.
+ *
+ * Here rather than in world/index.ts because this is where `nature` is already
+ * wired to the streamer, and BEFORE that wiring: `setArea` fires the change
+ * listener, and there is no world to rebuild yet — which is the point, since the
+ * densities have to be in place before the first chunk rather than pushed into
+ * one that already exists.
+ *
+ * The area key is the biome id's name half. Unvalidated against `BiomeId`, for
+ * the same reason `/nature` and `?nature=` leave it unvalidated (world/nature.ts,
+ * `readUrl`): the set of named areas widens as the world grows, and an override
+ * that changes nothing is a better failure than a refusal that hides one.
+ */
+for (const biome of content.all<BiomeData>('biome')) {
+  const area = biome.id.slice(biome.type.length + 1) as NatureAreaId;
+  for (const [param, value] of Object.entries(biome.data.nature)) {
+    nature.setArea(area, param as NatureParamId, value);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Zones. There are two: the streamed overworld and one dungeon instance. The
@@ -1766,6 +1850,80 @@ devConsole?.register({
     return `${area}.${id} x${v.toFixed(2)} = ${(nature.base(id) * v).toFixed(2)} — rebuilding`;
   },
 });
+
+/**
+ * `/content` — read the content graph, and drive the lazy half of it by hand.
+ *
+ * THE LOAD AND RELEASE ARMS ARE THE POINT. Everything else here `__dbgContent()`
+ * already reports; what a console can do that a probe cannot is TRY IT. Measured
+ * by typing it: `/content` lists `core 14 assets [boot]`, `/content load
+ * example-quest` fetches that package's own chunk and answers `loaded
+ * "example-quest": 1 assets`, `/content` then shows it under a `[debug]` lease
+ * with `quest 1`, and `/content release example-quest` takes the definitions
+ * away again and `quest` is back to 0. That is the whole of the lazy design made
+ * demonstrable in two lines, and a feature nobody can operate by hand is a
+ * feature nobody believes.
+ *
+ * UNDER THE `debug` LEASE, never `boot`. A package a developer opened is held by
+ * a named holder that lets go, so it cannot be mistaken for core content and
+ * cannot be released out from under the world by a stray command (spec §12.4).
+ *
+ * `load` is async and the console is not, so the result is PRINTED WHEN IT
+ * ARRIVES rather than returned — a fetch has to be allowed to take a moment, and
+ * a command that blocked on one would freeze the frame it was typed in.
+ */
+devConsole?.register({
+  name: 'content',
+  args: '[load <pkg> | release <pkg> | check]',
+  help: 'Inspect loaded content packages, load or release one, or print the '
+    + 'validation diagnostics. No arguments lists what is loaded.',
+  run: (args) => {
+    const [verb, pkg] = args;
+    if (!verb) {
+      const packs = content.packages.map(
+        (p) => `${p.id.padEnd(12)} ${String(p.assets.length).padStart(3)} assets  `
+          + `[${p.leases.join(' ')}]  ${p.source}`,
+      );
+      const counts = ['town', 'npc', 'biome', 'enemy', 'quest']
+        .map((ty) => `${ty.padEnd(6)} ${content.all(ty).length}`);
+      const bad = [...content.diagnostics(), ...contentIssues()].filter(
+        (d) => d.severity === 'error' || d.severity === 'fatal',
+      ).length;
+      return [
+        packs.length ? `packages\n${packs.join('\n')}` : 'no packages loaded',
+        `\nassets\n${counts.join('\n')}`,
+        `\n${bad} error(s) — /content check`,
+        '\n/content load <pkg>   /content release <pkg>',
+      ].join('\n');
+    }
+    if (verb === 'check') {
+      const all = [...content.diagnostics(), ...contentIssues()];
+      if (all.length === 0) return 'no findings';
+      return all.map(
+        (d) => `${d.severity.padEnd(5)} ${d.code.padEnd(16)} `
+          + `${d.assetId ?? '-'}${d.field ? ` .${d.field}` : ''}\n      ${d.message}`
+          + (d.fix ? `\n      fix: ${d.fix}` : ''),
+      ).join('\n');
+    }
+    if (verb === 'load' || verb === 'release') {
+      if (!pkg) return `which package? /content ${verb} <pkg>`;
+      if (verb === 'release') {
+        content.release(pkg, 'debug');
+        return `released "${pkg}" (debug lease) — ${content.packages.length} loaded`;
+      }
+      void content.load(pkg, 'debug').then((r) => {
+        devConsole?.print(
+          r.loaded
+            ? `loaded "${r.pkg}": ${r.assets.length} assets, ${r.diagnostics.length} finding(s)`
+            : `"${r.pkg}" was already loaded; added a debug lease`,
+        );
+        for (const d of r.diagnostics) devConsole?.print(`  ${d.severity} ${d.code} ${d.message}`);
+      });
+      return `loading "${pkg}"…`;
+    }
+    return `unknown — /content [load <pkg> | release <pkg> | check]`;
+  },
+});
 devConsole?.register({
   name: 'mount',
   args: '[off|<speciesId>]',
@@ -2478,11 +2636,13 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   if (hint) hud.showHint(hint);
   else hud.hideHint();
 
-  // The conversation. `t()` with no placeholders is one map lookup and no
-  // allocation, and the HUD compares each field before writing it, so rendering
-  // this every slice costs nothing while a talk is open.
+  // The conversation. `resolveText` on the key form is `t()` with no
+  // placeholders — one map lookup and no allocation — and the HUD compares each
+  // field before writing it, so rendering this every slice costs nothing while a
+  // talk is open. Resolved HERE rather than where the payload was built, which
+  // is what keeps a talk that is already open following a live language switch.
   const talk = world.npcs?.talking ?? null;
-  if (talk) hud.showDialogue(t(talk.nameKey), t(talk.lineKey), dialogueFoot);
+  if (talk) hud.showDialogue(resolveText(talk.name), resolveText(talk.line), dialogueFoot);
   else hud.hideDialogue();
 
   combat.update(dt, player as unknown as Damageable, [primary(), support()] as unknown as Damageable[]);
@@ -2880,6 +3040,79 @@ beginPlay();
 (window as unknown as { __dbgPerf: () => unknown }).__dbgPerf = () => perf.dump();
 
 /**
+ * WHAT CONTENT IS LOADED, WHAT IT SAYS, AND WHAT IS WRONG WITH IT.
+ *
+ * Read-only like every other probe here, and structuredClone-safe by
+ * construction: everything below is a string, a number or a plain array of them,
+ * so `tools/q.mjs` can read it. It exists for `tools/` — a probe that wants to
+ * know whether the world it is measuring was cut from the content it thinks it
+ * was, and a run that wants to see a package's findings without opening a
+ * console.
+ *
+ * FOUR QUESTIONS, and they are four because a content bug can be at any of four
+ * depths. `packages` is what LOADED and who is holding it open — a lease list
+ * rather than a count, so a leak reads as "`zone` still holds this three zones
+ * later" (src/content/types.ts). `assets` is what came out of it, by type.
+ * `diagnostics` is everything the load, the cross-asset pass and the engine's
+ * own placers found, worst first — the content runtime's own findings and
+ * core/content-bridge.ts's merged, because a town that is missing from the world
+ * is one question however far down it failed. `resolved` is the answer to that
+ * question from the OTHER end: the ids that actually reached the world. An id in
+ * `assets` and not in `resolved` is a piece of content the engine refused, and
+ * the reason is in `diagnostics`.
+ *
+ * `state` is the save payload — the player's facts, not the definitions. It is
+ * what `Exit to title` clears and the definitions are what it keeps.
+ */
+(window as unknown as { __dbgContent: () => unknown }).__dbgContent = () => {
+  const byType: Record<string, number> = {};
+  for (const type of ['town', 'npc', 'biome', 'enemy', 'quest']) {
+    byType[type] = content.all(type).length;
+  }
+  return {
+    ok: contentBoot.ok,
+    /**
+     * What loading and validating the core package cost, milliseconds.
+     *
+     * Reported rather than asserted, and it is the number that decides the
+     * question "does this deserve a progress chip of its own": measured on the
+     * dev server at 1280x800 it is 2.4 / 2.5 / 2.3 ms against a `world` stage of
+     * ~390 ms and a shader sweep of ~10 s, so it does not, and it lives inside
+     * the world stage instead. It is also the number that caught the provider
+     * being reached through a chunk fetch — 15.8 ms, all of it a round trip. See
+     * the import of `BundledProvider` at the top of this file. Re-measure here if
+     * the core package ever grows.
+     */
+    bootMs: +contentBootMs.toFixed(2),
+    packages: content.packages.map((p) => ({
+      id: p.id,
+      version: p.version ?? null,
+      source: p.source,
+      assets: p.assets.length,
+      requires: [...p.requires],
+      leases: [...p.leases],
+    })),
+    assets: byType,
+    diagnostics: [...content.diagnostics(), ...contentIssues()].map((d) => ({
+      severity: d.severity,
+      code: d.code,
+      assetId: d.assetId ?? null,
+      field: d.field ?? null,
+      message: d.message,
+    })),
+    // What reached the WORLD, from the world's own objects rather than from the
+    // registry — which is the only way this can disagree with `assets`, and
+    // disagreeing is exactly what it is for.
+    resolved: {
+      towns: world.towns.all.map((tn) => tn.id),
+      npcs: (world.npcs?.all ?? []).map((n) => n.id),
+      enemies: enemySpecies().map((e) => e.id),
+    },
+    state: content.state.toJSON(),
+  };
+};
+
+/**
  * What the cached static shadow map is doing — whether it is on at all, how big
  * the box is, and the number the whole feature is about: FRAMES PER REBUILD.
  * See core/shadow-cache.ts, and tools/test-shadowcache.mjs for the guard.
@@ -2947,8 +3180,8 @@ beginPlay();
     ? {
       id: world.npcs.talking.id,
       // Looked up, so `?lang=sv` reports the Swedish line the panel shows.
-      name: t(world.npcs.talking.nameKey),
-      line: t(world.npcs.talking.lineKey),
+      name: resolveText(world.npcs.talking.name),
+      line: resolveText(world.npcs.talking.line),
     }
     : null,
   all: (world.npcs?.all ?? []).map((n) => ({

@@ -3,15 +3,46 @@ import { VoxelModel, shade } from '../core/voxel';
 import { MAX_STEP_UP } from '../core/types';
 import type { Damageable, ElementType, World } from '../core/types';
 import type { StringKey } from '../i18n';
+import {
+  content, defineFactory, ENEMY_MODEL_KIND,
+  type EnemyData, type EnemyVariant,
+} from '../content';
+import { displayKey, reportContentIssue } from '../core/content-bridge';
 import type { VFX } from './vfx';
 
 /**
  * Wild enemies: three voxel species with biome palette variants, terrain-aware
  * AI (idle / wander / aggro / attack), billboard hp bars, white hit-flash and
  * knockback. Death VFX + drops are orchestrated by CombatSystem.
+ *
+ * WHAT A SPECIES IS, AND WHERE IT IS WRITTEN DOWN. Issue #60: the roster used to
+ * be three tables about the same three animals kept in step by hand — an entry
+ * in a flying/not list, a row in a stats record, and a palette table named after
+ * it in SCREAMING_CASE — so adding one meant finding all three. It is one
+ * `enemy:` asset in src/content/data/core.json now, and the fourth thing, the
+ * VOXEL BUILDER, is the only one that had to be code: it is registered on the
+ * `enemy-model` factory kind at the bottom of this file and SELECTED by name.
+ *
+ * WHAT DID NOT MOVE: the AI. Idle, wander, aggro, attack, the terrain probes,
+ * the hp bar and the hit flash are behaviour and are still here, and so are the
+ * numbers that are rules about how a thing behaves rather than facts about a
+ * species (`MELEE_UP_REACH` below, the spawn ring in combat/index.ts). `aggro`
+ * is content because it is a radius about this animal and not a rule about how
+ * anything chases.
  */
 
-export type EnemySpeciesId = 'gloopling' | 'snortle' | 'peckit';
+/**
+ * A species identifier — the `name` half of an `enemy:` content id.
+ *
+ * A `string` and no longer a union, because the roster is data: a union here
+ * would be a second list of the species the game has, in TypeScript, which is
+ * exactly the duplication the migration removed. What keeps it honest is that
+ * every id is checked against loaded content the moment it is used — `Enemy`'s
+ * constructor resolves one through `speciesOf` and throws on a miss rather than
+ * quietly building a nameless animal — and that the id can only come from
+ * `enemySpecies()`, which is content's own list.
+ */
+export type EnemySpeciesId = string;
 
 export interface EnemyCtx {
   world: World;
@@ -21,12 +52,6 @@ export interface EnemyCtx {
   hit(target: Damageable, amount: number, element: ElementType, fromX: number, fromY: number, fromZ: number): void;
 }
 
-export const ENEMY_DEFS: ReadonlyArray<{ id: EnemySpeciesId; flying: boolean }> = [
-  { id: 'gloopling', flying: false },
-  { id: 'snortle', flying: false },
-  { id: 'peckit', flying: true },
-];
-
 /** Pick a palette variant from height above water: 0 = mid, 1 = highland, 2 = lowland. */
 export function variantForHeight(dh: number): number {
   if (dh < 2.5) return 2;
@@ -35,48 +60,88 @@ export function variantForHeight(dh: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Palettes
+// The roster, from content
 // ---------------------------------------------------------------------------
-interface Variant {
-  element: ElementType;
-  main: number; dark: number; belly: number; accent: number;
+
+/** One palette. Index 0 is mid, 1 is highland, 2 is lowland — `variantForHeight`. */
+type Variant = EnemyVariant;
+
+/** What a registered `enemy-model` does: paint a body in one palette. */
+export type EnemyModel = (root: THREE.Group, v: Variant) => Record<string, THREE.Object3D>;
+
+/**
+ * One species as this file needs it: the asset's numbers, resolved against a
+ * registered builder and a string-table key.
+ */
+export interface EnemySpec {
+  readonly id: EnemySpeciesId;
+  /**
+   * DISPLAY name as a string-table key; `id` is the identifier. Nothing renders
+   * these names YET (the kill goes out on the bus and main.ts reads only the xp
+   * off it), so this is pre-emptive: the day a kill feed or a bestiary lands it
+   * is already looking at a key.
+   */
+  readonly nameKey: StringKey;
+  readonly flying: boolean;
+  readonly model: EnemyModel;
+  readonly data: EnemyData;
 }
 
-const GLOOP_VARIANTS: readonly Variant[] = [
-  { element: 'grass', main: 0x6fd84f, dark: 0x47a833, belly: 0xbdf29c, accent: 0x1c3a14 },
-  { element: 'shadow', main: 0xa06ce0, dark: 0x7245b0, belly: 0xd9b8ff, accent: 0x2c1450 },
-  { element: 'water', main: 0x3fb2f2, dark: 0x2a84c6, belly: 0xa8e8ff, accent: 0x0d2c48 },
-];
+/**
+ * The species the world may spawn, resolved ONCE.
+ *
+ * CACHED, and that is a requirement rather than a nicety: `trySpawn` is called
+ * from the combat update, and rebuilding this list per spawn would allocate an
+ * array and three records inside a path the frame loop drives.
+ * `content.all(type)` already answers with a cached frozen view, so the only
+ * work here is the first resolve.
+ *
+ * The cache is keyed on that frozen view: a package loaded or released replaces
+ * it, so the roster follows a lazy zone pack in without anything having to
+ * remember to invalidate anything.
+ */
+let cachedFrom: readonly unknown[] | null = null;
+let cachedSpecs: readonly EnemySpec[] = [];
+let cachedById: ReadonlyMap<EnemySpeciesId, EnemySpec> = new Map();
 
-const SNORTLE_VARIANTS: readonly Variant[] = [
-  { element: 'rock', main: 0x9a6a42, dark: 0x6b4628, belly: 0xc99e6f, accent: 0xe6ab7c },
-  { element: 'ice', main: 0x8fa8c0, dark: 0x5a728c, belly: 0xdae8f4, accent: 0xc4d6e8 },
-  { element: 'fire', main: 0xd4593a, dark: 0x8e3021, belly: 0xf2a468, accent: 0xf6c290 },
-];
-
-const PECKIT_VARIANTS: readonly Variant[] = [
-  { element: 'wind', main: 0x3c4454, dark: 0x242a36, belly: 0x5e6e84, accent: 0xf0a032 },
-  { element: 'shadow', main: 0x4a3d74, dark: 0x2c2148, belly: 0x7159a6, accent: 0xffd23f },
-  { element: 'electric', main: 0xc08a3c, dark: 0x7c5522, belly: 0xe9d092, accent: 0x5a626e },
-];
-
-interface SpeciesStats {
-  /** DISPLAY name as a string-table key; the id is the `EnemySpeciesId` below. */
-  nameKey: StringKey;
-  hp: number; atk: number; speed: number; xp: number;
-  radius: number; height: number; aggro: number;
+export function enemySpecies(): readonly EnemySpec[] {
+  const assets = content.all<EnemyData>('enemy');
+  if (assets === cachedFrom) return cachedSpecs;
+  const specs: EnemySpec[] = [];
+  for (const asset of assets) {
+    const model = content.factory<EnemyModel>(ENEMY_MODEL_KIND, asset.data.model);
+    if (!model) {
+      reportContentIssue({
+        severity: 'error',
+        code: 'unknown-factory',
+        message: `"${asset.id}" wants model "${asset.data.model}", which no builder implements`,
+        assetId: asset.id, assetType: asset.type, pkg: asset.pkg, source: asset.source,
+        field: 'data.model',
+        fix: `one of ${[...MODELS.keys()].join(', ')}`,
+      });
+      continue;
+    }
+    const nameKey = displayKey(asset);
+    if (nameKey === null) continue;
+    specs.push({
+      id: asset.id.slice(asset.type.length + 1),
+      nameKey,
+      flying: asset.data.flying,
+      model,
+      data: asset.data,
+    });
+  }
+  cachedFrom = assets;
+  cachedSpecs = specs;
+  cachedById = new Map(specs.map((s) => [s.id, s]));
+  return cachedSpecs;
 }
 
-// Keyed by EnemySpeciesId — 'gloopling' is the identifier the spawner, the
-// variant tables and the builders switch on, and it does not move when the
-// display name does. Nothing renders these names YET (the kill goes out on the
-// bus and main.ts reads only the xp off it), so this is pre-emptive: the day a
-// kill feed or a bestiary lands it is already looking at a key.
-const STATS: Record<EnemySpeciesId, SpeciesStats> = {
-  gloopling: { nameKey: 'enemy.gloopling.name', hp: 32, atk: 6, speed: 2.3, xp: 8, radius: 0.5, height: 0.95, aggro: 9 },
-  snortle: { nameKey: 'enemy.snortle.name', hp: 62, atk: 11, speed: 2.9, xp: 16, radius: 0.62, height: 1.15, aggro: 10 },
-  peckit: { nameKey: 'enemy.peckit.name', hp: 26, atk: 9, speed: 5.2, xp: 12, radius: 0.45, height: 0.8, aggro: 12 },
-};
+/** The resolved species with this id, or undefined. Warms the cache. */
+export function speciesOf(id: EnemySpeciesId): EnemySpec | undefined {
+  enemySpecies();
+  return cachedById.get(id);
+}
 
 // ---------------------------------------------------------------------------
 // Voxel builders
@@ -331,13 +396,26 @@ export class Enemy implements Damageable {
   private barCtx: CanvasRenderingContext2D;
   private hpDirty = false;
 
+  /**
+   * `species` is a content id's name half and is resolved here.
+   *
+   * THROWS on a species this build has no asset for, and that is deliberate: the
+   * only two callers are the spawner (which picks out of `enemySpecies()`, so it
+   * cannot miss) and the lab's `?enemy=` (where a typo should say so). Every
+   * other failure in the content layer degrades with a diagnostic because there
+   * is something to degrade TO; an enemy with no stats is not one of those.
+   */
   constructor(species: EnemySpeciesId, variantIdx: number, x: number, z: number, world: World) {
     this.species = species;
-    const stats = STATS[species];
-    const variants = species === 'gloopling' ? GLOOP_VARIANTS : species === 'snortle' ? SNORTLE_VARIANTS : PECKIT_VARIANTS;
+    const spec = speciesOf(species);
+    if (!spec) throw new Error(`no enemy content for "${species}"`);
+    const stats = spec.data;
+    // EXACTLY THREE, in `variantForHeight` order — the content type refuses an
+    // asset with any other number of palettes, so this index cannot be a hole.
+    const variants = stats.variants;
     const v = variants[Math.min(variantIdx, variants.length - 1)];
     this.element = v.element;
-    this.nameKey = stats.nameKey;
+    this.nameKey = spec.nameKey;
     this.xp = stats.xp;
     this.hp = stats.hp; this.maxHp = stats.hp;
     this.atk = stats.atk;
@@ -347,10 +425,13 @@ export class Enemy implements Damageable {
     this.aggro = stats.aggro;
     this.palette = [v.main, v.dark, v.belly, v.accent];
 
-    this.parts =
-      species === 'gloopling' ? buildGloopling(this.root, v) :
-      species === 'snortle' ? buildSnortle(this.root, v) :
-      buildPeckit(this.root, v);
+    // WHICH BUILDER, BY NAME. The three-way ternary this replaces was the last
+    // place a species id decided what to BUILD; the AI below still switches on
+    // one, and deliberately — a Gloopling's hop, a Snortle's charge and a
+    // Peckit's dive are three behaviours, and a behaviour is engine. The day
+    // that becomes a factory kind of its own it will be for the same reason
+    // this one is, and content will select it the same way.
+    this.parts = spec.model(this.root, v);
 
     this.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -360,7 +441,10 @@ export class Enemy implements Damageable {
     });
 
     const groundY = world.getHeight(x, z);
-    const startY = species === 'peckit' ? Math.max(groundY, world.waterLevel) + 3.2 : groundY;
+    // `flying` rather than the species name it used to test: a flyer starts in
+    // the air because it is a flyer, and that is the field content states. The
+    // one flyer in the roster is Peckit, so this is the same number it was.
+    const startY = spec.flying ? Math.max(groundY, world.waterLevel) + 3.2 : groundY;
     this.root.position.set(x, startY, z);
     this.position = this.root.position;
     this.home.set(x, startY, z);
@@ -836,3 +920,29 @@ export class Enemy implements Damageable {
     this.barMat.dispose();
   }
 }
+
+// ---------------------------------------------------------------------------
+// The model registry
+// ---------------------------------------------------------------------------
+
+/**
+ * The voxel builders a species' `model` field may select.
+ *
+ * ONE PLACE A BUILDER IS NAMED, for the same reason `NPC_BODIES` is one place a
+ * character body is: the registration loop reads this map, so a builder cannot
+ * be written and left unregistered, or registered under a name nothing builds.
+ */
+const MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, EnemyModel>([
+  ['gloopling', buildGloopling],
+  ['snortle', buildSnortle],
+  ['peckit', buildPeckit],
+]);
+
+/**
+ * Published at module load, which is before `bootstrapContent()` — every module
+ * body is evaluated before main.ts's own runs. Registering also tells the enemy
+ * content type which names exist, so `"model": "gloopling "` is an
+ * `unknown-factory` finding on the field that holds it rather than a builder
+ * lookup that comes back undefined inside a spawn. See src/content/index.ts.
+ */
+for (const [name, model] of MODELS) defineFactory(ENEMY_MODEL_KIND, name, model);

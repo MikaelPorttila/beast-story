@@ -13,7 +13,7 @@ import { SHARD_ID, STACKABLE_IDS, itemDef } from '../core/items';
 import { VFX } from './vfx';
 import { DamageNumbers } from './damage-numbers';
 import { elementMultiplier } from './effectiveness';
-import { Enemy, ENEMY_DEFS, variantForHeight, type EnemyCtx } from './enemies';
+import { Enemy, enemySpecies, variantForHeight, type EnemyCtx } from './enemies';
 import { Pickups } from './pickups';
 import { perf } from '../core/profiler';
 import { flags } from '../core/flags';
@@ -747,7 +747,14 @@ export class CombatSystem {
   // ------------------------------------------------------------- spawning
 
   private trySpawn(center: THREE.Vector3, silent: boolean): void {
-    const def = ENEMY_DEFS[(Math.random() * ENEMY_DEFS.length) | 0];
+    // UNIFORM OVER WHATEVER CONTENT LOADED, exactly as it was uniform over the
+    // three entries of `ENEMY_DEFS`. The list is the roster's own cached frozen
+    // view (see `enemySpecies`), so this is a read and not a rebuild — a spawn
+    // path may not allocate a table. An empty roster is a world with no wild
+    // population, which is what `?enemies=0` already produces.
+    const defs = enemySpecies();
+    if (defs.length === 0) return;
+    const def = defs[(Math.random() * defs.length) | 0];
     const a = Math.random() * Math.PI * 2;
     const r = SPAWN_RING_MIN + Math.random() * (SPAWN_RING_MAX - SPAWN_RING_MIN);
     const x = center.x + Math.cos(a) * r;

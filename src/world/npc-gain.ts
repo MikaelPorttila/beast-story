@@ -8,9 +8,11 @@
  * strained reps with a dumbbell in his LEFT hand.
  *
  * This file is the per-character half of the NPC split (see world/npc.ts): a
- * body built out of `VoxelModel` like every other model in the game, one
- * `animate(rig, ctx)`, and the `talk()` payload. It holds no placement, no
- * collision policy and no state machine.
+ * body built out of `VoxelModel` like every other model in the game and one
+ * `animate(rig, ctx)`. It holds no placement, no collision policy, no state
+ * machine — and since issue #60 no identity and no dialogue either: who he is,
+ * where he stands and what he says are content, and only the CHOICE of this
+ * body is (`"body": "gain"`). See `GAIN_BODY` at the bottom.
  *
  * THE BODY IS FOUR MODELS, and which cells go in which one is a decision the
  * collider depends on:
@@ -35,7 +37,7 @@ import * as THREE from 'three';
 import { VoxelModel } from '../core/voxel';
 import { relight } from './props';
 import { measureFootprint } from './structures';
-import type { NpcAnimCtx, NpcCharacter, NpcRig } from './npc';
+import type { NpcAnimCtx, NpcBody, NpcRig } from './npc';
 
 /** World units per voxel. See the header. */
 const S = 0.1;
@@ -528,24 +530,24 @@ function animate(rig: NpcRig, ctx: NpcAnimCtx): void {
 
 // ---------------------------------------------------------------------------
 
-export const GAIN: NpcCharacter = {
-  id: 'gain',
-  nameKey: 'npc.gain.name',
-  townId: 'encampment',
-  // 0 — the middle of camp, which is exactly where the brief puts him. The
-  // Encampment's cart road ENDS at the town centre, so the placement search in
-  // world/npc.ts walks him outward until his feet are off the carriageway; he
-  // lands beside the fire rather than in the middle of the road.
-  homeOffset: 0,
-  // ...and then ACROSS THE FIRE from wherever that lands him. He is the camp's
-  // one fixed face, and the fire is what a visitor walks toward; standing him
-  // beyond it means you see him over the flames on the way in rather than
-  // finding him beside you as you pass. See `NpcCharacter.acrossFocus`.
-  acrossFocus: true,
-  build,
-  animate,
-  // THE QUEST SEAM. Today: one line, always. Tomorrow this consults quest state
-  // and returns an offer or a turn-in instead, and nothing outside this
-  // function changes — see NpcTalk in core/types.ts.
-  talk: () => ({ id: 'gain', nameKey: 'npc.gain.name', lineKey: 'npc.gain.greeting' }),
-};
+/**
+ * THE HALF OF HIM THAT IS CODE — a body and a dumbbell curl, and nothing else.
+ *
+ * Everything this record used to carry beside `build` and `animate` is now the
+ * `npc:gain` asset in src/content/data/core.json, value for value: his id, his
+ * display name, that he lives in the Encampment, that he wants to stand in the
+ * MIDDLE of it (0 — the cart road ends there, so the placement search in
+ * world/npc.ts walks him outward until his feet are off the carriageway and he
+ * lands beside the fire), that he then stands ACROSS THE FIRE from wherever
+ * that put him (he is the camp's one fixed face and the fire is what a visitor
+ * walks toward, so you see him over the flames on the way in rather than
+ * finding him beside you as you pass), and the one line he says.
+ *
+ * That line was `talk: () => ({ … })` and is a one-entry ORDERED LIST now — the
+ * quest seam the old comment promised, expressed as data. See
+ * src/content/types/npc.ts.
+ *
+ * Registered as `npc-body/gain` by the roster in world/npc.ts, which is the one
+ * place a body is named.
+ */
+export const GAIN_BODY: NpcBody = { build, animate };

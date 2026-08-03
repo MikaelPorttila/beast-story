@@ -71,6 +71,16 @@ export const sv: Translation = {
   // footer under a Swedish line in the same panel, which is the fallback rule
   // visible in one screenshot.
 
+  // The biomes, and A DELIBERATE SUBSET again — the four that are weather are
+  // translated, and the two that are not ('underwater', 'trampled') plus the
+  // shore are left to fall back, so this block carries its own proof the same
+  // way the beasts and the skills above do. See the note at the top of the file
+  // before filling the hole in.
+  'biome.plains.name': 'Slätter',
+  'biome.forest.name': 'Skog',
+  'biome.desert.name': 'Öken',
+  'biome.snow.name': 'Snöfält',
+
   'toast.fainted': 'Du svimmade!',
   'toast.revived': 'På benen igen!',
 

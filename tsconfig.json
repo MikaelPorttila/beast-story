@@ -9,6 +9,10 @@
     "noUnusedParameters": false,
     "skipLibCheck": true,
     "isolatedModules": true,
+    // The core content package is IMPORTED rather than fetched, so that the
+    // game can always build its starting world with no data loaded at all —
+    // see the header of src/content/types.ts. That import is a JSON module.
+    "resolveJsonModule": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "useDefineForClassFields": true
