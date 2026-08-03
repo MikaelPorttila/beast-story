@@ -255,8 +255,10 @@ once frames come quickly.
   underwater effect is built from — `amount`, the fog, the tint colour — read
   perfectly correct while the frame was white, because what broke it was the
   tone curve downstream of all of them. So it screenshots the frame and requires
-  blue to lead by 20 code values, saturation over 0.30 (the white-out measured
-  0.131) and luma under 200 (it measured 221). Reading the canvas directly is
+  blue to lead by 20 code values, saturation over 0.30 and luma under 200. The
+  three numbers it is defending against are the white-out: (201, 226, 232) at
+  saturation 0.131 and luma 221. It reads (25, 64, 111) at 0.775 and 59 today.
+  Reading the canvas directly is
   not an option — a WebGL context without `preserveDrawingBuffer` returns an
   empty buffer through `drawImage`, and the first version of this reported
   (0,0,0) above water too, which is how that was caught; the screenshot is taken
@@ -359,24 +361,38 @@ break unknowingly:
 - The scene renders into a **linear HDR** target and tone-maps in the output pass.
   Colour constants in shaders are linear radiance, not sRGB swatches — the comments
   state what each value displays as after ACES at exposure 1.02.
-- **A MULTIPLY LANDS BEFORE THE TONE CURVE, WHICH IS WHY DARKENING A BRIGHT FRAME
-  NEEDS THE EXPOSURE.** This is issue #23 and it is the trap in the point above.
-  The underwater tint is a multiplicative screen quad, and it multiplies linear
-  HDR radiance: sunlit lake bed renders near 2.6 linear, so taking its red to 0.38
-  still leaves 1.0, which ACES maps to 201/255 and desaturates on the way. Every
-  uniform in the effect read correct while the frame came back white. Measured on
-  one dive, the same view through the composer and through `?post=0` — where the
-  multiply lands on already-tone-mapped values instead — was (201, 226, 232) at
-  saturation 0.13 against (75, 175, 255) at 0.71. The fix is NOT to move the tint
-  after the curve, because absorption genuinely happens in the scene; it is that
-  there is less light down there. `Engine.setExposureScale(k)` says so, writing
-  `renderer.toneMappingExposure` (which `PostFX.render` reads live, so the
-  composer and the `post=0` fallback cannot drift). Anything that needs to darken
-  a whole frame wants that, not a bigger multiply.
+- **A FULL-SCREEN EFFECT DRAWN IN THE SCENE LANDS BEFORE THE TONE CURVE, AND
+  THAT IS WHY THE UNDERWATER VIEW IS A POST PASS.** This is issue #23 and it is
+  the trap in the point above. The effect began as a multiplicative quad drawn
+  with the world, which multiplies linear HDR radiance: sunlit lake bed renders
+  near 2.6 linear, so taking its red to 0.38 still leaves 1.0, which ACES maps to
+  201/255 and desaturates on the way. Every uniform in the effect read correct
+  while the frame came back white — measured (201, 226, 232) at saturation 0.13,
+  against (75, 175, 255) at 0.71 for the same view under `?post=0`, where the
+  multiply lands on already-tone-mapped values instead. The colour, murk,
+  refraction and caustics now live in a block at the end of the OUTPUT PASS
+  (`uWaterAmt` and friends in post.ts), display-referred and after the grade,
+  where "drop the contrast and the saturation" mean what they say. It costs no
+  new program and no new round trip, and at amount 0 the whole thing sits behind
+  one branch — the daylight frame measures identically either side of the change
+  (71, 138, 165 at luma 126).
+- **TWO THINGS STILL HAVE TO HAPPEN BEFORE THAT PASS, and they are the reason
+  the effect is in two files.** Absorption genuinely happens in the scene, so
+  `Engine.setExposureScale(k)` dims the frame ahead of the curve — there is less
+  light down there and nothing after ACES can un-blow a blown highlight. And
+  bloom runs BEFORE the output pass, so by the time the grade could darken
+  anything the halos are already in the buffer: `PostFX.setUnderwater` damps
+  bloom strength with depth, which is the "everything shines" half of the
+  report. Both are driven from `world/underwater.ts`'s single smoothed `amount`,
+  so the scene half and the post half can never disagree about how wet the lens
+  is.
 
 `PostFX` ([src/core/post.ts](src/core/post.ts)) is RenderPass → GTAO → selective
-emissive bloom → rolloff/ACES/grade → SMAA, in that order and for documented
-reasons. Every knob has a URL override (`post=0`, `ao=`, `bloom=`, `roll=`,
+emissive bloom → rolloff/ACES/grade/underwater → SMAA, in that order and for
+documented reasons. The underwater block is the tail of the output pass rather
+than a pass of its own — it borrows the AO pass's depth texture for its distance
+fog exactly as the bloom pass does, and falls back to a flat mid-distance under
+`?ao=0` rather than disappearing. Every knob has a URL override (`post=0`, `ao=`, `bloom=`, `roll=`,
 `grade=0`, `aa=0`, `aoview=1`, …) — isolate a visual problem with those before
 editing defaults.
 

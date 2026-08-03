@@ -2243,11 +2243,17 @@ function frame(): void {
   // mode's above) and before the render: the effect keys off where the lens
   // actually ends up, and a frame late is a frame of clear water at the surface.
   underwater.update(dt, world.isWater(engine.camera.position.x, engine.camera.position.z));
-  // And how bright to grade the result. The tint is a multiply on linear
-  // radiance, so on a sunlit lake bed it cannot darken the frame on its own —
-  // see UNDER_EXPOSURE in world/underwater.ts. 1.0 in the air, so this is a
-  // no-op everywhere except under the surface.
+  // And how bright to grade the result. There is genuinely less light down
+  // there, and this is the only knob that can say so before the tone curve —
+  // see UNDER_EXPOSURE in world/underwater.ts. 1.0 in the air, so it is a no-op
+  // everywhere except under the surface.
   engine.setExposureScale(underwater.exposureScale);
+  // The view itself — colour, murk, refraction, caustics — is a block in the
+  // output pass rather than anything in the scene, because it has to run AFTER
+  // the tone curve to be able to darken a sunlit lake bed at all. Same three
+  // numbers the scene half uses, so the two can never disagree about how wet
+  // the lens is.
+  engine.setUnderwater(underwater.amount, underwater.depth, underwater.clock);
 
   // Every cue this frame produced, played together, once. The sim slices above
   // only QUEUED them — see src/feedback for why dispatching per slice is

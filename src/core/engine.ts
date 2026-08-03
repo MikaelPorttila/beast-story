@@ -873,6 +873,18 @@ export class Engine {
     this.renderer.toneMappingExposure = DAYLIGHT_EXPOSURE * k;
   }
 
+  /**
+   * Hand the underwater state to the output pass. See `PostFX.setUnderwater`.
+   *
+   * A no-op under `?post=0`, and that is worth knowing rather than fixing: with
+   * no output pass there is no underwater grade, so `post=0` is the isolation
+   * view that shows what the scene looks like before the water is applied to it.
+   * That is exactly how issue #23 was diagnosed.
+   */
+  setUnderwater(amount: number, depth: number, time: number): void {
+    this.post?.setUnderwater(amount, depth, time);
+  }
+
   render(): void {
     // Sky dome tracks the camera so the horizon never slides (no allocs).
     this.skyDome.position.copy(this.camera.position);
