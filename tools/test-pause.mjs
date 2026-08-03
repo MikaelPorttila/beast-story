@@ -145,7 +145,20 @@ const lockLost = {};
   await page.keyboard.press('Escape');
   await wait(500);
   lockLost.closedByEscape = !(await has(page, '.bs-pause'));
-  lockLost.relocked = await page.evaluate(() => document.pointerLockElement !== null);
+  // AND THE POINTER IS NOT TAKEN BACK, which is the other half of the same bug.
+  // Closing with Escape used to re-take it twice over (the menu's own `onClose`
+  // and `updateCursorMode`'s menu branch), and the fullscreen exit that the same
+  // key was still causing released it again 8 ms later — a loss that reads as a
+  // fresh Escape, so the menu reopened on its own. In a browser holding the
+  // keyboard lock the browser is spending nothing and the lock IS re-taken; this
+  // run has no such API, which is exactly the case that broke.
+  lockLost.lockAfterKeyClose = await page.evaluate(() => document.pointerLockElement !== null);
+  await wait(700);
+  lockLost.stillClosed = !(await has(page, '.bs-pause'));
+  // A click is how it comes back, as it always has.
+  await page.mouse.click(550, 350);
+  await wait(400);
+  lockLost.relockedByClick = await page.evaluate(() => document.pointerLockElement !== null);
 
   // Alt is a HOLD that frees the cursor deliberately. No menu.
   await page.keyboard.down('Alt');
@@ -312,7 +325,10 @@ if (lockLost.locked) {
   check(lockLost.menuAfterTaken, 'a pointer lock taken away raises the menu');
   check(lockLost.stillUp, 'and it is ONE edge — the menu is still up a moment later');
   check(lockLost.closedByEscape, 'Escape then closes it as usual');
-  check(lockLost.relocked, 'and the game takes the pointer back');
+  check(lockLost.lockAfterKeyClose === false,
+    'and does NOT hand the browser a fresh lock to knock out mid-Escape');
+  check(lockLost.stillClosed, 'so the menu stays closed instead of reopening itself');
+  check(lockLost.relockedByClick, 'a click takes the pointer back');
   check(lockLost.menuWhileAltHeld === false,
     'holding Alt frees the cursor WITHOUT raising the menu');
   check(lockLost.relockedAfterAlt, 'and releasing Alt takes the pointer back');

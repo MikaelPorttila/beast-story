@@ -245,7 +245,20 @@ const pauseMenu = new PauseMenu({
   // buttons and a settings list, with a cursor that has to be able to reach
   // Exit. See the F1 note further down for the other half of the argument.
   onOpen: () => input.releaseLock(),
-  onClose: () => { if (!isTouchPrimary()) input.requestLock(); },
+  // TAKING THE POINTER BACK IS SAFE AFTER A CLICK AND IS NOT AFTER A KEY, and
+  // the difference is what the BROWSER is still doing with that key. Where
+  // Escape is ours (the keyboard lock is held) the browser is spending nothing
+  // and this is the same call it always was. Where it is not, the Escape that
+  // closed this menu is at that moment also leaving fullscreen — which releases
+  // the pointer lock 8 ms later, measured — so a lock taken here is one the
+  // browser knocks straight back out, and that loss reads as a fresh Escape.
+  // The menu closed and reopened on its own. There is nothing to take back
+  // after a key: the next click does it, as it always has (see
+  // `Input`'s mousedown listener).
+  onClose: (by) => {
+    if (isTouchPrimary()) return;
+    if (by === 'click' || escapeIsLocked()) input.requestLock();
+  },
   onExit: () => exitToTitle(),
 });
 
@@ -1483,8 +1496,12 @@ void cursors.load();
  * the whole point is to change something while the world carries on working.
  */
 let cursorFree = false;
+/** Alt at the previous call, so this can tell a RELEASE from a menu closing. */
+let altWasHeld = false;
 function updateCursorMode(): void {
   const altHeld = input.down('AltLeft') || input.down('AltRight');
+  const altJustReleased = altWasHeld && !altHeld;
+  altWasHeld = altHeld;
   const menuUp = (startMenu?.isOpen ?? false) || pauseMenu.isOpen
     || hud.isShopOpen() || hud.isControlsOpen();
   // A controller player is not pointing at anything, and a phone has no pointer
@@ -1496,9 +1513,15 @@ function updateCursorMode(): void {
   cursorDirector.setEnabled(want);
   if (altHeld) {
     input.releaseLock();
-  } else if (!menuUp && !isTouchPrimary()) {
-    // Only Alt trades the lock away. A menu released it on the way in and will
-    // take it back itself on the way out, and asking here would race that.
+  } else if (altJustReleased && !menuUp && !isTouchPrimary()) {
+    // ONLY AN ALT RELEASE, which is what the line above this always claimed and
+    // what it did not do. `cursorFree` goes false for two different reasons —
+    // Alt let go, and a menu closing — and this branch took the pointer back for
+    // BOTH, one keyup ahead of the menu's own `onClose`. That is the second
+    // caller behind the menu reopening itself: closing with Escape re-took a
+    // lock here, the fullscreen exit from that same key released it 8 ms later,
+    // and the loss read as a fresh Escape. A menu released the pointer on the
+    // way in and is the only thing that may decide about it on the way out.
     input.requestLock();
   }
 }

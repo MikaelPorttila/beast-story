@@ -329,8 +329,9 @@ once frames come quickly.
   flag and walks the staged boot — New Game, play, stand somewhere 47 units from
   the spawn, Exit, and then round again to prove the second game is a game (back
   at the spawn, and walking) rather than a husk. Its arm 1b is the ESCAPE THE
-  BROWSER ATE — a pointer lock taken away must raise the menu once, and Alt
-  freeing the cursor must not raise it at all; see the Escape note under the
+  BROWSER ATE — a pointer lock taken away must raise the menu once, closing with
+  Escape must NOT take a fresh lock (the menu reopening itself), a click must,
+  and Alt freeing the cursor must raise nothing; see the Escape note under the
   title screen. It exits non-zero.
 - `test-viewport.mjs` guards the box every full-screen layer is cut to, and it is
   the only probe in `tools/` that lies to the browser on purpose. Its first two
@@ -1040,6 +1041,23 @@ one edge. Note what it must NOT do: every deliberate release (Alt freeing the
 cursor, a shop opening) goes through `releaseLock`, which clears the intent
 first, and a rule written as "the lock went away" instead of "the lock was
 taken" pops a menu in the player's face every time they hold Alt.
+
+**AND NOTHING MAY TAKE THE POINTER BACK INSIDE THAT SAME KEY.** The fallback
+above has a twin failure and it is the one that shipped first: closing the menu
+with Escape made it reopen a moment later, on its own. One Escape does two
+things a page cannot see, and they land as separate events — measured, LEAVING
+FULLSCREEN RELEASES THE POINTER LOCK 8 ms LATER. So a close that immediately
+re-took the lock handed the browser something to knock straight back out, and
+that loss is indistinguishable from the player pressing Escape again. There were
+TWO callers doing it, which is why the first fix did not take: `PauseMenu`'s own
+`onClose`, and `updateCursorMode`'s menu branch — the latter one keyup EARLIER,
+and against a comment that already said a menu takes its own pointer back and
+that asking there would race it. It now re-locks only for an Alt RELEASE, which
+is what that comment always claimed. `onClose` carries `by: 'key' | 'click'`,
+and the host re-takes the pointer after a click, or after a key when
+`escapeIsLocked()` says the browser is not spending Escape at all. After a key
+in a browser without the lock, nothing takes it back and nothing needs to: the
+next click does, as it always has.
 
 `fullscreenWanted()` is the same distinction for the other half. `PauseMenu`
 used to sample `isFullscreen()` when it opened, and where there is no keyboard

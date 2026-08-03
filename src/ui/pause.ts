@@ -41,12 +41,18 @@ import { injectStyles } from './styles';
  */
 
 type Step = 'menu' | 'settings';
+/** How the menu was dismissed. See `PauseMenuHooks.onClose`. */
+export type CloseBy = 'key' | 'click';
 
 export interface PauseMenuHooks extends SettingsHooks {
   /** The menu is up. The host freezes the hero and stands the pad down. */
   onOpen?: () => void;
-  /** The menu is gone, by Continue or by Escape. The game resumes. */
-  onClose?: () => void;
+  /**
+   * The menu is gone and the game resumes. `by` is HOW it was dismissed, and it
+   * is on this contract for one reason: taking the pointer lock back is safe
+   * after a CLICK and is not after a KEY. See the note on `close`.
+   */
+  onClose?: (by: CloseBy) => void;
   /**
    * Exit was chosen: end the session and put the title screen back.
    *
@@ -140,8 +146,19 @@ export class PauseMenu {
    * a simulation slice with no activation behind it and the request is refused;
    * there is no arrangement in which a page can retake a fullscreen without a
    * gesture.
+   *
+   * `by` EXISTS BECAUSE OF WHAT ONE ESCAPE DOES IN A BROWSER WITHOUT THE LOCK.
+   * That key is spent on the browser's own business — dropping pointer lock,
+   * leaving fullscreen — and those land as separate events several
+   * milliseconds apart. Measured: leaving fullscreen releases the pointer lock
+   * 8 ms later. So a close that immediately re-takes the lock hands the browser
+   * something to knock straight back out, and the loss reads as a fresh Escape:
+   * the menu closed and then reopened on its own. That is what `by` is for —
+   * the host re-takes the pointer after a CLICK, and waits for the next one
+   * after a KEY. Nothing here is timed; the host asks whether the browser is
+   * spending Escape at all (`escapeIsLocked`).
    */
-  close(restoreFullscreen = true): void {
+  close(restoreFullscreen = true, by: CloseBy = 'click'): void {
     if (!this.el) return;
     // BEFORE the DOM work: a request issued from a click handler has a deadline
     // measured in the same terms `StartMenu.start` obeys — see ui/fullscreen.ts.
@@ -157,7 +174,7 @@ export class PauseMenu {
     this.el.remove();
     this.el = null;
     this.focusables = [];
-    this.hooks.onClose?.();
+    this.hooks.onClose?.(by);
   }
 
   /**
@@ -174,7 +191,7 @@ export class PauseMenu {
   onEscape(): boolean {
     if (!this.el) return false;
     if (this.step === 'settings') this.goto('menu', '[data-act="settings"]');
-    else this.close();
+    else this.close(true, 'key');
     return true;
   }
 
