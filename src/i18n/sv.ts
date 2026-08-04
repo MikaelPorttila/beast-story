@@ -120,6 +120,31 @@ export const sv: Translation = {
   'menu.settings': 'Inställningar',
   'menu.back': 'Tillbaka',
   'menu.settings.title': 'Inställningar',
+
+  // Om spelet (src/ui/about.ts). Meningarna hålls korta och fristående, precis
+  // som i en.ts — en rad är en sak, och den första raden ska räcka på egen hand.
+  // Licenstexten översätts inte och finns inte här: den är ett juridiskt
+  // meddelande vi är skyldiga att återge ordagrant.
+  'menu.about': 'Om spelet',
+  'about.lead':
+    'Beast Story: Bonds of Red är ett litet öppet äventyrsspel. Du utforskar, du ' +
+    'möter bestar, och de slåss vid din sida.',
+  // Ett ord per rad, precis som i en.ts.
+  'about.what': 'Vad du gör',
+  'about.what.1': 'Utforska',
+  'about.what.2': 'Tämj bestar',
+  'about.what.3': 'Strid',
+  'about.what.4': 'Bli starkare',
+  'about.ai': 'AI-information',
+  'about.ai.body':
+    'Det här projektet är byggt med omfattande hjälp av generativ AI. Kod, bild, ' +
+    'musik och text är framtagna med AI-verktyg och sedan granskade och ' +
+    'redigerade av en människa. Betrakta allt här som AI-assisterat arbete.',
+  'about.credits': 'Medverkande',
+  'about.credits.body': 'Gjort av Mikael Porttila.',
+  'about.licenses': 'Licenser',
+  'about.licenses.shipped': 'Ingår i spelet:',
+  'about.licenses.tools': 'Används för att bygga och testa, ingår inte:',
   // Flikarna över inställningarna. 'Spel' och inte 'Spelupplevelse': fliken står
   // bredvid tre andra i en spalt som är 400 px bred, och ordet ska rymmas.
   'menu.settings.tab.gameplay': 'Spel',

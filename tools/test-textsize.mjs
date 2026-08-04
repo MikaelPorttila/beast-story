@@ -231,6 +231,28 @@ for (const [name, viewport, query] of [
       await wait(300);
       tooSmall = tooSmall.concat(await page.evaluate(SWEEP, MIN_PX));
     }
+    // AND THE ABOUT STEP, which is the densest block of type in the game and so
+    // the one most likely to be shrunk to fit (ui/about.ts, issue #65). It is a
+    // sibling of Settings off the options list, so the sweep goes back one step
+    // and in the other door rather than starting a second page.
+    const inAbout = await page.evaluate(() => {
+      document.querySelector('.bs-menu [data-act="back"]')?.click();
+      return true;
+    });
+    if (inAbout) {
+      await wait(350);
+      const opened = await page.evaluate(() => {
+        const b = document.querySelector('.bs-menu [data-act="about"]');
+        if (!b) return false;
+        b.click();
+        return true;
+      });
+      if (opened) {
+        await wait(400);
+        staged = 'settings+about';
+        tooSmall = tooSmall.concat(await page.evaluate(SWEEP, MIN_PX));
+      }
+    }
   }
   live[name] = { staged, tooSmall };
   await ctx.close();

@@ -19,6 +19,59 @@ Bun genuinely cannot do the job, and say so when you do.
 `npm install` into a Bun-managed tree, and if one appears, delete it rather than
 committing it.
 
+### A NEW PACKAGE IS A LICENCE, AND THE CREDIT SHIPS IN THE SAME COMMIT
+
+Issue #65. Adding a dependency — or any content that arrives under a licence, a
+font, a sound, a picture, a data table someone else compiled — means editing
+[src/ui/about.ts](src/ui/about.ts) in the same commit as the `bun add`. There is
+no second pass and no ticket for it: a credits list that is caught up only when
+somebody remembers is a credits list that is wrong, and being wrong about a
+licence is a different kind of wrong from being wrong about a frame rate.
+
+Three questions, in order, and the first one decides the other two:
+
+1. **Does it SHIP?** A `dependencies` entry ends up inside the build a player
+   downloads. A `devDependencies` entry builds or tests the game and reaches
+   nobody. That distinction is what separates an obligation from a courtesy —
+   most licences bind on DISTRIBUTION, and a compiler that never left the
+   developer's machine was never distributed.
+2. **What does its licence oblige?** Read the package's own `LICENSE` file
+   rather than the SPDX id in `package.json`; the id is a label and the file is
+   the text, and the file is what carries the copyright line — which is the
+   thing the panel reproduces verbatim, per package. Apache-2.0 additionally
+   wants any NOTICE file and a statement of changes if you modified it.
+   Anything copyleft (GPL, LGPL, AGPL) is a decision about the whole project
+   rather than a line in a credits panel — stop and ask.
+
+   THE FULL LICENCE BODIES ARE DELIBERATELY NOT IN THE PANEL. They were, and
+   the heading "The MIT License" sitting at the bottom of a page about this
+   game reads as a statement about THIS GAME rather than about three.js — which
+   it is not, and the game's own terms are not published. What is carried is
+   the name, the SPDX id and the copyright holder. That is thinner than MIT's
+   letter, and it is a considered trade: if a body goes back in, it goes under
+   a heading that names the package it belongs to.
+3. **Which list does it go in?** `SHIPPED` for the first case, with its
+   copyright line; `TOOLS` for the second, name and SPDX id. `bun tools/test-about.mjs`
+   reads `package.json`'s `dependencies` and fails on any that the panel does
+   not credit, so the SHIPPED half is enforced rather than remembered. The
+   `TOOLS` half is not — it cannot be, since a dev dependency list includes
+   things nobody would call a credit — so that one is on you.
+
+Two things the panel is NOT allowed to do. A licence is never translated: names,
+SPDX ids and copyright lines stay in `about.ts` as constants and are English in
+every language (the prose around them is `en.ts` keys, and follows the picker).
+And a licence is never SUMMARISED into our own words — the notice is the notice.
+
+One more, and it is not about licences: **THE REPOSITORY IS PRIVATE**, so the
+panel carries no link to it and no invitation to read the source.
+`test-about.mjs` asserts that too, because "the source is public" is exactly the
+sentence a credits section grows on its own.
+
+The same routine covers content that is not code. If a font, a texture, a sound
+or a body of text ever enters this project under someone's terms, it is a
+`SHIPPED` entry with those terms beside it, whatever the "everything is generated
+in code" rule (below) has to say about it being there at all.
+
 ### The capture / lab tools
 
 The scripts in `tools/` are plain ESM and run under Bun:
@@ -147,7 +200,7 @@ once frames come quickly.
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`,
   `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`, `test-content.mjs`,
-  `test-safezone.mjs`.
+  `test-safezone.mjs`, `test-about.mjs`.
   `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
@@ -1427,6 +1480,25 @@ it is CSS: the lantern pulse, the fairies and the logo's slide cost no
 JavaScript per frame, and the glows stay on the painting's lanterns at every
 aspect ratio because they are positioned inside `.plate`, which restates
 `background-size:cover` in explicit numbers.
+
+**ABOUT THE GAME IS THE SECOND LEAF OFF THE OPTION LIST**, beside Settings and
+built the same way: [src/ui/about.ts](src/ui/about.ts) owns the content, the
+title screen owns the screen around it, and the way back — the Back button,
+Escape and the pad's B face — puts the cursor on the button that opened it
+(`leaveLeaf` in ui/menu.ts). Issue #65. It holds what the game is in short
+sentences, the AI disclaimer, and the third-party licences; the routine for
+keeping that last part true is the licence note at the top of this file, and
+`tools/test-about.mjs` is what makes it a run rather than a wish — it reads
+`package.json`'s `dependencies` and fails on any the panel does not credit.
+
+Two things about it are decisions rather than styling. It is the only box on
+that screen that SCROLLS, because the notices are longer than any window this is
+read in and the alternative is type under the 16px floor (issue #17) — it is
+sized off `--bs-vh` (core/viewport.ts) rather than `dvh` for the reason issue
+#16 gives, and the probe asserts the box AND the Back button under it stay
+inside the frame on a phone. And up/down on that step SCROLLS rather than moving
+the cursor, since there is one button and a page of prose; the keyboard and the
+pad go through one helper so they cannot disagree.
 
 **THE POSTER GOES UP BEFORE THE GAME IS BUILT**, and the boot sequence that
 makes that true is the long note at the top of [src/main.ts](src/main.ts). Read

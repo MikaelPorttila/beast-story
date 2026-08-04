@@ -812,7 +812,13 @@ const CSS = `
    to something you can take in as one group — 44px, not a slab of sky. */
 .bs-menu[data-step="fullscreen"],
 .bs-menu[data-step="options"],
+.bs-menu[data-step="about"],
 .bs-menu[data-step="settings"]{--slide:0vh;--gap:44px}
+/* ABOUT is prose, and prose has a comfortable measure the option list does not.
+   400px of column is about 45 characters at the 16px floor, which is a newspaper
+   column and reads as one — the box is wider, and stops at 90vw so a phone held
+   upright still has a margin. */
+.bs-menu[data-step="about"] .panel{width:min(520px,90vw)}
 /* A soft pool of shade under the list, and nothing more solid than that.
    Captured without it, the rows sat over a village, a red banner and the hero's
    arm, and every one of those read THROUGH the wood — the buttons looked
@@ -820,6 +826,7 @@ const CSS = `
    the painting the screen exists to show; this darkens what is directly behind
    the type and fades out well before the frame edges. */
 .bs-menu[data-step="options"] .panel::before,
+.bs-menu[data-step="about"] .panel::before,
 .bs-menu[data-step="settings"] .panel::before{content:"";position:absolute;
   inset:-30px -46px;border-radius:34px;pointer-events:none;
   background:radial-gradient(72% 66% at 50% 50%,
@@ -889,6 +896,76 @@ const CSS = `
   margin-bottom:2px}
 .bs-opts .note{font-size:16px;font-weight:600;line-height:1.35;text-align:center;
   color:rgba(255,255,255,.62);text-shadow:0 1px 4px rgba(0,0,0,.85);margin:-4px 0 2px}
+
+/* ABOUT THE GAME — the one box on this screen that SCROLLS (ui/about.ts).
+   Issue #65.
+
+   It has to. The licence notices alone are longer than any window this will be
+   read in, and the alternative to a scrollbar is type under the 16px floor
+   (issue #17), which is the thing that floor exists to forbid. Everything here
+   is 16 or 17: the body sits exactly on it and the headings are one step up,
+   which is what the compressed scale in AGENTS.md asks for.
+
+   MEASURED IN --bs-vh, not dvh. core/viewport.ts publishes what the player can
+   actually see, and this box is the tallest element on the screen after the
+   logo — sized in dvh it is the thing that would hang off the bottom of a phone
+   in fullscreen, which is exactly issue #16. Half the visible height leaves the
+   heading, the Back button and the logo their rows at every size the two blocks
+   below do not already re-fit.
+
+   LEFT-ALIGNED, alone among the panels here. Centred prose has a ragged left
+   edge, and a ragged left edge is the one thing a reader scanning down a column
+   cannot skim — every line starts somewhere new. The headings go with it.
+
+   It is a real focus stop (tabindex=0 in the markup) so Tab reaches it and the
+   browser's own PageUp/PageDown work; the arrow keys and the pad are handled by
+   the host, because on this step there is no list for them to walk. See
+   ABOUT_SCROLL in ui/menu.ts. */
+.bs-opts .about{max-height:calc(var(--bs-vh, 100dvh) * .5);
+  overflow-y:auto;overscroll-behavior:contain;
+  padding:10px 14px 10px 16px;border-radius:12px;text-align:left;
+  font-size:16px;font-weight:600;line-height:1.45;
+  color:rgba(244,231,205,.86);text-shadow:0 1px 4px rgba(0,0,0,.9);
+  /* Its own plate rather than the panel's soft pool of shade: this is a wall of
+     small type over a painting, and the pool fades out well before the frame
+     edges (see the ::before above) — which is fine behind five buttons and not
+     behind forty lines. */
+  background:rgba(6,10,18,.78);border:1px solid rgba(255,214,140,.16);
+  scrollbar-width:thin;scrollbar-color:rgba(255,214,140,.42) transparent}
+.bs-opts .about:focus-visible{outline:none;
+  box-shadow:0 0 0 2px rgba(255,214,120,.95),0 0 22px rgba(255,196,90,.5)}
+.bs-opts .about::-webkit-scrollbar{width:9px}
+.bs-opts .about::-webkit-scrollbar-thumb{border-radius:999px;
+  background:rgba(255,214,140,.42)}
+.bs-opts .about p{margin:0 0 11px}
+/* The one sentence that has to survive a player reading nothing else. */
+.bs-opts .about .lead{font-size:17px;font-weight:700;color:#f4e7cd;margin-bottom:14px}
+.bs-opts .about h3{font-size:17px;font-weight:800;letter-spacing:.1em;
+  text-transform:uppercase;color:rgba(255,214,140,.9);margin:16px 0 7px}
+.bs-opts .about h3:first-of-type{margin-top:6px}
+.bs-opts .about h4{font-size:16px;font-weight:800;letter-spacing:.06em;
+  color:rgba(255,214,140,.8);margin:14px 0 6px}
+.bs-opts .about ul{margin:0 0 12px;padding-left:20px}
+.bs-opts .about li{margin:0 0 7px}
+/* A CREDIT IS A BLOCK, NOT A LINE. Package, licence, copyright, home — four
+   facts that wrap independently, so they are four rows rather than one sentence
+   a narrow window breaks in the middle of a URL. */
+.bs-opts .about ul.credits{list-style:none;padding-left:0;margin:0 0 12px}
+.bs-opts .about ul.credits li{margin:0 0 11px;padding-left:11px;
+  border-left:2px solid rgba(255,214,140,.28)}
+.bs-opts .about .nm{display:inline;font-weight:800;color:#f4e7cd}
+.bs-opts .about .lic{display:inline-block;margin-left:8px;padding:1px 8px 2px;
+  border-radius:999px;font-size:16px;font-weight:800;letter-spacing:.04em;
+  color:rgba(244,231,205,.9);background:rgba(0,0,0,.42);
+  border:1px solid rgba(255,214,140,.24)}
+.bs-opts .about .cr,.bs-opts .about .url{display:block;
+  color:rgba(255,255,255,.66);word-break:break-word}
+/* THE LAST LIST HAS NO MARGIN UNDER IT. The credits used to be followed by a
+   licence body, so their trailing 12px was a gap between two blocks; with the
+   body gone it is a strip of empty plate at the bottom of the scroll, which
+   reads as more content that failed to load. */
+.bs-opts .about ul.credits:last-child{margin-bottom:0}
+.bs-opts .about ul.credits:last-child li:last-child{margin-bottom:0}
 /* Wood-and-gold, taken from the logo rather than from the HUD's cool glass:
    this screen belongs to the painting, not to the interface that comes after.
 
@@ -1096,11 +1173,18 @@ const CSS = `
    of height leaves it 44px of air top and bottom. */
 @media (max-height:440px){
   .bs-menu[data-step="options"] .logo,
+  .bs-menu[data-step="about"] .logo,
   .bs-menu[data-step="settings"] .logo{display:none}
   /* 1fr above AND below the panel, so with no logo it is centred rather than
      parked against the top with all the slack underneath it. */
   .bs-menu[data-step="options"] .fore,
+  .bs-menu[data-step="about"] .fore,
   .bs-menu[data-step="settings"] .fore{grid-template-rows:0 1fr auto 1fr}
+  /* The prose box gets less of a short screen than it does of a tall one: at
+     390px of height half the frame is 195px, which is eleven lines with the
+     heading and the Back button still on screen. Its own scrollbar absorbs the
+     rest, which is what it is there for. */
+  .bs-opts .about{max-height:calc(var(--bs-vh, 100dvh) * .58)}
   /* And the last twenty pixels, bought when the music row was added. Measured
      at 844x390 with the row in and this block as it was: the list came to
      376.5px and the Back button's bottom edge landed at 392.5 in a 390px frame
@@ -1143,8 +1227,10 @@ const CSS = `
    600px before the 16px floor, for the same reason the dense band above moved:
    the list is about 55px taller now, so it runs out of room 100px earlier. */
 @media (max-height:700px){
-  .bs-menu[data-step="settings"] .logo{display:none}
-  .bs-menu[data-step="settings"] .fore{grid-template-rows:0 1fr auto 1fr}
+  .bs-menu[data-step="settings"] .logo,
+  .bs-menu[data-step="about"] .logo{display:none}
+  .bs-menu[data-step="settings"] .fore,
+  .bs-menu[data-step="about"] .fore{grid-template-rows:0 1fr auto 1fr}
 }
 
 /* ---- boot progress ------------------------------------------------------- */

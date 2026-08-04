@@ -439,6 +439,48 @@ export const en = {
   'menu.settings': 'Settings',
   'menu.back': 'Back',
   'menu.settings.title': 'Settings',
+
+  // ---- about the game ------------------------------------------------------
+  // The About panel (src/ui/about.ts), reached from the option list. Issue #65.
+  //
+  // WRITTEN SHORT ON PURPOSE, and the shape is the request rather than the word
+  // count: one fact per line, the lead sentence answering "what is this" on its
+  // own, and every heading a question a player actually turns up with. A
+  // translator should keep the sentences separate rather than joining them into
+  // a paragraph — a wall of type is exactly what this panel is written against.
+  //
+  // The licence block is NOT here, and must not be moved here: a package's
+  // name, its SPDX id and the MIT text are the notice we are obliged to
+  // reproduce, and a translated licence is not that licence. See src/ui/about.ts.
+  'menu.about': 'About the Game',
+  'about.lead':
+    'Beast Story: Bonds of Red is a small open-world game. You explore, you meet ' +
+    'beasts, and they fight beside you.',
+  // FOUR WORDS, NOT FOUR SENTENCES. The bullets used to describe the systems —
+  // the hotbar, the drops, the follow slots — which is a manual, and a manual is
+  // the thing nobody reads on a title screen. What a player wants off this
+  // screen is whether the game is the KIND of game they are looking for, and
+  // that is answerable in a word each.
+  'about.what': 'What you do',
+  'about.what.1': 'Explore',
+  'about.what.2': 'Tame beasts',
+  'about.what.3': 'Fight',
+  'about.what.4': 'Grow stronger',
+  'about.ai': 'AI disclaimer',
+  'about.ai.body':
+    'This project is built with heavy use of generative AI. Code, art, music and ' +
+    'text were produced with AI tools and then reviewed and edited by a human. ' +
+    'Treat everything here as AI-assisted work.',
+  // The name and nothing else. The repository is PRIVATE, so there is no link
+  // to give and no invitation to read the source — saying so would be an
+  // invitation to a 404.
+  'about.credits': 'Credits',
+  'about.credits.body': 'Made by Mikael Porttila.',
+  'about.licenses': 'Licenses',
+  // The two lists differ in KIND, not in politeness: the first is a notice we
+  // are required to carry, the second is a credit we choose to.
+  'about.licenses.shipped': 'Shipped inside the game:',
+  'about.licenses.tools': 'Used to build and test it, not shipped:',
   /**
    * The four SECTIONS of the settings panel, as the tabs across the top of it.
    *
