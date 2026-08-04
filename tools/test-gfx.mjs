@@ -269,6 +269,59 @@ for (const id of ['shadows', 'aa']) {
   check(v === true, `/gfx bloom on did not take (${v})`);
 }
 
+// ---------- the SETTINGS panel drives the same switches ---------------------
+// The Graphics tab of the in-game menu (ui/settings.ts) offers five of these
+// rows to a player who will never press F3. It is not a second implementation —
+// same model, same keys — but "not a second implementation" is exactly the
+// claim, and the way it fails is the way every settings panel fails: the row
+// renders, the pill flips, the key is written, and the renderer never hears.
+//
+// So it is judged the way every row above is judged, by what the FRAME does,
+// and driven through the real buttons rather than through `__dbgGfx`. AO is the
+// one used because it is the largest and steadiest of the five (47 draws; the
+// floor here is the same 40 the F3 arm uses).
+//
+// The pause menu is a MODAL — the hero is frozen while it is up — which is
+// helpful rather than awkward: nothing is walking into new chunks between the
+// two readings, so the draw count is as still as it ever gets.
+{
+  await page.keyboard.press('Escape');
+  await wait(500);
+  await page.evaluate(() => document.querySelector('.bs-pause [data-act="settings"]')?.click());
+  await wait(300);
+  await page.evaluate(() => document.querySelector('.bs-pause [data-tab="graphics"]')?.click());
+  await wait(300);
+  const row = () => page.evaluate(() => {
+    const b = document.querySelector('.bs-pause [data-gfx="ao"]');
+    return b && { pressed: b.getAttribute('aria-pressed'), pill: b.querySelector('.pill')?.textContent };
+  });
+  const rows = await page.evaluate(() =>
+    [...document.querySelectorAll('.bs-pause [data-gfx]')].map((b) => b.getAttribute('data-gfx')));
+  const on = await draws();
+  await page.evaluate(() => document.querySelector('.bs-pause [data-gfx="ao"]')?.click());
+  await wait(900);
+  const off = await draws();
+  const rowOff = await row();
+  const flagOff = await gfxGet('ao');
+  await page.evaluate(() => document.querySelector('.bs-pause [data-gfx="ao"]')?.click());
+  await wait(900);
+  const back = await draws();
+  await page.evaluate(() => document.querySelector('.bs-pause [data-act="continue"]')?.click());
+  await wait(500);
+
+  results.settingsPanel = { rows, drawsOn: on, drawsOff: off, drawsRestored: back,
+    saved: on - off, rowAfterOff: rowOff, gfxAfterOff: flagOff };
+  check(rows.length === 5, `the Graphics tab shows ${rows.length} rows, expected 5`);
+  check(on - off >= 40,
+    `the settings panel's AO row saved ${on - off} draw calls, expected at least 40`);
+  check(back - off >= 20,
+    `turning it back on from the panel put only ${back - off} draw calls back`);
+  // The row and the model have to agree, or the two panels drift: F3 would show
+  // one thing and Settings another, both of them "working".
+  check(flagOff === false, `__dbgGfx says ao is ${flagOff} after the settings row turned it off`);
+  check(rowOff?.pressed === 'false', `the row still reads aria-pressed=${rowOff?.pressed}`);
+}
+
 // ---------- and nothing is painted through it -------------------------------
 // Issue #41. The three developer instruments all claim the top of the screen â€”
 // the console is a full-width sheet down the top 42vh, F3 sits top-left and F2

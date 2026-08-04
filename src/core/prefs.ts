@@ -25,9 +25,14 @@
  * The group in the middle (`controls` / `graphics` / `gameplay`) is part of the
  * name rather than a nested object because there is no nesting in localStorage
  * — it is a flat string map, and the dotted key is how everything else in the
- * world spells a namespace in one. The groups match how the settings are
- * PRESENTED, so a settings screen that grows sections can list a section by
- * prefix.
+ * world spells a namespace in one. It was chosen to match how each setting is
+ * PRESENTED, and it is NOT a promise that it still does: a group is fixed on the
+ * day a setting ships, and the settings panel has since grown four tabs
+ * (ui/settings.ts) that two of these no longer line up with — `volume` is
+ * `gameplay` and is shown under Sound, `autoFullscreen` is `graphics` and is
+ * shown under Gameplay. Renaming either key to tidy that up would silently reset
+ * the choice of every player who has already made one, which is a worse thing
+ * than a name nobody sees. Read the tab off the panel, never off the key.
  *
  * Values are strings, always: `'true'` / `'false'` for the toggles, a decimal
  * for the 0..1 dials, an ISO 639-1 code for the language. No JSON at all — a

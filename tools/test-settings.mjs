@@ -1,7 +1,7 @@
 // The settings-storage guard: one localStorage key per setting, a migration
 // off the old blob, and a vibration switch the game actually obeys.
 //
-// Four claims, each driven rather than computed:
+// Five claims, each driven rather than computed:
 //
 //   1. A FRESH profile writes nothing. Defaults are defaults because the keys
 //      are absent, not because something stamped them at boot — otherwise
@@ -16,6 +16,10 @@
 //      in the same profile comes back off.
 //   4. The other rows still write their own keys — the invert toggles are what
 //      the per-key write has to not clobber.
+//   5. The GRAPHICS tab writes the F3 panel's keys, removes one again when the
+//      row goes back to its default, and reaches the game that New Game starts
+//      — which is the interesting half, because it is flipped before the
+//      renderer it drives exists. See the block at the bottom.
 //
 //   bun tools/test-settings.mjs
 import { launchBrowser, newContextPage, wait, logPageErrors } from './browser.mjs';
@@ -35,11 +39,20 @@ const stored = (page) => page.evaluate(() => {
 
 const feedback = (page) => page.evaluate(() => window.__dbgFeedback?.() ?? null);
 
-/** Walk the menu to the settings list: any key leaves the splash, then in. */
-async function openSettings(page) {
+/**
+ * Walk the menu to one section of the settings list: any key leaves the splash,
+ * then in, then to the tab asked for.
+ *
+ * The tab step is not decoration. The list is four sections now (ui/settings.ts)
+ * and only the one showing is in the DOM, so a click on a row of any other one
+ * is a click on nothing — which is what every assertion below would have become.
+ */
+async function openSettings(page, tab = 'gameplay') {
   await page.keyboard.press('KeyK');
   await wait(400);
   await page.click('.bs-menu [data-act="settings"]');
+  await wait(300);
+  await page.click(`.bs-menu [data-tab="${tab}"]`);
   await wait(300);
 }
 
@@ -104,7 +117,7 @@ const out = {};
   await page.goto(`${HOST}/?fps=30`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(BOOT);
-  await openSettings(page);
+  await openSettings(page, 'controls');
   out.vibrationRow = await rowState(page, 'hapticFeedback');
   out.beforeToggle = await feedback(page);
 
@@ -127,6 +140,57 @@ const out = {};
   await wait(BOOT);
   out.afterReloadKeys = await stored(page);
   out.afterReloadFeedback = await feedback(page);
+  await ctx.close();
+}
+
+// ---- the Graphics tab writes the F3 panel's own keys ----------------------
+// The rows there are not a second copy of the performance panel's switches —
+// they are the same model (src/core/gfx.ts) and the same
+// `game.settings.graphics.*` keys, which is what makes a row flipped in one of
+// them true in the other. Three claims, and the third is the one that needed
+// code rather than markup.
+//
+//   - Turning one off writes `false` under its own key and touches nothing else.
+//   - Turning it back on REMOVES the key. The default is the absence of one,
+//     the same rule the language follows, and the settings panel writes through
+//     `storeGfx` rather than spelling that out a second time — two writers with
+//     two opinions about it is two different profiles.
+//   - A row flipped AT THE TITLE SCREEN reaches the game that New Game starts.
+//     That is the boot order: this panel is usable while the engine and world
+//     the graphics sinks drive are still being built, so there is nothing to
+//     apply to at the moment of the click, and the value has to be picked up by
+//     the `Gfx` constructed afterwards. Asserted through `__dbgGfx`, i.e. what
+//     the running game believes, not what storage says.
+{
+  const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
+  logPageErrors(page);
+  await page.goto(`${HOST}/?fps=30&fs=0`, { waitUntil: 'load' });
+  await page.waitForSelector('canvas');
+  await wait(BOOT);
+  await openSettings(page, 'graphics');
+  out.gfxRows = await page.evaluate(() =>
+    [...document.querySelectorAll('.bs-menu [data-gfx]')].map((b) => ({
+      id: b.getAttribute('data-gfx'),
+      label: b.querySelector('.lbl')?.textContent?.trim() ?? null,
+      pressed: b.getAttribute('aria-pressed'),
+    })));
+
+  await page.click('.bs-menu [data-gfx="ao"]');
+  await wait(200);
+  out.gfxAfterOff = await stored(page);
+  await page.click('.bs-menu [data-gfx="ao"]');
+  await wait(200);
+  out.gfxAfterOn = await stored(page);
+
+  // Off again, and then into a game with it.
+  await page.click('.bs-menu [data-gfx="ao"]');
+  await wait(200);
+  await page.click('.bs-menu [data-act="back"]');
+  await wait(300);
+  await page.click('.bs-menu [data-act="new"]');
+  await page.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 60000 });
+  await wait(2500);
+  out.gfxInGame = await page.evaluate(() => window.__dbgGfx?.() ?? null);
   await ctx.close();
 }
 

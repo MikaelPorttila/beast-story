@@ -163,6 +163,13 @@ const out = {};
   await wait(400);
   await page.click('.bs-pause [data-act="settings"]');
   await wait(300);
+  // The list is four sections and only the one showing is in the DOM, so the
+  // volume strip has to be asked for by name (ui/settings.ts). Its tab is Sound
+  // even though the key it writes is still `game.settings.gameplay.volume` — a
+  // storage group is fixed on the day a setting ships, and renaming that key
+  // would silently reset the level of everyone who had already chosen one.
+  await page.click('.bs-pause [data-tab="sound"]');
+  await wait(300);
   out.chips = await page.evaluate(() => [...document.querySelectorAll('.bs-pause [data-vol]')]
     .map((b) => ({ v: b.getAttribute('data-vol'), on: b.classList.contains('on') })));
   check(out.chips.length === 6, `six volume steps, got ${out.chips.length}`);

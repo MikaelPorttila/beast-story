@@ -81,12 +81,112 @@ const menu = {};
   await page.evaluate(() => document.querySelector('.bs-pause [data-act="settings"]')?.click());
   await wait(400);
   menu.settings = await page.evaluate(() => ({
-    toggles: [...document.querySelectorAll('.bs-pause [data-toggle]')]
+    tabs: [...document.querySelectorAll('.bs-pause [data-tab]')].map((b) => b.getAttribute('data-tab')),
+    // The tab it opens on, which is also the one holding the language row.
+    openTab: document.querySelector('.bs-pause [data-tab].on')?.getAttribute('data-tab') ?? null,
+    toggles: [...document.querySelectorAll('.bs-pause .sec:not(.off) [data-toggle]')]
       .map((b) => b.getAttribute('data-toggle')),
     langChips: document.querySelectorAll('.bs-pause [data-lang]').length,
     langAllDisabled: [...document.querySelectorAll('.bs-pause [data-lang]')].every((b) => b.disabled),
     langRowGreyed: !!document.querySelector('.bs-pause .row.lang.off'),
   }));
+
+  // EACH TAB SHOWS ITS OWN ROWS AND ONLY ITS OWN — and "shows" is the word, not
+  // "holds". Every section is in the DOM at once, stacked in one grid cell, which
+  // is what makes the panel's height constant (ui/settings.ts); what a tab
+  // changes is which one is VISIBLE and which buttons are focus stops. So the
+  // reading is by visibility and by the host's own cursor list, never by
+  // querySelectorAll, which would now answer the same thing on every tab.
+  //
+  // `panelH` is the point of the whole arrangement: it must not move between
+  // tabs. It used to swing 111px -> 327px, and the Back button a player was
+  // aiming at moved with it.
+  const tabRows = async (tab) => {
+    await page.evaluate((t) => document.querySelector(`.bs-pause [data-tab="${t}"]`)?.click(), tab);
+    await wait(300);
+    return page.evaluate(() => {
+      const shown = (attr) => [...document.querySelectorAll(`.bs-pause .sec:not(.off) [${attr}]`)]
+        .map((b) => b.getAttribute(attr));
+      const rows = document.querySelector('.bs-pause .rows');
+      return {
+        lit: document.querySelector('.bs-pause [data-tab].on')?.getAttribute('data-tab') ?? null,
+        toggles: shown('data-toggle'),
+        gfx: shown('data-gfx'),
+        vols: shown('data-vol').length,
+        langs: shown('data-lang').length,
+        // Nothing from the sections that are NOT showing may be reachable: the
+        // browser cannot focus them (visibility:hidden) and FOCUSABLE keeps a pad
+        // cursor out. This is the count a host's own selector would return.
+        strayFocusable: document.querySelectorAll(
+          '.bs-pause .sec.off button:not([disabled]):not([tabindex="-1"]):not(.sec.off *)').length,
+        panelH: rows ? +rows.getBoundingClientRect().height.toFixed(1) : 0,
+        // A pad has no mouse: the cursor has to land back on the tab just pressed,
+        // not at the top of a list that was rebuilt under it.
+        focus: document.activeElement?.getAttribute('data-tab') ?? null,
+      };
+    });
+  };
+  menu.tabControls = await tabRows('controls');
+  menu.tabGraphics = await tabRows('graphics');
+  menu.tabSound = await tabRows('sound');
+  menu.tabGameplay = await tabRows('gameplay');
+
+  // THE TAB STRIP IS ONE CONTROL. Two claims, and the first is the one the
+  // feedback on the PR was about: a pad player must reach the rows in ONE step
+  // down, not five, so the four tabs are a single stop in the host's cursor list.
+  // The second is what left/right then means — the SECTION changes, rather than
+  // the cursor walking to the next button and waiting to be pressed.
+  menu.tabsAsOneControl = await page.evaluate(() => {
+    const stops = [...document.querySelectorAll(
+      '.bs-pause .pane button:not([disabled]):not([tabindex="-1"]):not(.sec.off *)')];
+    return {
+      tabStops: stops.filter((b) => b.hasAttribute('data-tab')).length,
+      // Everything before the first row: the strip, and nothing else.
+      firstStop: stops[0]?.getAttribute('data-tab') ?? null,
+      total: stops.length,
+    };
+  });
+  // Left and right off the tab strip, by KEY — the same edge a pad's d-pad taps.
+  await page.evaluate(() => document.querySelector('.bs-pause [data-tab="gameplay"]')?.focus());
+  const litTab = () => page.evaluate(() =>
+    document.querySelector('.bs-pause [data-tab].on')?.getAttribute('data-tab') ?? null);
+  await page.keyboard.press('ArrowRight');
+  await wait(250);
+  const afterRight = await litTab();
+  await page.keyboard.press('ArrowLeft');
+  await wait(250);
+  await page.keyboard.press('ArrowLeft');
+  await wait(250);
+  menu.tabArrows = { afterRight, afterWrapBack: await litTab() };
+
+  // THE VOLUME LEVELS ARE ONE CONTROL TOO, and MUTE is deliberately not in it:
+  // OFF is the feature switched off rather than a quieter level, so it keeps a
+  // stop of its own and a player sweeping the scale cannot land on it by
+  // accident. Left/right moves the level and CLAMPS at the ends — one nudge past
+  // 100 landing on 20 is a thing nobody wants and everybody would do.
+  await page.evaluate(() => document.querySelector('.bs-pause [data-tab="sound"]')?.click());
+  await wait(300);
+  const vol = () => page.evaluate(() => ({
+    lit: document.querySelector('.bs-pause [data-vol].on')?.getAttribute('data-vol') ?? null,
+    focus: document.activeElement?.getAttribute('data-vol') ?? null,
+    stored: localStorage.getItem('game.settings.gameplay.volume'),
+  }));
+  menu.volStops = await page.evaluate(() => {
+    const stops = [...document.querySelectorAll(
+      '.bs-pause .sec:not(.off) button:not([disabled]):not([tabindex="-1"])')];
+    return stops.map((b) => b.getAttribute('data-vol'));
+  });
+  await page.evaluate(() => document.querySelector('.bs-pause [data-vol="80"]')?.focus());
+  await page.keyboard.press('ArrowRight');
+  await wait(250);
+  menu.volAfterRight = await vol();
+  await page.keyboard.press('ArrowRight');
+  await wait(250);
+  menu.volAtCeiling = await vol();
+  await page.evaluate(() => document.querySelector('.bs-pause [data-vol="80"]')?.click());
+  await wait(250);
+  await page.evaluate(() => document.querySelector('.bs-pause [data-tab="gameplay"]')?.click());
+  await wait(250);
 
   // Escape means "up one", not "close": that is what makes one key both the way
   // in and the whole way out.
@@ -311,10 +411,64 @@ check(menu.focusOnOpen === 'continue', 'something is focused on open, for a pad'
 check(menu.travelWithMenuUp === 0, 'the hero is frozen while the menu is up');
 check(menu.travelAfterContinue > 4, 'Continue gives the game back');
 check(menu.closedByContinue, 'Continue closes the menu');
-check(menu.settings.toggles.length === 4, 'the settings list is the shared one');
+check(JSON.stringify(menu.settings.tabs)
+  === JSON.stringify(['gameplay', 'controls', 'graphics', 'sound']),
+  'the settings list is the shared one, in four sections');
+check(menu.settings.openTab === 'gameplay', 'and opens on Gameplay');
 check(menu.settings.langChips > 0 && menu.settings.langAllDisabled,
   'the language picker is disabled in game');
 check(menu.settings.langRowGreyed, 'and says so');
+// ONE SECTION AT A TIME, which is the point of the split — see ui/settings.ts.
+check(JSON.stringify(menu.tabControls.toggles)
+  === JSON.stringify(['hapticFeedback', 'invertLookX', 'invertLookY']),
+  'Controls holds the three controller rows');
+check(JSON.stringify(menu.tabGraphics.gfx)
+  === JSON.stringify(['ao', 'bloom', 'aa', 'shadows', 'grass']),
+  'Graphics holds the five renderer switches');
+check(menu.tabGraphics.toggles.length === 0 && menu.tabGraphics.langs === 0,
+  'and nothing from the other tabs is still on screen with them');
+check(menu.tabSound.vols === 6, 'Sound holds the volume steps');
+check(menu.tabGameplay.toggles.length === 1 && menu.tabGameplay.langs > 0,
+  'Gameplay holds fullscreen-on-start and the language picker');
+for (const [name, t] of Object.entries({
+  controls: menu.tabControls, graphics: menu.tabGraphics,
+  sound: menu.tabSound, gameplay: menu.tabGameplay,
+})) {
+  check(t.lit === name, `the ${name} tab lights when it is pressed (lit ${t.lit})`);
+  check(t.focus === name, `and keeps the cursor on itself through the rebuild (${t.focus})`);
+  check(t.strayFocusable === 0,
+    `${t.strayFocusable} buttons in a hidden section are still focus stops on ${name}`);
+}
+// THE PANEL DOES NOT RESIZE WHEN YOU CHANGE TABS. The sections are stacked, so
+// the box is as tall as the tallest of them whichever one is showing — which is
+// what stops the Back button walking away from a cursor that is aiming at it.
+{
+  const hs = [menu.tabGameplay, menu.tabControls, menu.tabGraphics, menu.tabSound]
+    .map((t) => t.panelH);
+  check(hs[0] > 0 && new Set(hs).size === 1,
+    `the settings box changes height between tabs: ${hs.join(' / ')}px`);
+}
+// ONE CONTROL, not four buttons — the PR feedback, and the reason a pad reaches
+// the rows in one step down.
+check(menu.tabsAsOneControl.tabStops === 1,
+  `the tab strip is ${menu.tabsAsOneControl.tabStops} stops in the cursor list, expected 1`);
+check(menu.tabsAsOneControl.firstStop === 'gameplay',
+  'and it is the first thing the cursor lands on');
+check(menu.tabArrows.afterRight === 'controls',
+  `right on the tab strip changed the section to ${menu.tabArrows.afterRight}, expected controls`);
+// Two lefts from Controls: Gameplay, then round the end onto Sound. A ring,
+// because there is no first or last section.
+check(menu.tabArrows.afterWrapBack === 'sound',
+  `left off the first tab did not wrap to the last (${menu.tabArrows.afterWrapBack})`);
+// The volume levels are one control and MUTE is beside it, not in it.
+check(JSON.stringify(menu.volStops) === JSON.stringify(['0', '80']),
+  `the music row's stops are ${JSON.stringify(menu.volStops)}, expected OFF and the lit level`);
+check(menu.volAfterRight.lit === '100' && menu.volAfterRight.stored === '1',
+  `right on the volume strip gave ${menu.volAfterRight.lit} / ${menu.volAfterRight.stored}`);
+check(menu.volAfterRight.focus === '100',
+  'and the cursor followed the value rather than being dropped');
+check(menu.volAtCeiling.lit === '100',
+  `the volume strip wrapped past its top instead of clamping (${menu.volAtCeiling.lit})`);
 check(menu.escapeFromSettings.stillOpen && menu.escapeFromSettings.backOnTheList,
   'Escape backs out of Settings rather than closing');
 check(menu.escapeFromSettings.focus === 'settings', 'and leaves the cursor where it went in');

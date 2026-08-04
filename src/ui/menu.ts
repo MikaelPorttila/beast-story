@@ -3,7 +3,7 @@ import { loadPrefs, type Prefs } from '../core/prefs';
 import { flags } from '../core/flags';
 import { t, language, onLanguageChange } from '../i18n';
 import { enterFullscreen } from './fullscreen';
-import { SettingsPanel, isChip, type SettingsHooks } from './settings';
+import { SettingsPanel, FOCUSABLE, type SettingsHooks } from './settings';
 import { injectStyles } from './styles';
 import bgUrl from './menu-bg.webp';
 import logoUrl from './menu-logo.webp';
@@ -248,6 +248,7 @@ export class StartMenu {
   private padDown = new Uint8Array(20);
   private padEdge = new Uint8Array(20);
   private padAxisLatched = false;
+  private padAxisLatchedX = false;
   /**
    * When the three-beat entrance started, `performance.now()`. 0 = waiting for
    * the images, -1 = there is no sequence (finished, skipped, or never run).
@@ -280,6 +281,11 @@ export class StartMenu {
     injectStyles();
     this.prefs = loadPrefs();
     this.settings = new SettingsPanel('title', hooks);
+    // A tab replaces every row under it, so the panel asks for a real rebuild
+    // rather than patching the DOM behind this screen's back — `focusables` is
+    // built by `renderPanel` and by nothing else. Same path a language change
+    // takes, and the selector is what keeps the cursor on the tab just pressed.
+    this.settings.onRebuild = (focus) => { this.pendingFocus = focus; this.renderPanel(); };
     // Coming back from a game skips the splash. "Press start..." is an invitation
     // to a player who has not started, and someone who just chose Exit to title
     // has plainly started — making them press a key to be shown the menu they
@@ -440,7 +446,9 @@ export class StartMenu {
         '</div>';
     }
 
-    this.focusables = Array.from(panel.querySelectorAll('button:not([disabled])'));
+    // FOCUSABLE, not "every button": the settings panel's strips are one control
+    // each and its hidden sections are still in the DOM. See ui/settings.ts.
+    this.focusables = Array.from(panel.querySelectorAll(FOCUSABLE));
     // Where the cursor lands is stated by whoever asked for this panel, never
     // inherited from the last one. Carrying an INDEX across a rebuild is what
     // put the cursor on Settings after a mouse click had moved it elsewhere —
@@ -516,12 +524,13 @@ export class StartMenu {
       case 'ArrowUp': case 'w': case 'W':
         e.preventDefault(); this.moveFocus(-1); break;
       case 'ArrowLeft': case 'ArrowRight':
-        // Left/right is for the things laid out as a ROW: the volume steps and
-        // the language chips inside the settings column. Anywhere else it does
-        // nothing rather than jumping the list sideways for no reason.
-        if (isChip(document.activeElement)) {
+        // Left/right CHANGES the value of whichever strip the cursor is on — the
+        // tab, the volume level, the language — rather than walking the buttons
+        // inside it. The panel owns that because the strips are its markup;
+        // anywhere else the key does nothing rather than jumping the list
+        // sideways for no reason.
+        if (this.settings.stepGroup(document.activeElement, e.key === 'ArrowRight' ? 1 : -1)) {
           e.preventDefault();
-          this.moveFocus(e.key === 'ArrowRight' ? 1 : -1);
         }
         break;
       case 'Escape':
@@ -596,18 +605,32 @@ export class StartMenu {
       return;
     }
 
-    // 12/13 are d-pad up/down in the W3C standard mapping, the same indices
-    // core/gamepad.ts reads. Axis 1 is the left stick's Y, latched so a held
-    // stick steps the list once instead of sixty times a second.
-    const stick = pad.axes[1] ?? 0;
-    const dir = stick < -0.5 ? -1 : stick > 0.5 ? 1 : 0;
-    if (dir === 0) this.padAxisLatched = false;
+    // 12/13 are d-pad up/down in the W3C standard mapping and 14/15 left/right,
+    // the same indices core/gamepad.ts reads. Axes 1 and 0 are the left stick,
+    // latched so a held stick steps once instead of sixty times a second.
+    const stickY = pad.axes[1] ?? 0;
+    const dirY = stickY < -0.5 ? -1 : stickY > 0.5 ? 1 : 0;
+    if (dirY === 0) this.padAxisLatched = false;
+    const stickX = pad.axes[0] ?? 0;
+    const dirX = stickX < -0.5 ? -1 : stickX > 0.5 ? 1 : 0;
+    if (dirX === 0) this.padAxisLatchedX = false;
 
     let move = 0;
     if (this.padEdge[12]) move = -1;
     else if (this.padEdge[13]) move = 1;
-    else if (dir !== 0 && !this.padAxisLatched) { move = dir; this.padAxisLatched = true; }
+    else if (dirY !== 0 && !this.padAxisLatched) { move = dirY; this.padAxisLatched = true; }
     if (move) this.moveFocus(move);
+
+    // LEFT/RIGHT IS THE STRIP'S, and it is why a pad reaches the settings in one
+    // step down rather than five: the tab strip is one control, so this changes
+    // the SECTION rather than walking the four buttons that name it.
+    let step = 0;
+    if (this.padEdge[14]) step = -1;
+    else if (this.padEdge[15]) step = 1;
+    else if (dirX !== 0 && !this.padAxisLatchedX) { step = dirX; this.padAxisLatchedX = true; }
+    if (step && this.step === 'settings') {
+      this.settings.stepGroup(document.activeElement, step as -1 | 1);
+    }
 
     // A activates, B goes back — the console convention, and the same faces
     // core/gamepad.ts names for the rest of the game.

@@ -133,6 +133,20 @@ const bus = new EventBus();
 let pad: GamepadControls | null = null;
 let feedback: FeedbackSystem | null = null;
 
+/**
+ * Whether `gfx` — a `const` several hundred lines below — has been constructed.
+ *
+ * The same hazard as the two `let`s above and a different shape, because that
+ * one cannot be a `let ... = null`: eight call sites read it and every one of
+ * them runs long after it exists. A flag lets the settings hook GUARD the
+ * reference instead, which is all that is needed — a temporal dead zone is
+ * about evaluating the name, so an arrow that never reaches it is safe.
+ *
+ * Nothing is lost by doing nothing in that window: the panel has already
+ * persisted the choice, and `new Gfx()` reads storage.
+ */
+let gfxLive = false;
+
 /** True once every boot phase has finished; nothing may start playing before. */
 let prepDone = false;
 /** True once the title screen has handed over (or there was never one). */
@@ -158,6 +172,12 @@ const settingsHooks = {
   // Live, and unlike the two above it there is no null to guard: the music is
   // built BEFORE the menu, because the poster is the first thing it plays under.
   onVolume: (v: number) => music.setVolume(v),
+  // The Graphics tab flips the SAME switches the F3 panel does — one model, one
+  // set of keys (core/gfx.ts). The panel has already stored the value; this is
+  // the apply half, and it is guarded because the sinks below drive an engine
+  // and a world that do not exist while the title screen is still booting. A
+  // change made in that window is read back by the constructor.
+  onGraphics: (id: keyof GfxSinks, on: boolean) => { if (gfxLive) gfx.set(id, on); },
 };
 
 /**
@@ -1585,6 +1605,8 @@ const gfx = new Gfx({
     debug.setFpsCap(v);
   },
 });
+// The settings panel's Graphics tab may now reach it. See `gfxLive` at the top.
+gfxLive = true;
 const perfPanel = new PerfPanel(gfx);
 
 /**

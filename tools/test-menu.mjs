@@ -59,7 +59,7 @@ const state = (page) => page.evaluate(() => {
     art: art?.naturalWidth ?? 0,
     logo: logo?.naturalWidth ?? 0,
     buttons: [...document.querySelectorAll('.bs-menu .panel button')]
-      .map((b) => b.dataset.act ?? b.dataset.toggle ?? b.dataset.lang ?? '?'),
+      .map((b) => b.dataset.act ?? b.dataset.toggle ?? b.dataset.gfx ?? b.dataset.lang ?? b.dataset.vol ?? b.dataset.tab ?? '?'),
     fullscreen: !!(document.fullscreenElement ?? document.webkitFullscreenElement),
   };
 });
@@ -123,7 +123,7 @@ const focusRing = (page) => page.evaluate(() => {
   if (!a || !a.classList.contains('bs-menu-btn')) return null;
   const shadow = getComputedStyle(a).boxShadow;
   return {
-    on: a.dataset.act ?? a.dataset.toggle ?? a.dataset.lang ?? '?',
+    on: a.dataset.act ?? a.dataset.toggle ?? a.dataset.gfx ?? a.dataset.lang ?? a.dataset.vol ?? a.dataset.tab ?? '?',
     variant: a.className.replace('bs-menu-btn', '').trim() || 'plain',
     ring: /\b0px 0px 0px [1-9]\d*px/.test(shadow),
     shadow,
@@ -224,16 +224,54 @@ const out = {};
   await page.keyboard.press('Enter');
   await wait(400);
   out.settings = await state(page);
-  // A settings row and a language chip: the other two button shapes, and the
-  // chip is the second GOLD face on this screen, so it takes the same ring New
-  // Game does rather than the gold-on-gold one.
+  // Three more button shapes, and the cursor has to be visible on all of them.
+  // It lands on the TAB STRIP now — the list opens on Gameplay (ui/settings.ts)
+  // — and a lit tab is a gold face like New Game, so it takes the gold-on-gold
+  // ring rather than the plain one.
+  //
+  // ONE step down reaches the first row and one more the language chip, which is
+  // the whole of the PR feedback that made the strip a single control: four tabs
+  // used to be four stops, so a pad player walked past every section they did not
+  // want on the way to the settings.
+  out.ringOnSettingsTab = await focusRing(page);
+  await page.keyboard.press('ArrowDown');
+  await wait(200);
   out.ringOnSettingsRow = await focusRing(page);
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await wait(200);
   out.ringOnLangChip = await focusRing(page);
+  // The four sections, which one a fresh panel opens on, and the cursor list the
+  // arrows above walk — the strip is ONE of its entries, not four.
+  out.settingsTabs = await page.evaluate(() => ({
+    tabs: [...document.querySelectorAll('.bs-menu [data-tab]')].map((b) => b.textContent.trim()),
+    open: document.querySelector('.bs-menu [data-tab].on')?.getAttribute('data-tab') ?? null,
+    stops: [...document.querySelectorAll(
+      '.bs-menu .panel button:not([disabled]):not([tabindex="-1"]):not(.sec.off *)')]
+      .map((b) => b.dataset.act ?? b.dataset.toggle ?? b.dataset.gfx
+        ?? b.dataset.lang ?? b.dataset.vol ?? b.dataset.tab ?? '?'),
+  }));
+  // Left/right on the strip changes the SECTION rather than nudging the cursor,
+  // and the panel keeps the same height while it does — the two halves of the
+  // feedback, from the screen a player actually sees them on.
+  {
+    const box = () => page.evaluate(() => {
+      const r = document.querySelector('.bs-menu .rows');
+      return {
+        lit: document.querySelector('.bs-menu [data-tab].on')?.getAttribute('data-tab') ?? null,
+        h: r ? +r.getBoundingClientRect().height.toFixed(1) : 0,
+      };
+    });
+    await page.evaluate(() => document.querySelector('.bs-menu [data-tab="gameplay"]')?.focus());
+    const seen = [await box()];
+    for (let i = 0; i < 3; i++) {
+      await page.keyboard.press('ArrowRight');
+      await wait(200);
+      seen.push(await box());
+    }
+    out.tabSweep = seen;
+    await page.evaluate(() => document.querySelector('.bs-menu [data-tab="gameplay"]')?.click());
+    await wait(200);
+  }
   // The switch that replaced the question: present, and ON by default.
   out.autoFullscreenRow = await page.evaluate(() => {
     const b = document.querySelector('.bs-menu [data-toggle="autoFullscreen"]');
