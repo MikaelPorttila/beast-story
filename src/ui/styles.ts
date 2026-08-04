@@ -861,8 +861,29 @@ const CSS = `
    Positioned, so it paints ABOVE the title panel's absolutely-positioned shade —
    without this the ::before above would cover the buttons rather than sit
    behind them. Harmless anywhere with no such shade. */
-.bs-opts{position:relative;z-index:1;
-  display:flex;flex-direction:column;align-items:stretch;gap:10px}
+.bs-opts{position:relative;z-index:1;--optgap:10px;
+  display:flex;flex-direction:column;align-items:stretch;gap:var(--optgap)}
+/* THE SETTINGS SECTIONS ARE STACKED, ONE PER GRID CELL, and that is what makes
+   the panel's height CONSTANT: the cell is as tall as the tallest section, so
+   swapping tabs cannot move the Back button under the player's cursor. Rendering
+   only the section showing had it jumping between 111px and 327px.
+
+   The alternative was a fixed pixel height per screen band, and it is the worse
+   one for the reason this sheet keeps re-learning: a number written here has to
+   be re-measured every time a row is added or a translation wraps, and nothing
+   fails when it is not. This asks the browser instead.
+
+   visibility:hidden rather than display:none — the point is that the hidden
+   sections still take up space. It also means they cannot be clicked and the
+   browser will not focus them; ui/settings.ts's FOCUSABLE is what keeps a pad
+   cursor out of them.
+
+   The gap is inherited through --optgap rather than restated, so the two height
+   bands below go on compacting the list by changing ONE value. */
+.bs-opts .rows{display:grid}
+.bs-opts .sec{grid-area:1/1;display:flex;flex-direction:column;
+  align-items:stretch;gap:var(--optgap)}
+.bs-opts .sec.off{visibility:hidden}
 .bs-opts h2{font-size:17px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
   text-align:center;color:rgba(255,255,255,.72);text-shadow:0 2px 6px rgba(0,0,0,.8);
   margin-bottom:2px}
@@ -940,6 +961,14 @@ const CSS = `
   padding-bottom:9px;margin-bottom:1px;border-bottom:1px solid rgba(255,214,140,.18)}
 .bs-opts .tabs .bs-menu-btn.chip{flex:1 0 auto;justify-content:center;
   padding:8px 10px;letter-spacing:.02em;white-space:nowrap}
+/* .strip carries no look of its own — it is the behavioural hook ui/settings.ts
+   puts data-group on, and the ring stays on the chip because the chip IS the
+   value: on a strip that is one control, the lit chip and the focused chip are
+   the same element and one ring says both things. What needs a rule is the
+   music row, whose two controls are the MUTE chip and the level strip beside it
+   (see volumeRow), so the levels lay themselves out as a group and wrap as one
+   rather than leaving OFF stranded on a line of its own. */
+.bs-opts .vols .steps{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}
 .bs-opts .row.lang,.bs-opts .row.vol{
   display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:2px 4px 2px 18px;font-size:17px;font-weight:700;
@@ -998,7 +1027,7 @@ const CSS = `
 @media (min-height:521px) and (max-height:880px){
   .bs-menu[data-step="settings"] .fore{grid-template-rows:0 auto auto 1fr}
   .bs-menu[data-step="settings"]{--gap:20px}
-  .bs-menu[data-step="settings"] .bs-opts{gap:7px}
+  .bs-menu[data-step="settings"] .bs-opts{--optgap:7px}
   .bs-menu[data-step="settings"] .bs-menu-btn.row{padding:8px 12px 8px 16px}
 }
 
@@ -1029,7 +1058,7 @@ const CSS = `
      After: 340px, and the Back button sits 21px clear of the bottom. */
   .bs-menu-btn{padding:6px 14px;font-size:16px}
   .bs-menu-btn.row{padding:6px 12px 6px 16px;font-size:16px}
-  .bs-menu .bs-opts{gap:5px}
+  .bs-menu .bs-opts{--optgap:5px}
   .bs-menu .bs-opts .note{margin:-2px 0 0}
   .bs-opts .vols{gap:4px}
   .bs-opts .vols .bs-menu-btn.chip{padding:5px 7px;min-width:42px}
@@ -1037,6 +1066,19 @@ const CSS = `
      to give room back on a short screen — padding again, never the 16px type. */
   .bs-opts .tabs{gap:4px;padding-bottom:6px}
   .bs-opts .tabs .bs-menu-btn.chip{padding:5px 8px}
+  /* AND THE SECTIONS SCROLL, on the one screen shape where the arithmetic runs
+     out. This is the only band that gets it, and that is the trade rather than
+     an oversight: a scroll container CLIPS the focus ring of the row at each end
+     (it is a box-shadow outside the button's box), which is a real cost to pay
+     on screens that do not need it. Measured at 851x393, the worst case in the
+     matrix: the sections are 250px tall and there are 264 before the Back button
+     leaves the screen, so the cap sits between — 257 today, which is 7px of
+     slack and still 7px inside the edge. Grow a row or shrink the frame and the
+     list scrolls instead of the way out falling off the bottom.
+
+     --bs-vh, not 100dvh: on a phone in fullscreen those disagree by over a
+     hundred pixels and the measured one is right. See core/viewport.ts. */
+  .bs-opts .rows{overflow-y:auto;max-height:calc(var(--bs-vh, 100dvh) - 136px)}
   .bs-menu .press{font-size:16px}
 }
 
@@ -1070,7 +1112,7 @@ const CSS = `
      controls here with padding to spare: a chip is a word, not a row, and at
      this size the strips are what the list gained. 5px of gap and tighter chips
      put the Back button at 371, which is 19 clear. */
-  .bs-menu[data-step="settings"] .bs-opts{gap:5px}
+  .bs-menu[data-step="settings"] .bs-opts{--optgap:5px}
   .bs-menu[data-step="settings"] .vols .bs-menu-btn.chip{padding:5px 9px}
   .bs-menu[data-step="settings"] .langs .bs-menu-btn.chip{padding:6px 11px}
   /* AND THE LAST TEN, bought when the 16px floor (issue #17) went in on top of

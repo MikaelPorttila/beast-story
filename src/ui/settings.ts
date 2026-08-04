@@ -52,6 +52,12 @@ import type { LookAxes } from '../core/gamepad';
  * how it is driven, how it looks, how loud it is — and one group is on screen at
  * a time. The tallest tab is now shorter than the flat list ever was.
  *
+ * EVERY section is in the DOM at once and the hidden ones are hidden rather than
+ * absent, which is what keeps the panel's height from moving as a player steps
+ * along the strip — see `sections`. And every STRIP on it (the tabs, the volume
+ * levels, the languages) is ONE control rather than N buttons — see `stepGroup`
+ * and `FOCUSABLE`, which are the two halves of that.
+ *
  * A TAB IS NOT A STORAGE GROUP, and the two are allowed to differ. The keys are
  * `game.settings.<group>.<name>` with the group fixed on the day each setting
  * shipped (core/prefs.ts), and two of them no longer match the tab they are
@@ -150,6 +156,10 @@ const GRAPHICS_ROWS: ReadonlyArray<{ id: keyof GfxSinks; labelKey: StringKey }> 
  * 0 is first and is labelled OFF rather than 0%: it is not a quiet setting, it
  * is the feature switched off, and nothing is loaded at all while it is chosen.
  * The steps are twenties so that the shipped default, 80, is one of them.
+ *
+ * IT IS ALSO THE ONE STEP THAT IS NOT PART OF THE STRIP. The levels are a single
+ * control a player sweeps with left/right; mute is a decision, and folding it in
+ * would put it one nudge past 20 on a control being swept. See `volumeRow`.
  */
 const VOLUME_STEPS: ReadonlyArray<number> = [0, 20, 40, 60, 80, 100];
 
@@ -187,18 +197,26 @@ export interface SettingsHooks {
 }
 
 /**
- * Is this the focused element inside one of the panel's chip STRIPS — the tabs
- * across the top, the volume steps, or the language picker?
+ * What counts as a stop for a host's own up/down cursor, as a selector.
  *
- * Exported because it is a fact about this panel's markup that both hosts need:
- * left/right moves the cursor along a strip and does nothing anywhere else, and
- * each host owns its own key and pad handling. Asking here rather than each
- * host testing for `data-lang` itself is what stopped the arrow keys silently
- * skipping the volume row when it was added.
+ * Exported because it is a fact about this panel's markup and both hosts need
+ * exactly the same answer — and because it stopped being "every button" the day
+ * the panel grew STRIPS and stacked sections. Three clauses, one reason each:
+ *
+ *   - `[disabled]`: the language chips in game.
+ *   - `[tabindex="-1"]`: the members of a strip that are not its current value.
+ *     A strip is ONE control (see `stepGroup`), so only the value showing is a
+ *     stop; left/right changes it. This is the roving-tabindex pattern, and
+ *     taking the others out of the browser's own Tab order is the half a host
+ *     cannot do for itself.
+ *   - `.sec.off *`: every section that is not the tab showing. They are in the
+ *     DOM — that is what makes the panel's height constant, see `sections` —
+ *     and `visibility:hidden` already keeps the browser from focusing them, but
+ *     `querySelectorAll` sees them and a pad cursor would walk into a section
+ *     nobody can see.
  */
-export const isChip = (el: Element | null): boolean =>
-  !!el && (el.hasAttribute('data-vol') || el.hasAttribute('data-lang')
-    || el.hasAttribute('data-tab'));
+export const FOCUSABLE =
+  'button:not([disabled]):not([tabindex="-1"]):not(.sec.off *)';
 
 const escapeHtml = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -216,13 +234,14 @@ export class SettingsPanel {
    * Set by the HOST: this panel's markup changed shape and the screen around it
    * has to be rebuilt, with the cursor put back on `focus`.
    *
-   * A tab click is the only thing that does this, and it cannot be handled the
-   * way a toggle's pill is — that rewrites one node in place PRECISELY so the
-   * host's `focusables` list stays valid, and a tab replaces every row below it.
-   * The host owns focus (see the `pendingFocus` note in either of them), so the
-   * host is asked to render. It is the same path a language change already
-   * takes, and the selector is what stops the cursor jumping off the tab the
-   * player just pressed.
+   * The two callers are a TAB and a VOLUME STEP, and what they have in common is
+   * that both change which elements are focus stops — a tab lights a different
+   * section, a step moves the roving tabindex along the strip. A host builds its
+   * `focusables` list once per render, so neither can be patched in place the way
+   * a toggle's pill is. The host owns focus (see the `pendingFocus` note in
+   * either of them), so the host is asked to render; the selector is what stops
+   * the cursor jumping off the control the player is still using. It is the same
+   * path a language change already takes.
    */
   onRebuild: ((focus: string) => void) | null = null;
 
@@ -265,71 +284,122 @@ export class SettingsPanel {
     return (
       `<h2>${escapeHtml(t('menu.settings.title'))}</h2>` +
       this.tabStrip() +
-      this.rows()
+      this.sections()
     );
   }
 
   /**
-   * The tab strip. Emitted as a direct child of `.bs-opts` like every row is —
-   * that element is the flex column, and a wrapper around the rows below would
-   * take them out of it and lose the shared gap.
+   * The tab strip: ONE control, not four buttons.
+   *
+   * A pad player should reach the settings in one step down, not five, and once
+   * they are on the strip left/right should MOVE THROUGH THE SECTIONS rather
+   * than through the buttons that name them. So only the tab showing is a stop
+   * (`stepGroup` and `FOCUSABLE` are the two halves of that) — which is also
+   * what a keyboard user gets from Tab, since `tabindex="-1"` takes the rest out
+   * of the browser's own order.
    */
   private tabStrip(): string {
-    return `<div class="tabs">${TABS.map((tb) => {
+    return `<div class="tabs strip" role="tablist" data-group="tab">${TABS.map((tb) => {
       const on = tb.id === this.tab;
       return `<button class="bs-menu-btn chip tab${on ? ' on' : ''}" type="button" ` +
-        `data-tab="${tb.id}" aria-selected="${on}">${escapeHtml(t(tb.labelKey))}</button>`;
+        `role="tab" data-tab="${tb.id}" aria-selected="${on}"${on ? '' : ' tabindex="-1"'}>` +
+        `${escapeHtml(t(tb.labelKey))}</button>`;
     }).join('')}</div>`;
   }
 
-  /** The rows of whichever tab is showing. */
-  private rows(): string {
+  /**
+   * EVERY section, stacked — and that is what makes the panel's height constant.
+   *
+   * They are laid one on top of another in a single grid cell (see `.bs-opts
+   * .rows` in ui/styles.ts), so the box is as tall as the TALLEST section and
+   * swapping tabs changes nothing about the layout around it. The panel used to
+   * render only the section showing, and the list jumped between 111px and 327px
+   * as the player stepped along the strip — with the Back button under their
+   * cursor moving each time, which on a pad is the control you are aiming at
+   * walking away from you.
+   *
+   * The alternative was a fixed pixel height per screen band, and it is worse in
+   * the way this file has been bitten before: a number written down here has to
+   * be re-measured every time a row is added or a translation makes one wrap,
+   * and nothing fails when it is not. Stacking asks the browser instead.
+   *
+   * The cost is that three sections a player cannot see are in the DOM. They are
+   * `visibility:hidden`, so they cannot be clicked, cannot be focused by the
+   * browser, and are skipped by `FOCUSABLE` — which is the clause a host would
+   * otherwise have to know about.
+   */
+  private sections(): string {
     const inGame = this.place === 'game';
-    switch (this.tab) {
-      case 'controls':
-        return (
-          this.toggle('hapticFeedback', t('menu.settings.hapticFeedback'), this.prefs.hapticFeedback) +
-          this.toggle('invertLookX', t('menu.settings.invertX'), this.prefs.invertLookX) +
-          this.toggle('invertLookY', t('menu.settings.invertY'), this.prefs.invertLookY) +
-          // The note belongs to the two INVERT rows — it says the mouse is never
-          // inverted — so anything added below it must go after it, not between.
-          `<div class="note">${escapeHtml(t('menu.settings.controllerNote'))}</div>`
-        );
+    return `<div class="rows">` +
+      this.section('gameplay',
+        this.toggle('autoFullscreen', t('menu.settings.autoFullscreen'), this.prefs.autoFullscreen) +
+        `<div class="row lang${inGame ? ' off' : ''}">` +
+          `<span class="lbl">${escapeHtml(t('menu.settings.language'))}</span>` +
+          `<div class="langs strip" data-group="lang">${languages().map((l) => {
+            const on = l.code === language();
+            return `<button class="bs-menu-btn chip${on ? ' on' : ''}" type="button" ` +
+              `data-lang="${l.code}"${inGame ? ' disabled' : ''}${on ? '' : ' tabindex="-1"'}>` +
+              `${escapeHtml(l.nativeName)}</button>`;
+          }).join('')}</div></div>` +
+        // Only in-game, and only under the row it explains. A disabled control
+        // with no reason beside it is indistinguishable from a broken one.
+        (inGame ? `<div class="note">${escapeHtml(t('menu.settings.languageInGame'))}</div>` : '')) +
 
-      case 'graphics':
-        // The live values come from STORAGE rather than from a field, so a row
-        // shows what the F3 panel or `/gfx` last set even if that happened while
-        // this panel was on screen behind them. See storedGfx in core/gfx.ts.
-        return GRAPHICS_ROWS.map((r) =>
-          `<button class="bs-menu-btn row" type="button" data-gfx="${r.id}" ` +
-          `aria-pressed="${Boolean(storedGfx(r.id))}">` +
-          `<span class="lbl">${escapeHtml(t(r.labelKey))}</span>` +
-          `<span class="pill">${escapeHtml(storedGfx(r.id) ? t('menu.on') : t('menu.off'))}</span>` +
-          `</button>`).join('');
+      this.section('controls',
+        this.toggle('hapticFeedback', t('menu.settings.hapticFeedback'), this.prefs.hapticFeedback) +
+        this.toggle('invertLookX', t('menu.settings.invertX'), this.prefs.invertLookX) +
+        this.toggle('invertLookY', t('menu.settings.invertY'), this.prefs.invertLookY) +
+        // The note belongs to the two INVERT rows — it says the mouse is never
+        // inverted — so anything added below it must go after it, not between.
+        `<div class="note">${escapeHtml(t('menu.settings.controllerNote'))}</div>`) +
 
-      case 'sound':
-        return `<div class="row vol">` +
-          `<span class="lbl">${escapeHtml(t('menu.settings.music'))}</span>` +
-          `<div class="vols">${VOLUME_STEPS.map((pc) =>
-            `<button class="bs-menu-btn chip${pc === this.volumePc ? ' on' : ''}" type="button" ` +
-            `data-vol="${pc}">${escapeHtml(pc === 0 ? t('menu.off') : `${pc}`)}</button>`,
-          ).join('')}</div></div>`;
+      // The live values come from STORAGE rather than from a field, so a row
+      // shows what the F3 panel or `/gfx` last set even if that happened while
+      // this panel was on screen behind them. See storedGfx in core/gfx.ts.
+      this.section('graphics', GRAPHICS_ROWS.map((r) =>
+        `<button class="bs-menu-btn row" type="button" data-gfx="${r.id}" ` +
+        `aria-pressed="${Boolean(storedGfx(r.id))}">` +
+        `<span class="lbl">${escapeHtml(t(r.labelKey))}</span>` +
+        `<span class="pill">${escapeHtml(storedGfx(r.id) ? t('menu.on') : t('menu.off'))}</span>` +
+        `</button>`).join('')) +
 
-      case 'gameplay':
-      default:
-        return (
-          this.toggle('autoFullscreen', t('menu.settings.autoFullscreen'), this.prefs.autoFullscreen) +
-          `<div class="row lang${inGame ? ' off' : ''}">` +
-            `<span class="lbl">${escapeHtml(t('menu.settings.language'))}</span>` +
-            `<div class="langs">${languages().map((l) =>
-              `<button class="bs-menu-btn chip${l.code === language() ? ' on' : ''}" type="button" ` +
-              `data-lang="${l.code}"${inGame ? ' disabled' : ''}>` +
-              `${escapeHtml(l.nativeName)}</button>`).join('')}</div></div>` +
-          // Only in-game, and only under the row it explains. A disabled control
-          // with no reason beside it is indistinguishable from a broken one.
-          (inGame ? `<div class="note">${escapeHtml(t('menu.settings.languageInGame'))}</div>` : '')
-        );
-    }
+      this.section('sound', this.volumeRow()) +
+    `</div>`;
+  }
+
+  /** One stacked section, lit or hidden. See `sections`. */
+  private section(id: SettingsTab, inner: string): string {
+    return `<div class="sec${id === this.tab ? '' : ' off'}" data-sec="${id}">${inner}</div>`;
+  }
+
+  /**
+   * The music row: a MUTE button, and the levels as one control beside it.
+   *
+   * Two controls rather than one, and the split is not cosmetic. "Quieter" is a
+   * direction — left and right along a scale, which is what a strip is for — and
+   * OFF is not a quieter level, it is the feature switched off (nothing is
+   * fetched and whatever was playing is unloaded; see core/prefs.ts). Folding it
+   * into the same strip would put mute one nudge past 20 on a control the player
+   * is sweeping, and would make "turn the music off" a thing you arrive at by
+   * accident rather than press.
+   *
+   * The strip's stop is the level SHOWING. While the volume is 0 nothing in it
+   * is lit and the stop is the nearest step to what is stored, which for a muted
+   * profile is the quietest — so a player who muted and came back leaves mute in
+   * the direction they push, whichever it is.
+   */
+  private volumeRow(): string {
+    const pc = this.volumePc;
+    const rove = pc === 0 ? VOLUME_STEPS[1] : pc;
+    return `<div class="row vol">` +
+      `<span class="lbl">${escapeHtml(t('menu.settings.music'))}</span>` +
+      `<div class="vols">` +
+        `<button class="bs-menu-btn chip mute${pc === 0 ? ' on' : ''}" type="button" ` +
+          `data-vol="0">${escapeHtml(t('menu.off'))}</button>` +
+        `<div class="steps strip" data-group="vol">${VOLUME_STEPS.slice(1).map((s) =>
+          `<button class="bs-menu-btn chip${s === pc ? ' on' : ''}" type="button" ` +
+          `data-vol="${s}"${s === rove ? '' : ' tabindex="-1"'}>${s}</button>`).join('')}</div>` +
+      `</div></div>`;
   }
 
   /**
@@ -348,10 +418,7 @@ export class SettingsPanel {
       // A press on the tab you are already on is still OURS — it just has
       // nothing to do. Rebuilding anyway would throw the focus ring off the
       // button under the player's thumb for no change at all.
-      if (tab !== this.tab) {
-        this.tab = tab;
-        this.onRebuild?.(`[data-tab="${tab}"]`);
-      }
+      if (tab !== this.tab) this.showTab(tab);
       return true;
     }
 
@@ -368,16 +435,7 @@ export class SettingsPanel {
 
     const vol = btn.getAttribute('data-vol');
     if (vol !== null) {
-      const pc = Number(vol);
-      this.prefs = savePrefs({ volume: pc / 100 });
-      this.hooks.onVolume(this.prefs.volume);
-      // The chips are rewritten in place for the same reason a toggle's pill is:
-      // a rebuild would drop the pad's cursor back to the top of the list while
-      // the player is still stepping through the levels. `this` is the chip that
-      // was pressed, so the class moves off its siblings and onto it.
-      for (const sib of Array.from(btn.parentElement?.children ?? [])) {
-        sib.classList.toggle('on', sib === btn);
-      }
+      this.setVolume(Number(vol));
       return true;
     }
 
@@ -409,12 +467,84 @@ export class SettingsPanel {
   }
 
   /**
+   * LEFT or RIGHT on whatever the cursor is standing on. Returns whether it was
+   * one of this panel's strips, so a host knows whether to spend the key.
+   *
+   * This is the other half of "a strip is ONE control". The hosts used to nudge
+   * the FOCUS along a strip and leave the player to press A on the chip they
+   * landed on — two presses to change a value that is a direction, and, for the
+   * tabs, four presses to walk past a section they did not want. Here the
+   * direction IS the change: the tab switches, the volume moves, the language
+   * changes, and the cursor stays on the control.
+   *
+   * WRAPPING IS PER STRIP, and the difference is what the ends mean. The tabs
+   * and the languages are a RING — there is no first or last section, and coming
+   * off the end of four tabs onto the first is how every tablist behaves. The
+   * volume is a SCALE, so it clamps: one nudge past 100 landing on 20 is a thing
+   * no player wants and every player would do by accident.
+   */
+  stepGroup(el: Element | null, dir: -1 | 1): boolean {
+    const strip = el?.closest?.('.strip') as HTMLElement | null;
+    if (!strip) return false;
+    switch (strip.getAttribute('data-group')) {
+      case 'tab': {
+        const i = TABS.findIndex((tb) => tb.id === this.tab);
+        this.showTab(TABS[(i + dir + TABS.length) % TABS.length].id);
+        return true;
+      }
+      case 'lang': {
+        // Disabled in game, and the strip is not reachable there — but a guard
+        // rather than a promise, the same way `handleClick` checks it.
+        if (this.place === 'game') return true;
+        const codes = languages().map((l) => l.code);
+        const i = Math.max(0, codes.indexOf(language()));
+        setLanguage(codes[(i + dir + codes.length) % codes.length]);
+        return true;
+      }
+      case 'vol': {
+        const steps = VOLUME_STEPS.slice(1);
+        // From MUTE the strip starts at its quietest step, so a nudge in either
+        // direction is a way out of it. See `volumeRow`.
+        const here = this.volumePc === 0 ? 0 : steps.indexOf(this.volumePc);
+        this.setVolume(steps[Math.min(steps.length - 1, Math.max(0, here + dir))]);
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
+  /** Show a section, and tell the host so it can rebuild around the new rows. */
+  private showTab(tab: SettingsTab): void {
+    this.tab = tab;
+    this.onRebuild?.(`[data-tab="${tab}"]`);
+  }
+
+  /**
+   * Set the music volume from a step, 0..100, and rebuild.
+   *
+   * A REBUILD rather than the in-place class swap this used to do, and the
+   * reason is the roving tabindex: which chip is a focus stop moved with the
+   * value, and a host's `focusables` list is built once per render. Patching the
+   * classes alone would leave that list pointing at a button the player can no
+   * longer reach. The selector hands the cursor straight back to the chip that
+   * now carries the value, so a pad sweeping the strip sees no jump.
+   */
+  private setVolume(pc: number): void {
+    this.prefs = savePrefs({ volume: pc / 100 });
+    this.hooks.onVolume(this.prefs.volume);
+    this.onRebuild?.(`[data-vol="${pc}"]`);
+  }
+
+  /**
    * Rewrite one row's state in place rather than asking the host to re-render.
    *
    * A rebuild would drop focus back to the top of the list mid-way through
    * changing things, which on a pad is the cursor jumping out from under your
-   * thumb. It is also why a TAB is the one control here that does ask for one:
-   * it replaces every row, so there is nothing left to rewrite.
+   * thumb — so a row that only changes its own pill patches its own pill. The
+   * two controls that DO ask for a rebuild both change which elements are focus
+   * stops (a tab lights a different section, a volume step moves the roving
+   * tabindex), which is precisely what a host's cached list cannot survive.
    */
   private pill(btn: HTMLElement, on: boolean): void {
     btn.setAttribute('aria-pressed', String(on));

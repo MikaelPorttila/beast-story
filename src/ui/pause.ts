@@ -1,5 +1,5 @@
 import { t, language, onLanguageChange } from '../i18n';
-import { SettingsPanel, isChip, type SettingsHooks } from './settings';
+import { SettingsPanel, FOCUSABLE, type SettingsHooks } from './settings';
 import { enterFullscreen, isFullscreen, fullscreenWanted } from './fullscreen';
 import { injectStyles } from './styles';
 
@@ -80,6 +80,7 @@ export class PauseMenu {
   private padDown = new Uint8Array(20);
   private padEdge = new Uint8Array(20);
   private padAxisLatched = false;
+  private padAxisLatchedX = false;
 
   constructor(private hooks: PauseMenuHooks) {
     injectStyles();
@@ -229,7 +230,9 @@ export class PauseMenu {
         '</div>';
     }
 
-    this.focusables = Array.from(pane.querySelectorAll('button:not([disabled])'));
+    // FOCUSABLE, not "every button": the settings panel's strips are one control
+    // each and its hidden sections are still in the DOM. See ui/settings.ts.
+    this.focusables = Array.from(pane.querySelectorAll(FOCUSABLE));
     // Where the cursor lands is stated by whoever asked for this build, never
     // inherited — the same rule, and the same bug behind it, as the title
     // screen's `pendingFocus`: an INDEX carried across a rebuild points into a
@@ -281,12 +284,12 @@ export class PauseMenu {
       case 'ArrowUp': case 'w': case 'W':
         e.preventDefault(); this.moveFocus(-1); break;
       case 'ArrowLeft': case 'ArrowRight':
-        // Left/right is for the panel's chip STRIPS. In game that means the
-        // volume steps: the language chips are the other strip and they are
-        // disabled here, so the cursor never lands on one.
-        if (isChip(document.activeElement)) {
+        // Left/right CHANGES the value of whichever strip the cursor is on —
+        // the tab, the volume level — rather than walking the buttons inside it.
+        // The panel owns that because the strips are its markup; a `false` means
+        // the cursor is on an ordinary row and the key is not ours.
+        if (this.settings.stepGroup(document.activeElement, e.key === 'ArrowRight' ? 1 : -1)) {
           e.preventDefault();
-          this.moveFocus(e.key === 'ArrowRight' ? 1 : -1);
         }
         break;
       default: break;
@@ -367,18 +370,30 @@ export class PauseMenu {
       this.padDown[i] = now;
     }
 
-    // 12/13 are d-pad up/down in the W3C standard mapping, the same indices
-    // core/gamepad.ts reads. Axis 1 is the left stick's Y, latched so a held
-    // stick steps the list once instead of sixty times a second.
-    const stick = pad.axes[1] ?? 0;
-    const dir = stick < -0.5 ? -1 : stick > 0.5 ? 1 : 0;
-    if (dir === 0) this.padAxisLatched = false;
+    // 12/13 are d-pad up/down in the W3C standard mapping and 14/15 left/right,
+    // the same indices core/gamepad.ts reads. Axes 1 and 0 are the left stick,
+    // latched so a held stick steps once instead of sixty times a second.
+    const stickY = pad.axes[1] ?? 0;
+    const dirY = stickY < -0.5 ? -1 : stickY > 0.5 ? 1 : 0;
+    if (dirY === 0) this.padAxisLatched = false;
+    const stickX = pad.axes[0] ?? 0;
+    const dirX = stickX < -0.5 ? -1 : stickX > 0.5 ? 1 : 0;
+    if (dirX === 0) this.padAxisLatchedX = false;
 
     let move = 0;
     if (this.padEdge[12]) move = -1;
     else if (this.padEdge[13]) move = 1;
-    else if (dir !== 0 && !this.padAxisLatched) { move = dir; this.padAxisLatched = true; }
+    else if (dirY !== 0 && !this.padAxisLatched) { move = dirY; this.padAxisLatched = true; }
     if (move) this.moveFocus(move);
+
+    // LEFT/RIGHT IS THE STRIP'S, and it is why a pad reaches the settings in one
+    // step down rather than five: the tab strip is one control, so this changes
+    // the SECTION rather than walking the four buttons that name it.
+    let step = 0;
+    if (this.padEdge[14]) step = -1;
+    else if (this.padEdge[15]) step = 1;
+    else if (dirX !== 0 && !this.padAxisLatchedX) { step = dirX; this.padAxisLatchedX = true; }
+    if (step) this.settings.stepGroup(document.activeElement, step as -1 | 1);
 
     // A activates. B is deliberately NOT read here: `GamepadControls` already
     // taps a virtual Escape for both B and Start while a modal is up, and the

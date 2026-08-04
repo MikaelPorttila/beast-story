@@ -387,8 +387,8 @@ once frames come quickly.
   GRAPHICS tab, and the interesting half is not the key: a row flipped at the
   title screen is flipped before the renderer it drives exists, so the assertion
   is what `__dbgGfx` says once New Game has built one. Note that every probe
-  reaching a settings row now has to click its TAB first — only the visible
-  section is in the DOM, so a click on any other one is a click on nothing.
+  reaching a settings row now has to click its TAB first — the other sections are
+  in the DOM but `visibility:hidden`, so a real click on one lands on nothing.
 - `test-keybinds.mjs` guards the F1 controls sheet, and the half worth knowing
   about is not the DOM half. It scans src/ for every `pressed('…')` /
   `takePress('…')` / `down('…')` / `keys.has('…')` and requires each code to
@@ -1623,16 +1623,43 @@ would leave a player walking a world signposted in the language they just left.
 Disabled and explained rather than hidden — a setting that vanishes reads as a
 bug, and it keeps the two panels the same shape.
 
-**IT IS FOUR SECTIONS BEHIND TABS — Gameplay · Controls · Graphics · Sound —
-AND ONLY THE ONE SHOWING IS IN THE DOM.** One flat column was right at five rows
-and is not at eleven: this list is the tallest thing the title screen shows, and
-the two height media queries in [ui/styles.ts](src/ui/styles.ts) written about
-nothing else exist because ONE added row put the Back button off the bottom of a
-1000x560 window. Measured, the tallest tab (Graphics) is 486px of list against
-462 for the whole flat list it replaced — so the tabs did not make anything
-shorter, they moved the height that has to fit from "every setting there is" to
-"the worst single section", which is what stops the next row added to Controls
-from mattering. The compaction band's top went 660 -> 760 -> 880px with it.
+**IT IS FOUR SECTIONS BEHIND TABS — Gameplay · Controls · Graphics · Sound.**
+One flat column was right at five rows and is not at eleven: this list is the
+tallest thing the title screen shows, and the two height media queries in
+[ui/styles.ts](src/ui/styles.ts) written about nothing else exist because ONE
+added row put the Back button off the bottom of a 1000x560 window. Measured, the
+tallest tab (Graphics) is 486px of list against 462 for the whole flat list it
+replaced — so the tabs did not make anything shorter, they moved the height that
+has to fit from "every setting there is" to "the worst single section", which is
+what stops the next row added to Controls from mattering. The compaction band's
+top went 660 -> 760 -> 880px with it.
+
+**EVERY SECTION IS IN THE DOM AT ONCE, STACKED IN ONE GRID CELL**, and that is
+what makes the panel's height CONSTANT — the box is as tall as the tallest
+section whichever one is showing, so changing tabs cannot move the Back button
+under a player's cursor. It swung 111px -> 327px when only the section showing
+was rendered. The alternative was a fixed pixel height per screen band, and it is
+worse in this file's own recurring way: a number written down has to be
+re-measured every time a row is added or a translation wraps, and nothing fails
+when it is not. The hidden sections are `visibility:hidden`, so they cannot be
+clicked and the browser will not focus them; `FOCUSABLE` (ui/settings.ts) is the
+selector BOTH hosts build their cursor list from, and its `.sec.off *` clause is
+what keeps a pad out of a section nobody can see. `tools/test-pause.mjs` asserts
+the height is identical on all four tabs. Only the ≤520px-tall band gives the box
+an `overflow-y:auto` and a cap, because a scroll container clips the focus ring
+of the row at each end — a real cost, paid only where the arithmetic runs out.
+
+**A STRIP IS ONE CONTROL, NOT N BUTTONS.** The tabs, the volume levels and the
+language picker are each a single stop in a host's cursor list — the roving
+tabindex pattern, which is also what a keyboard user's Tab key sees — and
+left/right CHANGES THE VALUE rather than walking the buttons inside it
+(`stepGroup`). Before that a pad player stepped through four tabs to reach the
+settings and then pressed A to commit each one. The ends differ per strip and
+that is deliberate: the tabs and the languages are a RING (there is no first or
+last section), the volume CLAMPS (one nudge past 100 landing on 20 is a thing
+nobody wants and everybody would do). MUTE is deliberately NOT in the volume
+strip — OFF is the feature switched off rather than a quieter level, so it keeps
+a stop of its own and cannot be swept onto by accident.
 
 A TAB IS NOT A STORAGE GROUP. Keys stay `game.settings.<group>.<name>` with the
 group fixed on the day each setting shipped, and two no longer match the tab they
@@ -1640,11 +1667,13 @@ appear in — volume is `gameplay` and shows under Sound, `autoFullscreen` is
 `graphics` and shows under Gameplay. Renaming a key silently resets the choice of
 every player who already made one, which is worse than a name nobody sees.
 
-A tab click is the ONE control on this panel that asks its host to re-render
-(`onRebuild`, with the selector for the tab just pressed). Everything else
-rewrites its own pill in place, precisely so the host's `focusables` list stays
-valid and a pad cursor does not jump out from under the player's thumb; a tab
-replaces every row below it, so there is nothing left to patch.
+TWO controls on this panel ask their host to re-render (`onRebuild`, carrying the
+selector for the control the player is still standing on): a TAB and a VOLUME
+STEP. What they have in common is that both change which elements are focus stops
+— a tab lights a different section, a step moves the roving tabindex — and a
+host's `focusables` list is built once per render. Everything else rewrites its
+own pill in place, precisely so that list stays valid and a pad cursor does not
+jump out from under the player's thumb.
 
 **THE GRAPHICS TAB IS THE F3 PANEL'S OWN SWITCHES, NOT A COPY OF THEM.** Five of
 the nine — ambient occlusion, glow, antialiasing, shadows, and grass under the
@@ -1718,9 +1747,10 @@ pattern: on/off is a choice and 0.62 rumble is a tuning session, but "quieter"
 is a thing a player genuinely wants and cannot express with a switch. Six chips
 rather than a slider because every control on that panel is a real `<button>` —
 both hosts drive it from a pad by calling `.click()` on the focused one — and
-because a −/+ stepper puts mute eight presses away. `isChip` (ui/settings.ts) is
-what tells the two hosts a strip is under the cursor, so left/right walks it —
-the tab strip is one of those, which is how a pad steps between sections.
+because a −/+ stepper puts mute eight presses away. `stepGroup`
+(ui/settings.ts) is what the two hosts hand left/right to, so the strip under the
+cursor changes its own value — the tab strip is one of those, which is how a pad
+steps between sections.
 **A setting has to be respected
 at ONE choke point, not at every site that could break it**: controller
 vibration (`game.settings.controls.hapticFeedback`, on by default) is checked in
