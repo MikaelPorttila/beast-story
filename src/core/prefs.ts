@@ -84,16 +84,24 @@ export interface Prefs {
    */
   volume: number;
   /**
-   * Controller look inversion, per axis.
+   * Stick look inversion, per axis.
    *
    * `invertLookY` DEFAULTS TO TRUE, and that is the shipped feel rather than an
    * arbitrary choice: passing the stick's raw axis through gives the mouse's own
    * mapping (stick up looks up), which was tested on hardware and read as
    * backwards in the hand. The flight-stick convention is what a pad wants.
    *
-   * Deliberately pad-only. The mouse is not routed through these and must not
-   * be — nobody expects an inverted mouse, and the two devices disagreeing here
-   * is correct rather than an inconsistency to tidy away.
+   * IT IS A PROPERTY OF STICKS, NOT OF THE PAD. A pad's right stick and the
+   * touch overlay's look pad are the same control on different hardware — both
+   * are rate controls a thumb deflects — so both read these, and a player who
+   * sets it on one device finds it set on the other. The touch overlay was NOT
+   * routed through them until it was made to be, which meant a phone shipped
+   * the mapping this default exists to say is backwards, and a phone player had
+   * a switch on their settings screen that did nothing at all.
+   *
+   * The MOUSE is not routed through these and must not be — nobody expects an
+   * inverted mouse, and a pointer disagreeing with a stick here is correct
+   * rather than an inconsistency to tidy away.
    */
   invertLookX: boolean;
   invertLookY: boolean;

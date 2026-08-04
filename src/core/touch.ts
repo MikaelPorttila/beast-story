@@ -1,4 +1,9 @@
 import type { Input } from './input';
+// TYPE-ONLY, so it is erased at build time and adds no import edge: the look
+// axes are the pad's shape because they are the same setting, and a touch
+// overlay that pulled in the gamepad module to say so would be paying a real
+// import for a two-boolean interface.
+import type { LookAxes } from './gamepad';
 import { t, type StringKey } from '../i18n';
 
 /**
@@ -338,6 +343,14 @@ export class TouchControls {
    * to the mouse-pixel units the camera consumes (0.0028 rad per px of yaw).
    */
   private static readonly LOOK_PX_PER_SEC = 620;
+  /**
+   * Which way each look axis runs. +1 straight through, -1 inverted, and the
+   * sign is applied to a DOWN-POSITIVE raw axis exactly as `GamepadControls`
+   * applies it to `axes[3]` — which is why `update` negates the stick's own
+   * screen-up-positive `y` first. Defaults match DEFAULT_PREFS.
+   */
+  private lookSignX = 1;
+  private lookSignY = -1;
   private revealed = false;
 
   /**
@@ -543,10 +556,30 @@ export class TouchControls {
   update(dt: number): void {
     if (!this.lookStick.engaged) return;
     const k = TouchControls.LOOK_PX_PER_SEC * Math.min(dt, 0.05);
-    // Camera treats +mouseDY as looking down, matching a mouse; pushing the
-    // stick up should look up, hence the negated y.
-    this.input.addLook(this.lookStick.x * k, -this.lookStick.y * k);
+    // Camera treats +mouseDY as looking down, matching a mouse, and the stick's
+    // own y is screen-up-positive — so the negation turns it into the
+    // down-positive axis `lookSignY` is defined against. Uninverted (sign +1)
+    // that is the old behaviour exactly: push up, look up.
+    this.input.addLook(
+      this.lookStick.x * this.lookSignX * k,
+      -this.lookStick.y * this.lookSignY * k,
+    );
     this.input.setTouchLooking(true);
+  }
+
+  /**
+   * Flip either look axis, at any time. Same shape and same live-change contract
+   * as `GamepadControls.setLookAxes`, because it is the same player choice: a
+   * thumb on a virtual stick is a STICK, and the one thing the setting is
+   * documented never to reach is the mouse (see core/prefs.ts).
+   */
+  setLookAxes(a: Partial<LookAxes>): void {
+    if (a.invertX !== undefined) this.lookSignX = a.invertX ? -1 : 1;
+    if (a.invertY !== undefined) this.lookSignY = a.invertY ? -1 : 1;
+  }
+
+  get lookAxes(): LookAxes {
+    return { invertX: this.lookSignX < 0, invertY: this.lookSignY < 0 };
   }
 
   /** True once a real touch has been seen (always true on touch-primary devices). */

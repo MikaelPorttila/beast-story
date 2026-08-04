@@ -160,5 +160,62 @@ const results = {};
   await ctx.close();
 }
 
+// ---------- the look pad respects the invert-Y setting ----------
+// A PAIR AT ONE COLUMN, and it has to be: "held up, the camera pitched down" is
+// equally true of a working inverted stick and of a stick wired backwards, so
+// only the two arms TOGETHER say anything. Same phone, same hold, same duration
+// — the single difference is `invy`, which core/flags.ts pins for one load
+// without writing the preference back.
+//
+// PITCH RATHER THAN YAW, because __dbgCam().pitch is signed, bounded and does
+// not wrap: the camera clamps well short of straight up, where yaw is an atan2
+// that passes half a circle inside one hold on a fast host (see the note above).
+// The stick is held UP, so an uninverted pad must raise the pitch and an
+// inverted one must lower it.
+{
+  const holdLookUp = async (invy) => {
+    const { ctx, page } = await newContextPage(browser, { width: 393, height: 851, phone: true });
+    await page.goto(`${HOST}/?fps=30&menu=0&invy=${invy}`, { waitUntil: 'load' });
+    await page.waitForSelector('canvas');
+    await wait(4000);
+    const axes = await page.evaluate(() => window.__dbgInput?.()?.touchLookAxes);
+    const before = await page.evaluate(() => window.__dbgCam?.()?.pitch);
+    await page.evaluate(() => {
+      const el = document.querySelector('.bs-stick.look');
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const mk = (type, x, y) => {
+        const t = new Touch({ identifier: 3, target: el, clientX: x, clientY: y });
+        el.dispatchEvent(new TouchEvent(type, {
+          touches: [t], changedTouches: [t], targetTouches: [t],
+          bubbles: true, cancelable: true,
+        }));
+      };
+      mk('touchstart', cx, cy);
+      mk('touchmove', cx, cy - r.height * 0.4); // hold UP
+    });
+    // Short: the pitch clamps, and a hold long enough to reach the clamp in both
+    // arms would report the same magnitude whatever the sign did on the way.
+    await wait(700);
+    const after = await page.evaluate(() => window.__dbgCam?.()?.pitch);
+    await ctx.close();
+    return { axes, pitchDelta: +(after - before).toFixed(2) };
+  };
+
+  const off = await holdLookUp(0);
+  const on = await holdLookUp(1);
+  results.invertY = {
+    off: { ...off, expected: 'pitch rises — push up, look up' },
+    on: { ...on, expected: 'pitch falls — push up, look down' },
+    ok: off.axes?.invertY === false && on.axes?.invertY === true
+      && off.pitchDelta > 1 && on.pitchDelta < -1,
+  };
+}
+
 console.log(JSON.stringify(results, null, 2));
+if (results.invertY.ok !== true) {
+  console.error('FAIL: the touch look pad does not follow the invert-Y setting');
+  await browser.close();
+  process.exit(1);
+}
 await browser.close();

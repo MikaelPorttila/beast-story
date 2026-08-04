@@ -1804,6 +1804,33 @@ player's whole session, because the only question asked was whether a pad was
 connected. A phone keeps buzzing — there a finger IS the device. Camera shake is
 deliberately NOT gated on it: it is something you see, not something you feel.
 
+**LOOK INVERSION IS A PROPERTY OF STICKS, AND THE TOUCH PAD IS A STICK.** The
+same choke-point argument, seen from the device end. `invertLookX`/`invertLookY`
+reached `GamepadControls` and nothing else, so the overlay's look pad ran its own
+fixed mapping — which meant a phone shipped push-up-looks-up, the exact mapping
+`invertLookY`'s default of TRUE exists to say was tested on hardware and read as
+backwards, and a phone player had a row on their settings screen that did
+nothing whatever. Both stick devices now read the one pair of booleans, through
+`TouchControls.setLookAxes` alongside `GamepadControls.setLookAxes`, with the
+sign applied to a DOWN-POSITIVE axis in both (the overlay's stick is
+screen-up-positive, so `update` negates it first). Three callers, and all three
+move both: `settingsHooks.onLookAxes`, `/invertlook`, and the `invx`/`invy` URL
+pins. THE MOUSE STAYS OUT — nobody expects an inverted mouse, and a pointer
+disagreeing with a stick is correct rather than an inconsistency to tidy away.
+
+The consequence is a real change of feel and is the fix rather than a side
+effect: a phone's default look is now inverted, the way a pad's always was, and
+a player who sets the switch on either device finds it set on the other. The
+`invertY` section of `tools/test-touch.mjs` is the guard, and it is a PAIR at one
+column — "held up, the camera pitched down" is equally true of a working inverted
+stick and of one wired backwards, so only the two arms together say anything.
+Same phone, same hold, the single difference being `invy`: measured **+34.3
+degrees** of pitch uninverted against **-49.87** inverted. It asserts on PITCH
+rather than yaw because `__dbgCam().pitch` is signed, bounded and does not wrap,
+where `__dbgCamYaw` is an atan2 that passes half a circle inside one hold on a
+fast host. It exits non-zero, and `__dbgInput().touchLookAxes` is what it reads
+the overlay's own answer from — a phone run has no gamepad to ask.
+
 ## Conventions
 
 - **No per-frame allocation** in update paths. Module-level scratch vectors (`_a`,

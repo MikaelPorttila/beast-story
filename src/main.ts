@@ -118,19 +118,25 @@ const bus = new EventBus();
 // ---------------------------------------------------------------------------
 
 /**
- * The pad and the feedback mixer, ASSIGNED further down where their
- * dependencies exist.
+ * The pad, the touch overlay and the feedback mixer, ASSIGNED further down
+ * where their dependencies exist.
  *
  * `let ... = null` rather than the `const`s they used to be, and the reason is
  * the boot order above: the title screen's Settings panel is usable while the
  * game is still being built, so `onLookAxes` and `onHapticFeedback` can be
- * called before either of these has been constructed. A `const` declared later
+ * called before any of these has been constructed. A `const` declared later
  * in the module would be in its temporal dead zone at that moment and the hook
  * would THROW rather than harmlessly do nothing. Null is the right answer for
- * "not built yet": the menu has already persisted the choice, and both are
+ * "not built yet": the menu has already persisted the choice, and all three are
  * constructed from `loadPrefs()` below, so the switch is honoured either way.
+ *
+ * `touch` is here for exactly that reason and no other — it was a `const` down
+ * beside the world until the look-inversion setting reached it, at which point
+ * a phone player flipping the switch on the title screen would have thrown a
+ * ReferenceError instead of turning their camera round.
  */
 let pad: GamepadControls | null = null;
+let touch: TouchControls | null = null;
 let feedback: FeedbackSystem | null = null;
 
 /**
@@ -167,7 +173,14 @@ let playing = false;
  * order above — is picked up when it is built.
  */
 const settingsHooks = {
-  onLookAxes: (a: Partial<LookAxes>) => pad?.setLookAxes(a),
+  // BOTH STICK DEVICES, and that is the whole of the setting: a pad's right
+  // stick and the overlay's look pad are the same control on different
+  // hardware, so one switch moves both. The mouse is deliberately not here —
+  // see core/prefs.ts.
+  onLookAxes: (a: Partial<LookAxes>) => {
+    pad?.setLookAxes(a);
+    touch?.setLookAxes(a);
+  },
   onHapticFeedback: (on: boolean) => feedback?.setOptions({ hapticFeedback: on }),
   // Live, and unlike the two above it there is no null to guard: the music is
   // built BEFORE the menu, because the poster is the first thing it plays under.
@@ -1177,7 +1190,7 @@ let photoAnimTimer = 0;
 
 // Touch overlay: only exists on devices with a touch screen (null otherwise,
 // so nothing is added to the DOM and there is no per-frame cost).
-const touch = photoMode ? null : TouchControls.attach(input);
+touch = photoMode ? null : TouchControls.attach(input);
 
 // ---------------------------------------------------------------------------
 // The display language can change while the game is running — the start menu's
@@ -1215,12 +1228,16 @@ onLanguageChange(() => {
 // the top for the same reason: a switch thrown while the world was being built
 // has already been persisted, and reading late is what picks it up.
 const prefs = loadPrefs();
-pad = photoMode ? null : GamepadControls.attach(input, {
-  look: {
-    invertX: flags.invertLookX ?? prefs.invertLookX,
-    invertY: flags.invertLookY ?? prefs.invertLookY,
-  },
-});
+// ONE resolved answer for both stick devices, rather than the same two `??`
+// chains written twice: the overlay is attached above (it has to exist before
+// the first frame that might tick it) and is told the axes here, where the
+// preferences are finally read.
+const lookAxes: LookAxes = {
+  invertX: flags.invertLookX ?? prefs.invertLookX,
+  invertY: flags.invertLookY ?? prefs.invertLookY,
+};
+pad = photoMode ? null : GamepadControls.attach(input, { look: lookAxes });
+touch?.setLookAxes(lookAxes);
 
 // Rumble and camera shake, driven off the bus. Null in photo mode for the same
 // reason the touch overlay is: a staged capture must not have the camera kicked
@@ -1292,6 +1309,10 @@ const _hurtFrom = new THREE.Vector3();
   lookActive: input.lookActive,
   touchActive: input.touchActive,
   touchOverlay: !!document.querySelector('.bs-touch'),
+  // Which way the OVERLAY's look pad runs, which is a different object from the
+  // pad's answer in `__dbgPad` and has to be readable on its own — a phone run
+  // has no gamepad to ask. Null where there is no overlay at all.
+  touchLookAxes: touch?.lookAxes ?? null,
   // Buttons, edges and per-source sticks. ADDITIVE — tools/test-touch.mjs dumps
   // this object wholesale, so keys may be added here but never renamed.
   ...(input.debugState() as object),
@@ -2061,7 +2082,7 @@ devConsole?.register({
 devConsole?.register({
   name: 'invertlook',
   args: '<x|y> [0|1]',
-  help: 'Show or set controller look inversion. Persists. Y is on by default.',
+  help: 'Show or set stick look inversion (pad and touch). Persists. Y is on by default.',
   run: (args) => {
     const axis = (args[0] ?? '').toLowerCase();
     if (axis !== 'x' && axis !== 'y') return 'usage: /invertlook <x|y> [0|1]';
@@ -2076,8 +2097,10 @@ devConsole?.register({
     savePrefs({ [key]: on });
     if (pinned !== null) return `saved ${key} = ${on}, but this load is pinned to ${pinned}`;
     // Applied live rather than at the next load: this is the one setting whose
-    // effect you can only judge with the stick in your hand.
-    pad?.setLookAxes(axis === 'x' ? { invertX: on } : { invertY: on });
+    // effect you can only judge with the stick in your hand — either stick.
+    const a: Partial<LookAxes> = axis === 'x' ? { invertX: on } : { invertY: on };
+    pad?.setLookAxes(a);
+    touch?.setLookAxes(a);
     return `${key} = ${on}`;
   },
 });
