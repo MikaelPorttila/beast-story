@@ -947,7 +947,6 @@ const CSS = `
   color:rgba(255,214,140,.8);margin:14px 0 6px}
 .bs-opts .about ul{margin:0 0 12px;padding-left:20px}
 .bs-opts .about li{margin:0 0 7px}
-.bs-opts .about .repo{color:rgba(255,214,140,.85);word-break:break-all}
 /* A CREDIT IS A BLOCK, NOT A LINE. Package, licence, copyright, home — four
    facts that wrap independently, so they are four rows rather than one sentence
    a narrow window breaks in the middle of a URL. */
@@ -961,13 +960,12 @@ const CSS = `
   border:1px solid rgba(255,214,140,.24)}
 .bs-opts .about .cr,.bs-opts .about .url{display:block;
   color:rgba(255,255,255,.66);word-break:break-word}
-/* The licence text itself, verbatim and wrapped. A <pre> because it is a quoted
-   document rather than our prose — and pre-wrap rather than pre, because the
-   source is one paragraph per clause and a horizontal scrollbar inside a
-   vertical one is nobody's idea of readable. NOT monospace: the exemption in
-   AGENTS.md is for the developer instruments, and this is player-facing. */
-.bs-opts .about pre.mit{margin:0;white-space:pre-wrap;font-family:inherit;
-  font-size:16px;font-weight:600;line-height:1.4;color:rgba(255,255,255,.66)}
+/* THE LAST LIST HAS NO MARGIN UNDER IT. The credits used to be followed by a
+   licence body, so their trailing 12px was a gap between two blocks; with the
+   body gone it is a strip of empty plate at the bottom of the scroll, which
+   reads as more content that failed to load. */
+.bs-opts .about ul.credits:last-child{margin-bottom:0}
+.bs-opts .about ul.credits:last-child li:last-child{margin-bottom:0}
 /* Wood-and-gold, taken from the logo rather than from the HUD's cool glass:
    this screen belongs to the painting, not to the interface that comes after.
 

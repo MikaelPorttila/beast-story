@@ -17,27 +17,34 @@ import { t } from '../i18n';
  * are one fact each, and nothing needs a paragraph above it to make sense. A
  * player who reads only the first line has still been told what they are looking
  * at. Every heading below it is a question somebody actually arrives with —
- * what do I do, how is it made, was AI involved, who made it, what is it built
- * from — so the box can be skimmed rather than read.
+ * what do I do, was AI involved, who made it, what is it built from — so the
+ * box can be skimmed rather than read.
  *
  * WHAT IS TRANSLATED AND WHAT IS NOT
  *
  * Prose and headings are `en.ts` keys, so the panel follows the language picker
  * three steps away on the same screen. THE LICENCE BLOCK IS NOT: a package's
- * name, its SPDX identifier and the MIT text itself are the legal notice we are
- * obliged to reproduce, and a translated licence is not the licence. They are
- * the constants below and they are English wherever the rest of the panel is.
+ * name, its SPDX identifier and its copyright line are a legal notice, and a
+ * translated notice is not the notice. They are the constants below and they
+ * are English wherever the rest of the panel is.
  *
  * WHAT HAS TO BE LISTED, AND WHAT MERELY OUGHT TO BE
  *
  * Only what SHIPS carries an obligation. `three` is the whole of the runtime
- * dependency list, it is MIT, and MIT says the copyright notice and the
- * permission notice travel with every copy — so its full text is in `MIT_TEXT`
- * below and is rendered verbatim. Everything under `TOOLS` builds or tests the
- * game and is in nobody's browser, so those are a CREDIT rather than a notice:
- * name, version-independent, and the SPDX id. Adding a dependency means adding
- * it to one of these two lists in the same commit — the routine is written down
- * in AGENTS.md, because a licence list nobody updates is worse than none.
+ * dependency list, so it is listed with the copyright line out of its own
+ * LICENSE file. Everything under `TOOLS` builds or tests the game and is in
+ * nobody's browser, so those are a CREDIT rather than a notice: name,
+ * version-independent, and the SPDX id. Adding a dependency means adding it to
+ * one of these two lists in the same commit — the routine is written down in
+ * AGENTS.md, because a licence list nobody updates is worse than none.
+ *
+ * THE FULL LICENCE BODIES ARE NOT HERE, and it is a trade rather than an
+ * oversight. A screen of MIT boilerplate under a heading reading "The MIT
+ * License" is read by a player as a statement about THIS GAME — which it is
+ * not, and the game's own terms are not published. Naming each package, its
+ * licence and its copyright holder is what the panel carries instead. If a body
+ * comes back, it comes back under a heading that names the package it belongs
+ * to, so it cannot be mistaken for ours again.
  */
 
 /** A third-party package, as the panel lists one. */
@@ -84,34 +91,6 @@ const TOOLS: ReadonlyArray<Credit> = [
   { name: 'pngjs', license: 'MIT', url: 'https://github.com/pngjs/pngjs' },
 ];
 
-/**
- * The MIT licence, verbatim, once.
- *
- * Once because it is the same text for every MIT package here and reproducing
- * it per entry would be five identical screens of type in a box a player is
- * scrolling. The copyright LINE differs per package and stays with the package,
- * above; this is the permission notice that has to travel with it.
- */
-const MIT_TEXT =
-  'Permission is hereby granted, free of charge, to any person obtaining a copy ' +
-  'of this software and associated documentation files (the "Software"), to deal ' +
-  'in the Software without restriction, including without limitation the rights ' +
-  'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell ' +
-  'copies of the Software, and to permit persons to whom the Software is ' +
-  'furnished to do so, subject to the following conditions:\n\n' +
-  'The above copyright notice and this permission notice shall be included in ' +
-  'all copies or substantial portions of the Software.\n\n' +
-  'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR ' +
-  'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, ' +
-  'FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE ' +
-  'AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER ' +
-  'LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, ' +
-  'OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN ' +
-  'THE SOFTWARE.';
-
-/** Where the source lives. Shown as text — the poster has nothing to click to. */
-const REPO = 'github.com/MikaelPorttila/beast-story';
-
 const escapeHtml = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
@@ -151,23 +130,17 @@ export function aboutMarkup(): string {
         `<li>${escapeHtml(t('about.what.4'))}</li>` +
       '</ul>' +
 
-      h(t('about.made')) +
-      p(t('about.made.body')) +
-
       h(t('about.ai')) +
       p(t('about.ai.body')) +
 
       h(t('about.credits')) +
       p(t('about.credits.body')) +
-      `<p class="repo">${escapeHtml(REPO)}</p>` +
 
       h(t('about.licenses')) +
       p(t('about.licenses.shipped')) +
       `<ul class="credits">${SHIPPED.map(creditRow).join('')}</ul>` +
       p(t('about.licenses.tools')) +
       `<ul class="credits">${TOOLS.map(creditRow).join('')}</ul>` +
-      `<h4>${escapeHtml(t('about.licenses.mit'))}</h4>` +
-      `<pre class="mit">${escapeHtml(MIT_TEXT)}</pre>` +
     '</div>'
   );
 }

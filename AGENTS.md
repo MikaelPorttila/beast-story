@@ -37,13 +37,19 @@ Three questions, in order, and the first one decides the other two:
    developer's machine was never distributed.
 2. **What does its licence oblige?** Read the package's own `LICENSE` file
    rather than the SPDX id in `package.json`; the id is a label and the file is
-   the text, and the file is what carries the copyright line. MIT and BSD want
-   the copyright notice AND the permission notice carried with every copy —
-   which is why the MIT text is reproduced verbatim in `about.ts` and the
-   copyright line sits with the package it belongs to. Apache-2.0 wants a copy
-   of the licence and any NOTICE file, plus a statement of changes if you
-   modified it. Anything copyleft (GPL, LGPL, AGPL) is a decision about the
-   whole project rather than a line in a credits panel — stop and ask.
+   the text, and the file is what carries the copyright line — which is the
+   thing the panel reproduces verbatim, per package. Apache-2.0 additionally
+   wants any NOTICE file and a statement of changes if you modified it.
+   Anything copyleft (GPL, LGPL, AGPL) is a decision about the whole project
+   rather than a line in a credits panel — stop and ask.
+
+   THE FULL LICENCE BODIES ARE DELIBERATELY NOT IN THE PANEL. They were, and
+   the heading "The MIT License" sitting at the bottom of a page about this
+   game reads as a statement about THIS GAME rather than about three.js — which
+   it is not, and the game's own terms are not published. What is carried is
+   the name, the SPDX id and the copyright holder. That is thinner than MIT's
+   letter, and it is a considered trade: if a body goes back in, it goes under
+   a heading that names the package it belongs to.
 3. **Which list does it go in?** `SHIPPED` for the first case, with its
    copyright line; `TOOLS` for the second, name and SPDX id. `bun tools/test-about.mjs`
    reads `package.json`'s `dependencies` and fails on any that the panel does
@@ -52,9 +58,14 @@ Three questions, in order, and the first one decides the other two:
    things nobody would call a credit — so that one is on you.
 
 Two things the panel is NOT allowed to do. A licence is never translated: names,
-SPDX ids and licence bodies stay in `about.ts` as constants and are English in
+SPDX ids and copyright lines stay in `about.ts` as constants and are English in
 every language (the prose around them is `en.ts` keys, and follows the picker).
 And a licence is never SUMMARISED into our own words — the notice is the notice.
+
+One more, and it is not about licences: **THE REPOSITORY IS PRIVATE**, so the
+panel carries no link to it and no invitation to read the source.
+`test-about.mjs` asserts that too, because "the source is public" is exactly the
+sentence a credits section grows on its own.
 
 The same routine covers content that is not code. If a font, a texture, a sound
 or a body of text ever enters this project under someone's terms, it is a

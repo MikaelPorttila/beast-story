@@ -21,9 +21,11 @@
 //      run: add a package that ships and forget its notice, and this fails. It
 //      cannot be written the other way round (asserting the panel's list) —
 //      that only checks the panel agrees with itself.
-//   4. THE LICENCE TEXT IS VERBATIM. MIT obliges us to carry the permission
-//      notice, so the sentence that IS the obligation is looked for literally,
-//      and the copyright line with it.
+//   4. THE COPYRIGHT LINE IS VERBATIM, for the one package that ships. The
+//      licence BODIES are deliberately not in the panel — a screen of MIT
+//      boilerplate under a heading reading "The MIT License" is read as a
+//      statement about this game, which it is not — so what has to survive is
+//      the notice that names three.js and its holders.
 //   5. IT FOLLOWS THE LANGUAGE PICKER. The prose is `en.ts` keys, so switching
 //      to Swedish must re-caption the panel — while the licence block, which is
 //      a legal notice rather than prose, must NOT move.
@@ -40,10 +42,8 @@ const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 /** What actually ships. Dev dependencies are a credit, not a notice. */
 const RUNTIME_DEPS = Object.keys(pkg.dependencies ?? {});
 
-/** The sentence MIT exists to make us carry. Looked for literally. */
-const MIT_OBLIGATION =
-  'The above copyright notice and this permission notice shall be included in ' +
-  'all copies or substantial portions of the Software.';
+/** The shipped package's own copyright line, out of its LICENSE file. */
+const SHIPPED_COPYRIGHT = /Copyright © \d{4}-\d{4} three\.js authors/;
 
 /** Any key leaves the splash; then in through the About door. */
 async function openAbout(page) {
@@ -160,9 +160,11 @@ const out = { runtimeDeps: RUNTIME_DEPS };
     const row = at0.credits.find((c) => c.name?.toLowerCase().startsWith(stem.toLowerCase()));
     return [d, row ? { listed: true, license: row.license } : { listed: false }];
   }));
-  out.mitVerbatim = text.includes(MIT_OBLIGATION.replace(/\s+/g, ' '));
-  out.copyright = /Copyright © \d{4}-\d{4} three\.js authors/.test(text);
+  out.copyright = SHIPPED_COPYRIGHT.test(text);
   out.aiDisclaimer = /\bAI\b/.test(text) && /generative AI/i.test(text);
+  // The repository is private. A link to it is an invitation to a 404, so the
+  // panel must not carry one — this is the assertion that keeps it out.
+  out.noRepoLink = !/github\.com\/MikaelPorttila/i.test(text);
 
   await ctx.close();
 }
@@ -203,7 +205,7 @@ const out = { runtimeDeps: RUNTIME_DEPS };
     lead: p.lead,
     headings: p.headings,
     // The notice is the notice in every language.
-    mitVerbatim: p.text.includes(MIT_OBLIGATION.replace(/\s+/g, ' ')),
+    copyright: SHIPPED_COPYRIGHT.test(p.text),
     credits: p.credits,
   };
   await ctx.close();
@@ -232,11 +234,11 @@ for (const [dep, v] of Object.entries(out.credited ?? {})) {
   if (!v.listed) fails.push(`runtime dependency "${dep}" is not credited in the About panel`);
   else if (!v.license) fails.push(`"${dep}" is listed with no licence`);
 }
-if (!out.mitVerbatim) fails.push('the MIT permission notice is not reproduced verbatim');
 if (!out.copyright) fails.push('the three.js copyright line is missing');
 if (!out.aiDisclaimer) fails.push('no AI disclaimer');
+if (!out.noRepoLink) fails.push('the panel links the repository, which is private');
 if (out.swedish?.lead === out.desktop?.lead) fails.push('the prose did not follow ?lang=sv');
-if (!out.swedish?.mitVerbatim) fails.push('the licence text moved with the language');
+if (!out.swedish?.copyright) fails.push('the copyright notice moved with the language');
 
 if (fails.length) {
   console.error(`\nFAIL:\n  ${fails.join('\n  ')}`);

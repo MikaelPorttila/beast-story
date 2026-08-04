@@ -129,30 +129,22 @@ export const sv: Translation = {
   'about.lead':
     'Beast Story: Bonds of Red är ett litet öppet äventyrsspel. Du utforskar, du ' +
     'möter bestar, och de slåss vid din sida.',
+  // Ett ord per rad, precis som i en.ts.
   'about.what': 'Vad du gör',
-  'about.what.1': 'Gå, simma, klättra och flyg genom en enda stor värld.',
-  'about.what.2': 'Två bestar följer dig. Du använder deras färdigheter från fältet.',
-  'about.what.3': 'Besegra vilda bestar, plocka upp det de tappar, köp nya färdigheter.',
-  'about.what.4': 'Det går inte att spara än. Varje omgång börjar från början.',
-  'about.made': 'Hur det är gjort',
-  'about.made.body':
-    'Nästan ingenting här är en fil. Varje varelse, träd, väg och byggnad byggs ' +
-    'av kod medan spelet körs, och animeras på samma sätt. De enda färdiga ' +
-    'delarna är titelmålningen, logotypen, muspekarna och två musikspår. Det är ' +
-    'skrivet i TypeScript, ritat med three.js, och körs i en webbläsare.',
+  'about.what.1': 'Utforska',
+  'about.what.2': 'Tämj bestar',
+  'about.what.3': 'Strid',
+  'about.what.4': 'Bli starkare',
   'about.ai': 'AI-information',
   'about.ai.body':
     'Det här projektet är byggt med omfattande hjälp av generativ AI. Kod, bild, ' +
     'musik och text är framtagna med AI-verktyg och sedan granskade och ' +
     'redigerade av en människa. Betrakta allt här som AI-assisterat arbete.',
   'about.credits': 'Medverkande',
-  'about.credits.body':
-    'Gjort av Mikael Porttila. Hela källkoden är öppen, liksom varje ärende ' +
-    'spelet byggts utifrån.',
+  'about.credits.body': 'Gjort av Mikael Porttila.',
   'about.licenses': 'Licenser',
   'about.licenses.shipped': 'Ingår i spelet:',
   'about.licenses.tools': 'Används för att bygga och testa, ingår inte:',
-  'about.licenses.mit': 'MIT-licensen',
   // Flikarna över inställningarna. 'Spel' och inte 'Spelupplevelse': fliken står
   // bredvid tre andra i en spalt som är 400 px bred, och ordet ska rymmas.
   'menu.settings.tab.gameplay': 'Spel',
