@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Input } from '../core/input';
 import type { EventBus, World } from '../core/types';
+import { CarrierRide } from '../world/carriers';
 import { t } from '../i18n';
 import type { BeastActor, BeastRideState } from '../beasts/framework';
 import type { Player } from './index';
@@ -204,7 +205,21 @@ export class MountController {
    */
   setWorld(world: World): void {
     this.world = world;
+    // The caller dismounts first, so nothing is riding — but a carrier id from
+    // the zone being left means nothing in the new one, and clearing it here
+    // keeps the release beside the rebind.
+    this.carrier.clear();
   }
+
+  /**
+   * The moving frame under the mount's feet, if any. See world/carriers.ts.
+   *
+   * `carrier`, not `ride`: `this.ride` is already the saddle pose this
+   * controller hands the beast every slice (`BeastRideState`), and the two
+   * words mean opposite halves of the same sentence — what the mount is
+   * standing on, and what the mount is doing.
+   */
+  private readonly carrier = new CarrierRide();
 
   get isMounted(): boolean { return this.beast !== null; }
   /** 0..1 fill for the indicator. */
@@ -259,6 +274,14 @@ export class MountController {
     this.jumpWasHeld = jumpHeld;
 
     if (this.beast) {
+      // THE GROUND MOVES FIRST, exactly as it does for the hero on foot: if the
+      // pair of them are standing on something that travels, this is where they
+      // travel with it, before the reins are read. The rider needs no carry of
+      // his own while mounted — `seatHero` places him off `this.pos` at the end
+      // of the ride, and `Player.update` skips its own frame while mounted, so
+      // applying it here applies it exactly once.
+      this.carrier.carry(this.world, this.pos);
+      this.yaw += this.carrier.dyaw;
       // A tap of F gets off. The F that MOUNTED you is still down at this
       // point, and no edge can be produced from it because fWasHeld was already
       // true when the mount happened — you have to let go and press again.
@@ -312,7 +335,16 @@ export class MountController {
     // dirt underneath it and leave the rider buried in the thing he was just
     // standing on. Measured on a 1.96-unit crate in the Encampment while this
     // read `getHeight`: on foot 13.96, mounted 12.91. See `blockTop`.
-    this.pos.set(p.x, Math.max(this.blockTop(p.x, p.z), this.world.waterLevel - WADE_DEPTH), p.z);
+    // TAKE THE FRAME BEFORE ASKING WHAT THE GROUND IS. `blockTop` and
+    // `floorFor` both consult the ride, and the ride is gated on being attached
+    // — so a mount-up on a flying island's deck asked with no frame gets the
+    // terrain eighty units below and drops the pair of them off the island. A
+    // fresh attach applies no delta (see `CarrierRide.carry`), so this is a
+    // lookup and not a move.
+    this.pos.set(p.x, p.y, p.z);
+    this.carrier.clear();
+    this.carrier.carry(this.world, this.pos);
+    this.pos.y = Math.max(this.blockTop(p.x, p.z), this.world.waterLevel - WADE_DEPTH);
     if (this.flying) this.pos.y = this.floorFor(p.x, p.z);
     this.vel.set(0, 0, 0);
     this.vy = 0;
@@ -383,9 +415,16 @@ export class MountController {
 
   // -- ride ------------------------------------------------------------------
 
-  /** Lowest a flyer may be at this column: terrain or water, plus clearance. */
+  /**
+   * Lowest a flyer may be at this column: terrain or water, plus clearance —
+   * and a carrier's deck when it is riding one, which is what lets a galebird
+   * come to rest on a flying island instead of sinking through it to the ground
+   * eighty units below.
+   */
   private floorFor(x: number, z: number): number {
-    return Math.max(this.world.getHeight(x, z), this.world.waterLevel) + FLY_CLEARANCE;
+    const deck = this.carrier.support(x, z);
+    const ground = Math.max(this.world.getHeight(x, z), this.world.waterLevel);
+    return Math.max(ground, deck) + FLY_CLEARANCE;
   }
 
   /**
@@ -402,6 +441,13 @@ export class MountController {
     let top = trunk > ground ? trunk : ground;
     const built = this.world.structureTopAt(x, z);
     if (built > top) top = built;
+    // ...and the deck of whatever is carrying it. -Infinity unless the mount is
+    // riding one, which is what makes it safe to ask with (x, z) alone — see
+    // `CarrierRide.support`, and Player.blockTop, which folds in the same query
+    // for the same reason. A mount that could walk through the island its rider
+    // cannot is the same defect as one that could walk through a hut.
+    const deck = this.carrier.support(x, z);
+    if (deck > top) top = deck;
     return top;
   }
 
@@ -531,8 +577,17 @@ export class MountController {
       this.pos.y = floor;
       if (this.vy < 0) this.vy = 0;
     }
-    const ceil = Math.max(this.world.getHeight(this.pos.x, this.pos.z), this.world.waterLevel)
-      + FLY_CEILING;
+    // THE CEILING IS CLEARANCE OVER THE GROUND UNDER YOU, and a carrier's deck
+    // is ground — which matters here more than anywhere else in this file,
+    // because the island is the one place in the world that can ONLY be reached
+    // by air. Over low ground the plain ceiling is 68 and the deck is at 78:
+    // without this, the flight ceiling forbids the only approach there is.
+    // `ceilingAt` and not `ride.support`, deliberately — the mount is not on
+    // the island yet, which is the whole point of asking. See CarrierRegistry.
+    const overhead = this.world.carriers.ceilingAt(this.pos.x, this.pos.z);
+    const ceil = Math.max(
+      this.world.getHeight(this.pos.x, this.pos.z), this.world.waterLevel, overhead,
+    ) + FLY_CEILING;
     if (this.pos.y > ceil) {
       this.pos.y = ceil;
       if (this.vy > 0) this.vy = 0;

@@ -254,6 +254,18 @@ export interface TownInfo {
   /** Map/compass chip colour, 0xRRGGBB. */
   readonly color: number;
   /**
+   * This settlement is CARRIED rather than sited: something that moves is
+   * holding it up, so `x`/`y`/`z` are a reading and not a placement.
+   *
+   * On the quest-facing contract because it changes what a consumer may DO with
+   * the position rather than merely what the position is: a marker has to be
+   * re-read every frame (see `_townChips` in main.ts), an objective cannot cache
+   * a distance, and anything reasoning about the ground under the town has to
+   * ask the carrier instead of the height field. `TownData.carried` is where it
+   * is authored; `World.carriers` is what is doing the carrying.
+   */
+  readonly carried: boolean;
+  /**
    * How far from (x, z) the wild population is kept from APPEARING. 0 means the
    * settlement has no such zone — see SafeZone, and `TownData.noSpawnRadius` for
    * the default this is derived from and how content overrides it.
@@ -369,6 +381,138 @@ export interface SafeZoneRegistry {
    */
   add(id: string, x: number, z: number, radius: number): void;
 }
+
+// ---------------------------------------------------------------------------
+// Carriers — things the world moves that other things stand on
+// ---------------------------------------------------------------------------
+
+/**
+ * A MOVING REFERENCE FRAME: a piece of the world that travels, carrying
+ * whatever is standing on it.
+ *
+ * A flying island is the first one. A boat, a raft, a lift, and a monster big
+ * enough to climb are the same problem, which is why this is a contract in the
+ * hub rather than a method on the island — the island is one implementation of
+ * a rule the rest of the game reads, exactly as a settlement is one producer of
+ * `structureTopAt`.
+ *
+ * IT IS NOT A REPARENTING. Every mover in this codebase resolves its feet
+ * against a column-top query and integrates in WORLD SPACE — the hero, the
+ * saddle, a following beast, a wild enemy, four separate physics loops with
+ * four separate step tests. Hanging any of them off a `THREE.Object3D` would
+ * mean rewriting all four in local space and would fork every one of the
+ * measured constants in them (`MAX_STEP_UP`, the probe radii, the climb slack).
+ * So a carrier does two much smaller things instead:
+ *
+ *   1. it publishes the motion it performed THIS SLICE (`dx/dy/dz/dyaw`), which
+ *      a rider adds to its own world position before running its ordinary
+ *      physics — the frame moves under a body that knows nothing about frames;
+ *   2. it answers `topAt`, so its deck is a floor by the same mechanism a hut
+ *      roof is, and no mover grows a second kind of collision.
+ *
+ * JUMPING OFF RETURNS YOU TO THE WORLD, and it does so by construction rather
+ * than by a rule anyone wrote: a rider is attached exactly while it is inside
+ * `contains`, so the frame stops being applied on the first slice the body is
+ * outside it. There is no detach event to miss and nothing to reset.
+ */
+export interface CarrierInfo {
+  /** Stable for the life of the frame. A rider stores this, not the object. */
+  readonly id: string;
+  /** World-space origin of the frame — the point `yaw` turns about. */
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** The frame's heading, `atan2(dx, dz)` like every other angle here. */
+  readonly yaw: number;
+  /** How far the ride volume reaches from (x, z). A broad-phase bound. */
+  readonly radius: number;
+  /**
+   * What the frame moved THIS SIMULATION SLICE: translation in world units,
+   * `dyaw` in radians about (x, z).
+   *
+   * A delta rather than a velocity because a rider has to apply exactly what
+   * the frame did, and a velocity times the rider's own dt is only the same
+   * number while both are integrating at the same rate — which stops being true
+   * the moment anything is smoothed, clamped or catches up. See
+   * `CarrierRegistry.advance`.
+   */
+  readonly dx: number;
+  readonly dy: number;
+  readonly dz: number;
+  readonly dyaw: number;
+  /**
+   * Top of the surface a body stands on at this world column — the deck, and
+   * anything built on it — or -Infinity where the frame has nothing here.
+   *
+   * Deliberately the same shape as `getHeight` and `structureTopAt`, so a mover
+   * folds it into the max it already takes and its step test is unchanged.
+   */
+  topAt(x: number, z: number): number;
+  /**
+   * Is this point inside the ride volume?
+   *
+   * TAKES `y`, and that is the whole safety of the feature. A flying island's
+   * deck is ninety units over a meadow somebody is walking across; a query that
+   * could only see the column would teleport that walker onto the island the
+   * moment it drifted overhead. The volume is therefore the airspace ABOVE the
+   * deck and never below it — walking, swimming or flying UNDER a carrier is
+   * unaffected by it, which is also what makes stepping off the rim a fall.
+   */
+  contains(x: number, y: number, z: number): boolean;
+}
+
+/**
+ * Every moving frame in a zone. Empty in worlds that have none, which is all of
+ * them but the overworld today.
+ *
+ * `at` runs once per mover per simulation slice, so it is a linear scan over a
+ * list with one entry in it and allocates nothing. A spatial index over one
+ * disc costs more to build than it can ever save — the same argument
+ * `SafeZoneRegistry` makes.
+ */
+export interface CarrierRegistry {
+  readonly all: readonly CarrierInfo[];
+  get(id: string): CarrierInfo | undefined;
+  /** The frame whose volume holds this point, or null. */
+  at(x: number, y: number, z: number): CarrierInfo | null;
+  /**
+   * The highest deck over this column, WHOEVER is asking and wherever they are,
+   * or -Infinity where there is none.
+   *
+   * THE ONE QUERY THAT IGNORES THE VOLUME, and it exists for exactly one
+   * question: how high a flying mount is allowed to climb. Its ceiling is
+   * "clearance over the ground under you" (`FLY_CEILING` in player/mount.ts),
+   * and with an island overhead the ground under you is 80 units up — without
+   * this, the one place in the world you can only reach by air is the one place
+   * the flight ceiling forbids.
+   *
+   * IT MUST NOT BE USED AS A SURFACE. Everything a body stands on goes through
+   * `CarrierRide.support`, which is gated on actually riding; this answers for a
+   * deck a hundred units over your head, which is the correct answer to "how
+   * high may I go" and a teleport to anything else.
+   */
+  ceilingAt(x: number, z: number): number;
+  /**
+   * Move every frame one simulation slice, and publish the deltas.
+   *
+   * CALLED AT THE TOP OF THE SLICE, before any mover runs — see `simulate()` in
+   * main.ts. It is not part of `World.update`, and the ordering is the reason:
+   * `update` streams chunks and runs at the END of a slice, so a delta computed
+   * there is one the riders can only spend on the NEXT slice, and a hero
+   * standing still on a deck would visibly lag it by a slice's worth of travel
+   * every time the island changed speed.
+   */
+  advance(dt: number): void;
+}
+
+/** The registry a world with nothing that moves hands out. Shared; stateless. */
+export const NO_CARRIERS: CarrierRegistry = {
+  all: [],
+  get: () => undefined,
+  at: () => null,
+  ceilingAt: () => -Infinity,
+  advance: () => {},
+};
 
 // ---------------------------------------------------------------------------
 // NPCs
@@ -751,6 +895,11 @@ export interface World {
    * dungeon, the lab stage). See NpcField.
    */
   readonly npcs: NpcField | null;
+  /**
+   * The parts of this zone that MOVE, and carry what stands on them. See
+   * CarrierInfo — `NO_CARRIERS` is what a world with none of them returns.
+   */
+  readonly carriers: CarrierRegistry;
   /**
    * The world's REFERENCE POINT: a scenic stretch of the start town's road,
    * high, dry and about fifty units out (`pickRoadSpawn` in world/towns.ts).

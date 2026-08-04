@@ -105,6 +105,15 @@ const HORIZON_SCALE_FAR = 2.6;
  */
 const HORIZON_FLATTEN = 0.78;
 
+/**
+ * How far above or below a keep-out's centre a puff has to be to be left alone.
+ *
+ * The island's own vertical extent is a 27-unit keel under a 5-unit dome, and a
+ * cumulus is 10-25 units tall, so anything whose base is inside ~30 of the deck
+ * can genuinely intersect it. Past that the two simply pass each other.
+ */
+const KEEP_OUT_RISE = 30;
+
 /** Condensation level: every boll is clipped flat at this voxel row. */
 const BASE_Y = 4;
 
@@ -616,6 +625,38 @@ export class Clouds {
   private fx = 0;
   private fz = 0;
 
+  /**
+   * A disc the deck keeps out of — the flying island's footprint (issue #68).
+   *
+   * A CUMULUS THAT GROWS THROUGH A TOWN SQUARE is what this is for, and it is
+   * worth saying why the obvious answers are worse. HIDING an instance inside
+   * the disc punches a hole in the sky that opens and closes as the island
+   * travels, which reads as clouds blinking out; RAISING the band over the
+   * island puts a lid on it. Pushing each puff radially OUT to the rim keeps
+   * every instance in the sky, keeps the deck's density constant, and reads as
+   * the island having cleared its own weather — which is what a mountain does
+   * to a cloud layer anyway.
+   *
+   * It is applied in `writeMatrices` and NOT in `update`, so the puff's own
+   * drift and wrap are untouched: an instance shoved aside is still at its true
+   * position in the field and slides back across as the island passes, rather
+   * than being permanently deflected and leaving a wake of thin sky behind.
+   *
+   * One disc rather than a list, because the island is the only thing in the
+   * sky with a footprint. `radius` of 0 switches it off.
+   */
+  private koX = 0;
+  private koY = 0;
+  private koZ = 0;
+  private koR = 0;
+
+  setKeepOut(x: number, y: number, z: number, radius: number): void {
+    this.koX = x;
+    this.koY = y;
+    this.koZ = z;
+    this.koR = radius;
+  }
+
   private writeMatrices(): void {
     for (const deck of this.decks) {
       for (let i = 0; i < deck.items.length; i++) {
@@ -636,7 +677,36 @@ export class Clouds {
           sx *= g;
           sy *= g * (1 + (HORIZON_FLATTEN - 1) * k);
         }
-        tmpPos.set(it.x, y, it.z);
+        let px = it.x;
+        let pz = it.z;
+        // ONLY THE PUFFS AT ITS ALTITUDE. A cumulus forty units over the deck
+        // is not in the island's way and shoving it aside is a hole in the sky
+        // for nothing — worse, it is a WALL: a radial push piles everything it
+        // touches onto one circle, and the first pass, which tested no height
+        // at all, ringed the island with a canyon of cloud (captured in
+        // _sky-a.png). Gated on the vertical overlap, the two or three puffs
+        // actually sharing the island's band step aside and the deck above and
+        // below it is untouched.
+        if (this.koR > 0 && Math.abs(y - this.koY) < KEEP_OUT_RISE) {
+          // The puff's own reach, so a big far-band instance is pushed clear by
+          // its own half-width rather than by its centre. `sx` is the instance
+          // scale and the geometry is roughly 18 units across at scale 1.
+          const reach = this.koR + sx * 9;
+          const dx = px - this.koX;
+          const dz = pz - this.koZ;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < reach * reach) {
+            // Straight out along its own bearing from the island. A puff exactly
+            // on the axis has no bearing to be pushed along, so it takes +X —
+            // an arbitrary direction, chosen once, for a case of measure zero.
+            const d = Math.sqrt(d2);
+            const ux = d > 1e-3 ? dx / d : 1;
+            const uz = d > 1e-3 ? dz / d : 0;
+            px = this.koX + ux * reach;
+            pz = this.koZ + uz * reach;
+          }
+        }
+        tmpPos.set(px, y, pz);
         tmpQuat.setFromAxisAngle(yAxis, it.rot);
         tmpScale.set(sx, sy, sx);
         deck.mesh.setMatrixAt(i, tmpMat.compose(tmpPos, tmpQuat, tmpScale));

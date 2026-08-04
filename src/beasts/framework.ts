@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ELEMENT_COLORS, MAX_STEP_UP, BEAST_CYCLE_SLOTS } from '../core/types';
+import { CarrierRide } from '../world/carriers';
 import type {
   ElementType, EventBus, FetchJob, BeastAction, BeastAnimCtx, BeastRig, BeastSpecies,
   BeastStats, SkillDef, World,
@@ -591,6 +592,12 @@ if (typeof window !== 'undefined') {
 // BeastActor
 // ---------------------------------------------------------------------------
 export class BeastActor {
+  /**
+   * The moving frame under its feet, if any — see world/carriers.ts. One field
+   * and two calls, exactly as the hero and the saddle have.
+   */
+  private readonly ride = new CarrierRide();
+
   species: BeastSpecies;
   level = 1;
   xp = 0;
@@ -1064,6 +1071,16 @@ export class BeastActor {
   update(dt: number, owner: BeastOwner, role: 'primary' | 'support', others: BeastActor[]): void {
     this.time += dt;
 
+    // THE GROUND MOVES FIRST. A beast standing on something that travels goes
+    // with it, before its own steering runs — the same one line the hero and
+    // the saddle open with, and the reason a follower does not get left hanging
+    // in the air the moment its owner's island slides out from under it. It
+    // runs for a dead beast too, which is why it is above the branch: a corpse
+    // on a moving deck is a body lying on a floor, not a body pinned to the
+    // sky.
+    this.ride.carry(this.world, this.position);
+    this.yaw += this.ride.dyaw;
+
     if (this.isDead) {
       this.updateDead(dt, owner, role);
       this.puff.update(dt);
@@ -1109,7 +1126,7 @@ export class BeastActor {
     const dist = Math.hypot(dx, dz);
 
     const loco = this.species.locomotion;
-    const groundY = this.world.getHeight(this.position.x, this.position.z);
+    const groundY = this.groundAt(this.position.x, this.position.z);
     const deepWater = this.world.isWater(this.position.x, this.position.z)
       && groundY < this.world.waterLevel - 0.25;
     const swimming = loco !== 'flying' && deepWater;
@@ -1209,7 +1226,7 @@ export class BeastActor {
       this.pitch = damp(this.pitch, Math.sin(this.time * 2.2 + this.phase) * 0.06, 4, dt);
     } else {
       // Resample height post-integration so snapping/hops use the true ground
-      this.updateGrounded(dt, horizSpeed, this.world.getHeight(this.position.x, this.position.z));
+      this.updateGrounded(dt, horizSpeed, this.groundAt(this.position.x, this.position.z));
       base = 'idle'; // refined below once speed01 is smoothed
     }
 
@@ -1419,6 +1436,26 @@ export class BeastActor {
     this.vy = 0;
   }
 
+  /**
+   * The height a beast keeps its footing on: the terrain, or the deck of
+   * whatever is carrying it.
+   *
+   * A BEAST KEEPS ITS FOOTING ON `getHeight` AND ALWAYS HAS — it walks through
+   * trees and up terraces like the height field says, which is deliberate and
+   * is why this is not simply `blockTop`. A carrier's deck is a different case
+   * from a hut: a hut is a thing standing ON the ground, and a deck IS the
+   * ground, eighty units of air where the height field would otherwise be. So
+   * it goes in the footing, and settlements stay out of it.
+   *
+   * -Infinity unless the beast is actually riding, so this is the terrain
+   * everywhere else in the world — see `CarrierRide.support`.
+   */
+  private groundAt(x: number, z: number): number {
+    const g = this.world.getHeight(x, z);
+    const deck = this.ride.support(x, z);
+    return deck > g ? deck : g;
+  }
+
   private updateGrounded(dt: number, horizSpeed: number, groundY: number): void {
     // Along-forward acceleration, sampled every slice INCLUDING airborne ones so
     // that touching down does not read a stale sample as one huge spike.
@@ -1527,6 +1564,10 @@ export class BeastActor {
    */
   setWorld(world: World): void {
     this.world = world;
+    // A carrier id belongs to the zone that made it. Dropped here beside every
+    // other piece of per-zone state, rather than left for the registry to fail
+    // to resolve on the next slice.
+    this.ride.clear();
     this.abortFetch();
     this.carryTime = 0;
     this.vel.set(0, 0, 0);
@@ -1536,7 +1577,14 @@ export class BeastActor {
   private teleportTo(x: number, z: number, silent: boolean): void {
     this.position.x = x;
     this.position.z = z;
-    const groundY = this.world.getHeight(x, z);
+    // A TELEPORT LANDS IN THE WORLD, and re-attaches from where it lands. The
+    // destination is beside the owner, so a beast poofing in beside a hero who
+    // is standing on an island has to find the island's deck rather than the
+    // meadow under it — `carry` on the new position is what attaches it, and a
+    // fresh attach applies no delta.
+    this.ride.clear();
+    this.ride.carry(this.world, this.position);
+    const groundY = this.groundAt(x, z);
     const deepWater = this.world.isWater(x, z) && groundY < this.world.waterLevel - 0.25;
     if (this.species.locomotion === 'flying') {
       this.position.y = Math.max(groundY, this.world.waterLevel) + 1.55;

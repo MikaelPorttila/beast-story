@@ -23,7 +23,7 @@
  * still walking toward the gateway, in a place he cannot see.
  */
 import * as THREE from 'three';
-import type { World } from '../core/types';
+import { NO_CARRIERS, type World } from '../core/types';
 import { CHUNK_SIZE } from './terrain';
 import { NO_SAFE_ZONES } from './safe-zones';
 import { hashCell, mulberry32 } from './noise';
@@ -599,6 +599,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      * costs the frame loop one null check instead of a scan of nothing.
      */
     npcs: null,
+    // Nothing in the hold moves under your feet. See World.carriers.
+    carriers: NO_CARRIERS,
     get chunksLoaded(): number { return chunks.size; },
     get streaming(): boolean { return building !== null || queue.length > 0; },
     get pendingChunks(): number { return queue.length + (building !== null ? 1 : 0); },

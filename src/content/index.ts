@@ -98,7 +98,10 @@ import { ENEMY_MODEL_KIND, ENEMY_TYPE, setKnownEnemyModels } from './types/enemy
 import { MUSIC_TRACK_KIND, MUSIC_TYPE, setKnownMusicTracks } from './types/music';
 import { NPC_BODY_KIND, NPC_TYPE, setKnownNpcBodies } from './types/npc';
 import { QUEST_TYPE } from './types/quest';
-import { TOWN_LAYOUT_KIND, TOWN_TYPE, setKnownTownLayouts } from './types/town';
+import {
+  CARRIED_LAYOUT_KIND, TOWN_LAYOUT_KIND, TOWN_TYPE,
+  setKnownCarriedLayouts, setKnownTownLayouts,
+} from './types/town';
 import type {
   Action,
   Condition,
@@ -126,7 +129,7 @@ export { ENEMY_TYPE, ENEMY_MODEL_KIND } from './types/enemy';
 export { MUSIC_TYPE, MUSIC_TRACK_KIND } from './types/music';
 export { NPC_TYPE, NPC_BODY_KIND } from './types/npc';
 export { QUEST_TYPE } from './types/quest';
-export { TOWN_TYPE, TOWN_LAYOUT_KIND } from './types/town';
+export { TOWN_TYPE, TOWN_LAYOUT_KIND, CARRIED_LAYOUT_KIND } from './types/town';
 export type { BiomeData } from './types/biome';
 export type { EnemyData, EnemyVariant } from './types/enemy';
 export type { MusicData } from './types/music';
@@ -171,6 +174,7 @@ const ROOT_TYPES: ReadonlySet<ContentTypeName> = new Set([...ENUMERATED_TYPES, '
 /** Kind -> the content type that validates a selection of it. See the header. */
 const FACTORY_PUBLISHERS: Readonly<Record<string, (names: Iterable<string>) => void>> = {
   [TOWN_LAYOUT_KIND]: setKnownTownLayouts,
+  [CARRIED_LAYOUT_KIND]: setKnownCarriedLayouts,
   [NPC_BODY_KIND]: setKnownNpcBodies,
   [ENEMY_MODEL_KIND]: setKnownEnemyModels,
   [MUSIC_TRACK_KIND]: setKnownMusicTracks,

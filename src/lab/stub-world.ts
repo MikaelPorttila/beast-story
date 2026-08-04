@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { TownRegistry, World } from '../core/types';
+import { NO_CARRIERS, type TownRegistry, type World } from '../core/types';
 import { NO_SAFE_ZONES } from '../world/safe-zones';
 
 /**
@@ -39,6 +39,8 @@ export class StubWorld implements World {
   readonly safeZones = NO_SAFE_ZONES;
   /** ...and nobody lives on it. See World.npcs. */
   readonly npcs = null;
+  /** ...and nothing on it moves under your feet. See World.carriers. */
+  readonly carriers = NO_CARRIERS;
   readonly spawnPoint = new THREE.Vector3(0, 0, 0);
   /**
    * The stage has nobody to stand beside, so the pose is the middle of the

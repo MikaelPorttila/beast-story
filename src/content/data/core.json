@@ -54,6 +54,23 @@
     },
 
     {
+      "id": "town:skyhaven",
+      "schema": 1,
+      "name": { "key": "town.skyhaven.name" },
+      "tags": ["settlement", "carried"],
+      "data": {
+        "sign": { "key": "town.skyhaven.sign" },
+        "layout": "skyhaven",
+        "radius": 30,
+        "color": "#bfe4ef",
+        "waterside": false,
+        "order": 3,
+        "start": false,
+        "carried": true
+      }
+    },
+
+    {
       "id": "npc:gain",
       "schema": 1,
       "name": { "key": "npc.gain.name" },
@@ -64,6 +81,48 @@
         "homeOffset": 0,
         "acrossFocus": true,
         "talk": [{ "line": { "key": "npc.gain.greeting" } }]
+      }
+    },
+
+    {
+      "id": "npc:sky-pilot",
+      "schema": 1,
+      "name": { "key": "npc.skyPilot.name" },
+      "tags": ["resident", "skyhaven"],
+      "data": {
+        "town": "town:skyhaven",
+        "body": "sky-pilot",
+        "homeOffset": 6,
+        "acrossFocus": false,
+        "talk": [{ "line": { "key": "npc.skyPilot.greeting" } }]
+      }
+    },
+
+    {
+      "id": "npc:sky-gardener",
+      "schema": 1,
+      "name": { "key": "npc.skyGardener.name" },
+      "tags": ["resident", "skyhaven"],
+      "data": {
+        "town": "town:skyhaven",
+        "body": "sky-gardener",
+        "homeOffset": 11,
+        "acrossFocus": true,
+        "talk": [{ "line": { "key": "npc.skyGardener.greeting" } }]
+      }
+    },
+
+    {
+      "id": "npc:sky-lamplighter",
+      "schema": 1,
+      "name": { "key": "npc.skyLamplighter.name" },
+      "tags": ["resident", "skyhaven"],
+      "data": {
+        "town": "town:skyhaven",
+        "body": "sky-lamplighter",
+        "homeOffset": 4,
+        "acrossFocus": false,
+        "talk": [{ "line": { "key": "npc.skyLamplighter.greeting" } }]
       }
     },
 

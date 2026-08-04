@@ -200,7 +200,7 @@ once frames come quickly.
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`,
   `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`, `test-content.mjs`,
-  `test-safezone.mjs`, `test-about.mjs`.
+  `test-safezone.mjs`, `test-about.mjs`, `test-carrier.mjs`.
   `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
@@ -851,6 +851,153 @@ authority: pure functions of `(seed, x, z)`, so anything can ask for a height
 without touching loaded chunks. `createWorld()` streams 32-unit chunks around the
 focus (`VIEW_RADIUS` 5, 1–2 builds per frame) and assembles terrain + water +
 props + skill dens + clouds behind the `World` interface.
+
+**A CARRIER IS A PIECE OF THE WORLD THAT MOVES, AND CARRIES WHAT STANDS ON IT.**
+That is issue #68, and the flying town is one implementation of it rather than
+the feature itself: `CarrierInfo`/`CarrierRegistry` are in
+[src/core/types.ts](src/core/types.ts) and the machinery is in
+[src/world/carriers.ts](src/world/carriers.ts), with nothing about islands in
+either. A boat, a lift and a monster big enough to climb are the same problem,
+and would write only what [src/world/sky-island.ts](src/world/sky-island.ts)
+writes — a shape, a surface, and a rule for where it goes next.
+
+**IT IS NOT A REPARENTING, and that is the decision the whole design rests on.**
+There are FOUR physics loops in this codebase and they agree about almost
+nothing: the hero has a step test, a canopy platform and a climb state; the
+saddle has a flight ceiling; a beast walks through walls it can see over; an
+enemy has a leash. All four integrate in WORLD SPACE and resolve their feet
+against a column-top query. Hanging any of them off a `THREE.Object3D` means
+rewriting all four in local space and forking every measured constant in them.
+So a carrier does two much smaller things instead: it publishes the motion it
+performed THIS SLICE (`dx/dy/dz/dyaw`), which a rider adds to its own world
+position before its ordinary physics runs; and it answers `topAt`, so its deck
+is a floor by exactly the mechanism a hut roof is. A mover gains ONE field and
+TWO calls (`CarrierRide`), and learns nothing about frames.
+
+**JUMPING OFF RETURNS YOU TO THE WORLD BY CONSTRUCTION**, which the issue asks
+for explicitly and which nobody had to write: a rider is attached exactly while
+it is inside `contains`, so the frame stops being applied on the first slice the
+body is outside it. There is no detach event to miss and nothing to reset.
+
+**`contains` TAKES A `y`, AND THAT IS THE WHOLE SAFETY OF THE FEATURE.** The
+deck is ninety units over a meadow somebody is walking across; a containment
+test that could only see the column would teleport that walker into the sky the
+moment the island drifted overhead. The volume is the airspace ABOVE the deck
+(`RIDE_CEILING` 22, `RIDE_FLOOR` 1.2) and never below it, so walking, swimming
+or flying UNDER a carrier is unaffected — and stepping off the rim is a fall.
+`CarrierRide.support` is gated on being attached for the same reason, which is
+what makes it safe to fold into a step test that only takes (x, z).
+`CarrierRegistry.ceilingAt` is the ONE query that ignores the volume, and it
+exists for one caller: a flying mount's ceiling is clearance over the ground
+under you, and with an island overhead the ground under you is eighty units up —
+without it the one place in the world that can ONLY be reached by air is the one
+place the flight ceiling forbids. It must never be used as a surface.
+
+**`carriers.advance(dt)` RUNS AT THE TOP OF THE SLICE**, in `simulate()`
+(main.ts) and NOT inside `World.update`. The world update streams chunks and runs
+at the END of a slice, so a delta published there could only be spent by the
+riders on the NEXT slice, and a hero standing still on a deck would lag it by a
+slice's travel every time it changed speed.
+
+**Skyhaven** ([src/world/sky-island.ts](src/world/sky-island.ts)) is the one
+carrier this build ships. Radius `19 * sqrt(8)` = 53.74 — the issue asks for
+"8 times the size of the encampment" and that is eight times its AREA, which is
+the reading that produces an island: 107 units across against a 160-unit view
+radius, so you can stand on the ground and see the whole of it against the sky.
+Eight times the RADIUS is 304 across, wider than the world is drawn, and from
+underneath it stops being an island and becomes a ceiling. `deckAt` is the
+authority twice over — the mesh's top surface is sampled from it and `localTop`
+answers every step test with it — which is the road ribbon's rule (below)
+applied to a second surface and for the same reason: what you see is what you
+stand on BY CONSTRUCTION, not because two formulas currently agree.
+
+**IT DOES NOT FLY INTO MOUNTAINS, AND THE MECHANISM IS A FLOOR RATHER THAN AN
+AVOIDANCE BEHAVIOUR.** `steer` samples the height field under its own footprint
+and along its heading (13 samples a slice) and holds the keel `KEEL_MARGIN` (14)
+over the worst of them, rate-limited so it rides up a ridge instead of snapping
+over it. The horizontal wander is then free to go anywhere, because there is
+nowhere it can go that the altitude rule does not already cover — a steering
+behaviour would have to be right every time to avoid the one case that matters,
+where this is right by not being able to be wrong.
+
+**THE ROCK IS TWO MESHES AND THE REASON IS THE SHADOW MAP.** It was one, sharing
+the rim ring so there could be no seam — and a mesh that both casts and receives
+shadows SHADOWS ITSELF, which for a hundred-unit lid directly over its own
+underside means the keel renders uniformly black whatever its normals or its
+colours say. The deck receives (the huts' shadows on the grass are most of what
+tells you the town is standing on something) and the keel does not; the rim ring
+is emitted into both from the same `pushRing` at the same `d`, so the two share
+vertex positions exactly and there is no crack. Its normals are then bent
+OUTWARD (`wrapKeelNormals`): the underside of a floating island is the one
+surface in this game that faces away from every light in the scene, so it is lit
+as a cliff rather than as a ceiling. Two more things learned by capture — ONE
+winding serves both halves, because the deck's rings ascend in radius and the
+keel's descend so the facing flips on its own, and "winding the second half the
+other way to compensate" ships an island whose grass is a black disc from above;
+and the keel needs LOBES, because a pure function of the radius is a bowl and
+the silhouette is the only part of the underside a player ever sees clearly.
+
+**CLOUDS PART AROUND IT, AND ONLY AT ITS OWN ALTITUDE.** `Clouds.setKeepOut`
+pushes a puff radially out to the rim rather than hiding it (a hole in the sky
+that opens and closes as the island travels) or lifting it (a lid). Gated on the
+vertical overlap, `KEEP_OUT_RISE` 30: the first pass tested no height at all and
+ringed the island with a canyon of cloud, because a radial push piles everything
+it touches onto one circle.
+
+**THE FLYING TOWN IS ON THE TOWN REGISTRY LIKE ANY OTHER, AND ITS POSITION IS A
+READING.** `TownInfo.carried` says so, and it is on the QUEST-FACING contract
+because it changes what a consumer may DO with the position rather than merely
+what the position is: a compass chip has to be re-read every frame (`_townChips`
+in main.ts, which is the whole of "the compass is aware of the town's updated
+location"), an objective cannot cache a distance, and anything reasoning about
+the ground under it has to ask the carrier rather than the height field.
+`TownData.carried` is where it is authored; `planSettlements` skips those
+outright — no siting, no road, no yard — and a carried town's layout is selected
+from a SECOND factory kind (`carried-layout`), because a ground layout is handed
+a road network and a site on the height field while a carried one is handed a
+deck and its own local origin, and a factory table where a lookup can return the
+wrong SHAPE of function is a runtime error in exchange for one fewer variable.
+`tools/test-structures.mjs` skips carried towns for the same reason its walks
+would be meaningless: their colliders are in the carrier's frame.
+
+**THE PEOPLE ON IT ARE THE ORDINARY NPC SYSTEM IN A DIFFERENT FRAME.** `Npcs`
+takes an optional `NpcFrame` (world/npc.ts) and everything inside it — the
+placement search, the clearance tests, the conversation state, the culling —
+runs in that frame's coordinates and never finds out which one it is; `update`
+republishes `NpcInfo` in WORLD coordinates once a slice, because the talk test
+in main.ts is asked about a hero whose position is a world position and must not
+have to know either. The three residents are one parameterised body
+([src/world/npc-skyfolk.ts](src/world/npc-skyfolk.ts)) rather than three files:
+what distinguishes one villager from another at conversation distance is colour,
+prop and idle, not skeleton. `World.npcs` is then a COMPOSITE of the two crews
+(`NpcFields` in world/index.ts) — two instances, rather than a per-character
+frame and a branch in every loop.
+
+**A NEW RIG'S Z-FIGHTING OFFSETS ARE FOUND BY RUNNING THE TOOL, NOT BY READING
+THE GEOMETRY.** The skyfolk needed four separate parts — the shoulder in x, the
+elbow in x AND z, and the held prop in x, y and z, two of them per-character —
+and none of them is derivable from the numbers in the file, because which joint
+lands on a shared face grid depends on where each model's own bounds fall on the
+voxel lattice. Two measured facts worth keeping: a part of 0.002 does NOT work
+(`test-zfight.mjs` calls two faces coincident within 0.004, so it is still one
+plane), and a prop is a THIRD joint out — the offset that parts it from the arm
+holding it is not the offset that parts it from the torso behind it. All three
+rigs are at 0.
+
+`tools/test-carrier.mjs` is the guard and it exits non-zero. Everything it
+asserts is about `onDeck` — the hero's position in the island's OWN coordinates
+— because that is the one thing neither a world position nor a screenshot can
+say: a man on a deck looks identical whether he is riding it or falling past it.
+It is a PAIR twice over. Parked on the deck, the island must travel (17.86 units
+in 9 s) and `onDeck` must not (drift 0.000) — the first half alone passes in a
+world where the island never moved. Stepped past the rim, he must detach and
+fall (34 units in 0.9 s) — without it, "onDeck never changes" also passes for a
+hero glued to a frame he can never leave, which is the opposite defect and the
+one the issue explicitly asks against. And parked on the GROUND UNDERNEATH he
+must not attach and must not be dragged, which is the assertion that would catch
+a `contains` that forgot its `y`; it is measured against the island's own travel
+rather than against zero, because a hero standing in open country moves 1.56
+units in four seconds from a wild spawn's knockback alone.
 
 **Towns and roads.** [src/world/towns.ts](src/world/towns.ts) sites the named
 settlements, cuts the roads between them and picks `World.spawnPoint` — a point

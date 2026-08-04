@@ -47,6 +47,9 @@ import type { SolidBox } from './props';
 import { DECK_EDGE, type RoadClearance } from './roads';
 import { flags } from '../core/flags';
 import { GAIN_BODY } from './npc-gain';
+import {
+  SKY_GARDENER_BODY, SKY_LAMPLIGHTER_BODY, SKY_PILOT_BODY,
+} from './npc-skyfolk';
 import { content, defineFactory, NPC_BODY_KIND, type NpcData, type NpcTalkLine } from '../content';
 import type { ContentText } from '../content/types';
 import { displayKey, reportContentIssue } from '../core/content-bridge';
@@ -140,6 +143,12 @@ export interface NpcBody {
  */
 export const NPC_BODIES: Readonly<Record<string, NpcBody>> = {
   gain: GAIN_BODY,
+  // The three who live on the flying island (issue #68). One builder, three
+  // palettes and three idles — see world/npc-skyfolk.ts for why the variety is
+  // in the skin rather than in three copies of a skeleton.
+  'sky-pilot': SKY_PILOT_BODY,
+  'sky-gardener': SKY_GARDENER_BODY,
+  'sky-lamplighter': SKY_LAMPLIGHTER_BODY,
 };
 
 /**
@@ -330,13 +339,49 @@ const SPOT_BEARINGS = 16;
 
 // ---------------------------------------------------------------------------
 
+/**
+ * `NpcInfo` with its position writable, because on a moving frame it is not a
+ * placement, it is a per-slice reading. Off a frame it is written once and never
+ * again, exactly as it always was.
+ */
+type LiveNpcInfo = {
+  -readonly [K in keyof NpcInfo]: NpcInfo[K];
+};
+
 interface Placed {
   char: Character;
   rig: NpcRig;
-  info: NpcInfo;
-  /** The bearing he faces when nobody is with him. */
+  info: LiveNpcInfo;
+  /** Where he stands in the SITE's coordinates — the frame's, or the world's. */
+  localX: number;
+  localZ: number;
+  localY: number;
+  /** The bearing he faces when nobody is with him, in the site's frame. */
   restYaw: number;
   yaw: number;
+}
+
+/**
+ * A MOVING FRAME the whole crew stands in — a flying island's deck today, a
+ * boat's or a caravan's tomorrow. Absent means the ordinary case: the ground,
+ * which does not move and needs no transform.
+ *
+ * This is the narrow half of `CarrierBody` (world/carriers.ts) and it is
+ * declared here rather than imported so the NPC system depends on the SHAPE of
+ * a frame and not on carriers existing. Everything a placed character needs is
+ * the three things below: where the frame's origin is, which way it is turned,
+ * and how to get from its coordinates to the world's.
+ *
+ * WHAT IT CHANGES IS ONLY THE BOOKKEEPING. Placement, the clearance tests, the
+ * conversation state and the culling all run in the frame's own coordinates and
+ * never find out which frame it is; `NpcInfo` is then republished in WORLD
+ * coordinates once per update, because the talk test in main.ts is asked about
+ * a hero whose position is a world position and must not have to know either.
+ */
+export interface NpcFrame {
+  readonly y: number;
+  readonly yaw: number;
+  toWorld(lx: number, lz: number, out: { x: number; z: number }): void;
 }
 
 /** What the NPC system needs to know about the world it is being placed in. */
@@ -382,7 +427,12 @@ export class Npcs implements NpcField {
   /** Reused every frame; see the no-per-frame-allocation rule. */
   private readonly ctx: NpcAnimCtx = { time: 0, dt: 0, attended: false };
 
-  constructor(site: NpcSite) {
+  /**
+   * @param frame The moving reference frame this crew stands in, if any. See
+   *   `NpcFrame`. Every coordinate in `site` is then in that frame, and so is
+   *   everything this constructor computes; `update` publishes world positions.
+   */
+  constructor(site: NpcSite, private readonly frame: NpcFrame | null = null) {
     const infos: NpcInfo[] = [];
     for (const char of readCharacters()) {
       const town = site.towns.get(char.townId);
@@ -414,11 +464,18 @@ export class Npcs implements NpcField {
       rig.root.position.set(spot.x, y, spot.z);
       rig.root.rotation.y = restYaw;
       this.group.add(rig.root);
-      const info: NpcInfo = {
+      // The record starts out holding the SITE's coordinates, which off a frame
+      // is already the world's. On a frame the first `update` overwrites it —
+      // and nothing reads it in between, because the field is not on the World
+      // contract until the world that owns it has been returned.
+      const info: LiveNpcInfo = {
         id: char.id, nameKey: char.nameKey, x: spot.x, y, z: spot.z, restYaw,
       };
       infos.push(info);
-      this.placed.push({ char, rig, info, restYaw, yaw: restYaw });
+      this.placed.push({
+        char, rig, info, restYaw, yaw: restYaw,
+        localX: spot.x, localY: y, localZ: spot.z,
+      });
       // The same call shape `SolidStamp.add` uses, and the same field type —
       // his box is stamped at the pose he was placed in.
       this.solids.add(rig, spot.x, y, spot.z, restYaw, 1, 1);
@@ -490,7 +547,20 @@ export class Npcs implements NpcField {
     // the world's own clock.
     this.ctx.time = flags.npcTime ?? time;
     this.ctx.dt = dt;
+    const frame = this.frame;
     for (const p of this.placed) {
+      // ON A MOVING FRAME, WHERE HE IS IS A READING. Republished first, so
+      // every test below — the cull, the leave range, the bearing he turns on —
+      // is asked in world space against a world position, which is exactly what
+      // they were asked in before frames existed. `restYaw` and the placement
+      // stay in the frame's coordinates; only the published record moves.
+      if (frame) {
+        frame.toWorld(p.localX, p.localZ, _fw);
+        p.info.x = _fw.x;
+        p.info.z = _fw.z;
+        p.info.y = frame.y + p.localY;
+        p.info.restYaw = p.restYaw + frame.yaw;
+      }
       const dx = p.info.x - focus.x;
       const dz = p.info.z - focus.z;
       const d2 = dx * dx + dz * dz;
@@ -513,7 +583,14 @@ export class Npcs implements NpcField {
       const attended = near;
       // Frame-rate independent, per the convention: an exponential approach to
       // the wanted bearing, never a fixed lerp factor.
-      const want = attended ? Math.atan2(focus.x - p.info.x, focus.z - p.info.z) : p.restYaw;
+      // IN THE FRAME'S OWN ANGLES, because that is what the rig's rotation is:
+      // the root hangs under the frame, so its yaw is relative to the frame's.
+      // The bearing to the visitor is a WORLD bearing, so it comes back through
+      // `frame.yaw` — and `restYaw` never left the frame, which is why it is
+      // used raw here and offset above.
+      const toFocus = Math.atan2(focus.x - p.info.x, focus.z - p.info.z)
+        - (frame ? frame.yaw : 0);
+      const want = attended ? toFocus : p.restYaw;
       p.yaw = approachAngle(p.yaw, want, TURN_LAMBDA, dt);
       p.rig.root.rotation.y = p.yaw;
       this.ctx.attended = attended;
@@ -536,6 +613,9 @@ export class Npcs implements NpcField {
 }
 
 // ---------------------------------------------------------------------------
+
+/** Frame->world scratch for `update`. Per the no-per-frame-allocation rule. */
+const _fw = { x: 0, z: 0 };
 
 /** Shortest-arc exponential approach; the same helper the player camera uses. */
 function approachAngle(cur: number, target: number, rate: number, dt: number): number {

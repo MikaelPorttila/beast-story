@@ -642,6 +642,13 @@ const BUDGET = {
   lumimoth: 3,    // worst 0.00757
   drakelet: 2,    // worst 0.01022
   gain: 0,        // clean, and the only one
+  // The three who live on the flying island (issue #68). Clean, and clean the
+  // same way Gain is: they are one parameterised body (world/npc-skyfolk.ts),
+  // so the three joints that shared a grid — the shoulder in x, the forearm in
+  // x, the prop on the fist — were parted once and all three inherited it.
+  'sky-pilot': 0,
+  'sky-gardener': 0,
+  'sky-lamplighter': 0,
   // The settlement's glow pairs, and they are a different kind of entry: these
   // are not debt, they are a defect that was found and fixed. All three were
   // seams the day this section was written — 0.0784 m2 on the campfire and the

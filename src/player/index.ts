@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Engine } from '../core/engine';
 import type { Input } from '../core/input';
 import { MAX_STEP_UP, type ElementType, type EventBus, type World } from '../core/types';
+import { CarrierRide } from '../world/carriers';
 import { t } from '../i18n';
 import { buildHeroRig, type HeroRig } from './hero-rig';
 import { ThirdPersonCamera } from './camera';
@@ -285,6 +286,17 @@ export class Player {
    */
   aimAssist?: (origin: THREE.Vector3, direction: THREE.Vector3) => boolean;
 
+  /**
+   * The moving frame under his feet, if any — a flying island's deck today.
+   *
+   * ONE FIELD AND TWO CALLS, and nothing else in this file knows what it is
+   * standing on: `carry` at the top of the slice moves him with the frame, and
+   * `support` folds the deck into the two column-top questions he already asks
+   * (`blockTop` for the step test, `floor` for what holds him up). See
+   * world/carriers.ts.
+   */
+  private readonly ride = new CarrierRide();
+
   private rig: HeroRig;
   /**
    * The follow camera.
@@ -380,6 +392,11 @@ export class Player {
    */
   setWorld(world: World): void {
     this.world = world;
+    // Whatever was carrying him belonged to the zone he is leaving, and its id
+    // means nothing in the new one. `CarrierRide` would drop it on its own next
+    // slice (the registry answers `undefined`), but saying so here keeps the
+    // "everything the old zone owned is released" list in one place.
+    this.ride.clear();
     this.isClimbing = false;
     this.climbLockout = 0;
     this.isSwimming = false;
@@ -486,6 +503,7 @@ export class Player {
   takeStartPose(): void {
     const start = this.world.playerStart;
     this.velocity.set(0, 0, 0);
+    this.ride.clear();
     this.position.copy(start.position);
     this.position.y = Math.max(
       this.world.getHeight(this.position.x, this.position.z), this.world.waterLevel,
@@ -498,6 +516,7 @@ export class Player {
   }
 
   private respawn(): void {
+    this.ride.clear();
     this.isDead = false;
     this.hp = this.maxHp;
     this.flash = 0;
@@ -589,6 +608,28 @@ export class Player {
     this.time += dt;
     const input = this.input;
     const world = this.world;
+
+    // THE GROUND MOVES FIRST. If he is standing on something that travels, this
+    // is where he travels with it — before gravity, before the step test, and
+    // before the camera reads his position. Everything below then runs in world
+    // space exactly as it always has and never learns that it was moved.
+    //
+    // Skipped in the saddle: `MountController` carries the pair of them and
+    // writes this position, so running the frame here as well would apply the
+    // island's motion to the hero twice.
+    if (!this.isMounted) {
+      this.ride.carry(world, this.position);
+      if (this.ride.dyaw !== 0) {
+        // A TURNING DECK TURNS WHAT IS ON IT — his body and the camera arm
+        // both, or a hero standing still on a banking island slowly ends up
+        // facing across a deck he never turned on, with the view swinging past
+        // him. `cam.yaw` is the bearing from the hero to the camera and is the
+        // one thing here that is not re-derived per frame from his heading.
+        this.heading += this.ride.dyaw;
+        this.cam.yaw += this.ride.dyaw;
+        this.root.rotation.y = this.heading;
+      }
+    }
 
     if (this.invulnT > 0) this.invulnT -= dt;
     if (this.hurtT > 0) this.hurtT -= dt;
@@ -691,6 +732,15 @@ export class Player {
     let top = trunk > ground ? trunk : ground;
     const built = this.world.structureTopAt(x, z);
     if (built > top) top = built;
+    // A CARRIER'S DECK IS GROUND, and is folded in here rather than being a
+    // fourth kind of collision — the same argument `structureTopAt` makes about
+    // settlements. It answers -Infinity unless he is actually riding one, which
+    // is what makes it safe to ask with (x, z) alone: the vertical question was
+    // settled by `CarrierRide.carry` at the top of this slice, and asking it
+    // again with no y is exactly how a walker on the meadow would be teleported
+    // onto an island passing overhead.
+    const deck = this.ride.support(x, z);
+    if (deck > top) top = deck;
     // ...and, ONLY while he is standing on a crown, the crown itself. Up there
     // the leaves under his feet are the floor, so the step test has to see the
     // next column's leaves or walking up the inside of the dome would step off
@@ -927,7 +977,13 @@ export class Player {
     // something you walk ON rather than something you sink into. Anything taller
     // he was refused at the wall, and anything he jumped onto he lands on.
     const built = world.structureTopAt(this.position.x, this.position.z);
-    const floor = built > gh ? built : gh;
+    let floor = built > gh ? built : gh;
+    // ...and the deck of whatever is carrying him, by the same rule and in the
+    // same max. SOLID BOTH WAYS like a structure and unlike a canopy: he is
+    // only ever asking this while he is inside the frame's own volume, so there
+    // is no "from underneath" case for it to get wrong.
+    const deck = this.ride.support(this.position.x, this.position.z);
+    if (deck > floor) floor = deck;
     const canopy = this.canopyTop(this.position.x, this.position.z, gh);
     let support = -Infinity;
     if (this.position.y <= floor) {

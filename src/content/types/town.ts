@@ -31,6 +31,13 @@ import { isKnownTextKey } from '../text';
 /** The factory kind a town's `layout` selects. `town-layout/camp`, `…/hamlet`. */
 export const TOWN_LAYOUT_KIND = 'town-layout';
 
+/**
+ * The factory kind a CARRIED town's `layout` selects — `carried-layout/skyhaven`.
+ * See `TownData.carried`, and `setKnownCarriedLayouts` for why it is not the one
+ * above.
+ */
+export const CARRIED_LAYOUT_KIND = 'carried-layout';
+
 /** A layout name: the same narrow alphabet as the `name` half of an id. */
 const LAYOUT_RE = /^[a-z][a-z0-9-]*$/;
 
@@ -103,6 +110,26 @@ export interface TownData {
    * Replaces `SITES[0]` — see the header.
    */
   readonly start: boolean;
+  /**
+   * This settlement is NOT SITED ON THE GROUND: something that moves carries it.
+   *
+   * A flying island is the first one (issue #68), and a barge or a caravan would
+   * be the same statement. It is a boolean rather than a `site: "ground" | "sky"`
+   * enum because the question the engine asks is exactly this one — does the
+   * settlement planner own this town, or does a carrier? — and everything else
+   * about it (its name, radius, colour, layout, keep-out) means what it always
+   * meant, just measured in the frame of whatever is carrying it.
+   *
+   * `planSettlements` skips these outright, which is what stops the road router
+   * trying to cut a carriageway to a town that will not be there in a minute —
+   * and, incidentally, what keeps the hub-plus-two-spurs planner at the three
+   * roads it is written around. The carrier reads them for itself.
+   *
+   * Everything else that keys on a town is unaffected: `start` still names the
+   * ground town the player wakes in, `order` still orders the ground siting, and
+   * an NPC still names his town with `town: "town:…"` whether it flies or not.
+   */
+  readonly carried: boolean;
 }
 
 /**
@@ -130,6 +157,24 @@ export function setKnownTownLayouts(names: Iterable<string>): void {
   knownLayouts = new Set(names);
 }
 
+/**
+ * The same thing for CARRIED settlements, published by whatever carries them.
+ *
+ * A SECOND SET RATHER THAN A SECOND ENTRY IN THE FIRST, because the two names
+ * select functions of different SHAPES: a ground layout is handed a road
+ * network and a site on the height field, and a carried one is handed a deck
+ * and its own local origin. Registering both under `town-layout` would make the
+ * factory table a place where a lookup can return the wrong kind of function —
+ * a runtime error at world creation in exchange for one fewer variable here.
+ *
+ * NULL MEANS "NOBODY SAID" and skips the check, exactly as above.
+ */
+let knownCarried: ReadonlySet<string> | null = null;
+
+export function setKnownCarriedLayouts(names: Iterable<string>): void {
+  knownCarried = new Set(names);
+}
+
 function parse(body: unknown, ctx: ParseCtx): TownData | null {
   const r = readerFor(ctx, { knownTextKey: isKnownTextKey });
   const b = obj(body, r);
@@ -152,6 +197,7 @@ function parse(body: unknown, ctx: ParseCtx): TownData | null {
     waterside: opt(b.waterside, r.at('waterside'), bool) ?? false,
     order: num(b.order, r.at('order'), { min: 0, max: 10000, what: 'a placement order' }),
     start: opt(b.start, r.at('start'), bool) ?? false,
+    carried: opt(b.carried, r.at('carried'), bool) ?? false,
   };
 }
 
@@ -171,13 +217,15 @@ function* refs(_data: TownData): Iterable<ContentId> {
 }
 
 function validate(asset: ContentAsset<TownData>, ctx: ValidateCtx): void {
-  if (knownLayouts !== null && !knownLayouts.has(asset.data.layout)) {
+  const kind = asset.data.carried ? CARRIED_LAYOUT_KIND : TOWN_LAYOUT_KIND;
+  const known = asset.data.carried ? knownCarried : knownLayouts;
+  if (known !== null && !known.has(asset.data.layout)) {
     ctx.report({
       severity: 'error',
       code: 'unknown-factory',
-      message: `no "${TOWN_LAYOUT_KIND}/${asset.data.layout}" is registered`,
+      message: `no "${kind}/${asset.data.layout}" is registered`,
       field: 'data.layout',
-      fix: `defineFactory("${TOWN_LAYOUT_KIND}", "${asset.data.layout}", …), or use one that exists`,
+      fix: `defineFactory("${kind}", "${asset.data.layout}", …), or use one that exists`,
     });
   }
 

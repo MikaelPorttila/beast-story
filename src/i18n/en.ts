@@ -56,6 +56,18 @@ export const en = {
   'town.redbriar.sign': 'REDBRIAR',
   'town.stonewatch.name': 'Stonewatch',
   'town.stonewatch.sign': 'STONEWATCH',
+  /**
+   * SKYHAVEN — the town that flies (issue #68). A settlement like any other as
+   * far as this table is concerned; that it is carried rather than sited is
+   * `"carried": true` on the asset, not a property of its name.
+   *
+   * It has a `.sign` because every town does and the field is required, and
+   * nothing carves it: there is no road to the island and therefore no
+   * fingerpost to name it on. Kept inside the 3x5 font's alphabet anyway, so
+   * the day something does carve it there is nothing to fix.
+   */
+  'town.skyhaven.name': 'Skyhaven',
+  'town.skyhaven.sign': 'SKYHAVEN',
   /** The fork the road network hangs off — a sign, but not a town. */
   'town.junction.sign': 'CROSSWAY',
 
@@ -69,6 +81,19 @@ export const en = {
   // note above. 'Gain' is inside it; a translated one might not be.
   'npc.gain.name': 'Deckard Gains Armstrong',
   'npc.gain.greeting': 'Hello, my friend. Stay awhile and... gain some knowledge.',
+
+  // The three who live on Skyhaven. Their lines are the one place the game
+  // explains what the island IS, so each of them says a different part of it:
+  // that it moves, that it is lived on, and that it is worth being up here for.
+  'npc.skyPilot.name': 'Corwin Vane',
+  'npc.skyPilot.greeting':
+    'She drifts where the warm air takes her. I only ask her not to drift into a mountain.',
+  'npc.skyGardener.name': 'Mother Pell',
+  'npc.skyGardener.greeting':
+    'Soil this thin, and every root has to hold on twice — once for itself, once for the rest of us.',
+  'npc.skyLamplighter.name': 'Tobin Ashgrove',
+  'npc.skyLamplighter.greeting':
+    'Mind the rim after dark. I light the lamps so you can see the edge, not so you can stand on it.',
 
   // ---- beast species -------------------------------------------------------
   // Keyed by the species id in src/beasts/species/*.ts. The id is what the roster,

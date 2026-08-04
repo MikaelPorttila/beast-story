@@ -4,9 +4,12 @@
  */
 import * as THREE from 'three';
 import type {
-  CrownContact, PlayerStart, TownRegistry, World, WorldLayer,
+  CrownContact, NpcField, NpcInfo, NpcTalk, PlayerStart, TownInfo, TownRegistry,
+  World, WorldLayer,
 } from '../core/types';
 import { excludeFromAO } from '../core/types';
+import { CarrierField } from './carriers';
+import { SkyIsland, readCarriedTown } from './sky-island';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
 import { buildWaterMesh, createWaterMaterial } from './water';
@@ -337,6 +340,104 @@ function pickPlayerStart(
 // ---------------------------------------------------------------------------
 
 /**
+ * Where the flying town wanders, relative to `spawnPoint`.
+ *
+ * Far enough that it is somewhere to GO — 170 units is past the outermost skill
+ * den and a good way beyond the start town — and near enough that it is in the
+ * sky over the part of the map the rest of the game is in. It roams `ROAM_R`
+ * (world/sky-island.ts) around this, so on any given day it can be anywhere
+ * from over the Encampment to a long flight out.
+ *
+ * A bearing that is not one of the four the dens sit on, so the island is not
+ * habitually over one.
+ */
+const SKY_HOME_DIST = 170;
+const SKY_HOME_ANGLE = 2.1;
+
+/**
+ * Two NPC fields behind one, for a world that has people on the ground AND
+ * people on something that moves.
+ *
+ * A COMPOSITE RATHER THAN A WIDER `Npcs`, because the two crews genuinely
+ * differ in the one thing `Npcs` is built around: the frame their coordinates
+ * are in. Merging them into one instance would mean a per-character frame and a
+ * branch in every loop; composing two instances costs one `for` in three small
+ * methods, and each half goes on being exactly the thing it already was.
+ *
+ * `talking` is asked of both because a conversation belongs to the field that
+ * owns the character, and only one of them can have one open — `talk(id)`
+ * returns null from the field that does not know the id.
+ */
+class NpcFields implements NpcField {
+  constructor(private readonly parts: readonly NpcField[]) {}
+
+  get all(): readonly NpcInfo[] {
+    // Allocates, and is not on a frame path: this is the enumeration a map
+    // screen or a quest walks. `nearest` below is the per-slice question and
+    // allocates nothing.
+    return this.parts.flatMap((p) => p.all as NpcInfo[]);
+  }
+
+  nearest(x: number, y: number, z: number, range: number): NpcInfo | null {
+    let best: NpcInfo | null = null;
+    let bestD2 = Infinity;
+    for (const p of this.parts) {
+      const n = p.nearest(x, y, z, range);
+      if (!n) continue;
+      const d2 = (n.x - x) ** 2 + (n.z - z) ** 2;
+      if (d2 < bestD2) { bestD2 = d2; best = n; }
+    }
+    return best;
+  }
+
+  talk(id: string): NpcTalk | null {
+    for (const p of this.parts) {
+      const t = p.talk(id);
+      if (t) return t;
+    }
+    return null;
+  }
+
+  get talking(): NpcTalk | null {
+    for (const p of this.parts) if (p.talking) return p.talking;
+    return null;
+  }
+
+  endTalk(): void {
+    for (const p of this.parts) p.endTalk();
+  }
+}
+
+/**
+ * The ground towns plus whatever a carrier is holding up.
+ *
+ * The flying town is on the registry for the same reason a walled one is: it
+ * has an id, a name, a colour and a place, which is the whole of what
+ * `TownRegistry` promises, and a quest or a compass that had to ask a second
+ * question to find out about a fourth settlement would be a contract with a
+ * hole in it. Its `x`/`z` are LIVE — read them every frame, never cache them —
+ * which is a property the interface always allowed and nothing had exercised.
+ */
+function withCarriedTowns(ground: TownRegistry, extra: readonly TownInfo[]): TownRegistry {
+  if (extra.length === 0) return ground;
+  const all = [...ground.all, ...extra];
+  return {
+    all,
+    roads: ground.roads,
+    get: (id) => all.find((t) => t.id === id),
+    nearest: (x, z) => {
+      let best: TownInfo | null = null;
+      let bd2 = Infinity;
+      for (const t of all) {
+        const d2 = (t.x - x) ** 2 + (t.z - z) ** 2;
+        if (d2 < bd2) { bd2 = d2; best = t; }
+      }
+      return best;
+    },
+  };
+}
+
+/**
  * What a landmark chooser is allowed to look at: the world after it has decided
  * where spawn and the dens are, but before a single chunk exists. See the
  * `landmarks` argument of createWorld.
@@ -484,6 +585,29 @@ export function createWorld(
     }
     return top;
   };
+
+  // THE TOWN THAT FLIES. After the ground settlement and the people in it,
+  // because it borrows both of their tools — `TownParts` for its timber and
+  // `Npcs` for its residents — and before the clouds, which have to be told to
+  // keep out of it. Gated on `flags.towns` like every other settlement: a world
+  // built with `towns=0` has no towns, wherever they are.
+  //
+  // It is a CARRIER and not a landmark, so it claims no clearing, no flatten
+  // and no exclusion: nothing it stands on is the terrain.
+  const carriers = new CarrierField();
+  const skyData = flags.towns ? readCarriedTown() : null;
+  const sky = skyData
+    ? new SkyIsland(
+      terrain, propLib, new TownParts(), skyData,
+      spawnPoint.x + Math.sin(SKY_HOME_ANGLE) * SKY_HOME_DIST,
+      spawnPoint.z + Math.cos(SKY_HOME_ANGLE) * SKY_HOME_DIST,
+      seed,
+    )
+    : null;
+  if (sky) {
+    carriers.add(sky);
+    scene.add(sky.root);
+  }
 
   const clouds = flags.clouds ? new Clouds(seed) : null;
   // A cumulus is a volume of droplets, not a thing anything rests against — and
@@ -752,8 +876,9 @@ export function createWorld(
     spawnPoint,
     playerStart,
     shopPositions: shops.positions,
-    towns: townReg,
+    towns: withCarriedTowns(townReg, sky ? [sky.town] : []),
     safeZones,
+    carriers,
     get chunksLoaded(): number { return chunks.size; },
     // A part-built chunk counts: its props stage has not run, so its trees are
     // not in the trunk registry yet and walking in would find no colliders.
@@ -855,7 +980,9 @@ export function createWorld(
      * does with terrain and trunks.
      */
     structureTopAt: structureTop,
-    npcs,
+    // Everyone in the zone, wherever they are standing. One field when the
+    // world has only ground people, which is every world but this one.
+    npcs: sky?.npcs ? new NpcFields(npcs ? [npcs, sky.npcs] : [sky.npcs]) : npcs,
     /**
      * Is this sphere inside a canopy? The third query over the same buckets,
      * and the only one that treats the crown as a VOLUME — see World.
@@ -986,6 +1113,15 @@ export function createWorld(
       // Nothing to dispose on the far side of this: the field owns no GPU
       // resource of its own, and the material it patched is `propLib`'s.
       sway?.update(focus, time, dt);
+      // WHERE the island is was decided at the top of this slice, by
+      // `carriers.advance` (see CarrierRegistry) — this is only the people
+      // standing on it, which is the same call the ground crew gets below.
+      sky?.update(dt, time, focus);
+      // ...and the clouds are told where it ended up, so the deck parts around
+      // it instead of a cumulus growing through the town square. One disc, set
+      // per frame, because the island is the only thing in the sky that moves
+      // and has a footprint.
+      if (sky) clouds?.setKeepOut(sky.x, sky.y, sky.z, sky.radius);
       clouds?.update(focus, dt);
       shops.update(time);
       towns?.update(time, focus);
@@ -1091,6 +1227,12 @@ export function createWorld(
       // about not drawing an overworld camp into a dungeon's warm-up render.
       if (towns) towns.group.visible = v;
       if (npcs) npcs.setVisible(v);
+      // The island carries its own people and its own lamps, so one flag on its
+      // root takes the lot — including, importantly, nothing: it adds no lights
+      // to the scene (its glow is emissive, like every fire in the game), so a
+      // zone warm-up rendered with it visible would still compile at the right
+      // light counts. Hidden anyway, because it is a hundred units of rock.
+      sky?.setVisible(v);
       // Same rule for the sky ambience: a hidden layer stays hidden through a
       // hide/show cycle, so `&& !hiddenLayers.clouds` rather than a bare `v`.
       if (clouds) clouds.group.visible = v && !hiddenLayers.clouds;
@@ -1138,6 +1280,10 @@ export function createWorld(
       if (towns) {
         scene.remove(towns.group);
         towns.dispose();
+      }
+      if (sky) {
+        scene.remove(sky.root);
+        sky.dispose();
       }
       if (clouds) {
         scene.remove(clouds.group);

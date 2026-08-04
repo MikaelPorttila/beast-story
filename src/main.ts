@@ -13,7 +13,7 @@ import { loadPrefs, savePrefs } from './core/prefs';
 import {
   EventBus,
   type CrownContact, type NpcInfo, type SkillDef, type Damageable,
-  type World, type WorldBound,
+  type TownInfo, type World, type WorldBound,
 } from './core/types';
 import { Inventory, itemDef, itemName } from './core/items';
 import { t, onLanguageChange } from './i18n';
@@ -50,7 +50,9 @@ import { MountController } from './player/mount';
 import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem, SWORD_REACH } from './combat/index';
 import { enemySpecies } from './combat/enemies';
-import { HUD, type BeastHudInfo, type ShopOffer, type SkillSlot } from './ui/index';
+import {
+  HUD, type BeastHudInfo, type CompassMarker, type ShopOffer, type SkillSlot,
+} from './ui/index';
 import { StartMenu } from './ui/menu';
 import { PauseMenu } from './ui/pause';
 import {
@@ -847,7 +849,27 @@ player.aimAssist = (origin, dir) => {
 // identity: call it again with the same id to move or recolour the chip, and
 // hud.removeCompassMarker(id) when the objective is done.
 // ---------------------------------------------------------------------------
+/**
+ * The town chips that have to be re-read every frame, paired with the town.
+ *
+ * A TOWN THAT MOVES IS THE CASE `CompassMarker` ALWAYS ALLOWED AND NOTHING HAD
+ * EXERCISED. The chip is anchored to a world position, and the HUD reads that
+ * position off the marker OBJECT every frame — so keeping the object and
+ * writing two numbers into it is the whole of "the compass is aware of the
+ * town's updated location" (issue #68). It costs two assignments per town per
+ * frame and no DOM work at all: `setCompass` already guards every write on a
+ * tenth of a pixel of movement, so a settlement that is standing still touches
+ * nothing.
+ *
+ * Every town rather than only the flying one, because "which of these moves" is
+ * not on `TownInfo` and should not be: a registry entry's position is live by
+ * contract, and a list that had to be told which members meant it would be the
+ * next thing to go stale.
+ */
+const _townChips: Array<{ chip: CompassMarker; town: TownInfo }> = [];
+
 function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: number): void {
+  _townChips.length = 0;
   hud.setCompassMarkers([
     // Dens in the shard-shop amber the hint pill and price tags already use.
     ...w.shopPositions.map((s, i) => ({ id: `den${i}`, x: s.x, z: s.z, color: 0xffd23f })),
@@ -856,13 +878,17 @@ function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: num
     // because that is where you actually have to arrive, and it carries the
     // town's own colour so the strip distinguishes them. The label is the first
     // four characters of the id, which is all a chip has room for.
-    ...w.towns.all.map((t) => ({
-      id: `town:${t.id}`,
-      x: t.gateX,
-      z: t.gateZ,
-      color: t.color,
-      label: t.id.slice(0, 4).toUpperCase(),
-    })),
+    ...w.towns.all.map((t) => {
+      const chip: CompassMarker = {
+        id: `town:${t.id}`,
+        x: t.gateX,
+        z: t.gateZ,
+        color: t.color,
+        label: t.id.slice(0, 4).toUpperCase(),
+      };
+      _townChips.push({ chip, town: t });
+      return chip;
+    }),
     // The gateway takes the colour of its own arch, so the chip and the thing
     // it points at are the same object on screen.
     { id: 'gate', x: gateX, z: gateZ, color: gateHex, label: 'GATE' },
@@ -1587,10 +1613,19 @@ const _hurtFrom = new THREE.Vector3();
 // gateway and hold him there — "walk for 1.4 s and hope" cannot demonstrate
 // that a 3.0-unit enter radius and a 5.0-unit exit radius behave differently,
 // and the oscillation test needs to cross a boundary at a known rate.
-(window as unknown as { __dbgTp: (x: number, z: number) => void }).__dbgTp = (x, z) => {
+//
+// `y` is OPTIONAL and, when given, is taken literally rather than resolved
+// against the height field — which is the only way to put the hero on a flying
+// island. There is no column query that could work it out for him: a carrier's
+// deck is deliberately invisible to anything that has not already attached to
+// it (see `CarrierRide.support`, and `CarrierRegistry.ceilingAt` for the one
+// exception and why it is not a surface). Landing him inside the ride volume is
+// what attaches him, on the next slice, through exactly the path a player
+// flying in on a galebird takes.
+(window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = (x, z, y) => {
   player.position.x = x;
   player.position.z = z;
-  player.position.y = Math.max(world.getHeight(x, z), world.waterLevel);
+  player.position.y = y ?? Math.max(world.getHeight(x, z), world.waterLevel);
   player.velocity.set(0, 0, 0);
 };
 // The steering half of the same hook: swing the camera so that a held W means
@@ -2638,6 +2673,17 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     || !!devConsole?.isOpen;
   nearShop = false;
   nearNpc = null;
+
+  // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them
+  // is updated. It is not inside `zones.update` below and that is the ordering
+  // decision rather than an oversight: the world update runs at the END of a
+  // slice, so a per-slice delta published there could only be spent by the
+  // riders on the NEXT slice, and a hero standing still on a deck would lag it
+  // by a slice's travel every time it changed speed. See CarrierRegistry.
+  //
+  // Above the `interactive` branch, so a staged capture and a photo-mode frame
+  // get the same moving world a played one does.
+  world.carriers.advance(dt);
   // Whose contact the particle system tests this slice, or null. It integrates
   // on EVERY slice either way — a modal overlay freezes the hero, not the leaves
   // already falling behind it — so only the contact test needs someone to test.
@@ -2971,6 +3017,13 @@ function frame(): void {
   // shows where the LENS points, and the lens is placed by this frame's camera
   // update, not by the fixed-rate sim (which may have run 0..n times above).
   // North is world -Z, the direction three's default camera looks down.
+  // A town that moves moves its own chip. Two writes each, no DOM. See
+  // `_townChips`, and `World.towns` for why a registry position is live.
+  for (let i = 0; i < _townChips.length; i++) {
+    const c = _townChips[i];
+    c.chip.x = c.town.gateX;
+    c.chip.z = c.town.gateZ;
+  }
   engine.camera.getWorldDirection(_compassFwd);
   hud.setCompass(
     Math.atan2(_compassFwd.x, -_compassFwd.z) * (180 / Math.PI),
@@ -3406,6 +3459,61 @@ beginPlay();
  * the deck, and MAX_STEP_UP is 0.5. Read-only, allocates, never called from the
  * frame loop.
  */
+/**
+ * THE MOVING PARTS OF THE WORLD, and who is standing on them.
+ *
+ * Everything `tools/test-carrier.mjs` asserts on comes from here, and the shape
+ * is chosen for what a probe cannot otherwise see: a carrier's pose is easy to
+ * read off the scene and its ATTACHMENT is not — "the hero is at the same place
+ * on the deck he was ten seconds ago" is the whole feature, and no screenshot
+ * and no position alone can say it.
+ *
+ * `onDeck` is therefore the interesting field: the hero's position expressed in
+ * the frame's OWN coordinates, which stays put while he stands still however far
+ * the island has travelled, and moves only when he walks. `dyaw` is what the
+ * turn publishes; `ceiling` is what the flight ceiling is allowed to reach over
+ * this column, which is the number that decides whether the island is reachable
+ * at all (see MountController's ceiling clamp).
+ *
+ * Read-only; allocates, so never called from the frame loop.
+ */
+(window as unknown as { __dbgCarriers: () => unknown }).__dbgCarriers = () => ({
+  ceiling: (() => {
+    const c = world.carriers.ceilingAt(player.position.x, player.position.z);
+    return Number.isFinite(c) ? +c.toFixed(2) : null;
+  })(),
+  riding: world.carriers.at(player.position.x, player.position.y, player.position.z)?.id ?? null,
+  all: world.carriers.all.map((c) => {
+    // World -> the frame's own axes, the same map `CarrierBody.toLocal` uses.
+    // Restated here rather than exposed on the contract because a debug hook is
+    // the only caller that has ever wanted it from outside.
+    const cs = Math.cos(c.yaw);
+    const sn = Math.sin(c.yaw);
+    const wx = player.position.x - c.x;
+    const wz = player.position.z - c.z;
+    return {
+      id: c.id,
+      x: +c.x.toFixed(2),
+      y: +c.y.toFixed(2),
+      z: +c.z.toFixed(2),
+      yaw: +c.yaw.toFixed(4),
+      radius: +c.radius.toFixed(2),
+      dyaw: +c.dyaw.toFixed(5),
+      /** Units of translation published for the slice just simulated. */
+      step: +Math.hypot(c.dx, c.dz).toFixed(4),
+      deckTop: (() => {
+        const t = c.topAt(player.position.x, player.position.z);
+        return Number.isFinite(t) ? +t.toFixed(2) : null;
+      })(),
+      onDeck: {
+        x: +(wx * cs - wz * sn).toFixed(3),
+        y: +(player.position.y - c.y).toFixed(3),
+        z: +(wx * sn + wz * cs).toFixed(3),
+      },
+    };
+  }),
+});
+
 (window as unknown as { __dbgTowns: () => unknown }).__dbgTowns = () => ({
   spawn: {
     x: +world.spawnPoint.x.toFixed(2),
@@ -3501,6 +3609,11 @@ beginPlay();
     // probe's own field names, and every other string it prints, stay English.
     name: t(town.nameKey),
     kind: town.kind,
+    // Whether something is carrying it — see TownInfo.carried. A probe that
+    // reasons about the ground a settlement stands on has to be able to tell,
+    // because a carried town's colliders are in its carrier's frame and its
+    // position is a reading rather than a placement.
+    carried: town.carried,
     x: +town.x.toFixed(1), y: town.y, z: +town.z.toFixed(1),
     radius: town.radius,
     gate: { x: +town.gateX.toFixed(1), z: +town.gateZ.toFixed(1) },
