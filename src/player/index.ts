@@ -301,6 +301,17 @@ export class Player {
 
   private time = 0;
   private heading = 0;
+
+  /**
+   * Which way the body is turned, `atan2(dx, dz)`. Read-only.
+   *
+   * The BODY and not the camera, which is the distinction that makes it worth
+   * exposing: the two agree while he walks and part company whenever he does
+   * not — standing still with the mouse moving, and in the opening pose, where
+   * the camera is deliberately on the wrong side of him. `__dbgCamYaw` answers
+   * for the arm; nothing answered for the man.
+   */
+  get facing(): number { return this.heading; }
   private coyote = 0;
   private jumpBuffer = 0;
   private landBump = 0;
@@ -446,12 +457,44 @@ export class Player {
     this.onCanopy = false;
     this.climbLockout = 0;
     this.attack.active = false;
+    this.takeStartPose();
+  }
+
+  /**
+   * Stand the hero where a new session begins, looking the way it begins, with
+   * the camera on his FACE.
+   *
+   * THE CAMERA ARM IS HIS HEADING AND NOT ITS OPPOSITE, which is the whole
+   * point and is worth stating because it is the reverse of every other camera
+   * write in this file. `cam.yaw` is the bearing FROM the hero TO the camera
+   * (see `aimCamera`), so the usual over-the-shoulder framing is `heading + PI`
+   * — the camera behind him, looking the way he looks. Setting it to `heading`
+   * puts the camera in FRONT, looking back at him, which is what an opening
+   * shot of a character wants and what nothing else in the game does.
+   *
+   * IT IS A SHOT, NOT A MODE, and it un-does itself: movement is camera
+   * relative, so the first press of W walks him toward the lens and his heading
+   * damps round to meet it within a few hundred milliseconds (`TURN_RATE`).
+   * That is the intended behaviour rather than a defect to design around — the
+   * composition is for the moment before the player touches anything, and any
+   * input at all is the player saying they are done looking at it. A mouse
+   * movement swings the arm directly and skips even that.
+   *
+   * Called by `reset()` and by the composition root's first placement, so a
+   * second New Game in one session opens on the same shot as the first.
+   */
+  takeStartPose(): void {
+    const start = this.world.playerStart;
     this.velocity.set(0, 0, 0);
-    this.position.copy(this.world.spawnPoint);
+    this.position.copy(start.position);
     this.position.y = Math.max(
       this.world.getHeight(this.position.x, this.position.z), this.world.waterLevel,
     );
     this.root.position.copy(this.position);
+    this.heading = start.yaw;
+    this.root.rotation.y = this.heading;
+    this.forward.set(Math.sin(this.heading), 0, Math.cos(this.heading));
+    this.cam.yaw = start.yaw;
   }
 
   private respawn(): void {

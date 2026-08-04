@@ -3,16 +3,18 @@
  * skill dens + sky ambience, exposed through the shared World contract.
  */
 import * as THREE from 'three';
-import type { CrownContact, TownRegistry, World, WorldLayer } from '../core/types';
+import type {
+  CrownContact, PlayerStart, TownRegistry, World, WorldLayer,
+} from '../core/types';
 import { excludeFromAO } from '../core/types';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
 import { buildWaterMesh, createWaterMaterial } from './water';
 import { PropLib, buildChunkProps, TREE_STRIDE, type Exclusion } from './props';
 import { Shops, type DenSpot } from './shops';
-import { Towns, planSettlements } from './towns';
+import { Towns, planSettlements, type SettlementPlan } from './towns';
 import { TownParts } from './town-parts';
-import { Npcs } from './npc';
+import { Npcs, spotIsFree, type NpcSite } from './npc';
 import { Clouds } from './clouds';
 import { SwayField } from './sway';
 import { mulberry32 } from './noise';
@@ -227,6 +229,111 @@ function placeShops(
   return spots;
 }
 
+/**
+ * How far to one side of the greeter the hero wakes up, in world units.
+ *
+ * 3.2 is "a few paces", and the number is picked against `NPC_TALK_RANGE` (2.8)
+ * rather than by eye — JUST outside it, deliberately, and both halves of that
+ * matter. Inside it, Gain turns to attend the hero on the very first frame, so
+ * the two of them face each other and the composition the pose exists for —
+ * two men side by side looking the same way across a fire — is gone before
+ * anybody sees it, with an interact pill over it. A single step closes it, so
+ * the conversation is still the obvious first thing to do.
+ */
+const START_BESIDE = 3.2;
+
+/**
+ * The hero's body radius, for the clearance test only.
+ *
+ * `Player.radius` is 0.32 and is not importable here — `world/` may not depend
+ * on `player/`, which is the same one-way edge that keeps `core/types.ts` the
+ * contract hub. It is rounded UP rather than copied, so the number is a stated
+ * margin ("about a body's width, and a little more") rather than a load-bearing
+ * value written down twice: a hero half a decimetre thicker still stands here,
+ * and nothing about the pose changes if `BODY_RADIUS` is retuned.
+ */
+const START_CLEARANCE = 0.5;
+
+/**
+ * Where the hero wakes up: beside the start town's greeter, facing his way.
+ *
+ * THE OFFSET IS PERPENDICULAR TO HIS FACING, which is what makes it "beside"
+ * rather than "in front of" or "behind". Both are tried and the more open one
+ * wins; behind-and-to-the-side are the fallbacks, and only then the road. Two
+ * things fall out of the perpendicular that are worth stating, because they are
+ * the reason it is not simply "three metres from him in any free direction":
+ * the hero lands the same distance from the fire that the greeter is, so he is
+ * AT the fire rather than three metres further out into the dark, and he never
+ * lands between the greeter and the thing the greeter is looking at.
+ *
+ * `spotIsFree` is the NPC placement search's own test, imported rather than
+ * re-stated (world/npc.ts): a spot the hero may stand on and a spot a character
+ * may stand on are the same spot, and the camp's cart road ends in the middle
+ * of camp, so this is not a formality.
+ *
+ * THE FALLBACK IS THE ROAD, i.e. exactly what the game did before — a zone with
+ * no settlement (the dungeon), no people in it, or a camp so crowded that none
+ * of the four candidates is clear. Facing the town in that case, because the
+ * point of the road spawn was always that the camp is a destination you can see.
+ */
+function pickPlayerStart(
+  site: NpcSite | null,
+  npcs: Npcs | null,
+  plan: SettlementPlan | null,
+  spawnPoint: THREE.Vector3,
+  terrain: Terrain,
+): PlayerStart {
+  const seat = (x: number, z: number, yaw: number): PlayerStart => ({
+    position: new THREE.Vector3(x, terrain.getHeight(x, z), z),
+    yaw,
+  });
+
+  // The road, facing the start town — the pre-existing behaviour, kept whole as
+  // the answer for every zone this does not apply to.
+  const startTown = plan?.sites.find((s) => s.start)?.id;
+  const town = startTown ? plan?.towns.get(startTown) ?? null : null;
+  const toTown = town
+    ? Math.atan2(town.x - spawnPoint.x, town.z - spawnPoint.z)
+    : 0;
+  const road: PlayerStart = { position: spawnPoint.clone(), yaw: toTown };
+  if (!site || !npcs || !town) return road;
+
+  // The greeter: whoever stands nearest the middle of the start town. NOT the
+  // first in load order, which is an array index wearing a fact's clothes, and
+  // not a hard-coded `npc:gain` — a package that moves the start elsewhere
+  // moves the player with it, and neither this file nor the player's opening
+  // shot should know a character's name.
+  let greeter: { x: number; z: number; restYaw: number } | null = null;
+  let best = Infinity;
+  for (const n of npcs.all) {
+    const d2 = (n.x - town.x) ** 2 + (n.z - town.z) ** 2;
+    if (d2 < best) { best = d2; greeter = n; }
+  }
+  if (!greeter || best > town.outerRadius ** 2) return road;
+
+  // Perpendicular to his facing, so "beside him". The two sides first, then the
+  // same two dropped half a pace back — a fallback that keeps the shoulder-to-
+  // shoulder read where a straight retreat would put the hero behind his back.
+  const f = greeter.restYaw;
+  const rx = Math.cos(f);
+  const rz = -Math.sin(f);
+  const fx = Math.sin(f);
+  const fz = Math.cos(f);
+  let pick: { x: number; z: number } | null = null;
+  for (const back of [0, 1.4]) {
+    for (const sideSign of [1, -1]) {
+      const x = greeter.x + rx * START_BESIDE * sideSign - fx * back;
+      const z = greeter.z + rz * START_BESIDE * sideSign - fz * back;
+      if (!spotIsFree(site, x, z, START_CLEARANCE)) continue;
+      pick = { x, z };
+      break;
+    }
+    if (pick) break;
+  }
+  if (!pick) return road;
+  return seat(pick.x, pick.z, f);
+}
+
 // ---------------------------------------------------------------------------
 
 /**
@@ -322,16 +429,36 @@ export function createWorld(
   // asks where the road is and what the camp already built, and both of those
   // answers only exist once `Towns` has stamped its last box. Like the towns
   // themselves they are made once and not streamed.
-  const npcs = plan && towns
-    ? new Npcs({
+  const npcSite: NpcSite | null = plan && towns
+    ? {
       towns: plan.towns,
       roads: plan.network,
       getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
       structureTopAt: (x: number, z: number): number => towns.solids.topAt(x, z),
       focusOf: (id: string) => towns.fireOf(id),
-    })
+    }
     : null;
+  const npcs = npcSite ? new Npcs(npcSite) : null;
   if (npcs) scene.add(npcs.group);
+
+  /**
+   * WHERE THE PLAYER WAKES UP: beside the start town's greeter, at his fire,
+   * looking the way he looks.
+   *
+   * This used to be `spawnPoint` — fifty units out on the road, with the camp a
+   * destination you could see and walk to — and that point still exists and is
+   * still what everything else in the world is measured from (see
+   * `World.spawnPoint` in core/types.ts). What moved is only the HERO, because
+   * an opening shot of a man beside a fire with somebody to talk to is a
+   * different first five seconds from an opening shot of an empty road.
+   *
+   * IT IS DERIVED, NOT AUTHORED, and from the two facts the world already has:
+   * the start town, and the first resident placed in it. Nothing here names
+   * Gain or the Encampment — a package that moves the start elsewhere moves the
+   * player with it, and a settlement with nobody in it falls back to the road
+   * rather than inventing a spot in a camp nobody lives in.
+   */
+  const playerStart = pickPlayerStart(npcSite, npcs, plan, spawnPoint, terrain);
 
   /**
    * Top of any BUILT thing over this column — settlement boxes, the skill dens
@@ -623,6 +750,7 @@ export function createWorld(
   return {
     waterLevel: WATER_LEVEL,
     spawnPoint,
+    playerStart,
     shopPositions: shops.positions,
     towns: townReg,
     safeZones,

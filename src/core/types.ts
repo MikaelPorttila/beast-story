@@ -388,6 +388,29 @@ export interface NpcInfo {
   readonly x: number;
   readonly y: number;
   readonly z: number;
+  /**
+   * The bearing he faces with nobody in front of him — toward his town's gate,
+   * so a visitor walking in off the road meets his face.
+   *
+   * His LIVE yaw is not here and deliberately so: he turns to attend whoever
+   * walks up to him, so a live angle is a per-frame value and this contract is
+   * read by placement code that runs once. What a caller wants from the outside
+   * is "which way does this character STAND", which is a fact about the world
+   * rather than about the current moment — it is how `playerStart` puts the
+   * hero shoulder to shoulder with him without world/index.ts knowing anything
+   * about gates.
+   */
+  readonly restYaw: number;
+}
+
+/**
+ * A place to stand and a way to look, which is what an opening shot needs and a
+ * bare point cannot express. See `World.playerStart`.
+ */
+export interface PlayerStart {
+  readonly position: THREE.Vector3;
+  /** The hero's heading, `atan2(dx, dz)`. */
+  readonly yaw: number;
 }
 
 /**
@@ -728,8 +751,27 @@ export interface World {
    * dungeon, the lab stage). See NpcField.
    */
   readonly npcs: NpcField | null;
-  /** Good spawn point on land */
+  /**
+   * The world's REFERENCE POINT: a scenic stretch of the start town's road,
+   * high, dry and about fifty units out (`pickRoadSpawn` in world/towns.ts).
+   *
+   * IT IS NO LONGER WHERE THE PLAYER BEGINS — see `playerStart` below — and the
+   * name is kept because everything else that reads it wants exactly the thing
+   * it always was and would be wrong to follow the hero into a camp: the skill
+   * dens are sited on rings around it (`placeShops`), the streaming ring is
+   * warmed from it, `?cam=`/`?look=` are OFFSETS FROM IT so every capture in
+   * `shots/` is framed against it, and a zone's return gateway lands on it.
+   */
   readonly spawnPoint: THREE.Vector3;
+  /**
+   * WHERE A NEW SESSION BEGINS, and which way the hero is looking when it does.
+   *
+   * A POSE rather than a point, which is the whole reason it is not just another
+   * `Vector3` beside `spawnPoint`: an opening shot is a composition, and half of
+   * a composition is the facing. `yaw` is the hero's own heading, an
+   * `atan2(dx, dz)` bearing like every other angle in this codebase.
+   */
+  readonly playerStart: PlayerStart;
   /**
    * Chunks this world currently holds meshes for. A diagnostic, and the number
    * that proves a zone really was unloaded rather than merely hidden.

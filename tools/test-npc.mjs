@@ -10,6 +10,12 @@
 // (issue #25). Nothing in tools/ could see it: every other probe drives a hero
 // who is standing on the ground, where the missing axis is always zero.
 //
+// It also guards the OPENING POSE, which belongs here rather than in a probe of
+// its own for the reason the pose itself is derived rather than authored: where
+// a new session begins is "beside the start town's greeter, facing his way",
+// and this is the file that already knows who that is. It runs FIRST, before
+// anything teleports the hero.
+//
 // The shape of the run is a PAIR, the way test-menu.mjs holds W twice. The same
 // hero at the same xz either side of one change of altitude: on the ground the
 // prompt must be up and E must open a conversation, and in the air the prompt
@@ -62,6 +68,47 @@ if (!gain) {
   console.error('no NPC with id "gain" — the Encampment quest giver is missing');
   await browser.close();
   process.exit(1);
+}
+
+// ---------- the OPENING POSE, and it has to be read first ----------
+//
+// FIRST, because every other section in this file teleports the hero, and the
+// one thing being asserted here is where the game PUT him — a reading taken
+// after a `__dbgTp` is a reading of the probe's own arithmetic.
+//
+// Four claims and they are one composition: he stands a few paces from the
+// greeter (not on him, and not across the camp), at the same height, looking
+// the same way, with the camera on his face rather than over his shoulder.
+// `camFromFace` is the one that cannot be got any other way — it is the angle
+// between where the lens SITS relative to the hero and where the hero is
+// LOOKING, so ~0 is the opening shot and ~180 is every other moment in the
+// game. Nothing here names a coordinate: the pose is derived from whoever
+// stands nearest the middle of the start town, so a seed that moved the camp
+// moves all four numbers together.
+{
+  const s = await page.evaluate(() => window.__dbgStart?.());
+  results.openingPose = s;
+  check(!!s?.greeter, 'no greeter — the pose fell back to the road');
+  check(s?.beside > 2.8 && s?.beside < 5,
+    `should stand a few paces from the greeter, got ${s?.beside}`);
+  // Just OUTSIDE NPC_TALK_RANGE (2.8) on purpose: inside it he turns to attend
+  // the hero on frame one and the two of them face each other instead of the
+  // same way, which is the shot. The lower bound above is that constant.
+  check(Math.abs(s?.faceGap) < 1, `should face the greeter's way, off by ${s?.faceGap} deg`);
+  check(Math.abs(s?.camFromFace) < 12,
+    `the camera should be on his face, ${s?.camFromFace} deg off`);
+  check(Math.abs(s?.start.y - s?.greeter.y) < 0.6,
+    `same ground as the greeter, ${s?.start.y} against ${s?.greeter.y}`);
+  // The CONTROL, and without it the four above would all pass in a world where
+  // `playerStart` had quietly fallen back to the road and the greeter happened
+  // to be standing on it: the start must NOT be the world's reference point,
+  // which is fifty-odd units out on the road (see World.spawnPoint).
+  check(s?.fromSpawn > 20,
+    `the hero should start in camp, not at the road spawn (${s?.fromSpawn} away)`);
+  // And he is really there — `playerStart` is a statement, `__dbgPlayerPos` is
+  // the hero. A pose nothing applied would read perfectly above.
+  check(Math.abs(s?.player.x - s?.start.x) < 0.5 && Math.abs(s?.player.z - s?.start.z) < 0.5,
+    'the hero is not standing where playerStart says');
 }
 
 // ---------- on the ground, two units away: he is there to talk to ----------

@@ -513,6 +513,14 @@ once frames come quickly.
   deliberately still talkable — see `NPC_TALK_RISE`. It exits non-zero, and it
   is the only probe in `tools/` that has to get the hero AIRBORNE, which it does
   by typing `/mount galebird` at the dev console and holding Space.
+  Its FIRST section is the OPENING POSE, and it is first because every other one
+  teleports the hero — a reading taken after a `__dbgTp` is a reading of the
+  probe's own arithmetic. Four numbers make one composition (3.20 units from the
+  greeter, 0.00 degrees of facing between them, 0.00 between the camera arm and
+  the hero's heading, same ground height), plus the CONTROL that stops all four
+  passing against a pose that quietly fell back to the road: the start must be
+  more than 20 units from `spawnPoint`, and it measures 54.77. Nothing in it
+  names a coordinate or a character — see the `playerStart` note below.
 - `test-dive.mjs` guards diving and the underwater view, and it is the only
   probe in `tools/` that ASSERTS ON PIXELS. It has to: every number the
   underwater effect is built from — `amount`, the fog, the tint colour — read
@@ -845,13 +853,92 @@ focus (`VIEW_RADIUS` 5, 1–2 builds per frame) and assembles terrain + water +
 props + skill dens + clouds behind the `World` interface.
 
 **Towns and roads.** [src/world/towns.ts](src/world/towns.ts) sites the named
-settlements, cuts the roads between them and picks the player's spawn — a point
+settlements, cuts the roads between them and picks `World.spawnPoint` — a point
 on the road to the start town, not in it. Towns are OVERWORLD LANDMARKS, not
 zones: you walk in and out and nothing loads. The `TownRegistry` it returns is
 on the `World` contract (`world.towns`), and everything else is derived from it —
 the roads, the spawn, the compass chips, the trodden mud each settlement wears
 its ground down to (`Terrain.grounds`, a `GroundPatch` per entry), and whatever a
-quest system asks next; nothing outside these files reads town geometry. Roads are CARVED:
+quest system asks next; nothing outside these files reads town geometry.
+
+**`spawnPoint` IS THE WORLD'S REFERENCE POINT; `playerStart` IS WHERE THE PLAYER
+WAKES UP, AND THEY ARE NO LONGER THE SAME PLACE.** The hero used to begin on that
+scenic stretch of road with the camp a destination fifty units off. He now begins
+INSIDE it — beside the start town's greeter, at the fire, facing the way the
+greeter faces, with the camera in FRONT of him rather than over his shoulder.
+Measured on seed 1337: start (113.71, 12, 58.21) against Gain at (116.9, 12,
+58.10), 3.20 apart, 0.00 degrees of facing between them, 0.00 degrees between the
+camera arm and the hero's own heading, and 54.77 from `spawnPoint`.
+
+Both numbers exist because they answer different questions, and collapsing them
+would be wrong in four places at once: the skill dens are sited on rings around
+`spawnPoint` (`placeShops`), the streaming ring is warmed from it, `?cam=`/`?look=`
+are OFFSETS FROM IT so every capture in `shots/` is framed against it, and a
+zone's return gateway lands on it. None of those wants to follow the hero into a
+camp. So `spawnPoint` is unchanged and unmoved, and `World.playerStart`
+([core/types.ts](src/core/types.ts)) is a POSE — a position AND a yaw, because an
+opening shot is a composition and half of a composition is the facing.
+
+**IT IS DERIVED, NOT AUTHORED.** `pickPlayerStart` in
+[world/index.ts](src/world/index.ts) takes the start town, finds whoever stands
+nearest its middle, and steps `START_BESIDE` (3.2) PERPENDICULAR to that
+character's rest facing. Nothing in it names Gain or the Encampment: a package
+that moves the start elsewhere moves the player with it, and a zone with no
+settlement or nobody in it falls back to the road, which is exactly what the game
+did before. Two things fall out of the perpendicular and are the reason it is not
+"three metres in any free direction" — the hero lands the same distance from the
+fire the greeter is, so he is AT it rather than three metres further into the
+dark, and he never lands between the greeter and what the greeter is looking at.
+The candidate is tested with `spotIsFree`, the NPC placement search's OWN test
+(exported from [world/npc.ts](src/world/npc.ts) rather than restated), because a
+spot the hero may stand on and a spot a character may stand on are the same spot
+— and the camp's cart road ends in the middle of camp, so that is not a
+formality.
+
+**3.2 IS PICKED AGAINST `NPC_TALK_RANGE` (2.8), JUST OUTSIDE IT.** Inside, Gain
+turns to attend the hero on frame one, so the two of them face each other, the
+side-by-side composition is gone before anyone sees it, and an interact pill sits
+over the shot. One step closes it, so the conversation is still the obvious first
+thing to do.
+
+**A PROBE THAT DRIVES THE HERO CAN NO LONGER ASSUME OPEN GROUND, and three of
+them had to be told.** Two facts about the opening pose bite anything that holds
+W: the camera is in FRONT, so `cam.forward` runs through the hero into whatever
+is behind him — measured, **2.73 units and then a hut wall**, against **8.66**
+along his own facing — and he is inside a WALLED camp, so a straight line in any
+direction ends at the palisade unless it goes through the gate. Aimed at the zone
+gateway from the fire, eight seconds of walking closed 4.3 units of a 43.2-unit
+approach.
+
+So `travel > 4` as a proxy for "the hero is being simulated" now reads the camp
+rather than the feature under test. `tools/test-pause.mjs`'s `walk()` aims at the
+hero's own facing before every hold (re-aimed each time, because `Player.reset()`
+puts the camera back on his face and its second arm exits to the title and starts
+again). `tools/test-gfx.mjs` goes further and `__dbgTp`s to `spawnPoint` — the
+road is what that file silently had when it was written, and saying so is better
+than a spawn that happens to be convenient. Its gateway-preload section does the
+same and then asserts `endedAtGateDist < 30`, which is the assertion that would
+have caught this: without it the section passes VACUOUSLY, since grass switched
+off stays off when nothing ever preloads. After a teleport it also waits on
+`__dbgZone().streaming` rather than a clock — a 55-unit jump rebuilds the whole
+view ring, and a chunk arriving mid-measurement moves a draw count more than some
+of the toggles do (the failure reads as `propsOff` saving **minus 17** calls).
+
+**THE CAMERA ARM IS THE HERO'S HEADING AND NOT ITS OPPOSITE**, which is the
+reverse of every other camera write in the game — `cam.yaw` is the bearing FROM
+the hero TO the camera, so the usual over-the-shoulder framing is `heading + PI`.
+It is a SHOT, NOT A MODE, and it un-does itself: movement is camera-relative, so
+the first press of W walks the hero toward the lens and his heading damps round
+to meet it inside a few hundred milliseconds (`TURN_RATE`); a mouse movement
+swings the arm and skips even that. That is intended — the composition is for the
+moment before the player touches anything, and any input at all is the player
+saying they are done looking at it. `Player.takeStartPose()` is the one writer,
+called by the composition root's first placement AND by `Player.reset()`, so a
+second New Game in one session opens on the same shot. `__dbgStart()` reports
+every number above and the `openingPose` section of `tools/test-npc.mjs` asserts
+them.
+
+Roads are CARVED:
 [src/world/roads.ts](src/world/roads.ts) folds a corridor into `heightCont` and
 makes `getHeight` return a CONTINUOUS deck inside the carriageway, because a
 floored column can only step a whole unit and `MAX_STEP_UP` is 0.5 — read the

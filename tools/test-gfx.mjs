@@ -60,10 +60,40 @@ const gfxAll = () => page.evaluate(() => window.__dbgGfx());
 
 // Let the streamer finish before any of this: a chunk arriving mid-measurement
 // moves the draw count more than some of the toggles do.
+//
+// OUT OF THE CAMP FIRST, and it is load-bearing for everything below.
+//
+// A session now opens INSIDE the walled Encampment, beside the fire, with the
+// camera on the hero's FACE (World.playerStart). Two things follow and this
+// file trips over both: a held W runs from the lens through him into the huts
+// (measured, 2.73 units and then a wall, where the same hold along his own
+// facing travels 8.66), and a straight line in ANY direction from the middle
+// of a walled camp ends at the palisade unless it goes through the gate. So
+// aiming is not enough — aimed at the gateway, eight seconds of walking closed
+// 4.3 units of a 43.2-unit approach.
+//
+// `__dbgTp` to the world's reference point is what this file used to get for
+// free: `spawnPoint` is the scenic stretch of road fifty units out, which is
+// where every measurement in here was taken when it was written, and it is open
+// in every direction. Saying so explicitly is better than a spawn that happens
+// to be convenient — that is what just stopped being true.
+const openGround = await page.evaluate(() => window.__dbgTowns().spawn);
+await page.evaluate((s) => window.__dbgTp(s.x, s.z), openGround);
+await wait(500);
 await page.keyboard.down('KeyW');
 await wait(3000);
 await page.keyboard.up('KeyW');
-await wait(2500);
+// WAIT FOR THE STREAMER, not for a clock. A teleport is a 55-unit jump, so the
+// whole view ring is rebuilt afterwards — and every toggle below is judged on a
+// DRAW COUNT, which a chunk arriving mid-measurement moves more than some of
+// the toggles do. A fixed 2500 ms was enough when the hero booted here and only
+// ever walked; measured after the jump it is not, and the failure is a good
+// one to recognise: `propsOff` came back as MINUS 17 draw calls, i.e. the scene
+// grew while the pass that was supposed to shrink it was switched off.
+await page.waitForFunction(
+  () => window.__dbgZone && !window.__dbgZone().streaming, { timeout: 30000 },
+);
+await wait(1500);
 
 // ---------- the panel opens on F3 and lists every option --------------------
 {
@@ -189,18 +219,45 @@ for (const id of ['shadows', 'aa']) {
   // builds the destination, and to warm its shaders it hides the active world
   // and turns it back on â€” with a blanket `visible = true` that re-showed every
   // layer the panel had switched off. Reaching that needs the hero walking
-  // toward the gate from the spawn, which needs the camera pointing the way a
-  // fresh boot points it. Two earlier versions of this section drove the hero
-  // from wherever the previous assertions had left him, and both passed against
-  // the broken build because `KeyW` follows the camera and the camera had been
-  // turned. Measured on the broken build from a fresh page: 80 of 89 grass
-  // meshes came back on.
+  // toward the gate from the spawn. Two earlier versions of this section drove
+  // the hero from wherever the previous assertions had left him, and both
+  // passed against the broken build because `KeyW` follows the camera and the
+  // camera had been turned. Measured on the broken build from a fresh page: 80
+  // of 89 grass meshes came back on.
+  //
+  // IT STANDS THE HERO ON THE ROAD AND AIMS AT THE GATE rather than trusting
+  // the boot's own heading, and that is a change of reasoning rather than of
+  // code style. The version above said "the camera pointing the way a fresh
+  // boot points it", which was true while a session opened on the road looking
+  // down it. A session now opens INSIDE the walled camp with the camera on the
+  // hero's face (World.playerStart), so a held W walks him into the huts, and
+  // even aimed correctly a straight line out of a walled camp ends at the
+  // palisade — measured, eight seconds closed 4.3 units of a 43.2-unit approach.
+  // The gateway would never be reached, and this section would have gone on
+  // PASSING, because grass switched off stays off when nothing ever preloads.
+  // A reproduction whose setup is "whatever the game happens to do" is one that
+  // stops reproducing silently, which is why `endedAtGateDist` is asserted below.
+  //
+  // Both the road and the bearing are ASKED FOR, not pinned, so a seed that
+  // moved either moves this with it.
   const ctx = await browser.createBrowserContext();
   const fresh = await newPage(ctx, { width: 1280, height: 800 });
   await fresh.goto(`${HOST}/?menu=0&fs=0`, { waitUntil: 'load' });
   await fresh.waitForSelector('canvas');
   await wait(8000);
   await fresh.focus('canvas').catch(() => {});
+
+  const road = await fresh.evaluate(() => window.__dbgTowns().spawn);
+  await fresh.evaluate((s) => window.__dbgTp(s.x, s.z), road);
+  await wait(600);
+  const gateAt = await fresh.evaluate(() => {
+    const g = window.__dbgZone().gate;
+    const p = window.__dbgPlayerPos();
+    return { bearing: Math.atan2(g.x - p.x, g.z - p.z), dist: Math.hypot(g.x - p.x, g.z - p.z) };
+  });
+  results.preloadWalk = { gateBearing: +gateAt.bearing.toFixed(3), gateDist: +gateAt.dist.toFixed(1) };
+  await fresh.evaluate((b) => window.__dbgAim(b), gateAt.bearing);
+  await wait(700);
 
   const freshLayers = () => fresh.evaluate(() => window.__dbgGfx().layers);
   await fresh.evaluate(() => window.__dbgGfx('grass', false));
@@ -212,7 +269,22 @@ for (const id of ['shadows', 'aa']) {
   await fresh.keyboard.up('KeyW');
   await wait(2000);
   const afterWalk = await freshLayers();
+  // DID THE WALK ACTUALLY REACH THE THING BEING REPRODUCED? The preload arms
+  // within PRELOAD_R (30) of the gateway, and every assertion below passes
+  // vacuously if it never armed — grass switched off stays off when nothing
+  // hides and re-shows the world. This is the assertion that makes the rest of
+  // the section mean something, and it is the one that would have caught the
+  // spawn moving out from under it.
+  results.preloadWalk.endedAtGateDist = await fresh.evaluate(() => {
+    const g = window.__dbgZone().gate;
+    const p = window.__dbgPlayerPos();
+    return +Math.hypot(g.x - p.x, g.z - p.z).toFixed(1);
+  });
   await ctx.close();
+
+  check(results.preloadWalk.endedAtGateDist < 30,
+    `the walk never reached the gateway preload (${results.preloadWalk.endedAtGateDist} away, `
+    + `from ${results.preloadWalk.gateDist}) â€” everything below would pass vacuously`);
 
   results.stillOffAfterWalking = {
     atRest: { grass: atRest.grass, terrain: atRest.terrain },

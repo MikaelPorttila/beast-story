@@ -40,6 +40,12 @@ export class StubWorld implements World {
   /** ...and nobody lives on it. See World.npcs. */
   readonly npcs = null;
   readonly spawnPoint = new THREE.Vector3(0, 0, 0);
+  /**
+   * The stage has nobody to stand beside, so the pose is the middle of the
+   * floor facing +Z — which is where the lab has always put its subject, and
+   * what `spawnPoint` alone used to mean here. See World.playerStart.
+   */
+  readonly playerStart = { position: this.spawnPoint, yaw: 0 };
   /** The stage is one mesh built in the constructor: nothing ever streams. */
   readonly chunksLoaded = 1;
   readonly streaming = false;

@@ -772,7 +772,13 @@ const player = new Player(engine, world, input, bus);
 const combat = new CombatSystem(engine.scene, world, bus);
 const hud = new HUD(bus);
 
-player.position.copy(world.spawnPoint);
+// THE OPENING SHOT: beside the start town's greeter, at his fire, facing the
+// way he faces, with the camera on the hero's face. It is a POSE and not a
+// point (see `World.playerStart` in core/types.ts), which is why this is one
+// call rather than a `position.copy` — the facing is half the composition, and
+// `Player.reset()` goes through the same method so a second New Game in one
+// session opens on the same shot.
+player.takeStartPose();
 player.onAttack = (origin, dir) => combat.meleeStrike(origin, dir, player.attackStat);
 
 /**
@@ -1360,6 +1366,66 @@ const _hurtFrom = new THREE.Vector3();
     dir: { x: _dbgDir.x, y: _dbgDir.y, z: _dbgDir.z },
   };
 };
+/**
+ * THE OPENING POSE, and everything needed to judge it in one read.
+ *
+ * `start` is what the world decided (World.playerStart); `player` is where the
+ * hero actually is now, which is the same thing on frame one and drifts the
+ * moment anybody presses a key. `greeter` is the character the pose was
+ * composed against, so `beside` and `faceGap` can be checked without the probe
+ * knowing a name or a seed's coordinates — the whole reason the derivation
+ * takes the nearest resident rather than `npc:gain`.
+ *
+ * `camFromFace` is the assertion the shot exists for, in degrees: the angle
+ * between where the camera SITS relative to the hero and the way the hero is
+ * LOOKING. Near 0 means the lens is in front of his face, near 180 means it is
+ * behind his shoulder, which is every other moment in the game. Read-only.
+ */
+(window as unknown as { __dbgStart: () => unknown }).__dbgStart = () => {
+  const s = world.playerStart;
+  const g = world.npcs?.all[0] ?? null;
+  const deg = (r: number): number => {
+    let d = r;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return +((d * 180) / Math.PI).toFixed(2);
+  };
+  return {
+    start: {
+      x: +s.position.x.toFixed(2), y: +s.position.y.toFixed(2), z: +s.position.z.toFixed(2),
+      yaw: +s.yaw.toFixed(3),
+    },
+    player: {
+      x: +player.position.x.toFixed(2), z: +player.position.z.toFixed(2),
+      facing: +player.facing.toFixed(3),
+    },
+    greeter: g && {
+      id: g.id, x: +g.x.toFixed(2), y: +g.y.toFixed(2), z: +g.z.toFixed(2),
+      restYaw: +g.restYaw.toFixed(3),
+    },
+    /** Distance from the hero's start to the greeter, in world units. */
+    beside: g ? +Math.hypot(s.position.x - g.x, s.position.z - g.z).toFixed(2) : null,
+    /** How far the hero's facing differs from the greeter's, degrees. */
+    faceGap: g ? deg(s.yaw - g.restYaw) : null,
+    /**
+     * Angle between the camera arm and the hero's facing, degrees. 0 = his face.
+     *
+     * Measured off the camera's REAL position, exactly as `__dbgCamYaw` is,
+     * rather than read back off the field the pose wrote. The arm is smoothed
+     * and terrain can push the lens up and in, so the field says what was asked
+     * for and this says what the player is looking through.
+     */
+    camFromFace: deg(Math.atan2(
+      engine.camera.position.x - player.position.x,
+      engine.camera.position.z - player.position.z,
+    ) - player.facing),
+    /** How far the start is from the world's own reference point. */
+    fromSpawn: +Math.hypot(
+      s.position.x - world.spawnPoint.x, s.position.z - world.spawnPoint.z,
+    ).toFixed(2),
+  };
+};
+
 // Compass state: the heading under the pointer and where every marker landed
 // on the strip. `rel` is the signed shortest-arc bearing to the marker in
 // degrees, `clamped` says it fell off the end of the strip and is parked at the

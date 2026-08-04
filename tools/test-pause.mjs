@@ -46,7 +46,34 @@ const has = (page, sel) => page.evaluate((s) => !!document.querySelector(s), sel
 const pos = (page) => page.evaluate(() => window.__dbgPlayerPos());
 
 /** Hold W and report how far the hero actually got. */
+/**
+ * Hold W and report how far the hero got — AFTER pointing the camera somewhere
+ * he can actually go.
+ *
+ * The aim is not optional and the reason is the opening pose. A new session
+ * starts the hero beside the camp fire with the camera on his FACE
+ * (World.playerStart), so `cam.forward` runs from the lens THROUGH him and into
+ * the huts behind: measured, a held W travels 2.73 units and stops against a
+ * wall, where the same hold along his own facing travels 8.66. Every `travel >
+ * 4` in this file is a proxy for "the hero is being simulated at all", and a
+ * proxy that reads the geometry behind the spawn instead is measuring the camp.
+ * main.ts's own note on `__dbgAim` says it: a test that cannot turn the camera
+ * can only ever drive the hero in one direction.
+ *
+ * HIS OWN FACING is the bearing, not a pinned one — it is where the greeter is
+ * looking, which is the gate, which is where the road goes. Derived, so a seed
+ * that moved the camp moves this with it.
+ *
+ * RE-AIMED ON EVERY CALL rather than once after boot, because `Player.reset()`
+ * goes through `takeStartPose()` — so Exit to title and a second New Game put
+ * the camera back on his face, and arm 2 of this file does exactly that.
+ */
 async function walk(page) {
+  const yaw = await page.evaluate(() => window.__dbgStart?.().start.yaw ?? 0);
+  await page.evaluate((b) => window.__dbgAim(b), yaw);
+  // The swing is written outright but `cam.forward` follows the SMOOTHED camera
+  // position, so a hold pressed immediately walks off along the old heading.
+  await wait(700);
   const a = await pos(page);
   await page.keyboard.down('KeyW');
   await wait(HOLD_MS);
@@ -344,7 +371,12 @@ const exit = {};
   });
   await wait(600);
   const away = await pos(page);
-  const spawn = await page.evaluate(() => window.__dbgTowns().spawn);
+  // WHERE A SESSION BEGINS, which is no longer `__dbgTowns().spawn`: that is the
+  // world's reference point out on the road, and the hero now starts beside the
+  // camp fire (World.playerStart). The question this section asks is "did New
+  // Game put a FRESH hero on screen, or hand back the one who wandered off",
+  // and only the start pose can answer it.
+  const spawn = await page.evaluate(() => window.__dbgStart().start);
   exit.movedAwayFromSpawn = round(Math.hypot(away.x - spawn.x, away.z - spawn.z));
 
   await page.keyboard.press('Escape');
@@ -505,7 +537,7 @@ check(exit.step === 'options', 'and lands on the options, not the splash');
 check(exit.lockAtTitle === null,
   `the pointer is given back at the title screen (locked to ${exit.lockAtTitle})`);
 check(exit.secondGame.menuGone, 'New Game works a second time, from a real mouse click');
-check(exit.secondGame.fromSpawn < 3, 'and the second hero starts at the spawn');
+check(exit.secondGame.fromSpawn < 3, 'and the second hero starts at the opening pose');
 check(exit.secondGame.travel > 4, 'and can walk');
 // Belt and braces on the same handover: the element going is what `menuGone`
 // says, and these are the two things INSIDE it that the player actually sees.

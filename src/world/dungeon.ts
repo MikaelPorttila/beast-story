@@ -519,6 +519,14 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
   const spawnPoint = new THREE.Vector3(
     HOLD_ORIGIN_X + plan.gate.x + 0.5, FLOOR_Y, HOLD_ORIGIN_Z + plan.gate.z + 0.5,
   );
+  /**
+   * The hold has nobody living in it, so where a session would begin here is
+   * simply the return gateway, facing into the room. Nothing starts a session
+   * in the dungeon today — you arrive through a gateway, and `onArrive` places
+   * the hero itself — so this exists to satisfy the contract honestly rather
+   * than to be read. See World.playerStart.
+   */
+  const playerStart = { position: spawnPoint, yaw: 0 };
 
   const buildChunk = (rec: HoldChunk): void => {
     rec.mesh = buildHoldChunk(rec.cx, rec.cz, plan, stoneMat);
@@ -570,6 +578,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     // against this, so it has to be somewhere nothing can reach.
     waterLevel: FLOOR_Y - 50,
     spawnPoint,
+    playerStart,
     /** No skill dens down here yet. */
     shopPositions: [],
     /**

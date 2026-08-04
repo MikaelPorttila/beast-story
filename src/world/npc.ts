@@ -414,7 +414,9 @@ export class Npcs implements NpcField {
       rig.root.position.set(spot.x, y, spot.z);
       rig.root.rotation.y = restYaw;
       this.group.add(rig.root);
-      const info: NpcInfo = { id: char.id, nameKey: char.nameKey, x: spot.x, y, z: spot.z };
+      const info: NpcInfo = {
+        id: char.id, nameKey: char.nameKey, x: spot.x, y, z: spot.z, restYaw,
+      };
       infos.push(info);
       this.placed.push({ char, rig, info, restYaw, yaw: restYaw });
       // The same call shape `SolidStamp.add` uses, and the same field type —
@@ -566,22 +568,36 @@ function approachAngle(cur: number, target: number, rate: number, dt: number): n
  * Runs once per NPC at world creation, so it may allocate and may be generous
  * with probes.
  */
+/**
+ * Can a body of `radius` stand at (x, z) — off the carriageway, and clear of
+ * everything the settlement built?
+ *
+ * EXPORTED because the player's opening pose asks the identical question one
+ * module up (`pickPlayerStart` in world/index.ts), and the alternative was a
+ * second copy of the two rules that decide it. They are rules with a history:
+ * the road test exists because the Encampment's cart road ENDS at the middle of
+ * camp, so "the middle" is a road; the four-corner probe exists because a body
+ * half inside a barrel is still inside a barrel, and its own centre is clear.
+ * A spot the hero may stand on and a spot an NPC may stand on are the same spot.
+ */
+export function spotIsFree(site: NpcSite, x: number, z: number, radius: number): boolean {
+  const clearOf = radius + 0.35;
+  if (site.roads.distanceTo(x, z) < NPC_ROAD_CLEAR) return false;
+  if (site.structureTopAt(x, z) > -Infinity) return false;
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2;
+    if (site.structureTopAt(x + Math.sin(a) * clearOf, z + Math.cos(a) * clearOf) > -Infinity) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function findSpot(
   site: NpcSite, cx: number, cz: number, offset: number, radius: number,
   preferBearing: number | null = null,
 ): { x: number; z: number } {
-  const clearOf = radius + 0.35;
-  const free = (x: number, z: number): boolean => {
-    if (site.roads.distanceTo(x, z) < NPC_ROAD_CLEAR) return false;
-    if (site.structureTopAt(x, z) > -Infinity) return false;
-    for (let k = 0; k < 4; k++) {
-      const a = (k / 4) * Math.PI * 2;
-      const px = x + Math.sin(a) * clearOf;
-      const pz = z + Math.cos(a) * clearOf;
-      if (site.structureTopAt(px, pz) > -Infinity) return false;
-    }
-    return true;
-  };
+  const free = (x: number, z: number): boolean => spotIsFree(site, x, z, radius);
   /** How much furniture is within arm's reach and a step beyond it. */
   const crowding = (x: number, z: number): number => {
     let n = 0;
