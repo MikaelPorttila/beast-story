@@ -632,6 +632,31 @@ export class Player {
     this.root.rotation.y = this.heading;
   }
 
+  /**
+   * Keep the lens on him while the controller is frozen.
+   *
+   * THE OTHER HALF OF `carry`, AND A BUG IN ITS OWN RIGHT. `update` is what
+   * drives the follow camera, and every modal skips `update` — so with the shop,
+   * the F1 sheet, the in-game menu or the console open, the camera stopped
+   * following. That was invisible for as long as a frozen hero could not move,
+   * and stopped being invisible the moment he could: carried by a flying island,
+   * he slides out from under a camera that is still pointing at where the deck
+   * used to be. It is also wrong for the plainer reason that the camera damps
+   * toward its rest pose over several hundred milliseconds, so opening a panel
+   * mid-turn froze the arm halfway through the swing.
+   *
+   * IT DOES NOT READ LOOK INPUT, and it does not have to guard against it here:
+   * `frame()` in main.ts calls `Input.clearLook()` for the whole of any frame
+   * with a modal up (the F1 sheet keeps pointer lock, so it genuinely does go on
+   * collecting delta), and the console releases the pointer, which is what feeds
+   * that delta in the first place. So the camera gets a zero-look update and
+   * does only the part that is wanted: follow, damp, and re-place the lens.
+   */
+  followCamera(dt: number): void {
+    this.cam.update(dt, this.input, this.position, this.onGround, this.world, this.engine.camera);
+    this.engine.updateSunFocus(this.position);
+  }
+
   update(dt: number): void {
     this.time += dt;
     const input = this.input;
@@ -771,7 +796,7 @@ export class Player {
     // trunkSolidTopAt exists to avoid. Anything BELOW the feet reads as a drop
     // in either case, so stepping off the rim is never refused.
     if (this.onCanopy) {
-      const canopy = this.world.climbTopAt(x, z);
+      const canopy = this.climbTop(x, z);
       if (canopy > top) top = canopy;
     }
     return top;
@@ -787,9 +812,39 @@ export class Player {
    * out of it is all "is there a tree platform here?" amounts to. `ground` is
    * passed in because every caller has just measured it.
    */
+  /**
+   * Top of everything CLIMBABLE at a column — including whatever is carrying
+   * him.
+   *
+   * THE CLIMB QUERY HAD THE SAME HOLE THE STEP TEST HAD. `World.climbTopAt`
+   * knows about terrain, trees and the settlements standing on the ground; it
+   * cannot know about a flying island, because a carrier's surface is only
+   * answerable to a body that is riding one (it takes no `y`, and a deck two
+   * hundred units up would otherwise be reported over a meadow). So on the
+   * island nothing was climbable at all: `probeFace` asked for the wall of the
+   * hut in front of him and got the terrain two hundred units below.
+   *
+   * `ride.support` is -Infinity unless he is actually attached, so everywhere
+   * else in the world this is exactly the query it always was. Same argument,
+   * same shape and the same one-line fold as `blockTop` — see `CarrierRide`.
+   */
+  private climbTop(x: number, z: number): number {
+    const w = this.world.climbTopAt(x, z);
+    const deck = this.ride.support(x, z);
+    return deck > w ? deck : w;
+  }
+
   private canopyTop(x: number, z: number, ground: number): number {
-    const top = this.world.climbTopAt(x, z);
-    return top > ground + CANOPY_MIN_CLEAR ? top : -Infinity;
+    const top = this.climbTop(x, z);
+    // MEASURED AGAINST WHAT HE IS STANDING ON, not against the terrain. On a
+    // carrier the terrain is hundreds of units below, so every column of the
+    // deck would clear `ground` by miles and the whole island would read as one
+    // enormous tree crown. The support branch in `update` happens to test solid
+    // ground first and so never reaches the canopy case — but relying on the
+    // order of two branches to keep a query honest is how the next change
+    // breaks it.
+    const base = Math.max(ground, this.ride.support(x, z));
+    return top > base + CANOPY_MIN_CLEAR ? top : -Infinity;
   }
 
   /**
@@ -1113,7 +1168,7 @@ export class Player {
    * hero can stand inside a trunk's column and still find something to hold.
    */
   private probeFace(dx: number, dz: number, reach: number): number {
-    const top = this.world.climbTopAt(
+    const top = this.climbTop(
       this.position.x + dx * reach,
       this.position.z + dz * reach,
     );
@@ -1192,7 +1247,11 @@ export class Player {
    */
   private updateClimb(dt: number): void {
     const world = this.world;
-    const top = world.climbTopAt(
+    // Through `climbTop`, like every other climb query: the face he is holding
+    // may belong to a building on a carrier, and the world query cannot see it.
+    // Losing it here is not harmless — the branch below reads a vanished face as
+    // "the wall fell out from under the hands" and drops him.
+    const top = this.climbTop(
       this.position.x + this.climbDirX * CLIMB_REACH,
       this.position.z + this.climbDirZ * CLIMB_REACH,
     );
@@ -1267,7 +1326,7 @@ export class Player {
     const nx = this.position.x + this.velocity.x * dt;
     const nz = this.position.z + this.velocity.z * dt;
     if (
-      world.climbTopAt(nx + this.climbDirX * CLIMB_REACH, nz + this.climbDirZ * CLIMB_REACH)
+      this.climbTop(nx + this.climbDirX * CLIMB_REACH, nz + this.climbDirZ * CLIMB_REACH)
       >= this.position.y + CLIMB_SIDE_HOLD
     ) {
       this.position.x = nx;

@@ -70,12 +70,19 @@ const RIDE_FLOOR = 1.2;
  * How far OUTSIDE a carrier's rim its raised flight ceiling still applies, in
  * world units. See `CarrierField.ceilingAt`.
  *
- * 60 is a long approach on purpose: a galebird cruises at 12.4 units/s, so the
- * ceiling has lifted five seconds before the island is overhead and the climb
- * is never interrupted. It costs nothing — the only thing this number can do is
- * let a player fly higher over an empty patch of sky near the island.
+ * IT IS SIZED AGAINST THE CLIMB, and the climb got much longer when the island
+ * moved above the weather. The deck cruises at 190 and a flyer's ordinary
+ * ceiling is 78 over the ground, so there are ~90 units to gain; a galebird
+ * climbs at 7 units/s and cruises at 12.4, which is thirteen seconds of climb
+ * covering 160 units of ground. A 60-unit margin is crossed in five, so the
+ * approach would run out of raised ceiling long before it ran out of climb and
+ * the player would hit an invisible floor and coast under the island.
+ *
+ * 140 gives the climb more room than it needs. It costs nothing — the only
+ * thing this number can do is let a player fly higher over an empty patch of
+ * sky near the island.
  */
-const CEILING_MARGIN = 60;
+const CEILING_MARGIN = 140;
 
 /**
  * How far over a carrier's ORIGIN its ceiling sits, in world units — enough to

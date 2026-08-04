@@ -259,10 +259,24 @@ const ARRIVE = 26;
  * ridge rather than snapping over it.
  */
 const KEEL_MARGIN = 14;
-/** Never lower than this above sea level, whatever the ground below says. */
-const MIN_ALT = 112;
-/** ...and never higher, so it stays under the cumulus deck's own 80-142 band. */
-const MAX_ALT = 138;
+/**
+ * Never lower than this above sea level, whatever the ground below says.
+ *
+ * IT CRUISES ABOVE THE WEATHER NOW. This was 112, which put the deck INSIDE the
+ * cumulus bands (they run 80-142, see world/clouds.ts) and made every view of
+ * the island a negotiation with a cloud — the keep-out bubble exists entirely
+ * because of that. At 190 the deck is clear of the highest band's own top, so
+ * the cloud deck lies UNDER the island the way it does in the reference art,
+ * the keep-out becomes a no-op that costs one distance test, and the thing
+ * reads as somewhere you have to climb to rather than as scenery at eye level.
+ *
+ * The keel is 89 units deep, so the root still hangs at 101 — a long way over
+ * the highest ground in the world, which is what makes the altitude rule below
+ * inert most of the time rather than fighting this floor.
+ */
+const MIN_ALT = 190;
+/** ...and never higher. Nothing in the sky above this to make room for. */
+const MAX_ALT = 215;
 /** How fast it may climb or sink, world units/second. */
 const CLIMB_RATE = 1.6;
 
@@ -951,24 +965,39 @@ function planSkyhaven(seed: number, parts: SkyParts, lib: PropLib): SkyPlan {
   }
 
   // -- the rim fence --------------------------------------------------------
-  // Panels with gaps: it MARKS the edge, it does not close it. The island's
-  // whole character is that it has an edge you can walk off, and a rail you
-  // bump into would turn that into scenery.
+  // ONE CONTINUOUS RAIL AROUND THE RIM, broken only by what is actually in its
+  // way. It marks the edge; it does not close it — you can still walk off,
+  // because the rail is a low one and the gaps at the gate and the fall are
+  // real openings rather than decoration.
   //
-  // THE GAPS ARE HASHED, NOT PERIODIC. `k % 4 === 3` gives a three-on one-off
-  // rhythm that is plainly legible as a repeat from above, which is the tell
-  // that a fence was generated rather than built. A hash gives the same density
-  // with no readable beat, and the panels lean a little.
+  // THE YAW IS THE BEARING, NOT THE BEARING PLUS A QUARTER TURN, and that was a
+  // real bug rather than a taste: `skyFence` paints its posts and rails along
+  // its LOCAL +X, and the stamp maps local +X to world (cos yaw, -sin yaw)
+  // (see `Accum.add`). The rim's tangent at bearing `a` is (cos a, -sin a), so
+  // the panel runs along the rim exactly when `yaw === a`. At `a + PI/2` local
+  // +X maps to the RADIAL direction instead, so every panel stood at right
+  // angles to the edge — a ring of rails pointing out over the drop like the
+  // spokes of a wheel, which is what shipped.
+  //
+  // THE PANELS OVERLAP SLIGHTLY. A panel is 7 cells of `SV` = 4.2 units long
+  // and it is a straight chord across an arc, so spacing them at exactly their
+  // own length leaves a hair of daylight at every joint and the run reads as
+  // separate pieces. Dividing by 3.9 rather than 4.2 laps them by about 7%,
+  // which is under half a post and reads as one rail.
   const fenceR = ISLAND_R * 0.93;
-  const panels = Math.round((Math.PI * 2 * fenceR) / (7 * 0.6));
+  const panels = Math.round((Math.PI * 2 * fenceR) / 3.9);
   for (let k = 0; k < panels; k++) {
-    if (hash2(k, 0, 97) < 0.26) continue;
     const a = (k / panels) * Math.PI * 2;
     const x = Math.sin(a) * fenceR;
     const z = Math.cos(a) * fenceR;
-    // Nothing across the gate, and nothing growing through a tree.
-    if (!free(x, z, 2.4)) continue;
-    fences.push({ x, z, yaw: a + Math.PI / 2 + (hash2(k, 1, 97) - 0.5) * 0.16 });
+    // The only breaks are things that are genuinely there: the gate and its
+    // approach, and whatever the tree line has put on the rim. Probed tightly
+    // (1.2 rather than 2.4) because the point is a continuous run — a generous
+    // probe punches holes in it for props that merely stand nearby.
+    if (!free(x, z, 1.2)) continue;
+    // A whisker of lean, so it is a built fence rather than a lathe-turned
+    // ring. Small enough that neighbouring panels still meet.
+    fences.push({ x, z, yaw: a + (hash2(k, 1, 97) - 0.5) * 0.05 });
   }
 
   // THE FALL IS ON THE FRONT QUARTER, beside the gate, and that is a framing

@@ -2711,6 +2711,10 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   if (!interactive || modal) {
     mount.carry();
     if (!mount.isMounted) player.carry();
+    // ...and the LENS follows him, which `player.update` would have done and is
+    // not going to. Skipped in photo mode, which drives the camera itself and
+    // must not have the follow rig fighting it. See `Player.followCamera`.
+    if (interactive) player.followCamera(dt);
   }
 
   // Photo mode drives the camera and the subject itself and must not have the
