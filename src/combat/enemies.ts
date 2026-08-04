@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { VoxelModel, shade } from '../core/voxel';
 import { MAX_STEP_UP } from '../core/types';
+import { CarrierRide } from '../world/carriers';
 import type { Damageable, ElementType, World } from '../core/types';
 import type { StringKey } from '../i18n';
 import {
@@ -334,6 +335,9 @@ const _dir = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
 
 export class Enemy implements Damageable {
+  /** The moving frame under its feet, if any. See world/carriers.ts. */
+  private readonly ride = new CarrierRide();
+
   readonly position: THREE.Vector3;
   hp: number;
   maxHp: number;
@@ -596,6 +600,20 @@ export class Enemy implements Damageable {
 
   update(dt: number, ctx: EnemyCtx): void {
     if (this.isDead) return;
+    // THE GROUND MOVES FIRST — the same line the hero, the saddle and a
+    // follower open with. A wild thing that wandered onto a flying island (or,
+    // more usually, one that chased the player onto one) travels with it; the
+    // issue asks for flying mobs too, and a Peckit's cruise altitude is
+    // measured off `groundAt`, so it circles the deck rather than the meadow
+    // eighty units under it.
+    //
+    // `home` is deliberately NOT carried. It is where the thing came from, in
+    // world space, and it is what the leash pulls it back to — an aggressive
+    // spawn that followed the player onto a departing island should want to go
+    // home, which is the behaviour that stops the world's wildlife accumulating
+    // on the one piece of it that moves.
+    this.ride.carry(ctx.world, this.position);
+    if (this.ride.dyaw !== 0) this.root.rotation.y += this.ride.dyaw;
     this.retarget(ctx);
     this.atkCd -= dt;
 
@@ -638,6 +656,21 @@ export class Enemy implements Damageable {
    * should be stopped by exactly the things that stop him, and step over
    * exactly the things he steps over.
    */
+  /**
+   * What this thing walks on: the terrain, or the deck of whatever is carrying
+   * it. -Infinity from the ride unless it is actually riding one, so everywhere
+   * else in the world this is `getHeight` and nothing else.
+   *
+   * The same shape as `BeastActor.groundAt` and for the same reason: a deck IS
+   * the ground, where a settlement is a thing standing on it — which is why
+   * this folds in a carrier and not `structureTopAt`.
+   */
+  private groundAt(ctx: EnemyCtx, x: number, z: number): number {
+    const g = ctx.world.getHeight(x, z);
+    const deck = this.ride.support(x, z);
+    return deck > g ? deck : g;
+  }
+
   private moveGround(dt: number, dirX: number, dirZ: number, spd: number, ctx: EnemyCtx): void {
     const nx = this.position.x + dirX * spd * dt;
     const nz = this.position.z + dirZ * spd * dt;
@@ -650,7 +683,7 @@ export class Enemy implements Damageable {
   // ------------------------------------------------------------ gloopling
   private updateGloopling(dt: number, ctx: EnemyCtx): void {
     const body = this.parts.body;
-    const groundY = ctx.world.getHeight(this.position.x, this.position.z);
+    const groundY = this.groundAt(ctx, this.position.x, this.position.z);
     this.position.y += (groundY - this.position.y) * Math.min(1, 14 * dt);
 
     if (!this.gAir) {
@@ -712,7 +745,7 @@ export class Enemy implements Damageable {
   private updateSnortle(dt: number, ctx: EnemyCtx): void {
     const head = this.parts.head;
     const body = this.parts.body;
-    const groundY = ctx.world.getHeight(this.position.x, this.position.z);
+    const groundY = this.groundAt(ctx, this.position.x, this.position.z);
     this.position.y += (groundY - this.position.y) * Math.min(1, 14 * dt);
     this.chargeCd -= dt;
 
@@ -848,7 +881,9 @@ export class Enemy implements Damageable {
     const head = this.parts.head;
     const wingL = this.parts.wingL;
     const wingR = this.parts.wingR;
-    const groundY = Math.max(ctx.world.getHeight(this.position.x, this.position.z), ctx.world.waterLevel);
+    const groundY = Math.max(
+      this.groundAt(ctx, this.position.x, this.position.z), ctx.world.waterLevel,
+    );
     const cruiseY = groundY + 3.3 + Math.sin(ctx.time * 0.9 + this.seed) * 0.35;
     this.diveCd -= dt;
 

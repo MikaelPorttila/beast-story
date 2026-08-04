@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Engine } from '../core/engine';
 import type { Input } from '../core/input';
 import { MAX_STEP_UP, type ElementType, type EventBus, type World } from '../core/types';
+import { CarrierRide } from '../world/carriers';
 import { t } from '../i18n';
 import { buildHeroRig, type HeroRig } from './hero-rig';
 import { ThirdPersonCamera } from './camera';
@@ -285,6 +286,17 @@ export class Player {
    */
   aimAssist?: (origin: THREE.Vector3, direction: THREE.Vector3) => boolean;
 
+  /**
+   * The moving frame under his feet, if any — a flying island's deck today.
+   *
+   * ONE FIELD AND TWO CALLS, and nothing else in this file knows what it is
+   * standing on: `carry` at the top of the slice moves him with the frame, and
+   * `support` folds the deck into the two column-top questions he already asks
+   * (`blockTop` for the step test, `floor` for what holds him up). See
+   * world/carriers.ts.
+   */
+  private readonly ride = new CarrierRide();
+
   private rig: HeroRig;
   /**
    * The follow camera.
@@ -380,6 +392,11 @@ export class Player {
    */
   setWorld(world: World): void {
     this.world = world;
+    // Whatever was carrying him belonged to the zone he is leaving, and its id
+    // means nothing in the new one. `CarrierRide` would drop it on its own next
+    // slice (the registry answers `undefined`), but saying so here keeps the
+    // "everything the old zone owned is released" list in one place.
+    this.ride.clear();
     this.isClimbing = false;
     this.climbLockout = 0;
     this.isSwimming = false;
@@ -486,6 +503,7 @@ export class Player {
   takeStartPose(): void {
     const start = this.world.playerStart;
     this.velocity.set(0, 0, 0);
+    this.ride.clear();
     this.position.copy(start.position);
     this.position.y = Math.max(
       this.world.getHeight(this.position.x, this.position.z), this.world.waterLevel,
@@ -498,6 +516,7 @@ export class Player {
   }
 
   private respawn(): void {
+    this.ride.clear();
     this.isDead = false;
     this.hp = this.maxHp;
     this.flash = 0;
@@ -585,10 +604,75 @@ export class Player {
     this.onGround = grounded;
   }
 
+  /**
+   * Move with whatever is carrying him, and nothing else.
+   *
+   * SEPARATE FROM `update` BECAUSE A FROZEN HERO IS STILL STANDING ON
+   * SOMETHING. Every modal in this game freezes the player controller — the
+   * shop, the F1 sheet, the in-game menu, the console — and while the world's
+   * moving parts go on moving, so a hero who opened the menu on a flying
+   * island watched it slide out from under him and was left standing in the
+   * sky. Being frozen means "takes no input and runs no physics", not
+   * "detached from the world".
+   *
+   * It is idempotent per slice and safe to call from either path: `carry`
+   * applies the frame's published delta once, and the delta is published once
+   * per slice by `CarrierRegistry.advance`.
+   */
+  carry(): void {
+    this.ride.carry(this.world, this.position);
+    if (this.ride.dyaw === 0) return;
+    // A TURNING DECK TURNS WHAT IS ON IT — his body and the camera arm both,
+    // or a hero standing still on a banking island slowly ends up facing
+    // across a deck he never turned on, with the view swinging past him.
+    // `cam.yaw` is the bearing from the hero to the camera and is the one
+    // thing here that is not re-derived per frame from his heading.
+    this.heading += this.ride.dyaw;
+    this.cam.yaw += this.ride.dyaw;
+    this.root.rotation.y = this.heading;
+  }
+
+  /**
+   * Keep the lens on him while the controller is frozen.
+   *
+   * THE OTHER HALF OF `carry`, AND A BUG IN ITS OWN RIGHT. `update` is what
+   * drives the follow camera, and every modal skips `update` — so with the shop,
+   * the F1 sheet, the in-game menu or the console open, the camera stopped
+   * following. That was invisible for as long as a frozen hero could not move,
+   * and stopped being invisible the moment he could: carried by a flying island,
+   * he slides out from under a camera that is still pointing at where the deck
+   * used to be. It is also wrong for the plainer reason that the camera damps
+   * toward its rest pose over several hundred milliseconds, so opening a panel
+   * mid-turn froze the arm halfway through the swing.
+   *
+   * IT DOES NOT READ LOOK INPUT, and it does not have to guard against it here:
+   * `frame()` in main.ts calls `Input.clearLook()` for the whole of any frame
+   * with a modal up (the F1 sheet keeps pointer lock, so it genuinely does go on
+   * collecting delta), and the console releases the pointer, which is what feeds
+   * that delta in the first place. So the camera gets a zero-look update and
+   * does only the part that is wanted: follow, damp, and re-place the lens.
+   */
+  followCamera(dt: number): void {
+    this.cam.update(dt, this.input, this.position, this.onGround, this.world, this.engine.camera);
+    this.engine.updateSunFocus(this.position);
+  }
+
   update(dt: number): void {
     this.time += dt;
     const input = this.input;
     const world = this.world;
+
+    // THE GROUND MOVES FIRST. If he is standing on something that travels, this
+    // is where he travels with it — before gravity, before the step test, and
+    // before the camera reads his position. Everything below then runs in world
+    // space exactly as it always has and never learns that it was moved.
+    //
+    // Skipped in the saddle: `MountController` carries the pair of them and
+    // writes this position, so running the frame here as well would apply the
+    // island's motion to the hero twice.
+    if (!this.isMounted) {
+      this.carry();
+    }
 
     if (this.invulnT > 0) this.invulnT -= dt;
     if (this.hurtT > 0) this.hurtT -= dt;
@@ -691,6 +775,15 @@ export class Player {
     let top = trunk > ground ? trunk : ground;
     const built = this.world.structureTopAt(x, z);
     if (built > top) top = built;
+    // A CARRIER'S DECK IS GROUND, and is folded in here rather than being a
+    // fourth kind of collision — the same argument `structureTopAt` makes about
+    // settlements. It answers -Infinity unless he is actually riding one, which
+    // is what makes it safe to ask with (x, z) alone: the vertical question was
+    // settled by `CarrierRide.carry` at the top of this slice, and asking it
+    // again with no y is exactly how a walker on the meadow would be teleported
+    // onto an island passing overhead.
+    const deck = this.ride.support(x, z);
+    if (deck > top) top = deck;
     // ...and, ONLY while he is standing on a crown, the crown itself. Up there
     // the leaves under his feet are the floor, so the step test has to see the
     // next column's leaves or walking up the inside of the dome would step off
@@ -703,7 +796,7 @@ export class Player {
     // trunkSolidTopAt exists to avoid. Anything BELOW the feet reads as a drop
     // in either case, so stepping off the rim is never refused.
     if (this.onCanopy) {
-      const canopy = this.world.climbTopAt(x, z);
+      const canopy = this.climbTop(x, z);
       if (canopy > top) top = canopy;
     }
     return top;
@@ -719,9 +812,39 @@ export class Player {
    * out of it is all "is there a tree platform here?" amounts to. `ground` is
    * passed in because every caller has just measured it.
    */
+  /**
+   * Top of everything CLIMBABLE at a column — including whatever is carrying
+   * him.
+   *
+   * THE CLIMB QUERY HAD THE SAME HOLE THE STEP TEST HAD. `World.climbTopAt`
+   * knows about terrain, trees and the settlements standing on the ground; it
+   * cannot know about a flying island, because a carrier's surface is only
+   * answerable to a body that is riding one (it takes no `y`, and a deck two
+   * hundred units up would otherwise be reported over a meadow). So on the
+   * island nothing was climbable at all: `probeFace` asked for the wall of the
+   * hut in front of him and got the terrain two hundred units below.
+   *
+   * `ride.support` is -Infinity unless he is actually attached, so everywhere
+   * else in the world this is exactly the query it always was. Same argument,
+   * same shape and the same one-line fold as `blockTop` — see `CarrierRide`.
+   */
+  private climbTop(x: number, z: number): number {
+    const w = this.world.climbTopAt(x, z);
+    const deck = this.ride.support(x, z);
+    return deck > w ? deck : w;
+  }
+
   private canopyTop(x: number, z: number, ground: number): number {
-    const top = this.world.climbTopAt(x, z);
-    return top > ground + CANOPY_MIN_CLEAR ? top : -Infinity;
+    const top = this.climbTop(x, z);
+    // MEASURED AGAINST WHAT HE IS STANDING ON, not against the terrain. On a
+    // carrier the terrain is hundreds of units below, so every column of the
+    // deck would clear `ground` by miles and the whole island would read as one
+    // enormous tree crown. The support branch in `update` happens to test solid
+    // ground first and so never reaches the canopy case — but relying on the
+    // order of two branches to keep a query honest is how the next change
+    // breaks it.
+    const base = Math.max(ground, this.ride.support(x, z));
+    return top > base + CANOPY_MIN_CLEAR ? top : -Infinity;
   }
 
   /**
@@ -927,7 +1050,13 @@ export class Player {
     // something you walk ON rather than something you sink into. Anything taller
     // he was refused at the wall, and anything he jumped onto he lands on.
     const built = world.structureTopAt(this.position.x, this.position.z);
-    const floor = built > gh ? built : gh;
+    let floor = built > gh ? built : gh;
+    // ...and the deck of whatever is carrying him, by the same rule and in the
+    // same max. SOLID BOTH WAYS like a structure and unlike a canopy: he is
+    // only ever asking this while he is inside the frame's own volume, so there
+    // is no "from underneath" case for it to get wrong.
+    const deck = this.ride.support(this.position.x, this.position.z);
+    if (deck > floor) floor = deck;
     const canopy = this.canopyTop(this.position.x, this.position.z, gh);
     let support = -Infinity;
     if (this.position.y <= floor) {
@@ -1039,7 +1168,7 @@ export class Player {
    * hero can stand inside a trunk's column and still find something to hold.
    */
   private probeFace(dx: number, dz: number, reach: number): number {
-    const top = this.world.climbTopAt(
+    const top = this.climbTop(
       this.position.x + dx * reach,
       this.position.z + dz * reach,
     );
@@ -1118,7 +1247,11 @@ export class Player {
    */
   private updateClimb(dt: number): void {
     const world = this.world;
-    const top = world.climbTopAt(
+    // Through `climbTop`, like every other climb query: the face he is holding
+    // may belong to a building on a carrier, and the world query cannot see it.
+    // Losing it here is not harmless — the branch below reads a vanished face as
+    // "the wall fell out from under the hands" and drops him.
+    const top = this.climbTop(
       this.position.x + this.climbDirX * CLIMB_REACH,
       this.position.z + this.climbDirZ * CLIMB_REACH,
     );
@@ -1193,7 +1326,7 @@ export class Player {
     const nx = this.position.x + this.velocity.x * dt;
     const nz = this.position.z + this.velocity.z * dt;
     if (
-      world.climbTopAt(nx + this.climbDirX * CLIMB_REACH, nz + this.climbDirZ * CLIMB_REACH)
+      this.climbTop(nx + this.climbDirX * CLIMB_REACH, nz + this.climbDirZ * CLIMB_REACH)
       >= this.position.y + CLIMB_SIDE_HOLD
     ) {
       this.position.x = nx;

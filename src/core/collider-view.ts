@@ -33,8 +33,22 @@ import type { World } from './types';
 
 /** Segments around a collider ring. 16 reads as a circle without being costly. */
 const RING_SEGMENTS = 16;
-/** How often the set is rebuilt while visible, in seconds. */
+/**
+ * How often the set is rebuilt while visible, in seconds.
+ *
+ * TWO RATES, BECAUSE THERE ARE TWO KINDS OF COLLIDER. Chunks stream in and out
+ * over seconds, so half a second is plenty to keep up with the world and cheap
+ * enough that the overlay costs nothing. A CARRIER moves every slice, and at
+ * half a second its cages trail the island they belong to by up to half a
+ * second of travel — near enough to look like the collision is in the wrong
+ * place, which is the exact question this overlay exists to answer. So a world
+ * with anything moving in it rebuilds every frame.
+ *
+ * It is a debug overlay either way: the cost is one rebuild of a few hundred
+ * rings, and only while `/show-colliders` is up.
+ */
 const REFRESH_SECONDS = 0.5;
+const REFRESH_MOVING = 0;
 /** Rings up the height of a collider, so it reads as a volume not a footprint. */
 const RINGS = 3;
 /**
@@ -101,7 +115,7 @@ export class ColliderView {
     if (!this.visible) return;
     this.timer -= dt;
     if (this.timer <= 0) {
-      this.timer = REFRESH_SECONDS;
+      this.timer = this.world.carriers.all.length > 0 ? REFRESH_MOVING : REFRESH_SECONDS;
       this.rebuild();
     }
   }

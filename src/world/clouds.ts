@@ -105,6 +105,33 @@ const HORIZON_SCALE_FAR = 2.6;
  */
 const HORIZON_FLATTEN = 0.78;
 
+/**
+ * How far ABOVE a keep-out's deck still counts as intersecting it, in world
+ * units — the headroom the town and its tower stand in.
+ *
+ * The island reports its deck and its keel; this is the only part of its
+ * envelope it does not measure for itself, because what is standing on the deck
+ * is the settlement's business rather than the rock's.
+ *
+ * 48 IS FAR MORE THAN THE TOWER NEEDS, and that is the point. At 26 — enough
+ * to clear the pennant — the deck at 120 units sat exactly thirty-four over the
+ * town and every three-quarter view had a cumulus slab filling the top third of
+ * the frame, because a cloud at this scale is sixty units across and the camera
+ * is looking slightly up. Clearing to 48 takes the whole of the middle band out
+ * of the island's cylinder and leaves it in the open sky the reference art puts
+ * it in. The bands above 136 are untouched, so the sky over the island is not
+ * empty when you look up at it from the ground.
+ */
+const KEEP_OUT_GAP = 48;
+
+/**
+ * A cumulus's height at scale 1, in world units — `cloudGeo` rasterises at
+ * R = 4..6 voxels and draws at 1.9 units a voxel, so about 15. Used only to
+ * work out how far DOWN a puff has to go to be under the island, where its top
+ * is what matters rather than its base.
+ */
+const CLOUD_H = 15;
+
 /** Condensation level: every boll is clipped flat at this voxel row. */
 const BASE_Y = 4;
 
@@ -616,6 +643,59 @@ export class Clouds {
   private fx = 0;
   private fz = 0;
 
+  /**
+   * A disc the deck keeps out of — the flying island's footprint (issue #68).
+   *
+   * A CUMULUS THAT GROWS THROUGH A TOWN SQUARE is what this is for, and the
+   * answer — after two worse ones, both of which were built and captured — is
+   * simply to NOT DRAW the handful of puffs that actually intersect the island.
+   *
+   * MOVING THEM IS THE OBVIOUS ANSWER AND IT PILES THEM UP. Pushed radially
+   * OUT, every puff the island touches lands on one circle: the island sat
+   * inside a canyon of cumulus at exactly the push radius and every shot of it
+   * had a white wall across the frame. Pushed VERTICALLY, they land on one
+   * plane: a solid white ceiling thirty units over the town, which is worse,
+   * because it is between the island and the sun. Widening either only moves
+   * the artefact further out and takes a bald patch of sky with it. A displaced
+   * cloud has to go SOMEWHERE, and everywhere is somewhere another cloud
+   * already is.
+   *
+   * Not drawing it has no pile-up to have, and the hole it leaves is the one
+   * place in the sky the player cannot see a hole: the island is standing in
+   * it. From above, the town fills the gap; from below, the keel does; from the
+   * side, the rock. The failure this was feared for — clouds visibly blinking —
+   * needs the test to be loose, so it is tight: a puff is dropped only when its
+   * own box overlaps the island's, which is a handful at any moment out of
+   * several hundred.
+   *
+   * It is applied in `writeMatrices` and NOT in `update`, so the puff's own
+   * drift and wrap are untouched: a dropped instance is still at its true
+   * position in the field and comes back as the island passes, rather than
+   * being permanently deflected and leaving a wake of thin sky behind.
+   *
+   * One island rather than a list, because it is the only thing in the sky with
+   * a footprint. `radius` of 0 switches it off.
+   */
+  private koX = 0;
+  private koY = 0;
+  private koZ = 0;
+  private koR = 0;
+  private koDeep = 0;
+
+  /**
+   * `y` is the DECK and `depth` is how far the thing hangs below it. Two
+   * numbers rather than one because the island is not a disc: a puff sent
+   * underneath has to clear a keel forty-eight units deep, and one told only
+   * about the deck goes straight through the middle of the rock.
+   */
+  setKeepOut(x: number, y: number, z: number, radius: number, depth: number): void {
+    this.koX = x;
+    this.koY = y;
+    this.koZ = z;
+    this.koR = radius;
+    this.koDeep = depth;
+  }
+
   private writeMatrices(): void {
     for (const deck of this.decks) {
       for (let i = 0; i < deck.items.length; i++) {
@@ -635,6 +715,38 @@ export class Clouds {
           const g = 1 + (HORIZON_SCALE_FAR / BAND_SCALE[3] - 1) * k;
           sx *= g;
           sy *= g * (1 + (HORIZON_FLATTEN - 1) * k);
+        }
+        if (this.koR > 0) {
+          // Its own half-width counts, so a big far-band instance is judged by
+          // where its edge is rather than by its centre. `sx` is the instance
+          // scale and the geometry is roughly 18 units across at scale 1.
+          // A BUBBLE, NOT A FOOTPRINT. Clearing only the puffs that touch the
+          // rock leaves the island sitting in a cumulus deck it is the same
+          // size as, and every view of it from anywhere a player can fly has a
+          // cloud between the camera and the town — captured, the rear
+          // three-quarter shot was 70% white with the island peeping out of it.
+          // The reference art puts this island in OPEN sky with the weather
+          // pushed back to a distance, and 2.4 radii is what that costs.
+          //
+          // It is not a hole in the sky from the ground: only the band at the
+          // island's OWN altitude is cleared (see the vertical test below), so
+          // the two higher decks are untouched and a player looking up sees
+          // cloud over the island rather than through it.
+          const reach = this.koR * 2.4 + sx * 8;
+          const dx = it.x - this.koX;
+          const dz = it.z - this.koZ;
+          // `y` is the puff's UNDERSIDE — `VoxelModel.build` puts y = 0 at the
+          // lowest voxel — so the box it occupies is [y, y + its own height].
+          const tall = sy * CLOUD_H;
+          if (dx * dx + dz * dz < reach * reach
+            && y < this.koY + KEEP_OUT_GAP && y + tall > this.koY - this.koDeep) {
+            // Collapsed rather than skipped: this is an InstancedMesh and every
+            // slot has to be written every frame, so the only way to remove one
+            // is to give it no size. A zero-scale matrix costs the same as any
+            // other and draws nothing.
+            deck.mesh.setMatrixAt(i, tmpMat.compose(tmpPos.set(0, 0, 0), tmpQuat.identity(), tmpScale.set(0, 0, 0)));
+            continue;
+          }
         }
         tmpPos.set(it.x, y, it.z);
         tmpQuat.setFromAxisAngle(yAxis, it.rot);

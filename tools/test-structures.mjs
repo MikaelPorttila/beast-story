@@ -106,6 +106,15 @@ async function run(solids, geom = null) {
   await wait(SETTLE);
 
   const towns = await page.evaluate(() => window.__dbgTowns());
+  // A CARRIED SETTLEMENT IS NOT THIS FILE'S. Every walk below teleports the
+  // hero to a world coordinate and drives him at a collider reported by
+  // `__dbgStructures`, and neither of those means anything for a town on a
+  // moving frame: its boxes live in the carrier's own coordinates (see
+  // world/sky-island.ts) and its position is a different number by the time the
+  // hero gets there. `tools/test-carrier.mjs` is the guard for that one, and it
+  // asserts the same things this file does — that the deck holds a body up, and
+  // that what is built on it stops one.
+  const sited = towns.towns.filter((tn) => !tn.carried);
   /** Boxes per town id, measured on the solid arm and handed to the other. */
   const measured = {};
   let campBoxes = null;
@@ -123,7 +132,7 @@ async function run(solids, geom = null) {
     return out.cases[name];
   };
 
-  for (const town of towns.towns) {
+  for (const town of sited) {
     const boxes = geom ? geom.towns[town.id] : await page.evaluate(
       ([x, z, r]) => window.__dbgStructures(x, z, r),
       [town.x, town.z, town.radius + 2],
@@ -278,7 +287,7 @@ async function run(solids, geom = null) {
   // against a wall deep inside the camp, let his followers pile in behind him
   // and the wild spawns come to him, then read where every body actually is.
   {
-    const camp = towns.towns.find((c) => c.kind === 'camp');
+    const camp = sited.find((c) => c.kind === 'camp');
     const boxes = geom ? geom.camp : await page.evaluate(
       ([x, z, r]) => window.__dbgStructures(x, z, r), [camp.x, camp.z, camp.radius],
     );
@@ -319,7 +328,7 @@ async function run(solids, geom = null) {
   // test and a failed lookup), because those are the two cases the frame loop
   // actually hits.
   {
-    const camp = towns.towns.find((c) => c.kind === 'camp');
+    const camp = sited.find((c) => c.kind === 'camp');
     out.cost = {
       inCamp: await page.evaluate(([x, z]) => window.__dbgBenchStructures(x, z),
         [camp.x, camp.z]),
@@ -334,7 +343,7 @@ async function run(solids, geom = null) {
   // number that moves when someone answers a shape problem with more boxes.
   {
     out.colliders = { perTown: [], roofs: 0, worstRoofFit: 0 };
-    for (const town of towns.towns) {
+    for (const town of sited) {
       const r = town.radius + 4;
       const [boxes, roofs] = await page.evaluate(
         ([x, z, rad]) => [

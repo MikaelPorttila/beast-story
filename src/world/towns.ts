@@ -227,6 +227,14 @@ function readSites(): readonly TownSite[] {
   const sites: TownSite[] = [];
   for (const asset of assets) {
     const { data } = asset;
+    // A CARRIED SETTLEMENT IS NOT THIS FILE'S. It is not sited against the
+    // height field, no road is cut to it and it wears no yard, because whatever
+    // carries it decides where it is from one minute to the next — see
+    // `TownData.carried`, and world/sky-island.ts for the one that flies.
+    // Skipped BEFORE the layout check on purpose: its layout is registered
+    // against the carrier, not against `town-layout`, so reporting it here
+    // would be an `unknown-factory` for a town that is built perfectly well.
+    if (data.carried) continue;
     if (!LAYOUTS.has(data.layout)) {
       reportContentIssue({
         severity: 'error',
@@ -841,6 +849,9 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
       id: sites[i].id, nameKey: sites[i].nameKey, kind: sites[i].kind,
       x: sitePos[i].x, y: siteY[i], z: sitePos[i].z,
       radius: sites[i].radius, outerRadius: sites[i].outerRadius,
+      // Sited on the height field by the code below, which is the whole of what
+      // `carried` denies. See TownData.carried.
+      carried: false,
       noSpawnRadius: sites[i].noSpawnRadius,
       color: sites[i].color,
       gateX: gates[i].x, gateZ: gates[i].z, gateAngle: gates[i].angle,

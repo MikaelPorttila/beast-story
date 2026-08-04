@@ -437,7 +437,34 @@ export class Engine {
    */
   private readonly shadowBoxCenter = new THREE.Vector3(NaN, NaN, NaN);
   private sunDir = new THREE.Vector3().copy(SUN_OFFSET).normalize();
-  private clock = new THREE.Clock();
+  /**
+   * The frame clock. `THREE.Clock` was DEPRECATED in three r183 — its own
+   * source now says so and logs "Clock: This module has been deprecated.
+   * Please use THREE.Timer instead." from the constructor, which is exactly
+   * the line that was appearing in this game's boot console. We are on
+   * 0.185.1, so the replacement is `THREE.Timer` (three/src/core/Timer.js).
+   *
+   * The swap is not quite like for like, and `tick()` below puts the
+   * difference back. `Clock` computed its delta INSIDE `getDelta()` and
+   * auto-started on the first call, so frame one measured itself and read 0.
+   * `Timer` separates `update()` (advance) from `getDelta()` (query) — the
+   * whole point of the redesign, so a delta can be read many times in one
+   * simulation step without moving — and its `_startTime` is stamped at
+   * CONSTRUCTION. Left alone, the first `update()` would therefore report the
+   * entire gap between building the Engine and the first frame, which on this
+   * project's boot is measured in seconds (see the boot note in main.ts). The
+   * 0.05 clamp would have swallowed it, but "the clamp hides it" is not the
+   * same as "the number is right", so the first tick `reset()`s first and
+   * frame one still reads ~0 exactly as it always did.
+   *
+   * Deliberately NOT `connect(document)`: that opts into the Page Visibility
+   * API to zero the delta while the tab is hidden, which `Clock` never did and
+   * which this loop does not need — rAF stops firing in a hidden tab anyway,
+   * and the returning frame's oversized delta is what the 0.05 clamp is for.
+   */
+  private readonly timer = new THREE.Timer();
+  /** False until the first tick(), which is where the timer is zeroed; see above. */
+  private timerStarted = false;
   private minFrameMs = 0;
   private nextDeadline = 0;
 
@@ -943,7 +970,15 @@ export class Engine {
 
   /** Returns dt in seconds, clamped */
   tick(): number {
-    return Math.min(this.clock.getDelta(), 0.05);
+    // `Timer` stamps its origin when it is CONSTRUCTED, so the first update
+    // would otherwise bill this frame for the whole boot; reset() re-bases it
+    // on now, which reproduces Clock's auto-start (frame one reads ~0).
+    if (!this.timerStarted) {
+      this.timerStarted = true;
+      this.timer.reset();
+    }
+    this.timer.update();
+    return Math.min(this.timer.getDelta(), 0.05);
   }
 
   /**

@@ -109,6 +109,20 @@ const TOWNS = [
  * `talk: () => ({ …, lineKey: 'npc.gain.greeting' })`), placed by the same
  * ring search, and the sentence that key resolves to in `src/i18n/en.ts`.
  */
+/**
+ * SKYHAVEN, the carried settlement (issue #68) — the one town in the registry
+ * that `planSettlements` never sites, because a carrier holds it up.
+ *
+ * There is no position here and there cannot be: it is somewhere different
+ * every second, which is the whole point of it. What is pinned is what does not
+ * move — that it exists, that it is carried, and that it is last in placement
+ * order so the three ground towns are sited exactly as they were.
+ */
+const SKYHAVEN = { id: 'skyhaven', carried: true, order: 3 };
+
+/** The three who live on it, in load order. */
+const SKYFOLK = ['sky-pilot', 'sky-gardener', 'sky-lamplighter'];
+
 const GAIN = {
   id: 'gain',
   name: 'Deckard Gains Armstrong',
@@ -304,15 +318,25 @@ async function consoleClosed(tries = 40) {
     `core came from "${core.source}" — the starting world must not be a fetch`);
   eq(core.leases, ['boot'], 'core package leases');
   eq(core.requires, [], 'core package dependencies');
-  // RE-BASELINED WHEN MUSIC BECAME CONTENT, in the commit that added it, which
-  // is what this assertion is for: the two `music` assets are the overworld's
+  // RE-BASELINED TWICE, and each time the re-baseline IS the claim.
+  //
+  // First when music became content: the two `music` assets are the overworld's
   // playlist and the fallback an unscored area gets (src/content/types/music.ts).
-  // Every other count is still the pre-migration one, and that is the claim —
-  // moving the music out of the `TRACKS` map in audio/music.ts did not add,
-  // drop or renumber a town, an NPC, a biome or an enemy.
-  eq(c.assets, { town: 3, npc: 1, biome: 7, enemy: 3, quest: 0, music: 2 }, 'assets by type');
-  eq(c.resolved.towns, TOWNS.map((t) => t.id), 'towns that reached the world');
-  eq(c.resolved.npcs, [GAIN.id], 'npcs that reached the world');
+  //
+  // Then when the flying town shipped (issue #68): one more `town` and three
+  // more `npc`, which is Skyhaven and the three people who live on it. Every
+  // other count is still the PRE-MIGRATION one, and that is what this line has
+  // always been for — adding a settlement must not add, drop or renumber a
+  // biome or an enemy, and the three GROUND towns below must come back in the
+  // order and with the values they had before any of this existed.
+  eq(c.assets, { town: 4, npc: 4, biome: 7, enemy: 3, quest: 0, music: 2 }, 'assets by type');
+  // The ground towns FIRST and unchanged — `order` decides siting and Skyhaven
+  // is last — then the carried one. Asserting the whole list rather than a
+  // filtered one is deliberate: a carried town that stopped reaching the world
+  // is exactly as much a regression as a sited one that did.
+  eq(c.resolved.towns, [...TOWNS.map((t) => t.id), SKYHAVEN.id],
+    'towns that reached the world');
+  eq(c.resolved.npcs, [GAIN.id, ...SKYFOLK], 'npcs that reached the world');
   eq(c.resolved.enemies, ENEMIES.map((e) => e.id), 'enemy species that reached the world');
   eq(viaImport.biomes, BIOMES, 'biome ids');
   eq(viaImport.startAreas, ['biome:plains'], 'biomes flagged as the start area');
