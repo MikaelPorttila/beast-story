@@ -900,16 +900,63 @@ riders on the NEXT slice, and a hero standing still on a deck would lag it by a
 slice's travel every time it changed speed.
 
 **Skyhaven** ([src/world/sky-island.ts](src/world/sky-island.ts)) is the one
-carrier this build ships. Radius `19 * sqrt(8)` = 53.74 — the issue asks for
-"8 times the size of the encampment" and that is eight times its AREA, which is
-the reading that produces an island: 107 units across against a 160-unit view
-radius, so you can stand on the ground and see the whole of it against the sky.
-Eight times the RADIUS is 304 across, wider than the world is drawn, and from
-underneath it stops being an island and becomes a ceiling. `deckAt` is the
-authority twice over — the mesh's top surface is sampled from it and `localTop`
-answers every step test with it — which is the road ribbon's rule (below)
-applied to a second surface and for the same reason: what you see is what you
-stand on BY CONSTRUCTION, not because two formulas currently agree.
+carrier this build ships, and it is BUILT OUT OF CUBES. It shipped once as a
+smooth radial mesh, on the reasoning that a voxel island at the town's own 0.28
+gauge would cost 148k columns. That reasoning was right about the scale and
+wrong about the conclusion: the answer is a COARSER CELL, not a smooth surface.
+Everything else in this game is cubes and the reference art for this island is
+emphatically cubes, so a smooth landmass in the middle of it reads as an object
+from another game.
+
+**THE PLAN IS DRAWN AT A COARSER GAUGE THAN THE WORLD IS BUILT AT, AND THAT IS
+TWO NUMBERS ON PURPOSE.** The island is authored from a top-down block map
+(`shots/ref/map-top.png`, and `shots/ref/SPEC.md` is that map read out into
+numbers). The map is 52 blocks across; ONE OF ITS BLOCKS IS THREE OF OUR CELLS.
+So `CELL` is 1.2 world units — twice the settlement's own `SV` of 0.6, which
+puts a cottage wall at two courses to a cliff's one — `MAP_BLOCK` is 3, and
+`MAP_R` is 26, giving `ISLAND_R = MAP_R * MAP_BLOCK * CELL` = 93.6, i.e. 187
+units across. Keeping the two gauges apart is what lets the LAYOUT be authored
+in whole readable blocks while the ROCK keeps a finer silhouette.
+
+**IT GOT THREE TIMES BIGGER AND THAT WAS A CORRECTION, NOT A WHIM.** It was
+53.7 units of radius — "8 times the AREA of the Encampment", a defensible
+reading of the issue, and a landmass you could see whole from the ground. It was
+also far too small for the town the plan puts on it: at that size a dozen
+buildings and a tower already filled it, and every critique of the early passes
+came back to density and to empty lawn. The cost is real and worth stating: the
+scene's aerial perspective fades a surface into the sky over 150..420 units, so
+an island 187 across cannot be framed whole without some haze on the far side.
+`tools/shot-sky.mjs` frames at about 1.5 radii for that reason.
+
+**`deckAt` IS THE AUTHORITY TWICE OVER** — the mesh's top course is painted from
+it and `localTop` answers every step test with it — which is the road ribbon's
+rule (below) applied to a second surface and for the same reason: what you see
+is what you stand on BY CONSTRUCTION, not because two formulas currently agree.
+It is asked of the CELL rather than of the point, because the mesh is painted
+per column: a query on the continuous position would put the edge of the ground
+up to half a cell from the edge of the cube, and you would walk half a metre out
+over the drop.
+
+**THE DECK IS ONE LEVEL, AND THE REASON IS AN ENGINE RULE RATHER THAN A
+PREFERENCE.** The plan shows a raised quarter with a stone stair up to it, and
+it is not built. `MAX_STEP_UP` is 0.5 and `measureFootprint`
+(world/structures.ts) only turns material ABOVE 0.5 into a collider, so a
+STAMPED voxel staircase can never be climbed at any voxel size: a step under 0.5
+is not a floor, and one over it is a wall. The island's own deck is the one
+surface that could carry a walkable ramp — `deckAt` is a function rather than a
+collider — but the painted mesh would have to agree with it to a fraction of a
+cell, and that is unbuilt work. Terracing the plateau properly means changing
+how a footprint becomes a floor, which touches every settlement in the game.
+
+**ONLY THE SHELL IS PAINTED.** A filled island at this size is hundreds of
+thousands of voxels, which is a second of boot and a great deal of Map for
+material nobody can see. `paintColumn` paints a cell when a face of it can be
+seen: in the top courses, at the bottom of its own column, or where a neighbour
+is shallower. The keel's taper is QUANTISED to `LEDGE` so the underside is a
+stack of shelves rather than a cone with a staircase texture, and the roughness
+is applied in whole ledges at a coarse hash — noise finer than a shelf erases
+the terracing it was meant to break up, which is how one pass shipped an
+underside that looked like a hairbrush.
 
 **IT DOES NOT FLY INTO MOUNTAINS, AND THE MECHANISM IS A FLOOR RATHER THAN AN
 AVOIDANCE BEHAVIOUR.** `steer` samples the height field under its own footprint
@@ -937,12 +984,21 @@ other way to compensate" ships an island whose grass is a black disc from above;
 and the keel needs LOBES, because a pure function of the radius is a bowl and
 the silhouette is the only part of the underside a player ever sees clearly.
 
-**CLOUDS PART AROUND IT, AND ONLY AT ITS OWN ALTITUDE.** `Clouds.setKeepOut`
-pushes a puff radially out to the rim rather than hiding it (a hole in the sky
-that opens and closes as the island travels) or lifting it (a lid). Gated on the
-vertical overlap, `KEEP_OUT_RISE` 30: the first pass tested no height at all and
-ringed the island with a canyon of cloud, because a radial push piles everything
-it touches onto one circle.
+**CLOUDS ARE DROPPED AROUND IT, NOT MOVED, AND THE TWO ANSWERS THAT MOVE THEM
+WERE BOTH BUILT FIRST.** `Clouds.setKeepOut` takes the island's deck, its keel
+depth and a radius, and `writeMatrices` gives a zero scale to any puff whose box
+overlaps that cylinder. Pushed radially OUT, every puff the island touches lands
+on ONE CIRCLE and it sits in a canyon of cumulus with a white wall across every
+frame. Pushed VERTICALLY they land on one PLANE — a solid ceiling thirty units
+over the town, which is worse, because it is between the island and the sun.
+Widening either only moves the artefact further out and takes a bald patch of
+sky with it: a displaced cloud has to go somewhere, and everywhere is somewhere
+another cloud already is. Not drawing it has no pile-up to have, and the hole is
+in the one place a player cannot see a hole — the island is standing in it. The
+bubble is deliberately generous (`koR * 2.4`, and `KEEP_OUT_GAP` 48 above the
+deck) because the island cruises INSIDE the 80-142 cumulus bands, so anything
+tighter leaves a cloud between the camera and the town from every angle a player
+can fly to.
 
 **THE FLYING TOWN IS ON THE TOWN REGISTRY LIKE ANY OTHER, AND ITS POSITION IS A
 READING.** `TownInfo.carried` says so, and it is on the QUEST-FACING contract
@@ -2240,6 +2296,21 @@ the overlay's own answer from — a phone run has no gamepad to ask.
   `_dummy`, …), instanced meshes and object pools are the norm; keep them that way.
 - **Frame-rate independence.** Smoothing uses `1 - exp(-lambda * dt)`, never a fixed
   lerp factor. `Engine.tick()` clamps `dt` to 0.05 s.
+- **A DEPRECATION WARNING IS FIXED WHEN IT APPEARS, NOT CARRIED.** The boot
+  console is expected to be EMPTY, and that is what makes it useful: one warning
+  left standing is the noise the next real one hides in, and a console nobody
+  trusts is a console nobody reads. So a dependency that says an API is going
+  away is answered in the commit that first sees it — check what the installed
+  version itself recommends (its own source, not memory), and say in a comment
+  what was deprecated, what replaced it and what is SUBTLE about the swap, the
+  way every other tuned decision in this codebase carries its reasoning.
+  Worked example: `THREE.Clock` is deprecated since three r183 and logged
+  "THREE.Clock: This module has been deprecated. Please use THREE.Timer
+  instead." on every boot. It is `THREE.Timer` now (`Engine.tick`,
+  core/engine.ts) — and the subtlety is worth the comment it got: `Timer`
+  splits `update()` from `getDelta()` and stamps its origin at CONSTRUCTION, so
+  without a `reset()` on the first tick frame one would bill the whole boot
+  instead of reading ~0 the way `Clock`'s auto-start did.
 - **TWO PARTS OF ONE BODY MUST NOT SHARE A FACE PLANE**, and the trap is that
   nothing in a builder file looks like it is choosing one. `VoxelModel.build`
   lays every face on a multiple of the voxel scale, re-based on that model's own
