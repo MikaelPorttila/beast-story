@@ -439,6 +439,50 @@ export const en = {
   'menu.settings': 'Settings',
   'menu.back': 'Back',
   'menu.settings.title': 'Settings',
+
+  // ---- about the game ------------------------------------------------------
+  // The About panel (src/ui/about.ts), reached from the option list. Issue #65.
+  //
+  // WRITTEN SHORT ON PURPOSE, and the shape is the request rather than the word
+  // count: one fact per line, the lead sentence answering "what is this" on its
+  // own, and every heading a question a player actually turns up with. A
+  // translator should keep the sentences separate rather than joining them into
+  // a paragraph — a wall of type is exactly what this panel is written against.
+  //
+  // The licence block is NOT here, and must not be moved here: a package's
+  // name, its SPDX id and the MIT text are the notice we are obliged to
+  // reproduce, and a translated licence is not that licence. See src/ui/about.ts.
+  'menu.about': 'About the Game',
+  'about.lead':
+    'Beast Story: Bonds of Red is a small open-world game. You explore, you meet ' +
+    'beasts, and they fight beside you.',
+  'about.what': 'What you do',
+  'about.what.1': 'Walk, swim, climb and fly across one big world.',
+  'about.what.2': 'Two beasts follow you. You cast their skills from the hotbar.',
+  'about.what.3': 'Beat wild beasts, pick up what they drop, buy new skills.',
+  'about.what.4': 'There is no saving yet. Every session starts fresh.',
+  'about.made': 'How it is made',
+  'about.made.body':
+    'Almost nothing here is a file. Every creature, tree, road and building is ' +
+    'built by code while the game runs, and animated the same way. The only ' +
+    'ready-made pieces are the title painting, the logo, the mouse cursors and ' +
+    'two music tracks. It is written in TypeScript, drawn with three.js, and it ' +
+    'runs in a browser tab.',
+  'about.ai': 'AI disclaimer',
+  'about.ai.body':
+    'This project is built with heavy use of generative AI. Code, art, music and ' +
+    'text were produced with AI tools and then reviewed and edited by a human. ' +
+    'Treat everything here as AI-assisted work.',
+  'about.credits': 'Credits',
+  'about.credits.body':
+    'Made by Mikael Porttila. The full source is public, and so is every issue ' +
+    'the game was built from.',
+  'about.licenses': 'Licenses',
+  // The two lists differ in KIND, not in politeness: the first is a notice we
+  // are required to carry, the second is a credit we choose to.
+  'about.licenses.shipped': 'Shipped inside the game:',
+  'about.licenses.tools': 'Used to build and test it, not shipped:',
+  'about.licenses.mit': 'The MIT License',
   /**
    * The four SECTIONS of the settings panel, as the tabs across the top of it.
    *

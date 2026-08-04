@@ -120,6 +120,39 @@ export const sv: Translation = {
   'menu.settings': 'Inställningar',
   'menu.back': 'Tillbaka',
   'menu.settings.title': 'Inställningar',
+
+  // Om spelet (src/ui/about.ts). Meningarna hålls korta och fristående, precis
+  // som i en.ts — en rad är en sak, och den första raden ska räcka på egen hand.
+  // Licenstexten översätts inte och finns inte här: den är ett juridiskt
+  // meddelande vi är skyldiga att återge ordagrant.
+  'menu.about': 'Om spelet',
+  'about.lead':
+    'Beast Story: Bonds of Red är ett litet öppet äventyrsspel. Du utforskar, du ' +
+    'möter bestar, och de slåss vid din sida.',
+  'about.what': 'Vad du gör',
+  'about.what.1': 'Gå, simma, klättra och flyg genom en enda stor värld.',
+  'about.what.2': 'Två bestar följer dig. Du använder deras färdigheter från fältet.',
+  'about.what.3': 'Besegra vilda bestar, plocka upp det de tappar, köp nya färdigheter.',
+  'about.what.4': 'Det går inte att spara än. Varje omgång börjar från början.',
+  'about.made': 'Hur det är gjort',
+  'about.made.body':
+    'Nästan ingenting här är en fil. Varje varelse, träd, väg och byggnad byggs ' +
+    'av kod medan spelet körs, och animeras på samma sätt. De enda färdiga ' +
+    'delarna är titelmålningen, logotypen, muspekarna och två musikspår. Det är ' +
+    'skrivet i TypeScript, ritat med three.js, och körs i en webbläsare.',
+  'about.ai': 'AI-information',
+  'about.ai.body':
+    'Det här projektet är byggt med omfattande hjälp av generativ AI. Kod, bild, ' +
+    'musik och text är framtagna med AI-verktyg och sedan granskade och ' +
+    'redigerade av en människa. Betrakta allt här som AI-assisterat arbete.',
+  'about.credits': 'Medverkande',
+  'about.credits.body':
+    'Gjort av Mikael Porttila. Hela källkoden är öppen, liksom varje ärende ' +
+    'spelet byggts utifrån.',
+  'about.licenses': 'Licenser',
+  'about.licenses.shipped': 'Ingår i spelet:',
+  'about.licenses.tools': 'Används för att bygga och testa, ingår inte:',
+  'about.licenses.mit': 'MIT-licensen',
   // Flikarna över inställningarna. 'Spel' och inte 'Spelupplevelse': fliken står
   // bredvid tre andra i en spalt som är 400 px bred, och ordet ska rymmas.
   'menu.settings.tab.gameplay': 'Spel',

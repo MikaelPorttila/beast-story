@@ -4,6 +4,7 @@ import { flags } from '../core/flags';
 import { t, language, onLanguageChange } from '../i18n';
 import { enterFullscreen } from './fullscreen';
 import { SettingsPanel, FOCUSABLE, type SettingsHooks } from './settings';
+import { aboutMarkup } from './about';
 import { injectStyles } from './styles';
 import bgUrl from './menu-bg.webp';
 import logoUrl from './menu-logo.webp';
@@ -47,6 +48,14 @@ import logoUrl from './menu-logo.webp';
  * THE STEPS
  *
  *   press -> options -> settings -> options
+ *                    \-> about  -> options
+ *
+ * ABOUT is the second leaf off the options, and it is a leaf in the same sense
+ * Settings is: one way in, one way back, and the way back puts the cursor on the
+ * button that opened it. What it holds — what the game is, the AI disclaimer and
+ * the third-party licences — lives in ui/about.ts for the same reason the
+ * settings rows live in ui/settings.ts, which is that a second host would
+ * otherwise be a second copy.
  *
  * There used to be a fullscreen step between the first two, asking "Play
  * fullscreen?" on every launch. It is gone: the game goes fullscreen when New
@@ -131,7 +140,18 @@ const FAIRIES: ReadonlyArray<Fairy> = [
   { top: 11, size: 10, duration: 31, delay: -15, bob: 3.3, bobY: 20, reverse: false, hue: 'cool' },
 ];
 
-type Step = 'press' | 'options' | 'settings';
+type Step = 'press' | 'options' | 'settings' | 'about';
+
+/**
+ * How far one arrow key or d-pad nudge scrolls the About box, in px.
+ *
+ * The About step is the one screen here with no list to walk: it is a single
+ * Back button and a block of prose taller than the window, so up/down means
+ * SCROLL rather than move-the-cursor (see `onKeyDown`). 64px is about three
+ * lines at the 16px floor — enough that holding the key gets you down the panel
+ * at a useful rate, short enough that one press never skips a heading.
+ */
+const ABOUT_SCROLL = 64;
 
 /**
  * THE POSTER ASSEMBLES ITSELF, IN THREE BEATS: logo, then painting, then the
@@ -435,6 +455,15 @@ export class StartMenu {
           this.btn('load', t('menu.load'), 'disabled') +
           `<div class="note">${escapeHtml(t('menu.load.unavailable'))}</div>` +
           this.btn('settings', t('menu.settings')) +
+          this.btn('about', t('menu.about')) +
+        '</div>';
+    } else if (this.step === 'about') {
+      // Same column and the same way out as the settings step. The panel itself
+      // is ui/about.ts; this screen contributes the frame around it.
+      panel.innerHTML =
+        '<div class="bs-opts about-step">' +
+          aboutMarkup() +
+          this.btn('back', t('menu.back')) +
         '</div>';
     } else {
       // The rows come from ui/settings.ts, which is also what the in-game menu
@@ -497,9 +526,10 @@ export class StartMenu {
     switch (btn.getAttribute('data-act')) {
       case 'new': this.start(); break;
       case 'settings': this.goto('settings'); break;
-      // Back puts the cursor on the entry that opened Settings, not at the top
+      case 'about': this.goto('about'); break;
+      // Back puts the cursor on the entry that opened this step, not at the top
       // of the list — coming out of a submenu should leave you where you went in.
-      case 'back': this.goto('options', '[data-act="settings"]'); break;
+      case 'back': this.leaveLeaf(); break;
       default: break;
     }
   };
@@ -520,9 +550,13 @@ export class StartMenu {
 
     switch (e.key) {
       case 'ArrowDown': case 's': case 'S':
-        e.preventDefault(); this.moveFocus(1); break;
+        e.preventDefault();
+        if (!this.scrollAbout(1)) this.moveFocus(1);
+        break;
       case 'ArrowUp': case 'w': case 'W':
-        e.preventDefault(); this.moveFocus(-1); break;
+        e.preventDefault();
+        if (!this.scrollAbout(-1)) this.moveFocus(-1);
+        break;
       case 'ArrowLeft': case 'ArrowRight':
         // Left/right CHANGES the value of whichever strip the cursor is on — the
         // tab, the volume level, the language — rather than walking the buttons
@@ -534,9 +568,9 @@ export class StartMenu {
         }
         break;
       case 'Escape':
-        if (this.step === 'settings') {
+        if (this.step === 'settings' || this.step === 'about') {
           e.preventDefault();
-          this.goto('options', '[data-act="settings"]');
+          this.leaveLeaf();
         }
         break;
       default:
@@ -619,7 +653,11 @@ export class StartMenu {
     if (this.padEdge[12]) move = -1;
     else if (this.padEdge[13]) move = 1;
     else if (dirY !== 0 && !this.padAxisLatched) { move = dirY; this.padAxisLatched = true; }
-    if (move) this.moveFocus(move);
+    // On the About step there is one button and a page of prose, so up/down is
+    // the scroll — the same answer the arrow keys give, in the same helper. A
+    // held stick is latched, so this steps rather than sliding; that is the
+    // right feel for a d-pad and is what the keyboard does too.
+    if (move && !this.scrollAbout(move)) this.moveFocus(move);
 
     // LEFT/RIGHT IS THE STRIP'S, and it is why a pad reaches the settings in one
     // step down rather than five: the tab strip is one control, so this changes
@@ -635,8 +673,8 @@ export class StartMenu {
     // A activates, B goes back — the console convention, and the same faces
     // core/gamepad.ts names for the rest of the game.
     if (this.padEdge[0]) (document.activeElement as HTMLButtonElement | null)?.click();
-    else if (this.padEdge[1] && this.step === 'settings') {
-      this.goto('options', '[data-act="settings"]');
+    else if (this.padEdge[1] && (this.step === 'settings' || this.step === 'about')) {
+      this.leaveLeaf();
     }
   };
 
@@ -657,6 +695,36 @@ export class StartMenu {
     // now asking for it, costs nothing; the intro is a second and a quarter.
     if (!this.introOver) { this.finishIntro(); return; }
     this.goto('options');
+  }
+
+  /**
+   * Out of a leaf step and back to the options, cursor on the button that
+   * opened it.
+   *
+   * One method because there are three ways to ask — the Back button, Escape,
+   * and the pad's B face — and two leaves to come out of. Deriving the focus
+   * selector from the step rather than passing it in is what stops the third
+   * leaf, whenever there is one, from being a fourth place to remember.
+   */
+  private leaveLeaf(): void {
+    const from = this.step === 'about' ? 'about' : 'settings';
+    this.goto('options', `[data-act="${from}"]`);
+  }
+
+  /**
+   * Scroll the About box, if that is what up/down means right now. Returns
+   * whether the key was spent.
+   *
+   * `false` everywhere else, so every caller stays one line: scroll, or fall
+   * through to moving the cursor. It is deliberately not gated on `this.step`
+   * alone — the element has to be there, or a rebuild mid-press would scroll
+   * nothing and swallow the key.
+   */
+  private scrollAbout(dir: number): boolean {
+    const box = this.el?.querySelector<HTMLElement>('.about');
+    if (!box) return false;
+    box.scrollTop += dir * ABOUT_SCROLL;
+    return true;
   }
 
   private goto(step: Step, focus?: string): void {
