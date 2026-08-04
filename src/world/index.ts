@@ -16,6 +16,7 @@ import { Npcs } from './npc';
 import { Clouds } from './clouds';
 import { SwayField } from './sway';
 import { mulberry32 } from './noise';
+import { DEN_NO_SPAWN_RADIUS, SafeZoneField } from './safe-zones';
 import { perf } from '../core/profiler';
 import { flags } from '../core/flags';
 import {
@@ -256,11 +257,20 @@ export interface LandmarkProbe {
  *   the chunk is built and the 3x3 around spawn is built below. The zone
  *   gateway (main.ts) is the one user: captured without it, the arch stood in a
  *   thicket with a trunk through the middle of it.
+ *
+ *   A landmark is this world's OPEN-WORLD POINT OF INTEREST, so it is where a
+ *   designer states a `noSpawnRadius` if the place needs one. Absent means none,
+ *   which is the requirement rather than a default nobody got round to setting:
+ *   a keep-out thins the population of the meadow around it, and that is a
+ *   gameplay decision rather than a property of having been built. `id` is
+ *   likewise optional and only names the zone in `__dbgSafeZones()`.
  */
 export function createWorld(
   scene: THREE.Scene,
   seed = 20260729,
-  landmarks?: (probe: LandmarkProbe) => Array<{ x: number; z: number }>,
+  landmarks?: (probe: LandmarkProbe) => Array<{
+    x: number; z: number; id?: string; noSpawnRadius?: number;
+  }>,
 ): World {
   const terrain = new Terrain(seed);
   const terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
@@ -370,6 +380,27 @@ export function createWorld(
     // a wide flatten this far from spawn plants a visible pancake on a hillside.
     const h = Math.max(Math.floor(terrain.heightCont(s.x, s.z)), WATER_LEVEL + 1);
     terrain.flattens.push({ x: s.x, z: s.z, h: h + 0.55, core: 3.5, blend: 7 });
+  }
+
+  // WHERE NOTHING HOSTILE MAY APPEAR — one registry fed by everything that
+  // claimed ground above, so the spawn path asks one question. See SafeZone in
+  // core/types.ts for why this is a spawn rule and not a wall, and
+  // world/safe-zones.ts for the two radii.
+  //
+  // Note what is NOT here: the player's own spawn point. That one is a 20-unit
+  // disc in combat/index.ts and stays there, because it is a rule about where a
+  // SESSION begins rather than about a place in the world — it holds in a zone
+  // with no towns at all, and it would be wrong for it to move if a settlement
+  // were ever sited on top of it.
+  const safeZones = new SafeZoneField();
+  for (const t of townReg.all) safeZones.add(`town:${t.id}`, t.x, t.z, t.noSpawnRadius);
+  for (let i = 0; i < spots.length; i++) {
+    safeZones.add(`den:${i}`, spots[i].x, spots[i].z, DEN_NO_SPAWN_RADIUS);
+  }
+  for (let i = 0; i < sites.length; i++) {
+    // A landmark's is whatever the chooser asked for, and absent is 0 — see the
+    // `noSpawnRadius` note on the landmarks argument.
+    safeZones.add(sites[i].id ?? `landmark:${i}`, sites[i].x, sites[i].z, sites[i].noSpawnRadius ?? 0);
   }
 
   const exclusions: Exclusion[] = [
@@ -594,6 +625,7 @@ export function createWorld(
     spawnPoint,
     shopPositions: shops.positions,
     towns: townReg,
+    safeZones,
     get chunksLoaded(): number { return chunks.size; },
     // A part-built chunk counts: its props stage has not run, so its trees are
     // not in the trunk registry yet and walking in would find no colliders.

@@ -66,6 +66,24 @@ export interface TownData {
    * function of its layout — a wall content placed by hand — can state it.
    */
   readonly outerRadius?: number;
+  /**
+   * How far out nothing hostile may SPAWN — and, like `outerRadius`, an OVERRIDE
+   * rather than a value: absent means "derive it from what was built", which is
+   * `outerRadius + TOWN_NO_SPAWN_MARGIN` (src/world/safe-zones.ts, where the
+   * margin is argued and measured). Neither shipped town authors one.
+   *
+   * A settlement gets a keep-out BY DEFAULT because a settlement is somewhere
+   * the player is meant to be able to stand still. An open-world point of
+   * interest does not, and states one when its designer decides it should — see
+   * `SafeZone` in src/core/types.ts for that split, and for the rule this is
+   * only half of: a hostile already hunting the player follows them in.
+   *
+   * 0 is a real value and switches the zone OFF, for a settlement that is meant
+   * to be under siege. That is why the range starts there rather than at 1: a
+   * lawless outpost is a thing content should be able to say without the engine
+   * needing a second field to say it with.
+   */
+  readonly noSpawnRadius?: number;
   /** The compass chip's colour, as a number the engine already wanted. */
   readonly color: number;
   /**
@@ -128,6 +146,8 @@ function parse(body: unknown, ctx: ParseCtx): TownData | null {
     radius: num(b.radius, r.at('radius'), { min: 1, max: 500, what: 'a footprint radius' }),
     outerRadius: opt(b.outerRadius, r.at('outerRadius'), (v, c) =>
       num(v, c, { min: 1, max: 1000, what: 'a built perimeter radius' })),
+    noSpawnRadius: opt(b.noSpawnRadius, r.at('noSpawnRadius'), (v, c) =>
+      num(v, c, { min: 0, max: 1000, what: 'a no-spawn radius' })),
     color: hexColor(b.color, r.at('color')),
     waterside: opt(b.waterside, r.at('waterside'), bool) ?? false,
     order: num(b.order, r.at('order'), { min: 0, max: 10000, what: 'a placement order' }),

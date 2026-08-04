@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { TownRegistry, World } from '../core/types';
+import { NO_SAFE_ZONES } from '../world/safe-zones';
 
 /**
  * Minimal World implementation for the lab: a flat (optionally water-filled)
@@ -34,6 +35,8 @@ export class StubWorld implements World {
   readonly shopPositions: THREE.Vector3[] = [];
   /** The stage is not a place; it has no settlements. */
   readonly towns: TownRegistry = { all: [], roads: [], get: () => undefined, nearest: () => null };
+  /** ...so nothing on it keeps a spawn out either. See World.safeZones. */
+  readonly safeZones = NO_SAFE_ZONES;
   /** ...and nobody lives on it. See World.npcs. */
   readonly npcs = null;
   readonly spawnPoint = new THREE.Vector3(0, 0, 0);

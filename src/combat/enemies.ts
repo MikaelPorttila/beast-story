@@ -563,12 +563,31 @@ export class Enemy implements Damageable {
     this.root.rotation.y += d * Math.min(1, rate * dt);
   }
 
+  /**
+   * Where to amble next — and the OTHER half of the safe-zone rule.
+   *
+   * A zone forbids the two ways a hostile reaches a settlement without the
+   * player being involved, and refusing to spawn there is only the first: an
+   * animal that appeared eight units outside the gate and wanders in a 2-8 unit
+   * circle around where it started walks into the camp on its own. So a goal
+   * inside a zone is refused exactly as a goal in the water already is, and by
+   * the same fallback — walk home.
+   *
+   * NOTHING HERE TOUCHES A CHASE. `this.target` is read by the callers, above
+   * this function, and a hunting enemy never asks for a wander goal at all —
+   * which is the requirement: being chased through the gate and down the high
+   * street is the fantasy the zone exists to leave intact. Home is likewise
+   * never re-tested, so an enemy that a designer's zone was later drawn around
+   * mills about where it stands instead of being teleported or stranded.
+   */
   private pickWanderGoal(ctx: EnemyCtx): void {
     const a = Math.random() * Math.PI * 2;
     const r = 2 + Math.random() * 6;
     const gx = this.home.x + Math.cos(a) * r;
     const gz = this.home.z + Math.sin(a) * r;
     if (this.species !== 'peckit' && ctx.world.isWater(gx, gz)) {
+      this.goal.copy(this.home);
+    } else if (ctx.world.safeZones.blocksSpawn(gx, gz)) {
       this.goal.copy(this.home);
     } else {
       this.goal.set(gx, 0, gz);
