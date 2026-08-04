@@ -2709,7 +2709,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // the hero's position), and is a no-op otherwise — so exactly one of these
   // two moves him, which is the same split `Player.update` makes.
   if (!interactive || modal) {
-    mount.carry();
+    mount.carryFrozen(dt);
     if (!mount.isMounted) player.carry();
     // ...and the LENS follows him, which `player.update` would have done and is
     // not going to. Skipped in photo mode, which drives the camera itself and
@@ -3550,9 +3550,15 @@ beginPlay();
   structures: ((): unknown => {
     const b: number[] = [];
     world.debugStructures(b);
-    const within = (x: number, z: number, r: number): number => {
+    // BANDED IN HEIGHT, for the reason `__dbgStructures` states at length: a
+    // carried settlement flying over a ground one lands inside its radius and
+    // is counted as its colliders. `y` is the town's own level, so a CARRIED
+    // town bands around its own deck and gets its own boxes rather than the
+    // ground's.
+    const within = (x: number, y: number, z: number, r: number): number => {
       let n = 0;
       for (let i = 0; i < b.length; i += 6) {
+        if (Math.abs(b[i + 5] - y) > 60) continue;
         if (Math.hypot(b[i] - x, b[i + 1] - z) <= r) n++;
       }
       return n;
@@ -3561,7 +3567,7 @@ beginPlay();
       boxes: b.length / 6,
       perTown: world.towns.all.map((town) => ({
         id: town.id,
-        boxes: within(town.x, town.z, town.radius + 4),
+        boxes: within(town.x, town.y, town.z, town.radius + 4),
       })),
     };
   })(),
@@ -3826,9 +3832,23 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   const b: number[] = [];
   world.debugStructures(b);
   const out: Array<Record<string, number>> = [];
+  // A COLUMN, NOT A DISC. This asked a purely horizontal question, which was
+  // exact for as long as everything built in the world stood on the ground —
+  // and stopped being exact the day a settlement started flying over it. With
+  // the island overhead, its two hundred-odd boxes fall inside the radius of
+  // whatever ground town it happens to be above and are reported as that
+  // town's: measured, the Encampment came back with 73 colliders against its
+  // budget of 64, and nothing had been built in it.
+  //
+  // So the query is banded. `CEILING` is generous — a tower is 24 units and a
+  // roof ridge a few more — and the island cruises at 190, so there is no
+  // ambiguity to resolve, only a line to draw.
+  const CEILING = 60;
+  const ground = world.getHeight(x, z);
   for (let i = 0; i < b.length; i += 6) {
     const d = Math.hypot(b[i] - x, b[i + 1] - z);
     if (d > r) continue;
+    if (b[i + 5] > ground + CEILING) continue;
     out.push({
       x: +b[i].toFixed(2), z: +b[i + 1].toFixed(2),
       hx: +b[i + 2].toFixed(2), hz: +b[i + 3].toFixed(2),

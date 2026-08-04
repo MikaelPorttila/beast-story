@@ -794,7 +794,22 @@ const HOUSE_R = 7.2;
  * in the middle, roofs at several angles, streets converging, a tree line, and
  * a gate that tells you which side is the front.
  */
-function planSkyhaven(seed: number, parts: SkyParts, lib: PropLib): SkyPlan {
+/**
+ * @param onDeck Is there ground under this point? THE PLAN HAS TO BE ABLE TO
+ *   ASK. Everything here used to be placed on a radius — a fence at 0.93 of the
+ *   radius, trees at 0.74 — which is exact only if the island is a circle, and
+ *   it deliberately is not: `outlineAt` carries four harmonics summing to as
+ *   much as a third of the radius, so a ring drawn at a constant fraction is
+ *   inside the land on one bearing and out over the drop on the next. That is
+ *   the fence hanging in mid-air over the void.
+ * @param rimAt The rim's world radius at a bearing, so the fence can follow the
+ *   coast instead of cutting across it.
+ */
+function planSkyhaven(
+  seed: number, parts: SkyParts, lib: PropLib,
+  onDeck: (x: number, z: number) => boolean,
+  rimAt: (bearing: number) => number,
+): SkyPlan {
   const rng = mulberry32(seed ^ 0x5c17);
   const buildings: Array<{ t: Template; x: number; z: number; yaw: number; s?: number }> = [];
   const paths: Array<readonly [number, number, number, number]> = [];
@@ -965,39 +980,60 @@ function planSkyhaven(seed: number, parts: SkyParts, lib: PropLib): SkyPlan {
   }
 
   // -- the rim fence --------------------------------------------------------
-  // ONE CONTINUOUS RAIL AROUND THE RIM, broken only by what is actually in its
-  // way. It marks the edge; it does not close it — you can still walk off,
-  // because the rail is a low one and the gaps at the gate and the fall are
-  // real openings rather than decoration.
+  // ONE CONTINUOUS RAIL, WALKED ALONG THE ACTUAL COAST. It marks the edge; it
+  // does not close it — the rail is low, and the breaks at the gate and at
+  // whatever the tree line put on the rim are real openings.
   //
-  // THE YAW IS THE BEARING, NOT THE BEARING PLUS A QUARTER TURN, and that was a
-  // real bug rather than a taste: `skyFence` paints its posts and rails along
-  // its LOCAL +X, and the stamp maps local +X to world (cos yaw, -sin yaw)
-  // (see `Accum.add`). The rim's tangent at bearing `a` is (cos a, -sin a), so
-  // the panel runs along the rim exactly when `yaw === a`. At `a + PI/2` local
-  // +X maps to the RADIAL direction instead, so every panel stood at right
-  // angles to the edge — a ring of rails pointing out over the drop like the
-  // spokes of a wheel, which is what shipped.
+  // IT USED TO BE A CIRCLE AND THE ISLAND IS NOT ONE. Panels were placed at a
+  // constant `ISLAND_R * 0.93`, which is inside the land on one bearing and out
+  // over the drop on the next, because `outlineAt` carries four harmonics
+  // summing to as much as a third of the radius. Whole runs of fence hung in
+  // open air past the cliff. So the rim is WALKED: step the bearing finely,
+  // take the coast's own radius at each step, and drop a panel every time the
+  // accumulated distance reaches one panel's length. That also fixes the
+  // spacing, which a constant angular step gets wrong the moment the radius
+  // varies — the same number of panels over a longer arc is a gappy fence.
   //
-  // THE PANELS OVERLAP SLIGHTLY. A panel is 7 cells of `SV` = 4.2 units long
-  // and it is a straight chord across an arc, so spacing them at exactly their
-  // own length leaves a hair of daylight at every joint and the run reads as
-  // separate pieces. Dividing by 3.9 rather than 4.2 laps them by about 7%,
-  // which is under half a post and reads as one rail.
-  const fenceR = ISLAND_R * 0.93;
-  const panels = Math.round((Math.PI * 2 * fenceR) / 3.9);
-  for (let k = 0; k < panels; k++) {
-    const a = (k / panels) * Math.PI * 2;
-    const x = Math.sin(a) * fenceR;
-    const z = Math.cos(a) * fenceR;
-    // The only breaks are things that are genuinely there: the gate and its
-    // approach, and whatever the tree line has put on the rim. Probed tightly
-    // (1.2 rather than 2.4) because the point is a continuous run — a generous
-    // probe punches holes in it for props that merely stand nearby.
-    if (!free(x, z, 1.2)) continue;
-    // A whisker of lean, so it is a built fence rather than a lathe-turned
-    // ring. Small enough that neighbouring panels still meet.
-    fences.push({ x, z, yaw: a + (hash2(k, 1, 97) - 0.5) * 0.05 });
+  // THE YAW IS THE DIRECTION OF TRAVEL. `skyFence` paints along its local +X
+  // and the stamp maps local +X to world (cos yaw, -sin yaw), so a panel lies
+  // along a heading (ux, uz) exactly when `yaw = atan2(-uz, ux)`. It was the
+  // bearing plus a quarter turn once, which maps +X to the RADIAL direction: a
+  // ring of rails standing out over the edge like the spokes of a wheel.
+  {
+    /** How far inside the coast the posts stand, in world units. */
+    const INSET = 3.2;
+    /** Panel length: 7 cells of `SV`, lapped a little so the joints close. */
+    const SPACING = 7 * 0.6 * 0.94;
+    const rimPt = (a: number): [number, number] => {
+      const r = Math.max(2, rimAt(a) - INSET);
+      return [Math.sin(a) * r, Math.cos(a) * r];
+    };
+    const STEPS = 720;
+    let [lx, lz] = rimPt(0);
+    for (let i = 1; i <= STEPS; i++) {
+      const a = (i / STEPS) * Math.PI * 2;
+      const [x, z] = rimPt(a);
+      const dx = x - lx;
+      const dz = z - lz;
+      const d = Math.hypot(dx, dz);
+      if (d < SPACING) continue;
+      const ux = dx / d;
+      const uz = dz / d;
+      const mx = (x + lx) * 0.5;
+      const mz = (z + lz) * 0.5;
+      lx = x;
+      lz = z;
+      // BOTH ENDS ON GROUND, not just the middle. A panel is a straight chord
+      // across a curve, so on a tight inside bend its ends reach further out
+      // than its centre does — testing the centre alone is what would leave the
+      // corners of a run poking off the cliff.
+      const hx = ux * SPACING * 0.5;
+      const hz = uz * SPACING * 0.5;
+      if (!onDeck(mx - hx, mz - hz) || !onDeck(mx + hx, mz + hz)) continue;
+      // ...and nothing across the gate, or through whatever else claimed the rim.
+      if (!free(mx, mz, 1.2)) continue;
+      fences.push({ x: mx, z: mz, yaw: Math.atan2(-uz, ux) });
+    }
   }
 
   // THE FALL IS ON THE FRONT QUARTER, beside the gate, and that is a framing
@@ -1291,6 +1327,9 @@ const NO_ROADS: RoadClearance = {
   spanDistanceTo: () => Infinity,
 };
 
+/** Scratch for `SkyIsland.debugStructures`. Debug path, but free is free. */
+const _dbg = { x: 0, z: 0 };
+
 export class SkyIsland extends CarrierBody implements NpcFrame {
   /** The settlement's public face — name, colour, radius. Its x/z are LIVE. */
   readonly town: SkyTownInfo;
@@ -1370,7 +1409,14 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       bushes: [skyBush(false), skyBush(true)],
       smoke: skySmoke(),
     };
-    const plan = planSkyhaven(seed, parts, props);
+    const plan = planSkyhaven(
+      seed, parts, props,
+      // The deck's own answer, so the plan and the rock cannot disagree about
+      // where the ground stops — `deckAt` is the same function `localTop` feeds
+      // the step test from.
+      (x, z) => this.deckAt(x, z) > -Infinity,
+      (a) => outlineAt(a, this.phase) * CELL,
+    );
     this.buildRock(plan);
 
     // -- the settlement, in local coordinates -------------------------------
@@ -1572,6 +1618,39 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
 
   setVisible(v: boolean): void {
     this.root.visible = v;
+  }
+
+  /**
+   * Append this island's solid boxes to `out`, IN WORLD SPACE, in the same
+   * `[cx, cz, hx, hz, yaw, topY]` layout `StructureField.debugBoxes` uses.
+   *
+   * THE TRANSFORM IS THE WHOLE POINT. Everything the settlement stamped lives
+   * in the island's own frame, so handing the debug overlay the field's raw
+   * boxes would draw the town's cages wherever the island's origin happens to
+   * be relative to the world's — which is nowhere near the island. This is the
+   * one place a carrier's contents have to be published in world coordinates,
+   * and it is a debug path, so it may allocate and iterate freely.
+   *
+   * `/show-colliders` showed NOTHING on the island before this: the island's
+   * field was simply not in `World.debugStructures`, which asked the towns, the
+   * dens and the ground NPCs and knew nothing about a carrier. An overlay that
+   * silently omits a whole settlement is worse than one that draws it wrong,
+   * because the first reads as "there is no collision here".
+   */
+  debugStructures(out: number[]): void {
+    const local: number[] = [];
+    this.solids.debugBoxes(local);
+    this.npcs?.solids.debugBoxes(local);
+    for (let i = 0; i < local.length; i += 6) {
+      this.toWorld(local[i], local[i + 1], _dbg);
+      out.push(
+        _dbg.x, _dbg.z, local[i + 2], local[i + 3],
+        // A local bearing `a` comes out as `a + yaw` under the stamp's own map,
+        // which is the same rule `StructureField.add` applies to a ridge.
+        local[i + 4] + this.yaw,
+        local[i + 5] + this.y,
+      );
+    }
   }
 
   dispose(): void {

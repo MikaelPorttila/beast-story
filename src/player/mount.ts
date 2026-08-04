@@ -267,11 +267,25 @@ export class MountController {
    *
    * A no-op when nothing is being ridden; the hero carries himself then.
    */
-  carry(): void {
+  carryFrozen(dt: number): void {
     if (!this.beast) return;
+    this.carryFrame();
+    // THE ANIMAL TOO, not just the saddle. `seatHero` alone moves the rider and
+    // leaves the beast wherever its rig was last written, which is what put a
+    // hovering mount adrift under a frozen player. It also keeps the wings
+    // beating, which is consistent with the rest of the party: a follower is
+    // never frozen by a modal either.
+    //
+    // ONLY ON THE FROZEN PATH. `updateRide` poses the beast at the end of every
+    // ordinary slice, so doing it here as well would call `rideUpdate` twice a
+    // slice and run the animal's whole animation clock at double rate.
+    this.poseBeast(dt);
+  }
+
+  /** The carrier's delta applied to the saddle. See `CarrierRide`. */
+  private carryFrame(): void {
     this.carrier.carry(this.world, this.pos);
     this.yaw += this.carrier.dyaw;
-    this.seatHero();
   }
 
   /** Take the pending Space edge, if any. One press, one jump. */
@@ -309,7 +323,7 @@ export class MountController {
       // his own while mounted — `seatHero` places him off `this.pos` at the end
       // of the ride, and `Player.update` skips its own frame while mounted, so
       // applying it here applies it exactly once.
-      this.carry();
+      this.carryFrame();
       // A tap of F gets off. The F that MOUNTED you is still down at this
       // point, and no edge can be produced from it because fWasHeld was already
       // true when the mount happened — you have to let go and press again.
@@ -517,6 +531,25 @@ export class MountController {
     this.speed01 = Math.min(1, speed / Math.max(0.001, this.topSpeed));
 
     // ---- hand the beast its pose, and sit the hero on top of it ----
+    this.poseBeast(dt);
+  }
+
+  /**
+   * Write this slice's saddle pose onto the beast, and seat the rider on it.
+   *
+   * EXTRACTED BECAUSE TWO PATHS NEED IT AND ONE OF THEM WAS MISSING IT. The
+   * mount's POSITION lives in `this.pos` and the beast's rig only learns about
+   * it here, through `rideUpdate` — so `carry`, which moves `this.pos` with a
+   * carrier while the controller is frozen, moved the saddle and the rider and
+   * left the animal behind. On a flying island in a menu that reads as the
+   * mount sliding out from under its own rider, which is exactly what was
+   * reported.
+   *
+   * `seatHero` last, because it places the hero FROM `this.pos`.
+   */
+  private poseBeast(dt: number): void {
+    const beast = this.beast;
+    if (!beast) return;
     const s = this.ride;
     s.x = this.pos.x; s.y = this.pos.y; s.z = this.pos.z;
     s.yaw = this.yaw; s.pitch = this.pitch; s.bank = this.bank;

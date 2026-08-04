@@ -1079,6 +1079,9 @@ export function createWorld(
       // the collision would be worse than no picture.
       if (!flags.solids) return;
       towns?.solids.debugBoxes(out);
+      // ...and whatever is being carried, transformed into world space by the
+      // carrier itself. See `SkyIsland.debugStructures`.
+      sky?.debugStructures(out);
       // The dens and the people too: all three block by the same primitive, so
       // /show-colliders has to draw them or the overlay would disagree with the
       // collision.
