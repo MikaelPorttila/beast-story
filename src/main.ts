@@ -925,6 +925,15 @@ const roster: BeastActor[] = ALL_SPECIES.map(
 bound.push(player, mount, combat, touchFx, ...roster);
 let primaryIdx = 0; // Emberfox
 let supportIdx = 6; // Galebird
+/**
+ * How near the hero something hostile has to be before his companions count as
+ * NEEDED (see `supportNeeded`). 22 units: the support beast already casts at
+ * `Math.max(skill.range, 12)` and an enemy walks that in a couple of seconds, so
+ * this is "a fight is happening here" rather than "something is on the horizon".
+ */
+const SUPPORT_CALL_RANGE = 22;
+/** Scratch list of live companions handed to combat each slice — never resized. */
+const _friendlies: BeastActor[] = [];
 const cooldowns = new Map<string, number>();
 
 function primary(): BeastActor { return roster[primaryIdx]; }
@@ -1608,6 +1617,32 @@ const _hurtFrom = new THREE.Vector3();
   },
   primary: { id: primary().species.id, fetching: primary().isFetching },
 });
+/**
+ * Where your companions actually are, and whether they are travelling as light.
+ *
+ * `dy` and `reach` are the pair issue #70 is about and neither says it alone: a
+ * beast can be nine units from the hero horizontally and ninety below him, which
+ * is precisely the case the old x/z-only leash could not see. `needed` is the
+ * combat gate the beam's landing rule reads.
+ */
+(window as unknown as { __dbgCompanions: () => unknown }).__dbgCompanions = () => {
+  const p = player.position;
+  const one = (b: BeastActor, role: string) => ({
+    role, id: b.species.id, transit: b.inTransit, dead: b.isDead,
+    // The ridden beast is placed by the saddle and never runs follow steering,
+    // so it is the one row in here light travel says nothing about.
+    ridden: mount.beast === b,
+    d: +Math.hypot(b.position.x - p.x, b.position.z - p.z).toFixed(2),
+    dy: +(p.y - b.position.y).toFixed(2),
+    pos: { x: +b.position.x.toFixed(2), y: +b.position.y.toFixed(2), z: +b.position.z.toFixed(2) },
+  });
+  return {
+    player: { x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2) },
+    ground: +world.getHeight(p.x, p.z).toFixed(2),
+    needed: primary().supportNeeded,
+    beasts: [one(primary(), 'primary'), one(support(), 'support')],
+  };
+};
 // TEST HOOK, like __dbgDrop below: put the hero at an absolute column in the
 // ACTIVE zone. The zone tools need to place him at an exact distance from a
 // gateway and hold him there — "walk for 1.4 s and hope" cannot demonstrate
@@ -2641,11 +2676,15 @@ function reportMovers(): void {
   if (flags.beasts) {
     const p0 = primary();
     const p1 = support();
-    if (p0 !== ridden && !p0.isDead) {
+    // `inTransit` for the same reason as `isDead`: a beast travelling as light
+    // has no feet on the ground to part the grass with, and its position is
+    // pinned above the hero, where a `walk` report would blow a hole in the
+    // meadow he is flying over.
+    if (p0 !== ridden && !p0.isDead && !p0.inTransit) {
       world.disturb(-2, p0.position.x, p0.position.y, p0.position.z, p0.radius,
         p0.species.locomotion === 'flying' ? 'fly' : 'walk');
     }
-    if (p1 !== ridden && p1 !== p0 && !p1.isDead) {
+    if (p1 !== ridden && p1 !== p0 && !p1.isDead && !p1.inTransit) {
       world.disturb(-3, p1.position.x, p1.position.y, p1.position.z, p1.radius,
         p1.species.locomotion === 'flying' ? 'fly' : 'walk');
     }
@@ -2863,6 +2902,15 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // The ridden beast has already been placed and animated by mount.update();
     // running follow steering on top of that would fight the reins.
     const ridden = mount.beast;
+    // Is a companion WANTED this slice — see BEAM_LAND_FIGHT in beasts/framework.
+    // A beast travelling as light re-forms from three times as high while this
+    // stands, which is the "flies next to ground and gets attacked" half of
+    // issue #70. Asked once and given to both, because "there is something on
+    // the hero" is a fact about the hero, not about either beast. The radius is
+    // the wild leash's own aggro neighbourhood rather than a new number.
+    const needed = combat.findNearestEnemy(player.position, SUPPORT_CALL_RANGE) !== null;
+    primary().supportNeeded = needed;
+    support().supportNeeded = needed;
     if (primary() !== ridden) primary().update(dt, owner, 'primary', roster);
     if (support() !== ridden) support().update(dt, owner, 'support', roster);
   }
@@ -2896,7 +2944,14 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   if (talk) hud.showDialogue(resolveText(talk.name), resolveText(talk.line), dialogueFoot);
   else hud.hideDialogue();
 
-  combat.update(dt, player as unknown as Damageable, [primary(), support()] as unknown as Damageable[]);
+  // A companion in transit is not on the friendlies list: it is light, it has no
+  // position an enemy could walk to, and a wolf that picked it as a target would
+  // stand under the hero swiping at nothing until he landed. `_friendlies` is
+  // reused rather than rebuilt so this stays allocation-free per slice.
+  _friendlies.length = 0;
+  if (!primary().inTransit) _friendlies.push(primary());
+  if (!support().inTransit) _friendlies.push(support());
+  combat.update(dt, player as unknown as Damageable, _friendlies as unknown as Damageable[]);
   perf.section('combat');
 }
 
