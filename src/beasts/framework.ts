@@ -561,6 +561,208 @@ class DustPuff {
 }
 
 // ---------------------------------------------------------------------------
+// Light travel — a companion that cannot walk to you travels as light
+// ---------------------------------------------------------------------------
+/**
+ * WHY THIS EXISTS. Issue #70. Every companion in this game keeps its footing on
+ * the ground: a walker resolves against `getHeight` and a FLYER hovers 1.55
+ * over it (see updateFlying), so neither of them follows a hero into the air —
+ * they follow his COLUMN. The leash that was supposed to catch that
+ * (`TELEPORT_DIST`) measures x and z only, so a hero circling on a galebird a
+ * hundred units up, or standing on Skyhaven's deck, is nine metres away by the
+ * only measure the beast takes: both companions pile up on the meadow directly
+ * underneath, animating a follow they will never complete, and are still down
+ * there when he lands somewhere else.
+ *
+ * A COMPANION IS NOT PATHED UPWARD, IT IS WITHDRAWN. Making the walkers fly
+ * would mean a second locomotion for every species and a beast standing on
+ * nothing; letting them stay behind is the bug. So a beast whose owner has got
+ * out of reach dissolves into a streak of light, rides along with him with no
+ * physics, no collision and nothing to target, and re-forms beside him the
+ * moment there is a surface it could stand on again — which is the player-facing
+ * request in the issue, and both halves of it: "once the player lands", and
+ * "the player flies next to ground and gets attacked".
+ *
+ * THE MEASUREMENT IS THE ONE THE LANDING USES. Both the leaving and the
+ * arriving read `reach` — the owner's feet above the surface a beast would be
+ * put down on at its own station point — so the two can never disagree about
+ * whether the ground is within reach. Anything else flickers: a hero standing
+ * on a canopy platform is fourteen units over the forest floor his companion
+ * would land on, and a rule that beamed him out on one number and back in on
+ * another would strobe the beast in and out for as long as he stood there.
+ */
+/** Owner's feet above the beast's own landing surface, past which it withdraws. */
+const BEAM_RISE = 13;
+/**
+ * ... and within which it re-forms. 4.5 is a drop a beast survives visibly — the
+ * hero's own step test allows 0.5 and his fall damage starts far past this — so
+ * "he has landed" and "he is skimming the meadow on a galebird" both qualify,
+ * which is what the issue asks for. The gap between the two numbers is
+ * hysteresis and nothing else; see BEAM_RISE for what happens without it.
+ */
+const BEAM_LAND = 4.5;
+/**
+ * The combat exception. A support beast is wanted at exactly the moment the
+ * player is being hit, and a hero hovering ten units up while something claws at
+ * him is inside neither the walking case nor the landed one. main.ts sets
+ * `supportNeeded` when there is a live enemy near him; while it stands, a
+ * companion will re-form from three times as high — it still needs a surface,
+ * so this cannot put one in open sky.
+ */
+const BEAM_LAND_FIGHT = 14;
+/**
+ * How high over the owner's feet the travelling wisp rides. Shoulder height on
+ * a 1.7-unit hero: high enough that the hero's own body does not hide it from a
+ * camera looking slightly down, low enough that it is not mistaken for a bird.
+ */
+const BEAM_WISP_RISE = 1.35;
+/** Seconds the departure/arrival column lives. */
+const BEAM_FLASH = 0.5;
+/** Height of that column, in units. Two hero-heights: read at a glance, gone. */
+const BEAM_HEIGHT = 5.5;
+const BEAM_SEGS = 14;
+/** Instances of the above spent on the in-transit wisp. */
+const WISP_SEGS = 5;
+
+/**
+ * The streak itself. ONE InstancedMesh in two modes — a one-shot COLUMN at a
+ * departure or an arrival, and a persistent WISP that rides along beside the
+ * owner while the beast is in transit — because they are never on screen
+ * together for the same beast and a second mesh is a second draw call per
+ * companion for no picture.
+ *
+ * Built out of the poof's own unit box on a MeshStandardMaterial, for the two
+ * reasons in the strike-FX note above: it is the game's language, and it adds no
+ * shader permutation. Emissive is the species' element colour at 1.4 — over both
+ * of PostFX's selective-bloom thresholds, so the beam glows rather than reading
+ * as a stack of coloured dice.
+ */
+class LightBeam {
+  private mesh: THREE.InstancedMesh;
+  private mat: THREE.MeshStandardMaterial;
+  private life = 0;
+  private dir: 1 | -1 = 1;
+  private origin = new THREE.Vector3();
+  private wispAt = new THREE.Vector3();
+  private wispOn = false;
+  private seeds: Float32Array;
+  private clock = 0;
+
+  constructor(private scene: THREE.Scene, element: ElementType) {
+    puffGeo ??= new THREE.BoxGeometry(1, 1, 1);
+    const c = ELEMENT_COLORS[element];
+    // Same split as the swipe arc, and for the same reason: a near-white body
+    // with a coloured glow separates from every species' paint including its
+    // own element's. Lifted further than the arc (0.62 against 0.40) because a
+    // beam is read against the SKY, which the arc never is.
+    this.mat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(c).lerp(_white, 0.62).getHex(),
+      emissive: c, emissiveIntensity: 1.4, roughness: 1,
+    });
+    this.mesh = new THREE.InstancedMesh(puffGeo, this.mat, BEAM_SEGS);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = false;
+    this.mesh.frustumCulled = false;
+    parkInstances(this.mesh, 0);   // see FX_WARM_FRAMES — born visible, drawn at 1e-4
+    this.seeds = new Float32Array(BEAM_SEGS * 2);
+    for (let i = 0; i < BEAM_SEGS; i++) {
+      this.seeds[i * 2] = 0.55 + Math.random() * 0.9;      // speed
+      this.seeds[i * 2 + 1] = 0.6 + Math.random() * 0.75;  // size
+    }
+    scene.add(this.mesh);
+  }
+
+  private warm = FX_WARM_FRAMES;
+
+  /** A pillar at (x, y, z) running UP (`dir` 1, a departure) or DOWN (-1). */
+  column(x: number, y: number, z: number, dir: 1 | -1): void {
+    this.origin.set(x, y, z);
+    this.dir = dir;
+    this.life = BEAM_FLASH;
+    this.mesh.visible = true;
+  }
+
+  /** Where the travelling wisp is this slice. Call BEFORE update(). */
+  wisp(x: number, y: number, z: number): void {
+    this.wispAt.set(x, y, z);
+    this.wispOn = true;
+  }
+
+  update(dt: number): void {
+    this.clock += dt;
+    if (this.warm > 0 && --this.warm === 0 && this.life <= 0 && !this.wispOn) {
+      this.mesh.visible = false;
+    }
+    if (this.life > 0) {
+      this.life -= dt;
+      if (this.life > 0) { this.drawColumn(); this.wispOn = false; return; }
+    }
+    if (this.wispOn) { this.drawWisp(); this.wispOn = false; return; }
+    this.mesh.visible = this.warm > 0;
+  }
+
+  private drawColumn(): void {
+    this.mesh.visible = true;
+    const t = 1 - this.life / BEAM_FLASH;   // 0..1
+    for (let i = 0; i < BEAM_SEGS; i++) {
+      const sp = this.seeds[i * 2], sz = this.seeds[i * 2 + 1];
+      // Each cube starts at its own height up the pillar and runs on along it,
+      // so the shape reads as light TRAVELLING rather than as a bar switched on.
+      const along = (i / BEAM_SEGS + t * 0.75 * sp) % 1;
+      _dummy.position.set(
+        this.origin.x + Math.sin(i * 2.4 + this.clock) * 0.10,
+        this.origin.y + (this.dir > 0 ? along : 1 - along) * BEAM_HEIGHT,
+        this.origin.z + Math.cos(i * 1.7 + this.clock) * 0.10,
+      );
+      // Shrink to nothing rather than fade — no transparency, no new program.
+      // Tapered along the pillar as well as over time, so it thins out into the
+      // sky instead of ending on a hard rim.
+      const taper = 1 - Math.abs(along - 0.15) * 0.55;
+      _dummy.scale.setScalar(Math.max(0.0001, (1 - t) * 0.30 * sz * taper));
+      _dummy.rotation.set(t * 3 * sp, t * 4 * sz, 0);
+      _dummy.updateMatrix();
+      this.mesh.setMatrixAt(i, _dummy.matrix);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  private drawWisp(): void {
+    this.mesh.visible = true;
+    for (let i = 0; i < BEAM_SEGS; i++) {
+      if (i < WISP_SEGS) {
+        const sz = this.seeds[i * 2 + 1];
+        const a = this.clock * 2.2 + (i / WISP_SEGS) * TWO_PI;
+        _dummy.position.set(
+          this.wispAt.x + Math.sin(a) * 0.34,
+          this.wispAt.y + Math.sin(this.clock * 3.1 + i) * 0.20 + i * 0.11,
+          this.wispAt.z + Math.cos(a) * 0.34,
+        );
+        // 0.17 of a unit, twice the beast's own voxel. Captured at 0.10 from a
+        // riding camera the wisp was four specks the size of the crosshair and
+        // read as dirt on the lens; at this size it is legible as an object
+        // travelling with you without competing with the mount for the frame.
+        _dummy.scale.setScalar(0.17 * sz);
+        _dummy.rotation.set(this.clock * 1.5, this.clock * 2.0, 0);
+      } else {
+        _dummy.position.copy(this.wispAt);
+        _dummy.rotation.set(0, 0, 0);
+        _dummy.scale.setScalar(0.0001);
+      }
+      _dummy.updateMatrix();
+      this.mesh.setMatrixAt(i, _dummy.matrix);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.scene.remove(this.mesh);
+    this.mesh.dispose();
+    this.mat.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // BeastOwner — the thing beasts follow (the player controller)
 // ---------------------------------------------------------------------------
 export interface BeastOwner {
@@ -700,6 +902,17 @@ export class BeastActor {
   private deadTimer = 0;
   private dieT = 0;
   private visibleFlag = true;
+  private beam: LightBeam;
+  /** Travelling as light — see the light-travel note above. */
+  private beaming = false;
+  /**
+   * Set from main.ts once a slice: is this companion WANTED right now, i.e. is
+   * there a live enemy near the owner. Read only by the light-travel rule, and a
+   * plain field rather than an argument because it is a fact about the world the
+   * beast has no way to ask for and every other caller of `update` would have to
+   * carry. See BEAM_LAND_FIGHT.
+   */
+  supportNeeded = false;
 
   // Mount form (see MOUNT_HEIGHT). `rideScale` is the eased current value, so
   // dismounting shrinks back over the same quarter second it grew.
@@ -745,6 +958,9 @@ export class BeastActor {
     scene.add(this.rig.root);
     this.puff = new PoofPuff(scene);
     this.dust = new DustPuff(scene);
+    // In the SCENE and not on the rig, unlike the arc: the whole point of it is
+    // to be on screen while the rig is hidden.
+    this.beam = new LightBeam(scene, species.element);
     // AFTER the traverse above, deliberately: that traverse turns castShadow on
     // for every mesh it finds, and the arc must never be a caster.
     this.arc = new SwipeArc(this.rig.root, species.element);
@@ -789,6 +1005,10 @@ export class BeastActor {
     this.isDead = false;
     this.deadTimer = 0;
     this.dieT = 0;
+    // A new game is not a place a companion is still travelling to. Cleared
+    // before the visibility line below, which is what puts the body back.
+    this.beaming = false;
+    this.supportNeeded = false;
     this.rig.root.scale.setScalar(1);
     this.rig.root.visible = this.visibleFlag;
     // A beast that died mid-fetch left a drop marked as being carried; putting
@@ -870,7 +1090,11 @@ export class BeastActor {
   // -- Combat interface (Damageable-compatible so BeastActor can be a caster) --
 
   takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): boolean {
-    if (this.isDead || this.poofT > 0) return false;
+    // A beast in transit is light: nothing to hit, nothing to knock back. main.ts
+    // also keeps it out of the friendlies list, so this is the backstop rather
+    // than the mechanism — a projectile already in flight lands on the frame the
+    // beast leaves, and it must not connect with a body that is not there.
+    if (this.isDead || this.poofT > 0 || this.beaming) return false;
     const mitigated = amount * (100 / (100 + this.stats.defense));
     this.hp = Math.max(0, this.hp - mitigated);
     this.hurtFlash = 0.22;
@@ -915,7 +1139,7 @@ export class BeastActor {
   }
 
   wantsSupportCast(): boolean {
-    if (this.isDead || this.poofT > 0 || this.supportTimer > 0) return false;
+    if (this.isDead || this.poofT > 0 || this.beaming || this.supportTimer > 0) return false;
     this.supportTimer = 6 + Math.random() * 4;
     return true;
   }
@@ -935,7 +1159,7 @@ export class BeastActor {
    * there first.
    */
   beginFetch(job: FetchJob): boolean {
-    if (this.fetchJob || this.isDead || this.poofT > 0) return false;
+    if (this.fetchJob || this.isDead || this.poofT > 0 || this.beaming) return false;
     if (!job.claim()) return false;
     this.fetchJob = job;
     this.fetchTime = 0;
@@ -984,7 +1208,7 @@ export class BeastActor {
 
   setVisible(v: boolean): void {
     this.visibleFlag = v;
-    this.rig.root.visible = v && !(this.isDead && this.dieT >= 1);
+    this.rig.root.visible = v && !this.beaming && !(this.isDead && this.dieT >= 1);
   }
 
   // -- Mounting -------------------------------------------------------------
@@ -1088,6 +1312,7 @@ export class BeastActor {
       // last frame of both hangs in the air until it revives.
       this.arc.update(dt);
       this.dust.update(dt);
+      this.beam.update(dt);
       return;
     }
 
@@ -1112,6 +1337,21 @@ export class BeastActor {
     if (!this.initialized || dOwnX * dOwnX + dOwnZ * dOwnZ > TELEPORT_DIST * TELEPORT_DIST) {
       this.teleportTo(tx, tz, !this.initialized);
       this.initialized = true;
+    }
+
+    // -- Light travel: the VERTICAL leash -----------------------------------
+    // Above the horizontal one deliberately, and it re-uses the station point it
+    // has just computed: a beast that beams in lands exactly where it would have
+    // walked to, so nothing downstream can tell the two arrivals apart.
+    const reach = owner.position.y - this.landingY(tx, tz, owner);
+    if (this.beaming) {
+      this.updateBeaming(dt, tx, tz, owner, reach);
+      return;
+    }
+    if (reach > BEAM_RISE) {
+      this.beginBeam();
+      this.updateBeaming(dt, tx, tz, owner, reach);
+      return;
     }
 
     // -- Errand: steer at the drop instead of the station point -------------
@@ -1413,6 +1653,7 @@ export class BeastActor {
     this.species.animate(this.rig, this.ctx);
 
     this.puff.update(dt);
+    this.beam.update(dt);
   }
 
   private updateFlying(dt: number, groundY: number): void {
@@ -1564,6 +1805,11 @@ export class BeastActor {
    */
   setWorld(world: World): void {
     this.world = world;
+    // In transit or not, the next slice teleports it beside the hero anyway (a
+    // zone change is further than TELEPORT_DIST by construction), so the body
+    // comes back here rather than beaming in from the world it just left.
+    this.beaming = false;
+    this.rig.root.visible = this.visibleFlag && !(this.isDead && this.dieT >= 1);
     // A carrier id belongs to the zone that made it. Dropped here beside every
     // other piece of per-zone state, rather than left for the registry to fail
     // to resolve on the next slice.
@@ -1572,6 +1818,69 @@ export class BeastActor {
     this.carryTime = 0;
     this.vel.set(0, 0, 0);
     this.vy = 0;
+  }
+
+  /** True while this companion is travelling as light — see BEAM_RISE. */
+  get inTransit(): boolean { return this.beaming; }
+
+  /**
+   * The surface a beast would be put down on at (x, z), given where its owner
+   * is. THE SAME ANSWER `teleportTo` PRODUCES, which is the whole reason it is a
+   * method rather than an expression at each site — see the light-travel note.
+   *
+   * The carrier is looked up at the OWNER's point rather than at the station,
+   * because `at` takes a y and the station has none yet: a hero on Skyhaven's
+   * deck is inside the volume, so his companion lands on the deck; a hero flying
+   * UNDER the island is not, so his lands on the meadow.
+   */
+  private landingY(x: number, z: number, owner: BeastOwner): number {
+    const g = this.world.getHeight(x, z);
+    const c = this.world.carriers.at(owner.position.x, owner.position.y, owner.position.z);
+    const deck = c ? c.topAt(x, z) : -Infinity;
+    if (deck > g) return deck;
+    // Deep water floats a beast at the surface (teleportTo again), so a hero
+    // swimming in a lake is standing on something as far as this is concerned.
+    return this.world.isWater(x, z) && g < this.world.waterLevel - 0.25
+      ? this.world.waterLevel : g;
+  }
+
+  private beginBeam(): void {
+    this.beaming = true;
+    this.abortFetch();          // the drop belongs to ground the beast is leaving
+    this.transient = null;
+    this.baseAction = 'idle';
+    this.speed01 = 0;
+    this.vel.set(0, 0, 0);
+    this.vy = 0;
+    this.ride.clear();          // it is riding nothing while it is light
+    this.rig.root.visible = false;
+    this.beam.column(this.position.x, this.position.y, this.position.z, 1);
+  }
+
+  /**
+   * In transit: no steering, no gravity, no collision and nothing to hit. The
+   * position is pinned to the station point ABOVE the owner rather than left
+   * where the body was, so every question about where your companion is — the
+   * HUD, a fetch offer, a debug probe — answers "with you", which is the
+   * literal ask in issue #70.
+   */
+  private updateBeaming(dt: number, tx: number, tz: number, owner: BeastOwner, reach: number): void {
+    this.position.set(tx, owner.position.y + BEAM_WISP_RISE, tz);
+    const gate = this.supportNeeded ? BEAM_LAND_FIGHT : BEAM_LAND;
+    if (reach <= gate) {
+      this.beaming = false;
+      this.rig.root.visible = this.visibleFlag;
+      this.teleportTo(tx, tz, false);
+      // Downward, and from a beam-height above the landing, so the column ends
+      // on the beast rather than starting at it.
+      this.beam.column(this.position.x, this.position.y, this.position.z, -1);
+    } else {
+      this.beam.wisp(this.position.x, this.position.y, this.position.z);
+    }
+    this.beam.update(dt);
+    this.puff.update(dt);
+    this.arc.update(dt);
+    this.dust.update(dt);
   }
 
   private teleportTo(x: number, z: number, silent: boolean): void {
@@ -1630,6 +1939,7 @@ export class BeastActor {
     // burst also draws. Detaching it first is what stops one beast's disposal
     // deleting the box every other beast's particles are made of.
     this.arc.dispose();
+    this.beam.dispose();
     this.rig.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
         const m = o as THREE.Mesh;

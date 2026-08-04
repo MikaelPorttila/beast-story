@@ -200,7 +200,7 @@ once frames come quickly.
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`,
   `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`, `test-content.mjs`,
-  `test-safezone.mjs`, `test-about.mjs`, `test-carrier.mjs`.
+  `test-safezone.mjs`, `test-about.mjs`, `test-carrier.mjs`, `test-companion.mjs`.
   `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
@@ -381,6 +381,18 @@ once frames come quickly.
   rather than a parameter twenty tools have to remember, which is deliberate:
   covering only `menu=0` would have left the staged-boot arms of `test-menu`,
   `test-pause` and `test-keybinds` streaming a song each.
+- **THE INFERENCE ONLY COVERS URLS THAT CARRY A MARKER, AND A PREVIEW TAB DOES
+  NOT.** The rule above reads the four flags in the query string, so it silences
+  everything in `tools/` and NOTHING ELSE. A browser opened at the bare origin —
+  which is what the Browser pane's `preview_start` does, and what typing the
+  address does — is by construction a real player's load: the title screen comes
+  up and plays at the STORED volume, 0.8 by default, out of the developer's
+  speakers, and no probe run is involved for anyone to blame. So **an agent
+  opening a preview opens it at `?vol=0`**, and navigates an already-open one
+  there before doing anything else. Zero rather than `vol=0.01`, because the
+  point is not a quiet song: at zero no element is constructed and nothing is
+  fetched. Pass `vol=0.01` only for a change that is ABOUT audio, or a probe
+  asserting on it (`test-music.mjs`), and say so when you do.
 - `test-music.mjs` is the music guard, and the only thing it CANNOT assert on is
   sound — headless has no speakers, so the honest signal is the element's own
   volume, read through `__dbgMusic()` as `output` (master x envelope x swap).
@@ -1542,6 +1554,48 @@ generic half: follow steering, per-locomotion vertical motion, the
 transient-over-base action state machine, XP/levels, damage, death and revive. It
 calls `species.animate()` once per frame with the resolved action; species code
 holds no physics or state machine of its own.
+
+**A COMPANION THAT CANNOT WALK TO YOU TRAVELS AS LIGHT.** Issue #70, and the
+thing to understand first is that it is not only the walkers: every companion in
+this game follows your COLUMN rather than you. A walker resolves against
+`getHeight` and a FLYER hovers 1.55 units over it (`updateFlying`), so a hero on
+a galebird, on Skyhaven's deck, or on top of a cliff leaves both beasts piled up
+on the meadow underneath, animating a follow they can never complete — and the
+leash that was supposed to catch that, `TELEPORT_DIST`, measures x and z only,
+so a hero ninety units up is nine units away by the only number it takes.
+
+**IT IS A WITHDRAWAL, NOT A PATH.** Making the walkers climb means a second
+locomotion for every species and a beast standing on nothing. So a beast whose
+owner is out of reach dissolves into a streak of light (`LightBeam`), rides
+along with him with no physics, no collision and nothing to target, and re-forms
+beside him the moment there is a surface to stand on — which is both halves of
+what the issue asks for, "once the player lands" and "flies next to ground and
+gets attacked". `inTransit` is how the rest of the game knows: main.ts keeps a
+travelling beast out of `world.disturb` (it has no feet to part the grass with)
+and out of the friendlies list handed to combat (an enemy that picked it as a
+target would stand under the hero swiping at nothing), and `takeDamage`,
+`wantsSupportCast` and `beginFetch` all refuse while it stands.
+
+**LEAVING AND ARRIVING READ THE SAME NUMBER.** `reach` is the owner's feet above
+the surface a beast would be PUT DOWN ON at its own station point — the same
+answer `teleportTo` produces, which is why it is a method and not an expression
+at two sites. Out past `BEAM_RISE` (13), back inside `BEAM_LAND` (4.5), and the
+gap between them is hysteresis: a hero standing on a canopy platform is fourteen
+units over the forest floor his companion would land on, and a rule that used
+two different measurements would strobe the beast in and out for as long as he
+stood there. `BEAM_LAND_FIGHT` (14) is the combat exception — main.ts sets
+`supportNeeded` when something hostile is within `SUPPORT_CALL_RANGE` of the
+hero, and a wanted companion re-forms from three times as high. It still needs a
+surface, so that can never put one in open sky.
+
+`tools/test-companion.mjs` is the guard and it exits non-zero. It is a PAIR
+twice: on the ground the beasts must be BODIES beside him (without which "in
+transit while flying" passes equally for a build where they are permanently
+light and never come back), and in the air they must be in transit AND still
+report ~2 units away (without which it passes for a beast that dissolved where
+it stood). The mounted beast is skipped — it is under the reins and never runs
+follow steering at all, which is why the probe reads `ridden` rather than
+assuming which slot the hero climbed onto.
 
 **Combat.** `CombatSystem` ([src/combat/index.ts](src/combat/index.ts)) owns VFX,
 damage numbers, shard pickups and the wild-enemy population, and executes casts by
