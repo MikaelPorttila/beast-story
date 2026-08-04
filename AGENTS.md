@@ -146,7 +146,8 @@ once frames come quickly.
   `test-sway.mjs`, `test-menu.mjs`, `test-road.mjs`, `test-settings.mjs`,
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`,
-  `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`, `test-content.mjs`.
+  `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`, `test-content.mjs`,
+  `test-safezone.mjs`.
   `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
@@ -1127,6 +1128,53 @@ guard. Note when reading it: the shipped wash is `near(clearance) *
 gain(climb)`, and those two move together on a follower dragged over rising
 ground, so any assertion about clearance alone has to divide the climb term out
 first.
+
+**A SAFE ZONE IS A SPAWN RULE, NOT A WALL**, and that sentence is the whole
+design. [src/world/safe-zones.ts](src/world/safe-zones.ts) is one registry of
+discs the wild population may not APPEAR in, reached as `World.safeZones`
+(contract and argument in [src/core/types.ts](src/core/types.ts)). A monster
+that is hunting you follows you across one — being chased through the gate and
+down the high street is the fantasy, and a leash that stopped at a line would
+turn every settlement into a place the game visibly gives up at. What a zone
+forbids is the two ways a hostile arrives WITHOUT the player's involvement:
+materialising inside it (`trySpawn`, combat/index.ts) and idly ambling in off
+the meadow (`pickWanderGoal`, combat/enemies.ts). Both are one squared-distance
+refusal of a candidate POSITION, so neither can strand anything — a wanderer
+already inside walks home, and a hunter never asks.
+
+A REFUSAL AND NOT A RE-ROLL, deliberately: a rejected candidate means that tick
+spawns nothing, so a keep-out THINS the population near a settlement. Shoving
+each rejected enemy to the nearest legal metre instead would queue them along
+the boundary, which is a worse picture than an empty meadow and reads as exactly
+the wall the feature is not.
+
+**A TOWN HAS ONE BY DEFAULT; A POINT OF INTEREST ASKS FOR IT.** That asymmetry
+is the requirement rather than an omission — a settlement is somewhere the
+player is meant to be able to stand still, where a landmark in the open world is
+scenery until a designer decides otherwise, and a keep-out thins the meadow
+around it. So a town's is DERIVED (`outerRadius + TOWN_NO_SPAWN_MARGIN`, 6:
+neither shipped town authors one, and `outerRadius` rather than `radius` because
+the question is what you can see from inside the walls) and content may override
+it with `noSpawnRadius`, 0 being a real value that switches it off for a
+settlement meant to be under siege. A POI's default is 0, i.e. none: the skill
+dens say nothing (`DEN_NO_SPAWN_RADIUS`) and the zone gateway asks for 12 in
+main.ts, because a threshold is somewhere the player is held still by a preload.
+The margin's number comes from the spawn ring — a candidate lands 25-60 units
+from the player, so with no margin the first legal ground is a metre past the
+palisade, which from inside still reads as "it spawned in the camp".
+
+`__dbgSafeZones()` is the census and `__dbgSafeZones(x, z)` asks the same
+question `trySpawn` does; `tools/test-safezone.mjs` is the guard and it exits
+non-zero. It is a PAIR at one column, and neither half means anything alone:
+"nothing was ever seen inside the Encampment" is equally true of a working
+keep-out and of a world where nothing spawned, so the hero is parked 40 units
+out (where the ring sweeps the town but anything aggroing him walks away from
+it) for a closest approach of 31.71 against a 29.76 disc, with 338 sightings
+just outside it as the control — and is then LED in, which is the other half.
+Teleporting him to the middle and waiting does not work and was tried: the
+closest anything came was 31.08, an idle wanderer that had never noticed him.
+An enemy has to be walked up to, acquired, and then walked into town in hops
+short enough to stay inside its leash; done that way something reaches 22.
 
 **Beasts.** Each species is one self-contained file in `src/beasts/species/` exporting
 `species: BeastSpecies` and `skills: SkillDef[]`, building its body with `VoxelModel`

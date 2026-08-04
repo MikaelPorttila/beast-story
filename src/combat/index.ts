@@ -762,6 +762,14 @@ export class CombatSystem {
     const sp = this.world.spawnPoint;
     const sx = x - sp.x, sz = z - sp.z;
     if (sx * sx + sz * sz < SAFE_ZONE_SQ) return;
+    // THE TOWNS AND THE POINTS OF INTEREST THAT ASKED FOR ONE. Same shape as the
+    // line above and deliberately so: a refusal, not a re-roll. A rejected
+    // candidate simply means this tick spawns nothing, which is what makes a
+    // keep-out THIN the population near a settlement rather than push it into a
+    // ring around one — an enemy shoved to the nearest legal metre would queue
+    // up along the town's boundary, which is a worse picture than an empty
+    // meadow and reads as the wall the feature explicitly is not. See SafeZone.
+    if (this.world.safeZones.blocksSpawn(x, z)) return;
     if (!def.flying && this.world.isWater(x, z)) return;
     const gy = this.world.getHeight(x, z);
     const variant = variantForHeight(gy - this.world.waterLevel);

@@ -253,6 +253,19 @@ export interface TownInfo {
   readonly gateAngle: number;
   /** Map/compass chip colour, 0xRRGGBB. */
   readonly color: number;
+  /**
+   * How far from (x, z) the wild population is kept from APPEARING. 0 means the
+   * settlement has no such zone — see SafeZone, and `TownData.noSpawnRadius` for
+   * the default this is derived from and how content overrides it.
+   *
+   * Here beside `radius` and `outerRadius` because it is the third circle a town
+   * carries and the three answer three different questions: `radius` is "am I in
+   * the town", `outerRadius` is "where does the built wall reach", and this is
+   * "where may nothing hostile spawn". It is the widest of the three by default,
+   * because a monster that materialises ten units outside the gate is, from the
+   * player standing at the fire, a monster that materialised in the town.
+   */
+  readonly noSpawnRadius: number;
 }
 
 /**
@@ -294,6 +307,67 @@ export interface TownRegistry {
      */
     readonly bridge: Uint8Array;
   }>;
+}
+
+// ---------------------------------------------------------------------------
+// Safe zones
+// ---------------------------------------------------------------------------
+
+/**
+ * A disc the wild population may not APPEAR inside.
+ *
+ * IT IS A SPAWN RULE AND NOT A WALL, which is the whole of the design. A monster
+ * that is hunting you follows you across it — being chased through the gate and
+ * along the high street is the fantasy, and a leash that stopped at a line would
+ * turn every settlement into a place the game visibly gives up at. What a zone
+ * forbids is the two ways a hostile arrives WITHOUT the player's involvement:
+ * materialising inside it (combat/index.ts's `trySpawn`), and idly ambling in
+ * off the meadow (`pickWanderGoal` in combat/enemies.ts). Both are refusals of a
+ * candidate POSITION, so both are one distance test and neither can strand
+ * anything: a wanderer already inside a zone walks home, and a hunter ignores it.
+ *
+ * A TOWN HAS ONE BY DEFAULT AND A POINT OF INTEREST DOES NOT, and that asymmetry
+ * is the requirement rather than an omission. A settlement is somewhere the
+ * player is meant to be able to stand still — shop, talk, read a sign — so the
+ * default is derived from the town's own geometry and content need say nothing.
+ * A landmark in the open world is scenery until a designer decides otherwise:
+ * an arch with a keep-out around it thins the population of the meadow it stands
+ * in, which is a gameplay decision and not a property of having been built.
+ */
+export interface SafeZone {
+  /**
+   * Who claimed it — `town:encampment`, `den:2`, `landmark:gateway`. Namespaced
+   * because a zone is DIAGNOSED far more often than it is queried: the failure
+   * mode of this feature is a world nothing spawns in, and "which discs are up,
+   * and who put them there" is the only question worth asking about that.
+   */
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  /** Strictly positive; a zone is never registered at 0 (see `add`). */
+  readonly radius: number;
+}
+
+/**
+ * Every safe zone in a zone-world. Empty where there are none.
+ *
+ * `blocksSpawn` is on a spawn path and a wander path, so it takes loose
+ * coordinates rather than a point, compares SQUARED distances and allocates
+ * nothing. The list is a handful of entries (three towns and four dens today),
+ * which is why it is a linear scan and not a grid: a spatial index over seven
+ * discs costs more to build than it can ever save.
+ */
+export interface SafeZoneRegistry {
+  readonly all: readonly SafeZone[];
+  /** True when (x, z) lies inside any zone. */
+  blocksSpawn(x: number, z: number): boolean;
+  /**
+   * Claim one. A radius of 0 or less is a NO-OP rather than a degenerate zone,
+   * which is what lets every caller pass its configured radius unconditionally
+   * and lets "this point of interest has no keep-out" be the number 0 instead of
+   * a branch at each call site.
+   */
+  add(id: string, x: number, z: number, radius: number): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -643,6 +717,12 @@ export interface World {
    * where one is. See TownRegistry.
    */
   readonly towns: TownRegistry;
+  /**
+   * Where the wild population may not appear. Every settlement contributes one;
+   * a point of interest contributes one when a designer asked for it. See
+   * SafeZone for why this is a spawn rule and not a wall.
+   */
+  readonly safeZones: SafeZoneRegistry;
   /**
    * The people standing in this zone, or null where there are none (the
    * dungeon, the lab stage). See NpcField.

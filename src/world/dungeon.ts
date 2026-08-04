@@ -25,6 +25,7 @@
 import * as THREE from 'three';
 import type { World } from '../core/types';
 import { CHUNK_SIZE } from './terrain';
+import { NO_SAFE_ZONES } from './safe-zones';
 import { hashCell, mulberry32 } from './noise';
 import { perf } from '../core/profiler';
 
@@ -578,6 +579,11 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      * which zone it is in before it may ask.
      */
     towns: { all: [], roads: [], get: () => undefined, nearest: () => null },
+    /**
+     * And nowhere in it is safe: the hold has no settlement to keep monsters
+     * out of, which is the point of it. Shared and immutable — see NO_SAFE_ZONES.
+     */
+    safeZones: NO_SAFE_ZONES,
     /**
      * And nobody stands in it either — null rather than an empty field, which
      * is the World contract's answer for "this zone has no people at all" and

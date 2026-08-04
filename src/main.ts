@@ -616,7 +616,15 @@ const OVERWORLD: ZoneDef = {
   get name() { return t('zone.overworld.name'); },
   create: (scene) => createWorld(scene, 1337, (probe) => {
     gateSite = findGateSpot(probe);
-    return [gateSite];
+    // THE ONE POINT OF INTEREST THAT ASKS FOR A KEEP-OUT, and it is a designer's
+    // call rather than something a landmark gets for being one — see the
+    // `landmarks` argument of createWorld and `SafeZone` in core/types.ts. The
+    // arch is a THRESHOLD: a player walks up to it, waits out a preload and
+    // crosses, and an animal that materialised beside them while they were being
+    // held there is an ambush the game arranged, not one they walked into. 12
+    // covers the arch and the pace or two either side of it; anything hunting
+    // them still follows them right up to it and through.
+    return [{ ...gateSite, id: 'landmark:gateway', noSpawnRadius: 12 }];
   }),
   gate: () => ({ to: 'hold', x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff }),
 };
@@ -3435,6 +3443,29 @@ beginPlay();
   facing: +Math.atan2(world.spawnPoint.x - p.x, world.spawnPoint.z - p.z).toFixed(3),
   distToSpawn: +p.distanceTo(world.spawnPoint).toFixed(2),
 }));
+
+/**
+ * Every disc the wild population may not appear in, and who claimed it.
+ *
+ * The failure mode of a keep-out is INVISIBLE — a monster that did not spawn
+ * leaves nothing behind — so the only way to tell "the zones are working" from
+ * "the spawner is broken" is to read the discs and then ask `blocks` about a
+ * point. Both are here, which is why this takes an optional column: with no
+ * arguments it is the census, with (x, z) it is the same question `trySpawn`
+ * asks. Read-only, allocates; the world's own answer, not a recomputation of it.
+ */
+(window as unknown as {
+  __dbgSafeZones: (x?: number, z?: number) => unknown;
+}).__dbgSafeZones = (x, z) => ({
+  zones: world.safeZones.all.map((s) => ({
+    id: s.id, x: +s.x.toFixed(2), z: +s.z.toFixed(2), radius: +s.radius.toFixed(2),
+  })),
+  towns: world.towns.all.map((t) => ({
+    id: t.id, radius: t.radius, outerRadius: +t.outerRadius.toFixed(2),
+    noSpawnRadius: +t.noSpawnRadius.toFixed(2),
+  })),
+  blocks: x === undefined || z === undefined ? null : world.safeZones.blocksSpawn(x, z),
+});
 
 // World surface queries at an arbitrary column, for the climbing/collision
 // tests: `ground` is what blocks and supports, `trunkSolidTop` is the bole a

@@ -63,6 +63,7 @@ import {
   TownParts, V, addBridgeFurniture, buildJunctionApron, buildRoadRibbon, signArm,
 } from './town-parts';
 import { mulberry32 } from './noise';
+import { TOWN_NO_SPAWN_MARGIN } from './safe-zones';
 
 // ---------------------------------------------------------------------------
 // What towns exist
@@ -162,6 +163,12 @@ export interface TownSite {
    * its layout, and that override is honoured below.
    */
   outerRadius: number;
+  /**
+   * How far out nothing hostile may spawn. Derived from `outerRadius` unless the
+   * asset overrode it, 0 meaning no zone at all — see `TownData.noSpawnRadius`
+   * and `SafeZone` in core/types.ts.
+   */
+  noSpawnRadius: number;
   color: number;
   /**
    * Prefer a site with water in its footprint's outer ring rather than avoiding
@@ -236,6 +243,7 @@ function readSites(): readonly TownSite[] {
     // `LAYOUTS.has` is the runtime narrowing this leans on; the assertion only
     // tells the compiler what the Set membership already established.
     const kind = data.layout as TownInfo['kind'];
+    const outer = data.outerRadius ?? outerRadiusOf(kind, data.radius);
     sites.push({
       // The `name` half of the content id. `parseId` is the content layer's own
       // reader and this is the same split it makes; done here rather than
@@ -245,7 +253,10 @@ function readSites(): readonly TownSite[] {
       sign: data.sign,
       kind,
       radius: data.radius,
-      outerRadius: data.outerRadius ?? outerRadiusOf(kind, data.radius),
+      outerRadius: outer,
+      // `??` and not `||`: an authored 0 is "this settlement has no keep-out"
+      // and has to survive, which is the one thing a falsy test would eat.
+      noSpawnRadius: data.noSpawnRadius ?? outer + TOWN_NO_SPAWN_MARGIN,
       color: data.color,
       waterside: data.waterside,
       order: data.order,
@@ -830,6 +841,7 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
       id: sites[i].id, nameKey: sites[i].nameKey, kind: sites[i].kind,
       x: sitePos[i].x, y: siteY[i], z: sitePos[i].z,
       radius: sites[i].radius, outerRadius: sites[i].outerRadius,
+      noSpawnRadius: sites[i].noSpawnRadius,
       color: sites[i].color,
       gateX: gates[i].x, gateZ: gates[i].z, gateAngle: gates[i].angle,
     });
