@@ -9,7 +9,7 @@ import type {
 } from '../core/types';
 import { excludeFromAO } from '../core/types';
 import { CarrierField } from './carriers';
-import { SkyIsland, readCarriedTown } from './sky-island';
+import { ISLAND_KEEL, SkyIsland, readCarriedTown } from './sky-island';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
 import { buildWaterMesh, createWaterMaterial } from './water';
@@ -598,7 +598,7 @@ export function createWorld(
   const skyData = flags.towns ? readCarriedTown() : null;
   const sky = skyData
     ? new SkyIsland(
-      terrain, propLib, new TownParts(), skyData,
+      terrain, propLib, skyData,
       spawnPoint.x + Math.sin(SKY_HOME_ANGLE) * SKY_HOME_DIST,
       spawnPoint.z + Math.cos(SKY_HOME_ANGLE) * SKY_HOME_DIST,
       seed,
@@ -1121,7 +1121,7 @@ export function createWorld(
       // it instead of a cumulus growing through the town square. One disc, set
       // per frame, because the island is the only thing in the sky that moves
       // and has a footprint.
-      if (sky) clouds?.setKeepOut(sky.x, sky.y, sky.z, sky.radius);
+      if (sky) clouds?.setKeepOut(sky.x, sky.y, sky.z, sky.radius, ISLAND_KEEL);
       clouds?.update(focus, dt);
       shops.update(time);
       towns?.update(time, focus);

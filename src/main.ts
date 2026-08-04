@@ -2697,6 +2697,22 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // exactly that back out again.
   if (interactive && !modal) touch?.update(dt);
 
+  // A FROZEN HERO IS STILL STANDING ON SOMETHING. Both branches that skip the
+  // player controller — photo mode, and every modal in the game — still have to
+  // move him with whatever is carrying him, or a player who opened the menu on
+  // the flying island watches it slide out from under his feet and is left
+  // standing in the sky. Being frozen means "takes no input and runs no
+  // physics", not "detached from the world"; the beasts and the wild population
+  // below this branch were never frozen and never had the problem.
+  //
+  // The mount answers for the pair of them when one is being ridden (it writes
+  // the hero's position), and is a no-op otherwise — so exactly one of these
+  // two moves him, which is the same split `Player.update` makes.
+  if (!interactive || modal) {
+    mount.carry();
+    if (!mount.isMounted) player.carry();
+  }
+
   // Photo mode drives the camera and the subject itself and must not have the
   // player controller or the HUD fighting it, but it DOES need the world to
   // stream and the beasts to animate — everything below the branch.

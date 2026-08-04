@@ -74,10 +74,17 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
 // 2. Parked on the deck: the world moves, the hero's place on the deck does not
 // ---------------------------------------------------------------------------
 {
-  // Straight down onto the middle of the deck, from a little above it. The drop
-  // is deliberate: it lands him through the same attach path a flyer takes,
-  // rather than starting him already at rest on a surface.
-  await tp(island.x, island.z, island.y + 12);
+  // OPEN GRASS, NOT THE MIDDLE. The middle of the deck is where the tower
+  // stands, and `localTop` there is the tower's roof twenty units up — a hero
+  // dropped into that column is INSIDE the building, below its top, and
+  // therefore outside the ride volume, so he never attaches and falls through
+  // the island. It reads as a carrier bug and is a probe that aimed at a
+  // chimney. Two thirds of the way out is the ring the houses stand on, so this
+  // is a garden between two of them.
+  //
+  // The drop is deliberate: it lands him through the same attach path a flyer
+  // takes, rather than starting him already at rest on a surface.
+  await tp(island.x + island.radius * 0.62, island.z, island.y + 8);
   await wait(1600);
   const a = await carriers();
   const before = a.all[0];
@@ -103,7 +110,12 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
 
   // THE OTHER HALF OF THE PAIR: an island that did not move carries nothing, and
   // every number below it would be trivially satisfied.
-  check(travelled > 8,
+  // AGAINST THE CRUISE, not a number picked once. The island does 1.0 units/s
+  // and takes a few seconds to accelerate onto a heading, so nine seconds is
+  // seven or eight units of real travel; the assertion only has to be big
+  // enough that a STOPPED island fails it, which is what makes the drift
+  // measurement below mean anything.
+  check(travelled > 4,
     `the island only travelled ${travelled.toFixed(2)} units in 9 s — nothing to be carried by`);
   // ...and the feature. A standing hero drifts by the settling of his own
   // physics and nothing else; a whole unit over nine seconds would be the frame

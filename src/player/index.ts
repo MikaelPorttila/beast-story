@@ -604,6 +604,34 @@ export class Player {
     this.onGround = grounded;
   }
 
+  /**
+   * Move with whatever is carrying him, and nothing else.
+   *
+   * SEPARATE FROM `update` BECAUSE A FROZEN HERO IS STILL STANDING ON
+   * SOMETHING. Every modal in this game freezes the player controller — the
+   * shop, the F1 sheet, the in-game menu, the console — and while the world's
+   * moving parts go on moving, so a hero who opened the menu on a flying
+   * island watched it slide out from under him and was left standing in the
+   * sky. Being frozen means "takes no input and runs no physics", not
+   * "detached from the world".
+   *
+   * It is idempotent per slice and safe to call from either path: `carry`
+   * applies the frame's published delta once, and the delta is published once
+   * per slice by `CarrierRegistry.advance`.
+   */
+  carry(): void {
+    this.ride.carry(this.world, this.position);
+    if (this.ride.dyaw === 0) return;
+    // A TURNING DECK TURNS WHAT IS ON IT — his body and the camera arm both,
+    // or a hero standing still on a banking island slowly ends up facing
+    // across a deck he never turned on, with the view swinging past him.
+    // `cam.yaw` is the bearing from the hero to the camera and is the one
+    // thing here that is not re-derived per frame from his heading.
+    this.heading += this.ride.dyaw;
+    this.cam.yaw += this.ride.dyaw;
+    this.root.rotation.y = this.heading;
+  }
+
   update(dt: number): void {
     this.time += dt;
     const input = this.input;
@@ -618,17 +646,7 @@ export class Player {
     // writes this position, so running the frame here as well would apply the
     // island's motion to the hero twice.
     if (!this.isMounted) {
-      this.ride.carry(world, this.position);
-      if (this.ride.dyaw !== 0) {
-        // A TURNING DECK TURNS WHAT IS ON IT — his body and the camera arm
-        // both, or a hero standing still on a banking island slowly ends up
-        // facing across a deck he never turned on, with the view swinging past
-        // him. `cam.yaw` is the bearing from the hero to the camera and is the
-        // one thing here that is not re-derived per frame from his heading.
-        this.heading += this.ride.dyaw;
-        this.cam.yaw += this.ride.dyaw;
-        this.root.rotation.y = this.heading;
-      }
+      this.carry();
     }
 
     if (this.invulnT > 0) this.invulnT -= dt;

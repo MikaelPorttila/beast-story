@@ -114,8 +114,19 @@ const FLY_VY_LAMBDA = 6;
  * rather than on it.
  */
 const FLY_CLEARANCE = 1.3;
-/** Ceiling above the ground under you. Enough to clear anything; not orbit. */
-const FLY_CEILING = 60;
+/**
+ * Ceiling above the ground under you. Enough to clear anything; not orbit.
+ *
+ * RAISED FROM 60 WHEN THE SKY BECAME SOMEWHERE TO GO (issue #68). The flying
+ * island cruises at 78-104 and the ground under it is often near sea level, so
+ * at 60 the ceiling sat below the deck over exactly the terrain a player
+ * approaches it across — an invisible floor-to-the-sky twenty units short of
+ * the only place in the world that can be reached by no other means.
+ * `CarrierRegistry.ceilingAt` is the other half of that fix and the one that
+ * removes the step; this is the part that means a player who never goes near
+ * the island can still get over the highest peak with room to look around.
+ */
+const FLY_CEILING = 78;
 
 /**
  * The hero rig's hip height. His origin is at his FEET, but in the riding pose
@@ -245,6 +256,24 @@ export class MountController {
     return 'none';
   }
 
+  /**
+   * Move the pair of them with whatever is carrying them, and nothing else.
+   *
+   * The saddle's half of `Player.carry` and it exists for the same reason: a
+   * modal freezes the controller, and a frozen rider on a flying island is
+   * still standing on it. `seatHero` is called too, because the hero's position
+   * is written FROM `this.pos` — moving the mount without re-seating him leaves
+   * him hanging where the island used to be.
+   *
+   * A no-op when nothing is being ridden; the hero carries himself then.
+   */
+  carry(): void {
+    if (!this.beast) return;
+    this.carrier.carry(this.world, this.pos);
+    this.yaw += this.carrier.dyaw;
+    this.seatHero();
+  }
+
   /** Take the pending Space edge, if any. One press, one jump. */
   private consumeJump(): boolean {
     if (!this.jumpPressed) return false;
@@ -280,8 +309,7 @@ export class MountController {
       // his own while mounted — `seatHero` places him off `this.pos` at the end
       // of the ride, and `Player.update` skips its own frame while mounted, so
       // applying it here applies it exactly once.
-      this.carrier.carry(this.world, this.pos);
-      this.yaw += this.carrier.dyaw;
+      this.carry();
       // A tap of F gets off. The F that MOUNTED you is still down at this
       // point, and no edge can be produced from it because fWasHeld was already
       // true when the mount happened — you have to let go and press again.

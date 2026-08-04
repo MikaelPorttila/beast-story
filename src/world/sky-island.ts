@@ -8,25 +8,36 @@
  * to climb would reuse all of it and write only what this file writes — a
  * shape, a surface, and a rule for where it goes next.
  *
+ * IT IS BUILT OUT OF CUBES, and the first version was not. It shipped as a
+ * radial mesh — a smooth dome over a smooth keel — on the reasoning that a
+ * voxel island at the town's own 0.28 scale would be 385 cells across and cost
+ * 148k columns. That reasoning was right about the scale and wrong about the
+ * conclusion: the answer is a COARSER cell, not a smooth surface. Everything
+ * else in this game is cubes, the reference art for this island is emphatically
+ * cubes, and a smooth landmass in the middle of it reads as an object from
+ * another game. At `CELL` = 1.2 the island is 90 cells across, its cliffs
+ * terrace the way the reference's do, and only the SHELL is painted (see
+ * `paintColumn`), which is ~30k voxels — a hut is 2k.
+ *
+ * THE TOP IS FLAT, and that is a gameplay decision as much as a visual one. A
+ * voxel deck steps in whole cells and `MAX_STEP_UP` is 0.5, so any terracing on
+ * the plateau is a wall the player has to jump; the reference's raised tower
+ * mound would be exactly that. So the plateau is one level, every building
+ * stands on it, and the only vertical drama is the cliff you can walk off.
+ *
  * WHAT IS AND IS NOT IN THIS FILE, since the island is three things at once:
  *
- *   the ROCK      a procedural mesh, not a voxel model. A voxel island at the
- *                 town's own 0.28 scale would be 385 cells across and 148k
- *                 columns before a single hut was placed, and every one of them
- *                 would be interior. The shape wanted here is a smooth dome
- *                 over a rocky keel, which is a radial grid — 64 sectors by 22
- *                 rings, built once, ~2.8k triangles, never rebuilt.
- *   the DECK      one function, `deckAt`, and it is the authority twice over:
- *                 the mesh's top surface is sampled from it, and `localTop`
- *                 answers every step test from it. There is no second formula
- *                 for the ground you stand on, which is the same rule the road
- *                 ribbon obeys for the same reason (world/town-parts.ts) — what
- *                 you see is what you stand on BY CONSTRUCTION, not because two
- *                 functions currently agree.
- *   the TOWN      built with `TownParts` and `SolidStamp` exactly as a ground
- *                 settlement is, in the island's own local coordinates. It has
- *                 no roads, no flatten disc and no yard, because the deck is
- *                 already level ground that nothing else is competing for.
+ *   the ROCK      a `VoxelModel` heightfield: flat grass plateau, an
+ *                 overhanging turf lip, sheer cliff, then a terraced keel
+ *                 tapering to a point, with vines down the face.
+ *   the DECK      `deckAt`, which is a CONSTANT — and that is the point. The
+ *                 mesh's top course and the step test read the same number, so
+ *                 what you see is what you stand on by construction rather
+ *                 than because two formulas currently agree.
+ *   the TOWN      built from [world/sky-parts.ts](src/world/sky-parts.ts) — a
+ *                 second parts bin, because plastered timber-framed walls under
+ *                 blue slate are not the Encampment's canvas and thatch
+ *                 recoloured.
  *
  * IT DOES NOT FLY INTO MOUNTAINS, and the mechanism is a floor rather than an
  * avoidance behaviour. `steer` samples the height field under the island's own
@@ -40,12 +51,16 @@
 import * as THREE from 'three';
 import type { TownInfo, TownRegistry } from '../core/types';
 import { CarrierBody } from './carriers';
-import { Accum, PropLib } from './props';
+import { Accum, PropLib, type Template } from './props';
 import { SolidStamp, StructureField } from './structures';
-import { TownParts } from './town-parts';
 import { Npcs, type NpcFrame, type NpcSite } from './npc';
 import type { RoadClearance } from './roads';
+import { VoxelModel } from '../core/voxel';
 import { mulberry32 } from './noise';
+import { flags } from '../core/flags';
+import {
+  skyBush, skyCottage, skyFence, skyGate, skyLamp, skySmoke, skyStall, skyTower, skyWell,
+} from './sky-parts';
 import { CARRIED_LAYOUT_KIND, content, defineFactory, type TownData } from '../content';
 import { displayKey, reportContentIssue } from '../core/content-bridge';
 import type { Terrain } from './terrain';
@@ -56,55 +71,113 @@ import { WATER_LEVEL } from './terrain';
 // ---------------------------------------------------------------------------
 
 /**
- * The island's footprint radius, in world units.
+ * World units per terrain voxel.
  *
- * The issue asks for "8 times the size of the encampment", and the Encampment's
- * footprint radius is 19 (`town:encampment` in core.json). EIGHT TIMES THE AREA
- * rather than eight times the radius, which is the reading that produces an
- * island: `19 * sqrt(8)` is 53.7, so the thing is 107 units across, and the
- * streamed view radius is 160 — you can stand on the ground and see the whole
- * of it against the sky, which is what makes it read as a floating landmass.
- * Eight times the RADIUS is 304 across, wider than the world is drawn, and from
- * underneath it stops being an island and becomes a ceiling.
- *
- * Everything else here is a fraction of this number, so it is one edit.
+ * THE ONE NUMBER THE WHOLE LOOK RESTS ON. It is twice the settlement's own
+ * voxel gauge (`SV` = 0.6 in sky-parts.ts), so a cottage wall is two courses to
+ * a cliff's one, which is the proportion the reference art has between its
+ * buildings and its rock. Coarser and the cliff loses its terracing into a few
+ * huge steps; finer and the chunkiness that makes it read as this game's world
+ * goes away while the column count grows as the square.
  */
-export const ISLAND_R = 19 * Math.SQRT2 * 2;
+const CELL = 1.2;
 
 /**
- * How far the centre of the deck stands above its rim, in world units.
+ * How many of OUR cells make one block of the authored plan.
  *
- * A dome and not a table, so the island has a horizon of its own and the town
- * is not visible edge-to-edge from the moment you land. 5 units over 53.7 is a
- * 5.3-degree average slope, which is nothing to walk and everything to look at;
- * the local gradient never approaches `MAX_STEP_UP` over a body's stride, which
- * is the constraint that actually binds (see `deckAt`).
+ * THE PLAN IS DRAWN AT A COARSER GAUGE THAN THE WORLD IS BUILT AT. The top-down
+ * map this island is laid out from is 52 blocks across, and one of its blocks is
+ * three of our cells: a map block is a stride of ground you could stand a barrel
+ * on, and a cell is the resolution the cliff terraces and the coastline are
+ * quantised to. Keeping the two apart is what lets the LAYOUT be authored in
+ * whole readable blocks while the ROCK keeps a finer silhouette.
  */
-const DOME = 5.2;
+const MAP_BLOCK = 3;
 
 /**
- * How far the keel hangs below the rim, in world units.
+ * The island's radius in MAP BLOCKS. 26 makes it 52 across, which is the plan.
  *
- * The whole reason an island reads as torn out of the ground rather than as a
- * disc: seen from underneath it is a root of rock, and seen from the side it is
- * the deep half of the silhouette. It is also the number the altitude rule
- * clears the mountains by — see `KEEL_MARGIN`.
+ * THIS IS WHERE THE ISLAND GOT BIG, and it is a correction to a reading rather
+ * than a change of mind. It was 53.7 units of radius, "8 times the AREA of the
+ * Encampment", which made a landmass you could see whole from the ground and
+ * was far too small for the town the plan puts on it: at that size a dozen
+ * cottages and a tower already filled it, and every critique of the early
+ * passes came back to density and to empty lawn. One block of the authored plan
+ * is three of our cells, so 26 blocks of radius is 187 units across, which is
+ * room for the manor, the dwellings, a pond, an avenue and a tree belt with
+ * space left between them.
  */
-const KEEL = 27;
+const MAP_R = 26;
 
 /**
- * How far the keel's lobes swing its depth, as a fraction. See `keelAt`.
- *
- * 0.22 is enough that the root reads as several roughly-conical masses fused
- * together rather than as one turned shape, and small enough that the deepest
- * lobe is still clearly part of the same island as the shallowest. It is also
- * what `KEEL_MARGIN` has to cover on top of `KEEL`, which is why the margin is
- * measured from the nominal depth rather than the worst one.
+ * The island's footprint radius, in world units. Derived from the plan's own
+ * gauge, so moving `MAP_R` or `MAP_BLOCK` moves everything with it.
  */
-const KEEL_LOBE = 0.22;
+export const ISLAND_R = MAP_R * MAP_BLOCK * CELL;
 
-/** Where the grass gives out and the rim rock starts, as a fraction of R. */
-const GRASS_EDGE = 0.86;
+/** The island's radius in CELLS, which is what every generator below works in. */
+const RC = ISLAND_R / CELL;
+
+/**
+ * How many courses of SHEER cliff hang under the turf before the keel starts
+ * tapering in.
+ *
+ * The reference's silhouette is a vertical band of stone under the grass and
+ * THEN an inverted pyramid; without the band the island is a lens and reads as
+ * a lily pad. 6 courses is 7.2 units — about twice a cottage wall, which is
+ * roughly what the art shows.
+ */
+const CLIFF = 12;
+
+/**
+ * How much deeper the keel goes at the middle, in courses, under the cliff.
+ *
+ * THE FIRST PASS SHIPPED 16 AND IT WAS A PANCAKE. 23 courses of rock under a
+ * 90-cell plateau is a quarter as deep as the island is wide, and captured from
+ * the side (`shots/sky/2-side.png`, first pass) it read as a lily pad with a
+ * village on it — the reference's profile is a landmass, roughly two thirds as
+ * deep as it is across, and the depth is most of what makes it feel like
+ * something that was torn out of the ground rather than a platter.
+ *
+ * 34 more courses puts the deepest point 40 courses — 48 units — below the
+ * turf, against a 107-unit width. It is also the number `KEEL_MARGIN` has to
+ * clear the mountains by, and `KEEL` below is the world-unit form of the same
+ * fact, so raising it raises the island with it.
+ */
+const TAPER = 62;
+
+/** The keel's depth at its deepest, in world units. Derived, never authored. */
+const KEEL = (CLIFF + TAPER) * CELL;
+
+/** Published so the cloud deck knows how far under the deck to pass. */
+export const ISLAND_KEEL = KEEL;
+
+/**
+ * How coarsely the taper is QUANTISED, in courses.
+ *
+ * The single most reference-like thing in the generator. A continuous taper is
+ * a cone with a staircase texture; rounding it to steps of 4 gives the keel
+ * distinct LEDGES that run all the way round, which is what the art's underside
+ * is made of — ten of them over the drop, which is what the art shows.
+ *
+ * The FIRST PASS quantised at 3 and then buried the result under two scales of
+ * per-cell noise, and the ledges never appeared: captured from below it was a
+ * flat-bottomed hairbrush (`shots/sky/5-underside.png`, first pass). The lesson
+ * is that the noise has to be applied at the LEDGE's own granularity — whole
+ * shelves wandering by whole steps — or it simply erases the terracing it was
+ * meant to roughen.
+ */
+const LEDGE = 5;
+
+/**
+ * How far the turf overhangs the stone beneath it, in cells.
+ *
+ * One course, everywhere. It is a tiny thing that does an enormous amount of
+ * work: it puts a hard shadow line under the grass all the way round the
+ * island, which is what separates the green top from the grey cliff in every
+ * one of the reference's six views. Without it the two read as one mass.
+ */
+const LIP = 1;
 
 // ---------------------------------------------------------------------------
 // Flight
@@ -114,25 +187,30 @@ const GRASS_EDGE = 0.86;
  * How far from home the island wanders, in world units.
  *
  * "Flying around random within a large radius of the spawn location of the
- * town", and 240 is what makes that a journey rather than a lap: at the cruise
- * below, crossing the roam disc takes about three minutes, so the island is
- * somewhere different every time the player looks up and never so far that it
+ * town", and 240 is what makes that a journey rather than a lap: the island is
+ * somewhere different every time the player looks up, and never so far that it
  * has left the part of the map the rest of the game is in.
  */
-const ROAM_R = 240;
+const ROAM_R = 260;
 /**
  * Cruise speed, world units/second.
  *
- * 2.4 is slower than the hero walks (4.2) and slower than a galebird flies, so
- * the island can always be caught, and it is fast enough that the ground
- * visibly moves underneath while you stand on the deck — which is the whole
- * point of the thing and the only way a player finds out it is moving at all.
+ * 1.0, down from the 2.4 this shipped with, which read as fast — and it read
+ * that way for a reason worth writing down: the thing you judge the speed
+ * against is the GROUND EIGHTY UNITS BELOW, and at that distance a landmass
+ * this size sliding at walking pace looks like it is being flown rather than
+ * drifting. A town is not a vehicle. At 1.0 it crosses its own diameter in
+ * under two minutes, which is still plainly moving when you stand at the rim
+ * and watch the meadow go by, and no longer looks propelled.
+ *
+ * Still far slower than the hero walks (6) and than a galebird flies (12.4), so
+ * it can always be caught. That is the constraint the number cannot cross.
  */
-const CRUISE = 2.4;
+const CRUISE = 1.0;
 /** How hard it accelerates onto a new heading; the lambda of an exponential. */
 const TURN_LAMBDA = 0.22;
 /** How fast the hull's own heading follows its travel, radians/second. */
-const YAW_RATE = 0.045;
+const YAW_RATE = 0.03;
 /** A new destination is picked within this of the old one being reached. */
 const ARRIVE = 26;
 
@@ -147,174 +225,443 @@ const ARRIVE = 26;
  */
 const KEEL_MARGIN = 14;
 /** Never lower than this above sea level, whatever the ground below says. */
-const MIN_ALT = 78;
+const MIN_ALT = 112;
 /** ...and never higher, so it stays under the cumulus deck's own 80-142 band. */
-const MAX_ALT = 104;
+const MAX_ALT = 138;
 /** How fast it may climb or sink, world units/second. */
-const CLIMB_RATE = 3.0;
+const CLIMB_RATE = 1.6;
 
 /**
  * How far AHEAD of itself the island looks, as a multiple of its own radius.
  *
- * At `CRUISE` and `CLIMB_RATE` the island needs 4.7 seconds to gain the 14
- * units of a full margin, in which it travels 11 units. Looking one radius
- * ahead of its own rim gives it 22 — twice what the worst case needs, which is
- * the right size of margin for a number sampled at a dozen points.
+ * At `CRUISE` and `CLIMB_RATE` the island needs 8.8 seconds to gain the 14
+ * units of a full margin, in which it travels 9. Looking one radius ahead of
+ * its own rim gives it 54 — six times what the worst case needs, which is the
+ * right size of margin for a number sampled at a dozen points.
  */
 const LOOK_AHEAD = 2;
 
 // ---------------------------------------------------------------------------
-// The town on it
+// Colours
 // ---------------------------------------------------------------------------
+// Read off the reference art rather than invented. The grass is a bright
+// saturated green (it is the brightest thing in the picture after the sky), the
+// stone is cool and desaturated, and the dirt band between them is narrow and
+// warm — three families, and the contrast between them is what gives the rim
+// its layered read.
 
-/**
- * What a CARRIED town's layout is handed: a stamp that draws and blocks in one
- * call, an accumulator for anything that glows, the parts bin, and the deck it
- * is standing on.
- *
- * EVERY COORDINATE HERE IS LOCAL — the island's own frame, origin at its centre
- * — which is what lets a layout be written exactly like a ground one while the
- * whole settlement is a thousand units away and moving. Compare `TownLayout` in
- * world/towns.ts: the difference is that this one is handed a `deckAt` instead
- * of a road network and a height field, because a deck has no roads and its
- * ground is a closed-form function rather than a streamed field.
- *
- * Returns the settlement's FOCUS — its fire — in local coordinates, or null.
- * Same contract as a ground layout, and for the same consumer: `NpcSite.focusOf`
- * is how a character asks to stand across the fire from wherever else he might
- * have gone.
- */
-export type CarriedLayout = (
-  solid: SolidStamp,
-  glow: Accum,
-  parts: TownParts,
-  radius: number,
-  deckAt: (x: number, z: number) => number,
-  rng: () => number,
-) => { x: number; z: number } | null;
+// THE GREEN IS WARM AND NOT VERY SATURATED, which is the correction that made
+// the biggest single difference. The first pass used a cold kelly green
+// (0x7cc24c) and it read as plastic against the reference's olive turf; the art
+// is a yellow-leaning green with dirt showing through it.
+const GRASS = 0x7ea83c;
+const GRASS_D = 0x668a30;
+const GRASS_L = 0x93bd4c;
+const DIRT = 0x6b5334;
+const DIRT_D = 0x54401f;
+// STONE IS WARM IN THE LIGHT AND COLD IN SHADOW, and spans a real value range.
+// The first pass ran 0x9b9b9d to 0x707076: forty-three values of one blue-grey,
+// which is a flat plastic wall at every angle. Limestone at the top, cooling
+// and darkening to near-black at the root.
+const STONE = 0xada79b;
+const STONE_D = 0x827d74;
+// AND NOT NEARLY AS DARK AS THEY LOOK LIKE THEY SHOULD BE. Measured off the
+// render, a cliff painted from these ran luma 47 with a two-value spread over
+// its whole 280-pixel drop - flat AND black, which is worse than the flat grey
+// it replaced. The reason is that these are multiplied by a face shade (0.62 on
+// a downward face) and then by the depth ramp below, on a surface the sun never
+// reaches: three darkenings compounding on one already-dark albedo.
+const STONE_DEEP = 0x6e6e68;
+const STONE_ROOT = 0x585a56;
+/** Ivy down the cliff face. Darker than the turf, or it reads as spilt grass. */
+const VINE = 0x466f2d;
+const VINE_D = 0x33501f;
+/** Flagged paths across the plateau, and the paved square. */
+const PATH = 0xb9b2a2;
+const PATH_D = 0x9e9787;
+/** Tilled soil: the garden plots between the houses. */
+const TILL = 0x6a4a2c;
+const TILL_D = 0x513716;
+/** The stream and the fall. Pale, so it stays visible against the sky. */
+const WATER = 0x8fd8ec;
+const WATER_L = 0xbceaf6;
 
-/**
- * Skyhaven's own layout: a fire in the middle, dwellings on a ring around it,
- * working clutter between them and lamps out toward the rim.
- *
- * It is deliberately NOT the Encampment's plan with the wall taken off. A camp
- * is defensive and faces inward against a palisade; an island has a horizon on
- * every bearing and nothing to defend against, so the buildings sit back from
- * the middle and leave the view open, and what stands at the edge is a lamp
- * rather than a stake.
- *
- * THERE IS NO PERIMETER, and that is a decision rather than an omission. A rail
- * around the rim would make the one thing this place has that nowhere else does
- * — an edge you can walk off — into scenery you bump into. The lamps mark it;
- * they do not fence it.
- */
-const buildSkyhaven: CarriedLayout = (solid, glow, parts, radius, deckAt, rng) => {
-  const at = (a: number, d: number): [number, number] => [Math.sin(a) * d, Math.cos(a) * d];
+/** Per-voxel value jitter, so a face is not one flat colour. */
+function shade(hex: number, k: number): number {
+  const r = Math.min(255, Math.round(((hex >> 16) & 255) * k));
+  const g = Math.min(255, Math.round(((hex >> 8) & 255) * k));
+  const b = Math.min(255, Math.round((hex & 255) * k));
+  return (r << 16) | (g << 8) | b;
+}
 
-  // -- the fire, a little off centre so the plaza is not a bullseye ---------
-  const fireA = rng() * Math.PI * 2;
-  const [fx, fz] = at(fireA, radius * 0.06);
-  solid.add(parts.fire, fx, deckAt(fx, fz), fz, rng() * 6.28);
-  // The flame is a SEPARATE model on a separate material, so `GLOW_PART` in
-  // town-parts.ts parts its face grid from the logs' — see the z-fighting note
-  // in AGENTS.md, and `bakeAt`, which every glow piece already passes through.
-  glow.add(parts.fireGlow, fx, deckAt(fx, fz), fz, rng() * 6.28, 1, 1, 1, 1);
-
-  // -- dwellings, on a ring ------------------------------------------------
-  // Eight bearings, six of them built, so the ring has gaps you walk out
-  // through instead of being a wall of huts with a door in it.
-  const ringD = radius * 0.42;
-  const skip = Math.floor(rng() * 8);
-  for (let k = 0; k < 8; k++) {
-    if (k === skip || k === (skip + 4) % 8) continue;
-    const a = (k / 8) * Math.PI * 2 + fireA * 0.13;
-    const [x, z] = at(a, ringD + (rng() - 0.5) * radius * 0.1);
-    // Facing the fire: a dwelling's door is the side you approach from, and on
-    // an island the thing everyone approaches from is the middle.
-    const yaw = a + Math.PI;
-    const t = k % 3 === 2 ? parts.tents[k % parts.tents.length] : parts.huts[k % parts.huts.length];
-    solid.add(t, x, deckAt(x, z), z, yaw);
-  }
-
-  // -- the well, and the working clutter -----------------------------------
-  {
-    const [x, z] = at(fireA + 2.3, radius * 0.25);
-    solid.add(parts.well, x, deckAt(x, z), z, rng() * 6.28);
-  }
-  const clutter = [parts.barrel, parts.crateS, parts.crateL, parts.woodpile, parts.rack, parts.cartOpen];
-  for (let k = 0; k < clutter.length; k++) {
-    const a = rng() * Math.PI * 2;
-    const d = radius * (0.16 + rng() * 0.34);
-    const [x, z] = at(a, d);
-    solid.add(clutter[k], x, deckAt(x, z), z, rng() * 6.28);
-  }
-
-  // -- lamps toward the rim ------------------------------------------------
-  // Out at 0.78 of the radius, which is inside `GRASS_EDGE` (0.86): a lamp
-  // stands on grass and the last of the deck beyond it is bare, so the edge
-  // reads as an edge and the lamps read as the last thing before it.
-  for (let k = 0; k < 6; k++) {
-    const a = (k / 6) * Math.PI * 2 + 0.4;
-    const [x, z] = at(a, radius * 0.78);
-    const y = deckAt(x, z);
-    solid.add(parts.lamp, x, y, z, a + Math.PI);
-    glow.add(parts.lampGlow, x, y, z, a + Math.PI, 1, 1, 1, 1);
-  }
-
-  return { x: fx, z: fz };
-};
-
-/** The carried layouts this build implements. See `TownData.carried`. */
-const CARRIED_LAYOUTS: Readonly<Record<string, CarriedLayout>> = {
-  skyhaven: buildSkyhaven,
-};
-
-for (const [name, fn] of Object.entries(CARRIED_LAYOUTS)) {
-  defineFactory(CARRIED_LAYOUT_KIND, name, fn);
+/** Deterministic 0..1 hash of a cell. No allocation, no rng stream to advance. */
+function hash2(x: number, z: number, salt: number): number {
+  let h = (x * 374761393 + z * 668265263 + salt * 2246822519) | 0;
+  h = (h ^ (h >>> 13)) * 1274126177;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
 // ---------------------------------------------------------------------------
-// Colours
+// The layout, decided before a single voxel is painted
 // ---------------------------------------------------------------------------
 
-const s2l = (c: number): number =>
-  c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-/** sRGB hex -> the linear triple a vertex-coloured standard material wants. */
-const lin = (hex: number): [number, number, number] => [
-  s2l(((hex >> 16) & 255) / 255), s2l(((hex >> 8) & 255) / 255), s2l((hex & 255) / 255),
-];
-
-const GRASS = lin(0x6f9a4a);
-const GRASS_D = lin(0x577c3a);
-const ROCK = lin(0x8a8175);
-const ROCK_D = lin(0x7a7167);
 /**
- * The deep rock at the point of the keel. Lighter than it looks like it should
- * be, and deliberately: it is the least-lit surface in the world (see
- * `wrapKeelNormals`), so a colour picked to look like deep shade in isolation
- * lands on top of geometry that is already shaded and comes out black.
- */
-const KEEL_C = lin(0x6a5f54);
-
-/**
- * How far a keel normal is bent toward its outward radial, and how much +Y is
- * added afterwards. See `wrapKeelNormals`.
+ * WHERE EVERYTHING GOES, in world units in the island's own frame.
  *
- * 0.72 is enough that the sun-facing flank of the root is plainly lit while the
- * shaded side stays dark, so the island still has a lit side and a shadow side
- * rather than being uniformly bright; the +Y term is what keeps the very bottom
- * from falling back to black as the radial goes horizontal.
+ * Planned FIRST and separately from both the rock and the buildings, because
+ * the paths are painted INTO the terrain (they are flagstones in the ground,
+ * not props standing on it) and the terrain therefore has to know the plan
+ * before it is built. It is also what lets the settlement be read at a glance
+ * in one place rather than inferred from the order of eighty stamp calls.
  */
-const WRAP = 0.72;
-const WRAP_UP = 0.34;
+interface SkyPlan {
+  /** Every building: what, where, which way it faces. */
+  readonly buildings: ReadonlyArray<{ t: Template; x: number; z: number; yaw: number; s?: number }>;
+  /** Path centrelines as [x0, z0, x1, z1], painted into the turf. */
+  readonly paths: ReadonlyArray<readonly [number, number, number, number]>;
+  readonly lamps: ReadonlyArray<{ x: number; z: number; yaw: number }>;
+  readonly fences: ReadonlyArray<{ x: number; z: number; yaw: number }>;
+  readonly trees: ReadonlyArray<{ t: Template; x: number; z: number; yaw: number; s: number }>;
+  /** Tilled garden beds, painted into the turf by `buildRock`. */
+  readonly plots: ReadonlyArray<{ x: number; z: number; r: number }>;
+  /** Bearing the stream leaves on, and where its pool sits. */
+  readonly fallAngle: number;
+  /** The town square — what an NPC stands across from. */
+  readonly focus: { x: number; z: number };
+}
+
+/**
+ * The paved square in the middle. Nothing is built inside it but the tower and
+ * the market, and every street runs to its rim.
+ */
+const PLAZA = 19;
+/** The band the dwellings stand in, as fractions of the island radius. */
+const HOUSE_IN = 0.34;
+const HOUSE_OUT = 0.62;
+/** ...and where the tree line starts, outboard of the last house. */
+const TREE_RING = 0.74;
+/** How many knots the dwellings are grouped into. */
+const CLUSTERS = 9;
+
+/**
+ * A dwelling's footprint radius, in world units, for the placement search.
+ *
+ * MEASURED OFF THE MODEL AND NOT GUESSED: `skyCottage`'s widest plan is 8 cells
+ * of half-width plus two of roof overhang, times `SV` (0.6) and the 1.2 stamp
+ * scale, which is 7.2. The FIRST PASS claimed 7.5 and then tested new houses
+ * against 8 — so two neighbours had to be 15.5 units apart while the row placed
+ * them 10 apart, and every house after the first in each knot was silently
+ * refused. The town came back with six buildings on a hundred-unit island.
+ *
+ * Claim and test with the SAME number, and space the row wider than twice it.
+ */
+const HOUSE_R = 7.2;
+
+/**
+ * Lay the town out: a tower over a paved square, dwellings CLUSTERED around it,
+ * streets from the square to each cluster, gardens between them, a tree line at
+ * the rim and a gate on one side.
+ *
+ * IT WAS A CLOCK FACE AND THAT WAS THE WORST THING ABOUT IT. The first pass put
+ * nine identical cottages on one radius at one angular step, each turned to
+ * face the middle, and from above (which is how anybody arriving by air sees
+ * this place first) it read as eight copies of one asset arranged on a circle,
+ * which is exactly what it was. The reference village is CLUSTERED: three or
+ * four knots of two to four buildings, each knot sharing a rough axis, with
+ * open ground and planting between the knots. That is what this builds now.
+ *
+ * IT IS STILL NOT A GRID, and that is deliberate rather than unfinished. The
+ * art plans a street grid on a squarish plateau, which needs block subdivision
+ * and party walls and a rectangle to sit on. What survives the translation to a
+ * round island a player can walk is the thing that actually reads: a landmark
+ * in the middle, roofs at several angles, streets converging, a tree line, and
+ * a gate that tells you which side is the front.
+ */
+function planSkyhaven(seed: number, parts: SkyParts, lib: PropLib): SkyPlan {
+  const rng = mulberry32(seed ^ 0x5c17);
+  const buildings: Array<{ t: Template; x: number; z: number; yaw: number; s?: number }> = [];
+  const paths: Array<readonly [number, number, number, number]> = [];
+  const lamps: Array<{ x: number; z: number; yaw: number }> = [];
+  const fences: Array<{ x: number; z: number; yaw: number }> = [];
+  const trees: Array<{ t: Template; x: number; z: number; yaw: number; s: number }> = [];
+  const plots: Array<{ x: number; z: number; r: number }> = [];
+  const at = (a: number, d: number): [number, number] => [Math.sin(a) * d, Math.cos(a) * d];
+  /** Everything already standing, so nothing is planted inside a wall. */
+  const taken: Array<{ x: number; z: number; r: number }> = [];
+  const free = (x: number, z: number, r: number): boolean =>
+    !taken.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < (t.r + r) ** 2);
+  const claim = (x: number, z: number, r: number): void => { taken.push({ x, z, r }); };
+
+  // -- the tower, dead centre ----------------------------------------------
+  buildings.push({ t: parts.tower, x: 0, z: 0, yaw: rng() * 6.28, s: 1.25 });
+  claim(0, 0, 7);
+
+  // -- the market on the square --------------------------------------------
+  {
+    const a = rng() * 6.28;
+    const [wx, wz] = at(a, PLAZA * 0.68);
+    buildings.push({ t: parts.well, x: wx, z: wz, yaw: rng() * 6.28 });
+    claim(wx, wz, 3);
+    for (const off of [2.2, 4.3]) {
+      const [sx, sz] = at(a + off, PLAZA * 0.72);
+      buildings.push({ t: parts.stall, x: sx, z: sz, yaw: a + off + Math.PI });
+      claim(sx, sz, 4);
+    }
+  }
+
+  // -- the dwellings, in clusters ------------------------------------------
+  const a0 = rng() * 6.28;
+  let houses = 0;
+  for (let c = 0; c < CLUSTERS; c++) {
+    // Each knot gets a wedge of the compass and sits at its own distance, so
+    // the band between the square and the tree line is occupied unevenly.
+    const centre = a0 + (c / CLUSTERS) * Math.PI * 2 + (rng() - 0.5) * 0.5;
+    const dist = ISLAND_R * (HOUSE_IN + rng() * (HOUSE_OUT - HOUSE_IN));
+    // ONE AXIS PER KNOT, quantised to an eighth turn. Every roof in a knot
+    // therefore runs the same way, which is what makes it read as a street
+    // rather than as a heap, and only two or three axes appear on the island.
+    const axis = Math.round((centre + Math.PI) / (Math.PI / 4)) * (Math.PI / 4);
+    const count = 3 + Math.floor(rng() * 4);
+    for (let k = 0; k < count; k++) {
+      // Strung along a line across the knot's own bearing, which puts the row's
+      // gable ends toward the square.
+      const along = (k - (count - 1) / 2) * (HOUSE_R * 2.1 + rng() * 4);
+      const px = Math.sin(centre) * dist + Math.cos(centre) * along;
+      const pz = Math.cos(centre) * dist - Math.sin(centre) * along;
+      if (!free(px, pz, HOUSE_R)) continue;
+      const kind = (houses % 3) as 0 | 1 | 2;
+      // Half the roofs shingle, half slate. See SHINGLE in world/sky-parts.ts:
+      // it is the alternation, not the hue, that makes a knot read as separate
+      // buildings from the air.
+      buildings.push({
+        // STAMPED AT 1.2. The cottages were modelled against the terrain's own
+        // cell and came out small on a 107-unit island — the reference's
+        // buildings are a sixth of the plateau across and ours were a tenth.
+        // Scaling the stamp rather than the model keeps `SV`'s block gauge and
+        // takes the collider with it (`SolidStamp.add`).
+        t: parts.cottages[kind + (houses % 2 === 0 ? 0 : 3)],
+        x: px, z: pz, yaw: axis + (rng() - 0.5) * 0.12, s: 1.2,
+      });
+      claim(px, pz, HOUSE_R);
+      houses++;
+      // A hedge at the foot of the wall, on the side away from the street.
+      const bx = px + Math.sin(centre) * (HOUSE_R + 1.6);
+      const bz = pz + Math.cos(centre) * (HOUSE_R + 1.6);
+      if (free(bx, bz, 2)) {
+        buildings.push({ t: parts.bushes[houses % 2], x: bx, z: bz, yaw: rng() * 6.28 });
+        claim(bx, bz, 2);
+      }
+      // NO SMOKE. It was here and it is gone: `skySmoke` stamps six courses of
+      // pale cube at the settlement's own 0.6 gauge, which is a seven-unit
+      // column three cells thick, and placed by guessing where a chimney is
+      // from the house's axis it came out as grey concrete pillars standing
+      // beside the cottages rather than as anything leaving a stack. Smoke
+      // wants to be small, translucent and attached to the model that has the
+      // chimney; a solid prop the size of a garden shed is a worse artefact
+      // than the missing detail it was added for. The builder is kept for
+      // whoever does it properly.
+    }
+    // THE STREET to this knot, and a lamp halfway along it.
+    const [px0, pz0] = at(centre, PLAZA);
+    const [px1, pz1] = at(centre, dist - 6);
+    paths.push([px0, pz0, px1, pz1]);
+    const [lx, lz] = at(centre + 0.12, (PLAZA + dist) * 0.5);
+    if (free(lx, lz, 2)) { lamps.push({ x: lx, z: lz, yaw: centre }); claim(lx, lz, 2); }
+    // A GARDEN PLOT in the gap after the knot: tilled rows, which the reference
+    // has between every group of houses and which is most of what makes the
+    // ground between buildings look used rather than mown.
+    const [gx, gz] = at(centre + Math.PI / CLUSTERS, dist * 0.92);
+    if (free(gx, gz, 6)) { plots.push({ x: gx, z: gz, r: 5.5 }); claim(gx, gz, 6); }
+  }
+
+  // A ring road round the square, so the streets meet something rather than
+  // radiating out of a point.
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2;
+    const b = ((k + 1) / 16) * Math.PI * 2;
+    const [x0, z0] = at(a, PLAZA);
+    const [x1, z1] = at(b, PLAZA);
+    paths.push([x0, z0, x1, z1]);
+  }
+
+  // -- the gate, on the rim ------------------------------------------------
+  // On its own bearing and pushed right out to the edge, because its whole job
+  // is to break the rim's silhouette and say which side is the front.
+  const gateAngle = a0 + Math.PI * 1.28;
+  {
+    const [gx, gz] = at(gateAngle, ISLAND_R * 0.9);
+    buildings.push({ t: parts.gate, x: gx, z: gz, yaw: gateAngle, s: 1.2 });
+    claim(gx, gz, 8);
+    const [p0x, p0z] = at(gateAngle, PLAZA);
+    paths.push([p0x, p0z, gx, gz]);
+  }
+
+  // -- trees ----------------------------------------------------------------
+  // THE WORLD'S OWN OAKS, and deliberately NOT its pines: the overworld's
+  // conifers carry a snow variant and came out capped in white on a green
+  // island eighty units up, which reads as a bug rather than as weather.
+  //
+  // CLUMPED AND BIG. The first pass rang the island with 26 evenly-spaced
+  // saplings at half scale: a necklace, and one that made the island look
+  // smaller than it is. The reference has about fourteen trees with canopies
+  // the size of a cottage, gathered into a wood on one side.
+  const templates = [lib.oakA, lib.oakB, lib.oakC, lib.oakD];
+  const woodAt = a0 + Math.PI * 0.55;
+  for (let c = 0; c < 16; c++) {
+    const centre = c < 8
+      ? woodAt + (c - 3.5) * 0.34 + (rng() - 0.5) * 0.3
+      : rng() * Math.PI * 2;
+    const dist = ISLAND_R * TREE_RING + (rng() - 0.5) * ISLAND_R * 0.12;
+    const n = 3 + Math.floor(rng() * 4);
+    for (let k = 0; k < n; k++) {
+      const a = centre + (rng() - 0.5) * 0.36;
+      const d = dist + (rng() - 0.5) * 9;
+      const [x, z] = at(a, d);
+      if (!free(x, z, 4)) continue;
+      trees.push({
+        t: templates[Math.floor(rng() * templates.length)],
+        x, z, yaw: rng() * 6.28, s: 0.85 + rng() * 0.35,
+      });
+      claim(x, z, 4);
+    }
+  }
+  // Two or three specimens inside the town, which is what the reference has and
+  // what stops the built-up part reading as a car park.
+  for (let k = 0; k < 8; k++) {
+    const a = rng() * Math.PI * 2;
+    const [x, z] = at(a, ISLAND_R * (0.2 + rng() * 0.3));
+    if (!free(x, z, 5)) continue;
+    trees.push({
+      t: templates[Math.floor(rng() * templates.length)],
+      x, z, yaw: rng() * 6.28, s: 0.9 + rng() * 0.3,
+    });
+    claim(x, z, 5);
+  }
+  // ...and low planting scattered through the open ground, so no part of the
+  // deck is bare mown lawn.
+  for (let k = 0; k < 110; k++) {
+    const a = rng() * Math.PI * 2;
+    const [x, z] = at(a, ISLAND_R * (0.16 + rng() * 0.74));
+    if (!free(x, z, 2.2)) continue;
+    buildings.push({ t: parts.bushes[k % 2], x, z, yaw: rng() * 6.28 });
+    claim(x, z, 2.2);
+  }
+
+  // -- the rim fence --------------------------------------------------------
+  // Panels with gaps: it MARKS the edge, it does not close it. The island's
+  // whole character is that it has an edge you can walk off, and a rail you
+  // bump into would turn that into scenery.
+  //
+  // THE GAPS ARE HASHED, NOT PERIODIC. `k % 4 === 3` gives a three-on one-off
+  // rhythm that is plainly legible as a repeat from above, which is the tell
+  // that a fence was generated rather than built. A hash gives the same density
+  // with no readable beat, and the panels lean a little.
+  const fenceR = ISLAND_R * 0.93;
+  const panels = Math.round((Math.PI * 2 * fenceR) / (7 * 0.6));
+  for (let k = 0; k < panels; k++) {
+    if (hash2(k, 0, 97) < 0.26) continue;
+    const a = (k / panels) * Math.PI * 2;
+    const x = Math.sin(a) * fenceR;
+    const z = Math.cos(a) * fenceR;
+    // Nothing across the gate, and nothing growing through a tree.
+    if (!free(x, z, 2.4)) continue;
+    fences.push({ x, z, yaw: a + Math.PI / 2 + (hash2(k, 1, 97) - 0.5) * 0.16 });
+  }
+
+  // THE FALL IS ON THE FRONT QUARTER, beside the gate, and that is a framing
+  // decision rather than a geography one: the reference sheet leads with a
+  // three-quarter view that has the gate and the waterfall in the same picture,
+  // and a seed-derived bearing put ours behind the island in every shot.
+  const fallAngle = gateAngle + Math.PI * 0.42;
+  // The stream: from the square out to the rim on the fall's bearing, so the
+  // waterfall has somewhere to have come FROM. Painted as water in the turf by
+  // `buildRock`, which is why it is a path-shaped thing in the plan.
+  const [fx, fz] = at(fallAngle, PLAZA * 0.9);
+  return {
+    buildings, paths, lamps, fences, trees, plots, fallAngle,
+    focus: { x: fx * 0.4, z: fz * 0.4 },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The rock
+// ---------------------------------------------------------------------------
+
+/**
+ * The island's outline, in cells, at a bearing.
+ *
+ * IRREGULAR ON PURPOSE. A circle of revolution is the one thing the reference is
+ * not: its plateau is a rounded square with bites out of it, and the giveaway
+ * that a landmass was generated is an outline whose curvature never changes.
+ * Three harmonics — a four-lobed term that squares it off, a three-lobed one
+ * that breaks the symmetry and a seventh that roughens the edge — and then the
+ * cell grid quantises the result into the blocky coastline the art has.
+ */
+function outlineAt(theta: number, phase: number): number {
+  return RC * (
+    0.855
+    // The four-lobe term is what SQUARES it off, and it has to be big to
+    // survive quantisation: at 0.06 it is a 6.8% modulation of the radius,
+    // which the cell grid smooths straight back into a disc. 0.15 gives four
+    // distinguishable sides and four soft corners, which is the plan's shape.
+    + 0.15 * Math.cos(4 * theta + phase)
+    // A two-lobe bite, so one flank carries a real inlet and the island has a
+    // front and a back rather than four identical faces.
+    + 0.06 * Math.sin(2 * theta + phase * 0.4)
+    + 0.055 * Math.sin(3 * theta + phase * 1.7)
+    // ...and a seventh to rough the coastline. At 0.022 this did nothing.
+    + 0.045 * Math.sin(7 * theta - phase)
+  );
+}
+
+/**
+ * How deep the rock goes under a column, in cells: sheer cliff, then a ledged
+ * taper to the keel.
+ *
+ * The taper is QUANTISED to `LEDGE`, which is what gives the underside the
+ * stepped shelves the reference has, and then roughened by a per-column hash so
+ * the shelves are ragged rather than concentric.
+ */
+function depthAt(d01: number, gx: number, gz: number): number {
+  // A CONE THAT ACCELERATES INWARD, so the keel comes to a ROOT rather than a
+  // plate. `(1 - d^2)` was flat across the middle and only fell near the rim,
+  // i.e. a dome upside down; `(1 - d)^0.9` is near-linear and still bottomed
+  // out across 39% of the island's width. The exponent is what decides whether
+  // the deepest points are a point or a floor.
+  const taper = TAPER * Math.pow(Math.max(0, 1 - d01), 1.35);
+  // ROUGHENED IN WHOLE LEDGES, then quantised. Doing it the other way round,
+  // quantise and then add fractional noise, erases the terracing entirely: the
+  // shelves have to move as shelves.
+  //
+  // HASHED COARSELY, at 11 cells, because a shelf has to READ as a shelf: at 5
+  // the patches were 6 units across and the underside came out as vertical
+  // corduroy rather than as a stack of horizontal plates.
+  //
+  // AND NOT AT ALL AT THE ROOT. A one-ledge wobble on the deepest columns is
+  // exactly what turns the point back into a plateau, so it stops inside the
+  // inner quarter.
+  const wob = Math.round((hash2(Math.floor(gx / 11), Math.floor(gz / 11), 11) - 0.5) * 2);
+  const wobble = d01 < 0.25 ? 0 : wob;
+  const stepped = (Math.round(taper / LEDGE) + wobble) * LEDGE;
+  return Math.max(2, CLIFF + Math.max(0, stepped));
+}
 
 // ---------------------------------------------------------------------------
 
-/** Radial mesh resolution. 64 sectors is 5.6 degrees; the rim reads as round. */
-const SECTORS = 64;
-/** Rings across the deck, and down the keel. */
-const TOP_RINGS = 18;
-const KEEL_RINGS = 9;
+/** Radial mesh resolution is gone; what is left is the parts bin. */
+interface SkyParts {
+  readonly tower: Template;
+  /** Six: three plans, each with a slate roof and a shingle one. */
+  readonly cottages: readonly Template[];
+  readonly well: Template;
+  readonly stall: Template;
+  readonly fence: Template;
+  readonly lamp: Template;
+  readonly gate: Template;
+  /** Two sizes of hedge, for the foot of a wall and for open ground. */
+  readonly bushes: readonly Template[];
+  readonly smoke: Template;
+}
 
 /**
  * A registry holding exactly one town, in the island's own coordinates.
@@ -359,11 +706,12 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   private vx = 0;
   private vz = 0;
   private readonly rng: () => number;
+  /** The outline's phase, so two seeds are two different islands. */
+  private readonly phase: number;
 
   constructor(
     private readonly terrain: Terrain,
     props: PropLib,
-    parts: TownParts,
     data: SkyTownData,
     /** Where it wanders around, world x/z. */
     private readonly homeX: number,
@@ -372,6 +720,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   ) {
     super(`carrier:town:${data.id}`, ISLAND_R);
     this.rng = mulberry32(seed ^ 0x51a7);
+    this.phase = this.rng() * Math.PI * 2;
     this.x = homeX;
     this.z = homeZ;
     this.y = MIN_ALT;
@@ -396,33 +745,41 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       gateZ: homeZ,
       gateAngle: 0,
       color: data.color,
-      carried: true,
       // No keep-out. It is not that the town does not deserve one — it is that
       // a spawn rule is a disc on the GROUND (see SafeZone), and this town is
       // not on the ground: nothing can spawn on the deck in the first place,
       // because every spawn path resolves its candidate against `getHeight`.
       noSpawnRadius: 0,
+      carried: true,
     };
 
-    this.buildRock();
+    // THE PLAN FIRST, because the paths and the stream are painted INTO the
+    // rock and the rock cannot be built without knowing where they run.
+    const parts: SkyParts = {
+      tower: skyTower(),
+      // Three plans by two roof materials. The layout picks `kind + 0` or
+      // `kind + 3`, which is what alternates slate and shingle down a street.
+      cottages: [
+        skyCottage(0), skyCottage(1), skyCottage(2),
+        skyCottage(0, true), skyCottage(1, true), skyCottage(2, true),
+      ],
+      well: skyWell(),
+      stall: skyStall(),
+      fence: skyFence(),
+      lamp: skyLamp(),
+      gate: skyGate(),
+      bushes: [skyBush(false), skyBush(true)],
+      smoke: skySmoke(),
+    };
+    const plan = planSkyhaven(seed, parts, props);
+    this.buildRock(plan);
 
     // -- the settlement, in local coordinates -------------------------------
     const stamp = new SolidStamp(this.solids);
-    const glow = new Accum();
     const layout = content.factory<CarriedLayout>(CARRIED_LAYOUT_KIND, data.layout);
-    const fire = layout?.(
-      stamp, glow, parts, ISLAND_R, (x, z) => this.deckAt(x, z), this.rng,
-    ) ?? null;
+    layout?.(stamp, parts, plan);
     this.solids.build();
     this.emit(stamp.acc, props.solidMat, true, false);
-    // The same glow material every settlement's fires and lamps use — a
-    // vertex-coloured standard material with a warm emissive, which is what
-    // makes the selective bloom pass pick them up. Its own, because the island
-    // outlives no `Towns` instance it could borrow one from.
-    this.emit(glow, new THREE.MeshStandardMaterial({
-      vertexColors: true, roughness: 0.6, metalness: 0,
-      emissive: new THREE.Color(0xff9a3c), emissiveIntensity: 2.0,
-    }), false, true);
 
     // -- the people ---------------------------------------------------------
     // Every query in the site is in the island's frame, so the placement search
@@ -433,9 +790,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     const site: NpcSite = {
       towns: localRegistry({ ...this.town, x: 0, z: 0, gateX: 0, gateZ: 0 }),
       roads: NO_ROADS,
-      getHeight: (x, z) => this.deckAt(x, z),
+      getHeight: () => 0,
       structureTopAt: (x, z) => this.solids.topAt(x, z),
-      focusOf: () => fire,
+      focusOf: () => plan.focus,
     };
     const crew = new Npcs(site, this);
     this.npcs = crew.all.length > 0 ? crew : null;
@@ -446,51 +803,30 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   // -- the shape ------------------------------------------------------------
 
   /**
-   * THE WALKING SURFACE, in local coordinates: local y of the deck at (lx, lz),
-   * or -Infinity past the rim.
+   * THE WALKING SURFACE, in local coordinates — and it is a CONSTANT, because
+   * the plateau is one flat course of turf.
    *
-   * ONE FUNCTION, TWO CONSUMERS — the mesh samples it for every vertex of its
-   * top surface, and `localTop` answers every step test with it. That is the
-   * road ribbon's rule (world/town-parts.ts) applied to a second surface, and
-   * for the identical reason: two formulas that agree today are two formulas,
-   * and the failure mode is a hero standing exactly where the physics puts him
-   * and buried to the chest.
+   * That is not a simplification of a heightfield, it is the design: a voxel
+   * deck steps in whole cells (1.2 units) and `MAX_STEP_UP` is 0.5, so any
+   * terrace on the plateau is a wall the player has to jump for no reason. The
+   * cliff is where the height lives.
    *
-   * THE UNDULATION IS SINES, not noise, and it is bounded on purpose. The two
-   * terms peak at a combined gradient of 1.1*0.11 + 0.6*0.19 = 0.235 per unit,
-   * so the deck rises at most 0.12 across the hero's 0.5-unit probe against a
-   * `MAX_STEP_UP` of 0.5 — the surface can never present him with a step, which
-   * a noise field would have to be measured to promise.
+   * -Infinity past the rim, which is what makes walking off one a fall.
    */
   deckAt(lx: number, lz: number): number {
-    const d = Math.hypot(lx, lz) / ISLAND_R;
-    if (d >= 1) return -Infinity;
-    const dome = DOME * (1 - d * d);
-    const roll = 1.1 * Math.sin(lx * 0.11 + 1.7) * Math.cos(lz * 0.09 - 0.6)
-      + 0.6 * Math.sin(lz * 0.19 + 2.2) * Math.cos(lx * 0.17);
-    // The undulation fades out at the rim so the edge is a clean circle: a
-    // wobbling rim reads as a modelling mistake at the one place the silhouette
-    // is against the sky.
-    return dome + roll * Math.max(0, 1 - d * 1.35);
-  }
-
-  /**
-   * How far below local 0 the keel hangs at a point on the underside.
-   *
-   * THE LOBES ARE THE WHOLE POINT. A pure function of the radius is a bowl, and
-   * a bowl reads as a saucer rather than as something that was torn out of the
-   * ground — the silhouette is the only thing about the underside a player ever
-   * sees clearly, since it is the half of the island that is always against the
-   * sky. Two sine terms at 7 and 4 lobes give it a ragged profile that changes
-   * as you fly around it, and they are scaled by `1 - d` so the rim stays a
-   * clean circle where it meets the deck.
-   */
-  private keelAt(lx: number, lz: number): number {
-    const d = Math.min(1, Math.hypot(lx, lz) / ISLAND_R);
-    const base = -KEEL * Math.pow(Math.max(0, 1 - d * d), 0.62);
-    const a = Math.atan2(lx, lz);
-    const lobe = Math.sin(a * 7 + 1.3) * 0.5 + Math.sin(a * 4 - 0.7) * 0.32;
-    return base * (1 + KEEL_LOBE * lobe * (1 - d));
+    // ASKED OF THE CELL, NOT OF THE POINT, and that is what keeps the rim you
+    // fall off exactly the rim you can see. The mesh is painted per column, so
+    // a query that tested the continuous position would put the edge of the
+    // ground up to half a cell away from the edge of the cube — you would walk
+    // half a metre out over the drop, or fall half a metre short of it. Both
+    // this and `buildRock` resolve the same cell centre through the same
+    // `outlineAt`, so they cannot disagree.
+    const gx = Math.floor(lx / CELL);
+    const gz = Math.floor(lz / CELL);
+    const wx = (gx + 0.5) * CELL;
+    const wz = (gz + 0.5) * CELL;
+    const d = Math.hypot(gx + 0.5, gz + 0.5);
+    return d <= outlineAt(Math.atan2(wx, wz), this.phase) ? 0 : -Infinity;
   }
 
   /**
@@ -522,6 +858,12 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   // -- flight ---------------------------------------------------------------
 
   protected steer(dt: number): void {
+    // A STAGED CAPTURE HOLDS IT STILL. Same rule world/sway.ts applies to the
+    // wind clock and for the same reason: two runs of `tools/shot-sky.mjs`
+    // against one build have to produce the same six pictures, and an island
+    // that has drifted four units between them is six frames nobody can
+    // difference. It costs nothing in play — no URL a player loads carries it.
+    if (flags.photo) return;
     // -- where to ------------------------------------------------------------
     const dx = this.tx - this.x;
     const dz = this.tz - this.z;
@@ -648,7 +990,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    *
    * `owned` says whether the MATERIAL is this island's to dispose. The town's
    * timber is stamped onto `PropLib.solidMat`, which belongs to the prop
-   * library and is disposed with it; the glow material is made here. Getting
+   * library and is disposed with it; anything made here is made here. Getting
    * that backwards is a double dispose one way and a leak the other, which is
    * why it is an argument rather than a guess about the object.
    */
@@ -668,196 +1010,328 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   }
 
   /**
-   * Bend the keel's normals OUTWARD, from `first` to the end of the buffer.
+   * THE ROCK, as cubes.
    *
-   * THE UNDERSIDE OF A FLOATING ISLAND IS THE ONE SURFACE IN THIS GAME THAT
-   * FACES AWAY FROM EVERY LIGHT IN THE SCENE. There is one directional sun and
-   * a hemisphere fill whose ground colour is nearly black, so a true-normal
-   * keel renders as a black disc — captured in _sky-b.png, where a hundred
-   * units of rock read as a hole cut in the sky. Nothing else in the world has
-   * the problem: terrain undersides are never seen, a hut's floor sits on the
-   * ground, and a cumulus repaints its own belly for exactly this reason (see
-   * pass 5 in world/clouds.ts).
+   * ONLY THE SHELL IS PAINTED. A filled island at this cell size is 300k
+   * voxels, which is a second of boot and a hundred megabytes of Map for
+   * material nobody can see; painting the surface only takes it to ~30k. The
+   * rule is in `paintColumn`: a cell is painted when it is in the top courses,
+   * when it is the bottom of its column, or when any neighbour is shallower —
+   * i.e. exactly when a face of it can be seen.
    *
-   * So the keel is lit as a CLIFF rather than as a ceiling: each normal is bent
-   * toward its own outward radial, which is the direction the rock visibly
-   * falls away in, plus a little up. It is a lighting cheat and it is the same
-   * one every stylised renderer uses on foliage — the surface reads as a lit
-   * mass with a shaded belly instead of a silhouette, and the alternative is a
-   * second light source pointing up out of the ground.
+   * The mesh's own material comes from `VoxelModel.build`, which also emits a
+   * separate glow batch for anything emissive. Nothing here is emissive; the
+   * lit windows are in the settlement's models.
    *
-   * `first` is the index of the first keel vertex. The deck's normals are
-   * untouched: grass under a sun is exactly what `computeVertexNormals` is for.
+   * NOT A STATIC SHADOW CASTER: the whole thing moves, and the cached half of
+   * the shadow map is for geometry that is a pure function of the seed (see
+   * core/shadow-cache.ts). An island wrongly marked static drags a frozen
+   * shadow across the meadow behind it.
    */
-  private wrapKeelNormals(geo: THREE.BufferGeometry, first: number): void {
-    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
-    const nrm = geo.getAttribute('normal') as THREE.BufferAttribute;
-    for (let i = first; i < pos.count; i++) {
-      const lx = pos.getX(i);
-      const lz = pos.getZ(i);
-      const d = Math.hypot(lx, lz);
-      // The point of the keel has no outward direction; leave it alone rather
-      // than dividing by nothing. It is one vertex and it is the deepest, most
-      // shaded place on the model anyway.
-      if (d < 1e-3) continue;
-      const k = WRAP;
-      let nx = nrm.getX(i) * (1 - k) + (lx / d) * k;
-      let ny = nrm.getY(i) * (1 - k) + WRAP_UP;
-      let nz = nrm.getZ(i) * (1 - k) + (lz / d) * k;
-      const len = Math.hypot(nx, ny, nz) || 1;
-      nx /= len; ny /= len; nz /= len;
-      nrm.setXYZ(i, nx, ny, nz);
-    }
-    nrm.needsUpdate = true;
-  }
+  private buildRock(plan: SkyPlan): void {
+    const v = new VoxelModel();
+    const R = Math.ceil(RC) + 2;
 
-  /**
-   * The rock: a radial deck on top and a radial keel underneath.
-   *
-   * TWO MESHES, NOT ONE, AND THE REASON IS THE SHADOW MAP. They were one — the
-   * two surfaces share a rim ring, and a seam at the one place the silhouette
-   * is against open sky is exactly the sort of hairline crack that only shows
-   * up in a screenshot. But a mesh that both casts and receives shadows
-   * SHADOWS ITSELF, and this particular mesh is a hundred-unit lid directly
-   * over its own underside: the keel came out uniformly black whatever its
-   * normals or its colours said, because it was in the deck's shadow. Captured
-   * in _sky-c.png, where the island's root reads as a hole cut in the sky.
-   *
-   * So the deck receives (the huts' shadows fall across the grass, which is
-   * most of what tells you the town is standing on something) and the keel does
-   * not (there is nothing above it but the deck, and its shadow is the whole
-   * problem). The rim ring is emitted into BOTH, from the same `pushRing` at
-   * the same `d`, so the two share vertex positions exactly and there is no
-   * crack to see.
-   */
-  private buildRock(): void {
-    /** One surface under construction. See `flush`. */
-    let pos: number[] = [];
-    let nrm: number[] = [];
-    let col: number[] = [];
-    let idx: number[] = [];
-    let rings: number[] = [];
-
-    const pushRing = (
-      d: number, yOf: (lx: number, lz: number) => number, colOf: (d: number, j: number) => readonly number[],
-    ): void => {
-      rings.push(pos.length / 3);
-      const r = d * ISLAND_R;
-      const n = d === 0 ? 1 : SECTORS;
-      for (let j = 0; j < n; j++) {
-        const a = (j / SECTORS) * Math.PI * 2;
-        const lx = Math.sin(a) * r;
-        const lz = Math.cos(a) * r;
-        pos.push(lx, yOf(lx, lz), lz);
-        nrm.push(0, 0, 0);
-        const c = colOf(d, j);
-        col.push(c[0], c[1], c[2]);
+    /** Distance in cells from a path centreline, for painting flagstones. */
+    const onPath = (wx: number, wz: number): boolean => {
+      for (const [x0, z0, x1, z1] of plan.paths) {
+        const dx = x1 - x0;
+        const dz = z1 - z0;
+        const len2 = dx * dx + dz * dz;
+        const t = len2 > 0
+          ? Math.max(0, Math.min(1, ((wx - x0) * dx + (wz - z0) * dz) / len2))
+          : 0;
+        const px = x0 + dx * t;
+        const pz = z0 + dz * t;
+        // WIDE ENOUGH TO BE A STREET. At 1.7 these were dirt scratches that
+        // barely showed against the turf from above; the reference's are
+        // flagged streets with kerbs, wide enough for two people.
+        if (Math.hypot(wx - px, wz - pz) < 2.9) return true;
       }
-      // A ring of one vertex (the pole) is repeated to SECTORS so the index
-      // arithmetic below never has to special-case it. Cheap: 63 vertices.
-      if (n === 1) {
-        for (let j = 1; j < SECTORS; j++) {
-          pos.push(pos[pos.length - 3], pos[pos.length - 2], pos[pos.length - 1]);
-          nrm.push(0, 0, 0);
-          col.push(col[col.length - 3], col[col.length - 2], col[col.length - 1]);
-        }
-      }
+      return false;
     };
 
     /**
-     * Close the surface being built into a mesh, and start a fresh one.
-     *
-     * ONE WINDING FOR BOTH SURFACES, and it is worth stating why that is right
-     * rather than an oversight. The deck's rings ASCEND in radius and the
-     * keel's DESCEND, so the same vertex order traces the two in opposite
-     * senses and the facing flips on its own: the deck comes out +Y and the
-     * keel -Y, which is what a top and an underside want. Winding the second
-     * one "the other way to compensate" compensates for something that already
-     * happened, and is how the first pass shipped an island whose grass was a
-     * black disc from above.
+     * THE SQUARE IS PAVED, not worn. Everything inside `PLAZA` is flagstone,
+     * which is what gives the middle of the town a floor and the tower
+     * something to stand on — the first pass left a smudge of dirt paths
+     * radiating out of a lawn.
      */
-    const flush = (receives: boolean): void => {
-      for (let r = 0; r + 1 < rings.length; r++) {
-        const a0 = rings[r];
-        const b0 = rings[r + 1];
-        for (let j = 0; j < SECTORS; j++) {
-          const j1 = (j + 1) % SECTORS;
-          idx.push(a0 + j, b0 + j, a0 + j1, a0 + j1, b0 + j, b0 + j1);
+    const onPlaza = (wx: number, wz: number): boolean => wx * wx + wz * wz < PLAZA * PLAZA;
+
+    /** Tilled beds. See `SkyPlan.plots`. */
+    const onPlot = (wx: number, wz: number): boolean =>
+      plan.plots.some((g) => (wx - g.x) ** 2 + (wz - g.z) ** 2 < g.r * g.r);
+
+    /** The stream: a two-cell channel from the square to the rim. */
+    const fx = Math.sin(plan.fallAngle);
+    const fz = Math.cos(plan.fallAngle);
+    const onStream = (wx: number, wz: number): boolean => {
+      const along = wx * fx + wz * fz;
+      if (along < PLAZA * 0.7 || along > ISLAND_R) return false;
+      const across = Math.abs(wx * fz - wz * fx);
+      return across < 1.9;
+    };
+
+    for (let gx = -R; gx <= R; gx++) {
+      for (let gz = -R; gz <= R; gz++) {
+        // Cell centres, so a column's world position is the middle of its cube.
+        const wx = (gx + 0.5) * CELL;
+        const wz = (gz + 0.5) * CELL;
+        const d = Math.hypot(gx + 0.5, gz + 0.5);
+        const edge = outlineAt(Math.atan2(wx, wz), this.phase);
+        if (d > edge) continue;
+        const d01 = Math.min(1, d / edge);
+        const depth = depthAt(d01, gx, gz);
+        // THE LIP: the turf reaches the outline and the stone stops one course
+        // short of it, so the grass overhangs all the way round and prints a
+        // hard shadow line under itself. Without it the green and the grey read
+        // as one mass — see LIP.
+        const stone = d <= edge - LIP;
+        this.paintColumn(
+          v, gx, gz, depth, stone,
+          onStream(wx, wz) ? 'water'
+            : onPlaza(wx, wz) || onPath(wx, wz) ? 'paved'
+              : onPlot(wx, wz) ? 'tilled' : 'turf',
+        );
+      }
+    }
+
+    // -- the waterfall --------------------------------------------------------
+    // Off the rim on the stream's bearing, falling past the keel and stopping.
+    // Opaque cubes rather than a transparent sheet: everything else in this
+    // world is opaque cubes, and a translucent quad here would be the one
+    // surface in the game that is not.
+    {
+      // FROM THE RIM COLUMN, straight down, and narrowing as it goes. The first
+      // pass walked it OUTWARD as it fell and started it half a cell past the
+      // edge, so it hung in the air beside the island like a pipe with nothing
+      // at the top of it — a fall has to leave a lip you can stand at and look
+      // over, which means it starts on the last column of turf.
+      const rimD = outlineAt(plan.fallAngle, this.phase) - 1;
+      const gx0 = Math.round(Math.sin(plan.fallAngle) * rimD);
+      const gz0 = Math.round(Math.cos(plan.fallAngle) * rimD);
+      const perpX = Math.round(Math.cos(plan.fallAngle));
+      const perpZ = -Math.round(Math.sin(plan.fallAngle));
+      const FALL = 40;
+      for (let k = 0; k < FALL; k++) {
+        const gy = -1 - k;
+        // A BROAD LIP THAT TAPERS TO A THREAD. A fall of constant width is a
+        // pipe, which is exactly what the first two versions of this looked
+        // like — the water has to spread where it leaves the rim and gather as
+        // it drops.
+        // WIDE ENOUGH TO BE WATER. At one and two cells the fall came back as
+        // a pale WIRE hanging under the island in every side view — the eye
+        // reads a 1.2-unit column at fifty units as a rendering artefact, not
+        // as a river. Seven cells at the lip and five down the body is about a
+        // sixth of the island's width, which is the proportion the reference's
+        // fall has.
+        // WIDE, AND IT DISSOLVES. A constant-width column is a ruler drawn on
+        // the sky; running it past the deepest rock and stopping square is
+        // worse still, which is what 52 courses did. It now ends inside the
+        // keel's own depth and thins out over its last stretch.
+        const w = k < 5 ? 4 : k < 24 ? 3 : 2;
+        // ...and it WANDERS. A perfectly straight column reads as a ruler drawn
+        // on the sky; one cell of drift every few courses is enough to break it
+        // without the fall ever looking like it is being blown sideways.
+        const drift = Math.round(Math.sin(k * 0.21) * 1.4);
+        for (let t = -w; t <= w; t++) {
+          const j = hash2(gx0 + t, gy, 41);
+          // The tail breaks up rather than ending on a square edge.
+          if (k > FALL - 10 && j < (k - (FALL - 10)) / 10) continue;
+          // The head is white water and the body is blue: the brightest part of
+          // a fall is where it breaks over the lip.
+          const c = k < 5 || j < 0.35 ? WATER_L : WATER;
+          v.set(
+            gx0 + perpX * (t + drift), gy, gz0 + perpZ * (t + drift),
+            shade(c, 0.95 + j * 0.16),
+          );
         }
       }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-      geo.setIndex(idx);
-      // Averaged face normals rather than the analytic gradient of `deckAt`:
-      // the keel has no closed form worth differentiating and the deck's is one
-      // more thing to keep in step with the surface it belongs to.
-      geo.computeVertexNormals();
-      if (!receives) this.wrapKeelNormals(geo, 0);
-      geo.computeBoundingSphere();
-      const mat = new THREE.MeshStandardMaterial({
-        vertexColors: true, roughness: 0.95, metalness: 0,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.castShadow = true;
-      mesh.receiveShadow = receives;
-      mesh.matrixAutoUpdate = false;
-      // NOT a static shadow caster: the whole thing moves, and the cached half
-      // of the shadow map is for geometry that is a pure function of the seed
-      // (core/shadow-cache.ts). An island wrongly marked static drags a frozen
-      // shadow across the meadow behind it.
-      this.root.add(mesh);
-      this.geos.push(geo);
-      this.mats.push(mat);
-      pos = []; nrm = []; col = []; idx = []; rings = [];
-    };
-
-    /** Deterministic per-vertex mottle, so the rock is not one flat colour. */
-    const mottle = (d: number, j: number): number =>
-      0.86 + 0.14 * (Math.sin(j * 2.399 + d * 17.3) * 0.5 + 0.5);
-
-    const grassCol = (d: number, j: number): number[] => {
-      // Grass thins toward the rim and gives out entirely at GRASS_EDGE, where
-      // the deck becomes the bare top of the rock.
-      const k = Math.min(1, Math.max(0, (d - GRASS_EDGE * 0.72) / (GRASS_EDGE * 0.28)));
-      const m = mottle(d, j);
-      const g = j % 2 === 0 ? GRASS : GRASS_D;
-      return [
-        (g[0] * (1 - k) + ROCK[0] * k) * m,
-        (g[1] * (1 - k) + ROCK[1] * k) * m,
-        (g[2] * (1 - k) + ROCK[2] * k) * m,
-      ];
-    };
-    const rockCol = (d: number, j: number): number[] => {
-      const m = mottle(d, j);
-      // Darker the deeper it goes: the keel's `d` runs 1 -> 0 as it descends,
-      // so this fades toward the point.
-      const k = 1 - d;
-      return [
-        (ROCK_D[0] * (1 - k) + KEEL_C[0] * k) * m,
-        (ROCK_D[1] * (1 - k) + KEEL_C[1] * k) * m,
-        (ROCK_D[2] * (1 - k) + KEEL_C[2] * k) * m,
-      ];
-    };
-
-    // THE DECK, centre outward. The outermost ring is at d = 1 exactly, where
-    // `deckAt` returns -Infinity, so it is evaluated a hair inside and the rim
-    // vertex takes that height — the deck and the keel then share one circle.
-    const deckRing = (lx: number, lz: number): number => this.deckAt(lx * 0.999, lz * 0.999);
-    for (let i = 0; i <= TOP_RINGS; i++) pushRing(i / TOP_RINGS, deckRing, grassCol);
-    flush(true);
-
-    // THE KEEL, rim downward, starting from the SAME rim ring the deck ended on
-    // — same `d`, same `pushRing`, so the two surfaces meet on identical vertex
-    // positions and there is no crack between the meshes.
-    pushRing(1, deckRing, rockCol);
-    for (let i = 1; i <= KEEL_RINGS; i++) {
-      const d = 1 - i / KEEL_RINGS;
-      pushRing(d, (lx, lz) => this.keelAt(lx, lz), rockCol);
+      // MIST AT THE LIP, where it goes over. Four pale cells sitting on the
+      // turf at the head of the fall, which is what tells you from above that
+      // the stream ends in a drop rather than at a wall.
+      for (let t = -2; t <= 2; t++) {
+        for (let b = 0; b <= 1; b++) {
+          if (hash2(t, b, 71) < 0.35) continue;
+          v.set(gx0 + perpX * t - Math.round(Math.sin(plan.fallAngle)) * b, -1,
+            gz0 + perpZ * t - Math.round(Math.cos(plan.fallAngle)) * b, shade(WATER_L, 1.02));
+        }
+      }
     }
-    flush(false);
+
+    const mesh = v.build(CELL, false);
+    // `build` re-bases the model so its LOWEST voxel sits at y = 0, i.e. a cell
+    // at `gy` lands at `(gy - minY) * CELL`. The turf is course -1 and its TOP
+    // face has to be local 0, which puts the whole model down by `minY * CELL`.
+    // Read off the model rather than computed from CLIFF and TAPER, which the
+    // roughness and the waterfall both reach past.
+    mesh.position.y = v.bounds(false).minY * CELL;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    this.root.add(mesh);
+    this.geos.push(mesh.geometry);
+    this.mats.push(mesh.material as THREE.Material);
   }
+
+  /**
+   * One column of the island: turf (or flagstones, or the stream) on top, a
+   * course of dirt, then stone down to `depth` — and only the cells whose faces
+   * can be seen.
+   *
+   * `stone` is false for the outermost ring, which is what makes the turf
+   * overhang; those columns are two courses of soil hanging over the drop.
+   */
+  private paintColumn(
+    v: VoxelModel, gx: number, gz: number, depth: number, stone: boolean,
+    surface: 'turf' | 'paved' | 'tilled' | 'water',
+  ): void {
+    const j = hash2(gx, gz, 7);
+    // -- the surface course ---------------------------------------------------
+    // FOUR GROUND MATERIALS, because the reference's plateau is not a lawn: it
+    // is flagstone in the square and the streets, tilled rows in the gardens,
+    // water in the channel, and turf in between. One of these per column is the
+    // whole of the ground dressing and it costs nothing.
+    let topC: number;
+    if (surface === 'water') topC = shade(j < 0.4 ? WATER_L : WATER, 0.94 + j * 0.16);
+    else if (surface === 'paved') topC = shade(j < 0.5 ? PATH : PATH_D, 0.94 + j * 0.14);
+    // Tilled soil runs in ROWS rather than being a patch of brown: the furrow
+    // is one cell of shadow every third one, which is what makes a plot read as
+    // cultivated from the air rather than as a bald spot.
+    else if (surface === 'tilled') topC = shade(gz % 3 === 0 ? TILL_D : TILL, 0.94 + j * 0.14);
+    else {
+      // A SECOND SALT ON A DIFFERENT LATTICE. Splitting the three greens on the
+      // same `j` that drives the value jitter correlates them, and the open
+      // lawn came out wearing a legible two-cell checkerboard.
+      const g = hash2(gx * 3, gz * 7, 17);
+      topC = shade(g < 0.18 ? GRASS_L : g < 0.68 ? GRASS : GRASS_D, 0.94 + j * 0.14);
+    }
+    v.set(gx, -1, gz, topC);
+    // -- the dirt band --------------------------------------------------------
+    v.set(gx, -2, gz, shade(j < 0.5 ? DIRT : DIRT_D, 0.92 + j * 0.2));
+    if (!stone) {
+      // An overhanging lip is soil all the way down its two courses; giving it
+      // a third of stone would put grey under the grass at the one place the
+      // dirt line is meant to read.
+      v.set(gx, -3, gz, shade(DIRT_D, 0.9 + j * 0.2));
+      return;
+    }
+
+    // -- the stone, shell only ------------------------------------------------
+    // A cell is painted when a face of it can be seen: near the top, at the
+    // bottom of its own column, or where a neighbour is shallower.
+    const nb = [
+      this.columnDepth(gx + 1, gz), this.columnDepth(gx - 1, gz),
+      this.columnDepth(gx, gz + 1), this.columnDepth(gx, gz - 1),
+    ];
+    for (let k = 3; k <= depth; k++) {
+      const bottom = k === depth;
+      const exposed = bottom || k <= 4 || nb.some((n) => n < k);
+      if (!exposed) continue;
+      // A CONTINUOUS RAMP, not three buckets. The reference's underside is
+      // dominated by shadow with only the shelf lips catching light; three even
+      // steps of one hue gave a uniformly mid-grey keel with no form in it at
+      // all. The colour walks four stops AND the value is pulled down by up to
+      // 45% on the way, which is what gives the root its weight.
+      const t = (k - 3) / Math.max(1, depth - 3);
+      const c = t > 0.80 ? STONE_ROOT : t > 0.55 ? STONE_DEEP : t > 0.26 ? STONE_D : STONE;
+      const jj = hash2(gx, gz - k * 31, 13);
+      // The TOP face of a ledge is what catches the sky, so a course whose
+      // neighbour is two shallower, a shelf rather than a wall, is lifted
+      // rather than darkened.
+      const shelf = nb.some((n) => n < k - 1) ? 1.14 : 1;
+      // 0.32 rather than the 0.45 the first version of this ramp used: at 45%
+      // the root went to near-black and lost its own terracing along with its
+      // form, which trades one flat surface for a darker one.
+      // 0.12, not the 0.32 this had: the ramp is stacking on a face the sun
+      // already does not reach, and at a third the keel went to a silhouette
+      // with no terracing visible in it at all.
+      v.set(gx, -k, gz, shade(c, (0.86 + jj * 0.26) * (1 - 0.12 * t) * shelf));
+    }
+
+    // -- vines ----------------------------------------------------------------
+    // Only where the column is on the rim — a strand hanging down the middle of
+    // the island would be inside the rock. Six cells at most, because the
+    // reference's ivy hangs from the turf line and gives out well before the
+    // keel does.
+    // AN ACCENT, NOT A COAT. At 55% of rim columns and up to twelve courses
+    // each, the ivy covered the sheer band the whole silhouette rests on: the
+    // middle of the cliff sampled as VINE rather than as stone. The reference
+    // hangs it on about a fifth of the face, two to four courses, over legible
+    // block coursing.
+    if (nb.some((n) => n === 0) && hash2(gx, gz, 53) < 0.20) {
+      const len = 2 + Math.floor(hash2(gx, gz, 59) * 3);
+      for (let k = 3; k < 3 + len && k <= depth; k++) {
+        v.set(gx, -k, gz, shade(hash2(gx, gz - k, 61) < 0.5 ? VINE : VINE_D, 0.9 + j * 0.2));
+      }
+    }
+  }
+
+  /** `depthAt` for a neighbour, or 0 where the neighbour is off the island. */
+  private columnDepth(gx: number, gz: number): number {
+    const wx = (gx + 0.5) * CELL;
+    const wz = (gz + 0.5) * CELL;
+    const d = Math.hypot(gx + 0.5, gz + 0.5);
+    const edge = outlineAt(Math.atan2(wx, wz), this.phase);
+    if (d > edge - LIP) return 0;
+    return depthAt(Math.min(1, d / edge), gx, gz);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The town on it
+// ---------------------------------------------------------------------------
+
+/**
+ * What a CARRIED town's layout is handed: a stamp that draws and blocks in one
+ * call, the parts bin, and the plan.
+ *
+ * EVERY COORDINATE IS LOCAL — the island's own frame, origin at its centre —
+ * which is what lets a layout be written exactly like a ground one while the
+ * whole settlement is a thousand units away and moving. Compare `TownLayout` in
+ * world/towns.ts: the difference is that this one is handed a PLAN rather than
+ * a road network and a height field, because the plan had to exist before the
+ * ground did (the paths are painted into the turf).
+ */
+export type CarriedLayout = (
+  solid: SolidStamp,
+  parts: SkyParts,
+  plan: SkyPlan,
+) => void;
+
+/**
+ * Skyhaven: a tower in the middle of a square, cottages on a ring facing it,
+ * trees at the rim and a fence that marks the edge without closing it.
+ *
+ * It is deliberately NOT the Encampment's plan with the wall taken off. A camp
+ * is defensive and faces inward against a palisade; an island has a horizon on
+ * every bearing and nothing to defend against, so what stands at the edge is a
+ * rail and a tree rather than a stake.
+ *
+ * Everything about WHERE is in `planSkyhaven`; this is only the stamping, which
+ * is why it is three loops long. The split exists because the paths are part of
+ * the terrain and the terrain is built before this runs.
+ */
+const buildSkyhaven: CarriedLayout = (solid, parts, plan) => {
+  for (const b of plan.buildings) solid.add(b.t, b.x, 0, b.z, b.yaw, b.s ?? 1);
+  for (const f of plan.fences) solid.add(parts.fence, f.x, 0, f.z, f.yaw);
+  for (const l of plan.lamps) solid.add(parts.lamp, l.x, 0, l.z, l.yaw);
+  // The trees go through the same stamp, so they are drawn into the same merged
+  // mesh — but a tree template carries no `solid`, so nothing here blocks. That
+  // is the same bargain the overworld makes with its own canopies: a trunk is a
+  // collider only where the chunk registry says so, and the island has no chunk.
+  for (const t of plan.trees) solid.add(t.t, t.x, 0, t.z, t.yaw, t.s);
+};
+
+/** The carried layouts this build implements. See `TownData.carried`. */
+const CARRIED_LAYOUTS: Readonly<Record<string, CarriedLayout>> = {
+  skyhaven: buildSkyhaven,
+};
+
+for (const [name, fn] of Object.entries(CARRIED_LAYOUTS)) {
+  defineFactory(CARRIED_LAYOUT_KIND, name, fn);
 }
 
 // ---------------------------------------------------------------------------

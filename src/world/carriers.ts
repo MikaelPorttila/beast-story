@@ -67,6 +67,24 @@ const RIDE_CEILING = 22;
 const RIDE_FLOOR = 1.2;
 
 /**
+ * How far OUTSIDE a carrier's rim its raised flight ceiling still applies, in
+ * world units. See `CarrierField.ceilingAt`.
+ *
+ * 60 is a long approach on purpose: a galebird cruises at 12.4 units/s, so the
+ * ceiling has lifted five seconds before the island is overhead and the climb
+ * is never interrupted. It costs nothing — the only thing this number can do is
+ * let a player fly higher over an empty patch of sky near the island.
+ */
+const CEILING_MARGIN = 60;
+
+/**
+ * How far over a carrier's ORIGIN its ceiling sits, in world units — enough to
+ * clear anything standing on the deck. The island's tower is the tallest thing
+ * on it, and a player has to be able to get above the roofs to land on them.
+ */
+const CEILING_RISE = 30;
+
+/**
  * A moving frame. Extend it; do not instantiate it.
  *
  * The subclass owns exactly two things — where the frame WANTS to be next slice
@@ -194,7 +212,22 @@ export class CarrierField implements CarrierRegistry {
   ceilingAt(x: number, z: number): number {
     let top = -Infinity;
     for (const c of this.all) {
-      const t = c.topAt(x, z);
+      const dx = x - c.x;
+      const dz = z - c.z;
+      // THE APPROACH, NOT THE FOOTPRINT, and that is the fix for the defect
+      // this query was added for rather than a widening of it. Asking `topAt`
+      // gives an answer only where the deck actually is, so a flyer climbing
+      // alongside the island hit the ordinary terrain ceiling (a wall in open
+      // sky, twenty units under the rim) and then found it gone the moment he
+      // crossed the rim — "some max height which can get bypassed once I'm
+      // within the sky island", which is exactly what a step function in a
+      // ceiling feels like. The margin lifts the ceiling while the island is
+      // still ahead of you, so there is no wall to meet in the first place.
+      if (dx * dx + dz * dz > (c.radius + CEILING_MARGIN) ** 2) continue;
+      // The deck's own height rather than the column under the query, because
+      // outside the footprint there IS no column — and a ceiling is a bound, so
+      // the useful answer is the highest thing the frame has, not the nearest.
+      const t = c.y + CEILING_RISE;
       if (t > top) top = t;
     }
     return top;
