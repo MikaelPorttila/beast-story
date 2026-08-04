@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "meta": {
     "title": "Beast Story — core content",
-    "note": "The starting world. This file is IMPORTED by src/content/storage/bundled.ts, not fetched, so it lands in the main JS chunk beside main.ts: there is no request that can fail and a build that shipped is a build whose core content shipped. Everything here is a migration of a table that already existed in TypeScript — towns from src/world/towns.ts, Gain from src/world/npc-gain.ts, biomes from src/world/terrain.ts, enemies from src/combat/enemies.ts — and no value in it differs from the one the game shipped with.",
+    "note": "The starting world. This file is IMPORTED by src/content/storage/bundled.ts, not fetched, so it lands in the main JS chunk beside main.ts: there is no request that can fail and a build that shipped is a build whose core content shipped. Everything here is a migration of a table that already existed in TypeScript — towns from src/world/towns.ts, Gain from src/world/npc-gain.ts, biomes from src/world/terrain.ts, enemies from src/combat/enemies.ts, music from the TRACKS map in src/audio/music.ts — and no value in it differs from the one the game shipped with. The one asset with no predecessor is music:default, the fallback an area with no playlist of its own gets; it names the same track the overworld does, which is what the game already played everywhere it played anything.",
     "json-has-no-comments": "Which is why this field exists. The reasoning behind every field lives in src/content/types/*.ts, beside the parser that reads it."
   },
   "assets": [
@@ -204,6 +204,25 @@
           { "element": "shadow", "main": "#4a3d74", "dark": "#2c2148", "belly": "#7159a6", "accent": "#ffd23f" },
           { "element": "electric", "main": "#c08a3c", "dark": "#7c5522", "belly": "#e9d092", "accent": "#5a626e" }
         ]
+      }
+    },
+
+    {
+      "id": "music:overworld",
+      "schema": 1,
+      "tags": ["area", "start"],
+      "data": {
+        "tracks": ["overworld"],
+        "fallback": false
+      }
+    },
+    {
+      "id": "music:default",
+      "schema": 1,
+      "tags": ["fallback"],
+      "data": {
+        "tracks": ["overworld"],
+        "fallback": true
       }
     }
   ]

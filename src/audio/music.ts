@@ -58,20 +58,69 @@ import overworldUrl from './overworld.webm';
  * before anyone has clicked anything. A refusal arms one-shot listeners that
  * retry on the first real gesture, so the music starts on the same press that
  * takes the player off the splash.
+ *
+ * A SCENE IS A PLAYLIST, AND THIS FILE DOES NOT KNOW WHERE IT COMES FROM
+ *
+ * Every scene resolves to an ORDERED LIST of track URLs, played through and
+ * wrapped at the end. `TRACKS` below is still the answer when nobody supplies a
+ * better one — a lab page, a test, a second director — and the game passes a
+ * resolver that reads `music:<area>` out of the content registry instead (see
+ * `src/content/types/music.ts`, and `musicPlaylist` in main.ts). A RESOLVER
+ * rather than an import, because content/types.ts's first rule runs both ways:
+ * the content runtime may not reach for the DOM, and an audio element has no
+ * business knowing what a content package is. What arrives here is a list of
+ * URLs; who chose them is somebody else's problem.
+ *
+ * A ONE-TRACK PLAYLIST STILL LOOPS NATIVELY, and that is a behaviour decision
+ * rather than an optimisation. `loop = true` puts the wrap inside the browser
+ * where it is sample-exact, and the envelope's two ends meet across it — which
+ * is the entire reason the envelope exists (both tracks are cut mid-phrase). A
+ * playlist of one is what every area ships with today, so nothing about the seam
+ * moved. With TWO OR MORE the element cannot loop itself, so `ended` advances
+ * the index: the outgoing track has already run its `FADE_OUT` tail and the
+ * incoming one runs its `FADE_IN` head, which is the same shape a SCENE change
+ * makes and is why there is no third kind of transition in this file.
  */
 
 /**
- * A part of the game that has its own music. Not the same list as the zones —
- * the title screen is not a zone, and a zone with no track (the dungeon today)
- * is silence rather than a missing entry.
+ * A part of the game that has its own music — an AREA's id (`overworld`,
+ * `hold`), or `title` for the poster, which is not an area and is the engine's
+ * own (see `src/content/types/music.ts`).
+ *
+ * A bare string rather than the closed union it used to be: the whole point of
+ * the migration is that an area added in a content package brings its music with
+ * it, and a union in this file could not have been widened by data. A scene
+ * nothing can resolve is SILENCE, which is the same answer it always gave.
  */
-export type MusicScene = 'title' | 'overworld' | 'hold' | null;
+export type MusicScene = string | null;
 
-/** Which file each scene plays. A scene absent from this map is SILENT. */
-const TRACKS: Partial<Record<Exclude<MusicScene, null>, string>> = {
+/**
+ * The engine's own tracks, by the name content selects them under.
+ *
+ * Exported so `main.ts` can register each as a `music-track` factory before
+ * `bootstrapContent()` — which is what lets a package say `"tracks": ["overworld"]`
+ * and get an `unknown-factory` diagnostic on the field if it misspells it, rather
+ * than a lookup that quietly returns undefined and an area that is silent for no
+ * stated reason.
+ */
+export const MUSIC_TRACKS: Readonly<Record<string, string>> = {
   title: titleUrl,
   overworld: overworldUrl,
 };
+
+/**
+ * The resolver used when the host supplies none: one track per scene, from the
+ * map above, exactly as this file behaved before playlists existed. A scene it
+ * has nothing for is SILENT.
+ */
+const builtinPlaylist = (scene: string): readonly string[] => {
+  const url = MUSIC_TRACKS[scene];
+  return url === undefined ? [] : [url];
+};
+
+/** True when two playlists name the same tracks in the same order. */
+const sameList = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((v, i) => v === b[i]);
 
 /**
  * Seconds of fade at the head and the tail of every pass through a track.
@@ -110,6 +159,11 @@ export class MusicDirector {
   private scene: MusicScene = null;
   /** The track URL currently loaded, or null. Also "is anything loaded". */
   private track: string | null = null;
+  /** The current scene's resolved playlist, in order. Empty is silence. */
+  private queue: readonly string[] = [];
+  /** Which entry of `queue` is loaded. Meaningless while `queue` is empty. */
+  private index = 0;
+  private readonly resolve: (scene: string) => readonly string[];
   private master: number;
   /**
    * The SWAP ramp, 0..1, multiplied into the loop envelope. 1 while a track is
@@ -131,9 +185,14 @@ export class MusicDirector {
    * @param volume 0..1. Zero is a real state, not a degenerate one: nothing is
    *   constructed, nothing is fetched, and `setVolume` above zero later starts
    *   whatever scene is current.
+   * @param resolve What a scene plays, as an ordered list of track URLs. Called
+   *   on every `setScene`, never cached — an area's playlist is content, and
+   *   content can be loaded and released while the game runs. Defaults to the
+   *   engine's own `MUSIC_TRACKS` map, one track per scene.
    */
-  constructor(volume: number) {
+  constructor(volume: number, resolve: (scene: string) => readonly string[] = builtinPlaylist) {
     this.master = clamp01(volume);
+    this.resolve = resolve;
   }
 
   /** The master volume as this director last had it. */
@@ -150,18 +209,25 @@ export class MusicDirector {
   setScene(scene: MusicScene): void {
     if (scene === this.scene && this.pending === null) return;
     this.scene = scene;
-    const want = scene === null ? undefined : TRACKS[scene];
+    const want = this.playlistFor(scene);
 
-    // Same file either side of the change (nothing does this today, but a second
-    // outdoor zone would): keep playing rather than restarting the song.
-    if (want && want === this.track) { this.pending = null; this.swapTarget = 1; return; }
+    // The SAME PLAYLIST either side of the change: keep playing rather than
+    // starting the song again. Two areas scored alike are the case this is for —
+    // walking between them should not restart the music, and before playlists
+    // this said the same thing about a single file. Compared by CONTENT rather
+    // than by identity because the resolver builds a fresh array per call.
+    if (this.track && sameList(want, this.queue)) {
+      this.pending = null;
+      this.swapTarget = 1;
+      return;
+    }
 
     // Nothing loaded, or what IS loaded never got to play — the autoplay policy
     // refused it, which on a cold load is the normal state of the title track
     // right up until the click on New Game. There is nothing to fade out of: a
     // ramp here would spend 0.9 s retiring silence, and then `unlock` firing off
     // the same gesture would make that silence audible on the way out.
-    if (!this.track || this.blocked) { this.pending = null; this.start(want ?? null); return; }
+    if (!this.track || this.blocked) { this.pending = null; this.startQueue(want, 0); return; }
     // Something is playing: ramp it out first. `pending` is what `tick` starts
     // once the ramp lands, so two scene changes inside one fade resolve to the
     // last one asked for rather than to a queue.
@@ -182,7 +248,10 @@ export class MusicDirector {
     const was = this.master;
     this.master = next;
     if (next === 0) { this.unload(); return; }
-    if (was === 0) { this.start(this.scene === null ? null : TRACKS[this.scene] ?? null); return; }
+    // Back from mute: the same playlist, resumed at the song it was on rather
+    // than at the top of the list. A mute is not a scene change, and coming back
+    // to track 1 of 5 would make the volume row a way to lose your place.
+    if (was === 0) { this.startQueue(this.playlistFor(this.scene), this.index); return; }
     this.apply();
   }
 
@@ -219,6 +288,14 @@ export class MusicDirector {
       scene: this.scene,
       /** The file's basename, or null when nothing is loaded. */
       track: this.track ? this.track.split('/').pop() ?? this.track : null,
+      /**
+       * The whole resolved playlist, basenames, in order — which is the only
+       * way a probe can tell "this area was scored" from "this area fell back
+       * to a list that happens to name the same song".
+       */
+      playlist: this.queue.map((u) => u.split('/').pop() ?? u),
+      /** Where in `playlist` the loaded track is. */
+      index: this.queue.length === 0 ? -1 : this.index,
       loaded: this.el !== null,
       playing: this.el !== null && !this.el.paused,
       volume: this.master,
@@ -236,11 +313,31 @@ export class MusicDirector {
     this.unload();
     this.scene = null;
     this.pending = null;
+    this.queue = [];
+    this.index = 0;
   }
 
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
+
+  /** What a scene plays. `null` is silence and never reaches the resolver. */
+  private playlistFor(scene: MusicScene): readonly string[] {
+    return scene === null ? [] : this.resolve(scene);
+  }
+
+  /**
+   * Adopt a playlist and load one entry of it. The only way `queue` is written.
+   *
+   * `i` is taken MODULO the length rather than clamped, which is what makes the
+   * wrap at the end of the list one expression: `onEnded` hands it `index + 1`
+   * and never has to know it was on the last song.
+   */
+  private startQueue(q: readonly string[], i: number): void {
+    this.queue = q;
+    this.index = q.length === 0 ? 0 : ((i % q.length) + q.length) % q.length;
+    this.start(q[this.index] ?? null);
+  }
 
   /** Load and play one track, or nothing at all. Replaces whatever is loaded. */
   private start(url: string | null): void {
@@ -250,10 +347,16 @@ export class MusicDirector {
     if (!url || this.master === 0) return;
 
     const el = new Audio();
-    // Native looping: the wrap is the browser's business and is sample-exact,
-    // where a `timeupdate` listener seeking to 0 fires at ~250 ms granularity
-    // and would leave an audible hole at the seam the fades exist to hide.
-    el.loop = true;
+    // Native looping for a playlist of ONE: the wrap is the browser's business
+    // and is sample-exact, where a `timeupdate` listener seeking to 0 fires at
+    // ~250 ms granularity and would leave an audible hole at the seam the fades
+    // exist to hide. A longer playlist cannot have it — an element that loops
+    // never fires `ended`, so the list would never advance past its first song —
+    // and pays for the advance with `ended` instead. Both tracks are cut mid
+    // phrase, so what the player hears at either kind of seam is the same pair
+    // of fades; see the header.
+    el.loop = this.queue.length <= 1;
+    if (!el.loop) el.addEventListener('ended', this.onEnded);
     el.preload = 'auto';
     // Starts SILENT and is raised by the first tick. Setting the master here
     // instead would play a frame or two at full volume before the envelope had
@@ -314,6 +417,20 @@ export class MusicDirector {
     else this.stopListening();
   };
 
+  /**
+   * One song of a multi-track playlist has run out: move to the next, wrapping.
+   *
+   * NO SWAP RAMP HERE, and that is the point rather than an omission. The track
+   * that just ended spent its last `FADE_OUT` seconds fading, because the loop
+   * envelope shapes every pass whether or not the element is looping, and the
+   * incoming one fades in over `FADE_IN`. Running the 0.9 s swap on top would
+   * fade out something already silent and delay the next song by a second.
+   */
+  private onEnded = (): void => {
+    if (this.queue.length === 0) return;
+    this.startQueue(this.queue, this.index + 1);
+  };
+
   /** Stop, unload, and stop ticking. Idempotent. */
   private unload(): void {
     const el = this.el;
@@ -323,6 +440,9 @@ export class MusicDirector {
     this.stopListening();
     if (this.timer) { window.clearInterval(this.timer); this.timer = 0; }
     if (!el) return;
+    // Before the pause, or a track retired mid-playlist could fire `ended` on
+    // its way out and advance the list under whatever asked for the unload.
+    el.removeEventListener('ended', this.onEnded);
     el.pause();
     // THE UNLOAD, and it is these two lines rather than dropping the reference.
     // An element with a src is still a live media resource — buffered data, a
@@ -381,7 +501,9 @@ export class MusicDirector {
         this.pending = null;
         this.swap = 1;
         this.swapTarget = 1;
-        this.start(next === null ? null : TRACKS[next] ?? null);
+        // Resolved HERE rather than when the ramp began, so a package loaded
+        // during the 0.9 s fade is a package this scene change already sees.
+        this.startQueue(this.playlistFor(next), 0);
         return;
       }
     }

@@ -1,7 +1,7 @@
 /**
  * THE COMPOSITION ROOT FOR CONTENT — the one place the registry, the graph, the
  * loader, the provider chain, the state store, the evaluator, the dispatcher and
- * the query layer are wired into one another, and the one place the five content
+ * the query layer are wired into one another, and the one place the six content
  * types and the shipped tests, actions and providers are registered.
  *
  * It is to `src/content/` exactly what `src/main.ts` is to the game: every module
@@ -61,7 +61,7 @@
  *
  * FACTORIES ARE THE SEAM THE ENGINE FILLS IN. Content selects a behaviour by
  * name and never supplies one (types.ts §4.6), so every voxel builder and town
- * layout stays in TypeScript and only its CHOICE is data. Three kinds are named
+ * layout stays in TypeScript and only its CHOICE is data. Four kinds are named
  * by the shipped content, and the registrations the game owes them are:
  *
  *     town-layout/camp        the walled Encampment          world/towns.ts
@@ -70,6 +70,8 @@
  *     enemy-model/gloopling   the voxel builder              combat/enemies.ts
  *     enemy-model/snortle     "
  *     enemy-model/peckit      "
+ *     music-track/title       the bundled .webm's URL        audio/music.ts
+ *     music-track/overworld   "
  *
  * Registering one also PUBLISHES its name to the content type that validates
  * against it, so `"layout": "capm"` is an `unknown-factory` finding on the field
@@ -93,6 +95,7 @@ import type { Loaded, ValidationLevel } from './validate';
 import { ProviderChain } from './storage/chain';
 import { BIOME_TYPE } from './types/biome';
 import { ENEMY_MODEL_KIND, ENEMY_TYPE, setKnownEnemyModels } from './types/enemy';
+import { MUSIC_TRACK_KIND, MUSIC_TYPE, setKnownMusicTracks } from './types/music';
 import { NPC_BODY_KIND, NPC_TYPE, setKnownNpcBodies } from './types/npc';
 import { QUEST_TYPE } from './types/quest';
 import { TOWN_LAYOUT_KIND, TOWN_TYPE, setKnownTownLayouts } from './types/town';
@@ -120,11 +123,13 @@ export type { ValidationLevel } from './validate';
 export { hasText, isKnownTextKey, resolveText, textKeyOf } from './text';
 export { BIOME_TYPE } from './types/biome';
 export { ENEMY_TYPE, ENEMY_MODEL_KIND } from './types/enemy';
+export { MUSIC_TYPE, MUSIC_TRACK_KIND } from './types/music';
 export { NPC_TYPE, NPC_BODY_KIND } from './types/npc';
 export { QUEST_TYPE } from './types/quest';
 export { TOWN_TYPE, TOWN_LAYOUT_KIND } from './types/town';
 export type { BiomeData } from './types/biome';
 export type { EnemyData, EnemyVariant } from './types/enemy';
+export type { MusicData } from './types/music';
 export type { NpcData, NpcTalkLine } from './types/npc';
 export type { QuestData, QuestObjective, QuestRewards } from './types/quest';
 export type { TownData } from './types/town';
@@ -132,11 +137,16 @@ export type { TownData } from './types/town';
 /**
  * Types whose display name is required.
  *
- * All five, because all five are shown to a player — a town's compass chip, an
- * NPC's talk prompt, a biome in a debug readout, an enemy in whatever renders
- * one first, a quest in a journal. A nameless one is issue #17's failure from
- * the other end: a blank label reads as a broken HUD rather than as missing
+ * Five of the six, because those five are shown to a player — a town's compass
+ * chip, an NPC's talk prompt, a biome in a debug readout, an enemy in whatever
+ * renders one first, a quest in a journal. A nameless one is issue #17's failure
+ * from the other end: a blank label reads as a broken HUD rather than as missing
  * content, and a screenshot cannot tell the two apart.
+ *
+ * `music` IS THE ONE THAT IS NOT, and deliberately: a playlist is never printed
+ * anywhere. Requiring a name for it would make every area's music an entry in
+ * `src/i18n/en.ts` that no screen ever reads, which is a translation burden
+ * bought with nothing.
  */
 const NAMED_TYPES: readonly ContentTypeName[] = ['town', 'npc', 'biome', 'enemy', 'quest'];
 
@@ -151,14 +161,19 @@ const NAMED_TYPES: readonly ContentTypeName[] = ['town', 'npc', 'biome', 'enemy'
  * names his town, not the other way round), so without this the one NPC in the
  * game reports as unreachable content. query.ts's own comment says a runtime
  * with its own set of roots passes it; this is that.
+ *
+ * `music` is a root for the same reason and by a stronger form of it: a playlist
+ * is found by the id the AREA already has (`music:overworld`), so nothing points
+ * at one by construction and nothing ever will.
  */
-const ROOT_TYPES: ReadonlySet<ContentTypeName> = new Set([...ENUMERATED_TYPES, 'npc']);
+const ROOT_TYPES: ReadonlySet<ContentTypeName> = new Set([...ENUMERATED_TYPES, 'npc', 'music']);
 
 /** Kind -> the content type that validates a selection of it. See the header. */
 const FACTORY_PUBLISHERS: Readonly<Record<string, (names: Iterable<string>) => void>> = {
   [TOWN_LAYOUT_KIND]: setKnownTownLayouts,
   [NPC_BODY_KIND]: setKnownNpcBodies,
   [ENEMY_MODEL_KIND]: setKnownEnemyModels,
+  [MUSIC_TRACK_KIND]: setKnownMusicTracks,
 };
 
 export interface ContentRuntimeOptions {
@@ -244,7 +259,7 @@ class Runtime implements ContentRuntime {
 
     // One call each rather than a loop over an array: `defineType<T>` binds T
     // per call, and a mixed array collapses to a union that satisfies no single
-    // instantiation of it. Five lines is also the honest shape — this is the
+    // instantiation of it. Six lines is also the honest shape — this is the
     // list of content types the game has.
     if (opts.types !== false) {
       this.defineType(TOWN_TYPE);
@@ -252,6 +267,7 @@ class Runtime implements ContentRuntime {
       this.defineType(BIOME_TYPE);
       this.defineType(ENEMY_TYPE);
       this.defineType(QUEST_TYPE);
+      this.defineType(MUSIC_TYPE);
     }
     if (opts.core !== false) {
       registerCoreTests(this.evaluator);

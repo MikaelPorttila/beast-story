@@ -304,7 +304,13 @@ async function consoleClosed(tries = 40) {
     `core came from "${core.source}" — the starting world must not be a fetch`);
   eq(core.leases, ['boot'], 'core package leases');
   eq(core.requires, [], 'core package dependencies');
-  eq(c.assets, { town: 3, npc: 1, biome: 7, enemy: 3, quest: 0 }, 'assets by type');
+  // RE-BASELINED WHEN MUSIC BECAME CONTENT, in the commit that added it, which
+  // is what this assertion is for: the two `music` assets are the overworld's
+  // playlist and the fallback an unscored area gets (src/content/types/music.ts).
+  // Every other count is still the pre-migration one, and that is the claim —
+  // moving the music out of the `TRACKS` map in audio/music.ts did not add,
+  // drop or renumber a town, an NPC, a biome or an enemy.
+  eq(c.assets, { town: 3, npc: 1, biome: 7, enemy: 3, quest: 0, music: 2 }, 'assets by type');
   eq(c.resolved.towns, TOWNS.map((t) => t.id), 'towns that reached the world');
   eq(c.resolved.npcs, [GAIN.id], 'npcs that reached the world');
   eq(c.resolved.enemies, ENEMIES.map((e) => e.id), 'enemy species that reached the world');

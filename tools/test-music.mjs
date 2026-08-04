@@ -1,6 +1,6 @@
 // The music guard: what is loaded, what is NOT, and what a fade actually does.
 //
-// Six claims, and the first is the one that keeps every other probe in this
+// Seven claims, and the first is the one that keeps every other probe in this
 // directory quiet:
 //
 //   1. A DEBUG BOOT IS SILENT. `menu=0`, `photo=1`, `fs=0` and `fps=` are the
@@ -19,6 +19,9 @@
 //      arrives — a second `starts`, a different file, and only ever one element.
 //   5. SO IS EXIT TO TITLE, in the other direction.
 //   6. THE VOLUME ROW UNLOADS AT ZERO and reloads above it, writing one key.
+//   7. AN AREA'S PLAYLIST IS CONTENT, and an area nobody scored gets the
+//      fallback one rather than silence. The second half is the only claim in
+//      this file that the arrangement it replaced could not have satisfied.
 //
 // It cannot assert on SOUND — headless has no speakers, and reading the
 // element's own `volume` back is the only honest signal there is. What that
@@ -206,6 +209,64 @@ const out = {};
   out.backAtTitle = await music(page);
   check(out.backAtTitle?.scene === 'title', 'Exit goes back to the title track');
   check(out.backAtTitle?.starts === 4, `four tracks over the session, got ${out.backAtTitle?.starts}`);
+  await ctx.close();
+}
+
+// ---- 7. the playlist is content, and an unscored area falls back -----------
+//
+// Claim seven, and it is a PAIR at one column in the sense the rest of this
+// directory means it. "The overworld plays the overworld track" is equally true
+// of a content-driven playlist and of the hard-coded TRACKS map this replaced,
+// so on its own it asserts nothing about the migration. What only the new
+// arrangement can do is answer for an area that does not exist — there is no
+// `music:nowhere` asset and there never will be — and still name a song. That
+// is the fallback, and it is the half of the request that has no other witness.
+//
+// `__dbgMusicScene` rather than a walk to the gateway: see the hook in main.ts.
+{
+  const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
+  logPageErrors(page);
+  await page.goto(`${HOST}/?fps=30&menu=0&fs=0&vol=0.5`, { waitUntil: 'load' });
+  await page.waitForSelector('canvas');
+  await booted(page);
+  await page.mouse.click(500, 350);
+  await wait(1200);
+
+  out.scored = await music(page);
+  check(out.scored?.scene === 'overworld', 'the area is the overworld');
+  check(out.scored?.playlist?.length === 1, `one track in it, got ${out.scored?.playlist?.length}`);
+  check(/overworld/.test(out.scored?.playlist?.[0] ?? ''), 'and it is the overworld song');
+  check(out.scored?.index === 0, `playing the first entry, got ${out.scored?.index}`);
+
+  // An area with no asset. Two things must be true at once and only the second
+  // is about the fallback: it resolves to a real playlist, AND it does not
+  // restart the song, because a playlist equal to the one already playing is
+  // the case `setScene` keeps rather than swaps. A director that reloaded here
+  // would tick `starts` and the player would hear the music jump back to its
+  // head every time they walked through a gateway between two areas scored the
+  // same way.
+  const startsBefore = out.scored?.starts;
+  await page.evaluate(() => window.__dbgMusicScene('nowhere-at-all'));
+  await wait(700);
+  out.unscored = await music(page);
+  check(out.unscored?.scene === 'nowhere-at-all', 'the scene moved');
+  check(
+    (out.unscored?.playlist?.length ?? 0) > 0,
+    'an area nobody scored still gets the fallback playlist',
+  );
+  check(out.unscored?.starts === startsBefore, 'and an identical playlist is not restarted');
+  check(out.unscored?.playing === true, 'still playing across the change');
+
+  // THE CONTROL. Everything above would read the same on a dead hook that moved
+  // nothing at all, so the scene is driven somewhere that must audibly differ:
+  // null is silence, and silence unloads.
+  await page.evaluate(() => window.__dbgMusicScene(null));
+  await page.waitForFunction(
+    () => window.__dbgMusic()?.loaded === false, { timeout: 8000 },
+  );
+  out.silent = await music(page);
+  check(out.silent?.loaded === false, 'a null scene unloads — the hook really moves things');
+  check(out.silent?.playlist?.length === 0, 'and reports an empty playlist');
   await ctx.close();
 }
 

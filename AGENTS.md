@@ -384,15 +384,27 @@ once frames come quickly.
 - `test-music.mjs` is the music guard, and the only thing it CANNOT assert on is
   sound — headless has no speakers, so the honest signal is the element's own
   volume, read through `__dbgMusic()` as `output` (master x envelope x swap).
-  Six claims: a debug boot loads nothing at all, `vol=` beats that, the head of a
-  track fades in (0.005 at 0.19 s against a master of 0.5, and 0.5 by 2.4 s),
+  Seven claims: a debug boot loads nothing at all, `vol=` beats that, the head of
+  a track fades in (0.005 at 0.19 s against a master of 0.5, and 0.5 by 2.4 s),
   New Game and Exit to title are scene changes that unload the outgoing track
   (`starts` 1 -> 2 -> 4 over one session), the OFF chip unloads and writes one
-  key, and the LOOP SEAM is what the fades are for. That last one is the reason
+  key, and the LOOP SEAM is what the fades are for. That one is the reason
   `__dbgMusicSeek` exists: the tail is 210 seconds in, so the probe moves the
   playhead to 1.4 s from the end and watches the envelope come down (0.073 at
   209.05), the wrap happen (`loops` 1) and the envelope come back up. A test
   that waited for a real loop is a test nobody runs.
+  The seventh is the PLAYLIST, and it is the only claim in the file the
+  arrangement it replaced could also have satisfied — half of it. "The overworld
+  plays the overworld song" is equally true of content and of the hard-coded map,
+  so what is actually asserted is an area that DOES NOT EXIST: driven to
+  `nowhere-at-all`, the director must still name a track (the fallback) and must
+  NOT restart the one already playing, because an identical playlist is kept
+  rather than swapped — a reload there is the music jumping back to its head
+  every time the player crosses a gateway. `__dbgMusicScene` is what drives it,
+  for the reason `__dbgMusicSeek` exists: the alternative is a minute of walking
+  to a gateway to read one field, and it could only ever reach the two zones this
+  build ships. Its CONTROL is a null scene, which must unload — without it every
+  assertion above would read the same against a hook that moved nothing.
 - `test-menu.mjs` is the title-screen guard, and it now makes two assertions that
   matter. The first is a PAIR: hold W with the poster up and the hero must travel
   0, hold W after New Game and he must travel what the identical hold travels
@@ -1694,11 +1706,48 @@ fingerpost's letters are voxel geometry carved once at world creation, which is
 why the picker lives in the menu, before the world is streamed.
 
 **Music.** [src/audio/music.ts](src/audio/music.ts) is one `MusicDirector`
-playing one track at a time, keyed on a SCENE rather than on a zone: `title`,
-`overworld`, `hold`. main.ts is the only caller — the poster raises `title`,
-`beginPlay` swaps to `overworld`, the zone manager's `onArrive` follows a
-gateway, and `exitToTitle` goes back. A scene with no track in the map (the
-dungeon today) is SILENCE, which is a deliberate answer rather than a gap.
+playing one track at a time, keyed on a SCENE: `title` for the poster, and
+otherwise a ZONE ID. main.ts is the only caller — the poster raises `title`,
+`beginPlay` swaps to `overworld`, the zone manager's `onArrive` passes `def.id`
+straight through, and `exitToTitle` goes back.
+
+**A SCENE RESOLVES TO A PLAYLIST, AND THE PLAYLIST IS CONTENT.** Each area is a
+`music:<zone id>` asset carrying an ordered `tracks` list
+([src/content/types/music.ts](src/content/types/music.ts)); the director is handed
+a RESOLVER rather than an import, because content/types.ts's first rule runs both
+ways — the content runtime may not reach for the DOM, and an audio element has no
+business knowing what a package is. `musicPlaylist` in main.ts is that resolver
+and the one place the two meet. A track is SELECTED BY NAME from the
+`music-track` factory kind (`"tracks": ["overworld"]`), registered from
+`MUSIC_TRACKS` before `bootstrapContent()` so the cross-asset pass can answer a
+typo with `unknown-factory` on the field that holds it — and so that content
+names a song and never a URL, which is what stops a package choosing what the
+page fetches.
+
+**AN AREA NOBODY SCORED GETS THE FALLBACK; AN AREA SCORED `[]` GETS SILENCE.**
+Those are two different statements and before this they were the same one. The
+fallback is a `"fallback": true` flag on exactly one asset (`music:default`
+today), validated the way `TownData.start` and `BiomeData.startArea` are — a flag
+rather than a reserved id, because `music:default` would be a fact expressed as a
+NAME. Note the consequence: **the dungeon has music now**. It was silent because
+it was missing from the `TRACKS` map, which was the "deliberate answer" this
+paragraph used to claim, and a missing entry cannot go on meaning that once
+missing also means "fall back". Give `hold` an asset with `"tracks": []` to put
+the silence back on purpose.
+
+**THE TITLE SCREEN IS NOT AN AREA AND IS DELIBERATELY NOT CONTENT.** It plays at
+~221 ms and `bootstrapContent()` runs inside the `world` phase three hundred lines
+later, so a poster that asked the registry would ask an empty one, take the
+FALLBACK, and play half a second of the overworld's song before swapping. Its
+track stays in `MUSIC_TRACKS` and `musicPlaylist` short-circuits on it.
+
+**A ONE-TRACK PLAYLIST STILL LOOPS NATIVELY** (`el.loop = true`), which is what
+keeps the wrap sample-exact and the two ends of the envelope meeting across it —
+every shipped area is one track, so nothing about the seam moved. Two or more
+cannot: an element that loops never fires `ended`, so the list would never leave
+its first song. There it advances on `ended`, and the outgoing track's `FADE_OUT`
+tail plus the incoming one's `FADE_IN` head IS the transition a scene change
+makes, which is why there is no third kind of fade in the file.
 
 It is an `<audio>` element and not the Web Audio API, and the reason is the
 size: `decodeAudioData` on these two would hold about 225 MB of decoded float in

@@ -21,7 +21,8 @@ import { perf } from './core/profiler';
 import { flags } from './core/flags';
 import { DevConsole } from './ui/console';
 import {
-  bootstrapContent, content, resolveText, type BiomeData,
+  bootstrapContent, content, factory, resolveText, MUSIC_TRACK_KIND,
+  type BiomeData, type MusicData,
 } from './content';
 // THE ONE STATIC IMPORT OF A CONTENT PROVIDER, and it is in an entry point
 // rather than inside `src/content/` on purpose — see the header of
@@ -57,7 +58,7 @@ import {
   installEscapeLock, keyboardLockSupported, escapeIsLocked,
 } from './ui/fullscreen';
 import { LoadingScreen } from './ui/loading';
-import { MusicDirector } from './audio/music';
+import { MusicDirector, MUSIC_TRACKS } from './audio/music';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
 const app = document.getElementById('app')!;
@@ -212,7 +213,51 @@ const settingsHooks = {
  */
 const music = new MusicDirector(
   flags.volume ?? (flags.silentBoot ? 0 : loadPrefs().volume),
+  (scene) => musicPlaylist(scene),
 );
+
+/**
+ * WHAT AN AREA PLAYS — the one place the content registry and the audio element
+ * meet, and the resolver `MusicDirector` calls on every scene change.
+ *
+ * A function declaration rather than a const, deliberately: it is referenced by
+ * the director constructed immediately above and is not CALLED until
+ * `setScene`, so hoisting is what lets the two read in the order a reader wants
+ * them (the director first, the policy after) instead of the order the temporal
+ * dead zone would insist on.
+ *
+ * THE TITLE SCREEN SHORT-CIRCUITS, and that is the whole reason it is not
+ * content. `music.setScene('title')` runs about forty lines below this and
+ * `bootstrapContent()` runs three hundred lines further on — measured, the
+ * poster is up at ~221 ms and content boots inside the `world` phase — so a
+ * poster asking the registry anything would be asking an empty one. It would
+ * then take the FALLBACK, which is the overworld's song, and the player would
+ * hear half a second of the wrong track before the right one swapped in. The
+ * splash is not an area; see the header of src/content/types/music.ts.
+ *
+ * A TRACK NAME NOTHING REGISTERED IS DROPPED IN SILENCE HERE, which is the one
+ * place in this function that looks like a swallowed error and is not: the
+ * `music-track` factories are registered before `bootstrapContent()`, so the
+ * cross-asset pass has already filed an `unknown-factory` diagnostic naming the
+ * asset AND the index inside its `tracks` list (content/types/music.ts). Filing
+ * a second one per scene change would print the same finding every time the
+ * player walks through a gateway.
+ */
+function musicPlaylist(scene: string): readonly string[] {
+  if (scene === 'title') return [MUSIC_TRACKS.title];
+  // The area's own playlist, or the one asset that volunteered to cover the
+  // areas nobody scored. `undefined` for both means content is not loaded yet
+  // (or a package with no music at all), and silence is the honest answer.
+  const asset = content.get<MusicData>(`music:${scene}`)
+    ?? content.all<MusicData>('music').find((m) => m.data.fallback);
+  if (asset === undefined) return [];
+  const out: string[] = [];
+  for (const name of asset.data.tracks) {
+    const url = factory<string>(MUSIC_TRACK_KIND, name);
+    if (url !== undefined) out.push(url);
+  }
+  return out;
+}
 
 /**
  * The title screen. Reassignable, because Exit raises a NEW one — the poster is
@@ -496,6 +541,18 @@ await loading?.stage('world');
 // the argument is here so the first one has somewhere to go.
 const contentBootStart = performance.now();
 content.addProvider(new BundledProvider());
+// THE TRACK FACTORIES, AND THEY HAVE TO BE ABOVE THE BOOT. Registering one also
+// publishes its name to the content type that validates against it (see
+// `FACTORY_PUBLISHERS` in content/index.ts), and the cross-asset pass runs
+// inside `bootstrapContent` — so a registration after this line is a set of
+// names the validator never saw, and `"tracks": ["overwrold"]` would load
+// clean and play nothing. Same rule and the same ordering as the town layouts,
+// npc bodies and enemy models, which register in their own modules at import.
+// A URL rather than a builder is the whole value here: content names a song and
+// never a path, so a package can never choose what the page fetches.
+for (const [name, url] of Object.entries(MUSIC_TRACKS)) {
+  content.defineFactory(MUSIC_TRACK_KIND, name, url);
+}
 const contentBoot = await bootstrapContent({ engineFlags: [] });
 /** What the phase above cost. Reported by `__dbgContent`; see the note there. */
 const contentBootMs = performance.now() - contentBootStart;
@@ -671,11 +728,12 @@ const zones = new ZoneManager({
   onArrive: (w, def) => {
     world = w;
     // The other scene change, and the only one that is not the session starting
-    // or ending. The dungeon has no track of its own yet, so arriving in it
-    // fades the overworld's out and unloads it — silence under the hold is a
-    // deliberate answer rather than a gap, and walking back out starts the
-    // overworld's song again from its head.
-    music.setScene(def.id === 'overworld' ? 'overworld' : 'hold');
+    // or ending. A ZONE ID IS A SCENE NAME now — `musicPlaylist` looks for
+    // `music:<id>` and takes the fallback playlist when no package scored this
+    // area — so a zone added later brings its music with it and this line never
+    // grows a branch. It used to be a ternary mapping everything that was not
+    // the overworld onto `hold`, which is a two-zone game written down.
+    music.setScene(def.id);
     // A saddle pose is computed against one world's heightfield; applying it in
     // another is precisely the teleport-into-rock this rebinding exists to stop.
     if (mount.isMounted) mount.dismount();
@@ -1378,6 +1436,14 @@ const _hurtFrom = new THREE.Vector3();
 // wait for — see `MusicDirector.seek`.
 (window as unknown as { __dbgMusicSeek: (t: number) => void }).__dbgMusicSeek =
   (t: number) => music.seek(t);
+// TEST HOOK, and the same argument `__dbgMusicSeek` makes one line up: the only
+// other way to ask what an AREA plays is to walk to the gateway, stand out a
+// preload and cross, which is a minute of driving to read one field — and it
+// can only ever reach the two zones this build happens to ship. Naming a scene
+// directly is how a probe asks the question the fallback exists to answer,
+// which is what an area NOBODY scored plays.
+(window as unknown as { __dbgMusicScene: (s: string | null) => void }).__dbgMusicScene =
+  (s: string | null) => music.setScene(s);
 
 // TEST HOOK, like `__dbgTp`: hurt the hero for a fixed amount from a fixed
 // direction. Waiting for a real enemy to connect is not deterministic enough to
@@ -3119,7 +3185,7 @@ beginPlay();
  */
 (window as unknown as { __dbgContent: () => unknown }).__dbgContent = () => {
   const byType: Record<string, number> = {};
-  for (const type of ['town', 'npc', 'biome', 'enemy', 'quest']) {
+  for (const type of ['town', 'npc', 'biome', 'enemy', 'quest', 'music']) {
     byType[type] = content.all(type).length;
   }
   return {
