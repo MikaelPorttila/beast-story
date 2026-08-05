@@ -11,7 +11,7 @@ import { GamepadControls, type LookAxes } from './core/gamepad';
 import { FeedbackSystem } from './feedback';
 import { loadPrefs, savePrefs } from './core/prefs';
 import {
-  EventBus, ELEMENT_COLORS,
+  EventBus, ELEMENT_COLORS, LOCOMOTION_NAME_KEYS,
   type CrownContact, type NpcInfo, type SkillDef, type Damageable,
   type ItemDef, type TownInfo, type World, type WorldBound,
 } from './core/types';
@@ -1271,6 +1271,7 @@ function inventoryModel(): InventoryModel {
       equipped: lead || supporting,
       stats: [
         invStat('inv.stat.level', b.level),
+        invStat('inv.stat.movement', t(LOCOMOTION_NAME_KEYS[b.species.locomotion])),
         {
           label: t('inv.gear'),
           value: t(lead ? 'inv.beast.lead' : supporting ? 'inv.beast.support' : 'inv.beast.benched'),
@@ -1669,6 +1670,7 @@ const beastHud = (p: BeastActor): BeastHudInfo => ({
   // nothing even though it runs every frame.
   name: t(p.species.nameKey),
   element: p.species.element,
+  locomotion: p.species.locomotion,
   level: p.level,
   xp: p.xp,
   xpToNext: p.xpToNext,
@@ -2131,6 +2133,12 @@ const _hurtFrom = new THREE.Vector3();
 // what attaches him, on the next slice, through exactly the path a player
 // flying in on a galebird takes.
 (window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = (x, z, y) => {
+  // THE SADDLE FIRST, and it is not optional: while mounted the hero's position
+  // is written from the mount's every slice (`seatHero`), so setting the fields
+  // below and stopping there moved him for a fraction of a frame and then put
+  // him back — a teleport that silently did nothing. See
+  // `MountController.teleport`, which moves the pair of them and re-seats him.
+  mount.teleport(x, z, y);
   player.position.x = x;
   player.position.z = z;
   player.position.y = y ?? Math.max(world.getHeight(x, z), world.waterLevel);
@@ -2680,35 +2688,50 @@ devConsole?.register({
     return `unknown — /content [load <pkg> | release <pkg> | check]`;
   },
 });
+/**
+ * Put the hero on a named beast, or take him off — the body of `/mount`, and
+ * the body of the `__dbgRide` test hook below.
+ *
+ * EXTRACTED SO THE TWO CANNOT DRIFT. A probe that wants to measure what riding
+ * a swimmer does has to be able to pick the swimmer, and the only other way in
+ * is to type `/mount finnick` into the dev console one keystroke at a time —
+ * which is a key edge per character, i.e. the exact thing that makes a probe
+ * SOLO-only and flaky (see the note on `content` in tools/probe.mjs).
+ *
+ * The console is a DEVELOPER surface: it stays in English and it answers in
+ * SPECIES IDS, which is also what its own argument takes. A localised name here
+ * would mean `/mount` printing something you cannot type back at it.
+ */
+function devRide(arg: string | undefined): string {
+  if (arg === 'off') {
+    if (!mount.isMounted) return 'not mounted';
+    const id = mount.beast!.species.id;
+    mount.dismount();
+    return `dismounted ${id}`;
+  }
+  if (mount.isMounted) return `already riding ${mount.beast!.species.id} — /mount off first`;
+  if (arg) {
+    const idx = roster.findIndex((p) => p.species.id === arg);
+    if (idx < 0) return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
+    if (idx === supportIdx) supportIdx = primaryIdx;
+    primaryIdx = idx;
+    refreshVisibility();
+  }
+  const why = mount.refusal(primary());
+  if (why !== 'none') return `cannot mount: ${why}`;
+  mount.mount(primary());
+  return `riding ${primary().species.id} (${primary().species.locomotion})`;
+}
 devConsole?.register({
   name: 'mount',
   args: '[off|<speciesId>]',
   help: 'Ride the primary beast without the 2s hold; /mount off dismounts.',
-  run: (args) => {
-    const arg = args[0];
-    // The console is a DEVELOPER surface: it stays in English and it answers in
-    // SPECIES IDS, which is also what its own argument takes. A localised name
-    // here would mean `/mount` printing something you cannot type back at it.
-    if (arg === 'off') {
-      if (!mount.isMounted) return 'not mounted';
-      const id = mount.beast!.species.id;
-      mount.dismount();
-      return `dismounted ${id}`;
-    }
-    if (mount.isMounted) return `already riding ${mount.beast!.species.id} — /mount off first`;
-    if (arg) {
-      const idx = roster.findIndex((p) => p.species.id === arg);
-      if (idx < 0) return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
-      if (idx === supportIdx) supportIdx = primaryIdx;
-      primaryIdx = idx;
-      refreshVisibility();
-    }
-    const why = mount.refusal(primary());
-    if (why !== 'none') return `cannot mount: ${why}`;
-    mount.mount(primary());
-    return `riding ${primary().species.id} (${primary().species.locomotion})`;
-  },
+  run: (args) => devRide(args[0]),
 });
+// TEST HOOK, and the same argument `__dbgTp` makes: it DRIVES STATE, which is a
+// probe's job. `/mount` is the player-facing door and this is the same room.
+(window as unknown as { __dbgRide: (id?: string) => string }).__dbgRide =
+  (id) => devRide(id);
 /**
  * Read or write one feedback preference, honouring the URL override.
  *
@@ -4426,6 +4449,13 @@ beginPlay();
   climbTop: world.climbTopAt(x, z),
   trunkSolidTop: world.trunkSolidTopAt(x, z),
   structureTop: world.structureTopAt(x, z),
+  // The two WET queries, added with the deep sea (issue #76). They belong
+  // beside the four above for the same reason those four are separate: each is
+  // a different question a mover asks about the same column, and a probe that
+  // had to derive "is this deep" from `ground` would be hard-coding a threshold
+  // the world owns (see DEEP_WATER_DEPTH in world/terrain.ts).
+  water: world.isWater(x, z),
+  deep: world.isDeepWater(x, z),
 });
 
 /**

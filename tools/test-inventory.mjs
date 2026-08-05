@@ -34,6 +34,23 @@ import { launchBrowser, newPage, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
 const URL = `${HOST}/?menu=0&fs=0&fps=30`;
+/**
+ * How many species the roster holds — three separate assertions below are this
+ * number, so it is named once rather than written out three times.
+ *
+ * TEN UNTIL ISSUE #76, which added the five water beasts (Rivotter, Coralback,
+ * Finnick, Snapclaw, Lanternfin). Moved here rather than derived from
+ * `ALL_SPECIES.length` at run time deliberately: derived, every one of these
+ * checks would agree with whatever the build happens to contain and none of
+ * them could ever fail. A written-down number is what makes "the roster
+ * silently lost a beast" a test failure.
+ *
+ * The wall is a fixed 11x3 of thirty-three (INV_COLS), so the roster plus the
+ * three starting items has fifteen cells of headroom left. Past that the wall
+ * is the thing to change, not this.
+ */
+const ROSTER = 15;
+
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));
@@ -81,10 +98,10 @@ if (!boot) {
     `attackStat ${boot.attackStat} is not base ${boot.baseAttack} + the sword's 4`);
   check(boot.gear.find((g) => g.slot === 'weapon')?.id === 'sword-iron',
     'the weapon slot does not hold the starting sword');
-  // Beasts are ROSTER-DERIVED rows, not bag entries — see BEAST_ID_PREFIX. Ten
-  // of them, and none of them in the bag.
-  check(results.start.beastRows === 10,
-    `${results.start.beastRows} beast rows, expected the whole roster of 10`);
+  // Beasts are ROSTER-DERIVED rows, not bag entries — see BEAST_ID_PREFIX. The
+  // whole roster of them, and none of them in the bag.
+  check(results.start.beastRows === ROSTER,
+    `${results.start.beastRows} beast rows, expected the whole roster of ${ROSTER}`);
   check(!boot.bag.some((e) => e.id.startsWith('beast:')),
     'a beast is stored in the bag — it must be derived from the roster');
   const gearBeasts = boot.gear.filter((g) => g.slot !== 'weapon').map((g) => g.id);
@@ -142,13 +159,13 @@ if (!boot) {
   check(travelShut > 3,
     `the hero travelled only ${travelShut.toFixed(2)} with the panel down — `
     + 'the frozen reading above proves nothing');
-  // The panel drew what the model holds: thirteen FILLED cells at boot (ten
-  // beasts and three items) inside a fixed 11x3 wall of thirty-three, three
-  // gear slots, seven tabs. Both numbers, because the wall's shape is the
-  // feature — a grid that shrank to what you happen to own is the thing
-  // INV_COLS exists to prevent.
-  check(open.panel?.filled === 13,
-    `${open.panel?.filled} filled cells, expected 13`);
+  // The panel drew what the model holds: every beast plus the three starting
+  // items, FILLED, inside a fixed 11x3 wall of thirty-three, three gear slots,
+  // seven tabs. Both numbers, because the wall's shape is the feature — a grid
+  // that shrank to what you happen to own is the thing INV_COLS exists to
+  // prevent, and a roster that outgrew the wall is the other way it breaks.
+  check(open.panel?.filled === ROSTER + 3,
+    `${open.panel?.filled} filled cells, expected ${ROSTER + 3}`);
   check(open.panel?.slots === 33,
     `${open.panel?.slots} cells drawn, expected a fixed 11x3 of 33`);
   check(open.panel?.gearSlots === 3,
@@ -160,12 +177,13 @@ if (!boot) {
   check((open.panel?.icons ?? 0) >= 2,
     `${open.panel?.icons} atlas icons drawn — the weapon and the blueprint both have one`);
   // THE 3D HALF. `stageGl` says the second WebGL context came up at all;
-  // `portraits` says it rendered ten distinct beasts INTO the wall, which is
+  // `portraits` says it rendered a distinct beast INTO every wall slot, which is
   // the feature — a slot showing its element lozenge is what this looked like
   // before, and it looks perfectly fine.
   check(open.panel?.stageGl === true, 'no stage canvas in the panel');
-  check((baked.panel?.portraits ?? 0) === 10,
-    `${baked.panel?.portraits} beast portraits baked after 1.2 s, expected the roster's 10`);
+  check((baked.panel?.portraits ?? 0) === ROSTER,
+    `${baked.panel?.portraits} beast portraits baked after 1.2 s, `
+    + `expected the roster's ${ROSTER}`);
 }
 
 // ---------- 2b. the tooltip, and the detail pane's absence ----------

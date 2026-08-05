@@ -109,6 +109,12 @@ export class StubWorld implements World {
     return this.waterLevel > this.groundY;
   }
 
+  /**
+   * The stage's puddle is one flat plane a hand under the floor, so nothing on
+   * it is ever four units down. See World.isDeepWater.
+   */
+  isDeepWater(): boolean { return false; }
+
   /** The stage has no weather: nothing on it is ever under snow. */
   snowCoverAt(): number { return 0; }
 

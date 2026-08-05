@@ -26,11 +26,14 @@
 // wrong about which list it belongs in is a flaky test, so the default for a
 // new one is SOLO.
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { launchBrowser } from './browser.mjs';
 import { PORT } from './target.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // Probes that assert on frame rate, elapsed motion or CPU cost. Never batched.
 // Four of these are here because a batch was RUN and the output moved, which
@@ -42,12 +45,38 @@ import { PORT } from './target.mjs';
 //               because it asserts nothing. See the note on silent probes below.
 //   content     one key press in forty-odd assertions, and a batched page is a
 //               background tab with no rAF to consume it. See its entry below.
+//
+// `perf-baseline` USED TO BE THE FIRST NAME ON THIS LIST AND IT IS NOT A PROBE.
+// It sat here for as long as this roster has existed and it never ran once:
+// every entry is spawned as `tools/test-<name>.mjs` and the file is
+// `tools/perf-baseline.mjs`, so `probe.mjs all` reported
+// `Module not found "tools/test-perf-baseline.mjs"` on every run anybody has
+// ever done. A suite that is permanently one-red teaches everyone to read a
+// failure count instead of a pass, which is the whole cost of the bug — the
+// missing coverage was never there to lose.
+//
+// It is REMOVED rather than renamed or special-cased, because fixing the path
+// would not have made it green either. `perf-baseline` with no
+// `.perf-baseline.json` exits 2 and tells you to record one, and that file is
+// per-machine and gitignored on purpose (frame cost is a property of the
+// hardware — see the header of tools/perf-baseline.mjs). So on any machine that
+// has not run the manual `record` step first, which is every fresh checkout, a
+// path-corrected entry would still fail. It is a COMPARISON TOOL with a setup
+// step, not a pass/fail assertion, and it belongs where AGENTS.md already puts
+// it: run it yourself, by name.
+//
+//   bun tools/perf-baseline.mjs record     once per machine
+//   bun tools/perf-baseline.mjs            compare the working tree
+//
 const SOLO = new Set([
-  'perf-baseline', // the whole point of it is a cpu/frame number
   'gamepad',       // section 7 compares look rate across fps caps
   'touch',         // sums yaw deltas over a stick hold
   'beastanim',     // per-frame rotation deltas
   'dive',          // ascent speed in units/second
+  // Drives four different bodies at a coastline and measures how far each got,
+  // plus a mounted top speed on either side of a waterline. Every one of those
+  // is elapsed motion, and it mounts through __dbgRide, which drives state.
+  'deepwater',
   'menu',          // menuShownAtMs, and a held W measured against another hold
   'keybinds',      // one section runs UNCAPPED on purpose
   'pause',         // held-W distances either side of the menu
@@ -123,6 +152,18 @@ for (let i = 0; i < argv.length; i++) {
 }
 if (!names.length) {
   console.error(`usage: bun tools/probe.mjs <name...|all> [--jobs N] [--json]\n  ${ALL.join(' ')}`);
+  process.exit(2);
+}
+
+// A NAME THAT NAMES NO FILE IS A TYPO, AND IT IS CAUGHT HERE RATHER THAN AS A
+// module-resolution error four seconds into a spawned child. That is how
+// `perf-baseline` hid on the roster above for so long: the failure it produced
+// looked exactly like a probe that had run and broken, so it read as somebody
+// else's red rather than as an entry pointing at nothing.
+const missing = names.filter((n) => !existsSync(join(ROOT, 'tools', `test-${n}.mjs`)));
+if (missing.length) {
+  console.error(`no such probe: ${missing.join(', ')}
+  known: ${ALL.join(' ')}`);
   process.exit(2);
 }
 

@@ -161,12 +161,16 @@ const ENEMIES = [
 /**
  * `BiomeId` in `git show HEAD:src/world/terrain.ts`, in its own order.
  *
- * Seven, and the last two are not climates: `underwater` is decided before any
- * climate weight is consulted and `trampled` is a settlement's worn yard. They
- * are biomes because the prop scatter dispatches off the id — dropping either in
- * the migration would grow a meadow on a lake bed.
+ * Eight, and the last three are not climates: `underwater` and `deepwater` are
+ * decided before any climate weight is consulted (they are the shallow and the
+ * abyssal halves of a lake bed, split at DEEP_WATER_DEPTH) and `trampled` is a
+ * settlement's worn yard. They are biomes because the prop scatter dispatches
+ * off the id — dropping any of them in the migration would grow a meadow on a
+ * lake bed.
  */
-const BIOMES = ['plains', 'forest', 'beach', 'desert', 'snow', 'underwater', 'trampled'];
+const BIOMES = [
+  'plains', 'forest', 'beach', 'desert', 'snow', 'underwater', 'deepwater', 'trampled',
+];
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -329,7 +333,7 @@ async function consoleClosed(tries = 40) {
   // always been for — adding a settlement must not add, drop or renumber a
   // biome or an enemy, and the three GROUND towns below must come back in the
   // order and with the values they had before any of this existed.
-  eq(c.assets, { town: 4, npc: 4, biome: 7, enemy: 3, quest: 0, music: 2 }, 'assets by type');
+  eq(c.assets, { town: 4, npc: 4, biome: 8, enemy: 3, quest: 0, music: 2 }, 'assets by type');
   // The ground towns FIRST and unchanged — `order` decides siting and Skyhaven
   // is last — then the carried one. Asserting the whole list rather than a
   // filtered one is deliberate: a carried town that stopped reaching the world

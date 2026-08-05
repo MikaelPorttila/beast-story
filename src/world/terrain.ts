@@ -8,13 +8,42 @@ export const WATER_LEVEL = 8;
 export const CHUNK_SIZE = 32;
 
 /**
+ * How far under the surface water stops being somewhere you can swim.
+ *
+ * THE DEEP SEA IS A DEPTH, NOT A PLACE, and that is the whole design: there is
+ * no offshore rectangle to author, no boundary to keep in sync with the mesh,
+ * and no way for the rule the player meets to disagree with the water he sees —
+ * the shader darkens on the same number (see water.ts DEEP), the bed goes to
+ * UW_ABYSS on it, and `World.isDeepWater` is one compare against the same
+ * heightfield everything else stands on. "What you see is what you stand on, by
+ * construction", pointed at the one surface you cannot stand on.
+ *
+ * FOUR UNITS, measured. On seed 1337 over a 2400-unit box that is 4.8% of the
+ * map and 40% of all water, so every real bay keeps a swimmable shelf and the
+ * open basins go dark; at 3 it took two thirds of the water and the shallows
+ * stopped being a place, at 5 it left disconnected puddles of it. The hero
+ * floats 1.15 under the surface and dives to 3.4 (player/index.ts), so a
+ * four-unit column is also the first one whose BED he could not reach anyway.
+ */
+export const DEEP_WATER_DEPTH = 4;
+/** Highest column top that still counts as deep sea. See DEEP_WATER_DEPTH. */
+export const DEEP_WATER_TOP = WATER_LEVEL - DEEP_WATER_DEPTH;
+
+/**
  * 'trampled' is not a climate — it is the yard of a SETTLEMENT, and it is a
  * biome for one reason: `props.ts` dispatches its whole vegetation scatter off
  * this enum, so a column that reports 'trampled' grows nothing without a single
  * new test anywhere in that file. See `GroundPatch`.
+ *
+ * 'deepwater' is not a climate either, and it is split off 'underwater' for the
+ * same dispatch reason turned the other way round: the two lake beds want
+ * different colour and different scatter (reeds root in a shallow, nothing
+ * roots four units down), and a caller that only wants "is this wet" has
+ * `isWater` already.
  */
 export type BiomeId =
-  'plains' | 'forest' | 'beach' | 'desert' | 'snow' | 'underwater' | 'trampled';
+  'plains' | 'forest' | 'beach' | 'desert' | 'snow'
+  | 'underwater' | 'deepwater' | 'trampled';
 
 export interface FlattenDisc {
   x: number;
@@ -198,6 +227,15 @@ const DIRT_COLD = rgb(0x8d7a6f);
 const DIRT_SAND = rgb(0xc7a468);
 const UW_SAND = rgb(0xd9c68f);
 const UW_DEEP = rgb(0x587a70);
+/**
+ * The abyss floor, and the reason it is a third stop rather than pushing
+ * UW_DEEP darker: UW_DEEP is what the SHALLOWS ramp toward and it is tuned to
+ * stay a readable silted green under a metre of turquoise. Four units down the
+ * bed is barely lit at all, and a bed that is still green under the dark water
+ * above it is what makes deep water read as a paint job rather than as depth.
+ * Cold and desaturated, so the eye reads distance and not a different material.
+ */
+const UW_ABYSS = rgb(0x223a45);
 /**
  * TRODDEN SETTLEMENT GROUND, two stops: earth beaten dry and hard along the
  * lines people walk, and the dark churned mud that gathers everywhere else.
@@ -553,6 +591,40 @@ export class Terrain {
       h += dry * (smoothstep(0.716, 0.7235, shf) * (1.6 + ramp * 4.0)
         + smoothstep(0.880, 0.887, scf) * (2.0 + ramp * 4.4));
     }
+    // ---- the deep sea: the same idea run downward ---------------------------
+    //
+    // The shelf term above exists because a smooth field put through `floor()`
+    // can only make 1-unit risers, so the near ground had no landform. The lake
+    // bed had the opposite problem and it is arithmetic, not taste: base height
+    // is 9.2 + c * 10.5 with c an fbm that rarely leaves +-0.5, so a flooded
+    // column sat 1 to 3 units under the surface and the world's deepest water
+    // anywhere was 7. Measured over a 2400-unit box on seed 1337, 12.0% of
+    // columns were water and only 0.77% of them were 5 units down or more —
+    // i.e. there was no OPEN SEA in this world, only bays, and a rule about
+    // water you cannot swim across would have had nowhere to apply.
+    //
+    // So the sea floor drops away from the shore, gated on how far under the
+    // waterline the column already is. `wet` is zero on every dry column (88%
+    // of the map pays one compare and nothing else), reaches 1 about three
+    // units down, and — the point — never touches the tide line, where the
+    // shore chamfer, the wet-sand apron and the water shader's four-stop ramp
+    // are all tuned against the heights they have today.
+    //
+    // MODULATED, for the same reason the shelf rims are: multiplied by a
+    // constant, this would sink every bay by the same amount and the abyss
+    // would be a bowl with a machined floor. `plateauN` at ~1800-unit cells
+    // (already constructed, one extra `sample` on water columns only) picks
+    // which basins go deep, so a lake in a shallow region keeps a bed you can
+    // stand on and an offshore basin drops past swimming depth.
+    //
+    // `columnHeight` floors at 1, so the deepest possible water is 7 whatever
+    // this term does; the drop is chosen so a typical basin lands at 4-6 and
+    // only the strongest few percent bottom out. See DEEP_WATER_TOP.
+    const wet = smoothstep(WATER_LEVEL - 0.4, WATER_LEVEL - 3.0, h);
+    if (wet > 0) {
+      const basin = this.plateauN.sample(x * 0.0035 + 57.1, z * 0.0035 - 88.3) * 0.5 + 0.5;
+      h -= wet * (0.9 + smoothstep(0.30, 0.74, basin) * 3.5);
+    }
     for (let i = 0; i < this.flattens.length; i++) {
       const f = this.flattens[i];
       const dx = x - f.x;
@@ -874,6 +946,15 @@ export class Terrain {
     if (hc < WATER_LEVEL + 0.7) {
       const d = smoothstep(-0.7, 6, WATER_LEVEL - hc);
       mix(tA, UW_SAND, UW_DEEP, d);
+      // ...and on into the abyss. The second ramp starts where the deep-sea
+      // rule does and is fully in a unit and a half further, so the bed goes
+      // dark across the same band the water above it goes dark across — the
+      // shader's DEEP_DARK ramp is the other half of this and shares its
+      // thresholds. Ramped rather than switched at the cut: a hard line on the
+      // bed would be visible through clear shallows as a drawn contour, which
+      // is the one artefact this whole file's history keeps rediscovering.
+      const a = smoothstep(0, 1.6, DEEP_WATER_TOP + 0.7 - hc);
+      if (a > 0) mix(tA, tA, UW_ABYSS, a);
     }
 
     out.topR = tA.r;
@@ -906,7 +987,13 @@ export class Terrain {
     // outside the gate falls through 0.6 about two metres beyond it, so the
     // ground is bare to the wall and the last tussocks survive just outside it.
     out.biome =
-      hc < WATER_LEVEL + 0.4 ? 'underwater'
+      // Deep first, so the two wet branches read in depth order and the shallow
+      // one keeps the meaning it always had: everything flooded that is not the
+      // abyss. `h`, not `hc` — `isDeepWater` compares the STEPPED column, and a
+      // biome that disagreed with the traversal rule by a fraction of a unit
+      // would put dark water you can swim in at the edge of every basin.
+      h <= DEEP_WATER_TOP ? 'deepwater'
+      : hc < WATER_LEVEL + 0.4 ? 'underwater'
       : wear > 0.6 ? 'trampled'
       : snowW > 0.5 ? 'snow'
       : desertW > 0.5 ? 'desert'

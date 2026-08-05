@@ -1,4 +1,4 @@
-import type { ElementType } from '../core/types';
+import type { ElementType, Locomotion } from '../core/types';
 
 /** Inline SVG icon set: one hand-drawn glyph per element, plus UI icons. */
 
@@ -55,6 +55,78 @@ export const ELEMENT_ICONS: Record<ElementType, string> = {
 
 export function elementIcon(el: ElementType): string {
   return ELEMENT_ICONS[el];
+}
+
+/**
+ * WHERE a beast can go, as a glyph — the second half of its type.
+ *
+ * A SEPARATE ICON FROM THE ELEMENT, and that split is the whole point. Element
+ * is what a beast hits with and it is already the badge's colour and shape;
+ * locomotion is what a beast is FOR, and it is the only thing on the card that
+ * answers the question a player actually has in front of a lake ("can this one
+ * take me across"). Two glyphs on one badge read as a pair of types the way a
+ * dual-typed creature does in any collectathon — Rivotter is water AND
+ * amphibious, and both halves are on screen.
+ *
+ * Drawn at 24x24 like every other icon here but displayed at ~11px in a corner
+ * pip, so each is one silhouette with no interior detail: a paw, a wing, a
+ * wave, and — for amphibious — the wave with the paw standing in it, which is
+ * the one combination that has to read at a glance without a caption.
+ */
+export const LOCOMOTION_ICONS: Record<Locomotion, string> = {
+  ground: svg(
+    // A paw: pad plus four toes. Toes clear of the pad so they survive the
+    // downscale as separate blobs instead of fusing into a lump.
+    `<path fill="currentColor" d="M12 12.4c3.1 0 5.6 2.4 5.6 4.8 0 2-1.7 3.2-3.5 3.2-.9 0-1.4-.4-2.1-.4s-1.2.4-2.1.4c-1.8 0-3.5-1.2-3.5-3.2 0-2.4 2.5-4.8 5.6-4.8Z"/>` +
+    `<ellipse fill="currentColor" cx="5.6" cy="12" rx="2.3" ry="2.9"/>` +
+    `<ellipse fill="currentColor" cx="18.4" cy="12" rx="2.3" ry="2.9"/>` +
+    `<ellipse fill="currentColor" cx="9.4" cy="6.5" rx="2.2" ry="3"/>` +
+    `<ellipse fill="currentColor" cx="14.6" cy="6.5" rx="2.2" ry="3"/>`,
+  ),
+  flying: svg(
+    // A GULL — two arcs meeting at the shoulders — and it is the second shape
+    // tried here. The first was a filled outstretched wing pair with a bar
+    // under it, which is a fine drawing at 24px and at the 11px this is
+    // actually displayed at (captured, shots/_hud-loco-zoom.png) its two lobes
+    // merged into one chevron over a line: it read as a "collapse" caret, not
+    // as flight. Two open strokes cannot merge, because the gap between them IS
+    // the glyph.
+    `<g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" ` +
+    `stroke-linejoin="round">` +
+    `<path d="M2.2 15.4C5 8.6 8.6 8.2 12 13.8 15.4 8.2 19 8.6 21.8 15.4"/>` +
+    `</g>`,
+  ),
+  swimming: svg(
+    // Three stacked swells. Stacked rather than one big wave because a single
+    // curve at this size is indistinguishable from the water ELEMENT glyph
+    // beside it, and these two are always shown together.
+    `<g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">` +
+    `<path d="M2.6 7.4c2-2 3.4-2 5.4 0s3.4 2 5.4 0 3.4-2 5.4 0l2.6 0"/>` +
+    `<path d="M2.6 13c2-2 3.4-2 5.4 0s3.4 2 5.4 0 3.4-2 5.4 0l2.6 0"/>` +
+    `<path d="M2.6 18.6c2-2 3.4-2 5.4 0s3.4 2 5.4 0 3.4-2 5.4 0l2.6 0"/>` +
+    `</g>`,
+  ),
+  amphibious: svg(
+    // The paw standing in the water: the two silhouettes above, composed. The
+    // waterline crosses under the pad, which is what says "both" rather than
+    // "either".
+    //
+    // The paw is drawn with TWO toes rather than four. Four is right on the
+    // ground glyph, which has the whole 24x24 to itself; here the paw only gets
+    // the top half, so four toes at 11px are four sub-pixel dots that grey the
+    // shape out instead of reading as toes.
+    `<path fill="currentColor" d="M12 5.4c3 0 5.4 2.4 5.4 4.7 0 1.9-1.6 3.1-3.4 3.1-.8 0-1.3-.4-2-.4s-1.2.4-2 .4c-1.8 0-3.4-1.2-3.4-3.1C6.6 7.8 9 5.4 12 5.4Z"/>` +
+    `<ellipse fill="currentColor" cx="6.1" cy="4.6" rx="2.2" ry="2.8"/>` +
+    `<ellipse fill="currentColor" cx="17.9" cy="4.6" rx="2.2" ry="2.8"/>` +
+    `<g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">` +
+    `<path d="M2.2 17.4c2.2-2.2 3.8-2.2 6 0s3.8 2.2 6 0 3.8-2.2 6 0"/>` +
+    `<path d="M2.2 21.8c2.2-2.2 3.8-2.2 6 0s3.8 2.2 6 0 3.8-2.2 6 0"/>` +
+    `</g>`,
+  ),
+};
+
+export function locomotionIcon(loco: Locomotion): string {
+  return LOCOMOTION_ICONS[loco];
 }
 
 /** Faceted crystal shard (currency). */

@@ -286,10 +286,24 @@ const CSS = `
 @keyframes bsSwap{0%{transform:translateY(12px) scale(.9);opacity:.15}
   60%{transform:translateY(-3px) scale(1.04);opacity:1}100%{transform:none;opacity:1}}
 .bs-beast .badge{width:38px;height:38px;border-radius:50%;flex:none;display:grid;place-items:center;
+  position:relative;
   background:radial-gradient(circle at 34% 28%,rgba(255,255,255,.42),rgba(255,255,255,0) 46%),var(--el);
   color:rgba(255,255,255,.96);
   box-shadow:inset 0 -4px 8px rgba(0,0,0,.28),0 2px 8px rgba(0,0,0,.35)}
 .bs-beast .badge svg{width:21px;height:21px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.4))}
+/* The LOCOMOTION pip: where a beast can go, hung on the corner of what it
+   hits with. A pip on the badge rather than a second badge in the row, because
+   the row is already name / level / two bars in a 38px band and a second full
+   badge pushed the name into an ellipsis on a phone. Dark disc under a light
+   glyph, so it separates from the element colour behind it whatever that
+   colour is — the badge fill is var(--el) and runs from #fff3c4 to #7a5fa8. */
+.bs-beast .badge .loco{position:absolute;right:-3px;bottom:-3px;width:17px;height:17px;
+  border-radius:50%;display:grid;place-items:center;
+  background:rgba(10,14,22,.92);border:1.5px solid rgba(255,255,255,.42);
+  color:rgba(255,255,255,.95);box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.bs-beast .badge .loco svg{width:11px;height:11px;filter:none}
+.bs-beast.support .badge .loco{width:14px;height:14px;border-width:1.2px}
+.bs-beast.support .badge .loco svg{width:9px;height:9px}
 .bs-beast .meta{flex:1;min-width:0}
 .bs-beast .row{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px}
 .bs-beast .nm{font-weight:800;font-size:17px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;
@@ -1520,6 +1534,8 @@ const CSS = `
   .bs-beast{padding:6px 8px}
   .bs-beast .badge{width:32px;height:32px}
   .bs-beast .badge svg{width:18px;height:18px}
+  .bs-beast .badge .loco{width:15px;height:15px}
+  .bs-beast .badge .loco svg{width:10px;height:10px}
   .bs-beast .nm{font-size:16px}
   .bs-hp .track{height:13px}
   .bs-slot{width:58px;height:58px;border-radius:13px}
@@ -1573,6 +1589,8 @@ const CSS = `
   .bs-beast .bs-beast-in{gap:7px}
   .bs-beast .badge{width:26px;height:26px}
   .bs-beast .badge svg{width:15px;height:15px}
+  .bs-beast .badge .loco{width:13px;height:13px;border-width:1.2px}
+  .bs-beast .badge .loco svg{width:8px;height:8px}
   .bs-beast.support .badge{width:24px;height:24px}
   .bs-beast .nm,.bs-beast.support .nm{font-size:16px}
   .bs-beast .lv{font-size:16px;padding:0 6px}

@@ -60,6 +60,36 @@ const TURN_RATE = 14;
  */
 const BODY_RADIUS = 0.32;
 
+// -- the deep sea ----------------------------------------------------------
+/**
+ * How far ahead of his centre a swimmer is turned back from deep water.
+ *
+ * Deliberately wider than BODY_RADIUS: the step test stops him with his
+ * shoulder at a rock, but there is no rock here — the thing refusing him is a
+ * colour change in the water, and a rule that only bites once his centre is a
+ * third of a unit from the boundary reads as an invisible wall you are already
+ * standing in. At 0.9 he floats to the edge of the dark, feels the water refuse
+ * him, and the band that darkened half a unit before the rule bit (see the
+ * ABYSS ramp in world/water.ts) is the thing he was watching when it happened.
+ */
+const DEEP_PROBE = 0.9;
+/**
+ * How hard the deep sea pushes a swimmer who is ALREADY in it back toward the
+ * shallows, in world units/s against a swim speed of 4.2.
+ *
+ * There is exactly one way to be out there — you were riding a water beast and
+ * it went down under you (MountController dismounts on a dead mount, and it
+ * cannot refuse to, because the alternative is a rider stapled to a corpse). So
+ * this is not a wall, it is the way home: fast enough that a player never has
+ * to wonder whether he is stuck, slow enough to read as a current carrying him
+ * rather than as a teleport.
+ */
+const UNDERTOW = 3.2;
+/** How far out the undertow looks for shallower water. Four columns. */
+const UNDERTOW_REACH = 4;
+/** Seconds between two "you cannot swim that" toasts. One per approach. */
+const DEEP_TOAST_GAP = 6;
+
 // -- climbing --------------------------------------------------------------
 /**
  * How far ahead of the hero's centre the climb probe looks for a wall.
@@ -253,6 +283,13 @@ export class Player {
   get weapon(): WeaponModelId | null { return this.rig.weapon; }
   onGround = false;
   isSwimming = false;
+  /**
+   * Seconds left before the deep sea is allowed to say so again. See
+   * DEEP_TOAST_GAP — a swimmer pressed against the edge of a basin refuses on
+   * every one of the sixty slices a second, and sixty toasts is a wall of text
+   * over one piece of information.
+   */
+  private deepToastT = 0;
   /** True while hanging on a climbable face; gravity is off and Shift is grip. */
   isClimbing = false;
   /**
@@ -418,6 +455,7 @@ export class Player {
     this.isClimbing = false;
     this.climbLockout = 0;
     this.isSwimming = false;
+    this.deepToastT = 0;
     // Whatever was under his feet belonged to the zone he is leaving.
     this.onCanopy = false;
     this.velocity.set(0, 0, 0);
@@ -509,6 +547,7 @@ export class Player {
     this.isSwimming = false;
     this.onCanopy = false;
     this.climbLockout = 0;
+    this.deepToastT = 0;
     this.attack.active = false;
     this.takeStartPose();
   }
@@ -840,6 +879,58 @@ export class Player {
   }
 
   /**
+   * The deep sea just refused a stroke. Say so, at most once per approach.
+   *
+   * A TOAST AND NOT A NOISE, because the thing the player needs told is not
+   * "you bumped something" — the water already said that by going dark — but
+   * WHAT WOULD WORK, and that is a sentence: ride a water beast. Same reason
+   * the mount controller answers a refused mount with a line naming the fix.
+   */
+  private refuseDeep(): void {
+    if (this.deepToastT > 0) return;
+    this.deepToastT = DEEP_TOAST_GAP;
+    this.bus.emit({ type: 'toast', text: t('toast.deepWater') });
+  }
+
+  /**
+   * Carry a swimmer who is already out over the abyss back toward the shallows.
+   *
+   * FOUR PROBES AND THE HIGHEST WINS, which is a gradient ascent on the
+   * heightfield done the cheapest way there is. It cannot be fooled by a local
+   * dip because the reach is four columns — wider than any single terrace — and
+   * where every probe agrees (dead centre of a big basin) the tie falls to +x
+   * and he sets off in a straight line, which still lands him on a shore.
+   *
+   * Written into `velocity` rather than `position` so it composes with his own
+   * paddling instead of overriding it: swimming with the current gets you out
+   * faster, swimming against it merely slows the trip. Only ever runs on a
+   * slice where he is genuinely over deep water, which is rare enough that the
+   * four extra `getHeight` calls never show up in a profile — and it is written
+   * out longhand rather than through a `probe(dx, dz)` helper because a closure
+   * per slice is an allocation on an update path, which this codebase does not
+   * do however rare the path is.
+   */
+  private undertow(dt: number): void {
+    const w = this.world;
+    const x = this.position.x;
+    const z = this.position.z;
+    const r = UNDERTOW_REACH;
+    let best = w.getHeight(x + r, z);
+    let bx = 1;
+    let bz = 0;
+    let h = w.getHeight(x - r, z);
+    if (h > best) { best = h; bx = -1; bz = 0; }
+    h = w.getHeight(x, z + r);
+    if (h > best) { best = h; bx = 0; bz = 1; }
+    h = w.getHeight(x, z - r);
+    if (h > best) { bx = 0; bz = -1; }
+    const k = 1 - Math.exp(-4 * dt);
+    this.velocity.x += (UNDERTOW * bx - this.velocity.x) * k;
+    this.velocity.z += (UNDERTOW * bz - this.velocity.z) * k;
+    this.refuseDeep();
+  }
+
+  /**
    * The tree surface over a column — a canopy dome or a bole's top face — when
    * it stands clear enough of the terrain to be a platform of its own, else
    * -Infinity.
@@ -995,6 +1086,7 @@ export class Player {
     if (input.pressed('Space')) this.jumpBuffer = JUMP_BUFFER;
     else this.jumpBuffer -= dt;
     this.coyote = this.onGround ? COYOTE_TIME : this.coyote - dt;
+    if (this.deepToastT > 0) this.deepToastT -= dt;
 
     if (this.isSwimming) {
       const floatY = world.waterLevel - 1.15;
@@ -1047,8 +1139,34 @@ export class Player {
     // water.
     const feetY = this.position.y;
     if (this.isSwimming) {
-      this.position.x += this.velocity.x * dt;
-      this.position.z += this.velocity.z * dt;
+      // THE DEEP SEA IS THE SWIMMER'S VERSION OF THE STEP TEST. He is exempt
+      // from the step rule above — a swimmer floats 1.15 under the surface, so
+      // "is that column taller than my feet" would call every shoreline a wall
+      // — and this is the one thing out here that does refuse him. Same shape
+      // as the step test and for the same reason: independent axes, so swimming
+      // diagonally at the edge of a basin slides along it instead of stopping
+      // dead, and a probe ahead of his centre so he is stopped at the edge of
+      // the dark rather than inside it. See World.isDeepWater.
+      //
+      // ALREADY OUT THERE IS A DIFFERENT CASE and it is tested FIRST, because
+      // the refusal below would otherwise be a trap: every column around a
+      // swimmer in the middle of a basin is deep, so the test that keeps him
+      // out would pin him there forever. Inside, the undertow steers instead.
+      if (world.isDeepWater(this.position.x, this.position.z)) {
+        this.undertow(dt);
+        this.position.x += this.velocity.x * dt;
+        this.position.z += this.velocity.z * dt;
+      } else {
+        const nx = this.position.x + this.velocity.x * dt;
+        if (!world.isDeepWater(nx + Math.sign(this.velocity.x) * DEEP_PROBE, this.position.z)) {
+          this.position.x = nx;
+        } else { this.velocity.x = 0; this.refuseDeep(); }
+
+        const nz = this.position.z + this.velocity.z * dt;
+        if (!world.isDeepWater(this.position.x, nz + Math.sign(this.velocity.z) * DEEP_PROBE)) {
+          this.position.z = nz;
+        } else { this.velocity.z = 0; this.refuseDeep(); }
+      }
     } else {
       const stepCeil = feetY + MAX_STEP_UP;
       const nx = this.position.x + this.velocity.x * dt;

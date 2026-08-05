@@ -44,8 +44,16 @@ async function boot() {
 }
 
 // Long enough to cycle the whole roster through the two active follow slots
-// (']' swaps the primary, '[' the support) — the eight beasts parked in reserve
-// sit at moveSpeed 0 and cannot show the bug at all.
+// (']' swaps the primary, '[' the support) — the thirteen beasts parked in
+// reserve sit at moveSpeed 0 and cannot show the bug at all.
+//
+// THIRTEEN, not eight: the water roster (issue #76) took the species count from
+// ten to fifteen, and this sample did not grow with it. Sixteen presses that
+// alternate ']' and '[' oscillate around the starting pair rather than sweeping,
+// so a beast that never takes a slot is a beast this run cannot see — which was
+// already true at ten and is more true now. Left as it is because the fix is the
+// one this file needs anyway (an assertion and a non-zero exit, see AGENTS.md);
+// noted here so the number is not read as coverage it does not have.
 const SAMPLE_MS = 26000;
 
 // Start a rAF collector and return immediately: a page.evaluate that stays

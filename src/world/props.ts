@@ -3034,6 +3034,10 @@ export function buildChunkProps(
         if (roll < 0.031 && !noSolid) { if (!thin(wx, wz, 617, ns.rocks)) solid.add(lib.rockSnow, x, h - 0.1, z, yaw, scl, t, t, t); }
         break;
       case 'underwater':
+      case 'deepwater':
+        // Both lake beds grow nothing here. The reed stand in the shallows is
+        // the waterline pass below, which straddles the surface and never
+        // consults this switch; four units down there is nothing to straddle.
         break;
       case 'trampled':
         // A camp yard grows nothing, and this empty case is the whole of how

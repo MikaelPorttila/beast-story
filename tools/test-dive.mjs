@@ -83,8 +83,16 @@ async function frame() {
   }, b64);
 }
 
-// The deepest water within reach of the spawn, found rather than pinned, so no
-// coordinate here depends on the seed staying put.
+// The deepest SWIMMABLE water within reach of the spawn, found rather than
+// pinned, so no coordinate here depends on the seed staying put.
+//
+// `!w.deep` was added with the deep sea (issue #76) and it is not a workaround:
+// past DEEP_WATER_DEPTH a swimmer is refused entry and carried back to the
+// shallows on purpose (see Player.undertow), so the deepest column in the world
+// is now precisely the one place this test could not run. What it measures —
+// that holding C takes the hero down, that the bed catches him, and that the
+// submerged frame is blue rather than white — is a fact about water you can
+// swim in, and this picks the deepest of that.
 const deep = await page.evaluate(() => {
   const s = window.__dbgTowns().spawn;
   let best = null;
@@ -92,6 +100,7 @@ const deep = await page.evaluate(() => {
     for (let dz = -120; dz <= 120; dz += 2) {
       const x = s.x + dx; const z = s.z + dz;
       const w = window.__dbgWorld(x, z);
+      if (w.deep) continue;
       if (!best || w.ground < best.ground) best = { x, z, ground: w.ground };
     }
   }

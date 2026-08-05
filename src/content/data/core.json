@@ -188,6 +188,17 @@
       }
     },
     {
+      "id": "biome:deepwater",
+      "schema": 1,
+      "name": { "key": "biome.deepwater.name" },
+      "tags": ["synthetic"],
+      "description": { "text": { "en": "Not a climate: a column four units or more below the water line. A swimmer is turned back from it and only a water beast carries a rider across." } },
+      "data": {
+        "startArea": false,
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+      }
+    },
+    {
       "id": "biome:trampled",
       "schema": 1,
       "name": { "key": "biome.trampled.name" },

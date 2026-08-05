@@ -56,6 +56,23 @@ export interface SkillDef {
 // ---------------------------------------------------------------------------
 export type Locomotion = 'ground' | 'flying' | 'swimming' | 'amphibious';
 
+/**
+ * DISPLAY names for the four gaits, as string-table keys — the same
+ * id-versus-name split `BeastSpecies.nameKey` makes, applied to the enum.
+ *
+ * Here rather than in the UI because two surfaces already read it (the HUD
+ * card's corner pip has a glyph, the inventory row spells the word out) and a
+ * third would have copied whichever it saw first. 'swimming' displays as
+ * "Aquatic": the word on the card is a TYPE, like Water or Dragon, and
+ * "Swimming" reads as something the animal is doing right now.
+ */
+export const LOCOMOTION_NAME_KEYS: Record<Locomotion, StringKey> = {
+  ground: 'loco.ground.name',
+  flying: 'loco.flying.name',
+  swimming: 'loco.swimming.name',
+  amphibious: 'loco.amphibious.name',
+};
+
 export interface BeastStats {
   maxHp: number;
   attack: number;
@@ -806,6 +823,21 @@ export interface World {
   /** Water surface level (constant) */
   readonly waterLevel: number;
   isWater(x: number, z: number): boolean;
+  /**
+   * Is this column DEEP SEA — the dark water a swimmer is turned back from?
+   *
+   * A strict subset of `isWater`, and a separate query rather than a depth
+   * number for the same reason `isWater` is not `getHeight(x, z) < waterLevel`
+   * at every call site: the threshold is a world's own business (see
+   * DEEP_WATER_DEPTH in world/terrain.ts), and three movers resolve against it
+   * — the hero's swim step (Player.update), a mount's ground step
+   * (MountController.integrateGround) and the probe that measures both.
+   *
+   * FALSE EVERYWHERE IN A ZONE THAT HAS NO SEA. The dungeon and the lab stage
+   * answer false to `isWater` already; answering false here keeps the rule
+   * "deep implies wet" true by construction rather than by agreement.
+   */
+  isDeepWater(x: number, z: number): boolean;
   /**
    * Stream chunks around a focus point; call every simulation slice.
    * `newFrame` marks the first slice of a rendered frame and resets the
