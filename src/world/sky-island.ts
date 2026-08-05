@@ -30,7 +30,7 @@
  *   the ROCK      a `VoxelModel` heightfield: flat grass plateau, an
  *                 overhanging turf lip, sheer cliff, then a terraced keel
  *                 tapering to a point, with vines down the face.
- *   the DECK      `deckAt`, which is a CONSTANT — and that is the point. The
+ *   the DECK      `localDeck`, which is a CONSTANT — and that is the point. The
  *                 mesh's top course and the step test read the same number, so
  *                 what you see is what you stand on by construction rather
  *                 than because two formulas currently agree.
@@ -1178,7 +1178,7 @@ function outlineAt(theta: number, phase: number): number {
  * quantisation.
  *
  * Both `buildRock` and `columnDepth` resolve it through here, for the same
- * reason `deckAt` and `buildRock` share `outlineAt`: two formulas that agree
+ * reason `localDeck` and `buildRock` share `outlineAt`: two formulas that agree
  * today are a seam, one function is not.
  */
 function lipAt(gx: number, gz: number): number {
@@ -1429,9 +1429,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     const plan = planSkyhaven(
       seed, parts, props,
       // The deck's own answer, so the plan and the rock cannot disagree about
-      // where the ground stops — `deckAt` is the same function `localTop` feeds
+      // where the ground stops — `localDeck` is the same function `localTop` feeds
       // the step test from.
-      (x, z) => this.deckAt(x, z) > -Infinity,
+      (x, z) => this.localDeck(x, z) > -Infinity,
       (a) => outlineAt(a, this.phase) * CELL,
     );
     this.buildRock(plan);
@@ -1476,7 +1476,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    *
    * -Infinity past the rim, which is what makes walking off one a fall.
    */
-  deckAt(lx: number, lz: number): number {
+  localDeck(lx: number, lz: number): number {
     // ASKED OF THE CELL, NOT OF THE POINT, and that is what keeps the rim you
     // fall off exactly the rim you can see. The mesh is painted per column, so
     // a query that tested the continuous position would put the edge of the
@@ -1500,7 +1500,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    * made once here so a rider asks one question — see `CarrierRide.support`.
    */
   localTop(lx: number, lz: number): number {
-    const deck = this.deckAt(lx, lz);
+    const deck = this.localDeck(lx, lz);
     if (deck === -Infinity) return -Infinity;
     let top = deck;
     const built = this.solids.topAt(lx, lz);
@@ -1520,7 +1520,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    *
    * Measured off `columnDepth` — the same function `buildRock` paints from and
    * `paintColumn` tests its neighbours with — so the surface a flyer bumps into
-   * is the surface they can see, by construction, the way `deckAt` is the rim
+   * is the surface they can see, by construction, the way `localDeck` is the rim
    * they can see. A separate formula for the underside would be the seam this
    * file has already refused twice.
    *
@@ -1530,7 +1530,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    * soil and no stone under it (`paintColumn`'s `!stone` branch).
    */
   localBottom(lx: number, lz: number): number {
-    if (this.deckAt(lx, lz) === -Infinity) return Infinity;
+    if (this.localDeck(lx, lz) === -Infinity) return Infinity;
     const depth = this.columnDepth(Math.floor(lx / CELL), Math.floor(lz / CELL));
     return -(depth > 0 ? depth : LIP_COURSES) * CELL;
   }

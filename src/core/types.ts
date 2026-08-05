@@ -517,15 +517,27 @@ export interface CarrierInfo {
    */
   topAt(x: number, z: number): number;
   /**
+   * The frame's own SURFACE at this world column — the turf, without whatever
+   * is built on it — or -Infinity past its edge.
+   *
+   * A DIFFERENT QUESTION FROM `topAt`, and the difference is the whole of
+   * "what is the island and what is merely on it". A flyer beside a cottage is
+   * under `topAt` and over this one: he is above the lawn looking at a wall he
+   * is allowed to climb over, and treating that as being inside the island is
+   * what makes a mount hovering by a house get shoved off the deck.
+   */
+  deckAt(x: number, z: number): number;
+  /**
    * Underside of the frame's body at this world column — the keel — or
    * +Infinity where the frame has nothing here.
    *
-   * `topAt` AND THIS ARE A PAIR, and the pair is the point: a frame is a SLAB
+   * `deckAt` AND THIS ARE A PAIR, and the pair is the point: a frame is a MASS
    * between them, not a surface with air under it. Without the second half the
    * only thing a carrier could do to a body was hold it up, so a flyer steered
    * at the underside of a flying island went into the rock and kept going
-   * (issue #80). Whoever owns a mover's physics clamps it out of the slab on
-   * whichever side of the keel it is; see `integrateFlying` in player/mount.ts.
+   * (issue #80). A body cannot BE in there: it is refused on the way in and
+   * shoved out through the flank if the frame moves onto it. See
+   * `integrateFlying` in player/mount.ts.
    */
   bottomAt(x: number, z: number): number;
   /**

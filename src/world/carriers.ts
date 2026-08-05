@@ -11,8 +11,9 @@
  *
  *   CarrierBody   what a moving thing EXTENDS. Owns the pose, computes the
  *                 per-slice delta from it, and converts between world and its
- *                 own local space. A subclass writes `steer()`, `localTop()`
- *                 and `localBottom()` and inherits everything else.
+ *                 own local space. A subclass writes `steer()` and its three
+ *                 faces — `localTop()`, `localDeck()`, `localBottom()` — and
+ *                 inherits everything else.
  *   CarrierField  the registry the World contract hands out.
  *   CarrierRide   what a MOVER owns — one field, two calls, no knowledge of
  *                 what it is standing on.
@@ -94,11 +95,11 @@ const CEILING_RISE = 30;
 /**
  * A moving frame. Extend it; do not instantiate it.
  *
- * The subclass owns exactly three things — where the frame WANTS to be next
- * slice (`steer`) and the two faces of its body in local space (`localTop`,
- * `localBottom`) — and this class owns the bookkeeping every carrier would
- * otherwise repeat: the delta, the transform, the containment test and the
- * scene root.
+ * The subclass owns where the frame WANTS to be next slice (`steer`) and the
+ * three faces of it in local space — what you stand on (`localTop`), the
+ * surface itself (`localDeck`) and its underside (`localBottom`) — and this
+ * class owns the bookkeeping every carrier would otherwise repeat: the delta,
+ * the transform, the containment test and the scene root.
  */
 export abstract class CarrierBody implements CarrierInfo {
   readonly root = new THREE.Group();
@@ -135,6 +136,21 @@ export abstract class CarrierBody implements CarrierInfo {
    * where the frame has nothing there. Local y = 0 is the frame's origin.
    */
   abstract localTop(lx: number, lz: number): number;
+
+  /**
+   * The frame's OWN SURFACE at a point in its own coordinates — the turf, not
+   * what is standing on it — or -Infinity past its edge.
+   *
+   * THE THIRD FACE, and it is the one that says where the frame stops being a
+   * MASS and starts being a place with things on it. `localTop` cannot answer
+   * that: it is a max over the deck and every hut, resident and tree, which is
+   * the right answer for "what do I stand on" and the wrong one for "am I in
+   * the rock". A flyer beside a cottage is inside `[localBottom, localTop]` and
+   * is plainly not inside the island — he is over the lawn, looking at a wall
+   * he is allowed to climb over. Between this and `localBottom` is the MASS: a
+   * body cannot be in there, and cannot ride up out of it.
+   */
+  abstract localDeck(lx: number, lz: number): number;
 
   /**
    * Underside of the frame's BODY at a point in its own coordinates, or
@@ -207,6 +223,16 @@ export abstract class CarrierBody implements CarrierInfo {
     this.toLocal(x, z, this._l);
     const t = this.localTop(this._l.x, this._l.z);
     return t > -Infinity ? t + this.y : -Infinity;
+  }
+
+  /** `localDeck` at a world column. -Infinity past the frame's edge. */
+  deckAt(x: number, z: number): number {
+    const dx = x - this.x;
+    const dz = z - this.z;
+    if (dx * dx + dz * dz > this.radius * this.radius) return -Infinity;
+    this.toLocal(x, z, this._l);
+    const d = this.localDeck(this._l.x, this._l.z);
+    return d > -Infinity ? d + this.y : -Infinity;
   }
 
   /** `localBottom` at a world column. +Infinity where the frame has nothing. */

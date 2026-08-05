@@ -4163,11 +4163,15 @@ beginPlay();
         return Number.isFinite(t) ? +t.toFixed(2) : null;
       })(),
       /**
-       * The other face of the slab under this column — the keel — or null off
-       * the footprint. Reported BESIDE `deckTop` because neither number means
-       * anything alone: what a probe has to prove is that the hero is on one
-       * side of the pair and never between them (issue #80, tools/test-carrier).
+       * The MASS in this column: the turf, and the keel under it — or null off
+       * the footprint. `surface` is not `deckTop`, which is the top of whatever
+       * is standing here; the pair a probe has to assert on is this one, because
+       * it is the pair a body cannot be between (issue #80, tools/test-carrier).
        */
+      surface: (() => {
+        const d = c.deckAt(player.position.x, player.position.z);
+        return Number.isFinite(d) ? +d.toFixed(2) : null;
+      })(),
       keel: (() => {
         const b = c.bottomAt(player.position.x, player.position.z);
         return Number.isFinite(b) ? +b.toFixed(2) : null;

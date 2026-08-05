@@ -36,6 +36,9 @@
 //   KEEL       a flyer climbing at the underside is stopped by it. The deck was
 //              the only face the carrier had, so you flew in through the rock
 //              and sat inside the mountain.
+//   SHOVED     a body the island has moved onto is pushed OUT along the flank
+//              and never lifted over the top. Resolving it upward is a teleport
+//              onto the island, which is the first fix's own bug.
 //   WOOD       the trees stamped onto the deck block. They carry a `trunk` and
 //              not a `solid`, and the registry that makes a trunk solid in the
 //              overworld is keyed by streamed chunk — which a deck has none of.
@@ -302,16 +305,21 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
     const c = await carriers();
     const mm = await page.evaluate(() => window.__dbgMount());
     samples.push({
-      y: mm.bodyY, keel: c.all[0].keel, deck: c.all[0].deckTop, riding: c.riding,
+      y: mm.bodyY,
+      keel: c.all[0].keel,
+      surface: c.all[0].surface,
+      deck: c.all[0].deckTop,
+      riding: c.riding,
     });
   }
   await page.keyboard.up('Space');
   await wait(400);
 
   const under = samples.filter((s) => s.keel !== null);
-  // Strictly between the two faces, with the seat's own slack taken off the
-  // bottom: the animal is INSIDE the rock, which is the bug.
-  const inside = under.filter((s) => s.y > s.keel + 0.5 && s.y < s.deck - 1);
+  // Between the KEEL and the TURF — `surface`, not `deckTop`, which is the top
+  // of whatever is standing in the column. The animal is inside the rock, which
+  // is the bug.
+  const inside = under.filter((s) => s.y > s.keel + 0.5 && s.y < s.surface - 0.5);
   const climbed = samples[samples.length - 1].y - samples[0].y;
   const last = samples[samples.length - 1];
   results.keel = {
@@ -319,7 +327,7 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
     underTheIsland: under.length,
     insideTheRock: inside.length,
     climbed: +climbed.toFixed(2),
-    endY: last.y, endKeel: last.keel, endDeck: last.deck,
+    endY: last.y, endKeel: last.keel, endSurface: last.surface,
     worst: inside[0] ?? null,
   };
   // THE OTHER HALF OF THE PAIR, twice: the hold has to have been a real climb,
@@ -331,7 +339,7 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
     `only ${under.length} of ${samples.length} samples were under the island at all`);
   check(inside.length === 0,
     `the flyer was inside the rock on ${inside.length} samples, first at y `
-    + `${inside[0]?.y} between keel ${inside[0]?.keel} and deck ${inside[0]?.deck}`);
+    + `${inside[0]?.y} between keel ${inside[0]?.keel} and turf ${inside[0]?.surface}`);
   // And he is held AGAINST the keel rather than stopped somewhere below it by
   // the ordinary flight ceiling, which would make the run above prove nothing
   // about the island. FLY_CLEARANCE is 1.3.
@@ -340,6 +348,111 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
       `the climb stopped ${(last.keel - last.y).toFixed(1)} units under the keel — `
       + 'something other than the island is the ceiling here');
   }
+  await page.evaluate(() => window.__dbgRide('off'));
+}
+
+// ---------------------------------------------------------------------------
+// 7b. Caught by the flank: pushed OUT, never lifted over
+// ---------------------------------------------------------------------------
+// The first fix for section 7 resolved a body found inside the mass upward, onto
+// the deck. That is a teleport onto the island — the report's own complaint read
+// backwards — and it is what a body being run down by a moving mountain must not
+// get. The mass is refused horizontally and resolved SIDEWAYS: the island
+// carries you along its flank rather than swallowing you or handing you the
+// summit.
+//
+// Staged with a teleport because the honest version — hovering in the island's
+// path until it arrives — is a wait on a wandering frame, and the physics cannot
+// tell the difference: both are "this slice, a body is in the rock".
+{
+  await page.evaluate(() => window.__dbgRide('off'));
+  const a = (await carriers()).all[0];
+  // MOUNT FIRST AND TELEPORT SECOND. Mounting snaps the rider onto the animal,
+  // which is standing on the ground wherever it was following him from, so a
+  // teleport before it is a teleport of somebody who is about to be moved.
+  // `__dbgTp` carries the pair (see its note in main.ts), which is why the
+  // second one holds.
+  await tp(a.x, a.z);
+  await wait(500);
+  const said = await page.evaluate(() => window.__dbgRide('galebird'));
+  check((await page.evaluate(() => window.__dbgMount())).mounted, `no flyer: ${said}`);
+  // Halfway out along the radius and well under the turf: inside the cliff, on
+  // the keel's shoulder rather than at its thin rim.
+  const staged = a.radius * 0.5;
+  await tp(a.x + staged, a.z, a.y - 20);
+  await wait(200);
+  const c0 = (await carriers()).all[0];
+
+  await wait(2000);
+  const s1 = await carriers();
+  const c1 = s1.all[0];
+  const p1 = await pos();
+  const m1 = await page.evaluate(() => window.__dbgMount());
+  const d1 = Math.hypot(p1.x - c1.x, p1.z - c1.z);
+  const inRock = c1.keel !== null && m1.bodyY > c1.keel && m1.bodyY < c1.surface;
+  results.shoved = {
+    startedInRock: c0.keel !== null && a.y - 20 > c0.keel,
+    fromCentre: +staged.toFixed(2), toCentre: +d1.toFixed(2), radius: c1.radius,
+    y: m1.bodyY, surface: c1.surface, keel: c1.keel, stillInRock: inRock,
+    riding: s1.riding,
+  };
+  check(results.shoved.startedInRock,
+    `the flyer was not staged inside the rock (y ${a.y - 20}, keel ${c0.keel})`);
+  check(!inRock, `still inside the rock after 2 s at y ${m1.bodyY} `
+    + `(turf ${c1.surface}, keel ${c1.keel})`);
+  // THE TWO HALVES OF "PUSHED, NOT LIFTED". Outward, and not up: a body that
+  // ended over the turf got the teleport this section exists to forbid, and one
+  // that ended no further out than it started was not pushed at all.
+  // AGAINST WHERE HE WAS PUT, not against a reading taken after the fact: the
+  // march is 120 units a second, so by the time a probe has asked twice it is
+  // measuring the tail of the push rather than the push.
+  check(d1 > staged + 5,
+    `the flyer was not pushed outward: staged at ${staged.toFixed(1)}, ended at `
+    + `${d1.toFixed(1)} units from the centre`);
+  check(!(m1.bodyY > c1.surface && c1.surface !== null),
+    `the flyer was lifted onto the deck (y ${m1.bodyY} over turf ${c1.surface})`);
+  check(s1.riding === null, `the flyer ended up riding ${s1.riding} — it was shoved onto the town`);
+}
+
+// ---------------------------------------------------------------------------
+// 7c. ...and a flyer still LANDS on it
+// ---------------------------------------------------------------------------
+// The other half of every refusal above, and the one that fails if the mass is
+// drawn too generously: an island you cannot fly into is worth nothing if it is
+// also an island you cannot fly ONTO. The approach is from above, which is the
+// only one there is, and what has to happen is the ordinary one — `carry`
+// attaches him and `floorFor` puts him down on the turf.
+{
+  const a = (await carriers()).all[0];
+  // Over open grass rather than the middle: the tower is in the middle, and a
+  // flyer landing on a roof is a different (and correct) outcome that would make
+  // the height assertion below mean nothing. Ten units up, inside RIDE_CEILING.
+  await tp(a.x + a.radius * 0.5, a.z, a.y + 10);
+  await wait(1200);
+  const attached = await carriers();
+  // A FLYER HOLDS ITS ALTITUDE — there is no gravity in `integrateFlying`, C is
+  // the way down — so the descent is driven rather than waited for. Three
+  // seconds at FLY_DIVE is 25 units against the ten he has to give up.
+  await page.keyboard.down('KeyC');
+  await wait(3000);
+  await page.keyboard.up('KeyC');
+  await wait(400);
+  const s = await carriers();
+  const c = s.all[0];
+  const m = await page.evaluate(() => window.__dbgMount());
+  results.landed = {
+    attached: attached.riding, riding: s.riding,
+    y: m.bodyY, surface: c.surface, over: +(m.bodyY - c.surface).toFixed(2),
+  };
+  check(attached.riding === island.id,
+    `the flyer did not attach over the deck (riding ${attached.riding})`);
+  check(s.riding === island.id, `the flyer stopped riding while landing (riding ${s.riding})`);
+  // FLY_CLEARANCE is 1.3: he rests ON the turf, and the dive does not put him
+  // through it — which is the floor this section guards. Diving at a deck that
+  // had no floor is the same fall the report photographed, from the other side.
+  check(m.bodyY - c.surface < 3,
+    `the flyer is holding ${(m.bodyY - c.surface).toFixed(1)} units over the turf after a 3 s dive`);
+  check(m.bodyY > c.surface, `the flyer dived through the deck (y ${m.bodyY}, turf ${c.surface})`);
   await page.evaluate(() => window.__dbgRide('off'));
 }
 
