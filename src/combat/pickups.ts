@@ -213,7 +213,8 @@ export class Pickups {
 
   /**
    * Nearest active, unclaimed drop within `maxDist` of `from` that `want`
-   * accepts. The caller claims it (see FetchJob.claim) — this only looks.
+   * accepts, measured in 3D. The caller claims it (see FetchJob.claim) — this
+   * only looks.
    */
   findJob(from: THREE.Vector3, maxDist: number, want: (itemId: string) => boolean): FetchJob | null {
     let best: Drop | null = null;
@@ -227,9 +228,15 @@ export class Pickups {
       // beast chases a mote that is still arcing through the air.
       if (s.age < 0.5) continue;
       if (!want(s.itemId)) continue;
+      // TRUE distance, all three axes. The magnet in `update` below has always
+      // been 3D and this half of the same feature was not (issue #78), so a
+      // player crossing a valley on a galebird kept dispatching his support
+      // beast at motes 80 units below him — inside `maxDist` horizontally, and
+      // an errand it could never finish.
       const dx = s.group.position.x - from.x;
+      const dy = s.group.position.y - from.y;
       const dz = s.group.position.z - from.z;
-      const d2 = dx * dx + dz * dz;
+      const d2 = dx * dx + dy * dy + dz * dz;
       if (d2 < bd) { bd = d2; best = s; }
     }
     return best ? best.job : null;

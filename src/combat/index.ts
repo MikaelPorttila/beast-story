@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   ELEMENT_COLORS,
+  inRise,
   type CastRequest,
   type Damageable,
   type ElementType,
@@ -13,7 +14,10 @@ import { RARE_DROP_IDS, SHARD_ID, STACKABLE_IDS, itemDef } from '../core/items';
 import { VFX } from './vfx';
 import { DamageNumbers } from './damage-numbers';
 import { elementMultiplier } from './effectiveness';
-import { Enemy, enemySpecies, variantForHeight, type EnemyCtx } from './enemies';
+import {
+  Enemy, enemySpecies, variantForHeight,
+  MELEE_UP_REACH, MELEE_DOWN_REACH, type EnemyCtx,
+} from './enemies';
 import { Pickups } from './pickups';
 import { buildArrow } from './arrow';
 import { perf } from '../core/profiler';
@@ -43,6 +47,14 @@ const _leaf = new THREE.Vector3();
 export const SWORD_REACH = 2.2;
 /** cos of the arc's HALF-angle. 0.643 is ~50 degrees each side, ~100 total. */
 export const SWORD_ARC_COS = 0.643;
+
+/**
+ * How tall a ground AoE is, in world units — the height of the column it draws
+ * AND the vertical band it damages, which is the point of it being one number.
+ * 3.6 is what `castAoe` has always drawn; issue #78 is that the damage did not
+ * stop where the picture did.
+ */
+const AOE_COLUMN_H = 3.6;
 
 const PROJ_SPEED = 16;
 const PROJ_CAP = 14;
@@ -198,7 +210,7 @@ export class CombatSystem {
         if (_a.lengthSq() < 1e-6) _a.set(0, 0, 1);
         _a.normalize();
         this.meleeArc(
-          req.origin.x, req.origin.y, req.origin.z, _a.x, _a.z,
+          req.origin.x, req.origin.y, req.origin.z, req.caster.position.y, _a.x, _a.z,
           Math.max(2.4, Math.min(3.4, skill.range)), 0.42,
           this.skillBase(skill, req.attackStat), skill.element, hex, 1.9, true,
         );
@@ -211,13 +223,24 @@ export class CombatSystem {
     }
   }
 
-  /** Player sword: short-range frontal arc (~100 degrees, ~2.2 units). */
-  meleeStrike(origin: THREE.Vector3, direction: THREE.Vector3, attackStat: number): void {
+  /**
+   * Player sword: short-range frontal arc (~100 degrees, ~2.2 units).
+   *
+   * `footY` is the swinger's SOLES, and it is a separate argument because
+   * `origin` is not: the strike spawns at chest height, or higher again in the
+   * saddle (see MOUNTED_STRIKE_Y in player/index.ts). The vertical reach is a
+   * feet-to-feet rule — an enemy is pinned to the ground it stands on — so
+   * measuring it from the raised origin would refuse a swing at something one
+   * step downhill and allow one at something a metre higher than it should.
+   */
+  meleeStrike(
+    origin: THREE.Vector3, direction: THREE.Vector3, attackStat: number, footY: number,
+  ): void {
     _a.set(direction.x, 0, direction.z);
     if (_a.lengthSq() < 1e-6) return;
     _a.normalize();
     this.meleeArc(
-      origin.x, origin.y, origin.z, _a.x, _a.z,
+      origin.x, origin.y, origin.z, footY, _a.x, _a.z,
       SWORD_REACH, SWORD_ARC_COS, attackStat * 1.2, undefined, 0xdfe9ff, 1.6, false,
     );
   }
@@ -256,17 +279,25 @@ export class CombatSystem {
    * 120 degrees and is refused. The angle a swing has to travel is subtended at
    * the shoulders, not at the lens.
    *
-   * Both are flattened to the XZ plane. That is not an approximation of a 3D
-   * test, it is the right test: `meleeArc` cuts a horizontal wedge and has no
-   * vertical term at all, so "which enemy is this swing meant for" is a
-   * question about bearing. It also avoids inventing a torso height for
-   * `Damageable`, which publishes a position and no bounds.
+   * Both are flattened to the XZ plane, and that is still the right test for a
+   * BEARING: "which enemy is this swing meant for" is a question about which way
+   * to turn, and it avoids inventing a torso height for `Damageable`, which
+   * publishes a position and no bounds. What the flattening never licensed was
+   * the REACH — this used to select a target the swing had no ceiling to refuse,
+   * and when issue #78 gave `meleeArc` one, an ungated assist would have gone on
+   * steering the hero at a Snortle in the valley he can no longer touch. The two
+   * share `MELEE_UP_REACH`/`MELEE_DOWN_REACH` for the same reason they share
+   * `SWORD_REACH`: an assist that points at what the arc will not hit is worse
+   * than none.
+   *
+   * `footY` is the swinger's soles — see `meleeStrike` for why `from.y` is not.
    */
   bestMeleeTarget(
     from: THREE.Vector3,
     aim: THREE.Vector3,
     reach: number,
     coneCos: number,
+    footY: number,
   ): Damageable | null {
     const al = Math.hypot(aim.x, aim.z);
     // Looking straight down the Y axis: there is no bearing to be near.
@@ -280,6 +311,7 @@ export class CombatSystem {
     let bestDot = coneCos;
     for (const e of this.enemies) {
       if (e.isDead) continue;
+      if (!inRise(footY, e.position.y, MELEE_UP_REACH, MELEE_DOWN_REACH)) continue;
       const rx = e.position.x - from.x;
       const rz = e.position.z - from.z;
       const rd = Math.sqrt(rx * rx + rz * rz);
@@ -458,7 +490,7 @@ export class CombatSystem {
 
   /** Frontal-arc melee shared by skill melee and the player's sword. */
   private meleeArc(
-    ox: number, oy: number, oz: number, dx: number, dz: number,
+    ox: number, oy: number, oz: number, footY: number, dx: number, dz: number,
     reach: number, arcCos: number, rawBase: number,
     element: ElementType | undefined, hex: number, slashScale: number,
     bySkill: boolean,
@@ -467,6 +499,11 @@ export class CombatSystem {
     this.vfx.flashLight(ox + dx * 1.1, oy + 0.5, oz + dz * 1.1, hex, 2.4, 5, 0.14);
     for (const e of this.enemies) {
       if (e.isDead) continue;
+      // The vertical cap the enemies got in issue #25 and the hero did not until
+      // #78: an arc is a WEDGE, and a wedge with no ceiling is a column. Standing
+      // on a 6-unit ledge, every swing cleared the meadow underneath it. Same
+      // pair of numbers as the bite that comes back — see MELEE_UP_REACH.
+      if (!inRise(footY, e.position.y, MELEE_UP_REACH, MELEE_DOWN_REACH)) continue;
       const ex = e.position.x - ox;
       const ez = e.position.z - oz;
       const d = Math.sqrt(ex * ex + ez * ez);
@@ -742,12 +779,16 @@ export class CombatSystem {
     this.vfx.ring(x, gy, z, p.hex, 1.9, 0.45);
     if (y - gy < 1.2) this.vfx.scorch(x, gy, z, p.hex, 1.1);
     if (direct) this.dealSkillDamage(direct, p.rawBase, p.element, x, y, z, true);
-    // small splash around the blast
+    // Small splash around the blast. A BALL of fire, so the vertical band is the
+    // radius itself (issue #78: it was a column, and a fireball bursting on the
+    // ground singed a Peckit thirty units overhead). Symmetric — an explosion has
+    // no up or down the way a swing does.
     for (const e of this.enemies) {
       if (e.isDead || e === direct) continue;
       const dx = e.position.x - x;
       const dz = e.position.z - z;
       const rr = 1.9 + e.radius;
+      if (!inRise(y, e.position.y, rr)) continue;
       if (dx * dx + dz * dz < rr * rr) {
         this.dealSkillDamage(e, p.rawBase * 0.55, p.element, x, y, z, true);
       }
@@ -811,7 +852,7 @@ export class CombatSystem {
     const radius = 3.1;
     this.vfx.ring(cx, gy, cz, hex, radius + 0.7, 0.55);
     this.vfx.ring(cx, gy, cz, hex, radius * 0.55, 0.38);
-    this.vfx.rise(cx, gy, cz, hex, 30, radius * 0.75, 3.6, 0.85, 0.42, 2.6);
+    this.vfx.rise(cx, gy, cz, hex, 30, radius * 0.75, AOE_COLUMN_H, 0.85, 0.42, 2.6);
     this.vfx.burst(cx, gy + 0.5, cz, hex, 22, 5.5, 0.5, 0.3, -3, 0.8);
     this.vfx.scorch(cx, gy, cz, hex, radius * 0.8);
     this.vfx.flashLight(cx, gy + 1.2, cz, hex, 6.5, 11, 0.32);
@@ -819,6 +860,11 @@ export class CombatSystem {
     const base = this.skillBase(skill, req.attackStat);
     for (const e of this.enemies) {
       if (e.isDead) continue;
+      // A ground eruption reaches as high as it is DRAWN reaching, and no
+      // higher: the ring, the scorch and the column all sit on `gy`, and before
+      // issue #78 the damage went up from there forever. Symmetric, so an enemy
+      // in a dip at the rim is still caught.
+      if (!inRise(gy, e.position.y, AOE_COLUMN_H)) continue;
       const dx = e.position.x - cx;
       const dz = e.position.z - cz;
       const rr = radius + e.radius;

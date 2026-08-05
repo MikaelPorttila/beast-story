@@ -81,6 +81,10 @@ const SOLO = new Set([
   // `bringToFront()` is not the fix: four probes cannot all be the front tab.
   // Drop the talk drive and it may move up.
   'content',
+  // Drives the hero with a pad button, holds him in the air on a 16 ms interval
+  // and asserts on an enemy's hp either side of a swing. Every one of those is a
+  // frame the loop has to run.
+  'proximity',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output
