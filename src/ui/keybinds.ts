@@ -111,6 +111,10 @@ export const CONTROL_SECTIONS: readonly BindSection[] = [
     title: 'keys.section.world',
     rows: [
       { label: 'keys.interact', mode: 'press', codes: ['KeyE'], caps: ['E'], pad: ['interact'] },
+      // View / Create — button 8, the pad's other middle button and the only
+      // face that was unclaimed. See B_SELECT in core/gamepad.ts for why that is
+      // the right one rather than merely the free one.
+      { label: 'keys.inventory', mode: 'press', codes: ['KeyI'], caps: ['I'], pad: ['inventory'] },
       { label: 'keys.cancel', mode: 'press', codes: ['Escape'], caps: ['Esc'], pad: ['menu'] },
       // No pad row for either: every face on a controller is already spoken for
       // by something a player does far more often, and neither of these is worth

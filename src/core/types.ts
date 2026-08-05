@@ -1000,13 +1000,49 @@ export interface WorldBound {
 // Items
 // ---------------------------------------------------------------------------
 /**
- * Two kinds, because the fetch rule only has to tell them apart:
- *   currency   — the shard economy. One running total, always worth picking up.
- *   stackable  — anything you keep a count of in the bag.
- * Deliberately no equipment/consumable/quest kinds yet; add one when something
- * actually behaves differently, not in advance.
+ * WHAT AN ITEM IS FOR, and each kind is here because something BEHAVES
+ * differently on it — that was the rule when there were two, and it is why
+ * there are now seven rather than a taxonomy:
+ *
+ *   currency   — the shard economy. One running total, always worth picking up,
+ *                never in the bag (see `Inventory`).
+ *   stackable  — raw stuff you keep a count of. The support beast's fetch rule
+ *                is written entirely in terms of this one.
+ *   weapon     — goes in the gear slot and moves `Player.attackStat`.
+ *   blueprint  — the forge's input. Carries a power BUDGET rather than a power.
+ *   potion     — has a `use` effect and is consumed by using it.
+ *   quest      — cannot be dropped and cannot be salvaged, which is the whole
+ *                of what makes it a kind: it is the one thing the panel must
+ *                refuse to destroy.
+ *   beast      — a companion, shown in the panel and equipped to a beast slot.
+ *                NOT stored in the bag; see `Inventory`'s note on why.
  */
-export type ItemKind = 'currency' | 'stackable';
+export type ItemKind =
+  | 'currency' | 'stackable' | 'weapon' | 'blueprint' | 'potion' | 'quest' | 'beast';
+
+/**
+ * How loudly a slot shouts. Read by the inventory panel for the slot's border
+ * and by nothing else yet — the issue's "legendary attributes add a small bloom
+ * to the weapon" is the renderer's half of the same field, and lands with the
+ * forge.
+ */
+export type ItemRarity = 'common' | 'rare' | 'legendary';
+
+/**
+ * What using a potion does, as a bag of optional terms rather than a named
+ * effect, because both shipped potions are one term each and a second potion
+ * that heals AND buffs should not need a third enum member.
+ *
+ * `attack`/`seconds` go together: a buff with no duration would be permanent,
+ * which is a different feature.
+ */
+export interface ItemEffect {
+  /** Hit points restored at once. */
+  heal?: number;
+  /** Added to `Player.attackStat` for `seconds`. */
+  attack?: number;
+  seconds?: number;
+}
 
 export interface ItemDef {
   /**
@@ -1024,6 +1060,23 @@ export interface ItemDef {
   kind: ItemKind;
   /** Tint for the dropped mote, its collect burst and the bag chip. */
   color: number;
+  /** One paragraph in the panel's detail pane. Absent = no paragraph. */
+  descriptionKey?: StringKey;
+  rarity?: ItemRarity;
+  /**
+   * A tile in the weapon atlas (see ui/weapon-icons.ts), by name. A STRING
+   * rather than the `WeaponIcon` union on purpose: core/ must not import ui/,
+   * and the panel type-guards it on the way to the DOM.
+   */
+  icon?: string;
+  /** Cubloons a salvage returns. Absent or 0 = the panel offers no salvage. */
+  salvage?: number;
+  /** Added to `Player.attackStat` while this is in the weapon slot. */
+  power?: number;
+  /** A blueprint's ceiling: how much power the forge may spend filling it in. */
+  maxPower?: number;
+  /** What `use` does. Only a potion has one. */
+  effect?: ItemEffect;
 }
 
 /**

@@ -40,6 +40,11 @@ interface Drop {
   grounded: boolean;
   itemId: string;
   claimed: boolean;
+  /**
+   * False for a drop the player THREW AWAY, until they have stepped outside the
+   * magnet radius once. See `spawn`'s `armed` argument.
+   */
+  armed: boolean;
   /** Bumped every time the slot is (re)used, so stale jobs go inert. */
   gen: number;
   job: DropJob;
@@ -130,7 +135,7 @@ export class Pickups {
     const s: Drop = {
       active: false, group, mesh, core, mat, coreMat, glowMat,
       vel: new THREE.Vector3(), age: 0, seed: 0, grounded: false,
-      itemId: SHARD_ID, claimed: false, gen: 0,
+      itemId: SHARD_ID, claimed: false, armed: true, gen: 0,
       job: null as unknown as DropJob,
     };
     s.job = new DropJob(s, (d, byBeast) => this.take(d, byBeast));
@@ -138,9 +143,22 @@ export class Pickups {
     return s;
   }
 
-  /** Launch a drop from a death point with a small celebratory arc. */
-  spawn(x: number, y: number, z: number, itemId: string = SHARD_ID): void {
-    this.spawnSlot(x, y, z, itemId);
+  /**
+   * Put an item on the ground, launched with a small celebratory arc.
+   *
+   * `armed` is false for the one caller that means it — the inventory panel's
+   * Drop — and it is a POSITION rule rather than a timer, which is the only
+   * shape that works. A drop lands at the player's feet, so anything else picks
+   * itself straight back up: a hold-off in seconds merely delays that until the
+   * player has stopped looking, and one long enough to be safe is long enough
+   * that a deliberate second thought no longer works. Unarmed, the drop ignores
+   * the player entirely until they have stepped outside the magnet radius once
+   * — walk away and it is a real drop, change your mind and it is still there
+   * to walk back over. It still expires on the same MAX_AGE clock.
+   */
+  spawn(x: number, y: number, z: number, itemId: string = SHARD_ID, armed = true): void {
+    const s = this.spawnSlot(x, y, z, itemId);
+    if (s) s.armed = armed;
   }
 
   /**
@@ -173,6 +191,7 @@ export class Pickups {
     s.active = true;
     s.grounded = false;
     s.claimed = false;
+    s.armed = true;
     s.gen++;
     s.itemId = def.id;
     s.age = 0;
@@ -200,7 +219,10 @@ export class Pickups {
     let best: Drop | null = null;
     let bd = maxDist * maxDist;
     for (const s of this.pool) {
-      if (!s.active || s.claimed) continue;
+      // An UNARMED drop is one the player has just thrown away and not yet
+      // walked off from: sending a beast to fetch it back is the one errand
+      // that undoes what the player asked for. See `spawn`.
+      if (!s.active || s.claimed || !s.armed) continue;
       // Give the drop a moment to land before anyone is sent after it, or a
       // beast chases a mote that is still arcing through the air.
       if (s.age < 0.5) continue;
@@ -265,13 +287,19 @@ export class Pickups {
       _v.set(magnet.x - pos.x, magnet.y + 0.8 - pos.y, magnet.z - pos.z);
       const d2 = _v.lengthSq();
 
+      // A drop the player threw away arms itself the moment they have walked
+      // out of magnet range of it — see `spawn`. Tested before the two rules
+      // below rather than folded into them, so the arming happens whether the
+      // drop is claimed, grounded or still in the air.
+      if (!s.armed && d2 > MAGNET_RANGE_SQ) s.armed = true;
+
       // A claimed drop belongs to the beast fetching it: no magnet, no walk-over.
-      if (!s.claimed && d2 < COLLECT_DIST_SQ && s.age > 0.3) {
+      if (s.armed && !s.claimed && d2 < COLLECT_DIST_SQ && s.age > 0.3) {
         this.take(s, false);
         continue;
       }
 
-      if (!s.claimed && d2 < MAGNET_RANGE_SQ && s.age > 0.35) {
+      if (s.armed && !s.claimed && d2 < MAGNET_RANGE_SQ && s.age > 0.35) {
         // fly to the player, gravity off
         const d = Math.sqrt(d2);
         _v.divideScalar(Math.max(0.001, d));

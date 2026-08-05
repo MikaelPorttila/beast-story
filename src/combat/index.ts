@@ -9,7 +9,7 @@ import {
   type SkillDef,
   type World,
 } from '../core/types';
-import { SHARD_ID, STACKABLE_IDS, itemDef } from '../core/items';
+import { RARE_DROP_IDS, SHARD_ID, STACKABLE_IDS, itemDef } from '../core/items';
 import { VFX } from './vfx';
 import { DamageNumbers } from './damage-numbers';
 import { elementMultiplier } from './effectiveness';
@@ -297,9 +297,12 @@ export class CombatSystem {
 
   // ----------------------------------------------------------------- drops
 
-  /** Put an item on the ground (enemy loot, and the fetch test hook in main). */
-  spawnDrop(itemId: string, x: number, y: number, z: number): void {
-    this.pickups.spawn(x, y, z, itemId);
+  /**
+   * Put an item on the ground (enemy loot, the inventory's Drop, and the fetch
+   * test hook in main). `armed` false is the inventory's — see `Pickups.spawn`.
+   */
+  spawnDrop(itemId: string, x: number, y: number, z: number, armed = true): void {
+    this.pickups.spawn(x, y, z, itemId, armed);
   }
 
   /**
@@ -805,6 +808,16 @@ export class CombatSystem {
     // orders to ignore. Retune once there is something to spend them on.
     if (Math.random() < 0.25) {
       const id = STACKABLE_IDS[(Math.random() * STACKABLE_IDS.length) | 0];
+      this.pickups.spawn(px, py + 0.6, pz, id);
+    }
+    // The RARE half of the table: a blueprint or a potion, 1-in-25. It is an
+    // order of magnitude rarer than the stackables above and deliberately so —
+    // the support beast will not fetch either (see `worthFetching` in main.ts,
+    // which only ever runs an errand for a stackable), so every one of these is
+    // something the player walked over themselves and noticed doing it. A
+    // weapon is never in here: a weapon is forged or given.
+    if (Math.random() < 0.04) {
+      const id = RARE_DROP_IDS[(Math.random() * RARE_DROP_IDS.length) | 0];
       this.pickups.spawn(px, py + 0.6, pz, id);
     }
     this.removeEnemy(i);

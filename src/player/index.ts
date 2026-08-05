@@ -405,6 +405,24 @@ export class Player {
     this.velocity.set(0, 0, 0);
   }
 
+  /**
+   * Put health back, capped at the maximum. Returns how much actually landed,
+   * so a caller that is spending something can tell a full-health drink from a
+   * useful one.
+   *
+   * It does NOT clear `regenHold`, and that is the interesting half: a hit
+   * holds passive regen off for REGEN_DELAY precisely so trickle cannot fight
+   * incoming damage, and a draught taken mid-fight should not hand that back —
+   * the potion is the burst, the trickle stays suspended. A DEAD hero is not
+   * revived either; that is `reset()`'s business and a different feature.
+   */
+  heal(amount: number): number {
+    if (this.isDead || amount <= 0) return 0;
+    const before = this.hp;
+    this.hp = clamp(this.hp + amount, 0, this.maxHp);
+    return this.hp - before;
+  }
+
   takeDamage(amount: number, from: THREE.Vector3, element?: ElementType): boolean {
     if (this.isDead || this.invulnT > 0) return false;
     this.hp = clamp(this.hp - amount, 0, this.maxHp);

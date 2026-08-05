@@ -200,7 +200,8 @@ once frames come quickly.
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`,
   `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`, `test-content.mjs`,
-  `test-safezone.mjs`, `test-about.mjs`, `test-carrier.mjs`, `test-companion.mjs`.
+  `test-safezone.mjs`, `test-about.mjs`, `test-carrier.mjs`, `test-companion.mjs`,
+  `test-inventory.mjs`.
   `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
@@ -616,8 +617,10 @@ and effect is generated in code. Vite serves two entries from the same modules.
 The exceptions are 2D chrome the renderer never touches and, since issue #42,
 the MUSIC: `src/ui/menu-bg.webp` / `src/ui/menu-logo.webp`, the title screen's
 painting and wordmark; `src/ui/cursors.webp`, the sixteen-state mouse cursor
-sheet (issue #38); and `src/audio/title.webm` / `src/audio/overworld.webm`, the
-two composed tracks. Everything the RENDERER draws is still generated in code,
+sheet (issue #38); `src/ui/weapons.webp`, the ten weapon and blueprint icons the
+inventory draws (issue #74, repacked by `tools/pack-weapon-icons.mjs` and read
+through `background-position` — nothing is sliced at runtime); and
+`src/audio/title.webm` / `src/audio/overworld.webm`, the two composed tracks. Everything the RENDERER draws is still generated in code,
 which is the line that actually matters — a texture, a model or a font
 file is still a no. They are not a crack in the rule: nothing
 the renderer draws comes from a file, and these are a 2D poster shown before the
@@ -1601,6 +1604,97 @@ assuming which slot the hero climbed onto.
 damage numbers, shard pickups and the wild-enemy population, and executes casts by
 switching on `SkillDef.targeting`. A new skill is usually data — a `SkillDef` in a
 species file — not new code.
+
+**Items and the inventory.** [src/core/items.ts](src/core/items.ts) is the
+catalogue and the bag; [src/ui/inventory.ts](src/ui/inventory.ts) is the screen;
+every RULE about what a player may do to a thing they own is in main.ts beside
+the state it governs. Issue #74. `I` opens it (View/Create on a pad, see
+`B_SELECT` in core/gamepad.ts) and it is a MODAL — the hero is frozen while it
+is up, the F1 sheet's bargain — but it RELEASES POINTER LOCK, the shop's, because
+it is a thing you click rather than a thing you read.
+
+**THE PANEL KNOWS NO GAME RULES.** It is handed an `InventoryModel` — rows with a
+name, an icon, some stats and a LIST OF ACTIONS the host is willing to accept —
+and reports which button was pressed on which row. It does not know that a quest
+item cannot be dropped, that unequipping a sword lowers a stat, or that equipping
+a beast pushes another one sideways. That is the split ui/settings.ts already
+draws (the panel owns the screen, the host owns what a click means) and the same
+one content/types.ts argues for with its factories, and the consequence is worth
+stating: adding a RULE is an edit to main.ts, adding a KIND OF ACTION is an edit
+to `InvAction` plus one label, and neither is an edit to the layout.
+
+**THREE THINGS ARE DELIBERATELY NOT IN THE BAG, and each for the same reason —
+a second copy would be a second answer.** CURRENCY is one running total owned by
+combat and spent in main.ts; folding it in would make "do I already hold one of
+these?" answer yes for money, which is the fetch rule's whole question. A BEAST is
+a `BeastActor` in the roster carrying its own level and learned skills, so the
+panel DERIVES a `beast:<species>` row from it (`BEAST_ID_PREFIX`) and the two beast
+gear slots write `primaryIdx`/`supportIdx` — the same two numbers Tab and the
+bracket keys already move. The issue asks for exactly that ("these can be swapped
+when running around in the world... that feature is already implemented"), and the
+way to keep a feature working is to not build a second one beside it. And the
+WEAPON slot is one id in main.ts rather than a flag on an item, because it is a
+fact about the session rather than about any sword.
+
+**A KIND EXISTS BECAUSE SOMETHING BEHAVES DIFFERENTLY ON IT.** That was the rule
+when `ItemKind` had two members and it is why it now has seven rather than a
+taxonomy: `weapon` moves `Player.attackStat`, `blueprint` carries a power BUDGET
+instead of a power, `potion` has an `effect` and is consumed, `quest` is the one
+thing the panel must refuse to destroy, `beast` is roster-derived, `stackable` is
+what the fetch rule is written in terms of, `currency` is the purse. `salvage`,
+`rarity`, `icon` and `descriptionKey` are on `ItemDef` on the same terms — the
+panel reads every one of them.
+
+**`applyLoadout()` IS THE ONLY WRITER OF `attackStat`.** Five things change the
+answer (equip, unequip, a draught, that draught expiring, and Exit to title) and a
+derived value edited at five sites is a derived value that is wrong at one of
+them. `BASE_ATTACK` is read off `Player` once at boot rather than written down;
+`Player.reset()` deliberately does not touch the stat — it is not session state
+from the player controller's point of view — so the reset path calls
+`giveStartingKit()`, which re-equips and recomputes.
+
+**A DROP IS A POSITION RULE, NOT A TIMER.** An item dropped from the panel lands
+at the hero's feet, and armed it magnets straight back into the bag it just left.
+`Pickups.spawn(..., armed=false)` makes it ignore the player until they have
+stepped outside `MAGNET_RANGE` once — walk away and it is a real drop, change your
+mind and it is still there to walk back over. A hold-off in SECONDS is the obvious
+alternative and cannot work: short enough to allow a second thought is short
+enough to pick itself up, and long enough to be safe is long enough that changing
+your mind no longer works. `findJob` skips unarmed drops too, or the support beast
+fetches back the thing you just threw away.
+
+**THE SUPPORT BEAST ONLY EVER FETCHES A STACKABLE.** `worthFetching` used to read
+"currency, or anything you already hold", which was the same set when the only
+non-currency items were sunberries. It is not now, and the HUD's chip row is the
+readout for exactly this rule — a chip is up precisely when the beast will fetch
+more of that kind — so weapons and blueprints are off both. Every rare drop is
+therefore something the player walked over themselves, which is also what makes
+the 1-in-25 in `killEnemy` mean something.
+
+**THE FORGE IS NOT BUILT.** Blueprints are collectable, inspectable and carry
+their `maxPower`; the Forge button says what it is waiting for, which is a better
+answer than an item with nothing to do at all. When it lands, "some legendary
+attributes might add a small bloom to the weapon" is the renderer's half of
+`ItemRarity` — the field is already read by the panel's slot edge.
+
+**A QUEST ITEM'S ONLY SOURCE IS CONTENT.** `item.give`
+(`{ "do": "item.give", "item": "gain-token", "count": 1 }`) is registered in
+main.ts above `bootstrapContent` — the cross-asset pass reports an action no
+`defineAction` registered, so a later registration is a handler the validator
+never saw. It is the seam a dialogue turn-in lands on, and no shipped content
+uses it yet. `/give` reaches the same code from the console.
+
+`tools/test-inventory.mjs` is the guard and it exits non-zero. Every claim in it
+is about a number the SCREEN CANNOT SHOW — an icon in the weapon slot looks
+identical whether or not equipping it did anything, so equipping is asserted on
+`attackStat` (14 -> 18 -> 14); a dropped item looks identical to a deleted one, so
+Drop is asserted on the thing being on the ground a second and a half later. Three
+sections are PAIRS for the usual reason: `I` opens it AND the hero travels 0 with
+it up against 6.27 with it down, salvage removes the stack AND pays the
+blueprint's 3, drop removes the stack AND leaves a mote that does not come back.
+The quest item is the CONTROL — it is asked to drop and to salvage through the
+handler rather than through the panel, because a refusal that lives only in which
+buttons were drawn is a panel bug away from deleting someone's quest.
 
 **UI and input.** The HUD is a DOM overlay ([src/ui/index.ts](src/ui/index.ts),
 styles injected by `src/ui/styles.ts`), not canvas-drawn. Class names are `bs-*`

@@ -47,7 +47,12 @@ const CSS = `
 }
 .bs-root *{box-sizing:border-box;margin:0;padding:0}
 .bs-root svg{display:block}
-.bs-root kbd{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
+/* .bs-inv is on the selector because the inventory panel is a sibling of the
+   HUD root rather than a child of it (see ui/inventory.ts) and its footer prints
+   the same caps. One rule with two hosts rather than a second copy of the
+   arithmetic below — a keycap that is 16px in one panel and 13.75px in another
+   is exactly the drift issue #17 is about. */
+.bs-root kbd,.bs-inv kbd{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
   border-bottom-width:2px;border-radius:5px;padding:0 6px;font:inherit;font-weight:700;
   /* A cap is a QUIET fraction of the sentence it sits in — .86em — right up
      until the sentence is itself at the floor, at which point the fraction is
@@ -572,6 +577,156 @@ const CSS = `
   text-transform:uppercase;color:rgba(238,242,248,.42)}
 .bs-keys-foot{border-top:1px solid rgba(255,255,255,.1);padding:11px 20px;text-align:center;
   font-size:16px;font-weight:600;color:rgba(238,242,248,.7)}
+
+/* ---- inventory (I) ------------------------------------------------------ */
+/* src/ui/inventory.ts. It wears the HUD's glass rather than the pause menu's
+   wood, because it is a view of things you own in the world rather than of the
+   session — the same line ui/pause.ts's header draws — so it reuses .bs-scrim,
+   .bs-glass, .bs-shop-x, .bs-chip and .bs-buy outright.
+
+   z-index 40, alongside .bs-pause: over the HUD (20) and the touch overlay (30),
+   under the title screen (50). The two are never up together (main.ts's cancel
+   rule closes the topmost thing), so they do not need to be ordered against each
+   other.
+
+   HEIGHT IS MEASURED IN --bs-vh, NOT dvh, for issue #16's reason: on a phone in
+   fullscreen those disagreed by 110 px and the difference lands as controls
+   below the bottom of the screen. See core/viewport.ts.
+
+   THE GRID SCROLLS AND THE PANEL DOES NOT. A slot wall is the one part of this
+   that has no natural length — the detail pane beside it is four short blocks
+   and the gear row is exactly three — so the whole panel scrolling would move
+   the Salvage button under the player's cursor every time they picked up a
+   flower. min-height:0 on the body is what makes that work inside a flex
+   column, and is the usual invisible reason a nested scroller does not. */
+.bs-inv{position:fixed;inset:0;z-index:40;display:grid;place-items:center;
+  pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:#eef2f8;user-select:none;-webkit-user-select:none}
+.bs-inv .bs-scrim{opacity:0}
+.bs-inv.open .bs-scrim{opacity:1}
+.bs-inv .pane{position:relative;width:min(1040px,94vw);
+  max-height:calc(var(--bs-vh, 100dvh) * .88);display:flex;flex-direction:column;
+  border-radius:20px;opacity:0;transform:translateY(16px) scale(.96);
+  transition:opacity .28s ease,transform .32s cubic-bezier(.34,1.45,.64,1);
+  box-shadow:0 24px 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1)}
+.bs-inv.open .pane{opacity:1;transform:translateY(0) scale(1)}
+.bs-inv .head{display:flex;align-items:center;gap:14px;padding:16px 20px 14px;
+  border-bottom:1px solid rgba(255,255,255,.1)}
+.bs-inv .head h2{font-size:22px;font-weight:900;letter-spacing:.04em;flex:1;
+  text-shadow:0 1px 3px rgba(0,0,0,.5)}
+
+/* The three gear slots. A filled one is a button that SELECTS what is in it, so
+   a player who wants a different weapon starts from the weapon they have. */
+.bs-inv .gear{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:12px 20px;border-bottom:1px solid rgba(255,255,255,.08)}
+.bs-inv .gear .gl{font-size:16px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:rgba(238,242,248,.45);margin-right:2px}
+.bs-inv .gs{display:flex;align-items:center;gap:9px;padding:7px 13px 7px 8px;border-radius:12px;
+  border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);
+  font-family:inherit;color:inherit;text-align:left;min-width:172px}
+.bs-inv .gs.full{cursor:pointer;border-color:var(--el);background:rgba(255,255,255,.08);
+  box-shadow:0 0 18px -8px var(--el);transition:transform .14s ease,box-shadow .2s ease}
+.bs-inv .gs.full:hover{transform:translateY(-1px);box-shadow:0 0 20px -5px var(--el)}
+.bs-inv .gs-ic{width:38px;height:38px;flex:none;display:grid;place-items:center}
+.bs-inv .gs-t{display:flex;flex-direction:column;min-width:0}
+.bs-inv .gs-t b{font-size:16px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+  color:rgba(238,242,248,.5)}
+.bs-inv .gs-t span{font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;max-width:200px}
+
+/* The filter strip. One control (roving tabindex) — see ui/settings.ts, whose
+   strips this copies the behaviour of but not the markup: those are settings
+   rows in a wooden panel and these are chips on glass. */
+.bs-inv .tabs{display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px 0}
+.bs-inv .chip{padding:5px 13px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.05);color:rgba(238,242,248,.72);font-family:inherit;
+  font-size:16px;font-weight:700;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.bs-inv .chip:hover{background:rgba(255,255,255,.12);color:#fff}
+.bs-inv .chip.on{background:rgba(105,217,255,.16);border-color:rgba(105,217,255,.5);color:#dff5ff}
+
+/* minmax(0,1fr) and not 1fr. A grid item's automatic minimum size is its
+   CONTENT, so a plain 1fr refuses to shrink below six slots' worth of icon and
+   the wall runs on underneath the detail pane — captured, the sixth column was
+   sliced in half by it. Same reason .grid carries min-width:0 below. */
+.bs-inv .body{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;
+  padding:14px 20px 16px;min-height:0;flex:1}
+/* THE COLUMN COUNT COMES FROM INV_COLS, through --cols set on this element
+   by the markup, and it is deliberately the same at every width. The keyboard's
+   up/down steps by INV_COLS to mean "the row below", so a media query that
+   narrowed the grid to four would leave arrow-down skipping two slots on a
+   phone and nothing would fail — it would just be wrong. auto-fill is out for
+   the same reason: the panel would have to measure to know its own layout. What
+   gives on a narrow screen is the panel around the wall, not the wall. */
+.bs-inv .grid{display:grid;grid-template-columns:repeat(var(--cols,6),minmax(0,1fr));gap:10px;
+  align-content:start;overflow-y:auto;min-height:0;min-width:0;padding-right:4px;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
+.bs-inv .grid .empty{grid-column:1/-1;font-size:16px;color:rgba(238,242,248,.5);padding:18px 2px}
+.bs-inv .slot{position:relative;aspect-ratio:1;border-radius:13px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  padding:6px 4px;font-family:inherit;color:inherit;
+  border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);
+  transition:transform .14s ease,border-color .18s ease,box-shadow .2s ease}
+.bs-inv .slot:hover{transform:translateY(-2px);border-color:var(--el);
+  box-shadow:0 8px 20px rgba(0,0,0,.35),0 0 16px -6px var(--el)}
+/* The selection ring is an outline rather than a border so it cannot change the
+   slot's box and reflow the wall as the cursor walks it. */
+.bs-inv .slot.sel{outline:2px solid #69d9ff;outline-offset:-2px;background:rgba(105,217,255,.1)}
+.bs-inv .slot:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
+/* Rarity is the slot's EDGE, not its fill: a legendary item still has to read as
+   the same kind of box as the one beside it. */
+.bs-inv .slot.r-rare{border-color:rgba(105,217,255,.45)}
+.bs-inv .slot.r-legendary{border-color:rgba(255,190,80,.6);
+  box-shadow:inset 0 0 22px -10px rgba(255,190,80,.9)}
+/* Equipped: a corner tick of the accent colour, which survives every rarity
+   border above it because it is a separate corner. */
+.bs-inv .slot.on::after{content:'';position:absolute;top:5px;right:5px;width:8px;height:8px;
+  border-radius:50%;background:#8fe06b;box-shadow:0 0 8px rgba(143,224,107,.9)}
+.bs-inv .ic{width:100%;height:100%;display:block}
+.bs-inv .slot .ic{flex:1;min-height:0;width:76%}
+.bs-inv .ic.blob{background:radial-gradient(circle at 38% 32%,#fff2,transparent 60%),var(--el);
+  border-radius:26% 26% 30% 30%/30%;box-shadow:0 0 14px -4px var(--el);width:56%;
+  align-self:center;margin:auto}
+.bs-inv .slot .nm{font-size:16px;font-weight:700;line-height:1.1;text-align:center;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:rgba(238,242,248,.85)}
+/* TOP-left, not bottom-left. The name is centred on the slot's bottom edge and
+   a count sitting beside it read as part of the word — captured, a stack of
+   three Draughts of Fury printed "3raughts ...". The top-right corner is the
+   equipped dot's, so the free corner is this one. */
+.bs-inv .slot .n{position:absolute;top:4px;left:7px;font-size:16px;font-weight:800;
+  font-variant-numeric:tabular-nums;color:#fff;text-shadow:0 1px 3px #000,0 0 6px #000}
+
+.bs-inv .detail{border-radius:14px;padding:14px;overflow-y:auto;min-height:0;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
+.bs-inv .detail .pick{font-size:16px;color:rgba(238,242,248,.55);line-height:1.5}
+.bs-inv .dh{display:flex;align-items:center;gap:11px;margin-bottom:10px}
+.bs-inv .dic{width:62px;height:62px;flex:none;border-radius:12px;display:grid;place-items:center;
+  background:rgba(255,255,255,.06);border:1px solid var(--el);padding:5px;
+  box-shadow:0 0 22px -10px var(--el)}
+.bs-inv .dh h3{font-size:19px;font-weight:800;line-height:1.2}
+.bs-inv .rar{display:inline-block;margin-top:3px;font-size:16px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;color:rgba(238,242,248,.55)}
+.bs-inv .rar.r-rare{color:#7fd8ff}
+.bs-inv .rar.r-legendary{color:#ffc44d;text-shadow:0 0 12px rgba(255,196,77,.5)}
+.bs-inv .detail p{font-size:16px;line-height:1.45;color:rgba(238,242,248,.78);margin-bottom:10px}
+.bs-inv .detail .note{font-size:16px;color:rgba(238,242,248,.5);font-style:italic;margin:8px 0 0}
+.bs-inv .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.bs-inv .acts .bs-buy{flex:1 1 44%;min-width:120px}
+/* A secondary action is the same button with the gold taken out of it, so the
+   one thing the player came to press is the only warm thing in the column. */
+.bs-inv .acts .bs-buy.ghost{background:rgba(255,255,255,.09);color:#eef2f8;
+  border:1px solid rgba(255,255,255,.16);box-shadow:none}
+.bs-inv .acts .bs-buy.ghost:hover{background:rgba(255,255,255,.16)}
+.bs-inv .acts .bs-buy.danger{background:rgba(255,90,80,.12);color:#ff9d95;
+  border:1px solid rgba(255,90,80,.34);box-shadow:none}
+.bs-inv .acts .bs-buy.danger:hover{background:rgba(255,90,80,.24);color:#fff}
+.bs-inv .foot{border-top:1px solid rgba(255,255,255,.1);padding:11px 20px;text-align:center;
+  font-size:16px;font-weight:600;color:rgba(238,242,248,.7)}
+@media (prefers-reduced-motion:reduce){
+  .bs-inv .bs-scrim,.bs-inv .pane,.bs-inv .slot{transition:none}
+}
 
 /* ---- in-game menu (Escape / Start / the touch overlay's MENU) ------------ */
 /* src/ui/pause.ts. It borrows the TITLE SCREEN's controls rather than the HUD's
@@ -1313,6 +1468,14 @@ const CSS = `
      padding wants 960px of content box, which a 900px window no longer has. */
   .bs-keys{width:min(94vw,620px)}
   .bs-keys-body{grid-template-columns:1fr}
+  /* The detail pane goes UNDER the wall rather than beside it: 320px of pane
+     plus six slots wants ~900px of content box, and below that the slots were
+     narrower than the words in them. The COLUMN COUNT does not change with it —
+     see the note on the .grid rule; what gives is the layout around it, and the
+     body becomes the scroller so the detail is always reachable. */
+  .bs-inv .pane{width:min(94vw,720px)}
+  .bs-inv .body{grid-template-columns:1fr;overflow-y:auto}
+  .bs-inv .grid{overflow:visible;min-height:auto}
 }
 
 /* Phone: the touch overlay owns the bottom corners, so the HUD moves out of
@@ -1397,6 +1560,30 @@ const CSS = `
   .bs-keyrow{grid-template-columns:minmax(0,1fr) 98px 90px 62px;font-size:16px;padding:4px 6px}
   .bs-keyrow.head .nm{font-size:16px}
   .bs-keyrow .nm em{display:none}
+  /* INVENTORY ON A PHONE. Same six columns (see the .grid rule), same 16px type
+     — what is cut is everything that is not a word, which is this block's rule.
+     A slot at 96vw/6 is ~55px, so the NAME under the icon goes: at that width it
+     was one or two ellipsed characters, which is noise rather than a label. The
+     picture, the count and the rarity edge still identify it, tapping it fills
+     the detail pane with the name in full, and that pane is now the whole width
+     of the panel rather than a 320px column. */
+  .bs-inv .pane{width:96vw;max-height:calc(var(--bs-vh, 100dvh) * .9)}
+  .bs-inv .head{padding:12px 14px 10px}
+  .bs-inv .gear{padding:9px 14px;gap:7px}
+  .bs-inv .gs{min-width:0;flex:1 1 46%;padding:5px 9px 5px 6px;gap:7px}
+  .bs-inv .gs-ic{width:30px;height:30px}
+  .bs-inv .gs-t span{max-width:32vw}
+  .bs-inv .tabs{padding:9px 14px 0;gap:5px}
+  .bs-inv .chip{padding:4px 10px 5px}
+  .bs-inv .body{padding:11px 14px 12px;gap:11px}
+  .bs-inv .grid{gap:6px}
+  .bs-inv .slot{border-radius:10px;padding:4px 2px}
+  .bs-inv .slot .nm{display:none}
+  .bs-inv .slot .ic{width:84%}
+  .bs-inv .dic{width:52px;height:52px}
+  .bs-inv .acts .bs-buy{flex:1 1 100%}
+  /* No footer: it names I and Esc, and a phone has neither. */
+  .bs-inv .foot{display:none}
   /* Toasts: one at a time (see HUD.addToast), clear of the control clusters,
      and clamped to two short lines so a long instruction string can never grow
      into a screen-eating panel. */
