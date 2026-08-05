@@ -90,6 +90,20 @@ export class Input {
    */
   private lockWanted = false;
   /**
+   * Whether this window currently has the keyboard, tracked rather than asked.
+   *
+   * `document.hasFocus()` alone is not enough to tell an Escape from an alt-tab:
+   * the two events that arrive on a focus loss — `blur` and `pointerlockchange`
+   * — are dispatched by different parts of the browser, and nothing in either
+   * spec fixes their order, so a `pointerlockchange` that lands first reads a
+   * document that still holds focus. This latch closes that window from the
+   * other side: it is false from the `blur` and stays false until `focus`, so
+   * whichever of the two arrives first, one of the pair says "not focused".
+   *
+   * Seeded from `hasFocus()` because a page can boot in a background tab.
+   */
+  private focused = typeof document === 'undefined' || document.hasFocus();
+  /**
    * The browser took the pointer while the game still wanted it.
    *
    * There is exactly one thing a player does that causes this, and it is the
@@ -102,7 +116,13 @@ export class Input {
    * is not dropped; where it is not — Brave nulls `navigator.keyboard` outright
    * — this is the only evidence the page gets that the key was pressed.
    *
-   * An alt-tab reaches this too, and pausing there is the right answer anyway.
+   * NOT RAISED WHEN THE WINDOW LOST FOCUS, which is issue #79. The browser drops
+   * the lock on an alt-tab, on a click into another window and on a
+   * notification stealing focus, and every one of those arrived here looking
+   * exactly like Escape — so the game paused itself behind the player's back and
+   * they came back to a menu they never opened. Losing focus is not a request
+   * for anything: the world keeps running and the hero keeps standing where he
+   * was, and if the player wants the menu the key is still there. See `focused`.
    */
   onLockLost: (() => void) | null = null;
   attackHeld = false;
@@ -184,7 +204,9 @@ export class Input {
       this.press(e.code);
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('focus', () => { this.focused = true; });
     window.addEventListener('blur', () => {
+      this.focused = false;
       this.keys.clear();
       this.virtualHeld.clear();
       this.attackHeld = false;
@@ -219,8 +241,13 @@ export class Input {
       // while `lockWanted` still stands was taken by the BROWSER, and Escape is
       // how a player takes it. See `onLockLost`.
       if (had && !this.pointerLocked && this.lockWanted) {
+        // The intent is dropped either way: the pointer is gone, and the next
+        // click is what asks for it back. Only the NOTIFICATION is conditional.
         this.lockWanted = false;
-        this.onLockLost?.();
+        // ...unless the window lost focus, in which case the browser took the
+        // lock because it was taking everything, and nothing was pressed. See
+        // `focused` for why both halves are read.
+        if (this.focused && document.hasFocus()) this.onLockLost?.();
       }
     });
     window.addEventListener('mousemove', (e) => {
