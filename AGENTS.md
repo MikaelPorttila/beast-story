@@ -162,6 +162,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | People | `world/npc.ts` + a file per body | `test-npc`, `test-zfight` (carried-frame NPCs have no behavioural guard) |
 | Beasts | `beasts/framework.ts`, `beasts/registry.ts`, `beasts/species/*` | `test-zfight`, `test-beastanim`, `test-companion` |
 | Combat, enemies, drops | `combat/index.ts`, `combat/enemies.ts`, `combat/pickups.ts` | `test-safezone`, `test-aim-assist`, `test-inventory` |
+| "Is the player close?" | `inReach` / `inRise` in `core/types.ts`, and every caller | `test-proximity` |
 | Hero, camera, mount, weapons | `player/*` | `test-dive`, `test-structures`, `test-inventory`, `test-npc` |
 | Input devices | `core/input.ts`, `core/gamepad.ts`, `core/touch.ts` | `test-touch`, `test-gamepad` |
 | HUD, menus, panels | `ui/*` (DOM overlay, `bs-*` class names) | `test-menu`, `test-pause`, `test-textsize`, `test-viewport`, `test-cursor` |
@@ -187,6 +188,11 @@ Cross-cutting rules:
   module constant.
 - **Register content actions and factories above `bootstrapContent()`**, or the
   cross-asset pass reports them as unknown.
+- **Ask "is it close?" with `inReach` / `inRise`** (`core/types.ts`) — a radius
+  AND a height band, never `dx² + dz²` alone, which is an infinite vertical
+  column and reacts to a hero flying over it. Give the band its own number with
+  its own rationale; a plain 3D distance is only right for something with no
+  footprint (a projectile, a beam).
 
 ## UI and input
 

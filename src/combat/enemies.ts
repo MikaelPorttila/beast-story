@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { VoxelModel, shade } from '../core/voxel';
-import { MAX_STEP_UP } from '../core/types';
+import { MAX_STEP_UP, inRise } from '../core/types';
 import { CarrierRide } from '../world/carriers';
 import type { Damageable, ElementType, World } from '../core/types';
 import type { StringKey } from '../i18n';
@@ -283,6 +283,12 @@ function buildPeckit(root: THREE.Group, v: Variant): Record<string, THREE.Object
  * feet. Both `position.y` values compared are feet (an enemy is pinned to
  * `world.getHeight`, the hero's origin is his soles), so these are feet-to-feet.
  *
+ * EXPORTED because the HERO's sword is a ground melee attack too, and it kept
+ * the column these caps removed until issue #78 — he could stand on a cliff and
+ * mow the valley. Both directions of the same swing answer to one pair of
+ * numbers (see `meleeArc` in combat/index.ts); a second copy would drift, and
+ * the drift is silent in both directions.
+ *
  * Why this exists at all: every ground strike below used to test
  * `dx*dx + dz*dz` only — an infinite vertical column. That was invisible while
  * the world was a gentle heightfield and everything stood at roughly the same
@@ -325,8 +331,8 @@ function buildPeckit(root: THREE.Group, v: Variant): Record<string, THREE.Object
  * The enemy kept its target through the whole climb trace — it waits at the
  * foot of the tree rather than losing interest. See retarget().
  */
-const MELEE_UP_REACH = 1.5;
-const MELEE_DOWN_REACH = 2.5;
+export const MELEE_UP_REACH = 1.5;
+export const MELEE_DOWN_REACH = 2.5;
 
 // ---------------------------------------------------------------------------
 // Enemy
@@ -555,8 +561,7 @@ export class Enemy implements Damageable {
    * attacker rather than the infinite column the code used to have.
    */
   private inMeleeHeight(t: Damageable): boolean {
-    const dy = t.position.y - this.position.y;
-    return dy <= MELEE_UP_REACH && dy >= -MELEE_DOWN_REACH;
+    return inRise(this.position.y, t.position.y, MELEE_UP_REACH, MELEE_DOWN_REACH);
   }
 
   private faceToward(x: number, z: number, dt: number, rate: number): void {

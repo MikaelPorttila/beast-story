@@ -204,6 +204,57 @@ export interface BeastSpecies {
 export const MAX_STEP_UP = 0.5;
 
 // ---------------------------------------------------------------------------
+// Proximity
+// ---------------------------------------------------------------------------
+/**
+ * "Is B close enough to A" — the ONE answer, for every feature that asks.
+ *
+ * A CYLINDER: a horizontal radius plus a vertical band. Issue #78 is what
+ * happens without the band — every check in the game measured `dx² + dz²` and
+ * nothing else, which is not a sphere flattened for speed, it is an INFINITE
+ * VERTICAL COLUMN. A hero sixty units up on a galebird was still "standing on"
+ * the zone gateway, so the portal armed, counted its dwell out and pulled him
+ * through the floor of the sky. The same column let his sword reach a Gloopling
+ * at the foot of the cliff he was standing on.
+ *
+ * A cylinder rather than a sphere because the two questions are genuinely
+ * different — "did you come over to it" and "are you at its level" — and folding
+ * them into one radius would quietly shorten every reach on every slope, for a
+ * defect nobody reported. That is the argument NPC_TALK_RISE (world/npc.ts) made
+ * first, in the one place that already had a height gate; this is that rule
+ * lifted out to where the rest of the game can reach it.
+ *
+ * `up` and `down` are separate because the world is not symmetric about the
+ * hero: a jump, a hover and a step already lift bodies APART on level ground,
+ * while being reached from a ledge above reads as fair where being bitten from
+ * eight units below does not. Callers that have no reason to distinguish pass
+ * one number and get a symmetric band.
+ *
+ * Squared internally, no allocation, safe on an update path.
+ */
+export function inReach(
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  radius: number, up: number, down = up,
+): boolean {
+  const dy = by - ay;
+  if (dy > up || dy < -down) return false;
+  const dx = bx - ax;
+  const dz = bz - az;
+  return dx * dx + dz * dz <= radius * radius;
+}
+
+/**
+ * The vertical half of `inReach` alone, for a caller that already has the
+ * horizontal answer in hand (a radius that varies per target, or a band it
+ * measures once and reuses across several radii).
+ */
+export function inRise(ay: number, by: number, up: number, down = up): boolean {
+  const dy = by - ay;
+  return dy <= up && dy >= -down;
+}
+
+// ---------------------------------------------------------------------------
 // World
 // ---------------------------------------------------------------------------
 /**

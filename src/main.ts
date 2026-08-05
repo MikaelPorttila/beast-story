@@ -11,7 +11,7 @@ import { GamepadControls, type LookAxes } from './core/gamepad';
 import { FeedbackSystem } from './feedback';
 import { loadPrefs, savePrefs } from './core/prefs';
 import {
-  EventBus, ELEMENT_COLORS, LOCOMOTION_NAME_KEYS,
+  EventBus, ELEMENT_COLORS, inReach, LOCOMOTION_NAME_KEYS,
   type CrownContact, type NpcInfo, type SkillDef, type Damageable,
   type ItemDef, type TownInfo, type World, type WorldBound,
 } from './core/types';
@@ -53,7 +53,7 @@ import { Player } from './player/index';
 import { MountController } from './player/mount';
 import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem, SWORD_REACH } from './combat/index';
-import { enemySpecies } from './combat/enemies';
+import { enemySpecies, MELEE_UP_REACH, MELEE_DOWN_REACH } from './combat/enemies';
 import {
   HUD, type BeastHudInfo, type CompassMarker, type ShopOffer, type SkillSlot,
 } from './ui/index';
@@ -842,7 +842,7 @@ player.takeStartPose();
  */
 player.onAttack = (origin, dir) => {
   if (player.weapon === 'bow') combat.arrowStrike(origin, dir, player.attackStat);
-  else combat.meleeStrike(origin, dir, player.attackStat);
+  else combat.meleeStrike(origin, dir, player.attackStat, player.position.y);
 };
 
 /**
@@ -883,7 +883,9 @@ const _aimDir = new THREE.Vector3();
 player.aimAssist = (origin, dir) => {
   if (!flags.aimAssist) return false;
   engine.camera.getWorldDirection(_aimDir);
-  const target = combat.bestMeleeTarget(origin, _aimDir, SWORD_REACH, AIM_ASSIST_CONE_COS);
+  const target = combat.bestMeleeTarget(
+    origin, _aimDir, SWORD_REACH, AIM_ASSIST_CONE_COS, player.position.y,
+  );
   if (!target) return false;
   const dx = target.position.x - origin.x;
   const dz = target.position.z - origin.z;
@@ -2173,8 +2175,14 @@ const _hurtFrom = new THREE.Vector3();
   engine.camera.getWorldDirection(_aimDir);
   _dbgStrike.copy(player.position);
   _dbgStrike.y += 1.25;
-  const target = combat.bestMeleeTarget(_dbgStrike, _aimDir, SWORD_REACH, AIM_ASSIST_CONE_COS);
-  const inReach = combat.bestMeleeTarget(_dbgStrike, _aimDir, SWORD_REACH, -1);
+  const target = combat.bestMeleeTarget(
+    _dbgStrike, _aimDir, SWORD_REACH, AIM_ASSIST_CONE_COS, player.position.y,
+  );
+  // Named `reachable` because `inReach` is the shared proximity rule imported at
+  // the top of this file; the REPORTED field keeps the name tools already read.
+  const reachable = combat.bestMeleeTarget(
+    _dbgStrike, _aimDir, SWORD_REACH, -1, player.position.y,
+  );
   const deg = (r: number): number => +((r * 180) / Math.PI).toFixed(2);
   const bearing = (dx: number, dz: number): number => Math.atan2(dx, dz);
   const aim = bearing(_aimDir.x, _aimDir.z);
@@ -2190,6 +2198,9 @@ const _hurtFrom = new THREE.Vector3();
     return {
       x: +e.position.x.toFixed(2), z: +e.position.z.toFixed(2),
       distance: +Math.hypot(dx, dz).toFixed(2),
+      // Feet to feet, the axis the selection is now gated on — a target the
+      // probe can see at `distance` 1.5 and `rise` 6 is the bug in issue #78.
+      rise: +(e.position.y - player.position.y).toFixed(2),
       angleFromCrosshair: deg(Math.abs(shortest(bearing(dx, dz) - aim))),
       turn: deg(Math.abs(shortest(
         bearing(dx, dz) - bearing(player.forward.x, player.forward.z),
@@ -2200,8 +2211,10 @@ const _hurtFrom = new THREE.Vector3();
     enabled: flags.aimAssist,
     coneDeg: deg(Math.acos(AIM_ASSIST_CONE_COS)),
     reach: SWORD_REACH,
+    up: MELEE_UP_REACH,
+    down: MELEE_DOWN_REACH,
     target: describe(target),
-    inReach: describe(inReach),
+    inReach: describe(reachable),
   };
 };
 /** Scratch for `__dbgAimAssist`'s strike point. */
@@ -3115,6 +3128,21 @@ function warmUpShaders(): void {
   for (const _ of warmUpSteps()) { /* every step, one task */ }
 }
 
+/**
+ * How close to a skill den's marker you have to be for its prompt, and how far
+ * above or below it that still counts.
+ *
+ * 3.5 is unchanged and is the number NPC_TALK_RANGE was tuned against — a den is
+ * a building you stand in front of. The RISE is issue #78's half: the test was a
+ * true `distanceTo`, so it was already the only proximity check in the game that
+ * could not be fooled from the air, but a sphere shortens the horizontal reach
+ * on sloping ground for no reason anyone asked for. Same cylinder as everything
+ * else now, and the height is NPC_TALK_RISE's 2.5 because it is the same
+ * question about the same hero — a hop and a hovering mount are in, a climb is
+ * out.
+ */
+const SHOP_RANGE = 3.5;
+const SHOP_RISE = 2.5;
 /** Set by the shop-proximity test, read by the hint decision after the zone update. */
 let nearShop = false;
 /** The NPC in talk range this slice, or null. Same contract as `nearShop`. */
@@ -3354,7 +3382,11 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // Shop proximity. The prompt itself is decided after the zone update below,
     // because a gateway prompt has to win: both are "you are standing on
     // something", and the gateway is the one with a countdown running.
-    nearShop = world.shopPositions.some((s) => s.distanceTo(player.position) < 3.5);
+    nearShop = world.shopPositions.some((s) => inReach(
+      s.x, s.y, s.z,
+      player.position.x, player.position.y, player.position.z,
+      SHOP_RANGE, SHOP_RISE,
+    ));
 
     // People. `E` talks, exactly like `E` opens a den, and the two can never
     // both be in range — a den is never sited inside a town (see placeShops) —

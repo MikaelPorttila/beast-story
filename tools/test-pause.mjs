@@ -299,6 +299,77 @@ const lockLost = {};
 }
 
 // ---------------------------------------------------------------------------
+// Arm 1c: A WINDOW THAT LOST FOCUS ASKED FOR NOTHING — issue #79
+//
+// The browser drops pointer lock on an alt-tab, on a click into another window
+// and on a notification stealing focus, and every one of those arrived at
+// `onLockLost` looking exactly like the Escape of arm 1b: the game paused itself
+// behind the player's back, and they came back to a menu they never opened and
+// a hero who had stopped moving. Both halves of the report are measured here —
+// no menu, and the world still runs.
+//
+// DRIVEN AS THE TWO EVENTS THE BROWSER SENDS, in both orders, because the order
+// is the hazard. Nothing in either spec fixes whether `blur` or
+// `pointerlockchange` lands first, so `Input` reads two things and the two arms
+// below defeat one each:
+//
+//   blur first  — dispatch the real `blur` event, then drop the lock. Only the
+//                 latch says anything; `document.hasFocus()` is still true.
+//   lock first  — stub `hasFocus()` to false with the latch left standing. Only
+//                 the live read says anything.
+//
+// Neither can be driven by taking focus away for real: a background page still
+// answers `evaluate`, but CDP has no reliable "this window is not the active
+// one" for a headless run, and a probe that silently degrades to "focus never
+// went anywhere" is a probe that passes against the bug.
+//
+// THE CONTROL IS AT THE END and is not optional: a lock taken with focus held
+// must still raise the menu, or this whole arm passes against a build with the
+// hook simply deleted — which is arm 1b's feature.
+// ---------------------------------------------------------------------------
+const unfocused = {};
+if (lockLost.locked) {
+  const page = await open('fps=30&menu=0&fs=0');
+  const relock = async () => {
+    await page.mouse.click(550, 350);
+    await wait(400);
+    return page.evaluate(() => document.pointerLockElement !== null);
+  };
+  unfocused.locked = await relock();
+
+  // 1. blur, then the lock — the alt-tab, in the order a browser sends it.
+  await page.evaluate(() => {
+    window.dispatchEvent(new FocusEvent('blur'));
+    document.exitPointerLock();
+  });
+  await wait(600);
+  unfocused.menuAfterBlur = await has(page, '.bs-pause');
+  // AND NOTHING PAUSED. `walk` re-aims and holds W, so this is the same
+  // measurement `travelWithMenuUp` makes and the opposite expectation.
+  unfocused.travelAfterBlur = await walk(page);
+
+  // 2. the lock, then the blur — the same loss with the events transposed.
+  await page.evaluate(() => window.dispatchEvent(new FocusEvent('focus')));
+  unfocused.relocked = await relock();
+  await page.evaluate(() => {
+    // An own property shadowing Document.prototype.hasFocus, so the `delete`
+    // below puts the real one back rather than leaving a liar on the page.
+    document.hasFocus = () => false;
+    document.exitPointerLock();
+  });
+  await wait(600);
+  unfocused.menuAfterLockFirst = await has(page, '.bs-pause');
+  await page.evaluate(() => { delete document.hasFocus; });
+
+  // 3. THE CONTROL: focus never went anywhere, so this one is Escape.
+  unfocused.relockedForControl = await relock();
+  await page.evaluate(() => document.exitPointerLock());
+  await wait(600);
+  unfocused.menuWithFocusHeld = await has(page, '.bs-pause');
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
 // Arm 2: START, ON A PAD, COUNTED ONCE
 //
 // The assertion this file exists for most, because it is the failure a player
@@ -523,8 +594,29 @@ if (lockLost.locked) {
   check(lockLost.menuWhileAltHeld === false,
     'holding Alt frees the cursor WITHOUT raising the menu');
   check(lockLost.relockedAfterAlt, 'and releasing Alt takes the pointer back');
+
+  // Issue #79. Skipped along with 1b, and for the same reason.
+  check(unfocused.locked && unfocused.relocked && unfocused.relockedForControl,
+    'arm 1c could not take the pointer for one of its three rounds');
+  check(unfocused.menuAfterBlur === false,
+    'losing window focus raised the in-game menu — an alt-tab is not an Escape');
+  // A LOOSER BOUND THAN THE `> 4` EVERY OTHER TRAVEL IN THIS FILE USES, on
+  // purpose. Those ask "did the hero walk properly"; this one asks only "was he
+  // simulated AT ALL", and the frozen reading is `travelWithMenuUp` above —
+  // exactly 0, because a modal skips the simulation rather than slowing it. The
+  // margin is for the machine: measured 6.85 on an idle host and 4.00 under
+  // `probe.mjs all`, where two dozen pages share the GPU.
+  check(unfocused.travelAfterBlur > 2,
+    `the hero travelled ${unfocused.travelAfterBlur} after a focus loss — losing `
+    + 'focus must not pause the game');
+  check(unfocused.menuAfterLockFirst === false,
+    'a lock dropped before the blur event landed raised the menu — the live '
+    + 'hasFocus() read is what covers that order');
+  check(unfocused.menuWithFocusHeld,
+    'a pointer lock taken with focus HELD did not raise the menu — the two '
+    + 'assertions above are passing because the hook is dead, not because it is fixed');
 } else {
-  console.error('note: this browser never granted pointer lock — arm 1b skipped');
+  console.error('note: this browser never granted pointer lock — arms 1b/1c skipped');
 }
 
 check(gamepad.openWhileHeld, 'Start opens the menu');
@@ -551,5 +643,5 @@ check(exit.posterRemnants.flies === 0 && exit.posterRemnants.lamps === 0,
   `${exit.posterRemnants.lamps} lamps)`);
 
 console.log(JSON.stringify(
-  { menu, lockLost, gamepad, exit, failures: fail, pass: fail.length === 0 }, null, 2));
+  { menu, lockLost, unfocused, gamepad, exit, failures: fail, pass: fail.length === 0 }, null, 2));
 if (fail.length) process.exitCode = 1;
