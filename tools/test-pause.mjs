@@ -1,12 +1,12 @@
-// The in-game menu: Escape / Start / the touch overlay's MENU, and what the
-// three options behind it do.
+// The in-game menu: F10 / Start / the touch overlay's MENU, and what the three
+// options behind it do.
 //
 // Usage: bun tools/test-pause.mjs
 //
 // TWO ARMS, and the split is the interesting part of this file.
 //
 // The first runs under `menu=0` like every other probe in tools/, because
-// everything about the menu ITSELF — that Escape raises it, that it freezes the
+// everything about the menu ITSELF — that F10 raises it, that it freezes the
 // hero, that its Settings step is the same list the title screen shows, that
 // Escape backs out of that step rather than closing — is answerable with a hero
 // standing in a world and no title screen anywhere.
@@ -14,7 +14,7 @@
 // The second CANNOT be. `Exit to title` raises a `StartMenu`, and `StartMenu.offer`
 // refuses to build one under `menu=0` — which is not a wrinkle to work around,
 // it is the flag doing exactly its job. So the exit arm walks the STAGED boot
-// instead: press-any-key, New Game, play, Escape, Exit, and then round again to
+// instead: press-any-key, New Game, play, F10, Exit, and then round again to
 // prove the second game is a game and not a husk. tools/test-keybinds.mjs drops
 // `menu=0` for the same reason and is the precedent.
 //
@@ -89,10 +89,17 @@ async function walk(page) {
 const menu = {};
 {
   const page = await open('fps=30&menu=0&fs=0');
-  menu.beforeEscape = await has(page, '.bs-pause');
+  menu.beforeMenuKey = await has(page, '.bs-pause');
+  // F10. The menu moved off Escape because the browser spends that key on its
+  // own business — leaving fullscreen, dropping pointer lock — before the page
+  // has any say, so half the presses that mattered never arrived as a key.
+  // Escape is asserted here too, from the other side: it must NOT open this.
   await page.keyboard.press('Escape');
   await wait(400);
   menu.afterEscape = await has(page, '.bs-pause');
+  await page.keyboard.press('F10');
+  await wait(400);
+  menu.afterMenuKey = await has(page, '.bs-pause');
   menu.rows = await page.evaluate(() =>
     [...document.querySelectorAll('.bs-pause [data-act]')].map((b) => b.getAttribute('data-act')));
   // A pad player has no mouse: something has to be under the cursor on open.
@@ -234,25 +241,23 @@ const menu = {};
 }
 
 // ---------------------------------------------------------------------------
-// Arm 1b: THE ESCAPE THE BROWSER ATE
+// Arm 1b: A POINTER THE BROWSER TOOK IS A POINTER, NOT A MENU
 //
-// A page holding pointer lock is never given the Escape that releases it — the
-// browser spends the key on the lock — so in any browser without the keyboard
-// lock (Brave nulls `navigator.keyboard` outright; see ui/fullscreen.ts) the
-// menu key did nothing on the press that mattered and worked on the next one,
-// by which time the lock was already gone. That is "Escape only opens the menu
-// every other time", reported by a player, and it is one missing edge.
+// THIS ARM USED TO ASSERT THE OPPOSITE, and the inversion is the change. While
+// the menu was on Escape, a page holding pointer lock was never GIVEN that key
+// — the browser spends it on the lock — so the loss WAS the press, and the game
+// tapped a virtual Escape to recover the edge. With the menu on F10 there is no
+// missing edge left to reconstruct, and reconstructing one anyway is how a
+// player who pressed Escape to close a panel got a menu they never asked for.
 //
-// `document.exitPointerLock()` from the page is exactly what the browser does
-// to that lock, and it is how this is driven — the real key cannot be used,
-// because a synthetic Escape over CDP does NOT make the browser release
-// anything, so the very state under test would never be entered.
+// So: losing the pointer must raise NOTHING, and the pointer must come back
+// when the player moves (core/input.ts, `armRelock`). `document.exitPointerLock()`
+// from the page is exactly what the browser does to that lock and is how this is
+// driven — a synthetic Escape over CDP does not make the browser release
+// anything, so the state under test would never be entered.
 //
-// THE SECOND HALF IS THE ONE THAT CAN GO WRONG. Every deliberate release —
-// Alt freeing the cursor, a shop opening — goes through `releaseLock`, which
-// clears the intent first, and must NOT raise the menu. A rule written as "the
-// lock went away" instead of "the lock was TAKEN" passes the first assertion
-// here and pops a menu in the player's face every time they hold Alt.
+// The Alt clause stays, and is now the same rule rather than an exception: a
+// deliberate release must neither raise a menu nor be undone by the recovery.
 // ---------------------------------------------------------------------------
 const lockLost = {};
 {
@@ -266,32 +271,28 @@ const lockLost = {};
   await page.evaluate(() => document.exitPointerLock());
   await wait(500);
   lockLost.menuAfterTaken = await has(page, '.bs-pause');
-  // ONE edge, not a toggle: still up a moment later.
+  lockLost.recoveryArmed = await page.evaluate(() => window.__dbgInput().relockPending);
+  // Still nothing a moment later — a menu that arrives late is the same bug.
   await wait(700);
-  lockLost.stillUp = await has(page, '.bs-pause');
+  lockLost.menuStillShut = !(await has(page, '.bs-pause'));
 
-  await page.keyboard.press('Escape');
+  // MOVING IS WHAT ASKS FOR IT BACK. The wait clears Chrome's own ~1.25 s
+  // refusal window after a lock is given up; see RELOCK_WAIT_MS.
+  await wait(900);
+  await page.keyboard.down('KeyW');
   await wait(500);
-  lockLost.closedByEscape = !(await has(page, '.bs-pause'));
-  // AND THE POINTER IS NOT TAKEN BACK, which is the other half of the same bug.
-  // Closing with Escape used to re-take it twice over (the menu's own `onClose`
-  // and `updateCursorMode`'s menu branch), and the fullscreen exit that the same
-  // key was still causing released it again 8 ms later — a loss that reads as a
-  // fresh Escape, so the menu reopened on its own. In a browser holding the
-  // keyboard lock the browser is spending nothing and the lock IS re-taken; this
-  // run has no such API, which is exactly the case that broke.
-  lockLost.lockAfterKeyClose = await page.evaluate(() => document.pointerLockElement !== null);
-  await wait(700);
-  lockLost.stillClosed = !(await has(page, '.bs-pause'));
-  // A click is how it comes back, as it always has.
-  await page.mouse.click(550, 350);
-  await wait(400);
-  lockLost.relockedByClick = await page.evaluate(() => document.pointerLockElement !== null);
+  await page.keyboard.up('KeyW');
+  lockLost.relockedByMoving = await page.evaluate(() => document.pointerLockElement !== null);
 
-  // Alt is a HOLD that frees the cursor deliberately. No menu.
+  // Alt is a HOLD that frees the cursor deliberately: no menu, and the recovery
+  // must not fight it — the pointer stays out for as long as the key is down.
   await page.keyboard.down('Alt');
   await wait(500);
   lockLost.menuWhileAltHeld = await has(page, '.bs-pause');
+  await page.keyboard.down('KeyW');
+  await wait(600);
+  await page.keyboard.up('KeyW');
+  lockLost.lockWhileAltHeld = await page.evaluate(() => document.pointerLockElement !== null);
   await page.keyboard.up('Alt');
   await wait(400);
   lockLost.relockedAfterAlt = await page.evaluate(() => document.pointerLockElement !== null);
@@ -302,11 +303,13 @@ const lockLost = {};
 // Arm 1c: A WINDOW THAT LOST FOCUS ASKED FOR NOTHING — issue #79
 //
 // The browser drops pointer lock on an alt-tab, on a click into another window
-// and on a notification stealing focus, and every one of those arrived at
-// `onLockLost` looking exactly like the Escape of arm 1b: the game paused itself
-// behind the player's back, and they came back to a menu they never opened and
-// a hero who had stopped moving. Both halves of the report are measured here —
-// no menu, and the world still runs.
+// and on a notification stealing focus. While the menu was on Escape, every one
+// of those looked exactly like a press: the game paused itself behind the
+// player's back and they came back to a menu they never opened. No menu is
+// raised by any lock loss now (see arm 1b), so what this arm still guards is the
+// OTHER half of the same distinction — an alt-tab must not arm the pointer
+// recovery either, or the game grabs the mouse back off whatever the player
+// switched to the moment they touch a key.
 //
 // DRIVEN AS THE TWO EVENTS THE BROWSER SENDS, in both orders, because the order
 // is the hazard. Nothing in either spec fixes whether `blur` or
@@ -344,6 +347,9 @@ if (lockLost.locked) {
   });
   await wait(600);
   unfocused.menuAfterBlur = await has(page, '.bs-pause');
+  // AND NO RECOVERY ARMED: the player is not here, and the pointer is not ours
+  // to take back. This is the reading that replaced "did a menu open".
+  unfocused.armedAfterBlur = await page.evaluate(() => window.__dbgInput().relockPending);
   // AND NOTHING PAUSED. `walk` re-aims and holds W, so this is the same
   // measurement `travelWithMenuUp` makes and the opposite expectation.
   unfocused.travelAfterBlur = await walk(page);
@@ -359,13 +365,16 @@ if (lockLost.locked) {
   });
   await wait(600);
   unfocused.menuAfterLockFirst = await has(page, '.bs-pause');
+  unfocused.armedAfterLockFirst = await page.evaluate(() => window.__dbgInput().relockPending);
   await page.evaluate(() => { delete document.hasFocus; });
 
-  // 3. THE CONTROL: focus never went anywhere, so this one is Escape.
+  // 3. THE CONTROL, and it is not optional: with focus HELD the same loss must
+  // arm the recovery. Without it this arm passes against a build where nothing
+  // is ever armed at all — which is arm 1b's feature deleted.
   unfocused.relockedForControl = await relock();
   await page.evaluate(() => document.exitPointerLock());
   await wait(600);
-  unfocused.menuWithFocusHeld = await has(page, '.bs-pause');
+  unfocused.armedWithFocusHeld = await page.evaluate(() => window.__dbgInput().relockPending);
   await page.close();
 }
 
@@ -454,7 +463,7 @@ const exit = {};
   const spawn = await page.evaluate(() => window.__dbgStart().start);
   exit.movedAwayFromSpawn = round(Math.hypot(away.x - spawn.x, away.z - spawn.z));
 
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('F10');
   await wait(400);
   await page.evaluate(() => document.querySelector('.bs-pause [data-act="exit"]')?.click());
   await wait(1500);
@@ -510,7 +519,11 @@ await browser.close();
 const fail = [];
 const check = (ok, what) => { if (!ok) fail.push(what); };
 
-check(menu.beforeEscape === false && menu.afterEscape === true, 'Escape opens the menu');
+check(menu.beforeMenuKey === false && menu.afterMenuKey === true, 'F10 opens the menu');
+// The other half, and the reason the key moved: Escape is the browser's — it
+// leaves fullscreen and drops the pointer over the page's head — so it must not
+// be carrying the menu as well.
+check(menu.afterEscape === false, 'Escape still opens the in-game menu');
 check(JSON.stringify(menu.rows) === JSON.stringify(['continue', 'settings', 'exit']),
   'the three options the issue asks for, in order');
 check(menu.focusOnOpen === 'continue', 'something is focused on open, for a pad');
@@ -580,26 +593,32 @@ check(menu.escapeFromSettings.stillOpen && menu.escapeFromSettings.backOnTheList
   'Escape backs out of Settings rather than closing');
 check(menu.escapeFromSettings.focus === 'settings', 'and leaves the cursor where it went in');
 
-// The lock the browser TAKES is the Escape it ate. Skipped, loudly, if this
-// browser refused the lock in the first place — asserting on it then would be
-// asserting on the harness.
+// The pointer the browser TAKES is a pointer to put back, not a menu to open.
+// Skipped, loudly, if this browser refused the lock in the first place —
+// asserting on it then would be asserting on the harness.
 if (lockLost.locked) {
-  check(lockLost.menuAfterTaken, 'a pointer lock taken away raises the menu');
-  check(lockLost.stillUp, 'and it is ONE edge — the menu is still up a moment later');
-  check(lockLost.closedByEscape, 'Escape then closes it as usual');
-  check(lockLost.lockAfterKeyClose === false,
-    'and does NOT hand the browser a fresh lock to knock out mid-Escape');
-  check(lockLost.stillClosed, 'so the menu stays closed instead of reopening itself');
-  check(lockLost.relockedByClick, 'a click takes the pointer back');
+  check(lockLost.menuAfterTaken === false,
+    'a pointer lock taken away raised the menu — losing the mouse is not a request for one');
+  check(lockLost.menuStillShut, 'and none arrived late either');
+  check(lockLost.recoveryArmed, 'the loss did not arm the pointer recovery');
+  check(lockLost.relockedByMoving, 'moving did not take the pointer back');
   check(lockLost.menuWhileAltHeld === false,
     'holding Alt frees the cursor WITHOUT raising the menu');
+  check(lockLost.lockWhileAltHeld === false,
+    'the recovery grabbed the pointer back while Alt was still held');
   check(lockLost.relockedAfterAlt, 'and releasing Alt takes the pointer back');
 
   // Issue #79. Skipped along with 1b, and for the same reason.
   check(unfocused.locked && unfocused.relocked && unfocused.relockedForControl,
     'arm 1c could not take the pointer for one of its three rounds');
   check(unfocused.menuAfterBlur === false,
-    'losing window focus raised the in-game menu — an alt-tab is not an Escape');
+    'losing window focus raised the in-game menu — an alt-tab is not a key press');
+  check(unfocused.armedAfterBlur === false && unfocused.armedAfterLockFirst === false,
+    'an alt-tab armed the pointer recovery — the game would grab the mouse back off '
+    + 'whatever the player switched to');
+  check(unfocused.armedWithFocusHeld === true,
+    'the CONTROL failed: a lock taken with focus held armed nothing, so the two '
+    + 'assertions above pass against a build with the recovery deleted');
   // A LOOSER BOUND THAN THE `> 4` EVERY OTHER TRAVEL IN THIS FILE USES, on
   // purpose. Those ask "did the hero walk properly"; this one asks only "was he
   // simulated AT ALL", and the frozen reading is `travelWithMenuUp` above —
@@ -612,9 +631,6 @@ if (lockLost.locked) {
   check(unfocused.menuAfterLockFirst === false,
     'a lock dropped before the blur event landed raised the menu — the live '
     + 'hasFocus() read is what covers that order');
-  check(unfocused.menuWithFocusHeld,
-    'a pointer lock taken with focus HELD did not raise the menu — the two '
-    + 'assertions above are passing because the hook is dead, not because it is fixed');
 } else {
   console.error('note: this browser never granted pointer lock — arms 1b/1c skipped');
 }

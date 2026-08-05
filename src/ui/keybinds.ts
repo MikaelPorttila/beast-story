@@ -115,7 +115,14 @@ export const CONTROL_SECTIONS: readonly BindSection[] = [
       // face that was unclaimed. See B_SELECT in core/gamepad.ts for why that is
       // the right one rather than merely the free one.
       { label: 'keys.inventory', mode: 'press', codes: ['KeyI'], caps: ['I'], pad: ['inventory'] },
-      { label: 'keys.cancel', mode: 'press', codes: ['Escape'], caps: ['Esc'], pad: ['menu'] },
+      // TWO ROWS, BECAUSE THERE ARE TWO KEYS. F10 opens and closes the in-game
+      // menu; Escape dismisses whatever is on top. They were one row and one key
+      // until the browser's own claim on Escape — it leaves fullscreen and drops
+      // pointer lock over the page's head — made a menu key of it that only
+      // worked half the time. Start keeps the menu on a pad, which is why the
+      // pad column moved up with it.
+      { label: 'keys.menu', mode: 'press', codes: ['F10'], caps: ['F10'], pad: ['menu'] },
+      { label: 'keys.cancel', mode: 'press', codes: ['Escape'], caps: ['Esc'], pad: ['cancel'] },
       // No pad row for either: every face on a controller is already spoken for
       // by something a player does far more often, and neither of these is worth
       // taking one back for. The sheet says so rather than leaving a blank.

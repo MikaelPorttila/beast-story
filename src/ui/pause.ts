@@ -6,9 +6,9 @@ import { injectStyles } from './styles';
 /**
  * THE IN-GAME MENU — Continue, Settings, Exit to title.
  *
- * Reached by Escape, by Start on a pad, and by the menu button on the touch
- * overlay: the one control every device has a way to press, which is the whole
- * requirement. What it is, structurally, is a MODAL with a cursor — the same
+ * Reached by F10, by the burger button in the HUD's corner, by Start on a pad,
+ * and by the menu button on the touch overlay: the one control every device has
+ * a way to press, which is the whole requirement. What it is, structurally, is a MODAL with a cursor — the same
  * bargain the F1 controls sheet makes (main.ts freezes the hero while it is up,
  * because a player who stopped to change a setting must not have walked off a
  * cliff while doing it) plus the focus handling the title screen has, because a
@@ -35,9 +35,11 @@ import { injectStyles } from './styles';
  *
  *   menu -> settings -> menu
  *
- * and Escape means "up one", which is what makes a single key both the way in
- * and the whole way out. `onEscape` below is the contract for that: the host
- * calls it and is told whether the press was spent.
+ * and a cancel means "up one", which is what makes one key both the way in and
+ * the whole way out. `onEscape` below is the contract for that: the host calls
+ * it and is told whether the press was spent. It is named for Escape and now
+ * answers for F10 as well — the host folds the two into one cancel while this
+ * menu is up, so the key that opened it closes it.
  */
 
 type Step = 'menu' | 'settings';

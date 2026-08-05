@@ -161,8 +161,9 @@ const out = {};
   check(out.inGame?.playing === true, 'the overworld track should be playing');
 
   // The volume row, from the in-game menu — the same panel the title screen
-  // shows (ui/settings.ts), which is why it is only driven once.
-  await page.keyboard.press('Escape');
+  // shows (ui/settings.ts), which is why it is only driven once. F10 is the
+  // menu key; Escape belongs to the browser.
+  await page.keyboard.press('F10');
   await wait(400);
   await page.click('.bs-pause [data-act="settings"]');
   await wait(300);
@@ -200,7 +201,7 @@ const out = {};
   check(out.unmutedKey === '0.8', `stored as a decimal, got ${out.unmutedKey}`);
 
   // Exit to title: the other scene change.
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('F10');
   await wait(300);
   await page.click('.bs-pause [data-act="exit"]');
   await page.waitForFunction(

@@ -581,6 +581,93 @@ await page.close();
   await locked.close();
 }
 
+// ---------- 8. THE MENU KEY IS F10, AND THE POINTER COMES BACK -------------
+//
+// Two halves of the same move. The in-game menu was on Escape, which the browser
+// spends on its own business — leaving fullscreen, dropping pointer lock —
+// before the page has any say, so half the presses that mattered never arrived
+// as a key at all. It is F10 now, an ordinary key nothing else claims.
+//
+// What Escape still does is release the pointer, on every browser and in every
+// window: the keyboard lock only covers a FULLSCREEN document. So a player who
+// closes a panel with it is left standing in the world with mouse look dead, and
+// `Input.armRelock` is what puts it back the moment they move again — asserted
+// here on the CAMERA, not on `pointerLockElement`, because a lock the game is
+// not reading is not a recovery.
+{
+  const p = await newPage(browser, { width: 1280, height: 800 });
+  await p.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
+  await p.waitForSelector('canvas');
+  await wait(3000);
+
+  // The in-game menu, read off the DOM: `__dbgBoot().menuOpen` is the TITLE
+  // screen, which is a different menu with a different question behind it.
+  const menuUp = () => p.evaluate(() => !!document.querySelector('.bs-pause'));
+
+  // Escape MUST NOT open it. This is the whole report, restated as an assertion.
+  await p.keyboard.press('Escape');
+  await wait(400);
+  const afterEscape = await menuUp();
+
+  // F10 does, and F10 closes it again — the toggle a menu key has to be.
+  await p.keyboard.press('F10');
+  await wait(400);
+  const afterF10 = await menuUp();
+  const buttonPresent = await p.evaluate(() => {
+    const b = document.querySelector('.bs-menubtn');
+    return b ? { cap: b.querySelector('.cap')?.textContent?.trim() ?? null } : null;
+  });
+  await p.keyboard.press('F10');
+  await wait(400);
+  const afterSecondF10 = await menuUp();
+
+  // ---- the pointer ---------------------------------------------------------
+  // A real click takes the lock the way a player's does. Then the lock is
+  // dropped the way Escape drops it — `exitPointerLock` is the same event the
+  // browser raises for the key, and it is used here because a headless Escape
+  // reaches the page as a key rather than as the user-agent action being
+  // simulated.
+  await p.mouse.click(640, 400);
+  await wait(500);
+  const lockedAfterClick = await p.evaluate(() => document.pointerLockElement !== null);
+  await p.evaluate(() => document.exitPointerLock());
+  await wait(400);
+  const lostIt = await p.evaluate(() => document.pointerLockElement === null);
+  const pendingAfterLoss = await p.evaluate(() => window.__dbgInput().relockPending);
+
+  // Chrome refuses a re-lock for ~1.25 s after one is given up, which is why
+  // `RELOCK_WAIT_MS` exists — so the movement key comes AFTER that window, the
+  // way a player pressing on with the game does.
+  await wait(1500);
+  const yawBefore = await p.evaluate(() => window.__dbgCamYaw());
+  await p.keyboard.down('KeyW');
+  await wait(600);
+  await p.keyboard.up('KeyW');
+  const relocked = await p.evaluate(() => document.pointerLockElement !== null);
+  // THE CAMERA IS THE MEASUREMENT. `pointerLockElement` says the browser handed
+  // it over; only a yaw change says the game is reading it again.
+  for (let i = 0; i < 10; i++) await p.mouse.move(400 + i * 40, 400);
+  await wait(400);
+  let turned = (await p.evaluate(() => window.__dbgCamYaw())) - yawBefore;
+  while (turned > Math.PI) turned -= 2 * Math.PI;
+  while (turned < -Math.PI) turned += 2 * Math.PI;
+
+  results.menuKey = {
+    escapeOpenedTheMenu: afterEscape,
+    f10OpenedIt: afterF10,
+    f10ClosedIt: afterSecondF10,
+    hudButton: buttonPresent,
+    pointer: {
+      lockedAfterClick,
+      lostIt,
+      pendingAfterLoss,
+      relocked,
+      turnedAfterRelock: +Math.abs(turned).toFixed(4),
+    },
+  };
+  await p.close();
+}
+
 console.log(JSON.stringify(results, null, 2));
 await browser.close();
 
@@ -636,6 +723,24 @@ check(results.fullscreenGate?.withoutLock?.row?.pressed === 'false',
   'the disabled fullscreen row shows ON while the game starts in a window');
 check((results.fullscreenGate?.withoutLock?.row?.notes ?? []).some((n) => /Escape/.test(n)),
   'the disabled fullscreen row has no note saying why');
+// The menu key, both halves — the move off Escape is only a fix if Escape has
+// actually stopped opening it.
+check(results.menuKey?.escapeOpenedTheMenu === false,
+  'Escape still opens the in-game menu — the browser spends that key on fullscreen and pointer lock');
+check(results.menuKey?.f10OpenedIt === true, 'F10 did not open the in-game menu');
+check(results.menuKey?.f10ClosedIt === false, 'F10 did not close the menu it opened — it must toggle');
+check(results.menuKey?.hudButton !== null, 'the HUD has no menu button (.bs-menubtn)');
+check(results.menuKey?.hudButton?.cap === 'F10',
+  `the HUD menu button prints "${results.menuKey?.hudButton?.cap}" — it must name the binding`);
+// Pointer-lock recovery. `lockedAfterClick` first, or the rest proves nothing.
+check(results.menuKey?.pointer?.lockedAfterClick === true,
+  'a click never took pointer lock — the recovery assertions below prove nothing');
+check(results.menuKey?.pointer?.pendingAfterLoss === true,
+  'a pointer taken while the game wanted it did not arm a recovery');
+check(results.menuKey?.pointer?.relocked === true,
+  'moving did not take the pointer back after the browser dropped it');
+check(results.menuKey?.pointer?.turnedAfterRelock > 0.01,
+  'the pointer came back but the camera did not turn — the game is not reading it');
 
 if (fail.length) {
   console.error(`\n${fail.length} failure(s):\n  ${fail.join('\n  ')}`);

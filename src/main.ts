@@ -371,9 +371,10 @@ function beginPlay(): void {
 }
 
 /**
- * The in-game menu: Escape, the pad's Start, and the touch overlay's MENU.
+ * The in-game menu: F10, the HUD's menu button, the pad's Start, and the touch
+ * overlay's MENU.
  *
- * Built here rather than lazily on the first Escape, because it is the composition
+ * Built here rather than lazily on the first press, because it is the composition
  * root's job to say what a settings switch does and this is the second screen
  * that shows one. It costs nothing until it is opened — `open()` is what puts
  * anything on the DOM.
@@ -405,26 +406,22 @@ const pauseMenu = new PauseMenu({
 });
 
 /**
- * THE ESCAPE A BROWSER ATE, arriving as the key it was.
+ * THE POINTER A BROWSER TOOK — nothing to do here any more, and that is the
+ * change worth reading.
  *
- * A page holding pointer lock is not given the Escape that releases it — the
- * browser spends the key itself — so in any browser without the keyboard lock
- * (Brave nulls `navigator.keyboard`; see ui/fullscreen.ts) the menu key did
- * nothing on the press that mattered and worked on the one after, because by
- * then the lock was already gone. That is "Escape only opens the menu every
- * other time", and it is one missing edge rather than a race.
+ * This used to tap a virtual Escape. The reasoning was sound while Escape was
+ * the menu key: a page holding pointer lock is never GIVEN that key (the
+ * browser spends it on the lock), so the loss was the only evidence the press
+ * happened, and without it the menu opened every other time. The menu is F10
+ * now, which arrives as an ordinary key on every browser, so there is no
+ * missing edge left to reconstruct — and reconstructing one anyway is how a
+ * player who pressed Escape to close a panel got a menu they never asked for.
  *
- * So the losing of the lock IS the edge, and it is tapped in as the same
- * virtual Escape the pad's Start and the touch overlay's MENU button already
- * tap. Nothing new decides what Escape MEANS — the one reader in `frame()`
- * still does, so this closes the topmost modal when there is one and opens the
- * menu when there is not, for every device at once.
- *
- * No timer and no correlation window: `tapVirtual` is one `press()` into a Set
- * keyed by code, so a browser that delivers the real key AND drops the lock in
- * the same frame still yields exactly ONE edge.
+ * The loss is handled where it belongs instead: `Input.armRelock` puts the
+ * pointer back when the player starts moving again. That is a separate
+ * mechanism with its own gate (`autoRelock`, set in `frame()`), and it is armed
+ * from the same event this hook reads.
  */
-input.onLockLost = () => { if (playing) input.tapVirtual('Escape'); };
 
 /**
  * END THE SESSION and put the title screen back, in the same page.
@@ -513,6 +510,10 @@ function exitToTitle(): void {
   hud.closeControls();
   hud.reset();
   touch?.setVisible(true);
+  // The frame loop is the only writer while a game is running, and it has just
+  // stopped: left true, the title screen would answer a mouse moved across the
+  // poster by grabbing the pointer back off the New Game button.
+  input.autoRelock = false;
 
   // The poster is a NEW instance, because the old one took itself off the DOM
   // when the game started (see StartMenu.close). `handedOver` and `playing` go
@@ -818,6 +819,11 @@ const underwater = new Underwater(engine.scene, engine.camera, engine.renderer.d
 const player = new Player(engine, world, input, bus);
 const combat = new CombatSystem(engine.scene, world, bus);
 const hud = new HUD(bus);
+// The HUD's menu button TAPS THE KEY, exactly as the pad's Start and the touch
+// overlay's MENU do — see the note where the button is built. The one reader in
+// `frame()` still decides what it means, so the button toggles the menu and
+// closes the topmost panel without knowing that either is a rule.
+hud.onMenu = () => input.tapVirtual('F10');
 
 // THE OPENING SHOT: beside the start town's greeter, at his fire, facing the
 // way he faces, with the camera on the hero's face. It is a POSE and not a
@@ -1952,6 +1958,12 @@ const _hurtFrom = new THREE.Vector3();
   axisSide: input.axisSide,
   lookActive: input.lookActive,
   touchActive: input.touchActive,
+  // The pointer-lock recovery, as two answers rather than one: `autoRelock` is
+  // the host's permission (see frame()), `relockPending` is whether there is a
+  // pointer to recover at all. A probe reading only the first would pass in
+  // exactly the case the feature is dead — permission granted, nothing armed.
+  autoRelock: input.autoRelock,
+  relockPending: input.relockPending,
   touchOverlay: !!document.querySelector('.bs-touch'),
   // Which way the OVERLAY's look pad runs, which is a different object from the
   // pad's answer in `__dbgPad` and has to be readable on its own — a phone run
@@ -3412,25 +3424,25 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       else if (nearNpc) npcField?.talk(nearNpc.id);
       else if (nearShop) tryOpenShop();
     }
-    // ESCAPE, WITH NOTHING OPEN, is one key with two meanings and they are in
-    // priority order: it backs out of a CONVERSATION first, and only opens the
-    // in-game menu when there is nothing smaller to dismiss. Same rule the modal
-    // branch below applies, one level further out — cancel always closes the
-    // topmost thing, and the menu is what is left when there is no topmost thing.
+    // TWO KEYS NOW, AND THE SPLIT IS THE POINT (issue #83 follow-up). Escape
+    // CANCELS — it backs out of a conversation and closes the topmost panel —
+    // and F10 OPENS THE MENU. They used to be one key, and the browser owns half
+    // of what Escape does: it leaves fullscreen and it drops pointer lock, over
+    // the page's head, on the press the player meant for the game. A menu key
+    // the browser cannot touch is the fix; Escape keeps the meaning every other
+    // application on the machine gives it.
     //
-    // All three devices arrive here and not just the keyboard: the pad's Start
-    // taps a virtual Escape (core/gamepad.ts) and so does the touch overlay's
-    // MENU button (core/touch.ts), so the edge is read in ONE place for every
-    // way of pressing it.
+    // Every device arrives here and not just the keyboard: the pad's Start and
+    // the touch overlay's MENU button tap a virtual F10, its B face taps a
+    // virtual Escape, and the HUD's menu button taps F10 as well — so each edge
+    // is read in ONE place for every way of pressing it.
     //
     // `pressed`, not `takePress`, because this is a SIMULATION slice — see the
     // note on takePress in core/input.ts and the F1 read further down, which is
     // the other half of that rule.
-    if (first && input.pressed('Escape')) {
-      if (npcField?.talking) npcField.endTalk();
-      else pauseMenu.open();
-    }
-  } else if (first && (input.pressed('Escape') || input.pressed('KeyE'))) {
+    if (first && input.pressed('Escape') && npcField?.talking) npcField.endTalk();
+    if (first && input.pressed('F10')) pauseMenu.open();
+  } else if (first && (input.pressed('Escape') || input.pressed('F10') || input.pressed('KeyE'))) {
     // Cancel closes the TOPMOST modal, which is the only reason this is an
     // if/else rather than two calls: F1 can be pressed with a den open, the
     // sheet draws over it (see the wrapper order in ui/index.ts), and one press
@@ -3444,14 +3456,21 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // spent the press. `KeyE` is the pad's X — confirm — so it activates the
     // focused row instead of cancelling, which is what makes a controller able
     // to work this menu with no other buttons.
+    //
+    // F10 IS A CANCEL IN HERE, which is what makes it a TOGGLE: the key that
+    // opened the menu closes it, the way Start does on a console and the way F1
+    // already works for the controls sheet. It is folded into the same branch as
+    // Escape rather than given one of its own, so "one press dismisses one
+    // thing" stays true however the press arrived.
+    const cancel = input.pressed('Escape') || input.pressed('F10');
     if (pauseMenu.isOpen) {
-      if (input.pressed('Escape')) pauseMenu.onEscape();
+      if (cancel) pauseMenu.onEscape();
       else pauseMenu.activate();
     } else if (inventory.isOpen) {
-      // Same shape as the menu above: Escape asks the panel to spend the press
+      // Same shape as the menu above: cancel asks the panel to spend the press
       // and X (KeyE on the pad) confirms the focused control, which is what
       // makes the inventory workable from a controller with no other buttons.
-      if (input.pressed('Escape')) inventory.onEscape();
+      if (cancel) inventory.onEscape();
       else inventory.activate();
     } else if (hud.isControlsOpen()) hud.closeControls();
     else hud.closeShop();
@@ -3548,6 +3567,13 @@ function frame(): void {
   // the shop it goes on collecting mouse delta that no slice will spend. See
   // Input.clearLook for what that costs if it is left to pile up.
   if (modal) input.clearLook();
+  // MAY A POINTER THE BROWSER TOOK BE TAKEN BACK? Escape drops pointer lock on
+  // every browser — the keyboard lock only covers a FULLSCREEN document — so a
+  // player who closes a panel with it is left in the world with mouse look
+  // dead. `Input.armRelock` puts it back when they start moving again, and this
+  // is the host's half of that: not while anything is being clicked, and not
+  // while Alt is deliberately holding the cursor out (see `updateCursorMode`).
+  input.autoRelock = !modal && !input.down('AltLeft') && !input.down('AltRight');
 
   // Poll the pad ONCE PER RENDERED FRAME, and before the slices below.
   //

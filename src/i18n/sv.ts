@@ -90,6 +90,9 @@ export const sv: Translation = {
   'hud.levelUpReached': '{beast} nådde nivå {level}!',
   'hud.levelUpLearned': '{beast} nådde nivå {level} — lärde sig {skill}!',
   'hud.mountHold': 'HÅLL {key} FÖR ATT RIDA',
+  // Hamburgerknappen uppe till vänster i HUD:en. Visas aldrig — det är knappens
+  // verktygstips och det en skärmläsare läser upp, alltså ett namn.
+  'hud.menu': 'Meny',
 
   'shop.buy': 'KÖP',
   'shop.learned': 'Inlärd',
@@ -187,9 +190,12 @@ export const sv: Translation = {
   // MENY-knappen uppe till vänster på pekskärmen. En knappetikett, så den är
   // lika kort som den engelska — knappen växer inte med ordet.
   'touch.menu': 'MENY',
-  // Raden för Escape i F1-arket. Samma ordning som originalet: det öppnar menyn
-  // när inget annat är uppe, och stänger det som är uppe när något är det.
-  'keys.cancel': 'Meny · stäng · avbryt',
+  // Menyraden i F1-arket. F10 och inte Escape: webbläsaren tar Escape till att
+  // lämna helskärm och släppa muspekaren, så menyn flyttade.
+  'keys.menu': 'Spelmeny',
+  // Raden för Escape. Samma ordning som originalet — den stänger det som är
+  // uppe. Den öppnar inte längre menyn.
+  'keys.cancel': 'Stäng · avbryt',
 
   // Uppstartsförloppet (src/ui/loading.ts).
   'load.world': 'Bygger världen',

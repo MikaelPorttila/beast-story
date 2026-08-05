@@ -82,6 +82,33 @@ const CSS = `
   -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
 .bs-title span{font-size:16px;font-weight:600;color:rgba(238,242,248,.5);letter-spacing:.05em}
 
+/* ---- menu button -------------------------------------------------------- */
+/* TOP-LEFT, which is where a burger lives in everything else a player uses, and
+   the one corner of this HUD that was empty in a normal run (the title chip
+   above it is debug-only, and shifts this down when it is there).
+
+   IT IS A REAL BUTTON in a layer that is otherwise pointer-events:none, so it
+   opts itself back in. That is the only element in .bs-root that does — every
+   other clickable thing here lives inside a panel which turns the whole layer
+   on while it is up.
+
+   The cap beside the icon is the binding, printed rather than hidden in the F1
+   sheet: F10 is a key nobody presses by accident, which also makes it a key
+   nobody finds by accident. It is hidden on a phone (the touch overlay has its
+   own MENU button, and there is no key to name) by the same query that hides the
+   hotbar — see the responsive section. */
+.bs-menubtn{position:absolute;top:14px;left:16px;display:flex;align-items:center;gap:8px;
+  padding:7px 12px;border-radius:12px;cursor:pointer;pointer-events:auto;
+  color:rgba(238,242,248,.9);font:inherit;
+  transition:filter .12s ease,transform .12s ease}
+.bs-menubtn svg{width:20px;height:20px;display:block}
+.bs-menubtn .cap{display:flex;gap:4px}
+.bs-menubtn:hover{filter:brightness(1.22)}
+.bs-menubtn:active{transform:translateY(1px)}
+/* The debug title chip owns this corner when it is up, so the button steps
+   below it rather than under it. Debug runs only — see the HUD constructor. */
+.bs-root:has(.bs-title) .bs-menubtn{top:58px}
+
 /* ---- currency counter --------------------------------------------------- */
 /* The pill names the money as well as counting it (see src/i18n): the number is
    the loud part, the name a quieter chip-sized label beside it — same weight
@@ -1574,6 +1601,12 @@ const CSS = `
      worse than none. With it gone the three elements below it go back to the
      positions they had before the compass existed. */
   .bs-compass{display:none}
+  /* No HUD menu button on a phone either, and it is a duplicate rather than a
+     casualty: the touch overlay draws its own MENU in this exact corner (see
+     .bs-pausebtn in core/touch.ts), sized for a thumb and tapping the same
+     virtual F10. Two buttons doing one job, one of them printing the name of a
+     key the device does not have, is worse than one. */
+  .bs-menubtn{display:none}
   /* IT WRAPS HERE, and only here. The badge is one nowrap line on a desktop; at
      the 16px floor that line is 357px of a 393px phone, which reaches from the
      MENU button on one side to the toast column on the other. Capped and wrapped

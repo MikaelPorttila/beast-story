@@ -466,9 +466,9 @@ export class TouchControls {
     this.root.appendChild(btns);
     this.root.appendChild(nearBtns);
 
-    // MENU. A phone has no Escape key and no Start button, so this is the whole
-    // of "every device can open the in-game menu" — and it opens it the same way
-    // both of those do, by tapping the virtual Escape main.ts already routes.
+    // MENU. A phone has no F10 key and no Start button, so this is the whole of
+    // "every device can open the in-game menu" — and it opens it the same way
+    // both of those do, by tapping the virtual F10 main.ts already routes.
     // Nothing here knows the menu exists, which is what keeps one key edge as
     // the single entry point rather than three.
     const menuBtn = document.createElement('button');
@@ -478,7 +478,7 @@ export class TouchControls {
       e.preventDefault();
       e.stopPropagation();
       menuBtn.classList.add('on');
-      this.input.tapVirtual('Escape');
+      this.input.tapVirtual('F10');
     }, { passive: false });
     const menuUp = (): void => menuBtn.classList.remove('on');
     menuBtn.addEventListener('touchend', menuUp);
