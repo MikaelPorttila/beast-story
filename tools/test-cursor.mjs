@@ -20,7 +20,7 @@
 //   mousemove listener rather than a copy of it.
 //
 // Exits non-zero.
-import { launchBrowser, newPage, wait } from './browser.mjs';
+import { launchBrowser, leaveSplash, newPage, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
 const browser = await launchBrowser();
@@ -72,8 +72,9 @@ const check = (ok, msg) => { if (!ok) fails.push(msg); };
   }
 }
 
-await page.keyboard.press('Enter');
-await wait(700);
+// `leaveSplash` rather than one press: a press that lands before the menu's key
+// handler is live is dropped, and nothing retried it. See tools/browser.mjs.
+await leaveSplash(page);
 await (await page.waitForSelector('button[data-act="new"]', { visible: true })).click();
 for (let i = 0; i < 45; i++) {
   await wait(1000);

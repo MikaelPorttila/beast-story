@@ -641,7 +641,22 @@ const BUDGET = {
   umbrakit: 4,    // worst 0.00593
   lumimoth: 3,    // worst 0.00757
   drakelet: 2,    // worst 0.01022
-  gain: 0,        // clean, and the only one
+  // The water roster (issue #76). Three of the five are CLEAN, and they are the
+  // first species to ship that way — every seam they started with was a joint
+  // where two masses agreed on a face plane, and all of them were fixed by
+  // moving the joint rather than by widening this table: Finnick's dorsal came
+  // off the single-cell crown of its own torso, Snapclaw's eyestalks off the
+  // brow, Lanternfin's pectorals and tail off the flanks and the wrist.
+  //
+  // The two that are not clean are debt, and both are the same shape of
+  // problem the older entries above have — a tapering mass whose last cell
+  // column lands on the same x as the part hanging off it:
+  rivotter: 1,    // worst 0.00509 — the tail root against the hips
+  coralback: 2,   // worst 0.00603 — the head and neck against the shell rim
+  finnick: 0,
+  snapclaw: 0,
+  lanternfin: 0,
+  gain: 0,        // clean
   // The three who live on the flying island (issue #68). Clean, and clean the
   // same way Gain is: they are one parameterised body (world/npc-skyfolk.ts),
   // so the three joints that shared a grid — the shoulder in x, the forearm in

@@ -21,8 +21,8 @@
 // `fs=0` throughout: New Game takes fullscreen otherwise and resizes the
 // viewport under everything being measured.
 import {
-  launchBrowser, newPage, wait, logPageErrors,
-  installFakePad, setPadButton, PAD_BUTTON,
+  installFakePad, launchBrowser, leaveSplash, logPageErrors, newPage,
+  PAD_BUTTON, setPadButton, wait,
 } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
@@ -427,8 +427,12 @@ const exit = {};
 {
   const page = await open('fps=30&fs=0');
   // Through the staged boot: any key leaves the splash, then New Game.
-  await page.keyboard.press('Enter');
-  await wait(400);
+  //
+  // `leaveSplash` rather than one press, and the `?.` below is why it matters
+  // most here: a dropped press left the button absent, the optional call then
+  // did NOTHING, and this section went on to measure a game that had never
+  // started. See tools/browser.mjs.
+  await leaveSplash(page);
   await page.evaluate(() => document.querySelector('.bs-menu [data-act="new"]')?.click());
   await wait(SETTLE);
   exit.playingFirst = !(await has(page, '.bs-menu'));

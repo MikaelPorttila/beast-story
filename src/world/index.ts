@@ -10,7 +10,7 @@ import type {
 import { excludeFromAO } from '../core/types';
 import { CarrierField } from './carriers';
 import { ISLAND_KEEL, SkyIsland, readCarriedTown } from './sky-island';
-import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch } from './terrain';
+import { CHUNK_SIZE, DEEP_WATER_TOP, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
 import { buildWaterMesh, createWaterMaterial } from './water';
 import { PropLib, buildChunkProps, TREE_STRIDE, type Exclusion } from './props';
@@ -1040,6 +1040,11 @@ export function createWorld(
       return false;
     },
     isWater: (x: number, z: number): boolean => terrain.getHeight(x, z) < WATER_LEVEL,
+    // The STEPPED column, like `isWater` and for the same reason: this is what
+    // a mover's feet resolve against, and a rule read off the continuous field
+    // would disagree with the voxel the player can see under the water by up to
+    // a unit. See DEEP_WATER_DEPTH.
+    isDeepWater: (x: number, z: number): boolean => terrain.getHeight(x, z) <= DEEP_WATER_TOP,
     // Straight through to the terrain field, like getHeight: snow cover is a
     // pure function of the column and owes nothing to what is loaded, so a
     // caller can ask about a tree at the edge of the streamed radius.

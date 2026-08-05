@@ -1,11 +1,11 @@
-import type { ElementType, EventBus, SkillDef } from '../core/types';
+import type { ElementType, EventBus, Locomotion, SkillDef } from '../core/types';
 import { ELEMENT_COLORS } from '../core/types';
 import { CURRENCY, itemName, type BagEntry } from '../core/items';
 import { t, type StringKey } from '../i18n';
 import { PAD_GLYPHS, type PadGlyphs } from '../core/gamepad';
 import { CONTROL_SECTIONS } from './keybinds';
 import { injectStyles } from './styles';
-import { elementIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON } from './icons';
+import { elementIcon, locomotionIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON } from './icons';
 
 // ---------------------------------------------------------------------------
 // Public data shapes (consumed by main.ts)
@@ -13,6 +13,12 @@ import { elementIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON } from './icons';
 export interface BeastHudInfo {
   name: string;
   element: ElementType;
+  /**
+   * WHERE it can go. Beside `element` rather than derived from it, because the
+   * two are genuinely independent — Aquaxol is water AND amphibious, Snapclaw
+   * is rock and amphibious — and the card draws a glyph for each.
+   */
+  locomotion: Locomotion;
   level: number;
   xp: number;
   xpToNext: number;
@@ -628,13 +634,14 @@ export class HUD {
       return;
     }
     refs.card.classList.remove('hidden');
-    const sig = `${info.name}|${info.element}|${info.level}`;
+    const sig = `${info.name}|${info.element}|${info.locomotion}|${info.level}`;
     if (sig !== refs.sig) {
       refs.sig = sig;
       const el = ELEMENT_COLORS[info.element];
       refs.card.style.setProperty('--el', hexColor(el));
       refs.inner.innerHTML =
-        `<div class="badge">${elementIcon(info.element)}</div>` +
+        `<div class="badge">${elementIcon(info.element)}` +
+        `<span class="loco">${locomotionIcon(info.locomotion)}</span></div>` +
         `<div class="meta">` +
         `<div class="row"><span class="nm">${escapeHtml(info.name)}</span>` +
         `<span class="lv">${escapeHtml(t('hud.level', { n: info.level }))}</span></div>` +

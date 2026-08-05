@@ -23,7 +23,7 @@
 // above water, which is how that was caught.
 //
 // Exits non-zero.
-import { launchBrowser, newPage, wait } from './browser.mjs';
+import { launchBrowser, leaveSplash, newPage, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
 const browser = await launchBrowser();
@@ -34,9 +34,12 @@ page.on('pageerror', (e) => console.error('[page]', e.message));
 // beginPlay takes, and pitching the camera under the surface is how the view
 // half of this test is reached.
 await page.goto(`${HOST}/?fs=0`, { waitUntil: 'load' });
-await page.waitForSelector('.bs-menu');
-await page.keyboard.press('Enter');
-await wait(700);
+// `leaveSplash`, not a single `press('Enter')`: the press that dismisses the
+// splash is dropped if it lands before the menu's key handler is live, and
+// nothing retried it. That is the whole of this probe's batch flake — it passed
+// alone and failed after two predecessors, on a clean browser. See
+// tools/browser.mjs.
+await leaveSplash(page);
 await (await page.waitForSelector('button[data-act="new"]', { visible: true })).click();
 for (let i = 0; i < 45; i++) {
   await wait(1000);
@@ -83,8 +86,16 @@ async function frame() {
   }, b64);
 }
 
-// The deepest water within reach of the spawn, found rather than pinned, so no
-// coordinate here depends on the seed staying put.
+// The deepest SWIMMABLE water within reach of the spawn, found rather than
+// pinned, so no coordinate here depends on the seed staying put.
+//
+// `!w.deep` was added with the deep sea (issue #76) and it is not a workaround:
+// past DEEP_WATER_DEPTH a swimmer is refused entry and carried back to the
+// shallows on purpose (see Player.undertow), so the deepest column in the world
+// is now precisely the one place this test could not run. What it measures —
+// that holding C takes the hero down, that the bed catches him, and that the
+// submerged frame is blue rather than white — is a fact about water you can
+// swim in, and this picks the deepest of that.
 const deep = await page.evaluate(() => {
   const s = window.__dbgTowns().spawn;
   let best = null;
@@ -92,6 +103,7 @@ const deep = await page.evaluate(() => {
     for (let dz = -120; dz <= 120; dz += 2) {
       const x = s.x + dx; const z = s.z + dz;
       const w = window.__dbgWorld(x, z);
+      if (w.deep) continue;
       if (!best || w.ground < best.ground) best = { x, z, ground: w.ground };
     }
   }

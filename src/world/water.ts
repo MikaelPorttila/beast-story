@@ -88,6 +88,19 @@ const vec3 MID     = vec3(0.016, 0.283, 0.478); // #269bc9
 // stop (see the smoothsteps below), the old value put a near-black core in the
 // middle of every bay. A stylised lake's deep water is a saturated mid blue.
 const vec3 DEEP    = vec3(0.024, 0.152, 0.355);
+// THE DEEP SEA — the dark water you are turned back from. A fifth stop, not a
+// darker DEEP: every one of the four above is tuned for water you can see the
+// bed through and DEEP is where a bay bottoms out, so pushing it toward ink
+// would drag every three-metre lagoon down with it. This one is only reached
+// past DEEP_WATER_DEPTH (world/terrain.ts), which is the same number the
+// traversal rule uses — the whole point being that the water a player is
+// refused is the water that looks refusing.
+//
+// #0f2233, and it is a BLUE ink rather than black. Black would be a hole cut in
+// the lake; a deep saturated navy still takes the sky reflection and the glint
+// below it, so the abyss reads as a surface with nothing under it rather than
+// as missing geometry.
+const vec3 ABYSS   = vec3(0.005, 0.017, 0.033);
 const vec3 FOAM    = vec3(0.930, 0.975, 1.000);
 // A deliberately deeper, bluer stand-in for the sky dome rather than a copy of
 // it. The dome is authored bright (its horizon runs past 1.0 so the haze band
@@ -273,6 +286,16 @@ void main() {
   vec3 col = mix(WETSAND, SHALLOW, dWet);
   col = mix(col, MID, dShore);
   col = mix(col, DEEP, dDeep);
+  // ...and the fourth ramp, into the deep sea. The stops are in DEPTH ATTRIBUTE
+  // units, which are not depth in world units: buildWaterMesh writes
+  // SURFACE_Y - (hc - 0.5), i.e. (WATER_LEVEL - hc) + 0.78. DEEP_WATER_DEPTH is
+  // 4, so the first refused column has a vDepth of 3.78 and the ramp is placed
+  // to straddle it — visibly darkening a third of a unit BEFORE the rule bites,
+  // which is what turns "the game stopped me" into "I could see that was too
+  // deep". Fully dark half a unit past, so the transition is a band you read
+  // across a bay rather than a line you notice at the edge of one.
+  float dAbyss = smoothstep(3.45, 4.85, vDepth);
+  col = mix(col, ABYSS, dAbyss);
 
   vec3 toCam = cameraPosition - vWorldPos;
   float camDist = length(toCam);
@@ -350,7 +373,14 @@ void main() {
   // to a mirror; at 0.50 the deep water finally lifts toward the sky at the
   // horizon and the surface reads as a surface, while dShore keeps the shallows —
   // the ones you are meant to see the sand through — at their old value.
-  float refl = fres * mix(0.14, 0.50, dShore);
+  // ...and PULLED BACK over the abyss. dShore is saturated out there, so deep
+  // sea would otherwise take the full 0.50 of sky, and at the grazing angle
+  // every wide shot is taken from that is a mirror laid over a body colour of
+  // 0.03 — the dark water would read dark from directly above and pale blue
+  // from the shore, which is the one bearing a player actually approaches it
+  // from. Cutting it by a third leaves enough reflection for the surface to
+  // read as a surface.
+  float refl = fres * mix(0.14, 0.50, dShore) * (1.0 - 0.34 * dAbyss);
   // FROM UNDERNEATH, FRESNEL POINTS THE OTHER WAY, and getting that backwards is
   // most of issue #23. Every line above is written for a viewer in the air, where
   // a grazing angle turns the surface into a mirror of the sky — true, and the

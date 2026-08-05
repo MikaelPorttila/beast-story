@@ -60,6 +60,34 @@ const GALLOP = 1.85;
  * Frostwing 10.1, Lumimoth 8.1.
  */
 const FLY_CRUISE = 1.55;
+/**
+ * What a water beast is worth IN WATER: the beast's own follow speed times
+ * this, against the ground gallop's 1.85 and the hero's 6 on foot / 9.6 at a
+ * sprint.
+ *
+ * 3.2, and it is deliberately the biggest number in this file. A mount has to
+ * beat walking or nobody rides one (that is the whole argument on GALLOP), and
+ * a WATER mount has to beat walking AROUND — the shore of a bay is always a
+ * detour, so the honest comparison is not "is this faster than running" but "is
+ * cutting straight across faster than the long way round". At 3.2 Finnick makes
+ * 21.8 u/s and Rivotter 16.6, which is roughly two and a half times a sprint;
+ * crossing a 120-unit basin takes six seconds against a twenty-second run round
+ * it, and that gap is the point of the animal.
+ */
+const SWIM_GALLOP = 3.2;
+/**
+ * ...and what it is worth on land, for a beast that only swims.
+ *
+ * A `swimming` species has no legs worth the name — the framework already
+ * waddles one at 0.55 of its follow speed when it is on foot (BeastActor's
+ * `mediumMult`), and a saddle that ignored that would make the pure swimmers
+ * strictly better than the amphibians everywhere in the world. `amphibious` is
+ * exempt: being genuinely good in both is what that word is for, and it is the
+ * reason to pick Rivotter over Finnick.
+ */
+const LAND_FLOP = 0.55;
+/** Seconds between two "this animal will not swim that" toasts. */
+const DEEP_TOAST_GAP = 6;
 
 /** Horizontal acceleration lambda, in the house `1 - exp(-l*dt)` form. */
 const ACCEL_LAMBDA = 5.5;
@@ -179,6 +207,15 @@ export class MountController {
   hold = 0;
 
   private flying = false;
+  /**
+   * True while the mount can cross deep water — locomotion 'swimming' or
+   * 'amphibious'. Cached at `mount()` rather than asked per slice because it is
+   * a fact about the species, and because two different rules read it (the
+   * speed over water and the deep-water step) and they must never disagree.
+   */
+  private swimmer = false;
+  /** True while the mount can only swim — no gallop, see LAND_FLOP. */
+  private waterOnly = false;
   private pos = new THREE.Vector3();
   private vel = new THREE.Vector3();
   private vy = 0;
@@ -193,6 +230,11 @@ export class MountController {
   private topSpeed = 1;
   /** F held on the previous slice, so a press edge can be derived from it. */
   private fWasHeld = false;
+  /**
+   * Seconds before the deep sea may refuse this rider out loud again. Same
+   * throttle, same reason and the same gap as the hero's own (Player).
+   */
+  private deepToastT = 0;
   /** One refusal toast per hold attempt, not one per slice. */
   private refusedFor: MountRefusal = 'none';
   /** Reused every slice; the beast copies out of it and keeps nothing. */
@@ -282,6 +324,41 @@ export class MountController {
     this.poseBeast(dt);
   }
 
+  /**
+   * Put the MOUNT somewhere, and the rider with it. `__dbgTp`'s half of the
+   * saddle.
+   *
+   * A no-op when nothing is being ridden, so the caller never has to ask.
+   *
+   * THIS EXISTS BECAUSE A TELEPORT WAS A SILENT NO-OP IN THE SADDLE, which is
+   * the worst shape a debug hook can have. `__dbgTp` writes `player.position`,
+   * and while mounted `seatHero` writes that same field from `this.pos` on
+   * every slice — so the hero was moved and then put straight back, with
+   * nothing anywhere reporting that the request had been dropped. A probe that
+   * placed a rider and then measured a drive from there was measuring a drive
+   * from wherever the previous section left him (caught in
+   * tools/test-deepwater.mjs, where a crossing started 26 units from its
+   * intended launch point and reached the basin by luck).
+   *
+   * The carrier frame is RE-TAKEN rather than kept: the deck the pair were
+   * standing on has nothing to do with wherever they have just been put, and a
+   * stale attachment would apply the old island's delta to the new position on
+   * the next slice. A fresh attach applies no delta (see `CarrierRide.carry`).
+   */
+  teleport(x: number, z: number, y?: number): void {
+    if (!this.beast) return;
+    this.pos.set(x, 0, z);
+    this.carrier.clear();
+    this.carrier.carry(this.world, this.pos);
+    this.pos.y = y ?? (this.flying
+      ? this.floorFor(x, z)
+      : Math.max(this.blockTop(x, z), this.world.waterLevel - WADE_DEPTH));
+    this.vel.set(0, 0, 0);
+    this.vy = 0;
+    this.grounded = !this.flying;
+    this.poseBeast(0);
+  }
+
   /** The carrier's delta applied to the saddle. See `CarrierRide`. */
   private carryFrame(): void {
     this.carrier.carry(this.world, this.pos);
@@ -315,6 +392,7 @@ export class MountController {
     const jumpHeld = input.down('Space') || input.pressed('Space');
     this.jumpPressed = jumpHeld && !this.jumpWasHeld;
     this.jumpWasHeld = jumpHeld;
+    if (this.deepToastT > 0) this.deepToastT -= dt;
 
     if (this.beast) {
       // THE GROUND MOVES FIRST, exactly as it does for the hero on foot: if the
@@ -368,10 +446,13 @@ export class MountController {
     if (this.beast) return;
     this.beast = beast;
     this.hold = 0;
-    this.flying = beast.species.locomotion === 'flying';
-    this.topSpeed = beast.stats.speed * (this.flying ? FLY_CRUISE : GALLOP);
+    const loco = beast.species.locomotion;
+    this.flying = loco === 'flying';
+    this.swimmer = loco === 'swimming' || loco === 'amphibious';
+    this.waterOnly = loco === 'swimming';
 
     const p = this.player.position;
+    this.topSpeed = this.gaitSpeed(p.x, p.z);
     // `blockTop`, not `getHeight`: mounting up while standing ON something —
     // a crate, a cart, the low end of a tent — must not drop the animal to the
     // dirt underneath it and leave the rider buried in the thing he was just
@@ -493,9 +574,70 @@ export class MountController {
     return top;
   }
 
+  /**
+   * Is the mount ON water at this column — floating rather than standing?
+   *
+   * `isWater` is the column being flooded at all, which for a wader is the
+   * wrong question: a shin-deep puddle would otherwise pay the swim boost. The
+   * extra quarter-unit is the same margin the beast framework uses to decide a
+   * follower has started swimming (BeastActor), so the mount and the party
+   * agree about where the water begins.
+   */
+  private afloat(x: number, z: number): boolean {
+    return this.world.isWater(x, z)
+      && this.world.getHeight(x, z) < this.world.waterLevel - 0.25;
+  }
+
+  /**
+   * Top speed for the column the mount is over. A flyer's never changes; a
+   * ground mount gallops; a water beast is transformed by water and, if it can
+   * do nothing else, hobbled out of it. See SWIM_GALLOP and LAND_FLOP.
+   */
+  private gaitSpeed(x: number, z: number): number {
+    const base = this.beast!.stats.speed;
+    if (this.flying) return base * FLY_CRUISE;
+    if (this.swimmer && this.afloat(x, z)) return base * SWIM_GALLOP;
+    return base * GALLOP * (this.waterOnly ? LAND_FLOP : 1);
+  }
+
+  /**
+   * May this mount put a foot in that column?
+   *
+   * The saddle's half of the deep-sea rule, and the same shape as the hero's
+   * (Player.update): a column of dark water is refused, and refused per axis so
+   * a blocked diagonal slides along the edge of the basin. Only the animal's
+   * ability differs — a water beast crosses, and crossing is the entire reason
+   * to own one.
+   */
+  private deepRefused(x: number, z: number): boolean {
+    return !this.swimmer && this.world.isDeepWater(x, z);
+  }
+
+  /**
+   * Say why the mount stopped, at most once every DEEP_TOAST_GAP seconds.
+   *
+   * A DIFFERENT SENTENCE FROM THE HERO'S, because the player is in a different
+   * situation: on foot he needs telling that a beast would solve this, in the
+   * saddle he needs telling that THIS beast will not — he has one, he is on it,
+   * and the water still says no. Naming the animal is what makes that read as a
+   * fact about Boulderpup rather than as the game being broken.
+   */
+  private refuseDeep(): void {
+    if (this.deepToastT > 0 || !this.beast) return;
+    this.deepToastT = DEEP_TOAST_GAP;
+    this.bus.emit({
+      type: 'toast',
+      text: t('toast.mount.refuse.deepGround', { beast: t(this.beast.species.nameKey) }),
+    });
+  }
+
   private updateRide(dt: number): void {
     const beast = this.beast!;
     const input = this.input;
+    // The gait is re-read EVERY SLICE, not taken at mount-up: the whole feature
+    // is a speed that changes when the ground under you turns to water, and a
+    // top speed cached at the shore would be the one number that never noticed.
+    this.topSpeed = this.gaitSpeed(this.pos.x, this.pos.z);
 
     // ---- steering: camera-relative, exactly as on foot ----
     const fwd = input.axisFwd;
@@ -555,7 +697,14 @@ export class MountController {
     s.yaw = this.yaw; s.pitch = this.pitch; s.bank = this.bank;
     s.vx = this.vel.x; s.vz = this.vel.z;
     s.speed01 = this.speed01;
-    s.action = this.flying ? 'fly' : this.speed01 > 0.5 ? 'run' : this.speed01 > 0.06 ? 'walk' : 'idle';
+    // 'swim' AT ANY SPEED, including standing still: a beast floating in a lake
+    // is swimming even when it is not going anywhere, and dropping to 'idle'
+    // there would stand it up on the water like a dog on a lawn. Every species
+    // animates 'swim'; the ones that never see water fold it into 'fly' or the
+    // gait (see the case labels in the species files).
+    s.action = this.flying ? 'fly'
+      : this.swimmer && this.afloat(this.pos.x, this.pos.z) ? 'swim'
+      : this.speed01 > 0.5 ? 'run' : this.speed01 > 0.06 ? 'walk' : 'idle';
     beast.rideUpdate(dt, s);
     this.seatHero();
   }
@@ -570,12 +719,16 @@ export class MountController {
     const radius = this.beast!.scaledRadius + BODY_MARGIN;
 
     const nx = this.pos.x + this.vel.x * dt;
-    if (this.blockTop(nx + Math.sign(this.vel.x) * radius, this.pos.z) <= stepCeil) this.pos.x = nx;
-    else this.vel.x = 0;
+    const px = nx + Math.sign(this.vel.x) * radius;
+    if (this.blockTop(px, this.pos.z) <= stepCeil && !this.deepRefused(px, this.pos.z)) {
+      this.pos.x = nx;
+    } else { this.vel.x = 0; if (this.deepRefused(px, this.pos.z)) this.refuseDeep(); }
 
     const nz = this.pos.z + this.vel.z * dt;
-    if (this.blockTop(this.pos.x, nz + Math.sign(this.vel.z) * radius) <= stepCeil) this.pos.z = nz;
-    else this.vel.z = 0;
+    const pz = nz + Math.sign(this.vel.z) * radius;
+    if (this.blockTop(this.pos.x, pz) <= stepCeil && !this.deepRefused(this.pos.x, pz)) {
+      this.pos.z = nz;
+    } else { this.vel.z = 0; if (this.deepRefused(this.pos.x, pz)) this.refuseDeep(); }
 
     // Space bounds a ground mount. The rider is a passenger — the beast jumps, so
     // the jump is the beast's, not the hero's, and it clears more than he can on

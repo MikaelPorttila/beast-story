@@ -101,6 +101,7 @@ export const en = {
   'inv.stat.heal': 'Restores',
   'inv.stat.attack': 'Attack',
   'inv.stat.level': 'Level',
+  'inv.stat.movement': 'Movement',
   'inv.stat.salvage': 'Worth',
   'inv.stat.held': 'Held',
   'inv.rarity.common': 'Common',
@@ -193,24 +194,39 @@ export const en = {
   'beast.boulderpup.name': 'Boulderpup',
   'beast.boulderpup.desc':
     'A puppy chiseled from mountain strata by a very sentimental earthquake. Moss grows where it naps too long, and the amber crystal on its back glows brighter the happier it gets.',
+  'beast.coralback.name': 'Coralback',
+  'beast.coralback.desc':
+    'A sea turtle so unhurried that a reef moved onto its back and stayed. It has outlasted three shipwrecks and one empire, and it will outlast whatever is chasing you.',
   'beast.drakelet.name': 'Drakelet',
   'beast.drakelet.desc':
     'A pocket-sized dragon with the ego of a mountain-sized one. Polishes its ember-crimson scales on cliff quartz and practices its roar at sunrise, every sunrise.',
   'beast.emberfox.name': 'Emberfox',
   'beast.emberfox.desc':
     'An eager little fox whose oversized tail smolders when it is excited — which is always.',
+  'beast.finnick.name': 'Finnick',
+  'beast.finnick.desc':
+    'A porpoise pup with a permanent grin and no concept of a straight line. The fastest thing in the water and, on dry land, an enthusiastic disaster.',
   'beast.frostwing.name': 'Frostwing',
   'beast.frostwing.desc':
     'A snowy owl born in the heart of a glacier. It drifts on silent wings, watching everything with polite, unblinking curiosity, and its speckles glitter like fresh frost at dawn.',
   'beast.galebird.name': 'Galebird',
   'beast.galebird.desc':
     'A wind-stitched swallow that treats gravity as a polite suggestion — the fastest wings in the valley.',
+  'beast.lanternfin.name': 'Lanternfin',
+  'beast.lanternfin.desc':
+    'An anglerfish that swam up out of the black water with its lamp still burning. It has never seen the sun and remains unconvinced by it.',
   'beast.lumimoth.name': 'Lumimoth',
   'beast.lumimoth.desc':
     'A radiant moth that drifts between lantern posts at dusk, its glowing tail-light said to guide lost travelers home. Collects starlight on its wing-spots.',
+  'beast.rivotter.name': 'Rivotter',
+  'beast.rivotter.desc':
+    'A river otter built entirely out of enthusiasm and one very long spine. Gallops badly, swims magnificently, and will not stop showing you rocks.',
   'beast.sparkit.name': 'Sparkit',
   'beast.sparkit.desc':
     'A hyperactive spark rodent that physically cannot sit still. Its tall zigzag tail is a living lightning rod, and its cheek spots crackle whenever it gets excited — so, always.',
+  'beast.snapclaw.name': 'Snapclaw',
+  'beast.snapclaw.desc':
+    'A hermit crab in a spiral shell two sizes too grand for it. Carries its house up the beach, into the surf and out the other side, and has strong opinions about fingers.',
   'beast.sproutle.name': 'Sproutle',
   'beast.sproutle.desc':
     'A round mossy turtle-dino whose shell is a garden of overlapping leaf plates. It plods along at its own unhurried pace, head-sprout bobbing, utterly unbothered by anything.',
@@ -244,6 +260,18 @@ export const en = {
   'skill.boulderpup.amber-avalanche.name': 'Amber Avalanche',
   'skill.boulderpup.amber-avalanche.desc':
     'The back-crystal flares white-hot and hurls a fan of molten amber boulders.',
+  'skill.coralback.shell-slam.name': 'Shell Slam',
+  'skill.coralback.shell-slam.desc':
+    'Puts its whole borrowed continent behind one shove. Nothing about it is fast and nothing about it needs to be.',
+  'skill.coralback.brine-bubble.name': 'Brine Bubble',
+  'skill.coralback.brine-bubble.desc':
+    'Coughs up a wobbling sphere of seawater that travels with great dignity and lands with none.',
+  'skill.coralback.reef-guard.name': 'Reef Guard',
+  'skill.coralback.reef-guard.desc':
+    'The coral on its back flares, and everything standing close enough gets a share of four centuries of not dying.',
+  'skill.coralback.tide-anchor.name': 'Tide Anchor',
+  'skill.coralback.tide-anchor.desc':
+    'Spins low and drags the whole tide round with it. Whatever was standing there is now standing somewhere else.',
   'skill.drakelet.fang-rush.name': 'Fang Rush',
   'skill.drakelet.fang-rush.desc':
     'Darts in with a snap of needle fangs and far too much confidence for its size.',
@@ -267,6 +295,18 @@ export const en = {
   'skill.emberfox.foxfire-beam.name': 'Foxfire Beam',
   'skill.emberfox.foxfire-beam.desc':
     'Rears up and exhales a roaring ribbon of blue-white foxfire.',
+  'skill.finnick.sonar-ping.name': 'Sonar Ping',
+  'skill.finnick.sonar-ping.desc':
+    'A click you feel in your teeth from fifteen metres. It is aimed, it is fast, and it is very pleased with itself.',
+  'skill.finnick.breach.name': 'Breach',
+  'skill.finnick.breach.desc':
+    'Leaves the water entirely, turns over once, and comes down on whatever it was looking at.',
+  'skill.finnick.wake-spiral.name': 'Wake Spiral',
+  'skill.finnick.wake-spiral.desc':
+    'Circles hard enough to leave a standing whirlpool behind. Getting out of it is a separate problem.',
+  'skill.finnick.echo-song.name': 'Echo Song',
+  'skill.finnick.echo-song.desc':
+    'Sings one long note that everyone nearby feels rather than hears, and stands up a little straighter for.',
   'skill.frostwing.frost-dart.name': 'Frost Dart',
   'skill.frostwing.frost-dart.desc':
     'Flicks a razor feather of ice that chills whatever it pricks.',
@@ -291,6 +331,18 @@ export const en = {
   'skill.galebird.cyclone-waltz.name': 'Cyclone Waltz',
   'skill.galebird.cyclone-waltz.desc':
     'Spins a pirouette so fast the sky joins in, wrapping everything nearby in a shrieking tornado.',
+  'skill.lanternfin.glimmer-mote.name': 'Glimmer Mote',
+  'skill.lanternfin.glimmer-mote.desc':
+    'Flicks a bead of cold lamplight off the end of its rod. It drifts, and then it does not.',
+  'skill.lanternfin.abyss-bite.name': 'Abyss Bite',
+  'skill.lanternfin.abyss-bite.desc':
+    'The lamp goes out, and by the time it comes back on the biting has finished.',
+  'skill.lanternfin.lure-glow.name': 'Lure Glow',
+  'skill.lanternfin.lure-glow.desc':
+    'Turns the lamp on its own friends for once. Everything in the light remembers how to keep going.',
+  'skill.lanternfin.deep-pulse.name': 'Deep Pulse',
+  'skill.lanternfin.deep-pulse.desc':
+    'Pours a full lamp of abyssal light down one line. Nothing that lives up here is built for it.',
   'skill.lumimoth.glimmer-dart.name': 'Glimmer Dart',
   'skill.lumimoth.glimmer-dart.desc':
     'Flicks a needle of condensed moonlight from a wingtip. Travels fast, stings brighter.',
@@ -303,6 +355,18 @@ export const en = {
   'skill.lumimoth.lantern-blessing.name': 'Lantern Blessing',
   'skill.lumimoth.lantern-blessing.desc':
     'The abdomen-lantern flares with gentle warmth, mending wounds in its soft halo.',
+  'skill.rivotter.river-dart.name': 'River Dart',
+  'skill.rivotter.river-dart.desc':
+    'Spits a needle of river water hard enough to whistle. It practises this constantly and wants you to know.',
+  'skill.rivotter.otter-roll.name': 'Otter Roll',
+  'skill.rivotter.otter-roll.desc':
+    'A full barrel roll straight through whatever is in the way, entirely delighted about it.',
+  'skill.rivotter.slick-coat.name': 'Slick Coat',
+  'skill.rivotter.slick-coat.desc':
+    'Sheds a film of river oil over its friends. Things slide off. That is the whole trick and it works.',
+  'skill.rivotter.torrent-slide.name': 'Torrent Slide',
+  'skill.rivotter.torrent-slide.desc':
+    'Opens a chute of white water and rides it, which is somehow both an attack and the most fun anyone is having.',
   'skill.sparkit.static-zap.name': 'Static Zap',
   'skill.sparkit.static-zap.desc':
     'Flicks a stinging bead of static off its cheek spots. Cheap, cheerful, and mildly rude.',
@@ -315,6 +379,18 @@ export const en = {
   'skill.sparkit.gigavolt-crash.name': 'Gigavolt Crash',
   'skill.sparkit.gigavolt-crash.desc':
     'Every stripe on its back lights up as it fires a searing bolt-beam straight down the line.',
+  'skill.snapclaw.pincer-snap.name': 'Pincer Snap',
+  'skill.snapclaw.pincer-snap.desc':
+    'One clap of the big claw. The sound arrives slightly after the damage does.',
+  'skill.snapclaw.sand-spray.name': 'Sand Spray',
+  'skill.snapclaw.sand-spray.desc':
+    'Spins on the spot and throws up a stinging wall of wet grit in every direction at once.',
+  'skill.snapclaw.shell-up.name': 'Shell Up',
+  'skill.snapclaw.shell-up.desc':
+    'Everyone gets a moment behind the house. It is cramped, it smells of low tide, and it holds.',
+  'skill.snapclaw.brine-shot.name': 'Brine Shot',
+  'skill.snapclaw.brine-shot.desc':
+    'Fires a jet of stored seawater through a gap in the shell. Rude, accurate, and startlingly far.',
   'skill.sproutle.leaf-flick.name': 'Leaf Flick',
   'skill.sproutle.leaf-flick.desc':
     'Snaps its head forward and flings a spinning razor leaf that whistles as it flies.',
@@ -366,6 +442,15 @@ export const en = {
   'biome.desert.name': 'Desert',
   'biome.snow.name': 'Snowfield',
   'biome.underwater.name': 'Lakebed',
+  'biome.deepwater.name': 'Deep Sea',
+
+  // ---- locomotion ----------------------------------------------------------
+  // The second half of a beast's type: what the HUD badge's corner pip draws
+  // and what the inventory row spells out. See LOCOMOTION_NAME_KEYS.
+  'loco.ground.name': 'Ground',
+  'loco.flying.name': 'Flying',
+  'loco.swimming.name': 'Aquatic',
+  'loco.amphibious.name': 'Amphibious',
   'biome.trampled.name': 'Trodden Ground',
 
   // ---- HUD ---------------------------------------------------------------
@@ -509,6 +594,11 @@ export const en = {
   'toast.learnedSkill': '{beast} learned {skill}!',
   'toast.fainted': 'You fainted!',
   'toast.revived': 'Back on your feet!',
+  // The deep sea, and it names the FIX rather than the refusal. The water going
+  // dark already said "not this way"; what a player cannot work out on his own
+  // is that the answer is an animal he already owns.
+  'toast.deepWater': 'The water goes black here — ride a water beast to cross.',
+  'toast.mount.refuse.deepGround': '{beast} will not swim that. Ride something that does.',
 
   // ---- mounting ------------------------------------------------------------
   // The beast's name lands INSIDE each of these, which is the whole reason they

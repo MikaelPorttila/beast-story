@@ -633,6 +633,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     /** No canopy either, so nothing here is ever brushed for leaves. */
     crownContactAt(): boolean { return false; },
     isWater(): boolean { return false; },
+    /** ...so there is no deep sea in it either. See World.isDeepWater. */
+    isDeepWater(): boolean { return false; },
     /** It does not snow in a hold cut out of rock. */
     snowCoverAt(): number { return 0; },
     /** Nothing grows in a hold cut out of rock, so there is nothing to part. */

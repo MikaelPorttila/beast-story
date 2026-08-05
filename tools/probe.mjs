@@ -26,11 +26,14 @@
 // wrong about which list it belongs in is a flaky test, so the default for a
 // new one is SOLO.
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { launchBrowser } from './browser.mjs';
 import { PORT } from './target.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // Probes that assert on frame rate, elapsed motion or CPU cost. Never batched.
 // Four of these are here because a batch was RUN and the output moved, which
@@ -42,12 +45,38 @@ import { PORT } from './target.mjs';
 //               because it asserts nothing. See the note on silent probes below.
 //   content     one key press in forty-odd assertions, and a batched page is a
 //               background tab with no rAF to consume it. See its entry below.
+//
+// `perf-baseline` USED TO BE THE FIRST NAME ON THIS LIST AND IT IS NOT A PROBE.
+// It sat here for as long as this roster has existed and it never ran once:
+// every entry is spawned as `tools/test-<name>.mjs` and the file is
+// `tools/perf-baseline.mjs`, so `probe.mjs all` reported
+// `Module not found "tools/test-perf-baseline.mjs"` on every run anybody has
+// ever done. A suite that is permanently one-red teaches everyone to read a
+// failure count instead of a pass, which is the whole cost of the bug — the
+// missing coverage was never there to lose.
+//
+// It is REMOVED rather than renamed or special-cased, because fixing the path
+// would not have made it green either. `perf-baseline` with no
+// `.perf-baseline.json` exits 2 and tells you to record one, and that file is
+// per-machine and gitignored on purpose (frame cost is a property of the
+// hardware — see the header of tools/perf-baseline.mjs). So on any machine that
+// has not run the manual `record` step first, which is every fresh checkout, a
+// path-corrected entry would still fail. It is a COMPARISON TOOL with a setup
+// step, not a pass/fail assertion, and it belongs where AGENTS.md already puts
+// it: run it yourself, by name.
+//
+//   bun tools/perf-baseline.mjs record     once per machine
+//   bun tools/perf-baseline.mjs            compare the working tree
+//
 const SOLO = new Set([
-  'perf-baseline', // the whole point of it is a cpu/frame number
   'gamepad',       // section 7 compares look rate across fps caps
   'touch',         // sums yaw deltas over a stick hold
   'beastanim',     // per-frame rotation deltas
   'dive',          // ascent speed in units/second
+  // Drives four different bodies at a coastline and measures how far each got,
+  // plus a mounted top speed on either side of a waterline. Every one of those
+  // is elapsed motion, and it mounts through __dbgRide, which drives state.
+  'deepwater',
   'menu',          // menuShownAtMs, and a held W measured against another hold
   'keybinds',      // one section runs UNCAPPED on purpose
   'pause',         // held-W distances either side of the menu
@@ -130,6 +159,18 @@ if (!names.length) {
   process.exit(2);
 }
 
+// A NAME THAT NAMES NO FILE IS A TYPO, AND IT IS CAUGHT HERE RATHER THAN AS A
+// module-resolution error four seconds into a spawned child. That is how
+// `perf-baseline` hid on the roster above for so long: the failure it produced
+// looked exactly like a probe that had run and broken, so it read as somebody
+// else's red rather than as an entry pointing at nothing.
+const missing = names.filter((n) => !existsSync(join(ROOT, 'tools', `test-${n}.mjs`)));
+if (missing.length) {
+  console.error(`no such probe: ${missing.join(', ')}
+  known: ${ALL.join(' ')}`);
+  process.exit(2);
+}
+
 const logDir = join(tmpdir(), 'bs-probe');
 mkdirSync(logDir, { recursive: true });
 
@@ -153,6 +194,39 @@ const runOne = (name) => new Promise((resolve) => {
   });
 });
 
+/**
+ * Close every page the finished probes left behind. MEMORY HYGIENE, and it is
+ * worth being precise that it is ONLY that.
+ *
+ * A probe's pages outlive the probe: `launchBrowser` remaps `close()` to
+ * `disconnect()` for the shared browser (tools/browser.mjs — the next probe in
+ * the batch still needs it alive), so every page a child opened is still open
+ * after the child has exited. Measured here, `keybinds` leaves two behind. A
+ * whole `all` run therefore ends holding a few dozen live game pages, each with
+ * its own WebGL context; a leaked run of this suite was caught holding 4 GB.
+ *
+ * IT IS NOT THE FIX FOR THE BATCH FLAKE, and the first version of this comment
+ * claimed it was. The theory was that leaked pages starve later probes of
+ * requestAnimationFrame. Measured, all three legs of that are false: the pages
+ * are visible to the parent, a page with three others open still reports
+ * `visibilityState: 'visible'` and 166 rAF callbacks a second, and — decisively
+ * — with this sweep in place `probe.mjs menu keybinds dive` still failed with
+ * `dive` starting on a clean browser of exactly one page. What actually breaks
+ * those probes is a single unretried keypress; see `leaveSplash` in
+ * tools/browser.mjs.
+ *
+ * KEEPS pages[0], the about:blank the launch came up with. Closing every page
+ * can let the browser decide it has nothing left to do and exit under the rest
+ * of the batch.
+ */
+async function reapPages() {
+  if (!browser) return 0;
+  const pages = await browser.pages().catch(() => []);
+  const doomed = pages.slice(1);
+  for (const pg of doomed) await pg.close().catch(() => {});
+  return doomed.length;
+}
+
 const results = [];
 const line = (r) => `${r.code === 0 ? 'ok  ' : 'FAIL'} ${r.name.padEnd(13)} ${(r.ms / 1000).toFixed(1)}s`;
 
@@ -169,10 +243,21 @@ const workers = Array.from({ length: Math.min(jobs, queue.length) }, async () =>
   }
 });
 await Promise.all(workers);
+// AFTER the pool has drained, never inside a worker: with `--jobs 2` or more
+// the batched probes genuinely do overlap, and a sweep between two of them
+// would close the pages of one that is still running. Here every worker has
+// finished, so everything still open is abandoned by construction.
+await reapPages();
+
 for (const n of solo) {
   const r = await runOne(n);
   results.push(r);
   if (!json) console.log(line(r));
+  // Solo is strictly one at a time — that is what the list MEANS — so there is
+  // never another probe whose pages this could take out from under it. This is
+  // the sweep that matters: the solo chain is twenty probes long and it is
+  // where the pile used to build up.
+  await reapPages();
 }
 
 // close(), not disconnect(): this is a REAL launch (the runner's own env has no
