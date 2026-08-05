@@ -1,6 +1,7 @@
 import { loadPrefs, savePrefs, type Prefs } from '../core/prefs';
 import { storedGfx, storeGfx, type GfxSinks } from '../core/gfx';
 import { t, language, languages, setLanguage, type StringKey } from '../i18n';
+import { fullscreenSurvivesEscape } from './fullscreen';
 import type { LookAxes } from '../core/gamepad';
 
 /**
@@ -330,9 +331,17 @@ export class SettingsPanel {
    */
   private sections(): string {
     const inGame = this.place === 'game';
+    // Issue #83. Where Escape still belongs to the browser, the game does not
+    // take a fullscreen the first closed panel would give back (ui/menu.ts), so
+    // the row shows OFF, does not answer, and says why underneath — the same
+    // shape as the language row below, and for the same reason: a dead control
+    // with no reason beside it is indistinguishable from a broken one.
+    const keepsFull = fullscreenSurvivesEscape();
     return `<div class="rows">` +
       this.section('gameplay',
-        this.toggle('autoFullscreen', t('menu.settings.autoFullscreen'), this.prefs.autoFullscreen) +
+        this.toggle('autoFullscreen', t('menu.settings.autoFullscreen'),
+          this.prefs.autoFullscreen && keepsFull, !keepsFull) +
+        (keepsFull ? '' : `<div class="note">${escapeHtml(t('menu.settings.fullscreenEscape'))}</div>`) +
         `<div class="row lang${inGame ? ' off' : ''}">` +
           `<span class="lbl">${escapeHtml(t('menu.settings.language'))}</span>` +
           `<div class="langs strip" data-group="lang">${languages().map((l) => {
@@ -561,10 +570,15 @@ export class SettingsPanel {
    * `.click()` on a button anyway. So the row IS the button, with the state as
    * an ON/OFF pill on its right, and `aria-pressed` carrying the state for
    * anything reading the page rather than looking at it.
+   *
+   * `disabled` is for a setting this BROWSER cannot answer — one row uses it,
+   * see `sections`. It is the attribute rather than a class because that is what
+   * `FOCUSABLE` already excludes and what stops a pad cursor landing on it; the
+   * grey is `.bs-menu-btn[disabled]` in ui/styles.ts.
    */
-  private toggle(key: ToggleKey, label: string, on: boolean): string {
+  private toggle(key: ToggleKey, label: string, on: boolean, disabled = false): string {
     return `<button class="bs-menu-btn row" type="button" data-toggle="${key}" ` +
-      `aria-pressed="${on}"><span class="lbl">${escapeHtml(label)}</span>` +
+      `${disabled ? 'disabled ' : ''}aria-pressed="${on}"><span class="lbl">${escapeHtml(label)}</span>` +
       `<span class="pill">${escapeHtml(on ? t('menu.on') : t('menu.off'))}</span></button>`;
   }
 }

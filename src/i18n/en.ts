@@ -737,6 +737,15 @@ export const en = {
    */
   'menu.settings.autoFullscreen': 'Fullscreen on start',
   /**
+   * Under that switch, and only where the switch is shown disabled: a browser
+   * that will not give the game the Escape key (issue #83). Says what the
+   * BROWSER does rather than "unsupported", because the player's own experience
+   * of it is a screen that shrank when they closed a panel — and it names
+   * Escape so somebody who wants fullscreen anyway knows to press F11.
+   */
+  'menu.settings.fullscreenEscape':
+    'This browser leaves fullscreen when you press Escape, so the game starts in a window.',
+  /**
    * The volume strip: OFF · 20 · 40 · 60 · 80 · 100. Says "Music" and not
    * "Volume" because it is not the only sound the game will ever make — the SFX
    * channel is a seam with a level of its own to come (src/feedback/audio.ts) —

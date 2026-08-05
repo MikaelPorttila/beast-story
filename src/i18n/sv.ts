@@ -163,6 +163,11 @@ export const sv: Translation = {
   'menu.settings.invertY': 'Invertera sikte Y',
   'menu.settings.controllerNote': 'Gäller bara handkontroll — musen inverteras aldrig.',
   'menu.settings.autoFullscreen': 'Helskärm vid start',
+  // Under helskärmsraden, och bara när den visas avstängd: en webbläsare som
+  // inte lämnar ifrån sig Escape-tangenten. Säger vad webbläsaren gör, inte att
+  // funktionen saknas.
+  'menu.settings.fullscreenEscape':
+    'Den här webbläsaren lämnar helskärm när du trycker Escape, så spelet startar i fönster.',
   'menu.settings.music': 'Musik',
   'menu.settings.language': 'Språk',
   // Under språkväljaren, och bara när inställningarna öppnats inifrån ett spel

@@ -65,7 +65,7 @@ import {
 } from './ui/inventory';
 import {
   exitFullscreen, fullscreenSupported, isFullscreen,
-  installEscapeLock, keyboardLockSupported, escapeIsLocked,
+  installEscapeLock, keyboardLockSupported, escapeIsLocked, fullscreenSurvivesEscape,
 } from './ui/fullscreen';
 import { LoadingScreen } from './ui/loading';
 import { MusicDirector, MUSIC_TRACKS } from './audio/music';
@@ -1982,12 +1982,15 @@ const _hurtFrom = new THREE.Vector3();
 // asked for Escape, `escapeLocked` is whether it granted it — two answers,
 // because they disagree in exactly the cases the feature is broken in (an
 // iframe, plain http, a policy), and a probe reading only the first would pass
-// through all of them. Read-only; see ui/fullscreen.ts.
+// through all of them. `survivesEscape` is the third: whether New Game will take
+// fullscreen at all (issue #83), which on a phone is true with no lock in sight.
+// Read-only; see ui/fullscreen.ts.
 (window as unknown as { __dbgFullscreen: () => unknown }).__dbgFullscreen = () => ({
   supported: fullscreenSupported(),
   active: isFullscreen(),
   keyboardLock: keyboardLockSupported(),
   escapeLocked: escapeIsLocked(),
+  survivesEscape: fullscreenSurvivesEscape(),
 });
 
 // Controller state: what is plugged in, which faces the HUD is printing, and the

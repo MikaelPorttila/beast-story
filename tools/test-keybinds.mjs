@@ -495,6 +495,92 @@ await page.close();
   await fs.close();
 }
 
+// ---------- 7. NEW GAME ONLY TAKES A FULLSCREEN IT CAN KEEP (issue #83) -----
+//
+// The other half of section 6, from the player's side. Where the keyboard lock
+// is missing, Escape is the browser's — and Escape is how a panel is closed, so
+// a fullscreen taken at New Game lasts until the first inventory is shut and
+// then quietly goes. `StartMenu.start` therefore reads the preference past
+// `fullscreenSurvivesEscape()`, and the settings row is shown off and disabled
+// with a note rather than switched on and inert.
+//
+// BOTH HALVES, on two pages that differ in ONE thing: whether
+// `navigator.keyboard` is there. Headless Chromium answers null, so the plain
+// page is a real Firefox/Safari for this purpose and the stubbed one is a real
+// Chrome. Neither passes `fs=`, because that flag is the override that skips
+// the gate — a run with it would assert on nothing.
+{
+  /** Walk the poster to the options list, then click one of its buttons. */
+  const toOptions = async (page) => {
+    await page.waitForSelector('.bs-menu');
+    await wait(600);
+    for (let i = 0; i < 4; i++) {
+      if (await page.evaluate(() => !!document.querySelector('.bs-menu [data-act="new"]'))) break;
+      await page.keyboard.press('Enter');
+      await wait(500);
+    }
+  };
+  /** Start a game the way a player does — a real click, so the activation is real. */
+  const newGame = async (page) => {
+    await page.click('.bs-menu [data-act="new"]');
+    await page.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 30000 });
+    await wait(800);
+    return page.evaluate(() => window.__dbgFullscreen());
+  };
+
+  // --- no keyboard lock: windowed, and the row says why ---------------------
+  const plain = await newPage(browser, { width: 1280, height: 800 });
+  await plain.goto(`${HOST}/`, { waitUntil: 'load' });
+  await toOptions(plain);
+  await plain.click('.bs-menu [data-act="settings"]');
+  await wait(400);
+  const row = await plain.evaluate(() => {
+    const btn = document.querySelector('.bs-menu [data-toggle="autoFullscreen"]');
+    const sec = btn?.closest('.sec');
+    return {
+      present: !!btn,
+      disabled: btn?.hasAttribute('disabled') ?? null,
+      pressed: btn?.getAttribute('aria-pressed') ?? null,
+      // The note is the row's reason, and it has to be IN the same section: a
+      // note rendered into the wrong tab is a disabled control with nothing
+      // beside it, which is the thing this is here to prevent.
+      notes: [...(sec?.querySelectorAll('.note') ?? [])].map((n) => n.textContent.trim()),
+      // A pad cursor must not be able to stand on it — the same clause the
+      // disabled language chips rely on. See FOCUSABLE in ui/settings.ts.
+      focusable: !!btn?.matches('button:not([disabled]):not([tabindex="-1"]):not(.sec.off *)'),
+    };
+  });
+  await plain.keyboard.press('Escape');
+  await wait(400);
+  const plainStart = await newGame(plain);
+
+  // --- with the lock: the preference is honoured ---------------------------
+  const locked = await newPage(browser, { width: 1280, height: 800 });
+  await locked.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, 'keyboard', {
+      configurable: true,
+      value: { lock: () => Promise.resolve(), unlock: () => {} },
+    });
+  });
+  await locked.goto(`${HOST}/`, { waitUntil: 'load' });
+  await toOptions(locked);
+  const lockedStart = await newGame(locked);
+
+  results.fullscreenGate = {
+    withoutLock: {
+      survivesEscape: plainStart.survivesEscape,
+      wentFullscreen: plainStart.active,
+      row,
+    },
+    withLock: {
+      survivesEscape: lockedStart.survivesEscape,
+      wentFullscreen: lockedStart.active,
+    },
+  };
+  await plain.close();
+  await locked.close();
+}
+
 console.log(JSON.stringify(results, null, 2));
 await browser.close();
 
@@ -536,6 +622,20 @@ check(results.escapeLock?.escapePrevented === true,
   'Escape reaches the BROWSER — it must be in Input.CAPTURED');
 check(results.stagedBoot?.alternates !== false,
   `F1 does not alternate uncapped (${results.stagedBoot?.pattern})`);
+// The gate, both halves — issue #83. The second is what stops "never go
+// fullscreen" from passing this section.
+check(results.fullscreenGate?.withoutLock?.wentFullscreen === false,
+  'New Game took fullscreen with no keyboard lock — Escape would take it straight back');
+check(results.fullscreenGate?.withLock?.wentFullscreen === true,
+  'New Game stayed windowed WITH the lock — the preference is no longer honoured anywhere');
+check(results.fullscreenGate?.withoutLock?.row?.disabled === true,
+  'the "Fullscreen on start" row answers in a browser that cannot keep fullscreen');
+check(results.fullscreenGate?.withoutLock?.row?.focusable === false,
+  'a pad cursor can still land on the disabled fullscreen row');
+check(results.fullscreenGate?.withoutLock?.row?.pressed === 'false',
+  'the disabled fullscreen row shows ON while the game starts in a window');
+check((results.fullscreenGate?.withoutLock?.row?.notes ?? []).some((n) => /Escape/.test(n)),
+  'the disabled fullscreen row has no note saying why');
 
 if (fail.length) {
   console.error(`\n${fail.length} failure(s):\n  ${fail.join('\n  ')}`);
