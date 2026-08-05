@@ -89,6 +89,10 @@ Tests are browser probe scripts in `tools/` that print JSON. Give every new
 probe a real assertion and a non-zero exit — several existing ones only print
 readings.
 
+- **Flake is a bug, not noise.** Run a test once per change: a re-run with no
+  code change proves nothing and buries the flake. The only reason to run the
+  same test again unchanged is to hunt a flake you have already seen — then
+  repeat it deliberately, fix the cause, and say that is what you did.
 - `bun tools/probe.mjs all` runs the roster listed in `probe.mjs` itself — add a
   new probe to its `SOLO` or `PARALLEL` set or `all` will skip it. **SOLO is the
   default**; only a probe that drives no hero and measures no motion belongs in
