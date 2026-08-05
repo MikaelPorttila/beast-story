@@ -47,28 +47,56 @@ const browser = await launchBrowser();
 const round = (v, n = 2) => +v.toFixed(n);
 const bearing = (fromX, fromZ, toX, toZ) => Math.atan2(toX - fromX, toZ - fromZ);
 
+/**
+ * How close the camera has to be to the wanted bearing before the walk starts,
+ * in degrees.
+ *
+ * 2, against a settle that used to be 1300 ms of flat sleep. Measured over the
+ * 40 cases this file drives, that sleep left a median error of 0.0 degrees and
+ * a worst of 1.5 — i.e. it was waiting long after the camera had arrived, on
+ * every walk, twice per run. 2 is above that worst case and a fortieth of the
+ * ~80 degrees a mis-aimed walk is wrong by, so it separates "arrived" from
+ * "still swinging" with room on both sides.
+ */
+const AIM_TOLERANCE_DEG = 2;
+/** How long to keep waiting for it before giving up and walking anyway. */
+const AIM_TIMEOUT = 1500;
+/** Gap between polls. Two frames at the 30 fps this probe pins itself to. */
+const AIM_POLL = 66;
+
 /** Aim, teleport, hold W, and report the ends of the walk. */
 async function walk(page, startX, startZ, yaw, holdMs = HOLD_MS) {
-  await page.evaluate(([x, z, y]) => {
+  // WAIT FOR THE CONDITION, NOT FOR THE CLOCK. The camera's forward is derived
+  // from its SMOOTHED position, so a big swing needs a few hundred ms to
+  // arrive; pressing W before it does walks the hero off along the old heading,
+  // which showed up as every case travelling backwards. That was fixed with two
+  // fixed sleeps totalling 1300 ms — correct, and the single most expensive
+  // line in the suite: 42 walks a run at 4.2 s each is 177 s, 83% of this
+  // probe, and this probe is a fifth of `probe.mjs all`.
+  //
+  // The error is polled instead, using the very number the walk already
+  // reports. The re-teleport stays inside the loop because it was always doing
+  // two jobs: re-aiming, and putting the hero back where gravity has been
+  // pulling him out of since the last one.
+  const place = () => page.evaluate(([x, z, y]) => {
     window.__dbgTp(x, z);
     window.__dbgAim(y);
   }, [startX, startZ, yaw]);
-  // The camera's forward is derived from its SMOOTHED position, so a big swing
-  // needs a few hundred ms to arrive. Pressing W before it does walks the hero
-  // off along the old heading — which is exactly the bug this wait fixes, and
-  // it showed up as every case travelling backwards.
-  await wait(900);
-  await page.evaluate(([x, z, y]) => {
-    window.__dbgTp(x, z);
-    window.__dbgAim(y);
-  }, [startX, startZ, yaw]);
-  await wait(400);
-  const camErrDeg = await page.evaluate((want) => {
+  const aimError = () => page.evaluate((want) => {
     let d = (window.__dbgCamYaw() + Math.PI - want) * 180 / Math.PI;
     while (d > 180) d -= 360;
     while (d < -180) d += 360;
     return Math.abs(d);
   }, yaw);
+
+  await place();
+  const deadline = Date.now() + AIM_TIMEOUT;
+  let camErrDeg = await aimError();
+  while (camErrDeg > AIM_TOLERANCE_DEG && Date.now() < deadline) {
+    await wait(AIM_POLL);
+    await place();
+    camErrDeg = await aimError();
+  }
   const before = await page.evaluate(() => window.__dbgPlayerPos());
   // Was the hero dropped INSIDE something? A teleport can do that where walking
   // cannot, and it would make a short walk look like a block when it is a stuck.
