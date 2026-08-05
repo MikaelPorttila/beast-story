@@ -143,6 +143,19 @@ async function run(solids, geom = null) {
   // asserts the same things this file does — that the deck holds a body up, and
   // that what is built on it stops one.
   const sited = towns.towns.filter((tn) => !tn.carried);
+  // ONE SETTLEMENT IS WALKED, NOT ALL OF THEM. See AGENTS.md: buildings that
+  // share a builder share its bugs, so driving the hero into three towns' huts
+  // tests `world/structures.ts` three times rather than testing three things.
+  // Measured, that repetition was 16 of the 20 cases per arm and ~120 s of a
+  // 186 s run — a fifth of the whole probe suite spent re-proving one rule.
+  //
+  // The CAMP is the representative because it is the richest: a palisade, a
+  // gate, huts, ridge tents and crates, i.e. every collider primitive the town
+  // builders emit. The other settlements are still covered by the collider
+  // BUDGET below, which counts their boxes and roofs without walking anywhere —
+  // that is the check that catches a builder regressing, and it is free.
+  const walked = sited.filter((tn) => tn.kind === 'camp').slice(0, 1);
+  if (!walked.length) walked.push(sited[0]);
   /** Boxes per town id, measured on the solid arm and handed to the other. */
   const measured = {};
   let campBoxes = null;
@@ -160,7 +173,7 @@ async function run(solids, geom = null) {
     return out.cases[name];
   };
 
-  for (const town of sited) {
+  for (const town of walked) {
     const boxes = geom ? geom.towns[town.id] : await page.evaluate(
       ([x, z, r]) => window.__dbgStructures(x, z, r),
       [town.x, town.z, town.radius + 2],
@@ -280,7 +293,16 @@ async function run(solids, geom = null) {
   {
     const dens = await page.evaluate(() => window.__dbgShops());
     out.dens = [];
-    for (let i = 0; i < dens.length; i++) {
+    // TWO DENS, NOT ALL FOUR, by the same rule as the settlement above: every
+    // den is the same builder, so the fourth walk re-proves the first.
+    //
+    // Two rather than one because of a fact this file already records: the
+    // ground behind one of them terraces a full unit against a MAX_STEP_UP of
+    // 0.5, so the terrain stops the hero in BOTH arms and that den can prove
+    // nothing. One den would be a run that fails whenever the seed hands it
+    // that one; a spare is what keeps the trim honest rather than lucky.
+    const DENS_WALKED = 2;
+    for (let i = 0; i < Math.min(dens.length, DENS_WALKED); i++) {
       const d = dens[i];
       /** Walk in along `ang`, from DEN_BACK units out, and read where he got to. */
       const approach = async (name, ang) => {

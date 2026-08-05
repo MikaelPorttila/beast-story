@@ -266,6 +266,11 @@ Content is DATA; the engine implements reusable BEHAVIOUR.
   a wall is an oriented box — a handful of colliders per model.
 - **What you see is what you stand on, by construction.** Anything drawn over
   the walking surface samples that surface per vertex.
+- **Never change a collider without saying so.** A probe cannot tell you a wall
+  is in a sensible place; a person playing can. Report the change, do not bury
+  it in a larger commit.
+- **Test the collider MECHANISM once, not every structure.** Buildings that
+  share a builder share its bugs. Hand-placed colliders need no test at all.
 
 ## Code conventions
 
