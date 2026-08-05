@@ -40,7 +40,7 @@
  * number stating his size that is not his body.
  */
 import * as THREE from 'three';
-import type { NpcField, NpcInfo, NpcTalk, TownRegistry } from '../core/types';
+import { inRise, type NpcField, type NpcInfo, type NpcTalk, type TownRegistry } from '../core/types';
 import type { StringKey } from '../i18n';
 import { StructureField } from './structures';
 import type { SolidBox } from './props';
@@ -269,7 +269,9 @@ export const NPC_TALK_RANGE = 2.8;
  * How far ABOVE OR BELOW him you may be and still be talking to him, in world
  * units of separation between his feet and yours.
  *
- * A CYLINDER, not a sphere, and that is the point. `NPC_TALK_RANGE` above is
+ * A CYLINDER, not a sphere, and that is the point — the argument is written out
+ * once, at `inReach` in core/types.ts, which every other proximity test in the
+ * game now goes through as well (issue #78). `NPC_TALK_RANGE` above is
  * tuned against a hero who walked up to him on flat camp ground; folding the
  * height into one radius would quietly shorten that reach on every slope, for a
  * defect nobody reported. The two questions are different — "did you come over
@@ -493,7 +495,7 @@ export class Npcs implements NpcField {
       // Height first: it rejects the whole airborne case with one subtraction
       // and an absolute, where the horizontal test cannot tell a hero standing
       // in front of him from one thirty units over his head. See NPC_TALK_RISE.
-      if (Math.abs(p.info.y - y) > NPC_TALK_RISE) continue;
+      if (!inRise(y, p.info.y, NPC_TALK_RISE)) continue;
       const dx = p.info.x - x;
       const dz = p.info.z - z;
       const d2 = dx * dx + dz * dz;
@@ -575,7 +577,7 @@ export class Npcs implements NpcField {
       // the prompt, and a talk begun on the ground would follow you into the
       // sky and stay open there.
       const near = d2 < NPC_LEAVE_RANGE * NPC_LEAVE_RANGE
-        && Math.abs(p.info.y - focus.y) <= NPC_LEAVE_RISE;
+        && inRise(focus.y, p.info.y, NPC_LEAVE_RISE);
       if (this.talkState?.id === p.char.id && !near) {
         this.talkState = null;
       }

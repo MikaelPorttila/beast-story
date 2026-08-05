@@ -62,9 +62,11 @@
  *                 rim must not build and destroy a zone on alternate frames.
  *                 Verified by oscillating 28 <-> 34 eight times: the pending
  *                 zone stayed built and warmed throughout.
+ *
+ * And the fourth number, which is a HEIGHT rather than a radius: see GATE_RISE.
  */
 import * as THREE from 'three';
-import type { World, WorldBound } from '../core/types';
+import { inRise, type World, type WorldBound } from '../core/types';
 import { t } from '../i18n';
 import { Gateway } from './portal';
 
@@ -82,6 +84,30 @@ export interface ZoneDef {
 
 const ENTER_R = 3.0;
 const EXIT_R = 5.0;
+/**
+ * How far ABOVE OR BELOW the pad you may be and still be in the arch, in world
+ * units between the gateway's footing and the hero's feet.
+ *
+ * Issue #78: there was no such number. The pad was an infinite column, so a hero
+ * crossing the map on a galebird was "standing in the arch" every time his
+ * shadow passed over it — the prompt came up, the dwell counted, and 1.2 s of
+ * level flight committed a zone transition he never asked for.
+ *
+ * 2.5 is NPC_TALK_RISE (world/npc.ts), and deliberately the same number for the
+ * same reasons — it is the same question about the same hero. Both bounds it has
+ * to clear were measured there: a jump apex is dy 1.54 and a flying mount at
+ * rest hovers at 2.21, so a hop must not blink the prompt and you must still be
+ * able to ride through a portal, while half a second of climb is dy 4.88 and is
+ * out. Anything reached by CLIMBING leaves the pad on the first frame.
+ */
+const GATE_RISE = 2.5;
+/**
+ * And where being in the arch stops, vertically. EXIT_R is to ENTER_R what this
+ * is to GATE_RISE, and the 1.5x is NPC_LEAVE_RISE's: a mount BOBS on its hover
+ * where a walker does not, so a leave bound equal to the entry bound would
+ * disarm the pad on the down-beat.
+ */
+const GATE_EXIT_RISE = GATE_RISE * 1.5;
 const DWELL = 1.2;
 const PRELOAD_R = 30;
 const RELEASE_R = 48;
@@ -184,8 +210,12 @@ export class ZoneManager {
   private opts: ZoneManagerOpts;
   /** Seconds since the last arrival, for the probe. */
   private since = 0;
-  /** Last measured distance to the active gateway, for the probe. */
+  /** Last measured HORIZONTAL distance to the active gateway, for the probe. */
   private gateDist = 0;
+  /** And the signed height above its footing — the other half of the pad test. */
+  private gateRise = 0;
+  /** Whether both halves said yes this frame. */
+  private gateInside = false;
   /** The zone we just left, being handed back a few chunks a frame. */
   private retiring: World | null = null;
 
@@ -238,8 +268,17 @@ export class ZoneManager {
 
     const gx = focus.x - active.gateway.position.x;
     const gz = focus.z - active.gateway.position.z;
+    const gy = focus.y - active.gateway.position.y;
     const d2 = gx * gx + gz * gz;
     this.gateDist = Math.sqrt(d2);
+    this.gateRise = gy;
+    // The pad is a CYLINDER, and "outside" is the hysteresis twin of "inside" in
+    // BOTH axes — leaving upward has to arm the gateway exactly as walking away
+    // does, or a hero who arrives, takes off and comes back down on the same pad
+    // is stuck with a gateway that can never fire again. See GATE_RISE.
+    const inside = d2 < ENTER_R2 && inRise(0, gy, GATE_RISE);
+    const outside = d2 > EXIT_R2 || !inRise(0, gy, GATE_EXIT_RISE);
+    this.gateInside = inside;
 
     // ---- preload band -----------------------------------------------------
     // Gated on `armed`, which is what stops the zone you just left from being
@@ -247,7 +286,12 @@ export class ZoneManager {
     // distance alone says "approaching" when the truth is "standing on the
     // doormat". Measured without this, walking into the hold disposed ~90
     // overworld chunks and immediately started rebuilding all of them.
-    if (active.armed && d2 < PRELOAD_R2 && this.pendingId === null && active.to !== this.activeId) {
+    // A SPHERE here, not the pad's cylinder: this band is "how far is the player
+    // from that arch", and the answer for a hero 60 units overhead is 60 — there
+    // is no reason to spend a zone build on him. Approaching along the ground is
+    // unaffected, gy being ~0 on the walk in.
+    const d3 = d2 + gy * gy;
+    if (active.armed && d3 < PRELOAD_R2 && this.pendingId === null && active.to !== this.activeId) {
       this.pendingId = active.to;
       const p = this.build(active.to);
       // A zone being built ahead of time is HIDDEN. It is 8192 units away and
@@ -258,7 +302,7 @@ export class ZoneManager {
       p.world.setVisible(false);
       p.gateway.group.visible = false;
       this.states.set(active.to, p);
-    } else if (d2 > RELEASE_R2 && this.pendingId !== null) {
+    } else if (d3 > RELEASE_R2 && this.pendingId !== null) {
       const p = this.states.get(this.pendingId)!;
       this.states.delete(this.pendingId);
       this.pendingId = null;
@@ -298,10 +342,10 @@ export class ZoneManager {
     }
 
     // ---- arm / dwell / commit ---------------------------------------------
-    if (d2 > EXIT_R2) {
+    if (outside) {
       active.armed = true;
       active.dwell = 0;
-    } else if (active.armed && d2 < ENTER_R2) {
+    } else if (active.armed && inside) {
       active.dwell += dt;
     }
     // Between ENTER_R and EXIT_R the dwell HOLDS: it neither grows nor resets.
@@ -320,7 +364,7 @@ export class ZoneManager {
       // is a bug rather than a string.
       const zone = this.defs.get(active.to)?.name ?? active.to;
       this.opts.onHint(
-        d2 < EXIT_R2 && active.armed
+        !outside && active.armed
           ? active.dwell > 0
             ? t('hint.zoneEntering', {
               zone, pct: Math.round((active.dwell / DWELL) * 100),
@@ -419,10 +463,15 @@ export class ZoneManager {
         y: +a.gateway.position.y.toFixed(2),
         z: +a.gateway.position.z.toFixed(2),
         dist: +this.gateDist.toFixed(2),
+        rise: +this.gateRise.toFixed(2),
         dwell: +a.dwell.toFixed(2),
         need: DWELL,
         armed: a.armed,
-        inside: this.gateDist < ENTER_R,
+        // Both halves, as the frame actually decided them — a `dist` inside
+        // ENTER_R with `inside` false is issue #78's case, and reading it off
+        // the two numbers is the only way a probe can tell the height gate
+        // apart from a hero who simply is not there.
+        inside: this.gateInside,
       },
       pending: p && {
         id: p.def.id,
@@ -433,7 +482,10 @@ export class ZoneManager {
         ready: !p.world.streaming && p.warm >= WARM_STEPS,
       },
       retiring: this.retiring !== null,
-      radii: { enter: ENTER_R, exit: EXIT_R, dwell: DWELL, preload: PRELOAD_R, release: RELEASE_R },
+      radii: {
+        enter: ENTER_R, exit: EXIT_R, rise: GATE_RISE, exitRise: GATE_EXIT_RISE,
+        dwell: DWELL, preload: PRELOAD_R, release: RELEASE_R,
+      },
     };
   }
 
