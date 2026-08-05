@@ -632,23 +632,25 @@ if (!boot) {
 
 // ---------- 10. Escape closes the inventory and NOTHING ELSE ----------
 // THE REPORTED BUG, and it is not double-handling of the key — the cancel
-// branch in main.ts already routes one press to one panel. It is the POINTER
-// LOCK, and it is the same 8 ms hazard ui/pause.ts documents at length:
+// branch in main.ts already routes one press to one panel. It was the POINTER
+// LOCK, and the same 8 ms hazard ui/pause.ts documents at length:
 //
 //   Escape (no keyboard lock) -> the panel closes -> its onClose re-takes the
 //   lock -> the browser's own fullscreen exit, from that SAME key, drops the
-//   lock a few milliseconds later -> Input.onLockLost reads a lock that was
-//   TAKEN and taps a virtual Escape -> the next frame has no modal up, so the
-//   in-game menu opens.
+//   lock a few milliseconds later -> Input.onLockLost read a lock that was
+//   TAKEN and tapped a virtual Escape -> the next frame had no modal up, so the
+//   in-game menu opened.
 //
-// The lock going away is driven from the page here (`document.exitPointerLock`)
-// because that is precisely what the browser does to it, and because CDP cannot
-// make a synthetic Escape release a real lock. Arm 1b of tools/test-pause.mjs
-// drives the same edge the same way.
+// The last two steps are gone with the move to F10: losing the pointer no longer
+// manufactures a key at all (see arm 1b of tools/test-pause.mjs). This section
+// still drives the same sequence, because the ORDER is what it guards — one
+// press must close one panel and leave the menu shut, however the lock behaves
+// around it. The lock going away is driven from the page
+// (`document.exitPointerLock`) because that is precisely what the browser does
+// to it, and because CDP cannot make a synthetic Escape release a real lock.
 //
-// A PAIR, and the second half is what stops this passing against a build with
-// `onLockLost` deleted: a lock taken while NOTHING is open must still raise the
-// menu, because that is the feature the hook exists for.
+// The pair's second half is now F10: the menu must still be REACHABLE with
+// nothing open, or this passes against a build where the menu key is dead.
 {
   const menuOpen = () => page.evaluate(() => !!document.querySelector('.bs-pause'));
   const closeAll = async () => {
@@ -676,12 +678,21 @@ if (!boot) {
   const menuAfterEscape = await menuOpen();
 
   await closeAll();
-  // THE CONTROL: nothing open, the lock is taken, the menu must appear.
+  // A LOCK TAKEN WITH NOTHING OPEN RAISES NOTHING. This used to be the control
+  // and it is now an assertion in its own right: the menu came from a stolen
+  // pointer while it lived on Escape, and it must not any more.
   await page.mouse.click(300, 400);
   await wait(250);
   await page.evaluate(() => document.exitPointerLock());
   await wait(400);
   const menuFromBareLoss = await menuOpen();
+
+  // THE CONTROL, in its new form: the menu key still works with nothing open.
+  // Without this the two assertions above pass against a build whose menu can
+  // never be opened at all.
+  await page.keyboard.press('F10');
+  await wait(400);
+  const menuFromF10 = await menuOpen();
   await closeAll();
 
   results.escape = {
@@ -689,6 +700,7 @@ if (!boot) {
     closedByEscape: closed,
     menuAfterEscape,
     menuFromBareLoss,
+    menuFromF10,
   };
   check(opened, 'I did not open the panel for section 10');
   check(closed, 'Escape did not close the inventory');
@@ -696,9 +708,12 @@ if (!boot) {
     'Escape closed the inventory AND opened the in-game menu — the panel must '
     + 'spend that press, and its onClose must not re-take a lock the browser is '
     + 'about to knock out');
-  check(menuFromBareLoss === true,
-    'a pointer lock taken with nothing open did not raise the menu — the '
-    + 'assertion above is passing because the hook is dead, not because it is fixed');
+  check(menuFromBareLoss === false,
+    'a pointer lock taken with nothing open raised the in-game menu — losing the '
+    + 'mouse is not a request for a menu');
+  check(menuFromF10 === true,
+    'F10 did not open the menu — the assertions above are passing because the '
+    + 'menu is unreachable, not because the routing is right');
 }
 
 // ---------- 11. the skill den closes on Escape, and NOTHING ELSE ----------
@@ -715,9 +730,10 @@ if (!boot) {
 // pause menu nor the inventory handles Escape in its own markup. The shop is
 // the one that did.
 //
-// A PAIR: Escape must close the den AND leave the menu shut, and the SAME key
+// A PAIR: Escape must close the den AND leave the menu shut, and the MENU KEY
 // with nothing open must still raise the menu — otherwise this passes against a
-// build where Escape does nothing at all.
+// build where Escape does nothing at all. (That second half was Escape too,
+// until the menu moved to F10.)
 {
   const menuOpen = () => page.evaluate(() => !!document.querySelector('.bs-pause'));
   const shopOpen = () => page.evaluate(() => !!document.querySelector('.bs-shopwrap.open'));
@@ -756,8 +772,8 @@ if (!boot) {
   const menuAfterEscape = await menuOpen();
   await shut();
 
-  // THE CONTROL: with nothing open, Escape is the menu key and must work.
-  await page.keyboard.press('Escape');
+  // THE CONTROL: with nothing open, F10 is the menu key and must work.
+  await page.keyboard.press('F10');
   await wait(400);
   const menuFromBareEscape = await menuOpen();
   await shut();
@@ -775,7 +791,7 @@ if (!boot) {
     'Escape closed the skill den AND opened the in-game menu — the shop must not '
     + 'have a keyboard path of its own, or the slice sees no modal and opens the menu');
   check(menuFromBareEscape === true,
-    'Escape with nothing open did not open the menu — the assertion above is '
+    'F10 with nothing open did not open the menu — the assertion above is '
     + 'passing because the key is dead, not because it is handled once');
 }
 

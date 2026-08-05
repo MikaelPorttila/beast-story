@@ -140,6 +140,19 @@ export const CHECK_ICON = svg(
   `<path fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" d="M4.4 12.6l5 5L19.6 7.2"/>`,
 );
 
+/**
+ * Three bars — the menu button in the HUD's top-left corner.
+ *
+ * The burger, drawn as three separate round-capped strokes rather than as one
+ * path, because that is the shape a player recognises from every other piece of
+ * software they use and this is a button whose whole job is to be recognised.
+ */
+export const BURGER_ICON = svg(
+  `<g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">` +
+  `<path d="M4 7h16M4 12h16M4 17h16"/>` +
+  `</g>`,
+);
+
 export const CLOSE_ICON = svg(
   `<path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/>`,
 );

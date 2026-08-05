@@ -495,6 +495,179 @@ await page.close();
   await fs.close();
 }
 
+// ---------- 7. NEW GAME ONLY TAKES A FULLSCREEN IT CAN KEEP (issue #83) -----
+//
+// The other half of section 6, from the player's side. Where the keyboard lock
+// is missing, Escape is the browser's — and Escape is how a panel is closed, so
+// a fullscreen taken at New Game lasts until the first inventory is shut and
+// then quietly goes. `StartMenu.start` therefore reads the preference past
+// `fullscreenSurvivesEscape()`, and the settings row is shown off and disabled
+// with a note rather than switched on and inert.
+//
+// BOTH HALVES, on two pages that differ in ONE thing: whether
+// `navigator.keyboard` is there. Headless Chromium answers null, so the plain
+// page is a real Firefox/Safari for this purpose and the stubbed one is a real
+// Chrome. Neither passes `fs=`, because that flag is the override that skips
+// the gate — a run with it would assert on nothing.
+{
+  /** Walk the poster to the options list, then click one of its buttons. */
+  const toOptions = async (page) => {
+    await page.waitForSelector('.bs-menu');
+    await wait(600);
+    for (let i = 0; i < 4; i++) {
+      if (await page.evaluate(() => !!document.querySelector('.bs-menu [data-act="new"]'))) break;
+      await page.keyboard.press('Enter');
+      await wait(500);
+    }
+  };
+  /** Start a game the way a player does — a real click, so the activation is real. */
+  const newGame = async (page) => {
+    await page.click('.bs-menu [data-act="new"]');
+    await page.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 30000 });
+    await wait(800);
+    return page.evaluate(() => window.__dbgFullscreen());
+  };
+
+  // --- no keyboard lock: windowed, and the row says why ---------------------
+  const plain = await newPage(browser, { width: 1280, height: 800 });
+  await plain.goto(`${HOST}/`, { waitUntil: 'load' });
+  await toOptions(plain);
+  await plain.click('.bs-menu [data-act="settings"]');
+  await wait(400);
+  const row = await plain.evaluate(() => {
+    const btn = document.querySelector('.bs-menu [data-toggle="autoFullscreen"]');
+    const sec = btn?.closest('.sec');
+    return {
+      present: !!btn,
+      disabled: btn?.hasAttribute('disabled') ?? null,
+      pressed: btn?.getAttribute('aria-pressed') ?? null,
+      // The note is the row's reason, and it has to be IN the same section: a
+      // note rendered into the wrong tab is a disabled control with nothing
+      // beside it, which is the thing this is here to prevent.
+      notes: [...(sec?.querySelectorAll('.note') ?? [])].map((n) => n.textContent.trim()),
+      // A pad cursor must not be able to stand on it — the same clause the
+      // disabled language chips rely on. See FOCUSABLE in ui/settings.ts.
+      focusable: !!btn?.matches('button:not([disabled]):not([tabindex="-1"]):not(.sec.off *)'),
+    };
+  });
+  await plain.keyboard.press('Escape');
+  await wait(400);
+  const plainStart = await newGame(plain);
+
+  // --- with the lock: the preference is honoured ---------------------------
+  const locked = await newPage(browser, { width: 1280, height: 800 });
+  await locked.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, 'keyboard', {
+      configurable: true,
+      value: { lock: () => Promise.resolve(), unlock: () => {} },
+    });
+  });
+  await locked.goto(`${HOST}/`, { waitUntil: 'load' });
+  await toOptions(locked);
+  const lockedStart = await newGame(locked);
+
+  results.fullscreenGate = {
+    withoutLock: {
+      survivesEscape: plainStart.survivesEscape,
+      wentFullscreen: plainStart.active,
+      row,
+    },
+    withLock: {
+      survivesEscape: lockedStart.survivesEscape,
+      wentFullscreen: lockedStart.active,
+    },
+  };
+  await plain.close();
+  await locked.close();
+}
+
+// ---------- 8. THE MENU KEY IS F10, AND THE POINTER COMES BACK -------------
+//
+// Two halves of the same move. The in-game menu was on Escape, which the browser
+// spends on its own business — leaving fullscreen, dropping pointer lock —
+// before the page has any say, so half the presses that mattered never arrived
+// as a key at all. It is F10 now, an ordinary key nothing else claims.
+//
+// What Escape still does is release the pointer, on every browser and in every
+// window: the keyboard lock only covers a FULLSCREEN document. So a player who
+// closes a panel with it is left standing in the world with mouse look dead, and
+// `Input.armRelock` is what puts it back the moment they move again — asserted
+// here on the CAMERA, not on `pointerLockElement`, because a lock the game is
+// not reading is not a recovery.
+{
+  const p = await newPage(browser, { width: 1280, height: 800 });
+  await p.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
+  await p.waitForSelector('canvas');
+  await wait(3000);
+
+  // The in-game menu, read off the DOM: `__dbgBoot().menuOpen` is the TITLE
+  // screen, which is a different menu with a different question behind it.
+  const menuUp = () => p.evaluate(() => !!document.querySelector('.bs-pause'));
+
+  // Escape MUST NOT open it. This is the whole report, restated as an assertion.
+  await p.keyboard.press('Escape');
+  await wait(400);
+  const afterEscape = await menuUp();
+
+  // F10 does, and F10 closes it again — the toggle a menu key has to be.
+  await p.keyboard.press('F10');
+  await wait(400);
+  const afterF10 = await menuUp();
+  const buttonPresent = await p.evaluate(() => {
+    const b = document.querySelector('.bs-menubtn');
+    return b ? { cap: b.querySelector('.cap')?.textContent?.trim() ?? null } : null;
+  });
+  await p.keyboard.press('F10');
+  await wait(400);
+  const afterSecondF10 = await menuUp();
+
+  // ---- the pointer ---------------------------------------------------------
+  // A real click takes the lock the way a player's does. Then the lock is
+  // dropped the way Escape drops it — `exitPointerLock` is the same event the
+  // browser raises for the key, and it is used here because a headless Escape
+  // reaches the page as a key rather than as the user-agent action being
+  // simulated.
+  await p.mouse.click(640, 400);
+  await wait(500);
+  const lockedAfterClick = await p.evaluate(() => document.pointerLockElement !== null);
+  await p.evaluate(() => document.exitPointerLock());
+  await wait(400);
+  const lostIt = await p.evaluate(() => document.pointerLockElement === null);
+  const pendingAfterLoss = await p.evaluate(() => window.__dbgInput().relockPending);
+
+  // Chrome refuses a re-lock for ~1.25 s after one is given up, which is why
+  // `RELOCK_WAIT_MS` exists — so the movement key comes AFTER that window, the
+  // way a player pressing on with the game does.
+  await wait(1500);
+  const yawBefore = await p.evaluate(() => window.__dbgCamYaw());
+  await p.keyboard.down('KeyW');
+  await wait(600);
+  await p.keyboard.up('KeyW');
+  const relocked = await p.evaluate(() => document.pointerLockElement !== null);
+  // THE CAMERA IS THE MEASUREMENT. `pointerLockElement` says the browser handed
+  // it over; only a yaw change says the game is reading it again.
+  for (let i = 0; i < 10; i++) await p.mouse.move(400 + i * 40, 400);
+  await wait(400);
+  let turned = (await p.evaluate(() => window.__dbgCamYaw())) - yawBefore;
+  while (turned > Math.PI) turned -= 2 * Math.PI;
+  while (turned < -Math.PI) turned += 2 * Math.PI;
+
+  results.menuKey = {
+    escapeOpenedTheMenu: afterEscape,
+    f10OpenedIt: afterF10,
+    f10ClosedIt: afterSecondF10,
+    hudButton: buttonPresent,
+    pointer: {
+      lockedAfterClick,
+      lostIt,
+      pendingAfterLoss,
+      relocked,
+      turnedAfterRelock: +Math.abs(turned).toFixed(4),
+    },
+  };
+  await p.close();
+}
+
 console.log(JSON.stringify(results, null, 2));
 await browser.close();
 
@@ -536,6 +709,38 @@ check(results.escapeLock?.escapePrevented === true,
   'Escape reaches the BROWSER — it must be in Input.CAPTURED');
 check(results.stagedBoot?.alternates !== false,
   `F1 does not alternate uncapped (${results.stagedBoot?.pattern})`);
+// The gate, both halves — issue #83. The second is what stops "never go
+// fullscreen" from passing this section.
+check(results.fullscreenGate?.withoutLock?.wentFullscreen === false,
+  'New Game took fullscreen with no keyboard lock — Escape would take it straight back');
+check(results.fullscreenGate?.withLock?.wentFullscreen === true,
+  'New Game stayed windowed WITH the lock — the preference is no longer honoured anywhere');
+check(results.fullscreenGate?.withoutLock?.row?.disabled === true,
+  'the "Fullscreen on start" row answers in a browser that cannot keep fullscreen');
+check(results.fullscreenGate?.withoutLock?.row?.focusable === false,
+  'a pad cursor can still land on the disabled fullscreen row');
+check(results.fullscreenGate?.withoutLock?.row?.pressed === 'false',
+  'the disabled fullscreen row shows ON while the game starts in a window');
+check((results.fullscreenGate?.withoutLock?.row?.notes ?? []).some((n) => /Escape/.test(n)),
+  'the disabled fullscreen row has no note saying why');
+// The menu key, both halves — the move off Escape is only a fix if Escape has
+// actually stopped opening it.
+check(results.menuKey?.escapeOpenedTheMenu === false,
+  'Escape still opens the in-game menu — the browser spends that key on fullscreen and pointer lock');
+check(results.menuKey?.f10OpenedIt === true, 'F10 did not open the in-game menu');
+check(results.menuKey?.f10ClosedIt === false, 'F10 did not close the menu it opened — it must toggle');
+check(results.menuKey?.hudButton !== null, 'the HUD has no menu button (.bs-menubtn)');
+check(results.menuKey?.hudButton?.cap === 'F10',
+  `the HUD menu button prints "${results.menuKey?.hudButton?.cap}" — it must name the binding`);
+// Pointer-lock recovery. `lockedAfterClick` first, or the rest proves nothing.
+check(results.menuKey?.pointer?.lockedAfterClick === true,
+  'a click never took pointer lock — the recovery assertions below prove nothing');
+check(results.menuKey?.pointer?.pendingAfterLoss === true,
+  'a pointer taken while the game wanted it did not arm a recovery');
+check(results.menuKey?.pointer?.relocked === true,
+  'moving did not take the pointer back after the browser dropped it');
+check(results.menuKey?.pointer?.turnedAfterRelock > 0.01,
+  'the pointer came back but the camera did not turn — the game is not reading it');
 
 if (fail.length) {
   console.error(`\n${fail.length} failure(s):\n  ${fail.join('\n  ')}`);

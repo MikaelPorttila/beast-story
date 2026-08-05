@@ -140,22 +140,22 @@ const lock = () => page.evaluate(() => document.pointerLockElement?.tagName ?? n
 }
 
 // ---------- and a menu shows it without Alt at all --------------------------
-// The Escape menu is a thing you CLICK, it has already released the pointer,
+// The in-game menu is a thing you CLICK, it has already released the pointer,
 // and a player looking at three buttons should be given something to click them
-// with. Nothing is held here — that is the point.
+// with. Nothing is held here — that is the point. F10 both opens and closes it.
 {
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('F10');
   await wait(800);
   const inMenu = await cursor();
   const menuLock = await lock();
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('F10');
   await wait(800);
   const afterMenu = await cursor();
 
   results.pauseMenu = {
     freeInMenu: inMenu.free, lockInMenu: menuLock, freeAfterClosing: afterMenu.free,
   };
-  check(inMenu.free === true, 'the Escape menu did not show the cursor');
+  check(inMenu.free === true, 'the in-game menu did not show the cursor');
   check(menuLock === null, `the pause menu is holding the pointer (${menuLock})`);
   check(afterMenu.free === false, 'the cursor stayed free after the menu closed');
 }

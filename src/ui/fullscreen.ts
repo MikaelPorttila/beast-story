@@ -60,7 +60,16 @@
  * — so `installEscapeLock()` re-takes it from a `fullscreenchange` listener and
  * releases it on the way out, rather than relying on one call at start-up
  * surviving a player who alt-tabs, F11s or press-and-holds their way out.
+ *
+ * AND WHERE THE LOCK IS MISSING, THE GAME NO LONGER TAKES THE SCREEN. Issue #83:
+ * Escape is how a player closes a panel, so on Firefox and Safari a fullscreen
+ * taken at New Game survives exactly until the first inventory is shut. The
+ * restore in `PauseMenu.close` cannot cover that — it needs a fresh activation,
+ * which a keypress on a dead fullscreen is not — so the honest answer is not to
+ * enter one that is going to be torn away. `fullscreenSurvivesEscape()` is that
+ * question, and `StartMenu.start` and the settings row are its two readers.
  */
+import { isTouchPrimary } from '../core/touch';
 
 /** The prefixed half of the API, as it exists on Safari/older WebKit. */
 type FsElement = HTMLElement & {
@@ -185,6 +194,27 @@ function keyboard(): KeyboardLock | null {
 
 /** True where `lock()` can actually be called. Chromium, secure context. */
 export function keyboardLockSupported(): boolean { return keyboard() !== null; }
+
+/**
+ * Would a fullscreen the game takes still be there after the player presses
+ * Escape? Issue #83.
+ *
+ * Two ways to answer yes, and they are the two ways Escape can fail to reach the
+ * browser. The keyboard lock takes the key (see the header). A TOUCH-PRIMARY
+ * device has no Escape key at all — a phone closes a panel with the touch
+ * overlay's MENU button, which taps a VIRTUAL Escape the browser never sees —
+ * and it is also where fullscreen is worth the most, since it is what hides the
+ * URL bar. Everywhere else the answer is no: one press of Escape drops the
+ * screen before the page has a say, and no amount of restoring puts it back.
+ *
+ * This asks whether the ESCAPE KEY can be held, not whether fullscreen exists at
+ * all — `enterFullscreen` already no-ops where the API is missing, and folding
+ * the two questions together would put an iPhone's "no Fullscreen API" behind a
+ * note about a key it does not have.
+ */
+export function fullscreenSurvivesEscape(): boolean {
+  return keyboardLockSupported() || isTouchPrimary();
+}
 
 /**
  * Whether the last lock attempt was GRANTED — the browser's answer, not ours.

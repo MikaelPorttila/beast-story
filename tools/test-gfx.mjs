@@ -357,7 +357,9 @@ for (const id of ['shadows', 'aa']) {
 // helpful rather than awkward: nothing is walking into new chunks between the
 // two readings, so the draw count is as still as it ever gets.
 {
-  await page.keyboard.press('Escape');
+  // F10, not Escape: the in-game menu moved off a key the browser spends on
+  // fullscreen and pointer lock before the page sees it.
+  await page.keyboard.press('F10');
   await wait(500);
   await page.evaluate(() => document.querySelector('.bs-pause [data-act="settings"]')?.click());
   await wait(300);

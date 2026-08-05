@@ -462,6 +462,12 @@ export const en = {
   // translation decides where in the sentence the skill name lands.
   'hud.levelUpLearned': '{beast} reached Lv {level} — learned {skill}!',
   'hud.mountHold': 'HOLD {key} TO MOUNT',
+  /**
+   * The burger button in the HUD's top-left corner. Never SHOWN — the button is
+   * an icon and its key cap — this is its tooltip and what a screen reader
+   * reads, so it is a name and not a sentence.
+   */
+  'hud.menu': 'Menu',
   'hud.riding': 'RIDING {beast} · tap {dismount} to dismount',
   'hud.ridingFlying': 'RIDING {beast} · {altitude} altitude · tap {dismount} to dismount',
 
@@ -530,14 +536,21 @@ export const en = {
   'keys.cycleLead': 'Next lead beast',
   'keys.cycleSupport': 'Next support beast',
   'keys.interact': 'Talk · open a skill den',
-  /**
-   * ONE key, listed by what it does in priority order — it dismisses whatever is
-   * open, and opens the in-game menu when nothing is. Written as a list rather
-   * than as "menu" alone because a player reading this sheet has usually just
-   * had it close something.
-   */
   'keys.inventory': 'Inventory',
-  'keys.cancel': 'Menu · close · cancel',
+  /**
+   * THE MENU KEY, which is F10 and no longer Escape. The two rows are separate
+   * because the keys are: this one opens and closes the in-game menu, and the
+   * one below dismisses whatever is on top of it.
+   */
+  'keys.menu': 'In-game menu',
+  /**
+   * Listed by what it does in priority order — it backs out of a conversation
+   * and dismisses whatever is open. Written as a list rather than as one word
+   * because a player reading this sheet has usually just had it close
+   * something. It no longer says "menu": the browser spends this key on leaving
+   * fullscreen and dropping the mouse, which is why the menu moved to F10.
+   */
+  'keys.cancel': 'Close · cancel',
   'keys.controls': 'This sheet',
   'keys.debugOverlay': 'Performance overlay',
   'keys.perfPanel': 'Performance settings',
@@ -736,6 +749,15 @@ export const en = {
    * anything called that — they saw the game fill the screen when they started.
    */
   'menu.settings.autoFullscreen': 'Fullscreen on start',
+  /**
+   * Under that switch, and only where the switch is shown disabled: a browser
+   * that will not give the game the Escape key (issue #83). Says what the
+   * BROWSER does rather than "unsupported", because the player's own experience
+   * of it is a screen that shrank when they closed a panel — and it names
+   * Escape so somebody who wants fullscreen anyway knows to press F11.
+   */
+  'menu.settings.fullscreenEscape':
+    'This browser leaves fullscreen when you press Escape, so the game starts in a window.',
   /**
    * The volume strip: OFF · 20 · 40 · 60 · 80 · 100. Says "Music" and not
    * "Volume" because it is not the only sound the game will ever make — the SFX

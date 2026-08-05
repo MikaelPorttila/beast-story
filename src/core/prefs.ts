@@ -120,6 +120,11 @@ export interface Prefs {
    * nowhere else — see `StartMenu.start`. A pad press is not an activation in
    * any browser, so someone starting the game with a controller stays windowed
    * whatever this says. That is a browser rule, not a decision.
+   *
+   * AND ONLY WHERE THE GAME CAN KEEP IT. Issue #83: a browser that keeps the
+   * Escape key drops fullscreen the first time the player closes a panel, so
+   * this is read past `fullscreenSurvivesEscape()` (ui/fullscreen.ts) and the
+   * settings row is shown off and disabled there rather than lying.
    */
   autoFullscreen: boolean;
   /**

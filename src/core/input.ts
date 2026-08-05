@@ -125,8 +125,45 @@ export class Input {
    * was, and if the player wants the menu the key is still there. See `focused`.
    */
   onLockLost: (() => void) | null = null;
+  /**
+   * May a pointer the BROWSER took be taken back without a click? Written by
+   * the host every frame; false whenever a cursor is the point.
+   *
+   * The host owns this because every reason to say no belongs to it and not
+   * here: a modal is up, the hero is not playing, or Alt is being held to free
+   * the cursor deliberately. See `armRelock` for what it gates.
+   */
+  autoRelock = false;
   attackHeld = false;
   attackPressed = false;
+  /**
+   * `performance.now()` when the browser took the pointer while the game still
+   * wanted it, or 0 when there is nothing to recover. See `armRelock`.
+   */
+  private lockTakenAt = 0;
+  /**
+   * How long to wait before asking for the pointer back, in ms.
+   *
+   * NOT a debounce — it is Chrome's own rule, restated. A page that has just
+   * had pointer lock taken by Escape is refused for about 1.25 s afterwards
+   * (the anti-trap clause: a game that re-locked instantly would make Escape
+   * useless), and a request inside that window is denied and logged. 1300 ms
+   * clears it with a little room, and doubles as the retry interval so a player
+   * holding W through the lockout asks once a second rather than 60 times.
+   */
+  private static readonly RELOCK_WAIT_MS = 1300;
+  /**
+   * Keys that mean "I am still playing" — the movement set plus the two things
+   * a moving player does with them.
+   *
+   * DELIBERATELY NOT "any key". The pointer is also lost on the way into a
+   * panel and on Alt, and the recovery must not fight either of those; a key
+   * that steers the hero is the one unambiguous signal that the player is back
+   * in the world and wants the mouse to turn the camera again.
+   */
+  private static readonly RESUME_KEYS = new Set([
+    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft',
+  ]);
 
   /** Analog sticks per source, -1..1. See `StickSource` and `axisFwd`. */
   private touchFwd = 0;
@@ -171,22 +208,28 @@ export class Input {
     // dev console handles its own in the capture phase; and this test is on the
     // CODE alone, so capturing KeyR would swallow Ctrl+R and take reloading the
     // page away with it.
-    'F1', 'F2', 'F3',
+    // F10 IS THE MENU KEY. It is here for the same reason as the three above —
+    // Firefox and Edge focus their own menu bar on it, which takes the keyboard
+    // away from the game — and unlike Escape this preventDefault is the WHOLE
+    // fix, because a menu bar is ordinary page-level default behaviour rather
+    // than a user-agent action taken over the page's head.
+    'F1', 'F2', 'F3', 'F10',
     'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
     // ALT focuses the browser's own menu bar in Firefox and Edge, which steals
     // the keyboard from the game and cannot be got back without a click. It is
     // the cursor toggle (see setCursorFree in main.ts), so it is pressed often.
     'AltLeft', 'AltRight',
-    // ESCAPE opens the in-game menu, and is also the browser's key for leaving
-    // fullscreen and for dropping pointer lock. This line alone does NOT stop
-    // either of those: both are user-agent actions taken over the page's head,
-    // and for a long time this set left Escape out for exactly that reason —
-    // "you cannot preventDefault it" was true. It stopped being true with the
-    // KEYBOARD LOCK the game now takes on entering fullscreen (see
-    // ui/fullscreen.ts): under that lock Escape is delivered to the page as an
-    // ordinary key and this preventDefault is what keeps the browser out of it.
-    // Where there is no lock — Firefox, Safari, an iframe, plain http — the call
-    // is harmless and the old behaviour is unchanged.
+    // ESCAPE CLOSES THE TOPMOST PANEL — it no longer opens the menu, which is
+    // F10's job now — and it is also the browser's key for leaving fullscreen
+    // and for dropping pointer lock. This line alone does NOT stop either of
+    // those: both are user-agent actions taken over the page's head, and for a
+    // long time this set left Escape out for exactly that reason — "you cannot
+    // preventDefault it" was true. It stopped being true with the KEYBOARD LOCK
+    // the game takes on entering fullscreen (see ui/fullscreen.ts): under that
+    // lock Escape is delivered to the page as an ordinary key and this
+    // preventDefault is what keeps the browser out of it. Where there is no lock
+    // — Firefox, Safari, an iframe, plain http — the call is harmless, the
+    // browser drops the pointer, and `armRelock` is what puts it back.
     'Escape',
   ]);
 
@@ -202,6 +245,10 @@ export class Input {
       this.noteSource('kbm');
       this.keys.add(e.code);
       this.press(e.code);
+      // A KEYDOWN IS A USER ACTIVATION, which is what makes this the recovery
+      // that actually works — see `armRelock`. It runs after `press` so the
+      // frame the pointer comes back is also the frame the hero starts walking.
+      if (Input.RESUME_KEYS.has(e.code)) this.armRelock();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('focus', () => { this.focused = true; });
@@ -231,6 +278,8 @@ export class Input {
     document.addEventListener('pointerlockchange', () => {
       const had = this.pointerLocked;
       this.pointerLocked = document.pointerLockElement === el;
+      // Back in hand: there is nothing left to recover, whoever asked.
+      if (this.pointerLocked) this.lockTakenAt = 0;
       // THE LATE ARRIVAL. A lock granted after someone asked for it back is
       // handed straight back here, which is what makes `releaseLock` final
       // regardless of how long the browser took to answer the request it is
@@ -247,11 +296,24 @@ export class Input {
         // ...unless the window lost focus, in which case the browser took the
         // lock because it was taking everything, and nothing was pressed. See
         // `focused` for why both halves are read.
-        if (this.focused && document.hasFocus()) this.onLockLost?.();
+        if (this.focused && document.hasFocus()) {
+          // WHAT MAKES THE LOSS RECOVERABLE. Stamped here and nowhere else, so
+          // only a pointer the BROWSER took is ever taken back — a release the
+          // game asked for cleared `lockWanted` first and never reaches this
+          // branch. An alt-tab does not stamp either: the player is not here.
+          this.lockTakenAt = performance.now();
+          this.onLockLost?.();
+        }
       }
     });
     window.addEventListener('mousemove', (e) => {
-      if (this.pointerLocked) {
+      // A MOUSE MOVED OVER A GAME NOBODY IS CLICKING is the other half of the
+      // signal, and the weaker one: it is not a user activation, so a browser
+      // may well refuse. Asking costs a rejected promise nobody sees, and where
+      // it is honoured the pointer comes back without the player pressing
+      // anything at all. See `armRelock`.
+      if (!this.pointerLocked) { this.armRelock(); return; }
+      {
         // Gated on a NON-ZERO delta, not merely on the event. A locked pointer
         // still reports the odd 0/0 move, and the pad's own look goes through
         // `addLook` rather than this listener — so without the test a controller
@@ -464,6 +526,45 @@ export class Input {
   }
 
   /**
+   * ASK FOR A POINTER THE BROWSER TOOK, if the player looks like they want it.
+   *
+   * THE PROBLEM. Escape releases pointer lock, always, on every browser — the
+   * keyboard lock only covers a document that is FULLSCREEN, so a windowed game
+   * has no say in it at all. Pressing Escape to close a panel therefore left the
+   * player standing in the world with mouse look dead and no indication why, and
+   * the only way back was a click, which in a game whose left button swings a
+   * sword is a click they did not mean to make.
+   *
+   * WHAT COUNTS AS WANTING IT. Moving. A movement keydown (`RESUME_KEYS`) or a
+   * mouse being moved over a game with no cursor on it — nothing else, and in
+   * particular not "any key", because the pointer is also released on the way
+   * into every panel and by Alt, and a recovery that fought those would take the
+   * cursor away from the menu the player just opened. The host's `autoRelock`
+   * carries the rest of that judgement.
+   *
+   * IT IS RATE-LIMITED BY THE BROWSER'S OWN RULE, not by taste — see
+   * `RELOCK_WAIT_MS`. Re-stamping on every attempt is what turns the wait into a
+   * retry interval, so a player who holds W through the lockout asks again once
+   * it lifts rather than sixty times inside it.
+   *
+   * Nothing here is a decision about the MENU. That was the old answer to this
+   * same event (`onLockLost` tapped a virtual Escape, so a stolen pointer opened
+   * the in-game menu) and it is gone with the move to F10: losing the pointer is
+   * not a request for a menu, it is a pointer to put back.
+   */
+  armRelock(): void {
+    if (!this.autoRelock || this.lockTakenAt === 0) return;
+    if (this.pointerLocked || this.touchActive) return;
+    const now = performance.now();
+    if (now - this.lockTakenAt < Input.RELOCK_WAIT_MS) return;
+    this.lockTakenAt = now;
+    this.requestLock();
+  }
+
+  /** Whether a pointer taken by the browser is still waiting to be recovered. */
+  get relockPending(): boolean { return this.lockTakenAt !== 0; }
+
+  /**
    * Give the pointer back, if this page holds it.
    *
    * The counterpart of `requestLock`, and it exists for the modals that are
@@ -479,6 +580,10 @@ export class Input {
    */
   releaseLock(): void {
     this.lockWanted = false;
+    // A DELIBERATE RELEASE CANCELS A PENDING RECOVERY. Escape closing a panel
+    // and the next panel opening are two events a few ms apart, and without
+    // this the second one would be undone by a recovery armed by the first.
+    this.lockTakenAt = 0;
     if (document.pointerLockElement) document.exitPointerLock();
   }
 

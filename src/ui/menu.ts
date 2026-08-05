@@ -2,7 +2,7 @@ import { isTouchPrimary } from '../core/touch';
 import { loadPrefs, type Prefs } from '../core/prefs';
 import { flags } from '../core/flags';
 import { t, language, onLanguageChange } from '../i18n';
-import { enterFullscreen } from './fullscreen';
+import { enterFullscreen, fullscreenSurvivesEscape } from './fullscreen';
 import { SettingsPanel, FOCUSABLE, type SettingsHooks } from './settings';
 import { aboutMarkup } from './about';
 import { injectStyles } from './styles';
@@ -753,10 +753,19 @@ export class StartMenu {
     // The URL beats the preference and never writes it back, the same
     // resolution the look-axis and shake overrides use: `fs=0` is how every
     // probe in tools/ that clicks New Game keeps the viewport from being
-    // resized under a measurement. A pad press is not a user activation in any
+    // resized under a measurement, and `fs=1` is the way to see the thing the
+    // gate below otherwise refuses. A pad press is not a user activation in any
     // browser, so starting the game from a controller stays windowed whatever
     // this says, and that is a browser rule rather than a decision.
-    if (flags.autoFullscreen ?? this.prefs.autoFullscreen) enterFullscreen();
+    //
+    // THE GATE IS ISSUE #83. Where Escape still belongs to the browser, taking
+    // fullscreen here hands the player a screen the first closed panel takes
+    // back — so the preference is honoured only where the game can keep it
+    // (ui/fullscreen.ts), and the settings row says so rather than sitting there
+    // switched on and doing nothing.
+    if (flags.autoFullscreen ?? (this.prefs.autoFullscreen && fullscreenSurvivesEscape())) {
+      enterFullscreen();
+    }
 
     el.classList.add('leaving');
     // FIRST, and before anything waits on a transition: from this moment the

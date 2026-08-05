@@ -5,7 +5,9 @@ import { t, type StringKey } from '../i18n';
 import { PAD_GLYPHS, type PadGlyphs } from '../core/gamepad';
 import { CONTROL_SECTIONS } from './keybinds';
 import { injectStyles } from './styles';
-import { elementIcon, locomotionIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON } from './icons';
+import {
+  elementIcon, locomotionIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON, BURGER_ICON,
+} from './icons';
 
 // ---------------------------------------------------------------------------
 // Public data shapes (consumed by main.ts)
@@ -226,6 +228,8 @@ interface Prompts {
   altitude: string;
   mount: string;
   dismount: string;
+  /** The cap on the HUD's menu button — `F10`, or the pad's Start/Options. */
+  menu: string;
   /** What a hotbar slot badge shows for slot `i`. */
   slot(i: number): string;
 }
@@ -240,6 +244,7 @@ const KBM_PROMPTS: Prompts = {
   altitude: `${kbd('Space')}/${kbd('C')}`,
   mount: kbd('F'),
   dismount: kbd('F'),
+  menu: kbd('F10'),
   slot: (i) => String(i + 1),
 };
 
@@ -255,6 +260,7 @@ function padPrompts(set: PadGlyphs): Prompts {
     altitude: `${padKey(g.altUp)}/${padKey(g.altDown)}`,
     mount: padKey(g.mount),
     dismount: padKey(g.dismount),
+    menu: padKey(g.menu),
     slot: (i) => [g.skill1, g.skill2, g.skill3, g.skill4][i] ?? String(i + 1),
   };
 }
@@ -410,6 +416,15 @@ export class HUD {
   private ridingBeast: string | null = null;
   private ridingFlying = false;
 
+  // menu button (F10)
+  private menuBtnEl: HTMLButtonElement;
+  private menuBtnCapEl: HTMLElement;
+  /**
+   * Clicked. Wired by the composition root to the same virtual key every other
+   * device taps — see where this is built.
+   */
+  onMenu: (() => void) | null = null;
+
   // controls sheet (F1)
   private keysWrap: HTMLDivElement;
   private controlsOpen = false;
@@ -428,6 +443,29 @@ export class HUD {
     if (isDebugMode()) {
       this.root.appendChild(div('bs-title bs-glass', '<b>BEAST STORY</b><span>v1.0</span>'));
     }
+
+    // menu button ------------------------------------------------------------
+    // THE MENU HAS TO BE VISIBLE, not only bound. It moved off Escape onto F10
+    // (which the browser does not spend on fullscreen and pointer lock), and a
+    // key nobody presses by accident is also a key nobody discovers by accident
+    // — so the binding is printed on a button in the corner rather than left in
+    // the F1 sheet for a player who does not yet know there is one.
+    //
+    // It TAPS THE KEY rather than calling the menu: `onMenu` is wired in main.ts
+    // to `input.tapVirtual('F10')`, so this button, the pad's Start, the touch
+    // overlay's MENU and the real key all arrive at the one reader in `frame()`.
+    // A button that opened the menu directly would be a second opinion about
+    // what "menu" means, and the first thing it would get wrong is the toggle.
+    this.menuBtnEl = document.createElement('button');
+    this.menuBtnEl.type = 'button';
+    this.menuBtnEl.className = 'bs-menubtn bs-glass';
+    this.menuBtnEl.innerHTML = `${BURGER_ICON}<span class="cap"></span>`;
+    this.menuBtnCapEl = this.menuBtnEl.querySelector('.cap') as HTMLElement;
+    this.menuBtnCapEl.innerHTML = this.prompts.menu;
+    this.menuBtnEl.setAttribute('aria-label', t('hud.menu'));
+    this.menuBtnEl.title = t('hud.menu');
+    this.menuBtnEl.addEventListener('click', () => this.onMenu?.());
+    this.root.appendChild(this.menuBtnEl);
 
     // currency counter -----------------------------------------------------
     // The NAME is on the pill, not just the icon: money the player cannot name
@@ -570,9 +608,10 @@ export class HUD {
     // once by this listener and once by the host's slice"), which is why
     // neither the pause menu nor the inventory handles Escape in its own
     // markup either. The host owns that edge for every device: a keyboard's
-    // Escape, the pad's B and Start, and the touch overlay's MENU button all
-    // arrive as one code in main.ts's cancel branch, which closes the topmost
-    // thing. The X and the scrim are still here, because those are clicks.
+    // Escape and F10, the pad's B and Start, the touch overlay's MENU button
+    // and this HUD's own menu button all arrive as a virtual key in main.ts's
+    // cancel branch, which closes the topmost thing. The X and the scrim are
+    // still here, because those are clicks.
 
     this.setPlayerHp(100, 100);
 
@@ -1122,6 +1161,12 @@ export class HUD {
     const lbl = this.mountHoldEl.querySelector('.lbl');
     if (lbl) lbl.innerHTML = t('hud.mountHold', { key: this.prompts.mount });
 
+    // The menu button's cap follows the device like every other prompt: `F10`
+    // on a keyboard, Start or Options on a pad — and it is the SAME `<kbd>` /
+    // `.pad` markup, so it picks up the keycap-vs-round-face distinction the
+    // stylesheet already draws for free.
+    this.menuBtnCapEl.innerHTML = this.prompts.menu;
+
     for (let i = 0; i < this.slotRefs.length; i++) {
       const key = this.slotRefs[i].el.querySelector('.key');
       if (key) key.textContent = this.prompts.slot(i);
@@ -1186,6 +1231,12 @@ export class HUD {
 
     const mountLbl = this.mountHoldEl.querySelector('.lbl');
     if (mountLbl) mountLbl.innerHTML = t('hud.mountHold', { key: this.prompts.mount });
+
+    // The menu button says nothing, so only the two strings a screen reader and
+    // a hover tooltip use need re-deriving. The cap is a key name and does not
+    // translate.
+    this.menuBtnEl.setAttribute('aria-label', t('hud.menu'));
+    this.menuBtnEl.title = t('hud.menu');
 
     // The currency word is only rewritten when the plural FORM flips, which a
     // language switch does not do, so it is written directly rather than by

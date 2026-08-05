@@ -35,7 +35,11 @@ export type PadGlyphs = 'xbox' | 'playstation';
 export type PadAction =
   | 'move' | 'look' | 'jump' | 'attack' | 'interact' | 'mount' | 'dismount'
   | 'swap' | 'altUp' | 'altDown' | 'cyclePrimary' | 'cycleSupport'
-  | 'sprint' | 'menu' | 'inventory' | 'zoom'
+  // `cancel` is the B face while a MODAL is up, where it taps a virtual Escape.
+  // It shares a button with `altDown` and is a separate action anyway, because
+  // the two are never printed in the same place: one names what B does flying a
+  // mount, the other what it does in a panel.
+  | 'sprint' | 'menu' | 'cancel' | 'inventory' | 'zoom'
   | 'skill1' | 'skill2' | 'skill3' | 'skill4';
 
 /**
@@ -52,12 +56,14 @@ export const PAD_GLYPHS: Readonly<Record<PadGlyphs, Readonly<Record<PadAction, s
     move: 'L', look: 'R', jump: 'A', attack: 'RT', interact: 'X',
     mount: 'Y', dismount: 'Y', swap: 'L3', altUp: 'A', altDown: 'B',
     cyclePrimary: 'RB', cycleSupport: 'LB', sprint: 'LT', menu: 'Start',
+    cancel: 'B',
     inventory: 'View', zoom: 'R3', skill1: '↑', skill2: '→', skill3: '↓', skill4: '←',
   },
   playstation: {
     move: 'L', look: 'R', jump: '✕', attack: 'R2', interact: '□',
     mount: '△', dismount: '△', swap: 'L3', altUp: '✕', altDown: '○',
     cyclePrimary: 'R1', cycleSupport: 'L1', sprint: 'L2', menu: 'Options',
+    cancel: '○',
     inventory: 'Create', zoom: 'R3', skill1: '↑', skill2: '→', skill3: '↓', skill4: '←',
   },
 };
@@ -333,10 +339,15 @@ export class GamepadControls {
     if (anyPressed(b)) this.noteUse();
 
     if (this.modal) {
-      // B and Start cancel, X confirms — the two codes main.ts accepts to close
-      // the shop. Nothing else reaches the game while a modal owns the screen.
+      // B and Start cancel, X confirms — the codes main.ts accepts to close the
+      // shop. Nothing else reaches the game while a modal owns the screen.
+      //
+      // START SENDS ITS OWN KEY, and it is still a cancel: main.ts folds F10
+      // into the modal branch's cancel so the button that opened the menu is the
+      // button that closes it. B keeps Escape, which is the back/cancel the
+      // panels themselves answer for.
       this.edge(B_B, () => this.input.tapVirtual('Escape'), held);
-      this.edge(B_START, () => this.input.tapVirtual('Escape'), held);
+      this.edge(B_START, () => this.input.tapVirtual('F10'), held);
       this.edge(B_X, () => this.input.tapVirtual('KeyE'), held);
       // View/Create reaches the game even under a modal, and only this one does:
       // it is the key that CLOSES the inventory as well as opening it, so a pad
@@ -389,10 +400,15 @@ export class GamepadControls {
 
     // ---- tapped buttons ----------------------------------------------------
     this.edge(B_X, () => this.input.tapVirtual('KeyE'), held);
-    this.edge(B_START, () => this.input.tapVirtual('Escape'), held);
+    // START IS THE MENU, and F10 is what the menu answers to now — the same
+    // virtual key the touch overlay's MENU button and the HUD's own button tap.
+    // Escape has stopped meaning "menu" for every device at once, because the
+    // browser spends that key on fullscreen and pointer lock over the page's
+    // head (see core/input.ts's CAPTURED note).
+    this.edge(B_START, () => this.input.tapVirtual('F10'), held);
     // The inventory, as the same virtual key `I` sends — main.ts reads the code
     // in one place for both devices, which is the rule Start and the touch
-    // overlay's MENU button already follow for Escape.
+    // overlay's MENU button already follow for F10.
     this.edge(B_SELECT, () => this.input.tapVirtual('KeyI'), held);
     this.edge(B_L3, () => this.input.tapVirtual('Tab'), held);
     this.edge(B_LB, () => this.input.tapVirtual('BracketLeft'), held);
