@@ -195,13 +195,27 @@ const MASK = 256;
 const PUSH_EXP = 1.35;
 
 /**
- * ...and it WANDERS. Carried over from the voxel fall, which tuned it in cells:
- * `sin(k * 0.21) * 1.4` at CELL 1.2 is 0.21/1.2 = 0.175 rad per world unit and
- * 1.4 * 1.2 = 1.68 units of amplitude. A perfectly straight column reads as a
- * ruler drawn on the sky.
+ * ...and it BOWS. A perfectly straight column reads as a ruler drawn on the sky.
+ *
+ * ONE BEND, and that is the whole of this constant. It was carried over from
+ * the voxel fall as a rate per world unit (0.175 rad/unit, from `sin(k * 0.21)`
+ * in cells), which over a 48-unit drop is one and a third CYCLES — an S. On a
+ * fall you can walk around, an S reads as two separate mid-air kinks with
+ * nothing to have caused either, and it was the first thing reported from play.
+ * Half a period over the whole fall, whatever the fall's length, is a plume
+ * that leans out and comes back: one bend, and it stays one bend on a three-
+ * unit weir and on a fifty-unit drop alike.
+ *
+ * `WANDER_TURNS` is in HALF-PERIODS, so 1 is a single arch. Push it past 2 and
+ * the S is back.
  */
-const WANDER_K = 0.175;
+const WANDER_TURNS = 1.0;
 const WANDER_A = 1.68;
+
+/** Lateral offset of the bow at `v`, in world units. See `WANDER_TURNS`. */
+function wander(v: number): number {
+  return Math.sin(v * Math.PI * WANDER_TURNS) * WANDER_A;
+}
 
 /**
  * V-curve. `uv.y = pow(v, UV_EASE) * tiles` stretches the texture toward the
@@ -482,7 +496,16 @@ void main() {
   // The head is nearly opaque regardless, for the same reason world/water.ts
   // forces its surf band to 0.95: at gameplay distance it is the ALPHA and not
   // the colour that makes a white band read.
-  alpha = max(alpha, head * 0.92 * edge);
+  alpha = max(alpha, head * 0.75 * edge);
+
+  // ...but the TOP EDGE fades in, and that is what stops the head reading as a
+  // slab. The sheets are splayed about the fall's axis, so from a camera above
+  // the deck their top rows stack up into three overlapping quads at full
+  // head-foam white — a hard-edged paving stone lying at the lip, which is
+  // exactly what it looked like from the fence. Fading the first courses lets
+  // the channel behind show through them, so the water arrives at the edge and
+  // goes over it instead of starting there.
+  alpha *= smoothstep(0.0, 0.045, vLife);
 
   gl_FragColor = vec4(col, alpha * uOpacity);
   #include <fog_fragment>
@@ -850,20 +873,28 @@ export class Waterfall {
         : 0;
       const ax = Math.cos(a);
       const az = Math.sin(a);
-      const nx = -Math.sin(a);
-      const nz = Math.cos(a);
       const base = pos.length / 3;
       for (let i = 0; i < rows; i++) {
         const v = i / segments;
         const halfW = this.widthAt(v) * 0.5;
         const drift = this.lateralPush * Math.pow(v, PUSH_EXP)
-          + Math.sin(v * this.fallLength * WANDER_K) * WANDER_A;
+          + wander(v);
         const along = this.outwardPush * Math.pow(v, PUSH_EXP);
         const cy = -this.fallLength * v;
         const uvY = Math.pow(v, UV_EASE) * tiles;
         for (const s of [-1, 1]) {
           pos.push(drift + ax * halfW * s, cy, along + az * halfW * s);
-          nrm.push(nx, 0, nz);
+          // EVERY SHEET TAKES THE FALL'S OWN NORMAL, not its own geometric one.
+          //
+          // The splay is a trick for giving a flat thing a silhouette from every
+          // bearing; it is not three surfaces at three angles, it is one body of
+          // water. Shading each sheet by its own normal puts the outer two at
+          // sun dots of 0.03 and 0.71 against the middle's 0.44 — three flat
+          // panels in three distinct values, which from above the deck reads as
+          // a hard-edged grey-and-white slab lying at the lip rather than as
+          // churn. Reported from play. Downstream (+Z) is the face the water
+          // presents, and the modelMatrix turns it with the island.
+          nrm.push(0, 0, 1);
           uvs.push(s < 0 ? 0 : 1, uvY);
           life.push(v);
           across.push(halfW * s);
@@ -875,28 +906,20 @@ export class Waterfall {
       }
     }
 
-    // THE LIP CAP. Flat, one quad deep, upstream of the anchor. `aLife` is 0 so
-    // the head-foam term whites it out and the dissolve never touches it.
-    const capW = this.lipWidth * 0.5;
-    const capD = TILE_U * 0.5;
-    const CAP_COLS = 4;
-    const capBase = pos.length / 3;
-    for (let c = 0; c <= CAP_COLS; c++) {
-      const t = c / CAP_COLS;
-      const xw = (t * 2 - 1) * capW;
-      for (const zi of [0, 1]) {
-        // zi 0 is upstream of the lip, zi 1 is at it.
-        pos.push(xw, 0.06, -capD * (1 - zi));
-        nrm.push(0, 1, 0);
-        uvs.push(t, (1 - zi) * 0.75);
-        life.push(0);
-        across.push(xw);
-      }
-      if (c < CAP_COLS) {
-        const q = capBase + c * 2;
-        idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
-      }
-    }
+    // THERE IS NO LIP CAP, and there was one.
+    //
+    // It was four flat quads lying just above the owner's surface at the head of
+    // the fall, there to hide the seam where an opaque water channel meets a
+    // translucent sheet. Two things removed the seam it was hiding: the owner
+    // now anchors the fall ON its outline rather than a cell inboard, and the
+    // channel feeding it flares to this same `lipWidth` (see `onStream` in
+    // world/sky-island.ts). With nothing left to cover, what the cap actually
+    // did was read as a hard-edged white SLAB sitting on the grass — a
+    // horizontal quad at `aLife` 0 is fully whited by the head-foam term, and
+    // from any camera above the deck it is a paving stone rather than water.
+    //
+    // If a future site needs one, the seam it covers is the owner's problem to
+    // state, not this module's to guess at.
 
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
@@ -932,7 +955,7 @@ export class Waterfall {
 
     this.py[i] = -this.fallLength * v0;
     this.px[i] = this.lateralPush * Math.pow(v0, PUSH_EXP)
-      + Math.sin(v0 * this.fallLength * WANDER_K) * WANDER_A
+      + wander(v0)
       + (r() * 2 - 1) * halfW * 1.15;
     this.pz[i] = this.outwardPush * Math.pow(v0, PUSH_EXP) + (r() * 2 - 1) * 1.1;
 

@@ -695,9 +695,20 @@ const PATH_D = 0x9e9787;
 /** Tilled soil: the garden plots between the houses. */
 const TILL = 0x6a4a2c;
 const TILL_D = 0x513716;
-/** The stream and the fall. Pale, so it stays visible against the sky. */
-const WATER = 0x8fd8ec;
-const WATER_L = 0xbceaf6;
+/**
+ * The stream on the deck. (The FALL is world/waterfall.ts and carries its own.)
+ *
+ * SPEC §6's teal, and it used to be a pale 0x8fd8ec / 0xbceaf6 chosen to "stay
+ * visible against the sky" — which was solving the wrong problem, because the
+ * channel is seen against GRASS from above and against grass and rim-stone at
+ * the lip; the sky is behind the fall, not behind the stream. Read close up at
+ * the outflow the pale version was almost white, and it met the fall's SPEC
+ * teal in a hard step at exactly the spot a player walks to and looks over.
+ * These are SPEC §6's `#1E8AA2` lit and `#1E7E96` body, which is what the fall
+ * is built from — one water colour on this island now, not two.
+ */
+const WATER = 0x1e7e96;
+const WATER_L = 0x1e8aa2;
 
 /** Per-voxel value jitter, so a face is not one flat colour. */
 function shade(hex: number, k: number): number {
@@ -763,6 +774,18 @@ interface SkyPlan {
  * the market, and every street runs to its rim.
  */
 const PLAZA = 19;
+
+/**
+ * How wide the water is where it leaves the rim, in world units.
+ *
+ * ONE NUMBER FOR TWO THINGS, and that is the point: it is the effect's
+ * `lipWidth` AND the width the stream channel flares to at its mouth. They were
+ * separate at first — a 3.8-unit channel feeding a 7.2-unit plume — and the
+ * result is a ring of rim-stone showing either side of the water at the exact
+ * spot the player walks to and looks over. 2 map-blocks, which is what SPEC §6
+ * gives the lip.
+ */
+const FALL_LIP = MAP_BLOCK * 2 * CELL;
 /** The band the dwellings stand in, as fractions of the island radius. */
 const HOUSE_IN = 0.34;
 const HOUSE_OUT = 0.62;
@@ -1467,6 +1490,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
         // dissolves there rather than stopping square, which is what SPEC §6
         // asks for and what the cubes were tuned to.
         length: 40 * CELL,
+        // The same constant `onStream` flares its mouth to, so the water on the
+        // deck and the water going over it are the same width by construction.
+        lipWidth: FALL_LIP,
         // A LIGHT, STEADY DRIFT. The island cruises at 1 unit/s, so the plume
         // is not being blown by its own passage — this is the prevailing wind
         // at altitude, and it is small because the fall's own wander already
@@ -1845,18 +1871,22 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   /**
    * The rim column the fall leaves from, in the island's own frame.
    *
-   * Lifted verbatim out of the voxel fall this replaced, so the effect starts
-   * on exactly the column the cubes did: one cell INBOARD of the outline,
-   * because a fall has to leave a lip you can stand at and look over. Starting
-   * it half a cell past the edge — which an earlier pass did — hangs it in the
-   * air beside the island like a pipe with nothing at the top of it.
+   * ON the outline, not one cell inboard of it.
+   *
+   * The voxel fall this replaced started a cell in, and that was right for
+   * CUBES: they were part of the rock mesh, so a fall hung off the last column
+   * had nothing drawn above its head. A sheet is a separate object standing
+   * clear of the rock, and starting it inboard tucks its head UNDER the rim —
+   * the water appears to come out of the cliff face a course below the turf
+   * instead of going over the edge, which is the one thing a lip has to read
+   * as. Reported from play.
    *
    * Local y is 0, which is the TOP of the turf course and therefore what
    * `localDeck` answers: the water leaves at the surface it has been running
    * along, not at the rim's rock.
    */
   private fallAnchor(plan: SkyPlan): { x: number; y: number; z: number } {
-    const rimD = outlineAt(plan.fallAngle, this.phase) - 1;
+    const rimD = outlineAt(plan.fallAngle, this.phase);
     const gx0 = Math.round(Math.sin(plan.fallAngle) * rimD);
     const gz0 = Math.round(Math.cos(plan.fallAngle) * rimD);
     // Cell CENTRES, matching how `buildRock` converts a cell to a world column.
@@ -1898,14 +1928,43 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     const onPlot = (wx: number, wz: number): boolean =>
       plan.plots.some((g) => (wx - g.x) ** 2 + (wz - g.z) ** 2 < g.r * g.r);
 
-    /** The stream: a two-cell channel from the square to the rim. */
+    /**
+     * The stream: a two-cell channel from the square to the rim, FLARING to the
+     * fall's own lip width over its last stretch.
+     *
+     * THE MOUTH HAS TO BE AS WIDE AS THE FALL. At a constant 1.9 of half-width
+     * the channel is about three cells across and the plume leaves six across,
+     * so the outermost columns either side of the water came out as the rim's
+     * grey stone — and the one place a player is guaranteed to stand and look
+     * closely at this is the lip, because that is where you go to see the drop.
+     * `FALL_LIP` is the same constant the effect is built from, so the two
+     * cannot drift apart.
+     *
+     * NO OUTER BOUND. It used to stop at `ISLAND_R`, which is the radius of a
+     * CIRCLE — but the outline is a lobed stagger that reaches 0.998 of it at
+     * the peak and the projection `along` is shorter still off the centreline,
+     * so the test could refuse the last column or two on some bearings and not
+     * on others. The column loop already skips everything past the outline;
+     * there is nothing out there for this to answer about.
+     */
     const fx = Math.sin(plan.fallAngle);
     const fz = Math.cos(plan.fallAngle);
     const onStream = (wx: number, wz: number): boolean => {
       const along = wx * fx + wz * fz;
-      if (along < PLAZA * 0.7 || along > ISLAND_R) return false;
+      if (along < PLAZA * 0.7) return false;
       const across = Math.abs(wx * fz - wz * fx);
-      return across < 1.9;
+      // Flare over the last THIRD of the run, so the channel reads as a stream
+      // widening into a mouth rather than as a funnel bolted to a pipe. A fifth
+      // was the first try and it is too short: smoothstep spends most of its
+      // range near its ends, so over 19 units the widening happened almost
+      // entirely in the last four and the mouth still read as a pipe.
+      const t = Math.max(0, Math.min(1, (along - ISLAND_R * 0.66) / (ISLAND_R * 0.34)));
+      const flare = t * t * (3 - 2 * t);
+      // A full cell of margin past the plume's own half-width: the water has to
+      // reach UNDER the sheet's edge, not merely meet it, or the outermost
+      // column either side of the fall comes back as rim-stone.
+      const halfW = 1.9 + flare * (FALL_LIP * 0.5 + CELL - 1.9);
+      return across < halfW;
     };
 
     for (let gx = -R; gx <= R; gx++) {
