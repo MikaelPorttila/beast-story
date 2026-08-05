@@ -33,6 +33,11 @@ bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 | `hero=1` | The player character rig |
 | `skill=<skillId>` | Fires that skill on a loop at a dummy 6 units away |
 | `anim=<action>` | `idle walk run swim fly attack cast special hurt happy` |
+| `waterfall=1` | A waterfall VFX (`src/world/waterfall.ts`) on a bare stage |
+| `fall=<units>` | How far it falls before it is invisible (default 48) |
+| `push=<units>` | How far it is pushed sideways over that (default 0) |
+| `spray=<n>` | Droplet budget (default 128, `0` = none) |
+| `lean=<units/s>` | Fake a carrier's sideways motion, to see the plume trail |
 | `t=<seconds>` | Simulate this long, render **one frozen frame**, stop |
 | `spin=1` | Turntable |
 | `water=1` | Flood the stage (swim / amphibious testing) |
@@ -76,6 +81,9 @@ bun tools/lab-shot.mjs shots/lab-swim.png "beast=aquaxol&water=1&t=3"
 
 # skill VFX against a plain backdrop
 bun tools/lab-shot.mjs shots/lab-vfx.png "skill=emberfox.flame-dart&t=2.2&bg=202830"
+
+# a waterfall, blown hard sideways
+bun tools/lab-shot.mjs shots/lab-fall.png "waterfall=1&fall=48&push=10&t=3&bg=8fa8c0"
 
 # live (not frozen) turntable in the browser
 #   http://localhost:5187/lab.html?beast=frostwing&spin=1

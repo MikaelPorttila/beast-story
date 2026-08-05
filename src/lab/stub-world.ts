@@ -82,6 +82,10 @@ export class StubWorld implements World {
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
     const floor = new THREE.Mesh(geo, mat);
+    // Named so `grid=0` can find THIS mesh rather than whichever one happens to
+    // be first in the scene — the engine puts its own sky and sun geometry in
+    // before the stage is built.
+    floor.name = 'lab:floor';
     floor.position.y = groundY;
     floor.receiveShadow = true;
     scene.add(floor);
@@ -130,6 +134,10 @@ export class StubWorld implements World {
    * contract because anything taking a World may call it.
    */
   setLayerVisible(): void { /* nothing streamed here */ }
+  /** The stage owns no effects: the lab adds its subject to the scene itself. */
+  warmUpEffects(): void { /* nothing to link */ }
+  /** The stage has no carriers, so no carried waterfall either. */
+  debugSkyFall(): null { return null; }
 
   /** No-op for the same reason: the stage grows nothing to re-grow. */
   rebuildProps(): void { /* nothing streamed here */ }

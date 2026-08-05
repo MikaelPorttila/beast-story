@@ -58,6 +58,7 @@ import type { RoadClearance } from './roads';
 import { VoxelModel } from '../core/voxel';
 import { mulberry32 } from './noise';
 import { flags } from '../core/flags';
+import { Waterfall } from './waterfall';
 import {
   skyBush, skyCottage, skyFence, skyGate, skyLamp, skySmoke, skyStall, skyTower, skyWell,
 } from './sky-parts';
@@ -694,9 +695,20 @@ const PATH_D = 0x9e9787;
 /** Tilled soil: the garden plots between the houses. */
 const TILL = 0x6a4a2c;
 const TILL_D = 0x513716;
-/** The stream and the fall. Pale, so it stays visible against the sky. */
-const WATER = 0x8fd8ec;
-const WATER_L = 0xbceaf6;
+/**
+ * The stream on the deck. (The FALL is world/waterfall.ts and carries its own.)
+ *
+ * SPEC §6's teal, and it used to be a pale 0x8fd8ec / 0xbceaf6 chosen to "stay
+ * visible against the sky" — which was solving the wrong problem, because the
+ * channel is seen against GRASS from above and against grass and rim-stone at
+ * the lip; the sky is behind the fall, not behind the stream. Read close up at
+ * the outflow the pale version was almost white, and it met the fall's SPEC
+ * teal in a hard step at exactly the spot a player walks to and looks over.
+ * These are SPEC §6's `#1E8AA2` lit and `#1E7E96` body, which is what the fall
+ * is built from — one water colour on this island now, not two.
+ */
+const WATER = 0x1e7e96;
+const WATER_L = 0x1e8aa2;
 
 /** Per-voxel value jitter, so a face is not one flat colour. */
 function shade(hex: number, k: number): number {
@@ -762,6 +774,18 @@ interface SkyPlan {
  * the market, and every street runs to its rim.
  */
 const PLAZA = 19;
+
+/**
+ * How wide the water is where it leaves the rim, in world units.
+ *
+ * ONE NUMBER FOR TWO THINGS, and that is the point: it is the effect's
+ * `lipWidth` AND the width the stream channel flares to at its mouth. They were
+ * separate at first — a 3.8-unit channel feeding a 7.2-unit plume — and the
+ * result is a ring of rim-stone showing either side of the water at the exact
+ * spot the player walks to and looks over. 2 map-blocks, which is what SPEC §6
+ * gives the lip.
+ */
+const FALL_LIP = MAP_BLOCK * 2 * CELL;
 /** The band the dwellings stand in, as fractions of the island radius. */
 const HOUSE_IN = 0.34;
 const HOUSE_OUT = 0.62;
@@ -1347,6 +1371,21 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
 
   private readonly geos: THREE.BufferGeometry[] = [];
   private readonly mats: THREE.Material[] = [];
+  /**
+   * The fall off the rim. Null when `water=0`.
+   *
+   * It owns its own geometry, material and texture and disposes them itself, so
+   * it deliberately does NOT go into `geos`/`mats` — those are the rock's.
+   */
+  private readonly fall: Waterfall | null = null;
+  /**
+   * The rock mesh, kept only so `debugFall` can report where `buildRock` put
+   * it. That number is the regression the waterfall work has to prove it did
+   * not cause — see the rebase note at the end of `buildRock`.
+   */
+  private rock: THREE.Mesh | null = null;
+  /** The lowest voxel `build` re-based the rock against. See `debugFall`. */
+  private rockMinY = 0;
   private readonly solids = new StructureField();
   /** Where the island wants to be, world x/z. Re-picked on arrival. */
   private tx = 0;
@@ -1436,6 +1475,34 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     );
     this.buildRock(plan);
     for (const t of plan.trees) this.treeSpots.push(t.x, t.z);
+
+    // -- the fall -----------------------------------------------------------
+    // Under `flags.water` for the same reason every chunk's surface is: a
+    // player who turns water off expects no water anywhere, and this rides that
+    // switch rather than earning a settings row of its own for two draw calls.
+    if (flags.water) {
+      const a = this.fallAnchor(plan);
+      this.fall = new Waterfall({
+        ...a,
+        bearing: plan.fallAngle,
+        // FORTY COURSES, in world units — the depth the voxel fall ran to. It
+        // ends inside the keel's own depth (which reaches 74-79 courses) and
+        // dissolves there rather than stopping square, which is what SPEC §6
+        // asks for and what the cubes were tuned to.
+        length: 40 * CELL,
+        // The same constant `onStream` flares its mouth to, so the water on the
+        // deck and the water going over it are the same width by construction.
+        lipWidth: FALL_LIP,
+        // A LIGHT, STEADY DRIFT. The island cruises at 1 unit/s, so the plume
+        // is not being blown by its own passage — this is the prevailing wind
+        // at altitude, and it is small because the fall's own wander already
+        // breaks up the column. The island's MOTION is a separate term, applied
+        // per frame in `update`.
+        lateralPush: 2.2,
+        swayFromCarrier: true,
+      });
+      this.root.add(this.fall.group);
+    }
 
     // -- the settlement, in local coordinates -------------------------------
     const stamp = new SolidStamp(this.solids);
@@ -1653,10 +1720,55 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    */
   update(dt: number, time: number, focus: THREE.Vector3): void {
     this.npcs?.update(dt, time, focus);
+    if (this.fall) {
+      // THE FALL TRAILS BEHIND THE ISLAND. `advance` has already published this
+      // slice's step in WORLD x/z; the plume lives in the island's own frame,
+      // so the step is rotated in by the same map `toLocal` uses — without the
+      // translation, because a delta has no origin.
+      //
+      // Under `photo=1` `steer` returns early and the step is exactly zero, so
+      // a capture gets no lean and needs no special case here.
+      const lx = this.dx * this.cy - this.dz * this.sy;
+      const lz = this.dx * this.sy + this.dz * this.cy;
+      this.fall.update(dt, lx, lz);
+    }
   }
 
   setVisible(v: boolean): void {
     this.root.visible = v;
+  }
+
+  /**
+   * Show or hide just the fall — the `water` graphics layer, which it rides
+   * rather than earning a settings row of its own. See `World.setLayerVisible`.
+   */
+  setWaterfallVisible(v: boolean): void {
+    this.fall?.setVisible(v);
+  }
+
+  /** Link the fall's two shader programs at boot. See `warmUpSteps` in main.ts. */
+  warmUpWaterfall(render: () => void): void {
+    this.fall?.warmUp(render);
+  }
+
+  /**
+   * The fall's counters, plus the two numbers that say the ROCK did not move
+   * when the voxel fall came out of it. For `__dbgSkyFall` and
+   * tools/test-waterfall.mjs.
+   *
+   * `meshOriginY` and `meshMinY * CELL` must be equal — that is the rebase
+   * identity `buildRock` documents, stated as a number a probe can compare
+   * rather than as prose. `meshMinY` must also still be the KEEL's depth
+   * (74-79 courses down), which is what says the fall was never what set it.
+   */
+  debugFall(): Record<string, number> {
+    return {
+      meshOriginY: +(this.rock?.position.y ?? NaN).toFixed(5),
+      meshMinY: this.rockMinY,
+      cell: CELL,
+      hasFall: this.fall ? 1 : 0,
+      ...(this.fall?.stats() ?? {}),
+    };
   }
 
   /**
@@ -1704,6 +1816,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
 
   dispose(): void {
     this.npcs?.dispose();
+    this.fall?.dispose();
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
     this.geos.length = 0;
@@ -1755,6 +1868,31 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    * core/shadow-cache.ts). An island wrongly marked static drags a frozen
    * shadow across the meadow behind it.
    */
+  /**
+   * The rim column the fall leaves from, in the island's own frame.
+   *
+   * ON the outline, not one cell inboard of it.
+   *
+   * The voxel fall this replaced started a cell in, and that was right for
+   * CUBES: they were part of the rock mesh, so a fall hung off the last column
+   * had nothing drawn above its head. A sheet is a separate object standing
+   * clear of the rock, and starting it inboard tucks its head UNDER the rim —
+   * the water appears to come out of the cliff face a course below the turf
+   * instead of going over the edge, which is the one thing a lip has to read
+   * as. Reported from play.
+   *
+   * Local y is 0, which is the TOP of the turf course and therefore what
+   * `localDeck` answers: the water leaves at the surface it has been running
+   * along, not at the rim's rock.
+   */
+  private fallAnchor(plan: SkyPlan): { x: number; y: number; z: number } {
+    const rimD = outlineAt(plan.fallAngle, this.phase);
+    const gx0 = Math.round(Math.sin(plan.fallAngle) * rimD);
+    const gz0 = Math.round(Math.cos(plan.fallAngle) * rimD);
+    // Cell CENTRES, matching how `buildRock` converts a cell to a world column.
+    return { x: (gx0 + 0.5) * CELL, y: 0, z: (gz0 + 0.5) * CELL };
+  }
+
   private buildRock(plan: SkyPlan): void {
     const v = new VoxelModel();
     const R = Math.ceil(RC) + 2;
@@ -1790,14 +1928,43 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     const onPlot = (wx: number, wz: number): boolean =>
       plan.plots.some((g) => (wx - g.x) ** 2 + (wz - g.z) ** 2 < g.r * g.r);
 
-    /** The stream: a two-cell channel from the square to the rim. */
+    /**
+     * The stream: a two-cell channel from the square to the rim, FLARING to the
+     * fall's own lip width over its last stretch.
+     *
+     * THE MOUTH HAS TO BE AS WIDE AS THE FALL. At a constant 1.9 of half-width
+     * the channel is about three cells across and the plume leaves six across,
+     * so the outermost columns either side of the water came out as the rim's
+     * grey stone — and the one place a player is guaranteed to stand and look
+     * closely at this is the lip, because that is where you go to see the drop.
+     * `FALL_LIP` is the same constant the effect is built from, so the two
+     * cannot drift apart.
+     *
+     * NO OUTER BOUND. It used to stop at `ISLAND_R`, which is the radius of a
+     * CIRCLE — but the outline is a lobed stagger that reaches 0.998 of it at
+     * the peak and the projection `along` is shorter still off the centreline,
+     * so the test could refuse the last column or two on some bearings and not
+     * on others. The column loop already skips everything past the outline;
+     * there is nothing out there for this to answer about.
+     */
     const fx = Math.sin(plan.fallAngle);
     const fz = Math.cos(plan.fallAngle);
     const onStream = (wx: number, wz: number): boolean => {
       const along = wx * fx + wz * fz;
-      if (along < PLAZA * 0.7 || along > ISLAND_R) return false;
+      if (along < PLAZA * 0.7) return false;
       const across = Math.abs(wx * fz - wz * fx);
-      return across < 1.9;
+      // Flare over the last THIRD of the run, so the channel reads as a stream
+      // widening into a mouth rather than as a funnel bolted to a pipe. A fifth
+      // was the first try and it is too short: smoothstep spends most of its
+      // range near its ends, so over 19 units the widening happened almost
+      // entirely in the last four and the mouth still read as a pipe.
+      const t = Math.max(0, Math.min(1, (along - ISLAND_R * 0.66) / (ISLAND_R * 0.34)));
+      const flare = t * t * (3 - 2 * t);
+      // A full cell of margin past the plume's own half-width: the water has to
+      // reach UNDER the sheet's edge, not merely meet it, or the outermost
+      // column either side of the fall comes back as rim-stone.
+      const halfW = 1.9 + flare * (FALL_LIP * 0.5 + CELL - 1.9);
+      return across < halfW;
     };
 
     for (let gx = -R; gx <= R; gx++) {
@@ -1838,80 +2005,34 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       }
     }
 
-    // -- the waterfall --------------------------------------------------------
-    // Off the rim on the stream's bearing, falling past the keel and stopping.
-    // Opaque cubes rather than a transparent sheet: everything else in this
-    // world is opaque cubes, and a translucent quad here would be the one
-    // surface in the game that is not.
-    {
-      // FROM THE RIM COLUMN, straight down, and narrowing as it goes. The first
-      // pass walked it OUTWARD as it fell and started it half a cell past the
-      // edge, so it hung in the air beside the island like a pipe with nothing
-      // at the top of it — a fall has to leave a lip you can stand at and look
-      // over, which means it starts on the last column of turf.
-      const rimD = outlineAt(plan.fallAngle, this.phase) - 1;
-      const gx0 = Math.round(Math.sin(plan.fallAngle) * rimD);
-      const gz0 = Math.round(Math.cos(plan.fallAngle) * rimD);
-      const perpX = Math.round(Math.cos(plan.fallAngle));
-      const perpZ = -Math.round(Math.sin(plan.fallAngle));
-      const FALL = 40;
-      for (let k = 0; k < FALL; k++) {
-        const gy = -1 - k;
-        // A BROAD LIP THAT TAPERS TO A THREAD. A fall of constant width is a
-        // pipe, which is exactly what the first two versions of this looked
-        // like — the water has to spread where it leaves the rim and gather as
-        // it drops.
-        // WIDE ENOUGH TO BE WATER. At one and two cells the fall came back as
-        // a pale WIRE hanging under the island in every side view — the eye
-        // reads a 1.2-unit column at fifty units as a rendering artefact, not
-        // as a river. Seven cells at the lip and five down the body is about a
-        // sixth of the island's width, which is the proportion the reference's
-        // fall has.
-        // WIDE, AND IT DISSOLVES. A constant-width column is a ruler drawn on
-        // the sky; running it past the deepest rock and stopping square is
-        // worse still, which is what 52 courses did. It now ends inside the
-        // keel's own depth and thins out over its last stretch.
-        const w = k < 5 ? 4 : k < 24 ? 3 : 2;
-        // ...and it WANDERS. A perfectly straight column reads as a ruler drawn
-        // on the sky; one cell of drift every few courses is enough to break it
-        // without the fall ever looking like it is being blown sideways.
-        const drift = Math.round(Math.sin(k * 0.21) * 1.4);
-        for (let t = -w; t <= w; t++) {
-          const j = hash2(gx0 + t, gy, 41);
-          // The tail breaks up rather than ending on a square edge.
-          if (k > FALL - 10 && j < (k - (FALL - 10)) / 10) continue;
-          // The head is white water and the body is blue: the brightest part of
-          // a fall is where it breaks over the lip.
-          const c = k < 5 || j < 0.35 ? WATER_L : WATER;
-          v.set(
-            gx0 + perpX * (t + drift), gy, gz0 + perpZ * (t + drift),
-            shade(c, 0.95 + j * 0.16),
-          );
-        }
-      }
-      // MIST AT THE LIP, where it goes over. Four pale cells sitting on the
-      // turf at the head of the fall, which is what tells you from above that
-      // the stream ends in a drop rather than at a wall.
-      for (let t = -2; t <= 2; t++) {
-        for (let b = 0; b <= 1; b++) {
-          if (hash2(t, b, 71) < 0.35) continue;
-          v.set(gx0 + perpX * t - Math.round(Math.sin(plan.fallAngle)) * b, -1,
-            gz0 + perpZ * t - Math.round(Math.cos(plan.fallAngle)) * b, shade(WATER_L, 1.02));
-        }
-      }
-    }
+    // THE WATERFALL IS NOT HERE ANY MORE. It was forty courses of opaque cubes
+    // baked into this model — see `fallAnchor` and world/waterfall.ts, which
+    // replaced them with an animated sheet. The stream that FEEDS it is still
+    // painted above (`onStream`): the channel is the island's, the drop is the
+    // effect's, and the effect's lip cap covers the seam between them.
 
     const mesh = v.build(CELL, false);
     // `build` re-bases the model so its LOWEST voxel sits at y = 0, i.e. a cell
     // at `gy` lands at `(gy - minY) * CELL`. The turf is course -1 and its TOP
     // face has to be local 0, which puts the whole model down by `minY * CELL`.
-    // Read off the model rather than computed from CLIFF and TAPER, which the
-    // roughness and the waterfall both reach past.
+    //
+    // THE TWO CANCEL EXACTLY, and that is the point rather than a coincidence:
+    // `build` subtracts `minY` and this adds it back, so a cell at `gy` lands
+    // at `gy * CELL` for ANY `minY`. It is read off the model only so it is the
+    // same `minY` `build` itself used. (An older version of this note claimed
+    // the waterfall reached past CLIFF and TAPER and that removing it would
+    // move the island. Neither half was true: the keel bottoms out around
+    // gy -74 to -79 in `depthAt` and the fall stopped at -40, so it was never
+    // the lowest voxel — and even if it had been, the identity above holds.
+    // `tools/test-waterfall.mjs` asserts both halves.)
     mesh.position.y = v.bounds(false).minY * CELL;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
+    mesh.name = 'sky:rock';
+    this.rock = mesh;
+    this.rockMinY = v.bounds(false).minY;
     this.root.add(mesh);
     this.geos.push(mesh.geometry);
     this.mats.push(mesh.material as THREE.Material);

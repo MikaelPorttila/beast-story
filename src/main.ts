@@ -3123,6 +3123,12 @@ function* warmUpSteps(): Generator<void> {
   underwater.warmUp(() => engine.render());
   yield;
 
+  // World-owned effects, for the same reason: the sky island's waterfall hangs
+  // 190 units up and 170 out, so no staged frame above ever drew it and its two
+  // programs would link on the frame the hero first looks up at the island.
+  world.warmUpEffects(() => engine.render());
+  yield;
+
   // NOT renderer.compile(scene, camera). It was tried and measured: it linked
   // 117 programs in one go and made boot dramatically WORSE (593 ms, 429 ms and
   // 287 ms stalls in the first 1.5 s, against ~110 ms without it), because it
@@ -4213,6 +4219,21 @@ beginPlay();
     };
   }),
 });
+
+/**
+ * THE CARRIED ISLAND'S WATERFALL. For tools/test-waterfall.mjs.
+ *
+ * Two things in one reading, because they are two halves of one change. The
+ * `length` / `push` / `sprayAlive` / `frozen` counters are the effect's own; the
+ * `meshOriginY` / `meshMinY` pair is the ROCK's, and it is there to prove the
+ * island did not move when forty courses of voxel waterfall came out of it.
+ * `meshOriginY` must equal `meshMinY * cell` (the rebase identity `buildRock`
+ * documents) and `meshMinY` must still be the keel's own depth.
+ *
+ * Null in a world with no carried island — the hold, and the lab's stage.
+ */
+(window as unknown as { __dbgSkyFall: () => unknown }).__dbgSkyFall =
+  () => world.debugSkyFall();
 
 /**
  * THE WOOD ON A CARRIED DECK, AND WHETHER IT BLOCKS. For tools/test-carrier.mjs.

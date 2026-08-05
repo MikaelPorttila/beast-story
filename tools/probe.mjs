@@ -120,6 +120,12 @@ const SOLO = new Set([
   // here on its own merits now: section 7 mounts a flyer through __dbgRide and
   // holds Space for twelve seconds, measuring where the climb stopped.
   'carrier',
+  // Measures MOTION — two frames half a second apart over the plume, against a
+  // control patch of the same backdrop — which is the one thing a background tab
+  // cannot deliver: no requestAnimationFrame means no animation and the delta
+  // reads 0 for the right reason and the wrong result. It also takes eleven page
+  // loads, half of them screenshots.
+  'waterfall',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output
