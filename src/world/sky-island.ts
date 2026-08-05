@@ -193,6 +193,16 @@ const LEDGE = 5;
 const LIP = 1;
 
 /**
+ * How deep a LIP column goes, in courses: turf, dirt, dirt, and no stone under
+ * it — `paintColumn`'s `!stone` branch, which paints -1, -2, -3 and returns.
+ *
+ * Named because `localBottom` has to answer for those columns too and would
+ * otherwise carry a 3 of its own, a metre from the overhang the whole
+ * silhouette is built on.
+ */
+const LIP_COURSES = 3;
+
+/**
  * How wide the grey rim-stone collar is, in cells, measured in from the outline.
  *
  * THE MOST PROMINENT OUTLINE FEATURE ON THE PLAN, AND IT WAS SIMPLY ABSENT.
@@ -1344,6 +1354,13 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   private vx = 0;
   private vz = 0;
   private readonly rng: () => number;
+  /**
+   * Where the plan put the wood, LOCAL x/z interleaved. For `debugTrees` and
+   * nothing else — the trees themselves are in the merged mesh and their boles
+   * are in `solids` with everything else, which is the point of issue #80's fix
+   * and also why neither of those can tell a probe which box was a tree.
+   */
+  private readonly treeSpots: number[] = [];
   /** The outline's phase, so two seeds are two different islands. */
   private readonly phase: number;
 
@@ -1418,6 +1435,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       (a) => outlineAt(a, this.phase) * CELL,
     );
     this.buildRock(plan);
+    for (const t of plan.trees) this.treeSpots.push(t.x, t.z);
 
     // -- the settlement, in local coordinates -------------------------------
     const stamp = new SolidStamp(this.solids);
@@ -1494,6 +1512,27 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     // constructor, and the crew is placed after the town it is standing in.
     const who = this.npcs?.solids.topAt(lx, lz) ?? -Infinity;
     return who > top ? who : top;
+  }
+
+  /**
+   * THE KEEL, in local coordinates: the bottom face of the deepest cube in this
+   * column, and +Infinity past the rim.
+   *
+   * Measured off `columnDepth` — the same function `buildRock` paints from and
+   * `paintColumn` tests its neighbours with — so the surface a flyer bumps into
+   * is the surface they can see, by construction, the way `deckAt` is the rim
+   * they can see. A separate formula for the underside would be the seam this
+   * file has already refused twice.
+   *
+   * A cube at index `-k` spans y in [-k * CELL, (-k + 1) * CELL], so a column
+   * `d` courses deep bottoms out at `-d * CELL`. `columnDepth` reports 0 for a
+   * LIP column, which is not a hole: the lip is the overhang, three courses of
+   * soil and no stone under it (`paintColumn`'s `!stone` branch).
+   */
+  localBottom(lx: number, lz: number): number {
+    if (this.deckAt(lx, lz) === -Infinity) return Infinity;
+    const depth = this.columnDepth(Math.floor(lx / CELL), Math.floor(lz / CELL));
+    return -(depth > 0 ? depth : LIP_COURSES) * CELL;
   }
 
   // -- NpcFrame -------------------------------------------------------------
@@ -1651,6 +1690,16 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
         local[i + 5] + this.y,
       );
     }
+  }
+
+  /** The wood, in world space as of now. See `World.debugCarriedTrees`. */
+  debugTrees(): Array<{ x: number; z: number }> {
+    const out: Array<{ x: number; z: number }> = [];
+    for (let i = 0; i < this.treeSpots.length; i += 2) {
+      this.toWorld(this.treeSpots[i], this.treeSpots[i + 1], _dbg);
+      out.push({ x: _dbg.x, z: _dbg.z });
+    }
+    return out;
   }
 
   dispose(): void {
@@ -2220,10 +2269,13 @@ const buildSkyhaven: CarriedLayout = (solid, parts, plan) => {
   for (const b of plan.buildings) solid.add(b.t, b.x, 0, b.z, b.yaw, b.s ?? 1);
   for (const f of plan.fences) solid.add(parts.fence, f.x, 0, f.z, f.yaw);
   for (const l of plan.lamps) solid.add(parts.lamp, l.x, 0, l.z, l.yaw);
-  // The trees go through the same stamp, so they are drawn into the same merged
-  // mesh — but a tree template carries no `solid`, so nothing here blocks. That
-  // is the same bargain the overworld makes with its own canopies: a trunk is a
-  // collider only where the chunk registry says so, and the island has no chunk.
+  // The trees go through the same stamp as everything else, and the stamp
+  // blocks them: a tree template carries no `solid` but it does carry the
+  // `trunk` its own bake measured, and `StructureField.add` makes a bole out of
+  // that (`boleBox`, world/structures.ts). The overworld's canopies block off
+  // the same measurement through the chunk trunk registry — the island has no
+  // chunk, which is why it needed the second consumer rather than a second
+  // number. Issue #80: you walked through every trunk on the deck.
   for (const t of plan.trees) solid.add(t.t, t.x, 0, t.z, t.yaw, t.s);
 };
 

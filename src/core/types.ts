@@ -517,6 +517,18 @@ export interface CarrierInfo {
    */
   topAt(x: number, z: number): number;
   /**
+   * Underside of the frame's body at this world column — the keel — or
+   * +Infinity where the frame has nothing here.
+   *
+   * `topAt` AND THIS ARE A PAIR, and the pair is the point: a frame is a SLAB
+   * between them, not a surface with air under it. Without the second half the
+   * only thing a carrier could do to a body was hold it up, so a flyer steered
+   * at the underside of a flying island went into the rock and kept going
+   * (issue #80). Whoever owns a mover's physics clamps it out of the slab on
+   * whichever side of the keel it is; see `integrateFlying` in player/mount.ts.
+   */
+  bottomAt(x: number, z: number): number;
+  /**
    * Is this point inside the ride volume?
    *
    * TAKES `y`, and that is the whole safety of the feature. A flying island's
@@ -543,6 +555,18 @@ export interface CarrierRegistry {
   get(id: string): CarrierInfo | undefined;
   /** The frame whose volume holds this point, or null. */
   at(x: number, y: number, z: number): CarrierInfo | null;
+  /**
+   * The frame whose BODY stands in this column, or null — whoever is asking and
+   * wherever they are vertically.
+   *
+   * The companion to `at`, and the difference is what each is safe for. `at`
+   * answers "am I riding this", which needs a `y` and is what may move a body;
+   * this answers "is there a frame in the way of this column", which cannot
+   * move anything by itself — the caller still has to compare against `topAt`
+   * and `bottomAt` to know which side of the slab it is on. That is what makes
+   * it safe to ask without a `y` and useless as a surface.
+   */
+  bodyAt(x: number, z: number): CarrierInfo | null;
   /**
    * The highest deck over this column, WHOEVER is asking and wherever they are,
    * or -Infinity where there is none.
@@ -578,6 +602,7 @@ export const NO_CARRIERS: CarrierRegistry = {
   all: [],
   get: () => undefined,
   at: () => null,
+  bodyAt: () => null,
   ceilingAt: () => -Infinity,
   advance: () => {},
 };
@@ -960,6 +985,20 @@ export interface World {
    * rather than argue it from a screenshot. Allocates; never called per frame.
    */
   debugFurniture(): Array<{ kind: string; x: number; z: number }>;
+  /**
+   * Debug: every tree a CARRIED settlement planted, in WORLD space and as of
+   * this instant — empty where nothing is being carried.
+   *
+   * Here for the same reason `debugFurniture` is: "the trees on the sky island
+   * have no colliders" (issue #80) is a statement about specific columns, and a
+   * probe cannot ask about a column it cannot name. The ground's own woods need
+   * no equivalent — a chunk tree is in the trunk registry, which
+   * `trunkSolidTopAt` answers from at any coordinate a probe likes.
+   *
+   * Allocates, and goes stale the moment the carrier moves: read it and query
+   * in the same evaluation.
+   */
+  debugCarriedTrees(): Array<{ x: number; z: number }>;
   /** Positions of interest (skill dens / shops) */
   readonly shopPositions: THREE.Vector3[];
   /**

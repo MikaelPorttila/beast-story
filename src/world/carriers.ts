@@ -11,8 +11,8 @@
  *
  *   CarrierBody   what a moving thing EXTENDS. Owns the pose, computes the
  *                 per-slice delta from it, and converts between world and its
- *                 own local space. A subclass writes `steer()` and `localTop()`
- *                 and inherits everything else.
+ *                 own local space. A subclass writes `steer()`, `localTop()`
+ *                 and `localBottom()` and inherits everything else.
  *   CarrierField  the registry the World contract hands out.
  *   CarrierRide   what a MOVER owns — one field, two calls, no knowledge of
  *                 what it is standing on.
@@ -94,10 +94,11 @@ const CEILING_RISE = 30;
 /**
  * A moving frame. Extend it; do not instantiate it.
  *
- * The subclass owns exactly two things — where the frame WANTS to be next slice
- * (`steer`) and what its surface is in local space (`localTop`) — and this
- * class owns the bookkeeping every carrier would otherwise repeat: the delta,
- * the transform, the containment test and the scene root.
+ * The subclass owns exactly three things — where the frame WANTS to be next
+ * slice (`steer`) and the two faces of its body in local space (`localTop`,
+ * `localBottom`) — and this class owns the bookkeeping every carrier would
+ * otherwise repeat: the delta, the transform, the containment test and the
+ * scene root.
  */
 export abstract class CarrierBody implements CarrierInfo {
   readonly root = new THREE.Group();
@@ -134,6 +135,23 @@ export abstract class CarrierBody implements CarrierInfo {
    * where the frame has nothing there. Local y = 0 is the frame's origin.
    */
   abstract localTop(lx: number, lz: number): number;
+
+  /**
+   * Underside of the frame's BODY at a point in its own coordinates, or
+   * +Infinity where the frame has nothing there. Local y = 0 is the origin, so
+   * a hull hanging under the deck answers negative.
+   *
+   * ABSTRACT, LIKE `localTop`, AND FOR THE SAME REASON: there is no honest
+   * default. A raft is its own underside and an island is eighty units of rock,
+   * and a base class that guessed would guess wrong for exactly the frame whose
+   * keel a flyer can get inside of — which is the defect this pair was widened
+   * for (issue #80: "player can fly straight through the sky island").
+   *
+   * The two together are the frame's SLAB at a column, and a slab is what a
+   * mover needs: `topAt` alone says what to stand on and says nothing about
+   * what to bump into from below.
+   */
+  abstract localBottom(lx: number, lz: number): number;
 
   /** One simulation slice: steer, publish the delta, and move the meshes. */
   advance(dt: number): void {
@@ -191,6 +209,16 @@ export abstract class CarrierBody implements CarrierInfo {
     return t > -Infinity ? t + this.y : -Infinity;
   }
 
+  /** `localBottom` at a world column. +Infinity where the frame has nothing. */
+  bottomAt(x: number, z: number): number {
+    const dx = x - this.x;
+    const dz = z - this.z;
+    if (dx * dx + dz * dz > this.radius * this.radius) return Infinity;
+    this.toLocal(x, z, this._l);
+    const b = this.localBottom(this._l.x, this._l.z);
+    return b < Infinity ? b + this.y : Infinity;
+  }
+
   contains(x: number, y: number, z: number): boolean {
     const top = this.topAt(x, z);
     if (top === -Infinity) return false;
@@ -213,6 +241,11 @@ export class CarrierField implements CarrierRegistry {
 
   at(x: number, y: number, z: number): CarrierInfo | null {
     for (const c of this.all) if (c.contains(x, y, z)) return c;
+    return null;
+  }
+
+  bodyAt(x: number, z: number): CarrierInfo | null {
+    for (const c of this.all) if (c.topAt(x, z) > -Infinity) return c;
     return null;
   }
 

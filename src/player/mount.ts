@@ -217,6 +217,14 @@ export class MountController {
   /** True while the mount can only swim — no gallop, see LAND_FLOP. */
   private waterOnly = false;
   private pos = new THREE.Vector3();
+  /**
+   * Where the ANIMAL is, which is not where the rider is: the hero is seated
+   * `saddleY - HERO_HIP_Y` above this and `SEAT_BACK` behind it (`seatHero`).
+   * Every clamp in this file is applied here, so a probe asserting on one has
+   * to read this and not the hero's position — the seat offset is a couple of
+   * units and the clearances being asserted on are about that big.
+   */
+  get bodyY(): number { return this.pos.y; }
   private vel = new THREE.Vector3();
   private vy = 0;
   private grounded = true;
@@ -805,6 +813,41 @@ export class MountController {
     if (this.pos.y > ceil) {
       this.pos.y = ceil;
       if (this.vy > 0) this.vy = 0;
+    }
+    // A CARRIER IS A SOLID BODY, and until this the only thing one could do to
+    // a flyer was hold him up. `ride.support` is gated on being ATTACHED — it
+    // has to be, or an island passing overhead would lift a walker off the
+    // meadow — and a mount climbing at the keel is by definition not attached
+    // yet, so the island simply was not there: you flew in through the rock and
+    // sat inside the mountain (issue #80).
+    //
+    // Asked LAST, so it wins over the ceiling above — which `ceilingAt` has
+    // deliberately raised near the island to let the approach happen at all.
+    // `bodyAt` has no `y` in it and cannot move anything on its own; the two
+    // faces of the slab decide everything, which is what makes it safe here.
+    const body = this.world.carriers.bodyAt(this.pos.x, this.pos.z);
+    if (body) {
+      const keel = body.bottomAt(this.pos.x, this.pos.z);
+      if (this.pos.y < keel) {
+        // UNDER IT: the keel is a ceiling, so the way up is round the rim and
+        // not through the middle. That is the honest reading of a mountain in
+        // the sky, and it is the half that stops the exploit in the report.
+        const under = keel - FLY_CLEARANCE;
+        if (this.pos.y > under) {
+          this.pos.y = under;
+          if (this.vy > 0) this.vy = 0;
+        }
+      } else {
+        // IN IT OR OVER IT: the deck is a floor. Same rule as the hillside
+        // above — "a flyer steered into a hillside rides up over it rather than
+        // through it" — and the same rule the attached case already followed
+        // through `floorFor`, now applying one slice earlier, on the approach.
+        const deck = body.topAt(this.pos.x, this.pos.z) + FLY_CLEARANCE;
+        if (this.pos.y < deck) {
+          this.pos.y = deck;
+          if (this.vy < 0) this.vy = 0;
+        }
+      }
     }
     this.grounded = false;
     this.pitch += (clamp(-this.vy * 0.055, -0.35, 0.35) - this.pitch)

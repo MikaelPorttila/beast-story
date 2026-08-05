@@ -30,6 +30,16 @@
 // Section 5 is the people and section 6 is the compass, which are the two things
 // the issue names besides the movement itself.
 //
+// Sections 7 and 8 are issue #80 and they are about the frame being a BODY
+// rather than a surface:
+//
+//   KEEL       a flyer climbing at the underside is stopped by it. The deck was
+//              the only face the carrier had, so you flew in through the rock
+//              and sat inside the mountain.
+//   WOOD       the trees stamped onto the deck block. They carry a `trunk` and
+//              not a `solid`, and the registry that makes a trunk solid in the
+//              overworld is keyed by streamed chunk — which a deck has none of.
+//
 // Exits non-zero on failure.
 import { launchBrowser, newPage, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
@@ -249,6 +259,120 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
       `the flying town's compass chip did not move (${m1.rel} -> ${m2.rel}) `
       + `while the town travelled ${results.compass.islandMoved} units`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 7. It is a SLAB: you cannot fly in through the keel
+// ---------------------------------------------------------------------------
+// Issue #80, first half — a photograph of a mount sitting inside the rock. The
+// deck was the only face the frame had, and `CarrierRide.support` is gated on
+// being attached, so a flyer climbing at the underside was flying at nothing.
+//
+// THE ASSERTION IS THE SLAB, not an altitude: at every sample inside the
+// island's footprint the animal is on ONE SIDE of the pair (under the keel or
+// on the deck) and never between them. That holds whatever the island's own
+// altitude is doing, which a fixed number would not.
+{
+  await page.evaluate(() => window.__dbgRide('off'));
+  const a = (await carriers()).all[0];
+  // On the ground under the middle of it — the deepest part of the keel and the
+  // straightest line at the island there is.
+  await tp(a.x, a.z);
+  await wait(600);
+  const said = await page.evaluate(() => window.__dbgRide('galebird'));
+  const m0 = await page.evaluate(() => window.__dbgMount());
+  check(m0.mounted && m0.locomotion === 'flying',
+    `could not get a flyer under the island: ${said}`);
+
+  // STARTED IN THE AIR UNDER THE KEEL, and the altitude is read off the frame
+  // rather than picked: the deck cruises around 190 and the keel is most of a
+  // hundred units of rock below it, so a galebird climbing at 7 units/s spends
+  // the whole run climbing and never reaches the thing being tested. `keel` is a
+  // column query and does not care where the asker is, so it can be read from
+  // the ground. 25 units is three seconds of climb.
+  const start = (await carriers()).all[0];
+  check(start.keel !== null, 'no keel under the middle of the island');
+  await tp(a.x, a.z, start.keel - 25);
+  await wait(600);
+
+  const samples = [];
+  await page.keyboard.down('Space');
+  for (let i = 0; i < 24; i++) {
+    await wait(500);
+    const c = await carriers();
+    const mm = await page.evaluate(() => window.__dbgMount());
+    samples.push({
+      y: mm.bodyY, keel: c.all[0].keel, deck: c.all[0].deckTop, riding: c.riding,
+    });
+  }
+  await page.keyboard.up('Space');
+  await wait(400);
+
+  const under = samples.filter((s) => s.keel !== null);
+  // Strictly between the two faces, with the seat's own slack taken off the
+  // bottom: the animal is INSIDE the rock, which is the bug.
+  const inside = under.filter((s) => s.y > s.keel + 0.5 && s.y < s.deck - 1);
+  const climbed = samples[samples.length - 1].y - samples[0].y;
+  const last = samples[samples.length - 1];
+  results.keel = {
+    samples: samples.length,
+    underTheIsland: under.length,
+    insideTheRock: inside.length,
+    climbed: +climbed.toFixed(2),
+    endY: last.y, endKeel: last.keel, endDeck: last.deck,
+    worst: inside[0] ?? null,
+  };
+  // THE OTHER HALF OF THE PAIR, twice: the hold has to have been a real climb,
+  // and it has to have been made where the island actually is. Without either,
+  // "he never got inside the rock" is what a probe that pressed nothing reports.
+  check(climbed > 15,
+    `the flyer only climbed ${climbed.toFixed(1)} units in 12 s — nothing was tested`);
+  check(under.length > 12,
+    `only ${under.length} of ${samples.length} samples were under the island at all`);
+  check(inside.length === 0,
+    `the flyer was inside the rock on ${inside.length} samples, first at y `
+    + `${inside[0]?.y} between keel ${inside[0]?.keel} and deck ${inside[0]?.deck}`);
+  // And he is held AGAINST the keel rather than stopped somewhere below it by
+  // the ordinary flight ceiling, which would make the run above prove nothing
+  // about the island. FLY_CLEARANCE is 1.3.
+  if (last.keel !== null) {
+    check(last.keel - last.y < 6,
+      `the climb stopped ${(last.keel - last.y).toFixed(1)} units under the keel — `
+      + 'something other than the island is the ceiling here');
+  }
+  await page.evaluate(() => window.__dbgRide('off'));
+}
+
+// ---------------------------------------------------------------------------
+// 8. The wood on the deck blocks
+// ---------------------------------------------------------------------------
+// Issue #80, second half. A tree template carries no `solid` — the overworld's
+// canopies block through the per-chunk trunk registry, and a deck has no chunk —
+// so the island's wood was drawn and nothing more. The fix makes the settlement
+// stamp read the same `trunk` the registry reads, so this asks the collision
+// query itself, at the column each tree is actually drawn in.
+{
+  const w = await page.evaluate(() => window.__dbgCarriedWood());
+  const bare = w.trees.filter((t) => t.rise < 2);
+  results.wood = {
+    trees: w.trees.length,
+    tallestBole: w.trees.reduce((m, t) => Math.max(m, t.rise), 0),
+    withoutCollider: bare.length,
+    deckSamples: w.sampled,
+    raisedSamples: w.raised,
+  };
+  check(w.trees.length > 10, `only ${w.trees.length} trees on the island`);
+  check(bare.length === 0,
+    `${bare.length} of ${w.trees.length} island trees have nothing solid in their `
+    + `column — first at ${JSON.stringify(bare[0])}`);
+  // THE OTHER HALF: a query that answered "something is here" everywhere would
+  // pass the line above and mean nothing. Most of a deck is turf and garden —
+  // the settlement covers a fraction of it — so a majority of raised columns is
+  // the shape of a broken query rather than of a town.
+  check(w.sampled > 100, `only ${w.sampled} deck columns sampled`);
+  check(w.raised < w.sampled * 0.5,
+    `${w.raised} of ${w.sampled} deck columns report something solid — `
+    + 'that is a deck you cannot walk on, not a settlement');
 }
 
 console.log(JSON.stringify({ ...results, fails }, null, 2));
