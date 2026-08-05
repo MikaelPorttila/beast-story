@@ -1630,7 +1630,16 @@ function buildOffers(): ShopOffer[] {
 
 function tryOpenShop(): void {
   if (hud.isShopOpen()) return;
-  document.exitPointerLock();
+  // THROUGH `Input`, NEVER STRAIGHT TO THE DOM. This was
+  // `document.exitPointerLock()`, and the difference is not style: `releaseLock`
+  // clears the INTENT first, and that intent is the whole of how
+  // `Input.onLockLost` tells "the player pressed Escape and the browser took the
+  // pointer" from "we gave it up on purpose". Released raw, the lock vanished
+  // while `lockWanted` still stood, `onLockLost` tapped a virtual Escape, and
+  // the very next simulation slice closed the den that had just opened — so on
+  // any machine actually holding a lock, `E` at a skill den opened a shop that
+  // shut itself before the player saw it.
+  input.releaseLock();
   hud.openShop(t('shop.skillDen.title'), buildOffers(), (i) => {
     const offer = buildOffers()[i];
     if (!offer || offer.owned || !offer.affordable) return;

@@ -683,6 +683,84 @@ if (!boot) {
     + 'assertion above is passing because the hook is dead, not because it is fixed');
 }
 
+// ---------- 11. the skill den closes on Escape, and NOTHING ELSE ----------
+// THE SAME REPORT, one panel over, and a DIFFERENT cause — which is why it is
+// its own section rather than a second arm of 10. The shop had a private
+// keyboard path: ui/index.ts added its own `document` keydown listener while it
+// was open, so Escape closed it SYNCHRONOUSLY, and by the time the simulation
+// slice read the same press there was no modal left — so the slice took the
+// other branch and opened the in-game menu. One press, two panels, and no
+// pointer lock involved at all.
+//
+// ui/pause.ts's header names this exact hazard ("one press seen twice, once by
+// this listener and once by the host's slice") and that is why neither the
+// pause menu nor the inventory handles Escape in its own markup. The shop is
+// the one that did.
+//
+// A PAIR: Escape must close the den AND leave the menu shut, and the SAME key
+// with nothing open must still raise the menu — otherwise this passes against a
+// build where Escape does nothing at all.
+{
+  const menuOpen = () => page.evaluate(() => !!document.querySelector('.bs-pause'));
+  const shopOpen = () => page.evaluate(() => !!document.querySelector('.bs-shopwrap.open'));
+  const shut = async () => {
+    await page.evaluate(() => {
+      document.querySelector('.bs-pause [data-act="continue"]')?.click();
+    });
+    if ((await inv()).open) await page.keyboard.press('KeyI');
+    await wait(300);
+  };
+
+  await shut();
+  // Stand at a den. `__dbgShops` reports where they were sited, so nothing here
+  // pins a coordinate to a seed.
+  // IN FRONT OF IT, not on it. `facing` is the bearing from the den toward the
+  // spawn (see __dbgShops), which is the side its counter is on, and standing
+  // ON the den lands the hero inside a solid building — the dens grew colliders
+  // when the settlements did. 2.6 units out is inside `nearShop`'s 3.5.
+  const den = (await page.evaluate(() => window.__dbgShops()))[0];
+  await page.evaluate(
+    (x, z, f) => window.__dbgTp(x + Math.sin(f) * 2.6, z + Math.cos(f) * 2.6),
+    den.x, den.z, den.facing,
+  );
+  await wait(1200);
+  // A real click first, so the page is holding the pointer lock the den is
+  // about to hand back — which is the state a player is always in.
+  await page.mouse.click(400, 400);
+  await wait(250);
+
+  await page.keyboard.press('KeyE');
+  await wait(500);
+  const openedByE = await shopOpen();
+  await page.keyboard.press('Escape');
+  await wait(500);
+  const closedByEscape = !(await shopOpen());
+  const menuAfterEscape = await menuOpen();
+  await shut();
+
+  // THE CONTROL: with nothing open, Escape is the menu key and must work.
+  await page.keyboard.press('Escape');
+  await wait(400);
+  const menuFromBareEscape = await menuOpen();
+  await shut();
+
+  results.den = {
+    at: { x: den.x, z: den.z },
+    openedByE,
+    closedByEscape,
+    menuAfterEscape,
+    menuFromBareEscape,
+  };
+  check(openedByE, 'E did not open the skill den — nothing below this means anything');
+  check(closedByEscape, 'Escape did not close the skill den');
+  check(menuAfterEscape === false,
+    'Escape closed the skill den AND opened the in-game menu — the shop must not '
+    + 'have a keyboard path of its own, or the slice sees no modal and opens the menu');
+  check(menuFromBareEscape === true,
+    'Escape with nothing open did not open the menu — the assertion above is '
+    + 'passing because the key is dead, not because it is handled once');
+}
+
 console.log(JSON.stringify({ ...results, fails }, null, 2));
 await browser.close();
 if (fails.length) {

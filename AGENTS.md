@@ -1657,6 +1657,27 @@ is ever one click from anything, and `DESTRUCTIVE` (ui/inventory.ts) is the one
 set that keeps salvage and drop out of the primary, out of the right-click and
 out of every drag target at once.
 
+**ESCAPE HAS ONE READER, AND IT IS THE HOST'S SLICE.** A keyboard's Escape, the
+pad's B and Start, and the touch overlay's MENU button all arrive as one code in
+main.ts's cancel branch, which closes the TOPMOST thing — so a panel that also
+listens for the key on its own gets one press handled twice. ui/pause.ts's
+`onKeyDown` says this and deliberately omits Escape; ui/inventory.ts does the
+same. THE SHOP DID NOT: it added a `document` keydown listener while it was
+open, which closed the den SYNCHRONOUSLY, and by the time the slice read the
+same press there was no modal left — so the slice took its other branch and the
+in-game menu came up behind the closing shop. One key, two panels. The listener
+is gone; the X and the scrim stay, because those are clicks.
+
+**AND EVERY DELIBERATE RELEASE GOES THROUGH `Input.releaseLock`, NEVER STRAIGHT
+TO THE DOM.** `tryOpenShop` called `document.exitPointerLock()`, which skips the
+one thing that call is for: `releaseLock` clears the INTENT first, and that
+intent is the whole of how `onLockLost` tells "the browser took the pointer
+because the player pressed Escape" from "we gave it up on purpose". Released
+raw, the lock vanished while `lockWanted` still stood, `onLockLost` tapped a
+virtual Escape, and the next slice closed the shop that had just opened —
+measured, on a machine actually holding a lock the den never stayed open at all.
+Anything that hands the pointer back owes this call rather than the DOM's.
+
 **AND NOTHING MAY TAKE THE POINTER BACK INSIDE AN ESCAPE — the inventory was
 the third caller to learn this.** `InvCloseBy` says HOW the panel was dismissed
 (`escape` / `hotkey` / `click`) and the host re-takes the lock for the last two
