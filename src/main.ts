@@ -1476,12 +1476,22 @@ const inventory = new InventoryPanel({
   // this is a panel you CLICK, so the cursor has to be able to reach it. The F1
   // sheet is the other case — read, not clicked — and keeps its lock.
   onOpen: () => input.releaseLock(),
-  onClose: () => {
+  // TAKING THE POINTER BACK IS SAFE AFTER A CLICK OR AFTER `I`, AND IS NOT
+  // AFTER ESCAPE — the pause menu's rule, and this panel needed it too. An
+  // earlier version of this comment claimed the rule did not apply because the
+  // panel is usually closed with `I`; it is closed with Escape just as often,
+  // and that is the key the browser is spending. Where there is no keyboard
+  // lock (Brave nulls `navigator.keyboard`) that same press is also leaving
+  // fullscreen, which drops the pointer lock ~8 ms later — so a lock re-taken
+  // here is one the browser knocks straight back out, and `Input.onLockLost`
+  // reads the loss as a fresh Escape. The symptom is exactly what was reported:
+  // one press closed the inventory and opened the in-game menu behind it.
+  //
+  // Nothing needs to be taken back after an Escape anyway: the next click does
+  // it, as it always has. See `InvCloseBy`.
+  onClose: (by) => {
     if (isTouchPrimary()) return;
-    // The `escapeIsLocked()` half of the pause menu's rule does not apply here:
-    // this panel is closed with `I` as often as with Escape, and `I` is never a
-    // key the browser is spending on something of its own.
-    input.requestLock();
+    if (by !== 'escape' || escapeIsLocked()) input.requestLock();
   },
 });
 

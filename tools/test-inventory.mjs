@@ -612,6 +612,77 @@ if (!boot) {
   check(results.weapons.bareShots === 0, 'bare hands fired an arrow');
 }
 
+// ---------- 10. Escape closes the inventory and NOTHING ELSE ----------
+// THE REPORTED BUG, and it is not double-handling of the key — the cancel
+// branch in main.ts already routes one press to one panel. It is the POINTER
+// LOCK, and it is the same 8 ms hazard ui/pause.ts documents at length:
+//
+//   Escape (no keyboard lock) -> the panel closes -> its onClose re-takes the
+//   lock -> the browser's own fullscreen exit, from that SAME key, drops the
+//   lock a few milliseconds later -> Input.onLockLost reads a lock that was
+//   TAKEN and taps a virtual Escape -> the next frame has no modal up, so the
+//   in-game menu opens.
+//
+// The lock going away is driven from the page here (`document.exitPointerLock`)
+// because that is precisely what the browser does to it, and because CDP cannot
+// make a synthetic Escape release a real lock. Arm 1b of tools/test-pause.mjs
+// drives the same edge the same way.
+//
+// A PAIR, and the second half is what stops this passing against a build with
+// `onLockLost` deleted: a lock taken while NOTHING is open must still raise the
+// menu, because that is the feature the hook exists for.
+{
+  const menuOpen = () => page.evaluate(() => !!document.querySelector('.bs-pause'));
+  const closeAll = async () => {
+    await page.evaluate(() => {
+      document.querySelector('.bs-pause [data-act="continue"]')?.click();
+    });
+    if ((await inv()).open) await page.keyboard.press('KeyI');
+    await wait(350);
+  };
+
+  await closeAll();
+  // A real click, so the page is actually holding a lock to lose.
+  await page.mouse.click(300, 400);
+  await wait(250);
+
+  await page.keyboard.press('KeyI');
+  await wait(350);
+  const opened = (await inv()).open;
+  await page.keyboard.press('Escape');
+  await wait(250);
+  const closed = !(await inv()).open;
+  // ...and now the browser takes the pointer back, on the same key.
+  await page.evaluate(() => document.exitPointerLock());
+  await wait(400);
+  const menuAfterEscape = await menuOpen();
+
+  await closeAll();
+  // THE CONTROL: nothing open, the lock is taken, the menu must appear.
+  await page.mouse.click(300, 400);
+  await wait(250);
+  await page.evaluate(() => document.exitPointerLock());
+  await wait(400);
+  const menuFromBareLoss = await menuOpen();
+  await closeAll();
+
+  results.escape = {
+    openedByI: opened,
+    closedByEscape: closed,
+    menuAfterEscape,
+    menuFromBareLoss,
+  };
+  check(opened, 'I did not open the panel for section 10');
+  check(closed, 'Escape did not close the inventory');
+  check(menuAfterEscape === false,
+    'Escape closed the inventory AND opened the in-game menu — the panel must '
+    + 'spend that press, and its onClose must not re-take a lock the browser is '
+    + 'about to knock out');
+  check(menuFromBareLoss === true,
+    'a pointer lock taken with nothing open did not raise the menu — the '
+    + 'assertion above is passing because the hook is dead, not because it is fixed');
+}
+
 console.log(JSON.stringify({ ...results, fails }, null, 2));
 await browser.close();
 if (fails.length) {

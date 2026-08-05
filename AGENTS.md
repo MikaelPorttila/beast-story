@@ -1657,6 +1657,23 @@ is ever one click from anything, and `DESTRUCTIVE` (ui/inventory.ts) is the one
 set that keeps salvage and drop out of the primary, out of the right-click and
 out of every drag target at once.
 
+**AND NOTHING MAY TAKE THE POINTER BACK INSIDE AN ESCAPE — the inventory was
+the third caller to learn this.** `InvCloseBy` says HOW the panel was dismissed
+(`escape` / `hotkey` / `click`) and the host re-takes the lock for the last two
+and, after Escape, only when `escapeIsLocked()`. The panel shipped with an
+unconditional `requestLock()` under a comment arguing the rule did not apply
+because it is "closed with `I` as often as with Escape" — it is closed with
+Escape just as often, and that is the key the browser is spending. Where there
+is no keyboard lock the same press is also leaving fullscreen, which drops the
+pointer lock ~8 ms later, and `Input.onLockLost` reads the loss as a fresh
+Escape: one press closed the inventory and opened the in-game menu behind it.
+That is the SAME defect `PauseMenu.onClose` and `updateCursorMode` were both
+fixed for, so a new panel that releases the pointer on the way in owes this
+question on the way out. Section 10 of `tools/test-inventory.mjs` is the guard,
+and it is a PAIR: the menu must not appear after Escape, and a lock taken with
+NOTHING open must still raise it — without the second half the first passes
+against a build where the hook is simply dead.
+
 **NOTHING IS EXPLAINED IN A SENTENCE.** There was a line along the bottom
 reading "I or Esc to close" and another reading "Right-click to Equip", and both
 are gone: a control that is BOUND to something wears its key or its button as a

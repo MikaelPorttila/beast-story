@@ -53,6 +53,25 @@ import { InventoryStage } from './inventory-stage';
  * why it is the right place for a description and the wrong place for a button.
  */
 
+/**
+ * HOW THE PANEL WAS DISMISSED, and it is on the contract for one reason: taking
+ * the pointer lock back is safe after some of these and not after others.
+ *
+ * `escape` is the dangerous one. In a browser with no keyboard lock — Brave
+ * nulls `navigator.keyboard`; see ui/fullscreen.ts — that key is the BROWSER'S,
+ * and it is at that moment also leaving fullscreen, which drops the pointer
+ * lock about 8 ms later. A host that re-takes the lock on the way out hands the
+ * browser something to knock straight back out, and `Input.onLockLost` reads
+ * that as the player pressing Escape again: the inventory closed and the
+ * in-game menu opened behind it, on one press. `hotkey` (`I`) and `click` are
+ * safe, because the browser is not spending either.
+ *
+ * This is the same contract `PauseMenu.onClose` carries and for the same
+ * reason; it is three values rather than that one's two because this panel has
+ * a key of its own that is not Escape.
+ */
+export type InvCloseBy = 'escape' | 'hotkey' | 'click';
+
 /** What a button, a right-click or a drop asks the host to do. */
 export type InvAction =
   | 'equip' | 'unequip' | 'use' | 'salvage' | 'drop' | 'forge'
@@ -138,7 +157,8 @@ export interface InventoryHooks {
   /** An action was asked for. The host mutates state; the panel re-reads. */
   onAction: (id: string, action: InvAction) => void;
   onOpen?: () => void;
-  onClose?: () => void;
+  /** See `InvCloseBy` — the host needs to know HOW, not just that. */
+  onClose?: (by: InvCloseBy) => void;
 }
 
 const TABS: readonly { id: ItemKind | null; key: string }[] = [
@@ -254,7 +274,7 @@ export class InventoryPanel {
     this.hooks.onOpen?.();
   }
 
-  close(): void {
+  close(by: InvCloseBy = 'click'): void {
     if (!this.el) return;
     if (this.padRaf) cancelAnimationFrame(this.padRaf);
     this.padRaf = 0;
@@ -270,11 +290,12 @@ export class InventoryPanel {
     this.el = null;
     this.tip = null;
     this.focusables = [];
-    this.hooks.onClose?.();
+    this.hooks.onClose?.(by);
   }
 
+  /** The host's `I` (and the pad's View/Create, which taps the same code). */
   toggle(): void {
-    if (this.el) this.close();
+    if (this.el) this.close('hotkey');
     else this.open();
   }
 
@@ -309,10 +330,14 @@ export class InventoryPanel {
     if (this.el) this.render();
   }
 
-  /** The host saw a cancel. Returns whether this panel spent it. */
+  /**
+   * The host saw a cancel. Returns whether this panel SPENT it — which the host
+   * uses to decide there is nothing left for that press to do, so one Escape
+   * closes one thing.
+   */
   onEscape(): boolean {
     if (!this.el) return false;
-    this.close();
+    this.close('escape');
     return true;
   }
 
@@ -586,11 +611,11 @@ export class InventoryPanel {
     if (!target || !this.el) return;
     // The scrim IS a way out, unlike the pause menu's: the world behind it is
     // still the thing you came for. Same argument the shop makes.
-    if (target.classList.contains('bs-scrim')) { this.close(); return; }
+    if (target.classList.contains('bs-scrim')) { this.close('click'); return; }
     const btn = target.closest('button') as HTMLButtonElement | null;
     if (!btn) return;
 
-    if (btn.dataset.act === 'close') { this.close(); return; }
+    if (btn.dataset.act === 'close') { this.close('click'); return; }
 
     const tab = btn.dataset.tab;
     if (tab !== undefined) { this.showTab(tab === 'all' ? null : tab as ItemKind); return; }
