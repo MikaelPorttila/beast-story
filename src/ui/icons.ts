@@ -71,3 +71,16 @@ export const CHECK_ICON = svg(
 export const CLOSE_ICON = svg(
   `<path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/>`,
 );
+
+/**
+ * The RIGHT mouse button, as a small glyph for a control bound to it.
+ *
+ * A body outline with the right half filled, which is the one drawing of a
+ * mouse that says WHICH button without a caption — the inventory prints it
+ * beside an action instead of the sentence "right-click to equip".
+ */
+export const RMB_ICON = svg(
+  `<rect x="6.5" y="2.5" width="11" height="19" rx="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/>` +
+  `<path fill="currentColor" d="M12.6 3.4h.9a4 4 0 0 1 4 4v3.4h-4.9Z"/>` +
+  `<path fill="none" stroke="currentColor" stroke-width="1.4" d="M12 3.2v7.6"/>`,
+);

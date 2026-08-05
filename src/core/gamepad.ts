@@ -35,7 +35,7 @@ export type PadGlyphs = 'xbox' | 'playstation';
 export type PadAction =
   | 'move' | 'look' | 'jump' | 'attack' | 'interact' | 'mount' | 'dismount'
   | 'swap' | 'altUp' | 'altDown' | 'cyclePrimary' | 'cycleSupport'
-  | 'sprint' | 'menu' | 'zoom'
+  | 'sprint' | 'menu' | 'inventory' | 'zoom'
   | 'skill1' | 'skill2' | 'skill3' | 'skill4';
 
 /**
@@ -52,19 +52,26 @@ export const PAD_GLYPHS: Readonly<Record<PadGlyphs, Readonly<Record<PadAction, s
     move: 'L', look: 'R', jump: 'A', attack: 'RT', interact: 'X',
     mount: 'Y', dismount: 'Y', swap: 'L3', altUp: 'A', altDown: 'B',
     cyclePrimary: 'RB', cycleSupport: 'LB', sprint: 'LT', menu: 'Start',
-    zoom: 'R3', skill1: '↑', skill2: '→', skill3: '↓', skill4: '←',
+    inventory: 'View', zoom: 'R3', skill1: '↑', skill2: '→', skill3: '↓', skill4: '←',
   },
   playstation: {
     move: 'L', look: 'R', jump: '✕', attack: 'R2', interact: '□',
     mount: '△', dismount: '△', swap: 'L3', altUp: '✕', altDown: '○',
     cyclePrimary: 'R1', cycleSupport: 'L1', sprint: 'L2', menu: 'Options',
-    zoom: 'R3', skill1: '↑', skill2: '→', skill3: '↓', skill4: '←',
+    inventory: 'Create', zoom: 'R3', skill1: '↑', skill2: '→', skill3: '↓', skill4: '←',
   },
 };
 
 // ---- W3C "standard" mapping indices ---------------------------------------
 const B_A = 0, B_B = 1, B_X = 2, B_Y = 3;
 const B_LB = 4, B_RB = 5, B_LT = 6, B_RT = 7;
+/**
+ * 8 is the pad's OTHER middle button — View on an Xbox pad, Create/Share on a
+ * PlayStation one — and it was the only unclaimed face left. It is also the one
+ * every console game already puts a map or an inventory on, so it is where a
+ * controller player looks first rather than merely where there was room.
+ */
+const B_SELECT = 8;
 const B_START = 9, B_L3 = 10, B_R3 = 11;
 const B_DUP = 12, B_DDOWN = 13, B_DLEFT = 14, B_DRIGHT = 15;
 const BUTTON_COUNT = 17;
@@ -331,6 +338,12 @@ export class GamepadControls {
       this.edge(B_B, () => this.input.tapVirtual('Escape'), held);
       this.edge(B_START, () => this.input.tapVirtual('Escape'), held);
       this.edge(B_X, () => this.input.tapVirtual('KeyE'), held);
+      // View/Create reaches the game even under a modal, and only this one does:
+      // it is the key that CLOSES the inventory as well as opening it, so a pad
+      // player who opened the panel with it and expected the same button to
+      // shut it would otherwise be stuck with B. main.ts's gate is what stops it
+      // opening a second panel under the pause menu.
+      this.edge(B_SELECT, () => this.input.tapVirtual('KeyI'), held);
       this.markPrev(held);
       return;
     }
@@ -377,6 +390,10 @@ export class GamepadControls {
     // ---- tapped buttons ----------------------------------------------------
     this.edge(B_X, () => this.input.tapVirtual('KeyE'), held);
     this.edge(B_START, () => this.input.tapVirtual('Escape'), held);
+    // The inventory, as the same virtual key `I` sends — main.ts reads the code
+    // in one place for both devices, which is the rule Start and the touch
+    // overlay's MENU button already follow for Escape.
+    this.edge(B_SELECT, () => this.input.tapVirtual('KeyI'), held);
     this.edge(B_L3, () => this.input.tapVirtual('Tab'), held);
     this.edge(B_LB, () => this.input.tapVirtual('BracketLeft'), held);
     this.edge(B_RB, () => this.input.tapVirtual('BracketRight'), held);

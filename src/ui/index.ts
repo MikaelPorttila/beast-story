@@ -412,7 +412,6 @@ export class HUD {
   private shopWrap: HTMLDivElement;
   private shopOpen = false;
   private shopOnClose: (() => void) | null = null;
-  private escHandler: (e: KeyboardEvent) => void;
 
   constructor(bus: EventBus) {
     injectStyles();
@@ -556,9 +555,18 @@ export class HUD {
     this.measureCompass();
     window.addEventListener('resize', () => this.measureCompass());
 
-    this.escHandler = (e: KeyboardEvent) => {
-      if (e.code === 'Escape' && this.shopOpen) this.requestShopClose();
-    };
+    // THERE IS NO ESCAPE LISTENER HERE, and its absence is load-bearing. The
+    // shop used to add one on `document` while it was open, and it closed the
+    // panel SYNCHRONOUSLY — so by the time the simulation slice read the same
+    // press there was no modal left, the slice took its other branch, and one
+    // key closed the den and opened the in-game menu behind it. That is the
+    // hazard ui/pause.ts's `onKeyDown` names at length ("one press seen twice,
+    // once by this listener and once by the host's slice"), which is why
+    // neither the pause menu nor the inventory handles Escape in its own
+    // markup either. The host owns that edge for every device: a keyboard's
+    // Escape, the pad's B and Start, and the touch overlay's MENU button all
+    // arrive as one code in main.ts's cancel branch, which closes the topmost
+    // thing. The X and the scrim are still here, because those are clicks.
 
     this.setPlayerHp(100, 100);
 
@@ -1358,7 +1366,6 @@ export class HUD {
     if (!this.shopOpen) {
       this.shopOpen = true;
       this.root.classList.add('shop-open');
-      document.addEventListener('keydown', this.escHandler);
       // let the DOM settle so the open transition plays
       requestAnimationFrame(() => {
         if (this.shopOpen) this.shopWrap.classList.add('open');
@@ -1375,7 +1382,6 @@ export class HUD {
     this.shopBalEl = null;
     this.shopWrap.classList.remove('open');
     this.root.classList.remove('shop-open');
-    document.removeEventListener('keydown', this.escHandler);
   }
 
   isShopOpen(): boolean {

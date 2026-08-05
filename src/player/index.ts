@@ -4,7 +4,8 @@ import type { Input } from '../core/input';
 import { MAX_STEP_UP, type ElementType, type EventBus, type World } from '../core/types';
 import { CarrierRide } from '../world/carriers';
 import { t } from '../i18n';
-import { buildHeroRig, type HeroRig } from './hero-rig';
+import { buildHeroRig, type HeroRig, setWeaponModel } from './hero-rig';
+import type { WeaponModelId } from './weapons';
 import { ThirdPersonCamera } from './camera';
 import { HeroAnimator, type AttackState } from './animations';
 import { DustSystem } from './dust';
@@ -233,6 +234,23 @@ export class Player {
   isDead = false;
   readonly faction = 'player' as const;
   attackStat = 14;
+  /**
+   * What is in his hand, or null for bare hands — and the ONE writer of it is
+   * `applyLoadout` in main.ts, because which weapon is equipped is a fact about
+   * the session that the gear slot owns.
+   *
+   * The rig is the storage (`HeroRig.weapon`), so there is no second field here
+   * that could disagree with the model actually being drawn. Bare hands change
+   * two things and they are not the same thing: the animator plays the punch
+   * table (see PUNCHES in animations.ts), and `attackStat` loses the weapon's
+   * power, which main.ts already handles.
+   */
+  setWeapon(id: WeaponModelId | null): void {
+    setWeaponModel(this.rig, id);
+  }
+
+  /** What is in his hand. Read by the probe and by the mount's aim policy. */
+  get weapon(): WeaponModelId | null { return this.rig.weapon; }
   onGround = false;
   isSwimming = false;
   /** True while hanging on a climbable face; gravity is off and Shift is grip. */
@@ -403,6 +421,24 @@ export class Player {
     // Whatever was under his feet belonged to the zone he is leaving.
     this.onCanopy = false;
     this.velocity.set(0, 0, 0);
+  }
+
+  /**
+   * Put health back, capped at the maximum. Returns how much actually landed,
+   * so a caller that is spending something can tell a full-health drink from a
+   * useful one.
+   *
+   * It does NOT clear `regenHold`, and that is the interesting half: a hit
+   * holds passive regen off for REGEN_DELAY precisely so trickle cannot fight
+   * incoming damage, and a draught taken mid-fight should not hand that back —
+   * the potion is the burst, the trickle stays suspended. A DEAD hero is not
+   * revived either; that is `reset()`'s business and a different feature.
+   */
+  heal(amount: number): number {
+    if (this.isDead || amount <= 0) return 0;
+    const before = this.hp;
+    this.hp = clamp(this.hp + amount, 0, this.maxHp);
+    return this.hp - before;
   }
 
   takeDamage(amount: number, from: THREE.Vector3, element?: ElementType): boolean {
@@ -739,6 +775,7 @@ export class Player {
       deadT: this.deadT,
       landBump: this.landBump,
       hurtT: this.hurtT,
+      unarmed: this.rig.weapon === null,
     });
 
     this.dust.update(dt, this.time);

@@ -27,6 +27,12 @@ export interface AnimInput {
   deadT: number;
   landBump: number;   // 0..1 squash impulse, decays in Player
   hurtT: number;      // countdown after taking a hit
+  /**
+   * Nothing in the hand. Picks the punch table over the sword one — see
+   * `PUNCHES`. It is an INPUT rather than something read off the rig because
+   * the animator is handed a rig and a state and reads nothing else.
+   */
+  unarmed: boolean;
 }
 
 // -- easing ----------------------------------------------------------------
@@ -70,11 +76,41 @@ const SWINGS: Array<[SwingPose, SwingPose]> = [
   ],
 ];
 
+/**
+ * THE SAME THREE BEATS WITH NOTHING IN THE HAND.
+ *
+ * A swing keyframe is a SWORD ARC — a wide sweep with the shoulder rolled over
+ * so the blade leads — and played with an empty fist it reads as a man
+ * flailing. A punch is the opposite shape: the elbow comes back and the arm
+ * goes STRAIGHT out, so the pose that matters is the one with `aRZ` near zero
+ * and the torso turned into it. Three beats, alternating hands, because the
+ * combo counter is shared with the armed path and a two-beat table would leave
+ * the third tap doing nothing.
+ *
+ * `swX`/`swZ` are still written and are still ignored: there is nothing in the
+ * mount to rotate. They are here because `SwingPose` is one shape and a second
+ * one without them would fork `evalSwing`.
+ */
+const PUNCHES: Array<[SwingPose, SwingPose]> = [
+  [ // 1: right jab — chamber at the hip, drive forward
+    { aRX: -0.35, aRY: 0.15, aRZ: 0.12, aLX: -0.9, aLZ: -0.2, tY: 0.34, swX: 2.4, swZ: 0, bRX: -0.03, bY: 0.01 },
+    { aRX: -1.75, aRY: -0.1, aRZ: 0.05, aLX: -0.2, aLZ: -0.35, tY: -0.34, swX: 2.4, swZ: 0, bRX: 0.16, bY: -0.03 },
+  ],
+  [ // 2: left cross — the other fist, so the torso unwinds the other way
+    { aRX: -1.5, aRY: 0, aRZ: 0.08, aLX: -0.35, aLZ: -0.12, tY: -0.3, swX: 2.4, swZ: 0, bRX: 0, bY: 0.01 },
+    { aRX: -0.25, aRY: 0.1, aRZ: 0.22, aLX: -1.8, aLZ: -0.06, tY: 0.4, swX: 2.4, swZ: 0, bRX: 0.18, bY: -0.03 },
+  ],
+  [ // 3: both hands, a shove that finishes the chain
+    { aRX: -0.4, aRY: 0, aRZ: 0.3, aLX: -0.4, aLZ: -0.3, tY: 0, swX: 2.5, swZ: 0, bRX: -0.16, bY: 0.05 },
+    { aRX: -1.9, aRY: 0, aRZ: 0.1, aLX: -1.9, aLZ: -0.1, tY: 0, swX: 2.5, swZ: 0, bRX: 0.3, bY: -0.09 },
+  ],
+];
+
 const _swing: SwingPose = { ...READY };
 
 /** Evaluate the keyframed swing pose at normalized phase p, into _swing. */
-function evalSwing(combo: number, p: number): SwingPose {
-  const [wind, hit] = SWINGS[combo];
+function evalSwing(combo: number, p: number, unarmed: boolean): SwingPose {
+  const [wind, hit] = (unarmed ? PUNCHES : SWINGS)[combo];
   let from: SwingPose, to: SwingPose, t: number;
   if (p < 0.32) {
     from = READY; to = wind; t = easeOutCubic(seg(p, 0, 0.32));
@@ -260,7 +296,7 @@ export class HeroAnimator {
     // ---- melee combo: keyframed, blended over the base pose ----
     if (s.attack.active && !s.dead) {
       const p = clamp01(s.attack.t / s.attack.dur);
-      const k = evalSwing(s.attack.combo, p);
+      const k = evalSwing(s.attack.combo, p, s.unarmed);
       const w = 1 - easeInOut(seg(p, 0.72, 1)); // follow-through fade
       aRX = lerp(aRX, k.aRX, w);
       aRY = lerp(aRY, k.aRY, w);

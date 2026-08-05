@@ -47,7 +47,12 @@ const CSS = `
 }
 .bs-root *{box-sizing:border-box;margin:0;padding:0}
 .bs-root svg{display:block}
-.bs-root kbd{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
+/* .bs-inv is on the selector because the inventory panel is a sibling of the
+   HUD root rather than a child of it (see ui/inventory.ts) and its footer prints
+   the same caps. One rule with two hosts rather than a second copy of the
+   arithmetic below — a keycap that is 16px in one panel and 13.75px in another
+   is exactly the drift issue #17 is about. */
+.bs-root kbd,.bs-inv kbd{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
   border-bottom-width:2px;border-radius:5px;padding:0 6px;font:inherit;font-weight:700;
   /* A cap is a QUIET fraction of the sentence it sits in — .86em — right up
      until the sentence is itself at the floor, at which point the fraction is
@@ -572,6 +577,217 @@ const CSS = `
   text-transform:uppercase;color:rgba(238,242,248,.42)}
 .bs-keys-foot{border-top:1px solid rgba(255,255,255,.1);padding:11px 20px;text-align:center;
   font-size:16px;font-weight:600;color:rgba(238,242,248,.7)}
+
+/* ---- inventory (I) ------------------------------------------------------ */
+/* src/ui/inventory.ts. It wears the HUD's glass rather than the pause menu's
+   wood, because it is a view of things you own in the world rather than of the
+   session — the same line ui/pause.ts's header draws — so it reuses .bs-scrim,
+   .bs-glass, .bs-shop-x, .bs-chip and .bs-buy outright.
+
+   A RIGHT-HAND DOCK, FULL HEIGHT, and the reason is the stage at the top of it.
+   Three figures standing over their own gear slots only reads as a party if
+   there is height to stand in, and a centred box tall and wide enough for that
+   covers the world it is a view of. Docked, half the frame is still the place
+   you are standing in — and the panel gets the one axis it actually needs,
+   since a slot wall grows downward and a description does not exist any more.
+
+   z-index 40, alongside .bs-pause: over the HUD (20) and the touch overlay
+   (30), under the title screen (50).
+
+   MEASURED IN --bs-vh, NOT dvh, for issue #16's reason: on a phone in
+   fullscreen those disagreed by 110 px, and here that lands as a footer below
+   the bottom of the screen. See core/viewport.ts.
+
+   IT SLIDES IN FROM THE EDGE IT IS ATTACHED TO. A dock that fades in place
+   reads as a dialog that happened to be over there; one that comes in from the
+   right reads as a drawer, which is what it is. */
+.bs-inv{position:fixed;inset:0;z-index:40;display:flex;justify-content:flex-end;
+  pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:#eef2f8;user-select:none;-webkit-user-select:none}
+.bs-inv .bs-scrim{opacity:0}
+.bs-inv.open .bs-scrim{opacity:1}
+/* ELEVEN COLUMNS WIDE, which is what sets this number rather than a taste: at
+   a 52px slot and a 9px gap the wall alone is 662px, and the dock is that plus
+   its own padding. It is still a dock and not a full-screen sheet — the world
+   is meant to stay visible beside it — so on anything narrower than about
+   1100px it is simply most of the window, which is the honest outcome. */
+.bs-inv .pane{position:relative;width:min(710px,100vw);height:var(--bs-vh,100dvh);
+  display:flex;flex-direction:column;min-height:0;
+  border-radius:20px 0 0 20px;border-right:none;
+  opacity:0;transform:translateX(26px);
+  transition:opacity .24s ease,transform .3s cubic-bezier(.22,1,.36,1);
+  box-shadow:-24px 0 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1)}
+.bs-inv.open .pane{opacity:1;transform:translateX(0)}
+.bs-inv .head{display:flex;align-items:center;gap:14px;padding:14px 18px 12px;
+  border-bottom:1px solid rgba(255,255,255,.1)}
+.bs-inv .head h2{font-size:22px;font-weight:900;letter-spacing:.04em;flex:1;
+  text-shadow:0 1px 3px rgba(0,0,0,.5)}
+/* The keys that close it, printed beside the X instead of spelled out along the
+   bottom of the panel. .cap is the class every "this control is bound to
+   that" glyph in here wears, so the phone rule can hide all of them at once. */
+.bs-inv .head .cap{display:flex;gap:5px;opacity:.62}
+
+/* THE STAGE. A live WebGL canvas (ui/inventory-stage.ts) showing the hero with
+   his two beasts, each standing over the gear slot that holds it.
+
+   It is given a FIXED share of the panel's height rather than an aspect ratio:
+   the slot wall below it is what has to grow when the window does, and a stage
+   sized off its own width would eat the wall on a tall narrow dock. 210px is
+   two heads and a wingspan at this width; below 620px of viewport height the
+   media query at the bottom of this file takes it down to 150.
+
+   pointer-events:none on the canvas — there is nothing to click on it, and
+   leaving it live meant a drag that crossed it lost the drop. */
+.bs-inv .stage{position:relative;height:230px;flex:none;
+  background:radial-gradient(120% 90% at 50% 12%,rgba(120,170,255,.14),transparent 70%)}
+.bs-inv .stage-gl{position:absolute;inset:0;width:100%;height:100%;
+  display:block;pointer-events:none}
+
+/* THE THREE GEAR SLOTS, in the wireframe's order: lead beast, weapon, support
+   beast — the order the three figures stand in on the stage directly above.
+   Equal thirds, so the middle one lines up with the hero. */
+.bs-inv .gear{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+  padding:0 18px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
+.bs-inv .gs{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:7px 6px 6px;border-radius:14px;font-family:inherit;color:inherit;
+  border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);
+  transition:transform .14s ease,border-color .18s ease,box-shadow .2s ease}
+.bs-inv .gs.full{cursor:grab;border-color:var(--el);box-shadow:0 0 20px -10px var(--el)}
+.bs-inv .gs.full:hover{transform:translateY(-2px);box-shadow:0 0 22px -6px var(--el)}
+.bs-inv .gs.full:active{cursor:grabbing}
+.bs-inv .gs:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
+.bs-inv .gs.r-rare{border-color:rgba(105,217,255,.5)}
+.bs-inv .gs.r-legendary{border-color:rgba(255,190,80,.62)}
+.bs-inv .gs-ic{width:52px;height:52px;display:block}
+/* The slot's ROLE only — see the note in gearHtml. There is no element for the
+   item's NAME here on purpose, which is also what keeps the three slots the
+   same width whatever is standing in them. */
+.bs-inv .gs-l{font-size:16px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  color:rgba(238,242,248,.42);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:100%}
+/* A legal drop target, while something is being dragged over it. */
+.bs-inv .drop-ok{border-color:#8fe06b;box-shadow:0 0 0 2px rgba(143,224,107,.35) inset,
+  0 0 22px -6px rgba(143,224,107,.9)}
+
+.bs-inv .tabs{display:flex;gap:6px;flex-wrap:wrap;padding:11px 18px 0}
+.bs-inv .chip{padding:5px 12px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.05);color:rgba(238,242,248,.72);font-family:inherit;
+  font-size:16px;font-weight:700;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.bs-inv .chip:hover{background:rgba(255,255,255,.12);color:#fff}
+.bs-inv .chip.on{background:rgba(105,217,255,.16);border-color:rgba(105,217,255,.5);color:#dff5ff}
+
+/* THE WALL. INV_COLS in ui/inventory.ts is the same 5 the keyboard's up/down
+   steps by, handed here through --cols; auto-fill would let the two disagree
+   about what "the row below" means, and a media query that narrowed one without
+   the other would leave arrow-down skipping slots with nothing failing.
+   minmax(0,1fr) and not 1fr — a grid item's automatic minimum size is its
+   CONTENT, so a plain 1fr refuses to shrink and the wall overflows its column.
+   THE WALL SCROLLS AND THE PANEL DOES NOT: it is the one part with no natural
+   length, and a panel that scrolled as a whole would move the footer's Salvage
+   button every time the player picked up a flower. */
+.bs-inv .grid{display:grid;grid-template-columns:repeat(var(--cols,5),minmax(0,1fr));
+  gap:9px;align-content:start;overflow-y:auto;min-height:0;min-width:0;flex:1;
+  padding:12px 18px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
+.bs-inv .slot{position:relative;aspect-ratio:1;border-radius:13px;cursor:grab;
+  display:grid;place-items:center;padding:5px;font-family:inherit;color:inherit;
+  border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);
+  transition:transform .14s ease,border-color .18s ease,box-shadow .2s ease}
+.bs-inv .slot:hover{transform:translateY(-2px);border-color:var(--el);
+  box-shadow:0 8px 20px rgba(0,0,0,.35),0 0 16px -6px var(--el)}
+.bs-inv .slot:active{cursor:grabbing}
+/* The selection ring is an OUTLINE rather than a border so it cannot change the
+   slot's box and reflow the wall as the cursor walks it. */
+/* AN EMPTY CELL IS A REAL CELL — see INV_COLS in ui/inventory.ts. Quieter than
+   a filled one and not a focus stop, so a keyboard walks the things you own
+   rather than the holes between them; pointer-events:none keeps it out of the
+   drag machinery for the same reason. */
+.bs-inv .slot.empty{background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.09);
+  cursor:default;pointer-events:none}
+.bs-inv .slot.sel{outline:2px solid #69d9ff;outline-offset:-2px;background:rgba(105,217,255,.1)}
+.bs-inv .slot:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
+/* Rarity is the slot's EDGE, not its fill: a legendary item still has to read
+   as the same kind of box as the one beside it. */
+.bs-inv .slot.r-rare{border-color:rgba(105,217,255,.45)}
+.bs-inv .slot.r-legendary{border-color:rgba(255,190,80,.6);
+  box-shadow:inset 0 0 22px -10px rgba(255,190,80,.9)}
+/* Equipped: a corner dot, which survives every rarity border above it because
+   it is a separate corner. */
+.bs-inv .slot.on::after{content:'';position:absolute;top:5px;right:5px;width:8px;height:8px;
+  border-radius:50%;background:#8fe06b;box-shadow:0 0 8px rgba(143,224,107,.9)}
+/* Every picture in the panel is one element with a background: an atlas tile
+   (weapon-icons.ts), a baked 3D portrait (inventory-stage.ts), or the lozenge
+   below when there is neither. */
+.bs-inv .ic{width:100%;height:100%;display:block;background-repeat:no-repeat;
+  background-position:center;background-size:contain}
+.bs-inv .ic.blob{background-image:none;
+  background:radial-gradient(circle at 38% 32%,#fff2,transparent 60%),var(--el);
+  border-radius:26% 26% 30% 30%/30%;box-shadow:0 0 14px -4px var(--el);
+  width:62%;height:62%;margin:auto}
+.bs-inv .slot .n{position:absolute;top:4px;left:7px;font-size:16px;font-weight:800;
+  font-variant-numeric:tabular-nums;color:#fff;text-shadow:0 1px 3px #000,0 0 6px #000}
+/* Everything else fades while a drag is in flight, so the legal targets are the
+   only lit things on the panel. */
+.bs-inv.dragging .slot,.bs-inv.dragging .gs{opacity:.55}
+.bs-inv.dragging .drop-ok{opacity:1}
+
+/* THE FOOTER STRIP: what is selected, and the two things that destroy it. The
+   constructive action is a right-click and is only NAMED here — see the header
+   of ui/inventory.ts for why nothing destructive is one click from anything. */
+.bs-inv .sel{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:26px;
+  padding:10px 18px;border-top:1px solid rgba(255,255,255,.1)}
+.bs-inv .sel .nm{font-size:17px;font-weight:800;flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bs-inv .sel .bs-buy{flex:none;display:inline-flex;align-items:center;gap:7px;
+  padding:5px 12px 6px;font-size:16px}
+/* The BINDING, as a picture on the button it belongs to. See footHtml: an
+   action with no bound control simply has no icon, which is the rule working. */
+.bs-inv .sel .cap{display:block;width:17px;height:17px;opacity:.85}
+.bs-inv .sel .cap svg{width:100%;height:100%}
+/* The primary action, shown as a button only where there is no pointer to
+   right-click with — see footHtml. Quieter than the danger pair beside it. */
+.bs-inv .sel .bs-buy.ghost{background:rgba(255,255,255,.1);color:#eef2f8;
+  border:1px solid rgba(255,255,255,.18);box-shadow:none}
+.bs-inv .sel .bs-buy.ghost:hover{background:rgba(255,255,255,.18)}
+.bs-inv .sel .bs-buy.danger{background:rgba(255,90,80,.12);color:#ff9d95;
+  border:1px solid rgba(255,90,80,.34);box-shadow:none}
+.bs-inv .sel .bs-buy.danger:hover{background:rgba(255,90,80,.24);color:#fff}
+
+/* THE TOOLTIP. Positioned by transform against the VIEWPORT rather than by
+   top/left inside the panel, because it has to be able to leave the panel: the
+   dock is against the right edge, so a tooltip beside a slot is nearly always
+   to the LEFT of it and over the world. See moveTip for the clamping. */
+.bs-inv .tip{position:fixed;top:0;left:0;z-index:1;max-width:290px;
+  padding:11px 13px 12px;border-radius:13px;pointer-events:none;
+  background:linear-gradient(165deg,rgba(24,31,45,.97),rgba(12,16,25,.98));
+  border:1px solid rgba(255,255,255,.16);
+  box-shadow:0 18px 44px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  opacity:0;transition:opacity .12s ease}
+.bs-inv .tip.on{opacity:1}
+.bs-inv .tip h3{font-size:18px;font-weight:800;line-height:1.2;color:#fff}
+.bs-inv .tip .rar{display:inline-block;margin-top:2px;font-size:16px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;color:rgba(238,242,248,.55)}
+.bs-inv .tip .rar.r-rare{color:#7fd8ff}
+.bs-inv .tip .rar.r-legendary{color:#ffc44d;text-shadow:0 0 12px rgba(255,196,77,.5)}
+.bs-inv .tip p{font-size:16px;line-height:1.4;color:rgba(238,242,248,.78);margin:7px 0 8px}
+.bs-inv .tip .note{font-size:16px;color:rgba(238,242,248,.5);font-style:italic;margin:7px 0 0}
+.bs-inv .tip .bs-chips{margin-bottom:0}
+@media (prefers-reduced-motion:reduce){
+  .bs-inv .bs-scrim,.bs-inv .pane,.bs-inv .slot,.bs-inv .tip{transition:none}
+}
+/* A SHORT WINDOW pays for the wall out of the stage rather than out of the type
+   (issue #17's rule for this whole stylesheet). At 620px the stage still holds
+   three whole figures; below 520 it goes entirely, because two rows of slots
+   and a footer is what the panel is FOR and a 90px stage is a smear. */
+@media (max-height:620px){
+  .bs-inv .stage{height:150px}
+  .bs-inv .gs-ic{width:36px;height:36px}
+}
+@media (max-height:520px){
+  .bs-inv .stage{display:none}
+}
+
 
 /* ---- in-game menu (Escape / Start / the touch overlay's MENU) ------------ */
 /* src/ui/pause.ts. It borrows the TITLE SCREEN's controls rather than the HUD's
@@ -1397,6 +1613,32 @@ const CSS = `
   .bs-keyrow{grid-template-columns:minmax(0,1fr) 98px 90px 62px;font-size:16px;padding:4px 6px}
   .bs-keyrow.head .nm{font-size:16px}
   .bs-keyrow .nm em{display:none}
+  /* INVENTORY ON A PHONE. The dock becomes the WHOLE screen — at 393 CSS px a
+     430px drawer with the world showing beside it is neither, and there is no
+     world left to look at anyway. Same five columns and the same 16px type;
+     what is cut is everything that is not a word, which is this block's rule.
+     The tooltip is left in the stylesheet but never opens: a finger has no
+     hover, and tapping a slot is what the footer strip answers. */
+  .bs-inv .pane{width:100vw;border-radius:0}
+  /* EVERY "bound to this control" glyph goes. There is no keyboard to press Esc
+     on and no right button to click, so the icons would be instructions for
+     hardware that is not there — which is worse than no instructions. The
+     buttons themselves stay; see footHtml. */
+  .bs-inv .cap{display:none}
+  .bs-inv .head{padding:12px 14px 10px}
+  .bs-inv .gear{padding:0 14px 10px;gap:7px}
+  .bs-inv .gs{padding:6px 5px 5px}
+  .bs-inv .gs-ic{width:38px;height:38px}
+  .bs-inv .tabs{padding:9px 14px 0;gap:5px}
+  .bs-inv .chip{padding:4px 10px 5px}
+  /* Eleven columns at 393 CSS px is a 30px slot, which is small but is still
+     the SAME grid — a phone that reflowed to five columns would have the
+     keyboard's row step wrong (INV_COLS) and, worse, would move everything the
+     player had learned the position of. The gap and the padding pay for it. */
+  .bs-inv .grid{gap:4px;padding:9px 10px}
+  .bs-inv .slot{border-radius:7px;padding:2px}
+  .bs-inv .slot .n{top:1px;left:3px}
+  .bs-inv .sel{padding:9px 14px}
   /* Toasts: one at a time (see HUD.addToast), clear of the control clusters,
      and clamped to two short lines so a long instruction string can never grow
      into a screen-eating panel. */

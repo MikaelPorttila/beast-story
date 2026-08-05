@@ -200,7 +200,8 @@ once frames come quickly.
   `test-keybinds.mjs`, `test-viewport.mjs`, `test-pause.mjs`, `test-npc.mjs`,
   `test-dive.mjs`, `test-gfx.mjs`, `test-cursor.mjs`, `test-shadowcache.mjs`,
   `test-nature.mjs`, `test-music.mjs`, `test-textsize.mjs`, `test-content.mjs`,
-  `test-safezone.mjs`, `test-about.mjs`, `test-carrier.mjs`, `test-companion.mjs`.
+  `test-safezone.mjs`, `test-about.mjs`, `test-carrier.mjs`, `test-companion.mjs`,
+  `test-inventory.mjs`.
   `tools/capture-set.ps1` (PowerShell,
   project root) captures the full critic shot set. The one exception is
   `test-zfight.mjs`, which opens no browser at all — see the note below.
@@ -616,8 +617,10 @@ and effect is generated in code. Vite serves two entries from the same modules.
 The exceptions are 2D chrome the renderer never touches and, since issue #42,
 the MUSIC: `src/ui/menu-bg.webp` / `src/ui/menu-logo.webp`, the title screen's
 painting and wordmark; `src/ui/cursors.webp`, the sixteen-state mouse cursor
-sheet (issue #38); and `src/audio/title.webm` / `src/audio/overworld.webm`, the
-two composed tracks. Everything the RENDERER draws is still generated in code,
+sheet (issue #38); `src/ui/weapons.webp`, the ten weapon and blueprint icons the
+inventory draws (issue #74, repacked by `tools/pack-weapon-icons.mjs` and read
+through `background-position` — nothing is sliced at runtime); and
+`src/audio/title.webm` / `src/audio/overworld.webm`, the two composed tracks. Everything the RENDERER draws is still generated in code,
 which is the line that actually matters — a texture, a model or a font
 file is still a no. They are not a crack in the rule: nothing
 the renderer draws comes from a file, and these are a 2D poster shown before the
@@ -1601,6 +1604,299 @@ assuming which slot the hero climbed onto.
 damage numbers, shard pickups and the wild-enemy population, and executes casts by
 switching on `SkillDef.targeting`. A new skill is usually data — a `SkillDef` in a
 species file — not new code.
+
+**Items and the inventory.** [src/core/items.ts](src/core/items.ts) is the
+catalogue and the bag; [src/ui/inventory.ts](src/ui/inventory.ts) is the screen
+and [src/ui/inventory-stage.ts](src/ui/inventory-stage.ts) the 3D preview at the
+top of it; every RULE about what a player may do to a thing they own is in
+main.ts beside the state it governs. Issue #74. `I` opens it (View/Create on a
+pad, see `B_SELECT` in core/gamepad.ts) and it is a MODAL — the hero is frozen
+while it is up, the F1 sheet's bargain — but it RELEASES POINTER LOCK, the
+shop's, because it is a thing you click, drag in and right-click.
+
+**IT IS A RIGHT-HAND DOCK, FULL HEIGHT, and the reason is the stage.** The top of
+the panel is a live WebGL canvas showing the hero with his two beasts, each
+standing over the gear slot that holds it — lead beast, weapon, support beast,
+left to right — and three figures only read as a PARTY given height to stand in.
+A centred box tall and wide enough for that covers the world it is a view of;
+docked, half the frame is still the place you are standing in, and the panel gets
+the one axis a slot wall actually grows along.
+
+**THE WALL IS ELEVEN ACROSS AND THREE DEEP, and every one of the thirty-three
+cells is drawn whether or not there is anything in it.** That is the difference
+between an inventory and a receipt: a player learns where things are by their
+POSITION, and a grid that reflows every time a stack empties has no positions to
+learn. `INV_COLS` sets the panel's width, is handed to the stylesheet through
+`--cols`, and is what the keyboard's up/down steps by to mean "the row below" —
+a media query that narrowed one without the other would leave arrow-down
+skipping slots on a phone with nothing failing, so the phone shrinks the SLOTS
+and keeps the eleven. Past thirty-three the wall grows a fourth row and scrolls;
+a cap that REFUSED items is a different and crueller feature.
+
+**THE PANEL KNOWS NO GAME RULES.** It is handed an `InventoryModel` — rows with a
+name, an icon, some stats and a LIST OF ACTIONS the host is willing to accept —
+and reports which one was asked for. It does not know that a quest item cannot be
+dropped, that unequipping a sword lowers a stat, or that equipping a beast pushes
+another one sideways. That is the split ui/settings.ts already draws (the panel
+owns the screen, the host owns what a click means) and the same one
+content/types.ts argues for with its factories: adding a RULE is an edit to
+main.ts, adding a KIND OF ACTION is an edit to `InvAction` plus one label, and
+neither is an edit to the layout. What the panel added when it grew gestures is a
+MAPPING, which is a different thing — dropping something on the weapon slot MEANS
+`equip` — and each mapping is gated on the host having already listed that action
+for the row, so a slot refuses a drag exactly where the host would have refused
+the button.
+
+**THREE WAYS TO DO ONE THING, AND A LEFT CLICK IS NOT ONE OF THEM.**
+RIGHT-CLICK — or Enter, or A on a pad — runs the row's PRIMARY action, which is
+the first one that does not destroy it. DRAGGING onto a gear slot says the same
+thing by saying where the item should go, and dragging OFF the panel onto the
+scrim drops it in the world. The footer strip carries salvage and drop as real
+buttons, on whatever is selected. A left click only SELECTS: nothing destructive
+is ever one click from anything, and `DESTRUCTIVE` (ui/inventory.ts) is the one
+set that keeps salvage and drop out of the primary, out of the right-click and
+out of every drag target at once.
+
+**ESCAPE HAS ONE READER, AND IT IS THE HOST'S SLICE.** A keyboard's Escape, the
+pad's B and Start, and the touch overlay's MENU button all arrive as one code in
+main.ts's cancel branch, which closes the TOPMOST thing — so a panel that also
+listens for the key on its own gets one press handled twice. ui/pause.ts's
+`onKeyDown` says this and deliberately omits Escape; ui/inventory.ts does the
+same. THE SHOP DID NOT: it added a `document` keydown listener while it was
+open, which closed the den SYNCHRONOUSLY, and by the time the slice read the
+same press there was no modal left — so the slice took its other branch and the
+in-game menu came up behind the closing shop. One key, two panels. The listener
+is gone; the X and the scrim stay, because those are clicks.
+
+**AND EVERY DELIBERATE RELEASE GOES THROUGH `Input.releaseLock`, NEVER STRAIGHT
+TO THE DOM.** `tryOpenShop` called `document.exitPointerLock()`, which skips the
+one thing that call is for: `releaseLock` clears the INTENT first, and that
+intent is the whole of how `onLockLost` tells "the browser took the pointer
+because the player pressed Escape" from "we gave it up on purpose". Released
+raw, the lock vanished while `lockWanted` still stood, `onLockLost` tapped a
+virtual Escape, and the next slice closed the shop that had just opened —
+measured, on a machine actually holding a lock the den never stayed open at all.
+Anything that hands the pointer back owes this call rather than the DOM's.
+
+**AND NOTHING MAY TAKE THE POINTER BACK INSIDE AN ESCAPE — the inventory was
+the third caller to learn this.** `InvCloseBy` says HOW the panel was dismissed
+(`escape` / `hotkey` / `click`) and the host re-takes the lock for the last two
+and, after Escape, only when `escapeIsLocked()`. The panel shipped with an
+unconditional `requestLock()` under a comment arguing the rule did not apply
+because it is "closed with `I` as often as with Escape" — it is closed with
+Escape just as often, and that is the key the browser is spending. Where there
+is no keyboard lock the same press is also leaving fullscreen, which drops the
+pointer lock ~8 ms later, and `Input.onLockLost` reads the loss as a fresh
+Escape: one press closed the inventory and opened the in-game menu behind it.
+That is the SAME defect `PauseMenu.onClose` and `updateCursorMode` were both
+fixed for, so a new panel that releases the pointer on the way in owes this
+question on the way out. Section 10 of `tools/test-inventory.mjs` is the guard,
+and it is a PAIR: the menu must not appear after Escape, and a lock taken with
+NOTHING open must still raise it — without the second half the first passes
+against a build where the hook is simply dead.
+
+**NOTHING IS EXPLAINED IN A SENTENCE.** There was a line along the bottom
+reading "I or Esc to close" and another reading "Right-click to Equip", and both
+are gone: a control that is BOUND to something wears its key or its button as a
+small glyph beside the action instead. The close X has the two caps printed next
+to it; the primary action is a button with a mouse glyph on it; Salvage and Drop
+have no binding and so carry nothing, which is the rule working rather than an
+omission. Every glyph is class `.cap`, so the phone media query can take all of
+them out at once — there is no keyboard to press Esc on and no right button to
+click, and an icon for hardware that is not there is worse than no icon.
+
+**THE TOOLTIP IS THE DESCRIPTION.** There was a detail pane and it cost a third
+of the panel's width for the one row the cursor happened to be on — on a dock,
+the difference between five columns and three. A tooltip costs nothing until the
+pointer is over something, and the actions the pane used to carry moved to the
+footer, because a tooltip cannot be clicked: that is exactly what makes it the
+right place for a description and the wrong place for a button. It is clamped
+into the window rather than flipped at a breakpoint — the dock is against the
+right edge, so every slot in it is within a tooltip's width of that edge and
+"left of the pointer" is the normal case. A GEAR SLOT PRINTS ITS ROLE AND NOT
+THE NAME of what is in it: the picture already says which beast that is, and the
+name was the only thing in the strip that changed width, so the three slots
+jostled every time the party changed.
+
+**THE STAGE IS A SECOND WebGLRenderer, and that is the decision that file rests
+on.** One renderer draws to one canvas, so putting the cast through the main one
+means rendering the world, rendering the cast, copying and rendering the world
+again — and the world is 67% of the frame. A second context costs its own program
+links, so it is built on FIRST OPEN and kept for the session; closing the panel
+stops the loop and disposes nothing. ITS RIGS ARE ITS OWN, never the roster's: a
+`BeastActor`'s rig is in the world scene with the world's shadow layers and the
+framework's animator driving it, so borrowing one would either move it out of the
+world or fight over its pose every frame. `species.buildRig()` is called again and
+cached per species.
+
+**`setCast` WORKS OUT THE WHOLE CAST BEFORE IT TOUCHES THE SCENE**, and that is
+a bug fix rather than a tidy-up. Filling the two marks one at a time removed the
+previous occupant of each before placing the new one — correct until the two
+beasts SWAP, which is the commonest thing the method is asked to do: slot 0 took
+the support beast's rig, then slot 1 removed "whatever used to be in slot 1",
+the same rig one line later, and one of the two models vanished from the preview
+and stayed gone. It now decides the set, removes only what is no longer wanted
+and places the rest, so the survivor of a swap is never touched. It also refuses
+to put ONE rig at two marks: a `THREE.Object3D` has one parent and one
+transform, and a stage that renders what it is handed must not depend on a
+caller's invariant to avoid drawing a hole. `__dbgInventory().panel.stageCast`
+reports who is in the SCENE rather than who was asked for, because those are
+exactly the two things that disagreed.
+
+**A BEAST SLOT SHOWS THE MODEL, BAKED ONE PER FRAME.** `InventoryStage.iconFor`
+queues a species, renders it alone into a render target, reads the pixels back
+and hands the panel a data URI, which patches the slots showing that species in
+place. ONE PER FRAME rather than ten on the first open, because ten rig builds
+and ten renders in one task is a visible hitch on the frame the panel appears —
+the frame a player is looking hardest at. A slot whose portrait has not arrived
+draws the element-coloured lozenge, so nothing waits for anything. The readback
+is FLIPPED: WebGL's origin is bottom-left and a canvas's is top-left, and a
+portrait written straight in comes out upside down, which looks like a broken
+model rather than a broken blit.
+
+**THE FIGURES LINE UP WITH THE SLOTS BECAUSE THE CAMERA IS FRAMED ON WIDTH.** The
+gear strip is `repeat(3,1fr)`, so its centres are at thirds of the panel; a
+subject at a third of the STAGE's width is therefore drawn over its own slot at
+every window size. Framed on the subjects' height instead — which is what shipped
+first — the figures drift sideways as the dock's aspect changes and it reads as a
+bug in the layout. `BEAST_X` is 0.30 rather than a clean third, and that inset is
+measured: a Galebird's outer wing reaches about 1.0 world units and exactly on the
+third it went past the canvas edge, where the alternative was a stage 25% wider
+and a hero 25% smaller.
+
+**THE GEAR SLOT IS A MODEL, NOT ONLY A NUMBER.**
+[src/player/weapons.ts](src/player/weapons.ts) builds the five weapons the atlas
+draws icons for, and `HeroRig.sword` is the HAND rather than a sword: it is the
+mount `setWeaponModel` swaps what is in. The name is kept because
+player/animations.ts writes `rig.sword.rotation` every frame and renaming it
+would touch every pose for nothing. `ItemDef.model` names which one, as a plain
+STRING — core/ may not import player/, so the rig, the stage and main.ts each
+guard it against `WEAPON_MODEL_IDS` on the way in.
+
+Every builder puts the GRIP at the origin with the business end up +Y and works
+in the same 0.1 m voxel, so one set of swing keyframes drives all five and none
+of them had to move; the only per-weapon numbers are `FIT`'s `scale` and `drop`.
+`yaw` is there for exactly one of them: a bow is a FLAT object and the hand's
+rest pose presents its plane edge-on, which captured as a hero holding a plain
+staff. THE ONE-VOXEL PLANK PROBLEM applies to all of them — the note already on
+the original sword — so every blade has a stepped cross-section and the bow gets
+its depth from being a curve.
+
+**BARE HANDS ARE A REAL LOADOUT.** Unequipping empties the mount, and
+`AnimInput.unarmed` switches the animator to `PUNCHES` — three straight jabs
+rather than three sword arcs, because a swing keyframe played with an empty fist
+reads as a man flailing. It is an INPUT rather than something read off the rig,
+since the animator is handed a rig and a state and reads nothing else.
+
+**THE BOW FIRES AN ARROW, out of the same pool every skill projectile uses.**
+`CombatSystem.arrowStrike` is the ranged twin of `meleeStrike` and takes the
+same three arguments for the same reason: main.ts decides WHICH by reading
+`player.weapon` (off the rig, so it cannot disagree with the model on screen),
+combat does it. The arrow has NO element (a physical hit, like the sword), no
+homing and no target — every other projectile in the game is cast at something
+the game picked, and a bow that curved toward the nearest thing would take the
+aiming away from the player who just aimed. It is built along +Z
+([src/combat/arrow.ts](src/combat/arrow.ts)) because the pool points it with
+`lookAt`, and it neither tumbles nor trails: a spinning arrow reads as a stick
+thrown, and sparks off a wooden shaft read as fire. `__dbgShots()` is the
+census, and its `arrow` flag is the whole assertion — a shot that came out as a
+fireball would be indistinguishable from a working bow in any other reading.
+
+**THREE THINGS ARE DELIBERATELY NOT IN THE BAG, and each for the same reason —
+a second copy would be a second answer.** CURRENCY is one running total owned by
+combat and spent in main.ts; folding it in would make "do I already hold one of
+these?" answer yes for money, which is the fetch rule's whole question. A BEAST is
+a `BeastActor` in the roster carrying its own level and learned skills, so the
+panel DERIVES a `beast:<species>` row from it (`BEAST_ID_PREFIX`) and the two beast
+gear slots write `primaryIdx`/`supportIdx` — the same two numbers Tab and the
+bracket keys already move. The issue asks for exactly that ("these can be swapped
+when running around in the world... that feature is already implemented"), and the
+way to keep a feature working is to not build a second one beside it. And the
+WEAPON slot is one id in main.ts rather than a flag on an item, because it is a
+fact about the session rather than about any sword.
+
+**A KIND EXISTS BECAUSE SOMETHING BEHAVES DIFFERENTLY ON IT.** That was the rule
+when `ItemKind` had two members and it is why it now has seven rather than a
+taxonomy: `weapon` moves `Player.attackStat`, `blueprint` carries a power BUDGET
+instead of a power, `potion` has an `effect` and is consumed, `quest` is the one
+thing the panel must refuse to destroy, `beast` is roster-derived, `stackable` is
+what the fetch rule is written in terms of, `currency` is the purse. `salvage`,
+`rarity`, `icon` and `descriptionKey` are on `ItemDef` on the same terms — the
+panel reads every one of them.
+
+**`applyLoadout()` IS THE ONLY WRITER OF `attackStat`.** Five things change the
+answer (equip, unequip, a draught, that draught expiring, and Exit to title) and a
+derived value edited at five sites is a derived value that is wrong at one of
+them. `BASE_ATTACK` is read off `Player` once at boot rather than written down;
+`Player.reset()` deliberately does not touch the stat — it is not session state
+from the player controller's point of view — so the reset path calls
+`giveStartingKit()`, which re-equips and recomputes.
+
+**A DROP IS A POSITION RULE, NOT A TIMER.** An item dropped from the panel lands
+at the hero's feet, and armed it magnets straight back into the bag it just left.
+`Pickups.spawn(..., armed=false)` makes it ignore the player until they have
+stepped outside `MAGNET_RANGE` once — walk away and it is a real drop, change your
+mind and it is still there to walk back over. A hold-off in SECONDS is the obvious
+alternative and cannot work: short enough to allow a second thought is short
+enough to pick itself up, and long enough to be safe is long enough that changing
+your mind no longer works. `findJob` skips unarmed drops too, or the support beast
+fetches back the thing you just threw away.
+
+**THE SUPPORT BEAST ONLY EVER FETCHES A STACKABLE.** `worthFetching` used to read
+"currency, or anything you already hold", which was the same set when the only
+non-currency items were sunberries. It is not now, and the HUD's chip row is the
+readout for exactly this rule — a chip is up precisely when the beast will fetch
+more of that kind — so weapons and blueprints are off both. Every rare drop is
+therefore something the player walked over themselves, which is also what makes
+the 1-in-25 in `killEnemy` mean something.
+
+**THE FORGE IS NOT BUILT.** Blueprints are collectable, inspectable and carry
+their `maxPower`; the Forge button says what it is waiting for, which is a better
+answer than an item with nothing to do at all. When it lands, "some legendary
+attributes might add a small bloom to the weapon" is the renderer's half of
+`ItemRarity` — the field is already read by the panel's slot edge.
+
+**A QUEST ITEM'S ONLY SOURCE IS CONTENT.** `item.give`
+(`{ "do": "item.give", "item": "gain-token", "count": 1 }`) is registered in
+main.ts above `bootstrapContent` — the cross-asset pass reports an action no
+`defineAction` registered, so a later registration is a handler the validator
+never saw. It is the seam a dialogue turn-in lands on, and no shipped content
+uses it yet. `/give` reaches the same code from the console.
+
+`tools/test-inventory.mjs` is the guard and it exits non-zero. Every claim in it
+is about a number the SCREEN CANNOT SHOW — an icon in the weapon slot looks
+identical whether or not equipping it did anything, so equipping is asserted on
+`attackStat` (14 -> 18 -> 14); a dropped item looks identical to a deleted one, so
+Drop is asserted on the thing being on the ground a second and a half later. Four
+sections are PAIRS for the usual reason: `I` opens it AND the hero travels 0 with
+it up against 6.47 with it down, right-click unequips AND puts it back, salvage
+removes the stack AND pays the blueprint's 3, drop removes the stack AND leaves a
+mote that does not come back. The quest item is the CONTROL — it is asked to drop
+and to salvage through the HANDLER rather than through the panel, because a
+refusal that lives only in which buttons were drawn is a panel bug away from
+deleting someone's quest; the potion dropped on the weapon slot is the same
+control for the drag mapping.
+
+Three things in it are worth knowing before adding a section. `page.hover`, not
+`page.mouse.move` — a bare CDP mouse move does not make the browser synthesise
+the `pointerover` the tooltip listens for, and the version that used one read a
+null tooltip against a panel that worked perfectly in the hand. A DRAG is real
+`DragEvent`s with a real `DataTransfer` dispatched from the page, because CDP
+cannot drive an HTML5 drag; they reach the same listeners a mouse does, which
+read `event.target` and the panel's own `dragging` id and nothing else. And a
+section that presses TAB has to SHUT the panel first: every modal freezes the
+simulation slices Tab is read in, so a Tab pressed with the inventory up looks
+exactly like the failure that section is hunting for. `portraits` is what says
+the stage rendered ten distinct beasts into the wall rather than ten lozenges,
+and `stageCast` is what says the swap did not eat one of them.
+
+TWO MORE THINGS IT LEARNED THE HARD WAY. An arrow lives 1.6 s and the pool is
+shared, so the bow's shot is still in the air when the sword swings a moment
+later — section 8 measures a DELTA, and the version that counted failed against
+a perfectly correct build. And `__dbgInvAction` goes straight to the handler
+rather than through a button, so it owes the panel a `refresh()`: without it a
+probe reads a screen one action behind the state it is asserting on, which is a
+failure in the test and not in the game.
 
 **UI and input.** The HUD is a DOM overlay ([src/ui/index.ts](src/ui/index.ts),
 styles injected by `src/ui/styles.ts`), not canvas-drawn. Class names are `bs-*`

@@ -11,12 +11,16 @@ import { GamepadControls, type LookAxes } from './core/gamepad';
 import { FeedbackSystem } from './feedback';
 import { loadPrefs, savePrefs } from './core/prefs';
 import {
-  EventBus,
+  EventBus, ELEMENT_COLORS,
   type CrownContact, type NpcInfo, type SkillDef, type Damageable,
-  type TownInfo, type World, type WorldBound,
+  type ItemDef, type TownInfo, type World, type WorldBound,
 } from './core/types';
-import { Inventory, itemDef, itemName } from './core/items';
-import { t, onLanguageChange } from './i18n';
+import {
+  Inventory, itemDef, itemName, isKnownItem, isDestructible, salvageValue,
+  ITEMS, CURRENCY, BEAST_ID_PREFIX,
+} from './core/items';
+import { WEAPON_MODEL_IDS, type WeaponModelId } from './player/weapons';
+import { t, onLanguageChange, type StringKey } from './i18n';
 import { perf } from './core/profiler';
 import { flags } from './core/flags';
 import { DevConsole } from './ui/console';
@@ -55,6 +59,10 @@ import {
 } from './ui/index';
 import { StartMenu } from './ui/menu';
 import { PauseMenu } from './ui/pause';
+import {
+  InventoryPanel,
+  type InvAction, type InvEntry, type InvStat, type InventoryModel,
+} from './ui/inventory';
 import {
   exitFullscreen, fullscreenSupported, isFullscreen,
   installEscapeLock, keyboardLockSupported, escapeIsLocked,
@@ -488,6 +496,15 @@ function exitToTitle(): void {
   cooldowns.clear();
   spent = 0;
   bag.clear();
+  inventory.close();
+  // The loadout is session state like everything above it, and `attackStat` is
+  // the one field of it that lives on an object whose own `reset()` deliberately
+  // does not touch it — see BASE_ATTACK. `giveStartingKit` re-equips and calls
+  // `applyLoadout`, so the next game starts on the same numbers the first did.
+  equippedWeapon = null;
+  attackBuff = 0;
+  attackBuffT = 0;
+  giveStartingKit();
   fetchScanT = 0;
   nearShop = false;
   nearNpc = null;
@@ -555,6 +572,34 @@ content.addProvider(new BundledProvider());
 for (const [name, url] of Object.entries(MUSIC_TRACKS)) {
   content.defineFactory(MUSIC_TRACK_KIND, name, url);
 }
+/**
+ * THE SEAM A QUEST TURN-IN LANDS ON: content may put an item in the bag.
+ *
+ * `{ "do": "item.give", "item": "gain-token", "count": 1 }`, in any action list
+ * — a dialogue entry's, a quest's `onComplete`. It is the only way a QUEST item
+ * is reachable in ordinary play, which is deliberate: a quest item that fell off
+ * a gloopling is a quest item nobody designed (see the drop table in
+ * combat/index.ts), so the catalogue holds one and the shipped content hands out
+ * none yet.
+ *
+ * ABOVE `bootstrapContent`, for the reason the factory loop above gives: the
+ * cross-asset pass runs inside it and reports an action no `defineAction`
+ * registered, so a registration after this line is a handler the validator never
+ * saw. It VALIDATES ITS OWN PARAMS AND REPORTS rather than throwing, which is
+ * content/actions.ts's rule for every handler — a malformed action in a package
+ * must be one thing that did not happen, not a dead UI.
+ *
+ * `bag` and `refreshBagChips` are further down the file and are reached through
+ * a hoisted declaration; nothing calls this until content is running, which is
+ * long after both exist.
+ */
+content.defineAction('item.give', (params) => {
+  const id = params.item;
+  if (typeof id !== 'string' || !isKnownItem(id)) return;
+  const raw = params.count;
+  const n = typeof raw === 'number' && Number.isFinite(raw) ? Math.max(1, Math.floor(raw)) : 1;
+  giveItemFromContent(id, n);
+});
 const contentBoot = await bootstrapContent({ engineFlags: [] });
 /** What the phase above cost. Reported by `__dbgContent`; see the note there. */
 const contentBootMs = performance.now() - contentBootStart;
@@ -781,7 +826,24 @@ const hud = new HUD(bus);
 // `Player.reset()` goes through the same method so a second New Game in one
 // session opens on the same shot.
 player.takeStartPose();
-player.onAttack = (origin, dir) => combat.meleeStrike(origin, dir, player.attackStat);
+/**
+ * THE SWING, OR THE SHOT — decided by what is in his hand, here rather than in
+ * `Player`.
+ *
+ * Which weapon is equipped is gear-slot policy and lives in this file with the
+ * rest of it (see `applyLoadout`); the hero controller knows only that he
+ * attacked, and combat knows only how to do each. `player.weapon` is read off
+ * the RIG, so this can never disagree with the model on screen.
+ *
+ * A bow's arrow goes where the swing would have gone: `dir` is the hero's aim,
+ * already resolved by the player controller, and the aim assist above steers it
+ * exactly as it steers a sword — the difference is reach and a projectile,
+ * which is `arrowStrike`'s business.
+ */
+player.onAttack = (origin, dir) => {
+  if (player.weapon === 'bow') combat.arrowStrike(origin, dir, player.attackStat);
+  else combat.meleeStrike(origin, dir, player.attackStat);
+};
 
 /**
  * Melee aim assist: how far off the CROSSHAIR'S BEARING an enemy may sit, as
@@ -977,10 +1039,26 @@ let pickupTotal = 50;
 let spent = 0;
 const shards = () => pickupTotal - spent;
 
-// The bag holds STACKABLES only — currency stays the running total above. Combat
-// reports every drop that leaves the ground; what to do with it is policy, so
-// it is decided here.
+// The bag holds everything with a COUNT — currency stays the running total
+// above and beasts stay in the roster (see core/items.ts for why neither is in
+// here). Combat reports every drop that leaves the ground; what to do with it is
+// policy, so it is decided here.
 const bag = new Inventory();
+
+/**
+ * The HUD's chip row is the STACKABLES only, and it is a narrower thing than the
+ * bag now that the bag holds weapons and blueprints too.
+ *
+ * The row is not a summary of what you own — the inventory panel is that. It is
+ * the readout for the support beast's fetch rule, and the invariant that makes
+ * it worth having is "a chip is up exactly when the beast will fetch more of
+ * that thing" (see `worthFetching`, which only ever runs an errand for a
+ * stackable). Showing a greatsword there would break that and fill the top of
+ * the screen with things the beast is never going to bring you.
+ */
+function refreshBagChips(): void {
+  hud.setBag(bag.entriesOfKind('stackable'));
+}
 
 bus.on((e) => {
   if (e.type === 'shardsChanged') {
@@ -991,7 +1069,7 @@ bus.on((e) => {
     const def = itemDef(e.itemId);
     if (def.kind !== 'currency') {
       const n = bag.add(e.itemId, 1);
-      hud.setBag(bag.entries());
+      refreshBagChips();
       if (e.byBeast) {
         // The fetcher is whichever beast is carrying right now — normally the
         // support beast, but a Tab swap mid-errand must not misattribute it.
@@ -1030,8 +1108,394 @@ let fetchScanT = 0;
 
 function worthFetching(itemId: string): boolean {
   const def = itemDef(itemId);
-  return def.kind === 'currency' || bag.count(itemId) > 0;
+  // STACKABLE, not "anything you already hold". The rule was written when those
+  // were the same set; issue #74 made them different, and a beast that fetched
+  // the blueprint you just dropped — or the second potion out of a pair you are
+  // holding — is running an errand nobody asked for. Every rare drop is now
+  // something the player walked over themselves, which is also what makes the
+  // 1-in-25 in `killEnemy` mean something.
+  return def.kind === 'currency' || (def.kind === 'stackable' && bag.count(itemId) > 0);
 }
+
+// ---------------------------------------------------------------------------
+// INVENTORY, GEAR AND THE THINGS YOU CAN DO TO A THING YOU OWN
+//
+// Issue #74. The PANEL (ui/inventory.ts) knows no game rules at all — it is
+// handed rows with a list of actions and reports which button was pressed — so
+// every rule is here, beside the state it governs. That is the same split
+// ui/settings.ts draws and the same one this file already makes for the shop:
+// the composition root owns policy that is no subsystem's own business.
+//
+// WHAT IS AND IS NOT STORED. The bag holds counts. The WEAPON slot is one id
+// here, because it is a fact about the session rather than about any item. The
+// two BEAST slots are `primaryIdx`/`supportIdx`, which already existed and which
+// Tab and the beast-cycle keys already move — the panel drives those same two
+// numbers rather than keeping a third, so equipping a beast from the panel and
+// swapping with Tab can never disagree. The issue asks for exactly that ("these
+// can be swapped when running around in the world without going into the
+// inventory (that feature is already implemented)"), and the way to keep a
+// feature working is to not build a second one beside it.
+// ---------------------------------------------------------------------------
+
+/**
+ * The hero's own strength, before anything he is holding.
+ *
+ * Read off `Player` rather than written down, so the two cannot drift, and read
+ * ONCE at boot because everything below writes `attackStat`. `Player.reset()`
+ * deliberately does not touch that field — a stat is not session state from the
+ * player controller's point of view — so `applyLoadout()` is what puts it back
+ * on Exit to title.
+ */
+const BASE_ATTACK = player.attackStat;
+
+/** The weapon in the gear slot, by item id, or null for bare hands. */
+let equippedWeapon: string | null = null;
+/** A potion's timed buff: how much attack it is adding, and for how much longer. */
+let attackBuff = 0;
+let attackBuffT = 0;
+
+/**
+ * Recompute everything a loadout decides. ONE function rather than an edit at
+ * each of the five sites that can change the answer (equip, unequip, use, the
+ * buff expiring, and the reset on Exit), because a derived value written in five
+ * places is a derived value that is wrong in one of them.
+ */
+function applyLoadout(): void {
+  const w = equippedWeapon ? itemDef(equippedWeapon) : null;
+  player.attackStat = BASE_ATTACK + (w?.power ?? 0) + attackBuff;
+  // ...and what he is HOLDING, which is the same decision seen from the other
+  // side: `ItemDef.model` names a voxel model in player/weapons.ts, and null is
+  // bare hands, which switches the animator to the punch table. The rig is the
+  // storage, so there is no second field here to fall out of step with it.
+  player.setWeapon(weaponModelOf(w));
+  // The inventory's 3D stage holds its own hero rig and has to be told too. It
+  // may be shut, in which case this is a field it will draw with next time.
+  inventory.setHeroWeapon(w?.model ?? null);
+}
+
+/**
+ * `ItemDef.model` narrowed to the union the rig understands, or null.
+ *
+ * The guard lives on this side because the field is a plain STRING: core/ may
+ * not import player/ (see the note on `ItemDef.model`), so every reader checks
+ * it. There is exactly one reader that matters and this is it.
+ */
+function weaponModelOf(def: ItemDef | null): WeaponModelId | null {
+  const m = def?.model;
+  return m && (WEAPON_MODEL_IDS as readonly string[]).includes(m)
+    ? m as WeaponModelId
+    : null;
+}
+
+/**
+ * What a new game starts with.
+ *
+ * A starting kit rather than an empty bag, and the reason is not generosity: an
+ * inventory whose every screen is empty until a 1-in-25 drop lands is a feature
+ * nobody can see working, and the gear slot in particular has nothing to say
+ * about itself while there is nothing to put in it. One weapon (equipped, so the
+ * slot is filled and the stat it feeds is non-zero), a potion to drink and a
+ * blueprint to look at is the smallest set that shows every kind of row the
+ * panel can draw except the quest one — and that one is deliberately reachable
+ * only through content (`item.give`) or the console.
+ */
+function giveStartingKit(): void {
+  bag.add('sword-iron', 1);
+  bag.add('potion-mend', 2);
+  bag.add('bp-dagger', 1);
+  equippedWeapon = 'sword-iron';
+  applyLoadout();
+  refreshBagChips();
+}
+
+/**
+ * What `item.give` does once the parameters have been checked. A `function`
+ * declaration rather than a const, so the registration three hundred lines above
+ * can name it — see the note there.
+ *
+ * Currency is folded into the pickup total rather than refused, for the reason
+ * `/give` gives: it is not a bag entry, and a handler that silently ignored
+ * `{"item":"shard"}` would be the least useful possible answer.
+ */
+function giveItemFromContent(id: string, n: number): void {
+  const def = itemDef(id);
+  if (def.kind === 'currency') {
+    pickupTotal += n;
+    hud.setShards(shards());
+  } else {
+    bag.add(id, n);
+    refreshBagChips();
+  }
+  bus.emit({ type: 'toast', text: t('toast.gotItem', { item: itemName(def, n) }) });
+  // The panel is a modal so almost nothing can reach here while it is up — but
+  // the dev console can, and so could a piece of content firing on a timer.
+  inventory.refresh();
+}
+
+/** A beast's inventory id. The panel round-trips it; nothing else parses it. */
+const beastItemId = (b: BeastActor): string => BEAST_ID_PREFIX + b.species.id;
+
+/** One display stat pair, so the builders below all read the same way. */
+const invStat = (label: StringKey, value: string | number): InvStat =>
+  ({ label: t(label), value: String(value) });
+
+/**
+ * Build the rows the panel draws, from the bag and the roster.
+ *
+ * DERIVED EVERY TIME rather than kept — this runs on open and after each action,
+ * which is a handful of times a session and never inside a frame — because the
+ * two sources it reads are the truth and a cached view of them is a second
+ * answer that can be stale.
+ */
+function inventoryModel(): InventoryModel {
+  const entries: InvEntry[] = [];
+
+  // Beasts first: they are the rows a player is most likely to have come for,
+  // and this is the same roster order Tab cycles through.
+  for (const b of roster) {
+    const lead = b === primary();
+    const supporting = b === support();
+    entries.push({
+      id: beastItemId(b),
+      kind: 'beast',
+      name: t(b.species.nameKey),
+      count: 1,
+      color: ELEMENT_COLORS[b.species.element],
+      // The SPECIES, not a copy of anything off it. The panel's stage builds a
+      // rig of its own from this and bakes the portrait the slot wears, which
+      // is why a beast row shows the animal rather than a coloured lozenge —
+      // see ui/inventory-stage.ts on why it may not borrow the roster's rig.
+      species: b.species,
+      rarity: 'rare',
+      description: t(b.species.descriptionKey),
+      equipped: lead || supporting,
+      stats: [
+        invStat('inv.stat.level', b.level),
+        {
+          label: t('inv.gear'),
+          value: t(lead ? 'inv.beast.lead' : supporting ? 'inv.beast.support' : 'inv.beast.benched'),
+        },
+      ],
+      // A beast is never dropped or salvaged. Its two actions are the two slots
+      // it can be moved into, and the one it is already in is not offered —
+      // `cycleBeast` refuses to put one beast in both slots, and a button that
+      // silently does nothing is worse than a button that is not there.
+      actions: lead ? ['setSupport'] : supporting ? ['setLead'] : ['setLead', 'setSupport'],
+    });
+  }
+
+  for (const e of bag.entries()) {
+    const d = e.def;
+    const stats: InvStat[] = [];
+    if (d.power !== undefined) stats.push(invStat('inv.stat.power', '+' + d.power));
+    if (d.maxPower !== undefined) stats.push(invStat('inv.stat.budget', d.maxPower));
+    if (d.effect?.heal !== undefined) stats.push(invStat('inv.stat.heal', d.effect.heal));
+    if (d.effect?.attack !== undefined) {
+      stats.push(invStat('inv.stat.attack', '+' + d.effect.attack + ' · ' + (d.effect.seconds ?? 0) + 's'));
+    }
+    const worth = salvageValue(d);
+    if (worth > 0) stats.push(invStat('inv.stat.salvage', worth));
+    if (e.count > 1) stats.push(invStat('inv.stat.held', e.count));
+
+    const actions: InvAction[] = [];
+    const equipped = d.kind === 'weapon' && d.id === equippedWeapon;
+    if (d.kind === 'weapon') actions.push(equipped ? 'unequip' : 'equip');
+    if (d.kind === 'potion') actions.push('use');
+    if (d.kind === 'blueprint') actions.push('forge');
+    // An EQUIPPED weapon offers neither destructive action. Unequip is one click
+    // away, and stating that order is better than a Drop that quietly takes the
+    // sword out of the hero's hand and leaves the gear slot empty behind it.
+    if (worth > 0 && !equipped) actions.push('salvage');
+    if (isDestructible(d) && !equipped) actions.push('drop');
+
+    entries.push({
+      id: d.id,
+      kind: d.kind,
+      name: itemName(d, e.count),
+      count: e.count,
+      color: d.color,
+      icon: d.icon,
+      rarity: d.rarity,
+      description: d.descriptionKey ? t(d.descriptionKey) : undefined,
+      stats,
+      equipped,
+      note: d.kind === 'blueprint' ? t('inv.forge.soon')
+        : d.kind === 'quest' ? t('inv.quest.kept')
+        : undefined,
+      actions,
+    });
+  }
+
+  const byId = (id: string | null): InvEntry | null =>
+    (id === null ? null : entries.find((x) => x.id === id) ?? null);
+
+  return {
+    gear: [
+      { slot: 'weapon', entry: byId(equippedWeapon) },
+      { slot: 'primary', entry: byId(beastItemId(primary())) },
+      { slot: 'support', entry: byId(beastItemId(support())) },
+    ],
+    entries,
+  };
+}
+
+/**
+ * A button on a row. Every rule the panel does not know lives in this switch.
+ *
+ * It moves state and says something about it, and nothing else: the panel calls
+ * `model()` straight afterwards, so there is no view to update from here.
+ */
+function inventoryAction(id: string, action: InvAction): void {
+  if (id.startsWith(BEAST_ID_PREFIX)) {
+    const speciesId = id.slice(BEAST_ID_PREFIX.length);
+    const idx = roster.findIndex((b) => b.species.id === speciesId);
+    if (idx < 0) return;
+    // Straight onto the same two indices Tab moves, through the same
+    // `refreshVisibility` — and the swap-out rule falls out for free: putting a
+    // beast into one slot pushes whoever was there into the other rather than
+    // benching them, which is what a player pressing Tab already expects.
+    if (action === 'setLead') {
+      if (supportIdx === idx) supportIdx = primaryIdx;
+      primaryIdx = idx;
+    } else if (action === 'setSupport') {
+      if (primaryIdx === idx) primaryIdx = supportIdx;
+      supportIdx = idx;
+    } else {
+      return;
+    }
+    refreshVisibility();
+    bus.emit({
+      type: 'toast',
+      text: t('toast.beastLeads', {
+        lead: t(primary().species.nameKey), support: t(support().species.nameKey),
+      }),
+    });
+    return;
+  }
+
+  const def = itemDef(id);
+  if (!isKnownItem(id) || bag.count(id) <= 0) return;
+
+  switch (action) {
+    case 'equip':
+      if (def.kind !== 'weapon') return;
+      equippedWeapon = def.id;
+      applyLoadout();
+      bus.emit({ type: 'toast', text: t('toast.equipped', { item: itemName(def) }) });
+      break;
+
+    case 'unequip':
+      if (equippedWeapon !== def.id) return;
+      equippedWeapon = null;
+      applyLoadout();
+      bus.emit({ type: 'toast', text: t('toast.unequipped', { item: itemName(def) }) });
+      break;
+
+    case 'use': {
+      const fx = def.effect;
+      if (!fx || bag.remove(def.id, 1) !== 1) return;
+      if (fx.heal) player.heal(fx.heal);
+      if (fx.attack) {
+        // A second draught REPLACES the timer rather than stacking onto it. Two
+        // buffs adding up is a balance decision and this is not the ticket that
+        // makes it; refreshing is what a player expects from drinking the same
+        // thing twice, and it cannot compound into a stat nobody has tuned.
+        attackBuff = fx.attack;
+        attackBuffT = fx.seconds ?? 0;
+      }
+      applyLoadout();
+      refreshBagChips();
+      bus.emit({ type: 'toast', text: t('toast.used', { item: itemName(def) }) });
+      break;
+    }
+
+    case 'salvage': {
+      const worth = salvageValue(def);
+      // `remove` reports what actually LEFT, and the payout is off that number
+      // rather than off the request — a stack that was already gone must not be
+      // paid for. The proceeds go through `spent`, negatively: there is ONE
+      // running total for the purse in this file (see `shards`), and adding a
+      // second source of currency beside it is how the two stop agreeing.
+      if (worth <= 0 || bag.remove(def.id, 1) !== 1) return;
+      spent -= worth;
+      hud.setShards(shards());
+      refreshBagChips();
+      bus.emit({
+        type: 'toast',
+        text: t('toast.salvaged', {
+          item: itemName(def), n: worth, currency: itemName(CURRENCY, worth),
+        }),
+      });
+      break;
+    }
+
+    case 'drop': {
+      if (!isDestructible(def) || bag.remove(def.id, 1) !== 1) return;
+      // UNARMED (see Pickups.spawn): it lands at the hero's feet, and armed it
+      // would magnet straight back into the bag it just left.
+      combat.spawnDrop(
+        def.id, player.position.x, player.position.y + 0.6, player.position.z, false,
+      );
+      refreshBagChips();
+      bus.emit({ type: 'toast', text: t('toast.dropped', { item: itemName(def) }) });
+      break;
+    }
+
+    // The forge is issue #74's other half and is not built. The button is here
+    // because a blueprint's own row is where a player will look for it, and the
+    // note under it says what it is waiting for — a better answer than an item
+    // with nothing to do at all.
+    case 'forge':
+      bus.emit({ type: 'toast', text: t('inv.forge.soon') });
+      break;
+
+    default:
+      break;
+  }
+}
+
+/**
+ * Tick the potion buff. Called from a SIMULATION slice, so it runs on the same
+ * clock the hero does and stops while a modal is up — a buff must not be
+ * burning down behind the inventory screen the player drank it on.
+ */
+function updateBuffs(dt: number): void {
+  if (attackBuffT <= 0) return;
+  attackBuffT -= dt;
+  if (attackBuffT > 0) return;
+  attackBuffT = 0;
+  attackBuff = 0;
+  applyLoadout();
+  bus.emit({ type: 'toast', text: t('toast.buffEnded') });
+}
+
+const inventory = new InventoryPanel({
+  model: inventoryModel,
+  onAction: inventoryAction,
+  // Same bargain the shop and the in-game menu make, and for the same reason:
+  // this is a panel you CLICK, so the cursor has to be able to reach it. The F1
+  // sheet is the other case — read, not clicked — and keeps its lock.
+  onOpen: () => input.releaseLock(),
+  // TAKING THE POINTER BACK IS SAFE AFTER A CLICK OR AFTER `I`, AND IS NOT
+  // AFTER ESCAPE — the pause menu's rule, and this panel needed it too. An
+  // earlier version of this comment claimed the rule did not apply because the
+  // panel is usually closed with `I`; it is closed with Escape just as often,
+  // and that is the key the browser is spending. Where there is no keyboard
+  // lock (Brave nulls `navigator.keyboard`) that same press is also leaving
+  // fullscreen, which drops the pointer lock ~8 ms later — so a lock re-taken
+  // here is one the browser knocks straight back out, and `Input.onLockLost`
+  // reads the loss as a fresh Escape. The symptom is exactly what was reported:
+  // one press closed the inventory and opened the in-game menu behind it.
+  //
+  // Nothing needs to be taken back after an Escape anyway: the next click does
+  // it, as it always has. See `InvCloseBy`.
+  onClose: (by) => {
+    if (isTouchPrimary()) return;
+    if (by !== 'escape' || escapeIsLocked()) input.requestLock();
+  },
+});
+
+giveStartingKit();
 
 // ---------------------------------------------------------------------------
 // Casting
@@ -1166,7 +1630,16 @@ function buildOffers(): ShopOffer[] {
 
 function tryOpenShop(): void {
   if (hud.isShopOpen()) return;
-  document.exitPointerLock();
+  // THROUGH `Input`, NEVER STRAIGHT TO THE DOM. This was
+  // `document.exitPointerLock()`, and the difference is not style: `releaseLock`
+  // clears the INTENT first, and that intent is the whole of how
+  // `Input.onLockLost` tells "the player pressed Escape and the browser took the
+  // pointer" from "we gave it up on purpose". Released raw, the lock vanished
+  // while `lockWanted` still stood, `onLockLost` tapped a virtual Escape, and
+  // the very next simulation slice closed the den that had just opened — so on
+  // any machine actually holding a lock, `E` at a skill den opened a shop that
+  // shut itself before the player saw it.
+  input.releaseLock();
   hud.openShop(t('shop.skillDen.title'), buildOffers(), (i) => {
     const offer = buildOffers()[i];
     if (!offer || offer.owned || !offer.affordable) return;
@@ -1926,7 +2399,7 @@ function updateCursorMode(): void {
   const altJustReleased = altWasHeld && !altHeld;
   altWasHeld = altHeld;
   const menuUp = (startMenu?.isOpen ?? false) || pauseMenu.isOpen
-    || hud.isShopOpen() || hud.isControlsOpen();
+    || hud.isShopOpen() || hud.isControlsOpen() || inventory.isOpen;
   // A controller player is not pointing at anything, and a phone has no pointer
   // to draw. `lastSource` is the STAMP, rewritten on every real input — the
   // per-frame question, not the latch. See the HUD note in AGENTS.md.
@@ -2011,6 +2484,36 @@ bound.push(colliderView);
 // `colliders=1` starts them visible, which is how a staged capture can show the
 // cage against the mesh — photo mode has no console to type into.
 if (params.get('colliders') === '1') colliderView.setVisible(true);
+devConsole?.register({
+  name: 'give',
+  args: '<item id> [count]',
+  help: 'Put items in the bag. No arguments lists the catalogue.',
+  run: (args) => {
+    const [id, raw] = args;
+    // No argument lists what there is, which is what makes the ids discoverable
+    // — the same shape `/gfx` and `/nature` use, and the same reason.
+    if (!id) {
+      return Object.values(ITEMS)
+        .map((d) => `${d.id.padEnd(17)} ${d.kind}`)
+        .join('\n');
+    }
+    if (!isKnownItem(id)) {
+      return `no such item "${id}" — /give with no arguments lists them`;
+    }
+    const def = itemDef(id);
+    if (def.kind === 'currency') {
+      // Currency is not in the bag (see core/items.ts), so it is added to the
+      // pickup total rather than refused: a console that answered "no" here
+      // would be technically right and useless.
+      pickupTotal += Math.max(1, Number(raw) || 1);
+      hud.setShards(shards());
+      return `${shards()} ${itemName(CURRENCY, shards())}`;
+    }
+    const n = bag.add(id, Math.max(1, Number(raw) || 1));
+    refreshBagChips();
+    return `${itemName(def, n)} x${n}`;
+  },
+});
 devConsole?.register({
   name: 'show-colliders',
   args: '[on|off]',
@@ -2709,7 +3212,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // which is the same bargain read the other way round: a player who stopped to
   // find out what a key does must not have walked off a cliff while reading.
   const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
-    || !!devConsole?.isOpen;
+    || inventory.isOpen || !!devConsole?.isOpen;
   nearShop = false;
   nearNpc = null;
 
@@ -2884,6 +3387,12 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     if (pauseMenu.isOpen) {
       if (input.pressed('Escape')) pauseMenu.onEscape();
       else pauseMenu.activate();
+    } else if (inventory.isOpen) {
+      // Same shape as the menu above: Escape asks the panel to spend the press
+      // and X (KeyE on the pad) confirms the focused control, which is what
+      // makes the inventory workable from a controller with no other buttons.
+      if (input.pressed('Escape')) inventory.onEscape();
+      else inventory.activate();
     } else if (hud.isControlsOpen()) hud.closeControls();
     else hud.closeShop();
   }
@@ -2895,6 +3404,9 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
 
   // Cooldowns
   for (const [id, t] of cooldowns) cooldowns.set(id, Math.max(0, t - dt));
+  // ...and the potion buff, on the same clock and for the same reason: both are
+  // durations the player is watching, so both stop while a modal is up.
+  updateBuffs(dt);
 
   // Beasts follow
   const owner = { position: player.position, velocity: player.velocity, isSwimming: player.isSwimming };
@@ -2969,7 +3481,8 @@ function frame(): void {
   // in-game menu. All three stand the pad down and hide the touch overlay, for
   // the same reason — a button held when the panel opened must not stay held
   // behind it.
-  const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen;
+  const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
+    || inventory.isOpen;
   // A modal does not turn the camera, and the controls sheet is the one that has
   // to say so out loud: it keeps pointer lock (see the F1 read below), so unlike
   // the shop it goes on collecting mouse delta that no slice will spend. See
@@ -3169,6 +3682,18 @@ function frame(): void {
     // it again. The X and the scrim are still there for a player who has no
     // lock to lose (a pad player, or anyone who has not clicked yet).
     hud.toggleControls();
+  }
+  // `I` is the inventory, and it is read HERE beside F1 for the same reason:
+  // it is not a gameplay action, so a frame that drained no simulation slice
+  // must still answer it, and `takePress` is what stops one press toggling the
+  // panel two or three times at 165 Hz (see core/input.ts).
+  //
+  // GATED ON THE OTHER MODALS rather than only on itself: with the pause menu
+  // up, `I` would otherwise build a second panel underneath it. Its own open
+  // state is the exception, because that press is how it closes.
+  if (!photoMode && input.takePress('KeyI')
+    && (inventory.isOpen || !(modal || devConsole?.isOpen))) {
+    inventory.toggle();
   }
   if (input.takePress('F2')) debug.toggle();
   // F3 is the panel F2's numbers are FOR. Deliberately not gated on photo mode
@@ -3588,6 +4113,103 @@ beginPlay();
     };
   }),
 });
+
+/**
+ * THE INVENTORY, FOR tools/test-inventory.mjs.
+ *
+ * Everything a probe cannot see any other way. `attackStat` is the one that
+ * makes the gear slot testable at all: a weapon icon in a slot looks identical
+ * whether or not equipping it did anything, and this is the number that says.
+ * `panel` reports what is actually on the DOM, so a model that is right and a
+ * screen that is empty are distinguishable.
+ */
+(window as unknown as { __dbgInventory: () => unknown }).__dbgInventory = () => {
+  const m = inventoryModel();
+  return {
+    open: inventory.isOpen,
+    shards: shards(),
+    attackStat: player.attackStat,
+    baseAttack: BASE_ATTACK,
+    buff: { attack: attackBuff, seconds: +attackBuffT.toFixed(2) },
+    weapon: equippedWeapon,
+    hp: +player.hp.toFixed(1),
+    gear: m.gear.map((g) => ({ slot: g.slot, id: g.entry?.id ?? null })),
+    bag: bag.entries().map((e) => ({ id: e.def.id, kind: e.def.kind, count: e.count })),
+    entries: m.entries.map((e) => ({
+      id: e.id, kind: e.kind, count: e.count,
+      equipped: !!e.equipped, actions: e.actions ?? [],
+    })),
+    // What the DOM holds, or nulls when the panel is shut.
+    //
+    // `portraits` is the one worth explaining: a beast slot's picture is BAKED
+    // by the panel's 3D stage a frame at a time (see ui/inventory-stage.ts), so
+    // it is the count of beast slots that have stopped being a placeholder
+    // lozenge — which is the only thing that can tell "the stage rendered ten
+    // models" from "the stage never came up and every slot is a coloured blob".
+    panel: inventory.isOpen ? {
+      slots: document.querySelectorAll('.bs-inv .slot').length,
+      // The wall is a FIXED 11x3 of real cells, so "how many rows does the
+      // player own" and "how many boxes are drawn" are two different numbers
+      // now and the probe needs both — see INV_COLS in ui/inventory.ts.
+      filled: document.querySelectorAll('.bs-inv .slot:not(.empty)').length,
+      gearSlots: document.querySelectorAll('.bs-inv .gs').length,
+      tabs: document.querySelectorAll('.bs-inv .chip.tab').length,
+      icons: document.querySelectorAll('.bs-inv .slot .ic:not(.blob)').length,
+      portraits: document.querySelectorAll('.bs-inv .slot .ic.beast:not(.blob)').length,
+      stageGl: !!document.querySelector('.bs-inv canvas.stage-gl'),
+      // WHO IS ACTUALLY IN THE STAGE'S SCENE — not who was asked for. The two
+      // disagreed when the beasts swapped slots, which is the bug: the second
+      // slot's turn removed the rig the first slot had just placed. See
+      // `InventoryStage.setCast`.
+      stageCast: inventory.stageCast(),
+      footActions: [...document.querySelectorAll('.bs-inv .sel button')]
+        .map((b) => (b as HTMLElement).dataset.do ?? ''),
+      tip: document.querySelector('.bs-inv .tip.on')?.textContent ?? null,
+      selected: (document.querySelector('.bs-inv .slot.sel') as HTMLElement | null)
+        ?.dataset.sel ?? null,
+    } : null,
+  };
+};
+
+/**
+ * WHAT THE HERO IS HOLDING AND WHAT HE HAS FIRED.
+ *
+ * `weapon` is read off the RIG (see `Player.weapon`), which is the only copy —
+ * so this cannot report a sword while a bow is drawn. `shots` is the live
+ * projectile census, and the `arrow` flag on it is the whole of "the bow fires
+ * an arrow": the pool is shared with every skill in the game, so a shot that
+ * came out as a fireball would be indistinguishable from a working bow in any
+ * other reading.
+ */
+(window as unknown as { __dbgShots: () => unknown }).__dbgShots = () => ({
+  weapon: player.weapon,
+  attackStat: player.attackStat,
+  shots: combat.projectileSnapshot(),
+});
+
+/**
+ * TEST HOOKS, the same class as `__dbgDrop` and `__dbgHurt`: stage a bag state
+ * and press a button, without farming a 1-in-25 drop to get there or driving a
+ * cursor onto a slot to press it.
+ *
+ * `__dbgInvAction` deliberately goes through `inventoryAction` rather than
+ * through the panel, which is what makes the quest-item control in
+ * tools/test-inventory.mjs mean anything: the refusal has to live in the
+ * handler, not only in which buttons the panel chose to draw.
+ */
+(window as unknown as { __dbgGive: (id: string, n?: number) => void })
+  .__dbgGive = (id, n = 1) => { if (isKnownItem(id)) giveItemFromContent(id, n); };
+
+/** Drive one inventory button without a click, for the probe. */
+(window as unknown as { __dbgInvAction: (id: string, action: string) => void })
+  .__dbgInvAction = (id, action) => {
+    inventoryAction(id, action as InvAction);
+    // The panel re-reads after a button it pressed itself; this hook goes
+    // straight to the handler, so it owes the screen the same refresh — without
+    // it a probe reads a panel one action behind the state it is asserting on,
+    // which is a failure in the test and not in the game.
+    inventory.refresh();
+  };
 
 (window as unknown as { __dbgTowns: () => unknown }).__dbgTowns = () => ({
   spawn: {
