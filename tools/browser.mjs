@@ -90,6 +90,45 @@ export const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export const count = async (page, sel) => (await page.$$(sel)).length;
 
+/**
+ * Get past the title screen's "Press start..." step, and DO NOT TAKE ONE PRESS
+ * FOR AN ANSWER.
+ *
+ * The staged boot is `waitForSelector('.bs-menu')`, a keypress to leave the
+ * splash, then the options buttons. Nine probes wrote that out by hand and all
+ * nine pressed exactly once — which is a race, because `.bs-menu` is in the DOM
+ * before the menu's key handler is live. A press that lands in that window is
+ * dropped, nothing retries it, and the screen sits on the splash forever: the
+ * probe then dies waiting for a New Game button that is never going to be
+ * built.
+ *
+ * IT IS A REAL FLAKE AND IT WAS BLAMED ON THREE OTHER THINGS FIRST — a
+ * hot-reload from editing src/ mid-run, then leaked pages starving the tab of
+ * frames, then focus. Measured, the page is `visible`, gets 166 rAF callbacks a
+ * second, and fails identically with `bringToFront()`; and `dive` still failed
+ * starting on a browser with exactly one page. What fixed it was pressing
+ * again: the second press always lands. The window widens with load, which is
+ * why it shows up in a batch and not in a probe run on its own.
+ *
+ * Polls for the BUTTON rather than for a step attribute, because the button is
+ * what every caller actually wants next, and it cannot appear until the menu
+ * has genuinely advanced.
+ */
+export async function leaveSplash(page, { timeout = 20000, key = 'Enter' } = {}) {
+  await page.waitForSelector('.bs-menu', { timeout });
+  const deadline = Date.now() + timeout;
+  for (let presses = 1; ; presses++) {
+    if (await page.$('.bs-menu [data-act]')) return presses - 1;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `the title screen never left its splash step after ${presses} presses of ${key}`,
+      );
+    }
+    await page.keyboard.press(key);
+    await wait(300);
+  }
+}
+
 // Which GL path did we actually get? Use this in perf-sensitive tools so a
 // silent fall back to CPU rasterisation is visible in the output.
 export const glRenderer = (page) => page.evaluate(() => {

@@ -23,7 +23,7 @@
 // above water, which is how that was caught.
 //
 // Exits non-zero.
-import { launchBrowser, newPage, wait } from './browser.mjs';
+import { launchBrowser, leaveSplash, newPage, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
 const browser = await launchBrowser();
@@ -34,9 +34,12 @@ page.on('pageerror', (e) => console.error('[page]', e.message));
 // beginPlay takes, and pitching the camera under the surface is how the view
 // half of this test is reached.
 await page.goto(`${HOST}/?fs=0`, { waitUntil: 'load' });
-await page.waitForSelector('.bs-menu');
-await page.keyboard.press('Enter');
-await wait(700);
+// `leaveSplash`, not a single `press('Enter')`: the press that dismisses the
+// splash is dropped if it lands before the menu's key handler is live, and
+// nothing retried it. That is the whole of this probe's batch flake — it passed
+// alone and failed after two predecessors, on a clean browser. See
+// tools/browser.mjs.
+await leaveSplash(page);
 await (await page.waitForSelector('button[data-act="new"]', { visible: true })).click();
 for (let i = 0; i < 45; i++) {
   await wait(1000);

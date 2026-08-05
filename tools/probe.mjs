@@ -190,6 +190,39 @@ const runOne = (name) => new Promise((resolve) => {
   });
 });
 
+/**
+ * Close every page the finished probes left behind. MEMORY HYGIENE, and it is
+ * worth being precise that it is ONLY that.
+ *
+ * A probe's pages outlive the probe: `launchBrowser` remaps `close()` to
+ * `disconnect()` for the shared browser (tools/browser.mjs — the next probe in
+ * the batch still needs it alive), so every page a child opened is still open
+ * after the child has exited. Measured here, `keybinds` leaves two behind. A
+ * whole `all` run therefore ends holding a few dozen live game pages, each with
+ * its own WebGL context; a leaked run of this suite was caught holding 4 GB.
+ *
+ * IT IS NOT THE FIX FOR THE BATCH FLAKE, and the first version of this comment
+ * claimed it was. The theory was that leaked pages starve later probes of
+ * requestAnimationFrame. Measured, all three legs of that are false: the pages
+ * are visible to the parent, a page with three others open still reports
+ * `visibilityState: 'visible'` and 166 rAF callbacks a second, and — decisively
+ * — with this sweep in place `probe.mjs menu keybinds dive` still failed with
+ * `dive` starting on a clean browser of exactly one page. What actually breaks
+ * those probes is a single unretried keypress; see `leaveSplash` in
+ * tools/browser.mjs.
+ *
+ * KEEPS pages[0], the about:blank the launch came up with. Closing every page
+ * can let the browser decide it has nothing left to do and exit under the rest
+ * of the batch.
+ */
+async function reapPages() {
+  if (!browser) return 0;
+  const pages = await browser.pages().catch(() => []);
+  const doomed = pages.slice(1);
+  for (const pg of doomed) await pg.close().catch(() => {});
+  return doomed.length;
+}
+
 const results = [];
 const line = (r) => `${r.code === 0 ? 'ok  ' : 'FAIL'} ${r.name.padEnd(13)} ${(r.ms / 1000).toFixed(1)}s`;
 
@@ -206,10 +239,21 @@ const workers = Array.from({ length: Math.min(jobs, queue.length) }, async () =>
   }
 });
 await Promise.all(workers);
+// AFTER the pool has drained, never inside a worker: with `--jobs 2` or more
+// the batched probes genuinely do overlap, and a sweep between two of them
+// would close the pages of one that is still running. Here every worker has
+// finished, so everything still open is abandoned by construction.
+await reapPages();
+
 for (const n of solo) {
   const r = await runOne(n);
   results.push(r);
   if (!json) console.log(line(r));
+  // Solo is strictly one at a time — that is what the list MEANS — so there is
+  // never another probe whose pages this could take out from under it. This is
+  // the sweep that matters: the solo chain is twenty probes long and it is
+  // where the pile used to build up.
+  await reapPages();
 }
 
 // close(), not disconnect(): this is a REAL launch (the runner's own env has no
