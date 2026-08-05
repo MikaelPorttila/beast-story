@@ -1606,22 +1606,90 @@ switching on `SkillDef.targeting`. A new skill is usually data — a `SkillDef` 
 species file — not new code.
 
 **Items and the inventory.** [src/core/items.ts](src/core/items.ts) is the
-catalogue and the bag; [src/ui/inventory.ts](src/ui/inventory.ts) is the screen;
-every RULE about what a player may do to a thing they own is in main.ts beside
-the state it governs. Issue #74. `I` opens it (View/Create on a pad, see
-`B_SELECT` in core/gamepad.ts) and it is a MODAL — the hero is frozen while it
-is up, the F1 sheet's bargain — but it RELEASES POINTER LOCK, the shop's, because
-it is a thing you click rather than a thing you read.
+catalogue and the bag; [src/ui/inventory.ts](src/ui/inventory.ts) is the screen
+and [src/ui/inventory-stage.ts](src/ui/inventory-stage.ts) the 3D preview at the
+top of it; every RULE about what a player may do to a thing they own is in
+main.ts beside the state it governs. Issue #74. `I` opens it (View/Create on a
+pad, see `B_SELECT` in core/gamepad.ts) and it is a MODAL — the hero is frozen
+while it is up, the F1 sheet's bargain — but it RELEASES POINTER LOCK, the
+shop's, because it is a thing you click, drag in and right-click.
+
+**IT IS A RIGHT-HAND DOCK, FULL HEIGHT, and the reason is the stage.** The top of
+the panel is a live WebGL canvas showing the hero with his two beasts, each
+standing over the gear slot that holds it — lead beast, weapon, support beast,
+left to right — and three figures only read as a PARTY given height to stand in.
+A centred box tall and wide enough for that covers the world it is a view of;
+docked, half the frame is still the place you are standing in, and the panel gets
+the one axis a slot wall actually grows along.
 
 **THE PANEL KNOWS NO GAME RULES.** It is handed an `InventoryModel` — rows with a
 name, an icon, some stats and a LIST OF ACTIONS the host is willing to accept —
-and reports which button was pressed on which row. It does not know that a quest
-item cannot be dropped, that unequipping a sword lowers a stat, or that equipping
-a beast pushes another one sideways. That is the split ui/settings.ts already
-draws (the panel owns the screen, the host owns what a click means) and the same
-one content/types.ts argues for with its factories, and the consequence is worth
-stating: adding a RULE is an edit to main.ts, adding a KIND OF ACTION is an edit
-to `InvAction` plus one label, and neither is an edit to the layout.
+and reports which one was asked for. It does not know that a quest item cannot be
+dropped, that unequipping a sword lowers a stat, or that equipping a beast pushes
+another one sideways. That is the split ui/settings.ts already draws (the panel
+owns the screen, the host owns what a click means) and the same one
+content/types.ts argues for with its factories: adding a RULE is an edit to
+main.ts, adding a KIND OF ACTION is an edit to `InvAction` plus one label, and
+neither is an edit to the layout. What the panel added when it grew gestures is a
+MAPPING, which is a different thing — dropping something on the weapon slot MEANS
+`equip` — and each mapping is gated on the host having already listed that action
+for the row, so a slot refuses a drag exactly where the host would have refused
+the button.
+
+**THREE WAYS TO DO ONE THING, AND A LEFT CLICK IS NOT ONE OF THEM.**
+RIGHT-CLICK — or Enter, or A on a pad — runs the row's PRIMARY action, which is
+the first one that does not destroy it. DRAGGING onto a gear slot says the same
+thing by saying where the item should go, and dragging OFF the panel onto the
+scrim drops it in the world. The footer strip carries salvage and drop as real
+buttons, on whatever is selected. A left click only SELECTS: nothing destructive
+is ever one click from anything, and `DESTRUCTIVE` (ui/inventory.ts) is the one
+set that keeps salvage and drop out of the primary, out of the right-click and
+out of every drag target at once.
+
+**THE TOOLTIP IS THE DESCRIPTION.** There was a detail pane and it cost a third
+of the panel's width for the one row the cursor happened to be on — on a dock,
+the difference between five columns and three. A tooltip costs nothing until the
+pointer is over something, and the actions the pane used to carry moved to the
+footer, because a tooltip cannot be clicked: that is exactly what makes it the
+right place for a description and the wrong place for a button. It is clamped
+into the window rather than flipped at a breakpoint — the dock is against the
+right edge, so every slot in it is within a tooltip's width of that edge and
+"left of the pointer" is the normal case. A GEAR SLOT PRINTS ITS ROLE AND NOT
+THE NAME of what is in it: the picture already says which beast that is, and the
+name was the only thing in the strip that changed width, so the three slots
+jostled every time the party changed.
+
+**THE STAGE IS A SECOND WebGLRenderer, and that is the decision that file rests
+on.** One renderer draws to one canvas, so putting the cast through the main one
+means rendering the world, rendering the cast, copying and rendering the world
+again — and the world is 67% of the frame. A second context costs its own program
+links, so it is built on FIRST OPEN and kept for the session; closing the panel
+stops the loop and disposes nothing. ITS RIGS ARE ITS OWN, never the roster's: a
+`BeastActor`'s rig is in the world scene with the world's shadow layers and the
+framework's animator driving it, so borrowing one would either move it out of the
+world or fight over its pose every frame. `species.buildRig()` is called again and
+cached per species.
+
+**A BEAST SLOT SHOWS THE MODEL, BAKED ONE PER FRAME.** `InventoryStage.iconFor`
+queues a species, renders it alone into a render target, reads the pixels back
+and hands the panel a data URI, which patches the slots showing that species in
+place. ONE PER FRAME rather than ten on the first open, because ten rig builds
+and ten renders in one task is a visible hitch on the frame the panel appears —
+the frame a player is looking hardest at. A slot whose portrait has not arrived
+draws the element-coloured lozenge, so nothing waits for anything. The readback
+is FLIPPED: WebGL's origin is bottom-left and a canvas's is top-left, and a
+portrait written straight in comes out upside down, which looks like a broken
+model rather than a broken blit.
+
+**THE FIGURES LINE UP WITH THE SLOTS BECAUSE THE CAMERA IS FRAMED ON WIDTH.** The
+gear strip is `repeat(3,1fr)`, so its centres are at thirds of the panel; a
+subject at a third of the STAGE's width is therefore drawn over its own slot at
+every window size. Framed on the subjects' height instead — which is what shipped
+first — the figures drift sideways as the dock's aspect changes and it reads as a
+bug in the layout. `BEAST_X` is 0.30 rather than a clean third, and that inset is
+measured: a Galebird's outer wing reaches about 1.0 world units and exactly on the
+third it went past the canvas edge, where the alternative was a stage 25% wider
+and a hero 25% smaller.
 
 **THREE THINGS ARE DELIBERATELY NOT IN THE BAG, and each for the same reason —
 a second copy would be a second answer.** CURRENCY is one running total owned by
@@ -1688,13 +1756,27 @@ uses it yet. `/give` reaches the same code from the console.
 is about a number the SCREEN CANNOT SHOW — an icon in the weapon slot looks
 identical whether or not equipping it did anything, so equipping is asserted on
 `attackStat` (14 -> 18 -> 14); a dropped item looks identical to a deleted one, so
-Drop is asserted on the thing being on the ground a second and a half later. Three
+Drop is asserted on the thing being on the ground a second and a half later. Four
 sections are PAIRS for the usual reason: `I` opens it AND the hero travels 0 with
-it up against 6.27 with it down, salvage removes the stack AND pays the
-blueprint's 3, drop removes the stack AND leaves a mote that does not come back.
-The quest item is the CONTROL — it is asked to drop and to salvage through the
-handler rather than through the panel, because a refusal that lives only in which
-buttons were drawn is a panel bug away from deleting someone's quest.
+it up against 6.47 with it down, right-click unequips AND puts it back, salvage
+removes the stack AND pays the blueprint's 3, drop removes the stack AND leaves a
+mote that does not come back. The quest item is the CONTROL — it is asked to drop
+and to salvage through the HANDLER rather than through the panel, because a
+refusal that lives only in which buttons were drawn is a panel bug away from
+deleting someone's quest; the potion dropped on the weapon slot is the same
+control for the drag mapping.
+
+Three things in it are worth knowing before adding a section. `page.hover`, not
+`page.mouse.move` — a bare CDP mouse move does not make the browser synthesise
+the `pointerover` the tooltip listens for, and the version that used one read a
+null tooltip against a panel that worked perfectly in the hand. A DRAG is real
+`DragEvent`s with a real `DataTransfer` dispatched from the page, because CDP
+cannot drive an HTML5 drag; they reach the same listeners a mouse does, which
+read `event.target` and the panel's own `dragging` id and nothing else. And a
+section that presses TAB has to SHUT the panel first: every modal freezes the
+simulation slices Tab is read in, so a Tab pressed with the inventory up looks
+exactly like the failure that section is hunting for. `portraits` is what says
+the stage rendered ten distinct beasts into the wall rather than ten lozenges.
 
 **UI and input.** The HUD is a DOM overlay ([src/ui/index.ts](src/ui/index.ts),
 styles injected by `src/ui/styles.ts`), not canvas-drawn. Class names are `bs-*`

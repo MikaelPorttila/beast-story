@@ -1,47 +1,67 @@
 import { t } from '../i18n';
-import type { ItemKind, ItemRarity } from '../core/types';
+import type { BeastSpecies, ItemKind, ItemRarity } from '../core/types';
 import { injectStyles } from './styles';
 import { CLOSE_ICON } from './icons';
 import { isWeaponIcon, weaponIconStyle } from './weapon-icons';
+import { InventoryStage } from './inventory-stage';
 
 /**
- * THE INVENTORY — what you are carrying, what you have equipped, and the four
- * things you may do to a thing you own.
+ * THE INVENTORY — what you are carrying, who is standing with you, and the
+ * things you may do to something you own.
  *
- * Issue #74. Opened with `I`, closed with `I` or Escape, and a MODAL in the F1
- * sense: main.ts freezes the hero while it is up, because a player who stopped
- * to read a blueprint must not have walked into a lake doing it.
+ * Issue #74. Opened with `I` (View/Create on a pad), closed with the same, and a
+ * MODAL in the F1 sense: main.ts freezes the hero while it is up, because a
+ * player who stopped to read a blueprint must not have walked into a lake doing
+ * it. It RELEASES POINTER LOCK, which is the shop's bargain rather than the F1
+ * sheet's — this is a panel you click, drag in, and right-click.
  *
- * THIS PANEL KNOWS NO GAME RULES, and that is the whole of its design. It does
- * not know that a quest item cannot be dropped, that a scythe is stronger than a
- * dagger, or that equipping a beast swaps the one that was there. It is handed
- * an `InventoryModel` — rows with a name, an icon, some stats and a LIST OF
- * ACTIONS the host is willing to accept — and it reports which button was
- * pressed on which row. Every rule stays in main.ts beside the state it governs,
- * which is the same split ui/settings.ts draws (the panel owns the screen, the
- * host owns what a click means) and the same one content/types.ts argues for
- * with its factories.
+ * A RIGHT-HAND DOCK, FULL HEIGHT, and that is not a decoration. The top of it is
+ * a live 3D stage (ui/inventory-stage.ts) showing the hero with his two beasts,
+ * each standing over the gear slot that holds them — which only reads as a
+ * PARTY if the panel is tall enough to give the figures room. A centred box wide
+ * enough for six columns and tall enough for that covers the world it is a view
+ * of; docked right, half the frame is still the place you are standing in.
  *
- * The consequence worth stating: adding a rule is an edit to the host, and
- * adding a KIND of thing you can do to an item is an edit to `InvAction` plus
- * one label. Neither is an edit to the layout.
+ * THIS PANEL KNOWS NO GAME RULES, and that survived the redesign intact. It is
+ * handed an `InventoryModel` — rows with a name, an icon, some stats and a LIST
+ * OF ACTIONS the host is willing to accept — and reports which one was asked
+ * for. It does not know that a quest item cannot be dropped or that equipping a
+ * beast pushes another one sideways. What it added here is a MAPPING, which is a
+ * different thing: dropping something on the weapon slot means `equip`, and the
+ * slot refuses the drag unless the host already listed `equip` for that row. The
+ * refusals stay in main.ts; the gestures are the panel's.
  *
- * WHY IT IS ITS OWN FILE AND NOT PART OF THE HUD. By ui/pause.ts's rule it
- * belongs in ui/index.ts — it is a view of GAME STATE, like the shop, not of the
- * session. What it does NOT share with the shop is its input: this needs a
- * roving cursor, a pad poll and a grid to walk, which is ui/pause.ts's machinery
- * rather than the HUD's. So it takes the HUD's LOOK (`.bs-glass`, `.bs-scrim`,
- * `.bs-shop-x`) and the pause menu's INPUT, and lives beside neither's file
- * rather than doubling the length of one of them.
+ * THREE WAYS TO DO THE SAME THING, on purpose:
+ *   * RIGHT-CLICK (or Enter, or A on a pad) runs the row's PRIMARY action —
+ *     equip a weapon, drink a potion, send a beast in front.
+ *   * DRAG onto a gear slot does the same by saying where it should go, and
+ *     dragging OFF the panel drops the item in the world.
+ *   * The footer strip carries what neither of those should ever do by
+ *     accident: salvage and drop, on whatever is selected, as real buttons.
+ * A left click only SELECTS. Nothing destructive is one click from anything.
+ *
+ * A FINGER HAS NONE OF THE FIRST TWO — no right-click, no hover, no HTML5 drag
+ * — so on `(hover: none)` the primary action joins the footer as a button of its
+ * own (see `footHtml`). Without it a phone player has a panel they can only
+ * throw things away from, which is the one arrangement worse than no panel.
+ *
+ * THE TOOLTIP REPLACED A DETAIL PANE. The pane was a third of the panel's width
+ * spent on the one row the cursor happened to be on, and on a dock that width
+ * is the difference between five columns and three. A tooltip costs nothing
+ * until the pointer is over something and follows it, and the actions it used
+ * to carry moved to the footer — a tooltip cannot be clicked, which is exactly
+ * why it is the right place for a description and the wrong place for a button.
  */
 
-/** What a button on a row asks the host to do. Labels are in `ACTION_KEYS`. */
+/** What a button, a right-click or a drop asks the host to do. */
 export type InvAction =
   | 'equip' | 'unequip' | 'use' | 'salvage' | 'drop' | 'forge'
   | 'setLead' | 'setSupport';
 
-const ACTION_KEYS: Record<InvAction, 'inv.equip' | 'inv.unequip' | 'inv.use' | 'inv.salvage'
-  | 'inv.drop' | 'inv.forge' | 'inv.setLead' | 'inv.setSupport'> = {
+type ActionKey = 'inv.equip' | 'inv.unequip' | 'inv.use' | 'inv.salvage'
+  | 'inv.drop' | 'inv.forge' | 'inv.setLead' | 'inv.setSupport';
+
+const ACTION_KEYS: Record<InvAction, ActionKey> = {
   equip: 'inv.equip',
   unequip: 'inv.unequip',
   use: 'inv.use',
@@ -53,16 +73,21 @@ const ACTION_KEYS: Record<InvAction, 'inv.equip' | 'inv.unequip' | 'inv.use' | '
 };
 
 /**
- * Which actions are the LOUD one on a row.
- *
- * A row usually offers two or three buttons and exactly one of them is what the
- * player came to press; the rest are housekeeping. Salvage and drop are never
- * that button — they destroy something — so they are never the primary however
- * few buttons a row has.
+ * Actions that DESTROY something. They are never a row's primary, never what a
+ * right-click or a drag does, and live only on the footer's own buttons.
  */
 const DESTRUCTIVE: ReadonlySet<InvAction> = new Set<InvAction>(['salvage', 'drop']);
 
-/** One label/value pair under the blurb. Both are already display strings. */
+/** Which action a drop on each gear slot means. See the header. */
+const SLOT_ACTION: Record<GearSlotId, InvAction> = {
+  weapon: 'equip',
+  primary: 'setLead',
+  support: 'setSupport',
+};
+
+export type GearSlotId = 'weapon' | 'primary' | 'support';
+
+/** One label/value pair in the tooltip. Both are already display strings. */
 export interface InvStat {
   label: string;
   value: string;
@@ -76,25 +101,29 @@ export interface InvEntry {
   name: string;
   /** How many are held. 1 for anything that does not stack; shown from 2 up. */
   count: number;
-  /** Fallback tint, and the slot's glow. An icon covers it when there is one. */
+  /** Fallback tint, and the slot's glow. A portrait or an icon covers it. */
   color: number;
-  /** A tile name in the weapon atlas, or absent for a coloured glyph. */
+  /** A tile name in the weapon atlas, or absent. */
   icon?: string;
+  /**
+   * The species this row IS, for a beast. The panel does not read anything off
+   * it except through the stage, which bakes its portrait — see `InventoryStage`
+   * — so a beast row draws the actual model rather than a coloured lozenge.
+   */
+  species?: BeastSpecies;
   rarity?: ItemRarity;
-  /** The paragraph in the detail pane. */
+  /** The tooltip's paragraph. */
   description?: string;
   stats?: readonly InvStat[];
   /** Draws the row as in-use, and is what the gear slots point at. */
   equipped?: boolean;
-  /** One quiet line under the buttons — why an action is missing, usually. */
+  /** One quiet line at the foot of the tooltip. */
   note?: string;
   actions?: readonly InvAction[];
 }
 
-/** One of the three gear slots along the top. */
 export interface GearSlotView {
-  slot: 'weapon' | 'primary' | 'support';
-  /** The entry filling it, or null for an empty slot. */
+  slot: GearSlotId;
   entry: InvEntry | null;
 }
 
@@ -106,17 +135,12 @@ export interface InventoryModel {
 export interface InventoryHooks {
   /** Rebuild the model — called on open and after every action. */
   model: () => InventoryModel;
-  /** A button was pressed. The host mutates state; the panel re-reads `model`. */
+  /** An action was asked for. The host mutates state; the panel re-reads. */
   onAction: (id: string, action: InvAction) => void;
   onOpen?: () => void;
   onClose?: () => void;
 }
 
-/**
- * The tab strip, and it is a FILTER rather than a set of pages: `null` is "all",
- * and the rest name a kind. Currency is missing on purpose — the Cubloon total
- * is the HUD's pill and has no stack to show.
- */
 const TABS: readonly { id: ItemKind | null; key: string }[] = [
   { id: null, key: 'inv.tab.all' },
   { id: 'beast', key: 'inv.tab.beast' },
@@ -128,14 +152,16 @@ const TABS: readonly { id: ItemKind | null; key: string }[] = [
 ];
 
 /**
- * How many slots to a row. Read by the keyboard's up/down, which is the only
- * reason the panel has to know: the CSS lays the grid out with `repeat(N, …)`
- * from the same constant, so the two cannot disagree about what "the row below"
- * means. Changing it here changes both.
+ * Slots to a row.
+ *
+ * FIVE since the panel became a dock: the stylesheet lays the grid out from
+ * this same number through `--cols`, and the keyboard's up/down steps by it to
+ * mean "the row below". A media query that narrowed one without the other would
+ * leave arrow-down skipping slots and nothing would fail — see the note on the
+ * `.grid` rule in ui/styles.ts.
  */
-export const INV_COLS = 6;
+export const INV_COLS = 5;
 
-/** Same list ui/settings.ts uses, and for the same two reasons. */
 const FOCUSABLE = 'button:not([disabled]):not([tabindex="-1"])';
 
 const escapeHtml = (s: string): string =>
@@ -149,10 +175,16 @@ const RARITY_KEYS: Record<ItemRarity, 'inv.rarity.common' | 'inv.rarity.rare' | 
   legendary: 'inv.rarity.legendary',
 };
 
+const SLOT_LABELS: Record<GearSlotId, 'inv.slot.weapon' | 'inv.slot.primary' | 'inv.slot.support'> = {
+  weapon: 'inv.slot.weapon',
+  primary: 'inv.slot.primary',
+  support: 'inv.slot.support',
+};
+
 export class InventoryPanel {
   private el: HTMLDivElement | null = null;
+  private tip: HTMLDivElement | null = null;
   private tab: ItemKind | null = null;
-  /** Which row the detail pane is showing, by id. Survives a tab change. */
   private selected: string | null = null;
   private focusables: HTMLButtonElement[] = [];
   private focusIdx = 0;
@@ -162,9 +194,19 @@ export class InventoryPanel {
   private padEdge = new Uint8Array(20);
   private padLatchY = false;
   private padLatchX = false;
+  /** Id being dragged, or null. Survives a re-render; cleared on dragend. */
+  private dragging: string | null = null;
+  /** The model of the last render, so a hover does not have to rebuild one. */
+  private rows = new Map<string, InvEntry>();
+  private stage = new InventoryStage();
 
   constructor(private hooks: InventoryHooks) {
     injectStyles();
+    // A portrait finishing is a ONE-ELEMENT change, so it patches the slots
+    // that show that species rather than asking for a render: a rebuild here
+    // would move the keyboard cursor out from under the player once per beast
+    // as the queue drains.
+    this.stage.onIcon = (id, url) => this.paintIcon(id, url);
   }
 
   get isOpen(): boolean { return this.el !== null; }
@@ -177,13 +219,27 @@ export class InventoryPanel {
     if (this.el) return;
     const el = document.createElement('div');
     el.className = 'bs-inv';
-    el.innerHTML = '<div class="bs-scrim"></div><div class="pane bs-glass"></div>';
+    el.innerHTML =
+      '<div class="bs-scrim"></div>' +
+      '<aside class="pane bs-glass"></aside>' +
+      '<div class="tip" aria-hidden="true"></div>';
     this.el = el;
+    this.tip = el.querySelector('.tip');
     document.body.appendChild(el);
     el.addEventListener('click', this.onClick);
+    el.addEventListener('contextmenu', this.onContextMenu);
+    el.addEventListener('pointerover', this.onPointerOver);
+    el.addEventListener('pointermove', this.onPointerMove);
+    el.addEventListener('pointerout', this.onPointerOut);
+    el.addEventListener('dragstart', this.onDragStart);
+    el.addEventListener('dragover', this.onDragOver);
+    el.addEventListener('drop', this.onDropEvent);
+    el.addEventListener('dragend', this.onDragEnd);
     window.addEventListener('keydown', this.onKeyDown, true);
+    window.addEventListener('resize', this.onResize);
     this.render();
     this.pollPad();
+    this.stage.start();
     requestAnimationFrame(() => el.classList.add('open'));
     this.hooks.onOpen?.();
   }
@@ -193,11 +249,16 @@ export class InventoryPanel {
     if (this.padRaf) cancelAnimationFrame(this.padRaf);
     this.padRaf = 0;
     window.removeEventListener('keydown', this.onKeyDown, true);
-    // A button still down when this closes would read as a fresh press next
-    // time — the same reason ui/pause.ts clears it here rather than on open.
+    window.removeEventListener('resize', this.onResize);
+    // The stage STOPS but is not disposed: its context, its rigs and its baked
+    // portraits are what make the second open instant, and none of them is
+    // session state. See the header of ui/inventory-stage.ts.
+    this.stage.stop();
     this.padDown.fill(0);
+    this.dragging = null;
     this.el.remove();
     this.el = null;
+    this.tip = null;
     this.focusables = [];
     this.hooks.onClose?.();
   }
@@ -208,10 +269,19 @@ export class InventoryPanel {
   }
 
   /**
-   * The host saw a cancel (Escape, the pad's B, the touch MENU button). Returns
-   * whether this panel spent it — the same contract `PauseMenu.onEscape` has,
-   * and it is why main.ts can keep one "close the topmost thing" rule.
+   * Re-read the model, if the panel is up.
+   *
+   * The panel is a modal, so almost nothing can change the bag behind it — but
+   * `item.give` can (the dev console, and one day a piece of content that fires
+   * on a timer), and a screen that quietly disagrees with the bag is worse than
+   * a screen that costs a rebuild nobody asked for. Cheap: this runs on open
+   * and after every action anyway.
    */
+  refresh(): void {
+    if (this.el) this.render();
+  }
+
+  /** The host saw a cancel. Returns whether this panel spent it. */
   onEscape(): boolean {
     if (!this.el) return false;
     this.close();
@@ -220,50 +290,47 @@ export class InventoryPanel {
 
   dispose(): void {
     this.close();
+    this.stage.dispose();
   }
 
   // -------------------------------------------------------------------------
   // Markup
   // -------------------------------------------------------------------------
 
-  /**
-   * Rebuild from the host's model.
-   *
-   * The WHOLE panel, every time, rather than patching the row that changed —
-   * a salvage removes a row, an equip moves an entry into a gear slot and takes
-   * a beast out of one, and a use empties a stack: there is no action here whose
-   * effect is local to the element it was pressed on. `pendingFocus` is what
-   * makes that cheap enough to be right; see the note in ui/pause.ts.
-   */
   private render(): void {
     const el = this.el;
     if (!el) return;
     const model = this.hooks.model();
-    const pane = el.querySelector('.pane') as HTMLDivElement;
+    const pane = el.querySelector('.pane') as HTMLElement;
 
-    const rows = this.tab === null
+    this.rows.clear();
+    for (const e of model.entries) this.rows.set(e.id, e);
+    for (const g of model.gear) if (g.entry) this.rows.set(g.entry.id, g.entry);
+
+    const list = this.tab === null
       ? model.entries
       : model.entries.filter((e) => e.kind === this.tab);
-
-    // A selection that the last action removed (salvaged, dropped, drunk) falls
-    // back to the first row rather than leaving the detail pane pointing at
-    // nothing — and to null when the tab is empty.
-    let sel = rows.find((e) => e.id === this.selected) ?? null;
-    if (!sel) sel = rows[0] ?? null;
+    let sel = list.find((e) => e.id === this.selected) ?? null;
+    if (!sel) sel = list[0] ?? null;
     this.selected = sel?.id ?? null;
 
+    // NOTE what the next line does to the canvas: it detaches it. That is safe
+    // and is the whole reason `InventoryStage` owns the element rather than
+    // building one per render — a detached canvas keeps its WebGL context, its
+    // programs and its textures for as long as something holds the reference,
+    // and `stage.mount` below re-appends the same one. A context per render is
+    // not a thing that could work.
     pane.innerHTML =
       `<div class="head"><h2>${escapeHtml(t('inv.title'))}</h2></div>` +
+      '<div class="stage"></div>' +
       this.gearHtml(model.gear) +
       this.tabsHtml() +
-      '<div class="body">' +
-        `<div class="grid" style="--cols:${INV_COLS}">${
-          rows.length
-            ? rows.map((e) => this.slotHtml(e)).join('')
-            : `<p class="empty">${escapeHtml(t('inv.empty'))}</p>`
-        }</div>` +
-        `<div class="detail">${this.detailHtml(sel)}</div>` +
-      '</div>' +
+      `<div class="grid" style="--cols:${INV_COLS}">${
+        list.length
+          ? list.map((e) => this.slotHtml(e)).join('')
+          : `<p class="empty">${escapeHtml(t('inv.empty'))}</p>`
+      }</div>` +
+      this.footHtml(sel) +
       `<div class="foot">${t('inv.foot', { key: kbd('I'), esc: kbd('Esc') })}</div>`;
 
     const closeBtn = document.createElement('button');
@@ -273,6 +340,16 @@ export class InventoryPanel {
     closeBtn.innerHTML = CLOSE_ICON;
     (pane.querySelector('.head') as HTMLElement).appendChild(closeBtn);
 
+    const cast = model.gear;
+    this.stage.mount(pane.querySelector('.stage') as HTMLElement);
+    this.stage.setCast(
+      cast.find((g) => g.slot === 'primary')?.entry?.species ?? null,
+      cast.find((g) => g.slot === 'support')?.entry?.species ?? null,
+    );
+    // After layout, because the canvas is a flex row and has no size until the
+    // browser has laid the column out.
+    requestAnimationFrame(() => this.stage.resize());
+
     this.focusables = Array.from(pane.querySelectorAll(FOCUSABLE));
     const want = this.pendingFocus;
     this.pendingFocus = null;
@@ -281,28 +358,30 @@ export class InventoryPanel {
     this.focusables[this.focusIdx]?.focus();
   }
 
+  /**
+   * The three gear slots, in the wireframe's order — the lead beast on the
+   * left, the weapon in the middle, the support beast on the right — which is
+   * the order the three figures stand in on the stage directly above them.
+   */
   private gearHtml(gear: readonly GearSlotView[]): string {
-    return '<div class="gear">' +
-      `<span class="gl">${escapeHtml(t('inv.gear'))}</span>` +
-      gear.map((g) => {
-        const e = g.entry;
-        const label = t(
-          g.slot === 'weapon' ? 'inv.slot.weapon'
-          : g.slot === 'primary' ? 'inv.slot.primary' : 'inv.slot.support',
-        );
-        // A filled slot is a BUTTON that selects the thing in it, so a player
-        // who wants to swap their weapon starts from the weapon they have.
-        // Empty is a plain div: there is nothing to select.
-        const inner =
-          `<span class="gs-ic">${e ? this.iconHtml(e) : ''}</span>` +
-          `<span class="gs-t"><b>${escapeHtml(label)}</b>` +
-          `<span>${escapeHtml(e ? e.name : t('inv.slot.empty'))}</span></span>`;
-        return e
-          ? `<button class="gs full" type="button" data-sel="${escapeHtml(e.id)}"` +
-            ` style="--el:${hexColor(e.color)}">${inner}</button>`
-          : `<div class="gs">${inner}</div>`;
-      }).join('') +
-      '</div>';
+    const order: GearSlotId[] = ['primary', 'weapon', 'support'];
+    return '<div class="gear">' + order.map((slot) => {
+      const e = gear.find((g) => g.slot === slot)?.entry ?? null;
+      const cls = ['gs'];
+      if (e) cls.push('full');
+      if (e?.rarity) cls.push(`r-${e.rarity}`);
+      return `<button class="${cls.join(' ')}" type="button" data-gear="${slot}"` +
+        (e ? ` data-sel="${escapeHtml(e.id)}" draggable="true"` : '') +
+        ` style="--el:${hexColor(e?.color ?? 0x64748b)}">` +
+        `<span class="gs-ic">${e ? this.iconHtml(e) : ''}</span>` +
+        // The slot's ROLE, and not the name of what is in it. A picture already
+        // says which beast that is, and the name under it was a second label
+        // saying the same thing in less detail — while being the one thing in
+        // the strip that changes width, so the three slots jostled every time
+        // the party changed. The item's name is the tooltip's job.
+        `<span class="gs-l">${escapeHtml(t(SLOT_LABELS[slot]))}</span>` +
+        '</button>';
+    }).join('') + '</div>';
   }
 
   private tabsHtml(): string {
@@ -314,12 +393,35 @@ export class InventoryPanel {
     }).join('')}</div>`;
   }
 
-  /** The picture in a slot: an atlas tile when there is one, else a lozenge. */
+  /**
+   * The picture in a slot, in preference order: a baked 3D PORTRAIT for a beast,
+   * an atlas tile for a weapon or blueprint, and an element-coloured lozenge for
+   * everything else.
+   *
+   * A beast whose portrait has not finished baking gets the lozenge and is
+   * patched in place by `paintIcon` — see the note on `InventoryStage.iconFor`.
+   * `data-beast` is what makes that patch findable.
+   */
   private iconHtml(e: InvEntry): string {
+    if (e.species) {
+      const url = this.stage.iconFor(e.species);
+      return `<i class="ic beast${url ? '' : ' blob'}" data-beast="${escapeHtml(e.species.id)}"` +
+        ` style="--el:${hexColor(e.color)}${url ? `;background-image:url(${url})` : ''}"></i>`;
+    }
     if (e.icon && isWeaponIcon(e.icon)) {
       return `<i class="ic" style="${weaponIconStyle(e.icon)}"></i>`;
     }
     return `<i class="ic blob" style="--el:${hexColor(e.color)}"></i>`;
+  }
+
+  /** A portrait arrived: fill in every slot showing that species, in place. */
+  private paintIcon(speciesId: string, url: string): void {
+    const el = this.el;
+    if (!el) return;
+    for (const i of el.querySelectorAll<HTMLElement>(`.ic.beast[data-beast="${speciesId}"]`)) {
+      i.style.backgroundImage = `url(${url})`;
+      i.classList.remove('blob');
+    }
   }
 
   private slotHtml(e: InvEntry): string {
@@ -327,48 +429,133 @@ export class InventoryPanel {
     if (e.rarity) cls.push(`r-${e.rarity}`);
     if (e.equipped) cls.push('on');
     if (e.id === this.selected) cls.push('sel');
-    return `<button class="${cls.join(' ')}" type="button" data-sel="${escapeHtml(e.id)}"` +
-      ` style="--el:${hexColor(e.color)}" title="${escapeHtml(e.name)}">` +
+    return `<button class="${cls.join(' ')}" type="button" draggable="true"` +
+      ` data-sel="${escapeHtml(e.id)}" style="--el:${hexColor(e.color)}">` +
       this.iconHtml(e) +
       (e.count > 1 ? `<span class="n">${e.count}</span>` : '') +
-      `<span class="nm">${escapeHtml(e.name)}</span>` +
       '</button>';
   }
 
-  private detailHtml(e: InvEntry | null): string {
-    if (!e) return `<p class="pick">${escapeHtml(t('inv.pick'))}</p>`;
-    const acts = e.actions ?? [];
-    // The primary is the first action that is not a way of destroying the item
-    // — see DESTRUCTIVE. A row of only destructive actions gets no primary at
-    // all, which is the intended emphasis rather than a gap.
-    const primary = acts.find((a) => !DESTRUCTIVE.has(a));
-    return `<div class="dh" style="--el:${hexColor(e.color)}">` +
-        `<span class="dic">${this.iconHtml(e)}</span>` +
-        `<div><h3>${escapeHtml(e.name)}</h3>` +
-        (e.rarity ? `<span class="rar r-${e.rarity}">${escapeHtml(t(RARITY_KEYS[e.rarity]))}</span>` : '') +
-        '</div></div>' +
+  /**
+   * The footer strip: what is selected, and the two things that destroy it.
+   *
+   * ONLY the destructive actions. Everything constructive is a right-click, an
+   * Enter or a drag away, and putting Equip here too would have made the strip
+   * a detail pane again by a different name.
+   */
+  private footHtml(sel: InvEntry | null): string {
+    if (!sel) return '<div class="sel"></div>';
+    const acts = (sel.actions ?? []).filter((a) => DESTRUCTIVE.has(a));
+    const primary = this.primaryOf(sel);
+    // ON A DEVICE WITH NO POINTER THE PRIMARY BECOMES A BUTTON, and that is not
+    // a nicety: a finger cannot right-click, cannot hover and cannot start an
+    // HTML5 drag, so on a phone every one of the three ways to equip something
+    // is gone and the panel would be a wall you can only throw things away
+    // from. `(hover: none)` is the exact question — not "is this small", which
+    // a desktop window is too — and it is asked at RENDER time rather than
+    // cached, so a tablet with a mouse plugged in answers correctly on the next
+    // open. It is a GHOST button beside two danger ones, so the destructive
+    // pair still reads as the loud thing on the strip.
+    const noPointer = window.matchMedia?.('(hover: none)').matches ?? false;
+    return '<div class="sel">' +
+      `<span class="nm">${escapeHtml(sel.name)}</span>` +
+      (primary && !noPointer
+        ? `<span class="hint">${escapeHtml(t('inv.rmb', { action: t(ACTION_KEYS[primary]) }))}</span>`
+        : '') +
+      (primary && noPointer
+        ? `<button class="bs-buy ghost" type="button" data-do="${primary}">` +
+          `${escapeHtml(t(ACTION_KEYS[primary]))}</button>`
+        : '') +
+      acts.map((a) =>
+        `<button class="bs-buy danger" type="button" data-do="${a}">` +
+        `${escapeHtml(t(ACTION_KEYS[a]))}</button>`).join('') +
+      '</div>';
+  }
+
+  // -------------------------------------------------------------------------
+  // The tooltip
+  // -------------------------------------------------------------------------
+
+  private showTip(e: InvEntry, x: number, y: number): void {
+    const tip = this.tip;
+    if (!tip) return;
+    tip.innerHTML =
+      `<h3 style="--el:${hexColor(e.color)}">${escapeHtml(e.name)}</h3>` +
+      (e.rarity ? `<span class="rar r-${e.rarity}">${escapeHtml(t(RARITY_KEYS[e.rarity]))}</span>` : '') +
       (e.description ? `<p>${escapeHtml(e.description)}</p>` : '') +
       (e.stats?.length
         ? `<div class="bs-chips">${e.stats.map((s) =>
             `<span class="bs-chip">${escapeHtml(s.label)} <b>${escapeHtml(s.value)}</b></span>`).join('')}</div>`
         : '') +
-      (acts.length
-        ? `<div class="acts">${acts.map((a) =>
-            `<button class="bs-buy${a === primary ? '' : ' ghost'}${DESTRUCTIVE.has(a) ? ' danger' : ''}"` +
-            ` type="button" data-do="${a}">${escapeHtml(t(ACTION_KEYS[a]))}</button>`).join('')}</div>`
-        : '') +
       (e.note ? `<p class="note">${escapeHtml(e.note)}</p>` : '');
+    tip.classList.add('on');
+    this.moveTip(x, y);
   }
 
+  /**
+   * Keep the tooltip beside the pointer and INSIDE the window.
+   *
+   * It is measured rather than flipped at a breakpoint because the panel is
+   * docked to the right edge: every slot in it is within a tooltip's width of
+   * that edge, so "left of the pointer" is the normal case and clamping is what
+   * stops the bottom rows running off the bottom.
+   */
+  private moveTip(x: number, y: number): void {
+    const tip = this.tip;
+    if (!tip) return;
+    const r = tip.getBoundingClientRect();
+    const pad = 12;
+    const left = Math.max(pad, Math.min(x - r.width - 18, window.innerWidth - r.width - pad));
+    const top = Math.max(pad, Math.min(y - 12, window.innerHeight - r.height - pad));
+    tip.style.transform = `translate(${Math.round(left)}px,${Math.round(top)}px)`;
+  }
+
+  private hideTip(): void {
+    this.tip?.classList.remove('on');
+  }
+
+  private entryAt(target: EventTarget | null): InvEntry | null {
+    const btn = (target as HTMLElement | null)?.closest?.('[data-sel]') as HTMLElement | null;
+    const id = btn?.dataset.sel;
+    return id ? this.rows.get(id) ?? null : null;
+  }
+
+  private onPointerOver = (ev: PointerEvent): void => {
+    const e = this.entryAt(ev.target);
+    if (e) this.showTip(e, ev.clientX, ev.clientY);
+    else this.hideTip();
+  };
+
+  private onPointerMove = (ev: PointerEvent): void => {
+    if (this.tip?.classList.contains('on')) this.moveTip(ev.clientX, ev.clientY);
+  };
+
+  private onPointerOut = (ev: PointerEvent): void => {
+    if (!this.entryAt(ev.relatedTarget)) this.hideTip();
+  };
+
   // -------------------------------------------------------------------------
-  // Input
+  // Actions
   // -------------------------------------------------------------------------
 
-  private onClick = (e: MouseEvent): void => {
-    const target = e.target as HTMLElement | null;
+  /** The row's PRIMARY action: the first one that does not destroy it. */
+  private primaryOf(e: InvEntry): InvAction | null {
+    return (e.actions ?? []).find((a) => !DESTRUCTIVE.has(a)) ?? null;
+  }
+
+  private run(id: string, action: InvAction, focus?: string): void {
+    this.hideTip();
+    this.hooks.onAction(id, action);
+    if (!this.el) return;   // the host may have closed us from inside the action
+    this.pendingFocus = focus ?? `[data-sel="${id}"]`;
+    this.render();
+  }
+
+  private onClick = (ev: MouseEvent): void => {
+    const target = ev.target as HTMLElement | null;
     if (!target || !this.el) return;
-    // The scrim IS a way out here, unlike the pause menu: the world behind is
-    // still the thing you came for, which is the shop's argument exactly.
+    // The scrim IS a way out, unlike the pause menu's: the world behind it is
+    // still the thing you came for. Same argument the shop makes.
     if (target.classList.contains('bs-scrim')) { this.close(); return; }
     const btn = target.closest('button') as HTMLButtonElement | null;
     if (!btn) return;
@@ -378,26 +565,103 @@ export class InventoryPanel {
     const tab = btn.dataset.tab;
     if (tab !== undefined) { this.showTab(tab === 'all' ? null : tab as ItemKind); return; }
 
+    const act = btn.dataset.do as InvAction | undefined;
+    if (act && this.selected) { this.run(this.selected, act, `[data-do="${act}"]`); return; }
+
+    // A LEFT CLICK ONLY SELECTS. Nothing destructive is one click away from
+    // anything, and the footer's buttons are what the selection is for.
     const sel = btn.dataset.sel;
     if (sel !== undefined) {
       this.selected = sel;
       this.pendingFocus = `[data-sel="${sel}"]`;
       this.render();
-      return;
-    }
-
-    const act = btn.dataset.do as InvAction | undefined;
-    if (act && this.selected) {
-      const id = this.selected;
-      this.hooks.onAction(id, act);
-      // The panel may have been closed by the host from inside the action —
-      // nothing does today, and a render into a removed element would be the
-      // silent kind of wrong if one ever did.
-      if (!this.el) return;
-      this.pendingFocus = `[data-do="${act}"]`;
-      this.render();
     }
   };
+
+  private onContextMenu = (ev: MouseEvent): void => {
+    const e = this.entryAt(ev.target);
+    if (!e) return;
+    // Always, even when there is nothing to do: a browser context menu over an
+    // inventory slot is never what the player meant by that press.
+    ev.preventDefault();
+    const a = this.primaryOf(e);
+    if (a) this.run(e.id, a);
+  };
+
+  // -------------------------------------------------------------------------
+  // Drag and drop
+  // -------------------------------------------------------------------------
+
+  private onDragStart = (ev: DragEvent): void => {
+    const e = this.entryAt(ev.target);
+    if (!e) { ev.preventDefault(); return; }
+    this.dragging = e.id;
+    this.hideTip();
+    this.el?.classList.add('dragging');
+    // `setData` is required or Firefox refuses to start a drag at all. The
+    // payload is our own id and nothing reads it back — `this.dragging`
+    // survives the re-render a drop causes, where a DataTransfer does not.
+    ev.dataTransfer?.setData('text/plain', e.id);
+    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+  };
+
+  /**
+   * Which action dropping the dragged row HERE would mean, or null if this is
+   * not a target for it.
+   *
+   * The gear slots are the mapping in `SLOT_ACTION` — and each is gated on the
+   * host having listed that action for the row, so the panel never sends an
+   * `equip` for a potion and the "does this go here" answer on screen is the
+   * same one the host would give. The GRID is where a gear slot's contents go
+   * to be taken off, and the SCRIM is the world.
+   */
+  private dropAction(target: EventTarget | null): InvAction | null {
+    const e = this.dragging ? this.rows.get(this.dragging) : null;
+    if (!e) return null;
+    const el = target as HTMLElement | null;
+    const gear = el?.closest?.('[data-gear]') as HTMLElement | null;
+    if (gear) {
+      const want = SLOT_ACTION[gear.dataset.gear as GearSlotId];
+      return (e.actions ?? []).includes(want) ? want : null;
+    }
+    if (el?.closest?.('.grid')) {
+      return (e.actions ?? []).includes('unequip') ? 'unequip' : null;
+    }
+    if (el?.classList.contains('bs-scrim')) {
+      return (e.actions ?? []).includes('drop') ? 'drop' : null;
+    }
+    return null;
+  }
+
+  private onDragOver = (ev: DragEvent): void => {
+    const a = this.dropAction(ev.target);
+    if (!a) return;
+    // preventDefault is what makes an element a drop target at all.
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+    const host = (ev.target as HTMLElement).closest('[data-gear], .grid, .bs-scrim');
+    for (const n of this.el?.querySelectorAll('.drop-ok') ?? []) n.classList.remove('drop-ok');
+    host?.classList.add('drop-ok');
+  };
+
+  private onDropEvent = (ev: DragEvent): void => {
+    const a = this.dropAction(ev.target);
+    const id = this.dragging;
+    this.onDragEnd();
+    if (!a || !id) return;
+    ev.preventDefault();
+    this.run(id, a);
+  };
+
+  private onDragEnd = (): void => {
+    this.dragging = null;
+    this.el?.classList.remove('dragging');
+    for (const n of this.el?.querySelectorAll('.drop-ok') ?? []) n.classList.remove('drop-ok');
+  };
+
+  // -------------------------------------------------------------------------
+  // Keyboard and pad
+  // -------------------------------------------------------------------------
 
   private showTab(tab: ItemKind | null): void {
     this.tab = tab;
@@ -405,32 +669,39 @@ export class InventoryPanel {
     this.render();
   }
 
+  private onResize = (): void => { this.stage.resize(); };
+
   /**
-   * Arrows walk the panel; Enter and Space are the platform's, because every
-   * control here is a real `<button>`.
+   * Arrows walk the panel and Enter runs the focused row's primary action —
+   * the same thing a right-click does, so a keyboard player has the whole panel
+   * without a pointer.
    *
    * ESCAPE IS NOT HERE, for the reason ui/pause.ts gives at length: it reaches
    * this panel from three devices and only one of them is a DOM key event, so
-   * the host owns that edge for all three and this listener owns only what a
-   * keyboard alone can send. `KeyI` is the same case and is also the host's.
+   * the host owns that edge for all three. `KeyI` is the same case.
    */
-  private onKeyDown = (e: KeyboardEvent): void => {
+  private onKeyDown = (ev: KeyboardEvent): void => {
     if (!this.el) return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    switch (e.key) {
-      case 'ArrowRight': if (!this.stepStrip(1)) this.moveFocus(1); e.preventDefault(); break;
-      case 'ArrowLeft': if (!this.stepStrip(-1)) this.moveFocus(-1); e.preventDefault(); break;
-      // Up/down move a GRID ROW at a time inside the grid and one stop
-      // everywhere else, which is what makes a wall of slots walkable without
-      // giving the panel a second, private notion of where things are: the row
-      // width is INV_COLS and the stylesheet lays the grid out from it.
-      case 'ArrowDown': e.preventDefault(); this.moveFocus(this.rowStep(1)); break;
-      case 'ArrowUp': e.preventDefault(); this.moveFocus(this.rowStep(-1)); break;
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    switch (ev.key) {
+      case 'ArrowRight': if (!this.stepStrip(1)) this.moveFocus(1); ev.preventDefault(); break;
+      case 'ArrowLeft': if (!this.stepStrip(-1)) this.moveFocus(-1); ev.preventDefault(); break;
+      case 'ArrowDown': ev.preventDefault(); this.moveFocus(this.rowStep(1)); break;
+      case 'ArrowUp': ev.preventDefault(); this.moveFocus(this.rowStep(-1)); break;
+      case 'Enter': {
+        const here = document.activeElement as HTMLElement | null;
+        // Only a SLOT. Enter on a tab or a footer button is the platform's own
+        // click, and stealing it would break both.
+        if (!here?.dataset.sel) return;
+        const e = this.rows.get(here.dataset.sel);
+        const a = e ? this.primaryOf(e) : null;
+        if (e && a) { ev.preventDefault(); this.run(e.id, a); }
+        break;
+      }
       default: break;
     }
   };
 
-  /** Left/right on the tab strip changes the FILTER rather than walking chips. */
   private stepStrip(dir: -1 | 1): boolean {
     const strip = (document.activeElement as HTMLElement | null)?.closest?.('.strip');
     if (!strip) return false;
@@ -448,19 +719,19 @@ export class InventoryPanel {
     if (!this.focusables.length) return;
     const here = this.focusables.indexOf(document.activeElement as HTMLButtonElement);
     const from = here >= 0 ? here : this.focusIdx;
-    // CLAMPED rather than wrapped, and only for a multi-stop jump: a down-arrow
-    // on the last half-row of slots should land on the last slot, not spring
-    // back to the tab strip. A single step still wraps, so a pad can circle.
     const n = this.focusables.length;
+    // CLAMPED for a multi-stop jump, wrapped for a single step: a down-arrow on
+    // the last half-row of slots should land on the last slot, not spring back
+    // to the tabs, while a pad circling with one step should circle.
     let next = from + d;
     if (Math.abs(d) > 1) next = Math.min(n - 1, Math.max(0, next));
     else next = (next + n) % n;
     this.focusIdx = next;
-    this.focusables[this.focusIdx].focus();
-    // Selecting as the cursor passes is what makes the detail pane follow a pad
+    const el = this.focusables[this.focusIdx];
+    el.focus();
+    // Selecting as the cursor passes is what makes the footer follow a pad
     // without a press — but only for a SLOT, or arrowing onto Salvage would
     // change what Salvage is pointed at.
-    const el = this.focusables[this.focusIdx];
     const sel = el.dataset.sel;
     if (sel !== undefined && el.classList.contains('slot') && sel !== this.selected) {
       this.selected = sel;
@@ -469,9 +740,14 @@ export class InventoryPanel {
     }
   }
 
-  /** Enter/Space on the focused control, for a host driving this from `Input`. */
+  /** Enter/A on the focused control, for a host driving this from `Input`. */
   activate(): void {
-    (document.activeElement as HTMLButtonElement | null)?.click();
+    const here = document.activeElement as HTMLButtonElement | null;
+    const id = here?.dataset.sel;
+    const e = id ? this.rows.get(id) : null;
+    const a = e && here?.classList.contains('slot') ? this.primaryOf(e) : null;
+    if (e && a) this.run(e.id, a);
+    else here?.click();
   }
 
   /** See the note on `PauseMenu.pollPad` — same poll, same reasons. */

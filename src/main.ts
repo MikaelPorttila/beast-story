@@ -1187,6 +1187,9 @@ function giveItemFromContent(id: string, n: number): void {
     refreshBagChips();
   }
   bus.emit({ type: 'toast', text: t('toast.gotItem', { item: itemName(def, n) }) });
+  // The panel is a modal so almost nothing can reach here while it is up — but
+  // the dev console can, and so could a piece of content firing on a timer.
+  inventory.refresh();
 }
 
 /** A beast's inventory id. The panel round-trips it; nothing else parses it. */
@@ -1218,6 +1221,11 @@ function inventoryModel(): InventoryModel {
       name: t(b.species.nameKey),
       count: 1,
       color: ELEMENT_COLORS[b.species.element],
+      // The SPECIES, not a copy of anything off it. The panel's stage builds a
+      // rig of its own from this and bakes the portrait the slot wears, which
+      // is why a beast row shows the animal rather than a coloured lozenge —
+      // see ui/inventory-stage.ts on why it may not borrow the roster's rig.
+      species: b.species,
       rarity: 'rare',
       description: t(b.species.descriptionKey),
       equipped: lead || supporting,
@@ -4073,13 +4081,22 @@ beginPlay();
       equipped: !!e.equipped, actions: e.actions ?? [],
     })),
     // What the DOM holds, or nulls when the panel is shut.
+    //
+    // `portraits` is the one worth explaining: a beast slot's picture is BAKED
+    // by the panel's 3D stage a frame at a time (see ui/inventory-stage.ts), so
+    // it is the count of beast slots that have stopped being a placeholder
+    // lozenge — which is the only thing that can tell "the stage rendered ten
+    // models" from "the stage never came up and every slot is a coloured blob".
     panel: inventory.isOpen ? {
       slots: document.querySelectorAll('.bs-inv .slot').length,
       gearSlots: document.querySelectorAll('.bs-inv .gs').length,
       tabs: document.querySelectorAll('.bs-inv .chip.tab').length,
       icons: document.querySelectorAll('.bs-inv .slot .ic:not(.blob)').length,
-      actions: [...document.querySelectorAll('.bs-inv .acts button')]
+      portraits: document.querySelectorAll('.bs-inv .slot .ic.beast:not(.blob)').length,
+      stageGl: !!document.querySelector('.bs-inv canvas.stage-gl'),
+      footActions: [...document.querySelectorAll('.bs-inv .sel button')]
         .map((b) => (b as HTMLElement).dataset.do ?? ''),
+      tip: document.querySelector('.bs-inv .tip.on')?.textContent ?? null,
       selected: (document.querySelector('.bs-inv .slot.sel') as HTMLElement | null)
         ?.dataset.sel ?? null,
     } : null,

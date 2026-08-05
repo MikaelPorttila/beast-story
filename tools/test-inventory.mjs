@@ -109,6 +109,10 @@ if (!boot) {
   await wait(400);
   const open = await inv();
   const travelOpen = await hold(1200);
+  // The stage bakes one portrait per frame, so the roster's ten are a second or
+  // so behind the first paint by construction — see InventoryStage.iconFor.
+  await wait(1200);
+  const baked = await inv();
 
   await page.keyboard.press('KeyI');
   await wait(400);
@@ -127,6 +131,7 @@ if (!boot) {
     openedByKey: open.open,
     closedByKey: !shut.open,
     panel: open.panel,
+    portraitsAfter1p2s: baked.panel?.portraits ?? null,
     travelWithPanelUp: +travelOpen.toFixed(2),
     travelWithPanelDown: +travelShut.toFixed(2),
   };
@@ -138,16 +143,72 @@ if (!boot) {
     `the hero travelled only ${travelShut.toFixed(2)} with the panel down — `
     + 'the frozen reading above proves nothing');
   // The panel drew what the model holds: thirteen rows at boot (ten beasts and
-  // three items), three gear slots, seven tabs. The ICON count is separate and
-  // is the only thing that can catch a broken atlas — a slot with no background
-  // renders perfectly and looks like a slot.
+  // three items), three gear slots, seven tabs.
   check(open.panel?.slots === 13,
     `${open.panel?.slots} slots drawn, expected 13`);
   check(open.panel?.gearSlots === 3,
     `${open.panel?.gearSlots} gear slots drawn, expected 3`);
   check(open.panel?.tabs === 7, `${open.panel?.tabs} tabs drawn, expected 7`);
+  // Two ATLAS icons is the weapon and the blueprint, and it is the only thing
+  // that can catch a broken sprite sheet — a slot whose background failed to
+  // load renders perfectly and looks like a slot.
   check((open.panel?.icons ?? 0) >= 2,
     `${open.panel?.icons} atlas icons drawn — the weapon and the blueprint both have one`);
+  // THE 3D HALF. `stageGl` says the second WebGL context came up at all;
+  // `portraits` says it rendered ten distinct beasts INTO the wall, which is
+  // the feature — a slot showing its element lozenge is what this looked like
+  // before, and it looks perfectly fine.
+  check(open.panel?.stageGl === true, 'no stage canvas in the panel');
+  check((baked.panel?.portraits ?? 0) === 10,
+    `${baked.panel?.portraits} beast portraits baked after 1.2 s, expected the roster's 10`);
+}
+
+// ---------- 2b. the tooltip, and the detail pane's absence ----------
+// The tooltip is the description now, so it has to be asserted on TEXT: an
+// empty box that opens on hover would pass any "is it visible" test.
+{
+  await page.keyboard.press('KeyI');
+  await wait(400);
+  // `page.hover`, not `mouse.move` to the slot's centre: a bare CDP mouse move
+  // does not make the browser synthesise the pointerover this listens for, and
+  // the version of this section that used one read a null tooltip against a
+  // panel that was working perfectly in the hand.
+  await page.hover('.bs-inv .slot[data-sel="potion-mend"]');
+  await wait(250);
+  const hovered = await inv();
+  const tipBox = await page.evaluate(() => {
+    const t = document.querySelector('.bs-inv .tip');
+    const r = t.getBoundingClientRect();
+    return {
+      on: t.classList.contains('on'),
+      right: Math.round(r.right), bottom: Math.round(r.bottom),
+      w: Math.round(r.width), h: Math.round(r.height),
+      inFrame: r.left >= 0 && r.top >= 0
+        && r.right <= window.innerWidth && r.bottom <= window.innerHeight,
+    };
+  });
+  // Off any row, and onto something that is still inside the panel — the
+  // tooltip hides on leaving a slot, not on leaving the panel.
+  await page.hover('.bs-inv .head h2');
+  await wait(250);
+  const away = await inv();
+
+  results.tooltip = {
+    text: hovered.panel?.tip,
+    box: tipBox,
+    goneOnLeave: away.panel?.tip === null,
+    detailPanes: await page.evaluate(() => document.querySelectorAll('.bs-inv .detail').length),
+  };
+  check(!!hovered.panel?.tip && hovered.panel.tip.includes('Mending'),
+    `the tooltip reads ${JSON.stringify(hovered.panel?.tip)} — it should name the item`);
+  check(hovered.panel.tip.includes('Restores'),
+    'the tooltip carries no stats — it replaced a pane that did');
+  // CLAMPED INTO THE WINDOW. The dock is against the right edge, so every slot
+  // is within a tooltip's width of it: unclamped, this is the assertion that
+  // fails, and it fails off screen where nobody sees it.
+  check(tipBox.inFrame, `the tooltip is outside the window: ${JSON.stringify(tipBox)}`);
+  check(results.tooltip.goneOnLeave, 'the tooltip stayed up after the pointer left');
+  check(results.tooltip.detailPanes === 0, 'a detail pane is still in the markup');
 }
 
 // ---------- 3. equip and unequip move the stat ----------
@@ -173,6 +234,106 @@ if (!boot) {
   const row = armed.entries.find((e) => e.id === 'sword-iron');
   check(!row.actions.includes('drop') && !row.actions.includes('salvage'),
     `the equipped sword still offers ${JSON.stringify(row.actions)}`);
+}
+
+// ---------- 3b. right-click runs the row's primary action ----------
+// A PAIR, and it has to be: "right-click unequipped it" is equally true of a
+// working primary action and of a handler wired to `unequip` whatever it is
+// looking at. The same gesture on the same slot has to put it back.
+{
+  const rmb = (sel) => page.evaluate((s) => {
+    const el = document.querySelector(`.bs-inv .slot[data-sel="${s}"]`);
+    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  }, sel);
+
+  const before = await inv();
+  await rmb('sword-iron');
+  await wait(200);
+  const off = await inv();
+  await rmb('sword-iron');
+  await wait(200);
+  const on = await inv();
+
+  results.rightClick = {
+    startedEquipped: before.weapon,
+    afterFirst: off.weapon,
+    afterSecond: on.weapon,
+    attackAfterFirst: off.attackStat,
+    attackAfterSecond: on.attackStat,
+  };
+  check(before.weapon === 'sword-iron', 'section 3b did not start with the sword equipped');
+  check(off.weapon === null,
+    `right-click left the weapon as ${off.weapon} — its primary action is unequip`);
+  check(on.weapon === 'sword-iron',
+    `the second right-click left ${on.weapon} — it should have put the sword back`);
+  check(on.attackStat === before.attackStat,
+    `attackStat ended at ${on.attackStat}, not the ${before.attackStat} it started at`);
+}
+
+// ---------- 3c. drag onto a gear slot, and off the panel ----------
+// The gestures, through real DragEvents with a real DataTransfer — synthetic,
+// because CDP cannot drive an HTML5 drag, but through the SAME listeners a
+// mouse reaches: the panel reads `event.target` and its own `dragging` id and
+// nothing else.
+{
+  const drag = (fromSel, toSel) => page.evaluate((f, t) => {
+    const dt = new DataTransfer();
+    const src = document.querySelector(f);
+    const dst = document.querySelector(t);
+    src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+    dst.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    dst.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    src.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+  }, fromSel, toSel);
+
+  await give('greatsword-iron', 1);
+  await wait(250);
+
+  // A weapon onto the WEAPON slot: equip.
+  await drag('.bs-inv .slot[data-sel="greatsword-iron"]', '.bs-inv .gs[data-gear="weapon"]');
+  await wait(250);
+  const equipped = await inv();
+
+  // A POTION onto the weapon slot: refused, and refused by the PANEL — the host
+  // never hears about it, because the host never listed `equip` for a potion.
+  // Without this the drag half passes for a panel that sends every drop.
+  await drag('.bs-inv .slot[data-sel="potion-mend"]', '.bs-inv .gs[data-gear="weapon"]');
+  await wait(250);
+  const stillArmed = await inv();
+
+  // A benched beast onto the LEAD slot.
+  const benched = equipped.entries.find((e) => e.kind === 'beast' && !e.equipped);
+  await drag(`.bs-inv .slot[data-sel="${benched.id}"]`, '.bs-inv .gs[data-gear="primary"]');
+  await wait(250);
+  const led = await inv();
+
+  // And off the panel entirely, onto the world: drop.
+  const heldBefore = led.bag.find((e) => e.id === 'sunberry')?.count ?? 0;
+  await give('sunberry', 2);
+  await wait(250);
+  await drag('.bs-inv .slot[data-sel="sunberry"]', '.bs-inv .bs-scrim');
+  await wait(300);
+  const dropped = await inv();
+
+  const slotOf = (snap, s) => snap.gear.find((g) => g.slot === s)?.id ?? null;
+  results.drag = {
+    ontoWeapon: equipped.weapon,
+    potionRefused: stillArmed.weapon,
+    ontoLead: slotOf(led, 'primary'),
+    wanted: benched.id,
+    sunberriesBefore: heldBefore + 2,
+    sunberriesAfter: dropped.bag.find((e) => e.id === 'sunberry')?.count ?? 0,
+  };
+  check(equipped.weapon === 'greatsword-iron',
+    `dragging the greatsword onto the weapon slot left ${equipped.weapon}`);
+  check(stillArmed.weapon === 'greatsword-iron',
+    `a potion dropped on the weapon slot changed it to ${stillArmed.weapon} — `
+    + 'the slot must refuse what the host never offered');
+  check(slotOf(led, 'primary') === benched.id,
+    `dragging ${benched.id} onto the lead slot left ${slotOf(led, 'primary')}`);
+  check(results.drag.sunberriesAfter === results.drag.sunberriesBefore - 1,
+    `dragging off the panel took the stack ${results.drag.sunberriesBefore} -> `
+    + `${results.drag.sunberriesAfter}, expected one fewer`);
 }
 
 // ---------- 4. using a potion: hp up, stack down, buff on a clock ----------
@@ -208,8 +369,11 @@ if (!boot) {
   check(results.use.furyGiven === 1, 'the console give of a fury draught did not land');
   check(furious.buff.attack === 10 && furious.buff.seconds > 0,
     `the buff reads ${JSON.stringify(furious.buff)}, expected +10 on a running clock`);
-  check(furious.attackStat === furious.baseAttack + 4 + 10,
-    `buffed attackStat is ${furious.attackStat}, expected base + sword + draught`);
+  // RELATIVE to what he had a moment ago, not to a weapon named here: section
+  // 3c leaves whatever it last dragged onto the slot, and an absolute figure
+  // makes this section fail on a change three sections above it.
+  check(furious.attackStat === gotFury.attackStat + 10,
+    `buffed attackStat is ${furious.attackStat}, expected ${gotFury.attackStat} + the draught's 10`);
 }
 
 // ---------- 5. salvage pays, and drop lands on the ground ----------
@@ -287,6 +451,11 @@ if (!boot) {
 // panel and then pressing Tab has to land where a player expects, which it can
 // only do if both are writing `primaryIdx`/`supportIdx`.
 {
+  // THE PANEL HAS TO BE SHUT FOR THIS ONE. Tab is read in a simulation slice
+  // and every modal in the game freezes those, so a Tab pressed with the
+  // inventory up is a Tab the hero never sees — which reads exactly like the
+  // failure this section is looking for, and did, for one run.
+  if ((await inv()).open) { await page.keyboard.press('KeyI'); await wait(350); }
   const before = await inv();
   const benched = before.entries.find((e) => e.kind === 'beast' && !e.equipped);
   await act(benched.id, 'setLead');
