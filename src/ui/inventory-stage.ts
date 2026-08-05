@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { BeastAnimCtx, BeastRig, BeastSpecies } from '../core/types';
 import { BEAST_CYCLE_SLOTS } from '../core/types';
-import { buildHeroRig, type HeroRig } from '../player/hero-rig';
+import { buildHeroRig, setWeaponModel, type HeroRig } from '../player/hero-rig';
+import { WEAPON_MODEL_IDS, type WeaponModelId } from '../player/weapons';
 import { HeroAnimator, type AnimInput } from '../player/animations';
 
 /**
@@ -68,10 +69,24 @@ const BEAST_X = STAGE_W * 0.3;
 /** A step BACK as well as out, so a wingspan cannot cut across the hero. */
 const BEAST_Z = -0.3;
 /** Eye height and aim point. The hero is ~1.7 tall; this looks at his chest. */
-const EYE_Y = 1.04;
-const LOOK_Y = 0.86;
+const EYE_Y = 1.12;
+const LOOK_Y = 0.98;
 /** Vertical slice the framing must always contain, however wide the dock is. */
-const STAGE_H = 2.5;
+const STAGE_H = 3.0;
+
+/**
+ * How the stage hero PRESENTS his weapon — see the write in `tick`.
+ *
+ * Measured against the animator's own numbers rather than guessed: its rest
+ * pose is `swX` 2.62 (slung down the back of the leg) and its overhead chop
+ * ends at 1.35, so a value between them is the arc where the weapon is off the
+ * body and still in a hand that is hanging naturally. The yaw turns the flat of
+ * the blade — and the plane of the bow — toward the camera, which is the whole
+ * point of showing it here at all.
+ */
+const SHOW_X = 0.62;
+const SHOW_Y = 0.28;
+const SHOW_Z = 0.12;
 
 /** The idle every subject plays. See `beastCtx`. */
 const IDLE_SPEED = 0;
@@ -183,26 +198,77 @@ export class InventoryStage {
     this.scene.add(this.hero.root);
   }
 
-  /** Who is standing beside the hero. Either may be null. */
+  /**
+   * Who is standing beside the hero. Either may be null.
+   *
+   * WORKED OUT AS A SET, NOT SLOT BY SLOT, and that is a bug fix rather than a
+   * tidy-up. The slot-by-slot version removed the previous occupant of each
+   * slot before filling it — which is correct until the two beasts SWAP, the
+   * commonest thing this method is ever asked to do. Sending the support beast
+   * to the front put its rig into slot 0, and then slot 1's turn removed "the
+   * thing that used to be in slot 1" from the scene: the same rig, one line
+   * later, so one of the two beasts simply vanished from the stage and stayed
+   * gone until something else moved it.
+   *
+   * So: decide the whole cast, remove only what is no longer wanted, then place
+   * what is. `scene.add` on an object already in the scene is a no-op, so the
+   * survivor of a swap is never touched.
+   *
+   * ONE RIG CANNOT STAND IN TWO PLACES, which is the second half of the same
+   * report. A `THREE.Object3D` has one parent and one transform, so a cast with
+   * the same species in both slots would put one rig at two marks and draw it
+   * at whichever was written last. The engine's own rule forbids it
+   * (`cycleBeast` and the panel's actions both refuse to lead and support the
+   * same beast), but a stage that renders whatever it is handed must not depend
+   * on a caller's invariant to avoid drawing a hole.
+   */
   setCast(primary: BeastSpecies | null, support: BeastSpecies | null): void {
     if (!this.renderer) this.build();
-    const want: (BeastSpecies | null)[] = [primary, support];
-    for (let i = 0; i < 2; i++) {
-      const sp = want[i];
-      const next = sp ? this.subject(sp) : null;
-      const prev = this.onStage[i];
-      if (prev === next) continue;
-      if (prev) this.scene.remove(prev.rig.root);
-      this.onStage[i] = next;
-      if (next) {
-        const side = i === 0 ? -1 : 1;
-        next.rig.root.position.set(BEAST_X * side, 0, BEAST_Z);
-        // Turned a few degrees INWARD, toward the hero. Square-on they read as
-        // two more items in a row; angled, the three of them read as a party.
-        next.rig.root.rotation.y = -side * 0.34;
-        this.scene.add(next.rig.root);
-      }
+    const want: (Subject | null)[] = [
+      primary ? this.subject(primary) : null,
+      support ? this.subject(support) : null,
+    ];
+    if (want[0] && want[0] === want[1]) want[1] = null;
+    for (const prev of this.onStage) {
+      if (prev && !want.includes(prev)) this.scene.remove(prev.rig.root);
     }
+    this.onStage = want;
+    want.forEach((s, i) => {
+      if (!s) return;
+      const side = i === 0 ? -1 : 1;
+      s.rig.root.position.set(BEAST_X * side, 0, BEAST_Z);
+      // Turned a few degrees INWARD, toward the hero. Square-on they read as
+      // two more items in a row; angled, the three of them read as a party.
+      s.rig.root.rotation.y = -side * 0.34;
+      this.scene.add(s.rig.root);
+    });
+  }
+
+  /**
+   * Put the equipped weapon in the stage hero's hand.
+   *
+   * Takes the raw `ItemDef.model` string and guards it, for the reason that
+   * field is a string at all: core/ may not import player/, so the union is
+   * checked here rather than carried through the item catalogue.
+   */
+  setHeroWeapon(model: string | null | undefined): void {
+    if (!this.renderer) this.build();
+    const id = model && (WEAPON_MODEL_IDS as readonly string[]).includes(model)
+      ? model as WeaponModelId
+      : null;
+    if (this.hero) setWeaponModel(this.hero, id);
+  }
+
+  /**
+   * Who is on the stage AND still in the scene, by species id.
+   *
+   * Both halves, which is the point: `onStage` alone is what the panel asked
+   * for, and the bug this guards against was a rig that had been asked for and
+   * then removed from the scene one line later, so the two disagreed and only
+   * the scene was on screen. See `setCast`.
+   */
+  castIds(): (string | null)[] {
+    return this.onStage.map((s) => (s && s.rig.root.parent === this.scene ? s.species.id : null));
   }
 
   /** Build (or find) a species' rig. One per species, kept for the session. */
@@ -354,7 +420,19 @@ export class InventoryStage {
     if (this.bakeQueue.length) this.bakeStep();
 
     this.heroTime += dt;
-    if (this.hero) this.heroAnim.update(this.hero, heroIdle(this.heroTime, dt));
+    if (this.hero) {
+      this.heroAnim.update(this.hero, heroIdle(this.heroTime, dt));
+      // HELD OUT, NOT SLUNG — and it has to be written AFTER the animator,
+      // which owns `sword.rotation.x/.z` and puts the weapon down the back of
+      // the leg at rest (x ~ 2.62). That pose is right in the world, where the
+      // weapon must stay out of the way of everything the hero is doing, and
+      // wrong on a paper doll, where the weapon is one of the two things the
+      // player opened the panel to look at. `armR` is left alone: the arm is
+      // the animator's and a hand-written arm would fight its idle sway.
+      this.hero.sword.rotation.x = SHOW_X;
+      this.hero.sword.rotation.z = SHOW_Z;
+      this.hero.sword.rotation.y = SHOW_Y;
+    }
     for (const s of this.onStage) {
       if (!s) continue;
       s.t += dt;
@@ -392,6 +470,9 @@ function heroIdle(time: number, dt: number): AnimInput {
     moveNorm: 0, sprinting: false, onGround: true, swimming: false,
     climbing: false, climbRate: 0, riding: false, velY: 0,
     attack: IDLE_ATTACK, dead: false, deadT: 0, landBump: 0, hurtT: 0,
+    // He is posing, not fighting, so the punch table is never reached — but
+    // the field is required and a lie here would be a lie in a screenshot.
+    unarmed: false,
   };
 }
 

@@ -55,27 +55,27 @@ export const ITEMS: Record<string, ItemDef> = {
   'sword-iron': {
     id: 'sword-iron', nameKey: 'item.swordIron', kind: 'weapon', color: 0xc9d3dd,
     descriptionKey: 'item.swordIron.desc', icon: 'oneHandedSword',
-    rarity: 'common', power: 4, salvage: 6,
+    model: 'sword', rarity: 'common', power: 4, salvage: 6,
   },
   'greatsword-iron': {
     id: 'greatsword-iron', nameKey: 'item.greatswordIron', kind: 'weapon', color: 0xb7c3cf,
     descriptionKey: 'item.greatswordIron.desc', icon: 'largeSword',
-    rarity: 'rare', power: 8, salvage: 14,
+    model: 'greatsword', rarity: 'rare', power: 8, salvage: 14,
   },
   'bow-ash': {
     id: 'bow-ash', nameKey: 'item.bowAsh', kind: 'weapon', color: 0xc08a4a,
     descriptionKey: 'item.bowAsh.desc', icon: 'bow',
-    rarity: 'common', power: 5, salvage: 8,
+    model: 'bow', rarity: 'common', power: 5, salvage: 8,
   },
   'scythe-reaper': {
     id: 'scythe-reaper', nameKey: 'item.scytheReaper', kind: 'weapon', color: 0xa9b6c4,
     descriptionKey: 'item.scytheReaper.desc', icon: 'scythe',
-    rarity: 'legendary', power: 11, salvage: 26,
+    model: 'scythe', rarity: 'legendary', power: 11, salvage: 26,
   },
   'dagger-quick': {
     id: 'dagger-quick', nameKey: 'item.daggerQuick', kind: 'weapon', color: 0xd0d8e0,
     descriptionKey: 'item.daggerQuick.desc', icon: 'dagger',
-    rarity: 'common', power: 3, salvage: 5,
+    model: 'dagger', rarity: 'common', power: 3, salvage: 5,
   },
 
   // -- Blueprints ------------------------------------------------------------

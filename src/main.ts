@@ -13,12 +13,13 @@ import { loadPrefs, savePrefs } from './core/prefs';
 import {
   EventBus, ELEMENT_COLORS,
   type CrownContact, type NpcInfo, type SkillDef, type Damageable,
-  type TownInfo, type World, type WorldBound,
+  type ItemDef, type TownInfo, type World, type WorldBound,
 } from './core/types';
 import {
   Inventory, itemDef, itemName, isKnownItem, isDestructible, salvageValue,
   ITEMS, CURRENCY, BEAST_ID_PREFIX,
 } from './core/items';
+import { WEAPON_MODEL_IDS, type WeaponModelId } from './player/weapons';
 import { t, onLanguageChange, type StringKey } from './i18n';
 import { perf } from './core/profiler';
 import { flags } from './core/flags';
@@ -825,7 +826,24 @@ const hud = new HUD(bus);
 // `Player.reset()` goes through the same method so a second New Game in one
 // session opens on the same shot.
 player.takeStartPose();
-player.onAttack = (origin, dir) => combat.meleeStrike(origin, dir, player.attackStat);
+/**
+ * THE SWING, OR THE SHOT — decided by what is in his hand, here rather than in
+ * `Player`.
+ *
+ * Which weapon is equipped is gear-slot policy and lives in this file with the
+ * rest of it (see `applyLoadout`); the hero controller knows only that he
+ * attacked, and combat knows only how to do each. `player.weapon` is read off
+ * the RIG, so this can never disagree with the model on screen.
+ *
+ * A bow's arrow goes where the swing would have gone: `dir` is the hero's aim,
+ * already resolved by the player controller, and the aim assist above steers it
+ * exactly as it steers a sword — the difference is reach and a projectile,
+ * which is `arrowStrike`'s business.
+ */
+player.onAttack = (origin, dir) => {
+  if (player.weapon === 'bow') combat.arrowStrike(origin, dir, player.attackStat);
+  else combat.meleeStrike(origin, dir, player.attackStat);
+};
 
 /**
  * Melee aim assist: how far off the CROSSHAIR'S BEARING an enemy may sit, as
@@ -1145,6 +1163,28 @@ let attackBuffT = 0;
 function applyLoadout(): void {
   const w = equippedWeapon ? itemDef(equippedWeapon) : null;
   player.attackStat = BASE_ATTACK + (w?.power ?? 0) + attackBuff;
+  // ...and what he is HOLDING, which is the same decision seen from the other
+  // side: `ItemDef.model` names a voxel model in player/weapons.ts, and null is
+  // bare hands, which switches the animator to the punch table. The rig is the
+  // storage, so there is no second field here to fall out of step with it.
+  player.setWeapon(weaponModelOf(w));
+  // The inventory's 3D stage holds its own hero rig and has to be told too. It
+  // may be shut, in which case this is a field it will draw with next time.
+  inventory.setHeroWeapon(w?.model ?? null);
+}
+
+/**
+ * `ItemDef.model` narrowed to the union the rig understands, or null.
+ *
+ * The guard lives on this side because the field is a plain STRING: core/ may
+ * not import player/ (see the note on `ItemDef.model`), so every reader checks
+ * it. There is exactly one reader that matters and this is it.
+ */
+function weaponModelOf(def: ItemDef | null): WeaponModelId | null {
+  const m = def?.model;
+  return m && (WEAPON_MODEL_IDS as readonly string[]).includes(m)
+    ? m as WeaponModelId
+    : null;
 }
 
 /**
@@ -4089,11 +4129,20 @@ beginPlay();
     // models" from "the stage never came up and every slot is a coloured blob".
     panel: inventory.isOpen ? {
       slots: document.querySelectorAll('.bs-inv .slot').length,
+      // The wall is a FIXED 11x3 of real cells, so "how many rows does the
+      // player own" and "how many boxes are drawn" are two different numbers
+      // now and the probe needs both — see INV_COLS in ui/inventory.ts.
+      filled: document.querySelectorAll('.bs-inv .slot:not(.empty)').length,
       gearSlots: document.querySelectorAll('.bs-inv .gs').length,
       tabs: document.querySelectorAll('.bs-inv .chip.tab').length,
       icons: document.querySelectorAll('.bs-inv .slot .ic:not(.blob)').length,
       portraits: document.querySelectorAll('.bs-inv .slot .ic.beast:not(.blob)').length,
       stageGl: !!document.querySelector('.bs-inv canvas.stage-gl'),
+      // WHO IS ACTUALLY IN THE STAGE'S SCENE — not who was asked for. The two
+      // disagreed when the beasts swapped slots, which is the bug: the second
+      // slot's turn removed the rig the first slot had just placed. See
+      // `InventoryStage.setCast`.
+      stageCast: inventory.stageCast(),
       footActions: [...document.querySelectorAll('.bs-inv .sel button')]
         .map((b) => (b as HTMLElement).dataset.do ?? ''),
       tip: document.querySelector('.bs-inv .tip.on')?.textContent ?? null,
@@ -4102,6 +4151,22 @@ beginPlay();
     } : null,
   };
 };
+
+/**
+ * WHAT THE HERO IS HOLDING AND WHAT HE HAS FIRED.
+ *
+ * `weapon` is read off the RIG (see `Player.weapon`), which is the only copy —
+ * so this cannot report a sword while a bow is drawn. `shots` is the live
+ * projectile census, and the `arrow` flag on it is the whole of "the bow fires
+ * an arrow": the pool is shared with every skill in the game, so a shot that
+ * came out as a fireball would be indistinguishable from a working bow in any
+ * other reading.
+ */
+(window as unknown as { __dbgShots: () => unknown }).__dbgShots = () => ({
+  weapon: player.weapon,
+  attackStat: player.attackStat,
+  shots: combat.projectileSnapshot(),
+});
 
 /**
  * TEST HOOKS, the same class as `__dbgDrop` and `__dbgHurt`: stage a bag state
@@ -4118,7 +4183,14 @@ beginPlay();
 
 /** Drive one inventory button without a click, for the probe. */
 (window as unknown as { __dbgInvAction: (id: string, action: string) => void })
-  .__dbgInvAction = (id, action) => inventoryAction(id, action as InvAction);
+  .__dbgInvAction = (id, action) => {
+    inventoryAction(id, action as InvAction);
+    // The panel re-reads after a button it pressed itself; this hook goes
+    // straight to the handler, so it owes the screen the same refresh — without
+    // it a probe reads a panel one action behind the state it is asserting on,
+    // which is a failure in the test and not in the game.
+    inventory.refresh();
+  };
 
 (window as unknown as { __dbgTowns: () => unknown }).__dbgTowns = () => ({
   spawn: {

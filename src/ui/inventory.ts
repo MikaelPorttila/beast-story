@@ -1,7 +1,7 @@
 import { t } from '../i18n';
 import type { BeastSpecies, ItemKind, ItemRarity } from '../core/types';
 import { injectStyles } from './styles';
-import { CLOSE_ICON } from './icons';
+import { CLOSE_ICON, RMB_ICON } from './icons';
 import { isWeaponIcon, weaponIconStyle } from './weapon-icons';
 import { InventoryStage } from './inventory-stage';
 
@@ -152,15 +152,25 @@ const TABS: readonly { id: ItemKind | null; key: string }[] = [
 ];
 
 /**
- * Slots to a row.
+ * THE BAG IS ELEVEN ACROSS AND THREE DEEP — thirty-three slots, drawn whether
+ * or not there is anything in them.
  *
- * FIVE since the panel became a dock: the stylesheet lays the grid out from
- * this same number through `--cols`, and the keyboard's up/down steps by it to
- * mean "the row below". A media query that narrowed one without the other would
- * leave arrow-down skipping slots and nothing would fail — see the note on the
- * `.grid` rule in ui/styles.ts.
+ * A FIXED wall rather than a list that grows, which is the difference between
+ * an inventory and a receipt: a player learns where things are by their
+ * POSITION, and a grid that reflows every time a stack empties has no positions
+ * to learn. Empty cells are real cells, so the shape of the panel never moves.
+ *
+ * `INV_COLS` is handed to the stylesheet through `--cols` and is also what the
+ * keyboard's up/down steps by to mean "the row below"; a media query that
+ * narrowed one without the other would leave arrow-down skipping slots and
+ * nothing would fail. See the note on the `.grid` rule in ui/styles.ts.
+ *
+ * Past thirty-three the wall keeps going and scrolls. A cap that REFUSED items
+ * is a different feature and a crueller one; this is not the ticket that
+ * decides the player may not pick something up.
  */
-export const INV_COLS = 5;
+export const INV_COLS = 11;
+export const INV_ROWS = 3;
 
 const FOCUSABLE = 'button:not([disabled]):not([tabindex="-1"])';
 
@@ -268,6 +278,24 @@ export class InventoryPanel {
     else this.open();
   }
 
+  /** What the 3D stage is actually drawing, for the probe. See `castIds`. */
+  stageCast(): (string | null)[] {
+    return this.stage.castIds();
+  }
+
+  /**
+   * What the hero on the STAGE is holding, by `ItemDef.model` name.
+   *
+   * A pass-through to the stage, which owns the guard — the panel does not
+   * type-check a weapon name any more than it checks an item id. Called by the
+   * host's `applyLoadout` whether the panel is open or shut, because the stage
+   * outlives the panel and must be right the next time it is drawn.
+   */
+  setHeroWeapon(model: string | null | undefined): void {
+    this.stage.setHeroWeapon(model);
+    if (this.el) this.render();
+  }
+
   /**
    * Re-read the model, if the panel is up.
    *
@@ -326,19 +354,26 @@ export class InventoryPanel {
       this.gearHtml(model.gear) +
       this.tabsHtml() +
       `<div class="grid" style="--cols:${INV_COLS}">${
-        list.length
-          ? list.map((e) => this.slotHtml(e)).join('')
-          : `<p class="empty">${escapeHtml(t('inv.empty'))}</p>`
+        list.map((e) => this.slotHtml(e)).join('') +
+        // The empties, which are real cells — see INV_COLS. `Math.max` rather
+        // than a slice, so a bag past thirty-three grows a fourth row instead
+        // of hiding what is in it.
+        '<button class="slot empty" type="button" tabindex="-1" disabled></button>'
+          .repeat(Math.max(0, INV_COLS * INV_ROWS - list.length))
       }</div>` +
-      this.footHtml(sel) +
-      `<div class="foot">${t('inv.foot', { key: kbd('I'), esc: kbd('Esc') })}</div>`;
+      this.footHtml(sel);
 
+    // The X, with the KEYS that do the same thing printed beside it rather than
+    // spelled out in a sentence along the bottom of the panel. `.cap` is hidden
+    // where there is no keyboard — see the media query in ui/styles.ts.
+    const head = pane.querySelector('.head') as HTMLElement;
+    head.insertAdjacentHTML('beforeend', `<span class="cap">${kbd('I')}${kbd('Esc')}</span>`);
     const closeBtn = document.createElement('button');
     closeBtn.className = 'bs-shop-x';
     closeBtn.type = 'button';
     closeBtn.dataset.act = 'close';
     closeBtn.innerHTML = CLOSE_ICON;
-    (pane.querySelector('.head') as HTMLElement).appendChild(closeBtn);
+    head.appendChild(closeBtn);
 
     const cast = model.gear;
     this.stage.mount(pane.querySelector('.stage') as HTMLElement);
@@ -437,38 +472,33 @@ export class InventoryPanel {
   }
 
   /**
-   * The footer strip: what is selected, and the two things that destroy it.
+   * The footer strip: what is selected, and the buttons for it.
    *
-   * ONLY the destructive actions. Everything constructive is a right-click, an
-   * Enter or a drag away, and putting Equip here too would have made the strip
-   * a detail pane again by a different name.
+   * EVERY ACTION IS A BUTTON, and the one that is also bound to a control wears
+   * that control as a small ICON rather than as a sentence. "Right-click to
+   * equip" was a line of prose that had to be read; a mouse glyph on the button
+   * is the same fact in the place the player is already looking, and it costs
+   * no width. Salvage and Drop have no binding, so they carry nothing — that is
+   * the rule working rather than an omission.
+   *
+   * The primary is a real button on EVERY device rather than only where there
+   * is no pointer: a finger has none of the gestures — no right-click, no
+   * hover, no HTML5 drag — and a panel a phone player can only throw things
+   * away from is the one arrangement worse than no panel. What the media query
+   * hides there is the GLYPH, not the button.
    */
   private footHtml(sel: InvEntry | null): string {
     if (!sel) return '<div class="sel"></div>';
     const acts = (sel.actions ?? []).filter((a) => DESTRUCTIVE.has(a));
     const primary = this.primaryOf(sel);
-    // ON A DEVICE WITH NO POINTER THE PRIMARY BECOMES A BUTTON, and that is not
-    // a nicety: a finger cannot right-click, cannot hover and cannot start an
-    // HTML5 drag, so on a phone every one of the three ways to equip something
-    // is gone and the panel would be a wall you can only throw things away
-    // from. `(hover: none)` is the exact question — not "is this small", which
-    // a desktop window is too — and it is asked at RENDER time rather than
-    // cached, so a tablet with a mouse plugged in answers correctly on the next
-    // open. It is a GHOST button beside two danger ones, so the destructive
-    // pair still reads as the loud thing on the strip.
-    const noPointer = window.matchMedia?.('(hover: none)').matches ?? false;
+    const button = (a: InvAction, cls: string, bound: boolean): string =>
+      `<button class="bs-buy ${cls}" type="button" data-do="${a}">` +
+      (bound ? `<i class="cap">${RMB_ICON}</i>` : '') +
+      `<span>${escapeHtml(t(ACTION_KEYS[a]))}</span></button>`;
     return '<div class="sel">' +
       `<span class="nm">${escapeHtml(sel.name)}</span>` +
-      (primary && !noPointer
-        ? `<span class="hint">${escapeHtml(t('inv.rmb', { action: t(ACTION_KEYS[primary]) }))}</span>`
-        : '') +
-      (primary && noPointer
-        ? `<button class="bs-buy ghost" type="button" data-do="${primary}">` +
-          `${escapeHtml(t(ACTION_KEYS[primary]))}</button>`
-        : '') +
-      acts.map((a) =>
-        `<button class="bs-buy danger" type="button" data-do="${a}">` +
-        `${escapeHtml(t(ACTION_KEYS[a]))}</button>`).join('') +
+      (primary ? button(primary, 'ghost', true) : '') +
+      acts.map((a) => button(a, 'danger', false)).join('') +
       '</div>';
   }
 

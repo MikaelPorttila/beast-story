@@ -1073,6 +1073,13 @@ export interface ItemDef {
   salvage?: number;
   /** Added to `Player.attackStat` while this is in the weapon slot. */
   power?: number;
+  /**
+   * Which voxel model the hero holds while this is equipped — a `WeaponModelId`
+   * (player/weapons.ts), by name. A STRING rather than that union for the same
+   * reason `icon` is one: core/ must not import player/, and both the rig and
+   * the inventory's 3D stage type-guard it on the way in.
+   */
+  model?: string;
   /** A blueprint's ceiling: how much power the forge may spend filling it in. */
   maxPower?: number;
   /** What `use` does. Only a potion has one. */

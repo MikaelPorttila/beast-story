@@ -607,7 +607,12 @@ const CSS = `
   color:#eef2f8;user-select:none;-webkit-user-select:none}
 .bs-inv .bs-scrim{opacity:0}
 .bs-inv.open .bs-scrim{opacity:1}
-.bs-inv .pane{position:relative;width:min(430px,100vw);height:var(--bs-vh,100dvh);
+/* ELEVEN COLUMNS WIDE, which is what sets this number rather than a taste: at
+   a 52px slot and a 9px gap the wall alone is 662px, and the dock is that plus
+   its own padding. It is still a dock and not a full-screen sheet — the world
+   is meant to stay visible beside it — so on anything narrower than about
+   1100px it is simply most of the window, which is the honest outcome. */
+.bs-inv .pane{position:relative;width:min(710px,100vw);height:var(--bs-vh,100dvh);
   display:flex;flex-direction:column;min-height:0;
   border-radius:20px 0 0 20px;border-right:none;
   opacity:0;transform:translateX(26px);
@@ -618,6 +623,10 @@ const CSS = `
   border-bottom:1px solid rgba(255,255,255,.1)}
 .bs-inv .head h2{font-size:22px;font-weight:900;letter-spacing:.04em;flex:1;
   text-shadow:0 1px 3px rgba(0,0,0,.5)}
+/* The keys that close it, printed beside the X instead of spelled out along the
+   bottom of the panel. .cap is the class every "this control is bound to
+   that" glyph in here wears, so the phone rule can hide all of them at once. */
+.bs-inv .head .cap{display:flex;gap:5px;opacity:.62}
 
 /* THE STAGE. A live WebGL canvas (ui/inventory-stage.ts) showing the hero with
    his two beasts, each standing over the gear slot that holds it.
@@ -680,7 +689,6 @@ const CSS = `
 .bs-inv .grid{display:grid;grid-template-columns:repeat(var(--cols,5),minmax(0,1fr));
   gap:9px;align-content:start;overflow-y:auto;min-height:0;min-width:0;flex:1;
   padding:12px 18px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
-.bs-inv .grid .empty{grid-column:1/-1;font-size:16px;color:rgba(238,242,248,.5);padding:16px 2px}
 .bs-inv .slot{position:relative;aspect-ratio:1;border-radius:13px;cursor:grab;
   display:grid;place-items:center;padding:5px;font-family:inherit;color:inherit;
   border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);
@@ -690,6 +698,12 @@ const CSS = `
 .bs-inv .slot:active{cursor:grabbing}
 /* The selection ring is an OUTLINE rather than a border so it cannot change the
    slot's box and reflow the wall as the cursor walks it. */
+/* AN EMPTY CELL IS A REAL CELL — see INV_COLS in ui/inventory.ts. Quieter than
+   a filled one and not a focus stop, so a keyboard walks the things you own
+   rather than the holes between them; pointer-events:none keeps it out of the
+   drag machinery for the same reason. */
+.bs-inv .slot.empty{background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.09);
+  cursor:default;pointer-events:none}
 .bs-inv .slot.sel{outline:2px solid #69d9ff;outline-offset:-2px;background:rgba(105,217,255,.1)}
 .bs-inv .slot:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
 /* Rarity is the slot's EDGE, not its fill: a legendary item still has to read
@@ -724,9 +738,12 @@ const CSS = `
   padding:10px 18px;border-top:1px solid rgba(255,255,255,.1)}
 .bs-inv .sel .nm{font-size:17px;font-weight:800;flex:1;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bs-inv .sel .hint{font-size:16px;font-weight:600;color:rgba(238,242,248,.5);
-  white-space:nowrap}
-.bs-inv .sel .bs-buy{flex:none;padding:5px 12px 6px;font-size:16px}
+.bs-inv .sel .bs-buy{flex:none;display:inline-flex;align-items:center;gap:7px;
+  padding:5px 12px 6px;font-size:16px}
+/* The BINDING, as a picture on the button it belongs to. See footHtml: an
+   action with no bound control simply has no icon, which is the rule working. */
+.bs-inv .sel .cap{display:block;width:17px;height:17px;opacity:.85}
+.bs-inv .sel .cap svg{width:100%;height:100%}
 /* The primary action, shown as a button only where there is no pointer to
    right-click with — see footHtml. Quieter than the danger pair beside it. */
 .bs-inv .sel .bs-buy.ghost{background:rgba(255,255,255,.1);color:#eef2f8;
@@ -735,8 +752,6 @@ const CSS = `
 .bs-inv .sel .bs-buy.danger{background:rgba(255,90,80,.12);color:#ff9d95;
   border:1px solid rgba(255,90,80,.34);box-shadow:none}
 .bs-inv .sel .bs-buy.danger:hover{background:rgba(255,90,80,.24);color:#fff}
-.bs-inv .foot{border-top:1px solid rgba(255,255,255,.1);padding:9px 18px;text-align:center;
-  font-size:16px;font-weight:600;color:rgba(238,242,248,.7)}
 
 /* THE TOOLTIP. Positioned by transform against the VIEWPORT rather than by
    top/left inside the panel, because it has to be able to leave the panel: the
@@ -1605,17 +1620,25 @@ const CSS = `
      The tooltip is left in the stylesheet but never opens: a finger has no
      hover, and tapping a slot is what the footer strip answers. */
   .bs-inv .pane{width:100vw;border-radius:0}
+  /* EVERY "bound to this control" glyph goes. There is no keyboard to press Esc
+     on and no right button to click, so the icons would be instructions for
+     hardware that is not there — which is worse than no instructions. The
+     buttons themselves stay; see footHtml. */
+  .bs-inv .cap{display:none}
   .bs-inv .head{padding:12px 14px 10px}
   .bs-inv .gear{padding:0 14px 10px;gap:7px}
   .bs-inv .gs{padding:6px 5px 5px}
   .bs-inv .gs-ic{width:38px;height:38px}
   .bs-inv .tabs{padding:9px 14px 0;gap:5px}
   .bs-inv .chip{padding:4px 10px 5px}
-  .bs-inv .grid{gap:7px;padding:10px 14px}
-  .bs-inv .slot{border-radius:10px;padding:4px}
+  /* Eleven columns at 393 CSS px is a 30px slot, which is small but is still
+     the SAME grid — a phone that reflowed to five columns would have the
+     keyboard's row step wrong (INV_COLS) and, worse, would move everything the
+     player had learned the position of. The gap and the padding pay for it. */
+  .bs-inv .grid{gap:4px;padding:9px 10px}
+  .bs-inv .slot{border-radius:7px;padding:2px}
+  .bs-inv .slot .n{top:1px;left:3px}
   .bs-inv .sel{padding:9px 14px}
-  /* No keyboard footer: it names I and Esc, and a phone has neither. */
-  .bs-inv .foot{display:none}
   /* Toasts: one at a time (see HUD.addToast), clear of the control clusters,
      and clamped to two short lines so a long instruction string can never grow
      into a screen-eating panel. */

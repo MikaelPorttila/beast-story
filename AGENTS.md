@@ -1622,6 +1622,17 @@ A centred box tall and wide enough for that covers the world it is a view of;
 docked, half the frame is still the place you are standing in, and the panel gets
 the one axis a slot wall actually grows along.
 
+**THE WALL IS ELEVEN ACROSS AND THREE DEEP, and every one of the thirty-three
+cells is drawn whether or not there is anything in it.** That is the difference
+between an inventory and a receipt: a player learns where things are by their
+POSITION, and a grid that reflows every time a stack empties has no positions to
+learn. `INV_COLS` sets the panel's width, is handed to the stylesheet through
+`--cols`, and is what the keyboard's up/down steps by to mean "the row below" —
+a media query that narrowed one without the other would leave arrow-down
+skipping slots on a phone with nothing failing, so the phone shrinks the SLOTS
+and keeps the eleven. Past thirty-three the wall grows a fourth row and scrolls;
+a cap that REFUSED items is a different and crueller feature.
+
 **THE PANEL KNOWS NO GAME RULES.** It is handed an `InventoryModel` — rows with a
 name, an icon, some stats and a LIST OF ACTIONS the host is willing to accept —
 and reports which one was asked for. It does not know that a quest item cannot be
@@ -1645,6 +1656,16 @@ buttons, on whatever is selected. A left click only SELECTS: nothing destructive
 is ever one click from anything, and `DESTRUCTIVE` (ui/inventory.ts) is the one
 set that keeps salvage and drop out of the primary, out of the right-click and
 out of every drag target at once.
+
+**NOTHING IS EXPLAINED IN A SENTENCE.** There was a line along the bottom
+reading "I or Esc to close" and another reading "Right-click to Equip", and both
+are gone: a control that is BOUND to something wears its key or its button as a
+small glyph beside the action instead. The close X has the two caps printed next
+to it; the primary action is a button with a mouse glyph on it; Salvage and Drop
+have no binding and so carry nothing, which is the rule working rather than an
+omission. Every glyph is class `.cap`, so the phone media query can take all of
+them out at once — there is no keyboard to press Esc on and no right button to
+click, and an icon for hardware that is not there is worse than no icon.
 
 **THE TOOLTIP IS THE DESCRIPTION.** There was a detail pane and it cost a third
 of the panel's width for the one row the cursor happened to be on — on a dock,
@@ -1670,6 +1691,20 @@ framework's animator driving it, so borrowing one would either move it out of th
 world or fight over its pose every frame. `species.buildRig()` is called again and
 cached per species.
 
+**`setCast` WORKS OUT THE WHOLE CAST BEFORE IT TOUCHES THE SCENE**, and that is
+a bug fix rather than a tidy-up. Filling the two marks one at a time removed the
+previous occupant of each before placing the new one — correct until the two
+beasts SWAP, which is the commonest thing the method is asked to do: slot 0 took
+the support beast's rig, then slot 1 removed "whatever used to be in slot 1",
+the same rig one line later, and one of the two models vanished from the preview
+and stayed gone. It now decides the set, removes only what is no longer wanted
+and places the rest, so the survivor of a swap is never touched. It also refuses
+to put ONE rig at two marks: a `THREE.Object3D` has one parent and one
+transform, and a stage that renders what it is handed must not depend on a
+caller's invariant to avoid drawing a hole. `__dbgInventory().panel.stageCast`
+reports who is in the SCENE rather than who was asked for, because those are
+exactly the two things that disagreed.
+
 **A BEAST SLOT SHOWS THE MODEL, BAKED ONE PER FRAME.** `InventoryStage.iconFor`
 queues a species, renders it alone into a render target, reads the pixels back
 and hands the panel a data URI, which patches the slots showing that species in
@@ -1690,6 +1725,44 @@ bug in the layout. `BEAST_X` is 0.30 rather than a clean third, and that inset i
 measured: a Galebird's outer wing reaches about 1.0 world units and exactly on the
 third it went past the canvas edge, where the alternative was a stage 25% wider
 and a hero 25% smaller.
+
+**THE GEAR SLOT IS A MODEL, NOT ONLY A NUMBER.**
+[src/player/weapons.ts](src/player/weapons.ts) builds the five weapons the atlas
+draws icons for, and `HeroRig.sword` is the HAND rather than a sword: it is the
+mount `setWeaponModel` swaps what is in. The name is kept because
+player/animations.ts writes `rig.sword.rotation` every frame and renaming it
+would touch every pose for nothing. `ItemDef.model` names which one, as a plain
+STRING — core/ may not import player/, so the rig, the stage and main.ts each
+guard it against `WEAPON_MODEL_IDS` on the way in.
+
+Every builder puts the GRIP at the origin with the business end up +Y and works
+in the same 0.1 m voxel, so one set of swing keyframes drives all five and none
+of them had to move; the only per-weapon numbers are `FIT`'s `scale` and `drop`.
+`yaw` is there for exactly one of them: a bow is a FLAT object and the hand's
+rest pose presents its plane edge-on, which captured as a hero holding a plain
+staff. THE ONE-VOXEL PLANK PROBLEM applies to all of them — the note already on
+the original sword — so every blade has a stepped cross-section and the bow gets
+its depth from being a curve.
+
+**BARE HANDS ARE A REAL LOADOUT.** Unequipping empties the mount, and
+`AnimInput.unarmed` switches the animator to `PUNCHES` — three straight jabs
+rather than three sword arcs, because a swing keyframe played with an empty fist
+reads as a man flailing. It is an INPUT rather than something read off the rig,
+since the animator is handed a rig and a state and reads nothing else.
+
+**THE BOW FIRES AN ARROW, out of the same pool every skill projectile uses.**
+`CombatSystem.arrowStrike` is the ranged twin of `meleeStrike` and takes the
+same three arguments for the same reason: main.ts decides WHICH by reading
+`player.weapon` (off the rig, so it cannot disagree with the model on screen),
+combat does it. The arrow has NO element (a physical hit, like the sword), no
+homing and no target — every other projectile in the game is cast at something
+the game picked, and a bow that curved toward the nearest thing would take the
+aiming away from the player who just aimed. It is built along +Z
+([src/combat/arrow.ts](src/combat/arrow.ts)) because the pool points it with
+`lookAt`, and it neither tumbles nor trails: a spinning arrow reads as a stick
+thrown, and sparks off a wooden shaft read as fire. `__dbgShots()` is the
+census, and its `arrow` flag is the whole assertion — a shot that came out as a
+fireball would be indistinguishable from a working bow in any other reading.
 
 **THREE THINGS ARE DELIBERATELY NOT IN THE BAG, and each for the same reason —
 a second copy would be a second answer.** CURRENCY is one running total owned by
@@ -1776,7 +1849,16 @@ read `event.target` and the panel's own `dragging` id and nothing else. And a
 section that presses TAB has to SHUT the panel first: every modal freezes the
 simulation slices Tab is read in, so a Tab pressed with the inventory up looks
 exactly like the failure that section is hunting for. `portraits` is what says
-the stage rendered ten distinct beasts into the wall rather than ten lozenges.
+the stage rendered ten distinct beasts into the wall rather than ten lozenges,
+and `stageCast` is what says the swap did not eat one of them.
+
+TWO MORE THINGS IT LEARNED THE HARD WAY. An arrow lives 1.6 s and the pool is
+shared, so the bow's shot is still in the air when the sword swings a moment
+later — section 8 measures a DELTA, and the version that counted failed against
+a perfectly correct build. And `__dbgInvAction` goes straight to the handler
+rather than through a button, so it owes the panel a `refresh()`: without it a
+probe reads a screen one action behind the state it is asserting on, which is a
+failure in the test and not in the game.
 
 **UI and input.** The HUD is a DOM overlay ([src/ui/index.ts](src/ui/index.ts),
 styles injected by `src/ui/styles.ts`), not canvas-drawn. Class names are `bs-*`

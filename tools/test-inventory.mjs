@@ -142,10 +142,15 @@ if (!boot) {
   check(travelShut > 3,
     `the hero travelled only ${travelShut.toFixed(2)} with the panel down — `
     + 'the frozen reading above proves nothing');
-  // The panel drew what the model holds: thirteen rows at boot (ten beasts and
-  // three items), three gear slots, seven tabs.
-  check(open.panel?.slots === 13,
-    `${open.panel?.slots} slots drawn, expected 13`);
+  // The panel drew what the model holds: thirteen FILLED cells at boot (ten
+  // beasts and three items) inside a fixed 11x3 wall of thirty-three, three
+  // gear slots, seven tabs. Both numbers, because the wall's shape is the
+  // feature — a grid that shrank to what you happen to own is the thing
+  // INV_COLS exists to prevent.
+  check(open.panel?.filled === 13,
+    `${open.panel?.filled} filled cells, expected 13`);
+  check(open.panel?.slots === 33,
+    `${open.panel?.slots} cells drawn, expected a fixed 11x3 of 33`);
   check(open.panel?.gearSlots === 3,
     `${open.panel?.gearSlots} gear slots drawn, expected 3`);
   check(open.panel?.tabs === 7, `${open.panel?.tabs} tabs drawn, expected 7`);
@@ -476,6 +481,135 @@ if (!boot) {
     + 'its own copy of the roster picks');
   check(slotOf(swapped, 'primary') === slotOf(led, 'support'),
     'Tab did not bring the support beast to the front');
+}
+
+// ---------- 9. the stage survives a swap ----------
+// THE REPORTED BUG. Sending a beast that is already in one slot to the OTHER
+// one is a swap, and the stage used to fill its two marks one at a time:
+// slot 0 took the support beast's rig, then slot 1's turn removed "whatever
+// used to be in slot 1" — the same rig, one line later. One of the two beasts
+// simply vanished from the preview and stayed gone.
+//
+// It is asserted on what is IN THE SCENE (`stageCast`) rather than on what the
+// panel asked for, because those are exactly the two things that disagreed.
+{
+  if (!(await inv()).open) { await page.keyboard.press('KeyI'); await wait(500); }
+  const idOf = (s) => s.replace('beast:', '');
+  const before = await inv();
+  const lead = before.gear.find((g) => g.slot === 'primary').id;
+  const support = before.gear.find((g) => g.slot === 'support').id;
+
+  // Send the SUPPORT beast to the front — a swap, and the failing case.
+  await act(support, 'setLead');
+  await wait(250);
+  const swapped = await inv();
+  // And back, so the pair is closed and a one-way fluke cannot pass.
+  await act(lead, 'setLead');
+  await wait(250);
+  const back = await inv();
+
+  results.stageSwap = {
+    startCast: before.panel?.stageCast,
+    afterSwap: swapped.panel?.stageCast,
+    afterSwapBack: back.panel?.stageCast,
+    gearAfterSwap: swapped.gear.map((g) => g.id),
+  };
+  const full = (c) => Array.isArray(c) && c.length === 2 && c.every((x) => !!x);
+  check(full(before.panel?.stageCast),
+    `the stage started with ${JSON.stringify(before.panel?.stageCast)}, expected two beasts`);
+  check(full(swapped.panel?.stageCast),
+    `after a swap the stage holds ${JSON.stringify(swapped.panel?.stageCast)} — `
+    + 'one of the two models was removed from the scene');
+  check(full(back.panel?.stageCast),
+    `after swapping back the stage holds ${JSON.stringify(back.panel?.stageCast)}`);
+  // ...and it is drawing the beasts the GEAR SLOTS name, in that order, rather
+  // than merely two of something.
+  check(swapped.panel.stageCast[0] === idOf(swapped.gear.find((g) => g.slot === 'primary').id)
+    && swapped.panel.stageCast[1] === idOf(swapped.gear.find((g) => g.slot === 'support').id),
+    'the stage is drawing beasts the gear slots do not name');
+}
+
+// ---------- 8. the weapon in his hand, and what it does ----------
+// The gear slot was a NUMBER until the models landed: equipping a scythe raised
+// attackStat and the hero went on swinging an iron sword. So every claim here
+// is about `player.weapon`, which is read off the RIG rather than off a field
+// beside it — there is no second copy that could agree while the model on
+// screen does not.
+{
+  const shots = () => page.evaluate(() => window.__dbgShots());
+  // A DELTA, not a count. An arrow lives 1.6 s and the pool is shared, so the
+  // one fired by the bow is still in the air when the sword swings a moment
+  // later — the first version of this section read it as the sword's and
+  // failed against a perfectly correct build.
+  const swing = async () => {
+    const before = (await shots()).shots.filter((s) => s.arrow).length;
+    await page.mouse.down();
+    await wait(70);
+    await page.mouse.up();
+    await wait(160);
+    const after = await shots();
+    return { ...after, fired: after.shots.filter((s) => s.arrow).length - before };
+  };
+
+  // Somewhere with room, and off the panel: a swing is a simulation slice.
+  if ((await inv()).open) { await page.keyboard.press('KeyI'); await wait(350); }
+  await page.evaluate(() => window.__dbgTp?.(
+    window.__dbgTowns().spawn.x, window.__dbgTowns().spawn.z,
+  ));
+  await wait(900);
+
+  const seen = {};
+  for (const [item, model] of [
+    ['sword-iron', 'sword'], ['greatsword-iron', 'greatsword'],
+    ['bow-ash', 'bow'], ['scythe-reaper', 'scythe'], ['dagger-quick', 'dagger'],
+  ]) {
+    await give(item, 1);
+    await act(item, 'equip');
+    await wait(200);
+    seen[item] = (await shots()).weapon;
+    check(seen[item] === model,
+      `equipping ${item} left the hero holding ${seen[item]}, expected ${model}`);
+  }
+
+  // THE BOW FIRES AN ARROW, and the `arrow` flag is the whole assertion: the
+  // projectile pool is shared with every skill in the game, so a bow that came
+  // out as a fireball would look identical in a count and in a screenshot.
+  await act('bow-ash', 'equip');
+  await wait(200);
+  const fired = await swing();
+  const arrows = fired.shots.filter((s) => s.arrow);
+
+  // ...and a MELEE weapon does not. The pair: "an arrow appeared" is equally
+  // true of a bow and of a build where every swing spawns one.
+  await act('sword-iron', 'equip');
+  await wait(200);
+  const swung = await swing();
+
+  // BARE HANDS. Unequipping leaves the hand empty, which is what puts the
+  // animator on the punch table (PUNCHES, player/animations.ts) — the poses
+  // themselves are not something a probe can see, so what is asserted is the
+  // one input that selects them, plus the stat falling back to the base.
+  await act('sword-iron', 'unequip');
+  await wait(200);
+  const bare = await shots();
+  const punched = await swing();
+
+  results.weapons = {
+    equipped: seen,
+    bowShots: fired.fired,
+    bowShotSpeed: arrows[0]?.speed ?? null,
+    swordShots: swung.fired,
+    bareWeapon: bare.weapon,
+    bareAttack: bare.attackStat,
+    bareShots: punched.fired,
+  };
+  check(fired.fired >= 1, 'the bow fired nothing');
+  check((arrows[0]?.speed ?? 0) > 8,
+    `the arrow is travelling at ${arrows[0]?.speed} — it should be in flight, not parked`);
+  check(results.weapons.swordShots === 0,
+    'a sword swing fired an arrow — only the bow may');
+  check(bare.weapon === null, `unequipping left ${bare.weapon} in his hand`);
+  check(results.weapons.bareShots === 0, 'bare hands fired an arrow');
 }
 
 console.log(JSON.stringify({ ...results, fails }, null, 2));

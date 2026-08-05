@@ -74,7 +74,6 @@ export const en = {
 
   // ---- inventory -----------------------------------------------------------
   'inv.title': 'Inventory',
-  'inv.foot': '{key} or {esc} to close',
   'inv.tab.all': 'All',
   'inv.tab.beast': 'Beasts',
   'inv.tab.weapon': 'Weapons',
@@ -82,7 +81,6 @@ export const en = {
   'inv.tab.potion': 'Potions',
   'inv.tab.stackable': 'Materials',
   'inv.tab.quest': 'Quest',
-  'inv.empty': 'Nothing here yet.',
   'inv.gear': 'Equipped',
   'inv.slot.weapon': 'Weapon',
   'inv.slot.primary': 'Lead beast',
@@ -113,11 +111,6 @@ export const en = {
   'inv.beast.benched': 'Benched',
   'inv.setLead': 'Send in front',
   'inv.setSupport': 'Send to support',
-  // The footer NAMES the constructive action rather than offering it as a
-  // button — see the header of ui/inventory.ts on why nothing destructive is
-  // one click from anything, and why the two that are live here are the two
-  // that destroy something.
-  'inv.rmb': 'Right-click to {action}',
   'toast.equipped': '{item} equipped',
   'toast.unequipped': '{item} put away',
   // `{currency}` rather than the word: the currency's name is one entry in this

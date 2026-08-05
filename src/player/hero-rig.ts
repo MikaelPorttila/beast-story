@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { VoxelModel } from '../core/voxel';
+import { buildWeaponModel, disposeWeapon, type WeaponModelId } from './weapons';
 
 /**
  * Voxel hero: a charming Cube World adventurer, ~1.9 units tall.
@@ -22,10 +23,16 @@ export interface HeroRig {
   armR: THREE.Group;
   legL: THREE.Group;
   legR: THREE.Group;
+  /**
+   * THE HAND, not a sword — the mount a weapon model hangs in. Named for what
+   * it held when there was only one thing to hold; see `setWeaponModel`.
+   */
   sword: THREE.Group;
   shield: THREE.Group;
   /** every material in the rig, for damage flash */
   materials: THREE.MeshStandardMaterial[];
+  /** What is in the hand right now, or null for bare hands. */
+  weapon: WeaponModelId | null;
 }
 
 // -- palette ---------------------------------------------------------------
@@ -182,41 +189,6 @@ function buildArm(braced: boolean): THREE.Mesh {
   return mesh;
 }
 
-function buildSword(): THREE.Mesh {
-  const v = new VoxelModel();
-  // The hilt is built 3 voxels deep (z -1..1) while the blade stays 1 deep, so
-  // pommel / grip / crossguard read as separate chunky parts from any angle
-  // instead of the whole weapon looking like one flat plank.
-  // pommel knob
-  v.box(0, -1, -1, 1, -1, 1, GOLD);
-  // leather-wrapped grip
-  v.box(0, 0, -1, 1, 2, 1, GRIP);
-  v.set(0, 1, -1, BELT_D); // wrap seams
-  v.set(1, 1, 1, BELT_D);
-  // crossguard: full-width bar with a deeper centre block and upturned tips
-  v.box(-1, 3, 0, 2, 3, 0, GOLD);
-  v.box(0, 3, -1, 1, 3, 1, GOLD);
-  v.set(-1, 4, 0, GOLD);
-  v.set(2, 4, 0, GOLD);
-  // Blade: bright edge column + steel body + a spine ridge one voxel deep on
-  // the body column. The old blade was a single 1-voxel-thick plane, which the
-  // gameplay camera caught nearly edge-on behind the leg and lost entirely;
-  // the ridge gives it a stepped cross-section so at least one lit face always
-  // faces the camera. Kept short (tip at y=10): at full length the point
-  // punched through the ground below the boots at the back of the swing arc.
-  for (let y = 4; y <= 8; y++) {
-    v.set(0, y, 0, STEEL_L);
-    v.set(1, y, 0, STEEL);
-    v.set(1, y, 1, STEEL_D);
-  }
-  v.set(0, 9, 0, STEEL_L);
-  v.set(1, 9, 0, STEEL_D);
-  v.set(0, 10, 0, STEEL);
-  const mesh = v.build(S, true);
-  mesh.position.y = -0.15; // hand grips the hilt
-  return mesh;
-}
-
 function buildShield(): THREE.Mesh {
   const v = new VoxelModel();
   for (let y = 0; y <= 4; y++) {
@@ -305,12 +277,16 @@ export function buildHeroRig(): HeroRig {
   // was hidden behind the right leg, so the fix lives in the axes we own:
   // yaw turns the flat of the blade towards the camera and the position pushes
   // the whole weapon outboard of the calf and up out of the boot line.
+  // `sword` is the HAND, not a sword: it is the mount everything the hero can
+  // hold hangs off, and `setWeaponModel` swaps what is in it. The name is kept
+  // because the animator writes `rig.sword.rotation` on every frame and
+  // renaming it would touch every pose in player/animations.ts for nothing.
+  // Its own scale is 1 — per-weapon size lives in `FIT` (player/weapons.ts),
+  // so a dagger and a greatsword differ without five sets of keyframes.
   const sword = new THREE.Group();
   sword.position.set(0.10, -0.26, -0.04);
   sword.rotation.x = 2.05;
   sword.rotation.y = 0.85;
-  sword.scale.setScalar(0.78); // shorter blade, in scale with the smaller head
-  sword.add(buildSword());
   armR.add(sword);
 
   const shield = new THREE.Group();
@@ -356,5 +332,35 @@ export function buildHeroRig(): HeroRig {
     }
   });
 
-  return { root, body, torso, head, armL, armR, legL, legR, sword, shield, materials };
+  const rig: HeroRig = {
+    root, body, torso, head, armL, armR, legL, legR, sword, shield, materials,
+    weapon: null,
+  };
+  setWeaponModel(rig, 'sword');
+  return rig;
+}
+
+/**
+ * Put a weapon in the hero's hand, or empty it.
+ *
+ * The materials of the OUTGOING model go with it — `materials` on the rig is
+ * the damage-flash list, and a weapon that has been unequipped must not still
+ * be flashed white when he is hit. Nothing else in the rig is ever removed, so
+ * this is the one place that has to prune it.
+ */
+export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
+  if (rig.weapon === id) return;
+  rig.weapon = id;
+  const held = rig.sword.children[0] as THREE.Mesh | undefined;
+  if (held) {
+    rig.sword.remove(held);
+    const mat = held.material as THREE.MeshStandardMaterial;
+    const at = rig.materials.indexOf(mat);
+    if (at >= 0) rig.materials.splice(at, 1);
+    disposeWeapon(held);
+  }
+  if (!id) return;
+  const mesh = buildWeaponModel(id);
+  rig.sword.add(mesh);
+  rig.materials.push(mesh.material as THREE.MeshStandardMaterial);
 }

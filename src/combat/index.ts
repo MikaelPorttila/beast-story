@@ -15,6 +15,7 @@ import { DamageNumbers } from './damage-numbers';
 import { elementMultiplier } from './effectiveness';
 import { Enemy, enemySpecies, variantForHeight, type EnemyCtx } from './enemies';
 import { Pickups } from './pickups';
+import { buildArrow } from './arrow';
 import { perf } from '../core/profiler';
 import { flags } from '../core/flags';
 
@@ -64,7 +65,18 @@ interface Projectile {
   light: THREE.PointLight | null;
   vel: THREE.Vector3;
   target: Damageable | null;
-  element: ElementType;
+  /**
+   * The three glowing parts every SKILL projectile is drawn with, and the
+   * ARROW that replaces them. One pool for both, because everything a
+   * projectile does after it is fired — travel, home, hit, expire — is the
+   * same, and a second pool would be a second copy of all of it. Only the
+   * picture differs, so only the picture is switched.
+   */
+  bolt: THREE.Object3D[];
+  arrow: THREE.Mesh;
+  isArrow: boolean;
+  /** Undefined for a PHYSICAL hit — an arrow, like the sword, has no element. */
+  element: ElementType | undefined;
   rawBase: number;
   life: number;
   trailT: number;
@@ -306,6 +318,28 @@ export class CombatSystem {
   }
 
   /**
+   * What is in the air right now. Read-only, allocates, for `__dbgShots`.
+   *
+   * The one thing a screenshot cannot answer about the bow: an arrow at
+   * sixteen units a second is four pixels of wood somewhere over a meadow, and
+   * "did the shot happen and is it an ARROW rather than a fireball" is two
+   * fields rather than a picture.
+   */
+  projectileSnapshot(): { arrow: boolean; x: number; y: number; z: number; speed: number }[] {
+    const out = [];
+    for (const p of this.projectiles) {
+      if (!p.active) continue;
+      const q = p.group.position;
+      out.push({
+        arrow: p.isArrow,
+        x: +q.x.toFixed(2), y: +q.y.toFixed(2), z: +q.z.toFixed(2),
+        speed: +p.vel.length().toFixed(2),
+      });
+    }
+    return out;
+  }
+
+  /**
    * Offer the nearest fetchable drop near `from`. `want` is the caller's
    * policy — combat has no opinion on which items are worth a trip.
    */
@@ -468,8 +502,12 @@ export class CombatSystem {
     group.add(core);
     group.visible = false;
     this.scene.add(group);
+    const arrow = buildArrow();
+    arrow.visible = false;
+    group.add(arrow);
     const p: Projectile = {
       active: false, group, shellMat, glowMat, light: null,
+      bolt: [glow, shell, core], arrow, isArrow: false,
       vel: new THREE.Vector3(), target: null, element: 'fire',
       rawBase: 0, life: 0, trailT: 0, hex: 0xffffff, spin: 0, homing: 1,
     };
@@ -490,6 +528,7 @@ export class CombatSystem {
     p.trailT = 0;
     p.spin = Math.random() * Math.PI;
     p.homing = req.homingScale ?? 1;
+    this.setProjectileForm(p, false);
     p.vel.copy(req.direction).normalize().multiplyScalar(PROJ_SPEED);
     p.group.position.copy(req.origin).addScaledVector(req.direction, 0.45);
     p.shellMat.color.setHex(hex);
@@ -557,6 +596,7 @@ export class CombatSystem {
       p.life = 0.05;
       p.trailT = 0;
       p.spin = 0;
+      this.setProjectileForm(p, false);
       p.vel.set(0, 0, 0);
       p.group.position.copy(at);
       p.group.visible = true;
@@ -567,6 +607,61 @@ export class CombatSystem {
     this.pickups.spawn(at.x, at.y, at.z);
     this.vfx.warmUp(at.x, at.y, at.z);
     this.vfx.warmUpLights(at.x, at.y, at.z, lights);
+  }
+
+  /**
+   * Swap a pooled slot between the glowing bolt and the arrow.
+   *
+   * One place, so a slot recycled from a skill cast into a bow shot can never
+   * be left showing half of each — which is exactly what a `visible` written at
+   * the two call sites would eventually do.
+   */
+  private setProjectileForm(p: Projectile, arrow: boolean): void {
+    if (p.isArrow === arrow && p.arrow.visible === arrow) return;
+    p.isArrow = arrow;
+    for (const part of p.bolt) part.visible = !arrow;
+    p.arrow.visible = arrow;
+  }
+
+  /**
+   * THE BOW'S SHOT. A pooled projectile with an arrow's model, no element and
+   * no glow.
+   *
+   * It is the ranged twin of `meleeStrike` and takes the same three arguments
+   * for the same reason: main.ts decides WHICH the hero does (see
+   * `player.weapon`), combat does it. The damage scale is the sword's 1.2 as
+   * well — a bow trades reach for nothing yet, and the balance pass is the
+   * forge's ticket, not this one.
+   *
+   * NO HOMING and NO TARGET. Every other projectile in the game is cast at
+   * something the game picked; this one goes where the crosshair points, and a
+   * bow that curved toward whatever was nearest would take the aiming away
+   * from the player who just aimed. `MOUNTED_HOMING` in main.ts is the mounted
+   * cast's own separate answer to the same question.
+   */
+  arrowStrike(origin: THREE.Vector3, direction: THREE.Vector3, attackStat: number): void {
+    _a.set(direction.x, direction.y, direction.z);
+    if (_a.lengthSq() < 1e-6) return;
+    _a.normalize();
+    const p = this.projSlot();
+    if (!p) return;
+    p.active = true;
+    p.element = undefined;
+    p.hex = 0xf2f6ff;
+    p.rawBase = attackStat * 1.2;
+    p.target = null;
+    p.homing = 0;
+    p.life = 1.6;              // ~26 units of flight at PROJ_SPEED
+    p.trailT = 0;
+    p.spin = 0;
+    this.setProjectileForm(p, true);
+    p.vel.copy(_a).multiplyScalar(PROJ_SPEED);
+    p.group.position.copy(origin).addScaledVector(_a, 0.5);
+    p.group.visible = true;
+    // No point light and no muzzle pop: an arrow is not on fire. The release
+    // gets a small dust puff instead, so the shot still has a moment of weight.
+    p.light = null;
+    this.vfx.dust(origin.x, origin.y, origin.z, 3, 0xd8d2c4);
   }
 
   private updateProjectiles(dt: number): void {
@@ -594,13 +689,24 @@ export class CombatSystem {
         }
       }
       pos.addScaledVector(p.vel, dt);
-      p.spin += dt * 9;
-      p.group.rotation.set(p.spin * 0.7, p.spin, p.spin * 0.45);
+      if (p.isArrow) {
+        // AN ARROW POINTS WHERE IT IS GOING. The bolt tumbles because a ball of
+        // fire has no front; an arrow that tumbled would read as a stick thrown
+        // rather than a shot. `lookAt` is what the model's +Z build direction is
+        // for — see combat/arrow.ts.
+        _leaf.copy(pos).add(p.vel);
+        p.group.lookAt(_leaf);
+      } else {
+        p.spin += dt * 9;
+        p.group.rotation.set(p.spin * 0.7, p.spin, p.spin * 0.45);
+      }
       if (p.light) p.light.position.copy(pos);
       p.trailT -= dt;
       while (p.trailT <= 0) {
         p.trailT += 0.022;
-        this.vfx.trail(pos.x, pos.y, pos.z, p.hex, 0.3);
+        // No trail behind an arrow: the sparkle is a magic projectile's, and on
+        // a wooden shaft it reads as the arrow being on fire.
+        if (!p.isArrow) this.vfx.trail(pos.x, pos.y, pos.z, p.hex, 0.3);
       }
       // enemy collision
       let hit: Enemy | null = null;
