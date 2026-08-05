@@ -1172,6 +1172,11 @@ export function createWorld(
 
     setLayerVisible(layer: WorldLayer, on: boolean): void {
       hiddenLayers[layer] = !on;
+      // The sky island's fall rides this switch: it is water, and a player who
+      // turns water off expects no water anywhere. Deliberately BEFORE the
+      // clouds branch and without returning — the streamed water chunks below
+      // still have to be dealt with.
+      if (layer === 'water') sky?.setWaterfallVisible(on);
       if (layer === 'clouds') {
         if (clouds) clouds.group.visible = on;
         return;
@@ -1180,6 +1185,14 @@ export function createWorld(
       // a chunk that arrives after the switch was thrown has to arrive hidden,
       // or walking forward quietly turns the setting back on.
       for (const rec of chunks.values()) applyLayers(rec);
+    },
+
+    warmUpEffects(render: () => void): void {
+      sky?.warmUpWaterfall(render);
+    },
+
+    debugSkyFall(): Record<string, number> | null {
+      return sky?.debugFall() ?? null;
     },
 
     /**

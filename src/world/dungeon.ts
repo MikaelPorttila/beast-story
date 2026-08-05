@@ -683,6 +683,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      * in main.ts), so nothing is left in the wrong state.
      */
     setLayerVisible(): void { /* no streamed layers in the hold */ },
+    warmUpEffects(): void { /* the hold owns no visual effects of its own */ },
+    debugSkyFall(): null { return null; }, // nothing flies in the hold
 
     /**
      * No-op: nothing grows in the hold, so there is no nature density that

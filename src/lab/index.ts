@@ -12,6 +12,11 @@
  *   enemy=gloopling|snortle|peckit
  *   hero=1                 the player character rig
  *   skill=<skillId>        fires that skill on a loop at a dummy target
+ *   waterfall=1            a waterfall VFX on a bare stage
+ *   fall=<units>           how far it falls before it is invisible (default 48)
+ *   push=<units>           how far it is pushed sideways over that (default 3)
+ *   spray=<n>              droplet budget (default 128, 0 = none)
+ *   lean=<units/s>         fake a carrier's sideways motion, to see the trail
  *   anim=<BeastAction>     idle|walk|run|swim|fly|attack|cast|special|hurt|happy
  *   t=<seconds>            simulate this long, then render one frozen frame
  *                          (deterministic — use for screenshots)
@@ -32,6 +37,7 @@ import { VFX } from '../combat/vfx';
 import { CombatSystem } from '../combat/index';
 import { buildHeroRig } from '../player/hero-rig';
 import { StubWorld } from './stub-world';
+import { Waterfall } from '../world/waterfall';
 import { bootstrapContent, content } from '../content';
 // See the long note at the same import in src/main.ts: the provider is imported
 // STATICALLY from the entry point so the bundler keeps `core.json` in this
@@ -67,8 +73,10 @@ if (bg) {
 }
 const flooded = params.get('water') === '1';
 const world = new StubWorld(engine.scene, 0, flooded);
+const labFloor = (): THREE.Object3D | undefined =>
+  engine.scene.getObjectByName('lab:floor');
 if (params.get('grid') === '0') {
-  const floor = engine.scene.children.find((o) => (o as THREE.Mesh).isMesh);
+  const floor = labFloor();
   if (floor) floor.visible = false;
 }
 
@@ -125,6 +133,41 @@ if (params.get('hero') === '1') {
   heroRoot = rig.root;
   engine.scene.add(rig.root);
   subjectHeight = 1.8;
+}
+
+// A waterfall on a bare stage. The one subject here that is neither a body nor
+// a skill: it is a world VFX, and the lab is where its numbers get tuned before
+// it is hung off a flying island where the capture path freezes its clock.
+//
+// The anchor sits at the origin and the water falls to -fall, so the floor is
+// hidden unless `grid=1` asks for it — a plume drops THROUGH the stage.
+let waterfall: Waterfall | null = null;
+let labLean = 0;
+if (params.get('waterfall') === '1') {
+  const fall = num('fall', 48);
+  waterfall = new Waterfall({
+    // 0 by default, so the base look is the fall alone. `push=` is the knob
+    // under test and it should be seen on its own, not mixed into the default.
+    length: fall,
+    lateralPush: num('push', 0),
+    // THE LIP IS AT THE TOP AND THE WATER REACHES y=0. The lab's camera frames
+    // a subject that STANDS on the origin (`subjectPos` is its feet), so a fall
+    // hung from the origin drops straight out of the bottom of every shot.
+    x: 0, y: fall, z: 0,
+    bearing: 0,
+    spray: num('spray', 128),
+  });
+  engine.scene.add(waterfall.group);
+  labLean = num('lean', 0);
+  if (params.get('grid') !== '1') {
+    const floor = labFloor();
+    if (floor) floor.visible = false;
+  }
+  subjectPos.set(0, 0, 0);
+  subjectHeight = fall;
+  // Wider than the plume by a good margin: `fitDist` frames the WIDTH, and what
+  // has to fit here is the height.
+  lineupWidth = fall * 1.55;
 }
 
 // Skill firing needs a combat system and a stationary dummy to aim at.
@@ -197,6 +240,10 @@ function step(dt: number): void {
   enemyCtx.time = simTime;
   for (const e of enemies) e.update(dt, enemyCtx);
   vfx.update(dt);
+  // `lean=` fakes a carrier's per-slice step, which is the only way to drive
+  // the trail-behind term on a stage with no carrier in it — and the only way
+  // to see it at all, since the in-game capture path freezes it to zero.
+  waterfall?.update(dt, labLean * dt, 0);
 
   if (combat && skillDef && dummy) {
     skillTimer -= dt;

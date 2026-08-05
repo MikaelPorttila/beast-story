@@ -780,6 +780,28 @@ export interface World {
    */
   setLayerVisible(layer: WorldLayer, on: boolean): void;
   /**
+   * Link the shader programs of any world-owned VISUAL EFFECT, by drawing it
+   * once during the boot sweep. The caller renders; the world's job is to make
+   * sure the thing is actually rasterised while it does.
+   *
+   * Needed because the sweep in `warmUpSteps` stages the camera at places a
+   * PLAYER goes — spawn, the towns, the roads — and a world effect can sit
+   * somewhere no staged frame looks. The sky island's waterfall is the case
+   * that added this: the island cruises 190 units up and 170 out, so nothing in
+   * the sweep ever drew it and its two programs linked on the frame the hero
+   * first looked up, which is a measured half-second stall.
+   *
+   * Not the same as staging a frame at the effect: this guarantees the DRAW
+   * rather than hoping the framing catches it.
+   */
+  warmUpEffects(render: () => void): void;
+  /**
+   * The carried island's waterfall, and the rock it hangs off — counters only,
+   * or null in a world that has neither. See `__dbgSkyFall` in main.ts and
+   * tools/test-waterfall.mjs.
+   */
+  debugSkyFall(): Record<string, number> | null;
+  /**
    * Drop every streamed chunk and build it again.
    *
    * A TUNING path, not a play path: the nature densities (world/nature.ts) are
