@@ -124,6 +124,37 @@ export function bakeSolid(
 }
 
 /**
+ * A tree's bole as an oriented box, in TEMPLATE units — the third primitive's
+ * worth of geometry this file did not need until a settlement had a wood in it.
+ *
+ * WHY A TREE NEEDS A CASE AT ALL. The overworld's canopies are solid, but not
+ * through this file: `bake` (props.ts) measures the shaft and files it in the
+ * per-chunk trunk registry, which `World.trunkSolidTopAt` answers from. That
+ * registry is keyed by streamed chunk, so a tree stamped somewhere with no
+ * chunk — the deck of a flying island — was drawn and blocked nothing. The
+ * measurement it needs already exists and rides on the same `Template`; all
+ * that was missing was a second consumer of it. See issue #80.
+ *
+ * WHY A BOX AND NOT THE REGISTRY'S DISC. Rule 1 at the top of this file: the
+ * primitive here is an oriented box, and it is the RIGHT shape for a bole.
+ * `trunk.r` is the CIRCUMSCRIBING radius, measured to the corner of a square
+ * shaft (props.ts `bake` explains why a disc has to circumscribe: an inscribed
+ * one lets the hero walk into the bark before it stops him). A box stamped at
+ * the tree's own yaw has the shaft's own corners, so the half-width is that
+ * radius brought back in by sqrt(2) and the collider IS the trunk — neither
+ * inside the bark nor out in the air beside it.
+ *
+ * The TOP is the shaft's, not the crown's, which is the same rule the registry
+ * applies (`World.trunkSolidTopAt` collides with the bole and leaves the
+ * foliage to `climbTopAt`): a canopy you can walk under is most of what makes a
+ * wood a place rather than a wall.
+ */
+function boleBox(trunk: { r: number; top: number }): SolidBox {
+  const h = trunk.r * Math.SQRT1_2;
+  return { cx: 0, cz: 0, hx: h, hz: h, top: trunk.top };
+}
+
+/**
  * The footprint of a voxel model: one box per lump of it a body would walk into.
  *
  * A model COLUMN (one x/z cell of the grid) counts as blocking when it holds a
@@ -457,14 +488,26 @@ export class StructureField {
    * an NPC (world/npc.ts) is an animated rig whose body was measured with
    * `measureFootprint` like everything else here, but whose vertices never go
    * through an `Accum`. Every `Template` still satisfies it, so no caller moved.
+   *
+   * A `trunk` counts as a footprint too — see `boleBox`. That is what makes a
+   * tree stamped into a settlement block like everything else stamped into one,
+   * which before it was written the sky island's wood did not (issue #80).
    */
   add(
-    t: { solid?: readonly SolidBox[]; ridge?: readonly SolidRidge[] },
+    t: {
+      solid?: readonly SolidBox[];
+      ridge?: readonly SolidRidge[];
+      trunk?: { r: number; top: number };
+    },
     x: number, y: number, z: number, yaw: number, s: number, sy: number,
   ): void {
-    if (!t.solid && !t.ridge) return;
+    if (!t.solid && !t.ridge && !t.trunk) return;
     const c = Math.cos(yaw);
     const sn = Math.sin(yaw);
+    if (t.trunk) {
+      const b = boleBox(t.trunk);
+      this.data.push(x, z, b.hx * s, b.hz * s, c, sn, y + b.top * sy);
+    }
     for (const f of t.solid ?? []) {
       // `Accum.add` maps local (px, pz) to (px*c + pz*sn, -px*sn + pz*c).
       const lx = f.cx * s;

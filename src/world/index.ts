@@ -1109,6 +1109,10 @@ export function createWorld(
       }));
     },
 
+    debugCarriedTrees(): Array<{ x: number; z: number }> {
+      return sky?.debugTrees() ?? [];
+    },
+
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
       if (disposed) return;
       // The build budget is per RENDERED FRAME, not per simulation slice. The

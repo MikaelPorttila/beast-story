@@ -24,6 +24,7 @@ export class StubWorld implements World {
   debugRidges(): void { /* nor any roofs */ }
   /** Nor any road furniture: the stage has no roads. */
   debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; }
+  debugCarriedTrees(): Array<{ x: number; z: number }> { return []; }
   /** No props on the stage, so there is never a trunk in the way. */
   trunkSolidTopAt(): number { return -Infinity; }
   /** The stage is bare floor: nothing is built on it to walk into. */

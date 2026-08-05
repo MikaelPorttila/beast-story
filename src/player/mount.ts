@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Input } from '../core/input';
-import type { EventBus, World } from '../core/types';
+import type { CarrierInfo, EventBus, World } from '../core/types';
 import { CarrierRide } from '../world/carriers';
 import { t } from '../i18n';
 import type { BeastActor, BeastRideState } from '../beasts/framework';
@@ -143,6 +143,25 @@ const FLY_VY_LAMBDA = 6;
  */
 const FLY_CLEARANCE = 1.3;
 /**
+ * How far one slice may shove a body out of a carrier's mass, in world units,
+ * and in how many probes.
+ *
+ * SIZED AGAINST THE ISLAND'S OWN SPEED, not against the recovery. A carrier
+ * cruises at about a unit a second, so what it actually buries in a body in one
+ * slice is a hundredth of a unit and the first probe clears it — the march is
+ * for the case that is not a collision at all, a body put inside the rock by a
+ * teleport or by a frame that grew under it, where the honest answer is to walk
+ * it out rather than to leave it in the dark. Two units a slice is a hundred and
+ * twenty a second: a mount dropped into the middle of the island is outside it
+ * inside a second, which reads as being pushed and not as being deleted.
+ *
+ * The step is under the cell size (1.2) so the march cannot stride over a
+ * pocket, and the count is what bounds the cost of a query that answers `false`
+ * for every body in the world that is not currently in a rock.
+ */
+const SHOVE_STEP = 0.25;
+const SHOVE_STEPS = 8;
+/**
  * Ceiling above the ground under you. Enough to clear anything; not orbit.
  *
  * RAISED FROM 60 WHEN THE SKY BECAME SOMEWHERE TO GO (issue #68). The flying
@@ -217,6 +236,14 @@ export class MountController {
   /** True while the mount can only swim — no gallop, see LAND_FLOP. */
   private waterOnly = false;
   private pos = new THREE.Vector3();
+  /**
+   * Where the ANIMAL is, which is not where the rider is: the hero is seated
+   * `saddleY - HERO_HIP_Y` above this and `SEAT_BACK` behind it (`seatHero`).
+   * Every clamp in this file is applied here, so a probe asserting on one has
+   * to read this and not the hero's position — the seat offset is a couple of
+   * units and the clearances being asserted on are about that big.
+   */
+  get bodyY(): number { return this.pos.y; }
   private vel = new THREE.Vector3();
   private vy = 0;
   private grounded = true;
@@ -770,9 +797,63 @@ export class MountController {
     this.pitch += (0 - this.pitch) * (1 - Math.exp(-8 * dt));
   }
 
+  /**
+   * Would a body at this point be INSIDE a carrier's mass — in the rock rather
+   * than over the lawn?
+   *
+   * `deckAt` and not `topAt` is the whole of this test. `topAt` is a max over
+   * the deck and everything standing on it, so a flyer hovering beside a
+   * cottage measures as inside the island; refusing his movement there would
+   * make a house on a deck a wall to a creature that flies, and shoving him out
+   * of it would throw him off the island for approaching a door. Between the
+   * turf and the keel there is rock, and nothing else in a carrier is solid to
+   * something in the air.
+   */
+  private inMass(x: number, z: number, y: number): boolean {
+    const body = this.world.carriers.bodyAt(x, z);
+    if (!body) return false;
+    return y > body.bottomAt(x, z) && y < body.deckAt(x, z);
+  }
+
+  /**
+   * Push a body the frame has moved INTO back out through its flank.
+   *
+   * OUTWARD FROM THE FRAME'S OWN CENTRE, which for a body that is being run
+   * down by an island is the way it is already being pushed: the flank arrives
+   * on one bearing, and out along that bearing is both the shortest way clear
+   * and the direction the rock is travelling. So the island CARRIES him rather
+   * than swallowing him, which is what a moving mass does to something in its
+   * way, and he is never lifted over the top — the correction this whole branch
+   * exists for.
+   *
+   * A march rather than a solve, because the outline carries four harmonics and
+   * the keel is terraced (world/sky-island.ts): there is no closed form for the
+   * exit, and asking the frame's own query is the only answer that cannot
+   * disagree with the rock the player can see.
+   */
+  private shoveOut(body: CarrierInfo): void {
+    let ux = this.pos.x - body.x;
+    let uz = this.pos.z - body.z;
+    const d = Math.hypot(ux, uz);
+    // Dead centre: any bearing is as good as any other, and picking one beats
+    // dividing by zero. It is a millimetre of the island's own axis.
+    if (d < 1e-3) { ux = 0; uz = 1; } else { ux /= d; uz /= d; }
+    for (let i = 0; i < SHOVE_STEPS; i++) {
+      this.pos.x += ux * SHOVE_STEP;
+      this.pos.z += uz * SHOVE_STEP;
+      if (!this.inMass(this.pos.x, this.pos.z, this.pos.y)) return;
+    }
+  }
+
   private integrateFlying(dt: number): void {
-    this.pos.x += this.vel.x * dt;
-    this.pos.z += this.vel.z * dt;
+    // PER AXIS, the same shape as the deep-water refusal and as the hero's own
+    // step test: a flyer sliding along the island's cliff keeps the half of his
+    // speed that is along it and loses only the half that is into it. A single
+    // combined test stops him dead against a wall he is mostly travelling past.
+    const nx = this.pos.x + this.vel.x * dt;
+    const nz = this.pos.z + this.vel.z * dt;
+    if (!this.inMass(nx, this.pos.z, this.pos.y)) this.pos.x = nx;
+    if (!this.inMass(this.pos.x, nz, this.pos.y)) this.pos.z = nz;
 
     // Space climbs, C dives, neither holds altitude. Shift is deliberately not
     // involved: it is already sprint-or-grip on foot and a third meaning would
@@ -805,6 +886,38 @@ export class MountController {
     if (this.pos.y > ceil) {
       this.pos.y = ceil;
       if (this.vy > 0) this.vy = 0;
+    }
+    // A CARRIER IS A SOLID BODY, and until this the only thing one could do to
+    // a flyer was hold him up. `ride.support` is gated on being ATTACHED — it
+    // has to be, or an island passing overhead would lift a walker off the
+    // meadow — and a mount climbing at the keel is by definition not attached
+    // yet, so the island simply was not there: you flew in through the rock and
+    // sat inside the mountain (issue #80).
+    //
+    // UNDER THE KEEL IS THE ONLY CASE THIS BRANCH HANDLES, and that is the
+    // correction: the first version pushed a body found inside the mass UP onto
+    // the deck, which is a teleport onto the island and exactly the thing the
+    // report was about read the other way round. Being in the rock is refused
+    // horizontally (`inMass`, above) and resolved sideways (`shoveOut`); the
+    // only vertical answers are "the keel is a ceiling" and "the deck is a
+    // floor", and the second is `floorFor`'s job as it always was.
+    //
+    // Asked LAST, so it wins over the ceiling above — which `ceilingAt` has
+    // deliberately raised near the island to let the approach happen at all.
+    const body = this.world.carriers.bodyAt(this.pos.x, this.pos.z);
+    if (body) {
+      const keel = body.bottomAt(this.pos.x, this.pos.z);
+      if (this.pos.y < keel && this.pos.y > keel - FLY_CLEARANCE) {
+        // The way up is round the rim and not through the middle, which is the
+        // honest reading of a mountain in the sky.
+        this.pos.y = keel - FLY_CLEARANCE;
+        if (this.vy > 0) this.vy = 0;
+      } else if (this.pos.y >= keel && this.pos.y <= body.deckAt(this.pos.x, this.pos.z)) {
+        // IN THE MASS, which the two rules above and `inMass` make unreachable
+        // by flying — so the island flew into HIM. It carries him along rather
+        // than through: the shove is outward, along the flank, and never up.
+        this.shoveOut(body);
+      }
     }
     this.grounded = false;
     this.pitch += (clamp(-this.vy * 0.055, -0.35, 0.35) - this.pitch)

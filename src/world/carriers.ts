@@ -11,8 +11,9 @@
  *
  *   CarrierBody   what a moving thing EXTENDS. Owns the pose, computes the
  *                 per-slice delta from it, and converts between world and its
- *                 own local space. A subclass writes `steer()` and `localTop()`
- *                 and inherits everything else.
+ *                 own local space. A subclass writes `steer()` and its three
+ *                 faces — `localTop()`, `localDeck()`, `localBottom()` — and
+ *                 inherits everything else.
  *   CarrierField  the registry the World contract hands out.
  *   CarrierRide   what a MOVER owns — one field, two calls, no knowledge of
  *                 what it is standing on.
@@ -94,8 +95,9 @@ const CEILING_RISE = 30;
 /**
  * A moving frame. Extend it; do not instantiate it.
  *
- * The subclass owns exactly two things — where the frame WANTS to be next slice
- * (`steer`) and what its surface is in local space (`localTop`) — and this
+ * The subclass owns where the frame WANTS to be next slice (`steer`) and the
+ * three faces of it in local space — what you stand on (`localTop`), the
+ * surface itself (`localDeck`) and its underside (`localBottom`) — and this
  * class owns the bookkeeping every carrier would otherwise repeat: the delta,
  * the transform, the containment test and the scene root.
  */
@@ -134,6 +136,38 @@ export abstract class CarrierBody implements CarrierInfo {
    * where the frame has nothing there. Local y = 0 is the frame's origin.
    */
   abstract localTop(lx: number, lz: number): number;
+
+  /**
+   * The frame's OWN SURFACE at a point in its own coordinates — the turf, not
+   * what is standing on it — or -Infinity past its edge.
+   *
+   * THE THIRD FACE, and it is the one that says where the frame stops being a
+   * MASS and starts being a place with things on it. `localTop` cannot answer
+   * that: it is a max over the deck and every hut, resident and tree, which is
+   * the right answer for "what do I stand on" and the wrong one for "am I in
+   * the rock". A flyer beside a cottage is inside `[localBottom, localTop]` and
+   * is plainly not inside the island — he is over the lawn, looking at a wall
+   * he is allowed to climb over. Between this and `localBottom` is the MASS: a
+   * body cannot be in there, and cannot ride up out of it.
+   */
+  abstract localDeck(lx: number, lz: number): number;
+
+  /**
+   * Underside of the frame's BODY at a point in its own coordinates, or
+   * +Infinity where the frame has nothing there. Local y = 0 is the origin, so
+   * a hull hanging under the deck answers negative.
+   *
+   * ABSTRACT, LIKE `localTop`, AND FOR THE SAME REASON: there is no honest
+   * default. A raft is its own underside and an island is eighty units of rock,
+   * and a base class that guessed would guess wrong for exactly the frame whose
+   * keel a flyer can get inside of — which is the defect this pair was widened
+   * for (issue #80: "player can fly straight through the sky island").
+   *
+   * The two together are the frame's SLAB at a column, and a slab is what a
+   * mover needs: `topAt` alone says what to stand on and says nothing about
+   * what to bump into from below.
+   */
+  abstract localBottom(lx: number, lz: number): number;
 
   /** One simulation slice: steer, publish the delta, and move the meshes. */
   advance(dt: number): void {
@@ -191,6 +225,26 @@ export abstract class CarrierBody implements CarrierInfo {
     return t > -Infinity ? t + this.y : -Infinity;
   }
 
+  /** `localDeck` at a world column. -Infinity past the frame's edge. */
+  deckAt(x: number, z: number): number {
+    const dx = x - this.x;
+    const dz = z - this.z;
+    if (dx * dx + dz * dz > this.radius * this.radius) return -Infinity;
+    this.toLocal(x, z, this._l);
+    const d = this.localDeck(this._l.x, this._l.z);
+    return d > -Infinity ? d + this.y : -Infinity;
+  }
+
+  /** `localBottom` at a world column. +Infinity where the frame has nothing. */
+  bottomAt(x: number, z: number): number {
+    const dx = x - this.x;
+    const dz = z - this.z;
+    if (dx * dx + dz * dz > this.radius * this.radius) return Infinity;
+    this.toLocal(x, z, this._l);
+    const b = this.localBottom(this._l.x, this._l.z);
+    return b < Infinity ? b + this.y : Infinity;
+  }
+
   contains(x: number, y: number, z: number): boolean {
     const top = this.topAt(x, z);
     if (top === -Infinity) return false;
@@ -213,6 +267,11 @@ export class CarrierField implements CarrierRegistry {
 
   at(x: number, y: number, z: number): CarrierInfo | null {
     for (const c of this.all) if (c.contains(x, y, z)) return c;
+    return null;
+  }
+
+  bodyAt(x: number, z: number): CarrierInfo | null {
+    for (const c of this.all) if (c.topAt(x, z) > -Infinity) return c;
     return null;
   }
 

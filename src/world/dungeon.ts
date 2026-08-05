@@ -645,6 +645,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     debugRidges(): void { /* nor any roofs */ },
     /** Nor any road furniture: the hold has no roads. */
     debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; },
+    debugCarriedTrees(): Array<{ x: number; z: number }> { return []; },
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
       if (disposed) return;

@@ -114,6 +114,12 @@ const SOLO = new Set([
   // and asserts on an enemy's hp either side of a swing. Every one of those is a
   // frame the loop has to run.
   'proximity',
+  // Was on NEITHER list, so `all` skipped the flying town entirely — which is
+  // how issue #80 (fly straight through the island, walk through its wood)
+  // reached a release with a probe for carriers already in the tree. It belongs
+  // here on its own merits now: section 7 mounts a flyer through __dbgRide and
+  // holds Space for twelve seconds, measuring where the climb stopped.
+  'carrier',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output

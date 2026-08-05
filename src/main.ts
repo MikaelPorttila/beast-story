@@ -2070,6 +2070,8 @@ const _hurtFrom = new THREE.Vector3();
     ? { x: +mount.beast.forward.x.toFixed(3), z: +mount.beast.forward.z.toFixed(3) }
     : null,
   y: +player.position.y.toFixed(2),
+  /** The ANIMAL's altitude — what the flight clamps act on. See `bodyY`. */
+  bodyY: mount.isMounted ? +mount.bodyY.toFixed(2) : null,
   ground: +world.getHeight(player.position.x, player.position.z).toFixed(2),
   lastCast: { ...lastCast },
 });
@@ -4160,6 +4162,20 @@ beginPlay();
         const t = c.topAt(player.position.x, player.position.z);
         return Number.isFinite(t) ? +t.toFixed(2) : null;
       })(),
+      /**
+       * The MASS in this column: the turf, and the keel under it — or null off
+       * the footprint. `surface` is not `deckTop`, which is the top of whatever
+       * is standing here; the pair a probe has to assert on is this one, because
+       * it is the pair a body cannot be between (issue #80, tools/test-carrier).
+       */
+      surface: (() => {
+        const d = c.deckAt(player.position.x, player.position.z);
+        return Number.isFinite(d) ? +d.toFixed(2) : null;
+      })(),
+      keel: (() => {
+        const b = c.bottomAt(player.position.x, player.position.z);
+        return Number.isFinite(b) ? +b.toFixed(2) : null;
+      })(),
       onDeck: {
         x: +(wx * cs - wz * sn).toFixed(3),
         y: +(player.position.y - c.y).toFixed(3),
@@ -4168,6 +4184,43 @@ beginPlay();
     };
   }),
 });
+
+/**
+ * THE WOOD ON A CARRIED DECK, AND WHETHER IT BLOCKS. For tools/test-carrier.mjs.
+ *
+ * Every tree the carried settlement planted, with the collision query's own
+ * answer at its column — and a control sweep of the whole deck beside it,
+ * because "there is something solid here" only means something next to "and not
+ * everywhere". A carrier moves about a unit a second, so BOTH are read in one
+ * evaluation: a probe that fetched the positions and then asked about them
+ * would be asking about where the tree was.
+ *
+ * `rise` is measured off the deck plane (the frame's own origin), so it is the
+ * height of the bole and not an altitude that changes as the island climbs.
+ */
+(window as unknown as { __dbgCarriedWood: () => unknown }).__dbgCarriedWood = () => {
+  const c = world.carriers.all[0];
+  if (!c) return { deck: null, trees: [], sampled: 0, raised: 0 };
+  const trees = world.debugCarriedTrees().map((t) => ({
+    x: +t.x.toFixed(2),
+    z: +t.z.toFixed(2),
+    rise: +(c.topAt(t.x, t.z) - c.y).toFixed(2),
+  }));
+  let sampled = 0;
+  let raised = 0;
+  const step = c.radius / 12;
+  for (let i = -12; i <= 12; i++) {
+    for (let j = -12; j <= 12; j++) {
+      const t = c.topAt(c.x + i * step, c.z + j * step);
+      if (t === -Infinity) continue;
+      sampled++;
+      // A whole unit over the turf: above `MAX_STEP_UP` by a wide margin, so
+      // this counts obstacles rather than the odd doorstep.
+      if (t > c.y + 1) raised++;
+    }
+  }
+  return { deck: +c.y.toFixed(2), trees, sampled, raised };
+};
 
 /**
  * THE INVENTORY, FOR tools/test-inventory.mjs.
