@@ -596,7 +596,13 @@ if (lockLost.locked) {
     'arm 1c could not take the pointer for one of its three rounds');
   check(unfocused.menuAfterBlur === false,
     'losing window focus raised the in-game menu — an alt-tab is not an Escape');
-  check(unfocused.travelAfterBlur > 4,
+  // A LOOSER BOUND THAN THE `> 4` EVERY OTHER TRAVEL IN THIS FILE USES, on
+  // purpose. Those ask "did the hero walk properly"; this one asks only "was he
+  // simulated AT ALL", and the frozen reading is `travelWithMenuUp` above —
+  // exactly 0, because a modal skips the simulation rather than slowing it. The
+  // margin is for the machine: measured 6.85 on an idle host and 4.00 under
+  // `probe.mjs all`, where two dozen pages share the GPU.
+  check(unfocused.travelAfterBlur > 2,
     `the hero travelled ${unfocused.travelAfterBlur} after a focus loss — losing `
     + 'focus must not pause the game');
   check(unfocused.menuAfterLockFirst === false,
