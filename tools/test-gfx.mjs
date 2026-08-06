@@ -387,9 +387,11 @@ export const sections = [
     // does, and driven through the real buttons rather than through `__dbgGfx`.
     // AO is the one used because it is the largest and steadiest of the five.
     //
-    // The pause menu is a MODAL — the hero is frozen while it is up — which is
-    // helpful rather than awkward: nothing is walking into new chunks between
-    // the two readings, so the draw count is as still as it ever gets.
+    // The pause menu is a MODAL — it takes the hero's input while it is up —
+    // which is helpful rather than awkward: nothing is walking into new chunks
+    // between the two readings, so the draw count is as still as it ever gets.
+    // He is still SIMULATED behind it (issue #101); with nothing pressed that
+    // means he stands where he was, which is all this needs.
     //
     // F10, not Escape: the in-game menu moved off a key the browser spends on
     // fullscreen and pointer lock before the page sees it.
@@ -420,9 +422,9 @@ export const sections = [
     });
     const rows = await ctx.ev(() =>
       [...document.querySelectorAll('.bs-pause [data-gfx]')].map((b) => b.getAttribute('data-gfx')));
-    // COMPOSITION: same stillness gate as `toggles` — the modal freezes the
-    // hero but not the renderer, and a count still absorbing pop-in reads a
-    // 40-call toggle as 4.
+    // COMPOSITION: same stillness gate as `toggles` — the modal takes the
+    // hero's input but not the renderer's work, and a count still absorbing
+    // pop-in reads a 40-call toggle as 4.
     await settleDraws(ctx);
     const on = await draws(ctx);
     await ctx.ev(() => document.querySelector('.bs-pause [data-gfx="ao"]')?.click());

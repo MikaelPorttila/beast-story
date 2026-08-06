@@ -139,6 +139,80 @@ export const sections = [
   } },
 
   // -------------------------------------------------------------------------
+  // A PANEL TAKES THE INPUT, NOT THE CLOCK. Issue #101: opening a panel used to
+  // skip the player controller outright, so a hero who pressed I or F10 in the
+  // middle of a jump hung in the air until it was closed — the screenshot on
+  // that issue — while the enemies swinging at him went on moving.
+  //
+  // THE OTHER HALF OF THIS PAIR IS `travelWithMenuUp` in `menuKey` below, and it
+  // has to be read with this one: alone, "he lands with the menu up" also passes
+  // for a build with no modal rule at all, and alone, "he travels 0" also passes
+  // for the freeze this section exists to forbid. Together they say the panel
+  // took the keyboard and nothing else.
+  //
+  // The fall is SIMULATED, which is what makes the reading exact rather than a
+  // race with the machine: `adv` drains fixed slices through the same
+  // `simulate()` the frame loop drives, so 1.5 s is 1.5 s of gravity whatever
+  // the host is doing. He is dropped from a plain jump — JUMP_VEL/GRAVITY put
+  // the apex at 1.61 units, ~0.37 s up and the same down — so a second and a
+  // half is roughly four times the flight he has left.
+  //
+  // Vertical only, and deliberately: he is never asked to walk here, so his x/z
+  // do not move and `y` alone answers "was he simulated". Landing is judged
+  // against the y he JUMPED FROM rather than against a ground query, so it
+  // needs no second hook and cannot disagree with one.
+  { id: 'airborne', run: async (ctx) => {
+    const { page } = ctx;
+    const a = {};
+    const ground = await pos(page);
+
+    // Space is a press EDGE latched per slice (Player.jumpEdge), so it is held
+    // across a slice rather than tapped between frames.
+    await page.keyboard.down('Space');
+    await ctx.adv(0.05);
+    await page.keyboard.up('Space');
+    await ctx.adv(0.25);
+    a.riseBeforePanel = round(await ctx.ev(() => window.__dbgPlayerPos().y) - ground.y);
+
+    await page.keyboard.press('F10');
+    await ctx.adv(0.3);
+    a.menuUp = await has(page, '.bs-pause');
+    a.riseWithMenuUp = round((await pos(page)).y - ground.y);
+
+    await ctx.adv(1.5);
+    const after = await pos(page);
+    a.landedDrop = round(after.y - ground.y);
+    a.driftWithMenuUp = round(Math.hypot(after.x - ground.x, after.z - ground.z));
+
+    // Hand the page back the way `stage` left it: menu down, hero on the ground
+    // at the start pose. `menuKey` opens the menu itself and asserts that
+    // nothing was up before it.
+    await page.keyboard.press('F10');
+    await ctx.adv(0.3);
+    await ctx.waitFn(() => !document.querySelector('.bs-pause'), 5000);
+    a.menuClosed = !(await has(page, '.bs-pause'));
+
+    ctx.res.airborne = a;
+    // The CONTROL. Without it every assertion below passes for a hero who never
+    // left the ground, which is also what a broken jump key looks like.
+    ctx.check(a.riseBeforePanel > 0.3,
+      `the jump only lifted him ${a.riseBeforePanel} — nothing below is about panels`);
+    ctx.check(a.menuUp === true, 'F10 did not open the menu mid-air');
+    ctx.check(a.riseWithMenuUp > 0.3,
+      `he was already back down (${a.riseWithMenuUp}) when the menu came up — `
+      + 'the panel never went up mid-air, so the fall below proves nothing');
+    // ISSUE #101 ITSELF.
+    ctx.check(Math.abs(a.landedDrop) < 0.1,
+      `the hero is ${a.landedDrop} above where he jumped from after 1.5 s with the `
+      + 'menu up — a panel must not stop the game');
+    // ...and he did not WANDER while it was up. `travelWithMenuUp` in `menuKey`
+    // is the same claim under a held key; this one covers the slices in here.
+    ctx.check(a.driftWithMenuUp < 0.1,
+      `the hero drifted ${a.driftWithMenuUp} with the menu up and nothing pressed`);
+    ctx.check(a.menuClosed === true, 'the menu would not close again');
+  } },
+
+  // -------------------------------------------------------------------------
   { id: 'menuKey', run: async (ctx) => {
     const { page } = ctx;
     const m = {};
@@ -162,8 +236,10 @@ export const sections = [
 
     // THE MODAL ASSERTION, and the reason the menu is worth a probe at all: a
     // player who stopped to change a setting must not have walked off a cliff.
-    // The hold is simulated — a modal SKIPS the hero's simulation rather than
-    // slowing it, so the advanced seconds are exactly what must move him 0.
+    // The hold is simulated — a modal SUSPENDS the input rather than slowing the
+    // hero, so the advanced seconds are exactly what must move him 0. Read with
+    // `airborne` above, which is the other half: he is still simulated in those
+    // same slices, and lands.
     m.travelWithMenuUp = await walk(page);
 
     ctx.res.menuKey = m;
@@ -175,8 +251,10 @@ export const sections = [
     ctx.check(JSON.stringify(m.rows) === JSON.stringify(['continue', 'settings', 'exit']),
       'the three options the issue asks for, in order');
     ctx.check(m.focusOnOpen === 'continue', 'something is focused on open, for a pad');
-    // 0 exactly: the hero is not simulated at all while a modal is up.
-    ctx.check(m.travelWithMenuUp === 0, 'the hero is frozen while the menu is up');
+    // 0 exactly: a suspended stick is not a slow one, so no slice moves him at
+    // all — see `Input.suspended`.
+    ctx.check(m.travelWithMenuUp === 0,
+      'the hero walks on his own keys while the menu is up');
   } },
 
   // -------------------------------------------------------------------------
@@ -641,11 +719,12 @@ export const sections = [
       'the CONTROL failed: a lock taken with focus held armed nothing, so the two '
       + 'assertions above pass against a build with the recovery deleted');
     // A LOOSER BOUND THAN THE `> 4` EVERY OTHER TRAVEL IN THIS FILE USES, on
-    // purpose. Those ask "did the hero walk properly"; this one asks only "was he
-    // simulated AT ALL", and the frozen reading is `travelWithMenuUp` above —
-    // exactly 0, because a modal skips the simulation rather than slowing it. The
-    // margin survives the conversion: the hold is simulated seconds now, so the
-    // machine's load no longer moves it, but the bound keeps its old meaning.
+    // purpose. Those ask "did the hero walk properly"; this one asks only "did
+    // his keys still reach him", and the still reading is `travelWithMenuUp`
+    // above — exactly 0, because a modal suspends the input rather than slowing
+    // it. The margin survives the conversion: the hold is simulated seconds now,
+    // so the machine's load no longer moves it, but the bound keeps its old
+    // meaning.
     ctx.check(u.travelAfterBlur > 2,
       `the hero travelled ${u.travelAfterBlur} after a focus loss — losing `
       + 'focus must not pause the game');

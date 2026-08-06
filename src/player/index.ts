@@ -682,13 +682,13 @@ export class Player {
   /**
    * Move with whatever is carrying him, and nothing else.
    *
-   * SEPARATE FROM `update` BECAUSE A FROZEN HERO IS STILL STANDING ON
-   * SOMETHING. Every modal in this game freezes the player controller — the
-   * shop, the F1 sheet, the in-game menu, the console — and while the world's
-   * moving parts go on moving, so a hero who opened the menu on a flying
-   * island watched it slide out from under him and was left standing in the
-   * sky. Being frozen means "takes no input and runs no physics", not
-   * "detached from the world".
+   * SEPARATE FROM `update` BECAUSE A HERO NOBODY IS DRIVING IS STILL STANDING
+   * ON SOMETHING. Photo mode skips the player controller while the world's
+   * moving parts go on moving, so without this a staged capture on a flying
+   * island watches the deck slide out from under him. Modals used to be the
+   * other caller and are not any more — a panel suspends the INPUT and lets the
+   * controller run (issue #101, see `Input.suspended`), so `update` reaches the
+   * call below on its own.
    *
    * It is idempotent per slice and safe to call from either path: `carry`
    * applies the frame's published delta once, and the delta is published once
@@ -705,31 +705,6 @@ export class Player {
     this.heading += this.ride.dyaw;
     this.cam.yaw += this.ride.dyaw;
     this.root.rotation.y = this.heading;
-  }
-
-  /**
-   * Keep the lens on him while the controller is frozen.
-   *
-   * THE OTHER HALF OF `carry`, AND A BUG IN ITS OWN RIGHT. `update` is what
-   * drives the follow camera, and every modal skips `update` — so with the shop,
-   * the F1 sheet, the in-game menu or the console open, the camera stopped
-   * following. That was invisible for as long as a frozen hero could not move,
-   * and stopped being invisible the moment he could: carried by a flying island,
-   * he slides out from under a camera that is still pointing at where the deck
-   * used to be. It is also wrong for the plainer reason that the camera damps
-   * toward its rest pose over several hundred milliseconds, so opening a panel
-   * mid-turn froze the arm halfway through the swing.
-   *
-   * IT DOES NOT READ LOOK INPUT, and it does not have to guard against it here:
-   * `frame()` in main.ts calls `Input.clearLook()` for the whole of any frame
-   * with a modal up (the F1 sheet keeps pointer lock, so it genuinely does go on
-   * collecting delta), and the console releases the pointer, which is what feeds
-   * that delta in the first place. So the camera gets a zero-look update and
-   * does only the part that is wanted: follow, damp, and re-place the lens.
-   */
-  followCamera(dt: number): void {
-    this.cam.update(dt, this.input, this.position, this.onGround, this.world, this.engine.camera);
-    this.engine.updateSunFocus(this.position);
   }
 
   update(dt: number): void {
