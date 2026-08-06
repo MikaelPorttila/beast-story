@@ -611,6 +611,9 @@ export function createWorld(
       spawnPoint.x + Math.sin(SKY_HOME_ANGLE) * SKY_HOME_DIST,
       spawnPoint.z + Math.cos(SKY_HOME_ANGLE) * SKY_HOME_DIST,
       seed,
+      // The lakes' own shader, for the stream in the island's channel: one
+      // water in this world, lit and clocked once. See `SkyIsland.buildStream`.
+      waterMat,
     )
     : null;
   if (sky) {
