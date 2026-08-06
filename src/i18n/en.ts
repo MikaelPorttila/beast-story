@@ -490,6 +490,10 @@ export const en = {
   'hud.menu': 'Menu',
   'hud.riding': 'RIDING {beast} · tap {dismount} to dismount',
   'hud.ridingFlying': 'RIDING {beast} · {altitude} altitude · tap {dismount} to dismount',
+  // The third badge, and the reason there are three: the keys are the SAME two
+  // keys, but "altitude" is the wrong word for what they do in a lake, and this
+  // badge is the only place a player is ever told a water beast dives at all.
+  'hud.ridingSwimming': 'RIDING {beast} · {altitude} depth · tap {dismount} to dismount',
 
   // ---- hints -------------------------------------------------------------
   // The hint pill is HTML, and `{key}` arrives already wrapped in `<kbd>` — the

@@ -20,6 +20,12 @@
 //   3. a GROUND mount is turned back too
 //   4. a WATER mount crosses — and is faster afloat than ashore
 //
+// ...and two more that are the same water seen from underneath (issue #103):
+//
+//   5. a WATER mount DIVES on C, is stopped by the bed, comes back up on Space,
+//      and can never be pushed above the line it floats at
+//   6. a GROUND mount in water it can stand in ignores C entirely
+//
 // EVERY COORDINATE IS DERIVED. `__dbgWorld(x, z).deep` is asked for the real
 // basin nearest the spawn and the real beach nearest that basin, so the test
 // follows the seed's coastline instead of pinning a set of numbers to it. The
@@ -270,6 +276,152 @@ export const sections = [
     ctx.check(run.topSpeedOnWater > landRun.topSpeedOnLand * 1.8,
       `the water mount is not faster in water: ${run.topSpeedOnWater} u/s afloat against `
       + `${landRun.topSpeedOnLand} on land`);
+    await ctx.ev(() => window.__dbgRide('off'));
+  } },
+
+  // -------------------------------------------------------------------------
+  { id: 'waterMountDive', run: async (ctx) => {
+    // A WATER MOUNT GOES UNDER (issue #103) — and comes back.
+    //
+    // Four facts, one hold each, because they fail independently: C takes the
+    // pair down, the bed stops them, Space brings them back up, and the surface
+    // is a ceiling rather than a diving board. The last one is why every height
+    // here is compared against `float.bodyY` — where the mount settled with
+    // nothing held — instead of against `waterLevel` minus a number: the float
+    // line is WADE_DEPTH under the surface and that constant belongs to
+    // player/mount.ts, so a test that wrote it down would go on passing after it
+    // moved. Measuring against the observed float line asks the only question
+    // that matters anyway: did it get lower, and did it get back.
+    // MOUNTED ASHORE AND CARRIED OUT, in that order and not the other one: a
+    // hero standing in the basin is SWIMMING, and mounting refuses a swimmer on
+    // purpose (`MountController.refusal`). So the saddle is taken on the dry
+    // beach the geometry section found, and `__dbgTp` — which moves the animal
+    // too, see MountController.teleport — puts the pair in the deepest water
+    // there is, which is the only column deep enough for the bed assertion
+    // below to mean anything.
+    await ctx.ev(() => window.__dbgRide('off'));
+    const [sx, sz] = along(-RUNWAY);
+    await ctx.tp(sx, sz);
+    await ctx.adv(0.6);
+    const said = await ctx.ev(() => window.__dbgRide('finnick'));
+    await ctx.tp(geom.deep.x, geom.deep.z);
+    await ctx.adv(1.5);
+    const bed = await ctx.ev(([x, z]) => window.__dbgWorld(x, z).ground,
+      [geom.deep.x, geom.deep.z]);
+    const float = await ctx.ev(() => window.__dbgMount());
+    ctx.check(float.mounted && float.beast === 'finnick', `could not ride Finnick: ${said}`);
+    ctx.check(float.swimming,
+      'a mounted Finnick in the deepest basin near spawn does not report swimming');
+    ctx.check(float.diveDepth < 0.1,
+      `the mount is already under before anything was held (${float.diveDepth} down)`);
+
+    /** Hold `code` for `secs` SIMULATED seconds, sampling the saddle's height. */
+    const hold = async (code, secs) => {
+      if (code) await ctx.page.keyboard.down(code);
+      const track = [];
+      let peakRise = 0;
+      let last = (await ctx.ev(() => window.__dbgMount())).bodyY;
+      for (let i = 0; i < Math.round(secs / 0.25); i++) {
+        await ctx.adv(0.25);
+        const m = await ctx.ev(() => window.__dbgMount());
+        const v = (m.bodyY - last) / 0.25;
+        if (v > peakRise) peakRise = v;
+        last = m.bodyY;
+        track.push({ y: round(m.bodyY), depth: m.diveDepth });
+      }
+      if (code) await ctx.page.keyboard.up(code);
+      return { track, end: track[track.length - 1], peakRise: round(peakRise) };
+    };
+
+    // ---- C: down, and the bed catches it -----------------------------------
+    const dive = await hold('KeyC', 4);
+    // ---- Space: back up, and no further than the float line -----------------
+    const rise = await hold('Space', 3);
+    // ---- nothing held, from the bottom: it floats, it does not cork ---------
+    const sink = await hold('KeyC', 3);
+    const bob = await hold(null, 5);
+
+    ctx.res.waterMountDive = {
+      floatY: round(float.bodyY), bed: round(bed),
+      dive: { end: dive.end, aboveBed: round(dive.end.y - bed) },
+      rise: rise.end,
+      sank: sink.end,
+      bob: { end: bob.end, peakRise: bob.peakRise },
+    };
+
+    ctx.check(dive.end.depth > 1.5,
+      `holding C did not take the mount down (${dive.end.depth} units under the float line)`);
+    ctx.check(dive.end.y >= bed - 0.05,
+      `the mount dived THROUGH the bed: ${round(dive.end.y)} against a bed at ${round(bed)}`);
+    ctx.check(rise.end.depth < dive.end.depth - 1,
+      `holding Space did not bring it back up: ${rise.end.depth} under, from ${dive.end.depth}`);
+    // THE SURFACE IS A CEILING. Space is a swim, not a leap out of the water,
+    // so no sample from any of the four holds may sit above where it floated.
+    const breach = [...dive.track, ...rise.track, ...sink.track, ...bob.track]
+      .find((s) => s.y > float.bodyY + 0.05);
+    ctx.check(!breach,
+      `the mount broke the surface at y=${breach?.y} against a float line of ${round(float.bodyY)}`);
+    ctx.check(bob.end.depth < 0.3,
+      `it never floated back to the surface with nothing held (${bob.end.depth} under)`);
+    // The cork, the mount's half of the same cap the hero needed when he learned
+    // to dive (SWIM_RISE_MAX in player/index.ts and again in player/mount.ts):
+    // an uncapped buoyancy spring from the bed of a basin surfaces the pair
+    // faster than they can swim. 6 sits clear of the 4.5 the cap allows.
+    ctx.check(bob.peakRise < 6,
+      `it corked to the surface at ${bob.peakRise} units/s — buoyancy is uncapped`);
+    await ctx.ev(() => window.__dbgRide('off'));
+  } },
+
+  // -------------------------------------------------------------------------
+  { id: 'groundMountNoDive', run: async (ctx) => {
+    // ...AND A GROUND MOUNT STILL WADES. The other half of the section above and
+    // the reason it means anything: "holding C moved it down" would pass on a
+    // build where C simply drove every mount into the ground. A Boulderpup in
+    // water it is allowed to stand in stays exactly where it is.
+    //
+    // The column is a SHALLOW one found here rather than the basin, because the
+    // basin is the one place a ground mount is refused outright (`deepRefused`)
+    // — being turned back at its edge is the `groundMount` section's business,
+    // not this one's.
+    const shallow = await ctx.ev(([dx, dz]) => {
+      let best = null; let dbest = Infinity;
+      for (let ox = -60; ox <= 60; ox++) {
+        for (let oz = -60; oz <= 60; oz++) {
+          const x = dx + ox; const z = dz + oz;
+          const w = window.__dbgWorld(x, z);
+          if (!w.water || w.deep) continue;
+          const d = ox * ox + oz * oz;
+          if (d < dbest) { dbest = d; best = { x, z, ground: w.ground }; }
+        }
+      }
+      return best;
+    }, [geom.deep.x, geom.deep.z]);
+    ctx.check(!!shallow, 'no shallow water near the basin to wade a ground mount into');
+    if (!shallow) return;
+
+    // Ashore first, for the same reason as the section above: a hero already in
+    // the water cannot climb into a saddle.
+    await ctx.ev(() => window.__dbgRide('off'));
+    const [sx, sz] = along(-RUNWAY);
+    await ctx.tp(sx, sz);
+    await ctx.adv(0.6);
+    const said = await ctx.ev(() => window.__dbgRide('boulderpup'));
+    await ctx.tp(shallow.x, shallow.z);
+    await ctx.adv(1.5);
+    const before = await ctx.ev(() => window.__dbgMount());
+    await ctx.page.keyboard.down('KeyC');
+    await ctx.adv(3);
+    await ctx.page.keyboard.up('KeyC');
+    const after = await ctx.ev(() => window.__dbgMount());
+    ctx.res.groundMountNoDive = {
+      column: { x: shallow.x, z: shallow.z, ground: round(shallow.ground) },
+      before: round(before.bodyY), after: round(after.bodyY), swimming: after.swimming,
+    };
+    ctx.check(before.mounted && before.beast === 'boulderpup',
+      `could not ride Boulderpup: ${said}`);
+    ctx.check(!after.swimming, 'a Boulderpup reports swimming — only water beasts swim');
+    ctx.check(Math.abs(after.bodyY - before.bodyY) < 0.1,
+      `holding C sank a wading ground mount from ${round(before.bodyY)} to ${round(after.bodyY)}`);
     await ctx.ev(() => window.__dbgRide('off'));
   } },
 ];

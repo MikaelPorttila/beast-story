@@ -124,9 +124,14 @@ const MOUNT_STEP_UP = 1.1;
  */
 const BODY_MARGIN = 0.15;
 /**
- * How deep a ground mount wades before it is simply held at the surface. There
- * is no swim gait for a mount, so deep water is crossed at a wade rather than
- * walked along the lake bed with the rider underwater.
+ * How deep a mount sits when it is floating rather than standing — the float
+ * line, measured down from `world.waterLevel`.
+ *
+ * A mount that cannot swim wades: it is simply held here whatever the bed is
+ * doing underneath, so a puddle and a lake are the same walk. A mount that CAN
+ * swim uses the same number as its CEILING and dives below it (see
+ * `integrateSwim`), which is what makes the two rules one number: the surface a
+ * wader is stuck at is the surface a swimmer starts from.
  */
 const WADE_DEPTH = 0.45;
 
@@ -135,6 +140,34 @@ const FLY_CLIMB = 7.0;
 const FLY_DIVE = 8.5;
 /** Vertical damping toward the commanded rate. */
 const FLY_VY_LAMBDA = 6;
+
+/**
+ * DIVING A WATER MOUNT (issue #103), and the four numbers it needs.
+ *
+ * THE CONTROLS ARE THE ONES THE PLAYER ALREADY HAS: C goes down, Space goes up.
+ * That is the flyer's pair (`integrateFlying`) and the hero's own pair in a lake
+ * (DIVE_ACCEL in player/index.ts), so the third place a player can be under a
+ * surface reads the same two keys as the first two — no new binding, and
+ * ui/keybinds.ts's `keys.descend` row already covers it.
+ *
+ * Slower than the flyer's 7.0/8.5 because the medium and the distances are both
+ * smaller: water is thicker than air, and a swimmable basin is four to ten units
+ * deep against a flight ceiling of 78. At 5.0 down the deepest water in the
+ * world is reached in about two seconds, which is long enough to read as sinking
+ * and short enough that nobody lets go of the key waiting for it.
+ *
+ * `SWIM_RISE_MAX` is the one that is not obvious, and it is the same correction
+ * the hero needed when he learned to dive: the return to the surface is a spring
+ * on the distance to the float line, and from the bed of a deep basin an
+ * uncapped spring surfaces the pair of them faster than they can swim — a cork,
+ * not an animal. Capping it at the deliberate climb rate makes letting go of the
+ * keys a slow float up, and costs nothing near the surface where the spring
+ * never reaches the cap anyway.
+ */
+const SWIM_CLIMB = 4.5;
+const SWIM_DIVE = 5.0;
+const SWIM_BUOYANCY = 6;
+const SWIM_RISE_MAX = SWIM_CLIMB;
 /**
  * Clearance a flyer keeps over terrain or water. 1.3 is the mount's own belly
  * height plus a little: the floor clamp below is what guarantees a flying mount
@@ -302,6 +335,26 @@ export class MountController {
   private readonly carrier = new CarrierRide();
 
   get isMounted(): boolean { return this.beast !== null; }
+  /**
+   * Is the mount SWIMMING right now — a water beast over a flooded column?
+   *
+   * The one question the dive rules turn on, asked in three places (the
+   * vertical integration, the step exemption that goes with it and the HUD's
+   * choice of badge), so it is one getter and not three copies of the same
+   * `swimmer && afloat` pair that could disagree.
+   */
+  get isSwimming(): boolean {
+    return this.beast !== null && this.swimmer && this.afloat(this.pos.x, this.pos.z);
+  }
+  /**
+   * How far the ANIMAL is below the float line, or 0 when it is not swimming.
+   * Measured from the float line rather than from `waterLevel` so a mount
+   * bobbing at the surface reads exactly 0 — see WADE_DEPTH.
+   */
+  get diveDepth(): number {
+    if (!this.isSwimming) return 0;
+    return Math.max(0, this.world.waterLevel - WADE_DEPTH - this.pos.y);
+  }
   /** 0..1 fill for the indicator. */
   get progress(): number { return clamp(this.hold / MOUNT_HOLD, 0, 1); }
   /** Horizontal speed of the mount, for probes and the HUD. */
@@ -415,7 +468,8 @@ export class MountController {
 
     // Space, latched the same way, so a ground mount's jump fires once per press
     // however many slices the frame drains. Consumed in updateGround(); a flyer
-    // reads Space as held altitude instead and never looks at this.
+    // and a swimming water beast both read Space as a held RATE instead and
+    // never look at this latch.
     const jumpHeld = input.down('Space') || input.pressed('Space');
     this.jumpPressed = jumpHeld && !this.jumpWasHeld;
     this.jumpWasHeld = jumpHeld;
@@ -737,7 +791,7 @@ export class MountController {
     // animates 'swim'; the ones that never see water fold it into 'fly' or the
     // gait (see the case labels in the species files).
     s.action = this.flying ? 'fly'
-      : this.swimmer && this.afloat(this.pos.x, this.pos.z) ? 'swim'
+      : this.isSwimming ? 'swim'
       : this.speed01 > 0.5 ? 'run' : this.speed01 > 0.06 ? 'walk' : 'idle';
     beast.rideUpdate(dt, s);
     this.seatHero();
@@ -749,7 +803,14 @@ export class MountController {
     // face instead of stopping dead — the same resolution the hero uses, with
     // the mount's own body radius and its higher step.
     const feetY = this.pos.y;
-    const stepCeil = feetY + MOUNT_STEP_UP;
+    // A SWIMMER IS EXEMPT FROM THE STEP TEST, exactly as the hero is on his own
+    // (Player.update). The rule asks "does that column stand above my feet",
+    // and a mount that has dived to the bed of a basin has its feet four units
+    // under the shallows — so every slope out of the water, and every hump on
+    // the bed it is swimming over, would be a wall. What actually stops a
+    // swimmer going where it should not is the floor clamp below, which lifts
+    // it over the bed, and `deepRefused`, which never refuses a water beast.
+    const stepCeil = this.isSwimming ? Infinity : feetY + MOUNT_STEP_UP;
     const radius = this.beast!.scaledRadius + BODY_MARGIN;
 
     const nx = this.pos.x + this.vel.x * dt;
@@ -763,6 +824,12 @@ export class MountController {
     if (this.blockTop(this.pos.x, pz) <= stepCeil && !this.deepRefused(this.pos.x, pz)) {
       this.pos.z = nz;
     } else { this.vel.z = 0; if (this.deepRefused(this.pos.x, pz)) this.refuseDeep(); }
+
+    // A WATER BEAST OVER WATER OWNS ITS OWN ALTITUDE. Asked AFTER the horizontal
+    // step, not before it, so a mount that has just swum onto a beach falls under
+    // gravity on the same slice it stops being afloat instead of hanging a slice
+    // at the old float line.
+    if (this.isSwimming) { this.integrateSwim(dt); return; }
 
     // Space bounds a ground mount. The rider is a passenger — the beast jumps, so
     // the jump is the beast's, not the hero's, and it clears more than he can on
@@ -802,6 +869,63 @@ export class MountController {
       this.grounded = false;
     }
     this.pitch += (0 - this.pitch) * (1 - Math.exp(-8 * dt));
+  }
+
+  /**
+   * A swimming mount's altitude: C dives, Space rises, neither floats it back
+   * up. The vertical half of `integrateGround` for a water beast — the
+   * horizontal half above is shared, because steering is steering.
+   *
+   * THE SURFACE IS A CEILING AND THE BED IS A FLOOR, and between them there is
+   * nothing else: that pair is the whole of "you cannot dive through the world"
+   * and "Space is a swim, not a leap out of the sea". Both clamps ask
+   * `blockTop`, the same query the ground path uses, so a sunken crate is
+   * something the mount rests on down there rather than something it sinks
+   * through — the defect issue #32 was about, one medium over.
+   */
+  private integrateSwim(dt: number): void {
+    // The pending Space edge is SPENT rather than left latched. Space means
+    // "rise" out here, and a press made under water that stayed pending would
+    // fire as a jump on whatever slice the mount reached the shore — a
+    // bunny-hop out of the sea, several seconds after the key was pressed.
+    this.consumeJump();
+
+    const floatY = this.world.waterLevel - WADE_DEPTH;
+    const up = this.input.down('Space') ? 1 : 0;
+    const down = this.input.down('KeyC') ? 1 : 0;
+    // Damped toward a commanded RATE, the same shape as the flyer's climb, and
+    // not an acceleration against a buoyancy the way the hero's dive is: the
+    // hero is a body in the water, a water beast is an animal that lives there,
+    // and it goes down because it swims down rather than because it stopped
+    // floating.
+    const want = up || down
+      ? up * SWIM_CLIMB - down * SWIM_DIVE
+      // Nothing held: the water carries the pair of them back to the surface.
+      // Capped — see SWIM_RISE_MAX.
+      : Math.min((floatY - this.pos.y) * SWIM_BUOYANCY, SWIM_RISE_MAX);
+    this.vy += (want - this.vy) * (1 - Math.exp(-FLY_VY_LAMBDA * dt));
+    this.pos.y += this.vy * dt;
+
+    // CEILING FIRST, FLOOR LAST, and the order is load-bearing: in water only
+    // just deep enough to swim in, the bed stands ABOVE the float line, and
+    // clamping in the other order would push the mount down into the ground it
+    // had just been lifted out of.
+    if (this.pos.y > floatY) {
+      this.pos.y = floatY;
+      if (this.vy > 0) this.vy = 0;
+    }
+    const bed = this.blockTop(this.pos.x, this.pos.z);
+    if (this.pos.y <= bed) {
+      this.pos.y = bed;
+      if (this.vy < 0) this.vy = 0;
+      this.grounded = true;
+    } else {
+      this.grounded = false;
+    }
+    // Nose down on the way down, up on the way up — the flyer's tilt, at the
+    // flyer's gain, because it is the same read: which way is this animal going.
+    this.pitch += (clamp(-this.vy * 0.055, -0.35, 0.35) - this.pitch)
+      * (1 - Math.exp(-5 * dt));
   }
 
   /**
