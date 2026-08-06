@@ -58,6 +58,18 @@ export interface CompassMarker {
   label?: string;
 }
 
+/**
+ * One quest on the HUD tracker (issue #98). Every string is ALREADY RESOLVED —
+ * see `HUD.setQuests`. `id` is here for the signature guard and for the probe;
+ * nothing is drawn from it.
+ */
+export interface QuestTrackRow {
+  id: string;
+  name: string;
+  category: 'main' | 'side';
+  steps: readonly { text: string; have: number; need: number }[];
+}
+
 export interface ShopOffer {
   skill: SkillDef;
   price: number;
@@ -366,6 +378,10 @@ export class HUD {
   private bagEl: HTMLDivElement;
   private bagSig = '';
 
+  // tracked quests (issue #98) — filled from the journal; see setQuests
+  private questsEl: HTMLDivElement;
+  private questSig = '';
+
   // compass
   private compassWinEl: HTMLDivElement;
   private compassTapeEl: HTMLDivElement;
@@ -443,6 +459,14 @@ export class HUD {
     if (isDebugMode()) {
       this.root.appendChild(div('bs-title bs-glass', '<b>BEAST STORY</b><span>v1.0</span>'));
     }
+
+    // tracked quests ---------------------------------------------------------
+    // Empty until the player has one and has left it switched on in the journal,
+    // so a fresh save shows nothing — the bag's rule. Where it SITS is the
+    // stylesheet's business: it stacks under the menu button, which itself
+    // stacks under the debug plate, all three by one :has() rule.
+    this.questsEl = div('bs-quests');
+    this.root.appendChild(this.questsEl);
 
     // menu button ------------------------------------------------------------
     // THE MENU HAS TO BE VISIBLE, not only bound. It moved off Escape onto F10
@@ -825,6 +849,43 @@ export class HUD {
   }
 
   // -------------------------------------------------------------------------
+  // Tracked quests
+  // -------------------------------------------------------------------------
+  /**
+   * The quests the player left switched on in the journal (issue #98). Call on
+   * CHANGE only — the signature guard below makes a redundant call cheap, but
+   * the caller still resolves every string to get here.
+   *
+   * ROWS ARRIVE ALREADY RESOLVED, names and objective text both, because a
+   * quest's words live in content rather than in the string table and this class
+   * has no business knowing what a `ContentText` is. That is also why `relabel`
+   * only INVALIDATES the guard: the host re-derives and pushes again.
+   *
+   * A DONE STEP IS STRUCK THROUGH RATHER THAN REMOVED. The list is short, and a
+   * step that vanishes the moment it is finished takes its own completion off
+   * the screen with it — the one frame the player wanted to see.
+   */
+  setQuests(rows: readonly QuestTrackRow[]): void {
+    const sig = rows.map((q) =>
+      `${q.id}:${q.category}:${q.name}:${q.steps.map((s) => `${s.text}|${s.have}/${s.need}`).join(';')}`,
+    ).join('~');
+    if (sig === this.questSig) return;
+    this.questSig = sig;
+    this.questsEl.innerHTML = rows.map((q) =>
+      `<div class="q c-${q.category}">` +
+        `<div class="qt-n"><i></i>${escapeHtml(q.name)}</div>` +
+        (q.steps.length
+          ? `<div class="qt-s">${q.steps.map((s) => {
+              const done = s.have >= s.need;
+              return `<span class="${done ? 'ok' : ''}">${escapeHtml(s.text)}` +
+                (s.need > 1 ? ` <b>${s.have}/${s.need}</b>` : '') + '</span>';
+            }).join('')}</div>`
+          : '') +
+      '</div>',
+    ).join('');
+  }
+
+  // -------------------------------------------------------------------------
   // Compass
   // -------------------------------------------------------------------------
   /**
@@ -1101,6 +1162,11 @@ export class HUD {
     this.hideHint();
     this.hintText = '';
     this.hideDialogue();
+    // The tracker is the fourth of these: it is written on CHANGE rather than
+    // per frame, so a new session that happens to start with no quests would
+    // otherwise inherit the last one's list and never be told to clear it.
+    this.questSig = '';
+    this.questsEl.innerHTML = '';
   }
 
   hideDialogue(): void {
@@ -1243,8 +1309,11 @@ export class HUD {
     // invalidating the count guard.
     this.shardLblEl.textContent = itemName(CURRENCY, Math.max(0, this.shardsDisplayed));
 
-    // Guards whose subject is unchanged but whose text is not.
+    // Guards whose subject is unchanged but whose text is not. The quest guard
+    // is only INVALIDATED — its rows are resolved by the host (see setQuests),
+    // so the redraw is the host's next push and not ours.
     this.bagSig = '';
+    this.questSig = '';
     for (const refs of this.slotRefs) refs.skillId = '';
     this.ridingText = '';
     this.ridingBeast = null;

@@ -112,6 +112,26 @@ export const en = {
   'inv.beast.benched': 'Benched',
   'inv.setLead': 'Send in front',
   'inv.setSupport': 'Send to support',
+  // ---- quest journal -------------------------------------------------------
+  'journal.title': 'Journal',
+  'journal.tab.active': 'Active',
+  'journal.tab.available': 'Offered',
+  'journal.tab.completed': 'Done',
+  // The category, printed on the card. Two words rather than a colour alone: a
+  // player who cannot tell a story quest from an errand is being asked to guess
+  // which one the game will wait for.
+  'journal.main': 'Main',
+  'journal.side': 'Side',
+  // The HUD toggle, which is one button with two labels rather than a checkbox:
+  // the label says what the state IS, and pressing it flips to the other.
+  'journal.hud.on': 'Showing on screen',
+  'journal.hud.off': 'Show on screen',
+  'journal.empty.active': 'Nothing on the go. Talk to the people you pass — someone always needs something.',
+  'journal.empty.available': 'No one is offering work just now.',
+  'journal.empty.completed': 'Nothing finished yet.',
+  // Rewards, keyed by what is granted. Anything that is not `xp` is an item and
+  // is named from the item table instead — see `rewardLines` in main.ts.
+  'journal.reward.xp': 'XP',
   'toast.equipped': '{item} equipped',
   'toast.unequipped': '{item} put away',
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -537,6 +557,7 @@ export const en = {
   'keys.cycleSupport': 'Next support beast',
   'keys.interact': 'Talk · open a skill den',
   'keys.inventory': 'Inventory',
+  'keys.journal': 'Quest journal',
   /**
    * THE MENU KEY, which is F10 and no longer Escape. The two rows are separate
    * because the keys are: this one opens and closes the in-game menu, and the

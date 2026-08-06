@@ -115,6 +115,11 @@ export const CONTROL_SECTIONS: readonly BindSection[] = [
       // face that was unclaimed. See B_SELECT in core/gamepad.ts for why that is
       // the right one rather than merely the free one.
       { label: 'keys.inventory', mode: 'press', codes: ['KeyI'], caps: ['I'], pad: ['inventory'] },
+      // No pad row, for the reason spelled out below F1: every face on a
+      // controller is already spoken for, and View/Create — the last one that
+      // was not — went to the inventory. A pad player reaches the journal
+      // through nothing yet; the sheet says so rather than leaving a blank.
+      { label: 'keys.journal', mode: 'press', codes: ['KeyJ'], caps: ['J'], pad: null },
       // TWO ROWS, BECAUSE THERE ARE TWO KEYS. F10 opens and closes the in-game
       // menu; Escape dismisses whatever is on top. They were one row and one key
       // until the browser's own claim on Escape — it leaves fullscreen and drops
