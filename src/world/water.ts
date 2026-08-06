@@ -196,11 +196,11 @@ void main() {
   // single hardest cut in the world, and the reason a coast read as a decal
   // pasted onto the terrain rather than as a place where two materials meet.
   //
-  // Two bands live here. The DAMP band is the wider one, a dark warm tint about
-  // a metre and a half deep; the RUN-UP is a thin sheet of foam that
-  // actually crosses the waterline and slides up over the sand, and it is the
-  // half that sells the motion, because a band that only ever changes brightness
-  // reads as a texture while a band that MOVES reads as water.
+  // Only the DAMP band lives here. Foam belongs to the water-side branch below:
+  // this apron is drawn on the first dry terrace, 0.72 m above the surface, so a
+  // white run-up here climbed a whole voxel above the coast (issue #93). Keeping
+  // the dark tint preserves the wet-sand transition without drawing a second
+  // shoreline above the real one.
   if (vLand > 0.5) {
     // Damp sand. Tinted, not painted: this is alpha-blended over the terrain's
     // own lit sand, so the sun/shadow shading underneath still comes through and
@@ -229,38 +229,7 @@ void main() {
     // the fade starting at 0.95 leaves bright sand above it in every framing, and
     // a strip roughly a metre wide is what a real tide line looks like anyway.
     float damp = smoothstep(1.60, 0.95, vShore) * (0.80 + 0.20 * tide);
-    // The run-up. vShore here is distance INLAND, so the threshold IS the edge
-    // of the sheet of water sliding up the beach: at low tide it sits back at
-    // 0.13 cells (barely past the waterline), at high tide it reaches 0.97.
-    // That is a band sweeping ~0.8 units up and down the sand twice per wave
-    // period, and it stays INSIDE the damp band above (which reaches 1.6) so
-    // there is always dark wet sand showing ahead of the foam — and because the
-    // damp band itself does NOT move, what the eye
-    // reads is the dark strip getting narrower and wider as the sea breathes,
-    // which is far more legible than the white itself. That matters more than it
-    // sounds: sunlit sand here sits at sRGB ~232, so white foam laid over it is
-    // worth ten code values and the wash CANNOT be read by brightness alone.
-    float reach = 0.55 + 0.42 * tide;
-    float sheet = smoothstep(reach, max(0.0, reach - 0.40), vShore);
-    // The leading lip of the sheet is brighter than the body of it — that is
-    // where the air is, and it is what makes a run-up read as foam rather than
-    // as a wet patch.
-    float lip = smoothstep(reach - 0.20, reach, vShore) * smoothstep(reach + 0.12, reach, vShore);
-    float run = clamp(sheet * (0.55 + 0.45 * fw) + lip * 0.90, 0.0, 1.0);
-    // FOAM * 1.32, not FOAM. Same arithmetic as the damp band, run the other way:
-    // FOAM is 0.93-1.00 linear and sunlit sand is ~0.89, so foam laid on a beach
-    // at its authored radiance is four code values brighter than the sand it is
-    // supposed to stand out from. Overdriving it puts the sheet above the sand
-    // rather than level with it — and it is still under the emissive-bloom
-    // threshold, so it brightens without hazing.
-    //
-    // What actually makes the run-up read at 40 units, though, is the DAMP BAND
-    // UNDER IT: a bright line against a dark line is legible at any distance,
-    // where a bright line against bright sand is not. The two bands are one
-    // effect, which is why they share a threshold.
-    vec3 col = mix(vec3(0.145, 0.115, 0.080), FOAM * 1.32, run);
-    float alpha = clamp(max(damp * 0.70, run * 0.88), 0.0, 1.0);
-    gl_FragColor = vec4(col, alpha);
+    gl_FragColor = vec4(vec3(0.145, 0.115, 0.080), damp * 0.70);
     #include <fog_fragment>
     return;
   }

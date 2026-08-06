@@ -153,7 +153,7 @@ const SOLO = new Set([
 // a key edge, a held key, anything the frame loop has to consume — belongs in
 // SOLO however patient its polling is. That is the same root cause as `f2`
 // reading null under load, named.
-const PARALLEL = ['zfight', 'crosshair', 'viewport', 'cursor'];
+const PARALLEL = ['zfight', 'water-shore', 'crosshair', 'viewport', 'cursor'];
 const ALL = [...PARALLEL, ...SOLO];
 
 const argv = process.argv.slice(2);
@@ -187,9 +187,10 @@ if (missing.length) {
 const logDir = join(tmpdir(), 'bs-probe');
 mkdirSync(logDir, { recursive: true });
 
-// test-zfight.mjs opens no browser at all (it is arithmetic over the rigs), so
-// it needs neither the shared browser nor the dev server. Everything else does.
-const needsBrowser = names.some((n) => n !== 'zfight');
+// These probes open no browser at all, so they need neither the shared browser
+// nor the dev server. Everything else does.
+const HEADLESS = new Set(['zfight', 'water-shore']);
+const needsBrowser = names.some((n) => !HEADLESS.has(n));
 const browser = needsBrowser ? await launchBrowser() : null;
 const env = { ...process.env, BS_PORT: String(PORT) };
 if (browser) env.BS_BROWSER_WS = browser.wsEndpoint();
