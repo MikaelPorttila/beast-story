@@ -60,16 +60,38 @@ const adv = (s) => page.evaluate((n) => window.__dbgAdvance(n), s);
 /**
  * Stand the hero next to a live wild beast of this species, spawning nothing.
  *
- * The population is what it is — `trySpawn` picks uniformly from the roster —
- * so this WAITS for one rather than demanding it exist on the first look, and
- * says so if none ever turns up. Waiting is done in simulated time so the wait
- * is bounded in work rather than in wall-clock.
+ * The population is what it is — `trySpawn` picks uniformly from the roster and
+ * tops up to a cap — so this HUNTS for one rather than demanding it exist on the
+ * first look, and says so if none ever turns up. All of it in simulated time, so
+ * the hunt is bounded in work rather than in wall-clock.
  */
 async function goToWild(species) {
-  for (let tries = 0; tries < 40; tries++) {
+  const home = await page.evaluate(() => window.__dbgTowns().spawn);
+  for (let tries = 0; tries < 24; tries++) {
     const b = await bodies();
     const e = b.enemies.find((x) => x.species === species);
-    if (e) {
+    if (!e) {
+      // TURN THE POPULATION OVER, rather than waiting for one to wander in.
+      //
+      // `trySpawn` tops the wild pack up to a cap and picks its species
+      // uniformly, so once the pack is FULL of the other five nothing new
+      // appears however long you wait — and this probe spent a hundred
+      // simulated seconds proving that before failing with "no wild-sproutle
+      // ever spawned".
+      //
+      // Hopping 130 units puts every live enemy past the 90-unit despawn
+      // distance, so the ring refills around the new spot and each hop is a
+      // fresh roll of six. Around the world's own reference point rather than
+      // off into the unstreamed distance.
+      const a = tries * 1.31;
+      await page.evaluate(
+        (x, z) => window.__dbgTp(x, z),
+        home.x + Math.cos(a) * 130, home.z + Math.sin(a) * 130,
+      );
+      await adv(3);
+      continue;
+    }
+    {
       // Three units off, which is well inside ORB_RANGE (20) and just outside
       // the bite. Close matters: the orb has to FLY there, and a long shot over
       // broken ground can clip the terrain on the way.

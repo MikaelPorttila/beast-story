@@ -205,10 +205,18 @@ check(results.empty.emptyState === true,
   'with no quests loaded the panel drew no empty state');
 check(results.empty.hudQuests === 0, 'the HUD tracker had rows before any quest existed');
 
-check(results.modal.travelOpen === 0,
+// A TOLERANCE, not an exact zero — and the control below is what makes it mean
+// something. A panel takes the INPUT and never the clock (AGENTS.md), so the
+// hero goes on running physics behind it: something that walks up and shoves him
+// moves him a little without a single key being spent, and an exact 0 was
+// asserting that nothing in the world touched him for 1.2 seconds. That held
+// until issue #4 put more kinds of thing in the start meadow. 0.5 is the figure
+// the same pair already uses in tools/test-inventory.mjs.
+check(results.modal.travelOpen < 0.5,
   `the hero walked ${results.modal.travelOpen} units with the journal up — it is not a modal`);
 check(results.modal.travelShut > 1,
-  `the control hold moved him only ${results.modal.travelShut} units, so the 0 above proves nothing`);
+  `the control hold moved him only ${results.modal.travelShut} units, `
+  + `so the ${results.modal.travelOpen} above proves nothing`);
 
 check(results.card.staged?.quests?.includes(QUEST) === true,
   `staging did not load ${QUEST}: ${JSON.stringify(results.card.staged)}`);
