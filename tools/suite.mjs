@@ -10,25 +10,11 @@
 // strictly serially; here the world is built once and the probes' sections run
 // against it back to back, teleporting between sites.
 //
-// CONVERTED is the roster, and it is explicit for the same reason probe.mjs's
-// SOLO list is: membership is a claim ("this probe's sections leave nothing
-// behind that the standard reset does not cover") and a claim should be a
-// line in a file, made on purpose. A probe that is not on it still runs the
-// old way through probe.mjs; nothing is lost by not being here yet.
-//
-// ORDER MATTERS and is part of the roster: `safezone` runs LAST because its
-// sections aggro the wild population and lead a chase into a town — the
-// standard reset dismounts and releases keys, it does not calm animals. Add a
-// new probe before anything it could poison and after anything that poisons it.
-// gfx sits before safezone: its last section RELOADS the shared page (the
-// persistence assertion is a real boot, there is no cheaper honest form), so
-// whatever follows it inherits a freshly booted world — which safezone's
-// teleport-everywhere sections do not mind, and a motion-sensitive module
-// would.
-const CONVERTED = ['carrier', 'deepwater', 'gfx', 'safezone'];
-
 import { launchBrowser } from './browser.mjs';
 import { bootGamePage, runModules } from './suite/harness.mjs';
+// The roster — membership AND order — lives in suite/roster.mjs, shared with
+// probe.mjs so the two runners cannot disagree about what is converted.
+import { CONVERTED } from './suite/roster.mjs';
 
 const argv = process.argv.slice(2);
 const json = argv.includes('--json');

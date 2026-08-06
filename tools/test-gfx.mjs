@@ -54,14 +54,22 @@ const overlay = (ctx) => ctx.ev(() => {
  * BEFORE the toggle; the old fixed 600-900 ms sleeps were silently covering
  * that cadence, and the conversion to presented-frame settles uncovered it.
  *
- * Two reads a frame apart, min: the counter is per-frame and a chunk finishing
- * in the sampled frame would otherwise read as a change the toggle caused.
+ * MIN OVER SIX READS a frame apart — it was two, and two is not enough in the
+ * suite (COMPOSITION): the shared world this module inherits has movers the
+ * solo boot does not — the carrier module's ship overflying, aggroed beasts
+ * crossing the frustum, shadow-cache refresh frames — and they swing the
+ * per-frame count by tens of calls (measured at rest after carrier+deepwater:
+ * 528..574 across ten seconds with streaming settled). The min of a longer
+ * window sits on the quiet floor both sides of a toggle, which is the number
+ * the toggle actually moves.
  */
 async function draws(ctx) {
-  const a = await ctx.ev(() => window.__dbgDraws());
-  await ctx.frame();
-  const b = await ctx.ev(() => window.__dbgDraws());
-  return Math.min(a, b);
+  let m = Infinity;
+  for (let i = 0; i < 6; i++) {
+    if (i) await ctx.frame();
+    m = Math.min(m, await ctx.ev(() => window.__dbgDraws()));
+  }
+  return m;
 }
 
 // SET and READ are separate helpers on purpose. `page.evaluate` serialises its
@@ -77,6 +85,50 @@ const gfxAll = (ctx) => ctx.ev(() => window.__dbgGfx());
 async function settleToggle(ctx) {
   await ctx.frame();
   await ctx.frame();
+}
+
+/**
+ * Wait until the draw count stops MOVING before a toggle is measured.
+ *
+ * COMPOSITION FIX. In the suite this module runs after deepwater, whose last
+ * site is far out at sea — the teleport back to the road rebuilds a much
+ * larger view ring than the solo boot ever does, and `__dbgZone().streaming`
+ * clears before the instanced pop-in (grass sheets, prop batches) has finished
+ * landing. Measured in the composed run: ~+30 draw calls of pure scene growth
+ * PER TOGGLE ROUND TRIP (263 -> 352 across the toggles section), which swamped
+ * grass's and props' 20-call floors (grass read -10) while ao's 40 survived.
+ * So: settle on the MEASUREMENT being still, not on the streamer's flag alone.
+ * Returns whether it got there; the caller measures either way, and a count
+ * still moving fails the toggle assertions with the real numbers in hand.
+ *
+ * SAMPLED ON A WALL-CLOCK CADENCE, not on consecutive frames — the first cut
+ * of this helper compared adjacent 8 ms frames and passed a still-growing
+ * scene: pop-in lands in bursts ~100 ms apart, so three quiet frames prove
+ * nothing (measured: 290 -> 356 draws ACROSS a toggles run this helper had
+ * waved through). REALTIME by nature — the pop-in it waits for rides real
+ * frames. Each sample is a min over a few frames so mover jitter (see
+ * `draws`) is not read as growth.
+ */
+async function settleDraws(ctx, { tolerance = 6, stillMs = 1200, maxMs = 25000 } = {}) {
+  const floor = async () => {
+    let m = Infinity;
+    for (let i = 0; i < 4; i++) {
+      if (i) await ctx.frame();
+      m = Math.min(m, await ctx.ev(() => window.__dbgDraws()));
+    }
+    return m;
+  };
+  const t0 = Date.now();
+  let prev = await floor();
+  let stillSince = Date.now();
+  while (Date.now() - t0 < maxMs) {
+    await sleep(250);                  // REALTIME — see above
+    const d = await floor();
+    if (Math.abs(d - prev) > tolerance) stillSince = Date.now();
+    prev = d;
+    if (Date.now() - stillSince >= stillMs) return true;
+  }
+  return false;
 }
 
 export const name = 'gfx';
@@ -98,11 +150,49 @@ export const sections = [
     // moves more than some of the toggles do. The drain is simulated time now
     // (each advanced slice carries the full build budget), but the condition
     // is the same one: `__dbgZone().streaming` false.
+    // A REAL RELOAD FIRST — the module's strongest COMPOSITION FIX. Every
+    // draw-count floor below was calibrated against a freshly booted world,
+    // and the suite's shared page is not one: four modules of play have aged
+    // the sim clock and the sky and scattered the movers, and measured at the
+    // same spot with the same aim the full composition's frame floor sat near
+    // 300 draws against ~550 solo — grass's toggle then saved 10 where solo
+    // saves 30. The module's own `persisted` section already ends with a
+    // reload (its assertion IS a reboot), so "a real boot lives in gfx" was
+    // always this module's contract with the suite; taking one up front as
+    // well makes every measurement in between the solo one. ~2 s.
+    await ctx.page.reload({ waitUntil: 'load' });
+    await ctx.page.waitForSelector('canvas');
+    await ctx.waitFn(() => window.__dbgBoot && window.__dbgBoot().playing && window.__dbgAdvance, 60000);
+
     const openGround = await ctx.ev(() => window.__dbgTowns().spawn);
     await ctx.tp(openGround.x, openGround.z);
     const settled = await ctx.settleStreaming(30);
     ctx.check(settled, 'the streamer never settled after the teleport');
     await ctx.adv(1.5);
+
+    // AIM SOMEWHERE DETERMINISTIC — COMPOSITION FIX. `__dbgTp` keeps whatever
+    // camera yaw the previous module left, and every toggle below is judged on
+    // a FRUSTUM-CULLED draw count: after deepwater the lens still pointed out
+    // over the water it had been diving in, so grass's and props' 20-call
+    // floors measured a frame with almost no grass or props in it (grass read
+    // a 2-call delta composed against a comfortable pass solo, where the boot
+    // pose happens to face the meadow). Aim back along the road toward the
+    // start pose — grass and props in frame by construction, derived so a
+    // seed that moves the camp moves it too — and let the smoothed swing land.
+    const start = await ctx.ev(() => window.__dbgStart().start);
+    await ctx.ev((b) => window.__dbgAim(b),
+      Math.atan2(start.x - openGround.x, start.z - openGround.z));
+    await ctx.adv(0.8);
+
+    // Defensive against an earlier module's leftovers — COMPOSITION: a modal
+    // still up (or mid-close) would push every F10 below into simulate()'s
+    // close-the-modal branch, and every reading after it would measure an
+    // empty screen. Same guard pause.stage carries, for the same reason.
+    if (await ctx.ev(() => !!document.querySelector('.bs-pause'))) {
+      await ctx.page.keyboard.press('F10');
+      await ctx.adv(0.3);
+      await ctx.waitFn(() => !document.querySelector('.bs-pause'), 5000);
+    }
 
     // The F2 overlay: only `fpsCapRealtime` reads it now (draw counts come
     // from `__dbgDraws`), but it is opened here so its rolling window has the
@@ -176,6 +266,11 @@ export const sections = [
     // `props` came down 40 -> 20 when core/shadow-cache.ts landed — a tree's
     // shadow-pass draw is now cached, so switching trees off stops saving it
     // every frame.
+    //
+    // COMPOSITION: the count has to be STILL first — see settleDraws. The
+    // streamer's flag alone was not enough after deepwater's far-sea teleport.
+    await ctx.settleStreaming(10);
+    await settleDraws(ctx);
     for (const [id, minDrop] of [['ao', 40], ['bloom', 4], ['grass', 20], ['props', 20]]) {
       const on = await draws(ctx);
       await gfxSet(ctx, id, false);
@@ -262,8 +357,23 @@ export const sections = [
     //
     // F10, not Escape: the in-game menu moved off a key the browser spends on
     // fullscreen and pointer lock before the page sees it.
-    await ctx.page.keyboard.press('F10');
-    await ctx.frame();
+    //
+    // PRESSED IN A RETRY LOOP — COMPOSITION FIX: in the composed run this F10
+    // landed while the console above was still the open modal for a beat (its
+    // input was already hidden — the visibility wait passed — but simulate()'s
+    // modal branch still owned the key), so the press CLOSED that instead of
+    // opening the menu, and every reading below saw an empty screen ("the
+    // Graphics tab shows 0 rows"). The loop only re-presses when NO menu came
+    // up, so it cannot toggle an open one shut; `adv` consumes the SIM-side
+    // edge deterministically where a bare frame left it to the real loop.
+    for (let i = 0; i < 3
+      && !(await ctx.ev(() => !!document.querySelector('.bs-pause'))); i++) {
+      await ctx.page.keyboard.press('F10');
+      await ctx.adv(0.3);
+      await ctx.waitFn(() => !!document.querySelector('.bs-pause'), 2000).catch(() => {});
+    }
+    ctx.check(await ctx.ev(() => !!document.querySelector('.bs-pause')),
+      'the in-game menu never opened for the settings-panel measurement');
     await ctx.ev(() => document.querySelector('.bs-pause [data-act="settings"]')?.click());
     await ctx.frame();
     await ctx.ev(() => document.querySelector('.bs-pause [data-tab="graphics"]')?.click());
@@ -274,6 +384,10 @@ export const sections = [
     });
     const rows = await ctx.ev(() =>
       [...document.querySelectorAll('.bs-pause [data-gfx]')].map((b) => b.getAttribute('data-gfx')));
+    // COMPOSITION: same stillness gate as `toggles` — the modal freezes the
+    // hero but not the renderer, and a count still absorbing pop-in reads a
+    // 40-call toggle as 4.
+    await settleDraws(ctx);
     const on = await draws(ctx);
     await ctx.ev(() => document.querySelector('.bs-pause [data-gfx="ao"]')?.click());
     await settleToggle(ctx);
