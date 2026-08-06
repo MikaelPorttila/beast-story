@@ -28,7 +28,10 @@
 import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
-const URL = `${HOST}/?menu=0&fs=0&fps=30`;
+// Companions are disabled because this section measures the HERO'S sword. A
+// companion hit between the two hp reads is indistinguishable from an airborne
+// sword hit and made the negative control depend on AI timing under load.
+const URL = `${HOST}/?menu=0&fs=0&fps=30&beasts=0`;
 const B_RT = 7;
 /** How far up "in the sky" is. Well past every band in the game, and clear of
  *  the arch itself (5 units tall), so nothing here is a near-miss. */
@@ -211,7 +214,7 @@ const gate = zone0.gate;
     // ---- and the swing itself, held aloft while it plays out --------------
     const hpOf = async () => {
       const b = await probe(page, '__dbgBodies');
-      const e = b.enemies.find((q) => Math.hypot(q.x - near.x, q.z - near.z) < 6 && !q.isDead);
+      const e = b.enemies.find((q) => q.id === near.id && !q.isDead);
       return e?.hp ?? null;
     };
     // From the sky: pinned above it for the whole animation.
@@ -224,11 +227,26 @@ const gate = zone0.gate;
     const hpAfterAir = await hpOf();
     await release(page);
 
-    // From the ground, beside it, facing it: the control.
-    await page.evaluate((x, z) => window.__dbgTp(x, z), near.x + 1.2, near.z);
-    await wait(700);
+    // From the ground, beside it, facing it: the control. Reacquire immediately
+    // before the swing. The wild enemy has been steering for the entire airborne
+    // animation above; aiming at its several-seconds-old `near` coordinate made
+    // this control depend on render timing and miss when issue #96 added two far
+    // landscape draws, even though the reach query and combat code were unchanged.
+    const reacquire = async (from) => {
+      const b = await probe(page, '__dbgBodies');
+      return b.enemies.find((e) => e.id === from.id && !e.isDead);
+    };
+    let groundTarget = await reacquire(near);
+    await page.evaluate((x, z) => window.__dbgTp(x, z), groundTarget.x + 0.6, groundTarget.z);
+    await wait(400);
     await page.evaluate((b) => window.__dbgAim(b), Math.atan2(-1.2, 0));
-    await wait(500);
+    await wait(400);
+    // Track it once more after the smooth camera turn, then give the frame loop
+    // one slice to apply the teleport. At 0.6 m the control remains well inside
+    // the same melee reach asserted at 1.2 m above.
+    groundTarget = await reacquire(groundTarget);
+    await page.evaluate((x, z) => window.__dbgTp(x, z), groundTarget.x + 0.6, groundTarget.z);
+    await wait(100);
     const hpBeforeGround = await hpOf();
     await setButton(B_RT, true);
     await wait(150);

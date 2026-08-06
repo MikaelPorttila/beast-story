@@ -4191,6 +4191,8 @@ beginPlay();
   });
   return { ...nature.snapshot(), census: { chunks, propVerts: props, grassVerts: grass } };
 };
+(window as unknown as { __dbgDistantTerrain: () => unknown }).__dbgDistantTerrain =
+  () => world.debugDistantTerrain();
 (window as unknown as {
   __dbgSetNature: (id: string, value: number, area?: string) => unknown;
 }).__dbgSetNature = (id, value, area) => {
@@ -5082,6 +5084,9 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       overFeet: at(p.position, p.position.y),
     })),
     enemies: combat.enemies.map((e) => ({
+      // Stable for this actor's lifetime. Movement probes must keep measuring
+      // the same enemy after it crosses paths with another one.
+      id: e.root.id,
       species: e.species,
       x: +e.position.x.toFixed(2), y: +e.position.y.toFixed(2),
       z: +e.position.z.toFixed(2),

@@ -12,6 +12,7 @@ import { CarrierField } from './carriers';
 import { ISLAND_KEEL, SkyIsland, readCarriedTown } from './sky-island';
 import { CHUNK_SIZE, DEEP_WATER_TOP, Terrain, WATER_LEVEL, makeScratch } from './terrain';
 import { buildTerrainMesh } from './chunk';
+import { DistantTerrain } from './distant-terrain';
 import { buildWaterMesh, createWaterMaterial } from './water';
 import { PropLib, buildChunkProps, TREE_STRIDE, type Exclusion } from './props';
 import { Shops, type DenSpot } from './shops';
@@ -674,6 +675,13 @@ export function createWorld(
     })),
   ];
 
+  // One coarse camera-following landscape under the streamed voxel ring. It is
+  // created only after roads, towns and landmarks have altered the height field,
+  // so its silhouette is sampled from the same terrain authority as near ground.
+  const distant = new DistantTerrain(terrain, spawnPoint);
+  if (!flags.water) distant.setWaterVisible(false);
+  scene.add(distant.terrain, distant.water);
+
   const chunks = new Map<string, ChunkRec>();
   /**
    * Trees, bucketed by chunk: trunkKey -> the flat record buildChunkProps
@@ -1208,7 +1216,13 @@ export function createWorld(
         buildBudgetLeft = BUILD_BUDGET_MS;
         focusX = focus.x;
         focusZ = focus.z;
+        waterMat.uniforms['uFocus'].value.set(focusX, focusZ);
         propLib.updateDistanceFade(focusX, focusZ);
+        distant.requestUpdate(focus);
+        // Far-landscape noise is deliberately outside the terrain chunk queue:
+        // it never blocks collision-ready streaming. A sub-millisecond slice
+        // avoids the combat/input hitch a whole 6,561-sample rebuild caused.
+        distant.buildStep(0.6);
         // The fade is radial rather than chunk-stepped. A whole mesh can still
         // be rejected once its nearest edge is outside the fade, buying back
         // its draw and vertex work instead of merely discarding fragments.
@@ -1284,6 +1298,7 @@ export function createWorld(
       // clouds branch and without returning — the streamed water chunks below
       // still have to be dealt with.
       if (layer === 'water') sky?.setWaterfallVisible(on);
+      if (layer === 'water') distant.setWaterVisible(on);
       if (layer === 'clouds') {
         if (clouds) clouds.group.visible = on;
         return;
@@ -1303,6 +1318,10 @@ export function createWorld(
       propLib.setDistanceFade(grassDistance);
       refreshFoliage();
       for (const rec of chunks.values()) applyLayers(rec);
+    },
+
+    debugDistantTerrain(): Record<string, unknown> {
+      return distant.debug();
     },
 
     warmUpEffects(render: () => void): void {
@@ -1350,6 +1369,7 @@ export function createWorld(
 
     setVisible(v: boolean): void {
       worldShown = v;
+      distant.setVisible(v);
       // SHOWING THE WORLD MEANS SHOWING IT AS CONFIGURED, which is why this
       // goes through `applyLayers` rather than setting every mesh true.
       //
@@ -1436,6 +1456,8 @@ export function createWorld(
       terrainMat.dispose();
       waterMat.dispose();
       propLib.dispose();
+      scene.remove(distant.terrain, distant.water);
+      distant.dispose();
     },
   };
 }

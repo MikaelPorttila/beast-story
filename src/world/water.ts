@@ -8,6 +8,10 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL } from './terrain';
 
+/** Radial handoff from detailed chunk water to the far landscape sheet. */
+export const WATER_DETAIL_FADE_START = 144;
+export const WATER_DETAIL_FADE_END = 224;
+
 const VERT = /* glsl */ `
 uniform float uTime;
 attribute float aDepth;
@@ -55,6 +59,7 @@ uniform float uTime;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform float uSunStrength;
+uniform vec2 uFocus;
 varying float vDepth;
 /**
  * On the water surface: distance in cells to the nearest dry column, clamped to
@@ -554,6 +559,13 @@ void main() {
   float edge = smoothstep(0.02, 0.16, vDepth);
   float alpha = edge * mix(0.46, 1.0, smoothstep(0.12, 1.40, vDepth));
   alpha = max(alpha, surf * 0.95);
+  // The detailed water chunks end on a ragged ring. Fade their waves, foam and
+  // depth ramp into the coarse far-water sheet over distance so that ring never
+  // appears as a square edge from flight height (issue #96).
+  alpha *= 1.0 - smoothstep(
+    ${WATER_DETAIL_FADE_START.toFixed(1)}, ${WATER_DETAIL_FADE_END.toFixed(1)},
+    distance(vWorldPos.xz, uFocus)
+  );
   gl_FragColor = vec4(col, alpha);
   #include <fog_fragment>
 }
@@ -567,6 +579,7 @@ export function createWaterMaterial(): THREE.ShaderMaterial {
       uSunDir: { value: new THREE.Vector3(0.6554, 0.6168, 0.4356) },
       uSunColor: { value: new THREE.Color(1.0, 0.949, 0.851) },
       uSunStrength: { value: 1 },
+      uFocus: { value: new THREE.Vector2() },
     },
   ]);
   const mat = new THREE.ShaderMaterial({

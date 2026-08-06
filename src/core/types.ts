@@ -825,6 +825,8 @@ export interface World {
    * it.
    */
   setFoliageDistance(distance: number): void;
+  /** One consolidated far-landscape census, for the view-distance guard. */
+  debugDistantTerrain(): Record<string, unknown> | null;
   /**
    * Link the shader programs of any world-owned VISUAL EFFECT, by drawing it
    * once during the boot sweep. The caller renders; the world's job is to make

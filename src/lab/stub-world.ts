@@ -138,6 +138,7 @@ export class StubWorld implements World {
    */
   setLayerVisible(): void { /* nothing streamed here */ }
   setFoliageDistance(): void { /* nothing grows on the lab stage */ }
+  debugDistantTerrain(): null { return null; }
   /** The stage owns no effects: the lab adds its subject to the scene itself. */
   warmUpEffects(): void { /* nothing to link */ }
   /** The stage has no carriers, so no carried waterfall either. */
