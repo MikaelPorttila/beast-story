@@ -2171,6 +2171,49 @@ const _hurtFrom = new THREE.Vector3();
 (window as unknown as { __dbgAim: (bearing: number) => void }).__dbgAim = (bearing) => {
   player.aimCamera(bearing);
 };
+// TEST HOOK — FAST-FORWARD. Drain N seconds of simulation NOW, synchronously,
+// instead of waiting N wall-clock seconds for the frame loop to drain them.
+//
+// This is the lab's `?t=` pattern brought to the game, and it is the difference
+// between a probe suite that sleeps for minutes and one that computes for
+// seconds: tools/ held keys for twelve real seconds and polled real clocks,
+// when everything those waits were waiting FOR is a fixed-step function of the
+// slice count (see the accumulator note above `SIM_HZ`).
+//
+// Each iteration emulates one PERFECT 60 Hz FRAME — poll the pad, one slice
+// with `first` true, drain the cues, clear the input edges — which is exactly
+// what the real loop does on a frame that drains exactly one slice. So a key
+// or fake-pad button held via CDP stays held (endFrame clears EDGES, not held
+// state), a press pending when the burst starts fires exactly once, and the
+// chunk streamer gets its full per-frame build budget every slice, which is
+// what makes a teleport-then-advance settle in simulated time too.
+//
+// What it deliberately does NOT do is render or touch the frame-side half
+// (HUD sync, underwater lens, photo camera): the next real rAF presents the
+// advanced state, and a probe that reads pixels is already waiting a frame for
+// the screenshot round-trip. The world simply IS twelve seconds older.
+//
+// Clamped to 300 simulated seconds — the burst blocks the main thread while it
+// runs, and a runaway argument must not hang the tab. Returns the measurement,
+// so a probe can report its own speedup.
+(window as unknown as { __dbgAdvance: (seconds: number) => unknown }).__dbgAdvance = (seconds) => {
+  if (!playing) return { playing: false, slices: 0 };
+  const s = Math.min(Math.max(0, Number(seconds) || 0), 300);
+  const slices = Math.round(s * SIM_HZ);
+  const t0 = performance.now();
+  for (let i = 0; i < slices; i++) {
+    pad?.poll(SIM_DT);
+    simulate(SIM_DT, true, !photoMode);
+    feedback?.drain(SIM_DT);
+    input.endFrame();
+  }
+  return {
+    playing: true,
+    slices,
+    simSeconds: s,
+    wallMs: +(performance.now() - t0).toFixed(1),
+  };
+};
 // Melee aim assist, as the game would answer it RIGHT NOW: who the next swing
 // would be steered onto, how far off the crosshair they are, and how far the
 // swing would have to turn to reach them. Read-only, and it runs the shipped

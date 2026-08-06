@@ -3,6 +3,16 @@
 //
 // Usage: bun tools/test-carrier.mjs      (dev server must be up)
 //
+// FAST-FORWARDED. Every wall-clock wait in this file used to be a real sleep —
+// 53 seconds of them, on top of the boot — waiting for the frame loop to drain
+// simulation slices at 60 a second. `__dbgAdvance` (main.ts) drains them NOW:
+// each `adv(s)` runs s seconds of fixed-step simulation synchronously, exactly
+// as the lab's `?t=` does, then waits two rAFs so the frame-side state a hook
+// might read (the compass is HUD state, written in frame()) has caught up.
+// Held keys survive an advance — endFrame clears edges, not held state — so the
+// Space and KeyC holds below drive exactly what they drove in real time. The
+// probe measures its own speedup; see `advance` in the output.
+//
 // THE WHOLE FEATURE IS INVISIBLE TO A POSITION AND TO A SCREENSHOT, which is
 // what this file is shaped around. "The hero is at (261, 86, -79)" says nothing
 // — he is there whether he is riding the island or falling past it — and a still
@@ -44,7 +54,7 @@
 //              overworld is keyed by streamed chunk — which a deck has none of.
 //
 // Exits non-zero on failure.
-import { launchBrowser, newPage, wait } from './browser.mjs';
+import { launchBrowser, newPage } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
 const URL = `${HOST}/?menu=0&fs=0&fps=30`;
@@ -54,7 +64,11 @@ page.on('pageerror', (e) => console.error('[pageerror]', e.message));
 
 await page.goto(URL, { waitUntil: 'load' });
 await page.waitForSelector('canvas');
-await wait(2500);
+// On STATE, not a clock: playing is the last thing the staged boot sets.
+await page.waitForFunction(
+  () => window.__dbgBoot && window.__dbgBoot().playing && window.__dbgCarriers,
+  { timeout: 60000 },
+);
 
 const results = {};
 const fails = [];
@@ -63,6 +77,19 @@ const check = (ok, msg) => { if (!ok) fails.push(msg); };
 const carriers = () => page.evaluate(() => window.__dbgCarriers());
 const pos = () => page.evaluate(() => window.__dbgPlayerPos());
 const tp = (x, z, y) => page.evaluate(([a, b, c]) => window.__dbgTp(a, b, c), [x, z, y]);
+/** Advance the SIMULATION by `s` seconds, then let one real frame present it. */
+let advWall = 0;
+let advSim = 0;
+const adv = async (s) => {
+  const r = await page.evaluate(async (sec) => {
+    const out = window.__dbgAdvance(sec);
+    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    return out;
+  }, s);
+  advWall += r.wallMs ?? 0;
+  advSim += r.simSeconds ?? 0;
+  return r;
+};
 
 // ---------------------------------------------------------------------------
 // 1. There is one, and it is going somewhere
@@ -87,25 +114,46 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
 // 2. Parked on the deck: the world moves, the hero's place on the deck does not
 // ---------------------------------------------------------------------------
 {
-  // OPEN GRASS, NOT THE MIDDLE. The middle of the deck is where the tower
-  // stands, and `localTop` there is the tower's roof twenty units up — a hero
-  // dropped into that column is INSIDE the building, below its top, and
-  // therefore outside the ride volume, so he never attaches and falls through
-  // the island. It reads as a carrier bug and is a probe that aimed at a
-  // chimney. Two thirds of the way out is the ring the houses stand on, so this
-  // is a garden between two of them.
+  // BARE TURF, FOUND RATHER THAN ASSUMED. This used to aim at a fixed world
+  // offset (0.62 r along +X) with a comment explaining it dodged the tower —
+  // but the island ROTATES, so which local column sits under a fixed world
+  // point is the yaw at that instant, and sometimes it is a tree: the crown's
+  // top is ten units over the turf, a hero dropped at +8 is BELOW it and
+  // therefore outside the ride volume, and he falls straight through the
+  // island. That is the "aimed at a chimney" failure the old comment warned
+  // about for the tower, rolled fresh every run by the wander phase. The probe
+  // only ever passed by luck of the pose.
   //
-  // The drop is deliberate: it lands him through the same attach path a flyer
-  // takes, rather than starting him already at rest on a surface.
-  await tp(island.x + island.radius * 0.62, island.z, island.y + 8);
-  await wait(1600);
+  // So: walk bearings on the 0.62 r ring, parked WELL ABOVE the ride ceiling so
+  // the scan itself cannot attach, and take the first column where the top of
+  // what is standing IS the turf — deckTop equal to surface means nothing is
+  // built or planted there. `deckTop`/`surface` are live queries at the hero's
+  // own column, which is what makes the scan three teleports and no waiting.
+  //
+  // The drop from +8 is deliberate: it lands him through the same attach path a
+  // flyer takes, rather than starting him already at rest on a surface.
+  let spot = null;
+  for (let k = 0; k < 16 && !spot; k++) {
+    const isl = (await carriers()).all[0];
+    const ang = (k / 16) * Math.PI * 2;
+    const sx = isl.x + Math.sin(ang) * isl.radius * 0.62;
+    const sz = isl.z + Math.cos(ang) * isl.radius * 0.62;
+    await tp(sx, sz, isl.y + 40);
+    const c = (await carriers()).all[0];
+    if (c.deckTop !== null && c.surface !== null && Math.abs(c.deckTop - c.surface) < 0.1) {
+      spot = { x: sx, z: sz, y: isl.y + 8 };
+    }
+  }
+  check(!!spot, 'no bare turf column found on the 0.62 r ring — is the deck all buildings?');
+  await tp(spot.x, spot.z, spot.y);
+  await adv(1.6);
   const a = await carriers();
   const before = a.all[0];
   const startPos = await pos();
   check(a.riding === island.id, `hero did not attach to the deck (riding: ${a.riding})`);
   check(before.deckTop !== null, 'no deck under the hero after landing on the island');
 
-  await wait(9000);
+  await adv(9);
   const b = await carriers();
   const after = b.all[0];
   const endPos = await pos();
@@ -147,10 +195,10 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
   // so a body a couple of units outside it is outside by the frame's own rule
   // rather than by a number this file invented.
   await tp(a.x + a.radius + 3, a.z, a.y + 4);
-  await wait(1200);
+  await adv(1.2);
   const b = await carriers();
   const p1 = await pos();
-  await wait(900);
+  await adv(0.9);
   const p2 = await pos();
   results.steppedOff = {
     riding: b.riding,
@@ -169,10 +217,10 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
   // On the ground directly below the middle of the island — `__dbgTp` with no
   // y resolves the height field, which is exactly the case that must be immune.
   await tp(a.x, a.z);
-  await wait(600);
+  await adv(0.6);
   const b = await carriers();
   const p1 = await pos();
-  await wait(4000);
+  await adv(4);
   const p2 = await pos();
   const moved = Math.hypot(p2.x - p1.x, p2.z - p1.z);
   const c = (await carriers()).all[0];
@@ -205,7 +253,7 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
   const npcs = await page.evaluate(() => window.__dbgNpcs());
   const crew = npcs.all.filter((n) => n.id.startsWith('sky-'));
   const offsets = crew.map((n) => +Math.hypot(n.x - a.x, n.z - a.z).toFixed(2));
-  await wait(5000);
+  await adv(5);
   const b = (await carriers()).all[0];
   const npcs2 = await page.evaluate(() => window.__dbgNpcs());
   const crew2 = npcs2.all.filter((n) => n.id.startsWith('sky-'));
@@ -240,10 +288,10 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
   // marker you are standing on top of swings wildly and says nothing.
   const a = (await carriers()).all[0];
   await tp(a.x - 160, a.z - 160);
-  await wait(700);
+  await adv(0.7);
   const c1 = await page.evaluate(() => window.__dbgCompass());
   const m1 = c1.markers.find((m) => m.id === 'town:skyhaven');
-  await wait(6000);
+  await adv(6);
   const c2 = await page.evaluate(() => window.__dbgCompass());
   const m2 = c2.markers.find((m) => m.id === 'town:skyhaven');
   const b = (await carriers()).all[0];
@@ -281,7 +329,7 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
   // On the ground under the middle of it — the deepest part of the keel and the
   // straightest line at the island there is.
   await tp(a.x, a.z);
-  await wait(600);
+  await adv(0.6);
   const said = await page.evaluate(() => window.__dbgRide('galebird'));
   const m0 = await page.evaluate(() => window.__dbgMount());
   check(m0.mounted && m0.locomotion === 'flying',
@@ -296,12 +344,12 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
   const start = (await carriers()).all[0];
   check(start.keel !== null, 'no keel under the middle of the island');
   await tp(a.x, a.z, start.keel - 25);
-  await wait(600);
+  await adv(0.6);
 
   const samples = [];
   await page.keyboard.down('Space');
   for (let i = 0; i < 24; i++) {
-    await wait(500);
+    await adv(0.5);
     const c = await carriers();
     const mm = await page.evaluate(() => window.__dbgMount());
     samples.push({
@@ -313,7 +361,7 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
     });
   }
   await page.keyboard.up('Space');
-  await wait(400);
+  await adv(0.4);
 
   const under = samples.filter((s) => s.keel !== null);
   // Between the KEEL and the TURF — `surface`, not `deckTop`, which is the top
@@ -373,17 +421,17 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
   // `__dbgTp` carries the pair (see its note in main.ts), which is why the
   // second one holds.
   await tp(a.x, a.z);
-  await wait(500);
+  await adv(0.5);
   const said = await page.evaluate(() => window.__dbgRide('galebird'));
   check((await page.evaluate(() => window.__dbgMount())).mounted, `no flyer: ${said}`);
   // Halfway out along the radius and well under the turf: inside the cliff, on
   // the keel's shoulder rather than at its thin rim.
   const staged = a.radius * 0.5;
   await tp(a.x + staged, a.z, a.y - 20);
-  await wait(200);
+  await adv(0.2);
   const c0 = (await carriers()).all[0];
 
-  await wait(2000);
+  await adv(2);
   const s1 = await carriers();
   const c1 = s1.all[0];
   const p1 = await pos();
@@ -428,15 +476,15 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
   // flyer landing on a roof is a different (and correct) outcome that would make
   // the height assertion below mean nothing. Ten units up, inside RIDE_CEILING.
   await tp(a.x + a.radius * 0.5, a.z, a.y + 10);
-  await wait(1200);
+  await adv(1.2);
   const attached = await carriers();
   // A FLYER HOLDS ITS ALTITUDE — there is no gravity in `integrateFlying`, C is
   // the way down — so the descent is driven rather than waited for. Three
   // seconds at FLY_DIVE is 25 units against the ten he has to give up.
   await page.keyboard.down('KeyC');
-  await wait(3000);
+  await adv(3);
   await page.keyboard.up('KeyC');
-  await wait(400);
+  await adv(0.4);
   const s = await carriers();
   const c = s.all[0];
   const m = await page.evaluate(() => window.__dbgMount());
@@ -488,6 +536,14 @@ check(island.y >= 70, `island is at y ${island.y} — too low to clear the terra
     + 'that is a deck you cannot walk on, not a settlement');
 }
 
+// The probe's own speedup, measured: how much simulation it ran against how
+// long the bursts took. The gap between `wallMs` here and the process's real
+// duration is boot plus CDP round-trips — the next things to shrink.
+results.advance = {
+  simSeconds: +advSim.toFixed(1),
+  wallMs: +advWall.toFixed(0),
+  speedup: advWall > 0 ? +((advSim * 1000) / advWall).toFixed(1) : null,
+};
 console.log(JSON.stringify({ ...results, fails }, null, 2));
 await browser.close();
 if (fails.length) {
