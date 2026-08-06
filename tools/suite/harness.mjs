@@ -148,27 +148,40 @@ async function resetBetween(page) {
   for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC']) {
     await page.keyboard.up(k).catch(() => {});
   }
-  // A PARTY, for the modules that mount one.
-  //
-  // Since issue #4 a new game is bonded to nothing, and half this roster says
-  // nothing at all without a beast — carrier flies one under the island,
-  // deepwater rides a swimmer into the basin, gamepad holds Y. Every one of
-  // them failed with the same sentence about nothing being bonded.
-  //
-  // HERE AND NOT ONCE AT BOOT, which is the whole reason this line exists in
-  // this function: `pause` genuinely exits to the title and starts a second
-  // game, and `exitToTitle` clears ownership along with the bag and the purse —
-  // correctly, it is session state. A grant that ran once would be wiped by the
-  // fourth module and every module after it would fail. Running it between
-  // modules puts the party back however it was lost.
-  //
-  // It is NOT before the first module, and that matters: test-inventory runs
-  // first and its opening section is the only place that asserts a new game
-  // owns nothing.
-  //
-  // `all` rather than a pair, because a module that wants a Finnick should not
-  // have to know which two some other module happened to leave in the slots.
-  await page.evaluate(() => window.__dbgGrantBeast && window.__dbgGrantBeast('all'));
+}
+
+/**
+ * Bond every beast, for a module that needs one to mount.
+ *
+ * Since issue #4 a new game is bonded to nothing (`grantBeast` in main.ts), and
+ * several modules say nothing at all without a beast — carrier flies one under
+ * the island, deepwater rides a swimmer into the basin, gamepad holds Y.
+ *
+ * A MODULE CALLS THIS FOR ITSELF, in its first section, rather than the harness
+ * doing it between modules. Two reasons, and the second is the one that decided
+ * it: `pause` genuinely exits to the title and `exitToTitle` clears ownership
+ * along with the bag, so a grant that happened once would be gone by the fourth
+ * module — and a module run ALONE (`bun tools/test-gamepad.mjs`) never sees a
+ * between-modules reset at all, so it would pass in the suite and fail on its
+ * own. Asking for what you need where you need it survives both.
+ *
+ * `all` rather than a pair, because a module that wants a Finnick should not
+ * have to know which two some other module happened to leave in the slots.
+ */
+export async function bondAll(ctx) {
+  await ctx.ev(() => window.__dbgGrantBeast && window.__dbgGrantBeast('all'));
+  // CHECKED, not assumed. Everything the calling module goes on to do depends
+  // on there being a beast to mount, and the failure of a silent grant is a
+  // section three screens later reporting that a held button never mounted —
+  // which reads as a gamepad bug and is not one.
+  const party = await ctx.ev(() => {
+    const t = window.__dbgTaming?.();
+    return t ? { owned: t.owned.length, lead: t.lead, support: t.support } : null;
+  });
+  ctx.res.party = party;
+  ctx.check(!!party && party.owned > 0 && party.lead !== null,
+    `bondAll left the party as ${JSON.stringify(party)} — nothing below can mount`);
+  return party;
 }
 
 /**

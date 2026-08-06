@@ -42,6 +42,8 @@
 //
 // Exits non-zero on failure.
 
+import { bondAll } from './suite/harness.mjs';
+
 /** The island, live. Every section reads it fresh — it is somewhere else now. */
 const carriers = (ctx) => ctx.ev(() => window.__dbgCarriers());
 const pos = (ctx) => ctx.ev(() => window.__dbgPlayerPos());
@@ -49,8 +51,14 @@ const pos = (ctx) => ctx.ev(() => window.__dbgPlayerPos());
 /** Set by the first section, read by the ones that only need id/radius. */
 let island = null;
 
+
 export const name = 'carrier';
 export const sections = [
+
+  // A PARTY TO FLY. Since issue #4 a new game is bonded to nothing, and the
+  // sections below put a FLYER under the island and against its keel. See
+  // `bondAll` for why each module asks for this itself.
+  { id: 'party', run: async (ctx) => { await bondAll(ctx); } },
 
   // -------------------------------------------------------------------------
   { id: 'exists', run: async (ctx) => {
