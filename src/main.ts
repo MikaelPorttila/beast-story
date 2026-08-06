@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Engine } from './core/engine';
 import { DayNightCycle } from './core/day-night';
 import { DebugOverlay } from './core/debug-overlay';
-import { Gfx, GFX_OPTIONS, type GfxSinks } from './core/gfx';
+import { Gfx, GFX_OPTIONS, type GfxSinks, type GfxValue } from './core/gfx';
 import { PerfPanel } from './ui/perf-panel';
 import { Cursors, CursorDirector, CURSOR_STATES, type CursorState } from './ui/cursor';
 import { Input } from './core/input';
@@ -203,7 +203,7 @@ const settingsHooks = {
   // the apply half, and it is guarded because the sinks below drive an engine
   // and a world that do not exist while the title screen is still booting. A
   // change made in that window is read back by the constructor.
-  onGraphics: (id: keyof GfxSinks, on: boolean) => { if (gfxLive) gfx.set(id, on); },
+  onGraphics: (id: keyof GfxSinks, value: GfxValue) => { if (gfxLive) gfx.set(id, value); },
 };
 
 /**
@@ -2403,7 +2403,7 @@ const debug = new DebugOverlay(engine.renderer, fpsCap);
 if (params.get('debug') === '1') debug.toggle();
 
 /**
- * The F3 panel's model, and the ten functions that make its switches real.
+ * The F3 panel's model, and the eleven functions that make its options real.
  *
  * COMPOSITION-ROOT POLICY, which is why the sinks live here and not in gfx.ts:
  * that file knows "bloom is a boolean that defaults on"; this one is the only
@@ -2417,6 +2417,7 @@ if (params.get('debug') === '1') debug.toggle();
  */
 const gfx = new Gfx({
   grass: (on) => world.setLayerVisible('grass', on),
+  foliageDistance: (metres) => world.setFoliageDistance(metres),
   props: (on) => world.setLayerVisible('props', on),
   water: (on) => world.setLayerVisible('water', on),
   clouds: (on) => world.setLayerVisible('clouds', on),

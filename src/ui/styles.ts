@@ -1350,9 +1350,10 @@ const CSS = `
    it stops fitting went up with it. 760 was the 16px floor (issue #17) taking a
    row from 14px to 17px and the note under it from 11.5 to 16, about 55px of
    list. 880 is the four SECTIONS (ui/settings.ts) — GRAPHICS is the tallest of
-   them at five rows plus the tab strip, and uncompacted it measured 486px of
+   them. At five rows plus the tab strip, uncompacted it measured 486px of
    list against 468 of room at 1280x800, with 18px of the Back button under the
-   bottom edge. Compacted it is 425 and clear.
+   bottom edge. Compacted it was 425 and clear; the sixth graphics row remains
+   inside this same band, guarded across tabs by tools/test-pause.mjs.
 
    Note the tabs did not make the list taller overall — the flat list they
    replaced was 462px and it is 486 here — they moved the height that has to fit

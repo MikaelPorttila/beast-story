@@ -819,6 +819,13 @@ export interface World {
    */
   setLayerVisible(layer: WorldLayer, on: boolean): void;
   /**
+   * Set the ground-cover fade distance in world units. Trees and rocks retain
+   * one further chunk so the horizon keeps its silhouette after nearby grass
+   * has faded. The overworld applies it live; zones with no vegetation ignore
+   * it.
+   */
+  setFoliageDistance(distance: number): void;
+  /**
    * Link the shader programs of any world-owned VISUAL EFFECT, by drawing it
    * once during the boot sweep. The caller renders; the world's job is to make
    * sure the thing is actually rasterised while it does.

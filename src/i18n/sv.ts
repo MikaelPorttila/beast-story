@@ -161,6 +161,7 @@ export const sv: Translation = {
   'menu.settings.aa': 'Kantutjämning',
   'menu.settings.shadows': 'Skuggor',
   'menu.settings.foliage': 'Växtlighet',
+  'menu.settings.foliageDistance': 'Räckvidd för växtlighet',
   'menu.settings.hapticFeedback': 'Aktivera vibration i handkontrollen',
   'menu.settings.invertX': 'Invertera sikte X',
   'menu.settings.invertY': 'Invertera sikte Y',

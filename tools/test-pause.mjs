@@ -282,8 +282,8 @@ export const sections = [
       === JSON.stringify(['hapticFeedback', 'invertLookX', 'invertLookY']),
       'Controls holds the three controller rows');
     ctx.check(JSON.stringify(tabGraphics.gfx)
-      === JSON.stringify(['ao', 'bloom', 'aa', 'shadows', 'grass']),
-      'Graphics holds the five renderer switches');
+      === JSON.stringify(['ao', 'bloom', 'aa', 'shadows', 'grass', 'foliageDistance']),
+      'Graphics holds the five renderer switches and the foliage-distance choice');
     ctx.check(tabGraphics.toggles.length === 0 && tabGraphics.langs === 0,
       'and nothing from the other tabs is still on screen with them');
     ctx.check(tabSound.vols === 6, 'Sound holds the volume steps');
