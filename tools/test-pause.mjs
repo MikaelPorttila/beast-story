@@ -543,8 +543,8 @@ check(JSON.stringify(menu.tabControls.toggles)
   === JSON.stringify(['hapticFeedback', 'invertLookX', 'invertLookY']),
   'Controls holds the three controller rows');
 check(JSON.stringify(menu.tabGraphics.gfx)
-  === JSON.stringify(['ao', 'bloom', 'aa', 'shadows', 'grass']),
-  'Graphics holds the five renderer switches');
+  === JSON.stringify(['ao', 'bloom', 'aa', 'shadows', 'grass', 'foliageDistance']),
+  'Graphics holds the five renderer switches and the foliage-distance choice');
 check(menu.tabGraphics.toggles.length === 0 && menu.tabGraphics.langs === 0,
   'and nothing from the other tabs is still on screen with them');
 check(menu.tabSound.vols === 6, 'Sound holds the volume steps');

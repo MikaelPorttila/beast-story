@@ -1,5 +1,5 @@
 import { loadPrefs, savePrefs, type Prefs } from '../core/prefs';
-import { storedGfx, storeGfx, type GfxSinks } from '../core/gfx';
+import { GFX_OPTIONS, storedGfx, storeGfx, type GfxSinks, type GfxValue } from '../core/gfx';
 import { t, language, languages, setLanguage, type StringKey } from '../i18n';
 import { fullscreenSurvivesEscape } from './fullscreen';
 import type { LookAxes } from '../core/gamepad';
@@ -69,7 +69,7 @@ import type { LookAxes } from '../core/gamepad';
  *
  * THE GRAPHICS ROWS ARE THE F3 PANEL'S OWN SWITCHES
  *
- * Not a copy of them — the same model, core/gfx.ts, the same five ids, the same
+ * Not a copy of them — the same model, core/gfx.ts, the same six ids, the same
  * `game.settings.graphics.*` keys, so a row flipped here is flipped in the F3
  * panel and vice versa. What this file does NOT do is apply them: it writes
  * through `storeGfx` and tells its host, exactly as a `Prefs` row is saved here
@@ -116,17 +116,17 @@ const TABS: ReadonlyArray<{ id: SettingsTab; labelKey: StringKey }> = [
 ];
 
 /**
- * The graphics rows: which of the F3 panel's switches a PLAYER is offered, and
+ * The graphics rows: which of the F3 panel's options a PLAYER is offered, and
  * what to call them here.
  *
- * FIVE OF THE NINE, and the four that are missing are missing on purpose. The
+ * SIX OF THE TEN, and the four that are missing are missing on purpose. The
  * frame cap is a choice row rather than a switch and belongs beside a measured
  * frame rate, which is a thing the F3 panel has and this does not. Trees & rocks,
  * clouds and the water surface delete the WORLD rather than the way it is drawn
  * — a meadow with no trees in it is a different game, not a cheaper frame — and
  * the panel that offers those keeps its numbers beside them so the trade is
- * visible. Everything here is finishing work plus the ground cover, which is the
- * set a player can turn off and still be looking at the same place.
+ * visible. Everything here is finishing work plus ground-cover visibility and
+ * distance, which is the set a player can change and still recognise the place.
  *
  * ORDERED AS THE F3 PANEL ORDERS THEM, cheapest-to-lose first, because that
  * ordering is the closest either panel comes to advice (see GFX_OPTIONS).
@@ -137,7 +137,23 @@ const GRAPHICS_ROWS: ReadonlyArray<{ id: keyof GfxSinks; labelKey: StringKey }> 
   { id: 'aa', labelKey: 'menu.settings.aa' },
   { id: 'shadows', labelKey: 'menu.settings.shadows' },
   { id: 'grass', labelKey: 'menu.settings.foliage' },
+  { id: 'foliageDistance', labelKey: 'menu.settings.foliageDistance' },
 ];
+
+function graphicsValueLabel(id: keyof GfxSinks, value: GfxValue): string {
+  if (id === 'foliageDistance') {
+    return t(value === 64 ? 'gfx.distance.low' : value === 96 ? 'gfx.distance.medium' : 'gfx.distance.high');
+  }
+  return t(value ? 'menu.on' : 'menu.off');
+}
+
+function nextGraphicsValue(id: keyof GfxSinks): GfxValue {
+  const opt = GFX_OPTIONS.find((o) => o.id === id);
+  const value = storedGfx(id);
+  if (!opt?.choices) return !value;
+  const i = opt.choices.indexOf(Number(value));
+  return opt.choices[(i + 1) % opt.choices.length];
+}
 
 /**
  * The music-volume row's steps, as percentages.
@@ -194,7 +210,7 @@ export interface SettingsHooks {
    * than URL flags is that a switch you have to reload to try is a switch nobody
    * tries (see the header of core/gfx.ts).
    */
-  onGraphics: (id: keyof GfxSinks, on: boolean) => void;
+  onGraphics: (id: keyof GfxSinks, value: GfxValue) => void;
 }
 
 /**
@@ -366,10 +382,12 @@ export class SettingsPanel {
       // shows what the F3 panel or `/gfx` last set even if that happened while
       // this panel was on screen behind them. See storedGfx in core/gfx.ts.
       this.section('graphics', GRAPHICS_ROWS.map((r) =>
+        // Choice rows use the same button/pill shape as switches, but do not
+        // claim aria-pressed: Low/Medium/High is a value, not a pressed state.
         `<button class="bs-menu-btn row" type="button" data-gfx="${r.id}" ` +
-        `aria-pressed="${Boolean(storedGfx(r.id))}">` +
+        `${typeof storedGfx(r.id) === 'boolean' ? `aria-pressed="${Boolean(storedGfx(r.id))}"` : ''}>` +
         `<span class="lbl">${escapeHtml(t(r.labelKey))}</span>` +
-        `<span class="pill">${escapeHtml(storedGfx(r.id) ? t('menu.on') : t('menu.off'))}</span>` +
+        `<span class="pill">${escapeHtml(graphicsValueLabel(r.id, storedGfx(r.id)))}</span>` +
         `</button>`).join('')) +
 
       this.section('sound', this.volumeRow()) +
@@ -453,10 +471,13 @@ export class SettingsPanel {
       // Read the STORE rather than a cached copy, for the reason the markup
       // gives: the F3 panel and `/gfx` write the same keys, and a stale flip
       // would turn a row that is already off back on.
-      const on = !storedGfx(gfxId);
-      storeGfx(gfxId, on);
-      this.hooks.onGraphics(gfxId, on);
-      this.pill(btn, on);
+      const value = nextGraphicsValue(gfxId);
+      storeGfx(gfxId, value);
+      this.hooks.onGraphics(gfxId, value);
+      if (typeof value === 'boolean') this.pill(btn, value);
+      else {
+        btn.querySelector('.pill')!.textContent = graphicsValueLabel(gfxId, value);
+      }
       return true;
     }
 

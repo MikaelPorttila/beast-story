@@ -21,7 +21,7 @@
  * THE SINKS ARE INJECTED, and that is what keeps this file at the bottom of the
  * dependency graph. It knows that "bloom" is a boolean that defaults on and is
  * stored under a key; it does not know what a bloom pass is. main.ts is the
- * composition root and hands over the ten functions that actually do the work,
+ * composition root and hands over the eleven functions that actually do the work,
  * exactly as it does for FeedbackDeps.
  *
  * EVERY `cost` STRING IS MEASURED, not guessed — walking, 1280x800, on a
@@ -31,7 +31,7 @@
  */
 import type { StringKey } from '../i18n';
 
-/** What one toggle can be. Numbers are for the choice rows (fps, view). */
+/** What one option can be. Numbers are for the choice rows (fps, foliage distance). */
 export type GfxValue = boolean | number;
 
 /**
@@ -44,6 +44,7 @@ export type GfxValue = boolean | number;
  */
 export interface GfxSinks {
   grass(on: boolean): void;
+  foliageDistance(metres: number): void;
   props(on: boolean): void;
   shadows(on: boolean): void;
   ao(on: boolean): void;
@@ -103,6 +104,7 @@ export const GFX_OPTIONS: readonly GfxOption[] = [
   { id: 'aa', labelKey: 'gfx.aa', costKey: 'gfx.aa.cost', def: true },
   { id: 'shadows', labelKey: 'gfx.shadows', costKey: 'gfx.shadows.cost', def: true },
   { id: 'grass', labelKey: 'gfx.grass', costKey: 'gfx.grass.cost', def: true },
+  { id: 'foliageDistance', labelKey: 'gfx.foliageDistance', costKey: 'gfx.foliageDistance.cost', choices: [64, 96, 128], def: 128 },
   { id: 'props', labelKey: 'gfx.props', costKey: 'gfx.props.cost', def: true },
   { id: 'clouds', labelKey: 'gfx.clouds', costKey: 'gfx.clouds.cost', def: true },
   { id: 'water', labelKey: 'gfx.water', costKey: 'gfx.water.cost', def: true },
@@ -230,7 +232,7 @@ export class Gfx {
 
   private apply(id: keyof GfxSinks): void {
     const v = this.get(id);
-    if (id === 'fpsCap') this.sinks.fpsCap(Number(v));
+    if (id === 'fpsCap' || id === 'foliageDistance') this.sinks[id](Number(v));
     else this.sinks[id](Boolean(v));
   }
 

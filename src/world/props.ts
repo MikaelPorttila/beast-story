@@ -1879,13 +1879,82 @@ function mushroom(): Template {
 
 // ---------------------------------------------------------------------------
 
+interface FoliageFadeUniforms {
+  bsFoliageFocus: { value: THREE.Vector2 };
+  bsFoliageFadeStart: { value: number };
+  bsFoliageFadeEnd: { value: number };
+}
+
+/**
+ * Fade a shared prop material by WORLD distance with real alpha coverage.
+ *
+ * Screen-door opacity left visible stipple on a blue horizon, and fading toward
+ * the sky colour painted blue ghost trees over nearer terrain. Soft chunks
+ * render far-to-near. Solid chunks use explicit alpha blending in the opaque
+ * list so GTAO still sees trees and rocks; depth writes stay on, so the nearest
+ * voxel face supplies one stable translucent silhouette. The outer chunk is
+ * fully clear before its whole mesh is culled.
+ */
+function installFoliageFade(mat: THREE.Material, uniforms: FoliageFadeUniforms, key: string): void {
+  const previousCompile = mat.onBeforeCompile;
+  const previousKey = mat.customProgramCacheKey.bind(mat);
+  mat.customProgramCacheKey = (): string => `${previousKey()}|bsFoliageFade:${key}`;
+  mat.onBeforeCompile = (shader, renderer): void => {
+    previousCompile.call(mat, shader, renderer);
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 bsFoliageWorldXZ;')
+      // After sway has changed `transformed`, so bent grass fades where it is
+      // drawn rather than where the unbent template happened to be authored.
+      .replace('#include <project_vertex>',
+        'bsFoliageWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;\n#include <project_vertex>');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec2 bsFoliageWorldXZ;
+uniform vec2 bsFoliageFocus;
+uniform float bsFoliageFadeStart;
+uniform float bsFoliageFadeEnd;`)
+      .replace('#include <opaque_fragment>', `
+float bsFoliageAlpha = 1.0 - smoothstep(
+  bsFoliageFadeStart, bsFoliageFadeEnd,
+  distance(bsFoliageWorldXZ, bsFoliageFocus)
+);
+#include <opaque_fragment>
+gl_FragColor.a *= bsFoliageAlpha;`);
+  };
+}
+
 export class PropLib {
-  readonly solidMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
+  readonly solidMat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.9, metalness: 0,
+    // Keep solid props in GTAO. Explicit factors bypass three's opaque
+    // NormalBlending shortcut, the same subtle split water.ts relies on.
+    transparent: false,
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+  });
   // Front-side: the grass billboards carry both windings themselves (see
   // grassBillboard), and every other soft prop is a closed voxel volume. Using
   // DoubleSide here instead inverted the shading normal on every blade's reverse
   // face and turned half the meadow black.
-  readonly softMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1.0, metalness: 0 });
+  readonly softMat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 1.0, metalness: 0, transparent: true,
+  });
+  private readonly fadeFocus = new THREE.Vector2();
+  private readonly solidFade: FoliageFadeUniforms = {
+    bsFoliageFocus: { value: this.fadeFocus },
+    bsFoliageFadeStart: { value: 128 },
+    bsFoliageFadeEnd: { value: 160 },
+  };
+  private readonly softFade: FoliageFadeUniforms = {
+    bsFoliageFocus: { value: this.fadeFocus },
+    bsFoliageFadeStart: { value: 96 },
+    bsFoliageFadeEnd: { value: 128 },
+  };
 
   readonly oakA = oakTree(false);
   readonly oakB = oakTree(true);
@@ -1975,6 +2044,29 @@ export class PropLib {
   readonly flowerP = flower(0xd292b0, 0xb0708f);
   readonly flowerW = flower(0xefe9dc, 0xcdc5b6);
   readonly flowerO = flower(0xe09b5e, 0xbc7a44);
+
+  /** Install after the optional sway patch so both shader edits compose. */
+  installDistanceFade(): void {
+    installFoliageFade(this.solidMat, this.solidFade, 'solid');
+    installFoliageFade(this.softMat, this.softFade, 'soft');
+  }
+
+  /** Update the shared shader once per rendered frame; no per-chunk uniforms. */
+  updateDistanceFade(x: number, z: number): void {
+    this.fadeFocus.set(x, z);
+  }
+
+  /**
+   * Grass uses the player's choice. Tall silhouettes keep one extra 32m chunk,
+   * capped at the terrain streamer's 160m cardinal reach.
+   */
+  setDistanceFade(grassEnd: number): void {
+    const solidEnd = Math.min(grassEnd + 32, 160);
+    this.softFade.bsFoliageFadeStart.value = Math.max(0, grassEnd - 32);
+    this.softFade.bsFoliageFadeEnd.value = grassEnd;
+    this.solidFade.bsFoliageFadeStart.value = Math.max(0, solidEnd - 32);
+    this.solidFade.bsFoliageFadeEnd.value = solidEnd;
+  }
 
   dispose(): void {
     this.solidMat.dispose();

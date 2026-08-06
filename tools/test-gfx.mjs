@@ -198,6 +198,42 @@ export const sections = [
   } },
 
   // -------------------------------------------------------------------------
+  { id: 'foliageDistance', run: async (ctx) => {
+    // The choice is judged by scene residency and visibility, not by reading
+    // the value back. Low must cull both layers, and it must actually dispose
+    // outer prop geometry rather than paying the streaming/memory cost for
+    // meshes whose fragments are merely faded away.
+    const high = await gfxAll(ctx);
+    const highDraws = await draws(ctx);
+    await gfxSet(ctx, 'foliageDistance', 64);
+    await settleToggle(ctx);
+    const low = await gfxAll(ctx);
+    const lowDraws = await draws(ctx);
+    await gfxSet(ctx, 'foliageDistance', 128);
+    ctx.check(await ctx.settleStreaming(15),
+      'the foliage queue did not refill after restoring High distance');
+    await settleToggle(ctx);
+    const restored = await gfxAll(ctx);
+
+    const total = (x, layer) => x.layers[layer].shown + x.layers[layer].hidden;
+    ctx.res.foliageDistance = {
+      high: { draws: highDraws, grass: high.layers.grass, props: high.layers.props },
+      low: { draws: lowDraws, grass: low.layers.grass, props: low.layers.props },
+      restored: { grass: restored.layers.grass, props: restored.layers.props },
+    };
+    ctx.check(low.layers.grass.shown < high.layers.grass.shown,
+      `Low foliage still shows ${low.layers.grass.shown} grass chunks against High's ${high.layers.grass.shown}`);
+    ctx.check(low.layers.props.shown < high.layers.props.shown,
+      `Low foliage still shows ${low.layers.props.shown} prop chunks against High's ${high.layers.props.shown}`);
+    ctx.check(total(low, 'props') < total(high, 'props'),
+      `Low retained ${total(low, 'props')} prop meshes against High's ${total(high, 'props')} — outer geometry was not disposed`);
+    ctx.check(lowDraws < highDraws,
+      `Low foliage drew ${lowDraws} calls against High's ${highDraws} — no frame work was saved`);
+    ctx.check(total(restored, 'props') >= total(high, 'props'),
+      `High restored only ${total(restored, 'props')} prop meshes from ${total(high, 'props')}`);
+  } },
+
+  // -------------------------------------------------------------------------
   { id: 'state', run: async (ctx) => {
     // Shadows and aa: state, because the frame cannot show them. `shadows`
     // renders into its own target, which three does not add to
@@ -283,12 +319,25 @@ export const sections = [
     await ctx.ev(() => document.querySelector('.bs-pause [data-gfx="ao"]')?.click());
     await settleToggle(ctx);
     const back = await draws(ctx);
+    await ctx.ev(() => document.querySelector('.bs-pause [data-gfx="foliageDistance"]')?.click());
+    await settleToggle(ctx);
+    const foliageChoice = {
+      value: await gfxGet(ctx, 'foliageDistance'),
+      pill: await ctx.ev(() =>
+        document.querySelector('.bs-pause [data-gfx="foliageDistance"] .pill')?.textContent ?? null),
+    };
+    // Low -> Medium -> High, restoring both the default and the full resident
+    // ring before the modal is dismissed.
+    await ctx.ev(() => document.querySelector('.bs-pause [data-gfx="foliageDistance"]')?.click());
+    await ctx.ev(() => document.querySelector('.bs-pause [data-gfx="foliageDistance"]')?.click());
+    ctx.check(await ctx.settleStreaming(15),
+      'the Settings row did not restore the High foliage ring');
     await ctx.ev(() => document.querySelector('.bs-pause [data-act="continue"]')?.click());
     await ctx.frame();
 
     ctx.res.settingsPanel = { rows, drawsOn: on, drawsOff: off, drawsRestored: back,
-      saved: on - off, rowAfterOff: rowOff, gfxAfterOff: flagOff };
-    ctx.check(rows.length === 5, `the Graphics tab shows ${rows.length} rows, expected 5`);
+      saved: on - off, rowAfterOff: rowOff, gfxAfterOff: flagOff, foliageChoice };
+    ctx.check(rows.length === 6, `the Graphics tab shows ${rows.length} rows, expected 6`);
     ctx.check(on - off >= 40,
       `the settings panel's AO row saved ${on - off} draw calls, expected at least 40`);
     ctx.check(back - off >= 20,
@@ -297,6 +346,10 @@ export const sections = [
     // show one thing and Settings another, both of them "working".
     ctx.check(flagOff === false, `__dbgGfx says ao is ${flagOff} after the settings row turned it off`);
     ctx.check(rowOff?.pressed === 'false', `the row still reads aria-pressed=${rowOff?.pressed}`);
+    ctx.check(foliageChoice.value === 64,
+      `the Settings foliage row selected ${foliageChoice.value}, expected Low (64)`);
+    ctx.check(foliageChoice.pill === 'Low',
+      `the Settings foliage pill reads "${foliageChoice.pill}", expected "Low"`);
   } },
 
   // -------------------------------------------------------------------------

@@ -713,7 +713,7 @@ export const en = {
   'menu.settings.tab.graphics': 'Graphics',
   'menu.settings.tab.sound': 'Sound',
   /**
-   * The GRAPHICS tab's five rows. They switch exactly what the F3 performance
+   * The GRAPHICS tab's six rows. They drive exactly what the F3 performance
    * panel's rows of the same name switch — one model, core/gfx.ts — and they are
    * deliberately their OWN strings rather than a reuse of the `gfx.*` labels
    * below.
@@ -733,6 +733,7 @@ export const en = {
   'menu.settings.aa': 'Antialiasing',
   'menu.settings.shadows': 'Shadows',
   'menu.settings.foliage': 'Foliage',
+  'menu.settings.foliageDistance': 'Foliage distance',
   /**
    * Says "controller" rather than "haptics" or "rumble" on purpose: it is the
    * word on the box, and the row has to be recognisable by someone who opened
@@ -809,6 +810,11 @@ export const en = {
   'gfx.bloom.cost': '23 draw calls and a chain of blurs',
   'gfx.grass': 'Grass & ground cover',
   'gfx.grass.cost': '44 draw calls, and the heaviest geometry in the world',
+  'gfx.foliageDistance': 'Foliage distance',
+  'gfx.foliageDistance.cost': 'shorter ranges cull whole grass and prop chunks',
+  'gfx.distance.low': 'Low',
+  'gfx.distance.medium': 'Medium',
+  'gfx.distance.high': 'High',
   'gfx.ao': 'Ambient occlusion',
   'gfx.ao.cost': '47 draw calls — it re-renders the scene to measure depth',
   'gfx.shadows': 'Shadows',

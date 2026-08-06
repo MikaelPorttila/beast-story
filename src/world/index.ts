@@ -41,6 +41,7 @@ interface ChunkRec {
   cx: number;
   cz: number;
   meshes: THREE.Mesh[];
+  propsBuilt: boolean;
 }
 
 const chunkKey = (cx: number, cz: number): string => `${cx},${cz}`;
@@ -490,6 +491,10 @@ export function createWorld(
   // zeroed — which is what makes it an honest A/B.
   const sway = flags.sway && flags.props ? new SwayField((x, z) => terrain.getHeight(x, z)) : null;
   sway?.install(propLib.softMat);
+  // Installed AFTER sway so its vertex edit sees the final bent position. The
+  // two hooks compose inside PropLib rather than one silently replacing the
+  // other, which would make the distance row disable wind on grass.
+  propLib.installDistanceFade();
 
   // TOWNS AND ROADS FIRST, and the order inside `planSettlements` is load
   // bearing: it routes against the NATURAL height field, then installs the
@@ -682,8 +687,15 @@ export function createWorld(
    */
   const trunks = new Map<number, number[]>();
   const queue: Array<{ cx: number; cz: number; d: number }> = [];
+  const foliageQueue: ChunkRec[] = [];
+  const foliageQueued = new Set<string>();
   let lastCX = Infinity;
   let lastCZ = Infinity;
+  let focusX = spawnPoint.x;
+  let focusZ = spawnPoint.z;
+  let grassDistance = 128;
+  let propsDistance = 160;
+  let worldShown = true;
   let time = 0;
   let disposed = false;
   /** The chunk currently part-built, and which stage comes next. */
@@ -716,6 +728,17 @@ export function createWorld(
     grass: false, props: false, water: false, clouds: false,
   };
 
+  /** Squared distance from the focus to this chunk's horizontal rectangle. */
+  const chunkDistanceSq = (rec: ChunkRec): number => {
+    const x0 = rec.cx * CHUNK_SIZE;
+    const z0 = rec.cz * CHUNK_SIZE;
+    const dx = focusX < x0 ? x0 - focusX
+      : focusX > x0 + CHUNK_SIZE ? focusX - (x0 + CHUNK_SIZE) : 0;
+    const dz = focusZ < z0 ? z0 - focusZ
+      : focusZ > z0 + CHUNK_SIZE ? focusZ - (z0 + CHUNK_SIZE) : 0;
+    return dx * dx + dz * dz;
+  };
+
   /**
    * Every mesh in a chunk gets a visibility, and ANYTHING NOT A TOGGLEABLE
    * LAYER IS SHOWN. That default is the whole correctness of this function.
@@ -732,11 +755,21 @@ export function createWorld(
    * somebody deliberately makes it a layer.
    */
   const applyLayers = (rec: ChunkRec): void => {
+    const d2 = chunkDistanceSq(rec);
     for (const m of rec.meshes) {
       const layer = m.name.startsWith('chunk:') ? m.name.slice(6) : '';
-      m.visible = layer in hiddenLayers
+      const inRange = layer === 'grass' ? d2 < grassDistance * grassDistance
+        : layer === 'props' ? d2 < propsDistance * propsDistance : true;
+      const visible = worldShown && inRange && (layer in hiddenLayers
         ? !hiddenLayers[layer as WorldLayer]
-        : true;
+        : true);
+      if (m.visible === visible) continue;
+      m.visible = visible;
+      // Only a real transition changes the cached caster set. This function is
+      // now also the sub-chunk distance cull and runs each rendered frame; an
+      // unconditional invalidation here would erase the shadow cache 120 times
+      // a second while every mesh stayed exactly as it was.
+      invalidateStaticShadowsNear(m);
     }
     // A hidden caster is a changed caster set. Every path that shows or hides
     // chunk geometry goes through here — the streamer, the F3 grass/trees rows
@@ -744,15 +777,70 @@ export function createWorld(
     // the cached shadow map honest about all three. Bounded by the chunk,
     // because the streamer calls this on every stage of every build and an
     // unbounded invalidation there is the whole cost of the cache.
-    for (const m of rec.meshes) invalidateStaticShadowsNear(m);
   };
 
   const startChunk = (cx: number, cz: number): ChunkRec | null => {
     const key = chunkKey(cx, cz);
     if (chunks.has(key)) return null;
-    const rec: ChunkRec = { cx, cz, meshes: [] };
+    const rec: ChunkRec = { cx, cz, meshes: [], propsBuilt: false };
     chunks.set(key, rec);
     return rec;
+  };
+
+  /**
+   * Keep one complete chunk beyond the solid fade. Its geometry is already
+   * invisible there, but the reserve prevents a bare edge while a newly-near
+   * prop stage drains through the frame budget.
+   */
+  const wantsProps = (rec: ChunkRec): boolean => {
+    const reserve = propsDistance + CHUNK_SIZE;
+    return chunkDistanceSq(rec) < reserve * reserve;
+  };
+
+  const buildProps = (rec: ChunkRec): void => {
+    if (rec.propsBuilt || !flags.props || !wantsProps(rec)) return;
+    rec.propsBuilt = true;
+    const props = buildChunkProps(
+      rec.cx, rec.cz, terrain, propLib, exclusions, plan?.network ?? null,
+    );
+    if (props.solid) props.solid.name = 'chunk:props';
+    if (props.soft) excludeFromAO(props.soft).name = 'chunk:grass';
+    for (const m of [props.solid, props.soft]) {
+      if (!m) continue;
+      rec.meshes.push(m);
+      scene.add(m);
+      markStaticShadowCaster(m);
+    }
+    if (props.trunks.length > 0) trunks.set(trunkKey(rec.cx, rec.cz), props.trunks);
+    applyLayers(rec);
+  };
+
+  const dropProps = (rec: ChunkRec): void => {
+    if (!rec.propsBuilt) return;
+    for (let i = rec.meshes.length - 1; i >= 0; i--) {
+      const m = rec.meshes[i];
+      if (m.name !== 'chunk:props' && m.name !== 'chunk:grass') continue;
+      invalidateStaticShadowsNear(m);
+      scene.remove(m);
+      m.geometry.dispose();
+      rec.meshes.splice(i, 1);
+    }
+    trunks.delete(trunkKey(rec.cx, rec.cz));
+    rec.propsBuilt = false;
+  };
+
+  const refreshFoliage = (): void => {
+    for (const rec of chunks.values()) {
+      const key = chunkKey(rec.cx, rec.cz);
+      if (!wantsProps(rec)) {
+        dropProps(rec);
+        foliageQueued.delete(key);
+      } else if (!rec.propsBuilt && !foliageQueued.has(key)) {
+        foliageQueued.add(key);
+        foliageQueue.push(rec);
+      }
+    }
+    foliageQueue.sort((a, b) => chunkDistanceSq(a) - chunkDistanceSq(b));
   };
 
   const buildStage = (rec: ChunkRec, stage: number): void => {
@@ -775,29 +863,8 @@ export function createWorld(
         scene.add(water);
       }
     } else {
-      if (!flags.props) return;
-      const props = buildChunkProps(cx, cz, terrain, propLib, exclusions, plan?.network ?? null);
-      // NAMED, so the F3 panel can hide one and not the other. The split is
-      // already there — `soft` is the grass and flowers, `solid` is everything
-      // that casts a shadow — but both ended up in one untagged array, and a
-      // player turning off "grass" to get a frame back does not want the trees
-      // to go with it. `__dbgSurfaceY` reports these names too, so a raycast
-      // that lands on a prop now says which kind it was.
-      if (props.solid) props.solid.name = 'chunk:props';
-      // The same split decides who is an AO occluder, and for the same reason
-      // one line up: `solid` is the things that stand on the ground, `soft` is
-      // the carpet the ground wears. Screen-space AO cannot tell a blade from a
-      // wall, and a half-res G-buffer full of blade billboards is where issue
-      // #39's "dirty grainy shadow" came from — see _overrideVisibility in
-      // core/post.ts for the measurements.
-      if (props.soft) excludeFromAO(props.soft).name = 'chunk:grass';
-      for (const m of [props.solid, props.soft]) {
-        if (m) {
-          rec.meshes.push(m);
-          scene.add(m);
-        }
-      }
-      if (props.trunks.length > 0) trunks.set(trunkKey(cx, cz), props.trunks);
+      buildProps(rec);
+      return;
     }
     // A CHUNK IS THE DEFINITION OF STATIC SHADOW GEOMETRY. Terrain, water,
     // trees and grass are pure functions of the seed and never move again, so
@@ -832,6 +899,7 @@ export function createWorld(
       m.geometry.dispose();
     }
     trunks.delete(trunkKey(rec.cx, rec.cz));
+    foliageQueued.delete(chunkKey(rec.cx, rec.cz));
   };
 
   const refreshQueue = (fcx: number, fcz: number): void => {
@@ -882,10 +950,14 @@ export function createWorld(
     get chunksLoaded(): number { return chunks.size; },
     // A part-built chunk counts: its props stage has not run, so its trees are
     // not in the trunk registry yet and walking in would find no colliders.
-    get streaming(): boolean { return building !== null || queue.length > 0; },
+    get streaming(): boolean {
+      return building !== null || queue.length > 0 || foliageQueue.length > 0;
+    },
     // The part-built one counts as pending for the same reason it counts as
     // streaming: it is not finished, so the bar must not have spent it yet.
-    get pendingChunks(): number { return queue.length + (building !== null ? 1 : 0); },
+    get pendingChunks(): number {
+      return queue.length + foliageQueue.length + (building !== null ? 1 : 0);
+    },
     getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
     /**
      * Terrain, the top of a trunk, or the surface of a canopy — whichever is
@@ -1132,7 +1204,16 @@ export function createWorld(
       // sim can run several slices in one frame (main.ts), and a per-slice
       // budget multiplied by those slices is what turned a catch-up frame into
       // six chunk stages and a 120 ms hitch.
-      if (newFrame) buildBudgetLeft = BUILD_BUDGET_MS;
+      if (newFrame) {
+        buildBudgetLeft = BUILD_BUDGET_MS;
+        focusX = focus.x;
+        focusZ = focus.z;
+        propLib.updateDistanceFade(focusX, focusZ);
+        // The fade is radial rather than chunk-stepped. A whole mesh can still
+        // be rejected once its nearest edge is outside the fade, buying back
+        // its draw and vertex work instead of merely discarding fragments.
+        for (const rec of chunks.values()) applyLayers(rec);
+      }
       time += dt;
       waterMat.uniforms['uTime'].value = time;
       // Nothing to dispose on the far side of this: the field owns no GPU
@@ -1159,14 +1240,27 @@ export function createWorld(
         lastCZ = fcz;
         refreshQueue(fcx, fcz);
         unloadFar(fcx, fcz);
+        refreshFoliage();
       }
       // Spend the frame's build budget one STAGE at a time, checking the clock
       // after each. A stage is the smallest unit of work available here, so the
       // budget is a floor, not a ceiling: one long props stage can overrun it.
       // That is deliberate — the alternative is leaving the queue stalled while
       // the player walks into unbuilt ground.
-      while (buildBudgetLeft > 0 && (building || queue.length > 0)) {
+      while (buildBudgetLeft > 0 && (building || queue.length > 0 || foliageQueue.length > 0)) {
         const t0 = performance.now();
+        if (!building && queue.length === 0) {
+          const rec = foliageQueue.shift()!;
+          const key = chunkKey(rec.cx, rec.cz);
+          foliageQueued.delete(key);
+          // A distance reduction or terrain unload can stale an entry that was
+          // already queued. It is cheaper to reject it here than splice the
+          // middle of a sorted queue on every settings change.
+          if (chunks.get(key) !== rec || !wantsProps(rec)) continue;
+          buildProps(rec);
+          buildBudgetLeft -= performance.now() - t0;
+          continue;
+        }
         if (!building) {
           const q = queue.shift()!;
           const rec = startChunk(q.cx, q.cz);
@@ -1197,6 +1291,17 @@ export function createWorld(
       // Already-streamed chunks now, `applyLayers` for the ones built later —
       // a chunk that arrives after the switch was thrown has to arrive hidden,
       // or walking forward quietly turns the setting back on.
+      for (const rec of chunks.values()) applyLayers(rec);
+    },
+
+    setFoliageDistance(distance: number): void {
+      // Gfx validates the three shipped choices before this sink is reached;
+      // clamp again because World is a public contract and debug code may call
+      // it directly. 64/96/128m are two, three and four terrain chunks.
+      grassDistance = Math.max(64, Math.min(128, distance));
+      propsDistance = Math.min(grassDistance + CHUNK_SIZE, VIEW_RADIUS * CHUNK_SIZE);
+      propLib.setDistanceFade(grassDistance);
+      refreshFoliage();
       for (const rec of chunks.values()) applyLayers(rec);
     },
 
@@ -1232,6 +1337,8 @@ export function createWorld(
       for (const rec of chunks.values()) disposeChunk(rec);
       chunks.clear();
       trunks.clear();
+      foliageQueue.length = 0;
+      foliageQueued.clear();
       // The part-built chunk's record is gone; a further stage on it would add
       // meshes to a record nothing owns. Same reason `unloadFar` drops it.
       building = null;
@@ -1242,6 +1349,7 @@ export function createWorld(
     },
 
     setVisible(v: boolean): void {
+      worldShown = v;
       // SHOWING THE WORLD MEANS SHOWING IT AS CONFIGURED, which is why this
       // goes through `applyLayers` rather than setting every mesh true.
       //
@@ -1253,11 +1361,7 @@ export function createWorld(
       // nothing like what you would guess: grass stayed off while you stood
       // still, then came back in a lump the moment you wandered near a gateway
       // and the preload started. Measured, 80 of 89 grass meshes lit up again.
-      if (v) {
-        for (const rec of chunks.values()) applyLayers(rec);
-      } else {
-        for (const rec of chunks.values()) for (const m of rec.meshes) m.visible = false;
-      }
+      for (const rec of chunks.values()) applyLayers(rec);
       // The den lamps live under shops.group, so this is also what takes the
       // world's four point lights out of the scene's light count. See World.
       shops.group.visible = v;
@@ -1309,6 +1413,8 @@ export function createWorld(
       for (const rec of chunks.values()) disposeChunk(rec);
       chunks.clear();
       trunks.clear();
+      foliageQueue.length = 0;
+      foliageQueued.clear();
       scene.remove(shops.group);
       shops.dispose();
       if (npcs) {
