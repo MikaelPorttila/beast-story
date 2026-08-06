@@ -2218,14 +2218,14 @@ const SOLID_CLEAR_R2 = 20;
  */
 const TREE_CLEAR_R2 = 90;
 
-export function buildChunkProps(
+export function* buildChunkPropsSteps(
   cx: number,
   cz: number,
   terrain: Terrain,
   lib: PropLib,
   exclusions: readonly Exclusion[],
   roads: RoadClearance | null = null,
-): ChunkProps {
+): Generator<void, ChunkProps, void> {
   const rng = mulberry32(Math.floor(hashCell(terrain.seed, cx, 91, cz) * 0xffffffff));
   const solid = new Accum();
   // The soft mesh is the one that bends: it is the only user of `softMat`, and
@@ -2500,6 +2500,9 @@ export function buildChunkProps(
   // trees on it, which is why plains is the one biome that ends up with FEWER
   // trees than before the rescale.
   for (let gx = 0; gx < 4; gx++) {
+    // Four tree candidates are a useful scheduling grain: small enough to stay
+    // below the streamer's frame budget without yielding for every stamp.
+    if (gx > 0) yield;
     for (let gz = 0; gz < 4; gz++) {
       const lx = gx * 8 + Math.floor(rng() * 8);
       const lz = gz * 8 + Math.floor(rng() * 8);
@@ -2654,6 +2657,7 @@ export function buildChunkProps(
 
   const midCount = 5 + Math.floor(rng() * 4);
   for (let m = 0; m < midCount; m++) {
+    if (m > 0 && m % 2 === 0) yield;
     const mlx = 2 + rng() * (CHUNK_SIZE - 4);
     const mlz = 2 + rng() * (CHUNK_SIZE - 4);
     const kind = rng();
@@ -2783,6 +2787,9 @@ export function buildChunkProps(
     lib.bloomHeather, lib.bloomButter, lib.bloomClover, lib.bloomYarrow, lib.bloomRust,
   ];
   for (let k = 0; k < 115; k++) {
+    // One candidate can stamp a carpet of several templates. Four at a time
+    // measured below 1 ms where the old whole prop pass reached 12-20 ms.
+    if (k > 0 && k % 4 === 0) yield;
     const clx = 1 + rng() * (CHUNK_SIZE - 2);
     const clz = 1 + rng() * (CHUNK_SIZE - 2);
     const accept = rng();
@@ -3032,6 +3039,7 @@ export function buildChunkProps(
   // cacti. 320 rolls with thresholds scaled ~3x vs the old 950-roll loop so
   // per-chunk solid-prop counts stay roughly unchanged.
   for (let i = 0; i < 320; i++) {
+    if (i > 0 && i % 16 === 0) yield;
     const lx = Math.floor(rng() * CHUNK_SIZE);
     const lz = Math.floor(rng() * CHUNK_SIZE);
     const roll = rng();
@@ -3144,6 +3152,7 @@ export function buildChunkProps(
   // instead of a biome case: every other pass rejects columns below
   // WATER_LEVEL + 1 outright, which is exactly where reeds belong.
   for (let i = 0; i < 90; i++) {
+    if (i > 0 && i % 12 === 0) yield;
     const lx = Math.floor(rng() * CHUNK_SIZE);
     const lz = Math.floor(rng() * CHUNK_SIZE);
     const roll = rng();
@@ -3200,6 +3209,7 @@ export function buildChunkProps(
   // chunk's two existing meshes, so the extra scatter costs triangles, not draw
   // calls.
   for (let i = 0; i < 200; i++) {
+    if (i > 0 && i % 16 === 0) yield;
     const lx = Math.floor(rng() * CHUNK_SIZE);
     const lz = Math.floor(rng() * CHUNK_SIZE);
     const roll = rng();
@@ -3274,7 +3284,12 @@ export function buildChunkProps(
     }
   }
 
+  // Typed-array conversion and bounds calculation touch every accumulated
+  // vertex. Keep the two meshes in separate slices so their costs cannot land
+  // on the same rendered frame.
+  yield;
   const solidGeo = solid.toGeometry();
+  yield;
   const softGeo = soft.toGeometry();
   let solidMesh: THREE.Mesh | null = null;
   let softMesh: THREE.Mesh | null = null;
@@ -3295,4 +3310,19 @@ export function buildChunkProps(
     softMesh.updateMatrix();
   }
   return { solid: solidMesh, soft: softMesh, trunks };
+}
+
+/** Complete-now wrapper for boot and headless model guards. */
+export function buildChunkProps(
+  cx: number,
+  cz: number,
+  terrain: Terrain,
+  lib: PropLib,
+  exclusions: readonly Exclusion[],
+  roads: RoadClearance | null = null,
+): ChunkProps {
+  const steps = buildChunkPropsSteps(cx, cz, terrain, lib, exclusions, roads);
+  let result = steps.next();
+  while (!result.done) result = steps.next();
+  return result.value;
 }

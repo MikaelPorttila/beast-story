@@ -44,6 +44,7 @@ export type GfxValue = boolean | number;
  */
 export interface GfxSinks {
   grass(on: boolean): void;
+  terrainDistance(metres: number): void;
   foliageDistance(metres: number): void;
   props(on: boolean): void;
   shadows(on: boolean): void;
@@ -103,6 +104,7 @@ export const GFX_OPTIONS: readonly GfxOption[] = [
   { id: 'bloom', labelKey: 'gfx.bloom', costKey: 'gfx.bloom.cost', def: true },
   { id: 'aa', labelKey: 'gfx.aa', costKey: 'gfx.aa.cost', def: true },
   { id: 'shadows', labelKey: 'gfx.shadows', costKey: 'gfx.shadows.cost', def: true },
+  { id: 'terrainDistance', labelKey: 'gfx.terrainDistance', costKey: 'gfx.terrainDistance.cost', choices: [480, 600, 900], def: 600 },
   { id: 'grass', labelKey: 'gfx.grass', costKey: 'gfx.grass.cost', def: true },
   { id: 'foliageDistance', labelKey: 'gfx.foliageDistance', costKey: 'gfx.foliageDistance.cost', choices: [64, 96, 128], def: 128 },
   { id: 'props', labelKey: 'gfx.props', costKey: 'gfx.props.cost', def: true },
@@ -232,7 +234,9 @@ export class Gfx {
 
   private apply(id: keyof GfxSinks): void {
     const v = this.get(id);
-    if (id === 'fpsCap' || id === 'foliageDistance') this.sinks[id](Number(v));
+    if (id === 'fpsCap' || id === 'terrainDistance' || id === 'foliageDistance') {
+      this.sinks[id](Number(v));
+    }
     else this.sinks[id](Boolean(v));
   }
 

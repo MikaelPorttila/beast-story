@@ -155,12 +155,18 @@ const submerged = (y: number): number => {
 /** Lerp a shading multiplier toward neutral by `t`. */
 const flatten = (m: number, t: number): number => m + (1 - m) * t;
 
-export function buildTerrainMesh(
+/**
+ * Incremental terrain mesher. One step samples or emits one 32-column row, so
+ * the streamer can keep cube creation inside a frame budget instead of paying
+ * an entire steep chunk in one hitch. No Mesh is exposed until the generator
+ * returns; the distant underlay remains the complete hill in the meantime.
+ */
+export function* buildTerrainMeshSteps(
   cx: number,
   cz: number,
   terrain: Terrain,
   material: THREE.Material,
-): THREE.Mesh {
+): Generator<void, THREE.Mesh, void> {
   const G = CHUNK_SIZE + 2;
   const n = G * G;
   const hA = new Float32Array(n);
@@ -188,6 +194,7 @@ export function buildTerrainMesh(
       warmA[i] = sc.stoneWarm;
       grassA[i] = sc.grass;
     }
+    yield;
   }
 
   const pos: number[] = [];
@@ -619,6 +626,7 @@ export function buildTerrainMesh(
         }
       }
     }
+    yield;
   }
 
   const geo = new THREE.BufferGeometry();
@@ -638,4 +646,17 @@ export function buildTerrainMesh(
   mesh.matrixAutoUpdate = false;
   mesh.updateMatrix();
   return mesh;
+}
+
+/** Synchronous boot/test convenience; live streaming uses the steps above. */
+export function buildTerrainMesh(
+  cx: number,
+  cz: number,
+  terrain: Terrain,
+  material: THREE.Material,
+): THREE.Mesh {
+  const steps = buildTerrainMeshSteps(cx, cz, terrain, material);
+  let result = steps.next();
+  while (!result.done) result = steps.next();
+  return result.value;
 }

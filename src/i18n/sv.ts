@@ -160,6 +160,7 @@ export const sv: Translation = {
   'menu.settings.bloom': 'Ljussken',
   'menu.settings.aa': 'Kantutjämning',
   'menu.settings.shadows': 'Skuggor',
+  'menu.settings.terrainDistance': 'Siktavstånd',
   'menu.settings.foliage': 'Växtlighet',
   'menu.settings.foliageDistance': 'Räckvidd för växtlighet',
   'menu.settings.hapticFeedback': 'Aktivera vibration i handkontrollen',

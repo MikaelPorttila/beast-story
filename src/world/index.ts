@@ -11,10 +11,13 @@ import { excludeFromAO } from '../core/types';
 import { CarrierField } from './carriers';
 import { ISLAND_KEEL, SkyIsland, readCarriedTown } from './sky-island';
 import { CHUNK_SIZE, DEEP_WATER_TOP, Terrain, WATER_LEVEL, makeScratch } from './terrain';
-import { buildTerrainMesh } from './chunk';
+import { buildTerrainMesh, buildTerrainMeshSteps } from './chunk';
 import { DistantTerrain } from './distant-terrain';
-import { buildWaterMesh, createWaterMaterial } from './water';
-import { PropLib, buildChunkProps, TREE_STRIDE, type Exclusion } from './props';
+import { buildWaterMesh, createWaterMaterial, setWaterDetailDistance } from './water';
+import {
+  PropLib, buildChunkProps, buildChunkPropsSteps, TREE_STRIDE,
+  type ChunkProps, type Exclusion,
+} from './props';
 import { Shops, type DenSpot } from './shops';
 import { Towns, planSettlements, type SettlementPlan } from './towns';
 import { TownParts } from './town-parts';
@@ -29,8 +32,7 @@ import {
   invalidateStaticShadows, invalidateStaticShadowsNear, markStaticShadowCaster,
 } from '../core/shadow-cache';
 
-const VIEW_RADIUS = flags.viewRadius ?? 5;
-const UNLOAD_RADIUS = VIEW_RADIUS + 1.5;
+const DEFAULT_VIEW_RADIUS = 5;
 /**
  * Wall-clock budget per rendered frame for chunk building, in ms. At the ~7.8 ms
  * frames this game runs at, 3 ms leaves the rest of the frame intact while still
@@ -481,6 +483,7 @@ export function createWorld(
   landmarks?: (probe: LandmarkProbe) => Array<{
     x: number; z: number; id?: string; noSpawnRadius?: number;
   }>,
+  initialViewDistance = 600,
 ): World {
   const terrain = new Terrain(seed);
   const terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
@@ -678,7 +681,17 @@ export function createWorld(
   // One coarse camera-following landscape under the streamed voxel ring. It is
   // created only after roads, towns and landmarks have altered the height field,
   // so its silhouette is sampled from the same terrain authority as near ground.
-  const distant = new DistantTerrain(terrain, spawnPoint);
+  // View distance is not voxel distance. High extends and densifies the HLOD,
+  // while keeping Medium's 89 detailed chunks: adding another 88 synchronous
+  // cube-meshing jobs caused the repeated ground-streaming stutter reported in
+  // issue #97. Foliage remains independently adjustable.
+  let terrainDistance = initialViewDistance;
+  let viewRadius = flags.viewRadius
+    ?? (initialViewDistance <= 480 ? 4 : DEFAULT_VIEW_RADIUS);
+  setWaterDetailDistance(waterMat, viewRadius * CHUNK_SIZE);
+  const distant = new DistantTerrain(
+    terrain, spawnPoint, initialViewDistance, viewRadius * CHUNK_SIZE,
+  );
   if (!flags.water) distant.setWaterVisible(false);
   scene.add(distant.terrain, distant.water);
 
@@ -707,12 +720,19 @@ export function createWorld(
   let time = 0;
   let disposed = false;
   /** The chunk currently part-built, and which stage comes next. */
-  let building: { rec: ChunkRec; stage: number } | null = null;
+  let building: {
+    rec: ChunkRec;
+    stage: number;
+    terrain: ReturnType<typeof buildTerrainMeshSteps> | null;
+    props: ReturnType<typeof buildChunkPropsSteps> | null;
+    /** False when this job only restores distance-culled foliage. */
+    countChunk: boolean;
+  } | null = null;
   let buildBudgetLeft = 0;
 
   /**
-   * A chunk is built in THREE STAGES, one per call, because building one in a
-   * single call is far too much work for one frame.
+   * A chunk is built in THREE STAGES. Terrain and props yield within their
+   * stages; water is small enough to remain indivisible.
    *
    * Measured on an RTX 3070 Ti: a whole chunk is ~15 ms and the old budget did
    * two of them in a frame, so streaming cost 30-51 ms spikes — the sawtooth you
@@ -767,7 +787,7 @@ export function createWorld(
     for (const m of rec.meshes) {
       const layer = m.name.startsWith('chunk:') ? m.name.slice(6) : '';
       const inRange = layer === 'grass' ? d2 < grassDistance * grassDistance
-        : layer === 'props' ? d2 < propsDistance * propsDistance : true;
+      : layer === 'props' ? d2 < propsDistance * propsDistance : true;
       const visible = worldShown && inRange && (layer in hiddenLayers
         ? !hiddenLayers[layer as WorldLayer]
         : true);
@@ -805,12 +825,8 @@ export function createWorld(
     return chunkDistanceSq(rec) < reserve * reserve;
   };
 
-  const buildProps = (rec: ChunkRec): void => {
-    if (rec.propsBuilt || !flags.props || !wantsProps(rec)) return;
+  const commitProps = (rec: ChunkRec, props: ChunkProps): void => {
     rec.propsBuilt = true;
-    const props = buildChunkProps(
-      rec.cx, rec.cz, terrain, propLib, exclusions, plan?.network ?? null,
-    );
     if (props.solid) props.solid.name = 'chunk:props';
     if (props.soft) excludeFromAO(props.soft).name = 'chunk:grass';
     for (const m of [props.solid, props.soft]) {
@@ -821,6 +837,13 @@ export function createWorld(
     }
     if (props.trunks.length > 0) trunks.set(trunkKey(rec.cx, rec.cz), props.trunks);
     applyLayers(rec);
+  };
+
+  const buildProps = (rec: ChunkRec): void => {
+    if (rec.propsBuilt || !flags.props || !wantsProps(rec)) return;
+    commitProps(rec, buildChunkProps(
+      rec.cx, rec.cz, terrain, propLib, exclusions, plan?.network ?? null,
+    ));
   };
 
   const dropProps = (rec: ChunkRec): void => {
@@ -912,9 +935,9 @@ export function createWorld(
 
   const refreshQueue = (fcx: number, fcz: number): void => {
     queue.length = 0;
-    const lim = (VIEW_RADIUS + 0.35) * (VIEW_RADIUS + 0.35);
-    for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) {
-      for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++) {
+    const lim = (viewRadius + 0.35) * (viewRadius + 0.35);
+    for (let dz = -viewRadius; dz <= viewRadius; dz++) {
+      for (let dx = -viewRadius; dx <= viewRadius; dx++) {
         const d = dx * dx + dz * dz;
         if (d > lim) continue;
         const cx = fcx + dx;
@@ -926,7 +949,8 @@ export function createWorld(
   };
 
   const unloadFar = (fcx: number, fcz: number): void => {
-    const lim = UNLOAD_RADIUS * UNLOAD_RADIUS;
+    const unloadRadius = viewRadius + 1.5;
+    const lim = unloadRadius * unloadRadius;
     for (const [key, rec] of chunks) {
       const dx = rec.cx - fcx;
       const dz = rec.cz - fcz;
@@ -959,12 +983,13 @@ export function createWorld(
     // A part-built chunk counts: its props stage has not run, so its trees are
     // not in the trunk registry yet and walking in would find no colliders.
     get streaming(): boolean {
-      return building !== null || queue.length > 0 || foliageQueue.length > 0;
+      return distant.building || building !== null || queue.length > 0 || foliageQueue.length > 0;
     },
     // The part-built one counts as pending for the same reason it counts as
     // streaming: it is not finished, so the bar must not have spent it yet.
     get pendingChunks(): number {
-      return queue.length + foliageQueue.length + (building !== null ? 1 : 0);
+      return queue.length + foliageQueue.length + (building !== null ? 1 : 0)
+        + (distant.building ? 1 : 0);
     },
     getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
     /**
@@ -1256,9 +1281,9 @@ export function createWorld(
         unloadFar(fcx, fcz);
         refreshFoliage();
       }
-      // Spend the frame's build budget one STAGE at a time, checking the clock
-      // after each. A stage is the smallest unit of work available here, so the
-      // budget is a floor, not a ceiling: one long props stage can overrun it.
+      // Spend the frame's budget one terrain row or prop batch at a time. Water
+      // and each mesh's final typed-array conversion are the only indivisible
+      // pieces, so the budget is a close target rather than a hard deadline.
       // That is deliberate — the alternative is leaving the queue stalled while
       // the player walks into unbuilt ground.
       while (buildBudgetLeft > 0 && (building || queue.length > 0 || foliageQueue.length > 0)) {
@@ -1266,28 +1291,74 @@ export function createWorld(
         if (!building && queue.length === 0) {
           const rec = foliageQueue.shift()!;
           const key = chunkKey(rec.cx, rec.cz);
-          foliageQueued.delete(key);
           // A distance reduction or terrain unload can stale an entry that was
           // already queued. It is cheaper to reject it here than splice the
           // middle of a sorted queue on every settings change.
-          if (chunks.get(key) !== rec || !wantsProps(rec)) continue;
-          buildProps(rec);
-          buildBudgetLeft -= performance.now() - t0;
-          continue;
+          if (chunks.get(key) !== rec || rec.propsBuilt || !wantsProps(rec)) {
+            foliageQueued.delete(key);
+            continue;
+          }
+          building = { rec, stage: 2, terrain: null, props: null, countChunk: false };
         }
         if (!building) {
           const q = queue.shift()!;
           const rec = startChunk(q.cx, q.cz);
           if (!rec) continue; // already built or in flight
-          building = { rec, stage: 0 };
+          building = { rec, stage: 0, terrain: null, props: null, countChunk: true };
         }
-        buildStage(building.rec, building.stage);
-        building.stage++;
+        if (building.stage === 0) {
+          // Ground is the expensive stage the player feels. The row-yielding
+          // mesher keeps its CPU work inside this frame's remaining budget,
+          // and publishes nothing until the whole chunk is internally complete;
+          // the HLOD underlay remains the hill while these rows are built.
+          building.terrain ??= buildTerrainMeshSteps(
+            building.rec.cx, building.rec.cz, terrain, terrainMat,
+          );
+          let result = building.terrain.next();
+          while (!result.done && performance.now() - t0 < buildBudgetLeft) {
+            result = building.terrain.next();
+          }
+          buildBudgetLeft -= performance.now() - t0;
+          if (!result.done) break;
+          const m = result.value;
+          m.name = 'chunk:terrain';
+          building.rec.meshes.push(m);
+          scene.add(m);
+          markStaticShadowCaster(m);
+          applyLayers(building.rec);
+          building.terrain = null;
+          building.stage = 1;
+          continue;
+        }
+        if (building.stage === 2) {
+          if (!flags.props || !wantsProps(building.rec)) {
+            foliageQueued.delete(chunkKey(building.rec.cx, building.rec.cz));
+            building.stage = 3;
+          } else {
+            building.props ??= buildChunkPropsSteps(
+              building.rec.cx, building.rec.cz, terrain, propLib,
+              exclusions, plan?.network ?? null,
+            );
+            let result = building.props.next();
+            while (!result.done && performance.now() - t0 < buildBudgetLeft) {
+              result = building.props.next();
+            }
+            buildBudgetLeft -= performance.now() - t0;
+            if (!result.done) break;
+            commitProps(building.rec, result.value);
+            foliageQueued.delete(chunkKey(building.rec.cx, building.rec.cz));
+            building.props = null;
+            building.stage = 3;
+          }
+        } else {
+          buildStage(building.rec, building.stage);
+          building.stage++;
+          buildBudgetLeft -= performance.now() - t0;
+        }
         if (building.stage > 2) {
-          perf.count('chunks');
+          if (building.countChunk) perf.count('chunks');
           building = null;
         }
-        buildBudgetLeft -= performance.now() - t0;
       }
     },
 
@@ -1314,8 +1385,28 @@ export function createWorld(
       // clamp again because World is a public contract and debug code may call
       // it directly. 64/96/128m are two, three and four terrain chunks.
       grassDistance = Math.max(64, Math.min(128, distance));
-      propsDistance = Math.min(grassDistance + CHUNK_SIZE, VIEW_RADIUS * CHUNK_SIZE);
+      propsDistance = Math.min(grassDistance + CHUNK_SIZE, viewRadius * CHUNK_SIZE);
       propLib.setDistanceFade(grassDistance);
+      refreshFoliage();
+      for (const rec of chunks.values()) applyLayers(rec);
+    },
+
+    setTerrainDistance(distance: number): void {
+      const nextDistance = distance <= 480 ? 480 : distance >= 900 ? 900 : 600;
+      if (nextDistance === terrainDistance) return;
+      terrainDistance = nextDistance;
+      // Low / Medium / High deliberately use 4 / 5 / 5 voxel-detail chunks.
+      // High spends on a denser, longer HLOD instead of doubling the number of
+      // expensive cube meshes. A ?view= developer override stays authoritative.
+      viewRadius = flags.viewRadius ?? (nextDistance <= 480 ? 4 : DEFAULT_VIEW_RADIUS);
+      setWaterDetailDistance(waterMat, viewRadius * CHUNK_SIZE);
+      propsDistance = Math.min(grassDistance + CHUNK_SIZE, viewRadius * CHUNK_SIZE);
+      const currentFocus = new THREE.Vector3(focusX, 0, focusZ);
+      distant.configure(nextDistance, viewRadius * CHUNK_SIZE, currentFocus);
+      const fcx = Math.floor(focusX / CHUNK_SIZE);
+      const fcz = Math.floor(focusZ / CHUNK_SIZE);
+      refreshQueue(fcx, fcz);
+      unloadFar(fcx, fcz);
       refreshFoliage();
       for (const rec of chunks.values()) applyLayers(rec);
     },

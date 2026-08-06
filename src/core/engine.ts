@@ -650,11 +650,9 @@ export class Engine {
     //       edge at ~245 goes 89% -> 87% and still hides chunk pop-in. That is the
     //       "cut the fog density about 40%" note, spent entirely on the band the
     //       player can walk to and none of it on the edge of the world.
-    //   270 where haze is ~95%. Near the STREAMING RADIUS, not the far plane:
-    //       VIEW_RADIUS is 5 chunks of 32 units, so the farthest terrain that
-    //       exists is ~245 units away on the diagonal, which lands at ~86%. The
-    //       old 420 was past the edge of the world entirely, which is why the
-    //       mountains came back at full saturation — the fog never reached them.
+    //   270 where haze is ~95%. Near the Medium streaming radius, not its far
+    //       plane: 5 chunks of 32 units put the diagonal edge near 245 m, at
+    //       ~86% haze. setViewDistance scales this curve with the Low/High ring.
     //
     // WHITE, and that is now load-bearing rather than decorative. The colour
     // argument used to be the horizon's displayed value on the grounds that
@@ -684,7 +682,7 @@ export class Engine {
     this.skyDome.frustumCulled = false;
     this.scene.add(this.skyDome);
 
-    // Sun disk. Sits at 400 units, inside the 450 dome and inside the 600 far
+    // Sun disk. Sits at 400 units, inside the 450 dome and every selectable far
     // plane, and keeps depth testing so terrain still occludes it. depthWrite is
     // off and it is additive, so it never disturbs anything drawn after it.
     this.sunDisk = new THREE.Mesh(
@@ -1105,6 +1103,31 @@ export class Engine {
   setFpsCap(fps: number): void {
     this.minFrameMs = fps > 0 ? 1000 / fps : 0;
     this.nextDeadline = 0;
+  }
+
+  /** Keep projection and aerial perspective on the same view-distance preset. */
+  setViewDistance(distance: number): void {
+    const metres = distance <= 480 ? 480 : distance >= 900 ? 900 : 600;
+    this.camera.far = metres;
+    this.camera.updateProjectionMatrix();
+    if (!(this.scene.fog instanceof THREE.Fog)) return;
+    // Keep enough colour in the HLOD beyond the detailed ring that aerial views
+    // read as continuous land, not trees floating over a sky-coloured square.
+    // The distant-terrain material now owns the final true-distance dissolve at
+    // 66-86% of camera.far, so this general haze can be gentler without exposing
+    // a projection edge. Measured in the 90 m aerial capture: Medium 130/270
+    // erased the underlay immediately behind the 160 m chunks; 160/430 retains
+    // its silhouette and still reaches the sky before the 600 m clip plane.
+    if (metres === 480) {
+      this.scene.fog.near = 120;
+      this.scene.fog.far = 340;
+    } else if (metres === 900) {
+      this.scene.fog.near = 240;
+      this.scene.fog.far = 700;
+    } else {
+      this.scene.fog.near = 160;
+      this.scene.fog.far = 430;
+    }
   }
 
   /**

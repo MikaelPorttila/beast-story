@@ -8,9 +8,8 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL } from './terrain';
 
-/** Radial handoff from detailed chunk water to the far landscape sheet. */
-export const WATER_DETAIL_FADE_START = 144;
-export const WATER_DETAIL_FADE_END = 224;
+/** Width of the radial handoff from detailed water to the far landscape sheet. */
+export const WATER_DETAIL_FADE_WIDTH = 48;
 
 const VERT = /* glsl */ `
 uniform float uTime;
@@ -60,6 +59,7 @@ uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform float uSunStrength;
 uniform vec2 uFocus;
+uniform vec2 uDetailFade;
 varying float vDepth;
 /**
  * On the water surface: distance in cells to the nearest dry column, clamped to
@@ -96,6 +96,10 @@ const vec3 MID     = vec3(0.016, 0.283, 0.478); // #269bc9
 // stop (see the smoothsteps below), the old value put a near-black core in the
 // middle of every bay. A stylised lake's deep water is a saturated mid blue.
 const vec3 DEEP    = vec3(0.024, 0.152, 0.355);
+// Must match distant-terrain.ts. Depth contours flatten toward this beyond the
+// readable gameplay band so an aerial view sees one body of water, not the
+// procedural lakebed painted as dark and light islands on its surface.
+const vec3 FAR     = vec3(0.035, 0.300, 0.560);
 // THE DEEP SEA — the dark water you are turned back from. A fifth stop, not a
 // darker DEEP: every one of the four above is tuned for water you can see the
 // bed through and DEEP is where a bay bottoms out, so pushing it toward ink
@@ -271,6 +275,16 @@ void main() {
   // across a bay rather than a line you notice at the edge of one.
   float dAbyss = smoothstep(3.45, 4.85, vDepth);
   col = mix(col, ABYSS, dAbyss);
+  // Depth is useful nearby: it marks the shallows and warns about deep sea.
+  // From a high or distant view the same field becomes a contour map of blobs.
+  // Flatten only that colour term before the 144..224 m geometry handoff; the
+  // ripple normal, Fresnel reflection and glint below remain alive over it.
+  float farWater = smoothstep(80.0, 170.0, distance(vWorldPos.xz, uFocus));
+  // Height matters as much as horizontal range. From a flying mount or photo
+  // camera the lakebed's depth field covers the whole view and reads as a map
+  // of dark circular stains; by 55 m up, water is one broad reflected sheet.
+  float aerialWater = smoothstep(18.0, 55.0, max(cameraPosition.y - vWorldPos.y, 0.0));
+  col = mix(col, FAR, max(farWater, aerialWater));
 
   vec3 toCam = cameraPosition - vWorldPos;
   float camDist = length(toCam);
@@ -563,8 +577,7 @@ void main() {
   // depth ramp into the coarse far-water sheet over distance so that ring never
   // appears as a square edge from flight height (issue #96).
   alpha *= 1.0 - smoothstep(
-    ${WATER_DETAIL_FADE_START.toFixed(1)}, ${WATER_DETAIL_FADE_END.toFixed(1)},
-    distance(vWorldPos.xz, uFocus)
+    uDetailFade.x, uDetailFade.y, distance(vWorldPos.xz, uFocus)
   );
   gl_FragColor = vec4(col, alpha);
   #include <fog_fragment>
@@ -580,6 +593,9 @@ export function createWaterMaterial(): THREE.ShaderMaterial {
       uSunColor: { value: new THREE.Color(1.0, 0.949, 0.851) },
       uSunStrength: { value: 1 },
       uFocus: { value: new THREE.Vector2() },
+      // Medium's five 32 m chunks. World updates this when Low changes the
+      // detailed ring; the fade must finish before the nearest chunk edge.
+      uDetailFade: { value: new THREE.Vector2(160 - WATER_DETAIL_FADE_WIDTH, 160) },
     },
   ]);
   const mat = new THREE.ShaderMaterial({
@@ -659,6 +675,13 @@ export function createWaterMaterial(): THREE.ShaderMaterial {
     fog: true,
   });
   return mat;
+}
+
+/** Keep detailed water's dissolve aligned with the current voxel-detail ring. */
+export function setWaterDetailDistance(mat: THREE.ShaderMaterial, distance: number): void {
+  (mat.uniforms['uDetailFade'].value as THREE.Vector2).set(
+    Math.max(0, distance - WATER_DETAIL_FADE_WIDTH), distance,
+  );
 }
 
 /**

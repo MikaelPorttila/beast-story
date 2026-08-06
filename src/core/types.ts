@@ -825,6 +825,8 @@ export interface World {
    * it.
    */
   setFoliageDistance(distance: number): void;
+  /** Set camera-scale terrain streaming and the far clipmap/HLOD budget. */
+  setTerrainDistance(distance: number): void;
   /** One consolidated far-landscape census, for the view-distance guard. */
   debugDistantTerrain(): Record<string, unknown> | null;
   /**

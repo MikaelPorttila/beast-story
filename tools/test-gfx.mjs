@@ -451,7 +451,7 @@ export const sections = [
 
     ctx.res.settingsPanel = { rows, drawsOn: on, drawsOff: off, drawsRestored: back,
       saved: on - off, rowAfterOff: rowOff, gfxAfterOff: flagOff, foliageChoice };
-    ctx.check(rows.length === 6, `the Graphics tab shows ${rows.length} rows, expected 6`);
+    ctx.check(rows.length === 7, `the Graphics tab shows ${rows.length} rows, expected 7`);
     ctx.check(on - off >= 40,
       `the settings panel's AO row saved ${on - off} draw calls, expected at least 40`);
     ctx.check(back - off >= 20,

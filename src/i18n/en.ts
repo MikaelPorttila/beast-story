@@ -732,6 +732,7 @@ export const en = {
   'menu.settings.bloom': 'Glow',
   'menu.settings.aa': 'Antialiasing',
   'menu.settings.shadows': 'Shadows',
+  'menu.settings.terrainDistance': 'View distance',
   'menu.settings.foliage': 'Foliage',
   'menu.settings.foliageDistance': 'Foliage distance',
   /**
@@ -810,6 +811,8 @@ export const en = {
   'gfx.bloom.cost': '23 draw calls and a chain of blurs',
   'gfx.grass': 'Grass & ground cover',
   'gfx.grass.cost': '44 draw calls, and the heaviest geometry in the world',
+  'gfx.terrainDistance': 'Terrain view distance',
+  'gfx.terrainDistance.cost': 'High: a 9x denser far mesh, without more cube chunks',
   'gfx.foliageDistance': 'Foliage distance',
   'gfx.foliageDistance.cost': 'shorter ranges cull whole grass and prop chunks',
   'gfx.distance.low': 'Low',

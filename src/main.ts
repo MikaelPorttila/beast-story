@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Engine } from './core/engine';
 import { DayNightCycle } from './core/day-night';
 import { DebugOverlay } from './core/debug-overlay';
-import { Gfx, GFX_OPTIONS, type GfxSinks, type GfxValue } from './core/gfx';
+import { Gfx, GFX_OPTIONS, storedGfx, type GfxSinks, type GfxValue } from './core/gfx';
 import { PerfPanel } from './ui/perf-panel';
 import { Cursors, CursorDirector, CURSOR_STATES, type CursorState } from './ui/cursor';
 import { Input } from './core/input';
@@ -772,7 +772,7 @@ const OVERWORLD: ZoneDef = {
     // covers the arch and the pace or two either side of it; anything hunting
     // them still follows them right up to it and through.
     return [{ ...gateSite, id: 'landmark:gateway', noSpawnRadius: 12 }];
-  }),
+  }, Number(storedGfx('terrainDistance'))),
   gate: () => ({ to: 'hold', x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff }),
 };
 
@@ -2417,6 +2417,10 @@ if (params.get('debug') === '1') debug.toggle();
  */
 const gfx = new Gfx({
   grass: (on) => world.setLayerVisible('grass', on),
+  terrainDistance: (metres) => {
+    world.setTerrainDistance(metres);
+    engine.setViewDistance(metres);
+  },
   foliageDistance: (metres) => world.setFoliageDistance(metres),
   props: (on) => world.setLayerVisible('props', on),
   water: (on) => world.setLayerVisible('water', on),

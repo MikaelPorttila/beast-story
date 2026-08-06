@@ -47,7 +47,7 @@ import type { LookAxes } from '../core/gamepad';
  * shows — there are two height media queries in ui/styles.ts written about
  * nothing else, and the second one exists because ONE row pushed the Back button
  * off the bottom of a 1000x560 window. Adding the graphics switches to the flat
- * list would have been another six.
+ * list would now add another seven.
  *
  * So the rows are grouped the way a player asks for them — how the game plays,
  * how it is driven, how it looks, how loud it is — and one group is on screen at
@@ -69,7 +69,7 @@ import type { LookAxes } from '../core/gamepad';
  *
  * THE GRAPHICS ROWS ARE THE F3 PANEL'S OWN SWITCHES
  *
- * Not a copy of them — the same model, core/gfx.ts, the same six ids, the same
+ * Not a copy of them — the same model, core/gfx.ts, the same seven ids, the same
  * `game.settings.graphics.*` keys, so a row flipped here is flipped in the F3
  * panel and vice versa. What this file does NOT do is apply them: it writes
  * through `storeGfx` and tells its host, exactly as a `Prefs` row is saved here
@@ -119,7 +119,7 @@ const TABS: ReadonlyArray<{ id: SettingsTab; labelKey: StringKey }> = [
  * The graphics rows: which of the F3 panel's options a PLAYER is offered, and
  * what to call them here.
  *
- * SIX OF THE TEN, and the four that are missing are missing on purpose. The
+ * SEVEN OF THE ELEVEN, and the four that are missing are missing on purpose. The
  * frame cap is a choice row rather than a switch and belongs beside a measured
  * frame rate, which is a thing the F3 panel has and this does not. Trees & rocks,
  * clouds and the water surface delete the WORLD rather than the way it is drawn
@@ -136,11 +136,15 @@ const GRAPHICS_ROWS: ReadonlyArray<{ id: keyof GfxSinks; labelKey: StringKey }> 
   { id: 'bloom', labelKey: 'menu.settings.bloom' },
   { id: 'aa', labelKey: 'menu.settings.aa' },
   { id: 'shadows', labelKey: 'menu.settings.shadows' },
+  { id: 'terrainDistance', labelKey: 'menu.settings.terrainDistance' },
   { id: 'grass', labelKey: 'menu.settings.foliage' },
   { id: 'foliageDistance', labelKey: 'menu.settings.foliageDistance' },
 ];
 
 function graphicsValueLabel(id: keyof GfxSinks, value: GfxValue): string {
+  if (id === 'terrainDistance') {
+    return t(value === 480 ? 'gfx.distance.low' : value === 600 ? 'gfx.distance.medium' : 'gfx.distance.high');
+  }
   if (id === 'foliageDistance') {
     return t(value === 64 ? 'gfx.distance.low' : value === 96 ? 'gfx.distance.medium' : 'gfx.distance.high');
   }

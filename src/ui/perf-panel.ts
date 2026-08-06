@@ -89,6 +89,9 @@ export class PerfPanel {
   private valueLabel(id: keyof GfxSinks): string {
     const v = this.gfx.get(id);
     if (typeof v === 'boolean') return t(v ? 'gfx.on' : 'gfx.off');
+    if (id === 'terrainDistance') {
+      return t(v === 480 ? 'gfx.distance.low' : v === 600 ? 'gfx.distance.medium' : 'gfx.distance.high');
+    }
     if (id === 'foliageDistance') {
       return t(v === 64 ? 'gfx.distance.low' : v === 96 ? 'gfx.distance.medium' : 'gfx.distance.high');
     }
