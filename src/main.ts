@@ -2165,7 +2165,7 @@ const _hurtFrom = new THREE.Vector3();
 (window as unknown as { __dbgCompanions: () => unknown }).__dbgCompanions = () => {
   const p = player.position;
   const one = (b: BeastActor, role: string) => ({
-    role, id: b.species.id, transit: b.inTransit, dead: b.isDead,
+    role, id: b.species.id, transit: b.inTransit, drawn: b.isDrawn, dead: b.isDead,
     // The ridden beast is placed by the saddle and never runs follow steering,
     // so it is the one row in here light travel says nothing about.
     ridden: mount.beast === b,
@@ -3591,7 +3591,16 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   updateBuffs(dt);
 
   // Beasts follow
-  const owner = { position: player.position, velocity: player.velocity, isSwimming: player.isSwimming };
+  // The swim line is 1.15 below the surface (Player.update). Another 1.25 is a
+  // deliberate dive rather than the normal float bob, and is where a flying
+  // companion changes to light instead of pretending its wings work underwater.
+  const deepDiving = player.isSwimming && player.position.y < world.waterLevel - 2.4;
+  const owner = {
+    position: player.position,
+    velocity: player.velocity,
+    isSwimming: player.isSwimming,
+    deepDiving,
+  };
   if (flags.beasts) {
     // The ridden beast has already been placed and animated by mount.update();
     // running follow steering on top of that would fight the reins.

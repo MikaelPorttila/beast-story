@@ -23,6 +23,10 @@
 // within a couple of seconds both are back on the ground, out of transit, at the
 // hero's own height.
 //
+// Issue #91 adds the inverse: a flying companion remains a visible body during
+// a skyfall, and mounting it preserves that altitude instead of landing the
+// rider invisibly on the terrain.
+//
 // Exits non-zero on failure.
 import { launchBrowser, newPage, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
@@ -72,6 +76,47 @@ if (!first) {
     check(!b.transit, `${b.role} is travelling as light while the hero is standing still`);
     check(b.d < 8, `${b.role} is ${b.d} units away on flat ground`);
     check(Math.abs(b.dy) < 3, `${b.role} is ${b.dy} off the hero's height on flat ground`);
+  }
+}
+
+// ---------- skyfall: a flyer stays physical and mounts here ---------------
+{
+  const at = await comp();
+  await page.evaluate(([x, z, y]) => window.__dbgTp(x, z, y), [
+    at.player.x, at.player.z, at.ground + 30,
+  ]);
+  await wait(800);
+  const falling = await comp();
+  const flyer = falling.beasts.find((b) => b.id === 'galebird');
+  results.skyfall = { beforeMount: falling, flyer };
+  check(falling.player.y - falling.ground > 16,
+    `the skyfall only started ${(falling.player.y - falling.ground).toFixed(2)} above ground`);
+  check(!!flyer, 'Galebird is not active during the skyfall');
+  if (flyer) {
+    check(!flyer.transit, 'Galebird converted to light during an ordinary skyfall');
+    check(flyer.drawn, 'Galebird body is hidden during an ordinary skyfall');
+    check(Math.abs(flyer.dy) < 8,
+      `Galebird did not follow the fall altitude (${flyer.dy} units off the hero)`);
+  }
+
+  const highY = falling.player.y;
+  const said = await page.evaluate(() => window.__dbgRide('galebird'));
+  await wait(300);
+  const mounted = await page.evaluate(() => window.__dbgMount());
+  const mountedParty = await comp();
+  const ridden = mountedParty.beasts.find((b) => b.id === 'galebird');
+  results.skyfall.afterMount = { said, mount: mounted, ridden };
+  check(mounted.mounted && mounted.beast === 'galebird', `could not mount during skyfall: ${said}`);
+  check(mounted.bodyY > highY - 2,
+    `mounting dropped the flyer from ${highY.toFixed(2)} to ${mounted.bodyY}`);
+  check(!!ridden?.drawn, 'the skyfall mount is not drawn');
+  check(!ridden?.transit, 'the ridden Galebird stayed in light transit');
+
+  await page.evaluate(() => window.__dbgRide('off'));
+  for (let i = 0; i < 20; i++) {
+    await wait(300);
+    const c = await comp();
+    if (c.player.y - c.ground < 1) break;
   }
 }
 
