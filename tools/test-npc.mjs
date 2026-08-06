@@ -59,6 +59,13 @@ async function cmd(line) {
   await wait(400);
 }
 
+// A FLYER TO CLIMB ON. Since issue #4 a new game is bonded to nothing, and the
+// height half of this probe — that a conversation does not follow the hero into
+// the sky (issue #25) — needs something to take him up there. Earning a beast
+// is tools/test-taming.mjs's claim; this file only needs one to exist.
+await page.evaluate(() => window.__dbgGrantBeast('all'));
+await wait(300);
+
 const results = {};
 const fails = [];
 const check = (ok, msg) => { if (!ok) fails.push(msg); };

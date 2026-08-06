@@ -17,6 +17,9 @@
  *   push=<units>           how far it is pushed sideways over that (default 3)
  *   spray=<n>              droplet budget (default 128, 0 = none)
  *   lean=<units/s>         fake a carrier's sideways motion, to see the trail
+ *   orbs=1                 the four taming orbs in a row, turning
+ *   gap=<units>            spacing between them (default: 1.5 diameters)
+ *   scale=<n>              how big each one is drawn (default 2.4)
  *   anim=<BeastAction>     idle|walk|run|swim|fly|attack|cast|special|hurt|happy
  *   t=<seconds>            simulate this long, then render one frozen frame
  *                          (deterministic — use for screenshots)
@@ -35,6 +38,8 @@ import { ALL_SPECIES, SKILLS, getSkill } from '../beasts/registry';
 import { Enemy, type EnemyCtx } from '../combat/enemies';
 import { VFX } from '../combat/vfx';
 import { CombatSystem } from '../combat/index';
+import { tameOrbMesh, ORB_RADIUS } from '../combat/tame-orb';
+import { ITEMS, ORB_IDS } from '../core/items';
 import { buildHeroRig } from '../player/hero-rig';
 import { StubWorld } from './stub-world';
 import { Waterfall } from '../world/waterfall';
@@ -170,6 +175,42 @@ if (params.get('waterfall') === '1') {
   lineupWidth = fall * 1.55;
 }
 
+/**
+ * `?orbs=1` — the four taming orbs in a row, turning.
+ *
+ * A LINEUP AND NOT ONE ORB, because the four differ in exactly one thing and the
+ * only useful question about them is whether that difference reads. Four spheres
+ * side by side answer it in a single frame; four separate captures answer it
+ * only if you can remember the last one.
+ *
+ * They spin on their own axis rather than being carried past the lens: what is
+ * being looked at is the seam, the catch and the lit eye, and all three are on
+ * the surface — see the header of src/combat/tame-orb.ts.
+ */
+const orbLineup: THREE.Object3D[] = [];
+if (params.get('orbs') === '1') {
+  const scale = num('scale', 2.4);
+  // DERIVED FROM THE MODEL, not typed in: the default gap is one and a half
+  // diameters at whatever size they are being drawn, so the four never
+  // interpenetrate however `scale=` is set. The first version hard-coded 0.55
+  // against a diameter of 0.67 and the capture came back as one fused lump.
+  const d = ORB_RADIUS * 2 * scale;
+  const gap = num('gap', d * 1.5);
+  const rise = ORB_RADIUS * scale + 0.05;
+  const defs = ORB_IDS.map((id) => ITEMS[id]);
+  const span = (defs.length - 1) * gap;
+  defs.forEach((def, i) => {
+    const m = tameOrbMesh(def.color).clone();
+    m.scale.setScalar(scale);
+    m.position.set(-span / 2 + i * gap, rise, 0);
+    engine.scene.add(m);
+    orbLineup.push(m);
+  });
+  subjectPos.set(0, rise, 0);
+  subjectHeight = d;
+  lineupWidth = span + d;
+}
+
 // Skill firing needs a combat system and a stationary dummy to aim at.
 const skillDef = params.get('skill') ? getSkill(params.get('skill')!) : undefined;
 let combat: CombatSystem | null = null;
@@ -249,6 +290,9 @@ function step(dt: number): void {
   // the trail-behind term on a stage with no carrier in it — and the only way
   // to see it at all, since the in-game capture path freezes it to zero.
   waterfall?.update(dt, labLean * dt, 0);
+  // Every orb on the same phase, so the four catches line up and a difference
+  // between two of them is a difference in the MODEL rather than in the moment.
+  for (const m of orbLineup) m.rotation.set(0, simTime * 1.1, simTime * 0.35);
 
   if (combat && skillDef && dummy) {
     skillTimer -= dt;

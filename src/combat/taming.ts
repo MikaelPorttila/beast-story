@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { ItemDef } from '../core/types';
 import type { Enemy } from './enemies';
 import type { VFX } from './vfx';
-import { tameOrbMesh } from './tame-orb';
+import { tameOrbMesh, LANDED_SCALE, ORB_RADIUS } from './tame-orb';
 
 /**
  * BONDING A WILD BEAST: the odds, and the two seconds of theatre around them.
@@ -112,11 +112,12 @@ const WOBBLE_TILT = 0.55;
 /**
  * How high a resting orb's centre sits above the ground it landed on.
  *
- * The model is built centred (see combat/tame-orb.ts), so this is its own
- * radius: 3 voxels at 0.07, scaled by the 1.5 a landed orb wears. Lifting it by
- * exactly that is what puts it ON the turf instead of half in it.
+ * The model is built centred (see combat/tame-orb.ts), so this is its own radius
+ * at the size a landed one is drawn. DERIVED from that file's two constants
+ * rather than written out here: it was `3 * 0.07 * 1.5` by hand, and it went
+ * quietly wrong the moment the model was rounded off.
  */
-const ORB_REST = 3 * 0.07 * 1.5;
+const ORB_REST = ORB_RADIUS * LANDED_SCALE;
 
 interface Ceremony {
   active: boolean;
@@ -307,11 +308,7 @@ export class Taming {
     if (cur.parent && (cur as THREE.Mesh).geometry === (want as THREE.Mesh).geometry) return s.mesh;
     if (s.mesh.parent) s.mesh.parent.remove(s.mesh);
     const m = want.clone();
-    // A LANDED ORB IS BIGGER THAN A THROWN ONE, by half again. In flight it is
-    // sixteen units a second of moving speck and its size does not matter; on
-    // the ground it is the only thing on screen and the player is reading a
-    // wobble off it from behind the hero's shoulder.
-    m.scale.setScalar(1.5);
+    m.scale.setScalar(LANDED_SCALE);
     this.scene.add(m);
     s.mesh = m;
     return m;

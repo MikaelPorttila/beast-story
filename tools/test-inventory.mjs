@@ -633,6 +633,21 @@ export const sections = [
     const swing = async () => {
       const before = (await shots()).shots.filter((s) => s.arrow).length;
       await ctx.page.mouse.down();
+      // ORDER THE PRESS AGAINST THE ADVANCE, with one empty round-trip through
+      // the page.
+      //
+      // `mouse.down()` resolves when the BROWSER has acknowledged the input,
+      // which is not the instant the page's own listener has run and set
+      // `attackEdge` (core/input.ts). Advance before that and the simulation
+      // slices see no press; the edge then lands afterwards and is cleared by
+      // the next real frame's `endFrame()` without anything having spent it.
+      // An evaluate is queued behind the input event, so returning from one
+      // means the handler has run.
+      //
+      // The race was always here and the section passed on a quiet page. It
+      // started dropping the shot when issue #4's wild beasts made the frames
+      // heavier, which is the only reason it is written down now.
+      await ctx.ev(() => 0);
       await ctx.adv(0.07);
       await ctx.page.mouse.up();
       await ctx.adv(0.16);
@@ -914,6 +929,25 @@ export const sections = [
 
     // The starting weapon back in his hand.
     await act(ctx, 'sword-iron', 'equip');
+
+    // A PARTY FOR EVERY MODULE AFTER THIS ONE. Since issue #4 a new game is
+    // bonded to nothing, and half the shared roster mounts a beast to say
+    // anything at all — carrier flies one under an island, deepwater rides a
+    // swimmer into the basin, gamepad holds Y, pause and gfx merely need the
+    // party in frame. Left alone, every one of them fails with the same
+    // sentence about nothing being bonded, which is a lot of noise about one
+    // fact.
+    //
+    // HERE, AND NOT IN THE HARNESS BOOT, because section 1 of THIS module is
+    // the one place that asserts a new game owns nothing — granting at boot
+    // would make the only test of that claim untestable. It is the same
+    // argument the roster note already makes about this module running first
+    // and permanently enriching the bag; it enriches the roster too now.
+    //
+    // ALL of them rather than the two that used to be seeded: a module that
+    // wants a Finnick should not have to know that inventory happened to bond
+    // a Galebird.
+    await ctx.ev(() => window.__dbgGrantBeast('all'));
 
     // Best-effort restore of the boot beast loadout: setLead the boot support
     // first, then the boot lead — if the lead was sitting in support, the

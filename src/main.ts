@@ -3538,12 +3538,22 @@ function devGrant(arg: string | undefined): string {
     const have = [...owned];
     return `bonded: ${have.length ? have.join(', ') : 'nothing'} — of ${roster.map((p) => p.species.id).join(', ')}`;
   }
+  // `all` is for the probe suite, where several modules each need a DIFFERENT
+  // mount to say anything (a flyer under the island, a swimmer in the basin) and
+  // the one that runs first should not have to know which. See the note in
+  // tools/test-inventory.mjs's cleanup section.
+  if (arg === 'all') {
+    let n = 0;
+    for (const b of roster) if (grantBeast(b.species.id)) n++;
+    inventory.refresh();
+    return `bonded ${n} more (${owned.size} total)`;
+  }
   if (!roster.some((p) => p.species.id === arg)) {
     return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
   }
   if (!grantBeast(arg)) return `"${arg}" is already bonded`;
   inventory.refresh();
-  return `bonded ${arg} (${[...owned].length} total)`;
+  return `bonded ${arg} (${owned.size} total)`;
 }
 devConsole?.register({
   name: 'mount',
@@ -3553,7 +3563,7 @@ devConsole?.register({
 });
 devConsole?.register({
   name: 'grant',
-  args: '[<speciesId>]',
+  args: '[<speciesId>|all]',
   help: 'Bond a beast outright, no orb needed; bare /grant lists what you have.',
   run: (args) => devGrant(args[0]),
 });

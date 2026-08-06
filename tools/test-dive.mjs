@@ -48,6 +48,13 @@ for (let i = 0; i < 45; i++) {
 }
 await wait(1500);
 
+// A PARTY TO RIDE. Since issue #4 a new game is bonded to nothing, and this
+// probe is about what a MOUNT does under water — earning one is
+// tools/test-taming.mjs's claim, not this file's. `all`, because the sections
+// below name more than one species between them.
+await page.evaluate(() => window.__dbgGrantBeast('all'));
+await wait(300);
+
 const results = {};
 const fails = [];
 const check = (ok, msg) => { if (!ok) fails.push(msg); };

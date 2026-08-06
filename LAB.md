@@ -38,6 +38,9 @@ bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 | `push=<units>` | How far it is pushed sideways over that (default 0) |
 | `spray=<n>` | Droplet budget (default 128, `0` = none) |
 | `lean=<units/s>` | Fake a carrier's sideways motion, to see the plume trail |
+| `orbs=1` | The four taming orbs in a row, turning (`src/combat/tame-orb.ts`) |
+| `gap=<units>` | Spacing between the orbs (default: 1.5 diameters, so they never touch) |
+| `scale=<n>` | How big each orb is drawn (default 2.4) |
 | `t=<seconds>` | Simulate this long, render **one frozen frame**, stop |
 | `spin=1` | Turntable |
 | `water=1` | Flood the stage (swim / amphibious testing) |

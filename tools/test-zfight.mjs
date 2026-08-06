@@ -64,6 +64,11 @@ import { BEAST_CYCLE_SLOTS } from '../src/core/types.ts';
 // process — but a BODY is code, it is what this tool looks at, and the record is
 // still the one place a body is named. See the note on it in src/world/npc.ts.
 import { NPC_BODIES } from '../src/world/npc.ts';
+// The taming orbs (issue #4). A projectile is a model like any other, and
+// `ITEMS` is where the four colours are written down — the same single source
+// the thrown mesh and the bag glyph are both tinted from.
+import { buildTameOrb } from '../src/combat/tame-orb.ts';
+import { ITEMS } from '../src/core/items.ts';
 // The settlement's pieces. A town part is a baked `Template` rather than a rig,
 // so it reaches this tool through `templateMesh` below — see the town section.
 import { TownParts } from '../src/world/town-parts.ts';
@@ -603,6 +608,27 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
   }
 }
 
+// -- taming orbs ------------------------------------------------------------
+// ONE MODEL PER COLOUR, and no animation: a thrown orb is rigid, so there is no
+// pose that could bring two parts flush that the built shape does not already
+// have. What this checks is the SEAM and the LIT CORE, which are painted into
+// the same `VoxelModel` as the shell — see the header of src/combat/tame-orb.ts
+// on why that is what makes the `GLOW_PART` offset unnecessary here. Split the
+// core into a model of its own and this is the line that will say so.
+//
+// Emissive cells become CHILD meshes with their own material (see
+// `VoxelModel.build`), so the shell and the core genuinely are two parts to
+// compare rather than one.
+for (const def of Object.values(ITEMS)) {
+  if (def.kind !== 'orb') continue;
+  const mesh = buildTameOrb(def.color);
+  const root = new THREE.Group();
+  root.add(mesh);
+  const named = { shell: mesh };
+  mesh.children.forEach((c, i) => { named[`glow${i}`] = c; });
+  results.push(checkRig(`orb:${def.id}`, root, named, () => {}));
+}
+
 // ---------------------------------------------------------------------------
 
 /**
@@ -672,6 +698,15 @@ const BUDGET = {
   campfire: 0,
   brazier: 0,
   lamp: 0,
+  // The taming orbs (issue #4), and the same kind of entry as the three above:
+  // 0 from the first run and 0 is the requirement. The shell and the lit seam
+  // are painted into ONE `VoxelModel`, which is what makes `GLOW_PART`
+  // unnecessary for them — see the header of src/combat/tame-orb.ts. Anything
+  // above 0 here means that stopped being true.
+  'orb:orb-tame': 0,
+  'orb:orb-greater': 0,
+  'orb:orb-ultra': 0,
+  'orb:orb-master': 0,
 };
 
 const over = results

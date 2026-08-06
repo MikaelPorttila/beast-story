@@ -58,9 +58,29 @@ const results = {};
 const fails = [];
 const check = (ok, msg) => { if (!ok) fails.push(msg); };
 
+// A PARTY TO MEASURE. Since issue #4 a new game is bonded to nothing, so the
+// companions this file is entirely about do not exist until somebody earns
+// them. Bonded outright through the developer door rather than played for: this
+// probe is about light travel and the skyfall, and tools/test-taming.mjs is
+// where earning one is the claim. A test that had to play the whole game to
+// reach its subject would be measuring the whole game.
+//
+// Emberfox leads and Galebird supports, which is the pair the boot loadout used
+// to seed and which every assertion below still names by name: a walker for the
+// ground case, a flyer for the skyfall.
+for (const id of ['emberfox', 'galebird']) {
+  await page.evaluate((s) => window.__dbgGrantBeast(s), id);
+}
+await wait(400);
+
 const first = await comp();
 if (!first) {
   console.error('no __dbgCompanions hook — nothing to measure');
+  await browser.close();
+  process.exit(1);
+}
+if (first.beasts.length < 2) {
+  console.error(`only ${first.beasts.length} companions after bonding two — nothing to measure`);
   await browser.close();
   process.exit(1);
 }
