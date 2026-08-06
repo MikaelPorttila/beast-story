@@ -105,10 +105,10 @@ export function buildTameOrb(color: number): THREE.Mesh {
   // under it, and EMISSIVE so the orb reads at night and inside the capture
   // flash — the one moment the player is looking straight at it.
   //
-  // ONE VOXEL WIDE and dim. It was three wide and at 1.6 intensity, which with
-  // bloom on top made a white band as thick as the ball was deep — the capture
-  // in shots/lab-orbs.png is what said so. A seam is a line, and the thing it
-  // has to be readable AGAINST is the tier's own colour.
+  // ABOUT ONE VOXEL WIDE and dim. It was three wide at 1.6 intensity, which
+  // with bloom on top made a white band as deep as the ball — the capture in
+  // shots/lab-orbs.png is what said so. A seam is a line, and the thing it has
+  // to stay readable AGAINST is the tier's own colour.
   for (let x = -r; x <= r; x++) {
     for (let y = -r; y <= r; y++) {
       const d = Math.hypot(x, y);
@@ -122,12 +122,14 @@ export function buildTameOrb(color: number): THREE.Mesh {
       }
     }
   }
-  // The eye: a lit dot at the front of the seam, where the +Z build direction
-  // points. It is the one asymmetry that says which way the orb is travelling.
-  v.setEmissive(0, 0, r - 1, CORE, 1.6);
-  v.setEmissive(1, 0, r - 1, CORE, 1.6);
-  v.setEmissive(0, 1, r - 1, CORE, 1.6);
-  v.setEmissive(1, 1, r - 1, CORE, 1.6);
+  // The eye: a lit dot at the +Z POLE, which is the direction of travel.
+  //
+  // AT `r` AND NOT `r - 1`, which is the same trap the inner shell fell into: a
+  // cell one in from the surface has six neighbours and is culled, so an eye
+  // painted there is an eye nobody ever sees. The pole cell is the outermost one
+  // the sphere actually contains — `(0, 0, r)` satisfies the ellipsoid exactly,
+  // and `(1, 0, r)` does not, which is why this is one voxel and not four.
+  v.setEmissive(0, 0, r, CORE, 1.6);
   // `center: true` — the pool positions and rotates about the orb's middle,
   // which for a ball is also its centre of mass and the point it wobbles about
   // once it is on the ground.
