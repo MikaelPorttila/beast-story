@@ -123,6 +123,42 @@ export const ITEMS: Record<string, ItemDef> = {
     effect: { attack: 10, seconds: 30 }, salvage: 4,
   },
 
+  // -- Taming orbs -----------------------------------------------------------
+  // Four tiers, and the only thing separating them mechanically is `orbTier`:
+  // the odds table and every `EnemyCapture.minTier` floor read that one number
+  // (see src/combat/taming.ts). No `power` and no `effect` — an orb deals no
+  // damage and does nothing to the hero.
+  //
+  // THE PRICES ARE THE PROGRESSION. Nothing else gates a Master Orb: you fight
+  // wild beasts for Cubloons and buy the tier you can afford, so the roughly
+  // fourfold step between tiers is what makes going after a Boulderpup a
+  // decision rather than a formality. `salvage` is a tenth of the price, which
+  // is the ratio the rest of this catalogue already runs at.
+  //
+  // The colours are the four the issue names, and they tint BOTH the thrown
+  // model and the bag glyph — one source, so the Greater Orb in your hand is the
+  // same blue as the one in the panel.
+  'orb-tame': {
+    id: 'orb-tame', nameKey: 'item.orbTame', kind: 'orb', color: 0xe0453c,
+    descriptionKey: 'item.orbTame.desc', rarity: 'common',
+    orbTier: 1, storePrice: 60, salvage: 6,
+  },
+  'orb-greater': {
+    id: 'orb-greater', nameKey: 'item.orbGreater', kind: 'orb', color: 0x3f8ce0,
+    descriptionKey: 'item.orbGreater.desc', rarity: 'common',
+    orbTier: 2, storePrice: 240, salvage: 24,
+  },
+  'orb-ultra': {
+    id: 'orb-ultra', nameKey: 'item.orbUltra', kind: 'orb', color: 0x9a5fd0,
+    descriptionKey: 'item.orbUltra.desc', rarity: 'rare',
+    orbTier: 3, storePrice: 900, salvage: 90,
+  },
+  'orb-master': {
+    id: 'orb-master', nameKey: 'item.orbMaster', kind: 'orb', color: 0x2b2f3a,
+    descriptionKey: 'item.orbMaster.desc', rarity: 'legendary',
+    orbTier: 4, storePrice: 3200, salvage: 320,
+  },
+
   // -- Quest -----------------------------------------------------------------
   // Nothing in the shipped content hands this out yet — the seam is the
   // `item.give` action main.ts registers, which is where a dialogue turn-in
@@ -148,6 +184,20 @@ export const STACKABLE_IDS: readonly string[] =
 export const RARE_DROP_IDS: readonly string[] =
   Object.values(ITEMS)
     .filter((i) => i.kind === 'blueprint' || i.kind === 'potion')
+    .map((i) => i.id);
+
+/**
+ * Every taming orb, weakest first — the shop's order and the readied-orb cycle's.
+ *
+ * Derived rather than listed for the reason `STACKABLE_IDS` is: the catalogue
+ * above is where an orb is declared, and a second hand-written list of the four
+ * would be a place to forget the fifth. Sorted on `orbTier` so "weakest first"
+ * is a property of the data and not of where somebody typed the entry.
+ */
+export const ORB_IDS: readonly string[] =
+  Object.values(ITEMS)
+    .filter((i) => i.kind === 'orb')
+    .sort((a, b) => (a.orbTier ?? 0) - (b.orbTier ?? 0))
     .map((i) => i.id);
 
 /** Unknown ids fall back to the shard so a bad id can never crash a drop. */

@@ -1,7 +1,7 @@
 import { t } from '../i18n';
 import type { BeastSpecies, ItemKind, ItemRarity } from '../core/types';
 import { injectStyles } from './styles';
-import { CLOSE_ICON, RMB_ICON } from './icons';
+import { CLOSE_ICON, RMB_ICON, tameOrbIcon } from './icons';
 import { isWeaponIcon, weaponIconStyle } from './weapon-icons';
 import { InventoryStage } from './inventory-stage';
 
@@ -75,10 +75,11 @@ export type InvCloseBy = 'escape' | 'hotkey' | 'click';
 /** What a button, a right-click or a drop asks the host to do. */
 export type InvAction =
   | 'equip' | 'unequip' | 'use' | 'salvage' | 'drop' | 'forge'
-  | 'setLead' | 'setSupport';
+  | 'setLead' | 'setSupport' | 'ready' | 'unready';
 
 type ActionKey = 'inv.equip' | 'inv.unequip' | 'inv.use' | 'inv.salvage'
-  | 'inv.drop' | 'inv.forge' | 'inv.setLead' | 'inv.setSupport';
+  | 'inv.drop' | 'inv.forge' | 'inv.setLead' | 'inv.setSupport'
+  | 'inv.ready' | 'inv.unready';
 
 const ACTION_KEYS: Record<InvAction, ActionKey> = {
   equip: 'inv.equip',
@@ -89,6 +90,12 @@ const ACTION_KEYS: Record<InvAction, ActionKey> = {
   forge: 'inv.forge',
   setLead: 'inv.setLead',
   setSupport: 'inv.setSupport',
+  // `ready`/`unready` and not `equip`/`unequip`, though the mechanism is the
+  // same slot: what the player does with a sword is hold it, and what they do
+  // with an orb is have it to hand. The pair also keeps the two slots' buttons
+  // distinguishable in the footer when both are offered on the same screen.
+  ready: 'inv.ready',
+  unready: 'inv.unready',
 };
 
 /**
@@ -102,9 +109,10 @@ const SLOT_ACTION: Record<GearSlotId, InvAction> = {
   weapon: 'equip',
   primary: 'setLead',
   support: 'setSupport',
+  orb: 'ready',
 };
 
-export type GearSlotId = 'weapon' | 'primary' | 'support';
+export type GearSlotId = 'weapon' | 'primary' | 'support' | 'orb';
 
 /** One label/value pair in the tooltip. Both are already display strings. */
 export interface InvStat {
@@ -124,6 +132,14 @@ export interface InvEntry {
   color: number;
   /** A tile name in the weapon atlas, or absent. */
   icon?: string;
+  /**
+   * Which taming orb this is, 1-4 — `ItemDef.orbTier`, for an `orb` row.
+   *
+   * The panel reads it for one thing: how many notches the glyph carries (see
+   * `iconHtml`). It is not shown as a number anywhere, because the tier is a
+   * RANK and the four names already say it.
+   */
+  orbTier?: number;
   /**
    * The species this row IS, for a beast. The panel does not read anything off
    * it except through the stage, which bakes its portrait — see `InventoryStage`
@@ -165,6 +181,7 @@ const TABS: readonly { id: ItemKind | null; key: string }[] = [
   { id: null, key: 'inv.tab.all' },
   { id: 'beast', key: 'inv.tab.beast' },
   { id: 'weapon', key: 'inv.tab.weapon' },
+  { id: 'orb', key: 'inv.tab.orb' },
   { id: 'blueprint', key: 'inv.tab.blueprint' },
   { id: 'potion', key: 'inv.tab.potion' },
   { id: 'stackable', key: 'inv.tab.stackable' },
@@ -205,10 +222,14 @@ const RARITY_KEYS: Record<ItemRarity, 'inv.rarity.common' | 'inv.rarity.rare' | 
   legendary: 'inv.rarity.legendary',
 };
 
-const SLOT_LABELS: Record<GearSlotId, 'inv.slot.weapon' | 'inv.slot.primary' | 'inv.slot.support'> = {
+const SLOT_LABELS: Record<
+  GearSlotId,
+  'inv.slot.weapon' | 'inv.slot.primary' | 'inv.slot.support' | 'inv.slot.orb'
+> = {
   weapon: 'inv.slot.weapon',
   primary: 'inv.slot.primary',
   support: 'inv.slot.support',
+  orb: 'inv.slot.orb',
 };
 
 export class InventoryPanel {
@@ -419,12 +440,18 @@ export class InventoryPanel {
   }
 
   /**
-   * The three gear slots, in the wireframe's order — the lead beast on the
-   * left, the weapon in the middle, the support beast on the right — which is
-   * the order the three figures stand in on the stage directly above them.
+   * The gear slots, in the wireframe's order — the lead beast on the left, the
+   * weapon in the middle, the support beast on the right — which is the order
+   * the three figures stand in on the stage directly above them.
+   *
+   * THE ORB SLOT IS FOURTH, on the end rather than beside the weapon, and the
+   * reason is that same stage: the first three slots sit under the bodies they
+   * hold, and an orb has nobody standing over it. Putting it between the weapon
+   * and the support beast would have broken the one thing the strip's order
+   * means.
    */
   private gearHtml(gear: readonly GearSlotView[]): string {
-    const order: GearSlotId[] = ['primary', 'weapon', 'support'];
+    const order: GearSlotId[] = ['primary', 'weapon', 'support', 'orb'];
     return '<div class="gear">' + order.map((slot) => {
       const e = gear.find((g) => g.slot === slot)?.entry ?? null;
       const cls = ['gs'];
@@ -455,18 +482,27 @@ export class InventoryPanel {
 
   /**
    * The picture in a slot, in preference order: a baked 3D PORTRAIT for a beast,
-   * an atlas tile for a weapon or blueprint, and an element-coloured lozenge for
-   * everything else.
+   * an atlas tile for a weapon or blueprint, an inline glyph for an orb, and an
+   * element-coloured lozenge for everything else.
    *
    * A beast whose portrait has not finished baking gets the lozenge and is
    * patched in place by `paintIcon` — see the note on `InventoryStage.iconFor`.
    * `data-beast` is what makes that patch findable.
+   *
+   * THE ORB IS AN SVG AND NOT AN ATLAS TILE, unlike the weapons beside it. Four
+   * orbs are one drawing with a notch count (see `orbIcon` in ui/icons.ts), so
+   * the art IS the parameter — which is the exact case the atlas exception was
+   * NOT taken for. It also inherits the item's own colour through
+   * `currentColor`, where a packed tile would have baked four fixed hues.
    */
   private iconHtml(e: InvEntry): string {
     if (e.species) {
       const url = this.stage.iconFor(e.species);
       return `<i class="ic beast${url ? '' : ' blob'}" data-beast="${escapeHtml(e.species.id)}"` +
         ` style="--el:${hexColor(e.color)}${url ? `;background-image:url(${url})` : ''}"></i>`;
+    }
+    if (e.kind === 'orb') {
+      return `<i class="ic glyph" style="--el:${hexColor(e.color)}">${tameOrbIcon(e.orbTier)}</i>`;
     }
     if (e.icon && isWeaponIcon(e.icon)) {
       return `<i class="ic" style="${weaponIconStyle(e.icon)}"></i>`;

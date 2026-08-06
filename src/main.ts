@@ -18,7 +18,7 @@ import {
 } from './core/types';
 import {
   Inventory, itemDef, itemName, isKnownItem, isDestructible, salvageValue,
-  ITEMS, CURRENCY, BEAST_ID_PREFIX,
+  ITEMS, ORB_IDS, CURRENCY, BEAST_ID_PREFIX,
 } from './core/items';
 import { WEAPON_MODEL_IDS, type WeaponModelId } from './player/weapons';
 import { t, onLanguageChange, type StringKey } from './i18n';
@@ -57,7 +57,7 @@ import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem, SWORD_REACH } from './combat/index';
 import { enemySpecies, MELEE_UP_REACH, MELEE_DOWN_REACH } from './combat/enemies';
 import {
-  HUD, type BeastHudInfo, type CompassMarker, type QuestTrackRow,
+  HUD, kbd, type BeastHudInfo, type CompassMarker, type QuestTrackRow,
   type ShopOffer, type SkillSlot,
 } from './ui/index';
 import { StartMenu } from './ui/menu';
@@ -496,12 +496,19 @@ function exitToTitle(): void {
   content.state.reset();
   dayNight.reset();
   for (const b of roster) b.reset();
-  primaryIdx = 0;
-  supportIdx = 6;
+  // WHO YOU HAD BONDED IS SESSION STATE, and the emptiest possible one: a new
+  // game starts with no beasts, so the two slots go back to nobody rather than
+  // to the Emberfox and Galebird they used to be seeded with.
+  owned.clear();
+  primaryIdx = -1;
+  supportIdx = -1;
   refreshVisibility();
   cooldowns.clear();
   spent = 0;
   bag.clear();
+  // The readied orb is a pointer into the bag that was just emptied.
+  readiedOrb = null;
+  refreshOrbHud();
   inventory.close();
   journal.close();
   // The loadout is session state like everything above it, and `attackStat` is
@@ -1033,7 +1040,20 @@ const mount = new MountController(player, world, input, bus);
 const touchFx = new TouchParticles(engine.scene, world);
 
 // ---------------------------------------------------------------------------
-// Beast roster: all 10 species instantiated; two active at a time.
+// Beast roster: every species BUILT, none of them OWNED, two active at a time.
+//
+// EVERY ACTOR IS STILL CONSTRUCTED AT BOOT even though the player starts with
+// nothing, and that is the whole design of ownership here. `BeastActor.reset`'s
+// own note (src/beasts/framework.ts) is why: a rig is geometry and materials,
+// and building one costs a shader link — thirteen seconds of the boot go into
+// linking the roster's. Creating an actor at the moment a bond succeeds would
+// move that cost into the frame the player is watching the orb settle on, which
+// is the single worst frame in the game to stall. So the bodies exist from the
+// start and OWNERSHIP is a set of species ids beside them; a bond adds an id.
+//
+// The price is that fifteen invisible rigs sit in the scene from boot, which is
+// exactly what shipped before this change — `refreshVisibility` has always kept
+// thirteen of them hidden.
 // ---------------------------------------------------------------------------
 registerSkillDefs(SKILLS.values());
 const roster: BeastActor[] = ALL_SPECIES.map(
@@ -1043,8 +1063,31 @@ const roster: BeastActor[] = ALL_SPECIES.map(
 // the roster is the reason the list exists at all: a beast's level, xp and known
 // skills are the save game, and rebuilding one to change zones would delete it.
 bound.push(player, mount, combat, touchFx, ...roster);
-let primaryIdx = 0; // Emberfox
-let supportIdx = 6; // Galebird
+
+/**
+ * WHICH BEASTS THE PLAYER HAS BONDED — species ids, and the whole of ownership.
+ *
+ * A SET OF IDS rather than a flag on the actor, for the same reason the bag is
+ * a map of counts and not a field on every `ItemDef`: the catalogue is what the
+ * game HAS and this is what the player has, and the day a save file lands it is
+ * this that gets written. `BeastActor` stays a body with a level on it.
+ *
+ * Empty at boot. It is filled by `grantBeast`, which the `beastTamed` event is
+ * the only gameplay route to.
+ */
+const owned = new Set<string>();
+
+/**
+ * The two party slots, as indices into `roster` — or -1 for "nobody".
+ *
+ * -1 IS A REAL STATE NOW and not a guard against a bug: a new game has no
+ * beasts at all, so `primary()` and `support()` return null and every caller
+ * has to say what it does about that. The alternative — keeping the indices
+ * valid and pointing at an unowned Emberfox — would have made "do I have a
+ * beast" a question with two answers.
+ */
+let primaryIdx = -1;
+let supportIdx = -1;
 /**
  * How near the hero something hostile has to be before his companions count as
  * NEEDED (see `supportNeeded`). 22 units: the support beast already casts at
@@ -1056,32 +1099,114 @@ const SUPPORT_CALL_RANGE = 22;
 const _friendlies: BeastActor[] = [];
 const cooldowns = new Map<string, number>();
 
-function primary(): BeastActor { return roster[primaryIdx]; }
-function support(): BeastActor { return roster[supportIdx]; }
+function primary(): BeastActor | null { return primaryIdx >= 0 ? roster[primaryIdx] : null; }
+function support(): BeastActor | null { return supportIdx >= 0 ? roster[supportIdx] : null; }
+
+/** Has the player bonded this one? The one question `owned` is asked. */
+function isOwned(b: BeastActor): boolean { return owned.has(b.species.id); }
+
+/**
+ * The bonded beasts, in roster order — which is also the order Tab cycles and
+ * the order the inventory lists.
+ *
+ * ALLOCATES, so it is for the panel, the shop and the console and never for a
+ * frame. The frame loop reads `primary()`/`support()`, which are two index
+ * lookups and no array at all.
+ */
+function ownedBeasts(): BeastActor[] { return roster.filter(isOwned); }
 
 // `beasts=0` hides the party and skips its per-frame update, so a measurement run
 // can price what the two active beasts cost to animate and draw. It does NOT skip
-// building the rigs — the roster is still constructed, because half of main.ts
-// reads primary()/support() and a null roster would need guards everywhere for
-// the sake of a diagnostic. Rig construction is a boot cost; read it off the
-// boot phase of a profile instead. See core/flags.ts.
+// building the rigs — see the note on the roster above for why every body exists
+// from boot whether or not it is owned. Rig construction is a boot cost; read it
+// off the boot phase of a profile instead. See core/flags.ts.
+//
+// An UNOWNED beast is hidden by the same line, and by construction rather than
+// by a second test: it can never be in a slot, because nothing puts it in one.
 function refreshVisibility(): void {
   roster.forEach((p, i) => p.setVisible(flags.beasts && (i === primaryIdx || i === supportIdx)));
 }
 refreshVisibility();
 
+/**
+ * Put a newly bonded beast into the party, filling the empty slots first.
+ *
+ * YOUR FIRST BOND LEADS AND YOUR SECOND SUPPORTS, and after that a new one is
+ * benched rather than displacing anyone. Auto-filling is what makes the first
+ * bond a moment instead of a homework assignment — a player who has just spent
+ * an orb should be walking away with the animal beside them, not opening a panel
+ * to find out where it went. Displacing a beast they had chosen would be the
+ * opposite mistake.
+ *
+ * Returns false when this species was already bonded, which is what `/give`-like
+ * paths and the debug hook need to be able to say.
+ */
+function grantBeast(speciesId: string): boolean {
+  const idx = roster.findIndex((b) => b.species.id === speciesId);
+  if (idx < 0 || owned.has(speciesId)) return false;
+  owned.add(speciesId);
+  if (primaryIdx < 0) primaryIdx = idx;
+  else if (supportIdx < 0) supportIdx = idx;
+  refreshVisibility();
+  return true;
+}
+
+/**
+ * A bond took. Take ownership, say so, and tell the content layer.
+ *
+ * COMPOSITION-ROOT POLICY, which is why it is here: combat knows an orb settled
+ * on a beast, the roster knows what a `BeastActor` is, the content state knows
+ * what a quest is counting, and this is the only file that knows all three.
+ *
+ * IT DOES NOT ADVANCE A QUEST, and that is a scope line rather than an
+ * oversight. game-story.md §7 lists objective TRIGGERS — enemy death, item
+ * pickup, taming, zone arrival — as engine work still to do, and none of them
+ * exists: `enemyKilled` has been on the bus for as long as quests have, and
+ * nothing routes it to a `progress.add` either. Building that router for taming
+ * alone would be building it for one of the five. The `beastTamed` event IS the
+ * seam it will read, which is why it carries the species id.
+ */
+function onBeastTamed(speciesId: string, nameKey: StringKey): void {
+  const first = owned.size === 0;
+  if (!grantBeast(speciesId)) return;
+  bus.emit({
+    type: 'toast',
+    text: t(first ? 'toast.bondedFirst' : 'toast.bonded', { beast: t(nameKey) }),
+  });
+  // The panel is rebuilt from the roster every time it opens, but it may be
+  // OPEN — a bond cannot happen with a modal up, though a toast-driven refresh
+  // costs nothing and is what keeps that true if the rule ever changes.
+  inventory.refresh();
+}
+
+/**
+ * Step a party slot to the next OWNED beast, skipping the one in the other slot.
+ *
+ * A no-op below two bonded beasts, and silently: pressing Tab with one animal
+ * is not an error, there is simply nowhere to go, and a toast saying so on every
+ * press would be the game nagging about its own emptiness. `guard` is a plain
+ * trip count rather than a `while` over ownership, because the old loop's exit
+ * condition — "until it is not the other slot" — cannot terminate when there is
+ * only one legal index.
+ */
 function cycleBeast(which: 'primary' | 'support', dirn: 1 | -1): void {
   const n = roster.length;
-  if (which === 'primary') {
-    do { primaryIdx = (primaryIdx + dirn + n) % n; } while (primaryIdx === supportIdx);
-  } else {
-    do { supportIdx = (supportIdx + dirn + n) % n; } while (supportIdx === primaryIdx);
+  if (owned.size < 2) return;
+  const other = which === 'primary' ? supportIdx : primaryIdx;
+  let idx = which === 'primary' ? primaryIdx : supportIdx;
+  for (let guard = 0; guard < n; guard++) {
+    idx = (idx + dirn + n) % n;
+    if (idx !== other && isOwned(roster[idx])) break;
   }
+  if (which === 'primary') primaryIdx = idx; else supportIdx = idx;
   refreshVisibility();
+  const lead = primary();
+  const sup = support();
   bus.emit({
     type: 'toast',
     text: t('toast.beastLeads', {
-      lead: t(primary().species.nameKey), support: t(support().species.nameKey),
+      lead: lead ? t(lead.species.nameKey) : t('beast.none'),
+      support: sup ? t(sup.species.nameKey) : t('beast.none'),
     }),
   });
 }
@@ -1131,19 +1256,33 @@ bus.on((e) => {
       if (e.byBeast) {
         // The fetcher is whichever beast is carrying right now — normally the
         // support beast, but a Tab swap mid-errand must not misattribute it.
+        // Only a bonded beast can have been on the errand at all, so the fallback
+        // cannot be null in practice; the branch is what makes that true rather
+        // than assumed.
         const fetcher = roster.find((p) => p.isCarrying) ?? support();
-        bus.emit({
-          type: 'toast',
-          text: t('toast.fetched', {
-            beast: t(fetcher.species.nameKey), item: itemName(def, n), n,
-          }),
-        });
+        if (fetcher) {
+          bus.emit({
+            type: 'toast',
+            text: t('toast.fetched', {
+              beast: t(fetcher.species.nameKey), item: itemName(def, n), n,
+            }),
+          });
+        }
       }
     }
   }
   if (e.type === 'enemyKilled') {
-    primary().gainXp(e.xp);
-    support().gainXp(Math.round(e.xp * 0.6));
+    // XP goes to whoever is actually out there. With no beasts bonded it goes
+    // nowhere — which is correct and not a loss: the hero has no level, so
+    // there is nothing for a kill to feed until the first bond.
+    primary()?.gainXp(e.xp);
+    support()?.gainXp(Math.round(e.xp * 0.6));
+  }
+  if (e.type === 'beastTamed') {
+    onBeastTamed(e.beastId, e.nameKey);
+  }
+  if (e.type === 'bondFailed') {
+    bus.emit({ type: 'toast', text: t('toast.bondFailed', { beast: t(e.nameKey) }) });
   }
 });
 hud.setShards(shards());
@@ -1208,6 +1347,31 @@ const BASE_ATTACK = player.attackStat;
 
 /** The weapon in the gear slot, by item id, or null for bare hands. */
 let equippedWeapon: string | null = null;
+
+/**
+ * The taming orb `Q` would throw, by item id, or null for none readied.
+ *
+ * A GEAR SLOT AND NOT A HOTBAR, which is the choice this field is: an orb is
+ * chosen once and thrown many times, where a hotbar is for things chosen in the
+ * moment. The consequence is that a player who runs out of the readied tier
+ * keeps it selected and gets told the bag is empty — deliberately, because
+ * silently falling through to a Master Orb would spend the most expensive thing
+ * they own without being asked.
+ */
+let readiedOrb: string | null = null;
+
+/**
+ * Show the readied orb and how many are left, or nothing.
+ *
+ * Called where the pair CHANGES — readied, unreadied, thrown, reset — and never
+ * per frame, which is the same contract `refreshBagChips` has and for the same
+ * reason: the HUD holds the rendered chip and only redraws on change.
+ */
+function refreshOrbHud(): void {
+  const def = readiedOrb ? itemDef(readiedOrb) : null;
+  const n = readiedOrb ? bag.count(readiedOrb) : 0;
+  hud.setOrb(def && n > 0 ? { name: itemName(def, n), count: n, color: def.color, tier: def.orbTier ?? 1 } : null);
+}
 /** A potion's timed buff: how much attack it is adding, and for how much longer. */
 let attackBuff = 0;
 let attackBuffT = 0;
@@ -1256,14 +1420,25 @@ function weaponModelOf(def: ItemDef | null): WeaponModelId | null {
  * blueprint to look at is the smallest set that shows every kind of row the
  * panel can draw except the quest one — and that one is deliberately reachable
  * only through content (`item.give`) or the console.
+ *
+ * ONE TAME ORB, READIED. It is here for a harder reason than the rest of the
+ * kit: the player now starts with no beasts at all, and the only way to get one
+ * is to throw an orb. Without this the opening loop is "kill things with a sword
+ * until you can afford sixty Cubloons", and the mechanic the whole game is about
+ * does not appear until then. One orb is enough to bond one Sproutle and not
+ * enough to be a supply — it will very likely break, and the den is the answer
+ * to that.
  */
 function giveStartingKit(): void {
   bag.add('sword-iron', 1);
   bag.add('potion-mend', 2);
   bag.add('bp-dagger', 1);
+  bag.add('orb-tame', 1);
   equippedWeapon = 'sword-iron';
+  readiedOrb = 'orb-tame';
   applyLoadout();
   refreshBagChips();
+  refreshOrbHud();
 }
 
 /**
@@ -1310,7 +1485,11 @@ function inventoryModel(): InventoryModel {
 
   // Beasts first: they are the rows a player is most likely to have come for,
   // and this is the same roster order Tab cycles through.
-  for (const b of roster) {
+  //
+  // OWNED ONLY. The panel is what the player HAS, not a bestiary of what exists
+  // — a grid of fifteen greyed-out animals would be a checklist, and the game
+  // does not tell you what you have not met yet.
+  for (const b of ownedBeasts()) {
     const lead = b === primary();
     const supporting = b === support();
     entries.push({
@@ -1356,9 +1535,14 @@ function inventoryModel(): InventoryModel {
     if (worth > 0) stats.push(invStat('inv.stat.salvage', worth));
     if (e.count > 1) stats.push(invStat('inv.stat.held', e.count));
 
+    if (d.orbTier !== undefined) stats.push(invStat('inv.stat.orbTier', d.orbTier));
+
     const actions: InvAction[] = [];
-    const equipped = d.kind === 'weapon' && d.id === equippedWeapon;
+    const equipped = d.kind === 'weapon' ? d.id === equippedWeapon
+      : d.kind === 'orb' ? d.id === readiedOrb
+      : false;
     if (d.kind === 'weapon') actions.push(equipped ? 'unequip' : 'equip');
+    if (d.kind === 'orb') actions.push(equipped ? 'unready' : 'ready');
     if (d.kind === 'potion') actions.push('use');
     if (d.kind === 'blueprint') actions.push('forge');
     // An EQUIPPED weapon offers neither destructive action. Unequip is one click
@@ -1374,12 +1558,14 @@ function inventoryModel(): InventoryModel {
       count: e.count,
       color: d.color,
       icon: d.icon,
+      orbTier: d.orbTier,
       rarity: d.rarity,
       description: d.descriptionKey ? t(d.descriptionKey) : undefined,
       stats,
       equipped,
       note: d.kind === 'blueprint' ? t('inv.forge.soon')
         : d.kind === 'quest' ? t('inv.quest.kept')
+        : d.kind === 'orb' && equipped ? t('inv.orb.hint', { key: kbd('Q') })
         : undefined,
       actions,
     });
@@ -1387,12 +1573,15 @@ function inventoryModel(): InventoryModel {
 
   const byId = (id: string | null): InvEntry | null =>
     (id === null ? null : entries.find((x) => x.id === id) ?? null);
+  const slotFor = (b: BeastActor | null): InvEntry | null =>
+    (b === null ? null : byId(beastItemId(b)));
 
   return {
     gear: [
       { slot: 'weapon', entry: byId(equippedWeapon) },
-      { slot: 'primary', entry: byId(beastItemId(primary())) },
-      { slot: 'support', entry: byId(beastItemId(support())) },
+      { slot: 'primary', entry: slotFor(primary()) },
+      { slot: 'support', entry: slotFor(support()) },
+      { slot: 'orb', entry: byId(readiedOrb) },
     ],
     entries,
   };
@@ -1408,7 +1597,11 @@ function inventoryAction(id: string, action: InvAction): void {
   if (id.startsWith(BEAST_ID_PREFIX)) {
     const speciesId = id.slice(BEAST_ID_PREFIX.length);
     const idx = roster.findIndex((b) => b.species.id === speciesId);
-    if (idx < 0) return;
+    // An UNOWNED beast is refused here as well as being absent from the model.
+    // The panel round-trips whatever id it was given, and `__dbgInvAction`
+    // deliberately bypasses the panel — so the rule has to live where the rule
+    // is applied, not only where the buttons are drawn.
+    if (idx < 0 || !owned.has(speciesId)) return;
     // Straight onto the same two indices Tab moves, through the same
     // `refreshVisibility` — and the swap-out rule falls out for free: putting a
     // beast into one slot pushes whoever was there into the other rather than
@@ -1423,10 +1616,13 @@ function inventoryAction(id: string, action: InvAction): void {
       return;
     }
     refreshVisibility();
+    const lead = primary();
+    const sup = support();
     bus.emit({
       type: 'toast',
       text: t('toast.beastLeads', {
-        lead: t(primary().species.nameKey), support: t(support().species.nameKey),
+        lead: lead ? t(lead.species.nameKey) : t('beast.none'),
+        support: sup ? t(sup.species.nameKey) : t('beast.none'),
       }),
     });
     return;
@@ -1447,6 +1643,23 @@ function inventoryAction(id: string, action: InvAction): void {
       if (equippedWeapon !== def.id) return;
       equippedWeapon = null;
       applyLoadout();
+      bus.emit({ type: 'toast', text: t('toast.unequipped', { item: itemName(def) }) });
+      break;
+
+    // READYING IS NOT EQUIPPING, and the difference is that nothing is held: the
+    // hero's hands still have the sword in them, and `applyLoadout` is not called
+    // because no stat moved. All this does is decide which orb `Q` spends.
+    case 'ready':
+      if (def.kind !== 'orb') return;
+      readiedOrb = def.id;
+      refreshOrbHud();
+      bus.emit({ type: 'toast', text: t('toast.orbReady', { item: itemName(def) }) });
+      break;
+
+    case 'unready':
+      if (readiedOrb !== def.id) return;
+      readiedOrb = null;
+      refreshOrbHud();
       bus.emit({ type: 'toast', text: t('toast.unequipped', { item: itemName(def) }) });
       break;
 
@@ -1742,7 +1955,10 @@ function enemyInAim(from: THREE.Vector3, aim: THREE.Vector3, range: number): Dam
   let best: Damageable | null = null;
   let bestDot = AIM_CONE_COS;
   for (const e of combat.enemies) {
-    if (e.isDead) continue;
+    // `targetable` and not `isDead`: a beast inside a taming orb is invisible
+    // and refuses damage, and the crosshair must not lock onto the patch of
+    // grass it used to be standing on. See `Enemy.targetable`.
+    if (!e.targetable) continue;
     const dx = e.position.x - from.x;
     const dy = e.position.y + 0.55 - from.y;
     const dz = e.position.z - from.z;
@@ -1753,6 +1969,102 @@ function enemyInAim(from: THREE.Vector3, aim: THREE.Vector3, range: number): Dam
   }
   return best;
 }
+
+/**
+ * How far a taming orb may be thrown, in world units.
+ *
+ * Shorter than a bow's ~26 and longer than a skill's 12-16: bonding is meant to
+ * be done in the fight you have just won, close enough that the animal is a
+ * silhouette rather than a dot, and far enough that you are not standing inside
+ * its bite. It is also the range the aim cone is searched over, so a beast the
+ * crosshair is on but which is further than this is simply not a target and the
+ * throw is refused before the orb is spent.
+ */
+const ORB_RANGE = 20;
+
+/**
+ * Throw the readied orb at whatever the crosshair is on.
+ *
+ * EVERY REFUSAL HAPPENS BEFORE THE ORB LEAVES THE HAND, which is the whole shape
+ * of this function: no orb readied, none left, nothing aimed at, not a bondable
+ * creature, an orb too weak for it, or a species already bonded. Each says why.
+ * That is a deliberate contrast with the bow — an arrow fired at nothing is
+ * free, and an orb is sixty Cubloons.
+ *
+ * The one thing NOT checked here is the odds. A throw with a two percent chance
+ * is a decision the player is allowed to make, and refusing it would be the game
+ * playing for them.
+ */
+/**
+ * What a throw did, as a machine word.
+ *
+ * RETURNED as well as toasted because `__dbgThrowOrb` needs the reason without
+ * having to scrape a translated sentence off the HUD — the same id-versus-name
+ * split every other surface in this file makes.
+ */
+type ThrowOutcome =
+  | 'thrown' | 'noOrb' | 'noTarget' | 'notBondable' | 'orbTooWeak'
+  | 'alreadyOwned' | 'busy';
+
+function throwReadiedOrb(explicitTarget?: Damageable | null, force?: boolean): ThrowOutcome {
+  const def = readiedOrb ? itemDef(readiedOrb) : null;
+  if (!def || bag.count(def.id) <= 0) {
+    bus.emit({ type: 'toast', text: t('toast.orbNone') });
+    return 'noOrb';
+  }
+  engine.camera.getWorldDirection(_aim);
+  // The crosshair, unless a test hook named its own target — see `__dbgThrowOrb`.
+  const target = explicitTarget ?? enemyInAim(player.position, _aim, ORB_RANGE);
+  if (!target) {
+    bus.emit({ type: 'toast', text: t('toast.orbNoTarget') });
+    return 'noTarget';
+  }
+  const refusal = combat.bondRefusal(def, target);
+  if (refusal === 'notBondable') {
+    bus.emit({ type: 'toast', text: t('toast.orbNotBondable') });
+    return 'notBondable';
+  }
+  const beastId = combat.bondSpeciesOf(target);
+  const nameKey = combat.bondNameKeyOf(target);
+  if (refusal === 'orbTooWeak') {
+    bus.emit({ type: 'toast', text: t('toast.orbTooWeak', { beast: nameKey ? t(nameKey) : '' }) });
+    return 'orbTooWeak';
+  }
+  if (refusal === 'busy') return 'busy';
+  // ALREADY YOURS. Refused rather than allowed-and-wasted: a duplicate bond has
+  // nothing to grant (the roster holds one actor per species, carrying the level
+  // and skills you have taught it), so the orb would buy nothing. Souls are what
+  // a second one of something is for, and they come from a station.
+  if (beastId && owned.has(beastId)) {
+    bus.emit({ type: 'toast', text: t('toast.orbAlreadyOwned', { beast: nameKey ? t(nameKey) : '' }) });
+    return 'alreadyOwned';
+  }
+
+  if (bag.remove(def.id, 1) !== 1) return 'noOrb';
+  // From the HERO's chest rather than his feet, and down the camera ray: the
+  // throw has to start where the player is looking from or a close target is
+  // missed by the width of his own body. With an explicit target the direction
+  // is AT it, so a probe's throw does not depend on where the camera happens to
+  // be pointing — the homing would get there anyway, but not before the orb had
+  // flown into a wall.
+  _orbFrom.copy(player.position);
+  _orbFrom.y += ORB_THROW_RISE;
+  if (explicitTarget) {
+    _aim.copy(explicitTarget.position).sub(_orbFrom);
+    _aim.y += 0.55;
+    if (_aim.lengthSq() < 1e-6) _aim.set(0, 0, 1);
+    _aim.normalize();
+  }
+  combat.throwOrb(_orbFrom, _aim, def, target, force);
+  refreshOrbHud();
+  inventory.refresh();
+  bus.emit({ type: 'orbThrown', orbId: def.id });
+  return 'thrown';
+}
+
+/** Where a throw leaves the hero, above his feet. Chest height, as the bow is. */
+const ORB_THROW_RISE = 1.1;
+const _orbFrom = new THREE.Vector3();
 
 const lastCast = { skill: '', aimed: false, homing: false, x: 0, y: 0, z: 0 };
 
@@ -1811,8 +2123,11 @@ function castFromBeast(beast: BeastActor, skill: SkillDef): void {
   cooldowns.set(skill.id, skill.cooldown);
 }
 
+/** The lead beast's first four skills, or none at all with nobody leading. */
 function hotbarSkills(): SkillDef[] {
-  return primary().knownSkillIds
+  const lead = primary();
+  if (!lead) return [];
+  return lead.knownSkillIds
     .map((id) => getSkill(id))
     .filter((s): s is SkillDef => !!s)
     .slice(0, 4);
@@ -1821,13 +2136,38 @@ function hotbarSkills(): SkillDef[] {
 // ---------------------------------------------------------------------------
 // Shops
 // ---------------------------------------------------------------------------
+/**
+ * What the den has on the shelf: skills for the beasts you brought, and orbs.
+ *
+ * THE ORBS ARE FIRST AND ALWAYS THERE, which is what keeps a den worth the walk
+ * before the first bond. A player with no beasts has no skills to buy — the
+ * loop below yields nothing for two empty party slots — and a shop that opened
+ * empty would read as broken rather than as unearned.
+ */
 function buildOffers(): ShopOffer[] {
   const offers: ShopOffer[] = [];
+  for (const id of ORB_IDS) {
+    const def = ITEMS[id];
+    if (def.storePrice === undefined) continue;
+    offers.push({
+      kind: 'item',
+      itemId: def.id,
+      name: itemName(def),
+      description: def.descriptionKey ? t(def.descriptionKey) : '',
+      price: def.storePrice,
+      affordable: shards() >= def.storePrice,
+      color: def.color,
+      orbTier: def.orbTier,
+      held: bag.count(def.id),
+    });
+  }
   for (const beast of [primary(), support()]) {
+    if (!beast) continue;
     for (const id of beast.species.skills) {
       const def = getSkill(id);
       if (!def || def.storePrice === undefined) continue;
       offers.push({
+        kind: 'skill',
         skill: def,
         price: def.storePrice,
         owned: beast.knownSkillIds.includes(id),
@@ -1853,21 +2193,39 @@ function tryOpenShop(): void {
   // shut itself before the player saw it.
   input.releaseLock();
   hud.openShop(t('shop.skillDen.title'), buildOffers(), (i) => {
+    // REBUILT rather than captured: the list the player clicked was rendered
+    // before this purchase, and a second click on a stale record would spend
+    // Cubloons the first one already spent.
     const offer = buildOffers()[i];
-    if (!offer || offer.owned || !offer.affordable) return;
-    spent += offer.price;
-    // By ID, not by name. This matched on the display name until the species
-    // names moved into the string table, at which point a translated build would
-    // have failed the lookup and charged for a skill nobody learned.
-    const beast = [primary(), support()].find((p) => p.species.id === offer.beastId);
-    beast?.learnSkill(offer.skill.id);
+    if (!offer || !offer.affordable) return;
+    if (offer.kind === 'item') {
+      spent += offer.price;
+      bag.add(offer.itemId, 1);
+      refreshBagChips();
+      // FIRST ORB BOUGHT IS READIED. A player who has just bought their first
+      // orb wants to throw it, and making them open the bag to arm it is a step
+      // between the purchase and the point of it. A later purchase leaves the
+      // choice alone — by then they have made one.
+      if (!readiedOrb) readiedOrb = offer.itemId;
+      refreshOrbHud();
+      inventory.refresh();
+      bus.emit({ type: 'toast', text: t('toast.bought', { item: offer.name }) });
+    } else {
+      if (offer.owned) return;
+      spent += offer.price;
+      // By ID, not by name. This matched on the display name until the species
+      // names moved into the string table, at which point a translated build would
+      // have failed the lookup and charged for a skill nobody learned.
+      const beast = [primary(), support()].find((p) => p !== null && p.species.id === offer.beastId);
+      beast?.learnSkill(offer.skill.id);
+      bus.emit({
+        type: 'toast',
+        text: t('toast.learnedSkill', {
+          beast: offer.beastName, skill: t(offer.skill.nameKey),
+        }),
+      });
+    }
     hud.setShards(shards());
-    bus.emit({
-      type: 'toast',
-      text: t('toast.learnedSkill', {
-        beast: offer.beastName, skill: t(offer.skill.nameKey),
-      }),
-    });
     hud.openShop(t('shop.skillDen.title'), buildOffers(), () => {}, () => hud.closeShop());
   }, () => hud.closeShop());
 }
@@ -1875,7 +2233,7 @@ function tryOpenShop(): void {
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
-const beastHud = (p: BeastActor): BeastHudInfo => ({
+const beastHud = (p: BeastActor | null): BeastHudInfo | null => (p === null ? null : {
   // Resolved here, not in the HUD: `BeastHudInfo` is a snapshot of what to DRAW.
   // `t(key)` with no vars hands back the table's own string, so this allocates
   // nothing even though it runs every frame.
@@ -1970,6 +2328,13 @@ if (photoMode) {
   if (beastId) {
     const idx = roster.findIndex((p) => p.species.id === beastId);
     if (idx >= 0) primaryIdx = idx;
+    // PHOTO MODE IGNORES OWNERSHIP, and it must: `?photo=1&beast=drakelet` is
+    // how every portrait in shots/ was taken, and a staged capture that first
+    // had to bond the subject would be a capture of a different thing. This is
+    // the one door into a party slot that does not go through `grantBeast` —
+    // and it is only reachable from a URL flag that also hides the hero and
+    // stands the whole game down (see `photoMode`).
+    if (idx >= 0) owned.add(beastId);
     // Staged portraits show ONE subject: hide the hero and every other beast so
     // the party stops intruding into the corner of every frame.
     roster.forEach((p, i) => p.setVisible(i === primaryIdx));
@@ -2312,21 +2677,130 @@ const _hurtFrom = new THREE.Vector3();
 // item on the ground without farming enemies until the loot table obliges, and
 // what tools use to prove the fetch rule (currency always, stackables only when
 // already held) case by case.
-(window as unknown as { __dbgFetch: () => unknown }).__dbgFetch = () => ({
-  shards: shards(),
-  bag: bag.entries().map((e) => ({ id: e.def.id, count: e.count })),
-  drops: combat.dropSnapshot(),
-  support: {
-    // Probes report the IDENTIFIER, not the display name: a tool asserting on
-    // `__dbgFetch().support.id` must not start failing under `?lang=sv`.
-    id: support().species.id,
-    fetching: support().isFetching,
-    carrying: support().isCarrying,
-    item: support().fetchItemId,
-    pos: { x: +support().position.x.toFixed(2), z: +support().position.z.toFixed(2) },
-  },
-  primary: { id: primary().species.id, fetching: primary().isFetching },
-});
+/**
+ * THE TAMING SURFACE — everything tools/test-taming.mjs asserts on.
+ *
+ * READ-ONLY, like `__dbgFetch` beside it. The two things a probe needs that it
+ * cannot see any other way are the ODDS a throw would have, which are a formula
+ * and not a picture, and whether a ceremony is still playing — a probe that
+ * advanced time by a fixed guess and then read the roster would be timing the
+ * wobble rather than testing the bond.
+ *
+ * `chance` is computed with the orb currently readied against the crosshair's
+ * own target — exactly what a throw would use, so a probe asserting "full health
+ * is a long shot, low health is not" reads the same number the game is about to
+ * roll against. Passing a `species` aims at the nearest one of those instead,
+ * which is what makes the assertion possible without steering a camera.
+ */
+(window as unknown as { __dbgTaming: (species?: string) => unknown }).__dbgTaming = (species) => {
+  const def = readiedOrb ? itemDef(readiedOrb) : null;
+  engine.camera.getWorldDirection(_aim);
+  const target = !def ? null
+    : species ? (nearestEnemyOfSpecies(species) as unknown as Damageable | null)
+    : enemyInAim(player.position, _aim, ORB_RANGE);
+  return {
+    readied: readiedOrb,
+    tier: def?.orbTier ?? null,
+    held: readiedOrb ? bag.count(readiedOrb) : 0,
+    bonding: combat.bonding,
+    owned: [...owned],
+    lead: primary()?.species.id ?? null,
+    support: support()?.species.id ?? null,
+    target: target ? {
+      species: combat.bondSpeciesOf(target),
+      hp: +target.hp.toFixed(1),
+      maxHp: target.maxHp,
+      refusal: def ? combat.bondRefusal(def, target) : 'notBondable',
+      chance: def ? +combat.bondChance(def, target).toFixed(4) : 0,
+    } : null,
+  };
+};
+
+/**
+ * TEST HOOKS for bonding — the same argument `__dbgDrop` makes for the loot
+ * table, applied to a mechanic with a coin flip in the middle of it.
+ *
+ * `__dbgWeaken(species, hpFrac)` sets the nearest wild thing of that species to
+ * a share of its health. There is no other way to reach "a beast at 10% health":
+ * the alternative is swinging a sword at it until the number is roughly right,
+ * which is neither exact nor quick, and the whole claim under test is that the
+ * odds MOVE with health.
+ *
+ * `__dbgThrowOrb(species, force)` throws the readied orb at the nearest one of
+ * that species, and `force` decides the outcome outright — `true` catches,
+ * `false` breaks, absent rolls. Forcing is what lets a probe assert both settle
+ * paths without being a test that fails one run in twenty; the ODDS are asserted
+ * separately off `__dbgTaming().target.chance`, which is a formula. It returns
+ * the same `ThrowOutcome` the key press produces, so every refusal a player can
+ * hit is a refusal a probe can name.
+ */
+(window as unknown as {
+  __dbgWeaken: (species: string, hpFrac: number) => unknown;
+}).__dbgWeaken = (species, hpFrac) => {
+  const e = nearestEnemyOfSpecies(species);
+  if (!e) return { ok: false, why: `no live "${species}" nearby` };
+  e.hp = Math.max(1, Math.round(e.maxHp * Math.max(0, Math.min(1, hpFrac))));
+  // The ID, so a probe can keep measuring THIS animal. `nearestEnemyOfSpecies`
+  // is a scan and the nearest one can change between two calls — which is
+  // exactly the ambiguity a probe asserting "it was removed" must not have.
+  return { ok: true, id: e.root.id, species, hp: e.hp, maxHp: e.maxHp };
+};
+
+(window as unknown as {
+  __dbgThrowOrb: (species?: string, force?: boolean) => unknown;
+}).__dbgThrowOrb = (species, force) => {
+  const target = species ? nearestEnemyOfSpecies(species) : null;
+  if (species && !target) return { outcome: 'noTarget', why: `no live "${species}" nearby` };
+  const dist = target
+    ? +Math.hypot(target.position.x - player.position.x, target.position.z - player.position.z).toFixed(2)
+    : null;
+  const outcome = throwReadiedOrb(target as unknown as Damageable | null, force);
+  return { outcome, species: species ?? null, id: target?.root.id ?? null, dist };
+};
+
+/**
+ * The closest live enemy of this content species, or null.
+ *
+ * By SPECIES ID and not by index, because the population is rebuilt constantly
+ * — a probe that grabbed `enemies[0]` would be holding a different animal two
+ * seconds later. `combat.enemies` is public and already iterated from here (see
+ * `enemyInAim`), so this is a scan and not a new contract.
+ */
+function nearestEnemyOfSpecies(species: string) {
+  let best = null;
+  let bd = Infinity;
+  for (const e of combat.enemies) {
+    if (!e.targetable || e.species !== species) continue;
+    const d = (e.position.x - player.position.x) ** 2 + (e.position.z - player.position.z) ** 2;
+    if (d < bd) { bd = d; best = e; }
+  }
+  return best;
+}
+
+(window as unknown as { __dbgFetch: () => unknown }).__dbgFetch = () => {
+  // NULL WHERE THERE IS NO BEAST, rather than an object of nulls: a probe
+  // asserting on `support.id` should fail loudly on an empty party, because
+  // "the support beast did not fetch it" and "there is no support beast" are
+  // different results and only one of them is a bug in the fetch rule.
+  const sup = support();
+  const lead = primary();
+  return {
+    shards: shards(),
+    bag: bag.entries().map((e) => ({ id: e.def.id, count: e.count })),
+    drops: combat.dropSnapshot(),
+    owned: [...owned],
+    support: sup ? {
+      // Probes report the IDENTIFIER, not the display name: a tool asserting on
+      // `__dbgFetch().support.id` must not start failing under `?lang=sv`.
+      id: sup.species.id,
+      fetching: sup.isFetching,
+      carrying: sup.isCarrying,
+      item: sup.fetchItemId,
+      pos: { x: +sup.position.x.toFixed(2), z: +sup.position.z.toFixed(2) },
+    } : null,
+    primary: lead ? { id: lead.species.id, fetching: lead.isFetching } : null,
+  };
+};
 /**
  * Where your companions actually are, and whether they are travelling as light.
  *
@@ -2346,11 +2820,19 @@ const _hurtFrom = new THREE.Vector3();
     dy: +(p.y - b.position.y).toFixed(2),
     pos: { x: +b.position.x.toFixed(2), y: +b.position.y.toFixed(2), z: +b.position.z.toFixed(2) },
   });
+  const lead = primary();
+  const sup = support();
   return {
     player: { x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2) },
     ground: +world.getHeight(p.x, p.z).toFixed(2),
-    needed: primary().supportNeeded,
-    beasts: [one(primary(), 'primary'), one(support(), 'support')],
+    needed: lead?.supportNeeded ?? false,
+    // An EMPTY LIST with nothing bonded, and one entry with one beast: the
+    // party is as long as it is, and a probe counting rows is reading the truth
+    // rather than two placeholder objects.
+    beasts: [
+      ...(lead ? [one(lead, 'primary')] : []),
+      ...(sup ? [one(sup, 'support')] : []),
+    ],
   };
 };
 // TEST HOOK, like __dbgDrop below: put the hero at an absolute column in the
@@ -3018,14 +3500,50 @@ function devRide(arg: string | undefined): string {
   if (arg) {
     const idx = roster.findIndex((p) => p.species.id === arg);
     if (idx < 0) return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
+    // BONDED ONLY, and it says which are. A developer surface may skip the two
+    // seconds of orb wobble, but it must not skip OWNERSHIP — /mount handing you
+    // an animal you never bonded would make the console a different game from
+    // the one the probes measure. `/grant` is the door for that, deliberately a
+    // separate word.
+    if (!owned.has(arg)) {
+      const have = [...owned];
+      return `"${arg}" is not bonded — ${have.length ? have.join(', ') : 'you have bonded nothing yet'}`;
+    }
     if (idx === supportIdx) supportIdx = primaryIdx;
     primaryIdx = idx;
     refreshVisibility();
   }
-  const why = mount.refusal(primary());
+  const lead = primary();
+  if (!lead) return 'no beast bonded — /grant <speciesId> first';
+  const why = mount.refusal(lead);
   if (why !== 'none') return `cannot mount: ${why}`;
-  mount.mount(primary());
-  return `riding ${primary().species.id} (${primary().species.locomotion})`;
+  mount.mount(lead);
+  return `riding ${lead.species.id} (${lead.species.locomotion})`;
+}
+
+/**
+ * `/grant <speciesId>` — bond a beast outright, with no orb and no roll.
+ *
+ * A DEVELOPER SURFACE AND A TEST HOOK, and it exists because the alternative for
+ * every probe that needs a party is to farm Cubloons, buy an orb, find the right
+ * wild beast, beat it down and then lose a coin flip. `tools/test-companion.mjs`
+ * is about following and beaming, not about bonding, and a test that has to play
+ * the whole game to reach its subject is a test that measures the whole game.
+ *
+ * It is NOT how a player gets a beast, which is why it is a separate word from
+ * `/mount` rather than a flag on it — see the refusal there.
+ */
+function devGrant(arg: string | undefined): string {
+  if (!arg) {
+    const have = [...owned];
+    return `bonded: ${have.length ? have.join(', ') : 'nothing'} — of ${roster.map((p) => p.species.id).join(', ')}`;
+  }
+  if (!roster.some((p) => p.species.id === arg)) {
+    return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
+  }
+  if (!grantBeast(arg)) return `"${arg}" is already bonded`;
+  inventory.refresh();
+  return `bonded ${arg} (${[...owned].length} total)`;
 }
 devConsole?.register({
   name: 'mount',
@@ -3033,10 +3551,18 @@ devConsole?.register({
   help: 'Ride the primary beast without the 2s hold; /mount off dismounts.',
   run: (args) => devRide(args[0]),
 });
+devConsole?.register({
+  name: 'grant',
+  args: '[<speciesId>]',
+  help: 'Bond a beast outright, no orb needed; bare /grant lists what you have.',
+  run: (args) => devGrant(args[0]),
+});
 // TEST HOOK, and the same argument `__dbgTp` makes: it DRIVES STATE, which is a
 // probe's job. `/mount` is the player-facing door and this is the same room.
 (window as unknown as { __dbgRide: (id?: string) => string }).__dbgRide =
   (id) => devRide(id);
+(window as unknown as { __dbgGrantBeast: (id?: string) => string }).__dbgGrantBeast =
+  (id) => devGrant(id);
 /**
  * Read or write one feedback preference, honouring the URL override.
  *
@@ -3531,12 +4057,12 @@ function reportMovers(): void {
     // `inTransit` for the same reason as `isDead`: a beast travelling as light
     // has no feet on the ground to part the grass with, and its position is
     // pinned above the hero, where a `walk` report would blow a hole in the
-    // meadow he is flying over.
-    if (p0 !== ridden && !p0.isDead && !p0.inTransit) {
+    // meadow he is flying over. A null slot is a party that is not full yet.
+    if (p0 && p0 !== ridden && !p0.isDead && !p0.inTransit) {
       world.disturb(-2, p0.position.x, p0.position.y, p0.position.z, p0.radius,
         p0.species.locomotion === 'flying' ? 'fly' : 'walk');
     }
-    if (p1 !== ridden && p1 !== p0 && !p1.isDead && !p1.inTransit) {
+    if (p1 && p1 !== ridden && p1 !== p0 && !p1.isDead && !p1.inTransit) {
       world.disturb(-3, p1.position.x, p1.position.y, p1.position.z, p1.radius,
         p1.species.locomotion === 'flying' ? 'fly' : 'walk');
     }
@@ -3545,8 +4071,12 @@ function reportMovers(): void {
   // monotonic counter and the only handle an Enemy has that survives a respawn
   // of the one beside it; the party's reserved ids are negative precisely so
   // they cannot collide with it.
+  //
+  // `targetable` and not `isDead`: one inside a taming orb is not standing
+  // anywhere, and reporting it would hold a parted patch of grass open around a
+  // body that is not there.
   for (const e of combat.enemies) {
-    if (e.isDead) continue;
+    if (!e.targetable) continue;
     const dx = e.position.x - player.position.x;
     const dz = e.position.z - player.position.z;
     if (dx * dx + dz * dz > DISTURB_RANGE2) continue;
@@ -3640,11 +4170,19 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     perf.section('player');
 
     if (first) {
-      // Hotbar
+      // Hotbar. With no lead beast there are no skills either — `hotbarSkills`
+      // answers empty — so the guard is belt and braces around one null.
       const skills = hotbarSkills();
+      const lead = primary();
       (['Digit1', 'Digit2', 'Digit3', 'Digit4'] as const).forEach((code, i) => {
-        if (input.pressed(code) && skills[i]) castFromBeast(primary(), skills[i]);
+        if (input.pressed(code) && lead && skills[i]) castFromBeast(lead, skills[i]);
       });
+
+      // THE TAMING THROW. A press, consumed here like every other frame-loop
+      // edge, and gated on nothing else: an orb can be thrown from the saddle,
+      // mid-air or mid-fight, and every reason it might not work is a message
+      // `throwReadiedOrb` gives rather than a key that silently does nothing.
+      if (input.pressed('KeyQ')) throwReadiedOrb();
 
       // Beast management. Swapping is locked out in the saddle: every mounted
       // path here keys off primary() being the ridden beast — the hotbar aims
@@ -3656,34 +4194,43 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
           bus.emit({ type: 'toast', text: t('toast.dismountFirst') });
         }
       } else {
-        if (input.pressed('Tab')) {
+        // Tab SWAPS the two slots, so it needs both of them filled — with one
+        // beast bonded there is nothing to swap with, and swapping a real beast
+        // into an empty slot would bench it.
+        if (input.pressed('Tab') && primaryIdx >= 0 && supportIdx >= 0) {
           const wasPrimary = primaryIdx; primaryIdx = supportIdx; supportIdx = wasPrimary;
-          bus.emit({
-            type: 'toast',
-            text: t('toast.beastTakesLead', { beast: t(primary().species.nameKey) }),
-          });
+          const lead2 = primary();
+          if (lead2) {
+            bus.emit({
+              type: 'toast',
+              text: t('toast.beastTakesLead', { beast: t(lead2.species.nameKey) }),
+            });
+          }
         }
         if (input.pressed('BracketRight')) cycleBeast('primary', 1);
         if (input.pressed('BracketLeft')) cycleBeast('support', 1);
       }
     }
 
-    // Support beast errands + auto-cast
+    // Support beast errands + auto-cast. Both are skipped outright with no
+    // support beast bonded — there is nobody to run an errand or cast.
     const sup = support();
 
     fetchScanT -= dt;
     if (fetchScanT <= 0) {
       fetchScanT = FETCH_SCAN;
-      if (flags.beasts && !sup.isFetching && !sup.isDead) {
+      if (flags.beasts && sup && !sup.isFetching && !sup.isDead) {
         const job = combat.findFetchJob(player.position, FETCH_RADIUS, worthFetching);
         if (job) sup.beginFetch(job);
       }
     }
 
-    if (sup.wantsSupportCast()) {
+    if (sup && sup.wantsSupportCast()) {
       const known = sup.knownSkillIds.map((id) => getSkill(id)).filter((s): s is SkillDef => !!s);
       const heal = known.find((s) => s.targeting === 'support' || s.targeting === 'self');
-      const hurt = player.hp < player.maxHp * 0.7 || primary().hp < primary().maxHp * 0.7;
+      const lead3 = primary();
+      const hurt = player.hp < player.maxHp * 0.7
+        || (lead3 !== null && lead3.hp < lead3.maxHp * 0.7);
       const pick = hurt && heal ? heal : known.find((s) => s.targeting !== 'support' && s.targeting !== 'self') ?? heal;
       if (pick) castFromBeast(sup, pick);
     }
@@ -3817,10 +4364,16 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // the hero" is a fact about the hero, not about either beast. The radius is
     // the wild leash's own aggro neighbourhood rather than a new number.
     const needed = combat.findNearestEnemy(player.position, SUPPORT_CALL_RANGE) !== null;
-    primary().supportNeeded = needed;
-    support().supportNeeded = needed;
-    if (primary() !== ridden) primary().update(dt, owner, 'primary', roster);
-    if (support() !== ridden) support().update(dt, owner, 'support', roster);
+    const lead = primary();
+    const sup = support();
+    if (lead) {
+      lead.supportNeeded = needed;
+      if (lead !== ridden) lead.update(dt, owner, 'primary', roster);
+    }
+    if (sup) {
+      sup.supportNeeded = needed;
+      if (sup !== ridden) sup.update(dt, owner, 'support', roster);
+    }
   }
   perf.section('beasts');
 
@@ -3856,9 +4409,13 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // position an enemy could walk to, and a wolf that picked it as a target would
   // stand under the hero swiping at nothing until he landed. `_friendlies` is
   // reused rather than rebuilt so this stays allocation-free per slice.
+  // An unbonded slot contributes nothing, by the same rule and for a simpler
+  // reason: there is no beast to be a friendly.
   _friendlies.length = 0;
-  if (!primary().inTransit) _friendlies.push(primary());
-  if (!support().inTransit) _friendlies.push(support());
+  const fLead = primary();
+  const fSup = support();
+  if (fLead && !fLead.inTransit) _friendlies.push(fLead);
+  if (fSup && !fSup.inTransit) _friendlies.push(fSup);
   combat.update(dt, player as unknown as Damageable, _friendlies as unknown as Damageable[]);
   perf.section('combat');
 }
@@ -3923,9 +4480,13 @@ function frame(): void {
   if (steps === MAX_STEPS) simAccumulator = 0;
 
   if (photoMode) {
-    if (params.get('beast')) {
+    // `primary()` cannot be null here: the `?beast=` branch at boot put the
+    // subject in the lead slot itself. The check is what makes that a stated
+    // fact rather than an assumed one.
+    const photoBeast = params.get('beast') ? primary() : null;
+    if (photoBeast) {
       // Auto-frame the primary beast: 3/4 portrait tracking its live position.
-      const beast = primary();
+      const beast = photoBeast;
       const ang = (Number(params.get('a') ?? 35) * Math.PI) / 180;
       // Frame the subject at ~40% of frame height. Sized from the rig's own
       // extents (a small beast's ears/tail push well past its nominal height, and
@@ -3994,13 +4555,15 @@ function frame(): void {
       photoAnimTimer -= dt;
       if (photoAnimTimer <= 0) {
         photoAnimTimer = 2.5;
-        primary().playAction(photoAnim as never);
+        primary()?.playAction(photoAnim as never);
       }
     }
   }
 
   // HUD sync
   hud.setPlayerHp(player.hp, player.maxHp);
+  // `setBeasts` has always taken null on either side — a card is simply absent —
+  // so an empty party needs nothing from the HUD but this.
   hud.setBeasts(beastHud(primary()), beastHud(support()));
   const slots: SkillSlot[] = hotbarSkills().map((def) => {
     const remaining = cooldowns.get(def.id) ?? 0;
@@ -5360,8 +5923,9 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       overFeet: at(player.position, player.position.y),
     },
     // The two ACTIVE followers only: the rest of the roster is benched and
-    // parked at the origin, where "is it inside a wall" means nothing.
-    beasts: [primary(), support()].map((p) => ({
+    // parked at the origin, where "is it inside a wall" means nothing. An empty
+    // list is an empty party, which is what a new game is.
+    beasts: [primary(), support()].filter((p): p is BeastActor => p !== null).map((p) => ({
       id: p.species.id,
       locomotion: p.species.locomotion,
       x: +p.position.x.toFixed(2), y: +p.position.y.toFixed(2),
@@ -5384,6 +5948,19 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       maxHp: e.maxHp,
       isDead: e.isDead,
       overFeet: at(e.position, e.position.y),
+      /**
+       * The AUTHORED footprint and, for a wild beast, the one its rig measured
+       * for itself. The pair is what tools/test-taming.mjs compares: they drift
+       * silently — nothing crashes, the hp bar just floats in the wrong place
+       * and the thing is reached from the wrong distance. Null on the three
+       * painted enemies, which have no rig to disagree with.
+       */
+      radius: +e.radius.toFixed(2),
+      height: +e.height.toFixed(2),
+      rigRadius: e.rigRadius === null ? null : +e.rigRadius.toFixed(2),
+      rigHeight: e.rigHeight === null ? null : +e.rigHeight.toFixed(2),
+      /** Inside a taming orb right now. See `Enemy.setHeld`. */
+      held: e.held,
     })),
   };
 };

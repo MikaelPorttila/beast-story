@@ -1208,7 +1208,7 @@ export interface WorldBound {
 /**
  * WHAT AN ITEM IS FOR, and each kind is here because something BEHAVES
  * differently on it — that was the rule when there were two, and it is why
- * there are now seven rather than a taxonomy:
+ * there are now eight rather than a taxonomy:
  *
  *   currency   — the shard economy. One running total, always worth picking up,
  *                never in the bag (see `Inventory`).
@@ -1222,9 +1222,15 @@ export interface WorldBound {
  *                refuse to destroy.
  *   beast      — a companion, shown in the panel and equipped to a beast slot.
  *                NOT stored in the bag; see `Inventory`'s note on why.
+ *   orb        — a taming orb. The one item that is THROWN AT SOMETHING, which
+ *                is why it is neither of the two kinds it looks like: a potion
+ *                is spent from the panel with the world standing still in front
+ *                of you and needs no target, and a stackable is what the support
+ *                beast's fetch rule is written in terms of. An orb is READIED
+ *                into a gear slot like a weapon and spent from the world.
  */
 export type ItemKind =
-  | 'currency' | 'stackable' | 'weapon' | 'blueprint' | 'potion' | 'quest' | 'beast';
+  | 'currency' | 'stackable' | 'weapon' | 'blueprint' | 'potion' | 'quest' | 'beast' | 'orb';
 
 /**
  * How loudly a slot shouts. Read by the inventory panel for the slot's border
@@ -1290,6 +1296,19 @@ export interface ItemDef {
   maxPower?: number;
   /** What `use` does. Only a potion has one. */
   effect?: ItemEffect;
+  /**
+   * How good a taming orb this is: 1 Tame, 2 Greater, 3 Ultra, 4 Master. Only an
+   * `orb` has one.
+   *
+   * A SMALL INTEGER RATHER THAN A NAMED TIER, because two things compare it and
+   * both want the ordering: `EnemyCapture.minTier` is a floor it must clear, and
+   * `ORB_BASE` in src/combat/taming.ts indexes the odds by it. A union of four
+   * names would have made both of those a lookup table keyed on a string, for no
+   * gain — the tiers ARE ranked, and the rank is the whole of what is read.
+   */
+  orbTier?: number;
+  /** Price in Cubloons at a den. Absent = not sold. */
+  storePrice?: number;
 }
 
 /**
@@ -1454,6 +1473,44 @@ export type GameEvent =
     y: number;
     z: number;
   }
+  /**
+   * An orb left the hero's hand. `orbId` is the item spent.
+   *
+   * Nothing acts on it — it exists so the throw FEELS like something in the
+   * hands, which is src/feedback's job and not the thrower's. Emitted rather
+   * than called directly for the reason every other cue is: main.ts must not
+   * reach into the feedback system to make a controller buzz.
+   */
+  | { type: 'orbThrown'; orbId: string }
+  /**
+   * An orb landed and a bond WORKED — the player now owns this species.
+   *
+   * The objective trigger game-story.md §7 asks for, and the reason it is an
+   * event rather than a direct call from combat into the roster: combat does not
+   * know what a `BeastActor` is and must not learn. main.ts owns the roster and
+   * is already the one listener that turns bus traffic into ownership.
+   *
+   * `beastId` is the SPECIES identifier ('sproutle'), which is what the roster,
+   * `/mount` and any future save key on; `nameKey` is display, for the banner.
+   */
+  | { type: 'beastTamed'; beastId: string; nameKey: StringKey; orbId: string }
+  /**
+   * The orb broke and the animal came back out. `beastId` is what got away.
+   *
+   * Carried separately from `beastTamed` rather than as a boolean on it, because
+   * every listener so far wants exactly one of the two and a shared event would
+   * have made each of them open with the same `if`.
+   */
+  | { type: 'bondFailed'; beastId: string; nameKey: StringKey; orbId: string }
+  /**
+   * One shake of a landed orb, 1-based, while the answer is still unknown.
+   *
+   * It exists for FEEL and nothing reads it for logic: src/feedback turns it
+   * into a controller bump so the three wobbles are felt as well as watched.
+   * `of` is carried so a listener can ramp — the last shake before the answer
+   * should not be the same size as the first.
+   */
+  | { type: 'orbWobble'; index: number; of: number }
   | { type: 'mounted'; beastId: string; flying: boolean }
   | { type: 'dismounted'; beastId: string }
   | { type: 'shardsChanged'; total: number }

@@ -158,6 +158,14 @@ export class FeedbackSystem {
       case 'mounted': this.push('mounted', 1); break;
       case 'beastLevelUp': this.push('levelUp', 1); break;
       case 'itemPicked': this.push('pickup', 1); break;
+      // The wobble RAMPS: `index` is 1-based and `of` is how many there are, so
+      // the last shake before the answer lands at full intensity and the first
+      // at a third of it. See `orbWobble` in cues.ts for why this is the only
+      // cue outside `playerHurt` that scales.
+      case 'orbThrown': this.push('orbThrow', 1); break;
+      case 'orbWobble': this.push('orbWobble', e.of > 0 ? e.index / e.of : 1); break;
+      case 'beastTamed': this.push('tameSuccess', 1); break;
+      case 'bondFailed': this.push('tameFail', 1); break;
       default: break;
     }
   }

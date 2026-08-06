@@ -74,6 +74,10 @@ const SOLO = new Set([
   'touch',         // sums yaw deltas over a stick hold
   'beastanim',     // per-frame rotation deltas
   'dive',          // ascent speed in units/second
+  // Teleports the hero to a wild beast, throws a projectile that has to FLY to
+  // it, and measures whether a wild body travelled over a second. The last of
+  // those is elapsed motion; the middle one needs frames to happen in at all.
+  'taming',
   // Drives four different bodies at a coastline and measures how far each got,
   // plus a mounted top speed on either side of a waterline. Every one of those
   // is elapsed motion, and it mounts through __dbgRide, which drives state.

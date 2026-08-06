@@ -77,6 +77,46 @@ function smoothstep01(t: number): number {
  */
 const MAX_CYCLE_RATE = 50.3;
 
+/**
+ * THE ANIMATION CLOCK A SPECIES POSES AGAINST — one per animated body.
+ *
+ * Lifted out of `BeastActor` when a second caller appeared: a WILD beast is an
+ * `Enemy` wearing a `BeastSpecies` body (see src/combat/enemies.ts), and it has
+ * to hand `species.animate` the same contract a companion does. Copying the four
+ * lines instead would have forked the one thing in this file that is genuinely
+ * subtle — the integrated phase — into a second place that could drift from the
+ * argument written on `BeastAnimCtx.cycle` in core/types.ts.
+ *
+ * `ctx` is bound ONCE, at construction, and closes over this instance's own
+ * phase array: no allocation on any frame, and no way for two bodies to share a
+ * cycle. A caller writes `action`/`actionTime`/`time`/`moveSpeed`/`dt` onto it
+ * just before calling `animate`, and `dt` is read back off the ctx by `cycle`
+ * rather than passed, because the species calls `cycle` and the caller does not.
+ */
+export class BeastAnimClock {
+  /**
+   * Integrated phase per cycle slot — see BeastAnimCtx.cycle().
+   *
+   * Deliberately NOT wrapped to 0..2pi. Species derive trailing waves and
+   * harmonics as constant multiples of a phase (`ph * 0.9`, `ph * 1.6`), and a
+   * wrap at 2pi puts a discontinuity in every one of those whose factor is not
+   * an integer — the same pop this whole mechanism exists to remove. Float64
+   * carries it instead: an hour at the 8 Hz ceiling reaches 1.8e5 rad, where a
+   * double still resolves 3e-11 rad, so nothing measurable is lost. Float32
+   * would NOT do — it breaks down around 1e4 rad, roughly ten minutes in.
+   */
+  private readonly cycles = new Float64Array(BEAST_CYCLE_SLOTS);
+
+  readonly ctx: BeastAnimCtx = {
+    action: 'idle', actionTime: 0, time: 0, moveSpeed: 0, dt: 0,
+    cycle: (slot: number, freq: number): number => {
+      const w = freq > MAX_CYCLE_RATE ? MAX_CYCLE_RATE : freq > 0 ? freq : 0;
+      this.cycles[slot] += w * this.ctx.dt;
+      return this.cycles[slot];
+    },
+  };
+}
+
 const GRAVITY = 22;
 const TELEPORT_DIST = 40;
 const REVIVE_SECONDS = 8;
@@ -857,30 +897,9 @@ export class BeastActor {
   private baseTime = 0;
   private time = 0;
   private phase = Math.random() * TWO_PI;
-  /**
-   * Integrated phase per cycle slot — see BeastAnimCtx.cycle().
-   *
-   * Deliberately NOT wrapped to 0..2pi. Species derive trailing waves and
-   * harmonics as constant multiples of a phase (`ph * 0.9`, `ph * 1.6`), and a
-   * wrap at 2pi puts a discontinuity in every one of those whose factor is not
-   * an integer — the same pop this whole mechanism exists to remove. Float64
-   * carries it instead: an hour at the 8 Hz ceiling reaches 1.8e5 rad, where a
-   * double still resolves 3e-11 rad, so nothing measurable is lost. Float32
-   * would NOT do — it breaks down around 1e4 rad, roughly ten minutes in.
-   */
-  private cycles = new Float64Array(BEAST_CYCLE_SLOTS);
-  private ctx: BeastAnimCtx = {
-    action: 'idle', actionTime: 0, time: 0, moveSpeed: 0, dt: 0,
-    // Bound once, at construction, and closes over this actor's own phase
-    // array — no allocation on any frame, and no way for two beasts to share a
-    // cycle. `dt` is read off the ctx because finishFrame() has already written
-    // the slice's dt there before calling species.animate().
-    cycle: (slot: number, freq: number): number => {
-      const w = freq > MAX_CYCLE_RATE ? MAX_CYCLE_RATE : freq > 0 ? freq : 0;
-      this.cycles[slot] += w * this.ctx.dt;
-      return this.cycles[slot];
-    },
-  };
+  /** This body's phase integrator, and the ctx handed to `species.animate`. */
+  private readonly clock = new BeastAnimClock();
+  private readonly ctx: BeastAnimCtx = this.clock.ctx;
 
   // Fetch errand
   private fetchJob: FetchJob | null = null;

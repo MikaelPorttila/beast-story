@@ -36,6 +36,22 @@ import type { ElementType } from '../../core/types';
 /** The factory kind an enemy's `model` selects. `enemy-model/gloopling`, … */
 export const ENEMY_MODEL_KIND = 'enemy-model';
 
+/**
+ * The `model` prefix that means "this wild thing wears a BEAST'S body".
+ *
+ * `beast-sproutle` is an ordinary `enemy-model` name — src/combat/enemies.ts
+ * registers one per entry in `ALL_SPECIES`, so it is selected by name like every
+ * other builder and an id nothing implements is the ordinary unknown-factory
+ * diagnostic. The prefix is spelled out here because two files reason about it:
+ * that registration loop, and `validate` below, which is what makes a `capture`
+ * block on a Gloopling an error rather than a beast nobody can be given.
+ *
+ * A HYPHEN AND NOT A COLON, because a colon is what a content ID is made of
+ * (`enemy:gloopling`) and a model name is not an id — it names a behaviour the
+ * engine registered. `MODEL_RE` refuses the colon for exactly that reason.
+ */
+export const BEAST_MODEL_PREFIX = 'beast-';
+
 const MODEL_RE = /^[a-z][a-z0-9-]*$/;
 
 /**
@@ -70,6 +86,32 @@ export interface EnemyVariant {
   readonly accent: number;
 }
 
+/**
+ * WHAT IT TAKES TO BOND THIS ONE — absent on anything that cannot be bonded.
+ *
+ * IT DOES NOT NAME A SPECIES, and that omission is the design. What you catch is
+ * what you fought: the body already says which beast this is (`model`, see
+ * `BEAST_MODEL_PREFIX`), so a species named here as well would be a second answer
+ * to the same question and the day the two disagreed the player would throw an
+ * orb at a Sproutle and be handed a Drakelet.
+ */
+export interface EnemyCapture {
+  /**
+   * The weakest orb that may bond it, as an `ItemDef.orbTier` — 1 Tame, 2
+   * Greater, 3 Ultra, 4 Master. Below it the orb always breaks, whatever the
+   * animal's health: this is the issue's "stronger beasts require better orbs",
+   * and it is a FLOOR rather than a modifier so that a player can read the
+   * failure as "wrong tool" instead of as bad luck.
+   */
+  readonly minTier: number;
+  /**
+   * Divides the odds. 1 is an animal that comes quietly; the shipped roster runs
+   * 1.0-2.2. See `captureChance` in src/combat/taming.ts for the whole formula —
+   * this is the only half of it a designer sets.
+   */
+  readonly difficulty: number;
+}
+
 export interface EnemyData {
   /** Which registered `enemy-model` builds the voxel body. */
   readonly model: string;
@@ -81,14 +123,34 @@ export interface EnemyData {
   readonly speed: number;
   /** XP awarded for the kill. */
   readonly xp: number;
-  /** Collision radius, world units. */
+  /**
+   * Collision radius, world units.
+   *
+   * On a `beast-…` body these two must match what the rig measures for itself
+   * (`BeastRig.radius`/`height`), because the rig is what the player sees and
+   * these are what the game reaches with. They are still authored rather than
+   * derived, since content cannot build a rig to ask — the renderer is on the
+   * far side of a wall this package does not cross. `bun tools/probe.mjs taming`
+   * measures the pair and fails on a drift.
+   */
   readonly radius: number;
-  /** Standing height, world units — where the hp bar floats. */
+  /** Standing height, world units — where the hp bar floats. See `radius`. */
   readonly height: number;
   /** How far away it notices the player, world units. */
   readonly aggro: number;
-  /** EXACTLY three, in `variantForHeight` order — mid, highland, lowland. */
+  /**
+   * EXACTLY three, in `variantForHeight` order — mid, highland, lowland.
+   *
+   * ON A `beast-…` BODY ONLY THE `element` IS READ. A beast paints itself: its
+   * colours live in its species file beside the shape they belong to, so a
+   * palette here would be a second, unused answer that a reader would reasonably
+   * expect to see on screen. The three entries are still required — the array is
+   * a lookup table `variantForHeight` indexes, not a choice — and the honest way
+   * to author them for a beast is three identical rows carrying its element.
+   */
   readonly variants: readonly EnemyVariant[];
+  /** What it takes to bond it, or absent where it cannot be. See `EnemyCapture`. */
+  readonly capture?: EnemyCapture;
 }
 
 /** Registered `enemy-model` names. See the long note at `knownLayouts` in town.ts. */
@@ -119,6 +181,38 @@ function readVariant(value: unknown, ctx: Reader): EnemyVariant {
     dark: hexColor(v.dark, ctx.at('dark')),
     belly: hexColor(v.belly, ctx.at('belly')),
     accent: hexColor(v.accent, ctx.at('accent')),
+  };
+}
+
+/**
+ * `ORB_TIERS` in src/core/items.ts, as a bound this file may state.
+ *
+ * A LITERAL rather than an import, for the reason `ELEMENT_NAMES` above is one:
+ * core/items.ts reaches core/types.ts, which imports three.js at the top, and
+ * nothing in src/content may pull the renderer in to validate a number. Four is
+ * also not a tunable — it is how many orbs the issue asks for — so the failure
+ * mode of the two drifting is a fifth orb nobody can require, which the
+ * out-of-range diagnostic here names precisely.
+ */
+const MAX_ORB_TIER = 4;
+
+function readCapture(value: unknown, ctx: Reader): EnemyCapture {
+  if (!isRecord(value)) {
+    ctx.report(
+      'error',
+      'bad-field',
+      'expected a capture object',
+      'write { "minTier": 1, "difficulty": 1.4 }',
+    );
+  }
+  // The same annotation-not-a-cast device `readVariant` uses: an empty record
+  // makes each reader below report its own missing field against its own path.
+  const c: Record<string, unknown> = isRecord(value) ? value : {};
+  return {
+    minTier: num(c.minTier, ctx.at('minTier'), { min: 1, max: MAX_ORB_TIER, what: 'an orb tier' }),
+    // Floored at 1: a difficulty below it would make an animal EASIER than one
+    // that comes quietly, which the formula already expresses as a low minTier.
+    difficulty: num(c.difficulty, ctx.at('difficulty'), { min: 1, max: 20, what: 'a capture difficulty' }),
   };
 }
 
@@ -158,6 +252,7 @@ function parse(body: unknown, ctx: ParseCtx): EnemyData | null {
     height: num(b.height, r.at('height'), { min: 0.05, max: 100, what: 'a standing height' }),
     aggro: num(b.aggro, r.at('aggro'), { min: 0, max: 500, what: 'an aggro radius' }),
     variants,
+    capture: opt(b.capture, r.at('capture'), readCapture),
   };
 }
 
@@ -183,6 +278,20 @@ function validate(asset: ContentAsset<EnemyData>, ctx: ValidateCtx): void {
       message: `no "${ENEMY_MODEL_KIND}/${asset.data.model}" is registered`,
       field: 'data.model',
       fix: `defineFactory("${ENEMY_MODEL_KIND}", "${asset.data.model}", …), or use one that exists`,
+    });
+  }
+  // A CAPTURE BLOCK ON A BODY THAT IS NOT A BEAST'S. Bonding hands the player the
+  // species whose body this thing wears (see `EnemyCapture`), so a Gloopling with
+  // a capture block is an orb that would succeed and grant nothing. Caught here
+  // rather than at the throw, where the only honest thing left to do is refuse
+  // silently in front of a player who spent an orb.
+  if (asset.data.capture && !asset.data.model.startsWith(BEAST_MODEL_PREFIX)) {
+    ctx.report({
+      severity: 'error',
+      code: 'bad-field',
+      message: `"${asset.id}" can be bonded but wears "${asset.data.model}", which is not a beast's body`,
+      field: 'data.capture',
+      fix: `give it a "${BEAST_MODEL_PREFIX}<species>" model, or drop the capture block`,
     });
   }
 }

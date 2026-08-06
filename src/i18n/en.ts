@@ -68,6 +68,22 @@ export const en = {
   'item.potionFury.one': 'Draught of Fury',
   'item.potionFury.other': 'Draughts of Fury',
   'item.potionFury.desc': 'Brief, loud and slightly regrettable. Everything hits harder for half a minute.',
+  // The four taming orbs. Their NAMES say what they do to a beast — bond, not
+  // catch — because that is the word the campaign uses for it everywhere (see
+  // game-story.md §1); the ids stay plain (`orb-tame`) so a rename is an edit to
+  // this file and nothing else.
+  'item.orbTame.one': 'Tame Orb',
+  'item.orbTame.other': 'Tame Orbs',
+  'item.orbTame.desc': 'Red glass around a coil of thread. Enough for a small animal that has already given up.',
+  'item.orbGreater.one': 'Greater Tame Orb',
+  'item.orbGreater.other': 'Greater Tame Orbs',
+  'item.orbGreater.desc': 'Blue, and heavier than it looks. The thread inside is wound twice.',
+  'item.orbUltra.one': 'Ultra Tame Orb',
+  'item.orbUltra.other': 'Ultra Tame Orbs',
+  'item.orbUltra.desc': 'Violet, and warm at the seam. Bridle work, whatever the trader tells you.',
+  'item.orbMaster.one': 'Master Tame Orb',
+  'item.orbMaster.other': 'Master Tame Orbs',
+  'item.orbMaster.desc': 'Black glass that gives nothing back. Very few of these were ever made, and nobody says by whom.',
   'item.gainToken.one': "Gain's Token",
   'item.gainToken.other': "Gain's Tokens",
   'item.gainToken.desc': 'A carved weight on a cord. Given, not found, and not yours to throw away.',
@@ -81,6 +97,7 @@ export const en = {
   'inv.tab.potion': 'Potions',
   'inv.tab.stackable': 'Materials',
   'inv.tab.quest': 'Quest',
+  'inv.tab.orb': 'Orbs',
   'inv.gear': 'Equipped',
   'inv.slot.weapon': 'Weapon',
   'inv.slot.primary': 'Lead beast',
@@ -104,14 +121,27 @@ export const en = {
   'inv.stat.movement': 'Movement',
   'inv.stat.salvage': 'Worth',
   'inv.stat.held': 'Held',
+  'inv.stat.orbTier': 'Orb grade',
+  'shop.stat.held': 'You hold',
   'inv.rarity.common': 'Common',
   'inv.rarity.rare': 'Rare',
   'inv.rarity.legendary': 'Legendary',
   'inv.beast.lead': 'Leading',
   'inv.beast.support': 'Supporting',
   'inv.beast.benched': 'Benched',
+  // What stands in for a beast's name where a slot is empty. One string rather
+  // than a branch at each site: four surfaces print a party slot, and "nobody"
+  // is a display word like any other.
+  'beast.none': 'nobody',
   'inv.setLead': 'Send in front',
   'inv.setSupport': 'Send to support',
+  'inv.slot.orb': 'Taming orb',
+  'inv.ready': 'Ready to throw',
+  'inv.unready': 'Put away',
+  // The orb slot's own line, for the same reason the blueprint has one: a player
+  // holding an orb and no way to throw it should be told the key, not left to
+  // find it on the F1 sheet.
+  'inv.orb.hint': 'Readied. Press {key} to throw it at a weakened beast.',
   // ---- quest journal -------------------------------------------------------
   'journal.title': 'Journal',
   'journal.tab.active': 'Active',
@@ -141,6 +171,18 @@ export const en = {
   'toast.used': '{item} used',
   'toast.buffEnded': 'The draught wears off',
   'toast.gotItem': 'Received {item}',
+  // The bond. The first one gets its own line because it is the moment the game
+  // stops being one person with a sword.
+  'toast.bought': 'Bought {item}',
+  'toast.orbReady': '{item} ready to throw',
+  'toast.bonded': '{beast} is bonded to you',
+  'toast.bondedFirst': '{beast} is bonded to you — your first',
+  'toast.bondFailed': 'The orb broke. {beast} is loose again',
+  'toast.orbNone': 'Ready a taming orb in your bag first',
+  'toast.orbNoTarget': 'Aim at a wild beast before you throw',
+  'toast.orbTooWeak': 'A stronger orb than that is needed for {beast}',
+  'toast.orbNotBondable': 'That one cannot be bonded',
+  'toast.orbAlreadyOwned': '{beast} is already bonded to you',
 
   // ---- zones -------------------------------------------------------------
   // Keyed by the ZoneDef id in main.ts ('overworld', 'hold').
@@ -559,6 +601,8 @@ export const en = {
   'keys.swap': 'Swap lead and support',
   'keys.cycleLead': 'Next lead beast',
   'keys.cycleSupport': 'Next support beast',
+  'keys.throwOrb': 'Throw taming orb',
+  'keys.throwOrb.note': 'Ready an orb in the inventory first. Weaken the beast, then throw.',
   'keys.interact': 'Talk · open a skill den',
   'keys.inventory': 'Inventory',
   'keys.journal': 'Quest journal',
