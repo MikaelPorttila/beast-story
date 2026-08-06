@@ -687,6 +687,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      */
     setLayerVisible(): void { /* no streamed layers in the hold */ },
     setFoliageDistance(): void { /* no vegetation in the hold */ },
+    debugDistantTerrain(): null { return null; },
     warmUpEffects(): void { /* the hold owns no visual effects of its own */ },
     debugSkyFall(): null { return null; }, // nothing flies in the hold
 
