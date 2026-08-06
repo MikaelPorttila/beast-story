@@ -930,24 +930,10 @@ export const sections = [
     // The starting weapon back in his hand.
     await act(ctx, 'sword-iron', 'equip');
 
-    // A PARTY FOR EVERY MODULE AFTER THIS ONE. Since issue #4 a new game is
-    // bonded to nothing, and half the shared roster mounts a beast to say
-    // anything at all — carrier flies one under an island, deepwater rides a
-    // swimmer into the basin, gamepad holds Y, pause and gfx merely need the
-    // party in frame. Left alone, every one of them fails with the same
-    // sentence about nothing being bonded, which is a lot of noise about one
-    // fact.
-    //
-    // HERE, AND NOT IN THE HARNESS BOOT, because section 1 of THIS module is
-    // the one place that asserts a new game owns nothing — granting at boot
-    // would make the only test of that claim untestable. It is the same
-    // argument the roster note already makes about this module running first
-    // and permanently enriching the bag; it enriches the roster too now.
-    //
-    // ALL of them rather than the two that used to be seeded: a module that
-    // wants a Finnick should not have to know that inventory happened to bond
-    // a Galebird.
-    await ctx.ev(() => window.__dbgGrantBeast('all'));
+    // The party for the modules after this one is NOT granted here: it is
+    // `resetBetween` in tools/suite/harness.mjs, which runs after every module
+    // rather than once — `pause` exits to the title, and exiting clears
+    // ownership along with the bag. See the note there.
 
     // Best-effort restore of the boot beast loadout: setLead the boot support
     // first, then the boot lead — if the lead was sitting in support, the

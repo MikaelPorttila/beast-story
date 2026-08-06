@@ -188,14 +188,27 @@ const gate = zone0.gate;
 // combat that is about the game rather than about the maths.
 {
   const bodies = await probe(page, '__dbgBodies');
-  const live = bodies.enemies.filter((e) => !e.isDead);
+  // A TARGET ON THE GROUND, and that filter is the whole point of the control.
+  //
+  // The claim is that a sword refuses a target directly OVERHEAD and lands on
+  // one BESIDE the hero. A FLYER is neither: it hovers a few units up under its
+  // own steering, so the "beside it" control swings at something that is already
+  // out of vertical reach and misses — failing the pair while saying nothing at
+  // all about the reach rule.
+  //
+  // The hole was always here: Peckit is a flyer and the nearest enemy was
+  // sometimes one. Issue #4 added a second flyer to the roster and the coin came
+  // up tails often enough to see it. Height above the HERO is what says
+  // airborne, which is cheaper than teaching this probe what a species is and is
+  // the same quantity the reach rule itself is written in.
+  const live = bodies.enemies.filter((e) => !e.isDead && e.y - bodies.player.y < 1.6);
   const near = live.length
     ? live.reduce((a, b) => (
       Math.hypot(a.x - bodies.player.x, a.z - bodies.player.z)
         < Math.hypot(b.x - bodies.player.x, b.z - bodies.player.z) ? a : b))
     : null;
   if (!near) {
-    check(false, 'no live enemy anywhere — the sword half cannot be tested');
+    check(false, 'no live GROUND enemy anywhere — the sword half cannot be tested');
   } else {
     // Beside it, then straight up from the same spot. One evaluate each, so the
     // hero has not fallen a millimetre by the time the query runs.
