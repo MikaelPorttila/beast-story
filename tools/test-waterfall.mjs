@@ -361,6 +361,80 @@ if (scene.fall && scene.sky) {
     `the plume is not reading as water: rgb ${results.plumeWet}`);
 }
 
+// ---------------------------------------------------------------------------
+// 7. THE CHANNEL THAT FEEDS IT IS WATER — issue #89
+//
+// The stream on the deck used to be a course of flat blue voxels while the
+// world it flies over ran a water shader with a swell, a depth ramp and a foam
+// band. It is now that same shader (`SkyIsland.buildStream`), which is a claim
+// with three halves and this section asserts all of them:
+//
+//   * there is a surface at all, and there are stones on its banks — read off
+//     `__dbgSkyFall` rather than counted in pixels, because "how many boulders"
+//     is not something a photograph can be asked;
+//   * it is really drawn, and it rides the `water` switch with the fall: the
+//     channel box must change between `water=1` and `water=0` while a patch of
+//     turf beside it does not;
+//   * what is drawn is WATER-coloured. Blue over red, against a bed that is
+//     deliberately a pale warm gravel — so this fails if the surface silently
+//     stops drawing and the probe photographs the bed.
+// ---------------------------------------------------------------------------
+if (scene.fall && scene.sky) {
+  const { fall: f, sky, spawn } = scene;
+  const cs = Math.cos(sky.yaw); const sn = Math.sin(sky.yaw);
+  // The channel runs from the middle of the island out to the fall's anchor, so
+  // the anchor IS its direction and its length. No seed-dependent number here.
+  const len = Math.hypot(f.anchorX, f.anchorZ);
+  const ux = f.anchorX / len; const uz = f.anchorZ / len;
+  const at = (d, up) => [
+    sky.x + ux * d * cs + uz * d * sn - spawn.x,
+    sky.y + up - spawn.y,
+    sky.z - ux * d * sn + uz * d * cs - spawn.z,
+  ];
+  const n3 = (v) => v.map((k) => k.toFixed(1)).join(',');
+  // Standing over the head of the channel looking along it at the lip, which
+  // puts the water down the middle of the frame and turf either side.
+  const frame = `photo=1&hud=0&fs=0&fps=30&vol=0`
+    + `&cam=${n3(at(len * 0.28, 12))}&look=${n3(at(len * 0.98, -2))}`;
+  const ON_WATER = [0.46, 0.62, 0.55, 0.92];
+  const ON_TURF = [0.78, 0.60, 0.90, 0.85];
+
+  await page.goto(`${HOST}/?${frame}`, { waitUntil: 'load' });
+  await page.waitForSelector('canvas');
+  await wait(4200);
+  const wetCanal = await box(...ON_WATER);
+  const wetTurf = await box(...ON_TURF);
+
+  await page.goto(`${HOST}/?${frame}&water=0`, { waitUntil: 'load' });
+  await page.waitForSelector('canvas');
+  await wait(4200);
+  const dryCanal = await box(...ON_WATER);
+  const dryTurf = await box(...ON_TURF);
+
+  results.streamTris = fall.streamTris;
+  results.canalStones = fall.canalStones;
+  results.canalOnOff = meanAbsDiff(wetCanal, dryCanal);
+  results.turfOnOff = meanAbsDiff(wetTurf, dryTurf);
+  results.canalWet = [wetCanal.r, wetCanal.g, wetCanal.b];
+  results.canalDry = [dryCanal.r, dryCanal.g, dryCanal.b];
+  check(fall.streamTris > 100,
+    `the channel has no water surface: ${fall.streamTris} triangles`);
+  check(fall.canalStones > 10,
+    `nothing lines the canal: ${fall.canalStones} stones`);
+  check(results.canalOnOff > 10,
+    `no water in the channel: water=1 and water=0 differ by ${results.canalOnOff}`);
+  check(results.turfOnOff < 3,
+    `water=0 changed the turf too, so the channel difference is not the stream: `
+    + `${results.turfOnOff}`);
+  check(wetCanal.b > wetCanal.r + 12,
+    `the channel is not reading as water: rgb ${results.canalWet}`);
+  // ...and the bed under it is NOT blue, which is the whole ticket: a warm
+  // gravel that the shader colours, rather than a blue tile that needs no
+  // shader. If this ever passes by accident the check above means nothing.
+  check(dryCanal.b < dryCanal.r + 12,
+    `the bed under the water is painted blue: rgb ${results.canalDry}`);
+}
+
 console.log(JSON.stringify({ ...results, failures: fails, pass: fails.length === 0 }, null, 2));
 await browser.close();
 if (fails.length) {

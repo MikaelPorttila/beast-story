@@ -66,6 +66,7 @@ import { CARRIED_LAYOUT_KIND, content, defineFactory, type TownData } from '../c
 import { displayKey, reportContentIssue } from '../core/content-bridge';
 import type { Terrain } from './terrain';
 import { WATER_LEVEL } from './terrain';
+import { createCarriedWaterMaterial } from './water';
 
 // ---------------------------------------------------------------------------
 // Size
@@ -695,19 +696,43 @@ const PATH_D = 0x9e9787;
 const TILL = 0x6a4a2c;
 const TILL_D = 0x513716;
 /**
- * The stream on the deck. (The FALL is world/waterfall.ts and carries its own.)
+ * The BED of the stream on the deck — gravel, not water.
  *
- * SPEC §6's teal, and it used to be a pale 0x8fd8ec / 0xbceaf6 chosen to "stay
- * visible against the sky" — which was solving the wrong problem, because the
- * channel is seen against GRASS from above and against grass and rim-stone at
- * the lip; the sky is behind the fall, not behind the stream. Read close up at
- * the outflow the pale version was almost white, and it met the fall's SPEC
- * teal in a hard step at exactly the spot a player walks to and looks over.
- * These are SPEC §6's `#1E8AA2` lit and `#1E7E96` body, which is what the fall
- * is built from — one water colour on this island now, not two.
+ * THE CHANNEL USED TO BE PAINTED BLUE (SPEC §6's `#1E8AA2` / `#1E7E96`, one
+ * cube deep, matching the fall's own teal) and issue #89 is that this world
+ * already HAS water: a shader with a swell, a depth ramp, a Fresnel sky
+ * reflection and a foam band that follows the waterline. A flat blue voxel next
+ * to it reads as a painted tile, which is exactly what it was.
+ *
+ * So the columns keep a bed and the water is a real surface laid over them
+ * (`buildStream`, sharing the world's own water material). The colour is a pale
+ * wet gravel on purpose: the shader's shallow stops are tuned for water you can
+ * see the sand through, so a dark bed would drag the whole channel toward the
+ * deep-water blue the fall already owns.
  */
-const WATER = 0x1e7e96;
-const WATER_L = 0x1e8aa2;
+const BED = 0x8a8471;
+const BED_D = 0x767061;
+/**
+ * The water plane's height over the deck, in world units.
+ *
+ * The deck is local 0 (see `localDeck`) and it stays that way: sinking the
+ * channel by a cube would be a 1.2-unit wall against a `MAX_STEP_UP` of 0.5,
+ * i.e. a trench the player cannot climb out of. So the stream is a FILM over a
+ * flat bed — ankle-deep, which is what a channel feeding a lip should be — and
+ * the depth the shader ramps its colour against is baked into the attribute
+ * (`STREAM_DEPTH`) rather than dug out of the rock.
+ */
+const STREAM_LIFT = 0.09;
+/**
+ * What the water shader is told the channel's depth is, at its centreline.
+ *
+ * 0.75 is picked against `world/water.ts`'s own ramps rather than measured off
+ * anything: `dWet` saturates by 0.45 so the channel is fully into the turquoise
+ * SHALLOW stop, `dShore` only reaches 0.39 so it never walks off toward the
+ * open-water blue, and the alpha lands near 0.6 — the bed is legible through
+ * it, which is the whole difference between a stream and a strip of paint.
+ */
+const STREAM_DEPTH = 0.75;
 
 /** Per-voxel value jitter, so a face is not one flat colour. */
 function shade(hex: number, k: number): number {
@@ -764,6 +789,13 @@ interface SkyPlan {
   readonly lamps: ReadonlyArray<{ x: number; z: number; yaw: number }>;
   readonly fences: ReadonlyArray<{ x: number; z: number; yaw: number }>;
   readonly trees: ReadonlyArray<{ t: Template; x: number; z: number; yaw: number; s: number }>;
+  /**
+   * The canal stones: the world's own boulders, walked down both banks of the
+   * stream from its head to the rim. Issue #89 asks for them by name, and they
+   * do a job beyond decoration — they are what tells you the channel is a bank
+   * and not a puddle, at the one place the rail has to be missing.
+   */
+  readonly rocks: ReadonlyArray<{ t: Template; x: number; z: number; yaw: number; s: number }>;
   /** Tilled garden beds, painted into the turf by `buildRock`. */
   readonly plots: ReadonlyArray<{ x: number; z: number; r: number }>;
   /** Bearing the stream leaves on, and where its pool sits. */
@@ -789,6 +821,58 @@ const PLAZA = 19;
  * gives the lip.
  */
 const FALL_LIP = MAP_BLOCK * 2 * CELL;
+
+/**
+ * THE CHANNEL, as one function of a point — how far off the centreline it is,
+ * and how wide the water is there.
+ *
+ * ONE SOURCE OF TRUTH, and that is why it is a module function rather than a
+ * closure inside `buildRock` where it started. Four things now ask about the
+ * stream and they must all get the same answer: the bed the rock paints, the
+ * water surface laid over it, the rocks lining its banks, and the plan's claim
+ * that keeps fences, trees and cottages out of it. The first two disagreeing by
+ * a cell is a strip of blue gravel showing along the water's edge; the last two
+ * disagreeing is a fence panel standing in the stream, which is the other half
+ * of issue #89.
+ *
+ * Null before the head of the run. There is no outer bound: the outline is a
+ * lobed stagger and every caller already refuses everything past it, so a radius
+ * test here could only ever disagree with the one that matters.
+ *
+ * THE MOUTH IS AS WIDE AS THE FALL. At a constant 1.9 of half-width the channel
+ * is about three cells across and the plume leaves six across, so the outermost
+ * columns either side of the water came out as the rim's grey stone — and the
+ * lip is the one place a player is guaranteed to stand and look closely, because
+ * that is where you go to see the drop. `FALL_LIP` is the same constant the
+ * effect is built from, so the two cannot drift apart, plus a full cell of
+ * margin: the water has to reach UNDER the sheet's edge, not merely meet it.
+ *
+ * The flare runs over the last THIRD of the run, so the channel reads as a
+ * stream widening into a mouth rather than as a funnel bolted to a pipe. A fifth
+ * was the first try and it is too short: smoothstep spends most of its range
+ * near its ends, so over 19 units the widening happened almost entirely in the
+ * last four and the mouth still read as a pipe.
+ */
+function streamAt(
+  fallAngle: number, wx: number, wz: number,
+): { across: number; halfW: number } | null {
+  const fx = Math.sin(fallAngle);
+  const fz = Math.cos(fallAngle);
+  const along = wx * fx + wz * fz;
+  if (along < PLAZA * 0.7) return null;
+  const t = Math.max(0, Math.min(1, (along - ISLAND_R * 0.66) / (ISLAND_R * 0.34)));
+  const flare = t * t * (3 - 2 * t);
+  return {
+    across: Math.abs(wx * fz - wz * fx),
+    halfW: 1.9 + flare * (FALL_LIP * 0.5 + CELL - 1.9),
+  };
+}
+
+/** Is this point in the water? See `streamAt`. */
+function onStream(fallAngle: number, wx: number, wz: number): boolean {
+  const s = streamAt(fallAngle, wx, wz);
+  return s !== null && s.across < s.halfW;
+}
 
 // The solid template bake deliberately keeps only its root geometry, so the
 // emissive children authored in sky-parts.ts cannot ride that path. Preserve
@@ -870,6 +954,7 @@ function planSkyhaven(
   const lamps: Array<{ x: number; z: number; yaw: number }> = [];
   const fences: Array<{ x: number; z: number; yaw: number }> = [];
   const trees: Array<{ t: Template; x: number; z: number; yaw: number; s: number }> = [];
+  const rocks: Array<{ t: Template; x: number; z: number; yaw: number; s: number }> = [];
   const plots: Array<{ x: number; z: number; r: number }> = [];
   const at = (a: number, d: number): [number, number] => [Math.sin(a) * d, Math.cos(a) * d];
   /** Everything already standing, so nothing is planted inside a wall. */
@@ -895,8 +980,75 @@ function planSkyhaven(
     }
   }
 
-  // -- the dwellings, in clusters ------------------------------------------
+  // -- the two bearings that own the rim ------------------------------------
+  // BOTH ARE DECIDED BEFORE ANYTHING IS PLANTED, and that ordering is the fix
+  // for half of issue #89. The gate's bearing was already up here in spirit
+  // (`a0` is rolled for it); the STREAM's used to be computed at the very
+  // bottom, after every cottage, tree, bush and fence panel had been placed —
+  // so nothing placed above could be asked "are you standing in the water?".
+  // The answer, on the shipped seed, was a run of rail panels planted across the
+  // channel at the lip.
   const a0 = rng() * 6.28;
+  const gateAngle = a0 + Math.PI * 1.28;
+  // THE FALL IS ON THE FRONT QUARTER, beside the gate, and that is a framing
+  // decision rather than a geography one: the reference sheet leads with a
+  // three-quarter view that has the gate and the waterfall in the same picture,
+  // and a seed-derived bearing put ours behind the island in every shot.
+  const fallAngle = gateAngle + Math.PI * 0.42;
+
+  // -- the water claims its channel ----------------------------------------
+  // A chain of discs down the centreline, so `free` refuses the stream to
+  // everything that asks it. One claim, four consequences: no cottage in the
+  // water, no bush in the water, no tree in the water — and no rail across the
+  // mouth, because the fence loop below already tests `free` before it drops a
+  // panel. THE OPENING AT THE WATERFALL IS THEREFORE NOT A SPECIAL CASE; it is
+  // the same rule that keeps a hedge out of the current, read at the rim.
+  //
+  // The radius is the channel's own half-width plus a margin that covers the
+  // panel's half-length (`SPACING * 0.5`, about 2 units) so a rail is refused
+  // when its END reaches the water rather than only when its centre does.
+  //
+  // THE STONES GO DOWN FIRST, IN A WALK OF THEIR OWN, and the ordering is not
+  // cosmetic: they are the one thing that is MEANT to stand on the waterline,
+  // and a disc claimed at step `d` reaches further across than the bank at step
+  // `d + 2.4` does, so interleaving the two walks (the first version of this)
+  // left the channel claiming its own banks and exactly two stones surviving.
+  // `lib.rockAMoss` / `rockBMoss` are the meadow's own mossy boulders: the same
+  // stone the ground world puts at the edge of a pond, which is what makes the
+  // canal read as part of this world rather than as a kerb built for it.
+  {
+    const stones = [lib.rockAMoss, lib.rockBMoss, lib.rockA, lib.rockB];
+    const bx = Math.cos(fallAngle);
+    const bz = -Math.sin(fallAngle);
+    for (let d = PLAZA * 0.7; d <= ISLAND_R; d += 2.4) {
+      const [cx, cz] = at(fallAngle, d);
+      const s = streamAt(fallAngle, cx, cz);
+      if (!s) continue;
+      for (const side of [-1, 1]) {
+        // ON the bank: half a cell outboard of the waterline, so the stone sits
+        // with its foot wet rather than standing back on the lawn.
+        const off = s.halfW + 0.6 + rng() * 0.5;
+        const x = cx + bx * off * side;
+        const z = cz + bz * off * side;
+        if (!onDeck(x, z) || !free(x, z, 0.9)) continue;
+        rocks.push({
+          t: stones[Math.floor(rng() * stones.length)],
+          x, z, yaw: rng() * 6.28,
+          // Small. These line a two-metre channel; at the meadow's own scale
+          // they would be a wall of erratics down the middle of the town.
+          s: 0.42 + rng() * 0.26,
+        });
+        claim(x, z, 0.9);
+      }
+    }
+  }
+  for (let d = PLAZA * 0.7; d <= ISLAND_R; d += 2.4) {
+    const [cx, cz] = at(fallAngle, d);
+    const s = streamAt(fallAngle, cx, cz);
+    if (s) claim(cx, cz, s.halfW + 2.4);
+  }
+
+  // -- the dwellings, in clusters ------------------------------------------
   let houses = 0;
   for (let c = 0; c < CLUSTERS; c++) {
     // Each knot gets a wedge of the compass and sits at its own distance, so
@@ -972,9 +1124,9 @@ function planSkyhaven(
   }
 
   // -- the gate, on the rim ------------------------------------------------
-  // On its own bearing and pushed right out to the edge, because its whole job
-  // is to break the rim's silhouette and say which side is the front.
-  const gateAngle = a0 + Math.PI * 1.28;
+  // On its own bearing (decided at the top, with the stream's) and pushed right
+  // out to the edge, because its whole job is to break the rim's silhouette and
+  // say which side is the front.
   {
     const [gx, gz] = at(gateAngle, ISLAND_R * 0.9);
     buildings.push({ t: parts.gate, x: gx, z: gz, yaw: gateAngle, s: 1.2, light: [1.6, 7.2] });
@@ -1091,17 +1243,13 @@ function planSkyhaven(
     }
   }
 
-  // THE FALL IS ON THE FRONT QUARTER, beside the gate, and that is a framing
-  // decision rather than a geography one: the reference sheet leads with a
-  // three-quarter view that has the gate and the waterfall in the same picture,
-  // and a seed-derived bearing put ours behind the island in every shot.
-  const fallAngle = gateAngle + Math.PI * 0.42;
-  // The stream: from the square out to the rim on the fall's bearing, so the
-  // waterfall has somewhere to have come FROM. Painted as water in the turf by
-  // `buildRock`, which is why it is a path-shaped thing in the plan.
+  // The stream runs from the square out to the rim on the fall's bearing, so
+  // the waterfall has somewhere to have come FROM: its BED is painted into the
+  // turf by `buildRock` and the water itself is a surface laid over that bed by
+  // `buildStream`, which is why the plan carries a bearing rather than a shape.
   const [fx, fz] = at(fallAngle, PLAZA * 0.9);
   return {
-    buildings, paths, lamps, fences, trees, plots, fallAngle,
+    buildings, paths, lamps, fences, trees, rocks, plots, fallAngle,
     focus: { x: fx * 0.4, z: fz * 0.4 },
   };
 }
@@ -1402,6 +1550,17 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    * it deliberately does NOT go into `geos`/`mats` — those are the rock's.
    */
   private readonly fall: Waterfall | null = null;
+  /**
+   * The water in the channel. Null when `water=0`.
+   *
+   * Geometry and material are both this island's and are disposed with the
+   * rest — but the material's UNIFORM VALUES are the world's, shared by
+   * reference so the stream is clocked and lit with every lake in the world.
+   * See `createCarriedWaterMaterial`.
+   */
+  private stream: THREE.Mesh | null = null;
+  /** How many boulders the plan put on the banks. For `debugFall` only. */
+  private canalStones = 0;
 
   applyCelestial(state: Readonly<CelestialState>): void {
     this.fall?.applyCelestial(state);
@@ -1444,6 +1603,14 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     private readonly homeX: number,
     private readonly homeZ: number,
     seed: number,
+    /**
+     * The world's water shader, the one every lake in it is drawn with. The
+     * stream in the channel is built off this and nothing else — passed in
+     * rather than made here so the island cannot end up with a water that is
+     * clocked, lit or tuned differently from the one on the ground. See
+     * `buildStream`; this material itself is never disposed by the island.
+     */
+    waterMat: THREE.ShaderMaterial,
   ) {
     super(`carrier:town:${data.id}`, ISLAND_R);
     this.rng = mulberry32(seed ^ 0x51a7);
@@ -1508,12 +1675,14 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     );
     this.buildRock(plan);
     for (const t of plan.trees) this.treeSpots.push(t.x, t.z);
+    this.canalStones = plan.rocks.length;
 
     // -- the fall -----------------------------------------------------------
     // Under `flags.water` for the same reason every chunk's surface is: a
     // player who turns water off expects no water anywhere, and this rides that
     // switch rather than earning a settings row of its own for two draw calls.
     if (flags.water) {
+      this.buildStream(plan, waterMat);
       const a = this.fallAnchor(plan);
       this.fall = new Waterfall({
         ...a,
@@ -1818,11 +1987,16 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   }
 
   /**
-   * Show or hide just the fall — the `water` graphics layer, which it rides
-   * rather than earning a settings row of its own. See `World.setLayerVisible`.
+   * Show or hide the island's water — the fall AND the stream that feeds it.
+   * They ride the `water` graphics layer rather than earning a settings row of
+   * their own. See `World.setLayerVisible`.
+   *
+   * BOTH, or the layer lies: hiding the plume while the channel still runs
+   * leaves water pouring into a lip that has nothing coming off it.
    */
   setWaterfallVisible(v: boolean): void {
     this.fall?.setVisible(v);
+    if (this.stream) this.stream.visible = v;
   }
 
   /** Link the fall's two shader programs at boot. See `warmUpSteps` in main.ts. */
@@ -1846,6 +2020,13 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       meshMinY: this.rockMinY,
       cell: CELL,
       hasFall: this.fall ? 1 : 0,
+      // The channel's own surface, as a triangle count — what says the stream is
+      // real water and not a painted bed. See `buildStream`.
+      streamTris: this.stream
+        ? (this.stream.geometry.getIndex()?.count ?? 0) / 3
+        : 0,
+      /** Boulders on the banks. Issue #89 asks for them; this counts them. */
+      canalStones: this.canalStones,
       ...(this.fall?.stats() ?? {}),
     };
   }
@@ -2007,45 +2188,6 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     const onPlot = (wx: number, wz: number): boolean =>
       plan.plots.some((g) => (wx - g.x) ** 2 + (wz - g.z) ** 2 < g.r * g.r);
 
-    /**
-     * The stream: a two-cell channel from the square to the rim, FLARING to the
-     * fall's own lip width over its last stretch.
-     *
-     * THE MOUTH HAS TO BE AS WIDE AS THE FALL. At a constant 1.9 of half-width
-     * the channel is about three cells across and the plume leaves six across,
-     * so the outermost columns either side of the water came out as the rim's
-     * grey stone — and the one place a player is guaranteed to stand and look
-     * closely at this is the lip, because that is where you go to see the drop.
-     * `FALL_LIP` is the same constant the effect is built from, so the two
-     * cannot drift apart.
-     *
-     * NO OUTER BOUND. It used to stop at `ISLAND_R`, which is the radius of a
-     * CIRCLE — but the outline is a lobed stagger that reaches 0.998 of it at
-     * the peak and the projection `along` is shorter still off the centreline,
-     * so the test could refuse the last column or two on some bearings and not
-     * on others. The column loop already skips everything past the outline;
-     * there is nothing out there for this to answer about.
-     */
-    const fx = Math.sin(plan.fallAngle);
-    const fz = Math.cos(plan.fallAngle);
-    const onStream = (wx: number, wz: number): boolean => {
-      const along = wx * fx + wz * fz;
-      if (along < PLAZA * 0.7) return false;
-      const across = Math.abs(wx * fz - wz * fx);
-      // Flare over the last THIRD of the run, so the channel reads as a stream
-      // widening into a mouth rather than as a funnel bolted to a pipe. A fifth
-      // was the first try and it is too short: smoothstep spends most of its
-      // range near its ends, so over 19 units the widening happened almost
-      // entirely in the last four and the mouth still read as a pipe.
-      const t = Math.max(0, Math.min(1, (along - ISLAND_R * 0.66) / (ISLAND_R * 0.34)));
-      const flare = t * t * (3 - 2 * t);
-      // A full cell of margin past the plume's own half-width: the water has to
-      // reach UNDER the sheet's edge, not merely meet it, or the outermost
-      // column either side of the fall comes back as rim-stone.
-      const halfW = 1.9 + flare * (FALL_LIP * 0.5 + CELL - 1.9);
-      return across < halfW;
-    };
-
     for (let gx = -R; gx <= R; gx++) {
       for (let gz = -R; gz <= R; gz++) {
         // Cell centres, so a column's world position is the middle of its cube.
@@ -2074,9 +2216,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
           - (hash2(Math.floor(gx / 2), Math.floor(gz / 2), 89) < 0.35 ? 1 : 0);
         this.paintColumn(
           v, gx, gz, depth, stone,
-          // Water first: the map's collar reads 0 at the outflow, because a
+          // The bed first: the map's collar reads 0 at the outflow, because a
           // stream running over the lip has cut through it.
-          onStream(wx, wz) ? 'water'
+          onStream(plan.fallAngle, wx, wz) ? 'streambed'
             : rim ? 'rimstone'
               : onPlaza(wx, wz) || onPath(wx, wz) ? 'paved'
                 : onPlot(wx, wz) ? 'tilled' : 'turf',
@@ -2086,9 +2228,10 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
 
     // THE WATERFALL IS NOT HERE ANY MORE. It was forty courses of opaque cubes
     // baked into this model — see `fallAnchor` and world/waterfall.ts, which
-    // replaced them with an animated sheet. The stream that FEEDS it is still
-    // painted above (`onStream`): the channel is the island's, the drop is the
-    // effect's, and the effect's lip cap covers the seam between them.
+    // replaced them with an animated sheet. What is painted above is the stream
+    // that feeds it, and only its BED: the water is `buildStream`'s surface.
+    // The channel is the island's, the drop is the effect's, and the effect's
+    // lip cap covers the seam between them.
 
     const mesh = v.build(CELL, false);
     // `build` re-bases the model so its LOWEST voxel sits at y = 0, i.e. a cell
@@ -2118,6 +2261,125 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   }
 
   /**
+   * THE WATER IN THE CHANNEL — the world's own water surface, laid over the bed
+   * `buildRock` painted. Issue #89.
+   *
+   * IT IS THE SAME MATERIAL THE LAKES USE, handed in from `createWorld`, and
+   * that is the entire point of the ticket rather than an optimisation: this
+   * world already owns a water shader with a swell, a four-stop depth ramp, a
+   * Fresnel sky reflection, a sun glint and a foam band that follows the
+   * waterline, and the island was answering it with a flat blue voxel. Sharing
+   * the material also means the stream is lit by the same sun uniforms, moves on
+   * the same clock and costs no second shader program — `World` already updates
+   * all of it, every frame, for the chunks.
+   *
+   * WHAT THIS FILE HAS TO SUPPLY IS THE ATTRIBUTES, because `buildWaterMesh`
+   * bakes them off a terrain height field and there is no terrain up here:
+   *
+   *   `aDepth` — `STREAM_DEPTH` at the centreline, falling to 0 at the bank.
+   *     The shader's colour, its swell amplitude and its opacity are all
+   *     functions of it, and 0 at the edge is what makes the waterline a soft
+   *     dissolve instead of a cut (`edge` in the fragment shader).
+   *   `aShore` — distance in CELLS to the bank, which is what the foam band
+   *     reads. A channel is all shore, so both banks get surf for free and the
+   *     mouth gets it either side of the fall.
+   *   `aLand`  — 0 everywhere. The wet-sand apron is a beach's business.
+   *
+   * PER-CORNER, NOT PER-CELL. Sampling the channel at the cell centre and
+   * writing one value to all four corners steps the depth in whole cells, and a
+   * 2-unit-wide stream is three cells across — the ramp would be a staircase.
+   * Corners are duplicated rather than shared (four vertices per cell, ~1.2k for
+   * the whole channel): they carry identical values at a shared position, so
+   * nothing seams, and the index bookkeeping a shared grid would need buys
+   * nothing at this size.
+   */
+  private buildStream(plan: SkyPlan, mat: THREE.ShaderMaterial): void {
+    const R = Math.ceil(RC) + 2;
+    const pos: number[] = [];
+    const nor: number[] = [];
+    const dep: number[] = [];
+    const sho: number[] = [];
+    const lnd: number[] = [];
+    const idx: number[] = [];
+    /** Depth and shore distance at a GRID CORNER, i.e. the cube's own corner. */
+    const corner = (gx: number, gz: number): void => {
+      const wx = gx * CELL;
+      const wz = gz * CELL;
+      const s = streamAt(plan.fallAngle, wx, wz);
+      // Outside the water: depth 0 (transparent) and shore 0 (full foam), which
+      // is what the edge of a stream looks like from above.
+      const t = s ? Math.max(0, 1 - s.across / s.halfW) : 0;
+      pos.push(wx, STREAM_LIFT, wz);
+      nor.push(0, 1, 0);
+      // Smoothstepped, so the bank is a curve rather than a cone: the linear
+      // ramp put a visible crease down each side where the alpha ramp bit.
+      dep.push(STREAM_DEPTH * t * t * (3 - 2 * t));
+      // aShore is in the shader's own cells and its two foam bands read out to
+      // 1.65 and 1.25 of them, so writing a TERRAIN distance here floods the
+      // channel: a lake is tens of cells across and this is three, so the surf
+      // meant for a coastline covered the whole stream in white (captured —
+      // `_canal-lip`, the water reading as a milk chute). `FOAM_REACH` is
+      // therefore how far the band is allowed to come in, in world units, and
+      // the distance is scaled into the shader's numbers rather than the
+      // shader's numbers being re-tuned for a case the lakes do not have.
+      const FOAM_REACH = 0.55;
+      const bank = s ? Math.max(0, s.halfW - s.across) : 0;
+      sho.push(Math.min(5, (bank / FOAM_REACH) * 1.65));
+      lnd.push(0);
+    };
+    for (let gx = -R; gx <= R; gx++) {
+      for (let gz = -R; gz <= R; gz++) {
+        // The SAME two tests `buildRock` paints the bed with, in the same order
+        // and off the same cell centre — a water quad over a column that came
+        // out as rock is a blue tile hanging over the void.
+        const wx = (gx + 0.5) * CELL;
+        const wz = (gz + 0.5) * CELL;
+        if (Math.hypot(gx + 0.5, gz + 0.5) > outlineAt(Math.atan2(wx, wz), this.phase)) continue;
+        if (!onStream(plan.fallAngle, wx, wz)) continue;
+        const base = pos.length / 3;
+        corner(gx, gz);
+        corner(gx + 1, gz);
+        corner(gx, gz + 1);
+        corner(gx + 1, gz + 1);
+        idx.push(base, base + 2, base + 3, base, base + 3, base + 1);
+      }
+    }
+    if (idx.length === 0) return;
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    geo.setAttribute('aDepth', new THREE.Float32BufferAttribute(dep, 1));
+    geo.setAttribute('aShore', new THREE.Float32BufferAttribute(sho, 1));
+    geo.setAttribute('aLand', new THREE.Float32BufferAttribute(lnd, 1));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    // The world's water, minus the chunk-streaming dissolve it has no far sheet
+    // to dissolve INTO up here — the channel used to disappear the moment the
+    // player walked out of the detailed ring. See `createCarriedWaterMaterial`.
+    const own = createCarriedWaterMaterial(mat);
+    const mesh = new THREE.Mesh(geo, own);
+    // The lake's own render order, so the two sort the same way against the
+    // transparent VFX that draw after them (the fall is one of those).
+    mesh.renderOrder = 2;
+    // A film of water casts no shadow and takes none: `depthWrite` is off on
+    // this material, so a shadow-casting stream would be a shadow with nothing
+    // under it, and receiving one would print the tower's shadow onto a surface
+    // the bed under it already carries.
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    mesh.name = 'sky:stream';
+    this.stream = mesh;
+    this.root.add(mesh);
+    this.geos.push(geo);
+    // Ours to dispose: `createCarriedWaterMaterial` made it. The UNIFORM VALUES
+    // inside it are the world's and are not touched by a material dispose.
+    this.mats.push(own);
+  }
+
+  /**
    * One column of the island: turf (or flagstones, or the stream) on top, a
    * course of dirt, then stone down to `depth` — and only the cells whose faces
    * can be seen.
@@ -2127,7 +2389,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    */
   private paintColumn(
     v: VoxelModel, gx: number, gz: number, depth: number, stone: boolean,
-    surface: 'turf' | 'paved' | 'tilled' | 'water' | 'rimstone',
+    surface: 'turf' | 'paved' | 'tilled' | 'streambed' | 'rimstone',
   ): void {
     const j = hash2(gx, gz, 7);
     // Direction-neutral base. The moving key light now owns azimuth; baking the
@@ -2164,10 +2426,14 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     // -- the surface course ---------------------------------------------------
     // FOUR GROUND MATERIALS, because the reference's plateau is not a lawn: it
     // is flagstone in the square and the streets, tilled rows in the gardens,
-    // water in the channel, and turf in between. One of these per column is the
+    // gravel in the channel, and turf in between. One of these per column is the
     // whole of the ground dressing and it costs nothing.
     let topC: number;
-    if (surface === 'water') topC = shade(j < 0.4 ? WATER_L : WATER, 0.94 + j * 0.16);
+    // The bed is SEEN THROUGH the water surface `buildStream` lays over it, so
+    // its jitter is wider than the other four: a shallow water shader reads a
+    // bed's own variation as texture in the water, and a flat one reads as a
+    // sheet of colour with a film on top. See BED.
+    if (surface === 'streambed') topC = shade(j < 0.45 ? BED : BED_D, 0.90 + j * 0.22);
     // THE COLLAR IS THE CLIFF, SEEN END-ON, so it is the cliff's own two light
     // stops and the cliff's own sun term — not a fifth ground material. Its top
     // face gets the +Y face shade of 1.00 against 0.88 on the sheer band below
@@ -2474,6 +2740,13 @@ const buildSkyhaven: CarriedLayout = (solid, parts, plan) => {
   // chunk, which is why it needed the second consumer rather than a second
   // number. Issue #80: you walked through every trunk on the deck.
   for (const t of plan.trees) solid.add(t.t, t.x, 0, t.z, t.yaw, t.s);
+  // The canal stones, through the same stamp — so they block like every other
+  // boulder in the world does. They are knee-high at this scale and they line a
+  // channel nobody has to walk down, which is the reason a solid rock beside the
+  // water is the right answer here and a decorative one would not be: you can
+  // stand on the bank, and what you are standing next to stops you sliding into
+  // the current at the exact place the rail is deliberately missing.
+  for (const r of plan.rocks) solid.add(r.t, r.x, 0, r.z, r.yaw, r.s);
 };
 
 /** The carried layouts this build implements. See `TownData.carried`. */

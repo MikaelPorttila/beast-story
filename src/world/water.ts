@@ -677,6 +677,32 @@ export function createWaterMaterial(): THREE.ShaderMaterial {
   return mat;
 }
 
+/**
+ * A second surface off the same shader for water that is NOT a terrain chunk —
+ * today the stream on the flying island (world/sky-island.ts).
+ *
+ * IT SHARES `src`'s UNIFORM OBJECTS, deliberately and by reference: the clock,
+ * the sun direction, its colour and strength, and the streaming focus are all
+ * driven once per frame by `World` and both materials read the same values, so
+ * a carried stream cannot end up lit at a different time of day from the lake
+ * it is flying over. What it does NOT share is `uDetailFade`, and that is the
+ * whole reason a second material exists at all — the fade dissolves detailed
+ * water into `distant-terrain.ts`'s coarse far sheet, and there is no far sheet
+ * eighty units up: an island's channel simply vanished as the player walked
+ * away from it. Pinned past any view distance, it fades with nothing.
+ *
+ * Same shader source, so three's program cache hands both materials the same
+ * compiled program: this costs one more material, not one more shader.
+ */
+export function createCarriedWaterMaterial(src: THREE.ShaderMaterial): THREE.ShaderMaterial {
+  const mat = createWaterMaterial();
+  mat.uniforms = {
+    ...src.uniforms,
+    uDetailFade: { value: new THREE.Vector2(1e7, 1e7 + 1) },
+  };
+  return mat;
+}
+
 /** Keep detailed water's dissolve aligned with the current voxel-detail ring. */
 export function setWaterDetailDistance(mat: THREE.ShaderMaterial, distance: number): void {
   (mat.uniforms['uDetailFade'].value as THREE.Vector2).set(
