@@ -200,7 +200,11 @@ Cross-cutting rules:
 
 ## UI and input
 
-- **A modal freezes the hero.** The F3 performance panel is the exception.
+- **A modal takes the INPUT, never the clock.** The game never stops: with a
+  panel up the hero still runs physics, so a jump lands and a fall finishes —
+  he simply takes no input while it is up. `simulate()` sets `Input.suspended`
+  around its gameplay block and clears it before reading the panel's own keys.
+  The F3 performance panel is not a modal at all.
 - **In game, `main.ts`'s cancel branch is the only reader of Escape** — it
   closes the topmost modal, and a panel reports its dismissal to its host. (The
   title screen and dev console are pre-game and handle their own.)

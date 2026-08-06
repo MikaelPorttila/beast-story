@@ -134,8 +134,33 @@ export class Input {
    * the cursor deliberately. See `armRelock` for what it gates.
    */
   autoRelock = false;
-  attackHeld = false;
-  attackPressed = false;
+  /**
+   * While true every GAMEPLAY read of this class answers "nothing pressed" —
+   * held keys, press edges, both stick axes and the attack button.
+   *
+   * A PANEL TAKES THE INPUT, NOT THE CLOCK (issue #101). Every modal in this
+   * game used to be a freeze: `simulate` skipped the player controller outright,
+   * so a hero who opened the bag mid-jump hung in the air until it was closed
+   * while the enemies swinging at him — which were never frozen — went on
+   * moving. What a panel actually claims is the KEYBOARD, and that is all this
+   * expresses: the controller still runs, so gravity, friction, the landing and
+   * the swing already in flight all resolve, and they resolve with the sticks at
+   * rest.
+   *
+   * SCOPED TO THE SIMULATION SLICE and nowhere else. `simulate` in main.ts sets
+   * it around the gameplay block and clears it immediately after, because the
+   * frame loop's OWN reads — Escape, F10, the panel navigation keys — are the
+   * presses the modal is up to receive. Anything reading input outside that
+   * window is unaffected, which is what keeps this a one-line policy rather than
+   * a mode.
+   */
+  suspended = false;
+  private attackDown = false;
+  private attackEdge = false;
+  /** True while the attack button is held. Suppressed by `suspended`. */
+  get attackHeld(): boolean { return !this.suspended && this.attackDown; }
+  /** True on the frame the attack button went down. Suppressed by `suspended`. */
+  get attackPressed(): boolean { return !this.suspended && this.attackEdge; }
   /**
    * `performance.now()` when the browser took the pointer while the game still
    * wanted it, or 0 when there is nothing to recover. See `armRelock`.
@@ -256,7 +281,7 @@ export class Input {
       this.focused = false;
       this.keys.clear();
       this.virtualHeld.clear();
-      this.attackHeld = false;
+      this.attackDown = false;
       // Both sticks too: a pad held over on the moment focus is lost would
       // otherwise keep the hero walking into the void behind an alt-tab. The
       // pad re-reports its true state on the first poll after focus returns.
@@ -270,10 +295,10 @@ export class Input {
       // records the same intent the explicit callers do — it carries the touch
       // guard and the already-locked guard that used to be written out here.
       this.requestLock();
-      if (e.button === 0) { this.attackHeld = true; this.attackPressed = true; }
+      if (e.button === 0) { this.attackDown = true; this.attackEdge = true; }
     });
     window.addEventListener('mouseup', (e) => {
-      if (e.button === 0) this.attackHeld = false;
+      if (e.button === 0) this.attackDown = false;
     });
     document.addEventListener('pointerlockchange', () => {
       const had = this.pointerLocked;
@@ -359,11 +384,14 @@ export class Input {
   }
 
   down(code: string): boolean {
+    if (this.suspended) return false;
     return this.keys.has(code) || this.virtualHeld.has(code);
   }
 
   /** True only on the frame the key went down */
-  pressed(code: string): boolean { return this.pressedThisFrame.has(code); }
+  pressed(code: string): boolean {
+    return !this.suspended && this.pressedThisFrame.has(code);
+  }
 
   /**
    * True on the frame the key went down — and CONSUMES the edge.
@@ -386,7 +414,9 @@ export class Input {
    * pressed since you last asked", which is a different question with a
    * different consumer.
    */
-  takePress(code: string): boolean { return this.pressedThisFrame.delete(code); }
+  takePress(code: string): boolean {
+    return !this.suspended && this.pressedThisFrame.delete(code);
+  }
 
   /**
    * True while look input should drive the camera.
@@ -418,12 +448,14 @@ export class Input {
 
   /** Forward axis, -1..1: analog stick if deflected, else W/S. */
   get axisFwd(): number {
+    if (this.suspended) return 0;
     const kb = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0);
     return kb !== 0 ? kb : (this.stick()?.fwd ?? 0);
   }
 
   /** Strafe axis, -1..1: analog stick if deflected, else D/A. */
   get axisSide(): number {
+    if (this.suspended) return 0;
     const kb = (this.keys.has('KeyD') ? 1 : 0) - (this.keys.has('KeyA') ? 1 : 0);
     return kb !== 0 ? kb : (this.stick()?.side ?? 0);
   }
@@ -591,12 +623,17 @@ export class Input {
    * Throw away look and zoom accumulated but not yet consumed.
    *
    * For a modal that KEEPS pointer lock — the F1 controls sheet. The mouse goes
-   * on reporting movement into `mouseDX` while the panel is up, and no
-   * simulation slice will spend it (a modal freezes the hero, so no camera
-   * update runs to `takeLook` it): a whole reading session's worth therefore
-   * survives to the frame the sheet closes and lands as a flick of the camera.
-   * The shop never needed this because it releases the lock, and `mousemove` is
-   * gated on holding it.
+   * on reporting movement into `mouseDX` while the panel is up, and the camera
+   * must not spend it: reading a sheet is not aiming. `frame()` in main.ts calls
+   * this on every frame with a modal open, which is what keeps the arm still
+   * both WHILE the sheet is up and on the frame it closes — a whole reading
+   * session's worth of delta would otherwise land as one flick. The shop never
+   * needed it because it releases the lock, and `mousemove` is gated on holding
+   * it.
+   *
+   * It is the LOOK half of what `suspended` does for the buttons, and stays a
+   * separate call because it is the host's per-FRAME decision while suspension
+   * is scoped to the simulation block.
    */
   clearLook(): void {
     this.mouseDX = 0;
@@ -621,8 +658,8 @@ export class Input {
   tapVirtual(code: string): void { this.press(code); }
 
   setVirtualAttack(held: boolean): void {
-    if (held && !this.attackHeld) this.attackPressed = true;
-    this.attackHeld = held;
+    if (held && !this.attackDown) this.attackEdge = true;
+    this.attackDown = held;
   }
 
   /**
@@ -638,7 +675,7 @@ export class Input {
     this.mouseDX = 0;
     this.mouseDY = 0;
     this.wheelDelta = 0;
-    this.attackPressed = false;
+    this.attackEdge = false;
     this.pressedThisFrame.clear();
   }
 
@@ -661,8 +698,8 @@ export class Input {
     return {
       held,
       pressedSince,
-      attackHeld: this.attackHeld,
-      attackPressed: this.attackPressed,
+      attackHeld: this.attackDown,
+      attackPressed: this.attackEdge,
       mouseDX: this.mouseDX,
       mouseDY: this.mouseDY,
       wheelDelta: this.wheelDelta,

@@ -89,8 +89,9 @@ await toggle(page, true);
 
 // ---------- 2. the modal pair ----------------------------------------------
 // The hold is SIMULATED: a held key stays held through `adv`, and the modal
-// branch in simulate() freezes the hero in exactly those slices — which is the
-// claim being made.
+// suspends the input in exactly those slices — which is the claim being made.
+// The controller still RUNS behind the panel (issue #101); 0 travel is the
+// sticks being at rest, not the clock stopping.
 {
   const hold = async (simS) => {
     const a = await pos(page);

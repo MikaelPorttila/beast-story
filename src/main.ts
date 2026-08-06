@@ -3579,24 +3579,20 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // exactly that back out again.
   if (interactive && !modal) touch?.update(dt);
 
-  // A FROZEN HERO IS STILL STANDING ON SOMETHING. Both branches that skip the
-  // player controller — photo mode, and every modal in the game — still have to
-  // move him with whatever is carrying him, or a player who opened the menu on
-  // the flying island watches it slide out from under his feet and is left
-  // standing in the sky. Being frozen means "takes no input and runs no
-  // physics", not "detached from the world"; the beasts and the wild population
-  // below this branch were never frozen and never had the problem.
+  // A HERO NOBODY IS DRIVING IS STILL STANDING ON SOMETHING. Photo mode is the
+  // one branch left that skips the player controller, and it still has to move
+  // him with whatever is carrying him, or a staged capture on the flying island
+  // watches the deck slide out from under his feet.
   //
   // The mount answers for the pair of them when one is being ridden (it writes
   // the hero's position), and is a no-op otherwise — so exactly one of these
   // two moves him, which is the same split `Player.update` makes.
-  if (!interactive || modal) {
+  //
+  // A MODAL USED TO BE THE SECOND BRANCH HERE and is not any more — see the
+  // `input.suspended` note below. That is issue #101.
+  if (!interactive) {
     mount.carryFrozen(dt);
     if (!mount.isMounted) player.carry();
-    // ...and the LENS follows him, which `player.update` would have done and is
-    // not going to. Skipped in photo mode, which drives the camera itself and
-    // must not have the follow rig fighting it. See `Player.followCamera`.
-    if (interactive) player.followCamera(dt);
   }
 
   // Photo mode drives the camera and the subject itself and must not have the
@@ -3604,7 +3600,22 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // stream and the beasts to animate — everything below the branch.
   if (!interactive) {
     // fall through to the world update
-  } else if (!modal) {
+  } else {
+    // A PANEL TAKES THE INPUT, NOT THE CLOCK (issue #101). This block used to be
+    // gated on `!modal`, so opening the bag, the shop, the F1 sheet, the menu or
+    // the console froze the hero outright: jump, open a panel, and he hung in
+    // the air until it was closed — while the enemies below this branch, which
+    // were never frozen, went on swinging at him. THE GAME NEVER STOPS; a modal
+    // only claims the keyboard.
+    //
+    // `input.suspended` is that claim and the whole of it (core/input.ts): every
+    // gameplay read answers "nothing pressed", so the hotbar, Tab, E and the
+    // sword below cannot fire, and `player.update` runs a slice with the sticks
+    // at rest — gravity, friction, the landing and a swing already in flight all
+    // resolve. It is set for THIS BLOCK ONLY and cleared at the end of it,
+    // because the modal's own keys (Escape, F10, the panel navigation) are read
+    // after it and are exactly what the panel is up to receive.
+    input.suspended = modal;
     perf.section('input');
     // Mounting runs BEFORE the player: while a beast is being ridden it writes
     // the hero's position, velocity and saddle pose for this slice, and
@@ -3714,45 +3725,53 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // the other half of that rule.
     if (first && input.pressed('Escape') && npcField?.talking) npcField.endTalk();
     if (first && input.pressed('F10')) pauseMenu.open();
-  } else if (first && (input.pressed('Escape') || input.pressed('F10') || input.pressed('KeyE'))) {
-    // Cancel closes the TOPMOST modal, which is the only reason this is an
-    // if/else rather than two calls: F1 can be pressed with a den open, the
-    // sheet draws over it (see the wrapper order in ui/index.ts), and one press
-    // of Escape must dismiss one thing. The pad reaches this too — B and Start
-    // tap Escape while a modal is up, which is how a controller player closes a
-    // sheet they have no button to open.
-    //
-    // The in-game menu goes FIRST and answers for itself: inside its settings
-    // step Escape means "back to the list" rather than "close", so it is the one
-    // modal here that can decline to be dismissed. `onEscape` returns whether it
-    // spent the press. `KeyE` is the pad's X — confirm — so it activates the
-    // focused row instead of cancelling, which is what makes a controller able
-    // to work this menu with no other buttons.
-    //
-    // F10 IS A CANCEL IN HERE, which is what makes it a TOGGLE: the key that
-    // opened the menu closes it, the way Start does on a console and the way F1
-    // already works for the controls sheet. It is folded into the same branch as
-    // Escape rather than given one of its own, so "one press dismisses one
-    // thing" stays true however the press arrived.
-    const cancel = input.pressed('Escape') || input.pressed('F10');
-    if (pauseMenu.isOpen) {
-      if (cancel) pauseMenu.onEscape();
-      else pauseMenu.activate();
-    } else if (inventory.isOpen) {
-      // Same shape as the menu above: cancel asks the panel to spend the press
-      // and X (KeyE on the pad) confirms the focused control, which is what
-      // makes the inventory workable from a controller with no other buttons.
-      if (cancel) inventory.onEscape();
-      else inventory.activate();
-    } else if (journal.isOpen) {
-      // Below the inventory in the chain rather than above it because the
-      // inventory is the panel that can be opened over this one — `I` is gated
-      // on the other modals, and the journal is one of them, so the two can
-      // never both be up. The order is what it would be if they could.
-      if (cancel) journal.onEscape();
-      else journal.activate();
-    } else if (hud.isControlsOpen()) hud.closeControls();
-    else hud.closeShop();
+
+    // THE GAMEPLAY BLOCK ENDS HERE, and so does the suspension. Everything below
+    // is the modal's own keyboard: it must read the presses this block was told
+    // to ignore. See `input.suspended` at the top of the branch.
+    input.suspended = false;
+
+    if (modal && first
+      && (input.pressed('Escape') || input.pressed('F10') || input.pressed('KeyE'))) {
+      // Cancel closes the TOPMOST modal, which is the only reason this is an
+      // if/else rather than two calls: F1 can be pressed with a den open, the
+      // sheet draws over it (see the wrapper order in ui/index.ts), and one press
+      // of Escape must dismiss one thing. The pad reaches this too — B and Start
+      // tap Escape while a modal is up, which is how a controller player closes a
+      // sheet they have no button to open.
+      //
+      // The in-game menu goes FIRST and answers for itself: inside its settings
+      // step Escape means "back to the list" rather than "close", so it is the one
+      // modal here that can decline to be dismissed. `onEscape` returns whether it
+      // spent the press. `KeyE` is the pad's X — confirm — so it activates the
+      // focused row instead of cancelling, which is what makes a controller able
+      // to work this menu with no other buttons.
+      //
+      // F10 IS A CANCEL IN HERE, which is what makes it a TOGGLE: the key that
+      // opened the menu closes it, the way Start does on a console and the way F1
+      // already works for the controls sheet. It is folded into the same branch as
+      // Escape rather than given one of its own, so "one press dismisses one
+      // thing" stays true however the press arrived.
+      const cancel = input.pressed('Escape') || input.pressed('F10');
+      if (pauseMenu.isOpen) {
+        if (cancel) pauseMenu.onEscape();
+        else pauseMenu.activate();
+      } else if (inventory.isOpen) {
+        // Same shape as the menu above: cancel asks the panel to spend the press
+        // and X (KeyE on the pad) confirms the focused control, which is what
+        // makes the inventory workable from a controller with no other buttons.
+        if (cancel) inventory.onEscape();
+        else inventory.activate();
+      } else if (journal.isOpen) {
+        // Below the inventory in the chain rather than above it because the
+        // inventory is the panel that can be opened over this one — `I` is gated
+        // on the other modals, and the journal is one of them, so the two can
+        // never both be up. The order is what it would be if they could.
+        if (cancel) journal.onEscape();
+        else journal.activate();
+      } else if (hud.isControlsOpen()) hud.closeControls();
+      else hud.closeShop();
+    }
   }
 
   // Contact particles. Sits between the `player` and `beasts` profiler markers, so
@@ -3763,7 +3782,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // Cooldowns
   for (const [id, t] of cooldowns) cooldowns.set(id, Math.max(0, t - dt));
   // ...and the potion buff, on the same clock and for the same reason: both are
-  // durations the player is watching, so both stop while a modal is up.
+  // durations the player is watching, and a panel does not stop the game — see
+  // `input.suspended` above.
   updateBuffs(dt);
 
   // Beasts follow

@@ -27,9 +27,11 @@
 // THREE SECTIONS ARE PAIRS, for the reason every other probe in tools/ that says
 // so gives — one arm alone passes against a broken build:
 //
-//   * `I` opens AND the hero is frozen while it is up. "The panel appeared" is
-//     equally true of a modal and of a picture drawn over a hero still walking
-//     into a lake, which is the bug the modal rule exists to prevent.
+//   * `I` opens AND the hero takes no input while it is up. "The panel
+//     appeared" is equally true of a modal and of a picture drawn over a hero
+//     still walking into a lake, which is the bug the modal rule exists to
+//     prevent. He is still SIMULATED behind it — a jump landing with a panel up
+//     is issue #101, and its guard is `airborne` in tools/test-pause.mjs.
 //   * Salvage removes the stack AND pays out. Either alone passes for a button
 //     that destroys your things for nothing, or one that prints money.
 //   * Drop removes the stack AND leaves a drop on the ground that does NOT come
@@ -130,12 +132,14 @@ export const sections = [
       `the two beast slots are not filled: ${JSON.stringify(gearBeasts)}`);
   } },
 
-  // ---------- 2. `I` opens it, AND the hero is frozen behind it ----------
+  // ---------- 2. `I` opens it, AND the hero stops taking input ----------
   // The pair. `travel` with the panel up must be 0, and the identical hold with it
   // down must move him — otherwise "0" is a hero who could not walk anyway.
   { id: 'modal', run: async (ctx) => {
     // The hold is SIMULATED: a held key stays held through `adv`, and the modal
-    // branch freezes the hero in exactly those slices — which is the claim.
+    // suspends the input in exactly those slices — which is the claim. The
+    // controller still runs (issue #101), so this reads 0 because the sticks are
+    // at rest, not because the clock stopped.
     const hold = async (simS) => {
       const a = await pos(ctx);
       await ctx.page.keyboard.down('KeyW');
@@ -188,7 +192,7 @@ export const sections = [
       `the hero travelled ${travelOpen.toFixed(2)} with the panel up — it must be a modal`);
     ctx.check(travelShut > 3,
       `the hero travelled only ${travelShut.toFixed(2)} with the panel down — `
-      + 'the frozen reading above proves nothing');
+      + 'the still reading above proves nothing');
     // The panel drew what the model holds: every beast plus the three starting
     // items, FILLED, inside a fixed 11x3 wall of thirty-three, three gear slots,
     // seven tabs. Both numbers, because the wall's shape is the feature — a grid
@@ -511,9 +515,9 @@ export const sections = [
   // only do if both are writing `primaryIdx`/`supportIdx`.
   { id: 'beastSlots', run: async (ctx) => {
     // THE PANEL HAS TO BE SHUT FOR THIS ONE. Tab is read in a simulation slice
-    // and every modal in the game freezes those, so a Tab pressed with the
-    // inventory up is a Tab the hero never sees — which reads exactly like the
-    // failure this section is looking for, and did, for one run.
+    // and every modal in the game suspends the input for those, so a Tab pressed
+    // with the inventory up is a Tab the hero never sees — which reads exactly
+    // like the failure this section is looking for, and did, for one run.
     await closePanel(ctx);
     const before = await inv(ctx);
     const benched = before.entries.find((e) => e.kind === 'beast' && !e.equipped);
