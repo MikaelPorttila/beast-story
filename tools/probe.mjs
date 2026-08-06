@@ -126,6 +126,7 @@ const SOLO = new Set([
   // reads 0 for the right reason and the wrong result. It also takes eleven page
   // loads, half of them screenshots.
   'waterfall',
+  'daynight',      // waits on a live clock and measures the 0.5 s light cadence
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output

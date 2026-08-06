@@ -49,9 +49,9 @@
  * not being able to be wrong.
  */
 import * as THREE from 'three';
-import type { TownInfo, TownRegistry } from '../core/types';
+import type { CelestialState, TownInfo, TownRegistry } from '../core/types';
 import { CarrierBody } from './carriers';
-import { Accum, PropLib, type Template } from './props';
+import { Accum, bakeProp, PropLib, type Template } from './props';
 import { SolidStamp, StructureField } from './structures';
 import { Npcs, type NpcFrame, type NpcSite } from './npc';
 import type { RoadClearance } from './roads';
@@ -507,7 +507,8 @@ const STONE_SOFFIT = 0xa8b6bd;
 const RIM_TOP = 0x5e6b7d;
 
 /**
- * THE ROCK HAS A LIT SIDE AND A SHADED SIDE, AND IT IS BAKED.
+ * Historical fixed-noon rock tuning. Issue #87 now feeds `paintColumn` a
+ * direction-neutral facing value; the live key supplies the lit/shaded side.
  *
  * Measured, the fourth pass had neither: `2-side.png`'s left flank ran median
  * luma 96 against the right flank's 89 — a SEVEN-value split — and `1-front3q`
@@ -540,8 +541,6 @@ const RIM_TOP = 0x5e6b7d;
  * Sun azimuth is `SUN_OFFSET` (core/engine.ts, 170/160/113) flattened and
  * normalised: (0.833, 0.554), i.e. it comes from the +X +Z quadrant.
  */
-const SUN_AZ_X = 0.833;
-const SUN_AZ_Z = 0.554;
 /** Multiplier on a column facing dead into the sun, and on one facing away. */
 const SUN_LIT = 1.24;
 const SUN_AWAY = 0.86;
@@ -755,7 +754,11 @@ function hash2(x: number, z: number, salt: number): number {
  */
 interface SkyPlan {
   /** Every building: what, where, which way it faces. */
-  readonly buildings: ReadonlyArray<{ t: Template; x: number; z: number; yaw: number; s?: number }>;
+  readonly buildings: ReadonlyArray<{
+    t: Template; x: number; z: number; yaw: number; s?: number;
+    /** Facade distance and light height for the separate night-only layer. */
+    light?: readonly [front: number, height: number];
+  }>;
   /** Path centrelines as [x0, z0, x1, z1], painted into the turf. */
   readonly paths: ReadonlyArray<readonly [number, number, number, number]>;
   readonly lamps: ReadonlyArray<{ x: number; z: number; yaw: number }>;
@@ -786,6 +789,20 @@ const PLAZA = 19;
  * gives the lip.
  */
 const FALL_LIP = MAP_BLOCK * 2 * CELL;
+
+// The solid template bake deliberately keeps only its root geometry, so the
+// emissive children authored in sky-parts.ts cannot ride that path. Preserve
+// lighting as its own merged, non-colliding layer instead.
+const SKY_WINDOW: Template = (() => {
+  const v = new VoxelModel();
+  v.box(-1, 0, 0, 0, 1, 0, 0xffc86a);
+  return bakeProp(v, 0.28);
+})();
+const SKY_LANTERN: Template = (() => {
+  const v = new VoxelModel();
+  v.box(-1, -1, -1, 1, 1, 1, 0xffb84f);
+  return bakeProp(v, 0.20);
+})();
 /** The band the dwellings stand in, as fractions of the island radius. */
 const HOUSE_IN = 0.34;
 const HOUSE_OUT = 0.62;
@@ -845,7 +862,10 @@ function planSkyhaven(
   rimAt: (bearing: number) => number,
 ): SkyPlan {
   const rng = mulberry32(seed ^ 0x5c17);
-  const buildings: Array<{ t: Template; x: number; z: number; yaw: number; s?: number }> = [];
+  const buildings: Array<{
+    t: Template; x: number; z: number; yaw: number; s?: number;
+    light?: readonly [front: number, height: number];
+  }> = [];
   const paths: Array<readonly [number, number, number, number]> = [];
   const lamps: Array<{ x: number; z: number; yaw: number }> = [];
   const fences: Array<{ x: number; z: number; yaw: number }> = [];
@@ -859,7 +879,7 @@ function planSkyhaven(
   const claim = (x: number, z: number, r: number): void => { taken.push({ x, z, r }); };
 
   // -- the tower, dead centre ----------------------------------------------
-  buildings.push({ t: parts.tower, x: 0, z: 0, yaw: rng() * 6.28, s: 1.25 });
+  buildings.push({ t: parts.tower, x: 0, z: 0, yaw: rng() * 6.28, s: 1.25, light: [3.8, 4.5] });
   claim(0, 0, 7);
 
   // -- the market on the square --------------------------------------------
@@ -870,7 +890,7 @@ function planSkyhaven(
     claim(wx, wz, 3);
     for (const off of [2.2, 4.3]) {
       const [sx, sz] = at(a + off, PLAZA * 0.72);
-      buildings.push({ t: parts.stall, x: sx, z: sz, yaw: a + off + Math.PI });
+      buildings.push({ t: parts.stall, x: sx, z: sz, yaw: a + off + Math.PI, light: [2.1, 2.4] });
       claim(sx, sz, 4);
     }
   }
@@ -907,6 +927,7 @@ function planSkyhaven(
         // takes the collider with it (`SolidStamp.add`).
         t: parts.cottages[kind + (houses % 2 === 0 ? 0 : 3)],
         x: px, z: pz, yaw: axis + (rng() - 0.5) * 0.12, s: 1.2,
+        light: [3.7, 2.2],
       });
       claim(px, pz, HOUSE_R);
       houses++;
@@ -956,7 +977,7 @@ function planSkyhaven(
   const gateAngle = a0 + Math.PI * 1.28;
   {
     const [gx, gz] = at(gateAngle, ISLAND_R * 0.9);
-    buildings.push({ t: parts.gate, x: gx, z: gz, yaw: gateAngle, s: 1.2 });
+    buildings.push({ t: parts.gate, x: gx, z: gz, yaw: gateAngle, s: 1.2, light: [1.6, 7.2] });
     claim(gx, gz, 8);
     const [p0x, p0z] = at(gateAngle, PLAZA);
     paths.push([p0x, p0z, gx, gz]);
@@ -1371,6 +1392,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
 
   private readonly geos: THREE.BufferGeometry[] = [];
   private readonly mats: THREE.Material[] = [];
+  private nightGlowMat: THREE.MeshStandardMaterial | null = null;
+  /** Four real local lights; emissive windows alone cannot illuminate a wall. */
+  private readonly nightLights: Array<{ light: THREE.PointLight; peak: number }> = [];
   /**
    * The fall off the rim. Null when `water=0`.
    *
@@ -1378,6 +1402,15 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    * it deliberately does NOT go into `geos`/`mats` — those are the rock's.
    */
   private readonly fall: Waterfall | null = null;
+
+  applyCelestial(state: Readonly<CelestialState>): void {
+    this.fall?.applyCelestial(state);
+    if (this.nightGlowMat) {
+      this.nightGlowMat.emissiveIntensity = 1.65 * state.night * state.night;
+    }
+    const darkness = state.night * state.night;
+    for (const entry of this.nightLights) entry.light.intensity = entry.peak * darkness;
+  }
   /**
    * The rock mesh, kept only so `debugFall` can report where `buildRock` put
    * it. That number is the regression the waterfall work has to prove it did
@@ -1510,6 +1543,52 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     layout?.(stamp, parts, plan);
     this.solids.build();
     this.emit(stamp.acc, props.solidMat, true, false);
+
+    const night = new Accum();
+    for (const b of plan.buildings) {
+      if (!b.light) continue;
+      const [front, height] = b.light;
+      night.add(
+        SKY_WINDOW,
+        b.x + Math.sin(b.yaw) * front, height, b.z + Math.cos(b.yaw) * front,
+        b.yaw, 1, 1, 1, 1,
+      );
+    }
+    for (const lamp of plan.lamps) {
+      // skyLamp's flame is course 8 at SV=0.6: 4.8 units above the deck.
+      night.add(SKY_LANTERN, lamp.x, 4.8, lamp.z, lamp.yaw, 1, 1, 1, 1);
+    }
+    this.nightGlowMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.5,
+      metalness: 0,
+      emissive: new THREE.Color(0xffa83d),
+      emissiveIntensity: 0,
+    });
+    this.nightGlowMat.userData.bsNightRole = 'skyhaven-lights';
+    this.emit(night, this.nightGlowMat, false, true);
+
+    // Emissive voxels identify the fixtures but Three has no GI, so they cast
+    // no light onto the pitch-black cottages in the user's capture. Four
+    // shadowless, range-limited lights provide the missing direct illumination:
+    // one broad plaza fill and three lamps around the residential ring. This is
+    // deliberately not one PointLight per lantern — each extra forward light is
+    // another lighting loop on every visible standard material.
+    const addNightLight = (
+      x: number, y: number, z: number, peak: number, distance: number,
+    ): void => {
+      const light = new THREE.PointLight(0xffb86a, 0, distance, 2);
+      light.position.set(x, y, z);
+      light.castShadow = false;
+      light.userData.bsNightRole = 'skyhaven-local-light';
+      this.root.add(light);
+      this.nightLights.push({ light, peak });
+    };
+    addNightLight(0, 9, 0, 26, 48);
+    for (let k = 0; k < Math.min(3, plan.lamps.length); k++) {
+      const lamp = plan.lamps[Math.floor((k * plan.lamps.length) / 3)];
+      addNightLight(lamp.x, 5.2, lamp.z, 18, 36);
+    }
 
     // -- the people ---------------------------------------------------------
     // Every query in the site is in the island's frame, so the placement search
@@ -2051,12 +2130,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     surface: 'turf' | 'paved' | 'tilled' | 'water' | 'rimstone',
   ): void {
     const j = hash2(gx, gz, 7);
-    // -- which way this column faces, and therefore how the sun finds it ------
-    // The island's centre is the origin, so a column's outward bearing is its
-    // own position normalised, and on the cliff and the keel's flanks that IS
-    // the surface normal. See `SUN_AZ_X` for why this is baked rather than lit.
-    const dlen = Math.max(1e-3, Math.hypot(gx + 0.5, gz + 0.5));
-    const facing = ((gx + 0.5) * SUN_AZ_X + (gz + 0.5) * SUN_AZ_Z) / dlen;
+    // Direction-neutral base. The moving key light now owns azimuth; baking the
+    // old noon bearing here produced a second sun on the cliff after dusk.
+    const facing = 0;
     // −1 (dead away) .. +1 (dead into it), mapped onto the two multipliers. This
     // half is the DIRECT term, and it is the half that dies out with depth (see
     // `dir` in the stone loop).

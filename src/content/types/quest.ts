@@ -1,10 +1,9 @@
 /**
  * QUESTS (spec §9) — the type that makes conditions and actions mean something.
  *
- * NOTHING IN THE GAME READS THIS YET, and that is deliberate rather than
- * unfinished. There is no quest UI, no journal and no gameplay wiring in this
- * change; what there is, is the shape a quest has, so that `Condition`,
- * `Action`, `ContentState` and the reference graph have a subject. Every other
+ * The world clock reads only `timeOfDay`; there is still no quest UI or journal.
+ * The rest is the shape a quest has, so that `Condition`, `Action`,
+ * `ContentState` and the reference graph have a subject. Every other
  * type here describes a thing that already exists in the world and is being
  * moved; this one describes the thing all of that machinery was built for, and
  * `data/example-quest.json` is the end-to-end proof that a package can arrive
@@ -109,6 +108,11 @@ export interface QuestData {
    * is a bug report and revealed content is a spoiler.
    */
   readonly available?: Condition;
+  /**
+   * While this quest is active, pin the world clock to this normalised phase.
+   * Midnight is 0, dawn .25, noon .5 and dusk .75.
+   */
+  readonly timeOfDay?: number;
   readonly objectives: readonly QuestObjective[];
   readonly onStart?: readonly Action[];
   readonly onComplete?: readonly Action[];
@@ -151,6 +155,20 @@ function parse(body: unknown, ctx: ParseCtx): QuestData | null {
 
   const onStart = readActions(b.onStart, r.at('onStart'));
   const onComplete = readActions(b.onComplete, r.at('onComplete'));
+  let timeOfDay: number | undefined;
+  if (b.timeOfDay !== undefined) {
+    const v = b.timeOfDay;
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v < 1) {
+      timeOfDay = v;
+    } else {
+      r.at('timeOfDay').report(
+        'error',
+        'bad-field',
+        '`timeOfDay` must be a normalised number from 0 (inclusive) to 1 (exclusive)',
+        'use 0 midnight, 0.25 dawn, 0.5 noon or 0.75 dusk',
+      );
+    }
+  }
 
   return {
     category: category(b.category, r.at('category')),
@@ -159,6 +177,7 @@ function parse(body: unknown, ctx: ParseCtx): QuestData | null {
     location: opt(b.location, r.at('location'), idOf('town')),
     prerequisites: opt(b.prerequisites, r.at('prerequisites'), list(idOf('quest'), { max: 64 })) ?? [],
     available: opt(b.available, r.at('available'), condition),
+    ...(timeOfDay !== undefined ? { timeOfDay } : {}),
     objectives: list(readObjective, { min: 1, max: 64 })(b.objectives, r.at('objectives')),
     // Absence is the default: an empty list is omitted so `serialize` cannot
     // round-trip a field the author never wrote. Same rule as npc.ts's `actions`.

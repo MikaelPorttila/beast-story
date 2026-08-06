@@ -23,6 +23,13 @@
  */
 import { GFX_OPTIONS, type Gfx, type GfxSinks } from '../core/gfx';
 import { t } from '../i18n';
+import type { StringKey } from '../i18n';
+
+export interface TimeOfDayControl {
+  readonly presets: readonly { phase: number | null; labelKey: StringKey }[];
+  get(): number | null;
+  set(phase: number | null): void;
+}
 
 const escapeHtml = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -32,7 +39,7 @@ export class PerfPanel {
   private open = false;
   private cursor = 0;
 
-  constructor(private readonly gfx: Gfx) {
+  constructor(private readonly gfx: Gfx, private readonly time: TimeOfDayControl) {
     this.el = document.createElement('div');
     this.el.className = 'bs-perf';
     this.el.style.display = 'none';
@@ -56,15 +63,21 @@ export class PerfPanel {
    */
   onKey(code: string): boolean {
     if (!this.open) return false;
-    const n = GFX_OPTIONS.length;
+    const n = GFX_OPTIONS.length + 1;
     if (code === 'ArrowDown') { this.cursor = (this.cursor + 1) % n; this.render(); return true; }
     if (code === 'ArrowUp') { this.cursor = (this.cursor + n - 1) % n; this.render(); return true; }
     if (code === 'ArrowRight' || code === 'ArrowLeft' || code === 'Enter' || code === 'Space') {
-      this.gfx.cycle(GFX_OPTIONS[this.cursor].id);
+      if (this.cursor === GFX_OPTIONS.length) this.cycleTime(code === 'ArrowLeft' ? -1 : 1);
+      else this.gfx.cycle(GFX_OPTIONS[this.cursor].id);
       this.render();
       return true;
     }
-    if (code === 'KeyR') { this.gfx.reset(); this.render(); return true; }
+    if (code === 'KeyR') {
+      this.gfx.reset();
+      this.time.set(null);
+      this.render();
+      return true;
+    }
     return false;
   }
 
@@ -79,8 +92,21 @@ export class PerfPanel {
     return v === 0 ? t('gfx.uncapped') : String(v);
   }
 
+  private timeLabel(): string {
+    const value = this.time.get();
+    return t(this.time.presets.find((p) => p.phase === value)?.labelKey ?? 'gfx.time.auto');
+  }
+
+  private cycleTime(step: number): void {
+    const value = this.time.get();
+    let i = this.time.presets.findIndex((p) => p.phase === value);
+    if (i < 0) i = 0;
+    i = (i + step + this.time.presets.length) % this.time.presets.length;
+    this.time.set(this.time.presets[i].phase);
+  }
+
   private render(): void {
-    const rows = GFX_OPTIONS.map((o, i) => {
+    const gfxRows = GFX_OPTIONS.map((o, i) => {
       const v = this.gfx.get(o.id);
       const off = v === false;
       return (
@@ -95,6 +121,13 @@ export class PerfPanel {
         + '</div>'
       );
     }).join('');
+    const timeRow = `<div class="bs-perf-row${this.cursor === GFX_OPTIONS.length ? ' sel' : ''}"`
+      + ' data-cursor="link-select" data-time="day">'
+      + `<span class="bs-perf-name">${escapeHtml(t('gfx.timeOfDay'))}</span>`
+      + `<span class="bs-perf-val">${escapeHtml(this.timeLabel())}</span>`
+      + `<span class="bs-perf-cost">${escapeHtml(t('gfx.timeOfDay.cost'))}</span>`
+      + '</div>';
+    const rows = gfxRows + timeRow;
     this.el.innerHTML =
       // The bar you pick the panel up by. `grab` on hover and `grabbing` while
       // dragging is the pair the cursor sheet draws — see ui/cursor.ts.
@@ -201,6 +234,12 @@ export class PerfPanel {
     const row = target.closest('.bs-perf-row') as HTMLElement | null;
     if (!row) return false;
     const id = row.getAttribute('data-gfx') as keyof GfxSinks | null;
+    if (!id && row.hasAttribute('data-time')) {
+      this.cursor = GFX_OPTIONS.length;
+      this.cycleTime(1);
+      this.render();
+      return true;
+    }
     if (!id) return false;
     this.cursor = GFX_OPTIONS.findIndex((o) => o.id === id);
     this.gfx.cycle(id);

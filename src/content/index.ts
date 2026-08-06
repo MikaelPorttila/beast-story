@@ -208,6 +208,7 @@ class Runtime implements ContentRuntime {
   private readonly chain = new ProviderChain();
   private readonly loader: PackageLoader;
   private readonly factories = new Map<string, unknown>();
+  private readonly definitionListeners: Array<() => void> = [];
   /** Findings this object made itself — a registry refusal the loader cannot see. */
   private readonly own: Diagnostic[] = [];
   /** The last `validateContent` run, so `diagnostics()` includes it. */
@@ -346,12 +347,31 @@ class Runtime implements ContentRuntime {
   // Loading
   // -------------------------------------------------------------------------
 
-  load(pkg: PackageId, lease: Lease = 'boot'): Promise<LoadResult> {
-    return this.loader.load(pkg, lease);
+  async load(pkg: PackageId, lease: Lease = 'boot'): Promise<LoadResult> {
+    const result = await this.loader.load(pkg, lease);
+    if (result.loaded) this.notifyDefinitionsChanged();
+    return result;
   }
 
   release(pkg: PackageId, lease: Lease = 'boot'): void {
+    const before = this.loader.packages.length;
     this.loader.release(pkg, lease);
+    if (this.loader.packages.length !== before) this.notifyDefinitionsChanged();
+  }
+
+  onDefinitionsChange(fn: () => void): () => void {
+    this.definitionListeners.push(fn);
+    let live = true;
+    return () => {
+      if (!live) return;
+      live = false;
+      const i = this.definitionListeners.indexOf(fn);
+      if (i >= 0) this.definitionListeners.splice(i, 1);
+    };
+  }
+
+  private notifyDefinitionsChanged(): void {
+    for (const fn of this.definitionListeners.slice()) fn();
   }
 
   get packages(): readonly PackageInfo[] {

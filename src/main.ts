@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Engine } from './core/engine';
+import { DayNightCycle } from './core/day-night';
 import { DebugOverlay } from './core/debug-overlay';
 import { Gfx, GFX_OPTIONS, type GfxSinks } from './core/gfx';
 import { PerfPanel } from './ui/perf-panel';
@@ -26,7 +27,7 @@ import { flags } from './core/flags';
 import { DevConsole } from './ui/console';
 import {
   bootstrapContent, content, factory, resolveText, MUSIC_TRACK_KIND,
-  type BiomeData, type MusicData,
+  type BiomeData, type MusicData, type QuestData,
 } from './content';
 // THE ONE STATIC IMPORT OF A CONTENT PROVIDER, and it is in an entry point
 // rather than inside `src/content/` on purpose — see the header of
@@ -38,7 +39,7 @@ import {
 // against 2.4 ms for the linked form. This file and src/lab/index.ts are the two
 // Vite entries, so they are the two places that may link it.
 import { BundledProvider } from './content/storage/bundled';
-import { contentIssues } from './core/content-bridge';
+import { contentIssues, reportContentIssue } from './core/content-bridge';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { NPC_TALK_RANGE } from './world/npc';
@@ -83,6 +84,7 @@ installViewport();
 // the change EVENT and is under no gesture deadline — see ui/fullscreen.ts.
 installEscapeLock();
 const engine = new Engine(app);
+const dayNight = new DayNightCycle();
 const input = new Input(engine.renderer.domElement);
 const bus = new EventBus();
 
@@ -486,6 +488,7 @@ function exitToTitle(): void {
   combat.reset();
   // The facts, not the definitions — see the note above.
   content.state.reset();
+  dayNight.reset();
   for (const b of roster) b.reset();
   primaryIdx = 0;
   supportIdx = 6;
@@ -604,6 +607,45 @@ content.defineAction('item.give', (params) => {
 const contentBoot = await bootstrapContent({ engineFlags: [] });
 /** What the phase above cost. Reported by `__dbgContent`; see the note there. */
 const contentBootMs = performance.now() - contentBootStart;
+
+// Active quest locks are derived from content facts, never pushed by quest
+// actions, so loading or releasing a quest package recomputes the same answer.
+let reportedTimeConflict = '';
+const refreshQuestTime = (): void => {
+  const locks = content.state.activeQuests.flatMap((id) => {
+    const asset = content.get<QuestData>(id);
+    return asset?.data.timeOfDay === undefined ? [] : [{ id, phase: asset.data.timeOfDay, asset }];
+  });
+  if (locks.length === 0) {
+    dayNight.setQuestOverride(null, null);
+    reportedTimeConflict = '';
+    return;
+  }
+  locks.sort((a, b) => a.id.localeCompare(b.id));
+  const winner = locks[0];
+  dayNight.setQuestOverride(winner.id, winner.phase);
+  const values = [...new Set(locks.map((x) => x.phase))];
+  const signature = locks.map((x) => `${x.id}@${x.phase}`).join('|');
+  if (values.length > 1 && signature !== reportedTimeConflict) {
+    reportedTimeConflict = signature;
+    reportContentIssue({
+      severity: 'warn',
+      code: 'quest-time-conflict',
+      message: `Active quest time locks conflict; using "${winner.id}" at ${winner.phase}`,
+      assetId: winner.asset.id,
+      assetType: winner.asset.type,
+      pkg: winner.asset.pkg,
+      source: winner.asset.source,
+      field: 'timeOfDay',
+      fix: 'keep simultaneously active quests on one timeOfDay value',
+    });
+  }
+};
+content.state.onChange((change) => {
+  if (change.kind === 'quest' || change.kind === 'reset') refreshQuestTime();
+});
+content.onDefinitionsChange(refreshQuestTime);
+refreshQuestTime();
 
 /**
  * The biomes' vegetation multipliers, applied before the first chunk is built.
@@ -775,6 +817,7 @@ const zones = new ZoneManager({
   warm: (stage, lights) => warmUpFrame(stage, lights),
   onArrive: (w, def) => {
     world = w;
+    world.applyCelestial(dayNight);
     // The other scene change, and the only one that is not the session starting
     // or ending. A ZONE ID IS A SCENE NAME now — `musicPlaylist` looks for
     // `music:<id>` and takes the fallback playlist when no package scored this
@@ -2392,7 +2435,18 @@ const gfx = new Gfx({
 });
 // The settings panel's Graphics tab may now reach it. See `gfxLive` at the top.
 gfxLive = true;
-const perfPanel = new PerfPanel(gfx);
+const timePresets = [
+  { phase: null, labelKey: 'gfx.time.auto' },
+  { phase: 0.25, labelKey: 'gfx.time.dawn' },
+  { phase: 0.5, labelKey: 'gfx.time.noon' },
+  { phase: 0.75, labelKey: 'gfx.time.dusk' },
+  { phase: 0, labelKey: 'gfx.time.midnight' },
+] as const;
+const perfPanel = new PerfPanel(gfx, {
+  presets: timePresets,
+  get: () => dayNight.debugOverride,
+  set: (phase) => dayNight.setDebugOverride(phase),
+});
 
 /**
  * The custom cursor, and the one question the world has to answer for it.
@@ -3605,6 +3659,9 @@ function frame(): void {
   if (!engine.beginFrame()) return;
   perf.begin();
   const dt = engine.tick();
+  dayNight.update(dt);
+  engine.applyCelestial(dayNight, dt);
+  world.applyCelestial(dayNight);
   // Everything that owns the screen: the shop, the F1 controls sheet and the
   // in-game menu. All three stand the pad down and hide the touch overlay, for
   // the same reason — a button held when the panel opened must not stay held
@@ -3851,6 +3908,7 @@ function frame(): void {
   // mode's above) and before the render: the effect keys off where the lens
   // actually ends up, and a frame late is a frame of clear water at the surface.
   underwater.update(dt, world.isWater(engine.camera.position.x, engine.camera.position.z));
+  engine.setFogAbsorption(underwater.fogAbsorption);
   // And how bright to grade the result. There is genuinely less light down
   // there, and this is the only knob that can say so before the tone curve —
   // see UNDER_EXPOSURE in world/underwater.ts. 1.0 in the air, so it is a no-op
@@ -4839,6 +4897,56 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 // The F3 panel's state, and a way to drive it. `set` is a TEST HOOK in the same
 // sense as __dbgTp: a probe has to be able to flip a toggle and re-read the
 // draw count without simulating six arrow presses to reach the right row.
+(window as unknown as {
+  __dbgTime: (value?: number | null | 'clear' | 'dawn' | 'noon' | 'dusk' | 'midnight') => unknown;
+}).__dbgTime = (value) => {
+  if (value !== undefined) {
+    const named = { clear: null, dawn: 0.25, noon: 0.5, dusk: 0.75, midnight: 0 } as const;
+    const phase = typeof value === 'string' ? named[value] : value;
+    dayNight.setDebugOverride(phase);
+    perfPanel.refresh();
+  }
+  const lighting: Record<string, number> = {};
+  const seen = new Set<THREE.Material>();
+  engine.scene.traverse((object) => {
+    const point = object as THREE.PointLight;
+    const lightRole = point.userData.bsNightRole as string | undefined;
+    if (point.isPointLight && lightRole) {
+      lighting[lightRole] = (lighting[lightRole] ?? 0) + point.intensity;
+    }
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of list) {
+      if (seen.has(material)) continue;
+      seen.add(material);
+      const role = material.userData.bsNightRole as string | undefined;
+      if (role && material instanceof THREE.MeshStandardMaterial) {
+        const debugIntensity = material.userData.bsDebugIntensity;
+        lighting[role] = typeof debugIntensity === 'number'
+          ? debugIntensity
+          : material.emissiveIntensity;
+      }
+    }
+  });
+  return {
+    phase: dayNight.phase,
+    source: dayNight.source,
+    quest: dayNight.quest,
+    debugOverride: dayNight.debugOverride,
+    daylight: dayNight.daylight,
+    night: dayNight.night,
+    stars: dayNight.stars,
+    moon: dayNight.moon,
+    exposure: engine.renderer.toneMappingExposure,
+    sunDirection: dayNight.sunDirection.toArray(),
+    moonDirection: dayNight.moonDirection.toArray(),
+    keyDirection: dayNight.keyDirection.toArray(),
+    lighting,
+    shadow: engine.shadowDebug(),
+  };
+};
+
 (window as unknown as {
   __dbgGfx: (id?: string, value?: unknown) => unknown;
 }).__dbgGfx = (id, value) => {

@@ -19,6 +19,7 @@
  * it. Dropping the cast also halves what the shadow pass has to draw.
  */
 import * as THREE from 'three';
+import type { CelestialState } from '../core/types';
 import { VoxelModel } from '../core/voxel';
 import { mulberry32 } from './noise';
 
@@ -471,6 +472,15 @@ export class Clouds {
   private readonly geos: THREE.BufferGeometry[] = [];
   private readonly mat: THREE.MeshStandardMaterial;
 
+  applyCelestial(state: Readonly<CelestialState>): void {
+    // The directional moon remains the highlight; this is only the cool light
+    // scattered through the body of the cloud. Using the key colour makes its
+    // moonward lobes read pale blue while the far lobes retain enough value not
+    // to become flying black rocks. The daylight floor stays at the old 0.17.
+    this.mat.emissive.copy(state.keyColor).lerp(state.ambientSky, 0.28);
+    this.mat.emissiveIntensity = 0.17 + state.night * 0.16;
+  }
+
   constructor(seed: number) {
     // ONE material for both decks. The high deck used to be translucent at
     // opacity 0.5, and squashed to half height on top of that: the result was a
@@ -493,6 +503,7 @@ export class Clouds {
       emissiveIntensity: 0.17,
       fog: true, // distance haze fades the deck into the sky
     });
+    this.mat.userData.bsNightRole = 'cloud-moon-fill';
     for (let i = 0; i < 4; i++) this.geos.push(cloudGeo(i, seed));
     for (let i = 0; i < 2; i++) this.geos.push(cloudGeo(i, seed, true));
     const rng = mulberry32(seed ^ 0x5eed);

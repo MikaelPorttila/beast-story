@@ -22,6 +22,7 @@
       "tags": ["example", "tutorial"],
       "data": {
         "category": "main",
+        "timeOfDay": 0,
         "arc": "encampment",
         "giver": "npc:gain",
         "location": "town:encampment",

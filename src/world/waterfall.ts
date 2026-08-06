@@ -49,6 +49,7 @@
  * reproducible.
  */
 import * as THREE from 'three';
+import type { CelestialState } from '../core/types';
 import { flags } from '../core/flags';
 import { mulberry32 } from './noise';
 
@@ -393,6 +394,8 @@ uniform vec3 uFoam;
 uniform vec3 uLit;
 uniform vec3 uBody;
 uniform vec3 uShadow;
+uniform vec3 uSunDir;
+uniform float uSunStrength;
 uniform float uOpacity;
 varying float vLife;
 varying float vAcross;
@@ -404,7 +407,6 @@ varying vec3 vNrm;
 // vector world/water.ts uses. In xz it is (0.833, 0.554), which is exactly the
 // island's baked SUN_AZ_X / SUN_AZ_Z — one sun, so the fall's shading and the
 // rock's baked shading cannot disagree about which side is lit.
-const vec3 SUN_DIR = vec3(0.6554, 0.6168, 0.4356);
 
 /** Where the head foam ends, as a fraction of the fall. */
 const float HEAD = 0.10;
@@ -448,7 +450,7 @@ void main() {
   // Two-stop sun walk. A sheet has one normal per side, so this is a lit face
   // and a shaded face and the gradient between them — enough for the plume to
   // turn as the island turns, and no more than the rest of the world does.
-  float sun = dot(normalize(vNrm), SUN_DIR);
+  float sun = dot(normalize(vNrm), uSunDir) * uSunStrength;
   vec3 water = mix(uShadow, uBody, smoothstep(-0.55, 0.15, sun));
   water = mix(water, uLit, smoothstep(0.15, 0.75, sun));
   // The flow threads brighten the water rather than tinting it: the fibres in a
@@ -642,6 +644,11 @@ export class Waterfall {
   private leanZ = 0;
   private visible = true;
 
+  applyCelestial(state: Readonly<CelestialState>): void {
+    this.sheetMat.uniforms.uSunDir.value.copy(state.keyDirection);
+    this.sheetMat.uniforms.uSunStrength.value = state.keyIntensity / 3.05;
+  }
+
   constructor(spec: WaterfallSpec) {
     const lipWidth = spec.lipWidth ?? 7.2;
     const spreadWidth = spec.spreadWidth ?? 10.8;
@@ -699,6 +706,8 @@ export class Waterfall {
           uLit: { value: linear(spec.bodyLit ?? 0x1e8aa2) },
           uBody: { value: linear(spec.bodyDark ?? 0x1e7e96) },
           uShadow: { value: linear(spec.bodyShadow ?? 0x127296) },
+          uSunDir: { value: new THREE.Vector3(0.6554, 0.6168, 0.4356) },
+          uSunStrength: { value: 1 },
         },
       ]),
       vertexShader: SHEET_VERT,
