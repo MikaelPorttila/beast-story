@@ -31,6 +31,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchBrowser } from './browser.mjs';
+import { CONVERTED } from './suite/roster.mjs';
 import { PORT } from './target.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -244,9 +245,58 @@ async function reapPages() {
 const results = [];
 const line = (r) => `${r.code === 0 ? 'ok  ' : 'FAIL'} ${r.name.padEnd(13)} ${(r.ms / 1000).toFixed(1)}s`;
 
-// Solo names are pulled out and run one at a time, after the batchable ones.
-const batched = names.filter((n) => !SOLO.has(n));
-const solo = names.filter((n) => SOLO.has(n));
+// CONVERTED NAMES GO THROUGH THE SUITE, as one child sharing one booted world
+// (tools/suite.mjs; the roster and its order live in tools/suite/roster.mjs).
+// This is where `probe.mjs all` gets its speedup: every converted probe costs
+// the roster one boot between them instead of one boot each. The suite child
+// reports per-probe results out of its --json summary, so the terminal shows
+// the same one-line-per-probe verdicts either way, and a converted name asked
+// for alone still takes this path — the suite with one module IS the solo run.
+const converted = names.filter((n) => CONVERTED.includes(n));
+const batched = names.filter((n) => !CONVERTED.includes(n) && !SOLO.has(n));
+const solo = names.filter((n) => !CONVERTED.includes(n) && SOLO.has(n));
+
+if (converted.length) {
+  const started = Date.now();
+  const r = await new Promise((resolve) => {
+    const child = spawn('bun', ['tools/suite.mjs', '--json', ...converted], { env, shell: true });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    child.on('close', (code) => resolve({ code: code ?? 1, out }));
+  });
+  const ms = Date.now() - started;
+  // One log for the run plus a per-probe verdict line each, parsed out of the
+  // summary. A suite that died before printing JSON is reported as one failed
+  // entry per requested name rather than silently dropped.
+  const log = join(logDir, 'suite.log');
+  writeFileSync(log, r.out);
+  let summary = null;
+  try { summary = JSON.parse(r.out.slice(r.out.indexOf('{'))); } catch { /* died early */ }
+  for (const n of converted) {
+    const fails = summary
+      ? summary.fails.filter((f) => f.startsWith(`[${n}]`))
+      : [`the suite child did not report (exit ${r.code}) — see ${log}`];
+    const secMs = summary
+      ? Object.entries(summary.sectionMs)
+        .filter(([k]) => k.startsWith(`${n}.`))
+        .reduce((a, [, v]) => a + v, 0)
+      : ms;
+    results.push({
+      name: n,
+      code: fails.length ? 1 : 0,
+      ms: secMs,
+      log,
+      out: fails.join('\n'),
+    });
+    if (!json) console.log(line(results[results.length - 1]));
+  }
+  if (summary && !json) {
+    console.log(`     suite: ${converted.length} probes on one boot `
+      + `(${(summary.bootMs / 1000).toFixed(1)}s boot, ${(ms / 1000).toFixed(1)}s total)`);
+  }
+  await reapPages();
+}
 
 const queue = [...batched];
 const workers = Array.from({ length: Math.min(jobs, queue.length) }, async () => {
