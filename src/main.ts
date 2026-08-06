@@ -2292,8 +2292,17 @@ const _hurtFrom = new THREE.Vector3();
     ? { x: +mount.beast.forward.x.toFixed(3), z: +mount.beast.forward.z.toFixed(3) }
     : null,
   y: +player.position.y.toFixed(2),
-  /** The ANIMAL's altitude — what the flight clamps act on. See `bodyY`. */
+  /** The ANIMAL's altitude — what the flight and dive clamps act on. See `bodyY`. */
   bodyY: mount.isMounted ? +mount.bodyY.toFixed(2) : null,
+  /**
+   * The dive (issue #103), as the two numbers that cannot be inferred from
+   * `bodyY` alone: whether the mount is in the swim gait at all, and how far
+   * under the float line it has taken itself. A probe reading `bodyY` against
+   * `waterLevel` would have to know WADE_DEPTH to tell "floating" from "an inch
+   * down", which is exactly the constant a test must not restate.
+   */
+  swimming: mount.isSwimming,
+  diveDepth: +mount.diveDepth.toFixed(2),
   ground: +world.getHeight(player.position.x, player.position.z).toFixed(2),
   lastCast: { ...lastCast },
 });
@@ -2525,7 +2534,7 @@ const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, cro
     t('npc.dialogue.close', { key: hud.interactPrompt }),
   );
   hud.setMountHold(0.42);
-  hud.setMounted(t('beast.emberfox.name'), false);
+  hud.setMounted(t('beast.emberfox.name'), 'ground');
   hud.setBag([{ def: itemDef('sunberry'), count: 3 }, { def: itemDef('glowpebble'), count: 12 }]);
   bus.emit({ type: 'beastLevelUp', beastId: 'emberfox', nameKey: 'beast.emberfox.name', level: 4 });
   bus.emit({ type: 'toast', text: t('toast.fetched', { beast: 'Emberfox', item: 'Sunberries', n: 3 }) });
@@ -4007,7 +4016,13 @@ function frame(): void {
   hud.setMountHold(mount.progress);
   hud.setMounted(
     mount.beast ? t(mount.beast.species.nameKey) : null,
-    mount.beast ? mount.beast.species.locomotion === 'flying' : false,
+    // The MODE, re-read every frame, because a water beast changes it by
+    // swimming off a beach and not by being mounted — see Hud.setMounted. The
+    // badge early-returns on an unchanged pair, so asking every frame costs a
+    // comparison.
+    mount.beast?.species.locomotion === 'flying' ? 'flying'
+      : mount.isSwimming ? 'swimming'
+      : 'ground',
   );
   hud.update(dt);
 

@@ -230,6 +230,12 @@ export function padKey(key: string): string {
  * viewport query in styles.ts) rather than restating them, so there is nothing
  * for it to fill in.
  */
+/**
+ * What the riding badge is describing — which is what the pair are DOING, not
+ * which species is under the saddle. See `setMounted`.
+ */
+export type RideMode = 'ground' | 'flying' | 'swimming';
+
 interface Prompts {
   move: string;
   jump: string;
@@ -430,7 +436,7 @@ export class HUD {
   private mountDeg = -1;
   private ridingText = '';
   private ridingBeast: string | null = null;
-  private ridingFlying = false;
+  private ridingMode: RideMode = 'ground';
 
   // menu button (F10)
   private menuBtnEl: HTMLButtonElement;
@@ -1333,16 +1339,25 @@ export class HUD {
     if (this.controlsOpen) this.buildControls();
   }
 
-  setMounted(beastName: string | null, flying: boolean): void {
-    if (beastName === this.ridingBeast && flying === this.ridingFlying) return;
+  /**
+   * `mode` is what the pair are DOING and not what the animal is: a water beast
+   * on a beach rides like a ground mount and gets the ground badge, and starts
+   * showing the depth line the moment it is actually afloat. That is why this
+   * is a mode and not the species' locomotion — the badge changes under a rider
+   * who never pressed anything, because the world under it changed.
+   */
+  setMounted(beastName: string | null, mode: RideMode): void {
+    if (beastName === this.ridingBeast && mode === this.ridingMode) return;
     this.ridingBeast = beastName;
-    this.ridingFlying = flying;
+    this.ridingMode = mode;
     // Built from the table with the key caps already marked up, so the sentence
     // can be reordered by a translation. Previously this glued the badge
     // together in English and then went hunting for "SPACE/C" and "F" with
     // regexes — which only ever worked because the words around them were fixed.
     const text = beastName
-      ? t(flying ? 'hud.ridingFlying' : 'hud.riding', {
+      ? t(mode === 'flying' ? 'hud.ridingFlying'
+        : mode === 'swimming' ? 'hud.ridingSwimming'
+        : 'hud.riding', {
         beast: escapeHtml(beastName.toUpperCase()),
         altitude: this.prompts.altitude,
         dismount: this.prompts.dismount,
