@@ -26,9 +26,10 @@ import { perf } from './core/profiler';
 import { flags } from './core/flags';
 import { DevConsole } from './ui/console';
 import {
-  bootstrapContent, content, factory, resolveText, MUSIC_TRACK_KIND,
-  type BiomeData, type MusicData, type QuestData,
+  bootstrapContent, content, factory, hasText, resolveText, MUSIC_TRACK_KIND,
+  type BiomeData, type MusicData, type QuestData, type QuestRewards,
 } from './content';
+import type { ContentAsset, ContentId } from './content/types';
 // THE ONE STATIC IMPORT OF A CONTENT PROVIDER, and it is in an entry point
 // rather than inside `src/content/` on purpose — see the header of
 // src/content/index.ts for the whole argument. In short: nothing under
@@ -56,7 +57,8 @@ import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem, SWORD_REACH } from './combat/index';
 import { enemySpecies, MELEE_UP_REACH, MELEE_DOWN_REACH } from './combat/enemies';
 import {
-  HUD, type BeastHudInfo, type CompassMarker, type ShopOffer, type SkillSlot,
+  HUD, type BeastHudInfo, type CompassMarker, type QuestTrackRow,
+  type ShopOffer, type SkillSlot,
 } from './ui/index';
 import { StartMenu } from './ui/menu';
 import { PauseMenu } from './ui/pause';
@@ -64,6 +66,10 @@ import {
   InventoryPanel,
   type InvAction, type InvEntry, type InvStat, type InventoryModel,
 } from './ui/inventory';
+import {
+  JournalPanel,
+  type JournalEntry, type JournalModel, type JournalTab,
+} from './ui/journal';
 import {
   exitFullscreen, fullscreenSupported, isFullscreen,
   installEscapeLock, keyboardLockSupported, escapeIsLocked, fullscreenSurvivesEscape,
@@ -497,6 +503,7 @@ function exitToTitle(): void {
   spent = 0;
   bag.clear();
   inventory.close();
+  journal.close();
   // The loadout is session state like everything above it, and `attackStat` is
   // the one field of it that lives on an object whose own `reset()` deliberately
   // does not touch it — see BASE_ATTACK. `giveStartingKit` re-equips and calls
@@ -1550,6 +1557,159 @@ const inventory = new InventoryPanel({
 giveStartingKit();
 
 // ---------------------------------------------------------------------------
+// The quest journal (issue #98)
+// ---------------------------------------------------------------------------
+/**
+ * WHETHER A QUEST IS ON THE HUD IS A CONTENT FLAG, and that is the whole of its
+ * storage. It rides along in the content save the way a story flag does, it
+ * survives a package being released and loaded again (the flag outlives the
+ * definitions — spec §12.3), and `content.state.reset()` clears it with
+ * everything else. A `Set` in this file would have needed all three written by
+ * hand, and a `Prefs` entry would have made "which quests am I watching" a
+ * machine setting rather than a fact about the save.
+ *
+ * IT IS OPT-**OUT**: absence means shown. A player who has just been given their
+ * first quest has not been to the journal yet, and a tracker that stays empty
+ * until they find the switch is a feature that ships turned off. The flag
+ * therefore records the unusual answer, which is also what keeps a save that
+ * never touched it empty.
+ */
+const hudFlag = (id: ContentId): string => `journal.hidden/${id}`;
+const questOnHud = (id: ContentId): boolean => !content.state.flag(hudFlag(id));
+
+/**
+ * A quest's rewards as display lines. `xp` has a string of its own; everything
+ * else is an item id and is named from the item table, which is what makes
+ * `{ "shard": 10 }` read as "Cubloons 10" in the player's language rather than
+ * as a key out of a JSON file. An id nothing knows is printed raw — a content
+ * diagnostic already named it, and inventing a label would hide that.
+ */
+function rewardLines(rewards: QuestRewards | undefined): { label: string; value: string }[] {
+  if (!rewards) return [];
+  return Object.entries(rewards).map(([key, n]) => ({
+    label: key === 'xp' ? t('journal.reward.xp') : isKnownItem(key) ? itemName(itemDef(key), n) : key,
+    value: String(n),
+  }));
+}
+
+/**
+ * Which shelf a quest is on, or null for one the player has no business seeing.
+ *
+ * `active`, `completed` and `failed` are stored answers. `available` is
+ * DERIVED and is the interesting one: a quest is offered when nothing has
+ * happened to it yet, every prerequisite is completed, and its own `available`
+ * condition passes. Storing that would be a fourth copy of a fact the content
+ * system already computes from the facts — see the header of
+ * content/types/quest.ts on why nothing here counts positions in a line.
+ *
+ * A FAILED QUEST IS SHOWN UNDER "DONE" rather than given a shelf of its own: it
+ * is over, the player cannot act on it, and one card in a tab that is empty the
+ * rest of the game is a tab that teaches nothing.
+ */
+function questTab(asset: ContentAsset<QuestData>): JournalTab | null {
+  switch (content.state.questStatus(asset.id)) {
+    case 'active': return 'active';
+    case 'completed':
+    case 'failed': return 'completed';
+    case 'available': return 'available';
+    default: break;
+  }
+  const ready = asset.data.prerequisites.every(
+    (id) => content.state.questStatus(id) === 'completed',
+  );
+  return ready && content.evaluate(asset.data.available) ? 'available' : null;
+}
+
+/**
+ * Every quest the player may look at, resolved to display strings.
+ *
+ * `query.available` rather than `all` — the asset envelope's `when` is the gate
+ * content uses to hide something entirely, and a journal that listed what the
+ * world is not offering would be the one place in the game that leaked it.
+ */
+function journalModel(): JournalModel {
+  const entries: JournalEntry[] = [];
+  for (const asset of content.query.available<QuestData>('quest')) {
+    const tab = questTab(asset);
+    if (tab === null) continue;
+    const giver = asset.data.giver ? content.get(asset.data.giver) : undefined;
+    const place = asset.data.location ? content.get(asset.data.location) : undefined;
+    entries.push({
+      id: asset.id,
+      name: resolveText(asset.name, `[${asset.id}]`),
+      description: hasText(asset.description) ? resolveText(asset.description) : undefined,
+      category: asset.data.category,
+      tab,
+      arc: asset.data.arc,
+      giver: giver && hasText(giver.name) ? resolveText(giver.name) : undefined,
+      location: place && hasText(place.name) ? resolveText(place.name) : undefined,
+      objectives: asset.data.objectives.map((o) => ({
+        text: resolveText(o.text, o.key),
+        have: content.state.progress(asset.id, o.key),
+        need: o.count ?? 1,
+      })),
+      rewards: rewardLines(asset.data.rewards),
+      onHud: questOnHud(asset.id),
+    });
+  }
+  // MAIN BEFORE SIDE, then by id — the same total order every read, so a card
+  // does not move out from under the cursor when a counter ticks. Id and not
+  // name, because a language change must not reorder the list.
+  entries.sort((a, b) =>
+    (a.category === b.category ? 0 : a.category === 'main' ? -1 : 1) || a.id.localeCompare(b.id));
+  return { entries };
+}
+
+/** The tracker's rows: the ACTIVE quests the player has left switched on. */
+function questTrackRows(): QuestTrackRow[] {
+  return journalModel().entries
+    .filter((e) => e.tab === 'active' && e.onHud)
+    .map((e) => ({
+      id: e.id,
+      name: e.name,
+      category: e.category,
+      steps: e.objectives.map((o) => ({ text: o.text, have: o.have, need: o.need })),
+    }));
+}
+
+const journal = new JournalPanel({
+  model: journalModel,
+  onToggleHud: (id) => {
+    content.state.setFlag(hudFlag(id), questOnHud(id));
+    // The tracker follows from the state change below, so nothing is pushed
+    // here — one path writes the HUD whoever moved the switch.
+  },
+  // The inventory's bargain, for the inventory's reasons: this is a panel with
+  // buttons in it, so the cursor has to be able to reach them, and taking the
+  // lock back after Escape is what makes one press close two things.
+  onOpen: () => input.releaseLock(),
+  onClose: (by) => {
+    if (isTouchPrimary()) return;
+    if (by !== 'escape' || escapeIsLocked()) input.requestLock();
+  },
+});
+
+/**
+ * Redraw both readers of quest state.
+ *
+ * Subscribed to CONTENT rather than called from the places that change a quest:
+ * a quest advances from an action, from the dev console, from a package
+ * arriving, and one day from a timer, and a push at each of those is a list that
+ * is one entry short the first time somebody adds a fifth. `onChange` already
+ * fires for every one of them.
+ */
+const refreshQuests = (): void => {
+  hud.setQuests(questTrackRows());
+  journal.refresh();
+};
+content.state.onChange((change) => {
+  // `flag` is in here because the HUD switch IS a flag — see `hudFlag`.
+  if (change.kind !== 'discovery') refreshQuests();
+});
+content.onDefinitionsChange(refreshQuests);
+refreshQuests();
+
+// ---------------------------------------------------------------------------
 // Casting
 // ---------------------------------------------------------------------------
 /**
@@ -1846,6 +2006,10 @@ onLanguageChange(() => {
   composeKeyHints();
   hud.relabel();
   touch?.relabel();
+  // The tracker's rows are resolved by THIS file (quest words live in content,
+  // not in the string table), so `relabel` can only invalidate the guard — the
+  // redraw is this push. See `HUD.setQuests`.
+  refreshQuests();
 });
 
 // Gamepad: non-null wherever the API exists, whether or not anything is plugged
@@ -2539,7 +2703,7 @@ function updateCursorMode(): void {
   const altJustReleased = altWasHeld && !altHeld;
   altWasHeld = altHeld;
   const menuUp = (startMenu?.isOpen ?? false) || pauseMenu.isOpen
-    || hud.isShopOpen() || hud.isControlsOpen() || inventory.isOpen;
+    || hud.isShopOpen() || hud.isControlsOpen() || inventory.isOpen || journal.isOpen;
   // A controller player is not pointing at anything, and a phone has no pointer
   // to draw. `lastSource` is the STAMP, rewritten on every real input — the
   // per-frame question, not the latch. See the HUD note in AGENTS.md.
@@ -3388,7 +3552,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // which is the same bargain read the other way round: a player who stopped to
   // find out what a key does must not have walked off a cliff while reading.
   const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
-    || inventory.isOpen || !!devConsole?.isOpen;
+    || inventory.isOpen || journal.isOpen || !!devConsole?.isOpen;
   nearShop = false;
   nearNpc = null;
 
@@ -3580,6 +3744,13 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       // makes the inventory workable from a controller with no other buttons.
       if (cancel) inventory.onEscape();
       else inventory.activate();
+    } else if (journal.isOpen) {
+      // Below the inventory in the chain rather than above it because the
+      // inventory is the panel that can be opened over this one — `I` is gated
+      // on the other modals, and the journal is one of them, so the two can
+      // never both be up. The order is what it would be if they could.
+      if (cancel) journal.onEscape();
+      else journal.activate();
     } else if (hud.isControlsOpen()) hud.closeControls();
     else hud.closeShop();
   }
@@ -3681,7 +3852,7 @@ function frame(): void {
   // the same reason — a button held when the panel opened must not stay held
   // behind it.
   const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
-    || inventory.isOpen;
+    || inventory.isOpen || journal.isOpen;
   // A modal does not turn the camera, and the controls sheet is the one that has
   // to say so out loud: it keeps pointer lock (see the F1 read below), so unlike
   // the shop it goes on collecting mouse delta that no slice will spend. See
@@ -3900,6 +4071,14 @@ function frame(): void {
   if (!photoMode && input.takePress('KeyI')
     && (inventory.isOpen || !(modal || devConsole?.isOpen))) {
     inventory.toggle();
+  }
+  // `J` is the quest journal, read here beside `I` and gated the same way, for
+  // the same two reasons: it is not a gameplay action, so a frame that drained
+  // no simulation slice must still answer it, and `takePress` is what stops one
+  // press toggling the panel two or three times at 165 Hz.
+  if (!photoMode && input.takePress('KeyJ')
+    && (journal.isOpen || !(modal || devConsole?.isOpen))) {
+    journal.toggle();
   }
   if (input.takePress('F2')) debug.toggle();
   // F3 is the panel F2's numbers are FOR. Deliberately not gated on photo mode
@@ -4387,6 +4566,74 @@ beginPlay();
     }
   }
   return { deck: +c.y.toFixed(2), trees, sampled, raised };
+};
+
+/**
+ * THE QUEST JOURNAL AND ITS HUD TRACKER, FOR tools/test-journal.mjs.
+ *
+ * `model` is what the panel was handed and `panel` is what reached the DOM, so
+ * "the model is right and the screen is empty" is a distinguishable outcome —
+ * the inventory hook's rule. `hud` is the tracker, read off the DOM for the same
+ * reason: the whole feature is a switch in one place changing what is drawn in
+ * another, and a reading taken from the model at both ends would prove neither.
+ */
+(window as unknown as { __dbgJournal: () => unknown }).__dbgJournal = () => ({
+  open: journal.isOpen,
+  tab: journal.isOpen ? journal.activeTab : null,
+  model: journalModel().entries.map((e) => ({
+    id: e.id,
+    name: e.name,
+    category: e.category,
+    tab: e.tab,
+    onHud: e.onHud,
+    objectives: e.objectives.map((o) => ({ text: o.text, have: o.have, need: o.need })),
+    rewards: e.rewards.map((r) => `${r.label}=${r.value}`),
+  })),
+  panel: journal.isOpen ? {
+    cards: [...document.querySelectorAll('.bs-journal .q')]
+      .map((q) => (q as HTMLElement).dataset.quest ?? ''),
+    tabs: document.querySelectorAll('.bs-journal .chip.tab').length,
+    steps: document.querySelectorAll('.bs-journal .steps li').length,
+    stepsDone: document.querySelectorAll('.bs-journal .steps li.ok').length,
+    rewards: document.querySelectorAll('.bs-journal .bs-chip').length,
+    hudButtons: document.querySelectorAll('.bs-journal [data-hud]').length,
+    hudOn: document.querySelectorAll('.bs-journal [data-hud].on').length,
+    empty: !!document.querySelector('.bs-journal .none'),
+  } : null,
+  hud: {
+    quests: [...document.querySelectorAll('.bs-quests .qt-n')].map((n) => n.textContent ?? ''),
+    steps: document.querySelectorAll('.bs-quests .qt-s span').length,
+  },
+});
+
+/**
+ * STAGE A QUEST, so the probe has something to read.
+ *
+ * `core` ships no quests — `data/example-quest.json` is a separate package that
+ * nothing loads at boot (see its `meta.note`), which is exactly the arrangement
+ * this hook has to work with. It takes the `debug` lease the dev console's
+ * `/content load` takes, for that command's reason: a package a tool opened must
+ * be releasable and must never be mistaken for core content.
+ *
+ * A DRIVER, not a reader, and deliberately so — see the note on the `__dbg*`
+ * hooks in AGENTS.md. It does what a player would have done by talking to the
+ * quest giver, which is the only way a probe can reach the screen under test.
+ */
+(window as unknown as {
+  __dbgQuestStage: (pkg?: string) => Promise<unknown>;
+}).__dbgQuestStage = async (pkg = 'example-quest') => {
+  const r = await content.load(pkg, 'debug');
+  const ids = content.all<QuestData>('quest').map((a) => a.id);
+  for (const id of ids) content.state.setQuestStatus(id, 'active');
+  return { loaded: r.loaded, assets: r.assets, quests: ids };
+};
+
+/** Flip a quest's HUD switch the way the journal's button does. */
+(window as unknown as {
+  __dbgJournalHud: (id: string) => boolean;
+}).__dbgJournalHud = (id) => {
+  content.state.setFlag(hudFlag(id), questOnHud(id));
+  return questOnHud(id);
 };
 
 /**

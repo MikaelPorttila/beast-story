@@ -45,14 +45,20 @@ const CSS = `
   --glass:linear-gradient(165deg,rgba(30,38,54,.72),rgba(14,18,28,.82));
   --stroke:rgba(255,255,255,.14);
 }
-.bs-root *{box-sizing:border-box;margin:0;padding:0}
+/* .bs-journal is on this one because it is a SIBLING of the HUD root (see
+   ui/journal.ts) and it is the one panel here built out of real document
+   elements — a <ul> of objectives, <h3>, <p>. Without the reset the browser's
+   own 40px list indent walks every objective line in off the left margin, which
+   is exactly what it did. .bs-inv gets by without it only because it has no
+   list and states a margin on each of its three paragraphs. */
+.bs-root *,.bs-journal *{box-sizing:border-box;margin:0;padding:0}
 .bs-root svg{display:block}
-/* .bs-inv is on the selector because the inventory panel is a sibling of the
-   HUD root rather than a child of it (see ui/inventory.ts) and its footer prints
-   the same caps. One rule with two hosts rather than a second copy of the
-   arithmetic below — a keycap that is 16px in one panel and 13.75px in another
-   is exactly the drift issue #17 is about. */
-.bs-root kbd,.bs-inv kbd{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
+/* .bs-inv and .bs-journal are on the selector because those panels are SIBLINGS
+   of the HUD root rather than children of it (see ui/inventory.ts) and both
+   print the same caps in their headers. One rule with three hosts rather than
+   three copies of the arithmetic below — a keycap that is 16px in one panel and
+   13.75px in another is exactly the drift issue #17 is about. */
+.bs-root kbd,.bs-inv kbd,.bs-journal kbd{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
   border-bottom-width:2px;border-radius:5px;padding:0 6px;font:inherit;font-weight:700;
   /* A cap is a QUIET fraction of the sentence it sits in — .86em — right up
      until the sentence is itself at the floor, at which point the fraction is
@@ -133,6 +139,46 @@ const CSS = `
   text-shadow:0 1px 2px rgba(0,0,0,.5)}
 .bs-pop{animation:bsPop .38s cubic-bezier(.34,1.8,.64,1)}
 @keyframes bsPop{0%{transform:scale(1)}45%{transform:scale(1.28)}100%{transform:scale(1)}}
+
+/* ---- tracked quests ------------------------------------------------------ */
+/* src/ui/journal.ts fills this through HUD.setQuests. TOP LEFT, which is the
+   one large empty corner left on this HUD: the right column is money and the
+   bag, the bottom left is the party, the top centre is the compass. It is also
+   where every game that has ever had a quest tracker put one, and a player
+   should not have to hunt for the list of what they are doing.
+
+   NO PANEL AROUND IT. Every other cluster on the HUD wears .bs-glass because
+   each is a readout with edges — a bar, a count, a row of cards. This is prose,
+   it is only on screen while the player asked for it to be, and a box around it
+   would make the quietest thing here the loudest. The text-shadow is what keeps
+   it legible over snow instead.
+
+   IT IS OPT-OUT, PER QUEST, from the journal — see hudFlag in main.ts. A
+   player running six quests at once is not being helped by six of them here.
+
+   IT STACKS UNDER THE MENU BUTTON, which already owns 14px in this corner and
+   already steps down for the debug title plate. Same 44px step, twice, written
+   with the same :has() the button uses — three elements in one column, each
+   below the one that was there first. On a phone the button is hidden (the
+   touch overlay draws its own MENU), and the responsive section takes this back
+   up to the top with it. */
+.bs-quests{position:absolute;top:58px;left:16px;max-width:min(320px,42vw);
+  display:flex;flex-direction:column;gap:9px;transition:opacity .2s ease;
+  text-shadow:0 1px 3px rgba(0,0,0,.75),0 0 10px rgba(0,0,0,.55)}
+.bs-root:has(.bs-title) .bs-quests{top:102px}
+.bs-quests .qt-n{display:flex;align-items:baseline;gap:7px;font-size:16px;font-weight:800;
+  letter-spacing:.02em;color:#fff}
+.bs-quests .qt-n i{flex:none;width:7px;height:7px;border-radius:50%;
+  background:rgba(238,242,248,.5);font-style:normal}
+.bs-quests .q.c-main .qt-n i{background:#ffc44d;box-shadow:0 0 8px rgba(255,196,77,.9)}
+.bs-quests .qt-s{margin-top:2px;padding-left:14px;display:flex;flex-direction:column;gap:2px}
+.bs-quests .qt-s span{font-size:16px;font-weight:600;line-height:1.35;
+  color:rgba(238,242,248,.82)}
+.bs-quests .qt-s span.ok{color:rgba(238,242,248,.45);text-decoration:line-through}
+.bs-quests .qt-s b{font-weight:800;font-variant-numeric:tabular-nums}
+/* The tracker is a distraction while a panel is up, and it is in the one corner
+   the pause menu does not cover. Same idiom the compass already uses. */
+.bs-root.shop-open .bs-quests,.bs-root.keys-open .bs-quests{opacity:0}
 
 /* ---- compass ------------------------------------------------------------ */
 /* Horizontal heading tape across the top centre, the Skyrim/Far Cry idiom: the
@@ -827,6 +873,108 @@ const CSS = `
 }
 @media (max-height:520px){
   .bs-inv .stage{display:none}
+}
+
+/* ---- quest journal (J) --------------------------------------------------- */
+/* src/ui/journal.ts. THE SAME DOCK THE INVENTORY IS, deliberately: these are the
+   two panels a player opens with one key while standing in the world, and a
+   journal that slid in from a different edge with a different corner would read
+   as a different program. Same z-index 40, same --bs-vh measurement, same
+   .bs-glass / .bs-scrim / .bs-shop-x / .bs-chip / .bs-buy borrowings.
+
+   NARROWER THAN THE INVENTORY — 520px against 710 — because what sets that
+   panel's width is a wall eleven slots across and what sets this one's is a line
+   of prose. Past about 60 characters a measure gets harder to read rather than
+   easier, so the extra 190px would be spent making the panel worse.
+
+   FULL SCREEN BELOW 720px, which the inventory does not do. A dock is a dock
+   because there is a world worth leaving visible beside it; on a phone there is
+   not, and a 520px drawer on a 390px screen is a full-screen sheet already —
+   this only stops it pretending otherwise with a corner radius and a scrim
+   stripe nobody can tap. */
+.bs-journal{position:fixed;inset:0;z-index:40;display:flex;justify-content:flex-end;
+  pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:#eef2f8;user-select:none;-webkit-user-select:none}
+.bs-journal .bs-scrim{opacity:0}
+.bs-journal.open .bs-scrim{opacity:1}
+.bs-journal .pane{position:relative;width:min(520px,100vw);height:var(--bs-vh,100dvh);
+  display:flex;flex-direction:column;min-height:0;
+  border-radius:20px 0 0 20px;border-right:none;
+  opacity:0;transform:translateX(26px);
+  transition:opacity .24s ease,transform .3s cubic-bezier(.22,1,.36,1);
+  box-shadow:-24px 0 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1)}
+.bs-journal.open .pane{opacity:1;transform:translateX(0)}
+.bs-journal .head{display:flex;align-items:center;gap:14px;padding:14px 18px 12px;
+  border-bottom:1px solid rgba(255,255,255,.1)}
+.bs-journal .head h2{font-size:22px;font-weight:900;letter-spacing:.04em;flex:1;
+  text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.bs-journal .head .cap{display:flex;gap:5px;opacity:.62}
+/* The shelves, each carrying its count — see tabsHtml. The <b> is the number and
+   is deliberately not a badge: a pill on a pill is two borders saying one thing. */
+.bs-journal .tabs{display:flex;gap:6px;flex-wrap:wrap;padding:11px 18px 0}
+.bs-journal .chip{display:inline-flex;align-items:baseline;gap:6px;
+  padding:5px 12px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.05);color:rgba(238,242,248,.72);font-family:inherit;
+  font-size:16px;font-weight:700;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.bs-journal .chip:hover{background:rgba(255,255,255,.12);color:#fff}
+.bs-journal .chip.on{background:rgba(105,217,255,.16);border-color:rgba(105,217,255,.5);color:#dff5ff}
+.bs-journal .chip b{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;
+  opacity:.7}
+.bs-journal .chip:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
+/* THE COLUMN SCROLLS AND THE PANEL DOES NOT — the inventory's rule, and here it
+   is what keeps the tabs on screen with a hundred completed quests behind them. */
+.bs-journal .list{flex:1;min-height:0;overflow-y:auto;padding:12px 18px 18px;
+  display:flex;flex-direction:column;gap:11px;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
+.bs-journal .none{font-size:16px;line-height:1.5;color:rgba(238,242,248,.55);
+  padding:26px 4px;text-align:center}
+/* A CARD, with its category as a left EDGE rather than a fill: a main quest and
+   a side quest have to read as the same kind of object, or a player learns to
+   skip one of them. */
+.bs-journal .q{position:relative;padding:12px 14px 13px 16px;border-radius:14px;
+  border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05)}
+.bs-journal .q::before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:3px;
+  border-radius:0 3px 3px 0;background:rgba(238,242,248,.28)}
+.bs-journal .q.c-main::before{background:#ffc44d;box-shadow:0 0 12px rgba(255,196,77,.6)}
+.bs-journal .q-h{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.bs-journal .q-h h3{font-size:18px;font-weight:800;line-height:1.25;flex:1;min-width:0}
+.bs-journal .badge{font-size:16px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  color:rgba(238,242,248,.5)}
+.bs-journal .q.c-main .badge{color:#ffc44d}
+/* Arc, giver and place, on one quiet line. Three separate labelled rows was the
+   first shape and it made the metadata louder than the objectives. */
+.bs-journal .q-m{margin-top:3px;font-size:16px;font-weight:600;color:rgba(238,242,248,.5)}
+.bs-journal .q-d{margin-top:7px;font-size:16px;line-height:1.45;color:rgba(238,242,248,.8)}
+.bs-journal .steps{list-style:none;margin-top:9px;display:flex;flex-direction:column;gap:5px}
+.bs-journal .steps li{display:flex;align-items:flex-start;gap:8px;font-size:16px;line-height:1.4;
+  color:rgba(238,242,248,.9)}
+.bs-journal .steps li.ok{color:rgba(238,242,248,.5);text-decoration:line-through}
+.bs-journal .steps li b{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums;
+  color:rgba(238,242,248,.7)}
+/* The tick box is drawn whether or not the step is done, so a list does not
+   shift sideways one line at a time as the player works through it. */
+.bs-journal .tk{flex:none;width:17px;height:17px;margin-top:2px;border-radius:5px;
+  border:1px solid rgba(255,255,255,.22);color:#8fe06b}
+.bs-journal .steps li.ok .tk{border-color:rgba(143,224,107,.55);background:rgba(143,224,107,.14)}
+.bs-journal .tk svg{width:100%;height:100%}
+.bs-journal .bs-chips{margin-top:10px;margin-bottom:0}
+.bs-journal .q-f{margin-top:11px}
+.bs-journal .q-f .bs-buy{display:inline-flex;align-items:center;gap:7px;padding:5px 12px 6px;
+  font-size:16px;background:rgba(255,255,255,.1);color:rgba(238,242,248,.72);
+  border:1px solid rgba(255,255,255,.18);box-shadow:none}
+.bs-journal .q-f .bs-buy:hover{background:rgba(255,255,255,.18);color:#fff}
+/* PRESSED, and it says so with a colour rather than only with its label: the
+   button is a switch, and the state of a switch should survive being read at a
+   glance in a language the player half knows. */
+.bs-journal .q-f .bs-buy.on{background:rgba(105,217,255,.16);color:#dff5ff;
+  border-color:rgba(105,217,255,.5)}
+.bs-journal .q-f .bs-buy:focus-visible{outline:2px solid #ffd23f;outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .bs-journal .bs-scrim,.bs-journal .pane{transition:none}
+}
+@media (max-width:720px){
+  .bs-journal .pane{width:100vw;border-radius:0;border-left:none}
 }
 
 
@@ -1547,6 +1695,9 @@ const CSS = `
 /* ---- responsive ---------------------------------------------------------- */
 /* Respect notches/rounded corners on phones. */
 .bs-left{left:max(16px,env(safe-area-inset-left))}
+.bs-quests{left:max(16px,env(safe-area-inset-left));
+  top:calc(max(14px,env(safe-area-inset-top)) + 44px)}
+.bs-root:has(.bs-title) .bs-quests{top:calc(max(14px,env(safe-area-inset-top)) + 88px)}
 .bs-title{left:max(16px,env(safe-area-inset-left));top:max(14px,env(safe-area-inset-top))}
 .bs-shards{right:max(16px,env(safe-area-inset-right));top:max(14px,env(safe-area-inset-top))}
 .bs-compass{top:max(10px,env(safe-area-inset-top))}
@@ -1608,6 +1759,10 @@ const CSS = `
      virtual F10. Two buttons doing one job, one of them printing the name of a
      key the device does not have, is worse than one. */
   .bs-menubtn{display:none}
+  /* ...so the tracker takes the corner back. It is the only thing left in this
+     column on a phone, and 44px of empty space above it would be 44px of a
+     screen that has none to spare. */
+  .bs-quests{top:max(14px,env(safe-area-inset-top))}
   /* IT WRAPS HERE, and only here. The badge is one nowrap line on a desktop; at
      the 16px floor that line is 357px of a 393px phone, which reaches from the
      MENU button on one side to the toast column on the other. Capped and wrapped

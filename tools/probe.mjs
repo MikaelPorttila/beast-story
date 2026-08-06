@@ -81,6 +81,10 @@ const SOLO = new Set([
   'menu',          // menuShownAtMs, and a held W measured against another hold
   'keybinds',      // one section runs UNCAPPED on purpose
   'pause',         // held-W distances either side of the menu
+  // Held-W distances either side of the journal, and it stages a quest whose
+  // `timeOfDay` pins the world clock — see the header of tools/test-journal.mjs
+  // for why that keeps it off a shared page as well as out of PARALLEL.
+  'journal',
   'structures',    // walk distances into colliders
   'npc',           // walks to a talk range
   'road',          // drives the hero along a carriageway
