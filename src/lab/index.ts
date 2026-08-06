@@ -207,7 +207,12 @@ function placeCamera(): void {
 }
 
 // -- simulation --------------------------------------------------------------
-const owner = { position: new THREE.Vector3(0, 0, 0), velocity: new THREE.Vector3(), isSwimming: false };
+const owner = {
+  position: new THREE.Vector3(0, 0, 0),
+  velocity: new THREE.Vector3(),
+  isSwimming: false,
+  deepDiving: false,
+};
 const animParam = params.get('anim') as BeastAction | null;
 let simTime = 0;
 let skillTimer = 0;

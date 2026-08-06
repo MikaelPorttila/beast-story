@@ -495,7 +495,14 @@ export class MountController {
     this.carrier.clear();
     this.carrier.carry(this.world, this.pos);
     this.pos.y = Math.max(this.blockTop(p.x, p.z), this.world.waterLevel - WADE_DEPTH);
-    if (this.flying) this.pos.y = this.floorFor(p.x, p.z);
+    if (this.flying) {
+      // A flyer meets the rider WHERE HE IS. `floorFor` is still the lower
+      // bound, because a hero mounting at ground level must put the animal
+      // above the surface rather than inside it; it is not the destination.
+      // Assigning the floor unconditionally dropped a sky-falling hero all the
+      // way to terrain on the slice he mounted (issue #91).
+      this.pos.y = Math.max(p.y, this.floorFor(p.x, p.z));
+    }
     this.vel.set(0, 0, 0);
     this.vy = 0;
     this.grounded = !this.flying;

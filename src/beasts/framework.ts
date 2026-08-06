@@ -564,24 +564,23 @@ class DustPuff {
 // Light travel — a companion that cannot walk to you travels as light
 // ---------------------------------------------------------------------------
 /**
- * WHY THIS EXISTS. Issue #70. Every companion in this game keeps its footing on
- * the ground: a walker resolves against `getHeight` and a FLYER hovers 1.55
- * over it (see updateFlying), so neither of them follows a hero into the air —
- * they follow his COLUMN. The leash that was supposed to catch that
+ * WHY THIS EXISTS. Issue #70. Walkers keep their footing on the ground, so they
+ * cannot follow a hero into the air — they follow his COLUMN. The leash that
+ * was supposed to catch that
  * (`TELEPORT_DIST`) measures x and z only, so a hero circling on a galebird a
  * hundred units up, or standing on Skyhaven's deck, is nine metres away by the
- * only measure the beast takes: both companions pile up on the meadow directly
- * underneath, animating a follow they will never complete, and are still down
- * there when he lands somewhere else.
+ * only measure a walker takes: it piles up on the meadow directly underneath,
+ * animating a follow it will never complete, and is still down there when he
+ * lands somewhere else. Flyers now follow the owner's altitude as bodies (issue
+ * #91); their equivalent unreachable medium is a deep dive.
  *
- * A COMPANION IS NOT PATHED UPWARD, IT IS WITHDRAWN. Making the walkers fly
- * would mean a second locomotion for every species and a beast standing on
- * nothing; letting them stay behind is the bug. So a beast whose owner has got
+ * A GROUNDED COMPANION IS NOT PATHED UPWARD, IT IS WITHDRAWN. Making walkers
+ * fly would mean a second locomotion for every species and a beast standing on
+ * nothing; letting them stay behind is the bug. So a walker whose owner has got
  * out of reach dissolves into a streak of light, rides along with him with no
  * physics, no collision and nothing to target, and re-forms beside him the
- * moment there is a surface it could stand on again — which is the player-facing
- * request in the issue, and both halves of it: "once the player lands", and
- * "the player flies next to ground and gets attacked".
+ * moment there is a surface it could stand on again. A flyer uses the same
+ * transition only underwater and returns at the normal swim line.
  *
  * THE MEASUREMENT IS THE ONE THE LANDING USES. Both the leaving and the
  * arriving read `reach` — the owner's feet above the surface a beast would be
@@ -591,7 +590,7 @@ class DustPuff {
  * would land on, and a rule that beamed him out on one number and back in on
  * another would strobe the beast in and out for as long as he stood there.
  */
-/** Owner's feet above the beast's own landing surface, past which it withdraws. */
+/** Owner's feet above a grounded beast's landing surface, past which it withdraws. */
 const BEAM_RISE = 13;
 /**
  * ... and within which it re-forms. 4.5 is a drop a beast survives visibly — the
@@ -769,6 +768,8 @@ export interface BeastOwner {
   position: THREE.Vector3;
   velocity: THREE.Vector3;
   isSwimming: boolean;
+  /** Below the surface swim line, where a flying companion cannot follow. */
+  deepDiving: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -1250,6 +1251,12 @@ export class BeastActor {
     _dummy.position.y += this.rig.height * 0.5;
     this.puff.burst(_dummy.position, this.rig.radius);
     if (on) {
+      // Taking the reins is a hard exit from companion light travel. A beast
+      // mounted on the same slice as its rider left the water (or by a debug
+      // drive staged directly in transit) otherwise stayed `beaming`, whose
+      // visibility gate hid the rig throughout the ride (issue #91).
+      this.beaming = false;
+      this.rig.root.visible = this.visibleFlag && !(this.isDead && this.dieT >= 1);
       this.abortFetch();
       this.carryTime = 0;
       this.transient = null;
@@ -1344,11 +1351,15 @@ export class BeastActor {
     // has just computed: a beast that beams in lands exactly where it would have
     // walked to, so nothing downstream can tell the two arrivals apart.
     const reach = owner.position.y - this.landingY(tx, tz, owner);
+    const flying = this.species.locomotion === 'flying';
     if (this.beaming) {
       this.updateBeaming(dt, tx, tz, owner, reach);
       return;
     }
-    if (reach > BEAM_RISE) {
+    // Walkers withdraw when their owner leaves every surface they could stand
+    // on. Flyers solve ordinary height by flying and withdraw only for a deep
+    // dive, where keeping a winged body beside the swimmer would be the lie.
+    if ((flying && owner.deepDiving) || (!flying && reach > BEAM_RISE)) {
       this.beginBeam();
       this.updateBeaming(dt, tx, tz, owner, reach);
       return;
@@ -1455,7 +1466,7 @@ export class BeastActor {
     let base: BeastAction;
     if (loco === 'flying') {
       base = 'fly';
-      this.updateFlying(dt, groundY);
+      this.updateFlying(dt, groundY, owner);
     } else if (swimming) {
       base = 'swim';
       const bob = Math.sin(this.time * 2.2 + this.phase) * 0.07;
@@ -1656,7 +1667,7 @@ export class BeastActor {
     this.beam.update(dt);
   }
 
-  private updateFlying(dt: number, groundY: number): void {
+  private updateFlying(dt: number, groundY: number, owner: BeastOwner): void {
     const surf = Math.max(groundY, this.world.waterLevel);
     // Look ahead so it rises before hills instead of clipping into them
     const aheadY = this.world.getHeight(
@@ -1667,8 +1678,13 @@ export class BeastActor {
     // on the drop and grabs it, instead of collecting from cruising altitude
     // with a metre and a half of daylight under it.
     const hover = this.fetchJob ? 0.85 : 1.55;
-    const target = Math.max(surf, aheadY, this.world.waterLevel)
-      + hover + Math.sin(this.time * 1.6 + this.phase) * 0.22;
+    const floor = Math.max(surf, aheadY, this.world.waterLevel) + hover;
+    // A flying companion follows the owner's altitude as well as his column.
+    // The ground remains a lower bound, so the ordinary on-foot hover is
+    // unchanged; during a skyfall this is the body the player can see and mount
+    // instead of a light wisp pinned to his shoulder (issue #91).
+    const target = Math.max(floor, owner.position.y + hover)
+      + Math.sin(this.time * 1.6 + this.phase) * 0.22;
     const prevY = this.position.y;
     this.position.y = damp(this.position.y, target, 2.6, dt);
     const vyNow = dt > 0 ? (this.position.y - prevY) / dt : 0;
@@ -1823,6 +1839,9 @@ export class BeastActor {
   /** True while this companion is travelling as light — see BEAM_RISE. */
   get inTransit(): boolean { return this.beaming; }
 
+  /** Whether the renderer is currently drawing this body; used by probes. */
+  get isDrawn(): boolean { return this.rig.root.visible; }
+
   /**
    * The surface a beast would be put down on at (x, z), given where its owner
    * is. THE SAME ANSWER `teleportTo` PRODUCES, which is the whole reason it is a
@@ -1867,7 +1886,8 @@ export class BeastActor {
   private updateBeaming(dt: number, tx: number, tz: number, owner: BeastOwner, reach: number): void {
     this.position.set(tx, owner.position.y + BEAM_WISP_RISE, tz);
     const gate = this.supportNeeded ? BEAM_LAND_FIGHT : BEAM_LAND;
-    if (reach <= gate) {
+    const canLand = this.species.locomotion === 'flying' ? !owner.deepDiving : reach <= gate;
+    if (canLand) {
       this.beaming = false;
       this.rig.root.visible = this.visibleFlag;
       this.teleportTo(tx, tz, false);

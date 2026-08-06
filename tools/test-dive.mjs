@@ -55,6 +55,7 @@ const round = (v, n = 2) => +v.toFixed(n);
 
 const pos = () => page.evaluate(() => window.__dbgPlayerPos());
 const under = () => page.evaluate(() => window.__dbgUnder());
+const comp = () => page.evaluate(() => window.__dbgCompanions());
 
 /** Mean colour of the middle of the frame. See the note at the top. */
 async function frame() {
@@ -165,7 +166,11 @@ await wait(2500);
   await wait(700);
   const u = await under();
   const f = await frame();
-  results.submerged = { depth: u.depth, amount: u.amount, fogAbsorb: u.fogAbsorb, frame: f };
+  const companions = await comp();
+  const flyer = companions.beasts.find((b) => b.id === 'galebird');
+  results.submerged = {
+    depth: u.depth, amount: u.amount, fogAbsorb: u.fogAbsorb, frame: f, flyer,
+  };
 
   check(u.amount > 0.9, `the lens never got under (amount ${u.amount})`);
   // The three ways the old frame failed, as three separate numbers. Brightness
@@ -182,6 +187,8 @@ await wait(2500);
     `the submerged frame is blown out: luma ${f.luma} (white-out was 221)`);
   check(u.fogAbsorb[0] < 0.5 && u.fogAbsorb[2] > u.fogAbsorb[0],
     `the distance is not being absorbed toward water: ${JSON.stringify(u.fogAbsorb)}`);
+  check(!!flyer?.transit, 'Galebird did not convert to light for the deep dive');
+  check(!flyer?.drawn, 'Galebird body is still drawn underwater');
 }
 
 // ---------- release: he surfaces, and does not rocket -----------------------
@@ -229,10 +236,14 @@ await wait(2500);
   }
   await wait(1200);
   const u = await under();
-  results.afterSurfacing = { amount: u.amount, fogAbsorb: u.fogAbsorb };
+  const companions = await comp();
+  const flyer = companions.beasts.find((b) => b.id === 'galebird');
+  results.afterSurfacing = { amount: u.amount, fogAbsorb: u.fogAbsorb, flyer };
   check(u.amount < 0.2, `still tinted at the surface (amount ${u.amount})`);
   check(u.fogAbsorb.every((c) => c > 0.85),
     `the fog absorption was not put back: ${JSON.stringify(u.fogAbsorb)}`);
+  check(!flyer?.transit && !!flyer?.drawn,
+    'Galebird did not return to a visible body after surfacing');
 }
 
 console.log(JSON.stringify({ ...results, failures: fails, pass: fails.length === 0 }, null, 2));
