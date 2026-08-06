@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PostFX, readPostOptions } from './post';
 import { flags } from './flags';
 import { StaticShadowCache, STATIC_SHADOW_LAYER, shadowCasterCensus } from './shadow-cache';
+import type { CelestialState } from './types';
 
 /**
  * Rendering engine: renderer, scene, camera, sky, sun/ambient lighting, fog and
@@ -9,9 +10,12 @@ import { StaticShadowCache, STATIC_SHADOW_LAYER, shadowCasterCensus } from './sh
  * critic loop has one place to tune.
  */
 
-// Sun direction, as an offset from the shadow focus. Shared by the light, the
+// Reference noon offset from the shadow focus. Its direction defines the fresh
+// game's opening light and its length defines the moving key's depth range.
+/*
 // sky dome's glow and the sun disk so all three can never disagree — a halo that
 // does not sit where the shadows say the sun is reads instantly as wrong.
+*/
 //
 // ELEVATION IS AN ART DECISION, not a convenience. The old (60, 160, 40) puts
 // the sun 66 degrees up, so a shadow is only 0.45x the caster's height and hides
@@ -89,9 +93,8 @@ const BOUNCE_OFFSET = new THREE.Vector3(-160, -62, -106);
  */
 const SHADOW_RECENTER = 8;
 
-// The shadow camera's own axes, in world space. Constant, because the sun
-// direction is: three's LightShadow points the box from the light at its target
-// with `up` at +Y, so this is exactly the basis `Camera.lookAt` builds.
+// Initial shadow-camera axes in world space. Engine.applyCelestial rebuilds the
+// live copies at the budgeted light cadence as the key crosses the sky.
 //
 // They exist so `updateSunFocus` can snap the box centre to the SHADOW TEXEL
 // GRID, which is the thing that actually stops shadow edges crawling. Rounding
@@ -202,10 +205,12 @@ vec3 bsSkyRadiance(float h) {
 
 const SKY_FRAG = SKY_LIB + /* glsl */ `
 uniform vec3 uSunDir;
+uniform vec3 uSkyFilter;
+uniform float uDaylight;
 varying vec3 vDir;
 void main() {
   vec3 d = normalize(vDir);
-  vec3 col = bsSkyRadiance(d.y);
+  vec3 col = bsSkyRadiance(d.y) * uSkyFilter;
 
   // Sun-side glow: a tight corona, a mid halo, and a barely-there wide lobe.
   // The exponents are high on purpose. Adding a warm colour to a blue sky
@@ -233,7 +238,7 @@ void main() {
   // core is left alone: it is the disc's rim and it is meant to be white.
   float sd = max(dot(d, uSunDir), 0.0);
   float glow = pow(sd, 260.0) * 0.30 + pow(sd, 26.0) * 0.175 + pow(sd, 4.0) * 0.055;
-  col += vec3(1.00, 0.72, 0.34) * glow;
+  col += vec3(1.00, 0.72, 0.34) * glow * uDaylight;
 
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
@@ -360,6 +365,7 @@ installAerialPerspective();
 // round core (which the bloom pass smears into a halo) plus a wide corona so the
 // disk still reads with bloom switched off.
 const SUN_FRAG = /* glsl */ `
+uniform float uOpacity;
 varying vec2 vUv;
 void main() {
   float r = length(vUv - 0.5) * 2.0;
@@ -385,7 +391,7 @@ void main() {
   // what makes the disc legible is keeping the SKY around it well under the knee
   // (see SKY_FRAG) and keeping the disk out of the bloom (see bsNoBloom below).
   vec3 c = vec3(1.0, 0.965, 0.90) * (core * 3.6) + vec3(1.0, 0.74, 0.38) * corona;
-  gl_FragColor = vec4(c, 1.0);
+  gl_FragColor = vec4(c, uOpacity);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -398,6 +404,86 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
+
+const MOON_FRAG = /* glsl */ `
+uniform float uOpacity;
+varying vec2 vUv;
+void main() {
+  vec2 p = (vUv - 0.5) * 2.0;
+  float r = length(p);
+  float disc = 1.0 - smoothstep(0.82, 0.86, r);
+  if (disc <= 0.0) discard;
+  float crater =
+      (1.0 - smoothstep(0.08, 0.20, length(p - vec2(-0.28, 0.18))))
+    + (1.0 - smoothstep(0.05, 0.13, length(p - vec2(0.24, 0.31))))
+    + (1.0 - smoothstep(0.07, 0.18, length(p - vec2(0.18, -0.27))))
+    + (1.0 - smoothstep(0.04, 0.11, length(p - vec2(-0.38, -0.22))));
+  float limb = sqrt(max(0.0, 1.0 - r * r));
+  vec3 c = vec3(0.56, 0.68, 0.88) * (0.68 + limb * 0.48 - crater * 0.075);
+  gl_FragColor = vec4(c, disc * uOpacity);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}
+`;
+
+const STAR_VERT = /* glsl */ `
+attribute float aSize;
+uniform float uOpacity;
+varying float vAlpha;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mv;
+  gl_PointSize = aSize;
+  vAlpha = uOpacity;
+}
+`;
+
+const STAR_FRAG = /* glsl */ `
+varying float vAlpha;
+void main() {
+  float d = length(gl_PointCoord - 0.5);
+  float a = (1.0 - smoothstep(0.22, 0.50, d)) * vAlpha;
+  gl_FragColor = vec4(vec3(0.62, 0.75, 1.0), a);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}
+`;
+
+function makeStars(): THREE.Points {
+  const count = 520;
+  const positions = new Float32Array(count * 3);
+  const sizes = new Float32Array(count);
+  let seed = 0x87b0d5;
+  const random = (): number => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  for (let i = 0; i < count; i++) {
+    const y = random() * 0.92 + 0.04;
+    const a = random() * Math.PI * 2;
+    const h = Math.sqrt(1 - y * y) * 430;
+    positions[i * 3] = Math.cos(a) * h;
+    positions[i * 3 + 1] = y * 430;
+    positions[i * 3 + 2] = Math.sin(a) * h;
+    sizes[i] = 1.2 + random() * 2.2;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: STAR_VERT,
+    fragmentShader: STAR_FRAG,
+    uniforms: { uOpacity: { value: 0 } },
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fog: false,
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  points.renderOrder = -1;
+  return points;
+}
 
 /**
  * The exposure a sunlit frame is graded at. Every number in post.ts's grade was
@@ -417,6 +503,8 @@ export class Engine {
   readonly ambient: THREE.HemisphereLight;
   private readonly skyDome: THREE.Mesh;
   private readonly sunDisk: THREE.Mesh;
+  private readonly moonDisk: THREE.Mesh;
+  private readonly stars: THREE.Points;
   /** The background the sky dome is painted to match; see render(). */
   private readonly ownBackground: THREE.Color;
   private post: PostFX | null = null;
@@ -437,6 +525,16 @@ export class Engine {
    */
   private readonly shadowBoxCenter = new THREE.Vector3(NaN, NaN, NaN);
   private sunDir = new THREE.Vector3().copy(SUN_OFFSET).normalize();
+  private moonDir = new THREE.Vector3().copy(this.sunDir).multiplyScalar(-1);
+  private readonly sunOffset = new THREE.Vector3().copy(SUN_OFFSET);
+  private readonly shadowZ = new THREE.Vector3().copy(SHADOW_Z);
+  private readonly shadowX = new THREE.Vector3().copy(SHADOW_X);
+  private readonly shadowY = new THREE.Vector3().copy(SHADOW_Y);
+  private celestialExposure = 1;
+  private localExposure = 1;
+  private readonly atmosphereFilter = new THREE.Color(1, 1, 1);
+  private lightCadence = 0.5;
+  private celestialUpdates = 0;
   /**
    * The frame clock. `THREE.Clock` was DEPRECATED in three r183 — its own
    * source now says so and logs "Clock: This module has been deprecated.
@@ -573,7 +671,11 @@ export class Engine {
       new THREE.ShaderMaterial({
         vertexShader: SKY_VERT,
         fragmentShader: SKY_FRAG,
-        uniforms: { uSunDir: { value: this.sunDir } },
+        uniforms: {
+          uSunDir: { value: this.sunDir },
+          uSkyFilter: { value: new THREE.Color(1, 1, 1) },
+          uDaylight: { value: 1 },
+        },
         side: THREE.BackSide,
         fog: false,
         depthWrite: false,
@@ -590,6 +692,7 @@ export class Engine {
       new THREE.ShaderMaterial({
         vertexShader: SUN_VERT,
         fragmentShader: SUN_FRAG,
+        uniforms: { uOpacity: { value: 1 } },
         transparent: true,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
@@ -604,6 +707,26 @@ export class Engine {
     // filed against this. See tagSources() in post.ts.
     this.sunDisk.userData.bsNoBloom = true;
     this.scene.add(this.sunDisk);
+
+    // A deliberately large storybook moon: generated shader detail, one quad,
+    // and the same camera-locked shell as the sun so there is no asset pipeline.
+    this.moonDisk = new THREE.Mesh(
+      new THREE.PlaneGeometry(58, 58),
+      new THREE.ShaderMaterial({
+        vertexShader: SUN_VERT,
+        fragmentShader: MOON_FRAG,
+        uniforms: { uOpacity: { value: 0 } },
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    this.moonDisk.userData.bsNoBloom = true;
+    this.scene.add(this.moonDisk);
+
+    this.stars = makeStars();
+    this.scene.add(this.stars);
 
     this.camera = new THREE.PerspectiveCamera(
       55, container.clientWidth / container.clientHeight, 0.1, 600,
@@ -825,6 +948,47 @@ export class Engine {
     }
   }
 
+  /** Apply the shared celestial answer; light direction is budgeted to 2 Hz. */
+  applyCelestial(state: Readonly<CelestialState>, dt: number): void {
+    this.sunDir.copy(state.sunDirection);
+    this.moonDir.copy(state.moonDirection);
+    const sky = this.skyDome.material as THREE.ShaderMaterial;
+    sky.uniforms.uSkyFilter.value.copy(state.atmosphereFilter);
+    sky.uniforms.uDaylight.value = state.daylight;
+    (this.sunDisk.material as THREE.ShaderMaterial).uniforms.uOpacity.value = state.daylight;
+    (this.moonDisk.material as THREE.ShaderMaterial).uniforms.uOpacity.value = state.moon;
+    (this.stars.material as THREE.ShaderMaterial).uniforms.uOpacity.value = state.stars;
+
+    this.sun.color.copy(state.keyColor);
+    this.sun.intensity = state.keyIntensity;
+    this.bounce.color.copy(state.bounceColor);
+    this.bounce.intensity = state.bounceIntensity;
+    this.ambient.color.copy(state.ambientSky);
+    this.ambient.groundColor.copy(state.ambientGround);
+    this.ambient.intensity = state.ambientIntensity;
+    this.celestialExposure = state.exposureScale;
+    this.renderer.toneMappingExposure = DAYLIGHT_EXPOSURE
+      * this.celestialExposure * this.localExposure;
+    this.atmosphereFilter.copy(state.atmosphereFilter);
+    if (this.scene.fog) this.scene.fog.color.copy(this.atmosphereFilter);
+
+    this.lightCadence += Math.max(0, dt);
+    if (this.celestialUpdates > 0 && this.lightCadence < 0.5) return;
+    this.lightCadence = 0;
+    this.celestialUpdates++;
+    this.shadowZ.copy(state.keyDirection).normalize();
+    this.shadowX.crossVectors(THREE.Object3D.DEFAULT_UP, this.shadowZ);
+    // At zenith any horizontal basis is valid; retain a stable axis there.
+    if (this.shadowX.lengthSq() < 1e-6) this.shadowX.set(1, 0, 0);
+    else this.shadowX.normalize();
+    this.shadowY.crossVectors(this.shadowZ, this.shadowX).normalize();
+    this.sunOffset.copy(this.shadowZ).multiplyScalar(SUN_OFFSET.length());
+    this.bounce.position.copy(this.shadowZ).multiplyScalar(-200);
+    this.bounce.position.y = -Math.max(48, Math.abs(this.bounce.position.y));
+    this.shadowBoxCenter.set(NaN, NaN, NaN);
+    this.shadowCache?.invalidate();
+  }
+
   /** Resize the shadow ortho box. Half-extent in world units. */
   private setShadowExtent(s: number): void {
     this.shadowExtent = s;
@@ -893,16 +1057,16 @@ export class Engine {
     const texel = (2 * s) / this.sun.shadow.mapSize.x;
     const drift = this.shadowBoxCenter.distanceToSquared(focus);
     if (!resized && Number.isFinite(drift) && drift <= SHADOW_RECENTER * SHADOW_RECENTER) return;
-    const u = Math.round(focus.dot(SHADOW_X) / texel) * texel;
-    const v = Math.round(focus.dot(SHADOW_Y) / texel) * texel;
-    const w = focus.dot(SHADOW_Z);
+    const u = Math.round(focus.dot(this.shadowX) / texel) * texel;
+    const v = Math.round(focus.dot(this.shadowY) / texel) * texel;
+    const w = focus.dot(this.shadowZ);
     this.shadowBoxCenter
-      .copy(SHADOW_X).multiplyScalar(u)
-      .addScaledVector(SHADOW_Y, v)
-      .addScaledVector(SHADOW_Z, w);
+      .copy(this.shadowX).multiplyScalar(u)
+      .addScaledVector(this.shadowY, v)
+      .addScaledVector(this.shadowZ, w);
     const c = this.shadowBoxCenter;
     this.sun.target.position.copy(c);
-    this.sun.position.set(c.x + SUN_OFFSET.x, c.y + SUN_OFFSET.y, c.z + SUN_OFFSET.z);
+    this.sun.position.copy(c).add(this.sunOffset);
   }
 
   private onResize(container: HTMLElement): void {
@@ -1005,7 +1169,14 @@ export class Engine {
    * composer path and the `?post=0` fallback can never drift apart.
    */
   setExposureScale(k: number): void {
-    this.renderer.toneMappingExposure = DAYLIGHT_EXPOSURE * k;
+    this.localExposure = k;
+    this.renderer.toneMappingExposure = DAYLIGHT_EXPOSURE
+      * this.celestialExposure * this.localExposure;
+  }
+
+  /** Compose water absorption with the current sky filter without stale saves. */
+  setFogAbsorption(absorption: Readonly<THREE.Color>): void {
+    if (this.scene.fog) this.scene.fog.color.copy(this.atmosphereFilter).multiply(absorption);
   }
 
   /**
@@ -1076,6 +1247,10 @@ export class Engine {
       enabled: this.renderer.shadowMap.enabled,
       cached: this.shadowCache !== null && this.shadowCacheOn,
       extent: this.shadowExtent,
+      celestialUpdates: this.celestialUpdates,
+      keyDirection: this.shadowZ.toArray(),
+      keyIntensity: this.sun.intensity,
+      bounceIntensity: this.bounce.intensity,
       ...(this.shadowCache?.debug() ?? {}),
       ...shadowCasterCensus(this.scene),
     };
@@ -1089,13 +1264,19 @@ export class Engine {
     // the lens. lookAt orients +Z at the target and PlaneGeometry faces +Z.
     this.sunDisk.position.copy(this.camera.position).addScaledVector(this.sunDir, 400);
     this.sunDisk.lookAt(this.camera.position);
+    this.moonDisk.position.copy(this.camera.position).addScaledVector(this.moonDir, 400);
+    this.moonDisk.lookAt(this.camera.position);
+    this.stars.position.copy(this.camera.position);
 
     // The lab replaces scene.background with a flat colour (?bg=RRGGBB) to get a
     // plain backdrop. Honour that by standing the sky down — otherwise the dome
     // covers the background and the parameter does nothing.
     const plainBackdrop = this.scene.background !== this.ownBackground;
     this.skyDome.visible = !plainBackdrop;
-    this.sunDisk.visible = !plainBackdrop;
+    this.sunDisk.visible = !plainBackdrop
+      && (this.sunDisk.material as THREE.ShaderMaterial).uniforms.uOpacity.value > 0.01;
+    this.moonDisk.visible = !plainBackdrop;
+    this.stars.visible = !plainBackdrop;
 
     // EVERY WORLD MATRIX, ONCE, and it has to be here rather than at the top of
     // the method: the sky dome and the sun disk are moved a few lines up, and
@@ -1118,7 +1299,7 @@ export class Engine {
     this.renderer.info.reset();
     if (this.shadowCache && this.shadowCacheOn && this.renderer.shadowMap.enabled) {
       this.shadowCache.update(
-        this.renderer, this.scene, this.camera, this.sun, SHADOW_X, SHADOW_Y,
+        this.renderer, this.scene, this.camera, this.sun, this.shadowX, this.shadowY,
       );
     } else {
       this.renderer.shadowMap.needsUpdate = true;

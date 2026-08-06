@@ -11,7 +11,9 @@ import { CHUNK_SIZE, STONE, STONE_WARM, Terrain, WATER_LEVEL, makeScratch } from
 const S_TOP = 1.0;
 
 /**
- * Baked side-face shade, indexed by the mesher's `dir` (0:+X, 1:-X, 2:+Z, 3:-Z).
+ * Historical side-face tuning, indexed by `dir`. Issue #87 supersedes its
+ * fixed-azimuth conclusion below: the final arrays are direction-neutral so
+ * the moving celestial key is the only source of compass-direction lighting.
  *
  * These used to be a single value per axis (0.86 for X, 0.78 for Z) — a baked
  * fake sun. The scene has a REAL directional sun, so that baked term stacked with
@@ -72,7 +74,10 @@ const S_TOP = 1.0;
  * at L=193-197 over side faces at L=142-158, and on grass tops L=141-167 over
  * wall L=92-110. Re-derive again if the light rig moves.
  */
-const SIDE_SHADE = [0.60, 0.97, 0.70, 0.95];
+// Direction-neutral side albedo: the live celestial key now supplies azimuth.
+// Opposing faces must start equal or a midnight moon would reveal a second,
+// permanently baked noon in the terrain colours.
+const SIDE_SHADE = [0.78, 0.78, 0.78, 0.78];
 
 /**
  * How much of a warm bounce tint each side direction gets, 0..1, same `dir`
@@ -99,7 +104,7 @@ const SIDE_SHADE = [0.60, 0.97, 0.70, 0.95];
  *    perceptually a shaded face that keeps a hue reads as shade, while one that
  *    goes neutral-blue reads as a hole. Which is the whole complaint.
  */
-const SIDE_BOUNCE = [0, 1, 0.4, 0.9];
+const SIDE_BOUNCE = [0.45, 0.45, 0.45, 0.45];
 
 /**
  * Corner-AO darkening per occlusion level (3 = fully open, 0 = boxed in).

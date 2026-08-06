@@ -47,7 +47,8 @@
  * three-armed fingerpost at the fork, which is the most useful place for one.
  */
 import * as THREE from 'three';
-import type { TownInfo, TownRegistry } from '../core/types';
+import type { CelestialState, TownInfo, TownRegistry } from '../core/types';
+import { VoxelModel } from '../core/voxel';
 import { t, type StringKey } from '../i18n';
 import { content, defineFactory, resolveText, TOWN_LAYOUT_KIND, type TownData } from '../content';
 import type { ContentText } from '../content/types';
@@ -57,7 +58,7 @@ import {
   RoadNetwork, roadAt, roadLength, routeRoad, profileRoad, straightWetLength,
   builtDeck, setTrimStart, DECK_EDGE, NECK_MAX, type Road, type RoadClearance,
 } from './roads';
-import { Accum, type PropLib, type Template } from './props';
+import { Accum, bakeProp, type PropLib, type Template } from './props';
 import { SolidStamp, StructureField } from './structures';
 import {
   TownParts, V, addBridgeFurniture, buildJunctionApron, buildRoadRibbon, signArm,
@@ -85,6 +86,24 @@ import { TOWN_NO_SPAWN_MARGIN } from './safe-zones';
  * up BELOW a 4.90 wall top, leaving the guard looking at timber.
  */
 const WALL_S = 1.25;
+
+/** One warm two-by-two pane, stamped just proud of each building facade. */
+const NIGHT_WINDOW: Template = (() => {
+  const v = new VoxelModel();
+  v.box(-1, 0, 0, 0, 1, 0, 0xffc56b);
+  return bakeProp(v, 0.22);
+})();
+
+function addNightWindow(
+  acc: Accum, x: number, y: number, z: number, yaw: number,
+  front: number, height: number,
+): void {
+  acc.add(
+    NIGHT_WINDOW,
+    x + Math.sin(yaw) * front, y + height, z + Math.cos(yaw) * front,
+    yaw, 1, 1, 1, 1,
+  );
+}
 
 /**
  * Half a side of the Encampment's square wall, world units.
@@ -193,7 +212,7 @@ export interface TownSite {
  * the switch this whole arrangement exists to delete.
  */
 export type TownLayout = (
-  solid: SolidStamp, glow: Accum, hearth: Accum, parts: TownParts, town: TownInfo,
+  solid: SolidStamp, glow: Accum, hearth: Accum, night: Accum, parts: TownParts, town: TownInfo,
   network: RoadNetwork, rng: () => number,
 ) => { x: number; z: number } | null;
 
@@ -1128,6 +1147,10 @@ export class Towns {
     // shader program differing only in uniform values, so a third costs no
     // program link.
     const hearthGlow = mkGlow();
+    const nightGlow = mkGlow();
+    nightGlow.emissive.set(0xffb34f);
+    nightGlow.emissiveIntensity = 0;
+    nightGlow.userData.bsNightRole = 'town-windows';
 
     const emit = (
       acc: Accum, mat: THREE.Material, parent: THREE.Group, shadows: boolean,
@@ -1148,6 +1171,7 @@ export class Towns {
       const solid = new SolidStamp(this.solids);
       const glow = new Accum();
       const hearth = new Accum();
+      const night = new Accum();
       const rng = mulberry32((seed ^ 0x5eed) + town.id.length * 7919 + town.x * 31);
       // WHICH BUILDER, BY NAME. `TownInfo.kind` carries the town's `layout`
       // (they are one fact — see `TownSite.kind`), and the factory registry is
@@ -1155,11 +1179,12 @@ export class Towns {
       // registered, so the lookup cannot miss for a town that reached here; the
       // guard is for a factory table emptied by something else entirely.
       const layout = content.factory<TownLayout>(TOWN_LAYOUT_KIND, town.kind);
-      const fire = layout?.(solid, glow, hearth, parts, town, plan.network, rng) ?? null;
+      const fire = layout?.(solid, glow, hearth, night, parts, town, plan.network, rng) ?? null;
       if (fire) this.fires.set(town.id, fire);
       emit(solid.acc, props.solidMat, g, true);
       emit(glow, fireGlow, g, false);
       emit(hearth, hearthGlow, g, false);
+      emit(night, nightGlow, g, false);
       this.group.add(g);
       this.sites.push({ g, x: town.x, z: town.z, r: town.radius });
     }
@@ -1350,6 +1375,12 @@ export class Towns {
     }
   }
 
+  applyCelestial(state: Readonly<CelestialState>): void {
+    // Windows come on through dusk, reach a restrained bloom at night, and are
+    // genuinely black by day. They are geometry only, never extra point lights.
+    this.glowMats[3].emissiveIntensity = 1.35 * state.night * state.night;
+  }
+
   /**
    * Where this town's fire stands, or null for a settlement without one.
    * `NpcSite.focusOf` in world/index.ts is the only caller.
@@ -1463,7 +1494,7 @@ function place(
  * same field the player walks on, not a remembered bearing.
  */
 function buildEncampment(
-  solid: SolidStamp, glow: Accum, hearth: Accum, parts: TownParts, town: TownInfo,
+  solid: SolidStamp, glow: Accum, hearth: Accum, night: Accum, parts: TownParts, town: TownInfo,
   network: RoadNetwork, rng: () => number,
 ): { x: number; z: number } {
   const { x: cx, z: cz, y: cy, gateAngle } = town;
@@ -1603,7 +1634,9 @@ function buildEncampment(
     const [x, z] = at(a, inset(a, 7.5));
     if (!place(taken, network, x, z, 4.4, 7)) continue;
     // Door toward the fire.
-    solid.add(parts.huts[k], x, cy, z, Math.atan2(fx - x, fz - z));
+    const yaw = Math.atan2(fx - x, fz - z);
+    solid.add(parts.huts[k], x, cy, z, yaw);
+    addNightWindow(night, x, cy, z, yaw, 3.35, 2.0);
     if (k === 2) {
       // Smithy: coals in the forge mouth, a stride out from the door.
       const dx = Math.sin(Math.atan2(fx - x, fz - z));
@@ -1621,8 +1654,10 @@ function buildEncampment(
     const a = gateAngle + 0.7 + (k / 9) * Math.PI * 1.6 + (rng() - 0.5) * 0.25;
     const [x, z] = at(a, inset(a, 5.5 + rng() * 4));
     if (!place(taken, network, x, z, 3.2, 6)) continue;
-    if (tentIdx % 3 === 2) solid.add(parts.bell, x, cy, z, Math.atan2(fx - x, fz - z));
-    else solid.add(parts.tents[tentIdx % parts.tents.length], x, cy, z, a + Math.PI / 2);
+    const yaw = tentIdx % 3 === 2 ? Math.atan2(fx - x, fz - z) : a + Math.PI / 2;
+    if (tentIdx % 3 === 2) solid.add(parts.bell, x, cy, z, yaw);
+    else solid.add(parts.tents[tentIdx % parts.tents.length], x, cy, z, yaw);
+    addNightWindow(night, x, cy, z, yaw, 2.7, 1.45);
     tentIdx++;
   }
 
@@ -1705,7 +1740,7 @@ function buildEncampment(
  * so the shape of the seam is visible from here.
  */
 function buildHamlet(
-  solid: SolidStamp, glow: Accum, _hearth: Accum, parts: TownParts, town: TownInfo,
+  solid: SolidStamp, glow: Accum, _hearth: Accum, night: Accum, parts: TownParts, town: TownInfo,
   network: RoadNetwork, rng: () => number,
 ): { x: number; z: number } | null {
   const { x: cx, z: cz, y: cy, radius: R, gateAngle } = town;
@@ -1722,14 +1757,17 @@ function buildHamlet(
     const a = gateAngle + Math.PI * 0.55 + (k / 4) * Math.PI * 0.9 + (rng() - 0.5) * 0.2;
     const [x, z] = at(a, R - 5.5 - rng() * 3);
     if (!place(taken, network, x, z, 4.4, 7)) continue;
-    solid.add(parts.huts[k % parts.huts.length], x, cy, z, Math.atan2(wx - x, wz - z));
+    const yaw = Math.atan2(wx - x, wz - z);
+    solid.add(parts.huts[k % parts.huts.length], x, cy, z, yaw);
+    addNightWindow(night, x, cy, z, yaw, 3.35, 2.0);
   }
   for (let k = 0; k < 3; k++) {
     const a = gateAngle - 0.5 - (k / 3) * 1.5;
     const [x, z] = at(a, R - 6 - rng() * 3);
     if (!place(taken, network, x, z, 3.2, 6)) continue;
-    solid.add(k === 1 ? parts.bell : parts.tents[k % parts.tents.length],
-      x, cy, z, a + Math.PI / 2);
+    const yaw = a + Math.PI / 2;
+    solid.add(k === 1 ? parts.bell : parts.tents[k % parts.tents.length], x, cy, z, yaw);
+    addNightWindow(night, x, cy, z, yaw, 2.7, 1.45);
   }
   // A fence arc on the side away from the road, and a paddock cart.
   //

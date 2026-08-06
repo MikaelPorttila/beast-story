@@ -745,6 +745,43 @@ export type DisturbKind = 'walk' | 'fly';
  */
 export type WorldLayer = 'grass' | 'props' | 'water' | 'clouds';
 
+/** Why the visible clock is at the phase reported by {@link CelestialState}. */
+export type TimeOfDaySource = 'auto' | 'quest' | 'debug';
+
+/**
+ * One allocation-free frame of the day/night system.
+ *
+ * The clock owns these mutable vectors and colours for its whole lifetime. A
+ * consumer may read or copy them, never retain and mutate them. Keeping the
+ * whole environmental answer together is what prevents the water glint, fog,
+ * shadow map and sky discs from each inventing a slightly different sun.
+ */
+export interface CelestialState {
+  /** Normalised day, [0, 1): midnight 0, dawn .25, noon .5, dusk .75. */
+  readonly phase: number;
+  readonly source: TimeOfDaySource;
+  /** Quest id responsible for a quest lock, otherwise null. */
+  readonly quest: string | null;
+  readonly sunDirection: THREE.Vector3;
+  readonly moonDirection: THREE.Vector3;
+  /** The sun by day and the moon by night: the one shadow-casting key. */
+  readonly keyDirection: THREE.Vector3;
+  readonly keyColor: THREE.Color;
+  readonly keyIntensity: number;
+  readonly bounceColor: THREE.Color;
+  readonly bounceIntensity: number;
+  readonly ambientSky: THREE.Color;
+  readonly ambientGround: THREE.Color;
+  readonly ambientIntensity: number;
+  /** Multiplied with the static aerial-perspective sky ramp. */
+  readonly atmosphereFilter: THREE.Color;
+  readonly exposureScale: number;
+  readonly daylight: number;
+  readonly night: number;
+  readonly stars: number;
+  readonly moon: number;
+}
+
 /**
  * Say that a thing is DRAWN but is not an ambient-occlusion occluder.
  *
@@ -771,6 +808,8 @@ export function isExcludedFromAO(obj: THREE.Object3D): boolean {
 }
 
 export interface World {
+  /** Apply the current celestial lighting to world-owned shader materials. */
+  applyCelestial(state: Readonly<CelestialState>): void;
   /**
    * Show or hide one layer, now and for everything streamed in afterwards.
    *

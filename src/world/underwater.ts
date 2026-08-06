@@ -158,6 +158,9 @@ export class Underwater {
     return 1 + (UNDER_EXPOSURE - 1) * this.amount;
   }
 
+  /** Per-channel Beer-Lambert multiplier, composed by Engine with time of day. */
+  get fogAbsorption(): Readonly<THREE.Color> { return this.fogColor; }
+
   /**
    * The effect's own clock, in seconds, for the refraction and the caustics.
    *
@@ -175,7 +178,7 @@ export class Underwater {
   private readonly bubbleVel: Float32Array;
   private readonly bubbleAttr: THREE.BufferAttribute;
   private time = 0;
-  /** scene.fog's own values, saved on the way in and put back on the way out. */
+  /** scene.fog's own distances, saved on the way in and put back on the way out. */
   private fogNear = 0;
   private fogFar = 0;
   private readonly fogColor = new THREE.Color(1, 1, 1);
@@ -264,7 +267,6 @@ export class Underwater {
       if (!this.fogSaved) {
         this.fogNear = fog.near;
         this.fogFar = fog.far;
-        this.fogColor.copy(fog.color);
         this.fogSaved = true;
       }
       // 4 / 40 at full submersion. The history here is the whole of issue #23
@@ -325,7 +327,7 @@ export class Underwater {
     // tint quad applied to the in-scattered half instead of the direct half.
     // Working colour space is linear-sRGB, so `setRGB` writes exactly these
     // numbers and no transfer function touches them.
-    fog.color.setRGB(
+    this.fogColor.setRGB(
       1 + (WATER_ABSORB.r - 1) * this.amount,
       1 + (WATER_ABSORB.g - 1) * this.amount,
       1 + (WATER_ABSORB.b - 1) * this.amount,
@@ -338,8 +340,8 @@ export class Underwater {
     if (fog && (fog as THREE.Fog).isFog) {
       fog.near = this.fogNear;
       fog.far = this.fogFar;
-      fog.color.copy(this.fogColor);
     }
+    this.fogColor.setRGB(1, 1, 1);
     this.fogSaved = false;
   }
 

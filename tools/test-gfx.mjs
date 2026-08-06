@@ -126,14 +126,19 @@ export const sections = [
     const shown = await ctx.ev(() => {
       const el = document.querySelector('.bs-perf');
       return el
-        ? { visible: getComputedStyle(el).display !== 'none', rows: el.querySelectorAll('.bs-perf-row').length }
+        ? {
+          visible: getComputedStyle(el).display !== 'none',
+          rows: el.querySelectorAll('.bs-perf-row').length,
+          timeRows: el.querySelectorAll('[data-time="day"]').length,
+        }
         : null;
     });
     const state = await gfxAll(ctx);
     ctx.res.panel = { ...shown, open: state.open, options: Object.keys(state.values).length };
     ctx.check(!!shown?.visible, 'F3 did not open the panel');
-    ctx.check(shown?.rows === ctx.res.panel.options,
-      `the panel shows ${shown?.rows} rows for ${ctx.res.panel.options} settings`);
+    ctx.check(shown?.rows === ctx.res.panel.options + 1,
+      `the panel shows ${shown?.rows} rows for ${ctx.res.panel.options} graphics settings plus time`);
+    ctx.check(shown?.timeRows === 1, `the panel shows ${shown?.timeRows} time rows, expected 1`);
     // NOT a modal, deliberately — see the note at the top of ui/perf-panel.ts.
     // The walk is simulated: what is being asserted is that the sim moves him
     // with the panel up, and simulated seconds are exactly that.

@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import type {
-  CrownContact, NpcField, NpcInfo, NpcTalk, PlayerStart, TownInfo, TownRegistry,
+  CelestialState, CrownContact, NpcField, NpcInfo, NpcTalk, PlayerStart, TownInfo, TownRegistry,
   World, WorldLayer,
 } from '../core/types';
 import { excludeFromAO } from '../core/types';
@@ -1111,6 +1111,19 @@ export function createWorld(
 
     debugCarriedTrees(): Array<{ x: number; z: number }> {
       return sky?.debugTrees() ?? [];
+    },
+
+    applyCelestial(state: Readonly<CelestialState>): void {
+      // World-local consumers are updated here so composition code never has
+      // to know which zone happens to own water, clouds, or a carried fall.
+      waterMat.uniforms['uSunDir']?.value.copy(state.keyDirection);
+      waterMat.uniforms['uSunColor']?.value.copy(state.keyColor);
+      if (waterMat.uniforms['uSunStrength']) {
+        waterMat.uniforms['uSunStrength'].value = state.keyIntensity / 3.05;
+      }
+      clouds?.applyCelestial(state);
+      sky?.applyCelestial(state);
+      towns?.applyCelestial(state);
     },
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {

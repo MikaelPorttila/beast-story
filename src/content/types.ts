@@ -495,6 +495,8 @@ export interface ContentRuntime extends ContentLookup {
   load(pkg: PackageId, lease?: Lease): Promise<LoadResult>;
   /** Drop a lease; the package unloads when its last one goes (spec §12.3). */
   release(pkg: PackageId, lease?: Lease): void;
+  /** Fires after a load or unload changes the set of available definitions. */
+  onDefinitionsChange(fn: () => void): () => void;
   readonly packages: readonly PackageInfo[];
 
   /** Availability, against live state. A missing/unknown test is false. */

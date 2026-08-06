@@ -23,7 +23,7 @@
  * still walking toward the gateway, in a place he cannot see.
  */
 import * as THREE from 'three';
-import { NO_CARRIERS, type World } from '../core/types';
+import { NO_CARRIERS, type CelestialState, type World } from '../core/types';
 import { CHUNK_SIZE } from './terrain';
 import { NO_SAFE_ZONES } from './safe-zones';
 import { hashCell, mulberry32 } from './noise';
@@ -646,6 +646,9 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     /** Nor any road furniture: the hold has no roads. */
     debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; },
     debugCarriedTrees(): Array<{ x: number; z: number }> { return []; },
+
+    /** The enclosed hold has no sky, water, clouds or waterfall to retint. */
+    applyCelestial(_state: Readonly<CelestialState>): void { /* intentionally enclosed */ },
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
       if (disposed) return;

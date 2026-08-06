@@ -52,6 +52,9 @@ void main() {
  */
 const FRAG = /* glsl */ `
 uniform float uTime;
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform float uSunStrength;
 varying float vDepth;
 /**
  * On the water surface: distance in cells to the nearest dry column, clamped to
@@ -111,8 +114,6 @@ const vec3 SKY_ZENITH  = vec3(0.10, 0.34, 0.95);
 // MUST match SUN_OFFSET in core/engine.ts, normalised — currently (170,160,113).
 // A glint lobe that disagrees with where the terrain's shadows say the sun is
 // reads instantly as wrong, and this shader cannot see the scene's lights.
-const vec3 SUN_DIR = vec3(0.6554, 0.6168, 0.4356);
-const vec3 SUN_COL = vec3(1.0, 0.949, 0.851);
 
 /**
  * Analytic normal of four crossed directional ripples. Derivatives come from
@@ -343,7 +344,7 @@ void main() {
   // from 4 units up compresses into horizontal banding. The extra steepness is
   // meant to be spent on the specular below, where it produces a glint path,
   // not here where it produces stripes.
-  col += vec3(0.030, 0.110, 0.145) * dot(N.xz, SUN_DIR.xz) * att * 1.15;
+  col += vec3(0.030, 0.110, 0.145) * dot(N.xz, uSunDir.xz) * att * 1.15 * uSunStrength;
 
   vec3 R = reflect(-V, N);
   vec3 sky = mix(SKY_HORIZON, SKY_ZENITH, smoothstep(0.0, 0.45, R.y));
@@ -416,7 +417,7 @@ void main() {
   // bay in an even white haze in any shot looking toward the sun, which is what
   // washed the lake almost to paper. The tight lobe (where the actual liquid read
   // comes from) is untouched.
-  vec3 Hv = normalize(SUN_DIR + V);
+  vec3 Hv = normalize(uSunDir + V);
   float ndh = max(dot(N, Hv), 0.0);
   // Three lobes now, not two. The tight one is the sparkle, the broad one the
   // sheen, and the new middle lobe is the actual GLINT STREAK — a bright band a
@@ -465,7 +466,7 @@ void main() {
   // reflection above, from a second source, and the one that survives looking
   // straight down because the half-vector barely moves.
   if (gl_FrontFacing) {
-    col += SUN_COL * (
+    col += uSunColor * uSunStrength * (
         pow(ndh, 260.0) * 0.62
       + pow(ndh, 48.0) * 0.13
       + pow(ndh, 12.0) * 0.040
@@ -592,7 +593,12 @@ void main() {
 export function createWaterMaterial(): THREE.ShaderMaterial {
   const uniforms = THREE.UniformsUtils.merge([
     THREE.UniformsLib['fog'],
-    { uTime: { value: 0 } },
+    {
+      uTime: { value: 0 },
+      uSunDir: { value: new THREE.Vector3(0.6554, 0.6168, 0.4356) },
+      uSunColor: { value: new THREE.Color(1.0, 0.949, 0.851) },
+      uSunStrength: { value: 1 },
+    },
   ]);
   const mat = new THREE.ShaderMaterial({
     uniforms,

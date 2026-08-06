@@ -74,6 +74,29 @@ const NECK_LOCAL_Y = 0.58;
 /** Head is shrunk relative to the body to match Cube World's head:body ratio. */
 const HEAD_SCALE = 0.7;
 
+/**
+ * A camera-relative silhouette lift, independent of the world's lighting.
+ *
+ * Games commonly use a Fresnel/rim response to keep an actor separable in a
+ * dark shot. This adds at most 0.028 linear blue at a perfectly grazing angle,
+ * falls off to almost nothing over the front planes, and never touches the
+ * emissive channel — so selective bloom cannot mistake the hero for a lamp.
+ */
+const ACTOR_RIM_STRENGTH = 0.055;
+function installActorHighlight(material: THREE.MeshStandardMaterial): void {
+  material.userData.bsNightRole = 'hero-highlight';
+  material.userData.bsDebugIntensity = ACTOR_RIM_STRENGTH;
+  material.customProgramCacheKey = (): string => 'bsActorRim-v1';
+  material.onBeforeCompile = (shader): void => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      `float bsActorRim = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 4.0);
+       outgoingLight += vec3(0.22, 0.32, 0.50) * (bsActorRim * ${ACTOR_RIM_STRENGTH.toFixed(3)});
+       #include <opaque_fragment>`,
+    );
+  };
+}
+
 function buildHead(): THREE.Mesh {
   const v = new VoxelModel();
   // skull
@@ -328,6 +351,7 @@ export function buildHeroRig(): HeroRig {
     // own", so it is one or the other. Beasts make the same trade (beasts/framework).
     mesh.receiveShadow = false;
     if (mesh.material instanceof THREE.MeshStandardMaterial) {
+      installActorHighlight(mesh.material);
       materials.push(mesh.material);
     }
   });
@@ -361,6 +385,7 @@ export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
   }
   if (!id) return;
   const mesh = buildWeaponModel(id);
+  installActorHighlight(mesh.material as THREE.MeshStandardMaterial);
   rig.sword.add(mesh);
   rig.materials.push(mesh.material as THREE.MeshStandardMaterial);
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { NO_CARRIERS, type TownRegistry, type World } from '../core/types';
+import { NO_CARRIERS, type CelestialState, type TownRegistry, type World } from '../core/types';
 import { NO_SAFE_ZONES } from '../world/safe-zones';
 
 /**
@@ -126,6 +126,9 @@ export class StubWorld implements World {
   update(): void {
     /* nothing streams in the lab */
   }
+
+  /** The lab uses the engine's celestial rig; its bare stage has no consumers. */
+  applyCelestial(_state: Readonly<CelestialState>): void { /* nothing local to tint */ }
 
   /** The stage has no lights of its own, so this is just the floor. */
   /**

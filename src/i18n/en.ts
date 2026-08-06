@@ -792,6 +792,13 @@ export const en = {
   // comment is re-measured; a stale number here is worse than none.
   'gfx.title': 'Performance',
   'gfx.hint': '↑↓ move · ← → or Enter change · R defaults · F3 closes',
+  'gfx.timeOfDay': 'Time of day',
+  'gfx.timeOfDay.cost': 'debug override — Clear resumes the story clock',
+  'gfx.time.auto': 'Clear',
+  'gfx.time.dawn': 'Dawn',
+  'gfx.time.noon': 'Noon',
+  'gfx.time.dusk': 'Dusk',
+  'gfx.time.midnight': 'Midnight',
   'gfx.reset': 'All back to defaults.',
   'gfx.on': 'on',
   'gfx.off': 'off',
