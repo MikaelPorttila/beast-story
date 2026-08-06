@@ -64,6 +64,20 @@ export async function bootGamePage(browser, { query = BOOT_QUERY, width = 1280, 
   return page;
 }
 
+/**
+ * Advance any page's simulation `s` seconds, then let one real frame present
+ * it. The standalone form of `ctx.adv`, for sections that legitimately own a
+ * page of their own (a fresh-boot reproduction, a capture framing) and still
+ * want simulated time on it.
+ */
+export async function advance(page, s) {
+  return page.evaluate(async (sec) => {
+    const out = window.__dbgAdvance(sec);
+    await new Promise((resv) => requestAnimationFrame(() => requestAnimationFrame(resv)));
+    return out;
+  }, s);
+}
+
 /** Build the ctx one module's sections share. `res`/`fails` are the module's. */
 function makeCtx(page, res, fails) {
   let advWall = 0;
@@ -75,21 +89,48 @@ function makeCtx(page, res, fails) {
     ev: (fn, ...args) => page.evaluate(fn, ...args),
     tp: (x, z, y) => page.evaluate(([a, b, c]) => window.__dbgTp(a, b, c), [x, z, y]),
     adv: async (s) => {
-      const r = await page.evaluate(async (sec) => {
-        const out = window.__dbgAdvance(sec);
-        await new Promise((resv) => requestAnimationFrame(() => requestAnimationFrame(resv)));
-        return out;
-      }, s);
+      const r = await advance(page, s);
       advWall += r.wallMs ?? 0;
       advSim += r.simSeconds ?? 0;
       return r;
     },
+    /**
+     * Let one REAL frame run (two rAFs — the first may be the tail of the
+     * frame already in flight). Two distinct jobs:
+     *
+     *   * a key the game reads FRAME-side (F2, F3, F10, I — see `frame()` in
+     *     main.ts) must see a real frame between the press and the next `adv`,
+     *     because `__dbgAdvance` ends each virtual frame with
+     *     `input.endFrame()`, which clears the un-consumed edge;
+     *   * a measurement of the RENDERED frame (a draw count off the F2
+     *     overlay, a screenshot) needs the state it just changed to have been
+     *     presented.
+     */
+    frame: () => page.evaluate(
+      () => new Promise((resv) => requestAnimationFrame(() => requestAnimationFrame(resv)))),
     waitFn: (fn, timeout = 30000) => page.waitForFunction(fn, { timeout }),
     advanceStats: () => ({
       simSeconds: +advSim.toFixed(1),
       wallMs: +advWall.toFixed(0),
       speedup: advWall > 0 ? +((advSim * 1000) / advWall).toFixed(1) : null,
     }),
+  };
+  /**
+   * Drain the chunk streamer in SIMULATED time after a teleport. Each advanced
+   * slice carries the full per-frame build budget (see __dbgAdvance), so this
+   * is the fast-forward form of "wait on `__dbgZone().streaming`, not a clock".
+   * Returns false if it never settled — the caller's assertion will say so
+   * louder, but a section can bail early on it.
+   */
+  ctx.settleStreaming = async (maxSimS = 30) => {
+    for (let i = 0; i < maxSimS * 2; i++) {
+      if (!(await page.evaluate(() => !!window.__dbgZone && !window.__dbgZone().streaming))) {
+        await ctx.adv(0.5);
+        continue;
+      }
+      return true;
+    }
+    return false;
   };
   return ctx;
 }

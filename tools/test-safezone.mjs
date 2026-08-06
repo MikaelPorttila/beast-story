@@ -146,7 +146,16 @@ export const sections = [
     let appeared = null;           // an enemy whose FIRST sighting was inside
     let ambledIn = 0;              // legal rim-crossers, reported not asserted
     let samples = 0;
-    let prev = [];
+    // PRIME THE HISTORY before the watch starts. An enemy already standing
+    // inside the disc at sample 0 has an unknown past — in a shared suite the
+    // world has been running for minutes and a legal walk-in can be anywhere —
+    // and "appears" is a claim about what happens DURING the watch. Without
+    // this, the first sample reads every pre-existing body as a spawn, which
+    // is exactly the kind of vacuous red the old ever-stood-inside assertion
+    // produced from the other direction. The rim section above already proves
+    // the spawn QUERY refuses the disc; this section proves nothing
+    // materialises in it over 42 simulated seconds.
+    let prev = await census2(ctx);
     for (let i = 0; i < 60; i++) {
       await ctx.adv(0.7);
       const live = await census2(ctx);

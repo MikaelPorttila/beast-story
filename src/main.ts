@@ -4890,6 +4890,17 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   return { ...cursors.debug(), free: cursorFree, known: CURSOR_STATES.length };
 };
 
+// Draw calls of the last completed frame, straight off three's own counter —
+// the same number the F2 overlay prints. A hook rather than the overlay text
+// because the overlay refreshes its READOUT at most 4x a second (see
+// debug-overlay.ts), so a probe scraping it within 250 ms of a toggle reads the
+// count from BEFORE the toggle — which is exactly what tools/test-gfx.mjs was
+// doing under its old fixed sleeps, and what this makes impossible. `info`
+// resets at the start of each render, so read between frames it holds the
+// frame that just presented.
+(window as unknown as { __dbgDraws: () => number }).__dbgDraws =
+  () => engine.renderer.info.render.calls;
+
 (window as unknown as { __dbgZone: () => unknown }).__dbgZone = () => ({
   ...(zones.debug() as Record<string, unknown>),
   // Live GPU-side totals, which is how "the overworld really did unload" is

@@ -20,7 +20,12 @@
 // sections aggro the wild population and lead a chase into a town — the
 // standard reset dismounts and releases keys, it does not calm animals. Add a
 // new probe before anything it could poison and after anything that poisons it.
-const CONVERTED = ['carrier', 'deepwater', 'safezone'];
+// gfx sits before safezone: its last section RELOADS the shared page (the
+// persistence assertion is a real boot, there is no cheaper honest form), so
+// whatever follows it inherits a freshly booted world — which safezone's
+// teleport-everywhere sections do not mind, and a motion-sensitive module
+// would.
+const CONVERTED = ['carrier', 'deepwater', 'gfx', 'safezone'];
 
 import { launchBrowser } from './browser.mjs';
 import { bootGamePage, runModules } from './suite/harness.mjs';
