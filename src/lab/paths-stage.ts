@@ -96,6 +96,10 @@ export function buildPathsStage(
   let road: Road | null = null;
 
   const want = (name: string): boolean => demo === 'all' || demo === name;
+  /** Label every chain a demo produced — a gated run comes back as two. */
+  const push = (label: string, built: readonly Fence[]): void => {
+    for (const fence of built) fences.push({ label, fence });
+  };
 
   // -- the ground ------------------------------------------------------------
   const ground = groundMesh();
@@ -111,10 +115,7 @@ export function buildPathsStage(
 
   if (want('slope')) {
     // Straight over the ridge: the case where the LINE moves under the fence.
-    fences.push({
-      label: 'slope',
-      fence: buildFence(solid, parts.fence, alongX(-26, 40, 20), { groundAt }),
-    });
+    push('slope', buildFence(solid, parts.fence, alongX(-26, 40, 20), { groundAt }));
   }
   if (want('turn')) {
     // A right angle with two long legs, so a corner post's fork has to bisect
@@ -128,9 +129,7 @@ export function buildPathsStage(
       const z = -18 + i * 2.5;
       corner.push({ x: 0, y: groundAt(0, z), z });
     }
-    fences.push({
-      label: 'turn', fence: buildFence(solid, parts.fence, corner, { groundAt }),
-    });
+    push('turn', buildFence(solid, parts.fence, corner, { groundAt }));
   }
   if (want('ring')) {
     // A closed ring: the last bay joins the last post to the first, with no
@@ -142,30 +141,21 @@ export function buildPathsStage(
       const z = -18 + Math.cos(a) * 8;
       ring.push({ x, y: groundAt(x, z), z });
     }
-    fences.push({
-      label: 'ring',
-      fence: buildFence(solid, parts.fence, ring, { closed: true, groundAt }),
-    });
+    push('ring', buildFence(solid, parts.fence, ring, { closed: true, groundAt }));
   }
   if (want('gate')) {
     // A refused bay in the middle: both posts stand, the planks do not. This is
     // what a run meeting a road looks like.
-    fences.push({
-      label: 'gate',
-      fence: buildFence(solid, parts.fence, alongX(-32, 36, 18), {
-        groundAt,
-        accept: (ax, _az, bx) => !(ax > -6 && bx < 6),
-      }),
-    });
+    push('gate', buildFence(solid, parts.fence, alongX(-32, 36, 18), {
+      groundAt,
+      accept: (ax, _az, bx) => !(ax > -6 && bx < 6),
+    }));
   }
   if (want('variants')) {
     // Every post variant on one run, lanterns included.
-    fences.push({
-      label: 'variants',
-      fence: buildFence(solid, parts.fence, alongX(24, 30, 15), {
-        groundAt, lanternEvery: 4, tallEvery: 2, glow,
-      }),
-    });
+    push('variants', buildFence(solid, parts.fence, alongX(24, 30, 15), {
+      groundAt, lanternEvery: 4, tallEvery: 2, glow,
+    }));
   }
 
   // -- the road, and the bridge over the channel -----------------------------
@@ -187,9 +177,7 @@ export function buildPathsStage(
     // stand on a DECK: the ground under them is the river bed, so the "no post
     // hangs over its own ground" check that every other demo must pass is not
     // a statement about this one. See `buildFence`'s `maxDrop`.
-    for (const fence of addBridgeFurniture(solid, parts, road, groundAt)) {
-      fences.push({ label: 'bridge', fence });
-    }
+    push('bridge', addBridgeFurniture(solid, parts, road, groundAt));
     scene.add(waterMesh());
   }
 

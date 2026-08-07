@@ -1821,7 +1821,7 @@ export function addBridgeFurniture(
         const pz = (b.x - a.x) / tl * side * RAIL_OFFSET;
         return { x: p.x + px, y: p.y, z: p.z + pz };
       });
-      built.push(buildFence(solid, parts.fence, path, { groundAt }));
+      built.push(...buildFence(solid, parts.fence, path, { groundAt }));
     }
   }
   return built;

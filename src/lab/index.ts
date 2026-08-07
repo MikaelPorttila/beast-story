@@ -234,6 +234,10 @@ if (fenceParam) {
   subjectPos.copy(frame.at);
   subjectHeight = 3;
   lineupWidth = frame.dist;
+  // The stage's ground field itself, so a probe can re-sample what the builder
+  // measured instead of taking the builder's word for it. See test-fence.
+  (window as unknown as { __dbgStageGround: (x: number, z: number) => number })
+    .__dbgStageGround = groundAt;
   // Every post and every bay, in world coordinates. The fence invariant is a
   // statement about numbers — a plank's ends inside the posts it joins, at a
   // height both carry — so the probe reads them rather than a picture.
@@ -247,8 +251,10 @@ if (fenceParam) {
         // is planted" without a second copy of the height field.
         ground: r3(groundAt(p.x, p.z)),
       })),
+      closed: f.closed,
       bays: f.bays.map((b) => ({
-        from: b.from, to: b.to, length: r3(b.length), y: r3(b.y), planked: b.planked,
+        from: b.from, to: b.to, length: r3(b.length), y: r3(b.y),
+        groundMax: r3(b.groundMax),
       })),
     })),
     /** Deck samples, so a probe can find the span without routing a road. */

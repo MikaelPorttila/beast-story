@@ -124,6 +124,32 @@ export function bakeSolid(
 }
 
 /**
+ * How far a template's collision material reaches from its own origin.
+ *
+ * MEASURED off the boxes `bakeSolid` already measured off the model, for the
+ * reason rule 2 at the top of this file gives: a second number describing how
+ * big a lamp is would be a second number to keep in step with the lamp. The
+ * corner rather than the face, so a run passing the piece cannot clip a corner
+ * the radius did not know about.
+ *
+ * This is a PHYSICAL extent and not a placement radius, and the difference is
+ * the whole reason it exists: `LAMP_CLEAR` (11, towns.ts) says how far apart two
+ * lamps should stand, and a fence that kept 11 units off every lamp would lose a
+ * 22-unit stretch of itself at each one. What a plank must not run through is
+ * the timber — see `clearRun` in towns.ts.
+ */
+export function footprintRadius(t: Template): number {
+  let r = 0;
+  for (const b of t.solid ?? []) {
+    r = Math.max(r, Math.hypot(Math.abs(b.cx) + b.hx, Math.abs(b.cz) + b.hz));
+  }
+  for (const g of t.ridge ?? []) {
+    r = Math.max(r, Math.hypot(Math.abs(g.cx) + g.hl, Math.abs(g.cz) + g.r));
+  }
+  return r;
+}
+
+/**
  * A tree's bole as an oriented box, in TEMPLATE units — the third primitive's
  * worth of geometry this file did not need until a settlement had a wood in it.
  *

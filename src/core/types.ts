@@ -1073,9 +1073,10 @@ export interface World {
    * Debug: every fence the road pass built, as its posts and its bays.
    *
    * A FENCE IS A CHAIN AND ITS BUG IS A GAP, so the readout is the chain rather
-   * than a list of pieces: `posts` in order, `bays` joining adjacent pairs, and
-   * per bay whether it carries planks (a refused bay is a field gate — see
-   * world/fences.ts). `tools/test-fence.mjs` asserts issue #105's invariant off
+   * than a list of pieces: `posts` in order and `bays` joining adjacent pairs,
+   * one entry per CONTINUOUS run — a gate splits a road-side run into two of
+   * them (see world/fences.ts). `tools/test-fence.mjs` asserts issue #105's
+   * invariant off
    * exactly this — every plank inside the two posts it joins, at a height both
    * of them reach — and it runs the same check over the lab stage's fences and
    * over these, so the world is asserted rather than only the demo.
@@ -1086,7 +1087,12 @@ export interface World {
    */
   debugFences(): Array<{
     posts: Array<{ x: number; z: number; y: number; base: number; kind: string }>;
-    bays: Array<{ from: number; to: number; length: number; y: number; planked: boolean }>;
+    closed: boolean;
+    bays: Array<{
+      from: number; to: number; length: number; y: number;
+      /** The highest walking surface under the bay — see `FenceBay.groundMax`. */
+      groundMax: number;
+    }>;
   }>;
   /**
    * Debug: every tree a CARRIED settlement planted, in WORLD space and as of
