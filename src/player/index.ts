@@ -212,6 +212,30 @@ const MOUNTED_REACH = 1.1;
 const COMBO_DURS = [0.42, 0.42, 0.58];
 const STRIKE_AT = 0.46;      // fraction of swing where damage lands
 const COMBO_COOLDOWN = 0.22;
+
+/**
+ * THE BOW'S OWN BEAT — issue #118.
+ *
+ * A three-hit combo is a SWORD'S rhythm: two quick cuts and a heavy one, each
+ * chained off a tap during the last. Played with a bow it was three slashes
+ * with a bow, which is the issue, and no amount of new artwork fixes a cycle
+ * that chains. So the bow gets one beat and no chain: nock, draw, loose.
+ *
+ * BOW_DUR is longer than any single swing (0.62 against 0.42) because a draw
+ * is the slow part of archery and a shot that came out as fast as a jab would
+ * read as a crossbow. BOW_RELEASE sits at 0.55 rather than the sword's 0.46 for
+ * the same reason — the arrow leaves at full tension, near the END of the
+ * cycle, and `evalDraw` in animations.ts reads the same 0.55 so the hand and
+ * the string let go on one frame.
+ *
+ * BOW_COOLDOWN is longer than COMBO_COOLDOWN (0.3 against 0.22) and is the
+ * whole of the bow's rate of fire: one shot every ~0.92s held down. That is the
+ * trade the sword's chain makes the other way — three hits inside 1.4s at arm's
+ * length, against one hit anywhere on screen.
+ */
+const BOW_DUR = 0.62;
+const BOW_RELEASE = 0.55;
+const BOW_COOLDOWN = 0.3;
 const RESPAWN_TIME = 3;
 
 /**
@@ -790,6 +814,7 @@ export class Player {
       landBump: this.landBump,
       hurtT: this.hurtT,
       unarmed: this.rig.weapon === null,
+      bow: this.rig.weapon === 'bow',
     });
 
     this.dust.update(dt, this.time);
@@ -1486,11 +1511,16 @@ export class Player {
   private updateAttack(dt: number): void {
     const input = this.input;
     const a = this.attack;
+    // What is in the hand, asked once. The bow is the one weapon whose attack
+    // is not a swing — it has its own duration, its own strike frame and no
+    // chain at all (see BOW_DUR) — and everything else in this method is the
+    // sword's rhythm, which the other four share.
+    const bow = this.rig.weapon === 'bow';
 
     if (a.active) {
       a.t += dt;
       // strike frame: fire the hit callback exactly once per swing
-      if (!this.struck && a.t >= a.dur * STRIKE_AT) {
+      if (!this.struck && a.t >= a.dur * (bow ? BOW_RELEASE : STRIKE_AT)) {
         this.struck = true;
         // In the saddle the swing comes from the RIDER and goes where he is
         // looking, not where the mount happens to be pointing. Two reasons: the
@@ -1531,11 +1561,15 @@ export class Player {
         }
         this.onAttack?.(_origin, _dir);
       }
-      if (input.attackPressed && a.t > a.dur * 0.35 && a.combo < 2) {
+      // A tap during the swing queues the next hit of the chain. The bow has no
+      // chain, so a tap mid-draw buys nothing — releasing early and re-nocking
+      // is not a thing an archer does, and letting it queue would give the bow
+      // a burst its rate of fire is balanced against not having.
+      if (!bow && input.attackPressed && a.t > a.dur * 0.35 && a.combo < 2) {
         this.attackQueued = true;
       }
       if (a.t >= a.dur) {
-        if (this.attackQueued && a.combo < 2) {
+        if (!bow && this.attackQueued && a.combo < 2) {
           a.combo += 1;
           a.dur = COMBO_DURS[a.combo];
           a.t = 0;
@@ -1543,7 +1577,7 @@ export class Player {
           this.struck = false;
         } else {
           a.active = false;
-          this.attackCooldown = COMBO_COOLDOWN;
+          this.attackCooldown = bow ? BOW_COOLDOWN : COMBO_COOLDOWN;
         }
       }
     } else if (
@@ -1555,7 +1589,7 @@ export class Player {
     ) {
       a.active = true;
       a.combo = 0;
-      a.dur = COMBO_DURS[0];
+      a.dur = bow ? BOW_DUR : COMBO_DURS[0];
       a.t = 0;
       this.attackQueued = false;
       this.struck = false;

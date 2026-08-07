@@ -954,6 +954,15 @@ export const sections = [
     // later — the first version of this section read it as the sword's and
     // failed against a perfectly correct build.
     const swing = async () => {
+      // DRAIN THE SKY FIRST. The delta below is a count of what appeared, and an
+      // arrow that EXPIRES inside the window (life 1.6 s, combat/index.ts) makes
+      // it negative — which read as "bare hands fired an arrow" once the window
+      // grew to clear the bow's slower release frame. Waiting the pool empty
+      // makes `before` zero and the delta a true count in both directions.
+      for (let i = 0; i < 5; i++) {
+        if (!(await shots()).shots.some((s) => s.arrow)) break;
+        await ctx.adv(0.5);
+      }
       const before = (await shots()).shots.filter((s) => s.arrow).length;
       await ctx.page.mouse.down();
       // ORDER THE PRESS AGAINST THE ADVANCE, with one empty round-trip through
@@ -973,7 +982,12 @@ export const sections = [
       await ctx.ev(() => 0);
       await ctx.adv(0.07);
       await ctx.page.mouse.up();
-      await ctx.adv(0.16);
+      // LONG ENOUGH FOR THE SLOWEST STRIKE FRAME IN THE GAME, which is the
+      // bow's: issue #118 gave it a draw-and-release of its own, and the arrow
+      // leaves at BOW_RELEASE * BOW_DUR = 0.34 s (player/index.ts) against the
+      // sword's 0.19. 0.45 clears both with room, and costs the sword nothing —
+      // the button is already up, so no tap can queue the next hit of the chain.
+      await ctx.adv(0.45);
       const after = await shots();
       return { ...after, fired: after.shots.filter((s) => s.arrow).length - before };
     };
