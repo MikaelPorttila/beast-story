@@ -146,6 +146,10 @@ const SOLO = new Set([
   // NOT move, against a control hold that says he otherwise would. Both halves
   // are held keys the frame loop has to consume — see the note above.
   'spawn',
+  // Stages a fight between a stationary hero and one wild beast and measures
+  // the path the beast walks — distances and swept bearing over 140 simulated
+  // samples. Elapsed motion, and it drives state (spawn, two teleports).
+  'beastaggro',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output

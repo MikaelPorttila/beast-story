@@ -249,16 +249,24 @@ const gate = zone0.gate;
       const b = await probe(page, '__dbgBodies');
       return b.enemies.find((e) => e.id === from.id && !e.isDead);
     };
-    let groundTarget = await reacquire(near);
+    const groundTarget = await reacquire(near);
     await page.evaluate((x, z) => window.__dbgTp(x, z), groundTarget.x + 0.6, groundTarget.z);
     await wait(400);
     await page.evaluate((b) => window.__dbgAim(b), Math.atan2(-1.2, 0));
     await wait(400);
-    // Track it once more after the smooth camera turn, then give the frame loop
-    // one slice to apply the teleport. At 0.6 m the control remains well inside
-    // the same melee reach asserted at 1.2 m above.
-    groundTarget = await reacquire(groundTarget);
-    await page.evaluate((x, z) => window.__dbgTp(x, z), groundTarget.x + 0.6, groundTarget.z);
+    // PIN THE HERO TO THE LIVE TARGET for the whole swing, the same way the
+    // airborne half is pinned aloft — one teleport before the button and a fixed
+    // wait was a race the target won as soon as it moved, and a wild beast now
+    // breaks off between bites (issue #111) rather than standing still. Reading
+    // its position each tick keeps the two 0.6 m apart whatever it does, so the
+    // control measures the reach rule and not the animal's timing. The bearing
+    // does not need re-aiming: the offset is constant, so it is.
+    await page.evaluate((eid) => {
+      window.__holdTimer = setInterval(() => {
+        const e = window.__dbgBodies().enemies.find((q) => q.id === eid && !q.isDead);
+        if (e) window.__dbgTp(e.x + 0.6, e.z);
+      }, 16);
+    }, groundTarget.id);
     await wait(100);
     const hpBeforeGround = await hpOf();
     await setButton(B_RT, true);
@@ -266,6 +274,7 @@ const gate = zone0.gate;
     await setButton(B_RT, false);
     await wait(900);
     const hpAfterGround = await hpOf();
+    await release(page);
 
     results.swordOutcome = {
       air: { before: hpBeforeAir, after: hpAfterAir },
