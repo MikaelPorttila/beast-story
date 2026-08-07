@@ -3263,16 +3263,74 @@ const timePresets = [
  * `forward` is (sin yaw, cos yaw), the same basis `Player.forward` uses.
  */
 const SPAWN_AHEAD = 8;
+/**
+ * How far along the crosshair ray to look for ground, and how coarsely.
+ *
+ * NEAR is a body's width, so a hut cannot be dropped on top of the hero when
+ * the camera is pointed at his own feet. FAR is about where a voxel building
+ * stops reading as placed and starts reading as lost; past it the fallback is
+ * better than a wild hit. The march is a fixed 0.5 m step to first crossing
+ * followed by six bisections, which lands within a centimetre of the surface —
+ * the ground is a heightfield, not a mesh, so `getHeight` IS the intersection
+ * test and there is nothing to raycast against.
+ */
+const AIM_NEAR = 2;
+const AIM_FAR = 60;
+const AIM_STEP = 0.5;
+/** Scratch for the crosshair ray. A spawn is a click, but the rule is the rule. */
+const _spawnRay = new THREE.Vector3();
+
+/**
+ * WHERE A SPAWN LANDS: on the ground under the crosshair.
+ *
+ * The crosshair is pinned to the centre of the viewport and the camera looks
+ * through it (see `__dbgCam`), so the camera's forward IS the ray the player is
+ * pointing with — which is the whole reason this beats the hero's own facing:
+ * you place a hut by looking at the spot, and you can put one on the far side of
+ * a road without walking there.
+ *
+ * FALLING BACK TO EIGHT METRES AHEAD is not a failure case, it is the answer for
+ * a ray that never meets the ground: looking at the sky, or out over a valley
+ * past `AIM_FAR`. Refusing there would make the panel feel broken from any
+ * camera pitched above the horizon, which is most of them.
+ */
 function spawnSpot(): { x: number; z: number; yaw: number } {
-  const yaw = player.facing;
-  return {
-    x: player.position.x + Math.sin(yaw) * SPAWN_AHEAD,
-    z: player.position.z + Math.cos(yaw) * SPAWN_AHEAD,
-    // A structure faces the hero, which is `yaw + PI`: a hut spawned with the
-    // hero's own yaw shows him its back wall, and the one thing you want to
-    // look at after placing a building is its front.
-    yaw: yaw + Math.PI,
-  };
+  const cam = engine.camera.position;
+  engine.camera.getWorldDirection(_spawnRay);
+  let hitX = player.position.x + Math.sin(player.facing) * SPAWN_AHEAD;
+  let hitZ = player.position.z + Math.cos(player.facing) * SPAWN_AHEAD;
+  // Only a ray that is going DOWN can meet a heightfield within a useful
+  // distance; one pointed at the horizon would march the whole way and find the
+  // first hill on the far side of the map.
+  if (_spawnRay.y < -0.02) {
+    let lo = AIM_NEAR;
+    let hi = 0;
+    for (let d = AIM_NEAR; d <= AIM_FAR; d += AIM_STEP) {
+      const x = cam.x + _spawnRay.x * d;
+      const z = cam.z + _spawnRay.z * d;
+      if (cam.y + _spawnRay.y * d <= world.getHeight(x, z)) { hi = d; break; }
+      lo = d;
+    }
+    if (hi > 0) {
+      for (let i = 0; i < 6; i++) {
+        const mid = (lo + hi) * 0.5;
+        const x = cam.x + _spawnRay.x * mid;
+        const z = cam.z + _spawnRay.z * mid;
+        if (cam.y + _spawnRay.y * mid <= world.getHeight(x, z)) hi = mid;
+        else lo = mid;
+      }
+      hitX = cam.x + _spawnRay.x * hi;
+      hitZ = cam.z + _spawnRay.z * hi;
+    }
+  }
+  // A structure FACES THE HERO. `Accum.add` maps a template's local +z to
+  // (sin yaw, cos yaw), so the bearing from the spot back to him is the yaw
+  // that turns a hut's front wall toward the person who placed it — and the
+  // first thing you do after placing a building is look at it.
+  const dx = player.position.x - hitX;
+  const dz = player.position.z - hitZ;
+  const yaw = dx === 0 && dz === 0 ? player.facing + Math.PI : Math.atan2(dx, dz);
+  return { x: hitX, z: hitZ, yaw };
 }
 
 /**
@@ -6164,6 +6222,22 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       // rather than on the sentence the panel printed. A string is what the
       // click returned; this is what the world did with it.
       enemies: combat.enemies.length,
+      // WHERE A SPAWN WOULD LAND RIGHT NOW, beside where the old blind offset
+      // would have put it. Two points rather than one because that difference
+      // IS the feature: a probe comparing them proves the crosshair is driving
+      // the placement and not the hero's facing, which are the same point only
+      // when the camera is level with the ground and pointed the way he is.
+      spot: (() => {
+        const s = spawnSpot();
+        return {
+          x: +s.x.toFixed(2), z: +s.z.toFixed(2), yaw: +s.yaw.toFixed(3),
+          ground: +world.getHeight(s.x, s.z).toFixed(2),
+        };
+      })(),
+      ahead: {
+        x: +(player.position.x + Math.sin(player.facing) * SPAWN_AHEAD).toFixed(2),
+        z: +(player.position.z + Math.cos(player.facing) * SPAWN_AHEAD).toFixed(2),
+      },
       branches: spawnCatalogue.branches().map((b) => ({ id: b.id, rows: b.rows.length })),
     };
   }

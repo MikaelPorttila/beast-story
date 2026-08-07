@@ -82,6 +82,12 @@ export class SpawnedSolids {
    * The four `*Glow` pieces are left out too. They are the emissive HALF of a
    * fire or a lamp and want the town's glow material, not the solid one; the
    * bodies they belong to are here and are what you actually place.
+   *
+   * SO IS THE FENCE KIT, for a third reason: a fence is a CHAIN, planned post to
+   * post by world/fences.ts, and only its planks are solid at all (the stakes
+   * are `bakeProp` — see `fencePost`). One stake dropped on the ground would be
+   * neither a fence nor an obstacle. If the spawner ever wants fences it wants
+   * `planFences`, not a part out of the kit.
    */
   names(): readonly string[] {
     return [...this.parts_().keys()];
@@ -156,10 +162,8 @@ export class SpawnedSolids {
       ['barrel', p.barrel],
       ['crate-small', p.crateS],
       ['crate-large', p.crateL],
-      ['fence', p.fence],
       ['signpost', p.post],
       ['bridge-pier', p.pier],
-      ['bridge-rail', p.rail],
     ]);
     return this.catalogue;
   }

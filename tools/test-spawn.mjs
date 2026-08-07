@@ -23,6 +23,12 @@
 // strafe while I typed it". `WASD` are letters and this panel is deliberately
 // not a modal, so the second half is the whole risk.
 //
+// SO IS THE WHEEL, and so is the AIM. A scroll over the tree must leave the
+// camera alone while the same gesture over the world moves it; and the spot a
+// spawn lands on must be where the crosshair ray meets the ground, marched
+// independently here off `__dbgCam().dir` and then checked again by zooming out
+// — which moves the lens, and nothing about where the hero is standing.
+//
 // menu=0: this measures the world, so it needs the frame loop running.
 //
 // Exits non-zero.
@@ -45,11 +51,12 @@ const doSpawn = (b, r) => page.evaluate(([x, y]) => window.__dbgSpawn(x, y), [b,
 const bagCount = (id) => page.evaluate(
   (i) => (window.__dbgInventory().bag.find((e) => e.id === i)?.count ?? 0), id);
 /**
- * Colliders within 20 m of the hero — a spawn lands at 8 (see `SPAWN_AHEAD` in
- * main.ts), and the query is around HIM rather than around the computed spot
- * because his facing is not on the probe surface and a delta does not need it.
+ * Colliders within 20 m of the hero. A spawn lands under the crosshair, which
+ * from the default framing is fifteen-odd metres out (see `spawnSpot` in
+ * main.ts), so the ring is drawn around HIM and made generous rather than
+ * chased to the exact point — section 8 is where the exact point is asserted.
  * The camp's own boxes are inside this radius too, which is exactly why every
- * assertion below is a CHANGE and never an absolute count.
+ * assertion using it is a CHANGE and never an absolute count.
  */
 const boxesNear = () => page.evaluate(() => {
   const p = window.__dbgPlayerPos();
@@ -227,6 +234,108 @@ const setSearch = async (text) => {
 
   const bad = await doSpawn('structures', 'no-such-part');
   check(/nothing named/.test(bad), `an unknown part answered "${bad}"`);
+}
+
+// ---------- 8. it lands where the CROSSHAIR points ---------------------------
+// Two claims. The spot the panel names has to be the point where the camera's
+// own forward meets the ground — marched here INDEPENDENTLY off `__dbgCam().dir`
+// rather than read back off the thing under test — and the building has to
+// actually arrive there.
+//
+// The march below is not the game's: it steps a plain 0.25 m and stops, where
+// main.ts steps 0.5 and then bisects. Agreeing to within a metre across two
+// different methods is the claim; agreeing exactly would only say the code was
+// copied.
+{
+  const marched = await page.evaluate(() => {
+    const c = window.__dbgCam();
+    if (c.dir.y >= -0.02) return null;
+    for (let d = 2; d <= 60; d += 0.25) {
+      const x = c.x + c.dir.x * d;
+      const z = c.z + c.dir.z * d;
+      if (c.y + c.dir.y * d <= window.__dbgWorld(x, z).ground) return { x, z, d };
+    }
+    return null;
+  });
+  const s = await read();
+  const said = await doSpawn('structures', 'watchpost');
+  const boxes = await page.evaluate(([x, z]) => window.__dbgStructures(x, z, 6), [s.spot.x, s.spot.z]);
+  const nearest = boxes.length
+    ? Math.min(...boxes.map((b) => Math.hypot(b.x - s.spot.x, b.z - s.spot.z))) : null;
+  const rayGap = marched ? Math.hypot(marched.x - s.spot.x, marched.z - s.spot.z) : null;
+  results.crosshair = {
+    said, spot: s.spot, ahead: s.ahead, marched, rayGap: rayGap === null ? null : +rayGap.toFixed(3),
+    nearest: nearest === null ? null : +nearest.toFixed(3),
+  };
+  check(marched !== null, 'the camera was not pointed at any ground — nothing below can run');
+  check(rayGap !== null && rayGap < 1,
+    `the spot is ${rayGap} m from where the crosshair ray meets the ground`);
+  check(nearest !== null && nearest < 3,
+    `nothing was built within 3 m of the point the panel named (nearest ${nearest})`);
+  await doSpawn('structures', '*clear');
+}
+
+// ---------- 9. a wheel over the panel does not move the camera ---------------
+// The pair again: scrolling the tree must leave the lens alone, and the same
+// gesture over the world must move it, or a game with zoom broken outright
+// would pass the first half.
+{
+  const dist = () => page.evaluate(() => {
+    const c = window.__dbgCam(); const p = window.__dbgPlayerPos();
+    return Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z);
+  });
+  await clickEl('.bs-spawn-branch[data-branch="items"]');
+  const box = await page.$eval('.bs-spawn-tree', (e) => {
+    const r = e.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 20) };
+  });
+  const scroll = async (x, y, dy) => {
+    await page.mouse.move(x, y);
+    for (let i = 0; i < 4; i++) await page.mouse.wheel({ deltaY: dy });
+    // Long enough for the eased `dist` to reach its target — the camera chases
+    // `distTarget` at lambda 8, so half a second is still mid-flight and two
+    // readings taken there compare two different points of the same ease.
+    await page.evaluate(() => window.__dbgAdvance(1.5));
+    return dist();
+  };
+  // THE CONTROL RUNS FIRST, and the order is load-bearing: Chrome latches a
+  // wheel gesture to the scroller it started on, so four notches into the panel
+  // followed immediately by four over the world are still delivered to the
+  // panel — which reads exactly like the leak this section is looking for, from
+  // the one arrangement that cannot see it.
+  const before = await dist();
+  const r0 = await read();
+  const overWorld = await scroll(1100, 450, 200);
+  const r1 = await read();
+  // THE OTHER HALF OF SECTION 8, and the one that needs no camera driving of its
+  // own: zooming out moves the LENS and nothing else — the hero has not walked
+  // and has not turned — so his own facing still names the same point while the
+  // crosshair ray, now starting further back and higher, meets the ground
+  // somewhere else. `ahead` unchanged with `spot` moved is the whole claim.
+  const aimMoved = Math.hypot(r1.spot.x - r0.spot.x, r1.spot.z - r0.spot.z);
+  const heroMoved = Math.hypot(r1.ahead.x - r0.ahead.x, r1.ahead.z - r0.ahead.z);
+  results.aimFollowsLens = {
+    spotBefore: r0.spot, spotAfter: r1.spot,
+    moved: +aimMoved.toFixed(2), heroMoved: +heroMoved.toFixed(2),
+  };
+  check(heroMoved < 0.2,
+    `the hero moved ${heroMoved.toFixed(2)} m during the zoom — the comparison is not clean`);
+  check(aimMoved > 1,
+    `the crosshair spot moved ${aimMoved.toFixed(2)} m when the lens pulled back `
+    + '— it is not following the camera');
+  // ...then the panel, pulling the OTHER way. A leak would walk the camera back
+  // in from wherever the control left it, so the assertion is "did not move"
+  // against a gesture that would visibly move it.
+  const overPanel = await scroll(box.x, box.y, -200);
+
+  results.wheel = {
+    before: +before.toFixed(3), overWorld: +overWorld.toFixed(3), overPanel: +overPanel.toFixed(3),
+  };
+  check(Math.abs(overWorld - before) > 0.3,
+    `the control scroll moved the camera only ${(overWorld - before).toFixed(2)} m `
+    + '— this section proves nothing');
+  check(Math.abs(overPanel - overWorld) < 0.05,
+    `scrolling the panel moved the camera ${(overPanel - overWorld).toFixed(2)} m`);
 }
 
 console.log(JSON.stringify({ ...results, failures: fails, pass: fails.length === 0 }, null, 2));

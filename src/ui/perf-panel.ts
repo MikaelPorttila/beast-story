@@ -86,6 +86,16 @@ export class PerfPanel {
     // the field actually has focus — the arrow keys below still belong to the
     // gfx rows the rest of the time. See ui/console.ts for the same pattern.
     window.addEventListener('keydown', (e) => this.onSearchKey(e), true);
+    // A WHEEL OVER THE PANEL SCROLLS THE PANEL AND NOTHING ELSE. `Input` listens
+    // for wheel on window in the bubble phase and spends every notch on the
+    // camera's zoom, so scrolling the spawner tree walked the lens in and out
+    // behind it. Capture-phase `stopPropagation` is the same fix and the same
+    // shape as the keydown above; NOT `preventDefault`, because the scroll this
+    // is protecting is the browser's own on `.bs-perf-body`.
+    window.addEventListener('wheel', (e) => {
+      if (!this.open || !(e.target instanceof Node) || !this.el.contains(e.target)) return;
+      e.stopPropagation();
+    }, true);
   }
 
   get isOpen(): boolean { return this.open; }
@@ -427,6 +437,12 @@ export class PerfPanel {
       this.searchEl?.focus();
       return true;
     }
+    // ANY OTHER CLICK GIVES THE KEYBOARD BACK. Focus is what suspends the
+    // hero's input (see `isTyping`), and a prevented mousedown does not move it
+    // on its own — so without this, one click in the search box left the hero
+    // deaf until somebody thought to press Escape, however many rows they went
+    // on to click. The QUERY survives: you filter once and spawn several.
+    if (this.typing) this.blurSearch();
     const leaf = target.closest('.bs-spawn-row') as HTMLElement | null;
     if (leaf) {
       this.doSpawn(leaf.getAttribute('data-branch') ?? '', leaf.getAttribute('data-row') ?? '');
