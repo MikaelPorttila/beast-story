@@ -62,7 +62,7 @@ import { Accum, bakeProp, type PropLib, type Template } from './props';
 import { SolidStamp, StructureField, footprintRadius } from './structures';
 import {
   TownParts, V, FENCE_POST_R, addBridgeFurniture, buildJunctionApron, buildRoadRibbon,
-  signArm,
+  fitPalisadeRun, signArm,
 } from './town-parts';
 import { buildFence, type Fence, type FenceNode, type FenceOptions } from './fences';
 import { mulberry32 } from './noise';
@@ -1565,7 +1565,6 @@ function buildEncampment(
   // issued" — which was true and is no longer wanted. The variety it bought is
   // gone with it; if the wall reads flat at distance the answer is a second
   // palisade variant with a different log rhythm, not the rock back.
-  const spanLen = 15 * V * WALL_S;
   // Where the road actually crosses the gate side, measured ALONG that side
   // from its middle. Not assumed to be zero: the route is a greedy walk and the
   // gate is derived from where it really crosses, so the opening goes where the
@@ -1581,10 +1580,11 @@ function buildEncampment(
   /**
    * Lay a run of palisade from `u0` to `u1` along side `s`, ends flush.
    *
-   * SPANS OVERLAP RATHER THAN GAP. A run is almost never a whole number of
-   * 5.25-unit templates, so the remainder has to go somewhere; `ceil` puts it
-   * into overlap, which reads as a denser stockade, where `round` or `floor`
-   * would leave a hole, which reads as a bug.
+   * SPANS FIT END TO END. A run is almost never a whole number of 5.25-unit
+   * templates. `ceil` chooses the denser log rhythm, then the template's own
+   * +z is scaled to the exact pitch. Fixed-length spans used to overlap here;
+   * their differently shaded outer faces were coplanar and caused issue #128's
+   * depth-buffer flicker.
    *
    * The runs are laid PER SEGMENT rather than on one pitch across the whole
    * side, and that is what the gate needs. A uniform pitch knows nothing about
@@ -1600,14 +1600,13 @@ function buildEncampment(
   ): void => {
     const len = u1 - u0;
     if (len <= 0.01) return;
-    const n = Math.ceil(len / spanLen);
-    const pitch = len / n;
-    for (let j = 0; j < n; j++) {
-      const u = u0 + (j + 0.5) * pitch;
+    const fit = fitPalisadeRun(len, WALL_S);
+    for (let j = 0; j < fit.count; j++) {
+      const u = u0 + (j + 0.5) * fit.pitch;
       solid.add(
         parts.palisade,
         cx + nx * CAMP_WALL_HALF + tx * u, cy, cz + nz * CAMP_WALL_HALF + tz * u,
-        f + Math.PI / 2, WALL_S, WALL_S,
+        f + Math.PI / 2, WALL_S, WALL_S, fit.lengthScale,
       );
     }
   };
