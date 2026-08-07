@@ -391,11 +391,10 @@ export class Accum {
    * normalise on the chunk build path.
    *
    * `sz` scales the template's own +z, i.e. its LENGTH, independently of `s`,
-   * which then only scales +x. It exists for one shape — a plank stretched
-   * between two fence posts (world/fences.ts) — and it is what lets a fence bay
-   * be exactly as long as the gap it spans instead of a whole number of
-   * fixed-length panels with a stump left over. Nothing else passes it, so
-   * every other stamp is uniform in x/z exactly as before.
+   * which then only scales +x. Fence planks use it to span the exact gap between
+   * two posts (world/fences.ts), and the Encampment palisade uses it to fit its
+   * repeated templates end to end without overlapping coplanar outer faces
+   * (world/towns.ts). Every other stamp remains uniform in x/z.
    */
   add(
     t: Template,

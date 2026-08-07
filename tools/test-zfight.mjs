@@ -71,7 +71,7 @@ import { buildTameOrb } from '../src/combat/tame-orb.ts';
 import { ITEMS } from '../src/core/items.ts';
 // The settlement's pieces. A town part is a baked `Template` rather than a rig,
 // so it reaches this tool through `templateMesh` below — see the town section.
-import { TownParts } from '../src/world/town-parts.ts';
+import { fitPalisadeRun, TownParts } from '../src/world/town-parts.ts';
 
 // A 2D canvas, and nothing else, is the whole of the DOM a rig builder touches:
 // the glow billboards and the flyers' contact shadows bake a radial ramp into a
@@ -606,6 +606,25 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
     });
     results.push(r);
   }
+
+  // Issue #128. The Encampment repeats one palisade template along each wall
+  // run. Fixed-length stamps used to overlap wherever the run was not an exact
+  // multiple of the template, placing differently shaded exterior faces on the
+  // same plane. Exercise the full 33.6-unit side: each span is a separate mesh
+  // so the same face-overlap measurement used for articulated parts sees the
+  // seam, and zero remains the budget.
+  const WALL_SCALE = 1.25;
+  const fit = fitPalisadeRun(33.6, WALL_SCALE);
+  const root = new THREE.Group();
+  const named = {};
+  for (let i = 0; i < fit.count; i++) {
+    const mesh = templateMesh(parts.palisade);
+    mesh.position.z = -16.8 + (i + 0.5) * fit.pitch;
+    mesh.scale.set(WALL_SCALE, WALL_SCALE, fit.lengthScale);
+    root.add(mesh);
+    named[`span-${i}`] = mesh;
+  }
+  results.push(checkRig('palisade-run', root, named, () => {}));
 }
 
 // -- taming orbs ------------------------------------------------------------
@@ -708,6 +727,9 @@ const BUDGET = {
   campfire: 0,
   brazier: 0,
   lamp: 0,
+  // Issue #128: adjacent Encampment spans meet at their ends; no outward faces
+  // overlap for the depth buffer to arbitrate.
+  'palisade-run': 0,
   // The taming orbs (issue #4), and the same kind of entry as the three above:
   // 0 from the first run and 0 is the requirement. The shell and the lit seam
   // are painted into ONE `VoxelModel`, which is what makes `GLOW_PART`

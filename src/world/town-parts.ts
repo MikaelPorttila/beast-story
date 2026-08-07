@@ -52,6 +52,29 @@ import { hashCell } from './noise';
 /** World units per voxel for everything in this file. See rule 3 above. */
 export const V = 0.28;
 
+/** The palisade template's unscaled length along its own +z, in world units. */
+export const PALISADE_SPAN_LEN = 15 * V;
+
+/**
+ * Divide a wall run into whole palisade templates and fit every one end to end.
+ *
+ * `ceil` keeps the log rhythm at or denser than the authored template. The
+ * independent length scale is the important half: the old fixed-length stamps
+ * overlapped by 0.45 units on a full camp side and by about 1 unit beside the
+ * gate. Their differently shaded outer faces then occupied the same plane,
+ * producing issue #128's depth-buffer flicker. Fitting the length makes the
+ * end faces touch without putting any two outward faces on top of each other.
+ */
+export function fitPalisadeRun(length: number, scale: number): {
+  count: number;
+  pitch: number;
+  lengthScale: number;
+} {
+  const count = Math.max(1, Math.ceil(length / (PALISADE_SPAN_LEN * scale)));
+  const pitch = length / count;
+  return { count, pitch, lengthScale: pitch / PALISADE_SPAN_LEN };
+}
+
 // -- palette ---------------------------------------------------------------
 // Authored as sRGB hex the way props.ts and shops.ts are; VoxelModel converts.
 const LOG = 0x6b4a2e;
