@@ -392,6 +392,58 @@ const WILD_FLY_RISE = 3.2;
  */
 const WILD_ATTACK_SECONDS = 0.45;
 
+/**
+ * The circling half of a wild beast's fight — issue #111.
+ *
+ * WHAT WAS WRONG. A hunting beast copied the hero's position into `goal` every
+ * slice and ran 1.6x at it, so it arrived at arm's length and STAYED there,
+ * welded to his back through every dodge, biting on a metronome. Fifteen
+ * species all did the identical thing, and the fight read as one animal with a
+ * magnet in it.
+ *
+ * WHAT IT IS NOW. It steers toward a RING around its quarry and around that
+ * ring at the same time, and alternates between two phases:
+ *
+ *   PRESS   — ring at the bite radius, little tangent, fast. It closes and bites.
+ *   CIRCLE  — ring `RING_OUT` wider, heavy tangent, slower. It gives ground,
+ *             swings around, and is out of biting range while it does.
+ *
+ * A landed bite ends a press, so the rhythm is driven by the fight and not only
+ * by a clock. The ring is a TARGET distance, not a wall: out on the meadow it
+ * is far nearer than the beast is and the approach is the beeline it always
+ * was, so the rhythm only appears once the fight is joined — which is where the
+ * issue is.
+ *
+ * Every duration below is a RANGE rolled per phase and `spin` flips on some
+ * transitions, so two of the same species fighting the same hero neither swing
+ * in lockstep nor ride a carousel.
+ */
+const WILD_RING_OUT = 3.6;
+/**
+ * How much TANGENT goes into the steer, against a radial pull of at most 1.
+ *
+ * Not an angle: the chase steers on two axes (toward the ring, and around it)
+ * and this is the weight of the second. 0.22 while closing is a curve on the
+ * approach and, once it is sitting on the ring, a slow prowl around its quarry
+ * rather than a statue at arm's length. 1.05 while breaking off puts the swing
+ * a shade past 45 degrees off radial, so it gains ground and circles at once.
+ */
+const WILD_LEAN_PRESS = 0.22;
+const WILD_LEAN_CIRCLE = 1.05;
+/** Phase lengths, seconds: `base + Math.random() * spread`. */
+const WILD_PRESS_SECONDS = [1.1, 1.7] as const;
+const WILD_CIRCLE_SECONDS = [0.7, 1.4] as const;
+/** Odds a circle phase reverses the direction it swings. */
+const WILD_SPIN_FLIP = 0.35;
+/**
+ * Bite cooldown, seconds, as `base + Math.random() * spread`.
+ *
+ * Was a flat 1.2. The average is deliberately unchanged — the complaint is the
+ * METRONOME, not the damage rate, and a beast that bit slower would just be a
+ * nerf wearing this issue's number.
+ */
+const WILD_BITE_CD = [0.85, 0.7] as const;
+
 // ---------------------------------------------------------------------------
 // Enemy
 // ---------------------------------------------------------------------------
@@ -478,6 +530,13 @@ export class Enemy implements Damageable {
   private atkCd = 0;
   private flashT = 0;
 
+  // wild beast fight rhythm — see the WILD_RING_OUT block
+  /** Which way it swings around its quarry. */
+  private wSpin = Math.random() < 0.5 ? -1 : 1;
+  /** True while breaking off; false while closing. Starts closing. */
+  private wCircling = false;
+  /** Seconds left in the current phase. */
+  private wPhaseT = WILD_PRESS_SECONDS[0] + Math.random() * WILD_PRESS_SECONDS[1];
   // gloopling
   private gAir = false;
   private gVy = 0;
@@ -855,6 +914,20 @@ export class Enemy implements Damageable {
 
   // ------------------------------------------------------------ wild beast
   /**
+   * Swap press for circle, or back, and roll the next phase's length.
+   *
+   * Called on a timer AND on a landed bite, which is why the caller sets
+   * `wCircling` rather than this reading it: "a bite ends the press" and "the
+   * press ran out" are the same transition and get the same fresh roll.
+   */
+  private nextWildPhase(): void {
+    this.wCircling = !this.wCircling;
+    const [base, spread] = this.wCircling ? WILD_CIRCLE_SECONDS : WILD_PRESS_SECONDS;
+    this.wPhaseT = base + Math.random() * spread;
+    if (this.wCircling && Math.random() < WILD_SPIN_FLIP) this.wSpin = -this.wSpin as 1 | -1;
+  }
+
+  /**
    * A WILD ONE OF THE COMPANION SPECIES: walk, chase, bite — and let the species
    * pose itself.
    *
@@ -882,12 +955,54 @@ export class Enemy implements Damageable {
     const clock = this.beastClock!;
     const flying = species.locomotion === 'flying';
 
-    // Where it wants to be. A target is chased; otherwise it ambles between
-    // wander goals, which is `pickWanderGoal`'s existing safe-zone-respecting
-    // pick — a wild beast must not stroll into a settlement any more than a
-    // Gloopling may.
+    // How close is close enough to stop walking. The bite radius plus a body,
+    // so it comes to rest at arm's length instead of standing inside you.
+    const stopAt = this.radius + 0.9;
+    const chasing = this.target !== null;
+    /**
+     * How hard the steer below is pulling, 0..1 — and therefore how fast to
+     * walk it. A beast already sitting on its ring is steering with the tangent
+     * alone, and running that at the closing sprint would spin it around the
+     * hero like a fairground ride. Scaling the speed by the steer instead turns
+     * the settled press into a prowl and leaves the break-off at full pelt.
+     */
+    let urge = 1;
+
+    // Where it wants to be. A target is CIRCLED — see the WILD_RING_OUT block;
+    // otherwise it ambles between wander goals, which is `pickWanderGoal`'s
+    // existing safe-zone-respecting pick — a wild beast must not stroll into a
+    // settlement any more than a Gloopling may.
     if (this.target) {
-      this.goal.copy(this.target.position);
+      this.wPhaseT -= dt;
+      if (this.wPhaseT <= 0) this.nextWildPhase();
+      const t = this.target.position;
+      // TWO AXES, NOT A POINT ON A RING. Aiming at a spot leaned around the
+      // ring looks right and measures wrong: the lean is nearly all tangent, so
+      // the beast races around the quarry and gains almost no distance —
+      // measured, a break-off with a 3.6-unit ring moved it 0.7 units out and
+      // the fight still read as welded. Steering RADIALLY toward the ring and
+      // TANGENTIALLY around it, and blending the two, is the same orbit with
+      // the radius under control: far out it is a beeline, at the ring it is a
+      // circle, and the break-off is a real one.
+      let ox = this.position.x - t.x;
+      let oz = this.position.z - t.z;
+      const cur = Math.hypot(ox, oz) || 1e-4;
+      ox /= cur; oz /= cur;
+      const ring = stopAt + (this.wCircling ? WILD_RING_OUT : 0);
+      // Full radial commitment 1.5 units off the ring, easing to nothing at it,
+      // so the beast settles onto the ring instead of oscillating across it.
+      const radial = Math.max(-1, Math.min(1, (ring - cur) / 1.5));
+      const tang = this.wSpin * (this.wCircling ? WILD_LEAN_CIRCLE : WILD_LEAN_PRESS);
+      const gx = ox * radial - oz * tang;
+      const gz = oz * radial + ox * tang;
+      // A goal two units along the steer, because everything below this reads a
+      // POINT — it is a heading expressed in the shape the mover already takes.
+      const gl = Math.hypot(gx, gz) || 1e-4;
+      urge = Math.min(1, gl);
+      this.goal.set(
+        this.position.x + (gx / gl) * 2, 0,
+        this.position.z + (gz / gl) * 2,
+      );
     } else {
       this.wanderT -= dt;
       if (this.wanderT <= 0) {
@@ -900,14 +1015,15 @@ export class Enemy implements Damageable {
     const dist = _dir.length();
     if (dist > 0.01) _dir.divideScalar(dist);
 
-    // How close is close enough to stop walking. The bite radius plus a body,
-    // so it comes to rest at arm's length instead of standing inside you.
-    const stopAt = this.radius + 0.9;
-    const chasing = this.target !== null;
-    const wantSpeed = this.speed * (chasing ? 1.6 : 0.55);
+    // A CHASER'S GOAL IS ALREADY THE STANDOFF POINT, so it walks all the way to
+    // it; only a wanderer stops a body short of the spot it picked.
+    const stopShort = chasing ? 0.35 : stopAt;
+    // Closing is the sprint it always was; a break-off is a lope, so the swing
+    // reads as circling rather than as the same run on a curve.
+    const wantSpeed = this.speed * (chasing ? urge * (this.wCircling ? 1.15 : 1.6) : 0.55);
     let moved = 0;
 
-    if (dist > stopAt) {
+    if (dist > stopShort) {
       if (flying) {
         this.position.x += _dir.x * wantSpeed * dt;
         this.position.z += _dir.z * wantSpeed * dt;
@@ -915,10 +1031,12 @@ export class Enemy implements Damageable {
         this.moveGround(dt, _dir.x, _dir.z, wantSpeed, ctx);
       }
       moved = wantSpeed;
-      this.faceToward(this.goal.x, this.goal.z, dt, 7);
-    } else if (chasing) {
-      this.faceToward(this.goal.x, this.goal.z, dt, 9);
     }
+    // FACE THE QUARRY, NEVER THE GOAL. The goal is off to one side now, and a
+    // beast that aimed its nose at it would sidle around the fight looking away
+    // from the thing it is fighting.
+    if (chasing) this.faceToward(this.target!.position.x, this.target!.position.z, dt, 8);
+    else if (moved > 0) this.faceToward(this.goal.x, this.goal.z, dt, 7);
 
     // Feet. A walker sits on the column; a flyer holds CRUISE_RISE over it and
     // drops toward its quarry's own height while hunting, so a bite is possible
@@ -940,9 +1058,14 @@ export class Enemy implements Damageable {
       const dz = this.target.position.z - this.position.z;
       if (dx * dx + dz * dz < (this.radius + 1.0) ** 2 && this.inMeleeHeight(this.target)) {
         ctx.hit(this.target, this.atk, this.element, this.position.x, this.position.y + this.height * 0.5, this.position.z);
-        this.atkCd = 1.2;
+        this.atkCd = WILD_BITE_CD[0] + Math.random() * WILD_BITE_CD[1];
         this.beastAction = 'attack';
         this.beastActionT = 0;
+        // BREAK OFF ON A LANDED BITE. This is the half of #111 a player feels
+        // first: the animal that just bit you gives ground instead of standing
+        // in your face waiting out its cooldown.
+        this.wCircling = false;   // so nextWildPhase() turns it on
+        this.nextWildPhase();
       }
     }
 
