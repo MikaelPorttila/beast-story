@@ -146,6 +146,10 @@ const SOLO = new Set([
   // NOT move, against a control hold that says he otherwise would. Both halves
   // are held keys the frame loop has to consume — see the note above.
   'spawn',
+  // Presses the attack button and counts what reaches the sky. It drives the
+  // hero, which is the whole of the rule above — and its clock is
+  // `__dbgAdvance`, so a background tab with no rAF steps no slices at all.
+  'bow',
   // Stages a fight between a stationary hero and one wild beast and measures
   // the path the beast walks — distances and swept bearing over 140 simulated
   // samples. Elapsed motion, and it drives state (spawn, two teleports).

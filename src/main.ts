@@ -953,6 +953,16 @@ const _aimDir = new THREE.Vector3();
  */
 player.aimAssist = (origin, dir) => {
   if (!flags.aimAssist) return false;
+  // NOT FOR THE BOW. The assist is a MELEE rule end to end: it searches inside
+  // `SWORD_REACH`, and on a hit it snaps the hero's heading onto the target so
+  // the arc comes out of his shoulders. Neither belongs to a shot — an arrow is
+  // aimed by the crosshair (see `arrowStrike`, which deliberately does not
+  // home), and steering it 2.2 units from the muzzle would take the aiming away
+  // from the player at exactly the range where they can already see what they
+  // are pointing at. The weapon is read here rather than in the Player for the
+  // same reason `onAttack` reads it here: which weapon is equipped is gear-slot
+  // policy and this file owns it.
+  if (player.weapon === 'bow') return false;
   engine.camera.getWorldDirection(_aimDir);
   const target = combat.bestMeleeTarget(
     origin, _aimDir, SWORD_REACH, AIM_ASSIST_CONE_COS, player.position.y,

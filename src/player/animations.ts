@@ -33,6 +33,16 @@ export interface AnimInput {
    * the animator is handed a rig and a state and reads nothing else.
    */
   unarmed: boolean;
+  /**
+   * A BOW in the hand. Picks the draw over the swing — see `DRAW`.
+   *
+   * Beside `unarmed` and for its reason: the animator reads a rig and a state
+   * and nothing else. It is a second boolean rather than the `WeaponModelId`
+   * itself because what the animator needs to know is which of three tables to
+   * play, not which of five models is hanging in the hand — a scythe and a
+   * dagger swing, and only these two do something else.
+   */
+  bow: boolean;
 }
 
 // -- easing ----------------------------------------------------------------
@@ -106,17 +116,77 @@ const PUNCHES: Array<[SwingPose, SwingPose]> = [
   ],
 ];
 
+/**
+ * THE BOW: NOCK, DRAW, LOOSE — issue #118.
+ *
+ * A bow played through `SWINGS` is a man beating a monster with a stick, which
+ * is what the issue is about; the arrow was already leaving the string (see
+ * `arrowStrike`), and this is the half of it the player can see. Two poses like
+ * a swing, so `evalSwing`'s machinery is reused unchanged, but they are read on
+ * the bow's own clock — see `evalDraw`, and `BOW_RELEASE` in index.ts, which is
+ * the frame the arrow actually leaves.
+ *
+ * HELD IN THE LEFT HAND, and `setWeaponModel` reparents the hand mount onto
+ * `armL` to put it there — see hero-rig.ts. So this table is the one place in
+ * the file where the LEFT arm leads and the right one is the working hand.
+ *
+ * `aLX` -1.62 is the bow arm straight out along the aim (-PI/2 is horizontal;
+ * the swim cycle's -1.5 is the same neighbourhood), held nearly on the body's
+ * centre line with `aLZ` near zero — an archer's bow arm is locked, and any
+ * roll in it reads as the bow drifting off the shot. `aRZ` 1.3 lifts the
+ * DRAWING elbow out to the side, which is the whole of what makes it archery
+ * rather than a man pointing: `aRY` is the only second axis either shoulder
+ * has, so "back" is mostly spelled with the roll.
+ *
+ * `swX` is the WEAPON in the hand, and it is the number this pose actually
+ * turns on: the limbs have to STAND UP across the shot, or the bow reads as a
+ * plank being carried. Captured from the gameplay camera with the arm already
+ * out at -1.62: 0.55 lays the bow flat across his chest, 1.05 stands it up but
+ * tilted back over the shoulder like a slung quiver, and 0.9 is vertical with
+ * the arc ahead of the shoulder — which is the one that reads as drawn. (At
+ * rest it is 2.62, hanging down the leg; every swing keyframe is 1.35 or more.)
+ */
+const DRAW: SwingPose = {
+  aLX: -1.62, aLZ: -0.06, aRX: -0.3, aRY: -0.25, aRZ: 1.3,
+  tY: -0.22, swX: 0.9, swZ: 0.1, bRX: 0.04, bY: 0,
+};
+/**
+ * LOOSED. The bow arm holds its line — an archer does not drop the bow on the
+ * release, and the shot reads as aimed only if the arm is still pointing where
+ * the arrow went — while the drawing hand snaps open and back past the ear.
+ */
+const LOOSE: SwingPose = {
+  aLX: -1.55, aLZ: -0.04, aRX: -0.05, aRY: -0.35, aRZ: 1.15,
+  tY: -0.14, swX: 0.9, swZ: 0.1, bRX: 0.1, bY: -0.02,
+};
+
 const _swing: SwingPose = { ...READY };
 
 /** Evaluate the keyframed swing pose at normalized phase p, into _swing. */
 function evalSwing(combo: number, p: number, unarmed: boolean): SwingPose {
   const [wind, hit] = (unarmed ? PUNCHES : SWINGS)[combo];
-  let from: SwingPose, to: SwingPose, t: number;
-  if (p < 0.32) {
-    from = READY; to = wind; t = easeOutCubic(seg(p, 0, 0.32));
-  } else {
-    from = wind; to = hit; t = easeInOut(seg(p, 0.32, 0.6));
-  }
+  if (p < 0.32) return blend(READY, wind, easeOutCubic(seg(p, 0, 0.32)));
+  return blend(wind, hit, easeInOut(seg(p, 0.32, 0.6)));
+}
+
+/**
+ * Evaluate the bow's draw at normalized phase p, into _swing.
+ *
+ * SAME TWO-KEY SHAPE AS A SWING, DIFFERENT CLOCK, and the clock is the point.
+ * A swing peaks early and follows through; a draw is slow to full tension and
+ * then instant — so READY -> DRAW runs eased-out over the first 0.55 of the
+ * cycle, which is `BOW_RELEASE` in index.ts and therefore exactly the frame the
+ * arrow leaves, and DRAW -> LOOSE snaps over the 0.12 after it. The two numbers
+ * are one number in two files: move the release frame and this segment moves
+ * with it, or the string lets go before the hand does.
+ */
+function evalDraw(p: number): SwingPose {
+  if (p < 0.55) return blend(READY, DRAW, easeOutCubic(seg(p, 0, 0.55)));
+  return blend(DRAW, LOOSE, easeOutCubic(seg(p, 0.55, 0.67)));
+}
+
+/** Interpolate two keys into the shared scratch pose. Allocates nothing. */
+function blend(from: SwingPose, to: SwingPose, t: number): SwingPose {
   _swing.aRX = lerp(from.aRX, to.aRX, t);
   _swing.aRY = lerp(from.aRY, to.aRY, t);
   _swing.aRZ = lerp(from.aRZ, to.aRZ, t);
@@ -293,11 +363,16 @@ export class HeroAnimator {
       swZ = 0.22;
     }
 
-    // ---- melee combo: keyframed, blended over the base pose ----
+    // ---- attack: keyframed, blended over the base pose ----
+    // The melee combo, the punch chain and the bow's draw all land here: one
+    // blend, one fade, three tables. The bow holds its pose longer before it
+    // gives the arms back (0.86 against 0.72) because a swing's follow-through
+    // IS the end of the swing, while an archer's arm comes down after the shot
+    // rather than as part of it.
     if (s.attack.active && !s.dead) {
       const p = clamp01(s.attack.t / s.attack.dur);
-      const k = evalSwing(s.attack.combo, p, s.unarmed);
-      const w = 1 - easeInOut(seg(p, 0.72, 1)); // follow-through fade
+      const k = s.bow ? evalDraw(p) : evalSwing(s.attack.combo, p, s.unarmed);
+      const w = 1 - easeInOut(seg(p, s.bow ? 0.86 : 0.72, 1)); // follow-through fade
       aRX = lerp(aRX, k.aRX, w);
       aRY = lerp(aRY, k.aRY, w);
       aRZ = lerp(aRZ, k.aRZ, w);

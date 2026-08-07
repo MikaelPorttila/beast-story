@@ -470,9 +470,12 @@ function heroIdle(time: number, dt: number): AnimInput {
     moveNorm: 0, sprinting: false, onGround: true, swimming: false,
     climbing: false, climbRate: 0, riding: false, velY: 0,
     attack: IDLE_ATTACK, dead: false, deadT: 0, landBump: 0, hurtT: 0,
-    // He is posing, not fighting, so the punch table is never reached — but
-    // the field is required and a lie here would be a lie in a screenshot.
+    // He is posing, not fighting, so neither the punch table nor the bow's
+    // draw is ever reached — but the fields are required and a lie here would
+    // be a lie in a screenshot. The stage poses the held weapon itself, just
+    // above (SHOW_X/Y/Z), which is why a bow on show needs nothing from here.
     unarmed: false,
+    bow: false,
   };
 }
 
