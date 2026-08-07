@@ -55,7 +55,7 @@ import { Player } from './player/index';
 import { MountController } from './player/mount';
 import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem, SWORD_REACH } from './combat/index';
-import { enemySpecies, MELEE_UP_REACH, MELEE_DOWN_REACH } from './combat/enemies';
+import { enemySpecies, MELEE_UP_REACH, MELEE_DOWN_REACH, type Enemy } from './combat/enemies';
 import {
   HUD, kbd, type BeastHudInfo, type CompassMarker, type QuestTrackRow,
   type ShopOffer, type SkillSlot,
@@ -1971,6 +1971,101 @@ function enemyInAim(from: THREE.Vector3, aim: THREE.Vector3, range: number): Dam
 }
 
 /**
+ * Half-angle of the ORB's aim cone, as a cosine. 0.4 is ~66 degrees each side.
+ *
+ * THREE TIMES THE WEAPON CONE, and deliberately: `AIM_CONE_COS` decides where a
+ * SHOT goes and a tight cone is what keeps the crosshair in charge of it. A
+ * throw is the opposite problem. The player has already fought the animal down,
+ * has paid Cubloons for the orb, and is looking at a thing that moves; asking
+ * them to also hold a twenty-degree reticle on it is asking for the throw to be
+ * lost to the aiming rather than to the odds. The odds are the mechanic.
+ */
+const ORB_AIM_CONE_COS = 0.4;
+
+/**
+ * How far above or below the hero a bond target may be, in world units.
+ *
+ * The vertical half of the cylinder the cone makes — see `bondTargetInAim`. 8 is
+ * loose on purpose: a Galebird cruises 3.2 up, the hero is often on a slope, and
+ * the point of this feature is that aiming does not lose you the throw. What it
+ * refuses is the animal on the cliff above or in the ravine below, which is not
+ * what he is looking at however good the bearing is.
+ */
+const ORB_AIM_RISE = 8;
+
+/**
+ * WHAT AN ORB WOULD BE THROWN AT — the nearest bondable beast you are roughly
+ * facing.
+ *
+ * NEAREST, not most-centred, which is the other half of making this easy. The
+ * weapon cone picks whatever is closest to the crosshair's LINE, so two animals
+ * at different distances are separated by a wobble of the mouse; this picks the
+ * one you are standing in front of, which is the one a player means.
+ *
+ * BONDABLE FIRST. A Gloopling two units away and a wild Sproutle four units
+ * away are both in the cone, and only one of them is what the orb is for — so a
+ * candidate this orb could actually bond outranks a nearer one it could not,
+ * whatever the distance. Only if there is nothing bondable at all does the
+ * nearest anything win, and that is on purpose too: it is what makes the
+ * refusals ("that one cannot be bonded", "a stronger orb than that is needed")
+ * reachable instead of the throw silently reporting an empty sky.
+ *
+ * IT DOES NOT DECIDE THE HIT. This picks what the orb STEERS at; whatever the
+ * orb physically reaches first is what it lands on (see the enemy sweep in
+ * `updateProjectiles`). A beast that walks into the line mid-flight takes it,
+ * which is the behaviour a thrown object should have and is why the homing is a
+ * steer rather than a teleport.
+ */
+function bondTargetInAim(def: ItemDef, from: THREE.Vector3, aim: THREE.Vector3): Damageable | null {
+  // The look direction FLATTENED. A third-person camera is always pitched a
+  // little, and the cone was measured in 3D — so standing right beside an animal
+  // and glancing up or down swung the full angle past the cone while the bearing
+  // never moved. Measured: at 2.5 units the assist dropped a Sproutle the hero
+  // was walking into. Horizontal is also what the player is steering; pitch is
+  // the camera's, and it must not be able to refuse a throw.
+  //
+  // Same shape as `inReach` in core/types.ts and for the same reason: a cylinder,
+  // not a sphere. The vertical band below is the other half of it.
+  const ax = aim.x;
+  const az = aim.z;
+  const aLen = Math.hypot(ax, az);
+  if (aLen < 1e-4) return null;
+  const fx = ax / aLen;
+  const fz = az / aLen;
+  let best: Enemy | null = null;
+  let bestD = Infinity;
+  let bestBondable = false;
+  for (const e of combat.enemies) {
+    if (!e.targetable) continue;
+    const dx = e.position.x - from.x;
+    const dy = e.position.y + 0.55 - from.y;
+    const dz = e.position.z - from.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d > ORB_RANGE || d < 1e-3) continue;
+    // The band. A flyer cruises about three units up and the hero can be on a
+    // slope, so this is loose — what it refuses is the thing on the cliff above
+    // or in the ravine below, which is not what he is looking at whatever the
+    // bearing says.
+    if (dy > ORB_AIM_RISE || dy < -ORB_AIM_RISE) continue;
+    const hd = Math.hypot(dx, dz);
+    if (hd < 1e-4) continue;
+    if ((dx * fx + dz * fz) / hd < ORB_AIM_CONE_COS) continue;
+    // "Bondable" means this throw would actually be attempted: a species you
+    // already have is not a candidate to prefer, because the throw at it is
+    // refused.
+    const species = e.beastSpecies?.id ?? null;
+    const bondable = combat.bondRefusal(def, e as unknown as Damageable) === 'ok'
+      && !(species !== null && owned.has(species));
+    if (best !== null && bestBondable && !bondable) continue;
+    if (best !== null && bondable === bestBondable && d >= bestD) continue;
+    best = e;
+    bestD = d;
+    bestBondable = bondable;
+  }
+  return best as unknown as Damageable | null;
+}
+
+/**
  * How far a taming orb may be thrown, in world units.
  *
  * Shorter than a bow's ~26 and longer than a skill's 12-16: bonding is meant to
@@ -2013,8 +2108,8 @@ function throwReadiedOrb(explicitTarget?: Damageable | null, force?: boolean): T
     return 'noOrb';
   }
   engine.camera.getWorldDirection(_aim);
-  // The crosshair, unless a test hook named its own target — see `__dbgThrowOrb`.
-  const target = explicitTarget ?? enemyInAim(player.position, _aim, ORB_RANGE);
+  // The assist, unless a test hook named its own target — see `__dbgThrowOrb`.
+  const target = explicitTarget ?? bondTargetInAim(def, player.position, _aim);
   if (!target) {
     bus.emit({ type: 'toast', text: t('toast.orbNoTarget') });
     return 'noTarget';
@@ -2697,7 +2792,7 @@ const _hurtFrom = new THREE.Vector3();
   engine.camera.getWorldDirection(_aim);
   const target = !def ? null
     : species ? (nearestEnemyOfSpecies(species) as unknown as Damageable | null)
-    : enemyInAim(player.position, _aim, ORB_RANGE);
+    : bondTargetInAim(def, player.position, _aim);
   return {
     readied: readiedOrb,
     tier: def?.orbTier ?? null,
@@ -2776,6 +2871,49 @@ function nearestEnemyOfSpecies(species: string) {
   }
   return best;
 }
+
+/**
+ * THE AIM ASSIST, MEASURED IN ONE READ — the off-axis angle to a named species
+ * and whether the assist is currently choosing it.
+ *
+ * ATOMIC, and that is the entire reason it exists rather than the probe doing
+ * this arithmetic itself. Reading the bodies, then the camera, then the target
+ * is three round-trips with the game running in real time between them, and the
+ * animal walks the whole while: the first version of that measurement reported
+ * a beast lost inside the cone perhaps one run in three, which was the beast
+ * having moved between the angle and the answer, not the cone. Both numbers here
+ * come from the same instant and the same camera vector.
+ *
+ * `offDeg` is the HORIZONTAL angle between where the hero is looking and where
+ * the animal is, in degrees — the exact quantity `ORB_AIM_CONE_COS` is a cosine
+ * of. Horizontal, because the cone is (see `bondTargetInAim`); reporting the
+ * full 3D angle here would have the probe measuring one thing and the game
+ * deciding on another, which is how the first version of this disagreed with
+ * itself at close range.
+ */
+(window as unknown as { __dbgOrbAim: (species: string) => unknown }).__dbgOrbAim = (species) => {
+  const e = nearestEnemyOfSpecies(species);
+  const def = readiedOrb ? itemDef(readiedOrb) : null;
+  if (!e || !def) return null;
+  engine.camera.getWorldDirection(_aim);
+  const dx = e.position.x - player.position.x;
+  const dy = e.position.y + 0.55 - player.position.y;
+  const dz = e.position.z - player.position.z;
+  const hd = Math.hypot(dx, dz);
+  const aLen = Math.hypot(_aim.x, _aim.z);
+  const dot = hd > 1e-3 && aLen > 1e-4
+    ? (dx * (_aim.x / aLen) + dz * (_aim.z / aLen)) / hd
+    : 0;
+  const picked = bondTargetInAim(def, player.position, _aim);
+  return {
+    species,
+    offDeg: +((Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI).toFixed(1),
+    dist: +Math.hypot(dx, dy, dz).toFixed(2),
+    rise: +dy.toFixed(2),
+    picked: picked !== null,
+    pickedThis: picked === (e as unknown as Damageable),
+  };
+};
 
 (window as unknown as { __dbgFetch: () => unknown }).__dbgFetch = () => {
   // NULL WHERE THERE IS NO BEAST, rather than an object of nulls: a probe

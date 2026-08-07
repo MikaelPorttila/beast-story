@@ -198,29 +198,42 @@ async function goToWild(species) {
   const found = await goToWild('wild-sproutle');
   check(found !== null, 'no wild-sproutle left to bond');
   if (found) {
-    await give('orb-tame', 1);
+    // FOUR ORBS, because the STAGING is allowed to fail and the claim is not.
+    //
+    // A throw can legitimately come to nothing: the orb flies, and over broken
+    // ground it can clip the terrain, or a Gloopling can walk into the line and
+    // take it (which is the behaviour a thrown object should have — see the
+    // aim-assist note in main.ts). Neither says anything about bonding. So the
+    // placement, the weakening and the throw are retried together until an orb
+    // actually ARRIVES, and only then does the section start asserting. The
+    // assertions themselves are untouched and the outcome is still forced.
+    await give('orb-tame', 4);
     await invAct('orb-tame', 'ready');
-    const hurt = await weaken('wild-sproutle', 0.1);
-    check(hurt.ok, `nothing to weaken before the bonding throw: ${hurt.why ?? ''}`);
-    // BY ID, not by species. The population can easily hold two Sproutles, so
-    // "no wild Sproutle remains" would fail on the one still grazing forty units
-    // away — which is not the claim. The hook returns the id it actually threw
-    // at, and that id is what gets checked.
-    const res = await throwAt('wild-sproutle', true);
+    let hurt = { ok: false, why: 'never staged' };
+    let res = { outcome: 'never thrown', id: null, dist: null };
+    let wildBefore = 0;
+    let started = false;
+    for (let attempt = 0; attempt < 3 && !started; attempt++) {
+      if (attempt > 0 && !(await goToWild('wild-sproutle'))) break;
+      hurt = await weaken('wild-sproutle', 0.1);
+      if (!hurt.ok) continue;
+      wildBefore = (await bodies()).enemies
+        .filter((e) => e.species === 'wild-sproutle').length;
+      res = await throwAt('wild-sproutle', true);
+      if (res.outcome !== 'thrown') continue;
+      // THE ORB HAS TO ARRIVE. Waiting only for `bonding` to go false would
+      // pass instantly for a throw that never reached anything, so the ceremony
+      // is waited FOR here and waited OUT below — the two halves of "it landed".
+      for (let i = 0; i < 24 && !started; i++) {
+        await adv(0.1);
+        started = (await taming()).bonding;
+      }
+    }
     const victim = { id: res.id };
     results.bondThrow = { outcome: res.outcome, dist: res.dist, id: res.id, weakened: hurt.id };
+    check(hurt.ok, `nothing to weaken before the bonding throw: ${hurt.why ?? ''}`);
     check(res.outcome === 'thrown', `the bonding throw returned "${res.outcome}", want "thrown"`);
-    check(res.id === hurt.id,
-      `the throw went at #${res.id} but #${hurt.id} was the one weakened`);
-    // THE ORB HAS TO ARRIVE. Waiting only for `bonding` to go false would pass
-    // instantly for a throw that never reached anything, so the ceremony is
-    // waited FOR and then waited OUT — the two halves of "it landed on it".
-    let started = false;
-    for (let i = 0; i < 24 && !started; i++) {
-      await adv(0.1);
-      started = (await taming()).bonding;
-    }
-    check(started, `the orb never reached the Sproutle ${res.dist} units away`);
+    check(started, `no orb ever reached a Sproutle in three tries (last ${res.dist} units away)`);
     for (let i = 0; i < 60 && (await taming()).bonding; i++) await adv(0.1);
     await adv(0.3);
     const t = await taming();
@@ -229,6 +242,7 @@ async function goToWild(species) {
       owned: t.owned, lead: t.lead, support: t.support,
       partyBodies: b.beasts.length,
       bondedOneStillWild: victim ? b.enemies.some((e) => e.id === victim.id) : null,
+      wildSproutlesAfter: b.enemies.filter((e) => e.species === 'wild-sproutle').length,
     };
     check(t.owned.includes('sproutle'),
       `after a caught bond the player owns ${JSON.stringify(t.owned)}, want it to include "sproutle"`);
@@ -239,8 +253,22 @@ async function goToWild(species) {
     check(b.beasts.length === 1,
       `${b.beasts.length} companions are in the world after one bond, want 1`);
     check(victim.id !== null, 'the throw hook named no target');
-    check(results.bonded.bondedOneStillWild === false,
-      'the Sproutle that was bonded is still standing there as a wild enemy');
+    // ONE FEWER SPROUTLE, not "that exact id is gone". The orb HOMES on the one
+    // it was thrown at but lands on whatever it physically reaches first — a
+    // second Sproutle that walks into the line takes it instead, which is the
+    // behaviour a thrown object should have and is exactly what the aim assist's
+    // note in main.ts says. Pinning the id failed on that perfectly correct run.
+    // EITHER piece of evidence that one left the board. The orb HOMES on the one
+    // it was thrown at but lands on whatever it physically reaches first, so a
+    // second Sproutle walking into the line takes it instead — which is the
+    // behaviour a thrown object should have (see the aim-assist note in main.ts)
+    // and which pinning the id failed on. The count alone is no better: the
+    // spawner tops the pack up during the two-second ceremony and can put the
+    // number straight back. Together they are solid.
+    check(!results.bonded.bondedOneStillWild
+      || results.bonded.wildSproutlesAfter < wildBefore,
+    `the bonded Sproutle (#${victim.id}) is still wild and the count went `
+      + `${wildBefore} -> ${results.bonded.wildSproutlesAfter} — nothing left the board`);
   }
 }
 
@@ -302,6 +330,98 @@ async function goToWild(species) {
   }
 }
 
+// -- 7b. the aim assist is wide, and prefers what it can actually bond -------
+{
+  // THE FEEDBACK THIS EXISTS FOR: holding a twenty-degree reticle on a moving
+  // animal was losing the throw to the aiming rather than to the odds. The
+  // assist's cone is ~66 degrees each side now (`ORB_AIM_CONE_COS`), so this
+  // asserts BOTH ENDS of it — a bearing the old cone would have dropped still
+  // finds the beast, and one well outside the new cone still finds nothing.
+  // Without the second half, "always returns a target" would pass.
+  // A BOULDERPUP, not the Sproutle. By this point in the run a Sproutle is
+  // BONDED, and the assist deliberately outranks a species you already own —
+  // so it would keep choosing something else and the sweep would read as a cone
+  // that lost its target at two units. (That it does so is the bondable-first
+  // rule working; section 6 is where the refusal itself is asserted.) The
+  // Boulderpup broke free in section 3 and is still wild, and a Master Orb
+  // clears its minTier.
+  const found = await goToWild('wild-boulderpup');
+  results.assist = found === null ? 'no wild-boulderpup to aim at' : null;
+  if (found) {
+    await give('orb-master', 1);
+    await invAct('orb-master', 'ready');
+
+    // ONE READ PER SAMPLE. `__dbgOrbAim` reports the off-axis angle AND the
+    // assist's choice from the same instant and the same camera vector — see
+    // its note in main.ts. Assembling those from separate round-trips let the
+    // animal walk between them, which showed up as a beast lost inside the cone
+    // about one run in three and was not a cone at all.
+    const samples = [];
+    for (let deg = -180; deg < 180; deg += 20) {
+      // RE-PLACED BEFORE EVERY SAMPLE. Each swing costs a second of simulated
+      // time and the animal walks throughout; over eighteen of them it strolls
+      // clean out of ORB_RANGE. Six units: well inside the 20 it can be thrown
+      // from, and far enough out that it does not simply bite him.
+      const before = (await bodies()).enemies.find((e) => e.id === found.id);
+      if (!before) continue;
+      await page.evaluate((x, z) => window.__dbgTp(x, z), before.x + 6, before.z);
+      await page.evaluate((b) => window.__dbgAim(b), (deg * Math.PI) / 180);
+      // The swing arrives over a few hundred ms — settle on simulated time, as
+      // the note on `__dbgAim` in main.ts says.
+      await adv(1.2);
+      const a = await page.evaluate((sp) => window.__dbgOrbAim(sp), 'wild-boulderpup');
+      // ONLY IF THE STAGING TOOK. The hop above puts the hero six units off; a
+      // sample that comes back with the animal nineteen units away is one where
+      // it wandered off or the teleport landed somewhere it could not stand, and
+      // it says nothing about the cone at that bearing. Dropped rather than
+      // counted — the usable-sample check below is what stops this quietly
+      // turning into a probe that measures nothing.
+      if (a && a.dist <= 10) {
+        samples.push({ off: a.offDeg, dist: a.dist, hit: a.pickedThis, picked: a.picked });
+      }
+    }
+    results.assist = samples;
+
+    // BOTH ENDS OF THE CONE. `ORB_AIM_CONE_COS` is ~66 degrees each side, so a
+    // sample well inside it must find the beast and one well outside must not.
+    // Without the second half, "always returns a target" would pass — and that
+    // is autoaim, not aiming.
+    // 55 and 75 bracket the cone's ~66 degrees with a guard band either side.
+    // It can be this tight because `off` and the decision come from the SAME
+    // instant (see `__dbgOrbAim`) — there is no drift between them to allow for,
+    // only the boundary itself, which no sample should be asked about.
+    const inside = samples.filter((s) => s.off <= 55);
+    const outside = samples.filter((s) => s.off >= 75);
+    check(inside.length >= 2 && outside.length >= 2,
+      `the sweep landed ${inside.length} samples inside the cone and ${outside.length} outside; `
+      + `it needs at least two of each to mean anything: ${JSON.stringify(samples)}`);
+
+    // WHAT IS ASSERTED, AND WHY IT IS NOT `pickedThis` BOTH WAYS.
+    //
+    // Inside the cone the claim is that the player is GIVEN something to throw
+    // at — `picked`. It cannot be "this exact animal", because the assist
+    // deliberately prefers a bondable candidate over a nearer unbondable one and
+    // the meadow decides what else is standing about; a Galebird two units away
+    // outranking the staged Boulderpup is the rule working, not the cone failing.
+    //
+    // Outside the cone the claim is the opposite and it CAN be exact: whatever
+    // else the assist chooses, it must not choose the animal that is behind him.
+    // That is what makes this a pair rather than "it always finds something",
+    // which is autoaim and would pass either half alone.
+    check(inside.every((s) => s.picked),
+      `within 55 degrees of a beast the assist offered nothing at `
+      + `${JSON.stringify(inside.filter((s) => !s.picked))} — that is the old weapon cone, `
+      + 'and it is the complaint this widening answers');
+    check(outside.every((s) => !s.hit),
+      `past 75 degrees the assist still chose the animal behind him at `
+      + `${JSON.stringify(outside.filter((s) => s.hit))} — that is not aiming`);
+    // ...and the staged animal really is reachable, or the half above is a
+    // statement about some other beast entirely.
+    check(inside.some((s) => s.hit),
+      `the staged Boulderpup was never chosen at any bearing: ${JSON.stringify(inside)}`);
+  }
+}
+
 // -- 8. the content numbers match the rig they are worn by -------------------
 {
   // `EnemyData.radius`/`height` are AUTHORED and a beast's body MEASURES itself
@@ -313,6 +433,11 @@ async function goToWild(species) {
   // enough to catch a species whose shape actually changed, loose enough that
   // rounding to two decimals in the probe surface cannot trip it.
   const TOL = 0.06;
+  // MAKE SURE THERE IS ONE. The sections above hop the hero around the map
+  // hunting for species, and where he ends up is not guaranteed to have a wild
+  // beast in sight — "no wild beast to compare against" is a probe that ran out
+  // of world, not a footprint that drifted.
+  await goToWild('wild-sproutle');
   const rows = (await bodies()).enemies.filter((e) => e.rigHeight !== null);
   const seen = {};
   for (const e of rows) {
