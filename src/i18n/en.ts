@@ -274,6 +274,9 @@ export const en = {
   'beast.galebird.name': 'Galebird',
   'beast.galebird.desc':
     'A wind-stitched swallow that treats gravity as a polite suggestion — the fastest wings in the valley.',
+  'beast.graveback.name': 'Graveback',
+  'beast.graveback.desc':
+    'Something the barrow kept for itself. Its own ribs have grown out through its back and the shroud they buried it in is still knotted over its shoulders, and it walks with its skull down like a dog that has caught a scent it will follow until one of you stops.',
   'beast.graveborn.name': 'Graveborn',
   'beast.graveborn.desc':
     'A soldier who never got the order to stand down. Two hundred years in the wet ground took the flesh, the name and the war, and left the drill, the belt and the sword — and a cold blue light still burning in the sockets, waiting to be told where to stand.',
@@ -396,6 +399,18 @@ export const en = {
   'skill.galebird.cyclone-waltz.name': 'Cyclone Waltz',
   'skill.galebird.cyclone-waltz.desc':
     'Spins a pirouette so fast the sky joins in, wrapping everything nearby in a shrieking tornado.',
+  'skill.graveback.bonecrush.name': 'Bonecrush',
+  'skill.graveback.bonecrush.desc':
+    'Takes hold and leans. Nothing about the bite is fast and nothing about it lets go.',
+  'skill.graveback.grave-howl.name': 'Grave Howl',
+  'skill.graveback.grave-howl.desc':
+    'Lifts its skull and lets out a note with no throat behind it. Everything close enough remembers being buried.',
+  'skill.graveback.rib-shard.name': 'Rib Shard',
+  'skill.graveback.rib-shard.desc':
+    'Snaps a rib off its own flank and flings it. Another one has grown in by the time it lands.',
+  'skill.graveback.barrow-tide.name': 'Barrow Tide',
+  'skill.graveback.barrow-tide.desc':
+    'Plants its forelegs and hauls the cold up out of the ground. It comes when this one calls it.',
   'skill.graveborn.rusted-cleave.name': 'Rusted Cleave',
   'skill.graveborn.rusted-cleave.desc':
     'Brings the old iron down in one flat, practised arc. It has made this cut ten thousand times and has never once hurried it.',

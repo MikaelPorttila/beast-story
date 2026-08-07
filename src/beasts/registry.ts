@@ -18,12 +18,14 @@ import * as snapclaw from './species/snapclaw';
 import * as lanternfin from './species/lanternfin';
 // The roster's first biped (issue #119) — a walking skeleton, not an animal.
 import * as graveborn from './species/graveborn';
+// Its other half (issue #117): the undead quadruped, same grave-light.
+import * as graveback from './species/graveback';
 
 const modules = [
   emberfox, aquaxol, sproutle, sparkit, frostwing,
   boulderpup, galebird, umbrakit, lumimoth, drakelet,
   rivotter, coralback, finnick, snapclaw, lanternfin,
-  graveborn,
+  graveborn, graveback,
 ];
 
 export const ALL_SPECIES: BeastSpecies[] = modules.map((m) => m.species);

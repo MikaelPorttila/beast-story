@@ -45,6 +45,7 @@ bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 | `orbs=1` | The four taming orbs in a row, turning (`src/combat/tame-orb.ts`) |
 | `gap=<units>` | Spacing between the orbs (default: 1.5 diameters, so they never touch) |
 | `scale=<n>` | How big each orb is drawn (default 2.4) |
+| `face=<deg>` | Turn the subject to an ABSOLUTE bearing, independent of the camera — `90` is broadside, `180` is the rump. Without it a lone subject turns with the lens and always presents its face, which makes a quadruped's profile unreachable |
 | `t=<seconds>` | Simulate this long, render **one frozen frame**, stop |
 | `spin=1` | Turntable |
 | `water=1` | Flood the stage (swim / amphibious testing) |
@@ -105,6 +106,9 @@ Run `labInfo()` in the browser console to list every valid beast, enemy and skil
 ```bash
 # every beast side by side
 bun tools/lab-shot.mjs shots/lab-all.png "beasts=all&t=1.5" 2000 700
+
+# a quadruped in profile — the bearing its silhouette actually lives at
+bun tools/lab-shot.mjs shots/lab-side.png "beast=graveback&face=90&t=2"
 
 # one beast mid-cast, deterministic frame
 bun tools/lab-shot.mjs shots/lab-cast.png "beast=drakelet&anim=cast&t=2.4"

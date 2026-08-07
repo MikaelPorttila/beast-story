@@ -682,6 +682,9 @@ const BUDGET = {
   finnick: 0,
   snapclaw: 0,
   lanternfin: 0,
+  // The undead pair. Both clean, and clean for the reasons this register asks
+  // for — see the note on JOINT_PART in either species file for the mechanism.
+  graveback: 0,
   // The biped (issue #119). Clean, and clean for the reasons this register
   // asks for: the maxilla was widened so the mandible's walls are buried
   // rather than flush, the sword's rest pose was written into buildRig so an
