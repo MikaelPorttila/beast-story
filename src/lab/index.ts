@@ -49,7 +49,9 @@ import { ITEMS, ORB_IDS } from '../core/items';
 import { buildHeroRig } from '../player/hero-rig';
 import { StubWorld } from './stub-world';
 import { buildPathsStage, groundAt, stageFraming } from './paths-stage';
-import { FENCE_POST_H, FENCE_POST_R, FENCE_RAIL_AT } from '../world/town-parts';
+import {
+  FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT, FENCE_RAIL_WIDTH,
+} from '../world/town-parts';
 import { Waterfall } from '../world/waterfall';
 import { bootstrapContent, content } from '../content';
 // See the long note at the same import in src/main.ts: the provider is imported
@@ -266,7 +268,10 @@ if (fenceParam) {
       x: r3(p.x), z: r3(p.z), y: r3(p.y), bridge: p.bridge,
     })) : null,
     /** The kit's own metrics — what "inside the post" and "under the top" mean. */
-    kit: { postH: FENCE_POST_H, railAt: [...FENCE_RAIL_AT], postR: FENCE_POST_R },
+    kit: {
+      postH: FENCE_POST_H, postR: FENCE_POST_R, postWidth: FENCE_POST_WIDTH,
+      railAt: [...FENCE_RAIL_AT], railWidth: FENCE_RAIL_WIDTH,
+    },
     /** Downward-facing triangles in the road mesh: the bridge soffit. */
     soffit: countSoffit(engine.scene),
   });

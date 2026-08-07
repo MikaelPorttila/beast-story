@@ -824,6 +824,9 @@ function forgeCoals(): Template {
  *    is the point the planks meet;
  *  - a plank runs along +z and is stamped with a LENGTH SCALE (`Accum.add`'s
  *    `sz`), so a bay is exactly as long as the gap it spans;
+ *  - that plank is narrowed across x before it is stamped, so the part buried
+ *    in a stake is behind its face and the visible timber grows out from the
+ *    middle of the post side instead of drawing on the same depth plane;
  *  - `FENCE_RAIL_AT` is where the planks sit and `FENCE_POST_H` how far the
  *    stake reaches, both in units above the line the fence is laid on, and
  *    fences.ts derives every height it stamps from those two.
@@ -849,6 +852,16 @@ const FENCE_LANTERN_H = (FENCE_LAMP_VOX + 5) * V;
 export const FENCE_RAIL_AT = [1.5 * V, 4 * V] as const;
 /** How long one plank template is, i.e. what a bay's `sz` is measured against. */
 export const FENCE_RAIL_LEN = FENCE_RAIL_VOX * V;
+/** The authored stake and rail are each one voxel wide before stamp scaling. */
+export const FENCE_POST_WIDTH = V;
+/**
+ * Finished plank width across the run.
+ *
+ * 60% leaves 0.056 units of post face visible on each side of a 0.28-unit
+ * stake: comfortably beyond a depth-buffer coincidence while keeping the
+ * branch substantial rather than turning it into a flat slat (issue #127).
+ */
+export const FENCE_RAIL_WIDTH = FENCE_POST_WIDTH * 0.6;
 /** Half-width of a stake, for "does this post stand on the road" tests. */
 export const FENCE_POST_R = V;
 
@@ -1056,6 +1069,8 @@ export class TownParts {
     rail: fenceRail(),
     railProp: fenceRailProp(),
     railLen: FENCE_RAIL_LEN,
+    railWidth: FENCE_RAIL_WIDTH,
+    postWidth: FENCE_POST_WIDTH,
     railAt: FENCE_RAIL_AT,
     postH: FENCE_POST_H,
     tallH: FENCE_TALL_H,
