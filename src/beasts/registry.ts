@@ -16,11 +16,14 @@ import * as coralback from './species/coralback';
 import * as finnick from './species/finnick';
 import * as snapclaw from './species/snapclaw';
 import * as lanternfin from './species/lanternfin';
+// The roster's first biped (issue #119) — a walking skeleton, not an animal.
+import * as graveborn from './species/graveborn';
 
 const modules = [
   emberfox, aquaxol, sproutle, sparkit, frostwing,
   boulderpup, galebird, umbrakit, lumimoth, drakelet,
   rivotter, coralback, finnick, snapclaw, lanternfin,
+  graveborn,
 ];
 
 export const ALL_SPECIES: BeastSpecies[] = modules.map((m) => m.species);
