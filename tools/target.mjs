@@ -44,3 +44,44 @@ export const BASE = `http://localhost:${PORT}`;
 
 /** Game entry. Query may start with `?` or not; `menu=0` is the caller's job. */
 export const gameUrl = (query = '') => `${BASE}/${query.replace(/^\/?/, '')}`;
+
+/**
+ * THE FLAG A PROBE THAT NEVER LOOKS AT A RENDERED FRAME SHOULD CARRY, and the
+ * measurement that says so. Measured on the dev server, headless Brave on
+ * hardware GL, time from `goto` to `__dbgBoot().playing`:
+ *
+ *   ?menu=0&fs=0               20.5 s
+ *   ?menu=0&fs=0&warmup=0       1.4 s
+ *
+ * The world is not the cost — `createWorld` is ~0.6 s of that. The shader
+ * warm-up sweep is 93% of it (see warmUpSteps in src/main.ts and the STAGES
+ * note in src/ui/loading.ts), and on the `menu=0` path it runs SYNCHRONOUSLY
+ * before the canvas is inserted, so a probe blocks the whole 20 s on
+ * `waitForSelector('canvas')` whether it wanted a warm frame or not.
+ *
+ * WHAT IT SAVES IS ONE SWEEP PER RUN, NOT ONE PER LOAD, and the difference is
+ * worth knowing before anybody predicts a number off a page count: Chromium
+ * caches linked programs across pages in the same browser, so the FIRST load of
+ * a run pays ~19 s and the rest pay a fraction of it. Measured end to end,
+ * before against after:
+ *
+ *   about       36.1 s -> 18.6 s     crosshair    38 s -> 19 s
+ *   textsize      63 s -> 40 s       viewport     42 s -> 22 s
+ *   settings      47 s -> 29 s       cursor       32 s -> 13 s
+ *   f2            27 s -> 11 s       content      23 s ->  5 s
+ *
+ * — eight probes, 308 s to 157 s, and the same verdicts. Note textsize: four
+ * `menu=0` pages and it still saves one sweep's worth, which is the cache.
+ *
+ * WHO MUST NOT USE IT. The sweep exists to pay every shader link up front, so
+ * the first seconds of play have no link stalls in them. Any probe that
+ * measures a frame — draw calls, CPU cost, distance travelled under a held key,
+ * a per-frame delta — keeps the sweep, because a stall inside its sample is
+ * indistinguishable from the regression it is looking for. That is gfx,
+ * shadowcache, streaming-stutter, sway, aim-assist, perf-baseline and every
+ * probe on the suite roster.
+ *
+ * `grep -rn NO_WARMUP tools/` lists everything that has opted out, which is the
+ * point of a named constant rather than four more characters in a URL.
+ */
+export const NO_WARMUP = 'warmup=0';

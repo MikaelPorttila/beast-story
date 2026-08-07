@@ -20,9 +20,11 @@
 //
 // Usage: bun tools/test-viewport.mjs
 import { launchBrowser, newContextPage, newPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
-const URL = `${HOST}/?fps=30&menu=0`;
+// NO_WARMUP: every assertion is a getBoundingClientRect against --bs-vw/--bs-vh,
+// which the sweep cannot move — see the note in tools/target.mjs.
+const URL = `${HOST}/?fps=30&menu=0&${NO_WARMUP}`;
 const PHONE = { width: 393, height: 851 };
 
 const browser = await launchBrowser();

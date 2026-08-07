@@ -22,6 +22,10 @@
  *   orbs=1                 the four taming orbs in a row, turning
  *   gap=<units>            spacing between them (default: 1.5 diameters)
  *   scale=<n>              how big each one is drawn (default 2.4)
+ *   follow=1               the owner teleports around the stage and the beasts
+ *                          chase it, instead of standing on their marks
+ *   jump=<seconds>         how often it teleports (default 1.2)
+ *   reach=<units>          how far away it reappears (default 14)
  *   anim=<BeastAction>     idle|walk|run|swim|fly|attack|cast|special|hurt|happy
  *   t=<seconds>            simulate this long, then render one frozen frame
  *                          (deterministic — use for screenshots)
@@ -351,6 +355,42 @@ const animParam = params.get('anim') as BeastAction | null;
 let simTime = 0;
 let skillTimer = 0;
 
+/**
+ * `follow=1` — THE OWNER MOVES, so the beasts chase it.
+ *
+ * Every other mode on this stage parks each beast on its mark and puts the
+ * owner underneath it, which is what makes a lineup a lineup and a screenshot
+ * reproducible. It also means `moveSpeed` never leaves 0, so the one thing a
+ * follower does that a parked model cannot show — slamming from a standstill
+ * into full catch-up and back — does not happen here at all.
+ *
+ * This mode teleports the owner instead: it sits still for `jump` seconds, then
+ * appears `reach` units away, and the beasts steer after it. That is the same
+ * provocation tools/test-beastanim.mjs drives in the game with `__dbgTp`, minus
+ * the world — and unlike the game it can do it to EVERY species at once
+ * (`?beasts=all&follow=1`), where the game only ever has two in follow slots.
+ *
+ * Successive jumps step by the golden angle so the circuit never repeats a
+ * bearing, and `velocity` is zeroed on arrival because a teleport is not a
+ * movement — a follower that predicted ahead from a stale velocity would be
+ * chasing a point the owner was never heading for.
+ */
+const chase = params.get('follow') === '1';
+const CHASE_JUMP_S = num('jump', 1.2);
+const CHASE_REACH = num('reach', 14);
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+let chaseIn = CHASE_JUMP_S;
+let chaseN = 0;
+
+function moveOwner(dt: number): void {
+  chaseIn -= dt;
+  if (chaseIn > 0) return;
+  chaseIn = CHASE_JUMP_S;
+  const a = GOLDEN_ANGLE * chaseN++;
+  owner.position.set(Math.sin(a) * CHASE_REACH, 0, Math.cos(a) * CHASE_REACH);
+  owner.velocity.set(0, 0, 0);
+}
+
 const enemyCtx: EnemyCtx = {
   world, targets: [], vfx, time: 0,
   hit: () => {},
@@ -359,21 +399,29 @@ const enemyCtx: EnemyCtx = {
 function step(dt: number): void {
   simTime += dt;
 
-  for (let i = 0; i < beasts.length; i++) {
-    const p = beasts[i];
-    const mark = marks[i];
-    // Keep each beast parked on its mark: the owner sits where the beast stands,
-    // and horizontal drift from steering/separation is snapped back after the
-    // update so a lineup stays a lineup (vertical motion stays free so flyers
-    // still hover and swimmers still bob).
-    // Single subject turns with the camera so it always presents a 3/4 view;
-    // a lineup stays square to the lens.
-    if (beasts.length === 1) p.facingOverride = angle - 0.35;
-    owner.position.copy(p.position);
-    p.update(dt, owner, 'primary', beasts);
-    if (animParam && animParam !== 'idle') p.playAction(animParam, 0.9);
-    p.position.x = mark.x;
-    p.position.z = mark.z;
+  if (chase) {
+    moveOwner(dt);
+    // No mark, no facing override: the point of this mode is where the steering
+    // takes them. The camera rides the owner so the pack stays in frame.
+    for (const p of beasts) p.update(dt, owner, 'primary', beasts);
+    subjectPos.copy(owner.position);
+  } else {
+    for (let i = 0; i < beasts.length; i++) {
+      const p = beasts[i];
+      const mark = marks[i];
+      // Keep each beast parked on its mark: the owner sits where the beast
+      // stands, and horizontal drift from steering/separation is snapped back
+      // after the update so a lineup stays a lineup (vertical motion stays free
+      // so flyers still hover and swimmers still bob).
+      // Single subject turns with the camera so it always presents a 3/4 view;
+      // a lineup stays square to the lens.
+      if (beasts.length === 1) p.facingOverride = angle - 0.35;
+      owner.position.copy(p.position);
+      p.update(dt, owner, 'primary', beasts);
+      if (animParam && animParam !== 'idle') p.playAction(animParam, 0.9);
+      p.position.x = mark.x;
+      p.position.z = mark.z;
+    }
   }
 
   enemyCtx.time = simTime;
@@ -406,11 +454,43 @@ function step(dt: number): void {
   engine.updateSunFocus(subjectPos);
 }
 
+/** The stage's fixed step, shared by the freeze path and `__dbgLabAdvance`. */
+const SIM_STEP = 1 / 60;
+
+/**
+ * ADVANCE THE STAGE WITHOUT WAITING FOR IT — the lab's half of main.ts's
+ * `__dbgAdvance`, and the reason a probe on this stage costs seconds rather
+ * than minutes.
+ *
+ * Nothing here is rendered: `step()` is state, and every rig pose a probe reads
+ * through `__dbgBeastAnim` (src/beasts/framework.ts) is written by
+ * `BeastActor.update`. So a run that wants thirty seconds of session clock —
+ * which tools/test-beastanim.mjs does, because the phase error of a
+ * `time * freq` cycle scales with elapsed time — can have it in one call
+ * instead of thirty seconds of wall clock and a rendered frame it never looks
+ * at. Called with one step's worth it is a single-step driver, which is how a
+ * probe samples every frame of a cycle with no rAF and no frame-rate to be
+ * flaky about.
+ *
+ * PAIR IT WITH `t=0`, which renders one frame and starts no rAF loop, so this
+ * is the only thing advancing the clock and two runs give the same numbers.
+ * Clamped to 300 simulated seconds for the same reason `__dbgAdvance` is: the
+ * burst blocks the main thread and a runaway argument must not hang the tab.
+ */
+(window as unknown as { __dbgLabAdvance: (seconds: number) => unknown })
+  .__dbgLabAdvance = (seconds) => {
+    const s = Math.min(Math.max(0, Number(seconds) || 0), 300);
+    const slices = Math.round(s / SIM_STEP);
+    const t0 = performance.now();
+    for (let i = 0; i < slices; i++) step(SIM_STEP);
+    return { slices, simSeconds: s, wallMs: +(performance.now() - t0).toFixed(1) };
+  };
+
 // Deterministic mode: advance a fixed number of steps, render once, stop.
 const freezeAt = params.get('t');
 if (freezeAt !== null) {
   const target = Number(freezeAt) || 0;
-  const FIXED = 1 / 60;
+  const FIXED = SIM_STEP;
   for (let t = 0; t < target; t += FIXED) step(FIXED);
   placeCamera();
   engine.render();

@@ -35,7 +35,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchBrowser, newContextPage, wait, logPageErrors } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
@@ -44,6 +44,23 @@ const RUNTIME_DEPS = Object.keys(pkg.dependencies ?? {});
 
 /** The shipped package's own copyright line, out of its LICENSE file. */
 const SHIPPED_COPYRIGHT = /Copyright © \d{4}-\d{4} three\.js authors/;
+
+/**
+ * Every load here stops at the TITLE SCREEN and every assertion reads DOM — the
+ * option list, the panel's overflow, the credits table, the language swap — so
+ * this file qualifies for NO_WARMUP (see the note on it in tools/target.mjs).
+ * It never waits for the canvas, so what it saves is not a block but the
+ * CONTENTION: the sweep's steps are ~1 s each and only yield between them
+ * (BOOT_SLICE_MS in main.ts), and this probe spends its life clicking a menu on
+ * the same main thread. Measured, four loads: 36.1 s to 18.6 s, same verdict.
+ *
+ * What is LEFT is this file's own `wait()` calls — 2000 ms after `.bs-menu`
+ * plus the click settles, about 4.4 s a load. Those want a readiness gate
+ * rather than a smaller number, and that is a separate change.
+ *
+ * `fps=30` stays: the menu still animates and the panel still scrolls.
+ */
+const BOOT = `${HOST}/?fps=30&fs=0&${NO_WARMUP}`;
 
 /** Any key leaves the splash; then in through the About door. */
 async function openAbout(page) {
@@ -93,7 +110,7 @@ const out = { runtimeDeps: RUNTIME_DEPS };
 {
   const { ctx, page } = await newContextPage(browser, { width: 1280, height: 900 });
   logPageErrors(page);
-  await page.goto(`${HOST}/?fps=30&fs=0`, { waitUntil: 'load' });
+  await page.goto(BOOT, { waitUntil: 'load' });
   await page.waitForSelector('.bs-menu');
   await wait(2000);
 
@@ -127,7 +144,7 @@ const out = { runtimeDeps: RUNTIME_DEPS };
 {
   const { ctx, page } = await newContextPage(browser, { width: 1280, height: 900 });
   logPageErrors(page);
-  await page.goto(`${HOST}/?fps=30&fs=0`, { waitUntil: 'load' });
+  await page.goto(BOOT, { waitUntil: 'load' });
   await page.waitForSelector('.bs-menu');
   await wait(2000);
   await openAbout(page);
@@ -173,7 +190,7 @@ const out = { runtimeDeps: RUNTIME_DEPS };
 {
   const { ctx, page } = await newContextPage(browser, { width: 851, height: 393, phone: true });
   logPageErrors(page);
-  await page.goto(`${HOST}/?fps=30&fs=0`, { waitUntil: 'load' });
+  await page.goto(BOOT, { waitUntil: 'load' });
   await page.waitForSelector('.bs-menu');
   await wait(2000);
   // No keyboard on a phone: the splash takes any tap, and the option list is
@@ -195,7 +212,7 @@ const out = { runtimeDeps: RUNTIME_DEPS };
 {
   const { ctx, page } = await newContextPage(browser, { width: 1280, height: 900 });
   logPageErrors(page);
-  await page.goto(`${HOST}/?fps=30&fs=0&lang=sv`, { waitUntil: 'load' });
+  await page.goto(`${BOOT}&lang=sv`, { waitUntil: 'load' });
   await page.waitForSelector('.bs-menu');
   await wait(2000);
   await openAbout(page);

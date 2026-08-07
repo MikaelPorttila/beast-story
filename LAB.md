@@ -33,6 +33,9 @@ bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 | `hero=1` | The player character rig |
 | `skill=<skillId>` | Fires that skill on a loop at a dummy 6 units away |
 | `anim=<action>` | `idle walk run swim fly attack cast special hurt happy` |
+| `follow=1` | The owner teleports around the stage and the beasts chase it, instead of standing on their marks — the catch-up case, without a world |
+| `jump=<seconds>` | How often it teleports (default 1.2) |
+| `reach=<units>` | How far away it reappears (default 14) |
 | `waterfall=1` | A waterfall VFX (`src/world/waterfall.ts`) on a bare stage |
 | `fall=<units>` | How far it falls before it is invisible (default 48) |
 | `push=<units>` | How far it is pushed sideways over that (default 0) |

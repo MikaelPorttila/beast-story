@@ -5,7 +5,7 @@
 import { PNG } from 'pngjs';
 import fs from 'node:fs';
 import { launchBrowser, newContextPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 const browser = await launchBrowser();
 const out = {};
@@ -16,7 +16,9 @@ for (const [name, viewport] of [
   ['phone-landscape', { width: 851, height: 393, phone: true }],
 ]) {
   const { ctx, page } = await newContextPage(browser, viewport);
-  await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
+// NO_WARMUP: the crosshair is DOM over the canvas and nothing here times a
+// frame — see the note in tools/target.mjs.
+  await page.goto(`${HOST}/?fps=30&menu=0&${NO_WARMUP}`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await wait(3500);
   // Hide the 3D canvas and everything except the reticle, then paint the page

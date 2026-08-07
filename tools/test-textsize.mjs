@@ -28,7 +28,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchBrowser, newContextPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const MIN_PX = 16;
@@ -179,13 +179,15 @@ const live = {};
 const STAGE = () => !!(window.__dbgStageHud && window.__dbgStageHud());
 
 for (const [name, viewport, query] of [
-  ['desktop', { width: 1600, height: 900 }, '?fps=30&menu=0'],
-  ['desktop-narrow', { width: 1000, height: 700 }, '?fps=30&menu=0'],
-  ['phone-portrait', { width: 393, height: 851, phone: true }, '?fps=30&menu=0'],
-  ['phone-landscape', { width: 851, height: 393, phone: true }, '?fps=30&menu=0'],
-  ['title', { width: 1600, height: 900 }, '?photo=1&menu=1&fs=0'],
-  ['title-short', { width: 1000, height: 560 }, '?photo=1&menu=1&fs=0'],
-  ['title-phone', { width: 851, height: 393, phone: true }, '?photo=1&menu=1&fs=0'],
+// NO_WARMUP on all seven pages: every reading is a computed font-size out of
+// getComputedStyle — see the note in tools/target.mjs.
+  ['desktop', { width: 1600, height: 900 }, `?fps=30&menu=0&${NO_WARMUP}`],
+  ['desktop-narrow', { width: 1000, height: 700 }, `?fps=30&menu=0&${NO_WARMUP}`],
+  ['phone-portrait', { width: 393, height: 851, phone: true }, `?fps=30&menu=0&${NO_WARMUP}`],
+  ['phone-landscape', { width: 851, height: 393, phone: true }, `?fps=30&menu=0&${NO_WARMUP}`],
+  ['title', { width: 1600, height: 900 }, `?photo=1&menu=1&fs=0&${NO_WARMUP}`],
+  ['title-short', { width: 1000, height: 560 }, `?photo=1&menu=1&fs=0&${NO_WARMUP}`],
+  ['title-phone', { width: 851, height: 393, phone: true }, `?photo=1&menu=1&fs=0&${NO_WARMUP}`],
 ]) {
   const { ctx, page } = await newContextPage(browser, viewport);
   await page.goto(`${HOST}/${query}`, { waitUntil: 'load' });

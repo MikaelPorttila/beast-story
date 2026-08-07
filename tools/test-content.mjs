@@ -53,7 +53,7 @@
 //
 // Exits non-zero.
 import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 const browser = await launchBrowser();
 const results = {};
@@ -195,7 +195,9 @@ const requested = [];
 const page = await newPage(browser, { width: 1000, height: 640 });
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));
 page.on('request', (r) => requested.push(r.url()));
-await page.goto(`${HOST}/?menu=0&fs=0`, { waitUntil: 'load' });
+// NO_WARMUP: the registry, the town/npc/enemy tables and the dev console are
+// all read without drawing anything — see the note in tools/target.mjs.
+await page.goto(`${HOST}/?menu=0&fs=0&${NO_WARMUP}`, { waitUntil: 'load' });
 await page.waitForSelector('canvas');
 
 /**
