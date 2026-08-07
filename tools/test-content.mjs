@@ -133,6 +133,19 @@ const GAIN = {
 };
 
 /**
+ * The WILD BEASTS (issue #4) — ids and order only, deliberately.
+ *
+ * A SEPARATE LIST from `ENEMIES` below rather than three more rows in it,
+ * because the two are different kinds of baseline. `ENEMIES` is a pre-migration
+ * record: every number in it was read off `git show HEAD:src/combat/enemies.ts`
+ * and none of it may move. These are new content and have no pre-migration
+ * value to pin — what is worth asserting is that they reach the world at all,
+ * and that adding them disturbed neither the count nor the order of the three
+ * that were already there. Keeping the lists apart is what says that.
+ */
+const WILD_BEASTS = ['wild-sproutle', 'wild-boulderpup', 'wild-galebird'];
+
+/**
  * `STATS`, `ENEMY_DEFS` and the three variant tables in
  * `git show HEAD:src/combat/enemies.ts`.
  *
@@ -333,7 +346,13 @@ async function consoleClosed(tries = 40) {
   // always been for — adding a settlement must not add, drop or renumber a
   // biome or an enemy, and the three GROUND towns below must come back in the
   // order and with the values they had before any of this existed.
-  eq(c.assets, { town: 4, npc: 4, biome: 8, enemy: 3, quest: 0, music: 2 }, 'assets by type');
+  //
+  // Then a third time, for the wild beasts (issue #4): `enemy` goes from three
+  // to six. `WILD_BEASTS` is what the three new ones are, and the assertion
+  // below still names the original three FIRST and by their pre-migration
+  // values — a bondable Sproutle must not have renumbered a Gloopling.
+  eq(c.assets, { town: 4, npc: 4, biome: 8, enemy: 3 + WILD_BEASTS.length, quest: 0, music: 2 },
+    'assets by type');
   // The ground towns FIRST and unchanged — `order` decides siting and Skyhaven
   // is last — then the carried one. Asserting the whole list rather than a
   // filtered one is deliberate: a carried town that stopped reaching the world
@@ -341,7 +360,12 @@ async function consoleClosed(tries = 40) {
   eq(c.resolved.towns, [...TOWNS.map((t) => t.id), SKYHAVEN.id],
     'towns that reached the world');
   eq(c.resolved.npcs, [GAIN.id, ...SKYFOLK], 'npcs that reached the world');
-  eq(c.resolved.enemies, ENEMIES.map((e) => e.id), 'enemy species that reached the world');
+  // The pre-migration three FIRST and in their old order, then the wild beasts.
+  // Same argument as the towns above: asserting the whole list rather than a
+  // filtered one is what makes "a wild beast stopped reaching the world" as
+  // much of a regression as a Gloopling doing so.
+  eq(c.resolved.enemies, [...ENEMIES.map((e) => e.id), ...WILD_BEASTS],
+    'enemy species that reached the world');
   eq(viaImport.biomes, BIOMES, 'biome ids');
   eq(viaImport.startAreas, ['biome:plains'], 'biomes flagged as the start area');
   eq(dataReqs, ['/src/content/data/core.json?import'],

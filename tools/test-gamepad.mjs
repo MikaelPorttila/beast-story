@@ -34,7 +34,7 @@
 //        ...or as sections inside `bun tools/suite.mjs` — same code either way.
 import { newPage, installFakePad } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
-import { advance } from './suite/harness.mjs';
+import { advance, bondAll } from './suite/harness.mjs';
 
 /** Sleep for REAL milliseconds. Only the realtime section below may use it. */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -144,6 +144,10 @@ async function bootPadPage(bctx, id, { rumble = false, query = 'menu=0&fs=0' } =
 
 export const name = 'gamepad';
 export const sections = [
+
+  // A BEAST TO MOUNT. Since issue #4 a new game is bonded to nothing, and the
+  // button section holds Y expecting a mount. See `bondAll`.
+  { id: 'party', run: async (ctx) => { await bondAll(ctx); } },
 
   // -------------------------------------------------------------------------
   { id: 'noPad', run: async (ctx) => {
@@ -428,8 +432,25 @@ export const sections = [
       // Idle: with every envelope long decayed (the longest cue is 0.45 s), the
       // mixer must issue NOTHING. A per-slice re-issue would put this near 90,
       // which is the whole reason the cadence exists.
-      adv(1.5);
-      const rIdle = rumble();
+      //
+      // THE WINDOW HAS TO BE GENUINELY IDLE, and that stopped being free. The
+      // hero is standing in a meadow with a wild population in it, and one bite
+      // inside the window is a REAL cue — four rumble calls, which is exactly
+      // what a mixer that issued four would look like. So a window with anything
+      // drained in it is thrown away and retaken, rather than the assertion
+      // being loosened to a number a re-issue could also pass. `idleClean` says
+      // whether a quiet one was ever obtained, so a permanently busy world gets
+      // reported instead of quietly passing.
+      let idleCalls = 0;
+      let idleClean = false;
+      let idleTries = 0;
+      for (; idleTries < 6 && !idleClean; idleTries++) {
+        const dBefore = drained();
+        const rBefore = rumble();
+        adv(1.5);
+        idleCalls = rumble() - rBefore;
+        idleClean = drained() === dBefore;
+      }
 
       return {
         first: b - a,
@@ -437,7 +458,9 @@ export const sections = [
         blocked: c - b,
         afterWindow: d - c,
         rumbleCallsPerHit: rAfterHit - rBeforeHit,
-        rumbleCallsWhileIdle: rIdle - rAfterHit,
+        rumbleCallsWhileIdle: idleCalls,
+        idleClean,
+        idleTries,
       };
     });
     const fb = await probe(page, '__dbgFeedback');
@@ -450,6 +473,8 @@ export const sections = [
       drainedAfterIFrames: hurts.afterWindow,
       rumbleCallsPerHit: hurts.rumbleCallsPerHit,
       rumbleCallsWhileIdle: hurts.rumbleCallsWhileIdle,
+      idleWindowWasQuiet: hurts.idleClean,
+      idleWindowTries: hurts.idleTries,
       audioSeamCalls: fb?.audio?.calls,
       lastKind: fb?.lastKind,
       dropped: fb?.dropped,
@@ -466,6 +491,11 @@ export const sections = [
     // <= 1, not 0: the mixer issues one explicit zero when the last envelope
     // decays, and depending on where the 0.5 s window cut it that zero may fall
     // in the idle stretch instead.
+    // BOTH HALVES. The count is the claim; `idleClean` is what says the window
+    // it was counted over was quiet — without it, "0 calls" could be six
+    // windows that each had a bite in them and a reader would never know.
+    ctx.check(hurts.idleClean,
+      `no quiet 1.5 s window in ${hurts.idleTries} tries — something kept hitting the hero`);
     ctx.check(hurts.rumbleCallsWhileIdle <= 1,
       `${hurts.rumbleCallsWhileIdle} rumble calls over 1.5 idle seconds — the mixer re-issues`);
     } finally {

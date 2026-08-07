@@ -2,11 +2,15 @@ import * as THREE from 'three';
 import { VoxelModel, shade } from '../core/voxel';
 import { MAX_STEP_UP, inRise } from '../core/types';
 import { CarrierRide } from '../world/carriers';
-import type { Damageable, ElementType, World } from '../core/types';
+import { BeastAnimClock } from '../beasts/framework';
+import { ALL_SPECIES } from '../beasts/registry';
+import type {
+  BeastAction, BeastRig, BeastSpecies, Damageable, ElementType, World,
+} from '../core/types';
 import type { StringKey } from '../i18n';
 import {
-  content, defineFactory, ENEMY_MODEL_KIND,
-  type EnemyData, type EnemyVariant,
+  content, defineFactory, BEAST_MODEL_PREFIX, ENEMY_MODEL_KIND,
+  type EnemyCapture, type EnemyData, type EnemyVariant,
 } from '../content';
 import { displayKey, reportContentIssue } from '../core/content-bridge';
 import type { VFX } from './vfx';
@@ -67,8 +71,30 @@ export function variantForHeight(dh: number): number {
 /** One palette. Index 0 is mid, 1 is highland, 2 is lowland — `variantForHeight`. */
 type Variant = EnemyVariant;
 
+/**
+ * WHAT A BUILDER HANDS BACK.
+ *
+ * It was the parts record alone until wild beasts landed. A beast's body is not
+ * painted here — it is a `BeastSpecies` rig, the same one a companion wears —
+ * and posing it means calling that species' own `animate(rig, ctx)`, which wants
+ * the whole `BeastRig` and not just its parts. So the return widened rather than
+ * the rig being rebuilt on the far side of the seam: building a body twice to
+ * recover a reference to it is the kind of thing that is cheap exactly once and
+ * then is not.
+ */
+export interface EnemyBody {
+  /** Named parts the AI poses. For a beast body these are the rig's own. */
+  readonly parts: Record<string, THREE.Object3D>;
+  /**
+   * Set only by a `beast-…` builder: the species and the rig it built. Present
+   * means this wild thing IS one of the companion species, which is what makes
+   * it bondable — see `BEAST_MODEL_PREFIX` and src/combat/taming.ts.
+   */
+  readonly beast?: { readonly species: BeastSpecies; readonly rig: BeastRig };
+}
+
 /** What a registered `enemy-model` does: paint a body in one palette. */
-export type EnemyModel = (root: THREE.Group, v: Variant) => Record<string, THREE.Object3D>;
+export type EnemyModel = (root: THREE.Group, v: Variant) => EnemyBody;
 
 /**
  * One species as this file needs it: the asset's numbers, resolved against a
@@ -86,6 +112,15 @@ export interface EnemySpec {
   readonly flying: boolean;
   readonly model: EnemyModel;
   readonly data: EnemyData;
+  /**
+   * What it takes to bond this one, or null where it cannot be bonded at all.
+   *
+   * Hoisted off `data` so that the one question every taming call site asks —
+   * "can I catch this?" — is one property access and never a two-step through a
+   * content record. The three original enemies answer null, and that refusal is
+   * half of what tools/test-taming.mjs asserts.
+   */
+  readonly capture: EnemyCapture | null;
 }
 
 /**
@@ -130,6 +165,7 @@ export function enemySpecies(): readonly EnemySpec[] {
       flying: asset.data.flying,
       model,
       data: asset.data,
+      capture: asset.data.capture ?? null,
     });
   }
   cachedFrom = assets;
@@ -147,7 +183,7 @@ export function speciesOf(id: EnemySpeciesId): EnemySpec | undefined {
 // ---------------------------------------------------------------------------
 // Voxel builders
 // ---------------------------------------------------------------------------
-function buildGloopling(root: THREE.Group, v: Variant): Record<string, THREE.Object3D> {
+function buildGloopling(root: THREE.Group, v: Variant): EnemyBody {
   const m = new VoxelModel();
   m.ellipsoid(0, 3.4, 0, 5.2, 3.4, 4.8, v.dark);
   m.ellipsoid(0, 4.5, 0, 4.7, 3.4, 4.3, v.main);
@@ -166,10 +202,10 @@ function buildGloopling(root: THREE.Group, v: Variant): Record<string, THREE.Obj
   const body = new THREE.Group();
   body.add(mesh);
   root.add(body);
-  return { body };
+  return { parts: { body } };
 }
 
-function buildSnortle(root: THREE.Group, v: Variant): Record<string, THREE.Object3D> {
+function buildSnortle(root: THREE.Group, v: Variant): EnemyBody {
   // torso + bristle mane + curly tail
   const bm = new VoxelModel();
   bm.ellipsoid(0, 4.2, -0.5, 3.8, 3.4, 5.4, v.main);
@@ -218,7 +254,7 @@ function buildSnortle(root: THREE.Group, v: Variant): Record<string, THREE.Objec
     root.add(leg);
     parts[key] = leg;
   }
-  return parts;
+  return { parts };
 }
 
 function buildPeckitWing(v: Variant, sign: number): THREE.Mesh {
@@ -235,7 +271,7 @@ function buildPeckitWing(v: Variant, sign: number): THREE.Mesh {
   return wm.build(0.1, false);
 }
 
-function buildPeckit(root: THREE.Group, v: Variant): Record<string, THREE.Object3D> {
+function buildPeckit(root: THREE.Group, v: Variant): EnemyBody {
   const bm = new VoxelModel();
   bm.ellipsoid(0, 3, -0.5, 2.4, 2.4, 3.6, v.main);
   bm.ellipsoid(0, 2.2, 1.4, 1.7, 1.5, 1.7, v.belly);
@@ -272,7 +308,7 @@ function buildPeckit(root: THREE.Group, v: Variant): Record<string, THREE.Object
   wingR.add(buildPeckitWing(v, 1));
   body.add(wingR);
 
-  return { body, head, wingL, wingR };
+  return { parts: { body, head, wingL, wingR } };
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +370,28 @@ function buildPeckit(root: THREE.Group, v: Variant): Record<string, THREE.Object
 export const MELEE_UP_REACH = 1.5;
 export const MELEE_DOWN_REACH = 2.5;
 
+/**
+ * Cruise altitude of a wild FLYER over whatever is under it, in world units.
+ *
+ * 3.2 is the height a flyer already spawns at (see the constructor), reused so
+ * that a Galebird does not visibly sink or climb on its first slice. It is high
+ * enough to read as airborne over the meadow grass, which tops out around 1.4,
+ * and low enough that stooping to bite is a short drop rather than a dive — a
+ * dive is Peckit's character, and a wild beast is deliberately not written as
+ * one of the three characters.
+ */
+const WILD_FLY_RISE = 3.2;
+
+/**
+ * How long a wild beast holds its `attack` pose, in seconds.
+ *
+ * Shorter than the 1.2 s bite cooldown on purpose: the pose is the swing, the
+ * cooldown is the recovery, and a beast frozen mid-lunge until it may bite again
+ * reads as a stutter. Species author their attack over roughly this long — see
+ * any `ctx.action === 'attack'` branch in src/beasts/species/.
+ */
+const WILD_ATTACK_SECONDS = 0.45;
+
 // ---------------------------------------------------------------------------
 // Enemy
 // ---------------------------------------------------------------------------
@@ -360,8 +418,50 @@ export class Enemy implements Damageable {
   readonly height: number;
   readonly palette: readonly number[];
   readonly species: EnemySpeciesId;
+  /**
+   * What it takes to bond this one, or null. See `EnemySpec.capture`.
+   *
+   * On the instance rather than looked up per throw because src/combat/taming.ts
+   * is handed an `Enemy` and nothing else — it must not have to know that a
+   * species id resolves through a content cache to answer "can I catch this".
+   */
+  readonly capture: EnemyCapture | null;
+  /**
+   * The companion species this wild thing IS, or null for the painted enemies.
+   *
+   * It is both the body (its rig is what got built) and the payout (bonding it
+   * grants this species), which is the single-source-of-truth argument written
+   * on `EnemyCapture`.
+   */
+  readonly beastSpecies: BeastSpecies | null;
+  private readonly beastRig: BeastRig | null;
+  /**
+   * What the beast rig measured for ITSELF, or null on a painted enemy.
+   *
+   * Exposed only so a probe can compare it against the authored `radius`/
+   * `height` above — see the note on those fields in
+   * src/content/types/enemy.ts. Nothing in the game reads these: content is the
+   * truth for what the game reaches with, and this is the second opinion that
+   * says whether that truth still matches the model.
+   */
+  readonly rigRadius: number | null;
+  readonly rigHeight: number | null;
+  /** Phase integrator for `beastSpecies.animate`. Null for a painted enemy. */
+  private readonly beastClock: BeastAnimClock | null;
+  private beastAction: BeastAction = 'idle';
+  private beastActionT = 0;
 
   private mats: THREE.MeshStandardMaterial[] = [];
+  /**
+   * Each material's emissive as BUILT, so the hit flash can be taken back off.
+   *
+   * The flash used to decay toward black, which is right for a body that has no
+   * emissive of its own and wrong for every one that does — a beast body carries
+   * glow parts (Lanternfin's lure, Umbrakit's wisps), and one sword hit would
+   * otherwise put them out permanently. Restoring to what the builder wrote is
+   * the only version of this that is correct for both.
+   */
+  private readonly baseEmissive: THREE.Color[] = [];
   private speed: number;
   private atk: number;
   private aggro: number;
@@ -441,12 +541,27 @@ export class Enemy implements Damageable {
     // Peckit's dive are three behaviours, and a behaviour is engine. The day
     // that becomes a factory kind of its own it will be for the same reason
     // this one is, and content will select it the same way.
-    this.parts = spec.model(this.root, v);
+    const body = spec.model(this.root, v);
+    this.parts = body.parts;
+    // A BEAST BODY POSES ITSELF. Everything else in this class switches on the
+    // species id to pick an animation, and a wild beast cannot: its rig is one
+    // of fifteen a companion wears and only that species knows how to move it.
+    // So the three painted enemies keep their hand-written poses and a beast
+    // gets `species.animate(rig, ctx)` — the same call BeastActor makes, through
+    // the same clock. See `updateWildBeast`.
+    this.beastSpecies = body.beast?.species ?? null;
+    this.beastRig = body.beast?.rig ?? null;
+    this.beastClock = body.beast ? new BeastAnimClock() : null;
+    this.rigRadius = body.beast?.rig.radius ?? null;
+    this.rigHeight = body.beast?.rig.height ?? null;
+    this.capture = spec.capture;
 
     this.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh && (mesh.material as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
-        this.mats.push(mesh.material as THREE.MeshStandardMaterial);
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        this.mats.push(mat);
+        this.baseEmissive.push(mat.emissive.clone());
       }
     });
 
@@ -479,8 +594,52 @@ export class Enemy implements Damageable {
     this.drawBar();
   }
 
+  /**
+   * INSIDE A TAMING ORB: off screen, out of the fight, and not yet gone.
+   *
+   * A THIRD STATE beside alive and dead, and it needs to be one because both of
+   * the existing answers are wrong for two seconds. It is not dead — nothing
+   * dropped, nobody got xp, and it may walk out of this — and it is not alive
+   * either: it cannot bite, cannot be hit, and is not standing anywhere.
+   *
+   * Everything that acts on this enemy checks it in the one place that already
+   * gates on `isDead`, so the ways a held beast could be interfered with are the
+   * ways a dead one could be, and there is no fourth path to forget.
+   */
+  held = false;
+
+  /**
+   * May anything aim at, sweep over or splash this one?
+   *
+   * ONE PREDICATE for the seven scans in combat/index.ts that used to test
+   * `isDead` alone. A held beast is invisible and refuses damage, so leaving
+   * them on `isDead` would have been survivable for the DAMAGE — and not for the
+   * aim assist, which would have quietly locked the crosshair onto an empty
+   * patch of grass for two seconds. "Is it dead" and "may I aim at it" stopped
+   * being the same question the moment there were three states.
+   */
+  get targetable(): boolean {
+    return !this.isDead && !this.held;
+  }
+
+  setHeld(on: boolean): void {
+    if (this.held === on) return;
+    this.held = on;
+    this.root.visible = !on;
+    // The bar is a separate `visible` and would otherwise hang in the air over
+    // an empty patch of grass for the whole ceremony.
+    this.barSprite.visible = !on && this.hp < this.maxHp;
+    if (!on) {
+      // It came back out. Provoked, because being shut in a jar is something
+      // that happened TO it — a beast that broke free and then ambled off to
+      // eat grass reads as the game having forgotten.
+      this.provoked = true;
+      this.atkCd = Math.max(this.atkCd, 0.6);
+    }
+  }
+
   takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): boolean {
-    if (this.isDead) return false;
+    if (this.isDead || this.held) return false;
     this.hp -= amount;
     this.hpDirty = true;
     this.flashT = 0.14;
@@ -604,7 +763,7 @@ export class Enemy implements Damageable {
   }
 
   update(dt: number, ctx: EnemyCtx): void {
-    if (this.isDead) return;
+    if (this.isDead || this.held) return;
     // THE GROUND MOVES FIRST — the same line the hero, the saddle and a
     // follower open with. A wild thing that wandered onto a flying island (or,
     // more usually, one that chased the player onto one) travels with it; the
@@ -622,7 +781,11 @@ export class Enemy implements Damageable {
     this.retarget(ctx);
     this.atkCd -= dt;
 
-    if (this.species === 'gloopling') this.updateGloopling(dt, ctx);
+    // A BEAST BODY FIRST, because the three tests below are on a species ID and
+    // a wild beast's id is whatever the asset was called — `else` would send a
+    // wild Sproutle into Peckit's dive and pose parts it does not have.
+    if (this.beastSpecies) this.updateWildBeast(dt, ctx);
+    else if (this.species === 'gloopling') this.updateGloopling(dt, ctx);
     else if (this.species === 'snortle') this.updateSnortle(dt, ctx);
     else this.updatePeckit(dt, ctx);
 
@@ -634,11 +797,16 @@ export class Enemy implements Damageable {
       this.knock.multiplyScalar(d);
     }
 
-    // hit flash
+    // Hit flash, ADDED to what the builder wrote rather than replacing it — see
+    // `baseEmissive`. The last write of the ramp is f = 0, which is what puts a
+    // glowing part back exactly as it was instead of leaving it dark.
     if (this.flashT > 0) {
       this.flashT -= dt;
       const f = Math.max(0, this.flashT / 0.14) * 0.9;
-      for (const m of this.mats) m.emissive.setScalar(f);
+      for (let i = 0; i < this.mats.length; i++) {
+        const b = this.baseEmissive[i];
+        this.mats[i].emissive.setRGB(b.r + f, b.g + f, b.b + f);
+      }
     }
 
     // hp bar
@@ -683,6 +851,124 @@ export class Enemy implements Damageable {
     if (ctx.world.structureTopAt(nx, nz) > this.position.y + MAX_STEP_UP) return;
     this.position.x = nx;
     this.position.z = nz;
+  }
+
+  // ------------------------------------------------------------ wild beast
+  /**
+   * A WILD ONE OF THE COMPANION SPECIES: walk, chase, bite — and let the species
+   * pose itself.
+   *
+   * THE FOURTH BEHAVIOUR, AND DELIBERATELY THE PLAINEST. The other three are
+   * characters: a Gloopling hops, a Snortle winds up and charges, a Peckit dives
+   * out of the sky, and each one's movement and its animation are the same
+   * fifteen lines because the hop IS the squash. A beast is the opposite case —
+   * fifteen different bodies share this one AI, and none of their poses are
+   * written here at all. So this steers, and `species.animate` performs.
+   *
+   * WHY NOT REUSE `BeastActor`. A companion follows an owner, teleports when it
+   * falls behind, revives after eight seconds and runs errands; none of that is
+   * what a wild animal does, and the half of it that IS shared — the rig, the
+   * phase integrator, the pose call — is now shared, through `BeastAnimClock`.
+   * What is left is a wander and a chase, which is this function.
+   *
+   * GROUND OR AIR off `spec.flying`, the same field the spawn height reads.
+   * A flyer holds a cruise altitude over whatever is under it (terrain or a
+   * carrier's deck) and stoops to bite; a walker resolves its feet against the
+   * same column every other mover in the game does.
+   */
+  private updateWildBeast(dt: number, ctx: EnemyCtx): void {
+    const species = this.beastSpecies!;
+    const rig = this.beastRig!;
+    const clock = this.beastClock!;
+    const flying = species.locomotion === 'flying';
+
+    // Where it wants to be. A target is chased; otherwise it ambles between
+    // wander goals, which is `pickWanderGoal`'s existing safe-zone-respecting
+    // pick — a wild beast must not stroll into a settlement any more than a
+    // Gloopling may.
+    if (this.target) {
+      this.goal.copy(this.target.position);
+    } else {
+      this.wanderT -= dt;
+      if (this.wanderT <= 0) {
+        this.wanderT = 2 + Math.random() * 3;
+        this.pickWanderGoal(ctx);
+      }
+    }
+
+    _dir.set(this.goal.x - this.position.x, 0, this.goal.z - this.position.z);
+    const dist = _dir.length();
+    if (dist > 0.01) _dir.divideScalar(dist);
+
+    // How close is close enough to stop walking. The bite radius plus a body,
+    // so it comes to rest at arm's length instead of standing inside you.
+    const stopAt = this.radius + 0.9;
+    const chasing = this.target !== null;
+    const wantSpeed = this.speed * (chasing ? 1.6 : 0.55);
+    let moved = 0;
+
+    if (dist > stopAt) {
+      if (flying) {
+        this.position.x += _dir.x * wantSpeed * dt;
+        this.position.z += _dir.z * wantSpeed * dt;
+      } else {
+        this.moveGround(dt, _dir.x, _dir.z, wantSpeed, ctx);
+      }
+      moved = wantSpeed;
+      this.faceToward(this.goal.x, this.goal.z, dt, 7);
+    } else if (chasing) {
+      this.faceToward(this.goal.x, this.goal.z, dt, 9);
+    }
+
+    // Feet. A walker sits on the column; a flyer holds CRUISE_RISE over it and
+    // drops toward its quarry's own height while hunting, so a bite is possible
+    // at all — the melee band below is 1.5 units up and 2.5 down, and a beast
+    // cruising four units over the meadow could never reach anything.
+    const groundY = this.groundAt(ctx, this.position.x, this.position.z);
+    const wantY = flying
+      ? (chasing
+        ? Math.max(groundY + 0.6, this.target!.position.y + 0.9)
+        : Math.max(groundY, ctx.world.waterLevel) + WILD_FLY_RISE)
+      : groundY;
+    this.position.y += (wantY - this.position.y) * Math.min(1, (flying ? 3.5 : 14) * dt);
+
+    // The bite. Same shape as the Gloopling's contact attack, including the
+    // vertical cap — a wild beast standing under a climber waits for him rather
+    // than reaching up a tree.
+    if (this.target && this.atkCd <= 0 && !this.target.isDead) {
+      const dx = this.target.position.x - this.position.x;
+      const dz = this.target.position.z - this.position.z;
+      if (dx * dx + dz * dz < (this.radius + 1.0) ** 2 && this.inMeleeHeight(this.target)) {
+        ctx.hit(this.target, this.atk, this.element, this.position.x, this.position.y + this.height * 0.5, this.position.z);
+        this.atkCd = 1.2;
+        this.beastAction = 'attack';
+        this.beastActionT = 0;
+      }
+    }
+
+    // POSE. `moveSpeed` is normalised against the beast's own base speed rather
+    // than against the content `speed` it is walking at, because that is what a
+    // species' gait blend is authored against (see BeastAnimCtx.moveSpeed) — a
+    // rig whose walk cycle is calibrated for 3.4 units/s must not run flat out
+    // because an asset said 2.2.
+    this.beastActionT += dt;
+    const attacking = this.beastAction === 'attack' && this.beastActionT < WILD_ATTACK_SECONDS;
+    if (!attacking) this.beastAction = 'idle';
+    const base = species.baseStats.speed;
+    const speed01 = base > 0 ? Math.min(1, moved / base) : 0;
+    const gait: BeastAction = flying ? 'fly'
+      : moved <= 0.01 ? 'idle'
+      : chasing ? 'run' : 'walk';
+    const c = clock.ctx;
+    // The free-running clock species read for breathing and ear flicks. It
+    // advances every slice whatever the action is; `actionTime` is the separate
+    // "how long have I been doing THIS" a transient pose reads.
+    c.time += dt;
+    c.action = attacking ? 'attack' : gait;
+    c.actionTime = attacking ? this.beastActionT : c.time;
+    c.moveSpeed = speed01;
+    c.dt = dt;
+    species.animate(rig, c);
   }
 
   // ------------------------------------------------------------ gloopling
@@ -1005,3 +1291,31 @@ const MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, EnemyModel>([
  * lookup that comes back undefined inside a spawn. See src/content/index.ts.
  */
 for (const [name, model] of MODELS) defineFactory(ENEMY_MODEL_KIND, name, model);
+
+/**
+ * ONE MORE BUILDER PER COMPANION SPECIES — the wild half of the roster.
+ *
+ * `enemy-model/beast-sproutle` builds the same rig `BeastActor` wears, so a wild
+ * Sproutle and the one that follows you home are the same animal by
+ * construction. That is the whole reason bonding can hand the player a species
+ * without a mapping table: what you fought is what you get.
+ *
+ * DERIVED FROM `ALL_SPECIES` rather than listed, unlike `MODELS` above, and the
+ * difference is which way the duplication would run. A hand-written map of the
+ * three painted enemies is the one place their builders are named; a hand-written
+ * map of fifteen beast bodies would be a SECOND list of the species the game has,
+ * which is exactly what src/beasts/registry.ts exists to be the only copy of.
+ *
+ * THE PALETTE IS IGNORED, and it has to be: a beast's colours are painted into
+ * its own rig by its own species file, where a Gloopling's are content. The three
+ * variants an asset still carries are read for `element` and for the death
+ * debris, which is why the parameter is dropped here and not removed there.
+ */
+for (const sp of ALL_SPECIES) {
+  const build: EnemyModel = (root) => {
+    const rig = sp.buildRig();
+    root.add(rig.root);
+    return { parts: rig.parts, beast: { species: sp, rig } };
+  };
+  defineFactory(ENEMY_MODEL_KIND, BEAST_MODEL_PREFIX + sp.id, build);
+}

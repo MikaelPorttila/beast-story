@@ -105,6 +105,15 @@ export const CONTROL_SECTIONS: readonly BindSection[] = [
       { label: 'keys.swap', mode: 'press', codes: ['Tab'], caps: ['Tab'], pad: ['swap'] },
       { label: 'keys.cycleLead', mode: 'press', codes: ['BracketRight'], caps: [']'], pad: ['cyclePrimary'] },
       { label: 'keys.cycleSupport', mode: 'press', codes: ['BracketLeft'], caps: ['['], pad: ['cycleSupport'] },
+      // No pad row, and it is the same story the journal's tells below: every
+      // face on a controller is already spoken for — A, B, X, Y, both bumpers,
+      // both triggers, both sticks, Start, View and all four d-pad directions —
+      // and none of them is worth taking back for this. A pad player reaches the
+      // throw through nothing yet; the sheet says so rather than leaving a blank.
+      {
+        label: 'keys.throwOrb', mode: 'press', codes: ['KeyQ'], caps: ['Q'], pad: null,
+        note: 'keys.throwOrb.note',
+      },
     ],
   },
   {

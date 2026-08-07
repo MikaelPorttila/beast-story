@@ -70,6 +70,9 @@
  *     enemy-model/gloopling   the voxel builder              combat/enemies.ts
  *     enemy-model/snortle     "
  *     enemy-model/peckit      "
+ *     enemy-model/beast-…     one per ALL_SPECIES entry      combat/enemies.ts
+ *                             — a WILD beast wears a companion species' body,
+ *                               and `BEAST_MODEL_PREFIX` is what says so
  *     music-track/title       the bundled .webm's URL        audio/music.ts
  *     music-track/overworld   "
  *
@@ -125,13 +128,13 @@ export { assertLoadable, failsCheck, validateContent } from './validate';
 export type { ValidationLevel } from './validate';
 export { hasText, isKnownTextKey, resolveText, textKeyOf } from './text';
 export { BIOME_TYPE } from './types/biome';
-export { ENEMY_TYPE, ENEMY_MODEL_KIND } from './types/enemy';
+export { ENEMY_TYPE, ENEMY_MODEL_KIND, BEAST_MODEL_PREFIX } from './types/enemy';
 export { MUSIC_TYPE, MUSIC_TRACK_KIND } from './types/music';
 export { NPC_TYPE, NPC_BODY_KIND } from './types/npc';
 export { QUEST_TYPE } from './types/quest';
 export { TOWN_TYPE, TOWN_LAYOUT_KIND, CARRIED_LAYOUT_KIND } from './types/town';
 export type { BiomeData } from './types/biome';
-export type { EnemyData, EnemyVariant } from './types/enemy';
+export type { EnemyCapture, EnemyData, EnemyVariant } from './types/enemy';
 export type { MusicData } from './types/music';
 export type { NpcData, NpcTalkLine } from './types/npc';
 export type { QuestData, QuestObjective, QuestRewards } from './types/quest';

@@ -6,7 +6,8 @@ import { PAD_GLYPHS, type PadGlyphs } from '../core/gamepad';
 import { CONTROL_SECTIONS } from './keybinds';
 import { injectStyles } from './styles';
 import {
-  elementIcon, locomotionIcon, SHARD_ICON, CHECK_ICON, CLOSE_ICON, BURGER_ICON,
+  elementIcon, locomotionIcon, tameOrbIcon,
+  SHARD_ICON, CHECK_ICON, CLOSE_ICON, BURGER_ICON,
 } from './icons';
 
 // ---------------------------------------------------------------------------
@@ -70,7 +71,25 @@ export interface QuestTrackRow {
   steps: readonly { text: string; have: number; need: number }[];
 }
 
-export interface ShopOffer {
+/**
+ * WHAT A DEN SELLS. Two shapes, and the discriminant is what they are.
+ *
+ * It was a skill and only a skill until taming orbs went on sale. A den that
+ * sold both through one flattened record would have had a `skill?` and an
+ * `item?` and a card renderer opening with a test of which was set — so the
+ * union states it once, and the renderer switches on `kind` rather than on
+ * whether a field happens to be there.
+ *
+ * A SKILL OFFER IS PER BEAST and an ITEM OFFER IS NOT, which is the deeper
+ * reason these cannot be one record: half of a skill card (which animal is
+ * learning it, whether that animal already knows it) has no meaning on a
+ * consumable, and an item's stack is bought over and over where a skill is
+ * bought once.
+ */
+export type ShopOffer = SkillOffer | ItemOffer;
+
+export interface SkillOffer {
+  kind: 'skill';
   skill: SkillDef;
   price: number;
   owned: boolean;
@@ -84,6 +103,26 @@ export interface ShopOffer {
   /** Display name, already looked up. Rendered under the skill title. */
   beastName: string;
   affordable: boolean;
+}
+
+/**
+ * A consumable on the shelf. Every string ALREADY RESOLVED, like `QuestTrackRow`
+ * — a den has no business knowing what an `ItemDef` is or how a plural works.
+ */
+export interface ItemOffer {
+  kind: 'item';
+  /** Item id, for the buy handler. Round-tripped; the panel never parses it. */
+  itemId: string;
+  name: string;
+  description: string;
+  price: number;
+  affordable: boolean;
+  /** Card tint. The item's own colour. */
+  color: number;
+  /** Draws the orb glyph at this grade when set. See `tameOrbIcon`. */
+  orbTier?: number;
+  /** How many the player already carries. Shown so a restock is one glance. */
+  held: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -383,6 +422,8 @@ export class HUD {
   // bag (stackable items)
   private bagEl: HTMLDivElement;
   private bagSig = '';
+  private orbEl: HTMLDivElement;
+  private orbSig = '';
 
   // tracked quests (issue #98) — filled from the journal; see setQuests
   private questsEl: HTMLDivElement;
@@ -516,6 +557,10 @@ export class HUD {
     // bag (stackable items) — empty until something is picked up ------------
     this.bagEl = div('bs-bag');
     this.root.appendChild(this.bagEl);
+
+    // readied taming orb — empty until one is readied in the panel ----------
+    this.orbEl = div('bs-orb');
+    this.root.appendChild(this.orbEl);
 
     // compass --------------------------------------------------------------
     const compass = div('bs-compass');
@@ -852,6 +897,38 @@ export class HUD {
       void this.bagEl.offsetWidth;
       this.bagEl.classList.add('bs-pop');
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Readied taming orb
+  // -------------------------------------------------------------------------
+  /**
+   * The orb `Q` would throw, and how many are left — or null for none readied.
+   *
+   * ON SCREEN AND NOT IN THE PANEL, because the decision it supports is made in
+   * a fight: an orb is thrown at a beast whose health bar the player is watching,
+   * and "have I still got one" cannot be a question that costs them the modal.
+   * It sits under the bag chips for the same reason those are there — the right
+   * column is what you HAVE, and the left is what is happening to you.
+   *
+   * Call on CHANGE only. The signature guard makes a redundant call cheap, but
+   * the caller resolved a plural name to get here.
+   */
+  setOrb(orb: { name: string; count: number; color: number; tier: number } | null): void {
+    const sig = orb ? `${orb.name}:${orb.count}:${orb.color}:${orb.tier}` : '';
+    if (sig === this.orbSig) return;
+    this.orbSig = sig;
+    if (!orb) { this.orbEl.innerHTML = ''; return; }
+    this.orbEl.innerHTML =
+      `<div class="chip bs-glass" style="--el:${hexColor(orb.color)}">` +
+      `<i class="oi">${tameOrbIcon(orb.tier)}</i>` +
+      `<span class="nm">${escapeHtml(orb.name)}</span>` +
+      `<span class="n">${orb.count}</span>` +
+      // `kbd` builds the element itself, so it goes in raw — see its own note.
+      `<span class="k">${kbd('Q')}</span></div>`;
+    this.orbEl.classList.remove('bs-pop');
+    void this.orbEl.offsetWidth;
+    this.orbEl.classList.add('bs-pop');
   }
 
   // -------------------------------------------------------------------------
@@ -1463,26 +1540,39 @@ export class HUD {
 
     const grid = div('bs-offers');
     offers.forEach((offer, i) => {
-      const s = offer.skill;
-      const el = ELEMENT_COLORS[s.element];
-      const card = div(`bs-offer${offer.owned ? '' : offer.affordable ? '' : ' locked'}`);
+      // The two cards share their frame, their price foot and their buy button
+      // and differ in the top half; only that half is branched.
+      const el = offer.kind === 'skill' ? ELEMENT_COLORS[offer.skill.element] : offer.color;
+      const bought = offer.kind === 'skill' && offer.owned;
+      const card = div(`bs-offer${bought ? '' : offer.affordable ? '' : ' locked'}`);
       card.style.setProperty('--el', hexColor(el));
       card.style.setProperty('--el2', rgba(el, 0.4));
+      const head = offer.kind === 'skill'
+        ? `<div class="top"><span class="oic" style="--el2:${rgba(el, 0.18)}">` +
+          `${elementIcon(offer.skill.element)}</span>` +
+          `<div><h3>${escapeHtml(t(offer.skill.nameKey))}</h3>` +
+          `<div class="beast">${escapeHtml(t('shop.forBeast', { beast: offer.beastName }))}</div>` +
+          `</div></div>` +
+          `<p>${escapeHtml(t(offer.skill.descriptionKey))}</p>` +
+          `<div class="bs-chips">` +
+          `<span class="bs-chip">${escapeHtml(t('shop.stat.power'))} <b>${offer.skill.power}</b></span>` +
+          `<span class="bs-chip">${escapeHtml(t('shop.stat.cooldown'))} <b>${offer.skill.cooldown}s</b></span>` +
+          `<span class="bs-chip">${escapeHtml(offer.skill.targeting.toUpperCase())}</span>` +
+          `</div>`
+        : `<div class="top"><span class="oic" style="--el2:${rgba(el, 0.18)}">` +
+          `${offer.orbTier !== undefined ? tameOrbIcon(offer.orbTier) : SHARD_ICON}</span>` +
+          `<div><h3>${escapeHtml(offer.name)}</h3></div></div>` +
+          `<p>${escapeHtml(offer.description)}</p>` +
+          `<div class="bs-chips">` +
+          `<span class="bs-chip">${escapeHtml(t('shop.stat.held'))} <b>${offer.held}</b></span>` +
+          `</div>`;
       card.innerHTML =
         `<div class="accent" style="background:linear-gradient(90deg,${hexColor(el)},${rgba(el, 0.25)})"></div>` +
-        `<div class="top"><span class="oic" style="--el2:${rgba(el, 0.18)}">${elementIcon(s.element)}</span>` +
-        `<div><h3>${escapeHtml(t(s.nameKey))}</h3>` +
-        `<div class="beast">${escapeHtml(t('shop.forBeast', { beast: offer.beastName }))}</div></div></div>` +
-        `<p>${escapeHtml(t(s.descriptionKey))}</p>` +
-        `<div class="bs-chips">` +
-        `<span class="bs-chip">${escapeHtml(t('shop.stat.power'))} <b>${s.power}</b></span>` +
-        `<span class="bs-chip">${escapeHtml(t('shop.stat.cooldown'))} <b>${s.cooldown}s</b></span>` +
-        `<span class="bs-chip">${escapeHtml(s.targeting.toUpperCase())}</span>` +
-        `</div>` +
+        head +
         `<div class="foot"></div>`;
       const foot = card.querySelector('.foot') as HTMLElement;
 
-      if (offer.owned) {
+      if (bought) {
         const owned = div('bs-buy owned', `${CHECK_ICON}<span>${escapeHtml(t('shop.learned'))}</span>`);
         foot.appendChild(owned);
       } else {

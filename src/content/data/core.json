@@ -278,6 +278,76 @@
     },
 
     {
+      "id": "enemy:wild-sproutle",
+      "schema": 1,
+      "name": { "key": "beast.sproutle.name" },
+      "tags": ["wild", "ground", "bondable"],
+      "data": {
+        "model": "beast-sproutle",
+        "flying": false,
+        "hp": 45,
+        "atk": 8,
+        "speed": 2.6,
+        "xp": 14,
+        "radius": 0.42,
+        "height": 0.85,
+        "aggro": 8,
+        "capture": { "minTier": 1, "difficulty": 1 },
+        "variants": [
+          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" },
+          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" },
+          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-boulderpup",
+      "schema": 1,
+      "name": { "key": "beast.boulderpup.name" },
+      "tags": ["wild", "ground", "bondable"],
+      "data": {
+        "model": "beast-boulderpup",
+        "flying": false,
+        "hp": 58,
+        "atk": 11,
+        "speed": 3.1,
+        "xp": 20,
+        "radius": 0.5,
+        "height": 0.85,
+        "aggro": 9,
+        "capture": { "minTier": 2, "difficulty": 1.6 },
+        "variants": [
+          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" },
+          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" },
+          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-galebird",
+      "schema": 1,
+      "name": { "key": "beast.galebird.name" },
+      "tags": ["wild", "flying", "bondable"],
+      "data": {
+        "model": "beast-galebird",
+        "flying": true,
+        "hp": 34,
+        "atk": 10,
+        "speed": 5.4,
+        "xp": 18,
+        "radius": 0.35,
+        "height": 0.55,
+        "aggro": 11,
+        "capture": { "minTier": 2, "difficulty": 1.8 },
+        "variants": [
+          { "element": "wind", "main": "#8fb8d8", "dark": "#5a7f9c", "belly": "#d6e9f6", "accent": "#f0d08a" },
+          { "element": "wind", "main": "#8fb8d8", "dark": "#5a7f9c", "belly": "#d6e9f6", "accent": "#f0d08a" },
+          { "element": "wind", "main": "#8fb8d8", "dark": "#5a7f9c", "belly": "#d6e9f6", "accent": "#f0d08a" }
+        ]
+      }
+    },
+
+    {
       "id": "music:overworld",
       "schema": 1,
       "tags": ["area", "start"],

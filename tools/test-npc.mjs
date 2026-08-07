@@ -111,6 +111,17 @@ if (!gain) {
     'the hero is not standing where playerStart says');
 }
 
+// A FLYER TO CLIMB ON. Since issue #4 a new game is bonded to nothing, and the
+// height half of this probe — that a conversation does not follow the hero into
+// the sky (issue #25) — needs something to take him up there. Earning a beast is
+// tools/test-taming.mjs's claim; this file only needs one to exist.
+//
+// AFTER THE OPENING POSE, not before it. That section asserts where the game PUT
+// the hero, and it has to be the first thing read — every extra moment before it
+// is a moment in which something can walk up and shove him off the mark.
+await page.evaluate(() => window.__dbgGrantBeast('all'));
+await wait(300);
+
 // ---------- on the ground, two units away: he is there to talk to ----------
 {
   await page.evaluate((g) => window.__dbgTp(g.x + 2.0, g.z), gain);

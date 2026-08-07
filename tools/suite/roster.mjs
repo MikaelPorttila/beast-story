@@ -10,17 +10,11 @@
 // that would poison it. The constraints, in roster order:
 //
 //   inventory  FIRST: it asserts the UNTOUCHED starting kit (bag contents,
-//              equipped sword, boot beast loadout), which even a __dbgRide in
-//              an earlier module would break — and it permanently enriches the
-//              bag for everything after it.
-//   pause      needs the shared page's FOCUS intact for its pointer-lock arms:
-//              opening a private page blurs the shared page, and headless
-//              re-activation does not reliably deliver focus back (found by
-//              the keybinds conversion). inventory opens no private pages;
-//              everything later does. Also assumes music volume is at its
-//              default on entry.
-//   carrier,   the physics pair; nothing focus-gated, nothing kit-sensitive
-//   deepwater  left by pause.
+//              equipped sword, the empty roster a new game has), which even a
+//              __dbgRide in an earlier module would break — and it permanently
+//              enriches the bag for everything after it.
+//   carrier,   the physics pair; nothing focus-gated, nothing kit-sensitive.
+//   deepwater
 //   gfx        RELOADS the shared page twice: once up front (its draw-count
 //              floors are calibrated against a freshly booted world — the
 //              aged shared world measured ~250 draws lower at the same spot)
@@ -59,7 +53,29 @@
 //             cannot promise one. It runs alone, where it is reliable, and
 //             probe.mjs spawns it the old way — it still gets the whole
 //             sleep-to-simulated-time win, just not the shared boot.
+//
+//   pause     CONVERTED, and it ran here until issue #4. It is out because of
+//             ONE section: `exitTitle` leaves the game to the title screen and
+//             starts a second one, and `exitToTitle` in main.ts throws away the
+//             whole play session — the bag, the purse, the beasts you have
+//             bonded, the cooldowns, the wild population. That is exactly what
+//             it is supposed to do, and it is the correct thing to test.
+//
+//             But a shared session is a session, and a module that ENDS one is
+//             not a module the seven after it can share with: everything they
+//             set up before it is gone, and the failures land on them rather
+//             than here, reading as seven broken features instead of one
+//             deliberate restart. It cost a real debugging session to find that
+//             the sentence "not bonded" appearing in carrier, deepwater and
+//             gamepad was one exit-to-title four modules upstream.
+//
+//             The same reasoning applies to any probe that drives the game
+//             BACK TO THE MENU. If a future one does, it belongs out here with
+//             this one rather than on the roster below — a suite is for modules
+//             that leave a world behind them, and a title screen is not one.
+//
+//             It keeps every other conversion win; it just gets its own boot.
 export const CONVERTED = [
-  'inventory', 'pause', 'carrier', 'deepwater', 'gfx',
+  'inventory', 'carrier', 'deepwater', 'gfx',
   'touch', 'gamepad', 'safezone',
 ];

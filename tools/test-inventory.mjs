@@ -48,21 +48,23 @@
 // Exits non-zero on failure.
 
 /**
- * How many species the roster holds — three separate assertions below are this
- * number, so it is named once rather than written out three times.
+ * How many beasts this module BONDS before it starts, and therefore how many
+ * beast rows every later section expects.
  *
- * TEN UNTIL ISSUE #76, which added the five water beasts (Rivotter, Coralback,
- * Finnick, Snapclaw, Lanternfin). Moved here rather than derived from
- * `ALL_SPECIES.length` at run time deliberately: derived, every one of these
- * checks would agree with whatever the build happens to contain and none of
- * them could ever fail. A written-down number is what makes "the roster
- * silently lost a beast" a test failure.
+ * IT USED TO BE FIFTEEN — the whole roster, because every species was owned from
+ * boot. Issue #4 made ownership something you earn: a new game has no beasts at
+ * all, which section 1 now asserts, and the sections after it need a party to be
+ * about anything, so they get one through `__dbgGrantBeast`.
  *
- * The wall is a fixed 11x3 of thirty-three (INV_COLS), so the roster plus the
- * three starting items has fifteen cells of headroom left. Past that the wall
- * is the thing to change, not this.
+ * THREE, and not two. Two fills the lead and support slots and leaves nothing
+ * BENCHED, and a benched beast is exactly what sections 3c and 7 drag into a
+ * slot to prove the panel and Tab write the same two indices.
+ *
+ * Written down rather than derived, for the reason the old number was: derived
+ * from whatever the build contains, none of these checks could ever fail.
  */
-const ROSTER = 15;
+const GRANTED = ['emberfox', 'galebird', 'sproutle'];
+const ROSTER = GRANTED.length;
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
@@ -115,19 +117,41 @@ export const sections = [
     ctx.check(!!kinds['sword-iron'], 'no starting weapon in the bag');
     ctx.check(!!kinds['potion-mend'], 'no starting potion in the bag');
     ctx.check(!!kinds['bp-dagger'], 'no starting blueprint in the bag');
+    ctx.check(!!kinds['orb-tame'], 'no starting taming orb in the bag');
     // The gear slot is doing something, which is the one claim the picture cannot
     // make: base 14, iron sword +4.
     ctx.check(boot.attackStat === boot.baseAttack + 4,
       `attackStat ${boot.attackStat} is not base ${boot.baseAttack} + the sword's 4`);
     ctx.check(boot.gear.find((g) => g.slot === 'weapon')?.id === 'sword-iron',
       'the weapon slot does not hold the starting sword');
-    // Beasts are ROSTER-DERIVED rows, not bag entries — see BEAST_ID_PREFIX. The
-    // whole roster of them, and none of them in the bag.
-    ctx.check(ctx.res.start.beastRows === ROSTER,
-      `${ctx.res.start.beastRows} beast rows, expected the whole roster of ${ROSTER}`);
+    // A NEW GAME OWNS NOTHING (issue #4). No beast rows, and both beast slots
+    // empty — the panel lists what you HAVE, and at boot that is a sword and an
+    // orb. tools/test-taming.mjs is where earning one is tested; this is the
+    // other half of the same claim, from the panel's side.
+    ctx.check(ctx.res.start.beastRows === 0,
+      `${ctx.res.start.beastRows} beast rows at boot, expected 0 — a new game is unbonded`);
+    const bootBeastSlots = boot.gear
+      .filter((g) => g.slot === 'primary' || g.slot === 'support').map((g) => g.id);
+    ctx.check(bootBeastSlots.every((id) => id === null),
+      `a beast slot is filled at boot: ${JSON.stringify(bootBeastSlots)}`);
+    // The orb slot IS filled, which is the pair to it: the starting kit readies
+    // the one orb so the first bond is reachable without a purchase.
+    ctx.check(boot.gear.find((g) => g.slot === 'orb')?.id === 'orb-tame',
+      'the orb slot does not hold the starting Tame Orb');
+
+    // Everything below this line needs a party. Bonded outright through the
+    // developer door rather than played for — see `GRANTED`, and the note on
+    // `devGrant` in main.ts for why that door exists.
+    for (const id of GRANTED) await ctx.ev((s) => window.__dbgGrantBeast(s), id);
+    boot = await inv(ctx);
+    ctx.res.start.grantedRows = boot.entries.filter((e) => e.kind === 'beast').length;
+    // Beasts are ROSTER-DERIVED rows, not bag entries — see BEAST_ID_PREFIX.
+    ctx.check(ctx.res.start.grantedRows === ROSTER,
+      `${ctx.res.start.grantedRows} beast rows after bonding ${ROSTER}`);
     ctx.check(!boot.bag.some((e) => e.id.startsWith('beast:')),
       'a beast is stored in the bag — it must be derived from the roster');
-    const gearBeasts = boot.gear.filter((g) => g.slot !== 'weapon').map((g) => g.id);
+    const gearBeasts = boot.gear
+      .filter((g) => g.slot === 'primary' || g.slot === 'support').map((g) => g.id);
     ctx.check(gearBeasts.every((id) => id && id.startsWith('beast:')),
       `the two beast slots are not filled: ${JSON.stringify(gearBeasts)}`);
   } },
@@ -193,18 +217,21 @@ export const sections = [
     ctx.check(travelShut > 3,
       `the hero travelled only ${travelShut.toFixed(2)} with the panel down — `
       + 'the still reading above proves nothing');
-    // The panel drew what the model holds: every beast plus the three starting
-    // items, FILLED, inside a fixed 11x3 wall of thirty-three, three gear slots,
-    // seven tabs. Both numbers, because the wall's shape is the feature — a grid
-    // that shrank to what you happen to own is the thing INV_COLS exists to
-    // prevent, and a roster that outgrew the wall is the other way it breaks.
-    ctx.check(open.panel?.filled === ROSTER + 3,
-      `${open.panel?.filled} filled cells, expected ${ROSTER + 3}`);
+    // The panel drew what the model holds: every bonded beast plus the four
+    // starting items (sword, potions, blueprint, orb), FILLED, inside a fixed
+    // 11x3 wall of thirty-three, four gear slots, eight tabs. Both numbers,
+    // because the wall's shape is the feature — a grid that shrank to what you
+    // happen to own is the thing INV_COLS exists to prevent, and a roster that
+    // outgrew the wall is the other way it breaks.
+    ctx.check(open.panel?.filled === ROSTER + 4,
+      `${open.panel?.filled} filled cells, expected ${ROSTER + 4}`);
     ctx.check(open.panel?.slots === 33,
       `${open.panel?.slots} cells drawn, expected a fixed 11x3 of 33`);
-    ctx.check(open.panel?.gearSlots === 3,
-      `${open.panel?.gearSlots} gear slots drawn, expected 3`);
-    ctx.check(open.panel?.tabs === 7, `${open.panel?.tabs} tabs drawn, expected 7`);
+    // FOUR since issue #4: lead beast, weapon, support beast, taming orb.
+    ctx.check(open.panel?.gearSlots === 4,
+      `${open.panel?.gearSlots} gear slots drawn, expected 4`);
+    // EIGHT since issue #4, which added the Orbs tab.
+    ctx.check(open.panel?.tabs === 8, `${open.panel?.tabs} tabs drawn, expected 8`);
     // Two ATLAS icons is the weapon and the blueprint, and it is the only thing
     // that can catch a broken sprite sheet — a slot whose background failed to
     // load renders perfectly and looks like a slot.
@@ -606,6 +633,21 @@ export const sections = [
     const swing = async () => {
       const before = (await shots()).shots.filter((s) => s.arrow).length;
       await ctx.page.mouse.down();
+      // ORDER THE PRESS AGAINST THE ADVANCE, with one empty round-trip through
+      // the page.
+      //
+      // `mouse.down()` resolves when the BROWSER has acknowledged the input,
+      // which is not the instant the page's own listener has run and set
+      // `attackEdge` (core/input.ts). Advance before that and the simulation
+      // slices see no press; the edge then lands afterwards and is cleared by
+      // the next real frame's `endFrame()` without anything having spent it.
+      // An evaluate is queued behind the input event, so returning from one
+      // means the handler has run.
+      //
+      // The race was always here and the section passed on a quiet page. It
+      // started dropping the shot when issue #4's wild beasts made the frames
+      // heavier, which is the only reason it is written down now.
+      await ctx.ev(() => 0);
       await ctx.adv(0.07);
       await ctx.page.mouse.up();
       await ctx.adv(0.16);
@@ -887,6 +929,11 @@ export const sections = [
 
     // The starting weapon back in his hand.
     await act(ctx, 'sword-iron', 'equip');
+
+    // The party for the modules after this one is NOT granted here: it is
+    // `resetBetween` in tools/suite/harness.mjs, which runs after every module
+    // rather than once — `pause` exits to the title, and exiting clears
+    // ownership along with the bag. See the note there.
 
     // Best-effort restore of the boot beast loadout: setLead the boot support
     // first, then the boot lead — if the lead was sitting in support, the

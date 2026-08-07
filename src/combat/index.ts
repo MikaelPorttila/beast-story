@@ -7,10 +7,12 @@ import {
   type ElementType,
   type EventBus,
   type FetchJob,
+  type ItemDef,
   type SkillDef,
   type World,
 } from '../core/types';
 import { RARE_DROP_IDS, SHARD_ID, STACKABLE_IDS, itemDef } from '../core/items';
+import type { StringKey } from '../i18n';
 import { VFX } from './vfx';
 import { DamageNumbers } from './damage-numbers';
 import { elementMultiplier } from './effectiveness';
@@ -20,6 +22,8 @@ import {
 } from './enemies';
 import { Pickups } from './pickups';
 import { buildArrow } from './arrow';
+import { disposeTameOrbs, tameOrbMesh } from './tame-orb';
+import { Taming, captureChance, refuseThrow, type ThrowRefusal } from './taming';
 import { perf } from '../core/profiler';
 import { flags } from '../core/flags';
 
@@ -78,15 +82,26 @@ interface Projectile {
   vel: THREE.Vector3;
   target: Damageable | null;
   /**
-   * The three glowing parts every SKILL projectile is drawn with, and the
-   * ARROW that replaces them. One pool for both, because everything a
-   * projectile does after it is fired — travel, home, hit, expire — is the
-   * same, and a second pool would be a second copy of all of it. Only the
-   * picture differs, so only the picture is switched.
+   * The three glowing parts every SKILL projectile is drawn with, and the two
+   * models that replace them — an ARROW and a TAMING ORB. One pool for all
+   * three, because everything a projectile does after it is fired — travel,
+   * home, hit, expire — is the same, and a second pool would be a second copy
+   * of all of it. Only the picture differs, so only the picture is switched.
    */
   bolt: THREE.Object3D[];
   arrow: THREE.Mesh;
-  isArrow: boolean;
+  form: ProjForm;
+  /**
+   * This slot's orb models, by colour, built on first use of each tier and kept.
+   *
+   * PER SLOT rather than shared, because an `Object3D` is in one place at a
+   * time and two Greater Orbs can be in flight at once. The clones share one
+   * geometry and one material with everything in combat/tame-orb.ts's cache, so
+   * the map costs an object per (slot, tier) actually thrown and no buffers.
+   */
+  orbs: Map<number, THREE.Object3D>;
+  /** The orb model currently shown, or null. A member of `orbs`. */
+  orb: THREE.Object3D | null;
   /** Undefined for a PHYSICAL hit — an arrow, like the sword, has no element. */
   element: ElementType | undefined;
   rawBase: number;
@@ -96,7 +111,27 @@ interface Projectile {
   spin: number;
   /** 0..1 steer strength toward `target`; see CastRequest.homingScale. */
   homing: number;
+  /**
+   * The taming orb this shot IS, or null for everything else.
+   *
+   * Carried on the projectile rather than looked up on impact because the item
+   * can leave the bag between the throw and the hit — dropped, salvaged, spent
+   * on a second throw — and the orb in the air has already been paid for.
+   */
+  orbItem: ItemDef | null;
+  /** Test hook only: force the bond's outcome. See `Taming.begin`. */
+  orbForce?: boolean;
 }
+
+/**
+ * WHICH PICTURE a pooled slot is wearing.
+ *
+ * A named union rather than the `isArrow` boolean it replaces: two forms are a
+ * flag, three are a state, and the flag had already grown a second question
+ * ("is it an arrow" was standing in for "does it point where it is going" AND
+ * for "does it leave a sparkle trail"). See `setProjectileForm`.
+ */
+type ProjForm = 'bolt' | 'arrow' | 'orb';
 
 export class CombatSystem {
   /** Live wild enemies (satisfies ReadonlyArray<Damageable>). */
@@ -105,6 +140,7 @@ export class CombatSystem {
   private vfx: VFX;
   private numbers: DamageNumbers;
   private pickups: Pickups;
+  private taming: Taming;
   private shardTotal = 50;
   private time = 0;
   private spawnT = 0;
@@ -132,6 +168,11 @@ export class CombatSystem {
       }
       this.bus.emit({ type: 'itemPicked', itemId, byBeast });
     });
+    this.taming = new Taming(
+      scene, this.vfx,
+      (target, orb, caught) => this.settleBond(target, orb, caught),
+      (index, of) => this.bus.emit({ type: 'orbWobble', index, of }),
+    );
     this.projCoreGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
     this.projShellGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
     this.enemyCtx = {
@@ -169,6 +210,9 @@ export class CombatSystem {
       if (p.light) { this.vfx.releaseLight(p.light); p.light = null; }
     }
     this.pickups.clear();
+    // Bonds in flight go with the population they were being made with — see
+    // `Taming.clear` on why the beasts are not handed back.
+    this.taming.clear();
     this.targets.length = 0;
     this.lastPlayer = null;
     this.primed = false;
@@ -310,7 +354,7 @@ export class CombatSystem {
     // branch and the loop never keeps a candidate it would then have to reject.
     let bestDot = coneCos;
     for (const e of this.enemies) {
-      if (e.isDead) continue;
+      if (!e.targetable) continue;
       if (!inRise(footY, e.position.y, MELEE_UP_REACH, MELEE_DOWN_REACH)) continue;
       const rx = e.position.x - from.x;
       const rz = e.position.z - from.z;
@@ -329,7 +373,7 @@ export class CombatSystem {
     let best: Damageable | null = null;
     let bd = range * range;
     for (const e of this.enemies) {
-      if (e.isDead) continue;
+      if (!e.targetable) continue;
       const dx = e.position.x - pos.x;
       const dy = e.position.y - pos.y;
       const dz = e.position.z - pos.z;
@@ -356,14 +400,24 @@ export class CombatSystem {
    * sixteen units a second is four pixels of wood somewhere over a meadow, and
    * "did the shot happen and is it an ARROW rather than a fireball" is two
    * fields rather than a picture.
+   *
+   * `arrow` is KEPT beside `form` rather than replaced by it, because
+   * tools/test-crosshair.mjs and tools/test-aim-assist.mjs already read it and a
+   * probe that has to be edited to keep passing is a probe that proved less than
+   * it looked like it did. `form` is what a new reader should use.
    */
-  projectileSnapshot(): { arrow: boolean; x: number; y: number; z: number; speed: number }[] {
+  projectileSnapshot(): {
+    arrow: boolean; form: ProjForm; orb: string | null;
+    x: number; y: number; z: number; speed: number;
+  }[] {
     const out = [];
     for (const p of this.projectiles) {
       if (!p.active) continue;
       const q = p.group.position;
       out.push({
-        arrow: p.isArrow,
+        arrow: p.form === 'arrow',
+        form: p.form,
+        orb: p.orbItem?.id ?? null,
         x: +q.x.toFixed(2), y: +q.y.toFixed(2), z: +q.z.toFixed(2),
         speed: +p.vel.length().toFixed(2),
       });
@@ -423,6 +477,10 @@ export class CombatSystem {
     }
 
     this.updateProjectiles(dt);
+    // After the projectiles, so an orb that landed THIS slice starts its
+    // ceremony on the same slice rather than a frame late — the suck-in is the
+    // thing the player is looking at when they hit.
+    this.taming.update(dt);
     this.pickups.update(dt, player.position, this.world);
     this.vfx.update(dt);
     this.numbers.update(dt);
@@ -498,7 +556,7 @@ export class CombatSystem {
     this.vfx.slash(ox + dx * 1.05, oy + 0.15, oz + dz * 1.05, dx, dz, hex, slashScale);
     this.vfx.flashLight(ox + dx * 1.1, oy + 0.5, oz + dz * 1.1, hex, 2.4, 5, 0.14);
     for (const e of this.enemies) {
-      if (e.isDead) continue;
+      if (!e.targetable) continue;
       // The vertical cap the enemies got in issue #25 and the hero did not until
       // #78: an arc is a WEDGE, and a wedge with no ceiling is a column. Standing
       // on a 6-unit ledge, every swing cleared the meadow underneath it. Same
@@ -544,7 +602,11 @@ export class CombatSystem {
     group.add(arrow);
     const p: Projectile = {
       active: false, group, shellMat, glowMat, light: null,
-      bolt: [glow, shell, core], arrow, isArrow: false,
+      bolt: [glow, shell, core], arrow, form: 'bolt',
+      // No orb model is built here: a session that never throws one should not
+      // pay for fourteen slots' worth of glass. `orbFor` fills this in on the
+      // first throw of each tier through each slot.
+      orbs: new Map(), orb: null, orbItem: null,
       vel: new THREE.Vector3(), target: null, element: 'fire',
       rawBase: 0, life: 0, trailT: 0, hex: 0xffffff, spin: 0, homing: 1,
     };
@@ -565,7 +627,7 @@ export class CombatSystem {
     p.trailT = 0;
     p.spin = Math.random() * Math.PI;
     p.homing = req.homingScale ?? 1;
-    this.setProjectileForm(p, false);
+    this.setProjectileForm(p, 'bolt');
     p.vel.copy(req.direction).normalize().multiplyScalar(PROJ_SPEED);
     p.group.position.copy(req.origin).addScaledVector(req.direction, 0.45);
     p.shellMat.color.setHex(hex);
@@ -633,7 +695,7 @@ export class CombatSystem {
       p.life = 0.05;
       p.trailT = 0;
       p.spin = 0;
-      this.setProjectileForm(p, false);
+      this.setProjectileForm(p, 'bolt');
       p.vel.set(0, 0, 0);
       p.group.position.copy(at);
       p.group.visible = true;
@@ -647,17 +709,40 @@ export class CombatSystem {
   }
 
   /**
-   * Swap a pooled slot between the glowing bolt and the arrow.
+   * This slot's orb model for `color`, cloned on first use and kept.
    *
-   * One place, so a slot recycled from a skill cast into a bow shot can never
-   * be left showing half of each — which is exactly what a `visible` written at
-   * the two call sites would eventually do.
+   * See `tameOrbMesh` in combat/tame-orb.ts for why the clone is per SLOT: the
+   * cached mesh is one object and cannot hang off two live projectiles at once.
    */
-  private setProjectileForm(p: Projectile, arrow: boolean): void {
-    if (p.isArrow === arrow && p.arrow.visible === arrow) return;
-    p.isArrow = arrow;
-    for (const part of p.bolt) part.visible = !arrow;
-    p.arrow.visible = arrow;
+  private orbFor(p: Projectile, color: number): THREE.Object3D {
+    let m = p.orbs.get(color);
+    if (!m) {
+      m = tameOrbMesh(color).clone();
+      m.visible = false;
+      p.group.add(m);
+      p.orbs.set(color, m);
+    }
+    return m;
+  }
+
+  /**
+   * Swap a pooled slot between the glowing bolt, the arrow and a taming orb.
+   *
+   * ONE PLACE, so a slot recycled from a skill cast into a bow shot can never be
+   * left showing half of each — which is exactly what a `visible` written at the
+   * three call sites would eventually do. It was a boolean while there were two
+   * forms; `orb` is what made it a state, and the early-out went with it, since
+   * "same form" no longer implies "same model" — two Tame Orbs in a row share a
+   * form and a mesh, a Tame Orb after a Master Orb shares only the form.
+   */
+  private setProjectileForm(p: Projectile, form: ProjForm, orb: THREE.Object3D | null = null): void {
+    p.form = form;
+    for (const part of p.bolt) part.visible = form === 'bolt';
+    p.arrow.visible = form === 'arrow';
+    // Every orb model this slot has ever built, not just the one being replaced:
+    // that is what makes the swap total rather than a diff nobody can get wrong.
+    for (const m of p.orbs.values()) m.visible = m === orb;
+    p.orb = form === 'orb' ? orb : null;
   }
 
   /**
@@ -691,7 +776,7 @@ export class CombatSystem {
     p.life = 1.6;              // ~26 units of flight at PROJ_SPEED
     p.trailT = 0;
     p.spin = 0;
-    this.setProjectileForm(p, true);
+    this.setProjectileForm(p, 'arrow');
     p.vel.copy(_a).multiplyScalar(PROJ_SPEED);
     p.group.position.copy(origin).addScaledVector(_a, 0.5);
     p.group.visible = true;
@@ -699,6 +784,62 @@ export class CombatSystem {
     // gets a small dust puff instead, so the shot still has a moment of weight.
     p.light = null;
     this.vfx.dust(origin.x, origin.y, origin.z, 3, 0xd8d2c4);
+  }
+
+  /**
+   * THE TAMING THROW. A pooled projectile with an orb's model and no damage at
+   * all.
+   *
+   * The third thing the pool carries, and the first that is not a weapon: it
+   * deals nothing, it has no element, and what it does on impact is ask
+   * src/combat/taming.ts a question rather than apply a number. `rawBase` is 0
+   * and stays 0 — an orb that chipped a beast on the way in would be weakening
+   * the thing whose weakness it is measuring.
+   *
+   * IT HOMES, where an arrow does not, and that is the opposite of `arrowStrike`'s
+   * reasoning rather than an inconsistency with it. A bow shot is an aiming
+   * SKILL and steering it would take the aim away from the player. A throw is a
+   * commitment of a consumable the player paid Cubloons for, at a target the
+   * game already highlighted for them — missing because the animal side-stepped
+   * is not a skill expressed, it is an orb gone. So the caller passes the enemy
+   * the crosshair is on (`enemyInAim` in main.ts) and the orb follows it.
+   *
+   * `def` is the ITEM, not a tier, because the impact needs its `orbTier` for the
+   * roll and its `color` for the model, and passing two halves of one catalogue
+   * entry is how they come apart.
+   */
+  throwOrb(
+    origin: THREE.Vector3, direction: THREE.Vector3, def: ItemDef,
+    target: Damageable | null, force?: boolean,
+  ): void {
+    _a.set(direction.x, direction.y, direction.z);
+    if (_a.lengthSq() < 1e-6) return;
+    _a.normalize();
+    const p = this.projSlot();
+    if (!p) return;
+    p.active = true;
+    p.element = undefined;
+    p.hex = def.color;
+    p.rawBase = 0;
+    p.target = target && !target.isDead ? target : null;
+    // Full lock-on when there is a target — see the note above on why this is
+    // not the bow's 0.
+    p.homing = 1;
+    p.life = 2.2;              // ~35 units of flight at PROJ_SPEED
+    p.trailT = 0;
+    p.spin = 0;
+    p.orbItem = def;
+    p.orbForce = force;
+    this.setProjectileForm(p, 'orb', this.orbFor(p, def.color));
+    p.vel.copy(_a).multiplyScalar(PROJ_SPEED);
+    p.group.position.copy(origin).addScaledVector(_a, 0.5);
+    p.group.visible = true;
+    // A light, unlike the arrow: the core of an orb is lit, and at dusk a thrown
+    // one with no light is a dark speck. Dimmer and shorter-range than a skill
+    // bolt's, because it is a lamp and not an explosion.
+    p.light = this.vfx.acquireLight(def.color, 1.6, 5);
+    if (p.light) p.light.position.copy(p.group.position);
+    this.vfx.glowPulse(origin.x, origin.y, origin.z, def.color, 0.7, 0.16);
   }
 
   private updateProjectiles(dt: number): void {
@@ -726,13 +867,24 @@ export class CombatSystem {
         }
       }
       pos.addScaledVector(p.vel, dt);
-      if (p.isArrow) {
+      if (p.form === 'arrow') {
         // AN ARROW POINTS WHERE IT IS GOING. The bolt tumbles because a ball of
         // fire has no front; an arrow that tumbled would read as a stick thrown
         // rather than a shot. `lookAt` is what the model's +Z build direction is
         // for — see combat/arrow.ts.
         _leaf.copy(pos).add(p.vel);
         p.group.lookAt(_leaf);
+      } else if (p.form === 'orb') {
+        // AN ORB POINTS WHERE IT IS GOING **AND** SPINS ABOUT THAT LINE. The
+        // `lookAt` is what keeps its seam square to the flight, and the roll on
+        // top is what says it was thrown rather than fired — see the header of
+        // combat/tame-orb.ts. Rolling about local z after the lookAt is the one
+        // order that gives both: setting `rotation` outright would throw the aim
+        // away.
+        _leaf.copy(pos).add(p.vel);
+        p.group.lookAt(_leaf);
+        p.spin += dt * 7;
+        p.group.rotateZ(p.spin);
       } else {
         p.spin += dt * 9;
         p.group.rotation.set(p.spin * 0.7, p.spin, p.spin * 0.45);
@@ -741,14 +893,14 @@ export class CombatSystem {
       p.trailT -= dt;
       while (p.trailT <= 0) {
         p.trailT += 0.022;
-        // No trail behind an arrow: the sparkle is a magic projectile's, and on
-        // a wooden shaft it reads as the arrow being on fire.
-        if (!p.isArrow) this.vfx.trail(pos.x, pos.y, pos.z, p.hex, 0.3);
+        // Only the BOLT sparkles. On a wooden shaft the trail reads as the arrow
+        // being on fire, and behind an orb it reads as the orb burning up.
+        if (p.form === 'bolt') this.vfx.trail(pos.x, pos.y, pos.z, p.hex, 0.3);
       }
       // enemy collision
       let hit: Enemy | null = null;
       for (const e of this.enemies) {
-        if (e.isDead) continue;
+        if (!e.targetable) continue;
         const dx = e.position.x - pos.x;
         const dy = e.position.y + e.height * 0.5 - pos.y;
         const dz = e.position.z - pos.z;
@@ -772,6 +924,15 @@ export class CombatSystem {
     p.active = false;
     p.group.visible = false;
     if (p.light) { this.vfx.releaseLight(p.light); p.light = null; }
+    // AN ORB DOES NOT EXPLODE. It is the one projectile whose arrival is not a
+    // detonation, so it leaves before the burst, the flash, the scorch and the
+    // splash below — every one of which is a weapon landing, and none of which
+    // an orb does. Handled here rather than in a branch at the two call sites
+    // because this is the single place a projectile's life ends.
+    if (p.orbItem) {
+      this.landOrb(p, x, y, z, direct);
+      return;
+    }
     this.vfx.burst(x, y, z, p.hex, 26, 6.5, 0.5, 0.32, -4, 0.5);
     this.vfx.glowPulse(x, y, z, p.hex, 2.4, 0.28);
     this.vfx.flashLight(x, y, z, p.hex, 6, 9, 0.26);
@@ -784,7 +945,7 @@ export class CombatSystem {
     // ground singed a Peckit thirty units overhead). Symmetric — an explosion has
     // no up or down the way a swing does.
     for (const e of this.enemies) {
-      if (e.isDead || e === direct) continue;
+      if (!e.targetable || e === direct) continue;
       const dx = e.position.x - x;
       const dz = e.position.z - z;
       const rr = 1.9 + e.radius;
@@ -795,6 +956,96 @@ export class CombatSystem {
     }
   }
 
+  // ---------------------------------------------------------------- taming
+
+  /**
+   * A thrown orb arrived. Start a bond, or break on the ground.
+   *
+   * THE ORB IS SPENT EITHER WAY, and that is decided in main.ts at the throw
+   * rather than here — this function cannot give one back, and a projectile that
+   * refunded on a miss would make throwing at nothing free.
+   */
+  private landOrb(p: Projectile, x: number, y: number, z: number, direct: Enemy | null): void {
+    const orb = p.orbItem!;
+    const force = p.orbForce;
+    p.orbItem = null;
+    p.orbForce = undefined;
+    const gy = this.world.getHeight(x, z);
+    if (direct && refuseThrow(orb, direct) === 'ok') {
+      this.taming.begin(orb, direct, force);
+      return;
+    }
+    // Missed, or hit something that cannot be bonded. A small break on the spot:
+    // glass, a puff, and no ring or scorch — nothing detonated.
+    this.vfx.debrisBurst(x, y, z, [orb.color, 0xf4f7fb], 9, 3.8, 0.09, gy);
+    this.vfx.burst(x, y, z, orb.color, 12, 3.4, 0.36, 0.18, -7, 0.3);
+    this.vfx.glowPulse(x, y, z, orb.color, 1.1, 0.2);
+  }
+
+  /**
+   * A bond settled. Take the beast off the board, or hand it back.
+   *
+   * A SECOND REMOVAL PATH BESIDE `killEnemy`, deliberately: that one pays out
+   * shards, rolls the drop table, grants xp and emits `enemyKilled`, and a bond
+   * is none of those. Sharing it behind a flag would have meant four `if`s
+   * inside a function whose whole job is the payout.
+   */
+  private settleBond(target: Enemy, orb: ItemDef, caught: boolean): void {
+    const beastId = target.beastSpecies?.id ?? target.species;
+    if (!caught) {
+      this.bus.emit({ type: 'bondFailed', beastId, nameKey: target.nameKey, orbId: orb.id });
+      return;
+    }
+    const i = this.enemies.indexOf(target);
+    if (i >= 0) this.removeEnemy(i);
+    this.bus.emit({ type: 'beastTamed', beastId, nameKey: target.nameKey, orbId: orb.id });
+  }
+
+  /**
+   * The odds an orb would have against this beast, 0..1 — 0 where it cannot be
+   * thrown at all.
+   *
+   * Forwarded rather than exported straight off combat/taming.ts because main.ts
+   * has an `Enemy` only as a `Damageable` (see `enemyInAim`), and widening that
+   * to hand the UI the concrete class would be reaching across for a number.
+   */
+  bondChance(orb: ItemDef, target: Damageable | null): number {
+    const e = target as Enemy | null;
+    if (!e || !(e instanceof Enemy)) return 0;
+    return captureChance(orb, e);
+  }
+
+  /** Why a throw at this target would be refused. See `refuseThrow`. */
+  bondRefusal(orb: ItemDef, target: Damageable | null): ThrowRefusal {
+    const e = target as Enemy | null;
+    return refuseThrow(orb, e instanceof Enemy ? e : null);
+  }
+
+  /**
+   * The beast species this target IS, or null where it is not one.
+   *
+   * These two and `bondChance` above are the same forwarding argument: main.ts
+   * holds an `Enemy` only as a `Damageable`, and the alternative to answering
+   * for it here is exporting the concrete class into the composition root so the
+   * UI can narrow it — which is reaching across a module boundary to read two
+   * fields.
+   */
+  bondSpeciesOf(target: Damageable | null): string | null {
+    const e = target as Enemy | null;
+    return e instanceof Enemy ? e.beastSpecies?.id ?? null : null;
+  }
+
+  /** The target's DISPLAY name key, for a refusal that has to name it. */
+  bondNameKeyOf(target: Damageable | null): StringKey | null {
+    const e = target as Enemy | null;
+    return e instanceof Enemy ? e.nameKey : null;
+  }
+
+  /** True while any orb is wobbling. `__dbgTaming` and the probe read it. */
+  get bonding(): boolean {
+    return this.taming.busy;
+  }
+
   // ----------------------------------------------------------------- beam
 
   private castBeam(req: CastRequest, hex: number): void {
@@ -803,7 +1054,7 @@ export class CombatSystem {
     let best: Enemy | null = null;
     let bestT = range;
     for (const e of this.enemies) {
-      if (e.isDead) continue;
+      if (!e.targetable) continue;
       _b.set(
         e.position.x - req.origin.x,
         e.position.y + e.height * 0.5 - req.origin.y,
@@ -859,7 +1110,7 @@ export class CombatSystem {
     this.vfx.screenFlash(hex, 0.06);
     const base = this.skillBase(skill, req.attackStat);
     for (const e of this.enemies) {
-      if (e.isDead) continue;
+      if (!e.targetable) continue;
       // A ground eruption reaches as high as it is DRAWN reaching, and no
       // higher: the ring, the scorch and the column all sit on `gy`, and before
       // issue #78 the damage went up from there forever. Symmetric, so an enemy
@@ -982,5 +1233,33 @@ export class CombatSystem {
     const last = this.enemies.length - 1;
     this.enemies[i] = this.enemies[last];
     this.enemies.pop();
+  }
+
+  /**
+   * Give the taming feature's GPU resources back.
+   *
+   * NARROW ON PURPOSE, and honest about it: this class has never had a
+   * `dispose()` because nothing tears a `CombatSystem` down — a zone change
+   * rebinds it (`setWorld`) and a new game resets it, both of which exist
+   * precisely so the warmed shader programs survive. What this covers is what
+   * the taming change ADDED to the scene: the ceremony's orb meshes, and the one
+   * shared geometry and material behind every orb in the game. Widening it to
+   * the VFX pools, the damage numbers and the drop pool is the same job those
+   * classes' own `dispose()` methods are already written and waiting for, and it
+   * is not this ticket's.
+   *
+   * Order matters: the ceremony's clones come off the scene first, and only then
+   * is the geometry they were sharing freed.
+   */
+  dispose(): void {
+    this.taming.dispose();
+    // The pool's own clones share the same buffers, so they are dropped from
+    // their groups rather than disposed — see `disposeTameOrbs`.
+    for (const p of this.projectiles) {
+      for (const m of p.orbs.values()) p.group.remove(m);
+      p.orbs.clear();
+      p.orb = null;
+    }
+    disposeTameOrbs();
   }
 }

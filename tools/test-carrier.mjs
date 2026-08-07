@@ -42,6 +42,8 @@
 //
 // Exits non-zero on failure.
 
+import { bondAll } from './suite/harness.mjs';
+
 /** The island, live. Every section reads it fresh — it is somewhere else now. */
 const carriers = (ctx) => ctx.ev(() => window.__dbgCarriers());
 const pos = (ctx) => ctx.ev(() => window.__dbgPlayerPos());
@@ -49,8 +51,14 @@ const pos = (ctx) => ctx.ev(() => window.__dbgPlayerPos());
 /** Set by the first section, read by the ones that only need id/radius. */
 let island = null;
 
+
 export const name = 'carrier';
 export const sections = [
+
+  // A PARTY TO FLY. Since issue #4 a new game is bonded to nothing, and the
+  // sections below put a FLYER under the island and against its keel. See
+  // `bondAll` for why each module asks for this itself.
+  { id: 'party', run: async (ctx) => { await bondAll(ctx); } },
 
   // -------------------------------------------------------------------------
   { id: 'exists', run: async (ctx) => {
@@ -386,8 +394,22 @@ export const sections = [
     ctx.check((await ctx.ev(() => window.__dbgMount())).mounted, `no flyer: ${said}`);
     // Halfway out along the radius and well under the turf: inside the cliff,
     // on the keel's shoulder rather than at its thin rim.
+    //
+    // THE DEPTH IS MEASURED, NOT ASSUMED. It was `a.y - 20`, twenty under the
+    // island's height as read BEFORE the mount and two teleports — and the
+    // island is cruising the whole while. Measured, that landed the flyer at
+    // y 170 against a keel of 170.8: three-quarters of a metre UNDER the rock
+    // rather than inside it, and the section then reported that it had not been
+    // staged. Re-read at the column it is actually going to, and put it a
+    // quarter of the way up the rock from the keel there.
     const staged = a.radius * 0.5;
-    await ctx.tp(a.x + staged, a.z, a.y - 20);
+    await ctx.tp(a.x + staged, a.z, a.y + 40);
+    await ctx.adv(0.2);
+    const here = (await carriers(ctx)).all[0];
+    const depth = here.keel !== null && here.surface > here.keel
+      ? here.keel + Math.max(4, (here.surface - here.keel) * 0.25)
+      : a.y - 20;
+    await ctx.tp(a.x + staged, a.z, depth);
     await ctx.adv(0.2);
     const c0 = (await carriers(ctx)).all[0];
 
@@ -399,13 +421,13 @@ export const sections = [
     const d1 = Math.hypot(p1.x - c1.x, p1.z - c1.z);
     const inRock = c1.keel !== null && m1.bodyY > c1.keel && m1.bodyY < c1.surface;
     ctx.res.shoved = {
-      startedInRock: c0.keel !== null && a.y - 20 > c0.keel,
+      startedInRock: c0.keel !== null && depth > c0.keel && depth < c0.surface,
       fromCentre: +staged.toFixed(2), toCentre: +d1.toFixed(2), radius: c1.radius,
       y: m1.bodyY, surface: c1.surface, keel: c1.keel, stillInRock: inRock,
       riding: s1.riding,
     };
     ctx.check(ctx.res.shoved.startedInRock,
-      `the flyer was not staged inside the rock (y ${a.y - 20}, keel ${c0.keel})`);
+      `the flyer was not staged inside the rock (y ${depth}, keel ${c0.keel}, turf ${c0.surface})`);
     ctx.check(!inRock, `still inside the rock after 2 s at y ${m1.bodyY} `
       + `(turf ${c1.surface}, keel ${c1.keel})`);
     // THE TWO HALVES OF "PUSHED, NOT LIFTED". Outward, and not up: a body that

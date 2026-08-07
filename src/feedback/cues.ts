@@ -11,7 +11,8 @@
 export type CueKind =
   | 'playerHurt' | 'playerDied' | 'playerLanded'
   | 'hit' | 'hitCrit' | 'hitSuper' | 'kill'
-  | 'mounted' | 'levelUp' | 'pickup';
+  | 'mounted' | 'levelUp' | 'pickup'
+  | 'orbThrow' | 'orbWobble' | 'tameSuccess' | 'tameFail';
 
 export interface CueSpec {
   /** Heavy motor, at intensity 0. */
@@ -66,4 +67,23 @@ export const CUES: Readonly<Record<CueKind, CueSpec>> = {
   mounted: { strong: 0.50, strongGain: 0, weak: 0.30, dur: 0.25, shake: 0, shakeMin: 0 },
   levelUp: { strong: 0.20, strongGain: 0, weak: 0.35, dur: 0.30, shake: 0, shakeMin: 0 },
   pickup: { strong: 0, strongGain: 0, weak: 0.12, dur: 0.05, shake: 0, shakeMin: 0 },
+
+  // THE BOND, and its four moments. The whole point of the ceremony is two
+  // seconds in which the player does not know yet (see combat/taming.ts), so
+  // these are tuned as a RISE and read as one gesture rather than four cues.
+  //
+  // The throw is the lightest thing in the table after `pickup`: it is a lob,
+  // not a shot, and anything with weight would make it feel like firing a gun.
+  orbThrow: { strong: 0, strongGain: 0, weak: 0.16, dur: 0.07, shake: 0, shakeMin: 0 },
+  // Each wobble is a knock, and `strongGain` is what makes the THIRD one hit
+  // harder than the first — FeedbackSystem scales it by the intensity the
+  // emitter passes, and main.ts passes the wobble's own index. That ramp is the
+  // suspense, and it is the reason this cue scales at all when `hit` does not.
+  orbWobble: { strong: 0.22, strongGain: 0.30, weak: 0.18, dur: 0.09, shake: 0.04, shakeMin: 0 },
+  // Kept: a bigger, longer thump than `levelUp`, because bonding a beast is the
+  // rarest good thing that happens in the game and the one the mechanic is for.
+  tameSuccess: { strong: 0.55, strongGain: 0, weak: 0.45, dur: 0.35, shake: 0.10, shakeMin: 0 },
+  // Broke: short and hard, and then nothing. A failure should stop rather than
+  // fade — a long envelope on a loss reads as the game commiserating.
+  tameFail: { strong: 0.40, strongGain: 0, weak: 0.20, dur: 0.12, shake: 0.08, shakeMin: 0 },
 };

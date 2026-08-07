@@ -129,6 +129,64 @@ export function locomotionIcon(loco: Locomotion): string {
   return LOCOMOTION_ICONS[loco];
 }
 
+/**
+ * A TAMING ORB, by tier — a glass sphere with a banded seam and one notch per
+ * tier.
+ *
+ * ONE DRAWING WITH A PARAMETER, not four glyphs. The four orbs differ in exactly
+ * one thing and the icon should differ in exactly that thing; four hand-drawn
+ * spheres would be four chances for them to stop being the same object.
+ *
+ * THE NOTCHES ARE THE TIER, and the colour is not. The item's own `color`
+ * reaches this through `currentColor` (see `iconHtml` in ui/inventory.ts), so a
+ * Master Orb is black-on-dark in a dark theme and a red and a violet orb are one
+ * hue apart at a glance — none of which a player should have to rely on. Counting
+ * notches works in greyscale, at a distance, and for anyone who cannot tell the
+ * two ends of that ramp apart. The band they sit on is what keeps them reading as
+ * markings on a sphere rather than as four loose dots.
+ *
+ * Drawn at 24x24 and displayed in an inventory slot at 56-72 CSS px — several
+ * times the 11px the locomotion pips get — so the seam, the notches and the
+ * highlight all survive, and this needs none of that file's silhouette-only
+ * discipline.
+ */
+function orbIcon(tier: number): string {
+  const notches = Math.max(1, Math.min(4, Math.round(tier)));
+  // Spread across the band's usable width, symmetric about the centre: a lone
+  // notch sits in the middle, four sit evenly and none touches the rim.
+  const span = 9.6;
+  const marks = Array.from({ length: notches }, (_, i) => {
+    const t = notches === 1 ? 0 : i / (notches - 1) - 0.5;
+    return `<rect fill="currentColor" x="${(12 + t * span - 0.85).toFixed(2)}" y="10.5" width="1.7" height="3" rx="0.5"/>`;
+  }).join('');
+  return svg(
+    // The glass. An outline rather than a filled disc so the notches read as
+    // marks ON it — filled, they would be holes punched out of a lozenge.
+    `<circle fill="none" stroke="currentColor" stroke-width="2" cx="12" cy="12" r="8.8"/>` +
+    // The seam the two halves meet on, broken either side of the notches.
+    `<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">` +
+    `<path d="M3.4 12h3.1M17.5 12h3.1"/>` +
+    `</g>` +
+    marks +
+    // The catch-light, the one piece that says "glass" rather than "ring".
+    `<path fill="rgba(255,255,255,.55)" d="M8.1 6.9a6.4 6.4 0 0 1 3.3-1.6.9.9 0 0 1 .3 1.8 4.6 4.6 0 0 0-2.4 1.1.9.9 0 0 1-1.2-1.3Z"/>`,
+  );
+}
+
+/**
+ * The four orbs, keyed by `ItemDef.orbTier`. Built once at module load — the
+ * inventory rebuilds its rows on every action, and re-running the arithmetic
+ * above per row would be work nobody asked for.
+ */
+export const ORB_ICONS: Readonly<Record<number, string>> = {
+  1: orbIcon(1), 2: orbIcon(2), 3: orbIcon(3), 4: orbIcon(4),
+};
+
+/** The glyph for an orb of this tier, falling back to the plainest. */
+export function tameOrbIcon(tier: number | undefined): string {
+  return ORB_ICONS[tier ?? 1] ?? ORB_ICONS[1];
+}
+
 /** Faceted crystal shard (currency). */
 export const SHARD_ICON = svg(
   `<path fill="currentColor" d="M7.2 2.2h9.6L21 7.6 12 21.8 3 7.6l4.2-5.4Z"/>` +

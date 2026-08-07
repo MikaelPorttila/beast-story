@@ -137,6 +137,23 @@ const CSS = `
 .bs-bag .nm{font-size:16px;font-weight:700;color:rgba(238,242,248,.82)}
 .bs-bag .n{font-variant-numeric:tabular-nums;font-weight:800;font-size:17px;color:#fff;
   text-shadow:0 1px 2px rgba(0,0,0,.5)}
+/* ---- readied taming orb -------------------------------------------------- */
+/* BOTTOM RIGHT, and not under the bag chips with the rest of what you own: the
+   bag is a readout you glance at between fights, and this is a control you use
+   during one. Down here it is in the same corner of the eye as the hotbar. */
+.bs-orb{position:absolute;right:16px;bottom:104px;display:flex;justify-content:flex-end;
+  transform-origin:100% 100%}
+.bs-orb .chip{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 8px;
+  border-radius:999px;border:1px solid color-mix(in srgb,var(--el) 55%,transparent);
+  box-shadow:0 0 18px -8px var(--el)}
+.bs-orb .oi{width:22px;height:22px;color:var(--el);display:block;
+  filter:drop-shadow(0 0 5px color-mix(in srgb,var(--el) 70%,transparent))}
+.bs-orb .oi svg{width:100%;height:100%;display:block}
+.bs-orb .nm{font-size:16px;font-weight:700;color:rgba(238,242,248,.82)}
+.bs-orb .n{font-variant-numeric:tabular-nums;font-weight:800;font-size:17px;color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.bs-orb .k{opacity:.85}
+
 .bs-pop{animation:bsPop .38s cubic-bezier(.34,1.8,.64,1)}
 @keyframes bsPop{0%{transform:scale(1)}45%{transform:scale(1.28)}100%{transform:scale(1)}}
 
@@ -734,7 +751,10 @@ const CSS = `
 /* THE THREE GEAR SLOTS, in the wireframe's order: lead beast, weapon, support
    beast — the order the three figures stand in on the stage directly above.
    Equal thirds, so the middle one lines up with the hero. */
-.bs-inv .gear{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+/* Four now: lead beast, weapon, support beast, taming orb. Still one equal
+   track each rather than a narrower fourth — a slot you drag onto has to be the
+   same size as the ones beside it, or it reads as a status pip. */
+.bs-inv .gear{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;
   padding:0 18px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
 .bs-inv .gs{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;
   padding:7px 6px 6px;border-radius:14px;font-family:inherit;color:inherit;
@@ -811,6 +831,12 @@ const CSS = `
   background:radial-gradient(circle at 38% 32%,#fff2,transparent 60%),var(--el);
   border-radius:26% 26% 30% 30%/30%;box-shadow:0 0 14px -4px var(--el);
   width:62%;height:62%;margin:auto}
+/* A fourth picture: an INLINE SVG glyph, tinted by the item's own colour through
+   currentColor (ui/icons.ts). The drop shadow is what keeps a Master Orb —
+   near-black on a dark panel — from vanishing into its slot. */
+.bs-inv .ic.glyph{background:none;width:70%;height:70%;margin:auto;color:var(--el);
+  filter:drop-shadow(0 0 6px rgba(255,255,255,.28))}
+.bs-inv .ic.glyph svg{width:100%;height:100%;display:block}
 .bs-inv .slot .n{position:absolute;top:4px;left:7px;font-size:16px;font-weight:800;
   font-variant-numeric:tabular-nums;color:#fff;text-shadow:0 1px 3px #000,0 0 6px #000}
 /* Everything else fades while a drag is in flight, so the legal targets are the
