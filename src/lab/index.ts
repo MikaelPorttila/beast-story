@@ -334,6 +334,21 @@ const camHeight = num('height', lineupWidth > 0 ? subjectHeight * 0.75 : subject
 // A lineup is shot straight on; a single subject gets a 3/4 view.
 let angle = (num('angle', lineupWidth > 0 ? 0 : 28) * Math.PI) / 180;
 const spin = params.get('spin') === '1';
+/**
+ * Absolute facing for the subject, in degrees, INDEPENDENT of the camera.
+ *
+ * `angle` orbits the lens and the subject turns with it, which is the right
+ * default — it keeps a 3/4 view of the face however the camera moves, and it is
+ * what every capture of a two-legged or fox-shaped beast wants. It also makes
+ * one view impossible: a quadruped in PROFILE, which is the bearing its whole
+ * silhouette lives at. The Graveback's ribs, its shroud's fall and the line of
+ * its back cannot be judged from in front at any camera angle, and there was no
+ * way to see them.
+ *
+ * `face=90` is broadside, `face=180` shows the rump. Absent, nothing changes.
+ */
+const faceParam = params.get('face');
+const faceAt = faceParam === null ? null : (Number(faceParam) * Math.PI) / 180;
 
 function placeCamera(): void {
   engine.camera.position.set(
@@ -415,7 +430,8 @@ function step(dt: number): void {
       // so flyers still hover and swimmers still bob).
       // Single subject turns with the camera so it always presents a 3/4 view;
       // a lineup stays square to the lens.
-      if (beasts.length === 1) p.facingOverride = angle - 0.35;
+      if (faceAt !== null) p.facingOverride = faceAt;
+      else if (beasts.length === 1) p.facingOverride = angle - 0.35;
       owner.position.copy(p.position);
       p.update(dt, owner, 'primary', beasts);
       if (animParam && animParam !== 'idle') p.playAction(animParam, 0.9);
