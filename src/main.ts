@@ -18,7 +18,7 @@ import {
   type ItemDef, type TownInfo, type World, type WorldBound,
 } from './core/types';
 import {
-  Inventory, itemDef, itemName, isKnownItem, isDestructible, salvageValue,
+  Inventory, SlotLayout, itemDef, itemName, isKnownItem, isDestructible, salvageValue,
   ITEMS, ORB_IDS, CURRENCY, BEAST_ID_PREFIX,
 } from './core/items';
 import { WEAPON_MODEL_IDS, type WeaponModelId } from './player/weapons';
@@ -512,6 +512,8 @@ function exitToTitle(): void {
   cooldowns.clear();
   spent = 0;
   bag.clear();
+  // Where things sat on the wall goes with what was on it.
+  slots.clear();
   // The readied orb is a pointer into the bag that was just emptied.
   readiedOrb = null;
   refreshOrbHud();
@@ -1235,6 +1237,14 @@ const shards = () => pickupTotal - spent;
 const bag = new Inventory();
 
 /**
+ * WHERE THE PLAYER PUT EACH ROW on the inventory wall (issue #116). Keyed by the
+ * same ids the panel round-trips, so it holds `beast:` rows as well as items —
+ * see `SlotLayout`. Nothing outside `inventoryModel` and the panel's move hook
+ * touches it, and it is session state like the bag beside it.
+ */
+const slots = new SlotLayout();
+
+/**
  * The HUD's chip row is the STACKABLES only, and it is a narrower thing than the
  * bag now that the bag holds weapons and blueprints too.
  *
@@ -1520,11 +1530,18 @@ function inventoryModel(): InventoryModel {
           value: t(lead ? 'inv.beast.lead' : supporting ? 'inv.beast.support' : 'inv.beast.benched'),
         },
       ],
-      // A beast is never dropped or salvaged. Its two actions are the two slots
-      // it can be moved into, and the one it is already in is not offered —
+      // A beast is never dropped or salvaged. Its actions are the slots it can
+      // be moved into, and the one it is already in is not offered —
       // `cycleBeast` refuses to put one beast in both slots, and a button that
       // silently does nothing is worse than a button that is not there.
-      actions: lead ? ['setSupport'] : supporting ? ['setLead'] : ['setLead', 'setSupport'],
+      //
+      // A BEAST IN A SLOT CAN COME OUT OF IT (issue #116), from either slot and
+      // by the same `unequip` a sword uses: the party was a two-of-three choice
+      // with no way back to walking alone, which is a state the game otherwise
+      // starts in and one `Tab` cannot reach.
+      actions: lead ? ['setSupport', 'unequip']
+        : supporting ? ['setLead', 'unequip']
+        : ['setLead', 'setSupport'],
     });
   }
 
@@ -1577,6 +1594,15 @@ function inventoryModel(): InventoryModel {
     });
   }
 
+  // WHERE EACH ROW SITS, and the end of the sort this function used to be
+  // (issue #116). The order above is now only the order a row is handed its
+  // first free cell in — after that the layout answers, and the player is the
+  // only thing that moves anything. Sorted on the answer so the panel's own
+  // fallbacks (first row selected, keyboard order) read down the wall.
+  slots.reconcile(entries.map((e) => e.id));
+  for (const e of entries) e.slot = slots.slotOf(e.id);
+  entries.sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
+
   const byId = (id: string | null): InvEntry | null =>
     (id === null ? null : entries.find((x) => x.id === id) ?? null);
   const slotFor = (b: BeastActor | null): InvEntry | null =>
@@ -1618,6 +1644,14 @@ function inventoryAction(id: string, action: InvAction): void {
     } else if (action === 'setSupport') {
       if (primaryIdx === idx) primaryIdx = supportIdx;
       supportIdx = idx;
+    } else if (action === 'unequip') {
+      // OUT OF WHICHEVER SLOT IT IS IN, and nothing slides up to fill it: the
+      // lead slot emptying does not promote the support beast, because the
+      // player who took the lead out asked for that beast to stop walking with
+      // them and not for the other one to change job.
+      if (primaryIdx === idx) primaryIdx = -1;
+      else if (supportIdx === idx) supportIdx = -1;
+      else return;
     } else {
       return;
     }
@@ -1750,6 +1784,10 @@ function updateBuffs(dt: number): void {
 const inventory = new InventoryPanel({
   model: inventoryModel,
   onAction: inventoryAction,
+  // A MOVED BOX IS NOT A GAME RULE — the layout is the whole of the state it
+  // touches, there is nothing to refuse and nothing to say about it, which is
+  // why it is not an `InvAction` (see `InventoryHooks.onMove`).
+  onMove: (id, slot) => slots.move(id, slot),
   // Same bargain the shop and the in-game menu make, and for the same reason:
   // this is a panel you CLICK, so the cursor has to be able to reach it. The F1
   // sheet is the other case — read, not clicked — and keeps its lock.
@@ -5601,6 +5639,9 @@ beginPlay();
     entries: m.entries.map((e) => ({
       id: e.id, kind: e.kind, count: e.count,
       equipped: !!e.equipped, actions: e.actions ?? [],
+      // WHICH CELL, so a probe can assert a drag moved a box and not merely
+      // that the panel redrew — see `SlotLayout` and issue #116.
+      slot: e.slot ?? -1,
     })),
     // What the DOM holds, or nulls when the panel is shut.
     //

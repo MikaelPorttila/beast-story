@@ -36,14 +36,18 @@ import { InventoryStage } from './inventory-stage';
  *     equip a weapon, drink a potion, send a beast in front.
  *   * DRAG onto a gear slot does the same by saying where it should go, and
  *     dragging OFF the panel drops the item in the world.
- *   * The footer strip carries what neither of those should ever do by
- *     accident: salvage and drop, on whatever is selected, as real buttons.
- * A left click only SELECTS. Nothing destructive is one click from anything.
+ *   * The footer strip carries every action the host offered as a real button,
+ *     which is what a finger has instead of the first two.
+ * A left PRESS picks the row up (see `onPointerDown`) and a left click that
+ * moved nowhere only SELECTS. Nothing destructive is one click from anything.
  *
- * A FINGER HAS NONE OF THE FIRST TWO — no right-click, no hover, no HTML5 drag
- * — so on `(hover: none)` the primary action joins the footer as a button of its
- * own (see `footHtml`). Without it a phone player has a panel they can only
- * throw things away from, which is the one arrangement worse than no panel.
+ * THE DRAG IS POINTER EVENTS AND NOT HTML5 DRAG-AND-DROP (issue #116). The
+ * native gesture could only ever say "this row was dropped on that element",
+ * which is enough to equip and not enough to REARRANGE — a wall the player
+ * arranges needs a press that picks a box up on the spot, a ghost under the
+ * cursor saying which box is in the air, and a cell index under it saying where
+ * it will land. Pointer events also come off a pen and a touchscreen, where
+ * `dragstart` never fires at all.
  *
  * THE TOOLTIP REPLACED A DETAIL PANE. The pane was a third of the panel's width
  * spent on the one row the cursor happened to be on, and on a dock that width
@@ -152,6 +156,18 @@ export interface InvEntry {
   stats?: readonly InvStat[];
   /** Draws the row as in-use, and is what the gear slots point at. */
   equipped?: boolean;
+  /**
+   * WHICH CELL OF THE WALL this row sits in — the host's `SlotLayout` answer,
+   * and the whole of issue #116's "no sorting". The panel places the row there
+   * and draws an empty cell wherever no row claims one; it never sorts, never
+   * packs and never decides that a hole should close up.
+   *
+   * Absent means "the host does not place this kind of row", and those fall
+   * back to the order they arrived in — nothing ships that way, but a panel
+   * that dropped rows it was handed would be a worse failure than one that
+   * stacked them at the front.
+   */
+  slot?: number;
   /** One quiet line at the foot of the tooltip. */
   note?: string;
   actions?: readonly InvAction[];
@@ -172,6 +188,13 @@ export interface InventoryHooks {
   model: () => InventoryModel;
   /** An action was asked for. The host mutates state; the panel re-reads. */
   onAction: (id: string, action: InvAction) => void;
+  /**
+   * The player dragged a row onto cell `slot` of the wall. Not an `InvAction`
+   * because it carries a number and because it is the one gesture that changes
+   * NOTHING about the game — a moved box is worth no toast, no rule and no
+   * refusal, and the host's only job is to write it down. See `InvEntry.slot`.
+   */
+  onMove: (id: string, slot: number) => void;
   onOpen?: () => void;
   /** See `InvCloseBy` — the host needs to know HOW, not just that. */
   onClose?: (by: InvCloseBy) => void;
@@ -195,7 +218,9 @@ const TABS: readonly { id: ItemKind | null; key: string }[] = [
  * A FIXED wall rather than a list that grows, which is the difference between
  * an inventory and a receipt: a player learns where things are by their
  * POSITION, and a grid that reflows every time a stack empties has no positions
- * to learn. Empty cells are real cells, so the shape of the panel never moves.
+ * to learn. Empty cells are real cells, so the shape of the panel never moves —
+ * and since issue #116 a cell is also where the row IS, not where the model
+ * happened to list it. See `InvEntry.slot`.
  *
  * `INV_COLS` is handed to the stylesheet through `--cols` and is also what the
  * keyboard's up/down steps by to mean "the row below"; a media query that
@@ -210,6 +235,14 @@ export const INV_COLS = 11;
 export const INV_ROWS = 3;
 
 const FOCUSABLE = 'button:not([disabled]):not([tabindex="-1"])';
+
+/**
+ * How far a left press must travel before it is a DRAG rather than a click.
+ * Five pixels: a deliberate click with a shaky hand moves one or two, and a
+ * player who means to pick a box up has moved five before they have thought
+ * about it.
+ */
+const DRAG_SLOP = 5;
 
 const escapeHtml = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -245,8 +278,20 @@ export class InventoryPanel {
   private padEdge = new Uint8Array(20);
   private padLatchY = false;
   private padLatchX = false;
-  /** Id being dragged, or null. Survives a re-render; cleared on dragend. */
+  /** A left press that has not yet travelled far enough to be a drag. */
+  private press: { id: string; x: number; y: number; gear: boolean } | null = null;
+  /** Id in the air, or null. See `beginDrag`. */
   private dragging: string | null = null;
+  /** Whether the id in the air was picked up off a GEAR slot. */
+  private fromGear = false;
+  /** The box under the cursor while one is in the air; never a drop target. */
+  private ghost: HTMLDivElement | null = null;
+  /**
+   * A drag happened, so the `click` the browser fires on the way out is not a
+   * selection. A press that never moved leaves this false and selects, which is
+   * the whole of "a left click only selects, a left press picks up".
+   */
+  private dragged = false;
   /** The model of the last render, so a hover does not have to rebuild one. */
   private rows = new Map<string, InvEntry>();
   private stage = new InventoryStage();
@@ -282,10 +327,12 @@ export class InventoryPanel {
     el.addEventListener('pointerover', this.onPointerOver);
     el.addEventListener('pointermove', this.onPointerMove);
     el.addEventListener('pointerout', this.onPointerOut);
-    el.addEventListener('dragstart', this.onDragStart);
-    el.addEventListener('dragover', this.onDragOver);
-    el.addEventListener('drop', this.onDropEvent);
-    el.addEventListener('dragend', this.onDragEnd);
+    el.addEventListener('pointerdown', this.onPointerDown);
+    // ON THE WINDOW, unlike every other listener here: a drag that ends over
+    // the browser's own chrome still has to let go of the box. The panel covers
+    // the viewport, so an ordinary release inside it reaches this by bubbling.
+    window.addEventListener('pointerup', this.onPointerUp);
+    window.addEventListener('pointercancel', this.onPointerCancel);
     window.addEventListener('keydown', this.onKeyDown, true);
     window.addEventListener('resize', this.onResize);
     this.render();
@@ -299,6 +346,8 @@ export class InventoryPanel {
     if (!this.el) return;
     if (this.padRaf) cancelAnimationFrame(this.padRaf);
     this.padRaf = 0;
+    window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointercancel', this.onPointerCancel);
     window.removeEventListener('keydown', this.onKeyDown, true);
     window.removeEventListener('resize', this.onResize);
     // The stage STOPS but is not disposed: its context, its rigs and its baked
@@ -306,7 +355,7 @@ export class InventoryPanel {
     // session state. See the header of ui/inventory-stage.ts.
     this.stage.stop();
     this.padDown.fill(0);
-    this.dragging = null;
+    this.endDrag();
     this.el.remove();
     this.el = null;
     this.tip = null;
@@ -381,9 +430,10 @@ export class InventoryPanel {
     for (const e of model.entries) this.rows.set(e.id, e);
     for (const g of model.gear) if (g.entry) this.rows.set(g.entry.id, g.entry);
 
-    const list = this.tab === null
-      ? model.entries
-      : model.entries.filter((e) => e.kind === this.tab);
+    const cells = this.wall(model.entries);
+    const shown = (e: InvEntry | null): boolean =>
+      e !== null && (this.tab === null || e.kind === this.tab);
+    const list = cells.filter((e) => shown(e)) as InvEntry[];
     let sel = list.find((e) => e.id === this.selected) ?? null;
     if (!sel) sel = list[0] ?? null;
     this.selected = sel?.id ?? null;
@@ -400,12 +450,13 @@ export class InventoryPanel {
       this.gearHtml(model.gear) +
       this.tabsHtml() +
       `<div class="grid" style="--cols:${INV_COLS}">${
-        list.map((e) => this.slotHtml(e)).join('') +
-        // The empties, which are real cells — see INV_COLS. `Math.max` rather
-        // than a slice, so a bag past thirty-three grows a fourth row instead
-        // of hiding what is in it.
-        '<button class="slot empty" type="button" tabindex="-1" disabled></button>'
-          .repeat(Math.max(0, INV_COLS * INV_ROWS - list.length))
+        // Three kinds of cell, and the third is the one the tabs cost: a row
+        // the filter is hiding still OWNS its cell, so that cell is drawn empty
+        // and takes no drop — a swap with a box you cannot see is a move the
+        // player did not make.
+        cells.map((e, i) => (shown(e) ? this.slotHtml(e as InvEntry, i)
+          : `<div class="slot empty${e ? ' held' : ''}"${e ? '' : ` data-slot="${i}"`}></div>`))
+          .join('')
       }</div>` +
       this.footHtml(sel);
 
@@ -458,7 +509,7 @@ export class InventoryPanel {
       if (e) cls.push('full');
       if (e?.rarity) cls.push(`r-${e.rarity}`);
       return `<button class="${cls.join(' ')}" type="button" data-gear="${slot}"` +
-        (e ? ` data-sel="${escapeHtml(e.id)}" draggable="true"` : '') +
+        (e ? ` data-sel="${escapeHtml(e.id)}"` : '') +
         ` style="--el:${hexColor(e?.color ?? 0x64748b)}">` +
         `<span class="gs-ic">${e ? this.iconHtml(e) : ''}</span>` +
         // The slot's ROLE, and not the name of what is in it. A picture already
@@ -520,12 +571,40 @@ export class InventoryPanel {
     }
   }
 
-  private slotHtml(e: InvEntry): string {
+  /**
+   * The wall, cell by cell: every row put where its `slot` says, and a null for
+   * every cell nothing claims.
+   *
+   * THE LENGTH IS THE FIXED 33 OR THE FURTHEST ROW, whichever is more, so a bag
+   * past the third row grows a fourth rather than hiding what is in it — and a
+   * player who parked something on cell 40 gets the empty cells between kept,
+   * because a hole they made is a hole they meant.
+   *
+   * A row with no `slot` (or one already taken, which the host's layout does not
+   * produce) falls into the first free cell rather than being dropped.
+   */
+  private wall(entries: readonly InvEntry[]): (InvEntry | null)[] {
+    let span = INV_COLS * INV_ROWS;
+    for (const e of entries) if (e.slot !== undefined && e.slot + 1 > span) span = e.slot + 1;
+    const cells: (InvEntry | null)[] = new Array(Math.ceil(span / INV_COLS) * INV_COLS).fill(null);
+    const spare: InvEntry[] = [];
+    for (const e of entries) {
+      if (e.slot !== undefined && e.slot >= 0 && cells[e.slot] === null) cells[e.slot] = e;
+      else spare.push(e);
+    }
+    for (const e of spare) {
+      const i = cells.indexOf(null);
+      if (i < 0) cells.push(e); else cells[i] = e;
+    }
+    return cells;
+  }
+
+  private slotHtml(e: InvEntry, cell: number): string {
     const cls = ['slot'];
     if (e.rarity) cls.push(`r-${e.rarity}`);
     if (e.equipped) cls.push('on');
     if (e.id === this.selected) cls.push('sel');
-    return `<button class="${cls.join(' ')}" type="button" draggable="true"` +
+    return `<button class="${cls.join(' ')}" type="button" data-slot="${cell}"` +
       ` data-sel="${escapeHtml(e.id)}" style="--el:${hexColor(e.color)}">` +
       this.iconHtml(e) +
       (e.count > 1 ? `<span class="n">${e.count}</span>` : '') +
@@ -542,15 +621,22 @@ export class InventoryPanel {
    * no width. Salvage and Drop have no binding, so they carry nothing — that is
    * the rule working rather than an omission.
    *
-   * The primary is a real button on EVERY device rather than only where there
-   * is no pointer: a finger has none of the gestures — no right-click, no
-   * hover, no HTML5 drag — and a panel a phone player can only throw things
-   * away from is the one arrangement worse than no panel. What the media query
-   * hides there is the GLYPH, not the button.
+   * The buttons are real on EVERY device rather than only where there is no
+   * pointer: a finger has none of the gestures — no right-click, no hover — and
+   * a panel a phone player can only throw things away from is the one
+   * arrangement worse than no panel. What the media query hides there is the
+   * GLYPH, not the button.
+   *
+   * EVERY ACTION THE HOST OFFERED IS HERE, not only the primary one (issue
+   * #116). A benched beast can be sent in front OR to support and a beast in a
+   * slot can be taken out of it, and only one of those was ever a right-click:
+   * a row whose second action existed but had no button was a rule the panel
+   * knew and never showed. The primary keeps the mouse glyph, because it is the
+   * one that is also bound to something.
    */
   private footHtml(sel: InvEntry | null): string {
     if (!sel) return '<div class="sel"></div>';
-    const acts = (sel.actions ?? []).filter((a) => DESTRUCTIVE.has(a));
+    const all = sel.actions ?? [];
     const primary = this.primaryOf(sel);
     const button = (a: InvAction, cls: string, bound: boolean): string =>
       `<button class="bs-buy ${cls}" type="button" data-do="${a}">` +
@@ -558,8 +644,9 @@ export class InventoryPanel {
       `<span>${escapeHtml(t(ACTION_KEYS[a]))}</span></button>`;
     return '<div class="sel">' +
       `<span class="nm">${escapeHtml(sel.name)}</span>` +
-      (primary ? button(primary, 'ghost', true) : '') +
-      acts.map((a) => button(a, 'danger', false)).join('') +
+      all.map((a) => (a === primary ? button(a, 'ghost', true)
+        : DESTRUCTIVE.has(a) ? button(a, 'danger', false)
+        : button(a, 'ghost', false))).join('') +
       '</div>';
   }
 
@@ -612,12 +699,18 @@ export class InventoryPanel {
   }
 
   private onPointerOver = (ev: PointerEvent): void => {
+    if (this.dragging) return;   // the box in the air is what is being read
     const e = this.entryAt(ev.target);
     if (e) this.showTip(e, ev.clientX, ev.clientY);
     else this.hideTip();
   };
 
   private onPointerMove = (ev: PointerEvent): void => {
+    if (this.dragging) { this.dragTo(ev.clientX, ev.clientY); return; }
+    if (this.press && Math.hypot(ev.clientX - this.press.x, ev.clientY - this.press.y) > DRAG_SLOP) {
+      this.beginDrag(ev);
+      return;
+    }
     if (this.tip?.classList.contains('on')) this.moveTip(ev.clientX, ev.clientY);
   };
 
@@ -645,6 +738,10 @@ export class InventoryPanel {
   private onClick = (ev: MouseEvent): void => {
     const target = ev.target as HTMLElement | null;
     if (!target || !this.el) return;
+    // The browser fires a click at the end of a drag as well, on whichever
+    // ancestor both ends share. It is not a selection and it is certainly not
+    // the scrim's "close" — see `dragged`.
+    if (this.dragged) { this.dragged = false; return; }
     // The scrim IS a way out, unlike the pause menu's: the world behind it is
     // still the thing you came for. Same argument the shop makes.
     if (target.classList.contains('bs-scrim')) { this.close('click'); return; }
@@ -683,72 +780,137 @@ export class InventoryPanel {
   // Drag and drop
   // -------------------------------------------------------------------------
 
-  private onDragStart = (ev: DragEvent): void => {
-    const e = this.entryAt(ev.target);
-    if (!e) { ev.preventDefault(); return; }
-    this.dragging = e.id;
-    this.hideTip();
-    this.el?.classList.add('dragging');
-    // `setData` is required or Firefox refuses to start a drag at all. The
-    // payload is our own id and nothing reads it back — `this.dragging`
-    // survives the re-render a drop causes, where a DataTransfer does not.
-    ev.dataTransfer?.setData('text/plain', e.id);
-    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+  /**
+   * A LEFT PRESS PICKS THE ROW UP — issue #116, and the reason this panel no
+   * longer uses HTML5 drag-and-drop at all.
+   *
+   * Nothing happens yet. The press is only remembered, and it becomes a drag in
+   * `onPointerMove` once the pointer has travelled `DRAG_SLOP`; below that it is
+   * a click and the click handler selects. Both readings have to stay available
+   * off one button, and a threshold is the only thing that tells them apart —
+   * a press that acted immediately would make every selection a move of one or
+   * two pixels.
+   *
+   * A FINGER IS NOT A DRAG HERE. The wall scrolls, touch has no second gesture
+   * to spend on that, and every action a drag can reach is a button in the
+   * footer — which is what `footHtml` is for. A pen is a mouse.
+   */
+  private onPointerDown = (ev: PointerEvent): void => {
+    // Cleared HERE and not only where it is read: a drag that ended off the
+    // window fires no click at all, and a flag left standing would eat the next
+    // real one.
+    this.dragged = false;
+    if (ev.button !== 0 || ev.pointerType === 'touch') return;
+    const btn = (ev.target as HTMLElement | null)?.closest?.('[data-sel]') as HTMLElement | null;
+    const id = btn?.dataset.sel;
+    if (!btn || !id || !this.rows.has(id)) return;
+    this.press = { id, x: ev.clientX, y: ev.clientY, gear: btn.dataset.gear !== undefined };
   };
 
+  /** Past the slop the press is a drag. 5px, which is a click with a shaky hand. */
+  private beginDrag(ev: PointerEvent): void {
+    const press = this.press;
+    const e = press ? this.rows.get(press.id) : null;
+    if (!press || !e || !this.el) return;
+    this.dragging = press.id;
+    this.fromGear = press.gear;
+    this.dragged = true;
+    this.hideTip();
+    this.el.classList.add('dragging');
+    // The ghost is the box IN THE AIR, and it is what makes a rearrange
+    // readable: the cell it came from stays where it was, dimmed, and the thing
+    // the player is holding is under the cursor. `pointer-events:none` in the
+    // stylesheet is load-bearing — `elementFromPoint` below reads through it.
+    const ghost = document.createElement('div');
+    ghost.className = 'drag-ghost';
+    ghost.style.setProperty('--el', hexColor(e.color));
+    ghost.innerHTML = this.iconHtml(e);
+    this.el.appendChild(ghost);
+    this.ghost = ghost;
+    this.dragTo(ev.clientX, ev.clientY);
+  }
+
+  /** Follow the cursor and light the cell under it. */
+  private dragTo(x: number, y: number): void {
+    if (this.ghost) this.ghost.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
+    for (const n of this.el?.querySelectorAll('.drop-ok') ?? []) n.classList.remove('drop-ok');
+    this.dropTarget(document.elementFromPoint(x, y))?.host.classList.add('drop-ok');
+  }
+
   /**
-   * Which action dropping the dragged row HERE would mean, or null if this is
-   * not a target for it.
+   * What letting go HERE would mean: an action the host has to run, or a cell
+   * the panel simply writes the row into.
    *
-   * The gear slots are the mapping in `SLOT_ACTION` — and each is gated on the
-   * host having listed that action for the row, so the panel never sends an
-   * `equip` for a potion and the "does this go here" answer on screen is the
-   * same one the host would give. The GRID is where a gear slot's contents go
-   * to be taken off, and the SCRIM is the world.
+   * The gear slots are the mapping in `SLOT_ACTION` — each gated on the host
+   * having listed that action for the row, so the panel never sends an `equip`
+   * for a potion and the "does this go here" answer on screen is the same one
+   * the host would give. The WALL is two answers depending on where the row was
+   * picked up: off a gear slot it is where you take gear OFF, and off the wall
+   * itself it is a MOVE, which is the arrangement issue #116 asks for. The
+   * SCRIM is the world.
    */
-  private dropAction(target: EventTarget | null): InvAction | null {
+  private dropTarget(node: Element | null): {
+    host: Element; action?: InvAction; slot?: number;
+  } | null {
     const e = this.dragging ? this.rows.get(this.dragging) : null;
-    if (!e) return null;
-    const el = target as HTMLElement | null;
-    const gear = el?.closest?.('[data-gear]') as HTMLElement | null;
+    const el = node as HTMLElement | null;
+    if (!e || !el) return null;
+    // `offers` and not `has`: tools/test-keybinds.mjs finds every key code the
+    // game reads by scanning src/ for a call to `has` with a quoted literal in
+    // it, and a helper by that name taking an action name reads to it as an
+    // undocumented binding.
+    const offers = (a: InvAction): boolean => (e.actions ?? []).includes(a);
+
+    const gear = el.closest('[data-gear]') as HTMLElement | null;
     if (gear) {
       const want = SLOT_ACTION[gear.dataset.gear as GearSlotId];
-      return (e.actions ?? []).includes(want) ? want : null;
+      return offers(want) ? { host: gear, action: want } : null;
     }
-    if (el?.closest?.('.grid')) {
-      return (e.actions ?? []).includes('unequip') ? 'unequip' : null;
+    const cell = el.closest('[data-slot]') as HTMLElement | null;
+    if (cell && !this.fromGear) {
+      const slot = Number(cell.dataset.slot);
+      return Number.isFinite(slot) ? { host: cell, slot } : null;
     }
-    if (el?.classList.contains('bs-scrim')) {
-      return (e.actions ?? []).includes('drop') ? 'drop' : null;
+    const grid = el.closest('.grid');
+    if (grid && this.fromGear) return offers('unequip') ? { host: grid, action: 'unequip' } : null;
+    if (el.classList.contains('bs-scrim')) {
+      return offers('drop') ? { host: el, action: 'drop' } : null;
     }
     return null;
   }
 
-  private onDragOver = (ev: DragEvent): void => {
-    const a = this.dropAction(ev.target);
-    if (!a) return;
-    // preventDefault is what makes an element a drop target at all.
-    ev.preventDefault();
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
-    const host = (ev.target as HTMLElement).closest('[data-gear], .grid, .bs-scrim');
-    for (const n of this.el?.querySelectorAll('.drop-ok') ?? []) n.classList.remove('drop-ok');
-    host?.classList.add('drop-ok');
-  };
-
-  private onDropEvent = (ev: DragEvent): void => {
-    const a = this.dropAction(ev.target);
+  private onPointerUp = (ev: PointerEvent): void => {
+    if (!this.dragging) { this.press = null; return; }
     const id = this.dragging;
-    this.onDragEnd();
-    if (!a || !id) return;
-    ev.preventDefault();
-    this.run(id, a);
+    // Read the target BEFORE tearing the ghost down: `endDrag` removes the
+    // element `elementFromPoint` would otherwise have to see through anyway,
+    // and clears the id this answer is about.
+    const hit = this.dropTarget(document.elementFromPoint(ev.clientX, ev.clientY));
+    this.endDrag();
+    if (!hit) return;
+    if (hit.action) this.run(id, hit.action);
+    else if (hit.slot !== undefined) this.move(id, hit.slot);
   };
 
-  private onDragEnd = (): void => {
+  private onPointerCancel = (): void => { this.endDrag(); };
+
+  /** Put the row in cell `slot`. No rule, no toast — see `InventoryHooks.onMove`. */
+  private move(id: string, slot: number): void {
+    this.hideTip();
+    this.hooks.onMove(id, slot);
+    if (!this.el) return;
+    this.pendingFocus = `[data-sel="${id}"]`;
+    this.render();
+  }
+
+  private endDrag(): void {
+    this.press = null;
     this.dragging = null;
+    this.ghost?.remove();
+    this.ghost = null;
     this.el?.classList.remove('dragging');
     for (const n of this.el?.querySelectorAll('.drop-ok') ?? []) n.classList.remove('drop-ok');
-  };
+  }
 
   // -------------------------------------------------------------------------
   // Keyboard and pad
@@ -801,9 +963,37 @@ export class InventoryPanel {
     return true;
   }
 
+  /**
+   * How far to jump for "the row below", in FOCUSABLE positions.
+   *
+   * Inside the wall that is a question about CELLS and not about list order,
+   * and since issue #116 the two are different things: the player can leave a
+   * hole anywhere, so the eleventh focusable after this one is no longer the box
+   * directly underneath. This walks the drawn cells instead and lands on the
+   * filled one nearest the cell above or below — a wall with gaps in it steps
+   * the way it looks, and a wall with none behaves exactly as it did.
+   *
+   * Outside the wall (the tabs, the footer) it is one step, as before.
+   */
   private rowStep(dir: -1 | 1): number {
     const here = document.activeElement as HTMLElement | null;
-    return here?.classList.contains('slot') ? INV_COLS * dir : dir;
+    if (!here?.classList.contains('slot') || here.dataset.slot === undefined) return dir;
+    const from = this.focusables.indexOf(here as HTMLButtonElement);
+    const cell = Number(here.dataset.slot);
+    const want = cell + INV_COLS * dir;
+    let best = INV_COLS * dir;
+    let nearest = Infinity;
+    for (let i = 0; i < this.focusables.length; i++) {
+      const el = this.focusables[i];
+      if (!el.classList.contains('slot') || el.dataset.slot === undefined) continue;
+      const c = Number(el.dataset.slot);
+      // It has to actually move that way: the nearest cell to the row below can
+      // otherwise be one on this row, and the press would go nowhere.
+      if (dir > 0 ? c <= cell : c >= cell) continue;
+      const d = Math.abs(c - want);
+      if (d < nearest) { nearest = d; best = i - from; }
+    }
+    return best;
   }
 
   moveFocus(d: number): void {

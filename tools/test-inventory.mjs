@@ -86,6 +86,41 @@ async function openPanel(ctx) {
   await ctx.frame();
   await ctx.waitFn(() => window.__dbgInventory().open, 5000).catch(() => {});
 }
+/** Where a slot IS, in client pixels — the drag reads the cursor, not a selector. */
+const centre = (ctx, sel) => ctx.ev((s) => {
+  const el = document.querySelector(s);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+}, sel);
+
+/**
+ * PRESS, TRAVEL, RELEASE, with a real cursor.
+ *
+ * The middle move is what makes it a drag rather than a click: the panel holds
+ * the press until it has travelled DRAG_SLOP (see ui/inventory.ts), so a press
+ * and release on the same pixel is a SELECTION and would prove the opposite of
+ * what every check below reads. `steps` is not decoration either — one jump
+ * from A to B is a single pointermove and the panel would never see the box
+ * leave the cell it came from.
+ *
+ * The target may be a POINT rather than a selector, and the scrim is why: it is
+ * a full-window layer with the dock drawn over its right-hand half, so the
+ * centre of its box is a pixel the pane owns. What a player lets go over is the
+ * part they can see, and that is what a point says.
+ */
+async function drag(ctx, fromSel, to) {
+  const a = await centre(ctx, fromSel);
+  const b = typeof to === 'string' ? await centre(ctx, to) : to;
+  if (!a || !b) throw new Error(`nothing to drag: ${fromSel} -> ${JSON.stringify(to)}`);
+  await ctx.page.mouse.move(a.x, a.y);
+  await ctx.page.mouse.down();
+  await ctx.page.mouse.move(a.x + 9, a.y + 9);
+  await ctx.page.mouse.move(b.x, b.y, { steps: 6 });
+  await ctx.page.mouse.up();
+  await ctx.frame();
+}
+
 async function closePanel(ctx) {
   if (!(await inv(ctx)).open) return;
   await ctx.page.keyboard.press('KeyI');
@@ -354,42 +389,30 @@ export const sections = [
   } },
 
   // ---------- 3c. drag onto a gear slot, and off the panel ----------
-  // The gestures, through real DragEvents with a real DataTransfer — synthetic,
-  // because CDP cannot drive an HTML5 drag, but through the SAME listeners a
-  // mouse reaches: the panel reads `event.target` and its own `dragging` id and
-  // nothing else.
+  // A REAL MOUSE, since issue #116. The panel drives its own drag off pointer
+  // events rather than HTML5 drag-and-drop, so CDP can now push the whole
+  // gesture — press, travel past the slop, release — and the drop target is
+  // resolved by `document.elementFromPoint`, which means the cursor really has
+  // to be over the thing being asserted about.
   { id: 'drag', run: async (ctx) => {
-    const drag = (fromSel, toSel) => ctx.ev((f, t) => {
-      const dt = new DataTransfer();
-      const src = document.querySelector(f);
-      const dst = document.querySelector(t);
-      src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
-      dst.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
-      dst.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
-      src.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
-    }, fromSel, toSel);
-
     await give(ctx, 'greatsword-iron', 1);
     // The gift has to be IN THE DOM before a drag can start from its slot.
     await ctx.waitFn(
       () => !!document.querySelector('.bs-inv .slot[data-sel="greatsword-iron"]'), 5000);
 
     // A weapon onto the WEAPON slot: equip.
-    await drag('.bs-inv .slot[data-sel="greatsword-iron"]', '.bs-inv .gs[data-gear="weapon"]');
-    await ctx.frame();
+    await drag(ctx, '.bs-inv .slot[data-sel="greatsword-iron"]', '.bs-inv .gs[data-gear="weapon"]');
     const equipped = await inv(ctx);
 
     // A POTION onto the weapon slot: refused, and refused by the PANEL — the host
     // never hears about it, because the host never listed `equip` for a potion.
     // Without this the drag half passes for a panel that sends every drop.
-    await drag('.bs-inv .slot[data-sel="potion-mend"]', '.bs-inv .gs[data-gear="weapon"]');
-    await ctx.frame();
+    await drag(ctx, '.bs-inv .slot[data-sel="potion-mend"]', '.bs-inv .gs[data-gear="weapon"]');
     const stillArmed = await inv(ctx);
 
     // A benched beast onto the LEAD slot.
     const benched = equipped.entries.find((e) => e.kind === 'beast' && !e.equipped);
-    await drag(`.bs-inv .slot[data-sel="${benched.id}"]`, '.bs-inv .gs[data-gear="primary"]');
-    await ctx.frame();
+    await drag(ctx, `.bs-inv .slot[data-sel="${benched.id}"]`, '.bs-inv .gs[data-gear="primary"]');
     const led = await inv(ctx);
 
     // And off the panel entirely, onto the world: drop.
@@ -397,8 +420,13 @@ export const sections = [
     await give(ctx, 'sunberry', 2);
     await ctx.waitFn(
       () => !!document.querySelector('.bs-inv .slot[data-sel="sunberry"]'), 5000);
-    await drag('.bs-inv .slot[data-sel="sunberry"]', '.bs-inv .bs-scrim');
-    await ctx.frame();
+    // ONTO THE WORLD, at a pixel the dock does not cover — see `drag`. Asserted
+    // as a point rather than as the scrim's centre, which is inside the pane.
+    const world = await ctx.ev(() => {
+      const pane = document.querySelector('.bs-inv .pane').getBoundingClientRect();
+      return { x: Math.round(pane.left / 2), y: Math.round(window.innerHeight / 2) };
+    });
+    await drag(ctx, '.bs-inv .slot[data-sel="sunberry"]', world);
     await ctx.adv(0.1);
     dropSites.push(await pos(ctx));
     const dropped = await inv(ctx);
@@ -422,6 +450,134 @@ export const sections = [
     ctx.check(ctx.res.drag.sunberriesAfter === ctx.res.drag.sunberriesBefore - 1,
       `dragging off the panel took the stack ${ctx.res.drag.sunberriesBefore} -> `
       + `${ctx.res.drag.sunberriesAfter}, expected one fewer`);
+    // AND THE PANEL IS STILL UP. A release over the scrim is also a click on it,
+    // and the scrim's click closes the panel — dropping an item would otherwise
+    // throw the player out of the screen they were arranging (see `dragged` in
+    // ui/inventory.ts).
+    ctx.check(dropped.open === true,
+      'dropping an item onto the world closed the panel — the drag\'s trailing click was spent');
+  } },
+
+  // ---------- 3d. the wall is arranged by the player, not sorted ----------
+  // ISSUE #116, and the claim is about a NUMBER the picture cannot make: a box
+  // that moved and a panel that re-rendered look identical, so every check here
+  // reads `entries[].slot` — the host's layout — and the cell the DOM drew it
+  // in has to agree with it.
+  //
+  // THREE THINGS, and the third is the one that says "no sorting" rather than
+  // "drag works": a move onto an EMPTY cell, a move onto an OCCUPIED one (which
+  // swaps, because the box that was there has to go somewhere the player can
+  // predict), and a bag CHANGING under a moved row without shuffling it back.
+  { id: 'arrange', run: async (ctx) => {
+    await openPanel(ctx);
+    const slotOf = (snap, id) => snap.entries.find((e) => e.id === id)?.slot ?? null;
+    const cellOf = (id) => ctx.ev((i) => {
+      const el = document.querySelector(`.bs-inv .slot[data-sel="${i}"]`);
+      return el ? Number(el.dataset.slot) : null;
+    }, id);
+
+    const before = await inv(ctx);
+    const homeSlot = slotOf(before, 'potion-mend');
+    // The LAST free cell, which is nowhere near where anything was placed —
+    // a move to the cell next door could be an off-by-one in the layout.
+    const free = await ctx.ev(() => {
+      const empties = [...document.querySelectorAll('.bs-inv .slot.empty[data-slot]')];
+      return empties.length ? Number(empties[empties.length - 1].dataset.slot) : null;
+    });
+    ctx.check(free !== null && free > homeSlot,
+      `no free cell past the potion's ${homeSlot} — section 3d has nowhere to drag to`);
+
+    await drag(ctx, '.bs-inv .slot[data-sel="potion-mend"]', `.bs-inv .slot[data-slot="${free}"]`);
+    const moved = await inv(ctx);
+    const movedCell = await cellOf('potion-mend');
+
+    // Onto a cell that is TAKEN: the two rows trade places.
+    const neighbour = 'sword-iron';
+    const neighbourHome = slotOf(moved, neighbour);
+    await drag(ctx,
+      '.bs-inv .slot[data-sel="potion-mend"]', `.bs-inv .slot[data-sel="${neighbour}"]`);
+    const swapped = await inv(ctx);
+
+    // ...and the bag changing does not put anything back. A gift lands in a FREE
+    // cell; it does not renumber the wall.
+    const parked = slotOf(swapped, 'potion-mend');
+    await give(ctx, 'glowpebble', 1);
+    await ctx.waitFn(
+      () => !!document.querySelector('.bs-inv .slot[data-sel="glowpebble"]'), 5000);
+    const after = await inv(ctx);
+
+    ctx.res.arrange = {
+      home: homeSlot,
+      free,
+      afterMove: slotOf(moved, 'potion-mend'),
+      drawnAt: movedCell,
+      neighbourHome,
+      afterSwap: { potion: parked, sword: slotOf(swapped, neighbour) },
+      afterGift: slotOf(after, 'potion-mend'),
+      giftAt: slotOf(after, 'glowpebble'),
+    };
+    ctx.check(slotOf(moved, 'potion-mend') === free,
+      `the potion sits in cell ${slotOf(moved, 'potion-mend')} after a drag to ${free}`);
+    ctx.check(movedCell === free,
+      `the model says cell ${free} and the DOM drew the potion in ${movedCell}`);
+    ctx.check(moved.entries.every((e) => e.id === 'potion-mend' || e.slot === slotOf(before, e.id)),
+      'moving one box moved another — the wall is still sorting itself');
+    ctx.check(parked === neighbourHome && slotOf(swapped, neighbour) === free,
+      `a drop on an occupied cell left potion ${parked} / sword ${slotOf(swapped, neighbour)}, `
+      + `expected them swapped to ${neighbourHome} / ${free}`);
+    ctx.check(slotOf(after, 'potion-mend') === parked,
+      `a new item in the bag moved the potion ${parked} -> ${slotOf(after, 'potion-mend')} — `
+      + 'the wall must not re-sort when the bag changes');
+    ctx.check(ctx.res.arrange.giftAt >= 0 && ctx.res.arrange.giftAt !== parked,
+      `the gift landed in ${ctx.res.arrange.giftAt}, on top of something`);
+  } },
+
+  // ---------- 3e. a beast comes out of either slot ----------
+  // ISSUE #116's third ask. The pair matters as much here as anywhere: "the
+  // slot is empty" is equally true of an unequip and of a panel that lost the
+  // roster, so each half is put back and re-read.
+  { id: 'bench', run: async (ctx) => {
+    await openPanel(ctx);
+    const slotOf = (snap, s) => snap.gear.find((g) => g.slot === s)?.id ?? null;
+    const before = await inv(ctx);
+    const lead = slotOf(before, 'primary');
+    const support = slotOf(before, 'support');
+    ctx.check(!!lead && !!support, 'section 3e needs both beast slots filled');
+
+    // The BUTTON, which is the only way a phone reaches this — and it is in the
+    // footer because the row offers it, not because the panel knows about beasts.
+    const rowOf = (snap, id) => snap.entries.find((e) => e.id === id);
+    ctx.check((rowOf(before, lead)?.actions ?? []).includes('unequip'),
+      `the lead beast offers ${JSON.stringify(rowOf(before, lead)?.actions)} — no way out of the slot`);
+    ctx.check((rowOf(before, support)?.actions ?? []).includes('unequip'),
+      'the support beast offers no way out of its slot');
+
+    await act(ctx, lead, 'unequip');
+    const noLead = await inv(ctx);
+    await act(ctx, support, 'unequip');
+    const alone = await inv(ctx);
+    // Both back, so the sections below this one find the party they expect.
+    await act(ctx, lead, 'setLead');
+    await act(ctx, support, 'setSupport');
+    const restored = await inv(ctx);
+
+    ctx.res.bench = {
+      lead, support,
+      afterLeadOut: { lead: slotOf(noLead, 'primary'), support: slotOf(noLead, 'support') },
+      afterBothOut: { lead: slotOf(alone, 'primary'), support: slotOf(alone, 'support') },
+      restored: { lead: slotOf(restored, 'primary'), support: slotOf(restored, 'support') },
+    };
+    ctx.check(slotOf(noLead, 'primary') === null,
+      `the lead slot still holds ${slotOf(noLead, 'primary')} after unequip`);
+    // NOTHING SLID UP. The support beast is where it was — see `inventoryAction`.
+    ctx.check(slotOf(noLead, 'support') === support,
+      `taking the lead out moved the support beast to ${slotOf(noLead, 'support')}`);
+    ctx.check(slotOf(alone, 'support') === null,
+      `the support slot still holds ${slotOf(alone, 'support')} after unequip`);
+    ctx.check(alone.entries.filter((e) => e.kind === 'beast' && e.equipped).length === 0,
+      'a beast still reads as equipped with both slots empty');
+    ctx.check(slotOf(restored, 'primary') === lead && slotOf(restored, 'support') === support,
+      `putting the party back left ${JSON.stringify(ctx.res.bench.restored)}`);
   } },
 
   // ---------- 4. using a potion: hp up, stack down, buff on a clock ----------
