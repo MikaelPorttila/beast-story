@@ -255,10 +255,11 @@ export interface BagEntry {
  * carrying its own level and skills; the panel derives a `beast:` row from that
  * (see BEAST_ID_PREFIX) rather than storing a second copy that could disagree.
  *
- * Insertion order is preserved and IS the panel's order, so an item you just
- * picked up appears at the end rather than wherever a sort happened to put it.
- * `remove` therefore deletes an emptied key rather than leaving a zero behind,
- * or picking the last one up again would jump it back to its old place.
+ * Insertion order is preserved and is the order a NEW row is handed its slot in
+ * (see `SlotLayout`), so an item you just picked up lands after everything you
+ * already had rather than wherever a sort happened to put it. `remove` therefore
+ * deletes an emptied key rather than leaving a zero behind, or picking the last
+ * one up again would count as new and take a fresh slot.
  */
 export class Inventory {
   private stacks = new Map<string, number>();
@@ -308,5 +309,94 @@ export class Inventory {
   /** The same snapshot, narrowed to one kind. The panel's tabs are these. */
   entriesOfKind(kind: ItemKind): BagEntry[] {
     return this.entries().filter((e) => e.def.kind === kind);
+  }
+}
+
+/**
+ * WHERE EACH ROW SITS ON THE WALL — issue #116.
+ *
+ * The panel used to draw whatever order the model came in: beasts, then the bag
+ * in pickup order. That is a sort, and a sort is the thing a player cannot
+ * argue with — the potions move because a flower was picked up, and the slot
+ * you learned is not the slot you reach for. This is the other arrangement:
+ * every row owns a CELL INDEX, a new row takes the first free one, and after
+ * that only the player moves anything.
+ *
+ * NOT PART OF THE BAG, on purpose, and it holds `beast:` ids as happily as item
+ * ids — a beast is a roster row the panel shows (see `BEAST_ID_PREFIX`), it is
+ * still a box on the same wall, and a layout that could not hold one would put
+ * the beasts back in a sorted band at the top. Nothing in here is ownership:
+ * the id is a key and a slot is a position, so a stale entry is a wrong picture
+ * at worst, and `reconcile` is what stops even that.
+ */
+export class SlotLayout {
+  private byId = new Map<string, number>();
+  private atSlot = new Map<number, string>();
+
+  /** The cell this row sits in, or -1 for a row the layout has never seen. */
+  slotOf(id: string): number {
+    return this.byId.get(id) ?? -1;
+  }
+
+  /** The last occupied cell, so a caller can size a wall that has outgrown it. */
+  span(): number {
+    let max = -1;
+    for (const slot of this.atSlot.keys()) if (slot > max) max = slot;
+    return max;
+  }
+
+  /**
+   * Bring the layout in line with the rows that exist: forget what has gone,
+   * and give anything new the first free cell. Called on every model build,
+   * which is a handful of times a session — the loop is over a few dozen rows.
+   *
+   * Forgetting is what keeps the wall from filling up with the ghosts of spent
+   * potions, and it is safe precisely because a slot means nothing on its own:
+   * pick the same item up again and it is a new row taking a free cell.
+   */
+  reconcile(ids: readonly string[]): void {
+    const live = new Set(ids);
+    for (const id of [...this.byId.keys()]) if (!live.has(id)) this.release(id);
+    for (const id of ids) if (!this.byId.has(id)) this.put(id, this.firstFree());
+  }
+
+  /**
+   * The player dragged `id` onto cell `slot`. A cell that is taken SWAPS —
+   * the two rows trade places rather than one of them being pushed somewhere
+   * neither of them was put, which is the only outcome a dragged box can have
+   * that the player predicted before they let go.
+   */
+  move(id: string, slot: number): void {
+    if (slot < 0 || !this.byId.has(id)) return;
+    const from = this.byId.get(id) as number;
+    if (from === slot) return;
+    const sitting = this.atSlot.get(slot);
+    this.put(id, slot);
+    if (sitting !== undefined) this.put(sitting, from);
+    else this.atSlot.delete(from);
+  }
+
+  release(id: string): void {
+    const slot = this.byId.get(id);
+    if (slot === undefined) return;
+    this.byId.delete(id);
+    if (this.atSlot.get(slot) === id) this.atSlot.delete(slot);
+  }
+
+  /** Session state — see `exitToTitle` in main.ts. */
+  clear(): void {
+    this.byId.clear();
+    this.atSlot.clear();
+  }
+
+  private put(id: string, slot: number): void {
+    this.byId.set(id, slot);
+    this.atSlot.set(slot, id);
+  }
+
+  private firstFree(): number {
+    let i = 0;
+    while (this.atSlot.has(i)) i++;
+    return i;
   }
 }

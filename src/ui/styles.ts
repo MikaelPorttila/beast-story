@@ -764,6 +764,10 @@ const CSS = `
 .bs-inv .gs.full:hover{transform:translateY(-2px);box-shadow:0 0 22px -6px var(--el)}
 .bs-inv .gs.full:active{cursor:grabbing}
 .bs-inv .gs:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
+/* The same ring the wall's selected cell wears, and it means the same thing:
+   the footer's buttons are pointed at this. A gear slot is now the ONLY place
+   an equipped row can be selected from — it is no longer on the wall as well. */
+.bs-inv .gs.sel{outline:2px solid #69d9ff;outline-offset:-2px}
 .bs-inv .gs.r-rare{border-color:rgba(105,217,255,.5)}
 .bs-inv .gs.r-legendary{border-color:rgba(255,190,80,.62)}
 .bs-inv .gs-ic{width:52px;height:52px;display:block}
@@ -806,11 +810,17 @@ const CSS = `
 /* The selection ring is an OUTLINE rather than a border so it cannot change the
    slot's box and reflow the wall as the cursor walks it. */
 /* AN EMPTY CELL IS A REAL CELL — see INV_COLS in ui/inventory.ts. Quieter than
-   a filled one and not a focus stop, so a keyboard walks the things you own
-   rather than the holes between them; pointer-events:none keeps it out of the
-   drag machinery for the same reason. */
+   a filled one, and a <div> rather than a <button> so a keyboard walks the
+   things you own rather than the holes between them. It IS in the drag
+   machinery, which is the change issue #116 made: an empty cell is where a
+   dragged box lands, so it has to be something elementFromPoint can see —
+   which rules out pointer-events:none. It still lifts for nothing on hover.
+   A .held cell is one whose row the tab filter is hiding: no landing, because
+   a swap with a box that is not on screen is a move nobody made. */
 .bs-inv .slot.empty{background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.09);
-  cursor:default;pointer-events:none}
+  cursor:default}
+.bs-inv .slot.empty:hover{transform:none;border-color:rgba(255,255,255,.09);box-shadow:none}
+.bs-inv .slot.empty.held{background:rgba(255,255,255,.02);border-style:dashed}
 .bs-inv .slot.sel{outline:2px solid #69d9ff;outline-offset:-2px;background:rgba(105,217,255,.1)}
 .bs-inv .slot:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
 /* Rarity is the slot's EDGE, not its fill: a legendary item still has to read
@@ -843,6 +853,16 @@ const CSS = `
    only lit things on the panel. */
 .bs-inv.dragging .slot,.bs-inv.dragging .gs{opacity:.55}
 .bs-inv.dragging .drop-ok{opacity:1}
+/* THE BOX IN THE AIR (issue #116). The panel drives its own drag off pointer
+   events, so it draws its own cursor freight: one cell-sized tile carrying the
+   row's picture, parked under the pointer by a transform. It must not be a
+   drop target of its own — the drag reads the wall through
+   document.elementFromPoint, which would otherwise find nothing but this. */
+.bs-inv .drag-ghost{position:fixed;top:0;left:0;z-index:2;width:56px;height:56px;
+  margin:-28px 0 0 -28px;padding:5px;border-radius:13px;pointer-events:none;
+  display:grid;place-items:center;
+  border:1px solid var(--el);background:rgba(10,14,22,.85);
+  box-shadow:0 10px 26px rgba(0,0,0,.5),0 0 20px -6px var(--el)}
 
 /* THE FOOTER STRIP: what is selected, and the two things that destroy it. The
    constructive action is a right-click and is only NAMED here — see the header
