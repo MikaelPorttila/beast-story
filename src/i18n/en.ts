@@ -274,6 +274,9 @@ export const en = {
   'beast.galebird.name': 'Galebird',
   'beast.galebird.desc':
     'A wind-stitched swallow that treats gravity as a polite suggestion — the fastest wings in the valley.',
+  'beast.graveborn.name': 'Graveborn',
+  'beast.graveborn.desc':
+    'A soldier who never got the order to stand down. Two hundred years in the wet ground took the flesh, the name and the war, and left the drill, the belt and the sword — and a cold blue light still burning in the sockets, waiting to be told where to stand.',
   'beast.lanternfin.name': 'Lanternfin',
   'beast.lanternfin.desc':
     'An anglerfish that swam up out of the black water with its lamp still burning. It has never seen the sun and remains unconvinced by it.',
@@ -393,6 +396,18 @@ export const en = {
   'skill.galebird.cyclone-waltz.name': 'Cyclone Waltz',
   'skill.galebird.cyclone-waltz.desc':
     'Spins a pirouette so fast the sky joins in, wrapping everything nearby in a shrieking tornado.',
+  'skill.graveborn.rusted-cleave.name': 'Rusted Cleave',
+  'skill.graveborn.rusted-cleave.desc':
+    'Brings the old iron down in one flat, practised arc. It has made this cut ten thousand times and has never once hurried it.',
+  'skill.graveborn.bone-shard.name': 'Bone Shard',
+  'skill.graveborn.bone-shard.desc':
+    'Snaps a splinter off its own forearm and flings it. The arm knits itself back together on the walk over.',
+  'skill.graveborn.grave-ward.name': 'Grave Ward',
+  'skill.graveborn.grave-ward.desc':
+    'Drives the blade into the earth and lets the cold up through it. Everything standing on that ground feels the winter of it.',
+  'skill.graveborn.last-rites.name': 'Last Rites',
+  'skill.graveborn.last-rites.desc':
+    'Raises the sword and speaks a name nobody has said aloud in two centuries. The grave-light answers in a long blue line.',
   'skill.lanternfin.glimmer-mote.name': 'Glimmer Mote',
   'skill.lanternfin.glimmer-mote.desc':
     'Flicks a bead of cold lamplight off the end of its rod. It drifts, and then it does not.',

@@ -682,6 +682,13 @@ const BUDGET = {
   finnick: 0,
   snapclaw: 0,
   lanternfin: 0,
+  // The biped (issue #119). Clean, and clean for the reasons this register
+  // asks for: the maxilla was widened so the mandible's walls are buried
+  // rather than flush, the sword's rest pose was written into buildRig so an
+  // unanimated blade does not park on the forearm's plane, and the skirt was
+  // painted into the pelvis's own grid instead of hung beside it as a second
+  // mesh — which is the "move the paint where you cannot part the grid" case.
+  graveborn: 0,
   gain: 0,        // clean
   // The three who live on the flying island (issue #68). Clean, and clean the
   // same way Gain is: they are one parameterised body (world/npc-skyfolk.ts),
