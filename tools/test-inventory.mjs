@@ -617,6 +617,61 @@ export const sections = [
       `putting the party back left ${JSON.stringify(ctx.res.bench.restored)}`);
   } },
 
+  // ---------- 3f. every gear slot drags out, and back in ----------
+  // ALL FOUR, and that is the point of the section rather than an excess of
+  // zeal. What taking a row OUT of a slot means is per-slot — three of them
+  // say `unequip` and the orb says `unready` — and the drag used to have the
+  // first word written into it, so the orb could be dropped INTO its slot and
+  // not dragged out of it. One slot tested is a family untested; the panel now
+  // reads both directions off `SLOT_ACTIONS` and this is what says so.
+  //
+  // Each slot is emptied and refilled before the next one is touched, so the
+  // sections below still find the loadout they expect.
+  { id: 'gearDrag', run: async (ctx) => {
+    await openPanel(ctx);
+    const gearOf = (snap, s) => snap.gear.find((g) => g.slot === s)?.id ?? null;
+    const slotOf = (snap, id) => snap.entries.find((e) => e.id === id)?.slot ?? null;
+    const freeCell = () => ctx.ev(() => {
+      const empty = document.querySelector('.bs-inv .slot.empty[data-slot]');
+      return empty ? Number(empty.dataset.slot) : null;
+    });
+
+    const out = {};
+    for (const slot of ['weapon', 'primary', 'support', 'orb']) {
+      const before = await inv(ctx);
+      const id = gearOf(before, slot);
+      ctx.check(!!id, `the ${slot} slot is empty — section 3f has nothing to drag out of it`);
+      if (!id) continue;
+      const cell = await freeCell();
+
+      // OUT: onto a named free cell, which asserts the second half of the same
+      // gesture — the row is taken off AND lands where it was dropped.
+      await drag(ctx, `.bs-inv .gs[data-gear="${slot}"]`, `.bs-inv .slot[data-slot="${cell}"]`);
+      const emptied = await inv(ctx);
+      // ...and back IN, by the same gesture in the other direction.
+      await drag(ctx, `.bs-inv .slot[data-sel="${id}"]`, `.bs-inv .gs[data-gear="${slot}"]`);
+      const refilled = await inv(ctx);
+
+      out[slot] = {
+        id,
+        cell,
+        afterOut: gearOf(emptied, slot),
+        landedAt: slotOf(emptied, id),
+        onWall: emptied.entries.some((e) => e.id === id),
+        afterIn: gearOf(refilled, slot),
+      };
+      ctx.check(gearOf(emptied, slot) === null,
+        `dragging ${id} out of the ${slot} slot left ${gearOf(emptied, slot)} in it`);
+      ctx.check(out[slot].onWall,
+        `${id} came out of the ${slot} slot and is on neither the slot nor the wall`);
+      ctx.check(out[slot].landedAt === cell,
+        `${id} landed in cell ${out[slot].landedAt}, not the ${cell} it was dropped on`);
+      ctx.check(gearOf(refilled, slot) === id,
+        `dragging ${id} back onto the ${slot} slot left ${gearOf(refilled, slot)}`);
+    }
+    ctx.res.gearDrag = out;
+  } },
+
   // ---------- 4. using a potion: hp up, stack down, buff on a clock ----------
   { id: 'use', run: async (ctx) => {
     // Hurt him first, or a heal on a full-health hero measures nothing.

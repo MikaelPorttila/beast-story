@@ -114,12 +114,26 @@ const ACTION_KEYS: Record<InvAction, ActionKey> = {
  */
 const DESTRUCTIVE: ReadonlySet<InvAction> = new Set<InvAction>(['salvage', 'drop']);
 
-/** Which action a drop on each gear slot means. See the header. */
-const SLOT_ACTION: Record<GearSlotId, InvAction> = {
-  weapon: 'equip',
-  primary: 'setLead',
-  support: 'setSupport',
-  orb: 'ready',
+/**
+ * WHAT EACH GEAR SLOT DOES WITH A ROW, both ways: `put` is what dropping one on
+ * the slot means, `take` is what dragging one out of it means.
+ *
+ * ONE TABLE AND NOT TWO HALVES, because the two halves drifted. `put` was a map
+ * from the start and `take` was the word "unequip" written into the drag code —
+ * which is right for the three slots that use it and wrong for the ORB, whose
+ * action is `unready` (see ACTION_KEYS on why the orb has its own pair of
+ * words). The orb could be dropped INTO its slot and not dragged out of it, and
+ * nothing said so: the panel simply refused a gesture it had no name for.
+ *
+ * Every slot goes through both fields, so a fifth slot is a row here and no new
+ * branch anywhere. Both are still gated on the host having listed that action
+ * for the row — the panel names the gesture, the host owns the rule.
+ */
+const SLOT_ACTIONS: Record<GearSlotId, { put: InvAction; take: InvAction }> = {
+  weapon: { put: 'equip', take: 'unequip' },
+  primary: { put: 'setLead', take: 'unequip' },
+  support: { put: 'setSupport', take: 'unequip' },
+  orb: { put: 'ready', take: 'unready' },
 };
 
 export type GearSlotId = 'weapon' | 'primary' | 'support' | 'orb';
@@ -285,11 +299,15 @@ export class InventoryPanel {
   private padLatchY = false;
   private padLatchX = false;
   /** A left press that has not yet travelled far enough to be a drag. */
-  private press: { id: string; x: number; y: number; gear: boolean } | null = null;
+  private press: { id: string; x: number; y: number; slot: GearSlotId | null } | null = null;
   /** Id in the air, or null. See `beginDrag`. */
   private dragging: string | null = null;
-  /** Whether the id in the air was picked up off a GEAR slot. */
-  private fromGear = false;
+  /**
+   * WHICH GEAR SLOT the id in the air came out of, or null for the wall. The
+   * slot and not a boolean: what dragging a row OUT means is per-slot, and
+   * `SLOT_ACTIONS[…].take` is the only place that decides it.
+   */
+  private fromSlot: GearSlotId | null = null;
   /** The box under the cursor while one is in the air; never a drop target. */
   private ghost: HTMLDivElement | null = null;
   /**
@@ -818,7 +836,10 @@ export class InventoryPanel {
     const btn = (ev.target as HTMLElement | null)?.closest?.('[data-sel]') as HTMLElement | null;
     const id = btn?.dataset.sel;
     if (!btn || !id || !this.rows.has(id)) return;
-    this.press = { id, x: ev.clientX, y: ev.clientY, gear: btn.dataset.gear !== undefined };
+    this.press = {
+      id, x: ev.clientX, y: ev.clientY,
+      slot: (btn.dataset.gear as GearSlotId | undefined) ?? null,
+    };
   };
 
   /** Past the slop the press is a drag. 5px, which is a click with a shaky hand. */
@@ -827,7 +848,7 @@ export class InventoryPanel {
     const e = press ? this.rows.get(press.id) : null;
     if (!press || !e || !this.el) return;
     this.dragging = press.id;
-    this.fromGear = press.gear;
+    this.fromSlot = press.slot;
     this.dragged = true;
     this.hideTip();
     this.el.classList.add('dragging');
@@ -855,13 +876,14 @@ export class InventoryPanel {
    * What letting go HERE would mean: an action the host has to run, or a cell
    * the panel simply writes the row into.
    *
-   * The gear slots are the mapping in `SLOT_ACTION` — each gated on the host
-   * having listed that action for the row, so the panel never sends an `equip`
-   * for a potion and the "does this go here" answer on screen is the same one
-   * the host would give. The WALL is two answers depending on where the row was
-   * picked up: off a gear slot it is where you take gear OFF, and off the wall
-   * itself it is a MOVE, which is the arrangement issue #116 asks for. The
-   * SCRIM is the world.
+   * BOTH DIRECTIONS COME OUT OF `SLOT_ACTIONS`, which is what keeps the four
+   * slots one mechanism: dropping on a slot is that slot's `put`, and dropping
+   * a row dragged OUT of a slot is that slot's `take`. Each is gated on the
+   * host having listed the action for the row, so the panel never sends an
+   * `equip` for a potion and the "does this go here" answer on screen is the
+   * same one the host would give. The WALL is therefore two answers depending
+   * on where the row was picked up — out of a slot it is where gear comes off,
+   * off the wall itself it is a MOVE. The SCRIM is the world.
    */
   private dropTarget(node: Element | null): {
     host: Element; action?: InvAction; slot?: number;
@@ -877,22 +899,28 @@ export class InventoryPanel {
 
     const gear = el.closest('[data-gear]') as HTMLElement | null;
     if (gear) {
-      const want = SLOT_ACTION[gear.dataset.gear as GearSlotId];
+      const want = SLOT_ACTIONS[gear.dataset.gear as GearSlotId].put;
       return offers(want) ? { host: gear, action: want } : null;
     }
     const cell = el.closest('[data-slot]') as HTMLElement | null;
     if (cell) {
       const slot = Number(cell.dataset.slot);
       if (!Number.isFinite(slot)) return null;
-      // OFF A GEAR SLOT ONTO A CELL is both things at once: take it off, and
-      // put it THERE. The host's unequip drops it back on the wall wherever
-      // there is room, and the cell the player let go over is the one they
-      // meant — so the move follows the action rather than replacing it.
-      if (this.fromGear) return offers('unequip') ? { host: cell, action: 'unequip', slot } : null;
+      // OUT OF A GEAR SLOT ONTO A CELL is both things at once: take it off, and
+      // put it THERE. The host's take drops it back on the wall wherever there
+      // is room, and the cell the player let go over is the one they meant — so
+      // the move follows the action rather than replacing it.
+      if (this.fromSlot) {
+        const want = SLOT_ACTIONS[this.fromSlot].take;
+        return offers(want) ? { host: cell, action: want, slot } : null;
+      }
       return { host: cell, slot };
     }
     const grid = el.closest('.grid');
-    if (grid && this.fromGear) return offers('unequip') ? { host: grid, action: 'unequip' } : null;
+    if (grid && this.fromSlot) {
+      const want = SLOT_ACTIONS[this.fromSlot].take;
+      return offers(want) ? { host: grid, action: want } : null;
+    }
     if (el.classList.contains('bs-scrim')) {
       return offers('drop') ? { host: el, action: 'drop' } : null;
     }
@@ -927,6 +955,7 @@ export class InventoryPanel {
   private endDrag(): void {
     this.press = null;
     this.dragging = null;
+    this.fromSlot = null;
     this.ghost?.remove();
     this.ghost = null;
     this.el?.classList.remove('dragging');
