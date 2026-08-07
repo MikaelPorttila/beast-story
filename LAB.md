@@ -38,6 +38,7 @@ bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 | `push=<units>` | How far it is pushed sideways over that (default 0) |
 | `spray=<n>` | Droplet budget (default 128, `0` = none) |
 | `lean=<units/s>` | Fake a carrier's sideways motion, to see the plume trail |
+| `fence=<demo>` | The paths and fences stage (`src/lab/paths-stage.ts`) — see below |
 | `orbs=1` | The four taming orbs in a row, turning (`src/combat/tame-orb.ts`) |
 | `gap=<units>` | Spacing between the orbs (default: 1.5 diameters, so they never touch) |
 | `scale=<n>` | How big each orb is drawn (default 2.4) |
@@ -48,6 +49,32 @@ bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 | `bg=RRGGBB` | Backdrop colour (also disables fog) |
 | `grid=0` | Hide the floor |
 | `fps=<n>` | Frame-rate cap; `0` = uncapped |
+
+## Paths and fences
+
+`fence=<demo>` builds a road, a bridge and fences over an analytic ground field
+— no terrain streaming, no world, and the same modules the game uses
+(`world/fences.ts`, `world/town-parts.ts`). It exists because the only way to
+look at a bridge or a road fence used to be to load the world and walk to the
+one the seed happened to build.
+
+| Demo | What it is for |
+| --- | --- |
+| `slope` | A straight run over a ridge — the fence line moves under the fence |
+| `turn` | A right angle, so a corner post has to carry both bays |
+| `ring` | A closed ring: the last bay joins back to the first |
+| `gate` | A run with refused bays in the middle — what a road crossing leaves |
+| `variants` | Every post variant on one run, lanterns lit |
+| `bridge` | A deck over a channel: soffit, piers and both railings |
+| `all` | Every one of them, laid out around the origin |
+
+`__dbgFence()` reports every post and bay in world coordinates plus the deck's
+down-facing triangle count, and `bun tools/test-fence.mjs` asserts the fence
+invariant over it AND over the fences the real world builds.
+
+```bash
+bun tools/lab-shot.mjs shots/_fence.png "fence=bridge&t=1&angle=70&height=6&dist=30"
+```
 
 ## Debug overlay (F2)
 

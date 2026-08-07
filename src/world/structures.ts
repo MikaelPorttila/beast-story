@@ -500,6 +500,8 @@ export class StructureField {
       trunk?: { r: number; top: number };
     },
     x: number, y: number, z: number, yaw: number, s: number, sy: number,
+    /** Length scale along the template's own +z. See `Accum.add`. */
+    sz: number = s,
   ): void {
     if (!t.solid && !t.ridge && !t.trunk) return;
     const c = Math.cos(yaw);
@@ -511,11 +513,11 @@ export class StructureField {
     for (const f of t.solid ?? []) {
       // `Accum.add` maps local (px, pz) to (px*c + pz*sn, -px*sn + pz*c).
       const lx = f.cx * s;
-      const lz = f.cz * s;
+      const lz = f.cz * sz;
       this.data.push(
         x + lx * c + lz * sn,
         z - lx * sn + lz * c,
-        f.hx * s, f.hz * s, c, sn,
+        f.hx * s, f.hz * sz, c, sn,
         y + f.top * sy,
       );
     }
@@ -723,9 +725,9 @@ export class SolidStamp {
 
   add(
     t: Template, x: number, y: number, z: number,
-    yaw: number, s = 1, sy: number = s,
+    yaw: number, s = 1, sy: number = s, sz: number = s,
   ): void {
-    this.acc.add(t, x, y, z, yaw, s, 1, 1, 1, sy);
-    this.field.add(t, x, y, z, yaw, s, sy);
+    this.acc.add(t, x, y, z, yaw, s, 1, 1, 1, sy, sz);
+    this.field.add(t, x, y, z, yaw, s, sy, sz);
   }
 }

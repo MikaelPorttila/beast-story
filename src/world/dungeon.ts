@@ -645,6 +645,8 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     debugRidges(): void { /* nor any roofs */ },
     /** Nor any road furniture: the hold has no roads. */
     debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; },
+    /** ...and no fences either. See World.debugFences. */
+    debugFences(): ReturnType<World['debugFences']> { return []; },
     debugCarriedTrees(): Array<{ x: number; z: number }> { return []; },
 
     /** The enclosed hold has no sky, water, clouds or waterfall to retint. */

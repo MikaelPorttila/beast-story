@@ -17,6 +17,8 @@
  *   push=<units>           how far it is pushed sideways over that (default 3)
  *   spray=<n>              droplet budget (default 128, 0 = none)
  *   lean=<units/s>         fake a carrier's sideways motion, to see the trail
+ *   fence=<demo>           the paths and fences stage (see src/lab/paths-stage.ts):
+ *                          slope|turn|ring|gate|variants|bridge|all
  *   orbs=1                 the four taming orbs in a row, turning
  *   gap=<units>            spacing between them (default: 1.5 diameters)
  *   scale=<n>              how big each one is drawn (default 2.4)
@@ -42,6 +44,8 @@ import { tameOrbMesh, ORB_RADIUS } from '../combat/tame-orb';
 import { ITEMS, ORB_IDS } from '../core/items';
 import { buildHeroRig } from '../player/hero-rig';
 import { StubWorld } from './stub-world';
+import { buildPathsStage, groundAt, stageFraming } from './paths-stage';
+import { FENCE_POST_H, FENCE_POST_R, FENCE_RAIL_AT } from '../world/town-parts';
 import { Waterfall } from '../world/waterfall';
 import { bootstrapContent, content } from '../content';
 // See the long note at the same import in src/main.ts: the provider is imported
@@ -209,6 +213,89 @@ if (params.get('orbs') === '1') {
   subjectPos.set(0, rise, 0);
   subjectHeight = d;
   lineupWidth = span + d;
+}
+
+/**
+ * `?fence=<demo>` — the paths and fences stage (src/lab/paths-stage.ts).
+ *
+ * The one lab subject that is a piece of the WORLD rather than a body: a road,
+ * a bridge deck and a fence, over a ground field four lines long. It replaces
+ * the only way there was to look at either — load the game, walk to the one
+ * bridge the seed built — and it is what `tools/test-fence.mjs` measures.
+ *
+ * The stage brings its own ground, so the checkerboard floor goes.
+ */
+const fenceParam = params.get('fence');
+if (fenceParam) {
+  const floor = labFloor();
+  if (floor) floor.visible = false;
+  const stage = buildPathsStage(engine.scene, fenceParam);
+  const frame = stageFraming(fenceParam);
+  subjectPos.copy(frame.at);
+  subjectHeight = 3;
+  lineupWidth = frame.dist;
+  // Every post and every bay, in world coordinates. The fence invariant is a
+  // statement about numbers — a plank's ends inside the posts it joins, at a
+  // height both carry — so the probe reads them rather than a picture.
+  (window as unknown as { __dbgFence: () => unknown }).__dbgFence = () => ({
+    demo: fenceParam,
+    fences: stage.fences.map(({ label, fence: f }) => ({
+      label,
+      posts: f.posts.map((p) => ({
+        x: r3(p.x), z: r3(p.z), y: r3(p.y), base: r3(p.base), yaw: r3(p.yaw), kind: p.kind,
+        // The stage's own ground under the post, so a probe can say "this stake
+        // is planted" without a second copy of the height field.
+        ground: r3(groundAt(p.x, p.z)),
+      })),
+      bays: f.bays.map((b) => ({
+        from: b.from, to: b.to, length: r3(b.length), y: r3(b.y), planked: b.planked,
+      })),
+    })),
+    /** Deck samples, so a probe can find the span without routing a road. */
+    road: stage.road ? stage.road.pts.map((p) => ({
+      x: r3(p.x), z: r3(p.z), y: r3(p.y), bridge: p.bridge,
+    })) : null,
+    /** The kit's own metrics — what "inside the post" and "under the top" mean. */
+    kit: { postH: FENCE_POST_H, railAt: [...FENCE_RAIL_AT], postR: FENCE_POST_R },
+    /** Downward-facing triangles in the road mesh: the bridge soffit. */
+    soffit: countSoffit(engine.scene),
+  });
+}
+
+/** Three decimals is a millimetre — plenty for a fence, and readable in JSON. */
+const r3 = (n: number): number => Math.round(n * 1000) / 1000;
+
+/**
+ * How many triangles of the road mesh face DOWN, and how far under the deck
+ * the lowest of them sits.
+ *
+ * The bridge's underside is the other half of issue #105, and "is there a floor
+ * on this bridge" is not a question a screenshot answers reliably — the deck is
+ * lit from above, so a missing soffit reads as shadow until the camera is in
+ * exactly the wrong place. Counting the down-facing triangles answers it in a
+ * number: zero of them is the bug, and the count is the span's own length.
+ */
+function countSoffit(scene: THREE.Scene): { tris: number; minY: number } {
+  let tris = 0;
+  let minY = Infinity;
+  scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.name.startsWith('road:')) return;
+    const nrm = m.geometry.getAttribute('normal');
+    const pos = m.geometry.getAttribute('position');
+    const idx = m.geometry.getIndex();
+    if (!nrm || !idx) return;
+    for (let i = 0; i < idx.count; i += 3) {
+      const a = idx.getX(i);
+      if (nrm.getY(a) >= -0.5) continue;
+      tris++;
+      for (let k = 0; k < 3; k++) {
+        const y = pos.getY(idx.getX(i + k));
+        if (y < minY) minY = y;
+      }
+    }
+  });
+  return { tris, minY: Number.isFinite(minY) ? Math.round(minY * 1000) / 1000 : 0 };
 }
 
 // Skill firing needs a combat system and a stationary dummy to aim at.

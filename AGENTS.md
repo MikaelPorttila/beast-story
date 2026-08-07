@@ -161,6 +161,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Terrain, streaming | `world/terrain.ts`, `world/index.ts`, `world/chunk.ts` | `test-road`, `test-nature` |
 | Water and diving | `world/water.ts`, `world/underwater.ts` | `test-dive` |
 | Towns, roads, buildings | `world/towns.ts`, `world/roads.ts`, `world/town-parts.ts`, `world/structures.ts` | `test-road`, `test-structures` |
+| Fences and bridge railings | `world/fences.ts` (the chain), `world/town-parts.ts` (the kit) | `test-fence` |
 | Moving world pieces | `world/carriers.ts`, `world/sky-island.ts` | `test-carrier` |
 | Vegetation, wind | `world/nature.ts`, `world/props.ts`, `world/sway.ts` | `test-nature`, `test-sway` |
 | People | `world/npc.ts` + a file per body | `test-npc`, `test-zfight` (carried-frame NPCs have no behavioural guard) |
@@ -268,6 +269,11 @@ Content is DATA; the engine implements reusable BEHAVIOUR.
   `SkillDef.targeting`.
 - **Towns are landmarks, not zones** — you walk in and out and nothing loads.
 - **A safe zone is a spawn rule, not a wall.** A hunter follows you across it.
+- **A fence is a PATH, not a row of panels.** Everything post-and-rail goes
+  through `buildFence` (`world/fences.ts`): the caller hands over the line it
+  means and the system chooses the posts, bounds the gaps and measures each
+  plank against the gap it actually spans. A fixed-length panel stamped at a
+  caller's own interval is issue #105 in every one of its forms.
 - **Build a settlement the way you build a body**: a builder paints a voxel
   model and the collider is measured off it, so a shape is never authored twice.
   A roof is a ridge cylinder (bracket its paint loop with `VoxelModel.region`),

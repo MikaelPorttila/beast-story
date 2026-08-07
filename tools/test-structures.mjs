@@ -451,8 +451,14 @@ async function run(solids, geom = null) {
 const BUDGET = {
   //           colliders   of which roofs
   encampment: { total: 64, roofs: 5 },   // 3 huts, 2 ridge tents, 59 boxes
-  redbriar: { total: 39, roofs: 1 },     // 1 hut
-  stonewatch: { total: 26, roofs: 1 },   // 1 hut
+  // THE TWO HAMLETS MOVED BY 2 EACH, and the reason is worth the line: their
+  // paddock arc is now a fence CHAIN (world/fences.ts, issue #105) instead of
+  // seven fixed panels, and a chain's collider is one box per bay — the top
+  // plank, which spans its bay end to end. Measured 38 -> 40 boxes at redbriar
+  // and 25 -> 27 at stonewatch; the posts and the lower plank carry no collider
+  // at all, so the count is the number of BAYS and nothing else.
+  redbriar: { total: 41, roofs: 1 },     // 1 hut
+  stonewatch: { total: 28, roofs: 1 },   // 1 hut
 };
 /**
  * How far a roof cylinder may stand off its own thatch, world units.

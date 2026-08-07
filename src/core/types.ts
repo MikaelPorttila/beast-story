@@ -1070,6 +1070,25 @@ export interface World {
    */
   debugFurniture(): Array<{ kind: string; x: number; z: number }>;
   /**
+   * Debug: every fence the road pass built, as its posts and its bays.
+   *
+   * A FENCE IS A CHAIN AND ITS BUG IS A GAP, so the readout is the chain rather
+   * than a list of pieces: `posts` in order, `bays` joining adjacent pairs, and
+   * per bay whether it carries planks (a refused bay is a field gate — see
+   * world/fences.ts). `tools/test-fence.mjs` asserts issue #105's invariant off
+   * exactly this — every plank inside the two posts it joins, at a height both
+   * of them reach — and it runs the same check over the lab stage's fences and
+   * over these, so the world is asserted rather than only the demo.
+   *
+   * Road fences and bridge railings only: a layout's own fences (a hamlet's
+   * paddock arc) are built inside a `TownLayout`, which returns a site and not a
+   * report. Allocates; never called per frame.
+   */
+  debugFences(): Array<{
+    posts: Array<{ x: number; z: number; y: number; base: number; kind: string }>;
+    bays: Array<{ from: number; to: number; length: number; y: number; planked: boolean }>;
+  }>;
+  /**
    * Debug: every tree a CARRIED settlement planted, in WORLD space and as of
    * this instant — empty where nothing is being carried.
    *

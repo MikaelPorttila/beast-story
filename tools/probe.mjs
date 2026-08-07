@@ -138,6 +138,10 @@ const SOLO = new Set([
   // loads, half of them screenshots.
   'waterfall',
   'daynight',      // waits on a live clock and measures the 0.5 s light cadence
+  // Reads two pages and drives nothing, so on the face of it it belongs below —
+  // but one of them is the GAME booted to `playing`, and SOLO is the default
+  // until an A/B says otherwise. See the note under PARALLEL.
+  'fence',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output
