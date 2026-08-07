@@ -1159,7 +1159,15 @@ export class BeastActor {
   }
 
   wantsSupportCast(): boolean {
-    if (this.isDead || this.poofT > 0 || this.beaming || this.supportTimer > 0) return false;
+    // THE TIMER IS A CADENCE, NOT A REASON TO ATTACK (issue #124). It used to
+    // be the whole decision, so a support beast fired into empty countryside
+    // every 6-10 seconds. Either bonded animal can occupy the support slot,
+    // which made both of them appear to use skills randomly after a swap.
+    // `supportNeeded` is the existing combat-near-the-owner signal: keep the
+    // timer aging outside combat so a companion responds immediately when a
+    // fight starts, but never spend a skill until there is one to join.
+    if (!this.supportNeeded || this.isDead || this.poofT > 0
+      || this.beaming || this.supportTimer > 0) return false;
     this.supportTimer = 6 + Math.random() * 4;
     return true;
   }

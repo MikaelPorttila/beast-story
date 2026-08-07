@@ -154,6 +154,10 @@ const SOLO = new Set([
   // the path the beast walks — distances and swept bearing over 140 simulated
   // samples. Elapsed motion, and it drives state (spawn, two teleports).
   'beastaggro',
+  // Advances an enemy-free party past the support skill timer, then stages a
+  // fight and proves the same AI casts. It drives state through __dbgAdvance and
+  // __dbgSpawn, so SOLO is the default even though the run is deterministic.
+  'beastcast',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output
