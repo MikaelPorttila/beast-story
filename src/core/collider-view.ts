@@ -72,6 +72,9 @@ export class ColliderView {
   private ridgeScratch: number[] = [];
   private timer = 0;
   private visible = false;
+  private tallest = 0;
+  private carried = 0;
+  private tallSpot: { x: number; z: number; base: number; top: number } | null = null;
 
   constructor(private scene: THREE.Scene, private world: World) {
     this.group.visible = false;
@@ -110,6 +113,29 @@ export class ColliderView {
   get boxCount(): number { return this.boxScratch.length / 6; }
   /** ...and how many are roof cylinders. */
   get ridgeCount(): number { return this.ridgeScratch.length / RIDGE_STRIDE; }
+  /**
+   * The tallest cage currently drawn, base to top, in world units.
+   *
+   * THE ONE NUMBER THAT SAYS THE PICTURE IS RIGHT. A cage that reaches from a
+   * flying deck to the ground is indistinguishable from a correct one in a
+   * count, and obvious in this: nothing in the world is two hundred units tall.
+   * See `baseUnder` and issue #112.
+   */
+  get tallestCage(): number { return this.tallest; }
+  /**
+   * ...and WHERE it is, so the number is a place to look rather than a verdict.
+   * Null before the first rebuild.
+   */
+  get tallestAt(): { x: number; z: number; base: number; top: number } | null {
+    return this.tallSpot;
+  }
+  /**
+   * How many of the drawn boxes were floored on a carrier's DECK rather than on
+   * the terrain — the other half of the pair `tallestCage` is one of. "No cage
+   * is two hundred units tall" is also what an overlay that draws nothing on the
+   * flying settlement reports.
+   */
+  get carriedCount(): number { return this.carried; }
 
   update(dt: number): void {
     if (!this.visible) return;
@@ -121,6 +147,9 @@ export class ColliderView {
   }
 
   private rebuild(): void {
+    this.tallest = 0;
+    this.carried = 0;
+    this.tallSpot = null;
     this.scratch.length = 0;
     this.world.debugColliders(this.scratch);
 
@@ -141,16 +170,14 @@ export class ColliderView {
     this.boxScratch.length = 0;
     this.world.debugStructures(this.boxScratch);
     for (let i = 0; i < this.boxScratch.length; i += 6) {
+      const top = this.boxScratch[i + 5];
       this.cage(
         solidPts,
         this.boxScratch[i], this.boxScratch[i + 1],
         this.boxScratch[i + 2], this.boxScratch[i + 3],
         this.boxScratch[i + 4],
-        // The box's own base is the ground under its centre. A palisade span on
-        // a slope draws a hair into or out of the bank; that is honest, because
-        // the collider genuinely is a top and a footprint and has no skirt.
-        this.world.getHeight(this.boxScratch[i], this.boxScratch[i + 1]),
-        this.boxScratch[i + 5],
+        this.baseUnder(this.boxScratch[i], this.boxScratch[i + 1], top),
+        top,
       );
     }
 
@@ -168,6 +195,47 @@ export class ColliderView {
     this.replace('climb', climbPts);
   }
 
+  /** Keep the tallest cage of this rebuild. Both primitives report through it. */
+  private note(x: number, z: number, base: number, top: number): void {
+    const span = top - base;
+    if (span <= this.tallest) return;
+    this.tallest = span;
+    this.tallSpot = { x, z, base, top };
+  }
+
+  /**
+   * What a cage whose top is `top` stands ON at this column.
+   *
+   * THE GROUND IS NOT ALWAYS THE GROUND. A collider is a top and a footprint
+   * with no skirt (see `cage`), so the base has to be inferred, and inferring it
+   * from the terrain is right for everything that stands on terrain and wrong by
+   * a hundred and ninety units for a settlement that is flying over it: every
+   * hut, fence post and resident of the sky island drew a cage from the deck all
+   * the way down to the meadow below (issue #112). The picture reads as collision
+   * where there is none, and it is the overlay's whole vertex budget spent on
+   * struts nobody wants — the island is ~200 boxes, each one a cage that was two
+   * orders of magnitude taller than the thing it describes.
+   *
+   * So: if a carrier's body covers this column and the box sits at or above its
+   * deck, the deck is the floor. `top >= deck` is what keeps a hut on the ground
+   * UNDER a passing island from being lifted onto its deck — the island covers
+   * that column too, and the honest answer for a box down there is still the
+   * terrain.
+   */
+  private baseUnder(x: number, z: number, top: number): number {
+    const c = this.world.carriers.bodyAt(x, z);
+    if (c) {
+      const deck = c.deckAt(x, z);
+      if (deck > -Infinity && top >= deck) {
+        this.carried++;
+        return deck;
+      }
+    }
+    // A palisade span on a slope draws a hair into or out of the bank; that is
+    // honest, because the collider genuinely has no skirt.
+    return this.world.getHeight(x, z);
+  }
+
   /**
    * An oriented box as line-segment pairs: a rectangle at the base, one at the
    * top, and the four uprights joining them. Fewer rings than `ring` draws
@@ -178,6 +246,7 @@ export class ColliderView {
     out: number[], x: number, z: number, hx: number, hz: number,
     yaw: number, base: number, top: number,
   ): void {
+    this.note(x, z, base, top);
     const c = Math.cos(yaw);
     const s = Math.sin(yaw);
     // Same mapping `Accum.add` stamps with: local (lx, lz) -> world offset
@@ -250,6 +319,7 @@ export class ColliderView {
     out: number[], x: number, z: number, r: number, base: number, top: number,
   ): void {
     const span = Math.max(0.01, top - base);
+    this.note(x, z, base, top);
     for (let k = 0; k < RINGS; k++) {
       const y = base + (span * k) / (RINGS - 1);
       for (let s = 0; s < RING_SEGMENTS; s++) {
