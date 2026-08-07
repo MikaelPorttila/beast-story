@@ -601,6 +601,12 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     npcs: null,
     // Nothing in the hold moves under your feet. See World.carriers.
     carriers: NO_CARRIERS,
+    /**
+     * ...and nothing may be built in it. The hold's geometry is authored by its
+     * own plan and a camp hut dropped into it would belong to no room; the F3
+     * spawner's structure branch reads this null and says so. See DebugSpawner.
+     */
+    debugSpawn: null,
     get chunksLoaded(): number { return chunks.size; },
     get streaming(): boolean { return building !== null || queue.length > 0; },
     get pendingChunks(): number { return queue.length + (building !== null ? 1 : 0); },

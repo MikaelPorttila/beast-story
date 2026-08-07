@@ -19,7 +19,8 @@
 //      its own. A media query that undoes the floor only shows up here.
 //
 // WHAT IS EXEMPT, and why it is a list rather than a rule. The developer
-// instruments — the § console, the F2 overlay and the F3 panel — are monospace
+// instruments — the § console, the F2 overlay and the F3 Debug panel, spawner
+// tree included (`.bs-spawn-*`, which only ever renders inside it) — are monospace
 // readouts for whoever is building the game, not player-facing UI, and they are
 // deliberately dense: F3 is meant to be read BESIDE F2 without either covering
 // the world. A player never opens them. Everything else is in.
@@ -33,7 +34,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const MIN_PX = 16;
 
 /** Selector prefixes whose type is an instrument's, not the player's. */
-const DEV_ONLY = ['.bs-console', '.bs-perf'];
+const DEV_ONLY = ['.bs-console', '.bs-perf', '.bs-spawn'];
 
 // ---- pass 1: the stylesheets -------------------------------------------------
 
@@ -146,7 +147,7 @@ const undecidable = playerFacing
 const SWEEP = (min) => {
   const out = [];
   for (const el of document.querySelectorAll('body *')) {
-    if (el.closest('.bs-console,.bs-perf')) continue;
+    if (el.closest('.bs-console,.bs-perf,.bs-spawn')) continue;
     const cs = getComputedStyle(el);
     if (cs.display === 'none' || cs.visibility === 'hidden') continue;
     // Own text only — a wrapper's font-size is judged where the glyphs are.

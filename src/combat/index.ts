@@ -17,7 +17,7 @@ import { VFX } from './vfx';
 import { DamageNumbers } from './damage-numbers';
 import { elementMultiplier } from './effectiveness';
 import {
-  Enemy, enemySpecies, variantForHeight,
+  Enemy, enemySpecies, speciesOf, variantForHeight,
   MELEE_UP_REACH, MELEE_DOWN_REACH, type EnemyCtx,
 } from './enemies';
 import { Pickups } from './pickups';
@@ -1189,6 +1189,31 @@ export class CombatSystem {
       this.vfx.ring(x, gy, z, hex, 1.5, 0.5);
       this.vfx.glowPulse(x, gy + 0.6, z, hex, 1.6, 0.3);
     }
+  }
+
+  /**
+   * Put one NAMED enemy on the ground at (x, z). The F3 Debug panel's enemy
+   * branch, and nothing else in the game calls it.
+   *
+   * It deliberately obeys none of `trySpawn`'s rules — not the safe zones, not
+   * the ring, not the water test, not `SPAWN_MAX`. Every one of those exists to
+   * shape a POPULATION that appears on its own, and this is a person pointing
+   * at a spot and saying "there". Refusing to put a gloopling in a camp because
+   * the camp keeps wild ones out would be refusing the exact experiment the
+   * panel is for. The auto-spawner's own cap counts these, so a panel used
+   * heavily thins the wild population rather than adding to it — which is the
+   * behaviour you want while looking at one enemy.
+   *
+   * Returns null for an id no loaded package defines; `Enemy` throws on one, and
+   * a panel row is user input in the same sense a console argument is.
+   */
+  spawnOne(id: string, x: number, z: number): Enemy | null {
+    if (!speciesOf(id)) return null;
+    const e = new Enemy(id, variantForHeight(this.world.getHeight(x, z) - this.world.waterLevel), x, z, this.world);
+    this.scene.add(e.root);
+    this.enemies.push(e);
+    perf.count('enemies');
+    return e;
   }
 
   private killEnemy(e: Enemy, i: number): void {

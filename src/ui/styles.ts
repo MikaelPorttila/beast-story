@@ -1989,6 +1989,51 @@ const CSS = `
   padding-bottom:1px}
 .bs-perf-hint{font-size:10.5px;color:rgba(216,240,255,.42);padding:6px 4px 0;
   border-top:1px solid rgba(140,200,255,.14);margin-top:4px}
+/* Section headings. The panel now holds two unrelated tools — the renderer
+   switches and the spawner — and without a rule between them the tree reads as
+   more graphics settings. Same colour as the title bar, half its weight. */
+.bs-perf-head{font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:rgba(143,208,255,.72);padding:8px 4px 3px;margin-top:4px;
+  border-top:1px solid rgba(140,200,255,.14);user-select:none}
+.bs-perf-body > .bs-perf-head:first-child{margin-top:0;border-top:0;padding-top:0}
+
+/* ---- F3 spawner tree ---------------------------------------------------- */
+/* THE ONE TEXT FIELD IN THE HUD, and it is a developer instrument — the 16px
+   floor in AGENTS.md is for player-facing text and this is not that. 12px keeps
+   it on the same grid as the rows above it. */
+.bs-spawn-search{width:100%;box-sizing:border-box;margin:2px 0 5px;
+  background:rgba(0,0,0,.45);border:1px solid rgba(140,200,255,.24);
+  border-radius:5px;color:#eaf6ff;font:inherit;padding:4px 7px;outline:none}
+.bs-spawn-search:focus{border-color:rgba(140,200,255,.55);
+  background:rgba(0,0,0,.62)}
+.bs-spawn-search::placeholder{color:rgba(216,240,255,.35)}
+.bs-spawn-branch{display:grid;grid-template-columns:12px 1fr auto;gap:0 8px;
+  padding:3px 4px;border-radius:5px;cursor:pointer;align-items:baseline}
+.bs-spawn-branch:hover{background:rgba(140,200,255,.10)}
+.bs-spawn-caret{color:rgba(143,208,255,.8)}
+.bs-spawn-count{color:rgba(216,240,255,.45);justify-self:end}
+.bs-spawn-note{grid-column:2 / -1;font-size:10.5px;color:rgba(216,240,255,.42)}
+/* Indented under its heading, and the rule is the indent — a tree two levels
+   deep does not need a guide line as well as an offset, but with sixty rows
+   under one branch the eye needs SOMETHING vertical to run down. */
+.bs-spawn-rows{margin:1px 0 3px 12px;padding-left:8px;
+  border-left:1px solid rgba(140,200,255,.16)}
+.bs-spawn-row{display:grid;grid-template-columns:1fr auto;gap:0 10px;
+  padding:2px 4px;border-radius:4px;cursor:pointer}
+.bs-spawn-row:hover{background:rgba(140,200,255,.14)}
+/* The raw id beside the name: it is what /give and /grant want, so browsing
+   here is also how you learn the string to type there. */
+.bs-spawn-id{color:rgba(216,240,255,.38);justify-self:end;font-size:10.5px}
+/* Already bonded, already standing — the row still works, it just says the
+   effect has happened. Greyed rather than removed: a list that hid what you
+   own would change length under you as you used it. */
+.bs-spawn-row.had .bs-spawn-label{color:rgba(216,240,255,.45)}
+.bs-spawn-empty{color:rgba(216,240,255,.42);padding:3px 4px}
+/* What the last click did. One line, and it holds the previous answer until
+   the next click replaces it — a status that cleared itself would be gone
+   before you looked away from the world and back at the panel. */
+.bs-spawn-status{color:#9ef5c0;padding:0 4px 4px;min-height:1.4em;
+  white-space:pre-wrap}
 /* Draggable and resizable — see beginDrag in ui/perf-panel.ts for why a debug
    panel that cannot be moved is a debug panel covering the thing you are
    debugging. overflow:auto so a panel resized smaller than its rows scrolls
@@ -2002,7 +2047,20 @@ const CSS = `
    custom cursor is not up. See Cursors.enable. */
 body.bs-cursor * { cursor: inherit !important; }
 
-.bs-perf{overflow:visible;display:flex;flex-direction:column}
+.bs-perf{overflow:visible;display:flex;flex-direction:column;
+  /* CAPPED, because the panel grew a spawner. Eleven renderer rows with their
+     cost lines already fill about half a 900px window, and the tree under them
+     runs to ninety rows across four branches — uncapped, the hint line and the
+     south resize handles end up below the bottom of the screen with no way to
+     reach them. The body scrolls instead. --bs-vh rather than 100vh: on a
+     phone the two differ by the browser chrome, and core/viewport.ts is what
+     already measures that for every other layer. */
+  /* BORDER-BOX, and the 26px is measured rather than chosen: the panel sits at
+     top:10px, its own padding and border add 18, and the south-east resize
+     handle hangs 6px BELOW its bottom edge. At content-box and -20px the whole
+     lot came to 808 in an 800px window and that corner could not be grabbed —
+     tools/test-cursor.mjs is what says so. */
+  box-sizing:border-box;max-height:calc(var(--bs-vh, 100dvh) - 26px)}
 .bs-perf-body{overflow:auto;flex:1 1 auto;min-height:0}
 .bs-perf-title{user-select:none;flex:0 0 auto}
 .bs-perf-hint{flex:0 0 auto}

@@ -622,7 +622,7 @@ export const en = {
   'keys.cancel': 'Close · cancel',
   'keys.controls': 'This sheet',
   'keys.debugOverlay': 'Performance overlay',
-  'keys.perfPanel': 'Performance settings',
+  'keys.perfPanel': 'Debug panel',
   // Named for what it GIVES you rather than for what it costs. "Release mouse"
   // is the accurate description and reads as a warning; the player is reaching
   // for this because they want to click something. The HOLD is carried by the
@@ -861,7 +861,13 @@ export const en = {
   // between: a row of switches with no numbers on it asks somebody to guess.
   // Re-measure them when the renderer changes, the same way a tuned constant's
   // comment is re-measured; a stale number here is worse than none.
-  'gfx.title': 'Performance',
+  // The panel holds two tools now — the renderer switches below and the
+  // spawner under `spawn.*` — so the title names the panel rather than the
+  // half of it that came first. The `gfx.*` prefix stays: it is the id space
+  // `/gfx`, `__dbgGfx` and tools/test-gfx.mjs all share, and renaming a key
+  // space to match a heading is churn with a test suite attached.
+  'gfx.title': 'Debug',
+  'gfx.section.render': 'Rendering',
   'gfx.hint': '↑↓ move · ← → or Enter change · R defaults · F3 closes',
   'gfx.timeOfDay': 'Time of day',
   'gfx.timeOfDay.cost': 'debug override — Clear resumes the story clock',
@@ -899,6 +905,29 @@ export const en = {
   'gfx.clouds.cost': 'small — a few draws overhead',
   'gfx.water': 'Water surface',
   'gfx.water.cost': 'small unless you are looking at a lake',
+
+  // ---- F3 spawner ----------------------------------------------------------
+  // src/ui/perf-panel.ts's lower half, driven by the catalogue main.ts builds
+  // against core/spawn.ts. The ROWS are not here: an item's name, a beast's
+  // name and an enemy's name already have keys of their own, and the host looks
+  // each one up on its way into the tree so a language switch carries them.
+  // Only the furniture — headings, notes, results — is spelled out below.
+  'spawn.section': 'Spawn',
+  'spawn.search': 'search items, beasts, enemies, parts…',
+  'spawn.noMatch': 'nothing matches',
+  'spawn.items': 'Items',
+  'spawn.items.note': 'into the bag',
+  'spawn.beasts': 'Beasts',
+  'spawn.beasts.note': 'bonded to the party',
+  'spawn.enemies': 'Enemies',
+  'spawn.enemies.note': 'into the world, where the crosshair points',
+  'spawn.structures': 'Structures',
+  'spawn.structures.note': 'built on the ground, where the crosshair points',
+  'spawn.clear': 'Clear spawned structures',
+  'spawn.unknown': 'nothing named that',
+  'spawn.owned': 'already bonded',
+  'spawn.placed': 'placed',
+  'spawn.noStructures': 'this zone builds nothing — see World.debugSpawn',
 
   // ---- in-game menu --------------------------------------------------------
   // src/ui/pause.ts, on Escape / Start / the touch overlay's menu button.

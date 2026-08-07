@@ -142,6 +142,10 @@ const SOLO = new Set([
   // but one of them is the GAME booted to `playing`, and SOLO is the default
   // until an A/B says otherwise. See the note under PARALLEL.
   'fence',
+  // Holds WASD with the F3 search box focused and measures that the hero did
+  // NOT move, against a control hold that says he otherwise would. Both halves
+  // are held keys the frame loop has to consume — see the note above.
+  'spawn',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output
