@@ -375,6 +375,28 @@ export function buildHeroRig(): HeroRig {
 export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
   if (rig.weapon === id) return;
   rig.weapon = id;
+  // A BOW IS HELD IN THE LEFT HAND — issue #118. The bow arm holds the weapon
+  // straight out and the RIGHT hand draws the string, which is the shape an
+  // archer has; four blades and a fist all come out of the right shoulder.
+  //
+  // The mount MOVES rather than being duplicated. `sword` is the hand (see the
+  // note where it is built), and everything downstream — `FIT`, the animator's
+  // one `rig.sword.rotation` write, the material pruning above — is written
+  // against exactly one of them. A second group on `armL` would fork all three;
+  // reparenting one group forks nothing.
+  //
+  // Mirrored, not copied: the offsets that push the grip outboard of the right
+  // calf push it into the left one unless x and the yaw change sign.
+  const mount = id === 'bow' ? rig.armL : rig.armR;
+  if (rig.sword.parent !== mount) {
+    mount.add(rig.sword);
+    const left = mount === rig.armL;
+    rig.sword.position.set(left ? -0.10 : 0.10, -0.26, -0.04);
+    rig.sword.rotation.y = left ? -0.85 : 0.85;
+  }
+  // The shield lives on the left forearm, which is the hand now closed around
+  // the riser: you cannot hold both, and drawn together they intersect.
+  rig.shield.visible = id !== 'bow';
   const held = rig.sword.children[0] as THREE.Mesh | undefined;
   if (held) {
     rig.sword.remove(held);

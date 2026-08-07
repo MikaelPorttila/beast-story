@@ -236,6 +236,34 @@ const COMBO_COOLDOWN = 0.22;
 const BOW_DUR = 0.62;
 const BOW_RELEASE = 0.55;
 const BOW_COOLDOWN = 0.3;
+
+/**
+ * WHAT THE CROSSHAIR IS ON, and how far the shot will look for it.
+ *
+ * THE CAMERA IS NOT THE BOW, which is the whole of this. The follow camera sits
+ * above and behind the hero and rests pitched 17.6 degrees DOWN at him
+ * (measured off `__dbgCam`), so a shot fired along the camera's own forward —
+ * which is what every other aimed thing in this game uses, because they all
+ * home onto something afterwards — leaves the muzzle two units below where the
+ * camera thinks it is aiming and drives into the turf short of the mark.
+ *
+ * So the bow aims at a POINT, not along a direction: the ray is marched until
+ * it meets the ground, and the arrow is sent from the muzzle to THAT — the
+ * place under the crosshair, which is what a player is pointing at. A ray that
+ * meets nothing (the horizon, the sky, out over a valley) falls back to the far
+ * end of the march, so looking up shoots up.
+ *
+ * BOW_AIM_FAR is the arrow's own reach — `life` 1.6 at PROJ_SPEED 16 is 25.6
+ * units (combat/index.ts) — because a hit further away than the arrow can fly
+ * is not a thing to aim at. BOW_AIM_STEP 1 is a unit of terrain: the columns
+ * this samples are 1 unit apart, so a finer step would re-sample the same
+ * column and a coarser one could step over a wall of them. The march runs ONCE
+ * PER SHOT, on the release frame, and touches no allocation.
+ */
+const BOW_AIM_FAR = 25;
+const BOW_AIM_STEP = 1;
+/** Skip the first stride: the ground under the hero's own feet is not a target. */
+const BOW_AIM_NEAR = 3;
 const RESPAWN_TIME = 3;
 
 /**
@@ -262,6 +290,8 @@ const _hvel = new THREE.Vector3();
 const _knock = new THREE.Vector3();
 const _origin = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+/** Where the crosshair is pointing, in the world. See BOW_AIM_DIST. */
+const _aimPt = new THREE.Vector3();
 const _feet = new THREE.Vector3();
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
@@ -1530,12 +1560,43 @@ export class Player {
         // would be the one thing in the saddle that ignores where you aim.
         // MOUNTED_REACH pushes the origin out past the mount's own bulk, which
         // is what stops a swing from a 2.1-unit animal connecting with nothing.
+        // A SHOT GOES WHERE THE CROSSHAIR LOOKS, INCLUDING UP AND DOWN — issue
+        // #118. `this.forward` is the body's heading and is FLAT by
+        // construction (`forward.set(sin, 0, cos)`), so an arrow taken from it
+        // left the bow at a fixed height whatever the camera was pitched at:
+        // no shooting up at a flyer, no shooting down off a ledge, and the
+        // elevation the player had aimed with was simply discarded.
+        //
+        // Melee keeps the flat body heading: a sword arc comes out of the
+        // shoulders and is tested in the horizontal plane with a height band
+        // (see `inRise`), so pitching it would aim an arc that cannot follow.
         const mounted = this.isMounted;
         // getWorldDirection writes into the temp, so this allocates nothing.
-        if (mounted) this.engine.camera.getWorldDirection(_dir);
+        if (mounted || bow) this.engine.camera.getWorldDirection(_dir);
         else _dir.copy(this.forward);
         _origin.copy(this.position);
         _origin.y += mounted ? MOUNTED_STRIKE_Y : 1.25;
+        // The bow alone re-aims from the MUZZLE at the point the crosshair has
+        // reached — see BOW_AIM_DIST. Everything else here either homes onto a
+        // target or is an arc swung from the body, and neither cares that the
+        // camera is a couple of units above the shoulder it is aiming for.
+        if (bow) {
+          this.engine.camera.getWorldPosition(_aimPt);
+          let hit = BOW_AIM_FAR;
+          // Only a ray going DOWN can meet the heightfield inside the arrow's
+          // reach; one at or above the horizon marches the lot and finds the
+          // first hill on the far side of the valley, which is not what the
+          // player is pointing at. Same reasoning as `spawnSpot` in main.ts.
+          if (_dir.y < -0.02) {
+            for (let d = BOW_AIM_NEAR; d <= BOW_AIM_FAR; d += BOW_AIM_STEP) {
+              const x = _aimPt.x + _dir.x * d;
+              const z = _aimPt.z + _dir.z * d;
+              if (_aimPt.y + _dir.y * d <= this.world.getHeight(x, z)) { hit = d; break; }
+            }
+          }
+          _aimPt.addScaledVector(_dir, hit).sub(_origin);
+          if (_aimPt.lengthSq() > 1e-6) _dir.copy(_aimPt).normalize();
+        }
         // AIM ASSIST BEFORE THE ORIGIN IS PUSHED OUT, because the push is along
         // the swing and the swing is what is about to move. Asked from the body,
         // not from the offset point: 0.35 units cannot change which enemy is

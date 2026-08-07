@@ -20,6 +20,10 @@
 //      not the sword's 3-hit combo, so a MASH inside one cycle still yields
 //      exactly one arrow — while two presses a full cycle apart yield two, so
 //      the count is proved to be a count and not a ceiling.
+//   4. THE CROSSHAIR'S ELEVATION. Aimed up, the arrow climbs far above the
+//      muzzle it left; aimed down, it meets the ground close in. Both halves,
+//      because a shot that always climbs would pass the first on its own —
+//      and the reported bug was a flat shot, which fails both.
 //
 // COUNTING ARROWS WITHOUT AN ID. `projectileSnapshot` hands back positions and
 // no identity, so shots are counted by the one invariant an arrow has: it only
@@ -86,6 +90,11 @@ const fire = (page, { presses = 1, gapS = 0, steps = 60, step = 0.05 } = {}) => 
     let maxDist = 0;
     let maxAloft = 0;
     let speed = 0;
+    // Height of the arrow OVER THE HERO'S FEET, at its extremes. This is the
+    // elevation of the shot as a measurement: the muzzle is 1.25 up, so a climb
+    // reads well above that and a shot into the ground reads below it.
+    let riseMax = -Infinity;
+    let riseMin = Infinity;
     const table = [];
     // One sample: step the sim, then read what is in the air. `prevMin` only
     // ever rises for a given arrow, so a drop is a new one.
@@ -99,6 +108,11 @@ const fire = (page, { presses = 1, gapS = 0, steps = 60, step = 0.05 } = {}) => 
         maxAloft = Math.max(maxAloft, d.length);
         const s = window.__dbgShots().shots.find((x) => x.form === 'arrow');
         speed = Math.max(speed, s ? s.speed : 0);
+        if (s) {
+          const rise = s.y - window.__dbgPlayerPos().y;
+          riseMax = Math.max(riseMax, rise);
+          riseMin = Math.min(riseMin, rise);
+        }
       }
       table.push({ t: +t.toFixed(2), aloft: d.length, nearest: d.length ? +min.toFixed(2) : null });
     };
@@ -127,6 +141,8 @@ const fire = (page, { presses = 1, gapS = 0, steps = 60, step = 0.05 } = {}) => 
     }
     return {
       released,
+      riseMax: riseMax === -Infinity ? null : +riseMax.toFixed(2),
+      riseMin: riseMin === Infinity ? null : +riseMin.toFixed(2),
       maxDist: +maxDist.toFixed(2),
       maxAloft,
       topSpeed: +speed.toFixed(2),
@@ -209,12 +225,76 @@ try {
     `two presses 2 s apart should release 2 arrows, released ${twice.released}`,
   );
 
+  // ---------- 5. the shot takes the crosshair's ELEVATION --------------------
+  // The reported bug: the arrow left at a fixed height whatever the camera was
+  // pitched at, so there was no shooting up at anything and no shooting down
+  // off a ledge. Measured as a HEIGHT the arrow reached, not as the aim vector
+  // the code computed — and asserted in BOTH directions, because "it goes up
+  // when I look up" is equally true of a shot that always climbs.
+  //
+  // The right stick pitches the camera, and `__dbgAdvance` polls the pad on
+  // every slice it steps, so the sweep is simulated time and not wall clock.
+  // Look UP is +y on stick 3 here: invertLookY defaults ON (tools/test-gamepad).
+  //
+  // AIMED AT A PITCH, not held for a duration: the camera's travel is clamped
+  // at either end and the sweep starts from wherever the last section left it,
+  // so "push the stick for 1.05 s" lands somewhere different every time it is
+  // asked — first at -0.32 when -0.6 was wanted, then pinned at the -0.93
+  // clamp. Pushing until the reading arrives is the same instrument the
+  // assertions use.
+  const aimTo = (goal) => page.evaluate((goal) => {
+    for (let i = 0; i < 120; i++) {
+      const y = window.__dbgCam().dir.y;
+      if (Math.abs(y - goal) < 0.04) break;
+      window.__fakePad.axes[3] = y < goal ? 1 : -1;
+      window.__dbgAdvance(0.05);
+    }
+    window.__fakePad.axes[3] = 0;
+    window.__dbgAdvance(0.1);
+    return window.__dbgCam().dir.y;
+  }, goal);
+
+  await equip(page, BOW);
+  const upAim = await aimTo(0.5);
+  const up = await fire(page, { presses: 1 });
+  results.aimedUp = { camDirY: +upAim.toFixed(3), ...up, table: undefined };
+  check(upAim > 0.15, `looking up should pitch the camera up, camera dir.y ${upAim}`);
+  // Well above the 1.25 muzzle and still climbing at the end of the samples:
+  // an arrow that merely left the bow at chest height cannot reach this.
+  check(
+    up.riseMax > 3,
+    `aimed up, the arrow should climb well over the muzzle, peaked ${up.riseMax} over the feet`,
+  );
+
+  // A HALF-SWEEP DOWN, not the full one � and it starts from the UP pitch the
+  // section above left behind, which is why it is longer than that sweep. At
+  // the bottom of the camera's travel the arrow dies inside a single 0.05 s
+  // sample and this would pass on having seen nothing at all, which is not the
+  // same claim; this lands around -0.6, with room to watch the shot into the
+  // ground.
+  const downAim = await aimTo(-0.6);
+  const down = await fire(page, { presses: 1 });
+  results.aimedDown = { camDirY: +downAim.toFixed(3), ...down, table: undefined };
+  check(downAim < -0.45, `looking down should pitch the camera down, camera dir.y ${downAim}`);
+  // The other half, and it has to be watched rather than merely absent: the
+  // arrow is released, seen, drops below the muzzle it left from, and meets the
+  // ground far short of the shot that was aimed up.
+  check(
+    down.released === 1 && down.riseMin !== null && down.riseMin < 1
+    && down.maxDist < up.maxDist / 2,
+    `aimed down, the arrow should dive into the ground: released ${down.released}, `
+    + `floor ${down.riseMin} over the feet, reached ${down.maxDist} against ${up.maxDist} up`,
+  );
+
   results.assertions = {
     bowFiresAnArrow: bow.released === 1 && bow.maxAloft >= 1,
     swordFiresNothing: sword.released === 0 && sword.maxAloft === 0,
     arrowOutrangesTheSword: bow.maxDist > SWORD_REACH,
     onePressOneArrow: mash.released === 1,
     twoPressesTwoArrows: twice.released === 2,
+    aimUpFliesUp: up.riseMax > 3,
+    aimDownHitsTheGround: down.released === 1 && down.riseMin !== null
+      && down.riseMin < 1 && down.maxDist < up.maxDist / 2,
   };
   await page.close();
 } finally {

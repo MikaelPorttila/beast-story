@@ -126,18 +126,17 @@ const PUNCHES: Array<[SwingPose, SwingPose]> = [
  * the bow's own clock — see `evalDraw`, and `BOW_RELEASE` in index.ts, which is
  * the frame the arrow actually leaves.
  *
- * HELD IN THE RIGHT HAND, so the LEFT one draws the string. Every weapon in
- * this game hangs in `rig.sword`, which is a child of `armR` (see hero-rig.ts),
- * and moving the bow to the other arm for realism's sake would fork the mount,
- * the FIT table and every pose that positions a weapon. The hero is a
- * left-handed archer instead: the silhouette — one arm out along the shot, the
- * other elbow high and back — is the read, and it is the same read mirrored.
+ * HELD IN THE LEFT HAND, and `setWeaponModel` reparents the hand mount onto
+ * `armL` to put it there — see hero-rig.ts. So this table is the one place in
+ * the file where the LEFT arm leads and the right one is the working hand.
  *
- * `aRX` -1.62 is the bow arm straight out along the aim (-PI/2 is horizontal;
- * the swim cycle's -1.5 is the same neighbourhood). `aLZ` -1.35 lifts the
- * drawing elbow out to the side, which is the whole of what makes it archery
- * rather than a man pointing: this rig has no `aLY`, so "back" has to be
- * spelled with the roll it does have.
+ * `aLX` -1.62 is the bow arm straight out along the aim (-PI/2 is horizontal;
+ * the swim cycle's -1.5 is the same neighbourhood), held nearly on the body's
+ * centre line with `aLZ` near zero — an archer's bow arm is locked, and any
+ * roll in it reads as the bow drifting off the shot. `aRZ` 1.3 lifts the
+ * DRAWING elbow out to the side, which is the whole of what makes it archery
+ * rather than a man pointing: `aRY` is the only second axis either shoulder
+ * has, so "back" is mostly spelled with the roll.
  *
  * `swX` is the WEAPON in the hand, and it is the number this pose actually
  * turns on: the limbs have to STAND UP across the shot, or the bow reads as a
@@ -148,8 +147,8 @@ const PUNCHES: Array<[SwingPose, SwingPose]> = [
  * rest it is 2.62, hanging down the leg; every swing keyframe is 1.35 or more.)
  */
 const DRAW: SwingPose = {
-  aRX: -1.62, aRY: 0.06, aRZ: 0.1, aLX: -0.28, aLZ: -1.35,
-  tY: 0.24, swX: 0.9, swZ: 0.1, bRX: 0.04, bY: 0,
+  aLX: -1.62, aLZ: -0.06, aRX: -0.3, aRY: -0.25, aRZ: 1.3,
+  tY: -0.22, swX: 0.9, swZ: 0.1, bRX: 0.04, bY: 0,
 };
 /**
  * LOOSED. The bow arm holds its line — an archer does not drop the bow on the
@@ -157,8 +156,8 @@ const DRAW: SwingPose = {
  * the arrow went — while the drawing hand snaps open and back past the ear.
  */
 const LOOSE: SwingPose = {
-  aRX: -1.55, aRY: 0.04, aRZ: 0.12, aLX: -0.05, aLZ: -1.15,
-  tY: 0.16, swX: 0.9, swZ: 0.1, bRX: 0.1, bY: -0.02,
+  aLX: -1.55, aLZ: -0.04, aRX: -0.05, aRY: -0.35, aRZ: 1.15,
+  tY: -0.14, swX: 0.9, swZ: 0.1, bRX: 0.1, bY: -0.02,
 };
 
 const _swing: SwingPose = { ...READY };
