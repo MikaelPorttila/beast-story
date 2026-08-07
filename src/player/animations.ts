@@ -43,6 +43,19 @@ export interface AnimInput {
    * dagger swing, and only these two do something else.
    */
   bow: boolean;
+  /**
+   * THE LOOK LAYER — issue #2. Solved by `LookChain` (player/look-chain.ts) and
+   * ADDED over whatever pose this animator computed, rather than replacing it:
+   * a hero strafing with a bow drawn keeps the run cycle in his legs and the
+   * breath in his chest and turns his shoulders and head onto the shot on top
+   * of it. Already smoothed and already clamped by the chain, so nothing here
+   * damps them a second time — a joint damped twice arrives late and reads as
+   * the head lagging the aim.
+   */
+  lookTorsoYaw: number;
+  lookHeadYaw: number;
+  /** Positive is DOWN, the same sign as `head.rotation.x`. */
+  lookHeadPitch: number;
 }
 
 // -- easing ----------------------------------------------------------------
@@ -448,9 +461,11 @@ export class HeroAnimator {
     rig.body.rotation.x = this.bRX;
     rig.body.rotation.z = this.bRZ;
     rig.body.scale.set(this.sclXZ, this.sclY, this.sclXZ);
-    rig.torso.rotation.y = this.tY;
-    rig.head.rotation.x = this.hX;
-    rig.head.rotation.y = this.hY;
+    // The look layer rides ON TOP of the posed angles, and only here: every
+    // number above is the animation, every number added below is the aim.
+    rig.torso.rotation.y = this.tY + s.lookTorsoYaw;
+    rig.head.rotation.x = this.hX + s.lookHeadPitch;
+    rig.head.rotation.y = this.hY + s.lookHeadYaw;
     rig.armL.rotation.x = this.aLX;
     rig.armL.rotation.z = this.aLZ;
     rig.armR.rotation.x = this.aRX;

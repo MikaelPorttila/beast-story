@@ -476,6 +476,12 @@ function heroIdle(time: number, dt: number): AnimInput {
     // above (SHOW_X/Y/Z), which is why a bow on show needs nothing from here.
     unarmed: false,
     bow: false,
+    // Squared up to the lens. The look chain is the hero AIMING (issue #2) and
+    // there is nothing on this stage to aim at; a doll turned in the display
+    // case is a bug in the display case.
+    lookTorsoYaw: 0,
+    lookHeadYaw: 0,
+    lookHeadPitch: 0,
   };
 }
 

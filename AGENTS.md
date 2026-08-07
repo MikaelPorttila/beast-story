@@ -171,6 +171,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Combat, enemies, drops | `combat/index.ts`, `combat/enemies.ts`, `combat/pickups.ts` | `test-safezone`, `test-aim-assist`, `test-inventory` |
 | "Is the player close?" | `inReach` / `inRise` in `core/types.ts`, and every caller | `test-proximity` |
 | Hero, camera, mount, weapons | `player/*` | `test-dive`, `test-structures`, `test-inventory`, `test-npc` |
+| Layered look/aim (legs → torso → head) | `player/look-chain.ts`, applied in `player/index.ts`, added over the pose in `player/animations.ts` | `test-look` |
 | Input devices | `core/input.ts`, `core/gamepad.ts`, `core/touch.ts` | `test-touch`, `test-gamepad` |
 | HUD, menus, panels | `ui/*` (DOM overlay, `bs-*` class names) | `test-menu`, `test-pause`, `test-textsize`, `test-viewport`, `test-cursor` |
 | F3 Debug panel and its spawner | `ui/perf-panel.ts`, `core/gfx.ts`, `core/spawn.ts` | `test-gfx`, `test-spawn` |

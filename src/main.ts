@@ -2610,6 +2610,11 @@ interface DebugProbes {
     dir: { x: number; y: number; z: number };
   };
   __dbgCamYaw: () => number;
+  __dbgLook: () => {
+    baseDeg: number; torsoDeg: number; headDeg: number; headPitchDeg: number;
+    torsoWorldDeg: number; headWorldDeg: number; crosshairDeg: number;
+    limits: { torso: number; head: number; headPitch: number };
+  };
 }
 (window as unknown as DebugProbes).__dbgPlayerPos = () => ({
   x: player.position.x, y: player.position.y, z: player.position.z,
@@ -2632,6 +2637,40 @@ const _hurtFrom = new THREE.Vector3();
     // pinned there (proved pixel-wise by tools/test-crosshair.mjs), so this
     // vector IS the crosshair ray. It is what a mounted cast aims along.
     dir: { x: _dbgDir.x, y: _dbgDir.y, z: _dbgDir.z },
+  };
+};
+/**
+ * THE LOOK CHAIN, in degrees — issue #2. Legs, torso off the legs, head off the
+ * torso, and the crosshair all in one read, so a probe can assert the limits
+ * (`torsoDeg` never past 45, `headDeg` never past 75) AND that they are being
+ * used (`torsoWorldDeg` on the crosshair while the base is not).
+ *
+ * Every angle is signed and already wrapped to the shortest arc, because the
+ * assertions are about magnitudes either side of zero and a probe that has to
+ * unwrap 359 degrees itself gets it wrong once per suite.
+ */
+(window as unknown as DebugProbes).__dbgLook = () => {
+  const wrap = (r: number): number => {
+    let a = r;
+    while (a > Math.PI) a -= Math.PI * 2;
+    while (a < -Math.PI) a += Math.PI * 2;
+    return +((a * 180) / Math.PI).toFixed(2);
+  };
+  const look = player.look;
+  engine.camera.getWorldDirection(_dbgDir);
+  return {
+    baseDeg: wrap(player.facing),
+    torsoDeg: wrap(look.torsoYaw),
+    headDeg: wrap(look.headYaw),
+    headPitchDeg: wrap(look.headPitch),
+    torsoWorldDeg: wrap(player.aimYaw),
+    headWorldDeg: wrap(player.aimYaw + look.headYaw),
+    crosshairDeg: wrap(Math.atan2(_dbgDir.x, _dbgDir.z)),
+    limits: {
+      torso: +((look.cfg.torsoYaw * 180) / Math.PI).toFixed(2),
+      head: +((look.cfg.headYaw * 180) / Math.PI).toFixed(2),
+      headPitch: +((look.cfg.headPitch * 180) / Math.PI).toFixed(2),
+    },
   };
 };
 /**
@@ -3181,9 +3220,12 @@ function nearestEnemyOfSpecies(species: string) {
       // probe can see at `distance` 1.5 and `rise` 6 is the bug in issue #78.
       rise: +(e.position.y - player.position.y).toFixed(2),
       angleFromCrosshair: deg(Math.abs(shortest(bearing(dx, dz) - aim))),
-      turn: deg(Math.abs(shortest(
-        bearing(dx, dz) - bearing(player.forward.x, player.forward.z),
-      ))),
+      // How far the SWING would have to turn — off the shoulders, which is
+      // where the arc is thrown from and what `player.aimYaw` answers for. It
+      // read `player.forward` until issue #2 gave the torso a yaw of its own;
+      // the two agree except while he is moving and aiming at once, and there
+      // the feet are no longer where the sword is.
+      turn: deg(Math.abs(shortest(bearing(dx, dz) - player.aimYaw))),
     };
   };
   return {

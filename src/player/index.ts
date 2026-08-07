@@ -9,6 +9,7 @@ import type { WeaponModelId } from './weapons';
 import { ThirdPersonCamera } from './camera';
 import { HeroAnimator, type AttackState } from './animations';
 import { DustSystem } from './dust';
+import { LookChain, shortestArc } from './look-chain';
 
 // -- tuning ----------------------------------------------------------------
 const WALK_SPEED = 6;
@@ -418,6 +419,30 @@ export class Player {
    */
   readonly cam = new ThirdPersonCamera();
   private animator = new HeroAnimator();
+  /**
+   * WHERE HE IS LOOKING, layered over where he is walking — issue #2.
+   *
+   * The limits are the issue's: 45 degrees of torso off the legs, 75 of head
+   * off the torso, 40 of head pitch. `torsoLead` is 1 because the hero only
+   * tracks anything while he is AIMING, and the arms hang off the torso: a bow
+   * carried by a head that has turned on its own is not pointing at the target.
+   * A glance would set it to 0 and the same object would do that instead.
+   *
+   * `track` 9 brings the shoulders onto a new bearing in about a fifth of a
+   * second, which is a snap-to-aim without a snap; `release` 3.5 unwinds over
+   * about half a second, because a body relaxes slower than it turns. `base`
+   * 4.5 is deliberately below TURN_RATE — the legs are the LAST thing to give,
+   * so the shoulders are always seen to reach their limit before the feet move.
+   */
+  readonly look = new LookChain({
+    torsoYaw: (45 * Math.PI) / 180,
+    headYaw: (75 * Math.PI) / 180,
+    headPitch: (40 * Math.PI) / 180,
+    torsoLead: 1,
+    track: 9,
+    release: 3.5,
+    base: 4.5,
+  });
   private dust: DustSystem;
 
   private time = 0;
@@ -642,6 +667,10 @@ export class Player {
     this.root.rotation.y = this.heading;
     this.forward.set(Math.sin(this.heading), 0, Math.cos(this.heading));
     this.cam.yaw = start.yaw;
+    // Untwist. The opening shot is composed on his heading, and a torso left
+    // turned by whatever he was aiming at last session would be in every frame
+    // of it.
+    this.look.reset();
   }
 
   private respawn(): void {
@@ -656,6 +685,7 @@ export class Player {
     this.velocity.set(0, 0, 0);
     this.position.copy(this.world.spawnPoint);
     this.position.y = this.world.getHeight(this.position.x, this.position.z);
+    this.look.reset();
     this.bus.emit({ type: 'playerRevived' });
     this.bus.emit({ type: 'toast', text: t('toast.revived') });
   }
@@ -827,6 +857,18 @@ export class Player {
       for (const m of this.rig.materials) m.emissive.setRGB(0, 0, 0);
     }
 
+    // ---- look layer ----
+    // ONE CALL FOR EVERY PATH the branch above can take — alive, mounted, dead
+    // — so the chain can never be left frozen mid-turn by a state that forgot
+    // to tick it. It is tracked only while he is aiming ON HIS OWN FEET: in the
+    // saddle the heading belongs to the mount and the rider's shot already goes
+    // down the crosshair, and a corpse looks at nothing.
+    this.updateLook(
+      dt,
+      (this.attack.active || input.attackHeld)
+      && !this.isDead && !this.isMounted && !this.isClimbing && !this.isSwimming,
+    );
+
     this.animator.update(this.rig, {
       time: this.time,
       dt,
@@ -845,6 +887,9 @@ export class Player {
       hurtT: this.hurtT,
       unarmed: this.rig.weapon === null,
       bow: this.rig.weapon === 'bow',
+      lookTorsoYaw: this.look.torsoYaw,
+      lookHeadYaw: this.look.headYaw,
+      lookHeadPitch: this.look.headPitch,
     });
 
     this.dust.update(dt, this.time);
@@ -1314,15 +1359,22 @@ export class Player {
     this.moveSpeedNorm = clamp(hspeed / WALK_SPEED, 0, 1);
 
     // ---- facing ----
+    // THE LEGS ARE THE MOVEMENT DIRECTION — issue #2. Moving is tested BEFORE
+    // aiming, which is the whole change: a hero strafing with a bow drawn used
+    // to swing his whole body onto the crosshair and run sideways, and now his
+    // feet go where he is going and the look chain below turns the half of him
+    // that is aiming. Standing still and aiming is unchanged — there is no
+    // movement direction to keep, so the base still squares up to the shot, and
+    // a melee lunge comes out of a body already facing it.
     let targetHeading = this.heading;
     if (this.isClimbing) {
       // square up to the rock: the animator reaches along local -z/+y, so the
       // hands only land on the face if the whole rig is turned to it.
       targetHeading = Math.atan2(this.climbDirX, this.climbDirZ);
-    } else if (this.attack.active || input.attackHeld) {
-      targetHeading = Math.atan2(this.cam.forward.x, this.cam.forward.z);
     } else if (moving) {
       targetHeading = Math.atan2(_wish.x, _wish.z);
+    } else if (this.attack.active || input.attackHeld) {
+      targetHeading = Math.atan2(this.cam.forward.x, this.cam.forward.z);
     }
     this.heading = dampAngle(this.heading, targetHeading, TURN_RATE, dt);
     this.root.rotation.y = this.heading;
@@ -1341,6 +1393,42 @@ export class Player {
       this.dust.emit(_feet, 11, dt);
     }
   }
+
+  /**
+   * Turn the shoulders and the head onto the crosshair, and let the feet chase
+   * whatever is left over — issue #2.
+   *
+   * The chain reports `baseTurn` rather than applying it, because the legs are
+   * the movement direction and that belongs to `finishAlive`; this is the one
+   * place it is spent. `forward` is re-derived from the new heading in the same
+   * breath, so nothing downstream can read a heading and a forward that
+   * disagree by a frame.
+   */
+  private updateLook(dt: number, aiming: boolean): void {
+    // `cam.pitch` is the arm's elevation and is positive when the camera sits
+    // ABOVE the hero, which is the same sign as looking down — and `rotation.x`
+    // on the head pivot is positive down too, so it carries across unchanged.
+    this.look.update(
+      dt,
+      this.heading,
+      aiming
+        ? { yaw: Math.atan2(this.cam.forward.x, this.cam.forward.z), pitch: this.cam.pitch }
+        : null,
+    );
+    if (this.look.baseTurn !== 0) {
+      this.heading += this.look.baseTurn;
+      this.root.rotation.y = this.heading;
+      this.forward.set(Math.sin(this.heading), 0, Math.cos(this.heading));
+    }
+  }
+
+  /**
+   * Where the SHOULDERS are pointing: the base heading plus the torso's own
+   * yaw. This — not `facing` — is where a swing comes from and where an arrow
+   * is nocked, because both hang off the torso. The two are the same number
+   * whenever the look chain is at rest, which is every frame he is not aiming.
+   */
+  get aimYaw(): number { return this.heading + this.look.torsoYaw; }
 
   // ---- climbing -----------------------------------------------------------
 
@@ -1572,8 +1660,15 @@ export class Player {
         // (see `inRise`), so pitching it would aim an arc that cannot follow.
         const mounted = this.isMounted;
         // getWorldDirection writes into the temp, so this allocates nothing.
+        //
+        // ON FOOT THE ARC COMES OUT OF THE SHOULDERS, not out of the feet —
+        // issue #2. `forward` is the base heading, which is now the direction
+        // he is WALKING; the sword is in a hand on the torso, and the torso is
+        // the half of him that turned onto the crosshair. They differ only
+        // while he is moving and aiming at once, and that is exactly the case
+        // where swinging along the feet cut at thin air.
         if (mounted || bow) this.engine.camera.getWorldDirection(_dir);
-        else _dir.copy(this.forward);
+        else _dir.set(Math.sin(this.aimYaw), 0, Math.cos(this.aimYaw));
         _origin.copy(this.position);
         _origin.y += mounted ? MOUNTED_STRIKE_Y : 1.25;
         // The bow alone re-aims from the MUZZLE at the point the crosshair has
@@ -1615,8 +1710,17 @@ export class Player {
         // On foot only. In the saddle the heading belongs to the mount, and the
         // rider's swing already goes down the crosshair rather than along his
         // body — see the note above.
+        //
+        // The look chain is REBASED by the same jump, so the snap moves the
+        // legs under him and leaves the shoulders and the head pointing exactly
+        // where they already were. Without that, a lunge would drag the whole
+        // upper body round with the feet in one frame — the single sudden
+        // rotation the constraint system exists to prevent (issue #2) — and it
+        // would overshoot the target by the torso offset into the bargain.
         if (steered && !mounted) {
-          this.heading = Math.atan2(_dir.x, _dir.z);
+          const snapped = Math.atan2(_dir.x, _dir.z);
+          this.look.rebase(shortestArc(snapped - this.heading));
+          this.heading = snapped;
           this.root.rotation.y = this.heading;
           this.forward.set(Math.sin(this.heading), 0, Math.cos(this.heading));
         }

@@ -91,6 +91,10 @@ const SOLO = new Set([
   'journal',
   'structures',    // walk distances into colliders
   'npc',           // walks to a talk range
+  // Holds a pad stick and an attack for seconds at a time and reads joint
+  // angles off the frame that produced them. Measured motion, and it drives the
+  // hero — either half of that is SOLO on its own.
+  'look',
   'road',          // drives the hero along a carriageway
   'gfx',           // draw-call counts under a live frame cap
   'sway',          // measured: mover count and area radius move under load
