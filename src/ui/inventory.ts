@@ -41,6 +41,12 @@ import { InventoryStage } from './inventory-stage';
  * A left PRESS picks the row up (see `onPointerDown`) and a left click that
  * moved nowhere only SELECTS. Nothing destructive is one click from anything.
  *
+ * A GEAR SLOT IS A REAL SLOT, and what is in one is not on the wall as well
+ * (issue #116). The host decides that — see `inventoryModel` — and what the
+ * panel owes it is a way to SELECT a gear slot, because the footer is where an
+ * equipped row's Unequip button lives and the wall no longer has a copy of that
+ * row to click.
+ *
  * THE DRAG IS POINTER EVENTS AND NOT HTML5 DRAG-AND-DROP (issue #116). The
  * native gesture could only ever say "this row was dropped on that element",
  * which is enough to equip and not enough to REARRANGE — a wall the player
@@ -434,7 +440,14 @@ export class InventoryPanel {
     const shown = (e: InvEntry | null): boolean =>
       e !== null && (this.tab === null || e.kind === this.tab);
     const list = cells.filter((e) => shown(e)) as InvEntry[];
-    let sel = list.find((e) => e.id === this.selected) ?? null;
+    // THE SELECTION MAY BE IN A GEAR SLOT and not on the wall at all, since what
+    // is equipped stopped being drawn twice: the footer is where an equipped
+    // row's Unequip lives, and a phone with no right-click has no other way to
+    // reach it. Falls back to the first row on the wall, as it always did.
+    let sel = this.selected === null ? null
+      : list.find((e) => e.id === this.selected)
+        ?? model.gear.find((g) => g.entry?.id === this.selected)?.entry
+        ?? null;
     if (!sel) sel = list[0] ?? null;
     this.selected = sel?.id ?? null;
 
@@ -508,6 +521,7 @@ export class InventoryPanel {
       const cls = ['gs'];
       if (e) cls.push('full');
       if (e?.rarity) cls.push(`r-${e.rarity}`);
+      if (e && e.id === this.selected) cls.push('sel');
       return `<button class="${cls.join(' ')}" type="button" data-gear="${slot}"` +
         (e ? ` data-sel="${escapeHtml(e.id)}"` : '') +
         ` style="--el:${hexColor(e?.color ?? 0x64748b)}">` +
@@ -867,9 +881,15 @@ export class InventoryPanel {
       return offers(want) ? { host: gear, action: want } : null;
     }
     const cell = el.closest('[data-slot]') as HTMLElement | null;
-    if (cell && !this.fromGear) {
+    if (cell) {
       const slot = Number(cell.dataset.slot);
-      return Number.isFinite(slot) ? { host: cell, slot } : null;
+      if (!Number.isFinite(slot)) return null;
+      // OFF A GEAR SLOT ONTO A CELL is both things at once: take it off, and
+      // put it THERE. The host's unequip drops it back on the wall wherever
+      // there is room, and the cell the player let go over is the one they
+      // meant — so the move follows the action rather than replacing it.
+      if (this.fromGear) return offers('unequip') ? { host: cell, action: 'unequip', slot } : null;
+      return { host: cell, slot };
     }
     const grid = el.closest('.grid');
     if (grid && this.fromGear) return offers('unequip') ? { host: grid, action: 'unequip' } : null;
@@ -889,7 +909,8 @@ export class InventoryPanel {
     this.endDrag();
     if (!hit) return;
     if (hit.action) this.run(id, hit.action);
-    else if (hit.slot !== undefined) this.move(id, hit.slot);
+    // Both, in that order, for a gear slot emptied onto a cell — see `dropTarget`.
+    if (hit.slot !== undefined) this.move(id, hit.slot);
   };
 
   private onPointerCancel = (): void => { this.endDrag(); };
@@ -1011,10 +1032,13 @@ export class InventoryPanel {
     const el = this.focusables[this.focusIdx];
     el.focus();
     // Selecting as the cursor passes is what makes the footer follow a pad
-    // without a press — but only for a SLOT, or arrowing onto Salvage would
-    // change what Salvage is pointed at.
+    // without a press — but only for a box that HOLDS something, or arrowing
+    // onto Salvage would change what Salvage is pointed at. A gear slot counts:
+    // it is where an equipped row is selected from now that it is not on the
+    // wall as well, and a pad has no other route to Unequip.
     const sel = el.dataset.sel;
-    if (sel !== undefined && el.classList.contains('slot') && sel !== this.selected) {
+    const box = el.classList.contains('slot') || el.dataset.gear !== undefined;
+    if (sel !== undefined && box && sel !== this.selected) {
       this.selected = sel;
       this.pendingFocus = `[data-sel="${sel}"]`;
       this.render();

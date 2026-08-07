@@ -66,7 +66,7 @@ import { StartMenu } from './ui/menu';
 import { PauseMenu } from './ui/pause';
 import {
   InventoryPanel,
-  type InvAction, type InvEntry, type InvStat, type InventoryModel,
+  type InvAction, type InvEntry, type InvStat, type InventoryModel, type GearSlotView,
 } from './ui/inventory';
 import {
   JournalPanel,
@@ -1594,29 +1594,53 @@ function inventoryModel(): InventoryModel {
     });
   }
 
-  // WHERE EACH ROW SITS, and the end of the sort this function used to be
-  // (issue #116). The order above is now only the order a row is handed its
-  // first free cell in — after that the layout answers, and the player is the
-  // only thing that moves anything. Sorted on the answer so the panel's own
-  // fallbacks (first row selected, keyboard order) read down the wall.
-  slots.reconcile(entries.map((e) => e.id));
-  for (const e of entries) e.slot = slots.slotOf(e.id);
-  entries.sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
-
   const byId = (id: string | null): InvEntry | null =>
     (id === null ? null : entries.find((x) => x.id === id) ?? null);
   const slotFor = (b: BeastActor | null): InvEntry | null =>
     (b === null ? null : byId(beastItemId(b)));
 
-  return {
-    gear: [
-      { slot: 'weapon', entry: byId(equippedWeapon) },
-      { slot: 'primary', entry: slotFor(primary()) },
-      { slot: 'support', entry: slotFor(support()) },
-      { slot: 'orb', entry: byId(readiedOrb) },
-    ],
-    entries,
-  };
+  const gear: GearSlotView[] = [
+    { slot: 'weapon', entry: byId(equippedWeapon) },
+    { slot: 'primary', entry: slotFor(primary()) },
+    { slot: 'support', entry: slotFor(support()) },
+    { slot: 'orb', entry: byId(readiedOrb) },
+  ];
+
+  /**
+   * A GEAR SLOT IS A REAL SLOT: what is in it is not also on the wall.
+   *
+   * The sword in the hero's hand used to be drawn twice — once in the weapon
+   * slot and once in the bag, with a green dot to say so — which reads as two
+   * swords and makes the wall's count a lie. A slot holds ONE UNIT, so what
+   * comes off the wall is one unit: a beast (there is only ever one) leaves it
+   * entirely, and a stack of four orbs with one readied shows THREE, because
+   * three is how many are still in the bag. The row keeps its id, its actions
+   * and its equipped mark, so the spares are still what you unready through.
+   */
+  const claimed = new Set(gear.map((g) => g.entry?.id).filter((id): id is string => !!id));
+  const wall: InvEntry[] = [];
+  for (const e of entries) {
+    if (!claimed.has(e.id)) { wall.push(e); continue; }
+    const left = e.count - 1;
+    if (left <= 0) continue;
+    wall.push({ ...e, count: left, name: itemName(itemDef(e.id), left) });
+  }
+
+  // WHERE EACH ROW SITS, and the end of the sort this function used to be
+  // (issue #116). The order above is now only the order a row is handed its
+  // first free cell in — after that the layout answers, and the player is the
+  // only thing that moves anything. Sorted on the answer so the panel's own
+  // fallbacks (first row selected, keyboard order) read down the wall.
+  //
+  // OFF THE WALL IS OFF THE LAYOUT: equipping something frees the cell it was
+  // in for anything else, and unequipping takes the first free cell rather than
+  // the old one. Holding the cell would mean a hole in the wall for as long as
+  // the sword is drawn, which is the duplicate's other face.
+  slots.reconcile(wall.map((e) => e.id));
+  for (const e of wall) e.slot = slots.slotOf(e.id);
+  wall.sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
+
+  return { gear, entries: wall };
 }
 
 /**
@@ -5634,7 +5658,16 @@ beginPlay();
     buff: { attack: attackBuff, seconds: +attackBuffT.toFixed(2) },
     weapon: equippedWeapon,
     hp: +player.hp.toFixed(1),
-    gear: m.gear.map((g) => ({ slot: g.slot, id: g.entry?.id ?? null })),
+    // A gear slot carries its ROW now, actions and all: what is in one is no
+    // longer on the wall as well (issue #116), so `entries` is not where a
+    // probe can find what an equipped thing offers.
+    gear: m.gear.map((g) => ({
+      slot: g.slot,
+      id: g.entry?.id ?? null,
+      kind: g.entry?.kind ?? null,
+      count: g.entry?.count ?? 0,
+      actions: g.entry?.actions ?? [],
+    })),
     bag: bag.entries().map((e) => ({ id: e.def.id, kind: e.def.kind, count: e.count })),
     entries: m.entries.map((e) => ({
       id: e.id, kind: e.kind, count: e.count,
@@ -5658,8 +5691,11 @@ beginPlay();
       filled: document.querySelectorAll('.bs-inv .slot:not(.empty)').length,
       gearSlots: document.querySelectorAll('.bs-inv .gs').length,
       tabs: document.querySelectorAll('.bs-inv .chip.tab').length,
-      icons: document.querySelectorAll('.bs-inv .slot .ic:not(.blob)').length,
-      portraits: document.querySelectorAll('.bs-inv .slot .ic.beast:not(.blob)').length,
+      // THE WHOLE PANEL and not just the wall: a gear slot draws the same
+      // pictures, and since issue #116 it is the only place an equipped weapon
+      // or a beast walking with you is drawn at all.
+      icons: document.querySelectorAll('.bs-inv .ic:not(.blob)').length,
+      portraits: document.querySelectorAll('.bs-inv .ic.beast:not(.blob)').length,
       stageGl: !!document.querySelector('.bs-inv canvas.stage-gl'),
       // WHO IS ACTUALLY IN THE STAGE'S SCENE — not who was asked for. The two
       // disagreed when the beasts swapped slots, which is the bug: the second

@@ -764,6 +764,10 @@ const CSS = `
 .bs-inv .gs.full:hover{transform:translateY(-2px);box-shadow:0 0 22px -6px var(--el)}
 .bs-inv .gs.full:active{cursor:grabbing}
 .bs-inv .gs:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
+/* The same ring the wall's selected cell wears, and it means the same thing:
+   the footer's buttons are pointed at this. A gear slot is now the ONLY place
+   an equipped row can be selected from — it is no longer on the wall as well. */
+.bs-inv .gs.sel{outline:2px solid #69d9ff;outline-offset:-2px}
 .bs-inv .gs.r-rare{border-color:rgba(105,217,255,.5)}
 .bs-inv .gs.r-legendary{border-color:rgba(255,190,80,.62)}
 .bs-inv .gs-ic{width:52px;height:52px;display:block}

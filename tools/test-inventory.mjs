@@ -179,10 +179,18 @@ export const sections = [
     // `devGrant` in main.ts for why that door exists.
     for (const id of GRANTED) await ctx.ev((s) => window.__dbgGrantBeast(s), id);
     boot = await inv(ctx);
-    ctx.res.start.grantedRows = boot.entries.filter((e) => e.kind === 'beast').length;
+    // THE WALL PLUS THE GEAR SLOTS, because a gear slot is a real slot and what
+    // is in one is no longer drawn on the wall as well. Counting only the wall
+    // would read 1 for a roster of three with two of them walking with you,
+    // and counting only the slots would miss the benched one.
+    ctx.res.start.grantedRows = boot.entries.filter((e) => e.kind === 'beast').length
+      + boot.gear.filter((g) => g.kind === 'beast').length;
     // Beasts are ROSTER-DERIVED rows, not bag entries — see BEAST_ID_PREFIX.
     ctx.check(ctx.res.start.grantedRows === ROSTER,
       `${ctx.res.start.grantedRows} beast rows after bonding ${ROSTER}`);
+    // ...and NOT twice. The duplicate is the thing this half is looking for.
+    ctx.check(!boot.entries.some((e) => boot.gear.some((g) => g.id === e.id)),
+      'a row is drawn both in a gear slot and on the wall');
     ctx.check(!boot.bag.some((e) => e.id.startsWith('beast:')),
       'a beast is stored in the bag — it must be derived from the roster');
     const gearBeasts = boot.gear
@@ -252,14 +260,24 @@ export const sections = [
     ctx.check(travelShut > 3,
       `the hero travelled only ${travelShut.toFixed(2)} with the panel down — `
       + 'the still reading above proves nothing');
-    // The panel drew what the model holds: every bonded beast plus the four
-    // starting items (sword, potions, blueprint, orb), FILLED, inside a fixed
-    // 11x3 wall of thirty-three, four gear slots, eight tabs. Both numbers,
-    // because the wall's shape is the feature — a grid that shrank to what you
-    // happen to own is the thing INV_COLS exists to prevent, and a roster that
-    // outgrew the wall is the other way it breaks.
-    ctx.check(open.panel?.filled === ROSTER + 4,
-      `${open.panel?.filled} filled cells, expected ${ROSTER + 4}`);
+    // The panel drew what the model holds, cell for row, inside a fixed 11x3
+    // wall of thirty-three, four gear slots, eight tabs. Both numbers, because
+    // the wall's shape is the feature — a grid that shrank to what you happen
+    // to own is the thing INV_COLS exists to prevent, and a roster that outgrew
+    // the wall is the other way it breaks.
+    //
+    // AGAINST THE MODEL rather than against a written-down total, since issue
+    // #116: what is in a gear slot is not on the wall as well, so "everything
+    // you own" and "what the wall holds" are two numbers now. The pair to it is
+    // the no-duplicate check in section 1, which is what stops this passing for
+    // a wall that simply lost rows.
+    ctx.check(open.panel?.filled === open.entries.length,
+      `${open.panel?.filled} filled cells for ${open.entries.length} rows`);
+    ctx.check(open.entries.length + open.gear.filter((g) => g.id).length
+      === ROSTER + boot.bag.length,
+      `the wall holds ${open.entries.length} and the slots `
+      + `${open.gear.filter((g) => g.id).length}, for ${ROSTER} beasts `
+      + `and ${boot.bag.length} kinds of thing in the bag`);
     ctx.check(open.panel?.slots === 33,
       `${open.panel?.slots} cells drawn, expected a fixed 11x3 of 33`);
     // FOUR since issue #4: lead beast, weapon, support beast, taming orb.
@@ -348,8 +366,11 @@ export const sections = [
       'the weapon slot still holds something after unequip');
     ctx.check(armed.attackStat === before.attackStat,
       `re-equipping gave ${armed.attackStat}, not the ${before.attackStat} it started at`);
-    // An EQUIPPED weapon may not be destroyed out from under the gear slot.
-    const row = armed.entries.find((e) => e.id === 'sword-iron');
+    // An EQUIPPED weapon may not be destroyed out from under the gear slot —
+    // and it is read off the SLOT, which is where the only copy of it is now.
+    const row = armed.gear.find((g) => g.id === 'sword-iron');
+    ctx.check(!armed.entries.some((e) => e.id === 'sword-iron'),
+      'the equipped sword is on the wall as well as in the weapon slot');
     ctx.check(!row.actions.includes('drop') && !row.actions.includes('salvage'),
       `the equipped sword still offers ${JSON.stringify(row.actions)}`);
   } },
@@ -359,8 +380,13 @@ export const sections = [
   // working primary action and of a handler wired to `unequip` whatever it is
   // looking at. The same gesture on the same slot has to put it back.
   { id: 'rightClick', run: async (ctx) => {
+    // ON THE WALL OR IN THE GEAR SLOT, whichever holds it: an equipped row is
+    // no longer drawn in both places (issue #116), so this section right-clicks
+    // the sword in the weapon slot on the way out and on the wall on the way
+    // back — the same gesture on the only box there is.
     const rmb = (sel) => ctx.ev((s) => {
-      const el = document.querySelector(`.bs-inv .slot[data-sel="${s}"]`);
+      const el = document.querySelector(`.bs-inv [data-sel="${s}"]`);
+      if (!el) throw new Error(`no box holds ${s}`);
       el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     }, sel);
 
@@ -491,8 +517,11 @@ export const sections = [
     const moved = await inv(ctx);
     const movedCell = await cellOf('potion-mend');
 
-    // Onto a cell that is TAKEN: the two rows trade places.
-    const neighbour = 'sword-iron';
+    // Onto a cell that is TAKEN: the two rows trade places. Whatever else is on
+    // the wall, rather than a named item — what is in a gear slot is not on the
+    // wall now, so which items are there depends on the sections above.
+    const neighbour = moved.entries.find((e) => e.id !== 'potion-mend')?.id;
+    ctx.check(!!neighbour, 'nothing else on the wall to swap the potion with');
     const neighbourHome = slotOf(moved, neighbour);
     await drag(ctx,
       '.bs-inv .slot[data-sel="potion-mend"]', `.bs-inv .slot[data-sel="${neighbour}"]`);
@@ -545,8 +574,10 @@ export const sections = [
     ctx.check(!!lead && !!support, 'section 3e needs both beast slots filled');
 
     // The BUTTON, which is the only way a phone reaches this — and it is in the
-    // footer because the row offers it, not because the panel knows about beasts.
-    const rowOf = (snap, id) => snap.entries.find((e) => e.id === id);
+    // footer because the row offers it, not because the panel knows about
+    // beasts. Read off the GEAR SLOT: a beast walking with you is not on the
+    // wall as well, so the slot carries the only copy of its row.
+    const rowOf = (snap, id) => snap.gear.find((g) => g.id === id);
     ctx.check((rowOf(before, lead)?.actions ?? []).includes('unequip'),
       `the lead beast offers ${JSON.stringify(rowOf(before, lead)?.actions)} — no way out of the slot`);
     ctx.check((rowOf(before, support)?.actions ?? []).includes('unequip'),
@@ -576,6 +607,12 @@ export const sections = [
       `the support slot still holds ${slotOf(alone, 'support')} after unequip`);
     ctx.check(alone.entries.filter((e) => e.kind === 'beast' && e.equipped).length === 0,
       'a beast still reads as equipped with both slots empty');
+    // AND THEY CAME BACK TO THE WALL. An unequipped beast that is on neither
+    // the wall nor a slot is a beast the player cannot reach at all, which is
+    // the failure the no-duplicate rule can cause if it forgets to let go.
+    ctx.check(alone.entries.filter((e) => e.kind === 'beast').length === ROSTER,
+      `${alone.entries.filter((e) => e.kind === 'beast').length} beasts on the wall `
+      + `with both slots empty, expected all ${ROSTER}`);
     ctx.check(slotOf(restored, 'primary') === lead && slotOf(restored, 'support') === support,
       `putting the party back left ${JSON.stringify(ctx.res.bench.restored)}`);
   } },
