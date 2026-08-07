@@ -1217,6 +1217,20 @@ export function createWorld(
       }));
     },
 
+    debugFences(): ReturnType<World['debugFences']> {
+      return (towns?.fences ?? []).map((f) => ({
+        posts: f.posts.map((p) => ({
+          x: +p.x.toFixed(3), z: +p.z.toFixed(3), y: +p.y.toFixed(3),
+          base: +p.base.toFixed(3), kind: p.kind,
+        })),
+        closed: f.closed,
+        bays: f.bays.map((b) => ({
+          from: b.from, to: b.to, length: +b.length.toFixed(3),
+          y: +b.y.toFixed(3), groundMax: +b.groundMax.toFixed(3),
+        })),
+      }));
+    },
+
     debugCarriedTrees(): Array<{ x: number; z: number }> {
       return sky?.debugTrees() ?? [];
     },

@@ -389,6 +389,13 @@ export class Accum {
    * rescaled — the anisotropy here stays inside about 0.8..1.25, where the
    * shading error is far below the per-voxel jitter and not worth a per-vertex
    * normalise on the chunk build path.
+   *
+   * `sz` scales the template's own +z, i.e. its LENGTH, independently of `s`,
+   * which then only scales +x. It exists for one shape — a plank stretched
+   * between two fence posts (world/fences.ts) — and it is what lets a fence bay
+   * be exactly as long as the gap it spans instead of a whole number of
+   * fixed-length panels with a stump left over. Nothing else passes it, so
+   * every other stamp is uniform in x/z exactly as before.
    */
   add(
     t: Template,
@@ -396,6 +403,7 @@ export class Accum {
     yaw: number, s: number,
     tr: number, tg: number, tb: number,
     sy: number = s,
+    sz: number = s,
   ): void {
     const base = this.pos.length / 3;
     const c = Math.cos(yaw);
@@ -411,7 +419,7 @@ export class Accum {
     for (let i = 0; i < p.length; i += 3) {
       const px = p[i] * s;
       const py = p[i + 1] * sy;
-      const pz = p[i + 2] * s;
+      const pz = p[i + 2] * sz;
       this.pos.push(x + px * c + pz * sn, y + py, z - px * sn + pz * c);
       const nx = n[i];
       const nz = n[i + 2];

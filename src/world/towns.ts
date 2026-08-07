@@ -59,10 +59,12 @@ import {
   builtDeck, setTrimStart, DECK_EDGE, NECK_MAX, type Road, type RoadClearance,
 } from './roads';
 import { Accum, bakeProp, type PropLib, type Template } from './props';
-import { SolidStamp, StructureField } from './structures';
+import { SolidStamp, StructureField, footprintRadius } from './structures';
 import {
-  TownParts, V, addBridgeFurniture, buildJunctionApron, buildRoadRibbon, signArm,
+  TownParts, V, FENCE_POST_R, addBridgeFurniture, buildJunctionApron, buildRoadRibbon,
+  signArm,
 } from './town-parts';
+import { buildFence, type Fence, type FenceNode, type FenceOptions } from './fences';
 import { mulberry32 } from './noise';
 import { TOWN_NO_SPAWN_MARGIN } from './safe-zones';
 
@@ -938,7 +940,22 @@ function pickRoadSpawn(road: Road, cx: number, cz: number): THREE.Vector3 {
 /** Voxel scale for a signpost arm — see the note on the font in town-parts.ts. */
 const SIGN_V = 0.095;
 
-interface Spot { x: number; z: number; r: number; kind?: string }
+interface Spot {
+  x: number;
+  z: number;
+  /** PLACEMENT radius: how much room this piece wants around it. */
+  r: number;
+  /**
+   * PHYSICAL radius — how far its own timber reaches — where the two differ.
+   *
+   * `r` answers "may something else stand here", which for a lamp is 11 units of
+   * elbow room; a fence needs "would a plank pass through this", which is under
+   * two. Set from the template's own measured footprint (`footprintRadius`)
+   * wherever a piece is placed against a run. See `clearRun`.
+   */
+  solidR?: number;
+  kind?: string;
+}
 
 /**
  * How close a LAMP or a FINGERPOST may come to a carriageway centreline.
@@ -1085,6 +1102,11 @@ export class Towns {
    * list is a few dozen entries built once at world creation.
    */
   readonly furniture: readonly Spot[] = [];
+  /**
+   * Every fence the road pass built, chain by chain. See `World.debugFences`
+   * for what it is for and why a layout's own fences are not in it.
+   */
+  readonly fences: readonly Fence[] = [];
   private readonly glowMats: THREE.MeshStandardMaterial[] = [];
   private readonly geos: THREE.BufferGeometry[] = [];
   /** Per-site groups and their centres, for the distance cull in `update`. */
@@ -1241,6 +1263,8 @@ export class Towns {
 
     // -- roads ---------------------------------------------------------------
     let roadIdx = 0;
+    /** See `fences` above: the readout `tools/test-fence.mjs` asserts over. */
+    const builtFences: Fence[] = [];
     // Every lamp and fingerpost already standing, shared by all three roads.
     // See `postSpots` above.
     const taken: Spot[] = postSpots;
@@ -1255,11 +1279,11 @@ export class Towns {
       // from the gate instead puts them 13 and 17 units OUTSIDE it, which is
       // where a lamp on the approach was always meant to be.
       const built = { ...road, pts: builtDeck(road) };
-      buildRoadFurniture(
+      builtFences.push(...buildRoadFurniture(
         solid, glow, parts, built, plan.network, mulberry32(seed ^ road.pts.length),
         surfaceAt, taken, plan.sites,
-      );
-      addBridgeFurniture(solid, parts, built);
+      ));
+      builtFences.push(...addBridgeFurniture(solid, parts, built, surfaceAt));
       emit(solid.acc, props.solidMat, g, true);
       emit(glow, lampGlow, g, false);
 
@@ -1298,6 +1322,7 @@ export class Towns {
       this.sites.push({ g, x: mid.x, z: mid.z, r: roadLength(road) * 0.5 + 20 });
     }
     this.furniture = taken;
+    this.fences = builtFences;
 
     // -- the aprons ----------------------------------------------------------
     //
@@ -1401,64 +1426,70 @@ export class Towns {
 // ---------------------------------------------------------------------------
 
 /**
- * Half the length of one fence panel, world units.
- *
- * `roughFence` paints 14 voxels along +z and bakes CENTRED, so a stamped panel
- * reaches this far either side of the point it is stamped at. This is the
- * number `spanDistanceTo` has to be handed; a panel's midpoint on its own says
- * nothing about where its stakes land.
- */
-const FENCE_HALF = 7 * V;
-
-/**
- * How close a fence panel's timber may come to a carriageway centreline.
+ * How close a fence's timber may come to a carriageway centreline.
  *
  * `DECK_EDGE` (5.0) is the ribbon's rim — the outer edge of the surface that is
- * both drawn and walked. The 0.6 on top covers the panel's own half-width (a
- * stake is one voxel either side of the line, 0.28) and the 0.18 that
- * `spanDistanceTo` may over-report at its sampling pitch, and leaves enough
- * over that a panel which survives is visibly OFF the gravel rather than
- * touching it.
+ * both drawn and walked. The 0.6 on top covers the stake's own half-width
+ * (`FENCE_POST_R`, 0.28) and the 0.18 that `spanDistanceTo` may over-report at
+ * its sampling pitch, and leaves enough over that a bay which survives is
+ * visibly OFF the gravel rather than touching it.
  *
- * Measured on the finished world. 38 panels are stamped between the road runs
- * and the two hamlet arcs, every road panel offset 6.5 units from its OWN
- * road — and three of them still came within 0.13, 2.16 and 5.25 units of a
+ * Measured on the world this replaces: 38 fixed panels were stamped between the
+ * road runs and the two hamlet arcs, every road panel offset 6.5 units from its
+ * OWN road — and three of them still came within 0.13, 2.16 and 5.25 units of a
  * centreline. The first two lay flat ACROSS the carriageway nine units from the
  * player's own spawn (_fence-cross-before.png), because the trunk road doubles
  * back at the junction and a run laid along the inside of that bend cuts the
- * corner: the offset is measured against the road where the panel starts, and
- * the road is somewhere else by the time the panel ends.
+ * corner: the offset is measured against the road where the run starts, and the
+ * road is somewhere else by the time it ends.
  *
- * Those three are cut and the other 35 stand; the closest survivor clears the
- * centreline by 5.79, i.e. 0.79 outside the ribbon's rim.
+ * The test is now asked per BAY rather than per panel (`buildFence`'s `accept`),
+ * which is the same question at a finer grain: a refused bay drops its planks
+ * and leaves the two posts standing, so a run that meets a road stops at the
+ * verge and reads as a field gate instead of vanishing in 4.2-unit lumps.
  */
 const FENCE_ROAD_CLEAR = DECK_EDGE + 0.6;
 
 /**
- * Stamp one fence panel — unless its timber would land on a road.
- *
- * A run that meets a carriageway STOPS AT THE VERGE on both sides rather than
- * being deleted: only the panels that actually reach the road are skipped, so
- * what the player walks up to is a gap in a fence, which is what a field gate
- * looks like, and the panels either side still end on their own stakes rather
- * than on a post hanging over the gravel.
- *
- * The road is asked, not inferred. A fence run knows the arc length and the
- * perpendicular of ITS OWN road and nothing else, which is precisely the
- * information that cannot see a second road at a fork or the far side of a
- * hairpin — see `RoadClearance` in roads.ts for why that is the shape of every
- * one of these bugs.
+ * How finely a bay is sampled when it is asked about the things already
+ * standing. `Spot` radii start around 1.4, so a third of that never steps over
+ * one — and a bay is at most 3.2 units long, so this is a dozen tests.
  */
-function fencePanel(
-  solid: SolidStamp, parts: TownParts, network: RoadClearance,
-  x: number, y: number, z: number, yaw: number,
-): void {
-  // The panel lies along its own yaw: `Accum.add` maps local +z to
-  // (sin yaw, cos yaw).
-  const dx = Math.sin(yaw) * FENCE_HALF;
-  const dz = Math.cos(yaw) * FENCE_HALF;
-  if (network.spanDistanceTo(x - dx, z - dz, x + dx, z + dz) < FENCE_ROAD_CLEAR) return;
-  solid.add(parts.fence, x, y, z, yaw);
+const FENCE_SPOT_STEP = 0.45;
+
+/**
+ * "Is this bay clear of everything?", in the shape `buildFence` asks it.
+ *
+ * TWO THINGS, and neither is inferred. The ROAD is asked through the network: a
+ * fence run knows the arc length and the perpendicular of ITS OWN road and
+ * nothing else, which is precisely the information that cannot see a second
+ * road at a fork or the far side of a hairpin — see `RoadClearance` in roads.ts
+ * for why that is the shape of every one of these bugs. And what is ALREADY
+ * STANDING is asked through the same `taken` list every lamp and fingerpost is
+ * placed against, so a run reaching a hut, a cart or a well stops at it instead
+ * of running a plank through it. Fences go last in the pass, so the list is
+ * complete by the time a bay asks.
+ *
+ * A refused bay keeps its two posts (world/fences.ts), so the result is a gap
+ * with a stake either side of it — a field gate — rather than a hole.
+ */
+function clearRun(
+  network: RoadClearance, taken: readonly Spot[],
+): FenceOptions['accept'] {
+  return (ax, az, bx, bz) => {
+    if (network.spanDistanceTo(ax, az, bx, bz) < FENCE_ROAD_CLEAR) return false;
+    const dx = bx - ax;
+    const dz = bz - az;
+    const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / FENCE_SPOT_STEP));
+    for (const t of taken) {
+      const reach = (t.solidR ?? t.r) + FENCE_POST_R;
+      for (let i = 0; i <= steps; i++) {
+        const u = i / steps;
+        if (Math.hypot(ax + dx * u - t.x, az + dz * u - t.z) < reach) return false;
+      }
+    }
+    return true;
+  };
 }
 
 /**
@@ -1471,6 +1502,8 @@ function place(
   taken: Spot[], network: RoadClearance, x: number, z: number, r: number, roadClear: number,
   /** Labels the claim for `__dbgTowns().furniture`; layouts leave it off. */
   kind?: string,
+  /** The piece's own timber, where its elbow room is not it. See `Spot.solidR`. */
+  solidR?: number,
 ): boolean {
   if (network.distanceTo(x, z) < roadClear) return false;
   for (const t of taken) {
@@ -1478,7 +1511,7 @@ function place(
     const dz = t.z - z;
     if (dx * dx + dz * dz < (t.r + r) * (t.r + r)) return false;
   }
-  taken.push({ x, z, r, kind });
+  taken.push({ x, z, r, solidR, kind });
   return true;
 }
 
@@ -1771,22 +1804,26 @@ function buildHamlet(
   }
   // A fence arc on the side away from the road, and a paddock cart.
   //
-  // Through `fencePanel` like every other run, and that is not belt and braces:
-  // the arc is laid out from the town's OWN radius and gate bearing, which is
-  // the one thing in `buildHamlet` that never consults the network — everything
-  // else here goes through `place`. Which side of the town the road leaves on
-  // is rolled per seed and the route is a greedy walk, so "the arc is opposite
-  // the gate, therefore it cannot meet the road" is a coincidence this seed
-  // happens to enjoy — every arc panel here clears the nearest deck by at least
-  // 6.5 units, and not one of them is cut — rather than a property of the
-  // layout.
-  const fenceLen = 15 * V;
-  const arc = Math.round((Math.PI * 0.7 * R) / fenceLen);
-  for (let i = 0; i < arc; i++) {
-    const a = gateAngle + Math.PI * 0.65 + (i / arc) * Math.PI * 0.7;
+  // Road-tested like every other run, and that is not belt and braces: the arc
+  // is laid out from the town's OWN radius and gate bearing, which is the one
+  // thing in `buildHamlet` that never consults the network — everything else
+  // here goes through `place`. Which side of the town the road leaves on is
+  // rolled per seed and the route is a greedy walk, so "the arc is opposite the
+  // gate, therefore it cannot meet the road" is a coincidence this seed happens
+  // to enjoy — every bay here clears the nearest deck by at least 6.5 units, and
+  // not one of them is cut — rather than a property of the layout.
+  //
+  // The PATH is the arc; where the posts land on it is `buildFence`'s call, and
+  // the lantern every fourth post is why the paddock reads at night.
+  const arcPath: FenceNode[] = [];
+  for (let i = 0; i <= 12; i++) {
+    const a = gateAngle + Math.PI * 0.65 + (i / 12) * Math.PI * 0.7;
     const [x, z] = at(a, R - 1.2);
-    fencePanel(solid, parts, network, x, cy, z, a + Math.PI / 2);
+    arcPath.push({ x, y: cy, z });
   }
+  buildFence(solid, parts.fence, arcPath, {
+    accept: clearRun(network, taken), lanternEvery: 4, glow,
+  });
   for (let k = 0; k < 14; k++) {
     const a = rng() * Math.PI * 2;
     const [x, z] = at(a, 4 + rng() * (R - 6));
@@ -1860,9 +1897,11 @@ function buildRoadFurniture(
   taken: Spot[],
   /** The sited towns, for "is this end a town" and "what does its plank say". */
   sites: readonly TownSite[],
-): void {
+): Fence[] {
   const len = roadLength(road);
   const at = { x: 0, y: 0, z: 0, dx: 0, dz: 0 };
+  /** The chains built here, handed back for `World.debugFences`. */
+  const built: Fence[] = [];
 
   // Fingerposts FIRST, before the lamps: a post names a road and has to stand
   // where the road is read, and `place` is first-come. See the same ordering
@@ -1902,7 +1941,10 @@ function buildRoadFurniture(
       const off = DECK_EDGE + 1.1;
       const x = at.x + px * off;
       const z = at.z + pz * off;
-      if (!place(taken, network, x, z, POST_CLEAR, POST_ROAD_CLEAR, 'post')) continue;
+      if (!place(
+        taken, network, x, z, POST_CLEAR, POST_ROAD_CLEAR, 'post',
+        footprintRadius(parts.post),
+      )) continue;
       const y = seatOn(surfaceAt, x, z, POST_FOOT);
       solid.add(parts.post, x, y, z, 0);
       solid.add(
@@ -1931,7 +1973,10 @@ function buildRoadFurniture(
       const off = DECK_EDGE + 0.8;
       const x = at.x + px * off;
       const z = at.z + pz * off;
-      if (!place(taken, network, x, z, LAMP_CLEAR, LAMP_ROAD_CLEAR, 'lamp')) continue;
+      if (!place(
+        taken, network, x, z, LAMP_CLEAR, LAMP_ROAD_CLEAR, 'lamp',
+        footprintRadius(parts.lamp),
+      )) continue;
       const y = seatOn(surfaceAt, x, z, 0.4);
       const yaw = Math.atan2(-px, -pz); // bracket leans over the road
       solid.add(parts.lamp, x, y, z, yaw);
@@ -1942,32 +1987,51 @@ function buildRoadFurniture(
   }
 
   // Fence: a few long runs rather than a continuous hem, on alternating sides.
-  const fenceLen = 15 * V;
+  //
+  // A run is a PATH sampled along the verge and handed to `buildFence`, which
+  // decides where the posts go — so it follows the road round a bend as one
+  // continuous chain instead of as a row of panels laid on the chords of it.
+  // The path is sampled every 4 units, i.e. finer than a bay, so the corner a
+  // bend puts in a bay is smaller than the bay.
+  const FENCE_STEP = 4;
   let s = 20 + rng() * 30;
   while (s < len - 20) {
-    const runs = 4 + Math.floor(rng() * 6);
+    const runLen = (4 + Math.floor(rng() * 6)) * FENCE_STEP;
     const fside = rng() < 0.5 ? 1 : -1;
-    for (let k = 0; k < runs; k++) {
-      const sk = s + k * fenceLen;
-      if (sk > len - 10) break;
+    const path: FenceNode[] = [];
+    for (let sk = s; sk <= Math.min(s + runLen, len - 10); sk += FENCE_STEP) {
       roadAt(road, sk, at);
+      // A bridge deck has its own railing and no verge to stand a fence on, so
+      // a run that reaches one ENDS: `buildFence` puts a post on the last point
+      // it was given, which is the bank.
       const near = road.pts[Math.min(road.pts.length - 1, Math.round(sk / 3))];
-      if (near.bridge) continue;
-      const off = DECK_EDGE + 1.5;
-      // The offset is measured against THIS road. `fencePanel` measures the
-      // finished panel against the whole network, which is the only way a run
+      if (near.bridge) break;
+      // The offset is measured against THIS road. `accept` measures each
+      // finished bay against the whole network, which is the only way a run
       // laid along one road can know about the other two at a fork — or about
       // its own road, further along, on the inside of a bend.
+      const off = DECK_EDGE + 1.5;
       const fx = at.x - at.dz * fside * off;
       const fz = at.z + at.dx * fside * off;
-      // On the verge, like everything else here — and a panel is 4.2 units
-      // long, so the seat is taken over its own reach rather than its middle.
-      fencePanel(
-        solid, parts, network,
-        fx, seatOn(surfaceAt, fx, fz, FENCE_HALF), fz,
-        Math.atan2(at.dx, at.dz),
-      );
+      // On the verge, like everything else here — and the seat is taken over a
+      // bay's own reach rather than at a point, so a post on a shoulder that
+      // steps is set into the bank instead of standing on the high corner.
+      // THE COLUMN THE POST STANDS IN, not the minimum over its neighbourhood.
+      // `seatOn` is right for a lamp — a single object seated on the lowest of
+      // its own footprint is set into the bank rather than standing on a high
+      // corner — and it is wrong for a fence, because a line seated a unit
+      // under the verge is a line whose planks are inside it. A fence asks for
+      // the surface it is over and `buildFence` lifts the line over whatever
+      // stands between two posts; see the note on lifting there.
+      path.push({ x: fx, y: surfaceAt(fx, fz), z: fz });
     }
-    s += runs * fenceLen + 40 + rng() * 70;
+    if (path.length > 1) {
+      built.push(...buildFence(solid, parts.fence, path, {
+        accept: clearRun(network, taken),
+        groundAt: (x, z) => surfaceAt(x, z),
+      }));
+    }
+    s += runLen + 40 + rng() * 70;
   }
+  return built;
 }

@@ -44,6 +44,7 @@ import { contentIssues, reportContentIssue } from './core/content-bridge';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { NPC_TALK_RANGE } from './world/npc';
+import { FENCE_POST_H, FENCE_POST_R, FENCE_RAIL_AT } from './world/town-parts';
 import {
   nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId,
 } from './world/nature';
@@ -5574,6 +5575,20 @@ beginPlay();
       onCarriageway: onRoad,
     };
   })(),
+  /**
+   * EVERY FENCE THE ROAD PASS BUILT, chain by chain — see `World.debugFences`.
+   *
+   * In the same hook as the furniture because it answers the same class of
+   * question about the same pass, and because issue #105's invariant is a
+   * statement about numbers a screenshot cannot settle: `tools/test-fence.mjs`
+   * runs the identical check over this and over the lab stage's demos.
+   */
+  fences: world.debugFences(),
+  /**
+   * The fence kit's own metrics, so a probe checks a chain against what the
+   * BUILDER painted rather than against a copy of those numbers in a test.
+   */
+  fenceKit: { postH: FENCE_POST_H, railAt: [...FENCE_RAIL_AT], postR: FENCE_POST_R },
   towns: world.towns.all.map((town) => ({
     id: town.id,
     // The looked-up name, so `?lang=sv` shows what the fingerpost shows. The

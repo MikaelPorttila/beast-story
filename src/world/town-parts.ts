@@ -41,6 +41,7 @@
 import { VoxelModel, shade } from '../core/voxel';
 import { bakeProp, type Template } from './props';
 import { bakeSolid, SolidStamp } from './structures';
+import { buildFence, type Fence, type FenceParts } from './fences';
 import {
   builtDeck, APRON_R, DECK_EDGE, DECK_HALF, SHOULDER_IN,
   type Junction, type Road, type RoadSample,
@@ -807,27 +808,133 @@ function forgeCoals(): Template {
 // ---------------------------------------------------------------------------
 
 /**
- * A rough tree fence: unsquared branches lashed between forked stakes, running
- * along +z for 4.2 units. What a road is flanked with where it runs past
- * pasture — not a garden fence.
+ * THE FENCE KIT — one stake, one plank, and the two variants of the stake.
+ *
+ * Everything here is a PIECE. Where the pieces go is world/fences.ts's job, and
+ * the split is the whole of issue #105: the fences this replaces were stamped as
+ * fixed-length PANELS at whatever interval the caller felt like, so a run laid
+ * at 4.2 units on a bend, or along a bridge sampled every 3, left planks joined
+ * to one stake and hanging in the air at the other end. A panel cannot know how
+ * far its neighbour is; a chain of posts with a plank measured between each
+ * adjacent pair cannot get it wrong.
+ *
+ * The pieces are therefore authored to a CONTRACT rather than to a length:
+ *
+ *  - a post is a single column at its own origin, so the point it is stamped at
+ *    is the point the planks meet;
+ *  - a plank runs along +z and is stamped with a LENGTH SCALE (`Accum.add`'s
+ *    `sz`), so a bay is exactly as long as the gap it spans;
+ *  - `FENCE_RAIL_AT` is where the planks sit and `FENCE_POST_H` how far the
+ *    stake reaches, both in units above the line the fence is laid on, and
+ *    fences.ts derives every height it stamps from those two.
+ *
+ * The look is the rough tree fence this had before — unsquared branches lashed
+ * between forked stakes, not a garden fence.
  */
-function roughFence(): Template {
+
+/** Voxel height of the plain stake. The taller one is `FENCE_TALL_VOX`. */
+const FENCE_POST_VOX = 6;
+const FENCE_TALL_VOX = 9;
+/** Where the lantern's cage sits on the lantern stake, in voxels. */
+const FENCE_LAMP_VOX = 10;
+/** Voxel length of one plank template, the unit `sz` stretches. */
+const FENCE_RAIL_VOX = 10;
+
+/** How far a plain stake stands above the line the fence is laid on. */
+export const FENCE_POST_H = FENCE_POST_VOX * V;
+/** The taller stake's own height, and the lantern stake's, cage included. */
+const FENCE_TALL_H = FENCE_TALL_VOX * V;
+const FENCE_LANTERN_H = (FENCE_LAMP_VOX + 5) * V;
+/** Plank BOTTOMS, in units above that same line. Lower one first. */
+export const FENCE_RAIL_AT = [1.5 * V, 4 * V] as const;
+/** How long one plank template is, i.e. what a bay's `sz` is measured against. */
+export const FENCE_RAIL_LEN = FENCE_RAIL_VOX * V;
+/** Half-width of a stake, for "does this post stand on the road" tests. */
+export const FENCE_POST_R = V;
+
+/** One stake: a column with a fork at the top for the planks to sit in. */
+function fenceStake(vox: number, seed: number): VoxelModel {
   const v = new VoxelModel();
-  const r = rnd(0x9143);
-  for (const z of [0, 7, 14]) {
-    const h = 5 + Math.floor(r() * 2);
-    v.box(0, 0, z, 0, h, z, shade(LOG, 0.84 + r() * 0.32));
-    v.set(-1, h, z, shade(LOG, 1.1));
-    v.set(1, h, z, shade(LOG, 0.9));
+  const r = rnd(seed);
+  for (let y = 0; y < vox; y++) v.set(0, y, 0, shade(LOG, 0.84 + r() * 0.32));
+  // The fork opens ALONG the run (+/-z), which is the direction the planks
+  // arrive from — fences.ts stamps a post at the bearing of its own bays.
+  v.set(0, vox - 1, -1, shade(LOG, 1.1));
+  v.set(0, vox - 1, 1, shade(LOG, 0.9));
+  return v;
+}
+
+/**
+ * The plain stake and the taller one.
+ *
+ * `bakeProp`, NOT `bakeSolid`, and this is the one place in the kit where that
+ * needs saying: a fence is made solid by its PLANKS, which span every bay end to
+ * end, so a post collider would be a second box inside one that already covers
+ * it. Posts carry the look; the rails carry the wall. See `fenceRail`.
+ */
+function fencePost(): Template {
+  return bakeProp(fenceStake(FENCE_POST_VOX, 0x9143), V);
+}
+
+function fencePostTall(): Template {
+  return bakeProp(fenceStake(FENCE_TALL_VOX, 0x51c7), V);
+}
+
+/**
+ * A stake with a lantern hung in a cage on top — the same emissive-voxel trick
+ * `lampBody` uses, and for the same reason: a real point light per lantern would
+ * recompile every lit material in the game (see rule 2 at the top of this file).
+ */
+function fenceLanternPost(): Template {
+  const v = fenceStake(FENCE_LAMP_VOX, 0x2ba9);
+  v.box(-1, FENCE_LAMP_VOX, -1, 1, FENCE_LAMP_VOX, 1, shade(IRON, 1.1));
+  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    v.box(x, FENCE_LAMP_VOX + 1, z, x, FENCE_LAMP_VOX + 3, z, IRON);
   }
-  for (const y of [2, 4]) {
-    for (let z = 0; z <= 14; z++) {
-      // A branch sags between its stakes and is never straight.
-      const sag = (z > 2 && z < 5) || (z > 9 && z < 12) ? -1 : 0;
-      v.set(r() < 0.5 ? 0 : -1, y + sag, z, shade(LOG_PALE, 0.82 + r() * 0.34));
-    }
+  v.box(-1, FENCE_LAMP_VOX + 4, -1, 1, FENCE_LAMP_VOX + 4, 1, shade(IRON, 0.85));
+  return bakeProp(v, V);
+}
+
+/** The flame inside that cage, on the glow material. */
+function fenceLanternGlow(): Template {
+  const v = new VoxelModel();
+  for (let y = FENCE_LAMP_VOX + 1; y <= FENCE_LAMP_VOX + 3; y++) {
+    v.set(0, y, 0, y > FENCE_LAMP_VOX + 2 ? FLAME_PALE : FLAME);
+  }
+  // The cage's own x/z extent is -1..1 and this column is 0..0, which `bounds`
+  // centres to the same place — so unlike `lampFlame` there is no lateral
+  // correction, only the height the cage starts at. See `bakeAt`.
+  return bakeAt(v, V, 0, (FENCE_LAMP_VOX + 1) * V, 0);
+}
+
+/**
+ * One plank, along +z, `FENCE_RAIL_LEN` long — the length a bay divides by.
+ *
+ * `bakeSolid`: this is what makes a fence a barrier. A bay's plank spans its two
+ * posts end to end, so a run of them is a continuous wall with no gap between
+ * bays and exactly one collider per bay. The lower plank is stamped from the
+ * same template through `bakeProp`'s twin below, because a second box inside the
+ * first blocks nothing and costs a query.
+ */
+function fenceRail(): Template {
+  const v = new VoxelModel();
+  const r = rnd(0x7d31);
+  for (let z = 0; z < FENCE_RAIL_VOX; z++) {
+    v.set(0, 0, z, shade(LOG_PALE, 0.82 + r() * 0.34));
+    v.set(0, 1, z, shade(LOG_PALE, 0.82 + r() * 0.34));
   }
   return bakeSolid(v, V);
+}
+
+/** The same plank with no collider, for every course below the top one. */
+function fenceRailProp(): Template {
+  const v = new VoxelModel();
+  const r = rnd(0x11a5);
+  for (let z = 0; z < FENCE_RAIL_VOX; z++) {
+    v.set(0, 0, z, shade(LOG_PALE, 0.8 + r() * 0.36));
+    v.set(0, 1, z, shade(LOG_PALE, 0.8 + r() * 0.36));
+  }
+  return bakeProp(v, V);
 }
 
 /** The post half of a fingerpost. Arms are stamped onto it separately. */
@@ -907,16 +1014,6 @@ function bridgePier(): Template {
 /** Voxel height of the pier template, for the vertical scale in `addBridgeFurniture`. */
 const PIER_VOX = 11;
 
-/** One railing post-and-rail unit for a bridge, laid along +z. */
-function bridgeRail(): Template {
-  const v = new VoxelModel();
-  v.box(0, 0, 0, 0, 5, 0, shade(TIMBER, 0.95));
-  v.box(0, 3, 0, 0, 3, 10, shade(LOG_PALE, 0.95));
-  v.box(0, 5, 0, 0, 5, 10, shade(LOG, 1.0));
-  v.box(-1, 5, 0, 1, 5, 0, shade(LOG, 1.08));
-  return bakeSolid(v, V);
-}
-
 // ---------------------------------------------------------------------------
 
 /** Every baked piece, built once. towns.ts stamps from here. */
@@ -943,10 +1040,28 @@ export class TownParts {
   readonly lamp = lampBody();
   readonly lampGlow = lampFlame();
   readonly forgeGlow = forgeCoals();
-  readonly fence = roughFence();
   readonly post = signPost();
   readonly pier = bridgePier();
-  readonly rail = bridgeRail();
+  /**
+   * The fence kit, in the shape world/fences.ts stamps from. One object rather
+   * than four fields on `TownParts`, so a second world that grows fences — the
+   * sky island already has its own — hands the chain builder its own kit and
+   * nothing else changes.
+   */
+  readonly fence: FenceParts = {
+    post: fencePost(),
+    tall: fencePostTall(),
+    lantern: fenceLanternPost(),
+    lanternGlow: fenceLanternGlow(),
+    rail: fenceRail(),
+    railProp: fenceRailProp(),
+    railLen: FENCE_RAIL_LEN,
+    railAt: FENCE_RAIL_AT,
+    postH: FENCE_POST_H,
+    tallH: FENCE_TALL_H,
+    lanternH: FENCE_LANTERN_H,
+    postR: FENCE_POST_R,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1283,6 +1398,36 @@ export function buildRoadRibbon(
           idx.push(base, base + 1, base + 3, base, base + 3, base + 2);
           idx.push(base, base + 3, base + 1, base, base + 2, base + 3);
         }
+        // THE SOFFIT — the one face a road on the ground never needs.
+        //
+        // Everywhere else the ribbon is a lid on the terrain: the ground closes
+        // it from below and the rim skirts hide the join. A BRIDGE has nothing
+        // under it but water, and the deck's top quads face up — so from the
+        // riverbank, from a boat, from anywhere the camera drops below deck
+        // level, you looked straight through the bridge and out the other side.
+        // That is the first screenshot in issue #105, and it is not a
+        // transparency bug: there was no surface there at all.
+        //
+        // So a wet section gets a floor, at exactly `RIBBON_SKIRT` below the
+        // deck — the same depth the rim skirts already hang to, so the three
+        // meet as one closed box rather than as three pieces that nearly touch.
+        // Reversed winding and a downward normal, i.e. the top strip's mirror.
+        if (p.bridge && pts[i - 1].bridge) {
+          const soffit = pos.length / 3;
+          for (const r of [ring0, ring]) {
+            for (let k = 0; k < XS.length; k++) {
+              const src = (r + k) * 3;
+              pos.push(pos[src], pos[src + 1] - RIBBON_SKIRT, pos[src + 2]);
+              nrm.push(0, -1, 0);
+              col.push(DECK_PLANK[0] * 0.55, DECK_PLANK[1] * 0.55, DECK_PLANK[2] * 0.55);
+            }
+          }
+          for (let k = 0; k < XS.length - 1; k++) {
+            const a0 = soffit + k;
+            const b0 = soffit + XS.length + k;
+            idx.push(a0, b0, b0 + 1, a0, b0 + 1, a0 + 1);
+          }
+        }
       }
       if (ringFirst < 0) { ringFirst = ring; pxF = px; pzF = pz; }
       ring0 = ring;
@@ -1614,34 +1759,83 @@ export function buildJunctionApron(
   return { pos, nrm, col, idx };
 }
 
-/** Stamp piers and railings along every wet span of a road. */
-export function addBridgeFurniture(solid: SolidStamp, parts: TownParts, road: Road): void {
+/**
+ * How far outboard of the centreline a bridge railing stands.
+ *
+ * `DECK_HALF` plus the stake's own half-width plus a hair, so the timber stands
+ * ON the deck's outer planks rather than half over the edge — the deck is flat
+ * to `DECK_EDGE` and a railing further out would have its feet in the air.
+ */
+const RAIL_OFFSET = DECK_HALF + FENCE_POST_R + 0.1;
+
+/**
+ * Stamp piers and railings along every wet span of a road.
+ *
+ * The railings go through `buildFence` (world/fences.ts) like every other fence
+ * in the world, and that is the fix for two thirds of issue #105. What was here
+ * before stamped one whole railing unit — a post and a 2.8-unit plank — at EVERY
+ * deck sample, and deck samples are ~3 units apart on a straight and closer on a
+ * bend: so on a straight every plank stopped short of the next post, and on a
+ * bend they overlapped and splayed. A chain measures each plank against the gap
+ * it actually spans, and both cases come out right without either being a case.
+ *
+ * `groundAt` is the walking surface beside the deck, and it is what stops a
+ * stake at the abutment hanging over the bank it should be planted in.
+ */
+export function addBridgeFurniture(
+  solid: SolidStamp, parts: TownParts, road: Road,
+  groundAt: (x: number, z: number) => number,
+): Fence[] {
   const pts = road.pts;
   for (let i = 0; i < pts.length; i++) {
+    if (!pts[i].bridge || i % 4 !== 0) continue;
+    // A pier every fourth sample (12 units), stretched from the bed to the deck.
     const p = pts[i];
-    if (!p.bridge) continue;
     const a = pts[Math.max(0, i - 1)];
     const b = pts[Math.min(pts.length - 1, i + 1)];
-    let tx = b.x - a.x;
-    let tz = b.z - a.z;
-    const tl = Math.hypot(tx, tz) || 1;
-    tx /= tl; tz /= tl;
-    const yaw = Math.atan2(tx, tz);
-    const px = -tz;
-    const pz = tx;
-    for (const sx of [-1, 1]) {
-      solid.add(
-        parts.rail,
-        p.x + px * sx * (DECK_HALF + 0.15), p.y, p.z + pz * sx * (DECK_HALF + 0.15),
-        yaw,
-      );
-    }
-    // A pier every fourth sample (12 units), stretched from the bed to the deck.
-    if (i % 4 !== 0) continue;
+    const yaw = Math.atan2(b.x - a.x, b.z - a.z);
     const foot = WATER_LEVEL - 1.6;
     solid.add(
       parts.pier, p.x, foot, p.z, yaw, 1.25,
       Math.max(0.4, (p.y - foot) / (PIER_VOX * V)),
     );
   }
+
+  // One fence per SPAN and per side. A road that crosses two channels has two
+  // bridges, and running one chain over both would put a railing across the
+  // island between them.
+  //
+  // The chains are HANDED BACK rather than only stamped, because a railing is
+  // the fence in this world hardest to look at — it is over water, in one place
+  // per seed — and `tools/test-fence.mjs` asserts the same invariant over it
+  // that it asserts over a pasture fence. Nothing in the game reads the return.
+  const built: Fence[] = [];
+  for (const span of bridgeSpans(pts)) {
+    for (const side of [-1, 1] as const) {
+      const path = span.map((k) => {
+        const p = pts[k];
+        const a = pts[Math.max(0, k - 1)];
+        const b = pts[Math.min(pts.length - 1, k + 1)];
+        const tl = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+        const px = -(b.z - a.z) / tl * side * RAIL_OFFSET;
+        const pz = (b.x - a.x) / tl * side * RAIL_OFFSET;
+        return { x: p.x + px, y: p.y, z: p.z + pz };
+      });
+      built.push(...buildFence(solid, parts.fence, path, { groundAt }));
+    }
+  }
+  return built;
+}
+
+/** The runs of consecutive wet samples in a deck — one per bridge. */
+function bridgeSpans(pts: readonly RoadSample[]): number[][] {
+  const spans: number[][] = [];
+  let run: number[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i].bridge) { run.push(i); continue; }
+    if (run.length > 1) spans.push(run);
+    run = [];
+  }
+  if (run.length > 1) spans.push(run);
+  return spans;
 }

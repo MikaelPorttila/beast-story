@@ -124,6 +124,32 @@ export function bakeSolid(
 }
 
 /**
+ * How far a template's collision material reaches from its own origin.
+ *
+ * MEASURED off the boxes `bakeSolid` already measured off the model, for the
+ * reason rule 2 at the top of this file gives: a second number describing how
+ * big a lamp is would be a second number to keep in step with the lamp. The
+ * corner rather than the face, so a run passing the piece cannot clip a corner
+ * the radius did not know about.
+ *
+ * This is a PHYSICAL extent and not a placement radius, and the difference is
+ * the whole reason it exists: `LAMP_CLEAR` (11, towns.ts) says how far apart two
+ * lamps should stand, and a fence that kept 11 units off every lamp would lose a
+ * 22-unit stretch of itself at each one. What a plank must not run through is
+ * the timber — see `clearRun` in towns.ts.
+ */
+export function footprintRadius(t: Template): number {
+  let r = 0;
+  for (const b of t.solid ?? []) {
+    r = Math.max(r, Math.hypot(Math.abs(b.cx) + b.hx, Math.abs(b.cz) + b.hz));
+  }
+  for (const g of t.ridge ?? []) {
+    r = Math.max(r, Math.hypot(Math.abs(g.cx) + g.hl, Math.abs(g.cz) + g.r));
+  }
+  return r;
+}
+
+/**
  * A tree's bole as an oriented box, in TEMPLATE units — the third primitive's
  * worth of geometry this file did not need until a settlement had a wood in it.
  *
@@ -500,6 +526,8 @@ export class StructureField {
       trunk?: { r: number; top: number };
     },
     x: number, y: number, z: number, yaw: number, s: number, sy: number,
+    /** Length scale along the template's own +z. See `Accum.add`. */
+    sz: number = s,
   ): void {
     if (!t.solid && !t.ridge && !t.trunk) return;
     const c = Math.cos(yaw);
@@ -511,11 +539,11 @@ export class StructureField {
     for (const f of t.solid ?? []) {
       // `Accum.add` maps local (px, pz) to (px*c + pz*sn, -px*sn + pz*c).
       const lx = f.cx * s;
-      const lz = f.cz * s;
+      const lz = f.cz * sz;
       this.data.push(
         x + lx * c + lz * sn,
         z - lx * sn + lz * c,
-        f.hx * s, f.hz * s, c, sn,
+        f.hx * s, f.hz * sz, c, sn,
         y + f.top * sy,
       );
     }
@@ -723,9 +751,9 @@ export class SolidStamp {
 
   add(
     t: Template, x: number, y: number, z: number,
-    yaw: number, s = 1, sy: number = s,
+    yaw: number, s = 1, sy: number = s, sz: number = s,
   ): void {
-    this.acc.add(t, x, y, z, yaw, s, 1, 1, 1, sy);
-    this.field.add(t, x, y, z, yaw, s, sy);
+    this.acc.add(t, x, y, z, yaw, s, 1, 1, 1, sy, sz);
+    this.field.add(t, x, y, z, yaw, s, sy, sz);
   }
 }
