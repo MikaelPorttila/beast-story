@@ -19,7 +19,7 @@
 // controls stay inside the SCREEN.
 //
 // Usage: bun tools/test-viewport.mjs
-import { launchBrowser, newContextPage, newPage, wait } from './browser.mjs';
+import { launchBrowser, newContextPage, newPage, whenPlaying } from './browser.mjs';
 import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 // NO_WARMUP: every assertion is a getBoundingClientRect against --bs-vw/--bs-vh,
@@ -69,12 +69,29 @@ const probeLayer = (page, w, h) => page.evaluate(({ w, h }) => {
 
 const viewportDebug = (page) => page.evaluate(() => window.__dbgViewport?.() ?? null);
 
+/**
+ * Settle on the RESIZE HAVING LANDED, rather than on a guess at how long one
+ * takes. `setViewport` returns once the browser has applied the metrics, which
+ * is before the page's own resize listener has run — and installViewport
+ * (src/core/viewport.ts) is what writes --bs-vw/--bs-vh, so the layout this
+ * file measures is only correct once that has fired. `__dbgViewport` reports
+ * what it last wrote, so this waits on the module under test.
+ */
+const sized = (page, w, h) => page.waitForFunction(
+  ([tw, th]) => {
+    const v = window.__dbgViewport?.();
+    return !!v && v.innerW === tw && v.innerH === th;
+  },
+  { timeout: 15000 },
+  [w, h],
+);
+
 // ---------- desktop: the measurement must be the window, unchanged ----------
 {
   const page = await newPage(browser, { width: 1280, height: 800 });
   await page.goto(URL, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
-  await wait(2500);
+  await whenPlaying(page);
   const v = await viewportDebug(page);
   results.desktop = {
     ...v,
@@ -91,7 +108,7 @@ const viewportDebug = (page) => page.evaluate(() => window.__dbgViewport?.() ?? 
   const { ctx, page } = await newContextPage(browser, { ...PHONE, phone: true });
   await page.goto(URL, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
-  await wait(4000);
+  await whenPlaying(page);
   results.portrait = await probeLayer(page, PHONE.width, PHONE.height);
   results.portrait.viewport = await viewportDebug(page);
 
@@ -101,14 +118,17 @@ const viewportDebug = (page) => page.evaluate(() => window.__dbgViewport?.() ?? 
     width: PHONE.height, height: PHONE.width,
     isMobile: true, hasTouch: true, isLandscape: true, deviceScaleFactor: 1,
   });
-  await wait(1200);
+  // The resize has ARRIVED when the module under test says so — installViewport
+  // recomputes --bs-vw/--bs-vh off a resize listener, and __dbgViewport reports
+  // what it last wrote. Waiting on that is waiting on the thing being measured.
+  await sized(page, PHONE.height, PHONE.width);
   results.landscape = await probeLayer(page, PHONE.height, PHONE.width);
 
   await page.setViewport({
     width: PHONE.width, height: PHONE.height,
     isMobile: true, hasTouch: true, isLandscape: false, deviceScaleFactor: 1,
   });
-  await wait(1200);
+  await sized(page, PHONE.width, PHONE.height);
   results.portraitAgain = await probeLayer(page, PHONE.width, PHONE.height);
   await page.screenshot({ path: 'shots/_viewport-portrait.png' });
   await ctx.close();
@@ -120,7 +140,7 @@ const viewportDebug = (page) => page.evaluate(() => window.__dbgViewport?.() ?? 
   const client = await page.createCDPSession();
   await page.goto(URL, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
-  await wait(4000);
+  await whenPlaying(page);
 
   // 110 px is what was measured on the S22: 941.6 of believed viewport on an
   // 832 px screen. The page is told the layout viewport is the tall number and
@@ -146,7 +166,11 @@ const viewportDebug = (page) => page.evaluate(() => window.__dbgViewport?.() ?? 
     document.body.appendChild(b);
   });
   await page.mouse.click(30, 20);
-  await wait(1500);
+  // Headless may refuse the request outright; the run is still valid without it
+  // (the override below is the half that matters), so this settles on the flag
+  // and gives up rather than sleeping through the same uncertainty.
+  await page.waitForFunction(() => window.__dbgViewport?.().fullscreen === true, { timeout: 5000 })
+    .catch(() => { results.fullscreenRefused = true; });
   await page.evaluate(() => document.getElementById('fs-probe')?.remove());
 
   // What the stylesheet gets on its own. This is the number the S22 laid the
@@ -176,7 +200,7 @@ const viewportDebug = (page) => page.evaluate(() => window.__dbgViewport?.() ?? 
     Object.defineProperty(window.screen, 'height', { value: h, configurable: true });
     window.dispatchEvent(new Event('resize'));
   }, { w: PHONE.width, h: PHONE.height });
-  await wait(400);
+  await page.waitForFunction((h) => window.__dbgViewport?.().screenH === h, {}, PHONE.height);
 
   const v = await viewportDebug(page);
   // AFTER, measured against the SCREEN rather than against the viewport the page

@@ -34,7 +34,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launchBrowser, newContextPage, wait, logPageErrors } from './browser.mjs';
+import { launchBrowser, leaveSplash, newContextPage, logPageErrors } from './browser.mjs';
 import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,21 +54,50 @@ const SHIPPED_COPYRIGHT = /Copyright © \d{4}-\d{4} three\.js authors/;
  * (BOOT_SLICE_MS in main.ts), and this probe spends its life clicking a menu on
  * the same main thread. Measured, four loads: 36.1 s to 18.6 s, same verdict.
  *
- * What is LEFT is this file's own `wait()` calls — 2000 ms after `.bs-menu`
- * plus the click settles, about 4.4 s a load. Those want a readiness gate
- * rather than a smaller number, and that is a separate change.
+ * The other half of that run was this file's own sleeps — 2000 ms after
+ * `.bs-menu` plus a settle after every click, about 4.4 s a load. They are gone
+ * too: every one of them named a state (`leaveSplash`, `panelUp`, `panelGone`,
+ * `scrolledFrom`) and 36.1 s is now about 5 s.
  *
  * `fps=30` stays: the menu still animates and the panel still scrolls.
  */
 const BOOT = `${HOST}/?fps=30&fs=0&${NO_WARMUP}`;
 
-/** Any key leaves the splash; then in through the About door. */
+/**
+ * Any key leaves the splash; then in through the About door.
+ *
+ * Both halves settle on STATE. `leaveSplash` polls for the option buttons and
+ * re-presses until they appear — the splash's key handler goes live after the
+ * element does, so one press and a sleep is a race (see browser.mjs). The door
+ * is open when the panel is in the DOM.
+ */
 async function openAbout(page) {
-  await page.keyboard.press('KeyK');
-  await wait(450);
+  await leaveSplash(page, { key: 'KeyK' });
   await page.click('.bs-menu [data-act="about"]');
-  await wait(350);
+  await panelUp(page);
 }
+
+/** The About panel is up. */
+const panelUp = (page) => page.waitForSelector('.bs-menu .about', { timeout: 15000 });
+
+/** ...and it is gone again, which is what every way BACK has to produce. */
+const panelGone = (page) => page.waitForFunction(
+  () => !document.querySelector('.bs-menu .about'), { timeout: 15000 });
+
+/**
+ * The box has moved off `from`.
+ *
+ * Scrolling is the one place here where the settle IS the assertion, so this
+ * swallows its timeout instead of throwing: a panel that refuses to scroll is
+ * the bug section 2 exists to catch, and it has to be reported as three
+ * scrollTops the reader can see rather than as a stack trace five seconds in.
+ * Five seconds because the alternative outcome is a pass in milliseconds.
+ */
+const scrolledFrom = (page, from) => page.waitForFunction(
+  (was) => (document.querySelector('.bs-menu .about')?.scrollTop ?? was) !== was,
+  { timeout: 5000 },
+  from,
+).catch(() => {});
 
 const panel = (page) => page.evaluate(() => {
   const box = document.querySelector('.bs-menu .about');
@@ -111,30 +140,26 @@ const out = { runtimeDeps: RUNTIME_DEPS };
   const { ctx, page } = await newContextPage(browser, { width: 1280, height: 900 });
   logPageErrors(page);
   await page.goto(BOOT, { waitUntil: 'load' });
-  await page.waitForSelector('.bs-menu');
-  await wait(2000);
-
-  await page.keyboard.press('KeyK');
-  await wait(450);
+  await leaveSplash(page, { key: 'KeyK' });
   out.optionButtons = await page.evaluate(() =>
     [...document.querySelectorAll('.bs-menu .bs-opts .bs-menu-btn')]
       .map((b) => b.getAttribute('data-act')));
 
   await page.click('.bs-menu [data-act="about"]');
-  await wait(350);
+  await panelUp(page);
   out.stepAfterOpen = await step(page);
   out.focusInAbout = await focused(page);
 
   // Back button.
   await page.click('.bs-menu [data-act="back"]');
-  await wait(350);
+  await panelGone(page);
   out.backButton = { step: await step(page), focus: await focused(page) };
 
   // Escape.
   await page.click('.bs-menu [data-act="about"]');
-  await wait(350);
+  await panelUp(page);
   await page.keyboard.press('Escape');
-  await wait(350);
+  await panelGone(page);
   out.backEscape = { step: await step(page), focus: await focused(page) };
 
   await ctx.close();
@@ -145,17 +170,18 @@ const out = { runtimeDeps: RUNTIME_DEPS };
   const { ctx, page } = await newContextPage(browser, { width: 1280, height: 900 });
   logPageErrors(page);
   await page.goto(BOOT, { waitUntil: 'load' });
-  await page.waitForSelector('.bs-menu');
-  await wait(2000);
   await openAbout(page);
 
   const at0 = await panel(page);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
-  await wait(250);
+  // Settle on the box having MOVED, which is the assertion below anyway. The
+  // catch matters: a panel that never scrolls is the bug this section is for,
+  // and it must be reported as three scrollTops rather than as a timeout.
+  await scrolledFrom(page, at0.scrollTop);
   const at1 = await panel(page);
   await page.keyboard.press('ArrowUp');
-  await wait(250);
+  await scrolledFrom(page, at1.scrollTop);
   const at2 = await panel(page);
 
   out.desktop = {
@@ -192,13 +218,14 @@ const out = { runtimeDeps: RUNTIME_DEPS };
   logPageErrors(page);
   await page.goto(BOOT, { waitUntil: 'load' });
   await page.waitForSelector('.bs-menu');
-  await wait(2000);
   // No keyboard on a phone: the splash takes any tap, and the option list is
-  // buttons.
-  await page.click('.bs-menu');
-  await wait(450);
+  // buttons. Same retry as leaveSplash and for the same reason — the handler
+  // goes live after the element does — with a tap instead of a key.
+  for (let i = 0; i < 20 && !(await page.$('.bs-menu [data-act]')); i++) {
+    await page.click('.bs-menu');
+  }
   await page.click('.bs-menu [data-act="about"]');
-  await wait(400);
+  await panelUp(page);
   const p = await panel(page);
   out.phone = p && {
     overflows: p.scrollHeight > p.clientHeight,
@@ -213,8 +240,6 @@ const out = { runtimeDeps: RUNTIME_DEPS };
   const { ctx, page } = await newContextPage(browser, { width: 1280, height: 900 });
   logPageErrors(page);
   await page.goto(`${BOOT}&lang=sv`, { waitUntil: 'load' });
-  await page.waitForSelector('.bs-menu');
-  await wait(2000);
   await openAbout(page);
   const p = await panel(page);
   out.swedish = {

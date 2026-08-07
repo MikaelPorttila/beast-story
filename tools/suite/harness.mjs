@@ -42,7 +42,7 @@
 // Timing discipline: `wait(N)` does not exist here, on purpose. A section
 // settles on STATE (waitFn) or advances SIMULATED time (adv) — the twenty-first
 // probe copies whichever it sees, so the harness only offers the right two.
-import { launchBrowser, newPage } from '../browser.mjs';
+import { frame, launchBrowser, newPage, whenPlaying } from '../browser.mjs';
 import { BASE as HOST } from '../target.mjs';
 
 /** Default boot query: muted, no menu, no fullscreen resize under a probe. */
@@ -57,10 +57,7 @@ export async function bootGamePage(browser, { query = BOOT_QUERY, width = 1280, 
   page.on('pageerror', (e) => console.error('[pageerror]', e.message));
   await page.goto(`${HOST}/?${query}`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
-  await page.waitForFunction(
-    () => window.__dbgBoot && window.__dbgBoot().playing && window.__dbgAdvance,
-    { timeout: 60000 },
-  );
+  await whenPlaying(page);
   return page;
 }
 
@@ -106,8 +103,7 @@ function makeCtx(page, res, fails) {
      *     overlay, a screenshot) needs the state it just changed to have been
      *     presented.
      */
-    frame: () => page.evaluate(
-      () => new Promise((resv) => requestAnimationFrame(() => requestAnimationFrame(resv)))),
+    frame: () => frame(page),
     waitFn: (fn, timeout = 30000) => page.waitForFunction(fn, { timeout }),
     advanceStats: () => ({
       simSeconds: +advSim.toFixed(1),

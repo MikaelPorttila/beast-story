@@ -20,7 +20,7 @@
 //   mousemove listener rather than a copy of it.
 //
 // Exits non-zero.
-import { launchBrowser, leaveSplash, newPage, wait } from './browser.mjs';
+import { launchBrowser, leaveSplash, newPage, whenPlaying } from './browser.mjs';
 import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 const browser = await launchBrowser();
@@ -47,14 +47,18 @@ const check = (ok, msg) => { if (!ok) fails.push(msg); };
 // at ~220 ms but main.ts registers its debug hooks after the boot phases, so
 // there is a window where the menu is showing and nothing can be asked about it.
 {
-  for (let i = 0; i < 45; i++) {
-    await wait(1000);
-    if (await page.evaluate(() => typeof window.__dbgCursor === 'function')) break;
-  }
+  // Poll the hook at rAF rather than once a second: the poster is up at ~220 ms
+  // and the hooks land shortly after, so a 1 s tick spent up to a second of
+  // every run asleep past the thing it was waiting for.
+  await page.waitForFunction(() => typeof window.__dbgCursor === 'function', { timeout: 60000 });
   // A real mouse move, because "the player is using mouse and keyboard" is
   // `lastSource`, and nothing has stamped it yet on a freshly loaded page.
   await page.mouse.move(640, 400);
-  await wait(500);
+  // The move has REGISTERED when the hook says the pointer is being tracked;
+  // `updateCursorMode` runs off the DOM event, which is the claim this section
+  // is here to make.
+  await page.waitForFunction(() => window.__dbgCursor?.().free === true, { timeout: 15000 })
+    .catch(() => {});
   const c = await page.evaluate(() => window.__dbgCursor());
   const btn = await page.evaluate(() => {
     const el = document.querySelector('.bs-menu [data-act="new"]')
@@ -78,17 +82,36 @@ const check = (ok, msg) => { if (!ok) fails.push(msg); };
 // handler is live is dropped, and nothing retried it. See tools/browser.mjs.
 await leaveSplash(page);
 await (await page.waitForSelector('button[data-act="new"]', { visible: true })).click();
-for (let i = 0; i < 45; i++) {
-  await wait(1000);
-  if (await page.evaluate(() =>
-    !!window.__dbgPlayerPos && !document.querySelector('.bs-load.cover.show'))) break;
-}
-await wait(2000);
+// New Game is finished when the hero exists and the cover has gone — the two
+// conditions the old 45-second poll was testing, asked at rAF instead of once a
+// second, with no blind 2 s on the end of it.
+await page.waitForFunction(
+  () => !!window.__dbgPlayerPos && !document.querySelector('.bs-load.cover.show'),
+  { timeout: 60000 },
+);
+await whenPlaying(page);
 
 const cursor = () => page.evaluate(() => window.__dbgCursor());
 /** Move the real listener to a point and report what it resolved to. */
 const at = (x, y) => page.evaluate(([px, py]) => window.__dbgCursor(px, py), [x, y]);
 const lock = () => page.evaluate(() => document.pointerLockElement?.tagName ?? null);
+
+/**
+ * Settle on the pointer lock having CHANGED from `from`, not on it reaching the
+ * value the assertion wants — a gate written as "wait until it is null" and an
+ * assertion reading "it is null" prove each other and nothing else. Changed-from
+ * still fails the assertion when the lock moves somewhere unexpected, and it is
+ * milliseconds instead of the 700 ms this replaced.
+ *
+ * Swallows its timeout for the same reason `scrolledFrom` does in test-about:
+ * the state not changing IS one of the outcomes under test, and it has to be
+ * reported as a reading rather than thrown as a harness error.
+ */
+const lockChangedFrom = (page, from) => page.waitForFunction(
+  (was) => (document.pointerLockElement?.tagName ?? null) !== was,
+  { timeout: 5000 },
+  from,
+).catch(() => {});
 
 // ---------- the sheet is there and every state was cut ----------------------
 {
@@ -122,11 +145,11 @@ const lock = () => page.evaluate(() => document.pointerLockElement?.tagName ?? n
 {
   const before = await lock();
   await page.keyboard.down('AltLeft');
-  await wait(700);
+  await lockChangedFrom(page, before);
   const heldLock = await lock();
   const heldCur = await cursor();
   await page.keyboard.up('AltLeft');
-  await wait(700);
+  await lockChangedFrom(page, heldLock);
   const afterLock = await lock();
   const afterCur = await cursor();
 
@@ -146,12 +169,14 @@ const lock = () => page.evaluate(() => document.pointerLockElement?.tagName ?? n
 // and a player looking at three buttons should be given something to click them
 // with. Nothing is held here — that is the point. F10 both opens and closes it.
 {
+  // The MENU is the cause and the cursor is the effect, so the gate is the
+  // panel and the assertions stay about the pointer.
   await page.keyboard.press('F10');
-  await wait(800);
+  await page.waitForSelector('.bs-pause', { timeout: 15000 });
   const inMenu = await cursor();
   const menuLock = await lock();
   await page.keyboard.press('F10');
-  await wait(800);
+  await page.waitForFunction(() => !document.querySelector('.bs-pause'), { timeout: 15000 });
   const afterMenu = await cursor();
 
   results.pauseMenu = {
@@ -169,9 +194,10 @@ const lock = () => page.evaluate(() => document.pointerLockElement?.tagName ?? n
   // would take the pointer back and every hit test below would be asking about
   // a cursor that is not showing.
   await page.keyboard.press('F3');
-  await wait(500);
+  await page.waitForSelector('.bs-perf', { timeout: 15000 });
+  const beforeAlt = await lock();
   await page.keyboard.down('AltLeft');
-  await wait(600);
+  await lockChangedFrom(page, beforeAlt);
 
   const box = (sel) => page.evaluate((s) => {
     const el = document.querySelector(s);
@@ -249,7 +275,10 @@ const lock = () => page.evaluate(() => document.pointerLockElement?.tagName ?? n
   results.textSelect = got;
   check(got === 'text-select', `over the console input the cursor resolved to "${got}"`);
   await page.keyboard.press('Backquote');
-  await wait(300);
+  await page.waitForFunction(() => {
+    const el = document.querySelector('.bs-console');
+    return !el || getComputedStyle(el).display === 'none';
+  }, { timeout: 15000 });
 }
 
 // ---------- and the panel can actually be moved -----------------------------
@@ -268,7 +297,11 @@ const lock = () => page.evaluate(() => document.pointerLockElement?.tagName ?? n
   await page.mouse.down();
   await page.mouse.move(t.x + 220, t.y + 160, { steps: 8 });
   await page.mouse.up();
-  await wait(300);
+  // The panel has MOVED when its box has, which is the measurement below.
+  await page.waitForFunction(
+    (x) => Math.round(document.querySelector('.bs-perf').getBoundingClientRect().left) !== x,
+    { timeout: 5000 }, before.x,
+  ).catch(() => {});
   const after = await page.evaluate(() => {
     const r = document.querySelector('.bs-perf').getBoundingClientRect();
     return { x: Math.round(r.left), y: Math.round(r.top) };

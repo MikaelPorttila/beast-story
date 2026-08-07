@@ -4,7 +4,7 @@
 // so this measures pixels.
 import { PNG } from 'pngjs';
 import fs from 'node:fs';
-import { launchBrowser, newContextPage, wait } from './browser.mjs';
+import { frame, launchBrowser, newContextPage, whenPlaying } from './browser.mjs';
 import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 const browser = await launchBrowser();
@@ -20,7 +20,12 @@ for (const [name, viewport] of [
 // frame — see the note in tools/target.mjs.
   await page.goto(`${HOST}/?fps=30&menu=0&${NO_WARMUP}`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
-  await wait(3500);
+  await whenPlaying(page);
+  // The reticle is built with the rest of the HUD, so it exists by `playing` —
+  // but assert it rather than assume it, because the screenshot below would
+  // otherwise find no bright pixels and report a crosshair that is missing as a
+  // crosshair that is off-centre.
+  await page.waitForSelector('.bs-cross');
   // Hide the 3D canvas and everything except the reticle, then paint the page
   // black so the only bright pixels ARE the crosshair.
   await page.addStyleTag({ content: `
@@ -29,7 +34,11 @@ for (const [name, viewport] of [
     .bs-root>*:not(.bs-cross){display:none!important}
     .bs-touch,.bs-left,.bs-title,.bs-shards,.bs-toasts{display:none!important}
   ` });
-  await wait(400);
+  // The stylesheet has APPLIED when the canvas it hides has gone; one presented
+  // frame after that is what the screenshot needs.
+  await page.waitForFunction(
+    () => getComputedStyle(document.querySelector('canvas')).display === 'none');
+  await frame(page);
   const file = `shots/_cross-${name}.png`;
   await page.screenshot({ path: file });
   await ctx.close();

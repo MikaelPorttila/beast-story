@@ -27,7 +27,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launchBrowser, newContextPage, wait } from './browser.mjs';
+import { launchBrowser, leaveSplash, newContextPage, whenPlaying } from './browser.mjs';
 import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -192,20 +192,25 @@ for (const [name, viewport, query] of [
   const { ctx, page } = await newContextPage(browser, viewport);
   await page.goto(`${HOST}/${query}`, { waitUntil: 'load' });
   await page.waitForSelector('canvas,.bs-menu');
-  await wait(2500);
   let staged = 'n/a';
   if (query.includes('menu=0')) {
+    // The HUD is staged by a hook, so the gate is the hook answering rather
+    // than a guess at how long the boot takes.
+    await whenPlaying(page);
+    await page.waitForFunction(() => !!window.__dbgStageHud, { timeout: 30000 });
     staged = await page.evaluate(STAGE).catch(() => false);
     // The modal a player opens from the keyboard, over the shop the hook left up.
     await page.keyboard.press('F1');
-    await wait(350);
+    await page.waitForSelector('.bs-keyswrap', { timeout: 15000 });
   } else {
     // The title screen's own type only exists past the splash: step one is a
     // wordmark and four words, and every button, row, pill and language chip is
     // behind a keypress. Settings is the tallest step and the one whose height
     // media queries the floor moved, so the sweep ends there.
-    await page.keyboard.press('Enter');
-    await wait(500);
+    // leaveSplash, not one press and a sleep: `.bs-menu` is in the DOM before
+    // its key handler is live, and a press that lands in that window is dropped
+    // with nothing to retry it (see the note on leaveSplash in browser.mjs).
+    await leaveSplash(page);
     const opened = await page.evaluate(() => {
       const btn = [...document.querySelectorAll('.bs-menu .bs-menu-btn')]
         .find((b) => /setting/i.test(b.textContent || ''));
@@ -213,7 +218,9 @@ for (const [name, viewport, query] of [
       btn.click();
       return true;
     });
-    await wait(500);
+    // The settings panel is up when its tab strip is: ui/settings.ts builds the
+    // rows and the tabs together.
+    if (opened) await page.waitForSelector('.bs-menu [data-tab]', { timeout: 15000 });
     staged = opened ? 'settings' : 'options-only';
   }
   let tooSmall = await page.evaluate(SWEEP, MIN_PX);
@@ -231,7 +238,12 @@ for (const [name, viewport, query] of [
         return true;
       }, tab);
       if (!opened) continue;
-      await wait(300);
+      // A tab swap REBUILDS the row list, and only the visible tab is in the
+      // DOM — so the gate is that tab reporting itself selected.
+      await page.waitForFunction(
+        (t) => document.querySelector(`.bs-menu [data-tab="${t}"]`)
+          ?.getAttribute('aria-selected') === 'true',
+        { timeout: 15000 }, tab);
       tooSmall = tooSmall.concat(await page.evaluate(SWEEP, MIN_PX));
     }
     // AND THE ABOUT STEP, which is the densest block of type in the game and so
@@ -243,7 +255,7 @@ for (const [name, viewport, query] of [
       return true;
     });
     if (inAbout) {
-      await wait(350);
+      await page.waitForSelector('.bs-menu [data-act="about"]', { timeout: 15000 });
       const opened = await page.evaluate(() => {
         const b = document.querySelector('.bs-menu [data-act="about"]');
         if (!b) return false;
@@ -251,7 +263,7 @@ for (const [name, viewport, query] of [
         return true;
       });
       if (opened) {
-        await wait(400);
+        await page.waitForSelector('.bs-menu .about', { timeout: 15000 });
         staged = 'settings+about';
         tooSmall = tooSmall.concat(await page.evaluate(SWEEP, MIN_PX));
       }

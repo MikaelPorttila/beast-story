@@ -84,9 +84,64 @@ export async function newContextPage(browser, opts) {
   return { ctx, page: await newPage(ctx, opts) };
 }
 
-// puppeteer dropped page.waitForTimeout(); these runs are frame-rate bound, so
-// waiting a wall-clock interval is exactly what we want.
+/**
+ * Sleep. THE LAST RESORT, and the comment that used to sit here ("these runs
+ * are frame-rate bound, so waiting a wall-clock interval is exactly what we
+ * want") is why there were 257 of these across tools/ adding up to 280 seconds
+ * of doing nothing.
+ *
+ * A fixed sleep is wrong in both directions at once. Too short on a loaded
+ * machine and the probe measures a state that had not arrived — which is how
+ * `f2` came to read nulls and still exit 0. Too long everywhere else and the
+ * suite spends minutes asleep. Neither failure is visible in the output, which
+ * is the worst property a test primitive can have.
+ *
+ * REACH FOR THESE INSTEAD, in this order:
+ *
+ *   page.waitForSelector(sel)      the thing you need is in the DOM
+ *   page.waitForFunction(fn)       the state you need is true — the general
+ *                                  case, and `whenPlaying` below is the one
+ *                                  everybody needs
+ *   advance(page, s)               you need SIMULATED time to pass
+ *                                  (tools/suite/harness.mjs — it runs the sim
+ *                                  at full speed instead of at wall speed)
+ *   frame(page)                    you need one presented frame, no more
+ *
+ * WHAT IS LEFT FOR THIS. Only a measurement whose subject IS the wall clock:
+ * an audio fade envelope, the day/night light cadence, a CSS transition with no
+ * end event worth listening for. Those are legitimate — and a `wait()` in one
+ * of them should carry a comment saying which, so the next reader can tell it
+ * apart from a sleep nobody has got round to replacing.
+ */
 export const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * The game is up and simulating — the gate that replaces `wait(2500)` after
+ * `waitForSelector('canvas')`.
+ *
+ * `playing` is the last thing the boot sets (see the handshake at the top of
+ * src/main.ts), so it is the boot's own definition of done rather than a guess
+ * at how long the boot takes. `__dbgAdvance` is checked with it because a probe
+ * that has one almost always wants the other, and the two are installed at
+ * different points in the file.
+ *
+ * The canvas is NOT waited on here: on the `menu=0` path it is inserted after
+ * the shader sweep, so `playing` implies it.
+ *
+ * ONLY FOR A LOAD THAT REACHES GAMEPLAY — `menu=0`, `photo=1`, or after New
+ * Game has been clicked. On the staged path `playing` stays FALSE for as long
+ * as the title screen is up, by design (test-menu asserts exactly that), so
+ * calling this on a title-screen load hangs until the timeout. There the gate
+ * is `waitForSelector('.bs-menu')`, and `leaveSplash` below for the step after.
+ */
+export const whenPlaying = (page, timeout = 60000) => page.waitForFunction(
+  () => !!(window.__dbgBoot && window.__dbgBoot().playing && window.__dbgAdvance),
+  { timeout },
+);
+
+/** Let one REAL frame present. Two rAFs: the first may be a frame in flight. */
+export const frame = (page) => page.evaluate(
+  () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
 export const count = async (page, sel) => (await page.$$(sel)).length;
 
