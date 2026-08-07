@@ -38,7 +38,9 @@
 //
 // Section `residents` is the people and `compass` is the chip, which are the two
 // things the issue names besides the movement itself. Sections `keel`, `shoved`,
-// `lands` and `wood` are issue #80: the frame is a BODY, not a surface.
+// `lands` and `wood` are issue #80: the frame is a BODY, not a surface. Section
+// `cages` is issue #112, and it is about the PICTURE of the collision rather
+// than the collision — see `__dbgColliderView`.
 //
 // Exits non-zero on failure.
 
@@ -514,6 +516,39 @@ export const sections = [
     ctx.check(bare.length === 0,
       `${bare.length} of ${w.trees.length} island trees have nothing solid in their `
       + `column — first at ${JSON.stringify(bare[0])}`);
+  } },
+
+  // -------------------------------------------------------------------------
+  { id: 'cages', run: async (ctx) => {
+    // /show-colliders draws the town ON the deck, not hanging off it.
+    //
+    // Issue #112. A collider is a top and a footprint with no skirt, so the
+    // overlay infers the base — and inferring it from the terrain drew every hut
+    // and fence post of the flying settlement as a shaft from the deck down to
+    // the meadow a hundred and ninety units below. The reading is `tallest`: the
+    // tallest cage the overlay is drawing, base to top.
+    //
+    // A PAIR, and neither half means anything alone. `tallest` bounded is also
+    // what an overlay that draws nothing on the island reports — that is the
+    // exact regression `SkyIsland.debugStructures` was written against — so
+    // `carried` has to show the deck's own boxes being drawn at the same time.
+    const v = await ctx.ev(() => window.__dbgColliderView(true));
+    ctx.res.cages = v;
+    ctx.check(v.visible, 'the collider overlay did not come on');
+    // The settlement is ~200 stamps; a hundred is comfortably clear of "a
+    // handful got through" and of any one layout's exact count.
+    ctx.check(v.carried > 100,
+      `only ${v.carried} of ${v.boxes} drawn boxes were floored on the deck — `
+      + 'the flying settlement is missing from the overlay');
+    // THE TWO READINGS ARE AN ORDER OF MAGNITUDE APART, which is what makes this
+    // a line rather than a budget. The tallest correct cage in the world is the
+    // sky tower at 36 units (deck 190 -> top 226); the defect drew that same
+    // tower from the meadow at 18, i.e. 208. 60 sits between them with room for
+    // a taller building and no room at all for a cage that reaches the ground.
+    ctx.check(v.tallest < 60,
+      `the tallest cage is ${v.tallest} units at ${JSON.stringify(v.tallestAt)} — `
+      + 'a collider is being drawn from a surface it does not stand on');
+    await ctx.ev(() => window.__dbgColliderView(false));
   } },
 ];
 

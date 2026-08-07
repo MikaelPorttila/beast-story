@@ -3641,7 +3641,8 @@ devConsole?.register({
     colliderView.setVisible(on);
     return on
       ? `colliders ON — ${colliderView.count} drawn, ${colliderView.boxCount} settlement `
-        + `boxes and ${colliderView.ridgeCount} roof arches (green solid, blue climb)`
+        + `boxes and ${colliderView.ridgeCount} roof arches (green solid, blue climb), `
+        + `tallest cage ${colliderView.tallestCage.toFixed(1)}`
       : 'colliders OFF';
   },
 });
@@ -6020,6 +6021,42 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   }
   out.sort((p, q) => q.area - p.area);
   return out;
+};
+
+/**
+ * THE OVERLAY ITSELF, as numbers — what /show-colliders is drawing right now.
+ *
+ * `__dbgStructures` reads the collision data; this reads the PICTURE of it, and
+ * the two can disagree. A cage is a base and a top, and only the top comes from
+ * the field — the base is inferred, which is how every collider on the flying
+ * settlement came to be drawn as a two-hundred-unit shaft down to the meadow
+ * (issue #112) while the numbers behind them were correct all along. `tallest`
+ * is the whole of that defect in one reading.
+ *
+ * Pass `true`/`false` to switch the overlay on or off first; with no argument it
+ * only reads. Rebuilds on its own timer, so a probe that has just turned it on
+ * gets this frame's build (`setVisible` rebuilds).
+ */
+(window as unknown as {
+  __dbgColliderView: (on?: boolean) => unknown;
+}).__dbgColliderView = (on) => {
+  if (on !== undefined) colliderView.setVisible(on);
+  return {
+    visible: colliderView.isVisible,
+    count: colliderView.count,
+    boxes: colliderView.boxCount,
+    ridges: colliderView.ridgeCount,
+    carried: colliderView.carriedCount,
+    tallest: +colliderView.tallestCage.toFixed(2),
+    tallestAt: (() => {
+      const s = colliderView.tallestAt;
+      return s === null ? null : {
+        x: +s.x.toFixed(2), z: +s.z.toFixed(2),
+        base: +s.base.toFixed(2), top: +s.top.toFixed(2),
+        ground: +world.getHeight(s.x, s.z).toFixed(2),
+      };
+    })(),
+  };
 };
 
 /**
