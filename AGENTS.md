@@ -121,7 +121,9 @@ readings.
   settings TAB before clicking a row in it; run frame-edge assertions with no
   `fps=` in the URL.
 - Performance signal is `cpu` × `fps`, never fps alone. F2 shows where the frame
-  went; F3 switches things off live. `bun tools/perf-baseline.mjs record`, then
+  went; F3 (the Debug panel) switches things off live, and its spawner tree puts
+  items, beasts, enemies and settlement parts into a running world.
+  `bun tools/perf-baseline.mjs record`, then
   `bun tools/perf-baseline.mjs` to compare — the baseline is per-machine and
   gitignored.
 - Add a feature, add a section to its guard (see the map below). Move a budget —
@@ -160,7 +162,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Renderer, post chain, shadows | `core/engine.ts`, `core/post.ts`, `core/shadow-cache.ts` | `test-gfx`, `test-shadowcache` |
 | Terrain, streaming | `world/terrain.ts`, `world/index.ts`, `world/chunk.ts` | `test-road`, `test-nature` |
 | Water and diving | `world/water.ts`, `world/underwater.ts` | `test-dive` |
-| Towns, roads, buildings | `world/towns.ts`, `world/roads.ts`, `world/town-parts.ts`, `world/structures.ts` | `test-road`, `test-structures` |
+| Towns, roads, buildings | `world/towns.ts`, `world/roads.ts`, `world/town-parts.ts`, `world/structures.ts`, `world/spawned.ts` | `test-road`, `test-structures`, `test-spawn` |
 | Fences and bridge railings | `world/fences.ts` (the chain), `world/town-parts.ts` (the kit) | `test-fence` |
 | Moving world pieces | `world/carriers.ts`, `world/sky-island.ts` | `test-carrier` |
 | Vegetation, wind | `world/nature.ts`, `world/props.ts`, `world/sway.ts` | `test-nature`, `test-sway` |
@@ -171,6 +173,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Hero, camera, mount, weapons | `player/*` | `test-dive`, `test-structures`, `test-inventory`, `test-npc` |
 | Input devices | `core/input.ts`, `core/gamepad.ts`, `core/touch.ts` | `test-touch`, `test-gamepad` |
 | HUD, menus, panels | `ui/*` (DOM overlay, `bs-*` class names) | `test-menu`, `test-pause`, `test-textsize`, `test-viewport`, `test-cursor` |
+| F3 Debug panel and its spawner | `ui/perf-panel.ts`, `core/gfx.ts`, `core/spawn.ts` | `test-gfx`, `test-spawn` |
 | Key bindings | `ui/keybinds.ts` | `test-keybinds` |
 | Items and the bag | `core/items.ts`, `ui/inventory.ts` (rules in `main.ts`) | `test-inventory` |
 | Settings and storage | `ui/settings.ts`, `core/prefs.ts`, `core/gfx.ts` | `test-settings` |

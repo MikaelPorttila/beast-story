@@ -4,6 +4,7 @@ import { DayNightCycle } from './core/day-night';
 import { DebugOverlay } from './core/debug-overlay';
 import { Gfx, GFX_OPTIONS, storedGfx, type GfxSinks, type GfxValue } from './core/gfx';
 import { PerfPanel } from './ui/perf-panel';
+import type { SpawnCatalogue } from './core/spawn';
 import { Cursors, CursorDirector, CURSOR_STATES, type CursorState } from './ui/cursor';
 import { Input } from './core/input';
 import { TouchControls, isTouchPrimary } from './core/touch';
@@ -493,6 +494,10 @@ function exitToTitle(): void {
   player.reset();
   mount.dismount();
   combat.reset();
+  // Anything the F3 Debug panel built is session state like everything else
+  // here — a new game should not open on a hut somebody stood in the road.
+  // After the zone switch above, so it clears the overworld's spawner.
+  world.debugSpawn?.clear();
   // The facts, not the definitions — see the note above.
   content.state.reset();
   dayNight.reset();
@@ -2467,6 +2472,11 @@ onLanguageChange(() => {
   composeKeyHints();
   hud.relabel();
   touch?.relabel();
+  // The F3 panel too. It was written with a `relabel` and nothing ever called
+  // it, so a language switch with the panel open left it in the old one until
+  // some unrelated event happened to redraw it — and now that it carries the
+  // spawner's headings and every row's display name, that is most of it.
+  perfPanel.relabel();
   // The tracker's rows are resolved by THIS file (quest words live in content,
   // not in the string table), so `relabel` can only invalidate the guard — the
   // redraw is this push. See `HUD.setQuests`.
@@ -3241,11 +3251,113 @@ const timePresets = [
   { phase: 0.75, labelKey: 'gfx.time.dusk' },
   { phase: 0, labelKey: 'gfx.time.midnight' },
 ] as const;
+/**
+ * WHERE A SPAWN LANDS: eight metres along the way the hero is looking.
+ *
+ * Far enough that a hut does not appear inside him and near enough that it is
+ * already on screen when it arrives — the whole value of the panel over `/give`
+ * and `/grant` is that you SEE the result without hunting for it. Eight is
+ * a little past the sword's reach, so an enemy spawned here has a moment before
+ * it is in range, and a shade under the camera's near framing of the hero.
+ *
+ * `forward` is (sin yaw, cos yaw), the same basis `Player.forward` uses.
+ */
+const SPAWN_AHEAD = 8;
+function spawnSpot(): { x: number; z: number; yaw: number } {
+  const yaw = player.facing;
+  return {
+    x: player.position.x + Math.sin(yaw) * SPAWN_AHEAD,
+    z: player.position.z + Math.cos(yaw) * SPAWN_AHEAD,
+    // A structure faces the hero, which is `yaw + PI`: a hut spawned with the
+    // hero's own yaw shows him its back wall, and the one thing you want to
+    // look at after placing a building is its front.
+    yaw: yaw + Math.PI,
+  };
+}
+
+/**
+ * THE F3 SPAWNER'S CATALOGUE — composition-root policy, exactly like `GfxSinks`
+ * above it. core/spawn.ts knows a branch has rows and a row has an id; this is
+ * the only place that knows what a bag, a bonded beast, an `Enemy` and a
+ * settlement part are.
+ *
+ * Every branch is re-derived on each draw and every label goes through `t()` on
+ * its way in, which is what makes the tree follow `/content load`, a bond made
+ * from the world, and a language switch without any of the three telling it.
+ * See the note at the top of core/spawn.ts.
+ *
+ * THE STRUCTURE ROWS ARE THE ONE SET WITH NO STRING KEYS, and that is deliberate
+ * rather than an omission: `hut-a` and `bridge-pier` are the names of pieces of
+ * the town builder's part library, they are never shown to a player, and
+ * inventing twenty-six display strings for a developer instrument would be
+ * twenty-six keys every translator has to be told to skip.
+ */
+const spawnCatalogue: SpawnCatalogue = {
+  branches: () => [
+    {
+      id: 'items', labelKey: 'spawn.items', noteKey: 'spawn.items.note', target: 'bag',
+      rows: Object.values(ITEMS).map((d) => ({
+        id: d.id, label: itemName(d, 1), hint: d.kind,
+      })),
+    },
+    {
+      id: 'beasts', labelKey: 'spawn.beasts', noteKey: 'spawn.beasts.note', target: 'party',
+      rows: roster.map((b) => ({
+        id: b.species.id, label: t(b.species.nameKey), had: owned.has(b.species.id),
+      })),
+    },
+    {
+      id: 'enemies', labelKey: 'spawn.enemies', noteKey: 'spawn.enemies.note', target: 'world',
+      rows: enemySpecies().map((s) => ({
+        id: s.id, label: t(s.nameKey), hint: s.flying ? 'flying' : 'ground',
+      })),
+    },
+    {
+      id: 'structures', labelKey: 'spawn.structures', noteKey: 'spawn.structures.note', target: 'world',
+      // The take-it-all-down row leads, because the branch is the one that
+      // leaves something behind: an item is in the bag and a beast walks off,
+      // but a hut stands where you put it until somebody removes it. Its id is
+      // starred so it can never collide with a part's name.
+      rows: world.debugSpawn
+        ? [
+          { id: '*clear', label: t('spawn.clear'), hint: 'reset' },
+          ...world.debugSpawn.names().map((n) => ({ id: n, label: n })),
+        ]
+        : [],
+    },
+  ],
+  spawn: (branchId, rowId) => {
+    const at = spawnSpot();
+    if (branchId === 'items') {
+      // Straight through the console command's own body rather than a second
+      // copy of it: currency is not a bag entry, a count has a plural form, and
+      // two surfaces with two opinions about either is the bug this avoids.
+      return giveItem(rowId, 1);
+    }
+    if (branchId === 'beasts') return devGrant(rowId);
+    if (branchId === 'enemies') {
+      const e = combat.spawnOne(rowId, at.x, at.z);
+      return e ? `${t('spawn.placed')} ${rowId}` : t('spawn.unknown');
+    }
+    if (branchId === 'structures') {
+      const spawner = world.debugSpawn;
+      if (!spawner) return t('spawn.noStructures');
+      if (rowId === '*clear') {
+        spawner.clear();
+        return `${t('spawn.clear')} (${spawner.count})`;
+      }
+      if (!spawner.spawn(rowId, at.x, at.z, at.yaw)) return t('spawn.unknown');
+      return `${t('spawn.placed')} ${rowId} (${spawner.count})`;
+    }
+    return t('spawn.unknown');
+  },
+};
+
 const perfPanel = new PerfPanel(gfx, {
   presets: timePresets,
   get: () => dayNight.debugOverride,
   set: (phase) => dayNight.setDebugOverride(phase),
-});
+}, spawnCatalogue);
 
 /**
  * The custom cursor, and the one question the world has to answer for it.
@@ -3418,6 +3530,34 @@ bound.push(colliderView);
 // `colliders=1` starts them visible, which is how a staged capture can show the
 // cage against the mesh — photo mode has no console to type into.
 if (params.get('colliders') === '1') colliderView.setVisible(true);
+/**
+ * Put `count` of an item in the bag and say what happened.
+ *
+ * TWO SURFACES, ONE BODY. `/give` types an id and the F3 spawner clicks a row,
+ * and both have to know the same three things: that an unknown id is a refusal,
+ * that currency is not a bag entry at all, and that the answer carries the
+ * plural form of the name. Two copies of that is two places to fix the day a
+ * fourth item kind arrives.
+ */
+function giveItem(id: string, count: number): string {
+  if (!isKnownItem(id)) {
+    return `no such item "${id}" — /give with no arguments lists them`;
+  }
+  const n = Math.max(1, count);
+  const def = itemDef(id);
+  if (def.kind === 'currency') {
+    // Currency is not in the bag (see core/items.ts), so it is added to the
+    // pickup total rather than refused: a console that answered "no" here
+    // would be technically right and useless.
+    pickupTotal += n;
+    hud.setShards(shards());
+    return `${shards()} ${itemName(CURRENCY, shards())}`;
+  }
+  const got = bag.add(id, n);
+  refreshBagChips();
+  inventory.refresh();
+  return `${itemName(def, got)} x${got}`;
+}
 devConsole?.register({
   name: 'give',
   args: '<item id> [count]',
@@ -3431,21 +3571,7 @@ devConsole?.register({
         .map((d) => `${d.id.padEnd(17)} ${d.kind}`)
         .join('\n');
     }
-    if (!isKnownItem(id)) {
-      return `no such item "${id}" — /give with no arguments lists them`;
-    }
-    const def = itemDef(id);
-    if (def.kind === 'currency') {
-      // Currency is not in the bag (see core/items.ts), so it is added to the
-      // pickup total rather than refused: a console that answered "no" here
-      // would be technically right and useless.
-      pickupTotal += Math.max(1, Number(raw) || 1);
-      hud.setShards(shards());
-      return `${shards()} ${itemName(CURRENCY, shards())}`;
-    }
-    const n = bag.add(id, Math.max(1, Number(raw) || 1));
-    refreshBagChips();
-    return `${itemName(def, n)} x${n}`;
+    return giveItem(id, Number(raw) || 1);
   },
 });
 devConsole?.register({
@@ -4239,8 +4365,13 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // act on it. Same treatment the shop already gets — and the F1 controls sheet,
   // which is the same bargain read the other way round: a player who stopped to
   // find out what a key does must not have walked off a cliff while reading.
+  // The F3 panel is NOT a modal (see the note at the top of ui/perf-panel.ts) —
+  // but its search box is, for as long as it holds focus, and for the console's
+  // exact reason: `WASD` are letters. It claims the keyboard and nothing else,
+  // so the hero goes on falling and landing behind it.
   const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
-    || inventory.isOpen || journal.isOpen || !!devConsole?.isOpen;
+    || inventory.isOpen || journal.isOpen || !!devConsole?.isOpen
+    || perfPanel.isTyping;
   nearShop = false;
   nearNpc = null;
 
@@ -4587,7 +4718,7 @@ function frame(): void {
   // the same reason — a button held when the panel opened must not stay held
   // behind it.
   const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
-    || inventory.isOpen || journal.isOpen;
+    || inventory.isOpen || journal.isOpen || perfPanel.isTyping;
   // A modal does not turn the camera, and the controls sheet is the one that has
   // to say so out loud: it keeps pointer lock (see the F1 read below), so unlike
   // the shop it goes on collecting mouse delta that no slice will spend. See
@@ -4836,7 +4967,11 @@ function frame(): void {
   // Re-evaluated per frame as well as on input events: opening the shop or the
   // controls sheet changes the answer and neither is a DOM event this file sees.
   updateCursorMode();
-  if (perfPanel.isOpen) {
+  // Not while the spawner's search box has focus: in a text field an arrow key
+  // is a caret move, Enter submits and R is a letter. The field swallows them
+  // in the capture phase anyway (ui/perf-panel.ts), so this is the second half
+  // of the same statement rather than a second mechanism.
+  if (perfPanel.isOpen && !perfPanel.isTyping) {
     for (const code of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'KeyR']) {
       if (input.takePress(code)) perfPanel.onKey(code);
     }
@@ -6006,6 +6141,33 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
     perfPanel.refresh();
   }
   return gfx.get(opt.id);
+};
+
+/**
+ * The F3 spawner: read the catalogue, or drive it.
+ *
+ * A READER with no arguments — branch ids and row counts, plus how many
+ * structures are standing — and a DRIVER with two, which is a probe's job and
+ * the same argument `__dbgTp` and `__dbgGfx` make. It goes through the same
+ * `spawnCatalogue.spawn` a click does, so a probe cannot pass a test the panel
+ * would fail.
+ */
+(window as unknown as {
+  __dbgSpawn: (branch?: string, row?: string) => unknown;
+}).__dbgSpawn = (branch, row) => {
+  if (branch === undefined || row === undefined) {
+    return {
+      open: perfPanel.isOpen,
+      typing: perfPanel.isTyping,
+      structures: world.debugSpawn?.count ?? null,
+      // The wild population, so the enemy branch can be asserted on a COUNT
+      // rather than on the sentence the panel printed. A string is what the
+      // click returned; this is what the world did with it.
+      enemies: combat.enemies.length,
+      branches: spawnCatalogue.branches().map((b) => ({ id: b.id, rows: b.rows.length })),
+    };
+  }
+  return spawnCatalogue.spawn(branch, row);
 };
 
 // The cursor: what is showing, whether the sheet decoded, and — as a TEST HOOK

@@ -807,6 +807,26 @@ export function isExcludedFromAO(obj: THREE.Object3D): boolean {
   return obj.userData.noAO === true;
 }
 
+/**
+ * Putting a building somewhere at runtime — the F3 Debug panel's structure
+ * branch, and nothing else in the game.
+ *
+ * The contract is here rather than in world/spawned.ts because `World` carries
+ * it, and because the panel's host in main.ts is the caller: main.ts already
+ * knows where the hero is standing and which way he faces, which is the whole
+ * of what a spawn needs. The implementation is `SpawnedSolids`.
+ */
+export interface DebugSpawner {
+  /** Every part that can be stamped, by name, in the order a tree should list them. */
+  names(): readonly string[];
+  /** Stand one part on the terrain at (x, z). False if the name is unknown. */
+  spawn(name: string, x: number, z: number, yaw: number): boolean;
+  /** How many are standing. Capped — see MAX_PLACED in world/spawned.ts. */
+  readonly count: number;
+  /** Take them all back down. Also run by `exitToTitle`. */
+  clear(): void;
+}
+
 export interface World {
   /** Apply the current celestial lighting to world-owned shader materials. */
   applyCelestial(state: Readonly<CelestialState>): void;
@@ -1131,6 +1151,13 @@ export interface World {
    * CarrierInfo — `NO_CARRIERS` is what a world with none of them returns.
    */
   readonly carriers: CarrierRegistry;
+  /**
+   * Where the F3 Debug panel puts a building, or null in a zone that has no
+   * part library to build one from (the dungeon, the lab stage). See
+   * DebugSpawner — the world is its only owner because a spawned structure has
+   * to reach `structureTopAt` and /show-colliders like any other.
+   */
+  readonly debugSpawn: DebugSpawner | null;
   /**
    * The world's REFERENCE POINT: a scenic stretch of the start town's road,
    * high, dry and about fifty units out (`pickRoadSpawn` in world/towns.ts).

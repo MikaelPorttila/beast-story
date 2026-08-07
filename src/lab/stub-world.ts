@@ -44,6 +44,8 @@ export class StubWorld implements World {
   readonly npcs = null;
   /** ...and nothing on it moves under your feet. See World.carriers. */
   readonly carriers = NO_CARRIERS;
+  /** ...and nothing is built on it: the lab stages a model, not a settlement. */
+  readonly debugSpawn = null;
   readonly spawnPoint = new THREE.Vector3(0, 0, 0);
   /**
    * The stage has nobody to stand beside, so the pose is the middle of the

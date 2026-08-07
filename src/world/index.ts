@@ -22,6 +22,7 @@ import { Shops, type DenSpot } from './shops';
 import { Towns, planSettlements, type SettlementPlan } from './towns';
 import { TownParts } from './town-parts';
 import { Npcs, spotIsFree, type NpcSite } from './npc';
+import { SpawnedSolids } from './spawned';
 import { Clouds } from './clouds';
 import { SwayField } from './sway';
 import { mulberry32 } from './noise';
@@ -521,6 +522,12 @@ export function createWorld(
   const shops = new Shops(spots, spawnPoint);
   scene.add(shops.group);
 
+  // The debug spawner's stage. Built empty and cheap — its part library is not
+  // baked until something is actually spawned (see SpawnedSolids) — so a
+  // session that never opens F3 pays for a `Group` and nothing else.
+  const spawned = new SpawnedSolids(propLib, (x, z) => terrain.getHeight(x, z));
+  scene.add(spawned.group);
+
   const towns = plan
     ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain)
     : null;
@@ -592,6 +599,12 @@ export function createWorld(
       const n = npcs.solids.topAt(x, z);
       if (n > top) top = n;
     }
+    // ...and whatever the F3 Debug panel has stood on the ground. Empty in
+    // every session that never opened it, and `topAt` on an empty field is one
+    // failed bounds test — the same price the wilderness already pays for the
+    // three sets above.
+    const s = spawned.topAt(x, z);
+    if (s > top) top = s;
     return top;
   };
 
@@ -982,6 +995,7 @@ export function createWorld(
     towns: withCarriedTowns(townReg, sky ? [sky.town] : []),
     safeZones,
     carriers,
+    debugSpawn: spawned,
     get chunksLoaded(): number { return chunks.size; },
     // A part-built chunk counts: its props stage has not run, so its trees are
     // not in the trunk registry yet and walking in would find no colliders.
@@ -1200,6 +1214,10 @@ export function createWorld(
       // collision.
       shops.solids.debugBoxes(out);
       npcs?.solids.debugBoxes(out);
+      // A spawned hut blocks like a built one, so it has to draw like one too:
+      // an overlay that showed no cage around something you cannot walk through
+      // would make /show-colliders a liar about the one set you just placed.
+      spawned.debugBoxes(out);
     },
     /**
      * Every roof cylinder as [cx, cz, axisYaw, hl, r, y, ry]. Gated on the same
@@ -1209,6 +1227,8 @@ export function createWorld(
     debugRidges(out: number[]): void {
       if (!flags.solids) return;
       towns?.solids.debugRidges(out);
+      // Spawned huts and tents have roofs, and they are the same cylinders.
+      spawned.debugRidges(out);
     },
 
     debugFurniture(): Array<{ kind: string; x: number; z: number }> {
@@ -1561,6 +1581,7 @@ export function createWorld(
         scene.remove(clouds.group);
         clouds.dispose();
       }
+      spawned.dispose();
       terrainMat.dispose();
       waterMat.dispose();
       propLib.dispose();
