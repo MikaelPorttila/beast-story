@@ -617,6 +617,81 @@ export const sections = [
       `putting the party back left ${JSON.stringify(ctx.res.bench.restored)}`);
   } },
 
+  // ---------- 3d-bis. click to pick up, click to place ----------
+  // THE OTHER HALF OF ONE MECHANISM. A press picks the row up at once; letting
+  // go where you pressed leaves it in hand, and the next press puts it down.
+  // Nothing here may be true of the drag alone, so every click is a press and a
+  // release on the SAME pixel — a stray pixel between them would make this the
+  // drag section again and prove nothing.
+  //
+  // The pair is the CANCEL: a pickup that cannot be put back is a box stuck to
+  // the cursor, so Escape (and the right button) has to return it, and the
+  // panel has to still be there afterwards.
+  { id: 'clickDrag', run: async (ctx) => {
+    await openPanel(ctx);
+    const slotOf = (snap, id) => snap.entries.find((e) => e.id === id)?.slot ?? null;
+    const click = async (sel) => {
+      const p = await centre(ctx, sel);
+      if (!p) throw new Error(`nothing at ${sel}`);
+      await ctx.page.mouse.move(p.x, p.y);
+      await ctx.page.mouse.down();
+      await ctx.page.mouse.up();
+      await ctx.frame();
+    };
+
+    const before = await inv(ctx);
+    const id = before.entries[0]?.id;
+    const home = slotOf(before, id);
+    const free = await ctx.ev(() => {
+      const empties = [...document.querySelectorAll('.bs-inv .slot.empty[data-slot]')];
+      return empties.length ? Number(empties[empties.length - 1].dataset.slot) : null;
+    });
+    ctx.check(!!id && free !== null, 'nothing on the wall, or nowhere free to put it');
+
+    // ONE CLICK, and the row is in the air rather than merely selected.
+    await click(`.bs-inv .slot[data-sel="${id}"]`);
+    const held = await inv(ctx);
+    // A SECOND CLICK, on a cell far from it, places it.
+    await click(`.bs-inv .slot[data-slot="${free}"]`);
+    const placed = await inv(ctx);
+
+    // ...and a pickup can be put back. Escape spends itself on the row in hand,
+    // NOT on the panel.
+    await click(`.bs-inv .slot[data-sel="${id}"]`);
+    const held2 = await inv(ctx);
+    await ctx.page.keyboard.press('Escape');
+    await ctx.frame();
+    const cancelled = await inv(ctx);
+
+    ctx.res.clickDrag = {
+      id,
+      home,
+      free,
+      carryingAfterOneClick: held.panel?.carrying,
+      selectedWhileHeld: held.panel?.selected,
+      placedAt: slotOf(placed, id),
+      carryingAfterPlace: placed.panel?.carrying,
+      carryingAfterEscape: cancelled.panel?.carrying,
+      panelAfterEscape: cancelled.open,
+      slotAfterEscape: slotOf(cancelled, id),
+    };
+    ctx.check(held.panel?.carrying === true,
+      'one click did not pick the row up — a mouse must not have to hold the button');
+    // The press used to be what selected, and it still is.
+    ctx.check(held.panel?.selected === id,
+      `picking ${id} up selected ${held.panel?.selected}`);
+    ctx.check(slotOf(placed, id) === free,
+      `the second click left it in cell ${slotOf(placed, id)}, not the ${free} it was clicked on`);
+    ctx.check(placed.panel?.carrying === false,
+      'the row is still in hand after the click that placed it');
+    ctx.check(held2.panel?.carrying === true, 'the second pickup did not take');
+    ctx.check(cancelled.panel?.carrying === false, 'Escape did not put the carried row down');
+    ctx.check(cancelled.open === true,
+      'Escape closed the panel with a row in hand — it must spend itself on the row first');
+    ctx.check(slotOf(cancelled, id) === free,
+      `cancelling moved the row to ${slotOf(cancelled, id)}, it should not have moved at all`);
+  } },
+
   // ---------- 3f. every gear slot drags out, and back in ----------
   // ALL FOUR, and that is the point of the section rather than an excess of
   // zeal. What taking a row OUT of a slot means is per-slot — three of them

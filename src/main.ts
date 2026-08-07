@@ -5697,6 +5697,11 @@ beginPlay();
       icons: document.querySelectorAll('.bs-inv .ic:not(.blob)').length,
       portraits: document.querySelectorAll('.bs-inv .ic.beast:not(.blob)').length,
       stageGl: !!document.querySelector('.bs-inv canvas.stage-gl'),
+      // A ROW IS IN HAND. Read off the ghost tile the panel draws under the
+      // cursor, which is the same thing the player is looking at — a click that
+      // picked something up and a click that did nothing are otherwise the same
+      // screen with the same model behind it.
+      carrying: !!document.querySelector('.bs-inv .drag-ghost'),
       // WHO IS ACTUALLY IN THE STAGE'S SCENE — not who was asked for. The two
       // disagreed when the beasts swapped slots, which is the bug: the second
       // slot's turn removed the rig the first slot had just placed. See

@@ -38,8 +38,11 @@ import { InventoryStage } from './inventory-stage';
  *     dragging OFF the panel drops the item in the world.
  *   * The footer strip carries every action the host offered as a real button,
  *     which is what a finger has instead of the first two.
- * A left PRESS picks the row up (see `onPointerDown`) and a left click that
- * moved nowhere only SELECTS. Nothing destructive is one click from anything.
+ * A left PRESS picks the row up and SELECTS it (see `onPointerDown`): hold and
+ * drag to put it down, or click once to pick up and once more to place. Escape
+ * or the right button puts a carried row back. Nothing destructive is one click
+ * from anything — which is why a click out onto the world puts the row back
+ * rather than throwing it away, where a deliberate drag out there drops it.
  *
  * A GEAR SLOT IS A REAL SLOT, and what is in one is not on the wall as well
  * (issue #116). The host decides that — see `inventoryModel` — and what the
@@ -257,10 +260,14 @@ export const INV_ROWS = 3;
 const FOCUSABLE = 'button:not([disabled]):not([tabindex="-1"])';
 
 /**
- * How far a left press must travel before it is a DRAG rather than a click.
- * Five pixels: a deliberate click with a shaky hand moves one or two, and a
- * player who means to pick a box up has moved five before they have thought
- * about it.
+ * How far the pointer must travel after a pickup for the RELEASE to mean
+ * anything. Five pixels: a deliberate click with a shaky hand moves one or two,
+ * so under it the release is part of the click and the row stays in hand.
+ *
+ * It no longer gates the pickup itself — a press picks up at once (issue #116
+ * feedback). All it decides is which of the two gestures is running: let go
+ * where you pressed and it is click-and-click, let go somewhere else and it was
+ * a drag.
  */
 const DRAG_SLOP = 5;
 
@@ -298,10 +305,18 @@ export class InventoryPanel {
   private padEdge = new Uint8Array(20);
   private padLatchY = false;
   private padLatchX = false;
-  /** A left press that has not yet travelled far enough to be a drag. */
-  private press: { id: string; x: number; y: number; slot: GearSlotId | null } | null = null;
   /** Id in the air, or null. See `beginDrag`. */
   private dragging: string | null = null;
+  /** Where the pointer was when it picked that row up, to tell a click from a drag. */
+  private pickX = 0;
+  private pickY = 0;
+  /**
+   * Whether the pointer has travelled since the pickup. It decides what
+   * RELEASING means and nothing else: past the slop the release puts the row
+   * down, under it the release changes nothing and the row stays in hand until
+   * the next click. See `onPointerDown`.
+   */
+  private travelled = false;
   /**
    * WHICH GEAR SLOT the id in the air came out of, or null for the wall. The
    * slot and not a boolean: what dragging a row OUT means is per-slot, and
@@ -431,6 +446,16 @@ export class InventoryPanel {
    */
   onEscape(): boolean {
     if (!this.el) return false;
+    // A ROW IN HAND IS THE TOPMOST THING, so the first Escape puts it back and
+    // the panel stays up — the same "closes one thing" contract this method has
+    // with the host, one layer deeper. Without it the only way out of a sticky
+    // pickup is to put the row somewhere, and the panel closing with a box
+    // still stuck to the cursor is the state nothing else can recover from.
+    if (this.dragging) {
+      this.endDrag();
+      this.render();
+      return true;
+    }
     this.close('escape');
     return true;
   }
@@ -738,9 +763,12 @@ export class InventoryPanel {
   };
 
   private onPointerMove = (ev: PointerEvent): void => {
-    if (this.dragging) { this.dragTo(ev.clientX, ev.clientY); return; }
-    if (this.press && Math.hypot(ev.clientX - this.press.x, ev.clientY - this.press.y) > DRAG_SLOP) {
-      this.beginDrag(ev);
+    if (this.dragging) {
+      if (!this.travelled
+        && Math.hypot(ev.clientX - this.pickX, ev.clientY - this.pickY) > DRAG_SLOP) {
+        this.travelled = true;
+      }
+      this.dragTo(ev.clientX, ev.clientY);
       return;
     }
     if (this.tip?.classList.contains('on')) this.moveTip(ev.clientX, ev.clientY);
@@ -799,6 +827,16 @@ export class InventoryPanel {
   };
 
   private onContextMenu = (ev: MouseEvent): void => {
+    // CARRYING: the right button puts the row back rather than running an
+    // action on whatever is under the cursor. It is the second way out of a
+    // sticky pickup and the one a hand already on the mouse reaches first;
+    // Escape is the other (see `onEscape`).
+    if (this.dragging) {
+      ev.preventDefault();
+      this.endDrag();
+      this.render();
+      return;
+    }
     const e = this.entryAt(ev.target);
     if (!e) return;
     // Always, even when there is nothing to do: a browser context menu over an
@@ -813,44 +851,68 @@ export class InventoryPanel {
   // -------------------------------------------------------------------------
 
   /**
-   * A LEFT PRESS PICKS THE ROW UP — issue #116, and the reason this panel no
-   * longer uses HTML5 drag-and-drop at all.
+   * A LEFT PRESS PICKS THE ROW UP, AT ONCE — issue #116, and the reason this
+   * panel does not use HTML5 drag-and-drop at all.
    *
-   * Nothing happens yet. The press is only remembered, and it becomes a drag in
-   * `onPointerMove` once the pointer has travelled `DRAG_SLOP`; below that it is
-   * a click and the click handler selects. Both readings have to stay available
-   * off one button, and a threshold is the only thing that tells them apart —
-   * a press that acted immediately would make every selection a move of one or
-   * two pixels.
+   * ONE PICKUP, TWO WAYS TO PUT IT DOWN, and that is the whole state machine:
+   *
+   *   * HOLD AND DRAG. The row is in hand from the press; moving past
+   *     `DRAG_SLOP` marks the gesture as travelled, and RELEASING puts it down
+   *     wherever the cursor is. The gesture everybody tries first.
+   *   * CLICK AND CLICK. A press and release that went nowhere leaves the row in
+   *     hand — the release has nothing to say about a pointer that never moved
+   *     — and the NEXT press puts it down. A player who does not hold the
+   *     button, or whose hand cannot, gets the same reach.
+   *
+   * The two are not two mechanisms: both end in `resolve`, which is the only
+   * place a drop is decided, and `travelled` picks which press or release is
+   * the one that calls it.
+   *
+   * PICKING UP ALSO SELECTS, because the press used to be what selected and the
+   * footer has to keep following the box the player is looking at. Putting the
+   * row straight back down — a second click on the cell it came from — is a
+   * move to where it already is, which is nothing, and it stays selected.
    *
    * A FINGER IS NOT A DRAG HERE. The wall scrolls, touch has no second gesture
    * to spend on that, and every action a drag can reach is a button in the
    * footer — which is what `footHtml` is for. A pen is a mouse.
    */
   private onPointerDown = (ev: PointerEvent): void => {
+    if (ev.button !== 0 || ev.pointerType === 'touch') return;
+    // CARRYING: this press is the put-down, and the click behind it is neither
+    // a selection nor the scrim's dismissal.
+    if (this.dragging) {
+      this.dragged = true;
+      this.resolve(ev.clientX, ev.clientY, true);
+      return;
+    }
     // Cleared HERE and not only where it is read: a drag that ended off the
     // window fires no click at all, and a flag left standing would eat the next
     // real one.
     this.dragged = false;
-    if (ev.button !== 0 || ev.pointerType === 'touch') return;
     const btn = (ev.target as HTMLElement | null)?.closest?.('[data-sel]') as HTMLElement | null;
     const id = btn?.dataset.sel;
     if (!btn || !id || !this.rows.has(id)) return;
-    this.press = {
-      id, x: ev.clientX, y: ev.clientY,
-      slot: (btn.dataset.gear as GearSlotId | undefined) ?? null,
-    };
+    this.beginDrag(id, (btn.dataset.gear as GearSlotId | undefined) ?? null, ev);
   };
 
-  /** Past the slop the press is a drag. 5px, which is a click with a shaky hand. */
-  private beginDrag(ev: PointerEvent): void {
-    const press = this.press;
-    const e = press ? this.rows.get(press.id) : null;
-    if (!press || !e || !this.el) return;
-    this.dragging = press.id;
-    this.fromSlot = press.slot;
+  /** Take the row into hand. From here it is `resolve` that puts it anywhere. */
+  private beginDrag(id: string, slot: GearSlotId | null, ev: PointerEvent): void {
+    const e = this.rows.get(id);
+    if (!e || !this.el) return;
+    this.dragging = id;
+    this.fromSlot = slot;
+    this.pickX = ev.clientX;
+    this.pickY = ev.clientY;
+    this.travelled = false;
     this.dragged = true;
+    this.selected = id;
     this.hideTip();
+    // The selection ring and the footer follow the pickup, so a press still
+    // does what a press used to do. Safe here: `render` rebuilds the PANE, and
+    // the ghost below is a child of the panel root, which outlives it.
+    this.pendingFocus = `[data-sel="${id}"]`;
+    this.render();
     this.el.classList.add('dragging');
     // The ghost is the box IN THE AIR, and it is what makes a rearrange
     // readable: the cell it came from stays where it was, dimmed, and the thing
@@ -927,19 +989,44 @@ export class InventoryPanel {
     return null;
   }
 
+  /**
+   * A RELEASE ONLY MEANS SOMETHING IF THE POINTER WENT SOMEWHERE. Let go where
+   * you pressed and the row stays in hand for the next click — see the note on
+   * `onPointerDown` for why both gestures exist and why they are one mechanism.
+   */
   private onPointerUp = (ev: PointerEvent): void => {
-    if (!this.dragging) { this.press = null; return; }
+    if (!this.dragging || !this.travelled) return;
+    this.resolve(ev.clientX, ev.clientY, false);
+  };
+
+  /**
+   * PUT THE ROW DOWN at this point, whatever that means here — an action, a
+   * cell, or nothing at all, in which case the row simply goes back where it
+   * came from. The one place a drop is decided, so the two gestures cannot
+   * drift apart.
+   *
+   * `sticky` is a click rather than the end of a drag, and it costs the SCRIM
+   * its meaning: dragging a row out over the world drops it there, which is a
+   * deliberate gesture, while a click on the scrim is also how the panel is
+   * dismissed. Nothing that throws an item away may be one click from anything
+   * — the rule this panel opens with — so a sticky click out there puts the row
+   * back instead.
+   */
+  private resolve(x: number, y: number, sticky: boolean): void {
     const id = this.dragging;
+    if (!id) return;
     // Read the target BEFORE tearing the ghost down: `endDrag` removes the
     // element `elementFromPoint` would otherwise have to see through anyway,
     // and clears the id this answer is about.
-    const hit = this.dropTarget(document.elementFromPoint(ev.clientX, ev.clientY));
+    const node = document.elementFromPoint(x, y);
+    const hit = sticky && (node as HTMLElement | null)?.classList.contains('bs-scrim')
+      ? null : this.dropTarget(node);
     this.endDrag();
-    if (!hit) return;
+    if (!hit) { this.render(); return; }
     if (hit.action) this.run(id, hit.action);
     // Both, in that order, for a gear slot emptied onto a cell — see `dropTarget`.
     if (hit.slot !== undefined) this.move(id, hit.slot);
-  };
+  }
 
   private onPointerCancel = (): void => { this.endDrag(); };
 
@@ -953,9 +1040,9 @@ export class InventoryPanel {
   }
 
   private endDrag(): void {
-    this.press = null;
     this.dragging = null;
     this.fromSlot = null;
+    this.travelled = false;
     this.ghost?.remove();
     this.ghost = null;
     this.el?.classList.remove('dragging');
