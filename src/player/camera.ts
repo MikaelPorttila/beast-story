@@ -32,7 +32,7 @@ function clamp(v: number, a: number, b: number): number {
  * LOOK_LIFT is that aim offset, expressed as a fraction of the arm length so the
  * framing is scale-free: the look target rides `dist * LOOK_LIFT` above the pivot,
  * so the on-screen drop is `LOOK_LIFT / tan(fov/2) / 2` of the viewport height no
- * matter where the wheel has left the zoom (3.5–11 m). It is a constant tilt added
+ * matter where the wheel has left the zoom (3.5–16 m). It is a constant tilt added
  * after the pitch clamp, not a change to `pitch`, so mouse-look still clamps
  * exactly as before.
  *
@@ -184,7 +184,11 @@ export class ThirdPersonCamera {
       this.pitch += _lookIn.dy * 0.0026;
     }
     this.pitch = clamp(this.pitch, -0.48, 1.25);
-    this.distTarget = clamp(this.distTarget + _lookIn.wheel * 0.01, 3.5, 11);
+    // Zoom range. The far end was 11 m, which framed the hero but left no room
+    // to read a fight or a settlement around him; 16 m gives roughly a third
+    // more world on screen at the same fov without the hero shrinking past
+    // legibility (he is ~1.8 m, ~7% of a 720p frame height at 16 m).
+    this.distTarget = clamp(this.distTarget + _lookIn.wheel * 0.01, 3.5, 16);
     this.dist += (this.distTarget - this.dist) * (1 - Math.exp(-8 * dt));
     const kFrame = 1 - Math.exp(-DIST_SCALE_LAMBDA * dt);
     this.distScale += (this.distScaleTarget - this.distScale) * kFrame;
