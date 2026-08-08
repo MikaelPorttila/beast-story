@@ -936,6 +936,25 @@ export const en = {
   'gfx.water': 'Water surface',
   'gfx.water.cost': 'small unless you are looking at a lake',
 
+  // ---- F3 appearance -------------------------------------------------------
+  // The hero's hair: src/player/hair.ts holds the styles, ui/perf-panel.ts the
+  // two rows. Style names are DESCRIPTIVE rather than the characters they nod
+  // at — the shapes are homages, the strings are not, and a name in this table
+  // is a name the player reads.
+  'hair.section': 'Appearance',
+  'hair.style': 'Hairstyle',
+  'hair.style.cost': '← → to try them on',
+  'hair.colour': 'Hair colour',
+  'hair.colour.cost': '← → for a swatch, or click the well for any colour',
+  'hair.classic': 'Adventurer',
+  'hair.buzz': 'Buzz cut',
+  'hair.bowl': 'Shaggy bowl',
+  'hair.ponytail': "Warrior's tail",
+  'hair.emo': 'Sidecut sweep',
+  'hair.cloud': 'Mercenary spikes',
+  'hair.mohawk': 'Mohawk',
+  'hair.saiyan': 'Battle flare',
+
   // ---- F3 spawner ----------------------------------------------------------
   // src/ui/perf-panel.ts's lower half, driven by the catalogue main.ts builds
   // against core/spawn.ts. The ROWS are not here: an item's name, a beast's

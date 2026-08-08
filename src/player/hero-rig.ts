@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { VoxelModel } from '../core/voxel';
 import { buildWeaponModel, disposeWeapon, type WeaponModelId } from './weapons';
+import { buildHair, hairStyle, storedHairColour, storedHairStyle } from './hair';
 
 /**
  * Voxel hero: a chibi adventurer, 1.71 units tall (measured, not declared).
@@ -37,6 +38,8 @@ export interface HeroRig {
   body: THREE.Group;
   torso: THREE.Group;
   head: THREE.Group;
+  /** The mount one hairstyle mesh hangs in. See `setHairStyle`. */
+  hair: THREE.Group;
   armL: THREE.Group;
   armR: THREE.Group;
   legL: THREE.Group;
@@ -62,6 +65,10 @@ export interface HeroRig {
   materials: THREE.MeshStandardMaterial[];
   /** What is in the hand right now, or null for bare hands. */
   weapon: WeaponModelId | null;
+  /** Which hairstyle is on his head — an id from `HAIR_STYLES`. */
+  hairStyle: string;
+  /** The colour it is drawn in, resolved: never the "no choice made" null. */
+  hairColour: number;
 }
 
 // -- palette ---------------------------------------------------------------
@@ -71,9 +78,6 @@ const BLUSH = 0xf59f7d;
 const MOUTH = 0xa9603f;
 const EYE = 0x2c2833;
 const GLINT = 0xffffff;
-const HAIR = 0xa5622a;
-const HAIR_D = 0x84491d;
-const HAIR_L = 0xb97a3d; // sun-lightened strands (back of head)
 const STRAP = 0xc9a24f;  // gold-tan backpack straps
 const TUNIC = 0x3f8fd6;
 const TUNIC_D = 0x3374b3;
@@ -174,6 +178,16 @@ const HOLSTER_BAND = 1.0;
  * 0.63 (36%) this rig carried when it had arms and legs to balance.
  */
 const HEAD_SCALE = 0.867;
+/**
+ * How far the head mesh is sunk into its own group — and, because the hair
+ * hangs at the same offset, the one number that keeps the two meshes aligned.
+ *
+ * `buildHead` bakes its cells with the origin at the lowest one, so the skull's
+ * cell (x,y,z) lands at (x*S, y*S + HEAD_DROP, z*S) and a hair cell, at half the
+ * size, lands at exactly half of that. Written once, used twice: a hairstyle
+ * would otherwise float a third of a voxel over the scalp the day this moved.
+ */
+const HEAD_DROP = -0.03;
 
 /**
  * A camera-relative silhouette lift, independent of the world's lighting.
@@ -198,33 +212,17 @@ function installActorHighlight(material: THREE.MeshStandardMaterial): void {
   };
 }
 
+/**
+ * The head WITHOUT its hair — skull, ears and face.
+ *
+ * The hair is a model of its own at twice this grid's resolution and it hangs
+ * off `HAIR_ORIGIN` below; see the note at the top of player/hair.ts for why,
+ * and for the rule that keeps the two meshes off each other's planes.
+ */
 function buildHead(): THREE.Mesh {
   const v = new VoxelModel();
   // skull
   v.box(-4, 0, -4, 3, 5, 3, SKIN);
-  // hair: chunky cap with a one-voxel overhang all around
-  v.box(-5, 4, -5, 4, 6, 4, HAIR);
-  // darker under-layer at the back, flowing down the neck
-  v.box(-5, 1, -5, 4, 3, -4, HAIR_D);
-  // back strands: recolor the outer back layer (z=-5) with 2-tone columns so
-  // the rear view reads as falling hair, not a flat slab (no shape change)
-  for (const y of [1, 2, 3]) v.set(-4, y, -5, HAIR);
-  for (const y of [2, 3]) v.set(0, y, -5, HAIR);
-  for (const y of [1, 2]) v.set(3, y, -5, HAIR);
-  for (const y of [1, 2, 3]) v.set(-2, y, -5, HAIR_L);
-  v.set(2, 3, -5, HAIR_L);
-  // carry the variation up into the back of the cap
-  v.set(-3, 4, -5, HAIR_D);
-  v.set(1, 4, -5, HAIR_D);
-  v.set(-1, 5, -5, HAIR_L);
-  v.set(3, 4, -5, HAIR_D);
-  // jagged fringe over the brow
-  for (const x of [-5, -3, -1, 2, 4]) v.set(x, 3, 4, HAIR);
-  for (const x of [-4, 0, 3]) v.set(x, 3, 4, HAIR_D);
-  // cowlick tuft
-  v.set(-1, 7, -1, HAIR);
-  v.set(0, 7, 0, HAIR);
-  v.set(0, 8, -1, HAIR_D);
   // ears
   v.set(-5, 2, 0, SKIN_EAR);
   v.set(4, 2, 0, SKIN_EAR);
@@ -243,7 +241,7 @@ function buildHead(): THREE.Mesh {
   v.set(-4, 1, 3, BLUSH);
   v.set(3, 1, 3, BLUSH);
   const mesh = v.build(S, true);
-  mesh.position.y = -0.03;
+  mesh.position.y = HEAD_DROP;
   return mesh;
 }
 
@@ -310,27 +308,49 @@ function buildBoot(): THREE.Mesh {
 /**
  * A free-floating mitt: the stepped ball the Blender model builds cell by cell.
  *
- * THE RADIUS HAS TO BE BIG ENOUGH TO ROUND ANYTHING. `ellipsoid` keeps every
- * cell whose centre is inside the radius, so at 1.9 all 27 cells of a 3x3x3
- * pass and the "ball" bakes out as a PERFECT CUBE — which is what shipped, and
- * what a cube hand in the game was. A ball needs a five-cell span before there
- * is a corner to cut: 2.83 is r^2 = 8, the same 93-of-125 shape as the voxel
- * sphere in models/chibi_base.py. The mesh is then scaled DOWN, because five
- * cells at the body's own 0.1 would be a 0.5 hand on a 1.7 body.
+ * FIVE CELLS ACROSS, AND THE SHAPE IS THE POINT. It has been three things: a
+ * radius so small (1.9) that all 27 cells of a 3x3x3 passed and the "ball"
+ * baked out as a perfect cube; then a distance field at r^2 = 8, 93 of 125,
+ * which kept the twelve edge cells and rounded into a blob; and now the
+ * `stepped_ball` mask the Blender source uses — 81 of 125, a cube with one step
+ * raised on each face. That reads as a low-resolution sphere rather than as a
+ * smooth one, which is the whole register this game draws in.
+ *
+ * IT IS THE SAME MASK AS models/chibi_base.py, deliberately, and the two cannot
+ * share code across TypeScript and Python — so they share a NUMBER instead:
+ * 81 of 125. If one of them ever says something else, they have drifted.
+ *
+ * The mesh is then scaled DOWN, because five cells at the body's own 0.1 would
+ * be a 0.5 hand on a 1.7 body.
  *
  * MITT_SCALE and the grip are one number apart on purpose — see GRIP_LOCAL_Y.
  *
  * It hangs below its shoulder pivot on purpose: the animator swings the arm
  * with `rotation.x`, and a mitt centred ON the pivot would spin in place.
  */
-const MITT_CELL_R = 2.83;
+/** Half the mitt's span in cells: it runs -2..2, five across, as it always has. */
+const MITT_CELL_R = 2;
 function buildMitt(): THREE.Mesh {
   const v = new VoxelModel();
-  v.ellipsoid(0, 0, 0, MITT_CELL_R, MITT_CELL_R, MITT_CELL_R, SKIN);
-  // Cuff: a recolour of the ball's top layer, where a sleeve would have ended.
-  // Radius 2 in x/z paints exactly the cells that layer already has — a wider
-  // one would ADD the corner cells the ball just cut.
-  v.ellipsoid(0, 2, 0, 2.0, 0.5, 2.0, SKIN_EAR);
+  // A CUBE WITH ONE STEP RAISED ON EACH FACE: the 3x3x3 core plus a 3x3 plate
+  // per side, 81 of the 125 cells. A cell is in if AT MOST ONE of its axes is
+  // out at the rim — two means an edge, three a corner, and those twenty are
+  // exactly what this drops.
+  for (let x = -MITT_CELL_R; x <= MITT_CELL_R; x++) {
+    for (let y = -MITT_CELL_R; y <= MITT_CELL_R; y++) {
+      for (let z = -MITT_CELL_R; z <= MITT_CELL_R; z++) {
+        const rim = +(Math.abs(x) === MITT_CELL_R) + +(Math.abs(y) === MITT_CELL_R)
+          + +(Math.abs(z) === MITT_CELL_R);
+        if (rim <= 1) v.set(x, y, z, SKIN);
+      }
+    }
+  }
+  // Cuff: a recolour of the top plate, where a sleeve would have ended. It is
+  // painted CELL BY CELL over exactly the plate's own 3x3, not with a radius —
+  // `ellipsoid` SETS cells rather than tinting the ones already there, so the
+  // old radius-2 disc would paint the four edge cells at y = 2 back in and undo
+  // the step this shape is made of.
+  for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) v.set(x, 2, z, SKIN_EAR);
   const mesh = v.build(S, true);
   mesh.scale.setScalar(MITT_SCALE);
   mesh.position.y = MITT_DROP;
@@ -394,6 +414,12 @@ export function buildHeroRig(): HeroRig {
   head.scale.setScalar(HEAD_SCALE);
   head.add(buildHead());
   torso.add(head);
+
+  // The hair hangs in a mount rather than being a child of the skull, so
+  // `setHairStyle` swaps ONE object and nothing else in the head is rebuilt.
+  const hair = new THREE.Group();
+  hair.position.y = HEAD_DROP;
+  head.add(hair);
 
   // -x is his right. See the note at the top of the file.
   const armR = new THREE.Group();
@@ -487,10 +513,16 @@ export function buildHeroRig(): HeroRig {
   });
 
   const rig: HeroRig = {
-    root, body, torso, head, armL, armR, legL, legR, hips, sword, holster,
+    root, body, torso, head, hair, armL, armR, legL, legR, hips, sword, holster,
     scabbard, materials, weapon: null, stowed: false,
+    hairStyle: '', hairColour: 0,
   };
   setWeaponModel(rig, 'sword');
+  // What the player last chose, or the first style in its own colour. Read here
+  // rather than passed in: every caller that builds a hero (the game, the lab,
+  // test-zfight) wants the same answer, and the one that wants a different one
+  // says so by calling `setHairStyle` after.
+  setHairStyle(rig, storedHairStyle(), storedHairColour());
   return rig;
 }
 
@@ -608,5 +640,41 @@ export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
   const mesh = buildWeaponModel(id);
   installActorHighlight(mesh.material as THREE.MeshStandardMaterial);
   rig.sword.add(mesh);
+  rig.materials.push(mesh.material as THREE.MeshStandardMaterial);
+}
+
+/**
+ * Put a hairstyle on the hero, in a colour.
+ *
+ * `colour` is the PICKED one, so `null` means nothing has been picked and the
+ * style is drawn in the colour it was designed in (see the storage note in
+ * player/hair.ts). The resolved answer is left on the rig, which is what the
+ * debug panel shows in its swatch — nothing else has to repeat the rule.
+ *
+ * Rebuilding is the only way to recolour: `VoxelModel` bakes colour into vertex
+ * attributes, so there is no material to tint. It is one small model, built when
+ * somebody changes a row in a panel, and it prunes the outgoing material out of
+ * the damage-flash list on the way — the same three steps, in the same order, as
+ * `setWeaponModel` above.
+ */
+export function setHairStyle(rig: HeroRig, styleId: string, colour: number | null): void {
+  const style = hairStyle(styleId);
+  const hex = colour ?? style.suggested;
+  if (rig.hairStyle === style.id && rig.hairColour === hex) return;
+  rig.hairStyle = style.id;
+  rig.hairColour = hex;
+  const old = rig.hair.children[0] as THREE.Mesh | undefined;
+  if (old) {
+    rig.hair.remove(old);
+    const mat = old.material as THREE.MeshStandardMaterial;
+    const at = rig.materials.indexOf(mat);
+    if (at >= 0) rig.materials.splice(at, 1);
+    old.geometry.dispose();
+    mat.dispose();
+  }
+  const mesh = buildHair(style.id, hex);
+  mesh.receiveShadow = false; // the hero casts but never receives — see buildHeroRig
+  installActorHighlight(mesh.material as THREE.MeshStandardMaterial);
+  rig.hair.add(mesh);
   rig.materials.push(mesh.material as THREE.MeshStandardMaterial);
 }

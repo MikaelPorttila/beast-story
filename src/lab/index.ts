@@ -49,7 +49,8 @@ import { VFX } from '../combat/vfx';
 import { CombatSystem } from '../combat/index';
 import { tameOrbMesh, ORB_RADIUS } from '../combat/tame-orb';
 import { ITEMS, ORB_IDS } from '../core/items';
-import { buildHeroRig, setWeaponModel, stowWeapon, type HeroRig } from '../player/hero-rig';
+import { buildHeroRig, setHairStyle, setWeaponModel, stowWeapon, type HeroRig } from '../player/hero-rig';
+import { storedHairColour } from '../player/hair';
 import { HeroAnimator, type AnimInput } from '../player/animations';
 import type { WeaponModelId } from '../player/weapons';
 import { StubWorld } from './stub-world';
@@ -157,6 +158,18 @@ if (params.get('hero') === '1') {
   heroRig = rig;
   if (params.get('weapon')) setWeaponModel(rig, params.get('weapon') as WeaponModelId);
   if (params.get('stow') === '1') stowWeapon(rig, true);
+  // `hair=<id>` and `haircolour=RRGGBB` — the stage a hairstyle is drawn on.
+  // Both are one shot and neither is stored: the lab shows what was asked for
+  // and the player's own choice (localStorage, see player/hair.ts) is what the
+  // rig was built with when neither is given.
+  if (params.get('hair') || params.get('haircolour')) {
+    const picked = params.get('haircolour');
+    setHairStyle(
+      rig,
+      params.get('hair') ?? rig.hairStyle,
+      picked ? parseInt(picked.replace('#', ''), 16) : storedHairColour(),
+    );
+  }
   engine.scene.add(rig.root);
   subjectHeight = 1.8;
 }

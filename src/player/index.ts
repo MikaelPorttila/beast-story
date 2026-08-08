@@ -4,7 +4,7 @@ import type { Input } from '../core/input';
 import { MAX_STEP_UP, type ElementType, type EventBus, type World } from '../core/types';
 import { CarrierRide } from '../world/carriers';
 import { t } from '../i18n';
-import { buildHeroRig, type HeroRig, setWeaponModel, stowWeapon } from './hero-rig';
+import { buildHeroRig, type HeroRig, setHairStyle, setWeaponModel, stowWeapon } from './hero-rig';
 import type { WeaponModelId } from './weapons';
 import { ThirdPersonCamera } from './camera';
 import { HeroAnimator, type AttackState } from './animations';
@@ -342,6 +342,31 @@ export class Player {
 
   /** What is in his hand. Read by the probe and by the mount's aim policy. */
   get weapon(): WeaponModelId | null { return this.rig.weapon; }
+
+  /**
+   * Put a hairstyle on him. `colour` is the PICKED one, so null means "none
+   * picked" and the style is drawn in its own — the rule is `setHairStyle`'s
+   * and is not restated here (see player/hair.ts).
+   *
+   * The same shape as `setWeapon` above and for the same reason: the rig is the
+   * storage, so there is no field here to fall out of step with the head that
+   * is actually being drawn. The F3 panel is the caller today.
+   */
+  setHair(styleId: string, colour: number | null): void {
+    setHairStyle(this.rig, styleId, colour);
+  }
+
+  get hairStyle(): string { return this.rig.hairStyle; }
+  /** The colour he is drawn in, resolved — never the "not picked" null. */
+  get hairColour(): number { return this.rig.hairColour; }
+  /**
+   * The hair mesh itself, for `__dbgHair`. A probe proves a style swap by the
+   * GEOMETRY changing, which is a fact about this object and cannot be faked by
+   * a field somebody remembered to update.
+   */
+  get rigHairMesh(): THREE.Mesh | null {
+    return (this.rig.hair.children[0] as THREE.Mesh | undefined) ?? null;
+  }
   onGround = false;
   isSwimming = false;
   /**

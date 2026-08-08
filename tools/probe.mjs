@@ -93,6 +93,10 @@ const SOLO = new Set([
   'npc',           // walks to a talk range
   'road',          // drives the hero along a carriageway
   'gfx',           // draw-call counts under a live frame cap
+  // Opens the F3 panel with a key press and clicks one of its rows — a key edge
+  // is consumed by the frame loop, and a batched page is a background tab with
+  // no frames at all. See the note under PARALLEL.
+  'hair',
   'sway',          // measured: mover count and area radius move under load
   'aim-assist',    // measured: selection angles collapse under load
   'f2',            // measured: reads null under load, and asserts nothing
