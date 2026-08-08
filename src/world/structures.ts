@@ -68,7 +68,7 @@
  * high are you over this point". A cylinder on its side answers that with a
  * square root.
  */
-import { MAX_STEP_UP } from '../core/types';
+import { MAX_STEP_UP, type SiteClearance } from '../core/types';
 import type { VoxelModel, VoxelRegion } from '../core/voxel';
 import { Accum, bakeProp, type SolidBox, type SolidRidge, type Template } from './props';
 
@@ -479,7 +479,7 @@ const cellKey = (cx: number, cz: number): number => cx * 4194304 + cz;
  * a settlement nothing it would not have paid anyway, and models with no roof at
  * all — every NPC, every crate — skip the second set on a count of zero.
  */
-export class StructureField {
+export class StructureField implements SiteClearance {
   /** [cx, cz, hx, hz, cos yaw, sin yaw, top] per box. */
   private data: number[] = [];
   private box = new Float32Array(0);
@@ -708,6 +708,107 @@ export class StructureField {
     return best;
   }
 
+  /** Is anything at all stamped inside this rectangle? See `SiteClearance`. */
+  anyIn(x0: number, z0: number, x1: number, z1: number): boolean {
+    return x1 >= this.minX && x0 <= this.maxX && z1 >= this.minZ && z0 <= this.maxZ;
+  }
+
+  /**
+   * Does built material intersect this upright cylinder? See `SiteClearance`.
+   *
+   * The bounds test first and alone, for the reason `topAt` states at length:
+   * the miss is the hot path and it must stay four compares and a return.
+   *
+   * The cylinder is the PROP's extent, so what this reports is "the thing you
+   * are about to stamp would be inside a wall" and not "the thing you are about
+   * to stamp is near a town". That distinction is the whole of issue #131: a
+   * tussock may grow against a palisade and around a fence post, and only the
+   * one that would pass through the timber is refused.
+   */
+  hits(x: number, z: number, r: number, y0: number, y1: number): boolean {
+    if (x + r < this.minX || x - r > this.maxX
+      || z + r < this.minZ || z - r > this.maxZ) return false;
+    const roofs = this.roof.length > 0;
+    const r2 = r * r;
+    for (let cx = Math.floor((x - r) / CELL); cx <= Math.floor((x + r) / CELL); cx++) {
+      for (let cz = Math.floor((z - r) / CELL); cz <= Math.floor((z + r) / CELL); cz++) {
+        const key = cellKey(cx, cz);
+        const bucket = this.grid.get(key);
+        if (bucket !== undefined && this.boxHit(bucket, x, z, r2, y0)) return true;
+        if (!roofs) continue;
+        const rbucket = this.rgrid.get(key);
+        if (rbucket !== undefined && this.roofHit(rbucket, x, z, r2, y0)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * The box half of `hits`: nearest point of each rectangle to the cylinder's
+   * axis, in the rectangle's own frame, against the radius.
+   *
+   * `top <= y0` is the one vertical test a box needs, and it is exact rather
+   * than conservative: `measureFootprint` builds these from the model's base
+   * upward, so a box is material from the ground to its top and a prop rooted
+   * above that top cannot be inside it. It is also what lets a sprig sit on a
+   * flagstone rather than be culled by it.
+   */
+  private boxHit(bucket: Int32Array, x: number, z: number, r2: number, y0: number): boolean {
+    const b = this.box;
+    for (let k = 0; k < bucket.length; k++) {
+      const o = bucket[k] * STRIDE;
+      if (b[o + 6] <= y0) continue;
+      const dx = x - b[o];
+      const dz = z - b[o + 1];
+      const c = b[o + 4];
+      const sn = b[o + 5];
+      // Inverse of the stamp's rotation; see `add`. Then the classic
+      // rectangle-to-point distance: fold to one quadrant, subtract the extent,
+      // clamp the negatives away, and what is left is the gap.
+      let lx = Math.abs(dx * c - dz * sn) - b[o + 2];
+      let lz = Math.abs(dx * sn + dz * c) - b[o + 3];
+      if (lx < 0) lx = 0;
+      if (lz < 0) lz = 0;
+      // `<=`, NOT `<`, and it is load-bearing at one radius: a point INSIDE the
+      // rectangle clamps to a gap of exactly zero, so a strict compare answers
+      // "no" to `r = 0` — the query a probe makes about a single drawn vertex.
+      if (lx * lx + lz * lz <= r2) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The roof half of `hits`, and the one place here that is deliberately
+   * COARSER than the shape it stands for.
+   *
+   * A ridge is treated as filled from the ground to its crest over its whole
+   * footprint — the same reading `topAt` gives it, a height field — rather than
+   * as the shell of a cylinder. Under a ridge TENT, whose canvas comes down to
+   * the ground, that is exact. Under a hut's thatch it culls the band of grass
+   * beneath the EAVE, which overhangs by a few tenths of a unit and stands over
+   * a wall box that has already refused everything there. So the coarse reading
+   * costs a strip that was empty anyway, and buys not having to decide whether
+   * a blade under an overhang counts as inside the roof.
+   */
+  private roofHit(bucket: Int32Array, x: number, z: number, r2: number, y0: number): boolean {
+    const r = this.roof;
+    for (let k = 0; k < bucket.length; k++) {
+      const o = bucket[k] * RSTRIDE;
+      if (r[o + 6] + r[o + 7] <= y0) continue;
+      const dx = x - r[o];
+      const dz = z - r[o + 1];
+      const sa = r[o + 2];
+      const ca = r[o + 3];
+      let along = Math.abs(dx * sa + dz * ca) - r[o + 4];
+      let across = Math.abs(dx * ca - dz * sa) - r[o + 5];
+      if (along < 0) along = 0;
+      if (across < 0) across = 0;
+      // `<=` for the reason `boxHit` gives: inside is a gap of zero.
+      if (along * along + across * across <= r2) return true;
+    }
+    return false;
+  }
+
   /** Append every box as [cx, cz, hx, hz, yaw, top]. See World.debugStructures. */
   debugBoxes(out: number[]): void {
     const b = this.box;
@@ -729,6 +830,34 @@ export class StructureField {
         r[o + 4], r[o + 5], r[o + 6], r[o + 7], r[o + 8],
       );
     }
+  }
+}
+
+/**
+ * Several fields as one clearance query.
+ *
+ * The same "THREE FIELDS, one query" arrangement `World.structureTopAt` makes
+ * (world/index.ts): a `StructureField` is frozen by its owner at the end of its
+ * own constructor, so the settlement, the skill dens and anything else built
+ * before the first chunk streams each keep their own and the union is taken
+ * here. Absent owners are dropped at construction, so `towns=0` costs the
+ * placer a shorter loop rather than a null test per stamp.
+ */
+export class SiteFields implements SiteClearance {
+  private readonly fields: readonly SiteClearance[];
+
+  constructor(fields: readonly (SiteClearance | null | undefined)[]) {
+    this.fields = fields.filter((f): f is SiteClearance => f != null);
+  }
+
+  anyIn(x0: number, z0: number, x1: number, z1: number): boolean {
+    for (const f of this.fields) if (f.anyIn(x0, z0, x1, z1)) return true;
+    return false;
+  }
+
+  hits(x: number, z: number, r: number, y0: number, y1: number): boolean {
+    for (const f of this.fields) if (f.hits(x, z, r, y0, y1)) return true;
+    return false;
   }
 }
 

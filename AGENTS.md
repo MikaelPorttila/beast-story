@@ -171,6 +171,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Fences and bridge railings | `world/fences.ts` (the chain), `world/town-parts.ts` (the kit) | `test-fence` |
 | Moving world pieces | `world/carriers.ts`, `world/sky-island.ts` | `test-carrier` |
 | Vegetation, wind | `world/nature.ts`, `world/props.ts`, `world/sway.ts` | `test-nature`, `test-sway` |
+| Foliage vs. buildings | `SiteClearance` in `core/types.ts`, `world/structures.ts` (the field), `Accum.add` in `world/props.ts` (the one refusal) | `test-foliage-clip` |
 | People | `world/npc.ts` + a file per body | `test-npc`, `test-zfight` (carried-frame NPCs have no behavioural guard) |
 | Beasts | `beasts/framework.ts`, `beasts/registry.ts`, `beasts/species/*` | `test-zfight`, `test-beastanim`, `test-companion` |
 | Combat, enemies, drops | `combat/index.ts`, `combat/enemies.ts`, `combat/pickups.ts` | `test-safezone`, `test-aim-assist`, `test-inventory` |
@@ -202,6 +203,14 @@ Cross-cutting rules:
   module constant.
 - **Register content actions and factories above `bootstrapContent()`**, or the
   cross-asset pass reports them as unknown.
+- **Nothing the world GROWS may stand inside something it BUILT.** The rule is
+  one test in `Accum.add` (`world/props.ts`) against `SiteClearance`, so it
+  holds for every foliage type and every structure, present and future — do not
+  spell it again at a stamp site. It refuses a prop whose own MEASURED extent
+  would pass through timber and refuses nothing else: grass grows against a
+  palisade and around a fence post. A clearance disc is the other tool and it
+  answers a different question ("no oaks in the camp", about the skyline); one
+  wide enough to clear a wall strips the yard, which is issue #131.
 - **Ask "is it close?" with `inReach` / `inRise`** (`core/types.ts`) — a radius
   AND a height band, never `dx² + dz²` alone, which is an infinite vertical
   column and reacts to a hero flying over it. Give the band its own number with

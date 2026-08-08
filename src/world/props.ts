@@ -12,6 +12,7 @@ import { DECK_EDGE, type RoadClearance } from './roads';
 import { SWAY_BOUND_PAD } from './sway';
 import { nature, natureCount } from './nature';
 import { flags } from '../core/flags';
+import type { SiteClearance } from '../core/types';
 
 /**
  * One box of a template's SOLID FOOTPRINT, in TEMPLATE units — i.e. already
@@ -103,6 +104,20 @@ export interface Template {
   nrm: Float32Array;
   col: Float32Array;
   idx: ArrayLike<number>;
+  /**
+   * How far the furthest vertex reaches from the stamp axis, in TEMPLATE units
+   * — i.e. with the bake scale already in, so a stamp only applies its own
+   * girth factor. `spanY` is the same statement about height, above y = 0.
+   *
+   * A CIRCUMSCRIBING DISC, deliberately, and it is the right shape here for the
+   * reason `bake`'s bole radius is one: a stamp yaws, so the only extent that
+   * holds for every yaw is the one measured from the axis. It is the prop's own
+   * size and nothing else — what it means to be "too close" to a wall is the
+   * caller's business (see `SiteClearance` in core/types.ts).
+   */
+  spanR: number;
+  /** Height of the tallest vertex above the model's base. See `spanR`. */
+  spanY: number;
   /**
    * The tree inside this template, if it is one, in TEMPLATE units — i.e.
    * already multiplied by the bake scale, so a stamp only has to apply its own
@@ -203,6 +218,26 @@ export function relight(nrm: Float32Array, col: Float32Array): void {
 }
 
 /**
+ * The extent of a set of baked vertices — `Template.spanR` and `spanY`.
+ *
+ * MEASURED off the vertices for the same reason the crown envelope and the sway
+ * height are, and stated once here because there are two ways a template gets
+ * made in this file: `bake`, from a voxel model, and `grassBillboard`, which
+ * pushes its quads by hand. A prop that reported no size would be a prop that
+ * could stand anywhere, so this is not a field a builder gets to forget.
+ */
+function measureSpan(pos: ArrayLike<number>): { spanR: number; spanY: number } {
+  let r2 = 0;
+  let spanY = 0;
+  for (let i = 0; i < pos.length; i += 3) {
+    const d = pos[i] * pos[i] + pos[i + 2] * pos[i + 2];
+    if (d > r2) r2 = d;
+    if (pos[i + 1] > spanY) spanY = pos[i + 1];
+  }
+  return { spanR: Math.sqrt(r2), spanY };
+}
+
+/**
  * Bake a voxel model to a stampable template.
  *
  * `trunkR`/`trunkTop` are in VOXELS and turn the result into a climbable tree:
@@ -217,11 +252,13 @@ function bake(
 ): Template {
   const mesh = model.build(scale, trunkR === undefined);
   const g = mesh.geometry;
+  const pos = (g.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
   const t: Template = {
-    pos: (g.getAttribute('position') as THREE.BufferAttribute).array as Float32Array,
+    pos,
     nrm: (g.getAttribute('normal') as THREE.BufferAttribute).array as Float32Array,
     col: (g.getAttribute('color') as THREE.BufferAttribute).array as Float32Array,
     idx: g.getIndex()!.array,
+    ...measureSpan(pos),
   };
   if (trunkR !== undefined && trunkTop !== undefined) {
     // The foliage envelope is MEASURED off the baked vertices rather than
@@ -352,6 +389,18 @@ function withSway(t: Template): Template {
 }
 
 /**
+ * How much clear air a prop keeps between itself and built timber, world units.
+ *
+ * Not a clearance radius — the prop's own measured extent is what does the
+ * work — but the margin that makes "touching" read as touching rather than as
+ * a coincidence. 0.05 is a sixth of a palisade voxel (V = 0.28 in the town
+ * kit): a tussock still grows against the wall and around a fence post, which
+ * is what issue #131 asks for, and the gap is far below what a player can see
+ * at the distance a blade of grass is visible from.
+ */
+const SITE_SKIN = 0.05;
+
+/**
  * Vertex accumulator for a merged, multi-stamp mesh. See `add`.
  *
  * Exported for the town builder, which merges a whole encampment — palisade
@@ -376,6 +425,35 @@ export class Accum {
    * accumulators emit onto other materials and pay nothing.
    */
   readonly sway: number[] | null;
+
+  /**
+   * Where the world's built structures stand, or null on an accumulator whose
+   * stamps may land anywhere.
+   *
+   * THE ONE PLACE FOLIAGE IS KEPT OUT OF A BUILDING, and it is here rather than
+   * at the forty stamp sites below for exactly that reason: issue #131 asks for
+   * a rule that holds for every foliage type and every structure, present and
+   * future, and a rule spelled at each call site is a rule the next pass forgets
+   * to spell. Everything a chunk grows — every clump, tussock, sprig, blade,
+   * bloom, fern, reed, bush, boulder and tree — goes through this one method, so
+   * one test here covers the lot and covers the next one for free.
+   *
+   * It refuses a stamp whose own extent (`Template.spanR` / `spanY`, scaled by
+   * this stamp's factors) would pass through built material, and refuses
+   * nothing else: grass grows right up against a palisade and around a fence
+   * post, which is what the issue asks for and what a clearance disc could not
+   * do. Set by the chunk builder — see `buildChunkPropsSteps` — and left null on
+   * the town builder's own accumulators, which stamp the structures themselves.
+   *
+   * REFUSING AFTER THE DRAWS, never before: the caller has already spent its
+   * `rng()` on this stamp's position and scale by the time it gets here, so a
+   * refusal cannot change what the next chunk grows. That is the same rule
+   * `thin` and `trodden` state from the other side.
+   */
+  site: SiteClearance | null = null;
+  /** World origin the stamps on this accumulator are local to. See `site`. */
+  siteOx = 0;
+  siteOz = 0;
 
   constructor(sway = false) {
     this.sway = sway ? [] : null;
@@ -403,7 +481,13 @@ export class Accum {
     tr: number, tg: number, tb: number,
     sy: number = s,
     sz: number = s,
-  ): void {
+  ): boolean {
+    // The girth factors are the two that widen the disc; `sy` only makes it
+    // taller. See `site`, and `Template.spanR` for why a disc.
+    if (this.site !== null && this.site.hits(
+      this.siteOx + x, this.siteOz + z,
+      t.spanR * (s > sz ? s : sz) + SITE_SKIN, y, y + t.spanY * sy,
+    )) return false;
     const base = this.pos.length / 3;
     const c = Math.cos(yaw);
     const sn = Math.sin(yaw);
@@ -431,6 +515,7 @@ export class Accum {
     }
     const ix = t.idx;
     for (let i = 0; i < ix.length; i++) this.idx.push(base + ix[i]);
+    return true;
   }
 
   toGeometry(): THREE.BufferGeometry | null {
@@ -1544,6 +1629,7 @@ function grassBillboard(
     nrm: new Float32Array(nrm),
     col: new Float32Array(col),
     idx,
+    ...measureSpan(pos),
   });
 }
 
@@ -2232,6 +2318,7 @@ export function* buildChunkPropsSteps(
   lib: PropLib,
   exclusions: readonly Exclusion[],
   roads: RoadClearance | null = null,
+  site: SiteClearance | null = null,
 ): Generator<void, ChunkProps, void> {
   const rng = mulberry32(Math.floor(hashCell(terrain.seed, cx, 91, cz) * 0xffffffff));
   const solid = new Accum();
@@ -2244,6 +2331,26 @@ export function* buildChunkPropsSteps(
   const ox = cx * CHUNK_SIZE;
   const oz = cz * CHUNK_SIZE;
   const ci: ColumnScratch = makeScratch();
+
+  /**
+   * Does a settlement reach into this chunk? — asked ONCE, so that a chunk out
+   * in the wilderness pays a null test per stamp instead of a bounds test per
+   * stamp. Same split as `CLUMP_REACH` makes for the road query, and same
+   * reason: about a thousand stamps go through `Accum.add` in a chunk, and all
+   * but a handful of chunks in the world have no building anywhere near them.
+   *
+   * The margin is `CLUMP_REACH` plus the widest crown in the library (~5), so a
+   * clump or a tree seated in the chunk next door cannot throw a member over a
+   * wall this test declined to look for.
+   */
+  if (site !== null) {
+    const M = CLUMP_REACH + 5;
+    if (site.anyIn(ox - M, oz - M, ox + CHUNK_SIZE + M, oz + CHUNK_SIZE + M)) {
+      solid.site = soft.site = site;
+      solid.siteOx = soft.siteOx = ox;
+      solid.siteOz = soft.siteOz = oz;
+    }
+  }
 
   /**
    * Distance from (x, z) to the nearest carriageway centreline, Infinity in a
@@ -2609,8 +2716,12 @@ export function* buildChunkPropsSteps(
       // accepts is stamped exactly where it was before.
       if (exTree(ox + px, oz + pz)) continue;
       const baseY = groundMin(wx, wz, 2) - 0.45;
-      solid.add(tpl, px, baseY, pz, yaw, scl,
-        t * (1 + hw * 0.11), t * (1 + hw * 0.02), t * (1 - hw * 0.13), sclY);
+      // A REFUSED TREE IS REGISTERED NOWHERE. `Accum.add` returns false when
+      // the site rule refuses the stamp (see `Accum.site`), and a trunk in the
+      // registry whose mesh was never emitted is an invisible tree you cannot
+      // walk through — the same class of bug as a collider without a building.
+      if (!solid.add(tpl, px, baseY, pz, yaw, scl,
+        t * (1 + hw * 0.11), t * (1 + hw * 0.02), t * (1 - hw * 0.13), sclY)) continue;
       // Register the tree. `scl` is girth and `sclY` height, exactly as the
       // stamp applied them, so the registry describes the instance that was
       // actually placed rather than the template. Keep the field order in step
@@ -3327,8 +3438,9 @@ export function buildChunkProps(
   lib: PropLib,
   exclusions: readonly Exclusion[],
   roads: RoadClearance | null = null,
+  site: SiteClearance | null = null,
 ): ChunkProps {
-  const steps = buildChunkPropsSteps(cx, cz, terrain, lib, exclusions, roads);
+  const steps = buildChunkPropsSteps(cx, cz, terrain, lib, exclusions, roads, site);
   let result = steps.next();
   while (!result.done) result = steps.next();
   return result.value;
