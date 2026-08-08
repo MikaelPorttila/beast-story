@@ -80,9 +80,15 @@ export interface FenceParts {
   readonly railProp: Template;
   /** How long that plank template is, i.e. what a bay's `sz` divides by. */
   readonly railLen: number;
+  /** Final plank width across the run after stamping. Must be under `postWidth`. */
+  readonly railWidth: number;
+  /** Finished plank height, used to keep its top below a plain post's top. */
+  readonly railHeight: number;
+  /** Width of both the authored plank template and the stake it meets. */
+  readonly postWidth: number;
   /** Plank BOTTOMS above the fence line, lowest first. Last one is the top. */
   readonly railAt: readonly number[];
-  /** How far a plain stake stands above the line. Must exceed every `railAt`. */
+  /** How far a plain stake stands above the line. Must exceed each complete rail. */
   readonly postH: number;
   /** Total height of the taller stake, so a stretched one can be measured. */
   readonly tallH: number;
@@ -545,12 +551,16 @@ function stampBays(solid: SolidStamp, parts: FenceParts, fence: Fence): void {
     const yaw = Math.atan2(dx, dz);
     const mx = a.x + dx * 0.5;
     const mz = a.z + dz * 0.5;
+    // The authored rail and post share one voxel width. Recess the finished
+    // plank inside the post faces so it grows visibly from the middle of each
+    // side instead of leaving coplanar faces to fight in the depth buffer.
+    const sx = parts.railWidth / parts.postWidth;
     const sz = len / parts.railLen;
     for (let k = 0; k < parts.railAt.length; k++) {
       // Only the TOP course is solid: it spans the bay end to end, so a second
       // box under it blocks nothing a body could pass anyway and costs a query.
       const tpl = k === parts.railAt.length - 1 ? parts.rail : parts.railProp;
-      solid.add(tpl, mx, y + parts.railAt[k], mz, yaw, 1, 1, sz);
+      solid.add(tpl, mx, y + parts.railAt[k], mz, yaw, sx, 1, sz);
     }
   }
 }

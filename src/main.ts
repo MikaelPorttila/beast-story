@@ -45,7 +45,10 @@ import { contentIssues, reportContentIssue } from './core/content-bridge';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { NPC_TALK_RANGE } from './world/npc';
-import { FENCE_POST_H, FENCE_POST_R, FENCE_RAIL_AT } from './world/town-parts';
+import {
+  FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT,
+  FENCE_RAIL_HEIGHT, FENCE_RAIL_WIDTH,
+} from './world/town-parts';
 import {
   nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId,
 } from './world/nature';
@@ -5874,7 +5877,11 @@ beginPlay();
    * The fence kit's own metrics, so a probe checks a chain against what the
    * BUILDER painted rather than against a copy of those numbers in a test.
    */
-  fenceKit: { postH: FENCE_POST_H, railAt: [...FENCE_RAIL_AT], postR: FENCE_POST_R },
+  fenceKit: {
+    postH: FENCE_POST_H, postR: FENCE_POST_R, postWidth: FENCE_POST_WIDTH,
+    railAt: [...FENCE_RAIL_AT], railWidth: FENCE_RAIL_WIDTH,
+    railHeight: FENCE_RAIL_HEIGHT,
+  },
   towns: world.towns.all.map((town) => ({
     id: town.id,
     // The looked-up name, so `?lang=sv` shows what the fingerpost shows. The

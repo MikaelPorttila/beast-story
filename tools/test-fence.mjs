@@ -7,6 +7,7 @@
 //
 //   * every bay is a gap the system chose, inside [minGap, maxGap];
 //   * a bay's plank is exactly as long as the gap between its two posts;
+//   * that plank is narrower than the posts and recessed inside their faces;
 //   * that plank sits at a height BOTH posts reach, i.e. under the lower one's
 //     top and over both bases;
 //   * a run starts and ends on a post, and a closed one has no seam;
@@ -32,7 +33,9 @@
 // scene graph rather than a debug hook. Zero of them is the bug in the issue's
 // first screenshot — you look through the bridge and out the other side.
 import { launchBrowser, newPage } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { BASE as HOST, NO_WARMUP } from './target.mjs';
+import { buildFence } from '../src/world/fences.ts';
+import { TownParts } from '../src/world/town-parts.ts';
 
 /** `buildFence`'s own defaults. A run outside these chose them itself. */
 const MAX_GAP = 3.2;
@@ -44,6 +47,42 @@ const CLEARANCE = 0.08;
 
 const fails = [];
 const out = {};
+
+/** The cross-section contract that prevents issue #127's coplanar faces. */
+function checkKit(kit, label) {
+  if (!(kit.postWidth > 0) || !(kit.railWidth > 0) || !(kit.railHeight > 0)) {
+    fails.push(`${label}: fence kit reports no usable post/rail dimensions`);
+    return;
+  }
+  if (kit.railWidth >= kit.postWidth - EPS) {
+    fails.push(`${label}: ${kit.railWidth.toFixed(3)}-wide plank is not recessed inside `
+      + `${kit.postWidth.toFixed(3)}-wide posts`);
+  }
+  const top = kit.railAt.at(-1) + kit.railHeight;
+  if (top >= kit.postH - EPS) {
+    fails.push(`${label}: top plank reaches ${top.toFixed(3)}, leaving no cap below `
+      + `${kit.postH.toFixed(3)}-high posts`);
+  }
+}
+
+// Exercise the REAL stamp call without WebGL. The debug metrics below prove the
+// kit is authored thin; this proves buildFence actually applies that x scale.
+{
+  const kit = new TownParts().fence;
+  const calls = [];
+  const stamp = { add: (...args) => calls.push(args) };
+  buildFence(stamp, kit, [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3 }]);
+  const rails = calls.filter(([tpl]) => tpl === kit.rail || tpl === kit.railProp);
+  const want = kit.railWidth / kit.postWidth;
+  if (rails.length !== kit.railAt.length) {
+    fails.push(`stamp: expected ${kit.railAt.length} rail courses, got ${rails.length}`);
+  }
+  for (const [, , , , , sx] of rails) {
+    if (Math.abs(sx - want) > 1e-6 || sx >= 1) {
+      fails.push(`stamp: rail x scale ${sx} does not recess it to ${want}`);
+    }
+  }
+}
 
 /**
  * The invariant, over one chain. `kit` is the fence kit's own metrics, so the
@@ -137,6 +176,7 @@ const browser = await launchBrowser();
   await page.waitForSelector('canvas');
   await page.waitForFunction(() => !!window.__dbgFence, { timeout: 10000 });
   const stage = await page.evaluate(() => window.__dbgFence());
+  checkKit(stage.kit, 'lab');
 
   const demos = new Set(stage.fences.map((f) => f.label));
   for (const want of ['slope', 'turn', 'ring', 'gate', 'variants', 'bridge']) {
@@ -214,6 +254,14 @@ const browser = await launchBrowser();
       shortestBay: +Math.min(...f.bays.map((b) => b.length)).toFixed(3),
     })),
     postKinds: [...kinds].sort(),
+    railProfile: {
+      postWidth: stage.kit.postWidth,
+      railWidth: stage.kit.railWidth,
+      faceInset: +((stage.kit.postWidth - stage.kit.railWidth) * 0.5).toFixed(3),
+      railHeight: stage.kit.railHeight,
+      topClearance: +(stage.kit.postH - stage.kit.railAt.at(-1)
+        - stage.kit.railHeight).toFixed(3),
+    },
     bridge: {
       wetSamples: deck.length,
       lowestDeck: +lowestDeck.toFixed(3),
@@ -228,7 +276,7 @@ const browser = await launchBrowser();
 // ---------- 2. the world: the fences a real road network built ----------
 {
   const page = await newPage(browser, { width: 1280, height: 800 });
-  await page.goto(`${HOST}/?menu=0&vol=0&fs=0`, { waitUntil: 'load' });
+  await page.goto(`${HOST}/?menu=0&vol=0&fs=0&${NO_WARMUP}`, { waitUntil: 'load' });
   await page.waitForSelector('canvas');
   await page.waitForFunction(() => window.__dbgBoot?.().playing, { timeout: 30000 });
   const world = await page.evaluate(() => {
@@ -241,7 +289,11 @@ const browser = await launchBrowser();
   // second copy of the builder's, and it would go stale.
   if (!world.kit) fails.push('__dbgTowns() reports no fence kit metrics');
   if (!world.fences.length) fails.push('the world built no fences at all');
-  const use = world.kit ?? { postH: 1.68, railAt: [0.42, 1.12] };
+  const use = world.kit ?? {
+    postH: 1.68, postWidth: 0.28, railAt: [0.42, 0.98], railWidth: 0.168,
+    railHeight: 0.56,
+  };
+  checkKit(use, 'world');
   world.fences.forEach((f, i) => checkFence(f, use, `world:${i}`));
 
   const bays = world.fences.flatMap((f) => f.bays);
