@@ -949,6 +949,7 @@ export const en = {
   'hair.classic': 'Adventurer',
   'hair.buzz': 'Buzz cut',
   'hair.bowl': 'Shaggy bowl',
+  'hair.curtain': 'Curtain fringe',
   'hair.ponytail': "Warrior's tail",
   'hair.emo': 'Sidecut sweep',
   'hair.cloud': 'Mercenary spikes',

@@ -76,14 +76,49 @@ function hash(x: number, y: number, z: number): number {
 }
 
 /**
- * The tone for one cell of a sheet of hair. Keyed on the COLUMN (x,z) rather
- * than the cell, so the variation runs top-to-bottom the way hair does instead
- * of speckling like static — with the lowest row of a fall darkened, which is
- * what makes a curtain read as hanging rather than as painted on.
+ * THE GRAIN. Every edge in this file moves in steps of this many cells, and
+ * every patch of colour is at least this wide.
+ *
+ * It is the difference between voxel hair that reads as a DESIGN and voxel hair
+ * that reads as noise, and it was the thing missing from all eight styles. A
+ * hem that picks a new height at every column, and a tone that picks a new
+ * value at every column, give you a fringe of one-cell teeth and a coat of
+ * static — busy at any distance and mush at gameplay distance. Hand-drawn voxel
+ * hair does the opposite: a few LARGE chunks, each one flat, offset from its
+ * neighbours by two or three cells so the step reads deliberately.
+ *
+ * Three cells at this scale is about 2.5 cm on the finished hero — big enough
+ * to be a shape, small enough that a head still carries five or six of them
+ * across its width.
+ */
+const CHUNK = 3;
+
+/**
+ * Which chunk a cell belongs to. The `+ 60` is only to keep the floor sensible
+ * for negative coordinates — hair cells run either side of zero and
+ * `Math.floor(-1 / 3)` would otherwise put -1 and 1 in different chunks from
+ * their neighbours in an asymmetric way.
+ */
+const chunkOf = (n: number): number => Math.floor((n + 60) / CHUNK);
+
+/**
+ * The centre of a cell's chunk, in cell coordinates. Every SHAPE test in this
+ * file runs through here rather than through the cell itself, which is what
+ * makes an outline a wall of blocks instead of a rasterised curve.
+ */
+const chunkCentre = (n: number): number =>
+  chunkOf(n) * CHUNK - 60 + (CHUNK - 1) / 2 + 0.5;
+
+/**
+ * The tone for one cell of a sheet of hair. Keyed on the CHUNK, not the column:
+ * a colour that changes every cell is static, and the reference this was drawn
+ * against holds one value across a whole slab and then steps. `tip` darkens the
+ * lowest row of a fall, which is what makes a curtain read as hanging rather
+ * than as painted on.
  */
 function strand(p: Palette, x: number, z: number, tip = false): number {
   if (tip) return p.dark;
-  const h = hash(x, 0, z);
+  const h = hash(chunkOf(x), 0, chunkOf(z));
   return h < 0.3 ? p.dark : h > 0.74 ? p.light : p.base;
 }
 
@@ -175,13 +210,100 @@ function fall(
   const jag = opts.jag ?? 2;
   const sweep = opts.sweep ?? 0;
   const alongX = x1 - x0 >= z1 - z0;
-  const span = Math.max(1, alongX ? x1 - x0 : z1 - z0);
+  const lo = alongX ? x0 : z0;
+  const hi = alongX ? x1 : z1;
+  const span = Math.max(1, hi - lo);
   for (let x = x0; x <= x1; x++) {
     for (let z = z0; z <= z1; z++) {
       const run = alongX ? x : z;
-      const t = (run - (alongX ? x0 : z0)) / span;
-      const end = Math.round(bottom - sweep * t + Math.floor(hash(run, 7, alongX ? z0 : x0) * (jag + 1)));
+      const t = (run - lo) / span;
+      // ROUNDED ENDS. The last two columns of a sheet stop short — two cells at
+      // the very end, one at its neighbour — so a curtain finishes in a curve
+      // instead of being cut off square. Every sheet in the file gets it from
+      // here rather than from eight hand-placed exceptions, and it is the same
+      // idea the head's own corners now use: a silhouette has no straight
+      // vertical edges on a body drawn this small.
+      const fromEnd = Math.min(run - lo, hi - run);
+      const round = span < 3 ? 0 : fromEnd === 0 ? 2 : fromEnd === 1 ? 1 : 0;
+      // THE RAGGED EDGE IS CHUNKED. One height per block of `CHUNK` columns,
+      // stepping two cells at a time — a sheet of big square tabs rather than a
+      // row of one-cell teeth. See the note on CHUNK.
+      const block = chunkOf(run);
+      const step = Math.floor(hash(block, 7, chunkOf(alongX ? z0 : x0)) * (jag + 1)) * 2;
+      const end = Math.round(bottom - sweep * t + round + step);
       for (let y = end; y <= top; y++) v.set(x, y, z, strand(p, x, z, y === end));
+    }
+  }
+}
+
+/**
+ * THE ROUNDED MASS — everything the cap is not allowed to be.
+ *
+ * The cap that hugs the skull is stepped and has to be: the plane rule at the
+ * top of this file forbids an exposed hair face on x = ±8, z = ±8 or y = 12,
+ * and a genuinely round outline steps across those planes constantly. That
+ * constraint is REAL but it is also LOCAL — it applies only where hair sits
+ * over the skull's own footprint. Behind the head, out past the ears, in front
+ * of the face and above the crown there is no skull to fight with and the shape
+ * is free.
+ *
+ * That free region is where a head of hair actually lives: the fall down the
+ * back, the width past the ears, the depth over the brow. So it is painted as
+ * an ELLIPSOID rather than as sheets — round in plan, round in section, and
+ * with a hem that curves away instead of being cut off at one height. It is
+ * what replaced the four-cell-thick slab across the back that made every style
+ * look like a wig on a stand, and the flat side panels beside it.
+ *
+ * `hem` is the lowest row at the mass's DEEPEST point, and every column ends
+ * higher than that in proportion to how far out from the axis it sits — which
+ * is the whole of the rounding. `frontHem` is the same thing for the half in
+ * front of the ears, where hair has to stop short of the eyes.
+ */
+function mass(
+  v: VoxelModel, p: Palette,
+  o: {
+    rx: number; rz: number; top: number; hem: number;
+    frontHem?: number; jag?: number;
+    /**
+     * Lowest x it may paint. THE ONE THING THAT MAKES IT ASYMMETRIC, and the
+     * sidecut needs it: a mass that wraps the whole head buries the shaved side
+     * under exactly the hair that is supposed to have been clipped off it.
+     */
+    from?: number;
+  },
+): void {
+  const jag = o.jag ?? 2;
+  const frontHem = o.frontHem ?? o.hem;
+  const from = o.from ?? -Infinity;
+  for (let x = -Math.ceil(o.rx) - 1; x <= Math.ceil(o.rx); x++) {
+    for (let z = -Math.ceil(o.rz) - 1; z <= Math.ceil(o.rz); z++) {
+      if (x < from) continue;
+      const ax = Math.abs(x + 0.5);
+      const az = Math.abs(z + 0.5);
+      // Over the skull the cap owns the shape — see above. Skipping that
+      // footprint is also what makes this SAFE by construction: every face it
+      // can leave is either outside the skull entirely or pointing at it.
+      if (ax <= SIDE + 0.5 && az <= SIDE + 0.5) continue;
+      // THE EARS ARE PART OF THAT FOOTPRINT TOO. They stick out to x = ±10 in
+      // a two-cell band of z, and a column of hair whose outer face lands on
+      // ±10 is the same seam as one landing on the skull's own side. So in that
+      // band the mass starts a cell further out: its inner face then meets the
+      // ear's outward one, which is the harmless facing.
+      if (az <= 1.5 && ax <= 9.5) continue;
+      // BOTH THE OUTLINE AND THE HEM ARE MEASURED PER CHUNK, not per cell:
+      // every cell in a block of three is in or out together and ends at one
+      // height, so the skirt is a wall of broad tabs. Per cell, the rim is a
+      // rasterised ellipse and the hem a row of teeth — the noise the reference
+      // this was drawn against has none of.
+      const cx = chunkCentre(x);
+      const cz = chunkCentre(z);
+      const qc = (Math.abs(cx) / o.rx) ** 2 + (Math.abs(cz) / o.rz) ** 2;
+      if (qc > 1) continue;
+      const reach = Math.sqrt(Math.max(0, 1 - qc));
+      const floor = cz > 0 ? frontHem : o.hem;
+      const end = Math.round(o.top - (o.top - floor) * reach)
+        + Math.floor(hash(chunkOf(x), 5, chunkOf(z)) * (jag + 1)) * 2;
+      for (let y = end; y <= o.top; y++) v.set(x, y, z, strand(p, x, z, y === end));
     }
   }
 }
@@ -196,8 +318,12 @@ function fall(
  * every style built out of it came out the same way — a crown of birthday
  * candles standing on a slab, because a prong two cells wide is a stick and a
  * head is sixteen cells across. A spike reads as HAIR when its base is a third
- * of that and the bases of its neighbours merge into one mass, which is what
- * the wedge below does and what `thick` 3 to 5 is for.
+ * of that and the bases of its neighbours merge into one mass.
+ *
+ * IT ALSO HAS TO STAY FAT FOR LONGER. A linear taper spends half its length in
+ * the last cell or two, which is a needle with a shoulder — so the width falls
+ * off as the SQUARE ROOT of the distance left, which holds the mass out near
+ * the tip and then closes it quickly. Same base, same length, twice the hair.
  *
  * The direction is normalised on its LARGEST component, so one step is one cell
  * along the axis the prong mostly runs down and the run can never leave a gap
@@ -207,13 +333,13 @@ function spike(
   v: VoxelModel, p: Palette,
   x: number, y: number, z: number,
   dx: number, dy: number, dz: number,
-  len: number, thick = 4,
+  len: number, thick = 5,
 ): void {
   const m = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) || 1;
   const ux = dx / m, uy = dy / m, uz = dz / m;
   const axis = Math.abs(uy) === 1 ? 'y' : Math.abs(ux) === 1 ? 'x' : 'z';
   for (let t = 0; t <= len; t++) {
-    const w = Math.max(1, Math.round(thick * (1 - t / len)));
+    const w = Math.max(1, Math.round(thick * Math.sqrt(1 - t / len)));
     const lo = -Math.floor((w - 1) / 2);
     const hi = lo + w - 1;
     const px = Math.round(x + ux * t);
@@ -232,17 +358,59 @@ function spike(
 }
 
 /**
- * The rounded top of a cap: two stepped rings above the skull's crown.
+ * THE TOP OF THE HEAD OF HAIR — a real dome, built row by row off a circle.
  *
- * ABOVE y = 12 THE PLANE RULE STOPS BITING — there is no head left up there for
- * a face to fight with — so the profile is free, and this is where it is spent.
- * A cap that just stops at its top row is the flat slab every first draft of
- * this file produced; two rings pulled in by a cell each turn it into a head of
- * hair, for about forty cells.
+ * THIS IS WHERE ALL THE VOLUME WAS BEING LEFT ON THE TABLE, and the reason is
+ * worth writing down because it was a rule applied where it does not hold.
+ * Above y = 12 there is no skull left to share a plane with, so the plane rule
+ * at the top of this file binds NOTHING up here. The shape is completely free.
+ *
+ * What was here instead: three stacked discs of radius 9.5, 7.5 and 5.5, one
+ * cell tall each. Three flat plates in a ziggurat, the top one eleven cells
+ * across — which is a flat top, and no amount of "more height" fixes a flat top
+ * because a fourth plate is just a flatter one. It looked like a cube because
+ * it was three cubes.
+ *
+ * Now the radius follows `sqrt(1 - t^2)`, a quarter-circle from the cap's own
+ * outline at the base to nothing at the apex, over as many rows as `height`
+ * asks for. Eight rows is a hand's depth of hair standing over the crown with a
+ * round top on it; four is a close cut. `lift` pushes the profile OUT before it
+ * turns in — above 1 the sides stay full for longer and the whole mass reads
+ * bouffant rather than conical, which is what separates a bowl cut from a
+ * wizard's hat.
  */
-function dome(v: VoxelModel, p: Palette, y: number, grow = FULL): void {
-  cap(v, p, y, y, grow - 1, 6);
-  cap(v, p, y + 1, y + 1, grow - 3, 8);
+function crown(
+  v: VoxelModel, p: Palette,
+  o: { from: number; height: number; grow?: number; lift?: number },
+): void {
+  const grow = o.grow ?? FULL;
+  const base = SIDE - 0.5 + grow;          // the plan radius the cap ends on
+  const lift = o.lift ?? 1;                // >1 bulges the sides before it turns in
+  for (let i = 0; i < o.height; i++) {
+    const y = o.from + i;
+    // THE PROFILE IS SAMPLED IN BANDS OF TWO ROWS, so the dome comes down in a
+    // few broad terraces rather than shrinking by a cell every row. The curve
+    // is the same one; what changes is that the steps in it are big enough to
+    // read as chunks, which is the grain the whole file works to.
+    const band = Math.floor(i / 2) * 2 + 1;
+    const t = band / o.height;                             // 0 at the base, 1 at the apex
+    const r = base * Math.pow(Math.max(0, 1 - t * t), 0.5 / lift);
+    const lim = Math.ceil(r);
+    for (let x = -lim - 1; x <= lim; x++) {
+      for (let z = -lim - 1; z <= lim; z++) {
+        // An ELLIPSE, not the cap's chamfered square — above the crown nothing
+        // of the head is left to share a plane with, so the outline owes the
+        // plane rule nothing. And it is sampled at the CHUNK's centre, so the
+        // disc is built out of whole blocks: a rasterised circle tested per
+        // cell has a one-cell staircase all round its rim, which is the exact
+        // fizz this file is trying to get rid of.
+        const ax = Math.abs(chunkCentre(x));
+        const az = Math.abs(chunkCentre(z));
+        if ((ax / r) ** 2 + (az / (r * 1.05)) ** 2 > 1) continue;
+        v.set(x, y, z, strand(p, x, z));
+      }
+    }
+  }
 }
 
 /**
@@ -288,19 +456,18 @@ const BROW = 7;
  */
 function paintClassic(v: VoxelModel, p: Palette): void {
   cap(v, p, BROW, 12, FULL, 7);
-  dome(v, p, 13);
+  crown(v, p, { from: 13, height: 8, lift: 1.5 });
   // the fall down the back of the neck, four cells of it
-  fall(v, p, { x0: -11, x1: 10, z0: -12, z1: -9, top: 9, bottom: 1, jag: 3 });
-  // The ragged edge over the ears. Three cells thick, and all of them are ONE
-  // call: a sheet's layers have to end together (see `fall`).
-  fall(v, p, { x0: -11, x1: -9, z0: -9, z1: 6, top: 9, bottom: 6, jag: 2 });
-  fall(v, p, { x0: 8, x1: 10, z0: -9, z1: 6, top: 9, bottom: 6, jag: 2 });
+  // Everything outside the skull — the fall down the back, the width past the
+  // ears — as one rounded mass. It used to be a slab across the back and two
+  // flat panels beside it; see the note on `mass`.
+  mass(v, p, { rx: 12, rz: 13, top: 10, hem: -3, frontHem: 5, jag: 2 });
   // Jagged fringe over the brow. z 7..9 straddles the face plane, so the tufts
   // stand two cells proud of it rather than being painted onto it, and it rises
   // to 12 rather than stopping level with the crown (see the plane rule).
   fall(v, p, { x0: -11, x1: 10, z0: 7, z1: 8, top: 12, bottom: BROW, jag: 2 });
   // the cowlick, raked back rather than standing up like a chimney
-  spike(v, p, -2, 14, -3, -0.2, 0.7, -1, 5, 4);
+  spike(v, p, -2, 14, -3, -0.2, 0.7, -1, 7, 5);
 }
 
 /**
@@ -313,10 +480,8 @@ function paintBuzz(v: VoxelModel, p: Palette): void {
   // the row above the crown — a lid, not a haircut. Short hair is short by
   // ending low on the head with nothing standing off it, which is this.
   cap(v, p, BROW, 12, 1, 4);
-  dome(v, p, 13, 1);
-  fall(v, p, { x0: -9, x1: 8, z0: -10, z1: -9, top: 9, bottom: 5, jag: 1 });
-  fall(v, p, { x0: -9, x1: -8, z0: -9, z1: 6, top: 8, bottom: 6, jag: 1 });
-  fall(v, p, { x0: 7, x1: 8, z0: -9, z1: 6, top: 8, bottom: 6, jag: 1 });
+  crown(v, p, { from: 13, height: 4, grow: 1, lift: 1.3 });
+  mass(v, p, { rx: 10, rz: 11, top: 9, hem: 3, frontHem: 6, jag: 1 });
   // A hairline that steps rather than rules a line: temples cut back, a shallow
   // widow's peak in the middle. z 7..8, straddling the face plane — a layer at
   // 6..7 would be INSIDE the skull and invisible, which is the other half of
@@ -334,17 +499,16 @@ function paintBuzz(v: VoxelModel, p: Palette): void {
  */
 function paintBowl(v: VoxelModel, p: Palette): void {
   cap(v, p, BROW, 12, FULL, 7);
-  dome(v, p, 13);
+  crown(v, p, { from: 13, height: 9, lift: 2.0 });
   // the skirt: all the way round, ending below the ears at the sides and
   // shorter at the front so the eyes stay clear
   fall(v, p, { x0: -11, x1: 10, z0: 7, z1: 8, top: 11, bottom: BROW, jag: 2 });
-  fall(v, p, { x0: -11, x1: 10, z0: -12, z1: -9, top: 8, bottom: 2, jag: 2 });
+  mass(v, p, { rx: 13, rz: 14, top: 9, hem: -6, frontHem: 4, jag: 2 });
   // The two side falls, over the ears and out past them. Each is ONE call two
   // cells thick, so both layers of a column end together and the outer one is
   // what the ear sees — the ear's own outer face is the plane x = ±10, and a
   // layer stopping there is two surfaces at one depth (see the plane rule).
-  fall(v, p, { x0: -12, x1: -10, z0: -9, z1: 8, top: 7, bottom: 2, jag: 2 });
-  fall(v, p, { x0: 9, x1: 11, z0: -9, z1: 8, top: 7, bottom: 2, jag: 2 });
+
 }
 
 /**
@@ -362,31 +526,36 @@ function paintBowl(v: VoxelModel, p: Palette): void {
  * is his right and the sweep falls over his left eye.
  */
 function paintEmo(v: VoxelModel, p: Palette): void {
-  // the scalp, everywhere
-  cap(v, p, 8, 12, -1, 3);
-  // Shaved right side: a single layer standing one cell proud of the skull
-  // (cells -9 and -8 span -9..-7, so the outer face is the plane -9), clipped
-  // with a stepped pattern so it reads as stubble and not as a painted patch.
-  //
-  // It stops at 10, so its top face is the plane 11 — ODD, like every other
-  // exposed face here. It used to stop at 9, which was a top face on the plane
-  // 10; that was free until the skull's corners were stepped back and 10 became
-  // one of ITS planes too (see SKULL_PLAN in hero-rig.ts).
-  for (let z = -7; z <= 6; z++) {
-    for (let y = 6; y <= 10; y++) {
-      const clipped = (z + y) % 3 === 0;
-      v.set(-9, y, z, clipped ? shade(p.dark, 0.7) : y > 7 ? p.dark : shade(p.dark, 0.85));
-      v.set(-8, y, z, p.dark);
-    }
-  }
-  // The long half: a cap that only exists on his left, standing a FULL three
-  // cells proud. The step at the parting is the whole cut — a thin shell on
-  // this side and a shaved one on the other is two flat halves, not a sidecut.
-  for (let x = -3; x <= 10; x++) {
+  // THE PARTING. Everything below this line on his right is clipped; everything
+  // left of it is long. One number, because a sidecut IS one line.
+  const PART = -3;
+  // Hair on top of the WHOLE head, both sides of the parting, with the same
+  // domed crown every other style gets. A sidecut is not a half-bald head: the
+  // top is full and swept over, and what is shaved is the side BELOW the
+  // parting. Drawing it as two halves — long slab one side, stubble the other —
+  // is what made this read as a lopsided blob rather than a haircut.
+  cap(v, p, 9, 12, FULL, 7);
+  crown(v, p, { from: 13, height: 8, lift: 1.6 });
+  // The long side carries on DOWN past the parting, where the shaved one stops.
+  for (let x = PART; x <= 10; x++) {
     for (let z = -11; z <= 10; z++) {
       if (!inOutline(x, z, FULL, 7, false)) continue;
-      for (let y = 7; y <= 13; y++) v.set(x, y, z, strand(p, x, z));
+      for (let y = BROW; y < 9; y++) v.set(x, y, z, strand(p, x, z));
     }
+  }
+  // THE SHAVED SIDE IS BARE, and that is the whole of it. It used to be two
+  // cells of dark stubble, and on a style whose own colour is near-black that
+  // is not a shaved head — it is more hair. `paintMohawk` learned the same
+  // thing: a shell that covers the head IS a hat, whatever value it is painted.
+  // The head is already skin-coloured, so the clipped side is drawn by not
+  // drawing, and the cap's bottom edge at 9 is the clipper line.
+  //
+  // One cell of fade under that line keeps the edge from being a decal: the
+  // tone is the hair's own, so it reads as the last of it rather than as a
+  // border drawn round the cut.
+  for (let z = -6; z <= 5; z++) {
+    if ((z + 12) % 3 === 0) continue;
+    v.set(-9, 8, z, shade(p.dark, 0.8));
   }
   // The sweep: short at the parting over his right eye, growing across the brow
   // and hanging past his left one. `sweep` is POSITIVE to get longer along the
@@ -395,9 +564,10 @@ function paintEmo(v: VoxelModel, p: Palette): void {
   fall(v, p, { x0: -4, x1: 10, z0: 7, z1: 8, top: 13, bottom: 10, jag: 1, sweep: 8 });
   // the lock beside it, past the jaw — outboard of the ear, ending at x 12
   fall(v, p, { x0: 9, x1: 11, z0: 3, z1: 6, top: 10, bottom: -3, jag: 2 });
-  // a longer tail at the back on the same side, and a short one on the shaved one
-  fall(v, p, { x0: -2, x1: 10, z0: -12, z1: -9, top: 9, bottom: 0, jag: 3 });
-  fall(v, p, { x0: -8, x1: -3, z0: -11, z1: -9, top: 8, bottom: 4, jag: 2 });
+  // The fall down the back and round the long side ONLY. Symmetric, it wrapped
+  // the shaved side in exactly the hair that was supposed to have been clipped
+  // off it — which is what `from` exists for.
+  mass(v, p, { rx: 12, rz: 13, top: 10, hem: -4, frontHem: 4, jag: 3, from: PART });
   // one bleached streak through the sweep — the whole point of the cut
   for (let y = 2; y <= 13; y++) { v.set(5, y, 9, p.light); v.set(6, y, 9, p.light); }
 }
@@ -410,9 +580,10 @@ function paintEmo(v: VoxelModel, p: Palette): void {
  */
 function paintCloud(v: VoxelModel, p: Palette): void {
   cap(v, p, BROW, 12, FULL, 7);
-  fall(v, p, { x0: -11, x1: 10, z0: -12, z1: -9, top: 9, bottom: 4, jag: 2 });
-  fall(v, p, { x0: -11, x1: -9, z0: -9, z1: 6, top: 9, bottom: 6, jag: 2 });
-  fall(v, p, { x0: 8, x1: 10, z0: -9, z1: 6, top: 9, bottom: 6, jag: 2 });
+  // Low, because the fan above supplies the height — but a mass for it to grow
+  // out of, rather than a plate for it to stand on.
+  crown(v, p, { from: 13, height: 4, lift: 1.8 });
+  mass(v, p, { rx: 12, rz: 13, top: 10, hem: -1, frontHem: 5, jag: 2 });
   // the hair the spikes are swept UP from — without it the fan stands on a bare
   // brow and the swept look becomes a fringe of horns
   fall(v, p, { x0: -11, x1: 10, z0: 7, z1: 8, top: 12, bottom: BROW + 1, jag: 2 });
@@ -421,20 +592,20 @@ function paintCloud(v: VoxelModel, p: Palette): void {
   // is what makes this a swept mass rather than a row of horns.
   const fan: Array<[number, number, number, number, number]> = [
     // x, z, sideways lean, length, base width
-    [-9, 4, -0.5, 7, 5],
-    [-6, 7, -0.25, 10, 6],
-    [-2, 8, 0, 11, 6],
-    [2, 7, 0.25, 10, 6],
-    [6, 4, 0.5, 7, 5],
+    [-9, 4, -0.5, 9, 6],
+    [-6, 7, -0.25, 13, 7],
+    [-2, 8, 0, 14, 7],
+    [2, 7, 0.25, 13, 7],
+    [6, 4, 0.5, 9, 6],
   ];
   for (const [x, z, lean, len, w] of fan) spike(v, p, x, 12, z, lean, 1, -0.8, len, w);
   // Two shorter ones behind them, filling the trough the fan leaves over the
   // crown so the mass reads as continuous from the side.
-  for (const x of [-6, 2]) spike(v, p, x, 12, -1, 0, 1, -1, 6, 5);
+  for (const x of [-6, 2]) spike(v, p, x, 12, -1, 0, 1, -1, 8, 6);
   // The bangs: three heavy tufts hanging over the brow, leaning out as they
   // fall. The lean is well under 1, so the run steps down in y and the tips end
   // a cell clear of the face rather than a hand's width in front of it.
-  for (const x of [-7, -2, 4]) spike(v, p, x, 12, 8, 0, -1, 0.2, 5, 3);
+  for (const x of [-7, -2, 4]) spike(v, p, x, 12, 8, 0, -1, 0.2, 6, 4);
 }
 
 /**
@@ -447,9 +618,8 @@ function paintCloud(v: VoxelModel, p: Palette): void {
  */
 function paintSaiyan(v: VoxelModel, p: Palette): void {
   cap(v, p, BROW, 12, FULL, 7);
-  fall(v, p, { x0: -11, x1: 10, z0: -12, z1: -9, top: 9, bottom: 5, jag: 2 });
-  fall(v, p, { x0: -11, x1: -9, z0: -9, z1: 6, top: 9, bottom: 6, jag: 2 });
-  fall(v, p, { x0: 8, x1: 10, z0: -9, z1: 6, top: 9, bottom: 6, jag: 2 });
+  crown(v, p, { from: 13, height: 3, lift: 1.8 });
+  mass(v, p, { rx: 12, rz: 13, top: 10, hem: 0, frontHem: 5, jag: 2 });
   fall(v, p, { x0: -11, x1: 10, z0: 7, z1: 8, top: 12, bottom: BROW + 1, jag: 2 });
   // THE FLAME. A solid block of hair carried a long way above the crown, cut
   // into prongs at the top rather than assembled out of them — a ring of thin
@@ -458,21 +628,61 @@ function paintSaiyan(v: VoxelModel, p: Palette): void {
   // out of the middle of it.
   const ring: Array<[number, number, number, number, number, number]> = [
     // x, z, lean x, lean z, length, base width
-    [-7, 3, -0.55, 0.3, 8, 5],
-    [-7, -5, -0.55, -0.3, 9, 5],
-    [-2, 5, 0, 0.35, 11, 6],
-    [-2, -7, 0, -0.4, 12, 6],
-    [3, 3, 0.55, 0.3, 8, 5],
-    [3, -5, 0.55, -0.3, 9, 5],
+    [-7, 3, -0.55, 0.3, 10, 6],
+    [-7, -5, -0.55, -0.3, 12, 6],
+    [-2, 5, 0, 0.35, 14, 7],
+    [-2, -7, 0, -0.4, 15, 7],
+    [3, 3, 0.55, 0.3, 10, 6],
+    [3, -5, 0.55, -0.3, 12, 6],
   ];
   for (const [x, z, lx, lz, len, w] of ring) spike(v, p, x, 12, z, lx, 1, lz, len, w);
   // the crest, out of the middle of that and taller than any of it
-  spike(v, p, -2, 14, -1, 0, 1, -0.15, 12, 6);
-  spike(v, p, -6, 15, -1, -0.2, 1, -0.2, 9, 4);
-  spike(v, p, 2, 15, -1, 0.2, 1, -0.2, 9, 4);
+  spike(v, p, -2, 14, -1, 0, 1, -0.15, 15, 7);
+  spike(v, p, -6, 15, -1, -0.2, 1, -0.2, 11, 5);
+  spike(v, p, 2, 15, -1, 0.2, 1, -0.2, 11, 5);
   // two bangs left hanging at the front, so there is a face under all this
-  spike(v, p, -7, 12, 8, -0.2, -1, 0.2, 6, 3);
-  spike(v, p, 4, 12, 8, 0.2, -1, 0.2, 6, 3);
+  spike(v, p, -7, 12, 8, -0.2, -1, 0.2, 7, 4);
+  spike(v, p, 4, 12, 8, 0.2, -1, 0.2, 7, 4);
+}
+
+/**
+ * THE CURTAIN FRINGE — parted down the middle, both halves sweeping out and
+ * down past the cheekbones.
+ *
+ * THE PARTING IS A HOLE, NOT A LINE, and that is the one structural thing this
+ * style needs that no other one does. Every other style starts its cap at
+ * `BROW` and so carries hair across the whole forehead; a curtain fringe is
+ * defined by the forehead it leaves BARE in the middle. So the cap starts two
+ * rows higher and the front is drawn entirely by the two curtains, which meet
+ * at the centre line short and reach their longest out at the temples. The gap
+ * between them is the parting.
+ *
+ * `sweep` carries the length across each half and the two signs are mirrored:
+ * the left curtain gets longer along its run (out from the parting), the right
+ * one gets shorter along its run (in towards it). Same shape, opposite
+ * direction of travel.
+ */
+function paintCurtain(v: VoxelModel, p: Palette): void {
+  // Two rows higher than every other style. See above — this gap is the style.
+  cap(v, p, BROW + 2, 12, FULL, 7);
+  crown(v, p, { from: 13, height: 8, lift: 1.4 });
+  // Back and sides. `frontHem` is high because the curtains own the front and
+  // a skirt hanging into them would fill the parting back in.
+  mass(v, p, { rx: 12, rz: 13, top: 10, hem: -3, frontHem: 8, jag: 2 });
+  // The curtains themselves, three cells deep so each one is a mass rather than
+  // a sheet stuck on the face.
+  // THE EYE LINE IS THE CONSTRAINT. The eyes sit on rows 4..7 between x -6..-3
+  // and 2..5, so a curtain that reaches row 4 anywhere over that span is a bob
+  // with a slot in it. Ending at 4 out at the temples and 10 at the parting
+  // puts the sweep at row 7 by the time it crosses the outer corner of an eye
+  // and clear of the face entirely by the inner one — long at the sides,
+  // nothing over the eyes, which is the whole shape.
+  fall(v, p, { x0: -11, x1: -1, z0: 7, z1: 9, top: 12, bottom: 4, jag: 1, sweep: -6 });
+  fall(v, p, { x0: 0, x1: 10, z0: 7, z1: 9, top: 12, bottom: 10, jag: 1, sweep: 6 });
+  // A lock in front of each ear, carrying the curtain to the jaw — the layer
+  // that makes this read as grown out rather than as a bowl with a slot in it.
+  fall(v, p, { x0: -12, x1: -10, z0: 2, z1: 6, top: 8, bottom: 1, jag: 1 });
+  fall(v, p, { x0: 9, x1: 11, z0: 2, z1: 6, top: 8, bottom: 1, jag: 1 });
 }
 
 /**
@@ -483,12 +693,11 @@ function paintSaiyan(v: VoxelModel, p: Palette): void {
  */
 function paintPonytail(v: VoxelModel, p: Palette): void {
   cap(v, p, BROW, 12, FULL, 7);
-  dome(v, p, 13);
+  crown(v, p, { from: 13, height: 8, lift: 1.4 });
   // Swept back: no fringe, but the hairline still comes down to the brow —
   // "swept back" is hair going somewhere, not hair that stops at the crown.
   fall(v, p, { x0: -11, x1: 10, z0: 7, z1: 8, top: 12, bottom: BROW + 1, jag: 1 });
-  fall(v, p, { x0: -11, x1: -9, z0: -9, z1: 6, top: 9, bottom: 6, jag: 1 });
-  fall(v, p, { x0: 8, x1: 10, z0: -9, z1: 6, top: 9, bottom: 6, jag: 1 });
+  mass(v, p, { rx: 11, rz: 12, top: 10, hem: 0, frontHem: 5, jag: 1 });
   // gathered at the nape, and drawn in to the width of the band
   fall(v, p, { x0: -8, x1: 7, z0: -12, z1: -9, top: 9, bottom: 4, jag: 1 });
   for (let x = -5; x <= 4; x++) for (let y = 5; y <= 8; y++) v.set(x, y, -10, p.dark);
@@ -500,7 +709,11 @@ function paintPonytail(v: VoxelModel, p: Palette): void {
   // Mostly DOWN, a little back. The other way round — a run whose long axis is
   // z — is a broom handle sticking out of the back of his head, and from behind
   // (the view a player has of him) it foreshortens into a blob.
-  spike(v, p, -1, 3, -11, 0, -1, -0.45, 10, 5);
+  // Rooted at z -12, not -11. Fattening it to six cells widened its base until
+  // the front of it reached the skull's back plane, where the skull now has a
+  // step of its own (row 0 is inset — see SKULL_SHELL in hero-rig.ts) and two
+  // exposed faces met on one plane. Behind the head entirely, it cannot.
+  spike(v, p, -1, 3, -12, 0, -1, -0.45, 12, 6);
   // sideburns in front of the ears, standing proud of the face plane
   for (const x of [-7, 6]) for (let y = 6; y <= 8; y++) v.set(x, y, 8, p.dark);
 }
@@ -533,10 +746,16 @@ function paintMohawk(v: VoxelModel, p: Palette): void {
   // skull's crown plane as soon as the taper narrows above it (the plane rule).
   for (let z = -11; z <= 8; z++) {
     const t = (z + 11) / 19;                      // 0 at the nape, 1 at the brow
-    const ridge = 12 + Math.round(4 + 8 * Math.sin(t * Math.PI)) - Math.floor(hash(0, 0, z) * 2);
+    // A PLATEAU, NOT AN ARCH. A plain sine peaks at one z and falls away from
+    // it either side, so the taller it got the more it read as a cone — a
+    // wizard's hat rather than a crest. Its square root rises fast and then
+    // holds, which is a fin: full height down most of the run, rounded off at
+    // the brow and the nape.
+    const ridge = 12 + Math.round(5 + 10 * Math.sqrt(Math.sin(t * Math.PI)))
+      - Math.floor(hash(0, 0, z) * 2);
     for (let y = 12; y <= ridge; y++) {
       const k = (y - 12) / Math.max(1, ridge - 12);
-      const half = k > 0.78 ? 0 : k > 0.42 ? 1 : 2;   // five cells wide at the root
+      const half = k > 0.86 ? 0 : k > 0.55 ? 1 : 2;   // five cells wide at the root
       for (let x = -1 - half; x <= -1 + half; x++) {
         v.set(x, y, z, k > 0.7 ? p.light : k < 0.25 ? p.dark : strand(p, x, z));
       }
@@ -563,6 +782,7 @@ export const HAIR_STYLES: readonly HairStyle[] = [
   { id: 'classic', labelKey: 'hair.classic', suggested: 0xa5622a, paint: paintClassic },
   { id: 'buzz', labelKey: 'hair.buzz', suggested: 0x4a3524, paint: paintBuzz },
   { id: 'bowl', labelKey: 'hair.bowl', suggested: 0x6f4a24, paint: paintBowl },
+  { id: 'curtain', labelKey: 'hair.curtain', suggested: 0x6a4a32, paint: paintCurtain },
   { id: 'ponytail', labelKey: 'hair.ponytail', suggested: 0x2f2b33, paint: paintPonytail },
   { id: 'emo', labelKey: 'hair.emo', suggested: 0x241f28, paint: paintEmo },
   { id: 'cloud', labelKey: 'hair.cloud', suggested: 0xe8c66a, paint: paintCloud },
