@@ -32,6 +32,16 @@
  *               huts. Keeps the meshes, so it is the honest A/B for "does the
  *               collision do anything": the same walk, into the same wall, with
  *               the only difference being whether the wall is there.
+ *   occlude=0   the camera never shortens its arm for a wall standing between
+ *               it and the hero, and nothing in front of him is dithered away.
+ *               Both halves of issue #135 on one switch, because they are one
+ *               feature — "keep the hero visible" — solved at two ranges: the
+ *               arm handles the thing you are backed up against, the cut-away
+ *               handles the trunk you are walking past. Same shape as
+ *               `solids=0`: the wall and the tree are still built, still
+ *               collide and still draw, and the only difference is whether the
+ *               view is allowed to give way to them. That is the pair
+ *               tools/test-occlusion.mjs measures, in both directions.
  *   sway=0      grass never waves and never reacts to anything walking or
  *               flying through it — the meadow as static geometry, which is
  *               also the A/B world/sway.ts is verified against.
@@ -100,6 +110,7 @@ export const flags = {
   towns: on('towns'),
   solids: on('solids'),
   sway: on('sway'),
+  occlusion: on('occlude'),
   aimAssist: on('aim'),
   /** Streaming radius in chunks; null means "use the module default". */
   viewRadius: p.get('view') !== null ? Math.max(1, Number(p.get('view'))) : null,
@@ -180,5 +191,5 @@ export const flags = {
 export const anyFlagSet = (): boolean =>
   !flags.props || !flags.clouds || !flags.water || !flags.enemies
   || !flags.beasts || !flags.shadows || !flags.towns || !flags.solids
-  || !flags.sway || !flags.aimAssist
+  || !flags.sway || !flags.aimAssist || !flags.occlusion
   || flags.viewRadius !== null || flags.shake !== null;

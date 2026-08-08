@@ -90,6 +90,10 @@ const SOLO = new Set([
   // for why that keeps it off a shared page as well as out of PARALLEL.
   'journal',
   'structures',    // walk distances into colliders
+  // Photographs the same frame twice and diffs it, so anything that renders
+  // beside it lands in the measurement — and its noise floor (2% of the window)
+  // is already most of what it can afford before the signal stops being one.
+  'occlusion',
   'npc',           // walks to a talk range
   'road',          // drives the hero along a carriageway
   'gfx',           // draw-call counts under a live frame cap

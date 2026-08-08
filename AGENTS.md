@@ -41,7 +41,7 @@ and everything browser-related goes through
 | Boot | `menu=0` skip title · `menu=1` force it · `photo=1` staged capture (implies `menu=0`) · `warmup=0` skip the shader sweep |
 | Framing | `cam=x,y,z` / `look=x,y,z` **offsets from `world.spawnPoint`** · `beast=<id>` · `anim=` · `a=<deg>` · `hud=0` · `npct=<s>` NPC clock · `colliders=1` draw colliders |
 | Performance | `fps=<n>` cap (default 120, `0` = off) · `simhz=` · `view=<n>` streaming radius · `debug=1` F2 overlay · `perf=1` pin the profiler |
-| A/B switches | `towns=0` · `solids=0` · `sway=0` · `props=0` · `clouds=0` · `water=0` · `enemies=0` · `beasts=0` · `aim=0` · `shadows=0` · `shadowcache=0` (must move no pixel) |
+| A/B switches | `towns=0` · `solids=0` · `sway=0` · `props=0` · `clouds=0` · `water=0` · `enemies=0` · `beasts=0` · `aim=0` · `occlude=0` · `shadows=0` · `shadowcache=0` (must move no pixel) |
 | Post | `post=0` · `ao=` · `bloom=` · `aa=0` · `grade=0` · `roll=` · `aoview=1` |
 | Preferences (one load, never persisted) | `vol=<0..1>` · `lang=<iso639-1>` · `fs=<0\|1>` fullscreen on start · `haptics=` · `shake=` · `invx=` · `invy=` |
 | World tuning | `nature=<param>:<n>[,<area>.<param>:<n>]` before the first chunk |
@@ -176,6 +176,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Combat, enemies, drops | `combat/index.ts`, `combat/enemies.ts`, `combat/pickups.ts` | `test-safezone`, `test-aim-assist`, `test-inventory` |
 | "Is the player close?" | `inReach` / `inRise` in `core/types.ts`, and every caller | `test-proximity` |
 | Hero, camera, mount, weapons | `player/*` | `test-dive`, `test-structures`, `test-inventory`, `test-npc` |
+| Keeping the hero in shot | `player/camera.ts` (the spring arm), `world/props.ts` (the cut-away) | `test-occlusion` |
 | Hero hairstyles | `player/hair.ts` (the styles), `player/hero-rig.ts` (the mount) | `test-hair`, `test-zfight` |
 | Input devices | `core/input.ts`, `core/gamepad.ts`, `core/touch.ts` | `test-touch`, `test-gamepad` |
 | HUD, menus, panels | `ui/*` (DOM overlay, `bs-*` class names) | `test-menu`, `test-pause`, `test-textsize`, `test-viewport`, `test-cursor` |

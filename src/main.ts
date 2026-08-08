@@ -2616,6 +2616,10 @@ interface DebugProbes {
     dir: { x: number; y: number; z: number };
   };
   __dbgCamYaw: () => number;
+  __dbgOcclusion: () => {
+    arm: number; armWanted: number;
+    strength: number; radius: number; length: number;
+  };
 }
 (window as unknown as DebugProbes).__dbgPlayerPos = () => ({
   x: player.position.x, y: player.position.y, z: player.position.z,
@@ -2709,6 +2713,42 @@ const _hurtFrom = new THREE.Vector3();
   engine.camera.position.x - player.position.x,
   engine.camera.position.z - player.position.z,
 );
+/**
+ * Both halves of issue #135 in one read: how far the spring arm was allowed to
+ * extend against what the zoom asked for, and the cut-away tube the materials
+ * are currently carrying. `arm < armWanted` IS the pull-in, which is what a
+ * probe asserts on rather than on the flag that enabled it.
+ */
+(window as unknown as DebugProbes).__dbgOcclusion = () => {
+  const tube = world.debugOcclusion();
+  return {
+    arm: player.cam.armLength,
+    armWanted: player.cam.armWanted,
+    strength: tube?.strength ?? 0,
+    radius: tube?.radius ?? 0,
+    length: tube?.length ?? 0,
+  };
+};
+/**
+ * Set the cut-away strength alone, leaving the spring arm where it is.
+ *
+ * A DRIVER, not a reader, and it exists because the two halves of issue #135
+ * are both "the hero became visible": photographing `?occlude=0` against the
+ * default moves the arm AND the cut in one step, and a pixel difference then
+ * proves neither. This holds the frame still and takes only the cut away.
+ *
+ * It writes STRAIGHT THROUGH to the world rather than waiting for the next
+ * simulation slice, and that is the half that makes the measurement clean: a
+ * probe that had to advance the sim to see the change would also have advanced
+ * the grass, the clouds and everyone walking about, and their motion swamped
+ * the cut (measured: 3.6% of the frame moved on its own, against the 1.3% the
+ * cut was worth). Nothing moves between the two photographs now except this.
+ */
+(window as unknown as { __dbgOcclude: (s: number) => number }).__dbgOcclude = (s) => {
+  player.occlusionStrength = Math.min(1, Math.max(0, Number(s) || 0));
+  world.setViewOcclusion(engine.camera.position, player.cam.pivot, player.occlusionStrength);
+  return player.occlusionStrength;
+};
 (window as unknown as { __dbgInput: () => unknown }).__dbgInput = () => ({
   axisFwd: input.axisFwd,
   axisSide: input.axisSide,

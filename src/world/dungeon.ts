@@ -695,6 +695,12 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      */
     setLayerVisible(): void { /* no streamed layers in the hold */ },
     setFoliageDistance(): void { /* no vegetation in the hold */ },
+    // The hold's rooms are their own materials, not PropLib's, so there is
+    // nothing carrying the cut-away shader to point at. A corridor is also the
+    // one place the camera's own spring arm already handles: you are always
+    // backed against a wall down here.
+    setViewOcclusion(): void { /* the hold has no props to cut away */ },
+    debugOcclusion(): null { return null; },
     setTerrainDistance(): void { /* an enclosed zone has no far landscape */ },
     debugDistantTerrain(): null { return null; },
     warmUpEffects(): void { /* the hold owns no visual effects of its own */ },

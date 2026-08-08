@@ -845,6 +845,27 @@ export interface World {
    * it.
    */
   setFoliageDistance(distance: number): void;
+  /**
+   * Aim the occlusion cut-away — the second half of issue #135 — at the segment
+   * running from the camera to the hero's chest, so world geometry standing on
+   * it is stippled away and he stays on screen.
+   *
+   * On World rather than on the camera because the camera owns a view, not the
+   * things drawn in it, and the cut is a property of the MATERIALS a zone
+   * built. That also decides the shape: a segment and nothing else. No occluder
+   * list, no per-object flag, no "is this a tree" — a zone points the tube and
+   * whatever it happens to cross gives way, which is what makes the same call
+   * cover trees, huts, palisades and market stalls (all of which share one
+   * material; see world/props.ts).
+   *
+   * `strength` is 0..1 and 0 is a real off: a zone with no third-person camera
+   * never calls this at all, and the shipped world passes 0 under `?occlude=0`.
+   *
+   * Both vectors are COPIED, so a caller may pass its own scratch.
+   */
+  setViewOcclusion(eye: THREE.Vector3, pivot: THREE.Vector3, strength: number): void;
+  /** The live cut-away tube, or null in a zone that has no props. */
+  debugOcclusion(): { strength: number; radius: number; length: number } | null;
   /** Set camera-scale terrain streaming and the far clipmap/HLOD budget. */
   setTerrainDistance(distance: number): void;
   /** One consolidated far-landscape census, for the view-distance guard. */

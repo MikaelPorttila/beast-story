@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { flags } from '../core/flags';
 import type { Input, LookDelta } from '../core/input';
 import type { World } from '../core/types';
 
@@ -7,6 +8,8 @@ const _pivot = new THREE.Vector3();
 const _desired = new THREE.Vector3();
 const _mid = new THREE.Vector3();
 const _look = new THREE.Vector3();
+/** Scratch for the occlusion walk along the arm. */
+const _probe = new THREE.Vector3();
 /** Scratch for `Input.takeLook`; a slice must not allocate. */
 const _lookIn: LookDelta = { dx: 0, dy: 0, wheel: 0 };
 
@@ -100,6 +103,71 @@ const MAX_STEP_LAG = 1.6;
 const DIST_SCALE_LAMBDA = 4.5;
 
 /**
+ * Camera occlusion: shorten the arm until the hero is in sight again.
+ *
+ * The problem (issue #135) is the oldest one a third-person camera has. The arm
+ * is a fixed length swung around the hero, so backing up to a palisade, walking
+ * into a hut or standing under a bridge parks the camera INSIDE the timber and
+ * the player is looking at the back face of a wall with his character somewhere
+ * behind it.
+ *
+ * The fix is a spring arm that collides. What it collides WITH is the point
+ * worth stating: this samples the same `structureTopAt` / `trunkSolidTopAt`
+ * COLUMN queries every mover in the game already resolves against, walking
+ * outward from the pivot along the arm. No raycaster, no second collision
+ * representation, no per-frame BVH — a column query is what "is there a wall
+ * here" means everywhere else in this codebase, and the boxes are authored from
+ * the ground up (see World.structureTopAt), so a column top and "what stops the
+ * camera" really are the same number.
+ *
+ * Crowns are deliberately NOT consulted. `climbTopAt` would have been the one
+ * query covering everything, but a crown is 7-10 units across and several units
+ * up: pulling the arm to 2 m every time the hero walks under an oak is a camera
+ * that lurches through a forest. Foliage between the camera and the hero is the
+ * OTHER half of this feature — the dither cut-away in world/props.ts — which
+ * costs nothing to look through and does not move the frame at all. Solid
+ * things move the camera; leaves get erased.
+ *
+ * STEP 0.5, a fixed spacing rather than a fixed sample count, because what has
+ *   to be caught is a fixed WIDTH: the thinnest thing the camera can be inside
+ *   is a palisade stake, measured 0.7 units across and 6.3 tall in the start
+ *   camp. A count spreads over the zoom range instead: the 7 this shipped with
+ *   for an afternoon stepped 1.1 units at the default arm and 2.3 at the far
+ *   zoom, either of which walks straight past a stake in that fence. At 0.5 no
+ *   stake can fall between two samples at any zoom.
+ * MAX_SAMPLES 32 is the far zoom (16) at that spacing, so the cap is a bound
+ *   rather than a truncation: the whole arm is always covered. The cost is 64
+ *   column queries a slice, and `structureTopAt` is a four-compare bounds test
+ *   at 7.5 ns wherever there is no settlement (see world/structures.ts) — under
+ *   a microsecond in the open, single-digit microseconds standing in a town,
+ *   against the ~6 queries the hero's own step resolution already makes.
+ * PAD 0.5 keeps the near plane out of the surface it stopped against. The
+ *   default fov at 16:9 puts the near plane's half-height at ~0.05 m, so this is
+ *   clearance for the SHAKE (0.14 m) and for the wall arriving between slices.
+ * MIN 1.5 is the floor. Shorter and the camera is inside the hero's own head;
+ *   at 1.5 m with LOOK_LIFT the shoulders still frame, which is what "the player
+ *   is visible" has to mean when he is genuinely in a broom cupboard.
+ *
+ * The two rates are the whole feel of it, and they are deliberately far apart:
+ *
+ *   IN  40  Effectively immediate (~95% in 75 ms). A camera that eases INTO a
+ *           wall spends those frames rendering the inside of it, which is the
+ *           bug. There is nothing to smooth: the wall was always there.
+ *   OUT  4  ~0.55 s to 90%. The restore is the part the player watches, and it
+ *           is the part that must not pump. Walking along a picket fence
+ *           samples clear/blocked/clear at walking pace, and at a symmetric rate
+ *           the arm buzzes in and out several times a second. Slow enough here
+ *           that a gap has to last most of a second before the camera commits to
+ *           believing it, so a fence reads as one steady pull-in.
+ */
+const OCC_STEP = 0.5;
+const OCC_MAX_SAMPLES = 32;
+const OCC_PAD = 0.5;
+const OCC_MIN = 1.5;
+const OCC_IN_LAMBDA = 40;
+const OCC_OUT_LAMBDA = 4;
+
+/**
  * Third-person orbit camera with spring-arm smoothing, terrain avoidance and
  * a light trauma-style shake for hits.
  */
@@ -135,6 +203,17 @@ export class ThirdPersonCamera {
   private pivotDrop = 0;
   private pivotDropTarget = 0;
   private readonly pos = new THREE.Vector3();
+  /**
+   * The arm length occlusion currently allows, smoothed. Seeded on the first
+   * frame from the wanted arm so the camera does not spring out from the hero.
+   */
+  private armFree = 7.4;
+  /**
+   * The point the arm orbits and the look target is derived from, published so
+   * the cut-away shader knows where the hero's chest is without recomputing
+   * `followY` or knowing about `pivotDrop`. Written every update.
+   */
+  readonly pivot = new THREE.Vector3();
   /** Smoothed vertical anchor the pivot rides; see STEP_LAMBDA. */
   private followY = 0;
   private initialized = false;
@@ -159,6 +238,43 @@ export class ThirdPersonCamera {
   setFraming(distScale: number, pivotDrop: number): void {
     this.distScaleTarget = distScale;
     this.pivotDropTarget = pivotDrop;
+  }
+
+  /**
+   * How long the arm may be before it enters something solid, walking outward
+   * from `_pivot` along `_dir`. Both must already be set for this frame.
+   *
+   * Returns the wanted length when the whole arm is clear, so "nothing in the
+   * way" costs exactly the same code path as everything else.
+   */
+  private clearArm(wanted: number, world: World): number {
+    const n = Math.min(OCC_MAX_SAMPLES, Math.ceil(wanted / OCC_STEP));
+    const step = wanted / n;
+    for (let i = 1; i <= n; i++) {
+      const d = step * i;
+      _probe.copy(_pivot).addScaledVector(_dir, d);
+      const built = world.structureTopAt(_probe.x, _probe.z);
+      const bole = world.trunkSolidTopAt(_probe.x, _probe.z);
+      const top = built > bole ? built : bole;
+      // Both queries answer -Infinity for a clear column, so this is false for
+      // the overwhelming majority of samples and never touches the terrain.
+      if (_probe.y < top) {
+        // Stop at the last sample known clear, less the near-plane pad.
+        const free = d - step - OCC_PAD;
+        return free < OCC_MIN ? OCC_MIN : free;
+      }
+    }
+    return wanted;
+  }
+
+  /** Arm length in world units, after occlusion. For probes and the F2 line. */
+  get armLength(): number {
+    return Math.min(this.dist * this.distScale, this.armFree);
+  }
+
+  /** What the wheel and the framing asked for, before occlusion shortened it. */
+  get armWanted(): number {
+    return this.dist * this.distScale;
   }
 
   update(
@@ -195,8 +311,10 @@ export class ThirdPersonCamera {
     this.pivotDrop += (this.pivotDropTarget - this.pivotDrop) * kFrame;
     // Everything downstream — the arm, the terrain-avoidance midpoint and the
     // scale-free LOOK_LIFT — reads this one length, so the framing stays
-    // self-consistent at any zoom and any scale.
-    const arm = this.dist * this.distScale;
+    // self-consistent at any zoom and any scale. `armWanted` is what the wheel
+    // and the framing asked for; occlusion below is only ever allowed to make
+    // it SHORTER, so the zoom range the player scrolls through never changes.
+    const armWanted = this.dist * this.distScale;
 
     // Vertical anchor: chase focus.y instead of reading it, so a terrace step
     // becomes a glide. Runs before the pivot because the pivot rides it, and it
@@ -216,8 +334,22 @@ export class ThirdPersonCamera {
     // centreline of the frame directly under the reticle. (This used to carry a
     // camera-right shoulder offset — see LOOK_LIFT for why it went.)
     _pivot.set(focus.x, this.followY + 1.28 - this.pivotDrop, focus.z);
+    this.pivot.copy(_pivot);
     const cp = Math.cos(this.pitch);
     _dir.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
+
+    // Spring arm: how much of the arm is actually clear of solid world, damped
+    // asymmetrically (fast in, slow out — see OCC_IN_LAMBDA). `min` rather than
+    // the damped value alone so spinning the wheel in never waits on a spring.
+    const clear = flags.occlusion ? this.clearArm(armWanted, world) : armWanted;
+    if (!this.initialized) {
+      this.armFree = clear;
+    } else {
+      const occLambda = clear < this.armFree ? OCC_IN_LAMBDA : OCC_OUT_LAMBDA;
+      this.armFree += (clear - this.armFree) * (1 - Math.exp(-occLambda * dt));
+    }
+    const arm = Math.min(armWanted, this.armFree);
+
     _desired.copy(_pivot).addScaledVector(_dir, arm);
 
     // never sink below terrain: check endpoint plus a midpoint along the arm

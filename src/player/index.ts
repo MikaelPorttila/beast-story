@@ -449,6 +449,17 @@ export class Player {
    * already knew about. Combat could not shake it for a crit, and never did.
    */
   readonly cam = new ThirdPersonCamera();
+  /**
+   * How hard world geometry standing between the camera and the hero is cut
+   * away, 0..1 (see World.setViewOcclusion). 1 in normal play.
+   *
+   * It is a dial rather than a boolean because the two halves of issue #135
+   * have to be separable: the spring arm and the cut-away both make the hero
+   * visible, and a measurement that moves both at once cannot say which one
+   * did it. Turning this down leaves the arm exactly where it was, so
+   * tools/test-occlusion.mjs photographs the cut alone.
+   */
+  occlusionStrength = 1;
   private animator = new HeroAnimator();
   private dust: DustSystem;
 
@@ -636,6 +647,7 @@ export class Player {
    * two are three lines apart so a field added to one is visible from the other.
    */
   reset(): void {
+    this.occlusionStrength = 1;
     this.isDead = false;
     this.hp = this.maxHp;
     this.flash = 0;
@@ -901,6 +913,11 @@ export class Player {
 
     this.dust.update(dt, this.time);
     this.cam.update(dt, input, this.position, this.onGround, world, this.engine.camera);
+    // Straight after the camera moved, so the cut-away tube and the frame it is
+    // cutting for are the same one. `cam.pivot` is the chest point the arm
+    // orbits, not `this.position`: cutting to the feet leaves his head behind a
+    // branch, which is the case that started issue #135.
+    world.setViewOcclusion(this.engine.camera.position, this.cam.pivot, this.occlusionStrength);
     this.engine.updateSunFocus(this.position);
   }
 

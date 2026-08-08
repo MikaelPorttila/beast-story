@@ -1893,6 +1893,22 @@ interface FoliageFadeUniforms {
 }
 
 /**
+ * The camera→hero segment, shared by BOTH prop materials. One object, assigned
+ * into each compiled shader, so the per-frame update is two number writes and a
+ * vector copy rather than a walk over materials.
+ */
+interface OcclusionUniforms {
+  /** Camera position, world space. */
+  bsOccludeEye: { value: THREE.Vector3 };
+  /** Eye→pivot, NOT normalised: its length is the segment the cut-away covers. */
+  bsOccludeAxis: { value: THREE.Vector3 };
+  /** Radius of the erased tube around that segment, world units. */
+  bsOccludeRadius: { value: number };
+  /** 0 disables the whole thing (`?occlude=0`, and every zone with no camera). */
+  bsOccludeStrength: { value: number };
+}
+
+/**
  * Fade a shared prop material by WORLD distance with real alpha coverage.
  *
  * Screen-door opacity left visible stipple on a blue horizon, and fading toward
@@ -1901,30 +1917,98 @@ interface FoliageFadeUniforms {
  * list so GTAO still sees trees and rocks; depth writes stay on, so the nearest
  * voxel face supplies one stable translucent silhouette. The outer chunk is
  * fully clear before its whole mesh is culled.
+ *
+ * ...and CUT AWAY whatever stands between the camera and the hero (issue #135),
+ * which is the same injection point and the opposite technique, for a reason
+ * worth writing down.
+ *
+ * The distance fade lowers `gl_FragColor.a` and lets blending do the work. That
+ * cannot solve occlusion, because DEPTH IS THE PROBLEM. Both prop materials
+ * write depth and sit in the opaque list, which three sorts front-to-back — so
+ * a hut in front of the hero is drawn FIRST, stamps the depth buffer, and the
+ * hero is rejected behind it. A wall at alpha 0.05 hides the player exactly as
+ * well as one at 1.0. The only fragment operation that frees the depth buffer
+ * is `discard`, and a discard is binary, so the softness has to come from
+ * WHICH fragments are discarded: a stipple, driven by a per-pixel hash against
+ * the cut strength. That is the screen-door the horizon fade rejected, used
+ * here because the tradeoff inverts — at two metres the pattern reads as a
+ * deliberate cut-away, and there is no alternative that keeps the hero drawn.
+ *
+ * One tube, not a per-object test. Nothing here knows or cares whether the
+ * fragment belongs to an oak, a palisade or a market stall — settlements are
+ * stamped onto `solidMat` too (see world/towns.ts) — so "trees or other world
+ * structures" is one uniform rather than an occluder registry.
  */
-function installFoliageFade(mat: THREE.Material, uniforms: FoliageFadeUniforms, key: string): void {
+function installFoliageFade(
+  mat: THREE.Material,
+  uniforms: FoliageFadeUniforms,
+  occlude: OcclusionUniforms,
+  key: string,
+): void {
   const previousCompile = mat.onBeforeCompile;
   const previousKey = mat.customProgramCacheKey.bind(mat);
   mat.customProgramCacheKey = (): string => `${previousKey()}|bsFoliageFade:${key}`;
   mat.onBeforeCompile = (shader, renderer): void => {
     previousCompile.call(mat, shader, renderer);
-    Object.assign(shader.uniforms, uniforms);
+    Object.assign(shader.uniforms, uniforms, occlude);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 bsFoliageWorldXZ;')
+      // The occlusion cut-away needs all three components; the distance fade
+      // takes `.xz` off the same varying rather than paying for a second one.
+      .replace('#include <common>', '#include <common>\nvarying vec3 bsFoliageWorld;')
       // After sway has changed `transformed`, so bent grass fades where it is
       // drawn rather than where the unbent template happened to be authored.
       .replace('#include <project_vertex>',
-        'bsFoliageWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;\n#include <project_vertex>');
+        'bsFoliageWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#include <project_vertex>');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-varying vec2 bsFoliageWorldXZ;
+varying vec3 bsFoliageWorld;
 uniform vec2 bsFoliageFocus;
 uniform float bsFoliageFadeStart;
-uniform float bsFoliageFadeEnd;`)
+uniform float bsFoliageFadeEnd;
+uniform vec3 bsOccludeEye;
+uniform vec3 bsOccludeAxis;
+uniform float bsOccludeRadius;
+uniform float bsOccludeStrength;`)
+      // BEFORE any shading work, and before the depth write that is the whole
+      // point — see the block comment on this function.
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+if (bsOccludeStrength > 0.0) {
+  vec3 bsRel = bsFoliageWorld - bsOccludeEye;
+  float bsLen2 = max(dot(bsOccludeAxis, bsOccludeAxis), 1e-4);
+  float bsT = clamp(dot(bsRel, bsOccludeAxis) / bsLen2, 0.0, 1.0);
+  float bsRadial = length(bsRel - bsOccludeAxis * bsT);
+  // NO TAPER ALONG THE SEGMENT, at either end, and both ends were tried:
+  //
+  //   far   0.86, then 0.94, to spare the bush the hero is standing in. But the
+  //         segment already STOPS at his chest — nothing behind him is in the
+  //         tube at all — so all a far taper spares is the leaves he is standing
+  //         AMONG, and a partial cut is a stipple. Photographed inside an oak,
+  //         his face and arms came back checkered.
+  //   near  0.06 of the arm, to keep the frame from flickering as the damped
+  //         arm crossed a surface. Wrong for a worse reason: when the camera is
+  //         INSIDE a crown, the leaf it has its nose in is the whole screen and
+  //         sits at t ~ 0, so the taper spared exactly the fragments that were
+  //         hiding everything. That is what the checkered hero actually was —
+  //         a half-cut leaf a hand's width from the lens, not foliage near him.
+  //
+  // So the cut is flat over the whole segment, and the only softness left is
+  // radial. Fragments behind the eye clamp to t = 0 and are measured from it,
+  // which costs nothing: they are behind the camera.
+  float bsCut = bsOccludeStrength
+    // 0.8, so four fifths of the tube is a CLEAN hole and only its rim
+    // stipples — the transition should read as a soft edge to the hole, not as
+    // a haze the character is standing behind.
+    * (1.0 - smoothstep(bsOccludeRadius * 0.8, bsOccludeRadius, bsRadial));
+  // Interleaved gradient noise: one line, no texture, and stable under a still
+  // camera, so the stipple reads as a screen-door rather than as crawling snow.
+  float bsNoise = fract(52.9829189 * fract(dot(gl_FragCoord.xy,
+    vec2(0.06711056, 0.00583715))));
+  if (bsCut > bsNoise) discard;
+}`)
       .replace('#include <opaque_fragment>', `
 float bsFoliageAlpha = 1.0 - smoothstep(
   bsFoliageFadeStart, bsFoliageFadeEnd,
-  distance(bsFoliageWorldXZ, bsFoliageFocus)
+  distance(bsFoliageWorld.xz, bsFoliageFocus)
 );
 #include <opaque_fragment>
 gl_FragColor.a *= bsFoliageAlpha;`);
@@ -1961,6 +2045,23 @@ export class PropLib {
     bsFoliageFocus: { value: this.fadeFocus },
     bsFoliageFadeStart: { value: 96 },
     bsFoliageFadeEnd: { value: 128 },
+  };
+  /**
+   * Shared by both materials, so a tree's trunk and the grass at its foot are
+   * cut by one tube and cannot disagree at their seam.
+   *
+   * RADIUS 1.5 is the hero's silhouette plus room to read it: he is ~0.55 m
+   * across the shoulders and the tube has to clear the sword arc and the
+   * mounted framing too. Wider erases half a hut for one trunk; narrower and
+   * the stipple hole is smaller than the character standing in it.
+   * STRENGTH starts at 0 — a zone with no camera feeding it, or `?occlude=0`,
+   * must compile the branch and take it never.
+   */
+  private readonly occlude: OcclusionUniforms = {
+    bsOccludeEye: { value: new THREE.Vector3() },
+    bsOccludeAxis: { value: new THREE.Vector3() },
+    bsOccludeRadius: { value: 1.5 },
+    bsOccludeStrength: { value: 0 },
   };
 
   readonly oakA = oakTree(false);
@@ -2054,8 +2155,31 @@ export class PropLib {
 
   /** Install after the optional sway patch so both shader edits compose. */
   installDistanceFade(): void {
-    installFoliageFade(this.solidMat, this.solidFade, 'solid');
-    installFoliageFade(this.softMat, this.softFade, 'soft');
+    installFoliageFade(this.solidMat, this.solidFade, this.occlude, 'solid');
+    installFoliageFade(this.softMat, this.softFade, this.occlude, 'soft');
+  }
+
+  /**
+   * Point the cut-away tube at the camera→hero segment for this frame.
+   *
+   * `strength` is the switch AND the ramp: the caller hands over 0 when the
+   * hero is not on screen to protect (a cutscene, a zone with no third-person
+   * camera, `?occlude=0`) and 1 in normal play. Nothing here smooths it — the
+   * segment moves with the camera, which is already damped.
+   */
+  updateOcclusion(eye: THREE.Vector3, pivot: THREE.Vector3, strength: number): void {
+    this.occlude.bsOccludeEye.value.copy(eye);
+    this.occlude.bsOccludeAxis.value.copy(pivot).sub(eye);
+    this.occlude.bsOccludeStrength.value = strength;
+  }
+
+  /** The live cut-away tube, for `__dbgOcclusion`. */
+  debugOcclusion(): { strength: number; radius: number; length: number } {
+    return {
+      strength: this.occlude.bsOccludeStrength.value,
+      radius: this.occlude.bsOccludeRadius.value,
+      length: this.occlude.bsOccludeAxis.value.length(),
+    };
   }
 
   /** Update the shared shader once per rendered frame; no per-chunk uniforms. */

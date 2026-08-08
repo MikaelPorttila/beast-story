@@ -1417,6 +1417,14 @@ export function createWorld(
       for (const rec of chunks.values()) applyLayers(rec);
     },
 
+    setViewOcclusion(eye: THREE.Vector3, pivot: THREE.Vector3, strength: number): void {
+      propLib.updateOcclusion(eye, pivot, flags.occlusion ? strength : 0);
+    },
+
+    debugOcclusion(): { strength: number; radius: number; length: number } {
+      return propLib.debugOcclusion();
+    },
+
     setFoliageDistance(distance: number): void {
       // Gfx validates the three shipped choices before this sink is reached;
       // clamp again because World is a public contract and debug code may call
