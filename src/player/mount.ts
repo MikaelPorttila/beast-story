@@ -117,6 +117,18 @@ const MOUNT_JUMP_VEL = 10.8;
  */
 const MOUNT_STEP_UP = 1.1;
 /**
+ * Furthest DOWN a step-off may reach for ground, the mirror of MOUNT_STEP_UP.
+ *
+ * A step off a mount is a step, in both directions: the rider looks for footing
+ * beside the saddle, not for the world floor. Without this bound the step-off
+ * test ("is that column no higher than my feet plus a step?") is trivially true
+ * for every column below — so unmounting a ground beast in mid-air, over a
+ * cliff, or off the deck of a sky island planted the hero on the terrain far
+ * below in one frame. That is issue #125. Out of reach, he leaves the saddle
+ * where it was and falls, which is the same rule the flyer has always used.
+ */
+const MOUNT_STEP_DOWN = 1.1;
+/**
  * Extra half-width on the collision probe beyond the mount's own body radius,
  * so it is stopped with its shoulder at the rock like the hero is (see
  * BODY_RADIUS in player/index.ts — this world has no horizontal collision
@@ -595,8 +607,8 @@ export class MountController {
     this.player.setCameraFraming(1, 0);
 
     // Step off to the camera's right, clear of the mount's body, and only take
-    // the ground there if it is not a wall — otherwise stay where the saddle
-    // was and let gravity sort it out.
+    // the ground there if it is within a step — up OR down (MOUNT_STEP_DOWN).
+    // Otherwise stay where the saddle was and let gravity sort it out.
     const side = this.player.camRight;
     const r = beast.scaledRadius + 0.7;
     const x = this.pos.x + side.x * r;
@@ -609,7 +621,7 @@ export class MountController {
     // visible — which is exactly why it would have been the one left behind.
     const gh = this.blockTop(x, z);
     const p = this.player.position;
-    if (!this.flying && gh <= this.pos.y + MOUNT_STEP_UP) {
+    if (!this.flying && gh <= this.pos.y + MOUNT_STEP_UP && gh >= this.pos.y - MOUNT_STEP_DOWN) {
       p.set(x, gh, z);
       this.player.onGround = true;
     } else {

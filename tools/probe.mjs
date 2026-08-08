@@ -165,6 +165,10 @@ const SOLO = new Set([
   // fight and proves the same AI casts. It drives state through __dbgAdvance and
   // __dbgSpawn, so SOLO is the default even though the run is deterministic.
   'beastcast',
+  // Rides a ground beast, teleports it thirty units up and reads where the
+  // dismount put the hero. It drives state (grant, ride, teleport) and its
+  // clock is __dbgAdvance, which steps nothing in a background tab.
+  'dismount',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output
