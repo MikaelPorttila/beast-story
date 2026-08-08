@@ -6,6 +6,9 @@ every model, animation and effect is generated in code.
 - [game-story.md](game-story.md) — the campaign: plot, cast, four acts, the
   twenty main quests. Read its §1 before authoring content.
 - [LAB.md](LAB.md) — `lab.html`, the isolated model/VFX stage.
+- [models/README.md](models/README.md) — Blender source for the hero's
+  proportions. Design drawings, kept so they are not lost; **nothing there is
+  loaded by the game**, which still generates everything it draws.
 
 ## Commands
 
