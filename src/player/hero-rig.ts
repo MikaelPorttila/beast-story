@@ -15,14 +15,22 @@ import { buildWeaponModel, disposeWeapon, type WeaponModelId } from './weapons';
  * rewritten: `armL`/`armR` are still shoulders and `legL`/`legR` still hips —
  * a mitt hanging under a shoulder swings on the same rotation an arm did.
  *
+ * WHICH SIDE IS WHICH: the hero faces +Z (`Player.forward` is
+ * `(sin yaw, 0, cos yaw)`, and the root's own rotation is that yaw), so in a
+ * right-handed space with +Y up his RIGHT hand is at NEGATIVE x. The rig used
+ * to put `armR` at +x, which made every "right" in this file and in the
+ * animator his left — the sword was in his left hand for as long as he has had
+ * one. The names now match the body, and a tool asserts it rather than a
+ * reader trusting it (see the hand check in the PR).
+ *
  *   root (player position, yaw)
  *    └ body (bob / lean / squash)
  *       ├ hips              (the merged leg block, its own small swing)
  *       ├ legL, legR        (hip pivots; a free-floating boot hangs under each)
  *       └ torso (twist)
- *          ├ head            (sunk into the torso, no neck)
- *          ├ armL (+shield)  (shoulder pivot; a free-floating mitt hangs under)
- *          └ armR (+sword)   (shoulder pivot)
+ *          ├ head           (sunk into the torso, no neck)
+ *          ├ armR (+weapon) (his right: -x. Shoulder pivot, mitt hanging under)
+ *          └ armL           (his left: +x. The bow moves the weapon here)
  */
 export interface HeroRig {
   root: THREE.Group;
@@ -46,7 +54,6 @@ export interface HeroRig {
    * hand mount moves into this group and back out — see `stowWeapon`.
    */
   holster: THREE.Group;
-  shield: THREE.Group;
   /** True while the weapon is on the back rather than in the hand. */
   stowed: boolean;
   /** The empty sheath on the hip; hidden while the weapon is on his back. */
@@ -141,8 +148,8 @@ const GRIP_LOCAL_Y = MITT_DROP + MITT_R;
  * one a right hand can reach over its own shoulder and draw from.
  *
  * The mount sits at the GRIP, so the holster goes where the hilt goes and the
- * blade hangs off it: 3PI/4 turns the model's own +Y (up the blade) down and to
- * the hero's left. Torso-local, so the whole carry turns with the shoulders and
+ * blade hangs off it: -3PI/4 turns the model's own +Y (up the blade) down and
+ * to the hero's left (+x), leaving the hilt up at his right shoulder (-x). Torso-local, so the whole carry turns with the shoulders and
  * not with the hips.
  *
  * NO TILT, and the hilt sits at hand height rather than at the shoulder. Both
@@ -152,8 +159,8 @@ const GRIP_LOCAL_Y = MITT_DROP + MITT_R;
  * on the back. At y 0.22 the grip is level with the resting hand, which is the
  * reach the 45 degrees exists for.
  */
-const HOLSTER_POS = { x: 0, y: 0.12, z: -0.30 };
-const HOLSTER_ANGLE = (3 * Math.PI) / 4;
+const HOLSTER_POS = { x: 0, y: 0.22, z: -0.27 };
+const HOLSTER_ANGLE = (-3 * Math.PI) / 4;
 /**
  * The vertical run a stowed weapon has to fit inside. The floor is the ground:
  * a blade through the turf is the one thing here nobody can miss. The head is
@@ -317,36 +324,16 @@ function buildBoot(): THREE.Mesh {
  * with `rotation.x`, and a mitt centred ON the pivot would spin in place.
  */
 const MITT_CELL_R = 2.83;
-function buildMitt(braced: boolean): THREE.Mesh {
+function buildMitt(): THREE.Mesh {
   const v = new VoxelModel();
-  v.ellipsoid(0, 0, 0, MITT_CELL_R, MITT_CELL_R, MITT_CELL_R, braced ? BELT : SKIN);
+  v.ellipsoid(0, 0, 0, MITT_CELL_R, MITT_CELL_R, MITT_CELL_R, SKIN);
   // Cuff: a recolour of the ball's top layer, where a sleeve would have ended.
   // Radius 2 in x/z paints exactly the cells that layer already has — a wider
   // one would ADD the corner cells the ball just cut.
-  v.ellipsoid(0, 2, 0, 2.0, 0.5, 2.0, braced ? BELT_D : SKIN_EAR);
+  v.ellipsoid(0, 2, 0, 2.0, 0.5, 2.0, SKIN_EAR);
   const mesh = v.build(S, true);
   mesh.scale.setScalar(MITT_SCALE);
   mesh.position.y = MITT_DROP;
-  return mesh;
-}
-
-function buildShield(): THREE.Mesh {
-  const v = new VoxelModel();
-  for (let y = 0; y <= 4; y++) {
-    const half = y === 0 || y === 4 ? 1 : 2;
-    for (let x = -half; x <= half; x++) {
-      const rim = Math.abs(x) === half || y === 0 || y === 4;
-      v.set(x, y, 0, rim ? STEEL_D : WOOD);
-    }
-  }
-  // blue emblem diamond + gold boss sticking out
-  v.set(0, 1, 0, TUNIC);
-  v.set(0, 3, 0, TUNIC);
-  v.set(-1, 2, 0, TUNIC);
-  v.set(1, 2, 0, TUNIC);
-  v.set(0, 2, 1, GOLD);
-  const mesh = v.build(S, true);
-  mesh.position.y = -0.24;
   return mesh;
 }
 
@@ -389,12 +376,12 @@ export function buildHeroRig(): HeroRig {
 
   // Boots hang from the HIP, not from an ankle: the lever is what turns the
   // animator's existing leg swing into a stride for a foot with no leg on it.
-  const legL = new THREE.Group();
-  legL.position.set(-BOOT_X, HIP_Y, 0);
-  legL.add(buildBoot());
   const legR = new THREE.Group();
-  legR.position.set(BOOT_X, HIP_Y, 0);
+  legR.position.set(-BOOT_X, HIP_Y, 0);
   legR.add(buildBoot());
+  const legL = new THREE.Group();
+  legL.position.set(BOOT_X, HIP_Y, 0);
+  legL.add(buildBoot());
   body.add(legL, legR);
 
   const torso = new THREE.Group();
@@ -408,12 +395,13 @@ export function buildHeroRig(): HeroRig {
   head.add(buildHead());
   torso.add(head);
 
-  const armL = new THREE.Group();
-  armL.position.set(-SHOULDER_X, SHOULDER_LOCAL_Y, 0);
-  armL.add(buildMitt(true));
+  // -x is his right. See the note at the top of the file.
   const armR = new THREE.Group();
-  armR.position.set(SHOULDER_X, SHOULDER_LOCAL_Y, 0);
-  armR.add(buildMitt(false));
+  armR.position.set(-SHOULDER_X, SHOULDER_LOCAL_Y, 0);
+  armR.add(buildMitt());
+  const armL = new THREE.Group();
+  armL.position.set(SHOULDER_X, SHOULDER_LOCAL_Y, 0);
+  armL.add(buildMitt());
   torso.add(armL, armR);
 
   // Rest pose: hilt sits in the mitt, blade angled back past the calf and
@@ -450,21 +438,18 @@ export function buildHeroRig(): HeroRig {
   holster.position.set(HOLSTER_POS.x, HOLSTER_POS.y, HOLSTER_POS.z);
   torso.add(holster);
 
-  const shield = new THREE.Group();
-  shield.position.set(-0.04, GRIP_LOCAL_Y - 0.02, 0.19);
-  shield.add(buildShield());
-  armL.add(shield);
-
   // Satchel and scabbard moved onto the BACK. They used to ride the left flank
   // at chest height, which is now open air the mitt swings through: with no arm
   // between hand and body, anything out there reads as a box floating beside
-  // him. The satchel ended up back on the RIGHT FLANK rather than the back:
+  // him. The satchel ended up back on a FLANK rather than the back:
   // the back belongs to the stowed weapon, whose diagonal sweeps all of it, and
-  // every corner it left free was one a long weapon's tip reached anyway. On
-  // the flank it sits inboard of 0.445, which is where the mitt's inner face
-  // passes, so the hand swings past it and not through it.
+  // every corner it left free was one a long weapon's tip reached anyway. It
+  // sits on his LEFT, opposite the weapon hand, far enough FORWARD (z 0.11) to
+  // be clear of the stowed blade's plane at -0.27, and inboard of 0.445, where
+  // the mitt's inner face passes — so the hand swings past it and not through
+  // it, and neither does a greatsword's tip.
   const satchel = buildSatchel();
-  satchel.position.set(0.34, 0.42, 0.06);
+  satchel.position.set(0.34, 0.42, 0.11);
   satchel.rotation.y = Math.PI / 2;
   satchel.rotation.z = 0.08;
   body.add(satchel);
@@ -502,7 +487,7 @@ export function buildHeroRig(): HeroRig {
   });
 
   const rig: HeroRig = {
-    root, body, torso, head, armL, armR, legL, legR, hips, sword, holster, shield,
+    root, body, torso, head, armL, armR, legL, legR, hips, sword, holster,
     scabbard, materials, weapon: null, stowed: false,
   };
   setWeaponModel(rig, 'sword');
@@ -544,8 +529,11 @@ function layOnBack(mount: THREE.Group): void {
   const hi = bb.max.y * held.scale.y + held.position.y;
   const length = hi - lo;
   const centre = (hi + lo) / 2;
+  // Flatten only as far as the band demands, and keep the carry on the side
+  // HOLSTER_ANGLE asks for: `acos` has no sign, so taking it without this puts
+  // every weapon back over the same shoulder whatever the constant says.
   const cos = Math.min(Math.abs(Math.cos(HOLSTER_ANGLE)), length > 0 ? HOLSTER_BAND / length : 1);
-  const angle = Math.PI - Math.acos(Math.min(1, cos));
+  const angle = Math.sign(HOLSTER_ANGLE) * (Math.PI - Math.acos(Math.min(1, cos)));
   mount.rotation.set(0, 0, angle);
   // slide back along the blade so the weapon straddles the anchor
   mount.position.set(Math.sin(angle) * centre, -Math.cos(angle) * centre, 0);
@@ -556,9 +544,10 @@ function handWeapon(rig: HeroRig, id: WeaponModelId | null): void {
   const mount = id === 'bow' ? rig.armL : rig.armR;
   if (rig.sword.parent === mount) return;
   mount.add(rig.sword);
-  const left = mount === rig.armL;
   rig.sword.position.set(0, GRIP_LOCAL_Y, 0);
-  rig.sword.rotation.set(2.05, left ? -0.85 : 0.85, 0);
+  // Yawed off-axis so the flat of the blade never faces the camera square-on,
+  // mirrored by the side the hand is on rather than by its name.
+  rig.sword.rotation.set(2.05, Math.sign(mount.position.x) * 0.85, 0);
 }
 
 /**
@@ -607,9 +596,6 @@ export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
   // Stowed weapons stay stowed across a swap: what changes here is WHICH model
   // hangs in the mount, never where the mount is.
   if (!rig.stowed) handWeapon(rig, id);
-  // The shield lives on the left forearm, which is the hand now closed around
-  // the riser: you cannot hold both, and drawn together they intersect.
-  rig.shield.visible = id !== 'bow';
   const held = rig.sword.children[0] as THREE.Mesh | undefined;
   if (held) {
     rig.sword.remove(held);
