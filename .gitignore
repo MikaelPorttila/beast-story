@@ -163,3 +163,5 @@ shots/r[0-9]*-*.png
 shots/c[0-9]-*.png
 shots/cur-*.png
 shots/_*.png
+# Blender writes a .blend1 backup beside every save
+*.blend1

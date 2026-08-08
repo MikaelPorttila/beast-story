@@ -43,6 +43,15 @@ export interface AnimInput {
    * dagger swing, and only these two do something else.
    */
   bow: boolean;
+  /**
+   * The weapon is on the back, not in the hand.
+   *
+   * The animator's one job here is to NOT write `rig.sword.rotation` while it
+   * is true: the holster's own angle is the pose, and a swing keyframe applied
+   * to a stowed weapon rotates it out of the hero's back. Everything else — the
+   * hand it came off, the model in it — is `stowWeapon`'s business.
+   */
+  stowed: boolean;
 }
 
 // -- easing ----------------------------------------------------------------
@@ -219,7 +228,8 @@ export class HeroAnimator {
   private aLX = 0; private aLZ = -0.08;
   private aRX = 0; private aRY = 0; private aRZ = 0.08;
   private lLX = 0; private lRX = 0;
-  private swX = 2.62; private swZ = 0.14;
+  private hipX = 0;
+  private swX = 2.28; private swZ = 0.14;
 
   update(rig: HeroRig, s: AnimInput): void {
     const t = s.time;
@@ -260,8 +270,16 @@ export class HeroAnimator {
     let aRZ = 0.1 + 0.05 * m;
     let lLX = gait * 0.85 * m;
     let lRX = -gait * 0.85 * m;
-    // rest: blade hangs down alongside the leg, tucked slightly back
-    let swX = 2.62 + 0.05 * Math.sin(t * 1.9 + 0.6) * idleW;
+    // The hip block is ONE piece, so it cannot stride — it leans into the pace
+    // and rocks a little against the boots, which is what sells a merged lower
+    // body as legs. A quarter of the boot swing is enough to read; more and the
+    // block visibly counter-rotates under a torso that is not following it.
+    let hipX = 0.05 * m - gait * 0.06 * m;
+    // Rest: blade hangs down and back. 2.28, not the 2.62 this was when the
+    // hero had arms — the grip now sits at y 0.73 where the old rig held it at
+    // 0.85, and at the old angle that put a sword's tip 0.12 under the ground.
+    // Measured at the tip, not eyeballed; at 2.28 it clears at -0.02.
+    let swX = 2.28 + 0.05 * Math.sin(t * 1.9 + 0.6) * idleW;
     let swZ = 0.14 * idleW;
 
     // ---- airborne ----
@@ -277,6 +295,7 @@ export class HeroAnimator {
       aRZ = lerp(0.35, 1.0, fall);
       lLX = lerp(-0.5, -0.3, fall);
       lRX = lerp(0.65, 0.45, fall);
+      hipX = lerp(0.12, -0.05, fall); // tuck on the way up, straighten on the way down
       bRX = lerp(0.12, -0.06, fall);
       hX = lerp(-0.15, 0.12, fall);
       swX = 2.3;
@@ -297,6 +316,8 @@ export class HeroAnimator {
       aRY = 0;
       lLX = Math.sin(sp * 2.3) * (0.3 + 0.3 * m);
       lRX = -Math.sin(sp * 2.3) * (0.3 + 0.3 * m);
+      // no hip target: `bRX` has already pitched the whole body flat, and the
+      // block is a child of it
       tY = 0;
       swX = 2.6;
     }
@@ -330,6 +351,7 @@ export class HeroAnimator {
       // Knees driven into the wall, alternating opposite the arms.
       lRX = 0.42 + cp * 0.34;
       lLX = 0.42 - cp * 0.34;
+      hipX = 0.3;         // the block follows the boots into the rock
       swX = 2.45;         // blade stays slung along the back leg, out of the way
       swZ = 0.2;
     }
@@ -359,6 +381,10 @@ export class HeroAnimator {
       aRY = 0;
       lLX = 1.18 + rp * 0.06;
       lRX = 1.18 - rp * 0.06;
+      // The thigh block goes with the boots, but barely: it is wider than the
+      // saddle and swinging it as far as they go pushes a corner of it out
+      // past the mount's flank.
+      hipX = 0.25;
       swX = 2.5;          // blade slung along the back, clear of the saddle
       swZ = 0.22;
     }
@@ -386,6 +412,7 @@ export class HeroAnimator {
       if (s.onGround && m < 0.3) { // combat stance feet
         lLX = lerp(lLX, -0.28, w);
         lRX = lerp(lRX, 0.34, w);
+        hipX = lerp(hipX, 0.04, w);
       }
     }
 
@@ -403,9 +430,13 @@ export class HeroAnimator {
       bRX = 0;
       bodyY = -0.04 * fallT;
       tY = 0;
-      aLZ = -0.5; aRZ = 0.55;
-      aLX = -0.2; aRX = -0.25;
+      // Hands IN, not flung out. Rolled wide they used to read as arms thrown
+      // clear of the body; with no arm on them a mitt held out from a corpse
+      // lying on its side is a ball hovering over the ground.
+      aLZ = -0.12; aRZ = 0.16;
+      aLX = -0.35; aRX = -0.4;
       lLX = -0.15; lRX = 0.2;
+      hipX = 0.1;
       hX = 0.1; hY = 0.3;
       swX = 2.5;
     }
@@ -440,6 +471,7 @@ export class HeroAnimator {
     this.aRZ += (aRZ - this.aRZ) * kArm;
     this.lLX += (lLX - this.lLX) * kSlow;
     this.lRX += (lRX - this.lRX) * kSlow;
+    this.hipX += (hipX - this.hipX) * kSlow;
     this.swX += (swX - this.swX) * kArm;
     this.swZ += (swZ - this.swZ) * kArm;
 
@@ -458,7 +490,10 @@ export class HeroAnimator {
     rig.armR.rotation.z = this.aRZ;
     rig.legL.rotation.x = this.lLX;
     rig.legR.rotation.x = this.lRX;
-    rig.sword.rotation.x = this.swX;
-    rig.sword.rotation.z = this.swZ;
+    rig.hips.rotation.x = this.hipX;
+    if (!s.stowed) {
+      rig.sword.rotation.x = this.swX;
+      rig.sword.rotation.z = this.swZ;
+    }
   }
 }

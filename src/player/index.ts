@@ -4,7 +4,7 @@ import type { Input } from '../core/input';
 import { MAX_STEP_UP, type ElementType, type EventBus, type World } from '../core/types';
 import { CarrierRide } from '../world/carriers';
 import { t } from '../i18n';
-import { buildHeroRig, type HeroRig, setWeaponModel } from './hero-rig';
+import { buildHeroRig, type HeroRig, setWeaponModel, stowWeapon } from './hero-rig';
 import type { WeaponModelId } from './weapons';
 import { ThirdPersonCamera } from './camera';
 import { HeroAnimator, type AttackState } from './animations';
@@ -210,6 +210,13 @@ const MOUNTED_STRIKE_Y = 1.5;
 const MOUNTED_REACH = 1.1;
 
 const COMBO_DURS = [0.42, 0.42, 0.58];
+/**
+ * How long after the last swing the weapon goes on his back — see
+ * `Player.sinceAttack`. Longer than the pause between two hits of a combo and
+ * than the walk between two enemies in one camp; short enough that a hero out
+ * exploring has his hands free.
+ */
+const STOW_AFTER = 6;
 const STRIKE_AT = 0.46;      // fraction of swing where damage lands
 const COMBO_COOLDOWN = 0.22;
 
@@ -469,6 +476,18 @@ export class Player {
   regenMultiplier = 1;
 
   private attack: AttackState = { active: false, combo: 0, t: 0, dur: COMBO_DURS[0] };
+  /**
+   * Seconds since the last swing, which is what decides whether the weapon is
+   * in the hand or on his back.
+   *
+   * SHEATHING IS A TIMER, not a state machine: the hero draws the instant he
+   * swings and puts it away when the fight has clearly stopped, so there is no
+   * "am I in combat" flag for the rest of the game to keep honest. Six seconds
+   * is longer than the gap between two hits of a combo and than the walk
+   * between two enemies in a camp, and short enough that exploring is done
+   * with empty hands.
+   */
+  private sinceAttack = STOW_AFTER;
   private attackQueued = false;
   private struck = false;
   private attackCooldown = 0;
@@ -827,6 +846,13 @@ export class Player {
       for (const m of this.rig.materials) m.emissive.setRGB(0, 0, 0);
     }
 
+    // The weapon rides on his back between fights. Drawn on the frame he
+    // swings — a hero who has to wait for an animation to finish before he can
+    // hit anything is a hero who feels broken — and put away once the timer
+    // runs out. `stowWeapon` returns immediately when nothing changes.
+    this.sinceAttack = this.attack.active ? 0 : this.sinceAttack + dt;
+    stowWeapon(this.rig, this.sinceAttack >= STOW_AFTER && !this.isDead);
+
     this.animator.update(this.rig, {
       time: this.time,
       dt,
@@ -845,6 +871,7 @@ export class Player {
       hurtT: this.hurtT,
       unarmed: this.rig.weapon === null,
       bow: this.rig.weapon === 'bow',
+      stowed: this.rig.stowed,
     });
 
     this.dust.update(dt, this.time);

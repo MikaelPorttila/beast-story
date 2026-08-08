@@ -476,6 +476,10 @@ function heroIdle(time: number, dt: number): AnimInput {
     // above (SHOW_X/Y/Z), which is why a bow on show needs nothing from here.
     unarmed: false,
     bow: false,
+    // The character screen SHOWS the weapon — that is most of the point of the
+    // pose — so it is never stowed here, whatever he is carrying it on out in
+    // the world.
+    stowed: false,
   };
 }
 

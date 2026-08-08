@@ -63,9 +63,13 @@ export type WeaponModelId = (typeof WEAPON_MODEL_IDS)[number];
  */
 const FIT: Record<WeaponModelId, { scale: number; drop: number; yaw?: number }> = {
   sword: { scale: 0.78, drop: -0.15 },
-  // Long and heavy: the blade reads at 1.0 and the grip sits deeper in the
-  // fist, so the pommel does not stick out through the back of the hand.
-  greatsword: { scale: 0.92, drop: -0.2 },
+  // Long and heavy: the blade reads at 1.0 and the grip sits deep in the fist,
+  // so the pommel does not stick out through the back of the hand. -0.12, not
+  // the -0.2 this was for the old long-armed rig: the chibi's hand is a 0.43
+  // ball and a pommel 0.25 down the hilt stood 0.032 proud of it. The rule is
+  // one comparison — grip end inside the ball's radius — see GRIP_LOCAL_Y in
+  // hero-rig.ts, and tools measure it rather than an eye judging it.
+  greatsword: { scale: 0.92, drop: -0.12 },
   // A QUARTER TURN, and it is the only `yaw` in the table. Every other weapon
   // here is a blade on a stick and reads from any angle; a bow is a FLAT
   // object, built in its own Y-Z plane, and the hand's rest pose presents that
