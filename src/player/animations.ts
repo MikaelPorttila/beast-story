@@ -43,6 +43,15 @@ export interface AnimInput {
    * dagger swing, and only these two do something else.
    */
   bow: boolean;
+  /**
+   * The weapon is on the back, not in the hand.
+   *
+   * The animator's one job here is to NOT write `rig.sword.rotation` while it
+   * is true: the holster's own angle is the pose, and a swing keyframe applied
+   * to a stowed weapon rotates it out of the hero's back. Everything else — the
+   * hand it came off, the model in it — is `stowWeapon`'s business.
+   */
+  stowed: boolean;
 }
 
 // -- easing ----------------------------------------------------------------
@@ -482,7 +491,9 @@ export class HeroAnimator {
     rig.legL.rotation.x = this.lLX;
     rig.legR.rotation.x = this.lRX;
     rig.hips.rotation.x = this.hipX;
-    rig.sword.rotation.x = this.swX;
-    rig.sword.rotation.z = this.swZ;
+    if (!s.stowed) {
+      rig.sword.rotation.x = this.swX;
+      rig.sword.rotation.z = this.swZ;
+    }
   }
 }

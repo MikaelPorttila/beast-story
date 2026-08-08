@@ -40,7 +40,17 @@ export interface HeroRig {
    * it held when there was only one thing to hold; see `setWeaponModel`.
    */
   sword: THREE.Group;
+  /**
+   * Where a weapon rides when it is not in the hand: flat on the back, hilt up
+   * over the RIGHT shoulder, so the draw is the hand's own short reach. The
+   * hand mount moves into this group and back out — see `stowWeapon`.
+   */
+  holster: THREE.Group;
   shield: THREE.Group;
+  /** True while the weapon is on the back rather than in the hand. */
+  stowed: boolean;
+  /** The empty sheath on the hip; hidden while the weapon is on his back. */
+  scabbard: THREE.Group;
   /** every material in the rig, for damage flash */
   materials: THREE.MeshStandardMaterial[];
   /** What is in the hand right now, or null for bare hands. */
@@ -105,19 +115,53 @@ const TORSO_Y = 0.50;
  */
 const SHOULDER_LOCAL_Y = 0.54;
 /**
- * Mitt pivot. 0.62 puts the hand's inner face at 0.43, clear of the torso's own
+ * Mitt pivot. 0.66 puts the hand's inner face at 0.445, clear of the torso's own
  * 0.40 half-width — at 0.54 the ball overlapped the tunic and the hand read as
  * attached to it, which is the one thing this silhouette is not.
  */
-const SHOULDER_X = 0.62;
+const SHOULDER_X = 0.66;
 const MITT_DROP = -0.46;       // hand hangs below the shoulder, so rotation.x swings it
 const NECK_LOCAL_Y = 0.46;
+/** Ball size, derived: five cells of 0.1, scaled. */
+const MITT_SCALE = 0.86;            // -> a 0.43 hand on a 1.71 body
+const MITT_D = 5 * S * MITT_SCALE;  // 0.43 across
+const MITT_R = MITT_D / 2;
 /**
- * Where the grip sits inside the mitt, in shoulder-local units. It tracks
- * MITT_DROP: the hand moved up when the arm was deleted, and a weapon left at
- * the old height hangs in mid-air below the fist.
+ * The grip sits at the CENTRE OF THE BALL, not at an offset from it. A mount
+ * placed off-centre puts the pommel through the side of the fist, and the
+ * amount it sticks out is then a number nobody can derive — measured with
+ * tools, the sword's pommel stood 0.023 proud of the hand and a greatsword's
+ * 0.096. Centred, everything shorter than the ball's radius is inside it, and
+ * what a weapon must satisfy is one comparison instead of four constants.
  */
-const GRIP_LOCAL_Y = MITT_DROP + 0.13;
+const GRIP_LOCAL_Y = MITT_DROP + MITT_R;
+/**
+ * The back carry: hilt at the RIGHT shoulder, blade down across the back to the
+ * left hip. 45 degrees is the ask and it has a reason — that diagonal is the
+ * one a right hand can reach over its own shoulder and draw from.
+ *
+ * The mount sits at the GRIP, so the holster goes where the hilt goes and the
+ * blade hangs off it: 3PI/4 turns the model's own +Y (up the blade) down and to
+ * the hero's left. Torso-local, so the whole carry turns with the shoulders and
+ * not with the hips.
+ *
+ * NO TILT, and the hilt sits at hand height rather than at the shoulder. Both
+ * are the big head's doing: it overhangs the back by 0.23 — further back than
+ * the tunic itself — so a hilt up at the shoulder is a hilt inside the hair,
+ * and any tilt swings the blade's far end through the body instead of laying it
+ * on the back. At y 0.22 the grip is level with the resting hand, which is the
+ * reach the 45 degrees exists for.
+ */
+const HOLSTER_POS = { x: 0, y: 0.12, z: -0.30 };
+const HOLSTER_ANGLE = (3 * Math.PI) / 4;
+/**
+ * The vertical run a stowed weapon has to fit inside. The floor is the ground:
+ * a blade through the turf is the one thing here nobody can miss. The head is
+ * NOT a ceiling — it overhangs the back by 0.23, so a hilt that reaches up
+ * behind it is inside it and hidden by the hair, which is untidy but invisible;
+ * the alternative is laying every weapon nearly flat and losing the 45.
+ */
+const HOLSTER_BAND = 1.0;
 /**
  * Head height 0.78 of the figure's 1.74 — 45%, the chibi ratio, against the
  * 0.63 (36%) this rig carried when it had arms and legs to balance.
@@ -257,20 +301,31 @@ function buildBoot(): THREE.Mesh {
 }
 
 /**
- * A free-floating mitt. An ellipsoid rasterised into voxels IS the stepped
- * ball the Blender model builds cell by cell, so there is no second mechanism
- * here — just the hand, with the pauldron and upper arm that used to carry it
- * deleted along with the rest of the limb.
+ * A free-floating mitt: the stepped ball the Blender model builds cell by cell.
+ *
+ * THE RADIUS HAS TO BE BIG ENOUGH TO ROUND ANYTHING. `ellipsoid` keeps every
+ * cell whose centre is inside the radius, so at 1.9 all 27 cells of a 3x3x3
+ * pass and the "ball" bakes out as a PERFECT CUBE — which is what shipped, and
+ * what a cube hand in the game was. A ball needs a five-cell span before there
+ * is a corner to cut: 2.83 is r^2 = 8, the same 93-of-125 shape as the voxel
+ * sphere in models/chibi_base.py. The mesh is then scaled DOWN, because five
+ * cells at the body's own 0.1 would be a 0.5 hand on a 1.7 body.
+ *
+ * MITT_SCALE and the grip are one number apart on purpose — see GRIP_LOCAL_Y.
  *
  * It hangs below its shoulder pivot on purpose: the animator swings the arm
  * with `rotation.x`, and a mitt centred ON the pivot would spin in place.
  */
+const MITT_CELL_R = 2.83;
 function buildMitt(braced: boolean): THREE.Mesh {
   const v = new VoxelModel();
-  v.ellipsoid(0, 0, 0, 1.9, 1.8, 1.9, braced ? BELT : SKIN);
-  // cuff band across the top, where a sleeve would have ended
-  v.ellipsoid(0, 1.4, 0, 1.6, 0.5, 1.6, braced ? BELT_D : SKIN_EAR);
+  v.ellipsoid(0, 0, 0, MITT_CELL_R, MITT_CELL_R, MITT_CELL_R, braced ? BELT : SKIN);
+  // Cuff: a recolour of the ball's top layer, where a sleeve would have ended.
+  // Radius 2 in x/z paints exactly the cells that layer already has — a wider
+  // one would ADD the corner cells the ball just cut.
+  v.ellipsoid(0, 2, 0, 2.0, 0.5, 2.0, braced ? BELT_D : SKIN_EAR);
   const mesh = v.build(S, true);
+  mesh.scale.setScalar(MITT_SCALE);
   mesh.position.y = MITT_DROP;
   return mesh;
 }
@@ -376,22 +431,40 @@ export function buildHeroRig(): HeroRig {
   // Its own scale is 1 — per-weapon size lives in `FIT` (player/weapons.ts),
   // so a dagger and a greatsword differ without five sets of keyframes.
   const sword = new THREE.Group();
-  sword.position.set(0.04, GRIP_LOCAL_Y, -0.04);
+  sword.position.set(0, GRIP_LOCAL_Y, 0);
   sword.rotation.x = 2.05;
   sword.rotation.y = 0.85;
   armR.add(sword);
 
+  /**
+   * The back holster: where the weapon rides between fights.
+   *
+   * On the TORSO, so it turns with the shoulders and not with the hips. The
+   * pose is the one every sword-carrying RPG uses and it is not decoration:
+   * laid across the back at 45 degrees with the hilt at the right shoulder,
+   * the grip is inside the arc the right hand already sweeps, so drawing it is
+   * a reach and not a contortion. `HOLSTER_TILT` presses the flat of the blade
+   * against the back instead of standing it off the tunic like a wing.
+   */
+  const holster = new THREE.Group();
+  holster.position.set(HOLSTER_POS.x, HOLSTER_POS.y, HOLSTER_POS.z);
+  torso.add(holster);
+
   const shield = new THREE.Group();
-  shield.position.set(-0.06, GRIP_LOCAL_Y - 0.04, 0.13);
+  shield.position.set(-0.04, GRIP_LOCAL_Y - 0.02, 0.19);
   shield.add(buildShield());
   armL.add(shield);
 
-  // Satchel and scabbard moved onto the BACK, at hip height. They used to ride
-  // the left flank at chest height, which is now open air the mitt swings
-  // through: with no arm between hand and body, anything out there reads as a
-  // box floating beside him.
+  // Satchel and scabbard moved onto the BACK. They used to ride the left flank
+  // at chest height, which is now open air the mitt swings through: with no arm
+  // between hand and body, anything out there reads as a box floating beside
+  // him. The satchel ended up back on the RIGHT FLANK rather than the back:
+  // the back belongs to the stowed weapon, whose diagonal sweeps all of it, and
+  // every corner it left free was one a long weapon's tip reached anyway. On
+  // the flank it sits inboard of 0.445, which is where the mitt's inner face
+  // passes, so the hand swings past it and not through it.
   const satchel = buildSatchel();
-  satchel.position.set(-0.16, 0.44, -0.30);
+  satchel.position.set(0.34, 0.42, 0.06);
   satchel.rotation.y = Math.PI / 2;
   satchel.rotation.z = 0.08;
   body.add(satchel);
@@ -429,8 +502,8 @@ export function buildHeroRig(): HeroRig {
   });
 
   const rig: HeroRig = {
-    root, body, torso, head, armL, armR, legL, legR, hips, sword, shield, materials,
-    weapon: null,
+    root, body, torso, head, armL, armR, legL, legR, hips, sword, holster, shield,
+    scabbard, materials, weapon: null, stowed: false,
   };
   setWeaponModel(rig, 'sword');
   return rig;
@@ -444,6 +517,78 @@ export function buildHeroRig(): HeroRig {
  * be flashed white when he is hit. Nothing else in the rig is ever removed, so
  * this is the one place that has to prune it.
  */
+/**
+ * Lay whatever is in the mount along the back, centred on the holster.
+ *
+ * THE ANGLE IS DERIVED, not written down five times. 45 degrees is the carry
+ * everyone means, and it is what a sword gets — but the band between the boots
+ * and the head's overhang is 0.62 tall, and a greatsword hung at 45 has a
+ * vertical reach of 0.71. So the rule is: 45 unless the weapon is too long for
+ * the band, then as much flatter as it takes. A scythe ends up nearly across
+ * the shoulders, which is how a polearm is carried anyway.
+ *
+ * Centred, too: the mount is the GRIP, so hanging it straight off the anchor
+ * puts short weapons high and long ones through the ground. The model's own
+ * extent along the blade decides the offset, so nothing here knows what a
+ * greatsword is.
+ */
+function layOnBack(mount: THREE.Group): void {
+  const held = mount.children[0] as THREE.Mesh | undefined;
+  mount.position.set(0, 0, 0);
+  mount.rotation.set(0, 0, HOLSTER_ANGLE);
+  if (!held) return;
+  held.geometry.computeBoundingBox();
+  const bb = held.geometry.boundingBox!;
+  // the model's reach along its own blade axis, in the mount's space
+  const lo = bb.min.y * held.scale.y + held.position.y;
+  const hi = bb.max.y * held.scale.y + held.position.y;
+  const length = hi - lo;
+  const centre = (hi + lo) / 2;
+  const cos = Math.min(Math.abs(Math.cos(HOLSTER_ANGLE)), length > 0 ? HOLSTER_BAND / length : 1);
+  const angle = Math.PI - Math.acos(Math.min(1, cos));
+  mount.rotation.set(0, 0, angle);
+  // slide back along the blade so the weapon straddles the anchor
+  mount.position.set(Math.sin(angle) * centre, -Math.cos(angle) * centre, 0);
+}
+
+/** Put the mount back in the hand that holds this weapon. */
+function handWeapon(rig: HeroRig, id: WeaponModelId | null): void {
+  const mount = id === 'bow' ? rig.armL : rig.armR;
+  if (rig.sword.parent === mount) return;
+  mount.add(rig.sword);
+  const left = mount === rig.armL;
+  rig.sword.position.set(0, GRIP_LOCAL_Y, 0);
+  rig.sword.rotation.set(2.05, left ? -0.85 : 0.85, 0);
+}
+
+/**
+ * Put the weapon on the back, or take it off the back.
+ *
+ * The MOUNT moves, the model does not: `sword` is the hand, so everything
+ * hanging off it — the model, its `FIT`, the damage-flash material — travels
+ * with one reparent and nothing downstream has to know where it went. While it
+ * is stowed the animator leaves `sword.rotation` alone (see `AnimInput.stowed`),
+ * because the holster's own angle IS the pose.
+ *
+ * A bow goes on the back the same way. It rides the same diagonal: an archer's
+ * bow over the shoulder and a swordsman's blade land in the same place, and one
+ * carry is one thing to look at rather than two.
+ */
+export function stowWeapon(rig: HeroRig, stowed: boolean): void {
+  if (rig.stowed === stowed) return;
+  rig.stowed = stowed;
+  // The hip scabbard is the sheath for a DRAWN weapon — an empty one on the
+  // belt is right while he is holding the sword, and one more strap crossing
+  // the blade's diagonal when he is not.
+  rig.scabbard.visible = !stowed;
+  if (stowed) {
+    rig.holster.add(rig.sword);
+    layOnBack(rig.sword);
+  } else {
+    handWeapon(rig, rig.weapon);
+  }
+}
+
 export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
   if (rig.weapon === id) return;
   rig.weapon = id;
@@ -459,13 +604,9 @@ export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
   //
   // Mirrored, not copied: the offsets that push the grip outboard of the right
   // calf push it into the left one unless x and the yaw change sign.
-  const mount = id === 'bow' ? rig.armL : rig.armR;
-  if (rig.sword.parent !== mount) {
-    mount.add(rig.sword);
-    const left = mount === rig.armL;
-    rig.sword.position.set(left ? -0.04 : 0.04, GRIP_LOCAL_Y, -0.04);
-    rig.sword.rotation.y = left ? -0.85 : 0.85;
-  }
+  // Stowed weapons stay stowed across a swap: what changes here is WHICH model
+  // hangs in the mount, never where the mount is.
+  if (!rig.stowed) handWeapon(rig, id);
   // The shield lives on the left forearm, which is the hand now closed around
   // the riser: you cannot hold both, and drawn together they intersect.
   rig.shield.visible = id !== 'bow';

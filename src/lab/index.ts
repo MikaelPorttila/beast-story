@@ -12,6 +12,7 @@
  *   enemy=gloopling|snortle|peckit
  *   hero=1                 the player character rig, posed by HeroAnimator
  *   weapon=<id>            sword|greatsword|bow|dagger|scythe in his hand
+ *   stow=1                 carry it on his back instead of holding it
  *   skill=<skillId>        fires that skill on a loop at a dummy target
  *   waterfall=1            a waterfall VFX on a bare stage
  *   fall=<units>           how far it falls before it is invisible (default 48)
@@ -48,7 +49,7 @@ import { VFX } from '../combat/vfx';
 import { CombatSystem } from '../combat/index';
 import { tameOrbMesh, ORB_RADIUS } from '../combat/tame-orb';
 import { ITEMS, ORB_IDS } from '../core/items';
-import { buildHeroRig, setWeaponModel, type HeroRig } from '../player/hero-rig';
+import { buildHeroRig, setWeaponModel, stowWeapon, type HeroRig } from '../player/hero-rig';
 import { HeroAnimator, type AnimInput } from '../player/animations';
 import type { WeaponModelId } from '../player/weapons';
 import { StubWorld } from './stub-world';
@@ -155,6 +156,7 @@ if (params.get('hero') === '1') {
   heroRoot = rig.root;
   heroRig = rig;
   if (params.get('weapon')) setWeaponModel(rig, params.get('weapon') as WeaponModelId);
+  if (params.get('stow') === '1') stowWeapon(rig, true);
   engine.scene.add(rig.root);
   subjectHeight = 1.8;
 }
@@ -462,6 +464,7 @@ function poseHero(dt: number): void {
     attack: { active: false, combo: 0, t: 0, dur: 0.42 },
     dead: want === 'dead', deadT: simTime, landBump: 0, hurtT: 0,
     unarmed: heroRig.weapon === null, bow: heroRig.weapon === 'bow',
+    stowed: heroRig.stowed,
     ...preset,
   });
 }
