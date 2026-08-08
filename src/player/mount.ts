@@ -116,6 +116,20 @@ const MOUNT_JUMP_VEL = 10.8;
  * mount's traversal perk, and it is why the number is not simply the hero's.
  */
 const MOUNT_STEP_UP = 1.1;
+
+/**
+ * Furthest the ground under the step-off column may sit BELOW the saddle for the
+ * dismount to place the hero on it.
+ *
+ * The same 1.1 as the step up, for the same reason and read the other way: one
+ * whole terrace is a step down, anything more is a drop. Without it the test was
+ * one-sided — "is the ground at most a terrace above me" — which is trivially
+ * true when the ground is eighty units below, so leaving the saddle of a ground
+ * mount in mid-air teleported the rider to the terrain instead of letting him
+ * fall (issue #125). He now keeps the saddle's position and the mount's vertical
+ * speed, and the fall continues from where it was.
+ */
+const MOUNT_STEP_DOWN = 1.1;
 /**
  * Extra half-width on the collision probe beyond the mount's own body radius,
  * so it is stopped with its shoulder at the rock like the hero is (see
@@ -609,7 +623,9 @@ export class MountController {
     // visible — which is exactly why it would have been the one left behind.
     const gh = this.blockTop(x, z);
     const p = this.player.position;
-    if (!this.flying && gh <= this.pos.y + MOUNT_STEP_UP) {
+    if (!this.flying
+      && gh <= this.pos.y + MOUNT_STEP_UP
+      && gh >= this.pos.y - MOUNT_STEP_DOWN) {
       p.set(x, gh, z);
       this.player.onGround = true;
     } else {

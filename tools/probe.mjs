@@ -165,6 +165,10 @@ const SOLO = new Set([
   // fight and proves the same AI casts. It drives state through __dbgAdvance and
   // __dbgSpawn, so SOLO is the default even though the run is deterministic.
   'beastcast',
+  // Drops a mounted hero thirty units and measures the fall on either side of a
+  // dismount — elapsed motion through __dbgAdvance, and it drives state
+  // (__dbgRide, __dbgTp). SOLO is the default and both apply.
+  'mount-air',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output
