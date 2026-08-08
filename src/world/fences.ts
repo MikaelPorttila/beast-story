@@ -82,11 +82,13 @@ export interface FenceParts {
   readonly railLen: number;
   /** Final plank width across the run after stamping. Must be under `postWidth`. */
   readonly railWidth: number;
+  /** Finished plank height, used to keep its top below a plain post's top. */
+  readonly railHeight: number;
   /** Width of both the authored plank template and the stake it meets. */
   readonly postWidth: number;
   /** Plank BOTTOMS above the fence line, lowest first. Last one is the top. */
   readonly railAt: readonly number[];
-  /** How far a plain stake stands above the line. Must exceed every `railAt`. */
+  /** How far a plain stake stands above the line. Must exceed each complete rail. */
   readonly postH: number;
   /** Total height of the taller stake, so a stretched one can be measured. */
   readonly tallH: number;

@@ -50,7 +50,8 @@ import { buildHeroRig } from '../player/hero-rig';
 import { StubWorld } from './stub-world';
 import { buildPathsStage, groundAt, stageFraming } from './paths-stage';
 import {
-  FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT, FENCE_RAIL_WIDTH,
+  FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT,
+  FENCE_RAIL_HEIGHT, FENCE_RAIL_WIDTH,
 } from '../world/town-parts';
 import { Waterfall } from '../world/waterfall';
 import { bootstrapContent, content } from '../content';
@@ -271,6 +272,7 @@ if (fenceParam) {
     kit: {
       postH: FENCE_POST_H, postR: FENCE_POST_R, postWidth: FENCE_POST_WIDTH,
       railAt: [...FENCE_RAIL_AT], railWidth: FENCE_RAIL_WIDTH,
+      railHeight: FENCE_RAIL_HEIGHT,
     },
     /** Downward-facing triangles in the road mesh: the bridge soffit. */
     soffit: countSoffit(engine.scene),

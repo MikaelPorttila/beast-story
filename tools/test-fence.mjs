@@ -50,13 +50,18 @@ const out = {};
 
 /** The cross-section contract that prevents issue #127's coplanar faces. */
 function checkKit(kit, label) {
-  if (!(kit.postWidth > 0) || !(kit.railWidth > 0)) {
-    fails.push(`${label}: fence kit reports no usable post/rail width`);
+  if (!(kit.postWidth > 0) || !(kit.railWidth > 0) || !(kit.railHeight > 0)) {
+    fails.push(`${label}: fence kit reports no usable post/rail dimensions`);
     return;
   }
   if (kit.railWidth >= kit.postWidth - EPS) {
     fails.push(`${label}: ${kit.railWidth.toFixed(3)}-wide plank is not recessed inside `
       + `${kit.postWidth.toFixed(3)}-wide posts`);
+  }
+  const top = kit.railAt.at(-1) + kit.railHeight;
+  if (top >= kit.postH - EPS) {
+    fails.push(`${label}: top plank reaches ${top.toFixed(3)}, leaving no cap below `
+      + `${kit.postH.toFixed(3)}-high posts`);
   }
 }
 
@@ -253,6 +258,9 @@ const browser = await launchBrowser();
       postWidth: stage.kit.postWidth,
       railWidth: stage.kit.railWidth,
       faceInset: +((stage.kit.postWidth - stage.kit.railWidth) * 0.5).toFixed(3),
+      railHeight: stage.kit.railHeight,
+      topClearance: +(stage.kit.postH - stage.kit.railAt.at(-1)
+        - stage.kit.railHeight).toFixed(3),
     },
     bridge: {
       wetSamples: deck.length,
@@ -282,7 +290,8 @@ const browser = await launchBrowser();
   if (!world.kit) fails.push('__dbgTowns() reports no fence kit metrics');
   if (!world.fences.length) fails.push('the world built no fences at all');
   const use = world.kit ?? {
-    postH: 1.68, postWidth: 0.28, railAt: [0.42, 1.12], railWidth: 0.168,
+    postH: 1.68, postWidth: 0.28, railAt: [0.42, 0.98], railWidth: 0.168,
+    railHeight: 0.56,
   };
   checkKit(use, 'world');
   world.fences.forEach((f, i) => checkFence(f, use, `world:${i}`));

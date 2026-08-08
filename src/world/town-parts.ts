@@ -848,10 +848,18 @@ export const FENCE_POST_H = FENCE_POST_VOX * V;
 /** The taller stake's own height, and the lantern stake's, cage included. */
 const FENCE_TALL_H = FENCE_TALL_VOX * V;
 const FENCE_LANTERN_H = (FENCE_LAMP_VOX + 5) * V;
-/** Plank BOTTOMS, in units above that same line. Lower one first. */
-export const FENCE_RAIL_AT = [1.5 * V, 4 * V] as const;
+/**
+ * Plank BOTTOMS, in units above that same line. Lower one first.
+ *
+ * The upper course sits half a voxel below its old position. Its 0.56-unit
+ * height now stops 0.14 units below a plain post's cap, enough to keep the two
+ * top faces distinct when the fence is viewed from overhead (issue #127).
+ */
+export const FENCE_RAIL_AT = [1.5 * V, 3.5 * V] as const;
 /** How long one plank template is, i.e. what a bay's `sz` is measured against. */
 export const FENCE_RAIL_LEN = FENCE_RAIL_VOX * V;
+/** Finished height of the two-voxel plank template. */
+export const FENCE_RAIL_HEIGHT = 2 * V;
 /** The authored stake and rail are each one voxel wide before stamp scaling. */
 export const FENCE_POST_WIDTH = V;
 /**
@@ -1070,6 +1078,7 @@ export class TownParts {
     railProp: fenceRailProp(),
     railLen: FENCE_RAIL_LEN,
     railWidth: FENCE_RAIL_WIDTH,
+    railHeight: FENCE_RAIL_HEIGHT,
     postWidth: FENCE_POST_WIDTH,
     railAt: FENCE_RAIL_AT,
     postH: FENCE_POST_H,
