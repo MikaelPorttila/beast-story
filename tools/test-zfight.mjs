@@ -55,7 +55,8 @@
 //
 // Usage:  bun tools/test-zfight.mjs [--verbose]
 import * as THREE from 'three';
-import { buildHeroRig } from '../src/player/hero-rig.ts';
+import { buildHeroRig, setHairStyle } from '../src/player/hero-rig.ts';
+import { HAIR_STYLES } from '../src/player/hair.ts';
 import { HeroAnimator } from '../src/player/animations.ts';
 import { ALL_SPECIES } from '../src/beasts/registry.ts';
 import { BEAST_CYCLE_SLOTS } from '../src/core/types.ts';
@@ -521,8 +522,22 @@ const results = [];
     });
     acc.push(r);
   }
+  // EVERY HAIRSTYLE, at rest. The hair is its own mesh at half the body's cell
+  // size laid over the skull (see the plane rule at the top of player/hair.ts),
+  // which is exactly the "two models painted onto one grid" this tool exists
+  // for — and there are eight of them, any of which can be on his head. One
+  // pose each is enough where the sweep above needs seven: hair and skull are
+  // both children of the head, so no animation moves one against the other.
+  for (const style of HAIR_STYLES) {
+    setHairStyle(rig, style.id, null);
+    anim.update(rig, { ...base, time: 0 });
+    acc.push(checkRig(`hero:${style.id}`, rig.root, named));
+  }
+  setHairStyle(rig, HAIR_STYLES[0].id, null);
   const merged = acc.reduce((best, r) => (r.worstSeamArea > best.worstSeamArea ? r : best), acc[0]);
-  results.push({ ...merged, rig: 'hero' });
+  // One row for the hero, but say WHICH pose or hairstyle it came from — with
+  // eight heads in the sweep, "hero: 1 seam" alone is not a place to look.
+  results.push({ ...merged, rig: 'hero', worstIn: merged.rig });
 }
 
 // -- beasts -----------------------------------------------------------------
@@ -675,7 +690,13 @@ for (const def of Object.values(ITEMS)) {
  * prompted this tool was looking at.
  */
 const BUDGET = {
-  hero: 2,        // worst 0.00343 m2
+  // CLEAN, in all eight hairstyles — the allowance of 2 it carried was stale,
+  // and re-baselined here because this run is what widened the sweep to cover
+  // them. The hair is the one part of him painted on a grid of its own (0.05
+  // against the body's 0.1), so every seam it could have is a plane it shares
+  // with the skull or an ear; the rule that keeps it off them is written at the
+  // top of src/player/hair.ts.
+  hero: 0,
   emberfox: 8,    // worst 0.00775
   aquaxol: 1,     // worst 0.00909
   sproutle: 3,    // worst 0.00836

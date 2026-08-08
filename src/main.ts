@@ -3,7 +3,10 @@ import { Engine } from './core/engine';
 import { DayNightCycle } from './core/day-night';
 import { DebugOverlay } from './core/debug-overlay';
 import { Gfx, GFX_OPTIONS, storedGfx, type GfxSinks, type GfxValue } from './core/gfx';
-import { PerfPanel } from './ui/perf-panel';
+import { PerfPanel, type AppearanceControl } from './ui/perf-panel';
+import {
+  HAIR_STYLES, HAIR_SWATCHES, storeHairColour, storeHairStyle, storedHairColour,
+} from './player/hair';
 import type { SpawnCatalogue } from './core/spawn';
 import { Cursors, CursorDirector, CURSOR_STATES, type CursorState } from './ui/cursor';
 import { Input } from './core/input';
@@ -3486,11 +3489,44 @@ const spawnCatalogue: SpawnCatalogue = {
   },
 };
 
+/**
+ * The hero's hair, for the F3 panel.
+ *
+ * The PANEL owns the rows and this owns what a change means, which is the split
+ * every panel in this game has (see the note at the top of ui/settings.ts's
+ * host). "What it means" here is three things in one place: store the choice,
+ * rebuild the mesh on the rig standing in the world, and resolve "no colour
+ * picked yet" into the colour the chosen style was drawn in — `setHairStyle`
+ * takes the null and answers it, so the rule lives once, in player/hair.ts.
+ *
+ * The rig is READ EVERY TIME rather than captured: `exitToTitle` builds a new
+ * hero, and a captured one would leave the panel styling a discarded head.
+ */
+const appearance: AppearanceControl = {
+  styles: HAIR_STYLES,
+  swatches: HAIR_SWATCHES,
+  style: () => player.hairStyle,
+  colour: () => player.hairColour,
+  setStyle: (id) => {
+    storeHairStyle(id);
+    player.setHair(id, storedHairColour());
+  },
+  setColour: (hex) => {
+    storeHairColour(hex);
+    player.setHair(player.hairStyle, hex);
+  },
+  reset: () => {
+    storeHairStyle(HAIR_STYLES[0].id);
+    storeHairColour(null);
+    player.setHair(HAIR_STYLES[0].id, null);
+  },
+};
+
 const perfPanel = new PerfPanel(gfx, {
   presets: timePresets,
   get: () => dayNight.debugOverride,
   set: (phase) => dayNight.setDebugOverride(phase),
-}, spawnCatalogue);
+}, spawnCatalogue, appearance);
 
 /**
  * The custom cursor, and the one question the world has to answer for it.
@@ -6335,6 +6371,53 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
     perfPanel.refresh();
   }
   return gfx.get(opt.id);
+};
+
+/**
+ * The hero's hair: read what he is wearing, or change it.
+ *
+ * A READER with no arguments — the style, the resolved colour, the roster, and
+ * the VERTEX COUNT of the hair mesh, which is the number a probe can assert a
+ * style swap on. Two meshes with the same geometry are the same head, and
+ * counting them is the only way to tell a rebuild that happened from one that
+ * was skipped without reading pixels.
+ *
+ * A DRIVER with arguments, going through the same `appearance` control the
+ * panel's own rows do — so a probe cannot pass a test a click would fail. The
+ * colour is a hex string or number; `null` clears the pick, which is how the
+ * "each style in its own colour" default is reached from a tool.
+ */
+(window as unknown as {
+  __dbgHair: (style?: string, colour?: string | number | null) => unknown;
+}).__dbgHair = (style, colour) => {
+  if (style !== undefined) {
+    appearance.setStyle(style);
+    if (colour !== undefined) {
+      if (colour === null) appearance.reset();
+      else appearance.setColour(typeof colour === 'string' ? parseInt(colour.replace('#', ''), 16) : colour);
+    }
+    perfPanel.refresh();
+  }
+  const mesh = player.rigHairMesh;
+  const colours = mesh?.geometry.getAttribute('color');
+  // The MEAN VERTEX COLOUR of the hair, which is where a hair colour actually
+  // lives: `VoxelModel` bakes it into the attribute and there is no material to
+  // read it off. A probe asserting a recolour has to see this move.
+  const tint = [0, 0, 0];
+  if (colours) {
+    for (let i = 0; i < colours.count; i++) {
+      tint[0] += colours.getX(i); tint[1] += colours.getY(i); tint[2] += colours.getZ(i);
+    }
+    for (let c = 0; c < 3; c++) tint[c] = +(tint[c] / colours.count).toFixed(4);
+  }
+  return {
+    style: player.hairStyle,
+    colour: player.hairColour.toString(16).padStart(6, '0'),
+    styles: HAIR_STYLES.map((s) => s.id),
+    swatches: HAIR_SWATCHES.length,
+    vertices: mesh ? mesh.geometry.getAttribute('position').count : 0,
+    tint,
+  };
 };
 
 /**

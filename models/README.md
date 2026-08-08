@@ -9,7 +9,26 @@ be opened, looked at and argued with — not shipped.
 | `chibi-base.blend` | The source. Mesh, 8-bone rig, 13 actions. Blender 5.2 LTS. |
 | `chibi_base.py` | Builds the figure and the rig from scratch |
 | `chibi_anim.py` | Builds the 13 clips on that rig |
-| `chibi-base.glb` | What the two scripts export |
+| `export_glb.py` | Exports the OPEN file as it stands — no rebuild |
+| `chibi-base.glb` | What the export writes |
+
+## Saving is all you do
+
+`bun run dev` watches this directory. Save a `.blend` and the dev server runs
+Blender headless over it, writes the `.glb` beside it and reloads the browser —
+about three seconds end to end, logged as `[blend] wrote …`. There is nothing
+to start and nothing to stop beyond the dev server itself.
+
+It exports the file **as saved**: a vertex you moved by hand is in the `.glb`,
+which is the opposite of the rebuild below. Blender is found through
+`BLENDER_EXECUTABLE` in `.env.local`, then `blender` on `PATH`; with neither, the
+dev server logs one line and carries on. `bun run glb` does the same export once,
+by hand, for every `.blend` here.
+
+**The game does not load the `.glb`.** It generates everything it draws (see
+AGENTS.md), so the reload re-runs a build that never reads the file — the export
+keeps the checked-in `.glb` honest, and the reload is only worth anything to
+something that consumes it.
 
 `.blend1` (Blender's own backup) is gitignored; the `.blend` is not. It is
 156 KB of binary, so every save is a new blob in the history — save it when the

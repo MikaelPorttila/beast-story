@@ -2016,6 +2016,16 @@ const CSS = `
   color:rgba(143,208,255,.72);padding:8px 4px 3px;margin-top:4px;
   border-top:1px solid rgba(140,200,255,.14);user-select:none}
 .bs-perf-body > .bs-perf-head:first-child{margin-top:0;border-top:0;padding-top:0}
+/* The hair colour well. A native <input type="color"> with its chrome stripped
+   back to the swatch itself, so it reads as the value of its row exactly like
+   the green text on every other one — same size, same place, and the colour it
+   is showing IS the answer. The vendor swatch-wrapper rules below are what
+   carry the browser's own padding; without them it sits in a grey frame. */
+.bs-hair-well{width:42px;height:15px;padding:0;border:1px solid rgba(140,200,255,.45);
+  border-radius:3px;background:none;cursor:pointer;vertical-align:middle;display:block}
+.bs-hair-well::-webkit-color-swatch-wrapper{padding:0}
+.bs-hair-well::-webkit-color-swatch{border:0;border-radius:2px}
+.bs-hair-well::-moz-color-swatch{border:0;border-radius:2px}
 
 /* ---- F3 spawner tree ---------------------------------------------------- */
 /* THE ONE TEXT FIELD IN THE HUD, and it is a developer instrument — the 16px

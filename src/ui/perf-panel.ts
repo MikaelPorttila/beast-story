@@ -47,6 +47,36 @@ export interface TimeOfDayControl {
   set(phase: number | null): void;
 }
 
+/**
+ * The hero's hair: which style, and what colour.
+ *
+ * IT IS NOT A RENDERING TOGGLE, and it is here anyway. Everything above it in
+ * this panel answers "what is this costing?"; a hairstyle costs nothing and
+ * changes nothing but him. It is here because this is where a thing you want to
+ * SEE gets conjured — the same argument the spawner below it makes — and
+ * because the panel is the only surface in the game that can offer it today.
+ * Its real home is a character creator, which is why it is injected exactly as
+ * `TimeOfDayControl` is: this file owns two rows and no policy, and the host
+ * (main.ts) owns what a change means and where it is stored.
+ */
+export interface AppearanceControl {
+  readonly styles: readonly { id: string; labelKey: StringKey }[];
+  /** The strip the arrow keys step through. Any other colour comes from the well. */
+  readonly swatches: readonly number[];
+  style(): string;
+  setStyle(id: string): void;
+  colour(): number;
+  setColour(hex: number): void;
+  /** Back to the first style in its own colour — the panel's R key. */
+  reset(): void;
+}
+
+/** The rows below the gfx list, in the order they are drawn. */
+const ROW_TIME = GFX_OPTIONS.length;
+const ROW_STYLE = ROW_TIME + 1;
+const ROW_COLOUR = ROW_TIME + 2;
+const EXTRA_ROWS = 3;
+
 const escapeHtml = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
@@ -76,6 +106,7 @@ export class PerfPanel {
     private readonly gfx: Gfx,
     private readonly time: TimeOfDayControl,
     private readonly catalogue: SpawnCatalogue,
+    private readonly look: AppearanceControl,
   ) {
     this.el = document.createElement('div');
     this.el.className = 'bs-perf';
@@ -138,11 +169,14 @@ export class PerfPanel {
    */
   onKey(code: string): boolean {
     if (!this.open) return false;
-    const n = GFX_OPTIONS.length + 1;
+    const n = GFX_OPTIONS.length + EXTRA_ROWS;
     if (code === 'ArrowDown') { this.cursor = (this.cursor + 1) % n; this.render(); return true; }
     if (code === 'ArrowUp') { this.cursor = (this.cursor + n - 1) % n; this.render(); return true; }
     if (code === 'ArrowRight' || code === 'ArrowLeft' || code === 'Enter' || code === 'Space') {
-      if (this.cursor === GFX_OPTIONS.length) this.cycleTime(code === 'ArrowLeft' ? -1 : 1);
+      const step = code === 'ArrowLeft' ? -1 : 1;
+      if (this.cursor === ROW_TIME) this.cycleTime(step);
+      else if (this.cursor === ROW_STYLE) this.cycleStyle(step);
+      else if (this.cursor === ROW_COLOUR) this.cycleColour(step);
       else this.gfx.cycle(GFX_OPTIONS[this.cursor].id);
       this.render();
       return true;
@@ -150,6 +184,7 @@ export class PerfPanel {
     if (code === 'KeyR') {
       this.gfx.reset();
       this.time.set(null);
+      this.look.reset();
       this.render();
       return true;
     }
@@ -184,6 +219,44 @@ export class PerfPanel {
     if (i < 0) i = 0;
     i = (i + step + this.time.presets.length) % this.time.presets.length;
     this.time.set(this.time.presets[i].phase);
+  }
+
+  private cycleStyle(step: number): void {
+    const list = this.look.styles;
+    const i = Math.max(0, list.findIndex((s) => s.id === this.look.style()));
+    this.look.setStyle(list[(i + step + list.length) % list.length].id);
+  }
+
+  /**
+   * Step along the swatch strip. A colour that is not ON the strip — one picked
+   * out of the well — lands on the nearest swatch and carries on from there,
+   * which is what makes the arrows still useful after a free pick instead of
+   * snapping back to the first entry.
+   */
+  private cycleColour(step: number): void {
+    const list = this.look.swatches;
+    const now = this.look.colour();
+    let at = list.indexOf(now);
+    if (at < 0) {
+      let best = Infinity;
+      list.forEach((hex, i) => {
+        const d = Math.abs((hex >> 16 & 255) - (now >> 16 & 255))
+          + Math.abs((hex >> 8 & 255) - (now >> 8 & 255))
+          + Math.abs((hex & 255) - (now & 255));
+        if (d < best) { best = d; at = i; }
+      });
+    }
+    this.look.setColour(list[(at + step + list.length) % list.length]);
+  }
+
+  /** `#rrggbb`, which is the only form an `<input type="color">` accepts. */
+  private static hex(value: number): string {
+    return `#${value.toString(16).padStart(6, '0')}`;
+  }
+
+  private styleLabel(): string {
+    const s = this.look.styles.find((o) => o.id === this.look.style());
+    return s ? t(s.labelKey) : this.look.style();
   }
 
   /**
@@ -236,6 +309,14 @@ export class PerfPanel {
     this.treeEl = this.el.querySelector('.bs-spawn-tree');
     this.statusEl = this.el.querySelector('.bs-spawn-status');
     this.searchEl = this.el.querySelector('.bs-spawn-search');
+    // The colour well, delegated: the well itself is replaced on every render
+    // but the list it sits in is not, so one listener here outlives all of them.
+    // NO RENDER on the way out — a redraw while the native picker is open
+    // destroys the element the player is dragging around in.
+    this.gfxList?.addEventListener('input', (e) => {
+      const well = (e.target as Element | null)?.closest?.('.bs-hair-well') as HTMLInputElement | null;
+      if (well) this.look.setColour(parseInt(well.value.slice(1), 16));
+    });
     this.searchEl?.addEventListener('input', () => this.render());
     this.searchEl?.addEventListener('focus', () => { this.typing = true; });
     this.searchEl?.addEventListener('blur', () => { this.typing = false; });
@@ -264,13 +345,44 @@ export class PerfPanel {
         + '</div>'
       );
     }).join('');
-    const timeRow = `<div class="bs-perf-row${this.cursor === GFX_OPTIONS.length ? ' sel' : ''}"`
+    const timeRow = `<div class="bs-perf-row${this.cursor === ROW_TIME ? ' sel' : ''}"`
       + ' data-cursor="link-select" data-time="day">'
       + `<span class="bs-perf-name">${escapeHtml(t('gfx.timeOfDay'))}</span>`
       + `<span class="bs-perf-val">${escapeHtml(this.timeLabel())}</span>`
       + `<span class="bs-perf-cost">${escapeHtml(t('gfx.timeOfDay.cost'))}</span>`
       + '</div>';
-    this.gfxList!.innerHTML = gfxRows + timeRow;
+    this.gfxList!.innerHTML = gfxRows + timeRow + this.hairRows();
+  }
+
+  /**
+   * The two appearance rows, under their own heading.
+   *
+   * THE COLOUR WELL IS A NATIVE `<input type="color">` — the browser already
+   * has a colour picker, and every alternative is a picker to draw, to place
+   * and to make keyboard-reachable. It is re-created on each render like every
+   * other row here, which is safe for exactly the reason the SEARCH BOX is not:
+   * nothing types into it, and the one moment it must survive — while its popup
+   * is open — is a moment when nothing else in the panel is being touched. The
+   * live `input` events are handled without a render for that reason.
+   */
+  private hairRows(): string {
+    const colour = this.look.colour();
+    return `<div class="bs-perf-head">${escapeHtml(t('hair.section'))}</div>`
+      + `<div class="bs-perf-row${this.cursor === ROW_STYLE ? ' sel' : ''}"`
+      + ' data-cursor="link-select" data-hair="style">'
+      + `<span class="bs-perf-name">${escapeHtml(t('hair.style'))}</span>`
+      + `<span class="bs-perf-val">${escapeHtml(this.styleLabel())}</span>`
+      + `<span class="bs-perf-cost">${escapeHtml(t('hair.style.cost'))}</span>`
+      + '</div>'
+      + `<div class="bs-perf-row${this.cursor === ROW_COLOUR ? ' sel' : ''}"`
+      + ' data-cursor="link-select" data-hair="colour">'
+      + `<span class="bs-perf-name">${escapeHtml(t('hair.colour'))}</span>`
+      + '<span class="bs-perf-val">'
+      + `<input class="bs-hair-well" type="color" data-cursor="link-select"`
+      + ` value="${PerfPanel.hex(colour)}">`
+      + '</span>'
+      + `<span class="bs-perf-cost">${escapeHtml(t('hair.colour.cost'))}</span>`
+      + '</div>';
   }
 
   /**
@@ -456,11 +568,29 @@ export class PerfPanel {
       this.render();
       return true;
     }
+    // THE COLOUR WELL OPENS ITSELF, and it has to for the same reason the
+    // search box focuses itself: the host prevents this mousedown so the canvas
+    // cannot take pointer lock back, and a prevented mousedown never opens a
+    // native picker either.
+    const well = target.closest('.bs-hair-well') as HTMLInputElement | null;
+    if (well) {
+      this.cursor = ROW_COLOUR;
+      well.showPicker?.();
+      return true;
+    }
     const row = target.closest('.bs-perf-row') as HTMLElement | null;
     if (!row) return false;
+    const hair = row.getAttribute('data-hair');
+    if (hair) {
+      this.cursor = hair === 'style' ? ROW_STYLE : ROW_COLOUR;
+      if (hair === 'style') this.cycleStyle(1);
+      else this.cycleColour(1);
+      this.render();
+      return true;
+    }
     const id = row.getAttribute('data-gfx') as keyof GfxSinks | null;
     if (!id && row.hasAttribute('data-time')) {
-      this.cursor = GFX_OPTIONS.length;
+      this.cursor = ROW_TIME;
       this.cycleTime(1);
       this.render();
       return true;

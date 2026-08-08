@@ -23,6 +23,7 @@ only lockfile — delete any `package-lock.json` that appears.
 | Typecheck the COMMIT before pushing | `bun run verify` |
 | Timestamped build to `dist/` | `bun run snapshot [label]` |
 | Serve a build | `bun x vite preview --outDir dist` |
+| Re-export every `.blend` to `.glb` | `bun run glb` (the dev server does it on save) |
 | Run probes | `bun tools/probe.mjs <name...\|all> [--jobs N] [--json]` |
 | Read a debug hook | `bun tools/q.mjs "__dbgTowns().spawn" [--wait ms] [--url "?…"] [--lab "…"] [--raw]` |
 | Screenshot | `bun tools/screenshot.mjs shots/x.png "photo=1" 1920 1080 3500` |
@@ -175,9 +176,10 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Combat, enemies, drops | `combat/index.ts`, `combat/enemies.ts`, `combat/pickups.ts` | `test-safezone`, `test-aim-assist`, `test-inventory` |
 | "Is the player close?" | `inReach` / `inRise` in `core/types.ts`, and every caller | `test-proximity` |
 | Hero, camera, mount, weapons | `player/*` | `test-dive`, `test-structures`, `test-inventory`, `test-npc` |
+| Hero hairstyles | `player/hair.ts` (the styles), `player/hero-rig.ts` (the mount) | `test-hair`, `test-zfight` |
 | Input devices | `core/input.ts`, `core/gamepad.ts`, `core/touch.ts` | `test-touch`, `test-gamepad` |
 | HUD, menus, panels | `ui/*` (DOM overlay, `bs-*` class names) | `test-menu`, `test-pause`, `test-textsize`, `test-viewport`, `test-cursor` |
-| F3 Debug panel and its spawner | `ui/perf-panel.ts`, `core/gfx.ts`, `core/spawn.ts` | `test-gfx`, `test-spawn` |
+| F3 Debug panel and its spawner | `ui/perf-panel.ts`, `core/gfx.ts`, `core/spawn.ts` | `test-gfx`, `test-spawn`, `test-hair` |
 | Key bindings | `ui/keybinds.ts` | `test-keybinds` |
 | Items and the bag | `core/items.ts`, `ui/inventory.ts` (rules in `main.ts`) | `test-inventory` |
 | Settings and storage | `ui/settings.ts`, `core/prefs.ts`, `core/gfx.ts` | `test-settings` |

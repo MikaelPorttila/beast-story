@@ -26,13 +26,88 @@ from mathutils import Vector
 # wherever a step changes width.
 
 
-def sphere(r2):
-    """Classic pixel-art ball. r2 = 8 on a 5^3 grid keeps the equator's corner
-    cells and reads as a stepped sphere; 6 collapses to a plus, 9 to a nicked cube."""
-    def solid(i, j, k, n):
-        h = [(d - 1) / 2.0 for d in n]
-        return (i - h[0]) ** 2 + (j - h[1]) ** 2 + (k - h[2]) ** 2 <= r2
-    return solid
+def stepped_ball(i, j, k, n):
+    """A CUBE WITH ONE STEP RAISED ON EACH OF ITS SIX FACES — the blockiest
+    shape that still reads as a ball.
+
+    On the 5^3 grid that is a solid 3^3 core plus a 3x3 plate on each face:
+    81 of the 125 cells, against the 93 of the distance-field sphere this
+    replaced. What goes is every cell with TWO or three coordinates out at the
+    rim — the twelve edges and the eight corners — and that is the whole
+    difference. Those cells are what rounded the silhouette off into a blob;
+    without them the outline is a plain plus from any face-on view and a
+    three-step stair from any corner, which is how a low-resolution sphere is
+    drawn by hand and what a chibi mitt wants.
+
+    THE GRID STAYS AT 5, and it has to: a cube plus one step is 1 + 3 + 1 cells
+    across by definition, so 5 is the coarsest grid the shape fits on. Bigger
+    cells than this means giving up the step and taking a plain cube.
+
+    The old helper took a squared radius (8.0 for the hands, where 6 collapsed
+    to a plus and 9 left a nicked cube). It is gone rather than kept for one
+    caller: this is the only rounded part on the figure.
+    """
+    h = [(d - 1) / 2.0 for d in n]
+    rim = sum(1 for a, c in enumerate((i, j, k)) if abs(c - h[a]) >= h[a] - 1e-9)
+    return rim <= 1
+
+
+def rounded_head(i, j, k, n):
+    """The skull as a PSX-era sphere: a block with its corners STEPPED back, by
+    a different amount on each row.
+
+    A cube head is what stops a low-poly character reading as a character and
+    starts it reading as a die with a face drawn on it. What an artist working
+    to a vertex budget did instead is this — keep the flats where the detail is,
+    step the corners, and step them harder the further from the eye line you go.
+
+    `PLAN` is a limit on |x| + |y| measured from cell CENTRES, one entry per row
+    from the chin up: 6 nips the four corner cells off, 5 takes a two-cell bevel,
+    4 a three-cell one.
+
+      chin      6   its UNDERSIDE stays full — a chamfer there gives a chibi a
+                    pointed chin — and only the side corners are nipped
+      face      6   and it cannot go past 6: the outer eye cells of the game's
+                    head sit at exactly 6, and a two-cell bevel deletes them
+      brow      5
+      crown     4   roundest, because that is what a hatless style leaves showing
+
+    THE SAME SIX NUMBERS ARE IN src/player/hero-rig.ts as `SKULL_PLAN`. They
+    cannot share code across Python and TypeScript, so they share the list; if
+    the two ever read differently, they have drifted.
+    """
+    PLAN = (6, 6, 6, 6, 5, 4)
+    h = [(d - 1) / 2.0 for d in n]
+    ai, aj = abs(i - h[0]), abs(j - h[1])
+    if ai + aj > PLAN[min(k, len(PLAN) - 1)]:
+        return False
+    # THE OTHER AXIS. The rule above only cuts on the diagonal, which leaves the
+    # front a flat slab with the face painted on it — rounded in plan, dead
+    # straight in elevation. So the outer shell (front, back and sides) exists
+    # only on the middle rows: the chin steps back under it and the crown steps
+    # back over it, one level of sphere on all four vertical faces.
+    #
+    # Rows 1 to 4 is what the game's face can afford — its eyes are on 2 and 3
+    # and its blush on 1 (see SKULL_SHELL in src/player/hero-rig.ts, which is
+    # this same shape). A second level needs a finer grid than 8 x 8 x 6.
+    if not (1 <= k <= 4) and max(ai, aj) > 2.5:
+        return False
+    return True
+
+
+def collared_torso(i, j, k, n):
+    """The torso with its TOP ROW STEPPED IN one cell all round.
+
+    Shoulders on a chibi are not square: the mass narrows where the head sits on
+    it, and a torso that runs full width to its top edge reads as a crate with a
+    head balanced on the lid. One cell in from each of the four sides is the
+    smallest step the grid can make and it is enough — the corner it cuts is
+    what the eye reads as a shoulder line.
+    """
+    nx, ny, nz = n
+    if k < nz - 1:
+        return True
+    return 0 < i < nx - 1 and 0 < j < ny - 1
 
 
 def boot(i, j, k, n):
@@ -51,17 +126,21 @@ def boot(i, j, k, n):
 
 
 PARTS = {
-    'head':   ([(-0.46, 0.46, -0.44, 0.44, 0.97, 1.75, None)], 'skin'),
-    'torso':  ([(-0.40, 0.40, -0.28, 0.28, 0.52, 1.02, None)], 'cloth'),
+    # 8 x 8 x 6, the same grid the game's head is painted on, so the two
+    # chamfers are the same shape and not merely a similar idea.
+    'head':   ([(-0.46, 0.46, -0.44, 0.44, 0.97, 1.75, ('voxel', (8, 8, 6), rounded_head))], 'head'),
+    # 8 x 4 x 5, the game's own torso grid, so the collar step is the same shape
+    # in both and not merely the same idea.
+    'torso':  ([(-0.40, 0.40, -0.28, 0.28, 0.52, 1.02, ('voxel', (8, 4, 5), collared_torso))], 'torso'),
     # one rigid block of merged boxes: hip slab sunk under the torso, two stubs
     'legs':   ([(-0.42, 0.42, -0.30, 0.30, 0.34, 0.55, None),
                 (0.06, 0.40, -0.28, 0.28, 0.24, 0.38, None),
-                (-0.40, -0.06, -0.28, 0.28, 0.24, 0.38, None)], 'cloth'),
-    'hand.L': ([(0.44, 0.76, -0.16, 0.16, 0.59, 0.91, ('voxel', (5, 5, 5), sphere(8.0)))], 'skin'),
-    'hand.R': ([(-0.76, -0.44, -0.16, 0.16, 0.59, 0.91, ('voxel', (5, 5, 5), sphere(8.0)))], 'skin'),
+                (-0.40, -0.06, -0.28, 0.28, 0.24, 0.38, None)], 'legs'),
+    'hand.L': ([(0.44, 0.76, -0.16, 0.16, 0.59, 0.91, ('voxel', (5, 5, 5), stepped_ball))], 'hand.L'),
+    'hand.R': ([(-0.76, -0.44, -0.16, 0.16, 0.59, 0.91, ('voxel', (5, 5, 5), stepped_ball))], 'hand.R'),
     # the boot mask is symmetric in x, so the same grid serves both feet
-    'foot.L': ([(0.05, 0.42, -0.30, 0.16, 0.00, 0.20, ('voxel', (5, 6, 3), boot))], 'shoe'),
-    'foot.R': ([(-0.42, -0.05, -0.30, 0.16, 0.00, 0.20, ('voxel', (5, 6, 3), boot))], 'shoe'),
+    'foot.L': ([(0.05, 0.42, -0.30, 0.16, 0.00, 0.20, ('voxel', (5, 6, 3), boot))], 'foot.L'),
+    'foot.R': ([(-0.42, -0.05, -0.30, 0.16, 0.00, 0.20, ('voxel', (5, 6, 3), boot))], 'foot.R'),
 }
 
 # Boxes of neighbouring parts overlap on purpose (the seam is hidden inside the
@@ -72,9 +151,34 @@ PRIORITY = ['hand.L', 'hand.R', 'foot.L', 'foot.R', 'torso', 'head', 'legs']
 # Drop the head's bottom skirt into the torso: a head tilt never opens a neck hole.
 SINK = {'head': (0.97, 0.92)}
 
-MATERIALS = [('skin', (0.98, 0.80, 0.70)),
-             ('cloth', (0.42, 0.40, 0.58)),
-             ('shoe', (0.30, 0.30, 0.34))]
+# --- palette ---------------------------------------------------------------
+# ONE MATERIAL PER PART, AND ALL OF THEM WHITE. This is a proportion study, not
+# a costume: it used to carry three materials (skin / cloth / shoe) in the
+# game's own colours, and a coloured model argues about the wrong thing — the
+# eye reads the outfit instead of the silhouette, and the two parts that share
+# a colour (the head and the hands were both `skin`) stop being separable at
+# exactly the joints this file exists to place.
+#
+# So every part is its own tinted white: seven hues spread round the wheel, and
+# NO CHANNEL BELOW 0.80 linear on any of them, which is what keeps the whole
+# figure reading as white rather than as a costume. The first cut of this held
+# every channel inside 0.85..0.97 — a spread of 0.08 — and under the viewport's
+# own studio light that is not a palette, it is one white with rounding error.
+# 0.16 or so between a swatch's high and low channel is the floor for telling
+# two parts apart across a room; the value stays up, so it is still white.
+#
+# LEFT IS WARM, RIGHT IS COOL, and that pairing is worth more than it looks.
+# The figure faces -Y, so his right is at -x — which the game rig had backwards
+# for a long time, with every "right" in the animator naming his left (see the
+# note at the end of models/README.md). A warm hand and a cool hand say which
+# is which from any angle, with no gizmo and no axis to remember.
+MATERIALS = [('head',   (0.99, 0.95, 0.84)),   # ivory — the reference value
+             ('torso',  (0.74, 0.83, 0.99)),   # pale blue, the biggest mass
+             ('legs',   (0.78, 0.96, 0.80)),   # pale green, against the torso above it
+             ('hand.L', (0.99, 0.84, 0.72)),   # peach  — left, warm
+             ('hand.R', (0.72, 0.95, 0.99)),   # cyan   — right, cool
+             ('foot.L', (0.99, 0.78, 0.84)),   # rose   — left, warm
+             ('foot.R', (0.84, 0.78, 0.99))]   # lilac  — right, cool
 
 BONES = [
     # name,     head,                 tail,                  parent
@@ -130,6 +234,44 @@ def _add_voxels(bm, x0, x1, y0, y1, z0, z1, n, solid):
                 bm.faces.new([vert(*corners[c]) for c in loop])
 
 
+def paint(obj):
+    """(Re)build the material slots and hand every face to its part's swatch.
+
+    SPLIT OUT OF `build` SO THE OPEN FILE CAN BE RECOLOURED WITHOUT REBUILDING
+    IT. Re-running the generator replaces the mesh, the rig and all thirteen
+    actions (see models/README.md), and a palette change is not a reason to
+    lose a pose somebody is looking at. `build` calls this; so can a session:
+
+        exec(open(r"models/chibi_base.py").read()); paint(bpy.data.objects['ChibiBase'])
+
+    Faces are claimed in PRIORITY order, exactly as vertices are, so a face on
+    a plane two parts share ends up with the same owner its vertices have.
+
+    ONE FACE IS MIS-CLAIMED WHEN THIS IS RUN ON A BUILT FILE rather than mid-
+    build, and it is worth knowing rather than fixing: `SINK` has by then pulled
+    the head's bottom skirt down to 0.92, below the head's own box, so that face
+    falls through to the torso. It is the underside of the head, buried inside
+    the torso, and there is nothing there to look at.
+    """
+    mesh = obj.data
+    mesh.materials.clear()
+    for name, col in MATERIALS:
+        m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
+        m.use_nodes = True
+        bsdf = m.node_tree.nodes.get('Principled BSDF')
+        bsdf.inputs['Base Color'].default_value = (*col, 1.0)
+        bsdf.inputs['Roughness'].default_value = 0.85
+        mesh.materials.append(m)
+    index = {name: i for i, (name, _) in enumerate(MATERIALS)}
+    for poly in mesh.polygons:
+        poly.use_smooth = False          # every part stays faceted
+        for n in PRIORITY:
+            if _inside(poly.center, PARTS[n][0]):
+                poly.material_index = index[PARTS[n][1]]
+                break
+    return index
+
+
 def build():
     for o in list(bpy.data.objects):
         if o.type in {'MESH', 'ARMATURE'}:
@@ -150,27 +292,13 @@ def build():
     obj = bpy.data.objects.new('ChibiBase', mesh)
     bpy.context.collection.objects.link(obj)
 
-    mat_index = {}
-    for i, (name, col) in enumerate(MATERIALS):
-        m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
-        m.use_nodes = True
-        bsdf = m.node_tree.nodes.get('Principled BSDF')
-        bsdf.inputs['Base Color'].default_value = (*col, 1.0)
-        bsdf.inputs['Roughness'].default_value = 0.85
-        mesh.materials.append(m)
-        mat_index[name] = i
+    paint(obj)
 
     groups = {n: obj.vertex_groups.new(name=n) for n in PARTS}
     assign = {}
     for v in mesh.vertices:
         assign[v.index] = next(n for n in PRIORITY if _inside(v.co, PARTS[n][0]))
         groups[assign[v.index]].add([v.index], 1.0, 'REPLACE')
-    for poly in mesh.polygons:
-        poly.use_smooth = False          # every part stays faceted
-        for n in PRIORITY:
-            if _inside(poly.center, PARTS[n][0]):
-                poly.material_index = mat_index[PARTS[n][1]]
-                break
     for v in mesh.vertices:
         n = assign[v.index]
         if n in SINK and abs(v.co.z - SINK[n][0]) < EPS:
