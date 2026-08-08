@@ -827,6 +827,45 @@ export interface DebugSpawner {
   clear(): void;
 }
 
+/**
+ * "IS THERE BUILT MATERIAL HERE?" — the PLACEMENT side of the same footprints
+ * `structureTopAt` is the collision side of. Implemented by `StructureField`
+ * and `SiteFields` (world/structures.ts).
+ *
+ * `structureTopAt` answers a mover's question, "how high is the thing in my
+ * way", and a height is all a mover needs. A PLACER asks a different one:
+ * "would the thing I am about to stamp end up INSIDE that", which is a volume
+ * test over the stamped thing's own extent rather than over a point. Issue #131
+ * is what the absence of it looked like — grass growing through the
+ * Encampment's palisade, because the only thing between the meadow and the camp
+ * was a disc around the town centre, and a disc big enough to clear a wall is a
+ * disc that strips the yard bare.
+ *
+ * TWO METHODS, because the cost story needs both. `hits` is asked once per
+ * stamp — about a thousand times per chunk — and `anyIn` once per chunk, so a
+ * chunk with no settlement near it skips the per-stamp test entirely rather
+ * than pay a bounds test a thousand times over.
+ */
+export interface SiteClearance {
+  /** Is anything at all stamped inside this world-space rectangle? */
+  anyIn(x0: number, z0: number, x1: number, z1: number): boolean;
+  /**
+   * Does built material intersect the upright cylinder of radius `r` about
+   * (x, z), standing from `y0` to `y1`?
+   */
+  hits(x: number, z: number, r: number, y0: number, y1: number): boolean;
+}
+
+/**
+ * A world with nothing built in it — the dungeon, the lab's stub. Shared rather
+ * than re-written at each stub, so widening `SiteClearance` does not have to be
+ * done three times.
+ */
+export const NO_SITE: SiteClearance = {
+  anyIn: (): boolean => false,
+  hits: (): boolean => false,
+};
+
 export interface World {
   /** Apply the current celestial lighting to world-owned shader materials. */
   applyCelestial(state: Readonly<CelestialState>): void;
@@ -1080,6 +1119,20 @@ export interface World {
    * /show-colliders exists to expose.
    */
   debugRidges(out: number[]): void;
+  /**
+   * What the streamed foliage is not allowed to grow through — the settlements'
+   * own timber and the skill dens, as the volumes they are. See `SiteClearance`
+   * in world/structures.ts, and issue #131.
+   *
+   * Exposed rather than kept private to the chunk builder so a probe can ask the
+   * SAME question of the drawn vertices that the placer asked of the stamps. A
+   * check written against `debugStructures` instead would be measuring a
+   * different set — that one merges in the people and whatever is flying
+   * overhead, neither of which chunk grass has any business avoiding — and a
+   * guard that measures a different set from the rule is a guard that reports
+   * the rule broken every time something else moves.
+   */
+  foliageSite: SiteClearance;
   /**
    * Debug: every lamp and fingerpost the road pass stood up, as
    * `{ kind, x, z }`, or an empty list where a zone has no roads.

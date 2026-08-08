@@ -19,6 +19,7 @@ import {
   type ChunkProps, type Exclusion,
 } from './props';
 import { Shops, type DenSpot } from './shops';
+import { SiteFields } from './structures';
 import { Towns, planSettlements, type SettlementPlan } from './towns';
 import { TownParts } from './town-parts';
 import { Npcs, spotIsFree, type NpcSite } from './npc';
@@ -694,6 +695,25 @@ export function createWorld(
     })),
   ];
 
+  /**
+   * WHAT THE FOLIAGE MAY NOT GROW THROUGH — the settlements' own timber and the
+   * skill dens, as the volumes they actually are.
+   *
+   * The exclusions above are the other half of the same story and neither
+   * replaces the other. A disc says "no oaks in the camp", which is a statement
+   * about the SKYLINE and is why it is generous; this says "no blade of grass
+   * inside that plank", which is a statement about a single stamp and is why it
+   * is exact. Issue #131 is what having only the first one looked like: grass
+   * standing in the Encampment's palisade, because widening the disc until the
+   * wall was clear would have taken the yard's sward with it.
+   *
+   * NPCs are deliberately absent though they carry footprints of their own:
+   * a person walks, and a chunk's grass is baked once. The dens and the towns
+   * are both finished before the first chunk streams — see the note on `npcs`
+   * above for the ordering — so this field is complete the moment it is built.
+   */
+  const site = new SiteFields([shops.solids, towns?.solids]);
+
   // One coarse camera-following landscape under the streamed voxel ring. It is
   // created only after roads, towns and landmarks have altered the height field,
   // so its silhouette is sampled from the same terrain authority as near ground.
@@ -858,7 +878,7 @@ export function createWorld(
   const buildProps = (rec: ChunkRec): void => {
     if (rec.propsBuilt || !flags.props || !wantsProps(rec)) return;
     commitProps(rec, buildChunkProps(
-      rec.cx, rec.cz, terrain, propLib, exclusions, plan?.network ?? null,
+      rec.cx, rec.cz, terrain, propLib, exclusions, plan?.network ?? null, site,
     ));
   };
 
@@ -1230,6 +1250,8 @@ export function createWorld(
       // Spawned huts and tents have roofs, and they are the same cylinders.
       spawned.debugRidges(out);
     },
+    /** See `World.foliageSite` — the field the chunk builder above consults. */
+    foliageSite: site,
 
     debugFurniture(): Array<{ kind: string; x: number; z: number }> {
       return (towns?.furniture ?? []).map((f) => ({
@@ -1374,7 +1396,7 @@ export function createWorld(
           } else {
             building.props ??= buildChunkPropsSteps(
               building.rec.cx, building.rec.cz, terrain, propLib,
-              exclusions, plan?.network ?? null,
+              exclusions, plan?.network ?? null, site,
             );
             let result = building.props.next();
             while (!result.done && performance.now() - t0 < buildBudgetLeft) {

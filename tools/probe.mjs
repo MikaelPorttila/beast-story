@@ -103,6 +103,9 @@ const SOLO = new Set([
   'settings',      // measured: drained cue count 2 -> 1, lastKind changed
   'nature',        // rebuilds ~90 chunks per section and counts their vertices
   'view-distance', // teleports the hero and waits for the far clipmap to recenter
+  // Teleports to every settlement in turn and waits for the streaming ring to
+  // fill at each, then walks a few hundred thousand streamed vertices.
+  'foliage-clip',
   'streaming-stutter', // forces a fresh view disk and measures per-frame world CPU
   // Its fade assertions are a wall-clock envelope read a fixed time after a
   // track starts, and it walks the staged boot to New Game — both of the things

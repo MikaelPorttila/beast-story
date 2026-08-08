@@ -5836,8 +5836,18 @@ beginPlay();
     };
     return {
       boxes: b.length / 6,
+      // The CENTRE travels with the count so a probe can aim at a settlement
+      // without pinning a seed's coordinates — the same argument
+      // `__dbgStructures` makes for existing at all.
       perTown: world.towns.all.map((town) => ({
         id: town.id,
+        x: +town.x.toFixed(2),
+        y: +town.y.toFixed(2),
+        z: +town.z.toFixed(2),
+        radius: +town.outerRadius.toFixed(2),
+        // A carried town rides a moving piece of world and has no chunk foliage
+        // under it at all — see TownRecord.carried.
+        carried: town.carried,
         boxes: within(town.x, town.y, town.z, town.radius + 4),
       })),
     };
@@ -6227,6 +6237,74 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   }
   out.sort((p, q) => q.hl * q.r - p.hl * p.r);
   return out;
+};
+
+/**
+ * The two numbers issue #131 is about, taken off the streamed foliage's own
+ * VERTICES: how many stand inside a building, and how many stand right up
+ * against one without being inside it.
+ *
+ * BOTH, because the issue asks for both. "No grass in the wall" is trivially
+ * satisfied by emptying a disc around every settlement, and the issue says in
+ * so many words that it does not want that — grass may grow around a fence post
+ * and against a wall, it may only not clip. So `hits` is the bug and `snug` is
+ * the thing the fix must not have thrown away; a run with `hits` at 0 and
+ * `snug` at 0 as well is a bald camp, and passes the first half by failing the
+ * point.
+ *
+ * VERTICES AND NOT PLACEMENTS, deliberately. The placer's rule
+ * (`SiteClearance`, core/types.ts) reasons about a prop as a disc of its
+ * measured extent, so asking the placer whether it obeyed its own disc proves
+ * only that the arithmetic ran. What a player sees is a blade of grass standing
+ * in a plank, so what is counted here is a blade of grass standing in a plank,
+ * tested at zero radius against the same field the placer consulted.
+ *
+ * THE SAME FIELD, and that is the whole reason `World.foliageSite` is exposed.
+ * `debugStructures` would have been the easy set to reach for and it is the
+ * wrong one: it merges in the people (who walk, while a chunk's grass is baked
+ * once) and whatever is flying overhead, so it reported a quarter of a million
+ * "clips" under the sky island and a few hundred through an NPC's boots.
+ *
+ * `verts` is reported alongside so a probe can tell "nothing is clipping" from
+ * "nothing has streamed yet" — the same zero, and not the same result.
+ *
+ * Read-only, allocates freely, never called from the frame loop.
+ */
+(window as unknown as {
+  __dbgFoliageClip: (x: number, z: number, r?: number, gap?: number) => unknown;
+}).__dbgFoliageClip = (x, z, r = 40, gap = 0.5) => {
+  const site = world.foliageSite;
+  let hits = 0;
+  let snug = 0;
+  let verts = 0;
+  const at = { x: 0, y: 0, z: 0 };
+  const r2 = r * r;
+  engine.scene.traverse((o) => {
+    if (o.name !== 'chunk:props' && o.name !== 'chunk:grass') return;
+    const p = (o as THREE.Mesh).geometry.getAttribute('position') as THREE.BufferAttribute;
+    const a = p.array as ArrayLike<number>;
+    for (let i = 0; i < a.length; i += 3) {
+      const vx = a[i] + o.position.x;
+      const vz = a[i + 2] + o.position.z;
+      const dx = vx - x;
+      const dz = vz - z;
+      if (dx * dx + dz * dz > r2) continue;
+      verts++;
+      const vy = a[i + 1] + o.position.y;
+      // `gap` first: it is the wider question, and a vertex it rejects cannot
+      // be inside anything either, so most of the meadow costs one query.
+      if (!site.hits(vx, vz, gap, vy, vy)) continue;
+      // A POINT, i.e. radius zero and no height band: this vertex, exactly
+      // where it is drawn. That is a strictly harder question than the one the
+      // placer answered about the whole prop, so anything it finds is a real
+      // clip rather than a disagreement between two approximations.
+      if (site.hits(vx, vz, 0, vy, vy)) {
+        hits++;
+        if (hits === 1) { at.x = vx; at.y = vy; at.z = vz; }
+      } else snug++;
+    }
+  });
+  return { x, z, radius: r, gap, verts, hits, snug, at: hits > 0 ? at : null };
 };
 
 /**

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { NO_CARRIERS, type CelestialState, type TownRegistry, type World } from '../core/types';
+import { NO_CARRIERS, NO_SITE, type CelestialState, type TownRegistry, type World } from '../core/types';
 import { NO_SAFE_ZONES } from '../world/safe-zones';
 
 /**
@@ -29,6 +29,9 @@ export class StubWorld implements World {
   debugCarriedTrees(): Array<{ x: number; z: number }> { return []; }
   /** No props on the stage, so there is never a trunk in the way. */
   trunkSolidTopAt(): number { return -Infinity; }
+  /** The stage grows nothing, so there is nothing to keep out of anything. */
+  readonly foliageSite = NO_SITE;
+
   /** The stage is bare floor: nothing is built on it to walk into. */
   structureTopAt(): number { return -Infinity; }
   /** No canopy on the stage either: nothing to brush leaves out of. */

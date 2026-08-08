@@ -23,7 +23,7 @@
  * still walking toward the gateway, in a place he cannot see.
  */
 import * as THREE from 'three';
-import { NO_CARRIERS, type CelestialState, type World } from '../core/types';
+import { NO_CARRIERS, NO_SITE, type CelestialState, type World } from '../core/types';
 import { CHUNK_SIZE } from './terrain';
 import { NO_SAFE_ZONES } from './safe-zones';
 import { hashCell, mulberry32 } from './noise';
@@ -636,6 +636,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      * in it is already in the height field.
      */
     structureTopAt(): number { return -Infinity; },
+    foliageSite: NO_SITE,
     /** No canopy either, so nothing here is ever brushed for leaves. */
     crownContactAt(): boolean { return false; },
     isWater(): boolean { return false; },
