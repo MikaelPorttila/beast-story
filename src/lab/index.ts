@@ -10,7 +10,8 @@
  *   beast=<speciesId>      one beast (see src/beasts/registry.ts)
  *   beasts=all|a,b,c       lineup of beasts, evenly spaced
  *   enemy=gloopling|snortle|peckit
- *   hero=1                 the player character rig
+ *   hero=1                 the player character rig, posed by HeroAnimator
+ *   weapon=<id>            sword|greatsword|bow|dagger|scythe in his hand
  *   skill=<skillId>        fires that skill on a loop at a dummy target
  *   waterfall=1            a waterfall VFX on a bare stage
  *   fall=<units>           how far it falls before it is invisible (default 48)
@@ -27,6 +28,7 @@
  *   jump=<seconds>         how often it teleports (default 1.2)
  *   reach=<units>          how far away it reappears (default 14)
  *   anim=<BeastAction>     idle|walk|run|swim|fly|attack|cast|special|hurt|happy
+ *                          (the hero also answers to climb|ride|dead)
  *   t=<seconds>            simulate this long, then render one frozen frame
  *                          (deterministic — use for screenshots)
  *   spin=1                 turntable the subject
@@ -46,7 +48,9 @@ import { VFX } from '../combat/vfx';
 import { CombatSystem } from '../combat/index';
 import { tameOrbMesh, ORB_RADIUS } from '../combat/tame-orb';
 import { ITEMS, ORB_IDS } from '../core/items';
-import { buildHeroRig } from '../player/hero-rig';
+import { buildHeroRig, setWeaponModel, type HeroRig } from '../player/hero-rig';
+import { HeroAnimator, type AnimInput } from '../player/animations';
+import type { WeaponModelId } from '../player/weapons';
 import { StubWorld } from './stub-world';
 import { buildPathsStage, groundAt, stageFraming } from './paths-stage';
 import {
@@ -101,6 +105,8 @@ const beasts: BeastActor[] = [];
 const marks: THREE.Vector3[] = [];
 const enemies: Enemy[] = [];
 let heroRoot: THREE.Group | null = null;
+let heroRig: HeroRig | null = null;
+const heroAnim = new HeroAnimator();
 const subjectPos = new THREE.Vector3(0, 0, 0);
 let subjectHeight = 1;
 let lineupWidth = 0;
@@ -147,6 +153,8 @@ if (enemyParam === 'gloopling' || enemyParam === 'snortle' || enemyParam === 'pe
 if (params.get('hero') === '1') {
   const rig = buildHeroRig();
   heroRoot = rig.root;
+  heroRig = rig;
+  if (params.get('weapon')) setWeaponModel(rig, params.get('weapon') as WeaponModelId);
   engine.scene.add(rig.root);
   subjectHeight = 1.8;
 }
@@ -418,8 +426,49 @@ const enemyCtx: EnemyCtx = {
   hit: () => {},
 };
 
+/**
+ * The hero on the lab stage, posed by THE GAME'S animator.
+ *
+ * Without this he stands in the rest pose the rig was built in, which is the
+ * one pose the player never sees — and the states that decide whether a hand
+ * or a boot is in the right place (a stride, a swing, a saddle) cannot be
+ * looked at outside a running world. Nothing is animated here: the input is
+ * assembled and handed to `HeroAnimator`, which is the same object main.ts
+ * feeds.
+ */
+const HERO_ANIM: Record<string, Partial<AnimInput>> = {
+  idle: {},
+  walk: { moveNorm: 0.45 },
+  run: { moveNorm: 1, sprinting: true },
+  swim: { swimming: true, moveNorm: 0.7, onGround: false },
+  fly: { onGround: false, velY: -4 },       // the falling flail
+  climb: { climbing: true, climbRate: 1, onGround: false },
+  ride: { riding: true, moveNorm: 0.6 },
+  attack: { attack: { active: true, combo: 0, t: 0.18, dur: 0.42 } },
+  cast: { attack: { active: true, combo: 2, t: 0.22, dur: 0.42 } },
+  hurt: { hurtT: 0.2 },
+  happy: { moveNorm: 0.2 },
+};
+
+function poseHero(dt: number): void {
+  if (!heroRig) return;
+  // `anim=` is typed as a BeastAction for the beasts; the hero answers to a few
+  // names of its own (dead, climb, ride), so read the raw parameter here.
+  const want = params.get('anim') ?? 'idle';
+  const preset = HERO_ANIM[want] ?? {};
+  heroAnim.update(heroRig, {
+    time: simTime, dt, moveNorm: 0, sprinting: false, onGround: true,
+    swimming: false, climbing: false, climbRate: 0, riding: false, velY: 0,
+    attack: { active: false, combo: 0, t: 0, dur: 0.42 },
+    dead: want === 'dead', deadT: simTime, landBump: 0, hurtT: 0,
+    unarmed: heroRig.weapon === null, bow: heroRig.weapon === 'bow',
+    ...preset,
+  });
+}
+
 function step(dt: number): void {
   simTime += dt;
+  poseHero(dt);
 
   if (chase) {
     moveOwner(dt);

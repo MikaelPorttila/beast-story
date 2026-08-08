@@ -30,9 +30,10 @@ bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 | `beasts=all` or `beasts=a,b,c` | Lineup, evenly spaced, framed to fit |
 | `spacing=<units>` | Lineup spacing (default 2.0) |
 | `enemy=gloopling\|snortle\|peckit` | One enemy (`variant=<n>` for palette variants) |
-| `hero=1` | The player character rig |
+| `hero=1` | The player character rig, posed by the game's own `HeroAnimator` |
+| `weapon=<id>` | What is in his hand — `sword greatsword bow dagger scythe` (default: the sword the rig is built with) |
 | `skill=<skillId>` | Fires that skill on a loop at a dummy 6 units away |
-| `anim=<action>` | `idle walk run swim fly attack cast special hurt happy` |
+| `anim=<action>` | `idle walk run swim fly attack cast special hurt happy` — the hero also answers to `climb ride dead` |
 | `follow=1` | The owner teleports around the stage and the beasts chase it, instead of standing on their marks — the catch-up case, without a world |
 | `jump=<seconds>` | How often it teleports (default 1.2) |
 | `reach=<units>` | How far away it reappears (default 14) |

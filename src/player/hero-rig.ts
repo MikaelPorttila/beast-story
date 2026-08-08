@@ -3,15 +3,25 @@ import { VoxelModel } from '../core/voxel';
 import { buildWeaponModel, disposeWeapon, type WeaponModelId } from './weapons';
 
 /**
- * Voxel hero: a charming Cube World adventurer, ~1.9 units tall.
- * Built as a hierarchy of pivot groups so the animator can pose joints:
+ * Voxel hero: a chibi adventurer, 1.71 units tall (measured, not declared).
+ *
+ * NO ARMS AND NO LEGS — only hands and boots, floating free where a limb would
+ * be, and no neck: the head sits straight down into the torso. What is left
+ * between them is one merged block of hip and thigh. The proportions are the
+ * ones authored in Blender (models/chibi_base.py): a head 46% of the figure,
+ * over a torso two thirds its width.
+ *
+ * The pivots are unchanged, which is why the animator did not have to be
+ * rewritten: `armL`/`armR` are still shoulders and `legL`/`legR` still hips —
+ * a mitt hanging under a shoulder swings on the same rotation an arm did.
  *
  *   root (player position, yaw)
  *    └ body (bob / lean / squash)
- *       ├ legL, legR        (hip pivots)
+ *       ├ hips              (the merged leg block, its own small swing)
+ *       ├ legL, legR        (hip pivots; a free-floating boot hangs under each)
  *       └ torso (twist)
- *          ├ head            (neck pivot)
- *          ├ armL (+shield)  (shoulder pivot)
+ *          ├ head            (sunk into the torso, no neck)
+ *          ├ armL (+shield)  (shoulder pivot; a free-floating mitt hangs under)
  *          └ armR (+sword)   (shoulder pivot)
  */
 export interface HeroRig {
@@ -23,6 +33,8 @@ export interface HeroRig {
   armR: THREE.Group;
   legL: THREE.Group;
   legR: THREE.Group;
+  /** The merged hip-and-thigh block; rotates a little against the boots. */
+  hips: THREE.Group;
   /**
    * THE HAND, not a sword — the mount a weapon model hangs in. Named for what
    * it held when there was only one thing to hold; see `setWeaponModel`.
@@ -66,13 +78,51 @@ const POUCH = 0x8a6238;
 
 const S = 0.1; // voxel scale: 1 voxel = 0.1 m
 
-const HIP_Y = 0.6;
-const TORSO_Y = 0.55;
-const SHOULDER_LOCAL_Y = 0.53; // within torso group
-const SHOULDER_X = 0.43; // mitts tuck against the torso instead of floating wide
-const NECK_LOCAL_Y = 0.58;
-/** Head is shrunk relative to the body to match Cube World's head:body ratio. */
-const HEAD_SCALE = 0.7;
+/**
+ * The stack, in world units off the hero's feet. Every part OVERLAPS the one
+ * below rather than meeting it flush: a seam two parts share exactly is a
+ * coplanar face pair, which is what `test-zfight` fails on, and sinking one
+ * into the other also means no gap opens when a joint turns.
+ *
+ *   boots  0.00 - 0.20   free-floating, 0.04 clear of the block above
+ *   hips   0.24 - 0.54   merged block, its top buried in the torso
+ *   torso  0.50 - 1.00
+ *   head   0.93 - 1.71   sunk into the torso, so a head turn never shows a neck
+ *
+ * Widths differ for the same reason: the hip block is 0.9 across against the
+ * torso's 0.8, so their side faces cannot land on the same plane.
+ */
+const HIP_Y = 0.44;      // hip pivot, high in the block like the Blender rig
+const HIPS_DROP = -0.20; // block base, relative to that pivot
+const BOOT_DROP = -0.44; // boot sole, relative to the same pivot
+const BOOT_X = 0.21;
+const TORSO_Y = 0.50;
+/**
+ * Shoulder height inside the torso. High, at the collar: the hand hangs from it
+ * with no arm, and a low pivot put the mitt — and everything it holds — so far
+ * down that a sword's tip finished under the ground (measured: the blade hung
+ * to y -0.16 at 0.36, against the old rig's +0.04).
+ */
+const SHOULDER_LOCAL_Y = 0.54;
+/**
+ * Mitt pivot. 0.62 puts the hand's inner face at 0.43, clear of the torso's own
+ * 0.40 half-width — at 0.54 the ball overlapped the tunic and the hand read as
+ * attached to it, which is the one thing this silhouette is not.
+ */
+const SHOULDER_X = 0.62;
+const MITT_DROP = -0.46;       // hand hangs below the shoulder, so rotation.x swings it
+const NECK_LOCAL_Y = 0.46;
+/**
+ * Where the grip sits inside the mitt, in shoulder-local units. It tracks
+ * MITT_DROP: the hand moved up when the arm was deleted, and a weapon left at
+ * the old height hangs in mid-air below the fist.
+ */
+const GRIP_LOCAL_Y = MITT_DROP + 0.13;
+/**
+ * Head height 0.78 of the figure's 1.74 — 45%, the chibi ratio, against the
+ * 0.63 (36%) this rig carried when it had arms and legs to balance.
+ */
+const HEAD_SCALE = 0.867;
 
 /**
  * A camera-relative silhouette lift, independent of the world's lighting.
@@ -148,67 +198,80 @@ function buildHead(): THREE.Mesh {
 
 function buildTorso(): THREE.Mesh {
   const v = new VoxelModel();
-  // tunic
-  v.box(-4, 0, -2, 3, 5, 1, TUNIC);
+  // tunic — five rows, not six: the head took the height back (see HEAD_SCALE)
+  v.box(-4, 0, -2, 3, 4, 1, TUNIC);
   // shaded sides for a bit of volume
-  v.box(-4, 1, -2, -4, 4, 1, TUNIC_D);
-  v.box(3, 1, -2, 3, 4, 1, TUNIC_D);
+  v.box(-4, 1, -2, -4, 3, 1, TUNIC_D);
+  v.box(3, 1, -2, 3, 3, 1, TUNIC_D);
   // belt + gold buckle
   v.box(-4, 0, -2, 3, 0, 1, BELT);
   v.set(0, 0, 1, GOLD);
   v.set(-1, 0, 1, GOLD);
   // collar trim
-  v.box(-4, 5, -2, 3, 5, 1, TRIM);
+  v.box(-4, 4, -2, 3, 4, 1, TRIM);
   // satchel strap: diagonal across the chest
-  for (let i = 0; i <= 5; i++) v.set(3 - i, i, 1, BELT_D);
+  for (let i = 0; i <= 4; i++) v.set(3 - i, i, 1, BELT_D);
   // backpack straps: gold-tan X crossing the tunic back (flush recolor of the
   // z=-2 back layer, so the silhouette is untouched); stops below the collar
-  for (let i = 0; i <= 4; i++) {
+  for (let i = 0; i <= 3; i++) {
     v.set(3 - i, i, -2, STRAP);  // right shoulder -> left hip
     v.set(-4 + i, i, -2, STRAP); // left shoulder -> right hip
   }
   return v.build(S, true);
 }
 
-function buildLeg(): THREE.Mesh {
+/**
+ * The lower body: ONE block, not two legs.
+ *
+ * A hip slab with two stubs merged under it and a notch between them — the
+ * shape reads as legs without articulating any, which is the whole point of the
+ * silhouette. It is 9 voxels across against the torso's 8 so no side face of
+ * either lands on the other's plane where they overlap.
+ */
+function buildHips(): THREE.Mesh {
   const v = new VoxelModel();
-  v.box(-1, 2, -1, 1, 5, 1, PANTS);
-  v.box(-1, 0, -1, 1, 1, 1, BOOT);
-  // boot cuff + toe cap
-  v.box(-1, 2, -1, 1, 2, 1, BOOT_D);
-  v.box(-1, 0, 2, 1, 0, 2, BOOT);
+  v.box(-4, 1, -2, 4, 2, 2, PANTS);   // slab
+  v.box(-4, 0, -2, -1, 0, 2, PANTS);  // stubs, one voxel of daylight between them
+  v.box(1, 0, -2, 4, 0, 2, PANTS);
+  // shaded outer faces, the same trick the tunic uses
+  v.box(-4, 0, -2, -4, 2, 2, BOOT_D);
+  v.box(4, 0, -2, 4, 2, 2, BOOT_D);
   const mesh = v.build(S, true);
-  mesh.position.y = -HIP_Y;
+  mesh.position.y = HIPS_DROP;
   return mesh;
 }
 
 /**
- * Cube World-style arm: a dark rounded pauldron at the shoulder flowing
- * straight into an oversized spherical mitt — no thin forearm in between.
+ * A free-floating boot: sole and toe low, ankle stepped up over the back half,
+ * and the toe tip narrowed so the nose rounds off in plan view. Nothing joins
+ * it to the body — it hangs under the hip pivot and the animator swings it.
  */
-function buildArm(braced: boolean): THREE.Mesh {
+function buildBoot(): THREE.Mesh {
   const v = new VoxelModel();
-  // pauldron cap sitting on the shoulder, tucked against the torso
-  v.ellipsoid(0, 4.2, 0, 2.0, 1.7, 2.0, TUNIC_D);
-  v.ellipsoid(0, 4.9, 0, 1.7, 1.1, 1.7, TRIM);
-  // Connective upper arm. The old 3-wide sleeve pinched to a 3x3 waist right
-  // under the 5-wide pauldron, so from the play camera the mitt read as a
-  // detached cube hanging below the shoulder. The bridging ellipsoid is
-  // pauldron-width at the shoulder and mitt-width where it meets the hand, so
-  // the silhouette is continuous from pauldron to mitt.
-  v.box(-1, 1, -1, 1, 4, 1, TUNIC_D);
-  v.ellipsoid(0, 2.7, 0, 2.1, 1.8, 2.1, TUNIC_D);
-  // big spherical hand
-  const glove = braced ? BELT : SKIN;
-  v.ellipsoid(0, 0.6, 0, 2.4, 2.3, 2.4, glove);
-  if (braced) {
-    // cuff band where the bracer meets the mitt
-    v.ellipsoid(0, 2.2, 0, 2.1, 0.6, 2.1, BELT_D);
-  } else {
-    v.ellipsoid(0, 2.2, 0, 2.1, 0.6, 2.1, SKIN_EAR);
-  }
+  v.box(-2, 0, -1, 1, 0, 2, BOOT);    // sole and instep, toes at +z
+  v.box(-1, 0, 3, 0, 0, 3, BOOT);     // toe cap, two voxels narrower
+  v.box(-2, 1, -1, 1, 1, 1, BOOT_D);  // ankle step over the heel half
   const mesh = v.build(S, true);
-  mesh.position.y = -0.55;
+  mesh.position.y = BOOT_DROP;
+  return mesh;
+}
+
+/**
+ * A free-floating mitt. An ellipsoid rasterised into voxels IS the stepped
+ * ball the Blender model builds cell by cell, so there is no second mechanism
+ * here — just the hand, with the pauldron and upper arm that used to carry it
+ * deleted along with the rest of the limb.
+ *
+ * It hangs below its shoulder pivot on purpose: the animator swings the arm
+ * with `rotation.x`, and a mitt centred ON the pivot would spin in place.
+ */
+function buildMitt(braced: boolean): THREE.Mesh {
+  const v = new VoxelModel();
+  v.ellipsoid(0, 0, 0, 1.9, 1.8, 1.9, braced ? BELT : SKIN);
+  // cuff band across the top, where a sleeve would have ended
+  v.ellipsoid(0, 1.4, 0, 1.6, 0.5, 1.6, braced ? BELT_D : SKIN_EAR);
+  const mesh = v.build(S, true);
+  mesh.position.y = MITT_DROP;
   return mesh;
 }
 
@@ -264,12 +327,19 @@ export function buildHeroRig(): HeroRig {
   const body = new THREE.Group();
   root.add(body);
 
+  const hips = new THREE.Group();
+  hips.position.y = HIP_Y;
+  hips.add(buildHips());
+  body.add(hips);
+
+  // Boots hang from the HIP, not from an ankle: the lever is what turns the
+  // animator's existing leg swing into a stride for a foot with no leg on it.
   const legL = new THREE.Group();
-  legL.position.set(-0.19, HIP_Y, 0);
-  legL.add(buildLeg());
+  legL.position.set(-BOOT_X, HIP_Y, 0);
+  legL.add(buildBoot());
   const legR = new THREE.Group();
-  legR.position.set(0.19, HIP_Y, 0);
-  legR.add(buildLeg());
+  legR.position.set(BOOT_X, HIP_Y, 0);
+  legR.add(buildBoot());
   body.add(legL, legR);
 
   const torso = new THREE.Group();
@@ -279,17 +349,16 @@ export function buildHeroRig(): HeroRig {
 
   const head = new THREE.Group();
   head.position.y = NECK_LOCAL_Y;
-  // Cube World proportions: the head is roughly a third of the body, not half.
   head.scale.setScalar(HEAD_SCALE);
   head.add(buildHead());
   torso.add(head);
 
   const armL = new THREE.Group();
   armL.position.set(-SHOULDER_X, SHOULDER_LOCAL_Y, 0);
-  armL.add(buildArm(true));
+  armL.add(buildMitt(true));
   const armR = new THREE.Group();
   armR.position.set(SHOULDER_X, SHOULDER_LOCAL_Y, 0);
-  armR.add(buildArm(false));
+  armR.add(buildMitt(false));
   torso.add(armL, armR);
 
   // Rest pose: hilt sits in the mitt, blade angled back past the calf and
@@ -307,27 +376,30 @@ export function buildHeroRig(): HeroRig {
   // Its own scale is 1 — per-weapon size lives in `FIT` (player/weapons.ts),
   // so a dagger and a greatsword differ without five sets of keyframes.
   const sword = new THREE.Group();
-  sword.position.set(0.10, -0.26, -0.04);
+  sword.position.set(0.04, GRIP_LOCAL_Y, -0.04);
   sword.rotation.x = 2.05;
   sword.rotation.y = 0.85;
   armR.add(sword);
 
   const shield = new THREE.Group();
-  shield.position.set(-0.06, -0.3, 0.13);
+  shield.position.set(-0.06, GRIP_LOCAL_Y - 0.04, 0.13);
   shield.add(buildShield());
   armL.add(shield);
 
+  // Satchel and scabbard moved onto the BACK, at hip height. They used to ride
+  // the left flank at chest height, which is now open air the mitt swings
+  // through: with no arm between hand and body, anything out there reads as a
+  // box floating beside him.
   const satchel = buildSatchel();
-  satchel.position.set(-0.47, 0.72, -0.02);
+  satchel.position.set(-0.16, 0.44, -0.30);
   satchel.rotation.y = Math.PI / 2;
   satchel.rotation.z = 0.08;
   body.add(satchel);
 
-  // scabbard on the left hip, angled tip-back so it reads from behind.
-  // Kept low (top y~0.66) and behind (z<=-0.15): the arm swing arc only
-  // reaches z=-0.15 at y>~0.90, and the leg sweep stays inboard of x=-0.34.
+  // scabbard behind the left hip, angled tip-back so it reads from behind.
+  // Inboard of x -0.43, which is where the mitt's inner face passes.
   const scabbard = new THREE.Group();
-  scabbard.position.set(-0.38, 0.66, -0.2);
+  scabbard.position.set(-0.30, 0.52, -0.30);
   scabbard.rotation.x = 0.3;
   scabbard.rotation.z = -0.15;
   scabbard.add(buildScabbard());
@@ -357,7 +429,7 @@ export function buildHeroRig(): HeroRig {
   });
 
   const rig: HeroRig = {
-    root, body, torso, head, armL, armR, legL, legR, sword, shield, materials,
+    root, body, torso, head, armL, armR, legL, legR, hips, sword, shield, materials,
     weapon: null,
   };
   setWeaponModel(rig, 'sword');
@@ -391,7 +463,7 @@ export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
   if (rig.sword.parent !== mount) {
     mount.add(rig.sword);
     const left = mount === rig.armL;
-    rig.sword.position.set(left ? -0.10 : 0.10, -0.26, -0.04);
+    rig.sword.position.set(left ? -0.04 : 0.04, GRIP_LOCAL_Y, -0.04);
     rig.sword.rotation.y = left ? -0.85 : 0.85;
   }
   // The shield lives on the left forearm, which is the hand now closed around
