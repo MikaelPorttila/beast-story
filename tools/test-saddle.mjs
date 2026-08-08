@@ -1,22 +1,25 @@
-// Verifies WHERE A RIDER LANDS WHEN HE GETS OFF — issue #125: dismounting a
-// GROUND beast in mid-air teleported the hero to the terrain far below in a
-// single frame, instead of leaving him in the saddle's place to finish the fall.
+// Verifies GETTING ON AND GETTING OFF A GROUND BEAST IN MID-AIR — issue #125,
+// which is the same defect at both ends of the ride: the terrain far below was
+// treated as where a body GOES rather than as a bound on the altitude it has,
+// so each half teleported the hero to the ground in a single frame.
 //
-// Usage: bun tools/test-dismount.mjs        (dev server must be up)
+// Usage: bun tools/test-saddle.mjs        (dev server must be up)
 //
-// The defect was one comparison. The step-off asks "is the column beside the
-// mount no higher than my feet plus a step?", which is trivially true for every
-// column BELOW the mount — so thirty units up it read the ground as a step down
-// and took it. The fix bounds the step in both directions (MOUNT_STEP_DOWN in
-// player/mount.ts), and this probe asserts BOTH halves of that bound, because
-// neither means anything alone:
+// The two are one rule now (`transferY` in player/mount.ts), so one guard
+// covers both — a family with a single mechanism does not get a test for
+// whichever half was reported.
 //
-//  * In the air he must stay at the saddle and keep falling. Alone, that passes
-//    in a build where the step-off never takes ground at all — the hero would
-//    then drop a body-height every time he got off on flat dirt, which is the
-//    opposite defect.
+// Every section is a PAIR, because either half alone passes a build with the
+// opposite defect:
+//
+//  * Dismounting in the air he must stay at the saddle and keep falling. Alone,
+//    that passes where the step-off never takes ground at all — the hero would
+//    drop a body-height every time he got off on flat dirt.
 //  * On the ground he must step down ONTO the ground. Alone, that is the build
 //    the issue was filed against.
+//  * Mounting in the air the animal must come to HIM and fall with him, rather
+//    than arriving on the terrain — or hanging in the sky, which is what an
+//    unbounded "meet him where he is" would give.
 //
 // Exits non-zero on failure.
 import { launchBrowser, newPage, wait } from './browser.mjs';
@@ -99,6 +102,42 @@ await wait(300);
   results.air.landed = +landed.y.toFixed(2);
   check(Math.abs(landed.y - (await groundAt(landed.x, landed.z))) < 2,
     `the hero never reached the ground (rested at ${landed.y.toFixed(2)})`);
+}
+
+// ---------- mounting up mid-air: the animal comes to HIM ----------
+// The other half of the same rule (`transferY`): the floor bounds the altitude
+// a body has, it is not where the body goes. A walker mounted during a fall
+// used to assign the floor outright and land the pair of them instantly.
+{
+  const p = await pos();
+  const ground = await groundAt(p.x, p.z);
+  await page.evaluate(([x, z, y]) => window.__dbgTp(x, z, y), [p.x, p.z, ground + 30]);
+  await advance(0.4);
+
+  const before = await pos();
+  const said2 = await page.evaluate(() => window.__dbgRide('emberfox'));
+  const m = await mnt();
+  results.mountInAir = {
+    ground, before: +before.y.toFixed(2), said: said2, bodyY: m.bodyY, y: m.y,
+  };
+  check(m.mounted === true, `could not mount during the fall: ${said2}`);
+  check(m.bodyY > before.y - 1.5,
+    `mounting mid-air dropped the walker from ${before.y.toFixed(2)} to ${m.bodyY} — issue #125`);
+
+  // ...and the pair of them are FALLING, not parked in the sky.
+  await advance(0.5);
+  const mid = await mnt();
+  results.mountInAir.afterHalfSecond = mid.bodyY;
+  check(mid.bodyY < m.bodyY - 0.5,
+    `the mounted fall stopped in mid-air (${m.bodyY} -> ${mid.bodyY})`);
+
+  await advance(6);
+  const landed = await mnt();
+  results.mountInAir.landed = landed.bodyY;
+  check(Math.abs(landed.bodyY - ground) < 2,
+    `the mount never reached the ground (rested at ${landed.bodyY})`);
+  await page.evaluate(() => window.__dbgRide('off'));
+  await advance(0.2);
 }
 
 // ---------- on the ground: he still steps DOWN onto it ----------

@@ -128,6 +128,34 @@ const MOUNT_STEP_UP = 1.1;
  * where it was and falls, which is the same rule the flyer has always used.
  */
 const MOUNT_STEP_DOWN = 1.1;
+
+/**
+ * THE ALTITUDE A TRANSFER KEEPS — the one rule for moving a body between the
+ * saddle and its own feet, asked by BOTH getting on and getting off.
+ *
+ * It is one function because it was two, and both copies were the same defect
+ * (issue #125): the surface under the destination column is a BOUND on the
+ * altitude a body already has, never a destination of its own. Mounting a
+ * ground beast thirty units up assigned the surface, and dismounting one
+ * compared against it in a way that was true of every column below — so both
+ * halves of the transfer teleported the hero to the terrain, in mid-air, for
+ * the same reason, and each was fixed on its own. The flyer's half already had
+ * the rule (issue #91, `max(y, floorFor)`) and is the same call here.
+ *
+ *   support at or above the body  -> the support. It is a FLOOR: nothing is
+ *                                   ever placed inside the ground.
+ *   support within `stepDown`     -> the support. A step down, and taken.
+ *   further below than that       -> the altitude it had. That is a FALL, and
+ *                                   gravity is what finishes it.
+ *
+ * `stepDown` is 0 for a mount-up, where nothing moves sideways and the only
+ * question is the floor, and MOUNT_STEP_DOWN for a step off the saddle, which
+ * lands beside the animal. It says nothing about walls — the step UP is the
+ * caller's, because refusing to climb one also means refusing to move sideways.
+ */
+function transferY(y: number, support: number, stepDown: number): number {
+  return support >= y - stepDown ? support : y;
+}
 /**
  * Extra half-width on the collision probe beyond the mount's own body radius,
  * so it is stopped with its shoulder at the rock like the hero is (see
@@ -560,18 +588,25 @@ export class MountController {
     this.pos.set(p.x, p.y, p.z);
     this.carrier.clear();
     this.carrier.carry(this.world, this.pos);
-    this.pos.y = Math.max(this.blockTop(p.x, p.z), this.world.waterLevel - WADE_DEPTH);
-    if (this.flying) {
-      // A flyer meets the rider WHERE HE IS. `floorFor` is still the lower
-      // bound, because a hero mounting at ground level must put the animal
-      // above the surface rather than inside it; it is not the destination.
-      // Assigning the floor unconditionally dropped a sky-falling hero all the
-      // way to terrain on the slice he mounted (issue #91).
-      this.pos.y = Math.max(p.y, this.floorFor(p.x, p.z));
-    }
+    // THE ANIMAL MEETS THE RIDER WHERE HE IS, whatever it walks on: the floor
+    // under his column is the lower bound and not the destination (`transferY`,
+    // with no step down, because nothing moves sideways to get on). A flyer has
+    // read it this way since issue #91; a walker assigned the floor outright,
+    // so mounting one during a fall put the pair of them on the terrain in the
+    // same frame — the mount-up half of issue #125.
+    //
+    // The two floors differ and only the floors differ: a flyer's is the
+    // surface plus its flight clearance, a walker's is the deepest it may wade.
+    const support = this.flying
+      ? this.floorFor(p.x, p.z)
+      : Math.max(this.blockTop(p.x, p.z), this.world.waterLevel - WADE_DEPTH);
+    this.pos.y = transferY(p.y, support, 0);
     this.vel.set(0, 0, 0);
     this.vy = 0;
-    this.grounded = !this.flying;
+    // Standing on that floor, or falling toward it. Reading `!this.flying` alone
+    // told a walker mounted in mid-air that it was already on the ground, which
+    // is a landed pose and a jump it has not earned.
+    this.grounded = !this.flying && this.pos.y <= support;
     this.yaw = Math.atan2(this.player.forward.x, this.player.forward.z);
     this.pitch = 0;
     this.bank = 0;
@@ -606,9 +641,11 @@ export class MountController {
     this.player.setMounted(false);
     this.player.setCameraFraming(1, 0);
 
-    // Step off to the camera's right, clear of the mount's body, and only take
-    // the ground there if it is within a step — up OR down (MOUNT_STEP_DOWN).
-    // Otherwise stay where the saddle was and let gravity sort it out.
+    // Step off to the camera's right, clear of the mount's body, and take the
+    // ground there only if it is within a step. DOWN is `transferY`, the same
+    // rule the mount-up above asks; UP is this file's own step ceiling, because
+    // a wall is refused sideways as well as vertically. Out of reach either way
+    // he leaves the saddle where it was and gravity sorts it out.
     const side = this.player.camRight;
     const r = beast.scaledRadius + 0.7;
     const x = this.pos.x + side.x * r;
@@ -621,8 +658,9 @@ export class MountController {
     // visible — which is exactly why it would have been the one left behind.
     const gh = this.blockTop(x, z);
     const p = this.player.position;
-    if (!this.flying && gh <= this.pos.y + MOUNT_STEP_UP && gh >= this.pos.y - MOUNT_STEP_DOWN) {
-      p.set(x, gh, z);
+    const step = transferY(this.pos.y, gh, MOUNT_STEP_DOWN);
+    if (!this.flying && gh <= this.pos.y + MOUNT_STEP_UP && step === gh) {
+      p.set(x, step, z);
       this.player.onGround = true;
     } else {
       p.set(this.pos.x, this.pos.y + (this.flying ? 0.2 : 0), this.pos.z);
