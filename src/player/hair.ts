@@ -367,8 +367,13 @@ function paintEmo(v: VoxelModel, p: Palette): void {
   // Shaved right side: a single layer standing one cell proud of the skull
   // (cells -9 and -8 span -9..-7, so the outer face is the plane -9), clipped
   // with a stepped pattern so it reads as stubble and not as a painted patch.
+  //
+  // It stops at 10, so its top face is the plane 11 — ODD, like every other
+  // exposed face here. It used to stop at 9, which was a top face on the plane
+  // 10; that was free until the skull's corners were stepped back and 10 became
+  // one of ITS planes too (see SKULL_PLAN in hero-rig.ts).
   for (let z = -7; z <= 6; z++) {
-    for (let y = 6; y <= 9; y++) {
+    for (let y = 6; y <= 10; y++) {
       const clipped = (z + y) % 3 === 0;
       v.set(-9, y, z, clipped ? shade(p.dark, 0.7) : y > 7 ? p.dark : shade(p.dark, 0.85));
       v.set(-8, y, z, p.dark);

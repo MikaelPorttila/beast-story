@@ -213,6 +213,54 @@ function installActorHighlight(material: THREE.MeshStandardMaterial): void {
 }
 
 /**
+ * THE SKULL IS NOT A BOX. How far each row is stepped back at its corners, as a
+ * limit on `|x| + |z|` measured from cell CENTRES — so 6 nips the four corner
+ * cells off, 5 takes a two-cell bevel and 4 a three-cell one. Indexed by row,
+ * chin (y 0) first.
+ *
+ * A cube head is the one thing that stops this reading as a low-poly character
+ * and starts it reading as a die with a face drawn on it. What a PSX-era artist
+ * did instead — with a vertex budget that could not afford a real sphere — is
+ * exactly this: keep the flats where the detail is and STEP the corners, more
+ * of it the further from the eye line you get.
+ *
+ * So the rows are not uniform, and each number is a decision:
+ *
+ *   y 0   6   the jaw. The chin's UNDERSIDE stays full — a chamfer there reads
+ *             as a pointed chin on a chibi — and only its side corners are
+ *             nipped, which is the "a bit cutoff on the sides" of the reference.
+ *   y 1-3 6   the face. It cannot go past 6: the outer eye cells sit at
+ *             |x| + |z| = 6 exactly, and a two-cell bevel would delete them.
+ *             The blush moved inboard a cell for the same reason.
+ *   y 4   5
+ *   y 5   4   the crown, roundest, because that is the silhouette a hat-less
+ *             style (`buzz`, `mohawk`) leaves showing.
+ *
+ * The BOUNDS are unchanged by all of this — the ears still reach x ±5 and the
+ * box still spans z -4..3 — so `build`'s centring, and with it the hair mount
+ * that assumes hair cell 2x sits on skull cell x, does not move.
+ */
+const SKULL_PLAN = [6, 6, 6, 6, 5, 4];
+/**
+ * The rows that reach the head's OUTER SHELL — its front, back and side planes.
+ * Above and below them the shell steps in by a cell, which is the difference
+ * between a chamfered box and a head.
+ *
+ * The corner rule above only cuts on the diagonal, so the front stayed a flat
+ * six-by-six slab with the face painted on it: rounded in plan, dead straight
+ * in elevation. This curves the other axis. The face plane now exists for four
+ * rows out of six, the chin steps back under it, and the crown steps back over
+ * it — one level of sphere on all four vertical faces.
+ *
+ * 1 AND 4 ARE WHAT THE FACE CAN AFFORD. The eyes sit on rows 2-3 and the blush
+ * on row 1, so the front plane cannot start any higher; the mouth was on row 0
+ * and moved back a cell with the chin rather than being left floating a cell
+ * proud of it. A second level of rounding needs a finer grid than 8x8x6 — see
+ * the note on the hair's resolution in player/hair.ts for what that would cost.
+ */
+const SKULL_SHELL = { from: 1, to: 4 };
+
+/**
  * The head WITHOUT its hair — skull, ears and face.
  *
  * The hair is a model of its own at twice this grid's resolution and it hangs
@@ -221,8 +269,20 @@ function installActorHighlight(material: THREE.MeshStandardMaterial): void {
  */
 function buildHead(): THREE.Mesh {
   const v = new VoxelModel();
-  // skull
-  v.box(-4, 0, -4, 3, 5, 3, SKIN);
+  // The skull: stepped back at the corners row by row (SKULL_PLAN), and stepped
+  // back again at the chin and the crown (SKULL_SHELL).
+  for (let y = 0; y < SKULL_PLAN.length; y++) {
+    const shell = y >= SKULL_SHELL.from && y <= SKULL_SHELL.to;
+    for (let x = -4; x <= 3; x++) {
+      for (let z = -4; z <= 3; z++) {
+        const ax = Math.abs(x + 0.5);
+        const az = Math.abs(z + 0.5);
+        if (ax + az > SKULL_PLAN[y]) continue;
+        if (!shell && (ax > 2.5 || az > 2.5)) continue;
+        v.set(x, y, z, SKIN);
+      }
+    }
+  }
   // ears
   v.set(-5, 2, 0, SKIN_EAR);
   v.set(4, 2, 0, SKIN_EAR);
@@ -235,20 +295,40 @@ function buildHead(): THREE.Mesh {
   }
   v.set(-2, 3, 3, GLINT);
   v.set(1, 3, 3, GLINT);
-  // little smile + rosy cheeks
-  v.set(-1, 0, 3, MOUTH);
-  v.set(0, 0, 3, MOUTH);
-  v.set(-4, 1, 3, BLUSH);
-  v.set(3, 1, 3, BLUSH);
+  // Little smile, on the chin row — which now sits a cell BACK from the face
+  // plane above it (SKULL_SHELL), so the mouth goes to z 2 with it. At 3 it
+  // would be a cell of lip floating clear of the head.
+  v.set(-1, 0, 2, MOUTH);
+  v.set(0, 0, 2, MOUTH);
+  // Inboard of the corner the row above cut away: at x -4 / 3 these would be
+  // painting cells the skull no longer has, and `set` ADDS one rather than
+  // refusing — a blush that put the corner of the head back.
+  v.set(-3, 1, 3, BLUSH);
+  v.set(2, 1, 3, BLUSH);
   const mesh = v.build(S, true);
   mesh.position.y = HEAD_DROP;
   return mesh;
 }
 
+/**
+ * The tunic, four rows of it, plus a COLLAR ROW STEPPED IN ONE CELL ALL ROUND.
+ *
+ * Shoulders on a chibi are not square: the mass narrows where the head sits on
+ * it, and a torso that runs full width to its top edge reads as a crate with a
+ * head balanced on the lid. One cell in from each of the four sides is the
+ * smallest step the grid can make, and it is enough — the corner it cuts is
+ * what the eye reads as a shoulder line.
+ *
+ * IT CHANGES NO COLLIDER. The hero's own collision is a capsule in player/,
+ * measured from his height and not from this mesh, so nothing about where he
+ * can stand or what he bumps into moves with it.
+ */
+const COLLAR_ROW = 4;
 function buildTorso(): THREE.Mesh {
   const v = new VoxelModel();
   // tunic — five rows, not six: the head took the height back (see HEAD_SCALE)
-  v.box(-4, 0, -2, 3, 4, 1, TUNIC);
+  v.box(-4, 0, -2, 3, COLLAR_ROW - 1, 1, TUNIC);
+  v.box(-3, COLLAR_ROW, -1, 2, COLLAR_ROW, 0, TUNIC);
   // shaded sides for a bit of volume
   v.box(-4, 1, -2, -4, 3, 1, TUNIC_D);
   v.box(3, 1, -2, 3, 3, 1, TUNIC_D);
@@ -256,10 +336,14 @@ function buildTorso(): THREE.Mesh {
   v.box(-4, 0, -2, 3, 0, 1, BELT);
   v.set(0, 0, 1, GOLD);
   v.set(-1, 0, 1, GOLD);
-  // collar trim
-  v.box(-4, 4, -2, 3, 4, 1, TRIM);
-  // satchel strap: diagonal across the chest
-  for (let i = 0; i <= 4; i++) v.set(3 - i, i, 1, BELT_D);
+  // Collar trim: the stepped-in top row, recoloured. Its bounds are the row's
+  // own — a trim painted at the tunic's full width would `set` the four corners
+  // back and undo the step.
+  v.box(-3, COLLAR_ROW, -1, 2, COLLAR_ROW, 0, TRIM);
+  // Satchel strap, diagonal across the chest. It stops one row BELOW the collar
+  // now: the last cell of the old run was (-1, 4, 1), and z 1 is no longer part
+  // of the collar row, so painting it would have hung a cell of strap in the air.
+  for (let i = 0; i < COLLAR_ROW; i++) v.set(3 - i, i, 1, BELT_D);
   // backpack straps: gold-tan X crossing the tunic back (flush recolor of the
   // z=-2 back layer, so the silhouette is untouched); stops below the collar
   for (let i = 0; i <= 3; i++) {

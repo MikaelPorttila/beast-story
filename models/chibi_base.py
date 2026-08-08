@@ -52,6 +52,64 @@ def stepped_ball(i, j, k, n):
     return rim <= 1
 
 
+def rounded_head(i, j, k, n):
+    """The skull as a PSX-era sphere: a block with its corners STEPPED back, by
+    a different amount on each row.
+
+    A cube head is what stops a low-poly character reading as a character and
+    starts it reading as a die with a face drawn on it. What an artist working
+    to a vertex budget did instead is this — keep the flats where the detail is,
+    step the corners, and step them harder the further from the eye line you go.
+
+    `PLAN` is a limit on |x| + |y| measured from cell CENTRES, one entry per row
+    from the chin up: 6 nips the four corner cells off, 5 takes a two-cell bevel,
+    4 a three-cell one.
+
+      chin      6   its UNDERSIDE stays full — a chamfer there gives a chibi a
+                    pointed chin — and only the side corners are nipped
+      face      6   and it cannot go past 6: the outer eye cells of the game's
+                    head sit at exactly 6, and a two-cell bevel deletes them
+      brow      5
+      crown     4   roundest, because that is what a hatless style leaves showing
+
+    THE SAME SIX NUMBERS ARE IN src/player/hero-rig.ts as `SKULL_PLAN`. They
+    cannot share code across Python and TypeScript, so they share the list; if
+    the two ever read differently, they have drifted.
+    """
+    PLAN = (6, 6, 6, 6, 5, 4)
+    h = [(d - 1) / 2.0 for d in n]
+    ai, aj = abs(i - h[0]), abs(j - h[1])
+    if ai + aj > PLAN[min(k, len(PLAN) - 1)]:
+        return False
+    # THE OTHER AXIS. The rule above only cuts on the diagonal, which leaves the
+    # front a flat slab with the face painted on it — rounded in plan, dead
+    # straight in elevation. So the outer shell (front, back and sides) exists
+    # only on the middle rows: the chin steps back under it and the crown steps
+    # back over it, one level of sphere on all four vertical faces.
+    #
+    # Rows 1 to 4 is what the game's face can afford — its eyes are on 2 and 3
+    # and its blush on 1 (see SKULL_SHELL in src/player/hero-rig.ts, which is
+    # this same shape). A second level needs a finer grid than 8 x 8 x 6.
+    if not (1 <= k <= 4) and max(ai, aj) > 2.5:
+        return False
+    return True
+
+
+def collared_torso(i, j, k, n):
+    """The torso with its TOP ROW STEPPED IN one cell all round.
+
+    Shoulders on a chibi are not square: the mass narrows where the head sits on
+    it, and a torso that runs full width to its top edge reads as a crate with a
+    head balanced on the lid. One cell in from each of the four sides is the
+    smallest step the grid can make and it is enough — the corner it cuts is
+    what the eye reads as a shoulder line.
+    """
+    nx, ny, nz = n
+    if k < nz - 1:
+        return True
+    return 0 < i < nx - 1 and 0 < j < ny - 1
+
+
 def boot(i, j, k, n):
     """Blocky boot on a 5 x 6 x 3 grid, toe at j = 0 (-Y). Three height steps -
     a sole, an instep and an ankle - which ramps up from toe to heel the way a
@@ -68,8 +126,12 @@ def boot(i, j, k, n):
 
 
 PARTS = {
-    'head':   ([(-0.46, 0.46, -0.44, 0.44, 0.97, 1.75, None)], 'head'),
-    'torso':  ([(-0.40, 0.40, -0.28, 0.28, 0.52, 1.02, None)], 'torso'),
+    # 8 x 8 x 6, the same grid the game's head is painted on, so the two
+    # chamfers are the same shape and not merely a similar idea.
+    'head':   ([(-0.46, 0.46, -0.44, 0.44, 0.97, 1.75, ('voxel', (8, 8, 6), rounded_head))], 'head'),
+    # 8 x 4 x 5, the game's own torso grid, so the collar step is the same shape
+    # in both and not merely the same idea.
+    'torso':  ([(-0.40, 0.40, -0.28, 0.28, 0.52, 1.02, ('voxel', (8, 4, 5), collared_torso))], 'torso'),
     # one rigid block of merged boxes: hip slab sunk under the torso, two stubs
     'legs':   ([(-0.42, 0.42, -0.30, 0.30, 0.34, 0.55, None),
                 (0.06, 0.40, -0.28, 0.28, 0.24, 0.38, None),
