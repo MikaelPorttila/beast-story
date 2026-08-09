@@ -92,6 +92,52 @@ export const FOOT_PALETTE: PathPalette = {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * WHAT A PATH IS FOR, and it is not one thing.
+ *
+ * Issue #142 wants every kind of path on one system, and the reason that was
+ * not already true is this: the three mechanisms in the world answer DIFFERENT
+ * questions. A cart road owns the walking surface, refuses everything and is
+ * drawn. A settlement's beaten track owns nothing, is painted rather than
+ * drawn, and — this is the part that makes a single flag impossible — MUST NOT
+ * refuse the buildings around it, because it was derived from where they are.
+ * The camp's tracks point at its own huts, tents and fire; a track that pushed
+ * them away would be a track that erased its own reason for existing.
+ *
+ * So a profile declares its ROLES and the network indexes each path for the
+ * ones it claims. `nearest` takes the role its caller means, which is also what
+ * keeps a track out of the height field: a camp thoroughfare is 8.8 units wide
+ * and would out-rank the cart road it runs along, and since it carves nothing
+ * the walking surface on the carriageway would come back as natural ground.
+ */
+export interface PathRoles {
+  /**
+   * Carves the height field and owns the walking surface inside its rim.
+   * `carveAt` and `surfaceAt` see only these.
+   */
+  readonly surface: boolean;
+  /**
+   * Refuses BUILT things — huts, tents, lamps, fingerposts, fences, people.
+   * `builtEdgeDistanceTo` and `spanBuiltEdgeDistanceTo` see only these.
+   */
+  readonly refusesBuilt: boolean;
+  /**
+   * Refuses GROWN things — grass, trees, boulders, logs. `edgeDistanceTo` sees
+   * these, which is every path: nothing in this world is worn bare by feet and
+   * then has a hedge grow down the middle of it.
+   */
+  readonly refusesFoliage: boolean;
+  /** Emits a ribbon. A painted path is a colour field and no geometry. */
+  readonly draw: boolean;
+  /**
+   * Wears the ground it runs over — `Terrain.trampleAt` reads it as the colour
+   * of packed dirt. The STRENGTH is per path (`Road.wear`), because two tracks
+   * of one kind are walked different amounts; this only says whether the path
+   * paints at all.
+   */
+  readonly wears: boolean;
+}
+
 /** What the earthworks do under a path. See `PathProfile.carve`. */
 export type PathCarve =
   /** Cut and fill: the corridor is levelled into the height field. */
@@ -161,9 +207,23 @@ export interface PathProfile {
    * furniture) is the third answer and it is not built yet; §11h.
    */
   readonly bridges: boolean;
+  /** What this path is for. See `PathRoles`. */
+  readonly roles: PathRoles;
   /** The colours the section is painted from. */
   readonly palette: PathPalette;
 }
+
+/** A built, drawn, carved path — the cart road and everything shaped like it. */
+const BUILT_ROLES: PathRoles = {
+  surface: true, refusesBuilt: true, refusesFoliage: true, draw: true, wears: false,
+};
+/**
+ * A beaten track: a colour on the ground and a rule about foliage, nothing else.
+ * See `PathRoles` for why it must not refuse what is built beside it.
+ */
+const WORN_ROLES: PathRoles = {
+  surface: false, refusesBuilt: false, refusesFoliage: true, draw: false, wears: true,
+};
 
 /**
  * Widest radius the carve can reach on any profile. `RoadNetwork`'s spatial
@@ -184,17 +244,27 @@ const CELL_GUARD = 0.75;
  */
 export function pathProfile(opts: {
   id: string;
-  /** Half-width of the flat part. The road is 2.8; a footpath is ~0.9. */
+  /** Half-width of the flat part. The road is 2.8; a footpath is 1.4. */
   halfWidth: number;
+  /**
+   * Width of the ramp outside it, if the road's four-fifths is not right.
+   *
+   * A beaten track uses this: its soft edge is not a verge in the earthworks
+   * sense, but it is exactly the same SHAPE — full strength over the middle and
+   * fading to nothing at the rim — so it is the same two numbers. See
+   * `trackProfile`.
+   */
+  verge?: number;
   carve?: PathCarve;
   furniture?: 'road' | 'none';
   bridges?: boolean;
+  roles?: PathRoles;
   palette?: PathPalette;
 }): PathProfile {
   const deckHalf = opts.halfWidth;
   // 2.2 / 2.8 on the road: the verge is about four fifths of the carriageway,
   // which is what makes a corridor read as built earth rather than as a strip.
-  const verge = deckHalf * (2.2 / 2.8);
+  const verge = opts.verge ?? deckHalf * (2.2 / 2.8);
   const deckEdge = deckHalf + verge;
   // 0.8 was the road's, and it is a cell-scale number — but it has to fit
   // INSIDE the verge or `surfaceOf`'s ramp divides by a negative.
@@ -231,6 +301,7 @@ export function pathProfile(opts: {
     avoidR: deckEdge * 2 + 8,
     furniture: opts.furniture ?? 'road',
     bridges: opts.bridges ?? true,
+    roles: opts.roles ?? BUILT_ROLES,
     palette: opts.palette ?? CART_PALETTE,
   };
 }
@@ -263,3 +334,39 @@ export const FOOTPATH_PROFILE = pathProfile({
   bridges: false,
   palette: FOOT_PALETTE,
 });
+
+/**
+ * A SETTLEMENT'S BEATEN TRACK — the ground its own people have walked flat.
+ *
+ * This is the second of the three mechanisms issue #142 names, folded in: it
+ * was `GroundPatch.paths`, a flat array of line segments inside terrain.ts that
+ * only the colour pass could see, so no placer in the world knew a camp had a
+ * thoroughfare down the middle of it and grass grew straight through it.
+ *
+ * It carves nothing, draws nothing and refuses nothing built — see `WORN_ROLES`
+ * and the note on `PathRoles`. What it does is paint, and keep foliage off.
+ *
+ * WIDTH IS PER TRACK, so this is a factory rather than a constant: the camp's
+ * thoroughfare is 4.4 half-width and its tent lines are 2.4, and those numbers
+ * are `WEAR` in towns.ts, chosen against what the layout puts at the end of
+ * each one. The rim IS that half-width — a beaten track has no verge, so
+ * `deckHalf` is what the caller asked for and `verge` is derived as usual and
+ * then ignored by every role this profile claims.
+ */
+export function trackProfile(halfWidth: number): PathProfile {
+  // 0.45 / 0.55 IS THE EXISTING SOFT EDGE, and it is the reason this fold-in
+  // costs no pixel of colour. `Terrain.trampleAt` faded a track with
+  // `1 - smoothstep(hw * 0.45, hw, d)`: full strength over the middle 45% of
+  // its width, gone at the rim. Those are a core and a ramp — the same two
+  // numbers a carriageway has — so `deckHalf` is 0.45 of the track and
+  // `deckEdge` lands exactly on the half-width the caller asked for.
+  return pathProfile({
+    id: 'path:track',
+    halfWidth: halfWidth * 0.45,
+    verge: halfWidth * 0.55,
+    carve: 'none',
+    furniture: 'none',
+    bridges: false,
+    roles: WORN_ROLES,
+  });
+}

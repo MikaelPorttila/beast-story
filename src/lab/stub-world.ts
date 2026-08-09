@@ -21,6 +21,9 @@ export class StubWorld implements World {
   /** Nothing to draw: the stage has no colliders but its floor. */
   debugColliders(): void { /* no colliders on the lab stage */ }
   debugStructures(): void { /* nor any structure boxes */ }
+  /** The stage has no settlements, so nothing has worn its ground. */
+  debugWear(): number { return 0; }
+  debugPaths(): { paths: []; at: null } { return { paths: [], at: null }; }
   debugRidges(): void { /* nor any roofs */ }
   /** Nor any road furniture: the stage has no roads. */
   debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; }

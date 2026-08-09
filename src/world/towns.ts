@@ -58,7 +58,7 @@ import {
   RoadNetwork, roadAt, roadLength, routeRoad, profileRoad, straightWetLength,
   builtDeck, setTrimStart, NECK_MAX, type Road, type RoadClearance,
 } from './roads';
-import { ROAD_PROFILE } from './path-profile';
+import { ROAD_PROFILE, trackProfile } from './path-profile';
 import { Accum, bakeProp, type PropLib, type Template } from './props';
 import { SolidStamp, StructureField, footprintRadius } from './structures';
 import {
@@ -491,27 +491,58 @@ const WEAR: Record<TownInfo['kind'], WearSpec> = {
   },
 };
 
-/** The `GroundPatch` a town wears, entirely derived from its registry entry. */
+/**
+ * The `GroundPatch` a town wears — its YARD, entirely derived from its registry
+ * entry. The tracks across it are `wearTracks`, which see below.
+ */
 function wearPatch(t: TownInfo): GroundPatch {
   const spec = WEAR[t.kind];
-  const paths = new Float32Array(spec.tracks.length * 4);
-  for (let i = 0; i < spec.tracks.length; i++) {
-    const [rel, len, hw, s] = spec.tracks[i];
-    const a = t.gateAngle + rel;
-    const d = len * t.radius;
-    paths[i * 4] = Math.sin(a) * d;
-    paths[i * 4 + 1] = Math.cos(a) * d;
-    paths[i * 4 + 2] = hw;
-    paths[i * 4 + 3] = s;
-  }
   return {
     x: t.x, z: t.z,
     fade: spec.fade * t.radius,
     edge: spec.edge * t.radius,
     base: spec.base,
     damp: spec.damp,
-    paths,
   };
+}
+
+/**
+ * A settlement's beaten tracks, as PATHS on the network.
+ *
+ * They were four numbers each in a `Float32Array` on the `GroundPatch`, which
+ * only `Terrain.trampleAt` could read — so the world painted a thoroughfare
+ * down the middle of the Encampment and then grew grass through it, because no
+ * placer had any way to ask. Issue #142's whole point is that there is one path
+ * system, so a track is a path: same index, same clearance queries, same
+ * profile machinery.
+ *
+ * WHAT IT MAY NOT DO is refuse what is built beside it — `trackProfile` claims
+ * no `refusesBuilt` role, and the reason is that these lines were derived from
+ * the layout. Every one of them points at something `buildEncampment` or
+ * `buildHamlet` puts there: the fire, the huts, the tent lines. A track that
+ * pushed them away would erase its own reason for existing.
+ *
+ * TWO SAMPLES EACH — a track is a straight line from the settlement's centre
+ * outward, which is what it always was.
+ */
+function wearTracks(t: TownInfo, y: number): Road[] {
+  const spec = WEAR[t.kind];
+  return spec.tracks.map(([rel, len, hw, s], i) => {
+    const a = t.gateAngle + rel;
+    const d = len * t.radius;
+    return {
+      id: `track:${t.id}-${i}`,
+      fromId: t.id,
+      toId: t.id,
+      profile: trackProfile(hw),
+      wear: s,
+      pts: [
+        { x: t.x, z: t.z, y, bridge: false },
+        { x: t.x + Math.sin(a) * d, z: t.z + Math.cos(a) * d, y, bridge: false },
+      ],
+      trim: new Float32Array(8),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -890,8 +921,6 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
     setTrimStart(trunk, hit.x, hit.z, nx, nz);
   }
 
-  network.build();
-  terrain.roads = network;
   for (let i = 0; i < sites.length; i++) {
     towns.push({
       id: sites[i].id, nameKey: sites[i].nameKey, kind: sites[i].kind,
@@ -909,10 +938,25 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   // -- 5. The ground each town has worn out, derived from the registry entry
   // that was just written. AFTER the gates, because the tracks are bearings
   // relative to the gate; before any chunk is built, like the flattens.
-  for (const t of towns) terrain.grounds.push(wearPatch(t));
+  //
+  // AND BEFORE `network.build()`, which is new: the tracks are paths now
+  // (`wearTracks`) rather than an array hidden on the patch, so they have to be
+  // in the index before anything queries it. Nothing between here and `build()`
+  // does, and the registry entries they are derived from are complete above.
+  for (const t of towns) {
+    terrain.grounds.push(wearPatch(t));
+    for (const track of wearTracks(t, t.y)) network.add(track);
+  }
+
+  network.build();
+  terrain.roads = network;
 
   return {
-    towns: new Registry(towns, network.roads),
+    // DRAWN paths only. `TownRegistry.roads` is what a compass, a signpost and
+    // every probe mean by "the roads", and a settlement's beaten tracks are
+    // neither drawn nor routed — they are a colour field with a clearance rule.
+    // They are on the network, which is where a placer asks about them.
+    towns: new Registry(towns, network.roads.filter((r) => r.profile.roles.draw)),
     network,
     spawn: pickRoadSpawn(trunk, camp.x, camp.z),
     junction: { x: jRaw.x, y: trunk.pts[trunk.pts.length - 1].y, z: jRaw.z },
@@ -1085,7 +1129,7 @@ function vergeNear(
       const a = (k / 16) * Math.PI * 2 + ring * 0.2;
       const px = x + Math.sin(a) * d;
       const pz = z + Math.cos(a) * d;
-      if (network.edgeDistanceTo(px, pz) >= clear) return { x: px, z: pz };
+      if (network.builtEdgeDistanceTo(px, pz) >= clear) return { x: px, z: pz };
     }
   }
   return { x, z };
@@ -1297,6 +1341,8 @@ export class Towns {
     // See `postSpots` above.
     const taken: Spot[] = postSpots;
     for (const road of plan.network.roads) {
+      // A painted path emits no geometry and no furniture — see `PathRoles`.
+      if (!road.profile.roles.draw) continue;
       const g = new THREE.Group();
       const solid = new SolidStamp(this.solids);
       const glow = new Accum();
@@ -1512,7 +1558,7 @@ function clearRun(
   network: RoadClearance, taken: readonly Spot[],
 ): FenceOptions['accept'] {
   return (ax, az, bx, bz) => {
-    if (network.spanEdgeDistanceTo(ax, az, bx, bz) < FENCE_ROAD_CLEAR) return false;
+    if (network.spanBuiltEdgeDistanceTo(ax, az, bx, bz) < FENCE_ROAD_CLEAR) return false;
     const dx = bx - ax;
     const dz = bz - az;
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / FENCE_SPOT_STEP));
@@ -1551,7 +1597,7 @@ function place(
   /** The piece's own timber, where its elbow room is not it. See `Spot.solidR`. */
   solidR?: number,
 ): boolean {
-  if (network.edgeDistanceTo(x, z) < roadClear) return false;
+  if (network.builtEdgeDistanceTo(x, z) < roadClear) return false;
   for (const t of taken) {
     const dx = t.x - x;
     const dz = t.z - z;

@@ -169,6 +169,24 @@ export interface Junction {
   profile: PathProfile;
 }
 
+/**
+ * The roles a query can ask for, as a bitmask. One per flag on `PathRoles`.
+ * `const enum` is deliberate: these are compiled away to literals, so the test
+ * in the bucket scan is a mask and a compare.
+ */
+const enum Role {
+  Surface = 1,
+  Built = 2,
+  Foliage = 4,
+  Wear = 8,
+}
+/** The roles, in index order — one spatial grid each. See `grids`. */
+const ROLES = [Role.Surface, Role.Built, Role.Foliage, Role.Wear];
+/** Role bit -> its slot in `ROLES`, so `nearest` needs no search. */
+const ROLE_SLOT: Record<number, number> = {
+  [Role.Surface]: 0, [Role.Built]: 1, [Role.Foliage]: 2, [Role.Wear]: 3,
+};
+
 const cellKey = (cx: number, cz: number): number => cx * 4194304 + cz;
 
 // ---------------------------------------------------------------------------
@@ -208,12 +226,24 @@ export interface RoadSample {
  * the ground under it are levelled to within half a unit of each other on
  * purpose (see the header above).
  *
- * Two questions, because objects come in two shapes:
+ * TWO SHAPES AND TWO AUDIENCES, which is four queries.
  *
- *  - `edgeDistanceTo` for a POINT — a tussock, a boulder, a barrel.
- *  - `spanEdgeDistanceTo` for a RUN — a fence panel, a wall span, anything laid
- *    end to end. A 4.2-unit panel whose midpoint clears the road by six units
- *    can still be lying flat across it; see there.
+ * The shapes: a POINT (a tussock, a boulder, a barrel) and a RUN (a fence
+ * panel, a wall span, anything laid end to end — a 4.2-unit panel whose
+ * midpoint clears the road by six units can still be lying flat across it).
+ *
+ * The audiences are the part issue #142 added, and they are not the same
+ * question. A thing that is BUILT — a hut, a lamp, a fence, a person — must
+ * keep off a carriageway. A thing that is GROWN must keep off every path there
+ * is, including a settlement's own beaten tracks, because nothing in this world
+ * is walked bare by feet and then has a hedge come up through it. And a track
+ * must NOT refuse what is built beside it: the camp's tracks were derived from
+ * where its huts and tents are, so a track that pushed them away would erase
+ * its own reason for existing. See `PathRoles`.
+ *
+ *  - `edgeDistanceTo` / `spanEdgeDistanceTo` — foliage. Every path.
+ *  - `builtEdgeDistanceTo` / `spanBuiltEdgeDistanceTo` — built things. Only
+ *    paths whose profile refuses them.
  *
  * FROM THE RIM, NOT FROM THE CENTRELINE, and that is issue #142's doing. Every
  * caller used to write `DECK_EDGE + <its own margin>` and compare against
@@ -230,12 +260,15 @@ export interface RoadSample {
  */
 export interface RoadClearance {
   /**
-   * How far (x, z) lies OUTSIDE the rim of the nearest path, or Infinity where
-   * there is none. Negative on the path itself, zero at the rim.
+   * How far (x, z) lies OUTSIDE the rim of the nearest path of ANY kind, or
+   * Infinity where there is none. Negative on the path itself, zero at the rim.
    */
   edgeDistanceTo(x: number, z: number): number;
   /** The same for the segment (ax,az)-(bx,bz): its nearest approach to a rim. */
   spanEdgeDistanceTo(ax: number, az: number, bx: number, bz: number): number;
+  /** The same, over only the paths that refuse BUILT things. */
+  builtEdgeDistanceTo(x: number, z: number): number;
+  spanBuiltEdgeDistanceTo(ax: number, az: number, bx: number, bz: number): number;
   /** Distance from (x, z) to the nearest carriageway centreline, or Infinity. */
   distanceTo(x: number, z: number): number;
 }
@@ -247,6 +280,15 @@ export interface Road {
   toId: string;
   /** What KIND of path this is — width, carve, palette. See path-profile.ts. */
   profile: PathProfile;
+  /**
+   * How hard THIS path is walked, 0..1 — what `Terrain.trampleAt` reads as the
+   * colour of packed dirt. Ignored unless the profile claims the `wears` role.
+   *
+   * Per path and not per profile because two tracks of one kind are walked
+   * different amounts: the camp's thoroughfare is 1.0 and its tent lines 0.88,
+   * which is `WEAR` in towns.ts choosing against what stands at the end of each.
+   */
+  wear?: number;
   pts: RoadSample[];
   /**
    * WHERE THE BUILT CARRIAGEWAY ENDS, as two inward half-planes:
@@ -369,6 +411,14 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * the scan pays a `sqrt` per bucket entry — on the paths that have one.
    */
   private uniformEdge = true;
+  /**
+   * Which ROLE each path claims, as a bitmask per road — see `Role`.
+   *
+   * A mask and not four arrays because the scan tests it once per bucket entry
+   * on the collision hot path, and because a role is a property of the profile
+   * rather than of the segment: the whole road claims it or none of it does.
+   */
+  private roadRole = new Uint8Array(0);
   /** [ax, az, ay, bx, bz, by] per segment. */
   private seg = new Float32Array(0);
   private segBridge = new Uint8Array(0);
@@ -398,11 +448,23 @@ export class RoadNetwork implements RoadField, RoadClearance {
   private clipStamp = new Float64Array(0);
   private clipOut = new Uint8Array(0);
   private queryId = 0;
-  private grid = new Map<number, Int32Array>();
-  private minX = Infinity;
-  private maxX = -Infinity;
-  private minZ = Infinity;
-  private maxZ = -Infinity;
+  /**
+   * ONE SPATIAL INDEX PER ROLE, and the reason is the collision hot path.
+   *
+   * A settlement's beaten tracks are paths now (issue #142), and there are
+   * twenty-three of them against three roads — so a single grid would put
+   * twenty extra segments in every bucket inside a town, and `carveAt`, which
+   * runs inside `heightCont` a thousand times a chunk and hundreds of times a
+   * frame, would walk and reject all of them to answer a question no track can
+   * contribute to. Bucketing per role means the surface query scans exactly
+   * what it scanned before a track existed.
+   *
+   * Indexed by `ROLES[i]`, and the bounds are per role for the same reason: a
+   * query outside every carriageway is answered by one compare, whether or not
+   * a town somewhere has tracks in it.
+   */
+  private grids: Array<Map<number, Int32Array>> = ROLES.map(() => new Map());
+  private bounds = new Float64Array(ROLES.length * 4);
 
   /** Filled by `carveAt`; see RoadField. */
   carveTarget = 0;
@@ -425,10 +487,23 @@ export class RoadNetwork implements RoadField, RoadClearance {
   build(): void {
     let n = 0;
     for (const r of this.roads) n += r.pts.length - 1;
-    this.uniformEdge = this.roads.every((r) => r.profile.deckEdge === this.roads[0].profile.deckEdge);
+    // PER NETWORK AND NOT PER ROLE, deliberately conservative: a grid holding
+    // one width ranks the same either way, so the only cost of deciding this
+    // once is a `sqrt` per candidate in a grid that did not need it.
+    this.uniformEdge = this.roads.every(
+      (r) => r.profile.deckEdge === this.roads[0].profile.deckEdge,
+    );
     this.seg = new Float32Array(n * 6);
     this.segBridge = new Uint8Array(n);
     this.segRoad = new Uint8Array(n);
+    this.roadRole = new Uint8Array(this.roads.length);
+    for (let i = 0; i < this.roads.length; i++) {
+      const q = this.roads[i].profile.roles;
+      this.roadRole[i] = (q.surface ? Role.Surface : 0)
+        | (q.refusesBuilt ? Role.Built : 0)
+        | (q.refusesFoliage ? Role.Foliage : 0)
+        | (q.wears ? Role.Wear : 0);
+    }
     this.clipStamp = new Float64Array(this.roads.length);
     this.clipOut = new Uint8Array(this.roads.length);
     let k = 0;
@@ -478,28 +553,40 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * way is noise.
    */
   private buildIndex(count: number): void {
-    const lists = new Map<number, number[]>();
-    for (let i = 0; i < count; i++) {
-      const o = i * 6;
-      const x0 = Math.min(this.seg[o], this.seg[o + 3]) - REACH;
-      const x1 = Math.max(this.seg[o], this.seg[o + 3]) + REACH;
-      const z0 = Math.min(this.seg[o + 1], this.seg[o + 4]) - REACH;
-      const z1 = Math.max(this.seg[o + 1], this.seg[o + 4]) + REACH;
-      if (x0 < this.minX) this.minX = x0;
-      if (x1 > this.maxX) this.maxX = x1;
-      if (z0 < this.minZ) this.minZ = z0;
-      if (z1 > this.maxZ) this.maxZ = z1;
-      for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
-        for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
-          const key = cellKey(cx, cz);
-          let l = lists.get(key);
-          if (l === undefined) { l = []; lists.set(key, l); }
-          l.push(i);
+    this.bounds.fill(0);
+    for (let g = 0; g < ROLES.length; g++) {
+      this.bounds[g * 4] = Infinity;
+      this.bounds[g * 4 + 1] = -Infinity;
+      this.bounds[g * 4 + 2] = Infinity;
+      this.bounds[g * 4 + 3] = -Infinity;
+    }
+    for (let g = 0; g < ROLES.length; g++) {
+      const role = ROLES[g];
+      const lists = new Map<number, number[]>();
+      for (let i = 0; i < count; i++) {
+        if ((this.roadRole[this.segRoad[i]] & role) === 0) continue;
+        const o = i * 6;
+        const x0 = Math.min(this.seg[o], this.seg[o + 3]) - REACH;
+        const x1 = Math.max(this.seg[o], this.seg[o + 3]) + REACH;
+        const z0 = Math.min(this.seg[o + 1], this.seg[o + 4]) - REACH;
+        const z1 = Math.max(this.seg[o + 1], this.seg[o + 4]) + REACH;
+        if (x0 < this.bounds[g * 4]) this.bounds[g * 4] = x0;
+        if (x1 > this.bounds[g * 4 + 1]) this.bounds[g * 4 + 1] = x1;
+        if (z0 < this.bounds[g * 4 + 2]) this.bounds[g * 4 + 2] = z0;
+        if (z1 > this.bounds[g * 4 + 3]) this.bounds[g * 4 + 3] = z1;
+        for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
+          for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
+            const key = cellKey(cx, cz);
+            let l = lists.get(key);
+            if (l === undefined) { l = []; lists.set(key, l); }
+            l.push(i);
+          }
         }
       }
+      const grid = this.grids[g];
+      grid.clear();
+      for (const [key, l] of lists) grid.set(key, Int32Array.from(l));
     }
-    this.grid.clear();
-    for (const [key, l] of lists) this.grid.set(key, Int32Array.from(l));
   }
 
   /**
@@ -519,9 +606,14 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * While one width exists the two orderings are identical and the scan stays
    * on squared distances — see `uniformEdge`.
    */
-  private nearest(x: number, z: number, built: boolean, insetScale = 0): boolean {
-    if (x < this.minX || x > this.maxX || z < this.minZ || z > this.maxZ) return false;
-    const bucket = this.grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+  private nearest(
+    x: number, z: number, role: number, built: boolean, insetScale = 0,
+  ): boolean {
+    const g = ROLE_SLOT[role];
+    const b = g * 4;
+    if (x < this.bounds[b] || x > this.bounds[b + 1]) return false;
+    if (z < this.bounds[b + 2] || z > this.bounds[b + 3]) return false;
+    const bucket = this.grids[g].get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
     if (bucket === undefined) return false;
     const uniform = this.uniformEdge;
     let best = Infinity;
@@ -532,6 +624,12 @@ export class RoadNetwork implements RoadField, RoadClearance {
     const s = this.seg;
     if (built) this.queryId++;
     for (let i = 0; i < bucket.length; i++) {
+      // THE ROLE IS THE INDEX, so there is nothing to filter here: this bucket
+      // holds only paths that claim it. That is what keeps a painted track out
+      // of the height field — a camp thoroughfare is 8.8 units wide against the
+      // cart road's 10, so near a gate it can win the penetration race, and
+      // since it carves nothing `surfaceAt` would answer with natural ground
+      // where the deck is. See `PathRoles` and `grids`.
       const ri = this.segRoad[bucket[i]];
       const rp = this.roads[ri].profile;
       if (built) {
@@ -596,7 +694,7 @@ export class RoadNetwork implements RoadField, RoadClearance {
   carveAt(x: number, z: number): number {
     // The path's own `carveInset`, not 0: the earthworks stop short of the
     // surface's own terminal plane.
-    if (!this.nearest(x, z, true, 1)) return 0;
+    if (!this.nearest(x, z, Role.Surface, true, 1)) return 0;
     const prof = this.nProfile;
     // A profile that carves nothing leaves the ground exactly as it found it —
     // which is what makes a trodden trail the cheap case rather than a road with
@@ -649,7 +747,7 @@ export class RoadNetwork implements RoadField, RoadClearance {
   }
 
   surfaceAt(x: number, z: number, ground: number): number {
-    if (!this.nearest(x, z, true)) return ground;
+    if (!this.nearest(x, z, Role.Surface, true)) return ground;
     const d = this.nDist;
     const prof = this.nProfile;
     if (d >= prof.deckEdge) return ground;
@@ -672,7 +770,7 @@ export class RoadNetwork implements RoadField, RoadClearance {
     // thoroughfare from its gate to the middle of camp is still a road you may
     // not pitch a tent on, even once no gravel is drawn along it. One polyline,
     // two questions — see Road.trim.
-    return this.nearest(x, z, false) ? this.nDist : Infinity;
+    return this.nearest(x, z, Role.Foliage, false) ? this.nDist : Infinity;
   }
 
   /**
@@ -685,7 +783,76 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * by `deckEdge`, which is exactly the part a caller should not have to know.
    */
   edgeDistanceTo(x: number, z: number): number {
-    return this.nearest(x, z, false) ? this.nDist - this.nProfile.deckEdge : Infinity;
+    return this.nearest(x, z, Role.Foliage, false)
+      ? this.nDist - this.nProfile.deckEdge : Infinity;
+  }
+
+  /**
+   * The same, over only the paths that refuse BUILT things.
+   *
+   * A settlement's beaten track answers `edgeDistanceTo` and not this one, on
+   * purpose: it is where the people walk BETWEEN the huts, derived from where
+   * the huts are, so a builder that asked the foliage question would refuse to
+   * place the very things the track points at. See `RoadClearance`.
+   */
+  builtEdgeDistanceTo(x: number, z: number): number {
+    return this.nearest(x, z, Role.Built, false)
+      ? this.nDist - this.nProfile.deckEdge : Infinity;
+  }
+
+  /**
+   * HOW WALKED THE GROUND AT (x, z) IS, 0..1 — the colour of packed dirt.
+   *
+   * `Terrain.trampleAt` reads it, and it is the third of the three mechanisms
+   * issue #142 folds together: this used to be `GroundPatch.paths`, a flat
+   * segment array inside terrain.ts that no placer could see, which is why
+   * grass grew straight down the middle of the Encampment.
+   *
+   * The falloff is the one it replaces, expressed in the profile's own terms:
+   * full strength inside `deckHalf` and gone at `deckEdge`, which is exactly
+   * what `1 - smoothstep(hw * 0.45, hw, d)` was. See `trackProfile`.
+   *
+   * A `columnInfo` query — chunk build, ~1156 columns a chunk — and never on
+   * the collision path, the same budget `trampleAt` always had.
+   */
+  wearAt(x: number, z: number): number {
+    const g = ROLE_SLOT[Role.Wear];
+    const b = g * 4;
+    if (x < this.bounds[b] || x > this.bounds[b + 1]) return 0;
+    if (z < this.bounds[b + 2] || z > this.bounds[b + 3]) return 0;
+    const bucket = this.grids[g].get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (bucket === undefined) return 0;
+    // THE STRONGEST TRACK, NOT THE NEAREST ONE — its own scan rather than
+    // `nearest`, and the difference is a real number rather than a nicety.
+    // Tracks overlap where they leave a settlement's centre, and they are not
+    // equally walked: the Encampment's thoroughfare is 1.0 and its tent lines
+    // 0.88. Ranked by penetration, a column between the two takes whichever is
+    // geometrically closer; the field this replaces took the max, and taking
+    // the nearest instead moved 1.5 units of wear over a 14283-column sample of
+    // the two settlements. Max is also cheaper here: no ranking, no `sqrt` per
+    // candidate until the very end.
+    const s = this.seg;
+    let best = 0;
+    for (let i = 0; i < bucket.length; i++) {
+      const o = bucket[i] * 6;
+      const ax = s[o];
+      const az = s[o + 1];
+      const dx = s[o + 3] - ax;
+      const dz = s[o + 4] - az;
+      const len2 = dx * dx + dz * dz;
+      let t = len2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0;
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      const px = ax + dx * t - x;
+      const pz = az + dz * t - z;
+      const road = this.roads[this.segRoad[bucket[i]]];
+      const p = road.profile;
+      const d2 = px * px + pz * pz;
+      if (d2 >= p.deckEdge * p.deckEdge) continue;
+      const w = (road.wear ?? 1)
+        * (1 - smoothstep(p.deckHalf, p.deckEdge, Math.sqrt(d2)));
+      if (w > best) best = w;
+    }
+    return best;
   }
 
   /**
@@ -710,13 +877,26 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * creation and never again.
    */
   spanEdgeDistanceTo(ax: number, az: number, bx: number, bz: number): number {
+    return this.sweep(ax, az, bx, bz, false);
+  }
+
+  /** The run version of `builtEdgeDistanceTo`. What a fence bay asks. */
+  spanBuiltEdgeDistanceTo(ax: number, az: number, bx: number, bz: number): number {
+    return this.sweep(ax, az, bx, bz, true);
+  }
+
+  private sweep(
+    ax: number, az: number, bx: number, bz: number, builtOnly: boolean,
+  ): number {
     const dx = bx - ax;
     const dz = bz - az;
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / SPAN_STEP));
     let best = Infinity;
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
-      const d = this.edgeDistanceTo(ax + dx * t, az + dz * t);
+      const d = builtOnly
+        ? this.builtEdgeDistanceTo(ax + dx * t, az + dz * t)
+        : this.edgeDistanceTo(ax + dx * t, az + dz * t);
       if (d < best) best = d;
     }
     return best;

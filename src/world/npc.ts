@@ -664,7 +664,10 @@ function approachAngle(cur: number, target: number, rate: number, dt: number): n
  */
 export function spotIsFree(site: NpcSite, x: number, z: number, radius: number): boolean {
   const clearOf = radius + 0.35;
-  if (site.roads.edgeDistanceTo(x, z) < NPC_ROAD_CLEAR) return false;
+  // The BUILT query: a person standing on a settlement's beaten track is
+  // standing where people walk, which is the whole reason the track is there.
+  // What he may not stand in is a carriageway. See `RoadClearance`.
+  if (site.roads.builtEdgeDistanceTo(x, z) < NPC_ROAD_CLEAR) return false;
   if (site.structureTopAt(x, z) > -Infinity) return false;
   for (let k = 0; k < 4; k++) {
     const a = (k / 4) * Math.PI * 2;

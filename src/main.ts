@@ -6050,6 +6050,19 @@ beginPlay();
   blocks: x === undefined || z === undefined ? null : world.safeZones.blocksSpawn(x, z),
 });
 
+/**
+ * THE PATH NETWORK, and what it answers at a column.
+ *
+ * `__dbgTowns().roads` is the DRAWN paths only, which is what everything else
+ * means by "the roads" — so after issue #142 folded a settlement's beaten
+ * tracks onto the same network there was no way to see them at all. This is it,
+ * and the pair of `edge` numbers at a column is the invariant that fold-in
+ * rests on: see `World.debugPaths`.
+ */
+(window as unknown as {
+  __dbgPaths: (x?: number, z?: number) => unknown;
+}).__dbgPaths = (x, z) => world.debugPaths(x, z);
+
 // World surface queries at an arbitrary column, for the climbing/collision
 // tests: `ground` is what blocks and supports, `trunkSolidTop` is the bole a
 // tree adds to that, `structureTop` is what a settlement built there, and
@@ -6068,6 +6081,8 @@ beginPlay();
   // the world owns (see DEEP_WATER_DEPTH in world/terrain.ts).
   water: world.isWater(x, z),
   deep: world.isDeepWater(x, z),
+  /** How walked this column is, 0..1 — see `World.debugWear`. */
+  wear: +world.debugWear(x, z).toFixed(6),
 });
 
 /**

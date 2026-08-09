@@ -1528,6 +1528,8 @@ function localRegistry(town: TownInfo): TownRegistry {
 const NO_ROADS: RoadClearance = {
   edgeDistanceTo: () => Infinity,
   spanEdgeDistanceTo: () => Infinity,
+  builtEdgeDistanceTo: () => Infinity,
+  spanBuiltEdgeDistanceTo: () => Infinity,
   distanceTo: () => Infinity,
 };
 

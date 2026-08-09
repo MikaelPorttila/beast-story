@@ -35,6 +35,14 @@
 //           the gravel — issue #15's "ground clipping through on to the road",
 //           and 5 samples' worth of it before the carve's shoulder ramp and the
 //           walking surface's were tied to one number (`SHOULDER_IN`).
+//   track — the settlements' beaten tracks, which are paths on the same network
+//           since issue #142 and used to be a private array inside terrain.ts
+//           that only the colour pass could read. Two things have to hold at
+//           once and they pull opposite ways: a track must be VISIBLE to what
+//           grows, so grass stops coming up through a camp's thoroughfare, and
+//           INVISIBLE to what is built, because every track was derived from
+//           where a hut, a tent or a fire already stands and one that pushed
+//           them away would erase its own reason for existing.
 //   furn  — where the lamps and fingerposts ended up: the smallest gap between
 //           any two, and how near a centreline the nearest one comes. Under
 //           the rim is standing ON the road. Both were reported in issue #15
@@ -199,6 +207,80 @@ const out = await page.evaluate(() => {
     }
   }
 
+  // -- the beaten tracks ---------------------------------------------------
+  //
+  // Sampled at the FAR end of each track, past the point where a road's own
+  // terminal dome still reaches: a settlement's carriageway ends at its centre
+  // and every track starts there, so a column near the middle is legitimately
+  // inside the road as well and says nothing about the track.
+  const tracks = (() => {
+    const all = window.__dbgPaths().paths;
+    const worn = all.filter((q) => q.profile === 'path:track');
+    // The DRAWN paths with their full polylines, which `__dbgTowns` has and
+    // `__dbgPaths` (which reports a path's ends) does not.
+    const drawn = window.__dbgTowns().roads.map((r) => ({
+      path: r.path, deckEdge: r.deckEdge,
+    }));
+    const bad = [];
+    let tested = 0;
+    let wornSamples = 0;
+    for (const q of worn) {
+      if (q.draw || q.surface || q.refusesBuilt) {
+        bad.push(`${q.id} claims a role a beaten track must not have`);
+        continue;
+      }
+      for (const t of [0.6, 0.75, 0.9]) {
+        const x = q.x0 + (q.x1 - q.x0) * t;
+        const z = q.z0 + (q.z1 - q.z0) * t;
+        // Skip anywhere a DRAWN path could be answering instead — its rim plus
+        // the track's own is the widest either query can reach back from.
+        //
+        // AGAINST THE POLYLINE, not against a chord between its ends: the
+        // Stonewatch spur bends by tens of units over its length, and a track
+        // laid along a road (every settlement has one, the way in) sits dead on
+        // the carriageway for its whole run. Tested against the chord, those
+        // columns read as clear of every road and the road's own `builtEdge`
+        // of -4.99 got blamed on the track.
+        const nearRoad = drawn.some((r) => {
+          const half = r.deckEdge + q.deckEdge;
+          for (let i = 3; i < r.path.length; i += 3) {
+            const ax = r.path[i - 3];
+            const az = r.path[i - 1];
+            const dx = r.path[i] - ax;
+            const dz = r.path[i + 2] - az;
+            const L = dx * dx + dz * dz || 1;
+            let u = ((x - ax) * dx + (z - az) * dz) / L;
+            u = u < 0 ? 0 : u > 1 ? 1 : u;
+            if (Math.hypot(x - (ax + dx * u), z - (az + dz * u)) < half) return true;
+          }
+          return false;
+        });
+        if (nearRoad) continue;
+        tested++;
+        const at = window.__dbgPaths(x, z).at;
+        // VISIBLE TO FOLIAGE: on the centreline the column is a full rim inside.
+        if (!(at.edge < 0)) {
+          bad.push(`${q.id} at t=${t}: foliage cannot see it (edge ${at.edge})`);
+        }
+        // INVISIBLE TO WHAT IS BUILT.
+        if (Number.isFinite(at.builtEdge) && at.builtEdge < 0) {
+          bad.push(`${q.id} at t=${t}: refuses a built thing (builtEdge ${at.builtEdge})`);
+        }
+        // AND IT PAINTS. The colour field is the one thing a track does.
+        if (at.wear > 0) wornSamples++;
+        else bad.push(`${q.id} at t=${t}: wears nothing`);
+      }
+    }
+    return {
+      count: worn.length,
+      drawn: drawn.length,
+      sampled: tested,
+      worn: wornSamples,
+      failures: bad,
+      pass: bad.length === 0 && worn.length > 0 && tested > 0,
+    };
+  })();
+
   // -- the lamps and the fingerposts ---------------------------------------
   const f = window.__dbgTowns().furniture;
 
@@ -222,6 +304,7 @@ const out = await page.evaluate(() => {
       at: poke.at,
       clean: poke.over === 0,
     },
+    tracks,
     furniture: f,
   };
 });
@@ -254,6 +337,9 @@ if (!out.crossSection.clean) {
   fail.push(`${out.crossSection.terrainOverRibbon} of ${out.crossSection.sampled} `
     + 'cross-section samples have terrain drawn over the ribbon (issue #15), '
     + `worst ${out.crossSection.worstPoke}`);
+}
+if (!out.tracks.pass) {
+  fail.push(`beaten tracks: ${out.tracks.failures.join('; ') || 'none on the network'}`);
 }
 if (out.furniture.onCarriageway > 0) {
   fail.push(`${out.furniture.onCarriageway} pieces of road furniture stand on a `

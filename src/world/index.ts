@@ -1219,6 +1219,36 @@ export function createWorld(
      * /show-colliders. The whole set, not the loaded part: neither the towns nor
      * the dens stream.
      */
+    debugPaths(x?: number, z?: number) {
+      const net = plan?.network ?? null;
+      const num = (v: number): number => (Number.isFinite(v) ? +v.toFixed(3) : Infinity);
+      return {
+        paths: (net?.roads ?? []).map((r) => {
+          const a = r.pts[0];
+          const b = r.pts[r.pts.length - 1];
+          return {
+            id: r.id,
+            profile: r.profile.id,
+            deckHalf: +r.profile.deckHalf.toFixed(3),
+            deckEdge: +r.profile.deckEdge.toFixed(3),
+            wear: r.wear ?? 0,
+            draw: r.profile.roles.draw,
+            surface: r.profile.roles.surface,
+            refusesBuilt: r.profile.roles.refusesBuilt,
+            x0: +a.x.toFixed(2), z0: +a.z.toFixed(2),
+            x1: +b.x.toFixed(2), z1: +b.z.toFixed(2),
+          };
+        }),
+        at: x === undefined || z === undefined || net === null ? null : {
+          edge: num(net.edgeDistanceTo(x, z)),
+          builtEdge: num(net.builtEdgeDistanceTo(x, z)),
+          wear: +net.wearAt(x, z).toFixed(4),
+        },
+      };
+    },
+    debugWear(x: number, z: number): number {
+      return terrain.trampleAt(x, z);
+    },
     debugStructures(out: number[]): void {
       // Gated on the same flag as the query, so the overlay can never draw a
       // cage around something that is not actually stopping anyone: under

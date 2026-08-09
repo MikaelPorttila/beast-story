@@ -94,16 +94,18 @@ export interface GroundPatch {
   /** How worn the ground is away from any beaten track, 0..1. */
   base: number;
   /**
-   * The beaten tracks, four numbers each: the far end of a line that starts at
-   * the settlement's centre (dx, dz, relative to x/z), the half-width of the
-   * track, and how worn it is at its middle.
+   * WHERE THE BEATEN TRACKS WENT. They were four numbers each in a flat
+   * `Float32Array` here, and only this file could see them — so no placer in
+   * the world knew a camp had a thoroughfare down the middle of it, and grass
+   * grew straight through it.
    *
-   * A flat `Float32Array` rather than an array of objects because this is
-   * scanned once per column of every chunk that touches a settlement, and the
-   * query must not chase pointers or allocate — the same reason
-   * `RoadNetwork.seg` is one.
+   * They are paths in the network now (`trackProfile`, world/path-profile.ts),
+   * indexed beside the roads and answering the same clearance queries, and
+   * `trampleAt` asks `RoadField.wearAt` for the number this used to compute.
+   * Issue #142. What stays here is what is genuinely a property of the
+   * SETTLEMENT rather than of a line across it: how worn its yard is between
+   * the tracks, where that fades, and whether it churns to mud.
    */
-  paths: Float32Array;
   /**
    * Bias toward damp mud rather than dry packed earth, 0..1. A military camp
    * churns; a farming hamlet mostly wears its grass thin.
@@ -144,6 +146,15 @@ export interface RoadField {
   readonly carveTarget: number;
   /** The walking surface: `ground` off the road, the deck (or verge ramp) on it. */
   surfaceAt(x: number, z: number, ground: number): number;
+  /**
+   * How walked the ground at (x, z) is, 0..1 — the colour of packed dirt.
+   *
+   * A settlement's beaten tracks are paths in the network like any other (issue
+   * #142), and painting is the one thing they do that a carriageway does not.
+   * `trampleAt` reads it. A `columnInfo` query and never a collision one, which
+   * is the same budget the track scan it replaces always had.
+   */
+  wearAt(x: number, z: number): number;
 }
 
 export interface RGB {
@@ -729,26 +740,16 @@ export class Terrain {
       const dz = z - p.z;
       const d2 = dx * dx + dz * dz;
       if (d2 >= p.edge * p.edge) continue;
-      // The tracks, as distance to a segment from the centre outwards. `place`
-      // in towns.ts keeps every tent, hut and barrel off the carriageway with
-      // the same primitive; this is the inverse question — where the ground
-      // BETWEEN those buildings is walked flat.
-      const q = p.paths;
-      let track = 0;
-      for (let k = 0; k < q.length; k += 4) {
-        const ax = q[k];
-        const az = q[k + 1];
-        const len2 = ax * ax + az * az;
-        let t = len2 > 1e-9 ? (dx * ax + dz * az) / len2 : 0;
-        if (t < 0) t = 0; else if (t > 1) t = 1;
-        const px = dx - ax * t;
-        const pz = dz - az * t;
-        const hw = q[k + 2];
-        // Soft-edged: a footpath has no kerb. Full strength for the inner 45%
-        // of its width, gone at the rim.
-        const s = q[k + 3] * (1 - smoothstep(hw * 0.45, hw, Math.sqrt(px * px + pz * pz)));
-        if (s > track) track = s;
-      }
+      // THE TRACKS, from the path network — the same index the carriageways
+      // are in, because a beaten track IS a path and used to be the one kind
+      // nothing outside this file could see (issue #142; see `GroundPatch`).
+      // Soft-edged: a footpath has no kerb, so it is full strength over its
+      // middle and gone at the rim, which is exactly what a profile's
+      // `deckHalf` and `deckEdge` are. `RoadNetwork.wearAt` does that.
+      //
+      // Asked once and not once per track, so a settlement with nine of them
+      // costs one bucket scan where it used to cost nine segment tests.
+      const track = this.roads === null ? 0 : this.roads.wearAt(x, z);
       // The rim. Wear does not stop on a circle — from the air that is exactly
       // what a settlement must not look like — so everything above is faded out
       // over the several metres between `fade` and `edge`.

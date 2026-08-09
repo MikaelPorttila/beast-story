@@ -1135,6 +1135,37 @@ export interface World {
    */
   debugStructures(out: number[]): void;
   /**
+   * Debug: how walked the ground at (x, z) is, 0..1 — the number that decides
+   * whether a column is painted grass or packed dirt.
+   *
+   * Here because a settlement's beaten tracks stopped being a private array
+   * inside terrain.ts and became paths on the network (issue #142), and the way
+   * to prove that fold-in moved no pixel is to read the field itself rather
+   * than to photograph it: a capture of the Encampment is not deterministic
+   * (the fire, the lamps and the people all move), so two shots of identical
+   * code already differ in 17.6% of their bytes.
+   */
+  debugWear(x: number, z: number): number;
+  /**
+   * Debug: every path on the network, and what the clearance queries answer at
+   * a column.
+   *
+   * `TownRegistry.roads` is the DRAWN paths — what a compass and a signpost
+   * mean — so it cannot see a settlement's beaten tracks, which is exactly what
+   * needs asserting after issue #142 folded them in. The two `edge` numbers are
+   * the whole invariant: a track is visible to what GROWS (`edge` goes
+   * negative on it) and invisible to what is BUILT (`builtEdge` does not),
+   * because the tracks were derived from where the buildings are.
+   */
+  debugPaths(x?: number, z?: number): {
+    paths: Array<{
+      id: string; profile: string; deckHalf: number; deckEdge: number;
+      wear: number; draw: boolean; surface: boolean; refusesBuilt: boolean;
+      x0: number; z0: number; x1: number; z1: number;
+    }>;
+    at: { edge: number; builtEdge: number; wear: number } | null;
+  };
+  /**
    * Debug: append every ROOF as [cx, cz, axisYaw, hl, r, yAxis, ry, fit] — a
    * cylinder lying on its side along a ridge, see `SolidRidge` in
    * world/props.ts. `fit` is how far it stands off the thatch at its worst.
