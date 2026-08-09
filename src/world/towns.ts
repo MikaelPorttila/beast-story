@@ -842,6 +842,23 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   // be the same deck they are, or the seam it exists to remove comes back as a
   // step instead of a slab. See `JUNCTION_FLAT` in roads.ts.
   network.addJunction(jRaw.x, jRaw.z, junctionY, trunk.profile);
+
+  // NO FOOTPATH IN THE WORLD YET, and the measurement is why (issue #142, §14:
+  // "where do trails start and end"). The obvious candidate is a shortcut
+  // between the two hamlets, since the network is a hub and everything between
+  // them goes out to the fork and back. Built and measured on seed 1337 it came
+  // to 362 units against the roads' 318: the hamlets are 281 apart in a
+  // straight line and the router is already close to that, so there is no
+  // corner to cut. The same holds for camp-to-fork — 72 units of road over a
+  // 70-unit straight line.
+  //
+  // A footpath wants a destination a CART cannot justify — a viewpoint, a cave
+  // mouth, a shrine — and there are no POI nodes in the graph today. That is
+  // the node type §8 has to add, and the footpath profile is ready for it:
+  // `FOOTPATH_PROFILE` is exercised end to end on the paths stage
+  // (`src/lab/paths-stage.ts`, `?fence=transition`), including the type change
+  // at a two-arm node.
+
   // -- 4. Gates, derived from where each road actually leaves its town.
   //
   // BEFORE `network.build()`, which it did not used to be. The Encampment's
@@ -1290,11 +1307,19 @@ export class Towns {
       // from the gate instead puts them 13 and 17 units OUTSIDE it, which is
       // where a lamp on the approach was always meant to be.
       const built = { ...road, pts: builtDeck(road) };
-      builtFences.push(...buildRoadFurniture(
-        solid, glow, parts, built, plan.network, mulberry32(seed ^ road.pts.length),
-        surfaceAt, taken, plan.sites,
-      ));
-      builtFences.push(...addBridgeFurniture(solid, parts, built, surfaceAt));
+      // WHAT THIS PATH CARRIES IS THE PROFILE'S CALL (issue #142, §14). Lamps,
+      // fingerposts and roadside fence runs are a cart road's furniture; a
+      // footpath through a wood with a lamp every 26 units would be a lit
+      // street with no houses on it. Bridges go with them: the piers and the
+      // railing are the road's geometry, and a profile that cannot carry them
+      // told the router to go round the water instead (`PathProfile.bridges`).
+      if (road.profile.furniture === 'road') {
+        builtFences.push(...buildRoadFurniture(
+          solid, glow, parts, built, plan.network, mulberry32(seed ^ road.pts.length),
+          surfaceAt, taken, plan.sites,
+        ));
+        builtFences.push(...addBridgeFurniture(solid, parts, built, surfaceAt));
+      }
       emit(solid.acc, props.solidMat, g, true);
       emit(glow, lampGlow, g, false);
 

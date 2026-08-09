@@ -856,7 +856,12 @@ export function routeRoad(
   // route takes it, which puts a bridge exactly where a road would really have
   // one. If it is a LAKE, the charge goes up by an order of magnitude and the
   // route goes round.
-  const neck = straightWetLength(terrain, ax, az, bx, bz) <= NECK_MAX;
+  //
+  // A path that cannot BRIDGE is never in neck mode, whatever the crossing
+  // looks like: bridges are the cart road's geometry and a footpath has none,
+  // so its answer to water is always to go round. See `PathProfile.bridges`.
+  const neck = profile.bridges
+    && straightWetLength(terrain, ax, az, bx, bz) <= NECK_MAX;
   // In NECK mode a wet step costs nothing at all and only its depth is charged,
   // so the route takes the shallowest line across. A first pass charged a small
   // flat 1.6 and the road still skirted every channel: at three units a step the
@@ -869,15 +874,24 @@ export function routeRoad(
 
   // TWO ROADS OUT OF ONE FORK MUST NOT BE ONE ROAD.
   //
-  // Every sample of every road already routed, minus the ones near this route's
-  // own start — the fork is SHARED, so a walk leaving it is standing on the
-  // other road by definition and charging for that would pin it to the node.
-  // Past `AVOID_FREE` the two are supposed to be separate roads and the charge
-  // applies in full.
+  // Every sample of every road already routed, minus the ones near either of
+  // this route's own ENDS — a shared node is SHARED, so a walk leaving one is
+  // standing on the other road by definition and charging for that would pin it
+  // to the node. Past `AVOID_FREE` the two are supposed to be separate paths
+  // and the charge applies in full.
+  //
+  // BOTH ends, not only the start. A road out of the fork ends at a town no
+  // other road reaches, so the destination exemption changes nothing about the
+  // three that shipped (test-road reports the same lengths and grades) — but a
+  // path between two places that ALREADY have a road, which is what a footpath
+  // between the hamlets is, arrives at a node it shares and would otherwise be
+  // shoved off it by a charge of 50 in the last twenty units.
   const others: RoadSample[] = [];
   for (const road of avoid) {
     for (const p of road) {
-      if (Math.hypot(p.x - ax, p.z - az) > AVOID_FREE) others.push(p);
+      if (Math.hypot(p.x - ax, p.z - az) <= AVOID_FREE) continue;
+      if (Math.hypot(p.x - bx, p.z - bz) <= AVOID_FREE) continue;
+      others.push(p);
     }
   }
   /** Nearest existing carriageway to a candidate step, or Infinity. */

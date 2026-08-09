@@ -297,6 +297,24 @@ if (fenceParam) {
       railAt: [...FENCE_RAIL_AT], railWidth: FENCE_RAIL_WIDTH,
       railHeight: FENCE_RAIL_HEIGHT,
     },
+    /**
+     * Every path the demo built, with the profile it was built to.
+     *
+     * A profile is a bundle of derived numbers (`world/path-profile.ts`), and
+     * the point of the transition demo is that two of them meet — so a probe
+     * has to be able to read WHICH one drew a given ribbon rather than infer it
+     * from a width it measured.
+     */
+    paths: stage.paths.map((r) => ({
+      id: r.id,
+      profile: r.profile.id,
+      deckHalf: r3(r.profile.deckHalf),
+      deckEdge: r3(r.profile.deckEdge),
+      carve: r.profile.carve,
+      furniture: r.profile.furniture,
+      bridges: r.profile.bridges,
+      pts: r.pts.map((q) => ({ x: r3(q.x), z: r3(q.z), y: r3(q.y) })),
+    })),
     /** Downward-facing triangles in the road mesh: the bridge soffit. */
     soffit: countSoffit(engine.scene),
   });

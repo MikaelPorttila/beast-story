@@ -75,6 +75,21 @@ export const CART_PALETTE: PathPalette = {
   plank: lin(0x7d6142),
 };
 
+/**
+ * A walked path: bare earth in the middle, grass creeping in at the sides.
+ *
+ * Darker and greener than the cart road all through, and with no gravel — a
+ * footpath is not surfaced, it is worn. The `gravel` slot is the verge colour
+ * whatever the path is made of, so here it is a dry, trodden green rather than
+ * a lighter stone.
+ */
+export const FOOT_PALETTE: PathPalette = {
+  rut: lin(0x5d4a35),
+  earth: lin(0x6f5c42),
+  gravel: lin(0x77714f),
+  plank: lin(0x6b5334),
+};
+
 // ---------------------------------------------------------------------------
 
 /** What the earthworks do under a path. See `PathProfile.carve`. */
@@ -128,6 +143,24 @@ export interface PathProfile {
   readonly apronR: number;
   /** How far two paths of this profile must run apart to read as two paths. */
   readonly avoidR: number;
+  /**
+   * What roadside furniture this path carries (issue #142, §14).
+   *
+   * `road` is lamps, fingerposts and the roadside fence runs. `none` is a path
+   * that has none of them, which is most paths — a lamp every 26 units down a
+   * footpath through a wood would be a lit street with no houses on it.
+   */
+  readonly furniture: 'road' | 'none';
+  /**
+   * Whether this path may BRIDGE open water, or must go round it.
+   *
+   * Bridges are hardcoded to the cart road's geometry — stone piers, a plank
+   * deck and a railing (`addBridgeFurniture`) — so a path that cannot carry
+   * that has to tell the router, and the router pays a lake's price for every
+   * wet step instead of a neck's. A ford (follow the bed, no lift, no
+   * furniture) is the third answer and it is not built yet; §11h.
+   */
+  readonly bridges: boolean;
   /** The colours the section is painted from. */
   readonly palette: PathPalette;
 }
@@ -154,6 +187,8 @@ export function pathProfile(opts: {
   /** Half-width of the flat part. The road is 2.8; a footpath is ~0.9. */
   halfWidth: number;
   carve?: PathCarve;
+  furniture?: 'road' | 'none';
+  bridges?: boolean;
   palette?: PathPalette;
 }): PathProfile {
   const deckHalf = opts.halfWidth;
@@ -194,12 +229,37 @@ export function pathProfile(opts: {
     // units of ground down the middle for the verges, a lamp and the grass to
     // come back in. See `AVOID_R` in roads.ts for the measurement.
     avoidR: deckEdge * 2 + 8,
+    furniture: opts.furniture ?? 'road',
+    bridges: opts.bridges ?? true,
     palette: opts.palette ?? CART_PALETTE,
   };
 }
 
 /**
- * THE CART ROAD — the only profile the world has today, and the one every
- * number above was reverse-engineered from.
+ * THE CART ROAD — the profile every number above was reverse-engineered from.
  */
 export const ROAD_PROFILE = pathProfile({ id: 'path:road', halfWidth: 2.8 });
+
+/**
+ * THE FOOTPATH — half the road's width, and the proof the parameterisation is
+ * real rather than a rename.
+ *
+ * Every derived number differs: rim 2.5 against 5.0, verge 1.1, shoulder ramp
+ * 0.55, earthworks out to 4.0 and gone by 10.5, apron 8.5, and two paths of it
+ * only have to run 13 apart to read as two. It carries no lamps and no
+ * fingerposts, and it will not bridge — see `bridges`.
+ *
+ * 1.4 is the narrowest width the CARVE mechanism can still hold up. The verge
+ * is 1.1, the shoulder ramp `min(0.8, verge / 2)` is 0.55, and the ramp the
+ * carve and the surface share is the difference — 0.55 of run to climb up to
+ * half a unit. Narrower and that ramp is steeper than the step it exists to
+ * hide, which is where a no-carve profile has to take over (§11f); this one
+ * stays inside the machine that is already guarded.
+ */
+export const FOOTPATH_PROFILE = pathProfile({
+  id: 'path:footpath',
+  halfWidth: 1.4,
+  furniture: 'none',
+  bridges: false,
+  palette: FOOT_PALETTE,
+});

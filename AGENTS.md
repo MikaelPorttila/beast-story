@@ -168,6 +168,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Terrain, streaming | `world/terrain.ts`, `world/index.ts`, `world/chunk.ts` | `test-road`, `test-nature` |
 | Water and diving | `world/water.ts`, `world/underwater.ts` | `test-dive` |
 | Towns, roads, buildings | `world/towns.ts`, `world/roads.ts`, `world/town-parts.ts`, `world/structures.ts`, `world/spawned.ts` | `test-road`, `test-structures`, `test-spawn` |
+| What KIND of path a path is | `world/path-profile.ts` | `test-path-profile`, `test-road` |
 | Fences and bridge railings | `world/fences.ts` (the chain), `world/town-parts.ts` (the kit) | `test-fence` |
 | Moving world pieces | `world/carriers.ts`, `world/sky-island.ts` | `test-carrier` |
 | Vegetation, wind | `world/nature.ts`, `world/props.ts`, `world/sway.ts` | `test-nature`, `test-sway` |
@@ -287,6 +288,15 @@ Content is DATA; the engine implements reusable BEHAVIOUR.
   `SkillDef.targeting`.
 - **Towns are landmarks, not zones** — you walk in and out and nothing loads.
 - **A safe zone is a spawn rule, not a wall.** A hunter follows you across it.
+- **A path's numbers come from its PROFILE, never from a constant.** Width,
+  verge, shoulder ramp, carve band, sink, cross-section, apron radius and
+  palette are one derived bundle (`world/path-profile.ts`) because four of them
+  describe a single band and every sample of issue #15 lived in it while two of
+  the four disagreed about where it ended. Pick a width and a carve mode; the
+  band follows. And **ask a clearance from the RIM, not the centreline** —
+  `edgeDistanceTo` / `spanEdgeDistanceTo` (`RoadClearance`), so a caller states
+  its own margin and nothing carries the cart road's half-corridor inside a
+  literal.
 - **A fence is a PATH, not a row of panels.** Everything post-and-rail goes
   through `buildFence` (`world/fences.ts`): the caller hands over the line it
   means and the system chooses the posts, bounds the gaps, measures each plank

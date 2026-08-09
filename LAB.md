@@ -74,7 +74,13 @@ one the seed happened to build.
 | `gate` | A run with refused bays in the middle — what a road crossing leaves |
 | `variants` | Every post variant on one run, lanterns lit |
 | `bridge` | A deck over a channel: soffit, piers and both railings |
+| `transition` | A cart road becoming a footpath at a two-arm node |
 | `all` | Every one of them, laid out around the origin |
+
+`transition` is the second path PROFILE (`world/path-profile.ts`) beside the
+first: same mechanism, half the width, its own palette, no lamps and no
+bridging. The node between them is `buildJunctionApron` with two arms rather
+than three, which is what a road-type change is.
 
 `__dbgFence()` reports every post and bay in world coordinates plus the deck's
 down-facing triangle count, and `bun tools/test-fence.mjs` asserts the fence
