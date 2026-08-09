@@ -324,7 +324,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
   // Ground blob: flat on the terrain whatever the bird is doing, and a touch
   // wider when the wings are spread.
-  updateContactBlob(p.blob, rig.root, 1 + 0.3 * clamp01(p.wingL.rotation.z));
+  updateContactBlob(p.blob, rig.root, 1 + 0.3 * clamp01(p.wingL.rotation.z), ctx.altitude);
 
   // Pose state — everything is written every frame.
   let bpx = 0, bpy = BODY_Y, bpz = 0;

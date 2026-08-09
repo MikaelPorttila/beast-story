@@ -124,6 +124,21 @@ export interface BeastAnimCtx {
   moveSpeed: number;
   dt: number;
   /**
+   * How far the rig ROOT is above the surface under it — terrain, a carrier's
+   * deck, or the water — in world units, never negative.
+   *
+   * It exists for the flyers' ground contact blob (beasts/species/contactshadow.ts),
+   * which has to sit on the ground the beast is over rather than at a fixed drop
+   * under its belly, and has to fade out once that ground is far away. Anything
+   * else that needs "how high am I" may read it.
+   *
+   * OPTIONAL because a caller that has no world cannot answer honestly: the
+   * inventory portrait stage poses a subject on no ground at all, and leaving it
+   * undefined there keeps the blob at the drop the rig was built with instead of
+   * pinning it to a surface that does not exist.
+   */
+  altitude?: number;
+  /**
    * Phase (radians) of a cycle running at `freq` rad/s, INTEGRATED rather than
    * multiplied out of the clock. Use it for every gait, wingbeat and tail wave.
    *

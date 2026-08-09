@@ -1091,6 +1091,11 @@ export class Enemy implements Damageable {
     c.actionTime = attacking ? this.beastActionT : c.time;
     c.moveSpeed = speed01;
     c.dt = dt;
+    // Same contract the companion framework fills — a wild flyer's contact blob
+    // belongs on the ground under it, not at a fixed drop below its belly.
+    c.altitude = Math.max(
+      0, this.position.y - Math.max(groundY, ctx.world.waterLevel),
+    );
     species.animate(rig, c);
   }
 

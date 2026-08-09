@@ -677,7 +677,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
   // ---- apply ----
   // Contact blob stays flat on the ground and widens a little with the wingspan.
-  updateContactBlob(p.blob, rig.root, 1 + 0.25 * clamp01(1 - Math.abs(sweep)));
+  updateContactBlob(p.blob, rig.root, 1 + 0.25 * clamp01(1 - Math.abs(sweep)), ctx.altitude);
 
   const body = p.body;
   body.position.set(bodyX, bodyY, bodyZ);

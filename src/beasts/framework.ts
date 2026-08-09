@@ -1688,6 +1688,16 @@ export class BeastActor {
     this.ctx.time = this.time;
     this.ctx.moveSpeed = this.speed01;
     this.ctx.dt = dt;
+    // Sampled HERE rather than reused from update(), because rideUpdate() is the
+    // other way into this method and a ridden mount is exactly the case that
+    // needs it: MountController owns its height and never computes a ground one.
+    // One height sample per beast per frame, for at most a party of two.
+    this.ctx.altitude = Math.max(
+      0,
+      this.position.y - Math.max(
+        this.groundAt(this.position.x, this.position.z), this.world.waterLevel,
+      ),
+    );
     this.species.animate(this.rig, this.ctx);
 
     this.puff.update(dt);
@@ -1970,9 +1980,21 @@ export class BeastActor {
       const o = this.rig.parts[k]!;
       parts[k] = [o.rotation.x, o.rotation.y, o.rotation.z];
     }
+    // The flyers' ground contact blob, in WORLD terms — a probe's only way to
+    // ask the question issue #134 is about ("is that shadow on the ground, or
+    // hanging in the air under a climbing mount?"). `null` for a body with no
+    // blob, which is every walker.
+    const blobPart = this.rig.parts.blob;
+    let blob: unknown = null;
+    if (blobPart) {
+      const p = blobPart.getWorldPosition(new THREE.Vector3());
+      const mat = (blobPart as THREE.Mesh).material as THREE.MeshBasicMaterial;
+      blob = { y: p.y, visible: blobPart.visible, opacity: mat.opacity };
+    }
     return {
       id: this.species.id, action: this.ctx.action,
-      moveSpeed: this.ctx.moveSpeed, time: this.time, parts,
+      moveSpeed: this.ctx.moveSpeed, time: this.time, ridden: this.ridden,
+      altitude: this.ctx.altitude ?? null, y: this.position.y, blob, parts,
     };
   }
 
