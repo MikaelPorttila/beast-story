@@ -1251,6 +1251,11 @@ function sectionColour(
   const m = p.bridge
     ? (Math.round(p.x * 0.7 + p.z * 0.7) % 2 === 0 ? 1.1 : 0.88)
     : 0.86 + hashCell(seed, Math.round(p.x), k, Math.round(p.z)) * 0.3;
+  // NO WEAR PATCH ON TOP OF THIS. One was built and captured and removed: at
+  // nine vertices per ring and rings ~3 units apart, a per-cell darkening is
+  // interpolated over six units of road and arrives as a gradient the mottle
+  // above already covers. See the note where `disrepair` would have been, in
+  // path-profile.ts.
   return [base[0] * m, base[1] * m, base[2] * m];
 }
 

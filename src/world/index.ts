@@ -1235,6 +1235,7 @@ export function createWorld(
             draw: r.profile.roles.draw,
             surface: r.profile.roles.surface,
             refusesBuilt: r.profile.roles.refusesBuilt,
+            litter: r.profile.litter,
             x0: +a.x.toFixed(2), z0: +a.z.toFixed(2),
             x1: +b.x.toFixed(2), z1: +b.z.toFixed(2),
           };
@@ -1243,6 +1244,7 @@ export function createWorld(
           edge: num(net.edgeDistanceTo(x, z)),
           builtEdge: num(net.builtEdgeDistanceTo(x, z)),
           wear: +net.wearAt(x, z).toFixed(4),
+          litter: +net.litterAt(x, z).toFixed(4),
         },
       };
     },

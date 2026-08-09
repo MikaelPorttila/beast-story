@@ -209,6 +209,50 @@ export interface PathProfile {
   readonly bridges: boolean;
   /** What this path is for. See `PathRoles`. */
   readonly roles: PathRoles;
+  /**
+   * How much loose stone and stick the corridor throws to its sides, 0..1.
+   *
+   * Issue #142 asks for "path foliage (stones and sticks)", and §7 is right
+   * that it is not a new placer: `props.ts` already measures how far a column
+   * lies outside the nearest rim, once, and spends it keeping things OFF. This
+   * is the same number read the other way — a scatter rule that WANTS the
+   * corridor, in the same pass, on the same candidates.
+   *
+   * AT THE VERGE AND NOT DOWN THE MIDDLE, which is `RoadNetwork.litterAt`'s
+   * job rather than this number's: wheels and feet sweep a carriageway clear
+   * and what they sweep ends up at its edge. This only says how much there is.
+   */
+  readonly litter: number;
+  /**
+   * THERE IS NO `disrepair` FIELD, AND THAT IS A MEASUREMENT.
+   *
+   * Issue #142 asks for "path quality (cracks, potholes)" and says to decide
+   * colour against geometry up front rather than discover it. Both answers are
+   * no, and the second one had to be built to find out:
+   *
+   * GEOMETRY is ruled out on the same grounds the file's header gives for
+   * everything else. The deck IS the collision surface — `surfaceAt` and the
+   * ribbon are two halves of one function — so a pothole would have to go
+   * through `surfaceOf` or reopen issue #15, and every dip is something the
+   * hero walks into against a `MAX_STEP_UP` of 0.5.
+   *
+   * COLOUR was built, captured and removed. A patch hashed on a 3-unit cell and
+   * multiplied into `sectionColour` is invisible, and not because it is too
+   * subtle: the ribbon carries VERTEX colours on nine vertices per ring at the
+   * router's ~3-unit spacing, so any per-cell value is interpolated across six
+   * units of road and arrives as a gradient rather than as a patch — and the
+   * per-unit mottle already in there swings 0.86..1.16, which is a wider band
+   * than the damage. Captured at 26% darkening on 6% of cells (the intended
+   * setting) and again at 60% on 50%, the foreground road is the same picture
+   * either way.
+   *
+   * So a pothole needs a TEXTURE, which §5 defers for a real reason: the ribbon
+   * is one merged geometry on the terrain material and a texture is either a
+   * second material (a draw call plus a shadow pass) or a UV channel and an
+   * atlas on the terrain material for the whole world. Subdividing the ribbon
+   * instead is the change that made the road read as torn paper — see `XS` in
+   * town-parts.ts. Nobody should spend a week on the other one.
+   */
   /** The colours the section is painted from. */
   readonly palette: PathPalette;
 }
@@ -271,6 +315,7 @@ export function pathProfile(opts: {
   furniture?: 'road' | 'none';
   bridges?: boolean;
   roles?: PathRoles;
+  litter?: number;
   palette?: PathPalette;
 }): PathProfile {
   const deckHalf = opts.halfWidth;
@@ -314,6 +359,7 @@ export function pathProfile(opts: {
     furniture: opts.furniture ?? 'road',
     bridges: opts.bridges ?? true,
     roles: opts.roles ?? BUILT_ROLES,
+    litter: opts.litter ?? 0,
     palette: opts.palette ?? CART_PALETTE,
   };
 }
@@ -321,7 +367,15 @@ export function pathProfile(opts: {
 /**
  * THE CART ROAD — the profile every number above was reverse-engineered from.
  */
-export const ROAD_PROFILE = pathProfile({ id: 'path:road', halfWidth: 2.8 });
+export const ROAD_PROFILE = pathProfile({
+  id: 'path:road',
+  halfWidth: 2.8,
+  // A cart road is gravel over packed earth and it sheds: 0.35 puts a stone or
+  // a fallen stick on about a third of the verge candidates the scatter pass
+  // was going to reject anyway, which reads as a used road rather than as a
+  // strip of clean geometry laid on a lawn.
+  litter: 0.35,
+});
 
 /**
  * THE FOOTPATH — half the road's width, and the proof the parameterisation is
@@ -344,6 +398,11 @@ export const FOOTPATH_PROFILE = pathProfile({
   halfWidth: 1.4,
   furniture: 'none',
   bridges: false,
+  // MORE than the road's, and that is the difference between the two surfaces
+  // rather than an accident: nobody grades a footpath, so what falls on it
+  // stays. It is also the whole of what "path foliage" means for a path with no
+  // furniture and no bridges — the stones and sticks ARE its detail.
+  litter: 0.6,
   palette: FOOT_PALETTE,
 });
 

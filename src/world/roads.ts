@@ -105,6 +105,14 @@ const SEG_LEN = 3;
 const CELL = 8;
 /** Sampling pitch of `spanDistanceTo`. See there for the error it costs. */
 const SPAN_STEP = 0.35;
+/**
+ * How far PAST the rim a path still sheds stones and sticks.
+ *
+ * Half a unit, which is `ROAD_SOFT_CLEAR`'s own margin plus a hair: the grass
+ * stops 0.4 outside the rim, so litter reaching 0.5 overlaps the sward by a
+ * tenth of a unit and the two surfaces interleave instead of meeting on a line.
+ */
+const LITTER_SKIRT = 0.5;
 
 /**
  * THE FOUR NUMBERS THAT SHARE ONE BAND, and where they went.
@@ -269,6 +277,11 @@ export interface RoadClearance {
   /** The same, over only the paths that refuse BUILT things. */
   builtEdgeDistanceTo(x: number, z: number): number;
   spanBuiltEdgeDistanceTo(ax: number, az: number, bx: number, bz: number): number;
+  /**
+   * How much loose stone and stick belongs at (x, z), 0..1 — the inverse of
+   * every other query here. See `RoadNetwork.litterAt`.
+   */
+  litterAt(x: number, z: number): number;
   /** Distance from (x, z) to the nearest carriageway centreline, or Infinity. */
   distanceTo(x: number, z: number): number;
 }
@@ -798,6 +811,37 @@ export class RoadNetwork implements RoadField, RoadClearance {
   builtEdgeDistanceTo(x: number, z: number): number {
     return this.nearest(x, z, Role.Built, false)
       ? this.nDist - this.nProfile.deckEdge : Infinity;
+  }
+
+  /**
+   * HOW MUCH LOOSE STONE AND STICK BELONGS AT (x, z), 0..1.
+   *
+   * THE ONE QUERY HERE THAT WANTS THE CORRIDOR. Everything else on this
+   * interface is asked in order to keep something away; issue #142 asks for
+   * stones and sticks along a path, and §7 is right that it is the same number
+   * read the other way — `props.ts` already measures the distance out from the
+   * rim, once per column, and this spends it instead of throwing it away.
+   *
+   * A BAND AT THE VERGE, not a disc over the whole path, and that shape lives
+   * here rather than in the placer so every path type gets it: wheels and feet
+   * sweep a carriageway clear and what they sweep ends up at its edge. Full
+   * strength from the edge of the flat part out to the rim, tapering over the
+   * half-unit beyond it, and nothing at all down the middle.
+   *
+   * A `columnInfo`-budget query like `wearAt`, and it answers 0 immediately
+   * anywhere outside a path's own bounds.
+   */
+  litterAt(x: number, z: number): number {
+    if (!this.nearest(x, z, Role.Foliage, false)) return 0;
+    const p = this.nProfile;
+    if (p.litter <= 0) return 0;
+    const d = this.nDist;
+    if (d <= p.deckHalf) return 0;
+    if (d >= p.deckEdge + LITTER_SKIRT) return 0;
+    // Up over the verge, held across the rim, down over the skirt outside it.
+    const up = smoothstep(p.deckHalf, p.deckEdge, d);
+    const down = 1 - smoothstep(p.deckEdge, p.deckEdge + LITTER_SKIRT, d);
+    return p.litter * Math.min(up, down);
   }
 
   /**

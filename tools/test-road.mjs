@@ -207,6 +207,38 @@ const out = await page.evaluate(() => {
     }
   }
 
+  // -- what a path SHEDS ----------------------------------------------------
+  //
+  // Issue #142 asks for stones and sticks along a path, and §7 is right that it
+  // is the corridor clearance read the other way. The shape is the assertion:
+  // nothing down the middle of a carriageway (wheels sweep it), something at
+  // the verge, nothing again past the rim. A rule that answered a flat value
+  // everywhere would scatter gravel down the centre line and still pass a test
+  // that only asked "is it non-zero somewhere".
+  const litter = (() => {
+    const bad = [];
+    const bands = [];
+    for (const r of window.__dbgTowns().roads) {
+      const p = r.path;
+      const i = Math.floor(p.length / 6) * 3;
+      const cx = p[i];
+      const cz = p[i + 2];
+      let tx = p[i + 3] - cx;
+      let tz = p[i + 5] - cz;
+      const L = Math.hypot(tx, tz) || 1;
+      tx /= L; tz /= L;
+      const at = (d) => window.__dbgPaths(cx - tz * d, cz + tx * d).at.litter;
+      const middle = at(0);
+      const verge = Math.max(at(r.deckEdge * 0.8), at(r.deckEdge * 0.95), at(r.deckEdge));
+      const beyond = at(r.deckEdge + 1.2);
+      bands.push({ id: r.id, middle, verge, beyond });
+      if (middle !== 0) bad.push(`${r.id}: ${middle} litter down the middle`);
+      if (!(verge > 0)) bad.push(`${r.id}: nothing at the verge`);
+      if (beyond !== 0) bad.push(`${r.id}: ${beyond} litter past the skirt`);
+    }
+    return { bands, failures: bad, pass: bad.length === 0 && bands.length > 0 };
+  })();
+
   // -- the beaten tracks ---------------------------------------------------
   //
   // Sampled at the FAR end of each track, past the point where a road's own
@@ -304,6 +336,7 @@ const out = await page.evaluate(() => {
       at: poke.at,
       clean: poke.over === 0,
     },
+    litter,
     tracks,
     furniture: f,
   };
@@ -337,6 +370,9 @@ if (!out.crossSection.clean) {
   fail.push(`${out.crossSection.terrainOverRibbon} of ${out.crossSection.sampled} `
     + 'cross-section samples have terrain drawn over the ribbon (issue #15), '
     + `worst ${out.crossSection.worstPoke}`);
+}
+if (!out.litter.pass) {
+  fail.push(`path litter: ${out.litter.failures.join('; ') || 'no path answered at all'}`);
 }
 if (!out.tracks.pass) {
   fail.push(`beaten tracks: ${out.tracks.failures.join('; ') || 'none on the network'}`);

@@ -1161,9 +1161,10 @@ export interface World {
     paths: Array<{
       id: string; profile: string; deckHalf: number; deckEdge: number;
       wear: number; draw: boolean; surface: boolean; refusesBuilt: boolean;
+      litter: number;
       x0: number; z0: number; x1: number; z1: number;
     }>;
-    at: { edge: number; builtEdge: number; wear: number } | null;
+    at: { edge: number; builtEdge: number; wear: number; litter: number } | null;
   };
   /**
    * Debug: append every ROOF as [cx, cz, axisYaw, hl, r, yAxis, ry, fit] — a

@@ -53,6 +53,9 @@ eq('road avoidR (was AVOID_R)', r.avoidR, 18);
 ok('road carves', r.carve === 'full');
 ok('road carries road furniture', r.furniture === 'road');
 ok('road bridges', r.bridges === true);
+// A cart road sheds. The exact figure is taste; that it sheds at all is not,
+// because `litterAt` returning 0 everywhere is a silent way to lose the feature.
+ok('road sheds litter', r.litter > 0);
 // The nine cross-section offsets `XS` used to spell out in town-parts.ts.
 const XS = [-5, -4.2, -2.8, -1.26, 0, 1.26, 2.8, 4.2, 5];
 eq('road xs length', r.xs.length, XS.length);
@@ -71,6 +74,9 @@ eq('footpath avoidR', f.avoidR, 13);
 ok('footpath carries no road furniture', f.furniture === 'none');
 ok('footpath does not bridge', f.bridges === false);
 ok('footpath has its own palette', f.palette !== r.palette);
+// MORE than the road's, and that ordering is the point rather than the values:
+// nobody grades a footpath, so what falls on it stays.
+ok('a footpath sheds more than a cart road', f.litter > r.litter);
 ok('the two profiles have different ids', f.id !== r.id);
 
 // -- the invariants, over widths nobody has authored yet ---------------------
@@ -114,6 +120,14 @@ for (let hw = 0.7; hw <= 6.0001; hw += 0.1) {
   eq(at('the shoulder corner is shoulderIn inside the rim'),
     p.xs[7], p.deckEdge - p.shoulderIn);
 }
+
+// -- litter is off by default -----------------------------------------------
+//
+// A profile that says nothing about shedding must shed nothing: the scatter
+// rule in props.ts runs on every candidate a path refuses, so a non-zero
+// default would put stones down every beaten track in every settlement.
+const plain = pathProfile({ id: 'path:sweep-plain', halfWidth: 2 });
+eq('an unspecified profile sheds nothing', plain.litter, 0);
 
 // -- what a no-carve profile is ---------------------------------------------
 const trail = pathProfile({ id: 'path:sweep-nocarve', halfWidth: 1.0, carve: 'none' });
