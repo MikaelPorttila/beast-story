@@ -3040,6 +3040,10 @@ function nearestEnemyOfSpecies(species: string) {
   const p = player.position;
   const one = (b: BeastActor, role: string) => ({
     role, id: b.species.id, transit: b.inTransit, drawn: b.isDrawn, dead: b.isDead,
+    // Size of its light-travel streak on screen. Both halves of issue #136 are
+    // read off this one number: a companion in transit is drawing one, and the
+    // same companion benched is drawing nothing.
+    beam: +b.beamSize.toFixed(3),
     // The ridden beast is placed by the saddle and never runs follow steering,
     // so it is the one row in here light travel says nothing about.
     ridden: mount.beast === b,
@@ -3060,6 +3064,12 @@ function nearestEnemyOfSpecies(species: string) {
       ...(lead ? [one(lead, 'primary')] : []),
       ...(sup ? [one(sup, 'support')] : []),
     ],
+    // BONDED BUT NOT IN A SLOT — the beasts nothing updates. They are outside
+    // `beasts` on purpose (every assertion in test-companion.mjs walks that list
+    // and means "a companion following the hero"), but they need reporting of
+    // their own: what a benched beast left running is exactly issue #136.
+    bench: ownedBeasts().filter((b) => b !== lead && b !== sup)
+      .map((b) => ({ id: b.species.id, drawn: b.isDrawn, beam: +b.beamSize.toFixed(3) })),
   };
 };
 // TEST HOOK, like __dbgDrop below: put the hero at an absolute column in the
