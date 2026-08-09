@@ -497,6 +497,21 @@ export class RoadNetwork implements RoadField, RoadClearance {
     if (road.pts.length >= 2) this.roads.push(road);
   }
 
+  /**
+   * Swap one path for two — what a crossing does to both edges it splits.
+   *
+   * `roads` is otherwise append-only, because the network is built once. A
+   * merge is the one operation that has to REMOVE an edge, and it removes it by
+   * replacing it: the two halves are the same path either side of a new node,
+   * and a caller that deleted and appended would lose the ordering the ribbon's
+   * lift bias is assigned from. Call `build()` after. See `mergeCrossings`.
+   */
+  replace(road: Road, halves: readonly Road[]): void {
+    const i = this.roads.indexOf(road);
+    if (i < 0) return;
+    this.roads.splice(i, 1, ...halves);
+  }
+
   /** Register a fork, so the arms know where to start. */
   addJunction(x: number, z: number, y: number, profile: PathProfile): void {
     this.junctions.push({ x, z, y, profile });
@@ -951,6 +966,293 @@ export class RoadNetwork implements RoadField, RoadClearance {
     }
     return best;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Crossings
+// ---------------------------------------------------------------------------
+
+/**
+ * HOW SHALLOW A CROSSING HAS TO BE BEFORE IT IS NOT A CROSSING.
+ *
+ * Issue #142 §12e. Two paths meeting at five degrees should become one shared
+ * run, not two nodes forty units apart with a double line between them — which
+ * is exactly the artefact `AVOID_COST` was tuned to prevent. Sharing a run is a
+ * real merge and it is not built; below this angle the crossing is REFUSED with
+ * that reason, which is the honest half.
+ *
+ * 25 degrees, and the number comes from the apron rather than from taste: the
+ * rim between two arms pinches to `deckEdge / cos((pi - gap) / 2)`, so at 25
+ * degrees a cart road's apron already reaches 23 units in the shallow direction
+ * against its own 11-unit radius. Anything flatter is a very long thin wedge
+ * that reads as two roads that failed to meet.
+ */
+const GLANCE_MIN = (25 * Math.PI) / 180;
+
+/** Where two paths cross, and what the merge needs to know about it. */
+export interface Crossing {
+  /** The path being merged IN, and where along its polyline. */
+  seg: number;
+  t: number;
+  /** The path already there, and where along ITS polyline. */
+  other: Road;
+  otherSeg: number;
+  otherT: number;
+  x: number;
+  z: number;
+  /** Deck heights either side, which have to agree for the node to be flat. */
+  y: number;
+  otherY: number;
+  /** The angle between the two centrelines, 0..pi/2. */
+  angle: number;
+}
+
+/**
+ * Every place `road` crosses one of `others`.
+ *
+ * O(n*m) over the two polylines rather than a sweep through the spatial grid,
+ * and deliberately: a path is ~30 segments and the whole network a few hundred,
+ * so this is tens of thousands of sign tests ONCE, when somebody authors a
+ * path. The grid exists for `carveAt`, which runs a thousand times a chunk.
+ */
+export function findCrossings(road: Road, others: readonly Road[]): Crossing[] {
+  const out: Crossing[] = [];
+  for (let i = 1; i < road.pts.length; i++) {
+    const a0 = road.pts[i - 1];
+    const a1 = road.pts[i];
+    const rx = a1.x - a0.x;
+    const rz = a1.z - a0.z;
+    for (const other of others) {
+      if (other === road) continue;
+      for (let k = 1; k < other.pts.length; k++) {
+        const b0 = other.pts[k - 1];
+        const b1 = other.pts[k];
+        const sx = b1.x - b0.x;
+        const sz = b1.z - b0.z;
+        const den = rx * sz - rz * sx;
+        if (Math.abs(den) < 1e-9) continue;   // parallel, or a degenerate segment
+        const t = ((b0.x - a0.x) * sz - (b0.z - a0.z) * sx) / den;
+        const u = ((b0.x - a0.x) * rz - (b0.z - a0.z) * rx) / den;
+        if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+        const rl = Math.hypot(rx, rz) || 1;
+        const sl = Math.hypot(sx, sz) || 1;
+        // The UNSIGNED angle between the two lines: a crossing has no direction
+        // and two paths meeting head-on at 175 degrees are 5 degrees apart.
+        const dot = Math.abs((rx * sx + rz * sz) / (rl * sl));
+        out.push({
+          seg: i, t,
+          other, otherSeg: k, otherT: u,
+          x: a0.x + rx * t,
+          z: a0.z + rz * t,
+          y: a0.y + (a1.y - a0.y) * t,
+          otherY: b0.y + (b1.y - b0.y) * u,
+          angle: Math.acos(Math.min(1, dot)),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Cut a path in two at (segment, t), and hand back both halves.
+ *
+ * The cut sample is shared by both, at one height, which is what makes the two
+ * halves meet rather than nearly meet. Each half keeps the trim plane at its
+ * OUTER end and gets a zeroed one at the node — `build()` squares that to the
+ * half's own last segment, which is what turns a terminal dome into the flat
+ * cross-section one apron ring covers exactly. See `Road.trim`.
+ */
+export function splitRoad(r: Road, seg: number, t: number, y: number): [Road, Road] {
+  const a = r.pts[seg - 1];
+  const b = r.pts[seg];
+  const cut: RoadSample = {
+    x: a.x + (b.x - a.x) * t,
+    z: a.z + (b.z - a.z) * t,
+    y,
+    // A cut end inherits the span flag of the samples it was cut from, the same
+    // argument `builtDeck` makes: half a bridge is not a thing.
+    bridge: a.bridge || b.bridge,
+  };
+  const head: Road = {
+    ...r,
+    id: `${r.id}#a`,
+    pts: [...r.pts.slice(0, seg), cut],
+    trim: Float32Array.of(r.trim[0], r.trim[1], r.trim[2], r.trim[3], 0, 0, 0, 0),
+  };
+  const tail: Road = {
+    ...r,
+    id: `${r.id}#b`,
+    pts: [cut, ...r.pts.slice(seg)],
+    trim: Float32Array.of(0, 0, 0, 0, r.trim[4], r.trim[5], r.trim[6], r.trim[7]),
+  };
+  return [head, tail];
+}
+
+/**
+ * HOW MUCH OF EACH ARM A NODE HOLDS DEAD LEVEL.
+ *
+ * The same 20 as `JUNCTION_HOLD` in towns.ts, and for the same measured reason,
+ * which is worth restating because a merge looks like it should only need to
+ * agree at the node itself. It does not. Outside `deckHalf` the walking surface
+ * is `round(deck)` — an integer, so it can match the floored terrain column
+ * beside it — and `round` flips by a WHOLE UNIT as a deck passes each half. Two
+ * arms whose decks agree at the node but diverge a few units out round
+ * differently, and `surfaceAt` answers with whichever deck is nearest, so the
+ * surface jumps between them across the line equidistant from the two.
+ *
+ * Measured on the first crossroads authored here, with the arms merely eased
+ * into a shared height over six samples: 0.791 at 5 units from the node,
+ * against a MAX_STEP_UP of 0.5. That is issue #15's fork step — 0.801 — at a
+ * junction nobody planned, arrived at from the other direction.
+ */
+const NODE_HOLD = 20;
+
+/**
+ * Hold a split half dead level at the node height, then decay the correction
+ * back onto the profile it would otherwise have had.
+ *
+ * `profileRoad`'s own `anchor` with the sign of the walk flipped, and the
+ * subtlety it documents applies here too: THE DELTA IS MEASURED WHERE THE HOLD
+ * ENDS, not at the node. The decay is a rigid shift that tapers to nothing, so
+ * it meets the held run only if the shift it starts from is the one that lands
+ * the first decaying sample on target. Measured at the node instead, the arm
+ * resumes at whatever the raw profile was doing and steps there instead.
+ */
+function holdAtNode(pts: RoadSample[], fromEnd: boolean, y: number): void {
+  const idx = (k: number): number => (fromEnd ? pts.length - 1 - k : k);
+  const flat = Math.round(NODE_HOLD / SEG_LEN);
+  const joinK = Math.min(flat, pts.length - 1);
+  const delta = y - pts[idx(joinK)].y;
+  for (let k = 0; k < flat + 14; k++) {
+    const j = idx(k);
+    if (j < 0 || j >= pts.length) break;
+    pts[j].y = k < flat ? y : pts[j].y + delta * (1 - (k - flat) / 14);
+  }
+}
+
+/**
+ * The largest disagreement between two decks that a node can simply average.
+ *
+ * NOT `MAX_STEP_UP`, and the arithmetic is why. The node takes the mean, so
+ * each deck moves by half the difference, and `easeToNode` decays that over six
+ * samples — a worst per-segment shift of `d / 14`, which at SEG_LEN 3 is
+ * `d / 42` of extra grade. At 1.5 that is 0.036 against a MAX_GRADE of 0.10:
+ * the arms bend into the node instead of stepping into it, which is the same
+ * trade `profileRoad`'s own anchor decay makes.
+ *
+ * Past it the two paths are at genuinely different heights — one is on an
+ * embankment over the other — and a junction there would be a hole in one of
+ * them. Refused, and reported.
+ */
+const MERGE_MAX_DROP = 1.5;
+
+/** What a merge did, and what it would not do. See `mergeCrossings`. */
+export interface MergeReport {
+  /** Nodes created, in the order they were made. */
+  nodes: Array<{ x: number; z: number; y: number; arms: number }>;
+  /** Crossings that were left alone, each with the reason. */
+  refused: string[];
+}
+
+/**
+ * TURN EVERY PLACE `road` CROSSES THE NETWORK INTO A JUNCTION.
+ *
+ * Issue #142 §12e, and the reason it is a whole function rather than a flag:
+ * "merge where it crosses" needs crossing detection, a split of BOTH edges, a
+ * node with the right arm count, recomputed trim planes on all four halves, and
+ * a rule for the crossings that must not be merged at all.
+ *
+ * ONE CROSSING PER CALL, and that is a real limit stated rather than hidden. A
+ * split changes both polylines, so every crossing found after the first is
+ * indexed against a path that no longer exists; re-finding them is easy and
+ * re-deciding which half of a split edge a later crossing belongs to is not.
+ * A path that crosses the network twice gets its first junction and a note.
+ *
+ * THE APRON IS ALREADY N-ARM. `buildJunctionApron` sorts its arms by angle and
+ * fills each gap between consecutive ones with wraparound, so two arms and four
+ * work the way three do — what was NOT general was the radius, and that is
+ * `PathProfile.apronR` now. The wider of the two profiles owns the node
+ * (§14: precedence), because its arms' rings are the ones the rim has to clear.
+ */
+export function mergeCrossings(net: RoadNetwork, road: Road): MergeReport {
+  const report: MergeReport = { nodes: [], refused: [] };
+  const hits = findCrossings(road, net.roads);
+  if (hits.length === 0) return report;
+
+  const at = (c: { x: number; z: number }): string =>
+    `${c.x.toFixed(0)}, ${c.z.toFixed(0)}`;
+  let chosen: Crossing | null = null;
+  for (const c of hits) {
+    // A GLANCING CROSSING IS NOT A CROSSING. See `GLANCE_MIN`.
+    if (c.angle < GLANCE_MIN) {
+      report.refused.push(`${at(c)}: the two paths meet at `
+        + `${((c.angle * 180) / Math.PI).toFixed(0)} degrees — under `
+        + `${((GLANCE_MIN * 180) / Math.PI).toFixed(0)} they should share one run, `
+        + 'which is not built');
+      continue;
+    }
+    // A BRIDGE HAS NOTHING TO CARVE INTO and its deck, piers and railing are
+    // owned by `addBridgeFurniture`. A junction in the middle of a span is not
+    // a junction, it is a hole in a bridge.
+    if (road.pts[c.seg].bridge || road.pts[c.seg - 1].bridge
+      || c.other.pts[c.otherSeg].bridge || c.other.pts[c.otherSeg - 1].bridge) {
+      report.refused.push(`${at(c)}: the crossing lands on a bridge span`);
+      continue;
+    }
+    // INSIDE ANOTHER APRON there is no arm to grow: the ribbon has already been
+    // clipped away and the node would be drawn over a node.
+    const inApron = net.junctions.find(
+      (j) => Math.hypot(c.x - j.x, c.z - j.z) < j.profile.apronR + road.profile.apronR,
+    );
+    if (inApron !== undefined) {
+      report.refused.push(`${at(c)}: inside the apron already at `
+        + `${inApron.x.toFixed(0)}, ${inApron.z.toFixed(0)}`);
+      continue;
+    }
+    // TWO DECKS AT TWO HEIGHTS make a step across the node. See MERGE_MAX_DROP.
+    if (Math.abs(c.y - c.otherY) > MERGE_MAX_DROP) {
+      report.refused.push(`${at(c)}: the decks are `
+        + `${Math.abs(c.y - c.otherY).toFixed(2)} apart, over the ${MERGE_MAX_DROP} `
+        + 'a node can absorb');
+      continue;
+    }
+    // A SPLIT NEEDS SOMETHING LEFT EITHER SIDE. A half of one sample is not a
+    // path, and its trim plane would have no segment to square itself to.
+    if (c.seg < 2 || c.seg > road.pts.length - 2
+      || c.otherSeg < 2 || c.otherSeg > c.other.pts.length - 2) {
+      report.refused.push(`${at(c)}: too near the end of one of the two paths`);
+      continue;
+    }
+    if (chosen === null) chosen = c;
+    else report.refused.push(`${at(c)}: only the first crossing of a path is merged`);
+  }
+  if (chosen === null) return report;
+
+  // ONE HEIGHT FOR THE NODE, and both decks eased into it over four samples so
+  // the correction is a grade change rather than a step at the join.
+  const y = (chosen.y + chosen.otherY) / 2;
+  const [aHead, aTail] = splitRoad(road, chosen.seg, chosen.t, y);
+  const [bHead, bTail] = splitRoad(chosen.other, chosen.otherSeg, chosen.otherT, y);
+  // ALL FOUR ARMS DEAD LEVEL ACROSS THE NODE, which is what the world's own
+  // fork does and what a shared height at the node alone does not buy. See
+  // `NODE_HOLD`.
+  holdAtNode(aHead.pts, true, y);
+  holdAtNode(aTail.pts, false, y);
+  holdAtNode(bHead.pts, true, y);
+  holdAtNode(bTail.pts, false, y);
+  net.replace(road, [aHead, aTail]);
+  net.replace(chosen.other, [bHead, bTail]);
+  // THE WIDER PROFILE OWNS THE NODE (§14). Its arms' rings are the ones the rim
+  // has to clear, so an apron sized to the narrower one would be drawn under
+  // them.
+  const profile = road.profile.deckEdge >= chosen.other.profile.deckEdge
+    ? road.profile : chosen.other.profile;
+  net.addJunction(chosen.x, chosen.z, y, profile);
+  report.nodes.push({
+    x: +chosen.x.toFixed(2), z: +chosen.z.toFixed(2), y: +y.toFixed(2), arms: 4,
+  });
+  return report;
 }
 
 // ---------------------------------------------------------------------------

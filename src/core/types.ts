@@ -1171,9 +1171,25 @@ export interface World {
     to: readonly [number, number];
     /** A profile name — `road`, `footpath`. Unknown names are reported. */
     profile?: string;
+    /**
+     * Route THROUGH the network rather than around it, and turn the first
+     * crossing into a junction.
+     *
+     * Off by default because the router is tuned the other way: `AVOID_COST` is
+     * 50, deliberately huge, so two arms leave a fork as separate roads — and a
+     * path drawn to cross another will otherwise watch it swerve (issue #142
+     * §12d). This suppresses that charge for this one route.
+     */
+    cross?: boolean;
     /** Called after the rebuild, to re-ground anything standing on it. */
     refit?: () => void;
-  }): { id: string; length: number; samples: number; note: string | null; error?: string };
+  }): {
+    id: string; length: number; samples: number; note: string | null;
+    /** Junctions the merge created, and every crossing it refused. */
+    nodes: Array<{ x: number; z: number; y: number; arms: number }>;
+    refused: string[];
+    error?: string;
+  };
   /**
    * Debug: every path on the network, and what the clearance queries answer at
    * a column.

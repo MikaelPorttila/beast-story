@@ -27,6 +27,13 @@
 //            raises as well as lowers (`profileRoad` fills dips), so this is a
 //            real hazard and not a formality — see `refitHero` in main.ts.
 //   walk   — and the deck is walkable: no step over MAX_STEP_UP along it.
+//   cross  — then a SECOND path, drawn deliberately across the trunk road, is
+//            merged into a four-arm crossroads: both edges split, a node
+//            between them, and the same two measurements over every arm of it.
+//            A junction is where this world's worst step has always been — the
+//            fork used to step 0.801 against a MAX_STEP_UP of 0.5, because
+//            `surfaceAt` answers with the nearest deck and the nearest deck
+//            jumps across the line equidistant from two of them.
 //
 // Exits non-zero on any of them.
 //
@@ -163,7 +170,144 @@ const out = await page.evaluate((made) => {
   };
 }, built);
 
-console.log(JSON.stringify({ refusals, built, ...out }, null, 2));
+// -- and now one that CROSSES ------------------------------------------------
+//
+// Perpendicular to the trunk at its midpoint, with `cross` on so the router is
+// not charged 50 a step for going near it (§12d). The trunk is the road the
+// player spawns on, so a crossroads there is also the one an eye would land on.
+const crossed = await page.evaluate(() => {
+  const t = window.__dbgTowns().roads.find((q) => q.id === 'camp-junction');
+  const n = t.path.length / 3;
+  const i = Math.floor(n * 0.5);
+  const cx = t.path[i * 3];
+  const cz = t.path[i * 3 + 2];
+  const j = Math.min(n - 1, i + 3);
+  let tx = t.path[j * 3] - cx;
+  let tz = t.path[j * 3 + 2] - cz;
+  const L = Math.hypot(tx, tz) || 1;
+  tx /= L; tz /= L;
+  const drawnBefore = window.__dbgTowns().roads.length;
+  const r = window.__dbgAddPath(cx + tz * 45, cz - tx * 45, cx - tz * 45, cz + tx * 45, 'road', true);
+  return { r, drawnBefore, node: { x: cx, z: cz } };
+});
+await wait(6000);
+
+const merged = await page.evaluate((made) => {
+  const drawn = window.__dbgTowns().roads;
+  const node = made.r.nodes[0] ?? null;
+  // Every arm of the crossroads: the two halves of the trunk and the two of
+  // the path that cut it. A split names its halves `<id>#a` and `<id>#b`.
+  const arms = drawn.filter((r) => /#[ab]$/.test(r.id));
+  const poke = { sampled: 0, over: 0, worst: 0, at: null };
+  let step = 0;
+  let stepAt = null;
+  if (node) {
+    for (const r of arms) {
+      const p = r.path;
+      const E = r.deckEdge;
+      for (let i = 1; i < p.length / 3; i++) {
+        const ax = p[(i - 1) * 3];
+        const az = p[(i - 1) * 3 + 2];
+        const bx = p[i * 3];
+        const bz = p[i * 3 + 2];
+        let tx = bx - ax;
+        let tz = bz - az;
+        const L = Math.hypot(tx, tz) || 1;
+        tx /= L; tz /= L;
+        for (let s = 0; s < L; s += 1.5) {
+          for (let d = -(E - 0.2); d <= E - 0.2; d += 0.6) {
+            const x = ax + tx * s - tz * d;
+            const z = az + tz * s + tx * d;
+            const hit = window.__dbgSurfaceY(x, z, 2);
+            if (!hit.hits.some((q) => /^road:/.test(q.name))) continue;
+            poke.sampled++;
+            if (!/^terrain:/.test(hit.hit || '')) continue;
+            const road = hit.hits.find((q) => /^road:/.test(q.name));
+            const by = hit.surface - road.y;
+            if (by <= 0) continue;
+            poke.over++;
+            if (by > poke.worst) {
+              poke.worst = by;
+              poke.at = { x: +x.toFixed(1), z: +z.toFixed(1), road: r.id };
+            }
+          }
+        }
+      }
+    }
+    // THE WALKING SURFACE ACROSS THE NODE ITSELF, swept as a disc rather than
+    // along a line: the step a junction produces is between two decks, so it
+    // lives on the boundary between them and a centreline sample walks right
+    // past it.
+    //
+    // ON THE CARRIAGEWAY ONLY, which is the same filter `test-road`'s sweep
+    // uses and is not a way of avoiding an awkward number. Between two arms the
+    // apron is DRAWN out to a fillet but the ground there is ordinary terrain,
+    // which steps by whole units everywhere in this world on purpose — measured
+    // without this, the worst "junction step" was 1.000 at 10.8 units from the
+    // node, in a wedge with no carriageway in it. What the hero can walk over
+    // is the flat part of an arm, or the middle of the disc.
+    const h = (x, z) => window.__dbgWorld(x, z).ground;
+    const S = 0.25;
+    const R = 11;
+    const onDeck = (x, z) => {
+      if (Math.hypot(x - node.x, z - node.z) <= 5) return true;
+      for (const r of arms) {
+        const p = r.path;
+        const half = Math.min(2.6, r.deckEdge * 0.52);
+        for (let i = 3; i < p.length; i += 3) {
+          const ax = p[i - 3];
+          const az = p[i - 1];
+          const dx = p[i] - ax;
+          const dz = p[i + 2] - az;
+          const L = dx * dx + dz * dz || 1;
+          let u = ((x - ax) * dx + (z - az) * dz) / L;
+          u = u < 0 ? 0 : u > 1 ? 1 : u;
+          if (Math.hypot(x - (ax + dx * u), z - (az + dz * u)) <= half) return true;
+        }
+      }
+      return false;
+    };
+    for (let dx = -R; dx <= R; dx += S) {
+      for (let dz = -R; dz <= R; dz += S) {
+        if (dx * dx + dz * dz > R * R) continue;
+        const x = node.x + dx;
+        const z = node.z + dz;
+        if (!onDeck(x, z)) continue;
+        const a = h(x, z);
+        for (const [ex, ez] of [[S, 0], [0, S]]) {
+          if (!onDeck(x + ex, z + ez)) continue;
+          const b = h(x + ex, z + ez);
+          if (Math.abs(b - a) > step) {
+            step = Math.abs(b - a);
+            stepAt = { x: +x.toFixed(2), z: +z.toFixed(2) };
+          }
+        }
+      }
+    }
+  }
+  return {
+    node,
+    refused: made.r.refused,
+    drawnBefore: made.drawnBefore,
+    drawnAfter: drawn.length,
+    arms: arms.map((r) => r.id),
+    crossSection: {
+      sampled: poke.sampled,
+      terrainOverRibbon: poke.over,
+      worstPoke: +poke.worst.toFixed(3),
+      at: poke.at,
+      clean: poke.over === 0,
+    },
+    apron: {
+      worstStepOver025: +step.toFixed(3),
+      at: stepAt,
+      maxStepUp: 0.5,
+      walkable: step < 0.5,
+    },
+  };
+}, crossed);
+
+console.log(JSON.stringify({ refusals, built, ...out, merged }, null, 2));
 await browser.close();
 
 const fail = [];
@@ -204,6 +348,39 @@ if (built.result.error) {
 // -0.05 and not 0: the hero rests a hair into the surface he stands on, and the
 // failure this guards against is a whole carve depth (up to 1.62), not a
 // rounding error.
+// -- the crossroads ---------------------------------------------------------
+if (merged.node === null) {
+  fail.push('the crossing was not merged into a junction: '
+    + (merged.refused.join('; ') || 'no reason given, which is its own bug'));
+} else {
+  if (merged.node.arms !== 4) {
+    fail.push(`the node reports ${merged.node.arms} arms, expected 4`);
+  }
+  // Two edges split into four, and the path itself is two of them: three drawn
+  // paths become six.
+  if (merged.drawnAfter !== merged.drawnBefore + 3) {
+    fail.push(`drawn paths went ${merged.drawnBefore} -> ${merged.drawnAfter}, `
+      + 'expected three more (two splits and the two halves of the new path)');
+  }
+  if (merged.arms.length !== 4) {
+    fail.push(`${merged.arms.length} split halves on the network, expected 4: `
+      + merged.arms.join(', '));
+  }
+  if (merged.crossSection.sampled === 0) {
+    fail.push('the cross-section sweep found no ribbon over the crossroads at all');
+  }
+  if (!merged.crossSection.clean) {
+    fail.push(`${merged.crossSection.terrainOverRibbon} of ${merged.crossSection.sampled} `
+      + 'cross-section samples over the MERGED crossroads have terrain drawn over '
+      + `the ribbon (issue #15), worst ${merged.crossSection.worstPoke}`);
+  }
+  if (!merged.apron.walkable) {
+    fail.push(`the walking surface steps ${merged.apron.worstStepOver025} across the `
+      + 'authored junction, against MAX_STEP_UP 0.5 — this is issue #15\'s fork step '
+      + 'at a node nobody planned');
+  }
+}
+
 if (out.hero.clearance < -0.05) {
   fail.push(`the hero was left ${(-out.hero.clearance).toFixed(2)} inside the ground `
     + 'after the carve — see refitHero in main.ts');

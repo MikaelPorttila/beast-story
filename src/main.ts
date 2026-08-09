@@ -4166,23 +4166,31 @@ devConsole?.register({
 });
 devConsole?.register({
   name: 'path',
-  args: '<dx> <dz> [profile]',
+  args: '<dx> <dz> [profile] [cross]',
   help: 'Route a path from the hero to an offset and carve it in. Rebuilds every chunk.',
   run: (args) => {
     const dx = Number(args[0]);
     const dz = Number(args[1]);
     if (!Number.isFinite(dx) || !Number.isFinite(dz)) {
-      return 'usage: /path <dx> <dz> [road|footpath]';
+      return 'usage: /path <dx> <dz> [road|footpath] [cross]';
     }
     const r = world.addPath({
       from: [player.position.x, player.position.z],
       to: [player.position.x + dx, player.position.z + dz],
       profile: args[2],
+      // `cross` routes THROUGH the network and merges at the first crossing,
+      // rather than giving way to what is already there. See World.addPath.
+      cross: args[3] === 'cross',
       refit: refitHero,
     });
     if (r.error) return `refused: ${r.error}`;
-    return `${r.id}: ${r.length} units over ${r.samples} samples`
-      + (r.note ? ` (${r.note})` : '');
+    const lines = [`${r.id}: ${r.length} units over ${r.samples} samples`
+      + (r.note ? ` (${r.note})` : '')];
+    for (const n of r.nodes) lines.push(`  junction at ${n.x}, ${n.z} — ${n.arms} arms`);
+    // EVERY REFUSAL IS PRINTED. A merge that quietly did nothing is the thing
+    // issue #142 §12f says an editor must never do.
+    for (const why of r.refused) lines.push(`  no merge: ${why}`);
+    return lines.join('\n');
   },
 });
 devConsole?.register({
@@ -6116,9 +6124,11 @@ beginPlay();
  * a test the UI would fail, so both go through one function.
  */
 (window as unknown as {
-  __dbgAddPath: (ax: number, az: number, bx: number, bz: number, profile?: string) => unknown;
-}).__dbgAddPath = (ax, az, bx, bz, profile) => world.addPath({
-  from: [ax, az], to: [bx, bz], profile, refit: refitHero,
+  __dbgAddPath: (
+    ax: number, az: number, bx: number, bz: number, profile?: string, cross?: boolean,
+  ) => unknown;
+}).__dbgAddPath = (ax, az, bx, bz, profile, cross) => world.addPath({
+  from: [ax, az], to: [bx, bz], profile, cross, refit: refitHero,
 });
 
 // World surface queries at an arbitrary column, for the climbing/collision

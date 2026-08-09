@@ -687,6 +687,12 @@ function planeHit(
  */
 export interface MutableTownRegistry extends TownRegistry {
   addRoad(road: Road): void;
+  /**
+   * Replace the whole list, which is what a crossing MERGE needs: it splits two
+   * existing edges into four, so the records for the two it replaced have to go
+   * as well as the new ones arriving.
+   */
+  setRoads(roads: readonly Road[]): void;
 }
 
 export interface SettlementPlan {
@@ -740,6 +746,11 @@ class Registry implements MutableTownRegistry {
 
   addRoad(road: Road): void {
     this.mutableRoads.push(roadRecord(road));
+  }
+
+  setRoads(roads: readonly Road[]): void {
+    this.mutableRoads.length = 0;
+    for (const r of roads) this.mutableRoads.push(roadRecord(r));
   }
 
   get(id: string): TownInfo | undefined {
@@ -1215,10 +1226,14 @@ export class Towns {
   private ribbonCtx!: {
     terrainMat: THREE.Material;
     surfaceAt: (x: number, z: number) => number;
-    aprons: readonly Junction[];
     seed: number;
-    next: number;
   };
+  /**
+   * Everything `rebuildPaths` owns: one group holding every ribbon and every
+   * apron in the world, so an edit can drop the lot and re-emit rather than
+   * hunt individual meshes out of the settlement groups they were mixed into.
+   */
+  private readonly pathGroup = new THREE.Group();
   /** Per-site groups and their centres, for the distance cull in `update`. */
   private readonly sites: Array<{ g: THREE.Group; x: number; z: number; r: number }> = [];
   /**
@@ -1373,13 +1388,8 @@ export class Towns {
 
     // -- roads ---------------------------------------------------------------
     let roadIdx = 0;
-    this.ribbonCtx = {
-      terrainMat,
-      surfaceAt: (x, z) => terrain.getHeight(x, z),
-      aprons: plan.network.junctions,
-      seed,
-      next: 0,
-    };
+    this.ribbonCtx = { terrainMat, surfaceAt: (x, z) => terrain.getHeight(x, z), seed };
+    this.group.add(this.pathGroup);
     /** See `fences` above: the readout `tools/test-fence.mjs` asserts over. */
     const builtFences: Fence[] = [];
     // Every lamp and fingerpost already standing, shared by all three roads.
@@ -1413,74 +1423,25 @@ export class Towns {
       }
       emit(solid.acc, props.solidMat, g, true);
       emit(glow, lampGlow, g, false);
-
-      // The ribbon is drawn on the WALKING SURFACE, queried per vertex — see
-      // buildRoadRibbon. `terrain.getHeight` is the same function the player,
-      // the beasts and the camera resolve against, so the two cannot drift.
-      // The bias is a third of a millimetre per road, which only matters where
-      // two ribbons now resolve onto the same surface at the fork and would
-      // otherwise be coplanar.
-      const rib = buildRoadRibbon(
-        [road], seed,
-        (x, z) => terrain.getHeight(x, z),
-        roadIdx++ * 0.003,
-        plan.network.junctions,
-      );
-      this.ribbonCtx.next = roadIdx;
-      if (rib.idx.length > 0) {
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(rib.pos, 3));
-        geo.setAttribute('normal', new THREE.Float32BufferAttribute(rib.nrm, 3));
-        geo.setAttribute('color', new THREE.Float32BufferAttribute(rib.col, 3));
-        geo.setIndex(rib.idx);
-        geo.computeBoundingSphere();
-        const mesh = new THREE.Mesh(geo, terrainMat);
-        // Named so a raycast can say WHICH surface it hit. `__dbgSurfaceY` in
-        // main.ts compares what is drawn at a column against what you walk on,
-        // and "Mesh" for every hit made its answers useless — a hero buried by
-        // the road and a hero standing behind a bush read identically.
-        mesh.name = `road:${road.id}`;
-        mesh.receiveShadow = true;
-        mesh.matrixAutoUpdate = false;
-        g.add(mesh);
-        this.geos.push(geo);
-      }
       this.group.add(g);
       const mid = road.pts[Math.floor(road.pts.length / 2)];
       this.sites.push({ g, x: mid.x, z: mid.z, r: roadLength(road) * 0.5 + 20 });
     }
+    void roadIdx;
     this.furniture = taken;
     this.fences = builtFences;
 
-    // -- the aprons ----------------------------------------------------------
+    // -- the surfaces ---------------------------------------------------------
     //
-    // AFTER the arms, because it is the piece they grew out of and reading it
-    // in that order is the only way the geometry makes sense. One mesh per
-    // fork, on the same terrain material and named the same way, so
-    // `__dbgSurfaceY` and `tools/test-road.mjs` see the junction as road rather
-    // than as an anonymous `Mesh`.
-    for (const j of plan.network.junctions) {
-      const ap = buildJunctionApron(
-        j, plan.network.roads, seed, (x, z) => terrain.getHeight(x, z),
-        roadIdx++ * 0.003,
-      );
-      if (ap.idx.length === 0) continue;
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(ap.pos, 3));
-      geo.setAttribute('normal', new THREE.Float32BufferAttribute(ap.nrm, 3));
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(ap.col, 3));
-      geo.setIndex(ap.idx);
-      geo.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geo, terrainMat);
-      mesh.name = 'road:junction';
-      mesh.receiveShadow = true;
-      mesh.matrixAutoUpdate = false;
-      const g = new THREE.Group();
-      g.add(mesh);
-      this.group.add(g);
-      this.geos.push(geo);
-      this.sites.push({ g, x: j.x, z: j.z, r: 24 });
-    }
+    // AFTER the furniture, and in ONE call for the whole network, because an
+    // arm's ribbon is clipped by every apron and an apron's rim is made of the
+    // arms' own first rings — so the two cannot be emitted a road at a time
+    // without the order deciding what they look like. `rebuildPaths` is also
+    // what a runtime edit calls (issue #142 §12b), which means the geometry a
+    // player sees after authoring a path is emitted by the same code that built
+    // the world, rather than by a second copy of it that agreed on the day it
+    // was written.
+    this.rebuildPaths(plan.network.roads, plan.network.junctions);
 
     // Every stamp is in. Freeze the boxes and index them; from here the field
     // is read-only and answers `structureTopAt` for the life of the session.
@@ -1543,58 +1504,82 @@ export class Towns {
   }
 
   /**
-   * DRAW A PATH THAT DID NOT EXIST AT BOOT.
+   * EVERY RIBBON AND EVERY APRON IN THE WORLD, RE-EMITTED.
    *
-   * Issue #142 §12a. Everything else in this class is built once and frozen,
-   * for a measured reason — the network is planned before the first chunk so
-   * that no chunk carrying a corridor exists while roads are being routed — and
-   * this is the one deliberate hole in that, driven by `World.addPath` and by
-   * nothing in normal play.
+   * Called once by the constructor and again by every runtime edit (issue #142
+   * §12b). It rebuilds the lot rather than patching in the piece that changed,
+   * and that is the correct trade rather than laziness: an arm's ribbon is
+   * clipped by every apron (`clipToApron`) and an apron's rim in each direction
+   * IS that arm's own first ring, so adding a junction changes the geometry of
+   * every path that touches it. Emitting one added mesh and leaving the rest
+   * would draw the new arm growing out of the middle of the old ones — issue
+   * #45 with the labels changed.
    *
-   * IT ADDS, IT DOES NOT RE-EMIT. The alternative in §12b is to rebuild the
-   * whole merged ribbon on every edit, which is honest but throws away geometry
-   * that did not change; one mesh per added path costs one draw call per added
-   * path, and the number of paths anyone adds by hand in a session is small.
-   * The paths built at boot stay merged the way they were.
+   * The cost is a few thousand vertices, which is a fiftieth of one chunk of
+   * terrain, at a cadence of "somebody typed /path". The alternative — one
+   * geometry per path so a single road can be rebuilt alone — costs a draw call
+   * per path in normal play, every frame, forever.
    *
-   * NO FURNITURE, and the refusal is reported rather than silent (§12f). Lamps
-   * and fingerposts are placed against the shared `taken` list, which is frozen
-   * with the rest of the class; a runtime path that wanted them would have to
-   * re-run the whole road pass. A profile that asks for `furniture: 'road'`
-   * gets a path with none and a diagnostic saying so.
+   * NO FURNITURE ON A RUNTIME PATH, and the refusal is reported rather than
+   * silent (§12f). Lamps and fingerposts are placed against the shared `taken`
+   * list, which is frozen with the rest of this class; a runtime path that
+   * wanted them would have to re-run the whole road pass.
    */
-  addPathRibbon(road: Road): { drawn: boolean; note: string | null } {
+  rebuildPaths(roads: readonly Road[], junctions: readonly Junction[]): void {
     const ctx = this.ribbonCtx;
-    const rib = buildRoadRibbon(
-      [road], ctx.seed, ctx.surfaceAt, ctx.next++ * 0.003, ctx.aprons,
-    );
-    if (rib.idx.length === 0) {
-      return { drawn: false, note: 'the path is surfaced over nothing' };
+    for (const child of this.pathGroup.children) {
+      const m = child as THREE.Mesh;
+      m.geometry.dispose();
+      const i = this.geos.indexOf(m.geometry as THREE.BufferGeometry);
+      if (i >= 0) this.geos.splice(i, 1);
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(rib.pos, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(rib.nrm, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(rib.col, 3));
-    geo.setIndex(rib.idx);
-    geo.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geo, ctx.terrainMat);
-    // The same name shape the boot ribbons carry, so `__dbgSurfaceY` and
-    // `tools/test-road.mjs` see a runtime path as road and not as `Mesh`.
-    mesh.name = `road:${road.id}`;
-    mesh.receiveShadow = true;
-    mesh.matrixAutoUpdate = false;
-    const g = new THREE.Group();
-    g.add(mesh);
-    this.group.add(g);
-    this.geos.push(geo);
-    const mid = road.pts[Math.floor(road.pts.length / 2)];
-    this.sites.push({ g, x: mid.x, z: mid.z, r: roadLength(road) * 0.5 + 20 });
-    return {
-      drawn: true,
-      note: road.profile.furniture === 'road'
-        ? 'no lamps or fingerposts: the furniture pass is frozen at boot'
-        : null,
+    this.pathGroup.clear();
+
+    /**
+     * A third of a millimetre per surface, which only matters where two of them
+     * resolve onto the same walking surface at a junction and would otherwise
+     * be coplanar. Counted across ribbons AND aprons, so a junction never
+     * shares a bias with an arm that reaches it.
+     */
+    let bias = 0;
+    const add = (
+      part: { pos: number[]; nrm: number[]; col: number[]; idx: number[] },
+      name: string,
+    ): void => {
+      if (part.idx.length === 0) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(part.pos, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(part.nrm, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(part.col, 3));
+      geo.setIndex(part.idx);
+      geo.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geo, ctx.terrainMat);
+      // Named so a raycast can say WHICH surface it hit. `__dbgSurfaceY` in
+      // main.ts compares what is drawn at a column against what you walk on,
+      // and "Mesh" for every hit made its answers useless — a hero buried by
+      // the road and a hero standing behind a bush read identically.
+      mesh.name = name;
+      mesh.receiveShadow = true;
+      mesh.matrixAutoUpdate = false;
+      this.pathGroup.add(mesh);
+      this.geos.push(geo);
     };
+
+    for (const road of roads) {
+      if (!road.profile.roles.draw) continue;
+      add(
+        buildRoadRibbon([road], ctx.seed, ctx.surfaceAt, bias++ * 0.003, junctions),
+        `road:${road.id}`,
+      );
+    }
+    // AFTER the arms, because a junction is the piece they grow out of and
+    // reading it in that order is the only way the geometry makes sense.
+    for (const j of junctions) {
+      add(
+        buildJunctionApron(j, roads, ctx.seed, ctx.surfaceAt, bias++ * 0.003),
+        'road:junction',
+      );
+    }
   }
 
   dispose(): void {

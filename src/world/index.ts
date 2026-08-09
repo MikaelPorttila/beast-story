@@ -21,7 +21,7 @@ import {
 import { Shops, type DenSpot } from './shops';
 import { SiteFields } from './structures';
 import { Towns, planSettlements, type SettlementPlan } from './towns';
-import { profileRoad, roadLength, routeRoad, type Road } from './roads';
+import { mergeCrossings, profileRoad, roadLength, routeRoad, type Road } from './roads';
 import { FOOTPATH_PROFILE, ROAD_PROFILE, type PathProfile } from './path-profile';
 import { TownParts } from './town-parts';
 import { Npcs, spotIsFree, type NpcSite } from './npc';
@@ -1271,20 +1271,20 @@ export function createWorld(
     addPath(spec) {
       const net = plan?.network ?? null;
       const reg = plan?.towns ?? null;
+      const no = (error: string) =>
+        ({ id: '', length: 0, samples: 0, note: null, nodes: [], refused: [], error });
       if (net === null || reg === null || towns === null) {
-        return { id: '', length: 0, samples: 0, note: null, error: 'this zone has no path network' };
+        return no('this zone has no path network');
       }
       const profile = PATH_PROFILES[spec.profile ?? 'footpath'];
       if (profile === undefined) {
-        return {
-          id: '', length: 0, samples: 0, note: null,
-          error: `unknown profile "${spec.profile}" — try ${Object.keys(PATH_PROFILES).join(', ')}`,
-        };
+        return no(`unknown profile "${spec.profile}" — try `
+          + Object.keys(PATH_PROFILES).join(', '));
       }
       const [ax, az] = spec.from;
       const [bx, bz] = spec.to;
       if (Math.hypot(bx - ax, bz - az) < 12) {
-        return { id: '', length: 0, samples: 0, note: null, error: 'the two ends are under 12 units apart' };
+        return no('the two ends are under 12 units apart');
       }
       // ROUTED AND PROFILED EXACTLY AS THE PLANNER DOES IT, which is nearly
       // free — a few hundred height queries, about the cost of one chunk of
@@ -1298,8 +1298,14 @@ export function createWorld(
       // path drawn to CROSS another will swerve — issue #142 §12d, and the
       // reason a forced-waypoint crossing is its own piece of work.
       const seedFor = Math.floor(Math.abs(ax * 7919 + bz * 104729)) ^ seed;
+      // WITH `cross`, NOTHING TO AVOID. The charge for running near an
+      // existing centreline is 50 and it is unpayable on top of another path's
+      // gravel — which is right for a road leaving a fork and exactly wrong for
+      // one drawn to cross (§12d). Handing the router an empty list is the
+      // whole of "suppress the avoid charge".
       const route = routeRoad(
-        terrain, ax, az, bx, bz, seedFor, net.roads.map((r) => r.pts), profile,
+        terrain, ax, az, bx, bz, seedFor,
+        spec.cross ? [] : net.roads.map((r) => r.pts), profile,
       );
       const road: Road = {
         id: `path:added-${net.roads.length}`,
@@ -1337,9 +1343,7 @@ export function createWorld(
         ),
         trim: new Float32Array(8),
       };
-      if (road.pts.length < 2) {
-        return { id: '', length: 0, samples: 0, note: null, error: 'the route came back empty' };
-      }
+      if (road.pts.length < 2) return no('the route came back empty');
       // A PATH THAT CANNOT BRIDGE MAY NOT END UP OVER WATER, and this refusal
       // is the first thing the feature needed (issue #142 §12f, §14).
       //
@@ -1359,23 +1363,29 @@ export function createWorld(
       if (!profile.bridges) {
         const wet = road.pts.findIndex((q) => q.bridge);
         if (wet >= 0) {
-          return {
-            id: '', length: 0, samples: 0, note: null,
-            error: `the route crosses water at ${road.pts[wet].x.toFixed(0)}, `
-              + `${road.pts[wet].z.toFixed(0)} and a ${spec.profile ?? 'footpath'} `
-              + 'cannot bridge — move an end, or use profile "road"',
-          };
+          return no(`the route crosses water at ${road.pts[wet].x.toFixed(0)}, `
+            + `${road.pts[wet].z.toFixed(0)} and a ${spec.profile ?? 'footpath'} `
+            + 'cannot bridge — move an end, or use profile "road"');
         }
       }
       // THE NETWORK IS IMMUTABLE BY CONSTRUCTION and this is where that stops
       // being true. `build()` re-flattens every path into segments and re-buckets
       // the spatial index; nothing caches a segment outside it.
       net.add(road);
+      // AND THEN THE CROSSINGS, before `build()` — a merge splits both edges,
+      // so the index would otherwise be built over polylines that are about to
+      // be replaced. See `mergeCrossings` for what it refuses and why.
+      const merge = spec.cross
+        ? mergeCrossings(net, road)
+        : { nodes: [], refused: [] };
       net.build();
-      const drawn = towns.addPathRibbon(road);
+      // EVERY RIBBON AND EVERY APRON, not just the new one: a junction reshapes
+      // the arms that reach it, so the paths that were already drawn are not
+      // the same geometry any more (§12b).
+      towns.rebuildPaths(net.roads, net.junctions);
       // The registry too, or `__dbgTowns().roads` — and everything that reads
-      // it — describes a world with one fewer path than the one on the ground.
-      reg.addRoad(road);
+      // it — describes a world the merge has already changed underneath it.
+      reg.setRoads(net.roads.filter((r) => r.profile.roles.draw));
       // Every chunk, because `carveAt` now answers differently along the new
       // corridor and a chunk is a baked mesh of what `heightCont` said when it
       // was built. This is `rebuildProps`'s documented TUNING cost — about what
@@ -1394,11 +1404,19 @@ export function createWorld(
       // not own the player — main.ts does, and while mounted his position is
       // written from the saddle every slice (see `__dbgTp`).
       spec.refit?.();
+      // The id of the path as it ENDED UP. A merge splits it, so what the
+      // caller gets back is the half nearest the start — asking for the
+      // original id afterwards would find nothing.
+      const survivor = net.roads.find((r) => r.id.startsWith(road.id)) ?? road;
       return {
-        id: road.id,
-        length: +roadLength(road).toFixed(1),
-        samples: road.pts.length,
-        note: drawn.drawn ? drawn.note : `not drawn: ${drawn.note}`,
+        id: survivor.id,
+        length: +roadLength(survivor).toFixed(1),
+        samples: survivor.pts.length,
+        note: profile.furniture === 'road'
+          ? 'no lamps or fingerposts: the furniture pass is frozen at boot'
+          : null,
+        nodes: merge.nodes,
+        refused: merge.refused,
       };
     },
 
