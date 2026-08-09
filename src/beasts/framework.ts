@@ -263,6 +263,12 @@ class PoofPuff {
     this.mesh.visible = true;
   }
 
+  /** Retire the cloud now. See BeastActor.setVisible for who needs that. */
+  clear(): void {
+    this.life = 0;
+    this.mesh.visible = false;
+  }
+
   update(dt: number): void {
     if (this.life <= 0) return;
     this.life -= dt;
@@ -564,6 +570,15 @@ class DustPuff {
 
   private warm = FX_WARM_FRAMES;
 
+  /**
+   * Retire the cloud now. `warm > 0` is kept because a beast benched at boot has
+   * never been drawn yet — see FX_WARM_FRAMES and BeastActor.setVisible.
+   */
+  clear(): void {
+    this.life = 0;
+    this.mesh.visible = this.warm > 0;
+  }
+
   update(dt: number): void {
     if (this.warm > 0 && --this.warm === 0 && this.life <= 0) this.mesh.visible = false;
     if (this.life <= 0) return;
@@ -726,6 +741,34 @@ class LightBeam {
   wisp(x: number, y: number, z: number): void {
     this.wispAt.set(x, y, z);
     this.wispOn = true;
+  }
+
+  /**
+   * Retire the streak now — both modes, column and wisp. `warm > 0` is kept for
+   * the same reason DustPuff.clear keeps it: an unowned beast is hidden at boot
+   * before its mesh has been drawn once. See BeastActor.setVisible.
+   */
+  clear(): void {
+    this.life = 0;
+    this.wispOn = false;
+    this.mesh.visible = this.warm > 0;
+  }
+
+  /**
+   * Size of the largest cube the renderer would draw for this streak, or 0 when
+   * the mesh is hidden. A MEASUREMENT, for probes: a mesh parked by
+   * FX_WARM_FRAMES is `visible` and yet draws nothing at 1e-4, so "is a streak
+   * on screen?" can only be answered from the instance matrices themselves.
+   * Allocation-free but O(BEAM_SEGS) — a diagnostic, never a frame-loop read.
+   */
+  get drawnSize(): number {
+    if (!this.mesh.visible) return 0;
+    let max = 0;
+    for (let i = 0; i < this.mesh.count; i++) {
+      this.mesh.getMatrixAt(i, _dummy.matrix);
+      max = Math.max(max, _dummy.matrix.getMaxScaleOnAxis());
+    }
+    return max;
   }
 
   update(dt: number): void {
@@ -1237,6 +1280,20 @@ export class BeastActor {
   setVisible(v: boolean): void {
     this.visibleFlag = v;
     this.rig.root.visible = v && !this.beaming && !(this.isDead && this.dieT >= 1);
+    // A HIDDEN BEAST STOPS BEING SLICED — main.ts only updates the two beasts in
+    // the party — so every effect it had running freezes at its last frame and
+    // hangs in the world until the zone unloads. Bench a companion mid-transit
+    // and its travelling wisp is left standing in the air, which is issue #136;
+    // bench one a moment after a teleport and its poof does the same.
+    //
+    // Cleared HERE rather than at each swap site because this is the one line
+    // every one of them goes through (`refreshVisibility`), and because the rule
+    // is about the updates stopping, not about why they stopped: `beasts=0`
+    // reaches it too. The swipe arc needs no entry — it is a child of the rig
+    // root, so the line above already hides it. `beaming` is deliberately left
+    // set: it is session state, and a beast swapped back in while its owner is
+    // still airborne must resume travelling rather than pop in at his feet.
+    if (!v) { this.beam.clear(); this.puff.clear(); this.dust.clear(); }
   }
 
   // -- Mounting -------------------------------------------------------------
@@ -1868,6 +1925,13 @@ export class BeastActor {
 
   /** Whether the renderer is currently drawing this body; used by probes. */
   get isDrawn(): boolean { return this.rig.root.visible; }
+
+  /**
+   * Size of the light-travel streak on screen right now, 0 when there is none.
+   * The reading issue #136 is about: a benched beast is never sliced again, so
+   * only the picture can say whether its beam was retired. Probes only.
+   */
+  get beamSize(): number { return this.beam.drawnSize; }
 
   /**
    * The surface a beast would be put down on at (x, z), given where its owner

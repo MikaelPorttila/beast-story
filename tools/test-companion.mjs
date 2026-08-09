@@ -191,6 +191,50 @@ await cmd('/mount galebird');
   }
 }
 
+// ---------- bench a companion mid-transit: the streak goes with it ----------
+// Issue #136. A benched beast is never sliced again, so anything it had running
+// freezes on screen — the reporter's screenshot is a wisp of light standing in
+// the meadow beside a hero whose party no longer contains that beast.
+//
+// A PAIR, and the first half is what makes the second mean anything: read the
+// streak while the beast is still in the party (it must be drawing one, or
+// "nothing is drawn after the swap" passes in a build where the beam never
+// appeared at all), then swap the beast out and read the same number again.
+{
+  // Climb again rather than trusting where the cruise ended: the section above
+  // reads its altitude and tolerates a descent, and this one cannot — a beast
+  // that has already re-formed has no streak to leave behind.
+  await page.keyboard.down('Space');
+  await wait(2000);
+  await page.keyboard.up('Space');
+  await wait(400);
+
+  const before = await comp();
+  const sup = before.beasts.find((b) => b.role === 'support');
+  results.bench = { before: sup, up: +(before.player.y - before.ground).toFixed(2) };
+  check(before.player.y - before.ground > 16,
+    `only ${results.bench.up} over the ground — nothing is in transit to bench`);
+  check(!!sup, 'no support companion to bench — the rest of this section means nothing');
+  if (sup) {
+    check(sup.transit, `${sup.id} is not travelling as light, so there is no streak to leave behind`);
+    check(sup.beam > 0.01, `${sup.id} is in transit but drawing no streak (beam ${sup.beam})`);
+
+    await page.evaluate((id) => window.__dbgInvAction(`beast:${id}`, 'unequip'), sup.id);
+    await wait(600);   // longer than BEAM_FLASH, so a frozen column would still be up
+    const after = await comp();
+    const benched = after.bench.find((b) => b.id === sup.id);
+    results.bench.after = { benched, party: after.beasts.map((b) => b.id) };
+    check(!!benched, `${sup.id} is not on the bench after unequipping it`);
+    check(benched?.drawn === false, `${sup.id} is still drawn after being benched`);
+    check((benched?.beam ?? 1) === 0,
+      `${sup.id} left its light-travel streak in the world after being benched — issue #136`);
+
+    // Back in the party for the landing section below, which reads both slots.
+    await page.evaluate((id) => window.__dbgInvAction(`beast:${id}`, 'setSupport'), sup.id);
+    await wait(400);
+  }
+}
+
 // ---------- land: they come back ----------
 {
   await cmd('/mount off');
