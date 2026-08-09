@@ -42,10 +42,8 @@ import { VoxelModel, shade } from '../core/voxel';
 import { bakeProp, type Template } from './props';
 import { bakeSolid, SolidStamp } from './structures';
 import { buildFence, type Fence, type FenceParts } from './fences';
-import {
-  builtDeck, APRON_R, DECK_EDGE, DECK_HALF, SHOULDER_IN,
-  type Junction, type Road, type RoadSample,
-} from './roads';
+import { builtDeck, type Junction, type Road, type RoadSample } from './roads';
+import { type PathProfile } from './path-profile';
 import { WATER_LEVEL } from './terrain';
 import { hashCell } from './noise';
 
@@ -1127,27 +1125,27 @@ export class TownParts {
 const RIBBON_LIFT = 0.025;
 /** How far the ribbon's outer edge skirts down, hiding the ground's steps. */
 const RIBBON_SKIRT = 1.1;
-/**
- * How far around a rim vertex the ribbon looks for ground it has to cover.
- *
- * Half a cell diagonal, rounded up — the same 0.707 that sets `CARVE_INSET` in
- * roads.ts, and for the same reason: a terrain column is a 1-unit cell sampled
- * at its centre, so the ground a rim vertex is responsible for hiding can be
- * that far from the vertex. See where it is used.
- */
-const RIM_GUARD = 0.75;
 
 /**
- * Cross-section offsets, in units from the centreline.
+ * WHERE `RIM_GUARD` AND `XS` WENT — `PathProfile.rimGuard` and
+ * `PathProfile.xs`, derived with the rest of the band (path-profile.ts, issue
+ * #142). The notes on both are worth keeping, because they are the measurements
+ * the derivation has to keep reproducing.
  *
- * NINE, at the router's own ring spacing, and both numbers are load-bearing for
- * how the road LOOKS rather than for where it is.
+ * RIM GUARD — how far around a rim vertex the ribbon looks for ground it has to
+ * cover. Half a cell diagonal, rounded up, and the same 0.707 that sets
+ * `carveInset`: a terrain column is a 1-unit cell sampled at its centre, so the
+ * ground a rim vertex is responsible for hiding can be that far from it. It does
+ * NOT scale with the path — the grid is the grid.
  *
- * The two at `DECK_EDGE - SHOULDER_IN` are not refinement — they are the corner
- * the cross-section actually has. Outside `DECK_HALF` the walking surface ramps
+ * CROSS-SECTION — nine offsets, at the router's own ring spacing, and both
+ * numbers are load-bearing for how the road LOOKS rather than for where it is.
+ *
+ * The two at `deckEdge - shoulderIn` are not refinement — they are the corner
+ * the cross-section actually has. Outside `deckHalf` the walking surface ramps
  * from the deck to `round(deck)` and REACHES it there, holding it out to the
  * rim so that it matches the floored terrain column beside it (roads.ts,
- * `SHOULDER_IN`). Without a vertex on that corner the ribbon draws one straight
+ * `shoulderIn`). Without a vertex on that corner the ribbon draws one straight
  * chord from the deck to the rim and passes UNDER the shoulder for the whole
  * 1.4 units between: measured on seed 1337, 178 of 5267 cross-road samples had
  * terrain drawn over the ribbon by up to 0.622 — the "ground clipping through
@@ -1170,23 +1168,6 @@ const RIM_GUARD = 0.75;
  * this was chasing turned out to be the junction's rather than the ribbon's —
  * see `buildJunctionApron`.
  */
-const SHOULDER_AT = DECK_EDGE - SHOULDER_IN;
-const XS = [
-  -DECK_EDGE, -SHOULDER_AT, -DECK_HALF, -DECK_HALF * 0.45,
-  0,
-  DECK_HALF * 0.45, DECK_HALF, SHOULDER_AT, DECK_EDGE,
-];
-
-const s2l = (c: number): number =>
-  c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-/** sRGB hex -> the linear triple the terrain material's vertex colours are in. */
-const lin = (hex: number): [number, number, number] => [
-  s2l(((hex >> 16) & 255) / 255), s2l(((hex >> 8) & 255) / 255), s2l((hex & 255) / 255),
-];
-const RUT = lin(0x6b5843);
-const EARTH = lin(0x8a7a60);
-const GRAVEL = lin(0x9a8f79);
-const DECK_PLANK = lin(0x7d6142);
 
 /**
  * ONE CROSS-SECTION VERTEX, height and all — the ribbon's and the apron's.
@@ -1198,16 +1179,17 @@ const DECK_PLANK = lin(0x7d6142);
  */
 function sectionAt(
   surfaceAt: (x: number, z: number) => number,
+  prof: PathProfile,
   p: RoadSample, px: number, pz: number, tx: number, tz: number, d: number,
 ): { x: number; y: number; z: number } {
   const ad = Math.abs(d);
   // A span is flat to its edge and has water under it; everything else reads
   // the walking surface at the vertex, rim pulled just inside.
-  const sd = Math.sign(d) * Math.min(ad, DECK_EDGE - 0.02);
+  const sd = Math.sign(d) * Math.min(ad, prof.deckEdge - 0.02);
   let y = p.bridge ? p.y : surfaceAt(p.x + px * sd, p.z + pz * sd);
   // AND THE RIM COVERS THE COLUMN IT IS THERE TO HIDE.
   //
-  // Outside DECK_HALF the walking surface is `round(deck)` — an INTEGER, so
+  // Outside `deckHalf` the walking surface is `round(deck)` — an INTEGER, so
   // that it matches the floored terrain column beside it (roads.ts, `carveAt`)
   // — and `round` flips by a whole unit as the deck passes each half. The rim
   // vertex and the cell it covers are up to half a cell diagonal apart, and on
@@ -1222,11 +1204,11 @@ function sectionAt(
   // — the outer 0.8 of verge banks up with the shoulder instead of cutting
   // through it. Interior vertices are deliberately left alone: the deck is
   // smooth and continuous, there is nothing there to cover, and a max taken at
-  // DECK_HALF would pull the carriageway's edge up onto the verge ramp and bury
+  // `deckHalf` would pull the carriageway's edge up onto the verge ramp and bury
   // the player's feet in it.
   //
-  // BOTH shoulder vertices, not only the rim. Between `SHOULDER_AT` and
-  // `DECK_EDGE` the ribbon is a chord between the two, so guarding the rim
+  // BOTH shoulder vertices, not only the rim. Between the shoulder corner and
+  // the rim the ribbon is a chord between the two, so guarding the rim
   // alone left the inner end of that chord free to drop under a flipped column
   // — 57 of 5267 samples, every one of them in that 0.8-unit band, and 36 with
   // both guarded.
@@ -1241,12 +1223,13 @@ function sectionAt(
   // — an arm now starts at the junction's rim and the apron draws the middle
   // (`buildJunctionApron`). It is 0 of 5295 today; `tools/test-road.mjs`
   // reports the count and the fork is the place to look if it moves.
-  if (!p.bridge && ad >= SHOULDER_AT) {
-    const out = Math.sign(d) * RIM_GUARD;
+  if (!p.bridge && ad >= prof.deckEdge - prof.shoulderIn) {
+    const guard = prof.rimGuard;
+    const out = Math.sign(d) * guard;
     for (const [gx, gz] of [
       [px * out, pz * out],
-      [tx * RIM_GUARD, tz * RIM_GUARD],
-      [-tx * RIM_GUARD, -tz * RIM_GUARD],
+      [tx * guard, tz * guard],
+      [-tx * guard, -tz * guard],
     ] as const) {
       const g = surfaceAt(p.x + px * sd + gx, p.z + pz * sd + gz);
       if (g > y) y = g;
@@ -1257,12 +1240,13 @@ function sectionAt(
 
 /** The colour of that vertex: rut down the middle, gravel at the verge. */
 function sectionColour(
-  seed: number, p: RoadSample, k: number, d: number,
+  seed: number, prof: PathProfile, p: RoadSample, k: number, d: number,
 ): [number, number, number] {
   const ad = Math.abs(d);
-  const base = p.bridge ? DECK_PLANK
-    : ad > DECK_HALF ? GRAVEL
-      : ad < DECK_HALF * 0.5 ? RUT : EARTH;
+  const pal = prof.palette;
+  const base = p.bridge ? pal.plank
+    : ad > prof.deckHalf ? pal.gravel
+      : ad < prof.deckHalf * 0.5 ? pal.rut : pal.earth;
   // Planks band ACROSS a bridge deck; packed earth gets a mottle instead.
   const m = p.bridge
     ? (Math.round(p.x * 0.7 + p.z * 0.7) % 2 === 0 ? 1.1 : 0.88)
@@ -1286,8 +1270,9 @@ function sectionColour(
  */
 function clipToApron(pts: RoadSample[], aprons: readonly Junction[]): RoadSample[] {
   if (aprons.length === 0 || pts.length < 2) return pts;
+  // Each apron's own radius: a fork of footpaths is a smaller fork.
   const inside = (p: RoadSample): boolean =>
-    aprons.some((a) => Math.hypot(p.x - a.x, p.z - a.z) < APRON_R);
+    aprons.some((a) => Math.hypot(p.x - a.x, p.z - a.z) < a.profile.apronR);
   /** Where the segment a->b crosses out of the apron b is outside of. */
   const rim = (a: RoadSample, b: RoadSample): RoadSample => {
     let lo = 0;
@@ -1298,7 +1283,7 @@ function clipToApron(pts: RoadSample[], aprons: readonly Junction[]): RoadSample
     for (let i = 0; i < 24; i++) {
       const t = (lo + hi) / 2;
       const p = { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
-      if (aprons.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < APRON_R)) lo = t;
+      if (aprons.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < q.profile.apronR)) lo = t;
       else hi = t;
     }
     return {
@@ -1385,6 +1370,10 @@ export function buildRoadRibbon(
     // each ending in a square cross-section on top of the other two.
     const pts = clipToApron(builtDeck(road), aprons);
     if (pts.length < 2) continue;
+    const prof = road.profile;
+    const XS = prof.xs;
+    const RUT = prof.palette.rut;
+    const DECK_PLANK = prof.palette.plank;
     let ring0 = -1;
     let ringFirst = -1;
     let pxF = 0;
@@ -1404,10 +1393,10 @@ export function buildRoadRibbon(
       const ring = pos.length / 3;
       for (let k = 0; k < XS.length; k++) {
         const d = XS[k];
-        const v = sectionAt(surfaceAt, p, px, pz, tx, tz, d);
+        const v = sectionAt(surfaceAt, prof, p, px, pz, tx, tz, d);
         pos.push(v.x, v.y + RIBBON_LIFT + liftBias, v.z);
         nrm.push(0, 1, 0);
-        const c = sectionColour(seed, p, k, d);
+        const c = sectionColour(seed, prof, p, k, d);
         col.push(c[0], c[1], c[2]);
       }
       if (ring0 >= 0) {
@@ -1588,6 +1577,17 @@ export function buildJunctionApron(
   const col: number[] = [];
   const idx: number[] = [];
 
+  // THE APRON'S OWN PROFILE, not each arm's. `apronR` sizes the disc every arm
+  // is clipped back to, so it has to be one number for the node — the arms are
+  // clipped against it by `clipToApron` and their first rings have to land on
+  // it. A node where two profiles MEET is a transition, and the wider of the
+  // two owns the apron (issue #142, §14: precedence).
+  const prof = apron.profile;
+  const APRON_R = prof.apronR;
+  const XS = prof.xs;
+  const { rut: RUT, earth: EARTH, gravel: GRAVEL } = prof.palette;
+  const RIM_GUARD = prof.rimGuard;
+
   const ang = (x: number, z: number): number => Math.atan2(x - apron.x, z - apron.z);
   const wrap = (a: number): number => {
     let v = a;
@@ -1635,9 +1635,11 @@ export function buildJunctionApron(
     const pz = tx;
     const ends: Edge[] = [];
     for (let k = 0; k < XS.length; k++) {
-      const v = sectionAt(surfaceAt, p, px, pz, tx, tz, XS[k]);
+      const v = sectionAt(surfaceAt, road.profile, p, px, pz, tx, tz, XS[k]);
       const a = ang(v.x, v.z);
-      dirs.push({ x: v.x, z: v.z, y: v.y, a, c: sectionColour(seed, p, k, XS[k]) });
+      dirs.push({
+        x: v.x, z: v.z, y: v.y, a, c: sectionColour(seed, road.profile, p, k, XS[k]),
+      });
       // The two rim corners are the ends of the ring, and the angle around the
       // node runs monotonically along it — so they are also its angular extremes
       // and there is nothing to search for.
@@ -1656,7 +1658,7 @@ export function buildJunctionApron(
     const den = s * e.tz - c * e.tx;
     if (Math.abs(den) < 1e-6) return 0;
     const r = ((e.x - apron.x) * e.tz - (e.z - apron.z) * e.tx) / den;
-    return r > DECK_HALF ? r : 0;
+    return r > prof.deckHalf ? r : 0;
   };
   /** No corner of the apron reaches past an arm's own ring corner. */
   let cornerR = 0;
@@ -1809,11 +1811,16 @@ export function buildJunctionApron(
 /**
  * How far outboard of the centreline a bridge railing stands.
  *
- * `DECK_HALF` plus the stake's own half-width plus a hair, so the timber stands
- * ON the deck's outer planks rather than half over the edge — the deck is flat
- * to `DECK_EDGE` and a railing further out would have its feet in the air.
+ * The path's own `deckHalf` plus the stake's own half-width plus a hair, so the
+ * timber stands ON the deck's outer planks rather than half over the edge — the
+ * deck is flat to `deckEdge` and a railing further out would have its feet in
+ * the air.
+ *
+ * Bridges are a ROAD feature today (issue #142, §14): nothing else in the world
+ * spans water. This scales with the profile so that stays an authoring decision
+ * rather than a hardcoded width.
  */
-const RAIL_OFFSET = DECK_HALF + FENCE_POST_R + 0.1;
+const railOffset = (prof: PathProfile): number => prof.deckHalf + FENCE_POST_R + 0.1;
 
 /**
  * Stamp piers and railings along every wet span of a road.
@@ -1834,6 +1841,7 @@ export function addBridgeFurniture(
   groundAt: (x: number, z: number) => number,
 ): Fence[] {
   const pts = road.pts;
+  const off = railOffset(road.profile);
   for (let i = 0; i < pts.length; i++) {
     if (!pts[i].bridge || i % 4 !== 0) continue;
     // A pier every fourth sample (12 units), stretched from the bed to the deck.
@@ -1864,8 +1872,8 @@ export function addBridgeFurniture(
         const a = pts[Math.max(0, k - 1)];
         const b = pts[Math.min(pts.length - 1, k + 1)];
         const tl = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-        const px = -(b.z - a.z) / tl * side * RAIL_OFFSET;
-        const pz = (b.x - a.x) / tl * side * RAIL_OFFSET;
+        const px = -(b.z - a.z) / tl * side * off;
+        const pz = (b.x - a.x) / tl * side * off;
         return { x: p.x + px, y: p.y, z: p.z + pz };
       });
       built.push(...buildFence(solid, parts.fence, path, { groundAt }));

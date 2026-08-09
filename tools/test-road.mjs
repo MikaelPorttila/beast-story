@@ -22,6 +22,13 @@
 //           equidistant from them. Fixed by making the fork three roads instead
 //           of one (`AVOID_R` in roads.ts) and holding all three decks level
 //           across it (`JUNCTION_HOLD` in towns.ts): 0.047.
+//
+//           SWEPT ALONG EVERY EDGE, not over a window. It used to scan a fixed
+//           box - x 87..123, z -24..12 on seed 1337 - which is the fork and
+//           nothing else, so a road anywhere but there was unguarded and a NEW
+//           kind of path would have been born untested (issue #142, section 4).
+//           It now marches each deck polyline and samples a band across it,
+//           which covers the fork the same way and everything else as well.
 //   poke  — the CROSS-SECTION question, which the two above cannot ask because
 //           they only ever sample the centreline: is anything drawn ABOVE the
 //           ribbon between its rims? Terrain here is grass standing up through
@@ -30,8 +37,10 @@
 //           walking surface's were tied to one number (`SHOULDER_IN`).
 //   furn  — where the lamps and fingerposts ended up: the smallest gap between
 //           any two, and how near a centreline the nearest one comes. Under
-//           DECK_EDGE (5.0) is standing ON the road. Both were reported in
-//           issue #15 and neither had a number attached to it before.
+//           the rim is standing ON the road. Both were reported in issue #15
+//           and neither had a number attached to it before.
+//
+// Exits non-zero on any of them, so the suite can run it.
 //
 //   bun tools/test-road.mjs
 import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
@@ -78,20 +87,27 @@ const out = await page.evaluate(() => {
   });
 
   // -- steps in the walking surface, on the carriageway only ---------------
+  // Half the FLAT part of each path, which is what "on the carriageway" means:
+  // 2.6 on the cart road, i.e. the number that used to be written in here once
+  // for the whole world.
+  const flatHalf = (r) => Math.min(2.6, r.deckEdge * 0.52);
   const segs = [];
   for (const r of towns.roads) {
     const p = r.path;
+    const half = flatHalf(r);
     for (let i = 1; i < p.length / 3; i++) {
-      segs.push([p[(i - 1) * 3], p[(i - 1) * 3 + 2], p[i * 3], p[i * 3 + 2]]);
+      segs.push([p[(i - 1) * 3], p[(i - 1) * 3 + 2], p[i * 3], p[i * 3 + 2], half]);
     }
   }
+  // Asked of the WHOLE network, so a mixed-width one answers per path instead
+  // of against one remembered half-width.
   const onRoad = (x, z) => {
-    for (const [ax, az, bx, bz] of segs) {
+    for (const [ax, az, bx, bz, half] of segs) {
       const dx = bx - ax, dz = bz - az;
       const L = dx * dx + dz * dz || 1;
       let u = ((x - ax) * dx + (z - az) * dz) / L;
       u = u < 0 ? 0 : u > 1 ? 1 : u;
-      if (Math.hypot(x - (ax + dx * u), z - (az + dz * u)) <= 2.6) return true;
+      if (Math.hypot(x - (ax + dx * u), z - (az + dz * u)) <= half) return true;
     }
     return false;
   };
@@ -99,15 +115,36 @@ const out = await page.evaluate(() => {
   const S = 0.25;
   let step = 0;
   let stepAt = null;
-  // The fork, which is the only place carriageways overlap.
-  for (let x = 87; x <= 123; x += S) {
-    for (let z = -24; z <= 12; z += S) {
-      if (!onRoad(x, z)) continue;
-      const a = h(x, z);
-      for (const [dx, dz] of [[S, 0], [0, S]]) {
-        if (!onRoad(x + dx, z + dz)) continue;
-        const d = Math.abs(h(x + dx, z + dz) - a);
-        if (d > step) { step = d; stepAt = { x: +x.toFixed(2), z: +z.toFixed(2) }; }
+  let stepped = 0;
+  // MARCHED ALONG EVERY EDGE. The neighbours are taken in +x and +z exactly as
+  // the box scan took them, so the number means what it always meant; the
+  // difference is only which columns get asked. The duplicated work where two
+  // arms overlap at the fork is the point - that is where the failure was.
+  for (const r of towns.roads) {
+    const p = r.path;
+    const half = flatHalf(r);
+    for (let i = 1; i < p.length / 3; i++) {
+      const ax = p[(i - 1) * 3], az = p[(i - 1) * 3 + 2];
+      const bx = p[i * 3], bz = p[i * 3 + 2];
+      let tx = bx - ax, tz = bz - az;
+      const L = Math.hypot(tx, tz) || 1;
+      tx /= L; tz /= L;
+      for (let s = 0; s < L; s += S) {
+        for (let d = -half; d <= half; d += S) {
+          const x = ax + tx * s - tz * d;
+          const z = az + tz * s + tx * d;
+          if (!onRoad(x, z)) continue;
+          const a = h(x, z);
+          for (const [dx, dz] of [[S, 0], [0, S]]) {
+            if (!onRoad(x + dx, z + dz)) continue;
+            stepped++;
+            const delta = Math.abs(h(x + dx, z + dz) - a);
+            if (delta > step) {
+              step = delta;
+              stepAt = { x: +x.toFixed(2), z: +z.toFixed(2), road: r.id };
+            }
+          }
+        }
       }
     }
   }
@@ -123,9 +160,11 @@ const out = await page.evaluate(() => {
   // is somebody else's problem — a barrel at the roadside is not a road bug —
   // so only `terrain:` counts, and only where a ribbon is actually drawn (a
   // town's interior is route, not carriageway, and its yard is meant to show).
-  const DECK_EDGE = 5.0;
   const poke = { sampled: 0, over: 0, worst: 0, at: null };
   for (const r of towns.roads) {
+    // EACH PATH'S OWN RIM. 5.0 was hardcoded here, which was right for exactly
+    // as long as every path in the world was a cart road (issue #142).
+    const DECK_EDGE = r.deckEdge;
     const p = r.path;
     for (let i = 1; i < p.length / 3; i++) {
       const ax = p[(i - 1) * 3], az = p[(i - 1) * 3 + 2];
@@ -165,7 +204,12 @@ const out = await page.evaluate(() => {
 
   return {
     ribbon: roads,
+    profiles: towns.roads.map((r) => ({
+      id: r.id, profile: r.profile, deckEdge: r.deckEdge,
+    })),
     carriageway: {
+      /** Neighbour pairs tested, over every edge - not a window. */
+      sampled: stepped,
       worstStepOver025: +step.toFixed(3),
       at: stepAt,
       maxStepUp: 0.5,
@@ -184,3 +228,40 @@ const out = await page.evaluate(() => {
 
 console.log(JSON.stringify(out, null, 2));
 await browser.close();
+
+// -- the assertions --------------------------------------------------------
+//
+// Every one of these was a shipped bug with a screenshot attached, and every
+// one is a number the world either has or does not. This printed them and
+// returned 0 whatever they said, so a regression was only caught by somebody
+// reading the output.
+const fail = [];
+for (const r of out.ribbon) {
+  // 0.2 is the threshold the sink pass already counts against: on a figure 1.8
+  // units tall, a fifth of a unit of float is visible.
+  if (r.over20cm > 0) {
+    fail.push(`${r.id}: ${r.over20cm} samples with the ribbon over 0.2 off the `
+      + `walking surface (worst ${r.worstSink})`);
+  }
+}
+if (out.carriageway.sampled === 0) fail.push('the step sweep tested nothing');
+if (!out.carriageway.walkable) {
+  fail.push(`walking surface steps ${out.carriageway.worstStepOver025} on the `
+    + 'carriageway, against MAX_STEP_UP 0.5');
+}
+if (out.crossSection.sampled === 0) fail.push('the cross-section sweep tested nothing');
+if (!out.crossSection.clean) {
+  fail.push(`${out.crossSection.terrainOverRibbon} of ${out.crossSection.sampled} `
+    + 'cross-section samples have terrain drawn over the ribbon (issue #15), '
+    + `worst ${out.crossSection.worstPoke}`);
+}
+if (out.furniture.onCarriageway > 0) {
+  fail.push(`${out.furniture.onCarriageway} pieces of road furniture stand on a `
+    + 'carriageway (issue #15)');
+}
+
+if (fail.length > 0) {
+  console.error('FAIL\n  ' + fail.join('\n  '));
+  process.exit(1);
+}
+console.error('PASS');

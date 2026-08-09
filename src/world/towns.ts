@@ -56,8 +56,9 @@ import { displayKey, reportContentIssue } from '../core/content-bridge';
 import { Terrain, WATER_LEVEL, type GroundPatch } from './terrain';
 import {
   RoadNetwork, roadAt, roadLength, routeRoad, profileRoad, straightWetLength,
-  builtDeck, setTrimStart, DECK_EDGE, NECK_MAX, type Road, type RoadClearance,
+  builtDeck, setTrimStart, NECK_MAX, type Road, type RoadClearance,
 } from './roads';
+import { ROAD_PROFILE } from './path-profile';
 import { Accum, bakeProp, type PropLib, type Template } from './props';
 import { SolidStamp, StructureField, footprintRadius } from './structures';
 import {
@@ -680,7 +681,10 @@ class Registry implements TownRegistry {
         path[i * 3 + 2] = r.pts[i].z;
         bridge[i] = r.pts[i].bridge ? 1 : 0;
       }
-      return { id: r.id, from: r.fromId, to: r.toId, path, bridge };
+      return {
+        id: r.id, from: r.fromId, to: r.toId, path, bridge,
+        profile: r.profile.id, deckEdge: r.profile.deckEdge,
+      };
     });
   }
 
@@ -787,10 +791,16 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
     id: string, fromId: string, toId: string,
     ax: number, az: number, ay: number, bx: number, bz: number, by: number, s: number,
     aHold = 0, bHold = 0,
+    // The three ground roads are cart roads. A second profile is an asset
+    // decision (issue #142, §14) and this is where it will be selected.
+    profile = ROAD_PROFILE,
   ): Road => {
-    const route = routeRoad(terrain, ax, az, bx, bz, s, network.roads.map((r) => r.pts));
+    const route = routeRoad(
+      terrain, ax, az, bx, bz, s, network.roads.map((r) => r.pts), profile,
+    );
     const road: Road = {
-      id, fromId, toId, pts: profileRoad(terrain, route, ay, by, aHold, bHold),
+      id, fromId, toId, profile,
+      pts: profileRoad(terrain, route, ay, by, aHold, bHold),
       // Left at zero; `network.build()` squares both planes to the road's own
       // ends unless something set them first. See Road.trim.
       trim: new Float32Array(8),
@@ -831,7 +841,7 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   // all three arms were just anchored to over `JUNCTION_HOLD` — the disc has to
   // be the same deck they are, or the seam it exists to remove comes back as a
   // step instead of a slab. See `JUNCTION_FLAT` in roads.ts.
-  network.addJunction(jRaw.x, jRaw.z, junctionY);
+  network.addJunction(jRaw.x, jRaw.z, junctionY, trunk.profile);
   // -- 4. Gates, derived from where each road actually leaves its town.
   //
   // BEFORE `network.build()`, which it did not used to be. The Encampment's
@@ -970,21 +980,22 @@ interface Spot {
  * in the world comes, which on seed 1337 is 5.62: outside the ribbon's rim, and
  * nothing is on it.
  *
- * `DECK_EDGE` (5.0) is the rim of the drawn and walked surface. The 0.9 on top
- * covers the widest thing a post carries at its foot (`signPost`'s cairn
- * reaches 4 voxels, 1.12 units, off the post line) so that no part of it lands
- * on the road, and leaves it visibly on the verge rather than touching.
+ * A margin OUTSIDE the rim, and the query is `edgeDistanceTo` — see
+ * `RoadClearance` in roads.ts for why a clearance must not carry a width inside
+ * it. 0.9 covers the widest thing a post carries at its foot (`signPost`'s
+ * cairn reaches 4 voxels, 1.12 units, off the post line) so that no part of it
+ * lands on the path, and leaves it visibly on the verge rather than touching.
  */
-const POST_ROAD_CLEAR = DECK_EDGE + 0.9;
+const POST_ROAD_CLEAR = 0.9;
 /**
  * The same for a LAMP, which is a bare post with the lantern held out over the
  * road on a bracket — nothing at its foot but the post.
  *
- * It has to be under the 5.8 a lamp stands off its OWN centreline, or the test
- * rejects every lamp in the world on the road it belongs to. Measured that way
- * once, at 5.9: `__dbgTowns().furniture` reported 0 lamps and 3 posts.
+ * It has to be under the 0.8 a lamp stands off its OWN rim, or the test rejects
+ * every lamp in the world on the road it belongs to. Measured the other way
+ * once, at 0.9: `__dbgTowns().furniture` reported 0 lamps and 3 posts.
  */
-const LAMP_ROAD_CLEAR = DECK_EDGE + 0.5;
+const LAMP_ROAD_CLEAR = 0.5;
 
 /** How far a fingerpost's cairn spreads from the post line — see `signPost`. */
 const POST_FOOT = 1.2;
@@ -1014,7 +1025,7 @@ const POST_CLEAR = 5;
  *
  * Road furniture used to be stamped at the road's DECK height, which is right
  * on the carriageway and nowhere else: a lamp stands 5.8 units out and a
- * fingerpost 6.1, past `DECK_EDGE`, where the ground is the shoulder the carve
+ * fingerpost 6.1, past the rim, where the ground is the shoulder the carve
  * levelled to `round(deck)` — up to half a unit under the deck, and further
  * still once the corridor has faded back into natural ground. That half unit is
  * the gap under the cairn stones in issue #15's screenshot.
@@ -1057,7 +1068,7 @@ function vergeNear(
       const a = (k / 16) * Math.PI * 2 + ring * 0.2;
       const px = x + Math.sin(a) * d;
       const pz = z + Math.cos(a) * d;
-      if (network.distanceTo(px, pz) >= clear) return { x: px, z: pz };
+      if (network.edgeDistanceTo(px, pz) >= clear) return { x: px, z: pz };
     }
   }
   return { x, z };
@@ -1428,11 +1439,10 @@ export class Towns {
 /**
  * How close a fence's timber may come to a carriageway centreline.
  *
- * `DECK_EDGE` (5.0) is the ribbon's rim — the outer edge of the surface that is
- * both drawn and walked. The 0.6 on top covers the stake's own half-width
- * (`FENCE_POST_R`, 0.28) and the 0.18 that `spanDistanceTo` may over-report at
- * its sampling pitch, and leaves enough over that a bay which survives is
- * visibly OFF the gravel rather than touching it.
+ * A margin OUTSIDE the ribbon's rim, asked through `spanEdgeDistanceTo`. 0.6
+ * covers the stake's own half-width (`FENCE_POST_R`, 0.28) and the 0.18 that
+ * the span query may over-report at its sampling pitch, and leaves enough over
+ * that a bay which survives is visibly OFF the gravel rather than touching it.
  *
  * Measured on the world this replaces: 38 fixed panels were stamped between the
  * road runs and the two hamlet arcs, every road panel offset 6.5 units from its
@@ -1448,7 +1458,7 @@ export class Towns {
  * and leaves the two posts standing, so a run that meets a road stops at the
  * verge and reads as a field gate instead of vanishing in 4.2-unit lumps.
  */
-const FENCE_ROAD_CLEAR = DECK_EDGE + 0.6;
+const FENCE_ROAD_CLEAR = 0.6;
 
 /**
  * How finely a bay is sampled when it is asked about the things already
@@ -1477,7 +1487,7 @@ function clearRun(
   network: RoadClearance, taken: readonly Spot[],
 ): FenceOptions['accept'] {
   return (ax, az, bx, bz) => {
-    if (network.spanDistanceTo(ax, az, bx, bz) < FENCE_ROAD_CLEAR) return false;
+    if (network.spanEdgeDistanceTo(ax, az, bx, bz) < FENCE_ROAD_CLEAR) return false;
     const dx = bx - ax;
     const dz = bz - az;
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / FENCE_SPOT_STEP));
@@ -1497,6 +1507,17 @@ function clearRun(
  *
  * `RoadClearance` and not `RoadNetwork`: the road furniture pass has only the
  * clearance half of the interface, and this asks nothing more than that.
+ *
+ * `roadClear` IS MEASURED FROM THE PATH'S RIM AND MAY BE NEGATIVE (issue #142).
+ * Every caller used to pass a distance from the CENTRELINE, which carried the
+ * cart road's 5-unit half-corridor inside each literal and would have meant
+ * something different beside a narrower path. Subtracting the rim leaves what
+ * the numbers were always about, and a NEGATIVE one is not a mistake: inside a
+ * town the road is route and not carriageway — the Encampment's trunk stops at
+ * its gate and the yard beyond it is trodden dirt, not gravel — so a tent
+ * standing 1.6 inside the nominal rim of that route is standing in a yard.
+ * A piece on a BUILT carriageway is what `POST_ROAD_CLEAR` and friends refuse,
+ * and those are all positive.
  */
 function place(
   taken: Spot[], network: RoadClearance, x: number, z: number, r: number, roadClear: number,
@@ -1505,7 +1526,7 @@ function place(
   /** The piece's own timber, where its elbow room is not it. See `Spot.solidR`. */
   solidR?: number,
 ): boolean {
-  if (network.distanceTo(x, z) < roadClear) return false;
+  if (network.edgeDistanceTo(x, z) < roadClear) return false;
   for (const t of taken) {
     const dx = t.x - x;
     const dz = t.z - z;
@@ -1654,7 +1675,7 @@ function buildEncampment(
     const a = (k / 4) * Math.PI * 2 + 0.4;
     const x = fx + Math.sin(a) * 3.6;
     const z = fz + Math.cos(a) * 3.6;
-    if (place(taken, network, x, z, 1.2, 3.4)) {
+    if (place(taken, network, x, z, 1.2, -1.6)) {
       solid.add(parts.woodpile, x, cy, z, a + Math.PI / 2, 0.55, 0.4);
     }
   }
@@ -1664,7 +1685,7 @@ function buildEncampment(
   for (let k = 0; k < 3; k++) {
     const a = gateAngle + Math.PI + (k - 1) * 0.85 + (rng() - 0.5) * 0.2;
     const [x, z] = at(a, inset(a, 7.5));
-    if (!place(taken, network, x, z, 4.4, 7)) continue;
+    if (!place(taken, network, x, z, 4.4, 2)) continue;
     // Door toward the fire.
     const yaw = Math.atan2(fx - x, fz - z);
     solid.add(parts.huts[k], x, cy, z, yaw);
@@ -1685,7 +1706,7 @@ function buildEncampment(
   for (let k = 0; k < 9 && tentIdx < 7; k++) {
     const a = gateAngle + 0.7 + (k / 9) * Math.PI * 1.6 + (rng() - 0.5) * 0.25;
     const [x, z] = at(a, inset(a, 5.5 + rng() * 4));
-    if (!place(taken, network, x, z, 3.2, 6)) continue;
+    if (!place(taken, network, x, z, 3.2, 1)) continue;
     const yaw = tentIdx % 3 === 2 ? Math.atan2(fx - x, fz - z) : a + Math.PI / 2;
     if (tentIdx % 3 === 2) solid.add(parts.bell, x, cy, z, yaw);
     else solid.add(parts.tents[tentIdx % parts.tents.length], x, cy, z, yaw);
@@ -1703,7 +1724,7 @@ function buildEncampment(
   for (let k = 0; k < 4; k++) {
     const a = gateAngle + Math.PI * 0.4 + (k / 4) * Math.PI * 1.2;
     const [x, z] = at(a, inset(a, 2.4));
-    if (place(taken, network, x, z, 2.4, 5.5)) {
+    if (place(taken, network, x, z, 2.4, 0.5)) {
       // Scaled with the wall, and it has to be: at 1.0 the platform sits at
       // 4.76 and the wall top is now 4.90, so the guard would be looking at
       // timber. At WALL_S the platform is 5.95 and the post tops out at 7.00,
@@ -1722,7 +1743,7 @@ function buildEncampment(
     for (let k = 0; k < count * 4 && placed < count; k++) {
       const a = rng() * Math.PI * 2;
       const [x, z] = at(a, inset(a, 2 + rng() * (CAMP_WALL_HALF - 7)));
-      if (!place(taken, network, x, z, 1.4 * scl, 4.2)) continue;
+      if (!place(taken, network, x, z, 1.4 * scl, -0.8)) continue;
       solid.add(tpl, x, cy, z, rng() * 6.28, scl);
       placed++;
     }
@@ -1731,7 +1752,7 @@ function buildEncampment(
   for (const [dside, tpl] of [[1, parts.cartHood], [-1, parts.cartOpen]] as const) {
     const a = gateAngle + dside * 0.42;
     const [x, z] = at(a, inset(a, 8));
-    if (place(taken, network, x, z, 3, 4.6)) {
+    if (place(taken, network, x, z, 3, -0.4)) {
       solid.add(tpl, x, cy, z, a + Math.PI / 2 + dside * 0.3);
     }
   }
@@ -1750,7 +1771,7 @@ function buildEncampment(
   }
   for (const [a, d] of brazierSpots) {
     const [x, z] = at(a, d);
-    if (!place(taken, network, x, z, 1.6, 4.0)) continue;
+    if (!place(taken, network, x, z, 1.6, -1)) continue;
     solid.add(parts.brazier, x, cy, z, rng() * 6.28);
     glow.add(parts.brazierGlow, x, cy, z, 0, 1, 1, 1, 1);
   }
@@ -1788,7 +1809,7 @@ function buildHamlet(
   for (let k = 0; k < 4; k++) {
     const a = gateAngle + Math.PI * 0.55 + (k / 4) * Math.PI * 0.9 + (rng() - 0.5) * 0.2;
     const [x, z] = at(a, R - 5.5 - rng() * 3);
-    if (!place(taken, network, x, z, 4.4, 7)) continue;
+    if (!place(taken, network, x, z, 4.4, 2)) continue;
     const yaw = Math.atan2(wx - x, wz - z);
     solid.add(parts.huts[k % parts.huts.length], x, cy, z, yaw);
     addNightWindow(night, x, cy, z, yaw, 3.35, 2.0);
@@ -1796,7 +1817,7 @@ function buildHamlet(
   for (let k = 0; k < 3; k++) {
     const a = gateAngle - 0.5 - (k / 3) * 1.5;
     const [x, z] = at(a, R - 6 - rng() * 3);
-    if (!place(taken, network, x, z, 3.2, 6)) continue;
+    if (!place(taken, network, x, z, 3.2, 1)) continue;
     const yaw = a + Math.PI / 2;
     solid.add(k === 1 ? parts.bell : parts.tents[k % parts.tents.length], x, cy, z, yaw);
     addNightWindow(night, x, cy, z, yaw, 2.7, 1.45);
@@ -1827,19 +1848,19 @@ function buildHamlet(
     const a = rng() * Math.PI * 2;
     const [x, z] = at(a, 4 + rng() * (R - 6));
     const tpl = k % 3 === 0 ? parts.crateS : k % 3 === 1 ? parts.barrel : parts.woodpile;
-    if (!place(taken, network, x, z, 1.4, 4.0)) continue;
+    if (!place(taken, network, x, z, 1.4, -1)) continue;
     solid.add(tpl, x, cy, z, rng() * 6.28);
   }
   {
     const [x, z] = at(gateAngle - 0.5, R - 7);
-    if (place(taken, network, x, z, 3, 4.6)) {
+    if (place(taken, network, x, z, 3, -0.4)) {
       solid.add(parts.cartOpen, x, cy, z, gateAngle);
     }
   }
   for (let k = 0; k < 3; k++) {
     const a = gateAngle + 0.4 + k * 2.1;
     const [x, z] = at(a, R - 4.5);
-    if (!place(taken, network, x, z, 1.6, 4.0)) continue;
+    if (!place(taken, network, x, z, 1.6, -1)) continue;
     solid.add(parts.brazier, x, cy, z, 0);
     glow.add(parts.brazierGlow, x, cy, z, 0, 1, 1, 1, 1);
   }
@@ -1879,7 +1900,7 @@ defineFactory(TOWN_LAYOUT_KIND, 'hamlet', buildHamlet satisfies TownLayout);
  * scattered near it. TWO things it may not decide for itself, and both were
  * issue #15:
  *
- *  - WHERE THE GROUND IS. A piece stands on the verge, past `DECK_EDGE`, and
+ *  - WHERE THE GROUND IS. A piece stands on the verge, past the rim, and
  *    the verge is not the deck. `seatOn` asks the walking surface at the piece's
  *    own column, the same query the ribbon draws itself on.
  *  - WHETHER THE SPOT IS FREE. `taken` is shared by every road and by the fork's
@@ -1898,6 +1919,15 @@ function buildRoadFurniture(
   sites: readonly TownSite[],
 ): Fence[] {
   const len = roadLength(road);
+  /**
+   * THIS road's rim, which every offset below is measured from.
+   *
+   * The offsets are against the road the pass is walking; `place` and `accept`
+   * then measure the result against the whole NETWORK through
+   * `edgeDistanceTo`, which is the only way a run laid along one road can know
+   * about the other two at a fork.
+   */
+  const rim = road.profile.deckEdge;
   const at = { x: 0, y: 0, z: 0, dx: 0, dz: 0 };
   /** The chains built here, handed back for `World.debugFences`. */
   const built: Fence[] = [];
@@ -1937,7 +1967,7 @@ function buildRoadFurniture(
       roadAt(road, s, at);
       const px = -at.dz;
       const pz = at.dx;
-      const off = DECK_EDGE + 1.1;
+      const off = rim + 1.1;
       const x = at.x + px * off;
       const z = at.z + pz * off;
       if (!place(
@@ -1969,7 +1999,7 @@ function buildRoadFurniture(
     for (const side of [lampSide, -lampSide]) {
       const px = -at.dz * side;
       const pz = at.dx * side;
-      const off = DECK_EDGE + 0.8;
+      const off = rim + 0.8;
       const x = at.x + px * off;
       const z = at.z + pz * off;
       if (!place(
@@ -2009,7 +2039,7 @@ function buildRoadFurniture(
       // finished bay against the whole network, which is the only way a run
       // laid along one road can know about the other two at a fork — or about
       // its own road, further along, on the inside of a bend.
-      const off = DECK_EDGE + 1.5;
+      const off = rim + 1.5;
       const fx = at.x - at.dz * fside * off;
       const fz = at.z + at.dx * fside * off;
       // On the verge, like everything else here — and the seat is taken over a

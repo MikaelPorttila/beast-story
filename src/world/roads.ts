@@ -60,33 +60,34 @@
  */
 import { Terrain, WATER_LEVEL, smoothstep, type RoadField } from './terrain';
 import { mulberry32 } from './noise';
+import { MAX_CARVE_BLEND, ROAD_PROFILE, type PathProfile } from './path-profile';
 
 // ---------------------------------------------------------------------------
 // Corridor geometry
 // ---------------------------------------------------------------------------
 
 /**
- * Half-width of the CARRIAGEWAY — the flat part, where `getHeight` is the deck
- * exactly. 2.8 makes a 5.6-unit road: two carts wide in the fiction, and wide
- * enough that the hero (BODY_RADIUS 0.32) plus the camera's shoulder swing stay
- * on it without the player having to steer.
+ * The cart road's own numbers, for the handful of callers that genuinely mean
+ * "the road" rather than "whatever path is here" — the lab stage, which builds
+ * one by hand, and the probes.
+ *
+ * EVERY PLACER USES `edgeDistanceTo` INSTEAD. See `RoadClearance`: with more
+ * than one profile in the world, "five units from a centreline" is a different
+ * amount of road depending on which path answered, and a clearance written that
+ * way silently shrinks or grows with the path it lands beside.
  */
-export const DECK_HALF = 2.8;
-/** Width of the verge ramp outside it, where the deck meets the shoulder. */
-export const VERGE = 2.2;
-/** Outer edge of the walking surface, and of the ribbon mesh. */
-export const DECK_EDGE = DECK_HALF + VERGE;
+export const DECK_HALF = ROAD_PROFILE.deckHalf;
+export const DECK_EDGE = ROAD_PROFILE.deckEdge;
+
 /**
- * How far the earthworks are fully applied. Must be comfortably past DECK_EDGE
- * so the ribbon's outer edge lands on ground that is already levelled to
- * `round(deck)` — otherwise the two would meet at whatever the natural terrain
- * happened to be doing and the seam would open up.
+ * Widest radius any query here can care about.
+ *
+ * A bound over EVERY profile rather than a max over the network, deliberately:
+ * this sizes the spatial index's catchment and therefore the length of the
+ * bucket scan on the collision hot path, and a per-network max would make that
+ * scan grow the day somebody authors a wide path. See `MAX_CARVE_BLEND`.
  */
-const ROAD_CORE = 6.5;
-/** Where the earthworks have faded back into natural ground. */
-const ROAD_BLEND = 13;
-/** Widest radius any query here can care about. */
-const REACH = ROAD_BLEND;
+const REACH = MAX_CARVE_BLEND;
 
 /**
  * Spacing of the resampled deck polyline, world units.
@@ -106,48 +107,25 @@ const CELL = 8;
 const SPAN_STEP = 0.35;
 
 /**
- * How far INSIDE the surface's terminal plane the earthworks stop.
+ * THE FOUR NUMBERS THAT SHARE ONE BAND, and where they went.
  *
- * The carve is sampled at COLUMN CENTRES and the ribbon is drawn on the plane
- * itself, so a column whose centre falls a tenth of a unit inside the built
- * side gets cut a whole unit down while up to half its area sticks out past the
- * ribbon's end ring — a hand-wide, one-block-deep slot straight across the end,
- * which is the same class of hole this whole mechanism exists to close, just
- * narrower. Standing the carve's plane half a cell diagonal further in (0.707,
- * rounded up) puts every sunk column wholly under cover.
+ * `CARVE_INSET`, `SHOULDER_IN`, `XS` and `RIM_GUARD` used to be module
+ * constants here and in town-parts.ts, and all four describe the same run of
+ * ground: the band between the flat carriageway and the levelled shoulder. Every
+ * sample of issue #15 lived in that band while two of the four disagreed about
+ * where it ended — the carve reached `round(deck)` 0.8 inside the rim while the
+ * surface went on ramping to it, so over the last 0.8 of every verge the terrain
+ * column stood at shoulder height with the ribbon still below it: a green step
+ * face poking up through the gravel, along both sides of the whole network.
+ * Measured end to end on seed 1337 with `bun tools/test-road.mjs`, which sweeps
+ * the cross-section rim to rim: 300 of 5283 samples had terrain drawn over the
+ * ribbon by up to 0.929, and 0 of 5295 do now.
  *
- * The 0.75 of ribbon that then lies on uncarved ground is lying on ground the
- * town's own flatten already levelled to the deck height, so it sits flat.
- */
-const CARVE_INSET = 0.75;
-
-/**
- * How far INSIDE the ribbon's rim the shoulder has reached its full height.
+ * They are now `carveInset` / `shoulderIn` / `xs` / `rimGuard` on `PathProfile`
+ * (path-profile.ts), DERIVED TOGETHER from the path's width rather than
+ * authored apart — which is the whole point of issue #142's profile: four
+ * independent knobs is four ways to reopen #15.
  *
- * ONE NUMBER FOR TWO RAMPS, and it has to be, because they are the same ramp
- * seen from either side: `carveAt` cuts the ground up to `deck + 0.5` (which
- * floors to `round(deck)`) by this far inside `DECK_EDGE`, and `surfaceAt`
- * ramps the walking surface — which is what the ribbon is drawn on — from the
- * deck to `round(deck)` over exactly the same run.
- *
- * They used to disagree, and the band between them is where every one of issue
- * #15's "ground clipping through on to the road" samples lives. The carve
- * reached `round(deck)` at `DECK_EDGE - 0.8` while the surface went on ramping
- * to the rim, so over the last 0.8 of every verge the terrain column stood at
- * the shoulder height and the ribbon was still below it — a green step face
- * poking up through the gravel, along both sides of the whole network.
- *
- * This is the first of four changes that share the band; the others are the
- * `carveAt` target below, and `XS` and `RIM_GUARD` in town-parts.ts. Measured
- * end to end on seed 1337 with `bun tools/test-road.mjs`, which sweeps the
- * cross-section rim to rim: 300 of 5283 samples had terrain drawn over the
- * ribbon by up to 0.929, and 0 of 5295 do now. The 22 that survived this change
- * were all at the fork and went with `APRON_R`; the rest of the mechanism is
- * `RIM_GUARD` and `XS` in town-parts.ts.
- */
-export const SHOULDER_IN = 0.8;
-
-/**
  * WHERE AN ARM STOPS AND THE FORK BEGINS.
  *
  * A junction used to be nothing at all: three roads whose polylines happened to
@@ -176,15 +154,19 @@ export const SHOULDER_IN = 0.8;
  * the apron's skirt standing in it. The three arms were already levelled dead
  * flat across the node by `JUNCTION_HOLD` (towns.ts) before any of this; the
  * junction is a drawing problem and it is fixed where the drawing is.
+ *
+ * The radius itself is `PathProfile.apronR` — `deckEdge + 6`, so it grows and
+ * shrinks with the arms that meet on the node.
  */
-export const APRON_R = DECK_EDGE + 6;
 
-/** A fork: the node three arms grow out of. Geometry only — see APRON_R. */
+/** A fork: the node three arms grow out of. Geometry only — see above. */
 export interface Junction {
   x: number;
   z: number;
   /** Deck height, which every arm anchored to. */
   y: number;
+  /** The arms' profile, which sets the apron's radius. */
+  profile: PathProfile;
 }
 
 const cellKey = (cx: number, cz: number): number => cx * 4194304 + cz;
@@ -228,16 +210,34 @@ export interface RoadSample {
  *
  * Two questions, because objects come in two shapes:
  *
- *  - `distanceTo` for a POINT — a tussock, a boulder, a barrel.
- *  - `spanDistanceTo` for a RUN — a fence panel, a wall span, anything laid end
- *    to end. A 4.2-unit panel whose midpoint clears the road by six units can
- *    still be lying flat across it; see there.
+ *  - `edgeDistanceTo` for a POINT — a tussock, a boulder, a barrel.
+ *  - `spanEdgeDistanceTo` for a RUN — a fence panel, a wall span, anything laid
+ *    end to end. A 4.2-unit panel whose midpoint clears the road by six units
+ *    can still be lying flat across it; see there.
+ *
+ * FROM THE RIM, NOT FROM THE CENTRELINE, and that is issue #142's doing. Every
+ * caller used to write `DECK_EDGE + <its own margin>` and compare against
+ * `distanceTo`, which is correct only while there is exactly one width in the
+ * world. With two, "5.4 units from a centreline" is inside the rim of a cart
+ * road and four units off the side of a footpath — the same constant meaning
+ * two different clearances, which is the shape of every bug this interface
+ * exists to prevent. So the query subtracts the answering path's own
+ * `deckEdge` and a caller states only the margin it actually wants:
+ * `edgeDistanceTo(x, z) < 0.9` is "within 0.9 of the rim of whatever is here".
+ *
+ * `distanceTo` survives for the two questions that really are about the
+ * centreline — the router's own avoidance, and the probes.
  */
 export interface RoadClearance {
+  /**
+   * How far (x, z) lies OUTSIDE the rim of the nearest path, or Infinity where
+   * there is none. Negative on the path itself, zero at the rim.
+   */
+  edgeDistanceTo(x: number, z: number): number;
+  /** The same for the segment (ax,az)-(bx,bz): its nearest approach to a rim. */
+  spanEdgeDistanceTo(ax: number, az: number, bx: number, bz: number): number;
   /** Distance from (x, z) to the nearest carriageway centreline, or Infinity. */
   distanceTo(x: number, z: number): number;
-  /** Nearest approach of the segment (ax,az)-(bx,bz) to any centreline. */
-  spanDistanceTo(ax: number, az: number, bx: number, bz: number): number;
 }
 
 export interface Road {
@@ -245,6 +245,8 @@ export interface Road {
   /** Town or junction ids at each end — what a signpost names. */
   fromId: string;
   toId: string;
+  /** What KIND of path this is — width, carve, palette. See path-profile.ts. */
+  profile: PathProfile;
   pts: RoadSample[];
   /**
    * WHERE THE BUILT CARRIAGEWAY ENDS, as two inward half-planes:
@@ -355,6 +357,18 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * geometry, not a height field. See APRON_R.
    */
   readonly junctions: Junction[] = [];
+  /**
+   * True while every path in the network has the same rim.
+   *
+   * WHICH RANKING `nearest` USES, and it is not a micro-optimisation — it is
+   * how the change that added profiles proves it moved no pixel. With one width
+   * "nearest centreline" and "nearest rim" are the same ordering, so the scan
+   * compares squared distances exactly as it always did and takes no square
+   * root per candidate. The moment a second width exists the two orderings
+   * differ and the penetration one is the correct answer (see `nearest`), so
+   * the scan pays a `sqrt` per bucket entry — on the paths that have one.
+   */
+  private uniformEdge = true;
   /** [ax, az, ay, bx, bz, by] per segment. */
   private seg = new Float32Array(0);
   private segBridge = new Uint8Array(0);
@@ -396,20 +410,22 @@ export class RoadNetwork implements RoadField, RoadClearance {
   private nDist = 0;
   private nDeck = 0;
   private nBridge = false;
+  private nProfile: PathProfile = ROAD_PROFILE;
 
   add(road: Road): void {
     if (road.pts.length >= 2) this.roads.push(road);
   }
 
   /** Register a fork, so the arms know where to start. */
-  addJunction(x: number, z: number, y: number): void {
-    this.junctions.push({ x, z, y });
+  addJunction(x: number, z: number, y: number, profile: PathProfile): void {
+    this.junctions.push({ x, z, y, profile });
   }
 
   /** Flatten every road into segments and index them. Call once, after `add`. */
   build(): void {
     let n = 0;
     for (const r of this.roads) n += r.pts.length - 1;
+    this.uniformEdge = this.roads.every((r) => r.profile.deckEdge === this.roads[0].profile.deckEdge);
     this.seg = new Float32Array(n * 6);
     this.segBridge = new Uint8Array(n);
     this.segRoad = new Uint8Array(n);
@@ -487,25 +503,46 @@ export class RoadNetwork implements RoadField, RoadClearance {
   }
 
   /**
-   * Nearest point on any road to (x, z), into `nDist` / `nDeck` / `nBridge`.
+   * Nearest path to (x, z), into `nDist` / `nDeck` / `nBridge` / `nProfile`.
    * False when nothing is within REACH — the common case, answered by a bounds
    * test and one failed `Map.get`.
+   *
+   * NEAREST BY PENETRATION, NOT BY CENTRELINE — issue #142, and the one genuine
+   * correctness trap in the whole feature. A 2-unit footpath running 3 units
+   * from a 10-unit highway is the closest CENTRELINE to a column that is under
+   * the highway, so ranking by `d` hands back the footpath's deck for ground
+   * the highway owns: the walking surface jumps a whole deck's worth across a
+   * line nothing is drawn on, which is the same shape as the fork bug the header
+   * of this file documents. `d - deckEdge` asks "which rim am I furthest
+   * inside", which is the question every caller actually means.
+   *
+   * While one width exists the two orderings are identical and the scan stays
+   * on squared distances — see `uniformEdge`.
    */
-  private nearest(x: number, z: number, built: boolean, inset = 0): boolean {
+  private nearest(x: number, z: number, built: boolean, insetScale = 0): boolean {
     if (x < this.minX || x > this.maxX || z < this.minZ || z > this.maxZ) return false;
     const bucket = this.grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
     if (bucket === undefined) return false;
+    const uniform = this.uniformEdge;
     let best = Infinity;
+    let bestD2 = Infinity;
     let deck = 0;
     let bridge = 0;
+    let profile: PathProfile | null = null;
     const s = this.seg;
     if (built) this.queryId++;
     for (let i = 0; i < bucket.length; i++) {
+      const ri = this.segRoad[bucket[i]];
+      const rp = this.roads[ri].profile;
       if (built) {
-        const ri = this.segRoad[bucket[i]];
         if (this.clipStamp[ri] !== this.queryId) {
           this.clipStamp[ri] = this.queryId;
           const t = this.roads[ri].trim;
+          // The inset is the PATH'S OWN `carveInset`, so a narrow path stops its
+          // earthworks the same fraction of a cell inside its terminal plane
+          // that a wide one does. `insetScale` is 1 for the carve and 0 for the
+          // surface, which is the distinction the two callers actually draw.
+          const inset = rp.carveInset * insetScale;
           const p0 = (x - t[0]) * t[2] + (z - t[1]) * t[3];
           const p1 = (x - t[4]) * t[6] + (z - t[5]) * t[7];
           this.clipOut[ri] = p0 >= inset && p1 >= inset ? 0 : 1;
@@ -523,16 +560,20 @@ export class RoadNetwork implements RoadField, RoadClearance {
       const px = ax + dx * t - x;
       const pz = az + dz * t - z;
       const d2 = px * px + pz * pz;
-      if (d2 < best) {
-        best = d2;
+      const rank = uniform ? d2 : Math.sqrt(d2) - rp.deckEdge;
+      if (rank < best) {
+        best = rank;
+        bestD2 = d2;
         deck = s[o + 2] + (s[o + 5] - s[o + 2]) * t;
         bridge = this.segBridge[bucket[i]];
+        profile = rp;
       }
     }
-    if (best > REACH * REACH) return false;
-    this.nDist = Math.sqrt(best);
+    if (profile === null || bestD2 > REACH * REACH) return false;
+    this.nDist = Math.sqrt(bestD2);
     this.nDeck = deck;
     this.nBridge = bridge === 1;
+    this.nProfile = profile;
     return true;
   }
 
@@ -544,23 +585,29 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * column under it is cut to). They are the two halves of "what you see is what
    * you stand on" and they may not be two formulas that happen to agree.
    */
-  private static surfaceOf(deck: number, d: number): number {
-    if (d <= DECK_HALF) return deck;
-    const t = (d - DECK_HALF) / (VERGE - SHOULDER_IN);
-    // Reaching the shoulder SHOULDER_IN inside the rim and then holding it out
-    // to the rim — see SHOULDER_IN.
+  private static surfaceOf(p: PathProfile, deck: number, d: number): number {
+    if (d <= p.deckHalf) return deck;
+    const t = (d - p.deckHalf) / (p.verge - p.shoulderIn);
+    // Reaching the shoulder `shoulderIn` inside the rim and then holding it out
+    // to the rim — see the band note above.
     return deck + (Math.round(deck) - deck) * (t > 1 ? 1 : t);
   }
 
   carveAt(x: number, z: number): number {
-    // CARVE_INSET, not 0: the earthworks stop short of the surface's own plane.
-    if (!this.nearest(x, z, true, CARVE_INSET)) return 0;
+    // The path's own `carveInset`, not 0: the earthworks stop short of the
+    // surface's own terminal plane.
+    if (!this.nearest(x, z, true, 1)) return 0;
+    const prof = this.nProfile;
+    // A profile that carves nothing leaves the ground exactly as it found it —
+    // which is what makes a trodden trail the cheap case rather than a road with
+    // its numbers turned down. See `PathCarve`.
+    if (prof.carve === 'none') return 0;
     // A bridge span leaves the ground alone. Raising a lake bed to meet the deck
     // would drain the crossing, which is the one place the road is supposed to
     // be in the air.
     if (this.nBridge) return 0;
     const d = this.nDist;
-    if (d >= ROAD_BLEND) return 0;
+    if (d >= prof.carveBlend) return 0;
     // THE GROUND IS CUT TO THE SURFACE DRAWN OVER IT, MINUS A SINK.
     //
     // Two things have to be true at once and they used to be arranged by two
@@ -596,27 +643,28 @@ export class RoadNetwork implements RoadField, RoadClearance {
     // The epsilon is against the blend in `Terrain.heightCont` returning
     // 12.999999 for a target of 13 and flooring a whole unit low. It cannot
     // raise a floor: an integer plus a thousandth floors to that integer.
-    this.carveTarget = RoadNetwork.surfaceOf(this.nDeck, d) + 0.001
-      - 0.62 * (1 - smoothstep(DECK_HALF, DECK_EDGE - SHOULDER_IN, d));
-    return 1 - smoothstep(ROAD_CORE, ROAD_BLEND, d);
+    this.carveTarget = RoadNetwork.surfaceOf(prof, this.nDeck, d) + 0.001
+      - prof.sink * (1 - smoothstep(prof.deckHalf, prof.deckEdge - prof.shoulderIn, d));
+    return 1 - smoothstep(prof.carveCore, prof.carveBlend, d);
   }
 
   surfaceAt(x: number, z: number, ground: number): number {
     if (!this.nearest(x, z, true)) return ground;
     const d = this.nDist;
-    if (d >= DECK_EDGE) return ground;
+    const prof = this.nProfile;
+    if (d >= prof.deckEdge) return ground;
     const deck = this.nDeck;
     // A bridge deck is flat all the way to its edge and then there is nothing:
     // step off the side and you are in the water, which is what a bridge with no
     // handrail collision means and what the railings are drawn to warn about.
     if (this.nBridge) return deck;
-    return RoadNetwork.surfaceOf(deck, d);
+    return RoadNetwork.surfaceOf(prof, deck, d);
   }
 
   /**
    * Distance from (x, z) to the nearest carriageway centreline, or Infinity.
-   * For the prop pass, which has to keep trees and boulders off a road it never
-   * otherwise hears about, and for the town builder's clearance tests.
+   * For the router's own avoidance and for the probes — a PLACER wants
+   * `edgeDistanceTo`, which see.
    */
   distanceTo(x: number, z: number): number {
     // NOT clipped to the built carriageway, deliberately. A placer asking "is
@@ -628,10 +676,23 @@ export class RoadNetwork implements RoadField, RoadClearance {
   }
 
   /**
+   * How far (x, z) lies outside the RIM of the nearest path — negative on it,
+   * zero at the edge of the drawn surface, Infinity where there is no path.
+   *
+   * THE QUERY EVERY PLACER ASKS, and the reason is in `RoadClearance`: a
+   * clearance written against the centreline carries one path's width inside it
+   * and means something different beside another. `distanceTo` and this differ
+   * by `deckEdge`, which is exactly the part a caller should not have to know.
+   */
+  edgeDistanceTo(x: number, z: number): number {
+    return this.nearest(x, z, false) ? this.nDist - this.nProfile.deckEdge : Infinity;
+  }
+
+  /**
    * Nearest approach of the SEGMENT (ax, az)-(bx, bz) to any carriageway
    * centreline, or Infinity when the whole run is clear of the network.
    *
-   * THE RUN VERSION OF `distanceTo`, and it exists because a fence panel is
+   * THE RUN VERSION OF `edgeDistanceTo`, and it exists because a fence panel is
    * 4.2 units long. Asking the point query about a panel's midpoint says
    * nothing about where its ENDS are, and on the inside of a bend that is
    * exactly how panels end up lying flat across a carriageway their centres
@@ -648,14 +709,14 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * more code and more work for a query that runs a few dozen times at world
    * creation and never again.
    */
-  spanDistanceTo(ax: number, az: number, bx: number, bz: number): number {
+  spanEdgeDistanceTo(ax: number, az: number, bx: number, bz: number): number {
     const dx = bx - ax;
     const dz = bz - az;
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / SPAN_STEP));
     let best = Infinity;
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
-      const d = this.distanceTo(ax + dx * t, az + dz * t);
+      const d = this.edgeDistanceTo(ax + dx * t, az + dz * t);
       if (d < best) best = d;
     }
     return best;
@@ -711,8 +772,12 @@ export const NECK_MAX = 40;
  * of, and also where the walking surface stepped 0.801 against a MAX_STEP_UP of
  * 0.5, because `surfaceAt` answers with the nearest road and the nearest road
  * changes from column to column when they are a unit apart.
+ *
+ * It is `PathProfile.avoidR` (`2 * deckEdge + 8`) rather than a constant, so a
+ * narrow path is allowed to run nearer another one than a cart road is — the
+ * ground down the middle is what the number is about, and a footpath needs less
+ * of it. 18 on the road, which is what shipped.
  */
-const AVOID_R = 18;
 /**
  * What a step pays for landing dead on an existing centreline.
  *
@@ -770,7 +835,9 @@ const AVOID_FREE = 12;
 export function routeRoad(
   terrain: Terrain, ax: number, az: number, bx: number, bz: number, seed: number,
   avoid: readonly RoadSample[][] = [],
+  profile: PathProfile = ROAD_PROFILE,
 ): Array<{ x: number; z: number }> {
+  const avoidR = profile.avoidR;
   // GO ROUND, OR BUILD A BRIDGE — decided once, up front, from how much water
   // the straight line actually crosses.
   //
@@ -864,7 +931,7 @@ export function routeRoad(
       // corridor and unpayable on top of the other road's gravel.
       if (others.length > 0) {
         const dOther = nearOther(nx, nz);
-        if (dOther < AVOID_R) score += AVOID_COST * (1 - dOther / AVOID_R);
+        if (dOther < avoidR) score += AVOID_COST * (1 - dOther / avoidR);
       }
       // A whisper of noise so two roads leaving the same junction on similar
       // bearings do not lock onto the same contour and run as a double line.

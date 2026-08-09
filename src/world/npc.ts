@@ -44,7 +44,7 @@ import { inRise, type NpcField, type NpcInfo, type NpcTalk, type TownRegistry } 
 import type { StringKey } from '../i18n';
 import { StructureField } from './structures';
 import type { SolidBox } from './props';
-import { DECK_EDGE, type RoadClearance } from './roads';
+import { type RoadClearance } from './roads';
 import { flags } from '../core/flags';
 import { GAIN_BODY } from './npc-gain';
 import {
@@ -326,14 +326,14 @@ const TURN_LAMBDA = 4.5;
 /**
  * How far his timber has to stay from a carriageway centreline, world units.
  *
- * `DECK_EDGE` (5.0) is the outer rim of the surface that is both drawn and
- * walked, and the +1.2 is his own body radius plus enough that he is visibly
+ * A margin OUTSIDE the rim of whatever path answers, asked through
+ * `edgeDistanceTo`: 1.2 is his own body radius plus enough that he is visibly
  * standing OFF the gravel rather than on the verge of it. The same shape of
  * number as `FENCE_ROAD_CLEAR` in towns.ts, and it matters more here: the
  * Encampment's cart road ENDS at the middle of the camp, so "the middle" is a
  * road, and this is the whole reason the search has to walk outward at all.
  */
-const NPC_ROAD_CLEAR = DECK_EDGE + 1.2;
+const NPC_ROAD_CLEAR = 1.2;
 /** Rings the placement search tries, in world units out from the town centre. */
 const SPOT_RINGS = [0, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5];
 /** Bearings per ring. 16 puts a candidate every 22.5 degrees. */
@@ -664,7 +664,7 @@ function approachAngle(cur: number, target: number, rate: number, dt: number): n
  */
 export function spotIsFree(site: NpcSite, x: number, z: number, radius: number): boolean {
   const clearOf = radius + 0.35;
-  if (site.roads.distanceTo(x, z) < NPC_ROAD_CLEAR) return false;
+  if (site.roads.edgeDistanceTo(x, z) < NPC_ROAD_CLEAR) return false;
   if (site.structureTopAt(x, z) > -Infinity) return false;
   for (let k = 0; k < 4; k++) {
     const a = (k / 4) * Math.PI * 2;

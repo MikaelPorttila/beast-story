@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { VoxelModel, shade } from '../core/voxel';
 import { hashCell, mulberry32 } from './noise';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch, type ColumnScratch } from './terrain';
-import { DECK_EDGE, type RoadClearance } from './roads';
+import { type RoadClearance } from './roads';
 import { SWAY_BOUND_PAD } from './sway';
 import { nature, natureCount } from './nature';
 import { flags } from '../core/flags';
@@ -2257,8 +2257,16 @@ export type Exclusion = {
  * was raised for. Beyond these the forest closes back in, which is what makes
  * the corridor read as cut.
  */
-const ROAD_SOLID_CLEAR = 7.5;
-const ROAD_TREE_CLEAR = 12;
+// ALL THREE ARE MARGINS OUTSIDE THE PATH'S RIM, not distances from a
+// centreline — `roadEdgeAt` below asks `edgeDistanceTo`. Written the old way
+// (7.5 / 12 / DECK_EDGE + 0.4, against the centreline) each one carried the
+// cart road's 5-unit half-corridor inside it, so beside a narrower path they
+// would all have cleared too much ground: a trail through a forest that strips
+// trees to a cart road's distance is a road with a dirt texture (issue #142,
+// §11g). Subtracting DECK_EDGE leaves the margins that were actually meant, and
+// on today's single-profile world the numbers are identical.
+const ROAD_SOLID_CLEAR = 2.5;
+const ROAD_TREE_CLEAR = 7;
 /**
  * Soft props — grass, flowers, sprigs — stop at the ribbon's rim.
  *
@@ -2266,12 +2274,9 @@ const ROAD_TREE_CLEAR = 12;
  * props are otherwise never held back (see Exclusion: a bare disc reads as a
  * bug), but a carriageway with meadow tussocks growing out of it is not a road,
  * and the ribbon covers the ground here anyway so there is no bald patch to
- * leave behind. DECK_EDGE + 0.4, so the sward closes right up to the verge.
- *
- * Derived from DECK_EDGE rather than written out as 5.4, because "the rim of
- * the drawn road" is the fact this number is about and the two must not drift.
+ * leave behind. 0.4 past the rim, so the sward closes right up to the verge.
  */
-const ROAD_SOFT_CLEAR = DECK_EDGE + 0.4;
+const ROAD_SOFT_CLEAR = 0.4;
 
 /**
  * How far a meadow clump throws its members from its own centre.
@@ -2353,16 +2358,19 @@ export function* buildChunkPropsSteps(
   }
 
   /**
-   * Distance from (x, z) to the nearest carriageway centreline, Infinity in a
-   * world with no roads — and the number is also left in `roadDist` for the
-   * callers that want it after an exclusion test has already paid for it.
+   * How far (x, z) lies outside the nearest path's RIM, Infinity in a world
+   * with no paths — and the number is also left in `roadDist` for the callers
+   * that want it after an exclusion test has already paid for it.
+   *
+   * The rim and not the centreline, so a clearance shrinks with the path it is
+   * beside. See `RoadClearance` in roads.ts.
    *
    * The one place in this file that talks to the road network. See
    * `RoadClearance` in roads.ts for why every placer has to.
    */
   let roadDist = Infinity;
   const roadDistAt = (wx: number, wz: number): number => {
-    roadDist = roads === null ? Infinity : roads.distanceTo(wx, wz);
+    roadDist = roads === null ? Infinity : roads.edgeDistanceTo(wx, wz);
     return roadDist;
   };
 
@@ -2490,7 +2498,7 @@ export function* buildChunkPropsSteps(
    * stamps beside a carriageway. Doubling a chunk's dominant query on a path
    * that could widen later is still not a thing to leave lying about.)
    *
-   * With `ROAD_SOFT_CLEAR` at DECK_EDGE + 0.4 the two answers AGREE for every
+   * With `ROAD_SOFT_CLEAR` at 0.4 past the rim the two answers AGREE for every
    * stamp that survives `onRoad`, because `surfaceAt` hands back the plain
    * ground outside the rim; the sward is bit-identical with and without this.
    * It is here so that stays true BY CONSTRUCTION rather than by the exclusion

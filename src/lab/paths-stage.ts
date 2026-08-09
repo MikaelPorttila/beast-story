@@ -36,6 +36,7 @@ import { buildFence, type Fence, type FenceNode } from '../world/fences';
 import type { Road, RoadSample } from '../world/roads';
 import { WATER_LEVEL } from '../world/terrain';
 import { DECK_EDGE } from '../world/roads';
+import { ROAD_PROFILE } from '../world/path-profile';
 
 /**
  * The stage's waterline IS the game's.
@@ -249,7 +250,7 @@ function stageRoad(): Road {
   const a = pts[0];
   const b = pts[pts.length - 1];
   return {
-    id: 'lab', fromId: 'lab:a', toId: 'lab:b', pts,
+    id: 'lab', fromId: 'lab:a', toId: 'lab:b', profile: ROAD_PROFILE, pts,
     trim: new Float32Array([a.x, a.z, 0, 1, b.x, b.z, 0, -1]),
   };
 }

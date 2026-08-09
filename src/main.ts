@@ -5993,6 +5993,9 @@ beginPlay();
     }
     return {
       id: r.id, from: r.from, to: r.to,
+      /** Which KIND of path, and how wide — see `test-road.mjs`'s sweep. */
+      profile: r.profile,
+      deckEdge: r.deckEdge,
       length: +len.toFixed(1),
       samples: n,
       /** Largest upward change in the walking surface over 0.25 units. */

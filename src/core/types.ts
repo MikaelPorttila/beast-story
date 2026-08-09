@@ -401,6 +401,17 @@ export interface TownRegistry {
      * anyway, and "is this bit of road a bridge" is the question they ask.
      */
     readonly bridge: Uint8Array;
+    /** The profile this path was built to — `path:<name>`. */
+    readonly profile: string;
+    /**
+     * Outer rim of the drawn and walked surface, world units.
+     *
+     * On the record rather than looked up from a table, because a probe that
+     * sweeps the cross-section has to know how wide the path it is sweeping is
+     * — `tools/test-road.mjs` had 5.0 written into it, which was correct for
+     * exactly as long as there was one profile (issue #142, §4).
+     */
+    readonly deckEdge: number;
   }>;
 }
 

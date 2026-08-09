@@ -1526,8 +1526,9 @@ function localRegistry(town: TownInfo): TownRegistry {
  * a no-op here rather than a special case inside it.
  */
 const NO_ROADS: RoadClearance = {
+  edgeDistanceTo: () => Infinity,
+  spanEdgeDistanceTo: () => Infinity,
   distanceTo: () => Infinity,
-  spanDistanceTo: () => Infinity,
 };
 
 /** Scratch for `SkyIsland.debugStructures`. Debug path, but free is free. */
