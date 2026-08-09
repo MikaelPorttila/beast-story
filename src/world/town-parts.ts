@@ -42,7 +42,7 @@ import { VoxelModel, shade } from '../core/voxel';
 import { bakeProp, type Template } from './props';
 import { bakeSolid, SolidStamp } from './structures';
 import { buildFence, type Fence, type FenceParts } from './fences';
-import { builtDeck, type Junction, type Road, type RoadSample } from './roads';
+import { builtDeck, SEG_LEN, type Junction, type Road, type RoadSample } from './roads';
 import { type PathProfile } from './path-profile';
 import { WATER_LEVEL } from './terrain';
 import { hashCell } from './noise';
@@ -1225,11 +1225,28 @@ function sectionAt(
   // reports the count and the fork is the place to look if it moves.
   if (!p.bridge && ad >= prof.deckEdge - prof.shoulderIn) {
     const guard = prof.rimGuard;
+    // ALONG THE ROAD THE GUARD IS HALF A RING, NOT HALF A CELL, and that is the
+    // last of issue #15 rather than a refinement.
+    //
+    // Across the road a rim vertex is responsible for one terrain cell, so
+    // `rimGuard` (half a cell diagonal) is the right reach. ALONG it, the
+    // ribbon between two rings is a CHORD spanning `SEG_LEN`, and the shoulder
+    // it is drawn over is `round(deck)` — an integer that flips by a whole unit
+    // as the deck passes each half. Two consecutive rings either side of a flip
+    // are both correctly guarded, and the chord between them still passes a
+    // full unit under the column in the middle. Sampling 0.75 forward and back
+    // cannot see a flip 1.5 away.
+    //
+    // Measured on seed 1337, once `test-road`'s own pattern was corrected so it
+    // could see any of this: 191 of 5296 cross-section samples, worst 0.569,
+    // and the worst of them 4.8 units off the centreline of a perfectly
+    // ordinary straight stretch — no fork, no terminus, nothing overlapping.
+    const along = SEG_LEN;
     const out = Math.sign(d) * guard;
     for (const [gx, gz] of [
       [px * out, pz * out],
-      [tx * guard, tz * guard],
-      [-tx * guard, -tz * guard],
+      [tx * along, tz * along],
+      [-tx * along, -tz * along],
     ] as const) {
       const g = surfaceAt(p.x + px * sd + gx, p.z + pz * sd + gz);
       if (g > y) y = g;

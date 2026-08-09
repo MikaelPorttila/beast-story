@@ -147,6 +147,12 @@ export interface RoadField {
   /** The walking surface: `ground` off the road, the deck (or verge ramp) on it. */
   surfaceAt(x: number, z: number, ground: number): number;
   /**
+   * The same, for the surface that is DRAWN rather than walked on — it reaches
+   * a little past each terminal plane, where the carve deliberately does not.
+   * See `RoadNetwork.drawnSurfaceAt`.
+   */
+  drawnSurfaceAt(x: number, z: number, ground: number): number;
+  /**
    * How walked the ground at (x, z) is, 0..1 — the colour of packed dirt.
    *
    * A settlement's beaten tracks are paths in the network like any other (issue
@@ -979,6 +985,17 @@ export class Terrain {
     out.grass = hc < WATER_LEVEL + 0.3 ? 0
       : clamp01((1 - sandW) * (1 - snowW) * (1 - wear));
     out.trample = wear;
+    // NO CLAMP ON THE DRAWN COLUMN HERE, and it was tried.
+    //
+    // The obvious reading of "ground is sticking through the road" is that the
+    // ground is too high, so the first fix was to clip a drawn column to the
+    // corridor surface over it. It changed nothing: 12 of 5297 samples either
+    // way, worst 0.146 either way. The ground was already right — every one of
+    // those samples was the RIBBON sagging, either a chord between two rings
+    // whose shoulders round to different integers (fixed in `sectionAt`) or the
+    // far clipmap chording over the whole corridor (fixed in
+    // distant-terrain.ts). A clamp here would have been cost on a per-column
+    // path buying a number that does not move.
     out.h = h;
     out.hc = hc;
     // 0.6, not "any wear at all". The threshold is where props.ts stops

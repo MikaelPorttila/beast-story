@@ -1147,6 +1147,16 @@ export interface World {
    */
   debugWear(x: number, z: number): number;
   /**
+   * Debug: the top the MESHER draws this column at, which is not `getHeight`.
+   *
+   * The two differ on purpose — collision on a carriageway is the smooth deck
+   * while the drawn box is a floored column clipped under it — and when they
+   * differ the WRONG way you get ground standing up through the gravel. There
+   * was no way to read the drawn one, so the only evidence was a raycast that
+   * could not say whether the mesher or the clip was at fault.
+   */
+  debugColumn(x: number, z: number): number;
+  /**
    * AUTHOR A PATH AT RUNTIME, and rebuild everything that depended on there
    * not being one.
    *

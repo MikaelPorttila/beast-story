@@ -490,6 +490,9 @@ export interface LandmarkProbe {
  * nothing and draw nothing, so authoring one at runtime would produce an
  * invisible clearance rule and look like a no-op.
  */
+/** For `World.debugColumn` alone — see there. */
+const dbgColumnScratch = makeScratch();
+
 const PATH_PROFILES: Record<string, PathProfile> = {
   road: ROAD_PROFILE,
   footpath: FOOTPATH_PROFILE,
@@ -1422,6 +1425,13 @@ export function createWorld(
 
     debugWear(x: number, z: number): number {
       return terrain.trampleAt(x, z);
+    },
+
+    debugColumn(x: number, z: number): number {
+      // Its own scratch: `columnInfo` writes through the one it is handed, and
+      // borrowing the streamer's would corrupt a chunk mid-build.
+      terrain.columnInfo(Math.floor(x), Math.floor(z), dbgColumnScratch);
+      return dbgColumnScratch.h;
     },
     debugStructures(out: number[]): void {
       // Gated on the same flag as the query, so the overlay can never draw a

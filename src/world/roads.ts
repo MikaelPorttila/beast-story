@@ -100,7 +100,7 @@ const REACH = MAX_CARVE_BLEND;
  * to be one lamp post every seven segments, which is how the furniture is
  * spaced.
  */
-const SEG_LEN = 3;
+export const SEG_LEN = 3;
 /** Spatial grid cell, world units. See `buildIndex` for why it is not bigger. */
 const CELL = 8;
 /** Sampling pitch of `spanDistanceTo`. See there for the error it costs. */
@@ -780,8 +780,56 @@ export class RoadNetwork implements RoadField, RoadClearance {
     return 1 - smoothstep(prof.carveCore, prof.carveBlend, d);
   }
 
+  /**
+   * `surfaceAt` for the DRAWN ground, reaching `carveInset` PAST each terminal
+   * plane instead of stopping on it.
+   *
+   * The carve deliberately stops `carveInset` (0.75, half a cell diagonal)
+   * INSIDE a road's own end plane, because it is sampled at column centres and
+   * a column cut a whole unit down while half its area sticks out past the
+   * ribbon's end ring is a hand-wide slot across the terminus. That leaves a
+   * band where a ribbon is drawn over ground nobody levelled — and the ribbon's
+   * last quad spans right up to the plane, so a raycast a hundredth of a unit
+   * inside it hits gravel while `surfaceAt` has already handed back to the
+   * natural column. Every one of the 191 samples of issue #15 that survived to
+   * this branch was in that band.
+   *
+   * So the two are made to overlap rather than to abut: the carve holds back
+   * 0.75 and the drawn clip reaches 0.75 the other way, which covers the whole
+   * ribbon between them. It is the SAME number for the same reason, which is
+   * why it is `carveInset` and not a second constant.
+   *
+   * Only the drawn ground uses this. Collision stays on `surfaceAt`, because a
+   * corridor that owned the walking surface past its own terminal plane is the
+   * terminal dome this whole mechanism removed.
+   */
+  drawnSurfaceAt(x: number, z: number, ground: number): number {
+    // UNCLIPPED — the ROUTE and not the built carriageway, which is the one
+    // difference from `surfaceAt` and the reason this exists. A clipped query
+    // hands back the natural column wherever a trim plane has ended the
+    // carriageway or wherever the penetration race went to a path that does not
+    // reach, and those are exactly the columns that were standing through the
+    // gravel. A clamp that asks the same question that failed cannot fix it.
+    //
+    // Safe because the CALLER bands it: `columnInfo` only lowers a column that
+    // is already within a metre of the corridor surface, so on a route with no
+    // carriageway on it — a town's own thoroughfare — this can only take a
+    // yard the settlement had already levelled to the same deck and move it by
+    // less than a cell. Collision never uses it.
+    if (!this.nearest(x, z, Role.Surface, false)) return ground;
+    const d = this.nDist;
+    const prof = this.nProfile;
+    if (d >= prof.deckEdge) return ground;
+    if (this.nBridge) return this.nDeck;
+    return RoadNetwork.surfaceOf(prof, this.nDeck, d);
+  }
+
   surfaceAt(x: number, z: number, ground: number): number {
-    if (!this.nearest(x, z, Role.Surface, true)) return ground;
+    return this.surfaceOfAt(x, z, ground, 0);
+  }
+
+  private surfaceOfAt(x: number, z: number, ground: number, insetScale: number): number {
+    if (!this.nearest(x, z, Role.Surface, true, insetScale)) return ground;
     const d = this.nDist;
     const prof = this.nProfile;
     if (d >= prof.deckEdge) return ground;

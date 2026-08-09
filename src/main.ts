@@ -6202,6 +6202,8 @@ beginPlay();
   deep: world.isDeepWater(x, z),
   /** How walked this column is, 0..1 — see `World.debugWear`. */
   wear: +world.debugWear(x, z).toFixed(6),
+  /** What the MESHER draws here, against `ground` which is what you stand on. */
+  column: +world.debugColumn(x, z).toFixed(3),
 });
 
 /**

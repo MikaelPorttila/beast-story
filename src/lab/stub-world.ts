@@ -23,6 +23,7 @@ export class StubWorld implements World {
   debugStructures(): void { /* nor any structure boxes */ }
   /** The stage has no settlements, so nothing has worn its ground. */
   debugWear(): number { return 0; }
+  debugColumn(): number { return 0; }
   debugPaths(): { paths: []; at: null } { return { paths: [], at: null }; }
   /** The stage has no network to add to. See `World.addPath`. */
   addPath(): {

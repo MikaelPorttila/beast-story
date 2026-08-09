@@ -651,6 +651,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     debugStructures(): void { /* nor any structure boxes */ },
     // Stone floors, not turf: nothing down here is worn by feet.
     debugWear: () => 0,
+    debugColumn: () => 0,
     debugPaths: () => ({ paths: [], at: null }),
     debugCarriedStreets: () => ({ count: 0, paved: 0, clear: [] }),
     addPath: () => ({

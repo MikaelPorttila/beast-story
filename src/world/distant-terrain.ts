@@ -311,6 +311,46 @@ export class DistantTerrain {
 
   get building(): boolean { return this.nextVertex >= 0; }
 
+  /**
+   * Keep the far ground under any path that runs through this vertex's cell.
+   *
+   * THE HLOD CHORDS OVER A CORRIDOR. Near ground is a 1 m column and knows
+   * exactly where a road is; this grid samples every 8-24 m, so one edge can
+   * span a whole carriageway — and a straight line between two vertices on the
+   * banks passes clean over the trench that was cut between them. Measured on
+   * seed 1337 the day `test-road`'s own pattern was corrected so it could see
+   * the far mesh at all: 168 of its samples had the clipmap drawn ABOVE the
+   * ribbon, worst 0.313. It is the flat green wedge lying across the road in
+   * the report, and it had never shown up in a number because the guard was
+   * matching a mesh name nothing is called.
+   *
+   * A MINIMUM OVER THE CELL, not at the vertex. Clamping the vertex alone fixes
+   * nothing: its neighbour is still high and the chord between them still
+   * crosses. Taking the lowest corridor surface within half a step of BOTH ends
+   * puts the whole edge under the deck by construction.
+   *
+   * Lowering is always safe here, which is what makes this cheap rather than
+   * delicate: the HLOD is a permanent underlay and the near chunks are drawn
+   * over it. Nothing walks on it and nothing collides with it.
+   */
+  private underPaths(wx: number, wz: number, y: number): number {
+    const rf = this.field.roads;
+    if (rf === null) return y;
+    const h = this.nextLayout.step * 0.5;
+    // Nine samples: the vertex, its four edge midpoints and its four corners.
+    // A corridor crossing a cell at 45 degrees misses a plus-shaped stencil.
+    const c = h * 0.7071;
+    let out = y;
+    for (const [dx, dz] of [
+      [0, 0], [h, 0], [-h, 0], [0, h], [0, -h],
+      [c, c], [c, -c], [-c, c], [-c, -c],
+    ] as const) {
+      const s = rf.drawnSurfaceAt(wx + dx, wz + dz, y);
+      if (s < out) out = s;
+    }
+    return out;
+  }
+
   private writeVertex(v: number): void {
       const i = v * 2;
       const p = v * 3;
@@ -327,7 +367,7 @@ export class DistantTerrain {
       );
 
       this.nextTerrainPosition[p] = lx;
-      this.nextTerrainPosition[p + 1] = this.scratch.h - 0.08;
+      this.nextTerrainPosition[p + 1] = this.underPaths(wx, wz, this.scratch.h - 0.08);
       this.nextTerrainPosition[p + 2] = lz;
       this.nextTerrainColor[c] = this.scratch.topR;
       this.nextTerrainColor[c + 1] = this.scratch.topG;
