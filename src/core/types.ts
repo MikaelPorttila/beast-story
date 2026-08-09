@@ -1147,6 +1147,34 @@ export interface World {
    */
   debugWear(x: number, z: number): number;
   /**
+   * AUTHOR A PATH AT RUNTIME, and rebuild everything that depended on there
+   * not being one.
+   *
+   * Issue #142 §12a, and the step the issue itself flags as carrying the risk.
+   * Everything about the world is planned before the first chunk exists,
+   * deliberately: `planSettlements` routes and carves BEFORE `terrain.roads` is
+   * set, so no chunk carrying a corridor is ever built while roads are being
+   * planned. This is the one hole in that, and it is a DEVELOPER path — the
+   * console's `/path` and `__dbgAddPath`, never gameplay.
+   *
+   * It costs about what walking into fresh ground costs, because it is the same
+   * work: every chunk is dropped and rebuilt. `refit` is the caller's chance to
+   * put the hero back on the ground — see the note in the implementation, which
+   * is the whole safety argument.
+   *
+   * Returns what was built, or `error` and nothing else. A refusal is REPORTED
+   * (§12f): an editor whose first user thinks it is broken is worse than one
+   * that says why.
+   */
+  addPath(spec: {
+    from: readonly [number, number];
+    to: readonly [number, number];
+    /** A profile name — `road`, `footpath`. Unknown names are reported. */
+    profile?: string;
+    /** Called after the rebuild, to re-ground anything standing on it. */
+    refit?: () => void;
+  }): { id: string; length: number; samples: number; note: string | null; error?: string };
+  /**
    * Debug: every path on the network, and what the clearance queries answer at
    * a column.
    *

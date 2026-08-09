@@ -48,7 +48,7 @@ and everything browser-related goes through
 
 Lab flags are in [LAB.md](LAB.md).
 
-**Console** (`§`): `/gfx` · `/nature` · `/content` · `/give` · `/tp` · `/zone` ·
+**Console** (`§`): `/gfx` · `/nature` · `/content` · `/give` · `/path` · `/tp` · `/zone` ·
 `/mount <species>` · `/show-colliders` · `/volume` · `/haptics` · `/vibration` ·
 `/shake` · `/invertlook`
 
@@ -169,6 +169,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Water and diving | `world/water.ts`, `world/underwater.ts` | `test-dive` |
 | Towns, roads, buildings | `world/towns.ts`, `world/roads.ts`, `world/town-parts.ts`, `world/structures.ts`, `world/spawned.ts` | `test-road`, `test-structures`, `test-spawn` |
 | What KIND of path a path is | `world/path-profile.ts` | `test-path-profile`, `test-road` |
+| Authoring a path at runtime | `World.addPath` (`world/index.ts`), `Towns.addPathRibbon` | `test-path-edit` |
 | Beaten tracks and flagged streets | `WEAR`/`wearTracks` in `world/towns.ts`, `streetNetwork` in `world/sky-island.ts` | `test-road`, `test-carrier` |
 | Fences and bridge railings | `world/fences.ts` (the chain), `world/town-parts.ts` (the kit) | `test-fence` |
 | Moving world pieces | `world/carriers.ts`, `world/sky-island.ts` | `test-carrier` |

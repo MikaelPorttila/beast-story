@@ -3086,6 +3086,29 @@ function nearestEnemyOfSpecies(species: string) {
 // exception and why it is not a surface). Landing him inside the ride volume is
 // what attaches him, on the next slice, through exactly the path a player
 // flying in on a galebird takes.
+/**
+ * PUT THE HERO BACK ON THE GROUND, wherever he is standing.
+ *
+ * Issue #142 §12a. Carving a path is the first thing in this game that moves
+ * the height field under someone: `getHeight` used to be a pure function of the
+ * seed, and `world/index.ts` still says so about `rebuildProps` — which is true
+ * of everything EXCEPT this. `carveAt` sinks a column by up to 1.62, so a path
+ * authored under a hero standing still leaves him inside the ground.
+ *
+ * Only ever UP: a hero in the air when a path is carved beneath him should
+ * fall, which is what the sim is for. This is the same clamp `__dbgTp` applies
+ * and it goes through the saddle for the same reason.
+ */
+const refitHero = (): void => {
+  const floor = Math.max(
+    world.getHeight(player.position.x, player.position.z), world.waterLevel,
+  );
+  if (player.position.y >= floor) return;
+  mount.teleport(player.position.x, player.position.z, floor);
+  player.position.y = floor;
+  player.velocity.set(0, 0, 0);
+};
+
 (window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = (x, z, y) => {
   // THE SADDLE FIRST, and it is not optional: while mounted the hero's position
   // is written from the mount's every slice (`seatHero`), so setting the fields
@@ -4139,6 +4162,27 @@ devConsole?.register({
     // one long frame. That is the frame the preload band exists to avoid, and
     // seeing the difference is half of what this command is for.
     return zones.switchTo(args[0]);
+  },
+});
+devConsole?.register({
+  name: 'path',
+  args: '<dx> <dz> [profile]',
+  help: 'Route a path from the hero to an offset and carve it in. Rebuilds every chunk.',
+  run: (args) => {
+    const dx = Number(args[0]);
+    const dz = Number(args[1]);
+    if (!Number.isFinite(dx) || !Number.isFinite(dz)) {
+      return 'usage: /path <dx> <dz> [road|footpath]';
+    }
+    const r = world.addPath({
+      from: [player.position.x, player.position.z],
+      to: [player.position.x + dx, player.position.z + dz],
+      profile: args[2],
+      refit: refitHero,
+    });
+    if (r.error) return `refused: ${r.error}`;
+    return `${r.id}: ${r.length} units over ${r.samples} samples`
+      + (r.note ? ` (${r.note})` : '');
   },
 });
 devConsole?.register({
@@ -6062,6 +6106,20 @@ beginPlay();
 (window as unknown as {
   __dbgPaths: (x?: number, z?: number) => unknown;
 }).__dbgPaths = (x, z) => world.debugPaths(x, z);
+
+/**
+ * AUTHOR A PATH AT RUNTIME. The scriptable half of `/path`, and the reason the
+ * editor work in issue #142 §12 is testable before a pixel of panel exists.
+ *
+ * The hook and the command share `World.addPath` and `refit` below, which is
+ * the project's own rule about a driver hook: a probe must not be able to pass
+ * a test the UI would fail, so both go through one function.
+ */
+(window as unknown as {
+  __dbgAddPath: (ax: number, az: number, bx: number, bz: number, profile?: string) => unknown;
+}).__dbgAddPath = (ax, az, bx, bz, profile) => world.addPath({
+  from: [ax, az], to: [bx, bz], profile, refit: refitHero,
+});
 
 // World surface queries at an arbitrary column, for the climbing/collision
 // tests: `ground` is what blocks and supports, `trunkSolidTop` is the bole a

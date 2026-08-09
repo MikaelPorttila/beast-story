@@ -24,6 +24,10 @@ export class StubWorld implements World {
   /** The stage has no settlements, so nothing has worn its ground. */
   debugWear(): number { return 0; }
   debugPaths(): { paths: []; at: null } { return { paths: [], at: null }; }
+  /** The stage has no network to add to. See `World.addPath`. */
+  addPath(): { id: string; length: number; samples: number; note: null; error: string } {
+    return { id: '', length: 0, samples: 0, note: null, error: 'this zone has no path network' };
+  }
   debugCarriedStreets(): { count: number; paved: number; clear: number[] } {
     return { count: 0, paved: 0, clear: [] };
   }

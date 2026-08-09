@@ -653,6 +653,10 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     debugWear: () => 0,
     debugPaths: () => ({ paths: [], at: null }),
     debugCarriedStreets: () => ({ count: 0, paved: 0, clear: [] }),
+    addPath: () => ({
+      id: '', length: 0, samples: 0, note: null,
+      error: 'this zone has no path network',
+    }),
     debugRidges(): void { /* nor any roofs */ },
     /** Nor any road furniture: the hold has no roads. */
     debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; },

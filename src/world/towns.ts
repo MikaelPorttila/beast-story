@@ -56,7 +56,7 @@ import { displayKey, reportContentIssue } from '../core/content-bridge';
 import { Terrain, WATER_LEVEL, type GroundPatch } from './terrain';
 import {
   RoadNetwork, roadAt, roadLength, routeRoad, profileRoad, straightWetLength,
-  builtDeck, setTrimStart, NECK_MAX, type Road, type RoadClearance,
+  builtDeck, setTrimStart, NECK_MAX, type Junction, type Road, type RoadClearance,
 } from './roads';
 import { ROAD_PROFILE, trackProfile } from './path-profile';
 import { Accum, bakeProp, type PropLib, type Template } from './props';
@@ -675,8 +675,22 @@ function planeHit(
   return { x: cx + nx * h, z: cz + nz * h };
 }
 
+/**
+ * The registry, plus the one thing `World.addPath` needs it to do.
+ *
+ * `TownRegistry.roads` is what a compass, a signpost and every probe mean by
+ * "the roads", and it was a snapshot taken when the world was planned — which
+ * was correct for exactly as long as the network could not change. A path
+ * authored at runtime is on the network and drawn in the scene, and a registry
+ * that cannot see it makes `__dbgTowns().roads` disagree with what is on the
+ * ground. Issue #142 §12a.
+ */
+export interface MutableTownRegistry extends TownRegistry {
+  addRoad(road: Road): void;
+}
+
 export interface SettlementPlan {
-  towns: TownRegistry;
+  towns: MutableTownRegistry;
   network: RoadNetwork;
   /** Scenic point on the start town's road; the world's spawn. */
   spawn: THREE.Vector3;
@@ -699,24 +713,33 @@ function siteOf(sites: readonly TownSite[], id: string): TownSite | null {
   return sites.find((s) => s.id === id) ?? null;
 }
 
-class Registry implements TownRegistry {
+/** One road, flattened into the shape `TownRegistry` hands out. */
+function roadRecord(r: Road): TownRegistry['roads'][number] {
+  const path = new Float32Array(r.pts.length * 3);
+  const bridge = new Uint8Array(r.pts.length);
+  for (let i = 0; i < r.pts.length; i++) {
+    path[i * 3] = r.pts[i].x;
+    path[i * 3 + 1] = r.pts[i].y;
+    path[i * 3 + 2] = r.pts[i].z;
+    bridge[i] = r.pts[i].bridge ? 1 : 0;
+  }
+  return {
+    id: r.id, from: r.fromId, to: r.toId, path, bridge,
+    profile: r.profile.id, deckEdge: r.profile.deckEdge,
+  };
+}
+
+class Registry implements MutableTownRegistry {
+  private readonly mutableRoads: Array<TownRegistry['roads'][number]>;
   readonly roads: TownRegistry['roads'];
 
   constructor(readonly all: readonly TownInfo[], roads: readonly Road[]) {
-    this.roads = roads.map((r) => {
-      const path = new Float32Array(r.pts.length * 3);
-      const bridge = new Uint8Array(r.pts.length);
-      for (let i = 0; i < r.pts.length; i++) {
-        path[i * 3] = r.pts[i].x;
-        path[i * 3 + 1] = r.pts[i].y;
-        path[i * 3 + 2] = r.pts[i].z;
-        bridge[i] = r.pts[i].bridge ? 1 : 0;
-      }
-      return {
-        id: r.id, from: r.fromId, to: r.toId, path, bridge,
-        profile: r.profile.id, deckEdge: r.profile.deckEdge,
-      };
-    });
+    this.mutableRoads = roads.map(roadRecord);
+    this.roads = this.mutableRoads;
+  }
+
+  addRoad(road: Road): void {
+    this.mutableRoads.push(roadRecord(road));
   }
 
   get(id: string): TownInfo | undefined {
@@ -1181,6 +1204,21 @@ export class Towns {
   readonly fences: readonly Fence[] = [];
   private readonly glowMats: THREE.MeshStandardMaterial[] = [];
   private readonly geos: THREE.BufferGeometry[] = [];
+  /**
+   * What `addPathRibbon` needs to draw one more path after the constructor has
+   * finished. Six references and a counter, kept rather than re-derived,
+   * because a runtime path has to arrive on exactly the same material, with the
+   * same lift bias sequence and against the same aprons as the ones built at
+   * boot — a second copy of that arithmetic would agree on the day it is
+   * written. See `addPathRibbon`.
+   */
+  private ribbonCtx!: {
+    terrainMat: THREE.Material;
+    surfaceAt: (x: number, z: number) => number;
+    aprons: readonly Junction[];
+    seed: number;
+    next: number;
+  };
   /** Per-site groups and their centres, for the distance cull in `update`. */
   private readonly sites: Array<{ g: THREE.Group; x: number; z: number; r: number }> = [];
   /**
@@ -1335,6 +1373,13 @@ export class Towns {
 
     // -- roads ---------------------------------------------------------------
     let roadIdx = 0;
+    this.ribbonCtx = {
+      terrainMat,
+      surfaceAt: (x, z) => terrain.getHeight(x, z),
+      aprons: plan.network.junctions,
+      seed,
+      next: 0,
+    };
     /** See `fences` above: the readout `tools/test-fence.mjs` asserts over. */
     const builtFences: Fence[] = [];
     // Every lamp and fingerpost already standing, shared by all three roads.
@@ -1381,6 +1426,7 @@ export class Towns {
         roadIdx++ * 0.003,
         plan.network.junctions,
       );
+      this.ribbonCtx.next = roadIdx;
       if (rib.idx.length > 0) {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.Float32BufferAttribute(rib.pos, 3));
@@ -1494,6 +1540,61 @@ export class Towns {
    */
   fireOf(townId: string): { x: number; z: number } | null {
     return this.fires.get(townId) ?? null;
+  }
+
+  /**
+   * DRAW A PATH THAT DID NOT EXIST AT BOOT.
+   *
+   * Issue #142 §12a. Everything else in this class is built once and frozen,
+   * for a measured reason — the network is planned before the first chunk so
+   * that no chunk carrying a corridor exists while roads are being routed — and
+   * this is the one deliberate hole in that, driven by `World.addPath` and by
+   * nothing in normal play.
+   *
+   * IT ADDS, IT DOES NOT RE-EMIT. The alternative in §12b is to rebuild the
+   * whole merged ribbon on every edit, which is honest but throws away geometry
+   * that did not change; one mesh per added path costs one draw call per added
+   * path, and the number of paths anyone adds by hand in a session is small.
+   * The paths built at boot stay merged the way they were.
+   *
+   * NO FURNITURE, and the refusal is reported rather than silent (§12f). Lamps
+   * and fingerposts are placed against the shared `taken` list, which is frozen
+   * with the rest of the class; a runtime path that wanted them would have to
+   * re-run the whole road pass. A profile that asks for `furniture: 'road'`
+   * gets a path with none and a diagnostic saying so.
+   */
+  addPathRibbon(road: Road): { drawn: boolean; note: string | null } {
+    const ctx = this.ribbonCtx;
+    const rib = buildRoadRibbon(
+      [road], ctx.seed, ctx.surfaceAt, ctx.next++ * 0.003, ctx.aprons,
+    );
+    if (rib.idx.length === 0) {
+      return { drawn: false, note: 'the path is surfaced over nothing' };
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(rib.pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(rib.nrm, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(rib.col, 3));
+    geo.setIndex(rib.idx);
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, ctx.terrainMat);
+    // The same name shape the boot ribbons carry, so `__dbgSurfaceY` and
+    // `tools/test-road.mjs` see a runtime path as road and not as `Mesh`.
+    mesh.name = `road:${road.id}`;
+    mesh.receiveShadow = true;
+    mesh.matrixAutoUpdate = false;
+    const g = new THREE.Group();
+    g.add(mesh);
+    this.group.add(g);
+    this.geos.push(geo);
+    const mid = road.pts[Math.floor(road.pts.length / 2)];
+    this.sites.push({ g, x: mid.x, z: mid.z, r: roadLength(road) * 0.5 + 20 });
+    return {
+      drawn: true,
+      note: road.profile.furniture === 'road'
+        ? 'no lamps or fingerposts: the furniture pass is frozen at boot'
+        : null,
+    };
   }
 
   dispose(): void {

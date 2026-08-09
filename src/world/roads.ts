@@ -439,6 +439,12 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * Which road owns each segment, and a one-entry-per-road cache of "is this
    * query point past that road's trim planes".
    *
+   * Uint16 and not Uint8: three roads became twenty-six when a settlement's
+   * beaten tracks joined the network, and `World.addPath` can add more at
+   * runtime. 255 is not a bound anybody would notice being crossed — the index
+   * would just wrap and hand a segment to the wrong road's trim planes, which
+   * fails silently in the way this comment already warns about below.
+   *
    * PER ROAD, NOT PER SEGMENT, and that is the whole subtlety. Skipping only
    * the terminal segment does not work and fails SILENTLY: a point a tenth of a
    * unit past the end node is still ~3 units from the segment before it, well
@@ -457,7 +463,7 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * interleaved runs each way — before 11.57 / 12.04 / 10.02 ms, after 10.89 /
    * 10.72 / 10.59. The run-to-run spread is larger than the difference.
    */
-  private segRoad = new Uint8Array(0);
+  private segRoad = new Uint16Array(0);
   private clipStamp = new Float64Array(0);
   private clipOut = new Uint8Array(0);
   private queryId = 0;
@@ -508,7 +514,7 @@ export class RoadNetwork implements RoadField, RoadClearance {
     );
     this.seg = new Float32Array(n * 6);
     this.segBridge = new Uint8Array(n);
-    this.segRoad = new Uint8Array(n);
+    this.segRoad = new Uint16Array(n);
     this.roadRole = new Uint8Array(this.roads.length);
     for (let i = 0; i < this.roads.length; i++) {
       const q = this.roads[i].profile.roles;

@@ -174,6 +174,10 @@ const SOLO = new Set([
   // thirty units and reads it again. Grant, ride and teleport are all state, and
   // its clock is __dbgAdvance.
   'flyshadow',
+  // Authors a path into a running world: it mutates the network, drops every
+  // chunk and rebuilds them, which is about as much state as a probe can drive.
+  // It also re-grounds the hero, so nothing about it is read-only.
+  'path-edit',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output

@@ -21,6 +21,8 @@ import {
 import { Shops, type DenSpot } from './shops';
 import { SiteFields } from './structures';
 import { Towns, planSettlements, type SettlementPlan } from './towns';
+import { profileRoad, roadLength, routeRoad, type Road } from './roads';
+import { FOOTPATH_PROFILE, ROAD_PROFILE, type PathProfile } from './path-profile';
 import { TownParts } from './town-parts';
 import { Npcs, spotIsFree, type NpcSite } from './npc';
 import { SpawnedSolids } from './spawned';
@@ -479,6 +481,20 @@ export interface LandmarkProbe {
  *   gameplay decision rather than a property of having been built. `id` is
  *   likewise optional and only names the zone in `__dbgSafeZones()`.
  */
+/**
+ * The profiles `World.addPath` will build to, by the name a console types.
+ *
+ * A NAME AND NOT A CONSTRUCTOR, per the project's content rule: an author
+ * selects a behaviour by name and a name nothing implements is a diagnostic.
+ * The beaten track and the flagstone are absent on purpose — they carve
+ * nothing and draw nothing, so authoring one at runtime would produce an
+ * invisible clearance rule and look like a no-op.
+ */
+const PATH_PROFILES: Record<string, PathProfile> = {
+  road: ROAD_PROFILE,
+  footpath: FOOTPATH_PROFILE,
+};
+
 export function createWorld(
   scene: THREE.Scene,
   seed = 20260729,
@@ -1007,7 +1023,11 @@ export function createWorld(
     for (let dx = -1; dx <= 1; dx++) buildChunk(scx + dx, scz + dz);
   }
 
-  return {
+  // NAMED rather than returned inline, because one method now calls another:
+  // `addPath` mutates the network and then has to drop every chunk that was
+  // baked against the old one, which is exactly `rebuildProps`. A second copy
+  // of that teardown is a second thing to forget a field in.
+  const api: World = {
     waterLevel: WATER_LEVEL,
     spawnPoint,
     playerStart,
@@ -1248,6 +1268,140 @@ export function createWorld(
         },
       };
     },
+    addPath(spec) {
+      const net = plan?.network ?? null;
+      const reg = plan?.towns ?? null;
+      if (net === null || reg === null || towns === null) {
+        return { id: '', length: 0, samples: 0, note: null, error: 'this zone has no path network' };
+      }
+      const profile = PATH_PROFILES[spec.profile ?? 'footpath'];
+      if (profile === undefined) {
+        return {
+          id: '', length: 0, samples: 0, note: null,
+          error: `unknown profile "${spec.profile}" — try ${Object.keys(PATH_PROFILES).join(', ')}`,
+        };
+      }
+      const [ax, az] = spec.from;
+      const [bx, bz] = spec.to;
+      if (Math.hypot(bx - ax, bz - az) < 12) {
+        return { id: '', length: 0, samples: 0, note: null, error: 'the two ends are under 12 units apart' };
+      }
+      // ROUTED AND PROFILED EXACTLY AS THE PLANNER DOES IT, which is nearly
+      // free — a few hundred height queries, about the cost of one chunk of
+      // terrain — and already parameterised: `profileRoad` takes NaN for "let
+      // the profile decide the height at this end", which is what a free
+      // endpoint is.
+      //
+      // AGAINST THE PATHS ALREADY THERE, so a new one leaves an existing node
+      // as its own path rather than running as a double line. That charge is
+      // `AVOID_COST` 50, tuned to keep two arms of a fork apart, and it means a
+      // path drawn to CROSS another will swerve — issue #142 §12d, and the
+      // reason a forced-waypoint crossing is its own piece of work.
+      const seedFor = Math.floor(Math.abs(ax * 7919 + bz * 104729)) ^ seed;
+      const route = routeRoad(
+        terrain, ax, az, bx, bz, seedFor, net.roads.map((r) => r.pts), profile,
+      );
+      const road: Road = {
+        id: `path:added-${net.roads.length}`,
+        fromId: 'free', toId: 'free',
+        profile,
+        // ANCHORED TO THE GROUND AT BOTH ENDS, which a road out of a town does
+        // not have to be and a free-standing path does.
+        //
+        // `profileRoad` takes NaN for "whatever the profile says", and that is
+        // right for the FIRST road out of a settlement — it is what lets the
+        // road decide what height the town sits at. A path that simply stops in
+        // open country has nothing to decide with: the limiter fills dips by
+        // raising, so its deck arrives wherever the smoothing left it and the
+        // corridor ends in a cliff at the trim plane. Measured on the first one
+        // authored this way, the walking surface stepped 3.305 at the terminus
+        // against a MAX_STEP_UP of 0.5.
+        //
+        // `getHeight` and not `heightCont`: the deck has to meet the column the
+        // hero actually walks on, and outside a corridor that column is floored.
+        // It is read BEFORE the road joins the network, so it is the surface
+        // the path has to marry into rather than one it has already changed.
+        //
+        // AT THE ROUTE'S OWN ENDS, NOT THE ONES THAT WERE ASKED FOR, and the
+        // difference is the whole of the first bug this produced. `routeRoad`
+        // resamples its walk at `SEG_LEN` and lets the tail land up to
+        // `SEG_LEN * 0.35` from where it was aiming; on ground that steps in
+        // whole units, a unit of horizontal slop is easily two units of height.
+        // Measured on the first path authored this way: the deck ended at 9.9
+        // with the natural column beside it at 8.0, a 1.9 cliff across the
+        // terminus against a MAX_STEP_UP of 0.5.
+        pts: profileRoad(
+          terrain, route,
+          terrain.getHeight(route[0].x, route[0].z),
+          terrain.getHeight(route[route.length - 1].x, route[route.length - 1].z),
+        ),
+        trim: new Float32Array(8),
+      };
+      if (road.pts.length < 2) {
+        return { id: '', length: 0, samples: 0, note: null, error: 'the route came back empty' };
+      }
+      // A PATH THAT CANNOT BRIDGE MAY NOT END UP OVER WATER, and this refusal
+      // is the first thing the feature needed (issue #142 §12f, §14).
+      //
+      // `PathProfile.bridges` tells the ROUTER to pay a lake's price for every
+      // wet step, which keeps a footpath out of water it could go round — but
+      // it cannot help when an END is in the water, because the walk has to
+      // arrive. `profileRoad` then floors every wet sample to
+      // `WATER_LEVEL + 1.9` and flags it a span, so what came back was a
+      // footpath standing 1.9 units over a lake on nothing at all, with the
+      // carve switched off under it and no piers to put there: measured on the
+      // first one authored, a 1.9 cliff across the terminus against a
+      // MAX_STEP_UP of 0.5.
+      //
+      // A FORD is the third answer — follow the bed, no lift, no furniture —
+      // and it is not built. Until it is, say so rather than build the thing
+      // with no piers under it.
+      if (!profile.bridges) {
+        const wet = road.pts.findIndex((q) => q.bridge);
+        if (wet >= 0) {
+          return {
+            id: '', length: 0, samples: 0, note: null,
+            error: `the route crosses water at ${road.pts[wet].x.toFixed(0)}, `
+              + `${road.pts[wet].z.toFixed(0)} and a ${spec.profile ?? 'footpath'} `
+              + 'cannot bridge — move an end, or use profile "road"',
+          };
+        }
+      }
+      // THE NETWORK IS IMMUTABLE BY CONSTRUCTION and this is where that stops
+      // being true. `build()` re-flattens every path into segments and re-buckets
+      // the spatial index; nothing caches a segment outside it.
+      net.add(road);
+      net.build();
+      const drawn = towns.addPathRibbon(road);
+      // The registry too, or `__dbgTowns().roads` — and everything that reads
+      // it — describes a world with one fewer path than the one on the ground.
+      reg.addRoad(road);
+      // Every chunk, because `carveAt` now answers differently along the new
+      // corridor and a chunk is a baked mesh of what `heightCont` said when it
+      // was built. This is `rebuildProps`'s documented TUNING cost — about what
+      // walking into fresh ground costs — and it also takes the static shadows.
+      api.rebuildProps();
+      // AND THE GROUND UNDER THE HERO MOVED.
+      //
+      // `world/index.ts` says of `rebuildProps` that "the hero cannot fall
+      // through the result — `getHeight` is a pure function of the seed and
+      // never consults a loaded chunk". THAT SENTENCE IS NO LONGER TRUE HERE:
+      // `getHeight` consults `terrain.roads`, which this function just mutated,
+      // and `carveAt` sinks a column by up to 1.62. Carve a path under someone
+      // standing still and they are suddenly inside the ground.
+      //
+      // So the caller re-grounds. It is not done here because this module does
+      // not own the player — main.ts does, and while mounted his position is
+      // written from the saddle every slice (see `__dbgTp`).
+      spec.refit?.();
+      return {
+        id: road.id,
+        length: +roadLength(road).toFixed(1),
+        samples: road.pts.length,
+        note: drawn.drawn ? drawn.note : `not drawn: ${drawn.note}`,
+      };
+    },
+
     debugWear(x: number, z: number): number {
       return terrain.trampleAt(x, z);
     },
@@ -1647,4 +1801,5 @@ export function createWorld(
       distant.dispose();
     },
   };
+  return api;
 }
