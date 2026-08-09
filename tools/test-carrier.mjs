@@ -516,6 +516,33 @@ export const sections = [
     ctx.check(bare.length === 0,
       `${bare.length} of ${w.trees.length} island trees have nothing solid in their `
       + `column — first at ${JSON.stringify(bare[0])}`);
+
+    // -- THE FLAGGED STREETS, AND WHETHER ANYTHING GREW OUT OF THEM ---------
+    //
+    // Issue #142 §1: the island's paths were a list of four-number tuples that
+    // only the voxel painter walked, and the placer up here was handed a
+    // clearance stub answering Infinity to everything — so it genuinely
+    // believed there was no path anywhere. They are a path network now, in the
+    // island's own frame, and the planter asks it before it plants.
+    //
+    // TWO HALVES, and the second is what stops this passing on an island with
+    // no streets at all: something must be paved, and nothing may be standing
+    // on it. 1983 is the painted cell count on seed 1337, and it is the SAME
+    // count the inline loop produced — the fold-in moved no cell.
+    const st = w.streets;
+    ctx.res.streets = {
+      onNetwork: st.count,
+      pavedCells: st.paved,
+      nearestTree: st.clear.length > 0 ? st.clear[0] : null,
+      inStreet: st.clear.filter((d) => d < 0).length,
+    };
+    ctx.check(st.count > 0,
+      'the island has no streets on the path network — it is back to NO_ROADS');
+    ctx.check(st.paved > 1000,
+      `only ${st.paved} voxel cells were painted as flagstone`);
+    ctx.check(st.clear.every((d) => d >= 0),
+      `${st.clear.filter((d) => d < 0).length} island trees stand inside a flagged `
+      + `street (nearest ${st.clear[0]} from its rim)`);
   } },
 
   // -------------------------------------------------------------------------

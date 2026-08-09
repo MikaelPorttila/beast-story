@@ -24,6 +24,9 @@ export class StubWorld implements World {
   /** The stage has no settlements, so nothing has worn its ground. */
   debugWear(): number { return 0; }
   debugPaths(): { paths: []; at: null } { return { paths: [], at: null }; }
+  debugCarriedStreets(): { count: number; paved: number; clear: number[] } {
+    return { count: 0, paved: 0, clear: [] };
+  }
   debugRidges(): void { /* nor any roofs */ }
   /** Nor any road furniture: the stage has no roads. */
   debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; }

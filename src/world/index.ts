@@ -1307,6 +1307,10 @@ export function createWorld(
       return sky?.debugTrees() ?? [];
     },
 
+    debugCarriedStreets() {
+      return sky?.debugStreets() ?? { count: 0, paved: 0, clear: [] };
+    },
+
     applyCelestial(state: Readonly<CelestialState>): void {
       // World-local consumers are updated here so composition code never has
       // to know which zone happens to own water, clouds, or a carried fall.

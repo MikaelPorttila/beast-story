@@ -169,6 +169,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Water and diving | `world/water.ts`, `world/underwater.ts` | `test-dive` |
 | Towns, roads, buildings | `world/towns.ts`, `world/roads.ts`, `world/town-parts.ts`, `world/structures.ts`, `world/spawned.ts` | `test-road`, `test-structures`, `test-spawn` |
 | What KIND of path a path is | `world/path-profile.ts` | `test-path-profile`, `test-road` |
+| Beaten tracks and flagged streets | `WEAR`/`wearTracks` in `world/towns.ts`, `streetNetwork` in `world/sky-island.ts` | `test-road`, `test-carrier` |
 | Fences and bridge railings | `world/fences.ts` (the chain), `world/town-parts.ts` (the kit) | `test-fence` |
 | Moving world pieces | `world/carriers.ts`, `world/sky-island.ts` | `test-carrier` |
 | Vegetation, wind | `world/nature.ts`, `world/props.ts`, `world/sway.ts` | `test-nature`, `test-sway` |
@@ -288,6 +289,14 @@ Content is DATA; the engine implements reusable BEHAVIOUR.
   `SkillDef.targeting`.
 - **Towns are landmarks, not zones** — you walk in and out and nothing loads.
 - **A safe zone is a spawn rule, not a wall.** A hunter follows you across it.
+- **Every kind of path is the same system.** A cart road, a settlement's beaten
+  track and a flagged street are all paths on a `RoadNetwork` (issue #142), and
+  a profile declares its ROLES — does it own the walking surface, refuse what is
+  BUILT, refuse what is GROWN, get drawn, wear the ground. Add a fourth kind by
+  adding a profile, not a mechanism, and give it a role rather than a special
+  case at the query site. A path the PLANNER drew from its own layout refuses
+  nothing built: a camp's tracks point at its own huts and the island's lamps
+  stand halfway along its streets.
 - **A path's numbers come from its PROFILE, never from a constant.** Width,
   verge, shoulder ramp, carve band, sink, cross-section, apron radius and
   palette are one derived bundle (`world/path-profile.ts`) because four of them

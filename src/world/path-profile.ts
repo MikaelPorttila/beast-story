@@ -224,6 +224,18 @@ const BUILT_ROLES: PathRoles = {
 const WORN_ROLES: PathRoles = {
   surface: false, refusesBuilt: false, refusesFoliage: true, draw: false, wears: true,
 };
+/**
+ * A PAVED street, painted into a deck that is already flat.
+ *
+ * The same roles as a beaten track minus the wearing: flagstones are laid, not
+ * worn, so the colour comes from the surface the builder paints rather than
+ * from a dirt field. It refuses no built thing for exactly the reason a track
+ * does not — the planner that drew these streets is the one that placed the
+ * lamps standing halfway along them.
+ */
+const PAVED_ROLES: PathRoles = {
+  surface: false, refusesBuilt: false, refusesFoliage: true, draw: false, wears: false,
+};
 
 /**
  * Widest radius the carve can reach on any profile. `RoadNetwork`'s spatial
@@ -353,6 +365,35 @@ export const FOOTPATH_PROFILE = pathProfile({
  * `deckHalf` is what the caller asked for and `verge` is derived as usual and
  * then ignored by every role this profile claims.
  */
+/**
+ * A FLAGGED STREET — the third of the three mechanisms issue #142 names.
+ *
+ * It was `SkyPlan.paths`, a list of `[x0, z0, x1, z1]` that `buildRock` walked
+ * to decide which voxel cells to paint as flagstone, and nothing else on the
+ * island could see it: the placer there was handed `NO_ROADS`, a clearance
+ * stub that answers Infinity to everything, so it genuinely believed there was
+ * no path anywhere and planted oaks in the middle of the streets.
+ *
+ * A KERB AND NOT A VERGE. The painting test is hard-edged — a cell is flagstone
+ * or it is turf — so `deckEdge` has to land exactly on the half-width the
+ * builder used. It gets a third of a voxel cell (`CELL` is 1.2 on the island)
+ * of ramp, which is the narrowest edge that grid can represent at all, and
+ * `deckHalf` takes the rest. Everything the profile derives from a verge is
+ * then in proportion and nothing has to special-case a zero.
+ */
+export function flagstoneProfile(halfWidth: number): PathProfile {
+  const kerb = 0.4;
+  return pathProfile({
+    id: 'path:flagstone',
+    halfWidth: halfWidth - kerb,
+    verge: kerb,
+    carve: 'none',
+    furniture: 'none',
+    bridges: false,
+    roles: PAVED_ROLES,
+  });
+}
+
 export function trackProfile(halfWidth: number): PathProfile {
   // 0.45 / 0.55 IS THE EXISTING SOFT EDGE, and it is the reason this fold-in
   // costs no pixel of colour. `Terrain.trampleAt` faded a track with

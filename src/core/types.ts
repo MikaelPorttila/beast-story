@@ -1238,6 +1238,21 @@ export interface World {
    * in the same evaluation.
    */
   debugCarriedTrees(): Array<{ x: number; z: number }>;
+  /**
+   * Debug: the carried settlement's flagged streets, and how far outside their
+   * rim each of its trees and bushes stands — LOCAL to the carrier's frame.
+   *
+   * The whole point of folding the streets onto the path network (issue #142)
+   * is that a placer can see them; the way to assert that is to read the same
+   * clearance query the planter used. Negative is a tree standing on
+   * flagstones, which is what the island shipped with.
+   */
+  debugCarriedStreets(): {
+    count: number;
+    paved: number;
+    /** Foliage rim clearance, least first. */
+    clear: number[];
+  };
   /** Positions of interest (skill dens / shops) */
   readonly shopPositions: THREE.Vector3[];
   /**

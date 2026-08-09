@@ -5627,7 +5627,7 @@ beginPlay();
       if (t > c.y + 1) raised++;
     }
   }
-  return { deck: +c.y.toFixed(2), trees, sampled, raised };
+  return { deck: +c.y.toFixed(2), trees, sampled, raised, streets: world.debugCarriedStreets() };
 };
 
 /**
