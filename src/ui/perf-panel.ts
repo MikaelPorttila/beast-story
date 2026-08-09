@@ -59,6 +59,40 @@ export interface TimeOfDayControl {
  * `TimeOfDayControl` is: this file owns two rows and no policy, and the host
  * (main.ts) owns what a change means and where it is stored.
  */
+/**
+ * LAY A PATH FROM HERE, and the four rows that decide what kind.
+ *
+ * Issue #142 §12. The panel is the right home for it and the shape was already
+ * established: this is deliberately NOT a modal — the world keeps running while
+ * it is open, which is exactly what an editor wants, because you want to watch
+ * the chunks rebuild and then walk the result. And it is injected the way
+ * `TimeOfDayControl` and `AppearanceControl` are: this file owns four rows and
+ * no policy, and the host (main.ts) owns what laying a path means.
+ *
+ * THE ENDPOINT IS THE HERO'S OWN FACING, not the crosshair. `spawnSpot()` picks
+ * under the crosshair and is the obvious tool, but `AIM_FAR` is 60 units and
+ * the roads in this world are 72 to 174 long — a path worth drawing cannot be
+ * crosshair-picked at all. Stand where it should start, look where it should
+ * go, choose a length.
+ *
+ * `lay()` returns the line for the status bar, refusals included, because an
+ * editor that silently does nothing is one whose first user thinks it is broken
+ * (§12f).
+ */
+export interface PathEditControl {
+  readonly profiles: readonly { id: string; labelKey: StringKey }[];
+  /** The lengths the row steps through, world units. */
+  readonly lengths: readonly number[];
+  profile(): string;
+  setProfile(id: string): void;
+  length(): number;
+  setLength(n: number): void;
+  /** Route THROUGH what is already there and merge at the first crossing. */
+  crossing(): boolean;
+  setCrossing(v: boolean): void;
+  lay(): string;
+}
+
 export interface AppearanceControl {
   readonly styles: readonly { id: string; labelKey: StringKey }[];
   /** The strip the arrow keys step through. Any other colour comes from the well. */
@@ -75,7 +109,11 @@ export interface AppearanceControl {
 const ROW_TIME = GFX_OPTIONS.length;
 const ROW_STYLE = ROW_TIME + 1;
 const ROW_COLOUR = ROW_TIME + 2;
-const EXTRA_ROWS = 3;
+const ROW_PATH_PROFILE = ROW_TIME + 3;
+const ROW_PATH_LENGTH = ROW_TIME + 4;
+const ROW_PATH_CROSS = ROW_TIME + 5;
+const ROW_PATH_LAY = ROW_TIME + 6;
+const EXTRA_ROWS = 7;
 
 const escapeHtml = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -107,6 +145,7 @@ export class PerfPanel {
     private readonly time: TimeOfDayControl,
     private readonly catalogue: SpawnCatalogue,
     private readonly look: AppearanceControl,
+    private readonly paths: PathEditControl,
   ) {
     this.el = document.createElement('div');
     this.el.className = 'bs-perf';
@@ -177,6 +216,7 @@ export class PerfPanel {
       if (this.cursor === ROW_TIME) this.cycleTime(step);
       else if (this.cursor === ROW_STYLE) this.cycleStyle(step);
       else if (this.cursor === ROW_COLOUR) this.cycleColour(step);
+      else if (this.cursor >= ROW_PATH_PROFILE) this.cyclePath(this.cursor, step);
       else this.gfx.cycle(GFX_OPTIONS[this.cursor].id);
       this.render();
       return true;
@@ -351,7 +391,7 @@ export class PerfPanel {
       + `<span class="bs-perf-val">${escapeHtml(this.timeLabel())}</span>`
       + `<span class="bs-perf-cost">${escapeHtml(t('gfx.timeOfDay.cost'))}</span>`
       + '</div>';
-    this.gfxList!.innerHTML = gfxRows + timeRow + this.hairRows();
+    this.gfxList!.innerHTML = gfxRows + timeRow + this.hairRows() + this.pathRows();
   }
 
   /**
@@ -383,6 +423,56 @@ export class PerfPanel {
       + '</span>'
       + `<span class="bs-perf-cost">${escapeHtml(t('hair.colour.cost'))}</span>`
       + '</div>';
+  }
+
+  /** Step one of the path rows, or lay the path if that is the row. */
+  private cyclePath(row: number, step: number): void {
+    if (row === ROW_PATH_PROFILE) {
+      const list = this.paths.profiles;
+      const i = Math.max(0, list.findIndex((o) => o.id === this.paths.profile()));
+      this.paths.setProfile(list[(i + step + list.length) % list.length].id);
+    } else if (row === ROW_PATH_LENGTH) {
+      const list = this.paths.lengths;
+      const i = Math.max(0, list.indexOf(this.paths.length()));
+      this.paths.setLength(list[(i + step + list.length) % list.length]);
+    } else if (row === ROW_PATH_CROSS) {
+      this.paths.setCrossing(!this.paths.crossing());
+    } else {
+      // THE ACTION ROW. It costs a full chunk rebuild, so it is deliberately
+      // the last row and deliberately not something an arrow key lands on by
+      // accident on the way past — you have to be ON it and press again.
+      this.status = this.paths.lay();
+    }
+  }
+
+  /**
+   * The four path rows, under their own heading.
+   *
+   * NO TEXT FIELD, and that is a decision rather than an omission. The search
+   * box below swallows keystrokes in the capture phase and sets `isTyping`, so
+   * `main.ts` suspends gameplay input while it has focus — which means a
+   * numeric field for the length would be a field you cannot walk while using.
+   * The rows step through a list instead, so the whole editor is reachable with
+   * the arrow keys and the hero keeps moving underneath it.
+   */
+  private pathRows(): string {
+    const profile = this.paths.profiles.find((o) => o.id === this.paths.profile());
+    const row = (cursor: number, key: string, name: string, val: string, cost: string): string =>
+      `<div class="bs-perf-row${this.cursor === cursor ? ' sel' : ''}"`
+      + ` data-cursor="link-select" data-path="${key}">`
+      + `<span class="bs-perf-name">${escapeHtml(name)}</span>`
+      + `<span class="bs-perf-val">${escapeHtml(val)}</span>`
+      + `<span class="bs-perf-cost">${escapeHtml(cost)}</span>`
+      + '</div>';
+    return `<div class="bs-perf-head">${escapeHtml(t('path.section'))}</div>`
+      + row(ROW_PATH_PROFILE, 'profile', t('path.profile'),
+        profile ? t(profile.labelKey) : this.paths.profile(), t('path.profile.cost'))
+      + row(ROW_PATH_LENGTH, 'length', t('path.length'),
+        `${this.paths.length()}`, t('path.length.cost'))
+      + row(ROW_PATH_CROSS, 'cross', t('path.crossing'),
+        t(this.paths.crossing() ? 'path.crossing.merge' : 'path.crossing.avoid'),
+        t('path.crossing.cost'))
+      + row(ROW_PATH_LAY, 'lay', t('path.lay'), t('path.lay.go'), t('path.lay.cost'));
   }
 
   /**
@@ -585,6 +675,15 @@ export class PerfPanel {
       this.cursor = hair === 'style' ? ROW_STYLE : ROW_COLOUR;
       if (hair === 'style') this.cycleStyle(1);
       else this.cycleColour(1);
+      this.render();
+      return true;
+    }
+    const path = row.getAttribute('data-path');
+    if (path) {
+      this.cursor = path === 'profile' ? ROW_PATH_PROFILE
+        : path === 'length' ? ROW_PATH_LENGTH
+          : path === 'cross' ? ROW_PATH_CROSS : ROW_PATH_LAY;
+      this.cyclePath(this.cursor, 1);
       this.render();
       return true;
     }

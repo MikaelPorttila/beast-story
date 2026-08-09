@@ -169,7 +169,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Water and diving | `world/water.ts`, `world/underwater.ts` | `test-dive` |
 | Towns, roads, buildings | `world/towns.ts`, `world/roads.ts`, `world/town-parts.ts`, `world/structures.ts`, `world/spawned.ts` | `test-road`, `test-structures`, `test-spawn` |
 | What KIND of path a path is | `world/path-profile.ts` | `test-path-profile`, `test-road` |
-| Authoring a path at runtime | `World.addPath` (`world/index.ts`), `Towns.addPathRibbon` | `test-path-edit` |
+| Authoring a path at runtime | `World.addPath` (`world/index.ts`), `Towns.rebuildPaths`, `PathEditControl` in `ui/perf-panel.ts` | `test-path-edit`, `test-gfx` |
 | Beaten tracks and flagged streets | `WEAR`/`wearTracks` in `world/towns.ts`, `streetNetwork` in `world/sky-island.ts` | `test-road`, `test-carrier` |
 | Fences and bridge railings | `world/fences.ts` (the chain), `world/town-parts.ts` (the kit) | `test-fence` |
 | Moving world pieces | `world/carriers.ts`, `world/sky-island.ts` | `test-carrier` |
@@ -183,7 +183,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Hero hairstyles | `player/hair.ts` (the styles), `player/hero-rig.ts` (the mount) | `test-hair`, `test-zfight` |
 | Input devices | `core/input.ts`, `core/gamepad.ts`, `core/touch.ts` | `test-touch`, `test-gamepad` |
 | HUD, menus, panels | `ui/*` (DOM overlay, `bs-*` class names) | `test-menu`, `test-pause`, `test-textsize`, `test-viewport`, `test-cursor` |
-| F3 Debug panel and its spawner | `ui/perf-panel.ts`, `core/gfx.ts`, `core/spawn.ts` | `test-gfx`, `test-spawn`, `test-hair` |
+| F3 Debug panel and its spawner | `ui/perf-panel.ts`, `core/gfx.ts`, `core/spawn.ts` | `test-gfx`, `test-spawn`, `test-hair`, `test-path-edit` |
 | Key bindings | `ui/keybinds.ts` | `test-keybinds` |
 | Items and the bag | `core/items.ts`, `ui/inventory.ts` (rules in `main.ts`) | `test-inventory` |
 | Settings and storage | `ui/settings.ts`, `core/prefs.ts`, `core/gfx.ts` | `test-settings` |

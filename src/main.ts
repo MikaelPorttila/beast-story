@@ -3,7 +3,7 @@ import { Engine } from './core/engine';
 import { DayNightCycle } from './core/day-night';
 import { DebugOverlay } from './core/debug-overlay';
 import { Gfx, GFX_OPTIONS, storedGfx, type GfxSinks, type GfxValue } from './core/gfx';
-import { PerfPanel, type AppearanceControl } from './ui/perf-panel';
+import { PerfPanel, type AppearanceControl, type PathEditControl } from './ui/perf-panel';
 import {
   HAIR_STYLES, HAIR_SWATCHES, storeHairColour, storeHairStyle, storedHairColour,
 } from './player/hair';
@@ -3555,11 +3555,62 @@ const appearance: AppearanceControl = {
   },
 };
 
+/**
+ * THE PATH EDITOR'S POLICY, which the panel deliberately does not have.
+ *
+ * Issue #142 §12. `ui/perf-panel.ts` owns four rows and knows nothing about
+ * routing, profiles or where the hero is looking; this decides what "lay it"
+ * means, exactly as the appearance block above decides what a hairstyle means.
+ *
+ * The bearing is the hero's own facing rather than the crosshair: `AIM_FAR` is
+ * 60 units and the roads in this world are 72 to 174 long, so the endpoint of
+ * anything worth drawing is past where a crosshair can reach.
+ */
+let pathProfileId = 'footpath';
+let pathLength = 60;
+let pathCrossing = false;
+const pathEdit: PathEditControl = {
+  profiles: [
+    { id: 'footpath', labelKey: 'path.profile.footpath' },
+    { id: 'road', labelKey: 'path.profile.road' },
+  ],
+  lengths: [30, 60, 90, 120, 160],
+  profile: () => pathProfileId,
+  setProfile: (id: string) => { pathProfileId = id; },
+  length: () => pathLength,
+  setLength: (n: number) => { pathLength = n; },
+  crossing: () => pathCrossing,
+  setCrossing: (v: boolean) => { pathCrossing = v; },
+  lay: () => {
+    // `facing` and not the camera's yaw: `cam.yaw` is the bearing FROM the hero
+    // TO the camera, so using it lays the path out behind him.
+    const a = player.facing;
+    const r = world.addPath({
+      from: [player.position.x, player.position.z],
+      to: [
+        player.position.x + Math.sin(a) * pathLength,
+        player.position.z + Math.cos(a) * pathLength,
+      ],
+      profile: pathProfileId,
+      cross: pathCrossing,
+      refit: refitHero,
+    });
+    if (r.error) return `refused: ${r.error}`;
+    // EVERY REFUSAL REACHES THE SCREEN (§12f). The status bar is one line, so
+    // the count goes there and the reasons go to the console — which is where
+    // somebody driving this already is.
+    for (const why of r.refused) devConsole?.print(`path: no merge — ${why}`);
+    const nodes = r.nodes.length > 0
+      ? `, ${r.nodes.length} junction(s)` : (r.refused.length > 0 ? ', no merge' : '');
+    return `${r.id}: ${r.length} units${nodes}`;
+  },
+};
+
 const perfPanel = new PerfPanel(gfx, {
   presets: timePresets,
   get: () => dayNight.debugOverride,
   set: (phase) => dayNight.setDebugOverride(phase),
-}, spawnCatalogue, appearance);
+}, spawnCatalogue, appearance, pathEdit);
 
 /**
  * The custom cursor, and the one question the world has to answer for it.

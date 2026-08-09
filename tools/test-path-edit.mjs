@@ -34,6 +34,10 @@
 //            fork used to step 0.801 against a MAX_STEP_UP of 0.5, because
 //            `surfaceAt` answers with the nearest deck and the nearest deck
 //            jumps across the line equidistant from two of them.
+//   panel  — and the F3 rows drive the SAME mechanism. The rule in this repo is
+//            that a probe must not be able to pass a test the panel would fail,
+//            so the last thing this does is open F3, click the rows and lay a
+//            path with the mouse — no hook — and check the network grew.
 //
 // Exits non-zero on any of them.
 //
@@ -307,7 +311,47 @@ const merged = await page.evaluate((made) => {
   };
 }, crossed);
 
-console.log(JSON.stringify({ refusals, built, ...out, merged }, null, 2));
+// -- and now the PANEL, with no hook at all ---------------------------------
+//
+// §12h: a driver hook exists so a probe cannot pass a test the panel would
+// fail, which only means anything if something also drives the panel. Every
+// click below is a real click on a real row.
+const panel = await page.evaluate(() => {
+  const before = window.__dbgPaths().paths.length;
+  const rows = [...document.querySelectorAll('.bs-perf-row[data-path]')];
+  return { before, rows: rows.map((r) => r.getAttribute('data-path')) };
+});
+await page.keyboard.press('F3');
+await wait(400);
+const clicked = await page.evaluate(() => {
+  const pick = (key) => document.querySelector(`.bs-perf-row[data-path="${key}"]`);
+  const seen = [...document.querySelectorAll('.bs-perf-row[data-path]')]
+    .map((r) => r.getAttribute('data-path'));
+  const before = window.__dbgPaths().paths.length;
+  // Step the length row once so the click is doing something visible, then lay.
+  const lenRow = pick('length');
+  const lenBefore = lenRow?.querySelector('.bs-perf-val')?.textContent ?? '';
+  lenRow?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  lenRow?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const lenAfter = pick('length')?.querySelector('.bs-perf-val')?.textContent ?? '';
+  const lay = pick('lay');
+  lay?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  lay?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  return {
+    rows: seen, before, lenBefore, lenAfter,
+    status: document.querySelector('.bs-spawn-status')?.textContent ?? '',
+  };
+});
+await wait(6000);
+const panelAfter = await page.evaluate(() => ({
+  paths: window.__dbgPaths().paths.length,
+  status: document.querySelector('.bs-spawn-status')?.textContent ?? '',
+}));
+
+console.log(JSON.stringify({
+  refusals, built, ...out, merged,
+  panel: { ...panel, ...clicked, after: panelAfter },
+}, null, 2));
 await browser.close();
 
 const fail = [];
@@ -379,6 +423,22 @@ if (merged.node === null) {
       + 'authored junction, against MAX_STEP_UP 0.5 — this is issue #15\'s fork step '
       + 'at a node nobody planned');
   }
+}
+
+// -- the panel --------------------------------------------------------------
+if (clicked.rows.length !== 4) {
+  fail.push(`the F3 panel shows ${clicked.rows.length} path rows, expected 4: `
+    + clicked.rows.join(', '));
+}
+if (clicked.lenBefore === clicked.lenAfter) {
+  fail.push(`clicking the length row did not change it (${clicked.lenBefore})`);
+}
+if (panelAfter.paths <= clicked.before) {
+  fail.push(`clicking "lay it" left the network at ${panelAfter.paths} paths — `
+    + 'the rows are drawn but they do nothing');
+}
+if (!panelAfter.status) {
+  fail.push('the panel laid a path and said nothing about it (issue #142 §12f)');
 }
 
 if (out.hero.clearance < -0.05) {

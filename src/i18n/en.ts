@@ -946,6 +946,23 @@ export const en = {
   'hair.style.cost': '← → to try them on',
   'hair.colour': 'Hair colour',
   'hair.colour.cost': '← → for a swatch, or click the well for any colour',
+  // The path editor (issue #142 §12). A developer instrument like everything
+  // else in this panel, so it is exempt from the 16px floor — but not from
+  // going through `t()`, because every string in this file does.
+  'path.section': 'Lay a path',
+  'path.profile': 'Kind',
+  'path.profile.cost': '← → to pick one',
+  'path.profile.road': 'Cart road',
+  'path.profile.footpath': 'Footpath',
+  'path.length': 'Length',
+  'path.length.cost': 'world units, laid along your facing',
+  'path.crossing': 'Where it meets a path',
+  'path.crossing.merge': 'Cross and merge',
+  'path.crossing.avoid': 'Give way',
+  'path.crossing.cost': 'merging splits both and makes a junction',
+  'path.lay': 'Lay it from here',
+  'path.lay.go': 'Enter',
+  'path.lay.cost': 'rebuilds every chunk — a second or two',
   'hair.classic': 'Adventurer',
   'hair.buzz': 'Buzz cut',
   'hair.bowl': 'Shaggy bowl',

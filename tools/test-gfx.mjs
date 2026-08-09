@@ -225,17 +225,23 @@ export const sections = [
           // stays a statement about the gfx list. tools/test-hair.mjs is what
           // asserts they DO anything.
           hairRows: el.querySelectorAll('[data-hair]').length,
+          // The path editor's four, counted the same way and for the same
+          // reason: they are not graphics settings and are not in
+          // `GFX_OPTIONS`. tools/test-path-edit.mjs asserts they DO anything.
+          pathRows: el.querySelectorAll('[data-path]').length,
         }
         : null;
     });
     const state = await gfxAll(ctx);
     ctx.res.panel = { ...shown, open: state.open, options: Object.keys(state.values).length };
     ctx.check(!!shown?.visible, 'F3 did not open the panel');
-    ctx.check(shown?.rows === ctx.res.panel.options + 1 + shown?.hairRows,
+    ctx.check(shown?.rows === ctx.res.panel.options + 1 + shown?.hairRows + shown?.pathRows,
       `the panel shows ${shown?.rows} rows for ${ctx.res.panel.options} graphics settings`
-      + ` plus time plus ${shown?.hairRows} appearance rows`);
+      + ` plus time plus ${shown?.hairRows} appearance rows plus ${shown?.pathRows}`
+      + ' path editor rows');
     ctx.check(shown?.timeRows === 1, `the panel shows ${shown?.timeRows} time rows, expected 1`);
     ctx.check(shown?.hairRows === 2, `expected 2 appearance rows, found ${shown?.hairRows}`);
+    ctx.check(shown?.pathRows === 4, `expected 4 path editor rows, found ${shown?.pathRows}`);
     // NOT a modal, deliberately — see the note at the top of ui/perf-panel.ts.
     // The walk is simulated: what is being asserted is that the sim moves him
     // with the panel up, and simulated seconds are exactly that.
