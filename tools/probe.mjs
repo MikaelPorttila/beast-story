@@ -170,6 +170,10 @@ const SOLO = new Set([
   // teleport) and its clock is __dbgAdvance, which steps nothing in a
   // background tab.
   'saddle',
+  // Rides a FLYER, reads where its ground contact blob sits, then lifts the pair
+  // thirty units and reads it again. Grant, ride and teleport are all state, and
+  // its clock is __dbgAdvance.
+  'flyshadow',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output

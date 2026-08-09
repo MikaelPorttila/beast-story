@@ -394,7 +394,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
   // The blob has to stay flat on the ground whatever the rig is doing, and it
   // grows a little with the wingspan so the shadow matches the pose.
-  updateContactBlob(P.blob, rig.root, 1 + 0.35 * Math.max(0, -P.wingL.rotation.z));
+  updateContactBlob(P.blob, rig.root, 1 + 0.35 * Math.max(0, -P.wingL.rotation.z), ctx.altitude);
 
   // Absolute base pose every frame (branches then layer motion on top).
   P.body.position.set(0, BODY_Y, 0);

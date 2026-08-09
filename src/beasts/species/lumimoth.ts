@@ -427,7 +427,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const at = ctx.actionTime;
 
   // Contact blob: flat on the ground, wider while the wings are spread.
-  updateContactBlob(p.blob, rig.root, 1 + 0.2 * clamp01(1 - p.wingUR.rotation.z));
+  updateContactBlob(p.blob, rig.root, 1 + 0.2 * clamp01(1 - p.wingUR.rotation.z), ctx.altitude);
 
   // The wingbeat rate is picked BEFORE the phase is integrated, because a cycle
   // slot must be advanced exactly once per frame — 9 rad/s hovering, 16-24 in
