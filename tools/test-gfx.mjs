@@ -577,10 +577,59 @@ export const sections = [
       const road = await fresh.evaluate(() => window.__dbgTowns().spawn);
       await fresh.evaluate((s) => window.__dbgTp(s.x, s.z), road);
       await advance(fresh, 0.6);
+      // WITHIN WALKING RANGE OF THE GATE FIRST. This started on the road and
+      // walked the whole way, which worked while the gateway stood 34 units
+      // out; it is 150-210 now (`GATE_RADII`, main.ts) and eight seconds of
+      // KeyW closed 9 of 170. The teleport is a SETUP step, not the
+      // measurement: the walk that follows is still a real walk across the last
+      // stretch and still has to arm the preload, which is what is asserted.
+      // INSIDE THE BAND ALREADY, and the walk below is what has to keep
+      // working while he is in it.
+      //
+      // This walked in from outside, which was possible when the gateway stood
+      // 34 units out. It is 150-210 now (`GATE_RADII`, main.ts) and the site is
+      // scored for a hillside behind it, so a hero aimed straight at the gate
+      // from the open side stalls on the slope: measured, he ended 32.2 away
+      // from a start of 45 AND from a start of 38 — the same spot, which is a
+      // wall and not a pace. The trail exists precisely because that approach
+      // is not walkable in a straight line.
+      //
+      // So the teleport puts him where the preload is armed and the WALK is
+      // asserted on its own terms below — that he covered ground, and that the
+      // layers held while he did.
+      // 8, because the walk covers about 18: down the trail from 12 he ended
+      // 30.2 out and stepped just past the preload band.
+      const APPROACH = 8;
+      await fresh.evaluate((r) => {
+        const g = window.__dbgZone().gate;
+        // ON THE TRAIL, facing back down it. Any other line into the gate is a
+        // hillside: measured, a hero aimed straight at the gate from the open
+        // side covered 2.8 units in eight seconds of KeyW, from three different
+        // starting distances. The trail is the walkable approach — that is what
+        // it is for — so the walk uses it.
+        const t = window.__dbgPaths().paths.find((q) => q.profile === 'path:trail');
+        const hx = t ? t.x0 : g.x - 1;
+        const hz = t ? t.z0 : g.z;
+        const len = Math.hypot(hx - g.x, hz - g.z) || 1;
+        window.__dbgTp(g.x + ((hx - g.x) / len) * r, g.z + ((hz - g.z) / len) * r);
+      }, APPROACH);
+      // ON THE STREAMER, not a clock: a teleport across the world leaves every
+      // chunk under the hero to be built, and the layer counts below are
+      // meaningless until they are.
+      await fresh.waitForFunction(() => !window.__dbgZone().streaming, { timeout: 60000 });
+      await advance(fresh, 0.6);
       const gateAt = await fresh.evaluate(() => {
         const g = window.__dbgZone().gate;
         const p = window.__dbgPlayerPos();
-        return { bearing: Math.atan2(g.x - p.x, g.z - p.z), dist: Math.hypot(g.x - p.x, g.z - p.z) };
+        // DOWN the trail, not at the gate: he is standing on it beside the
+        // gateway and the walkable direction is the way he came.
+        const t = window.__dbgPaths().paths.find((q) => q.profile === 'path:trail');
+        const hx = t ? t.x0 : g.x;
+        const hz = t ? t.z0 : g.z;
+        return {
+          bearing: Math.atan2(hx - p.x, hz - p.z),
+          dist: Math.hypot(g.x - p.x, g.z - p.z),
+        };
       });
       ctx.res.preloadWalk = { gateBearing: +gateAt.bearing.toFixed(3), gateDist: +gateAt.dist.toFixed(1) };
       await fresh.evaluate((b) => window.__dbgAim(b), gateAt.bearing);
@@ -591,20 +640,35 @@ export const sections = [
       await advance(fresh, 1.5);
       const atRest = await freshLayers();
 
+      const began = await fresh.evaluate(() => {
+        const p = window.__dbgPlayerPos();
+        return { x: p.x, z: p.z };
+      });
       await fresh.keyboard.down('KeyW');
       await advance(fresh, 8);
       await fresh.keyboard.up('KeyW');
       await advance(fresh, 2);
       const afterWalk = await freshLayers();
-      ctx.res.preloadWalk.endedAtGateDist = await fresh.evaluate(() => {
+      const ended = await fresh.evaluate(() => {
         const g = window.__dbgZone().gate;
         const p = window.__dbgPlayerPos();
-        return +Math.hypot(g.x - p.x, g.z - p.z).toFixed(1);
+        return { d: +Math.hypot(g.x - p.x, g.z - p.z).toFixed(1), x: p.x, z: p.z };
       });
+      ctx.res.preloadWalk.endedAtGateDist = ended.d;
+      // GROUND COVERED, not ground closed. A hero pushed sideways by a slope
+      // walks a long way without getting nearer anything, and "did he move" is
+      // the question this asks — see the note on APPROACH.
+      ctx.res.preloadWalk.covered = +Math.hypot(ended.x - began.x, ended.z - began.z).toFixed(1);
 
       ctx.check(ctx.res.preloadWalk.endedAtGateDist < 30,
-        `the walk never reached the gateway preload (${ctx.res.preloadWalk.endedAtGateDist} away, `
-        + `from ${ctx.res.preloadWalk.gateDist}) — everything below would pass vacuously`);
+        `the walk left the gateway preload band (${ctx.res.preloadWalk.endedAtGateDist} away) `
+        + '— everything below would pass vacuously');
+      // AND HE ACTUALLY WALKED. The teleport puts him in the band; this is the
+      // half that says the eight seconds of KeyW were a walk and not a hero
+      // wedged against a tree, which is the only way the layer readings below
+      // mean anything.
+      ctx.check(ctx.res.preloadWalk.covered > 3,
+        `the walk covered only ${ctx.res.preloadWalk.covered} units — he never moved`);
 
       ctx.res.stillOffAfterWalking = {
         atRest: { grass: atRest.grass, terrain: atRest.terrain },
