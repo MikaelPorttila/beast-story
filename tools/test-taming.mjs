@@ -144,6 +144,28 @@ async function goToWild(species) {
   check(t.held === 1, `the starting kit holds ${t.held} orbs, want 1`);
 }
 
+// -- 1b. and then it owns nothing --------------------------------------------
+//
+// EVERY SECTION BELOW STAGES A WILD ANIMAL BESIDE THE HERO, and a companion
+// standing beside him fights it. Measured: with the starter bonded this file
+// failed about two runs in five — the staged Boulderpup gone from the assist
+// sweep entirely on one run, the meadow down from four Sproutles to two on
+// another — and the same runs passed from a clean worktree at origin/main,
+// where a new game is bonded to nothing.
+//
+// So the party is emptied for the rest of the file, AFTER the section above has
+// asserted what a new game actually starts with. What is under test here is
+// EARNING a bond; who happens to be walking beside the player while it is
+// earned is test-companion's subject, not this one.
+{
+  const said = await page.evaluate(() => window.__dbgGrantBeast('none'));
+  const t = await taming();
+  results.cleared = { said, owned: t.owned, lead: t.lead, support: t.support };
+  check(t.owned.length === 0 && t.lead === null,
+    `releasing every bond left ${JSON.stringify(t.owned)} lead=${t.lead} — the sections `
+    + 'below all assume an empty party');
+}
+
 // -- 2. the odds move with health -------------------------------------------
 {
   const found = await goToWild('wild-sproutle');
@@ -206,9 +228,8 @@ async function goToWild(species) {
   const b = await bodies();
   const still = b.enemies.some((e) => e.species === 'wild-boulderpup');
   results.broke = { owned: t.owned, boulderpupStillWild: still };
-  check(t.owned.length === 1,
-    `a BROKEN bond granted ${JSON.stringify(t.owned)} — it must grant nothing `
-    + `beyond the starter`);
+  check(t.owned.length === 0,
+    `a BROKEN bond granted ${JSON.stringify(t.owned)} — it must grant nothing`);
   check(still, 'a broken bond removed the beast anyway — it has to come back out');
 }
 
@@ -267,15 +288,14 @@ async function goToWild(species) {
       `after a caught bond the player owns ${JSON.stringify(t.owned)}, want it to include "sproutle"`);
     // THE FIRST BOND LEADS — the auto-fill rule, which is the difference between
     // walking away with an animal and walking away with a panel entry.
-    // THE FIRST BOND TAKES THE EMPTY SLOT, which with a starter in the lead is
-    // support. The rule under test is unchanged — a new bond auto-fills — and
-    // this is the same rule read against a party of one instead of none.
-    check(t.support === 'sproutle',
-      `the first bond left support=${t.support}, want "sproutle" — it should fill the empty slot`);
-    check(t.lead === STARTER,
-      `the first bond moved the lead to ${t.lead}; it must not displace the starter`);
-    check(b.beasts.length === 2,
-      `${b.beasts.length} companions are in the world after one bond, want 2`);
+    // THE FIRST BOND LEADS — the auto-fill rule, which is the difference between
+    // walking away with an animal and walking away with a panel entry. Read
+    // against the EMPTY party section 1b left behind, so this is still "the
+    // first bond takes the empty slot" and the empty slot is still the lead.
+    check(t.lead === 'sproutle',
+      `the first bond left lead=${t.lead}, want "sproutle" — it should fill the empty slot`);
+    check(b.beasts.length === 1,
+      `${b.beasts.length} companions are in the world after one bond, want 1`);
     check(victim.id !== null, 'the throw hook named no target');
     // ONE FEWER SPROUTLE, not "that exact id is gone". The orb HOMES on the one
     // it was thrown at but lands on whatever it physically reaches first — a

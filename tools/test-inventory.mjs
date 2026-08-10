@@ -159,16 +159,25 @@ export const sections = [
       `attackStat ${boot.attackStat} is not base ${boot.baseAttack} + the sword's 4`);
     ctx.check(boot.gear.find((g) => g.slot === 'weapon')?.id === 'sword-iron',
       'the weapon slot does not hold the starting sword');
-    // A NEW GAME OWNS NOTHING (issue #4). No beast rows, and both beast slots
-    // empty — the panel lists what you HAVE, and at boot that is a sword and an
-    // orb. tools/test-taming.mjs is where earning one is tested; this is the
-    // other half of the same claim, from the panel's side.
+    // A NEW GAME OWNS THE STARTER AND NOTHING ELSE. It owned nothing at all
+    // (issue #4) until `STARTER_BEAST` in main.ts put one Frostwing back; the
+    // panel's side of that claim is one beast row, the lead slot filled and the
+    // support slot empty. tools/test-taming.mjs asserts the same thing from the
+    // party's side and is where earning the NEXT one is tested.
+    // STILL NO BAG ROW. A beast is not a bag entry — it is roster-derived, and
+    // the line below is where it shows up — so the starter changes the SLOTS
+    // and leaves this at zero.
     ctx.check(ctx.res.start.beastRows === 0,
-      `${ctx.res.start.beastRows} beast rows at boot, expected 0 — a new game is unbonded`);
+      `${ctx.res.start.beastRows} beast rows at boot, expected 0 — a beast is not bag stock`);
     const bootBeastSlots = boot.gear
       .filter((g) => g.slot === 'primary' || g.slot === 'support').map((g) => g.id);
-    ctx.check(bootBeastSlots.every((id) => id === null),
-      `a beast slot is filled at boot: ${JSON.stringify(bootBeastSlots)}`);
+    ctx.check(bootBeastSlots[0] !== null && bootBeastSlots[1] === null,
+      `the boot beast slots are ${JSON.stringify(bootBeastSlots)}, want the lead filled `
+      + 'and support empty');
+    // AND THEN THE PARTY IS EMPTIED for everything below, which counts rows and
+    // portraits against `GRANTED` and would otherwise be counting the starter
+    // too. `/grant none` is the release door — see `devGrant` in main.ts.
+    await ctx.ev(() => window.__dbgGrantBeast('none'));
     // The orb slot IS filled, which is the pair to it: the starting kit readies
     // the one orb so the first bond is reachable without a purchase.
     ctx.check(boot.gear.find((g) => g.slot === 'orb')?.id === 'orb-tame',

@@ -4233,6 +4233,22 @@ function devGrant(arg: string | undefined): string {
   // mount to say anything (a flyer under the island, a swimmer in the basin) and
   // the one that runs first should not have to know which. See the note in
   // tools/test-inventory.mjs's cleanup section.
+  // A DOOR THAT ONLY OPENS IS HALF A DOOR. `none` releases every bond and
+  // empties both slots, which is the state a new game had before
+  // `STARTER_BEAST` and the state a probe about EARNING a bond needs: a
+  // companion standing beside the hero fights the wild animals a taming test
+  // stages next to him, and test-taming lost its subject about two runs in five.
+  // The same reset `exitToTitle` runs, without leaving the world.
+  if (arg === 'none') {
+    const had = owned.size;
+    owned.clear();
+    primaryIdx = -1;
+    supportIdx = -1;
+    devSeated = 0;
+    refreshVisibility();
+    inventory.refresh();
+    return `released ${had} bond(s) — the party is empty`;
+  }
   if (arg === 'all') {
     let n = 0;
     for (const b of roster) if (grantBeast(b.species.id)) n++;
@@ -4271,8 +4287,9 @@ devConsole?.register({
 });
 devConsole?.register({
   name: 'grant',
-  args: '[<speciesId>|all]',
-  help: 'Bond a beast outright, no orb needed; bare /grant lists what you have.',
+  args: '[<speciesId>|all|none]',
+  help: 'Bond a beast outright, no orb needed; /grant none releases every bond; '
+    + 'bare /grant lists what you have.',
   run: (args) => devGrant(args[0]),
 });
 // TEST HOOK, and the same argument `__dbgTp` makes: it DRIVES STATE, which is a
