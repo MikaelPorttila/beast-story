@@ -21,6 +21,9 @@
 //    than arriving on the terrain — or hanging in the sky, which is what an
 //    unbounded "meet him where he is" would give.
 //
+// A fourth section measures what the saddle is FOR — a ground mount's top speed
+// against the hero's sprint (issue #107), which is the guard GALLOP never had.
+//
 // Exits non-zero on failure.
 import { launchBrowser, newPage, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
@@ -156,6 +159,41 @@ await wait(300);
   // A step off, not a fall: the hero's feet are at the ground beside the mount.
   check(Math.abs(at.y - ground) < 1.2,
     `the step-off left the hero ${(at.y - ground).toFixed(2)} off the ground beside the mount`);
+}
+
+// ---------- the ride is FASTER THAN RUNNING — issue #107 ----------
+// The reason to get on the animal at all, and the one number no probe measured
+// while GALLOP was tuned. Measured as a RATIO against the beast's own
+// `stats.speed`, so this asserts the multiplier itself rather than restating
+// Emberfox's stat line: a species rebalance must not fail this, and a GALLOP
+// dropped back under a sprint must.
+{
+  const HERO_SPRINT = 9.6; // player/index.ts, and the whole comparison.
+  await page.evaluate(() => window.__dbgRide('emberfox'));
+  await advance(0.5);
+  const m0 = await mnt();
+  check(m0.mounted === true, 'could not re-mount for the speed run');
+
+  await page.keyboard.down('KeyW');
+  let peak = 0;
+  // Sampled rather than read once at the end: the run is on open world ground
+  // and a hut or a rise can slow the last slice. Top speed is the claim.
+  for (let i = 0; i < 12; i++) {
+    await advance(0.25);
+    const s = (await mnt()).speed;
+    if (s > peak) peak = s;
+  }
+  await page.keyboard.up('KeyW');
+
+  const ratio = peak / m0.beastSpeed;
+  results.gallop = { beastSpeed: m0.beastSpeed, peak: +peak.toFixed(2), ratio: +ratio.toFixed(2) };
+  check(ratio > 2.1, `the gallop multiplier measured ${ratio.toFixed(2)} — issue #107 wants > 2.1`);
+  check(peak > HERO_SPRINT + 1,
+    `a ground mount topped out at ${peak.toFixed(2)} u/s against a ${HERO_SPRINT} sprint — issue #107`);
+  // The other half: a runaway multiplier is a bug too, and outruns streaming.
+  check(ratio < 3, `the gallop multiplier measured ${ratio.toFixed(2)} — that is swim territory`);
+  await page.evaluate(() => window.__dbgRide('off'));
+  await advance(0.2);
 }
 
 console.log(JSON.stringify({ ...results, fails }, null, 2));
