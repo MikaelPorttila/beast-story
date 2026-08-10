@@ -4,10 +4,6 @@
  */
 import { Noise2D, WaveField } from './noise';
 
-/** A cell's four corners, for the path clip in `columnTopAtCell`. */
-const CELL_CORNERS: ReadonlyArray<readonly [number, number]> =
-  [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]];
-
 export const WATER_LEVEL = 8;
 export const CHUNK_SIZE = 32;
 
@@ -669,58 +665,29 @@ export class Terrain {
   }
 
   /**
-   * Top surface of the column containing cell (cx, cz) — the ONE answer the
-   * mesher draws and collision resolves against.
+   * Integer top surface of the column containing cell (cx, cz).
    *
-   * Integer everywhere except where a path runs over the cell, and that
-   * exception is the whole of it. A column is a 1x1 cell and the corridor
-   * surface it sits under is a smooth band: on the verge that surface changes
-   * across the cell, and on a road crossing the voxel grid at an angle it is a
-   * CORNER of the cell that reaches furthest in. Floored to an integer, that
-   * corner stands through the gravel — the green cube on the road.
+   * INTEGER, and an attempt to make it otherwise is why that is spelled out. A
+   * version of this clipped a column to the lowest corridor surface its own
+   * cell touched, to stop a cube corner standing through the ribbon where a
+   * road crosses the voxel grid at an angle. It works as arithmetic and it
+   * tears holes in the ground: the mesher emits a side face from the height
+   * DIFFERENCE between neighbouring columns and every quad it builds assumes
+   * whole units, so a fractional top left black gaps along the verge. The
+   * corner case is handled on the drawing side instead — see `subdivide` and
+   * the rim note in town-parts.ts.
    *
-   * So a cell that touches a rim is cut to the lowest walking surface it
-   * touches. `surfaceAt` hands back exactly what it was given anywhere outside
-   * a rim, so open ground keeps its integer top and nothing else in the world
-   * changes shape.
-   *
-   * AND COLLISION FOLLOWS, which is why it is done here rather than in the
-   * mesher. Outside a corridor `getHeight` IS this number, so lowering the
-   * drawn box lowers what the hero stands on with it. The opposite fix —
-   * lifting the ribbon over the cube — leaves collision behind and buries him;
-   * see the note in `sectionAt`.
+   * AND CLIPPING TO A WHOLE UNIT IS WORSE, which was the obvious next idea. It
+   * draws correctly and it puts a 1.0 STEP on the carriageway where a clipped
+   * cell meets an unclipped one, against a `MAX_STEP_UP` of 0.5 — a wall the
+   * hero cannot walk over, in the middle of the surface the whole corridor
+   * exists to make walkable. A visible cube corner is a worse picture; a wall
+   * is a worse game. `tools/test-road-lab.mjs` holds both numbers so the trade
+   * is made with them in front of you.
    */
-  columnTopAtCell(cx: number, cz: number): number {
-    const x = cx + 0.5;
-    const z = cz + 0.5;
-    const h0 = Math.floor(this.heightCont(x, z));
-    const h = h0 < 1 ? 1 : h0;
-    const rf = this.roads;
-    if (rf === null) return h;
-    let out = h;
-    // The centre first: it rejects on one bounds test out in open country, and
-    // a cell with no path near it never pays for the four corners.
-    if (rf.surfaceAt(x, z, h) >= h) {
-      let touches = false;
-      for (let i = 0; i < CELL_CORNERS.length; i++) {
-        if (rf.surfaceAt(x + CELL_CORNERS[i][0], z + CELL_CORNERS[i][1], h) < h) {
-          touches = true;
-          break;
-        }
-      }
-      if (!touches) return h;
-    }
-    for (let i = 0; i < CELL_CORNERS.length; i++) {
-      const q = rf.surfaceAt(x + CELL_CORNERS[i][0], z + CELL_CORNERS[i][1], h);
-      if (q < out) out = q;
-    }
-    const c = rf.surfaceAt(x, z, h);
-    return c < out ? c : out;
-  }
-
-  /** Integer top surface of the column containing cell (cx, cz). */
   columnHeight(cx: number, cz: number): number {
-    return this.columnTopAtCell(cx, cz);
+    const h = Math.floor(this.heightCont(cx + 0.5, cz + 0.5));
+    return h < 1 ? 1 : h;
   }
 
   /**
@@ -1038,11 +1005,6 @@ export class Terrain {
     out.grass = hc < WATER_LEVEL + 0.3 ? 0
       : clamp01((1 - sandW) * (1 - snowW) * (1 - wear));
     out.trample = wear;
-    // THE SAME CLIPPED COLUMN COLLISION USES. `columnTopAtCell` re-derives the
-    // continuous height, which this function has already paid for — but the two
-    // MUST return the same number or the hero stands on one and looks at the
-    // other, so it is one function called twice rather than two that agree.
-    const drawnTop = this.columnTopAtCell(cx, cz);
     //
     // The obvious reading of "ground is sticking through the road" is that the
     // ground is too high, so the first fix was to clip a drawn column to the
@@ -1053,7 +1015,7 @@ export class Terrain {
     // far clipmap chording over the whole corridor (fixed in
     // distant-terrain.ts). A clamp here would have been cost on a per-column
     // path buying a number that does not move.
-    out.h = drawnTop;
+    out.h = h;
     out.hc = hc;
     // 0.6, not "any wear at all". The threshold is where props.ts stops
     // thinning the sward and starts refusing it outright (see the cull there),

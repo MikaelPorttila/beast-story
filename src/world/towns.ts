@@ -1355,6 +1355,23 @@ export class Towns {
       const j = plan.junction;
       const dests: Array<[string, number]> = [];
       for (const road of plan.network.roads) {
+        // A ROAD, AND ONE THAT ACTUALLY REACHES THIS NODE. Neither used to be
+        // checked and neither had to be, because the network held three roads
+        // and all three met here. It holds twenty-six now — a settlement's
+        // beaten tracks are paths too (issue #142) — and a track's `fromId` and
+        // `toId` are its own TOWN, so `siteOf` found a site for every one of
+        // them and the fork grew an arm per track: a fingerpost with two dozen
+        // planks radiating in every direction.
+        //
+        // `first` below only decides WHICH END is the near one; it never
+        // rejected anything. The test is that an end is actually here.
+        if (!road.profile.roles.draw) continue;
+        const last = road.pts[road.pts.length - 1];
+        const near = Math.min(
+          Math.hypot(road.pts[0].x - j.x, road.pts[0].z - j.z),
+          Math.hypot(last.x - j.x, last.z - j.z),
+        );
+        if (near > 6) continue;
         // Which end of this road is the junction, and where does it head?
         const first = Math.hypot(road.pts[0].x - j.x, road.pts[0].z - j.z) < 6;
         const a = first ? road.pts[0] : road.pts[road.pts.length - 1];

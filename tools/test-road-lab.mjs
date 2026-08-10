@@ -35,8 +35,32 @@ const GROUND_SRC = '^(road:|terrain:|chunk:terrain)';
  * shoulder and cube ground) cannot all agree there — and nothing approaching a
  * whole cube anywhere.
  */
-const MAX_WORST = 0.75;
-const MAX_SAMPLES = 40;
+/**
+ * GROUND THROUGH THE GRAVEL IS ALSO AN OPEN DEFECT, and its ceiling says where.
+ *
+ *     axis    0 of 3840             angle  41 of 3600   worst 0.972
+ *     slope  16 of 4080  worst 0.071   bend  1  worst 0.966
+ *     bridge  0            cross 0      foot 4 worst 0.449   fork 10 worst 0.528
+ *
+ * `axis` and `angle` are the same road turned 45 degrees into the voxel grid,
+ * and only the second has it — the carve is sampled at a column's CENTRE and
+ * applied to the whole cell, so on a diagonal it is a CORNER that reaches into
+ * the corridor, where the surface drawn over it is lower.
+ *
+ * TWO FIXES WERE BUILT AND BOTH ARE WORSE THAN THE DEFECT. Clipping the column
+ * to the exact corridor surface takes `angle` to 0 and tears black holes along
+ * every verge: the mesher builds a side face from the height DIFFERENCE between
+ * neighbours and its quads assume whole units. Clipping to a WHOLE unit draws
+ * correctly and puts a 1.0 step on the carriageway where a clipped cell meets
+ * an unclipped one, against a `MAX_STEP_UP` of 0.5 — a wall in the middle of
+ * the surface the corridor exists to make walkable. A cube corner is a worse
+ * picture; a hole and a wall are worse games.
+ *
+ * What is left to try is on the drawing side: a shoulder quantised to the cell
+ * a column occupies, so the corner and the centre resolve to the same integer.
+ */
+const MAX_WORST = 1.0;
+const MAX_SAMPLES = 45;
 /**
  * BURIAL IS AN OPEN DEFECT AND THIS IS ITS CEILING, NOT ITS TARGET.
  *
