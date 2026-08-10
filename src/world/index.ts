@@ -21,7 +21,10 @@ import {
 import { Shops, type DenSpot } from './shops';
 import { SiteFields } from './structures';
 import { Towns, planSettlements, type SettlementPlan } from './towns';
-import { mergeCrossings, profileRoad, roadLength, routeRoad, type Road } from './roads';
+import {
+  findCrossings, mergeCrossings, profileRoad, roadLength, routeRoad, runCrossesAny,
+  type Road,
+} from './roads';
 import {
   FOOTPATH_PROFILE, ROAD_PROFILE, TRAIL_PROFILE, type PathProfile,
 } from './path-profile';
@@ -1293,8 +1296,10 @@ export function createWorld(
     addPath(spec) {
       const net = plan?.network ?? null;
       const reg = plan?.towns ?? null;
-      const no = (error: string) =>
-        ({ id: '', length: 0, samples: 0, note: null, nodes: [], refused: [], error });
+      const no = (error: string) => ({
+        id: '', length: 0, samples: 0, note: null,
+        nodes: [], refused: [], crossings: 0, error,
+      });
       if (net === null || reg === null || towns === null) {
         return no('this zone has no path network');
       }
@@ -1413,6 +1418,10 @@ export function createWorld(
       // was built. This is `rebuildProps`'s documented TUNING cost — about what
       // walking into fresh ground costs — and it also takes the static shadows.
       api.rebuildProps();
+      // AND THE FAR MESH, which `rebuildProps` does not touch: the HLOD only
+      // resamples when its anchor moves, so a path authored out at the horizon
+      // left the clipmap chording over its own ribbon.
+      distant.invalidate();
       // AND THE GROUND UNDER THE HERO MOVED.
       //
       // `world/index.ts` says of `rebuildProps` that "the hero cannot fall
@@ -1430,7 +1439,20 @@ export function createWorld(
       // caller gets back is the half nearest the start — asking for the
       // original id afterwards would find nothing.
       const survivor = net.roads.find((r) => r.id.startsWith(road.id)) ?? road;
+      // Counted against the DRAWN paths only: a settlement's beaten tracks are
+      // on the network too and a trail crossing one of those is a trail
+      // crossing a colour field, which is nothing at all.
+      // NOT THE ONE AT ITS OWN START. A path authored to leave the network
+      // begins ON a road — that is the point of picking its head off one — so
+      // its first segment meets that road by construction and is not a
+      // crossing. Anything within a corridor's width of the head is the join.
+      const start = survivor.pts[0];
+      const crossings = findCrossings(
+        survivor, net.roads.filter((r) => r.profile.roles.draw && r !== survivor),
+      ).filter((c) => Math.hypot(c.x - start.x, c.z - start.z) > ROAD_PROFILE.deckEdge)
+        .length;
       return {
+        crossings,
         id: survivor.id,
         length: +roadLength(survivor).toFixed(1),
         samples: survivor.pts.length,
@@ -1444,6 +1466,43 @@ export function createWorld(
 
     debugWear(x: number, z: number): number {
       return terrain.trampleAt(x, z);
+    },
+
+    pathRunCrosses(ax: number, az: number, bx: number, bz: number): boolean {
+      const net = plan?.network ?? null;
+      if (net === null) return false;
+      return runCrossesAny(
+        net.roads.filter((r) => r.profile.roles.draw), ax, az, bx, bz,
+      );
+    },
+
+    pathRunHitsBuilt(
+      ax: number, az: number, bx: number, bz: number, margin: number,
+    ): boolean {
+      // WHAT IS ALREADY STANDING, which is a different question from what a
+      // path refuses. `PathRoles.refusesBuilt` is prospective: it keeps the
+      // PLANNER from putting a lamp on a carriageway. A path authored at
+      // runtime (`addPath`) arrives after the lamps and cannot retract one, so
+      // a caller choosing where to put a path asks this first. Measured: the
+      // trail to the gateway left the road 1.65 from a Stonewatch fingerpost
+      // and laid its carriageway under it.
+      //
+      // The margin is the piece's own TIMBER (`solidR`) and not the elbow room
+      // it claims for placement, which for a lamp is 11 units and would rule
+      // out the entire roadside. The caller adds its own half-width — see
+      // `RoadClearance` for the same split.
+      if (towns === null) return false;
+      const dx = bx - ax;
+      const dz = bz - az;
+      const len2 = dx * dx + dz * dz || 1;
+      for (const f of towns.furniture) {
+        let t = ((f.x - ax) * dx + (f.z - az) * dz) / len2;
+        if (t < 0) t = 0; else if (t > 1) t = 1;
+        if (Math.hypot(ax + dx * t - f.x, az + dz * t - f.z) < (f.solidR ?? f.r) + margin) {
+          return true;
+        }
+      }
+      return false;
     },
 
     debugColumn(x: number, z: number): number {

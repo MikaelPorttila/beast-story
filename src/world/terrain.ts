@@ -3,6 +3,7 @@
  * collision queries agree exactly with the rendered voxel columns.
  */
 import { Noise2D, WaveField } from './noise';
+import type { RimHit } from './roads';
 
 /** The run a slope is measured over. See `Terrain.steepnessAt`. */
 const SLOPE_RUN = 4;
@@ -155,6 +156,14 @@ export interface RoadField {
    * See `RoadNetwork.drawnSurfaceAt`.
    */
   drawnSurfaceAt(x: number, z: number, ground: number): number;
+  /**
+   * The lowest drawn corridor surface within `r` of (x, z). For a coarse mesh
+   * that has to stay under a path narrower than its own sample spacing — see
+   * `RoadNetwork.lowestDrawnSurfaceNear`.
+   */
+  lowestDrawnSurfaceNear(
+    x: number, z: number, r: number, ground: number, rim?: RimHit,
+  ): number;
   /**
    * How walked the ground at (x, z) is, 0..1 — the colour of packed dirt.
    *

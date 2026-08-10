@@ -405,6 +405,21 @@ export function roadLength(r: Road): number {
  * the mesher calls 1156 times per chunk and the player calls a few hundred times
  * a frame, so neither query may allocate or chase objects.
  */
+/**
+ * Where a corridor was found and how wide, filled by `lowestDrawnSurfaceNear`.
+ * A scratch the caller owns; never retained by the network.
+ */
+export interface RimHit {
+  found: boolean;
+  x: number;
+  z: number;
+  /** Unit normal to the corridor, so a caller can step out to either rim. */
+  nx: number;
+  nz: number;
+  /** Half-width to the rim — `PathProfile.deckEdge` of the road that won. */
+  half: number;
+}
+
 export class RoadNetwork implements RoadField, RoadClearance {
   readonly roads: Road[] = [];
   /**
@@ -907,6 +922,77 @@ export class RoadNetwork implements RoadField, RoadClearance {
   }
 
   /**
+   * The LOWEST drawn corridor surface anywhere within `r` of (x, z), or
+   * `ground` when no path comes that close.
+   *
+   * A SPATIAL QUERY, not point samples, and that is the whole reason it exists.
+   * The far clipmap clamps its vertices under any path in their cell by
+   * sampling a nine-point stencil (`underPaths`, distant-terrain.ts) — which
+   * works while a path is wider than the gaps in the stencil and fails the
+   * moment one is not. A trail is 3.6 units across and the HLOD steps 8 to 24,
+   * so the stencil straddled it: measured, 340 columns of clipmap drawn over
+   * the trail's ribbon at worst 1.274.
+   *
+   * This asks the segments instead. Each is tested against the cell as a DISC
+   * of radius `r`, so a path that clips any part of the cell is found whatever
+   * its width, and the surface is taken at the segment's own closest approach —
+   * the lowest point of it the cell can see.
+   */
+  lowestDrawnSurfaceNear(
+    x: number, z: number, r: number, ground: number, rim?: RimHit,
+  ): number {
+    if (rim !== undefined) rim.found = false;
+    const g = ROLE_SLOT[Role.Surface];
+    const b = g * 4;
+    if (x < this.bounds[b] - r || x > this.bounds[b + 1] + r) return ground;
+    if (z < this.bounds[b + 2] - r || z > this.bounds[b + 3] + r) return ground;
+    let out = ground;
+    // The cell can straddle a bucket boundary, so its own four corners are
+    // looked up as well as its centre. CELL is 8 and `r` is at most 12, so a
+    // wider sweep would be scanning most of the index.
+    for (const [ox, oz] of [[0, 0], [r, r], [r, -r], [-r, r], [-r, -r]] as const) {
+      const bucket = this.grids[g].get(
+        cellKey(Math.floor((x + ox) / CELL), Math.floor((z + oz) / CELL)),
+      );
+      if (bucket === undefined) continue;
+      const s = this.seg;
+      for (let i = 0; i < bucket.length; i++) {
+        const ri = this.segRoad[bucket[i]];
+        const road = this.roads[ri];
+        if (!road.profile.roles.draw) continue;
+        const o = bucket[i] * 6;
+        const ax = s[o];
+        const az = s[o + 1];
+        const dx = s[o + 3] - ax;
+        const dz = s[o + 4] - az;
+        const len2 = dx * dx + dz * dz;
+        let t = len2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0;
+        if (t < 0) t = 0; else if (t > 1) t = 1;
+        const px = ax + dx * t;
+        const pz = az + dz * t;
+        if (Math.hypot(px - x, pz - z) > r + road.profile.deckEdge) continue;
+        const deck = s[o + 2] + (s[o + 5] - s[o + 2]) * t;
+        if (deck < out) out = deck;
+        // AND WHERE ITS RIM IS. The deck is the middle of the corridor; the
+        // ribbon falls away to either side and its rim vertices sit on the
+        // WALKING SURFACE, which is finer than anything a coarse mesh samples.
+        // A caller that can measure that surface takes the closest approach and
+        // the half-width and reads it for itself — see `underPaths`.
+        if (rim !== undefined && !rim.found) {
+          rim.found = true;
+          rim.x = px;
+          rim.z = pz;
+          const len = Math.hypot(dx, dz) || 1;
+          rim.nx = -dz / len;
+          rim.nz = dx / len;
+          rim.half = road.profile.deckEdge;
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
    * HOW MUCH LOOSE STONE AND STICK BELONGS AT (x, z), 0..1.
    *
    * THE ONE QUERY HERE THAT WANTS THE CORRIDOR. Everything else on this
@@ -1124,6 +1210,36 @@ export function findCrossings(road: Road, others: readonly Road[]): Crossing[] {
     }
   }
   return out;
+}
+
+/**
+ * Does the straight run (ax,az)-(bx,bz) cross any of `roads`?
+ *
+ * The same segment/segment test `findCrossings` runs, against a bare line
+ * rather than a polyline, for a caller deciding where a new path should START.
+ * See `World.pathRunCrosses`.
+ */
+export function runCrossesAny(
+  roads: readonly Road[], ax: number, az: number, bx: number, bz: number,
+): boolean {
+  const rx = bx - ax;
+  const rz = bz - az;
+  for (const other of roads) {
+    for (let k = 1; k < other.pts.length; k++) {
+      const b0 = other.pts[k - 1];
+      const b1 = other.pts[k];
+      const sx = b1.x - b0.x;
+      const sz = b1.z - b0.z;
+      const den = rx * sz - rz * sx;
+      if (Math.abs(den) < 1e-9) continue;
+      const t = ((b0.x - ax) * sz - (b0.z - az) * sx) / den;
+      const u = ((b0.x - ax) * rz - (b0.z - az) * rx) / den;
+      // The run's own start sits ON a road by construction — it is a point
+      // picked off one — so the first hundredth of it does not count.
+      if (t > 0.02 && t < 1 && u >= 0 && u <= 1) return true;
+    }
+  }
+  return false;
 }
 
 /**

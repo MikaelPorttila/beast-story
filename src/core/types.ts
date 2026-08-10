@@ -1157,6 +1157,30 @@ export interface World {
    */
   debugColumn(x: number, z: number): number;
   /**
+   * Debug/authoring: does the straight run (ax,az)-(bx,bz) cross a DRAWN path?
+   *
+   * For a caller choosing where to start a new path. A route that has to get
+   * past the network to reach its destination will cross it, and a crossing
+   * with nothing at the meeting is two ribbons stacked on one piece of ground
+   * — so the honest fix is to start on the correct side rather than to notice
+   * afterwards. Straight-line, which is a heuristic: the router bends. It is
+   * enough to reject a head that is obviously on the wrong side of a road.
+   */
+  pathRunCrosses(ax: number, az: number, bx: number, bz: number): boolean;
+  /**
+   * Would a path laid straight from a to b pass through something ALREADY
+   * STANDING — a lamp, a fingerpost, a milestone — allowing `margin` for its
+   * own half-width?
+   *
+   * The companion to `pathRunCrosses`, and the reason it is a separate question
+   * is timing: `PathRoles.refusesBuilt` keeps the planner from standing a lamp
+   * on a carriageway, but a path authored at runtime arrives after the lamps
+   * and cannot retract one. See the implementation for the margin's rationale.
+   */
+  pathRunHitsBuilt(
+    ax: number, az: number, bx: number, bz: number, margin: number,
+  ): boolean;
+  /**
    * AUTHOR A PATH AT RUNTIME, and rebuild everything that depended on there
    * not being one.
    *
@@ -1198,6 +1222,15 @@ export interface World {
     /** Junctions the merge created, and every crossing it refused. */
     nodes: Array<{ x: number; z: number; y: number; arms: number }>;
     refused: string[];
+    /**
+     * How many DRAWN paths the finished route still crosses without a junction.
+     *
+     * Always counted, merge or no merge. A path that runs over another one with
+     * nothing at the meeting is two ribbons stacked on the same ground — issue
+     * #45 — and it is the sort of thing that looks fine from the air and wrong
+     * from the ground, so the caller is told rather than left to notice.
+     */
+    crossings: number;
     error?: string;
   };
   /**

@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import { excludeFromAO } from '../core/types';
 import { Terrain, WATER_LEVEL, makeScratch, smoothstep } from './terrain';
 import { SURFACE_Y, WATER_DETAIL_FADE_WIDTH } from './water';
+import type { RimHit } from './roads';
 
 /** Shipped medium setting. Live choices replace these through configure(). */
 const DEFAULT_VIEW_DISTANCE = 600;
@@ -166,6 +167,10 @@ export class DistantTerrain {
   private nextWaterPosition: Float32Array;
   private nextWaterColor: Float32Array;
   private readonly scratch = makeScratch();
+  /** Second column reading, for the path rims in `underPaths`. */
+  private readonly rimScratch = makeScratch();
+  /** Where `underPaths` last found a corridor. Reused, never retained. */
+  private readonly rim: RimHit = { found: false, x: 0, z: 0, nx: 0, nz: 0, half: 0 };
   private anchorX = Infinity;
   private anchorZ = Infinity;
   private nextAnchorX = Infinity;
@@ -282,6 +287,26 @@ export class DistantTerrain {
     this.nextWetWaterVertices = 0;
   }
 
+  /**
+   * THE GROUND CHANGED UNDER A CENTRE THAT DID NOT MOVE. Resample where we are.
+   *
+   * `requestUpdate` is keyed on the anchor and early-returns when it has not
+   * moved, which is right for a hero walking and wrong for a path AUTHORED at
+   * runtime (`World.addPath`): the corridor appears a hundred units away, the
+   * anchor never budges, and the far mesh keeps chording over ground that has
+   * since been carved. Measured on the trail to the gateway: 340 columns of
+   * clipmap drawn above the ribbon, worst 1.274.
+   *
+   * Costs one full resample, paid by `buildStep` over later frames like any
+   * other — the old mesh stays up until the new one commits.
+   */
+  invalidate(): void {
+    this.nextAnchorX = this.anchorX;
+    this.nextAnchorZ = this.anchorZ;
+    this.nextVertex = 0;
+    this.nextWetWaterVertices = 0;
+  }
+
   /** Queue a new snapped centre. Sampling is paid by buildStep over later frames. */
   requestUpdate(focus: Readonly<THREE.Vector3>): void {
     const ax = Math.floor(focus.x / SNAP) * SNAP;
@@ -336,17 +361,39 @@ export class DistantTerrain {
   private underPaths(wx: number, wz: number, y: number): number {
     const rf = this.field.roads;
     if (rf === null) return y;
-    const h = this.nextLayout.step * 0.5;
-    // Nine samples: the vertex, its four edge midpoints and its four corners.
-    // A corridor crossing a cell at 45 degrees misses a plus-shaped stencil.
-    const c = h * 0.7071;
-    let out = y;
-    for (const [dx, dz] of [
-      [0, 0], [h, 0], [-h, 0], [0, h], [0, -h],
-      [c, c], [c, -c], [-c, c], [-c, -c],
-    ] as const) {
-      const s = rf.drawnSurfaceAt(wx + dx, wz + dz, y);
-      if (s < out) out = s;
+    // A FULL STEP, not half of one. A vertex is only useful here if it is
+    // clamped BEFORE the triangle it belongs to crosses the corridor, and the
+    // triangle reaches a whole step out — clamping at half a step left the far
+    // vertex of every straddling edge high and the chord still crossed: 191
+    // columns of clipmap over the trail, down from 340 but not down to nothing.
+    // The cost is a band one step wide sitting low around each path, on a mesh
+    // that nothing walks on and that near chunks are drawn over anyway.
+    const h = this.nextLayout.step;
+    // ASKED OF THE SEGMENTS, not sampled on a stencil. A nine-point stencil is
+    // only as fine as its gaps, and a TRAIL is 3.6 units across against a step
+    // of 8 to 24 — so it fell straight between the samples and 340 columns of
+    // clipmap came back drawn over its ribbon at worst 1.274.
+    // `lowestDrawnSurfaceNear` tests each segment against the cell as a disc,
+    // which finds a path of any width.
+    let out = rf.lowestDrawnSurfaceNear(wx, wz, h, y, this.rim);
+    if (!this.rim.found) return out;
+    // AND UNDER ITS RIM, which is the half of this a deck clamp misses.
+    //
+    // A ribbon is not flat: the deck runs down the middle and the rim vertices
+    // sit on the WALKING SURFACE, sampled per vertex at a resolution no coarse
+    // mesh has. On a cart road that never showed, because the carve sinks the
+    // whole corridor about 1.6 and the rim is still far below anything the
+    // clipmap chords. A TRAIL carves shallowly and its rim is very nearly the
+    // natural ground, so the clipmap's own interpolation error — up to half a
+    // step of hill — came out on top of it: 340 columns, worst 1.274.
+    //
+    // So both rims are read off the same fine surface the ribbon used. Two
+    // extra column samples, and only on vertices with a corridor in their cell.
+    for (const side of [1, -1] as const) {
+      const rx = this.rim.x + this.rim.nx * this.rim.half * side;
+      const rz = this.rim.z + this.rim.nz * this.rim.half * side;
+      this.field.columnInfo(rx - 0.5, rz - 0.5, this.rimScratch);
+      if (this.rimScratch.h - 0.08 < out) out = this.rimScratch.h - 0.08;
     }
     return out;
   }

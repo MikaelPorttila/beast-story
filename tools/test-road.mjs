@@ -323,6 +323,8 @@ const out = await page.evaluate((groundSrc) => {
       /** The clipmap, on the columns with no near chunk under them. */
       farOverRibbon: 0,
       worstFarPoke: 0,
+      /** Per road, so a regression names its own corridor. */
+      farByRoad: {},
       /** Columns where the ribbon is drawn over 0.2 ABOVE the walking surface. */
       ribbonOverWalk: 0,
       worstBuried: 0,
@@ -459,6 +461,10 @@ for (const id of out.ribbon.map((r) => r.id)) {
   out.crossSection.nearGround += part.near;
   out.crossSection.terrainOverRibbon += part.over;
   out.crossSection.farOverRibbon += part.far;
+  // WHICH ROAD, not just how many. The clipmap total is one number over the
+  // whole network and a regression in it says nothing about where to look;
+  // this is the line that named the trail.
+  if (part.far > 0) out.crossSection.farByRoad[id] = { n: part.far, worst: +part.farWorst.toFixed(3) };
   out.crossSection.ribbonOverWalk += part.sunk;
   if (part.sunkWorst > out.crossSection.worstBuried) {
     out.crossSection.worstBuried = +part.sunkWorst.toFixed(3);

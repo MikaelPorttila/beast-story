@@ -65,9 +65,13 @@ const check = (ok, msg) => { if (!ok) fails.push(msg); };
 // where earning one is the claim. A test that had to play the whole game to
 // reach its subject would be measuring the whole game.
 //
-// Emberfox leads and Galebird supports, which is the pair the boot loadout used
-// to seed and which every assertion below still names by name: a walker for the
-// ground case, a flyer for the skyfall.
+// Galebird is the one every assertion below names, because the skyfall needs a
+// FLYER and this file is not a taming test. It is granted last on purpose: the
+// developer door SEATS what it grants (see `devGrant` in main.ts), so whatever
+// comes last is the support beast and is therefore present. Emberfox is granted
+// first only so the party has two members to measure rather than one — with a
+// starter beast now holding the primary slot it ends up bonded and benched,
+// which costs these assertions nothing.
 for (const id of ['emberfox', 'galebird']) {
   await page.evaluate((s) => window.__dbgGrantBeast(s), id);
 }

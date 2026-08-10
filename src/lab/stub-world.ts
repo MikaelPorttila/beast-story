@@ -24,14 +24,16 @@ export class StubWorld implements World {
   /** The stage has no settlements, so nothing has worn its ground. */
   debugWear(): number { return 0; }
   debugColumn(): number { return 0; }
+  pathRunCrosses(): boolean { return false; }
+  pathRunHitsBuilt(): boolean { return false; }
   debugPaths(): { paths: []; at: null } { return { paths: [], at: null }; }
   /** The stage has no network to add to. See `World.addPath`. */
   addPath(): {
     id: string; length: number; samples: number; note: null;
-    nodes: never[]; refused: never[]; error: string;
+    nodes: never[]; refused: never[]; crossings: number; error: string;
   } {
     return {
-      id: '', length: 0, samples: 0, note: null, nodes: [], refused: [],
+      id: '', length: 0, samples: 0, note: null, nodes: [], refused: [], crossings: 0,
       error: 'this zone has no path network',
     };
   }

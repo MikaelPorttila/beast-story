@@ -48,6 +48,7 @@ import { contentIssues, reportContentIssue } from './core/content-bridge';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { NPC_TALK_RANGE } from './world/npc';
+import { TRAIL_PROFILE } from './world/path-profile';
 import {
   FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT,
   FENCE_RAIL_HEIGHT, FENCE_RAIL_WIDTH,
@@ -337,9 +338,29 @@ if (startMenu) music.setScene('title');
  * time any of this runs the whole module has been evaluated. Reorder that and
  * the first thing you get is a temporal-dead-zone throw inside a click handler.
  */
+/**
+ * THE BEAST THE PLAYER STARTS WITH.
+ *
+ * The reset in `exitToTitle` records that this used to be TWO — an Emberfox and
+ * a Galebird — and that they were taken out so a new game began with nobody.
+ * One is back, deliberately and singly: a player who starts with an empty party
+ * has no way to see what a bond IS until they have already tamed something, and
+ * the Frostwing is a FLYER, so the first thing they can do with it is get off
+ * the ground and look at the world they are standing in.
+ *
+ * Granted in `beginPlay` rather than at boot, because `beginPlay` is the one
+ * place both callers meet — the end of the boot sequence and the menu's New
+ * Game — and `exitToTitle` empties the party on the way out, so a second New
+ * Game in one session has to grant it again.
+ */
+const STARTER_BEAST = 'frostwing';
+
 function beginPlay(): void {
   if (playing || !prepDone || !handedOver) return;
   playing = true;
+  // `grantBeast` is a no-op when the species is already bonded, so this is safe
+  // on the boot path AND on a New Game after an exit to title.
+  grantBeast(STARTER_BEAST);
   // Every key pressed at the title screen is still latched in `Input` — nothing
   // has drained it, because `endFrame()` only runs inside `frame()` and
   // `frame()` has not run yet. Unread, the first simulation slice would see the
@@ -514,6 +535,7 @@ function exitToTitle(): void {
   owned.clear();
   primaryIdx = -1;
   supportIdx = -1;
+  devSeated = 0;
   refreshVisibility();
   cooldowns.clear();
   spent = 0;
@@ -717,6 +739,24 @@ const GATE_PROBES: ReadonlyArray<readonly [number, number]> =
   [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2]];
 
 /**
+ * HOW FAR OUT THE GATEWAY STANDS, in preference order.
+ *
+ * It used to be 31-42, and the lower bound was the load-bearing part: the
+ * preload band is 30 units wide, so anything closer put the hero inside it at
+ * spawn and the dungeon was built during boot whether or not he walked that
+ * way. That argument still holds and these are all far outside it.
+ *
+ * The upper bound has gone the other way. A dungeon mouth forty units from
+ * where you wake up is a thing you trip over; at 150-210 it is somewhere you
+ * SET OUT FOR, which is what the trail leading to it is for. Nothing else in
+ * the placement changes: it is still scored for level, dry ground clear of the
+ * dens and the towns, and now also for a wood around it and a hillside behind.
+ *
+ * The far distance also buys the trail its own country. See `TRAIL_MAX_CROSS`.
+ */
+const GATE_RADII = [170, 195, 150, 210] as const;
+
+/**
  * Where the overworld's gateway stands.
  *
  * 34-42 units from spawn, and the lower bound is the load-bearing part: the
@@ -734,9 +774,9 @@ const GATE_PROBES: ReadonlyArray<readonly [number, number]> =
  */
 function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
   const base = w.spawnPoint;
-  let best = { x: base.x + 34.5, z: base.z + 0.5 };
+  let best = { x: base.x + GATE_RADII[0] + 0.5, z: base.z + 0.5 };
   let bestScore = Infinity;
-  for (const radius of [34, 38, 31, 42]) {
+  for (const radius of GATE_RADII) {
     for (let k = 0; k < 16; k++) {
       const a = (k / 16) * Math.PI * 2 + 0.9;
       const x = Math.round(base.x + Math.cos(a) * radius) + 0.5;
@@ -3162,8 +3202,53 @@ const refitHero = (): void => {
   // `as` would say "trust me" about the one thing worth checking.
   const gate = ((): { x: number; z: number } | null => gateSite)();
   if (gate !== null) {
+    // IT LEAVES THE ROAD AT THE NEAREST POINT TO THE GATE, not at the spawn.
+    //
+    // A trail from the spawn to a gateway two hundred units out has to get past
+    // the road network to reach it, and it crosses whatever is in the way — two
+    // carriageways with nothing at either meeting, which is two ribbons stacked
+    // on one piece of ground (issue #45). Starting from the point on the
+    // network CLOSEST to the gate means the trail begins on the correct side
+    // and never has a road between it and where it is going.
+    //
+    // It is also the better read: a path leaves the road where the road comes
+    // nearest the thing it leads to, which is where a real one would.
+    // AND NOT FROM INSIDE A TOWN. The nearest road point to the gate is the end
+    // of a spur, which is a settlement's own centre — so the trail set off from
+    // the middle of Stonewatch and crossed the carriageway on its way out
+    // (measured: 1 crossing, reported by the check below). A trail leaves the
+    // network in open country, at the last bit of road before the town.
+    let head = { x: world.spawnPoint.x, z: world.spawnPoint.z };
+    let headD = Infinity;
+    for (const r of world.towns.roads) {
+      for (let i = 0; i < r.path.length; i += 3) {
+        const x = r.path[i];
+        const z = r.path[i + 2];
+        if (world.towns.all.some(
+          (t) => Math.hypot(t.x - x, t.z - z) < t.outerRadius + 8,
+        )) continue;
+        // AND WITH A CLEAR RUN TO THE GATE. Nearest is not enough: the spur
+        // curves, so the point closest to the gate can still have a
+        // carriageway between it and where the trail is going — measured, it
+        // did, and the trail crossed one road with nothing at the meeting.
+        if (world.pathRunCrosses(x, z, gate.x, gate.z)) continue;
+        // AND CLEAR OF WHAT IS ALREADY STANDING. A trail profile refuses what
+        // is BUILT, but only prospectively — the lamps and fingerposts were
+        // stamped when the network was planned and this path is authored after.
+        // Measured: the best head by the two tests above ran 1.65 from a
+        // Stonewatch fingerpost and laid its carriageway under it.
+        //
+        // The margin is the piece's own timber plus the trail's half-width,
+        // which is the literal question ("would the carriageway pass through
+        // it") rather than its 11-unit elbow room, which would rule out the
+        // whole roadside.
+        if (world.pathRunHitsBuilt(x, z, gate.x, gate.z, TRAIL_PROFILE.deckEdge)) continue;
+        const d = Math.hypot(x - gate.x, z - gate.z);
+        if (d < headD) { headD = d; head = { x, z }; }
+      }
+    }
     const laid = world.addPath({
-      from: [world.spawnPoint.x, world.spawnPoint.z],
+      from: [head.x, head.z],
       to: [gate.x, gate.z],
       profile: 'trail',
     });
@@ -3177,6 +3262,17 @@ const refitHero = (): void => {
         code: 'gateway-trail-refused',
         message: `The trail to the gateway was refused: ${laid.error}`,
         fix: 'move the gateway, or give the trail a profile that can bridge',
+      });
+    } else if (laid.crossings > 0) {
+      // NOT SILENT. Starting from the nearest road point is what should make
+      // this zero; if it is not, the trail is running over a carriageway with
+      // nothing at the meeting and somebody should see the number.
+      reportContentIssue({
+        severity: 'warn',
+        code: 'gateway-trail-crosses',
+        message: `The trail to the gateway crosses ${laid.crossings} road(s) `
+          + 'with no junction at the meeting',
+        fix: 'move the gateway clear of the road network, or merge the crossing',
       });
     }
   }
@@ -4125,6 +4221,9 @@ function devRide(arg: string | undefined): string {
  * It is NOT how a player gets a beast, which is why it is a separate word from
  * `/mount` rather than a flag on it — see the refusal there.
  */
+/** How many beasts the developer door has seated. See `devGrant`. */
+let devSeated = 0;
+
 function devGrant(arg: string | undefined): string {
   if (!arg) {
     const have = [...owned];
@@ -4144,6 +4243,23 @@ function devGrant(arg: string | undefined): string {
     return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
   }
   if (!grantBeast(arg)) return `"${arg}" is already bonded`;
+  // AND SEAT IT. `grantBeast` only fills a slot that is EMPTY, which is the
+  // right rule for earning a bond in play — a third beast does not shove one of
+  // yours aside. It is the wrong rule for this door, whose entire purpose is
+  // composing a party to measure: with a starter beast holding the primary slot
+  // (`STARTER_BEAST`) the second beast granted here landed nowhere, and
+  // test-companion's flyer was bonded but not present.
+  //
+  // Grants arrive in the order the caller wants them SEATED, so the first takes
+  // the lead and the second the support slot, evicting the starter. After that
+  // the lead is left alone and support rotates — a probe that wants a specific
+  // pair names it in a specific order, which every one of them already does.
+  const idx = roster.findIndex((b) => b.species.id === arg);
+  if (idx !== primaryIdx && idx !== supportIdx) {
+    if (devSeated === 0) primaryIdx = idx; else supportIdx = idx;
+    devSeated++;
+    refreshVisibility();
+  }
   inventory.refresh();
   return `bonded ${arg} (${owned.size} total)`;
 }
@@ -6043,15 +6159,24 @@ beginPlay();
    *
    * "The lamps are too close to each other" and "the signposts are standing in
    * the road" (issue #15) are both statements about numbers, and these are the
-   * numbers: the smallest gap between any two pieces, and how near the nearest
-   * carriageway CENTRELINE any of them comes. `DECK_EDGE` is 5, so anything
-   * under 5 is on the gravel; a lamp interval is 26, so the closest pair should
-   * be a good fraction of that.
+   * numbers: the smallest gap between any two pieces, and how far INSIDE the
+   * nearest carriageway any of them stands. A lamp interval is 26, so the
+   * closest pair should be a good fraction of that.
+   *
+   * MEASURED FROM THE RIM, PER ROAD. This asked "is it within 5 of a
+   * centreline", 5 being the cart road's `deckEdge` written out as a constant —
+   * so the day a 3.6-unit trail joined the network the reader called a
+   * fingerpost standing 3.43 away, comfortably off the trail's gravel, a piece
+   * of furniture in the road. A path's numbers come from its profile.
    */
   furniture: ((): unknown => {
     const f = world.debugFurniture();
+    /**
+     * How far inside the nearest carriageway (x, z) stands: positive when the
+     * point is ON the gravel, negative by its clearance when it is beside it.
+     */
     const roadDist = (x: number, z: number): number => {
-      let best = Infinity;
+      let best = -Infinity;
       for (const r of world.towns.roads) {
         for (let i = 3; i < r.path.length; i += 3) {
           // Point-to-segment, the same test the network's own clearance runs.
@@ -6062,8 +6187,8 @@ beginPlay();
           const l2 = dx * dx + dz * dz;
           let u = l2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
           if (u < 0) u = 0; else if (u > 1) u = 1;
-          const d = Math.hypot(ax + dx * u - x, az + dz * u - z);
-          if (d < best) best = d;
+          const d = r.deckEdge - Math.hypot(ax + dx * u - x, az + dz * u - z);
+          if (d > best) best = d;
         }
       }
       return best;
@@ -6081,8 +6206,8 @@ beginPlay();
     let roadAt: { x: number; z: number } | null = null;
     for (const p of f) {
       const d = roadDist(p.x, p.z);
-      if (d < 5) onRoad++;
-      if (d < nearestRoad) { nearestRoad = d; roadAt = { x: +p.x.toFixed(1), z: +p.z.toFixed(1) }; }
+      if (d > 0) onRoad++;
+      if (-d < nearestRoad) { nearestRoad = -d; roadAt = { x: +p.x.toFixed(1), z: +p.z.toFixed(1) }; }
     }
     return {
       count: f.length,
@@ -6090,7 +6215,7 @@ beginPlay();
       posts: f.filter((p) => p.kind === 'post').length,
       closestPair: Number.isFinite(closestPair) ? +closestPair.toFixed(2) : null,
       closestPairAt: pairAt,
-      /** How near a centreline the nearest piece comes. Under 5 is ON the road. */
+      /** How clear of the nearest RIM the nearest piece is. Negative is on it. */
       nearestRoad: Number.isFinite(nearestRoad) ? +nearestRoad.toFixed(2) : null,
       nearestRoadAt: roadAt,
       onCarriageway: onRoad,
