@@ -54,7 +54,8 @@ import { CarrierBody } from './carriers';
 import { Accum, bakeProp, PropLib, type Template } from './props';
 import { SolidStamp, StructureField } from './structures';
 import { Npcs, type NpcFrame, type NpcSite } from './npc';
-import type { RoadClearance } from './roads';
+import { RoadNetwork, type Road, type RoadClearance } from './roads';
+import { flagstoneProfile } from './path-profile';
 import { VoxelModel } from '../core/voxel';
 import { mulberry32 } from './noise';
 import { flags } from '../core/flags';
@@ -786,6 +787,15 @@ interface SkyPlan {
   }>;
   /** Path centrelines as [x0, z0, x1, z1], painted into the turf. */
   readonly paths: ReadonlyArray<readonly [number, number, number, number]>;
+  /**
+   * The same streets as a queryable path network, in the island's own frame.
+   *
+   * On the PLAN and not built by the island afterwards, because the planter
+   * needs it: trees and bushes are placed further down this same function and
+   * they are the things that used to land in the middle of a street. See
+   * `streetNetwork`.
+   */
+  readonly streets: RoadNetwork;
   readonly lamps: ReadonlyArray<{ x: number; z: number; yaw: number }>;
   readonly fences: ReadonlyArray<{ x: number; z: number; yaw: number }>;
   readonly trees: ReadonlyArray<{ t: Template; x: number; z: number; yaw: number; s: number }>;
@@ -809,6 +819,18 @@ interface SkyPlan {
  * the market, and every street runs to its rim.
  */
 const PLAZA = 19;
+/**
+ * Half-width of a flagged street, world units.
+ *
+ * WIDE ENOUGH TO BE A STREET. At 1.7 these were dirt scratches that barely
+ * showed against the turf from above; the reference's are flagged streets with
+ * kerbs, wide enough for two people.
+ *
+ * One number for two jobs since issue #142: `buildRock` paints a cell inside it
+ * and `streetNetwork` gives the same figure to `flagstoneProfile`, so what is
+ * drawn and what a placer is refused from are the same street by construction.
+ */
+const PATH_HALF = 2.9;
 
 /**
  * How wide the water is where it leaves the rim, in world units.
@@ -1135,6 +1157,23 @@ function planSkyhaven(
     paths.push([p0x, p0z, gx, gz]);
   }
 
+  // EVERY STREET IS PLANNED BY HERE — the radial ones, the ring round the
+  // square and the one out to the gate — so the network can be built, and it
+  // has to be before anything is PLANTED. `free`/`claim` only knows about
+  // things with a radius, and a street is a line: that mismatch is why oaks
+  // grew out of the flagstones (issue #142 §1).
+  const streets = streetNetwork(paths);
+  /**
+   * Room for something that GROWS, `r` units of it, clear of every street.
+   *
+   * Deliberately not folded into `free`: the lamps above are placed halfway
+   * ALONG a street on purpose, and so are the well and the stalls on the
+   * square. What a street refuses is foliage, which is the same distinction
+   * `PathRoles` draws between what is grown and what is built.
+   */
+  const offStreet = (x: number, z: number, r: number): boolean =>
+    streets.edgeDistanceTo(x, z) >= r;
+
   // -- trees ----------------------------------------------------------------
   // THE WORLD'S OWN OAKS, and deliberately NOT its pines: the overworld's
   // conifers carry a snow variant and came out capped in white on a green
@@ -1156,7 +1195,7 @@ function planSkyhaven(
       const a = centre + (rng() - 0.5) * 0.36;
       const d = dist + (rng() - 0.5) * 9;
       const [x, z] = at(a, d);
-      if (!free(x, z, 4)) continue;
+      if (!free(x, z, 4) || !offStreet(x, z, 4)) continue;
       trees.push({
         t: templates[Math.floor(rng() * templates.length)],
         x, z, yaw: rng() * 6.28, s: 0.85 + rng() * 0.35,
@@ -1169,7 +1208,7 @@ function planSkyhaven(
   for (let k = 0; k < 8; k++) {
     const a = rng() * Math.PI * 2;
     const [x, z] = at(a, ISLAND_R * (0.2 + rng() * 0.3));
-    if (!free(x, z, 5)) continue;
+    if (!free(x, z, 5) || !offStreet(x, z, 5)) continue;
     trees.push({
       t: templates[Math.floor(rng() * templates.length)],
       x, z, yaw: rng() * 6.28, s: 0.9 + rng() * 0.3,
@@ -1181,7 +1220,7 @@ function planSkyhaven(
   for (let k = 0; k < 110; k++) {
     const a = rng() * Math.PI * 2;
     const [x, z] = at(a, ISLAND_R * (0.16 + rng() * 0.74));
-    if (!free(x, z, 2.2)) continue;
+    if (!free(x, z, 2.2) || !offStreet(x, z, 2.2)) continue;
     buildings.push({ t: parts.bushes[k % 2], x, z, yaw: rng() * 6.28 });
     claim(x, z, 2.2);
   }
@@ -1249,7 +1288,7 @@ function planSkyhaven(
   // `buildStream`, which is why the plan carries a bearing rather than a shape.
   const [fx, fz] = at(fallAngle, PLAZA * 0.9);
   return {
-    buildings, paths, lamps, fences, trees, rocks, plots, fallAngle,
+    buildings, paths, streets, lamps, fences, trees, rocks, plots, fallAngle,
     focus: { x: fx * 0.4, z: fz * 0.4 },
   };
 }
@@ -1521,14 +1560,41 @@ function localRegistry(town: TownInfo): TownRegistry {
 }
 
 /**
- * A road network with no roads in it. The deck has none, so every clearance
- * query is satisfied — which is what makes the NPC placement search's road test
- * a no-op here rather than a special case inside it.
+ * THE ISLAND'S OWN STREETS, as a path network in its LOCAL frame.
+ *
+ * This replaces `NO_ROADS`, a clearance stub that answered Infinity to
+ * everything — which is issue #142 §1's third mechanism and the sharpest way
+ * of putting the whole problem: the placer up here genuinely believed there was
+ * no path anywhere, because `SkyPlan.paths` was a list of four-number tuples
+ * that only `buildRock` walked, to decide which voxel cells to paint.
+ *
+ * LOCAL AND NOT WORLD, deliberately. The island moves, and every query on the
+ * deck — the NPC search, the flagstone painting — is already asked in the
+ * island's own frame (`localDeck`, `localTop`). A world-space network would
+ * have to be rebuilt every frame; a local one is built once with the plan.
+ *
+ * `y` is 0 on every sample because the plateau is one flat course of turf (see
+ * `localDeck`), and nothing here claims the `surface` role anyway.
  */
-const NO_ROADS: RoadClearance = {
-  distanceTo: () => Infinity,
-  spanDistanceTo: () => Infinity,
-};
+function streetNetwork(
+  paths: ReadonlyArray<readonly [number, number, number, number]>,
+): RoadNetwork {
+  const net = new RoadNetwork();
+  const profile = flagstoneProfile(PATH_HALF);
+  paths.forEach(([x0, z0, x1, z1], i) => {
+    const road: Road = {
+      id: `street:sky-${i}`,
+      fromId: 'town:skyhaven',
+      toId: 'town:skyhaven',
+      profile,
+      pts: [{ x: x0, z: z0, y: 0, bridge: false }, { x: x1, z: z1, y: 0, bridge: false }],
+      trim: new Float32Array(8),
+    };
+    net.add(road);
+  });
+  net.build();
+  return net;
+}
 
 /** Scratch for `SkyIsland.debugStructures`. Debug path, but free is free. */
 const _dbg = { x: 0, z: 0 };
@@ -1592,6 +1658,13 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    * and also why neither of those can tell a probe which box was a tree.
    */
   private readonly treeSpots: number[] = [];
+  /**
+   * The flagged streets, in the island's own frame. Built with the plan,
+   * because the rock is painted from it. See `streetNetwork`.
+   */
+  private streets!: RoadNetwork;
+  /** Voxel cells `buildRock` painted as flagstone. See `debugStreets`. */
+  private pavedCells = 0;
   /** The outline's phase, so two seeds are two different islands. */
   private readonly phase: number;
 
@@ -1673,6 +1746,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       (x, z) => this.localDeck(x, z) > -Infinity,
       (a) => outlineAt(a, this.phase) * CELL,
     );
+    this.streets = plan.streets;
     this.buildRock(plan);
     for (const t of plan.trees) this.treeSpots.push(t.x, t.z);
     this.canalStones = plan.rocks.length;
@@ -1767,7 +1841,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     // main.ts, keeps working with no branch in it.
     const site: NpcSite = {
       towns: localRegistry({ ...this.town, x: 0, z: 0, gateX: 0, gateZ: 0 }),
-      roads: NO_ROADS,
+      roads: this.streets,
       getHeight: () => 0,
       structureTopAt: (x, z) => this.solids.topAt(x, z),
       focusOf: () => plan.focus,
@@ -2064,6 +2138,24 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     }
   }
 
+  /**
+   * The flagged streets and what stands near them, in the island's own frame.
+   * See `World.debugCarriedStreets`.
+   */
+  debugStreets(): { count: number; paved: number; clear: number[] } {
+    const clear: number[] = [];
+    for (let i = 0; i < this.treeSpots.length; i += 2) {
+      // Capped rather than Infinity: this crosses to a probe as JSON, where
+      // Infinity becomes `null` and every assertion written against it reads
+      // as vacuously true. 999 is "nowhere near a street", which is the honest
+      // answer for a tree out on the rim.
+      const d = this.streets.edgeDistanceTo(this.treeSpots[i], this.treeSpots[i + 1]);
+      clear.push(Number.isFinite(d) ? +d.toFixed(3) : 999);
+    }
+    clear.sort((a, b) => a - b);
+    return { count: this.streets.roads.length, paved: this.pavedCells, clear };
+  }
+
   /** The wood, in world space as of now. See `World.debugCarriedTrees`. */
   debugTrees(): Array<{ x: number; z: number }> {
     const out: Array<{ x: number; z: number }> = [];
@@ -2157,24 +2249,20 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     const v = new VoxelModel();
     const R = Math.ceil(RC) + 2;
 
-    /** Distance in cells from a path centreline, for painting flagstones. */
-    const onPath = (wx: number, wz: number): boolean => {
-      for (const [x0, z0, x1, z1] of plan.paths) {
-        const dx = x1 - x0;
-        const dz = z1 - z0;
-        const len2 = dx * dx + dz * dz;
-        const t = len2 > 0
-          ? Math.max(0, Math.min(1, ((wx - x0) * dx + (wz - z0) * dz) / len2))
-          : 0;
-        const px = x0 + dx * t;
-        const pz = z0 + dz * t;
-        // WIDE ENOUGH TO BE A STREET. At 1.7 these were dirt scratches that
-        // barely showed against the turf from above; the reference's are
-        // flagged streets with kerbs, wide enough for two people.
-        if (Math.hypot(wx - px, wz - pz) < 2.9) return true;
-      }
-      return false;
-    };
+    /**
+     * Is this cell inside a flagged street?
+     *
+     * ASKED OF THE PATH NETWORK, which is the whole of issue #142's third
+     * fold-in: this used to be its own loop over `plan.paths`, so the streets
+     * existed for the painter and for nobody else. Now the same segments answer
+     * the placer's clearance queries too — see `streetNetwork` — and the street
+     * that is drawn and the street a tree is kept out of cannot drift apart.
+     *
+     * Zero is the rim: `flagstoneProfile(PATH_HALF)` puts `deckEdge` on the
+     * half-width the loop above compared against.
+     */
+    const onPath = (wx: number, wz: number): boolean =>
+      this.streets.edgeDistanceTo(wx, wz) < 0;
 
     /**
      * THE SQUARE IS PAVED, not worn. Everything inside `PLAZA` is flagstone,
@@ -2183,6 +2271,13 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
      * radiating out of a lawn.
      */
     const onPlaza = (wx: number, wz: number): boolean => wx * wx + wz * wz < PLAZA * PLAZA;
+
+    /** Flagstone, and counted so a probe can say the fold-in moved no cell. */
+    const paved = (wx: number, wz: number): boolean => {
+      if (!onPlaza(wx, wz) && !onPath(wx, wz)) return false;
+      this.pavedCells++;
+      return true;
+    };
 
     /** Tilled beds. See `SkyPlan.plots`. */
     const onPlot = (wx: number, wz: number): boolean =>
@@ -2220,7 +2315,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
           // stream running over the lip has cut through it.
           onStream(plan.fallAngle, wx, wz) ? 'streambed'
             : rim ? 'rimstone'
-              : onPlaza(wx, wz) || onPath(wx, wz) ? 'paved'
+              : paved(wx, wz) ? 'paved'
                 : onPlot(wx, wz) ? 'tilled' : 'turf',
         );
       }

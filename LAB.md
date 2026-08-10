@@ -58,6 +58,39 @@ bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 | `grid=0` | Hide the floor |
 | `fps=<n>` | Frame-rate cap; `0` = uncapped |
 
+## Roads on real ground
+
+`road=<case>` is the ROAD sandbox (`src/lab/road-stage.ts`), and it is a
+different thing from `fence=` below: it builds a real `Terrain`, installs a
+real `RoadNetwork`, and meshes the chunks with the game's own mesher. Every
+defect the road system has had is about a smooth ribbon meeting ground made of
+CUBES — a cell reaching into a corridor by its corner, a shoulder that rounds
+to a different integer a metre away, a chord that spans a whole step — and none
+of that can happen over `fence=`'s analytic field.
+
+| Case | What it is for |
+| --- | --- |
+| `axis` | A straight run along +x — the control |
+| `angle` | The same run at 45° to the voxel grid: the corner-first case |
+| `slope` | Up the steepest hillside on the seed, so `round(deck)` flips often |
+| `bend` | A curve, where consecutive rings face different ways |
+| `bridge` | Over water: the carve is off and the deck is held clear |
+| `fork` | Three arms and an apron |
+| `cross` | Four arms, made through `mergeCrossings` like the editor's |
+| `foot` | The narrow profile, whose band is half the width |
+| `trail` | The trail profile on the steepest ground a trail can exist on |
+| `all` | Every one of them, on its own patch of dry ground |
+
+`__dbgRoadLab()` reports every case's deck, and `__dbgRoadSurf(x, z)` is the
+lab's own `__dbgSurfaceY` — a raycast of the actual scene, which is the only
+way to ask "is the top thing here the road". `bun tools/test-road-lab.mjs`
+sweeps all eight at cube resolution and asserts BOTH directions: ground drawn
+over the ribbon, and the ribbon drawn over the walking surface.
+
+```bash
+bun tools/lab-shot.mjs shots/_road.png "road=angle&t=1&angle=60&height=14&dist=34"
+```
+
 ## Paths and fences
 
 `fence=<demo>` builds a road, a bridge and fences over an analytic ground field
@@ -74,7 +107,13 @@ one the seed happened to build.
 | `gate` | A run with refused bays in the middle — what a road crossing leaves |
 | `variants` | Every post variant on one run, lanterns lit |
 | `bridge` | A deck over a channel: soffit, piers and both railings |
+| `transition` | A cart road becoming a footpath at a two-arm node |
 | `all` | Every one of them, laid out around the origin |
+
+`transition` is the second path PROFILE (`world/path-profile.ts`) beside the
+first: same mechanism, half the width, its own palette, no lamps and no
+bridging. The node between them is `buildJunctionApron` with two arms rather
+than three, which is what a road-type change is.
 
 `__dbgFence()` reports every post and bay in world coordinates plus the deck's
 down-facing triangle count, and `bun tools/test-fence.mjs` asserts the fence

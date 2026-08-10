@@ -3,6 +3,10 @@
  * collision queries agree exactly with the rendered voxel columns.
  */
 import { Noise2D, WaveField } from './noise';
+import type { RimHit } from './roads';
+
+/** The run a slope is measured over. See `Terrain.steepnessAt`. */
+const SLOPE_RUN = 4;
 
 export const WATER_LEVEL = 8;
 export const CHUNK_SIZE = 32;
@@ -94,16 +98,18 @@ export interface GroundPatch {
   /** How worn the ground is away from any beaten track, 0..1. */
   base: number;
   /**
-   * The beaten tracks, four numbers each: the far end of a line that starts at
-   * the settlement's centre (dx, dz, relative to x/z), the half-width of the
-   * track, and how worn it is at its middle.
+   * WHERE THE BEATEN TRACKS WENT. They were four numbers each in a flat
+   * `Float32Array` here, and only this file could see them — so no placer in
+   * the world knew a camp had a thoroughfare down the middle of it, and grass
+   * grew straight through it.
    *
-   * A flat `Float32Array` rather than an array of objects because this is
-   * scanned once per column of every chunk that touches a settlement, and the
-   * query must not chase pointers or allocate — the same reason
-   * `RoadNetwork.seg` is one.
+   * They are paths in the network now (`trackProfile`, world/path-profile.ts),
+   * indexed beside the roads and answering the same clearance queries, and
+   * `trampleAt` asks `RoadField.wearAt` for the number this used to compute.
+   * Issue #142. What stays here is what is genuinely a property of the
+   * SETTLEMENT rather than of a line across it: how worn its yard is between
+   * the tracks, where that fades, and whether it churns to mud.
    */
-  paths: Float32Array;
   /**
    * Bias toward damp mud rather than dry packed earth, 0..1. A military camp
    * churns; a farming hamlet mostly wears its grass thin.
@@ -144,6 +150,29 @@ export interface RoadField {
   readonly carveTarget: number;
   /** The walking surface: `ground` off the road, the deck (or verge ramp) on it. */
   surfaceAt(x: number, z: number, ground: number): number;
+  /**
+   * The same, for the surface that is DRAWN rather than walked on — it reaches
+   * a little past each terminal plane, where the carve deliberately does not.
+   * See `RoadNetwork.drawnSurfaceAt`.
+   */
+  drawnSurfaceAt(x: number, z: number, ground: number): number;
+  /**
+   * The lowest drawn corridor surface within `r` of (x, z). For a coarse mesh
+   * that has to stay under a path narrower than its own sample spacing — see
+   * `RoadNetwork.lowestDrawnSurfaceNear`.
+   */
+  lowestDrawnSurfaceNear(
+    x: number, z: number, r: number, ground: number, rim?: RimHit,
+  ): number;
+  /**
+   * How walked the ground at (x, z) is, 0..1 — the colour of packed dirt.
+   *
+   * A settlement's beaten tracks are paths in the network like any other (issue
+   * #142), and painting is the one thing they do that a carriageway does not.
+   * `trampleAt` reads it. A `columnInfo` query and never a collision one, which
+   * is the same budget the track scan it replaces always had.
+   */
+  wearAt(x: number, z: number): number;
 }
 
 export interface RGB {
@@ -647,7 +676,27 @@ export class Terrain {
     return h < 1.2 ? 1.2 : h > 78 ? 78 : h;
   }
 
-  /** Integer top surface of the column containing cell (cx, cz). */
+  /**
+   * Integer top surface of the column containing cell (cx, cz).
+   *
+   * INTEGER, and an attempt to make it otherwise is why that is spelled out. A
+   * version of this clipped a column to the lowest corridor surface its own
+   * cell touched, to stop a cube corner standing through the ribbon where a
+   * road crosses the voxel grid at an angle. It works as arithmetic and it
+   * tears holes in the ground: the mesher emits a side face from the height
+   * DIFFERENCE between neighbouring columns and every quad it builds assumes
+   * whole units, so a fractional top left black gaps along the verge. The
+   * corner case is handled on the drawing side instead — see `subdivide` and
+   * the rim note in town-parts.ts.
+   *
+   * AND CLIPPING TO A WHOLE UNIT IS WORSE, which was the obvious next idea. It
+   * draws correctly and it puts a 1.0 STEP on the carriageway where a clipped
+   * cell meets an unclipped one, against a `MAX_STEP_UP` of 0.5 — a wall the
+   * hero cannot walk over, in the middle of the surface the whole corridor
+   * exists to make walkable. A visible cube corner is a worse picture; a wall
+   * is a worse game. `tools/test-road-lab.mjs` holds both numbers so the trade
+   * is made with them in front of you.
+   */
   columnHeight(cx: number, cz: number): number {
     const h = Math.floor(this.heightCont(cx + 0.5, cz + 0.5));
     return h < 1 ? 1 : h;
@@ -673,6 +722,35 @@ export class Terrain {
     const g = this.columnHeight(Math.floor(x), Math.floor(z));
     const rf = this.roads;
     return rf === null ? g : rf.surfaceAt(x, z, g);
+  }
+
+  /**
+   * HOW STEEP THE GROUND IS AT (x, z) — rise over run, so 0.5 is one in two.
+   *
+   * Issue #142 §14 asks for this by name, and §11e explains why nothing could
+   * be built without it: there is no MOUNTAIN biome. `BiomeId` is plains,
+   * forest, beach, desert, snow, underwater, deepwater, trampled — "mountain"
+   * is SLOPE and ALTITUDE, and snow is an altitude proxy at best (a snowy flat
+   * is not a mountain). Three things need the same answer and would otherwise
+   * each guess: a trail router deciding where it must switchback, a stair
+   * placer deciding where treads are needed, and the material pick deciding
+   * whether a step is cut stone or a log.
+   *
+   * CONTINUOUS, not stepped. `heightCont` rather than `getHeight`, because the
+   * question is about the landform and the floored column would report every
+   * gentle slope as a staircase of vertical walls and level shelves.
+   *
+   * A central difference over `SLOPE_RUN` either way, which is a compromise the
+   * callers all share: shorter and it reads the fine relief (±0.45 over ~12
+   * units, so a two-unit run reports 0.2 of slope on a flat meadow), longer and
+   * it averages a cliff away. 4 is a couple of hero-widths and about the length
+   * of one stair flight.
+   */
+  steepnessAt(x: number, z: number): number {
+    const r = SLOPE_RUN;
+    const dx = this.heightCont(x + r, z) - this.heightCont(x - r, z);
+    const dz = this.heightCont(x, z + r) - this.heightCont(x, z - r);
+    return Math.hypot(dx, dz) / (2 * r);
   }
 
   /**
@@ -729,26 +807,16 @@ export class Terrain {
       const dz = z - p.z;
       const d2 = dx * dx + dz * dz;
       if (d2 >= p.edge * p.edge) continue;
-      // The tracks, as distance to a segment from the centre outwards. `place`
-      // in towns.ts keeps every tent, hut and barrel off the carriageway with
-      // the same primitive; this is the inverse question — where the ground
-      // BETWEEN those buildings is walked flat.
-      const q = p.paths;
-      let track = 0;
-      for (let k = 0; k < q.length; k += 4) {
-        const ax = q[k];
-        const az = q[k + 1];
-        const len2 = ax * ax + az * az;
-        let t = len2 > 1e-9 ? (dx * ax + dz * az) / len2 : 0;
-        if (t < 0) t = 0; else if (t > 1) t = 1;
-        const px = dx - ax * t;
-        const pz = dz - az * t;
-        const hw = q[k + 2];
-        // Soft-edged: a footpath has no kerb. Full strength for the inner 45%
-        // of its width, gone at the rim.
-        const s = q[k + 3] * (1 - smoothstep(hw * 0.45, hw, Math.sqrt(px * px + pz * pz)));
-        if (s > track) track = s;
-      }
+      // THE TRACKS, from the path network — the same index the carriageways
+      // are in, because a beaten track IS a path and used to be the one kind
+      // nothing outside this file could see (issue #142; see `GroundPatch`).
+      // Soft-edged: a footpath has no kerb, so it is full strength over its
+      // middle and gone at the rim, which is exactly what a profile's
+      // `deckHalf` and `deckEdge` are. `RoadNetwork.wearAt` does that.
+      //
+      // Asked once and not once per track, so a settlement with nine of them
+      // costs one bucket scan where it used to cost nine segment tests.
+      const track = this.roads === null ? 0 : this.roads.wearAt(x, z);
       // The rim. Wear does not stop on a circle — from the air that is exactly
       // what a settlement must not look like — so everything above is faded out
       // over the several metres between `fade` and `edge`.
@@ -978,6 +1046,16 @@ export class Terrain {
     out.grass = hc < WATER_LEVEL + 0.3 ? 0
       : clamp01((1 - sandW) * (1 - snowW) * (1 - wear));
     out.trample = wear;
+    //
+    // The obvious reading of "ground is sticking through the road" is that the
+    // ground is too high, so the first fix was to clip a drawn column to the
+    // corridor surface over it. It changed nothing: 12 of 5297 samples either
+    // way, worst 0.146 either way. The ground was already right — every one of
+    // those samples was the RIBBON sagging, either a chord between two rings
+    // whose shoulders round to different integers (fixed in `sectionAt`) or the
+    // far clipmap chording over the whole corridor (fixed in
+    // distant-terrain.ts). A clamp here would have been cost on a per-column
+    // path buying a number that does not move.
     out.h = h;
     out.hc = hc;
     // 0.6, not "any wear at all". The threshold is where props.ts stops

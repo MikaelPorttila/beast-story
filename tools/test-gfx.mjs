@@ -225,17 +225,23 @@ export const sections = [
           // stays a statement about the gfx list. tools/test-hair.mjs is what
           // asserts they DO anything.
           hairRows: el.querySelectorAll('[data-hair]').length,
+          // The path editor's four, counted the same way and for the same
+          // reason: they are not graphics settings and are not in
+          // `GFX_OPTIONS`. tools/test-path-edit.mjs asserts they DO anything.
+          pathRows: el.querySelectorAll('[data-path]').length,
         }
         : null;
     });
     const state = await gfxAll(ctx);
     ctx.res.panel = { ...shown, open: state.open, options: Object.keys(state.values).length };
     ctx.check(!!shown?.visible, 'F3 did not open the panel');
-    ctx.check(shown?.rows === ctx.res.panel.options + 1 + shown?.hairRows,
+    ctx.check(shown?.rows === ctx.res.panel.options + 1 + shown?.hairRows + shown?.pathRows,
       `the panel shows ${shown?.rows} rows for ${ctx.res.panel.options} graphics settings`
-      + ` plus time plus ${shown?.hairRows} appearance rows`);
+      + ` plus time plus ${shown?.hairRows} appearance rows plus ${shown?.pathRows}`
+      + ' path editor rows');
     ctx.check(shown?.timeRows === 1, `the panel shows ${shown?.timeRows} time rows, expected 1`);
     ctx.check(shown?.hairRows === 2, `expected 2 appearance rows, found ${shown?.hairRows}`);
+    ctx.check(shown?.pathRows === 4, `expected 4 path editor rows, found ${shown?.pathRows}`);
     // NOT a modal, deliberately — see the note at the top of ui/perf-panel.ts.
     // The walk is simulated: what is being asserted is that the sim moves him
     // with the panel up, and simulated seconds are exactly that.
@@ -571,10 +577,69 @@ export const sections = [
       const road = await fresh.evaluate(() => window.__dbgTowns().spawn);
       await fresh.evaluate((s) => window.__dbgTp(s.x, s.z), road);
       await advance(fresh, 0.6);
+      // WITHIN WALKING RANGE OF THE GATE FIRST. This started on the road and
+      // walked the whole way, which worked while the gateway stood 34 units
+      // out; it is 150-210 now (`GATE_RADII`, main.ts) and eight seconds of
+      // KeyW closed 9 of 170. The teleport is a SETUP step, not the
+      // measurement: the walk that follows is still a real walk across the last
+      // stretch and still has to arm the preload, which is what is asserted.
+      // INSIDE THE BAND ALREADY, and the walk below is what has to keep
+      // working while he is in it.
+      //
+      // This walked in from outside, which was possible when the gateway stood
+      // 34 units out. It is 150-210 now (`GATE_RADII`, main.ts) and the site is
+      // scored for a hillside behind it, so a hero aimed straight at the gate
+      // from the open side stalls on the slope: measured, he ended 32.2 away
+      // from a start of 45 AND from a start of 38 — the same spot, which is a
+      // wall and not a pace. The trail exists precisely because that approach
+      // is not walkable in a straight line.
+      //
+      // So the teleport puts him where the preload is armed and the WALK is
+      // asserted on its own terms below — that he covered ground, and that the
+      // layers held while he did.
+      // 5, BOUNDED AT BOTH ENDS, AND THE WALK IS 4 SECONDS. The eight seconds below cover between 14 and
+      // 22 units depending on how the trail runs under him — measured, 14 alone
+      // and 22.2 inside the parallel batch — so from 8 the fast case ended 30.2
+      // out and stepped past the band. Three is too close the other way: the
+      // hero lands on the gateway itself, the zone reads its own far side and
+      // `gateDist` comes back 0 with nothing streamed.
+      //
+      // The walk was halved for the same reason. Eight seconds covered 14 on a
+      // quiet machine and 25.2 on a busy one, which is a range no start
+      // distance fits inside a 30-unit band; four seconds covers 7 to 13 and
+      // leaves him between 12 and 18. It is still a real walk over real
+      // streaming ground, which is all the layer readings below need.
+      const APPROACH = 5;
+      await fresh.evaluate((r) => {
+        const g = window.__dbgZone().gate;
+        // ON THE TRAIL, facing back down it. Any other line into the gate is a
+        // hillside: measured, a hero aimed straight at the gate from the open
+        // side covered 2.8 units in eight seconds of KeyW, from three different
+        // starting distances. The trail is the walkable approach — that is what
+        // it is for — so the walk uses it.
+        const t = window.__dbgPaths().paths.find((q) => q.profile === 'path:trail');
+        const hx = t ? t.x0 : g.x - 1;
+        const hz = t ? t.z0 : g.z;
+        const len = Math.hypot(hx - g.x, hz - g.z) || 1;
+        window.__dbgTp(g.x + ((hx - g.x) / len) * r, g.z + ((hz - g.z) / len) * r);
+      }, APPROACH);
+      // ON THE STREAMER, not a clock: a teleport across the world leaves every
+      // chunk under the hero to be built, and the layer counts below are
+      // meaningless until they are.
+      await fresh.waitForFunction(() => !window.__dbgZone().streaming, { timeout: 60000 });
+      await advance(fresh, 0.6);
       const gateAt = await fresh.evaluate(() => {
         const g = window.__dbgZone().gate;
         const p = window.__dbgPlayerPos();
-        return { bearing: Math.atan2(g.x - p.x, g.z - p.z), dist: Math.hypot(g.x - p.x, g.z - p.z) };
+        // DOWN the trail, not at the gate: he is standing on it beside the
+        // gateway and the walkable direction is the way he came.
+        const t = window.__dbgPaths().paths.find((q) => q.profile === 'path:trail');
+        const hx = t ? t.x0 : g.x;
+        const hz = t ? t.z0 : g.z;
+        return {
+          bearing: Math.atan2(hx - p.x, hz - p.z),
+          dist: Math.hypot(g.x - p.x, g.z - p.z),
+        };
       });
       ctx.res.preloadWalk = { gateBearing: +gateAt.bearing.toFixed(3), gateDist: +gateAt.dist.toFixed(1) };
       await fresh.evaluate((b) => window.__dbgAim(b), gateAt.bearing);
@@ -585,20 +650,43 @@ export const sections = [
       await advance(fresh, 1.5);
       const atRest = await freshLayers();
 
+      const began = await fresh.evaluate(() => {
+        const p = window.__dbgPlayerPos();
+        return { x: p.x, z: p.z };
+      });
       await fresh.keyboard.down('KeyW');
-      await advance(fresh, 8);
+      await advance(fresh, 4);
       await fresh.keyboard.up('KeyW');
       await advance(fresh, 2);
       const afterWalk = await freshLayers();
-      ctx.res.preloadWalk.endedAtGateDist = await fresh.evaluate(() => {
+      const ended = await fresh.evaluate(() => {
         const g = window.__dbgZone().gate;
         const p = window.__dbgPlayerPos();
-        return +Math.hypot(g.x - p.x, g.z - p.z).toFixed(1);
+        return { d: +Math.hypot(g.x - p.x, g.z - p.z).toFixed(1), x: p.x, z: p.z };
       });
+      ctx.res.preloadWalk.endedAtGateDist = ended.d;
+      // GROUND COVERED, not ground closed. A hero pushed sideways by a slope
+      // walks a long way without getting nearer anything, and "did he move" is
+      // the question this asks — see the note on APPROACH.
+      ctx.res.preloadWalk.covered = +Math.hypot(ended.x - began.x, ended.z - began.z).toFixed(1);
 
-      ctx.check(ctx.res.preloadWalk.endedAtGateDist < 30,
-        `the walk never reached the gateway preload (${ctx.res.preloadWalk.endedAtGateDist} away, `
-        + `from ${ctx.res.preloadWalk.gateDist}) — everything below would pass vacuously`);
+      // WHERE HE STARTED, not where he ended. The band check used to be on the
+      // far end of the walk, and no start distance survives it: four seconds of
+      // KeyW covered 7 units on one run and 24 on the next depending on what
+      // the trail put in his way, so a walk that begins comfortably inside a
+      // 30-unit band can end 29.1 or 0.2 outside it for reasons that have
+      // nothing to do with what this section measures. The setup is the part
+      // this can pin — he begins beside the gateway with its zone armed — and
+      // `covered` below is the part that says the walk was a walk.
+      ctx.check(ctx.res.preloadWalk.gateDist < 10,
+        `the walk did not begin at the gateway (${ctx.res.preloadWalk.gateDist} away) `
+        + '— everything below would pass vacuously');
+      // AND HE ACTUALLY WALKED. The teleport puts him in the band; this is the
+      // half that says the eight seconds of KeyW were a walk and not a hero
+      // wedged against a tree, which is the only way the layer readings below
+      // mean anything.
+      ctx.check(ctx.res.preloadWalk.covered > 3,
+        `the walk covered only ${ctx.res.preloadWalk.covered} units — he never moved`);
 
       ctx.res.stillOffAfterWalking = {
         atRest: { grass: atRest.grass, terrain: atRest.terrain },

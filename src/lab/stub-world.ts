@@ -21,6 +21,25 @@ export class StubWorld implements World {
   /** Nothing to draw: the stage has no colliders but its floor. */
   debugColliders(): void { /* no colliders on the lab stage */ }
   debugStructures(): void { /* nor any structure boxes */ }
+  /** The stage has no settlements, so nothing has worn its ground. */
+  debugWear(): number { return 0; }
+  debugColumn(): number { return 0; }
+  pathRunCrosses(): boolean { return false; }
+  pathRunHitsBuilt(): boolean { return false; }
+  debugPaths(): { paths: []; at: null } { return { paths: [], at: null }; }
+  /** The stage has no network to add to. See `World.addPath`. */
+  addPath(): {
+    id: string; length: number; samples: number; note: null;
+    nodes: never[]; refused: never[]; crossings: number; error: string;
+  } {
+    return {
+      id: '', length: 0, samples: 0, note: null, nodes: [], refused: [], crossings: 0,
+      error: 'this zone has no path network',
+    };
+  }
+  debugCarriedStreets(): { count: number; paved: number; clear: number[] } {
+    return { count: 0, paved: 0, clear: [] };
+  }
   debugRidges(): void { /* nor any roofs */ }
   /** Nor any road furniture: the stage has no roads. */
   debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; }

@@ -3,7 +3,7 @@ import { Engine } from './core/engine';
 import { DayNightCycle } from './core/day-night';
 import { DebugOverlay } from './core/debug-overlay';
 import { Gfx, GFX_OPTIONS, storedGfx, type GfxSinks, type GfxValue } from './core/gfx';
-import { PerfPanel, type AppearanceControl } from './ui/perf-panel';
+import { PerfPanel, type AppearanceControl, type PathEditControl } from './ui/perf-panel';
 import {
   HAIR_STYLES, HAIR_SWATCHES, storeHairColour, storeHairStyle, storedHairColour,
 } from './player/hair';
@@ -48,6 +48,7 @@ import { contentIssues, reportContentIssue } from './core/content-bridge';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { NPC_TALK_RANGE } from './world/npc';
+import { TRAIL_PROFILE } from './world/path-profile';
 import {
   FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT,
   FENCE_RAIL_HEIGHT, FENCE_RAIL_WIDTH,
@@ -337,9 +338,29 @@ if (startMenu) music.setScene('title');
  * time any of this runs the whole module has been evaluated. Reorder that and
  * the first thing you get is a temporal-dead-zone throw inside a click handler.
  */
+/**
+ * THE BEAST THE PLAYER STARTS WITH.
+ *
+ * The reset in `exitToTitle` records that this used to be TWO — an Emberfox and
+ * a Galebird — and that they were taken out so a new game began with nobody.
+ * One is back, deliberately and singly: a player who starts with an empty party
+ * has no way to see what a bond IS until they have already tamed something, and
+ * the Frostwing is a FLYER, so the first thing they can do with it is get off
+ * the ground and look at the world they are standing in.
+ *
+ * Granted in `beginPlay` rather than at boot, because `beginPlay` is the one
+ * place both callers meet — the end of the boot sequence and the menu's New
+ * Game — and `exitToTitle` empties the party on the way out, so a second New
+ * Game in one session has to grant it again.
+ */
+const STARTER_BEAST = 'frostwing';
+
 function beginPlay(): void {
   if (playing || !prepDone || !handedOver) return;
   playing = true;
+  // `grantBeast` is a no-op when the species is already bonded, so this is safe
+  // on the boot path AND on a New Game after an exit to title.
+  grantBeast(STARTER_BEAST);
   // Every key pressed at the title screen is still latched in `Input` — nothing
   // has drained it, because `endFrame()` only runs inside `frame()` and
   // `frame()` has not run yet. Unread, the first simulation slice would see the
@@ -514,6 +535,7 @@ function exitToTitle(): void {
   owned.clear();
   primaryIdx = -1;
   supportIdx = -1;
+  devSeated = 0;
   refreshVisibility();
   cooldowns.clear();
   spent = 0;
@@ -717,6 +739,24 @@ const GATE_PROBES: ReadonlyArray<readonly [number, number]> =
   [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2]];
 
 /**
+ * HOW FAR OUT THE GATEWAY STANDS, in preference order.
+ *
+ * It used to be 31-42, and the lower bound was the load-bearing part: the
+ * preload band is 30 units wide, so anything closer put the hero inside it at
+ * spawn and the dungeon was built during boot whether or not he walked that
+ * way. That argument still holds and these are all far outside it.
+ *
+ * The upper bound has gone the other way. A dungeon mouth forty units from
+ * where you wake up is a thing you trip over; at 150-210 it is somewhere you
+ * SET OUT FOR, which is what the trail leading to it is for. Nothing else in
+ * the placement changes: it is still scored for level, dry ground clear of the
+ * dens and the towns, and now also for a wood around it and a hillside behind.
+ *
+ * The far distance also buys the trail its own country. See `TRAIL_MAX_CROSS`.
+ */
+const GATE_RADII = [170, 195, 150, 210] as const;
+
+/**
  * Where the overworld's gateway stands.
  *
  * 34-42 units from spawn, and the lower bound is the load-bearing part: the
@@ -734,9 +774,9 @@ const GATE_PROBES: ReadonlyArray<readonly [number, number]> =
  */
 function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
   const base = w.spawnPoint;
-  let best = { x: base.x + 34.5, z: base.z + 0.5 };
+  let best = { x: base.x + GATE_RADII[0] + 0.5, z: base.z + 0.5 };
   let bestScore = Infinity;
-  for (const radius of [34, 38, 31, 42]) {
+  for (const radius of GATE_RADII) {
     for (let k = 0; k < 16; k++) {
       const a = (k / 16) * Math.PI * 2 + 0.9;
       const x = Math.round(base.x + Math.cos(a) * radius) + 0.5;
@@ -759,7 +799,29 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
         const d = Math.hypot(t.x - x, t.z - z);
         if (d < keep) shopPenalty += (keep - d) * 3;
       }
-      const score = worst * 3 + shopPenalty;
+      // A GATEWAY IN A WOOD, WITH ITS BACK TO A HILL — the two terms that make
+      // this a place rather than a coordinate, and both are preferences rather
+      // than filters so the level-footing requirement above still wins.
+      //
+      // A dungeon mouth on an open beach is what the unbiased search kept
+      // finding, and it reads as an arch someone left on the sand. What a
+      // player expects at the end of a trail is trees around it and rock behind
+      // it, and neither is expressible as a biome: there is no MOUNTAIN in
+      // `BiomeId` (issue #142 §11e), so a hillside is a SLOPE reading — which
+      // is what `steepnessAt` was added for.
+      //
+      // BEHIND, not underneath. The arch needs level ground to stand on, so the
+      // slope is sampled on the far side from spawn: the hero walks up to a
+      // flat apron with the ground rising past it, which is what a cave mouth
+      // looks like.
+      const away = Math.atan2(z - base.z, x - base.x);
+      const backX = x + Math.cos(away) * 9;
+      const backZ = z + Math.sin(away) * 9;
+      const backing = Math.min(1, w.steepnessAt(backX, backZ) / 0.45);
+      const wooded = w.biomeAt(x, z) === 'forest' ? 1 : 0;
+      // Weighted under `worst * 3`: a candidate that is 1 unit less level loses
+      // 3, and the whole of both preferences is 4.5. Level footing still wins.
+      const score = worst * 3 + shopPenalty - backing * 2.5 - wooded * 2;
       if (score < bestScore) { bestScore = score; best = { x, z }; }
       if (score === 0) return best;
     }
@@ -3086,6 +3148,136 @@ function nearestEnemyOfSpecies(species: string) {
 // exception and why it is not a surface). Landing him inside the ride volume is
 // what attaches him, on the next slice, through exactly the path a player
 // flying in on a galebird takes.
+/**
+ * PUT THE HERO BACK ON THE GROUND, wherever he is standing.
+ *
+ * Issue #142 §12a. Carving a path is the first thing in this game that moves
+ * the height field under someone: `getHeight` used to be a pure function of the
+ * seed, and `world/index.ts` still says so about `rebuildProps` — which is true
+ * of everything EXCEPT this. `carveAt` sinks a column by up to 1.62, so a path
+ * authored under a hero standing still leaves him inside the ground.
+ *
+ * Only ever UP: a hero in the air when a path is carved beneath him should
+ * fall, which is what the sim is for. This is the same clamp `__dbgTp` applies
+ * and it goes through the saddle for the same reason.
+ */
+const refitHero = (): void => {
+  const floor = Math.max(
+    world.getHeight(player.position.x, player.position.z), world.waterLevel,
+  );
+  if (player.position.y >= floor) return;
+  mount.teleport(player.position.x, player.position.z, floor);
+  player.position.y = floor;
+  player.velocity.set(0, 0, 0);
+};
+
+/**
+ * THE TRAIL TO THE GATEWAY — the first path in this world that is neither a
+ * cart road nor a settlement's own track.
+ *
+ * The arch stands on level ground 34-42 units from the spawn (`findGateSpot`)
+ * and until now nothing led to it: you found it by looking around. A trail is
+ * what a place people keep walking to actually gets, and this is issue #142's
+ * third profile earning its place in the world rather than only in the lab —
+ * narrow, no lamps, no bridging, twice the litter of a road and a woodland
+ * palette.
+ *
+ * LAID THROUGH `World.addPath`, which is the runtime editor built for §12 doing
+ * real work. It is the honest way to build this: the gateway's spot is chosen
+ * from the FINISHED world — it needs the towns, the dens and the height field —
+ * so it cannot be known inside `planSettlements`, where every other path is
+ * routed before the first chunk exists. The rebuild it triggers is nine chunks
+ * at boot rather than a hundred in play.
+ *
+ * It starts at the SPAWN, which is on the trunk road, so the first thing a
+ * player sees is a road with a path leaving it.
+ */
+{
+  // READ THROUGH A CALL, and not because a cast would be shorter. `gateSite` is
+  // a module `let` assigned inside the zone's `landmarks` hook, which the
+  // ZoneManager runs while building the world — so it IS set by the time this
+  // statement runs, but TypeScript's flow analysis sees no assignment on the
+  // straight line between the declaration and here and narrows it to `null`.
+  // A function call is the honest way to say "this is written elsewhere";
+  // `as` would say "trust me" about the one thing worth checking.
+  const gate = ((): { x: number; z: number } | null => gateSite)();
+  if (gate !== null) {
+    // IT LEAVES THE ROAD AT THE NEAREST POINT TO THE GATE, not at the spawn.
+    //
+    // A trail from the spawn to a gateway two hundred units out has to get past
+    // the road network to reach it, and it crosses whatever is in the way — two
+    // carriageways with nothing at either meeting, which is two ribbons stacked
+    // on one piece of ground (issue #45). Starting from the point on the
+    // network CLOSEST to the gate means the trail begins on the correct side
+    // and never has a road between it and where it is going.
+    //
+    // It is also the better read: a path leaves the road where the road comes
+    // nearest the thing it leads to, which is where a real one would.
+    // AND NOT FROM INSIDE A TOWN. The nearest road point to the gate is the end
+    // of a spur, which is a settlement's own centre — so the trail set off from
+    // the middle of Stonewatch and crossed the carriageway on its way out
+    // (measured: 1 crossing, reported by the check below). A trail leaves the
+    // network in open country, at the last bit of road before the town.
+    let head = { x: world.spawnPoint.x, z: world.spawnPoint.z };
+    let headD = Infinity;
+    for (const r of world.towns.roads) {
+      for (let i = 0; i < r.path.length; i += 3) {
+        const x = r.path[i];
+        const z = r.path[i + 2];
+        if (world.towns.all.some(
+          (t) => Math.hypot(t.x - x, t.z - z) < t.outerRadius + 8,
+        )) continue;
+        // AND WITH A CLEAR RUN TO THE GATE. Nearest is not enough: the spur
+        // curves, so the point closest to the gate can still have a
+        // carriageway between it and where the trail is going — measured, it
+        // did, and the trail crossed one road with nothing at the meeting.
+        if (world.pathRunCrosses(x, z, gate.x, gate.z)) continue;
+        // AND CLEAR OF WHAT IS ALREADY STANDING. A trail profile refuses what
+        // is BUILT, but only prospectively — the lamps and fingerposts were
+        // stamped when the network was planned and this path is authored after.
+        // Measured: the best head by the two tests above ran 1.65 from a
+        // Stonewatch fingerpost and laid its carriageway under it.
+        //
+        // The margin is the piece's own timber plus the trail's half-width,
+        // which is the literal question ("would the carriageway pass through
+        // it") rather than its 11-unit elbow room, which would rule out the
+        // whole roadside.
+        if (world.pathRunHitsBuilt(x, z, gate.x, gate.z, TRAIL_PROFILE.deckEdge)) continue;
+        const d = Math.hypot(x - gate.x, z - gate.z);
+        if (d < headD) { headD = d; head = { x, z }; }
+      }
+    }
+    const laid = world.addPath({
+      from: [head.x, head.z],
+      to: [gate.x, gate.z],
+      profile: 'trail',
+    });
+    // REPORTED, NOT SWALLOWED. `addPath` refuses for good reasons — the two ends
+    // too close, a route that would have to bridge — and a world quietly short
+    // of the path to its own dungeon is exactly the silent failure the refusal
+    // machinery exists to prevent.
+    if (laid.error) {
+      reportContentIssue({
+        severity: 'warn',
+        code: 'gateway-trail-refused',
+        message: `The trail to the gateway was refused: ${laid.error}`,
+        fix: 'move the gateway, or give the trail a profile that can bridge',
+      });
+    } else if (laid.crossings > 0) {
+      // NOT SILENT. Starting from the nearest road point is what should make
+      // this zero; if it is not, the trail is running over a carriageway with
+      // nothing at the meeting and somebody should see the number.
+      reportContentIssue({
+        severity: 'warn',
+        code: 'gateway-trail-crosses',
+        message: `The trail to the gateway crosses ${laid.crossings} road(s) `
+          + 'with no junction at the meeting',
+        fix: 'move the gateway clear of the road network, or merge the crossing',
+      });
+    }
+  }
+}
+
 (window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = (x, z, y) => {
   // THE SADDLE FIRST, and it is not optional: while mounted the hero's position
   // is written from the mount's every slice (`seatHero`), so setting the fields
@@ -3532,11 +3724,62 @@ const appearance: AppearanceControl = {
   },
 };
 
+/**
+ * THE PATH EDITOR'S POLICY, which the panel deliberately does not have.
+ *
+ * Issue #142 §12. `ui/perf-panel.ts` owns four rows and knows nothing about
+ * routing, profiles or where the hero is looking; this decides what "lay it"
+ * means, exactly as the appearance block above decides what a hairstyle means.
+ *
+ * The bearing is the hero's own facing rather than the crosshair: `AIM_FAR` is
+ * 60 units and the roads in this world are 72 to 174 long, so the endpoint of
+ * anything worth drawing is past where a crosshair can reach.
+ */
+let pathProfileId = 'footpath';
+let pathLength = 60;
+let pathCrossing = false;
+const pathEdit: PathEditControl = {
+  profiles: [
+    { id: 'footpath', labelKey: 'path.profile.footpath' },
+    { id: 'road', labelKey: 'path.profile.road' },
+  ],
+  lengths: [30, 60, 90, 120, 160],
+  profile: () => pathProfileId,
+  setProfile: (id: string) => { pathProfileId = id; },
+  length: () => pathLength,
+  setLength: (n: number) => { pathLength = n; },
+  crossing: () => pathCrossing,
+  setCrossing: (v: boolean) => { pathCrossing = v; },
+  lay: () => {
+    // `facing` and not the camera's yaw: `cam.yaw` is the bearing FROM the hero
+    // TO the camera, so using it lays the path out behind him.
+    const a = player.facing;
+    const r = world.addPath({
+      from: [player.position.x, player.position.z],
+      to: [
+        player.position.x + Math.sin(a) * pathLength,
+        player.position.z + Math.cos(a) * pathLength,
+      ],
+      profile: pathProfileId,
+      cross: pathCrossing,
+      refit: refitHero,
+    });
+    if (r.error) return `refused: ${r.error}`;
+    // EVERY REFUSAL REACHES THE SCREEN (§12f). The status bar is one line, so
+    // the count goes there and the reasons go to the console — which is where
+    // somebody driving this already is.
+    for (const why of r.refused) devConsole?.print(`path: no merge — ${why}`);
+    const nodes = r.nodes.length > 0
+      ? `, ${r.nodes.length} junction(s)` : (r.refused.length > 0 ? ', no merge' : '');
+    return `${r.id}: ${r.length} units${nodes}`;
+  },
+};
+
 const perfPanel = new PerfPanel(gfx, {
   presets: timePresets,
   get: () => dayNight.debugOverride,
   set: (phase) => dayNight.setDebugOverride(phase),
-}, spawnCatalogue, appearance);
+}, spawnCatalogue, appearance, pathEdit);
 
 /**
  * The custom cursor, and the one question the world has to answer for it.
@@ -3978,6 +4221,9 @@ function devRide(arg: string | undefined): string {
  * It is NOT how a player gets a beast, which is why it is a separate word from
  * `/mount` rather than a flag on it — see the refusal there.
  */
+/** How many beasts the developer door has seated. See `devGrant`. */
+let devSeated = 0;
+
 function devGrant(arg: string | undefined): string {
   if (!arg) {
     const have = [...owned];
@@ -3987,6 +4233,22 @@ function devGrant(arg: string | undefined): string {
   // mount to say anything (a flyer under the island, a swimmer in the basin) and
   // the one that runs first should not have to know which. See the note in
   // tools/test-inventory.mjs's cleanup section.
+  // A DOOR THAT ONLY OPENS IS HALF A DOOR. `none` releases every bond and
+  // empties both slots, which is the state a new game had before
+  // `STARTER_BEAST` and the state a probe about EARNING a bond needs: a
+  // companion standing beside the hero fights the wild animals a taming test
+  // stages next to him, and test-taming lost its subject about two runs in five.
+  // The same reset `exitToTitle` runs, without leaving the world.
+  if (arg === 'none') {
+    const had = owned.size;
+    owned.clear();
+    primaryIdx = -1;
+    supportIdx = -1;
+    devSeated = 0;
+    refreshVisibility();
+    inventory.refresh();
+    return `released ${had} bond(s) — the party is empty`;
+  }
   if (arg === 'all') {
     let n = 0;
     for (const b of roster) if (grantBeast(b.species.id)) n++;
@@ -3997,6 +4259,23 @@ function devGrant(arg: string | undefined): string {
     return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
   }
   if (!grantBeast(arg)) return `"${arg}" is already bonded`;
+  // AND SEAT IT. `grantBeast` only fills a slot that is EMPTY, which is the
+  // right rule for earning a bond in play — a third beast does not shove one of
+  // yours aside. It is the wrong rule for this door, whose entire purpose is
+  // composing a party to measure: with a starter beast holding the primary slot
+  // (`STARTER_BEAST`) the second beast granted here landed nowhere, and
+  // test-companion's flyer was bonded but not present.
+  //
+  // Grants arrive in the order the caller wants them SEATED, so the first takes
+  // the lead and the second the support slot, evicting the starter. After that
+  // the lead is left alone and support rotates — a probe that wants a specific
+  // pair names it in a specific order, which every one of them already does.
+  const idx = roster.findIndex((b) => b.species.id === arg);
+  if (idx !== primaryIdx && idx !== supportIdx) {
+    if (devSeated === 0) primaryIdx = idx; else supportIdx = idx;
+    devSeated++;
+    refreshVisibility();
+  }
   inventory.refresh();
   return `bonded ${arg} (${owned.size} total)`;
 }
@@ -4008,8 +4287,9 @@ devConsole?.register({
 });
 devConsole?.register({
   name: 'grant',
-  args: '[<speciesId>|all]',
-  help: 'Bond a beast outright, no orb needed; bare /grant lists what you have.',
+  args: '[<speciesId>|all|none]',
+  help: 'Bond a beast outright, no orb needed; /grant none releases every bond; '
+    + 'bare /grant lists what you have.',
   run: (args) => devGrant(args[0]),
 });
 // TEST HOOK, and the same argument `__dbgTp` makes: it DRIVES STATE, which is a
@@ -4139,6 +4419,35 @@ devConsole?.register({
     // one long frame. That is the frame the preload band exists to avoid, and
     // seeing the difference is half of what this command is for.
     return zones.switchTo(args[0]);
+  },
+});
+devConsole?.register({
+  name: 'path',
+  args: '<dx> <dz> [profile] [cross]',
+  help: 'Route a path from the hero to an offset and carve it in. Rebuilds every chunk.',
+  run: (args) => {
+    const dx = Number(args[0]);
+    const dz = Number(args[1]);
+    if (!Number.isFinite(dx) || !Number.isFinite(dz)) {
+      return 'usage: /path <dx> <dz> [road|footpath] [cross]';
+    }
+    const r = world.addPath({
+      from: [player.position.x, player.position.z],
+      to: [player.position.x + dx, player.position.z + dz],
+      profile: args[2],
+      // `cross` routes THROUGH the network and merges at the first crossing,
+      // rather than giving way to what is already there. See World.addPath.
+      cross: args[3] === 'cross',
+      refit: refitHero,
+    });
+    if (r.error) return `refused: ${r.error}`;
+    const lines = [`${r.id}: ${r.length} units over ${r.samples} samples`
+      + (r.note ? ` (${r.note})` : '')];
+    for (const n of r.nodes) lines.push(`  junction at ${n.x}, ${n.z} — ${n.arms} arms`);
+    // EVERY REFUSAL IS PRINTED. A merge that quietly did nothing is the thing
+    // issue #142 §12f says an editor must never do.
+    for (const why of r.refused) lines.push(`  no merge: ${why}`);
+    return lines.join('\n');
   },
 });
 devConsole?.register({
@@ -5627,7 +5936,7 @@ beginPlay();
       if (t > c.y + 1) raised++;
     }
   }
-  return { deck: +c.y.toFixed(2), trees, sampled, raised };
+  return { deck: +c.y.toFixed(2), trees, sampled, raised, streets: world.debugCarriedStreets() };
 };
 
 /**
@@ -5867,15 +6176,24 @@ beginPlay();
    *
    * "The lamps are too close to each other" and "the signposts are standing in
    * the road" (issue #15) are both statements about numbers, and these are the
-   * numbers: the smallest gap between any two pieces, and how near the nearest
-   * carriageway CENTRELINE any of them comes. `DECK_EDGE` is 5, so anything
-   * under 5 is on the gravel; a lamp interval is 26, so the closest pair should
-   * be a good fraction of that.
+   * numbers: the smallest gap between any two pieces, and how far INSIDE the
+   * nearest carriageway any of them stands. A lamp interval is 26, so the
+   * closest pair should be a good fraction of that.
+   *
+   * MEASURED FROM THE RIM, PER ROAD. This asked "is it within 5 of a
+   * centreline", 5 being the cart road's `deckEdge` written out as a constant —
+   * so the day a 3.6-unit trail joined the network the reader called a
+   * fingerpost standing 3.43 away, comfortably off the trail's gravel, a piece
+   * of furniture in the road. A path's numbers come from its profile.
    */
   furniture: ((): unknown => {
     const f = world.debugFurniture();
+    /**
+     * How far inside the nearest carriageway (x, z) stands: positive when the
+     * point is ON the gravel, negative by its clearance when it is beside it.
+     */
     const roadDist = (x: number, z: number): number => {
-      let best = Infinity;
+      let best = -Infinity;
       for (const r of world.towns.roads) {
         for (let i = 3; i < r.path.length; i += 3) {
           // Point-to-segment, the same test the network's own clearance runs.
@@ -5886,8 +6204,8 @@ beginPlay();
           const l2 = dx * dx + dz * dz;
           let u = l2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
           if (u < 0) u = 0; else if (u > 1) u = 1;
-          const d = Math.hypot(ax + dx * u - x, az + dz * u - z);
-          if (d < best) best = d;
+          const d = r.deckEdge - Math.hypot(ax + dx * u - x, az + dz * u - z);
+          if (d > best) best = d;
         }
       }
       return best;
@@ -5905,8 +6223,8 @@ beginPlay();
     let roadAt: { x: number; z: number } | null = null;
     for (const p of f) {
       const d = roadDist(p.x, p.z);
-      if (d < 5) onRoad++;
-      if (d < nearestRoad) { nearestRoad = d; roadAt = { x: +p.x.toFixed(1), z: +p.z.toFixed(1) }; }
+      if (d > 0) onRoad++;
+      if (-d < nearestRoad) { nearestRoad = -d; roadAt = { x: +p.x.toFixed(1), z: +p.z.toFixed(1) }; }
     }
     return {
       count: f.length,
@@ -5914,7 +6232,7 @@ beginPlay();
       posts: f.filter((p) => p.kind === 'post').length,
       closestPair: Number.isFinite(closestPair) ? +closestPair.toFixed(2) : null,
       closestPairAt: pairAt,
-      /** How near a centreline the nearest piece comes. Under 5 is ON the road. */
+      /** How clear of the nearest RIM the nearest piece is. Negative is on it. */
       nearestRoad: Number.isFinite(nearestRoad) ? +nearestRoad.toFixed(2) : null,
       nearestRoadAt: roadAt,
       onCarriageway: onRoad,
@@ -5993,6 +6311,9 @@ beginPlay();
     }
     return {
       id: r.id, from: r.from, to: r.to,
+      /** Which KIND of path, and how wide — see `test-road.mjs`'s sweep. */
+      profile: r.profile,
+      deckEdge: r.deckEdge,
       length: +len.toFixed(1),
       samples: n,
       /** Largest upward change in the walking surface over 0.25 units. */
@@ -6047,6 +6368,35 @@ beginPlay();
   blocks: x === undefined || z === undefined ? null : world.safeZones.blocksSpawn(x, z),
 });
 
+/**
+ * THE PATH NETWORK, and what it answers at a column.
+ *
+ * `__dbgTowns().roads` is the DRAWN paths only, which is what everything else
+ * means by "the roads" — so after issue #142 folded a settlement's beaten
+ * tracks onto the same network there was no way to see them at all. This is it,
+ * and the pair of `edge` numbers at a column is the invariant that fold-in
+ * rests on: see `World.debugPaths`.
+ */
+(window as unknown as {
+  __dbgPaths: (x?: number, z?: number) => unknown;
+}).__dbgPaths = (x, z) => world.debugPaths(x, z);
+
+/**
+ * AUTHOR A PATH AT RUNTIME. The scriptable half of `/path`, and the reason the
+ * editor work in issue #142 §12 is testable before a pixel of panel exists.
+ *
+ * The hook and the command share `World.addPath` and `refit` below, which is
+ * the project's own rule about a driver hook: a probe must not be able to pass
+ * a test the UI would fail, so both go through one function.
+ */
+(window as unknown as {
+  __dbgAddPath: (
+    ax: number, az: number, bx: number, bz: number, profile?: string, cross?: boolean,
+  ) => unknown;
+}).__dbgAddPath = (ax, az, bx, bz, profile, cross) => world.addPath({
+  from: [ax, az], to: [bx, bz], profile, cross, refit: refitHero,
+});
+
 // World surface queries at an arbitrary column, for the climbing/collision
 // tests: `ground` is what blocks and supports, `trunkSolidTop` is the bole a
 // tree adds to that, `structureTop` is what a settlement built there, and
@@ -6065,6 +6415,10 @@ beginPlay();
   // the world owns (see DEEP_WATER_DEPTH in world/terrain.ts).
   water: world.isWater(x, z),
   deep: world.isDeepWater(x, z),
+  /** How walked this column is, 0..1 — see `World.debugWear`. */
+  wear: +world.debugWear(x, z).toFixed(6),
+  /** What the MESHER draws here, against `ground` which is what you stand on. */
+  column: +world.debugColumn(x, z).toFixed(3),
 });
 
 /**

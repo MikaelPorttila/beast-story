@@ -401,6 +401,17 @@ export interface TownRegistry {
      * anyway, and "is this bit of road a bridge" is the question they ask.
      */
     readonly bridge: Uint8Array;
+    /** The profile this path was built to — `path:<name>`. */
+    readonly profile: string;
+    /**
+     * Outer rim of the drawn and walked surface, world units.
+     *
+     * On the record rather than looked up from a table, because a probe that
+     * sweeps the cross-section has to know how wide the path it is sweeping is
+     * — `tools/test-road.mjs` had 5.0 written into it, which was correct for
+     * exactly as long as there was one profile (issue #142, §4).
+     */
+    readonly deckEdge: number;
   }>;
 }
 
@@ -1124,6 +1135,125 @@ export interface World {
    */
   debugStructures(out: number[]): void;
   /**
+   * Debug: how walked the ground at (x, z) is, 0..1 — the number that decides
+   * whether a column is painted grass or packed dirt.
+   *
+   * Here because a settlement's beaten tracks stopped being a private array
+   * inside terrain.ts and became paths on the network (issue #142), and the way
+   * to prove that fold-in moved no pixel is to read the field itself rather
+   * than to photograph it: a capture of the Encampment is not deterministic
+   * (the fire, the lamps and the people all move), so two shots of identical
+   * code already differ in 17.6% of their bytes.
+   */
+  debugWear(x: number, z: number): number;
+  /**
+   * Debug: the top the MESHER draws this column at, which is not `getHeight`.
+   *
+   * The two differ on purpose — collision on a carriageway is the smooth deck
+   * while the drawn box is a floored column clipped under it — and when they
+   * differ the WRONG way you get ground standing up through the gravel. There
+   * was no way to read the drawn one, so the only evidence was a raycast that
+   * could not say whether the mesher or the clip was at fault.
+   */
+  debugColumn(x: number, z: number): number;
+  /**
+   * Debug/authoring: does the straight run (ax,az)-(bx,bz) cross a DRAWN path?
+   *
+   * For a caller choosing where to start a new path. A route that has to get
+   * past the network to reach its destination will cross it, and a crossing
+   * with nothing at the meeting is two ribbons stacked on one piece of ground
+   * — so the honest fix is to start on the correct side rather than to notice
+   * afterwards. Straight-line, which is a heuristic: the router bends. It is
+   * enough to reject a head that is obviously on the wrong side of a road.
+   */
+  pathRunCrosses(ax: number, az: number, bx: number, bz: number): boolean;
+  /**
+   * Would a path laid straight from a to b pass through something ALREADY
+   * STANDING — a lamp, a fingerpost, a milestone — allowing `margin` for its
+   * own half-width?
+   *
+   * The companion to `pathRunCrosses`, and the reason it is a separate question
+   * is timing: `PathRoles.refusesBuilt` keeps the planner from standing a lamp
+   * on a carriageway, but a path authored at runtime arrives after the lamps
+   * and cannot retract one. See the implementation for the margin's rationale.
+   */
+  pathRunHitsBuilt(
+    ax: number, az: number, bx: number, bz: number, margin: number,
+  ): boolean;
+  /**
+   * AUTHOR A PATH AT RUNTIME, and rebuild everything that depended on there
+   * not being one.
+   *
+   * Issue #142 §12a, and the step the issue itself flags as carrying the risk.
+   * Everything about the world is planned before the first chunk exists,
+   * deliberately: `planSettlements` routes and carves BEFORE `terrain.roads` is
+   * set, so no chunk carrying a corridor is ever built while roads are being
+   * planned. This is the one hole in that, and it is a DEVELOPER path — the
+   * console's `/path` and `__dbgAddPath`, never gameplay.
+   *
+   * It costs about what walking into fresh ground costs, because it is the same
+   * work: every chunk is dropped and rebuilt. `refit` is the caller's chance to
+   * put the hero back on the ground — see the note in the implementation, which
+   * is the whole safety argument.
+   *
+   * Returns what was built, or `error` and nothing else. A refusal is REPORTED
+   * (§12f): an editor whose first user thinks it is broken is worse than one
+   * that says why.
+   */
+  addPath(spec: {
+    from: readonly [number, number];
+    to: readonly [number, number];
+    /** A profile name — `road`, `footpath`. Unknown names are reported. */
+    profile?: string;
+    /**
+     * Route THROUGH the network rather than around it, and turn the first
+     * crossing into a junction.
+     *
+     * Off by default because the router is tuned the other way: `AVOID_COST` is
+     * 50, deliberately huge, so two arms leave a fork as separate roads — and a
+     * path drawn to cross another will otherwise watch it swerve (issue #142
+     * §12d). This suppresses that charge for this one route.
+     */
+    cross?: boolean;
+    /** Called after the rebuild, to re-ground anything standing on it. */
+    refit?: () => void;
+  }): {
+    id: string; length: number; samples: number; note: string | null;
+    /** Junctions the merge created, and every crossing it refused. */
+    nodes: Array<{ x: number; z: number; y: number; arms: number }>;
+    refused: string[];
+    /**
+     * How many DRAWN paths the finished route still crosses without a junction.
+     *
+     * Always counted, merge or no merge. A path that runs over another one with
+     * nothing at the meeting is two ribbons stacked on the same ground — issue
+     * #45 — and it is the sort of thing that looks fine from the air and wrong
+     * from the ground, so the caller is told rather than left to notice.
+     */
+    crossings: number;
+    error?: string;
+  };
+  /**
+   * Debug: every path on the network, and what the clearance queries answer at
+   * a column.
+   *
+   * `TownRegistry.roads` is the DRAWN paths — what a compass and a signpost
+   * mean — so it cannot see a settlement's beaten tracks, which is exactly what
+   * needs asserting after issue #142 folded them in. The two `edge` numbers are
+   * the whole invariant: a track is visible to what GROWS (`edge` goes
+   * negative on it) and invisible to what is BUILT (`builtEdge` does not),
+   * because the tracks were derived from where the buildings are.
+   */
+  debugPaths(x?: number, z?: number): {
+    paths: Array<{
+      id: string; profile: string; deckHalf: number; deckEdge: number;
+      wear: number; draw: boolean; surface: boolean; refusesBuilt: boolean;
+      litter: number;
+      x0: number; z0: number; x1: number; z1: number;
+    }>;
+    at: { edge: number; builtEdge: number; wear: number; litter: number } | null;
+  };
+  /**
    * Debug: append every ROOF as [cx, cz, axisYaw, hl, r, yAxis, ry, fit] — a
    * cylinder lying on its side along a ridge, see `SolidRidge` in
    * world/props.ts. `fit` is how far it stands off the thatch at its worst.
@@ -1196,6 +1326,21 @@ export interface World {
    * in the same evaluation.
    */
   debugCarriedTrees(): Array<{ x: number; z: number }>;
+  /**
+   * Debug: the carried settlement's flagged streets, and how far outside their
+   * rim each of its trees and bushes stands — LOCAL to the carrier's frame.
+   *
+   * The whole point of folding the streets onto the path network (issue #142)
+   * is that a placer can see them; the way to assert that is to read the same
+   * clearance query the planter used. Negative is a tree standing on
+   * flagstones, which is what the island shipped with.
+   */
+  debugCarriedStreets(): {
+    count: number;
+    paved: number;
+    /** Foliage rim clearance, least first. */
+    clear: number[];
+  };
   /** Positions of interest (skill dens / shops) */
   readonly shopPositions: THREE.Vector3[];
   /**

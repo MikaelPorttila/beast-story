@@ -174,6 +174,14 @@ const SOLO = new Set([
   // thirty units and reads it again. Grant, ride and teleport are all state, and
   // its clock is __dbgAdvance.
   'flyshadow',
+  // Authors a path into a running world: it mutates the network, drops every
+  // chunk and rebuilds them, which is about as much state as a probe can drive.
+  // It also re-grounds the hero, so nothing about it is read-only.
+  'path-edit',
+  // Builds real voxel terrain and meshes it in the LAB, which is a different
+  // world from the game's — it opens its own page and drives no hero, but it
+  // raycasts a scene it built itself and SOLO is the default.
+  'road-lab',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output
@@ -200,7 +208,9 @@ const SOLO = new Set([
 // a key edge, a held key, anything the frame loop has to consume — belongs in
 // SOLO however patient its polling is. That is the same root cause as `f2`
 // reading null under load, named.
-const PARALLEL = ['zfight', 'water-shore', 'crosshair', 'viewport', 'cursor'];
+const PARALLEL = [
+  'zfight', 'path-profile', 'water-shore', 'crosshair', 'viewport', 'cursor',
+];
 const ALL = [...PARALLEL, ...SOLO];
 
 const argv = process.argv.slice(2);
@@ -236,7 +246,7 @@ mkdirSync(logDir, { recursive: true });
 
 // These probes open no browser at all, so they need neither the shared browser
 // nor the dev server. Everything else does.
-const HEADLESS = new Set(['zfight', 'water-shore']);
+const HEADLESS = new Set(['zfight', 'path-profile', 'water-shore']);
 const needsBrowser = names.some((n) => !HEADLESS.has(n));
 const browser = needsBrowser ? await launchBrowser() : null;
 const env = { ...process.env, BS_PORT: String(PORT) };

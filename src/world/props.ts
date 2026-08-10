@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { VoxelModel, shade } from '../core/voxel';
 import { hashCell, mulberry32 } from './noise';
 import { CHUNK_SIZE, Terrain, WATER_LEVEL, makeScratch, type ColumnScratch } from './terrain';
-import { DECK_EDGE, type RoadClearance } from './roads';
+import { type RoadClearance } from './roads';
 import { SWAY_BOUND_PAD } from './sway';
 import { nature, natureCount } from './nature';
 import { flags } from '../core/flags';
@@ -2257,8 +2257,16 @@ export type Exclusion = {
  * was raised for. Beyond these the forest closes back in, which is what makes
  * the corridor read as cut.
  */
-const ROAD_SOLID_CLEAR = 7.5;
-const ROAD_TREE_CLEAR = 12;
+// ALL THREE ARE MARGINS OUTSIDE THE PATH'S RIM, not distances from a
+// centreline — `roadEdgeAt` below asks `edgeDistanceTo`. Written the old way
+// (7.5 / 12 / DECK_EDGE + 0.4, against the centreline) each one carried the
+// cart road's 5-unit half-corridor inside it, so beside a narrower path they
+// would all have cleared too much ground: a trail through a forest that strips
+// trees to a cart road's distance is a road with a dirt texture (issue #142,
+// §11g). Subtracting DECK_EDGE leaves the margins that were actually meant, and
+// on today's single-profile world the numbers are identical.
+const ROAD_SOLID_CLEAR = 2.5;
+const ROAD_TREE_CLEAR = 7;
 /**
  * Soft props — grass, flowers, sprigs — stop at the ribbon's rim.
  *
@@ -2266,12 +2274,9 @@ const ROAD_TREE_CLEAR = 12;
  * props are otherwise never held back (see Exclusion: a bare disc reads as a
  * bug), but a carriageway with meadow tussocks growing out of it is not a road,
  * and the ribbon covers the ground here anyway so there is no bald patch to
- * leave behind. DECK_EDGE + 0.4, so the sward closes right up to the verge.
- *
- * Derived from DECK_EDGE rather than written out as 5.4, because "the rim of
- * the drawn road" is the fact this number is about and the two must not drift.
+ * leave behind. 0.4 past the rim, so the sward closes right up to the verge.
  */
-const ROAD_SOFT_CLEAR = DECK_EDGE + 0.4;
+const ROAD_SOFT_CLEAR = 0.4;
 
 /**
  * How far a meadow clump throws its members from its own centre.
@@ -2353,16 +2358,19 @@ export function* buildChunkPropsSteps(
   }
 
   /**
-   * Distance from (x, z) to the nearest carriageway centreline, Infinity in a
-   * world with no roads — and the number is also left in `roadDist` for the
-   * callers that want it after an exclusion test has already paid for it.
+   * How far (x, z) lies outside the nearest path's RIM, Infinity in a world
+   * with no paths — and the number is also left in `roadDist` for the callers
+   * that want it after an exclusion test has already paid for it.
+   *
+   * The rim and not the centreline, so a clearance shrinks with the path it is
+   * beside. See `RoadClearance` in roads.ts.
    *
    * The one place in this file that talks to the road network. See
    * `RoadClearance` in roads.ts for why every placer has to.
    */
   let roadDist = Infinity;
   const roadDistAt = (wx: number, wz: number): number => {
-    roadDist = roads === null ? Infinity : roads.distanceTo(wx, wz);
+    roadDist = roads === null ? Infinity : roads.edgeDistanceTo(wx, wz);
     return roadDist;
   };
 
@@ -2411,11 +2419,25 @@ export function* buildChunkPropsSteps(
    * standing half a unit proud of a road it is not supposed to be on is exactly
    * what a player sees as blades poking through the floor.
    */
-  const onRoad = (wx: number, wz: number): boolean =>
-    roadDistAt(wx, wz) < ROAD_SOFT_CLEAR;
+  /**
+   * True when the last `exSoft` was refused by a PATH rather than by a
+   * clearance disc.
+   *
+   * The two refusals mean opposite things to the litter rule below: a disc is a
+   * den or a building and nothing belongs on it, while a path is somewhere
+   * stones and sticks DO belong. `exSoft` tests the discs first and returns
+   * early, so without this the caller cannot tell them apart — and `roadDist`
+   * is stale on the disc path for exactly that reason.
+   */
+  let softHitRoad = false;
+  const onRoad = (wx: number, wz: number): boolean => {
+    softHitRoad = roadDistAt(wx, wz) < ROAD_SOFT_CLEAR;
+    return softHitRoad;
+  };
 
   /** Grass/flowers/shells: only 'all' discs stop them. */
   const exSoft = (wx: number, wz: number): boolean => {
+    softHitRoad = false;
     for (let i = 0; i < exclusions.length; i++) {
       if (exclusions[i].kind !== 'all') continue;
       const dx = wx - exclusions[i].x;
@@ -2490,7 +2512,7 @@ export function* buildChunkPropsSteps(
    * stamps beside a carriageway. Doubling a chunk's dominant query on a path
    * that could widen later is still not a thing to leave lying about.)
    *
-   * With `ROAD_SOFT_CLEAR` at DECK_EDGE + 0.4 the two answers AGREE for every
+   * With `ROAD_SOFT_CLEAR` at 0.4 past the rim the two answers AGREE for every
    * stamp that survives `onRoad`, because `surfaceAt` hands back the plain
    * ground outside the rim; the sward is bit-identical with and without this.
    * It is here so that stays true BY CONSTRUCTION rather than by the exclusion
@@ -2500,6 +2522,46 @@ export function* buildChunkPropsSteps(
   const softSeat = (x: number, z: number, column: number, nearRoad: boolean): number => {
     const rf = terrain.roads;
     return nearRoad && rf !== null ? rf.surfaceAt(ox + x, oz + z, column) : column;
+  };
+
+  /**
+   * A wayside stone or a fallen stick, on a candidate the sward just refused.
+   *
+   * SOFT AND NOT SOLID, deliberately: everything in this file that stamps a
+   * rock puts it in the solid mesh, where it becomes an occluder the hero
+   * walks into — and a pebble you trip over in the middle of a carriageway is
+   * a worse artefact than a road with nothing on it. These are decoration on
+   * the one surface the whole road mechanism exists to keep walkable, so they
+   * go in the soft mesh with the grass and change no collider.
+   *
+   * SEATED ON THE ROAD SURFACE, not on the terrain column: outside `deckHalf`
+   * the ground is levelled to `round(deck)` and can stand half a unit above
+   * what the ribbon draws, so a stone seated on the column would float. That
+   * is `softSeat`'s whole job and it is already paid for here.
+   */
+  const litter = (
+    x: number, z: number, wx: number, wz: number,
+    h: number, yaw: number, scl: number, pick: number,
+  ): void => {
+    if (roads === null) return;
+    const q = roads.litterAt(ox + x, oz + z);
+    if (q <= 0) return;
+    // Hashed and not rolled: `rng` is a per-chunk stream and this branch runs
+    // on candidates the ladder below never sees, so consuming from it here
+    // would shift every stamp in the chunk the day a road moved.
+    if (hashCell(terrain.seed, wx, 913, wz) > q) return;
+    const y = softSeat(x, z, h, true);
+    const t = 0.88 + pick * 0.2;
+    // Two thirds stone, one third stick — the mix a swept verge actually has,
+    // and the stick reads at twice the distance the pebble does.
+    if (pick < 0.66) {
+      // A boulder template at a fifth of its size is a pebble. Scale, not a new
+      // model: it is the same stone the meadow is made of, which is what makes
+      // the verge read as the ground beside it rather than as dressing.
+      soft.add(lib.rockA, x, y - 0.06, z, yaw, 0.16 + scl * 0.12, t, t, t * 0.96);
+    } else {
+      soft.add(lib.deadwoodT, x, y - 0.02, z, yaw, 0.45 + scl * 0.3, t, t * 0.97, t * 0.9);
+    }
   };
 
   const flatEnough = (wx: number, wz: number, h: number, tol: number): boolean =>
@@ -3178,7 +3240,21 @@ export function* buildChunkPropsSteps(
     terrain.columnInfo(wx, wz, ci);
     const h = ci.h;
     if (h < WATER_LEVEL + 1) continue;
-    if (exSoft(ox + x, oz + z)) continue;
+    if (exSoft(ox + x, oz + z)) {
+      // THE SAME NUMBER READ THE OTHER WAY (issue #142, §7).
+      //
+      // This candidate was going to be thrown away for being on a path. A path
+      // that sheds — a gravel road, a footpath nobody grades — wants a stone or
+      // a fallen stick exactly here instead, and the query that refused the
+      // grass is the query that says so. No new pass, no second `columnInfo`,
+      // and no cost at all in a chunk with no path in it: `litterAt` answers 0
+      // on a bounds test.
+      //
+      // A DISC IS NOT A PATH. `softHitRoad` is the difference; a den's
+      // clearance means nothing belongs there, full stop.
+      if (softHitRoad) litter(x, z, wx, wz, h, yaw, scl, pick);
+      continue;
+    }
     // `exSoft` has just left the measured road distance in `roadDist`.
     const nearRoad = roadDist < ROAD_SOFT_CLEAR + 1;
     if (ci.trample > 0 && trodden(wx, wz, ci.trample)) continue;

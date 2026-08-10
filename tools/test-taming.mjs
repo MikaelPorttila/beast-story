@@ -35,6 +35,14 @@ import { launchBrowser, newPage, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
 const URL = `${HOST}/?menu=0&fs=0`;
+/**
+ * The beast a new game is bonded to — `STARTER_BEAST` in src/main.ts.
+ *
+ * Named once here rather than spelled at each assertion: this file's subject is
+ * the AUTO-FILL RULE, not which species ships, and a probe that has to be
+ * edited in five places when that changes is measuring the wrong thing.
+ */
+const STARTER = 'frostwing';
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));
@@ -109,7 +117,15 @@ async function goToWild(species) {
   return null;
 }
 
-// -- 1. a new game owns nothing ---------------------------------------------
+// -- 1. a new game owns THE STARTER, and nothing else -----------------------
+//
+// It used to own nothing at all (issue #4), and this file asserted the zero.
+// `STARTER_BEAST` in main.ts put one back deliberately — a player with an empty
+// party has no way to see what a bond IS until they have already earned one —
+// so the claim here changes shape rather than going away: EXACTLY the starter,
+// in the lead, and the support slot still empty for the first beast tamed. That
+// second half is the one that matters to everything below, because the auto-fill
+// rule this file is about is "a new bond takes the empty slot".
 {
   const t = await taming();
   const b = await bodies();
@@ -117,13 +133,37 @@ async function goToWild(species) {
     owned: t.owned, lead: t.lead, support: t.support,
     readied: t.readied, held: t.held, partyBodies: b.beasts.length,
   };
-  check(t.owned.length === 0, `a new game starts bonded to ${t.owned.length} beasts, want 0`);
-  check(t.lead === null && t.support === null,
-    `a new game has lead=${t.lead} support=${t.support}, want both null`);
-  check(b.beasts.length === 0, `${b.beasts.length} companions are in the world at boot, want 0`);
+  check(t.owned.length === 1 && t.owned[0] === STARTER,
+    `a new game starts bonded to ${JSON.stringify(t.owned)}, want only ["${STARTER}"]`);
+  check(t.lead === STARTER && t.support === null,
+    `a new game has lead=${t.lead} support=${t.support}, want ${STARTER} and an empty slot`);
+  check(b.beasts.length === 1,
+    `${b.beasts.length} companions are in the world at boot, want 1 (the starter)`);
   // The other half: the kit that makes the first bond reachable at all.
   check(t.readied === 'orb-tame', `the starting kit readies "${t.readied}", want "orb-tame"`);
   check(t.held === 1, `the starting kit holds ${t.held} orbs, want 1`);
+}
+
+// -- 1b. and then it owns nothing --------------------------------------------
+//
+// EVERY SECTION BELOW STAGES A WILD ANIMAL BESIDE THE HERO, and a companion
+// standing beside him fights it. Measured: with the starter bonded this file
+// failed about two runs in five — the staged Boulderpup gone from the assist
+// sweep entirely on one run, the meadow down from four Sproutles to two on
+// another — and the same runs passed from a clean worktree at origin/main,
+// where a new game is bonded to nothing.
+//
+// So the party is emptied for the rest of the file, AFTER the section above has
+// asserted what a new game actually starts with. What is under test here is
+// EARNING a bond; who happens to be walking beside the player while it is
+// earned is test-companion's subject, not this one.
+{
+  const said = await page.evaluate(() => window.__dbgGrantBeast('none'));
+  const t = await taming();
+  results.cleared = { said, owned: t.owned, lead: t.lead, support: t.support };
+  check(t.owned.length === 0 && t.lead === null,
+    `releasing every bond left ${JSON.stringify(t.owned)} lead=${t.lead} — the sections `
+    + 'below all assume an empty party');
 }
 
 // -- 2. the odds move with health -------------------------------------------
@@ -248,6 +288,10 @@ async function goToWild(species) {
       `after a caught bond the player owns ${JSON.stringify(t.owned)}, want it to include "sproutle"`);
     // THE FIRST BOND LEADS — the auto-fill rule, which is the difference between
     // walking away with an animal and walking away with a panel entry.
+    // THE FIRST BOND LEADS — the auto-fill rule, which is the difference between
+    // walking away with an animal and walking away with a panel entry. Read
+    // against the EMPTY party section 1b left behind, so this is still "the
+    // first bond takes the empty slot" and the empty slot is still the lead.
     check(t.lead === 'sproutle',
       `the first bond left lead=${t.lead}, want "sproutle" — it should fill the empty slot`);
     check(b.beasts.length === 1,
