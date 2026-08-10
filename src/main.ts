@@ -759,7 +759,29 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
         const d = Math.hypot(t.x - x, t.z - z);
         if (d < keep) shopPenalty += (keep - d) * 3;
       }
-      const score = worst * 3 + shopPenalty;
+      // A GATEWAY IN A WOOD, WITH ITS BACK TO A HILL — the two terms that make
+      // this a place rather than a coordinate, and both are preferences rather
+      // than filters so the level-footing requirement above still wins.
+      //
+      // A dungeon mouth on an open beach is what the unbiased search kept
+      // finding, and it reads as an arch someone left on the sand. What a
+      // player expects at the end of a trail is trees around it and rock behind
+      // it, and neither is expressible as a biome: there is no MOUNTAIN in
+      // `BiomeId` (issue #142 §11e), so a hillside is a SLOPE reading — which
+      // is what `steepnessAt` was added for.
+      //
+      // BEHIND, not underneath. The arch needs level ground to stand on, so the
+      // slope is sampled on the far side from spawn: the hero walks up to a
+      // flat apron with the ground rising past it, which is what a cave mouth
+      // looks like.
+      const away = Math.atan2(z - base.z, x - base.x);
+      const backX = x + Math.cos(away) * 9;
+      const backZ = z + Math.sin(away) * 9;
+      const backing = Math.min(1, w.steepnessAt(backX, backZ) / 0.45);
+      const wooded = w.biomeAt(x, z) === 'forest' ? 1 : 0;
+      // Weighted under `worst * 3`: a candidate that is 1 unit less level loses
+      // 3, and the whole of both preferences is 4.5. Level footing still wins.
+      const score = worst * 3 + shopPenalty - backing * 2.5 - wooded * 2;
       if (score < bestScore) { bestScore = score; best = { x, z }; }
       if (score === 0) return best;
     }
@@ -3108,6 +3130,57 @@ const refitHero = (): void => {
   player.position.y = floor;
   player.velocity.set(0, 0, 0);
 };
+
+/**
+ * THE TRAIL TO THE GATEWAY — the first path in this world that is neither a
+ * cart road nor a settlement's own track.
+ *
+ * The arch stands on level ground 34-42 units from the spawn (`findGateSpot`)
+ * and until now nothing led to it: you found it by looking around. A trail is
+ * what a place people keep walking to actually gets, and this is issue #142's
+ * third profile earning its place in the world rather than only in the lab —
+ * narrow, no lamps, no bridging, twice the litter of a road and a woodland
+ * palette.
+ *
+ * LAID THROUGH `World.addPath`, which is the runtime editor built for §12 doing
+ * real work. It is the honest way to build this: the gateway's spot is chosen
+ * from the FINISHED world — it needs the towns, the dens and the height field —
+ * so it cannot be known inside `planSettlements`, where every other path is
+ * routed before the first chunk exists. The rebuild it triggers is nine chunks
+ * at boot rather than a hundred in play.
+ *
+ * It starts at the SPAWN, which is on the trunk road, so the first thing a
+ * player sees is a road with a path leaving it.
+ */
+{
+  // READ THROUGH A CALL, and not because a cast would be shorter. `gateSite` is
+  // a module `let` assigned inside the zone's `landmarks` hook, which the
+  // ZoneManager runs while building the world — so it IS set by the time this
+  // statement runs, but TypeScript's flow analysis sees no assignment on the
+  // straight line between the declaration and here and narrows it to `null`.
+  // A function call is the honest way to say "this is written elsewhere";
+  // `as` would say "trust me" about the one thing worth checking.
+  const gate = ((): { x: number; z: number } | null => gateSite)();
+  if (gate !== null) {
+    const laid = world.addPath({
+      from: [world.spawnPoint.x, world.spawnPoint.z],
+      to: [gate.x, gate.z],
+      profile: 'trail',
+    });
+    // REPORTED, NOT SWALLOWED. `addPath` refuses for good reasons — the two ends
+    // too close, a route that would have to bridge — and a world quietly short
+    // of the path to its own dungeon is exactly the silent failure the refusal
+    // machinery exists to prevent.
+    if (laid.error) {
+      reportContentIssue({
+        severity: 'warn',
+        code: 'gateway-trail-refused',
+        message: `The trail to the gateway was refused: ${laid.error}`,
+        fix: 'move the gateway, or give the trail a profile that can bridge',
+      });
+    }
+  }
+}
 
 (window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = (x, z, y) => {
   // THE SADDLE FIRST, and it is not optional: while mounted the hero's position

@@ -78,6 +78,7 @@ of that can happen over `fence=`'s analytic field.
 | `fork` | Three arms and an apron |
 | `cross` | Four arms, made through `mergeCrossings` like the editor's |
 | `foot` | The narrow profile, whose band is half the width |
+| `trail` | The trail profile on the steepest ground a trail can exist on |
 | `all` | Every one of them, on its own patch of dry ground |
 
 `__dbgRoadLab()` reports every case's deck, and `__dbgRoadSurf(x, z)` is the

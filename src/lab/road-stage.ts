@@ -28,6 +28,9 @@
  *   ?road=fork     three arms and an apron.
  *   ?road=cross    four arms — a merged crossing.
  *   ?road=foot     the narrow profile, whose band is half the width.
+ *   ?road=trail    the NO-CARVE profile on a hillside: a ribbon laid straight
+ *                  on the voxel ground with no earthworks under it at all,
+ *                  which is the case issue #142 calls a second machine.
  *   ?road=all      every one of them, spaced out around the origin.
  *
  * `__dbgRoadLab()` reports each case's deck so a probe can sweep it without
@@ -37,15 +40,17 @@ import * as THREE from 'three';
 import { Terrain, WATER_LEVEL } from '../world/terrain';
 import { buildTerrainMesh } from '../world/chunk';
 import {
-  RoadNetwork, mergeCrossings, profileRoad, setTrimEnd, setTrimStart,
+  RoadNetwork, mergeCrossings, profileRoad, profileTrail, setTrimEnd, setTrimStart,
   type Junction, type Road,
 } from '../world/roads';
-import { FOOTPATH_PROFILE, ROAD_PROFILE, type PathProfile } from '../world/path-profile';
+import {
+  FOOTPATH_PROFILE, ROAD_PROFILE, TRAIL_PROFILE, type PathProfile,
+} from '../world/path-profile';
 import { buildJunctionApron, buildRoadRibbon } from '../world/town-parts';
 
 /** The cases this stage knows. `?road=` picks one; `all` builds every one. */
 export const ROAD_CASES = [
-  'axis', 'angle', 'slope', 'bend', 'bridge', 'fork', 'cross', 'foot',
+  'axis', 'angle', 'slope', 'bend', 'bridge', 'fork', 'cross', 'foot', 'trail',
 ] as const;
 
 /** The seed the sandbox builds on. Fixed, so a case is the same every run. */
@@ -75,11 +80,19 @@ function straight(
   terrain: Terrain, id: string, profile: PathProfile,
   ax: number, az: number, bx: number, bz: number,
 ): Road {
-  const n = Math.max(2, Math.round(Math.hypot(bx - ax, bz - az) / 3));
+  const step = profile.carve === 'none' ? 1 : 3;
+  const n = Math.max(2, Math.round(Math.hypot(bx - ax, bz - az) / step));
   const route = Array.from({ length: n + 1 }, (_, i) => ({
     x: ax + ((bx - ax) * i) / n,
     z: az + ((bz - az) * i) / n,
   }));
+  if (profile.carve === 'none') {
+    return {
+      id, fromId: `${id}:a`, toId: `${id}:b`, profile,
+      pts: profileTrail(terrain, route),
+      trim: new Float32Array(8),
+    };
+  }
   return {
     id,
     fromId: `${id}:a`,
@@ -126,8 +139,10 @@ function arc(
  * than assumed, because the height field is noise and a hand-picked coordinate
  * is a coordinate that stops being right the day the noise is touched.
  */
-function findGround(terrain: Terrain, want: 'slope' | 'water'): { x: number; z: number } {
-  let best = want === 'slope' ? -Infinity : Infinity;
+function findGround(
+  terrain: Terrain, want: 'slope' | 'water' | 'trail',
+): { x: number; z: number } {
+  let best = want === 'water' ? Infinity : -Infinity;
   let at = { x: 0, z: 0 };
   // CLEAR OF THE SLOT GRID. The cases that are PLACED sit within ~150 of the
   // origin, and a found one that landed among them would carve into a
@@ -136,7 +151,25 @@ function findGround(terrain: Terrain, want: 'slope' | 'water'): { x: number; z: 
   for (let x = -900; x <= 900; x += 40) {
     for (let z = -900; z <= 900; z += 40) {
       if (Math.hypot(x, z) < 300) continue;
-      if (want === 'slope') {
+      if (want === 'trail') {
+        // THE STEEPEST GROUND A TRAIL COULD ACTUALLY BE ON, which is not the
+        // steepest ground. `slope` below picks the sharpest place on the seed
+        // and that is a CLIFF — measured, a trail laid straight across it read
+        // 401 columns of ground through the ribbon at 7.4 and an 11-unit step,
+        // because a two-unit band of deck following a cliff face is a vertical
+        // sheet. None of that is about trails; it is about there being no route
+        // there at all, which is what switchbacks and stairs are for (§11).
+        //
+        // `steepnessAt` is the query §14 asks for and this is its first caller:
+        // 0.35 is a one-in-three, which a hero can walk and a trail can exist
+        // on, and taking the steepest UNDER that ceiling puts the case on the
+        // hardest ground it is meant to handle.
+        const g = terrain.steepnessAt(x, z);
+        if (g <= 0.35 && g > best && terrain.heightCont(x, z) > WATER_LEVEL + 4) {
+          best = g;
+          at = { x, z };
+        }
+      } else if (want === 'slope') {
         const rise = Math.abs(terrain.heightCont(x + 30, z) - terrain.heightCont(x - 30, z));
         if (rise > best && terrain.heightCont(x, z) > WATER_LEVEL + 3) {
           best = rise;
@@ -173,6 +206,7 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
 
   const slope = findGround(terrain, 'slope');
   const water = findGround(terrain, 'water');
+  const trailAt = findGround(terrain, 'trail');
   let slot = 0;
   /** Each case gets its own patch of world, clear of every other one's carve. */
   const origin = (): { x: number; z: number } => {
@@ -229,6 +263,16 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
     const o = origin();
     add('foot', [straight(terrain, 'foot', FOOTPATH_PROFILE,
       o.x - 20, o.z - 20, o.x + 20, o.z + 20)], [], new THREE.Vector3(o.x, 0, o.z));
+  }
+  if (want('trail')) {
+    // ON THE HILLSIDE, because a trail that carves nothing is only interesting
+    // where the ground is not flat — that is the whole of what §11 says makes
+    // it a second machine. It shares the `slope` case's ground and runs across
+    // it rather than along, so the two do not carve into each other (a trail
+    // carves nothing, but the road beside it does).
+    add('trail', [straight(terrain, 'trail', TRAIL_PROFILE,
+      trailAt.x - 24, trailAt.z - 24, trailAt.x + 24, trailAt.z + 24)], [],
+    new THREE.Vector3(trailAt.x, 0, trailAt.z));
   }
   if (want('fork') || want('cross')) {
     const o = origin();

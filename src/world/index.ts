@@ -22,7 +22,9 @@ import { Shops, type DenSpot } from './shops';
 import { SiteFields } from './structures';
 import { Towns, planSettlements, type SettlementPlan } from './towns';
 import { mergeCrossings, profileRoad, roadLength, routeRoad, type Road } from './roads';
-import { FOOTPATH_PROFILE, ROAD_PROFILE, type PathProfile } from './path-profile';
+import {
+  FOOTPATH_PROFILE, ROAD_PROFILE, TRAIL_PROFILE, type PathProfile,
+} from './path-profile';
 import { TownParts } from './town-parts';
 import { Npcs, spotIsFree, type NpcSite } from './npc';
 import { SpawnedSolids } from './spawned';
@@ -462,6 +464,14 @@ export interface LandmarkProbe {
    */
   readonly towns: TownRegistry;
   getHeight(x: number, z: number): number;
+  /**
+   * How steep the ground is, for a landmark that wants to stand AGAINST
+   * something. See `Terrain.steepnessAt` — there is no mountain biome, so a
+   * hillside is a slope reading and nothing else.
+   */
+  steepnessAt(x: number, z: number): number;
+  /** What grows here, so a landmark can prefer to be found in a wood. */
+  biomeAt(x: number, z: number): string;
 }
 
 /**
@@ -490,12 +500,16 @@ export interface LandmarkProbe {
  * nothing and draw nothing, so authoring one at runtime would produce an
  * invisible clearance rule and look like a no-op.
  */
+/** For the landmark probe's `biomeAt` — see the probe literal. */
+const landmarkScratch = makeScratch();
+
 /** For `World.debugColumn` alone — see there. */
 const dbgColumnScratch = makeScratch();
 
 const PATH_PROFILES: Record<string, PathProfile> = {
   road: ROAD_PROFILE,
   footpath: FOOTPATH_PROFILE,
+  trail: TRAIL_PROFILE,
 };
 
 export function createWorld(
@@ -670,6 +684,11 @@ export function createWorld(
     shopPositions: shops.positions,
     towns: townReg,
     getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
+    steepnessAt: (x: number, z: number): number => terrain.steepnessAt(x, z),
+    biomeAt: (x: number, z: number): string => {
+      terrain.columnInfo(Math.floor(x), Math.floor(z), landmarkScratch);
+      return landmarkScratch.biome;
+    },
   }) ?? [];
   for (const s of sites) {
     // Narrower than a den's 4.5/9 — a gateway is one arch, not a building, and

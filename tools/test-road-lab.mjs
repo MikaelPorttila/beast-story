@@ -203,8 +203,8 @@ console.log(JSON.stringify({ cross: plan.cross, cases: results }, null, 2));
 await browser.close();
 
 const fail = [];
-if (results.length !== 8) {
-  fail.push(`the sandbox built ${results.length} cases, expected 8`);
+if (results.length !== 9) {
+  fail.push(`the sandbox built ${results.length} cases, expected 9`);
 }
 // A CROSSROADS THAT QUIETLY CAME BACK AS TWO ROADS tests nothing, and the merge
 // refuses for four different good reasons — so the refusal is asserted, not

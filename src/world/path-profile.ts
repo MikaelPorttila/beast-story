@@ -67,6 +67,19 @@ export interface PathPalette {
   plank: [number, number, number];
 }
 
+/**
+ * A woodland trail: leaf litter and bare root, no gravel anywhere.
+ *
+ * Darker and browner than the footpath, which is a worn field path — this is
+ * ground under a canopy, where nothing bleaches and everything is damp.
+ */
+export const TRAIL_PALETTE: PathPalette = {
+  rut: lin(0x4a3a28),
+  earth: lin(0x584631),
+  gravel: lin(0x5f5540),
+  plank: lin(0x5a462c),
+};
+
 /** The cart road: packed earth ruts between gravel verges. */
 export const CART_PALETTE: PathPalette = {
   rut: lin(0x6b5843),
@@ -452,6 +465,58 @@ export function flagstoneProfile(halfWidth: number): PathProfile {
     roles: PAVED_ROLES,
   });
 }
+
+/**
+ * A TRAIL — the third kind of path a person makes, and the first that is not
+ * built.
+ *
+ * Issue #142 §11. A road is graded, surfaced and cut into the hill; a footpath
+ * is a narrow road with the furniture taken off. A trail is neither: it is
+ * where feet have gone, so it CARVES NOTHING and it follows the ground it is
+ * drawn on. That makes it the cheap case rather than the expensive one — strip
+ * the earthworks and there is no band to keep in step, which is where every
+ * sample of issue #15 lives.
+ *
+ * It draws, unlike a settlement's beaten track, because a trail through a wood
+ * is a thing you follow with your eyes; and it refuses foliage but not what is
+ * BUILT, because a cave mouth or a shrine at the end of one was placed first
+ * and the trail was routed to it.
+ *
+ * WHAT IT DOES NOT DO YET. §11 asks for a grade limiter that may CUT (the
+ * road's raises only, which is right for a cart and wrong for a hillside), a
+ * router that can switchback, and stairs where it is too steep to walk. None of
+ * those are here. `Terrain.steepnessAt` is, because all three need it and
+ * nothing exposed it — see there.
+ */
+export const TRAIL_PROFILE = pathProfile({
+  id: 'path:trail',
+  halfWidth: 1.0,
+  // IT CARVES, AND §11f SAID IT SHOULD NOT. That is a finding rather than a
+  // disagreement: "a trail should carve little or nothing" does not survive
+  // contact with this world's step rule, and the sandbox is what showed it.
+  //
+  // Ground here is 1-unit cubes and `MAX_STEP_UP` is 0.5, so a path that
+  // carves nothing IS A STAIRCASE — every ledge it crosses is a wall the hero
+  // cannot walk up. Measured on the `trail` case with `carve: 'none'` and its
+  // deck following `getHeight` exactly: the walking surface stepped 3.0 on
+  // ground chosen to be the steepest a trail could exist on at all, and 240 of
+  // its columns had the ribbon over the hero's feet. On a genuine cliff it was
+  // 11.0 and 7.4. None of that is fixable by drawing; it is the ground.
+  //
+  // So a trail carves, narrowly. What makes it a trail rather than a small
+  // road is everything else on this profile: no furniture, no bridging, twice
+  // the litter and a woodland palette. The no-carve profile stays in the
+  // system (`trackProfile` uses it) for paths that only paint.
+  //
+  // The other answer is stairs, and it is still the right one for ground
+  // steeper than a trail can climb — §11c-d, not built.
+  furniture: 'none',
+  bridges: false,
+  // MORE THAN A FOOTPATH SHEDS, because a wood sheds onto it: a trail's whole
+  // detail is the stones and sticks lying along it.
+  litter: 0.75,
+  palette: TRAIL_PALETTE,
+});
 
 export function trackProfile(halfWidth: number): PathProfile {
   // 0.45 / 0.55 IS THE EXISTING SOFT EDGE, and it is the reason this fold-in

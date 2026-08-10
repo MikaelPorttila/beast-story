@@ -170,6 +170,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Towns, roads, buildings | `world/towns.ts`, `world/roads.ts`, `world/town-parts.ts`, `world/structures.ts`, `world/spawned.ts` | `test-road`, `test-structures`, `test-spawn` |
 | What KIND of path a path is | `world/path-profile.ts` | `test-path-profile`, `test-road` |
 | Road cases on real voxel ground | `lab/road-stage.ts` (`?road=<case>`) | `test-road-lab` |
+| How steep the ground is | `Terrain.steepnessAt` — there is no mountain biome | `test-road-lab` |
 | Authoring a path at runtime | `World.addPath` (`world/index.ts`), `Towns.rebuildPaths`, `PathEditControl` in `ui/perf-panel.ts` | `test-path-edit`, `test-gfx` |
 | Beaten tracks and flagged streets | `WEAR`/`wearTracks` in `world/towns.ts`, `streetNetwork` in `world/sky-island.ts` | `test-road`, `test-carrier` |
 | Fences and bridge railings | `world/fences.ts` (the chain), `world/town-parts.ts` (the kit) | `test-fence` |

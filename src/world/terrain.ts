@@ -4,6 +4,9 @@
  */
 import { Noise2D, WaveField } from './noise';
 
+/** The run a slope is measured over. See `Terrain.steepnessAt`. */
+const SLOPE_RUN = 4;
+
 export const WATER_LEVEL = 8;
 export const CHUNK_SIZE = 32;
 
@@ -710,6 +713,35 @@ export class Terrain {
     const g = this.columnHeight(Math.floor(x), Math.floor(z));
     const rf = this.roads;
     return rf === null ? g : rf.surfaceAt(x, z, g);
+  }
+
+  /**
+   * HOW STEEP THE GROUND IS AT (x, z) — rise over run, so 0.5 is one in two.
+   *
+   * Issue #142 §14 asks for this by name, and §11e explains why nothing could
+   * be built without it: there is no MOUNTAIN biome. `BiomeId` is plains,
+   * forest, beach, desert, snow, underwater, deepwater, trampled — "mountain"
+   * is SLOPE and ALTITUDE, and snow is an altitude proxy at best (a snowy flat
+   * is not a mountain). Three things need the same answer and would otherwise
+   * each guess: a trail router deciding where it must switchback, a stair
+   * placer deciding where treads are needed, and the material pick deciding
+   * whether a step is cut stone or a log.
+   *
+   * CONTINUOUS, not stepped. `heightCont` rather than `getHeight`, because the
+   * question is about the landform and the floored column would report every
+   * gentle slope as a staircase of vertical walls and level shelves.
+   *
+   * A central difference over `SLOPE_RUN` either way, which is a compromise the
+   * callers all share: shorter and it reads the fine relief (±0.45 over ~12
+   * units, so a two-unit run reports 0.2 of slope on a flat meadow), longer and
+   * it averages a cliff away. 4 is a couple of hero-widths and about the length
+   * of one stair flight.
+   */
+  steepnessAt(x: number, z: number): number {
+    const r = SLOPE_RUN;
+    const dx = this.heightCont(x + r, z) - this.heightCont(x - r, z);
+    const dz = this.heightCont(x, z + r) - this.heightCont(x, z - r);
+    return Math.hypot(dx, dz) / (2 * r);
   }
 
   /**

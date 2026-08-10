@@ -1762,6 +1762,42 @@ export function profileRoad(
 }
 
 /**
+ * A TRAIL'S DECK: the ground it is drawn on, and nothing else.
+ *
+ * `profileRoad` is the wrong machine for a trail and issue #142 §11a says why
+ * before you build it: it SMOOTHS over a 36-unit window and then slope-limits
+ * to `MAX_GRADE` 0.10 by RAISING ONLY. That is exactly right for a cart road —
+ * it fills dips and produces the cut-and-fill envelope a real road has — and
+ * exactly wrong for something that carves nothing, because there is no
+ * earthworks to make the ground meet the deck it invented. Measured in the
+ * sandbox with a trail profiled the road's way: the deck floated 7.8 units over
+ * the hillside and 419 of its columns had ground standing through it.
+ *
+ * So a trail's deck is `getHeight`, per sample. The FLOORED column and not the
+ * continuous height, because the floored column is what the hero walks on where
+ * nothing carves — so the ribbon and the walking surface are the same number by
+ * construction rather than by two functions agreeing.
+ *
+ * No smoothing, and that is deliberate rather than lazy: a smoothed deck lifts
+ * off the steps it is laid over, which is the float above in miniature. A trail
+ * looks like the ground because it IS the ground.
+ *
+ * No water floor either. A trail cannot bridge (`PathProfile.bridges`), so a
+ * wet sample is a FORD and follows the bed — §11h — rather than being held 1.9
+ * in the air on piers that were never built.
+ */
+export function profileTrail(
+  terrain: Terrain, route: Array<{ x: number; z: number }>,
+): RoadSample[] {
+  return route.map((p) => ({
+    x: p.x,
+    z: p.z,
+    y: terrain.getHeight(p.x, p.z),
+    bridge: false,
+  }));
+}
+
+/**
  * Position and tangent at arc length `s` along a road, into `out`.
  * Used by the furniture pass and by the spawn search; never per frame.
  */
