@@ -1576,9 +1576,7 @@ export class Towns {
     for (const road of roads) {
       if (!road.profile.roles.draw) continue;
       add(
-        buildRoadRibbon(
-          [road], ctx.seed, ctx.surfaceAt, ctx.columnTop, bias++ * 0.003, junctions,
-        ),
+        buildRoadRibbon([road], ctx.seed, ctx.surfaceAt, bias++ * 0.003, junctions),
         `road:${road.id}`,
       );
     }
@@ -1586,7 +1584,7 @@ export class Towns {
     // reading it in that order is the only way the geometry makes sense.
     for (const j of junctions) {
       add(
-        buildJunctionApron(j, roads, ctx.seed, ctx.surfaceAt, ctx.columnTop, bias++ * 0.003),
+        buildJunctionApron(j, roads, ctx.seed, ctx.surfaceAt, bias++ * 0.003),
         'road:junction',
       );
     }

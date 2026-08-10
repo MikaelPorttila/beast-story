@@ -133,9 +133,7 @@ export function buildPathsStage(
   const addRibbon = (
     of: readonly Road[], aprons: readonly Junction[], name: string,
   ): void => {
-    // The stage has no voxel ground, so the drawn column and the walking
-    // surface are the same analytic field. See `buildRoadRibbon`.
-    const rib = buildRoadRibbon(of, 7, groundAt, groundAt, ribbonIdx++ * 0.003, aprons);
+    const rib = buildRoadRibbon(of, 7, groundAt, ribbonIdx++ * 0.003, aprons);
     if (rib.idx.length === 0) return;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(rib.pos, 3));
@@ -225,7 +223,7 @@ export function buildPathsStage(
     const { roads, junction } = stageTransition();
     paths.push(...roads);
     addRibbon(roads, [junction], 'road:lab-transition');
-    const ap = buildJunctionApron(junction, roads, 7, groundAt, groundAt, ribbonIdx++ * 0.003);
+    const ap = buildJunctionApron(junction, roads, 7, groundAt, ribbonIdx++ * 0.003);
     if (ap.idx.length > 0) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(ap.pos, 3));

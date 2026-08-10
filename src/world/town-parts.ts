@@ -1125,6 +1125,8 @@ export class TownParts {
 const RIBBON_LIFT = 0.025;
 /** How far the ribbon's outer edge skirts down, hiding the ground's steps. */
 const RIBBON_SKIRT = 1.1;
+/** Ring spacing of the drawn ribbon, world units. See `subdivide`. */
+const RING_LEN = 1;
 
 /**
  * WHERE `RIM_GUARD` AND `XS` WENT — `PathProfile.rimGuard` and
@@ -1179,7 +1181,6 @@ const RIBBON_SKIRT = 1.1;
  */
 function sectionAt(
   surfaceAt: (x: number, z: number) => number,
-  columnTop: (x: number, z: number) => number,
   prof: PathProfile,
   p: RoadSample, px: number, pz: number, tx: number, tz: number, d: number,
 ): { x: number; y: number; z: number } {
@@ -1224,99 +1225,23 @@ function sectionAt(
   // — an arm now starts at the junction's rim and the apron draws the middle
   // (`buildJunctionApron`). It is 0 of 5295 today; `tools/test-road.mjs`
   // reports the count and the fork is the place to look if it moves.
-  // ON A SPAN TOO, WHICH IT DID NOT USED TO BE. The guard was skipped for a
-  // bridge because "a bridge deck is flat to its edge and has water under it" —
-  // true in the middle and false at both ends, where an ABUTMENT stands on the
-  // bank and `carveAt` leaves the ground alone under it (a lake bed must stay a
-  // lake bed). It is safe over open water for the reason it was skipped: the
-  // guard takes a MAXIMUM, and out there the surface is the bed, several units
-  // below the deck.
+  // NOTHING IS LIFTED HERE ANY MORE, AND THAT IS THE FIX FOR WALKING ON IT.
   //
-  // MEASURED AT NOTHING ON THIS SEED, and kept anyway — a bridge abutment on
-  // rising ground is a case the world does not currently produce and the
-  // reasoning above says what happens when it does.
-  if (ad >= prof.deckEdge - prof.shoulderIn) {
-    // AGAINST THE DRAWN COLUMN, NOT THE WALKING SURFACE, and this is the whole
-    // of the last of issue #15.
-    //
-    // The guard asked `surfaceAt` — `Terrain.getHeight` — which INSIDE a rim
-    // hands back the smooth deck by design. That is the one number that cannot
-    // see the thing being guarded against: a terrain cube standing above the
-    // deck. It reported the deck, the maximum was the deck, and the rim vertex
-    // was left exactly where it started while a whole cube stood through it.
-    //
-    // Read at the failing column on seed 1337: collision said 16 and the mesher
-    // drew 17. Both are correct — the carriageway's walking surface IS the
-    // deck, and the drawn cube is a floored column whose centre resolved to a
-    // deck a metre away that rounds up. Only the ribbon was wrong, and it was
-    // wrong because it was asking the collision question.
-    //
-    // `columnTop` is the mesher's own answer, so the rim is now lifted over
-    // whatever is actually drawn beside it. Over open water it is the lake bed,
-    // several units down, so a maximum against it changes nothing — which is
-    // what makes it safe on a span.
-    const guard = prof.rimGuard;
-    // ALONG THE ROAD THE GUARD IS HALF A RING, NOT HALF A CELL, and that is the
-    // last of issue #15 rather than a refinement.
-    //
-    // Across the road a rim vertex is responsible for one terrain cell, so
-    // `rimGuard` (half a cell diagonal) is the right reach. ALONG it, the
-    // ribbon between two rings is a CHORD spanning `SEG_LEN`, and the shoulder
-    // it is drawn over is `round(deck)` — an integer that flips by a whole unit
-    // as the deck passes each half. Two consecutive rings either side of a flip
-    // are both correctly guarded, and the chord between them still passes a
-    // full unit under the column in the middle. Sampling 0.75 forward and back
-    // cannot see a flip 1.5 away.
-    //
-    // Measured on seed 1337, once `test-road`'s own pattern was corrected so it
-    // could see any of this: 191 of 5296 cross-section samples, worst 0.569,
-    // and the worst of them 4.8 units off the centreline of a perfectly
-    // ordinary straight stretch — no fork, no terminus, nothing overlapping.
-    const along = SEG_LEN;
-    const out = Math.sign(d) * guard;
-    // THE WHOLE SPAN THE VERTEX ANCHORS, SWEPT ON THE WORLD GRID.
-    //
-    // Two things defeated the old stencil, and both are visible in the report.
-    //
-    // It sampled in ROAD space — outward across the corridor and `along` either
-    // way down it. The ground is 1x1 cells in WORLD axes, so a road at an angle
-    // to the grid meets it corner-first and a road-space stencil steps
-    // diagonally past the very cubes it is looking for. That is the single
-    // green cube corner in the picture, and it is why this survived on the
-    // angled stretches while the axis-aligned ones looked clean.
-    //
-    // And it sampled two points along, when a rim vertex is the endpoint of
-    // chords reaching `SEG_LEN` either side of it. Any cube under the middle of
-    // a chord has to lift BOTH its ends or the chord still passes under it.
-    //
-    // So it marches the span at one-unit steps — a cell's own width, so no cell
-    // in it is skipped — and at each step reads the two lateral offsets that
-    // bracket the rim. Fourteen queries per rim vertex, at world creation, on a
-    // geometry that is built once: about ten thousand calls for the network,
-    // which is a fraction of one chunk of terrain.
-    const cell = 0.5;
-    const offsets: Array<readonly [number, number]> = [];
-    for (let a = -along; a <= along + 1e-6; a += 1) {
-      offsets.push([tx * a, tz * a]);
-      offsets.push([tx * a + px * out, tz * a + pz * out]);
-    }
-    // ...and the four cells whose corners touch the vertex itself, which is the
-    // world-axis reach a tangent sweep cannot supply on a diagonal.
-    offsets.push([cell, cell], [cell, -cell], [-cell, cell], [-cell, -cell]);
-    for (const [gx, gz] of offsets) {
-      // BOTH, and taking only one of them is wrong in a different way each.
-      // `surfaceAt` is the walking surface: inside a rim that is the deck, and
-      // it cannot see a cube standing above it — read at the failing column,
-      // collision said 16 while the mesher drew 17. `columnTop` is the drawn
-      // cube: inside a rim that is the SUNK column, deliberately 0.62 under the
-      // deck, so on its own it LOWERS the guard and makes things worse
-      // (measured, 22 samples became 53). The rim clears whatever is highest.
-      const gx0 = p.x + px * sd + gx;
-      const gz0 = p.z + pz * sd + gz;
-      const g = Math.max(surfaceAt(gx0, gz0), columnTop(gx0, gz0));
-      if (g > y) y = g;
-    }
-  }
+  // This used to raise a rim vertex to the highest walking surface within half
+  // a cell of itself, on the argument that it "can only rise, never sink".
+  // Rising is not free. The ribbon IS the walking surface — the founding rule
+  // of the whole corridor — so a ribbon drawn above it is a hero standing
+  // INSIDE the road. Measured at the rim: 1.031, with 161 samples over 0.2 on
+  // one stretch. The centreline sink pass never saw it, because it samples the
+  // middle of the carriageway where the deck and the ribbon agree by
+  // construction; it took a screenshot of the hero buried to the waist.
+  //
+  // The thing the lift existed to hide — a terrain cube standing through the
+  // gravel — is taken from the other end now, by lowering the GROUND.
+  // `Terrain.columnTopAtCell` clips a column to the lowest walking surface its
+  // own cell touches. That direction is safe where lifting was not: outside a
+  // rim `getHeight` IS the drawn column, so collision follows the drawing down
+  // instead of being left behind above it.
   return { x: p.x + px * d, y, z: p.z + pz * d };
 }
 
@@ -1339,6 +1264,44 @@ function sectionColour(
   // above already covers. See the note where `disrepair` would have been, in
   // path-profile.ts.
   return [base[0] * m, base[1] * m, base[2] * m];
+}
+
+/**
+ * Re-space a clipped deck at RING_LEN, so the ribbon's chords are a cell long.
+ *
+ * The router works at `SEG_LEN` 3, which is the right spacing for a ROUTE — it
+ * is what keeps the spatial grid's buckets small and the plan view smooth. It
+ * is the wrong spacing for the DRAWING, and every reading in this file that
+ * refuses to go to zero says so: the shoulder a ribbon is laid over is
+ * `round(deck)`, an integer that flips by a whole unit as the deck passes each
+ * half, and a chord three units long over a surface that steps by one either
+ * passes under a cube (the ground shows through) or over the walking surface
+ * (the hero is buried in the road). Measured on seed 1337 at 3 units, both at
+ * once: 45 columns with ground through the gravel at worst 0.899, and 250 with
+ * the ribbon above the hero's feet at worst 0.737.
+ *
+ * A cell is one unit, so rings a cell apart cannot straddle a flip.
+ */
+function subdivide(pts: RoadSample[]): RoadSample[] {
+  if (pts.length < 2) return pts;
+  const out: RoadSample[] = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const n = Math.max(1, Math.round(Math.hypot(b.x - a.x, b.z - a.z) / RING_LEN));
+    for (let k = 1; k <= n; k++) {
+      const t = k / n;
+      out.push({
+        x: a.x + (b.x - a.x) * t,
+        z: a.z + (b.z - a.z) * t,
+        y: a.y + (b.y - a.y) * t,
+        // A ring between two samples inherits the span flag, the same argument
+        // `builtDeck` makes: half a bridge is not a thing.
+        bridge: a.bridge || b.bridge,
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -1435,12 +1398,6 @@ export function buildRoadRibbon(
   roads: readonly Road[],
   seed: number,
   surfaceAt: (x: number, z: number) => number,
-  /**
-   * The top of the DRAWN column at a point — `Terrain.columnHeight`, not
-   * `getHeight`. Only the rim guard uses it; see `sectionAt`. Defaults to
-   * `surfaceAt` for a caller with no voxel ground under it (the lab stage).
-   */
-  columnTop: (x: number, z: number) => number,
   /** Per-road nudge, so two ribbons resolved onto one surface cannot z-fight. */
   liftBias = 0,
   /** Forks this arm must not draw over. See `buildJunctionApron`. */
@@ -1461,7 +1418,7 @@ export function buildRoadRibbon(
     // GROWS FROM THE APRON: it starts on the rim and the apron covers the rest,
     // which is the whole of issue #45 — three ribbons all drawn to the node,
     // each ending in a square cross-section on top of the other two.
-    const pts = clipToApron(builtDeck(road), aprons);
+    const pts = subdivide(clipToApron(builtDeck(road), aprons));
     if (pts.length < 2) continue;
     const prof = road.profile;
     const XS = prof.xs;
@@ -1486,7 +1443,7 @@ export function buildRoadRibbon(
       const ring = pos.length / 3;
       for (let k = 0; k < XS.length; k++) {
         const d = XS[k];
-        const v = sectionAt(surfaceAt, columnTop, prof, p, px, pz, tx, tz, d);
+        const v = sectionAt(surfaceAt, prof, p, px, pz, tx, tz, d);
         pos.push(v.x, v.y + RIBBON_LIFT + liftBias, v.z);
         nrm.push(0, 1, 0);
         const c = sectionColour(seed, prof, p, k, d);
@@ -1661,8 +1618,6 @@ export function buildJunctionApron(
   roads: readonly Road[],
   seed: number,
   surfaceAt: (x: number, z: number) => number,
-  /** See `buildRoadRibbon` — the rim guard needs the DRAWN column. */
-  columnTop: (x: number, z: number) => number,
   liftBias = 0,
 ): {
   pos: number[]; nrm: number[]; col: number[]; idx: number[];
@@ -1730,7 +1685,7 @@ export function buildJunctionApron(
     const pz = tx;
     const ends: Edge[] = [];
     for (let k = 0; k < XS.length; k++) {
-      const v = sectionAt(surfaceAt, columnTop, road.profile, p, px, pz, tx, tz, XS[k]);
+      const v = sectionAt(surfaceAt, road.profile, p, px, pz, tx, tz, XS[k]);
       const a = ang(v.x, v.z);
       dirs.push({
         x: v.x, z: v.z, y: v.y, a, c: sectionColour(seed, road.profile, p, k, XS[k]),
