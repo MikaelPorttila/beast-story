@@ -49,11 +49,24 @@ const RELEASE_DRAIN = 6.0;
  *
  * The speeds this multiplies are the species' (Sproutle 3.2 … Galebird 8.0)
  * against a hero who walks at 6 and sprints at 9.6, so the multiplier is what
- * decides whether a mount is worth having. 1.85 measured: Emberfox 9.6 (a
- * sprint you can hold forever), Boulderpup 7.8, Sproutle 5.9 — the slow tank
- * really is slower than running, which is the point of picking a mount at all.
+ * decides whether a mount is worth having.
+ *
+ * 2.25 measured: Sparkit and Umbrakit 12.2, Emberfox 11.7, Graveborn 11.3,
+ * Graveback 9.9, Boulderpup 9.5, Sproutle 7.2. The old 1.85 put the whole
+ * middle of that table at or under a sprint (Emberfox 9.6, Boulderpup 7.8,
+ * Sproutle 5.9) and argued the slow tank SHOULD be slower than running. It
+ * should not: the sprint is holdable forever, so a mount that merely ties it is
+ * a downgrade you paid a bond for. Issue #107. What survives of that stance is
+ * the ORDER — the two tanks are still the slowest things you can ride, and
+ * Sproutle at 7.2 still trades travel for what it is otherwise good at — while
+ * everything from Graveback up now travels better than the hero's own legs.
+ *
+ * The ceiling is FLY_CRUISE, not comfort: 2.25 puts the fastest gallop at 12.2
+ * just under Galebird's 12.4, so the sky is still the fastest way to cross the
+ * map and that constant needs no matching nudge. Tuned here and not in
+ * `stats.speed`, which also drives follow and combat.
  */
-const GALLOP = 1.85;
+const GALLOP = 2.25;
 /**
  * Flyers cruise a little more gently than the ground gallop, because they also
  * get a third axis and never have to go around anything: Galebird 12.4 u/s,
@@ -62,7 +75,7 @@ const GALLOP = 1.85;
 const FLY_CRUISE = 1.55;
 /**
  * What a water beast is worth IN WATER: the beast's own follow speed times
- * this, against the ground gallop's 1.85 and the hero's 6 on foot / 9.6 at a
+ * this, against the ground gallop's 2.25 and the hero's 6 on foot / 9.6 at a
  * sprint.
  *
  * 3.2, and it is deliberately the biggest number in this file. A mount has to
