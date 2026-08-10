@@ -775,8 +775,32 @@ export class RoadNetwork implements RoadField, RoadClearance {
     // The epsilon is against the blend in `Terrain.heightCont` returning
     // 12.999999 for a target of 13 and flooring a whole unit low. It cannot
     // raise a floor: an integer plus a thousandth floors to that integer.
-    this.carveTarget = RoadNetwork.surfaceOf(prof, this.nDeck, d) + 0.001
-      - prof.sink * (1 - smoothstep(prof.deckHalf, prof.deckEdge - prof.shoulderIn, d));
+    // A COLUMN IS A CELL, NOT A POINT, AND IT IS CUT TO THE LOWEST SURFACE IT
+    // TOUCHES.
+    //
+    // This is sampled at a column's CENTRE and the answer is applied to the
+    // whole 1x1 cell, so on the verge — the only place `surfaceOf` changes with
+    // distance — the cell's inner corner sits up to half a cell diagonal
+    // NEARER the centreline, where the surface drawn over it is lower. Cut to
+    // the centre's value and that corner stands proud of the ribbon: the ramp
+    // climbs at most 0.5 over `verge - shoulderIn`, which is 0.357 a unit, and
+    // 0.707 of a unit inward is 0.25 of overshoot. Measured on seed 1337 at
+    // cube resolution — 0.2 across and 0.3 along, fine enough to land on a
+    // corner rather than step over it — 38 of 9963 samples on one road, worst
+    // 0.200. It is the single green cube corner in the report, and it appears
+    // wherever a road runs at an angle to the grid, because that is when a
+    // cell's corner rather than its edge is what reaches in.
+    //
+    // `carveInset` is the same half-cell diagonal already used to hold the
+    // earthworks back from a terminal plane, for the same reason and with the
+    // same number: it is what a column measures, not what a path is like.
+    //
+    // Only the RAMP moves. Inside `deckHalf` the surface is the deck and
+    // outside `shoulderAt` it is `round(deck)`; both are flat in `d`, so
+    // reaching inward there returns the same number it already had.
+    const dCell = d > prof.carveInset ? d - prof.carveInset : 0;
+    this.carveTarget = RoadNetwork.surfaceOf(prof, this.nDeck, dCell) + 0.001
+      - prof.sink * (1 - smoothstep(prof.deckHalf, prof.deckEdge - prof.shoulderIn, dCell));
     return 1 - smoothstep(prof.carveCore, prof.carveBlend, d);
   }
 

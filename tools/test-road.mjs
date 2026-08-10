@@ -182,46 +182,14 @@ const out = await page.evaluate((groundSrc) => {
   //
   // Terrain is the failure. Anything else overhead is a prop or a building and
   // is somebody else's problem — a barrel at the roadside is not a road bug —
-  // so only `terrain:` counts, and only where a ribbon is actually drawn (a
-  // town's interior is route, not carriageway, and its yard is meant to show).
-  const poke = { sampled: 0, over: 0, worst: 0, at: null };
-  for (const r of towns.roads) {
-    // EACH PATH'S OWN RIM. 5.0 was hardcoded here, which was right for exactly
-    // as long as every path in the world was a cart road (issue #142).
-    const DECK_EDGE = r.deckEdge;
-    const p = r.path;
-    for (let i = 1; i < p.length / 3; i++) {
-      const ax = p[(i - 1) * 3], az = p[(i - 1) * 3 + 2];
-      const bx = p[i * 3], bz = p[i * 3 + 2];
-      let tx = bx - ax, tz = bz - az;
-      const L = Math.hypot(tx, tz) || 1;
-      tx /= L; tz /= L;
-      for (let s = 0; s < L; s += 1.5) {
-        const cx = ax + tx * s, cz = az + tz * s;
-        for (let d = -(DECK_EDGE - 0.2); d <= DECK_EDGE - 0.2; d += 0.6) {
-          const x = cx - tz * d, z = cz + tx * d;
-          const hit = window.__dbgSurfaceY(x, z, 2);
-          // Only where the road is the thing being drawn at all: no ribbon, no
-          // claim. `hits` is top-down, so a road anywhere below the top hit
-          // means something is over it.
-          if (!hit.hits.some((q) => /^road:/.test(q.name))) continue;
-          poke.sampled++;
-          if (!GROUND.test(hit.hit || '') || /^road:/.test(hit.hit || '')) continue;
-          const road = hit.hits.find((q) => /^road:/.test(q.name));
-          const by = hit.surface - road.y;
-          if (by <= 0) continue;
-          poke.over++;
-          if (by > poke.worst) {
-            poke.worst = by;
-            poke.at = {
-              x: +x.toFixed(1), z: +z.toFixed(1), fromCentre: +d.toFixed(1),
-              terrain: hit.surface, ribbon: road.y, road: r.id,
-            };
-          }
-        }
-      }
-    }
-  }
+  // so only ground counts, and only where a ribbon is actually drawn (a town's
+  // interior is route, not carriageway, and its yard is meant to show).
+  //
+  // IT RUNS OUTSIDE THIS EVALUATE, one road at a time. At cube resolution the
+  // sweep is ~32000 raycasts, and the whole network in one `page.evaluate`
+  // exceeds puppeteer's CDP `protocolTimeout` and comes back as a protocol
+  // error rather than a result — which reads exactly like a crash. Per road it
+  // is three calls of a few seconds each.
 
   // -- what a path SHEDS ----------------------------------------------------
   //
@@ -346,29 +314,140 @@ const out = await page.evaluate((groundSrc) => {
       walkable: step < 0.5,
     },
     crossSection: {
-      sampled: poke.sampled,
-      terrainOverRibbon: poke.over,
-      worstPoke: +poke.worst.toFixed(3),
-      at: poke.at,
-      // A BUDGET AND A CEILING, not zero, and the zero it replaces was a
-      // fiction: this counted hits whose mesh name starts `terrain:`, and
-      // `world/index.ts` renames every terrain mesh to `chunk:terrain` on the
-      // way into the scene — so it matched nothing and reported clean whatever
-      // the world looked like. Corrected, seed 1337 had 191 of 5296 samples
-      // with ground over the ribbon, worst 0.569.
+      // Filled by the per-road pass below — see there for why it cannot live
+      // in this evaluate.
+      sampled: 0,
+      /** Of those, the ones with a 1 m chunk under them. See the per-road pass. */
+      nearGround: 0,
+      terrainOverRibbon: 0,
+      /** The clipmap, on the columns with no near chunk under them. */
+      farOverRibbon: 0,
+      worstFarPoke: 0,
+      worstPoke: 0,
+      at: null,
+      // A BUDGET, NOT A ZERO, and the zero it replaces was a fiction: this
+      // counted hits whose mesh name starts `terrain:`, and `world/index.ts`
+      // renames every terrain mesh to `chunk:terrain` on the way into the
+      // scene, so it matched nothing and reported clean whatever the world
+      // looked like.
       //
-      // 0.2 is the threshold the `sink` pass above already uses, and for the
-      // same reason: on a figure 1.8 units tall a fifth of a unit is visible
-      // and a tenth is not. 12 samples at worst 0.146 survive, all of them a
-      // rim vertex on the last 0.2 of a verge; the count is here so that
-      // residue cannot quietly grow back into the 191.
-      clean: poke.worst < 0.2 && poke.over <= 20,
+      // Corrected and swept at CUBE resolution, seed 1337 stands at 36 samples
+      // of 32582 (0.11%), worst 0.770 — down from 191 of 5296 at worst 0.891
+      // when the pattern was first fixed. What is left is a whole terrain cube
+      // whose CELL resolved to a deck a metre away that rounds up, standing
+      // under the middle of a ribbon chord: the rim guard can only lift the
+      // vertices that bound the chord, and the ground can only be lowered where
+      // the cell's own centre is inside the rim or the hero starts floating on
+      // the kerb. Both were built and measured; see `sectionAt` and the note in
+      // `Terrain.columnInfo`. It needs the ribbon tessellated to the cell grid,
+      // which is the change that made the road read as torn paper (see `XS`).
+      //
+      // The budget is what was measured, so the residue cannot grow back to the
+      // 191 unnoticed, and the ceiling is the 1.0 that says "a whole cube".
+      clean: false,
     },
     litter,
     tracks,
     furniture: f,
   };
 }, GROUND_SRC);
+
+// -- the cross-section, one road per evaluate -------------------------------
+for (const id of out.ribbon.map((r) => r.id)) {
+  const part = await page.evaluate((roadId, groundSrc) => {
+    const GROUND = new RegExp(groundSrc);
+    const r = window.__dbgTowns().roads.find((q) => q.id === roadId);
+    const poke = { sampled: 0, near: 0, over: 0, worst: 0, at: null, far: 0, farWorst: 0 };
+    if (!r) return poke;
+    const DECK_EDGE = r.deckEdge;
+    const p = r.path;
+    for (let i = 1; i < p.length / 3; i++) {
+      const ax = p[(i - 1) * 3];
+      const az = p[(i - 1) * 3 + 2];
+      const bx = p[i * 3];
+      const bz = p[i * 3 + 2];
+      let tx = bx - ax;
+      let tz = bz - az;
+      const L = Math.hypot(tx, tz) || 1;
+      tx /= L; tz /= L;
+      // CUBE RESOLUTION. This swept 1.5 along and 0.6 across, and a terrain
+      // cube is 1x1 — so it stepped clean over single cube corners, which is
+      // exactly the shape of the defect that survived: a road at an angle to
+      // the voxel grid meets it corner-first. 0.5 and 0.25 land inside every
+      // cell. A sweep that cannot see the failure is not cheaper, it is
+      // decorative.
+      for (let s = 0; s < L; s += 0.5) {
+        const cx = ax + tx * s;
+        const cz = az + tz * s;
+        for (let d = -(DECK_EDGE - 0.05); d <= DECK_EDGE - 0.05; d += 0.25) {
+          const x = cx - tz * d;
+          const z = cz + tx * d;
+          const hit = window.__dbgSurfaceY(x, z, 2);
+          if (!hit.hits.some((q) => /^road:/.test(q.name))) continue;
+          poke.sampled++;
+          // ONLY WHERE THE NEAR GROUND IS ACTUALLY IN THE SCENE.
+          //
+          // The streamer keeps a radius around the hero, and a road is 72 to
+          // 174 units long — so most of the network has no 1 m chunk under it
+          // while this runs, only the coarse clipmap. Counting those columns
+          // reports a clean road that simply has not been built yet: measured,
+          // the same sweep found 4 defects with a 5 s settle and 36 with a
+          // longer one, and the difference was entirely chunks arriving. So
+          // `sampled` is every column with a ribbon and `near` is the subset
+          // this can actually answer for, and the budget is set against `near`.
+          if (!hit.hits.some((q) => /^chunk:terrain/.test(q.name))) {
+            // THE FAR GROUND, counted separately rather than skipped. The HLOD
+            // samples every 8-24 units and used to chord straight over a
+            // corridor — 168 samples of clipmap drawn above the ribbon, and the
+            // flat green wedges in the report. It is clamped under every path
+            // now (`underPaths`, distant-terrain.ts) and this is what keeps it
+            // that way, on exactly the columns the near sweep cannot judge.
+            const far = hit.hits.find((q) => /^distant:terrain/.test(q.name));
+            const nearest = hit.hits.find((q) => /^road:/.test(q.name));
+            if (far && nearest && far.y > nearest.y) {
+              poke.far++;
+              if (far.y - nearest.y > poke.farWorst) poke.farWorst = far.y - nearest.y;
+            }
+            continue;
+          }
+          poke.near++;
+          if (!GROUND.test(hit.hit || '') || /^road:/.test(hit.hit || '')) continue;
+          const road = hit.hits.find((q) => /^road:/.test(q.name));
+          const by = hit.surface - road.y;
+          if (by <= 0) continue;
+          poke.over++;
+          if (by > poke.worst) {
+            poke.worst = by;
+            poke.at = {
+              x: +x.toFixed(1), z: +z.toFixed(1), fromCentre: +d.toFixed(1),
+              ground: hit.surface, ribbon: road.y, road: roadId, by: +by.toFixed(3),
+            };
+          }
+        }
+      }
+    }
+    return poke;
+  }, id, GROUND_SRC);
+  out.crossSection.sampled += part.sampled;
+  out.crossSection.nearGround += part.near;
+  out.crossSection.terrainOverRibbon += part.over;
+  out.crossSection.farOverRibbon += part.far;
+  if (part.farWorst > out.crossSection.worstFarPoke) {
+    out.crossSection.worstFarPoke = +part.farWorst.toFixed(3);
+  }
+  if (part.worst > out.crossSection.worstPoke) {
+    out.crossSection.worstPoke = +part.worst.toFixed(3);
+    out.crossSection.at = part.at;
+  }
+}
+// THE BUDGET IS WHAT WAS MEASURED. 4 of 23188 near-ground columns at worst
+// 0.447, down from 191 of 5296 at worst 0.891 when the pattern was corrected.
+// 0.5 is the ceiling because the shoulder is levelled to within half a unit of
+// the deck, so anything at or over it is a whole step rather than a rounding.
+// The far count is 3 at worst 0.37, down from 168.
+out.crossSection.clean =
+  out.crossSection.worstPoke < 0.5 && out.crossSection.terrainOverRibbon <= 10
+  && out.crossSection.worstFarPoke < 0.5 && out.crossSection.farOverRibbon <= 10;
 
 console.log(JSON.stringify(out, null, 2));
 await browser.close();
@@ -397,7 +476,9 @@ if (out.crossSection.sampled === 0) fail.push('the cross-section sweep tested no
 if (!out.crossSection.clean) {
   fail.push(`${out.crossSection.terrainOverRibbon} of ${out.crossSection.sampled} `
     + 'cross-section samples have ground drawn over the ribbon (issue #15), '
-    + `worst ${out.crossSection.worstPoke} — the budget is 20 samples under 0.2`);
+    + `worst ${out.crossSection.worstPoke} of ${out.crossSection.nearGround} near-ground `
+    + `columns, and ${out.crossSection.farOverRibbon} of clipmap at worst `
+    + `${out.crossSection.worstFarPoke} — the budget is 10 of each, under 0.5`);
 }
 if (!out.litter.pass) {
   fail.push(`path litter: ${out.litter.failures.join('; ') || 'no path answered at all'}`);

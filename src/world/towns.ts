@@ -1226,6 +1226,7 @@ export class Towns {
   private ribbonCtx!: {
     terrainMat: THREE.Material;
     surfaceAt: (x: number, z: number) => number;
+    columnTop: (x: number, z: number) => number;
     seed: number;
   };
   /**
@@ -1388,7 +1389,14 @@ export class Towns {
 
     // -- roads ---------------------------------------------------------------
     let roadIdx = 0;
-    this.ribbonCtx = { terrainMat, surfaceAt: (x, z) => terrain.getHeight(x, z), seed };
+    this.ribbonCtx = {
+      terrainMat,
+      surfaceAt: (x, z) => terrain.getHeight(x, z),
+      // THE DRAWN COLUMN, which on a carriageway is not `getHeight` — see the
+      // rim guard in `sectionAt`. Same flooring the mesher does.
+      columnTop: (x, z) => terrain.columnHeight(Math.floor(x), Math.floor(z)),
+      seed,
+    };
     this.group.add(this.pathGroup);
     /** See `fences` above: the readout `tools/test-fence.mjs` asserts over. */
     const builtFences: Fence[] = [];
@@ -1568,7 +1576,9 @@ export class Towns {
     for (const road of roads) {
       if (!road.profile.roles.draw) continue;
       add(
-        buildRoadRibbon([road], ctx.seed, ctx.surfaceAt, bias++ * 0.003, junctions),
+        buildRoadRibbon(
+          [road], ctx.seed, ctx.surfaceAt, ctx.columnTop, bias++ * 0.003, junctions,
+        ),
         `road:${road.id}`,
       );
     }
@@ -1576,7 +1586,7 @@ export class Towns {
     // reading it in that order is the only way the geometry makes sense.
     for (const j of junctions) {
       add(
-        buildJunctionApron(j, roads, ctx.seed, ctx.surfaceAt, bias++ * 0.003),
+        buildJunctionApron(j, roads, ctx.seed, ctx.surfaceAt, ctx.columnTop, bias++ * 0.003),
         'road:junction',
       );
     }
