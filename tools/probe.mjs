@@ -178,6 +178,10 @@ const SOLO = new Set([
   // chunk and rebuilds them, which is about as much state as a probe can drive.
   // It also re-grounds the hero, so nothing about it is read-only.
   'path-edit',
+  // Builds real voxel terrain and meshes it in the LAB, which is a different
+  // world from the game's — it opens its own page and drives no hero, but it
+  // raycasts a scene it built itself and SOLO is the default.
+  'road-lab',
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output

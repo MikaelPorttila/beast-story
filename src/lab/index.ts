@@ -55,6 +55,7 @@ import { HeroAnimator, type AnimInput } from '../player/animations';
 import type { WeaponModelId } from '../player/weapons';
 import { StubWorld } from './stub-world';
 import { buildPathsStage, groundAt, stageFraming } from './paths-stage';
+import { buildRoadStage, roadCaseFraming } from './road-stage';
 import {
   FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT,
   FENCE_RAIL_HEIGHT, FENCE_RAIL_WIDTH,
@@ -255,6 +256,78 @@ if (params.get('orbs') === '1') {
  *
  * The stage brings its own ground, so the checkerboard floor goes.
  */
+/**
+ * `?road=<case>` — the road sandbox (src/lab/road-stage.ts).
+ *
+ * Real voxel ground and the real carve, which `?fence=` deliberately does not
+ * have: every defect the road system has had is about a smooth ribbon meeting
+ * ground made of cubes, and none of it can happen over an analytic field. This
+ * is where a road case is reproduced in two seconds instead of by loading the
+ * world and walking to whichever of three roads happens to contain it.
+ */
+const roadParam = params.get('road');
+if (roadParam) {
+  const floor = labFloor();
+  if (floor) floor.visible = false;
+  const stage = buildRoadStage(engine.scene, roadParam);
+  const frame = roadCaseFraming(stage.cases, roadParam);
+  subjectPos.copy(frame.at);
+  subjectHeight = 3;
+  lineupWidth = frame.dist;
+  /**
+   * WHAT IS DRAWN AT A COLUMN, AND WHAT YOU STAND ON — the lab's own
+   * `__dbgSurfaceY`.
+   *
+   * `main.ts` has one and the lab does not, because until now nothing in here
+   * had ground that could disagree with its own geometry. The road sandbox
+   * does, and the whole point of it is the disagreement, so it needs the same
+   * question asked the same way: raycast the ACTUAL scene just over the walking
+   * surface and report every hit top-down.
+   */
+  const labRay = new THREE.Raycaster();
+  labRay.layers.enableAll();
+  const labDown = new THREE.Vector3(0, -1, 0);
+  (window as unknown as {
+    __dbgRoadSurf: (x: number, z: number, above?: number) => unknown;
+  }).__dbgRoadSurf = (x, z, above = 2) => {
+    const ground = stage.getHeight(x, z);
+    labRay.set(new THREE.Vector3(x, ground + above, z), labDown);
+    labRay.far = above + 40;
+    const hits = labRay.intersectObjects(engine.scene.children, true)
+      .filter((h) => (h.object as THREE.Mesh).isMesh)
+      .map((h) => ({ name: h.object.name || 'Mesh', y: r3(h.point.y) }));
+    return {
+      hit: hits.length > 0 ? hits[0].name : null,
+      surface: hits.length > 0 ? hits[0].y : null,
+      ground: r3(ground),
+      hits,
+    };
+  };
+  (window as unknown as {
+    __dbgRoadWorld: (x: number, z: number) => unknown;
+  }).__dbgRoadWorld = (x, z) => ({ ground: r3(stage.getHeight(x, z)) });
+
+  // Every case's deck, so a probe can sweep it without knowing how the stage
+  // built it — the same contract `__dbgFence` has.
+  (window as unknown as { __dbgRoadLab: () => unknown }).__dbgRoadLab = () => ({
+    // What the crossing merge did. A sandbox whose crossroads quietly came back
+    // as two separate roads is a sandbox that tests nothing, so the refusals
+    // travel with the cases.
+    cross: stage.crossReport,
+    cases: stage.cases.map((c) => ({
+      id: c.id,
+      at: { x: r3(c.at.x), z: r3(c.at.z) },
+      junctions: c.junctions.map((j) => ({ x: r3(j.x), z: r3(j.z), y: r3(j.y) })),
+      roads: c.roads.map((r) => ({
+        id: r.id,
+        profile: r.profile.id,
+        deckEdge: r3(r.profile.deckEdge),
+        pts: r.pts.map((q) => ({ x: r3(q.x), z: r3(q.z), y: r3(q.y), bridge: q.bridge })),
+      })),
+    })),
+  });
+}
+
 const fenceParam = params.get('fence');
 if (fenceParam) {
   const floor = labFloor();
