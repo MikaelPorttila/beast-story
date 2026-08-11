@@ -93,6 +93,14 @@ const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
  * `{ "kind": "enemy-killed", "enemies": ["enemy:gloopling"] }` is a cull list.
  * An absent filter is the useful default in every case where the fact itself is
  * already the interesting part.
+ *
+ * A FILTER CONSTRAINS ONLY THE KIND IT NAMES, and on any other kind it is a
+ * statement about what the objective is ABOUT rather than about what counts.
+ * That is not a loophole, it is the second job these fields do: the world marks
+ * (world/quest-markers.ts) point at whatever an objective names, and an
+ * objective can be about a creature without counting per-creature —
+ * `{ "kind": "orb-thrown", "species": ["sproutle"] }` counts every throw the
+ * player makes and puts the ring over the Sproutle they were told to throw at.
  */
 export interface ObjectiveTrigger {
   readonly kind: ObjectiveTriggerKind;

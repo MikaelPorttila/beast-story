@@ -52,6 +52,7 @@ import { contentIssues, reportContentIssue } from './core/content-bridge';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { NPC_TALK_RANGE } from './world/npc';
+import { QuestMarkers, type QuestMarkerKind, type QuestMarkerSpot } from './world/quest-markers';
 import { TRAIL_PROFILE } from './world/path-profile';
 import {
   FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT,
@@ -2787,6 +2788,109 @@ const journal = new JournalPanel({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Quest marks over the world (PR feedback on #181)
+// ---------------------------------------------------------------------------
+/**
+ * WHO IS MARKED, recomputed from quest facts rather than pushed by a quest.
+ *
+ * Derived and not stored, for the reason `questTab` gives one function up: what
+ * a mark means is "this person has work" and "this beast is what you are
+ * counting", and both are questions about the CURRENT state of every loaded
+ * quest. A set that a quest wrote into would be a second copy of that state,
+ * and the first thing to go stale when a package is released.
+ *
+ * Keyed the way the world keys, not the way content does: an `NpcInfo.id` is
+ * `gain` where a `ContentId` is `npc:gain`, and an `Enemy.species` is
+ * `wild-sproutle` where a taming objective names the BEAST it becomes,
+ * `sproutle`. Both maps are filled here so the per-frame loop is two lookups.
+ */
+const markedNpcs = new Map<string, QuestMarkerKind>();
+const markedEnemies = new Set<string>();
+const markedBeasts = new Set<string>();
+
+/** Every objective met — the quest is ready to hand in, but is not handed in. */
+function questIsDone(asset: ContentAsset<QuestData>): boolean {
+  return asset.data.objectives.every(
+    (o) => content.state.progress(asset.id, o.key) >= (o.count ?? 1),
+  );
+}
+
+function refreshQuestMarks(): void {
+  markedNpcs.clear();
+  markedEnemies.clear();
+  markedBeasts.clear();
+  for (const asset of content.query.available<QuestData>('quest')) {
+    const tab = questTab(asset);
+    if (tab !== 'available' && tab !== 'active') continue;
+    const giver = asset.data.giver;
+    // TURN-IN BEATS OFFER when one person holds both, because the quest in your
+    // hand is the one you are being asked about.
+    if (giver !== undefined && giver !== '') {
+      const who = giver.slice('npc:'.length);
+      if (tab === 'available') {
+        if (!markedNpcs.has(who)) markedNpcs.set(who, 'offer');
+      } else if (questIsDone(asset)) {
+        markedNpcs.set(who, 'turnIn');
+      }
+    }
+    if (tab !== 'active') continue;
+    for (const objective of asset.data.objectives) {
+      const trigger = objective.trigger;
+      if (!trigger) continue;
+      if (content.state.progress(asset.id, objective.key) >= (objective.count ?? 1)) continue;
+      for (const id of trigger.enemies ?? []) markedEnemies.add(id.slice('enemy:'.length));
+      for (const id of trigger.species ?? []) markedBeasts.add(id);
+    }
+  }
+}
+
+/** Marker heights: over the head, not on it. A hero is 1.8 units tall. */
+const NPC_MARK_RISE = 2.5;
+const ENEMY_MARK_RISE = 0.75;
+
+const questMarkers = new QuestMarkers(engine.scene);
+/** Scratch, refilled each frame — see the pooling note in world/quest-markers.ts. */
+const questMarkSpots: QuestMarkerSpot[] = [];
+let questMarkCount = 0;
+
+function markSpot(x: number, y: number, z: number, kind: QuestMarkerKind): void {
+  const spot = questMarkSpots[questMarkCount];
+  if (spot) {
+    spot.x = x; spot.y = y; spot.z = z; spot.kind = kind;
+  } else {
+    questMarkSpots.push({ x, y, z, kind });
+  }
+  questMarkCount++;
+}
+
+/**
+ * Put this frame's marks where the things they are about currently are.
+ *
+ * Per FRAME rather than per slice, and beside the compass for its reason: a
+ * mark is presentation, it is culled against the camera this frame placed, and
+ * an NPC's published position is already this frame's.
+ */
+function syncQuestMarks(dt: number): void {
+  questMarkCount = 0;
+  if (markedNpcs.size > 0) {
+    for (const n of world.npcs?.all ?? []) {
+      const kind = markedNpcs.get(n.id);
+      if (kind) markSpot(n.x, n.y + NPC_MARK_RISE, n.z, kind);
+    }
+  }
+  if (markedEnemies.size > 0 || markedBeasts.size > 0) {
+    for (const e of combat.enemies) {
+      if (!e.targetable) continue;
+      const bond = markedBeasts.size > 0 ? combat.bondSpeciesOf(e) : null;
+      if (!markedEnemies.has(e.species) && !(bond && markedBeasts.has(bond))) continue;
+      markSpot(e.position.x, e.position.y + e.height + ENEMY_MARK_RISE, e.position.z, 'target');
+    }
+  }
+  questMarkers.update(dt);
+  questMarkers.set(questMarkSpots, questMarkCount, engine.camera);
+}
+
 /**
  * Redraw both readers of quest state.
  *
@@ -2799,6 +2903,9 @@ const journal = new JournalPanel({
 const refreshQuests = (): void => {
   hud.setQuests(questTrackRows());
   journal.refresh();
+  // The marks are the same fact drawn in the world instead of in a list, so
+  // they are recomputed by the same subscriber rather than by a second one.
+  refreshQuestMarks();
 };
 content.state.onChange((change) => {
   // `flag` is in here because the HUD switch IS a flag — see `hudFlag`.
@@ -2848,14 +2955,22 @@ function advanceObjectives(fact: QuestFact): void {
     for (const objective of asset.data.objectives) {
       const trigger = objective.trigger;
       if (!trigger || trigger.kind !== fact.kind) continue;
-      // Each filter is "any" when absent — see ObjectiveTrigger. A filter that
-      // is present and cannot match (no id on the fact) refuses, so a widened
-      // event that forgets to carry its id under-counts rather than over-counts.
-      if (trigger.enemies && !trigger.enemies.includes(fact.id ?? '')) continue;
-      if (trigger.species && !trigger.species.includes(fact.id ?? '')) continue;
-      if (trigger.item !== undefined && trigger.item !== fact.id) continue;
-      if (trigger.town !== undefined && trigger.town !== fact.id) continue;
-      if (trigger.zone !== undefined && trigger.zone !== fact.id) continue;
+      // EACH FILTER CONSTRAINS ITS OWN KIND AND NOTHING ELSE — see the note on
+      // ObjectiveTrigger. On another kind the field says what the objective is
+      // ABOUT, which is what the world mark points at, and constrains nothing:
+      // an orb-thrown objective that names a Sproutle still counts every throw.
+      // Absent is "any"; present and unmatched refuses, so a widened event that
+      // forgets to carry its id under-counts rather than over-counts.
+      if (fact.kind === 'enemy-killed' && trigger.enemies
+        && !trigger.enemies.includes(fact.id ?? '')) continue;
+      if (fact.kind === 'tamed' && trigger.species
+        && !trigger.species.includes(fact.id ?? '')) continue;
+      if (fact.kind === 'item-picked' && trigger.item !== undefined
+        && trigger.item !== fact.id) continue;
+      if (fact.kind === 'town-arrival' && trigger.town !== undefined
+        && trigger.town !== fact.id) continue;
+      if (fact.kind === 'zone-arrival' && trigger.zone !== undefined
+        && trigger.zone !== fact.id) continue;
       const have = content.state.progress(questId, objective.key);
       if (have < (objective.count ?? 1)) {
         content.state.setProgress(questId, objective.key, have + 1);
@@ -6367,6 +6482,7 @@ function frame(): void {
     c.chip.x = c.town.gateX;
     c.chip.z = c.town.gateZ;
   }
+  syncQuestMarks(dt);
   engine.camera.getWorldDirection(_compassFwd);
   hud.setCompass(
     Math.atan2(_compassFwd.x, -_compassFwd.z) * (180 / Math.PI),
@@ -6965,6 +7081,26 @@ beginPlay();
  * reason: the whole feature is a switch in one place changing what is drawn in
  * another, and a reading taken from the model at both ends would prove neither.
  */
+/**
+ * THE QUEST MARKS, as the frame last drew them — for tools/test-quest-marks.mjs.
+ *
+ * Two readings and not one, because they answer different questions. `marked`
+ * is the POLICY — who the campaign says has work — and is the half a probe can
+ * assert without standing anywhere in particular. `drawn` is what actually
+ * reached the scene after the distance cull, which is the half that catches a
+ * mark computed correctly and never rendered.
+ */
+(window as unknown as { __dbgQuestMarks: () => unknown }).__dbgQuestMarks = () => ({
+  marked: {
+    npcs: [...markedNpcs].map(([id, kind]) => ({ id, kind })).sort((a, b) => a.id < b.id ? -1 : 1),
+    enemies: [...markedEnemies].sort(),
+    beasts: [...markedBeasts].sort(),
+  },
+  drawn: questMarkSpots.slice(0, questMarkCount).map((s) => ({
+    kind: s.kind, x: +s.x.toFixed(2), y: +s.y.toFixed(2), z: +s.z.toFixed(2),
+  })),
+});
+
 (window as unknown as { __dbgJournal: () => unknown }).__dbgJournal = () => ({
   open: journal.isOpen,
   tab: journal.isOpen ? journal.activeTab : null,

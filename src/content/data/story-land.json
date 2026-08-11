@@ -29,7 +29,7 @@
             "key": "bond-practice",
             "text": { "key": "quest.land.firstLight.obj.bondPractice" },
             "count": 3,
-            "trigger": { "kind": "orb-thrown" }
+            "trigger": { "kind": "orb-thrown", "species": ["sproutle"] }
           }
         ],
         "onStart": [{ "do": "item.give", "item": "orb-tame", "count": 3 }],
