@@ -1,4 +1,4 @@
-import { loadPrefs, savePrefs, type Prefs } from '../core/prefs';
+import { AUTOSAVE_STEPS, DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from '../core/prefs';
 import { GFX_OPTIONS, storedGfx, storeGfx, type GfxSinks, type GfxValue } from '../core/gfx';
 import { t, language, languages, setLanguage, type StringKey } from '../i18n';
 import { fullscreenSurvivesEscape } from './fullscreen';
@@ -198,6 +198,15 @@ export interface SettingsHooks {
    */
   onHapticFeedback: (on: boolean) => void;
   /**
+   * The autosave interval moved (issue #171). Live, because the timer is
+   * already running and a change that only took effect next session would be
+   * indistinguishable from one that did nothing.
+   *
+   * Optional: the title screen shows this row before there is a session to save,
+   * and the value it stores is read when one starts.
+   */
+  onAutosaveInterval?: (minutes: number) => void;
+  /**
    * The music volume moved, 0..1. Live, and more obviously so than the other
    * two: this is the one setting on the panel whose effect the player can
    * already hear while they are looking at it.
@@ -372,7 +381,8 @@ export class SettingsPanel {
           }).join('')}</div></div>` +
         // Only in-game, and only under the row it explains. A disabled control
         // with no reason beside it is indistinguishable from a broken one.
-        (inGame ? `<div class="note">${escapeHtml(t('menu.settings.languageInGame'))}</div>` : '')) +
+        (inGame ? `<div class="note">${escapeHtml(t('menu.settings.languageInGame'))}</div>` : '') +
+        this.autosaveRow()) +
 
       this.section('controls',
         this.toggle('hapticFeedback', t('menu.settings.hapticFeedback'), this.prefs.hapticFeedback) +
@@ -419,6 +429,44 @@ export class SettingsPanel {
    * profile is the quietest — so a player who muted and came back leaves mute in
    * the direction they push, whichever it is.
    */
+  /**
+   * How often the game writes the character down (issue #171).
+   *
+   * BUILT LIKE THE VOLUME ROW, and for the same two reasons: OFF is a decision
+   * rather than the longest interval, so it stands outside the strip; and the
+   * intervals themselves are one control a player sweeps with left/right. What
+   * differs is only that there is no "quietest step to rove from" — a profile
+   * with autosave off still has a default interval to come back to, so the
+   * strip's stop is the shipped 5 rather than the first chip.
+   *
+   * The units are in the LABELS rather than in a heading, because "1 / 5 / 10"
+   * beside a row called Autosave is a number without a unit, and the one place
+   * a player could read it wrong is the one where they choose ten minutes
+   * thinking they chose ten seconds.
+   */
+  private autosaveRow(): string {
+    const now = this.prefs.autosaveMinutes;
+    const rove = now === 0 ? DEFAULT_PREFS.autosaveMinutes : now;
+    const steps = AUTOSAVE_STEPS.slice(1);
+    return `<div class="row vol">` +
+      `<span class="lbl">${escapeHtml(t('menu.settings.autosave'))}</span>` +
+      `<div class="vols">` +
+        `<button class="bs-menu-btn chip mute${now === 0 ? ' on' : ''}" type="button" ` +
+          `data-autosave="0">${escapeHtml(t('menu.off'))}</button>` +
+        `<div class="steps strip" data-group="autosave">${steps.map((m) =>
+          `<button class="bs-menu-btn chip${m === now ? ' on' : ''}" type="button" ` +
+          `data-autosave="${m}"${m === rove ? '' : ' tabindex="-1"'}>` +
+          `${escapeHtml(t('menu.settings.autosave.minutes', { n: String(m) }))}</button>`).join('')}</div>` +
+      `</div></div>`;
+  }
+
+  /** Store an interval and rebuild, the way `setVolume` does and for its reasons. */
+  private setAutosave(minutes: number): void {
+    this.prefs = savePrefs({ autosaveMinutes: minutes });
+    this.hooks.onAutosaveInterval?.(this.prefs.autosaveMinutes);
+    this.onRebuild?.(`[data-autosave="${minutes}"]`);
+  }
+
   private volumeRow(): string {
     const pc = this.volumePc;
     const rove = pc === 0 ? VOLUME_STEPS[1] : pc;
@@ -467,6 +515,12 @@ export class SettingsPanel {
     const vol = btn.getAttribute('data-vol');
     if (vol !== null) {
       this.setVolume(Number(vol));
+      return true;
+    }
+
+    const autosave = btn.getAttribute('data-autosave');
+    if (autosave !== null) {
+      this.setAutosave(Number(autosave));
       return true;
     }
 
@@ -533,6 +587,13 @@ export class SettingsPanel {
         const codes = languages().map((l) => l.code);
         const i = Math.max(0, codes.indexOf(language()));
         setLanguage(codes[(i + dir + codes.length) % codes.length]);
+        return true;
+      }
+      case 'autosave': {
+        const steps = AUTOSAVE_STEPS.slice(1);
+        const here = this.prefs.autosaveMinutes === 0
+          ? 0 : steps.indexOf(this.prefs.autosaveMinutes);
+        this.setAutosave(steps[Math.min(steps.length - 1, Math.max(0, here + dir))]);
         return true;
       }
       case 'vol': {

@@ -890,6 +890,13 @@ export const en = {
    * the same word the toggles' pills use.
    */
   'menu.settings.music': 'Music',
+  'menu.settings.autosave': 'Autosave',
+  /**
+   * The interval chips. The UNIT is in the chip rather than in the label,
+   * because "5" beside a row called Autosave is a number a player can read as
+   * seconds. `{n}` is the interval in minutes.
+   */
+  'menu.settings.autosave.minutes': '{n} min',
   'menu.settings.language': 'Language',
   /**
    * Under the language picker, and ONLY when Settings was opened from inside a

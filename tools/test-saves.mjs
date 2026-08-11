@@ -326,7 +326,89 @@ const readState = (page) => page.evaluate(() => {
 }
 
 // ---------------------------------------------------------------------------
-// 7. THE WHOLE THING THROUGH THE TITLE SCREEN, which is the only case here that
+// 7. AUTOSAVE, both halves — the timer and the quest trigger.
+//
+//    `autosaveSec=2` runs the same accumulator through the same comparison in
+//    seconds instead of minutes; a probe that waited for the shortest real
+//    setting would take a minute, and one that poked the accumulator directly
+//    would prove nothing about the path a player is on. Time is SIMULATED
+//    through __dbgAdvance, so neither half of this waits on a wall clock.
+// ---------------------------------------------------------------------------
+{
+  const { ctx, page } = await newContextPage(browser, { width: 900, height: 600 });
+  page.on('pageerror', (e) => console.error('[pageerror]', e.message));
+  await page.goto(`${URL}&autosaveSec=2`, { waitUntil: 'load' });
+  await page.waitForSelector('canvas');
+  await whenPlaying(page);
+
+  const armed = await page.evaluate(() => window.__dbgSaves.autosave());
+  out.autosave = { armed };
+  check(armed.periodSec === 2, `the interval override did not take: ${JSON.stringify(armed)}`);
+
+  // Nothing has been written yet: the game does not save on boot.
+  const before = await page.evaluate(() => window.__dbgSaves.list());
+  check(before.length === 0, `${before.length} characters existed before anything saved`);
+
+  // Name the character first, so the record the timer writes is a real one.
+  await page.evaluate(() => window.__dbgSaves.newCharacter('Tick'));
+  await page.evaluate(() => window.__dbgAdvance(3));
+  const afterTimer = await page.evaluate(async () => ({
+    list: await window.__dbgSaves.list(),
+    state: window.__dbgSaves.autosave(),
+  }));
+  out.autosave.afterTimer = {
+    names: afterTimer.list.map((r) => r.name), since: afterTimer.state.sinceSec,
+  };
+  check(afterTimer.list.length === 1 && afterTimer.list[0].name === 'Tick',
+    `the timer wrote ${JSON.stringify(out.autosave.afterTimer.names)}`);
+  // And the clock went back, or it would write every frame from here on.
+  check(afterTimer.state.sinceSec < 2,
+    `the clock was not reset by the write: ${afterTimer.state.sinceSec}`);
+
+  // THE QUEST TRIGGER. A status change arms a short debounce rather than
+  // writing per notification — one action list is several changes.
+  //
+  // ASSERTED ON THE CONTENT OF THE RECORD, not on its timestamp. `updatedAt` is
+  // wall-clock and every advance here is SIMULATED — three simulated seconds
+  // pass in under a millisecond of real time — so two consecutive writes
+  // legitimately share a timestamp and "did it change?" is unanswerable from
+  // it. What the trigger is for is getting the new fact onto disk, so that is
+  // what this reads back.
+  const id = afterTimer.list[0].id;
+  const quest = await page.evaluate(async (n) => {
+    const before = Object.keys((await window.__dbgSaves.read(n))?.content?.quests ?? {}).length;
+    // The same driver the journal probe uses: it loads the example-quest
+    // package and sets every quest in it active, which is a real status change
+    // through the store the content actions write through.
+    await window.__dbgQuestStage();
+    const armedAt = window.__dbgSaves.autosave().questIn;
+    window.__dbgAdvance(3);
+    // SETTLE ON THE RECORD, not on a guess about when the write lands. The
+    // autosave is fire-and-forget by design — nothing in the game waits on it —
+    // so the transaction is still in flight when the advance returns.
+    let after = 0;
+    for (let i = 0; i < 40 && after === 0; i++) {
+      after = Object.keys((await window.__dbgSaves.read(n))?.content?.quests ?? {}).length;
+      if (after === 0) await new Promise((r) => setTimeout(r, 50));
+    }
+    return {
+      armedAt,
+      before,
+      after,
+      rows: (await window.__dbgSaves.list()).length,
+    };
+  }, id);
+  out.autosave.afterQuest = quest;
+  check(quest.armedAt > 0, 'a quest changing state armed no save');
+  check(quest.before === 0, `the record already held ${quest.before} quests before staging any`);
+  check(quest.after > 0, 'the quest-triggered save never wrote the new quest state');
+  check(quest.rows === 1, `the quest trigger made ${quest.rows} records instead of updating one`);
+
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------------------
+// 8. THE WHOLE THING THROUGH THE TITLE SCREEN, which is the only case here that
 //    proves the UI is wired to any of the above. Name a character, play, come
 //    back to the poster, and load them from the list.
 //

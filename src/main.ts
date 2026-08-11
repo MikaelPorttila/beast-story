@@ -223,6 +223,11 @@ const settingsHooks = {
   // and a world that do not exist while the title screen is still booting. A
   // change made in that window is read back by the constructor.
   onGraphics: (id: keyof GfxSinks, value: GfxValue) => { if (gfxLive) gfx.set(id, value); },
+  // Live, and the re-arm is the point: the accumulator is already running, so a
+  // player who shortens the interval means "sooner", not "next session". The
+  // clock is NOT reset with it — sixty seconds already served count towards a
+  // five-minute setting the same as a ten-minute one.
+  onAutosaveInterval: (minutes: number) => { autosaveMinutes = minutes; },
 };
 
 /**
@@ -545,6 +550,17 @@ const pauseMenu = new PauseMenu({
  */
 function exitToTitle(): void {
   if (!playing) return;
+  // WRITE THE CHARACTER DOWN FIRST, before a single line below throws the
+  // session away (issue #171). Not awaited, and that is deliberate rather than
+  // careless: `collectSave` is synchronous, so the document is a complete
+  // snapshot of this session taken before the resets, and only the write to
+  // IndexedDB outlives this function. Awaiting it would hold the title screen
+  // behind a database for no gain — there is nothing left that can change what
+  // was collected.
+  //
+  // Ahead of `playing = false` because `saveNow` refuses when the session is
+  // already over, which is the right rule everywhere except here.
+  void saveNow();
   // Stops the loop at the top of `frame()`. Nothing is torn down under a frame
   // that is halfway through drawing it.
   playing = false;
@@ -624,6 +640,8 @@ function exitToTitle(): void {
   playerName = '';
   pendingSave = null;
   carriedExtra = undefined;
+  sinceSave = 0;
+  questSaveIn = 0;
 
   // The poster is a NEW instance, because the old one took itself off the DOM
   // when the game started (see StartMenu.close). `handedOver` and `playing` go
@@ -916,6 +934,96 @@ async function saveNow(): Promise<number | null> {
   return id;
 }
 
+// ---------------------------------------------------------------------------
+// WHEN IT SAVES — three answers, and the interval is the least important of
+// them (issue #171).
+//
+// A CLOCK ALONE LOSES THE THING WORTH KEEPING. The moment a player would mind
+// losing is the one they just earned — a quest finished, a bond taken — and a
+// five-minute timer is by definition up to five minutes away from it. So the
+// timer is the BACKSTOP for a session that is doing nothing in particular, and
+// the two event-driven writes are what actually protect progress: one on a
+// quest changing state, one on the way out to the title screen. That is also
+// what makes "every 10 minutes" a safe thing to offer a player, and why turning
+// the timer OFF does not turn saving off.
+// ---------------------------------------------------------------------------
+
+/** Seconds since the last write. Reset by every save, whatever triggered it. */
+let sinceSave = 0;
+/**
+ * Seconds left on the debounce after a quest changed, or 0 when nothing is
+ * pending.
+ *
+ * ONE ACTION LIST IS SEVERAL CHANGES — `quest.complete` alongside the flags and
+ * counters its `onComplete` sets — and each one notifies. Writing per
+ * notification would write the same character four times in a frame; waiting a
+ * moment collapses them into the one write that has all of it.
+ */
+let questSaveIn = 0;
+const QUEST_SAVE_DEBOUNCE = 2;
+
+/**
+ * `?autosaveSec=<n>` — run the interval in SECONDS for a probe.
+ *
+ * A test of a timer whose shortest setting is a minute is a test that takes a
+ * minute, or one that reaches in and pokes the accumulator and proves nothing
+ * about the path a player is on. This drives the same accumulator through the
+ * same comparison; only the unit changes.
+ */
+const autosaveOverrideSec = (() => {
+  const raw = new URLSearchParams(window.location.search).get('autosaveSec');
+  const v = raw === null ? NaN : Number(raw);
+  return Number.isFinite(v) && v > 0 ? v : null;
+})();
+
+// Its own read rather than the `prefs` const, which is declared thousands of
+// lines below this and would be in its temporal dead zone here. `loadPrefs` is
+// a handful of localStorage gets and the settings hook keeps this current.
+let autosaveMinutes = loadPrefs().autosaveMinutes;
+
+/** The interval in seconds, or 0 for "no timer". */
+function autosavePeriod(): number {
+  if (autosaveOverrideSec !== null) return autosaveOverrideSec;
+  return autosaveMinutes > 0 ? autosaveMinutes * 60 : 0;
+}
+
+/**
+ * Ask for a write, unless one would be pointless or unwelcome right now.
+ *
+ * Fire-and-forget: nothing waits on it, and a failure is one warning inside
+ * core/saves.ts. The refusals are the interesting part — `applyingSave` stops a
+ * load writing back what it has just read, and a DEAD hero is not a state to
+ * come back to, so a save is held until he is on his feet again.
+ */
+function autosave(): void {
+  sinceSave = 0;
+  questSaveIn = 0;
+  if (!playing || applyingSave || player.isDead || !savesAvailable()) return;
+  void saveNow();
+}
+
+/** Called once per SIMULATION SLICE from `simulate()` — see the note there. */
+function tickAutosave(dt: number): void {
+  if (!playing) return;
+  if (questSaveIn > 0) {
+    questSaveIn -= dt;
+    if (questSaveIn <= 0) { autosave(); return; }
+  }
+  const period = autosavePeriod();
+  if (period <= 0) return;
+  sinceSave += dt;
+  if (sinceSave >= period) autosave();
+}
+
+// A quest changed state, which is the only "real progress" signal the engine
+// has — there are no quest events on the bus (see the note on `onBeastTamed`),
+// and `ContentState.onChange` is what the journal itself listens to.
+// `'reset'` is skipped: that is a load or an exit, and both do their own saving.
+content.state.onChange((what) => {
+  if (what.kind !== 'quest' || !playing || applyingSave) return;
+  questSaveIn = QUEST_SAVE_DEBOUNCE;
+});
+
 // Hooks: readers for the list and the document, drivers for the round trip.
 // The same argument `__dbgTp` makes — a probe cannot click a menu that has not
 // been built yet, and every one of these is reachable from the UI once it has.
@@ -930,6 +1038,7 @@ async function saveNow(): Promise<number | null> {
     del: (id: number) => Promise<void>;
     active: () => number | null;
     available: () => boolean;
+    autosave: () => { minutes: number; periodSec: number; sinceSec: number; questIn: number };
   };
 }).__dbgSaves = {
   list: () => listSaves(),
@@ -968,6 +1077,14 @@ async function saveNow(): Promise<number | null> {
   },
   active: () => activeSaveId,
   available: () => savesAvailable(),
+  // What the timer thinks, so a probe can assert on the STATE that drives a
+  // write rather than on the write having happened by some wall-clock moment.
+  autosave: () => ({
+    minutes: autosaveMinutes,
+    periodSec: autosavePeriod(),
+    sinceSec: +sinceSave.toFixed(2),
+    questIn: +questSaveIn.toFixed(2),
+  }),
 };
 
 // Phase 1 ends here: the poster and the chip are on screen before the first
@@ -5248,6 +5365,15 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     || perfPanel.isTyping;
   nearShop = false;
   nearNpc = null;
+
+  // THE SAVE CLOCK IS GAME TIME, so it is here rather than in `frame()` — above
+  // the modal branch, because "a panel takes the input, never the clock" cuts
+  // this way too: a player who stopped to read the controls sheet has not
+  // stopped playing, and an autosave that paused with them would be a save
+  // they did not get. Being on the simulation slice also makes it independent
+  // of frame rate and drivable by `__dbgAdvance`, which is what lets its guard
+  // test the interval without waiting on a wall clock.
+  tickAutosave(dt);
 
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them
   // is updated. It is not inside `zones.update` below and that is the ordering
