@@ -148,6 +148,24 @@ export const flags = {
   silentBoot: p.get('menu') === '0' || p.get('photo') === '1'
     || p.get('fs') === '0' || p.get('fps') !== null,
   /**
+   * `nostore=1` — RUN WITHOUT PERSISTENCE. The save system (core/saves.ts)
+   * opens no database, lists nothing, writes nothing, and autosave never arms.
+   *
+   * A sandbox switch first and a test switch second, and it is the same need
+   * both times: a run that must not leave a mark. A probe measuring something
+   * else has no business creating save records on the machine it runs on, and
+   * an autosave landing mid-measurement is a write, a promise and a stall
+   * inside a frame somebody is timing. So the shared probe boot passes it and
+   * only tools/test-saves.mjs leaves it off — the same division `menu=0` has,
+   * where the flag is the default for everyone who is not testing the thing it
+   * turns off.
+   *
+   * Spelled the other way round from the toggles above (`on('props')` reads a
+   * MISSING parameter as true) because this one defaults OFF: persistence is
+   * what a player gets, and turning it off has to be asked for explicitly.
+   */
+  noStore: p.get('nostore') === '1',
+  /**
    * Staged-capture mode. NOT a diagnostic toggle like the rest of this file —
    * it lives here because two modules now need the same answer: main.ts, which
    * drives the camera and stands the HUD and the touch overlay down, and
