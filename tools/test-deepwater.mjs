@@ -35,7 +35,7 @@
 //
 // Exits non-zero on failure.
 
-import { bondAll } from './suite/harness.mjs';
+import { bondAll, unlockMounts } from './suite/harness.mjs';
 
 /**
  * How long a movement key is held per case, in SIMULATED seconds.
@@ -118,9 +118,10 @@ async function drive(ctx, startX, startZ, heading, holdS = HOLD_S) {
 export const name = 'deepwater';
 export const sections = [
 
-  // A PARTY TO RIDE. Since issue #4 a new game is bonded to nothing, and the
-  // sections below ride a Boulderpup and a Finnick by name. See `bondAll`.
-  { id: 'party', run: async (ctx) => { await bondAll(ctx); } },
+  // A PARTY TO RIDE, AND THE UNLOCK TO RIDE IT. A new game is bonded to nothing
+  // and riding is locked, and the sections below ride a Boulderpup and a
+  // Finnick by name. See `bondAll`.
+  { id: 'party', run: async (ctx) => { await bondAll(ctx); await unlockMounts(ctx); } },
 
   // -------------------------------------------------------------------------
   { id: 'survey', run: async (ctx) => {

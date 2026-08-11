@@ -20,7 +20,11 @@
 import { launchBrowser, newPage, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
-const URL = `${HOST}/?menu=0&fs=0&vol=0`;
+// `mounts=all` because riding is three story unlocks and a new character has
+// none of them (src/core/flags.ts). This probe measures a RIDE, so it asks for
+// the unlock at boot rather than driving it; tools/test-mounts.mjs is the one
+// that leaves it off, because the lock is what it tests.
+const URL = `${HOST}/?menu=0&fs=0&vol=0&mounts=all`;
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));

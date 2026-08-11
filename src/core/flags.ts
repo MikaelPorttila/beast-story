@@ -166,6 +166,27 @@ export const flags = {
    */
   noStore: p.get('nostore') === '1',
   /**
+   * `mounts=all` / `mounts=ground,water` — START WITH THESE MOUNTS UNLOCKED.
+   *
+   * Null (nothing unlocked) unless asked for, because that is what a new
+   * character has: riding is three story unlocks, one per act, and
+   * `MountUnlocks` is empty until one of them lands.
+   *
+   * It is here rather than only on the F3 panel for the reason `fs=0` is: a
+   * probe that wants to MEASURE a ride should not have to drive the unlock
+   * first, key edge by key edge. Every tool in `tools/` that mounts something
+   * passes it, and tools/test-mounts.mjs is the one that deliberately does not —
+   * it is testing the lock.
+   *
+   * The words are passed through UNRESOLVED — `all` included — because this
+   * file has no imports and is meant to keep none: it sits at the bottom of the
+   * dependency graph, and knowing what the kinds ARE would put `core/types.ts`
+   * underneath it. main.ts expands `all` against `MOUNT_KINDS` and
+   * `MountUnlocks.restore` drops anything else, so `mounts=hovercraft` unlocks
+   * nothing rather than needing a second opinion here.
+   */
+  mounts: p.get('mounts')?.split(',').map((s) => s.trim()).filter(Boolean) ?? null,
+  /**
    * Staged-capture mode. NOT a diagnostic toggle like the rest of this file —
    * it lives here because two modules now need the same answer: main.ts, which
    * drives the camera and stands the HUD and the touch overlay down, and

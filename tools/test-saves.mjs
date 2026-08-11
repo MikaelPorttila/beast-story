@@ -56,6 +56,9 @@ const readState = (page) => page.evaluate(() => {
     currency: doc.currency,
     name: doc.name,
     zoneId: doc.location.zoneId,
+    // Which mounts the story had handed over. A `MountKind[]`, so the order is
+    // the document's own and comparing the arrays compares the whole field.
+    mounts: doc.mounts,
   };
 });
 
@@ -72,6 +75,7 @@ const readState = (page) => page.evaluate(() => {
   await page.evaluate(() => {
     window.__dbgGive('sunberry', 7);
     window.__dbgGrantBeast('emberfox');
+    window.__dbgUnlockMount('water', true);
     window.__dbgTp(140, -60);
   });
   const saved = await readState(page);
@@ -82,6 +86,7 @@ const readState = (page) => page.evaluate(() => {
   // Now make the session deliberately WRONG in every one of those places.
   await page.evaluate(() => {
     window.__dbgGive('sunberry', 5);
+    window.__dbgUnlockMount('all', true);
     window.__dbgTp(-300, 400);
     window.__dbgSaves.save;   // no-op read: the perturbation must not itself save
   });
@@ -102,6 +107,11 @@ const readState = (page) => page.evaluate(() => {
     `the party lead changed: ${saved.party.primary} -> ${back.party.primary}`);
   check(back.currency === saved.currency,
     `the purse changed: ${saved.currency} -> ${back.currency}`);
+  // A RESTORE AND NOT A MERGE: the perturbation unlocked all three, so a load
+  // that only ever ADDED kinds would come back with three and pass a test that
+  // just looked for `water` in the list.
+  check(JSON.stringify(back.mounts) === JSON.stringify(saved.mounts),
+    `the mount unlocks changed: ${JSON.stringify(saved.mounts)} -> ${JSON.stringify(back.mounts)}`);
   // Within a unit: the position is re-grounded on the way in, and the ground
   // under a point is the same ground it was.
   check(Math.abs(back.pos.x - saved.pos.x) <= 1 && Math.abs(back.pos.z - saved.pos.z) <= 1,
@@ -714,6 +724,86 @@ const readState = (page) => page.evaluate(() => {
     `${both.length} character(s) after playing two: ${JSON.stringify(out.secondCharacter.list)}`);
   check(both.some((r) => r.name === 'Ayla') && both.some((r) => r.name === 'Bram'),
     `the two characters are ${JSON.stringify(out.secondCharacter.list)}`);
+
+  await ctx.close();
+}
+
+
+// ---------------------------------------------------------------------------
+// 10. A MOUNT KIND THIS BUILD DOES NOT HAVE, and a save written before the
+//     field existed. Both are the id rule from AGENTS.md pointed at the
+//     smallest id set in the document: an unresolvable kind is dropped, the
+//     kinds beside it survive, and an ABSENT field is a character who has
+//     unlocked nothing rather than a load that throws.
+//
+//     Both halves matter. Dropping the unknown alone passes a build that
+//     dropped everything; keeping the neighbours alone passes one that kept the
+//     unknown too and would put a fourth badge in the bag.
+// ---------------------------------------------------------------------------
+{
+  const { ctx, page } = await boot();
+  await page.evaluate(() => window.__dbgUnlockMount('ground', true));
+  const id = await page.evaluate(() => window.__dbgSaves.save('Rider'));
+
+  const staged = await page.evaluate((n) => new Promise((resolve, reject) => {
+    const open = indexedDB.open('beast-story-saves');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction('payloads', 'readwrite');
+      const store = tx.objectStore('payloads');
+      const get = store.get(n);
+      get.onsuccess = () => {
+        const row = get.result;
+        row.doc.mounts = ['ground', 'hovercraft', 'flying'];
+        store.put(row);
+      };
+      tx.oncomplete = () => { db.close(); resolve(true); };
+      tx.onerror = () => reject(tx.error);
+    };
+  }), id);
+  check(staged === true, 'could not stage the unknown-kind document');
+
+  const loaded = await page.evaluate((n) => window.__dbgSaves.load(n), id);
+  check(loaded === true, 'a save naming an unknown mount kind refused to load');
+  const withUnknown = await readState(page);
+  out.unknownMountKind = { mounts: withUnknown.mounts };
+  check(!withUnknown.mounts.includes('hovercraft'),
+    `a mount kind this build does not have survived: ${JSON.stringify(withUnknown.mounts)}`);
+  check(JSON.stringify(withUnknown.mounts) === JSON.stringify(['ground', 'flying']),
+    `the kinds beside it did not survive in order: ${JSON.stringify(withUnknown.mounts)}`);
+
+  // The other document: no `mounts` at all, which is every save written before
+  // this field shipped.
+  const stripped = await page.evaluate((n) => new Promise((resolve, reject) => {
+    const open = indexedDB.open('beast-story-saves');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction('payloads', 'readwrite');
+      const store = tx.objectStore('payloads');
+      const get = store.get(n);
+      get.onsuccess = () => {
+        const row = get.result;
+        delete row.doc.mounts;
+        store.put(row);
+      };
+      tx.oncomplete = () => { db.close(); resolve(true); };
+      tx.onerror = () => reject(tx.error);
+    };
+  }), id);
+  check(stripped === true, 'could not stage the field-less document');
+
+  const loadedOld = await page.evaluate((n) => window.__dbgSaves.load(n), id);
+  check(loadedOld === true, 'a save written before the field existed refused to load');
+  const old = await readState(page);
+  out.unknownMountKind.absentField = old.mounts;
+  check(Array.isArray(old.mounts) && old.mounts.length === 0,
+    `a save with no mounts field loaded as ${JSON.stringify(old.mounts)}`);
+  // AND THE CHARACTER STILL CAME BACK. A field that degraded by taking the rest
+  // of the load with it would satisfy the line above and lose the player their
+  // save, which is the failure this whole file exists to catch.
+  check(old.name === 'Rider', `the character did not survive the field-less load: ${old.name}`);
 
   await ctx.close();
 }

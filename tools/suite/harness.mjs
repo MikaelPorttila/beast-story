@@ -146,11 +146,16 @@ function makeCtx(page, res, fails) {
  * may assume about the page the previous one left behind. Deliberately small:
  * a reset that tried to guarantee more (kill every enemy, rewind every clock)
  * would be a second implementation of `exitToTitle`, drifting from the real
- * one. Mount off, held keys up — the two things a probe leaves behind by
- * DRIVING, which is what probes do.
+ * one. Mount off, mounts re-locked, held keys up — the three things a probe
+ * leaves behind by DRIVING, which is what probes do.
+ *
+ * The re-lock is what keeps `unlockMounts` honest: a module that rides asks for
+ * the unlocks in its own first section, so one that does NOT ask must not
+ * inherit them from whoever ran before it and pass for the wrong reason.
  */
 async function resetBetween(page) {
   await page.evaluate(() => window.__dbgRide && window.__dbgRide('off'));
+  await page.evaluate(() => window.__dbgUnlockMount && window.__dbgUnlockMount('all', false));
   for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC']) {
     await page.keyboard.up(k).catch(() => {});
   }
@@ -188,6 +193,31 @@ export async function bondAll(ctx) {
   ctx.check(!!party && party.owned > 0 && party.lead !== null,
     `bondAll left the party as ${JSON.stringify(party)} — nothing below can mount`);
   return party;
+}
+
+/**
+ * Hand over all three mount unlocks, for a module that needs to RIDE.
+ *
+ * `bondAll`'s twin, one gate further along and asked for the same way. Riding is
+ * three story unlocks and a new character has none of them, so a module that
+ * mounts must say so — a held Y that never mounts otherwise reads as a gamepad
+ * bug, which is the exact failure `bondAll`'s note describes.
+ *
+ * A MODULE CALLS THIS FOR ITSELF, and it is not in `BOOT_QUERY`: the boot query
+ * is shared by every module in a batch, and `mounts=all` there would quietly
+ * unlock riding for probes that have no business seeing it unlocked. A probe
+ * with a page of its own passes `mounts=all` in its URL instead; only
+ * tools/test-mounts.mjs deliberately does neither, because the lock is what it
+ * is testing.
+ */
+export async function unlockMounts(ctx) {
+  await ctx.ev(() => window.__dbgUnlockMount && window.__dbgUnlockMount('all', true));
+  // CHECKED, not assumed — same argument bondAll makes about a silent grant.
+  const unlocked = await ctx.ev(() => window.__dbgMount?.().unlocked ?? null);
+  ctx.res.mountUnlocks = unlocked;
+  ctx.check(Array.isArray(unlocked) && unlocked.length === 3,
+    `unlockMounts left the unlocks as ${JSON.stringify(unlocked)} — nothing below can mount`);
+  return unlocked;
 }
 
 /**

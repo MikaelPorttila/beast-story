@@ -20,9 +20,9 @@ import {
   type SaveDocument, type SaveMeta,
 } from './core/saves';
 import {
-  EventBus, ELEMENT_COLORS, inReach, LOCOMOTION_NAME_KEYS,
+  EventBus, ELEMENT_COLORS, inReach, LOCOMOTION_NAME_KEYS, MOUNT_KINDS, MOUNT_KIND_KEYS,
   type CrownContact, type NpcInfo, type SkillDef, type Damageable,
-  type ItemDef, type TownInfo, type World, type WorldBound,
+  type ItemDef, type MountKind, type TownInfo, type World, type WorldBound,
 } from './core/types';
 import {
   Inventory, SlotLayout, itemDef, itemName, isKnownItem, isDestructible, salvageValue,
@@ -65,7 +65,7 @@ import { ZoneManager, type ZoneDef } from './world/zones';
 import { Underwater } from './world/underwater';
 import { TouchParticles } from './world/touch-particles';
 import { Player } from './player/index';
-import { MountController } from './player/mount';
+import { MountController, MountUnlocks } from './player/mount';
 import { BeastActor, registerSkillDefs } from './beasts/framework';
 import { CombatSystem, SWORD_REACH } from './combat/index';
 import { enemySpecies, MELEE_UP_REACH, MELEE_DOWN_REACH, type Enemy } from './combat/enemies';
@@ -611,6 +611,10 @@ function exitToTitle(): void {
 
   player.reset();
   mount.dismount();
+  // WHICH MOUNTS THE STORY HAD HANDED OVER goes with the story. A new game is a
+  // hero who has not ridden anything, and `collectSave` above already wrote this
+  // character's three answers down.
+  seedMountUnlocks();
   combat.reset();
   // Anything the F3 Debug panel built is session state like everything else
   // here — a new game should not open on a hut somebody stood in the road.
@@ -961,6 +965,7 @@ function collectSave(): SaveDocument {
       hairStyle: player.hairStyle,
       hairColour: player.hairColour.toString(16).padStart(6, '0'),
     },
+    mounts: mountUnlocks.list(),
     content: content.state.toJSON(),
     dayPhase: dayNight.phase,
   };
@@ -997,6 +1002,13 @@ function applySave(doc: SaveDocument): void {
     // 3. The clock, after the facts, so a quest's own time-of-day override
     // still outranks it the way it does in play.
     dayNight.setPhase(doc.dayPhase);
+
+    // 3b. WHAT THE STORY HAS HANDED OVER, beside the facts it is derived from.
+    // `restore` drops a kind this build does not have, so an older or newer
+    // document loads as the kinds that exist rather than refusing — and a save
+    // written before the field existed arrives as `[]`, which is the truth about
+    // a character nobody had unlocked anything for.
+    mountUnlocks.restore(doc.mounts);
 
     // 4. THE PARTY. Reset first: the roster holds every species whether bonded
     // or not, and a beast the save does not mention must be back at level 1
@@ -1784,10 +1796,36 @@ function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: num
   syncCompassMarkers(world, g.x, g.z, g.hex);
 }
 
+/**
+ * WHICH MOUNTS THIS CHARACTER HAS EARNED. Empty on a new game — riding is three
+ * story unlocks (game-story.md §5), and no shipped quest grants one yet.
+ *
+ * `mounts=` is applied HERE and nowhere else, which is what keeps a diagnostic
+ * flag a construction-time argument rather than something gameplay branches on.
+ * `all` is expanded against the roster of kinds because core/flags.ts has no
+ * imports and deliberately does not know what a kind is.
+ */
+const mountUnlocks = new MountUnlocks();
+/**
+ * Back to what this LOAD starts with — nothing, or what `mounts=` asked for.
+ *
+ * Called at boot and again from `exitToTitle`, so a probe that took the flag and
+ * then went back to the title screen starts its next game the same way it
+ * started its first. A plain `reset()` there would make the flag mean "the first
+ * game of this page load", which is a rule nobody could guess.
+ */
+function seedMountUnlocks(): void {
+  mountUnlocks.reset();
+  if (flags.mounts) {
+    mountUnlocks.restore(flags.mounts.includes('all') ? MOUNT_KINDS : flags.mounts);
+  }
+}
+seedMountUnlocks();
+
 // Hold F to ride your beast. The controller owns the hold timer, the refusal
 // rules and a mounted beast's locomotion; which beast is offered (the primary, see
 // simulate) and where a mounted skill aims (below) are policy, so they live here.
-const mount = new MountController(player, world, input, bus);
+const mount = new MountController(player, world, input, bus, mountUnlocks);
 
 // Contact particles: the world sheds when you brush it. One element today —
 // leaves knocked out of a tree crown — behind a fixed pool and one draw call.
@@ -2390,7 +2428,14 @@ function inventoryModel(): InventoryModel {
   for (const e of wall) e.slot = slots.slotOf(e.id);
   wall.sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
 
-  return { gear, entries: wall };
+  // ALL THREE, ALWAYS, unlocked or not — which is the one place this panel
+  // shows something the player does not have. It is not the bestiary rule
+  // broken: a locked mount is not a beast you have never met, it is a VERB the
+  // game has and you cannot use yet, and a strip that only appeared once you
+  // could ride would never answer the question it exists to answer.
+  const mounts = MOUNT_KINDS.map((kind) => ({ kind, unlocked: mountUnlocks.has(kind) }));
+
+  return { gear, entries: wall, mounts };
 }
 
 /**
@@ -3586,6 +3631,14 @@ const _hurtFrom = new THREE.Vector3();
    */
   swimming: mount.isSwimming,
   diveDepth: +mount.diveDepth.toFixed(2),
+  /**
+   * WHAT THE STORY HAS HANDED OVER, and the refusal the CURRENT candidate would
+   * get. Both, because "nothing is unlocked" and "this hold is being refused"
+   * are different claims and a probe that inferred one from the other would pass
+   * while the gate was wired to nothing.
+   */
+  unlocked: mountUnlocks.list(),
+  refusal: mount.refusal(primary()),
   ground: +world.getHeight(player.position.x, player.position.z).toFixed(2),
   lastCast: { ...lastCast },
 });
@@ -4447,11 +4500,38 @@ const pathEdit: PathEditControl = {
   },
 };
 
+/**
+ * WHICH QUEST IS MEANT TO GRANT EACH MOUNT — the F3 rows' last column.
+ *
+ * Here and not in core/types.ts because it is a fact about the CAMPAIGN rather
+ * than about the type: game-story.md §5 hands out one mount per act, and when
+ * those quests exist the row that stands in for them will say so beside the
+ * switch that does it by hand.
+ */
+const MOUNT_QUEST_KEYS: Record<MountKind, StringKey> = {
+  ground: 'mount.ground.quest',
+  water: 'mount.water.quest',
+  flying: 'mount.flying.quest',
+};
+
 const perfPanel = new PerfPanel(gfx, {
   presets: timePresets,
   get: () => dayNight.debugOverride,
   set: (phase) => dayNight.setDebugOverride(phase),
-}, spawnCatalogue, appearance, pathEdit);
+}, spawnCatalogue, appearance, pathEdit, {
+  // The order the acts hand them out, and the quest that is meant to do it —
+  // see game-story.md §5. `MOUNT_KIND_KEYS` already names each kind, so the row
+  // label and the inventory badge cannot drift apart.
+  kinds: MOUNT_KINDS.map((id) => ({
+    id,
+    labelKey: MOUNT_KIND_KEYS[id].name,
+    noteKey: MOUNT_QUEST_KEYS[id],
+  })),
+  has: (id) => mountUnlocks.has(id as MountKind),
+  // Through the same door the console uses, so the badges in the bag follow a
+  // flip made from either surface.
+  set: (id, on) => { devUnlockMounts(on ? 'unlock' : 'lock', id); },
+});
 
 /**
  * The custom cursor, and the one question the world has to answer for it.
@@ -4849,7 +4929,36 @@ devConsole?.register({
  * SPECIES IDS, which is also what its own argument takes. A localised name here
  * would mean `/mount` printing something you cannot type back at it.
  */
-function devRide(arg: string | undefined): string {
+/**
+ * `/mount unlock|lock [<kind>|all]` — hand the story's three unlocks out by
+ * hand, or take them back.
+ *
+ * THE SAME ARGUMENT `/grant` MAKES, one gate along. `devRide` below deliberately
+ * refuses an unbonded beast because a console that skipped ownership would be
+ * measuring a different game; the mount unlocks are the same kind of gate, so
+ * `/mount <species>` refuses them too and this is their separate door. It is
+ * also the body of `__dbgUnlockMount`, extracted for the reason the ride is.
+ *
+ * Bare `/mount unlock` means `all`: the common case at a console is "let me ride
+ * anything", and spelling three words for it is a tax on the thing you do most.
+ */
+function devUnlockMounts(verb: 'unlock' | 'lock', arg: string | undefined): string {
+  const want = arg === undefined || arg === 'all'
+    ? MOUNT_KINDS
+    : MOUNT_KINDS.filter((k) => k === arg);
+  if (want.length === 0) return `no such mount kind "${arg}" — ${MOUNT_KINDS.join(', ')}, all`;
+  for (const k of want) mountUnlocks.set(k, verb === 'unlock');
+  // The badges in the bag are the player-facing readout of this, so a panel left
+  // open while somebody types at the console must not go on showing the old
+  // answer. A no-op when it is closed.
+  inventory.refresh();
+  const have = mountUnlocks.list();
+  return `${verb === 'unlock' ? 'unlocked' : 'locked'} ${want.join(', ')} — `
+    + `now: ${have.length ? have.join(', ') : 'nothing'}`;
+}
+
+function devRide(arg: string | undefined, kind?: string): string {
+  if (arg === 'unlock' || arg === 'lock') return devUnlockMounts(arg, kind);
   if (arg === 'off') {
     if (!mount.isMounted) return 'not mounted';
     const id = mount.beast!.species.id;
@@ -4953,9 +5062,10 @@ function devGrant(arg: string | undefined): string {
 }
 devConsole?.register({
   name: 'mount',
-  args: '[off|<speciesId>]',
-  help: 'Ride the primary beast without the 2s hold; /mount off dismounts.',
-  run: (args) => devRide(args[0]),
+  args: '[off|<speciesId>|unlock [<kind>|all]|lock [<kind>|all]]',
+  help: 'Ride the primary beast without the 2s hold; /mount off dismounts. '
+    + 'Riding is locked until the story unlocks it — /mount unlock opens all three kinds.',
+  run: (args) => devRide(args[0], args[1]),
 });
 devConsole?.register({
   name: 'grant',
@@ -4968,6 +5078,17 @@ devConsole?.register({
 // probe's job. `/mount` is the player-facing door and this is the same room.
 (window as unknown as { __dbgRide: (id?: string) => string }).__dbgRide =
   (id) => devRide(id);
+/**
+ * Hand a mount unlock over, or take it back — `/mount unlock`'s hook.
+ *
+ * A DRIVER and not a reader, like `__dbgTp` and `__dbgGfx`. What it exists for
+ * is the pair of assertions tools/test-mounts.mjs makes: a probe has to see the
+ * lock refuse and then see the same hold succeed, and only a live flip can show
+ * both in one page. Everything that merely wants to RIDE passes `mounts=all` in
+ * its URL instead, which costs no round trip.
+ */
+(window as unknown as { __dbgUnlockMount: (kind?: string, on?: boolean) => string })
+  .__dbgUnlockMount = (kind, on = true) => devUnlockMounts(on ? 'unlock' : 'lock', kind);
 (window as unknown as { __dbgGrantBeast: (id?: string) => string }).__dbgGrantBeast =
   (id) => devGrant(id);
 /**
@@ -6718,6 +6839,10 @@ beginPlay();
       actions: g.entry?.actions ?? [],
     })),
     bag: bag.entries().map((e) => ({ id: e.def.id, kind: e.def.kind, count: e.count })),
+    // What the host believes about the three unlocks. The DOM's own answer is
+    // `panel.mountBadges` below; the pair is what tells "the model is wrong"
+    // from "the model is right and the badge is not drawing it".
+    mounts: m.mounts,
     entries: m.entries.map((e) => ({
       id: e.id, kind: e.kind, count: e.count,
       equipped: !!e.equipped, actions: e.actions ?? [],
@@ -6759,6 +6884,14 @@ beginPlay();
       footActions: [...document.querySelectorAll('.bs-inv .sel button')]
         .map((b) => (b as HTMLElement).dataset.do ?? ''),
       tip: document.querySelector('.bs-inv .tip.on')?.textContent ?? null,
+      // THE MOUNT BADGES, as the DOM has them rather than as the model does —
+      // `mounts` above already reports what the host believes, and reading the
+      // same answer twice would prove nothing. What this catches is a badge
+      // drawn without its lit state, which is the whole of what it says.
+      mountBadges: [...document.querySelectorAll('.bs-inv .mt')].map((b) => ({
+        kind: (b as HTMLElement).dataset.tip ?? '',
+        on: b.classList.contains('on'),
+      })),
       selected: (document.querySelector('.bs-inv .slot.sel') as HTMLElement | null)
         ?.dataset.sel ?? null,
     } : null,

@@ -93,6 +93,30 @@ export interface PathEditControl {
   lay(): string;
 }
 
+/**
+ * THE THREE MOUNT UNLOCKS, switchable.
+ *
+ * Here for the same reason the hairstyle is: it costs nothing and changes
+ * nothing about the frame, and this panel is the only surface in the game that
+ * can offer it today. Its real home is the quest that grants it — game-story.md
+ * §5 gives one per act — and until that exists a developer, a probe and anyone
+ * looking at the game needs a door to the feature that is otherwise unreachable.
+ *
+ * Injected exactly as `TimeOfDayControl` and `PathEditControl` are: this file
+ * owns three rows and no policy, and the host (main.ts) owns what an unlock
+ * means and where it is stored.
+ */
+export interface MountUnlockControl {
+  /**
+   * The kinds, in the order the acts hand them out. `noteKey` names the QUEST
+   * that is meant to grant it — see `mountRows` on why that is what the row's
+   * last column carries.
+   */
+  readonly kinds: readonly { id: string; labelKey: StringKey; noteKey: StringKey }[];
+  has(id: string): boolean;
+  set(id: string, on: boolean): void;
+}
+
 export interface AppearanceControl {
   readonly styles: readonly { id: string; labelKey: StringKey }[];
   /** The strip the arrow keys step through. Any other colour comes from the well. */
@@ -113,6 +137,13 @@ const ROW_PATH_PROFILE = ROW_TIME + 3;
 const ROW_PATH_LENGTH = ROW_TIME + 4;
 const ROW_PATH_CROSS = ROW_TIME + 5;
 const ROW_PATH_LAY = ROW_TIME + 6;
+/**
+ * The mount unlocks take the LAST rows, one per kind, so adding a fourth kind
+ * moves nothing above it. `ROW_MOUNT` is where they start and the offset within
+ * them is the index into `MountUnlockControl.kinds`.
+ */
+const ROW_MOUNT = ROW_TIME + 7;
+/** Everything above the mount rows. Their count comes from the control's data. */
 const EXTRA_ROWS = 7;
 
 const escapeHtml = (s: string): string =>
@@ -146,6 +177,7 @@ export class PerfPanel {
     private readonly catalogue: SpawnCatalogue,
     private readonly look: AppearanceControl,
     private readonly paths: PathEditControl,
+    private readonly mounts: MountUnlockControl,
   ) {
     this.el = document.createElement('div');
     this.el.className = 'bs-perf';
@@ -208,7 +240,7 @@ export class PerfPanel {
    */
   onKey(code: string): boolean {
     if (!this.open) return false;
-    const n = GFX_OPTIONS.length + EXTRA_ROWS;
+    const n = this.rowCount;
     if (code === 'ArrowDown') { this.cursor = (this.cursor + 1) % n; this.render(); return true; }
     if (code === 'ArrowUp') { this.cursor = (this.cursor + n - 1) % n; this.render(); return true; }
     if (code === 'ArrowRight' || code === 'ArrowLeft' || code === 'Enter' || code === 'Space') {
@@ -216,6 +248,7 @@ export class PerfPanel {
       if (this.cursor === ROW_TIME) this.cycleTime(step);
       else if (this.cursor === ROW_STYLE) this.cycleStyle(step);
       else if (this.cursor === ROW_COLOUR) this.cycleColour(step);
+      else if (this.cursor >= ROW_MOUNT) this.flipMount(this.cursor - ROW_MOUNT);
       else if (this.cursor >= ROW_PATH_PROFILE) this.cyclePath(this.cursor, step);
       else this.gfx.cycle(GFX_OPTIONS[this.cursor].id);
       this.render();
@@ -225,6 +258,11 @@ export class PerfPanel {
       this.gfx.reset();
       this.time.set(null);
       this.look.reset();
+      // NOT THE MOUNT ROWS. Everything R puts back is a view of the world — a
+      // quality setting, a time of day, a hairstyle — and none of it is
+      // progress. Re-locking here would mean one key in a debug panel silently
+      // taking away what the story handed over, in a session that is still being
+      // played and will be autosaved.
       this.render();
       return true;
     }
@@ -234,6 +272,21 @@ export class PerfPanel {
   /** Re-read every value and redraw. Called after a console `/gfx` too. */
   refresh(): void {
     if (this.open) this.render();
+  }
+
+  /**
+   * How many rows the cursor walks. Derived rather than a constant, because the
+   * mount kinds are the control's data — a fourth one must not need this file
+   * edited to be reachable with the arrow keys.
+   */
+  private get rowCount(): number {
+    return GFX_OPTIONS.length + EXTRA_ROWS + this.mounts.kinds.length;
+  }
+
+  /** A mount row is a plain flip; there is no third state to step through. */
+  private flipMount(i: number): void {
+    const kind = this.mounts.kinds[i];
+    if (kind) this.mounts.set(kind.id, !this.mounts.has(kind.id));
   }
 
   private valueLabel(id: keyof GfxSinks): string {
@@ -391,7 +444,8 @@ export class PerfPanel {
       + `<span class="bs-perf-val">${escapeHtml(this.timeLabel())}</span>`
       + `<span class="bs-perf-cost">${escapeHtml(t('gfx.timeOfDay.cost'))}</span>`
       + '</div>';
-    this.gfxList!.innerHTML = gfxRows + timeRow + this.hairRows() + this.pathRows();
+    this.gfxList!.innerHTML = gfxRows + timeRow + this.hairRows() + this.pathRows()
+      + this.mountRows();
   }
 
   /**
@@ -473,6 +527,27 @@ export class PerfPanel {
         t(this.paths.crossing() ? 'path.crossing.merge' : 'path.crossing.avoid'),
         t('path.crossing.cost'))
       + row(ROW_PATH_LAY, 'lay', t('path.lay'), t('path.lay.go'), t('path.lay.cost'));
+  }
+
+  /**
+   * One row per mount kind, under their own heading.
+   *
+   * THE COST COLUMN SAYS WHICH QUEST GRANTS IT, which is not a cost and is the
+   * most useful thing that column can hold here: the row exists because that
+   * quest does not, and a developer flipping it should be able to see what they
+   * are standing in for. See game-story.md §5.
+   */
+  private mountRows(): string {
+    return `<div class="bs-perf-head">${escapeHtml(t('mount.section'))}</div>`
+      + this.mounts.kinds.map((k, i) => {
+        const on = this.mounts.has(k.id);
+        return `<div class="bs-perf-row${this.cursor === ROW_MOUNT + i ? ' sel' : ''}`
+          + `${on ? '' : ' off'}" data-cursor="link-select" data-mount="${escapeHtml(k.id)}">`
+          + `<span class="bs-perf-name">${escapeHtml(t(k.labelKey))}</span>`
+          + `<span class="bs-perf-val">${escapeHtml(t(on ? 'gfx.on' : 'gfx.off'))}</span>`
+          + `<span class="bs-perf-cost">${escapeHtml(t(k.noteKey))}</span>`
+          + '</div>';
+      }).join('');
   }
 
   /**
@@ -675,6 +750,15 @@ export class PerfPanel {
       this.cursor = hair === 'style' ? ROW_STYLE : ROW_COLOUR;
       if (hair === 'style') this.cycleStyle(1);
       else this.cycleColour(1);
+      this.render();
+      return true;
+    }
+    const mount = row.getAttribute('data-mount');
+    if (mount) {
+      const i = this.mounts.kinds.findIndex((k) => k.id === mount);
+      if (i < 0) return false;
+      this.cursor = ROW_MOUNT + i;
+      this.flipMount(i);
       this.render();
       return true;
     }

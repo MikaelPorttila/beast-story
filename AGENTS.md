@@ -45,11 +45,12 @@ and everything browser-related goes through
 | Post | `post=0` · `ao=` · `bloom=` · `aa=0` · `grade=0` · `roll=` · `aoview=1` |
 | Preferences (one load, never persisted) | `vol=<0..1>` · `lang=<iso639-1>` · `fs=<0\|1>` fullscreen on start · `haptics=` · `shake=` · `invx=` · `invy=` |
 | World tuning | `nature=<param>:<n>[,<area>.<param>:<n>]` before the first chunk |
+| Progression | `mounts=all` / `mounts=ground,water,flying` start with those mounts unlocked; riding is locked on a new character |
 
 Lab flags are in [LAB.md](LAB.md).
 
 **Console** (`§`): `/gfx` · `/nature` · `/content` · `/give` · `/path` · `/tp` · `/zone` ·
-`/mount <species>` · `/show-colliders` · `/volume` · `/haptics` · `/vibration` ·
+`/mount <species>` · `/mount unlock [<kind>|all]` · `/show-colliders` · `/volume` · `/haptics` · `/vibration` ·
 `/shake` · `/invertlook`
 
 **Hooks.** The `__dbg*` globals are the probe surface —
@@ -192,6 +193,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Combat, enemies, drops | `combat/index.ts`, `combat/enemies.ts`, `combat/pickups.ts` | `test-safezone`, `test-aim-assist`, `test-inventory` |
 | "Is the player close?" | `inReach` / `inRise` in `core/types.ts`, and every caller | `test-proximity` |
 | Hero, camera, mount, weapons | `player/*` | `test-dive`, `test-structures`, `test-inventory`, `test-npc` |
+| Which mounts the story has unlocked | `MountUnlocks` in `player/mount.ts`, the badges in `ui/inventory.ts`, the F3 rows in `ui/perf-panel.ts` | `test-mounts`, `test-saves` |
 | Hero hairstyles | `player/hair.ts` (the styles), `player/hero-rig.ts` (the mount) | `test-hair`, `test-zfight` |
 | Input devices | `core/input.ts`, `core/gamepad.ts`, `core/touch.ts` | `test-touch`, `test-gamepad` |
 | HUD, menus, panels | `ui/*` (DOM overlay, `bs-*` class names) | `test-menu`, `test-pause`, `test-textsize`, `test-viewport`, `test-cursor` |

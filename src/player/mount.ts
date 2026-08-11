@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import type { Input } from '../core/input';
-import type { CarrierInfo, EventBus, World } from '../core/types';
+import {
+  MOUNT_KIND_KEYS, MOUNT_KIND_OF, MOUNT_KINDS,
+  type CarrierInfo, type EventBus, type Locomotion, type MountKind, type World,
+} from '../core/types';
 import { CarrierRide } from '../world/carriers';
 import { t } from '../i18n';
 import type { BeastActor, BeastRideState } from '../beasts/framework';
@@ -303,7 +306,63 @@ function dampAngle(cur: number, target: number, lambda: number, dt: number): num
   return cur + angleDelta(cur, target) * (1 - Math.exp(-lambda * dt));
 }
 
-export type MountRefusal = 'swimming' | 'climbing' | 'dead' | 'beastDead' | 'none';
+export type MountRefusal = 'swimming' | 'climbing' | 'dead' | 'beastDead' | 'locked' | 'none';
+
+/**
+ * WHICH MOUNTS THE STORY HAS HANDED OVER — session state, and empty on a new
+ * game.
+ *
+ * Riding is not a thing the hero can do from the fire on the first morning. It
+ * is three unlocks, one per act (game-story.md §5), and until an act gives one
+ * the beast beside you is a companion and not a vehicle. Nothing in the shipped
+ * content grants them yet — the quest system that would is §7's list of what the
+ * engine still needs — so the doors today are the F3 Debug panel's Mounts rows,
+ * `/mount unlock`, and `mounts=` in the URL.
+ *
+ * IT LIVES HERE, next to the controller that asks it, and not in main.ts: this
+ * is the one fact `refusal()` needs that is neither about the hero nor about the
+ * animal, and a predicate reaching back into the composition root for it would
+ * be the same reach every other rule in this file avoids. Owning it also means
+ * owning the reset — see the twin rules in AGENTS.md — so `reset()` is here and
+ * `exitToTitle` calls it beside `player.reset()`.
+ *
+ * A SET AND NOT THREE BOOLEANS, so `list()` is what a save stores and
+ * `restore()` is what checks it against the kinds this build has.
+ */
+export class MountUnlocks {
+  private readonly have = new Set<MountKind>();
+
+  has(kind: MountKind): boolean { return this.have.has(kind); }
+
+  /** Whether a beast of this gait may be ridden. See `MOUNT_KIND_OF`. */
+  allows(loco: Locomotion): boolean { return this.have.has(MOUNT_KIND_OF[loco]); }
+
+  set(kind: MountKind, on: boolean): void {
+    if (on) this.have.add(kind);
+    else this.have.delete(kind);
+  }
+
+  /** In `MOUNT_KINDS` order, so a save round-trips to the same document. */
+  list(): MountKind[] {
+    return MOUNT_KINDS.filter((k) => this.have.has(k));
+  }
+
+  /**
+   * Take what a save (or a URL flag) says, keeping only kinds this build has.
+   *
+   * The id rule from AGENTS.md, applied to the smallest possible id set: a
+   * document written against a build with a fourth kind loads here as the three
+   * it recognises rather than as a throw.
+   */
+  restore(kinds: readonly string[]): void {
+    this.have.clear();
+    for (const k of kinds) {
+      if ((MOUNT_KINDS as readonly string[]).includes(k)) this.have.add(k as MountKind);
+    }
+  }
+
+  reset(): void { this.have.clear(); }
+}
 
 export class MountController {
   /** The beast being ridden, or null. */
@@ -361,6 +420,7 @@ export class MountController {
     private world: World,
     private input: Input,
     private bus: EventBus,
+    private unlocks: MountUnlocks,
   ) {}
 
   /**
@@ -422,12 +482,19 @@ export class MountController {
    * teleport him out of the water or off the rock. Surfacing or letting go is
    * one keypress away, which makes refusing the honest answer instead of a
    * special case in three controllers.
+   *
+   * `locked` is LAST, and that ordering is the message: every refusal above it
+   * is something the player can fix in a second, so being told to go and finish
+   * an act is the answer only once none of them applies. It is also asked of a
+   * live candidate, which is what lets the toast name the KIND — "you cannot
+   * ride" is not worth saying without "…things that fly".
    */
   refusal(candidate: BeastActor | null): MountRefusal {
     if (this.player.isDead) return 'dead';
     if (this.player.isSwimming) return 'swimming';
     if (this.player.isClimbing) return 'climbing';
     if (!candidate || candidate.isDead) return 'beastDead';
+    if (!this.unlocks.allows(candidate.species.locomotion)) return 'locked';
     return 'none';
   }
 
@@ -1139,6 +1206,14 @@ function refusalText(why: MountRefusal, candidate: BeastActor | null): string {
     case 'beastDead': return candidate
       ? t('toast.mount.refuse.beastDead', { beast: t(candidate.species.nameKey) })
       : t('toast.mount.refuse.noBeast');
+    // Named by KIND and not by species: what is missing is the act, and a line
+    // about this particular Emberfox would send the player looking for a
+    // different ground beast.
+    case 'locked': return candidate
+      ? t('toast.mount.refuse.locked', {
+          kind: t(MOUNT_KIND_KEYS[MOUNT_KIND_OF[candidate.species.locomotion]].name),
+        })
+      : t('toast.mount.refuse.other');
     default: return t('toast.mount.refuse.other');
   }
 }
