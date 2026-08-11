@@ -1,7 +1,10 @@
 import { t } from '../i18n';
-import type { BeastSpecies, ItemKind, ItemRarity } from '../core/types';
+import {
+  MOUNT_KIND_KEYS,
+  type BeastSpecies, type ItemKind, type ItemRarity, type MountKind,
+} from '../core/types';
 import { injectStyles } from './styles';
-import { CLOSE_ICON, RMB_ICON, tameOrbIcon } from './icons';
+import { CLOSE_ICON, LOCOMOTION_ICONS, RMB_ICON, tameOrbIcon } from './icons';
 import { isWeaponIcon, weaponIconStyle } from './weapon-icons';
 import { InventoryStage } from './inventory-stage';
 
@@ -141,22 +144,63 @@ const SLOT_ACTIONS: Record<GearSlotId, { put: InvAction; take: InvAction }> = {
 
 export type GearSlotId = 'weapon' | 'primary' | 'support' | 'orb';
 
+/**
+ * THE GLYPH FOR EACH MOUNT KIND, borrowed from the locomotion set.
+ *
+ * Three kinds against four gaits (see `MountKind`), so this is a mapping and not
+ * a fifth drawing: the paw is what a ground beast already wears on its HUD pip,
+ * the waves are what a swimmer wears, the gull is what a flyer wears. Drawing
+ * new art for the same three ideas would be two vocabularies for one concept,
+ * and the badge means exactly what the pip means — where this can take you.
+ *
+ * The amphibious glyph is deliberately unused: it says "either", which is a fact
+ * about an ANIMAL, and no unlock is ambiguous that way.
+ */
+const MOUNT_ICONS: Record<MountKind, string> = {
+  ground: LOCOMOTION_ICONS.ground,
+  water: LOCOMOTION_ICONS.swimming,
+  flying: LOCOMOTION_ICONS.flying,
+};
+
+/** The badge's tint, locked or not — see `mountsHtml` on why they differ. */
+const MOUNT_COLOR = 0x69d9ff;
+const MOUNT_LOCKED_COLOR = 0x64748b;
+
 /** One label/value pair in the tooltip. Both are already display strings. */
 export interface InvStat {
   label: string;
   value: string;
 }
 
-export interface InvEntry {
+/**
+ * WHAT THE TOOLTIP DRAWS, and nothing about picking anything up.
+ *
+ * Split out of `InvEntry` because the panel grew a second kind of hoverable
+ * thing: a mount badge is read and never carried, equipped, dropped or dragged.
+ * Everything the tooltip needs is here and everything a ROW needs is on
+ * `InvEntry` below, so the badge cannot accidentally acquire a gesture by being
+ * typed as a row — which it would have, since `onPointerDown` picks up anything
+ * carrying a `data-sel` it can find in `rows`.
+ */
+export interface InvTip {
+  /** Display name, already plural-resolved for `count` by the host. */
+  name: string;
+  /** Fallback tint, and the slot's glow. A portrait or an icon covers it. */
+  color: number;
+  rarity?: ItemRarity;
+  /** The tooltip's paragraph. */
+  description?: string;
+  stats?: readonly InvStat[];
+  /** One quiet line at the foot of the tooltip. */
+  note?: string;
+}
+
+export interface InvEntry extends InvTip {
   /** Item id, or `beast:<species>`. Round-tripped to the host untouched. */
   id: string;
   kind: ItemKind;
-  /** Display name, already plural-resolved for `count` by the host. */
-  name: string;
   /** How many are held. 1 for anything that does not stack; shown from 2 up. */
   count: number;
-  /** Fallback tint, and the slot's glow. A portrait or an icon covers it. */
-  color: number;
   /** A tile name in the weapon atlas, or absent. */
   icon?: string;
   /**
@@ -173,10 +217,6 @@ export interface InvEntry {
    * — so a beast row draws the actual model rather than a coloured lozenge.
    */
   species?: BeastSpecies;
-  rarity?: ItemRarity;
-  /** The tooltip's paragraph. */
-  description?: string;
-  stats?: readonly InvStat[];
   /** Draws the row as in-use, and is what the gear slots point at. */
   equipped?: boolean;
   /**
@@ -191,8 +231,6 @@ export interface InvEntry {
    * stacked them at the front.
    */
   slot?: number;
-  /** One quiet line at the foot of the tooltip. */
-  note?: string;
   actions?: readonly InvAction[];
 }
 
@@ -201,9 +239,24 @@ export interface GearSlotView {
   entry: InvEntry | null;
 }
 
+/**
+ * ONE MOUNT KIND, AND WHETHER THE STORY HAS HANDED IT OVER.
+ *
+ * The panel is told all of them every time, locked ones included — the host
+ * decides what is unlocked, this decides what that looks like. `kind` is a
+ * `MountKind` and is used for two things and no third: the glyph, and the two
+ * string keys the tooltip reads. It is never round-tripped anywhere, because a
+ * badge is not something you can DO anything to from here.
+ */
+export interface MountBadgeView {
+  kind: MountKind;
+  unlocked: boolean;
+}
+
 export interface InventoryModel {
   gear: readonly GearSlotView[];
   entries: readonly InvEntry[];
+  mounts: readonly MountBadgeView[];
 }
 
 export interface InventoryHooks {
@@ -276,6 +329,32 @@ const escapeHtml = (s: string): string =>
 
 const hexColor = (c: number): string => '#' + c.toString(16).padStart(6, '0');
 
+/**
+ * WHAT A MOUNT BADGE SAYS WHEN YOU HOVER IT: what the kind is, what riding it
+ * is for, and whether you can.
+ *
+ * The last line is the one that had to be written carefully. A locked badge does
+ * NOT say "you cannot ride this" — the player can see that from the dim glyph —
+ * it says the reason, which is that the story has not got there yet. Naming the
+ * quest would be better still and is not possible today (see game-story.md §7:
+ * there is no quest system), and a line that named one that does not exist would
+ * send the player looking for it.
+ *
+ * Built here, not by the host, for the same reason the tabs and the action
+ * buttons are: a mount kind's name and description are fixed strings the panel
+ * can look up from the kind itself, so handing three prebuilt tooltips across
+ * the model boundary would be the host doing the panel's typography.
+ */
+function mountTip(m: MountBadgeView): InvTip {
+  const keys = MOUNT_KIND_KEYS[m.kind];
+  return {
+    name: t(keys.name),
+    color: m.unlocked ? MOUNT_COLOR : MOUNT_LOCKED_COLOR,
+    description: t(keys.desc),
+    note: t(m.unlocked ? 'inv.mount.unlocked' : 'inv.mount.locked'),
+  };
+}
+
 const RARITY_KEYS: Record<ItemRarity, 'inv.rarity.common' | 'inv.rarity.rare' | 'inv.rarity.legendary'> = {
   common: 'inv.rarity.common',
   rare: 'inv.rarity.rare',
@@ -333,6 +412,15 @@ export class InventoryPanel {
   private dragged = false;
   /** The model of the last render, so a hover does not have to rebuild one. */
   private rows = new Map<string, InvEntry>();
+  /**
+   * Hoverable things that are NOT rows — the mount badges, keyed by kind.
+   *
+   * A second map rather than more entries in `rows`, because `rows` is the set
+   * of things a press can pick up (`onPointerDown`) and a drop can act on
+   * (`dropTarget`). Putting a badge in there would have made it draggable, and
+   * the panel would have offered a gesture with no meaning at the other end.
+   */
+  private tips = new Map<string, InvTip>();
   private stage = new InventoryStage();
 
   constructor(private hooks: InventoryHooks) {
@@ -478,6 +566,8 @@ export class InventoryPanel {
     this.rows.clear();
     for (const e of model.entries) this.rows.set(e.id, e);
     for (const g of model.gear) if (g.entry) this.rows.set(g.entry.id, g.entry);
+    this.tips.clear();
+    for (const m of model.mounts) this.tips.set(m.kind, mountTip(m));
 
     const cells = this.wall(model.entries);
     const shown = (e: InvEntry | null): boolean =>
@@ -504,6 +594,7 @@ export class InventoryPanel {
       `<div class="head"><h2>${escapeHtml(t('inv.title'))}</h2></div>` +
       '<div class="stage"></div>' +
       this.gearHtml(model.gear) +
+      this.mountsHtml(model.mounts) +
       this.tabsHtml() +
       `<div class="grid" style="--cols:${INV_COLS}">${
         // Three kinds of cell, and the third is the one the tabs cost: a row
@@ -577,6 +668,43 @@ export class InventoryPanel {
         `<span class="gs-l">${escapeHtml(t(SLOT_LABELS[slot]))}</span>` +
         '</button>';
     }).join('') + '</div>';
+  }
+
+  /**
+   * THE THREE MOUNT BADGES, under the gear strip and over the tabs.
+   *
+   * WHY HERE. The strip above says what the hero is carrying and who is standing
+   * with him; this says what he can DO with them, which is the same sentence one
+   * clause further on. Over the tabs because the tabs are a filter on the wall
+   * below and anything between them and it reads as part of the wall.
+   *
+   * NOT BUTTONS, and that is the whole of the interaction design: there is
+   * nothing to click. Every other control in this panel does something to
+   * something you own, and an unlock is not owned and cannot be spent — so the
+   * badges are `div`s, they are skipped by `onClick` (which requires a
+   * `<button>`) and by `onPointerDown` (which requires a `data-sel` naming a
+   * ROW), and what they offer is the tooltip and an `aria-label` saying the same
+   * thing where there is no pointer to hover with.
+   *
+   * LOCKED IS DIM, NOT ABSENT, and it is not a greyed-out checklist either: the
+   * kinds are three fixed facts about the game, not a set that grows, so showing
+   * all three from the first morning tells a new player what riding is going to
+   * mean without telling them anything about what is in the world.
+   */
+  private mountsHtml(mounts: readonly MountBadgeView[]): string {
+    return `<div class="mounts" role="group" aria-label="${escapeHtml(t('inv.mounts'))}">`
+      + mounts.map((m) => {
+        const tip = mountTip(m);
+        return `<div class="mt${m.unlocked ? ' on' : ''}" data-tip="${m.kind}"`
+          + ` style="--el:${hexColor(m.unlocked ? MOUNT_COLOR : MOUNT_LOCKED_COLOR)}"`
+          // The tooltip's own two lines, joined, so a screen reader and a
+          // pointer are told the same thing rather than the label being a
+          // shorter second opinion.
+          + ` aria-label="${escapeHtml(`${tip.name} — ${tip.note ?? ''}`)}">`
+          + `<i class="ic glyph">${MOUNT_ICONS[m.kind]}</i>`
+          + '</div>';
+      }).join('')
+      + '</div>';
   }
 
   private tabsHtml(): string {
@@ -711,7 +839,7 @@ export class InventoryPanel {
   // The tooltip
   // -------------------------------------------------------------------------
 
-  private showTip(e: InvEntry, x: number, y: number): void {
+  private showTip(e: InvTip, x: number, y: number): void {
     const tip = this.tip;
     if (!tip) return;
     tip.innerHTML =
@@ -755,9 +883,22 @@ export class InventoryPanel {
     return id ? this.rows.get(id) ?? null : null;
   }
 
+  /**
+   * What the pointer is over, for the TOOLTIP only: a row, or one of the things
+   * that is read and never handled. Rows first, because they are what the
+   * cursor is over nearly all of the time.
+   */
+  private tipAt(target: EventTarget | null): InvTip | null {
+    const row = this.entryAt(target);
+    if (row) return row;
+    const el = (target as HTMLElement | null)?.closest?.('[data-tip]') as HTMLElement | null;
+    const key = el?.dataset.tip;
+    return key ? this.tips.get(key) ?? null : null;
+  }
+
   private onPointerOver = (ev: PointerEvent): void => {
     if (this.dragging) return;   // the box in the air is what is being read
-    const e = this.entryAt(ev.target);
+    const e = this.tipAt(ev.target);
     if (e) this.showTip(e, ev.clientX, ev.clientY);
     else this.hideTip();
   };
@@ -775,7 +916,7 @@ export class InventoryPanel {
   };
 
   private onPointerOut = (ev: PointerEvent): void => {
-    if (!this.entryAt(ev.relatedTarget)) this.hideTip();
+    if (!this.tipAt(ev.relatedTarget)) this.hideTip();
   };
 
   // -------------------------------------------------------------------------

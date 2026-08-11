@@ -44,7 +44,7 @@
 //
 // Exits non-zero on failure.
 
-import { bondAll } from './suite/harness.mjs';
+import { bondAll, unlockMounts } from './suite/harness.mjs';
 
 /** The island, live. Every section reads it fresh — it is somewhere else now. */
 const carriers = (ctx) => ctx.ev(() => window.__dbgCarriers());
@@ -57,10 +57,11 @@ let island = null;
 export const name = 'carrier';
 export const sections = [
 
-  // A PARTY TO FLY. Since issue #4 a new game is bonded to nothing, and the
-  // sections below put a FLYER under the island and against its keel. See
-  // `bondAll` for why each module asks for this itself.
-  { id: 'party', run: async (ctx) => { await bondAll(ctx); } },
+  // A PARTY TO FLY, AND THE UNLOCK TO RIDE IT. Since issue #4 a new game is
+  // bonded to nothing and riding is locked until the story hands it over, and
+  // the sections below put a FLYER under the island and against its keel. See
+  // `bondAll` for why each module asks for both itself.
+  { id: 'party', run: async (ctx) => { await bondAll(ctx); await unlockMounts(ctx); } },
 
   // -------------------------------------------------------------------------
   { id: 'exists', run: async (ctx) => {

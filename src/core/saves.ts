@@ -167,6 +167,16 @@ export interface SaveDocument {
    */
   party: { primary: string | null; support: string | null };
   appearance: { hairStyle: string; hairColour: string };
+  /**
+   * WHICH MOUNTS THE STORY HAS HANDED OVER — `MountKind` ids, in `MOUNT_KINDS`
+   * order. Empty on a new character, and empty is the honest reading of a save
+   * written before this field existed: nobody had ridden anything then either.
+   *
+   * Ids and not three booleans, so a build that adds a fourth kind reads an old
+   * document without a migration and this one drops a kind it has never heard
+   * of — see `MountUnlocks.restore`.
+   */
+  mounts: string[];
   /** `ContentStateStore.toJSON()`, carried verbatim and never inspected. */
   content: unknown;
   dayPhase: number;
@@ -308,7 +318,7 @@ function name(value: unknown): string {
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   'v', 'name', 'player', 'location', 'currency', 'bag', 'slots',
   'equippedWeapon', 'readiedOrb', 'beasts', 'party', 'appearance',
-  'content', 'dayPhase',
+  'content', 'dayPhase', 'mounts',
 ]);
 
 /**
@@ -433,6 +443,11 @@ function parseDoc(value: unknown): SaveDocument | null {
     beasts,
     party: { primary: strOrNull(party.primary), support: strOrNull(party.support) },
     appearance: { hairStyle: str(look.hairStyle, ''), hairColour: str(look.hairColour, '') },
+    // Strings only; WHICH strings are meaningful is main.ts's question, exactly
+    // as it is for an item id or a species.
+    mounts: Array.isArray(raw.mounts)
+      ? raw.mounts.map((k) => strOrNull(k)).filter((k): k is string => k !== null)
+      : [],
     content: raw.content,
     dayPhase: num(raw.dayPhase, 0),
     ...(Object.keys(extra).length > 0 ? { extra } : {}),
@@ -462,6 +477,7 @@ function serialize(doc: SaveDocument): Record<string, unknown> {
     beasts: doc.beasts.map((b) => ({ ...b, knownSkillIds: [...b.knownSkillIds] })),
     party: { ...doc.party },
     appearance: { ...doc.appearance },
+    mounts: [...doc.mounts],
     content: doc.content,
     dayPhase: doc.dayPhase,
   };

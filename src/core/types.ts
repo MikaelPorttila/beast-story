@@ -73,6 +73,43 @@ export const LOCOMOTION_NAME_KEYS: Record<Locomotion, StringKey> = {
   amphibious: 'loco.amphibious.name',
 };
 
+/**
+ * WHAT THE PLAYER UNLOCKS — three, against the four gaits above, and the
+ * difference between the two lists is the whole reason this type exists.
+ *
+ * `Locomotion` is a fact about an ANIMAL and it is four because a Rivotter is
+ * not a Finnick. This is a fact about the STORY: game-story.md §5 hands out one
+ * mount per act — ground on The Mill Road, water on Dark Water, flying on
+ * Wingbroken — and the water act's unlock is what makes the trench passable
+ * whether you cross it on a swimmer or an amphibian. Folding the two aquatic
+ * gaits together here is therefore not a shortcut; it is what the acts say.
+ */
+export type MountKind = 'ground' | 'water' | 'flying';
+
+/** Display and iteration order: the order the acts hand them out. */
+export const MOUNT_KINDS: readonly MountKind[] = ['ground', 'water', 'flying'];
+
+/** Which unlock a species answers to. See `MountKind` on why four map to three. */
+export const MOUNT_KIND_OF: Record<Locomotion, MountKind> = {
+  ground: 'ground',
+  flying: 'flying',
+  swimming: 'water',
+  amphibious: 'water',
+};
+
+/**
+ * The two strings a mount kind shows: its NAME and what riding it is FOR.
+ *
+ * One table rather than a `_NAME_KEYS`/`_DESC_KEYS` pair, because both are read
+ * by the same two surfaces (the inventory badge's tooltip and the refusal
+ * toast) and a split would be two tables to keep in step for one concept.
+ */
+export const MOUNT_KIND_KEYS: Record<MountKind, { name: StringKey; desc: StringKey }> = {
+  ground: { name: 'mount.kind.ground.name', desc: 'mount.kind.ground.desc' },
+  water: { name: 'mount.kind.water.name', desc: 'mount.kind.water.desc' },
+  flying: { name: 'mount.kind.flying.name', desc: 'mount.kind.flying.desc' },
+};
+
 export interface BeastStats {
   maxHp: number;
   attack: number;

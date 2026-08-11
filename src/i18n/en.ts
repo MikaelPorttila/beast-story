@@ -103,6 +103,13 @@ export const en = {
   'inv.slot.primary': 'Lead beast',
   'inv.slot.support': 'Support beast',
   'inv.slot.empty': 'Empty',
+  // The three mount badges under the gear strip. `inv.mount.locked` is the one
+  // sentence a locked badge exists to say, so it names the reason rather than
+  // restating the obvious — and it names no quest, because none of them ship
+  // yet and a line pointing at one would send the player looking for it.
+  'inv.mounts': 'Riding',
+  'inv.mount.unlocked': 'Unlocked — hold F beside your lead beast.',
+  'inv.mount.locked': 'Locked. Story progress is required to unlock this.',
   'inv.pick': 'Select an item to see what it does.',
   'inv.equip': 'Equip',
   'inv.equipped': 'Equipped',
@@ -545,6 +552,20 @@ export const en = {
   'loco.amphibious.name': 'Amphibious',
   'biome.trampled.name': 'Trodden Ground',
 
+  // ---- mount kinds ---------------------------------------------------------
+  // THREE, against the four gaits above — the acts hand out one mount each and
+  // the water act's covers both aquatic gaits. See MountKind in core/types.ts.
+  //
+  // The descriptions say what the unlock IS FOR rather than what the animal is,
+  // because that is the question a locked badge raises: not "what is a water
+  // beast" but "what would riding one get me".
+  'mount.kind.ground.name': 'Ground mount',
+  'mount.kind.ground.desc': 'Ride a land beast at a gallop — faster than a sprint you can hold.',
+  'mount.kind.water.name': 'Water mount',
+  'mount.kind.water.desc': 'Swim and dive where the water is too deep and too cold to cross on foot.',
+  'mount.kind.flying.name': 'Flying mount',
+  'mount.kind.flying.desc': 'Take to the air and reach what has no road to it.',
+
   // ---- HUD ---------------------------------------------------------------
   'hud.hp': 'HP',
   'hud.level': 'Lv {n}',
@@ -724,6 +745,9 @@ export const en = {
   'toast.mount.refuse.swimming': 'Too deep to mount — get out of the water first.',
   'toast.mount.refuse.climbing': 'Not while you are on the wall.',
   'toast.mount.refuse.beastDead': '{beast} is in no shape to carry you.',
+  // By KIND, not by beast: what is missing is the story, and naming the animal
+  // would send the player looking for a different one of the same sort.
+  'toast.mount.refuse.locked': 'You have not learned to ride yet — {kind} is locked.',
   'toast.mount.refuse.noBeast': 'No beast to ride.',
   'toast.mount.refuse.other': 'Not now.',
 
@@ -990,6 +1014,13 @@ export const en = {
   'path.lay': 'Lay it from here',
   'path.lay.go': 'Enter',
   'path.lay.cost': 'rebuilds every chunk — a second or two',
+  // The mount rows. A developer instrument standing in for three quests that do
+  // not exist yet (game-story.md §5), so the last column names the quest each
+  // one is waiting on rather than a measured cost.
+  'mount.section': 'Mounts',
+  'mount.ground.quest': 'Act 1 · The Mill Road',
+  'mount.water.quest': 'Act 2 · Dark Water',
+  'mount.flying.quest': 'Act 3 · Wingbroken',
   'hair.classic': 'Adventurer',
   'hair.buzz': 'Buzz cut',
   'hair.bowl': 'Shaggy bowl',

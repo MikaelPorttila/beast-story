@@ -781,6 +781,29 @@ const CSS = `
 .bs-inv .drop-ok{border-color:#8fe06b;box-shadow:0 0 0 2px rgba(143,224,107,.35) inset,
   0 0 22px -6px rgba(143,224,107,.9)}
 
+/* THE THREE MOUNT BADGES — ground, water, flying, in the order the story hands
+   them out. A ROW OF PIPS AND NOT FOUR MORE GEAR SLOTS, deliberately: a slot in
+   the strip above is something you drag onto, and these take no gesture at all
+   (see mountsHtml). Small, centred and unlabelled is what says "a readout" —
+   the words are in the tooltip and in aria-label, which is also why nothing here
+   needs the 16px type floor. */
+.bs-inv .mounts{display:flex;justify-content:center;gap:10px;padding:10px 18px;
+  border-bottom:1px solid rgba(255,255,255,.08)}
+.bs-inv .mt{width:38px;height:32px;display:flex;align-items:center;justify-content:center;
+  border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);
+  color:var(--el);opacity:.4;cursor:help;transition:opacity .18s ease,border-color .18s ease,
+  box-shadow .2s ease}
+/* UNLOCKED IS THE LIT ONE. The locked state is the same badge at 40% rather than
+   a padlock over it: the glyph is the thing worth recognising, and a second
+   symbol on top of it would be the panel shouting about what you cannot do. */
+.bs-inv .mt.on{opacity:1;border-color:var(--el);box-shadow:0 0 18px -8px var(--el)}
+.bs-inv .mt:hover{opacity:1}
+/* Square and fixed, overriding the 70%-of-the-box .ic.glyph sizing further
+   down: that rule is written for a gear slot, whose box is already square, and
+   70% of a 38x32 pip is an oblong the SVG then letterboxes itself inside. Four
+   classes so it wins on specificity rather than on being later in the file. */
+.bs-inv .mt .ic.glyph{width:20px;height:20px;margin:0}
+
 .bs-inv .tabs{display:flex;gap:6px;flex-wrap:wrap;padding:11px 18px 0}
 .bs-inv .chip{padding:5px 12px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.14);
   background:rgba(255,255,255,.05);color:rgba(238,242,248,.72);font-family:inherit;

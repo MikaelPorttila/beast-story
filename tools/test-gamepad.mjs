@@ -34,7 +34,7 @@
 //        ...or as sections inside `bun tools/suite.mjs` — same code either way.
 import { newPage, installFakePad } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
-import { advance, bondAll } from './suite/harness.mjs';
+import { advance, bondAll, unlockMounts } from './suite/harness.mjs';
 
 /** Sleep for REAL milliseconds. Only the realtime section below may use it. */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -145,9 +145,10 @@ async function bootPadPage(bctx, id, { rumble = false, query = 'menu=0&fs=0' } =
 export const name = 'gamepad';
 export const sections = [
 
-  // A BEAST TO MOUNT. Since issue #4 a new game is bonded to nothing, and the
-  // button section holds Y expecting a mount. See `bondAll`.
-  { id: 'party', run: async (ctx) => { await bondAll(ctx); } },
+  // A BEAST TO MOUNT, AND THE UNLOCK TO MOUNT IT. A new game is bonded to
+  // nothing and riding is locked, and the button section holds Y expecting a
+  // mount. See `bondAll`.
+  { id: 'party', run: async (ctx) => { await bondAll(ctx); await unlockMounts(ctx); } },
 
   // -------------------------------------------------------------------------
   { id: 'noPad', run: async (ctx) => {
