@@ -236,7 +236,11 @@ Cross-cutting rules:
     the terrain may have been reseeded and the hero may have been flying;
     `resolveOnCarrier` converts a deck position out of the frame's own
     coordinates because a flying island starts each session at its home. Both
-    run at CAPTURE and again at LOAD — the second pass is not redundant.
+    run at CAPTURE and again at LOAD — the second pass is not redundant. A hero
+    STANDING ON SOMETHING — a crown, a roof, a crate — is the same rule pointed
+    the other way: `perchY` is stored beside the ground and honoured as a
+    bounded rise above the ground that is there now, because dropping him to the
+    terrain reads as falling through the tree he stopped playing in.
   - **Derived state is recomputed, never stored.** `attackStat` comes back from
     re-equipping and `applyLoadout`; a beast's stats come back from its level.
     Storing a derived value is storing a second copy that a balance change puts

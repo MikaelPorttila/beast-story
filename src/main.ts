@@ -231,6 +231,24 @@ const settingsHooks = {
 };
 
 /**
+ * The write `saveNow` asked for most recently, resolved when it has landed.
+ *
+ * DECLARED UP HERE, hundreds of lines above the save section it belongs to, and
+ * the reason is the boot note at the top of this file: the title screen is
+ * constructed during module evaluation and lists characters from its own
+ * constructor, so a binding it reads has to be initialised by then or the
+ * poster opens on a temporal-dead-zone throw.
+ *
+ * What it is FOR is the one moment the list and a write are the same event:
+ * `exitToTitle` saves the character and raises the poster in the same
+ * statement, and the poster asks for the list immediately. Without this the
+ * read overtakes the write and the player is looking at a screen that has never
+ * heard of the character they just played — Load greyed out, their first
+ * character seemingly gone until they reloaded the page.
+ */
+let lastWrite: Promise<unknown> = Promise.resolve();
+
+/**
  * What the title screen needs from the save store (issue #171).
  *
  * Spread into BOTH `StartMenu.offer` calls, which is why it is a const rather
@@ -245,13 +263,17 @@ const settingsHooks = {
  * runs after the fade, on a clear screen. See `StartMenuHooks.onLoad`.
  */
 const saveMenuHooks = {
-  listSaves: () => listSaves(),
+  // AFTER THE WRITE IN FLIGHT, never beside it — see `lastWrite`.
+  listSaves: async (): Promise<SaveMeta[]> => {
+    await lastWrite;
+    return listSaves();
+  },
   onDeleteSave: (id: number) => deleteSave(id),
   onLoad: async (id: number): Promise<boolean> => {
     const doc = await readSave(id);
     if (!doc) return false;
     pendingSave = doc;
-    activeSaveId = id;
+    setActiveSave(id);
     return true;
   },
   // The same two lines New Game runs, and the same handshake: a Load pressed
@@ -641,8 +663,10 @@ function exitToTitle(): void {
   // just left — the record is keyed by id, and a fresh session has not earned
   // one yet. `pendingSave` is cleared for the same reason a step further on:
   // a document read but never applied (Load pressed, then Escape) must not
-  // ambush the next New Game.
-  activeSaveId = null;
+  // ambush the next New Game. THROUGH `setActiveSave`, because the save fired
+  // at the top of this function is still in flight and would otherwise hand the
+  // pointer straight back — see `saveEpoch`.
+  setActiveSave(null);
   playerName = '';
   pendingSave = null;
   carriedExtra = undefined;
@@ -692,6 +716,35 @@ function exitToTitle(): void {
  * (a probe, `nostore=1`, a New Game whose first write has not landed yet).
  */
 let activeSaveId: number | null = null;
+/**
+ * WHICH CHARACTER, counted — bumped every time the answer above changes for a
+ * reason other than a write completing.
+ *
+ * A WRITE OUTLIVES THE SESSION THAT ASKED FOR IT, and that is the bug this
+ * exists for. `saveNow` awaits IndexedDB and then records the id it was given,
+ * so a save fired on the way OUT of a game lands after `exitToTitle` has
+ * cleared the pointer — and put the record of the character the player just
+ * left back into a session that is now the title screen. The next New Game then
+ * autosaved a brand new character straight over the old one: two names, one
+ * row, and a player who watched their first character disappear the moment they
+ * made a second. Cheap and total to fix: the write remembers which character it
+ * was for, and declines to name an active save that is no longer the one it was
+ * writing.
+ */
+let saveEpoch = 0;
+
+/**
+ * Point the save pointer at a character, or at nobody.
+ *
+ * Every change of IDENTITY goes through here — a load, a new character, an exit
+ * — and none of them may be a bare assignment, or the guard in `saveNow` has
+ * nothing to compare against. A write completing is the one case that is NOT an
+ * identity change and assigns directly.
+ */
+function setActiveSave(id: number | null): void {
+  activeSaveId = id;
+  saveEpoch++;
+}
 /** What the player typed on New Game. Display only — the id is the key. */
 let playerName = '';
 /**
@@ -731,6 +784,24 @@ let applyingSave = false;
 const SAFE_WADE_DEPTH = 1.5;
 
 /**
+ * How far above the ground a saved PERCH is still believed, and how far above
+ * it one is worth recording at all.
+ *
+ * The ceiling is a sanity bound rather than a measurement of any one thing: the
+ * tallest crown in the start forest tops out about 17 units over its own
+ * column and a hut roof is under 10, so 30 clears everything a hero can be
+ * standing on while leaving a flight, a fall and a doctored document outside
+ * it. Past that the ground is the better answer, and the cost of being wrong
+ * either way is the same one — a drop of at most this much, with no fall damage
+ * in this game (see the landing branch in Player.update).
+ *
+ * The floor is a step: below it the perch and the ground put his feet in the
+ * same place, and the ground is the more robust of two identical answers.
+ */
+const MAX_PERCH_RISE = 30;
+const PERCH_MIN_RISE = 0.5;
+
+/**
  * The closest ground a hero can stand on at (x, z), or a town when there is
  * none.
  *
@@ -749,12 +820,31 @@ const SAFE_WADE_DEPTH = 1.5;
  * because a town is the one place in this world guaranteed to be somewhere you
  * can walk out of. That is also where a waypoint would slot in when there is a
  * waypoint system to ask; the fallback is written as a chain for that reason.
+ *
+ * `perchY` IS THE OTHER HALF OF THE SAME ARGUMENT, pointed the other way. A
+ * hero can be standing on something that is not the ground — a tree crown, a
+ * hut roof, a crate — and dropping him to the terrain there is the same kind of
+ * wrong as loading him into open air: he comes back seventeen units below the
+ * tree he stopped playing in, which reads as falling through it. So the surface
+ * is remembered and honoured, but as a RISE ABOVE THE GROUND THAT IS THERE NOW
+ * rather than as an altitude: re-measured against a heightfield that may have
+ * been reseeded, and bounded, so nothing can ask for a hero in the sky. It is
+ * deliberately NOT confirmed against `climbTopAt` — the trunk registry is
+ * populated per streamed chunk, and a load lands before the chunk under it
+ * arrives, so "is the tree still there?" is unanswerable at exactly the moment
+ * it would be asked. If it is gone he falls the rise and lands, which is what
+ * the world does to anything standing on something that stops existing.
  */
-function resolveSafeGround(x: number, z: number): { x: number; y: number; z: number } {
+function resolveSafeGround(
+  x: number, z: number, perchY = NaN,
+): { x: number; y: number; z: number } {
   if (Number.isFinite(x) && Number.isFinite(z)) {
     const ground = world.getHeight(x, z);
     if (Number.isFinite(ground) && ground >= world.waterLevel - SAFE_WADE_DEPTH) {
-      return { x, y: Math.max(ground, world.waterLevel), z };
+      const floor = Math.max(ground, world.waterLevel);
+      // NaN fails this, which is how "he was on the ground" arrives.
+      if (perchY > floor) return { x, y: Math.min(perchY, floor + MAX_PERCH_RISE), z };
+      return { x, y: floor, z };
     }
   }
   // The gate rather than the centre: a settlement's middle is where its huts
@@ -816,6 +906,20 @@ function collectSave(): SaveDocument {
   const frame = player.carrier;
   const local = frame ? { x: 0, z: 0 } : null;
   if (frame && local) frame.toLocal(player.position.x, player.position.z, local);
+  // STANDING ON SOMETHING THAT IS NOT THE GROUND. `onGround` is most of the
+  // test and it is what makes this a perch rather than an altitude: the hero's
+  // y is the surface holding him up whenever it is true, so a crown, a roof and
+  // a crate all arrive here, and a jump, a fall and a Frostwing at cruising
+  // height do not. See `resolveSafeGround` for what a load does with it.
+  //
+  // NOT FROM THE SADDLE, though: a mount reports the RIDER grounded while it
+  // walks (`setRidePose`), and the rider sits a body's height over the ground
+  // it is walking on. Nothing restores a mount — `applySave` dismounts — so
+  // that height describes a beast that will not be under him.
+  const perchY = player.onGround && !player.isMounted
+    && player.position.y > here.y + PERCH_MIN_RISE
+    ? player.position.y
+    : null;
   const saved: SaveDocument = {
     v: 1,
     name: playerName,
@@ -829,6 +933,7 @@ function collectSave(): SaveDocument {
       // street he was standing in with it, and a world heading would have him
       // facing across it instead of along it.
       yaw: frame ? player.facing - frame.yaw : player.facing,
+      ...(perchY !== null ? { perchY } : {}),
       ...(frame && local
         ? { carrierId: frame.id, localX: local.x, localZ: local.z }
         : {}),
@@ -966,7 +1071,7 @@ function applySave(doc: SaveDocument): void {
     // controller holding a beast would seat him on one he no longer has.
     mount.dismount();
     const at = resolveOnCarrier(doc.location) ?? {
-      ...resolveSafeGround(doc.location.x, doc.location.z),
+      ...resolveSafeGround(doc.location.x, doc.location.z, doc.location.perchY),
       yaw: doc.location.yaw,
     };
     mount.teleport(at.x, at.z, at.y);
@@ -990,8 +1095,12 @@ function applySave(doc: SaveDocument): void {
  */
 async function saveNow(): Promise<number | null> {
   if (!playing || !savesAvailable()) return null;
-  const id = await writeSave(activeSaveId, collectSave());
-  activeSaveId = id;
+  const epoch = saveEpoch;
+  const write = writeSave(activeSaveId, collectSave());
+  lastWrite = write.catch(() => null);
+  const id = await write;
+  // Only if this is still the character it was written for. See `saveEpoch`.
+  if (epoch === saveEpoch) activeSaveId = id;
   return id;
 }
 
@@ -1119,7 +1228,7 @@ content.state.onChange((what) => {
   // from inside a running session.
   newCharacter: (name) => {
     playerName = name;
-    activeSaveId = null;
+    setActiveSave(null);
     carriedExtra = undefined;
   },
   // Applies INTO THE RUNNING SESSION rather than through the title screen, so
@@ -1129,11 +1238,11 @@ content.state.onChange((what) => {
     const doc = await readSave(id);
     if (!doc) return false;
     applySave(doc);
-    activeSaveId = id;
+    setActiveSave(id);
     return true;
   },
   del: async (id) => {
-    if (activeSaveId === id) activeSaveId = null;
+    if (activeSaveId === id) setActiveSave(null);
     await deleteSave(id);
   },
   active: () => activeSaveId,
