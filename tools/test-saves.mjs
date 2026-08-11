@@ -23,7 +23,7 @@
 // document and fail every one of these.
 //
 // Exits non-zero.
-import { launchBrowser, newContextPage, whenPlaying } from './browser.mjs';
+import { launchBrowser, leaveSplash, newContextPage, whenPlaying } from './browser.mjs';
 import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 const browser = await launchBrowser();
@@ -321,6 +321,88 @@ const readState = (page) => page.evaluate(() => {
   check(res.listed === 0, `nostore=1 listed ${res.listed} characters`);
   check(!res.dbs.includes('beast-story-saves'),
     `nostore=1 created the database anyway: ${JSON.stringify(res.dbs)}`);
+
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------------------
+// 7. THE WHOLE THING THROUGH THE TITLE SCREEN, which is the only case here that
+//    proves the UI is wired to any of the above. Name a character, play, come
+//    back to the poster, and load them from the list.
+//
+//    `fs=0` because New Game is clicked (AGENTS.md), and no `menu=0` because the
+//    menu is the subject.
+// ---------------------------------------------------------------------------
+{
+  const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
+  page.on('pageerror', (e) => console.error('[pageerror]', e.message));
+  await page.goto(`${HOST}/?fs=0&vol=0&${NO_WARMUP}`, { waitUntil: 'load' });
+  await page.waitForSelector('.bs-menu');
+  await leaveSplash(page);
+
+  // Load is down before there is anything to load, and the note says why.
+  out.menu = await page.evaluate(() => ({
+    loadDisabled: document.querySelector('.bs-menu [data-act="load"]')?.disabled ?? null,
+    note: document.querySelector('.bs-menu .note')?.textContent ?? null,
+  }));
+  check(out.menu.loadDisabled === true, 'Load is live on a machine with no characters');
+
+  await page.click('.bs-menu [data-act="new"]');
+  await page.waitForSelector('.bs-name-input');
+  // Typed, not set: this goes through the capture-phase key handler, and 's' is
+  // the key that walks the cursor down everywhere else on this screen.
+  await page.keyboard.type('Wisp');
+  const typed = await page.evaluate(() => document.querySelector('.bs-name-input').value);
+  check(typed === 'Wisp', `the name field holds "${typed}" after typing Wisp`);
+
+  await page.click('.bs-menu [data-act="begin"]');
+  await whenPlaying(page);
+  const named = await page.evaluate(() => window.__dbgSaves.doc().name);
+  check(named === 'Wisp', `the session is playing as "${named}", not Wisp`);
+
+  // Something to tell this character apart by, then save and go back.
+  await page.evaluate(async () => {
+    window.__dbgGive('sunberry', 9);
+    await window.__dbgSaves.save();
+  });
+  const savedBag = await page.evaluate(() => window.__dbgSaves.doc().bag.length);
+
+  // Exit to title through the pause menu's own button, which is the route a
+  // player has — and the one that clears the active character.
+  await page.evaluate(() => window.__dbgBoot && null);
+  await page.keyboard.press('F10');
+  await page.waitForSelector('.bs-pause [data-act="exit"]');
+  await page.click('.bs-pause [data-act="exit"]');
+  await page.waitForSelector('.bs-menu [data-act="load"]:not([disabled])', { timeout: 10000 });
+
+  const listed = await page.evaluate(() => ({
+    rows: document.querySelectorAll('.bs-menu [data-act="load"]').length,
+    disabled: document.querySelector('.bs-menu [data-act="load"]')?.disabled ?? null,
+  }));
+  out.menu.afterOneCharacter = listed;
+  check(listed.disabled === false, 'Load is still down after a character was saved');
+
+  await page.click('.bs-menu [data-act="load"]');
+  await page.waitForSelector('.bs-save-row');
+  const row = await page.evaluate(() => {
+    const el = document.querySelector('.bs-save-row .save');
+    return { name: el?.querySelector('.nm')?.textContent ?? null,
+      meta: el?.querySelector('.meta')?.textContent ?? null };
+  });
+  out.menu.row = row;
+  check(row.name === 'Wisp', `the list row is named "${row.name}"`);
+  check(/\d/.test(row.meta ?? ''), `the row's power/date line reads "${row.meta}"`);
+
+  await page.click('.bs-save-row .save');
+  await whenPlaying(page);
+  const back = await page.evaluate(() => {
+    const doc = window.__dbgSaves.doc();
+    return { name: doc.name, bag: doc.bag.length, active: window.__dbgSaves.active() };
+  });
+  out.menu.loaded = back;
+  check(back.name === 'Wisp', `loading from the list gave "${back.name}"`);
+  check(back.bag === savedBag, `the bag came back with ${back.bag} kinds, saved ${savedBag}`);
+  check(typeof back.active === 'number', 'the loaded character is not the active save');
 
   await ctx.close();
 }

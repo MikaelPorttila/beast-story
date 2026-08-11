@@ -226,6 +226,36 @@ const settingsHooks = {
 };
 
 /**
+ * What the title screen needs from the save store (issue #171).
+ *
+ * Spread into BOTH `StartMenu.offer` calls, which is why it is a const rather
+ * than four properties written out twice: the second menu — the one Exit to
+ * title raises — is a different instance of the same screen, and a hook added
+ * to one and forgotten on the other is a Load button that works until you have
+ * played once.
+ *
+ * `onLoad` READS AND STASHES, `onBegin` STARTS. The split is the menu's, and
+ * the reason is that only one of the two can fail: the read happens while the
+ * poster is still up so a failure can be shown on it, and the handshake below
+ * runs after the fade, on a clear screen. See `StartMenuHooks.onLoad`.
+ */
+const saveMenuHooks = {
+  listSaves: () => listSaves(),
+  onDeleteSave: (id: number) => deleteSave(id),
+  onLoad: async (id: number): Promise<boolean> => {
+    const doc = await readSave(id);
+    if (!doc) return false;
+    pendingSave = doc;
+    activeSaveId = id;
+    return true;
+  },
+  // The same two lines New Game runs, and the same handshake: a Load pressed
+  // while the shader sweep is still going sets `handedOver` and waits on
+  // `prepDone`, exactly as New Game has always done.
+  onBegin: () => { handedOver = true; beginPlay(); },
+};
+
+/**
  * THE MUSIC, built before anything else it might play under.
  *
  * Ahead of the title screen because the splash track is the title screen's, and
@@ -302,7 +332,8 @@ let startMenu = StartMenu.offer({
   // menu's own half-second fade is the transition INTO it — see
   // LoadingScreen.cover for why that needs no cross-fade of its own.
   onLeave: () => loading?.cover(),
-  onStart: () => { handedOver = true; beginPlay(); },
+  onStart: (name) => { playerName = name; handedOver = true; beginPlay(); },
+  ...saveMenuHooks,
 });
 
 /**
@@ -602,7 +633,8 @@ function exitToTitle(): void {
   startMenu = StartMenu.offer({
     ...settingsHooks,
     onLeave: () => loading?.cover(),
-    onStart: () => { handedOver = true; beginPlay(); },
+    onStart: (name) => { playerName = name; handedOver = true; beginPlay(); },
+    ...saveMenuHooks,
   }, { skipSplash: true });
   // `menu=0` and photo mode suppress the menu outright (see StartMenu.offer),
   // and in those runs Exit cannot be reached — there is no menu to press it in.

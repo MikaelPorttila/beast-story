@@ -750,11 +750,31 @@ export const en = {
   'menu.pressStart': 'Press start...',
   'menu.newGame': 'New Game',
   'menu.load': 'Load',
-  /** Sits under Load, which is inert until there is a save system to load from. */
+  /** Sits under Load, and goes away with the reason — see renderPanel. */
   'menu.load.unavailable': 'No saved game',
   'menu.settings': 'Settings',
   'menu.back': 'Back',
   'menu.settings.title': 'Settings',
+
+  // ---- saved characters ----------------------------------------------------
+  // The name step and the character list on the title screen, and the autosave
+  // row in the settings list. Issue #171.
+  //
+  // A CHARACTER IS NAMED, NOT NUMBERED. The list says who you were rather than
+  // which slot they are in, which is why there is no "Slot 1" string here: the
+  // id is a database key and never reaches a player's eyes.
+  'saves.namePrompt': 'What is your name?',
+  /** Used when the field is left empty — including by every pad player. */
+  'saves.nameDefault': 'Hero',
+  'saves.begin': 'Begin',
+  /** `{n}` is the sum of every bonded beast's level. */
+  'saves.power': 'Power {n}',
+  'saves.delete': 'Delete',
+  /** The same button after one press. Two presses delete; see `pressDelete`. */
+  'saves.deleteConfirm': 'Confirm?',
+  'saves.empty': 'No characters yet',
+  /** Shown on the list when a character was chosen and could not be read. */
+  'saves.loadFailed': 'That character could not be loaded',
 
   // ---- about the game ------------------------------------------------------
   // The About panel (src/ui/about.ts), reached from the option list. Issue #65.

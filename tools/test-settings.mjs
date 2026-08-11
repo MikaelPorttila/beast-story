@@ -23,7 +23,7 @@
 //
 //   bun tools/test-settings.mjs
 import {
-  launchBrowser, leaveSplash, logPageErrors, newContextPage, whenPlaying,
+  launchBrowser, leaveSplash, logPageErrors, newContextPage, startNewGame, whenPlaying,
 } from './browser.mjs';
 
 import { BASE as HOST, NO_WARMUP } from './target.mjs';
@@ -219,7 +219,7 @@ const out = {};
   await clickToggle(page, '[data-gfx="ao"]');
   await page.click('.bs-menu [data-act="back"]');
   await page.waitForSelector('.bs-menu [data-act="new"]', { timeout: 15000 });
-  await page.click('.bs-menu [data-act="new"]');
+  await startNewGame(page);
   await whenPlaying(page);
   out.gfxInGame = await page.evaluate(() => window.__dbgGfx?.() ?? null);
   await ctx.close();

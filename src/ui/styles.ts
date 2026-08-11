@@ -1348,6 +1348,48 @@ const CSS = `
 .bs-opts .note{font-size:16px;font-weight:600;line-height:1.35;text-align:center;
   color:rgba(255,255,255,.62);text-shadow:0 1px 4px rgba(0,0,0,.85);margin:-4px 0 2px}
 
+/* NAMING A CHARACTER, and LOADING ONE — issue #171.
+
+   The field is dressed as the buttons' inverse: they are lit wood, so it is the
+   hole cut in it. That reads as somewhere to type without needing a caption to
+   say so, and it is the same trick the settings pills use at the other end of
+   the same column.
+
+   18px matches .bs-menu-btn and is well clear of the 16px floor. It has to be
+   stated: an <input> does NOT inherit the page font, so leaving it alone gets
+   the browser's 13px default — which is the one control on this screen that
+   would silently break the type rule in AGENTS.md. The font-family:inherit
+   below is here for the same reason. */
+.bs-name-input{width:100%;padding:13px 18px;border-radius:12px;
+  font-family:inherit;font-size:18px;font-weight:700;letter-spacing:.04em;
+  text-align:center;color:#f4e7cd;
+  background:linear-gradient(180deg,#241708,#3a2712);
+  border:1px solid rgba(255,214,140,.3);
+  box-shadow:inset 0 2px 8px rgba(0,0,0,.55);outline:none}
+.bs-name-input::placeholder{color:rgba(244,231,205,.38);font-weight:600}
+.bs-name-input:focus-visible{
+  box-shadow:inset 0 2px 8px rgba(0,0,0,.55),
+    0 0 0 2px rgba(255,214,120,.95),0 0 22px rgba(255,196,90,.6)}
+
+/* A character: the wide button that loads them, and the narrow one that does
+   not. Delete is deliberately the smaller, quieter face of the pair — it sits
+   beside the thing a player came here to press, and the two must not look
+   equally inviting. */
+.bs-save-row{display:flex;gap:8px;align-items:stretch}
+.bs-save-row .save{flex:1;flex-direction:column;align-items:flex-start;gap:2px;
+  padding:11px 16px;text-align:left}
+.bs-save-row .save .nm{font-size:18px;font-weight:800;letter-spacing:.04em}
+/* 16px exactly — the floor, and this is a player-facing line. */
+.bs-save-row .save .meta{font-size:16px;font-weight:600;letter-spacing:.02em;
+  color:rgba(244,231,205,.7)}
+.bs-save-row .del{flex:none;width:auto;padding:11px 14px;font-size:16px;
+  background:linear-gradient(180deg,#4a2a22,#2c1710)}
+/* Armed: one press has been made and the next one deletes. Red enough that the
+   change is the answer to "did that do anything", which is the question a first
+   press on a delete button always raises. */
+.bs-save-row .del.armed{color:#ffe0d2;border-color:rgba(255,140,110,.55);
+  background:linear-gradient(180deg,#8e2f22,#5c1c12)}
+
 /* ABOUT THE GAME — the one box on this screen that SCROLLS (ui/about.ts).
    Issue #65.
 

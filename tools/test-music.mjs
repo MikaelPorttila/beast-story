@@ -30,7 +30,7 @@
 // climbing regardless.
 //
 //   bun tools/test-music.mjs
-import { launchBrowser, newContextPage, wait, logPageErrors } from './browser.mjs';
+import { launchBrowser, newContextPage, startNewGame, wait, logPageErrors } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
 const music = (page) => page.evaluate(() => window.__dbgMusic?.() ?? null);
@@ -150,7 +150,7 @@ const out = {};
 
   // New Game. The boot may still be in its shader phase, so wait for the
   // handover rather than for a fixed time.
-  await page.click('.bs-menu [data-act="new"]');
+  await startNewGame(page);
   await page.waitForFunction(
     () => /overworld/.test(window.__dbgMusic()?.track ?? ''), { timeout: 60000 },
   );
