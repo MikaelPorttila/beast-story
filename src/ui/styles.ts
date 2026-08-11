@@ -38,12 +38,29 @@ const CSS = `
    hotbar, the interact pill, the dialogue panel — hangs off the same edge the
    touch sticks fell through, so the HUD is sized from the same measurement, with
    inset:0 left underneath as the fallback. */
+/* ON :root, NOT ON .bs-root, and that is a bug fix rather than tidying. The
+   bag, the journal and the pause menu are appended to document.body — they are
+   SIBLINGS of the HUD root, not children of it (see ui/journal.ts) — so a custom
+   property declared on .bs-root never reached the one class that most wanted it:
+   .bs-glass on a panel resolved --glass to nothing, the background declaration
+   was dropped as invalid, and the panel was transparent. Nobody saw it because
+   the scrim behind it was doing the darkening. Take the scrim's paint away and
+   the world shows through the journal, which is how this was found.
+
+   --pane is THE SAME TWO COLOURS AT FULL ALPHA. A panel is opaque and a chip is
+   not: a shard pill or a hint floats over the world and wants to show it
+   through, a drawer you opened to read has replaced the world for as long as it
+   is up. Keeping the hues identical is what stops the two reading as two
+   themes. */
+:root{
+  --glass:linear-gradient(165deg,rgba(30,38,54,.72),rgba(14,18,28,.82));
+  --pane:linear-gradient(165deg,#1e2636,#0e121c);
+  --stroke:rgba(255,255,255,.14);
+}
 .bs-root{position:fixed;inset:0;width:var(--bs-vw,auto);height:var(--bs-vh,auto);
   pointer-events:none;z-index:20;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   color:#eef2f8;user-select:none;-webkit-user-select:none;
-  --glass:linear-gradient(165deg,rgba(30,38,54,.72),rgba(14,18,28,.82));
-  --stroke:rgba(255,255,255,.14);
 }
 /* .bs-journal is on this one because it is a SIBLING of the HUD root (see
    ui/journal.ts) and it is the one panel here built out of real document
@@ -79,6 +96,14 @@ const CSS = `
 .bs-glass{background:var(--glass);border:1px solid var(--stroke);border-radius:14px;
   box-shadow:0 8px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+/* A PANEL IS NOT A CHIP. The four surfaces you open — the bag, the journal, the
+   shop, the controls sheet — wear .bs-glass for its border and shadow and then
+   take the glass back out of it: opaque, unblurred, square. Chips keep it. The
+   rule is one selector list rather than an edit to .bs-glass because that class
+   is worn by ten HUD readouts as well, and the world showing through a hint pill
+   is the point of the pill. */
+.bs-inv .pane,.bs-journal .pane,.bs-shop,.bs-keys{background:var(--pane);
+  backdrop-filter:none;-webkit-backdrop-filter:none}
 
 /* ---- title chip -------------------------------------------------------- */
 .bs-title{position:absolute;top:14px;left:16px;display:flex;align-items:baseline;gap:8px;
@@ -158,11 +183,20 @@ const CSS = `
 @keyframes bsPop{0%{transform:scale(1)}45%{transform:scale(1.28)}100%{transform:scale(1)}}
 
 /* ---- tracked quests ------------------------------------------------------ */
-/* src/ui/journal.ts fills this through HUD.setQuests. TOP LEFT, which is the
-   one large empty corner left on this HUD: the right column is money and the
-   bag, the bottom left is the party, the top centre is the compass. It is also
-   where every game that has ever had a quest tracker put one, and a player
-   should not have to hunt for the list of what they are doing.
+/* src/ui/journal.ts fills this through HUD.setQuests. THE RIGHT EDGE, IN THE
+   VERTICAL MIDDLE, and the vertical part is the load-bearing half.
+
+   The right column is already money (.bs-shards, top 14), the bag under it
+   (.bs-bag, top 64, GROWS DOWNWARD as you pick things up) and the readied orb
+   (.bs-orb, bottom 104). A tracker docked under the bag would have to guess how
+   tall the bag is today, and a guess that is wrong once is two readouts on top
+   of each other. Anchored at 38% of the height it clears all three whatever
+   they are holding, and it stays clear of the crosshair because it is a
+   right-aligned column 320px wide at most.
+
+   RIGHT-ALIGNED TEXT, which is the other half of the move: a left-aligned block
+   hanging off the right edge reads as something that failed to lay out. The
+   objective indent flips with it.
 
    NO PANEL AROUND IT. Every other cluster on the HUD wears .bs-glass because
    each is a readout with edges — a bar, a count, a row of cards. This is prose,
@@ -173,22 +207,21 @@ const CSS = `
    IT IS OPT-OUT, PER QUEST, from the journal — see hudFlag in main.ts. A
    player running six quests at once is not being helped by six of them here.
 
-   IT STACKS UNDER THE MENU BUTTON, which already owns 14px in this corner and
-   already steps down for the debug title plate. Same 44px step, twice, written
-   with the same :has() the button uses — three elements in one column, each
-   below the one that was there first. On a phone the button is hidden (the
-   touch overlay draws its own MENU), and the responsive section takes this back
-   up to the top with it. */
-.bs-quests{position:absolute;top:58px;left:16px;max-width:min(320px,42vw);
-  display:flex;flex-direction:column;gap:9px;transition:opacity .2s ease;
+   NOTHING STACKS ON IT ANY MORE. It used to step down under the menu button and
+   the debug title plate, which is why those two :has() rules existed; on this
+   edge it is alone, so the offsets are gone rather than mirrored. */
+.bs-quests{position:absolute;top:38%;right:16px;left:auto;max-width:min(320px,42vw);
+  display:flex;flex-direction:column;align-items:flex-end;text-align:right;gap:9px;
+  transition:opacity .2s ease;
   text-shadow:0 1px 3px rgba(0,0,0,.75),0 0 10px rgba(0,0,0,.55)}
-.bs-root:has(.bs-title) .bs-quests{top:102px}
-.bs-quests .qt-n{display:flex;align-items:baseline;gap:7px;font-size:16px;font-weight:800;
-  letter-spacing:.02em;color:#fff}
+.bs-quests .q{display:flex;flex-direction:column;align-items:flex-end}
+.bs-quests .qt-n{display:flex;align-items:baseline;flex-direction:row-reverse;gap:7px;
+  font-size:16px;font-weight:800;letter-spacing:.02em;color:#fff}
 .bs-quests .qt-n i{flex:none;width:7px;height:7px;border-radius:50%;
   background:rgba(238,242,248,.5);font-style:normal}
 .bs-quests .q.c-main .qt-n i{background:#ffc44d;box-shadow:0 0 8px rgba(255,196,77,.9)}
-.bs-quests .qt-s{margin-top:2px;padding-left:14px;display:flex;flex-direction:column;gap:2px}
+.bs-quests .qt-s{margin-top:2px;padding-right:14px;display:flex;flex-direction:column;
+  align-items:flex-end;gap:2px}
 .bs-quests .qt-s span{font-size:16px;font-weight:600;line-height:1.35;
   color:rgba(238,242,248,.82)}
 .bs-quests .qt-s span.ok{color:rgba(238,242,248,.45);text-decoration:line-through}
@@ -536,10 +569,18 @@ const CSS = `
 
 /* ---- shop -------------------------------------------------------------- */
 .bs-shopwrap{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
-.bs-scrim{position:absolute;inset:0;background:rgba(5,9,17,.58);opacity:0;transition:opacity .28s ease;
-  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+/* THE SCRIM IS INVISIBLE AND STILL THERE, and both halves are deliberate.
+   It no longer dims or blurs anything: a panel is opaque now, so darkening the
+   half of the screen it does not cover was dimming the GAME to make a panel
+   that needs no help stand out. But the element is load-bearing — it is the
+   click-to-close target for the bag, the journal, the shop and the controls
+   sheet, and it is the drop target that throws an item into the world
+   (dropTarget in ui/inventory.ts). An opacity:0 element still takes
+   clicks, so the reveal rules below go on animating nothing, harmlessly. */
+.bs-scrim{position:absolute;inset:0;background:transparent;opacity:0;
+  transition:opacity .28s ease}
 .bs-shop{position:relative;width:min(1000px,94vw);max-height:84vh;display:flex;flex-direction:column;
-  border-radius:20px;opacity:0;transform:translateY(16px) scale(.96);
+  border-radius:0;opacity:0;transform:translateY(16px) scale(.96);
   transition:opacity .3s ease,transform .34s cubic-bezier(.34,1.45,.64,1);
   box-shadow:0 24px 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1)}
 .bs-shopwrap.open{pointer-events:auto}
@@ -631,7 +672,7 @@ const CSS = `
    16px floor took the caps from 10.75 to 16 — see the .bs-root kbd rule.) */
 .bs-keyswrap{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
 .bs-keys{position:relative;width:min(1120px,96vw);max-height:88vh;display:flex;flex-direction:column;
-  border-radius:20px;opacity:0;transform:translateY(16px) scale(.96);
+  border-radius:0;opacity:0;transform:translateY(16px) scale(.96);
   transition:opacity .3s ease,transform .34s cubic-bezier(.34,1.45,.64,1);
   box-shadow:0 24px 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1)}
 .bs-keyswrap.open{pointer-events:auto}
@@ -718,7 +759,7 @@ const CSS = `
    1100px it is simply most of the window, which is the honest outcome. */
 .bs-inv .pane{position:relative;width:min(710px,100vw);height:var(--bs-vh,100dvh);
   display:flex;flex-direction:column;min-height:0;
-  border-radius:20px 0 0 20px;border-right:none;
+  border-radius:0;border-right:none;
   opacity:0;transform:translateX(26px);
   transition:opacity .24s ease,transform .3s cubic-bezier(.22,1,.36,1);
   box-shadow:-24px 0 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1)}
@@ -969,7 +1010,7 @@ const CSS = `
 .bs-journal.open .bs-scrim{opacity:1}
 .bs-journal .pane{position:relative;width:min(520px,100vw);height:var(--bs-vh,100dvh);
   display:flex;flex-direction:column;min-height:0;
-  border-radius:20px 0 0 20px;border-right:none;
+  border-radius:0;border-right:none;
   opacity:0;transform:translateX(26px);
   transition:opacity .24s ease,transform .3s cubic-bezier(.22,1,.36,1);
   box-shadow:-24px 0 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1)}
@@ -1065,14 +1106,14 @@ const CSS = `
   pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   color:#fff;user-select:none;-webkit-user-select:none}
-.bs-pause .bs-scrim{position:absolute;inset:0;background:rgba(5,9,17,.62);opacity:0;
+.bs-pause .bs-scrim{position:absolute;inset:0;background:transparent;opacity:0;
   transition:opacity .22s ease}
 .bs-pause.open .bs-scrim{opacity:1}
 .bs-pause .pane{position:relative;width:min(420px,90vw);max-height:88vh;overflow-y:auto;
-  padding:22px 20px;border-radius:18px;
+  padding:22px 20px;border-radius:0;
   /* Warm, so the wooden buttons sit on something related to them rather than on
      the HUD's blue-grey. Same construction as .bs-glass, a different tint. */
-  background:linear-gradient(180deg,rgba(38,26,15,.93),rgba(20,14,8,.95));
+  background:linear-gradient(180deg,#261a0f,#140e08);
   border:1px solid rgba(255,214,140,.22);
   box-shadow:0 24px 64px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,226,170,.14);
   opacity:0;transform:translateY(14px) scale(.97);
@@ -1806,9 +1847,7 @@ const CSS = `
 /* ---- responsive ---------------------------------------------------------- */
 /* Respect notches/rounded corners on phones. */
 .bs-left{left:max(16px,env(safe-area-inset-left))}
-.bs-quests{left:max(16px,env(safe-area-inset-left));
-  top:calc(max(14px,env(safe-area-inset-top)) + 44px)}
-.bs-root:has(.bs-title) .bs-quests{top:calc(max(14px,env(safe-area-inset-top)) + 88px)}
+.bs-quests{right:max(16px,env(safe-area-inset-right))}
 .bs-title{left:max(16px,env(safe-area-inset-left));top:max(14px,env(safe-area-inset-top))}
 .bs-shards{right:max(16px,env(safe-area-inset-right));top:max(14px,env(safe-area-inset-top))}
 .bs-compass{top:max(10px,env(safe-area-inset-top))}
@@ -1870,10 +1909,9 @@ const CSS = `
      virtual F10. Two buttons doing one job, one of them printing the name of a
      key the device does not have, is worse than one. */
   .bs-menubtn{display:none}
-  /* ...so the tracker takes the corner back. It is the only thing left in this
-     column on a phone, and 44px of empty space above it would be 44px of a
-     screen that has none to spare. */
-  .bs-quests{top:max(14px,env(safe-area-inset-top))}
+  /* The tracker keeps the right edge here too, and stays in the middle of it:
+     the toast stack moves to the top right on a phone (see .bs-toasts below),
+     which is the one thing that would have collided with a top-anchored one. */
   /* IT WRAPS HERE, and only here. The badge is one nowrap line on a desktop; at
      the 16px floor that line is 357px of a 393px phone, which reaches from the
      MENU button on one side to the toast column on the other. Capped and wrapped

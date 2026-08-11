@@ -35,7 +35,7 @@ import { flags } from './core/flags';
 import { DevConsole } from './ui/console';
 import {
   bootstrapContent, content, factory, hasText, resolveText, MUSIC_TRACK_KIND,
-  type BiomeData, type MusicData, type QuestData, type QuestRewards,
+  type BiomeData, type MusicData, type ObjectiveTriggerKind, type QuestData, type QuestRewards,
 } from './content';
 import type { ContentAsset, ContentId } from './content/types';
 // THE ONE STATIC IMPORT OF A CONTENT PROVIDER, and it is in an entry point
@@ -52,6 +52,7 @@ import { contentIssues, reportContentIssue } from './core/content-bridge';
 import { ColliderView } from './core/collider-view';
 import { createWorld, type LandmarkProbe } from './world/index';
 import { NPC_TALK_RANGE } from './world/npc';
+import { QuestMarkers, type QuestMarkerKind, type QuestMarkerSpot } from './world/quest-markers';
 import { TRAIL_PROFILE } from './world/path-profile';
 import {
   FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT,
@@ -1338,7 +1339,29 @@ content.defineAction('item.give', (params) => {
   const n = typeof raw === 'number' && Number.isFinite(raw) ? Math.max(1, Math.floor(raw)) : 1;
   giveItemFromContent(id, n);
 });
-const contentBoot = await bootstrapContent({ engineFlags: [] });
+/**
+ * THE CAMPAIGN LOADS AT BOOT, and the reason is the zone it is set in.
+ *
+ * game-story.md §5 describes `story-land` as arriving when the player enters
+ * `overworld` — but `overworld` is the zone the game BOOTS into, and
+ * `ZoneManager` builds its starting zone directly rather than through the
+ * arrival path (`onArrive` fires on a gateway transition and never for the
+ * start). A "load it on arrival" hook would therefore never fire on a fresh
+ * game, which is the only time it matters. The dungeon makes the same point
+ * from the other side: quest 4 runs inside `hold`, and the router reads the
+ * ACTIVE quest's objectives to know what to count, so the definitions have to
+ * be resident there too.
+ *
+ * So both packages ride the boot, under the `boot` lease, and inside
+ * `bootstrapContent` so the cross-asset pass checks them — a package loaded
+ * after that call is a set of assets whose references and text keys nobody
+ * validated. A package that genuinely arrives at a zone edge (Act 2's `brine`)
+ * gets `ZoneDef.packages` and a `zone` lease when there is one to load.
+ */
+const contentBoot = await bootstrapContent({
+  engineFlags: [],
+  packages: ['story', 'story-land'],
+});
 /** What the phase above cost. Reported by `__dbgContent`; see the note there. */
 const contentBootMs = performance.now() - contentBootStart;
 
@@ -2765,6 +2788,109 @@ const journal = new JournalPanel({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Quest marks over the world (PR feedback on #181)
+// ---------------------------------------------------------------------------
+/**
+ * WHO IS MARKED, recomputed from quest facts rather than pushed by a quest.
+ *
+ * Derived and not stored, for the reason `questTab` gives one function up: what
+ * a mark means is "this person has work" and "this beast is what you are
+ * counting", and both are questions about the CURRENT state of every loaded
+ * quest. A set that a quest wrote into would be a second copy of that state,
+ * and the first thing to go stale when a package is released.
+ *
+ * Keyed the way the world keys, not the way content does: an `NpcInfo.id` is
+ * `gain` where a `ContentId` is `npc:gain`, and an `Enemy.species` is
+ * `wild-sproutle` where a taming objective names the BEAST it becomes,
+ * `sproutle`. Both maps are filled here so the per-frame loop is two lookups.
+ */
+const markedNpcs = new Map<string, QuestMarkerKind>();
+const markedEnemies = new Set<string>();
+const markedBeasts = new Set<string>();
+
+/** Every objective met — the quest is ready to hand in, but is not handed in. */
+function questIsDone(asset: ContentAsset<QuestData>): boolean {
+  return asset.data.objectives.every(
+    (o) => content.state.progress(asset.id, o.key) >= (o.count ?? 1),
+  );
+}
+
+function refreshQuestMarks(): void {
+  markedNpcs.clear();
+  markedEnemies.clear();
+  markedBeasts.clear();
+  for (const asset of content.query.available<QuestData>('quest')) {
+    const tab = questTab(asset);
+    if (tab !== 'available' && tab !== 'active') continue;
+    const giver = asset.data.giver;
+    // TURN-IN BEATS OFFER when one person holds both, because the quest in your
+    // hand is the one you are being asked about.
+    if (giver !== undefined && giver !== '') {
+      const who = giver.slice('npc:'.length);
+      if (tab === 'available') {
+        if (!markedNpcs.has(who)) markedNpcs.set(who, 'offer');
+      } else if (questIsDone(asset)) {
+        markedNpcs.set(who, 'turnIn');
+      }
+    }
+    if (tab !== 'active') continue;
+    for (const objective of asset.data.objectives) {
+      const trigger = objective.trigger;
+      if (!trigger) continue;
+      if (content.state.progress(asset.id, objective.key) >= (objective.count ?? 1)) continue;
+      for (const id of trigger.enemies ?? []) markedEnemies.add(id.slice('enemy:'.length));
+      for (const id of trigger.species ?? []) markedBeasts.add(id);
+    }
+  }
+}
+
+/** Marker heights: over the head, not on it. A hero is 1.8 units tall. */
+const NPC_MARK_RISE = 2.5;
+const ENEMY_MARK_RISE = 0.75;
+
+const questMarkers = new QuestMarkers(engine.scene);
+/** Scratch, refilled each frame — see the pooling note in world/quest-markers.ts. */
+const questMarkSpots: QuestMarkerSpot[] = [];
+let questMarkCount = 0;
+
+function markSpot(x: number, y: number, z: number, kind: QuestMarkerKind): void {
+  const spot = questMarkSpots[questMarkCount];
+  if (spot) {
+    spot.x = x; spot.y = y; spot.z = z; spot.kind = kind;
+  } else {
+    questMarkSpots.push({ x, y, z, kind });
+  }
+  questMarkCount++;
+}
+
+/**
+ * Put this frame's marks where the things they are about currently are.
+ *
+ * Per FRAME rather than per slice, and beside the compass for its reason: a
+ * mark is presentation, it is culled against the camera this frame placed, and
+ * an NPC's published position is already this frame's.
+ */
+function syncQuestMarks(dt: number): void {
+  questMarkCount = 0;
+  if (markedNpcs.size > 0) {
+    for (const n of world.npcs?.all ?? []) {
+      const kind = markedNpcs.get(n.id);
+      if (kind) markSpot(n.x, n.y + NPC_MARK_RISE, n.z, kind);
+    }
+  }
+  if (markedEnemies.size > 0 || markedBeasts.size > 0) {
+    for (const e of combat.enemies) {
+      if (!e.targetable) continue;
+      const bond = markedBeasts.size > 0 ? combat.bondSpeciesOf(e) : null;
+      if (!markedEnemies.has(e.species) && !(bond && markedBeasts.has(bond))) continue;
+      markSpot(e.position.x, e.position.y + e.height + ENEMY_MARK_RISE, e.position.z, 'target');
+    }
+  }
+  questMarkers.update(dt);
+  questMarkers.set(questMarkSpots, questMarkCount, engine.camera);
+}
+
 /**
  * Redraw both readers of quest state.
  *
@@ -2777,6 +2903,9 @@ const journal = new JournalPanel({
 const refreshQuests = (): void => {
   hud.setQuests(questTrackRows());
   journal.refresh();
+  // The marks are the same fact drawn in the world instead of in a list, so
+  // they are recomputed by the same subscriber rather than by a second one.
+  refreshQuestMarks();
 };
 content.state.onChange((change) => {
   // `flag` is in here because the HUD switch IS a flag — see `hudFlag`.
@@ -2784,6 +2913,204 @@ content.state.onChange((change) => {
 });
 content.onDefinitionsChange(refreshQuests);
 refreshQuests();
+
+// ---------------------------------------------------------------------------
+// What makes a quest MOVE (game-story.md §7, issue #143)
+// ---------------------------------------------------------------------------
+/**
+ * A thing that happened in the world, in the vocabulary an objective can name.
+ *
+ * `id` is whatever the kind identifies — a species, an `enemy:` id, an item id,
+ * a `town:` id, a zone id — and is absent for a kind that identifies nothing
+ * (an orb leaving the hand is just an orb leaving the hand).
+ */
+interface QuestFact {
+  readonly kind: ObjectiveTriggerKind;
+  readonly id?: string;
+}
+
+/**
+ * ONE ROUTER, NOT A HOOK PER QUEST — the whole reason `ObjectiveTrigger` exists.
+ *
+ * Every objective that counts something declares WHICH fact it counts, so this
+ * function is the entire join between the engine's events and the campaign's
+ * twenty quests: the taming trigger Act 1 needs is the same one Act 2 and Act 3
+ * need, and neither of them will edit this file. Adding a KIND is engine work
+ * (something has to observe the fact); adding a quest that uses one is data.
+ *
+ * ACTIVE QUESTS ONLY, and by construction rather than by a check at each call
+ * site: a kill before the cull quest was taken counts for nothing, which is what
+ * "go and do this" means. A quest whose package is not loaded is skipped rather
+ * than guessed at — the progress it already has is untouched (spec §12.3), and
+ * it resumes counting when the definitions come back.
+ *
+ * It never runs `quest.complete`. Reaching every objective's count makes a quest
+ * TURN-INNABLE, not turned in — the giver's dialogue row is what closes it, so
+ * the last beat of a quest is a person rather than a counter.
+ */
+function advanceObjectives(fact: QuestFact): void {
+  for (const questId of content.state.activeQuests) {
+    const asset = content.get<QuestData>(questId);
+    if (!asset) continue;
+    for (const objective of asset.data.objectives) {
+      const trigger = objective.trigger;
+      if (!trigger || trigger.kind !== fact.kind) continue;
+      // EACH FILTER CONSTRAINS ITS OWN KIND AND NOTHING ELSE — see the note on
+      // ObjectiveTrigger. On another kind the field says what the objective is
+      // ABOUT, which is what the world mark points at, and constrains nothing:
+      // an orb-thrown objective that names a Sproutle still counts every throw.
+      // Absent is "any"; present and unmatched refuses, so a widened event that
+      // forgets to carry its id under-counts rather than over-counts.
+      if (fact.kind === 'enemy-killed' && trigger.enemies
+        && !trigger.enemies.includes(fact.id ?? '')) continue;
+      if (fact.kind === 'tamed' && trigger.species
+        && !trigger.species.includes(fact.id ?? '')) continue;
+      if (fact.kind === 'item-picked' && trigger.item !== undefined
+        && trigger.item !== fact.id) continue;
+      if (fact.kind === 'town-arrival' && trigger.town !== undefined
+        && trigger.town !== fact.id) continue;
+      if (fact.kind === 'zone-arrival' && trigger.zone !== undefined
+        && trigger.zone !== fact.id) continue;
+      const have = content.state.progress(questId, objective.key);
+      if (have < (objective.count ?? 1)) {
+        content.state.setProgress(questId, objective.key, have + 1);
+      }
+    }
+  }
+}
+
+bus.on((e) => {
+  // A THROW, not a bond: the practice objective in `quest:land/first-light` is
+  // about learning the motion, so a broken orb counts the same as a caught one.
+  if (e.type === 'orbThrown') advanceObjectives({ kind: 'orb-thrown' });
+});
+
+/**
+ * A quest changed status: run what the content said should happen.
+ *
+ * THE ACTIONS ARE NOT RUN BY THE ACTION THAT CHANGED THE STATUS, and that is
+ * the point of hanging this off `onChange`: `quest.start` from a dialogue row,
+ * `/quest` from the dev console and a future timer all set the same status
+ * through the same store, so all three get the same `onStart`. `setQuestStatus`
+ * no-ops when the status already matches (state.ts), so this fires exactly once
+ * per real transition.
+ *
+ * `applyingSave` IS THE ONE REFUSAL. Restoring a character replays every status
+ * it recorded, and a load that re-ran `onComplete` would hand out the rewards
+ * again — the same guard the autosave debounce takes, for the same reason.
+ */
+content.state.onChange((change) => {
+  if (change.kind !== 'quest' || applyingSave) return;
+  const asset = content.get<QuestData>(change.name);
+  if (!asset) return;
+  const status = content.state.questStatus(change.name);
+  if (status === 'active') content.run(asset.data.onStart);
+  if (status === 'completed') {
+    content.run(asset.data.onComplete);
+    grantQuestRewards(asset);
+  }
+});
+
+/**
+ * Pay out `rewards` — counts only, by the same split the rest of the game uses.
+ *
+ * `xp` goes to the beasts that are out there, exactly as a kill does (there is
+ * no hero level), and everything else is an ITEM id handed to the same function
+ * `item.give` uses, so `{ "shard": 10 }` becomes Cubloons and a potion becomes a
+ * potion with no second table to keep in step. An id nothing knows is reported
+ * rather than dropped: content/types/quest.ts says rewards are amounts, so a key
+ * that is not an item is a typo somebody needs to see.
+ */
+function grantQuestRewards(asset: ContentAsset<QuestData>): void {
+  for (const [key, amount] of Object.entries(asset.data.rewards ?? {})) {
+    const n = Math.round(amount);
+    if (n <= 0) continue;
+    if (key === 'xp') {
+      primary()?.gainXp(n);
+      support()?.gainXp(Math.round(n * 0.6));
+      continue;
+    }
+    if (!isKnownItem(key)) {
+      reportContentIssue({
+        severity: 'warn',
+        code: 'unknown-ref',
+        message: `reward "${key}" is not an item this build knows`,
+        assetId: asset.id,
+        assetType: asset.type,
+        pkg: asset.pkg,
+        source: asset.source,
+        field: 'data.rewards',
+        fix: 'rewards are xp or an item id — anything a reward DOES is an onComplete action',
+      });
+      continue;
+    }
+    giveItemFromContent(key, n);
+  }
+}
+
+/**
+ * THE PRACTICE BEAST — a PLACEHOLDER for the Encampment's pen, and it says so.
+ *
+ * `quest:land/first-light` asks the player to throw three orbs at a penned
+ * Sproutle, and a throw is refused before it leaves the hand when there is
+ * nothing bondable in aim (`throwReadiedOrb`) — so the objective cannot count
+ * without an animal to aim at. Until the camp has a real pen with a docile
+ * occupant (a fence, a no-wander behaviour and a quest-gated presence — filed as
+ * its own issue), the quest stages its own: one wild beast, put on the ground
+ * near the hero's start, replaced if it is bonded or killed, and left alone the
+ * moment the practice is done.
+ *
+ * WHY IT IS TWELVE UNITS OUT. `wild-sproutle` has an aggro radius of 8 and an
+ * orb reaches 20 (`ORB_RANGE`), so this is the band where the player can throw
+ * at it from where they are standing without being charged by the tutorial. It
+ * is the closest this gets to "penned" without a pen.
+ *
+ * THE SPECIES IS WHICHEVER ONE THE PLAYER DOES NOT ALREADY HAVE. A throw at a
+ * species already bonded is refused (`alreadyOwned`) and emits no `orbThrown`,
+ * so a lucky catch on throw one would strand the quest at 1/3 with a target it
+ * can never use.
+ */
+const PRACTICE_SPECIES: readonly { enemy: string; beast: string }[] = [
+  { enemy: 'wild-sproutle', beast: 'sproutle' },
+  { enemy: 'wild-boulderpup', beast: 'boulderpup' },
+];
+const PRACTICE_DIST = 12;
+/** Seconds between checks. A stage prop, not a frame-loop concern. */
+const PRACTICE_POLL = 1;
+let practicePollIn = 0;
+
+function tickPracticeBeast(dt: number): void {
+  practicePollIn -= dt;
+  if (practicePollIn > 0) return;
+  practicePollIn = PRACTICE_POLL;
+
+  const asset = content.get<QuestData>('quest:land/first-light');
+  if (!asset || content.state.questStatus(asset.id) !== 'active') return;
+  const objective = asset.data.objectives.find((o) => o.key === 'bond-practice');
+  if (!objective) return;
+  if (content.state.progress(asset.id, 'bond-practice') >= (objective.count ?? 1)) return;
+
+  const species = PRACTICE_SPECIES.find((s) => !owned.has(s.beast));
+  if (!species) return;   // everything bondable is bonded; nothing left to practise on
+  for (const e of combat.enemies) {
+    if (e.targetable && e.species === species.enemy) return;   // one is already out there
+  }
+
+  // Around the hero's own start rather than the town centre: that is where the
+  // player is when the quest is given, and it is a clear seat by construction
+  // (`pickPlayerStart` in world/index.ts already chose it).
+  const from = world.spawnPoint;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const x = from.x + Math.sin(a) * PRACTICE_DIST;
+    const z = from.z + Math.cos(a) * PRACTICE_DIST;
+    if (world.isWater(x, z)) continue;
+    // Nothing BUILT in this column — a beast inside a hut is a beast the player
+    // cannot see, and `spawnOne` obeys no placement rule of its own.
+    if (world.structureTopAt(x, z) > world.getHeight(x, z) + 0.5) continue;
+    if (combat.spawnOne(species.enemy, x, z)) return;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Casting
@@ -5665,6 +5992,9 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // of frame rate and drivable by `__dbgAdvance`, which is what lets its guard
   // test the interval without waiting on a wall clock.
   tickAutosave(dt);
+  // On the simulation slice for the clock's reason above: a quest's stage
+  // dressing is part of the world, so it keeps its promise with a panel up.
+  tickPracticeBeast(dt);
 
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them
   // is updated. It is not inside `zones.update` below and that is the ordering
@@ -6152,6 +6482,7 @@ function frame(): void {
     c.chip.x = c.town.gateX;
     c.chip.z = c.town.gateZ;
   }
+  syncQuestMarks(dt);
   engine.camera.getWorldDirection(_compassFwd);
   hud.setCompass(
     Math.atan2(_compassFwd.x, -_compassFwd.z) * (180 / Math.PI),
@@ -6750,6 +7081,26 @@ beginPlay();
  * reason: the whole feature is a switch in one place changing what is drawn in
  * another, and a reading taken from the model at both ends would prove neither.
  */
+/**
+ * THE QUEST MARKS, as the frame last drew them — for tools/test-quest-marks.mjs.
+ *
+ * Two readings and not one, because they answer different questions. `marked`
+ * is the POLICY — who the campaign says has work — and is the half a probe can
+ * assert without standing anywhere in particular. `drawn` is what actually
+ * reached the scene after the distance cull, which is the half that catches a
+ * mark computed correctly and never rendered.
+ */
+(window as unknown as { __dbgQuestMarks: () => unknown }).__dbgQuestMarks = () => ({
+  marked: {
+    npcs: [...markedNpcs].map(([id, kind]) => ({ id, kind })).sort((a, b) => a.id < b.id ? -1 : 1),
+    enemies: [...markedEnemies].sort(),
+    beasts: [...markedBeasts].sort(),
+  },
+  drawn: questMarkSpots.slice(0, questMarkCount).map((s) => ({
+    kind: s.kind, x: +s.x.toFixed(2), y: +s.y.toFixed(2), z: +s.z.toFixed(2),
+  })),
+});
+
 (window as unknown as { __dbgJournal: () => unknown }).__dbgJournal = () => ({
   open: journal.isOpen,
   tab: journal.isOpen ? journal.activeTab : null,
@@ -6796,7 +7147,11 @@ beginPlay();
   __dbgQuestStage: (pkg?: string) => Promise<unknown>;
 }).__dbgQuestStage = async (pkg = 'example-quest') => {
   const r = await content.load(pkg, 'debug');
-  const ids = content.all<QuestData>('quest').map((a) => a.id);
+  // THE PACKAGE'S OWN QUESTS AND NOT EVERY LOADED ONE. It used to be every one,
+  // which was the same set back when `core` shipped none — and stopped being it
+  // the day the campaign started loading at boot (issue #143): a probe asking
+  // for one quest was handed Act 1 as well, and counted its cards.
+  const ids = r.assets.filter((id) => content.get<QuestData>(id)?.type === 'quest');
   for (const id of ids) content.state.setQuestStatus(id, 'active');
   return { loaded: r.loaded, assets: r.assets, quests: ids };
 };

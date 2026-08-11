@@ -129,8 +129,27 @@ const GAIN = {
   x: 116.9, y: 12, z: 58.1,
   town: 'encampment',
   fromTownCentre: 6.5,
-  line: 'Hello, my friend. Stay awhile and... gain some knowledge.',
+  // WHAT HE SAYS FIRST, which is no longer his greeting and should not be.
+  // Gain's `talk` list branches on quest state (core.json), first match wins,
+  // and at boot the campaign's opening quest is un-offered — so the first
+  // sentence out of him is the offer. The pre-migration greeting is still the
+  // last row in that list and is what he says with no story package loaded;
+  // tools/test-story-land.mjs is where the branching itself is asserted.
+  line: 'You slept through the interesting part. There is a Sproutle in the pen '
+    + 'and three taming orbs in your hand — throw them at it, and stop flinching.',
 };
+
+/**
+ * Act 1's quests, in `prerequisites` order (issue #143, game-story.md §4).
+ *
+ * Ids only. What each one DOES is tools/test-story-land.mjs's business; here it
+ * is a count, so that a package that stopped loading — or one that grew a quest
+ * nobody meant to ship — is a failure in the file that pins what the boot holds.
+ */
+const ACT1_QUESTS = ['quest:land/first-light'];
+
+/** What a boot holds: the world, then the campaign that is set in it. */
+const BOOT_PACKAGES = ['core', 'story', 'story-land'];
 
 /**
  * The WILD BEASTS (issue #4) — ids and order only, deliberately.
@@ -328,15 +347,25 @@ async function consoleClosed(tries = 40) {
   check(same(viaImport.packages, c.packages.map((p) => p.id)),
     'the module import did NOT reach the game\'s own runtime — every reading in '
     + 'this file that goes through it is about a second, empty registry');
-  check(c.packages.length === 1,
-    `a normal boot loaded ${c.packages.length} packages, not 1: `
-    + JSON.stringify(c.packages.map((p) => p.id)));
+  // THREE PACKAGES, AND THE SPLIT BETWEEN THEM IS THE CLAIM. `core` is the
+  // WORLD — towns, people, biomes, enemies, music — and it is a module import,
+  // so a build that shipped is a build whose world shipped. `story` and
+  // `story-land` are the CAMPAIGN (issue #143) and they are fetched like any
+  // other package; they are loaded at boot rather than at a zone edge because
+  // `overworld` is the zone the game boots into (see the note in main.ts), and
+  // if either fetch failed the world below would still be there to walk around
+  // in with no quests in it. That is the line this section has always drawn:
+  // the starting WORLD needs no request; a story is content like any other.
+  eq(c.packages.map((p) => p.id), ['core', 'story', 'story-land'], 'packages loaded at boot');
   const core = c.packages[0] ?? {};
-  check(core.id === 'core', `the one loaded package is "${core.id}", not "core"`);
   check(core.source === 'bundled:core',
     `core came from "${core.source}" — the starting world must not be a fetch`);
   eq(core.leases, ['boot'], 'core package leases');
   eq(core.requires, [], 'core package dependencies');
+  eq(c.packages.map((p) => p.requires), [[], ['core'], ['story']],
+    'the campaign\'s dependency chain');
+  eq(c.packages.map((p) => p.leases), [['boot'], ['boot'], ['boot']],
+    'every boot package is held by the boot lease, which is never released');
   // RE-BASELINED TWICE, and each time the re-baseline IS the claim.
   //
   // First when music became content: the two `music` assets are the overworld's
@@ -353,8 +382,16 @@ async function consoleClosed(tries = 40) {
   // to six. `WILD_BEASTS` is what the three new ones are, and the assertion
   // below still names the original three FIRST and by their pre-migration
   // values — a bondable Sproutle must not have renumbered a Gloopling.
-  eq(c.assets, { town: 4, npc: 4, biome: 8, enemy: 3 + WILD_BEASTS.length, quest: 0, music: 2 },
-    'assets by type');
+  //
+  // And a fourth time, for Act 1 (issue #143): `quest` goes from 0 to
+  // `ACT1_QUESTS.length`, and every other count is still the pre-migration one.
+  // The campaign adds no towns — game-story.md §1 rule 4, the road planner
+  // routes one trunk and two spurs — so a story package that grew a settlement
+  // fails here rather than in a world with a fourth town nobody sited.
+  eq(c.assets, {
+    town: 4, npc: 4, biome: 8, enemy: 3 + WILD_BEASTS.length,
+    quest: ACT1_QUESTS.length, music: 2,
+  }, 'assets by type');
   // The ground towns FIRST and unchanged — `order` decides siting and Skyhaven
   // is last — then the carried one. Asserting the whole list rather than a
   // filtered one is deliberate: a carried town that stopped reaching the world
@@ -370,8 +407,15 @@ async function consoleClosed(tries = 40) {
     'enemy species that reached the world');
   eq(viaImport.biomes, BIOMES, 'biome ids');
   eq(viaImport.startAreas, ['biome:plains'], 'biomes flagged as the start area');
-  eq(dataReqs, ['/src/content/data/core.json?import'],
-    'content data files requested at boot (only core.json, as a module, is allowed)');
+  // core.json arrives as a MODULE (`?import`) — what a static import looks like
+  // on a dev server, and not a request at all in a build. The campaign's two
+  // packages are ordinary fetches, and that is the whole difference between the
+  // world and the story it is told in.
+  eq(dataReqs, [
+    '/src/content/data/core.json?import',
+    '/src/content/data/story-land.json?import',
+    '/src/content/data/story.json?import',
+  ], 'content data files requested at boot');
 }
 
 // ===========================================================================
@@ -608,13 +652,15 @@ async function consoleClosed(tries = 40) {
 // could never carry a second package. Then `/content release example-quest` and
 // the definitions are gone while `core` is untouched.
 //
-// `quest` is 0 before and 0 after, which is the assertion that makes "nothing
-// extra is loaded at boot" (section 1) and "a package can be dropped" one fact
-// rather than two.
+// The quest COUNT is the campaign's before and after, which is the assertion
+// that makes "nothing extra is loaded at boot" (section 1) and "a package can be
+// dropped" one fact rather than two — a release that took Act 1 with it, or one
+// that left `example-quest` behind, both land on the same number.
 // ===========================================================================
 {
   const before = await dbg(() => window.__dbgContent());
-  check(before.assets.quest === 0, `a quest was loaded before anything asked: ${before.assets.quest}`);
+  check(before.assets.quest === ACT1_QUESTS.length,
+    `the boot holds ${before.assets.quest} quests, not the campaign's ${ACT1_QUESTS.length}`);
   check(!before.packages.some((p) => p.id === 'example-quest'),
     'example-quest is loaded at boot — it is the package that must not be');
 
@@ -658,7 +704,8 @@ async function consoleClosed(tries = 40) {
     check(pkg.source === 'bundled:example-quest',
       `example-quest came from "${pkg.source}"`);
   }
-  check(after.assets.quest === 1, `quest count after the load is ${after.assets.quest}, not 1`);
+  check(after.assets.quest === ACT1_QUESTS.length + 1,
+    `quest count after the load is ${after.assets.quest}, not ${ACT1_QUESTS.length + 1}`);
   check(graph !== null, 'quest:encampment/first-steps is not in the registry after the load');
   if (graph) {
     eq(graph.refs, ['npc:gain', 'town:encampment'], 'the quest\'s cross-package references');
@@ -668,8 +715,9 @@ async function consoleClosed(tries = 40) {
   check(/released "example-quest"/.test(releaseOut),
     `/content release did not report a release: ${JSON.stringify(releaseOut)}`);
   check(gone === true, 'the quest definition survived the release');
-  eq(end.packages.map((p) => p.id), ['core'], 'packages after the release');
-  check(end.assets.quest === 0, `quest count after the release is ${end.assets.quest}, not 0`);
+  eq(end.packages.map((p) => p.id), BOOT_PACKAGES, 'packages after the release');
+  check(end.assets.quest === ACT1_QUESTS.length,
+    `quest count after the release is ${end.assets.quest}, not ${ACT1_QUESTS.length}`);
   check(end.diagnostics.length === 0,
     `a load/release round trip left findings behind: ${JSON.stringify(end.diagnostics)}`);
 }
@@ -735,7 +783,7 @@ async function consoleClosed(tries = 40) {
   check(same(started?.state, afterState.state),
     `unloading a package changed the save payload:\n  before ${
       JSON.stringify(started?.state)}\n  after  ${JSON.stringify(afterState.state)}`);
-  eq(afterState.packages, ['core'], 'packages after the state test');
+  eq(afterState.packages, BOOT_PACKAGES, 'packages after the state test');
 
   // Put the runtime back the way section 1 found it, so nothing below inherits
   // a session's worth of facts.
@@ -832,7 +880,7 @@ async function consoleClosed(tries = 40) {
   check(has('missing-ref', 'npc:probe-orphan'),
     'an npc pointing at a town nothing defines produced no `missing-ref`: '
     + JSON.stringify(found));
-  eq(host.packages.map((p) => p.id), ['core'],
+  eq(host.packages.map((p) => p.id), BOOT_PACKAGES,
     'the game\'s own runtime after the broken-package test');
   check(host.diagnostics.length === 0,
     `the broken package leaked findings into the game's runtime: ${

@@ -1,0 +1,45 @@
+{
+  "id": "story-land",
+  "version": "0.1.0",
+  "requires": ["story"],
+  "meta": {
+    "title": "Act 1 — Land: Embervale",
+    "note": "The five main quests of Act 1 (game-story.md §4, issue #143). Ordering is `prerequisites` and nothing else: `arc` is a journal heading, array order means nothing, and no counter anywhere says which act the player is in — the act boundary is the flags `sea-revealed` and `act-1-complete` that the last quest sets.",
+    "towns-stay-in-core": "Act 1 adds no towns. `town:encampment`, `town:redbriar` and `town:stonewatch` ship in core and are referenced from here — the road planner routes one trunk and two spurs, so those three are the ground settlements the world has (game-story.md §1 rule 4)."
+  },
+  "assets": [
+    {
+      "id": "quest:land/first-light",
+      "schema": 1,
+      "name": { "key": "quest.land.firstLight.name" },
+      "description": { "key": "quest.land.firstLight.desc" },
+      "tags": ["story", "act1", "tutorial"],
+      "data": {
+        "category": "main",
+        "arc": "land",
+        "giver": "npc:gain",
+        "location": "town:encampment",
+        "prerequisites": [],
+        "objectives": [
+          {
+            "key": "talk-to-gain",
+            "text": { "key": "quest.land.firstLight.obj.talkToGain" }
+          },
+          {
+            "key": "bond-practice",
+            "text": { "key": "quest.land.firstLight.obj.bondPractice" },
+            "count": 3,
+            "trigger": { "kind": "orb-thrown", "species": ["sproutle"] }
+          }
+        ],
+        "onStart": [{ "do": "item.give", "item": "orb-tame", "count": 3 }],
+        "onComplete": [
+          { "do": "flag.set", "flag": "taming-learned" },
+          { "do": "flag.set", "flag": "met-gain" },
+          { "do": "discover", "id": "town:encampment" }
+        ],
+        "rewards": { "xp": 25, "shard": 10 }
+      }
+    }
+  ]
+}

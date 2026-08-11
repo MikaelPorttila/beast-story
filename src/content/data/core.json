@@ -4,7 +4,8 @@
   "meta": {
     "title": "Beast Story — core content",
     "note": "The starting world. This file is IMPORTED by src/content/storage/bundled.ts, not fetched, so it lands in the main JS chunk beside main.ts: there is no request that can fail and a build that shipped is a build whose core content shipped. Everything here is a migration of a table that already existed in TypeScript — towns from src/world/towns.ts, Gain from src/world/npc-gain.ts, biomes from src/world/terrain.ts, enemies from src/combat/enemies.ts, music from the TRACKS map in src/audio/music.ts — and no value in it differs from the one the game shipped with. The one asset with no predecessor is music:default, the fallback an area with no playlist of its own gets; it names the same track the overworld does, which is what the game already played everywhere it played anything.",
-    "json-has-no-comments": "Which is why this field exists. The reasoning behind every field lives in src/content/types/*.ts, beside the parser that reads it."
+    "json-has-no-comments": "Which is why this field exists. The reasoning behind every field lives in src/content/types/*.ts, beside the parser that reads it.",
+    "gain-talks-about-quests-he-does-not-ship-with": "npc:gain's `talk` list branches on `quest:land/...` ids that live in the `story-land` package, and game-story.md §5 expected those rows to live there too. They cannot: an asset id is global and the loader refuses a second definition of one (`duplicate-id`, loader.ts), so a later package cannot extend an NPC this one shipped — and npc:gain may not move out of core, because the starting world must not depend on a package that arrives after it. Naming a quest from here is legal and checked: a quest id inside a condition or an action is a PARAMETER to a registered handler, not a reference (npc `refs()` yields only `data.town`), and a row whose quest is not loaded simply never matches. ORDER IS THE BRANCHING — first match wins, so each quest reads turn-in, offer, busy, and the unconditional greeting is last, which is what an un-storied world says."
   },
   "assets": [
     {
@@ -80,7 +81,36 @@
         "body": "gain",
         "homeOffset": 0,
         "acrossFocus": true,
-        "talk": [{ "line": { "key": "npc.gain.greeting" } }]
+        "talk": [
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:land/first-light", "status": "active" },
+                { "test": "progress", "quest": "quest:land/first-light", "objective": "bond-practice", "atLeast": 3 }
+              ]
+            },
+            "line": { "key": "npc.gain.q1.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:land/first-light" }]
+          },
+          {
+            "when": {
+              "any": [
+                { "test": "quest", "quest": "quest:land/first-light", "status": "unknown" },
+                { "test": "quest", "quest": "quest:land/first-light", "status": "available" }
+              ]
+            },
+            "line": { "key": "npc.gain.q1.offer" },
+            "actions": [
+              { "do": "quest.start", "quest": "quest:land/first-light" },
+              { "do": "progress.add", "quest": "quest:land/first-light", "objective": "talk-to-gain" }
+            ]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:land/first-light", "status": "active" },
+            "line": { "key": "npc.gain.q1.busy" }
+          },
+          { "line": { "key": "npc.gain.greeting" } }
+        ]
       }
     },
 

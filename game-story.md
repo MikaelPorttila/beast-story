@@ -461,8 +461,8 @@ chain; nothing here loads at boot except `core`.
 | Package | File | Requires | Loaded when |
 | --- | --- | --- | --- |
 | `core` | `data/core.json` | — | Imported. Ships in the main chunk. |
-| `story` | `data/story.json` | `core` | At boot, after `core`. The cast's shared identity, the flag vocabulary, `npc:gain`'s gated `talk` list. Small. |
-| `story-land` | `data/story-land.json` | `story` | On entering `overworld` |
+| `story` | `data/story.json` | `core` | At boot, after `core`. The hub every act's package requires. Small — see the two corrections below. |
+| `story-land` | `data/story-land.json` | `story` | At boot, after `story` — see the correction below |
 | `story-sea` | `data/story-sea.json` | `story` | On entering `brine` |
 | `story-sky` | `data/story-sky.json` | `story` | On entering `cirrus` |
 | `story-seam` | `data/story-seam.json` | `story` | On entering `seam` |
@@ -470,6 +470,27 @@ chain; nothing here loads at boot except `core`.
 **Act 1's towns stay in `core`** — they are the shipped world and moving them would
 make the starting world depend on a package. `story-land` adds only quests and the two
 new NPCs.
+
+**Two corrections, made when Act 1 was built (issue #143).** Both are about `core`
+being a package like any other rather than a special case, and both were found by the
+loader refusing what this section described.
+
+- **`npc:gain`'s gated `talk` list lives in `core.json`, not in `story`.** An asset id
+  is global and the loader reports a second definition of one as `duplicate-id`, so a
+  later package cannot extend an NPC that `core` shipped — and `npc:gain` may not leave
+  `core`, for the reason the towns may not. His rows therefore sit beside him and name
+  `quest:land/…` ids that `core` does not ship, which is legal and checked: a quest id
+  inside a condition or an action is a parameter to a registered handler, not a
+  reference, and a row whose quest is not loaded never matches. `story` is left holding
+  what genuinely is shared, which today is a `requires` edge and a note.
+- **`story` and `story-land` load at boot, not at the zone edge.** `overworld` is the
+  zone the game boots into and `ZoneManager` builds its starting zone directly, so an
+  arrival hook would never fire on a fresh game — the only time it matters. The dungeon
+  makes the point from the other side: quest 4 runs inside `hold`, and the objective
+  router reads the active quest's own objectives, so the definitions have to be
+  resident there too. `BootstrapOptions.packages` loads them under the `boot` lease and
+  inside the cross-asset validation pass. Acts 2–4 are genuinely lazy and keep the
+  table's "on entering" column.
 
 **A zone's own package holds its towns**, so the sea's three settlements arrive with
 the sea. This is what the lazy path in `src/content/storage/` was built for and the
@@ -532,15 +553,26 @@ into the mount system.
 Everything marked ⚙ above, grouped by what kind of work it is. This is the build order
 as much as the list: the top group blocks every quest, the bottom group blocks one act.
 
-**Quest plumbing** — blocks all twenty quests.
-- A **journal / quest UI**, and something that offers and turns in a quest. `NpcData.talk`
-  is the seam and takes `actions`, so the offer is data; the surface is not.
-- **Objective triggers**: enemy death, item pickup, taming, zone arrival, town arrival.
-  Each is one `progress.add` call from a place that already knows the event happened.
+**Quest plumbing** — blocks all twenty quests. Most of it landed with quest 1
+(issue #147); what is left is marked.
+
+- ~~A **journal / quest UI**~~ — shipped as issue #98 (`src/ui/journal.ts`). Offering
+  and turning in a quest is data after all: an `NpcData.talk` row gated on quest status
+  with `quest.start` / `quest.complete` in its `actions`, first match wins. A dialogue
+  with an accept/decline CHOICE is still a UI that does not exist; today the first
+  conversation accepts.
+- ~~**A quest lifecycle**~~ — `onStart`, `onComplete` and `rewards` are run from a
+  `ContentState.onChange` subscriber in `main.ts`, so every path that changes a status
+  gets them. It was on nobody's list and nothing ran them.
+- **Objective triggers**: an objective declares `trigger: { kind, … }` and one router
+  in `main.ts` joins the engine's events to it — so a kind is engine work and a quest
+  that uses one is data. `orb-thrown` is wired; `tamed`, `enemy-killed`, `item-picked`,
+  `town-arrival` and `zone-arrival` are declared and land with the quests that need
+  them (#148 – #151).
 - **`mount.unlock`** action (`kind: 'ground' | 'water' | 'flying'`), plus a mount gate
-  that reads it.
+  that reads it — with #149.
 - **`discover`-on-arrival**: the action exists; nothing calls it when a player walks
-  into a town.
+  into a town — with #149.
 
 **Traversal** — blocks Act 2 and Act 3.
 - **Water mounting**, and **auto-mount on contact with deep water**. Diving exists

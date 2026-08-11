@@ -169,6 +169,20 @@ export const en = {
   // Rewards, keyed by what is granted. Anything that is not `xp` is an item and
   // is named from the item table instead — see `rewardLines` in main.ts.
   'journal.reward.xp': 'XP',
+
+  // ---- the campaign: Act 1, Land (game-story.md §4, issue #143) -------------
+  // Keyed by the quest id with the slash dropped and the name camel-cased:
+  // `quest:land/first-light` -> `quest.land.firstLight`. Objectives hang off
+  // `.obj.<objectiveKey>` in the same camel case — the KEY in the asset is the
+  // save identifier and never changes, these are the words and may.
+  'quest.land.firstLight.name': 'First Light',
+  'quest.land.firstLight.desc':
+    'Gain has been up since before you were, and there is a penned Sproutle standing between you and breakfast.',
+  'quest.land.firstLight.obj.talkToGain': 'Speak with Gain at the fire',
+  // "Practise the throw" read as a melee swing. An objective names the VERB the
+  // player is being asked for, and the verb here is taming — the orb is how you
+  // tame, so the orb is what the line says.
+  'quest.land.firstLight.obj.bondPractice': 'Throw taming orbs at the penned Sproutle',
   'toast.equipped': '{item} equipped',
   'toast.unequipped': '{item} put away',
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -239,6 +253,16 @@ export const en = {
   // note above. 'Gain' is inside it; a translated one might not be.
   'npc.gain.name': 'Deckard Gains Armstrong',
   'npc.gain.greeting': 'Hello, my friend. Stay awhile and... gain some knowledge.',
+  // Gain's campaign lines. One row per quest STATE — offer, busy, done — because
+  // an `NpcTalkLine` is chosen by condition and the first match wins, so the
+  // dialogue's branching lives in the data and this table only holds the words.
+  // See `npc:gain`'s `talk` list in content/data/core.json.
+  'npc.gain.q1.offer':
+    'You slept through the interesting part. There is a Sproutle in the pen and three taming orbs in your hand — throw them at it, and stop flinching.',
+  'npc.gain.q1.busy':
+    'Three orbs, at the Sproutle. It will not bite, and I will not laugh. Much.',
+  'npc.gain.q1.done':
+    'There. That is the whole trick — the orb does nothing an animal has not already agreed to.',
 
   // The three who live on Skyhaven. Their lines are the one place the game
   // explains what the island IS, so each of them says a different part of it:

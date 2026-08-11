@@ -137,7 +137,9 @@ export type { BiomeData } from './types/biome';
 export type { EnemyCapture, EnemyData, EnemyVariant } from './types/enemy';
 export type { MusicData } from './types/music';
 export type { NpcData, NpcTalkLine } from './types/npc';
-export type { QuestData, QuestObjective, QuestRewards } from './types/quest';
+export type {
+  ObjectiveTrigger, ObjectiveTriggerKind, QuestData, QuestObjective, QuestRewards,
+} from './types/quest';
 export type { TownData } from './types/town';
 
 /**
@@ -491,6 +493,21 @@ export interface BootstrapOptions {
    * check cannot see a `setFlag` in main.ts.
    */
   readonly engineFlags?: readonly string[];
+  /**
+   * Packages to load after `core` and BEFORE the cross-asset pass, in order.
+   *
+   * BEFORE THE PASS is the whole point of the option, and the reason a caller
+   * cannot simply `content.load(...)` after this function returns: validation
+   * runs once, inside, and a package that arrives afterwards is a set of assets
+   * whose references, actions and text keys nobody checked. A campaign that
+   * ships in the build wants the same clean boot the core content gets.
+   *
+   * UNDER THE `boot` LEASE, like core. These are packages the game is never
+   * without — the story's own vocabulary is one of them — so there is no holder
+   * that would eventually let go. A package that genuinely arrives at a zone
+   * edge is loaded by the zone, with a `zone` lease, and does not belong here.
+   */
+  readonly packages?: readonly PackageId[];
 }
 
 export interface ContentBootResult {
@@ -539,13 +556,21 @@ export async function bootstrapContent(opts: BootstrapOptions = {}): Promise<Con
     singleton.addProvider(new BundledProvider());
   }
   const result = await singleton.load('core', 'boot');
+  // SEQUENTIALLY, because the second one may `require` the first: the loader
+  // resolves a dependency by loading it, and two overlapping loads of one id
+  // share a promise rather than racing (loader.ts), so the order here is about
+  // being readable, not about correctness.
+  const extra: ContentId[] = [];
+  for (const pkg of opts.packages ?? []) {
+    extra.push(...(await singleton.load(pkg, 'boot')).assets);
+  }
   singleton.validate(opts.level ?? 'dev', opts.engineFlags ?? []);
   // The merged, deduped, worst-first view: the load findings and the validation
   // just run are both already in it (see `diagnostics()`).
   const merged = singleton.diagnostics();
   return {
     loaded: result.loaded,
-    assets: result.assets,
+    assets: [...result.assets, ...extra],
     diagnostics: merged,
     ok: !merged.some((d) => d.severity === 'error' || d.severity === 'fatal'),
   };
