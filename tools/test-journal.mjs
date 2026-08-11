@@ -92,6 +92,28 @@ await toggle(page, true);
 // suspends the input in exactly those slices — which is the claim being made.
 // The controller still RUNS behind the panel (issue #101); 0 travel is the
 // sticks being at rest, not the clock stopping.
+//
+// LET THE STARTER COMPANION LAND FIRST, and this is a fix for a real flake
+// rather than a precaution. `beginPlay` bonds a Frostwing, which then FLIES IN
+// to take up its follow distance — and a bonded beast that walks into the hero
+// pushes him, exactly as any body does. Landing about a second into the run, it
+// shoved a hero who was pressing nothing: measured over ten boots, two moved
+// 0.79 and 1.07 units with the panel up, from the same spawn pose in DIFFERENT
+// directions, which is what says it was never the held key. The suite saw it as
+// 1.26 units and a failed assertion.
+//
+// So the wait is on the two things that are still ARRIVING — the chunks and the
+// companion — and never on a clock, which is the same rule teleports follow
+// (AGENTS.md). What it buys is a tolerance that means what it says: with the
+// world settled, travel with the panel up is 0.
+await page.waitForFunction(() => {
+  const beasts = window.__dbgCompanions().beasts;
+  return !window.__dbgZone().streaming
+    && beasts.length > 0 && beasts.every((b) => !b.transit);
+}, { timeout: 30000 }).catch(() => {});
+// And one settled second on top: `transit` goes false when the flight ENDS, and
+// the last of the approach is the part that does the shoving.
+await adv(page, 1);
 {
   const hold = async (simS) => {
     const a = await pos(page);

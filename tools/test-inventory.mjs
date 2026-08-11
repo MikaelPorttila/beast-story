@@ -225,6 +225,20 @@ export const sections = [
       return dist(a, await pos(ctx));
     };
 
+    // THE STARTER COMPANION HAS TO LAND BEFORE ANYTHING MEASURES TRAVEL. It is
+    // bonded by `beginPlay` and FLIES IN to its follow distance, and a bonded
+    // beast that walks into the hero pushes him like any other body — about a
+    // second after the boot, which is inside this section. Caught in
+    // tools/test-journal.mjs, where the identical hold failed on 2 boots in 10;
+    // the same wait is here because the exposure is the same and the section it
+    // would break is this one. Waited on the ARRIVING things, never a clock.
+    await ctx.page.waitForFunction(() => {
+      const beasts = window.__dbgCompanions().beasts;
+      return !window.__dbgZone().streaming
+        && beasts.length > 0 && beasts.every((b) => !b.transit);
+    }, { timeout: 30000 }).catch(() => {});
+    await ctx.adv(1);
+
     await ctx.page.keyboard.press('KeyI');
     await ctx.frame();
     const open = await inv(ctx);
