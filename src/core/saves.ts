@@ -88,6 +88,19 @@ export interface SaveLocation {
   y: number;
   z: number;
   yaw: number;
+  /**
+   * The surface he was STANDING ON when it was not the ground — a tree crown, a
+   * hut roof, a crate — absent when his feet were on the terrain itself.
+   *
+   * Separate from `y` rather than replacing it because the two answer different
+   * questions and only one of them is always trustworthy. `y` is the ground
+   * under his column and is where a hero belongs when whatever he was standing
+   * on is gone; this is where he actually was, and a load that ignores it drops
+   * him seventeen units through the tree he stopped playing in. Neither is
+   * trusted as written — see `resolveSafeGround` in main.ts, which re-measures
+   * the rise against the ground that is there now.
+   */
+  perchY?: number;
   /** The moving frame he was on, or absent for solid ground. */
   carrierId?: string;
   localX?: number;
@@ -395,6 +408,10 @@ function parseDoc(value: unknown): SaveDocument | null {
       y: num(loc.y, NaN),
       z: num(loc.z, NaN),
       yaw: num(loc.yaw, 0),
+      // Absent stays absent: "he was on the ground" and "he was on something
+      // that is no longer described" are the same instruction to the resolver,
+      // and a 0 here would be a place rather than a silence.
+      ...(Number.isFinite(num(loc.perchY, NaN)) ? { perchY: num(loc.perchY, 0) } : {}),
       // All three or none: a carrier id with no offsets, or offsets with no id,
       // is not a place. Dropping the half-pair lands the load on the world
       // coordinates beside them, which is the same fallback a carrier this

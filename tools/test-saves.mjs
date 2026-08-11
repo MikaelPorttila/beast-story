@@ -246,6 +246,82 @@ const readState = (page) => page.evaluate(() => {
 }
 
 // ---------------------------------------------------------------------------
+// 4b. Saved STANDING ON A TREE: the other half of the rule above. A hero on a
+//     crown is not a hero in the air — he is standing on something — and
+//     resolving him to the terrain under it drops him seventeen units through
+//     the tree he stopped playing in.
+//
+//     Both halves are asserted: the document carries the perch beside the
+//     ground (so a build that stored one number could not pass by luck), and
+//     the load puts him back on the crown and LEAVES him there — the settle is
+//     what says he is being held up rather than passing through on his way
+//     down.
+// ---------------------------------------------------------------------------
+{
+  const { ctx, page } = await boot();
+  // Out of the camp's clearance disc first: the start clearing holds no trees,
+  // which is the whole reason it is a clearing.
+  await page.evaluate(() => window.__dbgTp(120, 120));
+  await page.waitForFunction(() => !window.__dbgZone().streaming, { timeout: 60000 });
+
+  // The tallest crown around him, asked of the world rather than hard-coded:
+  // the terrain is a pure function of the seed, but a coordinate written down
+  // here would be a second copy of it that a reseed puts out of step.
+  const tree = await page.evaluate(() => {
+    const p = window.__dbgPlayerPos();
+    let best = null;
+    for (let dx = -60; dx <= 60; dx += 1.5) {
+      for (let dz = -60; dz <= 60; dz += 1.5) {
+        const w = window.__dbgWorld(p.x + dx, p.z + dz);
+        const rise = w.climbTop - w.ground;
+        // `structureTop` below ground rules out a roof: this case is about the
+        // one-way platform, which is the surface with no collider under it.
+        if (rise > 5 && w.structureTop < w.ground && (!best || rise > best.rise)) {
+          best = { x: p.x + dx, z: p.z + dz, ground: w.ground, top: w.climbTop, rise };
+        }
+      }
+    }
+    return best;
+  });
+  check(tree !== null, 'no tree crown found in the woods at (120, 120) to stand on');
+
+  if (tree) {
+    const perched = await page.evaluate(([x, z, top]) => {
+      // Dropped just over the crown and given time to land ON it, rather than
+      // placed at its height: standing there has to be something the physics
+      // agrees with, or the save is recording a pose nobody can hold.
+      window.__dbgTp(x, z, top + 1);
+      window.__dbgAdvance(2.5);
+      const loc = window.__dbgSaves.doc().location;
+      return { y: window.__dbgPlayerPos().y, storedY: loc.y, perchY: loc.perchY ?? null };
+    }, [tree.x, tree.z, tree.top]);
+    out.onTree = { tree, perched };
+    check(Math.abs(perched.y - tree.top) < 0.5,
+      `the hero did not settle on the crown: ${perched.y} vs ${tree.top}`);
+    check(Math.abs(perched.storedY - tree.ground) <= 1,
+      `the ground under the tree stored as ${perched.storedY}, terrain is ${tree.ground}`);
+    check(perched.perchY !== null && Math.abs(perched.perchY - tree.top) < 0.5,
+      `the crown was stored as ${perched.perchY}, he was standing at ${tree.top}`);
+
+    const id = await page.evaluate(() => window.__dbgSaves.save('Treeman'));
+    const back = await page.evaluate(async (n) => {
+      window.__dbgTp(0, 0);
+      await window.__dbgSaves.load(n);
+      const at = window.__dbgPlayerPos().y;
+      window.__dbgAdvance(2.5);
+      return { at, settled: window.__dbgPlayerPos().y };
+    }, id);
+    out.onTree.back = back;
+    check(Math.abs(back.at - tree.top) < 0.5,
+      `the load put him at ${back.at}, the crown is at ${tree.top}`);
+    check(Math.abs(back.settled - tree.top) < 0.5,
+      `he did not stay on the crown: ${back.settled} after settling, ${back.at} on arrival`);
+  }
+
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------------------
 // 5. Two characters are two characters: both listed, newest first, each
 //    loading its own state, and deleting one leaving the other alone.
 // ---------------------------------------------------------------------------
@@ -566,6 +642,78 @@ const readState = (page) => page.evaluate(() => {
   check(back.name === 'Wisp', `loading from the list gave "${back.name}"`);
   check(back.bag === savedBag, `the bag came back with ${back.bag} kinds, saved ${savedBag}`);
   check(typeof back.active === 'number', 'the loaded character is not the active save');
+
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------------------
+// 9. THE SECOND CHARACTER, through the poster — the pair of bugs that cost a
+//    player their first one.
+//
+//    Neither is visible from inside a session, which is why this walks the menu
+//    twice. The exit writes the character and raises the title screen in the
+//    same statement, so the list has to WAIT for that write; and the write
+//    lands after the exit has cleared the save pointer, so it must not hand the
+//    pointer back — or the next New Game autosaves a brand new character
+//    straight over the one just left.
+//
+//    Nothing is saved by hand here. The exit's own write is the only one, which
+//    is exactly the player's path: play, quit, start someone else.
+// ---------------------------------------------------------------------------
+{
+  const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
+  page.on('pageerror', (e) => console.error('[pageerror]', e.message));
+  await page.goto(`${HOST}/?fs=0&vol=0&${NO_WARMUP}`, { waitUntil: 'load' });
+  await page.waitForSelector('.bs-menu');
+  await leaveSplash(page);
+
+  const play = async (name) => {
+    await page.click('.bs-menu [data-act="new"]');
+    await page.waitForSelector('.bs-name-input');
+    await page.keyboard.type(name);
+    await page.click('.bs-menu [data-act="begin"]');
+    await whenPlaying(page);
+  };
+  const exit = async () => {
+    await page.keyboard.press('F10');
+    await page.waitForSelector('.bs-pause [data-act="exit"]');
+    await page.click('.bs-pause [data-act="exit"]');
+    await page.waitForSelector('.bs-menu [data-act="new"]');
+  };
+
+  await play('Ayla');
+  await page.evaluate(() => window.__dbgGive('sunberry', 9));
+  await exit();
+
+  // READ THE SCREEN, not the store. That the record exists was never the bug —
+  // the bug is a poster that has not heard of it, so the button is the reading.
+  const afterFirst = await page.evaluate(async () => ({
+    loadDisabled: document.querySelector('.bs-menu [data-act="load"]')?.disabled ?? null,
+    active: window.__dbgSaves.active(),
+    stored: (await window.__dbgSaves.list()).map((r) => r.name),
+  }));
+  out.secondCharacter = { afterFirst };
+  check(afterFirst.loadDisabled === false,
+    'the character just played is not on the title screen without a page reload');
+  check(afterFirst.active === null,
+    `the title screen still points at character ${afterFirst.active}`);
+
+  // A DIFFERENT NAME, and a save of its own.
+  await play('Bram');
+  const activeOnSecond = await page.evaluate(() => window.__dbgSaves.active());
+  check(activeOnSecond === null,
+    `a new game opened pointing at character ${activeOnSecond}`);
+  await page.evaluate(async () => {
+    window.__dbgGive('glowpebble', 3);
+    await window.__dbgSaves.save();
+  });
+
+  const both = await page.evaluate(() => window.__dbgSaves.list());
+  out.secondCharacter.list = both.map((r) => ({ id: r.id, name: r.name }));
+  check(both.length === 2,
+    `${both.length} character(s) after playing two: ${JSON.stringify(out.secondCharacter.list)}`);
+  check(both.some((r) => r.name === 'Ayla') && both.some((r) => r.name === 'Bram'),
+    `the two characters are ${JSON.stringify(out.secondCharacter.list)}`);
 
   await ctx.close();
 }
