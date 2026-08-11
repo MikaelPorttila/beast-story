@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { Engine } from '../core/engine';
 import type { Input } from '../core/input';
-import { MAX_STEP_UP, type ElementType, type EventBus, type World } from '../core/types';
+import {
+  MAX_STEP_UP, type CarrierInfo, type ElementType, type EventBus, type World,
+} from '../core/types';
 import { CarrierRide } from '../world/carriers';
 import { t } from '../i18n';
 import { buildHeroRig, type HeroRig, setHairStyle, setWeaponModel, stowWeapon } from './hero-rig';
@@ -437,6 +439,17 @@ export class Player {
    * world/carriers.ts.
    */
   private readonly ride = new CarrierRide();
+
+  /**
+   * The moving frame under his feet right now, or null.
+   *
+   * Exposed for the SAVE (issue #171), which has to store a position on a
+   * flying island in that island's own coordinates — see `CarrierInfo.toLocal`.
+   * Read-only and already resolved: `CarrierRide.carry` decides the attachment
+   * every slice, so this is that answer rather than a second search of the
+   * registry that could disagree with it.
+   */
+  get carrier(): CarrierInfo | null { return this.ride.carrier; }
 
   private rig: HeroRig;
   /**

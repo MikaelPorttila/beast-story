@@ -762,6 +762,41 @@ function resolveSafeGround(x: number, z: number): { x: number; y: number; z: num
 }
 
 /**
+ * Put a saved deck position back onto the frame it was taken on, or null when
+ * there is no frame to put it on.
+ *
+ * THE ISLAND IS SOMEWHERE ELSE NOW, and that is the entire point: it starts
+ * each session at its home and wanders live, so the world coordinates in the
+ * save name open sea under where it used to be. The frame's own coordinates
+ * are the thing that survives — the same spot on the deck is the same spot on
+ * the deck — and this converts them back against wherever it has drifted to.
+ *
+ * Null for every reason the answer might not exist: no carrier was stored, the
+ * build no longer has that frame, or the stored spot is past the edge of a deck
+ * that has been reshaped since. Each falls through to the ordinary ground
+ * resolution, which is the same "nothing refuses a save" rule the rest of the
+ * load path follows.
+ */
+function resolveOnCarrier(
+  loc: SaveDocument['location'],
+): { x: number; y: number; z: number; yaw: number } | null {
+  if (loc.carrierId === undefined || loc.localX === undefined || loc.localZ === undefined) {
+    return null;
+  }
+  const frame = world.carriers.get(loc.carrierId);
+  if (!frame) return null;
+  const out = { x: 0, z: 0 };
+  frame.toWorld(loc.localX, loc.localZ, out);
+  // The DECK at that column, asked of the frame itself rather than reconstructed
+  // from a stored height: a deck that was rebuilt taller or shorter still puts
+  // him on its surface, and `topAt` is the same question a mover asks every
+  // slice. -Infinity means the frame has nothing at that column any more.
+  const top = frame.topAt(out.x, out.z);
+  if (!Number.isFinite(top)) return null;
+  return { x: out.x, y: top, z: out.z, yaw: loc.yaw + frame.yaw };
+}
+
+/**
  * Everything about this character, right now.
  *
  * Synchronous and allocation-cheap — it reads fields and builds one object, so
@@ -770,11 +805,28 @@ function resolveSafeGround(x: number, z: number): { x: number; y: number; z: num
  */
 function collectSave(): SaveDocument {
   const here = resolveSafeGround(player.position.x, player.position.z);
+  // RIDING SOMETHING? Then where he is on IT is the durable answer, and the
+  // world coordinates beside it are only the fallback. See `SaveLocation`.
+  const frame = player.carrier;
+  const local = frame ? { x: 0, z: 0 } : null;
+  if (frame && local) frame.toLocal(player.position.x, player.position.z, local);
   const saved: SaveDocument = {
     v: 1,
     name: playerName,
     player: { hp: player.hp, maxHp: player.maxHp },
-    location: { zoneId: zones.id, x: here.x, y: here.y, z: here.z, yaw: player.facing },
+    location: {
+      zoneId: zones.id,
+      x: here.x,
+      y: here.y,
+      z: here.z,
+      // Relative to the frame when there is one: a deck that turns takes the
+      // street he was standing in with it, and a world heading would have him
+      // facing across it instead of along it.
+      yaw: frame ? player.facing - frame.yaw : player.facing,
+      ...(frame && local
+        ? { carrierId: frame.id, localX: local.x, localZ: local.z }
+        : {}),
+    },
     // The NET purse. `pickupTotal` and `spent` are an accounting detail of how
     // this number is arrived at, and neither is meaningful on its own.
     currency: shards(),
@@ -907,9 +959,12 @@ function applySave(doc: SaveDocument): void {
     // dismounted outright: what he was riding is not restored, so leaving the
     // controller holding a beast would seat him on one he no longer has.
     mount.dismount();
-    const at = resolveSafeGround(doc.location.x, doc.location.z);
+    const at = resolveOnCarrier(doc.location) ?? {
+      ...resolveSafeGround(doc.location.x, doc.location.z),
+      yaw: doc.location.yaw,
+    };
     mount.teleport(at.x, at.z, at.y);
-    player.restore(doc.player.hp, at.x, at.y, at.z, doc.location.yaw);
+    player.restore(doc.player.hp, at.x, at.y, at.z, at.yaw);
 
     inventory.refresh();
   } finally {
@@ -6354,13 +6409,13 @@ beginPlay();
   })(),
   riding: world.carriers.at(player.position.x, player.position.y, player.position.z)?.id ?? null,
   all: world.carriers.all.map((c) => {
-    // World -> the frame's own axes, the same map `CarrierBody.toLocal` uses.
-    // Restated here rather than exposed on the contract because a debug hook is
-    // the only caller that has ever wanted it from outside.
-    const cs = Math.cos(c.yaw);
-    const sn = Math.sin(c.yaw);
-    const wx = player.position.x - c.x;
-    const wz = player.position.z - c.z;
+    // World -> the frame's own axes, THROUGH THE CONTRACT. This used to restate
+    // the trigonometry with a note saying a debug hook was the only caller that
+    // had ever wanted it from outside; the save now wants it too (issue #171),
+    // so `toLocal` is on `CarrierInfo` and the copy that could drift from it is
+    // gone.
+    const onDeck = { x: 0, z: 0 };
+    c.toLocal(player.position.x, player.position.z, onDeck);
     return {
       id: c.id,
       x: +c.x.toFixed(2),
@@ -6390,9 +6445,9 @@ beginPlay();
         return Number.isFinite(b) ? +b.toFixed(2) : null;
       })(),
       onDeck: {
-        x: +(wx * cs - wz * sn).toFixed(3),
+        x: +onDeck.x.toFixed(3),
         y: +(player.position.y - c.y).toFixed(3),
-        z: +(wx * sn + wz * cs).toFixed(3),
+        z: +onDeck.z.toFixed(3),
       },
     };
   }),

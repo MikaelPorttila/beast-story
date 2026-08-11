@@ -64,13 +64,34 @@ import { flags } from './flags';
  */
 export const SAVE_DOC_VERSION = 1;
 
-/** Where the hero stood. `zoneId` is a ZoneManager id, not a content id. */
+/**
+ * Where the hero stood. `zoneId` is a ZoneManager id, not a content id.
+ *
+ * TWO FRAMES, AND THE SECOND ONE IS NOT OPTIONAL POLISH. x/y/z are world
+ * coordinates and are right for a hero standing on ground that will still be
+ * there tomorrow. They are WRONG for a hero standing on something that moves:
+ * a flying island starts each session at its home and wanders live from there,
+ * so a deck position stored in world space describes open sea under where the
+ * island used to be. Skyhaven is a whole settlement on such an island, which
+ * makes it one of the likelier places for a player to stop playing.
+ *
+ * So when the hero is riding a frame, `carrierId` names it and `localX`/`localZ`
+ * are his place ON it, in its own coordinates; `yaw` is stored relative to the
+ * frame's heading too, because the island turns and a world-space heading would
+ * have him facing a different way along the same street. World x/z are still
+ * written beside them and are the fallback for a save whose carrier this build
+ * no longer has.
+ */
 export interface SaveLocation {
   zoneId: string;
   x: number;
   y: number;
   z: number;
   yaw: number;
+  /** The moving frame he was on, or absent for solid ground. */
+  carrierId?: string;
+  localX?: number;
+  localZ?: number;
 }
 
 /**
@@ -374,6 +395,18 @@ function parseDoc(value: unknown): SaveDocument | null {
       y: num(loc.y, NaN),
       z: num(loc.z, NaN),
       yaw: num(loc.yaw, 0),
+      // All three or none: a carrier id with no offsets, or offsets with no id,
+      // is not a place. Dropping the half-pair lands the load on the world
+      // coordinates beside them, which is the same fallback a carrier this
+      // build no longer ships gets.
+      ...(strOrNull(loc.carrierId) !== null
+        && Number.isFinite(num(loc.localX, NaN)) && Number.isFinite(num(loc.localZ, NaN))
+        ? {
+          carrierId: loc.carrierId as string,
+          localX: num(loc.localX, 0),
+          localZ: num(loc.localZ, 0),
+        }
+        : {}),
     },
     currency: Math.max(0, Math.floor(num(raw.currency, 0))),
     bag,
@@ -388,10 +421,12 @@ function parseDoc(value: unknown): SaveDocument | null {
     ...(Object.keys(extra).length > 0 ? { extra } : {}),
   };
   // Note the location fields: an unusable coordinate becomes NaN and is NOT
-  // repaired here. Where a hero belongs when his saved ground is gone is a
-  // question about the world — the nearest town, the start camp, the spawn
-  // point — and this file has never heard of any of them. NaN is how it says
-  // "there was nothing usable here" to the one caller that can answer.
+  // repaired here, and a carrier id is passed through without asking whether
+  // any such frame exists. Where a hero belongs when his saved ground is gone —
+  // the nearest town, the start camp, the spawn point, or the deck of an island
+  // that has since drifted — is a question about the world, and this file has
+  // never heard of any of it. NaN is how it says "there was nothing usable
+  // here" to the one caller that can answer.
 }
 
 /** The stored form: known fields, then a newer build's, which cannot shadow. */
@@ -400,6 +435,7 @@ function serialize(doc: SaveDocument): Record<string, unknown> {
     v: SAVE_DOC_VERSION,
     name: doc.name,
     player: { hp: doc.player.hp, maxHp: doc.player.maxHp },
+    // Spread, so the optional carrier fields travel without being named twice.
     location: { ...doc.location },
     currency: doc.currency,
     bag: doc.bag.map(([id, count]) => [id, count]),

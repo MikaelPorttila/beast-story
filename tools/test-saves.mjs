@@ -326,6 +326,87 @@ const readState = (page) => page.evaluate(() => {
 }
 
 // ---------------------------------------------------------------------------
+// 6b. SAVED ON THE FLYING ISLAND, which is the case world coordinates cannot
+//     express. The island starts each session at its home and wanders live, so
+//     a deck position stored in world space names open sea under where it used
+//     to be — and Skyhaven is a whole settlement up there.
+//
+//     The assertion is that the hero comes back ON THE DECK after the island
+//     has demonstrably moved, and in the same place on it. Both halves matter:
+//     "he is on the island" alone would also pass for a save that stored world
+//     coordinates and got lucky, so the island is made to travel first.
+// ---------------------------------------------------------------------------
+{
+  const { ctx, page } = await boot();
+  const carriers = () => page.evaluate(() => window.__dbgCarriers());
+
+  // Find bare turf the same way tools/test-carrier.mjs does: the island turns,
+  // so which local column sits under a fixed world point depends on the pose,
+  // and a hero dropped under a tree crown is below the ride volume and falls
+  // straight through. Park well above the ceiling while scanning so the scan
+  // itself cannot attach.
+  let spot = null;
+  for (let k = 0; k < 16 && !spot; k++) {
+    const isl = (await carriers()).all[0];
+    const ang = (k / 16) * Math.PI * 2;
+    const sx = isl.x + Math.sin(ang) * isl.radius * 0.62;
+    const sz = isl.z + Math.cos(ang) * isl.radius * 0.62;
+    await page.evaluate(([x, z, y]) => window.__dbgTp(x, z, y), [sx, sz, isl.y + 40]);
+    const c = (await carriers()).all[0];
+    if (c.deckTop !== null && c.surface !== null && Math.abs(c.deckTop - c.surface) < 0.1) {
+      spot = { x: sx, z: sz, y: isl.y + 8 };
+    }
+  }
+  check(!!spot, 'no bare turf column found on the island — is the deck all buildings?');
+
+  await page.evaluate(([x, z, y]) => window.__dbgTp(x, z, y), [spot.x, spot.z, spot.y]);
+  await page.evaluate(() => window.__dbgAdvance(1.6));
+  const aboard = await page.evaluate(() => ({
+    riding: window.__dbgCarriers().riding,
+    onDeck: window.__dbgCarriers().all[0].onDeck,
+    doc: window.__dbgSaves.doc().location,
+  }));
+  check(aboard.riding !== null, `the hero did not attach to the deck (riding: ${aboard.riding})`);
+  check(aboard.doc.carrierId === aboard.riding,
+    `the save stored carrierId ${aboard.doc.carrierId}, riding ${aboard.riding}`);
+  // The stored offsets are the frame's own coordinates, so they must match what
+  // the carrier hook reports for the same hero — that is the number that has to
+  // survive, and it is not the world position.
+  check(Math.abs(aboard.doc.localX - aboard.onDeck.x) < 0.5
+    && Math.abs(aboard.doc.localZ - aboard.onDeck.z) < 0.5,
+    `local offsets disagree: saved ${JSON.stringify([aboard.doc.localX, aboard.doc.localZ])},`
+    + ` hook ${JSON.stringify([aboard.onDeck.x, aboard.onDeck.z])}`);
+
+  const id = await page.evaluate(() => window.__dbgSaves.save('Skyfarer'));
+  const islandBefore = (await carriers()).all[0];
+
+  // MOVE THE ISLAND, and prove it moved. Then put him somewhere else entirely,
+  // so a load that did nothing at all would be visible.
+  await page.evaluate(() => window.__dbgAdvance(25));
+  const islandAfter = (await carriers()).all[0];
+  const drift = Math.hypot(islandAfter.x - islandBefore.x, islandAfter.z - islandBefore.z);
+  out.onCarrier = { drift: +drift.toFixed(2), savedLocal: aboard.doc };
+  check(drift > 1, `the island only drifted ${drift.toFixed(2)} units — nothing to prove`);
+
+  await page.evaluate(() => window.__dbgTp(0, 0));
+  await page.evaluate((n) => window.__dbgSaves.load(n), id);
+  await page.evaluate(() => window.__dbgAdvance(1.2));
+  const back = await page.evaluate(() => ({
+    riding: window.__dbgCarriers().riding,
+    onDeck: window.__dbgCarriers().all[0].onDeck,
+  }));
+  out.onCarrier.back = back;
+  check(back.riding !== null, `loading put the hero at ${JSON.stringify(back.onDeck)}, off the island`);
+  check(Math.abs(back.onDeck.x - aboard.onDeck.x) < 1.5
+    && Math.abs(back.onDeck.z - aboard.onDeck.z) < 1.5,
+    `he came back to a different part of the deck: saved`
+    + ` ${JSON.stringify([aboard.onDeck.x, aboard.onDeck.z])},`
+    + ` loaded ${JSON.stringify([back.onDeck.x, back.onDeck.z])}`);
+
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------------------
 // 7. AUTOSAVE, both halves — the timer and the quest trigger.
 //
 //    `autosaveSec=2` runs the same accumulator through the same comparison in
