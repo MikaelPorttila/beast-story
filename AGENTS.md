@@ -189,6 +189,7 @@ smaller loop over the same modules — keep model and VFX code out of it.
 | Key bindings | `ui/keybinds.ts` | `test-keybinds` |
 | Items and the bag | `core/items.ts`, `ui/inventory.ts` (rules in `main.ts`) | `test-inventory` |
 | Settings and storage | `ui/settings.ts`, `core/prefs.ts`, `core/gfx.ts` | `test-settings` |
+| Saving and loading a character | `core/saves.ts` (the store), `collectSave` / `applySave` / `resolveSafeGround` / `resolveOnCarrier` in `main.ts`, the restore seams on `Player`/`BeastActor`/`Inventory`/`SlotLayout`/`CombatSystem`/`DayNightCycle` | `test-saves` |
 | Content system | `content/*`, `content/data/core.json` | `test-content` |
 | Strings | `i18n/en.ts` (base table), `i18n/<iso639-1>.ts` | `test-about`, `test-settings` (keys are checked at build time) |
 | Music | `audio/music.ts` | `test-music` |
@@ -202,6 +203,47 @@ Cross-cutting rules:
 - **Reset session state in the object that owns it** — `Player.reset`,
   `BeastActor.reset`, `CombatSystem.reset`. `exitToTitle` in `main.ts` covers
   everything else; add a field, reset it in the file that added it.
+- **Session state that is not SAVED is state the player loses** (issue #171).
+  The rule above has a twin, and it is the one that rots quietly: `exitToTitle`
+  is the authoritative list of what a play session IS, so anything added to it
+  is something `collectSave` owes a field and `applySave` owes a restore. A
+  field reset but never serialised costs nobody a test — it costs a player their
+  progress, months later, in a report nobody can reproduce. Add a field, reset
+  it, save it, load it, and add a case to `test-saves`.
+- **LOADING IS A RESOLUTION PASS, NOT AN ASSIGNMENT.** This is the half that
+  will keep needing work as the game grows, because the world is data-driven and
+  a save outlives the data it was written against. A document holds ids and
+  coordinates from an older build; what it must produce is a valid session in
+  THIS one. So every kind of thing a save stores needs an answer to "and what if
+  the world no longer has that?", and the answers already written down are the
+  pattern for the next one:
+  - **Ids are checked against what exists NOW** — `isKnownItem` for the bag and
+    the gear slots, the roster for a species, `zones.zoneIds` for a zone,
+    `world.carriers.get` for a moving frame. An id that no longer resolves is
+    dropped, and the rest of the character still loads.
+  - **Positions are re-resolved against the world as it is**, never trusted as
+    written. `resolveSafeGround` finds the ground under the saved column because
+    the terrain may have been reseeded and the hero may have been flying;
+    `resolveOnCarrier` converts a deck position out of the frame's own
+    coordinates because a flying island starts each session at its home. Both
+    run at CAPTURE and again at LOAD — the second pass is not redundant.
+  - **Derived state is recomputed, never stored.** `attackStat` comes back from
+    re-equipping and `applyLoadout`; a beast's stats come back from its level.
+    Storing a derived value is storing a second copy that a balance change puts
+    out of step with the first.
+  - **Nothing refuses a save.** Every unresolvable field degrades to a default
+    and the load continues, because a throw out of a load costs the player the
+    character. Where degrading would leave them unable to play, REPAIR: a save
+    with no resolvable beast is granted the starter.
+  - **A field whose MEANING changes is a version bump**, not an edit — bump
+    `SAVE_DOC_VERSION` and add a branch to `migrateSaveDoc`. Adding a field
+    needs neither, and needs no Dexie version either.
+
+  Two things follow for content work in particular. Renaming a content id is a
+  migration rather than an edit (`content/state.ts` says the same about quests),
+  and a system that adds a new KIND of world state — a built structure, a
+  claimed plot, a placed marker — owes a save both a field and a rule for what
+  happens when the thing it points at is gone.
 - **Keep `src/content/` free of static imports from `./storage/bundled.ts`** —
   it is the one file using `import.meta.glob`, which `test-zfight.mjs` (plain
   Bun, no Vite) cannot load. For the same reason `NPC_BODIES` stays a plain

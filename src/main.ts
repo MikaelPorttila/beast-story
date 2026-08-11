@@ -547,6 +547,12 @@ const pauseMenu = new PauseMenu({
  *
  * The seam is here if that trade ever needs revisiting: everything that would
  * have to be disposed is reached from this one function.
+ *
+ * THIS LIST IS ALSO THE SAVE'S CHECKLIST. It is the authoritative statement of
+ * what a play session IS, so anything added below is something `collectSave`
+ * owes a field and `applySave` owes a restore — see the save section further
+ * down, and the rule in AGENTS.md. A field reset here and never serialised
+ * breaks no test; it costs a player their progress, quietly, months later.
  */
 function exitToTitle(): void {
   if (!playing) return;
