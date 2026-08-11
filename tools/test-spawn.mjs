@@ -289,21 +289,52 @@ const setSearch = async (text) => {
     const r = e.getBoundingClientRect();
     return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 20) };
   });
+  /**
+   * Advance until the camera distance STOPS MOVING, and report where it stopped.
+   *
+   * A FIXED ADVANCE IS THE WRONG INSTRUMENT HERE, and this section is the proof.
+   * It used to be one `__dbgAdvance(1.5)` with a comment reasoning that the ease
+   * runs at lambda 8 so 1.5 s must be plenty. Measured, it is not: after the
+   * control gesture the reading is 14.219 at one advance and 16.009 at the next,
+   * WITH NO INPUT IN BETWEEN — and 1.79 m is exactly the "leak" this section
+   * reported. The two readings were two points on the same settling curve.
+   *
+   * It is not simply a slow ease either: the same 1.5 s taken as six advances of
+   * 0.25 s settles by 1.0 s, so what converges depends on how the advance is
+   * chopped rather than on simulated time alone. Which is the argument for
+   * settling on STATE (AGENTS.md) instead of picking another number — a bigger
+   * constant would only move the day this comes back.
+   */
+  const settled = async (deadlineMs = 6000) => {
+    const t0 = Date.now();
+    let last = await dist();
+    for (;;) {
+      await page.evaluate(() => window.__dbgAdvance(0.25));
+      const now = await dist();
+      // A millimetre: far under the 0.05 the assertions below care about, and
+      // far over the float noise of recomputing a hypotenuse.
+      if (Math.abs(now - last) < 0.001) return now;
+      last = now;
+      if (Date.now() - t0 > deadlineMs) {
+        check(false, `the camera never settled — still moving after ${deadlineMs} ms`);
+        return now;
+      }
+    }
+  };
   const scroll = async (x, y, dy) => {
     await page.mouse.move(x, y);
     for (let i = 0; i < 4; i++) await page.mouse.wheel({ deltaY: dy });
-    // Long enough for the eased `dist` to reach its target — the camera chases
-    // `distTarget` at lambda 8, so half a second is still mid-flight and two
-    // readings taken there compare two different points of the same ease.
-    await page.evaluate(() => window.__dbgAdvance(1.5));
-    return dist();
+    return settled();
   };
   // THE CONTROL RUNS FIRST, and the order is load-bearing: Chrome latches a
   // wheel gesture to the scroller it started on, so four notches into the panel
   // followed immediately by four over the world are still delivered to the
   // panel — which reads exactly like the leak this section is looking for, from
   // the one arrangement that cannot see it.
-  const before = await dist();
+  // Settled, not merely read: section 8 spawned and cleared structures right in
+  // front of the lens, and the camera avoids what is in the way — so the
+  // baseline this section compares against has to be a resting value too.
+  const before = await settled();
   const r0 = await read();
   const overWorld = await scroll(1100, 450, 200);
   const r1 = await read();
