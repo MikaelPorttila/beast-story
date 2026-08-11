@@ -359,9 +359,15 @@ export const sections = [
     ctx.check(JSON.stringify(tabControls.toggles)
       === JSON.stringify(['hapticFeedback', 'invertLookX', 'invertLookY']),
       'Controls holds the three controller rows');
+    // IN THE PANEL'S OWN ORDER, cheapest-to-lose first — the list is compared as
+    // a sequence because GRAPHICS_ROWS (ui/settings.ts) orders itself the way the
+    // F3 panel does, and that ordering is the closest either screen comes to
+    // advice. `terrainDistance` joined the set with the distant-terrain work
+    // (f83f150), which updated test-gfx and left this list a row short.
     ctx.check(JSON.stringify(tabGraphics.gfx)
-      === JSON.stringify(['ao', 'bloom', 'aa', 'shadows', 'grass', 'foliageDistance']),
-      'Graphics holds the five renderer switches and the foliage-distance choice');
+      === JSON.stringify(
+        ['ao', 'bloom', 'aa', 'shadows', 'terrainDistance', 'grass', 'foliageDistance']),
+      'Graphics holds the five renderer switches and the two distance choices');
     ctx.check(tabGraphics.toggles.length === 0 && tabGraphics.langs === 0,
       'and nothing from the other tabs is still on screen with them');
     ctx.check(tabSound.vols === 6, 'Sound holds the volume steps');
