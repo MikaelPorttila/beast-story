@@ -87,6 +87,16 @@ Keep those notices verbatim and in English at every display language. Keep
 repository links out of the panel: the repo is private, and
 `bun tools/test-about.mjs` asserts both that and the shipped credits.
 
+## Code Style
+- Keep code and solution simple yet scaleable. Channel "yagni" energy unless told otherwise.
+- Write TypeScript / TS code in a respectable way and don't write code like a Python dev.
+- Avoid one-line functions that are just casting wrappers.
+- `any` creates harm, Inferred types create value.
+- Tests are good! Enless smoke tests, "regression tests"
+ for feature deletions, ect much less good. Tests should be focused, not slop.
+- Comments are a great way to clarify functionality and how code is used. Don't comment evbery line, but feel free to describe (concisely) how functions are used above function definitions, classes, ect.
+- Keep comments up to date! When making changes, it's important to keep things in sync.
+
 ## Testing
 
 Tests are browser probe scripts in `tools/` that print JSON. Give every new
