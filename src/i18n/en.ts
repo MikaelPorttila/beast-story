@@ -179,7 +179,10 @@ export const en = {
   'quest.land.firstLight.desc':
     'Gain has been up since before you were, and there is a penned Sproutle standing between you and breakfast.',
   'quest.land.firstLight.obj.talkToGain': 'Speak with Gain at the fire',
-  'quest.land.firstLight.obj.bondPractice': 'Practise the throw on the penned Sproutle',
+  // "Practise the throw" read as a melee swing. An objective names the VERB the
+  // player is being asked for, and the verb here is taming — the orb is how you
+  // tame, so the orb is what the line says.
+  'quest.land.firstLight.obj.bondPractice': 'Throw taming orbs at the penned Sproutle',
   'toast.equipped': '{item} equipped',
   'toast.unequipped': '{item} put away',
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -255,8 +258,9 @@ export const en = {
   // dialogue's branching lives in the data and this table only holds the words.
   // See `npc:gain`'s `talk` list in content/data/core.json.
   'npc.gain.q1.offer':
-    'You slept through the interesting part. There is a Sproutle in the pen and three orbs in your hand — throw them, and stop flinching.',
-  'npc.gain.q1.busy': 'Three throws. It will not bite, and I will not laugh. Much.',
+    'You slept through the interesting part. There is a Sproutle in the pen and three taming orbs in your hand — throw them at it, and stop flinching.',
+  'npc.gain.q1.busy':
+    'Three orbs, at the Sproutle. It will not bite, and I will not laugh. Much.',
   'npc.gain.q1.done':
     'There. That is the whole trick — the orb does nothing an animal has not already agreed to.',
 

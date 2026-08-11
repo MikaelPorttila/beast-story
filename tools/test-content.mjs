@@ -136,7 +136,7 @@ const GAIN = {
   // last row in that list and is what he says with no story package loaded;
   // tools/test-story-land.mjs is where the branching itself is asserted.
   line: 'You slept through the interesting part. There is a Sproutle in the pen '
-    + 'and three orbs in your hand — throw them, and stop flinching.',
+    + 'and three taming orbs in your hand — throw them at it, and stop flinching.',
 };
 
 /**
