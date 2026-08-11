@@ -183,6 +183,10 @@ export const en = {
   // player is being asked for, and the verb here is taming — the orb is how you
   // tame, so the orb is what the line says.
   'quest.land.firstLight.obj.bondPractice': 'Throw taming orbs at the penned Sproutle',
+  'quest.land.theFirstBond.name': 'The First Bond',
+  'quest.land.theFirstBond.desc':
+    'A penned animal has already agreed. Gain wants you to go past the wall and ask one that has not.',
+  'quest.land.theFirstBond.obj.tameWild': 'Bond a wild beast beyond the camp wall',
   'toast.equipped': '{item} equipped',
   'toast.unequipped': '{item} put away',
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -262,6 +266,11 @@ export const en = {
     'Three orbs, at the Sproutle. It will not bite, and I will not laugh. Much.',
   'npc.gain.q1.done':
     'There. That is the whole trick — the orb does nothing an animal has not already agreed to.',
+  'npc.gain.q2.offer':
+    'Penned is not the same as willing. Go past the wall and find one that can say no to you, and see if it does.',
+  'npc.gain.q2.busy': 'Out there. Not in here. It has to be one that chose you.',
+  'npc.gain.q2.done':
+    'Then you have a partner and I have my morning back. Keep it fed and it will keep you upright.',
 
   // The three who live on Skyhaven. Their lines are the one place the game
   // explains what the island IS, so each of them says a different part of it:

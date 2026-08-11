@@ -40,6 +40,30 @@
         ],
         "rewards": { "xp": 25, "shard": 10 }
       }
+    },
+    {
+      "id": "quest:land/the-first-bond",
+      "schema": 1,
+      "name": { "key": "quest.land.theFirstBond.name" },
+      "description": { "key": "quest.land.theFirstBond.desc" },
+      "tags": ["story", "act1", "tutorial"],
+      "data": {
+        "category": "main",
+        "arc": "land",
+        "giver": "npc:gain",
+        "location": "town:encampment",
+        "prerequisites": ["quest:land/first-light"],
+        "objectives": [
+          {
+            "key": "tame-wild",
+            "text": { "key": "quest.land.theFirstBond.obj.tameWild" },
+            "trigger": { "kind": "tamed", "species": ["sproutle", "boulderpup"] }
+          }
+        ],
+        "onStart": [{ "do": "item.give", "item": "orb-tame", "count": 2 }],
+        "onComplete": [{ "do": "flag.set", "flag": "first-bond" }],
+        "rewards": { "xp": 60, "shard": 25 }
+      }
     }
   ]
 }

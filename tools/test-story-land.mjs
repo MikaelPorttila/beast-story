@@ -31,6 +31,18 @@
 //      — the starting purse is a number that may change and is not this
 //      probe's business.
 //
+// SECTIONS 5 – 8 — QUEST 2, `quest:land/the-first-bond`, and the pair that runs
+// through the middle of them:
+//
+//   6. PREREQUISITES DECIDE THE ORDER, in both directions. The quest is on no
+//      shelf at all while quest 1 is unfinished (§5) and offered the moment it
+//      completes (§7). Either half alone passes against a build that never
+//      offers it, or one that always does.
+//   7. A WILD BOND COUNTS. Driven through the real mechanic — hunt a Sproutle,
+//      weaken it, force the catch — because the trigger under test is the one
+//      Acts 2 and 3 inherit, filtered to their own species. `first-bond` is set
+//      by the turn-in and the counter stops at the one the quest asked for.
+//
 // Exits non-zero on failure.
 import { launchBrowser, newPage, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
@@ -40,6 +52,7 @@ import { BASE as HOST } from './target.mjs';
 const URL = `${HOST}/?menu=0&vol=0`;
 
 const QUEST = 'quest:land/first-light';
+const QUEST2 = 'quest:land/the-first-bond';
 /** What the quest's own asset says, so the probe is not a second copy of it. */
 const PRACTICE_THROWS = 3;
 
@@ -61,14 +74,19 @@ const dbg = (fn, ...args) => page.evaluate(fn, ...args);
 const state = () => dbg(async () => {
   const { content } = await import('/src/content/index.ts');
   const id = 'quest:land/first-light';
+  const id2 = 'quest:land/the-first-bond';
   return {
     status: content.state.questStatus(id),
     talk: content.state.progress(id, 'talk-to-gain'),
     practice: content.state.progress(id, 'bond-practice'),
+    status2: content.state.questStatus(id2),
+    tamed: content.state.progress(id2, 'tame-wild'),
     flags: content.state.flags.slice(),
     discovered: content.state.discovered('town:encampment'),
   };
 });
+/** Which shelf the journal puts a quest on right now, or null for hidden. */
+const tabOf = async (id) => (await journal()).find((e) => e.id === id)?.tab ?? null;
 const journal = () => dbg(() => window.__dbgJournal().model);
 const purse = () => dbg(() => window.__dbgZone().shards);
 const orbs = () => dbg(() => {
@@ -102,6 +120,38 @@ async function talkTo(id) {
 async function endTalk() {
   await page.keyboard.press('Escape');
   await wait(250);
+}
+
+/** Advance SIMULATED seconds, so a hunt is bounded in work and not wall-clock. */
+const adv = (s) => dbg((n) => window.__dbgAdvance(n), s);
+
+/**
+ * Stand the hero next to a live wild beast of this species, spawning nothing.
+ *
+ * Lifted from tools/test-taming.mjs, and for its reason: the population is
+ * whatever `trySpawn` last topped up to, picked uniformly, so a probe that
+ * demanded a Sproutle on the first look would fail on the run where the pack is
+ * full of Glooplings. Hopping 130 units puts every live enemy past the despawn
+ * distance, so each hop is a fresh roll.
+ */
+async function goToWild(species) {
+  const home = await dbg(() => window.__dbgTowns().spawn);
+  for (let tries = 0; tries < 24; tries++) {
+    const e = (await dbg(() => window.__dbgBodies())).enemies.find((x) => x.species === species);
+    if (!e) {
+      const a = tries * 1.31;
+      await dbg((x, z) => window.__dbgTp(x, z), home.x + Math.cos(a) * 130, home.z + Math.sin(a) * 130);
+      await adv(3);
+      continue;
+    }
+    // Three units off: well inside the orb's range, and close enough that the
+    // throw cannot clip the ground on the way.
+    await dbg((x, z) => window.__dbgTp(x, z), e.x + 3, e.z + 3);
+    await adv(0.3);
+    const after = (await dbg(() => window.__dbgBodies())).enemies.find((x) => x.species === species);
+    if (after) return after;
+  }
+  return null;
 }
 
 // ---------- 1. the campaign has exactly one entry point ---------------------
@@ -173,7 +223,18 @@ async function endTalk() {
     `bond-practice is ${s.practice} after ${PRACTICE_THROWS + 1} throws, not capped at ${PRACTICE_THROWS}`);
 }
 
-// ---------- 5. the turn-in pays and sets ------------------------------------
+// ---------- 5. quest 2 is locked until quest 1 is done ----------------------
+// The FIRST half of the pair. Section 7 is the second, and the two of them are
+// what "prerequisites decide the order" means: this quest is invisible now and
+// offered the moment the one before it completes. One arm alone passes against
+// a build that never offers it and against one that always does.
+{
+  const tab = await tabOf(QUEST2);
+  results.gateBefore = { tab, status: (await state()).status2 };
+  check(tab === null, `${QUEST2} is on the "${tab}" shelf before its prerequisite is done`);
+}
+
+// ---------- 6. the turn-in pays and sets ------------------------------------
 {
   const before = await purse();
   const line = await talkTo('gain');
@@ -190,6 +251,62 @@ async function endTalk() {
   check(s.discovered === true, 'town:encampment was not discovered');
   check(after - before === 10,
     `the reward paid ${after - before} Cubloons, not the 10 the quest promises`);
+}
+
+// ---------- 7. quest 2 is offered the moment quest 1 completes --------------
+{
+  const tab = await tabOf(QUEST2);
+  results.gateAfter = { tab };
+  check(tab === 'available',
+    `${QUEST2} is on the "${tab}" shelf after its prerequisite completed, not "available"`);
+}
+
+// ---------- 8. the wild bond ------------------------------------------------
+// THE TAMING TRIGGER, which is the piece Acts 2 and 3 inherit — the same fact,
+// filtered to their own species. Driven through the real bond: weaken an animal
+// and force the catch, because the ODDS are `test-taming`'s business and a
+// rolled outcome here would be a probe that fails one run in eight.
+{
+  const line = await talkTo('gain');
+  await endTalk();
+  let started = await state();
+  results.bondQuest = { offerLine: line, statusAfterOffer: started.status2 };
+  check(started.status2 === 'active', `${QUEST2} is "${started.status2}" after being offered`);
+
+  // A SPROUTLE SPECIFICALLY, because it is the only bondable species a starting
+  // orb can hold: `orb-tame` is tier 1 and both other wild beasts ask for tier
+  // 2 (`capture.minTier` in core.json). Which is also the quest's own answer to
+  // "any ground species" at this point in the game.
+  const found = await goToWild('wild-sproutle');
+  const hurt = await dbg(() => window.__dbgWeaken('wild-sproutle', 0.1));
+  const thrown = await dbg(() => window.__dbgThrowOrb('wild-sproutle', true));
+  // THE ORB HAS TO ARRIVE. "Not bonding" is true the instant after a throw, so
+  // the ceremony is waited FOR and then waited OUT — the two halves of "it
+  // landed", the same pair tools/test-taming.mjs makes.
+  let landed = false;
+  for (let i = 0; i < 24 && !landed; i++) {
+    await adv(0.1);
+    landed = (await dbg(() => window.__dbgTaming())).bonding;
+  }
+  for (let i = 0; i < 60 && (await dbg(() => window.__dbgTaming())).bonding; i++) await adv(0.1);
+  await adv(0.3);
+  const s = await state();
+  results.bondQuest.bond = { found, hurt, throw: thrown, landed, progress: s.tamed };
+  check(found !== null, 'no wild Sproutle ever turned up outside the camp to bond');
+  check(thrown?.outcome === 'thrown', `the orb was refused: ${JSON.stringify(thrown)}`);
+  check(landed, `no orb reached a Sproutle (last ${thrown?.dist} units away)`);
+  check(s.tamed === 1, `tame-wild is ${s.tamed} after a wild bond, not 1`);
+
+  // The turn-in, and the flag it sets EXACTLY ONCE however many beasts follow.
+  const line2 = await talkTo('gain');
+  await endTalk();
+  const done = await state();
+  results.bondQuest.turnIn = { line: line2, status: done.status2, flag: done.flags.includes('first-bond') };
+  check(done.status2 === 'completed', `${QUEST2} is "${done.status2}" after the turn-in`);
+  check(done.flags.includes('first-bond'), 'first-bond was not set');
+  // The counter did not run past what the objective asked for, which is the
+  // other half of "however many beasts you bond, this happens once".
+  check(done.tamed === 1, `tame-wild ended at ${done.tamed}, not the 1 the quest asks for`);
 }
 
 console.log(JSON.stringify(results, null, 2));
