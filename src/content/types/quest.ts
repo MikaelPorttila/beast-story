@@ -64,6 +64,51 @@ import { isObjectiveName } from '../state';
 import { isKnownTextKey } from '../text';
 
 /**
+ * The kinds of world fact the engine can see happen.
+ *
+ * ONE ENTRY PER FACT, NOT PER QUEST. The whole reason objectives carry a trigger
+ * at all is that the alternative — a hook per quest in main.ts — makes every new
+ * quest an engine change, and makes the taming trigger Act 1, Act 2 and Act 3 all
+ * need three copies of one idea. Adding a KIND here is engine work (something
+ * has to observe the fact and call the router); adding a quest that uses one is
+ * not.
+ */
+export type ObjectiveTriggerKind =
+  | 'orb-thrown'
+  | 'tamed'
+  | 'enemy-killed'
+  | 'item-picked'
+  | 'town-arrival'
+  | 'zone-arrival';
+
+const TRIGGER_KINDS: readonly ObjectiveTriggerKind[] = [
+  'orb-thrown', 'tamed', 'enemy-killed', 'item-picked', 'town-arrival', 'zone-arrival',
+];
+
+/**
+ * Which fact advances an objective, and which instances of it count.
+ *
+ * The filters are all OPTIONAL and all mean "any" when absent, so
+ * `{ "kind": "tamed" }` is "bond anything" and
+ * `{ "kind": "enemy-killed", "enemies": ["enemy:gloopling"] }` is a cull list.
+ * An absent filter is the useful default in every case where the fact itself is
+ * already the interesting part.
+ */
+export interface ObjectiveTrigger {
+  readonly kind: ObjectiveTriggerKind;
+  /** `enemy-killed`: which enemies count. Absent = any. */
+  readonly enemies?: readonly ContentId[];
+  /** `tamed`: which beast species count, by species id. Absent = any. */
+  readonly species?: readonly string[];
+  /** `item-picked`: the item id that counts. Absent = any. */
+  readonly item?: string;
+  /** `town-arrival`: which town. Absent = any. */
+  readonly town?: ContentId;
+  /** `zone-arrival`: the `ZoneDef` id — `overworld`, `hold`. Absent = any. */
+  readonly zone?: string;
+}
+
+/**
  * One thing the player has to do.
  *
  * `key` is what `ContentState.progress(quest, key)` counts against, so it is an
@@ -74,12 +119,19 @@ import { isKnownTextKey } from '../text';
  * so one in the objective silently attributes a counter to the wrong quest.
  * `isObjectiveName` in state.ts is where that rule is spelled; this reads it
  * rather than restating the regex.
+ *
+ * NO TRIGGER MEANS "SOMETHING ELSE ADVANCES ME", not "impossible". A talk
+ * objective is advanced by the `progress.add` in the dialogue row that says the
+ * words, which is the seam that already existed and needed no engine to observe
+ * it.
  */
 export interface QuestObjective {
   readonly key: string;
   readonly text: ContentText;
   /** How many. Absent means one, i.e. a boolean-shaped objective. */
   readonly count?: number;
+  /** What the engine watches for. Absent = advanced by `progress.add` only. */
+  readonly trigger?: ObjectiveTrigger;
 }
 
 /** Amounts granted on completion. Keyed by what is granted — see the header. */
@@ -126,6 +178,46 @@ const category = (value: unknown, ctx: Reader): 'main' | 'side' => {
   return 'side';
 };
 
+/**
+ * A trigger, or `undefined` when it is malformed.
+ *
+ * A BROKEN TRIGGER DROPS TO "NO TRIGGER", which is this file's version of the
+ * fail-closed rule the schema header states: the objective survives, is visible
+ * in the journal, and simply does not tick — a quest the player can see and
+ * cannot finish is a bug report, where an objective that vanished is a quest
+ * that silently completes itself. The diagnostic names the field either way.
+ */
+function readTrigger(value: unknown, ctx: Reader): ObjectiveTrigger | undefined {
+  const v: Record<string, unknown> = isRecord(value) ? value : {};
+  if (!isRecord(value)) {
+    ctx.report('error', 'bad-field', 'expected a trigger object',
+      'write { "kind": "enemy-killed", "enemies": ["enemy:gloopling"] }');
+    return undefined;
+  }
+  const kind = str(v.kind, ctx.at('kind'), { min: 1, max: 32, what: 'a trigger kind' });
+  const found = TRIGGER_KINDS.find((k) => k === kind);
+  if (found === undefined) {
+    ctx.at('kind').report(
+      'error',
+      'bad-field',
+      `"${kind}" is not a trigger the engine watches for`,
+      `one of ${TRIGGER_KINDS.join(', ')}`,
+    );
+    return undefined;
+  }
+  return {
+    kind: found,
+    enemies: opt(v.enemies, ctx.at('enemies'), list(idOf('enemy'), { max: 64 })),
+    species: opt(v.species, ctx.at('species'), list(
+      (s, c) => str(s, c, { min: 1, max: 64, what: 'a species id' }), { max: 64 })),
+    item: opt(v.item, ctx.at('item'), (s, c) =>
+      str(s, c, { min: 1, max: 64, what: 'an item id' })),
+    town: opt(v.town, ctx.at('town'), idOf('town')),
+    zone: opt(v.zone, ctx.at('zone'), (s, c) =>
+      str(s, c, { min: 1, max: 64, what: 'a zone id' })),
+  };
+}
+
 function readObjective(value: unknown, ctx: Reader): QuestObjective {
   const v: Record<string, unknown> = isRecord(value) ? value : {};
   if (!isRecord(value)) {
@@ -146,6 +238,7 @@ function readObjective(value: unknown, ctx: Reader): QuestObjective {
     text: text(v.text, ctx.at('text')),
     count: opt(v.count, ctx.at('count'), (n, c) =>
       int(n, c, { min: 1, max: 1_000_000, what: 'how many' })),
+    trigger: opt(v.trigger, ctx.at('trigger'), readTrigger),
   };
 }
 
@@ -191,9 +284,11 @@ function parse(body: unknown, ctx: ParseCtx): QuestData | null {
 }
 
 /**
- * Everything a quest points at: who gives it, where it is, and what must be done
- * first. Extracted rather than authored, which is what makes "what breaks if I
- * delete `npc:gain`" answerable (types.ts, spec §4.3).
+ * Everything a quest points at: who gives it, where it is, what must be done
+ * first, and what its objectives are watching for. Extracted rather than
+ * authored, which is what makes "what breaks if I delete `npc:gain`" answerable
+ * (types.ts, spec §4.3) — and an objective's cull list is exactly that question
+ * about an enemy.
  */
 function* refs(data: QuestData): Iterable<ContentId> {
   // The empty string is `idOf`'s fallback and can never parse — already reported
@@ -201,6 +296,12 @@ function* refs(data: QuestData): Iterable<ContentId> {
   if (data.giver !== undefined && data.giver !== '') yield data.giver;
   if (data.location !== undefined && data.location !== '') yield data.location;
   for (const id of data.prerequisites) if (id !== '') yield id;
+  for (const o of data.objectives) {
+    const trigger = o.trigger;
+    if (!trigger) continue;
+    if (trigger.town !== undefined && trigger.town !== '') yield trigger.town;
+    for (const id of trigger.enemies ?? []) if (id !== '') yield id;
+  }
 }
 
 function validate(asset: ContentAsset<QuestData>, ctx: ValidateCtx): void {

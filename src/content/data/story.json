@@ -1,0 +1,12 @@
+{
+  "id": "story",
+  "version": "0.1.0",
+  "requires": ["core"],
+  "meta": {
+    "title": "Bonds of Red — the campaign's shared ground",
+    "note": "The package every act's package requires, so that the story has one place to put what is true across all four of them. It is deliberately thin: game-story.md §5 describes it as holding the shared cast identity and the flag vocabulary, and the flag vocabulary turned out to need no assets at all — a flag is a name, ContentState stores names, and no asset declares one. See `gain-talk-lives-in-core` below for the part of §5 that could not be built as written.",
+    "gain-talk-lives-in-core": "§5 says this package holds `npc:gain`'s quest-gated talk list. It cannot: an asset id is global and the loader refuses a second definition of one (`duplicate-id`, loader.ts), and `npc:gain` must stay in `core` because the starting world may not depend on a package that arrives later. So Gain's gated rows live beside Gain, in core.json, and reference `quest:land/...` ids that core does not ship — which is legal and checked: NPC `refs()` extracts only `data.town`, and a condition or an action naming a quest is a parameter to a registered handler, not a reference. The direction of the dependency in the FILES is therefore the opposite of the one in the packages, and that is fine, because it is not a dependency at all: a talk row whose quest is not loaded simply never matches.",
+    "loading": "Loaded at boot, after core and before the cross-asset pass — see `packages` in BootstrapOptions (content/index.ts) and the call in main.ts."
+  },
+  "assets": []
+}

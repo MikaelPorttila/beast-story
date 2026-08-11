@@ -89,6 +89,10 @@ const SOLO = new Set([
   // `timeOfDay` pins the world clock — see the header of tools/test-journal.mjs
   // for why that keeps it off a shared page as well as out of PARALLEL.
   'journal',
+  // The campaign walked end to end (issue #143): it presses E to talk, throws
+  // orbs at a staged beast and reads the counters that follow. Every one of
+  // those is a frame-loop edge, so a background tab consumes none of them.
+  'story-land',
   'structures',    // walk distances into colliders
   'npc',           // walks to a talk range
   'road',          // drives the hero along a carriageway
