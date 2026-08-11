@@ -124,6 +124,18 @@ export const sv: Translation = {
   'menu.back': 'Tillbaka',
   'menu.settings.title': 'Inställningar',
 
+  // Sparade karaktärer (issue #171). En karaktär har ett namn, inte ett
+  // platsnummer — därför finns ingen "Plats 1" här.
+  'saves.namePrompt': 'Vad heter du?',
+  'saves.nameDefault': 'Hjälte',
+  'saves.begin': 'Börja',
+  'saves.power': 'Styrka {n}',
+  'saves.delete': 'Radera',
+  // Samma knapp efter en tryckning. Två tryck raderar.
+  'saves.deleteConfirm': 'Bekräfta?',
+  'saves.empty': 'Inga karaktärer än',
+  'saves.loadFailed': 'Karaktären kunde inte laddas',
+
   // Om spelet (src/ui/about.ts). Meningarna hålls korta och fristående, precis
   // som i en.ts — en rad är en sak, och den första raden ska räcka på egen hand.
   // Licenstexten översätts inte och finns inte här: den är ett juridiskt
@@ -174,6 +186,10 @@ export const sv: Translation = {
   'menu.settings.fullscreenEscape':
     'Den här webbläsaren lämnar helskärm när du trycker Escape, så spelet startar i fönster.',
   'menu.settings.music': 'Musik',
+  // Enheten står i själva knappen: "5" bredvid raden Autosparning kan läsas
+  // som sekunder.
+  'menu.settings.autosave': 'Autosparning',
+  'menu.settings.autosave.minutes': '{n} min',
   'menu.settings.language': 'Språk',
   // Under språkväljaren, och bara när inställningarna öppnats inifrån ett spel
   // där den är avstängd. Säger var inställningen finns, inte att den saknas.

@@ -1,5 +1,6 @@
 import { isTouchPrimary } from '../core/touch';
 import { loadPrefs, type Prefs } from '../core/prefs';
+import type { SaveMeta } from '../core/saves';
 import { flags } from '../core/flags';
 import { t, language, onLanguageChange } from '../i18n';
 import { enterFullscreen, fullscreenSurvivesEscape } from './fullscreen';
@@ -140,7 +141,7 @@ const FAIRIES: ReadonlyArray<Fairy> = [
   { top: 11, size: 10, duration: 31, delay: -15, bob: 3.3, bobY: 20, reverse: false, hue: 'cool' },
 ];
 
-type Step = 'press' | 'options' | 'settings' | 'about';
+type Step = 'press' | 'options' | 'name' | 'load' | 'settings' | 'about';
 
 /**
  * How far one arrow key or d-pad nudge scrolls the About box, in px.
@@ -210,10 +211,41 @@ const INTRO = {
  */
 export interface StartMenuHooks extends SettingsHooks {
   /**
-   * New Game. Fired once, after the menu has faded out and taken itself off the
-   * DOM — the game gets a clear screen, not a fade it has to render behind.
+   * New Game, with the name the player typed. Fired once, after the menu has
+   * faded out and taken itself off the DOM — the game gets a clear screen, not
+   * a fade it has to render behind.
    */
-  onStart: () => void;
+  onStart: (name: string) => void;
+  /**
+   * PREPARE to load this character, and say whether it worked.
+   *
+   * Two hooks rather than one for a reason the failure case forces: reading a
+   * document can fail (a half-written record, a database that went away), and
+   * the only screen that can tell the player so is this one — which by the time
+   * `onBegin` runs has faded out and taken itself off the DOM. So the read
+   * happens while the poster is still up, and the fade is started only once it
+   * has worked.
+   *
+   * Optional, so a host with no save system still builds a menu — the Load
+   * button is gated on `listSaves` returning rows, which such a host never does.
+   */
+  onLoad?: (id: number) => Promise<boolean>;
+  /**
+   * The screen is clear and the prepared character should start playing. Fired
+   * once, after the fade, exactly where `onStart` fires for a new game.
+   */
+  onBegin?: () => void;
+  /**
+   * Every character on this machine, most recently played first.
+   *
+   * Asked ONCE, when the menu is built, so the answer has resolved long before
+   * anyone walks past the splash — the options list must not wait on a database
+   * to know whether to light its Load button, and a list rebuilt when the answer
+   * arrives is what covers the case where somebody is faster than IndexedDB.
+   */
+  listSaves?: () => Promise<SaveMeta[]>;
+  /** Forget a character. The menu re-lists afterwards. */
+  onDeleteSave?: (id: number) => Promise<void>;
   /**
    * The exit fade has STARTED, which is the moment the game behind the poster
    * becomes visible again — half a second before `onStart`.
@@ -274,6 +306,21 @@ export class StartMenu {
    * the images, -1 = there is no sequence (finished, skipped, or never run).
    */
   private introAt = 0;
+  /** The characters on this machine, newest first. Empty until asked. */
+  private saves: SaveMeta[] = [];
+  /**
+   * The character whose Delete has been pressed ONCE, or null.
+   *
+   * TWO PRESSES, NOT A DIALOG. Deleting a character is the one irreversible
+   * thing on this screen, and it sits directly beside the button that loads
+   * them — so it arms on the first press and does it on the second, with the
+   * label saying which state it is in. A modal would be the other answer and it
+   * is the wrong one here: this screen already IS the modal, and stacking a
+   * second one over it needs its own focus trap and its own way out.
+   */
+  private armedDelete: number | null = null;
+  /** A load that was asked for and could not be read. Cleared by leaving. */
+  private loadError = false;
 
   /**
    * Build the menu, or return null when the game should just start.
@@ -335,6 +382,10 @@ export class StartMenu {
     window.addEventListener('keydown', this.onKeyDown, true);
     this.renderPanel();
     this.pollPad();
+    // Asked here rather than when Load is pressed, because the answer decides
+    // whether Load can BE pressed. It is a database read behind a splash nobody
+    // has walked past yet, so it costs the screen nothing.
+    void this.refreshSaves();
 
     // Next frame so the entrance transition has a start state to move from —
     requestAnimationFrame(() => el.classList.add('show'));
@@ -449,13 +500,43 @@ export class StartMenu {
     if (this.step === 'press') {
       panel.innerHTML = `<div class="press">${escapeHtml(t('menu.pressStart'))}</div>`;
     } else if (this.step === 'options') {
+      // Load lights up exactly when there is something to load. The note under
+      // it is the explanation for a button that cannot be pressed, so it goes
+      // away with the reason — a player with three characters does not need to
+      // be told there are no saved games.
+      const canLoad = this.saves.length > 0;
       panel.innerHTML =
         '<div class="bs-opts">' +
           this.btn('new', t('menu.newGame'), 'primary') +
-          this.btn('load', t('menu.load'), 'disabled') +
-          `<div class="note">${escapeHtml(t('menu.load.unavailable'))}</div>` +
+          this.btn('load', t('menu.load'), canLoad ? '' : 'disabled') +
+          (canLoad ? '' : `<div class="note">${escapeHtml(t('menu.load.unavailable'))}</div>`) +
           this.btn('settings', t('menu.settings')) +
           this.btn('about', t('menu.about')) +
+        '</div>';
+    } else if (this.step === 'name') {
+      // THE FIELD IS OPTIONAL, and that is what makes this step safe to put in
+      // front of New Game. A player who wants to get on with it presses Enter
+      // and is called what `saves.nameDefault` says; a pad player, who cannot
+      // type at all, presses A on Begin and gets the same. Nothing here can
+      // stop somebody starting the game.
+      panel.innerHTML =
+        '<div class="bs-opts name-step">' +
+          `<h2>${escapeHtml(t('saves.namePrompt'))}</h2>` +
+          '<input class="bs-name-input" type="text" maxlength="24" autocomplete="off" ' +
+            `spellcheck="false" aria-label="${escapeHtml(t('saves.namePrompt'))}" ` +
+            `placeholder="${escapeHtml(t('saves.nameDefault'))}">` +
+          this.btn('begin', t('saves.begin'), 'primary') +
+          this.btn('back', t('menu.back')) +
+        '</div>';
+    } else if (this.step === 'load') {
+      panel.innerHTML =
+        '<div class="bs-opts load-step">' +
+          `<h2>${escapeHtml(t('menu.load'))}</h2>` +
+          (this.loadError ? `<div class="note warn">${escapeHtml(t('saves.loadFailed'))}</div>` : '') +
+          (this.saves.length === 0
+            ? `<div class="note">${escapeHtml(t('saves.empty'))}</div>`
+            : this.saves.map((s) => this.saveRow(s)).join('')) +
+          this.btn('back', t('menu.back')) +
         '</div>';
     } else if (this.step === 'about') {
       // Same column and the same way out as the settings step. The panel itself
@@ -488,13 +569,69 @@ export class StartMenu {
     this.pendingFocus = null;
     const found = want ? panel.querySelector<HTMLButtonElement>(want) : null;
     this.focusIdx = found ? Math.max(0, this.focusables.indexOf(found)) : 0;
-    this.focusables[this.focusIdx]?.focus();
+    // THE TEXT FIELD TAKES THE CURSOR, not the first button. It is the only
+    // step whose first control is not a button, and a name step that opened
+    // with Begin focused would need a click before it could be typed into —
+    // which for a keyboard player is the one interaction this screen has always
+    // been able to avoid.
+    const field = panel.querySelector<HTMLInputElement>('.bs-name-input');
+    if (field && !found) field.focus();
+    else this.focusables[this.focusIdx]?.focus();
   }
 
   private btn(action: string, label: string, mod = ''): string {
     const dis = mod === 'disabled' ? ' disabled' : '';
     return `<button class="bs-menu-btn ${mod}" type="button" data-act="${action}"${dis}>` +
       `${escapeHtml(label)}</button>`;
+  }
+
+  /**
+   * One character: who they are, how strong, when you last played them — and
+   * the delete beside them.
+   *
+   * The date is `toLocaleString` rather than an i18n key, because a formatted
+   * date is the one string on this screen the PLATFORM translates better than
+   * the table can: it follows the browser's locale, its calendar and its
+   * day/month order for free, where a key would carry one hard-coded shape into
+   * every language.
+   */
+  private saveRow(s: SaveMeta): string {
+    const armed = this.armedDelete === s.id;
+    const when = new Date(s.updatedAt).toLocaleString();
+    return '<div class="bs-save-row">' +
+      `<button class="bs-menu-btn save" type="button" data-act="slot" data-id="${s.id}">` +
+        `<span class="nm">${escapeHtml(s.name || t('saves.nameDefault'))}</span>` +
+        `<span class="meta">${escapeHtml(t('saves.power', { n: String(s.powerLevel) }))}` +
+        ` · ${escapeHtml(when)}</span>` +
+      '</button>' +
+      `<button class="bs-menu-btn del${armed ? ' armed' : ''}" type="button" ` +
+        `data-act="del" data-id="${s.id}">` +
+        `${escapeHtml(armed ? t('saves.deleteConfirm') : t('saves.delete'))}</button>` +
+    '</div>';
+  }
+
+  /**
+   * Re-ask the host for the character list and redraw if it matters.
+   *
+   * The redraw preserves the cursor by SELECTOR rather than index, the same
+   * rule `pendingFocus` exists for — this can land while the player is walking
+   * the options list, and a rebuild that reset the cursor to the top would move
+   * it under their hand for reasons they cannot see.
+   */
+  private async refreshSaves(): Promise<void> {
+    if (!this.hooks.listSaves) return;
+    let next: SaveMeta[] = [];
+    try {
+      next = await this.hooks.listSaves();
+    } catch {
+      next = [];   // no store, or it failed: the same screen as no characters
+    }
+    if (!this.el) return;   // disposed while the read was in flight
+    this.saves = next;
+    if (this.step !== 'options' && this.step !== 'load') return;
+    const act = (document.activeElement as HTMLElement | null)?.getAttribute('data-act');
+    this.pendingFocus = act ? `[data-act="${act}"]` : null;
+    this.renderPanel();
   }
 
   // -------------------------------------------------------------------------
@@ -524,7 +661,11 @@ export class StartMenu {
     }
 
     switch (btn.getAttribute('data-act')) {
-      case 'new': this.start(); break;
+      case 'new': this.goto('name'); break;
+      case 'begin': this.beginNew(); break;
+      case 'load': this.goto('load'); break;
+      case 'slot': this.loadSlot(Number(btn.getAttribute('data-id'))); break;
+      case 'del': this.pressDelete(Number(btn.getAttribute('data-id'))); break;
       case 'settings': this.goto('settings'); break;
       case 'about': this.goto('about'); break;
       // Back puts the cursor on the entry that opened this step, not at the top
@@ -548,6 +689,38 @@ export class StartMenu {
       return;
     }
 
+    // THE FIELD OWNS THE KEYBOARD WHILE IT HAS FOCUS — the same answer
+    // ui/console.ts gives for its own text input, and it needs both halves.
+    //
+    // `stopPropagation` is the half that was MEASURED. This listener is on the
+    // window in CAPTURE phase and `Input`'s is on the window in bubble, so this
+    // one runs first and stopping here is what keeps the game's from running at
+    // all. That matters because `Input.CAPTURED` calls `preventDefault` on
+    // KeyW/KeyA/KeyS/KeyD/Space to stop the browser scrolling the page — which
+    // is right for a hero and fatal for a text field. Typing "Wisp" into it
+    // produced "ip": the W and the s were swallowed by the game's input while
+    // the field had focus and the caret sat there doing nothing.
+    //
+    // The branch below is the other half: only the three keys that mean
+    // something to a FORM are spent here, and every other key is left to reach
+    // the input untouched.
+    if (this.step === 'name' && document.activeElement instanceof HTMLInputElement) {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.beginNew();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.leaveLeaf();
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        // Out of the field and onto the buttons, so a keyboard can still walk
+        // the step without a mouse.
+        e.preventDefault();
+        this.moveFocus(e.key === 'ArrowDown' ? 1 : -1);
+      }
+      return;
+    }
+
     switch (e.key) {
       case 'ArrowDown': case 's': case 'S':
         e.preventDefault();
@@ -568,7 +741,7 @@ export class StartMenu {
         }
         break;
       case 'Escape':
-        if (this.step === 'settings' || this.step === 'about') {
+        if (this.step !== 'options') {
           e.preventDefault();
           this.leaveLeaf();
         }
@@ -673,7 +846,7 @@ export class StartMenu {
     // A activates, B goes back — the console convention, and the same faces
     // core/gamepad.ts names for the rest of the game.
     if (this.padEdge[0]) (document.activeElement as HTMLButtonElement | null)?.click();
-    else if (this.padEdge[1] && (this.step === 'settings' || this.step === 'about')) {
+    else if (this.padEdge[1] && this.step !== 'options') {
       this.leaveLeaf();
     }
   };
@@ -707,7 +880,15 @@ export class StartMenu {
    * leaf, whenever there is one, from being a fourth place to remember.
    */
   private leaveLeaf(): void {
-    const from = this.step === 'about' ? 'about' : 'settings';
+    const from = this.step === 'about' ? 'about'
+      : this.step === 'name' ? 'new'
+      : this.step === 'load' ? 'load'
+      : 'settings';
+    // An armed Delete is disarmed by leaving: coming back to a list with a
+    // button still saying "Confirm?" would make the next press delete a
+    // character on the strength of one somebody made a step ago.
+    this.armedDelete = null;
+    this.loadError = false;
     this.goto('options', `[data-act="${from}"]`);
   }
 
@@ -733,40 +914,109 @@ export class StartMenu {
     this.renderPanel();
   }
 
-  /**
-   * New Game: go fullscreen, fade the poster out, take it off the DOM, and only
-   * then tell main.ts to run. The order matters — the hero's first frames are
-   * rendered behind nothing at all rather than behind a dissolving image the
-   * compositor is still blending.
-   */
-  private start(): void {
-    const el = this.el;
-    if (!el) return;
+  /** New Game, with whatever is in the field — or the default when it is empty. */
+  private beginNew(): void {
+    const field = this.el?.querySelector<HTMLInputElement>('.bs-name-input');
+    const typed = (field?.value ?? '').trim().slice(0, 24);
+    this.takeFullscreen();
+    this.leave(() => this.hooks.onStart(typed || t('saves.nameDefault')));
+  }
 
-    // BEFORE ANYTHING ELSE, because this is the only statement here that has a
-    // deadline. `requestFullscreen()` is honoured only while the browser can
-    // attribute it to the user activation that got us here — the click or the
-    // Enter on New Game — so it goes ahead of the class change, the hooks and
-    // the transition. Deferring it by even a promise tick is how this silently
-    // stops working. See ui/fullscreen.ts.
-    //
-    // The URL beats the preference and never writes it back, the same
-    // resolution the look-axis and shake overrides use: `fs=0` is how every
-    // probe in tools/ that clicks New Game keeps the viewport from being
-    // resized under a measurement, and `fs=1` is the way to see the thing the
-    // gate below otherwise refuses. A pad press is not a user activation in any
-    // browser, so starting the game from a controller stays windowed whatever
-    // this says, and that is a browser rule rather than a decision.
-    //
-    // THE GATE IS ISSUE #83. Where Escape still belongs to the browser, taking
-    // fullscreen here hands the player a screen the first closed panel takes
-    // back — so the preference is honoured only where the game can keep it
-    // (ui/fullscreen.ts), and the settings row says so rather than sitting there
-    // switched on and doing nothing.
+  /**
+   * Load a character: read it first, and only then give the screen away.
+   *
+   * FULLSCREEN IS STILL THE FIRST STATEMENT, ahead of the await, because it is
+   * the one call here with a deadline — see `takeFullscreen`. The read that
+   * follows it is a few milliseconds against a transient activation that lasts
+   * seconds, and doing it while the poster is up is what lets a failure be
+   * shown on the poster instead of on a black screen.
+   */
+  private async loadSlot(id: number): Promise<void> {
+    if (!Number.isFinite(id) || !this.hooks.onLoad) return;
+    this.takeFullscreen();
+    const ok = await this.hooks.onLoad(id);
+    if (!this.el) return;   // disposed while the read was in flight
+    if (!ok) {
+      // Stay put and say so. The list is re-read because the most likely reason
+      // a character cannot be loaded is that they are no longer there.
+      this.loadError = true;
+      void this.refreshSaves();
+      this.renderPanel();
+      return;
+    }
+    this.leave(() => this.hooks.onBegin?.());
+  }
+
+  /**
+   * Delete, in two presses: the first arms this row, the second does it.
+   *
+   * A press on a DIFFERENT row moves the arming rather than deleting anything,
+   * so a player who armed the wrong character disarms it by aiming at the right
+   * one — which is the mistake most likely to be made on a list of names that
+   * look alike.
+   */
+  private pressDelete(id: number): void {
+    if (!Number.isFinite(id) || !this.hooks.onDeleteSave) return;
+    if (this.armedDelete !== id) {
+      this.armedDelete = id;
+      this.pendingFocus = `[data-act="del"][data-id="${id}"]`;
+      this.renderPanel();
+      return;
+    }
+    this.armedDelete = null;
+    void this.hooks.onDeleteSave(id).then(() => this.refreshSaves()).then(() => {
+      // The list is a step shorter and may now be empty, in which case the
+      // Load step has nothing left to show and Back is the only thing on it.
+      if (this.step === 'load' && this.saves.length === 0) this.leaveLeaf();
+    });
+  }
+
+  /**
+   * Take the screen, BEFORE ANYTHING ELSE THE PRESS DOES.
+   *
+   * This is the only call on the way out of the menu that has a deadline.
+   * `requestFullscreen()` is honoured only while the browser can attribute it
+   * to the user activation that got us here — the click or the Enter on New
+   * Game — so it goes ahead of the class change, the hooks, the transition and,
+   * on the Load path, ahead of the `await` that reads the character. It is its
+   * own method for exactly that reason: both ways off this screen have to be
+   * able to put it first, and one of them is asynchronous. See ui/fullscreen.ts.
+   *
+   * The URL beats the preference and never writes it back, the same resolution
+   * the look-axis and shake overrides use: `fs=0` is how every probe in tools/
+   * that clicks New Game keeps the viewport from being resized under a
+   * measurement, and `fs=1` is the way to see the thing the gate below
+   * otherwise refuses. A pad press is not a user activation in any browser, so
+   * starting the game from a controller stays windowed whatever this says, and
+   * that is a browser rule rather than a decision.
+   *
+   * THE GATE IS ISSUE #83. Where Escape still belongs to the browser, taking
+   * fullscreen here hands the player a screen the first closed panel takes
+   * back — so the preference is honoured only where the game can keep it
+   * (ui/fullscreen.ts), and the settings row says so rather than sitting there
+   * switched on and doing nothing.
+   */
+  private takeFullscreen(): void {
     if (flags.autoFullscreen ?? (this.prefs.autoFullscreen && fullscreenSurvivesEscape())) {
       enterFullscreen();
     }
+  }
 
+  /**
+   * Hand the screen over: fade the poster out, take it off the DOM, and only
+   * then tell main.ts to run. The order matters — the hero's first frames are
+   * rendered behind nothing at all rather than behind a dissolving image the
+   * compositor is still blending.
+   *
+   * Takes WHAT TO DO AT THE END rather than assuming New Game, because there
+   * are two ways off this screen into a running game and everything before the
+   * last line of them is identical. `then` is called once, after `close()`.
+   * Fullscreen is NOT taken here — see `takeFullscreen`, which every caller
+   * runs first, synchronously with the press.
+   */
+  private leave(then: () => void): void {
+    const el = this.el;
+    if (!el) return;
     el.classList.add('leaving');
     // FIRST, and before anything waits on a transition: from this moment the
     // poster is see-through and whatever is behind it is on screen.
@@ -774,7 +1024,7 @@ export class StartMenu {
     const done = (): void => {
       if (!this.el) return;   // disposed mid-fade
       this.close();
-      this.hooks.onStart();
+      then();
     };
     // `transitionend` is the right signal, and the timer is the safety net for
     // the case where the transition never runs at all (prefers-reduced-motion,

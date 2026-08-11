@@ -45,8 +45,18 @@
 import { frame, launchBrowser, newPage, whenPlaying } from '../browser.mjs';
 import { BASE as HOST } from '../target.mjs';
 
-/** Default boot query: muted, no menu, no fullscreen resize under a probe. */
-const BOOT_QUERY = 'menu=0&fs=0';
+/**
+ * Default boot query: muted, no menu, no fullscreen resize under a probe, and
+ * NO PERSISTENCE.
+ *
+ * `nostore=1` (issue #171) is here for the same reason `fs=0` is: a probe that
+ * is measuring something else must not have the ground moved under it. With
+ * persistence on, a shared-roster run would create save records on whatever
+ * machine it ran on and land an autosave — a write, a promise and an IndexedDB
+ * transaction — inside a frame somebody is timing. tools/test-saves.mjs is the
+ * one probe that leaves it off, because the store is what it is testing.
+ */
+const BOOT_QUERY = 'menu=0&fs=0&nostore=1';
 
 /**
  * Boot the game once and wait on STATE — `playing` is the last thing the

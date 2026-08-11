@@ -16,6 +16,10 @@ import { GamepadControls, type LookAxes } from './core/gamepad';
 import { FeedbackSystem } from './feedback';
 import { loadPrefs, savePrefs } from './core/prefs';
 import {
+  deleteSave, listSaves, readSave, savesAvailable, writeSave,
+  type SaveDocument, type SaveMeta,
+} from './core/saves';
+import {
   EventBus, ELEMENT_COLORS, inReach, LOCOMOTION_NAME_KEYS,
   type CrownContact, type NpcInfo, type SkillDef, type Damageable,
   type ItemDef, type TownInfo, type World, type WorldBound,
@@ -219,6 +223,41 @@ const settingsHooks = {
   // and a world that do not exist while the title screen is still booting. A
   // change made in that window is read back by the constructor.
   onGraphics: (id: keyof GfxSinks, value: GfxValue) => { if (gfxLive) gfx.set(id, value); },
+  // Live, and the re-arm is the point: the accumulator is already running, so a
+  // player who shortens the interval means "sooner", not "next session". The
+  // clock is NOT reset with it — sixty seconds already served count towards a
+  // five-minute setting the same as a ten-minute one.
+  onAutosaveInterval: (minutes: number) => { autosaveMinutes = minutes; },
+};
+
+/**
+ * What the title screen needs from the save store (issue #171).
+ *
+ * Spread into BOTH `StartMenu.offer` calls, which is why it is a const rather
+ * than four properties written out twice: the second menu — the one Exit to
+ * title raises — is a different instance of the same screen, and a hook added
+ * to one and forgotten on the other is a Load button that works until you have
+ * played once.
+ *
+ * `onLoad` READS AND STASHES, `onBegin` STARTS. The split is the menu's, and
+ * the reason is that only one of the two can fail: the read happens while the
+ * poster is still up so a failure can be shown on it, and the handshake below
+ * runs after the fade, on a clear screen. See `StartMenuHooks.onLoad`.
+ */
+const saveMenuHooks = {
+  listSaves: () => listSaves(),
+  onDeleteSave: (id: number) => deleteSave(id),
+  onLoad: async (id: number): Promise<boolean> => {
+    const doc = await readSave(id);
+    if (!doc) return false;
+    pendingSave = doc;
+    activeSaveId = id;
+    return true;
+  },
+  // The same two lines New Game runs, and the same handshake: a Load pressed
+  // while the shader sweep is still going sets `handedOver` and waits on
+  // `prepDone`, exactly as New Game has always done.
+  onBegin: () => { handedOver = true; beginPlay(); },
 };
 
 /**
@@ -298,7 +337,8 @@ let startMenu = StartMenu.offer({
   // menu's own half-second fade is the transition INTO it — see
   // LoadingScreen.cover for why that needs no cross-fade of its own.
   onLeave: () => loading?.cover(),
-  onStart: () => { handedOver = true; beginPlay(); },
+  onStart: (name) => { playerName = name; handedOver = true; beginPlay(); },
+  ...saveMenuHooks,
 });
 
 /**
@@ -358,9 +398,21 @@ const STARTER_BEAST = 'frostwing';
 function beginPlay(): void {
   if (playing || !prepDone || !handedOver) return;
   playing = true;
-  // `grantBeast` is a no-op when the species is already bonded, so this is safe
-  // on the boot path AND on a New Game after an exit to title.
-  grantBeast(STARTER_BEAST);
+  // A LOAD REPLACES THE NEW GAME, it does not follow it. `applySave` restores
+  // the party the save records, and granting the starter first would bond a
+  // Frostwing to every loaded character that had let one go — `grantBeast` is
+  // idempotent per species, so the two would not even conflict visibly. The
+  // save's own repair path grants the starter when a character has no
+  // resolvable beast left, which is the one case that still needs it.
+  if (pendingSave) {
+    const doc = pendingSave;
+    pendingSave = null;
+    applySave(doc);
+  } else {
+    // `grantBeast` is a no-op when the species is already bonded, so this is
+    // safe on the boot path AND on a New Game after an exit to title.
+    grantBeast(STARTER_BEAST);
+  }
   // Every key pressed at the title screen is still latched in `Input` — nothing
   // has drained it, because `endFrame()` only runs inside `frame()` and
   // `frame()` has not run yet. Unread, the first simulation slice would see the
@@ -498,6 +550,17 @@ const pauseMenu = new PauseMenu({
  */
 function exitToTitle(): void {
   if (!playing) return;
+  // WRITE THE CHARACTER DOWN FIRST, before a single line below throws the
+  // session away (issue #171). Not awaited, and that is deliberate rather than
+  // careless: `collectSave` is synchronous, so the document is a complete
+  // snapshot of this session taken before the resets, and only the write to
+  // IndexedDB outlives this function. Awaiting it would hold the title screen
+  // behind a database for no gain — there is nothing left that can change what
+  // was collected.
+  //
+  // Ahead of `playing = false` because `saveNow` refuses when the session is
+  // already over, which is the right rule everywhere except here.
+  void saveNow();
   // Stops the loop at the top of `frame()`. Nothing is torn down under a frame
   // that is halfway through drawing it.
   playing = false;
@@ -567,6 +630,18 @@ function exitToTitle(): void {
   // stopped: left true, the title screen would answer a mouse moved across the
   // poster by grabbing the pointer back off the New Game button.
   input.autoRelock = false;
+  // WHICH CHARACTER WAS BEING PLAYED IS SESSION STATE TOO (issue #171). Left
+  // set, the next New Game would autosave itself over the character the player
+  // just left — the record is keyed by id, and a fresh session has not earned
+  // one yet. `pendingSave` is cleared for the same reason a step further on:
+  // a document read but never applied (Load pressed, then Escape) must not
+  // ambush the next New Game.
+  activeSaveId = null;
+  playerName = '';
+  pendingSave = null;
+  carriedExtra = undefined;
+  sinceSave = 0;
+  questSaveIn = 0;
 
   // The poster is a NEW instance, because the old one took itself off the DOM
   // when the game started (see StartMenu.close). `handedOver` and `playing` go
@@ -576,7 +651,8 @@ function exitToTitle(): void {
   startMenu = StartMenu.offer({
     ...settingsHooks,
     onLeave: () => loading?.cover(),
-    onStart: () => { handedOver = true; beginPlay(); },
+    onStart: (name) => { playerName = name; handedOver = true; beginPlay(); },
+    ...saveMenuHooks,
   }, { skipSplash: true });
   // `menu=0` and photo mode suppress the menu outright (see StartMenu.offer),
   // and in those runs Exit cannot be reached — there is no menu to press it in.
@@ -584,6 +660,487 @@ function exitToTitle(): void {
   // one ever grows a way to.
   if (!startMenu) { handedOver = true; beginPlay(); }
 }
+
+// ---------------------------------------------------------------------------
+// SAVING AND LOADING A CHARACTER — issue #171.
+//
+// THE INVERSE OF `exitToTitle` ABOVE, and it is written next to it because a
+// reader who has found one wants the other: that function is the authoritative
+// list of what a play session IS, so a field added to it is a field this pair
+// owes an answer for. Loading is reset-then-hydrate — every restore below runs
+// against state that has just been returned to a new game's — which is what
+// keeps the two from drifting into different ideas of what a session contains.
+//
+// WHAT LIVES HERE AND WHAT LIVES IN core/saves.ts. That file validates SHAPE
+// and has never heard of the game; this one validates MEANING. Is `sword-iron`
+// still an item, is `overworld` still a zone, is `emberfox` still a species,
+// is there any ground at these coordinates — every one of those questions
+// changes with a content edit, and every one of them is answered here, by
+// dropping what no longer resolves rather than by refusing the save. A player
+// whose rare weapon was renamed out of the build loses the weapon, not the
+// character.
+// ---------------------------------------------------------------------------
+
+/**
+ * The character being played, or null for a session that is not being saved
+ * (a probe, `nostore=1`, a New Game whose first write has not landed yet).
+ */
+let activeSaveId: number | null = null;
+/** What the player typed on New Game. Display only — the id is the key. */
+let playerName = '';
+/**
+ * A document read at the title screen, waiting for `beginPlay` to apply it.
+ *
+ * The read happens at CLICK time rather than inside `beginPlay`, so that
+ * function stays synchronous and its handshake keeps working unchanged: a Load
+ * pressed while the shader sweep is still running sets this and hands over, and
+ * whichever of the two callers is last starts the game — exactly as New Game
+ * has always behaved.
+ */
+let pendingSave: SaveDocument | null = null;
+/**
+ * Top-level document fields written by a NEWER build than this one, carried
+ * from the load that produced them to the next write of the same character.
+ * Without this the first autosave after a downgrade deletes whatever the newer
+ * build was recording. See the note on `SaveDocument.extra`.
+ */
+let carriedExtra: Record<string, unknown> | undefined;
+/**
+ * True while `applySave` is running. Restoring the content facts fires the same
+ * change notifications a quest completing does, and increment 4 hangs an
+ * autosave off those — this is what stops a load from immediately writing back
+ * what it just read.
+ */
+let applyingSave = false;
+
+/**
+ * How far below the waterline still counts as ground a hero can stand on.
+ *
+ * 1.5 units is a WADE: the hero is 1.8 tall, so this is water to about his
+ * waist — somewhere he can walk out of in any direction. Deeper than that and
+ * he is swimming, and a character resumed treading water in open sea is a
+ * player who has been put somewhere they cannot act, which is the thing this
+ * whole helper exists to prevent.
+ */
+const SAFE_WADE_DEPTH = 1.5;
+
+/**
+ * The closest ground a hero can stand on at (x, z), or a town when there is
+ * none.
+ *
+ * WHY THE SAVED HEIGHT IS NOT STORED AND NOT TRUSTED. A save can be taken while
+ * flying a Frostwing, mid-jump, halfway down a fall, or standing on the deck of
+ * a sky island that has moved on since — and in every one of those cases the
+ * literal height is a place the hero cannot be put back. Loading into open air
+ * drops him; loading onto a deck that is elsewhere drops him further. So the
+ * height is RESOLVED rather than remembered, at capture and again on the way
+ * in: the second pass is not redundant, because the world can change between
+ * the two — a hill that was flattened, a zone whose terrain was reseeded.
+ *
+ * The x/z are kept, which is the half that matters to a player: you come back
+ * where you were, on the ground under it. When even that is unusable — a
+ * coordinate that is NaN, or open water — the answer is the nearest settlement,
+ * because a town is the one place in this world guaranteed to be somewhere you
+ * can walk out of. That is also where a waypoint would slot in when there is a
+ * waypoint system to ask; the fallback is written as a chain for that reason.
+ */
+function resolveSafeGround(x: number, z: number): { x: number; y: number; z: number } {
+  if (Number.isFinite(x) && Number.isFinite(z)) {
+    const ground = world.getHeight(x, z);
+    if (Number.isFinite(ground) && ground >= world.waterLevel - SAFE_WADE_DEPTH) {
+      return { x, y: Math.max(ground, world.waterLevel), z };
+    }
+  }
+  // The gate rather than the centre: a settlement's middle is where its huts
+  // are, and the gate is the point its own layout treats as "the way in".
+  const town = Number.isFinite(x) && Number.isFinite(z)
+    ? world.towns.nearest(x, z)
+    : world.towns.all[0];
+  const ax = town?.gateX ?? world.spawnPoint.x;
+  const az = town?.gateZ ?? world.spawnPoint.z;
+  return { x: ax, y: Math.max(world.getHeight(ax, az), world.waterLevel), z: az };
+}
+
+/**
+ * Put a saved deck position back onto the frame it was taken on, or null when
+ * there is no frame to put it on.
+ *
+ * THE ISLAND IS SOMEWHERE ELSE NOW, and that is the entire point: it starts
+ * each session at its home and wanders live, so the world coordinates in the
+ * save name open sea under where it used to be. The frame's own coordinates
+ * are the thing that survives — the same spot on the deck is the same spot on
+ * the deck — and this converts them back against wherever it has drifted to.
+ *
+ * Null for every reason the answer might not exist: no carrier was stored, the
+ * build no longer has that frame, or the stored spot is past the edge of a deck
+ * that has been reshaped since. Each falls through to the ordinary ground
+ * resolution, which is the same "nothing refuses a save" rule the rest of the
+ * load path follows.
+ */
+function resolveOnCarrier(
+  loc: SaveDocument['location'],
+): { x: number; y: number; z: number; yaw: number } | null {
+  if (loc.carrierId === undefined || loc.localX === undefined || loc.localZ === undefined) {
+    return null;
+  }
+  const frame = world.carriers.get(loc.carrierId);
+  if (!frame) return null;
+  const out = { x: 0, z: 0 };
+  frame.toWorld(loc.localX, loc.localZ, out);
+  // The DECK at that column, asked of the frame itself rather than reconstructed
+  // from a stored height: a deck that was rebuilt taller or shorter still puts
+  // him on its surface, and `topAt` is the same question a mover asks every
+  // slice. -Infinity means the frame has nothing at that column any more.
+  const top = frame.topAt(out.x, out.z);
+  if (!Number.isFinite(top)) return null;
+  return { x: out.x, y: top, z: out.z, yaw: loc.yaw + frame.yaw };
+}
+
+/**
+ * Everything about this character, right now.
+ *
+ * Synchronous and allocation-cheap — it reads fields and builds one object, so
+ * it is safe to call from the frame loop's autosave tick. Nothing here decides
+ * WHEN to save; that is increment 4's business.
+ */
+function collectSave(): SaveDocument {
+  const here = resolveSafeGround(player.position.x, player.position.z);
+  // RIDING SOMETHING? Then where he is on IT is the durable answer, and the
+  // world coordinates beside it are only the fallback. See `SaveLocation`.
+  const frame = player.carrier;
+  const local = frame ? { x: 0, z: 0 } : null;
+  if (frame && local) frame.toLocal(player.position.x, player.position.z, local);
+  const saved: SaveDocument = {
+    v: 1,
+    name: playerName,
+    player: { hp: player.hp, maxHp: player.maxHp },
+    location: {
+      zoneId: zones.id,
+      x: here.x,
+      y: here.y,
+      z: here.z,
+      // Relative to the frame when there is one: a deck that turns takes the
+      // street he was standing in with it, and a world heading would have him
+      // facing across it instead of along it.
+      yaw: frame ? player.facing - frame.yaw : player.facing,
+      ...(frame && local
+        ? { carrierId: frame.id, localX: local.x, localZ: local.z }
+        : {}),
+    },
+    // The NET purse. `pickupTotal` and `spent` are an accounting detail of how
+    // this number is arrived at, and neither is meaningful on its own.
+    currency: shards(),
+    bag: bag.toJSON(),
+    slots: slots.toJSON(),
+    equippedWeapon,
+    readiedOrb,
+    beasts: ownedBeasts().map((b) => ({
+      speciesId: b.species.id,
+      level: b.level,
+      xp: b.xp,
+      xpToNext: b.xpToNext,
+      hp: b.hp,
+      knownSkillIds: [...b.knownSkillIds],
+    })),
+    party: {
+      primary: primary()?.species.id ?? null,
+      support: support()?.species.id ?? null,
+    },
+    appearance: {
+      hairStyle: player.hairStyle,
+      hairColour: player.hairColour.toString(16).padStart(6, '0'),
+    },
+    content: content.state.toJSON(),
+    dayPhase: dayNight.phase,
+  };
+  if (carriedExtra) saved.extra = carriedExtra;
+  return saved;
+}
+
+/**
+ * Put a character back, over a session that has just been reset.
+ *
+ * ORDER IS LOAD-BEARING, and it is the order `exitToTitle` tears down in, run
+ * backwards. The zone goes first for the reason that function gives: switching
+ * rebinds every world-bound subsystem, so everything after it resolves against
+ * the right heightfield — and the switch parks the hero at the new zone's spawn
+ * point, which is why placing him is last.
+ */
+function applySave(doc: SaveDocument): void {
+  applyingSave = true;
+  try {
+    playerName = doc.name;
+    carriedExtra = doc.extra;
+
+    // 1. THE ZONE. A save from a zone this build no longer has is not a broken
+    // save — it is a character standing somewhere that was removed — so it
+    // resolves to the overworld and the placement below finds him ground in it.
+    const target = zones.zoneIds.includes(doc.location.zoneId) ? doc.location.zoneId : 'overworld';
+    if (zones.id !== target) zones.switchTo(target);
+
+    // 2. THE FACTS. Already tolerant of ids it cannot resolve (see
+    // content/state.ts), and its change notification is what re-derives the
+    // journal, the tracker and any quest time-of-day pin.
+    content.state.fromJSON(doc.content);
+
+    // 3. The clock, after the facts, so a quest's own time-of-day override
+    // still outranks it the way it does in play.
+    dayNight.setPhase(doc.dayPhase);
+
+    // 4. THE PARTY. Reset first: the roster holds every species whether bonded
+    // or not, and a beast the save does not mention must be back at level 1
+    // rather than left carrying the last session's.
+    for (const b of roster) b.reset();
+    owned.clear();
+    primaryIdx = -1;
+    supportIdx = -1;
+    for (const s of doc.beasts) {
+      const idx = roster.findIndex((b) => b.species.id === s.speciesId);
+      if (idx < 0) continue;   // a species this build no longer ships
+      roster[idx].restore(s);
+      owned.add(s.speciesId);
+    }
+    // Party slots by SPECIES ID, so adding a species to the registry cannot
+    // repoint an old save at a different companion.
+    const slotOf = (id: string | null): number =>
+      id !== null && owned.has(id) ? roster.findIndex((b) => b.species.id === id) : -1;
+    primaryIdx = slotOf(doc.party.primary);
+    supportIdx = slotOf(doc.party.support);
+    // REPAIRS, in the order a player would notice them. A character with no
+    // resolvable beast at all is unplayable in the way the starting kit exists
+    // to prevent, so it is granted the starter — the same one a new game gets.
+    if (owned.size === 0) grantBeast(STARTER_BEAST);
+    else if (primaryIdx < 0) primaryIdx = roster.findIndex(isOwned);
+    if (supportIdx === primaryIdx) supportIdx = -1;
+    refreshVisibility();
+    cooldowns.clear();
+
+    // 5. The purse, through its owner, which emits and so updates the HUD and
+    // this file's mirror of the total. `spent` goes to zero because the stored
+    // number is already net of it.
+    spent = 0;
+    combat.setShards(doc.currency);
+
+    // 6. THE WALL BEFORE THE BAG. `reconcile` hands an unplaced row the first
+    // free cell, so a bag restored into an empty layout would lay itself out
+    // left-to-right in pickup order and throw away where the player had put
+    // things. Restoring the layout first means every row it names is already
+    // placed by the time the model is built.
+    slots.fromJSON(doc.slots);
+    bag.clear();
+    // In saved order, because that order is what the wall assigns from for any
+    // row the layout above did not already place.
+    for (const [id, count] of doc.bag) {
+      if (isKnownItem(id) && count > 0) bag.add(id, count);
+    }
+
+    // 7. The loadout. Only what is still both a real item and actually in the
+    // bag — a weapon removed from the build, or one the save says is equipped
+    // while the bag says it is gone, resolves to bare hands rather than to a
+    // gear slot pointing at nothing.
+    equippedWeapon = doc.equippedWeapon !== null && isKnownItem(doc.equippedWeapon)
+      && bag.count(doc.equippedWeapon) > 0 ? doc.equippedWeapon : null;
+    readiedOrb = doc.readiedOrb !== null && isKnownItem(doc.readiedOrb)
+      && bag.count(doc.readiedOrb) > 0 ? doc.readiedOrb : null;
+    attackBuff = 0;
+    attackBuffT = 0;
+    applyLoadout();
+    refreshBagChips();
+    refreshOrbHud();
+
+    // 8. Appearance. A style this build dropped falls back to the default
+    // inside `hairStyle()`, so the colour is the only thing worth checking.
+    const hex = parseInt(doc.appearance.hairColour, 16);
+    player.setHair(doc.appearance.hairStyle, Number.isFinite(hex) ? hex : null);
+
+    // 9. PLACEMENT LAST, over the spawn point the zone switch left him on. The
+    // saddle goes first for the reason `__dbgTp` gives — while mounted the
+    // mount writes the hero's position every slice — except that here he is
+    // dismounted outright: what he was riding is not restored, so leaving the
+    // controller holding a beast would seat him on one he no longer has.
+    mount.dismount();
+    const at = resolveOnCarrier(doc.location) ?? {
+      ...resolveSafeGround(doc.location.x, doc.location.z),
+      yaw: doc.location.yaw,
+    };
+    mount.teleport(at.x, at.z, at.y);
+    player.restore(doc.player.hp, at.x, at.y, at.z, at.yaw);
+
+    inventory.refresh();
+  } finally {
+    // A throw out of a load must not leave the flag set: with it stuck true
+    // every autosave for the rest of the session would be silently skipped.
+    applyingSave = false;
+  }
+}
+
+/**
+ * Write the character being played, creating a record on the first call.
+ *
+ * Fire-and-forget by design — nothing in the game waits on a save, and a
+ * failure is one console warning inside core/saves.ts rather than an
+ * interruption. Returns the promise anyway so the debug hook and, later, the
+ * exit path can await it when they want to.
+ */
+async function saveNow(): Promise<number | null> {
+  if (!playing || !savesAvailable()) return null;
+  const id = await writeSave(activeSaveId, collectSave());
+  activeSaveId = id;
+  return id;
+}
+
+// ---------------------------------------------------------------------------
+// WHEN IT SAVES — three answers, and the interval is the least important of
+// them (issue #171).
+//
+// A CLOCK ALONE LOSES THE THING WORTH KEEPING. The moment a player would mind
+// losing is the one they just earned — a quest finished, a bond taken — and a
+// five-minute timer is by definition up to five minutes away from it. So the
+// timer is the BACKSTOP for a session that is doing nothing in particular, and
+// the two event-driven writes are what actually protect progress: one on a
+// quest changing state, one on the way out to the title screen. That is also
+// what makes "every 10 minutes" a safe thing to offer a player, and why turning
+// the timer OFF does not turn saving off.
+// ---------------------------------------------------------------------------
+
+/** Seconds since the last write. Reset by every save, whatever triggered it. */
+let sinceSave = 0;
+/**
+ * Seconds left on the debounce after a quest changed, or 0 when nothing is
+ * pending.
+ *
+ * ONE ACTION LIST IS SEVERAL CHANGES — `quest.complete` alongside the flags and
+ * counters its `onComplete` sets — and each one notifies. Writing per
+ * notification would write the same character four times in a frame; waiting a
+ * moment collapses them into the one write that has all of it.
+ */
+let questSaveIn = 0;
+const QUEST_SAVE_DEBOUNCE = 2;
+
+/**
+ * `?autosaveSec=<n>` — run the interval in SECONDS for a probe.
+ *
+ * A test of a timer whose shortest setting is a minute is a test that takes a
+ * minute, or one that reaches in and pokes the accumulator and proves nothing
+ * about the path a player is on. This drives the same accumulator through the
+ * same comparison; only the unit changes.
+ */
+const autosaveOverrideSec = (() => {
+  const raw = new URLSearchParams(window.location.search).get('autosaveSec');
+  const v = raw === null ? NaN : Number(raw);
+  return Number.isFinite(v) && v > 0 ? v : null;
+})();
+
+// Its own read rather than the `prefs` const, which is declared thousands of
+// lines below this and would be in its temporal dead zone here. `loadPrefs` is
+// a handful of localStorage gets and the settings hook keeps this current.
+let autosaveMinutes = loadPrefs().autosaveMinutes;
+
+/** The interval in seconds, or 0 for "no timer". */
+function autosavePeriod(): number {
+  if (autosaveOverrideSec !== null) return autosaveOverrideSec;
+  return autosaveMinutes > 0 ? autosaveMinutes * 60 : 0;
+}
+
+/**
+ * Ask for a write, unless one would be pointless or unwelcome right now.
+ *
+ * Fire-and-forget: nothing waits on it, and a failure is one warning inside
+ * core/saves.ts. The refusals are the interesting part — `applyingSave` stops a
+ * load writing back what it has just read, and a DEAD hero is not a state to
+ * come back to, so a save is held until he is on his feet again.
+ */
+function autosave(): void {
+  sinceSave = 0;
+  questSaveIn = 0;
+  if (!playing || applyingSave || player.isDead || !savesAvailable()) return;
+  void saveNow();
+}
+
+/** Called once per SIMULATION SLICE from `simulate()` — see the note there. */
+function tickAutosave(dt: number): void {
+  if (!playing) return;
+  if (questSaveIn > 0) {
+    questSaveIn -= dt;
+    if (questSaveIn <= 0) { autosave(); return; }
+  }
+  const period = autosavePeriod();
+  if (period <= 0) return;
+  sinceSave += dt;
+  if (sinceSave >= period) autosave();
+}
+
+// A quest changed state, which is the only "real progress" signal the engine
+// has — there are no quest events on the bus (see the note on `onBeastTamed`),
+// and `ContentState.onChange` is what the journal itself listens to.
+// `'reset'` is skipped: that is a load or an exit, and both do their own saving.
+content.state.onChange((what) => {
+  if (what.kind !== 'quest' || !playing || applyingSave) return;
+  questSaveIn = QUEST_SAVE_DEBOUNCE;
+});
+
+// Hooks: readers for the list and the document, drivers for the round trip.
+// The same argument `__dbgTp` makes — a probe cannot click a menu that has not
+// been built yet, and every one of these is reachable from the UI once it has.
+(window as unknown as {
+  __dbgSaves: {
+    list: () => Promise<SaveMeta[]>;
+    read: (id: number) => Promise<SaveDocument | null>;
+    doc: () => SaveDocument;
+    save: (name?: string) => Promise<number | null>;
+    newCharacter: (name: string) => void;
+    load: (id: number) => Promise<boolean>;
+    del: (id: number) => Promise<void>;
+    active: () => number | null;
+    available: () => boolean;
+    autosave: () => { minutes: number; periodSec: number; sinceSec: number; questIn: number };
+  };
+}).__dbgSaves = {
+  list: () => listSaves(),
+  read: (id) => readSave(id),
+  doc: () => collectSave(),
+  // Writes THE CHARACTER BEING PLAYED, renaming them when a name is given —
+  // the same thing an autosave does, which is why calling it twice updates one
+  // record rather than making two. Starting a second character is
+  // `newCharacter` below.
+  save: async (name) => {
+    if (name !== undefined) playerName = name;
+    return saveNow();
+  },
+  // What New Game does to the save pointer, without the title screen: a name,
+  // and no record yet, so the next write creates one. Exit to title does the
+  // same thing (see `exitToTitle`) — this is the half of it a probe can reach
+  // from inside a running session.
+  newCharacter: (name) => {
+    playerName = name;
+    activeSaveId = null;
+    carriedExtra = undefined;
+  },
+  // Applies INTO THE RUNNING SESSION rather than through the title screen, so
+  // a probe can prove the round trip without walking the menu. The menu path
+  // is the same `applySave` behind a `beginPlay` handshake.
+  load: async (id) => {
+    const doc = await readSave(id);
+    if (!doc) return false;
+    applySave(doc);
+    activeSaveId = id;
+    return true;
+  },
+  del: async (id) => {
+    if (activeSaveId === id) activeSaveId = null;
+    await deleteSave(id);
+  },
+  active: () => activeSaveId,
+  available: () => savesAvailable(),
+  // What the timer thinks, so a probe can assert on the STATE that drives a
+  // write rather than on the write having happened by some wall-clock moment.
+  autosave: () => ({
+    minutes: autosaveMinutes,
+    periodSec: autosavePeriod(),
+    sinceSec: +sinceSave.toFixed(2),
+    questIn: +questSaveIn.toFixed(2),
+  }),
+};
 
 // Phase 1 ends here: the poster and the chip are on screen before the first
 // chunk exists. Everything past this point is phase 2.
@@ -4864,6 +5421,15 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   nearShop = false;
   nearNpc = null;
 
+  // THE SAVE CLOCK IS GAME TIME, so it is here rather than in `frame()` — above
+  // the modal branch, because "a panel takes the input, never the clock" cuts
+  // this way too: a player who stopped to read the controls sheet has not
+  // stopped playing, and an autosave that paused with them would be a save
+  // they did not get. Being on the simulation slice also makes it independent
+  // of frame rate and drivable by `__dbgAdvance`, which is what lets its guard
+  // test the interval without waiting on a wall clock.
+  tickAutosave(dt);
+
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them
   // is updated. It is not inside `zones.update` below and that is the ordering
   // decision rather than an oversight: the world update runs at the END of a
@@ -5843,13 +6409,13 @@ beginPlay();
   })(),
   riding: world.carriers.at(player.position.x, player.position.y, player.position.z)?.id ?? null,
   all: world.carriers.all.map((c) => {
-    // World -> the frame's own axes, the same map `CarrierBody.toLocal` uses.
-    // Restated here rather than exposed on the contract because a debug hook is
-    // the only caller that has ever wanted it from outside.
-    const cs = Math.cos(c.yaw);
-    const sn = Math.sin(c.yaw);
-    const wx = player.position.x - c.x;
-    const wz = player.position.z - c.z;
+    // World -> the frame's own axes, THROUGH THE CONTRACT. This used to restate
+    // the trigonometry with a note saying a debug hook was the only caller that
+    // had ever wanted it from outside; the save now wants it too (issue #171),
+    // so `toLocal` is on `CarrierInfo` and the copy that could drift from it is
+    // gone.
+    const onDeck = { x: 0, z: 0 };
+    c.toLocal(player.position.x, player.position.z, onDeck);
     return {
       id: c.id,
       x: +c.x.toFixed(2),
@@ -5879,9 +6445,9 @@ beginPlay();
         return Number.isFinite(b) ? +b.toFixed(2) : null;
       })(),
       onDeck: {
-        x: +(wx * cs - wz * sn).toFixed(3),
+        x: +onDeck.x.toFixed(3),
         y: +(player.position.y - c.y).toFixed(3),
-        z: +(wx * sn + wz * cs).toFixed(3),
+        z: +onDeck.z.toFixed(3),
       },
     };
   }),

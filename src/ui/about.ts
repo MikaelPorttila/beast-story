@@ -60,10 +60,16 @@ interface Credit {
 /**
  * What is inside the build a player downloads.
  *
- * ONE ENTRY, and that is the point rather than an accident: everything the
- * renderer draws is generated in code (see AGENTS.md), so the only library that
- * reaches a browser is the one drawing it. If this list ever grows, the growth
- * is the thing to look at.
+ * TWO ENTRIES, and the shape of the list is the point rather than an accident:
+ * everything the renderer draws is generated in code (see AGENTS.md), so the
+ * only library that reaches a browser is the one drawing it — plus, since issue
+ * #171, the one storing the save. If this list grows again, the growth is the
+ * thing to look at.
+ *
+ * Dexie's own LICENSE is the Apache-2.0 boilerplate with the copyright
+ * placeholder left unfilled, so the attribution below is taken from the
+ * authorship line its distributed bundles carry in their header. That is the
+ * package stating whose work it is, which is what this column is for.
  */
 const SHIPPED: ReadonlyArray<Credit> = [
   {
@@ -71,6 +77,12 @@ const SHIPPED: ReadonlyArray<Credit> = [
     license: 'MIT',
     copyright: 'Copyright © 2010-2026 three.js authors',
     url: 'https://threejs.org',
+  },
+  {
+    name: 'Dexie.js',
+    license: 'Apache-2.0',
+    copyright: 'By David Fahlander',
+    url: 'https://dexie.org',
   },
 ];
 

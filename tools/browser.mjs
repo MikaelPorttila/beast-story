@@ -184,6 +184,34 @@ export async function leaveSplash(page, { timeout = 20000, key = 'Enter' } = {})
   }
 }
 
+/**
+ * New Game, all the way into a running session — the step after `leaveSplash`.
+ *
+ * IT IS TWO CLICKS NOW, and that is why this exists. New Game opens a NAME STEP
+ * (issue #171) and Begin is what hands the screen over, so every probe that
+ * walked the staged boot by clicking one button stopped at a text field and
+ * timed out waiting for a hero. Eight files clicked that button; putting the
+ * sequence here rather than fixing it eight times is the same argument
+ * `leaveSplash` makes directly above, and it is what makes the NEXT step added
+ * to this screen a one-line change instead of a nine-file one.
+ *
+ * The name is left EMPTY by default, which is a real path rather than a
+ * shortcut: the field is optional and an empty one is what every pad player
+ * submits, so the probes that do not care about naming exercise the default.
+ * Pass one when the name is the thing being tested.
+ *
+ * Waits for the button rather than assuming the step arrived, for the reason
+ * `leaveSplash` gives about the panel being rebuilt underneath a press.
+ */
+export async function startNewGame(page, { name = '', timeout = 20000 } = {}) {
+  const newBtn = await page.waitForSelector('.bs-menu [data-act="new"]', { visible: true, timeout });
+  await newBtn.click();
+  await page.waitForSelector('.bs-name-input', { timeout });
+  if (name) await page.keyboard.type(name);
+  const begin = await page.waitForSelector('.bs-menu [data-act="begin"]', { visible: true, timeout });
+  await begin.click();
+}
+
 // Which GL path did we actually get? Use this in perf-sensitive tools so a
 // silent fall back to CPU rasterisation is visible in the output.
 export const glRenderer = (page) => page.evaluate(() => {

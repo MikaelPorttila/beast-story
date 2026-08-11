@@ -23,7 +23,7 @@
 // above water, which is how that was caught.
 //
 // Exits non-zero.
-import { launchBrowser, leaveSplash, newPage, wait } from './browser.mjs';
+import { launchBrowser, leaveSplash, newPage, startNewGame, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
 const browser = await launchBrowser();
@@ -40,7 +40,7 @@ await page.goto(`${HOST}/?fs=0`, { waitUntil: 'load' });
 // alone and failed after two predecessors, on a clean browser. See
 // tools/browser.mjs.
 await leaveSplash(page);
-await (await page.waitForSelector('button[data-act="new"]', { visible: true })).click();
+await startNewGame(page);
 for (let i = 0; i < 45; i++) {
   await wait(1000);
   if (await page.evaluate(() =>

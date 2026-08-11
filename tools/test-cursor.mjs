@@ -20,7 +20,7 @@
 //   mousemove listener rather than a copy of it.
 //
 // Exits non-zero.
-import { launchBrowser, leaveSplash, newPage, whenPlaying } from './browser.mjs';
+import { launchBrowser, leaveSplash, newPage, startNewGame, whenPlaying } from './browser.mjs';
 import { BASE as HOST, NO_WARMUP } from './target.mjs';
 
 const browser = await launchBrowser();
@@ -81,7 +81,7 @@ const check = (ok, msg) => { if (!ok) fails.push(msg); };
 // `leaveSplash` rather than one press: a press that lands before the menu's key
 // handler is live is dropped, and nothing retried it. See tools/browser.mjs.
 await leaveSplash(page);
-await (await page.waitForSelector('button[data-act="new"]', { visible: true })).click();
+await startNewGame(page);
 // New Game is finished when the hero exists and the cover has gone — the two
 // conditions the old 45-second poll was testing, asked at rAF instead of once a
 // second, with no blind 2 s on the end of it.

@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { Engine } from '../core/engine';
 import type { Input } from '../core/input';
-import { MAX_STEP_UP, type ElementType, type EventBus, type World } from '../core/types';
+import {
+  MAX_STEP_UP, type CarrierInfo, type ElementType, type EventBus, type World,
+} from '../core/types';
 import { CarrierRide } from '../world/carriers';
 import { t } from '../i18n';
 import { buildHeroRig, type HeroRig, setHairStyle, setWeaponModel, stowWeapon } from './hero-rig';
@@ -438,6 +440,17 @@ export class Player {
    */
   private readonly ride = new CarrierRide();
 
+  /**
+   * The moving frame under his feet right now, or null.
+   *
+   * Exposed for the SAVE (issue #171), which has to store a position on a
+   * flying island in that island's own coordinates — see `CarrierInfo.toLocal`.
+   * Read-only and already resolved: `CarrierRide.carry` decides the attachment
+   * every slice, so this is that answer rather than a second search of the
+   * registry that could disagree with it.
+   */
+  get carrier(): CarrierInfo | null { return this.ride.carrier; }
+
   private rig: HeroRig;
   /**
    * The follow camera.
@@ -686,6 +699,49 @@ export class Player {
     this.root.rotation.y = this.heading;
     this.forward.set(Math.sin(this.heading), 0, Math.cos(this.heading));
     this.cam.yaw = start.yaw;
+  }
+
+  /**
+   * Stand the hero where a save left him (issue #171).
+   *
+   * The third member of the family `reset` and `respawn` belong to, and it is
+   * listed beside them for the reason the note on `reset` gives: the LIST is
+   * what these three share, so a field added to one is visible from the others.
+   * What makes this one different is where the position comes from — a caller's
+   * numbers rather than `world.playerStart` or `world.spawnPoint` — and that
+   * the numbers have already been decided: whether the saved ground still
+   * exists, and where a hero belongs when it does not, is a question about the
+   * world that main.ts answers before calling this.
+   *
+   * THE CAMERA GOES BEHIND HIM, which is the opposite of `takeStartPose` and
+   * deliberate. That method's shot — the camera in front, looking back — is a
+   * character being introduced. A load is a player resuming, and resuming
+   * facing your own camera means the first press of W walks you at the lens.
+   * `heading + PI` is the ordinary over-the-shoulder framing every other camera
+   * write in this file uses.
+   */
+  restore(hp: number, x: number, y: number, z: number, yaw: number): void {
+    this.velocity.set(0, 0, 0);
+    this.ride.clear();
+    this.isDead = false;
+    this.flash = 0;
+    this.hurtT = 0;
+    this.regenHold = 0;
+    this.isClimbing = false;
+    this.isSwimming = false;
+    this.onCanopy = false;
+    this.climbLockout = 0;
+    this.deepToastT = 0;
+    this.attack.active = false;
+    // Floored at 1: a save is a place to come back to, and loading into a
+    // faint would play the death sequence over a player who just pressed Load.
+    this.hp = Math.max(1, Math.min(this.maxHp, Math.round(hp)));
+    this.position.set(x, y, z);
+    this.root.position.copy(this.position);
+    this.heading = yaw;
+    this.root.rotation.y = this.heading;
+    this.forward.set(Math.sin(this.heading), 0, Math.cos(this.heading));
+    this.cam.yaw = yaw + Math.PI;
   }
 
   private respawn(): void {

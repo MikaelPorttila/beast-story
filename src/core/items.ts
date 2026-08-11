@@ -310,6 +310,26 @@ export class Inventory {
   entriesOfKind(kind: ItemKind): BagEntry[] {
     return this.entries().filter((e) => e.def.kind === kind);
   }
+
+  /**
+   * The bag, for a save (issue #171). PAIRS IN ORDER, not an object.
+   *
+   * The order is the payload rather than a detail of how it was written: the
+   * wall hands a new row the first free cell in bag order, so a bag restored in
+   * a different order lays itself out differently than the player left it. An
+   * object would be at the mercy of whatever key order the JSON round trip
+   * happened to preserve; an array says the order is meant.
+   *
+   * Ids are passed through raw and NOT checked against `ITEMS` — a save that
+   * outlives an item is main.ts's problem to resolve (`isKnownItem` on the way
+   * back in), and a bag that silently dropped a rare drop here would look to
+   * the player exactly like one that lost it.
+   */
+  toJSON(): Array<[string, number]> {
+    const out: Array<[string, number]> = [];
+    for (const [id, count] of this.stacks) if (count > 0) out.push([id, count]);
+    return out;
+  }
 }
 
 /**
@@ -387,6 +407,35 @@ export class SlotLayout {
   clear(): void {
     this.byId.clear();
     this.atSlot.clear();
+  }
+
+  /** The wall, for a save (issue #171): every row and the cell it sits in. */
+  toJSON(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [id, slot] of this.byId) out[id] = slot;
+    return out;
+  }
+
+  /**
+   * Put the wall back the way a save left it.
+   *
+   * ENTRIES FOR ROWS THAT NO LONGER EXIST ARE KEPT, not filtered, and that is
+   * the same reasoning `reconcile` already runs on: a slot means nothing on its
+   * own, so a stale entry costs a cell until the next model build forgets it.
+   * Filtering here would need the row list, which the caller has not built yet
+   * — restoring the layout BEFORE the bag is what lets the bag's own rows land
+   * where the player put them instead of taking first-free cells on the way in.
+   *
+   * A duplicate cell (a hand-edited save) resolves by last-write-wins through
+   * `put`, which leaves the loser slotless rather than sharing a box; the next
+   * `reconcile` hands it a free one.
+   */
+  fromJSON(raw: Record<string, number>): void {
+    this.clear();
+    for (const id of Object.keys(raw)) {
+      const slot = raw[id];
+      if (Number.isInteger(slot) && slot >= 0) this.put(id, slot);
+    }
   }
 
   private put(id: string, slot: number): void {

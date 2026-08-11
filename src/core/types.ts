@@ -567,6 +567,22 @@ export interface CarrierInfo {
    */
   bottomAt(x: number, z: number): number;
   /**
+   * World (x, z) -> the frame's own coordinates, and back.
+   *
+   * ON THE CONTRACT RATHER THAN ONLY ON THE BODY because a SAVE needs them
+   * (issue #171). A flying island wanders from its home every session, so a
+   * position on its deck stored in world space describes a place the island has
+   * left and will not return to — the hero comes back to open sea under where
+   * it used to be. Stored in the frame's own coordinates and converted back
+   * against wherever it is now, the same spot on the deck is the same spot on
+   * the deck, which is what the note on `id` above is for.
+   *
+   * `out` is written rather than returned: these run per mover per slice on the
+   * collision path, and the update rules forbid allocating there.
+   */
+  toLocal(x: number, z: number, out: { x: number; z: number }): void;
+  toWorld(lx: number, lz: number, out: { x: number; z: number }): void;
+  /**
    * Is this point inside the ride volume?
    *
    * TAKES `y`, and that is the whole safety of the feature. A flying island's

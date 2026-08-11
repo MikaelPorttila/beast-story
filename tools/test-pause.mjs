@@ -28,7 +28,7 @@
 //
 // Exits non-zero.
 import {
-  installFakePad, leaveSplash, logPageErrors, newPage, PAD_BUTTON, setPadButton,
+  installFakePad, leaveSplash, logPageErrors, newPage, PAD_BUTTON, setPadButton, startNewGame,
 } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 import { advance } from './suite/harness.mjs';
@@ -839,7 +839,7 @@ export const sections = [
       // started. See tools/browser.mjs. (Realtime inside, unavoidably — it is
       // the real boot being walked.)
       await leaveSplash(page);
-      await page.evaluate(() => document.querySelector('.bs-menu [data-act="new"]')?.click());
+      await startNewGame(page);
       await page.waitForFunction(
         () => window.__dbgBoot && window.__dbgBoot().playing && window.__dbgAdvance,
         { timeout: 60000 },
@@ -895,10 +895,9 @@ export const sections = [
       // the button and passes however the pointer is behaving, so the run above
       // stayed green through the entire life of the bug. This one goes through the
       // browser's hit testing, which is what a player has.
-      {
-        const btn = await page.waitForSelector('.bs-menu [data-act="new"]', { visible: true });
-        await btn.click();
-      }
+      // `startNewGame` clicks through ElementHandle.click, which is hit-tested
+      // the same way — the property this case cares about is preserved.
+      await startNewGame(page);
       await page.waitForFunction(
         () => window.__dbgBoot && window.__dbgBoot().playing,
         { timeout: 60000 },

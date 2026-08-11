@@ -25,7 +25,7 @@
 // Usage: bun tools/test-keybinds.mjs
 import fs from 'node:fs';
 import path from 'node:path';
-import { launchBrowser, newPage, wait } from './browser.mjs';
+import { launchBrowser, newPage, startNewGame, wait } from './browser.mjs';
 import { BASE as HOST } from './target.mjs';
 
 const URL = `${HOST}/?fps=30&menu=0`;
@@ -362,7 +362,7 @@ await page.close();
     await wait(500);
   }
   const clickedAt = await staged.evaluate(() => performance.now());
-  await staged.click('.bs-menu [data-act="new"]');
+  await startNewGame(staged);
   await staged.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 30000 });
   const startedAt = await staged.evaluate(() => performance.now());
   await wait(800);
@@ -522,7 +522,7 @@ await page.close();
   };
   /** Start a game the way a player does — a real click, so the activation is real. */
   const newGame = async (page) => {
-    await page.click('.bs-menu [data-act="new"]');
+    await startNewGame(page);
     await page.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 30000 });
     await wait(800);
     return page.evaluate(() => window.__dbgFullscreen());

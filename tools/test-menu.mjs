@@ -320,7 +320,23 @@ const out = {};
   });
   // New Game, clicked rather than Entered: this assertion is about the poster
   // going away and the hero waking up, not about where the cursor was.
+  //
+  // TWO CLICKS NOW, because New Game opens the NAME STEP (issue #171) and Begin
+  // is what hands the screen over. The name is typed rather than left empty so
+  // this also proves the field takes text at all — `w` and `s` walk the cursor
+  // everywhere else on this screen, and a name with either in it is the exact
+  // thing the capture-phase key handler has to let through.
   await page.click('.bs-menu [data-act="new"]');
+  await wait(300);
+  out.nameStep = await page.evaluate(() => ({
+    step: document.querySelector('.bs-menu')?.getAttribute('data-step') ?? null,
+    focused: document.activeElement?.className ?? null,
+    acts: [...document.querySelectorAll('.bs-menu .panel button')].map((b) => b.dataset.act),
+  }));
+  await page.keyboard.type('Wisp');
+  out.typedName = await page.evaluate(() =>
+    document.querySelector('.bs-name-input')?.value ?? null);
+  await page.click('.bs-menu [data-act="begin"]');
   await wait(2000);
   // What the poster dissolved INTO. `coverFullyUpWhileMenuVisible` is the claim:
   // there was a moment where the loading screen was opaque and the menu was

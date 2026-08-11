@@ -142,7 +142,33 @@ export interface Prefs {
    * here: this module has no business knowing which codes ship.
    */
   lang: string | null;
+  /**
+   * How often the game writes the character down, in MINUTES — or 0 for never.
+   *
+   * MINUTES RATHER THAN A 0..1 DIAL, which is why it does not go through
+   * `num01` like every other number in this record: those are intensities and
+   * this is an interval, so its range is its own and a validator that clamped
+   * it to 1 would silently turn every setting into "once a second".
+   *
+   * IT IS NOT THE ONLY THING THAT SAVES, and that is what makes a long interval
+   * safe to offer. The game also writes on real progress — a quest changing
+   * state — and on the way out to the title screen, so the timer is the
+   * backstop for a session that is doing neither rather than the whole
+   * mechanism. 5 is the default because it is a bounded loss a player would
+   * shrug at, against a write that costs a few milliseconds.
+   *
+   * 0 is OFF and means exactly that: no timer. The event-driven writes still
+   * happen, because a player who does not want a clock interrupting them has
+   * not asked to lose a finished quest.
+   */
+  autosaveMinutes: number;
 }
+
+/**
+ * The intervals the row offers, in minutes. 0 is OFF and is a decision rather
+ * than a shorter interval — the same shape the volume strip gives mute.
+ */
+export const AUTOSAVE_STEPS: ReadonlyArray<number> = [0, 1, 5, 10];
 
 export const DEFAULT_PREFS: Readonly<Prefs> = {
   hapticFeedback: true,
@@ -153,6 +179,7 @@ export const DEFAULT_PREFS: Readonly<Prefs> = {
   invertLookY: true,
   autoFullscreen: true,
   lang: null,
+  autosaveMinutes: 5,
 };
 
 /**
@@ -177,6 +204,7 @@ export const STORAGE_KEYS: Readonly<Record<keyof Prefs, string>> = {
   autoFullscreen: 'game.settings.graphics.autoFullscreen',
   volume: 'game.settings.gameplay.volume',
   lang: 'game.settings.gameplay.language',
+  autosaveMinutes: 'game.settings.gameplay.autosaveMinutes',
 };
 
 /** The pre-migration blob. Read once, then removed. See `migrate`. */
@@ -224,6 +252,23 @@ function bool(raw: string | null, fallback: boolean): boolean {
  */
 function langCode(raw: string | null): string | null {
   return raw !== null && /^[a-z]{2,3}$/.test(raw) ? raw : null;
+}
+
+/**
+ * An autosave interval, SNAPPED to one of the offered steps.
+ *
+ * Snapping rather than clamping, because the row is a strip of chips and a
+ * stored 7 would light none of them — a settings screen showing no answer to a
+ * question it asked. Anything unusable lands on the default, and anything in
+ * between lands on the nearest thing the panel can draw.
+ */
+function autosaveMinutes(raw: string | null, fallback: number): number {
+  if (raw === null || raw.trim() === '') return fallback;
+  const v = Number(raw);
+  if (!Number.isFinite(v)) return fallback;
+  let best = AUTOSAVE_STEPS[0];
+  for (const s of AUTOSAVE_STEPS) if (Math.abs(s - v) < Math.abs(best - v)) best = s;
+  return best;
 }
 
 function read(field: keyof Prefs): string | null {
@@ -288,6 +333,15 @@ function migrate(): void {
         if (c) write(field, c);
       } else if (typeof DEFAULT_PREFS[field] === 'boolean') {
         if (typeof v === 'boolean') write(field, String(v));
+      } else if (field === 'autosaveMinutes') {
+        // NOT A 0..1 VALUE, so it cannot take the clamp below — that would
+        // migrate a five-minute interval to one minute. Nothing ever wrote this
+        // field into the legacy blob (it postdates it by years), so this branch
+        // is unreachable today and is here as the guard for the NEXT number
+        // added to this record that is not an intensity.
+        if (typeof v === 'number') {
+          write(field, String(autosaveMinutes(String(v), DEFAULT_PREFS.autosaveMinutes)));
+        }
       } else if (typeof v === 'number' && Number.isFinite(v)) {
         write(field, String(Math.min(1, Math.max(0, v))));
       }
@@ -313,6 +367,7 @@ export function loadPrefs(): Prefs {
     invertLookY: bool(read('invertLookY'), DEFAULT_PREFS.invertLookY),
     autoFullscreen: bool(read('autoFullscreen'), DEFAULT_PREFS.autoFullscreen),
     lang: langCode(read('lang')),
+    autosaveMinutes: autosaveMinutes(read('autosaveMinutes'), DEFAULT_PREFS.autosaveMinutes),
   };
 }
 

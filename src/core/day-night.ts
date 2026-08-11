@@ -116,6 +116,26 @@ export class DayNightCycle implements CelestialState {
   get debugOverride(): number | null { return this.debugPhase; }
   get questOverride(): number | null { return this.questPhase; }
 
+  /**
+   * Put the clock where a save left it (issue #171).
+   *
+   * The FREE-RUNNING phase, and no transition: a load is not a pin arriving
+   * mid-scene, it is the world being stood up at a time of day, so the sky is
+   * simply that colour on the first frame. Any quest override the loaded
+   * content facts imply is applied after this by `refreshQuestTime`, and wins
+   * through `pinTarget` the way it always does — which is why this writes only
+   * the running clock and clears nothing.
+   */
+  setPhase(phase: number): void {
+    if (!Number.isFinite(phase)) return;
+    this.runningPhase = wrap(phase);
+    this.phase = this.runningPhase;
+    this.transitionFrom = this.runningPhase;
+    this.transitionTo = this.runningPhase;
+    this.transitionT = TRANSITION_SECONDS;
+    this.derive();
+  }
+
   reset(): void {
     this.runningPhase = INITIAL_DAY_PHASE;
     this.phase = INITIAL_DAY_PHASE;
