@@ -101,6 +101,11 @@ const SOLO = new Set([
   'aim-assist',    // measured: selection angles collapse under load
   'f2',            // measured: reads null under load, and asserts nothing
   'settings',      // measured: drained cue count 2 -> 1, lastKind changed
+  // The only probe that boots WITHOUT `nostore=1`, so it is the only one whose
+  // pages write to IndexedDB. It also replaces the running session repeatedly —
+  // every case loads a character over the one before it — which is the shape
+  // the shared roster explicitly excludes. SOLO is the default anyway.
+  'saves',
   'nature',        // rebuilds ~90 chunks per section and counts their vertices
   'view-distance', // teleports the hero and waits for the far clipmap to recenter
   // Teleports to every settlement in turn and waits for the streaming ring to

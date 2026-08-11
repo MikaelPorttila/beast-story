@@ -1093,6 +1093,52 @@ export class BeastActor {
     });
   }
 
+  /**
+   * Put a bonded beast back the way a save left it (issue #171).
+   *
+   * The mirror of `reset` above, and it shares that method's reason for being a
+   * method: the rig is not per-session and must not be rebuilt. What comes out
+   * of a save is the four numbers and the skill list, and everything else is
+   * DERIVED here rather than stored — `stats` and `maxHp` are a function of the
+   * level (`computeStats`), so storing them would be storing a second copy that
+   * a balance change could put out of step with the first. A save written
+   * before the curve moved should load onto today's curve.
+   *
+   * `knownSkillIds` is the one that cannot be derived, because a beast learns
+   * by levelling AND by purchase at a den. It is filtered to what this species
+   * can ever know: an id from a species that has been re-skilled would
+   * otherwise sit in the list forever, casting nothing and showing up in the
+   * panel as a skill the player cannot use. Levelled skills are re-derived and
+   * merged, so a save from before a skill was added to the schedule gains it.
+   *
+   * HP is clamped to the recomputed maximum and floored at 1: a beast is bonded
+   * rather than dead, and loading straight into a corpse — with `isDead` and a
+   * death timer to unwind — is a state the player did not save from.
+   */
+  restore(state: {
+    level: number; xp: number; xpToNext: number; hp: number; knownSkillIds: readonly string[];
+  }): void {
+    this.reset();
+    this.level = Math.max(1, Math.round(state.level));
+    this.xp = Math.max(0, state.xp);
+    this.xpToNext = Math.max(1, state.xpToNext);
+    this.stats = this.computeStats();
+    this.maxHp = this.stats.maxHp;
+    this.hp = Math.max(1, Math.min(this.maxHp, Math.round(state.hp)));
+    // Everything this species could know, level-gated the way the constructor
+    // does it, plus whatever was bought — intersected with the species list so
+    // an id it no longer has cannot survive.
+    const canKnow = new Set(this.species.skills);
+    this.knownSkillIds.length = 0;
+    this.species.skills.forEach((id, i) => {
+      const lv = this.learnLevelOf(id, i);
+      if (lv !== undefined && lv <= this.level) this.knownSkillIds.push(id);
+    });
+    for (const id of state.knownSkillIds) {
+      if (canKnow.has(id) && !this.knownSkillIds.includes(id)) this.knownSkillIds.push(id);
+    }
+  }
+
   // -- Progression ----------------------------------------------------------
 
   private computeStats(): BeastStats {

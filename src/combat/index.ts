@@ -239,6 +239,28 @@ export class CombatSystem {
     this.bus.emit({ type: 'shardsChanged', total: this.shardTotal });
   }
 
+  /**
+   * Set the purse to what a save says it was (issue #171).
+   *
+   * THE PURSE THE PLAYER SEES IS TWO NUMBERS IN TWO OWNERS — this running
+   * total, which only ever goes up as drops are collected, minus what main.ts
+   * has spent. A save stores the difference, because that is the number the HUD
+   * draws and the only one a player could name. Restoring it therefore has to
+   * pick one side to write, and it is this one: main.ts zeroes `spent` and
+   * hands the whole balance here, so the invariant `total - spent` holds with
+   * `spent` at zero and nothing has to reconstruct a purchase history that was
+   * never stored.
+   *
+   * Emitting is the point rather than politeness: `shardsChanged` is how the
+   * HUD pill and main.ts's mirror of this number find out, and a silent write
+   * would leave both of them showing the last session's balance.
+   */
+  setShards(total: number): void {
+    if (!Number.isFinite(total)) return;
+    this.shardTotal = Math.max(0, Math.floor(total));
+    this.bus.emit({ type: 'shardsChanged', total: this.shardTotal });
+  }
+
   // ------------------------------------------------------------------ cast
 
   cast(req: CastRequest): void {
