@@ -1526,9 +1526,40 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
       const backZ = z + Math.sin(away) * 9;
       const backing = Math.min(1, w.steepnessAt(backX, backZ) / 0.45);
       const wooded = w.biomeAt(x, z) === 'forest' ? 1 : 0;
+      // A TRAIL CANNOT BRIDGE, so a site across water is a site with no way to
+      // it. Everything above scores the GROUND the arch stands on; this scores
+      // whether the walk to it exists at all, which nothing did until the towns
+      // moved a kilometre apart (issue #184) and the search started finding
+      // handsome wooded sites on the far side of a lake. The path system was
+      // already saying so — `gateway-trail-refused`, the one warning a clean
+      // boot filed — but it says it after the arch is built, and an arch is not
+      // cheap to move by then.
+      //
+      // THE LINE FROM SPAWN IS THE PROXY, not the trail's own route: the trail
+      // leaves the road at the point nearest the gate (see the note where it is
+      // laid), and the spawn is ON the trunk road, so a dry spawn-to-gate line
+      // is the conservative version of the question. Sampled every 2 units,
+      // which is finer than the narrowest neck a trail could sneak through.
+      //
+      // A PENALTY AND NOT A FILTER, for the reason `siteCost` in world/towns.ts
+      // spells out at length: a scoring function whose job is "least bad" has to
+      // be able to rank bad options, and a seed that puts water across every
+      // bearing must still produce an arch somewhere.
+      let wet = 0;
+      {
+        const dx = x - base.x;
+        const dz = z - base.z;
+        const steps = Math.max(1, Math.round(Math.hypot(dx, dz) / 2));
+        for (let i = 1; i < steps; i++) {
+          const t = i / steps;
+          if (w.getHeight(base.x + dx * t, base.z + dz * t) < w.waterLevel + 0.5) wet++;
+        }
+      }
       // Weighted under `worst * 3`: a candidate that is 1 unit less level loses
       // 3, and the whole of both preferences is 4.5. Level footing still wins.
-      const score = worst * 3 + shopPenalty - backing * 2.5 - wooded * 2;
+      // The crossing term is above all of them: two wet samples outweigh the
+      // prettiest wooded hillside in the world, because you cannot get to it.
+      const score = worst * 3 + shopPenalty - backing * 2.5 - wooded * 2 + wet * 6;
       if (score < bestScore) { bestScore = score; best = { x, z }; }
       if (score === 0) return best;
     }
