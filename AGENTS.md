@@ -94,9 +94,40 @@ repository links out of the panel: the repo is private, and
 - Avoid one-line functions that are just casting wrappers.
 - `any` creates harm, Inferred types create value.
 - Tests are good! Enless smoke tests, "regression tests" for feature deletions and etc are much less good. Tests should be focused, not slop. Tests must ran fast.
-- Comments are a great way to clarify functionality and how code is used. Don't comment every line, but feel free to describe (concisely) how functions are used above function definitions, classes, ect.
-- Comments MUST be kept short and ADHD friendly.
-- Keep comments up to date! When making changes, it's important to keep things in sync.
+
+### Comments
+
+Comments carry what the code cannot: a convention, a constraint, a reason. They
+are not for narrating what the next line does. The rules below have numbers in
+them because "keep comments short" did not hold — comments reached 45% of `src/`
+and a 29 000-line diet was needed to undo it.
+
+- **Six lines is the ceiling for one comment**, and one or two is the normal
+  size. A block longer than that is an essay: cut it to the sentence that would
+  cost someone a bug if it were missing.
+- **A comment per symbol at most, not per line.** One line above a function,
+  class or non-obvious constant. If consecutive lines each carry a comment, the
+  code needs better names, not more prose.
+- **A comment that restates a good name is deleted, not shortened.**
+  `/** The player's hair colour. */` above `hairColour` is noise. Same for a
+  field whose type and name already say it.
+- **Measurements, tuning history and design arguments go in the commit message
+  or the PR, never in the source.** "was 0.42, 0.72 reads better", "measured
+  14702 ms before the split", "the first version pushed the camera and that
+  looked wrong" — the code says what it is now, `git log` says why it changed.
+  Keep the OUTCOME if a future edit would break it: a number's origin, an
+  ordering constraint, an invariant. Drop the journey.
+- **No banner dividers.** `// ---- Placement ----` is a section header for a
+  file that should have been split, or for a reader who has a symbol outline.
+- **Cite an issue by number** (`issue #142`) rather than re-arguing it, and
+  point at AGENTS.md rather than restating a rule it already carries.
+- **Keep comments up to date.** A comment describing code that has since
+  changed is worse than no comment — it is a lie with authority. Change the
+  code, change the line above it, in the same commit.
+
+Two exceptions: `src/main.ts`'s boot-order note and a file header stating what a
+module is FOR may run longer, because both answer "why is it in this order" for
+a reader who has no other source for the answer.
 
 ## Testing
 
