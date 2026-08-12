@@ -3014,6 +3014,11 @@ bus.on((e) => {
   // A THROW, not a bond: the practice objective in `quest:land/first-light` is
   // about learning the motion, so a broken orb counts the same as a caught one.
   if (e.type === 'orbThrown') advanceObjectives({ kind: 'orb-thrown' });
+  // GENERIC OVER SPECIES, which is the whole point of it being here and not in
+  // `onBeastTamed`: `quest:land/the-first-bond` filters to the ground beasts,
+  // and `quest:sea/dark-water` and `quest:sky/wingbroken` will filter to their
+  // own. One fact, three quests, no per-quest hook.
+  if (e.type === 'beastTamed') advanceObjectives({ kind: 'tamed', id: e.beastId });
 });
 
 /**
@@ -3096,15 +3101,21 @@ function grantQuestRewards(asset: ContentAsset<QuestData>): void {
  * at it from where they are standing without being charged by the tutorial. It
  * is the closest this gets to "penned" without a pen.
  *
- * THE SPECIES IS WHICHEVER ONE THE PLAYER DOES NOT ALREADY HAVE. A throw at a
- * species already bonded is refused (`alreadyOwned`) and emits no `orbThrown`,
- * so a lucky catch on throw one would strand the quest at 1/3 with a target it
- * can never use.
+ * A LUCKY CATCH ENDS THE PRACTICE. A throw at a species already bonded is
+ * refused (`alreadyOwned`) and emits no `orbThrown`, so a catch on throw one
+ * would otherwise strand the counter at 1/3 with a target it can never use. The
+ * practice is filled instead: the player caught it, which is the lesson.
+ *
+ * IT USED TO BE A SOFT-LOCK ARGUMENT AS WELL, and it is worth recording that it
+ * is not one any more. When this was written `orb-tame` was tier 1 and
+ * `wild-sproutle` was the only tier-1 bondable animal in the game, so spending
+ * it on the tutorial left `quest:land/the-first-bond` with nothing a starting
+ * orb could hold. Issue #110 took both halves of that away: there is no tier
+ * gate, and fifteen species are wild instead of three. The rule stays because
+ * stranding the counter is still a bad frame to hand a player, but it is now
+ * politeness rather than rescue.
  */
-const PRACTICE_SPECIES: readonly { enemy: string; beast: string }[] = [
-  { enemy: 'wild-sproutle', beast: 'sproutle' },
-  { enemy: 'wild-boulderpup', beast: 'boulderpup' },
-];
+const PRACTICE_SPECIES = { enemy: 'wild-sproutle', beast: 'sproutle' } as const;
 const PRACTICE_DIST = 12;
 /** Seconds between checks. A stage prop, not a frame-loop concern. */
 const PRACTICE_POLL = 1;
@@ -3119,10 +3130,14 @@ function tickPracticeBeast(dt: number): void {
   if (!asset || content.state.questStatus(asset.id) !== 'active') return;
   const objective = asset.data.objectives.find((o) => o.key === 'bond-practice');
   if (!objective) return;
-  if (content.state.progress(asset.id, 'bond-practice') >= (objective.count ?? 1)) return;
+  const need = objective.count ?? 1;
+  if (content.state.progress(asset.id, 'bond-practice') >= need) return;
 
-  const species = PRACTICE_SPECIES.find((s) => !owned.has(s.beast));
-  if (!species) return;   // everything bondable is bonded; nothing left to practise on
+  const species = PRACTICE_SPECIES;
+  if (owned.has(species.beast)) {
+    content.state.setProgress(asset.id, 'bond-practice', need);
+    return;
+  }
   for (const e of combat.enemies) {
     if (e.targetable && e.species === species.enemy) return;   // one is already out there
   }

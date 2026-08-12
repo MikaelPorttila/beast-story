@@ -109,6 +109,35 @@
             "when": { "test": "quest", "quest": "quest:land/first-light", "status": "active" },
             "line": { "key": "npc.gain.q1.busy" }
           },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:land/the-first-bond", "status": "active" },
+                { "test": "progress", "quest": "quest:land/the-first-bond", "objective": "tame-wild" }
+              ]
+            },
+            "line": { "key": "npc.gain.q2.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:land/the-first-bond" }]
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:land/first-light", "status": "completed" },
+                {
+                  "any": [
+                    { "test": "quest", "quest": "quest:land/the-first-bond", "status": "unknown" },
+                    { "test": "quest", "quest": "quest:land/the-first-bond", "status": "available" }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.q2.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:land/the-first-bond" }]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:land/the-first-bond", "status": "active" },
+            "line": { "key": "npc.gain.q2.busy" }
+          },
           { "line": { "key": "npc.gain.greeting" } }
         ]
       }

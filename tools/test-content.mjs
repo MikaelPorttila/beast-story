@@ -160,7 +160,10 @@ const GAIN = {
  * is a count, so that a package that stopped loading — or one that grew a quest
  * nobody meant to ship — is a failure in the file that pins what the boot holds.
  */
-const ACT1_QUESTS = ['quest:land/first-light'];
+const ACT1_QUESTS = [
+  'quest:land/first-light',
+  'quest:land/the-first-bond',
+];
 
 /** What a boot holds: the world, then the campaign that is set in it. */
 const BOOT_PACKAGES = ['core', 'story', 'story-land'];
