@@ -11,10 +11,17 @@
     {
       "id": "town:encampment",
       "schema": 1,
-      "name": { "key": "town.encampment.name" },
-      "tags": ["settlement", "start"],
+      "name": {
+        "key": "town.encampment.name"
+      },
+      "tags": [
+        "settlement",
+        "start"
+      ],
       "data": {
-        "sign": { "key": "town.encampment.sign" },
+        "sign": {
+          "key": "town.encampment.sign"
+        },
         "layout": "camp",
         "radius": 19,
         "color": "#ffb45e",
@@ -26,10 +33,16 @@
     {
       "id": "town:redbriar",
       "schema": 1,
-      "name": { "key": "town.redbriar.name" },
-      "tags": ["settlement"],
+      "name": {
+        "key": "town.redbriar.name"
+      },
+      "tags": [
+        "settlement"
+      ],
       "data": {
-        "sign": { "key": "town.redbriar.sign" },
+        "sign": {
+          "key": "town.redbriar.sign"
+        },
         "layout": "hamlet",
         "radius": 15,
         "color": "#9ad46a",
@@ -41,10 +54,16 @@
     {
       "id": "town:stonewatch",
       "schema": 1,
-      "name": { "key": "town.stonewatch.name" },
-      "tags": ["settlement"],
+      "name": {
+        "key": "town.stonewatch.name"
+      },
+      "tags": [
+        "settlement"
+      ],
       "data": {
-        "sign": { "key": "town.stonewatch.sign" },
+        "sign": {
+          "key": "town.stonewatch.sign"
+        },
         "layout": "hamlet",
         "radius": 15,
         "color": "#8fc4e8",
@@ -53,14 +72,20 @@
         "start": false
       }
     },
-
     {
       "id": "town:skyhaven",
       "schema": 1,
-      "name": { "key": "town.skyhaven.name" },
-      "tags": ["settlement", "carried"],
+      "name": {
+        "key": "town.skyhaven.name"
+      },
+      "tags": [
+        "settlement",
+        "carried"
+      ],
       "data": {
-        "sign": { "key": "town.skyhaven.sign" },
+        "sign": {
+          "key": "town.skyhaven.sign"
+        },
         "layout": "skyhaven",
         "radius": 30,
         "color": "#bfe4ef",
@@ -70,12 +95,16 @@
         "carried": true
       }
     },
-
     {
       "id": "npc:gain",
       "schema": 1,
-      "name": { "key": "npc.gain.name" },
-      "tags": ["resident", "quest-giver"],
+      "name": {
+        "key": "npc.gain.name"
+      },
+      "tags": [
+        "resident",
+        "quest-giver"
+      ],
       "data": {
         "town": "town:encampment",
         "body": "gain",
@@ -85,166 +114,343 @@
           {
             "when": {
               "all": [
-                { "test": "quest", "quest": "quest:land/first-light", "status": "active" },
-                { "test": "progress", "quest": "quest:land/first-light", "objective": "bond-practice", "atLeast": 3 }
+                {
+                  "test": "quest",
+                  "quest": "quest:land/first-light",
+                  "status": "active"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:land/first-light",
+                  "objective": "bond-practice",
+                  "atLeast": 3
+                }
               ]
             },
-            "line": { "key": "npc.gain.q1.done" },
-            "actions": [{ "do": "quest.complete", "quest": "quest:land/first-light" }]
+            "line": {
+              "key": "npc.gain.q1.done"
+            },
+            "actions": [
+              {
+                "do": "quest.complete",
+                "quest": "quest:land/first-light"
+              }
+            ]
           },
           {
             "when": {
               "any": [
-                { "test": "quest", "quest": "quest:land/first-light", "status": "unknown" },
-                { "test": "quest", "quest": "quest:land/first-light", "status": "available" }
+                {
+                  "test": "quest",
+                  "quest": "quest:land/first-light",
+                  "status": "unknown"
+                },
+                {
+                  "test": "quest",
+                  "quest": "quest:land/first-light",
+                  "status": "available"
+                }
               ]
             },
-            "line": { "key": "npc.gain.q1.offer" },
+            "line": {
+              "key": "npc.gain.q1.offer"
+            },
             "actions": [
-              { "do": "quest.start", "quest": "quest:land/first-light" },
-              { "do": "progress.add", "quest": "quest:land/first-light", "objective": "talk-to-gain" }
+              {
+                "do": "quest.start",
+                "quest": "quest:land/first-light"
+              },
+              {
+                "do": "progress.add",
+                "quest": "quest:land/first-light",
+                "objective": "talk-to-gain"
+              }
             ]
           },
           {
-            "when": { "test": "quest", "quest": "quest:land/first-light", "status": "active" },
-            "line": { "key": "npc.gain.q1.busy" }
+            "when": {
+              "test": "quest",
+              "quest": "quest:land/first-light",
+              "status": "active"
+            },
+            "line": {
+              "key": "npc.gain.q1.busy"
+            }
           },
-          { "line": { "key": "npc.gain.greeting" } }
+          {
+            "line": {
+              "key": "npc.gain.greeting"
+            }
+          }
         ]
       }
     },
-
     {
       "id": "npc:sky-pilot",
       "schema": 1,
-      "name": { "key": "npc.skyPilot.name" },
-      "tags": ["resident", "skyhaven"],
+      "name": {
+        "key": "npc.skyPilot.name"
+      },
+      "tags": [
+        "resident",
+        "skyhaven"
+      ],
       "data": {
         "town": "town:skyhaven",
         "body": "sky-pilot",
         "homeOffset": 6,
         "acrossFocus": false,
-        "talk": [{ "line": { "key": "npc.skyPilot.greeting" } }]
+        "talk": [
+          {
+            "line": {
+              "key": "npc.skyPilot.greeting"
+            }
+          }
+        ]
       }
     },
-
     {
       "id": "npc:sky-gardener",
       "schema": 1,
-      "name": { "key": "npc.skyGardener.name" },
-      "tags": ["resident", "skyhaven"],
+      "name": {
+        "key": "npc.skyGardener.name"
+      },
+      "tags": [
+        "resident",
+        "skyhaven"
+      ],
       "data": {
         "town": "town:skyhaven",
         "body": "sky-gardener",
         "homeOffset": 11,
         "acrossFocus": true,
-        "talk": [{ "line": { "key": "npc.skyGardener.greeting" } }]
+        "talk": [
+          {
+            "line": {
+              "key": "npc.skyGardener.greeting"
+            }
+          }
+        ]
       }
     },
-
     {
       "id": "npc:sky-lamplighter",
       "schema": 1,
-      "name": { "key": "npc.skyLamplighter.name" },
-      "tags": ["resident", "skyhaven"],
+      "name": {
+        "key": "npc.skyLamplighter.name"
+      },
+      "tags": [
+        "resident",
+        "skyhaven"
+      ],
       "data": {
         "town": "town:skyhaven",
         "body": "sky-lamplighter",
         "homeOffset": 4,
         "acrossFocus": false,
-        "talk": [{ "line": { "key": "npc.skyLamplighter.greeting" } }]
+        "talk": [
+          {
+            "line": {
+              "key": "npc.skyLamplighter.greeting"
+            }
+          }
+        ]
       }
     },
-
     {
       "id": "biome:plains",
       "schema": 1,
-      "name": { "key": "biome.plains.name" },
-      "tags": ["climate", "start"],
+      "name": {
+        "key": "biome.plains.name"
+      },
+      "tags": [
+        "climate",
+        "start"
+      ],
       "data": {
         "startArea": true,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": {
+          "trees": 1,
+          "grass": 1,
+          "flowers": 1,
+          "bushes": 1,
+          "rocks": 1,
+          "reeds": 1
+        }
       }
     },
     {
       "id": "biome:forest",
       "schema": 1,
-      "name": { "key": "biome.forest.name" },
-      "tags": ["climate"],
+      "name": {
+        "key": "biome.forest.name"
+      },
+      "tags": [
+        "climate"
+      ],
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": {
+          "trees": 1,
+          "grass": 1,
+          "flowers": 1,
+          "bushes": 1,
+          "rocks": 1,
+          "reeds": 1
+        }
       }
     },
     {
       "id": "biome:beach",
       "schema": 1,
-      "name": { "key": "biome.beach.name" },
-      "tags": ["climate"],
+      "name": {
+        "key": "biome.beach.name"
+      },
+      "tags": [
+        "climate"
+      ],
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": {
+          "trees": 1,
+          "grass": 1,
+          "flowers": 1,
+          "bushes": 1,
+          "rocks": 1,
+          "reeds": 1
+        }
       }
     },
     {
       "id": "biome:desert",
       "schema": 1,
-      "name": { "key": "biome.desert.name" },
-      "tags": ["climate"],
+      "name": {
+        "key": "biome.desert.name"
+      },
+      "tags": [
+        "climate"
+      ],
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": {
+          "trees": 1,
+          "grass": 1,
+          "flowers": 1,
+          "bushes": 1,
+          "rocks": 1,
+          "reeds": 1
+        }
       }
     },
     {
       "id": "biome:snow",
       "schema": 1,
-      "name": { "key": "biome.snow.name" },
-      "tags": ["climate"],
+      "name": {
+        "key": "biome.snow.name"
+      },
+      "tags": [
+        "climate"
+      ],
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": {
+          "trees": 1,
+          "grass": 1,
+          "flowers": 1,
+          "bushes": 1,
+          "rocks": 1,
+          "reeds": 1
+        }
       }
     },
     {
       "id": "biome:underwater",
       "schema": 1,
-      "name": { "key": "biome.underwater.name" },
-      "tags": ["synthetic"],
-      "description": { "text": { "en": "Not a climate: a column below the water line, decided before any climate weight is consulted." } },
+      "name": {
+        "key": "biome.underwater.name"
+      },
+      "tags": [
+        "synthetic"
+      ],
+      "description": {
+        "text": {
+          "en": "Not a climate: a column below the water line, decided before any climate weight is consulted."
+        }
+      },
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": {
+          "trees": 1,
+          "grass": 1,
+          "flowers": 1,
+          "bushes": 1,
+          "rocks": 1,
+          "reeds": 1
+        }
       }
     },
     {
       "id": "biome:deepwater",
       "schema": 1,
-      "name": { "key": "biome.deepwater.name" },
-      "tags": ["synthetic"],
-      "description": { "text": { "en": "Not a climate: a column four units or more below the water line. A swimmer is turned back from it and only a water beast carries a rider across." } },
+      "name": {
+        "key": "biome.deepwater.name"
+      },
+      "tags": [
+        "synthetic"
+      ],
+      "description": {
+        "text": {
+          "en": "Not a climate: a column four units or more below the water line. A swimmer is turned back from it and only a water beast carries a rider across."
+        }
+      },
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": {
+          "trees": 1,
+          "grass": 1,
+          "flowers": 1,
+          "bushes": 1,
+          "rocks": 1,
+          "reeds": 1
+        }
       }
     },
     {
       "id": "biome:trampled",
       "schema": 1,
-      "name": { "key": "biome.trampled.name" },
-      "tags": ["synthetic"],
-      "description": { "text": { "en": "Not a climate: the worn yard of a settlement, which is a biome so that the prop scatter grows nothing there with no new test." } },
+      "name": {
+        "key": "biome.trampled.name"
+      },
+      "tags": [
+        "synthetic"
+      ],
+      "description": {
+        "text": {
+          "en": "Not a climate: the worn yard of a settlement, which is a biome so that the prop scatter grows nothing there with no new test."
+        }
+      },
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": {
+          "trees": 1,
+          "grass": 1,
+          "flowers": 1,
+          "bushes": 1,
+          "rocks": 1,
+          "reeds": 1
+        }
       }
     },
-
     {
       "id": "enemy:gloopling",
       "schema": 1,
-      "name": { "key": "enemy.gloopling.name" },
-      "tags": ["wild", "ground"],
+      "name": {
+        "key": "enemy.gloopling.name"
+      },
+      "tags": [
+        "wild",
+        "ground"
+      ],
       "data": {
         "model": "gloopling",
         "flying": false,
@@ -256,17 +462,40 @@
         "height": 0.95,
         "aggro": 9,
         "variants": [
-          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" },
-          { "element": "shadow", "main": "#a06ce0", "dark": "#7245b0", "belly": "#d9b8ff", "accent": "#2c1450" },
-          { "element": "water", "main": "#3fb2f2", "dark": "#2a84c6", "belly": "#a8e8ff", "accent": "#0d2c48" }
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          },
+          {
+            "element": "shadow",
+            "main": "#a06ce0",
+            "dark": "#7245b0",
+            "belly": "#d9b8ff",
+            "accent": "#2c1450"
+          },
+          {
+            "element": "water",
+            "main": "#3fb2f2",
+            "dark": "#2a84c6",
+            "belly": "#a8e8ff",
+            "accent": "#0d2c48"
+          }
         ]
       }
     },
     {
       "id": "enemy:snortle",
       "schema": 1,
-      "name": { "key": "enemy.snortle.name" },
-      "tags": ["wild", "ground"],
+      "name": {
+        "key": "enemy.snortle.name"
+      },
+      "tags": [
+        "wild",
+        "ground"
+      ],
       "data": {
         "model": "snortle",
         "flying": false,
@@ -278,17 +507,40 @@
         "height": 1.15,
         "aggro": 10,
         "variants": [
-          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" },
-          { "element": "ice", "main": "#8fa8c0", "dark": "#5a728c", "belly": "#dae8f4", "accent": "#c4d6e8" },
-          { "element": "fire", "main": "#d4593a", "dark": "#8e3021", "belly": "#f2a468", "accent": "#f6c290" }
+          {
+            "element": "rock",
+            "main": "#9a6a42",
+            "dark": "#6b4628",
+            "belly": "#c99e6f",
+            "accent": "#e6ab7c"
+          },
+          {
+            "element": "ice",
+            "main": "#8fa8c0",
+            "dark": "#5a728c",
+            "belly": "#dae8f4",
+            "accent": "#c4d6e8"
+          },
+          {
+            "element": "fire",
+            "main": "#d4593a",
+            "dark": "#8e3021",
+            "belly": "#f2a468",
+            "accent": "#f6c290"
+          }
         ]
       }
     },
     {
       "id": "enemy:peckit",
       "schema": 1,
-      "name": { "key": "enemy.peckit.name" },
-      "tags": ["wild", "flying"],
+      "name": {
+        "key": "enemy.peckit.name"
+      },
+      "tags": [
+        "wild",
+        "flying"
+      ],
       "data": {
         "model": "peckit",
         "flying": true,
@@ -300,18 +552,41 @@
         "height": 0.8,
         "aggro": 12,
         "variants": [
-          { "element": "wind", "main": "#3c4454", "dark": "#242a36", "belly": "#5e6e84", "accent": "#f0a032" },
-          { "element": "shadow", "main": "#4a3d74", "dark": "#2c2148", "belly": "#7159a6", "accent": "#ffd23f" },
-          { "element": "electric", "main": "#c08a3c", "dark": "#7c5522", "belly": "#e9d092", "accent": "#5a626e" }
+          {
+            "element": "wind",
+            "main": "#3c4454",
+            "dark": "#242a36",
+            "belly": "#5e6e84",
+            "accent": "#f0a032"
+          },
+          {
+            "element": "shadow",
+            "main": "#4a3d74",
+            "dark": "#2c2148",
+            "belly": "#7159a6",
+            "accent": "#ffd23f"
+          },
+          {
+            "element": "electric",
+            "main": "#c08a3c",
+            "dark": "#7c5522",
+            "belly": "#e9d092",
+            "accent": "#5a626e"
+          }
         ]
       }
     },
-
     {
       "id": "enemy:wild-sproutle",
       "schema": 1,
-      "name": { "key": "beast.sproutle.name" },
-      "tags": ["wild", "ground", "bondable"],
+      "name": {
+        "key": "beast.sproutle.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
       "data": {
         "model": "beast-sproutle",
         "flying": false,
@@ -322,19 +597,45 @@
         "radius": 0.42,
         "height": 0.85,
         "aggro": 8,
-        "capture": { "difficulty": 1 },
+        "capture": {
+          "difficulty": 1
+        },
         "variants": [
-          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" },
-          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" },
-          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" }
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          },
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          },
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          }
         ]
       }
     },
     {
       "id": "enemy:wild-boulderpup",
       "schema": 1,
-      "name": { "key": "beast.boulderpup.name" },
-      "tags": ["wild", "ground", "bondable"],
+      "name": {
+        "key": "beast.boulderpup.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
       "data": {
         "model": "beast-boulderpup",
         "flying": false,
@@ -345,19 +646,45 @@
         "radius": 0.5,
         "height": 0.85,
         "aggro": 9,
-        "capture": { "difficulty": 1.6 },
+        "capture": {
+          "difficulty": 1.6
+        },
         "variants": [
-          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" },
-          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" },
-          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" }
+          {
+            "element": "rock",
+            "main": "#9a6a42",
+            "dark": "#6b4628",
+            "belly": "#c99e6f",
+            "accent": "#e6ab7c"
+          },
+          {
+            "element": "rock",
+            "main": "#9a6a42",
+            "dark": "#6b4628",
+            "belly": "#c99e6f",
+            "accent": "#e6ab7c"
+          },
+          {
+            "element": "rock",
+            "main": "#9a6a42",
+            "dark": "#6b4628",
+            "belly": "#c99e6f",
+            "accent": "#e6ab7c"
+          }
         ]
       }
     },
     {
       "id": "enemy:wild-galebird",
       "schema": 1,
-      "name": { "key": "beast.galebird.name" },
-      "tags": ["wild", "flying", "bondable"],
+      "name": {
+        "key": "beast.galebird.name"
+      },
+      "tags": [
+        "wild",
+        "flying",
+        "bondable"
+      ],
       "data": {
         "model": "beast-galebird",
         "flying": true,
@@ -368,30 +695,646 @@
         "radius": 0.35,
         "height": 0.55,
         "aggro": 11,
-        "capture": { "difficulty": 1.8 },
+        "capture": {
+          "difficulty": 1.8
+        },
         "variants": [
-          { "element": "wind", "main": "#8fb8d8", "dark": "#5a7f9c", "belly": "#d6e9f6", "accent": "#f0d08a" },
-          { "element": "wind", "main": "#8fb8d8", "dark": "#5a7f9c", "belly": "#d6e9f6", "accent": "#f0d08a" },
-          { "element": "wind", "main": "#8fb8d8", "dark": "#5a7f9c", "belly": "#d6e9f6", "accent": "#f0d08a" }
+          {
+            "element": "wind",
+            "main": "#8fb8d8",
+            "dark": "#5a7f9c",
+            "belly": "#d6e9f6",
+            "accent": "#f0d08a"
+          },
+          {
+            "element": "wind",
+            "main": "#8fb8d8",
+            "dark": "#5a7f9c",
+            "belly": "#d6e9f6",
+            "accent": "#f0d08a"
+          },
+          {
+            "element": "wind",
+            "main": "#8fb8d8",
+            "dark": "#5a7f9c",
+            "belly": "#d6e9f6",
+            "accent": "#f0d08a"
+          }
         ]
       }
     },
-
+    {
+      "id": "enemy:wild-emberfox",
+      "schema": 1,
+      "name": {
+        "key": "beast.emberfox.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-emberfox",
+        "flying": false,
+        "hp": 40,
+        "atk": 9,
+        "speed": 3.0,
+        "xp": 15,
+        "radius": 0.35,
+        "height": 1.0,
+        "aggro": 9,
+        "capture": {
+          "difficulty": 1.4
+        },
+        "variants": [
+          {
+            "element": "fire",
+            "main": "#ff8a3d",
+            "dark": "#c9531c",
+            "belly": "#ffd9a8",
+            "accent": "#3a1a08"
+          },
+          {
+            "element": "fire",
+            "main": "#ff8a3d",
+            "dark": "#c9531c",
+            "belly": "#ffd9a8",
+            "accent": "#3a1a08"
+          },
+          {
+            "element": "fire",
+            "main": "#ff8a3d",
+            "dark": "#c9531c",
+            "belly": "#ffd9a8",
+            "accent": "#3a1a08"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-sparkit",
+      "schema": 1,
+      "name": {
+        "key": "beast.sparkit.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-sparkit",
+        "flying": false,
+        "hp": 36,
+        "atk": 9,
+        "speed": 3.2,
+        "xp": 15,
+        "radius": 0.3,
+        "height": 0.62,
+        "aggro": 9,
+        "capture": {
+          "difficulty": 1.5
+        },
+        "variants": [
+          {
+            "element": "electric",
+            "main": "#ffe04f",
+            "dark": "#d9a91c",
+            "belly": "#fff6bd",
+            "accent": "#3a2f08"
+          },
+          {
+            "element": "electric",
+            "main": "#ffe04f",
+            "dark": "#d9a91c",
+            "belly": "#fff6bd",
+            "accent": "#3a2f08"
+          },
+          {
+            "element": "electric",
+            "main": "#ffe04f",
+            "dark": "#d9a91c",
+            "belly": "#fff6bd",
+            "accent": "#3a2f08"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-umbrakit",
+      "schema": 1,
+      "name": {
+        "key": "beast.umbrakit.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-umbrakit",
+        "flying": false,
+        "hp": 42,
+        "atk": 10,
+        "speed": 3.1,
+        "xp": 17,
+        "radius": 0.3,
+        "height": 0.8,
+        "aggro": 10,
+        "capture": {
+          "difficulty": 1.7
+        },
+        "variants": [
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-graveborn",
+      "schema": 1,
+      "name": {
+        "key": "beast.graveborn.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-graveborn",
+        "flying": false,
+        "hp": 70,
+        "atk": 12,
+        "speed": 2.2,
+        "xp": 22,
+        "radius": 0.35,
+        "height": 1.84,
+        "aggro": 10,
+        "capture": {
+          "difficulty": 2.0
+        },
+        "variants": [
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-graveback",
+      "schema": 1,
+      "name": {
+        "key": "beast.graveback.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-graveback",
+        "flying": false,
+        "hp": 88,
+        "atk": 14,
+        "speed": 2.0,
+        "xp": 26,
+        "radius": 0.5,
+        "height": 1.15,
+        "aggro": 10,
+        "capture": {
+          "difficulty": 2.2
+        },
+        "variants": [
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-frostwing",
+      "schema": 1,
+      "name": {
+        "key": "beast.frostwing.name"
+      },
+      "tags": [
+        "wild",
+        "flying",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-frostwing",
+        "flying": true,
+        "hp": 38,
+        "atk": 9,
+        "speed": 3.4,
+        "xp": 16,
+        "radius": 0.45,
+        "height": 0.92,
+        "aggro": 9,
+        "capture": {
+          "difficulty": 1.7
+        },
+        "variants": [
+          {
+            "element": "ice",
+            "main": "#a8e4ff",
+            "dark": "#5ba9d6",
+            "belly": "#e6f7ff",
+            "accent": "#123244"
+          },
+          {
+            "element": "ice",
+            "main": "#a8e4ff",
+            "dark": "#5ba9d6",
+            "belly": "#e6f7ff",
+            "accent": "#123244"
+          },
+          {
+            "element": "ice",
+            "main": "#a8e4ff",
+            "dark": "#5ba9d6",
+            "belly": "#e6f7ff",
+            "accent": "#123244"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-lumimoth",
+      "schema": 1,
+      "name": {
+        "key": "beast.lumimoth.name"
+      },
+      "tags": [
+        "wild",
+        "flying",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-lumimoth",
+        "flying": true,
+        "hp": 30,
+        "atk": 7,
+        "speed": 3.6,
+        "xp": 14,
+        "radius": 0.36,
+        "height": 0.66,
+        "aggro": 8,
+        "capture": {
+          "difficulty": 1.6
+        },
+        "variants": [
+          {
+            "element": "light",
+            "main": "#ffe9a8",
+            "dark": "#d6b45b",
+            "belly": "#fff8dd",
+            "accent": "#3f3316"
+          },
+          {
+            "element": "light",
+            "main": "#ffe9a8",
+            "dark": "#d6b45b",
+            "belly": "#fff8dd",
+            "accent": "#3f3316"
+          },
+          {
+            "element": "light",
+            "main": "#ffe9a8",
+            "dark": "#d6b45b",
+            "belly": "#fff8dd",
+            "accent": "#3f3316"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-drakelet",
+      "schema": 1,
+      "name": {
+        "key": "beast.drakelet.name"
+      },
+      "tags": [
+        "wild",
+        "flying",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-drakelet",
+        "flying": true,
+        "hp": 95,
+        "atk": 15,
+        "speed": 3.2,
+        "xp": 30,
+        "radius": 0.45,
+        "height": 1.15,
+        "aggro": 11,
+        "capture": {
+          "difficulty": 2.2
+        },
+        "variants": [
+          {
+            "element": "dragon",
+            "main": "#8f6fd8",
+            "dark": "#5b3fa8",
+            "belly": "#cbb4f2",
+            "accent": "#241640"
+          },
+          {
+            "element": "dragon",
+            "main": "#8f6fd8",
+            "dark": "#5b3fa8",
+            "belly": "#cbb4f2",
+            "accent": "#241640"
+          },
+          {
+            "element": "dragon",
+            "main": "#8f6fd8",
+            "dark": "#5b3fa8",
+            "belly": "#cbb4f2",
+            "accent": "#241640"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-aquaxol",
+      "schema": 1,
+      "name": {
+        "key": "beast.aquaxol.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-aquaxol",
+        "flying": false,
+        "hp": 48,
+        "atk": 9,
+        "speed": 2.5,
+        "xp": 16,
+        "radius": 0.48,
+        "height": 0.76,
+        "aggro": 8,
+        "capture": {
+          "difficulty": 1.5
+        },
+        "variants": [
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-rivotter",
+      "schema": 1,
+      "name": {
+        "key": "beast.rivotter.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-rivotter",
+        "flying": false,
+        "hp": 42,
+        "atk": 8,
+        "speed": 2.9,
+        "xp": 15,
+        "radius": 0.42,
+        "height": 0.82,
+        "aggro": 8,
+        "capture": {
+          "difficulty": 1.4
+        },
+        "variants": [
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-coralback",
+      "schema": 1,
+      "name": {
+        "key": "beast.coralback.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-coralback",
+        "flying": false,
+        "hp": 66,
+        "atk": 11,
+        "speed": 2.1,
+        "xp": 20,
+        "radius": 0.62,
+        "height": 0.9,
+        "aggro": 8,
+        "capture": {
+          "difficulty": 1.8
+        },
+        "variants": [
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enemy:wild-snapclaw",
+      "schema": 1,
+      "name": {
+        "key": "beast.snapclaw.name"
+      },
+      "tags": [
+        "wild",
+        "ground",
+        "bondable"
+      ],
+      "data": {
+        "model": "beast-snapclaw",
+        "flying": false,
+        "hp": 60,
+        "atk": 12,
+        "speed": 2.4,
+        "xp": 19,
+        "radius": 0.5,
+        "height": 0.94,
+        "aggro": 9,
+        "capture": {
+          "difficulty": 1.9
+        },
+        "variants": [
+          {
+            "element": "rock",
+            "main": "#b9a68c",
+            "dark": "#7d6d57",
+            "belly": "#e0d3bd",
+            "accent": "#2e2619"
+          },
+          {
+            "element": "rock",
+            "main": "#b9a68c",
+            "dark": "#7d6d57",
+            "belly": "#e0d3bd",
+            "accent": "#2e2619"
+          },
+          {
+            "element": "rock",
+            "main": "#b9a68c",
+            "dark": "#7d6d57",
+            "belly": "#e0d3bd",
+            "accent": "#2e2619"
+          }
+        ]
+      }
+    },
     {
       "id": "music:overworld",
       "schema": 1,
-      "tags": ["area", "start"],
+      "tags": [
+        "area",
+        "start"
+      ],
       "data": {
-        "tracks": ["overworld"],
+        "tracks": [
+          "overworld"
+        ],
         "fallback": false
       }
     },
     {
       "id": "music:default",
       "schema": 1,
-      "tags": ["fallback"],
+      "tags": [
+        "fallback"
+      ],
       "data": {
-        "tracks": ["overworld"],
+        "tracks": [
+          "overworld"
+        ],
         "fallback": true
       }
     }
