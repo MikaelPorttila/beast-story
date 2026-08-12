@@ -93,9 +93,9 @@ repository links out of the panel: the repo is private, and
 - Write TypeScript / TS code in a respectable way and don't write code like a Python dev.
 - Avoid one-line functions that are just casting wrappers.
 - `any` creates harm, Inferred types create value.
-- Tests are good! Enless smoke tests, "regression tests"
- for feature deletions, ect much less good. Tests should be focused, not slop.
-- Comments are a great way to clarify functionality and how code is used. Don't comment evbery line, but feel free to describe (concisely) how functions are used above function definitions, classes, ect.
+- Tests are good! Enless smoke tests, "regression tests" for feature deletions and etc are much less good. Tests should be focused, not slop. Tests must ran fast.
+- Comments are a great way to clarify functionality and how code is used. Don't comment every line, but feel free to describe (concisely) how functions are used above function definitions, classes, ect.
+- Comments MUST be kept short and ADHD friendly.
 - Keep comments up to date! When making changes, it's important to keep things in sync.
 
 ## Testing
@@ -112,6 +112,7 @@ readings.
   new probe to its `SOLO` or `PARALLEL` set or `all` will skip it. **SOLO is the
   default**; only a probe that drives no hero and measures no motion belongs in
   `PARALLEL`.
+- A test may not run longer than 1 minute, if the test require a mock or tooling to match time budget feel free to create such.
 - `bun tools/test-zfight.mjs` needs no dev server: it builds every rig and
   settlement part in headless three.js and finds coincident faces. Run it after
   touching any model builder.
@@ -402,8 +403,6 @@ Content is DATA; the engine implements reusable BEHAVIOUR.
 - **Part the voxel grid at a joint** so two parts of one body never share a face
   plane; glow pieces go through `GLOW_PART`. Verify with `test-zfight`, then
   look at a capture.
-- **Tuned constants carry their rationale.** Change a value and update its
-  comment with what you measured; keep the history.
 - Everything added to the scene has a matching `dispose()` path.
 - Curated captures in `shots/` are tracked; scratch names (`_*`, `r<n>-*`,
   `c<n>-*`, `cur-*`) are gitignored.
