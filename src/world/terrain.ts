@@ -1,7 +1,5 @@
-/**
- * Terrain height + biome authority. Pure functions of (seed, x, z) so
- * collision queries agree exactly with the rendered voxel columns.
- */
+/** Terrain height + biome authority. Pure functions of (seed, x, z), so
+ * collision queries agree exactly with the rendered voxel columns. */
 import { Noise2D, WaveField } from './noise';
 import type { RimHit } from './roads';
 
@@ -11,40 +9,14 @@ const SLOPE_RUN = 4;
 export const WATER_LEVEL = 8;
 export const CHUNK_SIZE = 32;
 
-/**
- * How far under the surface water stops being somewhere you can swim.
- *
- * THE DEEP SEA IS A DEPTH, NOT A PLACE, and that is the whole design: there is
- * no offshore rectangle to author, no boundary to keep in sync with the mesh,
- * and no way for the rule the player meets to disagree with the water he sees —
- * the shader darkens on the same number (see water.ts DEEP), the bed goes to
- * UW_ABYSS on it, and `World.isDeepWater` is one compare against the same
- * heightfield everything else stands on. "What you see is what you stand on, by
- * construction", pointed at the one surface you cannot stand on.
- *
- * FOUR UNITS, measured. On seed 1337 over a 2400-unit box that is 4.8% of the
- * map and 40% of all water, so every real bay keeps a swimmable shelf and the
- * open basins go dark; at 3 it took two thirds of the water and the shallows
- * stopped being a place, at 5 it left disconnected puddles of it. The hero
- * floats 1.15 under the surface and dives to 3.4 (player/index.ts), so a
- * four-unit column is also the first one whose BED he could not reach anyway.
- */
+/** Where water stops being swimmable. A DEPTH, NOT A PLACE: shader, bed colour
+ * and `World.isDeepWater` all compare the same heightfield. 4 is the first depth
+ * whose bed the hero cannot reach (he dives to 3.4). */
 export const DEEP_WATER_DEPTH = 4;
-/** Highest column top that still counts as deep sea. See DEEP_WATER_DEPTH. */
 export const DEEP_WATER_TOP = WATER_LEVEL - DEEP_WATER_DEPTH;
 
-/**
- * 'trampled' is not a climate — it is the yard of a SETTLEMENT, and it is a
- * biome for one reason: `props.ts` dispatches its whole vegetation scatter off
- * this enum, so a column that reports 'trampled' grows nothing without a single
- * new test anywhere in that file. See `GroundPatch`.
- *
- * 'deepwater' is not a climate either, and it is split off 'underwater' for the
- * same dispatch reason turned the other way round: the two lake beds want
- * different colour and different scatter (reeds root in a shallow, nothing
- * roots four units down), and a caller that only wants "is this wet" has
- * `isWater` already.
- */
+/** 'trampled' and 'deepwater' are biomes because `props.ts` dispatches its
+ * whole scatter off this enum, so they need no new tests there. */
 export type BiomeId =
   'plains' | 'forest' | 'beach' | 'desert' | 'snow'
   | 'underwater' | 'deepwater' | 'trampled';
@@ -59,34 +31,9 @@ export interface FlattenDisc {
 }
 
 /**
- * TRODDEN GROUND — the ground a settlement has worn out, as a colour field.
- *
- * A town is already three things stacked on the same coordinates (a flatten
- * disc, a prop exclusion and a merged mesh — see towns.ts); this is the fourth,
- * and it is the one that makes the other three read as a place people live in
- * rather than a model dropped on a lawn. Months of feet do two things to
- * ground: they kill the grass, and they leave a surface that is dry packed
- * earth where the traffic is heaviest and churned mud everywhere else.
- *
- * DECLARED HERE, LIKE `FlattenDisc`, AND FOR THE SAME REASON: terrain knows
- * there are *patches*, towns.ts knows what a Terrain is, and neither imports
- * the other's implementation. Every field is derivable from a `TownInfo`, so a
- * fourth entry in `SITES` gets trodden ground with no new code.
- *
- * WHY IT IS A COLOUR PATCH AND NOT A MESH. The road solves the same problem
- * with a RIBBON — a strip of geometry on the terrain material, drawn over the
- * carriageway (town-parts.ts `buildRoadRibbon`) — and that is right for a road,
- * whose surface is a graded deck the terrain underneath is deliberately NOT.
- * A camp yard is not a deck: it is the ground itself, at the ground's own
- * height, with the ground's own 1-unit steps and corner AO. Baking it into
- * `columnInfo` instead costs no geometry, no draw call and no material, and it
- * arrives with every one of the mesher's existing tricks (per-cube churn, the
- * curvature read, the litter picks) already applied to it.
- *
- * COST. `trampleAt` runs in `columnInfo` — chunk build, ~1156 columns a chunk —
- * and NEVER in `heightCont`/`getHeight`, which are on the collision hot path.
- * A world has a handful of patches and each is rejected by one squared-distance
- * compare, so a column outside every settlement pays three compares.
+ * A settlement's worn yard as a colour field in `columnInfo`, not a ribbon, so
+ * it inherits the mesher's churn, curvature and litter. Declared here like
+ * `FlattenDisc` so the dependency runs one way. Never on the collision path.
  */
 export interface GroundPatch {
   x: number;
@@ -97,81 +44,31 @@ export interface GroundPatch {
   edge: number;
   /** How worn the ground is away from any beaten track, 0..1. */
   base: number;
-  /**
-   * WHERE THE BEATEN TRACKS WENT. They were four numbers each in a flat
-   * `Float32Array` here, and only this file could see them — so no placer in
-   * the world knew a camp had a thoroughfare down the middle of it, and grass
-   * grew straight through it.
-   *
-   * They are paths in the network now (`trackProfile`, world/path-profile.ts),
-   * indexed beside the roads and answering the same clearance queries, and
-   * `trampleAt` asks `RoadField.wearAt` for the number this used to compute.
-   * Issue #142. What stays here is what is genuinely a property of the
-   * SETTLEMENT rather than of a line across it: how worn its yard is between
-   * the tracks, where that fades, and whether it churns to mud.
-   */
-  /**
-   * Bias toward damp mud rather than dry packed earth, 0..1. A military camp
-   * churns; a farming hamlet mostly wears its grass thin.
-   */
+  /** Bias toward damp mud over dry packed earth, 0..1. The beaten tracks live
+   * in the path network (issue #142), read via `RoadField.wearAt`. */
   damp: number;
 }
 
 /**
- * The carved-road corridor, as the height field sees it.
- *
- * Declared HERE rather than imported from world/roads.ts so the dependency runs
- * one way: terrain knows there is *a* road field, roads.ts knows what a Terrain
- * is, and neither module has to import the other's implementation. Same reason
- * `flattens` is a plain array of discs rather than a reference to the shop
- * system that fills it.
- *
- * Two questions, because a road changes the ground in two different ways:
- *
- *  - `carveAt` is the EARTHWORKS. It answers "how strongly is the terrain here
- *    pulled toward the roadbed, and to what height" and is folded into
- *    `heightCont` alongside the flatten discs, so the cut through a hillside and
- *    the embankment across a dip are real terrain that the mesher, the props and
- *    every other height query see for free.
- *  - `surfaceAt` is the DECK. The carriageway is a CONTINUOUS surface — the
- *    whole point of carving a road is that you can walk it, and a floored
- *    integer column can only ever step a whole unit, which MAX_STEP_UP (0.5)
- *    refuses. So on the road, and only on the road, `getHeight` hands back the
- *    smooth deck height instead of the stepped column, and ramps back onto the
- *    column over a two-unit verge so there is no step at the edge either.
+ * The road corridor as the height field sees it; declared here, not imported
+ * from roads.ts, so the dependency runs one way. `carveAt` is the EARTHWORKS,
+ * folded into `heightCont`. `surfaceAt` is the DECK: a floored column steps a
+ * whole unit, which MAX_STEP_UP (0.5) refuses.
  */
 export interface RoadField {
-  /**
-   * Carve weight 0..1 at (x, z); the target height is left in `carveTarget`,
-   * which is only meaningful when the return value is > 0. Split that way to
-   * keep the query allocation-free on the collision hot path.
-   */
+  /** Carve weight 0..1; target height in `carveTarget`, meaningful only when
+   * the return is > 0. Split to stay allocation-free on the hot path. */
   carveAt(x: number, z: number): number;
   readonly carveTarget: number;
   /** The walking surface: `ground` off the road, the deck (or verge ramp) on it. */
   surfaceAt(x: number, z: number, ground: number): number;
-  /**
-   * The same, for the surface that is DRAWN rather than walked on — it reaches
-   * a little past each terminal plane, where the carve deliberately does not.
-   * See `RoadNetwork.drawnSurfaceAt`.
-   */
+  /** The DRAWN surface, which reaches past each terminal plane as carve does not. */
   drawnSurfaceAt(x: number, z: number, ground: number): number;
-  /**
-   * The lowest drawn corridor surface within `r` of (x, z). For a coarse mesh
-   * that has to stay under a path narrower than its own sample spacing — see
-   * `RoadNetwork.lowestDrawnSurfaceNear`.
-   */
+  /** Lowest drawn corridor surface within `r` — for a mesh coarser than a path. */
   lowestDrawnSurfaceNear(
     x: number, z: number, r: number, ground: number, rim?: RimHit,
   ): number;
-  /**
-   * How walked the ground at (x, z) is, 0..1 — the colour of packed dirt.
-   *
-   * A settlement's beaten tracks are paths in the network like any other (issue
-   * #142), and painting is the one thing they do that a carriageway does not.
-   * `trampleAt` reads it. A `columnInfo` query and never a collision one, which
-   * is the same budget the track scan it replaces always had.
-   */
+  /** How walked the ground is, 0..1. A `columnInfo` query, never a collision one. */
   wearAt(x: number, z: number): number;
 }
 
@@ -181,20 +78,8 @@ export interface RGB {
   b: number;
 }
 
-/**
- * sRGB -> linear transfer. Terrain vertex colours are written straight into a
- * BufferAttribute, which three.js consumes as LINEAR values, so a hex literal
- * has to be decoded the same way `THREE.Color.setHex` would.
- *
- * This used to be a bare /255, i.e. sRGB numbers fed in as linear. Every ground
- * colour then came out roughly `c^(1/2.2)` too bright and desaturated —
- * 0x54c832 grass rendered as #99E67A pale mint — which is precisely why the
- * meadows read as flat mint slabs no matter how much value noise was piled on
- * top: the palette was sitting in the compressed top end of the transfer curve
- * where nothing has contrast left. It also put the terrain on a different
- * colour convention from every prop and creature (VoxelModel goes through
- * THREE.Color, which converts), so ground and trees never matched.
- */
+/** sRGB -> linear. Vertex colours go into a BufferAttribute, which three.js
+ * consumes as LINEAR, so hex must decode as `THREE.Color.setHex` does. */
 const s2l = (c: number): number =>
   c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 
@@ -204,50 +89,15 @@ const rgb = (hex: number): RGB => ({
   b: s2l((hex & 255) / 255),
 });
 
-// -- Palette (vibrant Cube World grading) -----------------------------------
-// Authored as sRGB hex, exactly as they would be picked in an image editor;
-// `rgb()` above converts. Sun (2.55) + hemisphere fill land these at roughly
-// 0.9x, so what you pick is close to what you get before the grade.
-// The greens all carry a RED AND BLUE FLOOR now, and that is a measured fix, not
-// a taste change. At 0x54c832 the red channel is 0.0885 LINEAR; the mesher then
-// runs a saturation link that can push chroma out by another 30%, and the critic
-// sampled sunlit grass tops at rgb(0, 112, 3) and rgb(1, 106, 12) — literally no
-// red left. A surface with a zero red channel cannot receive the sun's 0xffebbe
-// warmth or the sky's blue fill, so the entire warm-key/cool-shadow scheme the
-// engine is built around was being discarded on the single largest surface in the
-// game, and every grass pixel in the world collapsed onto one hue.
-//
-// 0x54c832 -> 0x6ec84a raises red 0.0885 -> 0.154 and blue 0.0319 -> 0.0684
-// without touching green, so the hue barely moves (it is still a clean mid green)
-// but there is now headroom for the light to tint it. Same treatment for the warm
-// and forest stops.
+// sRGB hex; `rgb()` converts. Greens carry a RED AND BLUE FLOOR: the mesher's
+// saturation link pushes chroma out 30%, and zero red takes no warm sun key.
 const PLAIN_GRASS = rgb(0x6ec84a);
 const WARM_GRASS = rgb(0xa8cf55);
 const FOREST_GRASS = rgb(0x53a742);
-/**
- * Two LANDFORM-scale grass stops the plain/warm/forest blend is pulled toward
- * after the fact, driven by altitude rather than by noise.
- *
- * The colour survey's headline was that the world has six hues total — one green,
- * one sand, one rock, one water, one sky, one trunk — and that Cube World re-tints
- * its ground per biome and per elevation. Everything the meadow varied by until
- * now was a noise field, and noise cannot know where the landforms are: a hillside
- * and the valley floor beside it got statistically identical grass, so a vista had
- * no colour structure at the only scale a vista reads at.
- *
- * UPLAND is a cool, desaturated sage — what grass looks like on thin, exposed,
- * wind-scoured ground approaching the treeline. LUSH is the deep wet green of a
- * valley bottom near standing water. They are blended by height, so a single frame
- * that contains a shore, a meadow and a ridge now contains three greens that a
- * squint can separate.
- */
+/** Two LANDFORM stops pulled in by ALTITUDE — noise cannot know where hills are. */
 const UPLAND_GRASS = rgb(0x7f9e66);
 const LUSH_GRASS = rgb(0x3d9e3d);
-// Sands are two steps darker than they were. At 0xefdca6 the beach sat so high
-// on the ACES curve that nothing applied to it survived to the screen — the
-// per-cube jitter, the litter and the slope shading all compressed into one
-// beige, and a shoreline could fill a third of a frame with a single value.
-// Dropping the base leaves room for all three to read.
+// Two steps down from 0xefdca6, which sat so high on ACES it lost all detail.
 const BEACH_SAND = rgb(0xdfc891);
 const DESERT_SAND = rgb(0xd0ad63);
 const SNOW = rgb(0xf2f7fd);
@@ -256,39 +106,13 @@ const DIRT_COLD = rgb(0x8d7a6f);
 const DIRT_SAND = rgb(0xc7a468);
 const UW_SAND = rgb(0xd9c68f);
 const UW_DEEP = rgb(0x587a70);
-/**
- * The abyss floor, and the reason it is a third stop rather than pushing
- * UW_DEEP darker: UW_DEEP is what the SHALLOWS ramp toward and it is tuned to
- * stay a readable silted green under a metre of turquoise. Four units down the
- * bed is barely lit at all, and a bed that is still green under the dark water
- * above it is what makes deep water read as a paint job rather than as depth.
- * Cold and desaturated, so the eye reads distance and not a different material.
- */
+/** A third bed stop: UW_DEEP is tuned to read as silted green under a metre of
+ * turquoise, which under the abyss's dark water looks like a paint job. */
 const UW_ABYSS = rgb(0x223a45);
 /**
- * TRODDEN SETTLEMENT GROUND, two stops: earth beaten dry and hard along the
- * lines people walk, and the dark churned mud that gathers everywhere else.
- *
- * Picked in the ROAD's colour family (town-parts.ts: RUT 0x6b5843 under the
- * wheels, EARTH 0x8a7a60, GRAVEL 0x9a8f79 at the verge) and deliberately NOT in
- * the terrain's own DIRT 0x9a6a42, which is a red subsoil for cliff faces. The
- * carved road runs THROUGH the gate and into the camp, so the ribbon's verge
- * and the camp's own ground are adjacent surfaces a couple of metres apart: a
- * red-brown yard against a grey-brown road would draw exactly the seam this
- * treatment exists to remove. 0x8e7c5a sits between the road's EARTH and its
- * GRAVEL, so the gate line is a change of texture rather than of hue.
- *
- * The mud is DARK — under a third of the earth's luminance. Sun (3.05) plus the
- * hemisphere fill land these near 0.9x, so a yard blotched between them carries
- * a 3:1 value spread, which is what makes it read as churned rather than as one
- * flat brown plate — the whole failure mode a single dirt colour has.
- *
- * Both are two steps DOWN from the first pass (0x8e7c5a / 0x4f3d2c), which
- * captured (_camp-ground.png) as a pale olive-khaki rather than as earth: at
- * that value the yard sat above the road ribbon it is supposed to meet, so the
- * gate showed the seam the palette was chosen to hide, and the residual green
- * left by a wear of 0.92 tinted the whole thing toward moss. The camp's wear is
- * now a flat 1.0 as well, so no grass survives in the mix to do that.
+ * Trodden ground, two stops. In the ROAD's colour family (town-parts.ts EARTH /
+ * GRAVEL), not the terrain's red DIRT: the ribbon runs through the gate, and a
+ * hue change there would draw the seam this exists to hide.
  */
 const TRAMPLED_EARTH = rgb(0x83704e);
 const TRAMPLED_MUD = rgb(0x463626);
@@ -296,9 +120,7 @@ export const STONE: RGB = rgb(0x8f9096);
 export const STONE_WARM: RGB = rgb(0xc09a67);
 
 export interface ColumnScratch {
-  /** Integer top surface world-y (top face sits exactly at this y) */
   h: number;
-  /** Continuous height before flooring */
   hc: number;
   topR: number;
   topG: number;
@@ -308,21 +130,10 @@ export interface ColumnScratch {
   dirtB: number;
   /** 0..1 blend toward warm sandstone strata in cliffs */
   stoneWarm: number;
-  /**
-   * 0..1 "this column is vegetated grass". The mesher gates its curvature
-   * tinting and clover litter on this so sand, snow and lake beds never sprout
-   * meadow detail.
-   */
+  /** 0..1 vegetated grass; gates the mesher's curvature tint and clover litter. */
   grass: number;
-  /**
-   * 0..1 "a settlement has worn this column out" — see `GroundPatch`.
-   *
-   * A CONTINUUM rather than the `biome` boolean, and both exist for the same
-   * reason `snowCoverAt` is a continuum: the wear fades over several metres at
-   * the edge of a town, and that ring is where the world stops being a camp and
-   * starts being a meadow again. `biome` flips to 'trampled' only in the worn
-   * heart, so the prop passes have this to thin the sward out with on the way.
-   */
+  /** 0..1 settlement wear. A CONTINUUM, unlike the 'trampled' biome, so the
+   * prop passes can thin the sward across a town's fading rim. */
   trample: number;
   biome: BiomeId;
 }
@@ -355,33 +166,15 @@ function mix(out: RGB, a: RGB, b: RGB, t: number): void {
 export class Terrain {
   readonly seed: number;
   readonly flattens: FlattenDisc[] = [];
-  /**
-   * The settlements' trodden yards. Filled by `planSettlements` in the same
-   * pass that pushes the flatten discs, and empty in a world with no towns
-   * (`towns=0`) or in the dungeon.
-   */
+  /** Filled by `planSettlements`; empty with `towns=0` or in the dungeon. */
   readonly grounds: GroundPatch[] = [];
 
-  /**
-   * The road corridor, or null in a world that has no roads.
-   *
-   * Assigned once by `createWorld` after the routes are planned, and never
-   * reassigned — the routes are planned by asking THIS terrain for its natural
-   * heights, so the field has to be absent while that happens and present
-   * forever after. Public and mutable rather than a constructor argument for
-   * exactly that ordering reason; `flattens` is filled the same way.
-   */
+  /** The road corridor, or null. Mutable, not a constructor argument, for
+   * ordering: routes are planned off THIS terrain's natural heights. */
   roads: RoadField | null = null;
 
-  /**
-   * Ground-colour drift field. Public because the chunk mesher bakes a
-   * landform-scale value wash into vertex colours and must draw from the same
-   * seeded field rather than inventing a grid of its own.
-   *
-   * A WaveField, not a Noise2D, for the reason spelled out at WaveField's
-   * declaration: every colour field this world ever put on a lattice ended up
-   * filed as a chequerboard.
-   */
+  /** Ground-colour drift; public so the mesher shares the seeded field. A
+   * WaveField, not Noise2D — a lattice reads as a chequerboard. */
   readonly groundW: WaveField;
 
   /** Landform-scale meadow HUE drift (moss <-> sun-bleached), ~30 units. */
@@ -390,26 +183,8 @@ export class Terrain {
   private readonly patchW: WaveField;
   /** Near-cube-frequency surface tooth, ~3 units. */
   private readonly toothW: WaveField;
-  /**
-   * RUT-scale churn for trodden ground, ~7 units, and the reason it is its own
-   * field rather than more of `toothW`.
-   *
-   * The first pass drove the camp's churn off `toothW` at ±9% and captured
-   * (_camp-ground.png) as an unmistakable one-cube chequerboard — the artefact
-   * this file's history keeps rediscovering, arrived at from a new direction.
-   * `toothW` is deliberately built with five waves at a 1.47 ratio from
-   * 2.05 rad/unit, so its top harmonic is 9.6 rad/unit: a 0.65-unit wavelength,
-   * BELOW cube frequency, which aliases into a chequer the moment it is sampled
-   * at cube centres with real amplitude. At ±3% that is invisible and the field
-   * earns its keep; at ±9% it is the grid.
-   *
-   * This one is built the other way round on purpose: four waves at 1.35 from
-   * 0.85 rad/unit, so the coarsest feature is ~7.4 units and the FINEST is
-   * still 3.0 — above cube frequency by a factor of three, with nothing in the
-   * spectrum that can alias however hard it is driven. Seven units is also the
-   * scale a churned yard actually varies at: a cart rut, a puddle, the patch in
-   * front of a tent door.
-   */
+  /** RUT-scale churn, ~7 units. Its own field because `toothW`'s top harmonic
+   * is below cube frequency and aliases into a chequer when driven hard. */
   private readonly churnW: WaveField;
 
   private readonly continentN: Noise2D;
@@ -425,7 +200,6 @@ export class Terrain {
   private readonly tmpA: RGB = { r: 0, g: 0, b: 0 };
   private readonly tmpB: RGB = { r: 0, g: 0, b: 0 };
 
-  /** Filled by `trampleAt`; see there. Never read from outside this class. */
   private trampleTrack = 0;
   private trampleDamp = 0;
 
@@ -440,10 +214,7 @@ export class Terrain {
     this.plateauN = new Noise2D(this.seed + 1013);
     this.shelfN = new Noise2D(this.seed + 1123);
     this.scarpN = new Noise2D(this.seed + 1229);
-    // Base frequencies are radians per world unit: 2*PI/f is the coarsest
-    // feature size. 0.21 -> ~30 units, 0.45 -> ~14 units, 2.05 -> ~3 units
-    // (just above cube frequency, where a field stops being a readable shape and
-    // becomes surface tooth). Each gets its own seed so the three cannot align.
+    // Base frequency is radians per world unit; each field gets its own seed.
     this.groundW = new WaveField(this.seed + 1279, 0.28);
     this.hueW = new WaveField(this.seed + 1381, 0.21);
     this.patchW = new WaveField(this.seed + 1487, 0.45);
@@ -456,162 +227,35 @@ export class Terrain {
     const c = this.continentN.fbm(x * 0.0045, z * 0.0045, 4);
     let h = 9.2 + c * 10.5;
     h += this.hillN.fbm(x * 0.02, z * 0.02, 3) * 2.6;
-    // Fine relief — the change that makes the ground read as Cube World rather
-    // than as a lawn.
-    //
-    // Everything above is smooth at a scale of 50+ units, so `floor()` produced
-    // enormous single-height plateaus: shots of the near meadow showed 10x10
-    // voxel expanses at exactly one y. On a flat plateau every column's eight
-    // neighbours are level, so the mesher's corner AO evaluates to "fully open"
-    // everywhere and bakes nothing at all — which is why the grass kept reading
-    // as flat mint slabs no matter how the colour was tuned. Cube World's ground
-    // steps by one block every few metres, and it is the AO in those steps that
-    // gives its meadows their tooth.
-    //
-    // Two samples, not one: a single value-noise field at this frequency lays its
-    // lattice diamonds straight into the landform, and a repeating diamond bump
-    // pattern would be a worse artefact than the one it fixes. Unrelated
-    // frequencies (~12 and ~27 units) on offset origins break it up. Combined
-    // amplitude is +-0.45 — under half a voxel, so it adds scattered single-block
-    // steps and gentle swells and never a wall the hero has to climb.
-    //
-    // The relief is DAMPED to a quarter under water. A lake bed is a silted plain,
-    // not a bumpy meadow, and more to the point the water shader's colour ramp is a
-    // steep function of depth: +-0.45 units of bed ripple at a 12-unit wavelength
-    // turned into pale/dark colour bands marching across every bay, which is
-    // exactly the "soft concentric arcs that read as map contour lines" finding
-    // reappearing from a completely different cause. Flattening the bed removes
-    // the input rather than flattening the ramp, which would have cost the depth
-    // gradient that the same finding also asked for.
+    // Fine relief: without it `floor()` makes huge plateaus where corner AO
+    // bakes nothing. Two unrelated frequencies, or a lattice's diamonds print
+    // into the landform. DAMPED under water — bed ripple bands the depth ramp.
     const fine =
       this.hillN.sample(x * 0.084 + 91.3, z * 0.084 - 44.7) * 0.29 +
       this.hillN.sample(z * 0.037 - 12.9, x * 0.037 + 61.1) * 0.16;
     h += fine * (0.25 + 0.75 * smoothstep(WATER_LEVEL - 1, WATER_LEVEL + 3, h));
-    // Ridges: wide gate + higher mask frequency so most vistas contain a
-    // ridgeline instead of an endless pancake. Cube World's identity is the
-    // dramatic vertical read, so the multiplier and the ceiling both go up.
+    // Ridges: wide gate + high mask frequency so most vistas hold a ridgeline.
     const mk = smoothstep(-0.10, 0.32, this.maskN.fbm(x * 0.0042, z * 0.0042, 3));
     if (mk > 0) {
       const rd = this.ridgeN.ridged(x * 0.009, z * 0.009, 4);
-      // A HIGHLAND term rides on top of the existing ridge, gated by a smoothstep
-      // that is exactly zero for all but the top few percent of the field.
-      //
-      // The silhouette survey's landform finding was that a 300-unit view spans
-      // about 8 units of relief and "no cliff, ridge, mesa or peak exists
-      // anywhere". The obvious fix — raise the ridge exponent — was tried and
-      // captured first, and it is a trap: `ridged` averages about 0.49 here, so
-      // rd^3*88 replaces 13.9 units of typical relief with 10.4, the whole map
-      // sinks a couple of units, and in _tw2-b-vista.png the entire foreground
-      // meadow dropped below the beach threshold (smoothstep(11.6, 9.7, hc)) and
-      // came out as one beige expanse. Everything in this world is placed on the
-      // plains; the plains must not move.
-      //
-      // So the term is additive and gated instead. Below rd 0.62 — which is most
-      // of the map — it contributes exactly nothing and heights are bit-identical
-      // to before. At rd 0.81 it adds 21 units, at 0.92 it adds 33 and the 78-unit
-      // ceiling starts to clip. That turns the rare strong ridge into an actual
-      // peak with a skyline, and leaves the meadow, the shoreline and the spawn
-      // basin untouched.
+      // The highland term is ADDITIVE and gated to the top few percent: raising
+      // the ridge exponent instead sank the map below the beach threshold.
       h += mk * (rd * rd * 58 + smoothstep(0.62, 0.95, rd) * 34);
     }
-    // Mesas: a broad plateau field. One cheap value-noise sample (not fbm) —
-    // heightCont is on the collision hot path.
-    //
-    // The 4m quantise used to be global, which terraced EVERY hill — gentle
-    // meadow swells came out as wedding cakes and the whole silhouette read as
-    // stair-stepped. Mesas are a HIGHLAND feature, so the quantise is gated
-    // behind the ridge mask: inside a range you get flat-topped tables with
-    // hard cliff edges, out on the plains the same field contributes a smooth
-    // (unquantised, gentler) swell.
+    // Mesas. `sample`, not fbm — hot path. The 4m quantise is gated behind the
+    // ridge mask; globally it terraced every meadow swell into a wedding cake.
     const pl = this.plateauN.sample(x * 0.0022, z * 0.0022) * 0.5 + 0.5;
     const mesa = smoothstep(0.55, 0.75, pl) * 14;
     if (mesa > 0) {
       if (mk > 0.45) h += Math.round(mesa * 0.25) * 4;
       else h += mesa * 0.6;
     }
-    // ---- shelves and scarps: macro form for the NEAR ground -----------------
-    //
-    // Measured before this term, over a fixed 128x128 patch of low ground:
-    // 98.9% of every riser in it was exactly ONE unit, 1.1% were two, and NOT
-    // ONE column in the whole area (16 chunks) carried a face of three or more.
-    // That is the "everything inside ~60 units is uniform 1-block staircase
-    // terracing at even increments — it reads as noise, not landform" finding,
-    // arithmetically: a smooth height field put through `floor()` can only ever
-    // produce 1-unit risers, because a gradient gentle enough to look like a
-    // meadow crosses one integer at a time. Every landform this world had —
-    // ridges, mesas, peaks — lives at 0.0022..0.009 rad/unit, i.e. 100+ units
-    // across, so it is BACKGROUND by construction and the foreground got the
-    // fine relief and nothing else.
-    //
-    // The fix is not another quantiser over the whole field. The comment on the
-    // mesa above says why: quantising globally terraces every gentle swell into
-    // a wedding cake. What is added instead is a pair of RAISED PLATEAUX with
-    // near-vertical rims, sampled at scales the near field can actually contain,
-    // and each one is a `smoothstep` over a deliberately NARROW band rather than
-    // a floor():
-    //
-    //  - `shelf`, ~48-unit cells, over a 0.0075-wide band of the field. Value
-    //    noise at that cell size runs about 0.013 of field per world unit, so
-    //    the rim climbs its full height across a bit over half a unit of ground
-    //    and floors into a 2-, 3- or 4-unit riser. The threshold sits at the
-    //    82nd percentile of the field, so it raises ~16% of dry land: grassy
-    //    benches ten to twenty metres across, the size class the near ground was
-    //    missing entirely.
-    //  - `scarp`, ~77-unit cells, 88th percentile (~10% of dry land) and half
-    //    again as tall, so a chunk neighbourhood usually contains one real cliff.
-    //
-    // Both heights are MODULATED by a third field at ~26-unit cells, which is
-    // finer than either plateau. That is the part that matters most and it is
-    // not decoration: multiplied by a constant, a thresholded field raises a
-    // cylinder with the same sheer rim all the way round, and a ring of cliff is
-    // a wall whichever way you approach it. Modulated, each bench is a WEDGE —
-    // 1.6 units of rim on one flank and 5.6 on the other, with its top sloping
-    // between — so every raised area has a low side you can jump up and the
-    // tabletop carries its own 1-block terracing instead of being a machined
-    // plate.
-    //
-    // WHY THIS DOES NOT WALL THE PLAYER IN. Both are ISLANDS, not contour lines.
-    // A quantised field steps along its iso-lines, which run unbroken for
-    // hundreds of units and would fence the map; thresholding one instead raises
-    // the closed region ABOVE the threshold, which is a blob you walk around.
-    // MAX_STEP_UP is 0.5 and the jump apex is 1.61 (player/index.ts), so the
-    // tall side of a rim is genuinely impassable on foot and is meant to be —
-    // it is CLIMBABLE (CLIMB_MIN_RISE 1.2) and a ground mount clears the 1-unit
-    // terraces around it.
-    //
-    // The traversal cost was measured, not assumed. Over 240 random dry starts
-    // in a fixed 500-unit box, walking a straight line under the player's own
-    // step rule: WITHOUT jumping the median run is 5.0 units before and 5.0
-    // after — unchanged, because a 1-unit terrace already stopped him. WITH
-    // jumps the median goes 74.8 -> 49.5 units and the mean 136.6 -> 79.1. In
-    // the running game (sprinting 8 s on each of eight bearings) the same
-    // comparison is ~32 -> ~25 units of mean displacement. So a jumping run now
-    // meets something it has to go round or climb roughly every fifty metres
-    // instead of every seventy-five, which is the "a few per chunk
-    // neighbourhood is drama" line rather than the maze on the other side of it.
-    //
-    // Over the same fixed 128x128 low-ground patch the risers now read 95.4% at
-    // one unit, 3.5% at two and 1.2% at three or more (0 columns before, 22
-    // after); columns standing 2+ above their own four-neighbour minimum go from
-    // 0.6% of the land to 3.0%. One knock-on worth knowing about: `findSpawn`
-    // rejects any column whose eight probes at radius 4 differ by more than 2,
-    // so the world's spawn point moves — for seed 1337 from (-63, 35) to
-    // (38, -79). Nothing depends on the old coordinates; the dens, the gate and
-    // the flatten discs are all placed relative to whatever it picks.
-    //
-    // Both are damped to nothing at the waterline for the same reason `fine` is:
-    // a shelf rim standing out of a lagoon is a wall of grass in the surf, and
-    // the water shader's depth ramp turns any bed relief into contour banding.
-    // The ramp is `WATER_LEVEL + 0.6 .. + 2.2`, i.e. fully off until 60cm of dry
-    // land and fully on by 2.2 — every lake bed and the tide line itself are
-    // bit-identical to before, while the dry beach above them can carry a bench.
-    //
-    // COST. Three more `Noise2D.sample` calls on the collision hot path, against
-    // the fourteen this function already spends in three fbm chains and a ridged
-    // multifractal. Timed at a million calls, `getHeight` goes 255 ns -> 305 ns,
-    // i.e. +20% of a function that a frame calls a few hundred times: about
-    // 15 microseconds of a 7.8 ms frame. Sampled, not fbm'd, for exactly this
-    // reason — the same rule the mesa term above follows.
+    // Shelves and scarps: macro form for the NEAR ground, which otherwise has
+    // only the 1-unit risers a smooth field through `floor()` can make.
+    // THRESHOLDED, not quantised — thresholding raises closed ISLANDS you walk
+    // around, where iso-line steps would fence the map. Heights MODULATED by a
+    // finer field so each bench is a WEDGE with a low side you can jump up.
+    // Damped at the waterline, as `fine` is: bed relief becomes contour banding.
     const dry = smoothstep(WATER_LEVEL + 0.6, WATER_LEVEL + 2.2, h);
     if (dry > 0) {
       const shf = this.shelfN.sample(x * 0.021, z * 0.021) * 0.5 + 0.5;
@@ -620,35 +264,10 @@ export class Terrain {
       h += dry * (smoothstep(0.716, 0.7235, shf) * (1.6 + ramp * 4.0)
         + smoothstep(0.880, 0.887, scf) * (2.0 + ramp * 4.4));
     }
-    // ---- the deep sea: the same idea run downward ---------------------------
-    //
-    // The shelf term above exists because a smooth field put through `floor()`
-    // can only make 1-unit risers, so the near ground had no landform. The lake
-    // bed had the opposite problem and it is arithmetic, not taste: base height
-    // is 9.2 + c * 10.5 with c an fbm that rarely leaves +-0.5, so a flooded
-    // column sat 1 to 3 units under the surface and the world's deepest water
-    // anywhere was 7. Measured over a 2400-unit box on seed 1337, 12.0% of
-    // columns were water and only 0.77% of them were 5 units down or more —
-    // i.e. there was no OPEN SEA in this world, only bays, and a rule about
-    // water you cannot swim across would have had nowhere to apply.
-    //
-    // So the sea floor drops away from the shore, gated on how far under the
-    // waterline the column already is. `wet` is zero on every dry column (88%
-    // of the map pays one compare and nothing else), reaches 1 about three
-    // units down, and — the point — never touches the tide line, where the
-    // shore chamfer, the wet-sand apron and the water shader's four-stop ramp
-    // are all tuned against the heights they have today.
-    //
-    // MODULATED, for the same reason the shelf rims are: multiplied by a
-    // constant, this would sink every bay by the same amount and the abyss
-    // would be a bowl with a machined floor. `plateauN` at ~1800-unit cells
-    // (already constructed, one extra `sample` on water columns only) picks
-    // which basins go deep, so a lake in a shallow region keeps a bed you can
-    // stand on and an offshore basin drops past swimming depth.
-    //
-    // `columnHeight` floors at 1, so the deepest possible water is 7 whatever
-    // this term does; the drop is chosen so a typical basin lands at 4-6 and
-    // only the strongest few percent bottom out. See DEEP_WATER_TOP.
+    // The deep sea, the same idea downward: base height left no column more
+    // than 1-3 under, so there was no OPEN SEA. Gated on existing depth, so it
+    // never touches the tide line the chamfer and water ramp are tuned against.
+    // MODULATED, or every bay sinks alike into a machined bowl.
     const wet = smoothstep(WATER_LEVEL - 0.4, WATER_LEVEL - 3.0, h);
     if (wet > 0) {
       const basin = this.plateauN.sample(x * 0.0035 + 57.1, z * 0.0035 - 88.3) * 0.5 + 0.5;
@@ -664,10 +283,8 @@ export class Terrain {
         h += (f.h - h) * w;
       }
     }
-    // Roads LAST, after the flatten discs, so a road running into a town is cut
-    // through whatever the town levelled rather than fighting it. The two agree
-    // anyway — a road's end height is where the town takes its own level from —
-    // but the order makes that an invariant instead of a coincidence.
+    // Roads LAST, after the flatten discs, so a road into a town is cut through
+    // whatever the town levelled rather than fighting it.
     const rf = this.roads;
     if (rf !== null) {
       const w = rf.carveAt(x, z);
@@ -677,47 +294,19 @@ export class Terrain {
   }
 
   /**
-   * Integer top surface of the column containing cell (cx, cz).
-   *
-   * INTEGER, and an attempt to make it otherwise is why that is spelled out. A
-   * version of this clipped a column to the lowest corridor surface its own
-   * cell touched, to stop a cube corner standing through the ribbon where a
-   * road crosses the voxel grid at an angle. It works as arithmetic and it
-   * tears holes in the ground: the mesher emits a side face from the height
-   * DIFFERENCE between neighbouring columns and every quad it builds assumes
-   * whole units, so a fractional top left black gaps along the verge. The
-   * corner case is handled on the drawing side instead — see `subdivide` and
-   * the rim note in town-parts.ts.
-   *
-   * AND CLIPPING TO A WHOLE UNIT IS WORSE, which was the obvious next idea. It
-   * draws correctly and it puts a 1.0 STEP on the carriageway where a clipped
-   * cell meets an unclipped one, against a `MAX_STEP_UP` of 0.5 — a wall the
-   * hero cannot walk over, in the middle of the surface the whole corridor
-   * exists to make walkable. A visible cube corner is a worse picture; a wall
-   * is a worse game. `tools/test-road-lab.mjs` holds both numbers so the trade
-   * is made with them in front of you.
+   * Integer top surface of the column at (cx, cz), and it must stay INTEGER:
+   * a fractional top tears black gaps along the verge (side quads assume whole
+   * units), and clipping to a whole unit puts a 1.0 step on the carriageway
+   * against MAX_STEP_UP 0.5. Cube corners are handled when drawing instead.
    */
   columnHeight(cx: number, cz: number): number {
     const h = Math.floor(this.heightCont(cx + 0.5, cz + 0.5));
     return h < 1 ? 1 : h;
   }
 
-  /**
-   * Collision authority: stepped, and matching the rendered voxels exactly —
-   * EXCEPT on a road, where it is the continuous deck and matches the road
-   * ribbon instead.
-   *
-   * That exception is the entire point of carving a road. Flooring the height
-   * means every ledge in the world is a whole unit, and MAX_STEP_UP refuses all
-   * of them, so a road built out of terrain columns would be a staircase. The
-   * corridor hands back a smooth surface and ramps it back onto the (levelled)
-   * shoulder over the verge, so a walk down a road meets no step at all in
-   * either direction — see roads.ts.
-   *
-   * Still pure, still allocation-free, and still the single answer everything in
-   * the game resolves against: beasts, enemies, drops and the camera walk the
-   * bridge over the lake for free, without any of them knowing what a bridge is.
-   */
+  /** Collision authority: stepped, matching the voxels — EXCEPT on a road, where
+   * it is the continuous deck, since whole-unit columns would be a staircase
+   * MAX_STEP_UP refuses. Everything in the game resolves against this. */
   getHeight(x: number, z: number): number {
     const g = this.columnHeight(Math.floor(x), Math.floor(z));
     const rf = this.roads;
@@ -725,26 +314,10 @@ export class Terrain {
   }
 
   /**
-   * HOW STEEP THE GROUND IS AT (x, z) — rise over run, so 0.5 is one in two.
-   *
-   * Issue #142 §14 asks for this by name, and §11e explains why nothing could
-   * be built without it: there is no MOUNTAIN biome. `BiomeId` is plains,
-   * forest, beach, desert, snow, underwater, deepwater, trampled — "mountain"
-   * is SLOPE and ALTITUDE, and snow is an altitude proxy at best (a snowy flat
-   * is not a mountain). Three things need the same answer and would otherwise
-   * each guess: a trail router deciding where it must switchback, a stair
-   * placer deciding where treads are needed, and the material pick deciding
-   * whether a step is cut stone or a log.
-   *
-   * CONTINUOUS, not stepped. `heightCont` rather than `getHeight`, because the
-   * question is about the landform and the floored column would report every
-   * gentle slope as a staircase of vertical walls and level shelves.
-   *
-   * A central difference over `SLOPE_RUN` either way, which is a compromise the
-   * callers all share: shorter and it reads the fine relief (±0.45 over ~12
-   * units, so a two-unit run reports 0.2 of slope on a flat meadow), longer and
-   * it averages a cliff away. 4 is a couple of hero-widths and about the length
-   * of one stair flight.
+   * Rise over run, so 0.5 is one in two. There is no MOUNTAIN biome — it is
+   * slope and altitude (issue #142 §11e). CONTINUOUS, or a floored column reads
+   * every gentle slope as a staircase; `SLOPE_RUN` 4 is the compromise between
+   * reading the fine relief and averaging a cliff away.
    */
   steepnessAt(x: number, z: number): number {
     const r = SLOPE_RUN;
@@ -754,25 +327,9 @@ export class Terrain {
   }
 
   /**
-   * How SNOW-COVERED this column is, 0..1 — `columnInfo`'s `snowW` on its own,
-   * without the colour work.
-   *
-   * The same number three ways: the weight the ground colour is mixed toward
-   * SNOW with, the gate (>0.5) that makes `biome` 'snow' and puts snow-capped
-   * pines in a chunk instead of oaks, and — the reason it is public — what a
-   * caller outside the mesher needs to ask "is the thing at this column under
-   * snow". Deliberately the CONTINUUM and not the biome boolean: the snow line
-   * is a 5-unit-tall smoothstep around an altitude that itself wanders 6 units
-   * with the temperature field, so half-covered ground is a real state the world
-   * spends a lot of area in, and a caller that wants a threshold can take one.
-   *
-   * Cost: one `heightCont` plus one fbm — about the same as `getHeight`, and an
-   * eighth of a `columnInfo`. Cheap enough for a per-contact query (the contact
-   * particles ask once per burst, not once per particle), not for a per-column
-   * loop that could have used `columnInfo` and got this for free.
-   *
-   * Takes CONTINUOUS world x/z, like `heightCont` and unlike `columnInfo`, whose
-   * arguments are cell indices.
+   * Snow cover 0..1 — `columnInfo`'s `snowW` alone, as a CONTINUUM: the snow
+   * line is a 5-unit smoothstep about a wandering altitude. Costs about a
+   * `getHeight`. Takes CONTINUOUS x/z, unlike `columnInfo`'s cell indices.
    */
   snowCoverAt(x: number, z: number): number {
     const hc = this.heightCont(x, z);
@@ -782,20 +339,9 @@ export class Terrain {
   }
 
   /**
-   * How worn a settlement has left the ground at (x, z), 0..1, with two
-   * by-products left in `trampleTrack` and `trampleDamp` for the caller that
-   * wants to colour it.
-   *
-   * Split that way — a return value plus two fields — for the same reason
-   * `RoadField.carveAt` leaves `carveTarget` behind: the three numbers come out
-   * of one scan and returning them together would mean allocating an object per
-   * column. `trampleTrack` is the wear from the beaten tracks ALONE, before the
-   * rim fade, and it is what tells the colour which columns are packed dry road
-   * and which are the mud between.
-   *
-   * NOT for the collision path. This is a `columnInfo` query (chunk build); the
-   * ground a settlement stands on is levelled by an ordinary `FlattenDisc`, and
-   * how it is COLOURED is no business of `getHeight`.
+   * Settlement wear 0..1, leaving `trampleTrack` (track wear alone, which tells
+   * dry road from mud) and `trampleDamp` behind so one scan allocates nothing.
+   * A `columnInfo` query only, never the collision path.
    */
   trampleAt(x: number, z: number): number {
     let best = 0;
@@ -807,19 +353,10 @@ export class Terrain {
       const dz = z - p.z;
       const d2 = dx * dx + dz * dz;
       if (d2 >= p.edge * p.edge) continue;
-      // THE TRACKS, from the path network — the same index the carriageways
-      // are in, because a beaten track IS a path and used to be the one kind
-      // nothing outside this file could see (issue #142; see `GroundPatch`).
-      // Soft-edged: a footpath has no kerb, so it is full strength over its
-      // middle and gone at the rim, which is exactly what a profile's
-      // `deckHalf` and `deckEdge` are. `RoadNetwork.wearAt` does that.
-      //
-      // Asked once and not once per track, so a settlement with nine of them
-      // costs one bucket scan where it used to cost nine segment tests.
+      // The tracks, from the path network (issue #142). Asked once for the whole
+      // settlement: one bucket scan rather than a test per track.
       const track = this.roads === null ? 0 : this.roads.wearAt(x, z);
-      // The rim. Wear does not stop on a circle — from the air that is exactly
-      // what a settlement must not look like — so everything above is faded out
-      // over the several metres between `fade` and `edge`.
+      // Wear must not stop on a circle, so fade it between `fade` and `edge`.
       const rim = 1 - smoothstep(p.fade, p.edge, Math.sqrt(d2));
       const w = (track > p.base ? track : p.base) * rim;
       if (w > best) {
@@ -854,23 +391,9 @@ export class Terrain {
 
     const tA = this.tmpA;
     const tB = this.tmpB;
-    // Meadow HUE mottling rather than value. A ~30-unit field slides the grass
-    // between the cool forest green and the warm yellow-green, which is what
-    // stops a Cube World field from looking like painted card — and, crucially,
-    // it is the mottling that CAN be pushed hard without the ground reading as
-    // tiled. Value differences between neighbouring flat faces are what the eye
-    // resolves as a chequer; a hue drift over thirty units reads as terrain.
-    // Amplitude is up (0.42 -> 0.56) precisely because most of the VALUE
-    // variation below has been cut.
-    //
-    // TWO scales of hue, not one. The ~30-unit field alone is a smooth gradient
-    // across a whole hillside, and in a vista (_tw-r6-vista.png) a hillside is
-    // twenty metres of frame — so the meadow reads as one wash with a slow ramp
-    // across it, which is not what a Cube World field looks like. The ~14-unit
-    // patch field, until now spent entirely on a ±2.5% value wash, is added to the
-    // same blend at roughly half the weight: at fourteen cubes across it is far too
-    // coarse to interact with the cube grid, so it costs nothing in chequer risk
-    // and buys visible patches of yellow-green sitting in deeper green.
+    // Meadow HUE mottling, not value: hue over tens of units reads as terrain
+    // where value between flat faces resolves as a chequer. TWO scales, or the
+    // ~30-unit field is one slow wash across a whole hillside.
     const hueDrift = this.hueW.sample(x, z);
     const patchHue = this.patchW.sample(x, z);
     mix(tA, PLAIN_GRASS, WARM_GRASS, clamp01(warmT + hueDrift * 0.56 + patchHue * 0.30));
@@ -878,41 +401,22 @@ export class Terrain {
       forestF * 0.85 + Math.max(-hueDrift, 0) * 0.42 + Math.max(-patchHue, 0) * 0.22,
     ));
 
-    // ---- landform-scale grass structure ------------------------------------
-    // Altitude tint. `lowW` runs up as a column approaches the water table,
-    // `altW` as it climbs toward the snow line, and both are functions of the
-    // TERRAIN, so a hillside and the valley under it can never come out the same
-    // green however the noise falls. This is the answer to "the world has six
-    // hues total" and to "the entire right 60% of the squinted frame is
-    // undifferentiated green mush": at a squint the vista now reads as a dark
-    // valley floor, a mid meadow and a pale ridge.
+    // Altitude tint, a function of the TERRAIN rather than noise, so a hillside
+    // and the valley under it can never come out the same green.
     const lowW = smoothstep(14.5, 9.5, hc);
     const altW = smoothstep(16, snowLine - 3, hc);
     mix(tA, tA, LUSH_GRASS, lowW * 0.42);
     mix(tA, tA, UPLAND_GRASS, altW * 0.62);
-    // Regional richness, off the ~250-unit moisture field that already decides
-    // where forest goes. Dry country bleaches its sward pale and dusty, wet
-    // country deepens it — ±11% of value at the scale of a whole valley, which is
-    // far too coarse to interact with the cube grid and so carries no chequer
-    // risk at all. It is the cheapest landform-scale variation available: the fbm
-    // is already sampled for `forestF`.
+    // Regional richness off the ~250-unit moisture field already sampled for
+    // `forestF`: dry country bleaches its sward, wet country deepens it.
     const rich = 0.905 + smoothstep(-0.28, 0.30, moist) * 0.215;
     tA.r *= rich;
     tA.g *= rich;
     tA.b *= rich;
 
     mix(tB, BEACH_SAND, DESERT_SAND, clamp01(desertW * 1.5));
-    // DUNE-scale sand drift, ~30 units of value and ~14 units of warmth, reusing
-    // the two wave fields already sampled above.
-    //
-    // Sand had nothing but per-CUBE jitter, and that is the wrong scale for it:
-    // a pale desaturated surface has no hue for a per-cube jitter to ride on, so
-    // the jitter arrives as pure value and the eye resolves the cube grid as a
-    // chequer — filed by the life-and-detail survey as "a per-block two-tone
-    // chequer that reads as a texture-atlas debug grid". The fix is not less
-    // variation, it is variation at the scale of DUNES: ±8.5% of value over
-    // thirty units reads as a beach that undulates, and it frees the mesher to
-    // cut the per-cube value share (see chunk.ts) that was causing the grid.
+    // DUNE-scale sand drift, reusing fields already sampled. Sand has no hue for
+    // per-cube jitter to ride on, so per-cube value resolved as a chequer.
     const duneV = 1 + hueDrift * 0.085 + patchHue * 0.048;
     const duneW = patchHue * 0.062 - hueDrift * 0.038;
     tB.r *= duneV * (1 + duneW);
@@ -921,106 +425,52 @@ export class Terrain {
     mix(tA, tA, tB, sandW);
     mix(tA, tA, SNOW, snowW);
 
-    // Mid-scale patch value wash, ~14 units, ±2.5%. Small on purpose: this used
-    // to be a ±6% value-noise field and it was the single biggest contributor to
-    // the diamond plaid. Now that the field has no lattice it could carry more,
-    // but broad value drift is not what the ground was missing — hue was.
+    // Mid-scale patch value wash, ±2.5%. Small on purpose: at ±6% it was the
+    // biggest contributor to the diamond plaid, and hue is the lever anyway.
     const pm = 1 + patchHue * 0.025;
     tA.r *= pm;
     tA.g *= pm;
     tA.b *= pm;
 
-    // Surface tooth, ~3 units, ±3%. Just above cube frequency, so it never
-    // resolves into a shape; it just keeps two neighbouring cubes from ever
-    // being bit-identical. Halved from ±7% for the same reason as the patch
-    // field — at 3 units it was close enough to cube scale to read as a pattern.
+    // Surface tooth, ~3 units, ±3% — just above cube frequency, so it never
+    // resolves into a shape; it only stops two neighbours being identical.
     const tooth = this.toothW.sample(x, z);
     const dm = 1 + tooth * 0.03;
     tA.r *= dm;
     tA.g *= dm;
     tA.b *= dm;
 
-    // ---- trodden settlement ground ------------------------------------------
-    // Whatever this column would have been, a town has been standing on it. See
-    // `GroundPatch`; the arithmetic here is the whole difference between a camp
-    // floor and a brown dinner plate, so it is worth spelling out.
-    //
-    // MUD vs PACKED EARTH is a per-column blend, driven by four things that
-    // pull in different directions. Three of the fields are free — they are
-    // already sampled above for the meadow — and only `churnW` is new, and only
-    // for columns a settlement actually covers:
-    //
-    //  - `patchHue`, the ~14-unit field, at the largest weight. This is the one
-    //    that does the work: it puts puddle-sized blotches of dark churn in a
-    //    dry yard at exactly the scale a person walking through the camp reads
-    //    as "wet patch" rather than as "different biome".
-    //  - `hueDrift`, ~30 units, at half that, so one quarter of a big camp is
-    //    generally wetter than the other instead of the blotches being evenly
-    //    stirred.
-    //  - `churnW`, ~7 units, which is rut and puddle scale — the size a person
-    //    walking through the camp reads as one wet patch.
-    //  - the BEATEN TRACKS, negatively and hardest of all. Ground that is walked
-    //    every day is packed too hard to hold water: the gate-to-fire line and
-    //    the paths out to the huts come out pale and dry, which is what turns a
-    //    field of mud into a place with routes through it.
+    // Trodden ground. Mud vs packed earth blends three noise scales against the
+    // TRACKS negatively — daily traffic packs ground too hard to hold water.
     const wear = this.grounds.length > 0 ? this.trampleAt(x, z) : 0;
     if (wear > 0) {
-      // The ~7-unit churn field joins the two hue fields in choosing mud, so
-      // the wet patches come at three scales at once (quarter of a camp, a
-      // puddle, a rut) instead of one.
       const churn = this.churnW.sample(x, z);
-      // 0.75, not the 0.95 of the first pass. At 0.95 a track cleared the mud
-      // term outright, and with nine tracks radiating from the middle of a camp
-      // that left the whole central disc clamped at zero: measured over the
-      // 15x15 columns around the Encampment's centre the luminance ran 114-122
-      // out of 255 — an eight-value plateau, i.e. exactly the flat brown plate
-      // this is supposed to avoid, with all the mud pushed out to the wedges
-      // between the spokes. A cart track HAS ruts and ruts hold water; at 0.75
-      // roughly a third of the columns on a path still take some mud and the
-      // path stays clearly the drier surface.
+      // 0.75, not 0.95: at 0.95 nine tracks radiating from a camp centre cleared
+      // the mud term outright and the whole disc flattened to one brown plate.
       const mud = clamp01(
         this.trampleDamp + patchHue * 0.85 + hueDrift * 0.40 + churn * 0.55
         - this.trampleTrack * 0.75,
       );
       mix(tB, TRAMPLED_EARTH, TRAMPLED_MUD, mud);
-      // CHURN VALUE: ±17% at ~7 units, plus a small dust lift where the traffic
-      // packs the surface. Five times the meadow's per-cube share and safe at
-      // that amplitude precisely because it is NOT per-cube — see `churnW`. It
-      // needs to be that big to be seen at all: sRGB is a ~1/2.4 power of this,
-      // so ±17% of linear radiance is only about seven code values on screen.
+      // ±17% churn value. Safe at that amplitude because it is NOT per-cube, and
+      // it needs to be: sRGB is a ~1/2.4 power, so this is ~7 code values.
       const ch = 1 + churn * 0.17 + patchHue * 0.05 + tooth * 0.025
         + this.trampleTrack * 0.06;
       tB.r *= ch;
       tB.g *= ch;
       tB.b *= ch;
-      // COLOUR LEADS THE PROPS. `1 - (1 - wear)^2` rather than `wear`, so a
-      // half-worn column is 75% earth by colour while `out.trample` still culls
-      // its grass at 50%. That gap IS the reference picture: ground that has
-      // gone to bare earth with tussocks still standing on it, thinning as you
-      // walk in. Mixing on the raw weight instead left Redbriar Mill — a hamlet
-      // in a snowfield, so the most demanding case — reading as pale beige,
-      // because half of pure white is still nearly white.
+      // COLOUR LEADS THE PROPS: `1 - (1 - wear)^2` makes a half-worn column 75%
+      // earth while only half its grass is culled — bare ground with tussocks.
       mix(tA, tA, tB, wear * (2 - wear));
     }
 
-    // Lake bed, and — crucially — the damp strip just ABOVE the waterline. The
-    // cut used to be exactly at WATER_LEVEL, so a column whose continuous height
-    // landed a hair over it stayed full dry-beach brightness: sandbars sitting a
-    // few centimetres proud of a lagoon rendered as hard-edged tan slabs floating
-    // in the water, which is what got filed as "rectangular sand patches in the
-    // bay". Every shore has a darker, cooler wet band; ramping the bed colour in
-    // from 0.7 units above the surface gives it one, and the slabs read as
-    // sandbars instead of as artefacts.
+    // Lake bed, plus the damp strip 0.7 ABOVE the waterline: cutting exactly at
+    // WATER_LEVEL left sandbars a few centimetres proud as hard-edged tan slabs.
     if (hc < WATER_LEVEL + 0.7) {
       const d = smoothstep(-0.7, 6, WATER_LEVEL - hc);
       mix(tA, UW_SAND, UW_DEEP, d);
-      // ...and on into the abyss. The second ramp starts where the deep-sea
-      // rule does and is fully in a unit and a half further, so the bed goes
-      // dark across the same band the water above it goes dark across — the
-      // shader's DEEP_DARK ramp is the other half of this and shares its
-      // thresholds. Ramped rather than switched at the cut: a hard line on the
-      // bed would be visible through clear shallows as a drawn contour, which
-      // is the one artefact this whole file's history keeps rediscovering.
+      // Into the abyss, sharing thresholds with the shader's DEEP_DARK ramp.
+      // Ramped, not switched: a hard line reads as a drawn contour.
       const a = smoothstep(0, 1.6, DEEP_WATER_TOP + 0.7 - hc);
       if (a > 0) mix(tA, tA, UW_ABYSS, a);
     }
@@ -1036,40 +486,20 @@ export class Terrain {
     out.dirtB = tB.b;
 
     out.stoneWarm = clamp01(desertW * 1.3 + sandW * 0.3);
-    // Vegetated-grass weight: everything that isn't sand, snow, lake bed — or
-    // trodden into the ground by a settlement. Handing the wear to `grass` is
-    // what switches the mesher off the meadow treatment automatically: the
-    // curvature moss/bleach read, the clover-and-blade litter picks and the
-    // saturation link all gate on it, and a camp yard should have none of them.
-    // What it gets instead is the sparse-surface litter (grit, a dark pebble)
-    // and the smaller per-cube value share, which is the right texture for dirt.
+    // Folding wear into `grass` switches the mesher off the whole meadow
+    // treatment: curvature read, clover litter and saturation link all gate here.
     out.grass = hc < WATER_LEVEL + 0.3 ? 0
       : clamp01((1 - sandW) * (1 - snowW) * (1 - wear));
     out.trample = wear;
-    //
-    // The obvious reading of "ground is sticking through the road" is that the
-    // ground is too high, so the first fix was to clip a drawn column to the
-    // corridor surface over it. It changed nothing: 12 of 5297 samples either
-    // way, worst 0.146 either way. The ground was already right — every one of
-    // those samples was the RIBBON sagging, either a chord between two rings
-    // whose shoulders round to different integers (fixed in `sectionAt`) or the
-    // far clipmap chording over the whole corridor (fixed in
-    // distant-terrain.ts). A clamp here would have been cost on a per-column
-    // path buying a number that does not move.
+    // No clamp against the road surface: every sample sticking through was the
+    // RIBBON sagging (fixed in `sectionAt` and distant-terrain.ts).
     out.h = h;
     out.hc = hc;
-    // 0.6, not "any wear at all". The threshold is where props.ts stops
-    // thinning the sward and starts refusing it outright (see the cull there),
-    // and it has to sit inside the settlement rather than at its rim: measured
-    // on seed 1337 the Encampment's palisade stands at wear 0.84 and the apron
-    // outside the gate falls through 0.6 about two metres beyond it, so the
-    // ground is bare to the wall and the last tussocks survive just outside it.
+    // wear > 0.6 is where props.ts stops thinning the sward and refuses it, and
+    // it must sit inside the settlement: bare to the palisade, tussocks outside.
     out.biome =
-      // Deep first, so the two wet branches read in depth order and the shallow
-      // one keeps the meaning it always had: everything flooded that is not the
-      // abyss. `h`, not `hc` — `isDeepWater` compares the STEPPED column, and a
-      // biome that disagreed with the traversal rule by a fraction of a unit
-      // would put dark water you can swim in at the edge of every basin.
+      // `h`, not `hc`: `isDeepWater` compares the STEPPED column, and a
+      // fraction's disagreement puts swimmable dark water round every basin.
       h <= DEEP_WATER_TOP ? 'deepwater'
       : hc < WATER_LEVEL + 0.4 ? 'underwater'
       : wear > 0.6 ? 'trampled'

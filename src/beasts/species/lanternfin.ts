@@ -3,50 +3,32 @@ import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/
 import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
-// ---------------------------------------------------------------------------
-// Lanternfin — an anglerfish that came up out of the abyss with its lamp still
-// lit. The species the DEEP SEA was drawn for (see DEEP_WATER_DEPTH in
-// world/terrain.ts): a light-typed swimmer whose whole silhouette is a dark
-// mass with one bright point in front of it, which is the one shape that reads
-// against water the colour of ink.
-//
-// Voxel scale 0.1 (1 cell = 10 cm). Model faces +Z. Root origin at ground /
-// water level. Fish, not mammal — the tail beats HORIZONTALLY (rotY), which is
-// the opposite of Finnick's fluke and the difference between the two rigs.
-// ---------------------------------------------------------------------------
+// Lanternfin — anglerfish, drawn for the deep sea (DEEP_WATER_DEPTH in world/terrain.ts).
+// Voxel scale 0.1 (1 cell = 10 cm), faces +Z, root at water level. Fish, not mammal:
+// the tail beats horizontally (rotY), the opposite of Finnick's fluke.
 
 const S = 0.1;
 
-// Palette. Almost the whole animal is within a few percent of one very dark
-// blue-violet, and that is deliberate: the model has exactly two bright things
-// on it (the lure and the teeth), and every cell of coat that competes with
-// them costs the silhouette. The value range lives in the rim light.
-const HIDE = 0x2c2a44;      // deep blue-violet body
-const HIDE_LIT = 0x4e4a72;  // the one lit crest along the spine
+const HIDE = 0x2c2a44;
+const HIDE_LIT = 0x4e4a72;
 const HIDE_DARK = 0x17162a;
-const BELLY = 0x3d3a5c;     // barely lighter — this animal has no pale side
+const BELLY = 0x3d3a5c;
 const FIN = 0x393555;
-const FIN_EDGE = 0x6f68a0;  // translucent-looking fin rims
-const TOOTH = 0xf3f6ff;     // the needle teeth
-const MAW = 0x0c0b16;       // inside the mouth: the darkest cell on the model
+const FIN_EDGE = 0x6f68a0;
+const TOOTH = 0xf3f6ff;
+const MAW = 0x0c0b16;
 const IRIS = 0x0f0e1c;
 const SHINE = 0xdfe6ff;
-/**
- * The lure. EMISSIVE, and the intensity is 0.85 rather than the 1.5 default
- * `setEmissive` offers: a bloom pass runs over this, and the whole point of the
- * lamp is that it is a POINT. At full intensity the four cells bleed into one
- * soft blob the size of the head and stop reading as a light on a stalk —
- * exactly the warning eyes2x2 gives about a glowing iris, on a bigger part.
- */
 const LURE = 0xa9f6ff;
 const LURE_CORE = 0xffffff;
+// 0.85, not setEmissive's 1.5 default: under bloom the cells bleed into one blob
+// and the lamp stops reading as a point on a stalk.
 const LURE_GLOW = 0.85;
 const STALK = 0x3a3660;
 
-// Base pose constants (must match buildRig)
+// Must match buildRig
 const BODY_Y = 0.40;
 const HEAD_Z = 0.30;
-/** Rest angle of the lure stalk: arched up and forward over the brow. */
 const ROD_REST = -0.55;
 
 const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -54,18 +36,15 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
 const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
-/** Integrated cycle slots — see BeastAnimCtx.cycle(). */
-const GAIT = 0;   // the tail beat
-const ROD = 1;    // the lure's own bob, which never matches the tail
-const FINS = 2;   // pectoral flutter
+// Cycle slots — see BeastAnimCtx.cycle().
+const GAIT = 0;
+const ROD = 1;
+const FINS = 2;
 
 function makeTorso(): THREE.Mesh {
   const m = new VoxelModel();
-  // A TEARDROP POINTING BACKWARD: fattest right behind the head, tapering to a
-  // thin wrist. An anglerfish is nearly all head, and drawing the body as a
-  // uniform tube loses that in one step.
   m.ellipsoid(0, 2.8, 1.0, 3.2, 3.0, 3.6, HIDE);
-  m.ellipsoid(0, 2.4, -2.6, 1.6, 1.8, 2.4, HIDE);      // the wrist
+  m.ellipsoid(0, 2.4, -2.6, 1.6, 1.8, 2.4, HIDE);
   m.ellipsoid(0, 1.4, 0.8, 2.6, 1.6, 3.0, BELLY);
   shadeUnder(m, HIDE_DARK, -4, 4, 0, 2, -5, 5);
   rimTop(m, HIDE_LIT, -4, 4, 3, 7, -5, 5);
@@ -74,19 +53,14 @@ function makeTorso(): THREE.Mesh {
 
 function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
-  // Seven cells across — the widest face in the roster, and the reason this one
-  // can afford a two-cell eye where Aquaxol had to take one.
   m.ellipsoid(0, 2.6, 0, 3.4, 2.6, 2.8, HIDE);
-  m.box(-3, 1, 3, 3, 5, 3, HIDE);                       // the face plate
-  // The MAW: a wide dark band across the bottom of the face with a row of
-  // needle teeth standing in it. The band is painted BEFORE the teeth so the
-  // teeth survive; painted the other way round the mouth erased its own row and
-  // came out as a plain dark slot.
+  m.box(-3, 1, 3, 3, 5, 3, HIDE);
+  // Maw band goes down BEFORE the teeth, or it erases its own row.
   m.box(-3, 0, 3, 3, 1, 3, MAW);
   m.box(-3, 0, 4, 3, 0, 4, MAW);
   for (let x = -3; x <= 3; x += 2) {
-    m.set(x, 1, 4, TOOTH);                              // upper fangs, proud
-    m.set(x + 1, 0, 4, TOOTH);                          // lower, offset
+    m.set(x, 1, 4, TOOTH);
+    m.set(x + 1, 0, 4, TOOTH);
   }
   rimTop(m, HIDE_LIT, -3, 3, 2, 6, -3, 3);
   eyes2x2(m, {
@@ -96,17 +70,11 @@ function makeHead(): THREE.Mesh {
   return m.build(S, true);
 }
 
-/**
- * The illicium — the rod the lamp hangs from. Built with its pivot at the base
- * so the whole thing waves from the brow, and with the LAMP as its own bracket
- * so the emissive cells are contiguous.
- */
+/** The illicium; pivot at the base so it waves from the brow. */
 function makeRod(): THREE.Mesh {
   const m = new VoxelModel();
   for (let i = 0; i < 4; i++) m.set(0, i, 0, STALK);
-  // Four emissive cells and one white core. Bracketed in a region so the glow
-  // is one part of the model rather than five loose cells — the same thing the
-  // town lamps do with GLOW_PART, for the same reason.
+  // Region so the glow is one part, not five loose cells.
   m.region(() => {
     m.setEmissive(0, 5, 0, LURE, LURE_GLOW);
     m.setEmissive(-1, 5, 0, LURE, LURE_GLOW * 0.8);
@@ -117,7 +85,6 @@ function makeRod(): THREE.Mesh {
   return m.build(S, false);
 }
 
-/** The tail fan — a tall vertical blade, which is what makes it a fish. */
 function makeTail(): THREE.Mesh {
   const m = new VoxelModel();
   for (let y = -3; y <= 3; y++) {
@@ -128,7 +95,6 @@ function makeTail(): THREE.Mesh {
   return m.build(S, false);
 }
 
-/** The dorsal ridge — a low sail along the spine. */
 function makeDorsal(): THREE.Mesh {
   const m = new VoxelModel();
   for (let z = -3; z <= 2; z++) {
@@ -139,7 +105,7 @@ function makeDorsal(): THREE.Mesh {
   return m.build(S, false);
 }
 
-/** One pectoral fin. `dir` is +1 for the right side; painted, never scaled. */
+/** `dir` is +1 for the right side. */
 function makePectoral(dir: number): THREE.Mesh {
   const m = new VoxelModel();
   for (let i = 0; i <= 2; i++) {
@@ -168,9 +134,7 @@ function buildRig(): BeastRig {
   headMesh.position.set(0, -0.16, 0.02);
   head.add(headMesh);
 
-  // The rod hangs off the HEAD, not the body: the lamp has to stay in front of
-  // the mouth through every pose, and a rod parented to the torso swings out
-  // from behind the skull the moment the head turns.
+  // Rod parents to the HEAD: on the torso it swings out from behind the skull on a turn.
   const rod = new THREE.Group();
   rod.position.set(0, 0.20, 0.10);
   rod.rotation.x = ROD_REST;
@@ -231,15 +195,11 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   let rodX = 0, rodY = 0, rodZ = 0;
   let pSweep = 0, pLift = 0;
   let dorsalTilt = 0;
-  // The lure's own idle wobble: amplitude and rate, kept separate from every
-  // other frequency in the file so the lamp never nods in time with the tail.
+  // Kept off every other frequency here so the lamp never nods in time with the tail.
   let rodAmp = 0.14, rodFreq = 1.3;
 
   switch (ctx.action) {
     case 'idle': {
-      // Hanging in the water almost motionless with the lamp swinging — the
-      // entire hunting strategy of the animal, and the only idle in the roster
-      // where the beast is doing something to you rather than pottering.
       const hang = ctx.cycle(GAIT, 1.2);
       bsy = 1 + 0.026 * br;
       brx = 0.04 * Math.sin(hang);
@@ -257,15 +217,12 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     }
     case 'walk':
     case 'run': {
-      // FLOPPING. A fish out of water, and like Finnick it is deliberately
-      // graceless — but the failure mode is different and so is the animation:
-      // Finnick throws its whole body forward, Lanternfin is too head-heavy for
-      // that and simply thrashes on its side.
+      // Out of water: too head-heavy to flop forward like Finnick, so it thrashes flat.
       const isRun = ctx.action === 'run';
       const f = (isRun ? 5.5 : 4.0) + 2.4 * ms;
       const ph = ctx.cycle(GAIT, f);
       const thrash = Math.sin(ph);
-      brz = 0.42 * thrash;                               // lies over on a flank
+      brz = 0.42 * thrash;
       bry = 0.16 * Math.sin(ph * 0.5);
       bpy += 0.09 * Math.abs(thrash);
       bpx = 0.04 * Math.sin(ph * 0.5 - 0.6);
@@ -274,8 +231,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       hry = 0.14 * Math.sin(ph - 0.7);
       tby = 0.55 * Math.sin(ph - 0.6);
       tty = 0.70 * Math.sin(ph - 1.3);
-      // The lamp swings wildly because nothing is holding it steady — this is
-      // the one gait where the rod is passive.
       rodAmp = 0.45;
       rodFreq = f;
       rodZ = -0.30 * thrash;
@@ -286,9 +241,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     }
     case 'swim':
     case 'fly': {
-      // Sculling. The tail sweeps side to side, the tip trailing it, and the
-      // body yaws a little against the stroke — a fish, and the exact opposite
-      // plane to Finnick's fluke.
       const f = 2.8 + 3.4 * ms;
       const ph = ctx.cycle(GAIT, f);
       tby = (0.34 + 0.24 * ms) * Math.sin(ph);
@@ -298,9 +250,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bpy += 0.035 * Math.sin(ph * 0.5);
       brx = -0.03;
       hry = -0.07 * Math.sin(ph + 0.4);
-      // The rod stays STILL while the animal moves under it. That is the whole
-      // trick of an angler: the lamp is bait, and bait that swings with the
-      // swimmer is obviously attached to something.
+      // Rod holds still while the body moves under it — bait that swings reads as attached.
       rodAmp = 0.10;
       rodFreq = 1.1;
       rodX = 0.06 * Math.sin(ph * 0.25);
@@ -311,8 +261,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'attack': {
-      // The gulp. Head-first, jaw wide, and the rod snaps BACK out of the way —
-      // the lure is bait, and an angler does not eat its own lamp.
+      // Rod snaps back out of the way: an angler does not eat its own lamp.
       const wind = smooth(phase(at, 0, 0.13));
       const lunge = ezOut(phase(at, 0.13, 0.26));
       const rec = smooth(phase(at, 0.4, 0.78));
@@ -332,9 +281,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'cast': {
-      // The lamp is the spell. Everything else holds still and the rod comes
-      // forward and DOWN to present it, pulsing on two mismatched sines so the
-      // light reads as building rather than blinking.
       const rise = ezOut(clamp01(at / 0.4));
       const pulse = 0.5 * Math.sin(t * 12) + 0.5 * Math.sin(t * 18.5);
       brx = -0.28 * rise;
@@ -351,9 +297,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'special': {
-      // A flat spin on the spot with the lamp trailing it — a ring of light,
-      // which is the one thing a single emissive point can draw in the air.
-      // About Y, so the lure stays in the horizontal plane where it is visible.
+      // Spin about Y so the lamp traces its ring in the horizontal plane.
       const T = 0.85;
       const k2 = clamp01(at / T);
       const spin = Math.sin(Math.PI * k2);
@@ -362,9 +306,9 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bry = Math.PI * 4 * smooth(k2);
       bpy += 0.20 * spin;
       bsy = 1 - 0.12 * settle;
-      brz = 0.30 * spin;                                 // banks into the turn
+      brz = 0.30 * spin;
       rodX = 0.5 * spin;
-      rodZ = 0.55 * spin;                                // the lamp flung wide
+      rodZ = 0.55 * spin;
       rodAmp = 0.30;
       rodFreq = 11;
       tby = 0.7 * Math.sin(at * 14) * spin;
@@ -381,8 +325,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bpy -= 0.05 * d;
       brz = 0.12 * Math.sin(at * 34 + 1) * d;
       hrx = -0.24 * d;
-      // The lamp folds back over the skull, which is the one gesture that reads
-      // as this animal flinching: the bright thing goes away.
       rodX = -0.9 * d;
       rodAmp = 0.04;
       tby = 0.4 * Math.sin(at * 30) * d;
@@ -393,8 +335,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'happy': {
-      // Bobbing, with the lamp drawing figure-eights overhead. The rod does the
-      // emoting because the face cannot — it is a mouth full of needles.
       const hf = 4.5;
       const bob = Math.abs(Math.sin(at * hf));
       bpy += 0.14 * bob;
@@ -425,9 +365,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   p.pectR.rotation.set(0, -0.4 + pSweep, -0.25 - pLift);
   p.pectL.rotation.set(0, 0.4 - pSweep, 0.25 + pLift);
 
-  // The rod, on its own integrated cycle so the lamp's wobble is never a
-  // harmonic of the tail beat. `rodX`/`rodY`/`rodZ` are what the action asked
-  // for; the wobble rides on top of all three.
+  // Own cycle slot so the wobble is never a harmonic of the tail beat.
   const rw = ctx.cycle(ROD, rodFreq);
   p.rod.rotation.set(
     ROD_REST + rodX + rodAmp * Math.sin(rw),
@@ -497,9 +435,7 @@ export const species: BeastSpecies = {
   descriptionKey: 'beast.lanternfin.desc',
   element: 'light',
   locomotion: 'swimming',
-  // The second pure swimmer, and it trades Finnick's speed for reach: 17.9 u/s
-  // in water against 21.8, with four more attack and three more defense. On
-  // land LAND_FLOP takes it to 5.7, under a walk — which is the joke.
+  // 17.9 u/s in water against Finnick's 21.8, 5.7 on land after LAND_FLOP.
   baseStats: { maxHp: 56, attack: 13, defense: 9, speed: 5.6 },
   skills: skills.map((s) => s.id),
   buildRig,

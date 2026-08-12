@@ -12,33 +12,10 @@ import { ThirdPersonCamera } from './camera';
 import { HeroAnimator, type AttackState } from './animations';
 import { DustSystem } from './dust';
 
-// -- tuning ----------------------------------------------------------------
 const WALK_SPEED = 6;
 const SPRINT_MULT = 1.6;
 const SWIM_SPEED = 3.4;
-/**
- * DIVING, and the three numbers it needs. Hold C (pad B) to swim down.
- *
- * The key is the one that already means "go down" — `MountController` reads the
- * same `KeyC` to make a flyer descend, and core/gamepad.ts already maps the B
- * face to it, so the control a player learns on a galebird is the control that
- * works in a lake. No new binding, and ui/keybinds.ts's row already covers it.
- *
- * `DIVE_ACCEL` fights the buoyancy rather than switching it off, so the hero
- * still bobs at the surface for the first moment and sinks once the key has been
- * held — which is what tells you the water is pushing back. Terminal speed is
- * SWIM_SPEED, so going down is exactly as fast as going along and the depth you
- * reach is legible from how long you have held it.
- *
- * `SWIM_RISE_MAX` is the one that is not obvious, and it is the reason diving
- * needs a change to the ASCENT at all. Buoyancy was an unclamped spring toward
- * the float line: at the 1.15 units the hero used to be able to reach it pulls
- * at 10 units/s^2, but the lake bed is 4 units down in places, and from there
- * the same spring pulls at 36 and surfaces him at 10 units/s — three times swim
- * speed, straight up, like a cork. Capping the spring makes the ascent a swim
- * (terminal 12/3.5 = 3.4 units/s, SWIM_SPEED again) instead of a launch, and it
- * costs nothing at the surface where the spring never reaches the cap anyway.
- */
+/** `DIVE_ACCEL` fights buoyancy; `SWIM_RISE_MAX` caps its spring, or a deep rise corks. */
 const DIVE_ACCEL = 16;
 const DIVE_SPEED = 3.4;
 const SWIM_RISE_MAX = 12;
@@ -49,225 +26,65 @@ const JUMP_VEL = 8.8;
 const COYOTE_TIME = 0.12;
 const JUMP_BUFFER = 0.12;
 const TURN_RATE = 14;
-// MAX_STEP_UP — the highest ledge the hero can walk onto — moved to
-// core/types.ts when settlements grew colliders: it is now the one rule the
-// hero, the saddle, a following beast, a wild enemy and the town builders'
-// footprint measurement all resolve against. Its derivation from JUMP_VEL and
-// GRAVITY, which still live here, is written on it there.
-/**
- * Horizontal half-width for the step test, so the hero is stopped with his
- * shoulder at the rock face rather than with his centre inside it. Roughly the
- * rig's body width; it is a collision probe, not a capsule — there is no
- * horizontal collision volume in this game beyond this test.
- */
+// MAX_STEP_UP lives in core/types.ts; its derivation from JUMP_VEL and GRAVITY is
+// written on it there.
+/** Step-test half-width. A collision probe, not a capsule — there is no other. */
 const BODY_RADIUS = 0.32;
 
-// -- the deep sea ----------------------------------------------------------
-/**
- * How far ahead of his centre a swimmer is turned back from deep water.
- *
- * Deliberately wider than BODY_RADIUS: the step test stops him with his
- * shoulder at a rock, but there is no rock here — the thing refusing him is a
- * colour change in the water, and a rule that only bites once his centre is a
- * third of a unit from the boundary reads as an invisible wall you are already
- * standing in. At 0.9 he floats to the edge of the dark, feels the water refuse
- * him, and the band that darkened half a unit before the rule bit (see the
- * ABYSS ramp in world/water.ts) is the thing he was watching when it happened.
- */
+/** Wider than BODY_RADIUS: the refusal is a colour change, not a rock. */
 const DEEP_PROBE = 0.9;
-/**
- * How hard the deep sea pushes a swimmer who is ALREADY in it back toward the
- * shallows, in world units/s against a swim speed of 4.2.
- *
- * There is exactly one way to be out there — you were riding a water beast and
- * it went down under you (MountController dismounts on a dead mount, and it
- * cannot refuse to, because the alternative is a rider stapled to a corpse). So
- * this is not a wall, it is the way home: fast enough that a player never has
- * to wonder whether he is stuck, slow enough to read as a current carrying him
- * rather than as a teleport.
- */
+/** Not a wall but the way home; the one way out there is a mount dying under you. */
 const UNDERTOW = 3.2;
 /** How far out the undertow looks for shallower water. Four columns. */
 const UNDERTOW_REACH = 4;
-/** Seconds between two "you cannot swim that" toasts. One per approach. */
 const DEEP_TOAST_GAP = 6;
 
-// -- climbing --------------------------------------------------------------
-/**
- * How far ahead of the hero's centre the climb probe looks for a wall.
- *
- * The step-up test above stops the hero with his shoulder at the face: it
- * refuses the move once `centre + BODY_RADIUS` would enter the taller column,
- * so a hero pressed against a cliff stands between 0 and BODY_RADIUS short of
- * the column boundary. Terrain columns are 1x1 (Terrain.getHeight floors x/z),
- * so a reach of 0.55 lands the probe at worst 0.23 inside the wall column and
- * never more than 0.55 into it — it cannot skip a column and grab the one
- * behind. Anything below ~0.35 would sometimes probe the hero's own column and
- * find nothing to hold.
- */
+/** Columns are 1x1: 0.55 lands inside the wall column, under ~0.35 probes his own. */
 const CLIMB_REACH = 0.55;
-/**
- * Smallest rise that counts as a climbable FACE rather than a hill.
- *
- * Below MAX_STEP_UP (0.5) the hero simply walks up. A 1-unit terrace is what
- * the jump exists for — JUMP_VEL/GRAVITY put the apex at 1.61, and the step
- * test at the apex clears anything up to 2.11 — so a single block must stay a
- * jump, not a climb, or Shift would grab every kerb in the world. 1.2 sits
- * clear of the 1.0 terrace and well under the 2.0 face that is the first thing
- * a running jump cannot reliably clear, which is exactly where climbing has to
- * take over.
- */
+/** Over the 1.0 terrace a jump clears, under the 2.0 face it cannot; else Shift grabs kerbs. */
 const CLIMB_MIN_RISE = 1.2;
-/**
- * Vertical climb rate. Deliberately about half WALK_SPEED: climbing is the slow
- * way up, and a 6-unit cliff should feel like a commitment (~2 s) rather than a
- * faster staircase. Sideways shuffling along a face is slower still.
- */
+/** About half WALK_SPEED: climbing is the slow way up. */
 const CLIMB_SPEED = 3.2;
 const CLIMB_SIDE_SPEED = 2.0;
-/** Velocity smoothing on the face, in the house `1 - exp(-l*dt)` form. */
 const CLIMB_LAMBDA = 18;
-/**
- * Feet within this of the top means the hero is at the lip — mantle.
- * Small, because the mantle teleports him forward onto the ledge and doing that
- * while his feet are still visibly below the surface reads as a pop.
- */
+/** Feet within this of the top mantle. Small, or the forward step reads as a pop. */
 const CLIMB_TOP_EPS = 0.05;
-/**
- * The hold is lost when the face drops this far BELOW the feet. Only a world
- * change can do that (a chunk unloading, a felled tree), and the response is to
- * simply fall, not to snap anywhere.
- */
+/** Only a world change drops a face this far below the feet: fall, never snap. */
 const CLIMB_LOST = 0.6;
-/**
- * Mantle step: how far along the climb direction the hero is placed when he
- * tops out. Must clear the column boundary he was holding (up to 0.32 away)
- * with room to spare, and stay under 1.0 so he lands in the column he climbed
- * and not the one past it. 0.7 puts him ~0.38 inside it.
- */
+/** Must clear the held column boundary (0.32) and stay under 1.0 to land in it. */
 const MANTLE_PUSH = 0.7;
-/**
- * Re-grab lockout after deliberately letting go, so a still-held Shift does not
- * re-attach on the very next slice. 0.35 s is long enough for the kick-off to
- * carry the hero out of probe range (3.2 m/s x 0.35 = 1.1 m).
- */
+/** Re-grab lockout, long enough for the kick-off to clear probe range. */
 const CLIMB_LOCKOUT = 0.35;
-/**
- * Shuffling sideways needs this much face left above the feet, so running out
- * of wall stops the hero instead of dropping him off the end of it.
- */
+/** Face left above the feet needed to shuffle sideways, so wall ends stop him. */
 const CLIMB_SIDE_HOLD = 0.6;
 
-// -- standing on a tree crown ----------------------------------------------
-/**
- * How far a canopy's surface must stand ABOVE the terrain before it counts as a
- * platform in its own right rather than as leaves brushing the floor.
- *
- * Must be greater than MAX_STEP_UP, and that is the whole derivation: the
- * platform catch below accepts feet that started the slice within MAX_STEP_UP
- * (0.5) of the surface, so anything closer to the ground than that would snap a
- * WALKING hero up onto it. With 0.6 the two windows cannot overlap — a hero
- * whose feet are on the terrain is never lifted by foliage — and the only way
- * onto a crown is to fall onto it, jump onto it, or climb it.
- *
- * Measured over the 120x120 units around spawn at 0.25 resolution: 54286 sampled
- * columns carry a crown, and the distribution of (climbTopAt - getHeight) over
- * them is 10 columns under 0.6, 8 in 0.6-1.2, 74 in 1.2-2.5 and 54194 above 2.5.
- * So this threshold discards 10 columns in 54000 — the extreme fringe of a dome
- * where it grazes rising ground — and the handful just above it are reachable
- * only by jumping onto them, which is the right answer for a knee-high branch.
- */
+/** Must exceed MAX_STEP_UP, or the platform catch snaps a WALKING hero onto leaves. */
 const CANOPY_MIN_CLEAR = 0.6;
-/**
- * How far the canopy may fall away beneath the feet in one slice before the
- * hero stops being held by it.
- *
- * Deliberately the same 0.35 the terrain uses to stay glued running down a
- * slope, for the same reason: a dome is a curved surface and walking outward on
- * it drops the ground under you every slice. Inside 0.35 he slides down the
- * curve; past it he goes airborne, which is exactly what walking off a treetop
- * should do.
- *
- * Where that happens is a property of the dome, not a second constant. Measured
- * walking straight over a crown of radius 2.55 and semi-axis 2.6 at 6 m/s: the
- * feet tracked the surface exactly from the far side of the apex (y 23.12) down
- * to y 21.69 at 2.40 units from the axis, and released on the next frame — the
- * dome falls 0.47 over the following 0.1 units of travel there, which is the
- * first slice that breaks 0.35. That is 0.94 of the crown radius, so the whole
- * canopy is walkable except the last 6% where the leaves turn into a cliff.
- */
+/** The same 0.35 terrain uses for slopes: inside it he slides the dome, past it he falls. */
 const CANOPY_GLUE = 0.35;
 
-/**
- * Sword strike from the saddle: how high above the hero's own origin the arc
- * starts, and how far along his aim it is pushed.
- *
- * A mount is scaled to 2.1 units (see MOUNT_HEIGHT) and the rider sits on top of
- * it, so a swing struck at the on-foot 1.25/0.35 lands inside the animal. 1.5
- * puts it at the rider's chest and 1.1 clears the mount's shoulder, so the arc
- * starts in open air ahead of the pair — which is also roughly where the
- * crosshair is pointing.
- */
+/** A mount is 2.1 units tall, so the on-foot 1.25/0.35 lands inside the animal. */
 const MOUNTED_STRIKE_Y = 1.5;
 const MOUNTED_REACH = 1.1;
 
 const COMBO_DURS = [0.42, 0.42, 0.58];
-/**
- * How long after the last swing the weapon goes on his back — see
- * `Player.sinceAttack`. Longer than the pause between two hits of a combo and
- * than the walk between two enemies in one camp; short enough that a hero out
- * exploring has his hands free.
- */
+/** Seconds after the last swing before the weapon goes on his back. */
 const STOW_AFTER = 6;
 const STRIKE_AT = 0.46;      // fraction of swing where damage lands
 const COMBO_COOLDOWN = 0.22;
 
 /**
- * THE BOW'S OWN BEAT — issue #118.
- *
- * A three-hit combo is a SWORD'S rhythm: two quick cuts and a heavy one, each
- * chained off a tap during the last. Played with a bow it was three slashes
- * with a bow, which is the issue, and no amount of new artwork fixes a cycle
- * that chains. So the bow gets one beat and no chain: nock, draw, loose.
- *
- * BOW_DUR is longer than any single swing (0.62 against 0.42) because a draw
- * is the slow part of archery and a shot that came out as fast as a jab would
- * read as a crossbow. BOW_RELEASE sits at 0.55 rather than the sword's 0.46 for
- * the same reason — the arrow leaves at full tension, near the END of the
- * cycle, and `evalDraw` in animations.ts reads the same 0.55 so the hand and
- * the string let go on one frame.
- *
- * BOW_COOLDOWN is longer than COMBO_COOLDOWN (0.3 against 0.22) and is the
- * whole of the bow's rate of fire: one shot every ~0.92s held down. That is the
- * trade the sword's chain makes the other way — three hits inside 1.4s at arm's
- * length, against one hit anywhere on screen.
+ * One beat, no chain (issue #118). `evalDraw` in animations.ts reads the same
+ * BOW_RELEASE, so hand and string let go on one frame.
  */
 const BOW_DUR = 0.62;
 const BOW_RELEASE = 0.55;
 const BOW_COOLDOWN = 0.3;
 
 /**
- * WHAT THE CROSSHAIR IS ON, and how far the shot will look for it.
- *
- * THE CAMERA IS NOT THE BOW, which is the whole of this. The follow camera sits
- * above and behind the hero and rests pitched 17.6 degrees DOWN at him
- * (measured off `__dbgCam`), so a shot fired along the camera's own forward —
- * which is what every other aimed thing in this game uses, because they all
- * home onto something afterwards — leaves the muzzle two units below where the
- * camera thinks it is aiming and drives into the turf short of the mark.
- *
- * So the bow aims at a POINT, not along a direction: the ray is marched until
- * it meets the ground, and the arrow is sent from the muzzle to THAT — the
- * place under the crosshair, which is what a player is pointing at. A ray that
- * meets nothing (the horizon, the sky, out over a valley) falls back to the far
- * end of the march, so looking up shoots up.
- *
- * BOW_AIM_FAR is the arrow's own reach — `life` 1.6 at PROJ_SPEED 16 is 25.6
- * units (combat/index.ts) — because a hit further away than the arrow can fly
- * is not a thing to aim at. BOW_AIM_STEP 1 is a unit of terrain: the columns
- * this samples are 1 unit apart, so a finer step would re-sample the same
- * column and a coarser one could step over a wall of them. The march runs ONCE
- * PER SHOT, on the release frame, and touches no allocation.
+ * THE CAMERA IS NOT THE BOW: pitched 17.6° down at the hero, so a shot along its
+ * forward hits turf. The bow marches the ray to the ground and aims at that POINT.
+ * BOW_AIM_FAR is the arrow's reach; BOW_AIM_STEP 1 is one terrain column.
  */
 const BOW_AIM_FAR = 25;
 const BOW_AIM_STEP = 1;
@@ -275,22 +92,7 @@ const BOW_AIM_STEP = 1;
 const BOW_AIM_NEAR = 3;
 const RESPAWN_TIME = 3;
 
-/**
- * Passive health regeneration.
- *
- * BASE_REGEN is the floor every player has with no items and no shrine: 1.6 hp
- * a second out of 100, so a full bar takes just over a minute. Deliberately slow
- * — it is the "walk it off between fights" rate, not a reason to stop fighting.
- * Anything faster and a retreat of a few steps undoes a whole encounter.
- *
- * REGEN_DELAY holds it off after taking a hit, so regen never fights incoming
- * damage mid-encounter; the clock restarts on every hit.
- *
- * `regenMultiplier` on the Player is the hook the rest of the game turns up:
- * a potion sets it high for a few seconds, a healing well holds it high while
- * the player stands in it. Nothing does that yet — the multiplier exists so
- * those can be data rather than another special case in here.
- */
+/** REGEN_DELAY restarts on every hit, so trickle never fights incoming damage. */
 const BASE_REGEN = 1.6;
 const REGEN_DELAY = 5;
 
@@ -312,11 +114,7 @@ function dampAngle(cur: number, target: number, rate: number, dt: number): numbe
   return cur + d * (1 - Math.exp(-rate * dt));
 }
 
-/**
- * The hero: voxel adventurer with third-person camera, terrain-collided
- * movement, swimming, a 3-hit sword combo and full procedural animation.
- * Implements Damageable (faction 'player').
- */
+/** The hero. Implements Damageable (faction 'player'). */
 export class Player {
   root: THREE.Group;
   position: THREE.Vector3;
@@ -327,140 +125,54 @@ export class Player {
   isDead = false;
   readonly faction = 'player' as const;
   attackStat = 14;
-  /**
-   * What is in his hand, or null for bare hands — and the ONE writer of it is
-   * `applyLoadout` in main.ts, because which weapon is equipped is a fact about
-   * the session that the gear slot owns.
-   *
-   * The rig is the storage (`HeroRig.weapon`), so there is no second field here
-   * that could disagree with the model actually being drawn. Bare hands change
-   * two things and they are not the same thing: the animator plays the punch
-   * table (see PUNCHES in animations.ts), and `attackStat` loses the weapon's
-   * power, which main.ts already handles.
-   */
+  /** The ONE writer is `applyLoadout`; the rig is the storage, so nothing can disagree. */
   setWeapon(id: WeaponModelId | null): void {
     setWeaponModel(this.rig, id);
   }
 
-  /** What is in his hand. Read by the probe and by the mount's aim policy. */
   get weapon(): WeaponModelId | null { return this.rig.weapon; }
 
-  /**
-   * Put a hairstyle on him. `colour` is the PICKED one, so null means "none
-   * picked" and the style is drawn in its own — the rule is `setHairStyle`'s
-   * and is not restated here (see player/hair.ts).
-   *
-   * The same shape as `setWeapon` above and for the same reason: the rig is the
-   * storage, so there is no field here to fall out of step with the head that
-   * is actually being drawn. The F3 panel is the caller today.
-   */
+  /** `colour` is the PICKED one: null means the style draws in its own (player/hair.ts). */
   setHair(styleId: string, colour: number | null): void {
     setHairStyle(this.rig, styleId, colour);
   }
 
   get hairStyle(): string { return this.rig.hairStyle; }
-  /** The colour he is drawn in, resolved — never the "not picked" null. */
+  /** Resolved — never the "not picked" null. */
   get hairColour(): number { return this.rig.hairColour; }
-  /**
-   * The hair mesh itself, for `__dbgHair`. A probe proves a style swap by the
-   * GEOMETRY changing, which is a fact about this object and cannot be faked by
-   * a field somebody remembered to update.
-   */
+  /** For `__dbgHair`: a probe proves a style swap by the GEOMETRY changing. */
   get rigHairMesh(): THREE.Mesh | null {
     return (this.rig.hair.children[0] as THREE.Mesh | undefined) ?? null;
   }
   onGround = false;
   isSwimming = false;
-  /**
-   * Seconds left before the deep sea is allowed to say so again. See
-   * DEEP_TOAST_GAP — a swimmer pressed against the edge of a basin refuses on
-   * every one of the sixty slices a second, and sixty toasts is a wall of text
-   * over one piece of information.
-   */
+  /** Throttle; see DEEP_TOAST_GAP. The refusal fires on every slice at a basin edge. */
   private deepToastT = 0;
   /** True while hanging on a climbable face; gravity is off and Shift is grip. */
   isClimbing = false;
-  /**
-   * True while the surface holding him up is a TREE rather than the terrain — a
-   * canopy dome, or the top face of a bole.
-   *
-   * It is state and not a query because it changes what the horizontal step test
-   * is allowed to see: from the ground a crown is overhead and must stay
-   * invisible to collision (see blockTop), while standing on one it is the
-   * floor. Read-only outside; the vertical resolution and the mantle are the two
-   * places that set it.
-   */
+  /** Held up by a TREE. State, not a query: it gates what the step test may see. */
   onCanopy = false;
-  /**
-   * True while sitting in a beast's saddle. The hero controller stops moving him
-   * entirely — MountController owns position, velocity and heading, and writes
-   * them here every slice — but everything that is ABOUT the hero rather than
-   * about his locomotion (regen, damage, the flash, the animator, the camera)
-   * still runs from update() exactly as it does on foot.
-   */
+  /** MountController owns position and heading; regen, damage and the animator stay here. */
   isMounted = false;
-  /** True while a sword swing is in progress. Read-only; for tests and HUD. */
   get isAttacking(): boolean { return this.attack.active; }
   moveSpeedNorm = 0;
-  /**
-   * Horizontal half-width of the body — the same BODY_RADIUS the step test
-   * probes with, published so that anything asking "is he touching that?" uses
-   * the collision probe's own idea of how wide he is instead of a second number
-   * that can drift away from it.
-   *
-   * With `position` and `velocity` above it also makes the hero a `ContactMover`
-   * (world/touch-particles.ts) structurally, so the contact-particle system can
-   * be handed a mount or a beast instead without knowing what either is.
-   */
+  /** The step test's own radius, so "is he touching that?" cannot drift onto a second number. */
   readonly radius = BODY_RADIUS;
   onAttack?: (origin: THREE.Vector3, direction: THREE.Vector3) => void;
   /**
-   * Melee aim assist, asked once per swing on the strike frame.
-   *
-   * Nudges `direction` toward the enemy nearest the crosshair and returns
-   * whether it moved it. The hook is here rather than the logic because the
-   * three pieces live in three places and none of them should reach across:
-   * the enemy list is the combat system's, the policy is main.ts's, and the
-   * BODY is this class's — a swing that gets steered has to take the hero's
-   * facing with it, or the arc lands somewhere his sword visibly is not.
-   *
-   * It mutates in place, like every other vector on this path, so a swing
-   * allocates nothing.
+   * Nudges `direction` toward the enemy nearest the crosshair and reports whether
+   * it moved. A hook, because the enemy list is combat's. Mutates in place.
    */
   aimAssist?: (origin: THREE.Vector3, direction: THREE.Vector3) => boolean;
 
-  /**
-   * The moving frame under his feet, if any — a flying island's deck today.
-   *
-   * ONE FIELD AND TWO CALLS, and nothing else in this file knows what it is
-   * standing on: `carry` at the top of the slice moves him with the frame, and
-   * `support` folds the deck into the two column-top questions he already asks
-   * (`blockTop` for the step test, `floor` for what holds him up). See
-   * world/carriers.ts.
-   */
+  /** `carry` moves him with the frame; `support` folds the deck into `blockTop` and the floor. */
   private readonly ride = new CarrierRide();
 
-  /**
-   * The moving frame under his feet right now, or null.
-   *
-   * Exposed for the SAVE (issue #171), which has to store a position on a
-   * flying island in that island's own coordinates — see `CarrierInfo.toLocal`.
-   * Read-only and already resolved: `CarrierRide.carry` decides the attachment
-   * every slice, so this is that answer rather than a second search of the
-   * registry that could disagree with it.
-   */
+  /** For the SAVE (issue #171): island positions are stored in island coordinates. */
   get carrier(): CarrierInfo | null { return this.ride.carrier; }
 
   private rig: HeroRig;
-  /**
-   * The follow camera.
-   *
-   * Public (read-only) only so main.ts can hand it to the feedback layer as a
-   * shake sink. It used to be private, which is precisely why the three shake
-   * calls in this file existed here at all: nothing else in the game could
-   * reach the camera, so every impact worth a kick had to be one the hero
-   * already knew about. Combat could not shake it for a crit, and never did.
-   */
+  /** Public only so main.ts can hand it to the feedback layer as a shake sink. */
   readonly cam = new ThirdPersonCamera();
   private animator = new HeroAnimator();
   private dust: DustSystem;
@@ -468,15 +180,7 @@ export class Player {
   private time = 0;
   private heading = 0;
 
-  /**
-   * Which way the body is turned, `atan2(dx, dz)`. Read-only.
-   *
-   * The BODY and not the camera, which is the distinction that makes it worth
-   * exposing: the two agree while he walks and part company whenever he does
-   * not — standing still with the mouse moving, and in the opening pose, where
-   * the camera is deliberately on the wrong side of him. `__dbgCamYaw` answers
-   * for the arm; nothing answered for the man.
-   */
+  /** The BODY's heading, not the camera's. `__dbgCamYaw` answers for the arm. */
   get facing(): number { return this.heading; }
   private coyote = 0;
   private jumpBuffer = 0;
@@ -496,35 +200,16 @@ export class Player {
   private climbRate = 0;
   /** Blocks re-grabbing right after a deliberate let-go; see CLIMB_LOCKOUT. */
   private climbLockout = 0;
-  /**
-   * Jump held on the PREVIOUS simulation slice, so a press edge can be derived
-   * from held state. input.pressed() stays true for a whole rendered frame and
-   * the sim can run several slices inside one, so the edge has to be latched
-   * here rather than read from the input layer.
-   */
+  /** `input.pressed()` spans a whole frame, so the edge is latched here, not read. */
   private jumpWasHeld = false;
   private jumpEdge = false;
   /** Seconds left before passive regen resumes; reset by every hit taken. */
   private regenHold = 0;
-  /**
-   * Scales passive regen. 1 = the base trickle. Potions and healing wells raise
-   * it; nothing does yet. Public so that gameplay policy (main.ts) can drive it
-   * without Player having to know what a potion is.
-   */
+  /** 1 = the base trickle. Public so main.ts drives it without Player knowing potions. */
   regenMultiplier = 1;
 
   private attack: AttackState = { active: false, combo: 0, t: 0, dur: COMBO_DURS[0] };
-  /**
-   * Seconds since the last swing, which is what decides whether the weapon is
-   * in the hand or on his back.
-   *
-   * SHEATHING IS A TIMER, not a state machine: the hero draws the instant he
-   * swings and puts it away when the fight has clearly stopped, so there is no
-   * "am I in combat" flag for the rest of the game to keep honest. Six seconds
-   * is longer than the gap between two hits of a combo and than the walk
-   * between two enemies in a camp, and short enough that exploring is done
-   * with empty hands.
-   */
+  /** SHEATHING IS A TIMER, not a state machine — no "am I in combat" flag to keep honest. */
   private sinceAttack = STOW_AFTER;
   private attackQueued = false;
   private struck = false;
@@ -545,44 +230,19 @@ export class Player {
     engine.scene.add(this.root);
   }
 
-  /**
-   * Move the hero to a different zone's ground (see world/zones.ts).
-   *
-   * The world was captured at construction, and reconstructing the hero to
-   * change it would throw away the one thing that must survive a transition —
-   * his hp, and everything else on this object. So the reference is rebound and
-   * nothing else moves; the caller places him at the new spawn afterwards,
-   * because where he arrives is gameplay policy and not the controller's
-   * business. `respawn()` reads `this.world` too, so dying in the new zone puts
-   * him back in the new zone.
-   */
+  /** Rebind zone ground (world/zones.ts) without reconstructing him, so hp survives. */
   setWorld(world: World): void {
     this.world = world;
-    // Whatever was carrying him belonged to the zone he is leaving, and its id
-    // means nothing in the new one. `CarrierRide` would drop it on its own next
-    // slice (the registry answers `undefined`), but saying so here keeps the
-    // "everything the old zone owned is released" list in one place.
     this.ride.clear();
     this.isClimbing = false;
     this.climbLockout = 0;
     this.isSwimming = false;
     this.deepToastT = 0;
-    // Whatever was under his feet belonged to the zone he is leaving.
     this.onCanopy = false;
     this.velocity.set(0, 0, 0);
   }
 
-  /**
-   * Put health back, capped at the maximum. Returns how much actually landed,
-   * so a caller that is spending something can tell a full-health drink from a
-   * useful one.
-   *
-   * It does NOT clear `regenHold`, and that is the interesting half: a hit
-   * holds passive regen off for REGEN_DELAY precisely so trickle cannot fight
-   * incoming damage, and a draught taken mid-fight should not hand that back —
-   * the potion is the burst, the trickle stays suspended. A DEAD hero is not
-   * revived either; that is `reset()`'s business and a different feature.
-   */
+  /** Returns what landed. Does NOT clear `regenHold`, and does not revive the dead. */
   heal(amount: number): number {
     if (this.isDead || amount <= 0) return 0;
     const before = this.hp;
@@ -597,10 +257,7 @@ export class Player {
     this.flash = 1;
     this.hurtT = 0.25;
     this.invulnT = 0.35;
-    // The camera kick that used to be here is now the `playerHurt` cue in
-    // src/feedback/cues.ts, at the same 0.32, alongside the rumble it belongs
-    // with. Same for `die()` and the hard landing below.
-    // knockback away from the source
+    // The camera kick is the `playerHurt` cue in src/feedback/cues.ts, not here.
     _knock.set(this.position.x - from.x, 0, this.position.z - from.z);
     if (_knock.lengthSq() < 1e-4) _knock.copy(this.forward).multiplyScalar(-1);
     _knock.normalize();
@@ -609,10 +266,7 @@ export class Player {
     this.velocity.y += 2.5;
     this.onGround = false;
     if (this.hp <= 0) this.die();
-    // Emitted only past the i-frame gate above, which is the whole point: this
-    // is the event a controller rumbles on, so it has to mean "he was hit", not
-    // "something swung at him". `_knock` is already the unit heading away from
-    // the attacker, so the direction costs nothing to carry.
+    // Past the i-frame gate on purpose: this means "he was hit", not "swung at".
     this.bus.emit({
       type: 'playerHurt',
       amount,
@@ -630,24 +284,14 @@ export class Player {
     this.isDead = true;
     this.deadT = 0;
     this.isClimbing = false;
-    // The corpse slide (update's dead branch) resolves against getHeight only,
-    // so a body that fainted in a treetop falls out of it rather than lying on
-    // leaves the dead path cannot see.
+    // The corpse slide resolves against getHeight only, so a treetop faint falls out.
     this.onCanopy = false;
     this.attack.active = false;
     this.bus.emit({ type: 'playerDied' });
     this.bus.emit({ type: 'toast', text: t('toast.fainted') });
   }
 
-  /**
-   * Back to a new game's hero: full health, at the spawn, holding nothing.
-   *
-   * `respawn` below is the same shape and is deliberately NOT reused: it emits
-   * `playerRevived` and a "you are back on your feet" toast, which are true after
-   * fainting and false after New Game — the second would greet a player with a
-   * message about an injury they never took. What is shared is the LIST, and the
-   * two are three lines apart so a field added to one is visible from the other.
-   */
+  /** `respawn` is the same LIST, not reused: its revival toast is false after New Game. */
   reset(): void {
     this.isDead = false;
     this.hp = this.maxHp;
@@ -664,27 +308,8 @@ export class Player {
   }
 
   /**
-   * Stand the hero where a new session begins, looking the way it begins, with
-   * the camera on his FACE.
-   *
-   * THE CAMERA ARM IS HIS HEADING AND NOT ITS OPPOSITE, which is the whole
-   * point and is worth stating because it is the reverse of every other camera
-   * write in this file. `cam.yaw` is the bearing FROM the hero TO the camera
-   * (see `aimCamera`), so the usual over-the-shoulder framing is `heading + PI`
-   * — the camera behind him, looking the way he looks. Setting it to `heading`
-   * puts the camera in FRONT, looking back at him, which is what an opening
-   * shot of a character wants and what nothing else in the game does.
-   *
-   * IT IS A SHOT, NOT A MODE, and it un-does itself: movement is camera
-   * relative, so the first press of W walks him toward the lens and his heading
-   * damps round to meet it within a few hundred milliseconds (`TURN_RATE`).
-   * That is the intended behaviour rather than a defect to design around — the
-   * composition is for the moment before the player touches anything, and any
-   * input at all is the player saying they are done looking at it. A mouse
-   * movement swings the arm directly and skips even that.
-   *
-   * Called by `reset()` and by the composition root's first placement, so a
-   * second New Game in one session opens on the same shot as the first.
+   * The opening shot: camera on his FACE. `cam.yaw` is the bearing FROM hero TO
+   * camera, so the usual framing is `heading + PI` and this is its reverse.
    */
   takeStartPose(): void {
     const start = this.world.playerStart;
@@ -702,23 +327,8 @@ export class Player {
   }
 
   /**
-   * Stand the hero where a save left him (issue #171).
-   *
-   * The third member of the family `reset` and `respawn` belong to, and it is
-   * listed beside them for the reason the note on `reset` gives: the LIST is
-   * what these three share, so a field added to one is visible from the others.
-   * What makes this one different is where the position comes from — a caller's
-   * numbers rather than `world.playerStart` or `world.spawnPoint` — and that
-   * the numbers have already been decided: whether the saved ground still
-   * exists, and where a hero belongs when it does not, is a question about the
-   * world that main.ts answers before calling this.
-   *
-   * THE CAMERA GOES BEHIND HIM, which is the opposite of `takeStartPose` and
-   * deliberate. That method's shot — the camera in front, looking back — is a
-   * character being introduced. A load is a player resuming, and resuming
-   * facing your own camera means the first press of W walks you at the lens.
-   * `heading + PI` is the ordinary over-the-shoulder framing every other camera
-   * write in this file uses.
+   * Where a save left him (issue #171); the position is the caller's, already
+   * resolved by main.ts. The camera goes BEHIND him, unlike `takeStartPose`.
    */
   restore(hp: number, x: number, y: number, z: number, yaw: number): void {
     this.velocity.set(0, 0, 0);
@@ -733,8 +343,7 @@ export class Player {
     this.climbLockout = 0;
     this.deepToastT = 0;
     this.attack.active = false;
-    // Floored at 1: a save is a place to come back to, and loading into a
-    // faint would play the death sequence over a player who just pressed Load.
+    // Floored at 1: loading into a faint plays the death sequence over a Load.
     this.hp = Math.max(1, Math.min(this.maxHp, Math.round(hp)));
     this.position.set(x, y, z);
     this.root.position.copy(this.position);
@@ -760,13 +369,8 @@ export class Player {
     this.bus.emit({ type: 'toast', text: t('toast.revived') });
   }
 
-  // ---- mounting -----------------------------------------------------------
-  // The hero exposes the camera basis and a saddle pose, and MountController
-  // (src/player/mount.ts) does the rest. Nothing about beasts is known in here.
-
-  /** Horizontal camera forward — the basis movement input is resolved against. */
+  /** The basis movement input is resolved against. */
   get camForward(): THREE.Vector3 { return this.cam.forward; }
-  /** Horizontal camera right. */
   get camRight(): THREE.Vector3 { return this.cam.right; }
 
   /** Re-frame the follow camera; (1, 0) is the hero on foot. See the camera. */
@@ -775,41 +379,19 @@ export class Player {
   }
 
   /**
-   * TEST HOOK, like `__dbgTp` in main.ts: swing the follow camera so that
-   * holding W walks the hero along `bearing`, an atan2(dx, dz) heading.
-   *
-   * Movement is camera-relative, so the camera IS the steering wheel: without
-   * this a headless test can only ever walk the hero in whatever direction the
-   * camera happened to start, and "drive him into that hut" becomes "hope the
-   * hut is downwind". Mouse-look is the only other way to turn, and it needs
-   * pointer lock. Nothing in the game calls this.
-   *
-   * The half turn is the whole reason this takes a WALK bearing rather than
-   * `cam.yaw` itself: the camera's yaw is the ARM — where the camera sits
-   * relative to the hero, which is also what `__dbgCamYaw` reports — and the
-   * view runs the other way down it. A caller handed the raw field walks
-   * backwards, and does so silently.
-   *
-   * `cam.forward` is derived from the camera's SMOOTHED position, not from the
-   * yaw, so a large swing takes a few hundred milliseconds to arrive; a caller
-   * that drives immediately walks off along the old heading. Wait for
-   * `__dbgCamYaw` to agree before pressing anything.
+   * TEST HOOK: swing the camera so W walks him along `bearing` — a WALK bearing,
+   * not `cam.yaw`, which is the ARM and runs the other way. `cam.forward` comes
+   * from the SMOOTHED position, so wait for `__dbgCamYaw` before driving.
    */
   aimCamera(bearing: number): void {
     this.cam.yaw = bearing + Math.PI;
   }
 
-  /**
-   * Climb into / out of the saddle. Everything the hero was doing on his own
-   * two feet is cancelled: a swing in progress, a held wall, the jump buffer.
-   * Position and velocity are the mount's business from here.
-   */
+  /** Cancels everything he was doing on his own feet; position is the mount's now. */
   setMounted(on: boolean): void {
     if (this.isMounted === on) return;
     this.isMounted = on;
     this.isClimbing = false;
-    // MountController resolves against getHeight, so the saddle never stands on
-    // leaves; mounting in a treetop rides the animal down to the ground.
     this.onCanopy = false;
     this.climbLockout = CLIMB_LOCKOUT;
     this.attack.active = false;
@@ -822,11 +404,7 @@ export class Player {
     }
   }
 
-  /**
-   * Where the saddle has the hero pointing this slice. `grounded` is passed
-   * straight through to the camera's step smoothing: a mount walking terraced
-   * terrain wants the grounded glide, a flyer's continuous climb does not.
-   */
+  /** `grounded` goes to the camera's step smoothing: a flyer's climb wants no glide. */
   setRidePose(yaw: number, speed01: number, grounded: boolean): void {
     this.rideYaw = yaw;
     this.rideSpeed01 = speed01;
@@ -834,28 +412,13 @@ export class Player {
   }
 
   /**
-   * Move with whatever is carrying him, and nothing else.
-   *
-   * SEPARATE FROM `update` BECAUSE A HERO NOBODY IS DRIVING IS STILL STANDING
-   * ON SOMETHING. Photo mode skips the player controller while the world's
-   * moving parts go on moving, so without this a staged capture on a flying
-   * island watches the deck slide out from under him. Modals used to be the
-   * other caller and are not any more — a panel suspends the INPUT and lets the
-   * controller run (issue #101, see `Input.suspended`), so `update` reaches the
-   * call below on its own.
-   *
-   * It is idempotent per slice and safe to call from either path: `carry`
-   * applies the frame's published delta once, and the delta is published once
-   * per slice by `CarrierRegistry.advance`.
+   * Separate from `update` because photo mode skips the controller while the world
+   * keeps moving. Idempotent: the delta is published once by `CarrierRegistry.advance`.
    */
   carry(): void {
     this.ride.carry(this.world, this.position);
     if (this.ride.dyaw === 0) return;
-    // A TURNING DECK TURNS WHAT IS ON IT — his body and the camera arm both,
-    // or a hero standing still on a banking island slowly ends up facing
-    // across a deck he never turned on, with the view swinging past him.
-    // `cam.yaw` is the bearing from the hero to the camera and is the one
-    // thing here that is not re-derived per frame from his heading.
+    // A turning deck turns his body AND the camera arm, which is not re-derived.
     this.heading += this.ride.dyaw;
     this.cam.yaw += this.ride.dyaw;
     this.root.rotation.y = this.heading;
@@ -866,14 +429,8 @@ export class Player {
     const input = this.input;
     const world = this.world;
 
-    // THE GROUND MOVES FIRST. If he is standing on something that travels, this
-    // is where he travels with it — before gravity, before the step test, and
-    // before the camera reads his position. Everything below then runs in world
-    // space exactly as it always has and never learns that it was moved.
-    //
-    // Skipped in the saddle: `MountController` carries the pair of them and
-    // writes this position, so running the frame here as well would apply the
-    // island's motion to the hero twice.
+    // THE GROUND MOVES FIRST, so everything below runs in world space. Skipped in
+    // the saddle, where MountController would apply the delta a second time.
     if (!this.isMounted) {
       this.carry();
     }
@@ -883,15 +440,8 @@ export class Player {
     if (this.attackCooldown > 0) this.attackCooldown -= dt;
     this.landBump *= Math.exp(-6 * dt);
 
-    // Jump press edge, latched per simulation slice. Space is BOTH the jump and
-    // the "let go of the wall" button, and the second one must not fire twice
-    // when two sim slices land inside one rendered frame — see jumpWasHeld.
-    //
-    // `pressed` is OR-ed in on purpose: held state alone misses a tap shorter
-    // than one 16.7 ms slice (a virtual button, or an automated press), which is
-    // exactly the case the buffered jump below already handles. `pressed` stays
-    // true for the whole rendered frame, so the latch is what stops a two-slice
-    // frame from spending the same tap twice.
+    // Latched per slice: Space is also "let go of the wall" and must not fire twice
+    // in one frame. `pressed` is OR-ed in because held state misses a sub-slice tap.
     const jumpNow = input.down('Space') || input.pressed('Space');
     this.jumpEdge = jumpNow && !this.jumpWasHeld;
     this.jumpWasHeld = jumpNow;
@@ -899,7 +449,6 @@ export class Player {
     if (this.isDead) {
       this.deadT += dt;
       if (this.deadT >= RESPAWN_TIME) this.respawn();
-      // keep gravity so the body settles onto slopes
       this.velocity.x *= Math.exp(-8 * dt);
       this.velocity.z *= Math.exp(-8 * dt);
       this.velocity.y -= GRAVITY * dt;
@@ -909,14 +458,12 @@ export class Player {
       this.moveSpeedNorm = 0;
     } else if (this.isMounted) {
       this.updateRiding(dt);
-      // The sword works from the saddle, so the combo still ticks here. Only
-      // LOCOMOTION belongs to the mount; the rider keeps his own arms.
+      // Only LOCOMOTION belongs to the mount; the rider keeps his arms.
       this.updateAttack(dt);
     } else {
       this.updateAlive(dt);
     }
 
-    // damage flash on all rig materials
     if (this.flash > 0.001) {
       this.flash *= Math.exp(-7 * dt);
       for (const m of this.rig.materials) {
@@ -927,10 +474,6 @@ export class Player {
       for (const m of this.rig.materials) m.emissive.setRGB(0, 0, 0);
     }
 
-    // The weapon rides on his back between fights. Drawn on the frame he
-    // swings — a hero who has to wait for an animation to finish before he can
-    // hit anything is a hero who feels broken — and put away once the timer
-    // runs out. `stowWeapon` returns immediately when nothing changes.
     this.sinceAttack = this.attack.active ? 0 : this.sinceAttack + dt;
     stowWeapon(this.rig, this.sinceAttack >= STOW_AFTER && !this.isDead);
 
@@ -961,27 +504,10 @@ export class Player {
   }
 
   /**
-   * Top of everything SOLID at a column: terrain, a tree's bole, and whatever a
-   * settlement has built there.
-   *
-   * Trees used to be scenery you walked straight through. A trunk is now an
-   * obstacle you go around — but only the trunk. `trunkSolidTopAt` deliberately
-   * ignores the crown (see world/index.ts): a canopy sits several units up, and
-   * because this test compares a column's TOP against the feet, a solid crown
-   * would read as an invisible wall ringing every tree and you could not walk
-   * under one at all.
-   *
-   * TOWNS were scenery in exactly the same way until `structureTopAt` existed —
-   * you walked through the huts, the palisade, the well and the crates. A
-   * building needs no one-way trick, because unlike a canopy it is material
-   * standing on the ground over its whole footprint; the reason it can be
-   * blocked here without fencing off the world is that the FOOTPRINT already
-   * left out anything a body walks under. That is measured at bake time, which
-   * is what keeps the Encampment's gate an opening rather than a wall — see
-   * world/structures.ts.
-   *
-   * Both queries return -Infinity from the world where there is nothing, so the
-   * max is just the terrain there.
+   * Top of everything SOLID at a column. `trunkSolidTopAt` ignores the crown on
+   * purpose: this compares a column's TOP against the feet, so a solid canopy rings
+   * every tree with an invisible wall. A building needs no such trick — its
+   * FOOTPRINT already omits what a body walks under (world/structures.ts).
    */
   private blockTop(x: number, z: number): number {
     const ground = this.world.getHeight(x, z);
@@ -989,26 +515,12 @@ export class Player {
     let top = trunk > ground ? trunk : ground;
     const built = this.world.structureTopAt(x, z);
     if (built > top) top = built;
-    // A CARRIER'S DECK IS GROUND, and is folded in here rather than being a
-    // fourth kind of collision — the same argument `structureTopAt` makes about
-    // settlements. It answers -Infinity unless he is actually riding one, which
-    // is what makes it safe to ask with (x, z) alone: the vertical question was
-    // settled by `CarrierRide.carry` at the top of this slice, and asking it
-    // again with no y is exactly how a walker on the meadow would be teleported
-    // onto an island passing overhead.
+    // A CARRIER'S DECK IS GROUND. -Infinity unless riding one, which is what makes it
+    // safe to ask with (x, z) alone — `CarrierRide.carry` settled the vertical part.
     const deck = this.ride.support(x, z);
     if (deck > top) top = deck;
-    // ...and, ONLY while he is standing on a crown, the crown itself. Up there
-    // the leaves under his feet are the floor, so the step test has to see the
-    // next column's leaves or walking up the inside of the dome would step off
-    // its uphill side into thin air.
-    //
-    // The condition is the whole reason a canopy can be walked on without also
-    // being a wall. From the ground a crown is OVERHEAD, and a column whose top
-    // is overhead is precisely what this test cannot distinguish from a cliff;
-    // adding it unconditionally is the invisible fence around every tree that
-    // trunkSolidTopAt exists to avoid. Anything BELOW the feet reads as a drop
-    // in either case, so stepping off the rim is never refused.
+    // ...and the crown, ONLY while standing on one: unconditionally it fences every
+    // tree, and without it walking up a dome steps off its uphill side.
     if (this.onCanopy) {
       const canopy = this.climbTop(x, z);
       if (canopy > top) top = canopy;
@@ -1016,14 +528,7 @@ export class Player {
     return top;
   }
 
-  /**
-   * The deep sea just refused a stroke. Say so, at most once per approach.
-   *
-   * A TOAST AND NOT A NOISE, because the thing the player needs told is not
-   * "you bumped something" — the water already said that by going dark — but
-   * WHAT WOULD WORK, and that is a sentence: ride a water beast. Same reason
-   * the mount controller answers a refused mount with a line naming the fix.
-   */
+  /** A TOAST, not a noise: what the player needs told is the fix, and that is a sentence. */
   private refuseDeep(): void {
     if (this.deepToastT > 0) return;
     this.deepToastT = DEEP_TOAST_GAP;
@@ -1031,22 +536,9 @@ export class Player {
   }
 
   /**
-   * Carry a swimmer who is already out over the abyss back toward the shallows.
-   *
-   * FOUR PROBES AND THE HIGHEST WINS, which is a gradient ascent on the
-   * heightfield done the cheapest way there is. It cannot be fooled by a local
-   * dip because the reach is four columns — wider than any single terrace — and
-   * where every probe agrees (dead centre of a big basin) the tie falls to +x
-   * and he sets off in a straight line, which still lands him on a shore.
-   *
-   * Written into `velocity` rather than `position` so it composes with his own
-   * paddling instead of overriding it: swimming with the current gets you out
-   * faster, swimming against it merely slows the trip. Only ever runs on a
-   * slice where he is genuinely over deep water, which is rare enough that the
-   * four extra `getHeight` calls never show up in a profile — and it is written
-   * out longhand rather than through a `probe(dx, dz)` helper because a closure
-   * per slice is an allocation on an update path, which this codebase does not
-   * do however rare the path is.
+   * Four probes, highest wins: gradient ascent, reach wider than any terrace, ties
+   * to +x. Into `velocity` so it composes with his paddling. Longhand because a
+   * `probe()` closure per slice is an allocation.
    */
   private undertow(dt: number): void {
     const w = this.world;
@@ -1069,30 +561,8 @@ export class Player {
   }
 
   /**
-   * The tree surface over a column — a canopy dome or a bole's top face — when
-   * it stands clear enough of the terrain to be a platform of its own, else
-   * -Infinity.
-   *
-   * `climbTopAt` already returns exactly this surface (it is the max of terrain,
-   * bole top and dome), so no new world query was needed: subtracting the ground
-   * out of it is all "is there a tree platform here?" amounts to. `ground` is
-   * passed in because every caller has just measured it.
-   */
-  /**
-   * Top of everything CLIMBABLE at a column — including whatever is carrying
-   * him.
-   *
-   * THE CLIMB QUERY HAD THE SAME HOLE THE STEP TEST HAD. `World.climbTopAt`
-   * knows about terrain, trees and the settlements standing on the ground; it
-   * cannot know about a flying island, because a carrier's surface is only
-   * answerable to a body that is riding one (it takes no `y`, and a deck two
-   * hundred units up would otherwise be reported over a meadow). So on the
-   * island nothing was climbable at all: `probeFace` asked for the wall of the
-   * hut in front of him and got the terrain two hundred units below.
-   *
-   * `ride.support` is -Infinity unless he is actually attached, so everywhere
-   * else in the world this is exactly the query it always was. Same argument,
-   * same shape and the same one-line fold as `blockTop` — see `CarrierRide`.
+   * `World.climbTopAt` cannot know about a flying island (it takes no `y`), so
+   * without this fold nothing on a deck was climbable. Same shape as `blockTop`.
    */
   private climbTop(x: number, z: number): number {
     const w = this.world.climbTopAt(x, z);
@@ -1102,23 +572,13 @@ export class Player {
 
   private canopyTop(x: number, z: number, ground: number): number {
     const top = this.climbTop(x, z);
-    // MEASURED AGAINST WHAT HE IS STANDING ON, not against the terrain. On a
-    // carrier the terrain is hundreds of units below, so every column of the
-    // deck would clear `ground` by miles and the whole island would read as one
-    // enormous tree crown. The support branch in `update` happens to test solid
-    // ground first and so never reaches the canopy case — but relying on the
-    // order of two branches to keep a query honest is how the next change
-    // breaks it.
+    // Against what he STANDS on: a carrier's terrain is far below, so the whole
+    // island would read as one enormous tree crown.
     const base = Math.max(ground, this.ride.support(x, z));
     return top > base + CANOPY_MIN_CLEAR ? top : -Infinity;
   }
 
-  /**
-   * Passive health regen. Held off for REGEN_DELAY after each hit (takeDamage
-   * restarts the clock), so it tops the bar up between fights instead of tugging
-   * against damage during one. Scaled by regenMultiplier, which is what a potion
-   * or a healing well will raise. Runs on foot and in the saddle alike.
-   */
+  /** Held off for REGEN_DELAY after each hit. Runs on foot and in the saddle alike. */
   private updateRegen(dt: number): void {
     if (this.regenHold > 0) {
       this.regenHold -= dt;
@@ -1127,18 +587,7 @@ export class Player {
     }
   }
 
-  /**
-   * One slice in the saddle.
-   *
-   * There is deliberately no locomotion here at all: MountController has already
-   * written position, velocity and the saddle pose for this slice, and running
-   * gravity or the step test on top of that would fight it. What remains is the
-   * hero's own business — regen, and the facing/gait the animator reads.
-   *
-   * The melee combo is OFF while mounted (see updateAttack's guard): a sword arc
-   * swung from the saddle would land at the mount's feet, and a mounted attack
-   * is a feature with its own reach and animation, not a leftover of this one.
-   */
+  /** No locomotion: MountController wrote position and pose; gravity here would fight it. */
   private updateRiding(dt: number): void {
     this.updateRegen(dt);
     this.sprinting = false;
@@ -1146,8 +595,7 @@ export class Player {
     this.isClimbing = false;
     this.climbRate = 0;
     this.moveSpeedNorm = this.rideSpeed01;
-    // Snapped, not damped: the mount already smoothed this heading, and a second
-    // filter here would let the rider face out of the saddle through every turn.
+    // Snapped, not damped: a second filter faces the rider out of the saddle in turns.
     this.heading = this.rideYaw;
     this.root.rotation.y = this.heading;
     this.forward.set(Math.sin(this.heading), 0, Math.cos(this.heading));
@@ -1159,32 +607,23 @@ export class Player {
 
     this.updateRegen(dt);
 
-    // ---- movement input, camera relative ----
-    // Analog axes: keyboard when keys are held, virtual stick on touch.
     const fwd = input.axisFwd;
     const side = input.axisSide;
     _wish.set(0, 0, 0)
       .addScaledVector(this.cam.forward, fwd)
       .addScaledVector(this.cam.right, side);
-    // Stick deflection scales speed; keyboard always reads as full tilt.
     const tilt = Math.min(1, Math.hypot(fwd, side));
     const moving = _wish.lengthSq() > 1e-6;
     if (moving) _wish.normalize();
 
-    // ---- Shift: sprint in the open, grip on a wall ----
-    // The SAME held key means both, and the surface is what disambiguates: with
-    // a climbable face within CLIMB_REACH of the hero's chest and the movement
-    // wish pushing into it, Shift is a grip; anywhere else it is the sprint it
-    // has always been. Nothing here reads a press edge, so it behaves the same
-    // whether the frame drains one simulation slice or four — running into a
-    // wall with Shift already down grabs it, and letting Shift go lets go.
+    // Shift is sprint in the open, grip on a wall; the surface disambiguates. No
+    // press edge is read, so it behaves the same at any slice count.
     if (this.climbLockout > 0) this.climbLockout -= dt;
     const shiftHeld = input.down('ShiftLeft');
     if (this.isClimbing) {
       if (!shiftHeld) {
         this.detachClimb(0);            // let go: slide off and fall
       } else if (this.jumpEdge) {
-        // kick off the face: up, and away from it
         this.velocity.y = JUMP_VEL * 0.8;
         this.detachClimb(3.2);
       }
@@ -1203,10 +642,8 @@ export class Player {
       ? SWIM_SPEED
       : WALK_SPEED * (this.sprinting ? SPRINT_MULT : 1);
     if (this.attack.active && this.onGround) targetSpeed *= 0.35; // planted swings
-    // A half-deflected stick walks; a full one runs. Keyboard tilt is always 1.
     if (tilt > 0 && tilt < 0.98) targetSpeed *= Math.max(0.35, tilt);
 
-    // ---- horizontal acceleration / friction ----
     const accel = this.isSwimming ? 14 : this.onGround ? GROUND_ACCEL : AIR_ACCEL;
     _hvel.set(this.velocity.x, 0, this.velocity.z);
     if (moving) {
@@ -1220,7 +657,6 @@ export class Player {
     this.velocity.x = _hvel.x;
     this.velocity.z = _hvel.z;
 
-    // ---- jumping / gravity / buoyancy ----
     if (input.pressed('Space')) this.jumpBuffer = JUMP_BUFFER;
     else this.jumpBuffer -= dt;
     this.coyote = this.onGround ? COYOTE_TIME : this.coyote - dt;
@@ -1229,17 +665,12 @@ export class Player {
     if (this.isSwimming) {
       const floatY = world.waterLevel - 1.15;
       if (input.down('KeyC')) {
-        // Swim DOWN, against the buoyancy rather than instead of it — see
-        // DIVE_ACCEL. The bed catches him on the way: the vertical clamp
-        // further down runs for a swimmer exactly as it does for a walker, so
-        // there is no separate floor test here and no way to dive through the
-        // world.
+        // Against the buoyancy, not instead of it. The vertical clamp below catches
+        // the bed, so there is no separate floor test here.
         this.velocity.y -= DIVE_ACCEL * dt;
         if (this.velocity.y < -DIVE_SPEED) this.velocity.y = -DIVE_SPEED;
       } else {
-        // Buoyancy, CAPPED. Uncapped this is a spring on the distance to the
-        // float line, which was harmless while nothing could get more than a
-        // metre under it and turns into a cork the moment diving exists.
+        // CAPPED: uncapped, the spring turns into a cork once diving exists.
         const lift = Math.min((floatY - this.position.y) * 9, SWIM_RISE_MAX);
         this.velocity.y += (lift - this.velocity.y * 3.5) * dt;
       }
@@ -1255,41 +686,16 @@ export class Player {
       this.velocity.y -= GRAVITY * dt;
     }
 
-    // ---- integrate + terrain collision ----
-    // Horizontal first, and refused when the destination column stands more than
-    // MAX_STEP_UP above the feet. There is no horizontal collision geometry in
-    // this world, so without the test walking into a taller column simply put the
-    // hero on top of it on the next lines down — every terrace was a staircase
-    // you could stroll up. Now a hill is something you jump.
-    //
-    // The axes resolve INDEPENDENTLY, which is what lets a blocked diagonal slide
-    // along the cliff instead of stopping dead, and each probes BODY_RADIUS along
-    // its own direction of travel so the stop happens at the rock face.
-    //
-    // The reference height is the feet BEFORE this frame's gravity, so the test
-    // asks "can he step onto that?" and not "did he sink a millimetre first?".
-    // Airborne, the same test reads as clearance: at the apex of a jump the feet
-    // are 1.61 units up, so a 1-unit ledge is no longer a wall — which is exactly
-    // how jumping gets you up a hill.
-    //
-    // Swimming is exempt. A swimmer floats ~1.15 units below the surface, so the
-    // rule would make every shoreline a wall and there would be no way out of the
-    // water.
+    // Horizontal first, refused past MAX_STEP_UP over the feet. Axes resolve
+    // INDEPENDENTLY so a blocked diagonal slides, each probing BODY_RADIUS along its
+    // own travel, and the reference is the feet BEFORE gravity — which is also what
+    // makes a jump's apex read as clearance. Swimming is exempt: he floats 1.15
+    // under the surface, so the rule would make every shoreline a wall.
     const feetY = this.position.y;
     if (this.isSwimming) {
-      // THE DEEP SEA IS THE SWIMMER'S VERSION OF THE STEP TEST. He is exempt
-      // from the step rule above — a swimmer floats 1.15 under the surface, so
-      // "is that column taller than my feet" would call every shoreline a wall
-      // — and this is the one thing out here that does refuse him. Same shape
-      // as the step test and for the same reason: independent axes, so swimming
-      // diagonally at the edge of a basin slides along it instead of stopping
-      // dead, and a probe ahead of his centre so he is stopped at the edge of
-      // the dark rather than inside it. See World.isDeepWater.
-      //
-      // ALREADY OUT THERE IS A DIFFERENT CASE and it is tested FIRST, because
-      // the refusal below would otherwise be a trap: every column around a
-      // swimmer in the middle of a basin is deep, so the test that keeps him
-      // out would pin him there forever. Inside, the undertow steers instead.
+      // The swimmer's version of the step test, with the probe ahead of his centre so
+      // he stops at the edge of the dark. ALREADY OUT THERE is tested FIRST: every
+      // column mid-basin is deep, so the refusal alone would pin him there.
       if (world.isDeepWater(this.position.x, this.position.z)) {
         this.undertow(dt);
         this.position.x += this.velocity.x * dt;
@@ -1319,35 +725,15 @@ export class Player {
     }
     this.position.y += this.velocity.y * dt;
 
-    // ---- what is holding him up ----
-    // Two surfaces can, and they are not the same kind of thing.
-    //
-    // The TERRAIN is solid: it catches the feet from any direction and is what
-    // beasts, enemies, the camera and every drop resolve against too.
-    //
-    // A TREE CROWN is a ONE-WAY PLATFORM. It has to be, and the reason is the
-    // same one written on World.trunkSolidTopAt: a canopy is 7-10 units across
-    // and sits several units up, so anything that blocks there also blocks at
-    // ground level, and every tree in the world grows an invisible fence. Read
-    // from below, the identical mistake is a ceiling — jumping under a tree
-    // would bonk. So the crown only ever catches feet that STARTED the slice at
-    // or above it and are on their way DOWN: falling onto it lands, walking on
-    // it holds, and everything approaching from underneath passes straight
-    // through as it always did.
+    // What holds him up. TERRAIN is solid from any direction; a TREE CROWN is a
+    // ONE-WAY PLATFORM (World.trunkSolidTopAt), catching only feet that started the
+    // slice at or above it and are on the way DOWN.
     const gh = world.getHeight(this.position.x, this.position.z);
-    // A STRUCTURE is a floor as well as a wall, and it is the same floor from
-    // every direction — the exact opposite of a crown. The horizontal test above
-    // only ever lets the hero's centre into a column whose top is within
-    // MAX_STEP_UP of his feet, so the only box he can be standing over is one he
-    // just stepped onto; catching him on it here is what makes a low crate
-    // something you walk ON rather than something you sink into. Anything taller
-    // he was refused at the wall, and anything he jumped onto he lands on.
+    // A STRUCTURE is a floor from every direction: the horizontal test only lets him
+    // over a box he just stepped onto, so a low crate is walked ON, not sunk into.
     const built = world.structureTopAt(this.position.x, this.position.z);
     let floor = built > gh ? built : gh;
-    // ...and the deck of whatever is carrying him, by the same rule and in the
-    // same max. SOLID BOTH WAYS like a structure and unlike a canopy: he is
-    // only ever asking this while he is inside the frame's own volume, so there
-    // is no "from underneath" case for it to get wrong.
+    // ...and the deck, solid both ways: he only asks while inside the frame's volume.
     const deck = this.ride.support(this.position.x, this.position.z);
     if (deck > floor) floor = deck;
     const canopy = this.canopyTop(this.position.x, this.position.z, gh);
@@ -1357,25 +743,16 @@ export class Player {
       this.onCanopy = false;
     } else if (
       canopy > -Infinity && this.velocity.y <= 0
-      // One-way, with MAX_STEP_UP of slack so that walking UP the curve of a
-      // dome he is already standing on is a step and not a wall. Deliberately
-      // the same slack the horizontal step test uses: a move blockTop allowed
-      // is therefore always a move this test can catch, and the two can never
-      // disagree about whether he is still on the tree.
+      // One-way, with the step test's own slack, so the two cannot disagree.
       && feetY >= canopy - MAX_STEP_UP
-      // Either he crossed the surface this slice (a landing), or he is already
-      // on it and it has only fallen away by a slope's worth (walking down the
-      // dome). Past that he is off the edge and gravity has him.
+      // Either he crossed the surface this slice, or it fell away by a slope's worth.
       && (this.position.y <= canopy
         || (this.onCanopy && this.position.y - canopy < CANOPY_GLUE))
     ) {
       support = canopy;
       this.onCanopy = true;
     } else {
-      // Nothing up here. This is also what a chunk unloading under a standing
-      // player looks like — the crown simply stops being reported and he falls,
-      // which is the same answer CLIMB_LOST gives when the face a climber is
-      // holding disappears: fall, never snap.
+      // A chunk unloading under a standing player lands here too: fall, never snap.
       this.onCanopy = false;
     }
 
@@ -1384,10 +761,7 @@ export class Player {
         this.landBump = clamp((-this.velocity.y - 6) / 13, 0, 1);
         _feet.set(this.position.x, support + 0.05, this.position.z);
         this.dust.burst(_feet, Math.min(14, Math.floor(-this.velocity.y)));
-        // The same ramp the hero's own squash uses, so the cue and the body's
-        // compression read one number. The shake this replaced only fired below
-        // -15 while the squash starts at -7; the cue table keeps that gap as
-        // `playerLanded.shakeMin`.
+        // The squash's own ramp; the cue table keeps the shake gap as `shakeMin`.
         this.bus.emit({ type: 'playerLanded', impact: this.landBump });
       }
       this.position.y = support;
@@ -1401,7 +775,6 @@ export class Player {
       this.onGround = false;
     }
 
-    // ---- swimming state ----
     this.isSwimming =
       gh < world.waterLevel - 0.7 && this.position.y < world.waterLevel - 1.0;
     if (this.isSwimming) this.onGround = false;
@@ -1409,23 +782,16 @@ export class Player {
     this.finishAlive(dt, moving);
   }
 
-  /**
-   * Everything that happens after the hero has been moved, whichever way he was
-   * moved: facing, the melee combo, animation speed and footfall dust. The climb
-   * path and the walk path both end here so neither can quietly skip one.
-   */
+  /** The climb path and the walk path both end here, so neither can skip a step. */
   private finishAlive(dt: number, moving: boolean): void {
     const input = this.input;
 
-    // ---- speed norm for animation / beasts ----
     const hspeed = Math.hypot(this.velocity.x, this.velocity.z);
     this.moveSpeedNorm = clamp(hspeed / WALK_SPEED, 0, 1);
 
-    // ---- facing ----
     let targetHeading = this.heading;
     if (this.isClimbing) {
-      // square up to the rock: the animator reaches along local -z/+y, so the
-      // hands only land on the face if the whole rig is turned to it.
+      // The animator reaches along local -z/+y, so the rig must face the rock.
       targetHeading = Math.atan2(this.climbDirX, this.climbDirZ);
     } else if (this.attack.active || input.attackHeld) {
       targetHeading = Math.atan2(this.cam.forward.x, this.cam.forward.z);
@@ -1436,10 +802,8 @@ export class Player {
     this.root.rotation.y = this.heading;
     this.forward.set(Math.sin(this.heading), 0, Math.cos(this.heading));
 
-    // ---- melee combo ----
     this.updateAttack(dt);
 
-    // ---- sprint dust ----
     if (this.sprinting && this.onGround && this.moveSpeedNorm > 0.6) {
       _feet.set(
         this.position.x - this.forward.x * 0.3,
@@ -1450,16 +814,7 @@ export class Player {
     }
   }
 
-  // ---- climbing -----------------------------------------------------------
-
-  /**
-   * Top of the climbable column `reach` ahead along (dx, dz), or -Infinity if
-   * what is there is not a face worth grabbing.
-   *
-   * `climbTopAt` is asked, not `getHeight`: climbable and solid are different
-   * sets. Terrain is both, a tree trunk is only the former — which is why the
-   * hero can stand inside a trunk's column and still find something to hold.
-   */
+  /** Climbable and solid are different sets: a trunk is only the former. */
   private probeFace(dx: number, dz: number, reach: number): number {
     const top = this.climbTop(
       this.position.x + dx * reach,
@@ -1469,16 +824,9 @@ export class Player {
   }
 
   /**
-   * Look for a face to grab in the direction the hero is leaning. Three probes,
-   * cheapest-and-most-likely first, and only ever on the slices where Shift is
-   * held with a movement wish — never per frame unconditionally:
-   *
-   *  1. the CARDINAL snap of the wish. Terrain faces are axis-aligned column
-   *     walls, so walking into a cliff at 45 degrees should still grab the wall
-   *     in front rather than the diagonal gap between two columns.
-   *  2. the raw wish, for anything that is not grid-aligned (a trunk beside you).
-   *  3. the hero's OWN column, because a trunk is climbable without being solid:
-   *     you walk into it and end up standing inside it with nothing ahead.
+   * Three probes: the CARDINAL snap (terrain faces are axis-aligned, so a 45-degree
+   * approach must grab the wall, not the gap), the raw wish, then his OWN column —
+   * a trunk is climbable without being solid.
    */
   private tryGrab(): void {
     const ax = Math.abs(_wish.x);
@@ -1502,13 +850,10 @@ export class Player {
     this.climbDirZ = dz;
     this.climbRate = 0;
     this.onGround = false;
-    // Hanging, not standing: nothing is under his feet until he tops out.
     this.onCanopy = false;
     this.coyote = 0;
     this.jumpBuffer = 0;
-    // Grabbing kills inherited momentum — a sprint into a cliff should stick to
-    // it, not bounce along it — and cancels a swing in progress; you cannot
-    // hold a rock face and a sword at the same time.
+    // Kill inherited momentum, so a sprint into a cliff sticks instead of bouncing.
     this.velocity.set(0, 0, 0);
     this.attack.active = false;
   }
@@ -1528,46 +873,28 @@ export class Player {
   }
 
   /**
-   * One slice on the wall. Gravity, the jump buffer and the step-up test are all
-   * out of the picture here; the face itself is the constraint.
-   *
-   * The wish is resolved against the face rather than against the world: its
-   * component INTO the rock drives the hero up (pushing towards what you are
-   * holding is the universal "climb" input, and with the camera behind him W is
-   * exactly that), and its component ALONG the rock shuffles him sideways. The
-   * hero never moves toward the face, so the standoff he grabbed at is the
-   * standoff he keeps.
+   * The face is the constraint, not gravity. The wish resolves against it: INTO the
+   * rock drives him up, ALONG it shuffles sideways, and the standoff is kept.
    */
   private updateClimb(dt: number): void {
     const world = this.world;
-    // Through `climbTop`, like every other climb query: the face he is holding
-    // may belong to a building on a carrier, and the world query cannot see it.
-    // Losing it here is not harmless — the branch below reads a vanished face as
-    // "the wall fell out from under the hands" and drops him.
+    // Through `climbTop`: a face on a carrier is invisible to the world query, and
+    // the branch below would read that as the hold being lost.
     const top = this.climbTop(
       this.position.x + this.climbDirX * CLIMB_REACH,
       this.position.z + this.climbDirZ * CLIMB_REACH,
     );
     const rise = top - this.position.y;
 
-    // The face fell out from under the hands — a chunk unloaded, or whatever we
-    // were holding stopped existing. Fall; do not snap anywhere.
+    // The face stopped existing (a chunk unloaded). Fall; do not snap anywhere.
     if (rise < -CLIMB_LOST) {
       this.detachClimb(0);
       return;
     }
 
-    // At the lip. Mantle if there is somewhere to stand, and the ledge column is
-    // checked against everything that HOLDS WEIGHT — the terrain, or a crown
-    // standing clear above it — not against the terrain alone.
-    //
-    // getHeight alone was the rule until crowns became standable, and it is why
-    // topping out of a tree used to refuse: the ground under a canopy is metres
-    // below the leaves, so `dest` never matched `top` and the hero stayed
-    // clinging at full stretch. The level-with-what-we-climbed test still does
-    // its original job — it is what stops a mantle onto a bole with nothing over
-    // it from flinging him into the air — because a column that holds nothing
-    // still answers with the distant ground.
+    // At the lip. The ledge is checked against everything that HOLDS WEIGHT, terrain
+    // or a crown — `getHeight` alone refused every treetop — and the level-with-what-
+    // we-climbed test still stops a mantle onto a bare bole from flinging him up.
     let atTop = false;
     if (rise <= CLIMB_TOP_EPS) {
       const nx = this.position.x + this.climbDirX * MANTLE_PUSH;
@@ -1583,9 +910,7 @@ export class Player {
         this.isClimbing = false;
         this.climbRate = 0;
         this.onGround = true;
-        // Hand the vertical resolution the right floor for the next slice: it
-        // is the flag, not the position, that tells the step test whether the
-        // leaves under him count.
+        // The flag, not the position, tells the step test whether leaves count.
         this.onCanopy = dc > -Infinity;
         this.coyote = COYOTE_TIME;
         return;
@@ -1593,7 +918,6 @@ export class Player {
       atTop = true;
     }
 
-    // ---- resolve the wish against the face ----
     const moving = _wish.lengthSq() > 1e-6;
     const into = moving ? _wish.x * this.climbDirX + _wish.z * this.climbDirZ : 0;
     // face tangent: the climb direction rotated a quarter turn about +y
@@ -1609,13 +933,10 @@ export class Player {
     this.velocity.z += (tanZ * along * CLIMB_SIDE_SPEED - this.velocity.z) * k;
     this.climbRate = clamp(this.velocity.y / CLIMB_SPEED, -1, 1);
 
-    // ---- integrate ----
     this.position.y += this.velocity.y * dt;
     if (atTop && this.position.y > top) this.position.y = top;
 
-    // Sideways only where the face continues: the probe is taken from the
-    // DESTINATION, so shuffling off the end of a ledge stops at the corner
-    // rather than dropping the hero into space.
+    // Probed from the DESTINATION, so shuffling off a ledge stops at the corner.
     const nx = this.position.x + this.velocity.x * dt;
     const nz = this.position.z + this.velocity.z * dt;
     if (
@@ -1629,14 +950,12 @@ export class Player {
       this.velocity.z = 0;
     }
 
-    // ---- back on the floor / in the drink ----
     const gh = world.getHeight(this.position.x, this.position.z);
     if (this.position.y <= gh) {
       this.position.y = gh;
       this.velocity.y = 0;
       this.onGround = true;
-      // Lockout, so climbing down to the bottom of a cliff ends standing on the
-      // ground rather than re-grabbing the same face on the next slice.
+      // Lockout, or climbing to the bottom of a cliff re-grabs the same face.
       this.detachClimb(0);
       return;
     }
@@ -1649,52 +968,30 @@ export class Player {
   private updateAttack(dt: number): void {
     const input = this.input;
     const a = this.attack;
-    // What is in the hand, asked once. The bow is the one weapon whose attack
-    // is not a swing — it has its own duration, its own strike frame and no
-    // chain at all (see BOW_DUR) — and everything else in this method is the
-    // sword's rhythm, which the other four share.
+    // The bow's attack is not a swing: own duration, own strike frame, no chain.
     const bow = this.rig.weapon === 'bow';
 
     if (a.active) {
       a.t += dt;
-      // strike frame: fire the hit callback exactly once per swing
+      // Strike frame: fire the hit callback exactly once per swing.
       if (!this.struck && a.t >= a.dur * (bow ? BOW_RELEASE : STRIKE_AT)) {
         this.struck = true;
-        // In the saddle the swing comes from the RIDER and goes where he is
-        // looking, not where the mount happens to be pointing. Two reasons: the
-        // hero sits above the animal, so an arc struck at his own forward from
-        // hip height lands in the mount's back; and mounted skills already aim
-        // down the crosshair, so a sword that tracked the mount's nose instead
-        // would be the one thing in the saddle that ignores where you aim.
-        // MOUNTED_REACH pushes the origin out past the mount's own bulk, which
-        // is what stops a swing from a 2.1-unit animal connecting with nothing.
-        // A SHOT GOES WHERE THE CROSSHAIR LOOKS, INCLUDING UP AND DOWN — issue
-        // #118. `this.forward` is the body's heading and is FLAT by
-        // construction (`forward.set(sin, 0, cos)`), so an arrow taken from it
-        // left the bow at a fixed height whatever the camera was pitched at:
-        // no shooting up at a flyer, no shooting down off a ledge, and the
-        // elevation the player had aimed with was simply discarded.
-        //
-        // Melee keeps the flat body heading: a sword arc comes out of the
-        // shoulders and is tested in the horizontal plane with a height band
-        // (see `inRise`), so pitching it would aim an arc that cannot follow.
+        // Mounted, the swing comes from the RIDER and goes where he looks — his own
+        // forward would land in the animal's back — and MOUNTED_REACH clears its bulk.
+        // A SHOT goes where the crosshair looks, up and down included (issue #118);
+        // `this.forward` is FLAT by construction and would discard the elevation.
+        // Melee keeps the flat heading: an arc is tested in the plane with `inRise`.
         const mounted = this.isMounted;
         // getWorldDirection writes into the temp, so this allocates nothing.
         if (mounted || bow) this.engine.camera.getWorldDirection(_dir);
         else _dir.copy(this.forward);
         _origin.copy(this.position);
         _origin.y += mounted ? MOUNTED_STRIKE_Y : 1.25;
-        // The bow alone re-aims from the MUZZLE at the point the crosshair has
-        // reached — see BOW_AIM_DIST. Everything else here either homes onto a
-        // target or is an arc swung from the body, and neither cares that the
-        // camera is a couple of units above the shoulder it is aiming for.
+        // The bow alone re-aims from the MUZZLE; everything else homes or is an arc.
         if (bow) {
           this.engine.camera.getWorldPosition(_aimPt);
           let hit = BOW_AIM_FAR;
-          // Only a ray going DOWN can meet the heightfield inside the arrow's
-          // reach; one at or above the horizon marches the lot and finds the
-          // first hill on the far side of the valley, which is not what the
-          // player is pointing at. Same reasoning as `spawnSpot` in main.ts.
+          // Only a DOWN ray meets the heightfield in reach; level, it finds a far hill.
           if (_dir.y < -0.02) {
             for (let d = BOW_AIM_NEAR; d <= BOW_AIM_FAR; d += BOW_AIM_STEP) {
               const x = _aimPt.x + _dir.x * d;
@@ -1705,24 +1002,11 @@ export class Player {
           _aimPt.addScaledVector(_dir, hit).sub(_origin);
           if (_aimPt.lengthSq() > 1e-6) _dir.copy(_aimPt).normalize();
         }
-        // AIM ASSIST BEFORE THE ORIGIN IS PUSHED OUT, because the push is along
-        // the swing and the swing is what is about to move. Asked from the body,
-        // not from the offset point: 0.35 units cannot change which enemy is
-        // nearest the crosshair, and feeding it a point derived from the answer
-        // would be circular.
+        // Assist BEFORE the origin is pushed out: the push is along the swing.
         const steered = this.aimAssist?.(_origin, _dir) ?? false;
         _origin.addScaledVector(_dir, mounted ? MOUNTED_REACH : 0.35);
-        // Square up to the swing that is actually being thrown. Without this the
-        // arc — which is 100 degrees wide and drawn from `_dir` — can cut at up
-        // to the assist cone away from the shoulders it comes out of, and reads
-        // as a slash detached from the hero. A snap rather than a damp because
-        // it happens ON the strike frame of a fast animation, where it reads as
-        // a lunge; `targetHeading` goes on damping toward the camera from the
-        // next slice, so nothing is left twisted.
-        //
-        // On foot only. In the saddle the heading belongs to the mount, and the
-        // rider's swing already goes down the crosshair rather than along his
-        // body — see the note above.
+        // Square up, or the arc cuts an assist cone away from his shoulders. A snap,
+        // not a damp: on the strike frame it reads as a lunge. On foot only.
         if (steered && !mounted) {
           this.heading = Math.atan2(_dir.x, _dir.z);
           this.root.rotation.y = this.heading;
@@ -1730,10 +1014,7 @@ export class Player {
         }
         this.onAttack?.(_origin, _dir);
       }
-      // A tap during the swing queues the next hit of the chain. The bow has no
-      // chain, so a tap mid-draw buys nothing — releasing early and re-nocking
-      // is not a thing an archer does, and letting it queue would give the bow
-      // a burst its rate of fire is balanced against not having.
+      // A tap queues the next hit. The bow has no chain, so it gets no burst.
       if (!bow && input.attackPressed && a.t > a.dur * 0.35 && a.combo < 2) {
         this.attackQueued = true;
       }
@@ -1750,9 +1031,7 @@ export class Player {
         }
       }
     } else if (
-      // Mounted is deliberately NOT excluded: the sword works from the saddle,
-      // on the ground and in the air. Swimming and climbing still are — both
-      // occupy the hands, and neither has a swing pose.
+      // Mounted is NOT excluded; swimming and climbing are — both occupy the hands.
       input.attackPressed && this.attackCooldown <= 0
       && !this.isSwimming && !this.isClimbing
     ) {

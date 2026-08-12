@@ -7,21 +7,16 @@ const _scale = new THREE.Vector3();
 const _pos = new THREE.Vector3();
 const _euler = new THREE.Euler();
 
-/**
- * Tiny voxel dust-puff system (landing bursts + sprint kick-up).
- * One InstancedMesh, zero per-frame allocations; dead particles collapse to
- * scale 0 so no visibility bookkeeping is needed.
- */
+/** Voxel dust puffs: dead particles collapse to scale 0, so no visibility bookkeeping. */
 export class DustSystem {
   readonly mesh: THREE.InstancedMesh;
-  // packed particle state
   private px = new Float32Array(MAX);
   private py = new Float32Array(MAX);
   private pz = new Float32Array(MAX);
   private vx = new Float32Array(MAX);
   private vy = new Float32Array(MAX);
   private vz = new Float32Array(MAX);
-  private life = new Float32Array(MAX);     // remaining
+  private life = new Float32Array(MAX);
   private maxLife = new Float32Array(MAX);
   private size = new Float32Array(MAX);
   private spin = new Float32Array(MAX);
@@ -36,7 +31,6 @@ export class DustSystem {
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
-    // start all collapsed
     _mat4.makeScale(0, 0, 0);
     for (let i = 0; i < MAX; i++) this.mesh.setMatrixAt(i, _mat4);
     scene.add(this.mesh);
@@ -58,12 +52,11 @@ export class DustSystem {
     this.spin[i] = (Math.random() - 0.5) * 8;
   }
 
-  /** One-shot puff (landings). */
   burst(pos: THREE.Vector3, count: number): void {
     for (let i = 0; i < count; i++) this.spawn(pos.x, pos.y, pos.z, 0.3, 1);
   }
 
-  /** Continuous kick-up (sprinting). rate = particles per second. */
+  /** rate = particles per second. */
   emit(pos: THREE.Vector3, rate: number, dt: number): void {
     this.emitAcc += rate * dt;
     while (this.emitAcc >= 1) {
@@ -81,7 +74,6 @@ export class DustSystem {
         this.mesh.setMatrixAt(i, _mat4);
         continue;
       }
-      // drift up + slow down
       this.vx[i] *= 1 - 2.5 * dt;
       this.vz[i] *= 1 - 2.5 * dt;
       this.vy[i] += 0.4 * dt;
@@ -90,7 +82,6 @@ export class DustSystem {
       this.pz[i] += this.vz[i] * dt;
 
       const k = this.life[i] / this.maxLife[i]; // 1 -> 0
-      // grow slightly then shrink out
       const s = this.size[i] * (k > 0.75 ? (1 - k) * 4 : k / 0.75);
       _pos.set(this.px[i], this.py[i], this.pz[i]);
       _euler.set(0, this.spin[i] * (time + i), this.spin[i] * 0.35 * time);

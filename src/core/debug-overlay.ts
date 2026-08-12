@@ -3,22 +3,13 @@ import { postStats } from './post';
 import { PERF_SECTIONS, perf } from './profiler';
 
 /**
- * F2 debug overlay: measured frame rate (not the cap — actually observed),
- * frame time, the configured cap, and renderer load. Hidden by default.
- *
- * Draw calls need a word of explanation. Engine turns off
- * `renderer.info.autoReset` and clears the counters once per frame, because
- * renderer.info resets itself on every render() call and a post-processing
- * frame makes several — left alone, the readout showed the cost of one
- * fullscreen quad. So `draws` here is the honest per-frame total, and the
- * `scene` line separates out what the world itself cost (sampled by
- * post.ts's StatsProbePass) from what post-processing added on top.
+ * F2 debug overlay. Draw counts rely on Engine disabling `renderer.info.autoReset`:
+ * three resets info per render() call and a post frame makes several.
  */
 export class DebugOverlay {
   private el: HTMLDivElement;
   private visible = false;
 
-  // rolling window of recent frame times (ms)
   private samples: number[] = [];
   private lastNow = 0;
   private accum = 0;
@@ -46,11 +37,9 @@ export class DebugOverlay {
   toggle(): void {
     this.visible = !this.visible;
     this.el.style.display = this.visible ? 'block' : 'none';
-    // Sampling costs ten performance.now() calls a frame, so it is paid only
-    // while somebody is looking. `hold` cannot switch off a `?perf=1` run.
+    // `hold` cannot switch off a `?perf=1` run.
     perf.hold(this.visible);
     if (this.visible) {
-      // start clean so the first reading isn't skewed by time spent hidden
       this.samples.length = 0;
       this.lastNow = 0;
       this.accum = 0;
@@ -61,11 +50,7 @@ export class DebugOverlay {
     return this.visible;
   }
 
-  /**
-   * Call once per rendered frame, AFTER render(). Measures wall-clock frame
-   * spacing itself rather than trusting the simulation dt, so a capped or
-   * stuttering frame shows its true cost.
-   */
+  /** Once per rendered frame, AFTER render(). Measures wall-clock spacing, not sim dt. */
   update(): void {
     const now = performance.now();
     if (this.lastNow > 0) {
@@ -77,8 +62,6 @@ export class DebugOverlay {
     this.lastNow = now;
     if (!this.visible) return;
 
-    // refresh the readout ~4x/second so the numbers stay readable (but show
-    // something on the very first measured frame rather than staying blank)
     if (this.accum >= 250 && this.samples.length >= 1) {
       this.accum = 0;
       let sum = 0;
@@ -96,18 +79,12 @@ export class DebugOverlay {
 
   private render(): void {
     const info = this.renderer.info;
-    // "uncapped" meant "no cap of OURS", and read as "runs unbounded" — which
-    // sent one performance investigation down a blind alley. A browser pins
-    // requestAnimationFrame to the display, so with no cap of our own the frame
-    // rate IS the refresh rate, the frame COUNT is fixed, and a cheaper frame is
-    // straightforwardly less CPU. The wording matters because the opposite
-    // reading suggests capping as the fix, when the machine already caps it.
+    // Say "display", not "uncapped": rAF is pinned to the refresh rate.
     const capLine = this.fpsCap > 0
       ? `cap    ${this.fpsCap} fps  (?fps=0 to disable)`
       : 'cap    display (vsync; ?fps=<n> to cap lower)';
     const low = this.worst > 0 ? 1000 / this.worst : 0;
-    // postStats.sceneCalls stays 0 when the composer is bypassed (?post=0), in
-    // which case the total IS the scene cost and the split line is noise.
+    // sceneCalls stays 0 when the composer is bypassed (?post=0).
     const post = postStats.sceneCalls > 0
       ? `scene  ${String(postStats.sceneCalls).padStart(6)}   +${info.render.calls - postStats.sceneCalls} post `
         + `(${postStats.passes} passes, ${postStats.bloomObjects} glow)`
@@ -124,30 +101,11 @@ export class DebugOverlay {
     ].join('\n');
   }
 
-  /**
-   * WHERE THE FRAME WENT, which is the question the numbers above cannot answer.
-   *
-   * FPS and draw calls say a frame is expensive; they never say which subsystem
-   * spent it, and the answer is rarely the one you would guess — measured on
-   * this project, `render` is 95% of our CPU and every gameplay system together
-   * is under 0.2 ms. Without this you optimise the thing you were thinking about
-   * rather than the thing that costs.
-   *
-   * THE LAST LINE IS THE IMPORTANT ONE. `cpu` is time inside our own frame
-   * callback; `off-cpu` is wall minus cpu — time the frame took that WE DID NOT
-   * SPEND. That is GPU work being waited on, compositing, or a collection, and
-   * no amount of making our JavaScript faster will move it. A frame that is
-   * mostly off-cpu and a frame that is mostly render need opposite fixes, and
-   * this is the only line that tells them apart.
-   *
-   * Percentages are of WALL, not of cpu, so the columns add up to the frame the
-   * player actually got.
-   */
+  /** Percentages are of WALL, so `off-cpu` (GPU wait, GC) shows in the same columns. */
   private breakdown(): string[] {
     const m = perf.means(120);
     const wall = m[PERF_SECTIONS.length + 1];
     const cpu = m[PERF_SECTIONS.length];
-    // Before the profiler has a frame in it there is nothing honest to draw.
     if (wall <= 0) return ['', 'frame  (sampling…)'];
 
     const rows: Array<[string, number]> = [];
@@ -163,8 +121,6 @@ export class DebugOverlay {
 
     const out = ['', `frame  ${wall.toFixed(2)} ms  ── where it went ──`];
     for (const [name, ms] of rows) {
-      // Below a hundredth of a millisecond the bar is empty and the row is
-      // noise; naming them anyway is what makes "it is not gameplay" visible.
       out.push(line(name, ms));
     }
     out.push(line('cpu', cpu));

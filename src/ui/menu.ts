@@ -11,106 +11,31 @@ import bgUrl from './menu-bg.webp';
 import logoUrl from './menu-logo.webp';
 
 /**
- * The title screen — splash, "Press start...", then New Game / Load / Settings.
+ * The title screen. Steps: press -> options -> {settings|about|name|load}.
  *
- * WHAT IT IS MADE OF
- *
- * Two pictures and CSS. `menu-bg.webp` and `menu-logo.webp`, sitting next to
- * this file, are the only art files in the whole project, and they are a
- * deliberate exception to the "everything is generated in code" rule that
- * governs the game itself: this is a 2D poster, not a thing the renderer has to
- * build, and a painted splash is the one place where an image IS the design.
- * Everything moving on top of them — the lantern pulse, the fairies, the logo's
- * slide — is CSS animation, so the menu costs no JavaScript per frame. The only
- * per-frame work while it is up is the gamepad poll below, and that only runs
- * if the page can see a pad at all.
- *
- * THEY ARE IMPORTED, NOT PUT IN `public/`, and that is a correctness choice
- * rather than a filing one. `vite.config.ts` sets `base:'./'` so a build can be
- * served from any subfolder — which is exactly what `bun run snapshot`
- * produces — and Vite does not rewrite string literals in JS. Under `public/`
- * the URL therefore had to be computed at RUNTIME against `document.baseURI`,
- * which is one more thing that has to be right on every way of serving the
- * build. Imported, the bundler emits the file with a content hash and writes
- * the relative URL itself, by the same machinery that already resolves
- * `main-*.js`: if the page can load its own JavaScript it can load these.
- *
- * WHY THE ART IS INSIDE A SIZED PLATE
- *
- * The glows have to sit ON the lanterns in the painting, and the painting is
- * cover-cropped to whatever shape the window is. So `.plate` reproduces
- * `background-size:cover` in explicit numbers — `max(100vw, 100dvh * AR)` by
- * `max(100dvh, 100vw / AR)` — and the image plus every glow live inside it as
- * PERCENTAGES. The lamp coordinates below were read off the source pixels, and
- * because they are relative to the plate rather than to the viewport they stay
- * nailed to the lanterns at any aspect ratio, including the crop where a lamp
- * is off screen entirely.
- *
- * THE STEPS
- *
- *   press -> options -> settings -> options
- *                    \-> about  -> options
- *
- * ABOUT is the second leaf off the options, and it is a leaf in the same sense
- * Settings is: one way in, one way back, and the way back puts the cursor on the
- * button that opened it. What it holds — what the game is, the AI disclaimer and
- * the third-party licences — lives in ui/about.ts for the same reason the
- * settings rows live in ui/settings.ts, which is that a second host would
- * otherwise be a second copy.
- *
- * There used to be a fullscreen step between the first two, asking "Play
- * fullscreen?" on every launch. It is gone: the game goes fullscreen when New
- * Game is pressed, and Settings carries a switch to stop it. See
- * `Prefs.autoFullscreen` for why a question was the wrong shape, and
- * ui/fullscreen.ts for why the request has to be issued from the gesture.
- *
- * INPUT. Keyboard, pointer and pad all work, and the options are real
- * `<button>`s so Enter/Space, tab order and focus rings come from the platform
- * rather than from a bespoke widget. Arrow keys and the pad's d-pad move the
- * focus; the pad's poll is the only thing here that runs per frame.
+ * The two .webp files are imported, not in `public/`: `base:'./'` means a build
+ * can be served from any subfolder and Vite does not rewrite string literals.
+ * `.plate` reproduces `background-size:cover` in explicit numbers so the lamp
+ * glows, sized in per-cent of the plate, stay on the lanterns at any aspect.
  */
 
-/** Where the source art's lanterns are, in per-cent of the picture. */
 interface Lamp {
-  /** Centre of the glow, as a fraction of the picture's width/height. */
+  /** Centre and diameter of the glow, as fractions of the picture. */
   x: number;
   y: number;
-  /** Glow diameter as a fraction of the picture's width. */
   r: number;
-  /** Seconds per pulse. Deliberately co-prime-ish so the three never sync up. */
+  /** Seconds per pulse. Co-prime-ish so the three never sync up. */
   period: number;
 }
 
-/**
- * Measured off `menu-bg.webp` (1672x941) by zooming on each lantern and
- * reading the centre of its glass: left post 84,670 — gate post 609,728 — right
- * post 1579,677. Written as fractions so they survive the day someone re-exports
- * the art at another size, as long as the framing is the same.
- *
- * Three different periods rather than one shared clock. Lanterns pulsing in
- * lockstep read as a single global brightness animation — a fade on the whole
- * picture — where staggered ones read as three separate flames.
- */
+/** Measured off `menu-bg.webp` (1672x941); fractions survive a re-export. */
 const LAMPS: ReadonlyArray<Lamp> = [
   { x: 84 / 1672, y: 670 / 941, r: 0.115, period: 4.3 },
   { x: 609 / 1672, y: 728 / 941, r: 0.065, period: 3.1 },
   { x: 1579 / 1672, y: 677 / 941, r: 0.115, period: 5.2 },
 ];
 
-/**
- * The fairies, one entry per sprite.
- *
- * Hand-placed rather than randomised, for the same reason the capture tools pin
- * `photo=1`: a title screen that is different every load cannot be compared
- * against yesterday's screenshot. Each crosses the frame on its own clock, and
- * `delay` is NEGATIVE so the animation starts part-way through — otherwise
- * every fairy enters from the same edge in the first second and the screen
- * looks empty before that.
- *
- * `top` keeps them in the upper two thirds, over sky and canopy, because the
- * bottom third is flowers and the hero: a glowing dot down there reads as a
- * missing sprite rather than as a fairy.
- */
+/** Hand-placed, not randomised, so captures are comparable across loads. */
 interface Fairy {
   top: number;      // per cent of viewport height
   size: number;     // px at 1080p, scaled by the sprite's own glow
@@ -122,15 +47,7 @@ interface Fairy {
   hue: 'warm' | 'cool';
 }
 
-/**
- * SIZES ARE NOT SUBTLE, and the first pass proved why. At 4-8px with a soft
- * amber halo they were invisible against the painting's bright noon sky — a
- * capture at 1920x1080 showed empty air where all seven were sitting. The art
- * is daylight, not dusk, so a fairy has to out-brighten a lit cloud to read at
- * all: 8-15px with a white core and a halo two and a half times its own width.
- * Over the canopy and the fence they are unmistakable; over the brightest
- * cloud they are still a soft firefly, which is the right floor.
- */
+/** 8-15px: anything smaller vanishes against the painting's noon sky. */
 const FAIRIES: ReadonlyArray<Fairy> = [
   { top: 18, size: 12, duration: 26, delay: -3, bob: 3.1, bobY: 26, reverse: false, hue: 'warm' },
   { top: 34, size: 9, duration: 34, delay: -19, bob: 4.2, bobY: 18, reverse: true, hue: 'cool' },
@@ -143,130 +60,38 @@ const FAIRIES: ReadonlyArray<Fairy> = [
 
 type Step = 'press' | 'options' | 'name' | 'load' | 'settings' | 'about';
 
-/**
- * How far one arrow key or d-pad nudge scrolls the About box, in px.
- *
- * The About step is the one screen here with no list to walk: it is a single
- * Back button and a block of prose taller than the window, so up/down means
- * SCROLL rather than move-the-cursor (see `onKeyDown`). 64px is about three
- * lines at the 16px floor — enough that holding the key gets you down the panel
- * at a useful rate, short enough that one press never skips a heading.
- */
+/** Px per arrow/d-pad nudge on the About step — about three lines at 16px. */
 const ABOUT_SCROLL = 64;
 
 /**
- * THE POSTER ASSEMBLES ITSELF, IN THREE BEATS: logo, then painting, then the
- * invitation to press something. Issue #49.
+ * Three-beat entrance: logo, painting, "press start". Issue #49.
  *
- * The order is the argument. A splash that fades in as one flat image gives the
- * wordmark and the art the same weight at the same instant, and the eye lands on
- * whichever is brighter — which here is a noon sky, not the game's name. Lighting
- * the logo first against the dark backing plate makes it the only thing on screen
- * for half a second; the painting then arrives underneath something the player has
- * already read.
- *
- * IT WAITS FOR THE PIXELS FIRST, which is the "load off screen, then fade" half
- * of the request. An `<img>` fades in with whatever it has decoded, so a fade
- * begun on a cold cache is a fade of nothing followed by a pop;
- * `HTMLImageElement.decode()` resolves when the bitmap is ready to paint. Both
- * images are in the markup from the first frame, so the browser starts both
- * fetches immediately and this wait only orders the REVEAL, never the load —
- * measured on a cold dev server, both decode by 1.08 s. The cap is the safety
- * net: a decode that never resolves (or a browser without the method) must cost
- * the splash its wait, not the whole screen.
- *
- * THEN THE BEATS THEMSELVES ARE CSS, AND THAT IS THE PART THAT HAD TO BE
- * MEASURED. The obvious shape — light a layer, `setTimeout`, light the next — is
- * the one thing that cannot work here, because the boot is running behind this
- * poster and its phases are LONG TASKS: a timer set for 550 ms fired at 4066 ms,
- * so the painting arrived four seconds after the wordmark and the whole sequence
- * read as a stall. A compositor-driven opacity animation is immune to that; it
- * kept running smoothly through the same block that starved the timer. So JS
- * decides WHEN the sequence starts (the one thing a stylesheet cannot ask) and
- * the stylesheet owns the whole of the ordering, in `animation-delay`.
- *
- * NOT UNDER photo=1, AND NOT ON THE WAY BACK FROM A GAME. A staged capture wants
- * the finished poster and nothing in flight — `.bs-menu.photo` pauses animations,
- * so a still taken mid-intro would be of a half-lit screen — and Exit to title
- * raises a second menu whose art has been in the cache for the whole session,
- * where re-introducing it reads as the game reloading. Both jump straight to the
- * end state, which is the `lit` class rather than the `intro` one. A player who
- * presses anything mid-intro gets the same jump; see `advanceFromPress`.
+ * JS decides only WHEN it starts; the stylesheet owns the ordering in
+ * `animation-delay`, because long boot tasks delayed a 550 ms `setTimeout` to
+ * 4066 ms. Waits on `decode()` first, capped. Skipped under `photo=1` and on
+ * Exit to title — both jump straight to `lit`.
  */
 const INTRO = {
-  /** How long a decode may hold the sequence up before it starts regardless. */
   decodeCap: 2500,
-  /**
-   * Wall-clock length of the whole sequence, ms: logo .55 + art .7 + press .45.
-   * Must match the delays in ui/styles.ts. Read against `performance.now()`
-   * rather than counted down by a timer, for the long-task reason above.
-   */
+  /** Whole sequence, ms: logo .55 + art .7 + press .45. Match ui/styles.ts. */
   total: 1700,
 } as const;
 
-/**
- * What the title screen needs from its host, beyond the settings hooks it passes
- * straight through to `SettingsPanel` (ui/settings.ts — the rows themselves, and
- * everything they persist, moved there when the pause menu needed the same list).
- */
 export interface StartMenuHooks extends SettingsHooks {
-  /**
-   * New Game, with the name the player typed. Fired once, after the menu has
-   * faded out and taken itself off the DOM — the game gets a clear screen, not
-   * a fade it has to render behind.
-   */
+  /** Fired once, after the menu has faded out and left the DOM. */
   onStart: (name: string) => void;
-  /**
-   * PREPARE to load this character, and say whether it worked.
-   *
-   * Two hooks rather than one for a reason the failure case forces: reading a
-   * document can fail (a half-written record, a database that went away), and
-   * the only screen that can tell the player so is this one — which by the time
-   * `onBegin` runs has faded out and taken itself off the DOM. So the read
-   * happens while the poster is still up, and the fade is started only once it
-   * has worked.
-   *
-   * Optional, so a host with no save system still builds a menu — the Load
-   * button is gated on `listSaves` returning rows, which such a host never does.
-   */
+  /** PREPARE the load; split from `onBegin` so a failure still has a screen. */
   onLoad?: (id: number) => Promise<boolean>;
-  /**
-   * The screen is clear and the prepared character should start playing. Fired
-   * once, after the fade, exactly where `onStart` fires for a new game.
-   */
   onBegin?: () => void;
-  /**
-   * Every character on this machine, most recently played first.
-   *
-   * Asked ONCE, when the menu is built, so the answer has resolved long before
-   * anyone walks past the splash — the options list must not wait on a database
-   * to know whether to light its Load button, and a list rebuilt when the answer
-   * arrives is what covers the case where somebody is faster than IndexedDB.
-   */
+  /** Newest first. Asked once, at build, since it gates the Load button. */
   listSaves?: () => Promise<SaveMeta[]>;
-  /** Forget a character. The menu re-lists afterwards. */
   onDeleteSave?: (id: number) => Promise<void>;
-  /**
-   * The exit fade has STARTED, which is the moment the game behind the poster
-   * becomes visible again — half a second before `onStart`.
-   *
-   * It exists because the two facts are different: `onStart` means "the player
-   * is now playing", this one means "what you draw is now being seen". Anything
-   * the caller stood down while the screen was covered has to come back here,
-   * not there, or the dissolve is the one janky moment in the whole sequence.
-   */
+  /** The exit fade STARTED: what you draw is now being seen. Before `onStart`. */
   onLeave?: () => void;
 }
 
-/** How a caller wants this instance to open. See `offer`. */
 export interface StartMenuOptions {
-  /**
-   * Open on the OPTIONS step rather than on the splash.
-   *
-   * For the one caller that raises a second title screen in the same page: Exit
-   * to title, from the in-game menu (main.ts). Every other route here is a fresh
-   * load, where the splash is the first thing anyone sees and is the point.
-   */
+  /** Open on the options step. For Exit to title, which has no splash. */
   skipSplash?: boolean;
 }
 
@@ -287,53 +112,28 @@ export class StartMenu {
   private el: HTMLDivElement | null = null;
   private step: Step = 'press';
   private prefs: Prefs;
-  /** The settings list, shared with the in-game menu. See ui/settings.ts. */
   private settings: SettingsPanel;
   private unlisten: (() => void) | null = null;
   private padRaf = 0;
-  /** Buttons of whichever panel is showing, in focus order. */
   private focusables: HTMLButtonElement[] = [];
   private focusIdx = 0;
-  /** Selector for the button the NEXT panel build should focus. See renderPanel. */
+  /** Selector for the button the NEXT panel build should focus. */
   private pendingFocus: string | null = null;
-  /** Edge detection for the pad poll: held last frame, and went down this one. */
+  /** Pad edge detection: held last frame, and went down this one. */
   private padDown = new Uint8Array(20);
   private padEdge = new Uint8Array(20);
   private padAxisLatched = false;
   private padAxisLatchedX = false;
-  /**
-   * When the three-beat entrance started, `performance.now()`. 0 = waiting for
-   * the images, -1 = there is no sequence (finished, skipped, or never run).
-   */
+  /** Entrance start, `performance.now()`. 0 = awaiting images, -1 = no sequence. */
   private introAt = 0;
-  /** The characters on this machine, newest first. Empty until asked. */
   private saves: SaveMeta[] = [];
-  /**
-   * The character whose Delete has been pressed ONCE, or null.
-   *
-   * TWO PRESSES, NOT A DIALOG. Deleting a character is the one irreversible
-   * thing on this screen, and it sits directly beside the button that loads
-   * them — so it arms on the first press and does it on the second, with the
-   * label saying which state it is in. A modal would be the other answer and it
-   * is the wrong one here: this screen already IS the modal, and stacking a
-   * second one over it needs its own focus trap and its own way out.
-   */
+  /** The character whose Delete has been pressed ONCE, or null. */
   private armedDelete: number | null = null;
-  /** A load that was asked for and could not be read. Cleared by leaving. */
   private loadError = false;
 
   /**
-   * Build the menu, or return null when the game should just start.
-   *
-   * The gate, in order:
-   *   - `?menu=0` suppresses it outright. Every probe in `tools/` passes this,
-   *     because they drive the hero and a title screen in front of him would
-   *     make each of them measure a menu instead.
-   *   - `?menu=1` forces it, INCLUDING in photo mode, which is how a still of
-   *     the title screen gets captured. In photo mode every animation on it is
-   *     paused (see the `photo` class) so two captures match.
-   *   - otherwise: shown, unless `photo=1` — a staged capture of the world must
-   *     not have a poster in front of it.
+   * Build the menu, or null when the game should just start. `menu=0`
+   * suppresses; `menu=1` forces it even in photo mode; else shown unless `photo=1`.
    */
   static offer(hooks: StartMenuHooks, opts: StartMenuOptions = {}): StartMenu | null {
     const p = menuParam();
@@ -348,15 +148,9 @@ export class StartMenu {
     injectStyles();
     this.prefs = loadPrefs();
     this.settings = new SettingsPanel('title', hooks);
-    // A tab replaces every row under it, so the panel asks for a real rebuild
-    // rather than patching the DOM behind this screen's back — `focusables` is
-    // built by `renderPanel` and by nothing else. Same path a language change
-    // takes, and the selector is what keeps the cursor on the tab just pressed.
+    // `focusables` is built by `renderPanel` and nowhere else, so a tab change
+    // asks for a full rebuild rather than patching the DOM behind our back.
     this.settings.onRebuild = (focus) => { this.pendingFocus = focus; this.renderPanel(); };
-    // Coming back from a game skips the splash. "Press start..." is an invitation
-    // to a player who has not started, and someone who just chose Exit to title
-    // has plainly started — making them press a key to be shown the menu they
-    // asked for is a step that answers nothing.
     if (opts.skipSplash) this.step = 'options';
 
     const el = document.createElement('div');
@@ -366,14 +160,8 @@ export class StartMenu {
     this.el = el;
     document.body.appendChild(el);
 
-    // The whole panel is rebuilt when the language changes, which is the one
-    // thing in the game that can happen WHILE this is on screen — the picker is
-    // three lines below. Rebuilding rather than relabelling because the panel is
-    // markup composed per step, not a fixed set of captions.
+    // A language change rebuilds: the panel is markup per step, not captions.
     this.unlisten = onLanguageChange(() => {
-      // The player is standing ON the chip they just pressed, so the rebuild has
-      // to give it back — otherwise picking a language throws the cursor to the
-      // top of the settings list, which on a pad is the cursor disappearing.
       this.pendingFocus = `[data-lang="${language()}"]`;
       this.renderPanel();
     });
@@ -382,39 +170,26 @@ export class StartMenu {
     window.addEventListener('keydown', this.onKeyDown, true);
     this.renderPanel();
     this.pollPad();
-    // Asked here rather than when Load is pressed, because the answer decides
-    // whether Load can BE pressed. It is a database read behind a splash nobody
-    // has walked past yet, so it costs the screen nothing.
+    // Asked here, not on Load: the answer decides whether Load can BE pressed.
     void this.refreshSaves();
 
-    // Next frame so the entrance transition has a start state to move from —
+    // Next frame so the entrance transition has a start state to move from.
     requestAnimationFrame(() => el.classList.add('show'));
 
-    // The poster is on screen from that frame; what it shows is the dark backing
-    // plate until the beats below light each layer. `.bs-menu.show` is what
-    // tools/test-menu.mjs times, and it is deliberately still the same frame it
-    // always was: the intro orders the REVEAL, it does not delay the screen.
     if (this.frozen || opts.skipSplash) this.finishIntro();
     else void this.runIntro();
   }
 
-  // -------------------------------------------------------------------------
-  // Entrance
-  // -------------------------------------------------------------------------
-
-  /** Every layer up, no sequence. The end state, the skip, and photo mode. */
   private finishIntro(): void {
     this.introAt = -1;
     this.el?.classList.remove('intro');
     this.el?.classList.add('lit');
   }
 
-  /** Has the sequence had its whole run? See INTRO.total for why it is a clock. */
   private get introOver(): boolean {
     return this.introAt < 0 || performance.now() - this.introAt >= INTRO.total;
   }
 
-  /** Wait for an image's bitmap, capped. See INTRO. */
   private static ready(img: HTMLImageElement | null): Promise<unknown> {
     if (!img) return Promise.resolve();
     return Promise.race([
@@ -426,16 +201,12 @@ export class StartMenu {
   private async runIntro(): Promise<void> {
     const el = this.el;
     if (!el) return;
-    // BOTH, in parallel. The images are ordered on SCREEN by the stylesheet, so
-    // there is nothing to gain by fetching them in series — and a logo lit while
-    // the painting is still arriving would put the first beat's whole length
-    // between them however short the fade is.
+    // In parallel: the stylesheet orders them on SCREEN.
     await Promise.all([
       StartMenu.ready(el.querySelector<HTMLImageElement>('img.logo')),
       StartMenu.ready(el.querySelector<HTMLImageElement>('img.art')),
     ]);
-    // Disposed, or skipped by a keypress, while we waited: `lit` has already been
-    // set and starting the animations now would fade a poster back in from black.
+    // Disposed or skipped while waiting: animating now re-fades from black.
     if (this.el !== el || this.introAt !== 0) return;
     this.introAt = performance.now();
     el.classList.add('intro');
@@ -449,10 +220,6 @@ export class StartMenu {
   get currentStep(): Step {
     return this.step;
   }
-
-  // -------------------------------------------------------------------------
-  // Markup
-  // -------------------------------------------------------------------------
 
   private markup(): string {
     const lamps = LAMPS.map((l) =>
@@ -480,15 +247,7 @@ export class StartMenu {
     );
   }
 
-  /**
-   * Rebuild the panel under the logo for the current step.
-   *
-   * One method for all four steps because they are one element: what changes
-   * between them is a few buttons, and swapping the innerHTML of a single node
-   * keeps the logo — the thing that has to slide smoothly — untouched by the
-   * change. A rebuilt panel means rebuilt buttons, so `focusables` is refreshed
-   * here too and nowhere else.
-   */
+  /** One node's innerHTML, so the logo's slide survives. Sole writer of `focusables`. */
   private renderPanel(): void {
     const el = this.el;
     if (!el) return;
@@ -500,10 +259,6 @@ export class StartMenu {
     if (this.step === 'press') {
       panel.innerHTML = `<div class="press">${escapeHtml(t('menu.pressStart'))}</div>`;
     } else if (this.step === 'options') {
-      // Load lights up exactly when there is something to load. The note under
-      // it is the explanation for a button that cannot be pressed, so it goes
-      // away with the reason — a player with three characters does not need to
-      // be told there are no saved games.
       const canLoad = this.saves.length > 0;
       panel.innerHTML =
         '<div class="bs-opts">' +
@@ -514,11 +269,8 @@ export class StartMenu {
           this.btn('about', t('menu.about')) +
         '</div>';
     } else if (this.step === 'name') {
-      // THE FIELD IS OPTIONAL, and that is what makes this step safe to put in
-      // front of New Game. A player who wants to get on with it presses Enter
-      // and is called what `saves.nameDefault` says; a pad player, who cannot
-      // type at all, presses A on Begin and gets the same. Nothing here can
-      // stop somebody starting the game.
+      // Optional field: empty falls back to `saves.nameDefault`, so a pad player
+      // who cannot type is never blocked.
       panel.innerHTML =
         '<div class="bs-opts name-step">' +
           `<h2>${escapeHtml(t('saves.namePrompt'))}</h2>` +
@@ -539,16 +291,12 @@ export class StartMenu {
           this.btn('back', t('menu.back')) +
         '</div>';
     } else if (this.step === 'about') {
-      // Same column and the same way out as the settings step. The panel itself
-      // is ui/about.ts; this screen contributes the frame around it.
       panel.innerHTML =
         '<div class="bs-opts about-step">' +
           aboutMarkup() +
           this.btn('back', t('menu.back')) +
         '</div>';
     } else {
-      // The rows come from ui/settings.ts, which is also what the in-game menu
-      // shows. This screen contributes the column around them and the way out.
       panel.innerHTML =
         '<div class="bs-opts settings">' +
           this.settings.markup() +
@@ -556,24 +304,16 @@ export class StartMenu {
         '</div>';
     }
 
-    // FOCUSABLE, not "every button": the settings panel's strips are one control
-    // each and its hidden sections are still in the DOM. See ui/settings.ts.
+    // FOCUSABLE, not "every button": strips are one control each and hidden
+    // sections are still in the DOM.
     this.focusables = Array.from(panel.querySelectorAll(FOCUSABLE));
-    // Where the cursor lands is stated by whoever asked for this panel, never
-    // inherited from the last one. Carrying an INDEX across a rebuild is what
-    // put the cursor on Settings after a mouse click had moved it elsewhere —
-    // the number was still pointing at a button from a list that no longer
-    // existed. A selector survives a list changing length, and the fallback is
-    // always the top of the new list.
+    // By SELECTOR, never an inherited index — an index outlives the list it
+    // pointed into and lands the cursor on the wrong button.
     const want = this.pendingFocus;
     this.pendingFocus = null;
     const found = want ? panel.querySelector<HTMLButtonElement>(want) : null;
     this.focusIdx = found ? Math.max(0, this.focusables.indexOf(found)) : 0;
-    // THE TEXT FIELD TAKES THE CURSOR, not the first button. It is the only
-    // step whose first control is not a button, and a name step that opened
-    // with Begin focused would need a click before it could be typed into —
-    // which for a keyboard player is the one interaction this screen has always
-    // been able to avoid.
+    // The name field takes the cursor, so it needs no click before typing.
     const field = panel.querySelector<HTMLInputElement>('.bs-name-input');
     if (field && !found) field.focus();
     else this.focusables[this.focusIdx]?.focus();
@@ -585,16 +325,7 @@ export class StartMenu {
       `${escapeHtml(label)}</button>`;
   }
 
-  /**
-   * One character: who they are, how strong, when you last played them — and
-   * the delete beside them.
-   *
-   * The date is `toLocaleString` rather than an i18n key, because a formatted
-   * date is the one string on this screen the PLATFORM translates better than
-   * the table can: it follows the browser's locale, its calendar and its
-   * day/month order for free, where a key would carry one hard-coded shape into
-   * every language.
-   */
+  /** Date via `toLocaleString`, not i18n: the platform knows the player's calendar. */
   private saveRow(s: SaveMeta): string {
     const armed = this.armedDelete === s.id;
     const when = new Date(s.updatedAt).toLocaleString();
@@ -610,21 +341,14 @@ export class StartMenu {
     '</div>';
   }
 
-  /**
-   * Re-ask the host for the character list and redraw if it matters.
-   *
-   * The redraw preserves the cursor by SELECTOR rather than index, the same
-   * rule `pendingFocus` exists for — this can land while the player is walking
-   * the options list, and a rebuild that reset the cursor to the top would move
-   * it under their hand for reasons they cannot see.
-   */
+  /** Keeps the cursor by selector: this can land while the player walks the list. */
   private async refreshSaves(): Promise<void> {
     if (!this.hooks.listSaves) return;
     let next: SaveMeta[] = [];
     try {
       next = await this.hooks.listSaves();
     } catch {
-      next = [];   // no store, or it failed: the same screen as no characters
+      next = [];   // no store, or it failed: same screen as no characters
     }
     if (!this.el) return;   // disposed while the read was in flight
     this.saves = next;
@@ -634,16 +358,11 @@ export class StartMenu {
     this.renderPanel();
   }
 
-  // -------------------------------------------------------------------------
-  // Input
-  // -------------------------------------------------------------------------
-
   private onClick = (e: MouseEvent): void => {
     const target = e.target as HTMLElement | null;
     if (!target) return;
 
-    // Step one takes ANY click, anywhere on the poster — "press start" means
-    // press anything, and on a phone the whole screen is the button.
+    // Step one takes ANY click, anywhere on the poster.
     if (this.step === 'press') {
       this.advanceFromPress();
       return;
@@ -652,9 +371,7 @@ export class StartMenu {
     const btn = target.closest('button') as HTMLButtonElement | null;
     if (!btn) return;
 
-    // The settings list handles its own rows — the language chips and every
-    // toggle — and says so. Anything it does not claim is one of this screen's
-    // own buttons, below.
+    // The settings list claims its own rows; anything it refuses is ours.
     if (this.settings.handleClick(btn)) {
       this.prefs = this.settings.values;
       return;
@@ -668,8 +385,6 @@ export class StartMenu {
       case 'del': this.pressDelete(Number(btn.getAttribute('data-id'))); break;
       case 'settings': this.goto('settings'); break;
       case 'about': this.goto('about'); break;
-      // Back puts the cursor on the entry that opened this step, not at the top
-      // of the list — coming out of a submenu should leave you where you went in.
       case 'back': this.leaveLeaf(); break;
       default: break;
     }
@@ -677,8 +392,7 @@ export class StartMenu {
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (!this.el) return;
-    // Modifier-only presses are not "any button" — a player resting a hand on
-    // Shift would skip the splash they never saw.
+    // Modifier-only presses are not "any button" — a hand on Shift would skip it.
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     // F5, F12 and the devtools keys stay the browser's.
     if (e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.key)) return;
@@ -689,21 +403,9 @@ export class StartMenu {
       return;
     }
 
-    // THE FIELD OWNS THE KEYBOARD WHILE IT HAS FOCUS — the same answer
-    // ui/console.ts gives for its own text input, and it needs both halves.
-    //
-    // `stopPropagation` is the half that was MEASURED. This listener is on the
-    // window in CAPTURE phase and `Input`'s is on the window in bubble, so this
-    // one runs first and stopping here is what keeps the game's from running at
-    // all. That matters because `Input.CAPTURED` calls `preventDefault` on
-    // KeyW/KeyA/KeyS/KeyD/Space to stop the browser scrolling the page — which
-    // is right for a hero and fatal for a text field. Typing "Wisp" into it
-    // produced "ip": the W and the s were swallowed by the game's input while
-    // the field had focus and the caret sat there doing nothing.
-    //
-    // The branch below is the other half: only the three keys that mean
-    // something to a FORM are spent here, and every other key is left to reach
-    // the input untouched.
+    // `stopPropagation` is required: this listener captures, `Input`'s bubbles,
+    // and `Input.CAPTURED` preventDefaults WASD/Space — "Wisp" typed as "ip".
+    // Only the three form keys are spent here.
     if (this.step === 'name' && document.activeElement instanceof HTMLInputElement) {
       e.stopPropagation();
       if (e.key === 'Enter') {
@@ -713,8 +415,6 @@ export class StartMenu {
         e.preventDefault();
         this.leaveLeaf();
       } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        // Out of the field and onto the buttons, so a keyboard can still walk
-        // the step without a mouse.
         e.preventDefault();
         this.moveFocus(e.key === 'ArrowDown' ? 1 : -1);
       }
@@ -731,11 +431,7 @@ export class StartMenu {
         if (!this.scrollAbout(-1)) this.moveFocus(-1);
         break;
       case 'ArrowLeft': case 'ArrowRight':
-        // Left/right CHANGES the value of whichever strip the cursor is on — the
-        // tab, the volume level, the language — rather than walking the buttons
-        // inside it. The panel owns that because the strips are its markup;
-        // anywhere else the key does nothing rather than jumping the list
-        // sideways for no reason.
+        // Left/right changes the strip's VALUE, not the focus inside it.
         if (this.settings.stepGroup(document.activeElement, e.key === 'ArrowRight' ? 1 : -1)) {
           e.preventDefault();
         }
@@ -747,8 +443,7 @@ export class StartMenu {
         }
         break;
       default:
-        // Enter/Space land on the focused <button> natively. Nothing to do.
-        break;
+        break;   // Enter/Space land on the focused <button> natively
     }
   };
 
@@ -761,18 +456,8 @@ export class StartMenu {
   }
 
   /**
-   * The pad, polled once per animation frame while the menu is up.
-   *
-   * Its own poll rather than `GamepadControls`: that class exists to feed the
-   * game's Input with look deltas and held actions, and what a menu wants is the
-   * opposite — edges only, no axes integrated over time, no coupling to a system
-   * that is about to be handed a live hero. Twenty bytes of previous-state and a
-   * latch on the stick is the whole of it.
-   *
-   * A pad cannot take the game fullscreen: `requestFullscreen()` needs a user
-   * activation and a gamepad press is not one in any browser. Starting from a
-   * controller therefore stays windowed however `autoFullscreen` is set, which
-   * is a note rather than a guard — nothing here can route around it.
+   * Own poll, not `GamepadControls`: a menu wants edges only, no integrated axes.
+   * A pad press is no user activation, so a controller start stays windowed.
    */
   private pollPad = (): void => {
     if (!this.el) return;
@@ -787,16 +472,12 @@ export class StartMenu {
       return; // no Gamepad API: keyboard and touch still work
     }
     if (!pad) {
-      // Unplugged mid-menu: forget the held state, or the button that was down
-      // when it went reads as a fresh press when a pad comes back.
+      // Unplugged: forget held state, or it reads as a press when a pad returns.
       this.padDown.fill(0);
       return;
     }
 
-    // ONE sweep over every button, updating held state and recording the rising
-    // edges. It has to cover them all — that is what makes "press any button"
-    // mean any button — and the three the lists care about read their edge out
-    // of the same pass rather than polling the pad a second time.
+    // One sweep over EVERY button — that is what "press any button" means.
     let any = false;
     const n = Math.min(pad.buttons.length, this.padDown.length);
     for (let i = 0; i < n; i++) {
@@ -812,9 +493,8 @@ export class StartMenu {
       return;
     }
 
-    // 12/13 are d-pad up/down in the W3C standard mapping and 14/15 left/right,
-    // the same indices core/gamepad.ts reads. Axes 1 and 0 are the left stick,
-    // latched so a held stick steps once instead of sixty times a second.
+    // W3C standard mapping: 12/13 d-pad up/down, 14/15 left/right, axes 0/1 the
+    // left stick. Latched so a held stick steps once, not per frame.
     const stickY = pad.axes[1] ?? 0;
     const dirY = stickY < -0.5 ? -1 : stickY > 0.5 ? 1 : 0;
     if (dirY === 0) this.padAxisLatched = false;
@@ -826,15 +506,9 @@ export class StartMenu {
     if (this.padEdge[12]) move = -1;
     else if (this.padEdge[13]) move = 1;
     else if (dirY !== 0 && !this.padAxisLatched) { move = dirY; this.padAxisLatched = true; }
-    // On the About step there is one button and a page of prose, so up/down is
-    // the scroll — the same answer the arrow keys give, in the same helper. A
-    // held stick is latched, so this steps rather than sliding; that is the
-    // right feel for a d-pad and is what the keyboard does too.
     if (move && !this.scrollAbout(move)) this.moveFocus(move);
 
-    // LEFT/RIGHT IS THE STRIP'S, and it is why a pad reaches the settings in one
-    // step down rather than five: the tab strip is one control, so this changes
-    // the SECTION rather than walking the four buttons that name it.
+    // Left/right changes the SECTION, not the focus among its four buttons.
     let step = 0;
     if (this.padEdge[14]) step = -1;
     else if (this.padEdge[15]) step = 1;
@@ -843,64 +517,33 @@ export class StartMenu {
       this.settings.stepGroup(document.activeElement, step as -1 | 1);
     }
 
-    // A activates, B goes back — the console convention, and the same faces
-    // core/gamepad.ts names for the rest of the game.
+    // A activates, B goes back — the same faces core/gamepad.ts names.
     if (this.padEdge[0]) (document.activeElement as HTMLButtonElement | null)?.click();
     else if (this.padEdge[1] && this.step !== 'options') {
       this.leaveLeaf();
     }
   };
 
-  // -------------------------------------------------------------------------
-  // Steps
-  // -------------------------------------------------------------------------
-
-  /**
-   * Leave the splash, straight to the options.
-   */
   private advanceFromPress(): void {
     if (this.step !== 'press') return;
-    // A press during the entrance FINISHES it rather than skipping past it. The
-    // words "press start" are not on screen yet, so the press was aimed at a
-    // splash the player is still being shown — dropping them straight into the
-    // options would answer a question they had not been asked, and would do it
-    // by taking the poster away mid-fade. One more press, on a screen that is
-    // now asking for it, costs nothing; the intro is a second and a quarter.
+    // Mid-entrance a press FINISHES the intro: "press start" is not up yet.
     if (!this.introOver) { this.finishIntro(); return; }
     this.goto('options');
   }
 
-  /**
-   * Out of a leaf step and back to the options, cursor on the button that
-   * opened it.
-   *
-   * One method because there are three ways to ask — the Back button, Escape,
-   * and the pad's B face — and two leaves to come out of. Deriving the focus
-   * selector from the step rather than passing it in is what stops the third
-   * leaf, whenever there is one, from being a fourth place to remember.
-   */
+  /** Back to the options, cursor on the button that opened the leaf. */
   private leaveLeaf(): void {
     const from = this.step === 'about' ? 'about'
       : this.step === 'name' ? 'new'
       : this.step === 'load' ? 'load'
       : 'settings';
-    // An armed Delete is disarmed by leaving: coming back to a list with a
-    // button still saying "Confirm?" would make the next press delete a
-    // character on the strength of one somebody made a step ago.
+    // Leaving disarms Delete, or a stale "Confirm?" deletes on the next press.
     this.armedDelete = null;
     this.loadError = false;
     this.goto('options', `[data-act="${from}"]`);
   }
 
-  /**
-   * Scroll the About box, if that is what up/down means right now. Returns
-   * whether the key was spent.
-   *
-   * `false` everywhere else, so every caller stays one line: scroll, or fall
-   * through to moving the cursor. It is deliberately not gated on `this.step`
-   * alone — the element has to be there, or a rebuild mid-press would scroll
-   * nothing and swallow the key.
-   */
+  /** Returns whether the key was spent. Gated on the element, not `this.step`. */
   private scrollAbout(dir: number): boolean {
     const box = this.el?.querySelector<HTMLElement>('.about');
     if (!box) return false;
@@ -914,7 +557,6 @@ export class StartMenu {
     this.renderPanel();
   }
 
-  /** New Game, with whatever is in the field — or the default when it is empty. */
   private beginNew(): void {
     const field = this.el?.querySelector<HTMLInputElement>('.bs-name-input');
     const typed = (field?.value ?? '').trim().slice(0, 24);
@@ -922,23 +564,14 @@ export class StartMenu {
     this.leave(() => this.hooks.onStart(typed || t('saves.nameDefault')));
   }
 
-  /**
-   * Load a character: read it first, and only then give the screen away.
-   *
-   * FULLSCREEN IS STILL THE FIRST STATEMENT, ahead of the await, because it is
-   * the one call here with a deadline — see `takeFullscreen`. The read that
-   * follows it is a few milliseconds against a transient activation that lasts
-   * seconds, and doing it while the poster is up is what lets a failure be
-   * shown on the poster instead of on a black screen.
-   */
+  /** Fullscreen must stay the first statement, ahead of the await. */
   private async loadSlot(id: number): Promise<void> {
     if (!Number.isFinite(id) || !this.hooks.onLoad) return;
     this.takeFullscreen();
     const ok = await this.hooks.onLoad(id);
     if (!this.el) return;   // disposed while the read was in flight
     if (!ok) {
-      // Stay put and say so. The list is re-read because the most likely reason
-      // a character cannot be loaded is that they are no longer there.
+      // Re-read: the likeliest reason a character will not load is that it is gone.
       this.loadError = true;
       void this.refreshSaves();
       this.renderPanel();
@@ -947,14 +580,7 @@ export class StartMenu {
     this.leave(() => this.hooks.onBegin?.());
   }
 
-  /**
-   * Delete, in two presses: the first arms this row, the second does it.
-   *
-   * A press on a DIFFERENT row moves the arming rather than deleting anything,
-   * so a player who armed the wrong character disarms it by aiming at the right
-   * one — which is the mistake most likely to be made on a list of names that
-   * look alike.
-   */
+  /** Two presses: arm, then delete. A press on another row moves the arming. */
   private pressDelete(id: number): void {
     if (!Number.isFinite(id) || !this.hooks.onDeleteSave) return;
     if (this.armedDelete !== id) {
@@ -965,36 +591,15 @@ export class StartMenu {
     }
     this.armedDelete = null;
     void this.hooks.onDeleteSave(id).then(() => this.refreshSaves()).then(() => {
-      // The list is a step shorter and may now be empty, in which case the
-      // Load step has nothing left to show and Back is the only thing on it.
+      // An emptied list leaves the Load step with nothing but Back on it.
       if (this.step === 'load' && this.saves.length === 0) this.leaveLeaf();
     });
   }
 
   /**
-   * Take the screen, BEFORE ANYTHING ELSE THE PRESS DOES.
-   *
-   * This is the only call on the way out of the menu that has a deadline.
-   * `requestFullscreen()` is honoured only while the browser can attribute it
-   * to the user activation that got us here — the click or the Enter on New
-   * Game — so it goes ahead of the class change, the hooks, the transition and,
-   * on the Load path, ahead of the `await` that reads the character. It is its
-   * own method for exactly that reason: both ways off this screen have to be
-   * able to put it first, and one of them is asynchronous. See ui/fullscreen.ts.
-   *
-   * The URL beats the preference and never writes it back, the same resolution
-   * the look-axis and shake overrides use: `fs=0` is how every probe in tools/
-   * that clicks New Game keeps the viewport from being resized under a
-   * measurement, and `fs=1` is the way to see the thing the gate below
-   * otherwise refuses. A pad press is not a user activation in any browser, so
-   * starting the game from a controller stays windowed whatever this says, and
-   * that is a browser rule rather than a decision.
-   *
-   * THE GATE IS ISSUE #83. Where Escape still belongs to the browser, taking
-   * fullscreen here hands the player a screen the first closed panel takes
-   * back — so the preference is honoured only where the game can keep it
-   * (ui/fullscreen.ts), and the settings row says so rather than sitting there
-   * switched on and doing nothing.
+   * BEFORE ANYTHING ELSE THE PRESS DOES: `requestFullscreen()` is honoured only
+   * while the browser can still attribute it to the press. `fs=` beats the
+   * preference without writing it back; the survives-Escape gate is issue #83.
    */
   private takeFullscreen(): void {
     if (flags.autoFullscreen ?? (this.prefs.autoFullscreen && fullscreenSurvivesEscape())) {
@@ -1002,43 +607,21 @@ export class StartMenu {
     }
   }
 
-  /**
-   * Hand the screen over: fade the poster out, take it off the DOM, and only
-   * then tell main.ts to run. The order matters — the hero's first frames are
-   * rendered behind nothing at all rather than behind a dissolving image the
-   * compositor is still blending.
-   *
-   * Takes WHAT TO DO AT THE END rather than assuming New Game, because there
-   * are two ways off this screen into a running game and everything before the
-   * last line of them is identical. `then` is called once, after `close()`.
-   * Fullscreen is NOT taken here — see `takeFullscreen`, which every caller
-   * runs first, synchronously with the press.
-   */
+  /** Fade out, leave the DOM, THEN run `then`. Fullscreen is the caller's. */
   private leave(then: () => void): void {
     const el = this.el;
     if (!el) return;
     el.classList.add('leaving');
-    // FIRST, and before anything waits on a transition: from this moment the
-    // poster is see-through and whatever is behind it is on screen.
+    // First: from this moment the poster is see-through.
     this.hooks.onLeave?.();
     const done = (): void => {
       if (!this.el) return;   // disposed mid-fade
       this.close();
       then();
     };
-    // `transitionend` is the right signal, and the timer is the safety net for
-    // the case where the transition never runs at all (prefers-reduced-motion,
-    // a background tab, a browser that dropped the frame). Whichever lands
-    // first wins; `close()` is idempotent.
-    //
-    // BOTH GUARDS ON THE EVENT ARE LOAD-BEARING, and the bug they fix was
-    // measured rather than imagined. `transitionend` BUBBLES, and the button
-    // that was just clicked has `transition: transform .14s, filter .14s`
-    // (see .bs-menu-btn) — so releasing `:active` on New Game fired one at the
-    // menu 140 ms in and closed the poster a third of the way through its own
-    // half-second dissolve. Sampled 180 ms after the click, the loading screen
-    // behind it was already at 0.60 opacity and fading: the player saw a cut,
-    // not a fade. Only this element, and only its opacity, ends the fade.
+    // Timer is the net for a transition that never runs; `close()` is idempotent.
+    // BOTH EVENT GUARDS ARE LOAD-BEARING: `transitionend` bubbles, and the
+    // clicked button's own .14s transform otherwise cut the dissolve short.
     el.addEventListener('transitionend', function onEnd(e: TransitionEvent) {
       if (e.target !== el || e.propertyName !== 'opacity') return;
       el.removeEventListener('transitionend', onEnd);

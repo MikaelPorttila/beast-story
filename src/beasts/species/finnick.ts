@@ -3,37 +3,25 @@ import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/
 import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
-// ---------------------------------------------------------------------------
-// Finnick — a porpoise pup, and the fastest thing in the water. The pure
-// SWIMMER: no legs, no pretence, and on dry land it flops along at a little
-// over half pace (see LAND_FLOP in player/mount.ts). Ride it to cross an ocean,
-// not to get to the shop.
-//
-// Voxel scale 0.1 (1 cell = 10 cm). Model faces +Z. Root origin at ground /
-// water level. A cetacean beats its tail VERTICALLY — that is the whole reason
-// this rig's tail joints are rotX where every fish-shaped thing in the roster
-// would use rotY, and getting it the other way round is the single most
-// recognisable way to draw a dolphin wrong.
-// ---------------------------------------------------------------------------
+// Finnick — porpoise pup, pure swimmer (LAND_FLOP in player/mount.ts halves land pace).
+// Voxel scale 0.1 (1 cell = 10 cm), faces +Z, root at water level. Tail joints are
+// rotX, not rotY: a cetacean beats its fluke vertically.
 
 const S = 0.1;
 
-// Palette. Countershaded, hard: a dark back and a near-white belly, which is
-// what every fast open-water animal wears and what keeps a torpedo silhouette
-// legible against both the dark deep sea and the bright sky over it.
-const BACK = 0x2f5f86;      // deep steel blue
-const BACK_LIT = 0x5b93bd;  // sun on the spine
+const BACK = 0x2f5f86;
+const BACK_LIT = 0x5b93bd;
 const BACK_DARK = 0x1c3c58;
-const FLANK = 0x8fb9d4;     // the blend band along the side
-const BELLY = 0xeef6f8;     // near-white underside
-const FIN = 0x264f72;       // dorsal, pectorals, fluke — a shade under the back
+const FLANK = 0x8fb9d4;
+const BELLY = 0xeef6f8;
+const FIN = 0x264f72;
 const FIN_LIT = 0x4c86ae;
 const IRIS = 0x102030;
 const SHINE = 0xf6ffff;
 const MOUTH = 0x1a3348;
-const BLOW = 0x1b3b55;      // the blowhole
+const BLOW = 0x1b3b55;
 
-// Base pose constants (must match buildRig)
+// Must match buildRig
 const BODY_Y = 0.42;
 const HEAD_Z = 0.40;
 
@@ -42,39 +30,30 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
 const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
-/** Integrated cycle slots — see BeastAnimCtx.cycle(). */
-const GAIT = 0;   // the tail beat, which is every gait this animal has
-const PECT = 1;   // the pectoral flutter, a third of the beat rate
+// Cycle slots — see BeastAnimCtx.cycle().
+const GAIT = 0;
+const PECT = 1;
 
 function makeTorso(): THREE.Mesh {
   const m = new VoxelModel();
-  // Fusiform: widest a third of the way back, tapering both ways. The three
-  // stacked ellipsoids are cheaper than one and give the taper a real shoulder
-  // instead of a smooth football.
   m.ellipsoid(0, 2.6, 0.4, 2.6, 2.6, 4.6, BACK);
   m.ellipsoid(0, 2.4, -3.2, 1.8, 1.8, 2.4, BACK);      // peduncle
-  m.ellipsoid(0, 1.6, 0.6, 2.2, 1.7, 4.2, FLANK);      // side band
-  m.ellipsoid(0, 1.0, 0.8, 1.8, 1.2, 3.8, BELLY);      // pale underside
+  m.ellipsoid(0, 1.6, 0.6, 2.2, 1.7, 4.2, FLANK);
+  m.ellipsoid(0, 1.0, 0.8, 1.8, 1.2, 3.8, BELLY);
   shadeUnder(m, BACK_DARK, -3, 3, 0, 2, -6, 6);
   rimTop(m, BACK_LIT, -3, 3, 3, 6, -6, 6);
-  m.set(0, 5, 1, BLOW);                                // blowhole, one cell
+  m.set(0, 5, 1, BLOW);                                // blowhole
   return m.build(S, true);
 }
 
 function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
-  // The MELON and the BEAK are two masses, not one taper. A porpoise read is
-  // the bulging forehead sitting over a short snout, and blending them into a
-  // single cone gives a shark instead.
   m.ellipsoid(0, 2.2, 0, 2.4, 2.2, 2.4, BACK);         // melon
-  m.ellipsoid(0, 1.2, 0.4, 2.0, 1.3, 2.2, BELLY);      // pale chin
-  m.box(-2, 1, 2, 2, 4, 2, BACK);                      // face plate
-  // Beak: a short pale wedge standing two cells proud.
+  m.ellipsoid(0, 1.2, 0.4, 2.0, 1.3, 2.2, BELLY);
+  m.box(-2, 1, 2, 2, 4, 2, BACK);
   m.box(-1, 1, 3, 1, 2, 4, BELLY);
   m.set(0, 1, 5, BELLY);
-  // The smile: this animal's whole charm is that its jawline curves up, and it
-  // is one row of three cells with the outer two lifted, exactly as Aquaxol
-  // does it. A straight bar here reads as a slot.
+  // Smile: outer two cells lifted, as Aquaxol does it; a straight bar reads as a slot.
   m.set(0, 1, 2, MOUTH);
   m.set(-1, 2, 2, MOUTH);
   m.set(1, 2, 2, MOUTH);
@@ -86,7 +65,6 @@ function makeHead(): THREE.Mesh {
   return m.build(S, true);
 }
 
-/** The dorsal fin: a swept triangle standing on the spine. */
 function makeDorsal(): THREE.Mesh {
   const m = new VoxelModel();
   for (let y = 0; y <= 3; y++) {
@@ -98,7 +76,7 @@ function makeDorsal(): THREE.Mesh {
   return m.build(S, false);
 }
 
-/** One pectoral fin — a flat swept paddle. `dir` is +1 for the right side. */
+/** `dir` is +1 for the right side. */
 function makePectoral(dir: number): THREE.Mesh {
   const m = new VoxelModel();
   for (let i = 0; i <= 3; i++) {
@@ -108,17 +86,14 @@ function makePectoral(dir: number): THREE.Mesh {
   return m.build(S, false);
 }
 
-/**
- * The fluke: HORIZONTAL, which is the whole point of drawing a mammal rather
- * than a fish. Two lobes spreading sideways off the tailstock.
- */
+/** Horizontal lobes — a mammal's fluke, not a fish's tail. */
 function makeFluke(): THREE.Mesh {
   const m = new VoxelModel();
   for (let x = -4; x <= 4; x++) {
     const reach = 2 - Math.floor(Math.abs(x) * 0.35);
     m.box(x, 0, -reach, x, 0, 0, FIN);
   }
-  m.box(-1, 0, 1, 1, 0, 1, FIN);            // the notch between the lobes fills
+  m.box(-1, 0, 1, 1, 0, 1, FIN);
   rimTop(m, FIN_LIT, -5, 5, 0, 1, -3, 2);
   return m.build(S, false);
 }
@@ -159,9 +134,7 @@ function buildRig(): BeastRig {
   const pectR = mkPect(1);
   const pectL = mkPect(-1);
 
-  // Two tail joints, because one cannot make a wave: `tailBase` is the
-  // peduncle and `tailTip` the fluke, and the tip trails the base by a fixed
-  // phase in every gait below. That lag IS the propulsion read.
+  // tailTip trails tailBase by a fixed phase in every gait — that lag is the thrust read.
   const tailBase = new THREE.Group();
   tailBase.position.set(0, -0.04, -0.42);
   body.add(tailBase);
@@ -198,9 +171,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
   switch (ctx.action) {
     case 'idle': {
-      // Hovering, nose slightly up, holding station with tiny fluke strokes and
-      // the pectorals sculling. A cetacean at rest is never still — it is
-      // actively not sinking.
       const hover = ctx.cycle(GAIT, 1.6);
       brx = -0.06 + 0.035 * Math.sin(hover);
       bpy += 0.028 * Math.sin(hover - 0.5);
@@ -216,11 +186,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     }
     case 'walk':
     case 'run': {
-      // BEACHED. There are no legs, so travelling over ground is a series of
-      // flops: the whole body arches, throws itself forward and lands. It is
-      // deliberately ungainly — the saddle already halves its land speed, and
-      // the animation has to agree with the number or the penalty reads as a
-      // bug.
+      // Beached flopping, deliberately ungainly — it must agree with LAND_FLOP.
       const isRun = ctx.action === 'run';
       const f = (isRun ? 4.4 : 3.2) + 2.0 * ms;
       const ph = ctx.cycle(GAIT, f);
@@ -228,7 +194,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       const hop = Math.max(0, flop);
       bpy += (isRun ? 0.16 : 0.10) * hop;
       brx = -0.30 * hop + 0.14 * Math.min(0, flop);
-      brz = 0.22 * Math.sin(ph * 0.5);                  // rolls onto alternate flanks
+      brz = 0.22 * Math.sin(ph * 0.5);
       bry = 0.10 * Math.sin(ph * 0.5 - 0.7);
       bsy = 1 + 0.05 * Math.sin(ph * 2 + 0.7);
       hrx = 0.24 * hop;
@@ -236,30 +202,24 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       tbx = -0.42 * hop + 0.12;
       ttx = -0.55 * Math.max(0, Math.sin(ph - 0.7));
       pSweep = 0.5 * hop;
-      pLift = -0.5 * hop;                                // flippers push off
+      pLift = -0.5 * hop;
       pSplit = 0.25 * Math.sin(ph * 0.5);
       dorsalTilt = 0.12 * Math.sin(ph * 0.5);
       break;
     }
     case 'swim':
     case 'fly': {
-      // What it is for. The fluke beats in the VERTICAL plane, the peduncle
-      // leads and the fluke trails it by most of a radian, and the body
-      // porpoises on the same phase — the three together are the whole reason a
-      // dolphin reads as a dolphin from a hundred units away.
       const f = 3.2 + 4.0 * ms;
       const ph = ctx.cycle(GAIT, f);
       tbx = (0.30 + 0.22 * ms) * Math.sin(ph);
       ttx = (0.42 + 0.30 * ms) * Math.sin(ph - 0.85);
       brx = -0.03 + (0.10 + 0.06 * ms) * Math.sin(ph + 0.5);
       bpy += 0.05 * Math.sin(ph + 0.5);
-      brz = 0.12 * Math.sin(ph * 0.33);                  // long lazy banking roll
+      brz = 0.12 * Math.sin(ph * 0.33);
       bry = 0.05 * Math.sin(ph * 0.33 - 0.8);
       hrx = -0.04 + 0.05 * Math.sin(ph + 0.9);
       hry = 0.05 * Math.sin(ph * 0.33 + 0.4);
-      // Pectorals hold their angle and flutter at their own rate — they steer,
-      // they do not row, and driving them off the fluke beat made the whole
-      // animal look like it was rowing with four limbs.
+      // Pectorals steer, they do not row: own rate, not the fluke beat.
       const pw = ctx.cycle(PECT, f * 0.34);
       pSweep = -0.10 + 0.10 * Math.sin(pw);
       pLift = 0.16 + 0.10 * Math.sin(pw - 0.6);
@@ -267,8 +227,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'attack': {
-      // A ram: the whole body straightens behind the melon. No jaw animation —
-      // this creature's mouth is painted on, and a porpoise hits with its head.
       const wind = smooth(phase(at, 0, 0.12));
       const rush = ezOut(phase(at, 0.12, 0.26));
       const rec = smooth(phase(at, 0.4, 0.75));
@@ -286,8 +244,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'cast': {
-      // Nose to the sky, singing. The tremor is two mismatched sines so it
-      // reads as a sustained note rather than a shiver.
+      // Two mismatched sines: a sustained note, not a shiver.
       const rise = ezOut(clamp01(at / 0.35));
       const song = 0.5 * Math.sin(t * 14) + 0.5 * Math.sin(t * 21);
       brx = -0.55 * rise + 0.025 * song * rise;
@@ -302,9 +259,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'special': {
-      // The BREACH: out of the water, a full forward somersault, and back down.
-      // Rotation about X, not Z — a dolphin turns end over end, and a barrel
-      // roll would be Rivotter's trick borrowed.
+      // Breach somersault: rotation about X (end over end), not Rivotter's barrel roll.
       const T = 0.9;
       const k2 = clamp01(at / T);
       const air = Math.sin(Math.PI * k2);
@@ -326,7 +281,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bpx = 0.045 * Math.sin(at * 44) * d;
       bpz = -0.10 * d;
       bpy -= 0.06 * d;
-      brx = 0.18 * d;                                    // curls nose-down
+      brx = 0.18 * d;
       brz = 0.10 * Math.sin(at * 34 + 1) * d;
       hrx = -0.26 * d;
       tbx = 0.35 * d;
@@ -337,8 +292,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'happy': {
-      // Tail-walking: up on the fluke, chattering, spinning slowly. The one
-      // thing everybody has seen a porpoise do on purpose.
       const hf = 6;
       const chat = Math.abs(Math.sin(at * hf));
       brx = -0.85 + 0.10 * chat;
@@ -428,9 +381,7 @@ export const species: BeastSpecies = {
   descriptionKey: 'beast.finnick.desc',
   element: 'water',
   locomotion: 'swimming',
-  // The fastest thing in the game, in the one medium it can use: 21.8 u/s in
-  // water against Galebird's 12.4 in the air and the hero's 9.6 sprint. On land
-  // LAND_FLOP takes it to 6.9, which is a walk — that trade is the species.
+  // 21.8 u/s in water, 6.9 on land after LAND_FLOP — that trade is the species.
   baseStats: { maxHp: 48, attack: 12, defense: 6, speed: 6.8 },
   skills: skills.map((s) => s.id),
   buildRig,

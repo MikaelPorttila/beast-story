@@ -27,37 +27,19 @@ import { Taming, captureChance, refuseThrow, type ThrowRefusal } from './taming'
 import { perf } from '../core/profiler';
 import { flags } from '../core/flags';
 
-/**
- * CombatSystem: the orchestrator. Owns VFX, damage numbers, shard pickups and
- * the wild-enemy population; executes skill casts and the player's sword.
- */
-
-// Module-level temps — no per-frame allocations in hot loops.
-// _a/_b are for top-level cast helpers; _from/_leaf are for leaf helpers so
-// nesting never clobbers a live temp.
+// _a/_b are for top-level cast helpers, _from/_leaf for leaf helpers, so nesting
+// never clobbers a live temp.
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _from = new THREE.Vector3();
 const _leaf = new THREE.Vector3();
 
-/**
- * The player's sword, as two numbers rather than two literals inside one call.
- *
- * Exported because the melee aim assist has to ask the SAME reach question the
- * arc will ask — see `bestMeleeTarget`. A second copy of `2.2` living in main.ts
- * would be a copy that can drift, and the failure it drifts into is silent: an
- * assist aiming at something out of range simply makes the swing miss.
- */
+// Exported: the aim assist must ask the SAME reach question the arc will.
 export const SWORD_REACH = 2.2;
 /** cos of the arc's HALF-angle. 0.643 is ~50 degrees each side, ~100 total. */
 export const SWORD_ARC_COS = 0.643;
 
-/**
- * How tall a ground AoE is, in world units — the height of the column it draws
- * AND the vertical band it damages, which is the point of it being one number.
- * 3.6 is what `castAoe` has always drawn; issue #78 is that the damage did not
- * stop where the picture did.
- */
+// The column an AoE DRAWS and the band it DAMAGES, one number (issue #78).
 const AOE_COLUMN_H = 3.6;
 
 const PROJ_SPEED = 16;
@@ -81,26 +63,13 @@ interface Projectile {
   light: THREE.PointLight | null;
   vel: THREE.Vector3;
   target: Damageable | null;
-  /**
-   * The three glowing parts every SKILL projectile is drawn with, and the two
-   * models that replace them — an ARROW and a TAMING ORB. One pool for all
-   * three, because everything a projectile does after it is fired — travel,
-   * home, hit, expire — is the same, and a second pool would be a second copy
-   * of all of it. Only the picture differs, so only the picture is switched.
-   */
+  // One pool: everything after firing is the same, only the picture differs.
   bolt: THREE.Object3D[];
   arrow: THREE.Mesh;
   form: ProjForm;
-  /**
-   * This slot's orb models, by colour, built on first use of each tier and kept.
-   *
-   * PER SLOT rather than shared, because an `Object3D` is in one place at a
-   * time and two Greater Orbs can be in flight at once. The clones share one
-   * geometry and one material with everything in combat/tame-orb.ts's cache, so
-   * the map costs an object per (slot, tier) actually thrown and no buffers.
-   */
+  // PER SLOT, because an `Object3D` is in one place at a time and two orbs of a
+  // tier can fly at once; clones share tame-orb.ts's geometry and material.
   orbs: Map<number, THREE.Object3D>;
-  /** The orb model currently shown, or null. A member of `orbs`. */
   orb: THREE.Object3D | null;
   /** Undefined for a PHYSICAL hit — an arrow, like the sword, has no element. */
   element: ElementType | undefined;
@@ -109,32 +78,17 @@ interface Projectile {
   trailT: number;
   hex: number;
   spin: number;
-  /** 0..1 steer strength toward `target`; see CastRequest.homingScale. */
   homing: number;
-  /**
-   * The taming orb this shot IS, or null for everything else.
-   *
-   * Carried on the projectile rather than looked up on impact because the item
-   * can leave the bag between the throw and the hit — dropped, salvaged, spent
-   * on a second throw — and the orb in the air has already been paid for.
-   */
+  // Carried here, not looked up on impact: the item can leave the bag mid-flight
+  // and the orb in the air is already paid for.
   orbItem: ItemDef | null;
-  /** Test hook only: force the bond's outcome. See `Taming.begin`. */
   orbForce?: boolean;
 }
 
-/**
- * WHICH PICTURE a pooled slot is wearing.
- *
- * A named union rather than the `isArrow` boolean it replaces: two forms are a
- * flag, three are a state, and the flag had already grown a second question
- * ("is it an arrow" was standing in for "does it point where it is going" AND
- * for "does it leave a sparkle trail"). See `setProjectileForm`.
- */
+// A state, not a flag: two forms are a boolean, three are not.
 type ProjForm = 'bolt' | 'arrow' | 'orb';
 
 export class CombatSystem {
-  /** Live wild enemies (satisfies ReadonlyArray<Damageable>). */
   readonly enemies: Enemy[] = [];
 
   private vfx: VFX;
@@ -160,8 +114,6 @@ export class CombatSystem {
     this.vfx = new VFX(scene);
     this.numbers = new DamageNumbers(scene);
     this.pickups = new Pickups(scene, this.vfx, (itemId, byBeast) => {
-      // Currency is a running total owned here; everything else is just
-      // reported and the bag in main.ts decides what to do with it.
       if (itemDef(itemId).kind === 'currency') {
         this.shardTotal += 1;
         this.bus.emit({ type: 'shardsChanged', total: this.shardTotal });
@@ -185,20 +137,8 @@ export class CombatSystem {
     };
   }
 
-  /**
-   * Rebind to another zone's World (see world/zones.ts).
-   *
-   * Unlike the hero and the beasts, most of what combat holds is ZONE-LOCAL and
-   * has to go: wild enemies were spawned on the old ground and each captured
-   * that world themselves, projectiles are in flight over it, and drops are
-   * lying on it. What survives is the running shard total — the one piece of
-   * player state this system owns — and the pooled geometry, materials and
-   * lights, which is the reason to rebind rather than rebuild: reconstructing
-   * CombatSystem would throw away every warmed shader program with it.
-   *
-   * `primed` is cleared so the new zone gets its own starting population
-   * instead of inheriting an empty one.
-   */
+  // Almost everything here is ZONE-LOCAL and goes; the shard total and the pooled
+  // GPU resources survive, or the warmed shader programs go with them.
   setWorld(world: World): void {
     this.world = world;
     this.enemyCtx.world = world;
@@ -210,8 +150,6 @@ export class CombatSystem {
       if (p.light) { this.vfx.releaseLight(p.light); p.light = null; }
     }
     this.pickups.clear();
-    // Bonds in flight go with the population they were being made with — see
-    // `Taming.clear` on why the beasts are not handed back.
     this.taming.clear();
     this.targets.length = 0;
     this.lastPlayer = null;
@@ -219,49 +157,22 @@ export class CombatSystem {
     this.spawnT = 0;
   }
 
-  /**
-   * Back to a new game: no enemies, no drops on the ground, the starting purse.
-   *
-   * `setWorld` already does nine tenths of this and is called with the world it
-   * already has, which is not a trick — the reason that method clears everything
-   * it clears is that the population and the loose drops belong to a PLAY
-   * SESSION rather than to this object, and a new game is the same event as a
-   * new zone from their point of view. What it does not know about is the purse,
-   * which is the one number here that a zone switch must carry across and a new
-   * game must not.
-   *
-   * Not a rebuild, for the reason `setWorld` gives above its own body:
-   * reconstructing this would throw away every warmed shader program with it.
-   */
+  // `setWorld` covers everything belonging to a PLAY SESSION; the purse is the
+  // one number a zone switch carries across and a new game must not.
   reset(): void {
     this.setWorld(this.world);
     this.shardTotal = 50;
     this.bus.emit({ type: 'shardsChanged', total: this.shardTotal });
   }
 
-  /**
-   * Set the purse to what a save says it was (issue #171).
-   *
-   * THE PURSE THE PLAYER SEES IS TWO NUMBERS IN TWO OWNERS — this running
-   * total, which only ever goes up as drops are collected, minus what main.ts
-   * has spent. A save stores the difference, because that is the number the HUD
-   * draws and the only one a player could name. Restoring it therefore has to
-   * pick one side to write, and it is this one: main.ts zeroes `spent` and
-   * hands the whole balance here, so the invariant `total - spent` holds with
-   * `spent` at zero and nothing has to reconstruct a purchase history that was
-   * never stored.
-   *
-   * Emitting is the point rather than politeness: `shardsChanged` is how the
-   * HUD pill and main.ts's mirror of this number find out, and a silent write
-   * would leave both of them showing the last session's balance.
-   */
+  // The visible purse is `total - spent` across two owners and a save stores the
+  // difference, so main.ts zeroes `spent` and hands the balance here (issue
+  // #171). The emit is load-bearing: it is how the HUD and the mirror find out.
   setShards(total: number): void {
     if (!Number.isFinite(total)) return;
     this.shardTotal = Math.max(0, Math.floor(total));
     this.bus.emit({ type: 'shardsChanged', total: this.shardTotal });
   }
-
-  // ------------------------------------------------------------------ cast
 
   cast(req: CastRequest): void {
     const skill = req.skill;
@@ -289,16 +200,8 @@ export class CombatSystem {
     }
   }
 
-  /**
-   * Player sword: short-range frontal arc (~100 degrees, ~2.2 units).
-   *
-   * `footY` is the swinger's SOLES, and it is a separate argument because
-   * `origin` is not: the strike spawns at chest height, or higher again in the
-   * saddle (see MOUNTED_STRIKE_Y in player/index.ts). The vertical reach is a
-   * feet-to-feet rule — an enemy is pinned to the ground it stands on — so
-   * measuring it from the raised origin would refuse a swing at something one
-   * step downhill and allow one at something a metre higher than it should.
-   */
+  // `footY` is the SOLES and is separate from `origin`, which spawns at chest
+  // height: the vertical reach is a feet-to-feet rule.
   meleeStrike(
     origin: THREE.Vector3, direction: THREE.Vector3, attackStat: number, footY: number,
   ): void {
@@ -312,51 +215,14 @@ export class CombatSystem {
   }
 
   /**
-   * The wild enemy nearest the CROSSHAIR that a sword swing could actually
-   * reach, or null if there is nothing worth steering at.
+   * The wild enemy nearest the CROSSHAIR that a swing could reach; the aim
+   * assist's POLICY stays in main.ts. Reach shares `SWORD_REACH` and the vertical
+   * caps with `meleeArc`, because an assist pointing at what the arc refuses is
+   * worse than none.
    *
-   * The query behind the melee aim assist. It exists on the combat system
-   * rather than in main.ts for the one reason a query ever moves: the enemy
-   * list is here. The POLICY — how wide the assist looks, and what it does with
-   * the answer — stays in the composition root, which is where the sword's
-   * swing direction is decided.
-   *
-   * TWO TESTS, both anchored at the HERO, both against the crosshair's bearing:
-   *
-   *  - REACH uses the identical `reach + radius` comparison `meleeArc` runs a
-   *    few lines below. An assist that could pick a target the swing cannot
-   *    land on is worse than no assist at all — it would steer the arc AWAY
-   *    from something it would have hit, toward something it cannot. Same
-   *    number, same source (`SWORD_REACH`), so the two cannot drift apart.
-   *  - NEAREST THE CROSSHAIR is the angle between where the player is aiming
-   *    (`aim`, the camera's forward — the crosshair is pinned to the centre of
-   *    the viewport, which tools/test-crosshair.mjs proves pixel-wise) and the
-   *    bearing from the HERO to the enemy. It both ranks the candidates and
-   *    bounds them, via `coneCos`.
-   *
-   * MEASURING THAT ANGLE AT THE LENS INSTEAD IS A TRAP, and it is worth the
-   * paragraph because it is the more obvious reading of "closest to the
-   * crosshair". The camera sits about four units behind the hero, so an enemy
-   * standing at his SHOULDER — 1.3 units away, 120 degrees off his facing — was
-   * measured at 3.75 degrees off the crosshair: all but centred on screen,
-   * because it is nearly in line with a lens that far back. Ranked and gated
-   * that way the assist selected it and would have spun the swing 164.9
-   * degrees, very nearly backwards. Anchored at the hero the same enemy reads
-   * 120 degrees and is refused. The angle a swing has to travel is subtended at
-   * the shoulders, not at the lens.
-   *
-   * Both are flattened to the XZ plane, and that is still the right test for a
-   * BEARING: "which enemy is this swing meant for" is a question about which way
-   * to turn, and it avoids inventing a torso height for `Damageable`, which
-   * publishes a position and no bounds. What the flattening never licensed was
-   * the REACH — this used to select a target the swing had no ceiling to refuse,
-   * and when issue #78 gave `meleeArc` one, an ungated assist would have gone on
-   * steering the hero at a Snortle in the valley he can no longer touch. The two
-   * share `MELEE_UP_REACH`/`MELEE_DOWN_REACH` for the same reason they share
-   * `SWORD_REACH`: an assist that points at what the arc will not hit is worse
-   * than none.
-   *
-   * `footY` is the swinger's soles — see `meleeStrike` for why `from.y` is not.
+   * Both tests are ANCHORED AT THE HERO. Measuring the bearing at the LENS is a
+   * trap: the camera sits ~4 units back, so an enemy at the hero's shoulder reads
+   * near-centred and the assist would spin the swing backwards.
    */
   bestMeleeTarget(
     from: THREE.Vector3,
@@ -366,14 +232,12 @@ export class CombatSystem {
     footY: number,
   ): Damageable | null {
     const al = Math.hypot(aim.x, aim.z);
-    // Looking straight down the Y axis: there is no bearing to be near.
     if (al < 1e-6) return null;
     const ux = aim.x / al;
     const uz = aim.z / al;
 
     let best: Enemy | null = null;
-    // Seeded with the cone, so "outside the cone" and "no enemies" are one
-    // branch and the loop never keeps a candidate it would then have to reject.
+    // Seeded with the cone, so "outside it" and "nothing there" are one branch.
     let bestDot = coneCos;
     for (const e of this.enemies) {
       if (!e.targetable) continue;
@@ -382,8 +246,6 @@ export class CombatSystem {
       const rz = e.position.z - from.z;
       const rd = Math.sqrt(rx * rx + rz * rz);
       if (rd > reach + e.radius) continue;
-      // Standing inside the target: no bearing, and the arc hits it from
-      // wherever it swings.
       if (rd < 1e-4) continue;
       const dot = (rx / rd) * ux + (rz / rd) * uz;
       if (dot > bestDot) { bestDot = dot; best = e; }
@@ -405,29 +267,12 @@ export class CombatSystem {
     return best;
   }
 
-  // ----------------------------------------------------------------- drops
-
-  /**
-   * Put an item on the ground (enemy loot, the inventory's Drop, and the fetch
-   * test hook in main). `armed` false is the inventory's — see `Pickups.spawn`.
-   */
   spawnDrop(itemId: string, x: number, y: number, z: number, armed = true): void {
     this.pickups.spawn(x, y, z, itemId, armed);
   }
 
-  /**
-   * What is in the air right now. Read-only, allocates, for `__dbgShots`.
-   *
-   * The one thing a screenshot cannot answer about the bow: an arrow at
-   * sixteen units a second is four pixels of wood somewhere over a meadow, and
-   * "did the shot happen and is it an ARROW rather than a fireball" is two
-   * fields rather than a picture.
-   *
-   * `arrow` is KEPT beside `form` rather than replaced by it, because
-   * tools/test-crosshair.mjs and tools/test-aim-assist.mjs already read it and a
-   * probe that has to be edited to keep passing is a probe that proved less than
-   * it looked like it did. `form` is what a new reader should use.
-   */
+  // For `__dbgShots`; allocates. `arrow` is kept beside `form` because existing
+  // probes read it — `form` is what a new reader uses.
   projectileSnapshot(): {
     arrow: boolean; form: ProjForm; orb: string | null;
     x: number; y: number; z: number; speed: number;
@@ -447,20 +292,13 @@ export class CombatSystem {
     return out;
   }
 
-  /**
-   * Offer the nearest fetchable drop near `from`. `want` is the caller's
-   * policy — combat has no opinion on which items are worth a trip.
-   */
   findFetchJob(from: THREE.Vector3, maxDist: number, want: (itemId: string) => boolean): FetchJob | null {
     return this.pickups.findJob(from, maxDist, want);
   }
 
-  /** Debug read-out of everything lying on the ground. Allocates. */
   dropSnapshot(): { itemId: string; x: number; z: number; claimed: boolean; age: number }[] {
     return this.pickups.snapshot();
   }
-
-  // ---------------------------------------------------------------- update
 
   update(dt: number, player: Damageable, friendlies: Damageable[]): void {
     this.time += dt;
@@ -471,9 +309,7 @@ export class CombatSystem {
     if (!player.isDead) this.targets.push(player);
     for (const f of friendlies) if (!f.isDead) this.targets.push(f);
 
-    // ------------------------------------------------------------ spawner
-    // `enemies=0` suppresses the whole population, initial priming included, so
-    // a measurement run can price the wild spawns (see core/flags.ts).
+    // `enemies=0` suppresses the whole population, priming included.
     if (flags.enemies) {
       if (!this.primed) {
         this.primed = true;
@@ -488,7 +324,6 @@ export class CombatSystem {
       }
     }
 
-    // ------------------------------------------------------------ enemies
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       e.update(dt, this.enemyCtx);
@@ -499,25 +334,18 @@ export class CombatSystem {
     }
 
     this.updateProjectiles(dt);
-    // After the projectiles, so an orb that landed THIS slice starts its
-    // ceremony on the same slice rather than a frame late — the suck-in is the
-    // thing the player is looking at when they hit.
+    // After the projectiles, so an orb landing THIS slice starts its ceremony
+    // now rather than a frame late.
     this.taming.update(dt);
     this.pickups.update(dt, player.position, this.world);
     this.vfx.update(dt);
     this.numbers.update(dt);
   }
 
-  // -------------------------------------------------------------- helpers
-
   private skillBase(skill: SkillDef, attackStat: number): number {
     return skill.power * (attackStat / 10);
   }
 
-  /**
-   * Apply damage to an enemy: element multiplier, 10% crit at 1.5x, floating
-   * damage number and an element-colored hit pop.
-   */
   private dealSkillDamage(
     enemy: Enemy, rawBase: number, element: ElementType | undefined,
     fromX: number, fromY: number, fromZ: number, bySkill: boolean,
@@ -543,18 +371,9 @@ export class CombatSystem {
     });
   }
 
-  /**
-   * Enemy -> player/beast hit (EnemyCtx callback).
-   *
-   * Everything below the gate is CONDITIONAL on the hit having landed, which it
-   * did not used to be. `Player.takeDamage` has always refused hits inside its
-   * 0.35 s invulnerability window, but this function could not see that, so an
-   * absorbed hit still spawned a damage number, a burst and a red screen flash —
-   * the player was told they took damage they did not take, and a snortle
-   * grinding along a wall next to them strobed the screen. Cosmetically that was
-   * survivable. It stopped being survivable when the same moment started driving
-   * a controller's motors.
-   */
+  // Everything below the gate is CONDITIONAL on the hit landing: `takeDamage`
+  // refuses hits inside its invulnerability window, and an absorbed hit must not
+  // flash, pop or rumble.
   private onEnemyHit(
     target: Damageable, amount: number, element: ElementType,
     fromX: number, fromY: number, fromZ: number,
@@ -568,7 +387,6 @@ export class CombatSystem {
     if (target === this.lastPlayer) this.vfx.screenFlash(0xff3822, 0.14);
   }
 
-  /** Frontal-arc melee shared by skill melee and the player's sword. */
   private meleeArc(
     ox: number, oy: number, oz: number, footY: number, dx: number, dz: number,
     reach: number, arcCos: number, rawBase: number,
@@ -579,22 +397,17 @@ export class CombatSystem {
     this.vfx.flashLight(ox + dx * 1.1, oy + 0.5, oz + dz * 1.1, hex, 2.4, 5, 0.14);
     for (const e of this.enemies) {
       if (!e.targetable) continue;
-      // The vertical cap the enemies got in issue #25 and the hero did not until
-      // #78: an arc is a WEDGE, and a wedge with no ceiling is a column. Standing
-      // on a 6-unit ledge, every swing cleared the meadow underneath it. Same
-      // pair of numbers as the bite that comes back — see MELEE_UP_REACH.
+      // An arc is a WEDGE, and a wedge with no ceiling is a column (issue #78).
+      // Same pair of numbers as the bite that comes back.
       if (!inRise(footY, e.position.y, MELEE_UP_REACH, MELEE_DOWN_REACH)) continue;
       const ex = e.position.x - ox;
       const ez = e.position.z - oz;
       const d = Math.sqrt(ex * ex + ez * ez);
       if (d > reach + e.radius) continue;
       if (d > 0.2 && (ex / d) * dx + (ez / d) * dz < arcCos) continue;
-      // dealSkillDamage's knockback pushes away from (ox,oz) — the small shove
       this.dealSkillDamage(e, rawBase, element, ox, oy, oz, bySkill);
     }
   }
-
-  // ----------------------------------------------------------- projectile
 
   private projSlot(): Projectile | null {
     for (const p of this.projectiles) if (!p.active) return p;
@@ -625,9 +438,7 @@ export class CombatSystem {
     const p: Projectile = {
       active: false, group, shellMat, glowMat, light: null,
       bolt: [glow, shell, core], arrow, form: 'bolt',
-      // No orb model is built here: a session that never throws one should not
-      // pay for fourteen slots' worth of glass. `orbFor` fills this in on the
-      // first throw of each tier through each slot.
+      // Filled by `orbFor` on the first throw of a tier through this slot.
       orbs: new Map(), orb: null, orbItem: null,
       vel: new THREE.Vector3(), target: null, element: 'fire',
       rawBase: 0, life: 0, trailT: 0, hex: 0xffffff, spin: 0, homing: 1,
@@ -657,30 +468,16 @@ export class CombatSystem {
     p.group.visible = true;
     p.light = this.vfx.acquireLight(hex, 3.2, 7);
     if (p.light) p.light.position.copy(p.group.position);
-    // muzzle pop
     this.vfx.glowPulse(req.origin.x, req.origin.y, req.origin.z, hex, 1.1, 0.2);
     this.vfx.burst(req.origin.x, req.origin.y, req.origin.z, hex, 7, 2.2, 0.28, 0.18, 0, 0.3);
   }
 
-  /**
-   * Shader warm-up (see warmUpShaders() in main.ts). Puts one of everything
-   * this system can draw in front of `at`: a live projectile with its glow and
-   * light, a damage number, a shard pickup, and the whole VFX set. `lights`
-   * additionally raises the visible point-light count, which is its own program
-   * key — see VFX.warmUpLights.
-   */
-  /** One more visible point light, for the count sweep. See VFX.warmUpLights. */
   warmUpLight(at: THREE.Vector3): void {
     this.vfx.warmUpLights(at.x, at.y, at.z, 1);
   }
 
-  /**
-   * Put one dropped shard in front of `at` for a warm-up render, and take it
-   * away again afterwards. Its three materials (additive mesh, core, glow
-   * sprite) are drawn nowhere else, so a zone that has never seen a drop links
-   * them the first time something dies in it — measured, three programs on the
-   * arrival frame. See Pickups.warmUpDrop.
-   */
+  // A drop's three materials are drawn nowhere else, so an unwarmed zone links
+  // them the first time something dies in it.
   warmUpDrop(at: THREE.Vector3): void {
     this.pickups.warmUpDrop(at.x, at.y + 0.4, at.z);
   }
@@ -689,19 +486,8 @@ export class CombatSystem {
     this.pickups.retireWarmUpDrop();
   }
 
-  /**
-   * The whole VFX set, with no light and no projectile, for a zone's warm-up
-   * sweep — the effect materials have to be drawn at the destination's light
-   * counts too, and several of them (the ring, the beam, the scorch decal) are
-   * textured MeshBasics whose programs are keyed separately from everything
-   * else's.
-   *
-   * Staged 0.8 UNDER the point given, i.e. inside the floor. A program is
-   * linked when its material is bound for a draw, not when its fragments
-   * survive the depth test, so burying the burst costs nothing — and it is what
-   * stops the sweep from leaving a scorch decal (7 s of life) on the pad the
-   * hero is about to walk out onto.
-   */
+  // Staged UNDER the floor: a program links when its material is bound for a
+  // draw, not when its fragments pass depth, so this leaves no scorch on the pad.
   warmUpEffects(at: THREE.Vector3): void {
     this.vfx.warmUp(at.x, at.y - 0.8, at.z);
   }
@@ -730,12 +516,7 @@ export class CombatSystem {
     this.vfx.warmUpLights(at.x, at.y, at.z, lights);
   }
 
-  /**
-   * This slot's orb model for `color`, cloned on first use and kept.
-   *
-   * See `tameOrbMesh` in combat/tame-orb.ts for why the clone is per SLOT: the
-   * cached mesh is one object and cannot hang off two live projectiles at once.
-   */
+  // Cloned per SLOT: the cached mesh cannot hang off two live projectiles.
   private orbFor(p: Projectile, color: number): THREE.Object3D {
     let m = p.orbs.get(color);
     if (!m) {
@@ -747,42 +528,20 @@ export class CombatSystem {
     return m;
   }
 
-  /**
-   * Swap a pooled slot between the glowing bolt, the arrow and a taming orb.
-   *
-   * ONE PLACE, so a slot recycled from a skill cast into a bow shot can never be
-   * left showing half of each — which is exactly what a `visible` written at the
-   * three call sites would eventually do. It was a boolean while there were two
-   * forms; `orb` is what made it a state, and the early-out went with it, since
-   * "same form" no longer implies "same model" — two Tame Orbs in a row share a
-   * form and a mesh, a Tame Orb after a Master Orb shares only the form.
-   */
+  // ONE PLACE, so a recycled slot never shows half of two forms. No early-out on
+  // `form`: two orb tiers share a form and not a mesh.
   private setProjectileForm(p: Projectile, form: ProjForm, orb: THREE.Object3D | null = null): void {
     p.form = form;
     for (const part of p.bolt) part.visible = form === 'bolt';
     p.arrow.visible = form === 'arrow';
-    // Every orb model this slot has ever built, not just the one being replaced:
-    // that is what makes the swap total rather than a diff nobody can get wrong.
+    // Every orb this slot ever built, so the swap is total, never a diff.
     for (const m of p.orbs.values()) m.visible = m === orb;
     p.orb = form === 'orb' ? orb : null;
   }
 
-  /**
-   * THE BOW'S SHOT. A pooled projectile with an arrow's model, no element and
-   * no glow.
-   *
-   * It is the ranged twin of `meleeStrike` and takes the same three arguments
-   * for the same reason: main.ts decides WHICH the hero does (see
-   * `player.weapon`), combat does it. The damage scale is the sword's 1.2 as
-   * well — a bow trades reach for nothing yet, and the balance pass is the
-   * forge's ticket, not this one.
-   *
-   * NO HOMING and NO TARGET. Every other projectile in the game is cast at
-   * something the game picked; this one goes where the crosshair points, and a
-   * bow that curved toward whatever was nearest would take the aiming away
-   * from the player who just aimed. `MOUNTED_HOMING` in main.ts is the mounted
-   * cast's own separate answer to the same question.
-   */
+  // NO HOMING and NO TARGET, unlike everything else the pool fires: a bow shot
+  // goes where the crosshair points, and curving it takes the aim away from the
+  // player who just aimed.
   arrowStrike(origin: THREE.Vector3, direction: THREE.Vector3, attackStat: number): void {
     _a.set(direction.x, direction.y, direction.z);
     if (_a.lengthSq() < 1e-6) return;
@@ -802,34 +561,14 @@ export class CombatSystem {
     p.vel.copy(_a).multiplyScalar(PROJ_SPEED);
     p.group.position.copy(origin).addScaledVector(_a, 0.5);
     p.group.visible = true;
-    // No point light and no muzzle pop: an arrow is not on fire. The release
-    // gets a small dust puff instead, so the shot still has a moment of weight.
+    // No light, no muzzle pop: an arrow is not on fire. A dust puff instead.
     p.light = null;
     this.vfx.dust(origin.x, origin.y, origin.z, 3, 0xd8d2c4);
   }
 
-  /**
-   * THE TAMING THROW. A pooled projectile with an orb's model and no damage at
-   * all.
-   *
-   * The third thing the pool carries, and the first that is not a weapon: it
-   * deals nothing, it has no element, and what it does on impact is ask
-   * src/combat/taming.ts a question rather than apply a number. `rawBase` is 0
-   * and stays 0 — an orb that chipped a beast on the way in would be weakening
-   * the thing whose weakness it is measuring.
-   *
-   * IT HOMES, where an arrow does not, and that is the opposite of `arrowStrike`'s
-   * reasoning rather than an inconsistency with it. A bow shot is an aiming
-   * SKILL and steering it would take the aim away from the player. A throw is a
-   * commitment of a consumable the player paid Cubloons for, at a target the
-   * game already highlighted for them — missing because the animal side-stepped
-   * is not a skill expressed, it is an orb gone. So the caller passes the enemy
-   * the crosshair is on (`enemyInAim` in main.ts) and the orb follows it.
-   *
-   * `def` is the ITEM, not a tier, because the impact needs its `orbTier` for the
-   * roll and its `color` for the model, and passing two halves of one catalogue
-   * entry is how they come apart.
-   */
+  // `rawBase` stays 0: an orb that chipped a beast would weaken the thing whose
+  // weakness it measures. IT HOMES where an arrow does not — a throw spends a
+  // consumable at a target the game highlighted, so a side-step is an orb gone.
   throwOrb(
     origin: THREE.Vector3, direction: THREE.Vector3, def: ItemDef,
     target: Damageable | null, force?: boolean,
@@ -844,17 +583,9 @@ export class CombatSystem {
     p.hex = def.color;
     p.rawBase = 0;
     p.target = target && !target.isDead ? target : null;
-    // Full lock-on when there is a target — see the note above on why this is
-    // not the bow's 0.
     p.homing = 1;
-    // IT DOES NOT RUN OUT BEFORE IT ARRIVES (issue #110: "fully homing, it
-    // can't miss"). 2.2 seconds was about 35 units of flight, which is inside
-    // the aim assist's own reach — so an orb thrown at the far edge of what the
-    // game had just highlighted expired in mid-air and broke on nothing. Ten
-    // seconds is ~160 units: further than anything can be selected from, so the
-    // life is no longer a range limit, it is only the guarantee that a pooled
-    // slot always comes back. What still ends a throw early is the ground, and
-    // that is not a miss — it is a hill between you and the animal.
+    // Long enough never to expire before arriving (issue #110): the life is only
+    // the guarantee a slot comes back. The ground still ends a throw early.
     p.life = 10;
     p.trailT = 0;
     p.spin = 0;
@@ -864,9 +595,8 @@ export class CombatSystem {
     p.vel.copy(_a).multiplyScalar(PROJ_SPEED);
     p.group.position.copy(origin).addScaledVector(_a, 0.5);
     p.group.visible = true;
-    // A light, unlike the arrow: the core of an orb is lit, and at dusk a thrown
-    // one with no light is a dark speck. Dimmer and shorter-range than a skill
-    // bolt's, because it is a lamp and not an explosion.
+    // A light, unlike the arrow — an orb's core is lit. Dimmer than a bolt's:
+    // it is a lamp, not an explosion.
     p.light = this.vfx.acquireLight(def.color, 1.6, 5);
     if (p.light) p.light.position.copy(p.group.position);
     this.vfx.glowPulse(origin.x, origin.y, origin.z, def.color, 0.7, 0.16);
@@ -881,7 +611,6 @@ export class CombatSystem {
         this.explodeProjectile(p, pos.x, pos.y, pos.z, null);
         continue;
       }
-      // slight homing
       const t = p.target;
       if (t && !t.isDead) {
         _leaf.set(
@@ -891,26 +620,18 @@ export class CombatSystem {
         );
         if (_leaf.lengthSq() > 1e-4) {
           _leaf.normalize().multiplyScalar(PROJ_SPEED);
-          // 3.4 is full lock-on; scaled down, the shot merely leans (see
-          // CastRequest.homingScale).
+          // 3.4 is full lock-on; scaled down, the shot merely leans.
           p.vel.lerp(_leaf, Math.min(1, 3.4 * p.homing * dt)).setLength(PROJ_SPEED);
         }
       }
       pos.addScaledVector(p.vel, dt);
       if (p.form === 'arrow') {
-        // AN ARROW POINTS WHERE IT IS GOING. The bolt tumbles because a ball of
-        // fire has no front; an arrow that tumbled would read as a stick thrown
-        // rather than a shot. `lookAt` is what the model's +Z build direction is
-        // for — see combat/arrow.ts.
+        // Points where it is going — what the +Z build direction is for.
         _leaf.copy(pos).add(p.vel);
         p.group.lookAt(_leaf);
       } else if (p.form === 'orb') {
-        // AN ORB POINTS WHERE IT IS GOING **AND** SPINS ABOUT THAT LINE. The
-        // `lookAt` is what keeps its seam square to the flight, and the roll on
-        // top is what says it was thrown rather than fired — see the header of
-        // combat/tame-orb.ts. Rolling about local z after the lookAt is the one
-        // order that gives both: setting `rotation` outright would throw the aim
-        // away.
+        // Rolling about local z AFTER the lookAt is the only order that keeps
+        // both the aim and the spin; writing `rotation` throws the aim away.
         _leaf.copy(pos).add(p.vel);
         p.group.lookAt(_leaf);
         p.spin += dt * 7;
@@ -923,11 +644,9 @@ export class CombatSystem {
       p.trailT -= dt;
       while (p.trailT <= 0) {
         p.trailT += 0.022;
-        // Only the BOLT sparkles. On a wooden shaft the trail reads as the arrow
-        // being on fire, and behind an orb it reads as the orb burning up.
+        // Only the BOLT sparkles: on wood or glass a trail reads as burning.
         if (p.form === 'bolt') this.vfx.trail(pos.x, pos.y, pos.z, p.hex, 0.3);
       }
-      // enemy collision
       let hit: Enemy | null = null;
       for (const e of this.enemies) {
         if (!e.targetable) continue;
@@ -941,7 +660,6 @@ export class CombatSystem {
         this.explodeProjectile(p, pos.x, pos.y, pos.z, hit);
         continue;
       }
-      // terrain
       const gy = this.world.getHeight(pos.x, pos.z);
       if (pos.y <= gy + 0.1) {
         pos.y = gy + 0.1;
@@ -954,11 +672,7 @@ export class CombatSystem {
     p.active = false;
     p.group.visible = false;
     if (p.light) { this.vfx.releaseLight(p.light); p.light = null; }
-    // AN ORB DOES NOT EXPLODE. It is the one projectile whose arrival is not a
-    // detonation, so it leaves before the burst, the flash, the scorch and the
-    // splash below — every one of which is a weapon landing, and none of which
-    // an orb does. Handled here rather than in a branch at the two call sites
-    // because this is the single place a projectile's life ends.
+    // AN ORB DOES NOT EXPLODE, and this is the one place a life ends.
     if (p.orbItem) {
       this.landOrb(p, x, y, z, direct);
       return;
@@ -970,10 +684,8 @@ export class CombatSystem {
     this.vfx.ring(x, gy, z, p.hex, 1.9, 0.45);
     if (y - gy < 1.2) this.vfx.scorch(x, gy, z, p.hex, 1.1);
     if (direct) this.dealSkillDamage(direct, p.rawBase, p.element, x, y, z, true);
-    // Small splash around the blast. A BALL of fire, so the vertical band is the
-    // radius itself (issue #78: it was a column, and a fireball bursting on the
-    // ground singed a Peckit thirty units overhead). Symmetric — an explosion has
-    // no up or down the way a swing does.
+    // Splash. A BALL of fire, so the vertical band is the radius itself and is
+    // symmetric — as a column it singed flyers thirty units up (issue #78).
     for (const e of this.enemies) {
       if (!e.targetable || e === direct) continue;
       const dx = e.position.x - x;
@@ -986,15 +698,8 @@ export class CombatSystem {
     }
   }
 
-  // ---------------------------------------------------------------- taming
-
-  /**
-   * A thrown orb arrived. Start a bond, or break on the ground.
-   *
-   * THE ORB IS SPENT EITHER WAY, and that is decided in main.ts at the throw
-   * rather than here — this function cannot give one back, and a projectile that
-   * refunded on a miss would make throwing at nothing free.
-   */
+  // THE ORB IS SPENT EITHER WAY, decided in main.ts at the throw: refunding a
+  // miss would make throwing at nothing free.
   private landOrb(p: Projectile, x: number, y: number, z: number, direct: Enemy | null): void {
     const orb = p.orbItem!;
     const force = p.orbForce;
@@ -1005,21 +710,13 @@ export class CombatSystem {
       this.taming.begin(orb, direct, force);
       return;
     }
-    // Missed, or hit something that cannot be bonded. A small break on the spot:
-    // glass, a puff, and no ring or scorch — nothing detonated.
     this.vfx.debrisBurst(x, y, z, [orb.color, 0xf4f7fb], 9, 3.8, 0.09, gy);
     this.vfx.burst(x, y, z, orb.color, 12, 3.4, 0.36, 0.18, -7, 0.3);
     this.vfx.glowPulse(x, y, z, orb.color, 1.1, 0.2);
   }
 
-  /**
-   * A bond settled. Take the beast off the board, or hand it back.
-   *
-   * A SECOND REMOVAL PATH BESIDE `killEnemy`, deliberately: that one pays out
-   * shards, rolls the drop table, grants xp and emits `enemyKilled`, and a bond
-   * is none of those. Sharing it behind a flag would have meant four `if`s
-   * inside a function whose whole job is the payout.
-   */
+  // A SECOND REMOVAL PATH beside `killEnemy`: that one pays shards, rolls the
+  // drop table and grants xp, and a bond is none of those.
   private settleBond(target: Enemy, orb: ItemDef, caught: boolean): void {
     const beastId = target.beastSpecies?.id ?? target.species;
     if (!caught) {
@@ -1031,41 +728,24 @@ export class CombatSystem {
     this.bus.emit({ type: 'beastTamed', beastId, nameKey: target.nameKey, orbId: orb.id });
   }
 
-  /**
-   * The odds an orb would have against this beast, 0..1 — 0 where it cannot be
-   * thrown at all.
-   *
-   * Forwarded rather than exported straight off combat/taming.ts because main.ts
-   * has an `Enemy` only as a `Damageable` (see `enemyInAim`), and widening that
-   * to hand the UI the concrete class would be reaching across for a number.
-   */
+  // Forwarded, because main.ts holds an `Enemy` only as a `Damageable` and
+  // handing the UI the concrete class is reaching across.
   bondChance(orb: ItemDef, target: Damageable | null): number {
     const e = target as Enemy | null;
     if (!e || !(e instanceof Enemy)) return 0;
     return captureChance(orb, e);
   }
 
-  /** Why a throw at this target would be refused. See `refuseThrow`. */
   bondRefusal(orb: ItemDef, target: Damageable | null): ThrowRefusal {
     const e = target as Enemy | null;
     return refuseThrow(orb, e instanceof Enemy ? e : null);
   }
 
-  /**
-   * The beast species this target IS, or null where it is not one.
-   *
-   * These two and `bondChance` above are the same forwarding argument: main.ts
-   * holds an `Enemy` only as a `Damageable`, and the alternative to answering
-   * for it here is exporting the concrete class into the composition root so the
-   * UI can narrow it — which is reaching across a module boundary to read two
-   * fields.
-   */
   bondSpeciesOf(target: Damageable | null): string | null {
     const e = target as Enemy | null;
     return e instanceof Enemy ? e.beastSpecies?.id ?? null : null;
   }
 
-  /** The target's DISPLAY name key, for a refusal that has to name it. */
   bondNameKeyOf(target: Damageable | null): StringKey | null {
     const e = target as Enemy | null;
     return e instanceof Enemy ? e.nameKey : null;
@@ -1075,8 +755,6 @@ export class CombatSystem {
   get bonding(): boolean {
     return this.taming.busy;
   }
-
-  // ----------------------------------------------------------------- beam
 
   private castBeam(req: CastRequest, hex: number): void {
     const range = Math.max(6, req.skill.range);
@@ -1104,7 +782,6 @@ export class CombatSystem {
     );
     this.vfx.burst(_b.x, _b.y, _b.z, hex, best ? 20 : 10, 5, 0.4, 0.28, -2, 0.5);
     this.vfx.flashLight(_b.x, _b.y, _b.z, hex, 5, 8, 0.22);
-    // sparkle motes along the beam path
     const steps = Math.min(14, Math.floor(bestT / 0.9));
     for (let i = 1; i <= steps; i++) {
       const d = (bestT * i) / (steps + 1);
@@ -1120,8 +797,6 @@ export class CombatSystem {
       );
     }
   }
-
-  // ------------------------------------------------------------------ aoe
 
   private castAoe(req: CastRequest, hex: number): void {
     const skill = req.skill;
@@ -1141,10 +816,7 @@ export class CombatSystem {
     const base = this.skillBase(skill, req.attackStat);
     for (const e of this.enemies) {
       if (!e.targetable) continue;
-      // A ground eruption reaches as high as it is DRAWN reaching, and no
-      // higher: the ring, the scorch and the column all sit on `gy`, and before
-      // issue #78 the damage went up from there forever. Symmetric, so an enemy
-      // in a dip at the rim is still caught.
+      // Reaches as high as it is DRAWN reaching, symmetric (issue #78).
       if (!inRise(gy, e.position.y, AOE_COLUMN_H)) continue;
       const dx = e.position.x - cx;
       const dz = e.position.z - cz;
@@ -1155,13 +827,9 @@ export class CombatSystem {
     }
   }
 
-  // ----------------------------------------------------------------- heal
-
   private castHeal(req: CastRequest, hex: number): void {
     const skill = req.skill;
-    // caster swirl
     this.vfx.rise(req.origin.x, req.origin.y - 0.6, req.origin.z, hex, 14, 0.65, 2.0, 0.8, 0.4, 3.2);
-    // heal the most-hurt friendly (player + beasts from the last update)
     let best: Damageable | null = null;
     let bestRatio = 0.999;
     for (const f of this.targets) {
@@ -1180,14 +848,9 @@ export class CombatSystem {
     this.numbers.spawn(px, py + 1.8, pz, `+${heal}`, 0x8cf59a, false);
   }
 
-  // ------------------------------------------------------------- spawning
-
   private trySpawn(center: THREE.Vector3, silent: boolean): void {
-    // UNIFORM OVER WHATEVER CONTENT LOADED, exactly as it was uniform over the
-    // three entries of `ENEMY_DEFS`. The list is the roster's own cached frozen
-    // view (see `enemySpecies`), so this is a read and not a rebuild — a spawn
-    // path may not allocate a table. An empty roster is a world with no wild
-    // population, which is what `?enemies=0` already produces.
+    // Uniform over whatever content loaded. `enemySpecies()` is a cached frozen
+    // view, so this is a read: a spawn path may not allocate a table.
     const defs = enemySpecies();
     if (defs.length === 0) return;
     const def = defs[(Math.random() * defs.length) | 0];
@@ -1198,13 +861,8 @@ export class CombatSystem {
     const sp = this.world.spawnPoint;
     const sx = x - sp.x, sz = z - sp.z;
     if (sx * sx + sz * sz < SAFE_ZONE_SQ) return;
-    // THE TOWNS AND THE POINTS OF INTEREST THAT ASKED FOR ONE. Same shape as the
-    // line above and deliberately so: a refusal, not a re-roll. A rejected
-    // candidate simply means this tick spawns nothing, which is what makes a
-    // keep-out THIN the population near a settlement rather than push it into a
-    // ring around one — an enemy shoved to the nearest legal metre would queue
-    // up along the town's boundary, which is a worse picture than an empty
-    // meadow and reads as the wall the feature explicitly is not. See SafeZone.
+    // A refusal, not a re-roll: a keep-out must THIN the population near a
+    // settlement, not queue it along the boundary as a visible wall.
     if (this.world.safeZones.blocksSpawn(x, z)) return;
     if (!def.flying && this.world.isWater(x, z)) return;
     const gy = this.world.getHeight(x, z);
@@ -1221,22 +879,9 @@ export class CombatSystem {
     }
   }
 
-  /**
-   * Put one NAMED enemy on the ground at (x, z). The F3 Debug panel's enemy
-   * branch, and nothing else in the game calls it.
-   *
-   * It deliberately obeys none of `trySpawn`'s rules — not the safe zones, not
-   * the ring, not the water test, not `SPAWN_MAX`. Every one of those exists to
-   * shape a POPULATION that appears on its own, and this is a person pointing
-   * at a spot and saying "there". Refusing to put a gloopling in a camp because
-   * the camp keeps wild ones out would be refusing the exact experiment the
-   * panel is for. The auto-spawner's own cap counts these, so a panel used
-   * heavily thins the wild population rather than adding to it — which is the
-   * behaviour you want while looking at one enemy.
-   *
-   * Returns null for an id no loaded package defines; `Enemy` throws on one, and
-   * a panel row is user input in the same sense a console argument is.
-   */
+  // F3 Debug panel only. Obeys none of `trySpawn`'s rules, which shape a
+  // population that appears on its own where this is a person pointing at a
+  // spot. Null for an unknown id, because a panel row is user input.
   spawnOne(id: string, x: number, z: number): Enemy | null {
     if (!speciesOf(id)) return null;
     const e = new Enemy(id, variantForHeight(this.world.getHeight(x, z) - this.world.waterLevel), x, z, this.world);
@@ -1250,7 +895,6 @@ export class CombatSystem {
     const px = e.position.x, py = e.position.y, pz = e.position.z;
     const gy = this.world.getHeight(px, pz);
     const hex = ELEMENT_COLORS[e.element];
-    // satisfying voxel pop
     this.vfx.debrisBurst(px, py + e.height * 0.5, pz, e.palette, 14, 5.5, 0.14, gy);
     this.vfx.burst(px, py + e.height * 0.5, pz, hex, 26, 6.5, 0.55, 0.32, -4, 0.6);
     this.vfx.ring(px, gy, pz, hex, 2.2, 0.5);
@@ -1260,20 +904,13 @@ export class CombatSystem {
     this.bus.emit({ type: 'enemyKilled', nameKey: e.nameKey, xp });
     const drops = 1 + ((Math.random() * 3) | 0);
     for (let k = 0; k < drops; k++) this.pickups.spawn(px, py + 0.6, pz, SHARD_ID);
-    // Stackable loot on top of the shards. 1-in-4 is a first pass, chosen to be
-    // frequent enough that both item kinds turn up in ordinary play and rare
-    // enough that the ground does not fill with cubes the support beast is under
-    // orders to ignore. Retune once there is something to spend them on.
+    // Frequent enough to turn up in play, rare enough not to litter. First pass.
     if (Math.random() < 0.25) {
       const id = STACKABLE_IDS[(Math.random() * STACKABLE_IDS.length) | 0];
       this.pickups.spawn(px, py + 0.6, pz, id);
     }
-    // The RARE half of the table: a blueprint or a potion, 1-in-25. It is an
-    // order of magnitude rarer than the stackables above and deliberately so —
-    // the support beast will not fetch either (see `worthFetching` in main.ts,
-    // which only ever runs an errand for a stackable), so every one of these is
-    // something the player walked over themselves and noticed doing it. A
-    // weapon is never in here: a weapon is forged or given.
+    // The RARE half, never fetched by a beast, so each one is something the
+    // player walked over and noticed. Never a weapon: those are forged or given.
     if (Math.random() < 0.04) {
       const id = RARE_DROP_IDS[(Math.random() * RARE_DROP_IDS.length) | 0];
       this.pickups.spawn(px, py + 0.6, pz, id);
@@ -1290,26 +927,11 @@ export class CombatSystem {
     this.enemies.pop();
   }
 
-  /**
-   * Give the taming feature's GPU resources back.
-   *
-   * NARROW ON PURPOSE, and honest about it: this class has never had a
-   * `dispose()` because nothing tears a `CombatSystem` down — a zone change
-   * rebinds it (`setWorld`) and a new game resets it, both of which exist
-   * precisely so the warmed shader programs survive. What this covers is what
-   * the taming change ADDED to the scene: the ceremony's orb meshes, and the one
-   * shared geometry and material behind every orb in the game. Widening it to
-   * the VFX pools, the damage numbers and the drop pool is the same job those
-   * classes' own `dispose()` methods are already written and waiting for, and it
-   * is not this ticket's.
-   *
-   * Order matters: the ceremony's clones come off the scene first, and only then
-   * is the geometry they were sharing freed.
-   */
+  // NARROW ON PURPOSE: nothing tears a `CombatSystem` down, so this covers only
+  // the taming meshes and the orb geometry. The clones leave before it is freed.
   dispose(): void {
     this.taming.dispose();
-    // The pool's own clones share the same buffers, so they are dropped from
-    // their groups rather than disposed — see `disposeTameOrbs`.
+    // The pool's clones share these buffers, so they are dropped, not disposed.
     for (const p of this.projectiles) {
       for (const m of p.orbs.values()) p.group.remove(m);
       p.orbs.clear();

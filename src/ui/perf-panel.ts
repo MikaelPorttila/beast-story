@@ -1,40 +1,8 @@
 /**
- * F3 DEBUG PANEL: switch parts of the renderer off and watch the frame get
- * cheaper — and conjure the thing you are trying to look at.
- *
- * F2 says a frame costs 6 ms and that `render` is 67% of it. That is a
- * diagnosis and not a remedy — the top half of this panel is the remedy, and
- * the two are meant to be used together: open both, flip a row, watch the
- * number move. Every row carries what it MEASURED at, because a wall of
- * switches with no numbers on it asks the player to guess which one is worth
- * losing.
- *
- * THE BOTTOM HALF IS A SPAWNER, and it is here rather than in the dev console
- * because of what the console cannot do: `/give` needs you to already know the
- * id. Ninety ids across items, beasts, enemies and settlement parts is a set
- * you BROWSE, not one you remember — so it is a tree with a search box over it,
- * and the console commands stay as the scriptable half of the same catalogue.
- *
- * IT IS NOT A MODAL, and that is the single design decision worth arguing.
- * Every other panel in this game freezes the hero (see `modal` in main.ts)
- * because a player who stopped to read should not walk off a cliff. This one
- * must NOT: the whole point is to see the effect on a frame that is doing real
- * work, and a frozen world does not stream chunks, does not animate beasts and
- * does not draw the grass you just switched off. So the hero keeps taking input
- * while it is open — the panel is driven by arrow keys and the mouse, and
- * everything it uses is a key the hero ignores.
- *
- * THE SEARCH BOX IS THE ONE EXCEPTION, and it is exactly as narrow as it has to
- * be. A focused text field wants the letters, and `WASD` are letters — so while
- * it holds focus this swallows the keystroke in the CAPTURE phase, the same
- * trick and the same reason as ui/console.ts, and `isTyping` tells main.ts to
- * suspend gameplay input for as long as that lasts. Click away or press Escape
- * and the hero has the keyboard back; the world never stopped either way.
- *
- * DOM, like the rest of the HUD, and it deliberately holds no numbers of its
- * own: measuring is F2's job and duplicating it here would be two readouts to
- * keep in step. Class names are `bs-perf-*` and `bs-spawn-*`; tools/test-gfx.mjs
- * and tools/test-spawn.mjs assert on them.
+ * F3 DEBUG PANEL. NOT A MODAL — the point is watching a frame that is doing
+ * real work, so the hero keeps taking input and this uses keys he ignores. The
+ * search box is the exception: focused, it swallows keys in the CAPTURE phase
+ * (as ui/console.ts does) and `isTyping` suspends gameplay input.
  */
 import { GFX_OPTIONS, type Gfx, type GfxSinks } from '../core/gfx';
 import { spawnMatches, type SpawnBranch, type SpawnCatalogue, type SpawnRow } from '../core/spawn';
@@ -48,70 +16,26 @@ export interface TimeOfDayControl {
 }
 
 /**
- * The hero's hair: which style, and what colour.
- *
- * IT IS NOT A RENDERING TOGGLE, and it is here anyway. Everything above it in
- * this panel answers "what is this costing?"; a hairstyle costs nothing and
- * changes nothing but him. It is here because this is where a thing you want to
- * SEE gets conjured — the same argument the spawner below it makes — and
- * because the panel is the only surface in the game that can offer it today.
- * Its real home is a character creator, which is why it is injected exactly as
- * `TimeOfDayControl` is: this file owns two rows and no policy, and the host
- * (main.ts) owns what a change means and where it is stored.
- */
-/**
- * LAY A PATH FROM HERE, and the four rows that decide what kind.
- *
- * Issue #142 §12. The panel is the right home for it and the shape was already
- * established: this is deliberately NOT a modal — the world keeps running while
- * it is open, which is exactly what an editor wants, because you want to watch
- * the chunks rebuild and then walk the result. And it is injected the way
- * `TimeOfDayControl` and `AppearanceControl` are: this file owns four rows and
- * no policy, and the host (main.ts) owns what laying a path means.
- *
- * THE ENDPOINT IS THE HERO'S OWN FACING, not the crosshair. `spawnSpot()` picks
- * under the crosshair and is the obvious tool, but `AIM_FAR` is 60 units and
- * the roads in this world are 72 to 174 long — a path worth drawing cannot be
- * crosshair-picked at all. Stand where it should start, look where it should
- * go, choose a length.
- *
- * `lay()` returns the line for the status bar, refusals included, because an
- * editor that silently does nothing is one whose first user thinks it is broken
- * (§12f).
+ * Lay a path from here (issue #142 §12). Rows here, policy in main.ts. The
+ * endpoint is the hero's FACING, not the crosshair — `AIM_FAR` is 60 units and
+ * roads run 72–174.
  */
 export interface PathEditControl {
   readonly profiles: readonly { id: string; labelKey: StringKey }[];
-  /** The lengths the row steps through, world units. */
+  /** World units. */
   readonly lengths: readonly number[];
   profile(): string;
   setProfile(id: string): void;
   length(): number;
   setLength(n: number): void;
-  /** Route THROUGH what is already there and merge at the first crossing. */
   crossing(): boolean;
   setCrossing(v: boolean): void;
   lay(): string;
 }
 
-/**
- * THE THREE MOUNT UNLOCKS, switchable.
- *
- * Here for the same reason the hairstyle is: it costs nothing and changes
- * nothing about the frame, and this panel is the only surface in the game that
- * can offer it today. Its real home is the quest that grants it — game-story.md
- * §5 gives one per act — and until that exists a developer, a probe and anyone
- * looking at the game needs a door to the feature that is otherwise unreachable.
- *
- * Injected exactly as `TimeOfDayControl` and `PathEditControl` are: this file
- * owns three rows and no policy, and the host (main.ts) owns what an unlock
- * means and where it is stored.
- */
+/** A stand-in until the granting quests exist (game-story.md §5). */
 export interface MountUnlockControl {
-  /**
-   * The kinds, in the order the acts hand them out. `noteKey` names the QUEST
-   * that is meant to grant it — see `mountRows` on why that is what the row's
-   * last column carries.
-   */
+  /** In the order the acts hand them out; `noteKey` names the granting quest. */
   readonly kinds: readonly { id: string; labelKey: StringKey; noteKey: StringKey }[];
   has(id: string): boolean;
   set(id: string, on: boolean): void;
@@ -119,17 +43,14 @@ export interface MountUnlockControl {
 
 export interface AppearanceControl {
   readonly styles: readonly { id: string; labelKey: StringKey }[];
-  /** The strip the arrow keys step through. Any other colour comes from the well. */
   readonly swatches: readonly number[];
   style(): string;
   setStyle(id: string): void;
   colour(): number;
   setColour(hex: number): void;
-  /** Back to the first style in its own colour — the panel's R key. */
   reset(): void;
 }
 
-/** The rows below the gfx list, in the order they are drawn. */
 const ROW_TIME = GFX_OPTIONS.length;
 const ROW_STYLE = ROW_TIME + 1;
 const ROW_COLOUR = ROW_TIME + 2;
@@ -137,13 +58,8 @@ const ROW_PATH_PROFILE = ROW_TIME + 3;
 const ROW_PATH_LENGTH = ROW_TIME + 4;
 const ROW_PATH_CROSS = ROW_TIME + 5;
 const ROW_PATH_LAY = ROW_TIME + 6;
-/**
- * The mount unlocks take the LAST rows, one per kind, so adding a fourth kind
- * moves nothing above it. `ROW_MOUNT` is where they start and the offset within
- * them is the index into `MountUnlockControl.kinds`.
- */
+/** Mounts take the LAST rows, one per kind, so a fourth moves nothing above. */
 const ROW_MOUNT = ROW_TIME + 7;
-/** Everything above the mount rows. Their count comes from the control's data. */
 const EXTRA_ROWS = 7;
 
 const escapeHtml = (s: string): string =>
@@ -153,20 +69,11 @@ export class PerfPanel {
   private readonly el: HTMLDivElement;
   private open = false;
   private cursor = 0;
-  /**
-   * The three persistent children `render()` writes into.
-   *
-   * THE SHELL IS BUILT ONCE and only these are re-generated, which is not a
-   * micro-optimisation — it is what keeps the search field alive. The panel used
-   * to redraw itself with a single `innerHTML` assignment, and doing that to a
-   * focused input destroys the element, the focus and the caret with it: one
-   * keystroke per redraw, and the redraw is per keystroke.
-   */
+  /** Only these are re-generated: a whole-panel `innerHTML` kills the caret. */
   private gfxList: HTMLDivElement | null = null;
   private treeEl: HTMLDivElement | null = null;
   private statusEl: HTMLDivElement | null = null;
   private searchEl: HTMLInputElement | null = null;
-  /** Which branches are open. Collapsed by default — see `render`. */
   private expanded = new Set<string>();
   private status = '';
   private typing = false;
@@ -183,17 +90,10 @@ export class PerfPanel {
     this.el.className = 'bs-perf';
     this.el.style.display = 'none';
     document.body.appendChild(this.el);
-    // Capture phase, ahead of core/input.ts's own window listener, so a letter
-    // typed into the search box does not also make the hero strafe. Only while
-    // the field actually has focus — the arrow keys below still belong to the
-    // gfx rows the rest of the time. See ui/console.ts for the same pattern.
+    // Capture phase, ahead of core/input.ts, so a typed letter does not strafe.
     window.addEventListener('keydown', (e) => this.onSearchKey(e), true);
-    // A WHEEL OVER THE PANEL SCROLLS THE PANEL AND NOTHING ELSE. `Input` listens
-    // for wheel on window in the bubble phase and spends every notch on the
-    // camera's zoom, so scrolling the spawner tree walked the lens in and out
-    // behind it. Capture-phase `stopPropagation` is the same fix and the same
-    // shape as the keydown above; NOT `preventDefault`, because the scroll this
-    // is protecting is the browser's own on `.bs-perf-body`.
+    // `Input` spends every wheel notch on camera zoom, so a scroll over the
+    // panel walked the lens. `stopPropagation` only — the browser still scrolls.
     window.addEventListener('wheel', (e) => {
       if (!this.open || !(e.target instanceof Node) || !this.el.contains(e.target)) return;
       e.stopPropagation();
@@ -202,24 +102,13 @@ export class PerfPanel {
 
   get isOpen(): boolean { return this.open; }
 
-  /**
-   * True while the search box owns the keyboard.
-   *
-   * main.ts folds it into `modal`, which suspends gameplay input for the slice
-   * — NOT the clock (issue #101). The hero stops taking orders and goes on
-   * falling, landing and being shot at, which is the whole bargain every other
-   * panel in the game makes.
-   */
+  /** main.ts folds this into `modal`: it suspends input, not the clock (#101). */
   get isTyping(): boolean { return this.typing; }
 
   toggle(): void {
     this.open = !this.open;
-    // `flex`, NOT `block`. The stylesheet lays the panel out as a column so the
-    // title and the hint stay put while the body scrolls between them — and an
-    // inline `display:block` beat that declaration, so the body never shrank
-    // and the whole column simply grew past the bottom of the window. It did
-    // not show while the panel was eleven rows tall; it showed the moment the
-    // spawner made it ninety.
+    // `flex`, NOT `block` — inline `block` beats the stylesheet's column and the
+    // body stops shrinking, so the panel grows past the bottom of the window.
     this.el.style.display = this.open ? 'flex' : 'none';
     if (this.open) {
       this.buildShell();
@@ -229,15 +118,7 @@ export class PerfPanel {
     }
   }
 
-  /**
-   * Arrow keys and Enter, consumed only while the panel is up.
-   *
-   * Returns whether the key was ours. main.ts uses that to decide whether to
-   * let it through — the arrows are not bound to anything the hero does, but
-   * saying so explicitly is what stops a future binding colliding silently.
-   * main.ts does not offer them at all while `isTyping`, because inside a text
-   * field an arrow key is a caret move.
-   */
+  /** Returns whether the key was ours, so a future hero binding cannot collide. */
   onKey(code: string): boolean {
     if (!this.open) return false;
     const n = this.rowCount;
@@ -258,32 +139,23 @@ export class PerfPanel {
       this.gfx.reset();
       this.time.set(null);
       this.look.reset();
-      // NOT THE MOUNT ROWS. Everything R puts back is a view of the world — a
-      // quality setting, a time of day, a hairstyle — and none of it is
-      // progress. Re-locking here would mean one key in a debug panel silently
-      // taking away what the story handed over, in a session that is still being
-      // played and will be autosaved.
+      // NOT the mount rows: R resets views, never progress an autosave keeps.
       this.render();
       return true;
     }
     return false;
   }
 
-  /** Re-read every value and redraw. Called after a console `/gfx` too. */
+  /** Also called after a console `/gfx`. */
   refresh(): void {
     if (this.open) this.render();
   }
 
-  /**
-   * How many rows the cursor walks. Derived rather than a constant, because the
-   * mount kinds are the control's data — a fourth one must not need this file
-   * edited to be reachable with the arrow keys.
-   */
+  /** Derived, so a fourth mount kind is arrow-reachable with no edit here. */
   private get rowCount(): number {
     return GFX_OPTIONS.length + EXTRA_ROWS + this.mounts.kinds.length;
   }
 
-  /** A mount row is a plain flip; there is no third state to step through. */
   private flipMount(i: number): void {
     const kind = this.mounts.kinds[i];
     if (kind) this.mounts.set(kind.id, !this.mounts.has(kind.id));
@@ -320,12 +192,7 @@ export class PerfPanel {
     this.look.setStyle(list[(i + step + list.length) % list.length].id);
   }
 
-  /**
-   * Step along the swatch strip. A colour that is not ON the strip — one picked
-   * out of the well — lands on the nearest swatch and carries on from there,
-   * which is what makes the arrows still useful after a free pick instead of
-   * snapping back to the first entry.
-   */
+  /** A colour off the strip (picked from the well) resumes at the nearest one. */
   private cycleColour(step: number): void {
     const list = this.look.swatches;
     const now = this.look.colour();
@@ -352,24 +219,13 @@ export class PerfPanel {
     return s ? t(s.labelKey) : this.look.style();
   }
 
-  /**
-   * The parts of the panel that never change: the drag bar, the two section
-   * headings, the search field, the hint and the eight resize handles.
-   *
-   * Rebuilt on open and on a language switch, and at no other time. The search
-   * box is created here exactly once per open, which is what lets `render()`
-   * run on every keystroke without the caret jumping.
-   */
+  /** Rebuilt on open and on a language switch only — see `gfxList` above. */
   private buildShell(): void {
     this.el.innerHTML =
-      // The bar you pick the panel up by. `grab` on hover and `grabbing` while
-      // dragging is the pair the cursor sheet draws — see ui/cursor.ts.
       '<div class="bs-perf-title" data-cursor="grab" data-drag="move">'
       + `${escapeHtml(t('gfx.title'))}</div>`
-      // The rows scroll, THE PANEL DOES NOT. `overflow` on the panel itself
-      // clips the resize handles that sit on its edges, and worse, its
-      // scrollbar lands exactly where the east and south-east handles are — so
-      // the hit test found the scrollbar and the corner could not be grabbed.
+      // The rows scroll, the panel does not: `overflow` here clips the resize
+      // handles and its scrollbar steals the e/se hit test.
       + '<div class="bs-perf-body">'
       + `<div class="bs-perf-head">${escapeHtml(t('gfx.section.render'))}</div>`
       + '<div class="bs-perf-list"></div>'
@@ -377,19 +233,12 @@ export class PerfPanel {
       + '<input class="bs-spawn-search" type="text" spellcheck="false"'
       + ' autocomplete="off" autocapitalize="off" data-cursor="text"'
       + ` placeholder="${escapeHtml(t('spawn.search'))}">`
-      // The result line sits ABOVE the tree, between the search box and the
-      // rows. Under them it was correct and invisible: with a branch expanded
-      // the tree is taller than the panel, so the one line telling you what the
-      // click just did was always the thing scrolled off the bottom.
+      // ABOVE the tree: under it, an expanded branch scrolls the line off.
       + '<div class="bs-spawn-status"></div>'
       + '<div class="bs-spawn-tree"></div>'
       + '</div>'
       + `<div class="bs-perf-hint">${escapeHtml(t('gfx.hint'))}</div>`
-      // EIGHT HANDLES, and each one names its own cursor. Four edges and four
-      // corners is what makes `resize-horizontal`, `resize-vertical`,
-      // `resize-nwse` and `resize-nesw` four different answers rather than one
-      // generic "resize" — the diagonals differ by which way the arrow runs,
-      // which is only meaningful if the corner it sits on agrees.
+      // Each handle names its own cursor; a diagonal must match its corner.
       + '<i class="bs-perf-h n"  data-cursor="resize-vertical"   data-drag="n"></i>'
       + '<i class="bs-perf-h s"  data-cursor="resize-vertical"   data-drag="s"></i>'
       + '<i class="bs-perf-h w"  data-cursor="resize-horizontal" data-drag="w"></i>'
@@ -402,10 +251,8 @@ export class PerfPanel {
     this.treeEl = this.el.querySelector('.bs-spawn-tree');
     this.statusEl = this.el.querySelector('.bs-spawn-status');
     this.searchEl = this.el.querySelector('.bs-spawn-search');
-    // The colour well, delegated: the well itself is replaced on every render
-    // but the list it sits in is not, so one listener here outlives all of them.
-    // NO RENDER on the way out — a redraw while the native picker is open
-    // destroys the element the player is dragging around in.
+    // Delegated: the well is replaced each render, the list is not. And NO
+    // render out of here — a redraw destroys the open native picker.
     this.gfxList?.addEventListener('input', (e) => {
       const well = (e.target as Element | null)?.closest?.('.bs-hair-well') as HTMLInputElement | null;
       if (well) this.look.setColour(parseInt(well.value.slice(1), 16));
@@ -427,9 +274,7 @@ export class PerfPanel {
       const v = this.gfx.get(o.id);
       const off = v === false;
       return (
-        // `data-cursor` explicitly: a row is a clickable control but it is a
-        // div, so nothing about its tag says so — the resolver in ui/cursor.ts
-        // reads BUTTON and [data-act], and a row has neither.
+        // Explicit `data-cursor`: ui/cursor.ts reads BUTTON and [data-act] only.
         `<div class="bs-perf-row${i === this.cursor ? ' sel' : ''}${off ? ' off' : ''}"`
         + ` data-cursor="link-select" data-gfx="${o.id}">`
         + `<span class="bs-perf-name">${escapeHtml(t(o.labelKey))}</span>`
@@ -448,17 +293,7 @@ export class PerfPanel {
       + this.mountRows();
   }
 
-  /**
-   * The two appearance rows, under their own heading.
-   *
-   * THE COLOUR WELL IS A NATIVE `<input type="color">` — the browser already
-   * has a colour picker, and every alternative is a picker to draw, to place
-   * and to make keyboard-reachable. It is re-created on each render like every
-   * other row here, which is safe for exactly the reason the SEARCH BOX is not:
-   * nothing types into it, and the one moment it must survive — while its popup
-   * is open — is a moment when nothing else in the panel is being touched. The
-   * live `input` events are handled without a render for that reason.
-   */
+  /** The native colour well is safe to re-create: nothing types into it. */
   private hairRows(): string {
     const colour = this.look.colour();
     return `<div class="bs-perf-head">${escapeHtml(t('hair.section'))}</div>`
@@ -479,7 +314,6 @@ export class PerfPanel {
       + '</div>';
   }
 
-  /** Step one of the path rows, or lay the path if that is the row. */
   private cyclePath(row: number, step: number): void {
     if (row === ROW_PATH_PROFILE) {
       const list = this.paths.profiles;
@@ -492,23 +326,12 @@ export class PerfPanel {
     } else if (row === ROW_PATH_CROSS) {
       this.paths.setCrossing(!this.paths.crossing());
     } else {
-      // THE ACTION ROW. It costs a full chunk rebuild, so it is deliberately
-      // the last row and deliberately not something an arrow key lands on by
-      // accident on the way past — you have to be ON it and press again.
+      // The action row: it costs a full chunk rebuild, so it is last.
       this.status = this.paths.lay();
     }
   }
 
-  /**
-   * The four path rows, under their own heading.
-   *
-   * NO TEXT FIELD, and that is a decision rather than an omission. The search
-   * box below swallows keystrokes in the capture phase and sets `isTyping`, so
-   * `main.ts` suspends gameplay input while it has focus — which means a
-   * numeric field for the length would be a field you cannot walk while using.
-   * The rows step through a list instead, so the whole editor is reachable with
-   * the arrow keys and the hero keeps moving underneath it.
-   */
+  /** No text field: a focused one sets `isTyping` and suspends the hero. */
   private pathRows(): string {
     const profile = this.paths.profiles.find((o) => o.id === this.paths.profile());
     const row = (cursor: number, key: string, name: string, val: string, cost: string): string =>
@@ -529,14 +352,7 @@ export class PerfPanel {
       + row(ROW_PATH_LAY, 'lay', t('path.lay'), t('path.lay.go'), t('path.lay.cost'));
   }
 
-  /**
-   * One row per mount kind, under their own heading.
-   *
-   * THE COST COLUMN SAYS WHICH QUEST GRANTS IT, which is not a cost and is the
-   * most useful thing that column can hold here: the row exists because that
-   * quest does not, and a developer flipping it should be able to see what they
-   * are standing in for. See game-story.md §5.
-   */
+  /** The cost column names the granting quest instead (game-story.md §5). */
   private mountRows(): string {
     return `<div class="bs-perf-head">${escapeHtml(t('mount.section'))}</div>`
       + this.mounts.kinds.map((k, i) => {
@@ -550,15 +366,7 @@ export class PerfPanel {
       }).join('');
   }
 
-  /**
-   * The tree, filtered.
-   *
-   * COLLAPSED UNTIL ASKED, except while there is a query — a search that made
-   * you expand the branch it found the answer in would be a search that did not
-   * answer. So a non-empty query forces every matching branch open and hides
-   * the ones with nothing in them, and clearing it puts the manual expansion
-   * back exactly as it was, because the query never wrote to `expanded`.
-   */
+  /** A query never writes `expanded`, so clearing it restores manual state. */
   private renderTree(): void {
     const query = this.searchEl?.value.trim() ?? '';
     const parts: string[] = [];
@@ -586,23 +394,13 @@ export class PerfPanel {
       `<div class="bs-spawn-row${r.had ? ' had' : ''}" data-cursor="link-select"`
       + ` data-branch="${escapeHtml(b.id)}" data-row="${escapeHtml(r.id)}">`
       + `<span class="bs-spawn-label">${escapeHtml(r.label)}</span>`
-      // The id is shown BESIDE a display name, because that is the string
-      // `/give` and `/grant` want and browsing here is how you learn it. Where
-      // the two are the same string — the structure parts, which have no
-      // display name at all — printing it twice is noise, so it is left out.
+      // The id is what `/give` wants; skipped when it equals the label.
       + (r.label === r.id ? '' : `<span class="bs-spawn-id">${escapeHtml(r.id)}</span>`)
       + '</div>').join('');
     return head + `<div class="bs-spawn-rows">${leaves}</div>`;
   }
 
-  /**
-   * Escape leaves the field, Enter spawns the first thing on screen.
-   *
-   * The Enter case is the reason the search box is worth having at all: type
-   * three letters, press Enter, the thing is in front of you. Everything else
-   * is just passed to the field, with `stopPropagation` so the hero never sees
-   * it — see the note at the top of the file.
-   */
+  /** Everything but Escape/Enter falls through, stopped so the hero misses it. */
   private onSearchKey(e: KeyboardEvent): void {
     if (!this.typing) return;
     e.stopPropagation();
@@ -628,28 +426,13 @@ export class PerfPanel {
     this.render();
   }
 
-  /**
-   * Pick the panel up, or take hold of one of its edges.
-   *
-   * WHY THE PANEL MOVES AT ALL. It is not decoration and it is not there to
-   * exercise the cursor: F3 sits top-left and F2 top-centre, and the whole point
-   * of the pair is reading them together — on a narrow window they overlap, and
-   * on a wide one the thing you want to watch while flipping a row might be
-   * anywhere. A debug panel you cannot move is a debug panel that covers the
-   * thing you are debugging.
-   *
-   * The drag is tracked on WINDOW, not on the handle, for the usual reason: a
-   * fast drag outruns the element under the pointer, and a listener bound to the
-   * handle stops receiving moves the moment it does.
-   */
+  /** Tracked on WINDOW: a fast drag outruns the handle's own listener. */
   private beginDrag(e: MouseEvent, mode: string): void {
     const r = this.el.getBoundingClientRect();
     const x0 = e.clientX;
     const y0 = e.clientY;
     const start = { left: r.left, top: r.top, w: r.width, h: r.height };
-    // Pin the cursor for the whole drag: the pointer leaves the 6px handle
-    // almost immediately, and without this it would snap back to `default`
-    // mid-resize and read as broken while working perfectly.
+    // Pin the cursor: the pointer leaves the 6px handle almost immediately.
     this.onDragCursor?.(mode === 'move' ? 'grabbing' : null, true);
 
     const move = (ev: MouseEvent): void => {
@@ -675,13 +458,8 @@ export class PerfPanel {
     window.addEventListener('mouseup', up, true);
   }
 
-  /**
-   * Put the panel somewhere, clamped so it can never be lost off screen.
-   *
-   * The minimum width is what the longest cost string needs to stay on one
-   * line; the minimum height keeps the title and at least a row visible, so a
-   * panel dragged to nothing can always be dragged back out.
-   */
+  /** Clamped off-screen. Min width fits the longest cost string; min height
+   * keeps the title grabbable. */
   private place(left: number, top: number, w: number, h: number): void {
     const W = Math.max(260, Math.min(w, window.innerWidth));
     const H = Math.max(70, Math.min(h, window.innerHeight));
@@ -696,29 +474,20 @@ export class PerfPanel {
   /** Set by main.ts so a drag can pin the cursor. See CursorDirector.lock. */
   onDragCursor: ((state: string | null, dragging: boolean) => void) | null = null;
 
-  /** A click on a row cycles it, expands a branch, or spawns. */
   handleClick(target: EventTarget | null, event?: MouseEvent): boolean {
     if (!this.open || !(target instanceof Element)) return false;
-    // A handle or the title bar starts a drag instead of toggling anything.
     const drag = target.closest('[data-drag]') as HTMLElement | null;
     if (drag && event) {
       this.beginDrag(event, drag.getAttribute('data-drag') ?? 'move');
       return true;
     }
-    // THE SEARCH FIELD FOCUSES ITSELF, and it has to. Its host claims this
-    // click — `preventDefault` on the mousedown, so the canvas behind the panel
-    // does not take pointer lock back the instant somebody reached for the box
-    // — and a prevented mousedown is also a mousedown that never moves focus.
-    // So the panel does by hand the one part of the default behaviour it wants.
+    // Focused by hand: the host prevents this mousedown (so the canvas cannot
+    // retake pointer lock), and a prevented mousedown never moves focus.
     if (target.closest('.bs-spawn-search')) {
       this.searchEl?.focus();
       return true;
     }
-    // ANY OTHER CLICK GIVES THE KEYBOARD BACK. Focus is what suspends the
-    // hero's input (see `isTyping`), and a prevented mousedown does not move it
-    // on its own — so without this, one click in the search box left the hero
-    // deaf until somebody thought to press Escape, however many rows they went
-    // on to click. The QUERY survives: you filter once and spawn several.
+    // A prevented mousedown will not move focus off the field on its own.
     if (this.typing) this.blurSearch();
     const leaf = target.closest('.bs-spawn-row') as HTMLElement | null;
     if (leaf) {
@@ -733,10 +502,7 @@ export class PerfPanel {
       this.render();
       return true;
     }
-    // THE COLOUR WELL OPENS ITSELF, and it has to for the same reason the
-    // search box focuses itself: the host prevents this mousedown so the canvas
-    // cannot take pointer lock back, and a prevented mousedown never opens a
-    // native picker either.
+    // Opened by hand, for the same reason the search box is focused by hand.
     const well = target.closest('.bs-hair-well') as HTMLInputElement | null;
     if (well) {
       this.cursor = ROW_COLOUR;
@@ -785,12 +551,10 @@ export class PerfPanel {
     return true;
   }
 
-  /** Re-label after a language switch, the same contract HUD.relabel has. */
+  /** Same contract as HUD.relabel. */
   relabel(): void {
     if (!this.open) return;
-    // The shell carries four translated strings of its own, so this is the one
-    // path that has to rebuild it. The query is carried across by hand — a
-    // language switch is not a reason to lose what somebody was searching for.
+    // The shell holds translated strings, so rebuild it and carry the query.
     const query = this.searchEl?.value ?? '';
     this.buildShell();
     if (this.searchEl) this.searchEl.value = query;

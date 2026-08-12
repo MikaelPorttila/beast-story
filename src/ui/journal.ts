@@ -3,46 +3,14 @@ import { injectStyles } from './styles';
 import { CHECK_ICON, CLOSE_ICON } from './icons';
 
 /**
- * THE QUEST JOURNAL — what you were asked to do, how far into it you are, and
- * which of it you want the HUD to keep reminding you about.
- *
- * Issue #98. Opened with `J`, closed with the same or with Escape, and a MODAL
- * in the inventory's sense: main.ts freezes the hero while it is up, because a
- * player who stopped to read their objectives must not have walked into a lake
- * doing it. It releases pointer lock for the same reason the inventory does —
- * every row in here has a button on it.
- *
- * A RIGHT-HAND DOCK, sharing the inventory's geometry down to the slide-in, and
- * that similarity is the feature: these are the two panels a player opens with a
- * single key while standing in the world, and a journal that arrived from a
- * different edge with a different corner radius would read as a different
- * program. Below 720px it goes FULL SCREEN — a dock is a dock because there is a
- * world worth leaving visible beside it, and on a phone there is not.
- *
- * THIS PANEL KNOWS NO QUEST RULES. It is handed a `JournalModel` — rows already
- * resolved to display strings, with their objectives counted and their rewards
- * named — and reports one thing back: that the player asked to flip whether a
- * quest is on the HUD. It does not know what `ContentText` is, that progress is
- * keyed `<quest>/<objective>`, or that "available" is a condition rather than a
- * stored status. main.ts owns all of that, the same way it owns what dropping a
- * potion on the weapon slot means.
- *
- * ONE SCROLLING COLUMN OF CARDS, not a master/detail split. A quest is a name, a
- * paragraph, a short list of steps and a couple of rewards — the whole of it
- * fits in a card, and a detail pane would spend a third of a dock's width to
- * show what was already on screen. It is also what makes the answer to "what am
- * I doing" one glance rather than one glance per row.
- *
- * THE HUD TOGGLE IS PER QUEST AND LIVES HERE because this is the only screen
- * that lists quests at all. Its state is a content flag (see `hudFlag` in
- * main.ts), so it rides along in a save and survives a package being unloaded
- * and loaded again.
+ * Quest journal (issue #98). A modal right-hand dock: main.ts freezes the hero
+ * and releases pointer lock while it is up. Knows no quest rules — it is handed
+ * a `JournalModel` of display strings and reports HUD toggles back.
  */
 
-/** See `InvCloseBy` in ui/inventory.ts — same three values, same reasons. */
+/** See `InvCloseBy` in ui/inventory.ts — same three values. */
 export type JournalCloseBy = 'escape' | 'hotkey' | 'click';
 
-/** Which shelf a quest is on. The tabs, and the order they are shown in. */
 export type JournalTab = 'active' | 'available' | 'completed';
 
 const TABS: readonly { id: JournalTab; key: StringKey }[] = [
@@ -51,14 +19,13 @@ const TABS: readonly { id: JournalTab; key: StringKey }[] = [
   { id: 'completed', key: 'journal.tab.completed' },
 ];
 
-/** One step, already counted by the host. `need` is 1 for a boolean objective. */
+/** `need` is 1 for a boolean objective. */
 export interface JournalObjective {
   text: string;
   have: number;
   need: number;
 }
 
-/** One reward line, already named and formatted by the host. */
 export interface JournalReward {
   label: string;
   value: string;
@@ -66,19 +33,17 @@ export interface JournalReward {
 
 export interface JournalEntry {
   id: string;
-  /** Display name, already resolved out of `ContentText`. */
   name: string;
   description?: string;
   category: 'main' | 'side';
   tab: JournalTab;
-  /** A story grouping, shown as a quiet line. A LABEL — see content/types/quest.ts. */
+  /** A label, not an id — see content/types/quest.ts. */
   arc?: string;
-  /** Who gave it, and where — display names, not ids. */
   giver?: string;
   location?: string;
   objectives: readonly JournalObjective[];
   rewards: readonly JournalReward[];
-  /** Whether the HUD is currently showing this one. Only meaningful when active. */
+  /** Only meaningful when active. */
   onHud: boolean;
 }
 
@@ -87,9 +52,7 @@ export interface JournalModel {
 }
 
 export interface JournalHooks {
-  /** Rebuild the model — called on open, on refresh, and after every toggle. */
   model: () => JournalModel;
-  /** The player asked to flip whether this quest is on the HUD. */
   onToggleHud: (id: string) => void;
   onOpen?: () => void;
   onClose?: (by: JournalCloseBy) => void;
@@ -118,12 +81,8 @@ export class JournalPanel {
 
   get isOpen(): boolean { return this.el !== null; }
 
-  /** Which shelf is showing, for the probe. */
+  /** For the probe. */
   get activeTab(): JournalTab { return this.tab; }
-
-  // -------------------------------------------------------------------------
-  // Open / close
-  // -------------------------------------------------------------------------
 
   open(): void {
     if (this.el) return;
@@ -154,23 +113,17 @@ export class JournalPanel {
     this.hooks.onClose?.(by);
   }
 
-  /** The host's `J`. */
   toggle(): void {
     if (this.el) this.close('hotkey');
     else this.open();
   }
 
-  /**
-   * Re-read the model, if the panel is up. Unlike the inventory's, this one is
-   * NOT a courtesy: a quest can advance while the journal is open — an objective
-   * counted by a timer, a package loading, the dev console starting one — and
-   * the panel is the screen that claims to say where you are.
-   */
+  /** Required, not a courtesy: a quest can advance while the panel is up. */
   refresh(): void {
     if (this.el) this.render();
   }
 
-  /** See `InventoryPanel.onEscape` — returns whether this panel SPENT the press. */
+  /** Returns whether this panel SPENT the press. */
   onEscape(): boolean {
     if (!this.el) return false;
     this.close('escape');
@@ -180,10 +133,6 @@ export class JournalPanel {
   dispose(): void {
     this.close();
   }
-
-  // -------------------------------------------------------------------------
-  // Markup
-  // -------------------------------------------------------------------------
 
   private render(): void {
     const el = this.el;
@@ -201,7 +150,6 @@ export class JournalPanel {
           : `<p class="none">${escapeHtml(t(EMPTY_KEYS[this.tab]))}</p>`
       }</div>`;
 
-    // The keys that close it, printed beside the X — the inventory's rule.
     const head = pane.querySelector('.head') as HTMLElement;
     head.insertAdjacentHTML('beforeend', `<span class="cap">${kbd('J')}${kbd('Esc')}</span>`);
     const closeBtn = document.createElement('button');
@@ -219,11 +167,6 @@ export class JournalPanel {
     this.focusables[this.focusIdx]?.focus();
   }
 
-  /**
-   * The three shelves, each carrying its COUNT. The number is the reason the
-   * tabs are worth their row: "Completed 12" is a different sentence from
-   * "Completed", and it is the one a player opening a journal came to read.
-   */
   private tabsHtml(model: JournalModel): string {
     return `<div class="tabs strip" role="tablist" data-group="tab">${TABS.map((tb) => {
       const on = tb.id === this.tab;
@@ -234,15 +177,7 @@ export class JournalPanel {
     }).join('')}</div>`;
   }
 
-  /**
-   * One quest, whole. The order is the order a player asks the questions in:
-   * what is it (badge and name), why (description), what do I do (objectives),
-   * what do I get (rewards), and only then the control.
-   *
-   * THE HUD TOGGLE IS ONLY ON AN ACTIVE QUEST, because it is the only shelf the
-   * HUD draws from. On the other two it would be a switch wired to nothing —
-   * see `hudRows` in main.ts, which filters on the same rule from the other end.
-   */
+  /** HUD toggle only on the active shelf — `hudRows` in main.ts filters the same way. */
   private cardHtml(e: JournalEntry): string {
     const done = e.objectives.every((o) => o.have >= o.need);
     const meta = [e.arc, e.giver, e.location].filter((s): s is string => !!s);
@@ -270,11 +205,7 @@ export class JournalPanel {
       '</article>';
   }
 
-  /**
-   * A step. A count is only PRINTED when there is more than one to do — "Speak
-   * with Gain 0/1" is a progress bar for a conversation, and the tick beside it
-   * already says the same thing.
-   */
+  /** Count only printed when need > 1 — the tick already says 0/1. */
   private stepHtml(o: JournalObjective): string {
     const done = o.have >= o.need;
     return `<li class="${done ? 'ok' : ''}">` +
@@ -283,10 +214,6 @@ export class JournalPanel {
       (o.need > 1 ? `<b>${o.have}/${o.need}</b>` : '') +
       '</li>';
   }
-
-  // -------------------------------------------------------------------------
-  // Input
-  // -------------------------------------------------------------------------
 
   private showTab(tab: JournalTab): void {
     this.tab = tab;
@@ -297,8 +224,6 @@ export class JournalPanel {
   private onClick = (ev: MouseEvent): void => {
     const target = ev.target as HTMLElement | null;
     if (!target || !this.el) return;
-    // The scrim is a way out — the inventory's bargain, and for its reason: the
-    // world behind it is still the thing you came for.
     if (target.classList.contains('bs-scrim')) { this.close('click'); return; }
     const btn = target.closest('button') as HTMLButtonElement | null;
     if (!btn) return;
@@ -317,12 +242,7 @@ export class JournalPanel {
     }
   };
 
-  /**
-   * Arrows walk the panel and Enter presses the focused control. ESCAPE IS NOT
-   * HERE, for the reason ui/inventory.ts gives at length: it reaches this panel
-   * from three devices and only one of them is a DOM key event, so the host owns
-   * that edge for all three. `KeyJ` is the same case.
-   */
+  /** Escape and `KeyJ` are NOT read here — the host owns those edges for all devices. */
   private onKeyDown = (ev: KeyboardEvent): void => {
     if (!this.el) return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -331,8 +251,7 @@ export class JournalPanel {
       case 'ArrowLeft': if (!this.stepStrip(-1)) this.moveFocus(-1); ev.preventDefault(); break;
       case 'ArrowDown': ev.preventDefault(); this.moveFocus(1); break;
       case 'ArrowUp': ev.preventDefault(); this.moveFocus(-1); break;
-      // Enter is left to the platform: every control in here is a real button,
-      // so the browser's own activation already does the right thing.
+      // Enter left to the platform — every control is a real button.
       default: break;
     }
   };
@@ -354,12 +273,12 @@ export class JournalPanel {
     this.focusables[this.focusIdx].focus();
   }
 
-  /** Enter/A on the focused control, for a host driving this from `Input`. */
+  /** For a host driving this from `Input`. */
   activate(): void {
     (document.activeElement as HTMLButtonElement | null)?.click();
   }
 
-  /** See the note on `InventoryPanel.pollPad` — same poll, same reasons. */
+  /** See `InventoryPanel.pollPad`. */
   private pollPad = (): void => {
     if (!this.el) return;
     this.padRaf = requestAnimationFrame(this.pollPad);
@@ -400,8 +319,7 @@ export class JournalPanel {
     else if (dirX !== 0 && !this.padLatchX) { moveX = dirX; this.padLatchX = true; }
     if (moveX && !this.stepStrip(moveX as -1 | 1)) this.moveFocus(moveX);
 
-    // A activates. B is NOT read — GamepadControls taps a virtual Escape for it
-    // while a modal is up, and the host routes that into `onEscape`.
+    // B is NOT read — GamepadControls taps a virtual Escape, routed to `onEscape`.
     if (this.padEdge[0]) this.activate();
   };
 }
@@ -412,7 +330,6 @@ const EMPTY_KEYS: Record<JournalTab, StringKey> = {
   completed: 'journal.empty.completed',
 };
 
-/** The HUD's key-cap markup, restated for the reason ui/inventory.ts restates it. */
 function kbd(s: string): string {
   return `<kbd>${escapeHtml(s)}</kbd>`;
 }

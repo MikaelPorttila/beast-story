@@ -1,66 +1,24 @@
 /**
- * WILD ENEMIES AS CONTENT — `ENEMY_DEFS`, `STATS` and the three `*_VARIANTS`
- * palettes in `src/combat/enemies.ts`, which are three tables about the same
- * three species kept in step by hand.
- *
- * THAT IS THE ARGUMENT FOR MOVING THEM, more than the JSON. A species today is an
- * entry in a flying/not list, a row in a stats record and a palette table named
- * after it in SCREAMING_CASE, and adding one means finding all three; the voxel
- * builder — the part that genuinely is code — is the fourth thing and the only
- * one that has to be. Here a species is ONE asset, and the builder is selected by
- * name off the `enemy-model` factory kind.
- *
- * THE VARIANT ARRAY'S ORDER IS LOAD-BEARING AND THERE ARE EXACTLY THREE.
- * `variantForHeight(dh)` in combat/enemies.ts returns an INDEX: 0 at mid
- * altitude, 1 in the highlands (above 11 over the water line), 2 in the lowlands
- * (below 2.5). So the list is not a set of palettes to choose from, it is a
- * three-element lookup table, and a species with two or four of them is a species
- * whose highland form is `undefined`. `parse` refuses the asset outright in that
- * case rather than padding — inventing a fourth palette is inventing content, and
- * the alternative failure is a crash inside a spawn, a long way from the file.
- *
- * WHAT DID NOT MOVE: the AI. Idle, wander, aggro, attack, the terrain probes, the
- * hp bar and the hit flash are behaviour and stay where they are. `aggro` here is
- * the RADIUS that behaviour reads, which is a number about this species and not a
- * rule about how anything chases.
+ * Wild enemies as content. `variants` is a lookup table `variantForHeight` INDEXES:
+ * exactly three, in order — mid, highland (>11 over water), lowland (<2.5).
  */
 
 import type { ContentAsset, ContentId, ContentTypeDef, ParseCtx, ValidateCtx } from '../types';
 import { bool, enumOf, hexColor, isRecord, list, num, obj, opt, readerFor, str } from '../schema';
 import type { Reader } from '../schema';
 import { isKnownTextKey } from '../text';
-// Type-only, so nothing at runtime imports core/types.ts — which pulls in
-// three.js. See the same device, for the same reason, in biome.ts.
+// Type-only, so nothing at runtime imports core/types.ts — which pulls in three.js.
 import type { ElementType } from '../../core/types';
 
 /** The factory kind an enemy's `model` selects. `enemy-model/gloopling`, … */
 export const ENEMY_MODEL_KIND = 'enemy-model';
 
-/**
- * The `model` prefix that means "this wild thing wears a BEAST'S body".
- *
- * `beast-sproutle` is an ordinary `enemy-model` name — src/combat/enemies.ts
- * registers one per entry in `ALL_SPECIES`, so it is selected by name like every
- * other builder and an id nothing implements is the ordinary unknown-factory
- * diagnostic. The prefix is spelled out here because two files reason about it:
- * that registration loop, and `validate` below, which is what makes a `capture`
- * block on a Gloopling an error rather than a beast nobody can be given.
- *
- * A HYPHEN AND NOT A COLON, because a colon is what a content ID is made of
- * (`enemy:gloopling`) and a model name is not an id — it names a behaviour the
- * engine registered. `MODEL_RE` refuses the colon for exactly that reason.
- */
+/** `model` prefix meaning "wears a BEAST'S body". Hyphen, not colon: not a content id. */
 export const BEAST_MODEL_PREFIX = 'beast-';
 
 const MODEL_RE = /^[a-z][a-z0-9-]*$/;
 
-/**
- * The element union, spelled out because `core/types.ts` cannot be imported for
- * a VALUE here (it imports three.js at the top). `_inSync` is the compile-time
- * tie, exactly as in biome.ts: adding an element to the game and forgetting this
- * list is a build failure rather than a validation that quietly refuses the new
- * one.
- */
+/** Spelled out because `core/types.ts` cannot be imported for a VALUE here (three.js). */
 export const ELEMENT_NAMES = [
   'fire', 'water', 'grass', 'electric', 'ice',
   'rock', 'wind', 'shadow', 'light', 'dragon',
@@ -71,10 +29,7 @@ type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const _inSync: Exact<(typeof ELEMENT_NAMES)[number], ElementType> = true;
 void _inSync;
 
-/**
- * How many palettes a species carries. Not a tunable — it is the arity of
- * `variantForHeight`. See the header.
- */
+/** Not a tunable — it is the arity of `variantForHeight`. */
 export const VARIANT_COUNT = 3;
 
 /** One palette. Index 0 is mid, 1 is highland, 2 is lowland. */
@@ -86,66 +41,33 @@ export interface EnemyVariant {
   readonly accent: number;
 }
 
-/**
- * WHAT IT TAKES TO BOND THIS ONE — absent on anything that cannot be bonded.
- *
- * IT DOES NOT NAME A SPECIES, and that omission is the design. What you catch is
- * what you fought: the body already says which beast this is (`model`, see
- * `BEAST_MODEL_PREFIX`), so a species named here as well would be a second answer
- * to the same question and the day the two disagreed the player would throw an
- * orb at a Sproutle and be handed a Drakelet.
- */
+/** Absent on anything that cannot be bonded. Names no species — `model` already does. */
 export interface EnemyCapture {
-  /**
-   * Divides the odds. 1 is an animal that comes quietly; the shipped roster runs
-   * 1.0-2.2. See `captureChance` in src/combat/taming.ts for the whole formula —
-   * this is the only half of it a designer sets.
-   */
+  /** Divides the odds; 1 comes quietly. Formula: `captureChance` in combat/taming.ts. */
   readonly difficulty: number;
 }
 
 export interface EnemyData {
-  /** Which registered `enemy-model` builds the voxel body. */
   readonly model: string;
-  /** Flyers hover and path in three dimensions; the rest walk the height field. */
+  /** Flyers path in three dimensions; the rest walk the height field. */
   readonly flying: boolean;
   readonly hp: number;
   readonly atk: number;
   /** World units per second. */
   readonly speed: number;
-  /** XP awarded for the kill. */
   readonly xp: number;
-  /**
-   * Collision radius, world units.
-   *
-   * On a `beast-…` body these two must match what the rig measures for itself
-   * (`BeastRig.radius`/`height`), because the rig is what the player sees and
-   * these are what the game reaches with. They are still authored rather than
-   * derived, since content cannot build a rig to ask — the renderer is on the
-   * far side of a wall this package does not cross. `bun tools/probe.mjs taming`
-   * measures the pair and fails on a drift.
-   */
+  /** World units. On a `beast-…` body must match `BeastRig.radius`/`height`; `probe.mjs taming` guards it. */
   readonly radius: number;
-  /** Standing height, world units — where the hp bar floats. See `radius`. */
+  /** World units — where the hp bar floats. */
   readonly height: number;
-  /** How far away it notices the player, world units. */
+  /** Notice distance, world units. */
   readonly aggro: number;
-  /**
-   * EXACTLY three, in `variantForHeight` order — mid, highland, lowland.
-   *
-   * ON A `beast-…` BODY ONLY THE `element` IS READ. A beast paints itself: its
-   * colours live in its species file beside the shape they belong to, so a
-   * palette here would be a second, unused answer that a reader would reasonably
-   * expect to see on screen. The three entries are still required — the array is
-   * a lookup table `variantForHeight` indexes, not a choice — and the honest way
-   * to author them for a beast is three identical rows carrying its element.
-   */
+  /** Exactly three, in `variantForHeight` order. On a `beast-…` body only `element` is read. */
   readonly variants: readonly EnemyVariant[];
-  /** What it takes to bond it, or absent where it cannot be. See `EnemyCapture`. */
   readonly capture?: EnemyCapture;
 }
 
-/** Registered `enemy-model` names. See the long note at `knownLayouts` in town.ts. */
+/** Registered `enemy-model` names; null skips the check. See town.ts. */
 let knownModels: ReadonlySet<string> | null = null;
 
 export function setKnownEnemyModels(names: Iterable<string>): void {
@@ -163,9 +85,7 @@ function readVariant(value: unknown, ctx: Reader): EnemyVariant {
       'write { "element": "grass", "main": "#6fd84f", "dark": …, "belly": …, "accent": … }',
     );
   }
-  // An annotation, not a cast: the empty record makes every reader below report
-  // its own missing field against its own path, so one malformed palette says
-  // which five things it was missing rather than only that it was malformed.
+  // An annotation, not a cast: the empty record lets each reader name its own field.
   const v: Record<string, unknown> = isRecord(value) ? value : {};
   return {
     element: element(v.element, ctx.at('element')),
@@ -185,13 +105,9 @@ function readCapture(value: unknown, ctx: Reader): EnemyCapture {
       'write { "difficulty": 1.4 }',
     );
   }
-  // The same annotation-not-a-cast device `readVariant` uses: an empty record
-  // makes each reader below report its own missing field against its own path.
   const c: Record<string, unknown> = isRecord(value) ? value : {};
   return {
-    // Floored at 1: a difficulty below it would make an animal EASIER than one
-    // that comes quietly. There is no floor on the ORB any more (issue #110) —
-    // every orb may be thrown at everything, and the tier only moves the odds.
+    // Floored at 1; no floor on the ORB tier any more (issue #110).
     difficulty: num(c.difficulty, ctx.at('difficulty'), { min: 1, max: 20, what: 'a capture difficulty' }),
   };
 }
@@ -205,11 +121,7 @@ function parse(body: unknown, ctx: ParseCtx): EnemyData | null {
     r.at('variants'),
   );
   if (variants.length !== VARIANT_COUNT) {
-    // THE ONE UNRECOVERABLE BODY IN THIS TYPE. Every other field degrades to a
-    // documented fallback and costs one diagnostic; a palette table of the wrong
-    // length cannot, because `variantForHeight` indexes it and the failure lands
-    // as `undefined.main` inside a spawn. Returning null skips this species and
-    // keeps the package (types.ts, `ContentTypeDef.parse`).
+    // Unrecoverable: a wrong-length table lands as `undefined.main` inside a spawn.
     r.at('variants').report(
       'error',
       'bad-field',
@@ -222,8 +134,7 @@ function parse(body: unknown, ctx: ParseCtx): EnemyData | null {
   return {
     model: str(b.model, r.at('model'), { min: 1, max: 64, pattern: MODEL_RE, what: 'an enemy model name' }),
     flying: opt(b.flying, r.at('flying'), bool) ?? false,
-    // The caps are guards on untrusted JSON (spec §22), not balance opinions;
-    // the shipped roster runs 26-62 hp and 2.3-5.2 units per second.
+    // Caps are guards on untrusted JSON, not balance opinions.
     hp: num(b.hp, r.at('hp'), { min: 1, max: 1_000_000, what: 'hit points' }),
     atk: num(b.atk, r.at('atk'), { min: 0, max: 100_000, what: 'an attack stat' }),
     speed: num(b.speed, r.at('speed'), { min: 0, max: 200, what: 'a movement speed' }),
@@ -236,18 +147,8 @@ function parse(body: unknown, ctx: ParseCtx): EnemyData | null {
   };
 }
 
-/**
- * An enemy points at nothing today.
- *
- * `element` and `model` are NOT references and must never become ones: an
- * element is a value in a union the combat maths switches on, and a model names
- * an engine behaviour. Both would parse as the `name` half of an id and neither
- * has an asset to resolve to — see content/types.ts on why the type lives inside
- * an id, and validate.ts's `checkWhen`, which only treats a string as a ref when
- * its type half names a registered type.
- */
+/** `element` and `model` are NOT references — neither has an asset to resolve to. */
 function* refs(_data: EnemyData): Iterable<ContentId> {
-  // Nothing yet. A species that named its drop table would put it here.
 }
 
 function validate(asset: ContentAsset<EnemyData>, ctx: ValidateCtx): void {
@@ -260,11 +161,7 @@ function validate(asset: ContentAsset<EnemyData>, ctx: ValidateCtx): void {
       fix: `defineFactory("${ENEMY_MODEL_KIND}", "${asset.data.model}", …), or use one that exists`,
     });
   }
-  // A CAPTURE BLOCK ON A BODY THAT IS NOT A BEAST'S. Bonding hands the player the
-  // species whose body this thing wears (see `EnemyCapture`), so a Gloopling with
-  // a capture block is an orb that would succeed and grant nothing. Caught here
-  // rather than at the throw, where the only honest thing left to do is refuse
-  // silently in front of a player who spent an orb.
+  // A capture block on a non-beast body is an orb that succeeds and grants nothing.
   if (asset.data.capture && !asset.data.model.startsWith(BEAST_MODEL_PREFIX)) {
     ctx.report({
       severity: 'error',

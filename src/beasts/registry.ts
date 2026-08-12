@@ -9,16 +9,14 @@ import * as galebird from './species/galebird';
 import * as umbrakit from './species/umbrakit';
 import * as lumimoth from './species/lumimoth';
 import * as drakelet from './species/drakelet';
-// The water roster (issue #76). Two amphibians, two pure swimmers and a crab —
-// see DEEP_WATER_DEPTH in world/terrain.ts for what they are for.
+// The water roster (issue #76) — see DEEP_WATER_DEPTH in world/terrain.ts.
 import * as rivotter from './species/rivotter';
 import * as coralback from './species/coralback';
 import * as finnick from './species/finnick';
 import * as snapclaw from './species/snapclaw';
 import * as lanternfin from './species/lanternfin';
-// The roster's first biped (issue #119) — a walking skeleton, not an animal.
+// First biped (issue #119) and its undead quadruped half (issue #117).
 import * as graveborn from './species/graveborn';
-// Its other half (issue #117): the undead quadruped, same grave-light.
 import * as graveback from './species/graveback';
 
 const modules = [

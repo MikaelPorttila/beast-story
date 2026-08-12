@@ -3,39 +3,27 @@ import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/
 import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
-// ---------------------------------------------------------------------------
-// Coralback — a sea turtle old enough that a reef has moved in on its back. The
-// TANK of the water roster: it will not win a race with anything, and nothing
-// in the world is getting through it.
-//
-// Voxel scale 0.1 (1 cell = 10 cm). Model faces +Z. Root origin at ground /
-// water level. Plods on land with the shell rocking over four flippers; in
-// water the same flippers become wings and the whole animal flies.
-// ---------------------------------------------------------------------------
+// Coralback — sea turtle, the water tank. Voxel scale 0.1 (1 cell = 10 cm), faces +Z,
+// root at ground/water level. The same flippers plod on land and fly in water.
 
 const S = 0.1;
 
-// Palette. The shell is the animal — it is two thirds of the silhouette — so
-// it carries all three of the tones that have to survive being backlit, and the
-// coral is the only saturated colour on the model. One accent, used four times,
-// is what keeps a creature this big from reading as a rock.
-const SHELL = 0x3f6b5c;      // deep sea-green carapace
-const SHELL_LIT = 0x63977f;  // sunlit scutes along the ridge
-const SHELL_DARK = 0x27443c; // the rim, and under everything
-const SCUTE = 0x8fbf9c;      // the pale hexagon edges between plates
-const SKIN = 0x7d8f7a;       // grey-green hide
+const SHELL = 0x3f6b5c;
+const SHELL_LIT = 0x63977f;
+const SHELL_DARK = 0x27443c;
+const SCUTE = 0x8fbf9c;
+const SKIN = 0x7d8f7a;
 const SKIN_LIT = 0xa4b49c;
 const SKIN_DARK = 0x4e5c4d;
-const PLASTRON = 0xd7cfa8;   // the pale belly plate
-const CORAL = 0xf2856b;      // the reef on its back
+const PLASTRON = 0xd7cfa8;
+const CORAL = 0xf2856b;
 const CORAL_LIT = 0xffb08e;
 const IRIS = 0x1d2a24;
 const SHINE = 0xf2fff8;
 
-// Base pose constants (must match buildRig)
+// Must match buildRig
 const BODY_Y = 0.34;
 const NECK_Z = 0.62;
-/** Rest angle of the four flippers, splayed out from under the shell. */
 const FLIP_SPLAY = 0.42;
 
 const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -43,20 +31,15 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
 const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
-/** Integrated cycle slots — see BeastAnimCtx.cycle(). */
-const GAIT = 0;   // flipper stroke, both on land and in water
-const CORALW = 1; // the reef swaying in the current, at its own slow rate
+// Cycle slots — see BeastAnimCtx.cycle().
+const GAIT = 0;
+const CORALW = 1;
 
 function makeShell(): THREE.Mesh {
   const m = new VoxelModel();
-  // A DOME WITH A FLARED RIM, not a hemisphere. The rim is what says "turtle"
-  // at any distance — a plain dome is a boulder, and this animal is already
-  // fighting a rock-coloured palette.
   m.ellipsoid(0, 0.6, 0, 5.0, 4.2, 5.8, SHELL);
-  m.ellipsoid(0, 0.2, 0, 5.6, 1.1, 5.6, SHELL_DARK);   // flared rim
-  // Scute seams: a coarse grid of pale cells over the crown. Painted as single
-  // cells rather than carved, because build() bakes only a per-face shade and a
-  // geometric groove would darken nothing at all (see voxelshade's header).
+  m.ellipsoid(0, 0.2, 0, 5.6, 1.1, 5.6, SHELL_DARK);
+  // Scute seams are painted cells, not carved: build() bakes only a per-face shade.
   for (const [sx, sz] of [[0, 3], [0, -3], [3, 0], [-3, 0], [2, 2], [-2, 2], [2, -2], [-2, -2]]) {
     for (let y = 3; y <= 5; y++) if (m.has(sx, y, sz)) { m.set(sx, y, sz, SCUTE); break; }
   }
@@ -64,43 +47,33 @@ function makeShell(): THREE.Mesh {
   return m.build(S, true);
 }
 
-/**
- * One coral sprig. Three of these stand on the shell — a branch, a knob and a
- * fan — so the reef reads as a colony rather than as three copies of one thing.
- *
- * `kind` picks the shape; every sprig shares the same two colours so the reef is
- * one material however it is arranged.
- */
 function makeCoral(kind: 0 | 1 | 2): THREE.Mesh {
   const m = new VoxelModel();
-  if (kind === 0) {           // branching stag
+  if (kind === 0) {
     m.box(0, 0, 0, 0, 3, 0, CORAL);
     m.set(1, 3, 0, CORAL);
     m.set(1, 4, 0, CORAL_LIT);
     m.set(-1, 2, 0, CORAL);
     m.set(-1, 3, 0, CORAL_LIT);
     m.set(0, 4, 0, CORAL_LIT);
-  } else if (kind === 1) {    // brain knob
+  } else if (kind === 1) {
     m.ellipsoid(0, 1, 0, 1.6, 1.4, 1.6, CORAL);
     rimTop(m, CORAL_LIT, -2, 2, 0, 3, -2, 2);
-  } else {                    // fan
+  } else {
     m.box(0, 0, 0, 0, 1, 0, CORAL);
     m.box(-2, 2, 0, 2, 3, 0, CORAL);
     m.set(-2, 3, 0, CORAL_LIT);
     m.set(2, 3, 0, CORAL_LIT);
     m.set(0, 4, 0, CORAL_LIT);
   }
-  return m.build(S, false);   // pivot at the root, so it sways from the shell
+  return m.build(S, false);
 }
 
 function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
-  // Five cells across, with a genuine BEAK — the one hard edge on an animal
-  // made entirely of domes, and the reason its face reads as a face.
   m.ellipsoid(0, 2, 0.4, 2.4, 2.1, 2.6, SKIN);
   m.box(-2, 1, 3, 2, 4, 3, SKIN);
-  m.ellipsoid(0, 0.6, 1.4, 2.3, 1.0, 2.0, PLASTRON);   // pale chin
-  // The beak: a two-cell wedge standing proud of the face plate.
+  m.ellipsoid(0, 0.6, 1.4, 2.3, 1.0, 2.0, PLASTRON);
   m.box(-1, 1, 4, 1, 2, 4, PLASTRON);
   m.set(0, 1, 5, SKIN_DARK);
   rimTop(m, SKIN_LIT, -2, 2, 0, 5, -2, 4);
@@ -111,7 +84,6 @@ function makeHead(): THREE.Mesh {
   return m.build(S, true);
 }
 
-/** One flipper — a flat paddle, wider at the tip than at the shoulder. */
 function makeFlipper(front: boolean): THREE.Mesh {
   const m = new VoxelModel();
   const len = front ? 5 : 3;
@@ -119,7 +91,7 @@ function makeFlipper(front: boolean): THREE.Mesh {
     const w = front ? Math.min(2, 1 + Math.floor(i / 2)) : 1;
     m.box(-w, 0, -i, w, 0, -i, SKIN);
   }
-  m.box(-1, 1, 0, 1, 1, -1, SKIN_LIT);      // a shoulder mass so it is not paper
+  m.box(-1, 1, 0, 1, 1, -1, SKIN_LIT);
   shadeUnder(m, SKIN_DARK, -3, 3, 0, 1, -6, 1);
   return m.build(S, false);
 }
@@ -150,9 +122,7 @@ function buildRig(): BeastRig {
   shellMesh.position.set(0, 0.10, -0.04);
   shell.add(shellMesh);
 
-  // The reef, standing on the crown of the shell. Each sprig is its own group so
-  // the current can move them at different phases — a colony that sways as one
-  // block reads as a hat.
+  // One group per sprig so the current can move them at different phases.
   const coral: Record<string, THREE.Group> = {};
   const sprigs: Array<[string, 0 | 1 | 2, number, number, number]> = [
     ['coralA', 0, 0.10, 0.46, -0.10],
@@ -217,15 +187,14 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const t = ctx.time;
   const at = ctx.actionTime;
   const ms = clamp01(ctx.moveSpeed);
-  const br = Math.sin(t * 1.5);   // slow — this animal breathes like a bellows
+  const br = Math.sin(t * 1.5);
 
   let bpx = 0, bpy = BODY_Y + 0.006 * br, bpz = 0;
   let brx = 0, bry = 0, brz = 0;
   let bsy = 1 + 0.010 * br;
   let nrx = 0, nry = 0, npz = NECK_Z;
   let hrx = 0, hry = 0, hrz = 0;
-  // Flipper controls: front pair sweep (rotY about the shoulder) and lift
-  // (rotZ); back pair only paddles.
+  // Front pair: sweep is rotY at the shoulder, lift rotZ. Back pair paddles only.
   let fSweep = 0, fLift = 0, fSplit = 0, bSweep = 0;
   let tailY = 0, tailX = 0;
   let coralSway = 0.07, coralFreq = 1.1;
@@ -234,15 +203,8 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     case 'idle': {
       bsy = 1 + 0.024 * br;
       nrx = 0.06 * Math.sin(t * 0.9);
-      // The long slow head-scan, and once in a while a full withdraw into the
-      // shell and back out. The withdraw is the whole personality: nothing else
-      // in the roster can disappear.
-      // The withdraw goes BACK, not back-and-UP. Pitching the neck as it
-      // retracted swung the skull into the underside of the dome — measured at
-      // 0.0064 m2 of coincident face by test-zfight, and visible from outside,
-      // which is a turtle with its head sticking through its own shell. The
-      // head is hidden by the SHELL RIM once it is far enough back, so the
-      // translation alone does the job the rotation was there to help with.
+      // Withdraw goes BACK, never back-and-up: pitching the neck drove the skull
+      // through the dome (0.0064 m2 of coincident face in test-zfight). The rim hides it.
       const tuck = 0.85 * Math.max(0, Math.sin(t * 0.19 + 0.6)) ** 14;
       npz = NECK_Z - 0.38 * tuck;
       nrx += 0.16 * tuck;
@@ -256,18 +218,14 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     }
     case 'walk':
     case 'run': {
-      // A PLOD. Diagonal pairs, a heavy roll onto whichever side is bearing,
-      // and the shell tipping a beat behind the legs, which is what mass looks
-      // like. The run is the walk done slightly less slowly — a galloping
-      // turtle would be a different animal.
       const isRun = ctx.action === 'run';
       const f = (isRun ? 4.6 : 3.2) + 1.8 * ms;
       const ph = ctx.cycle(GAIT, f);
       const amp = (isRun ? 0.62 : 0.45) * (0.5 + 0.5 * ms);
       fSweep = amp * Math.sin(ph);
-      fSplit = amp * 0.9;                                // diagonal pairing
+      fSplit = amp * 0.9;
       bSweep = amp * 0.8 * Math.sin(ph + Math.PI);
-      brz = 0.14 * Math.sin(ph - 0.5);                   // roll, lagging the legs
+      brz = 0.14 * Math.sin(ph - 0.5);
       bry = 0.05 * Math.sin(ph - 0.9);
       bpy += 0.026 * Math.abs(Math.sin(ph));
       bsy = 1 + 0.02 * Math.sin(ph * 2);
@@ -281,31 +239,26 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     }
     case 'swim':
     case 'fly': {
-      // THE ANIMAL CHANGES. On land the flippers scrabble; here they beat in
-      // unison like wings and the body glides between strokes, which is the
-      // single most recognisable thing a sea turtle does. Same GAIT slot, so
-      // walking into the sea changes the beat rate and never the pose.
+      // Same GAIT slot as the plod, so entering water changes the rate, not the pose.
       const f = 2.4 + 2.2 * ms;
       const ph = ctx.cycle(GAIT, f);
       const beat = Math.sin(ph);
       fSweep = 0.30 + 0.25 * beat;
-      fLift = 0.85 * beat;                               // the downstroke
-      fSplit = 0;                                        // both together
-      bSweep = 0.18 * Math.sin(ph - 0.8);                // hind pair steer only
+      fLift = 0.85 * beat;
+      fSplit = 0;
+      bSweep = 0.18 * Math.sin(ph - 0.8);
       brx = -0.05 + 0.10 * Math.sin(ph - 0.6);
-      bpy += 0.05 * Math.sin(ph - 1.0);                  // rises on each stroke
+      bpy += 0.05 * Math.sin(ph - 1.0);
       brz = 0.07 * Math.sin(ph * 0.5);
       nrx = -0.14;
       hrx = -0.05 + 0.04 * Math.sin(ph);
       hry = 0.06 * Math.sin(ph * 0.5 + 0.6);
       tailX = 0.10 * Math.sin(ph - 1.4);
-      coralSway = 0.16;                                  // the reef in the current
+      coralSway = 0.16;
       coralFreq = 2.2;
       break;
     }
     case 'attack': {
-      // A shell-first shove: the whole animal is the weapon, and the head pulls
-      // BACK out of the way rather than leading.
       const wind = smooth(phase(at, 0, 0.18));
       const shove = ezOut(phase(at, 0.18, 0.34));
       const rec = smooth(phase(at, 0.5, 0.9));
@@ -324,8 +277,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'cast': {
-      // Reared up on the hind flippers with the shell tipped skyward — the reef
-      // on its back is the thing casting, so the pose is about presenting it.
       const rise = ezOut(clamp01(at / 0.45));
       const hum = 0.5 * Math.sin(t * 10) + 0.5 * Math.sin(t * 15);
       brx = -0.42 * rise + 0.02 * hum * rise;
@@ -336,14 +287,12 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       fLift = 0.7 * rise + 0.12 * Math.sin(t * 6) * rise;
       bSweep = 0.3 * rise;
       tailX = -0.25 * rise;
-      coralSway = 0.10 + 0.40 * rise;                    // the reef comes alive
+      coralSway = 0.10 + 0.40 * rise;
       coralFreq = 7;
       break;
     }
     case 'special': {
-      // A tucked spin on the spot, the shell riding flat like a discus. It
-      // spins about Y rather than rolling about Z (Rivotter's trick) because a
-      // turtle rolled onto its back is a joke about a stranded turtle.
+      // Spins about Y, not Z: a turtle rolled onto its back is a different joke.
       const T = 0.95;
       const k2 = clamp01(at / T);
       const spin = Math.sin(Math.PI * k2);
@@ -352,7 +301,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bry = Math.PI * 4 * smooth(k2);
       bpy += 0.14 * spin;
       bsy = 1 - 0.16 * land;
-      npz = NECK_Z - 0.42 * spin;                        // head pulled in
+      npz = NECK_Z - 0.42 * spin;
       nrx = 0.18 * spin;
       hrx = -0.16 * spin;
       fSweep = -0.9 * spin;
@@ -368,10 +317,8 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bpz = -0.06 * d;
       bpy -= 0.04 * d;
       brz = 0.06 * Math.sin(at * 30 + 1) * d;
-      // It withdraws. That is the entire hurt animation and it is the right
-      // one: the head goes away and the flippers clamp to the rim.
       npz = NECK_Z - 0.42 * d;
-      nrx = 0.18 * d;                                    // see the idle withdraw
+      nrx = 0.18 * d;
       hrx = -0.16 * d;
       fLift = -0.55 * d;
       fSweep = -0.4 * d;
@@ -380,8 +327,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'happy': {
-      // Heavy, delighted rocking side to side, with the neck stretched all the
-      // way out. Slow — the joke is that this is as excited as it gets.
       const hf = 3.2;
       brz = 0.24 * Math.sin(at * hf);
       bry = 0.16 * Math.sin(at * hf * 0.5);
@@ -407,17 +352,14 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   p.neck.rotation.set(nrx, nry, 0);
   p.head.rotation.set(hrx, hry, hrz);
 
-  // Flippers, mirrored. The front pair carry `fSplit` in opposite directions so
-  // one pose expression covers both the land plod (diagonal) and the water beat
-  // (unison, fSplit 0).
+  // fSplit mirrors on the front pair: one expression covers plod (diagonal) and beat.
   p.flipFL.rotation.set(0, -FLIP_SPLAY + fSweep + fSplit, -0.18 - fLift);
   p.flipFR.rotation.set(0, FLIP_SPLAY - fSweep + fSplit, 0.18 + fLift);
   p.flipBL.rotation.set(0, -FLIP_SPLAY + bSweep, -0.18 - fLift * 0.3);
   p.flipBR.rotation.set(0, FLIP_SPLAY - bSweep, 0.18 + fLift * 0.3);
   p.tail.rotation.set(tailX, tailY, 0);
 
-  // The reef. Each sprig on its own phase offset off one integrated cycle, so
-  // the colony ripples across the shell instead of nodding in time.
+  // Per-sprig phase offsets off one cycle, so the colony ripples rather than nods.
   const cw = ctx.cycle(CORALW, coralFreq);
   p.coralA.rotation.set(coralSway * Math.sin(cw), 0, coralSway * Math.sin(cw * 0.7 + 1.1));
   p.coralB.rotation.set(coralSway * 0.8 * Math.sin(cw + 1.9), 0,
@@ -487,10 +429,7 @@ export const species: BeastSpecies = {
   descriptionKey: 'beast.coralback.desc',
   element: 'water',
   locomotion: 'amphibious',
-  // The extreme end of the stat spread on purpose: the highest hp and defense
-  // in the roster bought with a speed of 3.0, which gallops at 5.6 — slower
-  // than walking. Riding it on land is a choice you have to justify; riding it
-  // across a basin at 9.6 is not.
+  // Highest hp/defense in the roster, bought with a 5.6 gallop — slower than walking.
   baseStats: { maxHp: 78, attack: 8, defense: 15, speed: 3.0 },
   skills: skills.map((s) => s.id),
   buildRig,

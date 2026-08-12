@@ -1,24 +1,7 @@
 /**
- * Opt-in frame profiler (`?perf=1`), for attributing a frame's cost to the
- * subsystem that spent it. Off by default and effectively free when off: every
- * entry point returns on a boolean before it reads the clock.
- *
- * It records two totals per frame, and the difference between them is the whole
- * reason this exists:
- *
- *   cpu   time spent inside our own frame callback, split across the sections
- *         below. A stall here is our code — a chunk build, a rig rebuild, a
- *         synchronous shader link inside render().
- *   wall  begin()-to-begin() spacing, i.e. what the player actually feels. Time
- *         that is in `wall` but not in `cpu` was spent outside our callback:
- *         GPU work we are waiting on, compositing, or a garbage collection.
- *
- * A hitch that shows up in `wall` alone is not fixed by making our code faster,
- * and a hitch in one section is not fixed by decoupling loops. Measure first.
- *
- * Storage is a preallocated ring buffer of plain numbers — no per-frame
- * allocation, because a profiler that produces garbage changes the very GC
- * behaviour it is meant to observe.
+ * Opt-in frame profiler (`?perf=1`). `cpu` = time in our frame callback,
+ * `wall` = begin()-to-begin(); wall - cpu is GPU wait, compositing or GC.
+ * Ring buffer of plain numbers — allocating would perturb the GC it observes.
  */
 
 export const PERF_SECTIONS = [
@@ -26,22 +9,14 @@ export const PERF_SECTIONS = [
 ] as const;
 export type PerfSection = (typeof PERF_SECTIONS)[number];
 
-/**
- * Per-frame event tallies, so a spike can be tied to what happened in it.
- *
- * `programs` is the number of WebGL programs three linked during the frame.
- * It is here because a first-ever draw of some material/geometry combination
- * links a program synchronously, and the driver can sit on that for hundreds of
- * milliseconds — a stall that looks like "render is slow" but is really "this
- * shader had never been compiled before".
- */
+/** `programs` counts WebGL links: a first-ever draw links synchronously, stalling the driver. */
 export const PERF_COUNTERS = ['chunks', 'enemies', 'programs'] as const;
 export type PerfCounter = (typeof PERF_COUNTERS)[number];
 
 const SECTION_INDEX = new Map<string, number>(PERF_SECTIONS.map((s, i) => [s, i]));
 const COUNTER_INDEX = new Map<string, number>(PERF_COUNTERS.map((c, i) => [c, i]));
 
-/** ~100 s at 60 fps. Long enough to catch a rare freeze in a scripted run. */
+/** ~100 s at 60 fps. */
 const CAP = 6000;
 /** sections + cpu total + wall total */
 const STRIDE = PERF_SECTIONS.length + 2;
@@ -49,45 +24,28 @@ const CPU_SLOT = PERF_SECTIONS.length;
 const WALL_SLOT = PERF_SECTIONS.length + 1;
 
 class Profiler {
-  /**
-   * What every entry point below checks first. Two things can raise it and they
-   * must not clobber each other: `?perf=1` pins it on for the life of the run
-   * (the harness in tools/ needs the whole history), and the F2 overlay holds it
-   * on only while it is on screen. `hold(false)` must not switch off a pinned
-   * run, which is what `pinned` is for.
-   */
+  /** `pinned` exists so `hold(false)` cannot switch off a `?perf=1` run. */
   enabled = false;
   private pinned = false;
 
   private buf = new Float64Array(CAP * STRIDE);
   private cbuf = new Int32Array(CAP * PERF_COUNTERS.length);
-  /** Reused by `means()`. Never handed out to anything that keeps it. */
   private meanBuf = new Float64Array(STRIDE);
   private frames = 0;
   private frameStart = 0;
   private mark = 0;
   private prevStart = 0;
 
-  /** `?perf=1`: sample for the whole run, whatever the overlay does. */
   pin(): void {
     this.pinned = true;
     this.enabled = true;
   }
 
-  /** The F2 overlay, asking for sampling while it is on screen. */
   hold(on: boolean): void {
     this.enabled = this.pinned || on;
   }
 
-  /**
-   * Rolling per-section means over the last `window` frames, in ms.
-   *
-   * Indexed exactly like a `dump()` row — the sections in order, then cpu, then
-   * wall — so a reader can use PERF_SECTIONS to label it. Returns a REUSED
-   * buffer and allocates nothing: the F2 overlay calls this several times a
-   * second, and a profiler that produces garbage changes the very GC behaviour
-   * it exists to observe.
-   */
+  /** Means in ms, indexed like a `dump()` row. Returns a REUSED buffer. */
   means(window = 120): Float64Array {
     const out = this.meanBuf;
     out.fill(0);
@@ -101,7 +59,7 @@ class Profiler {
     return out;
   }
 
-  /** Call first thing in the frame callback. */
+  /** First thing in the frame callback. */
   begin(): void {
     if (!this.enabled) return;
     const now = performance.now();
@@ -115,7 +73,6 @@ class Profiler {
     this.mark = now;
   }
 
-  /** Attribute everything since the previous mark to `name`. */
   section(name: PerfSection): void {
     if (!this.enabled) return;
     const now = performance.now();
@@ -124,14 +81,13 @@ class Profiler {
     this.mark = now;
   }
 
-  /** Tally an event against the frame it happened in. */
   count(name: PerfCounter, n = 1): void {
     if (!this.enabled) return;
     const i = COUNTER_INDEX.get(name);
     if (i !== undefined) this.cbuf[(this.frames % CAP) * PERF_COUNTERS.length + i] += n;
   }
 
-  /** Call last in the frame callback. */
+  /** Last in the frame callback. */
   end(): void {
     if (!this.enabled) return;
     const row = (this.frames % CAP) * STRIDE;
@@ -139,10 +95,7 @@ class Profiler {
     this.frames++;
   }
 
-  /**
-   * Frames in chronological order, oldest first, as plain rows. Allocates — it
-   * is called once from a test harness, never from the frame loop.
-   */
+  /** Oldest-first rows. Allocates — harness only, never the frame loop. */
   dump(): { sections: string[]; counters: string[]; rows: number[][] } {
     const n = Math.min(this.frames, CAP);
     const first = this.frames > CAP ? this.frames % CAP : 0;

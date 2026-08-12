@@ -4,49 +4,31 @@ import { VoxelModel } from '../../core/voxel';
 import { makeGlowSprite } from './glowsprite';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
-// ---------------------------------------------------------------------------
-// Umbrakit — a hovering shadow cat woven from dusk. It never walks: it floats
-// ~0.3 above the ground on a pool of underglow, glides with a ghostly drift,
-// and its wispy tail dissolves into three detached voxels that orbit behind.
+// Umbrakit — hovering shadow cat: never walks, floats ~0.3 above the ground on a pool
+// of underglow, and its tail dissolves into three orbiting voxels.
 // Voxel scale 0.085. Model faces +Z. Root origin at ground level.
-// ---------------------------------------------------------------------------
 
 const S = 0.085;
 
-// Palette — dusky violet (NOT near-black: the silhouette must read as a
-// shadow creature with visible cat anatomy, never a hole in the frame)
-// Lifted well clear of black: under ACES tone mapping the old 0x3a2f4d /
-// 0x2a2140 pair crushed into one unreadable void, so the cat silhouette was
-// invisible against its own cast shadow.
-// Re-floored again for the 4.9:1 sun/fill lighting ratio (sun 2.55, hemi 0.52):
-// with that little fill, everything below ~0x60 collapses to black, so the body
-// tone and the rim row both had to come up and a pale chest patch was added to
-// separate the cat from its own shadow.
-const INK = 0x8a76ba;      // body
-const DUSK = 0x584b80;     // shadowed underside / muzzle / haunches
-const VIOLET = 0x9c7fe0;   // sheen highlights, ear tips
-const RIM = 0xc2aef0;      // top rim rows — the silhouette's bright edge
-const PALE = 0xc4b6e6;     // chest / belly patch (the form-separating light) —
-// pulled down from 0xd8cef0, which under bloom lit up like a bib
-const GLOW = 0x8f6fd8;     // underglow / dissolving tail
-const LAV = 0xd6c4ff;      // brightest wisp / sparks / eye catchlight
-// Eyes. Two rounds were spent trying to make a BRIGHT iris work here — pale gold,
-// then near-white gold — and both failed the same way: a 2x3 near-white block per
-// side on a mid-violet face is a lit panel, and a critic reading the portrait
-// described "two glowing pale bars". The polarity is inverted now. The iris is a very
-// dark violet (the coat hue at a fifth of its value) and the light lives in a single
-// lavender catchlight cell, which is the ONLY emissive cell on the head — a gleam in
-// a dark eye is exactly the right note for a creature woven from dusk.
-const IRIS = 0x2a1c40;     // dark violet iris
+// Dusky violet, floored well clear of black: at a 4.9:1 sun/fill ratio everything under
+// ~0x60 collapses, and the cat vanished into its own cast shadow.
+const INK = 0x8a76ba;
+const DUSK = 0x584b80;
+const VIOLET = 0x9c7fe0;
+const RIM = 0xc2aef0;
+const PALE = 0xc4b6e6;
+const GLOW = 0x8f6fd8;
+const LAV = 0xd6c4ff;
+const IRIS = 0x2a1c40;
 const NOSE = 0xc79ae8;
 
-// Base pose constants (world/local units, must match buildRig)
+// Must match buildRig
 const BODY_Y = 0.42;       // hover: body underside sits ~0.3 above origin
 const HEAD_Y = 0.07;
 const HEAD_Z = 0.2;
 const EAR_Z = 0.22;
-const PAW_X = -0.7;        // paws tucked, dangling
-const TAIL_BASE_X = 0.55;  // tail curls up
+const PAW_X = -0.7;
+const TAIL_BASE_X = 0.55;
 const TAIL_MID_X = 0.3;
 const TAIL_TIP_X = 0.25;
 const GLOW_Y = -0.19;
@@ -56,96 +38,64 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
 const ezOut = (t: number): number => 1 - (1 - t) ** 3;
 const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
 
-/**
- * Integrated cycle slots — see BeastAnimCtx.cycle(). Every rate below is either
- * scaled by the gait blend or different per action, and all four were being
- * multiplied into the session clock. The wisps were the most obvious: `wSpeed`
- * steps between 1.2 and 7 rad/s across the action list, so at a minute-old
- * clock a single action change flung them several full orbits in one frame.
- */
-const DRIFT = 0;  // serpentine body glide
-const TAIL = 1;   // the S-wave down the tail, 1.1x the drift while moving
-const SURGE = 2;  // the vertical bob, a hair faster than the drift
-const WISP = 3;   // detached tail wisps, trailing or orbiting
+// Cycle slots — see BeastAnimCtx.cycle(). Every rate here is per-action or gait-scaled;
+// `wSpeed` alone steps 1.2 to 7 rad/s, which off the session clock flung the wisps
+// several orbits in one frame.
+const DRIFT = 0;
+const TAIL = 1;
+const SURGE = 2;
+const WISP = 3;
 
 function makeTorso(): THREE.Mesh {
-  // Deliberately few masses: one clean cat body, a narrow spine sheen and the
-  // underglow band. The old chest ruff / haunch / glint blobs read as a grape
-  // cluster in close-up and buried the silhouette.
   const m = new VoxelModel();
   m.ellipsoid(0, 1.5, -0.2, 2.2, 1.6, 3.0, INK);
-  m.ellipsoid(0, 2.5, -0.6, 1.1, 0.6, 2.0, VIOLET);  // moonlit sheen along the spine
-  // Crisp rim-light row along the very top of the back: without it the dark
-  // body merges into its own cast shadow and loses its silhouette entirely.
+  m.ellipsoid(0, 2.5, -0.6, 1.1, 0.6, 2.0, VIOLET);
   m.ellipsoid(0, 2.95, -0.5, 1.2, 0.3, 2.2, RIM);
-  m.ellipsoid(0, 0.3, 0.2, 1.7, 0.7, 2.5, GLOW);     // soft purple underglow band
-  // Pale chest/belly patch: under a strong sun with almost no fill the dark coat
-  // and its own cast shadow merge, so the front carries a light mass to read the
-  // volume against. Painted after the glow band so it wins on the chest.
+  m.ellipsoid(0, 0.3, 0.2, 1.7, 0.7, 2.5, GLOW);
   m.ellipsoid(0, 1.3, 1.5, 1.8, 1.35, 1.5, PALE);
   rimTop(m, RIM, -2, 2, 1, 4, -3, 3);
-  m.markEmissive(GLOW, 0.35);  // soft violet underglow — mysterious, not neon,
-  // and trimmed from 0.55 now that a bloom pass amplifies it
+  m.markEmissive(GLOW, 0.35);  // down from 0.55 now a bloom pass amplifies it
   return m.build(S, true);
 }
 
 function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
-  // Skull widened 2.0 -> 2.7 and given a proper face plate: the old head was too
-  // narrow to carry an eye pair, so the brow sheen, the pale sclera and the two
-  // pupils stacked into one pale band with two dark notches — the bandit mask
-  // that every portrait of this cat came back with.
   m.ellipsoid(0, 1.3, 0.2, 2.7, 1.5, 1.7, INK);
-  m.ellipsoid(0, 2.3, -0.2, 1.2, 0.5, 1.0, VIOLET);  // narrow brow sheen
-  m.ellipsoid(0, 0.5, 1.4, 1.3, 0.8, 0.9, DUSK);     // muzzle
-  m.box(-3, 1, 2, 3, 3, 2, INK);                     // flat face plate
+  m.ellipsoid(0, 2.3, -0.2, 1.2, 0.5, 1.0, VIOLET);
+  m.ellipsoid(0, 0.5, 1.4, 1.3, 0.8, 0.9, DUSK);
+  m.box(-3, 1, 2, 3, 3, 2, INK);
   rimTop(m, RIM, -2, 2, 0, 4, -2, 2);
   shadeUnder(m, DUSK, -3, 3, 0, 1, -2, 3);
-  // A stepped SNOUT, not a lone proud voxel. The old build set exactly one cell at
-  // (0, 1, 3): a 1x1x1 cube standing off a flat plate touches the face with one hidden
-  // rear facet and nothing else, so it photographed as "a nose voxel floating in front
-  // of the face" — which, visually, it was. Three cells wide with a dark tip in front
-  // of them reads as a muzzle.
   for (let x = -1; x <= 1; x++) m.set(x, 1, 3, DUSK);
   m.set(0, 1, 4, NOSE);
-  // NOTHING on the head glows. The previous build made the catchlight emissive at
-  // 0.45, which is the one thing eyes2x2 explicitly forbids ("a glowing catchlight
-  // blooms into a star and eats the iris around it") — and it did exactly that. In a
-  // lab close-up at dist 1.7 the cat's face was two pale near-white blocks with a
-  // pink dot between them and no visible iris at all: the bloom halo off each 8.5 cm
-  // catchlight cell covered the dark cells beside it, so the face went straight back
-  // to the "two glowing pale bars" read that inverting the polarity was supposed to
-  // cure. LAV is 0.80 luminance against an 0.13 iris as plain paint; that is already
-  // the brightest contrast on the model and it needs no help from the bloom pass.
   eyes2x2(m, {
+    // Nothing on the head glows: an emissive catchlight bloomed into a star and ate the
+    // iris, which is what eyes2x2 warns about. LAV against IRIS as plain paint is already
+    // the strongest contrast on the model.
     inner: 1, y: 1, faceZ: 2, iris: IRIS, shine: LAV,
     lid: DUSK, bridge: RIM,
   });
   return m.build(S, true);
 }
 
-/**
- * One ear, authored once and mirrored by `sign`. The old signature took a tipX and
- * an innerX per side — hand-mirroring a bilateral feature, which is precisely how
- * ears end up different colours on the two sides of a head.
- */
+/** One ear, authored once and mirrored by `sign`, so the sides cannot diverge. */
 function makeEar(sign: number): THREE.Mesh {
   const m = new VoxelModel();
-  const X = (d: number): number => (sign > 0 ? d : -d - 1); // d: 0 inner, 1 outer
+  const X = (d: number): number => (sign > 0 ? d : -d - 1);
   for (const d of [0, 1]) {
     m.set(X(d), 0, 0, INK);
     m.set(X(d), 1, 0, INK);
   }
-  m.set(X(1), 1, 0, RIM);          // lit outer edge
-  m.set(X(1), 2, 0, VIOLET);       // pointed tip
-  m.set(X(0), 2, 0, VIOLET);       // two-cell tip band, so both ears read from any side
-  m.setEmissive(X(0), 0, 1, GLOW, 0.35); // inner-ear glow facing forward
+  m.set(X(1), 1, 0, RIM);
+  m.set(X(1), 2, 0, VIOLET);
+  m.set(X(0), 2, 0, VIOLET);
+  m.setEmissive(X(0), 0, 1, GLOW, 0.35);
   return m.build(S, true);
 }
 
 function makePaw(): THREE.Mesh {
   const m = new VoxelModel();
-  m.box(0, 0, 0, 1, 0, 1, DUSK);   // shadowed toes
+  m.box(0, 0, 0, 1, 0, 1, DUSK);
   m.box(0, 1, 0, 1, 1, 1, INK);
   return m.build(S, true);
 }
@@ -159,14 +109,14 @@ function makeTailSeg1(): THREE.Mesh {
 function makeTailSeg2(): THREE.Mesh {
   const m = new VoxelModel();
   m.ellipsoid(0, 0.7, -0.9, 0.8, 0.8, 1.3, DUSK);
-  m.set(0, 1, -1, VIOLET);         // sheen streak
+  m.set(0, 1, -1, VIOLET);
   return m.build(S, true);
 }
 
 function makeTailSeg3(): THREE.Mesh {
   const m = new VoxelModel();
   m.ellipsoid(0, 0.6, -0.7, 0.6, 0.6, 1.0, VIOLET);
-  m.setEmissive(0, 0, -2, GLOW, 0.4); // already coming apart at the end
+  m.setEmissive(0, 0, -2, GLOW, 0.4);
   return m.build(S, true);
 }
 
@@ -180,11 +130,9 @@ function glowMaterial(mesh: THREE.Mesh, emissiveHex: number, intensity: number, 
   }
 }
 
-/** One detached tail mote — a single cube, never a stack: silhouette first. */
 function makeWisp(color: number, bright: boolean): THREE.Mesh {
   const m = new VoxelModel();
-  // Trimmed for the bloom pass: a wisp is a mote of dusk, and at 1.0 the three
-  // of them became white pinpricks brighter than the cat itself.
+  // Trimmed for the bloom pass: at 1.0 the motes outshone the cat.
   m.setEmissive(0, 0, 0, bright ? LAV : color, bright ? 0.6 : 0.5);
   const mesh = m.build(S, true);
   mesh.castShadow = false;
@@ -192,7 +140,6 @@ function makeWisp(color: number, bright: boolean): THREE.Mesh {
 }
 
 function makeGlowPool(): THREE.Mesh {
-  // A single soft slab — the four outrigger cubes just added silhouette noise.
   const m = new VoxelModel();
   m.box(-1, 0, -2, 1, 0, 2, GLOW);
   const mesh = m.build(S, true);
@@ -212,7 +159,6 @@ function buildRig(): BeastRig {
   torso.position.set(0, -0.12, 0);
   body.add(torso);
 
-  // Pool of soft light the cat hovers on.
   const glow = new THREE.Group();
   glow.position.set(0, GLOW_Y, 0);
   body.add(glow);
@@ -220,9 +166,8 @@ function buildRig(): BeastRig {
   glowMesh.position.set(0, -0.04, 0);
   glow.add(glowMesh);
 
-  // Fake bloom: soft violet halo tucked under the belly. NON-additive so it
-  // deepens the underglow without washing the dark coat out; parented to the
-  // body (not the glow group, whose non-uniform scaling would distort it).
+  // NON-additive so it deepens the underglow without washing out the dark coat; parented
+  // to the body, not the glow group, whose non-uniform scale would distort it.
   const bodyGlow = makeGlowSprite(0x8f6fd6, 0.35, 0.25, THREE.NormalBlending);
   bodyGlow.position.set(0, -0.14, 0);
   body.add(bodyGlow);
@@ -234,14 +179,9 @@ function buildRig(): BeastRig {
   headMesh.position.set(0, -0.11, 0.02);
   head.add(headMesh);
 
-  // |x| = 0.155, out from 0.10. The skull is 2.7 cells of half-width, i.e. 0.23
-  // units, so at 0.10 the two ears sat side by side over the middle of a wide head
-  // and the crown read as one smooth dome with a couple of bumps on it. At 0.155
-  // they stand on the skull's outer corners, which is where a cat's ears are and
-  // what gives the head its triangular top. The ear MESH is untouched on purpose:
-  // its top cell is the highest voxel on the rig, so growing it would move
-  // `silhouetteTop` and with it the mount-form scale BeastActor derives from it.
-  // Sliding the ears sideways buys the silhouette at zero cost to that.
+  // |x| = 0.155 puts the ears on the skull's outer corners (half-width 0.23). The ear MESH
+  // stays as-is: its top cell is the highest voxel on the rig, so growing it would move
+  // `silhouetteTop` and the mount-form scale BeastActor derives from it.
   const earL = new THREE.Group();
   earL.position.set(0.155, 0.13, -0.03);
   earL.rotation.z = -EAR_Z;
@@ -258,7 +198,6 @@ function buildRig(): BeastRig {
   earRMesh.position.set(0, -0.02, 0);
   earR.add(earRMesh);
 
-  // Tucked forepaws that dangle under the chest.
   const mkPaw = (x: number): THREE.Group => {
     const g = new THREE.Group();
     g.position.set(x, -0.06, 0.18);
@@ -296,8 +235,6 @@ function buildRig(): BeastRig {
   seg3.position.set(0, -0.06, -0.03);
   tailTip.add(seg3);
 
-  // Detached tail-tip wisps: the tail dissolves into these. Parented to the
-  // body so they ride the hover; animate() drives them lagging/orbiting.
   const mkWisp = (color: number, tall: boolean, i: number): THREE.Group => {
     const g = new THREE.Group();
     g.position.set(0, -0.05, -0.5 - 0.1 * i);
@@ -328,10 +265,8 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const at = ctx.actionTime;
   const ms = clamp01(ctx.moveSpeed);
 
-  // Ghostly ever-present hover bob.
   const hover = 0.045 * Math.sin(t * 1.5) + 0.02 * Math.sin(t * 2.7 + 1.3);
 
-  // Pose state — everything is written every frame.
   let bpx = 0, bpy = BODY_Y + hover, bpz = 0;
   let brx = 0, bry = 0, brz = 0;
   let bsx = 1, bsy = 1, bsz = 1;
@@ -340,12 +275,10 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   let pawL = PAW_X, pawR = PAW_X;
   let tbx = TAIL_BASE_X, tby = 0, tmx = TAIL_MID_X, tmy = 0, tty = 0;
   let glowS = 1;
-  // Wisp behaviour knobs.
   let wSpeed = 1.2, wSpread = 0.1, wTrail = 0.1, wRise = 0, wScatter = 0, wRing = 0;
 
   switch (ctx.action) {
     case 'idle': {
-      // Slow breathing, drowsy looks, lazy S-wave tail, wisps drifting.
       const b = Math.sin(t * 1.9);
       bsy = 1 + 0.025 * b;
       bsx = bsz = 1 - 0.01 * b;
@@ -353,9 +286,9 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       brz = 0.03 * Math.sin(t * 0.9 + 2);
       hrx = 0.05 * Math.sin(t * 1.05 + 0.6);
       hry = 0.22 * Math.sin(t * 0.27);
-      hrz = 0.04 * Math.sin(t * 0.5) + 0.26 * Math.max(0, Math.sin(t * 0.33 + 1.1)) ** 12; // slow head tilt
+      hrz = 0.04 * Math.sin(t * 0.5) + 0.26 * Math.max(0, Math.sin(t * 0.33 + 1.1)) ** 12;
       elx = erx = -0.06 + 0.03 * b;
-      elz -= 0.3 * Math.max(0, Math.sin(t * 1.07 + 2.3)) ** 16; // independent ear flicks
+      elz -= 0.3 * Math.max(0, Math.sin(t * 1.07 + 2.3)) ** 16;
       erz += 0.3 * Math.max(0, Math.sin(t * 0.89 + 4.7)) ** 16;
       pawL = PAW_X + 0.08 * Math.sin(t * 1.6 + 0.4);
       pawR = PAW_X + 0.08 * Math.sin(t * 1.6 + 2.5);
@@ -371,40 +304,36 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     case 'run':
     case 'fly':
     case 'swim': {
-      // No legs, no gait: a serpentine gliding drift, nose down, wisps trailing.
-      // 2.2 rad/s drifting to 3.6 at speed (0.35-0.57 Hz).
       const drift = ctx.cycle(DRIFT, 2.2 + 1.4 * ms);
       brx = 0.06 + 0.12 * ms;
       brz = 0.09 * Math.sin(drift) * (0.35 + 0.65 * ms);
       bry = 0.07 * Math.sin(drift - 0.7) * ms;
       bpx = 0.035 * Math.sin(drift) * ms;
       bpy += 0.03 * Math.sin(ctx.cycle(SURGE, 2.6 + 2.2 * ms)) * (0.4 + 0.6 * ms);
-      bpz = 0.02 * Math.sin(t * 3.4) * ms; // faint surging
-      bsz = 1 + 0.06 * ms; // stretched by its own speed
+      bpz = 0.02 * Math.sin(t * 3.4) * ms;
+      bsz = 1 + 0.06 * ms;
       bsx = 1 - 0.025 * ms;
-      hrx = -brx * 0.7; // gaze steadied against the lean
+      hrx = -brx * 0.7;
       hry = -bry * 0.7;
       hrz = -brz * 0.7;
-      elx = erx = -0.06 - 0.4 * ms; // ears swept back
+      elx = erx = -0.06 - 0.4 * ms;
       pawL = PAW_X - 0.4 * ms + 0.06 * Math.sin(t * 3.1);
       pawR = PAW_X - 0.4 * ms + 0.06 * Math.sin(t * 3.1 + 2.2);
-      tbx = TAIL_BASE_X - 0.35 * ms; // tail streams out behind
+      tbx = TAIL_BASE_X - 0.35 * ms;
       tmx = TAIL_MID_X - 0.15 * ms;
-      // The tail wave rides 1.1x the body drift. It goes through the TAIL slot at
-      // that rate rather than being derived as `drift * 1.1`, so the wave is also
-      // continuous across the idle/moving boundary and not just within a branch.
+      // Through the TAIL slot at 1.1x the drift rate, not `drift * 1.1`, so the wave is
+      // continuous across the idle/moving boundary too.
       const wv = ctx.cycle(TAIL, (2.2 + 1.4 * ms) * 1.1);
       tby = 0.22 * Math.sin(wv);
       tmy = 0.3 * Math.sin(wv - 1);
       tty = 0.4 * Math.sin(wv - 2);
       glowS = 1 + 0.1 * ms;
       wSpeed = 2 + 2 * ms;
-      wTrail = 0.1 + 0.14 * ms; // wisps lag further at speed
+      wTrail = 0.1 + 0.14 * ms;
       wSpread = 0.08;
       break;
     }
     case 'attack': {
-      // Phantom claw: coil back with a paw wound high, then rake through.
       const wind = smooth(phase(at, 0, 0.15));
       const lunge = ezOut(phase(at, 0.15, 0.3));
       const rec = smooth(phase(at, 0.5, 0.85));
@@ -417,7 +346,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bsx = 1 - 0.06 * kp;
       hrx = 0.12 * k;
       elx = erx = -0.7 * kp - 0.25 * wind;
-      pawL = PAW_X - 1.3 * wind * (1 - lunge) + 1.6 * kp; // the raking paw
+      pawL = PAW_X - 1.3 * wind * (1 - lunge) + 1.6 * kp;
       pawR = PAW_X - 0.9 * wind * (1 - lunge) + 1.1 * kp;
       tbx = TAIL_BASE_X + 0.3 * wind * (1 - lunge) - 0.4 * kp;
       tby = 0.12 * Math.sin(at * 26) * (1 - rec);
@@ -428,13 +357,12 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'cast': {
-      // Rear-up flourish: paws raised, wisps pulled into a tight fast spiral.
       const rise = ezOut(clamp01(at / 0.45));
       const trem = 0.5 * Math.sin(t * 13) + 0.5 * Math.sin(t * 19);
       brx = -0.5 * rise + 0.02 * trem * rise;
       bpy += 0.11 * rise;
       bpz = -0.03 * rise;
-      hrx = 0.32 * rise; // eyes stay on the target
+      hrx = 0.32 * rise;
       elx = erx = 0.15 * rise;
       pawL = PAW_X - 1.5 * rise + 0.2 * Math.sin(t * 8) * rise;
       pawR = PAW_X - 1.5 * rise + 0.2 * Math.sin(t * 8 + Math.PI) * rise;
@@ -451,7 +379,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'special': {
-      // Umbral bloom: rises spinning while the wisps fling into a wide halo.
       const T = 0.9;
       const k = clamp01(at / T);
       const arc = Math.sin(Math.PI * k);
@@ -476,19 +403,18 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'hurt': {
-      // A ghost's flinch: it flickers, ears pinned, wisps scattering.
       const d = Math.exp(-3.5 * at);
       const flick = Math.abs(Math.sin(at * 38));
       bpx = 0.04 * Math.sin(at * 44) * d;
       bpz = -0.13 * d;
       bpy += -0.06 * d;
       brz = 0.1 * Math.sin(at * 32) * d;
-      bsx = bsy = bsz = 1 - 0.12 * flick * d; // shape destabilizes
+      bsx = bsy = bsz = 1 - 0.12 * flick * d;
       hrx = -0.28 * d;
       hrz = 0.1 * Math.sin(at * 28) * d;
       elx = erx = -0.9 * d;
       pawL = pawR = PAW_X - 0.3 * d;
-      tbx = TAIL_BASE_X - 0.5 * d; // tail wilts
+      tbx = TAIL_BASE_X - 0.5 * d;
       tmx = TAIL_MID_X - 0.3 * d;
       glowS = 1 - 0.4 * d + 0.15 * flick * d;
       wScatter = d;
@@ -497,10 +423,9 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'happy': {
-      // Bouncing hover with a periodic full joy-spin and frantic tail wags.
       const hop = Math.abs(Math.sin(at * 4.8));
       bpy += 0.12 * hop;
-      bry = Math.PI * 2 * smooth(clamp01(((at % 2.4) - 0.3) / 0.8)); // spin! (2*PI wraps clean)
+      bry = Math.PI * 2 * smooth(clamp01(((at % 2.4) - 0.3) / 0.8));
       brz = 0.05 * Math.sin(at * 9.6);
       bsy = 0.94 + 0.12 * hop;
       bsx = bsz = 1 - 0.4 * (bsy - 1);
@@ -539,21 +464,18 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   p.glow.scale.set(glowS, 1, glowS * (1 + 0.15 * ms));
   p.glow.position.set(0, GLOW_Y + 0.008 * Math.sin(t * 3.3), 0);
 
-  // Detached tail wisps: lag behind in a loose trail, or swing into a halo.
   const phases = [0, 2.09, 4.19];
-  // One integrated orbit phase for all three wisps; they differ only by a fixed
-  // offset, and the 1.6x / 0.9x / 2x harmonics below are constant multiples of
-  // it, which stay continuous.
+  // One orbit phase for all three wisps; they differ by a fixed offset, and the harmonics
+  // below are constant multiples of it, so they stay continuous. Trail mode lags the tail
+  // tip, ring mode orbits the whole body, `wRing` blends between them.
   const wa = ctx.cycle(WISP, wSpeed);
   for (let i = 0; i < 3; i++) {
     const w = p[`wisp${i + 1}`];
     const a = wa + phases[i];
     const r = wSpread * (0.7 + 0.3 * i);
-    // Trail mode: loitering behind the dissolving tail tip.
     const trailX = r * Math.sin(a + i);
     const trailY = -0.06 + wRise + 0.05 * Math.sin(a * 1.6 + i * 1.3);
     const trailZ = -0.44 - wTrail * (i + 1) + r * 0.7 * Math.cos(a * 0.9);
-    // Ring mode: orbiting the whole body.
     const ringX = (0.3 + wSpread) * Math.sin(a);
     const ringY = 0.05 + wRise + 0.04 * Math.sin(a * 2 + i);
     const ringZ = -0.05 + (0.3 + wSpread) * Math.cos(a);

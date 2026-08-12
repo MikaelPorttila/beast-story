@@ -1,28 +1,4 @@
-/**
- * PEOPLE AS CONTENT (spec §4.1) — the `NpcCharacter` record in
- * `src/world/npc-gain.ts`, minus its two functions.
- *
- * THE SPLIT IS ALREADY THERE AND THIS FOLLOWS IT. `world/npc.ts` is the generic
- * half — placement, culling, the interact test, the talk state — and a character
- * file is the other half. Of that character file, `build()` and `animate()` are
- * behaviour and stay in TypeScript: a voxel body and a dumbbell curl are code,
- * and only the CHOICE of them is data (`"body": "gain"`, the `npc-body` factory
- * kind). What is left — who he is, which town he stands in, how far out he wants
- * to be, and what he says — is content, and it is all here.
- *
- * `talk` IS THE QUEST SEAM, EXPRESSED AS DATA. The doc comment on
- * `NpcCharacter.talk()` says that today it returns one line and that tomorrow it
- * consults quest state and returns an offer or a turn-in instead, with nothing
- * outside the function changing shape. That "tomorrow" is an ORDERED LIST with a
- * `when` on each entry: the engine takes the first whose condition passes, which
- * is the same rule a dialogue tree, a barter table and a rumour pool all want,
- * and it is the shape a validator can read and an editor can render as rows.
- *
- * THE MIGRATED GAIN HAS EXACTLY ONE ENTRY AND NO `when`, so he says what he
- * always said, in the same language, on the same key. This is a migration: it
- * moves where a fact is written down and changes no fact. A second line belongs
- * in the commit that has a quest for it to be about.
- */
+/** People as content: who an NPC is, where he stands and what he says. `build()`/`animate()` stay in code. */
 
 import type {
   Action,
@@ -56,24 +32,12 @@ export const NPC_BODY_KIND = 'npc-body';
 
 const BODY_RE = /^[a-z][a-z0-9-]*$/;
 
-/**
- * One thing this character might say.
- *
- * ORDERED, AND FIRST MATCH WINS. That is what makes an entry with no `when` a
- * DEFAULT rather than an alternative, and it is why the list is a list and not a
- * set: "offer the quest if it is available, otherwise say hello" is a statement
- * about precedence, and precedence is order. An entry with no `when` after which
- * further entries appear is therefore unreachable, which `validate` says out
- * loud — it is the one authoring mistake this shape makes easy.
- */
+/** One thing this character might say. ORDERED, first match wins. */
 export interface NpcTalkLine {
   /** Absent means "always", the same rule the envelope's `when` follows. */
   readonly when?: Condition;
   readonly line: ContentText;
-  /**
-   * What saying it DOES — set a flag, start a quest. Absent when it does
-   * nothing, which is the common case and the only case in the shipped content.
-   */
+  /** What saying it DOES — set a flag, start a quest. */
   readonly actions?: readonly Action[];
 }
 
@@ -82,22 +46,14 @@ export interface NpcData {
   readonly town: ContentId;
   /** Which registered `npc-body` builds and animates him. */
   readonly body: string;
-  /**
-   * How far from the town's centre he would LIKE to stand, in world units. The
-   * placement search only ever pushes him further out, and only as far as it has
-   * to to get him off the carriageway and out of the furniture.
-   */
+  /** Preferred distance from town centre, world units. Placement only pushes further out. */
   readonly homeOffset: number;
-  /**
-   * Stand on the far side of the settlement's focus from wherever he would
-   * otherwise have stood. Opt-in, because it only means anything in a settlement
-   * that HAS a focus — the Encampment's fire.
-   */
+  /** Stand on the far side of the settlement's focus (the Encampment's fire). */
   readonly acrossFocus: boolean;
   readonly talk: readonly NpcTalkLine[];
 }
 
-/** Registered `npc-body` names. See the long note at `knownLayouts` in town.ts. */
+/** Registered `npc-body` names; null skips the check. See `knownLayouts` in town.ts. */
 let knownBodies: ReadonlySet<string> | null = null;
 
 export function setKnownNpcBodies(names: Iterable<string>): void {
@@ -113,9 +69,7 @@ function readTalkLine(value: unknown, ctx: Reader): NpcTalkLine {
   return {
     when: opt(value.when, ctx.at('when'), condition),
     line: text(value.line, ctx.at('line')),
-    // Omitted rather than stored empty: "absence is the default, everywhere" is
-    // the house rule (state.ts states it for the save), and an empty list here
-    // would make `serialize` round-trip a field the author never wrote.
+    // Omitted rather than stored empty, so `serialize` never round-trips a field nobody wrote.
     ...(acts.length > 0 ? { actions: acts } : {}),
   };
 }
@@ -134,10 +88,7 @@ function parse(body: unknown, ctx: ParseCtx): NpcData | null {
 }
 
 function* refs(data: NpcData): Iterable<ContentId> {
-  // The empty string is `idOf`'s fallback for a malformed id and can never
-  // parse; the field it came from was already reported where it was read, so
-  // yielding it would charge one typo a second diagnostic in a vocabulary the
-  // author never used (validate.ts makes the same argument at `checkRefs`).
+  // '' is `idOf`'s fallback for a malformed id, already reported where it was read.
   if (data.town !== '') yield data.town;
 }
 
@@ -152,9 +103,7 @@ function validate(asset: ContentAsset<NpcData>, ctx: ValidateCtx): void {
     });
   }
 
-  // An unconditional line makes everything after it dead — see `NpcTalkLine`.
-  // A warn rather than an error: the NPC works, he simply never says the rest,
-  // and the fix is to reorder rather than to remove anything.
+  // An unconditional line makes everything after it dead. Warn: the fix is a reorder.
   const lines = asset.data.talk;
   for (let i = 0; i < lines.length - 1; i++) {
     if (lines[i].when !== undefined) continue;
