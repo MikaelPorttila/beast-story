@@ -86,8 +86,14 @@ const eq = (got, want, what) => check(same(got, want),
  * fields above them are still the pinned pre-migration table and still mean what
  * the block header says; a coordinate is what the placer DID with that table,
  * so changing the placer's search bands moves it without any datum changing.
- * The Encampment's is untouched, which is the control: it is sited off the world
- * origin rather than off the fork, and the fork is what moved.
+ *
+ * THE ENCAMPMENT'S IS UNTOUCHED, AND SO IS GAIN'S, which is the control and is
+ * worth stating because the first attempt at that change moved both. The spur
+ * band is the only one that grew; the trunk out of the camp is the length it
+ * always was, so the spawn, the gate bearing and everyone standing around the
+ * fire are where they have always been. If a future change to the siting moves
+ * Gain, it has moved the starting country, which is a different decision from
+ * moving the towns and deserves to fail this file.
  *
  * `outerRadius` is the one field with no world-side reader — see the note in
  * section 3.
@@ -101,12 +107,12 @@ const TOWNS = [
   },
   {
     id: 'redbriar', kind: 'hamlet', radius: 15, outerRadius: 15,
-    color: 0x9ad46a, x: -479.5, z: 518.5,
+    color: 0x9ad46a, x: -672.5, z: -493.5,
     name: 'Redbriar Mill', start: false, waterside: true, order: 1,
   },
   {
     id: 'stonewatch', kind: 'hamlet', radius: 15, outerRadius: 15,
-    color: 0x8fc4e8, x: -336.5, z: -604.5,
+    color: 0x8fc4e8, x: 987.5, z: -288.5,
     name: 'Stonewatch', start: false, waterside: false, order: 2,
   },
 ];
@@ -134,13 +140,7 @@ const SKYFOLK = ['sky-pilot', 'sky-gardener', 'sky-lamplighter'];
 const GAIN = {
   id: 'gain',
   name: 'Deckard Gains Armstrong',
-  // PLACEMENT OUTPUT, re-baselined with the hamlet coordinates above when the
-  // towns moved a kilometre apart (issue #184). He is placed on a ring around
-  // the camp's centre facing its focus, so he swings with the gate — and the
-  // gate is derived from where the finished trunk road leaves the camp, which
-  // is the thing that moved. `fromTownCentre` below is the datum and is
-  // unchanged, which is the assertion that actually pins his placement rule.
-  x: 127.51, y: 12, z: 51.01,
+  x: 116.9, y: 12, z: 58.1,
   town: 'encampment',
   fromTownCentre: 6.5,
   // WHAT HE SAYS FIRST, which is no longer his greeting and should not be.

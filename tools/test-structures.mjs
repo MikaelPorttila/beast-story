@@ -463,32 +463,30 @@ async function run(solids, geom = null) {
 // builder changed; the sites did, and a layout places what its ground allows.
 // What that did, measured on seed 1337 and looked at rather than accepted:
 //
-//   encampment  64 -> 65   the camp did not move, but the trunk road now leaves
-//                          on a different bearing, and the layout arranges
-//                          itself around its gate. One more fence bay.
-//   redbriar    41 -> 30   ELEVEN FEWER, and this is the one to look at twice:
-//                          a paddock's collider count IS its bay count
-//                          (world/fences.ts), and `buildFence` refuses a bay it
-//                          cannot lift clear of the ground under it. Redbriar's
-//                          new bank is rougher than its old one, so the chain
-//                          ends earlier. The mill is not missing anything it
-//                          was built with — its fence is shorter.
-//   stonewatch  28 -> 32   and 1 -> 2 roofs: it stands TWO huts now where it
-//                          stood one, both the standard hut ridge (fit 0.394,
-//                          read off __dbgRidges), because the flatter site the
-//                          wider levelness ring found has room for the second.
+//   encampment  64 -> 64   UNCHANGED, and that is the assertion rather than a
+//                          non-event: the distance is spent between the fork and
+//                          the hamlets, so the camp's own ground, its gate
+//                          bearing and everything arranged around them are
+//                          exactly as they were. A change here would mean the
+//                          starting country had moved.
+//   redbriar    41 -> 36   a paddock's collider count IS its bay count
+//   stonewatch  28 -> 39   (world/fences.ts), and `buildFence` refuses a bay it
+//                          cannot lift clear of the ground under it — so a
+//                          hamlet's count is a reading of how even its new
+//                          ground is, and the two moved in opposite directions
+//                          because they landed on different country.
 //
 const BUDGET = {
   //           colliders   of which roofs
-  encampment: { total: 65, roofs: 5 },   // 3 huts, 2 ridge tents, 60 boxes
+  encampment: { total: 64, roofs: 5 },   // 3 huts, 2 ridge tents, 59 boxes
   // The hamlet counts were 38 -> 40 and 25 -> 27 boxes when the paddock arc
   // became a fence CHAIN (world/fences.ts, issue #105) instead of seven fixed
   // panels: a chain's collider is one box per bay — the top plank, which spans
   // its bay end to end. The posts and the lower plank carry no collider at all,
   // so the count is the number of BAYS and nothing else, which is why re-siting
   // a town moves it.
-  redbriar: { total: 30, roofs: 1 },     // 1 hut
-  stonewatch: { total: 32, roofs: 2 },   // 2 huts
+  redbriar: { total: 36, roofs: 1 },     // 1 hut
+  stonewatch: { total: 39, roofs: 1 },   // 1 hut
 };
 /**
  * How far a roof cylinder may stand off its own thatch, world units.

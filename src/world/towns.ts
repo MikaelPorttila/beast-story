@@ -317,23 +317,32 @@ const SPUR_COUNT = 2;
  * and the mount is the reward for having walked it.
  *
  * MEASURED, because a routed road is not a straight line. On seed 1337 the old
- * bands (70..96 and 115..165) produced 72.4 + 174.1 units of carriageway from
- * the camp to Redbriar and 72.4 + 149.0 to Stonewatch — 247 and 221 units, or
- * about forty seconds of walking, which is a corridor between two buildings
- * rather than a country. The router wanders 15-20% over the straight line it is
- * given, so these bands are chosen for their SUM before that margin: 300..400
- * plus 560..700 is 860..1100 straight, and about 1000..1300 as built.
+ * spur band (115..165) produced 174.1 units of carriageway from the fork to
+ * Redbriar and 149.0 to Stonewatch — 247 and 221 from the camp, or about forty
+ * seconds of walking, which is a corridor between two buildings rather than a
+ * country. The router wanders 15-20% over the straight line it is given, so the
+ * band is chosen below the target rather than at it: 830..950 straight builds as
+ * roughly 950..1150.
  *
- * The spur band is wider than the trunk's on purpose. A spur has to find dry,
- * level, unclaimed ground AND, for Redbriar, a water crossing the router will
- * bridge rather than go round (see the waterside term in `findSite`) — a search
- * that has to satisfy three things at once needs more room to move than one
- * looking for a fork in open country.
+ * THE TRUNK IS DELIBERATELY LEFT SHORT, and that is the load-bearing half of
+ * this arrangement rather than a saving. The hero SPAWNS ON THE TRUNK ROAD, and
+ * the whole of the starting country is placed around that point: the gateway is
+ * sited on a ring from the spawn, the skill dens sit near it, the biome under it
+ * decides what grass is drawn, and the flying island's route is laid over it.
+ * Lengthening the trunk moved the spawn 40 units onto different ground and took
+ * every one of those with it — measured, it broke `test-bow` (the hero could not
+ * loose an arrow), `test-gfx` (18 grass draw calls saved instead of 20),
+ * `test-saddle` (gallop 2.06 against a floor of 2.1, on rougher ground) and
+ * `test-carrier`. None of those is about how far apart the towns are.
+ *
+ * So the distance is spent where it is the point — between the FORK and each
+ * hamlet, which is the stretch `quest:land/the-mill-road` is walked along — and
+ * the camp's own doorstep is left exactly as it was.
  */
-const TRUNK_MIN = 300;
-const TRUNK_MAX = 400;
-const SPUR_MIN = 560;
-const SPUR_MAX = 700;
+const TRUNK_MIN = 70;
+const TRUNK_MAX = 96;
+const SPUR_MIN = 830;
+const SPUR_MAX = 950;
 
 /**
  * The start town and the towns that hang off the fork, or null when this
