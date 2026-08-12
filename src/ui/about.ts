@@ -43,6 +43,8 @@ const TOOLS: ReadonlyArray<Credit> = [
   { name: "Bun", license: "MIT", url: "https://bun.sh" },
   { name: "puppeteer-core", license: "Apache-2.0", url: "https://pptr.dev" },
   { name: "pngjs", license: "MIT", url: "https://github.com/pngjs/pngjs" },
+  { name: "oxlint", license: "MIT", url: "https://oxc.rs" },
+  { name: "oxfmt", license: "MIT", url: "https://oxc.rs" },
 ];
 
 const escapeHtml = (s: string): string =>

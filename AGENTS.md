@@ -21,6 +21,8 @@ only lockfile — delete any `package-lock.json` that appears.
 | Dev server (game + lab)             | `bun run dev` → http://localhost:5187                                               |
 | Typecheck + build                   | `bun run build`                                                                     |
 | Typecheck the COMMIT before pushing | `bun run verify`                                                                    |
+| Lint (oxlint)                       | `bun run lint` · `bun run lint:fix` · `bun run lint:ci` (warnings fail)             |
+| Format (oxfmt)                      | `bun run format` · `bun run format:check`                                           |
 | Timestamped build to `dist/`        | `bun run snapshot [label]`                                                          |
 | Serve a build                       | `bun x vite preview --outDir dist`                                                  |
 | Re-export every `.blend` to `.glb`  | `bun run glb` (the dev server does it on save)                                      |
