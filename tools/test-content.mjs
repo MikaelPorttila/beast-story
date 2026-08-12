@@ -81,6 +81,14 @@ const eq = (got, want, what) => check(same(got, want),
  * order or a waterside flag: siting is sequential and every later town is placed
  * around the earlier ones.
  *
+ * THE TWO HAMLET POSITIONS ARE PLACEMENT OUTPUT, NOT MIGRATED DATA, and they
+ * were re-baselined when the towns moved a kilometre apart (issue #184). The six
+ * fields above them are still the pinned pre-migration table and still mean what
+ * the block header says; a coordinate is what the placer DID with that table,
+ * so changing the placer's search bands moves it without any datum changing.
+ * The Encampment's is untouched, which is the control: it is sited off the world
+ * origin rather than off the fork, and the fork is what moved.
+ *
  * `outerRadius` is the one field with no world-side reader — see the note in
  * section 3.
  */
@@ -93,12 +101,12 @@ const TOWNS = [
   },
   {
     id: 'redbriar', kind: 'hamlet', radius: 15, outerRadius: 15,
-    color: 0x9ad46a, x: -39.5, z: -99.5,
+    color: 0x9ad46a, x: -479.5, z: 518.5,
     name: 'Redbriar Mill', start: false, waterside: true, order: 1,
   },
   {
     id: 'stonewatch', kind: 'hamlet', radius: 15, outerRadius: 15,
-    color: 0x8fc4e8, x: 222.5, z: 1.5,
+    color: 0x8fc4e8, x: -336.5, z: -604.5,
     name: 'Stonewatch', start: false, waterside: false, order: 2,
   },
 ];
@@ -126,7 +134,13 @@ const SKYFOLK = ['sky-pilot', 'sky-gardener', 'sky-lamplighter'];
 const GAIN = {
   id: 'gain',
   name: 'Deckard Gains Armstrong',
-  x: 116.9, y: 12, z: 58.1,
+  // PLACEMENT OUTPUT, re-baselined with the hamlet coordinates above when the
+  // towns moved a kilometre apart (issue #184). He is placed on a ring around
+  // the camp's centre facing its focus, so he swings with the gate — and the
+  // gate is derived from where the finished trunk road leaves the camp, which
+  // is the thing that moved. `fromTownCentre` below is the datum and is
+  // unchanged, which is the assertion that actually pins his placement rule.
+  x: 127.51, y: 12, z: 51.01,
   town: 'encampment',
   fromTownCentre: 6.5,
   // WHAT HE SAYS FIRST, which is no longer his greeting and should not be.

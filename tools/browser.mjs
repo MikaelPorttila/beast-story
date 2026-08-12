@@ -34,6 +34,23 @@ const BRAVE_ARGS = ['--disable-brave-update', '--disable-sync', '--disable-compo
 
 const PHONE = KnownDevices['Pixel 5'];
 
+/**
+ * How long ONE `page.evaluate` may run before puppeteer gives up on it.
+ *
+ * Puppeteer's default is 180 s and that used to be plenty. It stopped being
+ * plenty when the towns moved a kilometre apart (issue #184): several sweeps in
+ * tools/ walk the whole road network inside a single evaluate — every metre of
+ * carriageway, every near-ground column beside it — so their cost is a property
+ * of how big the world is, and the world grew about fourfold.
+ *
+ * RAISED RATHER THAN SAMPLED. Striding the sweep would bound the cost and would
+ * also halve the chance of finding the one column that pokes through, which is
+ * the entire point of those probes. A long call is the honest price of a full
+ * sweep; probe.mjs still has its own per-probe ceiling, so a genuinely hung page
+ * is still reported rather than waited on forever.
+ */
+const PROTOCOL_TIMEOUT = 600_000;
+
 export async function launchBrowser({ args = [] } = {}) {
   // A batch run (tools/probe.mjs) starts ONE browser and names it here, so the
   // probes inside it skip a ~1 s launch each. `close()` is remapped to
@@ -44,7 +61,7 @@ export async function launchBrowser({ args = [] } = {}) {
   // per-probe `solo` list rather than hoping.
   const ws = process.env.BS_BROWSER_WS?.trim();
   if (ws) {
-    const shared = await puppeteer.connect({ browserWSEndpoint: ws });
+    const shared = await puppeteer.connect({ browserWSEndpoint: ws, protocolTimeout: PROTOCOL_TIMEOUT });
     shared.close = shared.disconnect.bind(shared);
     return shared;
   }
@@ -61,6 +78,7 @@ export async function launchBrowser({ args = [] } = {}) {
     headless: true,
     args: [...GL_ARGS, ...(isBrave ? BRAVE_ARGS : []), ...args],
     timeout: 30000,
+    protocolTimeout: PROTOCOL_TIMEOUT,
   });
 }
 

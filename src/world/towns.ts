@@ -303,6 +303,39 @@ function readSites(): readonly TownSite[] {
 const SPUR_COUNT = 2;
 
 /**
+ * HOW FAR APART THE TOWNS STAND, and the number that matters is not either of
+ * these — it is the sum, because a player walks from a town to a town and the
+ * fork is scenery on the way (issue #184).
+ *
+ * A LEG IS ABOUT A KILOMETRE. One unit is about a metre everywhere else in this
+ * codebase (see the fall distances in world/zones.ts and the scale notes in
+ * world/terrain.ts), the hero walks at 6 u/s and sprints at 9.6, so a
+ * thousand-unit leg is a walk of a bit under three minutes and a run of under
+ * two. That is the shortest journey that still reads as a journey: long enough
+ * that being handed a ground mount changes it, short enough to do on foot once,
+ * which is exactly what Act 1 asks for — `quest:land/the-mill-road` is walked
+ * and the mount is the reward for having walked it.
+ *
+ * MEASURED, because a routed road is not a straight line. On seed 1337 the old
+ * bands (70..96 and 115..165) produced 72.4 + 174.1 units of carriageway from
+ * the camp to Redbriar and 72.4 + 149.0 to Stonewatch — 247 and 221 units, or
+ * about forty seconds of walking, which is a corridor between two buildings
+ * rather than a country. The router wanders 15-20% over the straight line it is
+ * given, so these bands are chosen for their SUM before that margin: 300..400
+ * plus 560..700 is 860..1100 straight, and about 1000..1300 as built.
+ *
+ * The spur band is wider than the trunk's on purpose. A spur has to find dry,
+ * level, unclaimed ground AND, for Redbriar, a water crossing the router will
+ * bridge rather than go round (see the waterside term in `findSite`) — a search
+ * that has to satisfy three things at once needs more room to move than one
+ * looking for a fork in open country.
+ */
+const TRUNK_MIN = 300;
+const TRUNK_MAX = 400;
+const SPUR_MIN = 560;
+const SPUR_MAX = 700;
+
+/**
  * The start town and the towns that hang off the fork, or null when this
  * content cannot make the network below.
  *
@@ -566,7 +599,22 @@ function siteCost(
   let wet = 0;
   for (let a = 0; a < 12; a++) {
     const ang = (a / 12) * Math.PI * 2;
-    for (const rr of [r * 0.55, r, r * 1.35]) {
+    // OUT TO WHERE THE FLATTEN STOPS, which is further than the town.
+    //
+    // The rings used to end at 1.35r — about 20 units for a hamlet — while the
+    // flatten that levels its ground runs a core of `outerRadius + 2` and blends
+    // to `outerRadius + 15`, i.e. 30. So a site could score perfectly level over
+    // everything this function looked at and still sit on a slope through the
+    // ring from 20 to 30, where the blend has to absorb the whole difference in
+    // ten units. The road leaves through exactly that ring.
+    //
+    // Found by measurement, not by reading: at the kilometre spacing (#184) the
+    // hamlets land on hillier ground than they used to, and the carriageway into
+    // Stonewatch had a 2.286-unit step in the walking surface — against
+    // MAX_STEP_UP 0.5 — forty units short of the gate, which is where the
+    // blend's outer edge falls. The old bands hid it because a site 150 units
+    // out had flatter country to choose from.
+    for (const rr of [r * 0.55, r, r * 1.35, r * 2]) {
       const nh = terrain.heightCont(x + Math.cos(ang) * rr, z + Math.sin(ang) * rr);
       worst = Math.max(worst, Math.abs(nh - h));
       if (nh < WATER_LEVEL + 0.5) wet++;
@@ -816,17 +864,19 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   // derived from where the finished road leaves the camp, so swinging the
   // junction to find dry ground swings the gate with it.
   const exitAngle = rng() * Math.PI * 2;
-  const jRaw = findSite(terrain, camp.x, camp.z, 70, 96, exitAngle, 0.75, 12, rng);
+  const jRaw = findSite(terrain, camp.x, camp.z, TRUNK_MIN, TRUNK_MAX, exitAngle, 0.75, 12, rng);
   const junctionY = levelAt(jRaw.x, jRaw.z);
 
   const jAngle = Math.atan2(jRaw.x - camp.x, jRaw.z - camp.z);
   const spurA = jAngle + 0.95 + rng() * 0.5;
   const spurB = jAngle - 0.95 - rng() * 0.5;
   const hamletA = findSite(
-    terrain, jRaw.x, jRaw.z, 115, 165, spurA, 0.6, sites[1].radius, rng, sites[1].waterside,
+    terrain, jRaw.x, jRaw.z, SPUR_MIN, SPUR_MAX, spurA, 0.6, sites[1].radius, rng,
+    sites[1].waterside,
   );
   const hamletB = findSite(
-    terrain, jRaw.x, jRaw.z, 115, 165, spurB, 0.6, sites[2].radius, rng, sites[2].waterside,
+    terrain, jRaw.x, jRaw.z, SPUR_MIN, SPUR_MAX, spurB, 0.6, sites[2].radius, rng,
+    sites[2].waterside,
   );
   const sitePos = [camp, hamletA, hamletB];
   const siteY = [campY, levelAt(hamletA.x, hamletA.z), levelAt(hamletB.x, hamletB.z)];

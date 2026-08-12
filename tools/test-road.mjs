@@ -125,8 +125,44 @@ const out = await page.evaluate((groundSrc) => {
   }
   // Asked of the WHOLE network, so a mixed-width one answers per path instead
   // of against one remembered half-width.
+  //
+  // BUCKETED, and the buckets are why this probe still finishes. The test is
+  // asked once per 0.25-unit sample and used to scan EVERY segment in the
+  // network, so its cost was samples x segments — and both of those grow with
+  // the length of the roads. At the old 150-unit spacing that was ~5 minutes; at
+  // a kilometre a leg (issue #184) the same sweep took 11m42s, on its way to
+  // being unrunnable. A uniform grid answers from the handful of segments that
+  // could possibly be within `half` of the point, which makes the sweep linear
+  // in road length.
+  //
+  // IT IS AN INDEX, NOT A SAMPLE. Every column the old version tested is still
+  // tested and the answer for each is identical — the duplicated work where two
+  // arms overlap at the fork included, since a cell holds every segment that
+  // reaches it. Subsampling was the other way to make this cheap and it is the
+  // wrong one: the defects here are single columns, and a stride that halves the
+  // cost halves the chance of standing on one.
+  const CELL = 16;
+  const cellKey = (cx, cz) => `${cx},${cz}`;
+  const grid = new Map();
+  for (const seg of segs) {
+    const [ax, az, bx, bz, half] = seg;
+    const x0 = Math.floor((Math.min(ax, bx) - half) / CELL);
+    const x1 = Math.floor((Math.max(ax, bx) + half) / CELL);
+    const z0 = Math.floor((Math.min(az, bz) - half) / CELL);
+    const z1 = Math.floor((Math.max(az, bz) + half) / CELL);
+    for (let cx = x0; cx <= x1; cx++) {
+      for (let cz = z0; cz <= z1; cz++) {
+        const k = cellKey(cx, cz);
+        let bucket = grid.get(k);
+        if (!bucket) grid.set(k, bucket = []);
+        bucket.push(seg);
+      }
+    }
+  }
   const onRoad = (x, z) => {
-    for (const [ax, az, bx, bz, half] of segs) {
+    const bucket = grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (!bucket) return false;
+    for (const [ax, az, bx, bz, half] of bucket) {
       const dx = bx - ax, dz = bz - az;
       const L = dx * dx + dz * dz || 1;
       let u = ((x - ax) * dx + (z - az) * dz) / L;

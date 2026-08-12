@@ -395,6 +395,16 @@ async function run(solids, geom = null) {
     out.colliders = { perTown: [], roofs: 0, worstRoofFit: 0 };
     for (const town of sited) {
       const r = town.radius + 4;
+      // STAND IN THE TOWN BEFORE COUNTING IT. A structure's colliders arrive
+      // with its chunk, so what this reports is what is STREAMED, not what the
+      // registry knows about. That distinction cost nothing while the three
+      // towns stood ~250 units apart and were resident together; at a kilometre
+      // a leg (issue #184) counting Redbriar from the Encampment reports zero,
+      // which reads as "the builder produced nothing" and is really "you are
+      // not there". Wait on the world rather than on a clock, per AGENTS.md.
+      await page.evaluate(([x, z]) => window.__dbgTp(x, z), [town.x, town.z]);
+      await page.waitForFunction(() => !window.__dbgZone().streaming, { timeout: 60000 })
+        .catch(() => {});
       const [boxes, roofs] = await page.evaluate(
         ([x, z, rad]) => [
           window.__dbgStructures(x, z, rad).length,
@@ -448,17 +458,37 @@ async function run(solids, geom = null) {
  * have passed the 2326-box version at 92 ns anyway. The count is the guard; the
  * cost is the explanation.
  */
+//
+// RE-BASELINED WHEN THE TOWNS MOVED A KILOMETRE APART (issue #184). Not one
+// builder changed; the sites did, and a layout places what its ground allows.
+// What that did, measured on seed 1337 and looked at rather than accepted:
+//
+//   encampment  64 -> 65   the camp did not move, but the trunk road now leaves
+//                          on a different bearing, and the layout arranges
+//                          itself around its gate. One more fence bay.
+//   redbriar    41 -> 30   ELEVEN FEWER, and this is the one to look at twice:
+//                          a paddock's collider count IS its bay count
+//                          (world/fences.ts), and `buildFence` refuses a bay it
+//                          cannot lift clear of the ground under it. Redbriar's
+//                          new bank is rougher than its old one, so the chain
+//                          ends earlier. The mill is not missing anything it
+//                          was built with — its fence is shorter.
+//   stonewatch  28 -> 32   and 1 -> 2 roofs: it stands TWO huts now where it
+//                          stood one, both the standard hut ridge (fit 0.394,
+//                          read off __dbgRidges), because the flatter site the
+//                          wider levelness ring found has room for the second.
+//
 const BUDGET = {
   //           colliders   of which roofs
-  encampment: { total: 64, roofs: 5 },   // 3 huts, 2 ridge tents, 59 boxes
-  // THE TWO HAMLETS MOVED BY 2 EACH, and the reason is worth the line: their
-  // paddock arc is now a fence CHAIN (world/fences.ts, issue #105) instead of
-  // seven fixed panels, and a chain's collider is one box per bay — the top
-  // plank, which spans its bay end to end. Measured 38 -> 40 boxes at redbriar
-  // and 25 -> 27 at stonewatch; the posts and the lower plank carry no collider
-  // at all, so the count is the number of BAYS and nothing else.
-  redbriar: { total: 41, roofs: 1 },     // 1 hut
-  stonewatch: { total: 28, roofs: 1 },   // 1 hut
+  encampment: { total: 65, roofs: 5 },   // 3 huts, 2 ridge tents, 60 boxes
+  // The hamlet counts were 38 -> 40 and 25 -> 27 boxes when the paddock arc
+  // became a fence CHAIN (world/fences.ts, issue #105) instead of seven fixed
+  // panels: a chain's collider is one box per bay — the top plank, which spans
+  // its bay end to end. The posts and the lower plank carry no collider at all,
+  // so the count is the number of BAYS and nothing else, which is why re-siting
+  // a town moves it.
+  redbriar: { total: 30, roofs: 1 },     // 1 hut
+  stonewatch: { total: 32, roofs: 2 },   // 2 huts
 };
 /**
  * How far a roof cylinder may stand off its own thatch, world units.
