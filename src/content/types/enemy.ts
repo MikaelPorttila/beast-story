@@ -97,14 +97,6 @@ export interface EnemyVariant {
  */
 export interface EnemyCapture {
   /**
-   * The weakest orb that may bond it, as an `ItemDef.orbTier` — 1 Tame, 2
-   * Greater, 3 Ultra, 4 Master. Below it the orb always breaks, whatever the
-   * animal's health: this is the issue's "stronger beasts require better orbs",
-   * and it is a FLOOR rather than a modifier so that a player can read the
-   * failure as "wrong tool" instead of as bad luck.
-   */
-  readonly minTier: number;
-  /**
    * Divides the odds. 1 is an animal that comes quietly; the shipped roster runs
    * 1.0-2.2. See `captureChance` in src/combat/taming.ts for the whole formula —
    * this is the only half of it a designer sets.
@@ -184,34 +176,22 @@ function readVariant(value: unknown, ctx: Reader): EnemyVariant {
   };
 }
 
-/**
- * `ORB_TIERS` in src/core/items.ts, as a bound this file may state.
- *
- * A LITERAL rather than an import, for the reason `ELEMENT_NAMES` above is one:
- * core/items.ts reaches core/types.ts, which imports three.js at the top, and
- * nothing in src/content may pull the renderer in to validate a number. Four is
- * also not a tunable — it is how many orbs the issue asks for — so the failure
- * mode of the two drifting is a fifth orb nobody can require, which the
- * out-of-range diagnostic here names precisely.
- */
-const MAX_ORB_TIER = 4;
-
 function readCapture(value: unknown, ctx: Reader): EnemyCapture {
   if (!isRecord(value)) {
     ctx.report(
       'error',
       'bad-field',
       'expected a capture object',
-      'write { "minTier": 1, "difficulty": 1.4 }',
+      'write { "difficulty": 1.4 }',
     );
   }
   // The same annotation-not-a-cast device `readVariant` uses: an empty record
   // makes each reader below report its own missing field against its own path.
   const c: Record<string, unknown> = isRecord(value) ? value : {};
   return {
-    minTier: num(c.minTier, ctx.at('minTier'), { min: 1, max: MAX_ORB_TIER, what: 'an orb tier' }),
     // Floored at 1: a difficulty below it would make an animal EASIER than one
-    // that comes quietly, which the formula already expresses as a low minTier.
+    // that comes quietly. There is no floor on the ORB any more (issue #110) —
+    // every orb may be thrown at everything, and the tier only moves the odds.
     difficulty: num(c.difficulty, ctx.at('difficulty'), { min: 1, max: 20, what: 'a capture difficulty' }),
   };
 }

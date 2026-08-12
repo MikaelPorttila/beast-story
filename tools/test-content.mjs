@@ -168,15 +168,35 @@ const BOOT_PACKAGES = ['core', 'story', 'story-land'];
 /**
  * The WILD BEASTS (issue #4) — ids and order only, deliberately.
  *
- * A SEPARATE LIST from `ENEMIES` below rather than three more rows in it,
- * because the two are different kinds of baseline. `ENEMIES` is a pre-migration
- * record: every number in it was read off `git show HEAD:src/combat/enemies.ts`
- * and none of it may move. These are new content and have no pre-migration
- * value to pin — what is worth asserting is that they reach the world at all,
- * and that adding them disturbed neither the count nor the order of the three
- * that were already there. Keeping the lists apart is what says that.
+ * A SEPARATE LIST from `ENEMIES` below rather than more rows in it, because the
+ * two are different kinds of baseline. `ENEMIES` is a pre-migration record:
+ * every number in it was read off `git show HEAD:src/combat/enemies.ts` and none
+ * of it may move. These are new content and have no pre-migration value to pin —
+ * what is worth asserting is that they reach the world at all, and that adding
+ * them disturbed neither the count nor the order of the three painted enemies.
+ * Keeping the lists apart is what says that.
+ *
+ * TWELVE MORE OF THEM, because issue #110 asks that the player be able to
+ * capture every beast in the game and fifteen of the seventeen species had no
+ * way of appearing in the world at all. Every one of these wears an
+ * `enemy-model/beast-<id>` builder that `combat/enemies.ts` already derives from
+ * ALL_SPECIES, so none of it is new code — a wild Frostwing is the same rig as
+ * the Frostwing that follows you home, which is what makes bonding hand over a
+ * species without a mapping table.
+ *
+ * THE TWO SWIMMERS ARE NOT HERE. Finnick and Lanternfin are `locomotion:
+ * 'swimming'`, and the enemy schema's only movement field is `flying` — a
+ * swimmer authored as either walks the beach or hovers over it. They want water
+ * spawning, which is its own piece of work.
+ *
+ * Order is load order, which is `core.json`'s own order.
  */
-const WILD_BEASTS = ['wild-sproutle', 'wild-boulderpup', 'wild-galebird'];
+const WILD_BEASTS = [
+  'wild-sproutle', 'wild-boulderpup', 'wild-galebird',
+  'wild-emberfox', 'wild-sparkit', 'wild-umbrakit', 'wild-graveborn', 'wild-graveback',
+  'wild-frostwing', 'wild-lumimoth', 'wild-drakelet',
+  'wild-aquaxol', 'wild-rivotter', 'wild-coralback', 'wild-snapclaw',
+];
 
 /**
  * `STATS`, `ENEMY_DEFS` and the three variant tables in

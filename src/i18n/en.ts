@@ -201,7 +201,6 @@ export const en = {
   'toast.bondFailed': 'The orb broke. {beast} is loose again',
   'toast.orbNone': 'Ready a taming orb in your bag first',
   'toast.orbNoTarget': 'Aim at a wild beast before you throw',
-  'toast.orbTooWeak': 'A stronger orb than that is needed for {beast}',
   'toast.orbNotBondable': 'That one cannot be bonded',
   'toast.orbAlreadyOwned': '{beast} is already bonded to you',
 

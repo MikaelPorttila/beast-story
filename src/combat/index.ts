@@ -847,7 +847,15 @@ export class CombatSystem {
     // Full lock-on when there is a target — see the note above on why this is
     // not the bow's 0.
     p.homing = 1;
-    p.life = 2.2;              // ~35 units of flight at PROJ_SPEED
+    // IT DOES NOT RUN OUT BEFORE IT ARRIVES (issue #110: "fully homing, it
+    // can't miss"). 2.2 seconds was about 35 units of flight, which is inside
+    // the aim assist's own reach — so an orb thrown at the far edge of what the
+    // game had just highlighted expired in mid-air and broke on nothing. Ten
+    // seconds is ~160 units: further than anything can be selected from, so the
+    // life is no longer a range limit, it is only the guarantee that a pooled
+    // slot always comes back. What still ends a throw early is the ground, and
+    // that is not a miss — it is a hill between you and the animal.
+    p.life = 10;
     p.trailT = 0;
     p.spin = 0;
     p.orbItem = def;
