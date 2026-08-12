@@ -6,9 +6,9 @@
  * a KIND rather than a source, taking a share of a burst that was going to happen
  * anyway. The dominant cost is one `world.getHeight` per FALLING particle.
  */
-import * as THREE from 'three';
-import type { CrownContact, World, WorldBound } from '../core/types';
-import { perf } from '../core/profiler';
+import * as THREE from "three";
+import type { CrownContact, World, WorldBound } from "../core/types";
+import { perf } from "../core/profiler";
 
 /** Pool size, fixed forever: one sprinted traverse of a crown plus the last one's tail. */
 const MAX = 64;
@@ -97,7 +97,7 @@ interface ContactSource {
 }
 
 const LEAF: ParticleKind = {
-  id: 'leaf',
+  id: "leaf",
   // A canopy VOXEL is 0.40-0.52 units and is a clump of foliage; a leaf is smaller.
   long: 1,
   thick: 0.14,
@@ -126,7 +126,7 @@ const LEAF: ParticleKind = {
  * launch, and a short rest, which is what pays for the longer air time.
  */
 const SNOW: ParticleKind = {
-  id: 'snow',
+  id: "snow",
   // props.ts's pine cap opened up a stop: at its own albedo a flake reads ash-grey.
   tint: new THREE.Color().setHex(0xe8f2fa),
   long: 0.62,
@@ -169,7 +169,9 @@ function smoothstep(a: number, b: number, v: number): number {
  *  NOT start at 0: the world only caps a pine past cover 0.5. Takes the COVER, not a
  *  column, so the source spends one sample and uses it twice. */
 function snowShare(cover: number, s: ContactSource): number {
-  if (s.snowMax <= 0) return 0;
+  if (s.snowMax <= 0) {
+    return 0;
+  }
   return s.snowMax * smoothstep(s.snowFrom, s.snowTo, cover);
 }
 
@@ -186,7 +188,7 @@ function hash01(x: number, z: number, salt: number): number {
 /** Leaves, the only implemented element. The contact test is a sphere at the hero's
  *  chest against the same canopy dome `climbTopAt` stands him on. */
 const LEAVES: ContactSource = {
-  id: 'leaves',
+  id: "leaves",
   kind: K_LEAF,
   // Starts where props.ts swaps oaks for pines; full at 0.85, since cover flatlines early.
   snowFrom: 0.5,
@@ -199,7 +201,9 @@ const LEAVES: ContactSource = {
   probe(mover, world, out): boolean {
     const p = mover.position;
     const y = p.y + CHEST_Y;
-    if (!world.crownContactAt(p.x, y, p.z, mover.radius + CHEST_PAD, _hit)) return false;
+    if (!world.crownContactAt(p.x, y, p.z, mover.radius + CHEST_PAD, _hit)) {
+      return false;
+    }
     out.x = p.x;
     out.y = y;
     out.z = p.z;
@@ -235,10 +239,21 @@ const LEAVES: ContactSource = {
 const SOURCES: ContactSource[] = [LEAVES];
 
 const _hit: CrownContact = {
-  treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, crownRy: 0,
+  treeX: 0,
+  treeZ: 0,
+  crownR: 0,
+  crownCy: 0,
+  crownRy: 0,
 };
 const _point: ContactPoint = {
-  x: 0, y: 0, z: 0, spread: 0, dirX: 0, dirZ: 0, color: new THREE.Color(), snow: 0,
+  x: 0,
+  y: 0,
+  z: 0,
+  spread: 0,
+  dirX: 0,
+  dirZ: 0,
+  color: new THREE.Color(),
+  snow: 0,
 };
 
 /** The pool, the policy and the draw call. WorldBound because settled particles belong
@@ -306,7 +321,10 @@ export class TouchParticles implements WorldBound {
   /** Lifetime spawns per KIND: the mix is a coin flip, so counting states it honestly. */
   private kindSpawned = new Float64Array(KINDS.length);
 
-  constructor(private scene: THREE.Scene, private world: World) {
+  constructor(
+    private scene: THREE.Scene,
+    private world: World,
+  ) {
     // ONE geometry for every element — plate, cube and droplet are this box rescaled.
     const geo = new THREE.BoxGeometry(1, 1, 1);
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
@@ -339,7 +357,9 @@ export class TouchParticles implements WorldBound {
     if (this.freeCount > 0) {
       const i = this.freeList[--this.freeCount];
       this.live++;
-      if (this.live > this.st.maxLive) this.st.maxLive = this.live;
+      if (this.live > this.st.maxLive) {
+        this.st.maxLive = this.live;
+      }
       return i;
     }
     let oldest = -1;
@@ -364,7 +384,9 @@ export class TouchParticles implements WorldBound {
 
   /** Give a slot back. Never called on an airborne particle — see `st`. */
   private release(i: number): void {
-    if (this.state[i] === AIR) this.st.recycledAirborne++;
+    if (this.state[i] === AIR) {
+      this.st.recycledAirborne++;
+    }
     this.state[i] = FREE;
     this.freeList[this.freeCount++] = i;
     this.live--;
@@ -384,7 +406,9 @@ export class TouchParticles implements WorldBound {
 
   private spawn(kn: number, pt: ContactPoint): boolean {
     const i = this.acquire();
-    if (i < 0) return false;
+    if (i < 0) {
+      return false;
+    }
     const k = KINDS[kn];
 
     // Scattered over the patch, sqrt-weighted so the disc fills evenly.
@@ -442,17 +466,23 @@ export class TouchParticles implements WorldBound {
       if (this.wasTouching[s] === 0) {
         this.wasTouching[s] = 1;
         for (let n = 0; n < src.onset; n++) {
-          if (!this.spawn(this.pickKind(s, _point), _point)) break;
+          if (!this.spawn(this.pickKind(s, _point), _point)) {
+            break;
+          }
         }
       }
       const brush = Math.min(1, speed / src.brushSpeed);
       this.acc[s] += src.rate * brush * dt;
       while (this.acc[s] >= 1) {
         this.acc[s] -= 1;
-        if (!this.spawn(this.pickKind(s, _point), _point)) break;
+        if (!this.spawn(this.pickKind(s, _point), _point)) {
+          break;
+        }
       }
       // A refused spawn must not bank credit, or the backlog dumps when a slot frees.
-      if (this.acc[s] > 1) this.acc[s] = 1;
+      if (this.acc[s] > 1) {
+        this.acc[s] = 1;
+      }
     }
   }
 
@@ -465,11 +495,15 @@ export class TouchParticles implements WorldBound {
 
   /** One slice per non-free particle; exp forms, since several may drain in one frame. */
   private integrate(dt: number): void {
-    if (this.live === 0) return;
+    if (this.live === 0) {
+      return;
+    }
     let airborne = 0;
     for (let i = 0; i < MAX; i++) {
       const st = this.state[i];
-      if (st === FREE) continue;
+      if (st === FREE) {
+        continue;
+      }
       const k = KINDS[this.knd[i]];
       let s = this.size[i];
 
@@ -537,13 +571,17 @@ export class TouchParticles implements WorldBound {
       this.mesh.setMatrixAt(i, _mat4);
     }
     this.dirty = true;
-    if (airborne > this.st.maxAirborne) this.st.maxAirborne = airborne;
+    if (airborne > this.st.maxAirborne) {
+      this.st.maxAirborne = airborne;
+    }
   }
 
   /** One slice. `mover` may be null: a modal freezes the hero, but leaves keep falling. */
   update(dt: number, mover: ContactMover | null): void {
     const t0 = perf.enabled ? performance.now() : 0;
-    if (mover) this.probeContacts(dt, mover);
+    if (mover) {
+      this.probeContacts(dt, mover);
+    }
     this.integrate(dt);
     if (this.colorDirty && this.mesh.instanceColor) {
       this.mesh.instanceColor.needsUpdate = true;
@@ -555,7 +593,9 @@ export class TouchParticles implements WorldBound {
     }
     if (perf.enabled) {
       this.st.ms = performance.now() - t0;
-      if (this.st.ms > this.st.msMax) this.st.msMax = this.st.ms;
+      if (this.st.ms > this.st.msMax) {
+        this.st.msMax = this.st.ms;
+      }
     }
   }
 
@@ -564,12 +604,16 @@ export class TouchParticles implements WorldBound {
   private clear(): void {
     this.state.fill(FREE);
     this.freeCount = MAX;
-    for (let i = 0; i < MAX; i++) this.freeList[i] = MAX - 1 - i;
+    for (let i = 0; i < MAX; i++) {
+      this.freeList[i] = MAX - 1 - i;
+    }
     this.live = 0;
     this.acc.fill(0);
     this.wasTouching.fill(0);
     _mat4.makeScale(0, 0, 0);
-    for (let i = 0; i < MAX; i++) this.mesh.setMatrixAt(i, _mat4);
+    for (let i = 0; i < MAX; i++) {
+      this.mesh.setMatrixAt(i, _mat4);
+    }
     this.mesh.instanceMatrix.needsUpdate = true;
     this.dirty = false;
   }
@@ -587,9 +631,13 @@ export class TouchParticles implements WorldBound {
     let shrinking = 0;
     for (let i = 0; i < MAX; i++) {
       const s = this.state[i];
-      if (s === AIR) air++;
-      else if (s === SETTLED) settled++;
-      else if (s === SHRINK) shrinking++;
+      if (s === AIR) {
+        air++;
+      } else if (s === SETTLED) {
+        settled++;
+      } else if (s === SHRINK) {
+        shrinking++;
+      }
     }
     const out: Record<string, number> = {
       pool: MAX,
@@ -602,7 +650,9 @@ export class TouchParticles implements WorldBound {
       ms: +this.st.ms.toFixed(4),
       msMax: +this.st.msMax.toFixed(4),
     };
-    for (let k = 0; k < KINDS.length; k++) out[`spawned_${KINDS[k].id}`] = this.kindSpawned[k];
+    for (let k = 0; k < KINDS.length; k++) {
+      out[`spawned_${KINDS[k].id}`] = this.kindSpawned[k];
+    }
     return out;
   }
 
@@ -622,7 +672,9 @@ export class TouchParticles implements WorldBound {
     _point.color.setHex(LEAF_BASE);
     _point.color.lerp(NEEDLE_COL, cover);
     let placed = 0;
-    for (let i = 0; i < n; i++) if (this.spawn(this.pickKind(s, _point), _point)) placed++;
+    for (let i = 0; i < n; i++) {
+      if (this.spawn(this.pickKind(s, _point), _point)) placed++;
+    }
     return placed;
   }
 

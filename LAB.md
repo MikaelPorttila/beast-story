@@ -24,39 +24,39 @@ bun tools/lab-shot.mjs shots/lab-fox.png "beast=emberfox&t=2"
 
 ## Parameters
 
-| Parameter | Effect |
-| --- | --- |
-| `beast=<id>` | One beast — ids in `src/beasts/registry.ts` |
-| `beasts=all` or `beasts=a,b,c` | Lineup, evenly spaced, framed to fit |
-| `spacing=<units>` | Lineup spacing (default 2.0) |
-| `enemy=gloopling\|snortle\|peckit` | One enemy (`variant=<n>` for palette variants) |
-| `hero=1` | The player character rig, posed by the game's own `HeroAnimator` |
-| `weapon=<id>` | What is in his hand — `sword greatsword bow dagger scythe` (default: the sword the rig is built with) |
-| `stow=1` | Carry it on his back instead, as the game does out of combat |
-| `hair=<id>` | Which hairstyle — ids in `src/player/hair.ts` (`classic buzz bowl curtain ponytail emo cloud mohawk saiyan`); default: whatever the player last picked |
-| `haircolour=RRGGBB` | Draw it in this colour instead of the style's own |
-| `skill=<skillId>` | Fires that skill on a loop at a dummy 6 units away |
-| `anim=<action>` | `idle walk run swim fly attack cast special hurt happy` — the hero also answers to `climb ride dead` |
-| `follow=1` | The owner teleports around the stage and the beasts chase it, instead of standing on their marks — the catch-up case, without a world |
-| `jump=<seconds>` | How often it teleports (default 1.2) |
-| `reach=<units>` | How far away it reappears (default 14) |
-| `waterfall=1` | A waterfall VFX (`src/world/waterfall.ts`) on a bare stage |
-| `fall=<units>` | How far it falls before it is invisible (default 48) |
-| `push=<units>` | How far it is pushed sideways over that (default 0) |
-| `spray=<n>` | Droplet budget (default 128, `0` = none) |
-| `lean=<units/s>` | Fake a carrier's sideways motion, to see the plume trail |
-| `fence=<demo>` | The paths and fences stage (`src/lab/paths-stage.ts`) — see below |
-| `orbs=1` | The four taming orbs in a row, turning (`src/combat/tame-orb.ts`) |
-| `gap=<units>` | Spacing between the orbs (default: 1.5 diameters, so they never touch) |
-| `scale=<n>` | How big each orb is drawn (default 2.4) |
-| `face=<deg>` | Turn the subject to an ABSOLUTE bearing, independent of the camera — `90` is broadside, `180` is the rump. Without it a lone subject turns with the lens and always presents its face, which makes a quadruped's profile unreachable |
-| `t=<seconds>` | Simulate this long, render **one frozen frame**, stop |
-| `spin=1` | Turntable |
-| `water=1` | Flood the stage (swim / amphibious testing) |
-| `dist` `height` `angle` | Camera framing (units, units, degrees) |
-| `bg=RRGGBB` | Backdrop colour (also disables fog) |
-| `grid=0` | Hide the floor |
-| `fps=<n>` | Frame-rate cap; `0` = uncapped |
+| Parameter                          | Effect                                                                                                                                                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `beast=<id>`                       | One beast — ids in `src/beasts/registry.ts`                                                                                                                                                                                          |
+| `beasts=all` or `beasts=a,b,c`     | Lineup, evenly spaced, framed to fit                                                                                                                                                                                                 |
+| `spacing=<units>`                  | Lineup spacing (default 2.0)                                                                                                                                                                                                         |
+| `enemy=gloopling\|snortle\|peckit` | One enemy (`variant=<n>` for palette variants)                                                                                                                                                                                       |
+| `hero=1`                           | The player character rig, posed by the game's own `HeroAnimator`                                                                                                                                                                     |
+| `weapon=<id>`                      | What is in his hand — `sword greatsword bow dagger scythe` (default: the sword the rig is built with)                                                                                                                                |
+| `stow=1`                           | Carry it on his back instead, as the game does out of combat                                                                                                                                                                         |
+| `hair=<id>`                        | Which hairstyle — ids in `src/player/hair.ts` (`classic buzz bowl curtain ponytail emo cloud mohawk saiyan`); default: whatever the player last picked                                                                               |
+| `haircolour=RRGGBB`                | Draw it in this colour instead of the style's own                                                                                                                                                                                    |
+| `skill=<skillId>`                  | Fires that skill on a loop at a dummy 6 units away                                                                                                                                                                                   |
+| `anim=<action>`                    | `idle walk run swim fly attack cast special hurt happy` — the hero also answers to `climb ride dead`                                                                                                                                 |
+| `follow=1`                         | The owner teleports around the stage and the beasts chase it, instead of standing on their marks — the catch-up case, without a world                                                                                                |
+| `jump=<seconds>`                   | How often it teleports (default 1.2)                                                                                                                                                                                                 |
+| `reach=<units>`                    | How far away it reappears (default 14)                                                                                                                                                                                               |
+| `waterfall=1`                      | A waterfall VFX (`src/world/waterfall.ts`) on a bare stage                                                                                                                                                                           |
+| `fall=<units>`                     | How far it falls before it is invisible (default 48)                                                                                                                                                                                 |
+| `push=<units>`                     | How far it is pushed sideways over that (default 0)                                                                                                                                                                                  |
+| `spray=<n>`                        | Droplet budget (default 128, `0` = none)                                                                                                                                                                                             |
+| `lean=<units/s>`                   | Fake a carrier's sideways motion, to see the plume trail                                                                                                                                                                             |
+| `fence=<demo>`                     | The paths and fences stage (`src/lab/paths-stage.ts`) — see below                                                                                                                                                                    |
+| `orbs=1`                           | The four taming orbs in a row, turning (`src/combat/tame-orb.ts`)                                                                                                                                                                    |
+| `gap=<units>`                      | Spacing between the orbs (default: 1.5 diameters, so they never touch)                                                                                                                                                               |
+| `scale=<n>`                        | How big each orb is drawn (default 2.4)                                                                                                                                                                                              |
+| `face=<deg>`                       | Turn the subject to an ABSOLUTE bearing, independent of the camera — `90` is broadside, `180` is the rump. Without it a lone subject turns with the lens and always presents its face, which makes a quadruped's profile unreachable |
+| `t=<seconds>`                      | Simulate this long, render **one frozen frame**, stop                                                                                                                                                                                |
+| `spin=1`                           | Turntable                                                                                                                                                                                                                            |
+| `water=1`                          | Flood the stage (swim / amphibious testing)                                                                                                                                                                                          |
+| `dist` `height` `angle`            | Camera framing (units, units, degrees)                                                                                                                                                                                               |
+| `bg=RRGGBB`                        | Backdrop colour (also disables fog)                                                                                                                                                                                                  |
+| `grid=0`                           | Hide the floor                                                                                                                                                                                                                       |
+| `fps=<n>`                          | Frame-rate cap; `0` = uncapped                                                                                                                                                                                                       |
 
 ## Roads on real ground
 
@@ -68,18 +68,18 @@ CUBES — a cell reaching into a corridor by its corner, a shoulder that rounds
 to a different integer a metre away, a chord that spans a whole step — and none
 of that can happen over `fence=`'s analytic field.
 
-| Case | What it is for |
-| --- | --- |
-| `axis` | A straight run along +x — the control |
-| `angle` | The same run at 45° to the voxel grid: the corner-first case |
-| `slope` | Up the steepest hillside on the seed, so `round(deck)` flips often |
-| `bend` | A curve, where consecutive rings face different ways |
-| `bridge` | Over water: the carve is off and the deck is held clear |
-| `fork` | Three arms and an apron |
-| `cross` | Four arms, made through `mergeCrossings` like the editor's |
-| `foot` | The narrow profile, whose band is half the width |
-| `trail` | The trail profile on the steepest ground a trail can exist on |
-| `all` | Every one of them, on its own patch of dry ground |
+| Case     | What it is for                                                     |
+| -------- | ------------------------------------------------------------------ |
+| `axis`   | A straight run along +x — the control                              |
+| `angle`  | The same run at 45° to the voxel grid: the corner-first case       |
+| `slope`  | Up the steepest hillside on the seed, so `round(deck)` flips often |
+| `bend`   | A curve, where consecutive rings face different ways               |
+| `bridge` | Over water: the carve is off and the deck is held clear            |
+| `fork`   | Three arms and an apron                                            |
+| `cross`  | Four arms, made through `mergeCrossings` like the editor's         |
+| `foot`   | The narrow profile, whose band is half the width                   |
+| `trail`  | The trail profile on the steepest ground a trail can exist on      |
+| `all`    | Every one of them, on its own patch of dry ground                  |
 
 `__dbgRoadLab()` reports every case's deck, and `__dbgRoadSurf(x, z)` is the
 lab's own `__dbgSurfaceY` — a raycast of the actual scene, which is the only
@@ -99,16 +99,16 @@ bun tools/lab-shot.mjs shots/_road.png "road=angle&t=1&angle=60&height=14&dist=3
 look at a bridge or a road fence used to be to load the world and walk to the
 one the seed happened to build.
 
-| Demo | What it is for |
-| --- | --- |
-| `slope` | A straight run over a ridge — the fence line moves under the fence |
-| `turn` | A right angle, so a corner post has to carry both bays |
-| `ring` | A closed ring: the last bay joins back to the first |
-| `gate` | A run with refused bays in the middle — what a road crossing leaves |
-| `variants` | Every post variant on one run, lanterns lit |
-| `bridge` | A deck over a channel: soffit, piers and both railings |
-| `transition` | A cart road becoming a footpath at a two-arm node |
-| `all` | Every one of them, laid out around the origin |
+| Demo         | What it is for                                                      |
+| ------------ | ------------------------------------------------------------------- |
+| `slope`      | A straight run over a ridge — the fence line moves under the fence  |
+| `turn`       | A right angle, so a corner post has to carry both bays              |
+| `ring`       | A closed ring: the last bay joins back to the first                 |
+| `gate`       | A run with refused bays in the middle — what a road crossing leaves |
+| `variants`   | Every post variant on one run, lanterns lit                         |
+| `bridge`     | A deck over a channel: soffit, piers and both railings              |
+| `transition` | A cart road becoming a footpath at a two-arm node                   |
+| `all`        | Every one of them, laid out around the origin                       |
 
 `transition` is the second path PROFILE (`world/path-profile.ts`) beside the
 first: same mechanism, half the width, its own palette, no lamps and no

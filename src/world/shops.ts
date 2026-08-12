@@ -14,13 +14,13 @@
  * builder just painted, so a den's boxes are its walls by construction and
  * cannot drift when someone resizes the deck.
  */
-import * as THREE from 'three';
-import { VoxelModel, shade } from '../core/voxel';
-import { ELEMENT_COLORS, type ElementType } from '../core/types';
-import { relight, type SolidBox } from './props';
-import { measureFootprint, StructureField } from './structures';
+import * as THREE from "three";
+import { VoxelModel, shade } from "../core/voxel";
+import { ELEMENT_COLORS, type ElementType } from "../core/types";
+import { relight, type SolidBox } from "./props";
+import { measureFootprint, StructureField } from "./structures";
 
-const DEN_ELEMENTS: ElementType[] = ['fire', 'water', 'grass', 'electric'];
+const DEN_ELEMENTS: ElementType[] = ["fire", "water", "grass", "electric"];
 
 export interface DenSpot {
   x: number;
@@ -42,18 +42,20 @@ const glowTexCache = new Map<number, THREE.Texture>();
 
 function glowTexture(hex: number): THREE.Texture {
   const cached = glowTexCache.get(hex);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const size = 64;
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext("2d")!;
   const c = new THREE.Color(hex);
   const r = Math.round(c.r * 255);
   const g = Math.round(c.g * 255);
   const b = Math.round(c.b * 255);
   const grad = ctx.createRadialGradient(size / 2, size / 2, 2, size / 2, size / 2, size / 2);
-  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0, "rgba(255,255,255,1)");
   grad.addColorStop(0.25, `rgba(${r},${g},${b},0.9)`);
   grad.addColorStop(0.6, `rgba(${r},${g},${b},0.35)`);
   grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
@@ -74,20 +76,22 @@ const glyphTexCache = new Map<string, THREE.Texture>();
  */
 function glyphTexture(el: ElementType, hex: number): THREE.Texture {
   const cached = glyphTexCache.get(el);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const size = 64;
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext("2d")!;
   const c = new THREE.Color(hex);
   ctx.fillStyle = `rgb(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)})`;
-  ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+  ctx.strokeStyle = "rgba(255,255,255,0.95)";
   ctx.lineWidth = 2.5;
-  ctx.lineJoin = 'round';
+  ctx.lineJoin = "round";
   ctx.beginPath();
   switch (el) {
-    case 'fire':
+    case "fire":
       // flame: teardrop body with a licking tip
       ctx.moveTo(32, 5);
       ctx.bezierCurveTo(30, 16, 44, 20, 47, 33);
@@ -96,7 +100,7 @@ function glyphTexture(el: ElementType, hex: number): THREE.Texture {
       ctx.bezierCurveTo(17, 27, 23, 24, 24, 17);
       ctx.bezierCurveTo(28, 21, 30, 14, 32, 5);
       break;
-    case 'water':
+    case "water":
       // droplet
       ctx.moveTo(32, 5);
       ctx.bezierCurveTo(42, 22, 50, 30, 50, 40);
@@ -104,7 +108,7 @@ function glyphTexture(el: ElementType, hex: number): THREE.Texture {
       ctx.bezierCurveTo(22, 58, 14, 50, 14, 40);
       ctx.bezierCurveTo(14, 30, 22, 22, 32, 5);
       break;
-    case 'grass':
+    case "grass":
       // leaf with a pointed tip
       ctx.moveTo(32, 6);
       ctx.quadraticCurveTo(54, 18, 50, 40);
@@ -112,7 +116,7 @@ function glyphTexture(el: ElementType, hex: number): THREE.Texture {
       ctx.quadraticCurveTo(13, 51, 14, 30);
       ctx.quadraticCurveTo(15, 14, 32, 6);
       break;
-    case 'electric':
+    case "electric":
       // zigzag bolt
       ctx.moveTo(38, 4);
       ctx.lineTo(16, 36);
@@ -220,7 +224,9 @@ export class Shops {
     v.box(10, 2, 10, 11, 12, 11, woodDark);
     // back wall + beams
     v.box(-10, 2, -11, 10, 12, -10, cream);
-    for (const bx of [-10, -5, 0, 5, 10]) v.box(bx, 2, -10, bx, 12, -10, woodDark);
+    for (const bx of [-10, -5, 0, 5, 10]) {
+      v.box(bx, 2, -10, bx, 12, -10, woodDark);
+    }
     v.box(-10, 12, -10, 10, 12, -10, woodDark);
     // half side walls
     v.box(-11, 2, -10, -10, 10, -3, cream);
@@ -300,8 +306,8 @@ export class Shops {
     {
       const g = buildingMesh.geometry;
       relight(
-        (g.getAttribute('normal') as THREE.BufferAttribute).array as Float32Array,
-        (g.getAttribute('color') as THREE.BufferAttribute).array as Float32Array,
+        (g.getAttribute("normal") as THREE.BufferAttribute).array as Float32Array,
+        (g.getAttribute("color") as THREE.BufferAttribute).array as Float32Array,
       );
     }
     den.add(buildingMesh);
@@ -396,7 +402,7 @@ export class Shops {
       a.crystal.position.y = Math.sin(t * 1.5) * 0.14;
       a.crystal.rotation.y = t * 0.8;
       for (let k = 0; k < a.orbiters.length; k++) {
-        const ang = t * 1.4 + k * (Math.PI * 2 / 3);
+        const ang = t * 1.4 + k * ((Math.PI * 2) / 3);
         a.orbiters[k].position.set(
           Math.cos(ang) * 0.85,
           Math.sin(t * 2 + k * 1.3) * 0.22,
@@ -410,7 +416,9 @@ export class Shops {
   }
 
   dispose(): void {
-    for (const d of this.disposables) d.dispose();
+    for (const d of this.disposables) {
+      d.dispose();
+    }
     this.anims.length = 0;
   }
 }

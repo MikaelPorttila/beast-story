@@ -24,11 +24,11 @@
  * is still true — it walks `NPC_BODIES`, so all three are covered the moment
  * they are in the roster.
  */
-import * as THREE from 'three';
-import { VoxelModel } from '../core/voxel';
-import { relight } from './props';
-import { measureFootprint } from './structures';
-import type { NpcAnimCtx, NpcBody, NpcRig } from './npc';
+import * as THREE from "three";
+import { VoxelModel } from "../core/voxel";
+import { relight } from "./props";
+import { measureFootprint } from "./structures";
+import type { NpcAnimCtx, NpcBody, NpcRig } from "./npc";
 
 /** World units per voxel — the hero's and Gain's. A face needs 10 cm cells. */
 const S = 0.1;
@@ -50,7 +50,7 @@ const SHOULDER_Y = 1.16;
  * for the same reason in every axis this file parts.
  */
 const SHOULDER_X = 0.32;
-const NECK_Y = 1.30;
+const NECK_Y = 1.3;
 /** See the header: a fifth of a voxel, to part the head's z-grid from the body's. */
 const NECK_Z = 0.02;
 const UPPER_ARM = 0.34;
@@ -150,9 +150,9 @@ function buildBody(s: Skin): VoxelModel {
   v.box(0, 2, -2, 2, 5, 1, s.legs);
   // tunic: a touch wider than the hips so it reads as cloth over a body
   v.box(-4, 6, -2, 3, 12, 1, s.cloth);
-  v.box(-4, 6, -2, 3, 6, 1, s.clothD);      // hem in shade
-  v.box(-4, 7, -3, 3, 11, -3, s.clothD);    // the back, away from the sun
-  v.box(-4, 8, -2, -4, 12, 1, s.clothD);    // and the left flank
+  v.box(-4, 6, -2, 3, 6, 1, s.clothD); // hem in shade
+  v.box(-4, 7, -3, 3, 11, -3, s.clothD); // the back, away from the sun
+  v.box(-4, 8, -2, -4, 12, 1, s.clothD); // and the left flank
   // belt
   v.box(-4, 7, -3, 3, 7, 2, BELT);
   v.box(-1, 7, 2, 0, 7, 2, BUCKLE);
@@ -243,8 +243,8 @@ function mkMesh(model: VoxelModel, out: NpcRig): THREE.Mesh {
   const mesh = model.build(S, true);
   const g = mesh.geometry;
   relight(
-    (g.getAttribute('normal') as THREE.BufferAttribute).array as Float32Array,
-    (g.getAttribute('color') as THREE.BufferAttribute).array as Float32Array,
+    (g.getAttribute("normal") as THREE.BufferAttribute).array as Float32Array,
+    (g.getAttribute("color") as THREE.BufferAttribute).array as Float32Array,
   );
   // `build` re-bases the mesh so its LOWEST voxel sits at y = 0, so a part
   // painted DOWNWARD from its joint comes back lifted by its own overhang and
@@ -282,7 +282,10 @@ function buildRig(s: Skin): NpcRig {
   body.add(head);
 
   const parts: Record<string, THREE.Object3D> = { body, head };
-  for (const [side, sx] of [['L', 1], ['R', -1]] as const) {
+  for (const [side, sx] of [
+    ["L", 1],
+    ["R", -1],
+  ] as const) {
     const shoulder = new THREE.Group();
     shoulder.position.set(SHOULDER_X * sx, SHOULDER_Y, -0.02);
     shoulder.add(mkMesh(buildUpperArm(s), rig));
@@ -309,8 +312,8 @@ function buildRig(s: Skin): NpcRig {
     // 0.004 threshold on both joints at once.
     held.position.set(s.propX ?? PROP_X, -FOREARM + PROP_Y, s.propZ);
     held.add(mkMesh(s.prop(), rig));
-    parts['elbowR'].add(held);
-    parts['prop'] = held;
+    parts["elbowR"].add(held);
+    parts["prop"] = held;
   }
 
   rig.parts = parts;
@@ -345,32 +348,31 @@ function animateWith(s: Skin, rig: NpcRig, ctx: NpcAnimCtx): void {
   // Attention, smoothed. The framework's flag is a hard boolean at a range
   // boundary and posing straight off it would snap the chin up the instant the
   // player crosses the line.
-  rig.state.attend += ((ctx.attended ? 1 : 0) - rig.state.attend)
-    * (1 - Math.exp(-6 * ctx.dt));
+  rig.state.attend += ((ctx.attended ? 1 : 0) - rig.state.attend) * (1 - Math.exp(-6 * ctx.dt));
   const attend = rig.state.attend;
 
-  const body = p['body'];
+  const body = p["body"];
   body.position.y = Math.sin(ctx.time * 1.4) * 0.011;
   body.rotation.y = Math.sin(ctx.time * 0.37) * 0.04 * (1 - attend);
   body.rotation.x = c * 0.03;
 
-  const head = p['head'];
+  const head = p["head"];
   // The work is what they look at until somebody turns up, and then it is you.
   head.rotation.x = s.gaze * (1 - attend) - attend * 0.06 + c * 0.05;
-  head.rotation.y = Math.sin(ctx.time * (Math.PI * 2 / s.period)) * s.scan * (1 - attend);
+  head.rotation.y = Math.sin(ctx.time * ((Math.PI * 2) / s.period)) * s.scan * (1 - attend);
   head.rotation.z = Math.sin(ctx.time * 0.61) * 0.02;
 
   // The working arm does the job; the other one keeps its own slow time, so
   // neither of them is ever perfectly still and they are never in step.
-  const armR = p['armR'];
+  const armR = p["armR"];
   armR.rotation.x = -0.12 - c * s.reach;
   armR.rotation.z = -0.11;
-  p['elbowR'].rotation.x = -0.5 - c * (s.reach * 0.6);
+  p["elbowR"].rotation.x = -0.5 - c * (s.reach * 0.6);
 
-  const armL = p['armL'];
+  const armL = p["armL"];
   armL.rotation.x = 0.1 + Math.sin(ctx.time * 1.1) * 0.03;
   armL.rotation.z = 0.12;
-  p['elbowL'].rotation.x = -0.55 - Math.sin(ctx.time * 1.1 + 0.7) * 0.05;
+  p["elbowL"].rotation.x = -0.55 - Math.sin(ctx.time * 1.1 + 0.7) * 0.05;
 }
 
 // ---------------------------------------------------------------------------
@@ -386,24 +388,47 @@ function bodyFor(s: Skin): NpcBody {
 
 /** The helmsman: navy coat, spyglass, watches the horizon go by. */
 export const SKY_PILOT_BODY = bodyFor({
-  cloth: 0x2f4a72, clothD: 0x233858, legs: 0x3b3f4a,
-  hair: 0x4a3a2c, hairD: 0x35281d,
-  prop: buildSpyglass, propZ: 0.16, propX: 0.09,
-  period: 5.6, reach: 0.95, scan: 0.34, gaze: -0.10,
+  cloth: 0x2f4a72,
+  clothD: 0x233858,
+  legs: 0x3b3f4a,
+  hair: 0x4a3a2c,
+  hairD: 0x35281d,
+  prop: buildSpyglass,
+  propZ: 0.16,
+  propX: 0.09,
+  period: 5.6,
+  reach: 0.95,
+  scan: 0.34,
+  gaze: -0.1,
 });
 
 /** The gardener: green apron, watering can, works the deck's one green acre. */
 export const SKY_GARDENER_BODY = bodyFor({
-  cloth: 0x5f7d47, clothD: 0x475f36, legs: 0x6b5a41,
-  hair: 0xa8823f, hairD: 0x82632c,
-  prop: buildCan, propZ: 0.14,
-  period: 3.4, reach: 0.55, scan: 0.16, gaze: 0.22,
+  cloth: 0x5f7d47,
+  clothD: 0x475f36,
+  legs: 0x6b5a41,
+  hair: 0xa8823f,
+  hairD: 0x82632c,
+  prop: buildCan,
+  propZ: 0.14,
+  period: 3.4,
+  reach: 0.55,
+  scan: 0.16,
+  gaze: 0.22,
 });
 
 /** The lamplighter: ochre coat, pole lantern, keeps the rim lights burning. */
 export const SKY_LAMPLIGHTER_BODY = bodyFor({
-  cloth: 0x8a6134, clothD: 0x694723, legs: 0x4a4239,
-  hair: 0xd9d2c4, hairD: 0xb0a89a,
-  prop: buildLantern, propZ: 0.17, propX: 0.09,
-  period: 4.8, reach: 0.75, scan: 0.24, gaze: -0.04,
+  cloth: 0x8a6134,
+  clothD: 0x694723,
+  legs: 0x4a4239,
+  hair: 0xd9d2c4,
+  hairD: 0xb0a89a,
+  prop: buildLantern,
+  propZ: 0.17,
+  propX: 0.09,
+  period: 4.8,
+  reach: 0.75,
+  scan: 0.24,
+  gaze: -0.04,
 });

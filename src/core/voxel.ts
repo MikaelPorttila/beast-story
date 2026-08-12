@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 /** The cells one bracketed loop painted. See `VoxelModel.region`. */
 export interface VoxelRegion {
@@ -30,7 +30,9 @@ export class VoxelModel {
     } finally {
       this.recording = outer;
       // A nested region belongs to its parent too.
-      if (outer) for (const k of own) outer.add(k);
+      if (outer) {
+        for (const k of own) outer.add(k);
+      }
     }
     return { has: (x, y, z) => own.has(`${x},${y},${z}`), size: own.size };
   }
@@ -45,26 +47,37 @@ export class VoxelModel {
   }
 
   box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: number): void {
-    for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
+    for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
       for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++)
-        for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++)
-          this.set(x, y, z, color);
+        for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++) this.set(x, y, z, color);
+    }
   }
 
-  ellipsoid(cx: number, cy: number, cz: number, rx: number, ry: number, rz: number, color: number): void {
-    for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++)
+  ellipsoid(
+    cx: number,
+    cy: number,
+    cz: number,
+    rx: number,
+    ry: number,
+    rz: number,
+    color: number,
+  ): void {
+    for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
       for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
         for (let z = Math.floor(cz - rz); z <= Math.ceil(cz + rz); z++) {
-          const dx = (x - cx) / rx, dy = (y - cy) / ry, dz = (z - cz) / rz;
+          const dx = (x - cx) / rx,
+            dy = (y - cy) / ry,
+            dz = (z - cz) / rz;
           if (dx * dx + dy * dy + dz * dz <= 1.0) this.set(x, y, z, color);
         }
+    }
   }
 
   /** Adds mirrored copies; originals stay. */
   mirrorX(): void {
     const entries = [...this.cells.entries()];
     for (const [key, color] of entries) {
-      const [x, y, z] = key.split(',').map(Number);
+      const [x, y, z] = key.split(",").map(Number);
       this.set(-x, y, z, color);
     }
   }
@@ -77,7 +90,7 @@ export class VoxelModel {
    * (`measureFootprint`, world/structures.ts). */
   forEachCell(fn: (x: number, y: number, z: number) => void): void {
     for (const key of this.cells.keys()) {
-      const c = key.split(',');
+      const c = key.split(",");
       fn(+c[0], +c[1], +c[2]);
     }
   }
@@ -85,19 +98,50 @@ export class VoxelModel {
   /** Bounds plus the ORIGIN `build` re-bases on. Never recompute `ox`/`oy`/`oz`
    * elsewhere — a second copy drifts half a voxel off the mesh. */
   bounds(center = true): {
-    minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number;
-    ox: number; oy: number; oz: number;
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+    minZ: number;
+    maxZ: number;
+    ox: number;
+    oy: number;
+    oz: number;
   } {
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      minZ = Infinity;
+    let maxX = -Infinity,
+      maxY = -Infinity,
+      maxZ = -Infinity;
     for (const key of this.cells.keys()) {
-      const [x, y, z] = key.split(',').map(Number);
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      const [x, y, z] = key.split(",").map(Number);
+      if (x < minX) {
+        minX = x;
+      }
+      if (x > maxX) {
+        maxX = x;
+      }
+      if (y < minY) {
+        minY = y;
+      }
+      if (y > maxY) {
+        maxY = y;
+      }
+      if (z < minZ) {
+        minZ = z;
+      }
+      if (z > maxZ) {
+        maxZ = z;
+      }
     }
     return {
-      minX, maxX, minY, maxY, minZ, maxZ,
+      minX,
+      maxX,
+      minY,
+      maxY,
+      minZ,
+      maxZ,
       ox: center ? (minX + maxX + 1) / 2 : 0,
       oz: center ? (minZ + maxZ + 1) / 2 : 0,
       oy: minY,
@@ -117,12 +161,66 @@ export class VoxelModel {
     const cy = b.oy;
 
     const FACES: Array<{ n: [number, number, number]; c: number[][]; shade: number }> = [
-      { n: [1, 0, 0], c: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]], shade: 0.88 },
-      { n: [-1, 0, 0], c: [[0, 0, 1], [0, 1, 1], [0, 1, 0], [0, 0, 0]], shade: 0.88 },
-      { n: [0, 1, 0], c: [[0, 1, 0], [0, 1, 1], [1, 1, 1], [1, 1, 0]], shade: 1.0 },
-      { n: [0, -1, 0], c: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], shade: 0.62 },
-      { n: [0, 0, 1], c: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], shade: 0.8 },
-      { n: [0, 0, -1], c: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], shade: 0.8 },
+      {
+        n: [1, 0, 0],
+        c: [
+          [1, 0, 0],
+          [1, 1, 0],
+          [1, 1, 1],
+          [1, 0, 1],
+        ],
+        shade: 0.88,
+      },
+      {
+        n: [-1, 0, 0],
+        c: [
+          [0, 0, 1],
+          [0, 1, 1],
+          [0, 1, 0],
+          [0, 0, 0],
+        ],
+        shade: 0.88,
+      },
+      {
+        n: [0, 1, 0],
+        c: [
+          [0, 1, 0],
+          [0, 1, 1],
+          [1, 1, 1],
+          [1, 1, 0],
+        ],
+        shade: 1.0,
+      },
+      {
+        n: [0, -1, 0],
+        c: [
+          [0, 0, 0],
+          [1, 0, 0],
+          [1, 0, 1],
+          [0, 0, 1],
+        ],
+        shade: 0.62,
+      },
+      {
+        n: [0, 0, 1],
+        c: [
+          [0, 0, 1],
+          [1, 0, 1],
+          [1, 1, 1],
+          [0, 1, 1],
+        ],
+        shade: 0.8,
+      },
+      {
+        n: [0, 0, -1],
+        c: [
+          [1, 0, 0],
+          [0, 0, 0],
+          [0, 1, 0],
+          [1, 1, 0],
+        ],
+        shade: 0.8,
+      },
     ];
 
     // Emissive voxels batch per (color, intensity): one glow material each.
@@ -138,9 +236,12 @@ export class VoxelModel {
 
     const color = new THREE.Color();
     for (const [key, hex] of this.cells.entries()) {
-      const [x, y, z] = key.split(',').map(Number);
+      const [x, y, z] = key.split(",").map(Number);
       const intensity = this.emissiveCells.get(key) ?? this.emissiveColors.get(hex);
-      let pos = positions, nor = normals, col = colors, idx = indices;
+      let pos = positions,
+        nor = normals,
+        col = colors,
+        idx = indices;
       let shadeMul = 1;
       if (intensity !== undefined) {
         const bk = `${hex}:${intensity}`;
@@ -149,12 +250,17 @@ export class VoxelModel {
           batch = { hex, intensity, positions: [], normals: [], colors: [], indices: [] };
           emissiveBatches.set(bk, batch);
         }
-        pos = batch.positions; nor = batch.normals; col = batch.colors; idx = batch.indices;
+        pos = batch.positions;
+        nor = batch.normals;
+        col = batch.colors;
+        idx = batch.indices;
         shadeMul = 0.45; // darkened diffuse so the emissive term dominates
       }
       for (const face of FACES) {
         const [nx, ny, nz] = face.n;
-        if (this.has(x + nx, y + ny, z + nz)) continue;
+        if (this.has(x + nx, y + ny, z + nz)) {
+          continue;
+        }
         const base = pos.length / 3;
         color.setHex(hex).multiplyScalar(face.shade * shadeMul);
         for (const [ox, oy, oz] of face.c) {
@@ -168,12 +274,15 @@ export class VoxelModel {
 
     const mkGeo = (p: number[], n: number[], c: number[], i: number[]): THREE.BufferGeometry => {
       const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
-      geo.setAttribute('normal', new THREE.Float32BufferAttribute(n, 3));
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(n, 3));
+      geo.setAttribute("color", new THREE.Float32BufferAttribute(c, 3));
       geo.setIndex(i);
-      if (p.length > 0) geo.computeBoundingSphere();
-      else geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 0);
+      if (p.length > 0) {
+        geo.computeBoundingSphere();
+      } else {
+        geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 0);
+      }
       return geo;
     };
 

@@ -29,7 +29,7 @@
  */
 
 /** How the rumble is actually delivered, resolved once per pad. */
-export type HapticMode = 'dual-rumble' | 'pulse' | 'vibrate' | 'none';
+export type HapticMode = "dual-rumble" | "pulse" | "vibrate" | "none";
 
 /**
  * The Gamepad haptics surface, hand-declared.
@@ -77,7 +77,11 @@ interface Envelope {
 
 export class Haptics {
   private env: Envelope[] = Array.from({ length: SLOTS }, () => ({
-    strong: 0, weak: 0, dur: 0, t: 0, active: false,
+    strong: 0,
+    weak: 0,
+    dur: 0,
+    t: 0,
+    active: false,
   }));
   private modeCache: HapticMode | null = null;
   private modePadId: string | null = null;
@@ -98,7 +102,9 @@ export class Haptics {
   get mode(): HapticMode {
     const pad = this.pad() as HapticPad | null;
     const id = pad?.id ?? null;
-    if (this.modeCache !== null && this.modePadId === id) return this.modeCache;
+    if (this.modeCache !== null && this.modePadId === id) {
+      return this.modeCache;
+    }
     this.modePadId = id;
     this.modeCache = resolveMode(pad);
     return this.modeCache;
@@ -110,20 +116,28 @@ export class Haptics {
 
   /** Add a decaying pulse to the mix. Magnitudes 0..1, `dur` in seconds. */
   pulse(strong: number, weak: number, dur: number): void {
-    if (dur <= 0 || (strong <= 0 && weak <= 0)) return;
+    if (dur <= 0 || (strong <= 0 && weak <= 0)) {
+      return;
+    }
 
-    if (this.mode === 'vibrate') {
+    if (this.mode === "vibrate") {
       // A phone motor has one setting and no envelope, so the mix is
       // meaningless here: cues are delivered as discrete buzzes instead, length
       // scaled by how hard the cue hit. Requires a prior user gesture, and is
       // silently ignored on iOS Safari — both fine, both invisible.
       const ms = Math.round(Math.min(60, Math.max(10, dur * 1000)) * Math.max(strong, weak));
-      try { navigator.vibrate(ms); } catch { /* denied or unsupported */ }
+      try {
+        navigator.vibrate(ms);
+      } catch {
+        /* denied or unsupported */
+      }
       return;
     }
 
     const e = this.free();
-    if (!e) return;   // six concurrent envelopes is already past what is legible
+    if (!e) {
+      return;
+    } // six concurrent envelopes is already past what is legible
     e.strong = Math.min(1, strong);
     e.weak = Math.min(1, weak);
     e.dur = dur;
@@ -133,7 +147,9 @@ export class Haptics {
 
   update(dt: number): void {
     const mode = this.mode;
-    if (mode === 'none' || mode === 'vibrate') return;
+    if (mode === "none" || mode === "vibrate") {
+      return;
+    }
 
     // Linear decay, not exponential: an exponential leaves a long inaudible
     // tail that keeps the motor spun up and the pad humming after the moment
@@ -141,9 +157,14 @@ export class Haptics {
     let strong = 0;
     let weak = 0;
     for (const e of this.env) {
-      if (!e.active) continue;
+      if (!e.active) {
+        continue;
+      }
       e.t += dt;
-      if (e.t >= e.dur) { e.active = false; continue; }
+      if (e.t >= e.dur) {
+        e.active = false;
+        continue;
+      }
       const k = 1 - e.t / e.dur;
       strong += e.strong * k;
       weak += e.weak * k;
@@ -156,18 +177,26 @@ export class Haptics {
     if (strong <= 0 && weak <= 0) {
       // One explicit zero rather than letting the last effect's 183 ms run out,
       // so the pad stops when the game says it stopped.
-      if (this.lastStrong > 0 || this.lastWeak > 0) this.issue(0, 0);
+      if (this.lastStrong > 0 || this.lastWeak > 0) {
+        this.issue(0, 0);
+      }
       return;
     }
-    const jumped = Math.abs(strong - this.lastStrong) > JUMP
-      || Math.abs(weak - this.lastWeak) > JUMP;
-    if (jumped || this.issueT <= 0) this.issue(strong, weak);
+    const jumped =
+      Math.abs(strong - this.lastStrong) > JUMP || Math.abs(weak - this.lastWeak) > JUMP;
+    if (jumped || this.issueT <= 0) {
+      this.issue(strong, weak);
+    }
   }
 
   /** Silence everything now — a zone change, a dispose, the tab going away. */
   stop(): void {
-    for (const e of this.env) e.active = false;
-    if (this.mode === 'dual-rumble' || this.mode === 'pulse') this.issue(0, 0);
+    for (const e of this.env) {
+      e.active = false;
+    }
+    if (this.mode === "dual-rumble" || this.mode === "pulse") {
+      this.issue(0, 0);
+    }
   }
 
   debugState(): unknown {
@@ -181,7 +210,9 @@ export class Haptics {
   }
 
   private free(): Envelope | null {
-    for (const e of this.env) if (!e.active) return e;
+    for (const e of this.env) {
+      if (!e.active) return e;
+    }
     return null;
   }
 
@@ -191,17 +222,21 @@ export class Haptics {
     this.issueT = REISSUE_PERIOD;
     this.issues++;
     const pad = this.pad() as HapticPad | null;
-    if (!pad) return;
+    if (!pad) {
+      return;
+    }
     // Every promise is swallowed. An unsupported effect type REJECTS, and an
     // unhandled rejection thrown once per issue out of the frame loop is a
     // console full of noise that looks like a real fault and is not one.
-    if (this.mode === 'dual-rumble') {
-      pad.vibrationActuator?.playEffect?.('dual-rumble', {
-        duration: EFFECT_MS,
-        strongMagnitude: strong,
-        weakMagnitude: weak,
-      }).catch(() => {});
-    } else if (this.mode === 'pulse') {
+    if (this.mode === "dual-rumble") {
+      pad.vibrationActuator
+        ?.playEffect?.("dual-rumble", {
+          duration: EFFECT_MS,
+          strongMagnitude: strong,
+          weakMagnitude: weak,
+        })
+        .catch(() => {});
+    } else if (this.mode === "pulse") {
       // One motor, so the two channels collapse to whichever is asking louder.
       pad.hapticActuators?.[0]?.pulse?.(Math.max(strong, weak), EFFECT_MS).catch(() => {});
     }
@@ -211,17 +246,23 @@ export class Haptics {
 function resolveMode(pad: HapticPad | null): HapticMode {
   if (pad) {
     const va = pad.vibrationActuator;
-    if (va && typeof va.playEffect === 'function') {
+    if (va && typeof va.playEffect === "function") {
       // `effects` is the current spelling; `type` is the older Chrome shape.
       // Where neither is present the actuator still very likely does
       // dual-rumble, and a wrong guess costs one caught rejection.
-      const named = va.effects?.includes('dual-rumble') ?? (va.type === 'dual-rumble');
-      if (named || (!va.effects && !va.type)) return 'dual-rumble';
+      const named = va.effects?.includes("dual-rumble") ?? va.type === "dual-rumble";
+      if (named || (!va.effects && !va.type)) {
+        return "dual-rumble";
+      }
     }
-    if (typeof pad.hapticActuators?.[0]?.pulse === 'function') return 'pulse';
+    if (typeof pad.hapticActuators?.[0]?.pulse === "function") {
+      return "pulse";
+    }
   }
   // No pad, or a pad with no motors: fall back to the phone, which is the right
   // answer for a touch player and a no-op for everyone else.
-  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') return 'vibrate';
-  return 'none';
+  if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+    return "vibrate";
+  }
+  return "none";
 }

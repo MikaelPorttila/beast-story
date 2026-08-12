@@ -37,10 +37,10 @@
  * both are now correctly gated on the hit having landed. Moving them would buy
  * nothing and risk double-flashing.
  */
-import type { EventBus, GameEvent } from '../core/types';
-import { AudioChannel } from './audio';
-import { CUES, type CueKind } from './cues';
-import { Haptics } from './haptics';
+import type { EventBus, GameEvent } from "../core/types";
+import { AudioChannel } from "./audio";
+import { CUES, type CueKind } from "./cues";
+import { Haptics } from "./haptics";
 
 /**
  * The camera, narrowed to the one thing this needs.
@@ -110,7 +110,10 @@ interface Cue {
 }
 
 export class FeedbackSystem {
-  private ring: Cue[] = Array.from({ length: RING }, () => ({ kind: 'hit' as CueKind, intensity: 0 }));
+  private ring: Cue[] = Array.from({ length: RING }, () => ({
+    kind: "hit" as CueKind,
+    intensity: 0,
+  }));
   private count = 0;
   private dropped = 0;
   private drained = 0;
@@ -132,14 +135,22 @@ export class FeedbackSystem {
       // Turning it off has to silence what is ALREADY ringing, not just stop
       // the next cue: an envelope is up to a second long and `Haptics.update`
       // would keep re-issuing it to the motors after the switch said stop.
-      if (!patch.hapticFeedback) this.haptics.stop();
+      if (!patch.hapticFeedback) {
+        this.haptics.stop();
+      }
     }
-    if (patch.hapticIntensity !== undefined) this.deps.hapticIntensity = patch.hapticIntensity;
-    if (patch.shakeIntensity !== undefined) this.deps.shakeIntensity = patch.shakeIntensity;
+    if (patch.hapticIntensity !== undefined) {
+      this.deps.hapticIntensity = patch.hapticIntensity;
+    }
+    if (patch.shakeIntensity !== undefined) {
+      this.deps.shakeIntensity = patch.shakeIntensity;
+    }
   }
 
   /** Note a real user gesture, which is what audio and phone vibration wait for. */
-  unlock(): void { this.audio.unlock(); }
+  unlock(): void {
+    this.audio.unlock();
+  }
 
   /**
    * Turn an event into a cue. Runs SYNCHRONOUSLY inside `emit`, so it must
@@ -148,30 +159,56 @@ export class FeedbackSystem {
    */
   private digest(e: GameEvent): void {
     switch (e.type) {
-      case 'playerHurt': this.push('playerHurt', e.amountFrac); break;
-      case 'playerDied': this.push('playerDied', 1); break;
-      case 'playerLanded': this.push('playerLanded', e.impact); break;
-      case 'hitDealt':
-        this.push(e.crit ? 'hitCrit' : e.superEffective ? 'hitSuper' : 'hit', 1);
+      case "playerHurt":
+        this.push("playerHurt", e.amountFrac);
         break;
-      case 'enemyKilled': this.push('kill', 1); break;
-      case 'mounted': this.push('mounted', 1); break;
-      case 'beastLevelUp': this.push('levelUp', 1); break;
-      case 'itemPicked': this.push('pickup', 1); break;
+      case "playerDied":
+        this.push("playerDied", 1);
+        break;
+      case "playerLanded":
+        this.push("playerLanded", e.impact);
+        break;
+      case "hitDealt":
+        this.push(e.crit ? "hitCrit" : e.superEffective ? "hitSuper" : "hit", 1);
+        break;
+      case "enemyKilled":
+        this.push("kill", 1);
+        break;
+      case "mounted":
+        this.push("mounted", 1);
+        break;
+      case "beastLevelUp":
+        this.push("levelUp", 1);
+        break;
+      case "itemPicked":
+        this.push("pickup", 1);
+        break;
       // The wobble RAMPS: `index` is 1-based and `of` is how many there are, so
       // the last shake before the answer lands at full intensity and the first
       // at a third of it. See `orbWobble` in cues.ts for why this is the only
       // cue outside `playerHurt` that scales.
-      case 'orbThrown': this.push('orbThrow', 1); break;
-      case 'orbWobble': this.push('orbWobble', e.of > 0 ? e.index / e.of : 1); break;
-      case 'beastTamed': this.push('tameSuccess', 1); break;
-      case 'bondFailed': this.push('tameFail', 1); break;
-      default: break;
+      case "orbThrown":
+        this.push("orbThrow", 1);
+        break;
+      case "orbWobble":
+        this.push("orbWobble", e.of > 0 ? e.index / e.of : 1);
+        break;
+      case "beastTamed":
+        this.push("tameSuccess", 1);
+        break;
+      case "bondFailed":
+        this.push("tameFail", 1);
+        break;
+      default:
+        break;
     }
   }
 
   private push(kind: CueKind, intensity: number): void {
-    if (this.count >= RING) { this.dropped++; return; }
+    if (this.count >= RING) {
+      this.dropped++;
+      return;
+    }
     const c = this.ring[this.count++];
     c.kind = kind;
     c.intensity = Math.min(1, Math.max(0, intensity));
@@ -192,7 +229,9 @@ export class FeedbackSystem {
       // stop the next cue — the identical argument as `setOptions` turning the
       // switch off. An envelope runs up to a second, and `Haptics.update` would
       // keep issuing it to a controller nobody is holding any more.
-      if (!tactile) this.haptics.stop();
+      if (!tactile) {
+        this.haptics.stop();
+      }
     }
 
     for (let i = 0; i < this.count; i++) {

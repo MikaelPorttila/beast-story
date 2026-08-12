@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import type { ItemDef } from '../core/types';
-import type { Enemy } from './enemies';
-import type { VFX } from './vfx';
-import { tameOrbMesh, LANDED_SCALE, ORB_RADIUS } from './tame-orb';
+import * as THREE from "three";
+import type { ItemDef } from "../core/types";
+import type { Enemy } from "./enemies";
+import type { VFX } from "./vfx";
+import { tameOrbMesh, LANDED_SCALE, ORB_RADIUS } from "./tame-orb";
 
 // Bonding a wild beast. The outcome is decided the instant the orb lands; the
 // wobbles only PLAY it. A failed bond hands the animal back provoked at the same
@@ -27,22 +27,28 @@ const MAX_CHANCE = 0.95;
  */
 export function captureChance(orb: ItemDef, target: Enemy): number {
   const rule = target.capture;
-  if (!rule) return 0;
+  if (!rule) {
+    return 0;
+  }
   const tier = orb.orbTier ?? 0;
   const hpFrac = target.maxHp > 0 ? Math.max(0, Math.min(1, target.hp / target.maxHp)) : 1;
   const weaken = 1 + (WEAKEN_MAX - 1) * (1 - hpFrac);
-  const p = (ORB_BASE[tier] ?? 0) * weaken / rule.difficulty;
+  const p = ((ORB_BASE[tier] ?? 0) * weaken) / rule.difficulty;
   return Math.max(MIN_CHANCE, Math.min(MAX_CHANCE, p));
 }
 
-export type ThrowRefusal = 'ok' | 'notBondable' | 'busy';
+export type ThrowRefusal = "ok" | "notBondable" | "busy";
 
 // Checked by main.ts BEFORE the orb leaves the hand, so a wasted throw gets a
 // message rather than a bounce two seconds later.
 export function refuseThrow(_orb: ItemDef, target: Enemy | null): ThrowRefusal {
-  if (!target || !target.capture) return 'notBondable';
-  if (target.held) return 'busy';
-  return 'ok';
+  if (!target || !target.capture) {
+    return "notBondable";
+  }
+  if (target.held) {
+    return "busy";
+  }
+  return "ok";
 }
 
 const SUCK_SECONDS = 0.45;
@@ -90,7 +96,7 @@ export class Taming {
     const chance = captureChance(orb, target);
     // `force` is a test hook only (`__dbgThrowOrb`), so a probe can assert both
     // settle paths without rolling dice.
-    const caught = force ?? (Math.random() < chance);
+    const caught = force ?? Math.random() < chance;
     const slot = this.slot();
     slot.active = true;
     slot.target = target;
@@ -105,7 +111,18 @@ export class Taming {
     target.setHeld(true);
 
     const p = slot.at;
-    this.vfx.rise(p.x, p.y + 0.1, p.z, orb.color, 26, target.radius + 0.5, 2.4, SUCK_SECONDS + 0.2, 0.22, 7);
+    this.vfx.rise(
+      p.x,
+      p.y + 0.1,
+      p.z,
+      orb.color,
+      26,
+      target.radius + 0.5,
+      2.4,
+      SUCK_SECONDS + 0.2,
+      0.22,
+      7,
+    );
     this.vfx.glowPulse(p.x, p.y + 0.4, p.z, orb.color, 2.2, 0.3);
     this.vfx.flashLight(p.x, p.y + 0.5, p.z, orb.color, 4, 7, 0.3);
 
@@ -118,7 +135,9 @@ export class Taming {
 
   update(dt: number): void {
     for (const s of this.slots) {
-      if (!s.active) continue;
+      if (!s.active) {
+        continue;
+      }
       s.t += dt;
 
       if (s.t < SUCK_SECONDS) {
@@ -177,11 +196,18 @@ export class Taming {
   }
 
   private slot(): Ceremony {
-    for (const s of this.slots) if (!s.active) return s;
+    for (const s of this.slots) {
+      if (!s.active) return s;
+    }
     const s: Ceremony = {
-      active: false, target: null as unknown as Enemy, orb: null as unknown as ItemDef,
-      caught: false, t: 0, wobblesDone: 0,
-      mesh: new THREE.Group(), at: new THREE.Vector3(),
+      active: false,
+      target: null as unknown as Enemy,
+      orb: null as unknown as ItemDef,
+      caught: false,
+      t: 0,
+      wobblesDone: 0,
+      mesh: new THREE.Group(),
+      at: new THREE.Vector3(),
     };
     this.slots.push(s);
     return s;
@@ -191,8 +217,12 @@ export class Taming {
   private meshFor(s: Ceremony, color: number): THREE.Object3D {
     const want = tameOrbMesh(color);
     const cur = s.mesh as THREE.Mesh;
-    if (cur.parent && (cur as THREE.Mesh).geometry === (want as THREE.Mesh).geometry) return s.mesh;
-    if (s.mesh.parent) s.mesh.parent.remove(s.mesh);
+    if (cur.parent && (cur as THREE.Mesh).geometry === (want as THREE.Mesh).geometry) {
+      return s.mesh;
+    }
+    if (s.mesh.parent) {
+      s.mesh.parent.remove(s.mesh);
+    }
     const m = want.clone();
     m.scale.setScalar(LANDED_SCALE);
     this.scene.add(m);
@@ -204,9 +234,10 @@ export class Taming {
   // `disposeTameOrbs` in combat/tame-orb.ts.
   dispose(): void {
     for (const s of this.slots) {
-      if (s.mesh.parent) s.mesh.parent.remove(s.mesh);
+      if (s.mesh.parent) {
+        s.mesh.parent.remove(s.mesh);
+      }
     }
     this.slots.length = 0;
   }
 }
-

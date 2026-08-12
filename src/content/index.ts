@@ -12,26 +12,29 @@
 // typo is an `unknown-factory` finding. Register BEFORE `bootstrapContent()`; a kind
 // with nothing registered is not checked at all.
 
-import { ActionDispatcher, registerCoreActions } from './actions';
-import { ConditionEvaluator, registerCoreTests } from './conditions';
-import { DiagnosticSink } from './diagnostics';
-import { PackageLoader } from './loader';
-import { ENUMERATED_TYPES, Query } from './query';
-import { ContentRegistry } from './registry';
-import { ContentStateStore } from './state';
-import { hasText, isKnownTextKey, resolveText } from './text';
-import { validateContent } from './validate';
-import type { Loaded, ValidationLevel } from './validate';
-import { ProviderChain } from './storage/chain';
-import { BIOME_TYPE } from './types/biome';
-import { ENEMY_MODEL_KIND, ENEMY_TYPE, setKnownEnemyModels } from './types/enemy';
-import { MUSIC_TRACK_KIND, MUSIC_TYPE, setKnownMusicTracks } from './types/music';
-import { NPC_BODY_KIND, NPC_TYPE, setKnownNpcBodies } from './types/npc';
-import { QUEST_TYPE } from './types/quest';
+import { ActionDispatcher, registerCoreActions } from "./actions";
+import { ConditionEvaluator, registerCoreTests } from "./conditions";
+import { DiagnosticSink } from "./diagnostics";
+import { PackageLoader } from "./loader";
+import { ENUMERATED_TYPES, Query } from "./query";
+import { ContentRegistry } from "./registry";
+import { ContentStateStore } from "./state";
+import { hasText, isKnownTextKey, resolveText } from "./text";
+import { validateContent } from "./validate";
+import type { Loaded, ValidationLevel } from "./validate";
+import { ProviderChain } from "./storage/chain";
+import { BIOME_TYPE } from "./types/biome";
+import { ENEMY_MODEL_KIND, ENEMY_TYPE, setKnownEnemyModels } from "./types/enemy";
+import { MUSIC_TRACK_KIND, MUSIC_TYPE, setKnownMusicTracks } from "./types/music";
+import { NPC_BODY_KIND, NPC_TYPE, setKnownNpcBodies } from "./types/npc";
+import { QUEST_TYPE } from "./types/quest";
 import {
-  CARRIED_LAYOUT_KIND, TOWN_LAYOUT_KIND, TOWN_TYPE,
-  setKnownCarriedLayouts, setKnownTownLayouts,
-} from './types/town';
+  CARRIED_LAYOUT_KIND,
+  TOWN_LAYOUT_KIND,
+  TOWN_TYPE,
+  setKnownCarriedLayouts,
+  setKnownTownLayouts,
+} from "./types/town";
 import type {
   Action,
   Condition,
@@ -48,34 +51,38 @@ import type {
   PackageId,
   PackageInfo,
   StorageProvider,
-} from './types';
-import type { ActionHandler } from './types';
+} from "./types";
+import type { ActionHandler } from "./types";
 
-export { assertLoadable, failsCheck, validateContent } from './validate';
-export type { ValidationLevel } from './validate';
-export { hasText, isKnownTextKey, resolveText, textKeyOf } from './text';
-export { BIOME_TYPE } from './types/biome';
-export { ENEMY_TYPE, ENEMY_MODEL_KIND, BEAST_MODEL_PREFIX } from './types/enemy';
-export { MUSIC_TYPE, MUSIC_TRACK_KIND } from './types/music';
-export { NPC_TYPE, NPC_BODY_KIND } from './types/npc';
-export { QUEST_TYPE } from './types/quest';
-export { TOWN_TYPE, TOWN_LAYOUT_KIND, CARRIED_LAYOUT_KIND } from './types/town';
-export type { BiomeData } from './types/biome';
-export type { EnemyCapture, EnemyData, EnemyVariant } from './types/enemy';
-export type { MusicData } from './types/music';
-export type { NpcData, NpcTalkLine } from './types/npc';
+export { assertLoadable, failsCheck, validateContent } from "./validate";
+export type { ValidationLevel } from "./validate";
+export { hasText, isKnownTextKey, resolveText, textKeyOf } from "./text";
+export { BIOME_TYPE } from "./types/biome";
+export { ENEMY_TYPE, ENEMY_MODEL_KIND, BEAST_MODEL_PREFIX } from "./types/enemy";
+export { MUSIC_TYPE, MUSIC_TRACK_KIND } from "./types/music";
+export { NPC_TYPE, NPC_BODY_KIND } from "./types/npc";
+export { QUEST_TYPE } from "./types/quest";
+export { TOWN_TYPE, TOWN_LAYOUT_KIND, CARRIED_LAYOUT_KIND } from "./types/town";
+export type { BiomeData } from "./types/biome";
+export type { EnemyCapture, EnemyData, EnemyVariant } from "./types/enemy";
+export type { MusicData } from "./types/music";
+export type { NpcData, NpcTalkLine } from "./types/npc";
 export type {
-  ObjectiveTrigger, ObjectiveTriggerKind, QuestData, QuestObjective, QuestRewards,
-} from './types/quest';
-export type { TownData } from './types/town';
+  ObjectiveTrigger,
+  ObjectiveTriggerKind,
+  QuestData,
+  QuestObjective,
+  QuestRewards,
+} from "./types/quest";
+export type { TownData } from "./types/town";
 
 // The five types a player sees; a blank label reads as a broken HUD (issue #17).
 // `music` is excluded: a playlist is never printed, so a name would be dead translation.
-const NAMED_TYPES: readonly ContentTypeName[] = ['town', 'npc', 'biome', 'enemy', 'quest'];
+const NAMED_TYPES: readonly ContentTypeName[] = ["town", "npc", "biome", "enemy", "quest"];
 
 // query.ts's defaults plus `npc` (world/npc.ts walks `all('npc')` — nothing points AT
 // an NPC) and `music` (an area looks a playlist up by id). Otherwise both report orphaned.
-const ROOT_TYPES: ReadonlySet<ContentTypeName> = new Set([...ENUMERATED_TYPES, 'npc', 'music']);
+const ROOT_TYPES: ReadonlySet<ContentTypeName> = new Set([...ENUMERATED_TYPES, "npc", "music"]);
 
 /** Kind -> the content type that validates a selection of it. */
 const FACTORY_PUBLISHERS: Readonly<Record<string, (names: Iterable<string>) => void>> = {
@@ -114,7 +121,9 @@ class Runtime implements ContentRuntime {
   private readonly ctx: EvalCtx;
 
   constructor(opts: ContentRuntimeOptions = {}) {
-    for (const provider of opts.providers ?? []) this.chain.add(provider);
+    for (const provider of opts.providers ?? []) {
+      this.chain.add(provider);
+    }
 
     this.loader = new PackageLoader({
       chain: this.chain,
@@ -124,7 +133,9 @@ class Runtime implements ContentRuntime {
         // not a duplicate — kept as a finding rather than thrown.
         add: (asset) => {
           const bad = this.registry.add(asset);
-          if (bad) this.own.push(bad);
+          if (bad) {
+            this.own.push(bad);
+          }
         },
         remove: (id) => {
           this.registry.remove(id);
@@ -139,7 +150,7 @@ class Runtime implements ContentRuntime {
       this.registry.graph,
       (when) => this.evaluate(when),
       // query.ts wants '' for absent text; `resolveText` never blanks. No text, no match.
-      (text) => (hasText(text) ? resolveText(text) : ''),
+      (text) => (hasText(text) ? resolveText(text) : ""),
       ROOT_TYPES,
     );
 
@@ -188,11 +199,15 @@ class Runtime implements ContentRuntime {
   defineFactory(kind: string, name: string, value: unknown): void {
     this.factories.set(`${kind}/${name}`, value);
     const publish = FACTORY_PUBLISHERS[kind];
-    if (publish === undefined) return;
+    if (publish === undefined) {
+      return;
+    }
     const prefix = `${kind}/`;
     const names: string[] = [];
     for (const key of this.factories.keys()) {
-      if (key.startsWith(prefix)) names.push(key.slice(prefix.length));
+      if (key.startsWith(prefix)) {
+        names.push(key.slice(prefix.length));
+      }
     }
     publish(names);
   }
@@ -211,31 +226,41 @@ class Runtime implements ContentRuntime {
     return this.chain.providers.length > 0;
   }
 
-  async load(pkg: PackageId, lease: Lease = 'boot'): Promise<LoadResult> {
+  async load(pkg: PackageId, lease: Lease = "boot"): Promise<LoadResult> {
     const result = await this.loader.load(pkg, lease);
-    if (result.loaded) this.notifyDefinitionsChanged();
+    if (result.loaded) {
+      this.notifyDefinitionsChanged();
+    }
     return result;
   }
 
-  release(pkg: PackageId, lease: Lease = 'boot'): void {
+  release(pkg: PackageId, lease: Lease = "boot"): void {
     const before = this.loader.packages.length;
     this.loader.release(pkg, lease);
-    if (this.loader.packages.length !== before) this.notifyDefinitionsChanged();
+    if (this.loader.packages.length !== before) {
+      this.notifyDefinitionsChanged();
+    }
   }
 
   onDefinitionsChange(fn: () => void): () => void {
     this.definitionListeners.push(fn);
     let live = true;
     return () => {
-      if (!live) return;
+      if (!live) {
+        return;
+      }
       live = false;
       const i = this.definitionListeners.indexOf(fn);
-      if (i >= 0) this.definitionListeners.splice(i, 1);
+      if (i >= 0) {
+        this.definitionListeners.splice(i, 1);
+      }
     };
   }
 
   private notifyDefinitionsChanged(): void {
-    for (const fn of this.definitionListeners.slice()) fn();
+    for (const fn of this.definitionListeners.slice()) {
+      fn();
+    }
   }
 
   get packages(): readonly PackageInfo[] {
@@ -336,21 +361,21 @@ export interface ContentBootResult {
 // never evaluated under plain Bun.
 export async function bootstrapContent(opts: BootstrapOptions = {}): Promise<ContentBootResult> {
   if (!singleton.hasProviders) {
-    const { BundledProvider } = await import('./storage/bundled');
+    const { BundledProvider } = await import("./storage/bundled");
     singleton.addProvider(new BundledProvider());
   }
-  const result = await singleton.load('core', 'boot');
+  const result = await singleton.load("core", "boot");
   // Sequential for readability: overlapping loads of one id share a promise anyway.
   const extra: ContentId[] = [];
   for (const pkg of opts.packages ?? []) {
-    extra.push(...(await singleton.load(pkg, 'boot')).assets);
+    extra.push(...(await singleton.load(pkg, "boot")).assets);
   }
-  singleton.validate(opts.level ?? 'dev', opts.engineFlags ?? []);
+  singleton.validate(opts.level ?? "dev", opts.engineFlags ?? []);
   const merged = singleton.diagnostics();
   return {
     loaded: result.loaded,
     assets: [...result.assets, ...extra],
     diagnostics: merged,
-    ok: !merged.some((d) => d.severity === 'error' || d.severity === 'fatal'),
+    ok: !merged.some((d) => d.severity === "error" || d.severity === "fatal"),
   };
 }

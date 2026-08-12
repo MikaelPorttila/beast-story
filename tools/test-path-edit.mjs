@@ -42,27 +42,27 @@
 // Exits non-zero on any of them.
 //
 //   bun tools/test-path-edit.mjs
-import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait, logPageErrors } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 900, height: 600 });
 logPageErrors(page);
-await page.goto(`${HOST}/?fps=30&menu=0&fs=0&enemies=0&beasts=0`, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(`${HOST}/?fps=30&menu=0&fs=0&enemies=0&beasts=0`, { waitUntil: "load" });
+await page.waitForSelector("canvas");
 await wait(5000);
 
 // -- the refusals, before anything is built ---------------------------------
 const refusals = await page.evaluate(() => {
   const p = window.__dbgPlayerPos();
   return {
-    unknownProfile: window.__dbgAddPath(p.x, p.z, p.x + 60, p.z + 40, 'cobblestone'),
-    tooShort: window.__dbgAddPath(p.x, p.z, p.x + 3, p.z + 1, 'footpath'),
+    unknownProfile: window.__dbgAddPath(p.x, p.z, p.x + 60, p.z + 40, "cobblestone"),
+    tooShort: window.__dbgAddPath(p.x, p.z, p.x + 3, p.z + 1, "footpath"),
     // INTO THE WATER. On seed 1337 this bearing runs down to the shore and
     // ends on the waterline; a footpath cannot bridge, so `profileRoad` would
     // floor its wet samples 1.9 above the surface and hand back a deck with
     // nothing under it and no piers to put there. See `World.addPath`.
-    intoWater: window.__dbgAddPath(p.x, p.z, p.x + 78, p.z + 46, 'footpath'),
+    intoWater: window.__dbgAddPath(p.x, p.z, p.x + 78, p.z + 46, "footpath"),
   };
 });
 
@@ -78,7 +78,7 @@ const built = await page.evaluate(() => {
   // INLAND AND UPHILL, and chosen by measurement rather than taste: this
   // bearing's lowest ground over its whole run is 12 against a waterline of 8,
   // so the route has no reason to bridge and no chance to.
-  const r = window.__dbgAddPath(p.x, p.z, p.x + 60, p.z - 40, 'footpath');
+  const r = window.__dbgAddPath(p.x, p.z, p.x + 60, p.z - 40, "footpath");
   return { result: r, pathsBefore, drawnBefore, heroBefore: { x: p.x, y: p.y, z: p.z } };
 });
 
@@ -110,7 +110,8 @@ const out = await page.evaluate((made) => {
       let tx = bx - ax;
       let tz = bz - az;
       const L = Math.hypot(tx, tz) || 1;
-      tx /= L; tz /= L;
+      tx /= L;
+      tz /= L;
       for (let s = 0; s < L; s += 1.5) {
         const cx = ax + tx * s;
         const cz = az + tz * s;
@@ -118,12 +119,18 @@ const out = await page.evaluate((made) => {
           const x = cx - tz * d;
           const z = cz + tx * d;
           const hit = window.__dbgSurfaceY(x, z, 2);
-          if (!hit.hits.some((q) => /^road:/.test(q.name))) continue;
+          if (!hit.hits.some((q) => q.name.startsWith("road:"))) {
+            continue;
+          }
           poke.sampled++;
-          if (!/^terrain:/.test(hit.hit || '')) continue;
-          const road = hit.hits.find((q) => /^road:/.test(q.name));
+          if (!/^terrain:/.test(hit.hit || "")) {
+            continue;
+          }
+          const road = hit.hits.find((q) => q.name.startsWith("road:"));
           const by = hit.surface - road.y;
-          if (by <= 0) continue;
+          if (by <= 0) {
+            continue;
+          }
           poke.over++;
           if (by > poke.worst) {
             poke.worst = by;
@@ -180,7 +187,7 @@ const out = await page.evaluate((made) => {
 // not charged 50 a step for going near it (§12d). The trunk is the road the
 // player spawns on, so a crossroads there is also the one an eye would land on.
 const crossed = await page.evaluate(() => {
-  const t = window.__dbgTowns().roads.find((q) => q.id === 'camp-junction');
+  const t = window.__dbgTowns().roads.find((q) => q.id === "camp-junction");
   const n = t.path.length / 3;
   const i = Math.floor(n * 0.5);
   const cx = t.path[i * 3];
@@ -189,9 +196,17 @@ const crossed = await page.evaluate(() => {
   let tx = t.path[j * 3] - cx;
   let tz = t.path[j * 3 + 2] - cz;
   const L = Math.hypot(tx, tz) || 1;
-  tx /= L; tz /= L;
+  tx /= L;
+  tz /= L;
   const drawnBefore = window.__dbgTowns().roads.length;
-  const r = window.__dbgAddPath(cx + tz * 45, cz - tx * 45, cx - tz * 45, cz + tx * 45, 'road', true);
+  const r = window.__dbgAddPath(
+    cx + tz * 45,
+    cz - tx * 45,
+    cx - tz * 45,
+    cz + tx * 45,
+    "road",
+    true,
+  );
   return { r, drawnBefore, node: { x: cx, z: cz } };
 });
 await wait(6000);
@@ -217,18 +232,25 @@ const merged = await page.evaluate((made) => {
         let tx = bx - ax;
         let tz = bz - az;
         const L = Math.hypot(tx, tz) || 1;
-        tx /= L; tz /= L;
+        tx /= L;
+        tz /= L;
         for (let s = 0; s < L; s += 1.5) {
           for (let d = -(E - 0.2); d <= E - 0.2; d += 0.6) {
             const x = ax + tx * s - tz * d;
             const z = az + tz * s + tx * d;
             const hit = window.__dbgSurfaceY(x, z, 2);
-            if (!hit.hits.some((q) => /^road:/.test(q.name))) continue;
+            if (!hit.hits.some((q) => q.name.startsWith("road:"))) {
+              continue;
+            }
             poke.sampled++;
-            if (!/^terrain:/.test(hit.hit || '')) continue;
-            const road = hit.hits.find((q) => /^road:/.test(q.name));
+            if (!/^terrain:/.test(hit.hit || "")) {
+              continue;
+            }
+            const road = hit.hits.find((q) => q.name.startsWith("road:"));
             const by = hit.surface - road.y;
-            if (by <= 0) continue;
+            if (by <= 0) {
+              continue;
+            }
             poke.over++;
             if (by > poke.worst) {
               poke.worst = by;
@@ -254,7 +276,9 @@ const merged = await page.evaluate((made) => {
     const S = 0.25;
     const R = 11;
     const onDeck = (x, z) => {
-      if (Math.hypot(x - node.x, z - node.z) <= 5) return true;
+      if (Math.hypot(x - node.x, z - node.z) <= 5) {
+        return true;
+      }
       for (const r of arms) {
         const p = r.path;
         const half = Math.min(2.6, r.deckEdge * 0.52);
@@ -266,20 +290,31 @@ const merged = await page.evaluate((made) => {
           const L = dx * dx + dz * dz || 1;
           let u = ((x - ax) * dx + (z - az) * dz) / L;
           u = u < 0 ? 0 : u > 1 ? 1 : u;
-          if (Math.hypot(x - (ax + dx * u), z - (az + dz * u)) <= half) return true;
+          if (Math.hypot(x - (ax + dx * u), z - (az + dz * u)) <= half) {
+            return true;
+          }
         }
       }
       return false;
     };
     for (let dx = -R; dx <= R; dx += S) {
       for (let dz = -R; dz <= R; dz += S) {
-        if (dx * dx + dz * dz > R * R) continue;
+        if (dx * dx + dz * dz > R * R) {
+          continue;
+        }
         const x = node.x + dx;
         const z = node.z + dz;
-        if (!onDeck(x, z)) continue;
+        if (!onDeck(x, z)) {
+          continue;
+        }
         const a = h(x, z);
-        for (const [ex, ez] of [[S, 0], [0, S]]) {
-          if (!onDeck(x + ex, z + ez)) continue;
+        for (const [ex, ez] of [
+          [S, 0],
+          [0, S],
+        ]) {
+          if (!onDeck(x + ex, z + ez)) {
+            continue;
+          }
           const b = h(x + ex, z + ez);
           if (Math.abs(b - a) > step) {
             step = Math.abs(b - a);
@@ -318,75 +353,96 @@ const merged = await page.evaluate((made) => {
 // click below is a real click on a real row.
 const panel = await page.evaluate(() => {
   const before = window.__dbgPaths().paths.length;
-  const rows = [...document.querySelectorAll('.bs-perf-row[data-path]')];
-  return { before, rows: rows.map((r) => r.getAttribute('data-path')) };
+  const rows = [...document.querySelectorAll(".bs-perf-row[data-path]")];
+  return { before, rows: rows.map((r) => r.getAttribute("data-path")) };
 });
-await page.keyboard.press('F3');
+await page.keyboard.press("F3");
 await wait(400);
 const clicked = await page.evaluate(() => {
   const pick = (key) => document.querySelector(`.bs-perf-row[data-path="${key}"]`);
-  const seen = [...document.querySelectorAll('.bs-perf-row[data-path]')]
-    .map((r) => r.getAttribute('data-path'));
+  const seen = [...document.querySelectorAll(".bs-perf-row[data-path]")].map((r) =>
+    r.getAttribute("data-path"),
+  );
   const before = window.__dbgPaths().paths.length;
   // Step the length row once so the click is doing something visible, then lay.
-  const lenRow = pick('length');
-  const lenBefore = lenRow?.querySelector('.bs-perf-val')?.textContent ?? '';
-  lenRow?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  lenRow?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  const lenAfter = pick('length')?.querySelector('.bs-perf-val')?.textContent ?? '';
-  const lay = pick('lay');
-  lay?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  lay?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const lenRow = pick("length");
+  const lenBefore = lenRow?.querySelector(".bs-perf-val")?.textContent ?? "";
+  lenRow?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  lenRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  const lenAfter = pick("length")?.querySelector(".bs-perf-val")?.textContent ?? "";
+  const lay = pick("lay");
+  lay?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  lay?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   return {
-    rows: seen, before, lenBefore, lenAfter,
-    status: document.querySelector('.bs-spawn-status')?.textContent ?? '',
+    rows: seen,
+    before,
+    lenBefore,
+    lenAfter,
+    status: document.querySelector(".bs-spawn-status")?.textContent ?? "",
   };
 });
 await wait(6000);
 const panelAfter = await page.evaluate(() => ({
   paths: window.__dbgPaths().paths.length,
-  status: document.querySelector('.bs-spawn-status')?.textContent ?? '',
+  status: document.querySelector(".bs-spawn-status")?.textContent ?? "",
 }));
 
-console.log(JSON.stringify({
-  refusals, built, ...out, merged,
-  panel: { ...panel, ...clicked, after: panelAfter },
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      refusals,
+      built,
+      ...out,
+      merged,
+      panel: { ...panel, ...clicked, after: panelAfter },
+    },
+    null,
+    2,
+  ),
+);
 await browser.close();
 
 const fail = [];
 if (!refusals.unknownProfile.error) {
-  fail.push('an unknown profile name was accepted instead of reported');
+  fail.push("an unknown profile name was accepted instead of reported");
 }
 if (!refusals.tooShort.error) {
-  fail.push('a path with both ends in the same place was accepted');
+  fail.push("a path with both ends in the same place was accepted");
 }
 if (!refusals.intoWater.error) {
-  fail.push('a footpath was routed into the water instead of being refused — '
-    + 'it cannot bridge, so the deck would stand 1.9 over the surface on nothing');
+  fail.push(
+    "a footpath was routed into the water instead of being refused — " +
+      "it cannot bridge, so the deck would stand 1.9 over the surface on nothing",
+  );
 }
 if (built.result.error) {
   fail.push(`the path was refused: ${built.result.error}`);
 } else {
-  if (out.added === null) fail.push('the network did not gain the edge');
-  else if (out.added.profile !== 'path:footpath') {
+  if (out.added === null) {
+    fail.push("the network did not gain the edge");
+  } else if (out.added.profile !== "path:footpath") {
     fail.push(`the edge was built to ${out.added.profile}, not the profile asked for`);
   }
   if (out.drawnCount !== built.drawnBefore + 1) {
     fail.push(`drawn paths went ${built.drawnBefore} -> ${out.drawnCount}, expected one more`);
   }
-  if (!out.edgeIsDrawn) fail.push('the new edge is on the network but is not drawn');
+  if (!out.edgeIsDrawn) {
+    fail.push("the new edge is on the network but is not drawn");
+  }
   if (out.crossSection.sampled === 0) {
-    fail.push('the cross-section sweep found no ribbon over the new edge at all');
+    fail.push("the cross-section sweep found no ribbon over the new edge at all");
   }
   if (!out.crossSection.clean) {
-    fail.push(`${out.crossSection.terrainOverRibbon} of ${out.crossSection.sampled} `
-      + 'cross-section samples over the AUTHORED path have terrain drawn over the '
-      + `ribbon (issue #15), worst ${out.crossSection.worstPoke}`);
+    fail.push(
+      `${out.crossSection.terrainOverRibbon} of ${out.crossSection.sampled} ` +
+        "cross-section samples over the AUTHORED path have terrain drawn over the " +
+        `ribbon (issue #15), worst ${out.crossSection.worstPoke}`,
+    );
   }
   if (!out.carriageway.walkable) {
-    fail.push(`the authored deck steps ${out.carriageway.worstStepOver025}, `
-      + 'against MAX_STEP_UP 0.5');
+    fail.push(
+      `the authored deck steps ${out.carriageway.worstStepOver025}, ` + "against MAX_STEP_UP 0.5",
+    );
   }
 }
 // -0.05 and not 0: the hero rests a hair into the surface he stands on, and the
@@ -394,8 +450,10 @@ if (built.result.error) {
 // rounding error.
 // -- the crossroads ---------------------------------------------------------
 if (merged.node === null) {
-  fail.push('the crossing was not merged into a junction: '
-    + (merged.refused.join('; ') || 'no reason given, which is its own bug'));
+  fail.push(
+    "the crossing was not merged into a junction: " +
+      (merged.refused.join("; ") || "no reason given, which is its own bug"),
+  );
 } else {
   if (merged.node.arms !== 4) {
     fail.push(`the node reports ${merged.node.arms} arms, expected 4`);
@@ -403,51 +461,63 @@ if (merged.node === null) {
   // Two edges split into four, and the path itself is two of them: three drawn
   // paths become six.
   if (merged.drawnAfter !== merged.drawnBefore + 3) {
-    fail.push(`drawn paths went ${merged.drawnBefore} -> ${merged.drawnAfter}, `
-      + 'expected three more (two splits and the two halves of the new path)');
+    fail.push(
+      `drawn paths went ${merged.drawnBefore} -> ${merged.drawnAfter}, ` +
+        "expected three more (two splits and the two halves of the new path)",
+    );
   }
   if (merged.arms.length !== 4) {
-    fail.push(`${merged.arms.length} split halves on the network, expected 4: `
-      + merged.arms.join(', '));
+    fail.push(
+      `${merged.arms.length} split halves on the network, expected 4: ` + merged.arms.join(", "),
+    );
   }
   if (merged.crossSection.sampled === 0) {
-    fail.push('the cross-section sweep found no ribbon over the crossroads at all');
+    fail.push("the cross-section sweep found no ribbon over the crossroads at all");
   }
   if (!merged.crossSection.clean) {
-    fail.push(`${merged.crossSection.terrainOverRibbon} of ${merged.crossSection.sampled} `
-      + 'cross-section samples over the MERGED crossroads have terrain drawn over '
-      + `the ribbon (issue #15), worst ${merged.crossSection.worstPoke}`);
+    fail.push(
+      `${merged.crossSection.terrainOverRibbon} of ${merged.crossSection.sampled} ` +
+        "cross-section samples over the MERGED crossroads have terrain drawn over " +
+        `the ribbon (issue #15), worst ${merged.crossSection.worstPoke}`,
+    );
   }
   if (!merged.apron.walkable) {
-    fail.push(`the walking surface steps ${merged.apron.worstStepOver025} across the `
-      + 'authored junction, against MAX_STEP_UP 0.5 — this is issue #15\'s fork step '
-      + 'at a node nobody planned');
+    fail.push(
+      `the walking surface steps ${merged.apron.worstStepOver025} across the ` +
+        "authored junction, against MAX_STEP_UP 0.5 — this is issue #15's fork step " +
+        "at a node nobody planned",
+    );
   }
 }
 
 // -- the panel --------------------------------------------------------------
 if (clicked.rows.length !== 4) {
-  fail.push(`the F3 panel shows ${clicked.rows.length} path rows, expected 4: `
-    + clicked.rows.join(', '));
+  fail.push(
+    `the F3 panel shows ${clicked.rows.length} path rows, expected 4: ` + clicked.rows.join(", "),
+  );
 }
 if (clicked.lenBefore === clicked.lenAfter) {
   fail.push(`clicking the length row did not change it (${clicked.lenBefore})`);
 }
 if (panelAfter.paths <= clicked.before) {
-  fail.push(`clicking "lay it" left the network at ${panelAfter.paths} paths — `
-    + 'the rows are drawn but they do nothing');
+  fail.push(
+    `clicking "lay it" left the network at ${panelAfter.paths} paths — ` +
+      "the rows are drawn but they do nothing",
+  );
 }
 if (!panelAfter.status) {
-  fail.push('the panel laid a path and said nothing about it (issue #142 §12f)');
+  fail.push("the panel laid a path and said nothing about it (issue #142 §12f)");
 }
 
 if (out.hero.clearance < -0.05) {
-  fail.push(`the hero was left ${(-out.hero.clearance).toFixed(2)} inside the ground `
-    + 'after the carve — see refitHero in main.ts');
+  fail.push(
+    `the hero was left ${(-out.hero.clearance).toFixed(2)} inside the ground ` +
+      "after the carve — see refitHero in main.ts",
+  );
 }
 
 if (fail.length > 0) {
-  console.error('FAIL\n  ' + fail.join('\n  '));
+  console.error("FAIL\n  " + fail.join("\n  "));
   process.exit(1);
 }
-console.error('PASS');
+console.error("PASS");

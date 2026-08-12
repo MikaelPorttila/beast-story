@@ -1,6 +1,6 @@
-import * as THREE from 'three';
-import type { Input, LookDelta } from '../core/input';
-import type { World } from '../core/types';
+import * as THREE from "three";
+import type { Input, LookDelta } from "../core/input";
+import type { World } from "../core/types";
 
 const _dir = new THREE.Vector3();
 const _pivot = new THREE.Vector3();
@@ -34,7 +34,7 @@ const MAX_STEP_LAG = 1.6;
 const DIST_SCALE_LAMBDA = 4.5;
 
 export class ThirdPersonCamera {
-  yaw = Math.PI;   // behind a character facing +Z
+  yaw = Math.PI; // behind a character facing +Z
   /** Radians above the horizon; pays back LOOK_LIFT's 9.1° up-tilt (-17.6° net view). */
   pitch = 0.46;
   private distTarget = 7.4;
@@ -97,8 +97,11 @@ export class ThirdPersonCamera {
       const lambda = grounded ? STEP_LAMBDA : AIR_LAMBDA;
       this.followY += (focus.y - this.followY) * (1 - Math.exp(-lambda * dt));
       const lag = focus.y - this.followY;
-      if (lag > MAX_STEP_LAG) this.followY = focus.y - MAX_STEP_LAG;
-      else if (lag < -MAX_STEP_LAG) this.followY = focus.y + MAX_STEP_LAG;
+      if (lag > MAX_STEP_LAG) {
+        this.followY = focus.y - MAX_STEP_LAG;
+      } else if (lag < -MAX_STEP_LAG) {
+        this.followY = focus.y + MAX_STEP_LAG;
+      }
     }
 
     // Pivot on the hero's own x/z keeps him on the frame centreline under the reticle.
@@ -109,9 +112,13 @@ export class ThirdPersonCamera {
 
     _mid.copy(_pivot).addScaledVector(_dir, arm * 0.55);
     const midFloor = world.getHeight(_mid.x, _mid.z) + 0.35;
-    if (_mid.y < midFloor) _desired.y += (midFloor - _mid.y) * 1.7;
+    if (_mid.y < midFloor) {
+      _desired.y += (midFloor - _mid.y) * 1.7;
+    }
     const endFloor = world.getHeight(_desired.x, _desired.z) + 0.45;
-    if (_desired.y < endFloor) _desired.y = endFloor;
+    if (_desired.y < endFloor) {
+      _desired.y = endFloor;
+    }
 
     if (!this.initialized) {
       this.pos.copy(_desired);
@@ -120,7 +127,9 @@ export class ThirdPersonCamera {
       this.pos.lerp(_desired, 1 - Math.exp(-11 * dt));
     }
     const floorHere = world.getHeight(this.pos.x, this.pos.z) + 0.4;
-    if (this.pos.y < floorHere) this.pos.y = floorHere;
+    if (this.pos.y < floorHere) {
+      this.pos.y = floorHere;
+    }
 
     this.shake *= Math.exp(-5.5 * dt);
     this.shakeT += dt;
@@ -134,7 +143,9 @@ export class ThirdPersonCamera {
     cam.lookAt(_look);
 
     this.forward.set(_pivot.x - cam.position.x, 0, _pivot.z - cam.position.z);
-    if (this.forward.lengthSq() < 1e-6) this.forward.set(0, 0, 1);
+    if (this.forward.lengthSq() < 1e-6) {
+      this.forward.set(0, 0, 1);
+    }
     this.forward.normalize();
     this.right.set(-this.forward.z, 0, this.forward.x);
   }

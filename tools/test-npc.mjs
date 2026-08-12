@@ -24,8 +24,8 @@
 // works" from "the prompt is broken everywhere".
 //
 // Exits non-zero on failure.
-import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 // `mounts=all` because riding is three story unlocks and a new character has
 // none of them (src/core/flags.ts). The sky section below stages a climb on a
@@ -34,38 +34,45 @@ import { BASE as HOST } from './target.mjs';
 const URL = `${HOST}/?menu=0&fs=0&mounts=all`;
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
-page.on('pageerror', (e) => console.error('[pageerror]', e.message));
+page.on("pageerror", (e) => console.error("[pageerror]", e.message));
 
-await page.goto(URL, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(URL, { waitUntil: "load" });
+await page.waitForSelector("canvas");
 await wait(5000);
-await page.focus('canvas').catch(() => {});
+await page.focus("canvas").catch(() => {});
 
 const npcs = () => page.evaluate(() => window.__dbgNpcs?.());
 const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
 /** The hint pill's text, or null when it is not showing. */
-const hint = () => page.evaluate(() => {
-  const el = document.querySelector('.bs-hint');
-  if (!el || !el.classList.contains('show')) return null;
-  return el.textContent.trim();
-});
+const hint = () =>
+  page.evaluate(() => {
+    const el = document.querySelector(".bs-hint");
+    if (!el || !el.classList.contains("show")) {
+      return null;
+    }
+    return el.textContent.trim();
+  });
 const talking = async () => (await npcs()).talking?.id ?? null;
-const gainRow = async () => (await npcs()).all.find((n) => n.id === 'gain');
+const gainRow = async () => (await npcs()).all.find((n) => n.id === "gain");
 
 /** Type one line at the dev console. The only way to stage a mount. */
 async function cmd(line) {
-  await page.keyboard.press('Backquote');
-  await page.waitForSelector('.bs-console-input', { visible: true });
-  await page.type('.bs-console-input', line);
-  await page.keyboard.press('Enter');
+  await page.keyboard.press("Backquote");
+  await page.waitForSelector(".bs-console-input", { visible: true });
+  await page.type(".bs-console-input", line);
+  await page.keyboard.press("Enter");
   await wait(400);
-  await page.keyboard.press('Backquote');
+  await page.keyboard.press("Backquote");
   await wait(400);
 }
 
 const results = {};
 const fails = [];
-const check = (ok, msg) => { if (!ok) fails.push(msg); };
+const check = (ok, msg) => {
+  if (!ok) {
+    fails.push(msg);
+  }
+};
 
 const gain = await gainRow();
 if (!gain) {
@@ -92,27 +99,37 @@ if (!gain) {
 {
   const s = await page.evaluate(() => window.__dbgStart?.());
   results.openingPose = s;
-  check(!!s?.greeter, 'no greeter — the pose fell back to the road');
-  check(s?.beside > 2.8 && s?.beside < 5,
-    `should stand a few paces from the greeter, got ${s?.beside}`);
+  check(!!s?.greeter, "no greeter — the pose fell back to the road");
+  check(
+    s?.beside > 2.8 && s?.beside < 5,
+    `should stand a few paces from the greeter, got ${s?.beside}`,
+  );
   // Just OUTSIDE NPC_TALK_RANGE (2.8) on purpose: inside it he turns to attend
   // the hero on frame one and the two of them face each other instead of the
   // same way, which is the shot. The lower bound above is that constant.
   check(Math.abs(s?.faceGap) < 1, `should face the greeter's way, off by ${s?.faceGap} deg`);
-  check(Math.abs(s?.camFromFace) < 12,
-    `the camera should be on his face, ${s?.camFromFace} deg off`);
-  check(Math.abs(s?.start.y - s?.greeter.y) < 0.6,
-    `same ground as the greeter, ${s?.start.y} against ${s?.greeter.y}`);
+  check(
+    Math.abs(s?.camFromFace) < 12,
+    `the camera should be on his face, ${s?.camFromFace} deg off`,
+  );
+  check(
+    Math.abs(s?.start.y - s?.greeter.y) < 0.6,
+    `same ground as the greeter, ${s?.start.y} against ${s?.greeter.y}`,
+  );
   // The CONTROL, and without it the four above would all pass in a world where
   // `playerStart` had quietly fallen back to the road and the greeter happened
   // to be standing on it: the start must NOT be the world's reference point,
   // which is fifty-odd units out on the road (see World.spawnPoint).
-  check(s?.fromSpawn > 20,
-    `the hero should start in camp, not at the road spawn (${s?.fromSpawn} away)`);
+  check(
+    s?.fromSpawn > 20,
+    `the hero should start in camp, not at the road spawn (${s?.fromSpawn} away)`,
+  );
   // And he is really there — `playerStart` is a statement, `__dbgPlayerPos` is
   // the hero. A pose nothing applied would read perfectly above.
-  check(Math.abs(s?.player.x - s?.start.x) < 0.5 && Math.abs(s?.player.z - s?.start.z) < 0.5,
-    'the hero is not standing where playerStart says');
+  check(
+    Math.abs(s?.player.x - s?.start.x) < 0.5 && Math.abs(s?.player.z - s?.start.z) < 0.5,
+    "the hero is not standing where playerStart says",
+  );
 }
 
 // A FLYER TO CLIMB ON. Since issue #4 a new game is bonded to nothing, and the
@@ -123,7 +140,7 @@ if (!gain) {
 // AFTER THE OPENING POSE, not before it. That section asserts where the game PUT
 // the hero, and it has to be the first thing read — every extra moment before it
 // is a moment in which something can walk up and shove him off the mark.
-await page.evaluate(() => window.__dbgGrantBeast('all'));
+await page.evaluate(() => window.__dbgGrantBeast("all"));
 await wait(300);
 
 // ---------- on the ground, two units away: he is there to talk to ----------
@@ -133,29 +150,37 @@ await wait(300);
   const [p, row, h] = [await pos(), await gainRow(), await hint()];
   const dy = +(p.y - gain.y).toFixed(2);
 
-  await page.keyboard.press('KeyE');
+  await page.keyboard.press("KeyE");
   await wait(400);
   const opened = await talking();
-  await page.keyboard.press('Escape');
+  await page.keyboard.press("Escape");
   await wait(300);
 
   results.onFoot = {
-    dy, horiz: row.fromPlayer, inTalkRange: row.inTalkRange,
-    hint: h, talkOpened: opened, closedAgain: await talking(),
+    dy,
+    horiz: row.fromPlayer,
+    inTalkRange: row.inTalkRange,
+    hint: h,
+    talkOpened: opened,
+    closedAgain: await talking(),
   };
   check(Math.abs(dy) < 0.01, `expected the hero on the ground beside him, dy ${dy}`);
-  check(row.inTalkRange, 'the shipped query says he is NOT in talk range, standing 2 units away');
+  check(row.inTalkRange, "the shipped query says he is NOT in talk range, standing 2 units away");
   check(!!h && /Gains/.test(h), `no talk prompt standing beside him: ${JSON.stringify(h)}`);
-  check(opened === 'gain', `E did not open the conversation (talking: ${opened})`);
+  check(opened === "gain", `E did not open the conversation (talking: ${opened})`);
 }
 
 // ---------- start a conversation, then take off out of it ----------
-await cmd('/mount galebird');
+await cmd("/mount galebird");
 {
   const m = await page.evaluate(() => window.__dbgMount?.());
-  results.mount = { mounted: m?.mounted ?? false, beast: m?.beast ?? null, locomotion: m?.locomotion ?? null };
-  check(m?.mounted === true, 'could not mount the galebird — the rest of the run means nothing');
-  check(m?.locomotion === 'flying', `mounted something that does not fly: ${m?.locomotion}`);
+  results.mount = {
+    mounted: m?.mounted ?? false,
+    beast: m?.beast ?? null,
+    locomotion: m?.locomotion ?? null,
+  };
+  check(m?.mounted === true, "could not mount the galebird — the rest of the run means nothing");
+  check(m?.locomotion === "flying", `mounted something that does not fly: ${m?.locomotion}`);
 }
 
 // A flyer at REST hovers about 2.2 units up, which is his head height and is
@@ -166,42 +191,60 @@ await cmd('/mount galebird');
   await wait(1200);
   const [p, row] = [await pos(), await gainRow()];
   const dy = +(p.y - gain.y).toFixed(2);
-  results.hovering = { dy, horiz: row.fromPlayer, inTalkRange: row.inTalkRange, hint: await hint() };
+  results.hovering = {
+    dy,
+    horiz: row.fromPlayer,
+    inTalkRange: row.inTalkRange,
+    hint: await hint(),
+  };
   check(dy > 1.0 && dy < 3.0, `a resting hover should sit ~2.2 above his feet, measured ${dy}`);
   check(row.inTalkRange, `hovering at his head height (dy ${dy}) must still be talkable`);
 }
 
 // Open one, then climb out of it.
-await page.keyboard.press('KeyE');
+await page.keyboard.press("KeyE");
 await wait(400);
 const openedInHover = await talking();
-check(openedInHover === 'gain', `could not start a talk from the hover (talking: ${openedInHover})`);
+check(
+  openedInHover === "gain",
+  `could not start a talk from the hover (talking: ${openedInHover})`,
+);
 
 {
-  await page.keyboard.down('Space');
+  await page.keyboard.down("Space");
   await wait(2500);
-  await page.keyboard.up('Space');
+  await page.keyboard.up("Space");
   await wait(400);
 
   const [p, row, h] = [await pos(), await gainRow(), await hint()];
   const dy = +(p.y - gain.y).toFixed(2);
   results.flying = {
-    dy, horiz: row.fromPlayer, inTalkRange: row.inTalkRange,
-    hint: h, stillTalking: await talking(),
+    dy,
+    horiz: row.fromPlayer,
+    inTalkRange: row.inTalkRange,
+    hint: h,
+    stillTalking: await talking(),
   };
   // The whole bug in one number: he is directly overhead and a long way up.
   check(dy > 10, `the climb did not get high enough to test anything, dy ${dy}`);
-  check(row.horiz === undefined || row.fromPlayer < 4,
-    `drifted off him horizontally (${row.fromPlayer}) — this would pass for the wrong reason`);
+  check(
+    row.horiz === undefined || row.fromPlayer < 4,
+    `drifted off him horizontally (${row.fromPlayer}) — this would pass for the wrong reason`,
+  );
   check(!row.inTalkRange, `STILL in talk range ${dy} units overhead — issue #25`);
-  check(h === null || !/Gains/.test(h), `talk prompt still up ${dy} units overhead: ${JSON.stringify(h)}`);
-  check(results.flying.stillTalking === null,
-    `the conversation followed the hero into the sky (talking: ${results.flying.stillTalking})`);
+  check(
+    h === null || !/Gains/.test(h),
+    `talk prompt still up ${dy} units overhead: ${JSON.stringify(h)}`,
+  );
+  check(
+    results.flying.stillTalking === null,
+    `the conversation followed the hero into the sky (talking: ${results.flying.stillTalking})`,
+  );
 }
 
 // ---------- and pressing E up there does nothing ----------
 {
-  await page.keyboard.press('KeyE');
+  await page.keyboard.press("KeyE");
   await wait(400);
   const t = await talking();
   results.eWhileFlying = { talking: t };
@@ -210,20 +253,26 @@ check(openedInHover === 'gain', `could not start a talk from the hover (talking:
 
 // ---------- come back down: it must all work again ----------
 {
-  await cmd('/mount off');
+  await cmd("/mount off");
   await page.evaluate((g) => window.__dbgTp(g.x + 2.0, g.z), gain);
   await wait(1000);
   const row = await gainRow();
-  await page.keyboard.press('KeyE');
+  await page.keyboard.press("KeyE");
   await wait(400);
-  results.backOnFoot = { inTalkRange: row.inTalkRange, hint: await hint(), talking: await talking() };
-  check(row.inTalkRange, 'not talkable again after landing — the check latched');
-  check(results.backOnFoot.talking === 'gain', 'could not talk again after landing');
+  results.backOnFoot = {
+    inTalkRange: row.inTalkRange,
+    hint: await hint(),
+    talking: await talking(),
+  };
+  check(row.inTalkRange, "not talkable again after landing — the check latched");
+  check(results.backOnFoot.talking === "gain", "could not talk again after landing");
 }
 
-console.log(JSON.stringify({ gain: { x: gain.x, y: gain.y, z: gain.z }, ...results, fails }, null, 2));
+console.log(
+  JSON.stringify({ gain: { x: gain.x, y: gain.y, z: gain.z }, ...results, fails }, null, 2),
+);
 await browser.close();
 if (fails.length) {
-  console.error(`\n${fails.length} failure(s):\n  ${fails.join('\n  ')}`);
+  console.error(`\n${fails.length} failure(s):\n  ${fails.join("\n  ")}`);
   process.exit(1);
 }

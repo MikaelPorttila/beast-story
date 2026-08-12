@@ -1,19 +1,19 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from "vite";
 // Save a .blend, get a .glb, get a reloaded page. Serve-time only — see the
 // note at the top of tools/blend-glb.mjs for why it lives in the dev server
 // rather than in a second process.
-import { blendGlb } from './tools/blend-glb.mjs';
+import { blendGlb } from "./tools/blend-glb.mjs";
 
 export default defineConfig({
-  base: './',
+  base: "./",
   plugins: [blendGlb()],
   build: {
-    target: 'es2022',
+    target: "es2022",
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       input: {
-        main: 'index.html',
-        lab: 'lab.html',
+        main: "index.html",
+        lab: "lab.html",
       },
     },
   },

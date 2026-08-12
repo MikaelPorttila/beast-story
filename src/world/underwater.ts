@@ -3,9 +3,9 @@
  * caustics live in the output pass — a multiply in linear HDR ahead of ACES
  * cannot darken a bright subject (issue #23).
  */
-import * as THREE from 'three';
-import { SURFACE_Y } from './water';
-import { flags } from '../core/flags';
+import * as THREE from "three";
+import { SURFACE_Y } from "./water";
+import { flags } from "../core/flags";
 
 /** Linear per-channel absorption the distance fades to. `fog.color` multiplies
  *  sky radiance, so this is what makes murk darker rather than brighter (#23). */
@@ -57,7 +57,9 @@ export class Underwater {
   }
 
   /** Per-channel Beer-Lambert multiplier, composed by Engine with time of day. */
-  get fogAbsorption(): Readonly<THREE.Color> { return this.fogColor; }
+  get fogAbsorption(): Readonly<THREE.Color> {
+    return this.fogColor;
+  }
 
   /** Effect clock, seconds. Frozen under `photo=1` so captures are reproducible. */
   get clock(): number {
@@ -95,8 +97,8 @@ export class Underwater {
     const geo = new THREE.BufferGeometry();
     this.bubbleAttr = new THREE.BufferAttribute(this.bubblePos, 3);
     this.bubbleAttr.setUsage(THREE.DynamicDrawUsage);
-    geo.setAttribute('position', this.bubbleAttr);
-    geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+    geo.setAttribute("position", this.bubbleAttr);
+    geo.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
     this.bubbleMat = new THREE.ShaderMaterial({
       vertexShader: BUBBLE_VERT,
       fragmentShader: BUBBLE_FRAG,
@@ -126,7 +128,9 @@ export class Underwater {
     this.amount += (target - this.amount) * (1 - Math.exp(-14 * dt));
     if (this.amount < 0.002) {
       this.amount = 0;
-      if (this.bubbles.visible) this.bubbles.visible = false;
+      if (this.bubbles.visible) {
+        this.bubbles.visible = false;
+      }
       this.restoreFog();
       return;
     }
@@ -169,11 +173,21 @@ export class Underwater {
       }
       // Toroidal wrap, so a drifting bubble keeps its height and phase.
       const dx = p[k] - cx;
-      if (dx > BOX_XZ) p[k] -= BOX_XZ * 2; else if (dx < -BOX_XZ) p[k] += BOX_XZ * 2;
+      if (dx > BOX_XZ) {
+        p[k] -= BOX_XZ * 2;
+      } else if (dx < -BOX_XZ) {
+        p[k] += BOX_XZ * 2;
+      }
       const dz = p[k + 2] - cz;
-      if (dz > BOX_XZ) p[k + 2] -= BOX_XZ * 2; else if (dz < -BOX_XZ) p[k + 2] += BOX_XZ * 2;
+      if (dz > BOX_XZ) {
+        p[k + 2] -= BOX_XZ * 2;
+      } else if (dz < -BOX_XZ) {
+        p[k + 2] += BOX_XZ * 2;
+      }
       // Camera dropped fast (dive or teleport): pull stragglers back into the slab.
-      if (p[k + 1] < cy - BAND_Y * 2) p[k + 1] = cy - BAND_Y;
+      if (p[k + 1] < cy - BAND_Y * 2) {
+        p[k + 1] = cy - BAND_Y;
+      }
     }
     this.bubbleAttr.needsUpdate = true;
   }
@@ -190,7 +204,9 @@ export class Underwater {
   }
 
   private restoreFog(): void {
-    if (!this.fogSaved) return;
+    if (!this.fogSaved) {
+      return;
+    }
     const fog = this.scene.fog as THREE.Fog | null;
     if (fog && (fog as THREE.Fog).isFog) {
       fog.near = this.fogNear;

@@ -9,10 +9,20 @@
  */
 
 export type CueKind =
-  | 'playerHurt' | 'playerDied' | 'playerLanded'
-  | 'hit' | 'hitCrit' | 'hitSuper' | 'kill'
-  | 'mounted' | 'levelUp' | 'pickup'
-  | 'orbThrow' | 'orbWobble' | 'tameSuccess' | 'tameFail';
+  | "playerHurt"
+  | "playerDied"
+  | "playerLanded"
+  | "hit"
+  | "hitCrit"
+  | "hitSuper"
+  | "kill"
+  | "mounted"
+  | "levelUp"
+  | "pickup"
+  | "orbThrow"
+  | "orbWobble"
+  | "tameSuccess"
+  | "tameFail";
 
 export interface CueSpec {
   /** Heavy motor, at intensity 0. */
@@ -55,17 +65,17 @@ export interface CueSpec {
 export const CUES: Readonly<Record<CueKind, CueSpec>> = {
   // The headline. Scales with the share of the health bar the hit took, so a
   // scratch and a near-death land differently in the hands.
-  playerHurt: { strong: 0.45, strongGain: 0.40, weak: 0.35, dur: 0.18, shake: 0.32, shakeMin: 0 },
-  playerDied: { strong: 1.00, strongGain: 0, weak: 0.80, dur: 0.45, shake: 0.50, shakeMin: 0 },
-  playerLanded: { strong: 0, strongGain: 0.30, weak: 0.10, dur: 0.10, shake: 0.15, shakeMin: 0.6 },
+  playerHurt: { strong: 0.45, strongGain: 0.4, weak: 0.35, dur: 0.18, shake: 0.32, shakeMin: 0 },
+  playerDied: { strong: 1.0, strongGain: 0, weak: 0.8, dur: 0.45, shake: 0.5, shakeMin: 0 },
+  playerLanded: { strong: 0, strongGain: 0.3, weak: 0.1, dur: 0.1, shake: 0.15, shakeMin: 0.6 },
 
   hit: { strong: 0, strongGain: 0, weak: 0.22, dur: 0.06, shake: 0, shakeMin: 0 },
-  hitCrit: { strong: 0.35, strongGain: 0, weak: 0.45, dur: 0.10, shake: 0, shakeMin: 0 },
-  hitSuper: { strong: 0.28, strongGain: 0, weak: 0.40, dur: 0.12, shake: 0, shakeMin: 0 },
-  kill: { strong: 0.40, strongGain: 0, weak: 0.25, dur: 0.14, shake: 0, shakeMin: 0 },
+  hitCrit: { strong: 0.35, strongGain: 0, weak: 0.45, dur: 0.1, shake: 0, shakeMin: 0 },
+  hitSuper: { strong: 0.28, strongGain: 0, weak: 0.4, dur: 0.12, shake: 0, shakeMin: 0 },
+  kill: { strong: 0.4, strongGain: 0, weak: 0.25, dur: 0.14, shake: 0, shakeMin: 0 },
 
-  mounted: { strong: 0.50, strongGain: 0, weak: 0.30, dur: 0.25, shake: 0, shakeMin: 0 },
-  levelUp: { strong: 0.20, strongGain: 0, weak: 0.35, dur: 0.30, shake: 0, shakeMin: 0 },
+  mounted: { strong: 0.5, strongGain: 0, weak: 0.3, dur: 0.25, shake: 0, shakeMin: 0 },
+  levelUp: { strong: 0.2, strongGain: 0, weak: 0.35, dur: 0.3, shake: 0, shakeMin: 0 },
   pickup: { strong: 0, strongGain: 0, weak: 0.12, dur: 0.05, shake: 0, shakeMin: 0 },
 
   // THE BOND, and its four moments. The whole point of the ceremony is two
@@ -79,11 +89,11 @@ export const CUES: Readonly<Record<CueKind, CueSpec>> = {
   // harder than the first — FeedbackSystem scales it by the intensity the
   // emitter passes, and main.ts passes the wobble's own index. That ramp is the
   // suspense, and it is the reason this cue scales at all when `hit` does not.
-  orbWobble: { strong: 0.22, strongGain: 0.30, weak: 0.18, dur: 0.09, shake: 0.04, shakeMin: 0 },
+  orbWobble: { strong: 0.22, strongGain: 0.3, weak: 0.18, dur: 0.09, shake: 0.04, shakeMin: 0 },
   // Kept: a bigger, longer thump than `levelUp`, because bonding a beast is the
   // rarest good thing that happens in the game and the one the mechanic is for.
-  tameSuccess: { strong: 0.55, strongGain: 0, weak: 0.45, dur: 0.35, shake: 0.10, shakeMin: 0 },
+  tameSuccess: { strong: 0.55, strongGain: 0, weak: 0.45, dur: 0.35, shake: 0.1, shakeMin: 0 },
   // Broke: short and hard, and then nothing. A failure should stop rather than
   // fade — a long envelope on a loss reads as the game commiserating.
-  tameFail: { strong: 0.40, strongGain: 0, weak: 0.20, dur: 0.12, shake: 0.08, shakeMin: 0 },
+  tameFail: { strong: 0.4, strongGain: 0, weak: 0.2, dur: 0.12, shake: 0.08, shakeMin: 0 },
 };

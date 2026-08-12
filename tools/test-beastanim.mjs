@@ -38,8 +38,8 @@
 // probe that is not run. See MAX_DELTA.
 //
 // Usage: bun tools/test-beastanim.mjs [soakSeconds]
-import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait, logPageErrors } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 /**
  * How long each half lets the session clock run before it starts measuring.
@@ -87,7 +87,7 @@ const SLOW_FRAME_MS = 50;
  *
  * Move this and say what you measured, as with any tuned constant here.
  */
-const MAX_DELTA = 0.60;
+const MAX_DELTA = 0.6;
 
 /**
  * THE CHECKER, installed in whichever page is being measured.
@@ -97,80 +97,99 @@ const MAX_DELTA = 0.60;
  * the stage and a rAF collector in the game. It keeps only the worst delta per
  * joint, so a 26 s sample is a few hundred numbers however many frames it took.
  */
-const installChecker = (page, slowFrameMs) => page.evaluate((slowMs) => {
-  const LOCO = new Set(['idle', 'walk', 'run', 'fly', 'swim']);
-  const worst = new Map();     // "beast.part.axis" -> worst per-frame delta
-  let prev = null;
+const installChecker = (page, slowFrameMs) =>
+  page.evaluate((slowMs) => {
+    const LOCO = new Set(["idle", "walk", "run", "fly", "swim"]);
+    const worst = new Map(); // "beast.part.axis" -> worst per-frame delta
+    let prev = null;
 
-  window.__anim = {
-    frames: 0,
-    skipped: 0,
-    clock: 0,
-    /** Fold one frame in. `dtMs` is how long that frame took to produce. */
-    fold(dtMs) {
-      const now = window.__dbgBeastAnim();
-      window.__anim.frames++;
-      // The LARGEST clock in the roster, not the first one's: a beast parked in
-      // reserve never updates, so its `time` sits at 0 and reading it would
-      // report a session that never started.
-      for (const b of now) if (b.time > window.__anim.clock) window.__anim.clock = b.time;
-      if (prev && dtMs > slowMs) { window.__anim.skipped++; prev = now; return; }
-      if (prev) {
-        for (let i = 0; i < now.length && i < prev.length; i++) {
-          const a = prev[i], b = now[i];
-          if (a.id !== b.id) continue;
-          // Only compare frames in the SAME action, and only the locomotion
-          // actions. An action change is a deliberate pose cut — a beast
-          // snapping out of an attack into a run is meant to move a long way in
-          // one frame — and counting those would drown out the thing under
-          // test, which is whether a cycle stays continuous WHILE it runs.
-          if (a.action !== b.action) continue;
-          if (!LOCO.has(b.action)) continue;
-          for (const k of Object.keys(b.parts)) {
-            const pa = a.parts[k], pb = b.parts[k];
-            // The contact blob counter-rotates against the rig root to stay
-            // flat on the ground, so its local rotation wraps through +-pi
-            // every time the beast turns past south. That is a 2pi bookkeeping
-            // step, not motion, and it drowns out everything real. Skip it.
-            if (!pa || !pb || k === 'blob') continue;
-            for (let ax = 0; ax < 3; ax++) {
-              const d = Math.abs(pb[ax] - pa[ax]);
-              const key = `${b.id}.${k}.${'xyz'[ax]}`;
-              const cur = worst.get(key);
-              if (!cur || d > cur.d) {
-                worst.set(key, { d, action: b.action, ms: b.moveSpeed, t: b.time });
+    window.__anim = {
+      frames: 0,
+      skipped: 0,
+      clock: 0,
+      /** Fold one frame in. `dtMs` is how long that frame took to produce. */
+      fold(dtMs) {
+        const now = window.__dbgBeastAnim();
+        window.__anim.frames++;
+        // The LARGEST clock in the roster, not the first one's: a beast parked in
+        // reserve never updates, so its `time` sits at 0 and reading it would
+        // report a session that never started.
+        for (const b of now) {
+          if (b.time > window.__anim.clock) window.__anim.clock = b.time;
+        }
+        if (prev && dtMs > slowMs) {
+          window.__anim.skipped++;
+          prev = now;
+          return;
+        }
+        if (prev) {
+          for (let i = 0; i < now.length && i < prev.length; i++) {
+            const a = prev[i],
+              b = now[i];
+            if (a.id !== b.id) {
+              continue;
+            }
+            // Only compare frames in the SAME action, and only the locomotion
+            // actions. An action change is a deliberate pose cut — a beast
+            // snapping out of an attack into a run is meant to move a long way in
+            // one frame — and counting those would drown out the thing under
+            // test, which is whether a cycle stays continuous WHILE it runs.
+            if (a.action !== b.action) {
+              continue;
+            }
+            if (!LOCO.has(b.action)) {
+              continue;
+            }
+            for (const k of Object.keys(b.parts)) {
+              const pa = a.parts[k],
+                pb = b.parts[k];
+              // The contact blob counter-rotates against the rig root to stay
+              // flat on the ground, so its local rotation wraps through +-pi
+              // every time the beast turns past south. That is a 2pi bookkeeping
+              // step, not motion, and it drowns out everything real. Skip it.
+              if (!pa || !pb || k === "blob") {
+                continue;
+              }
+              for (let ax = 0; ax < 3; ax++) {
+                const d = Math.abs(pb[ax] - pa[ax]);
+                const key = `${b.id}.${k}.${"xyz"[ax]}`;
+                const cur = worst.get(key);
+                if (!cur || d > cur.d) {
+                  worst.set(key, { d, action: b.action, ms: b.moveSpeed, t: b.time });
+                }
               }
             }
           }
         }
-      }
-      prev = now;
-    },
-    read() {
-      const rows = [...worst.entries()]
-        .map(([k, v]) => ({ joint: k, d: v.d, action: v.action, ms: v.ms, t: v.t }))
-        .sort((a, b) => b.d - a.d);
-      const perBeast = new Map();
-      for (const r of rows) {
-        const id = r.joint.split('.')[0];
-        if (!perBeast.has(id)) perBeast.set(id, r);
-      }
-      const seen = [...perBeast.values()];
-      return {
-        elapsed: window.__anim.clock,
-        frames: window.__anim.frames,
-        skipped: window.__anim.skipped,
-        top: rows.slice(0, 12),
-        perBeast: seen,
-        // A beast that never left its reserve slot reports a row of zeroes —
-        // it is IN the roster and it was never measured. Counting those as
-        // coverage is exactly the hole the stage half exists to close, so the
-        // two numbers are reported apart.
-        moving: seen.filter((r) => r.d > 1e-6).length,
-      };
-    },
-  };
-}, slowFrameMs);
+        prev = now;
+      },
+      read() {
+        const rows = [...worst.entries()]
+          .map(([k, v]) => ({ joint: k, d: v.d, action: v.action, ms: v.ms, t: v.t }))
+          .sort((a, b) => b.d - a.d);
+        const perBeast = new Map();
+        for (const r of rows) {
+          const id = r.joint.split(".")[0];
+          if (!perBeast.has(id)) {
+            perBeast.set(id, r);
+          }
+        }
+        const seen = [...perBeast.values()];
+        return {
+          elapsed: window.__anim.clock,
+          frames: window.__anim.frames,
+          skipped: window.__anim.skipped,
+          top: rows.slice(0, 12),
+          perBeast: seen,
+          // A beast that never left its reserve slot reports a row of zeroes —
+          // it is IN the roster and it was never measured. Counting those as
+          // coverage is exactly the hole the stage half exists to close, so the
+          // two numbers are reported apart.
+          moving: seen.filter((r) => r.d > 1e-6).length,
+        };
+      },
+    };
+  }, slowFrameMs);
 
 const browser = await launchBrowser();
 const fails = [];
@@ -182,23 +201,28 @@ const fails = [];
 const stage = await (async () => {
   const page = await newPage(browser, { width: 640, height: 400 });
   logPageErrors(page);
-  await page.goto(`${HOST}/lab.html?beasts=all&follow=1&t=0&vol=0`, { waitUntil: 'load' });
+  await page.goto(`${HOST}/lab.html?beasts=all&follow=1&t=0&vol=0`, { waitUntil: "load" });
   await page.waitForFunction('typeof __dbgLabAdvance === "function"', { timeout: 30000 });
-  await page.waitForFunction('__dbgBeastAnim().length > 0', { timeout: 30000 });
+  await page.waitForFunction("__dbgBeastAnim().length > 0", { timeout: 30000 });
   await installChecker(page, SLOW_FRAME_MS);
 
-  const out = await page.evaluate((soakS, sampleS, step) => {
-    const t0 = performance.now();
-    // The soak, in one call: elapsed session clock is an input to the bug, and
-    // nothing needs to be sampled while it accumulates.
-    window.__dbgLabAdvance(soakS);
-    const steps = Math.round(sampleS / step);
-    for (let i = 0; i < steps; i++) {
-      window.__dbgLabAdvance(step);
-      window.__anim.fold(step * 1000);
-    }
-    return { ...window.__anim.read(), wallMs: Math.round(performance.now() - t0) };
-  }, STAGE_SOAK_S, SAMPLE_MS / 1000, SIM_STEP);
+  const out = await page.evaluate(
+    (soakS, sampleS, step) => {
+      const t0 = performance.now();
+      // The soak, in one call: elapsed session clock is an input to the bug, and
+      // nothing needs to be sampled while it accumulates.
+      window.__dbgLabAdvance(soakS);
+      const steps = Math.round(sampleS / step);
+      for (let i = 0; i < steps; i++) {
+        window.__dbgLabAdvance(step);
+        window.__anim.fold(step * 1000);
+      }
+      return { ...window.__anim.read(), wallMs: Math.round(performance.now() - t0) };
+    },
+    STAGE_SOAK_S,
+    SAMPLE_MS / 1000,
+    SIM_STEP,
+  );
 
   await page.close();
   return out;
@@ -212,21 +236,25 @@ const world = await (async () => {
   // which silently wipes the in-page collector mid-run. Notice it and start
   // over rather than reporting a truncated sample as if it were a whole one.
   let reloaded = false;
-  page.on('framenavigated', (fr) => { if (fr === page.mainFrame()) reloaded = true; });
+  page.on("framenavigated", (fr) => {
+    if (fr === page.mainFrame()) {
+      reloaded = true;
+    }
+  });
 
   for (let attempt = 1; attempt <= 4; attempt++) {
     reloaded = false;
-    await page.goto(`${HOST}/?fps=0&menu=0&vol=0`, { waitUntil: 'load', timeout: 60000 });
-    await page.waitForSelector('canvas', { timeout: 30000 });
+    await page.goto(`${HOST}/?fps=0&menu=0&vol=0`, { waitUntil: "load", timeout: 60000 });
+    await page.waitForSelector("canvas", { timeout: 30000 });
     await page.waitForFunction('typeof __dbgBeastAnim === "function"', { timeout: 15000 });
-    await page.waitForFunction('__dbgBeastAnim().length > 0', { timeout: 20000 });
+    await page.waitForFunction("__dbgBeastAnim().length > 0", { timeout: 20000 });
     reloaded = false;
     // BOND A PARTY FIRST. A new game starts with none (see the roster note in
     // tools/suite/roster.mjs — every module bonds its own), and an unbonded
     // roster is fifteen actors parked in reserve at moveSpeed 0: the run still
     // samples four thousand frames and every delta in it is 0.000, which reads
     // as a pass and measures nothing. Same call the suite harness makes.
-    await page.evaluate(() => window.__dbgGrantBeast('all'));
+    await page.evaluate(() => window.__dbgGrantBeast("all"));
     // The world half cannot burst its soak: __dbgAdvance drives the hero's own
     // simulate(), and this measurement is about what a RENDERED frame does.
     await wait(soak * 1000);
@@ -251,8 +279,11 @@ const world = await (async () => {
         }
         window.__anim.fold(now - prevT);
         prevT = now;
-        if (el < sampleMs) requestAnimationFrame(step);
-        else window.__anim.done = true;
+        if (el < sampleMs) {
+          requestAnimationFrame(step);
+        } else {
+          window.__anim.done = true;
+        }
       };
       requestAnimationFrame(step);
     }, SAMPLE_MS);
@@ -261,13 +292,18 @@ const world = await (async () => {
     // pair gets a turn as an actually-moving follower. The stage half is what
     // guarantees the whole roster is seen; this is here so the world half is
     // not permanently measuring the same two.
-    await page.focus('canvas').catch(() => {});
+    await page.focus("canvas").catch(() => {});
     for (let i = 0; i < Math.floor(SAMPLE_MS / 1600) && !reloaded; i++) {
       await wait(1600);
-      await page.keyboard.press(i % 2 === 0 ? 'BracketRight' : 'BracketLeft');
+      await page.keyboard.press(i % 2 === 0 ? "BracketRight" : "BracketLeft");
     }
-    if (!reloaded) await wait(2000);
-    if (reloaded) { console.log(`attempt ${attempt}: page reloaded mid-sample, retrying`); continue; }
+    if (!reloaded) {
+      await wait(2000);
+    }
+    if (reloaded) {
+      console.log(`attempt ${attempt}: page reloaded mid-sample, retrying`);
+      continue;
+    }
     const out = await page.evaluate(() => window.__anim.read());
     await page.close();
     return out;
@@ -277,33 +313,48 @@ const world = await (async () => {
 })();
 
 if (!world) {
-  console.error('could not complete a world sample without a reload');
+  console.error("could not complete a world sample without a reload");
   process.exit(1);
 }
 
 // ---------- report ----------------------------------------------------------
 const f = (n) => n.toFixed(3);
 const report = (name, r) => {
-  console.log(`\n=== ${name} — ${r.moving}/${r.perBeast.length} species moved, `
-    + `clock ${f(r.elapsed)} s over ${r.frames} frames`
-    + `${r.skipped ? `, ${r.skipped} dropped as slow` : ''}`
-    + `${r.wallMs !== undefined ? `, ${(r.wallMs / 1000).toFixed(1)} s wall` : ''}`);
-  console.log('  worst per-frame rotation delta, by beast:');
+  console.log(
+    `\n=== ${name} — ${r.moving}/${r.perBeast.length} species moved, ` +
+      `clock ${f(r.elapsed)} s over ${r.frames} frames` +
+      `${r.skipped ? `, ${r.skipped} dropped as slow` : ""}` +
+      `${r.wallMs !== undefined ? `, ${(r.wallMs / 1000).toFixed(1)} s wall` : ""}`,
+  );
+  console.log("  worst per-frame rotation delta, by beast:");
   for (const b of r.perBeast) {
-    console.log(`    ${b.joint.padEnd(30)} ${f(b.d).padStart(9)} rad   `
-      + `(${b.action}, ms=${f(b.ms)}, clock=${f(b.t)}s)`);
+    console.log(
+      `    ${b.joint.padEnd(30)} ${f(b.d).padStart(9)} rad   ` +
+        `(${b.action}, ms=${f(b.ms)}, clock=${f(b.t)}s)`,
+    );
   }
 };
-report('stage', stage);
-report('world', world);
+report("stage", stage);
+report("world", world);
 
-for (const [name, r] of [['stage', stage], ['world', world]]) {
-  if (!r.frames) { fails.push(`${name}: no frames sampled`); continue; }
-  if (!r.moving) { fails.push(`${name}: no beast moved at all — the sample is empty`); continue; }
+for (const [name, r] of [
+  ["stage", stage],
+  ["world", world],
+]) {
+  if (!r.frames) {
+    fails.push(`${name}: no frames sampled`);
+    continue;
+  }
+  if (!r.moving) {
+    fails.push(`${name}: no beast moved at all — the sample is empty`);
+    continue;
+  }
   const worst = r.top[0];
   if (worst && worst.d > MAX_DELTA) {
-    fails.push(`${name}: ${worst.joint} jumped ${f(worst.d)} rad in one frame `
-      + `(budget ${MAX_DELTA}, action ${worst.action}, moveSpeed ${f(worst.ms)})`);
+    fails.push(
+      `${name}: ${worst.joint} jumped ${f(worst.d)} rad in one frame ` +
+        `(budget ${MAX_DELTA}, action ${worst.action}, moveSpeed ${f(worst.ms)})`,
+    );
   }
 }
 // THE COVERAGE CLAIM, and the reason the stage half was written: every species
@@ -311,21 +362,33 @@ for (const [name, r] of [['stage', stage], ['world', world]]) {
 // grows without this run seeing it is the hole the old file had, and this is
 // the line that now fails instead of quietly under-reporting.
 if (stage.moving < stage.perBeast.length) {
-  fails.push(`stage: only ${stage.moving} of ${stage.perBeast.length} species moved — `
-    + 'every species on the stage should be in catch-up follow');
+  fails.push(
+    `stage: only ${stage.moving} of ${stage.perBeast.length} species moved — ` +
+      "every species on the stage should be in catch-up follow",
+  );
 }
 
-console.log(`\n${JSON.stringify({
-  stage: { maxDelta: stage.top[0]?.d ?? 0, joint: stage.top[0]?.joint ?? null, moving: stage.moving },
-  world: { maxDelta: world.top[0]?.d ?? 0, joint: world.top[0]?.joint ?? null, moving: world.moving },
-  budget: MAX_DELTA,
-  pass: fails.length === 0,
-})}`);
+console.log(
+  `\n${JSON.stringify({
+    stage: {
+      maxDelta: stage.top[0]?.d ?? 0,
+      joint: stage.top[0]?.joint ?? null,
+      moving: stage.moving,
+    },
+    world: {
+      maxDelta: world.top[0]?.d ?? 0,
+      joint: world.top[0]?.joint ?? null,
+      moving: world.moving,
+    },
+    budget: MAX_DELTA,
+    pass: fails.length === 0,
+  })}`,
+);
 
 await browser.close();
 
 if (fails.length) {
-  console.error(`\nFAIL:\n  ${fails.join('\n  ')}`);
+  console.error(`\nFAIL:\n  ${fails.join("\n  ")}`);
   process.exit(1);
 }
-console.log('\nOK');
+console.log("\nOK");

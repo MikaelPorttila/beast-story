@@ -1,13 +1,13 @@
-import * as THREE from 'three';
-import type { FetchJob, World } from '../core/types';
-import { SHARD_ID, itemDef } from '../core/items';
-import type { VFX } from './vfx';
+import * as THREE from "three";
+import type { FetchJob, World } from "../core/types";
+import { SHARD_ID, itemDef } from "../core/items";
+import type { VFX } from "./vfx";
 
 // A drop CLAIMED as a `FetchJob` stops answering the player's magnet, or the
 // beast fetching it jogs to empty grass.
 
 const CORE_HEX = 0xeafffb;
-const MAGNET_RANGE_SQ = 9;      // 3 units
+const MAGNET_RANGE_SQ = 9; // 3 units
 const COLLECT_DIST_SQ = 0.45;
 const MAX_AGE = 42;
 
@@ -29,7 +29,7 @@ interface Drop {
   claimed: boolean;
   /** False for a thrown-away drop until the player leaves magnet range once. */
   armed: boolean;
-  gen: number;   // bumped on every (re)use, so stale jobs go inert
+  gen: number; // bumped on every (re)use, so stale jobs go inert
   job: DropJob;
 }
 
@@ -37,27 +37,42 @@ interface Drop {
 class DropJob implements FetchJob {
   private gen = -1;
 
-  constructor(private drop: Drop, private collectFn: (d: Drop, byBeast: boolean) => void) {}
+  constructor(
+    private drop: Drop,
+    private collectFn: (d: Drop, byBeast: boolean) => void,
+  ) {}
 
-  get itemId(): string { return this.drop.itemId; }
-  get position(): THREE.Vector3 { return this.drop.group.position; }
-  get valid(): boolean { return this.drop.active && this.drop.gen === this.gen; }
+  get itemId(): string {
+    return this.drop.itemId;
+  }
+  get position(): THREE.Vector3 {
+    return this.drop.group.position;
+  }
+  get valid(): boolean {
+    return this.drop.active && this.drop.gen === this.gen;
+  }
 
   claim(): boolean {
-    if (!this.drop.active || this.drop.claimed) return false;
+    if (!this.drop.active || this.drop.claimed) {
+      return false;
+    }
     this.drop.claimed = true;
     this.gen = this.drop.gen;
     return true;
   }
 
   collect(): void {
-    if (!this.valid) return;
+    if (!this.valid) {
+      return;
+    }
     this.gen = -1;
     this.collectFn(this.drop, true);
   }
 
   release(): void {
-    if (this.valid) this.drop.claimed = false;
+    if (this.valid) {
+      this.drop.claimed = false;
+    }
     this.gen = -1;
   }
 }
@@ -83,35 +98,62 @@ export class Pickups {
   }
 
   private slot(): Drop | null {
-    for (const s of this.pool) if (!s.active) return s;
-    if (this.pool.length >= 48) return null;
+    for (const s of this.pool) {
+      if (!s.active) return s;
+    }
+    if (this.pool.length >= 48) {
+      return null;
+    }
     const mat = new THREE.MeshBasicMaterial({
-      transparent: true, opacity: 0.92,
-      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+      transparent: true,
+      opacity: 0.92,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
     });
     const coreMat = new THREE.MeshBasicMaterial({
-      color: CORE_HEX, transparent: true,
-      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+      color: CORE_HEX,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
     });
     const glowMat = new THREE.SpriteMaterial({
-      map: this.vfx.glowTexture, transparent: true, opacity: 0.7,
-      blending: THREE.AdditiveBlending, depthWrite: false,
+      map: this.vfx.glowTexture,
+      transparent: true,
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
     });
     const group = new THREE.Group();
     const glow = new THREE.Sprite(glowMat);
     glow.scale.setScalar(0.95);
     const mesh = new THREE.Mesh(this.shardGeo, mat);
     const core = new THREE.Mesh(this.coreGeo, coreMat);
-    glow.renderOrder = 16; mesh.renderOrder = 17; core.renderOrder = 18;
+    glow.renderOrder = 16;
+    mesh.renderOrder = 17;
+    core.renderOrder = 18;
     group.add(glow);
     group.add(mesh);
     group.add(core);
     group.visible = false;
     this.scene.add(group);
     const s: Drop = {
-      active: false, group, mesh, core, mat, coreMat, glowMat,
-      vel: new THREE.Vector3(), age: 0, seed: 0, grounded: false,
-      itemId: SHARD_ID, claimed: false, armed: true, gen: 0,
+      active: false,
+      group,
+      mesh,
+      core,
+      mat,
+      coreMat,
+      glowMat,
+      vel: new THREE.Vector3(),
+      age: 0,
+      seed: 0,
+      grounded: false,
+      itemId: SHARD_ID,
+      claimed: false,
+      armed: true,
+      gen: 0,
       job: null as unknown as DropJob,
     };
     s.job = new DropJob(s, (d, byBeast) => this.take(d, byBeast));
@@ -123,7 +165,9 @@ export class Pickups {
   // magnet range once; a timer would just re-collect at their feet.
   spawn(x: number, y: number, z: number, itemId: string = SHARD_ID, armed = true): void {
     const s = this.spawnSlot(x, y, z, itemId);
-    if (s) s.armed = armed;
+    if (s) {
+      s.armed = armed;
+    }
   }
 
   // Links the drop materials before an enemy dies; retires only this slot.
@@ -132,7 +176,9 @@ export class Pickups {
   }
 
   retireWarmUpDrop(): void {
-    if (!this.warmSlot) return;
+    if (!this.warmSlot) {
+      return;
+    }
     this.retire(this.warmSlot);
     this.warmSlot = null;
   }
@@ -141,7 +187,9 @@ export class Pickups {
 
   private spawnSlot(x: number, y: number, z: number, itemId: string): Drop | null {
     const s = this.slot();
-    if (!s) return null;
+    if (!s) {
+      return null;
+    }
     const def = itemDef(itemId);
     s.active = true;
     s.grounded = false;
@@ -151,7 +199,7 @@ export class Pickups {
     s.itemId = def.id;
     s.age = 0;
     s.seed = Math.random() * 100;
-    const currency = def.kind === 'currency';
+    const currency = def.kind === "currency";
     s.mesh.geometry = currency ? this.shardGeo : this.cubeGeo;
     s.core.geometry = currency ? this.coreGeo : this.cubeCoreGeo;
     s.mat.color.setHex(def.color);
@@ -167,21 +215,34 @@ export class Pickups {
   }
 
   /** Nearest unclaimed drop within `maxDist`; the caller claims it. */
-  findJob(from: THREE.Vector3, maxDist: number, want: (itemId: string) => boolean): FetchJob | null {
+  findJob(
+    from: THREE.Vector3,
+    maxDist: number,
+    want: (itemId: string) => boolean,
+  ): FetchJob | null {
     let best: Drop | null = null;
     let bd = maxDist * maxDist;
     for (const s of this.pool) {
       // Unarmed = just thrown away; fetching it back undoes what the player did.
-      if (!s.active || s.claimed || !s.armed) continue;
-      if (s.age < 0.5) continue;   // let it land, or a beast chases mid-air motes
-      if (!want(s.itemId)) continue;
+      if (!s.active || s.claimed || !s.armed) {
+        continue;
+      }
+      if (s.age < 0.5) {
+        continue;
+      } // let it land, or a beast chases mid-air motes
+      if (!want(s.itemId)) {
+        continue;
+      }
       // TRUE 3D distance (issue #78): horizontal-only sent beasts after motes
       // 80 units below a flying player.
       const dx = s.group.position.x - from.x;
       const dy = s.group.position.y - from.y;
       const dz = s.group.position.z - from.z;
       const d2 = dx * dx + dy * dy + dz * dz;
-      if (d2 < bd) { bd = d2; best = s; }
+      if (d2 < bd) {
+        bd = d2;
+        best = s;
+      }
     }
     return best ? best.job : null;
   }
@@ -189,7 +250,9 @@ export class Pickups {
   snapshot(): { itemId: string; x: number; z: number; claimed: boolean; age: number }[] {
     const out = [];
     for (const s of this.pool) {
-      if (!s.active) continue;
+      if (!s.active) {
+        continue;
+      }
       out.push({
         itemId: s.itemId,
         x: +s.group.position.x.toFixed(2),
@@ -221,12 +284,16 @@ export class Pickups {
   // Retire everything uncollected (zone change). The `gen` bump in retire() is
   // what makes a FetchJob a beast still holds go inert rather than wrong.
   clear(): void {
-    for (const s of this.pool) if (s.active) this.retire(s);
+    for (const s of this.pool) {
+      if (s.active) this.retire(s);
+    }
   }
 
   update(dt: number, magnet: THREE.Vector3, world: World): void {
     for (const s of this.pool) {
-      if (!s.active) continue;
+      if (!s.active) {
+        continue;
+      }
       s.age += dt;
       const pos = s.group.position;
 
@@ -234,7 +301,9 @@ export class Pickups {
       const d2 = _v.lengthSq();
 
       // Before the rules below: arming happens claimed, grounded or airborne.
-      if (!s.armed && d2 > MAGNET_RANGE_SQ) s.armed = true;
+      if (!s.armed && d2 > MAGNET_RANGE_SQ) {
+        s.armed = true;
+      }
 
       if (s.armed && !s.claimed && d2 < COLLECT_DIST_SQ && s.age > 0.3) {
         this.take(s, false);
@@ -246,7 +315,9 @@ export class Pickups {
         _v.divideScalar(Math.max(0.001, d));
         const pull = 18 + (3 - Math.min(3, d)) * 26;
         s.vel.addScaledVector(_v, pull * dt);
-        if (s.vel.lengthSq() > 196) s.vel.setLength(14);
+        if (s.vel.lengthSq() > 196) {
+          s.vel.setLength(14);
+        }
         pos.addScaledVector(s.vel, dt);
         s.grounded = false;
         this.vfx.trail(pos.x, pos.y, pos.z, itemDef(s.itemId).color, 0.22);
@@ -274,7 +345,9 @@ export class Pickups {
         const t = Math.max(0, (MAX_AGE - s.age) / 3);
         s.mat.opacity = 0.92 * t;
         s.glowMat.opacity *= t;
-        if (s.age >= MAX_AGE) this.retire(s);
+        if (s.age >= MAX_AGE) {
+          this.retire(s);
+        }
       }
     }
   }

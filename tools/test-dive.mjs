@@ -23,17 +23,17 @@
 // above water, which is how that was caught.
 //
 // Exits non-zero.
-import { launchBrowser, leaveSplash, newPage, startNewGame, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, leaveSplash, newPage, startNewGame, wait } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
-page.on('pageerror', (e) => console.error('[page]', e.message));
+page.on("pageerror", (e) => console.error("[page]", e.message));
 
 // Through the MENU, not `menu=0`: mouse look needs the pointer lock that
 // beginPlay takes, and pitching the camera under the surface is how the view
 // half of this test is reached.
-await page.goto(`${HOST}/?fs=0`, { waitUntil: 'load' });
+await page.goto(`${HOST}/?fs=0`, { waitUntil: "load" });
 // `leaveSplash`, not a single `press('Enter')`: the press that dismisses the
 // splash is dropped if it lands before the menu's key handler is live, and
 // nothing retried it. That is the whole of this probe's batch flake — it passed
@@ -43,8 +43,13 @@ await leaveSplash(page);
 await startNewGame(page);
 for (let i = 0; i < 45; i++) {
   await wait(1000);
-  if (await page.evaluate(() =>
-    !!window.__dbgPlayerPos && !document.querySelector('.bs-load.cover.show'))) break;
+  if (
+    await page.evaluate(
+      () => !!window.__dbgPlayerPos && !document.querySelector(".bs-load.cover.show"),
+    )
+  ) {
+    break;
+  }
 }
 await wait(1500);
 
@@ -59,15 +64,19 @@ await wait(1500);
 // give them for free. Stating it is better than depending on the order fifteen
 // species are declared in.
 await page.evaluate(() => {
-  window.__dbgGrantBeast('all');
-  window.__dbgInvAction('beast:emberfox', 'setLead');
-  window.__dbgInvAction('beast:galebird', 'setSupport');
+  window.__dbgGrantBeast("all");
+  window.__dbgInvAction("beast:emberfox", "setLead");
+  window.__dbgInvAction("beast:galebird", "setSupport");
 });
 await wait(300);
 
 const results = {};
 const fails = [];
-const check = (ok, msg) => { if (!ok) fails.push(msg); };
+const check = (ok, msg) => {
+  if (!ok) {
+    fails.push(msg);
+  }
+};
 const round = (v, n = 2) => +v.toFixed(n);
 
 const pos = () => page.evaluate(() => window.__dbgPlayerPos());
@@ -76,26 +85,44 @@ const comp = () => page.evaluate(() => window.__dbgCompanions());
 
 /** Mean colour of the middle of the frame. See the note at the top. */
 async function frame() {
-  const b64 = await page.screenshot({ encoding: 'base64' });
+  const b64 = await page.screenshot({ encoding: "base64" });
   return page.evaluate(async (data) => {
     const img = new Image();
     await new Promise((res, rej) => {
-      img.onload = res; img.onerror = rej; img.src = `data:image/png;base64,${data}`;
+      img.onload = res;
+      img.onerror = rej;
+      img.src = `data:image/png;base64,${data}`;
     });
-    const c = document.createElement('canvas');
-    c.width = img.width; c.height = img.height;
-    const ctx = c.getContext('2d');
+    const c = document.createElement("canvas");
+    c.width = img.width;
+    c.height = img.height;
+    const ctx = c.getContext("2d");
     ctx.drawImage(img, 0, 0);
     // Centre band only: the HUD lives at the edges and would drag the mean.
-    const x0 = Math.floor(img.width * 0.28); const x1 = Math.floor(img.width * 0.72);
-    const y0 = Math.floor(img.height * 0.15); const y1 = Math.floor(img.height * 0.68);
+    const x0 = Math.floor(img.width * 0.28);
+    const x1 = Math.floor(img.width * 0.72);
+    const y0 = Math.floor(img.height * 0.15);
+    const y1 = Math.floor(img.height * 0.68);
     const d = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
-    let r = 0; let g = 0; let b = 0; let n = 0;
-    for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
-    r /= n; g /= n; b /= n;
-    const mx = Math.max(r, g, b); const mn = Math.min(r, g, b);
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      r += d[i];
+      g += d[i + 1];
+      b += d[i + 2];
+      n++;
+    }
+    r /= n;
+    g /= n;
+    b /= n;
+    const mx = Math.max(r, g, b);
+    const mn = Math.min(r, g, b);
     return {
-      r: Math.round(r), g: Math.round(g), b: Math.round(b),
+      r: Math.round(r),
+      g: Math.round(g),
+      b: Math.round(b),
       luma: Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b),
       sat: +((mx - mn) / Math.max(mx, 1)).toFixed(3),
       /** Is blue actually the strongest channel? A white-out fails this. */
@@ -119,10 +146,15 @@ const deep = await page.evaluate(() => {
   let best = null;
   for (let dx = -120; dx <= 120; dx += 2) {
     for (let dz = -120; dz <= 120; dz += 2) {
-      const x = s.x + dx; const z = s.z + dz;
+      const x = s.x + dx;
+      const z = s.z + dz;
       const w = window.__dbgWorld(x, z);
-      if (w.deep) continue;
-      if (!best || w.ground < best.ground) best = { x, z, ground: w.ground };
+      if (w.deep) {
+        continue;
+      }
+      if (!best || w.ground < best.ground) {
+        best = { x, z, ground: w.ground };
+      }
     }
   }
   return best;
@@ -136,11 +168,14 @@ await wait(2500);
   const u = await under();
   const f = await frame();
   results.floating = {
-    y: round(p.y), bed: round(deep.ground), amount: u.amount,
-    exposureLike: u.fogAbsorb, frame: f,
+    y: round(p.y),
+    bed: round(deep.ground),
+    amount: u.amount,
+    exposureLike: u.fogAbsorb,
+    frame: f,
   };
   check(u.amount === 0, `the lens is already wet before diving (amount ${u.amount})`);
-  check(!f.blueLeads || f.sat < 0.75, 'the surface frame is already a blue wash');
+  check(!f.blueLeads || f.sat < 0.75, "the surface frame is already a blue wash");
   results.floating.surfaceY = round(p.y + 1.15);
 }
 
@@ -151,7 +186,7 @@ await wait(2500);
 // surface and measured surfacing from nowhere.
 {
   const before = (await pos()).y;
-  await page.keyboard.down('KeyC');
+  await page.keyboard.down("KeyC");
   const track = [];
   for (let i = 0; i < 10; i++) {
     await wait(400);
@@ -159,15 +194,19 @@ await wait(2500);
   }
   const after = (await pos()).y;
   results.diving = {
-    from: round(before), to: round(after), descended: round(before - after),
-    bed: round(deep.ground), track,
+    from: round(before),
+    to: round(after),
+    descended: round(before - after),
+    bed: round(deep.ground),
+    track,
     /** Negative means he went through the lake bed. */
     aboveBed: round(after - deep.ground),
   };
-  check(before - after > 1.5,
-    `holding C did not take him down (${round(before - after)} units)`);
-  check(after >= deep.ground - 0.05,
-    `he dived THROUGH the bed: ${round(after)} against a bed at ${round(deep.ground)}`);
+  check(before - after > 1.5, `holding C did not take him down (${round(before - after)} units)`);
+  check(
+    after >= deep.ground - 0.05,
+    `he dived THROUGH the bed: ${round(after)} against a bed at ${round(deep.ground)}`,
+  );
 }
 
 // ---------- down there, the frame is blue, not white ------------------------
@@ -178,15 +217,21 @@ await wait(2500);
     await page.mouse.move(0, 0);
     await page.mouse.move(0, 120, { steps: 6 });
     await wait(250);
-    if ((await under()).amount > 0.9) break;
+    if ((await under()).amount > 0.9) {
+      break;
+    }
   }
   await wait(700);
   const u = await under();
   const f = await frame();
   const companions = await comp();
-  const flyer = companions.beasts.find((b) => b.id === 'galebird');
+  const flyer = companions.beasts.find((b) => b.id === "galebird");
   results.submerged = {
-    depth: u.depth, amount: u.amount, fogAbsorb: u.fogAbsorb, frame: f, flyer,
+    depth: u.depth,
+    amount: u.amount,
+    fogAbsorb: u.fogAbsorb,
+    frame: f,
+    flyer,
   };
 
   check(u.amount > 0.9, `the lens never got under (amount ${u.amount})`);
@@ -196,21 +241,23 @@ await wait(2500);
   // one being darker than the other says as much about the framing as about the
   // water. 200 is comfortably under the 221 the bug photographed at and
   // comfortably over anything the effect produces working.
-  check(f.blueLeads,
-    `the submerged frame is not blue-dominant: rgb(${f.r}, ${f.g}, ${f.b})`);
-  check(f.sat > 0.30,
-    `the submerged frame is washed out: saturation ${f.sat} (white-out was 0.131)`);
-  check(f.luma < 200,
-    `the submerged frame is blown out: luma ${f.luma} (white-out was 221)`);
-  check(u.fogAbsorb[0] < 0.5 && u.fogAbsorb[2] > u.fogAbsorb[0],
-    `the distance is not being absorbed toward water: ${JSON.stringify(u.fogAbsorb)}`);
-  check(!!flyer?.transit, 'Galebird did not convert to light for the deep dive');
-  check(!flyer?.drawn, 'Galebird body is still drawn underwater');
+  check(f.blueLeads, `the submerged frame is not blue-dominant: rgb(${f.r}, ${f.g}, ${f.b})`);
+  check(
+    f.sat > 0.3,
+    `the submerged frame is washed out: saturation ${f.sat} (white-out was 0.131)`,
+  );
+  check(f.luma < 200, `the submerged frame is blown out: luma ${f.luma} (white-out was 221)`);
+  check(
+    u.fogAbsorb[0] < 0.5 && u.fogAbsorb[2] > u.fogAbsorb[0],
+    `the distance is not being absorbed toward water: ${JSON.stringify(u.fogAbsorb)}`,
+  );
+  check(!!flyer?.transit, "Galebird did not convert to light for the deep dive");
+  check(!flyer?.drawn, "Galebird body is still drawn underwater");
 }
 
 // ---------- release: he surfaces, and does not rocket -----------------------
 {
-  await page.keyboard.up('KeyC');   // held since the dive section, see there
+  await page.keyboard.up("KeyC"); // held since the dive section, see there
   const from = (await pos()).y;
   const t0 = Date.now();
   let peak = 0;
@@ -219,20 +266,24 @@ await wait(2500);
     await wait(250);
     const y = (await pos()).y;
     const v = (y - last) / 0.25;
-    if (v > peak) peak = v;
+    if (v > peak) {
+      peak = v;
+    }
     last = y;
-    if (y > results.floating.surfaceY - 1.4) break;
+    if (y > results.floating.surfaceY - 1.4) {
+      break;
+    }
   }
   results.surfacing = {
-    from: round(from), to: round(last), seconds: round((Date.now() - t0) / 1000),
+    from: round(from),
+    to: round(last),
+    seconds: round((Date.now() - t0) / 1000),
     peakRiseSpeed: round(peak),
     backAtFloat: last > results.floating.surfaceY - 1.5,
   };
-  check(results.surfacing.backAtFloat,
-    `he did not come back up (rested at ${round(last)})`);
+  check(results.surfacing.backAtFloat, `he did not come back up (rested at ${round(last)})`);
   // The cork. Uncapped buoyancy from the bed peaked around 10 units/s.
-  check(peak < 6,
-    `he rocketed to the surface at ${round(peak)} units/s — buoyancy is uncapped`);
+  check(peak < 6, `he rocketed to the surface at ${round(peak)} units/s — buoyancy is uncapped`);
 }
 
 // ---------- and the view goes back to daylight ------------------------------
@@ -249,23 +300,29 @@ await wait(2500);
   for (let i = 14; i >= 0; i--) {
     await page.mouse.move(0, i * 55, { steps: 4 });
     await wait(200);
-    if ((await under()).amount < 0.05) break;
+    if ((await under()).amount < 0.05) {
+      break;
+    }
   }
   await wait(1200);
   const u = await under();
   const companions = await comp();
-  const flyer = companions.beasts.find((b) => b.id === 'galebird');
+  const flyer = companions.beasts.find((b) => b.id === "galebird");
   results.afterSurfacing = { amount: u.amount, fogAbsorb: u.fogAbsorb, flyer };
   check(u.amount < 0.2, `still tinted at the surface (amount ${u.amount})`);
-  check(u.fogAbsorb.every((c) => c > 0.85),
-    `the fog absorption was not put back: ${JSON.stringify(u.fogAbsorb)}`);
-  check(!flyer?.transit && !!flyer?.drawn,
-    'Galebird did not return to a visible body after surfacing');
+  check(
+    u.fogAbsorb.every((c) => c > 0.85),
+    `the fog absorption was not put back: ${JSON.stringify(u.fogAbsorb)}`,
+  );
+  check(
+    !flyer?.transit && !!flyer?.drawn,
+    "Galebird did not return to a visible body after surfacing",
+  );
 }
 
 console.log(JSON.stringify({ ...results, failures: fails, pass: fails.length === 0 }, null, 2));
 await browser.close();
 if (fails.length) {
-  console.error(`\n${fails.length} failure(s):\n  ${fails.join('\n  ')}`);
+  console.error(`\n${fails.length} failure(s):\n  ${fails.join("\n  ")}`);
   process.exit(1);
 }

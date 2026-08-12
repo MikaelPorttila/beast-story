@@ -9,18 +9,18 @@
 // flyer's clearance is a damped chase with a bob on top — an exact number would
 // be a different exact number on a faster machine. See AGENTS.md on
 // frame-rate-sensitive assertions.
-import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 const URL = `${HOST}/?fps=30&menu=0`;
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
 const results = {};
 
-await page.goto(URL, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(URL, { waitUntil: "load" });
+await page.waitForSelector("canvas");
 await wait(4000);
-await page.focus('canvas').catch(() => {});
+await page.focus("canvas").catch(() => {});
 
 const sway = () => page.evaluate(() => window.__dbgSway?.());
 const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
@@ -40,7 +40,7 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
 
 // ---------- walking: a slot follows the hero, and its wake lags ----------
 {
-  await page.keyboard.down('KeyW');
+  await page.keyboard.down("KeyW");
   await wait(900); // let the lag reach its steady state before sampling
 
   const lags = [];
@@ -49,19 +49,32 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
   for (let i = 0; i < 10; i++) {
     await wait(150);
     const [s, p] = [await sway(), await pos()];
-    if (!s || !p) continue;
+    if (!s || !p) {
+      continue;
+    }
     const hero = s.tracks.find((t) => t.id === -1);
-    if (hero) lags.push(hero.lag);
+    if (hero) {
+      lags.push(hero.lag);
+    }
     // The hero's own slot: the nearest one to him carrying a walk push.
     let best = null;
     for (const sl of s.slots) {
-      if (sl.push <= 0) continue;
+      if (sl.push <= 0) {
+        continue;
+      }
       const d = Math.hypot(sl.x - p.x, sl.z - p.z);
-      if (!best || d < best.d) best = { d, push: sl.push };
+      if (!best || d < best.d) {
+        best = { d, push: sl.push };
+      }
     }
-    if (best) { pushes.push(best.push); if (best.d < 2) slotNearHero++; }
+    if (best) {
+      pushes.push(best.push);
+      if (best.d < 2) {
+        slotNearHero++;
+      }
+    }
   }
-  await page.keyboard.up('KeyW');
+  await page.keyboard.up("KeyW");
 
   const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
   results.walking = {
@@ -96,11 +109,13 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
   // this finds one well inside a full lap.
   let found = null;
   for (let i = 0; i < 14 && !found; i++) {
-    await page.keyboard.press('BracketRight');
+    await page.keyboard.press("BracketRight");
     await wait(700);
     const s = await sway();
     const fly = s?.tracks?.find((t) => t.fly && t.id < 0);
-    if (fly) found = fly.id;
+    if (fly) {
+      found = fly.id;
+    }
   }
 
   const samples = [];
@@ -108,17 +123,21 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
     // Drag the hero around: a follower's altitude is a damped chase of the
     // ground under it plus a look-ahead, so it only sweeps and climbs when it is
     // being made to keep up over changing terrain.
-    await page.keyboard.down('KeyW');
+    await page.keyboard.down("KeyW");
     for (let i = 0; i < 24; i++) {
       await wait(220);
       const s = await sway();
       const t = s?.tracks?.find((x) => x.id === found);
-      if (!t) continue;
+      if (!t) {
+        continue;
+      }
       let wash = 0;
-      for (const sl of s.slots) if (sl.wash > wash) wash = sl.wash;
+      for (const sl of s.slots) {
+        if (sl.wash > wash) wash = sl.wash;
+      }
       samples.push({ clearance: t.clearance, climb: t.climb, wash });
     }
-    await page.keyboard.up('KeyW');
+    await page.keyboard.up("KeyW");
   }
 
   const washed = samples.filter((s) => s.wash > 0);
@@ -134,12 +153,12 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
   // i.e. "backwards", on a build whose clearance response is exactly right.
   // Normalising by the gain the sample's own `climb` implies leaves `near`,
   // which is the single-variable claim this case is actually making.
-  const CLIMB_REF = 3.0, CLIMB_EXTRA = 1.35; // must match sway.ts
+  const CLIMB_REF = 3.0,
+    CLIMB_EXTRA = 1.35; // must match sway.ts
   const gainOf = (s) => 1 + Math.min(1, Math.max(0, s.climb / CLIMB_REF)) * CLIMB_EXTRA;
   const byClear = [...washed].sort((a, b) => a.clearance - b.clearance);
   const half = Math.floor(byClear.length / 2);
-  const meanWash = (a) =>
-    (a.length ? a.reduce((x, y) => x + y.wash / gainOf(y), 0) / a.length : 0);
+  const meanWash = (a) => (a.length ? a.reduce((x, y) => x + y.wash / gainOf(y), 0) / a.length : 0);
   const low = meanWash(byClear.slice(0, half));
   const high = meanWash(byClear.slice(byClear.length - half));
 
@@ -148,7 +167,8 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
     samples: samples.length,
     washing: washed.length,
     meanClearance: washed.length
-      ? (washed.reduce((a, b) => a + b.clearance, 0) / washed.length).toFixed(3) : null,
+      ? (washed.reduce((a, b) => a + b.clearance, 0) / washed.length).toFixed(3)
+      : null,
     /** Climb-normalised, so these are the clearance response alone. */
     lowClearanceWash: low.toFixed(3),
     highClearanceWash: high.toFixed(3),
@@ -172,7 +192,7 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
   };
 }
 
-await page.screenshot({ path: 'shots/_sway-walk.png' });
+await page.screenshot({ path: "shots/_sway-walk.png" });
 
 console.log(JSON.stringify(results, null, 2));
 await browser.close();

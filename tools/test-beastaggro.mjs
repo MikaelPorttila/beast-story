@@ -34,11 +34,11 @@
 // menu=0: this measures the world, so it needs the frame loop running.
 //
 // Exits non-zero on failure.
-import { launchBrowser, newPage } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 /** The species under test. Ground, bondable, and in the starting roster. */
-const SPECIES = 'wild-sproutle';
+const SPECIES = "wild-sproutle";
 /** Sample interval and run length, in SIMULATED seconds. */
 const STEP = 0.1;
 const RUN = 14;
@@ -51,16 +51,21 @@ const ENGAGED_AT = 6;
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
-page.on('pageerror', (e) => console.error('[page]', e.message));
+page.on("pageerror", (e) => console.error("[page]", e.message));
 
-await page.goto(`${HOST}/?menu=0&vol=0&fs=0`, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
-await page.waitForFunction(
-  () => window.__dbgBoot?.().playing && window.__dbgAdvance, { timeout: 60000 });
+await page.goto(`${HOST}/?menu=0&vol=0&fs=0`, { waitUntil: "load" });
+await page.waitForSelector("canvas");
+await page.waitForFunction(() => window.__dbgBoot?.().playing && window.__dbgAdvance, {
+  timeout: 60000,
+});
 
 const results = {};
 const fails = [];
-const check = (ok, msg) => { if (!ok) fails.push(msg); };
+const check = (ok, msg) => {
+  if (!ok) {
+    fails.push(msg);
+  }
+};
 
 const adv = (s) => page.evaluate((n) => window.__dbgAdvance(n), s);
 const tp = (x, z) => page.evaluate(([a, b]) => window.__dbgTp(a, b), [x, z]);
@@ -79,16 +84,19 @@ for (let i = 0; i < 12 && !field; i++) {
   const x = home.x + Math.cos(a) * 120;
   const z = home.z + Math.sin(a) * 120;
   await tp(x, z);
-  await page.waitForFunction(() => window.__dbgZone().streaming === false, { timeout: 30000 })
+  await page
+    .waitForFunction(() => window.__dbgZone().streaming === false, { timeout: 30000 })
     .catch(() => {});
   await adv(0.5);
   const p = (await zone()).player;
   const wet = await page.evaluate(([a2, b]) => window.__dbgWorld(a2, b).water, [x, z]);
   // Dry, and the hero is where he was sent — a teleport that landed him
   // somewhere else means the column refused him, and so would the beast.
-  if (!wet && Math.hypot(p.x - x, p.z - z) < 6) field = { x: p.x, z: p.z };
+  if (!wet && Math.hypot(p.x - x, p.z - z) < 6) {
+    field = { x: p.x, z: p.z };
+  }
 }
-check(field !== null, 'could not find open ground to stage the fight on');
+check(field !== null, "could not find open ground to stage the fight on");
 if (!field) {
   console.log(JSON.stringify({ ...results, failures: fails, pass: false }, null, 2));
   await browser.close();
@@ -97,7 +105,7 @@ if (!field) {
 
 // -- one beast, placed and then closed with ---------------------------------
 const before = new Set((await enemies()).map((e) => e.id));
-await page.evaluate((s) => window.__dbgSpawn('enemies', s), SPECIES);
+await page.evaluate((s) => window.__dbgSpawn("enemies", s), SPECIES);
 await adv(0.2);
 const fresh = (await enemies()).filter((e) => !before.has(e.id) && e.species === SPECIES);
 check(fresh.length > 0, `__dbgSpawn placed no ${SPECIES}`);
@@ -121,7 +129,9 @@ for (let t = 0; t < RUN; t += STEP) {
   await adv(STEP);
   const p = (await zone()).player;
   const e = (await enemies()).find((x) => x.id === id);
-  if (!e || e.isDead) break;
+  if (!e || e.isDead) {
+    break;
+  }
   const dx = e.x - p.x;
   const dz = e.z - p.z;
   const bearing = Math.atan2(dx, dz);
@@ -129,8 +139,12 @@ for (let t = 0; t < RUN; t += STEP) {
     // SHORTEST ARC. atan2 wraps at pi, and an unwrapped subtraction there would
     // count a two-degree step as a full turn.
     let d = bearing - lastBearing;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
+    while (d > Math.PI) {
+      d -= Math.PI * 2;
+    }
+    while (d < -Math.PI) {
+      d += Math.PI * 2;
+    }
     sweep += Math.abs(d);
   }
   lastBearing = bearing;
@@ -146,7 +160,9 @@ const far = Math.max(...engaged.map((s) => s.d));
 // drop between two samples a tenth of a second apart is a bite, and passive
 // regen is far too slow to be mistaken for one in either direction.
 let bites = 0;
-for (let i = 1; i < samples.length; i++) if (samples[i - 1].hp - samples[i].hp > 3) bites++;
+for (let i = 1; i < samples.length; i++) {
+  if (samples[i - 1].hp - samples[i].hp > 3) bites++;
+}
 
 results.fight = {
   species: SPECIES,
@@ -167,23 +183,26 @@ check(near <= 2.2, `the beast never got closer than ${near.toFixed(2)} m — it 
 // a full press-to-circle swing moves it several metres; 2.0 is comfortably
 // above anything the old build could produce, where the goal WAS the hero and
 // the spread was the hero's own jitter.
-check(far - near >= 2.0,
-  `the beast held station between ${near.toFixed(2)} and ${far.toFixed(2)} m `
-  + '— it is still welded to the hero');
+check(
+  far - near >= 2.0,
+  `the beast held station between ${near.toFixed(2)} and ${far.toFixed(2)} m ` +
+    "— it is still welded to the hero",
+);
 // IT STAYS IN THE FIGHT. The pair for the two above: breaking off is not
 // fleeing. The leash is aggro * 2.2 = 17.6; anything past 10 is a beast that
 // lost interest, not one that circled.
-check(far <= 10,
-  `the beast ran ${far.toFixed(2)} m away — that is a retreat, not a break-off`);
+check(far <= 10, `the beast ran ${far.toFixed(2)} m away — that is a retreat, not a break-off`);
 // IT CIRCLES. Two radians is under a third of a lap over eight engaged seconds
 // — a low bar on purpose, because the swing direction flips at random and two
 // flips can cancel. The old build's sweep against a stationary hero is ~0.
-check(sweep >= 2.0,
-  `the beast swept only ${sweep.toFixed(2)} rad around the hero — it is not circling`);
+check(
+  sweep >= 2.0,
+  `the beast swept only ${sweep.toFixed(2)} rad around the hero — it is not circling`,
+);
 
 console.log(JSON.stringify({ ...results, failures: fails, pass: fails.length === 0 }, null, 2));
 await browser.close();
 if (fails.length) {
-  console.error(`\n${fails.length} failure(s):\n  ${fails.join('\n  ')}`);
+  console.error(`\n${fails.length} failure(s):\n  ${fails.join("\n  ")}`);
   process.exit(1);
 }

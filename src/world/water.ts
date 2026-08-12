@@ -3,8 +3,8 @@
  * shader — depth-scaled vertex waves, a depth gradient, an analytic ripple normal
  * driving Fresnel sky reflection and a sun glint, plus coast-following foam.
  */
-import * as THREE from 'three';
-import { CHUNK_SIZE, Terrain, WATER_LEVEL } from './terrain';
+import * as THREE from "three";
+import { CHUNK_SIZE, Terrain, WATER_LEVEL } from "./terrain";
 
 /** Width of the radial handoff from detailed water to the far landscape sheet. */
 export const WATER_DETAIL_FADE_WIDTH = 48;
@@ -210,7 +210,7 @@ void main() {
 
 export function createWaterMaterial(): THREE.ShaderMaterial {
   const uniforms = THREE.UniformsUtils.merge([
-    THREE.UniformsLib['fog'],
+    THREE.UniformsLib["fog"],
     {
       uTime: { value: 0 },
       uSunDir: { value: new THREE.Vector3(0.6554, 0.6168, 0.4356) },
@@ -272,8 +272,9 @@ export function createCarriedWaterMaterial(src: THREE.ShaderMaterial): THREE.Sha
 
 /** Keep detailed water's dissolve aligned with the current voxel-detail ring. */
 export function setWaterDetailDistance(mat: THREE.ShaderMaterial, distance: number): void {
-  (mat.uniforms['uDetailFade'].value as THREE.Vector2).set(
-    Math.max(0, distance - WATER_DETAIL_FADE_WIDTH), distance,
+  (mat.uniforms["uDetailFade"].value as THREE.Vector2).set(
+    Math.max(0, distance - WATER_DETAIL_FADE_WIDTH),
+    distance,
   );
 }
 
@@ -316,7 +317,7 @@ export function buildWaterMesh(
   const dry = new Uint8Array(GG * GG);
   /** Integer column height, for picking the beach terrace. */
   const hgt = new Int16Array(GG * GG);
-  for (let iz = 0; iz < GG; iz++)
+  for (let iz = 0; iz < GG; iz++) {
     for (let ix = 0; ix < GG; ix++) {
       const i = iz * GG + ix;
       // Cell centres, matching Terrain.columnHeight: one fbm gives both heights.
@@ -328,54 +329,74 @@ export function buildWaterMesh(
       dist[i] = dry[i] ? 0 : SHORE_MAX;
       inland[i] = dry[i] ? SHORE_MAX : 0;
     }
+  }
 
   // Two questions: anyWet is "does this chunk need water", anyNear is "does it
   // touch water at all". The apron lives on DRY cells, so a coast just inside a
   // boundary puts its beach in the next chunk, and interior-only chopped it off.
   let anyWet = false;
-  for (let iz = 0; iz < CHUNK_SIZE && !anyWet; iz++)
+  for (let iz = 0; iz < CHUNK_SIZE && !anyWet; iz++) {
     for (let ix = 0; ix < CHUNK_SIZE; ix++)
-      if (!dry[(iz + PAD) * GG + (ix + PAD)]) { anyWet = true; break; }
+      if (!dry[(iz + PAD) * GG + (ix + PAD)]) {
+        anyWet = true;
+        break;
+      }
+  }
   let anyNear = anyWet;
-  for (let i = 0; i < GG * GG && !anyNear; i++) if (!dry[i]) anyNear = true;
-  if (!anyNear) return null;
+  for (let i = 0; i < GG * GG && !anyNear; i++) {
+    if (!dry[i]) anyNear = true;
+  }
+  if (!anyNear) {
+    return null;
+  }
 
   // Low-pass the depth attribute: the ramps are non-linear functions of it on a
   // 1-unit grid, so linear interpolation kinked the shallows into 1-metre squares.
   const tmp = new Float32Array(GG * GG);
   for (let pass = 0; pass < 2; pass++) {
-    for (let iz = 0; iz < GG; iz++)
+    for (let iz = 0; iz < GG; iz++) {
       for (let ix = 1; ix < GG - 1; ix++) {
         const i = iz * GG + ix;
         tmp[i] = (buf[i - 1] + buf[i] * 2 + buf[i + 1]) * 0.25;
       }
-    for (let iz = 1; iz < GG - 1; iz++)
+    }
+    for (let iz = 1; iz < GG - 1; iz++) {
       for (let ix = 1; ix < GG - 1; ix++) {
         const i = iz * GG + ix;
         buf[i] = (tmp[i - GG] + tmp[i] * 2 + tmp[i + GG]) * 0.25;
       }
+    }
   }
 
   // Two-pass chamfer to the nearest dry column (1 orthogonal, 1.414 diagonal), over
   // the PADDED grid so a chunk edge gets the same value from either side.
-  const D = 1, Q = 1.4142;
+  const D = 1,
+    Q = 1.4142;
   const chamfer = (f: Float32Array): void => {
     const relax = (i: number, from: number, w: number): void => {
       const v = f[from] + w;
-      if (v < f[i]) f[i] = v;
+      if (v < f[i]) {
+        f[i] = v;
+      }
     };
-    for (let iz = 1; iz < GG; iz++)
+    for (let iz = 1; iz < GG; iz++) {
       for (let ix = 1; ix < GG - 1; ix++) {
         const i = iz * GG + ix;
-        relax(i, i - GG, D); relax(i, i - 1, D);
-        relax(i, i - GG - 1, Q); relax(i, i - GG + 1, Q);
+        relax(i, i - GG, D);
+        relax(i, i - 1, D);
+        relax(i, i - GG - 1, Q);
+        relax(i, i - GG + 1, Q);
       }
-    for (let iz = GG - 2; iz >= 0; iz--)
+    }
+    for (let iz = GG - 2; iz >= 0; iz--) {
       for (let ix = GG - 2; ix >= 1; ix--) {
         const i = iz * GG + ix;
-        relax(i, i + GG, D); relax(i, i + 1, D);
-        relax(i, i + GG + 1, Q); relax(i, i + GG - 1, Q);
+        relax(i, i + GG, D);
+        relax(i, i + 1, D);
+        relax(i, i + GG + 1, Q);
+        relax(i, i + GG - 1, Q);
       }
+    }
   };
   chamfer(dist);
   chamfer(inland);
@@ -384,16 +405,18 @@ export function buildWaterMesh(
   // with 45-degree facets, which came out as a chain of diamonds at the waterline.
   const tent = (f: Float32Array, passes: number): void => {
     for (let pass = 0; pass < passes; pass++) {
-      for (let iz = 0; iz < GG; iz++)
+      for (let iz = 0; iz < GG; iz++) {
         for (let ix = 1; ix < GG - 1; ix++) {
           const i = iz * GG + ix;
           tmp[i] = (f[i - 1] + f[i] * 2 + f[i + 1]) * 0.25;
         }
-      for (let iz = 1; iz < GG - 1; iz++)
+      }
+      for (let iz = 1; iz < GG - 1; iz++) {
         for (let ix = 1; ix < GG - 1; ix++) {
           const i = iz * GG + ix;
           f[i] = (tmp[i - GG] + tmp[i] * 2 + tmp[i + GG]) * 0.25;
         }
+      }
     }
   };
   tent(dist, 3);
@@ -414,7 +437,9 @@ export function buildWaterMesh(
   for (let iz = 0; iz < CHUNK_SIZE; iz++) {
     for (let ix = 0; ix < CHUNK_SIZE; ix++) {
       const p = (iz + PAD) * GG + (ix + PAD);
-      if (!dry[p] || hgt[p] !== WATER_LEVEL + 1 || inland[p] > APRON) continue;
+      if (!dry[p] || hgt[p] !== WATER_LEVEL + 1 || inland[p] > APRON) {
+        continue;
+      }
       // 5 cm: too small to float a pebble visibly, big enough for the depth test.
       const y = hgt[p] + 0.05 - SURFACE_Y;
       const base = apPos.length / 3;
@@ -462,7 +487,9 @@ export function buildWaterMesh(
   if (anyWet) {
     for (let iz = 0; iz < CHUNK_SIZE; iz++) {
       for (let ix = 0; ix < CHUNK_SIZE; ix++) {
-        if (dry[(iz + PAD) * GG + (ix + PAD)]) continue;
+        if (dry[(iz + PAD) * GG + (ix + PAD)]) {
+          continue;
+        }
         const a = iz * G + ix;
         const b = a + 1;
         const c = a + G;
@@ -471,15 +498,19 @@ export function buildWaterMesh(
       }
     }
   }
-  for (let k = 0; k < apIdx.length; k++) idx.push(NG + apIdx[k]);
-  if (idx.length === 0) return null;
+  for (let k = 0; k < apIdx.length; k++) {
+    idx.push(NG + apIdx[k]);
+  }
+  if (idx.length === 0) {
+    return null;
+  }
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-  geo.setAttribute('aDepth', new THREE.BufferAttribute(depths, 1));
-  geo.setAttribute('aShore', new THREE.BufferAttribute(shore, 1));
-  geo.setAttribute('aLand', new THREE.BufferAttribute(land, 1));
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geo.setAttribute("aDepth", new THREE.BufferAttribute(depths, 1));
+  geo.setAttribute("aShore", new THREE.BufferAttribute(shore, 1));
+  geo.setAttribute("aLand", new THREE.BufferAttribute(land, 1));
   geo.setIndex(idx);
   geo.computeBoundingSphere();
 

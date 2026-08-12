@@ -1,16 +1,20 @@
-import * as THREE from 'three';
-import type { Engine } from '../core/engine';
-import type { Input } from '../core/input';
+import * as THREE from "three";
+import type { Engine } from "../core/engine";
+import type { Input } from "../core/input";
 import {
-  MAX_STEP_UP, type CarrierInfo, type ElementType, type EventBus, type World,
-} from '../core/types';
-import { CarrierRide } from '../world/carriers';
-import { t } from '../i18n';
-import { buildHeroRig, type HeroRig, setHairStyle, setWeaponModel, stowWeapon } from './hero-rig';
-import type { WeaponModelId } from './weapons';
-import { ThirdPersonCamera } from './camera';
-import { HeroAnimator, type AttackState } from './animations';
-import { DustSystem } from './dust';
+  MAX_STEP_UP,
+  type CarrierInfo,
+  type ElementType,
+  type EventBus,
+  type World,
+} from "../core/types";
+import { CarrierRide } from "../world/carriers";
+import { t } from "../i18n";
+import { buildHeroRig, type HeroRig, setHairStyle, setWeaponModel, stowWeapon } from "./hero-rig";
+import type { WeaponModelId } from "./weapons";
+import { ThirdPersonCamera } from "./camera";
+import { HeroAnimator, type AttackState } from "./animations";
+import { DustSystem } from "./dust";
 
 const WALK_SPEED = 6;
 const SPRINT_MULT = 1.6;
@@ -70,7 +74,7 @@ const MOUNTED_REACH = 1.1;
 const COMBO_DURS = [0.42, 0.42, 0.58];
 /** Seconds after the last swing before the weapon goes on his back. */
 const STOW_AFTER = 6;
-const STRIKE_AT = 0.46;      // fraction of swing where damage lands
+const STRIKE_AT = 0.46; // fraction of swing where damage lands
 const COMBO_COOLDOWN = 0.22;
 
 /**
@@ -109,8 +113,12 @@ const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? 
 
 function dampAngle(cur: number, target: number, rate: number, dt: number): number {
   let d = target - cur;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
+  while (d > Math.PI) {
+    d -= Math.PI * 2;
+  }
+  while (d < -Math.PI) {
+    d += Math.PI * 2;
+  }
   return cur + d * (1 - Math.exp(-rate * dt));
 }
 
@@ -123,23 +131,29 @@ export class Player {
   hp = 100;
   maxHp = 100;
   isDead = false;
-  readonly faction = 'player' as const;
+  readonly faction = "player" as const;
   attackStat = 14;
   /** The ONE writer is `applyLoadout`; the rig is the storage, so nothing can disagree. */
   setWeapon(id: WeaponModelId | null): void {
     setWeaponModel(this.rig, id);
   }
 
-  get weapon(): WeaponModelId | null { return this.rig.weapon; }
+  get weapon(): WeaponModelId | null {
+    return this.rig.weapon;
+  }
 
   /** `colour` is the PICKED one: null means the style draws in its own (player/hair.ts). */
   setHair(styleId: string, colour: number | null): void {
     setHairStyle(this.rig, styleId, colour);
   }
 
-  get hairStyle(): string { return this.rig.hairStyle; }
+  get hairStyle(): string {
+    return this.rig.hairStyle;
+  }
   /** Resolved — never the "not picked" null. */
-  get hairColour(): number { return this.rig.hairColour; }
+  get hairColour(): number {
+    return this.rig.hairColour;
+  }
   /** For `__dbgHair`: a probe proves a style swap by the GEOMETRY changing. */
   get rigHairMesh(): THREE.Mesh | null {
     return (this.rig.hair.children[0] as THREE.Mesh | undefined) ?? null;
@@ -154,7 +168,9 @@ export class Player {
   onCanopy = false;
   /** MountController owns position and heading; regen, damage and the animator stay here. */
   isMounted = false;
-  get isAttacking(): boolean { return this.attack.active; }
+  get isAttacking(): boolean {
+    return this.attack.active;
+  }
   moveSpeedNorm = 0;
   /** The step test's own radius, so "is he touching that?" cannot drift onto a second number. */
   readonly radius = BODY_RADIUS;
@@ -169,7 +185,9 @@ export class Player {
   private readonly ride = new CarrierRide();
 
   /** For the SAVE (issue #171): island positions are stored in island coordinates. */
-  get carrier(): CarrierInfo | null { return this.ride.carrier; }
+  get carrier(): CarrierInfo | null {
+    return this.ride.carrier;
+  }
 
   private rig: HeroRig;
   /** Public only so main.ts can hand it to the feedback layer as a shake sink. */
@@ -181,7 +199,9 @@ export class Player {
   private heading = 0;
 
   /** The BODY's heading, not the camera's. `__dbgCamYaw` answers for the arm. */
-  get facing(): number { return this.heading; }
+  get facing(): number {
+    return this.heading;
+  }
   private coyote = 0;
   private jumpBuffer = 0;
   private landBump = 0;
@@ -244,14 +264,18 @@ export class Player {
 
   /** Returns what landed. Does NOT clear `regenHold`, and does not revive the dead. */
   heal(amount: number): number {
-    if (this.isDead || amount <= 0) return 0;
+    if (this.isDead || amount <= 0) {
+      return 0;
+    }
     const before = this.hp;
     this.hp = clamp(this.hp + amount, 0, this.maxHp);
     return this.hp - before;
   }
 
   takeDamage(amount: number, from: THREE.Vector3, element?: ElementType): boolean {
-    if (this.isDead || this.invulnT > 0) return false;
+    if (this.isDead || this.invulnT > 0) {
+      return false;
+    }
     this.hp = clamp(this.hp - amount, 0, this.maxHp);
     this.regenHold = REGEN_DELAY;
     this.flash = 1;
@@ -259,16 +283,20 @@ export class Player {
     this.invulnT = 0.35;
     // The camera kick is the `playerHurt` cue in src/feedback/cues.ts, not here.
     _knock.set(this.position.x - from.x, 0, this.position.z - from.z);
-    if (_knock.lengthSq() < 1e-4) _knock.copy(this.forward).multiplyScalar(-1);
+    if (_knock.lengthSq() < 1e-4) {
+      _knock.copy(this.forward).multiplyScalar(-1);
+    }
     _knock.normalize();
     this.velocity.x += _knock.x * 5.5;
     this.velocity.z += _knock.z * 5.5;
     this.velocity.y += 2.5;
     this.onGround = false;
-    if (this.hp <= 0) this.die();
+    if (this.hp <= 0) {
+      this.die();
+    }
     // Past the i-frame gate on purpose: this means "he was hit", not "swung at".
     this.bus.emit({
-      type: 'playerHurt',
+      type: "playerHurt",
       amount,
       amountFrac: amount / this.maxHp,
       hpFrac: this.hp / this.maxHp,
@@ -287,8 +315,8 @@ export class Player {
     // The corpse slide resolves against getHeight only, so a treetop faint falls out.
     this.onCanopy = false;
     this.attack.active = false;
-    this.bus.emit({ type: 'playerDied' });
-    this.bus.emit({ type: 'toast', text: t('toast.fainted') });
+    this.bus.emit({ type: "playerDied" });
+    this.bus.emit({ type: "toast", text: t("toast.fainted") });
   }
 
   /** `respawn` is the same LIST, not reused: its revival toast is false after New Game. */
@@ -317,7 +345,8 @@ export class Player {
     this.ride.clear();
     this.position.copy(start.position);
     this.position.y = Math.max(
-      this.world.getHeight(this.position.x, this.position.z), this.world.waterLevel,
+      this.world.getHeight(this.position.x, this.position.z),
+      this.world.waterLevel,
     );
     this.root.position.copy(this.position);
     this.heading = start.yaw;
@@ -365,13 +394,17 @@ export class Player {
     this.velocity.set(0, 0, 0);
     this.position.copy(this.world.spawnPoint);
     this.position.y = this.world.getHeight(this.position.x, this.position.z);
-    this.bus.emit({ type: 'playerRevived' });
-    this.bus.emit({ type: 'toast', text: t('toast.revived') });
+    this.bus.emit({ type: "playerRevived" });
+    this.bus.emit({ type: "toast", text: t("toast.revived") });
   }
 
   /** The basis movement input is resolved against. */
-  get camForward(): THREE.Vector3 { return this.cam.forward; }
-  get camRight(): THREE.Vector3 { return this.cam.right; }
+  get camForward(): THREE.Vector3 {
+    return this.cam.forward;
+  }
+  get camRight(): THREE.Vector3 {
+    return this.cam.right;
+  }
 
   /** Re-frame the follow camera; (1, 0) is the hero on foot. See the camera. */
   setCameraFraming(distScale: number, pivotDrop: number): void {
@@ -389,7 +422,9 @@ export class Player {
 
   /** Cancels everything he was doing on his own feet; position is the mount's now. */
   setMounted(on: boolean): void {
-    if (this.isMounted === on) return;
+    if (this.isMounted === on) {
+      return;
+    }
     this.isMounted = on;
     this.isClimbing = false;
     this.onCanopy = false;
@@ -417,7 +452,9 @@ export class Player {
    */
   carry(): void {
     this.ride.carry(this.world, this.position);
-    if (this.ride.dyaw === 0) return;
+    if (this.ride.dyaw === 0) {
+      return;
+    }
     // A turning deck turns his body AND the camera arm, which is not re-derived.
     this.heading += this.ride.dyaw;
     this.cam.yaw += this.ride.dyaw;
@@ -435,26 +472,37 @@ export class Player {
       this.carry();
     }
 
-    if (this.invulnT > 0) this.invulnT -= dt;
-    if (this.hurtT > 0) this.hurtT -= dt;
-    if (this.attackCooldown > 0) this.attackCooldown -= dt;
+    if (this.invulnT > 0) {
+      this.invulnT -= dt;
+    }
+    if (this.hurtT > 0) {
+      this.hurtT -= dt;
+    }
+    if (this.attackCooldown > 0) {
+      this.attackCooldown -= dt;
+    }
     this.landBump *= Math.exp(-6 * dt);
 
     // Latched per slice: Space is also "let go of the wall" and must not fire twice
     // in one frame. `pressed` is OR-ed in because held state misses a sub-slice tap.
-    const jumpNow = input.down('Space') || input.pressed('Space');
+    const jumpNow = input.down("Space") || input.pressed("Space");
     this.jumpEdge = jumpNow && !this.jumpWasHeld;
     this.jumpWasHeld = jumpNow;
 
     if (this.isDead) {
       this.deadT += dt;
-      if (this.deadT >= RESPAWN_TIME) this.respawn();
+      if (this.deadT >= RESPAWN_TIME) {
+        this.respawn();
+      }
       this.velocity.x *= Math.exp(-8 * dt);
       this.velocity.z *= Math.exp(-8 * dt);
       this.velocity.y -= GRAVITY * dt;
       this.position.addScaledVector(this.velocity, dt);
       const gh = world.getHeight(this.position.x, this.position.z);
-      if (this.position.y <= gh) { this.position.y = gh; this.velocity.y = 0; }
+      if (this.position.y <= gh) {
+        this.position.y = gh;
+        this.velocity.y = 0;
+      }
       this.moveSpeedNorm = 0;
     } else if (this.isMounted) {
       this.updateRiding(dt);
@@ -471,7 +519,9 @@ export class Player {
       }
     } else if (this.flash > 0) {
       this.flash = 0;
-      for (const m of this.rig.materials) m.emissive.setRGB(0, 0, 0);
+      for (const m of this.rig.materials) {
+        m.emissive.setRGB(0, 0, 0);
+      }
     }
 
     this.sinceAttack = this.attack.active ? 0 : this.sinceAttack + dt;
@@ -494,7 +544,7 @@ export class Player {
       landBump: this.landBump,
       hurtT: this.hurtT,
       unarmed: this.rig.weapon === null,
-      bow: this.rig.weapon === 'bow',
+      bow: this.rig.weapon === "bow",
       stowed: this.rig.stowed,
     });
 
@@ -514,25 +564,33 @@ export class Player {
     const trunk = this.world.trunkSolidTopAt(x, z);
     let top = trunk > ground ? trunk : ground;
     const built = this.world.structureTopAt(x, z);
-    if (built > top) top = built;
+    if (built > top) {
+      top = built;
+    }
     // A CARRIER'S DECK IS GROUND. -Infinity unless riding one, which is what makes it
     // safe to ask with (x, z) alone — `CarrierRide.carry` settled the vertical part.
     const deck = this.ride.support(x, z);
-    if (deck > top) top = deck;
+    if (deck > top) {
+      top = deck;
+    }
     // ...and the crown, ONLY while standing on one: unconditionally it fences every
     // tree, and without it walking up a dome steps off its uphill side.
     if (this.onCanopy) {
       const canopy = this.climbTop(x, z);
-      if (canopy > top) top = canopy;
+      if (canopy > top) {
+        top = canopy;
+      }
     }
     return top;
   }
 
   /** A TOAST, not a noise: what the player needs told is the fix, and that is a sentence. */
   private refuseDeep(): void {
-    if (this.deepToastT > 0) return;
+    if (this.deepToastT > 0) {
+      return;
+    }
     this.deepToastT = DEEP_TOAST_GAP;
-    this.bus.emit({ type: 'toast', text: t('toast.deepWater') });
+    this.bus.emit({ type: "toast", text: t("toast.deepWater") });
   }
 
   /**
@@ -549,11 +607,22 @@ export class Player {
     let bx = 1;
     let bz = 0;
     let h = w.getHeight(x - r, z);
-    if (h > best) { best = h; bx = -1; bz = 0; }
+    if (h > best) {
+      best = h;
+      bx = -1;
+      bz = 0;
+    }
     h = w.getHeight(x, z + r);
-    if (h > best) { best = h; bx = 0; bz = 1; }
+    if (h > best) {
+      best = h;
+      bx = 0;
+      bz = 1;
+    }
     h = w.getHeight(x, z - r);
-    if (h > best) { bx = 0; bz = -1; }
+    if (h > best) {
+      bx = 0;
+      bz = -1;
+    }
     const k = 1 - Math.exp(-4 * dt);
     this.velocity.x += (UNDERTOW * bx - this.velocity.x) * k;
     this.velocity.z += (UNDERTOW * bz - this.velocity.z) * k;
@@ -609,20 +678,22 @@ export class Player {
 
     const fwd = input.axisFwd;
     const side = input.axisSide;
-    _wish.set(0, 0, 0)
-      .addScaledVector(this.cam.forward, fwd)
-      .addScaledVector(this.cam.right, side);
+    _wish.set(0, 0, 0).addScaledVector(this.cam.forward, fwd).addScaledVector(this.cam.right, side);
     const tilt = Math.min(1, Math.hypot(fwd, side));
     const moving = _wish.lengthSq() > 1e-6;
-    if (moving) _wish.normalize();
+    if (moving) {
+      _wish.normalize();
+    }
 
     // Shift is sprint in the open, grip on a wall; the surface disambiguates. No
     // press edge is read, so it behaves the same at any slice count.
-    if (this.climbLockout > 0) this.climbLockout -= dt;
-    const shiftHeld = input.down('ShiftLeft');
+    if (this.climbLockout > 0) {
+      this.climbLockout -= dt;
+    }
+    const shiftHeld = input.down("ShiftLeft");
     if (this.isClimbing) {
       if (!shiftHeld) {
-        this.detachClimb(0);            // let go: slide off and fall
+        this.detachClimb(0); // let go: slide off and fall
       } else if (this.jumpEdge) {
         this.velocity.y = JUMP_VEL * 0.8;
         this.detachClimb(3.2);
@@ -641,8 +712,12 @@ export class Player {
     let targetSpeed = this.isSwimming
       ? SWIM_SPEED
       : WALK_SPEED * (this.sprinting ? SPRINT_MULT : 1);
-    if (this.attack.active && this.onGround) targetSpeed *= 0.35; // planted swings
-    if (tilt > 0 && tilt < 0.98) targetSpeed *= Math.max(0.35, tilt);
+    if (this.attack.active && this.onGround) {
+      targetSpeed *= 0.35;
+    } // planted swings
+    if (tilt > 0 && tilt < 0.98) {
+      targetSpeed *= Math.max(0.35, tilt);
+    }
 
     const accel = this.isSwimming ? 14 : this.onGround ? GROUND_ACCEL : AIR_ACCEL;
     _hvel.set(this.velocity.x, 0, this.velocity.z);
@@ -657,24 +732,33 @@ export class Player {
     this.velocity.x = _hvel.x;
     this.velocity.z = _hvel.z;
 
-    if (input.pressed('Space')) this.jumpBuffer = JUMP_BUFFER;
-    else this.jumpBuffer -= dt;
+    if (input.pressed("Space")) {
+      this.jumpBuffer = JUMP_BUFFER;
+    } else {
+      this.jumpBuffer -= dt;
+    }
     this.coyote = this.onGround ? COYOTE_TIME : this.coyote - dt;
-    if (this.deepToastT > 0) this.deepToastT -= dt;
+    if (this.deepToastT > 0) {
+      this.deepToastT -= dt;
+    }
 
     if (this.isSwimming) {
       const floatY = world.waterLevel - 1.15;
-      if (input.down('KeyC')) {
+      if (input.down("KeyC")) {
         // Against the buoyancy, not instead of it. The vertical clamp below catches
         // the bed, so there is no separate floor test here.
         this.velocity.y -= DIVE_ACCEL * dt;
-        if (this.velocity.y < -DIVE_SPEED) this.velocity.y = -DIVE_SPEED;
+        if (this.velocity.y < -DIVE_SPEED) {
+          this.velocity.y = -DIVE_SPEED;
+        }
       } else {
         // CAPPED: uncapped, the spring turns into a cork once diving exists.
         const lift = Math.min((floatY - this.position.y) * 9, SWIM_RISE_MAX);
         this.velocity.y += (lift - this.velocity.y * 3.5) * dt;
       }
-      if (input.down('Space')) this.velocity.y += 9 * dt; // paddle up
+      if (input.down("Space")) {
+        this.velocity.y += 9 * dt;
+      } // paddle up
     } else {
       if (this.jumpBuffer > 0 && this.coyote > 0) {
         this.velocity.y = JUMP_VEL;
@@ -704,24 +788,36 @@ export class Player {
         const nx = this.position.x + this.velocity.x * dt;
         if (!world.isDeepWater(nx + Math.sign(this.velocity.x) * DEEP_PROBE, this.position.z)) {
           this.position.x = nx;
-        } else { this.velocity.x = 0; this.refuseDeep(); }
+        } else {
+          this.velocity.x = 0;
+          this.refuseDeep();
+        }
 
         const nz = this.position.z + this.velocity.z * dt;
         if (!world.isDeepWater(this.position.x, nz + Math.sign(this.velocity.z) * DEEP_PROBE)) {
           this.position.z = nz;
-        } else { this.velocity.z = 0; this.refuseDeep(); }
+        } else {
+          this.velocity.z = 0;
+          this.refuseDeep();
+        }
       }
     } else {
       const stepCeil = feetY + MAX_STEP_UP;
       const nx = this.position.x + this.velocity.x * dt;
       const probeX = nx + Math.sign(this.velocity.x) * BODY_RADIUS;
-      if (this.blockTop(probeX, this.position.z) <= stepCeil) this.position.x = nx;
-      else this.velocity.x = 0;
+      if (this.blockTop(probeX, this.position.z) <= stepCeil) {
+        this.position.x = nx;
+      } else {
+        this.velocity.x = 0;
+      }
 
       const nz = this.position.z + this.velocity.z * dt;
       const probeZ = nz + Math.sign(this.velocity.z) * BODY_RADIUS;
-      if (this.blockTop(this.position.x, probeZ) <= stepCeil) this.position.z = nz;
-      else this.velocity.z = 0;
+      if (this.blockTop(this.position.x, probeZ) <= stepCeil) {
+        this.position.z = nz;
+      } else {
+        this.velocity.z = 0;
+      }
     }
     this.position.y += this.velocity.y * dt;
 
@@ -735,19 +831,21 @@ export class Player {
     let floor = built > gh ? built : gh;
     // ...and the deck, solid both ways: he only asks while inside the frame's volume.
     const deck = this.ride.support(this.position.x, this.position.z);
-    if (deck > floor) floor = deck;
+    if (deck > floor) {
+      floor = deck;
+    }
     const canopy = this.canopyTop(this.position.x, this.position.z, gh);
     let support = -Infinity;
     if (this.position.y <= floor) {
-      support = floor;                    // solid ground always wins
+      support = floor; // solid ground always wins
       this.onCanopy = false;
     } else if (
-      canopy > -Infinity && this.velocity.y <= 0
+      canopy > -Infinity &&
+      this.velocity.y <= 0 &&
       // One-way, with the step test's own slack, so the two cannot disagree.
-      && feetY >= canopy - MAX_STEP_UP
+      feetY >= canopy - MAX_STEP_UP &&
       // Either he crossed the surface this slice, or it fell away by a slope's worth.
-      && (this.position.y <= canopy
-        || (this.onCanopy && this.position.y - canopy < CANOPY_GLUE))
+      (this.position.y <= canopy || (this.onCanopy && this.position.y - canopy < CANOPY_GLUE))
     ) {
       support = canopy;
       this.onCanopy = true;
@@ -762,7 +860,7 @@ export class Player {
         _feet.set(this.position.x, support + 0.05, this.position.z);
         this.dust.burst(_feet, Math.min(14, Math.floor(-this.velocity.y)));
         // The squash's own ramp; the cue table keeps the shake gap as `shakeMin`.
-        this.bus.emit({ type: 'playerLanded', impact: this.landBump });
+        this.bus.emit({ type: "playerLanded", impact: this.landBump });
       }
       this.position.y = support;
       this.velocity.y = 0;
@@ -775,9 +873,10 @@ export class Player {
       this.onGround = false;
     }
 
-    this.isSwimming =
-      gh < world.waterLevel - 0.7 && this.position.y < world.waterLevel - 1.0;
-    if (this.isSwimming) this.onGround = false;
+    this.isSwimming = gh < world.waterLevel - 0.7 && this.position.y < world.waterLevel - 1.0;
+    if (this.isSwimming) {
+      this.onGround = false;
+    }
 
     this.finishAlive(dt, moving);
   }
@@ -816,10 +915,7 @@ export class Player {
 
   /** Climbable and solid are different sets: a trunk is only the former. */
   private probeFace(dx: number, dz: number, reach: number): number {
-    const top = this.climbTop(
-      this.position.x + dx * reach,
-      this.position.z + dz * reach,
-    );
+    const top = this.climbTop(this.position.x + dx * reach, this.position.z + dz * reach);
     return top - this.position.y >= CLIMB_MIN_RISE ? top : -Infinity;
   }
 
@@ -835,13 +931,17 @@ export class Player {
     const cz = ax >= az ? 0 : Math.sign(_wish.z);
 
     let top = this.probeFace(cx, cz, CLIMB_REACH);
-    let dx = cx, dz = cz;
+    let dx = cx,
+      dz = cz;
     if (top === -Infinity) {
       top = this.probeFace(_wish.x, _wish.z, CLIMB_REACH);
-      dx = _wish.x; dz = _wish.z;
+      dx = _wish.x;
+      dz = _wish.z;
       if (top === -Infinity) {
         top = this.probeFace(_wish.x, _wish.z, 0);
-        if (top === -Infinity) return;
+        if (top === -Infinity) {
+          return;
+        }
       }
     }
 
@@ -860,7 +960,9 @@ export class Player {
 
   /** Let go. `kick` pushes the hero away from the face (jump-off). */
   private detachClimb(kick: number): void {
-    if (!this.isClimbing) return;
+    if (!this.isClimbing) {
+      return;
+    }
     this.isClimbing = false;
     this.climbRate = 0;
     this.climbLockout = CLIMB_LOCKOUT;
@@ -926,7 +1028,9 @@ export class Player {
     const along = moving ? _wish.x * tanX + _wish.z * tanZ : 0;
 
     let vy = into * CLIMB_SPEED;
-    if (atTop && vy > 0) vy = 0;
+    if (atTop && vy > 0) {
+      vy = 0;
+    }
     const k = 1 - Math.exp(-CLIMB_LAMBDA * dt);
     this.velocity.y += (vy - this.velocity.y) * k;
     this.velocity.x += (tanX * along * CLIMB_SIDE_SPEED - this.velocity.x) * k;
@@ -934,14 +1038,16 @@ export class Player {
     this.climbRate = clamp(this.velocity.y / CLIMB_SPEED, -1, 1);
 
     this.position.y += this.velocity.y * dt;
-    if (atTop && this.position.y > top) this.position.y = top;
+    if (atTop && this.position.y > top) {
+      this.position.y = top;
+    }
 
     // Probed from the DESTINATION, so shuffling off a ledge stops at the corner.
     const nx = this.position.x + this.velocity.x * dt;
     const nz = this.position.z + this.velocity.z * dt;
     if (
-      this.climbTop(nx + this.climbDirX * CLIMB_REACH, nz + this.climbDirZ * CLIMB_REACH)
-      >= this.position.y + CLIMB_SIDE_HOLD
+      this.climbTop(nx + this.climbDirX * CLIMB_REACH, nz + this.climbDirZ * CLIMB_REACH) >=
+      this.position.y + CLIMB_SIDE_HOLD
     ) {
       this.position.x = nx;
       this.position.z = nz;
@@ -969,7 +1075,7 @@ export class Player {
     const input = this.input;
     const a = this.attack;
     // The bow's attack is not a swing: own duration, own strike frame, no chain.
-    const bow = this.rig.weapon === 'bow';
+    const bow = this.rig.weapon === "bow";
 
     if (a.active) {
       a.t += dt;
@@ -983,8 +1089,11 @@ export class Player {
         // Melee keeps the flat heading: an arc is tested in the plane with `inRise`.
         const mounted = this.isMounted;
         // getWorldDirection writes into the temp, so this allocates nothing.
-        if (mounted || bow) this.engine.camera.getWorldDirection(_dir);
-        else _dir.copy(this.forward);
+        if (mounted || bow) {
+          this.engine.camera.getWorldDirection(_dir);
+        } else {
+          _dir.copy(this.forward);
+        }
         _origin.copy(this.position);
         _origin.y += mounted ? MOUNTED_STRIKE_Y : 1.25;
         // The bow alone re-aims from the MUZZLE; everything else homes or is an arc.
@@ -996,11 +1105,16 @@ export class Player {
             for (let d = BOW_AIM_NEAR; d <= BOW_AIM_FAR; d += BOW_AIM_STEP) {
               const x = _aimPt.x + _dir.x * d;
               const z = _aimPt.z + _dir.z * d;
-              if (_aimPt.y + _dir.y * d <= this.world.getHeight(x, z)) { hit = d; break; }
+              if (_aimPt.y + _dir.y * d <= this.world.getHeight(x, z)) {
+                hit = d;
+                break;
+              }
             }
           }
           _aimPt.addScaledVector(_dir, hit).sub(_origin);
-          if (_aimPt.lengthSq() > 1e-6) _dir.copy(_aimPt).normalize();
+          if (_aimPt.lengthSq() > 1e-6) {
+            _dir.copy(_aimPt).normalize();
+          }
         }
         // Assist BEFORE the origin is pushed out: the push is along the swing.
         const steered = this.aimAssist?.(_origin, _dir) ?? false;
@@ -1032,8 +1146,10 @@ export class Player {
       }
     } else if (
       // Mounted is NOT excluded; swimming and climbing are — both occupy the hands.
-      input.attackPressed && this.attackCooldown <= 0
-      && !this.isSwimming && !this.isClimbing
+      input.attackPressed &&
+      this.attackCooldown <= 0 &&
+      !this.isSwimming &&
+      !this.isClimbing
     ) {
       a.active = true;
       a.combo = 0;

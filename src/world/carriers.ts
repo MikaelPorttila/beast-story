@@ -7,8 +7,8 @@
  *   wx =  px * cos + pz * sin        px =  wx * cos - wz * sin
  *   wz = -px * sin + pz * cos        pz =  wx * sin + wz * cos
  */
-import * as THREE from 'three';
-import type { CarrierInfo, CarrierRegistry, World } from '../core/types';
+import * as THREE from "three";
+import type { CarrierInfo, CarrierRegistry, World } from "../core/types";
 
 /** Airspace above the deck, world units. Clears a jump (hero apex 1.61). */
 const RIDE_CEILING = 22;
@@ -43,7 +43,10 @@ export abstract class CarrierBody implements CarrierInfo {
   protected cy = 1;
   protected sy = 0;
 
-  constructor(readonly id: string, readonly radius: number) {
+  constructor(
+    readonly id: string,
+    readonly radius: number,
+  ) {
     // `advance` is the only writer of this matrix, so skip three's recompose.
     this.root.matrixAutoUpdate = false;
   }
@@ -77,8 +80,12 @@ export abstract class CarrierBody implements CarrierInfo {
     this.dz = this.z - pz;
     // Shortest arc: a heading crossing +/-PI must not spin the riders.
     let d = this.yaw - pyaw;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
+    while (d > Math.PI) {
+      d -= Math.PI * 2;
+    }
+    while (d < -Math.PI) {
+      d += Math.PI * 2;
+    }
     this.dyaw = d;
     this.cy = Math.cos(this.yaw);
     this.sy = Math.sin(this.yaw);
@@ -106,7 +113,9 @@ export abstract class CarrierBody implements CarrierInfo {
   topAt(x: number, z: number): number {
     const dx = x - this.x;
     const dz = z - this.z;
-    if (dx * dx + dz * dz > this.radius * this.radius) return -Infinity;
+    if (dx * dx + dz * dz > this.radius * this.radius) {
+      return -Infinity;
+    }
     this.toLocal(x, z, this._l);
     const t = this.localTop(this._l.x, this._l.z);
     return t > -Infinity ? t + this.y : -Infinity;
@@ -115,7 +124,9 @@ export abstract class CarrierBody implements CarrierInfo {
   deckAt(x: number, z: number): number {
     const dx = x - this.x;
     const dz = z - this.z;
-    if (dx * dx + dz * dz > this.radius * this.radius) return -Infinity;
+    if (dx * dx + dz * dz > this.radius * this.radius) {
+      return -Infinity;
+    }
     this.toLocal(x, z, this._l);
     const d = this.localDeck(this._l.x, this._l.z);
     return d > -Infinity ? d + this.y : -Infinity;
@@ -124,7 +135,9 @@ export abstract class CarrierBody implements CarrierInfo {
   bottomAt(x: number, z: number): number {
     const dx = x - this.x;
     const dz = z - this.z;
-    if (dx * dx + dz * dz > this.radius * this.radius) return Infinity;
+    if (dx * dx + dz * dz > this.radius * this.radius) {
+      return Infinity;
+    }
     this.toLocal(x, z, this._l);
     const b = this.localBottom(this._l.x, this._l.z);
     return b < Infinity ? b + this.y : Infinity;
@@ -132,7 +145,9 @@ export abstract class CarrierBody implements CarrierInfo {
 
   contains(x: number, y: number, z: number): boolean {
     const top = this.topAt(x, z);
-    if (top === -Infinity) return false;
+    if (top === -Infinity) {
+      return false;
+    }
     return y >= top - RIDE_FLOOR && y <= top + RIDE_CEILING;
   }
 }
@@ -145,17 +160,23 @@ export class CarrierField implements CarrierRegistry {
   }
 
   get(id: string): CarrierInfo | undefined {
-    for (const c of this.all) if (c.id === id) return c;
+    for (const c of this.all) {
+      if (c.id === id) return c;
+    }
     return undefined;
   }
 
   at(x: number, y: number, z: number): CarrierInfo | null {
-    for (const c of this.all) if (c.contains(x, y, z)) return c;
+    for (const c of this.all) {
+      if (c.contains(x, y, z)) return c;
+    }
     return null;
   }
 
   bodyAt(x: number, z: number): CarrierInfo | null {
-    for (const c of this.all) if (c.topAt(x, z) > -Infinity) return c;
+    for (const c of this.all) {
+      if (c.topAt(x, z) > -Infinity) return c;
+    }
     return null;
   }
 
@@ -166,16 +187,22 @@ export class CarrierField implements CarrierRegistry {
       const dz = z - c.z;
       // The APPROACH, not the footprint: `topAt` answers only over the deck, so
       // a climbing flyer met the terrain ceiling and then lost it at the rim.
-      if (dx * dx + dz * dz > (c.radius + CEILING_MARGIN) ** 2) continue;
+      if (dx * dx + dz * dz > (c.radius + CEILING_MARGIN) ** 2) {
+        continue;
+      }
       // Deck height, not the queried column: outside the footprint there is none.
       const t = c.y + CEILING_RISE;
-      if (t > top) top = t;
+      if (t > top) {
+        top = t;
+      }
     }
     return top;
   }
 
   advance(dt: number): void {
-    for (const c of this.all) c.advance(dt);
+    for (const c of this.all) {
+      c.advance(dt);
+    }
   }
 }
 
@@ -191,7 +218,7 @@ export class CarrierRide {
   carry(world: World, pos: THREE.Vector3): void {
     const reg = world.carriers;
     this.dyaw = 0;
-    let c = this.id !== null ? reg.get(this.id) ?? null : null;
+    let c = this.id !== null ? (reg.get(this.id) ?? null) : null;
     if (c) {
       // Rotate about the origin BEFORE this slice, or a rider on a turn slides.
       const ox = c.x - c.dx;

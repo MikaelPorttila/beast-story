@@ -39,10 +39,15 @@
 //
 // Usage: bun tools/test-bow.mjs        (dev server must be up)
 import {
-  launchBrowser, newPage, logPageErrors, whenPlaying,
-  installFakePad, setPadButton, PAD_BUTTON,
-} from './browser.mjs';
-import { BASE as HOST, NO_WARMUP } from './target.mjs';
+  launchBrowser,
+  newPage,
+  logPageErrors,
+  whenPlaying,
+  installFakePad,
+  setPadButton,
+  PAD_BUTTON,
+} from "./browser.mjs";
+import { BASE as HOST, NO_WARMUP } from "./target.mjs";
 
 // enemies and beasts off: an arrow that struck a wandering hunter would end its
 // flight early and section 2 would read a short distance for the right reason
@@ -52,16 +57,21 @@ const URL = `${HOST}/?menu=0&fs=0&vol=0&enemies=0&beasts=0&${NO_WARMUP}`;
 
 /** src/combat/index.ts. The line between a swing and a shot. */
 const SWORD_REACH = 2.2;
-const BOW = 'bow-ash';
-const SWORD = 'sword-iron';
+const BOW = "bow-ash";
+const SWORD = "sword-iron";
 
 const fails = [];
-const check = (ok, what) => { if (!ok) fails.push(what); return ok; };
+const check = (ok, what) => {
+  if (!ok) {
+    fails.push(what);
+  }
+  return ok;
+};
 
 async function equip(page, itemId) {
   return page.evaluate((id) => {
     window.__dbgGive(id, 1);
-    window.__dbgInvAction(id, 'equip');
+    window.__dbgInvAction(id, "equip");
     return window.__dbgShots().weapon;
   }, itemId);
 }
@@ -72,87 +82,95 @@ async function equip(page, itemId) {
  * Runs entirely inside the page so the sampling costs no CDP round trips: every
  * step is one `__dbgAdvance`, which is a burst of perfect 60 Hz slices.
  */
-const fire = (page, { presses = 1, gapS = 0, steps = 60, step = 0.05 } = {}) => page.evaluate(
-  ({ presses, gapS, steps, step, btn }) => {
-    const pad = window.__fakePad;
-    const set = (down) => {
-      pad.buttons[btn] = { pressed: down, touched: down, value: down ? 1 : 0 };
-    };
-    const arrows = () => {
-      const h = window.__dbgPlayerPos();
-      return window.__dbgShots().shots
-        .filter((s) => s.form === 'arrow')
-        .map((s) => Math.hypot(s.x - h.x, s.y - h.y, s.z - h.z));
-    };
+const fire = (page, { presses = 1, gapS = 0, steps = 60, step = 0.05 } = {}) =>
+  page.evaluate(
+    ({ presses, gapS, steps, step, btn }) => {
+      const pad = window.__fakePad;
+      const set = (down) => {
+        pad.buttons[btn] = { pressed: down, touched: down, value: down ? 1 : 0 };
+      };
+      const arrows = () => {
+        const h = window.__dbgPlayerPos();
+        return window
+          .__dbgShots()
+          .shots.filter((s) => s.form === "arrow")
+          .map((s) => Math.hypot(s.x - h.x, s.y - h.y, s.z - h.z));
+      };
 
-    let released = 0;
-    let prevMin = Infinity;
-    let maxDist = 0;
-    let maxAloft = 0;
-    let speed = 0;
-    // Height of the arrow OVER THE HERO'S FEET, at its extremes. This is the
-    // elevation of the shot as a measurement: the muzzle is 1.25 up, so a climb
-    // reads well above that and a shot into the ground reads below it.
-    let riseMax = -Infinity;
-    let riseMin = Infinity;
-    const table = [];
-    // One sample: step the sim, then read what is in the air. `prevMin` only
-    // ever rises for a given arrow, so a drop is a new one.
-    const sample = (t) => {
-      const d = arrows();
-      const min = d.length ? Math.min(...d) : Infinity;
-      if (min < prevMin - 0.01) released += 1;
-      prevMin = min;
-      if (d.length) {
-        maxDist = Math.max(maxDist, Math.max(...d));
-        maxAloft = Math.max(maxAloft, d.length);
-        const s = window.__dbgShots().shots.find((x) => x.form === 'arrow');
-        speed = Math.max(speed, s ? s.speed : 0);
-        if (s) {
-          const rise = s.y - window.__dbgPlayerPos().y;
-          riseMax = Math.max(riseMax, rise);
-          riseMin = Math.min(riseMin, rise);
+      let released = 0;
+      let prevMin = Infinity;
+      let maxDist = 0;
+      let maxAloft = 0;
+      let speed = 0;
+      // Height of the arrow OVER THE HERO'S FEET, at its extremes. This is the
+      // elevation of the shot as a measurement: the muzzle is 1.25 up, so a climb
+      // reads well above that and a shot into the ground reads below it.
+      let riseMax = -Infinity;
+      let riseMin = Infinity;
+      const table = [];
+      // One sample: step the sim, then read what is in the air. `prevMin` only
+      // ever rises for a given arrow, so a drop is a new one.
+      const sample = (t) => {
+        const d = arrows();
+        const min = d.length ? Math.min(...d) : Infinity;
+        if (min < prevMin - 0.01) {
+          released += 1;
+        }
+        prevMin = min;
+        if (d.length) {
+          maxDist = Math.max(maxDist, Math.max(...d));
+          maxAloft = Math.max(maxAloft, d.length);
+          const s = window.__dbgShots().shots.find((x) => x.form === "arrow");
+          speed = Math.max(speed, s ? s.speed : 0);
+          if (s) {
+            const rise = s.y - window.__dbgPlayerPos().y;
+            riseMax = Math.max(riseMax, rise);
+            riseMin = Math.min(riseMin, rise);
+          }
+        }
+        table.push({
+          t: +t.toFixed(2),
+          aloft: d.length,
+          nearest: d.length ? +min.toFixed(2) : null,
+        });
+      };
+
+      let t = 0;
+      for (let i = 0; i < presses; i++) {
+        set(true);
+        window.__dbgAdvance(step); // the press edge lands on slice one
+        t += step;
+        sample(t);
+        set(false);
+        if (i < presses - 1) {
+          // Hold the gap in the same sampled steps, so an arrow released during
+          // a mash is seen rather than skipped over.
+          for (let k = 0; k < Math.max(1, Math.round(gapS / step)); k++) {
+            window.__dbgAdvance(step);
+            t += step;
+            sample(t);
+          }
         }
       }
-      table.push({ t: +t.toFixed(2), aloft: d.length, nearest: d.length ? +min.toFixed(2) : null });
-    };
-
-    let t = 0;
-    for (let i = 0; i < presses; i++) {
-      set(true);
-      window.__dbgAdvance(step);            // the press edge lands on slice one
-      t += step;
-      sample(t);
-      set(false);
-      if (i < presses - 1) {
-        // Hold the gap in the same sampled steps, so an arrow released during
-        // a mash is seen rather than skipped over.
-        for (let k = 0; k < Math.max(1, Math.round(gapS / step)); k++) {
-          window.__dbgAdvance(step);
-          t += step;
-          sample(t);
-        }
+      for (let i = 0; i < steps; i++) {
+        window.__dbgAdvance(step);
+        t += step;
+        sample(t);
       }
-    }
-    for (let i = 0; i < steps; i++) {
-      window.__dbgAdvance(step);
-      t += step;
-      sample(t);
-    }
-    return {
-      released,
-      riseMax: riseMax === -Infinity ? null : +riseMax.toFixed(2),
-      riseMin: riseMin === Infinity ? null : +riseMin.toFixed(2),
-      maxDist: +maxDist.toFixed(2),
-      maxAloft,
-      topSpeed: +speed.toFixed(2),
-      simSeconds: +t.toFixed(2),
-      weapon: window.__dbgShots().weapon,
-      table,
-    };
-  },
-  { presses, gapS, steps, step, btn: PAD_BUTTON.RT },
-);
+      return {
+        released,
+        riseMax: riseMax === -Infinity ? null : +riseMax.toFixed(2),
+        riseMin: riseMin === Infinity ? null : +riseMin.toFixed(2),
+        maxDist: +maxDist.toFixed(2),
+        maxAloft,
+        topSpeed: +speed.toFixed(2),
+        simSeconds: +t.toFixed(2),
+        weapon: window.__dbgShots().weapon,
+        table,
+      };
+    },
+    { presses, gapS, steps, step, btn: PAD_BUTTON.RT },
+  );
 
 /** Park the hero in the open, away from the camp, and let the world settle. */
 async function stand(page) {
@@ -169,19 +187,19 @@ const results = {};
 try {
   const page = await newPage(browser, { width: 1280, height: 800 });
   logPageErrors(page);
-  await installFakePad(page, 'Xbox Wireless Controller');
-  await page.goto(URL, { waitUntil: 'load' });
+  await installFakePad(page, "Xbox Wireless Controller");
+  await page.goto(URL, { waitUntil: "load" });
   await whenPlaying(page);
   await page.evaluate(() => window.__connectPad());
   await stand(page);
 
   // ---------- 1. the bow shoots ---------------------------------------------
   const bowWeapon = await equip(page, BOW);
-  check(bowWeapon === 'bow', `equipping ${BOW} should hold a bow, held ${bowWeapon}`);
+  check(bowWeapon === "bow", `equipping ${BOW} should hold a bow, held ${bowWeapon}`);
   const bow = await fire(page, { presses: 1 });
   results.bowOnePress = { ...bow, table: undefined };
   check(bow.released === 1, `one bow press should release 1 arrow, released ${bow.released}`);
-  check(bow.maxAloft >= 1, 'a bow press should put an arrow in the air');
+  check(bow.maxAloft >= 1, "a bow press should put an arrow in the air");
 
   // ---------- 2. it is RANGED -----------------------------------------------
   // Not "a projectile existed" — a projectile that got further from the hero
@@ -197,7 +215,7 @@ try {
   // this, section 1 would also pass on a game that spawned an arrow for every
   // attack whatever was in hand.
   const swordWeapon = await equip(page, SWORD);
-  check(swordWeapon === 'sword', `equipping ${SWORD} should hold a sword, held ${swordWeapon}`);
+  check(swordWeapon === "sword", `equipping ${SWORD} should hold a sword, held ${swordWeapon}`);
   const sword = await fire(page, { presses: 1 });
   results.swordOnePress = { ...sword, table: undefined };
   check(sword.released === 0, `a sword press should release no arrow, released ${sword.released}`);
@@ -242,17 +260,20 @@ try {
   // asked — first at -0.32 when -0.6 was wanted, then pinned at the -0.93
   // clamp. Pushing until the reading arrives is the same instrument the
   // assertions use.
-  const aimTo = (goal) => page.evaluate((goal) => {
-    for (let i = 0; i < 120; i++) {
-      const y = window.__dbgCam().dir.y;
-      if (Math.abs(y - goal) < 0.04) break;
-      window.__fakePad.axes[3] = y < goal ? 1 : -1;
-      window.__dbgAdvance(0.05);
-    }
-    window.__fakePad.axes[3] = 0;
-    window.__dbgAdvance(0.1);
-    return window.__dbgCam().dir.y;
-  }, goal);
+  const aimTo = (goal) =>
+    page.evaluate((goal) => {
+      for (let i = 0; i < 120; i++) {
+        const y = window.__dbgCam().dir.y;
+        if (Math.abs(y - goal) < 0.04) {
+          break;
+        }
+        window.__fakePad.axes[3] = y < goal ? 1 : -1;
+        window.__dbgAdvance(0.05);
+      }
+      window.__fakePad.axes[3] = 0;
+      window.__dbgAdvance(0.1);
+      return window.__dbgCam().dir.y;
+    }, goal);
 
   await equip(page, BOW);
   const upAim = await aimTo(0.5);
@@ -280,10 +301,12 @@ try {
   // arrow is released, seen, drops below the muzzle it left from, and meets the
   // ground far short of the shot that was aimed up.
   check(
-    down.released === 1 && down.riseMin !== null && down.riseMin < 1
-    && down.maxDist < up.maxDist / 2,
-    `aimed down, the arrow should dive into the ground: released ${down.released}, `
-    + `floor ${down.riseMin} over the feet, reached ${down.maxDist} against ${up.maxDist} up`,
+    down.released === 1 &&
+      down.riseMin !== null &&
+      down.riseMin < 1 &&
+      down.maxDist < up.maxDist / 2,
+    `aimed down, the arrow should dive into the ground: released ${down.released}, ` +
+      `floor ${down.riseMin} over the feet, reached ${down.maxDist} against ${up.maxDist} up`,
   );
 
   results.assertions = {
@@ -293,8 +316,11 @@ try {
     onePressOneArrow: mash.released === 1,
     twoPressesTwoArrows: twice.released === 2,
     aimUpFliesUp: up.riseMax > 3,
-    aimDownHitsTheGround: down.released === 1 && down.riseMin !== null
-      && down.riseMin < 1 && down.maxDist < up.maxDist / 2,
+    aimDownHitsTheGround:
+      down.released === 1 &&
+      down.riseMin !== null &&
+      down.riseMin < 1 &&
+      down.maxDist < up.maxDist / 2,
   };
   await page.close();
 } finally {
@@ -304,7 +330,7 @@ try {
 results.fails = fails;
 console.log(JSON.stringify(results, null, 2));
 if (fails.length) {
-  console.error(`\nFAIL (${fails.length}):\n  ${fails.join('\n  ')}`);
+  console.error(`\nFAIL (${fails.length}):\n  ${fails.join("\n  ")}`);
   process.exit(1);
 }
-console.log('\nbow: ok');
+console.log("\nbow: ok");

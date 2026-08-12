@@ -23,10 +23,10 @@
  * second code path through the accumulator to save microseconds nobody is
  * measuring on a frame nobody is profiling.
  */
-import * as THREE from 'three';
-import { Accum, type PropLib, type Template } from './props';
-import { SolidStamp, StructureField } from './structures';
-import { TownParts } from './town-parts';
+import * as THREE from "three";
+import { Accum, type PropLib, type Template } from "./props";
+import { SolidStamp, StructureField } from "./structures";
+import { TownParts } from "./town-parts";
 
 /** One stamped piece, kept so the mesh can be rebuilt from scratch. */
 interface Placed {
@@ -93,7 +93,9 @@ export class SpawnedSolids {
     return [...this.parts_().keys()];
   }
 
-  get count(): number { return this.placed.length; }
+  get count(): number {
+    return this.placed.length;
+  }
 
   /**
    * Stamp one part standing on the ground at (x, z).
@@ -106,16 +108,22 @@ export class SpawnedSolids {
    */
   spawn(name: string, x: number, z: number, yaw: number): boolean {
     const t = this.parts_().get(name);
-    if (!t) return false;
+    if (!t) {
+      return false;
+    }
     this.placed.push({ t, x, y: this.getHeight(x, z), z, yaw });
-    if (this.placed.length > MAX_PLACED) this.placed.shift();
+    if (this.placed.length > MAX_PLACED) {
+      this.placed.shift();
+    }
     this.rebuild();
     return true;
   }
 
   /** Take everything back down. The panel's Clear row and `exitToTitle`. */
   clear(): void {
-    if (this.placed.length === 0) return;
+    if (this.placed.length === 0) {
+      return;
+    }
     this.placed.length = 0;
     this.rebuild();
   }
@@ -125,8 +133,12 @@ export class SpawnedSolids {
     return this.field.topAt(x, z);
   }
 
-  debugBoxes(out: number[]): void { this.field.debugBoxes(out); }
-  debugRidges(out: number[]): void { this.field.debugRidges(out); }
+  debugBoxes(out: number[]): void {
+    this.field.debugBoxes(out);
+  }
+  debugRidges(out: number[]): void {
+    this.field.debugRidges(out);
+  }
 
   dispose(): void {
     this.dropMesh();
@@ -134,36 +146,38 @@ export class SpawnedSolids {
   }
 
   private parts_(): Map<string, Template> {
-    if (this.catalogue) return this.catalogue;
+    if (this.catalogue) {
+      return this.catalogue;
+    }
     const p = this.parts ?? (this.parts = new TownParts());
     // Ordered from the biggest thing you can stand a camp on down to the
     // smallest thing you can drop beside a road, so the tree reads top to
     // bottom the way a settlement is actually assembled.
     this.catalogue = new Map<string, Template>([
-      ['palisade', p.palisade],
-      ['corner-post', p.cornerPost],
-      ['gate', p.gate],
-      ['watchpost', p.watch],
-      ['hut-a', p.huts[0]],
-      ['hut-b', p.huts[1]],
-      ['hut-c', p.huts[2]],
-      ['tent-a', p.tents[0]],
-      ['tent-b', p.tents[1]],
-      ['tent-c', p.tents[2]],
-      ['bell-tent', p.bell],
-      ['well', p.well],
-      ['cart', p.cartOpen],
-      ['cart-hooded', p.cartHood],
-      ['campfire', p.fire],
-      ['brazier', p.brazier],
-      ['lamp', p.lamp],
-      ['weapon-rack', p.rack],
-      ['woodpile', p.woodpile],
-      ['barrel', p.barrel],
-      ['crate-small', p.crateS],
-      ['crate-large', p.crateL],
-      ['signpost', p.post],
-      ['bridge-pier', p.pier],
+      ["palisade", p.palisade],
+      ["corner-post", p.cornerPost],
+      ["gate", p.gate],
+      ["watchpost", p.watch],
+      ["hut-a", p.huts[0]],
+      ["hut-b", p.huts[1]],
+      ["hut-c", p.huts[2]],
+      ["tent-a", p.tents[0]],
+      ["tent-b", p.tents[1]],
+      ["tent-c", p.tents[2]],
+      ["bell-tent", p.bell],
+      ["well", p.well],
+      ["cart", p.cartOpen],
+      ["cart-hooded", p.cartHood],
+      ["campfire", p.fire],
+      ["brazier", p.brazier],
+      ["lamp", p.lamp],
+      ["weapon-rack", p.rack],
+      ["woodpile", p.woodpile],
+      ["barrel", p.barrel],
+      ["crate-small", p.crateS],
+      ["crate-large", p.crateL],
+      ["signpost", p.post],
+      ["bridge-pier", p.pier],
     ]);
     return this.catalogue;
   }
@@ -172,10 +186,14 @@ export class SpawnedSolids {
     this.dropMesh();
     this.field = new StructureField();
     const stamp = new SolidStamp(this.field);
-    for (const p of this.placed) stamp.add(p.t, p.x, p.y, p.z, p.yaw);
+    for (const p of this.placed) {
+      stamp.add(p.t, p.x, p.y, p.z, p.yaw);
+    }
     this.field.build();
     const geo = stamp.acc.toGeometry();
-    if (!geo) return;
+    if (!geo) {
+      return;
+    }
     const mesh = new THREE.Mesh(geo, this.lib.solidMat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -185,9 +203,11 @@ export class SpawnedSolids {
   }
 
   private dropMesh(): void {
-    if (!this.mesh) return;
+    if (!this.mesh) {
+      return;
+    }
     this.group.remove(this.mesh);
-    this.mesh.geometry.dispose();   // the material is PropLib's and outlives us
+    this.mesh.geometry.dispose(); // the material is PropLib's and outlives us
     this.mesh = null;
   }
 }

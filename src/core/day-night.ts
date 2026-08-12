@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import type { CelestialState, TimeOfDaySource } from './types';
+import * as THREE from "three";
+import type { CelestialState, TimeOfDaySource } from "./types";
 
 /** One game day in active-play seconds. */
 export const DAY_SECONDS = 30 * 60;
@@ -21,7 +21,7 @@ const NIGHT_SKY = new THREE.Color(0x294872);
 const DAY_GROUND = new THREE.Color(0x8fa4bd);
 const NIGHT_GROUND = new THREE.Color(0x17263f);
 const WHITE = new THREE.Color(1, 1, 1);
-const TWILIGHT_FILTER = new THREE.Color(2.20, 0.74, 0.28);
+const TWILIGHT_FILTER = new THREE.Color(2.2, 0.74, 0.28);
 const NIGHT_FILTER = new THREE.Color(0.075, 0.16, 0.36);
 
 const wrap = (v: number): number => ((v % 1) + 1) % 1;
@@ -32,14 +32,18 @@ const smoothstep = (a: number, b: number, v: number): number => {
 };
 const circularDelta = (from: number, to: number): number => {
   let d = wrap(to) - wrap(from);
-  if (d > 0.5) d -= 1;
-  if (d < -0.5) d += 1;
+  if (d > 0.5) {
+    d -= 1;
+  }
+  if (d < -0.5) {
+    d += 1;
+  }
   return d;
 };
 
 export class DayNightCycle implements CelestialState {
   phase = INITIAL_DAY_PHASE;
-  source: TimeOfDaySource = 'auto';
+  source: TimeOfDaySource = "auto";
   quest: string | null = null;
 
   readonly sunDirection = new THREE.Vector3();
@@ -79,7 +83,9 @@ export class DayNightCycle implements CelestialState {
         this.transitionT = Math.min(TRANSITION_SECONDS, this.transitionT + Math.max(0, dt));
         const u = this.transitionT / TRANSITION_SECONDS;
         const eased = u * u * (3 - 2 * u);
-        this.phase = wrap(this.transitionFrom + circularDelta(this.transitionFrom, this.transitionTo) * eased);
+        this.phase = wrap(
+          this.transitionFrom + circularDelta(this.transitionFrom, this.transitionTo) * eased,
+        );
       } else {
         this.phase = target;
       }
@@ -92,7 +98,9 @@ export class DayNightCycle implements CelestialState {
 
   setQuestOverride(id: string | null, phase: number | null): void {
     const next = phase === null ? null : wrap(phase);
-    if (this.questId === id && this.questPhase === next) return;
+    if (this.questId === id && this.questPhase === next) {
+      return;
+    }
     this.questId = id;
     this.questPhase = next;
     this.retarget();
@@ -100,17 +108,25 @@ export class DayNightCycle implements CelestialState {
 
   setDebugOverride(phase: number | null): void {
     const next = phase === null ? null : wrap(phase);
-    if (this.debugPhase === next) return;
+    if (this.debugPhase === next) {
+      return;
+    }
     this.debugPhase = next;
     this.retarget();
   }
 
-  get debugOverride(): number | null { return this.debugPhase; }
-  get questOverride(): number | null { return this.questPhase; }
+  get debugOverride(): number | null {
+    return this.debugPhase;
+  }
+  get questOverride(): number | null {
+    return this.questPhase;
+  }
 
   /** Restore from a save (issue #171): writes the running clock, clears no override. */
   setPhase(phase: number): void {
-    if (!Number.isFinite(phase)) return;
+    if (!Number.isFinite(phase)) {
+      return;
+    }
     this.runningPhase = wrap(phase);
     this.phase = this.runningPhase;
     this.transitionFrom = this.runningPhase;
@@ -153,29 +169,27 @@ export class DayNightCycle implements CelestialState {
     const elevation = Math.sin(solar) * MAX_ELEVATION;
     const azimuth = NOON_AZIMUTH + TAU * (this.phase - 0.5);
     const horizontal = Math.cos(elevation);
-    this.sunDirection.set(
-      horizontal * Math.sin(azimuth),
-      Math.sin(elevation),
-      horizontal * Math.cos(azimuth),
-    ).normalize();
+    this.sunDirection
+      .set(horizontal * Math.sin(azimuth), Math.sin(elevation), horizontal * Math.cos(azimuth))
+      .normalize();
     this.moonDirection.copy(this.sunDirection).multiplyScalar(-1);
 
     // Broad shoulders overlap so there is no unlit interval between sun and moon.
-    const sunUp = smoothstep(-0.10, 0.12, this.sunDirection.y);
+    const sunUp = smoothstep(-0.1, 0.12, this.sunDirection.y);
     const moonUp = smoothstep(-0.04, 0.18, this.moonDirection.y);
     this.daylight = sunUp;
     this.night = moonUp;
-    this.stars = smoothstep(0.02, 0.30, this.moonDirection.y);
+    this.stars = smoothstep(0.02, 0.3, this.moonDirection.y);
     this.moon = this.moonDirection.y > -0.04 ? 0.12 + this.night * 0.88 : 0;
 
     const sunOwnsKey = this.sunDirection.y >= -0.02;
     this.keyDirection.copy(sunOwnsKey ? this.sunDirection : this.moonDirection);
     const twilight = (1 - smoothstep(0.04, 0.34, Math.abs(this.sunDirection.y))) * sunUp;
     this.keyColor.copy(sunOwnsKey ? DAY_KEY : NIGHT_KEY);
-    if (sunOwnsKey) this.keyColor.lerp(TWILIGHT_KEY, twilight * 0.72);
-    this.keyIntensity = sunOwnsKey
-      ? 0.18 + 2.87 * sunUp
-      : 0.12 + 0.68 * moonUp;
+    if (sunOwnsKey) {
+      this.keyColor.lerp(TWILIGHT_KEY, twilight * 0.72);
+    }
+    this.keyIntensity = sunOwnsKey ? 0.18 + 2.87 * sunUp : 0.12 + 0.68 * moonUp;
 
     this.bounceColor.copy(NIGHT_BOUNCE).lerp(DAY_BOUNCE, sunUp);
     // 0.36 midnight fill (issue #87); keep under half the 0.8 moon key so night keeps a direction.
@@ -185,9 +199,11 @@ export class DayNightCycle implements CelestialState {
     this.ambientIntensity = 0.34 + 0.21 * sunUp;
 
     this.atmosphereFilter.copy(NIGHT_FILTER).lerp(WHITE, sunUp);
-    if (sunOwnsKey) this.atmosphereFilter.lerp(TWILIGHT_FILTER, twilight * 0.65);
+    if (sunOwnsKey) {
+      this.atmosphereFilter.lerp(TWILIGHT_FILTER, twilight * 0.65);
+    }
     this.exposureScale = 0.76 + 0.24 * sunUp;
-    this.source = this.debugPhase !== null ? 'debug' : this.questPhase !== null ? 'quest' : 'auto';
-    this.quest = this.source === 'quest' ? this.questId : null;
+    this.source = this.debugPhase !== null ? "debug" : this.questPhase !== null ? "quest" : "auto";
+    this.quest = this.source === "quest" ? this.questId : null;
   }
 }

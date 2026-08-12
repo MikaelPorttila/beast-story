@@ -1,5 +1,5 @@
-import { t, onLanguageChange, type StringKey } from '../i18n';
-import { injectStyles } from './styles';
+import { t, onLanguageChange, type StringKey } from "../i18n";
+import { injectStyles } from "./styles";
 
 /**
  * The boot progress indicator, reporting the work main.ts yields between. TWO
@@ -9,7 +9,7 @@ import { injectStyles } from './styles';
  */
 
 /** The phases of a cold boot, in the order main.ts runs them. */
-export type LoadStage = 'world' | 'actors' | 'shaders' | 'terrain';
+export type LoadStage = "world" | "actors" | "shaders" | "terrain";
 
 interface StageDef {
   key: LoadStage;
@@ -22,17 +22,17 @@ interface StageDef {
  * each light-count step relinks every lit material. Re-measure with `__dbgBoot()`.
  */
 const STAGES: ReadonlyArray<StageDef> = [
-  { key: 'world', weight: 0.08 },
-  { key: 'actors', weight: 0.02 },
-  { key: 'shaders', weight: 0.78 },
-  { key: 'terrain', weight: 0.12 },
+  { key: "world", weight: 0.08 },
+  { key: "actors", weight: 0.02 },
+  { key: "shaders", weight: 0.78 },
+  { key: "terrain", weight: 0.12 },
 ];
 
 const LABELS: Record<LoadStage, StringKey> = {
-  world: 'load.world',
-  actors: 'load.actors',
-  shaders: 'load.shaders',
-  terrain: 'load.terrain',
+  world: "load.world",
+  actors: "load.actors",
+  shaders: "load.shaders",
+  terrain: "load.terrain",
 };
 
 /** Resolve after a real PAINT: one rAF runs BEFORE its frame, the second proves it. */
@@ -43,7 +43,9 @@ const painted = (): Promise<void> =>
 
 /** One frame, no paint guarantee. */
 const nextFrame = (): Promise<void> =>
-  new Promise((res) => { requestAnimationFrame(() => res()); });
+  new Promise((res) => {
+    requestAnimationFrame(() => res());
+  });
 
 /** For `__dbgBoot()`. */
 export interface StageTiming {
@@ -69,21 +71,21 @@ export class LoadingScreen {
 
   constructor() {
     injectStyles();
-    const el = document.createElement('div');
-    el.className = 'bs-load chip';
+    const el = document.createElement("div");
+    el.className = "bs-load chip";
     el.innerHTML =
       '<div class="box">' +
-        '<div class="cap"><span class="lbl"></span><span class="pct">0%</span></div>' +
-        '<div class="track"><i class="fill"></i></div>' +
-      '</div>';
+      '<div class="cap"><span class="lbl"></span><span class="pct">0%</span></div>' +
+      '<div class="track"><i class="fill"></i></div>' +
+      "</div>";
     document.body.appendChild(el);
     this.el = el;
-    this.lbl = el.querySelector('.lbl') as HTMLSpanElement;
-    this.pct = el.querySelector('.pct') as HTMLSpanElement;
-    this.fill = el.querySelector('.fill') as HTMLElement;
+    this.lbl = el.querySelector(".lbl") as HTMLSpanElement;
+    this.pct = el.querySelector(".pct") as HTMLSpanElement;
+    this.fill = el.querySelector(".fill") as HTMLElement;
     // The language picker is reachable WHILE this counts.
     this.unlisten = onLanguageChange(() => this.relabel());
-    requestAnimationFrame(() => el.classList.add('show'));
+    requestAnimationFrame(() => el.classList.add("show"));
   }
 
   /** Timings so far, for the boot probe. Allocates. */
@@ -121,26 +123,30 @@ export class LoadingScreen {
 
   /** Become the full screen, under the fading poster. Called from the menu's `onLeave`. */
   cover(): void {
-    if (this.covering) return;
+    if (this.covering) {
+      return;
+    }
     this.covering = true;
     window.clearTimeout(this.chipHide);
-    this.el.classList.remove('chip');
-    this.el.classList.add('cover', 'show');
+    this.el.classList.remove("chip");
+    this.el.classList.add("cover", "show");
   }
 
   /** 100%, and the chip retires itself if it is one. */
   complete(): void {
     this.closeStage();
-    this.set(1, t('load.ready'));
-    if (this.covering) return;
-    this.chipHide = window.setTimeout(() => this.el.classList.remove('show'), 900);
+    this.set(1, t("load.ready"));
+    if (this.covering) {
+      return;
+    }
+    this.chipHide = window.setTimeout(() => this.el.classList.remove("show"), 900);
   }
 
   /** Fade off and take the element with it. */
   finish(): void {
     window.clearTimeout(this.chipHide);
-    this.el.classList.remove('show');
-    this.el.classList.add('gone');
+    this.el.classList.remove("show");
+    this.el.classList.add("gone");
     window.setTimeout(() => this.dispose(), 700);
   }
 
@@ -151,7 +157,9 @@ export class LoadingScreen {
   }
 
   private closeStage(): void {
-    if (this.stageKey === null) return;
+    if (this.stageKey === null) {
+      return;
+    }
     this.timings.push({
       key: this.stageKey,
       ms: Math.round(performance.now() - this.stageStart),
@@ -160,14 +168,20 @@ export class LoadingScreen {
   }
 
   private relabel(): void {
-    this.lbl.textContent = this.p >= 1 ? t('load.ready')
-      : this.stageKey ? t(LABELS[this.stageKey]) : this.lbl.textContent;
+    this.lbl.textContent =
+      this.p >= 1
+        ? t("load.ready")
+        : this.stageKey
+          ? t(LABELS[this.stageKey])
+          : this.lbl.textContent;
   }
 
   private set(p: number, label?: string): void {
     this.p = Math.max(0, Math.min(1, p));
     this.fill.style.width = `${(this.p * 100).toFixed(1)}%`;
     this.pct.textContent = `${Math.round(this.p * 100)}%`;
-    if (label !== undefined) this.lbl.textContent = label;
+    if (label !== undefined) {
+      this.lbl.textContent = label;
+    }
   }
 }

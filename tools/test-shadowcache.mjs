@@ -41,8 +41,8 @@
 // costing 2.15 ms, which was two page loads a minute apart on a desktop plus a
 // second change in the same commit. Alternating every 2.5 s over one stretch of
 // world, the drift cancels and the paired sign is readable.
-import { launchBrowser, newPage, wait, glRenderer } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait, glRenderer } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 const W = 1280;
 const H = 800;
@@ -55,18 +55,24 @@ const NUDGE = 3;
 
 const results = {};
 const fails = [];
-const check = (ok, msg) => { if (!ok) fails.push(msg); };
+const check = (ok, msg) => {
+  if (!ok) {
+    fails.push(msg);
+  }
+};
 
 const browser = await launchBrowser();
 
 const shadows = (p) => p.evaluate(() => window.__dbgShadows());
 const setCache = (p, on) => p.evaluate((v) => window.__dbgShadowCache(v), on);
-const draws = (p) => p.evaluate(() => {
-  const el = [...document.body.children].find(
-    (c) => c instanceof HTMLDivElement && (c.textContent || '').startsWith('FPS'));
-  const m = (el?.textContent || '').match(/draws\s+([\d,]+)\s+tris\s+([\d,]+)/);
-  return m ? { draws: +m[1].replace(/,/g, ''), tris: +m[2].replace(/,/g, '') } : null;
-});
+const draws = (p) =>
+  p.evaluate(() => {
+    const el = [...document.body.children].find(
+      (c) => c instanceof HTMLDivElement && (c.textContent || "").startsWith("FPS"),
+    );
+    const m = (el?.textContent || "").match(/draws\s+([\d,]+)\s+tris\s+([\d,]+)/);
+    return m ? { draws: +m[1].replace(/,/g, ""), tris: +m[2].replace(/,/g, "") } : null;
+  });
 
 /**
  * The frame around the hero, reduced to what a shadow does to it.
@@ -81,34 +87,52 @@ const draws = (p) => p.evaluate(() => {
  * `preserveDrawingBuffer` hands back an empty buffer through `drawImage`.
  */
 async function frame(page, box, dim) {
-  const b64 = await page.screenshot({ encoding: 'base64' });
-  return page.evaluate(async (data, b, cut) => {
-    const img = new Image();
-    await new Promise((res, rej) => {
-      img.onload = res; img.onerror = rej; img.src = `data:image/png;base64,${data}`;
-    });
-    const c = document.createElement('canvas');
-    c.width = img.width; c.height = img.height;
-    const ctx = c.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-    const x0 = Math.floor(img.width * b[0]); const x1 = Math.floor(img.width * b[1]);
-    const y0 = Math.floor(img.height * b[2]); const y1 = Math.floor(img.height * b[3]);
-    const w = x1 - x0; const h = y1 - y0;
-    const d = ctx.getImageData(x0, y0, w, h).data;
-    let sum = 0; let dark = 0; let sx = 0; let sy = 0;
-    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
-      const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
-      sum += l;
-      if (l < cut) { dark++; sx += p % w; sy += Math.floor(p / w); }
-    }
-    return {
-      meanLuma: +(sum / (w * h)).toFixed(2),
-      dark: +(dark / (w * h)).toFixed(4),
-      cx: dark ? +(sx / dark).toFixed(1) : -1,
-      cy: dark ? +(sy / dark).toFixed(1) : -1,
-      px: dark,
-    };
-  }, b64, box, dim);
+  const b64 = await page.screenshot({ encoding: "base64" });
+  return page.evaluate(
+    async (data, b, cut) => {
+      const img = new Image();
+      await new Promise((res, rej) => {
+        img.onload = res;
+        img.onerror = rej;
+        img.src = `data:image/png;base64,${data}`;
+      });
+      const c = document.createElement("canvas");
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const x0 = Math.floor(img.width * b[0]);
+      const x1 = Math.floor(img.width * b[1]);
+      const y0 = Math.floor(img.height * b[2]);
+      const y1 = Math.floor(img.height * b[3]);
+      const w = x1 - x0;
+      const h = y1 - y0;
+      const d = ctx.getImageData(x0, y0, w, h).data;
+      let sum = 0;
+      let dark = 0;
+      let sx = 0;
+      let sy = 0;
+      for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+        const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+        sum += l;
+        if (l < cut) {
+          dark++;
+          sx += p % w;
+          sy += Math.floor(p / w);
+        }
+      }
+      return {
+        meanLuma: +(sum / (w * h)).toFixed(2),
+        dark: +(dark / (w * h)).toFixed(4),
+        cx: dark ? +(sx / dark).toFixed(1) : -1,
+        cy: dark ? +(sy / dark).toFixed(1) : -1,
+        px: dark,
+      };
+    },
+    b64,
+    box,
+    dim,
+  );
 }
 
 // ============================================================================
@@ -116,9 +140,9 @@ async function frame(page, box, dim) {
 // ============================================================================
 {
   const page = await newPage(browser, { width: W, height: H });
-  page.on('pageerror', (e) => console.error('[page]', e.message));
-  await page.goto(PHOTO, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  page.on("pageerror", (e) => console.error("[page]", e.message));
+  await page.goto(PHOTO, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await wait(9000);
   results.gl = await glRenderer(page);
 
@@ -148,10 +172,10 @@ async function frame(page, box, dim) {
   await setCache(page, true);
   await wait(700);
   const back = await frame(page, WIDE, SHADE);
-  await page.evaluate(() => window.__dbgGfx('shadows', false));
+  await page.evaluate(() => window.__dbgGfx("shadows", false));
   await wait(1400);
   const none = await frame(page, WIDE, SHADE);
-  await page.evaluate(() => window.__dbgGfx('shadows', true));
+  await page.evaluate(() => window.__dbgGfx("shadows", true));
   await wait(1400);
 
   // `noise` is on-vs-on: two frames of the identical configuration, so it is
@@ -162,17 +186,28 @@ async function frame(page, box, dim) {
   const delta = Math.abs(on.dark - off.dark);
   const control = Math.abs(on.dark - none.dark);
   results.picture = {
-    cacheOn: on, cacheOff: off, restored: back, shadowsOff: none,
-    noise: +noise.toFixed(4), delta: +delta.toFixed(4), control: +control.toFixed(4),
+    cacheOn: on,
+    cacheOff: off,
+    restored: back,
+    shadowsOff: none,
+    noise: +noise.toFixed(4),
+    delta: +delta.toFixed(4),
+    control: +control.toFixed(4),
   };
-  check(delta <= noise + 0.004,
-    `the cache moved the shadowed fraction by ${delta.toFixed(4)}, against a `
-    + `do-nothing noise floor of ${noise.toFixed(4)} — it must be invisible`);
-  check(Math.abs(on.meanLuma - off.meanLuma) < 2,
-    `the cache moved mean luma by ${Math.abs(on.meanLuma - off.meanLuma).toFixed(2)}`);
-  check(control > 0.02,
-    `switching shadows off moved the shadowed fraction by only ${control.toFixed(4)} `
-    + '— this statistic cannot see shadows, so the agreement above proves nothing');
+  check(
+    delta <= noise + 0.004,
+    `the cache moved the shadowed fraction by ${delta.toFixed(4)}, against a ` +
+      `do-nothing noise floor of ${noise.toFixed(4)} — it must be invisible`,
+  );
+  check(
+    Math.abs(on.meanLuma - off.meanLuma) < 2,
+    `the cache moved mean luma by ${Math.abs(on.meanLuma - off.meanLuma).toFixed(2)}`,
+  );
+  check(
+    control > 0.02,
+    `switching shadows off moved the shadowed fraction by only ${control.toFixed(4)} ` +
+      "— this statistic cannot see shadows, so the agreement above proves nothing",
+  );
 
   // ---------- 2. a moving actor still casts a moving shadow ----------------
   const before = await shadows(page);
@@ -180,29 +215,35 @@ async function frame(page, box, dim) {
   const p = await page.evaluate(() => window.__dbgPlayerPos());
   // Along the sun's azimuth, so he steps out of his own shadow rather than
   // along it. SUN_OFFSET is (170, 160, 113); normalised in xz, (0.833, 0.554).
-  await page.evaluate((x, z) => window.__dbgTp(x, z),
-    p.x + NUDGE * 0.833, p.z + NUDGE * 0.554);
+  await page.evaluate((x, z) => window.__dbgTp(x, z), p.x + NUDGE * 0.833, p.z + NUDGE * 0.554);
   await wait(1200);
   const b = await frame(page, TIGHT, HERO);
   const after = await shadows(page);
   const moved = Math.hypot(b.cx - a.cx, b.cy - a.cy);
   results.moving = {
-    rebuildsBefore: before.rebuilds, rebuildsAfter: after.rebuilds,
+    rebuildsBefore: before.rebuilds,
+    rebuildsAfter: after.rebuilds,
     from: { cx: a.cx, cy: a.cy, dark: a.dark },
     to: { cx: b.cx, cy: b.cy, dark: b.dark },
     centroidMovedPx: +moved.toFixed(1),
   };
-  check(after.rebuilds === before.rebuilds,
-    `the cache rebuilt ${after.rebuilds - before.rebuilds} times during a ${NUDGE}-unit `
-    + 'step — the step has to be smaller than SHADOW_RECENTER or this proves nothing');
-  check(b.dark > 0.005,
-    `the hero has no dark pixels left after the step (${b.dark}) — he walked out of frame`);
+  check(
+    after.rebuilds === before.rebuilds,
+    `the cache rebuilt ${after.rebuilds - before.rebuilds} times during a ${NUDGE}-unit ` +
+      "step — the step has to be smaller than SHADOW_RECENTER or this proves nothing",
+  );
+  check(
+    b.dark > 0.005,
+    `the hero has no dark pixels left after the step (${b.dark}) — he walked out of frame`,
+  );
   // 40 px against a measured ~60 for a 3-unit step at this framing. The floor
   // is what discriminates: if his shadow were frozen and only his body moved,
   // the centroid of the two together moves roughly half as far.
-  check(moved > 40,
-    `the hero's dark region moved ${moved.toFixed(1)} px when he stepped ${NUDGE} units `
-    + 'with the lens pinned — his shadow is baked into the static cache');
+  check(
+    moved > 40,
+    `the hero's dark region moved ${moved.toFixed(1)} px when he stepped ${NUDGE} units ` +
+      "with the lens pinned — his shadow is baked into the static cache",
+  );
 
   await page.close();
 }
@@ -212,23 +253,25 @@ async function frame(page, box, dim) {
 // ============================================================================
 {
   const page = await newPage(browser, { width: W, height: H });
-  page.on('pageerror', (e) => console.error('[page]', e.message));
-  await page.goto(PLAY, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  page.on("pageerror", (e) => console.error("[page]", e.message));
+  await page.goto(PLAY, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await wait(9000);
 
   // ---------- it is on, and it is caching something worth caching -----------
   const s = await shadows(page);
   results.boot = s;
-  check(s.enabled === true, 'shadows are not on');
-  check(s.cached === true, 'the static shadow cache is not running');
+  check(s.enabled === true, "shadows are not on");
+  check(s.cached === true, "the static shadow cache is not running");
   check(s.size === 4096, `the cache is ${s.size} px, not the light's 4096`);
   // A FLOOR, not the measured value (171-189 near the spawn): what is in frame
   // is a property of where the hero is, and the assertion only has to ask
   // whether the world is on the cached side at all.
-  check(s.staticCasters > 120,
-    `only ${s.staticCasters} casters are marked static — the world is not being cached`);
-  check(s.dynamic > 0, 'no dynamic casters at all — the hero has no shadow to draw');
+  check(
+    s.staticCasters > 120,
+    `only ${s.staticCasters} casters are marked static — the world is not being cached`,
+  );
+  check(s.dynamic > 0, "no dynamic casters at all — the hero has no shadow to draw");
 
   // ---------- the layer split did not delete the world from a raycast ------
   // shadow-cache.ts moves every chunk mesh off layer 0, and a Raycaster starts
@@ -239,8 +282,10 @@ async function frame(page, box, dim) {
     return window.__dbgSurfaceY(p.x, p.z);
   });
   results.raycast = surf;
-  check(surf.hit !== null,
-    'a downward raycast at the hero hits nothing — static geometry left layer 0 unreachable');
+  check(
+    surf.hit !== null,
+    "a downward raycast at the hero hits nothing — static geometry left layer 0 unreachable",
+  );
 
   // ---------- 3. it removes work, and the switch round-trips ----------------
   await setCache(page, false);
@@ -252,14 +297,18 @@ async function frame(page, box, dim) {
   results.draws = { cacheOff: dOff, cacheOn: dOn, saved: dOff.draws - dOn.draws };
   // FLOORS. The absolute counts are whatever is in frame; what the guard is for
   // is "did the static half stop being redrawn at all".
-  check(dOff.draws - dOn.draws >= 40,
-    `the cache saved ${dOff.draws - dOn.draws} draw calls, expected at least 40`);
-  check(dOff.tris - dOn.tris >= 400000,
-    `the cache saved ${dOff.tris - dOn.tris} triangles, expected at least 400k`);
+  check(
+    dOff.draws - dOn.draws >= 40,
+    `the cache saved ${dOff.draws - dOn.draws} draw calls, expected at least 40`,
+  );
+  check(
+    dOff.tris - dOn.tris >= 400000,
+    `the cache saved ${dOff.tris - dOn.tris} triangles, expected at least 400k`,
+  );
 
   // ---------- the interleaved cost A/B: reported, not asserted -------------
-  await page.focus('canvas').catch(() => {});
-  await page.keyboard.down('KeyW');
+  await page.focus("canvas").catch(() => {});
+  await page.keyboard.down("KeyW");
   await wait(3000);
   const SLICE = 2500;
   const TAIL = Math.floor(SLICE / 10);
@@ -269,16 +318,16 @@ async function frame(page, box, dim) {
     await wait(500 + SLICE);
     const d = await page.evaluate(() => window.__dbgPerf());
     const rows = d.rows.slice(-TAIL);
-    const c = d.sections.indexOf('cpu');
+    const c = d.sections.indexOf("cpu");
     return rows.reduce((x, r) => x + r[c], 0) / rows.length;
   };
   for (let i = 0; i < 6; i++) {
     // Alternate the ORDER too, so a monotonic drift cannot favour one side.
     for (const on of i % 2 === 0 ? [true, false] : [false, true]) {
-      acc[on ? 'on' : 'off'].push(await slice(on));
+      acc[on ? "on" : "off"].push(await slice(on));
     }
   }
-  await page.keyboard.up('KeyW');
+  await page.keyboard.up("KeyW");
   const diff = acc.on.map((v, i) => v - acc.off[i]);
   results.cost = {
     cpuOn: acc.on.map((v) => +v.toFixed(3)),
@@ -297,7 +346,9 @@ await browser.close();
 console.log(JSON.stringify(results, null, 2));
 if (fails.length) {
   console.error(`\nFAIL (${fails.length})`);
-  for (const f of fails) console.error(' -', f);
+  for (const f of fails) {
+    console.error(" -", f);
+  }
   process.exit(1);
 }
-console.log('\nOK');
+console.log("\nOK");

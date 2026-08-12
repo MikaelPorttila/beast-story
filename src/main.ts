@@ -1,91 +1,143 @@
-import * as THREE from 'three';
-import { Engine } from './core/engine';
-import { DayNightCycle } from './core/day-night';
-import { DebugOverlay } from './core/debug-overlay';
-import { Gfx, GFX_OPTIONS, storedGfx, type GfxSinks, type GfxValue } from './core/gfx';
-import { PerfPanel, type AppearanceControl, type PathEditControl } from './ui/perf-panel';
+import * as THREE from "three";
+import { Engine } from "./core/engine";
+import { DayNightCycle } from "./core/day-night";
+import { DebugOverlay } from "./core/debug-overlay";
+import { Gfx, GFX_OPTIONS, storedGfx, type GfxSinks, type GfxValue } from "./core/gfx";
+import { PerfPanel, type AppearanceControl, type PathEditControl } from "./ui/perf-panel";
 import {
-  HAIR_STYLES, HAIR_SWATCHES, storeHairColour, storeHairStyle, storedHairColour,
-} from './player/hair';
-import type { SpawnCatalogue } from './core/spawn';
-import { Cursors, CursorDirector, CURSOR_STATES, type CursorState } from './ui/cursor';
-import { Input } from './core/input';
-import { TouchControls, isTouchPrimary } from './core/touch';
-import { installViewport } from './core/viewport';
-import { GamepadControls, type LookAxes } from './core/gamepad';
-import { FeedbackSystem } from './feedback';
-import { loadPrefs, savePrefs } from './core/prefs';
+  HAIR_STYLES,
+  HAIR_SWATCHES,
+  storeHairColour,
+  storeHairStyle,
+  storedHairColour,
+} from "./player/hair";
+import type { SpawnCatalogue } from "./core/spawn";
+import { Cursors, CursorDirector, CURSOR_STATES, type CursorState } from "./ui/cursor";
+import { Input } from "./core/input";
+import { TouchControls, isTouchPrimary } from "./core/touch";
+import { installViewport } from "./core/viewport";
+import { GamepadControls, type LookAxes } from "./core/gamepad";
+import { FeedbackSystem } from "./feedback";
+import { loadPrefs, savePrefs } from "./core/prefs";
 import {
-  deleteSave, listSaves, readSave, savesAvailable, writeSave,
-  type SaveDocument, type SaveMeta,
-} from './core/saves';
+  deleteSave,
+  listSaves,
+  readSave,
+  savesAvailable,
+  writeSave,
+  type SaveDocument,
+  type SaveMeta,
+} from "./core/saves";
 import {
-  EventBus, ELEMENT_COLORS, inReach, LOCOMOTION_NAME_KEYS, MOUNT_KINDS, MOUNT_KIND_KEYS,
-  type CrownContact, type NpcInfo, type SkillDef, type Damageable,
-  type ItemDef, type MountKind, type TownInfo, type World, type WorldBound,
-} from './core/types';
+  EventBus,
+  ELEMENT_COLORS,
+  inReach,
+  LOCOMOTION_NAME_KEYS,
+  MOUNT_KINDS,
+  MOUNT_KIND_KEYS,
+  type CrownContact,
+  type NpcInfo,
+  type SkillDef,
+  type Damageable,
+  type ItemDef,
+  type MountKind,
+  type TownInfo,
+  type World,
+  type WorldBound,
+} from "./core/types";
 import {
-  Inventory, SlotLayout, itemDef, itemName, isKnownItem, isDestructible, salvageValue,
-  ITEMS, ORB_IDS, CURRENCY, BEAST_ID_PREFIX,
-} from './core/items';
-import { WEAPON_MODEL_IDS, type WeaponModelId } from './player/weapons';
-import { t, onLanguageChange, type StringKey } from './i18n';
-import { perf } from './core/profiler';
-import { flags } from './core/flags';
-import { DevConsole } from './ui/console';
+  Inventory,
+  SlotLayout,
+  itemDef,
+  itemName,
+  isKnownItem,
+  isDestructible,
+  salvageValue,
+  ITEMS,
+  ORB_IDS,
+  CURRENCY,
+  BEAST_ID_PREFIX,
+} from "./core/items";
+import { WEAPON_MODEL_IDS, type WeaponModelId } from "./player/weapons";
+import { t, onLanguageChange, type StringKey } from "./i18n";
+import { perf } from "./core/profiler";
+import { flags } from "./core/flags";
+import { DevConsole } from "./ui/console";
 import {
-  bootstrapContent, content, factory, hasText, resolveText, MUSIC_TRACK_KIND,
-  type BiomeData, type MusicData, type ObjectiveTriggerKind, type QuestData, type QuestRewards,
-} from './content';
-import type { ContentAsset, ContentId } from './content/types';
+  bootstrapContent,
+  content,
+  factory,
+  hasText,
+  resolveText,
+  MUSIC_TRACK_KIND,
+  type BiomeData,
+  type MusicData,
+  type ObjectiveTriggerKind,
+  type QuestData,
+  type QuestRewards,
+} from "./content";
+import type { ContentAsset, ContentId } from "./content/types";
 // Only the Vite entries may link a content provider: src/content/ must not statically reach
 // storage/bundled.ts (import.meta.glob breaks test-zfight under Bun), and this keeps boot off a fetch.
-import { BundledProvider } from './content/storage/bundled';
-import { contentIssues, reportContentIssue } from './core/content-bridge';
-import { ColliderView } from './core/collider-view';
-import { createWorld, type LandmarkProbe } from './world/index';
-import { NPC_TALK_RANGE } from './world/npc';
-import { QuestMarkers, type QuestMarkerKind, type QuestMarkerSpot } from './world/quest-markers';
-import { TRAIL_PROFILE } from './world/path-profile';
+import { BundledProvider } from "./content/storage/bundled";
+import { contentIssues, reportContentIssue } from "./core/content-bridge";
+import { ColliderView } from "./core/collider-view";
+import { createWorld, type LandmarkProbe } from "./world/index";
+import { NPC_TALK_RANGE } from "./world/npc";
+import { QuestMarkers, type QuestMarkerKind, type QuestMarkerSpot } from "./world/quest-markers";
+import { TRAIL_PROFILE } from "./world/path-profile";
 import {
-  FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT,
-  FENCE_RAIL_HEIGHT, FENCE_RAIL_WIDTH,
-} from './world/town-parts';
+  FENCE_POST_H,
+  FENCE_POST_R,
+  FENCE_POST_WIDTH,
+  FENCE_RAIL_AT,
+  FENCE_RAIL_HEIGHT,
+  FENCE_RAIL_WIDTH,
+} from "./world/town-parts";
+import { nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId } from "./world/nature";
+import { createDungeon } from "./world/dungeon";
+import { ZoneManager, type ZoneDef } from "./world/zones";
+import { Underwater } from "./world/underwater";
+import { TouchParticles } from "./world/touch-particles";
+import { Player } from "./player/index";
+import { MountController, MountUnlocks } from "./player/mount";
+import { BeastActor, registerSkillDefs } from "./beasts/framework";
+import { CombatSystem, SWORD_REACH } from "./combat/index";
+import { enemySpecies, MELEE_UP_REACH, MELEE_DOWN_REACH, type Enemy } from "./combat/enemies";
 import {
-  nature, NATURE_PARAMS, type NatureAreaId, type NatureParamId,
-} from './world/nature';
-import { createDungeon } from './world/dungeon';
-import { ZoneManager, type ZoneDef } from './world/zones';
-import { Underwater } from './world/underwater';
-import { TouchParticles } from './world/touch-particles';
-import { Player } from './player/index';
-import { MountController, MountUnlocks } from './player/mount';
-import { BeastActor, registerSkillDefs } from './beasts/framework';
-import { CombatSystem, SWORD_REACH } from './combat/index';
-import { enemySpecies, MELEE_UP_REACH, MELEE_DOWN_REACH, type Enemy } from './combat/enemies';
-import {
-  HUD, kbd, type BeastHudInfo, type CompassMarker, type QuestTrackRow,
-  type ShopOffer, type SkillSlot,
-} from './ui/index';
-import { StartMenu } from './ui/menu';
-import { PauseMenu } from './ui/pause';
+  HUD,
+  kbd,
+  type BeastHudInfo,
+  type CompassMarker,
+  type QuestTrackRow,
+  type ShopOffer,
+  type SkillSlot,
+} from "./ui/index";
+import { StartMenu } from "./ui/menu";
+import { PauseMenu } from "./ui/pause";
 import {
   InventoryPanel,
-  type InvAction, type InvEntry, type InvStat, type InventoryModel, type GearSlotView,
-} from './ui/inventory';
+  type InvAction,
+  type InvEntry,
+  type InvStat,
+  type InventoryModel,
+  type GearSlotView,
+} from "./ui/inventory";
+import { JournalPanel, type JournalEntry, type JournalModel, type JournalTab } from "./ui/journal";
 import {
-  JournalPanel,
-  type JournalEntry, type JournalModel, type JournalTab,
-} from './ui/journal';
-import {
-  exitFullscreen, fullscreenSupported, isFullscreen,
-  installEscapeLock, keyboardLockSupported, escapeIsLocked, fullscreenSurvivesEscape,
-} from './ui/fullscreen';
-import { LoadingScreen } from './ui/loading';
-import { MusicDirector, MUSIC_TRACKS } from './audio/music';
-import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
+  exitFullscreen,
+  fullscreenSupported,
+  isFullscreen,
+  installEscapeLock,
+  keyboardLockSupported,
+  escapeIsLocked,
+  fullscreenSurvivesEscape,
+} from "./ui/fullscreen";
+import { LoadingScreen } from "./ui/loading";
+import { MusicDirector, MUSIC_TRACKS } from "./audio/music";
+import { ALL_SPECIES, SKILLS, getSkill } from "./beasts/registry";
 
-const app = document.getElementById('app')!;
+const app = document.getElementById("app")!;
 // Before the engine: #app and the renderer take their first size from this.
 installViewport();
 // Arms the keyboard lock that keeps Escape ours while fullscreen.
@@ -123,9 +175,15 @@ const settingsHooks = {
   // No null guard: music is built before the menu.
   onVolume: (v: number) => music.setVolume(v),
   // Apply half only (the panel stored it); guarded, the sinks need engine and world.
-  onGraphics: (id: keyof GfxSinks, value: GfxValue) => { if (gfxLive) gfx.set(id, value); },
+  onGraphics: (id: keyof GfxSinks, value: GfxValue) => {
+    if (gfxLive) {
+      gfx.set(id, value);
+    }
+  },
   // Live re-arm; the elapsed clock is NOT reset with it.
-  onAutosaveInterval: (minutes: number) => { autosaveMinutes = minutes; },
+  onAutosaveInterval: (minutes: number) => {
+    autosaveMinutes = minutes;
+  },
 };
 
 // Declared this early because the title screen lists characters during module evaluation, and a list read must queue behind an in-flight write.
@@ -141,13 +199,18 @@ const saveMenuHooks = {
   onDeleteSave: (id: number) => deleteSave(id),
   onLoad: async (id: number): Promise<boolean> => {
     const doc = await readSave(id);
-    if (!doc) return false;
+    if (!doc) {
+      return false;
+    }
     pendingSave = doc;
     setActiveSave(id);
     return true;
   },
   // Same handshake as New Game: sets handedOver and waits on prepDone.
-  onBegin: () => { handedOver = true; beginPlay(); },
+  onBegin: () => {
+    handedOver = true;
+    beginPlay();
+  },
 };
 
 // Built before the title screen because the splash track is the title screen's.
@@ -157,15 +220,22 @@ const music = new MusicDirector(
 );
 
 function musicPlaylist(scene: string): readonly string[] {
-  if (scene === 'title') return [MUSIC_TRACKS.title];
+  if (scene === "title") {
+    return [MUSIC_TRACKS.title];
+  }
   // The area's playlist, else the one asset volunteering as fallback.
-  const asset = content.get<MusicData>(`music:${scene}`)
-    ?? content.all<MusicData>('music').find((m) => m.data.fallback);
-  if (asset === undefined) return [];
+  const asset =
+    content.get<MusicData>(`music:${scene}`) ??
+    content.all<MusicData>("music").find((m) => m.data.fallback);
+  if (asset === undefined) {
+    return [];
+  }
   const out: string[] = [];
   for (const name of asset.data.tracks) {
     const url = factory<string>(MUSIC_TRACK_KIND, name);
-    if (url !== undefined) out.push(url);
+    if (url !== undefined) {
+      out.push(url);
+    }
   }
   return out;
 }
@@ -175,22 +245,32 @@ let startMenu = StartMenu.offer({
   ...settingsHooks,
   // The poster's own fade is the transition into the loading screen behind it.
   onLeave: () => loading?.cover(),
-  onStart: (name) => { playerName = name; handedOver = true; beginPlay(); },
+  onStart: (name) => {
+    playerName = name;
+    handedOver = true;
+    beginPlay();
+  },
   ...saveMenuHooks,
 });
 
 const staged = startMenu !== null && !flags.photo;
 const loading = staged ? new LoadingScreen() : null;
-if (!staged) handedOver = true;
+if (!staged) {
+  handedOver = true;
+}
 
 // Splash track from the frame the poster goes up; unstaged paths go straight to play.
-if (startMenu) music.setScene('title');
+if (startMenu) {
+  music.setScene("title");
+}
 
 // Start the game once everything is built AND the player has asked; two callers, last one wins.
-const STARTER_BEAST = 'frostwing';
+const STARTER_BEAST = "frostwing";
 
 function beginPlay(): void {
-  if (playing || !prepDone || !handedOver) return;
+  if (playing || !prepDone || !handedOver) {
+    return;
+  }
   playing = true;
   // A LOAD REPLACES THE NEW GAME.
   if (pendingSave) {
@@ -205,17 +285,19 @@ function beginPlay(): void {
   input.endFrame();
   loading?.finish();
   // New Game is also the gesture that makes audio legal at all: a title track the autoplay policy refused is dropped rather than faded.
-  music.setScene('overworld');
+  music.setScene("overworld");
   // Pushes the STORED gfx values (fps cap among them), not the URL/default cap.
   gfx.applyAll();
   if (staged) {
     // New Game is a click on a BUTTON, so the canvas sees no mousedown and mouse look would stay dead. Best-effort: needs a recent user activation.
-    if (!isTouchPrimary()) input.requestLock();
+    if (!isTouchPrimary()) {
+      input.requestLock();
+    }
     // Deferred: the first moment the player is looking at the game, not a poster.
     bus.emit({
-      type: 'toast',
+      type: "toast",
       // A touchscreen laptop driven by mouse gets the desktop hint.
-      text: t(isTouchPrimary() ? 'toast.welcome.touch' : 'toast.welcome.desktop'),
+      text: t(isTouchPrimary() ? "toast.welcome.touch" : "toast.welcome.desktop"),
     });
   }
   frame();
@@ -228,8 +310,12 @@ const pauseMenu = new PauseMenu({
   onOpen: () => input.releaseLock(),
   // After a key only when Escape is ours: otherwise leaving fullscreen drops the lock 8 ms later, which reads as a fresh Escape.
   onClose: (by) => {
-    if (isTouchPrimary()) return;
-    if (by === 'click' || escapeIsLocked()) input.requestLock();
+    if (isTouchPrimary()) {
+      return;
+    }
+    if (by === "click" || escapeIsLocked()) {
+      input.requestLock();
+    }
   },
   onExit: () => exitToTitle(),
 });
@@ -238,7 +324,9 @@ const pauseMenu = new PauseMenu({
 // is thrown away, each by the object that owns it; the engine, world and rigs are KEPT, because
 // rebuilding costs ~600 ms of world and ~13.5 s of shader relink. THIS LIST IS THE SAVE'S CHECKLIST.
 function exitToTitle(): void {
-  if (!playing) return;
+  if (!playing) {
+    return;
+  }
   // Write the character down FIRST (issue #171); `collectSave` is sync, so the snapshot predates the resets. Ahead of `playing = false`, which `saveNow` refuses on.
   void saveNow();
   // Stops the loop at the top of frame(); nothing is torn down mid-draw.
@@ -247,10 +335,12 @@ function exitToTitle(): void {
   exitFullscreen();
   input.releaseLock();
   // Back to the splash track; the zone's is faded and UNLOADED, not left decoding.
-  music.setScene('title');
+  music.setScene("title");
 
   // Overworld first: the reset below places the hero at `world.spawnPoint`, and the switch rebinds every `bound` subsystem against the right heightfield.
-  if (zones.id !== 'overworld') zones.switchTo('overworld');
+  if (zones.id !== "overworld") {
+    zones.switchTo("overworld");
+  }
 
   player.reset();
   mount.dismount();
@@ -262,7 +352,9 @@ function exitToTitle(): void {
   // The facts, not the definitions.
   content.state.reset();
   dayNight.reset();
-  for (const b of roster) b.reset();
+  for (const b of roster) {
+    b.reset();
+  }
   // Who you had bonded is session state: a new game starts with nobody.
   owned.clear();
   primaryIdx = -1;
@@ -296,7 +388,7 @@ function exitToTitle(): void {
   input.autoRelock = false;
   // Session state too (issue #171): left set, the next New Game would autosave over it.
   setActiveSave(null);
-  playerName = '';
+  playerName = "";
   pendingSave = null;
   carriedExtra = undefined;
   sinceSave = 0;
@@ -304,14 +396,24 @@ function exitToTitle(): void {
 
   // A NEW instance: the old poster left the DOM when the game started.
   handedOver = false;
-  startMenu = StartMenu.offer({
-    ...settingsHooks,
-    onLeave: () => loading?.cover(),
-    onStart: (name) => { playerName = name; handedOver = true; beginPlay(); },
-    ...saveMenuHooks,
-  }, { skipSplash: true });
+  startMenu = StartMenu.offer(
+    {
+      ...settingsHooks,
+      onLeave: () => loading?.cover(),
+      onStart: (name) => {
+        playerName = name;
+        handedOver = true;
+        beginPlay();
+      },
+      ...saveMenuHooks,
+    },
+    { skipSplash: true },
+  );
   // Exit cannot be reached under menu=0/photo; the guard keeps that from being a black screen.
-  if (!startMenu) { handedOver = true; beginPlay(); }
+  if (!startMenu) {
+    handedOver = true;
+    beginPlay();
+  }
 }
 
 // SAVING AND LOADING A CHARACTER — issue #171, the inverse of `exitToTitle`.
@@ -327,7 +429,7 @@ function setActiveSave(id: number | null): void {
   saveEpoch++;
 }
 /** What the player typed on New Game. Display only — the id is the key. */
-let playerName = '';
+let playerName = "";
 // Read at CLICK time, so `beginPlay` stays synchronous and its handshake is unchanged.
 let pendingSave: SaveDocument | null = null;
 // Fields written by a NEWER build, carried from the load to the next write of the same character, so a downgrade's first autosave does not delete them.
@@ -347,39 +449,46 @@ const PERCH_MIN_RISE = 0.5;
 // `perchY` comes back as a bounded RISE above the ground that is there NOW, and is deliberately not
 // checked against `climbTopAt`: the trunk registry arrives with the chunk, after the load.
 function resolveSafeGround(
-  x: number, z: number, perchY = NaN,
+  x: number,
+  z: number,
+  perchY = NaN,
 ): { x: number; y: number; z: number } {
   if (Number.isFinite(x) && Number.isFinite(z)) {
     const ground = world.getHeight(x, z);
     if (Number.isFinite(ground) && ground >= world.waterLevel - SAFE_WADE_DEPTH) {
       const floor = Math.max(ground, world.waterLevel);
       // NaN fails this, which is how "he was on the ground" arrives.
-      if (perchY > floor) return { x, y: Math.min(perchY, floor + MAX_PERCH_RISE), z };
+      if (perchY > floor) {
+        return { x, y: Math.min(perchY, floor + MAX_PERCH_RISE), z };
+      }
       return { x, y: floor, z };
     }
   }
   // The gate rather than the centre: the point a layout treats as "the way in".
-  const town = Number.isFinite(x) && Number.isFinite(z)
-    ? world.towns.nearest(x, z)
-    : world.towns.all[0];
+  const town =
+    Number.isFinite(x) && Number.isFinite(z) ? world.towns.nearest(x, z) : world.towns.all[0];
   const ax = town?.gateX ?? world.spawnPoint.x;
   const az = town?.gateZ ?? world.spawnPoint.z;
   return { x: ax, y: Math.max(world.getHeight(ax, az), world.waterLevel), z: az };
 }
 
 function resolveOnCarrier(
-  loc: SaveDocument['location'],
+  loc: SaveDocument["location"],
 ): { x: number; y: number; z: number; yaw: number } | null {
   if (loc.carrierId === undefined || loc.localX === undefined || loc.localZ === undefined) {
     return null;
   }
   const frame = world.carriers.get(loc.carrierId);
-  if (!frame) return null;
+  if (!frame) {
+    return null;
+  }
   const out = { x: 0, z: 0 };
   frame.toWorld(loc.localX, loc.localZ, out);
   // Asked of the frame rather than reconstructed from a stored height; -Infinity means it has nothing at that column any more.
   const top = frame.topAt(out.x, out.z);
-  if (!Number.isFinite(top)) return null;
+  if (!Number.isFinite(top)) {
+    return null;
+  }
   return { x: out.x, y: top, z: out.z, yaw: loc.yaw + frame.yaw };
 }
 
@@ -388,12 +497,14 @@ function collectSave(): SaveDocument {
   // Riding something? Then the spot on IT is durable and the world coords are the fallback.
   const frame = player.carrier;
   const local = frame ? { x: 0, z: 0 } : null;
-  if (frame && local) frame.toLocal(player.position.x, player.position.z, local);
+  if (frame && local) {
+    frame.toLocal(player.position.x, player.position.z, local);
+  }
   // Standing on something that is not the ground: `onGround` makes this a perch rather than an altitude.
-  const perchY = player.onGround && !player.isMounted
-    && player.position.y > here.y + PERCH_MIN_RISE
-    ? player.position.y
-    : null;
+  const perchY =
+    player.onGround && !player.isMounted && player.position.y > here.y + PERCH_MIN_RISE
+      ? player.position.y
+      : null;
   const saved: SaveDocument = {
     v: 1,
     name: playerName,
@@ -406,9 +517,7 @@ function collectSave(): SaveDocument {
       // Relative to the frame: a deck that turns takes the street he stood in with it.
       yaw: frame ? player.facing - frame.yaw : player.facing,
       ...(perchY !== null ? { perchY } : {}),
-      ...(frame && local
-        ? { carrierId: frame.id, localX: local.x, localZ: local.z }
-        : {}),
+      ...(frame && local ? { carrierId: frame.id, localX: local.x, localZ: local.z } : {}),
     },
     // The NET purse; `pickupTotal` and `spent` mean nothing on their own.
     currency: shards(),
@@ -430,13 +539,15 @@ function collectSave(): SaveDocument {
     },
     appearance: {
       hairStyle: player.hairStyle,
-      hairColour: player.hairColour.toString(16).padStart(6, '0'),
+      hairColour: player.hairColour.toString(16).padStart(6, "0"),
     },
     mounts: mountUnlocks.list(),
     content: content.state.toJSON(),
     dayPhase: dayNight.phase,
   };
-  if (carriedExtra) saved.extra = carriedExtra;
+  if (carriedExtra) {
+    saved.extra = carriedExtra;
+  }
   return saved;
 }
 
@@ -447,8 +558,10 @@ function applySave(doc: SaveDocument): void {
     carriedExtra = doc.extra;
 
     // 1. THE ZONE. One this build no longer has resolves to the overworld.
-    const target = zones.zoneIds.includes(doc.location.zoneId) ? doc.location.zoneId : 'overworld';
-    if (zones.id !== target) zones.switchTo(target);
+    const target = zones.zoneIds.includes(doc.location.zoneId) ? doc.location.zoneId : "overworld";
+    if (zones.id !== target) {
+      zones.switchTo(target);
+    }
 
     // 2. THE FACTS. Tolerant of ids it cannot resolve, and its change notification is what re-derives the journal, the tracker and any quest time-of-day pin.
     content.state.fromJSON(doc.content);
@@ -459,13 +572,17 @@ function applySave(doc: SaveDocument): void {
     mountUnlocks.restore(doc.mounts);
 
     // 4. THE PARTY. Reset first: the roster holds every species, bonded or not.
-    for (const b of roster) b.reset();
+    for (const b of roster) {
+      b.reset();
+    }
     owned.clear();
     primaryIdx = -1;
     supportIdx = -1;
     for (const s of doc.beasts) {
       const idx = roster.findIndex((b) => b.species.id === s.speciesId);
-      if (idx < 0) continue;   // a species this build no longer ships
+      if (idx < 0) {
+        continue;
+      } // a species this build no longer ships
       roster[idx].restore(s);
       owned.add(s.speciesId);
     }
@@ -475,9 +592,14 @@ function applySave(doc: SaveDocument): void {
     primaryIdx = slotOf(doc.party.primary);
     supportIdx = slotOf(doc.party.support);
     // Repairs: a character with no resolvable beast at all is granted the starter.
-    if (owned.size === 0) grantBeast(STARTER_BEAST);
-    else if (primaryIdx < 0) primaryIdx = roster.findIndex(isOwned);
-    if (supportIdx === primaryIdx) supportIdx = -1;
+    if (owned.size === 0) {
+      grantBeast(STARTER_BEAST);
+    } else if (primaryIdx < 0) {
+      primaryIdx = roster.findIndex(isOwned);
+    }
+    if (supportIdx === primaryIdx) {
+      supportIdx = -1;
+    }
     refreshVisibility();
     cooldowns.clear();
 
@@ -490,14 +612,22 @@ function applySave(doc: SaveDocument): void {
     slots.fromJSON(doc.slots);
     bag.clear();
     for (const [id, count] of doc.bag) {
-      if (isKnownItem(id) && count > 0) bag.add(id, count);
+      if (isKnownItem(id) && count > 0) {
+        bag.add(id, count);
+      }
     }
 
     // 7. The loadout: only what is still a real item AND actually in the bag.
-    equippedWeapon = doc.equippedWeapon !== null && isKnownItem(doc.equippedWeapon)
-      && bag.count(doc.equippedWeapon) > 0 ? doc.equippedWeapon : null;
-    readiedOrb = doc.readiedOrb !== null && isKnownItem(doc.readiedOrb)
-      && bag.count(doc.readiedOrb) > 0 ? doc.readiedOrb : null;
+    equippedWeapon =
+      doc.equippedWeapon !== null &&
+      isKnownItem(doc.equippedWeapon) &&
+      bag.count(doc.equippedWeapon) > 0
+        ? doc.equippedWeapon
+        : null;
+    readiedOrb =
+      doc.readiedOrb !== null && isKnownItem(doc.readiedOrb) && bag.count(doc.readiedOrb) > 0
+        ? doc.readiedOrb
+        : null;
     attackBuff = 0;
     attackBuffT = 0;
     applyLoadout();
@@ -524,13 +654,17 @@ function applySave(doc: SaveDocument): void {
 }
 
 async function saveNow(): Promise<number | null> {
-  if (!playing || !savesAvailable()) return null;
+  if (!playing || !savesAvailable()) {
+    return null;
+  }
   const epoch = saveEpoch;
   const write = writeSave(activeSaveId, collectSave());
   lastWrite = write.catch(() => null);
   const id = await write;
   // Only if this is still the character it was written for. See `saveEpoch`.
-  if (epoch === saveEpoch) activeSaveId = id;
+  if (epoch === saveEpoch) {
+    activeSaveId = id;
+  }
   return id;
 }
 
@@ -545,7 +679,7 @@ const QUEST_SAVE_DEBOUNCE = 2;
 
 // ?autosaveSec=<n> — the same accumulator and comparison in SECONDS, so testing the timer does not cost a minute or reach past the path a player is on.
 const autosaveOverrideSec = (() => {
-  const raw = new URLSearchParams(window.location.search).get('autosaveSec');
+  const raw = new URLSearchParams(window.location.search).get("autosaveSec");
   const v = raw === null ? NaN : Number(raw);
   return Number.isFinite(v) && v > 0 ? v : null;
 })();
@@ -555,7 +689,9 @@ let autosaveMinutes = loadPrefs().autosaveMinutes;
 
 /** The interval in seconds, or 0 for "no timer". */
 function autosavePeriod(): number {
-  if (autosaveOverrideSec !== null) return autosaveOverrideSec;
+  if (autosaveOverrideSec !== null) {
+    return autosaveOverrideSec;
+  }
   return autosaveMinutes > 0 ? autosaveMinutes * 60 : 0;
 }
 
@@ -563,50 +699,67 @@ function autosavePeriod(): number {
 function autosave(): void {
   sinceSave = 0;
   questSaveIn = 0;
-  if (!playing || applyingSave || player.isDead || !savesAvailable()) return;
+  if (!playing || applyingSave || player.isDead || !savesAvailable()) {
+    return;
+  }
   void saveNow();
 }
 
 /** Called once per SIMULATION SLICE from `simulate()` — see the note there. */
 function tickAutosave(dt: number): void {
-  if (!playing) return;
+  if (!playing) {
+    return;
+  }
   if (questSaveIn > 0) {
     questSaveIn -= dt;
-    if (questSaveIn <= 0) { autosave(); return; }
+    if (questSaveIn <= 0) {
+      autosave();
+      return;
+    }
   }
   const period = autosavePeriod();
-  if (period <= 0) return;
+  if (period <= 0) {
+    return;
+  }
   sinceSave += dt;
-  if (sinceSave >= period) autosave();
+  if (sinceSave >= period) {
+    autosave();
+  }
 }
 
 // A quest changing state is the only real-progress signal the engine has — there are no quest events on the bus.
 content.state.onChange((what) => {
-  if (what.kind !== 'quest' || !playing || applyingSave) return;
+  if (what.kind !== "quest" || !playing || applyingSave) {
+    return;
+  }
   questSaveIn = QUEST_SAVE_DEBOUNCE;
 });
 
 // Readers for the list and the document, drivers for the round trip. Same argument as __dbgTp.
-(window as unknown as {
-  __dbgSaves: {
-    list: () => Promise<SaveMeta[]>;
-    read: (id: number) => Promise<SaveDocument | null>;
-    doc: () => SaveDocument;
-    save: (name?: string) => Promise<number | null>;
-    newCharacter: (name: string) => void;
-    load: (id: number) => Promise<boolean>;
-    del: (id: number) => Promise<void>;
-    active: () => number | null;
-    available: () => boolean;
-    autosave: () => { minutes: number; periodSec: number; sinceSec: number; questIn: number };
-  };
-}).__dbgSaves = {
+(
+  window as unknown as {
+    __dbgSaves: {
+      list: () => Promise<SaveMeta[]>;
+      read: (id: number) => Promise<SaveDocument | null>;
+      doc: () => SaveDocument;
+      save: (name?: string) => Promise<number | null>;
+      newCharacter: (name: string) => void;
+      load: (id: number) => Promise<boolean>;
+      del: (id: number) => Promise<void>;
+      active: () => number | null;
+      available: () => boolean;
+      autosave: () => { minutes: number; periodSec: number; sinceSec: number; questIn: number };
+    };
+  }
+).__dbgSaves = {
   list: () => listSaves(),
   read: (id) => readSave(id),
   doc: () => collectSave(),
   // Writes THE CHARACTER BEING PLAYED, renaming when a name is given, so calling it twice updates one record.
   save: async (name) => {
-    if (name !== undefined) playerName = name;
+    if (name !== undefined) {
+      playerName = name;
+    }
     return saveNow();
   },
   // What New Game does to the save pointer, without the title screen.
@@ -618,13 +771,17 @@ content.state.onChange((what) => {
   // Applies INTO the running session; the menu path is the same `applySave` behind beginPlay.
   load: async (id) => {
     const doc = await readSave(id);
-    if (!doc) return false;
+    if (!doc) {
+      return false;
+    }
     applySave(doc);
     setActiveSave(id);
     return true;
   },
   del: async (id) => {
-    if (activeSaveId === id) setActiveSave(null);
+    if (activeSaveId === id) {
+      setActiveSave(null);
+    }
     await deleteSave(id);
   },
   active: () => activeSaveId,
@@ -639,7 +796,7 @@ content.state.onChange((what) => {
 };
 
 // Phase 1 ends here; everything past this point is phase 2.
-await loading?.stage('world');
+await loading?.stage("world");
 
 // CONTENT, first in the world phase: it must precede `createWorld`, because `planSettlements` reads
 // `content.all('town')`, and at ~2.4 ms against a ~390 ms world it deserves no chip of its own.
@@ -652,24 +809,26 @@ for (const [name, url] of Object.entries(MUSIC_TRACKS)) {
   content.defineFactory(MUSIC_TRACK_KIND, name, url);
 }
 // The seam a quest turn-in lands on, and the only way a QUEST item is reachable in play.
-content.defineAction('item.give', (params) => {
+content.defineAction("item.give", (params) => {
   const id = params.item;
-  if (typeof id !== 'string' || !isKnownItem(id)) return;
+  if (typeof id !== "string" || !isKnownItem(id)) {
+    return;
+  }
   const raw = params.count;
-  const n = typeof raw === 'number' && Number.isFinite(raw) ? Math.max(1, Math.floor(raw)) : 1;
+  const n = typeof raw === "number" && Number.isFinite(raw) ? Math.max(1, Math.floor(raw)) : 1;
   giveItemFromContent(id, n);
 });
 // THE CAMPAIGN LOADS AT BOOT: ZoneManager builds its starting zone directly, so an "on arrival in
 // overworld" hook never fires on a fresh game, and quest 4's definitions must be resident in `hold`.
 const contentBoot = await bootstrapContent({
   engineFlags: [],
-  packages: ['story', 'story-land'],
+  packages: ["story", "story-land"],
 });
 /** What the phase above cost. Reported by `__dbgContent`; see the note there. */
 const contentBootMs = performance.now() - contentBootStart;
 
 // Derived from content facts, never pushed by quest actions, so a load recomputes the same answer.
-let reportedTimeConflict = '';
+let reportedTimeConflict = "";
 const refreshQuestTime = (): void => {
   const locks = content.state.activeQuests.flatMap((id) => {
     const asset = content.get<QuestData>(id);
@@ -677,37 +836,39 @@ const refreshQuestTime = (): void => {
   });
   if (locks.length === 0) {
     dayNight.setQuestOverride(null, null);
-    reportedTimeConflict = '';
+    reportedTimeConflict = "";
     return;
   }
   locks.sort((a, b) => a.id.localeCompare(b.id));
   const winner = locks[0];
   dayNight.setQuestOverride(winner.id, winner.phase);
   const values = [...new Set(locks.map((x) => x.phase))];
-  const signature = locks.map((x) => `${x.id}@${x.phase}`).join('|');
+  const signature = locks.map((x) => `${x.id}@${x.phase}`).join("|");
   if (values.length > 1 && signature !== reportedTimeConflict) {
     reportedTimeConflict = signature;
     reportContentIssue({
-      severity: 'warn',
-      code: 'quest-time-conflict',
+      severity: "warn",
+      code: "quest-time-conflict",
       message: `Active quest time locks conflict; using "${winner.id}" at ${winner.phase}`,
       assetId: winner.asset.id,
       assetType: winner.asset.type,
       pkg: winner.asset.pkg,
       source: winner.asset.source,
-      field: 'timeOfDay',
-      fix: 'keep simultaneously active quests on one timeOfDay value',
+      field: "timeOfDay",
+      fix: "keep simultaneously active quests on one timeOfDay value",
     });
   }
 };
 content.state.onChange((change) => {
-  if (change.kind === 'quest' || change.kind === 'reset') refreshQuestTime();
+  if (change.kind === "quest" || change.kind === "reset") {
+    refreshQuestTime();
+  }
 });
 content.onDefinitionsChange(refreshQuestTime);
 refreshQuestTime();
 
 // Applied before the first chunk: `setArea` fires the change listener and there is no world to rebuild.
-for (const biome of content.all<BiomeData>('biome')) {
+for (const biome of content.all<BiomeData>("biome")) {
   const area = biome.id.slice(biome.type.length + 1) as NatureAreaId;
   for (const [param, value] of Object.entries(biome.data.nature)) {
     nature.setArea(area, param as NatureParamId, value);
@@ -715,8 +876,16 @@ for (const biome of content.all<BiomeData>('biome')) {
 }
 
 /** Offsets probed for level ground under the gateway. */
-const GATE_PROBES: ReadonlyArray<readonly [number, number]> =
-  [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2]];
+const GATE_PROBES: ReadonlyArray<readonly [number, number]> = [
+  [3, 0],
+  [-3, 0],
+  [0, 3],
+  [0, -3],
+  [2, 2],
+  [-2, -2],
+  [2, -2],
+  [-2, 2],
+];
 
 // In preference order. The lower bound is load-bearing — the preload band is 30 wide, so anything
 // closer builds the dungeon at boot — and 150+ makes the arch somewhere you SET OUT for.
@@ -734,7 +903,9 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
       const x = Math.round(base.x + Math.cos(a) * radius) + 0.5;
       const z = Math.round(base.z + Math.sin(a) * radius) + 0.5;
       const h = w.getHeight(x, z);
-      if (h < w.waterLevel + 1) continue;
+      if (h < w.waterLevel + 1) {
+        continue;
+      }
       let worst = 0;
       for (const [dx, dz] of GATE_PROBES) {
         worst = Math.max(worst, Math.abs(w.getHeight(x + dx, z + dz) - h));
@@ -742,13 +913,17 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
       let shopPenalty = 0;
       for (const s of w.shopPositions) {
         const d = Math.hypot(s.x - x, s.z - z);
-        if (d < 12) shopPenalty += 12 - d;
+        if (d < 12) {
+          shopPenalty += 12 - d;
+        }
       }
       // A town is far bigger than a den, so its penalty is its own footprint plus clearance.
       for (const t of w.towns.all) {
         const keep = t.radius + 10;
         const d = Math.hypot(t.x - x, t.z - z);
-        if (d < keep) shopPenalty += (keep - d) * 3;
+        if (d < keep) {
+          shopPenalty += (keep - d) * 3;
+        }
       }
       // A wood around it and a hill BEHIND it, sampled on the far side so the arch still gets level ground.
       // Preferences, not filters. There is no MOUNTAIN biome (issue #142 §11e), so a hill is a steepness reading.
@@ -756,7 +931,7 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
       const backX = x + Math.cos(away) * 9;
       const backZ = z + Math.sin(away) * 9;
       const backing = Math.min(1, w.steepnessAt(backX, backZ) / 0.45);
-      const wooded = w.biomeAt(x, z) === 'forest' ? 1 : 0;
+      const wooded = w.biomeAt(x, z) === "forest" ? 1 : 0;
       // A TRAIL CANNOT BRIDGE, so a site across water has no way to it (issue #184).
       let wet = 0;
       {
@@ -765,13 +940,20 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
         const steps = Math.max(1, Math.round(Math.hypot(dx, dz) / 2));
         for (let i = 1; i < steps; i++) {
           const t = i / steps;
-          if (w.getHeight(base.x + dx * t, base.z + dz * t) < w.waterLevel + 0.5) wet++;
+          if (w.getHeight(base.x + dx * t, base.z + dz * t) < w.waterLevel + 0.5) {
+            wet++;
+          }
         }
       }
       // Weighted under `worst * 3` so level footing still wins; the crossing term outweighs both preferences, because you cannot get to a site you cannot walk to.
       const score = worst * 3 + shopPenalty - backing * 2.5 - wooded * 2 + wet * 6;
-      if (score < bestScore) { bestScore = score; best = { x, z }; }
-      if (score === 0) return best;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { x, z };
+      }
+      if (score === 0) {
+        return best;
+      }
     }
   }
   return best;
@@ -782,22 +964,32 @@ let gateSite: { x: number; z: number } | null = null;
 
 // The zone id is the identity; only `name` is display, and a GETTER because the language can change after these are built.
 const OVERWORLD: ZoneDef = {
-  id: 'overworld',
-  get name() { return t('zone.overworld.name'); },
-  create: (scene) => createWorld(scene, 1337, (probe) => {
-    gateSite = findGateSpot(probe);
-    // The one landmark asking for a keep-out: an animal spawning beside a player held at the threshold by a preload is an ambush the game arranged.
-    return [{ ...gateSite, id: 'landmark:gateway', noSpawnRadius: 12 }];
-  }, Number(storedGfx('terrainDistance'))),
-  gate: () => ({ to: 'hold', x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff }),
+  id: "overworld",
+  get name() {
+    return t("zone.overworld.name");
+  },
+  create: (scene) =>
+    createWorld(
+      scene,
+      1337,
+      (probe) => {
+        gateSite = findGateSpot(probe);
+        // The one landmark asking for a keep-out: an animal spawning beside a player held at the threshold by a preload is an ambush the game arranged.
+        return [{ ...gateSite, id: "landmark:gateway", noSpawnRadius: 12 }];
+      },
+      Number(storedGfx("terrainDistance")),
+    ),
+  gate: () => ({ to: "hold", x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff }),
 };
 
 const HOLD: ZoneDef = {
-  id: 'hold',
-  get name() { return t('zone.hold.name'); },
+  id: "hold",
+  get name() {
+    return t("zone.hold.name");
+  },
   create: (scene) => createDungeon(scene, 0x5ea1ed),
   // You arrive ON the return gateway, which is why it starts disarmed (see EXIT_R).
-  gate: (w) => ({ to: 'overworld', x: w.spawnPoint.x, z: w.spawnPoint.z, hex: 0xffc46b }),
+  gate: (w) => ({ to: "overworld", x: w.spawnPoint.x, z: w.spawnPoint.z, hex: 0xffc46b }),
 };
 
 /** Everything that captured a World at construction; rebound on every switch. */
@@ -806,12 +998,12 @@ const bound: WorldBound[] = [];
 let portalHint: string | null = null;
 
 // Hoisted: `t(key, vars)` allocates and the loop shows this every frame near a den. `composeKeyHints()` is the one writer.
-let skillDenHint = '';
+let skillDenHint = "";
 
 const zones = new ZoneManager({
   scene: engine.scene,
   zones: [OVERWORLD, HOLD],
-  start: 'overworld',
+  start: "overworld",
   bind: bound,
   warm: (stage, lights) => warmUpFrame(stage, lights),
   onArrive: (w, def) => {
@@ -821,24 +1013,26 @@ const zones = new ZoneManager({
     // otherwise, so a zone added later brings its music and this line never grows a branch.
     music.setScene(def.id);
     // A saddle pose is computed against one world's heightfield — the teleport-into-rock case.
-    if (mount.isMounted) mount.dismount();
+    if (mount.isMounted) {
+      mount.dismount();
+    }
     player.position.copy(w.spawnPoint);
-    player.position.y = Math.max(
-      w.getHeight(w.spawnPoint.x, w.spawnPoint.z), w.waterLevel,
-    );
+    player.position.y = Math.max(w.getHeight(w.spawnPoint.x, w.spawnPoint.z), w.waterLevel);
     player.velocity.set(0, 0, 0);
     // No placement needed: follow-update teleports any beast further than TELEPORT_DIST away.
-    bus.emit({ type: 'toast', text: t('toast.enteredZone', { zone: def.name }) });
+    bus.emit({ type: "toast", text: t("toast.enteredZone", { zone: def.name }) });
     // Markers are per-zone; `gate` is the ZoneDef's own answer, not a second search.
     const g = def.gate(w);
     syncCompassMarkers(w, g.x, g.z, g.hex);
     // A new zone is new meshes, and a visibility flag went with the old world's chunks.
     gfx.applyAll();
   },
-  onHint: (t) => { portalHint = t; },
+  onHint: (t) => {
+    portalHint = t;
+  },
 });
 
-await loading?.stage('actors');
+await loading?.stage("actors");
 
 let world: World = zones.world;
 // Zone-agnostic — the world is only a per-frame "is there water under the lens" answer — so it survives a switch without being in `bound`.
@@ -847,13 +1041,16 @@ const player = new Player(engine, world, input, bus);
 const combat = new CombatSystem(engine.scene, world, bus);
 const hud = new HUD(bus);
 // TAPS THE KEY, as the pad's Start and the touch MENU do; the one reader in `frame()` still decides what it means.
-hud.onMenu = () => input.tapVirtual('F10');
+hud.onMenu = () => input.tapVirtual("F10");
 
 player.takeStartPose();
 // Which weapon is equipped is gear-slot policy and lives in this file; `player.weapon` is read off the RIG, so it cannot disagree with the model.
 player.onAttack = (origin, dir) => {
-  if (player.weapon === 'bow') combat.arrowStrike(origin, dir, player.attackStat);
-  else combat.meleeStrike(origin, dir, player.attackStat, player.position.y);
+  if (player.weapon === "bow") {
+    combat.arrowStrike(origin, dir, player.attackStat);
+  } else {
+    combat.meleeStrike(origin, dir, player.attackStat, player.position.y);
+  }
 };
 
 // Cos of the half-angle, ~75 degrees each side.
@@ -863,20 +1060,32 @@ const _aimDir = new THREE.Vector3();
 
 // Gameplay policy, so it lives in the composition root. Not gated on device — an assist on one device is a rule players cannot learn. `?aim=0` turns it off.
 player.aimAssist = (origin, dir) => {
-  if (!flags.aimAssist) return false;
+  if (!flags.aimAssist) {
+    return false;
+  }
   // NOT FOR THE BOW: the assist searches inside `SWORD_REACH` and snaps the hero's heading so
   // the arc leaves his shoulders, and neither belongs to a shot the crosshair already aimed.
-  if (player.weapon === 'bow') return false;
+  if (player.weapon === "bow") {
+    return false;
+  }
   engine.camera.getWorldDirection(_aimDir);
   const target = combat.bestMeleeTarget(
-    origin, _aimDir, SWORD_REACH, AIM_ASSIST_CONE_COS, player.position.y,
+    origin,
+    _aimDir,
+    SWORD_REACH,
+    AIM_ASSIST_CONE_COS,
+    player.position.y,
   );
-  if (!target) return false;
+  if (!target) {
+    return false;
+  }
   const dx = target.position.x - origin.x;
   const dz = target.position.z - origin.z;
   const d = Math.hypot(dx, dz);
   // Standing inside the target: no bearing to steer onto.
-  if (d < 1e-4) return false;
+  if (d < 1e-4) {
+    return false;
+  }
   // Horizontal bearing only: in the saddle `dir.y` is what lifts the strike over the mount's bulk (see MOUNTED_REACH).
   const horiz = Math.hypot(dir.x, dir.z);
   dir.x = (dx / d) * horiz;
@@ -906,7 +1115,7 @@ function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: num
       return chip;
     }),
     // The gateway takes the colour of its own arch.
-    { id: 'gate', x: gateX, z: gateZ, color: gateHex, label: 'GATE' },
+    { id: "gate", x: gateX, z: gateZ, color: gateHex, label: "GATE" },
   ]);
 }
 {
@@ -920,7 +1129,7 @@ const mountUnlocks = new MountUnlocks();
 function seedMountUnlocks(): void {
   mountUnlocks.reset();
   if (flags.mounts) {
-    mountUnlocks.restore(flags.mounts.includes('all') ? MOUNT_KINDS : flags.mounts);
+    mountUnlocks.restore(flags.mounts.includes("all") ? MOUNT_KINDS : flags.mounts);
   }
 }
 seedMountUnlocks();
@@ -933,9 +1142,7 @@ const touchFx = new TouchParticles(engine.scene, world);
 
 // Every species BUILT, none OWNED, two active.
 registerSkillDefs(SKILLS.values());
-const roster: BeastActor[] = ALL_SPECIES.map(
-  (sp) => new BeastActor(sp, engine.scene, world, bus),
-);
+const roster: BeastActor[] = ALL_SPECIES.map((sp) => new BeastActor(sp, engine.scene, world, bus));
 // The rebind list. A beast's level, xp and known skills are the save game, so rebuilding one to change zones would delete it.
 bound.push(player, mount, combat, touchFx, ...roster);
 
@@ -949,14 +1156,22 @@ const SUPPORT_CALL_RANGE = 22;
 const _friendlies: BeastActor[] = [];
 const cooldowns = new Map<string, number>();
 
-function primary(): BeastActor | null { return primaryIdx >= 0 ? roster[primaryIdx] : null; }
-function support(): BeastActor | null { return supportIdx >= 0 ? roster[supportIdx] : null; }
+function primary(): BeastActor | null {
+  return primaryIdx >= 0 ? roster[primaryIdx] : null;
+}
+function support(): BeastActor | null {
+  return supportIdx >= 0 ? roster[supportIdx] : null;
+}
 
 /** Has the player bonded this one? The one question `owned` is asked. */
-function isOwned(b: BeastActor): boolean { return owned.has(b.species.id); }
+function isOwned(b: BeastActor): boolean {
+  return owned.has(b.species.id);
+}
 
 // The bonded beasts in roster order — also Tab's order and the panel's.
-function ownedBeasts(): BeastActor[] { return roster.filter(isOwned); }
+function ownedBeasts(): BeastActor[] {
+  return roster.filter(isOwned);
+}
 
 // `beasts=0` hides the party and skips its update; it does NOT skip building the rigs, which is a boot cost.
 function refreshVisibility(): void {
@@ -967,10 +1182,15 @@ refreshVisibility();
 // Empty slots first: the first bond leads, the second supports, later ones are benched rather than displacing a chosen beast.
 function grantBeast(speciesId: string): boolean {
   const idx = roster.findIndex((b) => b.species.id === speciesId);
-  if (idx < 0 || owned.has(speciesId)) return false;
+  if (idx < 0 || owned.has(speciesId)) {
+    return false;
+  }
   owned.add(speciesId);
-  if (primaryIdx < 0) primaryIdx = idx;
-  else if (supportIdx < 0) supportIdx = idx;
+  if (primaryIdx < 0) {
+    primaryIdx = idx;
+  } else if (supportIdx < 0) {
+    supportIdx = idx;
+  }
   refreshVisibility();
   return true;
 }
@@ -978,33 +1198,43 @@ function grantBeast(speciesId: string): boolean {
 // Composition-root policy: only this file knows combat, the roster and the content state.
 function onBeastTamed(speciesId: string, nameKey: StringKey): void {
   const first = owned.size === 0;
-  if (!grantBeast(speciesId)) return;
+  if (!grantBeast(speciesId)) {
+    return;
+  }
   bus.emit({
-    type: 'toast',
-    text: t(first ? 'toast.bondedFirst' : 'toast.bonded', { beast: t(nameKey) }),
+    type: "toast",
+    text: t(first ? "toast.bondedFirst" : "toast.bonded", { beast: t(nameKey) }),
   });
   inventory.refresh();
 }
 
 // A silent no-op below two bonded beasts, and `guard` is a trip count because "until it is not the other slot" cannot terminate with one legal index.
-function cycleBeast(which: 'primary' | 'support', dirn: 1 | -1): void {
+function cycleBeast(which: "primary" | "support", dirn: 1 | -1): void {
   const n = roster.length;
-  if (owned.size < 2) return;
-  const other = which === 'primary' ? supportIdx : primaryIdx;
-  let idx = which === 'primary' ? primaryIdx : supportIdx;
+  if (owned.size < 2) {
+    return;
+  }
+  const other = which === "primary" ? supportIdx : primaryIdx;
+  let idx = which === "primary" ? primaryIdx : supportIdx;
   for (let guard = 0; guard < n; guard++) {
     idx = (idx + dirn + n) % n;
-    if (idx !== other && isOwned(roster[idx])) break;
+    if (idx !== other && isOwned(roster[idx])) {
+      break;
+    }
   }
-  if (which === 'primary') primaryIdx = idx; else supportIdx = idx;
+  if (which === "primary") {
+    primaryIdx = idx;
+  } else {
+    supportIdx = idx;
+  }
   refreshVisibility();
   const lead = primary();
   const sup = support();
   bus.emit({
-    type: 'toast',
-    text: t('toast.beastLeads', {
-      lead: lead ? t(lead.species.nameKey) : t('beast.none'),
-      support: sup ? t(sup.species.nameKey) : t('beast.none'),
+    type: "toast",
+    text: t("toast.beastLeads", {
+      lead: lead ? t(lead.species.nameKey) : t("beast.none"),
+      support: sup ? t(sup.species.nameKey) : t("beast.none"),
     }),
   });
 }
@@ -1023,17 +1253,17 @@ const slots = new SlotLayout();
 // The HUD's chip row is STACKABLES only: it is the readout for the support beast's fetch rule, and the invariant
 // is "a chip is up exactly when the beast will fetch more of that".
 function refreshBagChips(): void {
-  hud.setBag(bag.entriesOfKind('stackable'));
+  hud.setBag(bag.entriesOfKind("stackable"));
 }
 
 bus.on((e) => {
-  if (e.type === 'shardsChanged') {
+  if (e.type === "shardsChanged") {
     pickupTotal = e.total;
     hud.setShards(shards());
   }
-  if (e.type === 'itemPicked') {
+  if (e.type === "itemPicked") {
     const def = itemDef(e.itemId);
-    if (def.kind !== 'currency') {
+    if (def.kind !== "currency") {
       const n = bag.add(e.itemId, 1);
       refreshBagChips();
       if (e.byBeast) {
@@ -1041,37 +1271,39 @@ bus.on((e) => {
         const fetcher = roster.find((p) => p.isCarrying) ?? support();
         if (fetcher) {
           bus.emit({
-            type: 'toast',
-            text: t('toast.fetched', {
-              beast: t(fetcher.species.nameKey), item: itemName(def, n), n,
+            type: "toast",
+            text: t("toast.fetched", {
+              beast: t(fetcher.species.nameKey),
+              item: itemName(def, n),
+              n,
             }),
           });
         }
       }
     }
   }
-  if (e.type === 'enemyKilled') {
+  if (e.type === "enemyKilled") {
     // XP goes to whoever is out there; with no beasts bonded it goes nowhere, correctly.
     primary()?.gainXp(e.xp);
     support()?.gainXp(Math.round(e.xp * 0.6));
   }
-  if (e.type === 'beastTamed') {
+  if (e.type === "beastTamed") {
     onBeastTamed(e.beastId, e.nameKey);
   }
-  if (e.type === 'bondFailed') {
-    bus.emit({ type: 'toast', text: t('toast.bondFailed', { beast: t(e.nameKey) }) });
+  if (e.type === "bondFailed") {
+    bus.emit({ type: "toast", text: t("toast.bondFailed", { beast: t(e.nameKey) }) });
   }
 });
 hud.setShards(shards());
 
-const FETCH_RADIUS = 16;      // how far from the player a drop may be to be offered
-const FETCH_SCAN = 0.4;       // seconds between scans; the pool is small but this is a poll
+const FETCH_RADIUS = 16; // how far from the player a drop may be to be offered
+const FETCH_SCAN = 0.4; // seconds between scans; the pool is small but this is a poll
 let fetchScanT = 0;
 
 function worthFetching(itemId: string): boolean {
   const def = itemDef(itemId);
   // STACKABLE, not "anything you already hold" — issue #74 split those, and a beast that fetched back the blueprint you just dropped is an errand nobody asked for.
-  return def.kind === 'currency' || (def.kind === 'stackable' && bag.count(itemId) > 0);
+  return def.kind === "currency" || (def.kind === "stackable" && bag.count(itemId) > 0);
 }
 
 // INVENTORY, GEAR AND ITEM ACTIONS — issue #74. The panel knows no game rules: it is handed rows and
@@ -1091,7 +1323,11 @@ let readiedOrb: string | null = null;
 function refreshOrbHud(): void {
   const def = readiedOrb ? itemDef(readiedOrb) : null;
   const n = readiedOrb ? bag.count(readiedOrb) : 0;
-  hud.setOrb(def && n > 0 ? { name: itemName(def, n), count: n, color: def.color, tier: def.orbTier ?? 1 } : null);
+  hud.setOrb(
+    def && n > 0
+      ? { name: itemName(def, n), count: n, color: def.color, tier: def.orbTier ?? 1 }
+      : null,
+  );
 }
 /** A potion's timed buff: how much attack it is adding, and for how much longer. */
 let attackBuff = 0;
@@ -1109,21 +1345,19 @@ function applyLoadout(): void {
 
 function weaponModelOf(def: ItemDef | null): WeaponModelId | null {
   const m = def?.model;
-  return m && (WEAPON_MODEL_IDS as readonly string[]).includes(m)
-    ? m as WeaponModelId
-    : null;
+  return m && (WEAPON_MODEL_IDS as readonly string[]).includes(m) ? (m as WeaponModelId) : null;
 }
 
 // The smallest kit that shows every kind of row the panel draws except the content-only quest one.
 // ONE TAME ORB, READIED, because the player starts with no beasts and the only way to get one is a
 // throw — enough for one Sproutle and not enough to be a supply.
 function giveStartingKit(): void {
-  bag.add('sword-iron', 1);
-  bag.add('potion-mend', 2);
-  bag.add('bp-dagger', 1);
-  bag.add('orb-tame', 1);
-  equippedWeapon = 'sword-iron';
-  readiedOrb = 'orb-tame';
+  bag.add("sword-iron", 1);
+  bag.add("potion-mend", 2);
+  bag.add("bp-dagger", 1);
+  bag.add("orb-tame", 1);
+  equippedWeapon = "sword-iron";
+  readiedOrb = "orb-tame";
   applyLoadout();
   refreshBagChips();
   refreshOrbHud();
@@ -1132,14 +1366,14 @@ function giveStartingKit(): void {
 // A `function` so the registration hundreds of lines above can name it. Currency folds into the pickup total rather than being refused.
 function giveItemFromContent(id: string, n: number): void {
   const def = itemDef(id);
-  if (def.kind === 'currency') {
+  if (def.kind === "currency") {
     pickupTotal += n;
     hud.setShards(shards());
   } else {
     bag.add(id, n);
     refreshBagChips();
   }
-  bus.emit({ type: 'toast', text: t('toast.gotItem', { item: itemName(def, n) }) });
+  bus.emit({ type: "toast", text: t("toast.gotItem", { item: itemName(def, n) }) });
   // The panel is a modal, but the dev console can reach here, and so could timed content.
   inventory.refresh();
 }
@@ -1148,8 +1382,10 @@ function giveItemFromContent(id: string, n: number): void {
 const beastItemId = (b: BeastActor): string => BEAST_ID_PREFIX + b.species.id;
 
 /** One display stat pair, so the builders below all read the same way. */
-const invStat = (label: StringKey, value: string | number): InvStat =>
-  ({ label: t(label), value: String(value) });
+const invStat = (label: StringKey, value: string | number): InvStat => ({
+  label: t(label),
+  value: String(value),
+});
 
 // Derived every time — on open and after each action, never inside a frame — because the bag and the roster are the truth and a cached view of them is a second answer.
 function inventoryModel(): InventoryModel {
@@ -1160,56 +1396,89 @@ function inventoryModel(): InventoryModel {
     const supporting = b === support();
     entries.push({
       id: beastItemId(b),
-      kind: 'beast',
+      kind: "beast",
       name: t(b.species.nameKey),
       count: 1,
       color: ELEMENT_COLORS[b.species.element],
       // The SPECIES, not a copy off it: the panel's stage builds its own rig and bakes the slot portrait from this (see ui/inventory-stage.ts).
       species: b.species,
-      rarity: 'rare',
+      rarity: "rare",
       description: t(b.species.descriptionKey),
       equipped: lead || supporting,
       stats: [
-        invStat('inv.stat.level', b.level),
-        invStat('inv.stat.movement', t(LOCOMOTION_NAME_KEYS[b.species.locomotion])),
+        invStat("inv.stat.level", b.level),
+        invStat("inv.stat.movement", t(LOCOMOTION_NAME_KEYS[b.species.locomotion])),
         {
-          label: t('inv.gear'),
-          value: t(lead ? 'inv.beast.lead' : supporting ? 'inv.beast.support' : 'inv.beast.benched'),
+          label: t("inv.gear"),
+          value: t(
+            lead ? "inv.beast.lead" : supporting ? "inv.beast.support" : "inv.beast.benched",
+          ),
         },
       ],
       // A beast is never dropped or salvaged; its actions are the slots it can move into, and it can come OUT of one (issue #116).
-      actions: lead ? ['setSupport', 'unequip']
-        : supporting ? ['setLead', 'unequip']
-        : ['setLead', 'setSupport'],
+      actions: lead
+        ? ["setSupport", "unequip"]
+        : supporting
+          ? ["setLead", "unequip"]
+          : ["setLead", "setSupport"],
     });
   }
 
   for (const e of bag.entries()) {
     const d = e.def;
     const stats: InvStat[] = [];
-    if (d.power !== undefined) stats.push(invStat('inv.stat.power', '+' + d.power));
-    if (d.maxPower !== undefined) stats.push(invStat('inv.stat.budget', d.maxPower));
-    if (d.effect?.heal !== undefined) stats.push(invStat('inv.stat.heal', d.effect.heal));
+    if (d.power !== undefined) {
+      stats.push(invStat("inv.stat.power", "+" + d.power));
+    }
+    if (d.maxPower !== undefined) {
+      stats.push(invStat("inv.stat.budget", d.maxPower));
+    }
+    if (d.effect?.heal !== undefined) {
+      stats.push(invStat("inv.stat.heal", d.effect.heal));
+    }
     if (d.effect?.attack !== undefined) {
-      stats.push(invStat('inv.stat.attack', '+' + d.effect.attack + ' · ' + (d.effect.seconds ?? 0) + 's'));
+      stats.push(
+        invStat("inv.stat.attack", "+" + d.effect.attack + " · " + (d.effect.seconds ?? 0) + "s"),
+      );
     }
     const worth = salvageValue(d);
-    if (worth > 0) stats.push(invStat('inv.stat.salvage', worth));
-    if (e.count > 1) stats.push(invStat('inv.stat.held', e.count));
+    if (worth > 0) {
+      stats.push(invStat("inv.stat.salvage", worth));
+    }
+    if (e.count > 1) {
+      stats.push(invStat("inv.stat.held", e.count));
+    }
 
-    if (d.orbTier !== undefined) stats.push(invStat('inv.stat.orbTier', d.orbTier));
+    if (d.orbTier !== undefined) {
+      stats.push(invStat("inv.stat.orbTier", d.orbTier));
+    }
 
     const actions: InvAction[] = [];
-    const equipped = d.kind === 'weapon' ? d.id === equippedWeapon
-      : d.kind === 'orb' ? d.id === readiedOrb
-      : false;
-    if (d.kind === 'weapon') actions.push(equipped ? 'unequip' : 'equip');
-    if (d.kind === 'orb') actions.push(equipped ? 'unready' : 'ready');
-    if (d.kind === 'potion') actions.push('use');
-    if (d.kind === 'blueprint') actions.push('forge');
+    const equipped =
+      d.kind === "weapon"
+        ? d.id === equippedWeapon
+        : d.kind === "orb"
+          ? d.id === readiedOrb
+          : false;
+    if (d.kind === "weapon") {
+      actions.push(equipped ? "unequip" : "equip");
+    }
+    if (d.kind === "orb") {
+      actions.push(equipped ? "unready" : "ready");
+    }
+    if (d.kind === "potion") {
+      actions.push("use");
+    }
+    if (d.kind === "blueprint") {
+      actions.push("forge");
+    }
     // An EQUIPPED weapon offers neither destructive action; unequip is one click away.
-    if (worth > 0 && !equipped) actions.push('salvage');
-    if (isDestructible(d) && !equipped) actions.push('drop');
+    if (worth > 0 && !equipped) {
+      actions.push("salvage");
+    }
+    if (isDestructible(d) && !equipped) {
+      actions.push("drop");
+    }
 
     entries.push({
       id: d.id,
@@ -1223,39 +1492,50 @@ function inventoryModel(): InventoryModel {
       description: d.descriptionKey ? t(d.descriptionKey) : undefined,
       stats,
       equipped,
-      note: d.kind === 'blueprint' ? t('inv.forge.soon')
-        : d.kind === 'quest' ? t('inv.quest.kept')
-        : d.kind === 'orb' && equipped ? t('inv.orb.hint', { key: kbd('Q') })
-        : undefined,
+      note:
+        d.kind === "blueprint"
+          ? t("inv.forge.soon")
+          : d.kind === "quest"
+            ? t("inv.quest.kept")
+            : d.kind === "orb" && equipped
+              ? t("inv.orb.hint", { key: kbd("Q") })
+              : undefined,
       actions,
     });
   }
 
   const byId = (id: string | null): InvEntry | null =>
-    (id === null ? null : entries.find((x) => x.id === id) ?? null);
+    id === null ? null : (entries.find((x) => x.id === id) ?? null);
   const slotFor = (b: BeastActor | null): InvEntry | null =>
-    (b === null ? null : byId(beastItemId(b)));
+    b === null ? null : byId(beastItemId(b));
 
   const gear: GearSlotView[] = [
-    { slot: 'weapon', entry: byId(equippedWeapon) },
-    { slot: 'primary', entry: slotFor(primary()) },
-    { slot: 'support', entry: slotFor(support()) },
-    { slot: 'orb', entry: byId(readiedOrb) },
+    { slot: "weapon", entry: byId(equippedWeapon) },
+    { slot: "primary", entry: slotFor(primary()) },
+    { slot: "support", entry: slotFor(support()) },
+    { slot: "orb", entry: byId(readiedOrb) },
   ];
 
   // A GEAR SLOT IS A REAL SLOT: what is in it is not also on the wall, or the count lies.
   const claimed = new Set(gear.map((g) => g.entry?.id).filter((id): id is string => !!id));
   const wall: InvEntry[] = [];
   for (const e of entries) {
-    if (!claimed.has(e.id)) { wall.push(e); continue; }
+    if (!claimed.has(e.id)) {
+      wall.push(e);
+      continue;
+    }
     const left = e.count - 1;
-    if (left <= 0) continue;
+    if (left <= 0) {
+      continue;
+    }
     wall.push({ ...e, count: left, name: itemName(itemDef(e.id), left) });
   }
 
   // Where each row sits (issue #116): the order above only picks which free cell a new row gets, then the layout answers.
   slots.reconcile(wall.map((e) => e.id));
-  for (const e of wall) e.slot = slots.slotOf(e.id);
+  for (const e of wall) {
+    e.slot = slots.slotOf(e.id);
+  }
   wall.sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
 
   // All three, always, unlocked or not — the one thing this panel shows that the player does not have.
@@ -1270,19 +1550,29 @@ function inventoryAction(id: string, action: InvAction): void {
     const speciesId = id.slice(BEAST_ID_PREFIX.length);
     const idx = roster.findIndex((b) => b.species.id === speciesId);
     // Refused here as well as being absent from the model: `__dbgInvAction` bypasses the panel.
-    if (idx < 0 || !owned.has(speciesId)) return;
+    if (idx < 0 || !owned.has(speciesId)) {
+      return;
+    }
     // Straight onto the two indices Tab moves: putting a beast into one slot pushes whoever was there into the other rather than benching them.
-    if (action === 'setLead') {
-      if (supportIdx === idx) supportIdx = primaryIdx;
+    if (action === "setLead") {
+      if (supportIdx === idx) {
+        supportIdx = primaryIdx;
+      }
       primaryIdx = idx;
-    } else if (action === 'setSupport') {
-      if (primaryIdx === idx) primaryIdx = supportIdx;
+    } else if (action === "setSupport") {
+      if (primaryIdx === idx) {
+        primaryIdx = supportIdx;
+      }
       supportIdx = idx;
-    } else if (action === 'unequip') {
+    } else if (action === "unequip") {
       // Out of whichever slot it is in, and nothing slides up: emptying the lead slot must not change the support beast's job.
-      if (primaryIdx === idx) primaryIdx = -1;
-      else if (supportIdx === idx) supportIdx = -1;
-      else return;
+      if (primaryIdx === idx) {
+        primaryIdx = -1;
+      } else if (supportIdx === idx) {
+        supportIdx = -1;
+      } else {
+        return;
+      }
     } else {
       return;
     }
@@ -1290,52 +1580,66 @@ function inventoryAction(id: string, action: InvAction): void {
     const lead = primary();
     const sup = support();
     bus.emit({
-      type: 'toast',
-      text: t('toast.beastLeads', {
-        lead: lead ? t(lead.species.nameKey) : t('beast.none'),
-        support: sup ? t(sup.species.nameKey) : t('beast.none'),
+      type: "toast",
+      text: t("toast.beastLeads", {
+        lead: lead ? t(lead.species.nameKey) : t("beast.none"),
+        support: sup ? t(sup.species.nameKey) : t("beast.none"),
       }),
     });
     return;
   }
 
   const def = itemDef(id);
-  if (!isKnownItem(id) || bag.count(id) <= 0) return;
+  if (!isKnownItem(id) || bag.count(id) <= 0) {
+    return;
+  }
 
   switch (action) {
-    case 'equip':
-      if (def.kind !== 'weapon') return;
+    case "equip":
+      if (def.kind !== "weapon") {
+        return;
+      }
       equippedWeapon = def.id;
       applyLoadout();
-      bus.emit({ type: 'toast', text: t('toast.equipped', { item: itemName(def) }) });
+      bus.emit({ type: "toast", text: t("toast.equipped", { item: itemName(def) }) });
       break;
 
-    case 'unequip':
-      if (equippedWeapon !== def.id) return;
+    case "unequip":
+      if (equippedWeapon !== def.id) {
+        return;
+      }
       equippedWeapon = null;
       applyLoadout();
-      bus.emit({ type: 'toast', text: t('toast.unequipped', { item: itemName(def) }) });
+      bus.emit({ type: "toast", text: t("toast.unequipped", { item: itemName(def) }) });
       break;
 
     // READYING IS NOT EQUIPPING: nothing is held and no stat moved, so `applyLoadout` is not called.
-    case 'ready':
-      if (def.kind !== 'orb') return;
+    case "ready":
+      if (def.kind !== "orb") {
+        return;
+      }
       readiedOrb = def.id;
       refreshOrbHud();
-      bus.emit({ type: 'toast', text: t('toast.orbReady', { item: itemName(def) }) });
+      bus.emit({ type: "toast", text: t("toast.orbReady", { item: itemName(def) }) });
       break;
 
-    case 'unready':
-      if (readiedOrb !== def.id) return;
+    case "unready":
+      if (readiedOrb !== def.id) {
+        return;
+      }
       readiedOrb = null;
       refreshOrbHud();
-      bus.emit({ type: 'toast', text: t('toast.unequipped', { item: itemName(def) }) });
+      bus.emit({ type: "toast", text: t("toast.unequipped", { item: itemName(def) }) });
       break;
 
-    case 'use': {
+    case "use": {
       const fx = def.effect;
-      if (!fx || bag.remove(def.id, 1) !== 1) return;
-      if (fx.heal) player.heal(fx.heal);
+      if (!fx || bag.remove(def.id, 1) !== 1) {
+        return;
+      }
+      if (fx.heal) {
+        player.heal(fx.heal);
+      }
       if (fx.attack) {
         // A second draught REPLACES the timer rather than stacking onto it — stacking is a balance decision, and this cannot compound into a stat nobody has tuned.
         attackBuff = fx.attack;
@@ -1343,39 +1647,49 @@ function inventoryAction(id: string, action: InvAction): void {
       }
       applyLoadout();
       refreshBagChips();
-      bus.emit({ type: 'toast', text: t('toast.used', { item: itemName(def) }) });
+      bus.emit({ type: "toast", text: t("toast.used", { item: itemName(def) }) });
       break;
     }
 
-    case 'salvage': {
+    case "salvage": {
       const worth = salvageValue(def);
       // Paid off what actually LEFT the bag, not off the request.
-      if (worth <= 0 || bag.remove(def.id, 1) !== 1) return;
+      if (worth <= 0 || bag.remove(def.id, 1) !== 1) {
+        return;
+      }
       spent -= worth;
       hud.setShards(shards());
       refreshBagChips();
       bus.emit({
-        type: 'toast',
-        text: t('toast.salvaged', {
-          item: itemName(def), n: worth, currency: itemName(CURRENCY, worth),
+        type: "toast",
+        text: t("toast.salvaged", {
+          item: itemName(def),
+          n: worth,
+          currency: itemName(CURRENCY, worth),
         }),
       });
       break;
     }
 
-    case 'drop': {
-      if (!isDestructible(def) || bag.remove(def.id, 1) !== 1) return;
+    case "drop": {
+      if (!isDestructible(def) || bag.remove(def.id, 1) !== 1) {
+        return;
+      }
       // UNARMED (see Pickups.spawn): armed it would magnet straight back into the bag it just left.
       combat.spawnDrop(
-        def.id, player.position.x, player.position.y + 0.6, player.position.z, false,
+        def.id,
+        player.position.x,
+        player.position.y + 0.6,
+        player.position.z,
+        false,
       );
       refreshBagChips();
-      bus.emit({ type: 'toast', text: t('toast.dropped', { item: itemName(def) }) });
+      bus.emit({ type: "toast", text: t("toast.dropped", { item: itemName(def) }) });
       break;
     }
 
-    case 'forge':
-      bus.emit({ type: 'toast', text: t('inv.forge.soon') });
+    case "forge":
+      bus.emit({ type: "toast", text: t("inv.forge.soon") });
       break;
 
     default:
@@ -1384,13 +1698,17 @@ function inventoryAction(id: string, action: InvAction): void {
 }
 
 function updateBuffs(dt: number): void {
-  if (attackBuffT <= 0) return;
+  if (attackBuffT <= 0) {
+    return;
+  }
   attackBuffT -= dt;
-  if (attackBuffT > 0) return;
+  if (attackBuffT > 0) {
+    return;
+  }
   attackBuffT = 0;
   attackBuff = 0;
   applyLoadout();
-  bus.emit({ type: 'toast', text: t('toast.buffEnded') });
+  bus.emit({ type: "toast", text: t("toast.buffEnded") });
 }
 
 const inventory = new InventoryPanel({
@@ -1403,8 +1721,12 @@ const inventory = new InventoryPanel({
   // Safe after a click or `I`, not after Escape: with no keyboard lock that press also leaves fullscreen,
   // dropping the pointer lock ~8 ms later, which read as a fresh Escape and opened the menu behind it.
   onClose: (by) => {
-    if (isTouchPrimary()) return;
-    if (by !== 'escape' || escapeIsLocked()) input.requestLock();
+    if (isTouchPrimary()) {
+      return;
+    }
+    if (by !== "escape" || escapeIsLocked()) {
+      input.requestLock();
+    }
   },
 });
 
@@ -1415,9 +1737,12 @@ const hudFlag = (id: ContentId): string => `journal.hidden/${id}`;
 const questOnHud = (id: ContentId): boolean => !content.state.flag(hudFlag(id));
 
 function rewardLines(rewards: QuestRewards | undefined): { label: string; value: string }[] {
-  if (!rewards) return [];
+  if (!rewards) {
+    return [];
+  }
   return Object.entries(rewards).map(([key, n]) => ({
-    label: key === 'xp' ? t('journal.reward.xp') : isKnownItem(key) ? itemName(itemDef(key), n) : key,
+    label:
+      key === "xp" ? t("journal.reward.xp") : isKnownItem(key) ? itemName(itemDef(key), n) : key,
     value: String(n),
   }));
 }
@@ -1425,25 +1750,31 @@ function rewardLines(rewards: QuestRewards | undefined): { label: string; value:
 // `available` is DERIVED — untouched, prerequisites done, own condition passes — rather than a fourth stored copy. A failed quest shows under "done".
 function questTab(asset: ContentAsset<QuestData>): JournalTab | null {
   switch (content.state.questStatus(asset.id)) {
-    case 'active': return 'active';
-    case 'completed':
-    case 'failed': return 'completed';
-    case 'available': return 'available';
-    default: break;
+    case "active":
+      return "active";
+    case "completed":
+    case "failed":
+      return "completed";
+    case "available":
+      return "available";
+    default:
+      break;
   }
   const ready = asset.data.prerequisites.every(
-    (id) => content.state.questStatus(id) === 'completed',
+    (id) => content.state.questStatus(id) === "completed",
   );
-  return ready && content.evaluate(asset.data.available) ? 'available' : null;
+  return ready && content.evaluate(asset.data.available) ? "available" : null;
 }
 
 // `query.available` rather than `all`: the asset envelope's `when` is how content hides something entirely, and
 // a journal listing it would be the one place that leaked it.
 function journalModel(): JournalModel {
   const entries: JournalEntry[] = [];
-  for (const asset of content.query.available<QuestData>('quest')) {
+  for (const asset of content.query.available<QuestData>("quest")) {
     const tab = questTab(asset);
-    if (tab === null) continue;
+    if (tab === null) {
+      continue;
+    }
     const giver = asset.data.giver ? content.get(asset.data.giver) : undefined;
     const place = asset.data.location ? content.get(asset.data.location) : undefined;
     entries.push({
@@ -1465,15 +1796,17 @@ function journalModel(): JournalModel {
     });
   }
   // Main before side, then by id — the same total order every read, so a card does not move when a counter ticks.
-  entries.sort((a, b) =>
-    (a.category === b.category ? 0 : a.category === 'main' ? -1 : 1) || a.id.localeCompare(b.id));
+  entries.sort(
+    (a, b) =>
+      (a.category === b.category ? 0 : a.category === "main" ? -1 : 1) || a.id.localeCompare(b.id),
+  );
   return { entries };
 }
 
 /** The tracker's rows: the ACTIVE quests the player has left switched on. */
 function questTrackRows(): QuestTrackRow[] {
-  return journalModel().entries
-    .filter((e) => e.tab === 'active' && e.onHud)
+  return journalModel()
+    .entries.filter((e) => e.tab === "active" && e.onHud)
     .map((e) => ({
       id: e.id,
       name: e.name,
@@ -1490,8 +1823,12 @@ const journal = new JournalPanel({
   // The inventory's bargain: a panel with buttons needs a cursor, and re-taking the lock after Escape is what makes one press close two things.
   onOpen: () => input.releaseLock(),
   onClose: (by) => {
-    if (isTouchPrimary()) return;
-    if (by !== 'escape' || escapeIsLocked()) input.requestLock();
+    if (isTouchPrimary()) {
+      return;
+    }
+    if (by !== "escape" || escapeIsLocked()) {
+      input.requestLock();
+    }
   },
 });
 
@@ -1513,26 +1850,40 @@ function refreshQuestMarks(): void {
   markedNpcs.clear();
   markedEnemies.clear();
   markedBeasts.clear();
-  for (const asset of content.query.available<QuestData>('quest')) {
+  for (const asset of content.query.available<QuestData>("quest")) {
     const tab = questTab(asset);
-    if (tab !== 'available' && tab !== 'active') continue;
+    if (tab !== "available" && tab !== "active") {
+      continue;
+    }
     const giver = asset.data.giver;
     // TURN-IN BEATS OFFER when one person holds both: the quest in your hand is the live one.
-    if (giver !== undefined && giver !== '') {
-      const who = giver.slice('npc:'.length);
-      if (tab === 'available') {
-        if (!markedNpcs.has(who)) markedNpcs.set(who, 'offer');
+    if (giver !== undefined && giver !== "") {
+      const who = giver.slice("npc:".length);
+      if (tab === "available") {
+        if (!markedNpcs.has(who)) {
+          markedNpcs.set(who, "offer");
+        }
       } else if (questIsDone(asset)) {
-        markedNpcs.set(who, 'turnIn');
+        markedNpcs.set(who, "turnIn");
       }
     }
-    if (tab !== 'active') continue;
+    if (tab !== "active") {
+      continue;
+    }
     for (const objective of asset.data.objectives) {
       const trigger = objective.trigger;
-      if (!trigger) continue;
-      if (content.state.progress(asset.id, objective.key) >= (objective.count ?? 1)) continue;
-      for (const id of trigger.enemies ?? []) markedEnemies.add(id.slice('enemy:'.length));
-      for (const id of trigger.species ?? []) markedBeasts.add(id);
+      if (!trigger) {
+        continue;
+      }
+      if (content.state.progress(asset.id, objective.key) >= (objective.count ?? 1)) {
+        continue;
+      }
+      for (const id of trigger.enemies ?? []) {
+        markedEnemies.add(id.slice("enemy:".length));
+      }
+      for (const id of trigger.species ?? []) {
+        markedBeasts.add(id);
+      }
     }
   }
 }
@@ -1549,7 +1900,10 @@ let questMarkCount = 0;
 function markSpot(x: number, y: number, z: number, kind: QuestMarkerKind): void {
   const spot = questMarkSpots[questMarkCount];
   if (spot) {
-    spot.x = x; spot.y = y; spot.z = z; spot.kind = kind;
+    spot.x = x;
+    spot.y = y;
+    spot.z = z;
+    spot.kind = kind;
   } else {
     questMarkSpots.push({ x, y, z, kind });
   }
@@ -1562,15 +1916,21 @@ function syncQuestMarks(dt: number): void {
   if (markedNpcs.size > 0) {
     for (const n of world.npcs?.all ?? []) {
       const kind = markedNpcs.get(n.id);
-      if (kind) markSpot(n.x, n.y + NPC_MARK_RISE, n.z, kind);
+      if (kind) {
+        markSpot(n.x, n.y + NPC_MARK_RISE, n.z, kind);
+      }
     }
   }
   if (markedEnemies.size > 0 || markedBeasts.size > 0) {
     for (const e of combat.enemies) {
-      if (!e.targetable) continue;
+      if (!e.targetable) {
+        continue;
+      }
       const bond = markedBeasts.size > 0 ? combat.bondSpeciesOf(e) : null;
-      if (!markedEnemies.has(e.species) && !(bond && markedBeasts.has(bond))) continue;
-      markSpot(e.position.x, e.position.y + e.height + ENEMY_MARK_RISE, e.position.z, 'target');
+      if (!markedEnemies.has(e.species) && !(bond && markedBeasts.has(bond))) {
+        continue;
+      }
+      markSpot(e.position.x, e.position.y + e.height + ENEMY_MARK_RISE, e.position.z, "target");
     }
   }
   questMarkers.update(dt);
@@ -1586,7 +1946,9 @@ const refreshQuests = (): void => {
 };
 content.state.onChange((change) => {
   // `flag` is in here because the HUD switch IS a flag — see `hudFlag`.
-  if (change.kind !== 'discovery') refreshQuests();
+  if (change.kind !== "discovery") {
+    refreshQuests();
+  }
 });
 content.onDefinitionsChange(refreshQuests);
 refreshQuests();
@@ -1603,21 +1965,34 @@ interface QuestFact {
 function advanceObjectives(fact: QuestFact): void {
   for (const questId of content.state.activeQuests) {
     const asset = content.get<QuestData>(questId);
-    if (!asset) continue;
+    if (!asset) {
+      continue;
+    }
     for (const objective of asset.data.objectives) {
       const trigger = objective.trigger;
-      if (!trigger || trigger.kind !== fact.kind) continue;
+      if (!trigger || trigger.kind !== fact.kind) {
+        continue;
+      }
       // Each filter constrains its own kind only; absent is "any", and present-and-unmatched refuses, so a widened event that forgets its id under-counts.
-      if (fact.kind === 'enemy-killed' && trigger.enemies
-        && !trigger.enemies.includes(fact.id ?? '')) continue;
-      if (fact.kind === 'tamed' && trigger.species
-        && !trigger.species.includes(fact.id ?? '')) continue;
-      if (fact.kind === 'item-picked' && trigger.item !== undefined
-        && trigger.item !== fact.id) continue;
-      if (fact.kind === 'town-arrival' && trigger.town !== undefined
-        && trigger.town !== fact.id) continue;
-      if (fact.kind === 'zone-arrival' && trigger.zone !== undefined
-        && trigger.zone !== fact.id) continue;
+      if (
+        fact.kind === "enemy-killed" &&
+        trigger.enemies &&
+        !trigger.enemies.includes(fact.id ?? "")
+      ) {
+        continue;
+      }
+      if (fact.kind === "tamed" && trigger.species && !trigger.species.includes(fact.id ?? "")) {
+        continue;
+      }
+      if (fact.kind === "item-picked" && trigger.item !== undefined && trigger.item !== fact.id) {
+        continue;
+      }
+      if (fact.kind === "town-arrival" && trigger.town !== undefined && trigger.town !== fact.id) {
+        continue;
+      }
+      if (fact.kind === "zone-arrival" && trigger.zone !== undefined && trigger.zone !== fact.id) {
+        continue;
+      }
       const have = content.state.progress(questId, objective.key);
       if (have < (objective.count ?? 1)) {
         content.state.setProgress(questId, objective.key, have + 1);
@@ -1628,20 +2003,30 @@ function advanceObjectives(fact: QuestFact): void {
 
 bus.on((e) => {
   // A THROW, not a bond: the practice objective is about the motion, so a broken orb counts.
-  if (e.type === 'orbThrown') advanceObjectives({ kind: 'orb-thrown' });
+  if (e.type === "orbThrown") {
+    advanceObjectives({ kind: "orb-thrown" });
+  }
   // GENERIC OVER SPECIES, which is why it is here and not in `onBeastTamed`: three quests filter the one fact to their own beasts.
-  if (e.type === 'beastTamed') advanceObjectives({ kind: 'tamed', id: e.beastId });
+  if (e.type === "beastTamed") {
+    advanceObjectives({ kind: "tamed", id: e.beastId });
+  }
 });
 
 // Hung off `onChange` so a dialogue row, `/quest` and a future timer all get the same `onStart`, once
 // per real transition. `applyingSave` is the one refusal: a load would hand out the rewards again.
 content.state.onChange((change) => {
-  if (change.kind !== 'quest' || applyingSave) return;
+  if (change.kind !== "quest" || applyingSave) {
+    return;
+  }
   const asset = content.get<QuestData>(change.name);
-  if (!asset) return;
+  if (!asset) {
+    return;
+  }
   const status = content.state.questStatus(change.name);
-  if (status === 'active') content.run(asset.data.onStart);
-  if (status === 'completed') {
+  if (status === "active") {
+    content.run(asset.data.onStart);
+  }
+  if (status === "completed") {
     content.run(asset.data.onComplete);
     grantQuestRewards(asset);
   }
@@ -1651,23 +2036,25 @@ content.state.onChange((change) => {
 function grantQuestRewards(asset: ContentAsset<QuestData>): void {
   for (const [key, amount] of Object.entries(asset.data.rewards ?? {})) {
     const n = Math.round(amount);
-    if (n <= 0) continue;
-    if (key === 'xp') {
+    if (n <= 0) {
+      continue;
+    }
+    if (key === "xp") {
       primary()?.gainXp(n);
       support()?.gainXp(Math.round(n * 0.6));
       continue;
     }
     if (!isKnownItem(key)) {
       reportContentIssue({
-        severity: 'warn',
-        code: 'unknown-ref',
+        severity: "warn",
+        code: "unknown-ref",
         message: `reward "${key}" is not an item this build knows`,
         assetId: asset.id,
         assetType: asset.type,
         pkg: asset.pkg,
         source: asset.source,
-        field: 'data.rewards',
-        fix: 'rewards are xp or an item id — anything a reward DOES is an onComplete action',
+        field: "data.rewards",
+        fix: "rewards are xp or an item id — anything a reward DOES is an onComplete action",
       });
       continue;
     }
@@ -1679,7 +2066,7 @@ function grantQuestRewards(asset: ContentAsset<QuestData>): void {
 // bondable in aim or the throw is refused before it leaves the hand, so the quest stages one wild beast
 // near the hero's start. Twelve units: outside `wild-sproutle`'s aggro radius of 8, well inside
 // `ORB_RANGE`. A lucky catch FILLS the practice, since a throw at a bonded species emits no `orbThrown`.
-const PRACTICE_SPECIES = { enemy: 'wild-sproutle', beast: 'sproutle' } as const;
+const PRACTICE_SPECIES = { enemy: "wild-sproutle", beast: "sproutle" } as const;
 const PRACTICE_DIST = 12;
 /** Seconds between checks. A stage prop, not a frame-loop concern. */
 const PRACTICE_POLL = 1;
@@ -1687,23 +2074,33 @@ let practicePollIn = 0;
 
 function tickPracticeBeast(dt: number): void {
   practicePollIn -= dt;
-  if (practicePollIn > 0) return;
+  if (practicePollIn > 0) {
+    return;
+  }
   practicePollIn = PRACTICE_POLL;
 
-  const asset = content.get<QuestData>('quest:land/first-light');
-  if (!asset || content.state.questStatus(asset.id) !== 'active') return;
-  const objective = asset.data.objectives.find((o) => o.key === 'bond-practice');
-  if (!objective) return;
+  const asset = content.get<QuestData>("quest:land/first-light");
+  if (!asset || content.state.questStatus(asset.id) !== "active") {
+    return;
+  }
+  const objective = asset.data.objectives.find((o) => o.key === "bond-practice");
+  if (!objective) {
+    return;
+  }
   const need = objective.count ?? 1;
-  if (content.state.progress(asset.id, 'bond-practice') >= need) return;
+  if (content.state.progress(asset.id, "bond-practice") >= need) {
+    return;
+  }
 
   const species = PRACTICE_SPECIES;
   if (owned.has(species.beast)) {
-    content.state.setProgress(asset.id, 'bond-practice', need);
+    content.state.setProgress(asset.id, "bond-practice", need);
     return;
   }
   for (const e of combat.enemies) {
-    if (e.targetable && e.species === species.enemy) return;   // one is already out there
+    if (e.targetable && e.species === species.enemy) {
+      return;
+    } // one is already out there
   }
 
   // Around the hero's own start rather than the town centre: that is where the player is when the quest is given, and `pickPlayerStart` already chose it as a clear seat.
@@ -1712,10 +2109,16 @@ function tickPracticeBeast(dt: number): void {
     const a = (i / 8) * Math.PI * 2;
     const x = from.x + Math.sin(a) * PRACTICE_DIST;
     const z = from.z + Math.cos(a) * PRACTICE_DIST;
-    if (world.isWater(x, z)) continue;
+    if (world.isWater(x, z)) {
+      continue;
+    }
     // Nothing BUILT in this column — `spawnOne` obeys no placement rule of its own.
-    if (world.structureTopAt(x, z) > world.getHeight(x, z) + 0.5) continue;
-    if (combat.spawnOne(species.enemy, x, z)) return;
+    if (world.structureTopAt(x, z) > world.getHeight(x, z) + 0.5) {
+      continue;
+    }
+    if (combat.spawnOne(species.enemy, x, z)) {
+      return;
+    }
   }
 }
 
@@ -1733,14 +2136,21 @@ function enemyInAim(from: THREE.Vector3, aim: THREE.Vector3, range: number): Dam
   let bestDot = AIM_CONE_COS;
   for (const e of combat.enemies) {
     // `targetable` and not `isDead`: a beast inside a taming orb is invisible and refuses damage, and the crosshair must not lock onto the grass it stood on.
-    if (!e.targetable) continue;
+    if (!e.targetable) {
+      continue;
+    }
     const dx = e.position.x - from.x;
     const dy = e.position.y + 0.55 - from.y;
     const dz = e.position.z - from.z;
     const d = Math.hypot(dx, dy, dz);
-    if (d > range || d < 1e-3) continue;
+    if (d > range || d < 1e-3) {
+      continue;
+    }
     const dot = (dx * aim.x + dy * aim.y + dz * aim.z) / d;
-    if (dot > bestDot) { bestDot = dot; best = e as unknown as Damageable; }
+    if (dot > bestDot) {
+      bestDot = dot;
+      best = e as unknown as Damageable;
+    }
   }
   return best;
 }
@@ -1759,29 +2169,46 @@ function bondTargetInAim(def: ItemDef, from: THREE.Vector3, aim: THREE.Vector3):
   const ax = aim.x;
   const az = aim.z;
   const aLen = Math.hypot(ax, az);
-  if (aLen < 1e-4) return null;
+  if (aLen < 1e-4) {
+    return null;
+  }
   const fx = ax / aLen;
   const fz = az / aLen;
   let best: Enemy | null = null;
   let bestD = Infinity;
   let bestBondable = false;
   for (const e of combat.enemies) {
-    if (!e.targetable) continue;
+    if (!e.targetable) {
+      continue;
+    }
     const dx = e.position.x - from.x;
     const dy = e.position.y + 0.55 - from.y;
     const dz = e.position.z - from.z;
     const d = Math.hypot(dx, dy, dz);
-    if (d > ORB_RANGE || d < 1e-3) continue;
+    if (d > ORB_RANGE || d < 1e-3) {
+      continue;
+    }
     // The band, loose: what it refuses is the thing on the cliff above or in the ravine below.
-    if (dy > ORB_AIM_RISE || dy < -ORB_AIM_RISE) continue;
+    if (dy > ORB_AIM_RISE || dy < -ORB_AIM_RISE) {
+      continue;
+    }
     const hd = Math.hypot(dx, dz);
-    if (hd < 1e-4) continue;
-    if ((dx * fx + dz * fz) / hd < ORB_AIM_CONE_COS) continue;
+    if (hd < 1e-4) {
+      continue;
+    }
+    if ((dx * fx + dz * fz) / hd < ORB_AIM_CONE_COS) {
+      continue;
+    }
     const species = e.beastSpecies?.id ?? null;
-    const bondable = combat.bondRefusal(def, e as unknown as Damageable) === 'ok'
-      && !(species !== null && owned.has(species));
-    if (best !== null && bestBondable && !bondable) continue;
-    if (best !== null && bondable === bestBondable && d >= bestD) continue;
+    const bondable =
+      combat.bondRefusal(def, e as unknown as Damageable) === "ok" &&
+      !(species !== null && owned.has(species));
+    if (best !== null && bestBondable && !bondable) {
+      continue;
+    }
+    if (best !== null && bondable === bestBondable && d >= bestD) {
+      continue;
+    }
     best = e;
     bestD = d;
     bestBondable = bondable;
@@ -1795,38 +2222,43 @@ const ORB_RANGE = 20;
 // EVERY REFUSAL HAPPENS BEFORE THE ORB LEAVES THE HAND, and each says why — an arrow at nothing is
 // free, an orb is sixty Cubloons. The odds are deliberately not checked. The outcome is returned as
 // well as toasted, so `__dbgThrowOrb` need not scrape a translated sentence.
-type ThrowOutcome =
-  | 'thrown' | 'noOrb' | 'noTarget' | 'notBondable'
-  | 'alreadyOwned' | 'busy';
+type ThrowOutcome = "thrown" | "noOrb" | "noTarget" | "notBondable" | "alreadyOwned" | "busy";
 
 function throwReadiedOrb(explicitTarget?: Damageable | null, force?: boolean): ThrowOutcome {
   const def = readiedOrb ? itemDef(readiedOrb) : null;
   if (!def || bag.count(def.id) <= 0) {
-    bus.emit({ type: 'toast', text: t('toast.orbNone') });
-    return 'noOrb';
+    bus.emit({ type: "toast", text: t("toast.orbNone") });
+    return "noOrb";
   }
   engine.camera.getWorldDirection(_aim);
   // The assist, unless a test hook named its own target — see `__dbgThrowOrb`.
   const target = explicitTarget ?? bondTargetInAim(def, player.position, _aim);
   if (!target) {
-    bus.emit({ type: 'toast', text: t('toast.orbNoTarget') });
-    return 'noTarget';
+    bus.emit({ type: "toast", text: t("toast.orbNoTarget") });
+    return "noTarget";
   }
   const refusal = combat.bondRefusal(def, target);
-  if (refusal === 'notBondable') {
-    bus.emit({ type: 'toast', text: t('toast.orbNotBondable') });
-    return 'notBondable';
+  if (refusal === "notBondable") {
+    bus.emit({ type: "toast", text: t("toast.orbNotBondable") });
+    return "notBondable";
   }
   const beastId = combat.bondSpeciesOf(target);
   const nameKey = combat.bondNameKeyOf(target);
-  if (refusal === 'busy') return 'busy';
+  if (refusal === "busy") {
+    return "busy";
+  }
   // ALREADY YOURS, refused rather than allowed-and-wasted: a duplicate bond has nothing to grant, so the orb would buy nothing.
   if (beastId && owned.has(beastId)) {
-    bus.emit({ type: 'toast', text: t('toast.orbAlreadyOwned', { beast: nameKey ? t(nameKey) : '' }) });
-    return 'alreadyOwned';
+    bus.emit({
+      type: "toast",
+      text: t("toast.orbAlreadyOwned", { beast: nameKey ? t(nameKey) : "" }),
+    });
+    return "alreadyOwned";
   }
 
-  if (bag.remove(def.id, 1) !== 1) return 'noOrb';
+  if (bag.remove(def.id, 1) !== 1) {
+    return "noOrb";
+  }
   // From the chest down the camera ray, or a close target is missed by his own body. With an explicit target the
   // direction is AT it, so a probe does not depend on the camera.
   _orbFrom.copy(player.position);
@@ -1834,25 +2266,29 @@ function throwReadiedOrb(explicitTarget?: Damageable | null, force?: boolean): T
   if (explicitTarget) {
     _aim.copy(explicitTarget.position).sub(_orbFrom);
     _aim.y += 0.55;
-    if (_aim.lengthSq() < 1e-6) _aim.set(0, 0, 1);
+    if (_aim.lengthSq() < 1e-6) {
+      _aim.set(0, 0, 1);
+    }
     _aim.normalize();
   }
   combat.throwOrb(_orbFrom, _aim, def, target, force);
   refreshOrbHud();
   inventory.refresh();
-  bus.emit({ type: 'orbThrown', orbId: def.id });
-  return 'thrown';
+  bus.emit({ type: "orbThrown", orbId: def.id });
+  return "thrown";
 }
 
 /** Where a throw leaves the hero, above his feet. Chest height, as the bow is. */
 const ORB_THROW_RISE = 1.1;
 const _orbFrom = new THREE.Vector3();
 
-const lastCast = { skill: '', aimed: false, homing: false, x: 0, y: 0, z: 0 };
+const lastCast = { skill: "", aimed: false, homing: false, x: 0, y: 0, z: 0 };
 
 function castFromBeast(beast: BeastActor, skill: SkillDef): void {
   const cd = cooldowns.get(skill.id) ?? 0;
-  if (cd > 0) return;
+  if (cd > 0) {
+    return;
+  }
 
   // Riding it changes where its skills go: from the saddle you are aiming, so the crosshair wins outright and the auto-target is not consulted.
   const aimed = mount.isMounted && beast === mount.beast;
@@ -1891,14 +2327,18 @@ function castFromBeast(beast: BeastActor, skill: SkillDef): void {
   lastCast.skill = skill.id;
   lastCast.aimed = aimed;
   lastCast.homing = !!target;
-  lastCast.x = dir.x; lastCast.y = dir.y; lastCast.z = dir.z;
+  lastCast.x = dir.x;
+  lastCast.y = dir.y;
+  lastCast.z = dir.z;
   cooldowns.set(skill.id, skill.cooldown);
 }
 
 /** The lead beast's first four skills, or none at all with nobody leading. */
 function hotbarSkills(): SkillDef[] {
   const lead = primary();
-  if (!lead) return [];
+  if (!lead) {
+    return [];
+  }
   return lead.knownSkillIds
     .map((id) => getSkill(id))
     .filter((s): s is SkillDef => !!s)
@@ -1910,12 +2350,14 @@ function buildOffers(): ShopOffer[] {
   const offers: ShopOffer[] = [];
   for (const id of ORB_IDS) {
     const def = ITEMS[id];
-    if (def.storePrice === undefined) continue;
+    if (def.storePrice === undefined) {
+      continue;
+    }
     offers.push({
-      kind: 'item',
+      kind: "item",
       itemId: def.id,
       name: itemName(def),
-      description: def.descriptionKey ? t(def.descriptionKey) : '',
+      description: def.descriptionKey ? t(def.descriptionKey) : "",
       price: def.storePrice,
       affordable: shards() >= def.storePrice,
       color: def.color,
@@ -1924,12 +2366,16 @@ function buildOffers(): ShopOffer[] {
     });
   }
   for (const beast of [primary(), support()]) {
-    if (!beast) continue;
+    if (!beast) {
+      continue;
+    }
     for (const id of beast.species.skills) {
       const def = getSkill(id);
-      if (!def || def.storePrice === undefined) continue;
+      if (!def || def.storePrice === undefined) {
+        continue;
+      }
       offers.push({
-        kind: 'skill',
+        kind: "skill",
         skill: def,
         price: def.storePrice,
         owned: beast.knownSkillIds.includes(id),
@@ -1943,74 +2389,103 @@ function buildOffers(): ShopOffer[] {
 }
 
 function tryOpenShop(): void {
-  if (hud.isShopOpen()) return;
+  if (hud.isShopOpen()) {
+    return;
+  }
   // THROUGH `Input`, never straight to the DOM: `releaseLock` clears the INTENT, which is how `onLockLost` tells a player's Escape from a deliberate release.
   input.releaseLock();
-  hud.openShop(t('shop.skillDen.title'), buildOffers(), (i) => {
-    // REBUILT rather than captured: the list the player clicked was rendered before this purchase,
-    // and a second click on a stale record would spend Cubloons the first one already spent.
-    const offer = buildOffers()[i];
-    if (!offer || !offer.affordable) return;
-    if (offer.kind === 'item') {
-      spent += offer.price;
-      bag.add(offer.itemId, 1);
-      refreshBagChips();
-      // FIRST ORB BOUGHT IS READIED — opening the bag to arm it is a step between the purchase and the point of it.
-      if (!readiedOrb) readiedOrb = offer.itemId;
-      refreshOrbHud();
-      inventory.refresh();
-      bus.emit({ type: 'toast', text: t('toast.bought', { item: offer.name }) });
-    } else {
-      if (offer.owned) return;
-      spent += offer.price;
-      // By ID, not by name: this matched on the display name until species names moved into the string table, at
-      // which point a translated build charged for a skill nobody learned.
-      const beast = [primary(), support()].find((p) => p !== null && p.species.id === offer.beastId);
-      beast?.learnSkill(offer.skill.id);
-      bus.emit({
-        type: 'toast',
-        text: t('toast.learnedSkill', {
-          beast: offer.beastName, skill: t(offer.skill.nameKey),
-        }),
-      });
-    }
-    hud.setShards(shards());
-    hud.openShop(t('shop.skillDen.title'), buildOffers(), () => {}, () => hud.closeShop());
-  }, () => hud.closeShop());
+  hud.openShop(
+    t("shop.skillDen.title"),
+    buildOffers(),
+    (i) => {
+      // REBUILT rather than captured: the list the player clicked was rendered before this purchase,
+      // and a second click on a stale record would spend Cubloons the first one already spent.
+      const offer = buildOffers()[i];
+      if (!offer || !offer.affordable) {
+        return;
+      }
+      if (offer.kind === "item") {
+        spent += offer.price;
+        bag.add(offer.itemId, 1);
+        refreshBagChips();
+        // FIRST ORB BOUGHT IS READIED — opening the bag to arm it is a step between the purchase and the point of it.
+        if (!readiedOrb) {
+          readiedOrb = offer.itemId;
+        }
+        refreshOrbHud();
+        inventory.refresh();
+        bus.emit({ type: "toast", text: t("toast.bought", { item: offer.name }) });
+      } else {
+        if (offer.owned) {
+          return;
+        }
+        spent += offer.price;
+        // By ID, not by name: this matched on the display name until species names moved into the string table, at
+        // which point a translated build charged for a skill nobody learned.
+        const beast = [primary(), support()].find(
+          (p) => p !== null && p.species.id === offer.beastId,
+        );
+        beast?.learnSkill(offer.skill.id);
+        bus.emit({
+          type: "toast",
+          text: t("toast.learnedSkill", {
+            beast: offer.beastName,
+            skill: t(offer.skill.nameKey),
+          }),
+        });
+      }
+      hud.setShards(shards());
+      hud.openShop(
+        t("shop.skillDen.title"),
+        buildOffers(),
+        () => {},
+        () => hud.closeShop(),
+      );
+    },
+    () => hud.closeShop(),
+  );
 }
 
-const beastHud = (p: BeastActor | null): BeastHudInfo | null => (p === null ? null : {
-  // Resolved here, not in the HUD: `BeastHudInfo` is a snapshot of what to DRAW, and `t(key)` with no vars hands
-  // back the table's own string, so this allocates nothing per frame.
-  name: t(p.species.nameKey),
-  element: p.species.element,
-  locomotion: p.species.locomotion,
-  level: p.level,
-  xp: p.xp,
-  xpToNext: p.xpToNext,
-  hp: p.hp,
-  maxHp: p.maxHp,
-});
+const beastHud = (p: BeastActor | null): BeastHudInfo | null =>
+  p === null
+    ? null
+    : {
+        // Resolved here, not in the HUD: `BeastHudInfo` is a snapshot of what to DRAW, and `t(key)` with no vars hands
+        // back the table's own string, so this allocates nothing per frame.
+        name: t(p.species.nameKey),
+        element: p.species.element,
+        locomotion: p.species.locomotion,
+        level: p.level,
+        xp: p.xp,
+        xpToNext: p.xpToNext,
+        hp: p.hp,
+        maxHp: p.maxHp,
+      };
 
 // Photo mode (for the visual critic pipeline):   ?photo=1&cam=x,y,z&look=x,y,z&beast=<speciesId>&anim=<action>  — cam/look offset the spawn point.
 const params = new URLSearchParams(location.search);
 // From flags rather than `params`: world/sway.ts needs the same answer, and two parses is one too many.
 const photoMode = flags.photo;
 const parseVec = (s: string | null, fallback: THREE.Vector3): THREE.Vector3 => {
-  if (!s) return fallback;
-  const [x, y, z] = s.split(',').map(Number);
+  if (!s) {
+    return fallback;
+  }
+  const [x, y, z] = s.split(",").map(Number);
   return new THREE.Vector3(x, y, z);
 };
 if (photoMode) {
-  if (params.get('hud') === '0') {
-    const style = document.createElement('style');
-    style.textContent = 'body > *:not(#app), #app > *:not(canvas) { display: none !important; }';
+  if (params.get("hud") === "0") {
+    const style = document.createElement("style");
+    style.textContent = "body > *:not(#app), #app > *:not(canvas) { display: none !important; }";
     document.head.appendChild(style);
   }
-  const beastId = params.get('beast');
-  if (beastId || params.get('poff')) {
+  const beastId = params.get("beast");
+  if (beastId || params.get("poff")) {
     // Portraits happen on FLAT ground so the camera is never buried in a hillside.
-    const idx = Math.max(0, roster.findIndex((p) => p.species.id === beastId));
+    const idx = Math.max(
+      0,
+      roster.findIndex((p) => p.species.id === beastId),
+    );
     const ring = (idx / roster.length) * Math.PI * 2;
     const base = world.spawnPoint;
 
@@ -2018,7 +2493,14 @@ if (photoMode) {
     const flatness = (x: number, z: number): number => {
       const h = world.getHeight(x, z);
       let worst = 0;
-      for (const [dx, dz] of [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2]]) {
+      for (const [dx, dz] of [
+        [3, 0],
+        [-3, 0],
+        [0, 3],
+        [0, -3],
+        [2, 2],
+        [-2, -2],
+      ]) {
         worst = Math.max(worst, Math.abs(world.getHeight(x + dx, z + dz) - h));
       }
       return worst;
@@ -2029,7 +2511,9 @@ if (photoMode) {
       let worst = 0;
       for (const s of world.shopPositions) {
         const d = Math.hypot(s.x - x, s.z - z);
-        if (d < 14) worst = Math.max(worst, (14 - d) * 0.5);
+        if (d < 14) {
+          worst = Math.max(worst, (14 - d) * 0.5);
+        }
       }
       return worst;
     };
@@ -2041,35 +2525,46 @@ if (photoMode) {
         const a = ring + k * 0.26;
         const x = base.x + Math.cos(a) * radius;
         const z = base.z + Math.sin(a) * radius;
-        if (world.getHeight(x, z) < world.waterLevel + 0.6) continue; // not in the shallows
+        if (world.getHeight(x, z) < world.waterLevel + 0.6) {
+          continue;
+        } // not in the shallows
         // Score on level ground AND a clean backdrop, not flatness alone.
         const score = flatness(x, z) + backdropPenalty(x, z);
-        if (score < bestScore) { bestScore = score; best = new THREE.Vector3(x, 0, z); }
-        if (score < 0.7) break; // good enough, take it
+        if (score < bestScore) {
+          bestScore = score;
+          best = new THREE.Vector3(x, 0, z);
+        }
+        if (score < 0.7) {
+          break;
+        } // good enough, take it
       }
-      if (bestScore < 0.7) break;
+      if (bestScore < 0.7) {
+        break;
+      }
     }
 
-    const spot = params.get('poff')
-      ? parseVec(params.get('poff'), base).add(base)
-      : (best ?? base);
+    const spot = params.get("poff") ? parseVec(params.get("poff"), base).add(base) : (best ?? base);
     player.position.x = spot.x;
     player.position.z = spot.z;
     player.position.y = Math.max(world.getHeight(spot.x, spot.z) + 0.1, world.waterLevel + 0.2);
   }
   if (beastId) {
     const idx = roster.findIndex((p) => p.species.id === beastId);
-    if (idx >= 0) primaryIdx = idx;
+    if (idx >= 0) {
+      primaryIdx = idx;
+    }
     // PHOTO MODE IGNORES OWNERSHIP — how every portrait in shots/ was taken, and the one door into a party slot that skips `grantBeast`.
-    if (idx >= 0) owned.add(beastId);
+    if (idx >= 0) {
+      owned.add(beastId);
+    }
     // Staged portraits show ONE subject: hide the hero and every other beast.
     roster.forEach((p, i) => p.setVisible(i === primaryIdx));
     player.root.visible = false;
   }
 }
-const photoCam = parseVec(params.get('cam'), new THREE.Vector3(6, 4, 8)).add(world.spawnPoint);
-const photoLook = parseVec(params.get('look'), new THREE.Vector3(0, 1, 0)).add(world.spawnPoint);
-const photoAnim = params.get('anim');
+const photoCam = parseVec(params.get("cam"), new THREE.Vector3(6, 4, 8)).add(world.spawnPoint);
+const photoLook = parseVec(params.get("look"), new THREE.Vector3(0, 1, 0)).add(world.spawnPoint);
+const photoAnim = params.get("anim");
 let photoAnimTimer = 0;
 
 // Null without a touch screen, so nothing is added to the DOM and there is no per-frame cost.
@@ -2097,27 +2592,34 @@ const lookAxes: LookAxes = {
 pad = photoMode ? null : GamepadControls.attach(input, { look: lookAxes });
 touch?.setLookAxes(lookAxes);
 
-feedback = photoMode ? null : new FeedbackSystem({
-  bus,
-  camera: player.cam,
-  pad: () => pad?.current ?? null,
-  // Live, per frame: rumble belongs to the device in the player's hands, so a pad left plugged in stops buzzing the moment the keyboard is touched.
-  tactileInput: () => input.tactile,
-  hapticFeedback: prefs.hapticFeedback,
-  hapticIntensity: flags.haptics ?? prefs.hapticIntensity,
-  shakeIntensity: flags.shake ?? prefs.shakeIntensity,
-});
+feedback = photoMode
+  ? null
+  : new FeedbackSystem({
+      bus,
+      camera: player.cam,
+      pad: () => pad?.current ?? null,
+      // Live, per frame: rumble belongs to the device in the player's hands, so a pad left plugged in stops buzzing the moment the keyboard is touched.
+      tactileInput: () => input.tactile,
+      hapticFeedback: prefs.hapticFeedback,
+      hapticIntensity: flags.haptics ?? prefs.hapticIntensity,
+      shakeIntensity: flags.shake ?? prefs.shakeIntensity,
+    });
 
 interface DebugProbes {
   __dbgPlayerPos: () => { x: number; y: number; z: number };
   __dbgCam: () => {
-    x: number; y: number; z: number; pitch: number;
+    x: number;
+    y: number;
+    z: number;
+    pitch: number;
     dir: { x: number; y: number; z: number };
   };
   __dbgCamYaw: () => number;
 }
 (window as unknown as DebugProbes).__dbgPlayerPos = () => ({
-  x: player.position.x, y: player.position.y, z: player.position.z,
+  x: player.position.x,
+  y: player.position.y,
+  z: player.position.z,
 });
 const _dbgDir = new THREE.Vector3();
 /** Scratch for the compass's per-frame camera forward. Never allocate in frame(). */
@@ -2127,7 +2629,9 @@ const _hurtFrom = new THREE.Vector3();
 (window as unknown as DebugProbes).__dbgCam = () => {
   engine.camera.getWorldDirection(_dbgDir);
   return {
-    x: engine.camera.position.x, y: engine.camera.position.y, z: engine.camera.position.z,
+    x: engine.camera.position.x,
+    y: engine.camera.position.y,
+    z: engine.camera.position.z,
     pitch: (Math.asin(Math.max(-1, Math.min(1, _dbgDir.y))) * 180) / Math.PI,
     // The camera looks THROUGH the pinned crosshair, so this vector IS the crosshair ray.
     dir: { x: _dbgDir.x, y: _dbgDir.y, z: _dbgDir.z },
@@ -2141,21 +2645,31 @@ const _hurtFrom = new THREE.Vector3();
   const g = world.npcs?.all[0] ?? null;
   const deg = (r: number): number => {
     let d = r;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
+    while (d > Math.PI) {
+      d -= Math.PI * 2;
+    }
+    while (d < -Math.PI) {
+      d += Math.PI * 2;
+    }
     return +((d * 180) / Math.PI).toFixed(2);
   };
   return {
     start: {
-      x: +s.position.x.toFixed(2), y: +s.position.y.toFixed(2), z: +s.position.z.toFixed(2),
+      x: +s.position.x.toFixed(2),
+      y: +s.position.y.toFixed(2),
+      z: +s.position.z.toFixed(2),
       yaw: +s.yaw.toFixed(3),
     },
     player: {
-      x: +player.position.x.toFixed(2), z: +player.position.z.toFixed(2),
+      x: +player.position.x.toFixed(2),
+      z: +player.position.z.toFixed(2),
       facing: +player.facing.toFixed(3),
     },
     greeter: g && {
-      id: g.id, x: +g.x.toFixed(2), y: +g.y.toFixed(2), z: +g.z.toFixed(2),
+      id: g.id,
+      x: +g.x.toFixed(2),
+      y: +g.y.toFixed(2),
+      z: +g.z.toFixed(2),
       restYaw: +g.restYaw.toFixed(3),
     },
     /** Distance from the hero's start to the greeter, in world units. */
@@ -2163,23 +2677,27 @@ const _hurtFrom = new THREE.Vector3();
     /** How far the hero's facing differs from the greeter's, degrees. */
     faceGap: g ? deg(s.yaw - g.restYaw) : null,
     // Angle between the camera arm and the hero's facing, degrees; 0 is his face.
-    camFromFace: deg(Math.atan2(
-      engine.camera.position.x - player.position.x,
-      engine.camera.position.z - player.position.z,
-    ) - player.facing),
+    camFromFace: deg(
+      Math.atan2(
+        engine.camera.position.x - player.position.x,
+        engine.camera.position.z - player.position.z,
+      ) - player.facing,
+    ),
     /** How far the start is from the world's own reference point. */
     fromSpawn: +Math.hypot(
-      s.position.x - world.spawnPoint.x, s.position.z - world.spawnPoint.z,
+      s.position.x - world.spawnPoint.x,
+      s.position.z - world.spawnPoint.z,
     ).toFixed(2),
   };
 };
 
 // Compass state. `rel` is the signed shortest-arc bearing to the marker in degrees, `clamped` says it fell off the end of the strip and is parked at the edge.
 (window as unknown as { __dbgCompass: () => unknown }).__dbgCompass = () => hud.compassDebug();
-(window as unknown as DebugProbes).__dbgCamYaw = () => Math.atan2(
-  engine.camera.position.x - player.position.x,
-  engine.camera.position.z - player.position.z,
-);
+(window as unknown as DebugProbes).__dbgCamYaw = () =>
+  Math.atan2(
+    engine.camera.position.x - player.position.x,
+    engine.camera.position.z - player.position.z,
+  );
 (window as unknown as { __dbgInput: () => unknown }).__dbgInput = () => ({
   axisFwd: input.axisFwd,
   axisSide: input.axisSide,
@@ -2188,12 +2706,16 @@ const _hurtFrom = new THREE.Vector3();
   // Two answers, not one: `autoRelock` is the host's permission, `relockPending` whether there is a pointer to recover at all.
   autoRelock: input.autoRelock,
   relockPending: input.relockPending,
-  touchOverlay: !!document.querySelector('.bs-touch'),
+  touchOverlay: !!document.querySelector(".bs-touch"),
   // The OVERLAY's look pad — a different object from `__dbgPad`'s, and null with no overlay.
   touchLookAxes: touch?.lookAxes ?? null,
   // ADDITIVE: tools/test-touch.mjs dumps this wholesale, so keys may be added but never renamed.
   ...(input.debugState() as object),
-  vel: { x: +player.velocity.x.toFixed(2), y: +player.velocity.y.toFixed(2), z: +player.velocity.z.toFixed(2) },
+  vel: {
+    x: +player.velocity.x.toFixed(2),
+    y: +player.velocity.y.toFixed(2),
+    z: +player.velocity.z.toFixed(2),
+  },
   onGround: player.onGround,
   // Which SURFACE holds him up: false is the terrain, true a tree crown (see World.climbTopAt).
   onCanopy: player.onCanopy,
@@ -2220,18 +2742,19 @@ const _hurtFrom = new THREE.Vector3();
 (window as unknown as { __dbgPad: () => unknown }).__dbgPad = () => pad?.debugState() ?? null;
 
 // `haptics.issues` is the number of real playEffect calls, which is what proves the 12 Hz cadence rather than the mixer re-issuing every frame.
-(window as unknown as { __dbgFeedback: () => unknown }).__dbgFeedback =
-  () => feedback?.debugState() ?? null;
+(window as unknown as { __dbgFeedback: () => unknown }).__dbgFeedback = () =>
+  feedback?.debugState() ?? null;
 
 // `output` is the number to watch a fade on — `volume` is the master and does not move during one.
 (window as unknown as { __dbgMusic: () => unknown }).__dbgMusic = () => music.debugState();
 // TEST HOOK: the loop seam is 85 s into the shortest track, which no probe can wait for.
-(window as unknown as { __dbgMusicSeek: (t: number) => void }).__dbgMusicSeek =
-  (t: number) => music.seek(t);
+(window as unknown as { __dbgMusicSeek: (t: number) => void }).__dbgMusicSeek = (t: number) =>
+  music.seek(t);
 // TEST HOOK: naming a scene directly is the only way to ask what an area NOBODY scored plays —
 // walking to a gateway is a minute of driving and reaches the two zones this build ships.
-(window as unknown as { __dbgMusicScene: (s: string | null) => void }).__dbgMusicScene =
-  (s: string | null) => music.setScene(s);
+(window as unknown as { __dbgMusicScene: (s: string | null) => void }).__dbgMusicScene = (
+  s: string | null,
+) => music.setScene(s);
 
 // TEST HOOK: waiting for a real enemy to connect is not deterministic enough to assert feedback timing, or the invulnerability window, against.
 (window as unknown as { __dbgHurt: (n: number) => void }).__dbgHurt = (n: number) => {
@@ -2287,9 +2810,11 @@ const _hurtFrom = new THREE.Vector3();
 (window as unknown as { __dbgTaming: (species?: string) => unknown }).__dbgTaming = (species) => {
   const def = readiedOrb ? itemDef(readiedOrb) : null;
   engine.camera.getWorldDirection(_aim);
-  const target = !def ? null
-    : species ? (nearestEnemyOfSpecies(species) as unknown as Damageable | null)
-    : bondTargetInAim(def, player.position, _aim);
+  const target = !def
+    ? null
+    : species
+      ? (nearestEnemyOfSpecies(species) as unknown as Damageable | null)
+      : bondTargetInAim(def, player.position, _aim);
   return {
     readied: readiedOrb,
     tier: def?.orbTier ?? null,
@@ -2298,36 +2823,49 @@ const _hurtFrom = new THREE.Vector3();
     owned: [...owned],
     lead: primary()?.species.id ?? null,
     support: support()?.species.id ?? null,
-    target: target ? {
-      species: combat.bondSpeciesOf(target),
-      hp: +target.hp.toFixed(1),
-      maxHp: target.maxHp,
-      refusal: def ? combat.bondRefusal(def, target) : 'notBondable',
-      chance: def ? +combat.bondChance(def, target).toFixed(4) : 0,
-    } : null,
+    target: target
+      ? {
+          species: combat.bondSpeciesOf(target),
+          hp: +target.hp.toFixed(1),
+          maxHp: target.maxHp,
+          refusal: def ? combat.bondRefusal(def, target) : "notBondable",
+          chance: def ? +combat.bondChance(def, target).toFixed(4) : 0,
+        }
+      : null,
   };
 };
 
 // TEST HOOKS for bonding. `__dbgWeaken` is the only way to reach "a beast at 10% health", and the claim
 // under test is that the odds MOVE with health. `__dbgThrowOrb` forces the outcome so both settle paths
 // are assertable; the odds are asserted off `__dbgTaming().target.chance`.
-(window as unknown as {
-  __dbgWeaken: (species: string, hpFrac: number) => unknown;
-}).__dbgWeaken = (species, hpFrac) => {
+(
+  window as unknown as {
+    __dbgWeaken: (species: string, hpFrac: number) => unknown;
+  }
+).__dbgWeaken = (species, hpFrac) => {
   const e = nearestEnemyOfSpecies(species);
-  if (!e) return { ok: false, why: `no live "${species}" nearby` };
+  if (!e) {
+    return { ok: false, why: `no live "${species}" nearby` };
+  }
   e.hp = Math.max(1, Math.round(e.maxHp * Math.max(0, Math.min(1, hpFrac))));
   // The ID, so a probe can keep measuring THIS animal: the nearest one can change between two calls, which is the ambiguity an "it was removed" assertion must not have.
   return { ok: true, id: e.root.id, species, hp: e.hp, maxHp: e.maxHp };
 };
 
-(window as unknown as {
-  __dbgThrowOrb: (species?: string, force?: boolean) => unknown;
-}).__dbgThrowOrb = (species, force) => {
+(
+  window as unknown as {
+    __dbgThrowOrb: (species?: string, force?: boolean) => unknown;
+  }
+).__dbgThrowOrb = (species, force) => {
   const target = species ? nearestEnemyOfSpecies(species) : null;
-  if (species && !target) return { outcome: 'noTarget', why: `no live "${species}" nearby` };
+  if (species && !target) {
+    return { outcome: "noTarget", why: `no live "${species}" nearby` };
+  }
   const dist = target
-    ? +Math.hypot(target.position.x - player.position.x, target.position.z - player.position.z).toFixed(2)
+    ? +Math.hypot(
+        target.position.x - player.position.x,
+        target.position.z - player.position.z,
+      ).toFixed(2)
     : null;
   const outcome = throwReadiedOrb(target as unknown as Damageable | null, force);
   return { outcome, species: species ?? null, id: target?.root.id ?? null, dist };
@@ -2337,9 +2875,14 @@ function nearestEnemyOfSpecies(species: string) {
   let best = null;
   let bd = Infinity;
   for (const e of combat.enemies) {
-    if (!e.targetable || e.species !== species) continue;
+    if (!e.targetable || e.species !== species) {
+      continue;
+    }
     const d = (e.position.x - player.position.x) ** 2 + (e.position.z - player.position.z) ** 2;
-    if (d < bd) { bd = d; best = e; }
+    if (d < bd) {
+      bd = d;
+      best = e;
+    }
   }
   return best;
 }
@@ -2349,16 +2892,16 @@ function nearestEnemyOfSpecies(species: string) {
 (window as unknown as { __dbgOrbAim: (species: string) => unknown }).__dbgOrbAim = (species) => {
   const e = nearestEnemyOfSpecies(species);
   const def = readiedOrb ? itemDef(readiedOrb) : null;
-  if (!e || !def) return null;
+  if (!e || !def) {
+    return null;
+  }
   engine.camera.getWorldDirection(_aim);
   const dx = e.position.x - player.position.x;
   const dy = e.position.y + 0.55 - player.position.y;
   const dz = e.position.z - player.position.z;
   const hd = Math.hypot(dx, dz);
   const aLen = Math.hypot(_aim.x, _aim.z);
-  const dot = hd > 1e-3 && aLen > 1e-4
-    ? (dx * (_aim.x / aLen) + dz * (_aim.z / aLen)) / hd
-    : 0;
+  const dot = hd > 1e-3 && aLen > 1e-4 ? (dx * (_aim.x / aLen) + dz * (_aim.z / aLen)) / hd : 0;
   const picked = bondTargetInAim(def, player.position, _aim);
   return {
     species,
@@ -2380,14 +2923,16 @@ function nearestEnemyOfSpecies(species: string) {
     bag: bag.entries().map((e) => ({ id: e.def.id, count: e.count })),
     drops: combat.dropSnapshot(),
     owned: [...owned],
-    support: sup ? {
-      // Probes report the IDENTIFIER, not the display name: a tool must not fail under `?lang=sv`.
-      id: sup.species.id,
-      fetching: sup.isFetching,
-      carrying: sup.isCarrying,
-      item: sup.fetchItemId,
-      pos: { x: +sup.position.x.toFixed(2), z: +sup.position.z.toFixed(2) },
-    } : null,
+    support: sup
+      ? {
+          // Probes report the IDENTIFIER, not the display name: a tool must not fail under `?lang=sv`.
+          id: sup.species.id,
+          fetching: sup.isFetching,
+          carrying: sup.isCarrying,
+          item: sup.fetchItemId,
+          pos: { x: +sup.position.x.toFixed(2), z: +sup.position.z.toFixed(2) },
+        }
+      : null,
     primary: lead ? { id: lead.species.id, fetching: lead.isFetching } : null,
   };
 };
@@ -2395,7 +2940,11 @@ function nearestEnemyOfSpecies(species: string) {
 (window as unknown as { __dbgCompanions: () => unknown }).__dbgCompanions = () => {
   const p = player.position;
   const one = (b: BeastActor, role: string) => ({
-    role, id: b.species.id, transit: b.inTransit, drawn: b.isDrawn, dead: b.isDead,
+    role,
+    id: b.species.id,
+    transit: b.inTransit,
+    drawn: b.isDrawn,
+    dead: b.isDead,
     // Screen size of its light-travel streak; both halves of issue #136 read off this one number.
     beam: +b.beamSize.toFixed(3),
     // The ridden beast is placed by the saddle and never runs follow steering.
@@ -2411,13 +2960,11 @@ function nearestEnemyOfSpecies(species: string) {
     ground: +world.getHeight(p.x, p.z).toFixed(2),
     needed: lead?.supportNeeded ?? false,
     // An EMPTY LIST with nothing bonded, so a probe counting rows reads the truth.
-    beasts: [
-      ...(lead ? [one(lead, 'primary')] : []),
-      ...(sup ? [one(sup, 'support')] : []),
-    ],
+    beasts: [...(lead ? [one(lead, "primary")] : []), ...(sup ? [one(sup, "support")] : [])],
     // Bonded but not in a slot: outside `beasts`, because every test-companion assertion there means "following
     // the hero" — but issue #136 is what a benched beast left running.
-    bench: ownedBeasts().filter((b) => b !== lead && b !== sup)
+    bench: ownedBeasts()
+      .filter((b) => b !== lead && b !== sup)
       .map((b) => ({ id: b.species.id, drawn: b.isDrawn, beam: +b.beamSize.toFixed(3) })),
   };
 };
@@ -2428,10 +2975,10 @@ function nearestEnemyOfSpecies(species: string) {
 // a column by up to 1.62, so a path authored under a standing hero leaves him inside the ground, and
 // only ever UP, because a hero in the air should fall.
 const refitHero = (): void => {
-  const floor = Math.max(
-    world.getHeight(player.position.x, player.position.z), world.waterLevel,
-  );
-  if (player.position.y >= floor) return;
+  const floor = Math.max(world.getHeight(player.position.x, player.position.z), world.waterLevel);
+  if (player.position.y >= floor) {
+    return;
+  }
   mount.teleport(player.position.x, player.position.z, floor);
   player.position.y = floor;
   player.velocity.set(0, 0, 0);
@@ -2453,46 +3000,58 @@ const refitHero = (): void => {
       for (let i = 0; i < r.path.length; i += 3) {
         const x = r.path[i];
         const z = r.path[i + 2];
-        if (world.towns.all.some(
-          (t) => Math.hypot(t.x - x, t.z - z) < t.outerRadius + 8,
-        )) continue;
+        if (world.towns.all.some((t) => Math.hypot(t.x - x, t.z - z) < t.outerRadius + 8)) {
+          continue;
+        }
         // AND WITH A CLEAR RUN TO THE GATE: the spur curves, so the point closest to the gate can still
         // have a carriageway between it and where the trail is going. Measured — it did.
-        if (world.pathRunCrosses(x, z, gate.x, gate.z)) continue;
+        if (world.pathRunCrosses(x, z, gate.x, gate.z)) {
+          continue;
+        }
         // And clear of what is already standing: a trail refuses BUILT things only prospectively, and the lamps
         // were stamped when the network was planned. The margin is timber plus half-width.
-        if (world.pathRunHitsBuilt(x, z, gate.x, gate.z, TRAIL_PROFILE.deckEdge)) continue;
+        if (world.pathRunHitsBuilt(x, z, gate.x, gate.z, TRAIL_PROFILE.deckEdge)) {
+          continue;
+        }
         const d = Math.hypot(x - gate.x, z - gate.z);
-        if (d < headD) { headD = d; head = { x, z }; }
+        if (d < headD) {
+          headD = d;
+          head = { x, z };
+        }
       }
     }
     const laid = world.addPath({
       from: [head.x, head.z],
       to: [gate.x, gate.z],
-      profile: 'trail',
+      profile: "trail",
     });
     // REPORTED, NOT SWALLOWED: a world quietly short of the path to its own dungeon is the silent failure the refusal machinery exists to prevent.
     if (laid.error) {
       reportContentIssue({
-        severity: 'warn',
-        code: 'gateway-trail-refused',
+        severity: "warn",
+        code: "gateway-trail-refused",
         message: `The trail to the gateway was refused: ${laid.error}`,
-        fix: 'move the gateway, or give the trail a profile that can bridge',
+        fix: "move the gateway, or give the trail a profile that can bridge",
       });
     } else if (laid.crossings > 0) {
       // Starting from the nearest road point is what should make this zero; if it is not, the trail runs over a carriageway with nothing at the meeting.
       reportContentIssue({
-        severity: 'warn',
-        code: 'gateway-trail-crosses',
-        message: `The trail to the gateway crosses ${laid.crossings} road(s) `
-          + 'with no junction at the meeting',
-        fix: 'move the gateway clear of the road network, or merge the crossing',
+        severity: "warn",
+        code: "gateway-trail-crosses",
+        message:
+          `The trail to the gateway crosses ${laid.crossings} road(s) ` +
+          "with no junction at the meeting",
+        fix: "move the gateway clear of the road network, or merge the crossing",
       });
     }
   }
 }
 
-(window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = (x, z, y) => {
+(window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = (
+  x,
+  z,
+  y,
+) => {
   // THE SADDLE FIRST: while mounted the hero's position is rewritten from the mount every slice, so setting these fields alone was a teleport that did nothing.
   mount.teleport(x, z, y);
   player.position.x = x;
@@ -2509,7 +3068,9 @@ const refitHero = (): void => {
 // perfect 60 Hz frame, so a held key stays held and the streamer gets its full per-frame budget. It
 // does not render. Clamped to 300 s so a runaway argument cannot hang the tab.
 (window as unknown as { __dbgAdvance: (seconds: number) => unknown }).__dbgAdvance = (seconds) => {
-  if (!playing) return { playing: false, slices: 0 };
+  if (!playing) {
+    return { playing: false, slices: 0 };
+  }
   const s = Math.min(Math.max(0, Number(seconds) || 0), 300);
   const slices = Math.round(s * SIM_HZ);
   const t0 = performance.now();
@@ -2536,33 +3097,40 @@ const refitHero = (): void => {
   _dbgStrike.copy(player.position);
   _dbgStrike.y += 1.25;
   const target = combat.bestMeleeTarget(
-    _dbgStrike, _aimDir, SWORD_REACH, AIM_ASSIST_CONE_COS, player.position.y,
+    _dbgStrike,
+    _aimDir,
+    SWORD_REACH,
+    AIM_ASSIST_CONE_COS,
+    player.position.y,
   );
   // Named `reachable` because `inReach` is the imported proximity rule; the REPORTED field keeps the name tools already read.
-  const reachable = combat.bestMeleeTarget(
-    _dbgStrike, _aimDir, SWORD_REACH, -1, player.position.y,
-  );
+  const reachable = combat.bestMeleeTarget(_dbgStrike, _aimDir, SWORD_REACH, -1, player.position.y);
   const deg = (r: number): number => +((r * 180) / Math.PI).toFixed(2);
   const bearing = (dx: number, dz: number): number => Math.atan2(dx, dz);
   const aim = bearing(_aimDir.x, _aimDir.z);
   const shortest = (a: number): number => {
-    while (a > Math.PI) a -= 2 * Math.PI;
-    while (a < -Math.PI) a += 2 * Math.PI;
+    while (a > Math.PI) {
+      a -= 2 * Math.PI;
+    }
+    while (a < -Math.PI) {
+      a += 2 * Math.PI;
+    }
     return a;
   };
   const describe = (e: Damageable | null): unknown => {
-    if (!e) return null;
+    if (!e) {
+      return null;
+    }
     const dx = e.position.x - _dbgStrike.x;
     const dz = e.position.z - _dbgStrike.z;
     return {
-      x: +e.position.x.toFixed(2), z: +e.position.z.toFixed(2),
+      x: +e.position.x.toFixed(2),
+      z: +e.position.z.toFixed(2),
       distance: +Math.hypot(dx, dz).toFixed(2),
       // Feet to feet, the axis the selection is gated on — `distance` 1.5 with `rise` 6 is issue #78.
       rise: +(e.position.y - player.position.y).toFixed(2),
       angleFromCrosshair: deg(Math.abs(shortest(bearing(dx, dz) - aim))),
-      turn: deg(Math.abs(shortest(
-        bearing(dx, dz) - bearing(player.forward.x, player.forward.z),
-      ))),
+      turn: deg(Math.abs(shortest(bearing(dx, dz) - bearing(player.forward.x, player.forward.z)))),
     };
   };
   return {
@@ -2583,31 +3151,48 @@ const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, cro
 (window as unknown as { __dbgTouchFx: () => unknown }).__dbgTouchFx = () => ({
   ...touchFx.stats(),
   crown: world.crownContactAt(
-    player.position.x, player.position.y + 1, player.position.z, 0.65, _dbgCrown,
-  ) ? { ..._dbgCrown } : null,
+    player.position.x,
+    player.position.y + 1,
+    player.position.z,
+    0.65,
+    _dbgCrown,
+  )
+    ? { ..._dbgCrown }
+    : null,
 });
 // TEST HOOK: force a burst without finding a tree, the only practical way to drive the pool to exhaustion on demand.
-(window as unknown as { __dbgTouchBurst: (n: number) => number }).__dbgTouchBurst =
-  (n) => touchFx.forceBurst(player, n);
-(window as unknown as { __dbgDrop: (id: string, dx: number, dz: number) => void })
-  .__dbgDrop = (id, dx, dz) => {
-    const x = player.position.x + dx, z = player.position.z + dz;
-    combat.spawnDrop(id, x, world.getHeight(x, z) + 0.5, z);
-  };
+(window as unknown as { __dbgTouchBurst: (n: number) => number }).__dbgTouchBurst = (n) =>
+  touchFx.forceBurst(player, n);
+(window as unknown as { __dbgDrop: (id: string, dx: number, dz: number) => void }).__dbgDrop = (
+  id,
+  dx,
+  dz,
+) => {
+  const x = player.position.x + dx,
+    z = player.position.z + dz;
+  combat.spawnDrop(id, x, world.getHeight(x, z) + 0.5, z);
+};
 // TEST HOOK, and the only way test-textsize sees MOST of the HUD at once: half the panels the 16px
 // floor covers are transient (issue #17 named three). A hook rather than the probe reaching into `hud`,
 // because the shop needs the real skill registry and prices.
 (window as unknown as { __dbgStageHud: () => boolean }).__dbgStageHud = () => {
-  hud.showHint(t('hint.npcTalk', { key: hud.interactPrompt, name: t('npc.gain.name') }));
+  hud.showHint(t("hint.npcTalk", { key: hud.interactPrompt, name: t("npc.gain.name") }));
   hud.showDialogue(
-    t('npc.gain.name'), t('npc.gain.greeting'),
-    t('npc.dialogue.close', { key: hud.interactPrompt }),
+    t("npc.gain.name"),
+    t("npc.gain.greeting"),
+    t("npc.dialogue.close", { key: hud.interactPrompt }),
   );
   hud.setMountHold(0.42);
-  hud.setMounted(t('beast.emberfox.name'), 'ground');
-  hud.setBag([{ def: itemDef('sunberry'), count: 3 }, { def: itemDef('glowpebble'), count: 12 }]);
-  bus.emit({ type: 'beastLevelUp', beastId: 'emberfox', nameKey: 'beast.emberfox.name', level: 4 });
-  bus.emit({ type: 'toast', text: t('toast.fetched', { beast: 'Emberfox', item: 'Sunberries', n: 3 }) });
+  hud.setMounted(t("beast.emberfox.name"), "ground");
+  hud.setBag([
+    { def: itemDef("sunberry"), count: 3 },
+    { def: itemDef("glowpebble"), count: 12 },
+  ]);
+  bus.emit({ type: "beastLevelUp", beastId: "emberfox", nameKey: "beast.emberfox.name", level: 4 });
+  bus.emit({
+    type: "toast",
+    text: t("toast.fetched", { beast: "Emberfox", item: "Sunberries", n: 3 }),
+  });
   tryOpenShop();
   return true;
 };
@@ -2619,29 +3204,31 @@ let started = false;
 // 120 rather than 60 because a player feels that difference and not 120 to 165. A DEADLINE, not a sleep
 // — an interval cap undershoots — and skipped time rolls into the next frame.
 const DEFAULT_FPS_CAP = 120;
-const fpsCap = Number(params.get('fps') ?? DEFAULT_FPS_CAP);
+const fpsCap = Number(params.get("fps") ?? DEFAULT_FPS_CAP);
 engine.setFpsCap(fpsCap);
 const debug = new DebugOverlay(engine.renderer, fpsCap);
-if (params.get('debug') === '1') debug.toggle();
+if (params.get("debug") === "1") {
+  debug.toggle();
+}
 
 // Composition-root policy: gfx.ts knows bloom is a boolean, this file knows what a bloom pass and a chunk mesh are.
 const gfx = new Gfx({
-  grass: (on) => world.setLayerVisible('grass', on),
+  grass: (on) => world.setLayerVisible("grass", on),
   terrainDistance: (metres) => {
     world.setTerrainDistance(metres);
     engine.setViewDistance(metres);
   },
   foliageDistance: (metres) => world.setFoliageDistance(metres),
-  props: (on) => world.setLayerVisible('props', on),
-  water: (on) => world.setLayerVisible('water', on),
-  clouds: (on) => world.setLayerVisible('clouds', on),
+  props: (on) => world.setLayerVisible("props", on),
+  water: (on) => world.setLayerVisible("water", on),
+  clouds: (on) => world.setLayerVisible("clouds", on),
   shadows: (on) => engine.setShadowsEnabled(on),
-  ao: (on) => engine.setPassEnabled('ao', on),
-  bloom: (on) => engine.setPassEnabled('bloom', on),
-  aa: (on) => engine.setPassEnabled('aa', on),
+  ao: (on) => engine.setPassEnabled("ao", on),
+  bloom: (on) => engine.setPassEnabled("bloom", on),
+  aa: (on) => engine.setPassEnabled("aa", on),
   // `?fps=` beats the stored preference for this load and never writes it back, the same resolution the look-axis and shake overrides use.
   fpsCap: (n) => {
-    const v = params.get('fps') !== null ? fpsCap : n;
+    const v = params.get("fps") !== null ? fpsCap : n;
     engine.setFpsCap(v);
     debug.setFpsCap(v);
   },
@@ -2649,11 +3236,11 @@ const gfx = new Gfx({
 // The settings panel's Graphics tab may now reach it. See `gfxLive` at the top.
 gfxLive = true;
 const timePresets = [
-  { phase: null, labelKey: 'gfx.time.auto' },
-  { phase: 0.25, labelKey: 'gfx.time.dawn' },
-  { phase: 0.5, labelKey: 'gfx.time.noon' },
-  { phase: 0.75, labelKey: 'gfx.time.dusk' },
-  { phase: 0, labelKey: 'gfx.time.midnight' },
+  { phase: null, labelKey: "gfx.time.auto" },
+  { phase: 0.25, labelKey: "gfx.time.dawn" },
+  { phase: 0.5, labelKey: "gfx.time.noon" },
+  { phase: 0.75, labelKey: "gfx.time.dusk" },
+  { phase: 0, labelKey: "gfx.time.midnight" },
 ] as const;
 // Eight metres along his facing: far enough not to appear inside him, near enough to be on screen, a little past sword reach. `forward` is (sin yaw, cos yaw).
 const SPAWN_AHEAD = 8;
@@ -2677,7 +3264,10 @@ function spawnSpot(): { x: number; z: number; yaw: number } {
     for (let d = AIM_NEAR; d <= AIM_FAR; d += AIM_STEP) {
       const x = cam.x + _spawnRay.x * d;
       const z = cam.z + _spawnRay.z * d;
-      if (cam.y + _spawnRay.y * d <= world.getHeight(x, z)) { hi = d; break; }
+      if (cam.y + _spawnRay.y * d <= world.getHeight(x, z)) {
+        hi = d;
+        break;
+      }
       lo = d;
     }
     if (hi > 0) {
@@ -2685,8 +3275,11 @@ function spawnSpot(): { x: number; z: number; yaw: number } {
         const mid = (lo + hi) * 0.5;
         const x = cam.x + _spawnRay.x * mid;
         const z = cam.z + _spawnRay.z * mid;
-        if (cam.y + _spawnRay.y * mid <= world.getHeight(x, z)) hi = mid;
-        else lo = mid;
+        if (cam.y + _spawnRay.y * mid <= world.getHeight(x, z)) {
+          hi = mid;
+        } else {
+          lo = mid;
+        }
       }
       hitX = cam.x + _spawnRay.x * hi;
       hitZ = cam.z + _spawnRay.z * hi;
@@ -2707,58 +3300,82 @@ function spawnSpot(): { x: number; z: number; yaw: number } {
 const spawnCatalogue: SpawnCatalogue = {
   branches: () => [
     {
-      id: 'items', labelKey: 'spawn.items', noteKey: 'spawn.items.note', target: 'bag',
+      id: "items",
+      labelKey: "spawn.items",
+      noteKey: "spawn.items.note",
+      target: "bag",
       rows: Object.values(ITEMS).map((d) => ({
-        id: d.id, label: itemName(d, 1), hint: d.kind,
+        id: d.id,
+        label: itemName(d, 1),
+        hint: d.kind,
       })),
     },
     {
-      id: 'beasts', labelKey: 'spawn.beasts', noteKey: 'spawn.beasts.note', target: 'party',
+      id: "beasts",
+      labelKey: "spawn.beasts",
+      noteKey: "spawn.beasts.note",
+      target: "party",
       rows: roster.map((b) => ({
-        id: b.species.id, label: t(b.species.nameKey), had: owned.has(b.species.id),
+        id: b.species.id,
+        label: t(b.species.nameKey),
+        had: owned.has(b.species.id),
       })),
     },
     {
-      id: 'enemies', labelKey: 'spawn.enemies', noteKey: 'spawn.enemies.note', target: 'world',
+      id: "enemies",
+      labelKey: "spawn.enemies",
+      noteKey: "spawn.enemies.note",
+      target: "world",
       rows: enemySpecies().map((s) => ({
-        id: s.id, label: t(s.nameKey), hint: s.flying ? 'flying' : 'ground',
+        id: s.id,
+        label: t(s.nameKey),
+        hint: s.flying ? "flying" : "ground",
       })),
     },
     {
-      id: 'structures', labelKey: 'spawn.structures', noteKey: 'spawn.structures.note', target: 'world',
+      id: "structures",
+      labelKey: "spawn.structures",
+      noteKey: "spawn.structures.note",
+      target: "world",
       // The take-it-all-down row leads, because this is the branch that leaves something behind: a hut
       // stands where you put it. Its id is starred so it can never collide with a part's name.
       rows: world.debugSpawn
         ? [
-          { id: '*clear', label: t('spawn.clear'), hint: 'reset' },
-          ...world.debugSpawn.names().map((n) => ({ id: n, label: n })),
-        ]
+            { id: "*clear", label: t("spawn.clear"), hint: "reset" },
+            ...world.debugSpawn.names().map((n) => ({ id: n, label: n })),
+          ]
         : [],
     },
   ],
   spawn: (branchId, rowId) => {
     const at = spawnSpot();
-    if (branchId === 'items') {
+    if (branchId === "items") {
       // Straight through the console command's own body: currency is not a bag entry and a count has a
       // plural form, and two surfaces with two opinions about either is the bug this avoids.
       return giveItem(rowId, 1);
     }
-    if (branchId === 'beasts') return devGrant(rowId);
-    if (branchId === 'enemies') {
+    if (branchId === "beasts") {
+      return devGrant(rowId);
+    }
+    if (branchId === "enemies") {
       const e = combat.spawnOne(rowId, at.x, at.z);
-      return e ? `${t('spawn.placed')} ${rowId}` : t('spawn.unknown');
+      return e ? `${t("spawn.placed")} ${rowId}` : t("spawn.unknown");
     }
-    if (branchId === 'structures') {
+    if (branchId === "structures") {
       const spawner = world.debugSpawn;
-      if (!spawner) return t('spawn.noStructures');
-      if (rowId === '*clear') {
-        spawner.clear();
-        return `${t('spawn.clear')} (${spawner.count})`;
+      if (!spawner) {
+        return t("spawn.noStructures");
       }
-      if (!spawner.spawn(rowId, at.x, at.z, at.yaw)) return t('spawn.unknown');
-      return `${t('spawn.placed')} ${rowId} (${spawner.count})`;
+      if (rowId === "*clear") {
+        spawner.clear();
+        return `${t("spawn.clear")} (${spawner.count})`;
+      }
+      if (!spawner.spawn(rowId, at.x, at.z, at.yaw)) {
+        return t("spawn.unknown");
+      }
+      return `${t("spawn.placed")} ${rowId} (${spawner.count})`;
     }
-    return t('spawn.unknown');
+    return t("spawn.unknown");
   },
 };
 
@@ -2785,21 +3402,27 @@ const appearance: AppearanceControl = {
 };
 
 // The path editor's policy (issue #142 §12), which the panel does not have.
-let pathProfileId = 'footpath';
+let pathProfileId = "footpath";
 let pathLength = 60;
 let pathCrossing = false;
 const pathEdit: PathEditControl = {
   profiles: [
-    { id: 'footpath', labelKey: 'path.profile.footpath' },
-    { id: 'road', labelKey: 'path.profile.road' },
+    { id: "footpath", labelKey: "path.profile.footpath" },
+    { id: "road", labelKey: "path.profile.road" },
   ],
   lengths: [30, 60, 90, 120, 160],
   profile: () => pathProfileId,
-  setProfile: (id: string) => { pathProfileId = id; },
+  setProfile: (id: string) => {
+    pathProfileId = id;
+  },
   length: () => pathLength,
-  setLength: (n: number) => { pathLength = n; },
+  setLength: (n: number) => {
+    pathLength = n;
+  },
   crossing: () => pathCrossing,
-  setCrossing: (v: boolean) => { pathCrossing = v; },
+  setCrossing: (v: boolean) => {
+    pathCrossing = v;
+  },
   lay: () => {
     // `facing` and not the camera's yaw: `cam.yaw` is the bearing FROM the hero TO the camera, so it would lay the path out behind him.
     const a = player.facing;
@@ -2813,11 +3436,19 @@ const pathEdit: PathEditControl = {
       cross: pathCrossing,
       refit: refitHero,
     });
-    if (r.error) return `refused: ${r.error}`;
+    if (r.error) {
+      return `refused: ${r.error}`;
+    }
     // EVERY REFUSAL REACHES THE SCREEN (§12f).
-    for (const why of r.refused) devConsole?.print(`path: no merge — ${why}`);
-    const nodes = r.nodes.length > 0
-      ? `, ${r.nodes.length} junction(s)` : (r.refused.length > 0 ? ', no merge' : '');
+    for (const why of r.refused) {
+      devConsole?.print(`path: no merge — ${why}`);
+    }
+    const nodes =
+      r.nodes.length > 0
+        ? `, ${r.nodes.length} junction(s)`
+        : r.refused.length > 0
+          ? ", no merge"
+          : "";
     return `${r.id}: ${r.length} units${nodes}`;
   },
 };
@@ -2825,25 +3456,34 @@ const pathEdit: PathEditControl = {
 // Which quest is meant to grant each mount — the F3 rows' last column. Here rather than in
 // core/types.ts because it is a fact about the CAMPAIGN (game-story.md §5), not about the type.
 const MOUNT_QUEST_KEYS: Record<MountKind, StringKey> = {
-  ground: 'mount.ground.quest',
-  water: 'mount.water.quest',
-  flying: 'mount.flying.quest',
+  ground: "mount.ground.quest",
+  water: "mount.water.quest",
+  flying: "mount.flying.quest",
 };
 
-const perfPanel = new PerfPanel(gfx, {
-  presets: timePresets,
-  get: () => dayNight.debugOverride,
-  set: (phase) => dayNight.setDebugOverride(phase),
-}, spawnCatalogue, appearance, pathEdit, {
-  kinds: MOUNT_KINDS.map((id) => ({
-    id,
-    labelKey: MOUNT_KIND_KEYS[id].name,
-    noteKey: MOUNT_QUEST_KEYS[id],
-  })),
-  has: (id) => mountUnlocks.has(id as MountKind),
-  // Through the same door the console uses, so the bag's badges follow a flip from either surface.
-  set: (id, on) => { devUnlockMounts(on ? 'unlock' : 'lock', id); },
-});
+const perfPanel = new PerfPanel(
+  gfx,
+  {
+    presets: timePresets,
+    get: () => dayNight.debugOverride,
+    set: (phase) => dayNight.setDebugOverride(phase),
+  },
+  spawnCatalogue,
+  appearance,
+  pathEdit,
+  {
+    kinds: MOUNT_KINDS.map((id) => ({
+      id,
+      labelKey: MOUNT_KIND_KEYS[id].name,
+      noteKey: MOUNT_QUEST_KEYS[id],
+    })),
+    has: (id) => mountUnlocks.has(id as MountKind),
+    // Through the same door the console uses, so the bag's badges follow a flip from either surface.
+    set: (id, on) => {
+      devUnlockMounts(on ? "unlock" : "lock", id);
+    },
+  },
+);
 
 // `at()` runs only while the pointer is free and only over the canvas — on movement, not per frame —
 // which makes a screen-space scan affordable. A PROJECTION, not a raycast. Nearest wins.
@@ -2854,11 +3494,15 @@ const _curNpc = new THREE.Vector3();
 const cursorDirector = new CursorDirector(cursors, {
   at: (px, py) => {
     const rect = engine.renderer.domElement.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
+    if (rect.width === 0 || rect.height === 0) {
+      return null;
+    }
     /** Screen distance in px, or Infinity when the point is behind the lens. */
     const screenGap = (p: THREE.Vector3, lift: number): number => {
       _curProj.set(p.x, p.y + lift, p.z).project(engine.camera);
-      if (_curProj.z > 1) return Infinity;
+      if (_curProj.z > 1) {
+        return Infinity;
+      }
       const sx = rect.left + (_curProj.x * 0.5 + 0.5) * rect.width;
       const sy = rect.top + (-_curProj.y * 0.5 + 0.5) * rect.height;
       return Math.hypot(sx - px, sy - py);
@@ -2869,18 +3513,25 @@ const cursorDirector = new CursorDirector(cursors, {
     // closure, so a `let best = null` written only by `offer` narrows to `never` by the return.
     const best = { gap: Infinity, state: null as CursorState | null };
     const offer = (gap: number, state: CursorState): void => {
-      if (gap < REACH && gap < best.gap) { best.gap = gap; best.state = state; }
+      if (gap < REACH && gap < best.gap) {
+        best.gap = gap;
+        best.state = state;
+      }
     };
     for (const e of combat.enemies) {
-      if (e.hp > 0) offer(screenGap(e.position, 0.9), 'attack-target');
+      if (e.hp > 0) {
+        offer(screenGap(e.position, 0.9), "attack-target");
+      }
     }
     // `_curNpc` rather than a clone per NPC: this runs on every mouse move.
     for (const n of world.npcs?.all ?? []) {
       _curNpc.set(n.x, n.y, n.z);
-      offer(screenGap(_curNpc, 1.2), 'inspect');
+      offer(screenGap(_curNpc, 1.2), "inspect");
     }
     // A skill den is a building you can walk into and read — the magnifier's meaning.
-    for (const s of world.shopPositions) offer(screenGap(s, 1.5), 'inspect');
+    for (const s of world.shopPositions) {
+      offer(screenGap(s, 1.5), "inspect");
+    }
     return best.state;
   },
 });
@@ -2894,13 +3545,20 @@ let cursorFree = false;
 /** Alt at the previous call, so this can tell a RELEASE from a menu closing. */
 let altWasHeld = false;
 function updateCursorMode(): void {
-  const altHeld = input.down('AltLeft') || input.down('AltRight');
+  const altHeld = input.down("AltLeft") || input.down("AltRight");
   const altJustReleased = altWasHeld && !altHeld;
   altWasHeld = altHeld;
-  const menuUp = (startMenu?.isOpen ?? false) || pauseMenu.isOpen
-    || hud.isShopOpen() || hud.isControlsOpen() || inventory.isOpen || journal.isOpen;
-  const want = altHeld || (menuUp && input.lastSource === 'kbm');
-  if (want === cursorFree) return;
+  const menuUp =
+    (startMenu?.isOpen ?? false) ||
+    pauseMenu.isOpen ||
+    hud.isShopOpen() ||
+    hud.isControlsOpen() ||
+    inventory.isOpen ||
+    journal.isOpen;
+  const want = altHeld || (menuUp && input.lastSource === "kbm");
+  if (want === cursorFree) {
+    return;
+  }
   cursorFree = want;
   cursorDirector.setEnabled(want);
   if (altHeld) {
@@ -2913,30 +3571,46 @@ function updateCursorMode(): void {
 }
 
 // EVENT-DRIVEN, because `frame()` does not run until New Game and the poster is one of the two places the cursor is wanted.
-for (const ev of ['keydown', 'keyup', 'mousemove', 'mousedown', 'pointerlockchange']) {
-  (ev === 'pointerlockchange' ? document : window)
-    .addEventListener(ev, () => updateCursorMode(), true);
+for (const ev of ["keydown", "keyup", "mousemove", "mousedown", "pointerlockchange"]) {
+  (ev === "pointerlockchange" ? document : window).addEventListener(
+    ev,
+    () => updateCursorMode(),
+    true,
+  );
 }
 // The panel sees a click first and returns false unless it landed on one of its rows.
-window.addEventListener('mousedown', (e) => {
-  if (perfPanel.handleClick(e.target, e)) { e.preventDefault(); e.stopPropagation(); }
-}, true);
+window.addEventListener(
+  "mousedown",
+  (e) => {
+    if (perfPanel.handleClick(e.target, e)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  },
+  true,
+);
 // A drag owns the cursor until it ends — the pointer leaves the handle within a few pixels.
 perfPanel.onDragCursor = (state, dragging) => {
-  if (!dragging) { cursorDirector.lock(null); return; }
-  cursorDirector.lock((state as CursorState | null)
-    ?? (cursors.debug().state ?? 'move'));
+  if (!dragging) {
+    cursorDirector.lock(null);
+    return;
+  }
+  cursorDirector.lock((state as CursorState | null) ?? cursors.debug().state ?? "move");
 };
 
 // PINNED rather than just enabled: the F2 overlay also turns sampling on, and closing it must not silence a run the harness in tools/ asked for.
-if (params.get('perf') === '1') perf.pin();
+if (params.get("perf") === "1") {
+  perf.pin();
+}
 let lastPrograms = 0;
 
 const devConsole = photoMode ? null : new DevConsole();
 const colliderView = new ColliderView(engine.scene, world);
 bound.push(colliderView);
 // `colliders=1` starts them visible for a staged capture; photo mode has no console to type into.
-if (params.get('colliders') === '1') colliderView.setVisible(true);
+if (params.get("colliders") === "1") {
+  colliderView.setVisible(true);
+}
 // TWO SURFACES, ONE BODY: `/give` and the F3 spawner row both need an unknown id refused, currency kept out of the bag, and the plural form in the answer.
 function giveItem(id: string, count: number): string {
   if (!isKnownItem(id)) {
@@ -2944,7 +3618,7 @@ function giveItem(id: string, count: number): string {
   }
   const n = Math.max(1, count);
   const def = itemDef(id);
-  if (def.kind === 'currency') {
+  if (def.kind === "currency") {
     // Currency is not in the bag (core/items.ts), so it joins the pickup total rather than being refused — a console answering "no" here would be right and useless.
     pickupTotal += n;
     hud.setShards(shards());
@@ -2956,51 +3630,57 @@ function giveItem(id: string, count: number): string {
   return `${itemName(def, got)} x${got}`;
 }
 devConsole?.register({
-  name: 'give',
-  args: '<item id> [count]',
-  help: 'Put items in the bag. No arguments lists the catalogue.',
+  name: "give",
+  args: "<item id> [count]",
+  help: "Put items in the bag. No arguments lists the catalogue.",
   run: (args) => {
     const [id, raw] = args;
     // No argument lists what there is, which makes the ids discoverable — as `/gfx` and `/nature` do.
     if (!id) {
       return Object.values(ITEMS)
         .map((d) => `${d.id.padEnd(17)} ${d.kind}`)
-        .join('\n');
+        .join("\n");
     }
     return giveItem(id, Number(raw) || 1);
   },
 });
 devConsole?.register({
-  name: 'show-colliders',
-  args: '[on|off]',
-  help: 'Toggle collision volumes: green = solid (tree discs + structure boxes), blue = climbable.',
+  name: "show-colliders",
+  args: "[on|off]",
+  help: "Toggle collision volumes: green = solid (tree discs + structure boxes), blue = climbable.",
   run: (args) => {
-    const on = args[0] === 'on' ? true : args[0] === 'off' ? false : !colliderView.isVisible;
+    const on = args[0] === "on" ? true : args[0] === "off" ? false : !colliderView.isVisible;
     colliderView.setVisible(on);
     return on
-      ? `colliders ON — ${colliderView.count} drawn, ${colliderView.boxCount} settlement `
-        + `boxes and ${colliderView.ridgeCount} roof arches (green solid, blue climb), `
-        + `tallest cage ${colliderView.tallestCage.toFixed(1)}`
-      : 'colliders OFF';
+      ? `colliders ON — ${colliderView.count} drawn, ${colliderView.boxCount} settlement ` +
+          `boxes and ${colliderView.ridgeCount} roof arches (green solid, blue climb), ` +
+          `tallest cage ${colliderView.tallestCage.toFixed(1)}`
+      : "colliders OFF";
   },
 });
 devConsole?.register({
-  name: 'gfx',
-  args: '[<setting> [on|off|<n>]]',
-  help: 'Read or set the F3 performance toggles. No arguments lists them.',
+  name: "gfx",
+  args: "[<setting> [on|off|<n>]]",
+  help: "Read or set the F3 performance toggles. No arguments lists them.",
   run: (args) => {
     const [id, raw] = args;
     // No argument: the whole table. The ids are the same strings the panel and __dbgGfx use.
     if (!id) {
       const snap = gfx.snapshot();
-      return GFX_OPTIONS.map((o) => `${o.id.padEnd(9)} ${String(snap[o.id])}`).join('\n')
-        + '\n(F3 opens the panel)';
+      return (
+        GFX_OPTIONS.map((o) => `${o.id.padEnd(9)} ${String(snap[o.id])}`).join("\n") +
+        "\n(F3 opens the panel)"
+      );
     }
     const opt = GFX_OPTIONS.find((o) => o.id === id);
-    if (!opt) return `no such setting "${id}" — ${GFX_OPTIONS.map((o) => o.id).join(', ')}`;
-    if (raw === undefined) return `${opt.id} ${String(gfx.get(opt.id))}`;
+    if (!opt) {
+      return `no such setting "${id}" — ${GFX_OPTIONS.map((o) => o.id).join(", ")}`;
+    }
+    if (raw === undefined) {
+      return `${opt.id} ${String(gfx.get(opt.id))}`;
+    }
     // `on`/`off` for switches, a bare number for choice rows; the registry validates and answers with what it stored, so a value outside the list reports the default.
-    const value = opt.choices ? Number(raw) : raw !== 'off' && raw !== 'false' && raw !== '0';
+    const value = opt.choices ? Number(raw) : raw !== "off" && raw !== "false" && raw !== "0";
     const now = gfx.set(opt.id, value);
     perfPanel.refresh();
     return `${opt.id} ${String(now)}`;
@@ -3009,10 +3689,11 @@ devConsole?.register({
 // A changed density reaches the ground you are standing on. `world` is a `let` reassigned on a zone switch, so this rebuilds whichever is current.
 nature.onChange(() => world.rebuildProps());
 devConsole?.register({
-  name: 'nature',
-  args: '[<param> [<value>] | <area>.<param> [<value>|reset] | reset]',
-  help: 'Read or set the world\'s nature densities. 1 is the baseline; an area '
-    + 'multiplies it. No arguments lists everything.',
+  name: "nature",
+  args: "[<param> [<value>] | <area>.<param> [<value>|reset] | reset]",
+  help:
+    "Read or set the world's nature densities. 1 is the baseline; an area " +
+    "multiplies it. No arguments lists everything.",
   run: (args) => {
     const [lhs, raw] = args;
     if (!lhs) {
@@ -3020,33 +3701,36 @@ devConsole?.register({
       const rows = NATURE_PARAMS.map(
         (p) => `${p.id.padEnd(8)} ${snap.baseline[p.id].toFixed(2)}  ${p.help}`,
       );
-      const areas = Object.entries(snap.areas)
-        .map(([k, v]) => `${k.padEnd(16)} x${v.toFixed(2)}`);
+      const areas = Object.entries(snap.areas).map(([k, v]) => `${k.padEnd(16)} x${v.toFixed(2)}`);
       return [
-        'baseline (1 = the designed world)',
+        "baseline (1 = the designed world)",
         ...rows,
-        areas.length ? `\nareas\n${areas.join('\n')}` : '\nno area overrides',
-        '\n/nature grass 0.5   /nature forest.trees 2   /nature forest.trees reset',
-      ].join('\n');
+        areas.length ? `\nareas\n${areas.join("\n")}` : "\nno area overrides",
+        "\n/nature grass 0.5   /nature forest.trees 2   /nature forest.trees reset",
+      ].join("\n");
     }
-    if (lhs === 'reset') {
+    if (lhs === "reset") {
       nature.reset();
-      return 'nature reset — rebuilding the streamed chunks';
+      return "nature reset — rebuilding the streamed chunks";
     }
-    const dot = lhs.indexOf('.');
+    const dot = lhs.indexOf(".");
     const id = (dot < 0 ? lhs : lhs.slice(dot + 1)) as NatureParamId;
     if (!NATURE_PARAMS.some((p) => p.id === id)) {
-      return `no such parameter "${id}" — ${NATURE_PARAMS.map((p) => p.id).join(', ')}`;
+      return `no such parameter "${id}" — ${NATURE_PARAMS.map((p) => p.id).join(", ")}`;
     }
     if (dot < 0) {
-      if (raw === undefined) return `${id} ${nature.base(id).toFixed(2)}`;
+      if (raw === undefined) {
+        return `${id} ${nature.base(id).toFixed(2)}`;
+      }
       return `${id} ${nature.setBase(id, Number(raw)).toFixed(2)} — rebuilding`;
     }
     // An AREA is a biome id today, unvalidated on purpose: the set widens as the world grows named
     // regions, and a typo shows up as an override that changes nothing rather than a refusal.
     const area = lhs.slice(0, dot) as NatureAreaId;
-    if (raw === undefined) return `${area}.${id} x${nature.areaFactor(area, id).toFixed(2)}`;
-    if (raw === 'reset') {
+    if (raw === undefined) {
+      return `${area}.${id} x${nature.areaFactor(area, id).toFixed(2)}`;
+    }
+    if (raw === "reset") {
       nature.setArea(area, id, null);
       return `${area}.${id} back to the baseline — rebuilding`;
     }
@@ -3059,51 +3743,63 @@ devConsole?.register({
 // __dbgContent reports the rest, and what a console can do is TRY IT. Under the `debug` lease, never
 // `boot` (spec §12.4), and `load` prints when it arrives rather than blocking the frame.
 devConsole?.register({
-  name: 'content',
-  args: '[load <pkg> | release <pkg> | check]',
-  help: 'Inspect loaded content packages, load or release one, or print the '
-    + 'validation diagnostics. No arguments lists what is loaded.',
+  name: "content",
+  args: "[load <pkg> | release <pkg> | check]",
+  help:
+    "Inspect loaded content packages, load or release one, or print the " +
+    "validation diagnostics. No arguments lists what is loaded.",
   run: (args) => {
     const [verb, pkg] = args;
     if (!verb) {
       const packs = content.packages.map(
-        (p) => `${p.id.padEnd(12)} ${String(p.assets.length).padStart(3)} assets  `
-          + `[${p.leases.join(' ')}]  ${p.source}`,
+        (p) =>
+          `${p.id.padEnd(12)} ${String(p.assets.length).padStart(3)} assets  ` +
+          `[${p.leases.join(" ")}]  ${p.source}`,
       );
-      const counts = ['town', 'npc', 'biome', 'enemy', 'quest']
-        .map((ty) => `${ty.padEnd(6)} ${content.all(ty).length}`);
+      const counts = ["town", "npc", "biome", "enemy", "quest"].map(
+        (ty) => `${ty.padEnd(6)} ${content.all(ty).length}`,
+      );
       const bad = [...content.diagnostics(), ...contentIssues()].filter(
-        (d) => d.severity === 'error' || d.severity === 'fatal',
+        (d) => d.severity === "error" || d.severity === "fatal",
       ).length;
       return [
-        packs.length ? `packages\n${packs.join('\n')}` : 'no packages loaded',
-        `\nassets\n${counts.join('\n')}`,
+        packs.length ? `packages\n${packs.join("\n")}` : "no packages loaded",
+        `\nassets\n${counts.join("\n")}`,
         `\n${bad} error(s) — /content check`,
-        '\n/content load <pkg>   /content release <pkg>',
-      ].join('\n');
+        "\n/content load <pkg>   /content release <pkg>",
+      ].join("\n");
     }
-    if (verb === 'check') {
+    if (verb === "check") {
       const all = [...content.diagnostics(), ...contentIssues()];
-      if (all.length === 0) return 'no findings';
-      return all.map(
-        (d) => `${d.severity.padEnd(5)} ${d.code.padEnd(16)} `
-          + `${d.assetId ?? '-'}${d.field ? ` .${d.field}` : ''}\n      ${d.message}`
-          + (d.fix ? `\n      fix: ${d.fix}` : ''),
-      ).join('\n');
+      if (all.length === 0) {
+        return "no findings";
+      }
+      return all
+        .map(
+          (d) =>
+            `${d.severity.padEnd(5)} ${d.code.padEnd(16)} ` +
+            `${d.assetId ?? "-"}${d.field ? ` .${d.field}` : ""}\n      ${d.message}` +
+            (d.fix ? `\n      fix: ${d.fix}` : ""),
+        )
+        .join("\n");
     }
-    if (verb === 'load' || verb === 'release') {
-      if (!pkg) return `which package? /content ${verb} <pkg>`;
-      if (verb === 'release') {
-        content.release(pkg, 'debug');
+    if (verb === "load" || verb === "release") {
+      if (!pkg) {
+        return `which package? /content ${verb} <pkg>`;
+      }
+      if (verb === "release") {
+        content.release(pkg, "debug");
         return `released "${pkg}" (debug lease) — ${content.packages.length} loaded`;
       }
-      void content.load(pkg, 'debug').then((r) => {
+      void content.load(pkg, "debug").then((r) => {
         devConsole?.print(
           r.loaded
             ? `loaded "${r.pkg}": ${r.assets.length} assets, ${r.diagnostics.length} finding(s)`
             : `"${r.pkg}" was already loaded; added a debug lease`,
         );
-        for (const d of r.diagnostics) devConsole?.print(`  ${d.severity} ${d.code} ${d.message}`);
+        for (const d of r.diagnostics) {
+          devConsole?.print(`  ${d.severity} ${d.code} ${d.message}`);
+        }
       });
       return `loading "${pkg}"…`;
     }
@@ -3113,44 +3809,63 @@ devConsole?.register({
 // The body of `/mount` and of `__dbgRide`, extracted so the two cannot drift — typing `/mount finnick`
 // is a key edge per character. The console answers in SPECIES IDS. Below it, `/mount unlock|lock` is the
 // separate door for the story's three unlocks (and `__dbgUnlockMount`'s body); bare `unlock` means all.
-function devUnlockMounts(verb: 'unlock' | 'lock', arg: string | undefined): string {
-  const want = arg === undefined || arg === 'all'
-    ? MOUNT_KINDS
-    : MOUNT_KINDS.filter((k) => k === arg);
-  if (want.length === 0) return `no such mount kind "${arg}" — ${MOUNT_KINDS.join(', ')}, all`;
-  for (const k of want) mountUnlocks.set(k, verb === 'unlock');
+function devUnlockMounts(verb: "unlock" | "lock", arg: string | undefined): string {
+  const want =
+    arg === undefined || arg === "all" ? MOUNT_KINDS : MOUNT_KINDS.filter((k) => k === arg);
+  if (want.length === 0) {
+    return `no such mount kind "${arg}" — ${MOUNT_KINDS.join(", ")}, all`;
+  }
+  for (const k of want) {
+    mountUnlocks.set(k, verb === "unlock");
+  }
   // The badges in the bag are the player-facing readout, so a panel left open must not go on showing the old answer.
   inventory.refresh();
   const have = mountUnlocks.list();
-  return `${verb === 'unlock' ? 'unlocked' : 'locked'} ${want.join(', ')} — `
-    + `now: ${have.length ? have.join(', ') : 'nothing'}`;
+  return (
+    `${verb === "unlock" ? "unlocked" : "locked"} ${want.join(", ")} — ` +
+    `now: ${have.length ? have.join(", ") : "nothing"}`
+  );
 }
 
 function devRide(arg: string | undefined, kind?: string): string {
-  if (arg === 'unlock' || arg === 'lock') return devUnlockMounts(arg, kind);
-  if (arg === 'off') {
-    if (!mount.isMounted) return 'not mounted';
+  if (arg === "unlock" || arg === "lock") {
+    return devUnlockMounts(arg, kind);
+  }
+  if (arg === "off") {
+    if (!mount.isMounted) {
+      return "not mounted";
+    }
     const id = mount.beast!.species.id;
     mount.dismount();
     return `dismounted ${id}`;
   }
-  if (mount.isMounted) return `already riding ${mount.beast!.species.id} — /mount off first`;
+  if (mount.isMounted) {
+    return `already riding ${mount.beast!.species.id} — /mount off first`;
+  }
   if (arg) {
     const idx = roster.findIndex((p) => p.species.id === arg);
-    if (idx < 0) return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
+    if (idx < 0) {
+      return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(", ")}`;
+    }
     // BONDED ONLY: a developer surface may skip the orb wobble but not OWNERSHIP, or the console is a different game from the one probes measure. `/grant` is that door.
     if (!owned.has(arg)) {
       const have = [...owned];
-      return `"${arg}" is not bonded — ${have.length ? have.join(', ') : 'you have bonded nothing yet'}`;
+      return `"${arg}" is not bonded — ${have.length ? have.join(", ") : "you have bonded nothing yet"}`;
     }
-    if (idx === supportIdx) supportIdx = primaryIdx;
+    if (idx === supportIdx) {
+      supportIdx = primaryIdx;
+    }
     primaryIdx = idx;
     refreshVisibility();
   }
   const lead = primary();
-  if (!lead) return 'no beast bonded — /grant <speciesId> first';
+  if (!lead) {
+    return "no beast bonded — /grant <speciesId> first";
+  }
   const why = mount.refusal(lead);
-  if (why !== 'none') return `cannot mount: ${why}`;
+  if (why !== "none") {
+    return `cannot mount: ${why}`;
+  }
   mount.mount(lead);
   return `riding ${lead.species.id} (${lead.species.locomotion})`;
 }
@@ -3162,12 +3877,12 @@ let devSeated = 0;
 function devGrant(arg: string | undefined): string {
   if (!arg) {
     const have = [...owned];
-    return `bonded: ${have.length ? have.join(', ') : 'nothing'} — of ${roster.map((p) => p.species.id).join(', ')}`;
+    return `bonded: ${have.length ? have.join(", ") : "nothing"} — of ${roster.map((p) => p.species.id).join(", ")}`;
   }
   // `all` is for the probe suite, where modules each need a DIFFERENT mount. `none` releases every bond,
   // which is what a probe about EARNING one needs: a companion fights the animals a taming test stages,
   // and test-taming lost its subject two runs in five.
-  if (arg === 'none') {
+  if (arg === "none") {
     const had = owned.size;
     owned.clear();
     primaryIdx = -1;
@@ -3177,22 +3892,30 @@ function devGrant(arg: string | undefined): string {
     inventory.refresh();
     return `released ${had} bond(s) — the party is empty`;
   }
-  if (arg === 'all') {
+  if (arg === "all") {
     let n = 0;
-    for (const b of roster) if (grantBeast(b.species.id)) n++;
+    for (const b of roster) {
+      if (grantBeast(b.species.id)) n++;
+    }
     inventory.refresh();
     return `bonded ${n} more (${owned.size} total)`;
   }
   if (!roster.some((p) => p.species.id === arg)) {
-    return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
+    return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(", ")}`;
   }
-  if (!grantBeast(arg)) return `"${arg}" is already bonded`;
+  if (!grantBeast(arg)) {
+    return `"${arg}" is already bonded`;
+  }
   // AND SEAT IT: `grantBeast` only fills an EMPTY slot, which is right in play and wrong for this door —
   // with the starter in the primary slot the second grant landed nowhere. Grants arrive in the order the
   // caller wants them SEATED: first the lead, then support.
   const idx = roster.findIndex((b) => b.species.id === arg);
   if (idx !== primaryIdx && idx !== supportIdx) {
-    if (devSeated === 0) primaryIdx = idx; else supportIdx = idx;
+    if (devSeated === 0) {
+      primaryIdx = idx;
+    } else {
+      supportIdx = idx;
+    }
     devSeated++;
     refreshVisibility();
   }
@@ -3200,58 +3923,70 @@ function devGrant(arg: string | undefined): string {
   return `bonded ${arg} (${owned.size} total)`;
 }
 devConsole?.register({
-  name: 'mount',
-  args: '[off|<speciesId>|unlock [<kind>|all]|lock [<kind>|all]]',
-  help: 'Ride the primary beast without the 2s hold; /mount off dismounts. '
-    + 'Riding is locked until the story unlocks it — /mount unlock opens all three kinds.',
+  name: "mount",
+  args: "[off|<speciesId>|unlock [<kind>|all]|lock [<kind>|all]]",
+  help:
+    "Ride the primary beast without the 2s hold; /mount off dismounts. " +
+    "Riding is locked until the story unlocks it — /mount unlock opens all three kinds.",
   run: (args) => devRide(args[0], args[1]),
 });
 devConsole?.register({
-  name: 'grant',
-  args: '[<speciesId>|all|none]',
-  help: 'Bond a beast outright, no orb needed; /grant none releases every bond; '
-    + 'bare /grant lists what you have.',
+  name: "grant",
+  args: "[<speciesId>|all|none]",
+  help:
+    "Bond a beast outright, no orb needed; /grant none releases every bond; " +
+    "bare /grant lists what you have.",
   run: (args) => devGrant(args[0]),
 });
 // TEST HOOK, and the same argument `__dbgTp` makes: it DRIVES STATE, which is a probe's job.
-(window as unknown as { __dbgRide: (id?: string) => string }).__dbgRide =
-  (id) => devRide(id);
+(window as unknown as { __dbgRide: (id?: string) => string }).__dbgRide = (id) => devRide(id);
 // A DRIVER, not a reader: test-mounts must see the lock refuse and then the same hold succeed, and only a live flip shows both in one page.
-(window as unknown as { __dbgUnlockMount: (kind?: string, on?: boolean) => string })
-  .__dbgUnlockMount = (kind, on = true) => devUnlockMounts(on ? 'unlock' : 'lock', kind);
-(window as unknown as { __dbgGrantBeast: (id?: string) => string }).__dbgGrantBeast =
-  (id) => devGrant(id);
+(
+  window as unknown as { __dbgUnlockMount: (kind?: string, on?: boolean) => string }
+).__dbgUnlockMount = (kind, on = true) => devUnlockMounts(on ? "unlock" : "lock", kind);
+(window as unknown as { __dbgGrantBeast: (id?: string) => string }).__dbgGrantBeast = (id) =>
+  devGrant(id);
 // A pinned flag is reported and NOT written through: a measurement run may shadow the player's choice for one load, never become it.
 function setFeedbackPref(
-  key: 'hapticIntensity' | 'shakeIntensity', raw: string | undefined, pinned: number | null,
+  key: "hapticIntensity" | "shakeIntensity",
+  raw: string | undefined,
+  pinned: number | null,
 ): string {
   if (raw === undefined) {
     const at = pinned ?? loadPrefs()[key];
-    return `${key} = ${at}${pinned !== null ? ' (pinned by URL)' : ''}`;
+    return `${key} = ${at}${pinned !== null ? " (pinned by URL)" : ""}`;
   }
   const v = Number(raw);
-  if (!Number.isFinite(v) || v < 0 || v > 1) return 'usage: 0..1';
+  if (!Number.isFinite(v) || v < 0 || v > 1) {
+    return "usage: 0..1";
+  }
   savePrefs({ [key]: v });
-  if (pinned !== null) return `saved ${key} = ${v}, but this load is pinned to ${pinned}`;
-  feedback?.setOptions({ [key === 'hapticIntensity' ? 'hapticIntensity' : 'shakeIntensity']: v });
+  if (pinned !== null) {
+    return `saved ${key} = ${v}, but this load is pinned to ${pinned}`;
+  }
+  feedback?.setOptions({ [key === "hapticIntensity" ? "hapticIntensity" : "shakeIntensity"]: v });
   return `${key} = ${v}`;
 }
 
 // The dial half of the panel's switches, writing the same keys (core/prefs.ts); `?haptics=` / `?shake=` pin a value for one load.
 devConsole?.register({
-  name: 'haptics',
-  args: '[<0..1>]',
-  help: 'Show or set controller rumble strength. Persists.',
-  run: (args) => setFeedbackPref('hapticIntensity', args[0], flags.haptics),
+  name: "haptics",
+  args: "[<0..1>]",
+  help: "Show or set controller rumble strength. Persists.",
+  run: (args) => setFeedbackPref("hapticIntensity", args[0], flags.haptics),
 });
 devConsole?.register({
-  name: 'vibration',
-  args: '[0|1]',
-  help: 'Show or set the controller-vibration switch. Persists. On by default.',
+  name: "vibration",
+  args: "[0|1]",
+  help: "Show or set the controller-vibration switch. Persists. On by default.",
   run: (args) => {
-    if (args[0] === undefined) return `hapticFeedback = ${loadPrefs().hapticFeedback}`;
-    if (args[0] !== '0' && args[0] !== '1') return 'usage: 0 or 1';
-    const on = args[0] === '1';
+    if (args[0] === undefined) {
+      return `hapticFeedback = ${loadPrefs().hapticFeedback}`;
+    }
+    if (args[0] !== "0" && args[0] !== "1") {
+      return "usage: 0 or 1";
+    }
+    const on = args[0] === "1";
     savePrefs({ hapticFeedback: on });
     feedback?.setOptions({ hapticFeedback: on });
     return `hapticFeedback = ${on}`;
@@ -3259,103 +3994,128 @@ devConsole?.register({
 });
 // The dial half of the music row: the panel offers six steps, this takes anything between. `?vol=` pins for one load.
 devConsole?.register({
-  name: 'volume',
-  args: '[<0..1>]',
-  help: 'Show or set music volume. Persists. 0 unloads the track entirely.',
+  name: "volume",
+  args: "[<0..1>]",
+  help: "Show or set music volume. Persists. 0 unloads the track entirely.",
   run: (args) => {
     if (args[0] === undefined) {
       const at = flags.volume ?? (flags.silentBoot ? 0 : loadPrefs().volume);
-      const why = flags.volume !== null ? ' (pinned by URL)'
-        : flags.silentBoot ? ' (muted: menu=0 / photo=1 — pass ?vol= to hear it)' : '';
+      const why =
+        flags.volume !== null
+          ? " (pinned by URL)"
+          : flags.silentBoot
+            ? " (muted: menu=0 / photo=1 — pass ?vol= to hear it)"
+            : "";
       return `volume = ${at}${why}`;
     }
     const v = Number(args[0]);
-    if (!Number.isFinite(v) || v < 0 || v > 1) return 'usage: 0..1';
+    if (!Number.isFinite(v) || v < 0 || v > 1) {
+      return "usage: 0..1";
+    }
     savePrefs({ volume: v });
-    if (flags.volume !== null) return `saved volume = ${v}, but this load is pinned to ${flags.volume}`;
+    if (flags.volume !== null) {
+      return `saved volume = ${v}, but this load is pinned to ${flags.volume}`;
+    }
     // Live: this is the one preference whose effect is audible while you type.
     music.setVolume(v);
     return `volume = ${v}`;
   },
 });
 devConsole?.register({
-  name: 'shake',
-  args: '[<0..1>]',
-  help: 'Show or set camera-shake strength. Persists.',
-  run: (args) => setFeedbackPref('shakeIntensity', args[0], flags.shake),
+  name: "shake",
+  args: "[<0..1>]",
+  help: "Show or set camera-shake strength. Persists.",
+  run: (args) => setFeedbackPref("shakeIntensity", args[0], flags.shake),
 });
 devConsole?.register({
-  name: 'invertlook',
-  args: '<x|y> [0|1]',
-  help: 'Show or set stick look inversion (pad and touch). Persists. Y is on by default.',
+  name: "invertlook",
+  args: "<x|y> [0|1]",
+  help: "Show or set stick look inversion (pad and touch). Persists. Y is on by default.",
   run: (args) => {
-    const axis = (args[0] ?? '').toLowerCase();
-    if (axis !== 'x' && axis !== 'y') return 'usage: /invertlook <x|y> [0|1]';
-    const key = axis === 'x' ? 'invertLookX' : 'invertLookY';
-    const pinned = axis === 'x' ? flags.invertLookX : flags.invertLookY;
+    const axis = (args[0] ?? "").toLowerCase();
+    if (axis !== "x" && axis !== "y") {
+      return "usage: /invertlook <x|y> [0|1]";
+    }
+    const key = axis === "x" ? "invertLookX" : "invertLookY";
+    const pinned = axis === "x" ? flags.invertLookX : flags.invertLookY;
     if (args[1] === undefined) {
       const at = pinned ?? loadPrefs()[key];
-      return `${key} = ${at}${pinned !== null ? ' (pinned by URL)' : ''}`;
+      return `${key} = ${at}${pinned !== null ? " (pinned by URL)" : ""}`;
     }
-    if (args[1] !== '0' && args[1] !== '1') return 'usage: 0 or 1';
-    const on = args[1] === '1';
+    if (args[1] !== "0" && args[1] !== "1") {
+      return "usage: 0 or 1";
+    }
+    const on = args[1] === "1";
     savePrefs({ [key]: on });
-    if (pinned !== null) return `saved ${key} = ${on}, but this load is pinned to ${pinned}`;
+    if (pinned !== null) {
+      return `saved ${key} = ${on}, but this load is pinned to ${pinned}`;
+    }
     // Applied live: this is the one setting you can only judge with the stick in your hand.
-    const a: Partial<LookAxes> = axis === 'x' ? { invertX: on } : { invertY: on };
+    const a: Partial<LookAxes> = axis === "x" ? { invertX: on } : { invertY: on };
     pad?.setLookAxes(a);
     touch?.setLookAxes(a);
     return `${key} = ${on}`;
   },
 });
 devConsole?.register({
-  name: 'zone',
-  args: '[<id>]',
-  help: 'Show the active zone, or switch to one now (skips the gateway dwell).',
+  name: "zone",
+  args: "[<id>]",
+  help: "Show the active zone, or switch to one now (skips the gateway dwell).",
   run: (args) => {
     if (!args[0]) {
-      return `${zones.id} (${zones.name}) — ${zones.world.chunksLoaded} chunks, `
-        + `${zones.transitions} transition(s). Zones: ${zones.zoneIds.join(', ')}`;
+      return (
+        `${zones.id} (${zones.name}) — ${zones.world.chunksLoaded} chunks, ` +
+        `${zones.transitions} transition(s). Zones: ${zones.zoneIds.join(", ")}`
+      );
     }
     // A forced switch builds and warms the destination synchronously — one long frame, which is the frame the preload band exists to avoid.
     return zones.switchTo(args[0]);
   },
 });
 devConsole?.register({
-  name: 'path',
-  args: '<dx> <dz> [profile] [cross]',
-  help: 'Route a path from the hero to an offset and carve it in. Rebuilds every chunk.',
+  name: "path",
+  args: "<dx> <dz> [profile] [cross]",
+  help: "Route a path from the hero to an offset and carve it in. Rebuilds every chunk.",
   run: (args) => {
     const dx = Number(args[0]);
     const dz = Number(args[1]);
     if (!Number.isFinite(dx) || !Number.isFinite(dz)) {
-      return 'usage: /path <dx> <dz> [road|footpath] [cross]';
+      return "usage: /path <dx> <dz> [road|footpath] [cross]";
     }
     const r = world.addPath({
       from: [player.position.x, player.position.z],
       to: [player.position.x + dx, player.position.z + dz],
       profile: args[2],
       // `cross` routes THROUGH the network and merges at the first crossing (see World.addPath).
-      cross: args[3] === 'cross',
+      cross: args[3] === "cross",
       refit: refitHero,
     });
-    if (r.error) return `refused: ${r.error}`;
-    const lines = [`${r.id}: ${r.length} units over ${r.samples} samples`
-      + (r.note ? ` (${r.note})` : '')];
-    for (const n of r.nodes) lines.push(`  junction at ${n.x}, ${n.z} — ${n.arms} arms`);
+    if (r.error) {
+      return `refused: ${r.error}`;
+    }
+    const lines = [
+      `${r.id}: ${r.length} units over ${r.samples} samples` + (r.note ? ` (${r.note})` : ""),
+    ];
+    for (const n of r.nodes) {
+      lines.push(`  junction at ${n.x}, ${n.z} — ${n.arms} arms`);
+    }
     // EVERY REFUSAL IS PRINTED: a merge that quietly did nothing is what issue #142 §12f forbids.
-    for (const why of r.refused) lines.push(`  no merge: ${why}`);
-    return lines.join('\n');
+    for (const why of r.refused) {
+      lines.push(`  no merge: ${why}`);
+    }
+    return lines.join("\n");
   },
 });
 devConsole?.register({
-  name: 'tp',
-  args: '<dx> <dz>',
-  help: 'Move the hero by an offset, for reaching something to inspect.',
+  name: "tp",
+  args: "<dx> <dz>",
+  help: "Move the hero by an offset, for reaching something to inspect.",
   run: (args) => {
     const dx = Number(args[0]);
     const dz = Number(args[1]);
-    if (!Number.isFinite(dx) || !Number.isFinite(dz)) return 'usage: /tp <dx> <dz>';
+    if (!Number.isFinite(dx) || !Number.isFinite(dz)) {
+      return "usage: /tp <dx> <dz>";
+    }
     player.position.x += dx;
     player.position.z += dz;
     player.position.y = Math.max(
@@ -3370,7 +4130,7 @@ devConsole?.register({
 // leftover carried. The sim no longer changes shape with the display, and a backlog is replayed in
 // bounded steps so nothing tunnels. At MAX_STEPS the backlog is DROPPED — a stalled tab must not
 // fast-forward. It does not fix hitches (those are first-use shader compiles). `simhz=<n>` overrides.
-const SIM_HZ = Math.max(20, Number(params.get('simhz') ?? 60));
+const SIM_HZ = Math.max(20, Number(params.get("simhz") ?? 60));
 const SIM_DT = 1 / SIM_HZ;
 const MAX_STEPS = 4;
 let simAccumulator = 0;
@@ -3402,11 +4162,17 @@ function warmUpFrame(stage: THREE.Vector3, lights: number, effects = false): voi
   engine.camera.position.set(stage.x, stage.y + 250, stage.z + 40);
   engine.camera.lookAt(stage.x, stage.y, stage.z);
   engine.updateSunFocus(stage);
-  if (effects) combat.warmUp(stage, 0);
+  if (effects) {
+    combat.warmUp(stage, 0);
+  }
   // A dropped shard and the effect set on every step, so their materials are drawn at every light count.
-  if (!effects) combat.warmUpEffects(stage);
+  if (!effects) {
+    combat.warmUpEffects(stage);
+  }
   combat.warmUpDrop(stage);
-  for (let i = 0; i < lights; i++) combat.warmUpLight(stage);
+  for (let i = 0; i < lights; i++) {
+    combat.warmUpLight(stage);
+  }
   engine.render();
   combat.endWarmUpDrop();
   engine.camera.position.copy(_warmPos);
@@ -3471,7 +4237,9 @@ function* warmUpSteps(): Generator<void> {
 
 /** Drain the whole sweep now. The unstaged boot path; see `warmUpSteps`. */
 function warmUpShaders(): void {
-  for (const _ of warmUpSteps()) { /* every step, one task */ }
+  for (const _ of warmUpSteps()) {
+    /* every step, one task */
+  }
 }
 
 // How close to a den's marker its prompt shows, and the height band. 3.5 is what NPC_TALK_RANGE was
@@ -3489,21 +4257,21 @@ const npcHints = new Map<string, string>();
 function npcHint(npc: NpcInfo): string {
   let html = npcHints.get(npc.id);
   if (html === undefined) {
-    html = t('hint.npcTalk', { key: hud.interactPrompt, name: t(npc.nameKey) });
+    html = t("hint.npcTalk", { key: hud.interactPrompt, name: t(npc.nameKey) });
     npcHints.set(npc.id, html);
   }
   return html;
 }
 /** The dialogue panel's footer. Composed like the hints above. */
-let dialogueFoot = '';
+let dialogueFoot = "";
 
 // Re-compose every prompt hoisted out of the frame loop — the exhaustive list and the only writer. Two
 // things invalidate them, neither per-frame: the language and the DEVICE, since each has a key cap baked
 // in. The per-NPC cache goes with them: it is keyed by person.
 function composeKeyHints(): void {
   const key = hud.interactPrompt;
-  skillDenHint = t('hint.skillDen', { key });
-  dialogueFoot = t('npc.dialogue.close', { key });
+  skillDenHint = t("hint.skillDen", { key });
+  dialogueFoot = t("npc.dialogue.close", { key });
   npcHints.clear();
 }
 composeKeyHints();
@@ -3516,45 +4284,86 @@ const DISTURB_RANGE2 = 24 * 24;
 // moved and before `zones.update` so the cost lands in the `world` section. The wild pack is one slice
 // stale by construction — 16 ms against smoothing measured in hundreds.
 function reportMovers(): void {
-  if (!flags.props) return;
+  if (!flags.props) {
+    return;
+  }
   const ridden = mount.beast;
   if (ridden) {
     // The saddle, not the rider: a mounted hero sits a metre up, which the clearance test reads as a hovering
     // body — a galloping boarhound blowing grass instead of trampling it.
-    world.disturb(-1, ridden.position.x, ridden.position.y, ridden.position.z,
-      ridden.scaledRadius, ridden.species.locomotion === 'flying' ? 'fly' : 'walk');
+    world.disturb(
+      -1,
+      ridden.position.x,
+      ridden.position.y,
+      ridden.position.z,
+      ridden.scaledRadius,
+      ridden.species.locomotion === "flying" ? "fly" : "walk",
+    );
   } else {
-    world.disturb(-1, player.position.x, player.position.y, player.position.z,
-      player.radius, 'walk');
+    world.disturb(
+      -1,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      player.radius,
+      "walk",
+    );
   }
   if (flags.beasts) {
     const p0 = primary();
     const p1 = support();
     // `inTransit` like `isDead`: a beast travelling as light has no feet down and is pinned above the hero, where a `walk` report blows a hole in the meadow.
     if (p0 && p0 !== ridden && !p0.isDead && !p0.inTransit) {
-      world.disturb(-2, p0.position.x, p0.position.y, p0.position.z, p0.radius,
-        p0.species.locomotion === 'flying' ? 'fly' : 'walk');
+      world.disturb(
+        -2,
+        p0.position.x,
+        p0.position.y,
+        p0.position.z,
+        p0.radius,
+        p0.species.locomotion === "flying" ? "fly" : "walk",
+      );
     }
     if (p1 && p1 !== ridden && p1 !== p0 && !p1.isDead && !p1.inTransit) {
-      world.disturb(-3, p1.position.x, p1.position.y, p1.position.z, p1.radius,
-        p1.species.locomotion === 'flying' ? 'fly' : 'walk');
+      world.disturb(
+        -3,
+        p1.position.x,
+        p1.position.y,
+        p1.position.z,
+        p1.radius,
+        p1.species.locomotion === "flying" ? "fly" : "walk",
+      );
     }
   }
   for (const e of combat.enemies) {
-    if (!e.targetable) continue;
+    if (!e.targetable) {
+      continue;
+    }
     const dx = e.position.x - player.position.x;
     const dz = e.position.z - player.position.z;
-    if (dx * dx + dz * dz > DISTURB_RANGE2) continue;
-    world.disturb(e.root.id, e.position.x, e.position.y, e.position.z, e.radius,
-      e.species === 'peckit' ? 'fly' : 'walk');
+    if (dx * dx + dz * dz > DISTURB_RANGE2) {
+      continue;
+    }
+    world.disturb(
+      e.root.id,
+      e.position.x,
+      e.position.y,
+      e.position.z,
+      e.radius,
+      e.species === "peckit" ? "fly" : "walk",
+    );
   }
 }
 
 function simulate(dt: number, first: boolean, interactive: boolean): void {
   // An open console is a modal: it has the keyboard.
-  const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
-    || inventory.isOpen || journal.isOpen || !!devConsole?.isOpen
-    || perfPanel.isTyping;
+  const modal =
+    hud.isShopOpen() ||
+    hud.isControlsOpen() ||
+    pauseMenu.isOpen ||
+    inventory.isOpen ||
+    journal.isOpen ||
+    !!devConsole?.isOpen ||
+    perfPanel.isTyping;
   nearShop = false;
   nearNpc = null;
 
@@ -3571,14 +4380,18 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   let toucher: Player | null = null;
 
   // A rate control, so the look delta must be injected BEFORE the camera update takes it — later, endFrame() wiped it. Per SLICE: each injects its own SIM_DT of turn.
-  if (interactive && !modal) touch?.update(dt);
+  if (interactive && !modal) {
+    touch?.update(dt);
+  }
 
   // A hero nobody is driving is still standing on something: photo mode skips the player controller and
   // must still move him with whatever carries him. The mount answers for the pair when one is ridden, so
   // exactly one of these moves him. A modal used to be the second branch here — issue #101.
   if (!interactive) {
     mount.carryFrozen(dt);
-    if (!mount.isMounted) player.carry();
+    if (!mount.isMounted) {
+      player.carry();
+    }
   }
 
   // Photo mode drives the camera and the subject itself and must not have the player controller or the
@@ -3591,45 +4404,55 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     // claim: every gameplay read answers "nothing pressed", so a slice runs with the sticks at rest and
     // gravity, friction and a swing in flight resolve. Set for THIS BLOCK ONLY — the modal's keys follow.
     input.suspended = modal;
-    perf.section('input');
+    perf.section("input");
     // Mounting runs BEFORE the player: while ridden it writes his position, velocity and saddle pose for the slice. Safe every slice; the F edge is latched inside.
     mount.update(dt, flags.beasts ? primary() : null);
     player.update(dt);
     // The hero is the only thing that brushes the world today; a mount's dust would pass `mount.beast`.
     toucher = player;
-    perf.section('player');
+    perf.section("player");
 
     if (first) {
       const skills = hotbarSkills();
       const lead = primary();
-      (['Digit1', 'Digit2', 'Digit3', 'Digit4'] as const).forEach((code, i) => {
-        if (input.pressed(code) && lead && skills[i]) castFromBeast(lead, skills[i]);
+      (["Digit1", "Digit2", "Digit3", "Digit4"] as const).forEach((code, i) => {
+        if (input.pressed(code) && lead && skills[i]) {
+          castFromBeast(lead, skills[i]);
+        }
       });
 
       // THE TAMING THROW, gated on nothing else: an orb can be thrown from the saddle, mid-air or
       // mid-fight, and every reason it might not work is a message `throwReadiedOrb` gives.
-      if (input.pressed('KeyQ')) throwReadiedOrb();
+      if (input.pressed("KeyQ")) {
+        throwReadiedOrb();
+      }
 
       // Swapping is locked out in the saddle: every mounted path keys off primary() being the ridden beast,
       // so a Tab mid-ride would make "riding" and "commanding" two different animals.
       if (mount.isMounted) {
-        if (input.pressed('Tab') || input.pressed('BracketLeft') || input.pressed('BracketRight')) {
-          bus.emit({ type: 'toast', text: t('toast.dismountFirst') });
+        if (input.pressed("Tab") || input.pressed("BracketLeft") || input.pressed("BracketRight")) {
+          bus.emit({ type: "toast", text: t("toast.dismountFirst") });
         }
       } else {
         // Tab SWAPS the two slots, so both must be filled or a real beast would be benched into an empty one.
-        if (input.pressed('Tab') && primaryIdx >= 0 && supportIdx >= 0) {
-          const wasPrimary = primaryIdx; primaryIdx = supportIdx; supportIdx = wasPrimary;
+        if (input.pressed("Tab") && primaryIdx >= 0 && supportIdx >= 0) {
+          const wasPrimary = primaryIdx;
+          primaryIdx = supportIdx;
+          supportIdx = wasPrimary;
           const lead2 = primary();
           if (lead2) {
             bus.emit({
-              type: 'toast',
-              text: t('toast.beastTakesLead', { beast: t(lead2.species.nameKey) }),
+              type: "toast",
+              text: t("toast.beastTakesLead", { beast: t(lead2.species.nameKey) }),
             });
           }
         }
-        if (input.pressed('BracketRight')) cycleBeast('primary', 1);
-        if (input.pressed('BracketLeft')) cycleBeast('support', 1);
+        if (input.pressed("BracketRight")) {
+          cycleBeast("primary", 1);
+        }
+        if (input.pressed("BracketLeft")) {
+          cycleBeast("support", 1);
+        }
       }
     }
 
@@ -3640,77 +4463,115 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       fetchScanT = FETCH_SCAN;
       if (flags.beasts && sup && !sup.isFetching && !sup.isDead) {
         const job = combat.findFetchJob(player.position, FETCH_RADIUS, worthFetching);
-        if (job) sup.beginFetch(job);
+        if (job) {
+          sup.beginFetch(job);
+        }
       }
     }
 
     if (sup && sup.wantsSupportCast()) {
       const known = sup.knownSkillIds.map((id) => getSkill(id)).filter((s): s is SkillDef => !!s);
-      const heal = known.find((s) => s.targeting === 'support' || s.targeting === 'self');
+      const heal = known.find((s) => s.targeting === "support" || s.targeting === "self");
       const lead3 = primary();
-      const hurt = player.hp < player.maxHp * 0.7
-        || (lead3 !== null && lead3.hp < lead3.maxHp * 0.7);
-      const pick = hurt && heal ? heal : known.find((s) => s.targeting !== 'support' && s.targeting !== 'self') ?? heal;
-      if (pick) castFromBeast(sup, pick);
+      const hurt =
+        player.hp < player.maxHp * 0.7 || (lead3 !== null && lead3.hp < lead3.maxHp * 0.7);
+      const pick =
+        hurt && heal
+          ? heal
+          : (known.find((s) => s.targeting !== "support" && s.targeting !== "self") ?? heal);
+      if (pick) {
+        castFromBeast(sup, pick);
+      }
     }
 
     // Shop proximity. The prompt is decided after the zone update, because a gateway prompt has to win: it is the one with a countdown running.
-    nearShop = world.shopPositions.some((s) => inReach(
-      s.x, s.y, s.z,
-      player.position.x, player.position.y, player.position.z,
-      SHOP_RANGE, SHOP_RISE,
-    ));
+    nearShop = world.shopPositions.some((s) =>
+      inReach(
+        s.x,
+        s.y,
+        s.z,
+        player.position.x,
+        player.position.y,
+        player.position.z,
+        SHOP_RANGE,
+        SHOP_RISE,
+      ),
+    );
 
     // `E` talks as `E` opens a den, and the two can never both be in range, but the NPC is tested first.
     const npcField = world.npcs;
-    nearNpc = npcField && !npcField.talking
-      ? npcField.nearest(
-        player.position.x, player.position.y, player.position.z, NPC_TALK_RANGE,
-      )
-      : null;
-    if (first && input.pressed('KeyE')) {
-      if (npcField?.talking) npcField.endTalk();
-      else if (nearNpc) npcField?.talk(nearNpc.id);
-      else if (nearShop) tryOpenShop();
+    nearNpc =
+      npcField && !npcField.talking
+        ? npcField.nearest(player.position.x, player.position.y, player.position.z, NPC_TALK_RANGE)
+        : null;
+    if (first && input.pressed("KeyE")) {
+      if (npcField?.talking) {
+        npcField.endTalk();
+      } else if (nearNpc) {
+        npcField?.talk(nearNpc.id);
+      } else if (nearShop) {
+        tryOpenShop();
+      }
     }
     // TWO KEYS, AND THE SPLIT IS THE POINT (issue #83 follow-up): Escape CANCELS, F10 opens the menu. The
     // browser owns half of what Escape does, so a menu key it cannot touch is the fix. Every device arrives
     // here — pad Start and touch MENU tap F10, B taps Escape. `pressed`, because this is a SIMULATION slice.
-    if (first && input.pressed('Escape') && npcField?.talking) npcField.endTalk();
-    if (first && input.pressed('F10')) pauseMenu.open();
+    if (first && input.pressed("Escape") && npcField?.talking) {
+      npcField.endTalk();
+    }
+    if (first && input.pressed("F10")) {
+      pauseMenu.open();
+    }
 
     // THE GAMEPLAY BLOCK ENDS HERE, and so does the suspension: everything below is the modal's own keyboard and must read the presses this block was told to ignore.
     input.suspended = false;
 
-    if (modal && first
-      && (input.pressed('Escape') || input.pressed('F10') || input.pressed('KeyE'))) {
+    if (
+      modal &&
+      first &&
+      (input.pressed("Escape") || input.pressed("F10") || input.pressed("KeyE"))
+    ) {
       // Cancel closes the TOPMOST modal, which is why this is an if/else: one press must dismiss one thing.
       // The in-game menu goes FIRST and answers for itself — inside its settings step Escape means "back" —
       // so `onEscape` reports whether it spent the press, and `KeyE` is the pad's X, which confirms a row.
       // F10 is a cancel in here, which is what makes it a toggle.
-      const cancel = input.pressed('Escape') || input.pressed('F10');
+      const cancel = input.pressed("Escape") || input.pressed("F10");
       if (pauseMenu.isOpen) {
-        if (cancel) pauseMenu.onEscape();
-        else pauseMenu.activate();
+        if (cancel) {
+          pauseMenu.onEscape();
+        } else {
+          pauseMenu.activate();
+        }
       } else if (inventory.isOpen) {
         // Same shape as the menu: cancel asks the panel to spend the press, X (KeyE on the pad) confirms the
         // focused control, which is what makes the inventory workable from a controller.
-        if (cancel) inventory.onEscape();
-        else inventory.activate();
+        if (cancel) {
+          inventory.onEscape();
+        } else {
+          inventory.activate();
+        }
       } else if (journal.isOpen) {
         // Below the inventory because `I` is gated on the other modals — the journal is one of them — so the two
         // can never both be up. The order is what it would be if they could.
-        if (cancel) journal.onEscape();
-        else journal.activate();
-      } else if (hud.isControlsOpen()) hud.closeControls();
-      else hud.closeShop();
+        if (cancel) {
+          journal.onEscape();
+        } else {
+          journal.activate();
+        }
+      } else if (hud.isControlsOpen()) {
+        hud.closeControls();
+      } else {
+        hud.closeShop();
+      }
     }
   }
 
   // Contact particles, measured in the `beasts` profiler slot; their own timing is on `__dbgTouchFx().ms`, which is finer grained than a section anyway.
   touchFx.update(dt, toucher);
 
-  for (const [id, t] of cooldowns) cooldowns.set(id, Math.max(0, t - dt));
+  for (const [id, t] of cooldowns) {
+    cooldowns.set(id, Math.max(0, t - dt));
+  }
   // ...and the potion buff, on the same clock: both are durations the player is watching.
   updateBuffs(dt);
 
@@ -3734,61 +4595,86 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     const sup = support();
     if (lead) {
       lead.supportNeeded = needed;
-      if (lead !== ridden) lead.update(dt, owner, 'primary', roster);
+      if (lead !== ridden) {
+        lead.update(dt, owner, "primary", roster);
+      }
     }
     if (sup) {
       sup.supportNeeded = needed;
-      if (sup !== ridden) sup.update(dt, owner, 'support', roster);
+      if (sup !== ridden) {
+        sup.update(dt, owner, "support", roster);
+      }
     }
   }
-  perf.section('beasts');
+  perf.section("beasts");
 
   reportMovers();
 
   // Streams the zone, runs the gateway rules, builds the preload. It can swap `world` out from under this slice; everything above has finished with it.
   zones.update(player.position, dt, first);
-  perf.section('world');
+  perf.section("world");
 
   // `t()` with no placeholders is one lookup and no allocation, so hinting per slice is free — never an
   // interpolated `t(key, vars)` here. A gateway countdown outranks both.
   const hint = portalHint ?? (nearNpc ? npcHint(nearNpc) : nearShop ? skillDenHint : null);
-  if (hint) hud.showHint(hint);
-  else hud.hideHint();
+  if (hint) {
+    hud.showHint(hint);
+  } else {
+    hud.hideHint();
+  }
 
   // Free per slice (a key lookup, and the HUD compares before writing), and resolved HERE so an open talk follows a live language switch.
   const talk = world.npcs?.talking ?? null;
-  if (talk) hud.showDialogue(resolveText(talk.name), resolveText(talk.line), dialogueFoot);
-  else hud.hideDialogue();
+  if (talk) {
+    hud.showDialogue(resolveText(talk.name), resolveText(talk.line), dialogueFoot);
+  } else {
+    hud.hideDialogue();
+  }
 
   // A companion in transit is not a friendly: it is light, with no position an enemy could walk to. `_friendlies` is reused to stay allocation-free.
   _friendlies.length = 0;
   const fLead = primary();
   const fSup = support();
-  if (fLead && !fLead.inTransit) _friendlies.push(fLead);
-  if (fSup && !fSup.inTransit) _friendlies.push(fSup);
+  if (fLead && !fLead.inTransit) {
+    _friendlies.push(fLead);
+  }
+  if (fSup && !fSup.inTransit) {
+    _friendlies.push(fSup);
+  }
   combat.update(dt, player as unknown as Damageable, _friendlies as unknown as Damageable[]);
-  perf.section('combat');
+  perf.section("combat");
 }
 
 function frame(): void {
   // The loop OWNS ITS OWN SHUTDOWN: `exitToTitle` clears `playing` and the next frame schedules no other, so
   // nothing is torn down under a frame halfway through drawing it.
-  if (!playing) return;
+  if (!playing) {
+    return;
+  }
   requestAnimationFrame(frame);
-  if (!engine.beginFrame()) return;
+  if (!engine.beginFrame()) {
+    return;
+  }
   perf.begin();
   const dt = engine.tick();
   dayNight.update(dt);
   engine.applyCelestial(dayNight, dt);
   world.applyCelestial(dayNight);
-  const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
-    || inventory.isOpen || journal.isOpen || perfPanel.isTyping;
+  const modal =
+    hud.isShopOpen() ||
+    hud.isControlsOpen() ||
+    pauseMenu.isOpen ||
+    inventory.isOpen ||
+    journal.isOpen ||
+    perfPanel.isTyping;
   // A modal does not turn the camera, and the controls sheet keeps pointer lock, so unlike the shop it
   // goes on collecting mouse delta that no slice will spend. See Input.clearLook.
-  if (modal) input.clearLook();
+  if (modal) {
+    input.clearLook();
+  }
   // Escape drops pointer lock on every browser — the keyboard lock only covers a FULLSCREEN document — so
   // `armRelock` puts it back when the player moves. Not while clicking, and not while Alt holds the cursor out.
-  input.autoRelock = !modal && !input.down('AltLeft') && !input.down('AltRight');
+  input.autoRelock = !modal && !input.down("AltLeft") && !input.down("AltRight");
 
   // ONCE PER RENDERED FRAME and before the slices: look delta must integrate over wall-clock like mouse
   // movement, and the edges must land before slice 0, the one `first` is true for.
@@ -3803,19 +4689,21 @@ function frame(): void {
     simAccumulator -= SIM_DT;
     steps++;
   }
-  if (steps === MAX_STEPS) simAccumulator = 0;
+  if (steps === MAX_STEPS) {
+    simAccumulator = 0;
+  }
 
   if (photoMode) {
     // `primary()` cannot be null here — the `?beast=` branch at boot put the subject in the lead slot.
-    const photoBeast = params.get('beast') ? primary() : null;
+    const photoBeast = params.get("beast") ? primary() : null;
     if (photoBeast) {
       const beast = photoBeast;
-      const ang = (Number(params.get('a') ?? 35) * Math.PI) / 180;
+      const ang = (Number(params.get("a") ?? 35) * Math.PI) / 180;
       // ~40% of frame height, sized from the rig's own extents (ears, tail, wingspan), with a hard minimum: at 55° FOV anything closer than ~2.6 units distorts.
       const subject = Math.max(0.5, beast.height, beast.radius * 2.2);
       const vFov = (engine.camera.fov * Math.PI) / 180;
       const fitDist = subject / (0.4 * 2 * Math.tan(vFov / 2));
-      const dist = Number(params.get('dist') ?? Math.max(2.6, fitDist));
+      const dist = Number(params.get("dist") ?? Math.max(2.6, fitDist));
       const midY = beast.position.y + subject * 0.5;
       const aimY = beast.position.y + subject * 0.42;
 
@@ -3828,15 +4716,22 @@ function frame(): void {
           const gz = pz + (beast.position.z - pz) * t;
           const clearance = world.getHeight(gx, gz) + 0.35;
           const y = aimY + (clearance - aimY) / Math.max(0.28, 1 - t);
-          if (y > need) need = y;
+          if (y > need) {
+            need = y;
+          }
         }
         return need;
       };
 
       // Eye level with the subject and never far above: an unbounded lift turned blocked shots into aerial specimen photos. Step closer first, then swing the bearing.
       const ceiling = midY + subject * 1.15;
-      let cx = 0, cz = 0, camY = 0;
-      let bestOver = Infinity, bx = 0, bz = 0, by = 0;
+      let cx = 0,
+        cz = 0,
+        camY = 0;
+      let bestOver = Infinity,
+        bx = 0,
+        bz = 0,
+        by = 0;
       outer: for (const swing of [0, 0.45, -0.45, 0.9, -0.9]) {
         for (const shrink of [1, 0.85, 0.72, 0.61]) {
           const a2 = ang + swing;
@@ -3846,12 +4741,24 @@ function frame(): void {
           const need = requiredLift(tx, tz, d2);
           const y = Math.max(midY, need);
           const over = y - ceiling;
-          if (over < bestOver) { bestOver = over; bx = tx; bz = tz; by = y; }
-          if (over <= 0) { cx = tx; cz = tz; camY = y; break outer; }
+          if (over < bestOver) {
+            bestOver = over;
+            bx = tx;
+            bz = tz;
+            by = y;
+          }
+          if (over <= 0) {
+            cx = tx;
+            cz = tz;
+            camY = y;
+            break outer;
+          }
         }
       }
       if (camY === 0) {
-        cx = bx; cz = bz; camY = Math.min(by, ceiling);
+        cx = bx;
+        cz = bz;
+        camY = Math.min(by, ceiling);
       }
       engine.camera.position.set(cx, camY, cz);
       // Aim slightly low so the subject sits at ~0.45 frame height.
@@ -3889,19 +4796,22 @@ function frame(): void {
   engine.camera.getWorldDirection(_compassFwd);
   hud.setCompass(
     Math.atan2(_compassFwd.x, -_compassFwd.z) * (180 / Math.PI),
-    player.position.x, player.position.z,
+    player.position.x,
+    player.position.z,
   );
   // Caps follow whatever the player LAST touched; returns on the first line unless the device changed. The hint pills have a cap baked in, so they ride the same edge.
-  if (hud.setPadPrompts(input.lastSource === 'gamepad' && pad ? pad.glyphs : null)) {
+  if (hud.setPadPrompts(input.lastSource === "gamepad" && pad ? pad.glyphs : null)) {
     composeKeyHints();
   }
   hud.setMountHold(mount.progress);
   hud.setMounted(
     mount.beast ? t(mount.beast.species.nameKey) : null,
     // The MODE, re-read every frame, because a water beast changes it by swimming off a beach and not by being mounted.
-    mount.beast?.species.locomotion === 'flying' ? 'flying'
-      : mount.isSwimming ? 'swimming'
-      : 'ground',
+    mount.beast?.species.locomotion === "flying"
+      ? "flying"
+      : mount.isSwimming
+        ? "swimming"
+        : "ground",
   );
   hud.update(dt);
 
@@ -3914,10 +4824,14 @@ function frame(): void {
     // Whichever of the three it was, it was a real user gesture — what a browser requires before a page may make noise or buzz a phone.
     feedback?.unlock();
     bus.emit({
-      type: 'toast',
-      text: t(input.padActive
-        ? 'toast.controls.gamepad'
-        : touch?.isRevealed ? 'toast.controls.touch' : 'toast.controls.desktop'),
+      type: "toast",
+      text: t(
+        input.padActive
+          ? "toast.controls.gamepad"
+          : touch?.isRevealed
+            ? "toast.controls.touch"
+            : "toast.controls.desktop",
+      ),
     });
   }
 
@@ -3926,34 +4840,42 @@ function frame(): void {
   // `pressed` — an unconsumed edge survives until a slice drains, which uncapped is two or three toggles.
   // F1 carries the `interactive` gate so photo mode renders the same picture twice; F2 is outside it,
   // because measuring a capture's frame rate is the point.
-  if (!photoMode && input.takePress('F1')) {
+  if (!photoMode && input.takePress("F1")) {
     // POINTER LOCK IS KEPT, unlike the shop's: a sheet is READ and closed by the key that opened it, and releasing the lock made a one-key glance cost a click to undo.
     hud.toggleControls();
   }
   // Read here beside F1 for the same reason, and `takePress` stops one press toggling twice at 165 Hz.
-  if (!photoMode && input.takePress('KeyI')
-    && (inventory.isOpen || !(modal || devConsole?.isOpen))) {
+  if (
+    !photoMode &&
+    input.takePress("KeyI") &&
+    (inventory.isOpen || !(modal || devConsole?.isOpen))
+  ) {
     inventory.toggle();
   }
-  if (!photoMode && input.takePress('KeyJ')
-    && (journal.isOpen || !(modal || devConsole?.isOpen))) {
+  if (!photoMode && input.takePress("KeyJ") && (journal.isOpen || !(modal || devConsole?.isOpen))) {
     journal.toggle();
   }
-  if (input.takePress('F2')) debug.toggle();
+  if (input.takePress("F2")) {
+    debug.toggle();
+  }
   // F3 is the panel F2's numbers are FOR: deliberately not gated on photo mode and deliberately not a
   // modal — the point is watching a working frame get cheaper, and a frozen world streams nothing.
-  if (input.takePress('F3')) perfPanel.toggle();
+  if (input.takePress("F3")) {
+    perfPanel.toggle();
+  }
   // Per frame as well as on input events: opening the shop changes the answer and is no DOM event here.
   updateCursorMode();
   // Not while the spawner's search box has focus: in a text field an arrow is a caret move, Enter submits and R
   // is a letter. The field swallows them in the capture phase anyway.
   if (perfPanel.isOpen && !perfPanel.isTyping) {
-    for (const code of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'KeyR']) {
-      if (input.takePress(code)) perfPanel.onKey(code);
+    for (const code of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "KeyR"]) {
+      if (input.takePress(code)) {
+        perfPanel.onKey(code);
+      }
     }
   }
   colliderView.update(dt);
-  perf.section('hud');
+  perf.section("hud");
 
   // AFTER every camera decision this frame and before the render: the effect keys off where the lens ends up, and a frame late is a frame of clear water at the surface.
   underwater.update(dt, world.isWater(engine.camera.position.x, engine.camera.position.z));
@@ -3967,11 +4889,11 @@ function frame(): void {
   feedback?.drain(dt);
 
   engine.render();
-  perf.section('render');
+  perf.section("render");
   if (perf.enabled) {
     const programs = engine.renderer.info.programs?.length ?? 0;
     if (programs !== lastPrograms) {
-      perf.count('programs', programs - lastPrograms);
+      perf.count("programs", programs - lastPrograms);
       lastPrograms = programs;
     }
   }
@@ -3982,8 +4904,10 @@ function frame(): void {
   // thirds of every press away (measured: a 30% jump hit rate). Mouse delta is a quantity to integrate:
   // dropping it scaled look sensitivity DOWN, holding it for the whole loop scaled it UP once per slice
   // (issue #37), so the camera takes it on the first slice and this is the backstop.
-  if (steps > 0) input.endFrame();
-  perf.section('overlay');
+  if (steps > 0) {
+    input.endFrame();
+  }
+  perf.section("overlay");
   perf.end();
 }
 
@@ -3995,10 +4919,10 @@ function frame(): void {
 const BOOT_SLICE_MS = 10;
 
 // `warmup=0` skips it, which is how the freeze it prevents is reproduced. One slice runs FIRST so there is something to warm: enemies primed, beasts off the origin.
-if (params.get('warmup') !== '0') {
+if (params.get("warmup") !== "0") {
   simulate(SIM_DT, true, !photoMode);
   if (loading) {
-    await loading.stage('shaders');
+    await loading.stage("shaders");
     const total = warmUpStepCount();
     let done = 0;
     let mark = performance.now();
@@ -4020,7 +4944,7 @@ if (params.get('warmup') !== '0') {
 // here costs the chunk work alone and CONVERGES. The 4096 bound is a backstop against a future streamer
 // that re-queues. Only on the staged path: under `menu=0` the game must start the instant it can.
 if (loading) {
-  await loading.stage('terrain');
+  await loading.stage("terrain");
   let mark = performance.now();
   for (let i = 0; i < 4096 && world.streaming; i++) {
     // dt 0, as `switchTo` drains with: this is building, not simulating. A real dt would run the wind and water clocks and accumulate gateway dwell.
@@ -4060,7 +4984,7 @@ beginPlay();
 // from the world's end — an id in `assets` and not in `resolved` was refused. `state` is the save payload.
 (window as unknown as { __dbgContent: () => unknown }).__dbgContent = () => {
   const byType: Record<string, number> = {};
-  for (const type of ['town', 'npc', 'biome', 'enemy', 'quest', 'music']) {
+  for (const type of ["town", "npc", "biome", "enemy", "quest", "music"]) {
     byType[type] = content.all(type).length;
   }
   return {
@@ -4097,8 +5021,7 @@ beginPlay();
 
 // What the cached static shadow map is doing — whether it is on, how big the box is, and the number the whole
 // feature is about: FRAMES PER REBUILD. See core/shadow-cache.ts.
-(window as unknown as { __dbgShadows: () => unknown }).__dbgShadows =
-  () => engine.shadowDebug();
+(window as unknown as { __dbgShadows: () => unknown }).__dbgShadows = () => engine.shadowDebug();
 
 // The write half is a TEST HOOK like `__dbgTp`: a probe cannot type at the console, and the assertion is a before/after of the same chunks. Same listener `/nature` uses.
 (window as unknown as { __dbgNature: () => unknown }).__dbgNature = () => {
@@ -4108,44 +5031,59 @@ beginPlay();
   let grass = 0;
   engine.scene.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (!m.isMesh || !m.name.startsWith('chunk:')) return;
-    const n = m.geometry.getAttribute('position')?.count ?? 0;
-    if (m.name === 'chunk:terrain') chunks++;
-    else if (m.name === 'chunk:props') props += n;
-    else if (m.name === 'chunk:grass') grass += n;
+    if (!m.isMesh || !m.name.startsWith("chunk:")) {
+      return;
+    }
+    const n = m.geometry.getAttribute("position")?.count ?? 0;
+    if (m.name === "chunk:terrain") {
+      chunks++;
+    } else if (m.name === "chunk:props") {
+      props += n;
+    } else if (m.name === "chunk:grass") {
+      grass += n;
+    }
   });
   return { ...nature.snapshot(), census: { chunks, propVerts: props, grassVerts: grass } };
 };
-(window as unknown as { __dbgDistantTerrain: () => unknown }).__dbgDistantTerrain =
-  () => world.debugDistantTerrain();
-(window as unknown as {
-  __dbgSetNature: (id: string, value: number, area?: string) => unknown;
-}).__dbgSetNature = (id, value, area) => {
-  if (!NATURE_PARAMS.some((p) => p.id === id)) return null;
-  if (area === undefined) nature.setBase(id as NatureParamId, value);
-  else nature.setArea(area as NatureAreaId, id as NatureParamId, value);
+(window as unknown as { __dbgDistantTerrain: () => unknown }).__dbgDistantTerrain = () =>
+  world.debugDistantTerrain();
+(
+  window as unknown as {
+    __dbgSetNature: (id: string, value: number, area?: string) => unknown;
+  }
+).__dbgSetNature = (id, value, area) => {
+  if (!NATURE_PARAMS.some((p) => p.id === id)) {
+    return null;
+  }
+  if (area === undefined) {
+    nature.setBase(id as NatureParamId, value);
+  } else {
+    nature.setArea(area as NatureAreaId, id as NatureParamId, value);
+  }
   return nature.snapshot();
 };
 
 /** A/B the cache inside one page load; see `Engine.setShadowCacheEnabled`. */
-(window as unknown as { __dbgShadowCache: (on: boolean) => void }).__dbgShadowCache =
-  (on) => engine.setShadowCacheEnabled(on);
+(window as unknown as { __dbgShadowCache: (on: boolean) => void }).__dbgShadowCache = (on) =>
+  engine.setShadowCacheEnabled(on);
 
 // Read-only: driving the interaction is the keyboard's job, and a probe that could start a talk would
 // test a path the player never takes. `ground` and `feet` check he stands ON the camp floor, not in it.
 (window as unknown as { __dbgNpcs: () => unknown }).__dbgNpcs = () => ({
   talking: world.npcs?.talking
     ? {
-      id: world.npcs.talking.id,
-      // Looked up, so `?lang=sv` reports the Swedish line the panel shows.
-      name: resolveText(world.npcs.talking.name),
-      line: resolveText(world.npcs.talking.line),
-    }
+        id: world.npcs.talking.id,
+        // Looked up, so `?lang=sv` reports the Swedish line the panel shows.
+        name: resolveText(world.npcs.talking.name),
+        line: resolveText(world.npcs.talking.line),
+      }
     : null,
   all: (world.npcs?.all ?? []).map((n) => ({
     id: n.id,
     name: t(n.nameKey),
-    x: +n.x.toFixed(2), y: +n.y.toFixed(2), z: +n.z.toFixed(2),
+    x: +n.x.toFixed(2),
+    y: +n.y.toFixed(2),
+    z: +n.z.toFixed(2),
     ground: +world.getHeight(n.x, n.z).toFixed(2),
     town: world.towns.nearest(n.x, n.z)?.id ?? null,
     fromTownCentre: ((): number => {
@@ -4156,9 +5094,9 @@ beginPlay();
     fromPlayer: +Math.hypot(n.x - player.position.x, n.z - player.position.z).toFixed(2),
     abovePlayer: +(n.y - player.position.y).toFixed(2),
     // What the shipped query answers RIGHT NOW, run rather than re-derived, so a rule change shows here.
-    inTalkRange: world.npcs?.nearest(
-      player.position.x, player.position.y, player.position.z, NPC_TALK_RANGE,
-    )?.id === n.id,
+    inTalkRange:
+      world.npcs?.nearest(player.position.x, player.position.y, player.position.z, NPC_TALK_RANGE)
+        ?.id === n.id,
   })),
 });
 
@@ -4212,15 +5150,16 @@ beginPlay();
 // The carried island's waterfall. The counters are the effect's; `meshOriginY` / `meshMinY` are the
 // ROCK's, and prove it did not move when forty courses of waterfall came out of it — the first must
 // equal `meshMinY * cell` and the second still be the keel's depth. Null with no carried island.
-(window as unknown as { __dbgSkyFall: () => unknown }).__dbgSkyFall =
-  () => world.debugSkyFall();
+(window as unknown as { __dbgSkyFall: () => unknown }).__dbgSkyFall = () => world.debugSkyFall();
 
 // The wood on a carried deck, and whether it blocks: every planted tree with the collision query's
 // answer, plus a control sweep, because "something solid here" needs "and not everywhere". Both in ONE
 // evaluation, since a carrier moves a unit a second. `rise` is off the deck plane, not an altitude.
 (window as unknown as { __dbgCarriedWood: () => unknown }).__dbgCarriedWood = () => {
   const c = world.carriers.all[0];
-  if (!c) return { deck: null, trees: [], sampled: 0, raised: 0 };
+  if (!c) {
+    return { deck: null, trees: [], sampled: 0, raised: 0 };
+  }
   const trees = world.debugCarriedTrees().map((t) => ({
     x: +t.x.toFixed(2),
     z: +t.z.toFixed(2),
@@ -4232,10 +5171,14 @@ beginPlay();
   for (let i = -12; i <= 12; i++) {
     for (let j = -12; j <= 12; j++) {
       const t = c.topAt(c.x + i * step, c.z + j * step);
-      if (t === -Infinity) continue;
+      if (t === -Infinity) {
+        continue;
+      }
       sampled++;
       // A whole unit over the turf, well above `MAX_STEP_UP`, so this counts obstacles not doorsteps.
-      if (t > c.y + 1) raised++;
+      if (t > c.y + 1) {
+        raised++;
+      }
     }
   }
   return { deck: +c.y.toFixed(2), trees, sampled, raised, streets: world.debugCarriedStreets() };
@@ -4246,12 +5189,17 @@ beginPlay();
 // distinguishable; `marked` is the POLICY and `drawn` what survived the distance cull.
 (window as unknown as { __dbgQuestMarks: () => unknown }).__dbgQuestMarks = () => ({
   marked: {
-    npcs: [...markedNpcs].map(([id, kind]) => ({ id, kind })).sort((a, b) => a.id < b.id ? -1 : 1),
+    npcs: [...markedNpcs]
+      .map(([id, kind]) => ({ id, kind }))
+      .sort((a, b) => (a.id < b.id ? -1 : 1)),
     enemies: [...markedEnemies].sort(),
     beasts: [...markedBeasts].sort(),
   },
   drawn: questMarkSpots.slice(0, questMarkCount).map((s) => ({
-    kind: s.kind, x: +s.x.toFixed(2), y: +s.y.toFixed(2), z: +s.z.toFixed(2),
+    kind: s.kind,
+    x: +s.x.toFixed(2),
+    y: +s.y.toFixed(2),
+    z: +s.z.toFixed(2),
   })),
 });
 
@@ -4267,40 +5215,49 @@ beginPlay();
     objectives: e.objectives.map((o) => ({ text: o.text, have: o.have, need: o.need })),
     rewards: e.rewards.map((r) => `${r.label}=${r.value}`),
   })),
-  panel: journal.isOpen ? {
-    cards: [...document.querySelectorAll('.bs-journal .q')]
-      .map((q) => (q as HTMLElement).dataset.quest ?? ''),
-    tabs: document.querySelectorAll('.bs-journal .chip.tab').length,
-    steps: document.querySelectorAll('.bs-journal .steps li').length,
-    stepsDone: document.querySelectorAll('.bs-journal .steps li.ok').length,
-    rewards: document.querySelectorAll('.bs-journal .bs-chip').length,
-    hudButtons: document.querySelectorAll('.bs-journal [data-hud]').length,
-    hudOn: document.querySelectorAll('.bs-journal [data-hud].on').length,
-    empty: !!document.querySelector('.bs-journal .none'),
-  } : null,
+  panel: journal.isOpen
+    ? {
+        cards: [...document.querySelectorAll(".bs-journal .q")].map(
+          (q) => (q as HTMLElement).dataset.quest ?? "",
+        ),
+        tabs: document.querySelectorAll(".bs-journal .chip.tab").length,
+        steps: document.querySelectorAll(".bs-journal .steps li").length,
+        stepsDone: document.querySelectorAll(".bs-journal .steps li.ok").length,
+        rewards: document.querySelectorAll(".bs-journal .bs-chip").length,
+        hudButtons: document.querySelectorAll(".bs-journal [data-hud]").length,
+        hudOn: document.querySelectorAll(".bs-journal [data-hud].on").length,
+        empty: !!document.querySelector(".bs-journal .none"),
+      }
+    : null,
   hud: {
-    quests: [...document.querySelectorAll('.bs-quests .qt-n')].map((n) => n.textContent ?? ''),
-    steps: document.querySelectorAll('.bs-quests .qt-s span').length,
+    quests: [...document.querySelectorAll(".bs-quests .qt-n")].map((n) => n.textContent ?? ""),
+    steps: document.querySelectorAll(".bs-quests .qt-s span").length,
   },
 });
 
 // Stage a quest so the probe has something to read: `core` ships none, and this takes the `debug` lease
 // `/content load` takes. A DRIVER, not a reader — it does what talking to the giver would.
-(window as unknown as {
-  __dbgQuestStage: (pkg?: string) => Promise<unknown>;
-}).__dbgQuestStage = async (pkg = 'example-quest') => {
-  const r = await content.load(pkg, 'debug');
+(
+  window as unknown as {
+    __dbgQuestStage: (pkg?: string) => Promise<unknown>;
+  }
+).__dbgQuestStage = async (pkg = "example-quest") => {
+  const r = await content.load(pkg, "debug");
   // THE PACKAGE'S OWN QUESTS AND NOT EVERY LOADED ONE. That was the same set until the campaign began
   // loading at boot (issue #143), after which a probe asking for one quest was handed Act 1 as well.
-  const ids = r.assets.filter((id) => content.get<QuestData>(id)?.type === 'quest');
-  for (const id of ids) content.state.setQuestStatus(id, 'active');
+  const ids = r.assets.filter((id) => content.get<QuestData>(id)?.type === "quest");
+  for (const id of ids) {
+    content.state.setQuestStatus(id, "active");
+  }
   return { loaded: r.loaded, assets: r.assets, quests: ids };
 };
 
 /** Flip a quest's HUD switch the way the journal's button does. */
-(window as unknown as {
-  __dbgJournalHud: (id: string) => boolean;
-}).__dbgJournalHud = (id) => {
+(
+  window as unknown as {
+    __dbgJournalHud: (id: string) => boolean;
+  }
+).__dbgJournalHud = (id) => {
   content.state.setFlag(hudFlag(id), questOnHud(id));
   return questOnHud(id);
 };
@@ -4330,38 +5287,45 @@ beginPlay();
     // What the host believes about the three unlocks; `panel.mountBadges` is the DOM's answer, and the pair separates a wrong model from a badge that is not drawing it.
     mounts: m.mounts,
     entries: m.entries.map((e) => ({
-      id: e.id, kind: e.kind, count: e.count,
-      equipped: !!e.equipped, actions: e.actions ?? [],
+      id: e.id,
+      kind: e.kind,
+      count: e.count,
+      equipped: !!e.equipped,
+      actions: e.actions ?? [],
       // WHICH CELL, so a probe can assert a drag moved a box and not merely that the panel redrew (#116).
       slot: e.slot ?? -1,
     })),
     // Nulls when the panel is shut. `portraits` counts slots whose picture the 3D stage has BAKED, the only way to tell ten models from ten coloured blobs.
-    panel: inventory.isOpen ? {
-      slots: document.querySelectorAll('.bs-inv .slot').length,
-      // The wall is a FIXED 11x3 of real cells, so "rows the player owns" and "boxes drawn" are two different numbers (see INV_COLS).
-      filled: document.querySelectorAll('.bs-inv .slot:not(.empty)').length,
-      gearSlots: document.querySelectorAll('.bs-inv .gs').length,
-      tabs: document.querySelectorAll('.bs-inv .chip.tab').length,
-      // THE WHOLE PANEL and not just the wall: since issue #116 a gear slot is the only place an equipped weapon or a beast walking with you is drawn at all.
-      icons: document.querySelectorAll('.bs-inv .ic:not(.blob)').length,
-      portraits: document.querySelectorAll('.bs-inv .ic.beast:not(.blob)').length,
-      stageGl: !!document.querySelector('.bs-inv canvas.stage-gl'),
-      // A ROW IS IN HAND, read off the ghost tile the panel draws under the cursor — the same thing the player sees.
-      carrying: !!document.querySelector('.bs-inv .drag-ghost'),
-      // WHO IS ACTUALLY IN THE STAGE'S SCENE, not who was asked for.
-      stageCast: inventory.stageCast(),
-      footActions: [...document.querySelectorAll('.bs-inv .sel button')]
-        .map((b) => (b as HTMLElement).dataset.do ?? ''),
-      tip: document.querySelector('.bs-inv .tip.on')?.textContent ?? null,
-      // THE MOUNT BADGES as the DOM has them — `mounts` above is what the host believes, and reading the
-      // same answer twice would prove nothing. What this catches is a badge drawn without its lit state.
-      mountBadges: [...document.querySelectorAll('.bs-inv .mt')].map((b) => ({
-        kind: (b as HTMLElement).dataset.tip ?? '',
-        on: b.classList.contains('on'),
-      })),
-      selected: (document.querySelector('.bs-inv .slot.sel') as HTMLElement | null)
-        ?.dataset.sel ?? null,
-    } : null,
+    panel: inventory.isOpen
+      ? {
+          slots: document.querySelectorAll(".bs-inv .slot").length,
+          // The wall is a FIXED 11x3 of real cells, so "rows the player owns" and "boxes drawn" are two different numbers (see INV_COLS).
+          filled: document.querySelectorAll(".bs-inv .slot:not(.empty)").length,
+          gearSlots: document.querySelectorAll(".bs-inv .gs").length,
+          tabs: document.querySelectorAll(".bs-inv .chip.tab").length,
+          // THE WHOLE PANEL and not just the wall: since issue #116 a gear slot is the only place an equipped weapon or a beast walking with you is drawn at all.
+          icons: document.querySelectorAll(".bs-inv .ic:not(.blob)").length,
+          portraits: document.querySelectorAll(".bs-inv .ic.beast:not(.blob)").length,
+          stageGl: !!document.querySelector(".bs-inv canvas.stage-gl"),
+          // A ROW IS IN HAND, read off the ghost tile the panel draws under the cursor — the same thing the player sees.
+          carrying: !!document.querySelector(".bs-inv .drag-ghost"),
+          // WHO IS ACTUALLY IN THE STAGE'S SCENE, not who was asked for.
+          stageCast: inventory.stageCast(),
+          footActions: [...document.querySelectorAll(".bs-inv .sel button")].map(
+            (b) => (b as HTMLElement).dataset.do ?? "",
+          ),
+          tip: document.querySelector(".bs-inv .tip.on")?.textContent ?? null,
+          // THE MOUNT BADGES as the DOM has them — `mounts` above is what the host believes, and reading the
+          // same answer twice would prove nothing. What this catches is a badge drawn without its lit state.
+          mountBadges: [...document.querySelectorAll(".bs-inv .mt")].map((b) => ({
+            kind: (b as HTMLElement).dataset.tip ?? "",
+            on: b.classList.contains("on"),
+          })),
+          selected:
+            (document.querySelector(".bs-inv .slot.sel") as HTMLElement | null)?.dataset.sel ??
+            null,
+        }
+      : null,
   };
 };
 
@@ -4373,17 +5337,22 @@ beginPlay();
 });
 
 // TEST HOOKS: stage a bag state and press a button without farming a 1-in-25 drop.
-(window as unknown as { __dbgGive: (id: string, n?: number) => void })
-  .__dbgGive = (id, n = 1) => { if (isKnownItem(id)) giveItemFromContent(id, n); };
+(window as unknown as { __dbgGive: (id: string, n?: number) => void }).__dbgGive = (id, n = 1) => {
+  if (isKnownItem(id)) {
+    giveItemFromContent(id, n);
+  }
+};
 
 /** Drive one inventory button without a click, for the probe. */
-(window as unknown as { __dbgInvAction: (id: string, action: string) => void })
-  .__dbgInvAction = (id, action) => {
-    inventoryAction(id, action as InvAction);
-    // The panel re-reads after a button it pressed itself; this hook goes straight to the handler, so it
-    // owes the screen the same refresh or a probe reads a panel one action behind the state.
-    inventory.refresh();
-  };
+(window as unknown as { __dbgInvAction: (id: string, action: string) => void }).__dbgInvAction = (
+  id,
+  action,
+) => {
+  inventoryAction(id, action as InvAction);
+  // The panel re-reads after a button it pressed itself; this hook goes straight to the handler, so it
+  // owes the screen the same refresh or a probe reads a panel one action behind the state.
+  inventory.refresh();
+};
 
 (window as unknown as { __dbgTowns: () => unknown }).__dbgTowns = () => ({
   spawn: {
@@ -4400,8 +5369,12 @@ beginPlay();
     const within = (x: number, y: number, z: number, r: number): number => {
       let n = 0;
       for (let i = 0; i < b.length; i += 6) {
-        if (Math.abs(b[i + 5] - y) > 60) continue;
-        if (Math.hypot(b[i] - x, b[i + 1] - z) <= r) n++;
+        if (Math.abs(b[i + 5] - y) > 60) {
+          continue;
+        }
+        if (Math.hypot(b[i] - x, b[i + 1] - z) <= r) {
+          n++;
+        }
       }
       return n;
     };
@@ -4438,9 +5411,15 @@ beginPlay();
           const dz = r.path[i + 2] - az;
           const l2 = dx * dx + dz * dz;
           let u = l2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
-          if (u < 0) u = 0; else if (u > 1) u = 1;
+          if (u < 0) {
+            u = 0;
+          } else if (u > 1) {
+            u = 1;
+          }
           const d = r.deckEdge - Math.hypot(ax + dx * u - x, az + dz * u - z);
-          if (d > best) best = d;
+          if (d > best) {
+            best = d;
+          }
         }
       }
       return best;
@@ -4450,7 +5429,10 @@ beginPlay();
     for (let i = 0; i < f.length; i++) {
       for (let k = i + 1; k < f.length; k++) {
         const d = Math.hypot(f[i].x - f[k].x, f[i].z - f[k].z);
-        if (d < closestPair) { closestPair = d; pairAt = { x: +f[i].x.toFixed(1), z: +f[i].z.toFixed(1) }; }
+        if (d < closestPair) {
+          closestPair = d;
+          pairAt = { x: +f[i].x.toFixed(1), z: +f[i].z.toFixed(1) };
+        }
       }
     }
     let onRoad = 0;
@@ -4458,13 +5440,18 @@ beginPlay();
     let roadAt: { x: number; z: number } | null = null;
     for (const p of f) {
       const d = roadDist(p.x, p.z);
-      if (d > 0) onRoad++;
-      if (-d < nearestRoad) { nearestRoad = -d; roadAt = { x: +p.x.toFixed(1), z: +p.z.toFixed(1) }; }
+      if (d > 0) {
+        onRoad++;
+      }
+      if (-d < nearestRoad) {
+        nearestRoad = -d;
+        roadAt = { x: +p.x.toFixed(1), z: +p.z.toFixed(1) };
+      }
     }
     return {
       count: f.length,
-      lamps: f.filter((p) => p.kind === 'lamp').length,
-      posts: f.filter((p) => p.kind === 'post').length,
+      lamps: f.filter((p) => p.kind === "lamp").length,
+      posts: f.filter((p) => p.kind === "post").length,
       closestPair: Number.isFinite(closestPair) ? +closestPair.toFixed(2) : null,
       closestPairAt: pairAt,
       /** How clear of the nearest RIM the nearest piece is. Negative is on it. */
@@ -4478,8 +5465,11 @@ beginPlay();
   fences: world.debugFences(),
   // The fence kit's own metrics, so a probe checks a chain against what the BUILDER painted rather than a copy of those numbers in a test.
   fenceKit: {
-    postH: FENCE_POST_H, postR: FENCE_POST_R, postWidth: FENCE_POST_WIDTH,
-    railAt: [...FENCE_RAIL_AT], railWidth: FENCE_RAIL_WIDTH,
+    postH: FENCE_POST_H,
+    postR: FENCE_POST_R,
+    postWidth: FENCE_POST_WIDTH,
+    railAt: [...FENCE_RAIL_AT],
+    railWidth: FENCE_RAIL_WIDTH,
     railHeight: FENCE_RAIL_HEIGHT,
   },
   towns: world.towns.all.map((town) => ({
@@ -4489,7 +5479,9 @@ beginPlay();
     kind: town.kind,
     // Whether something is carrying it: a carried town's colliders are in its carrier's frame and its position is a reading rather than a placement.
     carried: town.carried,
-    x: +town.x.toFixed(1), y: town.y, z: +town.z.toFixed(1),
+    x: +town.x.toFixed(1),
+    y: town.y,
+    z: +town.z.toFixed(1),
     radius: town.radius,
     gate: { x: +town.gateX.toFixed(1), z: +town.gateZ.toFixed(1) },
     gateBearingDeg: +((town.gateAngle * 180) / Math.PI).toFixed(1),
@@ -4518,20 +5510,27 @@ beginPlay();
         const z = az + (bz - az) * t;
         const h = world.getHeight(x, z);
         const rise = h - prevH;
-        if (rise > maxStep) maxStep = rise;
+        if (rise > maxStep) {
+          maxStep = rise;
+        }
         const g = Math.abs(rise) / (seg / steps);
-        if (g > maxGrade) maxGrade = g;
+        if (g > maxGrade) {
+          maxGrade = g;
+        }
         prevH = h;
       }
       if (r.bridge[i - 1]) {
         spans.push({
-          x: +ax.toFixed(1), z: +az.toFixed(1),
+          x: +ax.toFixed(1),
+          z: +az.toFixed(1),
           y: +r.path[(i - 1) * 3 + 1].toFixed(2),
         });
       }
     }
     return {
-      id: r.id, from: r.from, to: r.to,
+      id: r.id,
+      from: r.from,
+      to: r.to,
       /** Which KIND of path, and how wide — see `test-road.mjs`'s sweep. */
       profile: r.profile,
       deckEdge: r.deckEdge,
@@ -4549,23 +5548,35 @@ beginPlay();
 });
 
 // The dens are the one class of building not in the town registry, so `__dbgTowns` cannot find them.
-(window as unknown as {
-  __dbgShops: () => Array<Record<string, number>>;
-}).__dbgShops = () => world.shopPositions.map((p) => ({
-  x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2),
-  facing: +Math.atan2(world.spawnPoint.x - p.x, world.spawnPoint.z - p.z).toFixed(3),
-  distToSpawn: +p.distanceTo(world.spawnPoint).toFixed(2),
-}));
+(
+  window as unknown as {
+    __dbgShops: () => Array<Record<string, number>>;
+  }
+).__dbgShops = () =>
+  world.shopPositions.map((p) => ({
+    x: +p.x.toFixed(2),
+    y: +p.y.toFixed(2),
+    z: +p.z.toFixed(2),
+    facing: +Math.atan2(world.spawnPoint.x - p.x, world.spawnPoint.z - p.z).toFixed(3),
+    distToSpawn: +p.distanceTo(world.spawnPoint).toFixed(2),
+  }));
 
 // A keep-out fails INVISIBLY, so telling working zones from a broken spawner means reading the discs and then asking `blocks` about a point — hence the optional column.
-(window as unknown as {
-  __dbgSafeZones: (x?: number, z?: number) => unknown;
-}).__dbgSafeZones = (x, z) => ({
+(
+  window as unknown as {
+    __dbgSafeZones: (x?: number, z?: number) => unknown;
+  }
+).__dbgSafeZones = (x, z) => ({
   zones: world.safeZones.all.map((s) => ({
-    id: s.id, x: +s.x.toFixed(2), z: +s.z.toFixed(2), radius: +s.radius.toFixed(2),
+    id: s.id,
+    x: +s.x.toFixed(2),
+    z: +s.z.toFixed(2),
+    radius: +s.radius.toFixed(2),
   })),
   towns: world.towns.all.map((t) => ({
-    id: t.id, radius: t.radius, outerRadius: +t.outerRadius.toFixed(2),
+    id: t.id,
+    radius: t.radius,
+    outerRadius: +t.outerRadius.toFixed(2),
     noSpawnRadius: +t.noSpawnRadius.toFixed(2),
   })),
   blocks: x === undefined || z === undefined ? null : world.safeZones.blocksSpawn(x, z),
@@ -4573,19 +5584,33 @@ beginPlay();
 
 // `__dbgTowns().roads` is the DRAWN paths only, so beaten tracks were invisible after issue #142 folded them
 // onto the same network; the `edge` pair is that fold's invariant.
-(window as unknown as {
-  __dbgPaths: (x?: number, z?: number) => unknown;
-}).__dbgPaths = (x, z) => world.debugPaths(x, z);
+(
+  window as unknown as {
+    __dbgPaths: (x?: number, z?: number) => unknown;
+  }
+).__dbgPaths = (x, z) => world.debugPaths(x, z);
 
 // The scriptable half of `/path`, which is why issue #142 §12 is testable before a panel exists. Both share
 // `World.addPath` and `refit`, so a probe cannot pass what the UI fails.
-(window as unknown as {
-  __dbgAddPath: (
-    ax: number, az: number, bx: number, bz: number, profile?: string, cross?: boolean,
-  ) => unknown;
-}).__dbgAddPath = (ax, az, bx, bz, profile, cross) => world.addPath({
-  from: [ax, az], to: [bx, bz], profile, cross, refit: refitHero,
-});
+(
+  window as unknown as {
+    __dbgAddPath: (
+      ax: number,
+      az: number,
+      bx: number,
+      bz: number,
+      profile?: string,
+      cross?: boolean,
+    ) => unknown;
+  }
+).__dbgAddPath = (ax, az, bx, bz, profile, cross) =>
+  world.addPath({
+    from: [ax, az],
+    to: [bx, bz],
+    profile,
+    cross,
+    refit: refitHero,
+  });
 
 // `ground` blocks and supports, `trunkSolidTop` is the bole a tree adds, `structureTop` what a
 // settlement built, `climbTop` what can be grabbed — deliberately not a building, which you would climb over.
@@ -4614,9 +5639,11 @@ const _surfRay = new THREE.Raycaster();
 _surfRay.layers.enableAll();
 const _surfFrom = new THREE.Vector3();
 const _surfDown = new THREE.Vector3(0, -1, 0);
-(window as unknown as {
-  __dbgSurfaceY: (x: number, z: number, above?: number) => unknown;
-}).__dbgSurfaceY = (x, z, above = 3) => {
+(
+  window as unknown as {
+    __dbgSurfaceY: (x: number, z: number, above?: number) => unknown;
+  }
+).__dbgSurfaceY = (x, z, above = 3) => {
   const ground = world.getHeight(x, z);
   _surfFrom.set(x, ground + above, z);
   _surfRay.set(_surfFrom, _surfDown);
@@ -4624,17 +5651,19 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   // Sprite.raycast reads `raycaster.camera.matrixWorld` and throws on a null one, and the world is full of glow sprites.
   _surfRay.camera = engine.camera;
   // MESHES ONLY: a ray fired through this world also collects glow sprites and drifting mote Points, and left in, they were all this reported.
-  const hits = _surfRay.intersectObject(engine.scene, true)
+  const hits = _surfRay
+    .intersectObject(engine.scene, true)
     .filter((h) => h.object.visible && (h.object as THREE.Mesh).isMesh);
   const top = hits[0] ?? null;
   return {
     ground: +ground.toFixed(3),
     surface: top ? +top.point.y.toFixed(3) : null,
-    hit: top ? (top.object.name || top.object.type) : null,
+    hit: top ? top.object.name || top.object.type : null,
     /** How far a figure standing on `ground` is buried by what is drawn. */
     sink: top ? +(top.point.y - ground).toFixed(3) : null,
     hits: hits.slice(0, 4).map((h) => ({
-      y: +h.point.y.toFixed(3), name: h.object.name || h.object.type,
+      y: +h.point.y.toFixed(3),
+      name: h.object.name || h.object.type,
     })),
   };
 };
@@ -4642,9 +5671,11 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 // The six uniform slots the shader reads this frame. `slots[].push`/`.wash` are the effect; `tracks[].lag` is the gap between a body and its own wake. Null with ?sway=0.
 (window as unknown as { __dbgSway: () => unknown }).__dbgSway = () => world.swayDebug?.() ?? null;
 
-(window as unknown as {
-  __dbgStructures: (x: number, z: number, r?: number) => unknown[];
-}).__dbgStructures = (x, z, r = 30) => {
+(
+  window as unknown as {
+    __dbgStructures: (x: number, z: number, r?: number) => unknown[];
+  }
+).__dbgStructures = (x, z, r = 30) => {
   const b: number[] = [];
   world.debugStructures(b);
   const out: Array<Record<string, number>> = [];
@@ -4654,12 +5685,19 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   const ground = world.getHeight(x, z);
   for (let i = 0; i < b.length; i += 6) {
     const d = Math.hypot(b[i] - x, b[i + 1] - z);
-    if (d > r) continue;
-    if (b[i + 5] > ground + CEILING) continue;
+    if (d > r) {
+      continue;
+    }
+    if (b[i + 5] > ground + CEILING) {
+      continue;
+    }
     out.push({
-      x: +b[i].toFixed(2), z: +b[i + 1].toFixed(2),
-      hx: +b[i + 2].toFixed(2), hz: +b[i + 3].toFixed(2),
-      yaw: +b[i + 4].toFixed(3), top: +b[i + 5].toFixed(2),
+      x: +b[i].toFixed(2),
+      z: +b[i + 1].toFixed(2),
+      hx: +b[i + 2].toFixed(2),
+      hz: +b[i + 3].toFixed(2),
+      yaw: +b[i + 4].toFixed(3),
+      top: +b[i + 5].toFixed(2),
       ground: +world.getHeight(b[i], b[i + 1]).toFixed(2),
       dist: +d.toFixed(2),
       area: +(4 * b[i + 2] * b[i + 3]).toFixed(2),
@@ -4672,10 +5710,14 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 // The overlay as numbers. `__dbgStructures` reads the collision data, this reads the PICTURE, and they
 // can disagree: only a cage's top comes from the field and its base is inferred, which drew every
 // collider on the flying settlement as a 200-unit shaft to the meadow (issue #112).
-(window as unknown as {
-  __dbgColliderView: (on?: boolean) => unknown;
-}).__dbgColliderView = (on) => {
-  if (on !== undefined) colliderView.setVisible(on);
+(
+  window as unknown as {
+    __dbgColliderView: (on?: boolean) => unknown;
+  }
+).__dbgColliderView = (on) => {
+  if (on !== undefined) {
+    colliderView.setVisible(on);
+  }
   return {
     visible: colliderView.isVisible,
     count: colliderView.count,
@@ -4685,30 +5727,41 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
     tallest: +colliderView.tallestCage.toFixed(2),
     tallestAt: (() => {
       const s = colliderView.tallestAt;
-      return s === null ? null : {
-        x: +s.x.toFixed(2), z: +s.z.toFixed(2),
-        base: +s.base.toFixed(2), top: +s.top.toFixed(2),
-        ground: +world.getHeight(s.x, s.z).toFixed(2),
-      };
+      return s === null
+        ? null
+        : {
+            x: +s.x.toFixed(2),
+            z: +s.z.toFixed(2),
+            base: +s.base.toFixed(2),
+            top: +s.top.toFixed(2),
+            ground: +world.getHeight(s.x, s.z).toFixed(2),
+          };
     })(),
   };
 };
 
 // `fit` is why this is not folded into `__dbgStructures`: how far the cylinder stands off the thatch at its worst point, which a box could never report.
-(window as unknown as {
-  __dbgRidges: (x: number, z: number, r?: number) => unknown[];
-}).__dbgRidges = (x, z, r = 30) => {
+(
+  window as unknown as {
+    __dbgRidges: (x: number, z: number, r?: number) => unknown[];
+  }
+).__dbgRidges = (x, z, r = 30) => {
   const b: number[] = [];
   world.debugRidges(b);
   const out: Array<Record<string, number>> = [];
   for (let i = 0; i < b.length; i += 8) {
     const d = Math.hypot(b[i] - x, b[i + 1] - z);
-    if (d > r) continue;
+    if (d > r) {
+      continue;
+    }
     out.push({
-      x: +b[i].toFixed(2), z: +b[i + 1].toFixed(2),
+      x: +b[i].toFixed(2),
+      z: +b[i + 1].toFixed(2),
       yaw: +b[i + 2].toFixed(3),
-      hl: +b[i + 3].toFixed(2), r: +b[i + 4].toFixed(2),
-      y: +b[i + 5].toFixed(2), ry: +b[i + 6].toFixed(2),
+      hl: +b[i + 3].toFixed(2),
+      r: +b[i + 4].toFixed(2),
+      y: +b[i + 5].toFixed(2),
+      ry: +b[i + 6].toFixed(2),
       fit: +b[i + 7].toFixed(3),
       crest: +(b[i + 5] + b[i + 6]).toFixed(2),
       ground: +world.getHeight(b[i], b[i + 1]).toFixed(2),
@@ -4728,9 +5781,11 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 // arithmetic ran. THE SAME FIELD (`World.foliageSite`), because `debugStructures` merges in the people
 // and whatever flies overhead — it reported a quarter of a million clips under the sky island. `verts`
 // separates "nothing is clipping" from "nothing has streamed".
-(window as unknown as {
-  __dbgFoliageClip: (x: number, z: number, r?: number, gap?: number) => unknown;
-}).__dbgFoliageClip = (x, z, r = 40, gap = 0.5) => {
+(
+  window as unknown as {
+    __dbgFoliageClip: (x: number, z: number, r?: number, gap?: number) => unknown;
+  }
+).__dbgFoliageClip = (x, z, r = 40, gap = 0.5) => {
   const site = world.foliageSite;
   let hits = 0;
   let snug = 0;
@@ -4738,25 +5793,37 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   const at = { x: 0, y: 0, z: 0 };
   const r2 = r * r;
   engine.scene.traverse((o) => {
-    if (o.name !== 'chunk:props' && o.name !== 'chunk:grass') return;
-    const p = (o as THREE.Mesh).geometry.getAttribute('position') as THREE.BufferAttribute;
+    if (o.name !== "chunk:props" && o.name !== "chunk:grass") {
+      return;
+    }
+    const p = (o as THREE.Mesh).geometry.getAttribute("position") as THREE.BufferAttribute;
     const a = p.array as ArrayLike<number>;
     for (let i = 0; i < a.length; i += 3) {
       const vx = a[i] + o.position.x;
       const vz = a[i + 2] + o.position.z;
       const dx = vx - x;
       const dz = vz - z;
-      if (dx * dx + dz * dz > r2) continue;
+      if (dx * dx + dz * dz > r2) {
+        continue;
+      }
       verts++;
       const vy = a[i + 1] + o.position.y;
       // `gap` first: it is the wider question, and a vertex it rejects cannot be inside anything either.
-      if (!site.hits(vx, vz, gap, vy, vy)) continue;
+      if (!site.hits(vx, vz, gap, vy, vy)) {
+        continue;
+      }
       // A POINT — radius zero, no height band: this vertex exactly where it is drawn, which is a strictly harder
       // question than the one the placer answered about the whole prop.
       if (site.hits(vx, vz, 0, vy, vy)) {
         hits++;
-        if (hits === 1) { at.x = vx; at.y = vy; at.z = vz; }
-      } else snug++;
+        if (hits === 1) {
+          at.x = vx;
+          at.y = vy;
+          at.z = vz;
+        }
+      } else {
+        snug++;
+      }
     }
   });
   return { x, z, radius: r, gap, verts, hits, snug, at: hits > 0 ? at : null };
@@ -4765,20 +5832,24 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 // The price of settlement collision, measured: "do not linear-scan every collider, do not index sixty
 // boxes either" is only answerable with a number. Call it inside the Encampment and out in open
 // country; the two say whether the grid in world/structures.ts earns its fifteen lines.
-(window as unknown as {
-  __dbgBenchStructures: (x: number, z: number, n?: number) => unknown;
-}).__dbgBenchStructures = (x, z, n = 200000) => {
+(
+  window as unknown as {
+    __dbgBenchStructures: (x: number, z: number, n?: number) => unknown;
+  }
+).__dbgBenchStructures = (x, z, n = 200000) => {
   // Wander the sample point over a few units so the loop is not one perfectly predicted branch on a warm cache line.
   let sink = 0;
   const run = (): number => {
     const t0 = performance.now();
     for (let i = 0; i < n; i++) {
       const t = world.structureTopAt(x + (i % 97) * 0.05, z + (i % 89) * 0.05);
-      if (t > sink) sink = t;
+      if (t > sink) {
+        sink = t;
+      }
     }
-    return (performance.now() - t0) * 1e6 / n;
+    return ((performance.now() - t0) * 1e6) / n;
   };
-  run();                                  // warm
+  run(); // warm
   const ns = Math.min(run(), run(), run());
   return { x, z, calls: n, nsPerCall: +ns.toFixed(1), sink };
 };
@@ -4788,15 +5859,18 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 // the dungeon linking 25 at light counts 0 and 1, because four den lamps had floored every count at 4.
 (window as unknown as { __dbgProgKeys: () => string[] }).__dbgProgKeys = () =>
   (engine.renderer.info.programs ?? []).map(
-    (p) => `${(p as unknown as { type: string }).type}|${(p as unknown as { cacheKey: string }).cacheKey}`,
+    (p) =>
+      `${(p as unknown as { type: string }).type}|${(p as unknown as { cacheKey: string }).cacheKey}`,
   );
 
-(window as unknown as {
-  __dbgTime: (value?: number | null | 'clear' | 'dawn' | 'noon' | 'dusk' | 'midnight') => unknown;
-}).__dbgTime = (value) => {
+(
+  window as unknown as {
+    __dbgTime: (value?: number | null | "clear" | "dawn" | "noon" | "dusk" | "midnight") => unknown;
+  }
+).__dbgTime = (value) => {
   if (value !== undefined) {
     const named = { clear: null, dawn: 0.25, noon: 0.5, dusk: 0.75, midnight: 0 } as const;
-    const phase = typeof value === 'string' ? named[value] : value;
+    const phase = typeof value === "string" ? named[value] : value;
     dayNight.setDebugOverride(phase);
     perfPanel.refresh();
   }
@@ -4809,17 +5883,20 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       lighting[lightRole] = (lighting[lightRole] ?? 0) + point.intensity;
     }
     const mesh = object as THREE.Mesh;
-    if (!mesh.isMesh) return;
+    if (!mesh.isMesh) {
+      return;
+    }
     const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const material of list) {
-      if (seen.has(material)) continue;
+      if (seen.has(material)) {
+        continue;
+      }
       seen.add(material);
       const role = material.userData.bsNightRole as string | undefined;
       if (role && material instanceof THREE.MeshStandardMaterial) {
         const debugIntensity = material.userData.bsDebugIntensity;
-        lighting[role] = typeof debugIntensity === 'number'
-          ? debugIntensity
-          : material.emissiveIntensity;
+        lighting[role] =
+          typeof debugIntensity === "number" ? debugIntensity : material.emissiveIntensity;
       }
     }
   });
@@ -4841,9 +5918,11 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   };
 };
 
-(window as unknown as {
-  __dbgGfx: (id?: string, value?: unknown) => unknown;
-}).__dbgGfx = (id, value) => {
+(
+  window as unknown as {
+    __dbgGfx: (id?: string, value?: unknown) => unknown;
+  }
+).__dbgGfx = (id, value) => {
   if (id === undefined) {
     // COUNTED OFF THE SCENE, not off the setting: grass switched off came back in patches while walking,
     // because chunks built through the immediate path never heard about it, and a draw-call delta could not
@@ -4856,13 +5935,17 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       water: { shown: 0, hidden: 0 },
     };
     engine.scene.traverse((o) => {
-      const key = o.name.startsWith('chunk:') ? o.name.slice(6) : null;
-      if (key && layers[key]) layers[key][o.visible ? 'shown' : 'hidden']++;
+      const key = o.name.startsWith("chunk:") ? o.name.slice(6) : null;
+      if (key && layers[key]) {
+        layers[key][o.visible ? "shown" : "hidden"]++;
+      }
     });
     return { open: perfPanel.isOpen, values: gfx.snapshot(), layers };
   }
   const opt = GFX_OPTIONS.find((o) => o.id === id);
-  if (!opt) return null;
+  if (!opt) {
+    return null;
+  }
   if (value !== undefined) {
     gfx.set(opt.id, opt.choices ? Number(value) : Boolean(value));
     perfPanel.refresh();
@@ -4874,41 +5957,54 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 // two meshes with the same geometry are the same head. A DRIVER with arguments, through the same
 // `appearance` control the panel uses, so a probe cannot pass a test a click would fail; `null` colour
 // clears the pick.
-(window as unknown as {
-  __dbgHair: (style?: string, colour?: string | number | null) => unknown;
-}).__dbgHair = (style, colour) => {
+(
+  window as unknown as {
+    __dbgHair: (style?: string, colour?: string | number | null) => unknown;
+  }
+).__dbgHair = (style, colour) => {
   if (style !== undefined) {
     appearance.setStyle(style);
     if (colour !== undefined) {
-      if (colour === null) appearance.reset();
-      else appearance.setColour(typeof colour === 'string' ? parseInt(colour.replace('#', ''), 16) : colour);
+      if (colour === null) {
+        appearance.reset();
+      } else {
+        appearance.setColour(
+          typeof colour === "string" ? parseInt(colour.replace("#", ""), 16) : colour,
+        );
+      }
     }
     perfPanel.refresh();
   }
   const mesh = player.rigHairMesh;
-  const colours = mesh?.geometry.getAttribute('color');
+  const colours = mesh?.geometry.getAttribute("color");
   // The MEAN VERTEX COLOUR of the hair, which is where a hair colour actually lives: `VoxelModel` bakes it into the attribute and there is no material to read it off.
   const tint = [0, 0, 0];
   if (colours) {
     for (let i = 0; i < colours.count; i++) {
-      tint[0] += colours.getX(i); tint[1] += colours.getY(i); tint[2] += colours.getZ(i);
+      tint[0] += colours.getX(i);
+      tint[1] += colours.getY(i);
+      tint[2] += colours.getZ(i);
     }
-    for (let c = 0; c < 3; c++) tint[c] = +(tint[c] / colours.count).toFixed(4);
+    for (let c = 0; c < 3; c++) {
+      tint[c] = +(tint[c] / colours.count).toFixed(4);
+    }
   }
   return {
     style: player.hairStyle,
-    colour: player.hairColour.toString(16).padStart(6, '0'),
+    colour: player.hairColour.toString(16).padStart(6, "0"),
     styles: HAIR_STYLES.map((s) => s.id),
     swatches: HAIR_SWATCHES.length,
-    vertices: mesh ? mesh.geometry.getAttribute('position').count : 0,
+    vertices: mesh ? mesh.geometry.getAttribute("position").count : 0,
     tint,
   };
 };
 
 // A READER with no arguments and a DRIVER with two, through the same `spawnCatalogue.spawn` a click uses, so a probe cannot pass a test the panel would fail.
-(window as unknown as {
-  __dbgSpawn: (branch?: string, row?: string) => unknown;
-}).__dbgSpawn = (branch, row) => {
+(
+  window as unknown as {
+    __dbgSpawn: (branch?: string, row?: string) => unknown;
+  }
+).__dbgSpawn = (branch, row) => {
   if (branch === undefined || row === undefined) {
     return {
       open: perfPanel.isOpen,
@@ -4921,7 +6017,9 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       spot: (() => {
         const s = spawnSpot();
         return {
-          x: +s.x.toFixed(2), z: +s.z.toFixed(2), yaw: +s.yaw.toFixed(3),
+          x: +s.x.toFixed(2),
+          z: +s.z.toFixed(2),
+          yaw: +s.yaw.toFixed(3),
           ground: +world.getHeight(s.x, s.z).toFixed(2),
         };
       })(),
@@ -4937,18 +6035,20 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 
 // The cursor: what is showing, whether the sheet decoded, and — as a TEST HOOK — a way to ask what a
 // screen point would resolve to without moving a real mouse. `states` proves all sixteen tiles were cut.
-(window as unknown as {
-  __dbgCursor: (x?: number, y?: number) => unknown;
-}).__dbgCursor = (x, y) => {
+(
+  window as unknown as {
+    __dbgCursor: (x?: number, y?: number) => unknown;
+  }
+).__dbgCursor = (x, y) => {
   if (x !== undefined && y !== undefined) {
     // Drive the real listener rather than a copy, so this reports what a player's mouse would get.
-    window.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y }));
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: x, clientY: y }));
   }
   return { ...cursors.debug(), free: cursorFree, known: CURSOR_STATES.length };
 };
 
-(window as unknown as { __dbgDraws: () => number }).__dbgDraws =
-  () => engine.renderer.info.render.calls;
+(window as unknown as { __dbgDraws: () => number }).__dbgDraws = () =>
+  engine.renderer.info.render.calls;
 
 (window as unknown as { __dbgZone: () => unknown }).__dbgZone = () => ({
   ...(zones.debug() as Record<string, unknown>),
@@ -4986,25 +6086,30 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   };
   return {
     player: {
-      x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2),
+      x: +player.position.x.toFixed(2),
+      y: +player.position.y.toFixed(2),
       z: +player.position.z.toFixed(2),
       overFeet: at(player.position, player.position.y),
     },
     // The two ACTIVE followers only: the rest of the roster is benched at the origin, where "is it inside
     // a wall" means nothing. An empty list is an empty party, which is what a new game is.
-    beasts: [primary(), support()].filter((p): p is BeastActor => p !== null).map((p) => ({
-      id: p.species.id,
-      locomotion: p.species.locomotion,
-      x: +p.position.x.toFixed(2), y: +p.position.y.toFixed(2),
-      z: +p.position.z.toFixed(2),
-      /** Structure top MINUS the body's feet. Above ~0.5 it is in a wall. */
-      overFeet: at(p.position, p.position.y),
-    })),
+    beasts: [primary(), support()]
+      .filter((p): p is BeastActor => p !== null)
+      .map((p) => ({
+        id: p.species.id,
+        locomotion: p.species.locomotion,
+        x: +p.position.x.toFixed(2),
+        y: +p.position.y.toFixed(2),
+        z: +p.position.z.toFixed(2),
+        /** Structure top MINUS the body's feet. Above ~0.5 it is in a wall. */
+        overFeet: at(p.position, p.position.y),
+      })),
     enemies: combat.enemies.map((e) => ({
       // Stable for this actor's lifetime: a movement probe must keep measuring the same enemy.
       id: e.root.id,
       species: e.species,
-      x: +e.position.x.toFixed(2), y: +e.position.y.toFixed(2),
+      x: +e.position.x.toFixed(2),
+      y: +e.position.y.toFixed(2),
       z: +e.position.z.toFixed(2),
       // ADDITIVE. Health is here so a tool can assert a swing LANDED without a second probe — tools/test-aim-assist.mjs reads it either side of an attack.
       hp: +e.hp.toFixed(2),

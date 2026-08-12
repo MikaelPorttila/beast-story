@@ -1,5 +1,5 @@
-import titleUrl from './title.webm';
-import overworldUrl from './overworld.webm';
+import titleUrl from "./title.webm";
+import overworldUrl from "./overworld.webm";
 
 /**
  * THE MUSIC — one track at a time, faded at both ends, unloaded on the way out.
@@ -150,7 +150,7 @@ const TICK_MS = 50;
  * how long the LISTENERS stay armed, so a page nobody ever touches does not
  * carry three capture-phase listeners for the rest of the session.
  */
-const UNLOCK_EVENTS = ['pointerdown', 'keydown', 'touchstart'] as const;
+const UNLOCK_EVENTS = ["pointerdown", "keydown", "touchstart"] as const;
 
 const clamp01 = (v: number): number => (v > 1 ? 1 : v < 0 ? 0 : v);
 
@@ -196,7 +196,9 @@ export class MusicDirector {
   }
 
   /** The master volume as this director last had it. */
-  get volume(): number { return this.master; }
+  get volume(): number {
+    return this.master;
+  }
 
   /**
    * Move to a part of the game. Idempotent — the common call is the same scene
@@ -207,7 +209,9 @@ export class MusicDirector {
    * and a live connection behind for a track nothing is going to play again.
    */
   setScene(scene: MusicScene): void {
-    if (scene === this.scene && this.pending === null) return;
+    if (scene === this.scene && this.pending === null) {
+      return;
+    }
     this.scene = scene;
     const want = this.playlistFor(scene);
 
@@ -227,7 +231,11 @@ export class MusicDirector {
     // right up until the click on New Game. There is nothing to fade out of: a
     // ramp here would spend 0.9 s retiring silence, and then `unlock` firing off
     // the same gesture would make that silence audible on the way out.
-    if (!this.track || this.blocked) { this.pending = null; this.startQueue(want, 0); return; }
+    if (!this.track || this.blocked) {
+      this.pending = null;
+      this.startQueue(want, 0);
+      return;
+    }
     // Something is playing: ramp it out first. `pending` is what `tick` starts
     // once the ramp lands, so two scene changes inside one fade resolve to the
     // last one asked for rather than to a queue.
@@ -247,11 +255,17 @@ export class MusicDirector {
     const next = clamp01(v);
     const was = this.master;
     this.master = next;
-    if (next === 0) { this.unload(); return; }
+    if (next === 0) {
+      this.unload();
+      return;
+    }
     // Back from mute: the same playlist, resumed at the song it was on rather
     // than at the top of the list. A mute is not a scene change, and coming back
     // to track 1 of 5 would make the volume row a way to lose your place.
-    if (was === 0) { this.startQueue(this.playlistFor(this.scene), this.index); return; }
+    if (was === 0) {
+      this.startQueue(this.playlistFor(this.scene), this.index);
+      return;
+    }
     this.apply();
   }
 
@@ -264,7 +278,9 @@ export class MusicDirector {
    * activated by Enter), and hearing about one costs a branch.
    */
   unlock(): void {
-    if (this.blocked) this.tryPlay();
+    if (this.blocked) {
+      this.tryPlay();
+    }
   }
 
   /**
@@ -280,20 +296,22 @@ export class MusicDirector {
    * depends on waiting.
    */
   seek(t: number): void {
-    if (this.el) this.el.currentTime = t;
+    if (this.el) {
+      this.el.currentTime = t;
+    }
   }
 
   debugState(): unknown {
     return {
       scene: this.scene,
       /** The file's basename, or null when nothing is loaded. */
-      track: this.track ? this.track.split('/').pop() ?? this.track : null,
+      track: this.track ? (this.track.split("/").pop() ?? this.track) : null,
       /**
        * The whole resolved playlist, basenames, in order — which is the only
        * way a probe can tell "this area was scored" from "this area fell back
        * to a list that happens to name the same song".
        */
-      playlist: this.queue.map((u) => u.split('/').pop() ?? u),
+      playlist: this.queue.map((u) => u.split("/").pop() ?? u),
       /** Where in `playlist` the loaded track is. */
       index: this.queue.length === 0 ? -1 : this.index,
       loaded: this.el !== null,
@@ -344,7 +362,9 @@ export class MusicDirector {
     this.unload();
     // THE GATE THE ISSUE ASKS FOR, and the only place it needs to be: at zero
     // there is no element, so there is no request and nothing to unload later.
-    if (!url || this.master === 0) return;
+    if (!url || this.master === 0) {
+      return;
+    }
 
     const el = new Audio();
     // Native looping for a playlist of ONE: the wrap is the browser's business
@@ -356,8 +376,10 @@ export class MusicDirector {
     // phrase, so what the player hears at either kind of seam is the same pair
     // of fades; see the header.
     el.loop = this.queue.length <= 1;
-    if (!el.loop) el.addEventListener('ended', this.onEnded);
-    el.preload = 'auto';
+    if (!el.loop) {
+      el.addEventListener("ended", this.onEnded);
+    }
+    el.preload = "auto";
     // Starts SILENT and is raised by the first tick. Setting the master here
     // instead would play a frame or two at full volume before the envelope had
     // ever run, which is the click at the head of the track rather than the fade.
@@ -372,7 +394,9 @@ export class MusicDirector {
     // from watching `currentTime` go backwards in `tick`.
     this.lastAt = 0;
     this.tryPlay();
-    if (!this.timer) this.timer = window.setInterval(this.tick, TICK_MS);
+    if (!this.timer) {
+      this.timer = window.setInterval(this.tick, TICK_MS);
+    }
   }
 
   /** Where the playhead was last tick, for counting loops. */
@@ -380,9 +404,14 @@ export class MusicDirector {
 
   private tryPlay(): void {
     const el = this.el;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const p = el.play();
-    if (!p) { this.blocked = false; return; }
+    if (!p) {
+      this.blocked = false;
+      return;
+    }
     p.then(() => {
       this.blocked = false;
       this.stopListening();
@@ -396,7 +425,9 @@ export class MusicDirector {
   }
 
   private listen(): void {
-    if (this.listening) return;
+    if (this.listening) {
+      return;
+    }
     this.listening = true;
     for (const ev of UNLOCK_EVENTS) {
       // CAPTURE phase, for the same reason core/input.ts stamps touches there:
@@ -407,14 +438,21 @@ export class MusicDirector {
   }
 
   private stopListening(): void {
-    if (!this.listening) return;
+    if (!this.listening) {
+      return;
+    }
     this.listening = false;
-    for (const ev of UNLOCK_EVENTS) window.removeEventListener(ev, this.onGesture, true);
+    for (const ev of UNLOCK_EVENTS) {
+      window.removeEventListener(ev, this.onGesture, true);
+    }
   }
 
   private onGesture = (): void => {
-    if (this.el && this.blocked) this.tryPlay();
-    else this.stopListening();
+    if (this.el && this.blocked) {
+      this.tryPlay();
+    } else {
+      this.stopListening();
+    }
   };
 
   /**
@@ -427,7 +465,9 @@ export class MusicDirector {
    * fade out something already silent and delay the next song by a second.
    */
   private onEnded = (): void => {
-    if (this.queue.length === 0) return;
+    if (this.queue.length === 0) {
+      return;
+    }
     this.startQueue(this.queue, this.index + 1);
   };
 
@@ -438,11 +478,16 @@ export class MusicDirector {
     this.track = null;
     this.blocked = false;
     this.stopListening();
-    if (this.timer) { window.clearInterval(this.timer); this.timer = 0; }
-    if (!el) return;
+    if (this.timer) {
+      window.clearInterval(this.timer);
+      this.timer = 0;
+    }
+    if (!el) {
+      return;
+    }
     // Before the pause, or a track retired mid-playlist could fire `ended` on
     // its way out and advance the list under whatever asked for the unload.
-    el.removeEventListener('ended', this.onEnded);
+    el.removeEventListener("ended", this.onEnded);
     el.pause();
     // THE UNLOAD, and it is these two lines rather than dropping the reference.
     // An element with a src is still a live media resource — buffered data, a
@@ -451,7 +496,7 @@ export class MusicDirector {
     // to tell the browser to let go of it now. `removeAttribute` rather than
     // `src = ''`, which resolves to the page's own URL and makes the element
     // fetch the HTML document.
-    el.removeAttribute('src');
+    el.removeAttribute("src");
     el.load();
   }
 
@@ -478,22 +523,31 @@ export class MusicDirector {
   /** Push master x envelope x swap at the element. */
   private apply(): void {
     const el = this.el;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     el.volume = clamp01(this.master * this.envelope(el) * this.swap);
   }
 
   private tick = (): void => {
     const el = this.el;
-    if (!el) { if (this.timer) { window.clearInterval(this.timer); this.timer = 0; } return; }
+    if (!el) {
+      if (this.timer) {
+        window.clearInterval(this.timer);
+        this.timer = 0;
+      }
+      return;
+    }
 
     // The swap ramp, stepped in wall-clock rather than in ticks so a throttled
     // background tab retires a track in the time it says rather than in however
     // many ticks it was given.
     if (this.swap !== this.swapTarget) {
       const step = TICK_MS / 1000 / FADE_SWAP;
-      this.swap = this.swapTarget > this.swap
-        ? Math.min(this.swapTarget, this.swap + step)
-        : Math.max(this.swapTarget, this.swap - step);
+      this.swap =
+        this.swapTarget > this.swap
+          ? Math.min(this.swapTarget, this.swap + step)
+          : Math.max(this.swapTarget, this.swap - step);
       if (this.swap === 0) {
         // The outgoing track is out. Unload it and start whatever the scene
         // change that began this ramp asked for.
@@ -508,7 +562,9 @@ export class MusicDirector {
       }
     }
 
-    if (el.currentTime < this.lastAt - 1) this.loops++;
+    if (el.currentTime < this.lastAt - 1) {
+      this.loops++;
+    }
     this.lastAt = el.currentTime;
     this.apply();
   };

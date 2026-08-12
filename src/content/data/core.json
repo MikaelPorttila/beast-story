@@ -86,7 +86,12 @@
             "when": {
               "all": [
                 { "test": "quest", "quest": "quest:land/first-light", "status": "active" },
-                { "test": "progress", "quest": "quest:land/first-light", "objective": "bond-practice", "atLeast": 3 }
+                {
+                  "test": "progress",
+                  "quest": "quest:land/first-light",
+                  "objective": "bond-practice",
+                  "atLeast": 3
+                }
               ]
             },
             "line": { "key": "npc.gain.q1.done" },
@@ -102,7 +107,11 @@
             "line": { "key": "npc.gain.q1.offer" },
             "actions": [
               { "do": "quest.start", "quest": "quest:land/first-light" },
-              { "do": "progress.add", "quest": "quest:land/first-light", "objective": "talk-to-gain" }
+              {
+                "do": "progress.add",
+                "quest": "quest:land/first-light",
+                "objective": "talk-to-gain"
+              }
             ]
           },
           {
@@ -113,7 +122,11 @@
             "when": {
               "all": [
                 { "test": "quest", "quest": "quest:land/the-first-bond", "status": "active" },
-                { "test": "progress", "quest": "quest:land/the-first-bond", "objective": "tame-wild" }
+                {
+                  "test": "progress",
+                  "quest": "quest:land/the-first-bond",
+                  "objective": "tame-wild"
+                }
               ]
             },
             "line": { "key": "npc.gain.q2.done" },
@@ -240,7 +253,11 @@
       "schema": 1,
       "name": { "key": "biome.underwater.name" },
       "tags": ["synthetic"],
-      "description": { "text": { "en": "Not a climate: a column below the water line, decided before any climate weight is consulted." } },
+      "description": {
+        "text": {
+          "en": "Not a climate: a column below the water line, decided before any climate weight is consulted."
+        }
+      },
       "data": {
         "startArea": false,
         "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
@@ -251,7 +268,11 @@
       "schema": 1,
       "name": { "key": "biome.deepwater.name" },
       "tags": ["synthetic"],
-      "description": { "text": { "en": "Not a climate: a column four units or more below the water line. A swimmer is turned back from it and only a water beast carries a rider across." } },
+      "description": {
+        "text": {
+          "en": "Not a climate: a column four units or more below the water line. A swimmer is turned back from it and only a water beast carries a rider across."
+        }
+      },
       "data": {
         "startArea": false,
         "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
@@ -262,7 +283,11 @@
       "schema": 1,
       "name": { "key": "biome.trampled.name" },
       "tags": ["synthetic"],
-      "description": { "text": { "en": "Not a climate: the worn yard of a settlement, which is a biome so that the prop scatter grows nothing there with no new test." } },
+      "description": {
+        "text": {
+          "en": "Not a climate: the worn yard of a settlement, which is a biome so that the prop scatter grows nothing there with no new test."
+        }
+      },
       "data": {
         "startArea": false,
         "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
@@ -285,9 +310,27 @@
         "height": 0.95,
         "aggro": 9,
         "variants": [
-          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" },
-          { "element": "shadow", "main": "#a06ce0", "dark": "#7245b0", "belly": "#d9b8ff", "accent": "#2c1450" },
-          { "element": "water", "main": "#3fb2f2", "dark": "#2a84c6", "belly": "#a8e8ff", "accent": "#0d2c48" }
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          },
+          {
+            "element": "shadow",
+            "main": "#a06ce0",
+            "dark": "#7245b0",
+            "belly": "#d9b8ff",
+            "accent": "#2c1450"
+          },
+          {
+            "element": "water",
+            "main": "#3fb2f2",
+            "dark": "#2a84c6",
+            "belly": "#a8e8ff",
+            "accent": "#0d2c48"
+          }
         ]
       }
     },
@@ -307,9 +350,27 @@
         "height": 1.15,
         "aggro": 10,
         "variants": [
-          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" },
-          { "element": "ice", "main": "#8fa8c0", "dark": "#5a728c", "belly": "#dae8f4", "accent": "#c4d6e8" },
-          { "element": "fire", "main": "#d4593a", "dark": "#8e3021", "belly": "#f2a468", "accent": "#f6c290" }
+          {
+            "element": "rock",
+            "main": "#9a6a42",
+            "dark": "#6b4628",
+            "belly": "#c99e6f",
+            "accent": "#e6ab7c"
+          },
+          {
+            "element": "ice",
+            "main": "#8fa8c0",
+            "dark": "#5a728c",
+            "belly": "#dae8f4",
+            "accent": "#c4d6e8"
+          },
+          {
+            "element": "fire",
+            "main": "#d4593a",
+            "dark": "#8e3021",
+            "belly": "#f2a468",
+            "accent": "#f6c290"
+          }
         ]
       }
     },
@@ -329,9 +390,27 @@
         "height": 0.8,
         "aggro": 12,
         "variants": [
-          { "element": "wind", "main": "#3c4454", "dark": "#242a36", "belly": "#5e6e84", "accent": "#f0a032" },
-          { "element": "shadow", "main": "#4a3d74", "dark": "#2c2148", "belly": "#7159a6", "accent": "#ffd23f" },
-          { "element": "electric", "main": "#c08a3c", "dark": "#7c5522", "belly": "#e9d092", "accent": "#5a626e" }
+          {
+            "element": "wind",
+            "main": "#3c4454",
+            "dark": "#242a36",
+            "belly": "#5e6e84",
+            "accent": "#f0a032"
+          },
+          {
+            "element": "shadow",
+            "main": "#4a3d74",
+            "dark": "#2c2148",
+            "belly": "#7159a6",
+            "accent": "#ffd23f"
+          },
+          {
+            "element": "electric",
+            "main": "#c08a3c",
+            "dark": "#7c5522",
+            "belly": "#e9d092",
+            "accent": "#5a626e"
+          }
         ]
       }
     },
@@ -353,9 +432,27 @@
         "aggro": 8,
         "capture": { "difficulty": 1 },
         "variants": [
-          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" },
-          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" },
-          { "element": "grass", "main": "#6fd84f", "dark": "#47a833", "belly": "#bdf29c", "accent": "#1c3a14" }
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          },
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          },
+          {
+            "element": "grass",
+            "main": "#6fd84f",
+            "dark": "#47a833",
+            "belly": "#bdf29c",
+            "accent": "#1c3a14"
+          }
         ]
       }
     },
@@ -376,9 +473,27 @@
         "aggro": 9,
         "capture": { "difficulty": 1.6 },
         "variants": [
-          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" },
-          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" },
-          { "element": "rock", "main": "#9a6a42", "dark": "#6b4628", "belly": "#c99e6f", "accent": "#e6ab7c" }
+          {
+            "element": "rock",
+            "main": "#9a6a42",
+            "dark": "#6b4628",
+            "belly": "#c99e6f",
+            "accent": "#e6ab7c"
+          },
+          {
+            "element": "rock",
+            "main": "#9a6a42",
+            "dark": "#6b4628",
+            "belly": "#c99e6f",
+            "accent": "#e6ab7c"
+          },
+          {
+            "element": "rock",
+            "main": "#9a6a42",
+            "dark": "#6b4628",
+            "belly": "#c99e6f",
+            "accent": "#e6ab7c"
+          }
         ]
       }
     },
@@ -399,9 +514,27 @@
         "aggro": 11,
         "capture": { "difficulty": 1.8 },
         "variants": [
-          { "element": "wind", "main": "#8fb8d8", "dark": "#5a7f9c", "belly": "#d6e9f6", "accent": "#f0d08a" },
-          { "element": "wind", "main": "#8fb8d8", "dark": "#5a7f9c", "belly": "#d6e9f6", "accent": "#f0d08a" },
-          { "element": "wind", "main": "#8fb8d8", "dark": "#5a7f9c", "belly": "#d6e9f6", "accent": "#f0d08a" }
+          {
+            "element": "wind",
+            "main": "#8fb8d8",
+            "dark": "#5a7f9c",
+            "belly": "#d6e9f6",
+            "accent": "#f0d08a"
+          },
+          {
+            "element": "wind",
+            "main": "#8fb8d8",
+            "dark": "#5a7f9c",
+            "belly": "#d6e9f6",
+            "accent": "#f0d08a"
+          },
+          {
+            "element": "wind",
+            "main": "#8fb8d8",
+            "dark": "#5a7f9c",
+            "belly": "#d6e9f6",
+            "accent": "#f0d08a"
+          }
         ]
       }
     },
@@ -423,9 +556,27 @@
         "aggro": 9,
         "capture": { "difficulty": 1.4 },
         "variants": [
-          { "element": "fire", "main": "#ff8a3d", "dark": "#c9531c", "belly": "#ffd9a8", "accent": "#3a1a08" },
-          { "element": "fire", "main": "#ff8a3d", "dark": "#c9531c", "belly": "#ffd9a8", "accent": "#3a1a08" },
-          { "element": "fire", "main": "#ff8a3d", "dark": "#c9531c", "belly": "#ffd9a8", "accent": "#3a1a08" }
+          {
+            "element": "fire",
+            "main": "#ff8a3d",
+            "dark": "#c9531c",
+            "belly": "#ffd9a8",
+            "accent": "#3a1a08"
+          },
+          {
+            "element": "fire",
+            "main": "#ff8a3d",
+            "dark": "#c9531c",
+            "belly": "#ffd9a8",
+            "accent": "#3a1a08"
+          },
+          {
+            "element": "fire",
+            "main": "#ff8a3d",
+            "dark": "#c9531c",
+            "belly": "#ffd9a8",
+            "accent": "#3a1a08"
+          }
         ]
       }
     },
@@ -446,9 +597,27 @@
         "aggro": 9,
         "capture": { "difficulty": 1.5 },
         "variants": [
-          { "element": "electric", "main": "#ffe04f", "dark": "#d9a91c", "belly": "#fff6bd", "accent": "#3a2f08" },
-          { "element": "electric", "main": "#ffe04f", "dark": "#d9a91c", "belly": "#fff6bd", "accent": "#3a2f08" },
-          { "element": "electric", "main": "#ffe04f", "dark": "#d9a91c", "belly": "#fff6bd", "accent": "#3a2f08" }
+          {
+            "element": "electric",
+            "main": "#ffe04f",
+            "dark": "#d9a91c",
+            "belly": "#fff6bd",
+            "accent": "#3a2f08"
+          },
+          {
+            "element": "electric",
+            "main": "#ffe04f",
+            "dark": "#d9a91c",
+            "belly": "#fff6bd",
+            "accent": "#3a2f08"
+          },
+          {
+            "element": "electric",
+            "main": "#ffe04f",
+            "dark": "#d9a91c",
+            "belly": "#fff6bd",
+            "accent": "#3a2f08"
+          }
         ]
       }
     },
@@ -469,9 +638,27 @@
         "aggro": 10,
         "capture": { "difficulty": 1.7 },
         "variants": [
-          { "element": "shadow", "main": "#6b5f8c", "dark": "#3d3454", "belly": "#a99cc4", "accent": "#16121f" },
-          { "element": "shadow", "main": "#6b5f8c", "dark": "#3d3454", "belly": "#a99cc4", "accent": "#16121f" },
-          { "element": "shadow", "main": "#6b5f8c", "dark": "#3d3454", "belly": "#a99cc4", "accent": "#16121f" }
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          }
         ]
       }
     },
@@ -492,9 +679,27 @@
         "aggro": 10,
         "capture": { "difficulty": 2.0 },
         "variants": [
-          { "element": "shadow", "main": "#6b5f8c", "dark": "#3d3454", "belly": "#a99cc4", "accent": "#16121f" },
-          { "element": "shadow", "main": "#6b5f8c", "dark": "#3d3454", "belly": "#a99cc4", "accent": "#16121f" },
-          { "element": "shadow", "main": "#6b5f8c", "dark": "#3d3454", "belly": "#a99cc4", "accent": "#16121f" }
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          }
         ]
       }
     },
@@ -515,9 +720,27 @@
         "aggro": 10,
         "capture": { "difficulty": 2.2 },
         "variants": [
-          { "element": "shadow", "main": "#6b5f8c", "dark": "#3d3454", "belly": "#a99cc4", "accent": "#16121f" },
-          { "element": "shadow", "main": "#6b5f8c", "dark": "#3d3454", "belly": "#a99cc4", "accent": "#16121f" },
-          { "element": "shadow", "main": "#6b5f8c", "dark": "#3d3454", "belly": "#a99cc4", "accent": "#16121f" }
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          },
+          {
+            "element": "shadow",
+            "main": "#6b5f8c",
+            "dark": "#3d3454",
+            "belly": "#a99cc4",
+            "accent": "#16121f"
+          }
         ]
       }
     },
@@ -538,9 +761,27 @@
         "aggro": 9,
         "capture": { "difficulty": 1.7 },
         "variants": [
-          { "element": "ice", "main": "#a8e4ff", "dark": "#5ba9d6", "belly": "#e6f7ff", "accent": "#123244" },
-          { "element": "ice", "main": "#a8e4ff", "dark": "#5ba9d6", "belly": "#e6f7ff", "accent": "#123244" },
-          { "element": "ice", "main": "#a8e4ff", "dark": "#5ba9d6", "belly": "#e6f7ff", "accent": "#123244" }
+          {
+            "element": "ice",
+            "main": "#a8e4ff",
+            "dark": "#5ba9d6",
+            "belly": "#e6f7ff",
+            "accent": "#123244"
+          },
+          {
+            "element": "ice",
+            "main": "#a8e4ff",
+            "dark": "#5ba9d6",
+            "belly": "#e6f7ff",
+            "accent": "#123244"
+          },
+          {
+            "element": "ice",
+            "main": "#a8e4ff",
+            "dark": "#5ba9d6",
+            "belly": "#e6f7ff",
+            "accent": "#123244"
+          }
         ]
       }
     },
@@ -561,9 +802,27 @@
         "aggro": 8,
         "capture": { "difficulty": 1.6 },
         "variants": [
-          { "element": "light", "main": "#ffe9a8", "dark": "#d6b45b", "belly": "#fff8dd", "accent": "#3f3316" },
-          { "element": "light", "main": "#ffe9a8", "dark": "#d6b45b", "belly": "#fff8dd", "accent": "#3f3316" },
-          { "element": "light", "main": "#ffe9a8", "dark": "#d6b45b", "belly": "#fff8dd", "accent": "#3f3316" }
+          {
+            "element": "light",
+            "main": "#ffe9a8",
+            "dark": "#d6b45b",
+            "belly": "#fff8dd",
+            "accent": "#3f3316"
+          },
+          {
+            "element": "light",
+            "main": "#ffe9a8",
+            "dark": "#d6b45b",
+            "belly": "#fff8dd",
+            "accent": "#3f3316"
+          },
+          {
+            "element": "light",
+            "main": "#ffe9a8",
+            "dark": "#d6b45b",
+            "belly": "#fff8dd",
+            "accent": "#3f3316"
+          }
         ]
       }
     },
@@ -584,9 +843,27 @@
         "aggro": 11,
         "capture": { "difficulty": 2.2 },
         "variants": [
-          { "element": "dragon", "main": "#8f6fd8", "dark": "#5b3fa8", "belly": "#cbb4f2", "accent": "#241640" },
-          { "element": "dragon", "main": "#8f6fd8", "dark": "#5b3fa8", "belly": "#cbb4f2", "accent": "#241640" },
-          { "element": "dragon", "main": "#8f6fd8", "dark": "#5b3fa8", "belly": "#cbb4f2", "accent": "#241640" }
+          {
+            "element": "dragon",
+            "main": "#8f6fd8",
+            "dark": "#5b3fa8",
+            "belly": "#cbb4f2",
+            "accent": "#241640"
+          },
+          {
+            "element": "dragon",
+            "main": "#8f6fd8",
+            "dark": "#5b3fa8",
+            "belly": "#cbb4f2",
+            "accent": "#241640"
+          },
+          {
+            "element": "dragon",
+            "main": "#8f6fd8",
+            "dark": "#5b3fa8",
+            "belly": "#cbb4f2",
+            "accent": "#241640"
+          }
         ]
       }
     },
@@ -607,9 +884,27 @@
         "aggro": 8,
         "capture": { "difficulty": 1.5 },
         "variants": [
-          { "element": "water", "main": "#4fb8e8", "dark": "#2a7fae", "belly": "#bfe9ff", "accent": "#0e2f42" },
-          { "element": "water", "main": "#4fb8e8", "dark": "#2a7fae", "belly": "#bfe9ff", "accent": "#0e2f42" },
-          { "element": "water", "main": "#4fb8e8", "dark": "#2a7fae", "belly": "#bfe9ff", "accent": "#0e2f42" }
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          }
         ]
       }
     },
@@ -630,9 +925,27 @@
         "aggro": 8,
         "capture": { "difficulty": 1.4 },
         "variants": [
-          { "element": "water", "main": "#4fb8e8", "dark": "#2a7fae", "belly": "#bfe9ff", "accent": "#0e2f42" },
-          { "element": "water", "main": "#4fb8e8", "dark": "#2a7fae", "belly": "#bfe9ff", "accent": "#0e2f42" },
-          { "element": "water", "main": "#4fb8e8", "dark": "#2a7fae", "belly": "#bfe9ff", "accent": "#0e2f42" }
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          }
         ]
       }
     },
@@ -653,9 +966,27 @@
         "aggro": 8,
         "capture": { "difficulty": 1.8 },
         "variants": [
-          { "element": "water", "main": "#4fb8e8", "dark": "#2a7fae", "belly": "#bfe9ff", "accent": "#0e2f42" },
-          { "element": "water", "main": "#4fb8e8", "dark": "#2a7fae", "belly": "#bfe9ff", "accent": "#0e2f42" },
-          { "element": "water", "main": "#4fb8e8", "dark": "#2a7fae", "belly": "#bfe9ff", "accent": "#0e2f42" }
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          },
+          {
+            "element": "water",
+            "main": "#4fb8e8",
+            "dark": "#2a7fae",
+            "belly": "#bfe9ff",
+            "accent": "#0e2f42"
+          }
         ]
       }
     },
@@ -676,9 +1007,27 @@
         "aggro": 9,
         "capture": { "difficulty": 1.9 },
         "variants": [
-          { "element": "rock", "main": "#b9a68c", "dark": "#7d6d57", "belly": "#e0d3bd", "accent": "#2e2619" },
-          { "element": "rock", "main": "#b9a68c", "dark": "#7d6d57", "belly": "#e0d3bd", "accent": "#2e2619" },
-          { "element": "rock", "main": "#b9a68c", "dark": "#7d6d57", "belly": "#e0d3bd", "accent": "#2e2619" }
+          {
+            "element": "rock",
+            "main": "#b9a68c",
+            "dark": "#7d6d57",
+            "belly": "#e0d3bd",
+            "accent": "#2e2619"
+          },
+          {
+            "element": "rock",
+            "main": "#b9a68c",
+            "dark": "#7d6d57",
+            "belly": "#e0d3bd",
+            "accent": "#2e2619"
+          },
+          {
+            "element": "rock",
+            "main": "#b9a68c",
+            "dark": "#7d6d57",
+            "belly": "#e0d3bd",
+            "accent": "#2e2619"
+          }
         ]
       }
     },

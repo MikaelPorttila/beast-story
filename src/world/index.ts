@@ -2,44 +2,61 @@
  * World assembly: seeded terrain + chunk streaming + water + props +
  * skill dens + sky ambience, exposed through the shared World contract.
  */
-import * as THREE from 'three';
+import * as THREE from "three";
 import type {
-  CelestialState, CrownContact, NpcField, NpcInfo, NpcTalk, PlayerStart, TownInfo, TownRegistry,
-  World, WorldLayer,
-} from '../core/types';
-import { excludeFromAO } from '../core/types';
-import { CarrierField } from './carriers';
-import { ISLAND_KEEL, SkyIsland, readCarriedTown } from './sky-island';
-import { CHUNK_SIZE, DEEP_WATER_TOP, Terrain, WATER_LEVEL, makeScratch } from './terrain';
-import { buildTerrainMesh, buildTerrainMeshSteps } from './chunk';
-import { DistantTerrain } from './distant-terrain';
-import { buildWaterMesh, createWaterMaterial, setWaterDetailDistance } from './water';
+  CelestialState,
+  CrownContact,
+  NpcField,
+  NpcInfo,
+  NpcTalk,
+  PlayerStart,
+  TownInfo,
+  TownRegistry,
+  World,
+  WorldLayer,
+} from "../core/types";
+import { excludeFromAO } from "../core/types";
+import { CarrierField } from "./carriers";
+import { ISLAND_KEEL, SkyIsland, readCarriedTown } from "./sky-island";
+import { CHUNK_SIZE, DEEP_WATER_TOP, Terrain, WATER_LEVEL, makeScratch } from "./terrain";
+import { buildTerrainMesh, buildTerrainMeshSteps } from "./chunk";
+import { DistantTerrain } from "./distant-terrain";
+import { buildWaterMesh, createWaterMaterial, setWaterDetailDistance } from "./water";
 import {
-  PropLib, buildChunkProps, buildChunkPropsSteps, TREE_STRIDE,
-  type ChunkProps, type Exclusion,
-} from './props';
-import { Shops, type DenSpot } from './shops';
-import { SiteFields } from './structures';
-import { Towns, planSettlements, type SettlementPlan } from './towns';
+  PropLib,
+  buildChunkProps,
+  buildChunkPropsSteps,
+  TREE_STRIDE,
+  type ChunkProps,
+  type Exclusion,
+} from "./props";
+import { Shops, type DenSpot } from "./shops";
+import { SiteFields } from "./structures";
+import { Towns, planSettlements, type SettlementPlan } from "./towns";
 import {
-  findCrossings, mergeCrossings, profileRoad, roadLength, routeRoad, runCrossesAny,
+  findCrossings,
+  mergeCrossings,
+  profileRoad,
+  roadLength,
+  routeRoad,
+  runCrossesAny,
   type Road,
-} from './roads';
+} from "./roads";
+import { FOOTPATH_PROFILE, ROAD_PROFILE, TRAIL_PROFILE, type PathProfile } from "./path-profile";
+import { TownParts } from "./town-parts";
+import { Npcs, spotIsFree, type NpcSite } from "./npc";
+import { SpawnedSolids } from "./spawned";
+import { Clouds } from "./clouds";
+import { SwayField } from "./sway";
+import { mulberry32 } from "./noise";
+import { DEN_NO_SPAWN_RADIUS, SafeZoneField } from "./safe-zones";
+import { perf } from "../core/profiler";
+import { flags } from "../core/flags";
 import {
-  FOOTPATH_PROFILE, ROAD_PROFILE, TRAIL_PROFILE, type PathProfile,
-} from './path-profile';
-import { TownParts } from './town-parts';
-import { Npcs, spotIsFree, type NpcSite } from './npc';
-import { SpawnedSolids } from './spawned';
-import { Clouds } from './clouds';
-import { SwayField } from './sway';
-import { mulberry32 } from './noise';
-import { DEN_NO_SPAWN_RADIUS, SafeZoneField } from './safe-zones';
-import { perf } from '../core/profiler';
-import { flags } from '../core/flags';
-import {
-  invalidateStaticShadows, invalidateStaticShadowsNear, markStaticShadowCaster,
-} from '../core/shadow-cache';
+  invalidateStaticShadows,
+  invalidateStaticShadowsNear,
+  markStaticShadowCaster,
+} from "../core/shadow-cache";
 
 const DEFAULT_VIEW_RADIUS = 5;
 /** Chunk-build wall-clock budget per RENDERED frame, ms. */
@@ -79,19 +96,26 @@ function findSpawn(terrain: Terrain): THREE.Vector3 {
   const score = (x: number, z: number): number => {
     terrain.columnInfo(x, z, sc);
     const h = sc.h;
-    if (h < WATER_LEVEL + 1 || h > WATER_LEVEL + 5) return -Infinity;
-    if (sc.biome !== 'plains' && sc.biome !== 'forest') return -Infinity;
+    if (h < WATER_LEVEL + 1 || h > WATER_LEVEL + 5) {
+      return -Infinity;
+    }
+    if (sc.biome !== "plains" && sc.biome !== "forest") {
+      return -Infinity;
+    }
     let maxDiff = 0;
     for (let a = 0; a < 8; a++) {
       const ang = (a / 8) * Math.PI * 2;
       const nh = terrain.getHeight(x + Math.cos(ang) * 4, z + Math.sin(ang) * 4);
       const d = Math.abs(nh - h);
-      if (d > maxDiff) maxDiff = d;
+      if (d > maxDiff) {
+        maxDiff = d;
+      }
     }
-    if (maxDiff > 2) return -Infinity;
+    if (maxDiff > 2) {
+      return -Infinity;
+    }
     let nearWater = false;
-    outer:
-    for (const rr of [10, 16, 24]) {
+    outer: for (const rr of [10, 16, 24]) {
       for (let a = 0; a < 12; a++) {
         const ang = (a / 12) * Math.PI * 2;
         if (terrain.getHeight(x + Math.cos(ang) * rr, z + Math.sin(ang) * rr) < WATER_LEVEL) {
@@ -119,7 +143,9 @@ function findSpawn(terrain: Terrain): THREE.Vector3 {
         bestZ = z;
       }
     }
-    if (bestS > 118) break; // flat, grassy, near water, close to origin
+    if (bestS > 118) {
+      break;
+    } // flat, grassy, near water, close to origin
   }
   if (bestS === -Infinity) {
     // Relaxed fallback: any dry, reasonably flat land.
@@ -154,7 +180,10 @@ const DEN_SEP2 = 27 * 27;
 const DEN_SPAWN_SEP2 = 15 * 15;
 
 function placeShops(
-  terrain: Terrain, spawn: THREE.Vector3, seed: number, towns: TownRegistry,
+  terrain: Terrain,
+  spawn: THREE.Vector3,
+  seed: number,
+  towns: TownRegistry,
 ): DenSpot[] {
   const rng = mulberry32(seed ^ 0x5158);
   const spots: DenSpot[] = [];
@@ -165,7 +194,9 @@ function placeShops(
       const dx = t.x - x;
       const dz = t.z - z;
       const r = t.radius + 9;
-      if (dx * dx + dz * dz < r * r) return true;
+      if (dx * dx + dz * dz < r * r) {
+        return true;
+      }
     }
     return false;
   };
@@ -188,18 +219,29 @@ function placeShops(
       const x = Math.round(spawn.x + Math.sin(ang) * dist) + 0.5;
       const z = Math.round(spawn.z + Math.cos(ang) * dist) + 0.5;
       const hc = terrain.heightCont(x, z);
-      if (hc < WATER_LEVEL + 0.8) continue;
-      if (inTown(x, z)) continue;
+      if (hc < WATER_LEVEL + 0.8) {
+        continue;
+      }
+      if (inTown(x, z)) {
+        continue;
+      }
       const sx = x - spawn.x;
       const sz = z - spawn.z;
-      if (sx * sx + sz * sz < DEN_SPAWN_SEP2) continue;
+      if (sx * sx + sz * sz < DEN_SPAWN_SEP2) {
+        continue;
+      }
       let clear = true;
       for (const o of spots) {
         const dx = o.x - x;
         const dz = o.z - z;
-        if (dx * dx + dz * dz < DEN_SEP2) { clear = false; break; }
+        if (dx * dx + dz * dz < DEN_SEP2) {
+          clear = false;
+          break;
+        }
       }
-      if (!clear) continue;
+      if (!clear) {
+        continue;
+      }
       commit(x, z);
       placed = true;
     }
@@ -250,12 +292,12 @@ function pickPlayerStart(
   // The road, facing the start town — the pre-existing behaviour, kept whole as
   // the answer for every zone this does not apply to.
   const startTown = plan?.sites.find((s) => s.start)?.id;
-  const town = startTown ? plan?.towns.get(startTown) ?? null : null;
-  const toTown = town
-    ? Math.atan2(town.x - spawnPoint.x, town.z - spawnPoint.z)
-    : 0;
+  const town = startTown ? (plan?.towns.get(startTown) ?? null) : null;
+  const toTown = town ? Math.atan2(town.x - spawnPoint.x, town.z - spawnPoint.z) : 0;
   const road: PlayerStart = { position: spawnPoint.clone(), yaw: toTown };
-  if (!site || !npcs || !town) return road;
+  if (!site || !npcs || !town) {
+    return road;
+  }
 
   // The greeter: whoever stands nearest the middle of the start town. NOT the
   // first in load order, which is an array index wearing a fact's clothes, and
@@ -266,9 +308,14 @@ function pickPlayerStart(
   let best = Infinity;
   for (const n of npcs.all) {
     const d2 = (n.x - town.x) ** 2 + (n.z - town.z) ** 2;
-    if (d2 < best) { best = d2; greeter = n; }
+    if (d2 < best) {
+      best = d2;
+      greeter = n;
+    }
   }
-  if (!greeter || best > town.outerRadius ** 2) return road;
+  if (!greeter || best > town.outerRadius ** 2) {
+    return road;
+  }
 
   // Perpendicular to his facing, so "beside him". The two sides first, then the
   // same two dropped half a pace back — a fallback that keeps the shoulder-to-
@@ -283,13 +330,19 @@ function pickPlayerStart(
     for (const sideSign of [1, -1]) {
       const x = greeter.x + rx * START_BESIDE * sideSign - fx * back;
       const z = greeter.z + rz * START_BESIDE * sideSign - fz * back;
-      if (!spotIsFree(site, x, z, START_CLEARANCE)) continue;
+      if (!spotIsFree(site, x, z, START_CLEARANCE)) {
+        continue;
+      }
       pick = { x, z };
       break;
     }
-    if (pick) break;
+    if (pick) {
+      break;
+    }
   }
-  if (!pick) return road;
+  if (!pick) {
+    return road;
+  }
   return seat(pick.x, pick.z, f);
 }
 
@@ -321,9 +374,14 @@ class NpcFields implements NpcField {
     let bestD2 = Infinity;
     for (const p of this.parts) {
       const n = p.nearest(x, y, z, range);
-      if (!n) continue;
+      if (!n) {
+        continue;
+      }
       const d2 = (n.x - x) ** 2 + (n.z - z) ** 2;
-      if (d2 < bestD2) { bestD2 = d2; best = n; }
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = n;
+      }
     }
     return best;
   }
@@ -331,18 +389,24 @@ class NpcFields implements NpcField {
   talk(id: string): NpcTalk | null {
     for (const p of this.parts) {
       const t = p.talk(id);
-      if (t) return t;
+      if (t) {
+        return t;
+      }
     }
     return null;
   }
 
   get talking(): NpcTalk | null {
-    for (const p of this.parts) if (p.talking) return p.talking;
+    for (const p of this.parts) {
+      if (p.talking) return p.talking;
+    }
     return null;
   }
 
   endTalk(): void {
-    for (const p of this.parts) p.endTalk();
+    for (const p of this.parts) {
+      p.endTalk();
+    }
   }
 }
 
@@ -352,7 +416,9 @@ class NpcFields implements NpcField {
  * are LIVE — read them every frame, never cache them.
  */
 function withCarriedTowns(ground: TownRegistry, extra: readonly TownInfo[]): TownRegistry {
-  if (extra.length === 0) return ground;
+  if (extra.length === 0) {
+    return ground;
+  }
   const all = [...ground.all, ...extra];
   return {
     all,
@@ -363,7 +429,10 @@ function withCarriedTowns(ground: TownRegistry, extra: readonly TownInfo[]): Tow
       let bd2 = Infinity;
       for (const t of all) {
         const d2 = (t.x - x) ** 2 + (t.z - z) ** 2;
-        if (d2 < bd2) { bd2 = d2; best = t; }
+        if (d2 < bd2) {
+          bd2 = d2;
+          best = t;
+        }
       }
       return best;
     },
@@ -415,12 +484,19 @@ export function createWorld(
   scene: THREE.Scene,
   seed = 20260729,
   landmarks?: (probe: LandmarkProbe) => Array<{
-    x: number; z: number; id?: string; noSpawnRadius?: number;
+    x: number;
+    z: number;
+    id?: string;
+    noSpawnRadius?: number;
   }>,
   initialViewDistance = 600,
 ): World {
   const terrain = new Terrain(seed);
-  const terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+  const terrainMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.95,
+    metalness: 0,
+  });
   const waterMat = createWaterMaterial();
   const propLib = new PropLib();
   // Null when either toggle is off, so `softMat` is never patched and `?sway=0`
@@ -452,9 +528,7 @@ export function createWorld(
   const spawned = new SpawnedSolids(propLib, (x, z) => terrain.getHeight(x, z));
   scene.add(spawned.group);
 
-  const towns = plan
-    ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain)
-    : null;
+  const towns = plan ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain) : null;
   if (towns) {
     scene.add(towns.group);
     // Built ONCE and never streamed, so they are the other half of the static
@@ -464,17 +538,20 @@ export function createWorld(
 
   // THE PEOPLE, never before the settlement: the placement search asks where the
   // road is and what the camp built. Made once, not streamed.
-  const npcSite: NpcSite | null = plan && towns
-    ? {
-      towns: plan.towns,
-      roads: plan.network,
-      getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
-      structureTopAt: (x: number, z: number): number => towns.solids.topAt(x, z),
-      focusOf: (id: string) => towns.fireOf(id),
-    }
-    : null;
+  const npcSite: NpcSite | null =
+    plan && towns
+      ? {
+          towns: plan.towns,
+          roads: plan.network,
+          getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
+          structureTopAt: (x: number, z: number): number => towns.solids.topAt(x, z),
+          focusOf: (id: string) => towns.fireOf(id),
+        }
+      : null;
   const npcs = npcSite ? new Npcs(npcSite) : null;
-  if (npcs) scene.add(npcs.group);
+  if (npcs) {
+    scene.add(npcs.group);
+  }
 
   /**
    * Where the PLAYER wakes up — not `spawnPoint`, which everything else in the
@@ -489,20 +566,28 @@ export function createWorld(
    * (what you can grab) must not be able to disagree.
    */
   const structureTop = (x: number, z: number): number => {
-    if (!flags.solids) return -Infinity;
+    if (!flags.solids) {
+      return -Infinity;
+    }
     // The dens first: the one set that exists in every world.
     let top = shops.solids.topAt(x, z);
     if (towns) {
       const t = towns.solids.topAt(x, z);
-      if (t > top) top = t;
+      if (t > top) {
+        top = t;
+      }
     }
     if (npcs) {
       const n = npcs.solids.topAt(x, z);
-      if (n > top) top = n;
+      if (n > top) {
+        top = n;
+      }
     }
     // ...and whatever F3 stood on the ground; an empty field is one bounds test.
     const s = spawned.topAt(x, z);
-    if (s > top) top = s;
+    if (s > top) {
+      top = s;
+    }
     return top;
   };
 
@@ -513,13 +598,15 @@ export function createWorld(
   const skyData = flags.towns ? readCarriedTown() : null;
   const sky = skyData
     ? new SkyIsland(
-      terrain, propLib, skyData,
-      spawnPoint.x + Math.sin(SKY_HOME_ANGLE) * SKY_HOME_DIST,
-      spawnPoint.z + Math.cos(SKY_HOME_ANGLE) * SKY_HOME_DIST,
-      seed,
-      // The lakes' own shader: one water in this world, lit and clocked once.
-      waterMat,
-    )
+        terrain,
+        propLib,
+        skyData,
+        spawnPoint.x + Math.sin(SKY_HOME_ANGLE) * SKY_HOME_DIST,
+        spawnPoint.z + Math.cos(SKY_HOME_ANGLE) * SKY_HOME_DIST,
+        seed,
+        // The lakes' own shader: one water in this world, lit and clocked once.
+        waterMat,
+      )
     : null;
   if (sky) {
     carriers.add(sky);
@@ -529,22 +616,25 @@ export function createWorld(
   const clouds = flags.clouds ? new Clouds(seed) : null;
   // A cumulus is a volume of droplets: AO found only the seams between puffs and
   // drew dotted black dashes down every crease (issue #39).
-  if (clouds) scene.add(excludeFromAO(clouds.group));
+  if (clouds) {
+    scene.add(excludeFromAO(clouds.group));
+  }
 
   // 'solid' — holds trees and boulders off, but grass still carpets: a blanket
   // exclusion left a ~20m bare plane under the camera.
-  const sites = landmarks?.({
-    spawnPoint,
-    waterLevel: WATER_LEVEL,
-    shopPositions: shops.positions,
-    towns: townReg,
-    getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
-    steepnessAt: (x: number, z: number): number => terrain.steepnessAt(x, z),
-    biomeAt: (x: number, z: number): string => {
-      terrain.columnInfo(Math.floor(x), Math.floor(z), landmarkScratch);
-      return landmarkScratch.biome;
-    },
-  }) ?? [];
+  const sites =
+    landmarks?.({
+      spawnPoint,
+      waterLevel: WATER_LEVEL,
+      shopPositions: shops.positions,
+      towns: townReg,
+      getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
+      steepnessAt: (x: number, z: number): number => terrain.steepnessAt(x, z),
+      biomeAt: (x: number, z: number): string => {
+        terrain.columnInfo(Math.floor(x), Math.floor(z), landmarkScratch);
+        return landmarkScratch.biome;
+      },
+    }) ?? [];
   for (const s of sites) {
     // Narrower than a den's 4.5/9: a wide flatten plants a visible pancake.
     const h = Math.max(Math.floor(terrain.heightCont(s.x, s.z)), WATER_LEVEL + 1);
@@ -556,23 +646,33 @@ export function createWorld(
   // NOT here: the player's own spawn disc, which lives in combat/index.ts
   // because it is a rule about where a SESSION begins, not about a place.
   const safeZones = new SafeZoneField();
-  for (const t of townReg.all) safeZones.add(`town:${t.id}`, t.x, t.z, t.noSpawnRadius);
+  for (const t of townReg.all) {
+    safeZones.add(`town:${t.id}`, t.x, t.z, t.noSpawnRadius);
+  }
   for (let i = 0; i < spots.length; i++) {
     safeZones.add(`den:${i}`, spots[i].x, spots[i].z, DEN_NO_SPAWN_RADIUS);
   }
   for (let i = 0; i < sites.length; i++) {
-    safeZones.add(sites[i].id ?? `landmark:${i}`, sites[i].x, sites[i].z, sites[i].noSpawnRadius ?? 0);
+    safeZones.add(
+      sites[i].id ?? `landmark:${i}`,
+      sites[i].x,
+      sites[i].z,
+      sites[i].noSpawnRadius ?? 0,
+    );
   }
 
   const exclusions: Exclusion[] = [
-    { x: spawnPoint.x, z: spawnPoint.z, kind: 'solid' },
-    ...spots.map((s): Exclusion => ({ x: s.x, z: s.z, kind: 'solid' })),
-    ...sites.map((s): Exclusion => ({ x: s.x, z: s.z, kind: 'solid' })),
+    { x: spawnPoint.x, z: spawnPoint.z, kind: "solid" },
+    ...spots.map((s): Exclusion => ({ x: s.x, z: s.z, kind: "solid" })),
+    ...sites.map((s): Exclusion => ({ x: s.x, z: s.z, kind: "solid" })),
     // A town's whole footprint plus a little yard; grass still grows inside.
     ...townReg.all.map((t): Exclusion => ({
       // outerRadius, not radius: a square wall's corners stand 41% further out,
       // and on the footprint circle trees grew inside them.
-      x: t.x, z: t.z, kind: 'solid', r: t.outerRadius + 2.5,
+      x: t.x,
+      z: t.z,
+      kind: "solid",
+      r: t.outerRadius + 2.5,
     })),
   ];
 
@@ -590,13 +690,17 @@ export function createWorld(
   // not voxel distance: High extends the HLOD but keeps Medium's chunk count,
   // because another 88 cube-meshing jobs stuttered (issue #97).
   let terrainDistance = initialViewDistance;
-  let viewRadius = flags.viewRadius
-    ?? (initialViewDistance <= 480 ? 4 : DEFAULT_VIEW_RADIUS);
+  let viewRadius = flags.viewRadius ?? (initialViewDistance <= 480 ? 4 : DEFAULT_VIEW_RADIUS);
   setWaterDetailDistance(waterMat, viewRadius * CHUNK_SIZE);
   const distant = new DistantTerrain(
-    terrain, spawnPoint, initialViewDistance, viewRadius * CHUNK_SIZE,
+    terrain,
+    spawnPoint,
+    initialViewDistance,
+    viewRadius * CHUNK_SIZE,
   );
-  if (!flags.water) distant.setWaterVisible(false);
+  if (!flags.water) {
+    distant.setWaterVisible(false);
+  }
   scene.add(distant.terrain, distant.water);
 
   const chunks = new Map<string, ChunkRec>();
@@ -635,17 +739,20 @@ export function createWorld(
    * grass must arrive hidden. `applyLayers` runs on every finished stage.
    */
   const hiddenLayers: Record<WorldLayer, boolean> = {
-    grass: false, props: false, water: false, clouds: false,
+    grass: false,
+    props: false,
+    water: false,
+    clouds: false,
   };
 
   /** Squared distance from the focus to this chunk's horizontal rectangle. */
   const chunkDistanceSq = (rec: ChunkRec): number => {
     const x0 = rec.cx * CHUNK_SIZE;
     const z0 = rec.cz * CHUNK_SIZE;
-    const dx = focusX < x0 ? x0 - focusX
-      : focusX > x0 + CHUNK_SIZE ? focusX - (x0 + CHUNK_SIZE) : 0;
-    const dz = focusZ < z0 ? z0 - focusZ
-      : focusZ > z0 + CHUNK_SIZE ? focusZ - (z0 + CHUNK_SIZE) : 0;
+    const dx =
+      focusX < x0 ? x0 - focusX : focusX > x0 + CHUNK_SIZE ? focusX - (x0 + CHUNK_SIZE) : 0;
+    const dz =
+      focusZ < z0 ? z0 - focusZ : focusZ > z0 + CHUNK_SIZE ? focusZ - (z0 + CHUNK_SIZE) : 0;
     return dx * dx + dz * dz;
   };
 
@@ -657,13 +764,20 @@ export function createWorld(
   const applyLayers = (rec: ChunkRec): void => {
     const d2 = chunkDistanceSq(rec);
     for (const m of rec.meshes) {
-      const layer = m.name.startsWith('chunk:') ? m.name.slice(6) : '';
-      const inRange = layer === 'grass' ? d2 < grassDistance * grassDistance
-      : layer === 'props' ? d2 < propsDistance * propsDistance : true;
-      const visible = worldShown && inRange && (layer in hiddenLayers
-        ? !hiddenLayers[layer as WorldLayer]
-        : true);
-      if (m.visible === visible) continue;
+      const layer = m.name.startsWith("chunk:") ? m.name.slice(6) : "";
+      const inRange =
+        layer === "grass"
+          ? d2 < grassDistance * grassDistance
+          : layer === "props"
+            ? d2 < propsDistance * propsDistance
+            : true;
+      const visible =
+        worldShown &&
+        inRange &&
+        (layer in hiddenLayers ? !hiddenLayers[layer as WorldLayer] : true);
+      if (m.visible === visible) {
+        continue;
+      }
       m.visible = visible;
       // Only a REAL transition changes the caster set: this also runs as the
       // per-frame distance cull, so an unconditional invalidation would erase
@@ -674,7 +788,9 @@ export function createWorld(
 
   const startChunk = (cx: number, cz: number): ChunkRec | null => {
     const key = chunkKey(cx, cz);
-    if (chunks.has(key)) return null;
+    if (chunks.has(key)) {
+      return null;
+    }
     const rec: ChunkRec = { cx, cz, meshes: [], propsBuilt: false };
     chunks.set(key, rec);
     return rec;
@@ -689,30 +805,45 @@ export function createWorld(
 
   const commitProps = (rec: ChunkRec, props: ChunkProps): void => {
     rec.propsBuilt = true;
-    if (props.solid) props.solid.name = 'chunk:props';
-    if (props.soft) excludeFromAO(props.soft).name = 'chunk:grass';
+    if (props.solid) {
+      props.solid.name = "chunk:props";
+    }
+    if (props.soft) {
+      excludeFromAO(props.soft).name = "chunk:grass";
+    }
     for (const m of [props.solid, props.soft]) {
-      if (!m) continue;
+      if (!m) {
+        continue;
+      }
       rec.meshes.push(m);
       scene.add(m);
       markStaticShadowCaster(m);
     }
-    if (props.trunks.length > 0) trunks.set(trunkKey(rec.cx, rec.cz), props.trunks);
+    if (props.trunks.length > 0) {
+      trunks.set(trunkKey(rec.cx, rec.cz), props.trunks);
+    }
     applyLayers(rec);
   };
 
   const buildProps = (rec: ChunkRec): void => {
-    if (rec.propsBuilt || !flags.props || !wantsProps(rec)) return;
-    commitProps(rec, buildChunkProps(
-      rec.cx, rec.cz, terrain, propLib, exclusions, plan?.network ?? null, site,
-    ));
+    if (rec.propsBuilt || !flags.props || !wantsProps(rec)) {
+      return;
+    }
+    commitProps(
+      rec,
+      buildChunkProps(rec.cx, rec.cz, terrain, propLib, exclusions, plan?.network ?? null, site),
+    );
   };
 
   const dropProps = (rec: ChunkRec): void => {
-    if (!rec.propsBuilt) return;
+    if (!rec.propsBuilt) {
+      return;
+    }
     for (let i = rec.meshes.length - 1; i >= 0; i--) {
       const m = rec.meshes[i];
-      if (m.name !== 'chunk:props' && m.name !== 'chunk:grass') continue;
+      if (m.name !== "chunk:props" && m.name !== "chunk:grass") {
+        continue;
+      }
       invalidateStaticShadowsNear(m);
       scene.remove(m);
       m.geometry.dispose();
@@ -742,14 +873,16 @@ export function createWorld(
       const m = buildTerrainMesh(cx, cz, terrain, terrainMat);
       // NAMED though it is not a layer, so a probe can count it — the regression
       // was terrain going invisible.
-      m.name = 'chunk:terrain';
+      m.name = "chunk:terrain";
       rec.meshes.push(m);
       scene.add(m);
     } else if (stage === 1) {
-      if (!flags.water) return;
+      if (!flags.water) {
+        return;
+      }
       const water = buildWaterMesh(cx, cz, terrain, waterMat);
       if (water) {
-        water.name = 'chunk:water';
+        water.name = "chunk:water";
         rec.meshes.push(water);
         scene.add(water);
       }
@@ -759,7 +892,9 @@ export function createWorld(
     }
     // A CHUNK IS THE DEFINITION OF STATIC SHADOW GEOMETRY: pure functions of the
     // seed that never move, so the cache draws them once.
-    for (const m of rec.meshes) markStaticShadowCaster(m);
+    for (const m of rec.meshes) {
+      markStaticShadowCaster(m);
+    }
     // Both of these belong HERE, in the one function that adds meshes to a
     // chunk, not at its two call sites — in the streamer alone, chunks from
     // `buildChunk` never heard that the F3 panel had hidden the grass.
@@ -769,14 +904,20 @@ export function createWorld(
   /** Build a whole chunk now. Boot only — the streaming path stages it. */
   const buildChunk = (cx: number, cz: number): void => {
     const rec = startChunk(cx, cz);
-    if (!rec) return;
-    for (let s = 0; s <= 2; s++) buildStage(rec, s);
-    perf.count('chunks');
+    if (!rec) {
+      return;
+    }
+    for (let s = 0; s <= 2; s++) {
+      buildStage(rec, s);
+    }
+    perf.count("chunks");
   };
 
   const disposeChunk = (rec: ChunkRec): void => {
     // BEFORE the geometry goes: the invalidation measures bounds off it.
-    for (const m of rec.meshes) invalidateStaticShadowsNear(m);
+    for (const m of rec.meshes) {
+      invalidateStaticShadowsNear(m);
+    }
     for (const m of rec.meshes) {
       scene.remove(m);
       m.geometry.dispose();
@@ -791,10 +932,14 @@ export function createWorld(
     for (let dz = -viewRadius; dz <= viewRadius; dz++) {
       for (let dx = -viewRadius; dx <= viewRadius; dx++) {
         const d = dx * dx + dz * dz;
-        if (d > lim) continue;
+        if (d > lim) {
+          continue;
+        }
         const cx = fcx + dx;
         const cz = fcz + dz;
-        if (!chunks.has(chunkKey(cx, cz))) queue.push({ cx, cz, d });
+        if (!chunks.has(chunkKey(cx, cz))) {
+          queue.push({ cx, cz, d });
+        }
       }
     }
     queue.sort((a, b) => a.d - b.d);
@@ -809,7 +954,9 @@ export function createWorld(
       if (dx * dx + dz * dz > lim) {
         // The part-built chunk can be the one leaving range; drop it or the next
         // stage adds meshes to a disposed record.
-        if (building && building.rec === rec) building = null;
+        if (building && building.rec === rec) {
+          building = null;
+        }
         disposeChunk(rec);
         chunks.delete(key);
       }
@@ -820,7 +967,9 @@ export function createWorld(
   const scx = Math.floor(spawnPoint.x / CHUNK_SIZE);
   const scz = Math.floor(spawnPoint.z / CHUNK_SIZE);
   for (let dz = -1; dz <= 1; dz++) {
-    for (let dx = -1; dx <= 1; dx++) buildChunk(scx + dx, scz + dz);
+    for (let dx = -1; dx <= 1; dx++) {
+      buildChunk(scx + dx, scz + dz);
+    }
   }
 
   // NAMED, not returned inline: `addPath` calls `rebuildProps`.
@@ -833,14 +982,20 @@ export function createWorld(
     safeZones,
     carriers,
     debugSpawn: spawned,
-    get chunksLoaded(): number { return chunks.size; },
+    get chunksLoaded(): number {
+      return chunks.size;
+    },
     // A part-built chunk counts: its trees are not in the registry yet.
     get streaming(): boolean {
       return distant.building || building !== null || queue.length > 0 || foliageQueue.length > 0;
     },
     get pendingChunks(): number {
-      return queue.length + foliageQueue.length + (building !== null ? 1 : 0)
-        + (distant.building ? 1 : 0);
+      return (
+        queue.length +
+        foliageQueue.length +
+        (building !== null ? 1 : 0) +
+        (distant.building ? 1 : 0)
+      );
     },
     getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
     /**
@@ -852,7 +1007,9 @@ export function createWorld(
       let top = terrain.getHeight(x, z);
       // EVERYTHING SOLID IS CLIMBABLE: if it stops you, you can get on top.
       const s = structureTop(x, z);
-      if (s > top) top = s;
+      if (s > top) {
+        top = s;
+      }
       const c0x = Math.floor((x - CROWN_MARGIN) / CHUNK_SIZE);
       const c1x = Math.floor((x + CROWN_MARGIN) / CHUNK_SIZE);
       const c0z = Math.floor((z - CROWN_MARGIN) / CHUNK_SIZE);
@@ -860,16 +1017,23 @@ export function createWorld(
       for (let bx = c0x; bx <= c1x; bx++) {
         for (let bz = c0z; bz <= c1z; bz++) {
           const b = trunks.get(trunkKey(bx, bz));
-          if (b === undefined) continue;
+          if (b === undefined) {
+            continue;
+          }
           for (let i = 0; i < b.length; i += TREE_STRIDE) {
             const dx = x - b[i];
             const dz = z - b[i + 1];
             const d2 = dx * dx + dz * dz;
-            if (d2 <= b[i + 3] && b[i + 4] > top) top = b[i + 4]; // bole
+            if (d2 <= b[i + 3] && b[i + 4] > top) {
+              top = b[i + 4];
+            } // bole
             const cr2 = b[i + 5];
-            if (d2 <= cr2) {                                     // canopy dome
+            if (d2 <= cr2) {
+              // canopy dome
               const y = b[i + 6] + b[i + 7] * Math.sqrt(1 - d2 / cr2);
-              if (y > top) top = y;
+              if (y > top) {
+                top = y;
+              }
             }
           }
         }
@@ -890,12 +1054,18 @@ export function createWorld(
       for (let bx = c0x; bx <= c1x; bx++) {
         for (let bz = c0z; bz <= c1z; bz++) {
           const b = trunks.get(trunkKey(bx, bz));
-          if (b === undefined) continue;
+          if (b === undefined) {
+            continue;
+          }
           for (let i = 0; i < b.length; i += TREE_STRIDE) {
             const dx = x - b[i];
             const dz = z - b[i + 1];
-            if (dx * dx + dz * dz > b[i + 2]) continue;
-            if (b[i + 4] > top) top = b[i + 4];
+            if (dx * dx + dz * dz > b[i + 2]) {
+              continue;
+            }
+            if (b[i + 4] > top) {
+              top = b[i + 4];
+            }
           }
         }
       }
@@ -927,20 +1097,30 @@ export function createWorld(
       for (let bx = c0x; bx <= c1x; bx++) {
         for (let bz = c0z; bz <= c1z; bz++) {
           const b = trunks.get(trunkKey(bx, bz));
-          if (b === undefined) continue;
+          if (b === undefined) {
+            continue;
+          }
           for (let i = 0; i < b.length; i += TREE_STRIDE) {
             const cr2 = b[i + 5];
             // A cactus or bare snag: nothing to knock off it.
-            if (cr2 < 0.25) continue;
+            if (cr2 < 0.25) {
+              continue;
+            }
             const ry = b[i + 7] + radius;
             const dy = y - b[i + 6];
-            if (dy * dy > ry * ry) continue;
+            if (dy * dy > ry * ry) {
+              continue;
+            }
             const dx = x - b[i];
             const dz = z - b[i + 1];
             const d2 = dx * dx + dz * dz;
             const cr = Math.sqrt(cr2) + radius;
-            if (d2 > cr * cr) continue;
-            if (d2 / (cr * cr) + (dy * dy) / (ry * ry) > 1) continue;
+            if (d2 > cr * cr) {
+              continue;
+            }
+            if (d2 / (cr * cr) + (dy * dy) / (ry * ry) > 1) {
+              continue;
+            }
             out.treeX = b[i];
             out.treeZ = b[i + 1];
             out.crownR = cr - radius;
@@ -995,37 +1175,49 @@ export function createWorld(
             surface: r.profile.roles.surface,
             refusesBuilt: r.profile.roles.refusesBuilt,
             litter: r.profile.litter,
-            x0: +a.x.toFixed(2), z0: +a.z.toFixed(2),
-            x1: +b.x.toFixed(2), z1: +b.z.toFixed(2),
+            x0: +a.x.toFixed(2),
+            z0: +a.z.toFixed(2),
+            x1: +b.x.toFixed(2),
+            z1: +b.z.toFixed(2),
           };
         }),
-        at: x === undefined || z === undefined || net === null ? null : {
-          edge: num(net.edgeDistanceTo(x, z)),
-          builtEdge: num(net.builtEdgeDistanceTo(x, z)),
-          wear: +net.wearAt(x, z).toFixed(4),
-          litter: +net.litterAt(x, z).toFixed(4),
-        },
+        at:
+          x === undefined || z === undefined || net === null
+            ? null
+            : {
+                edge: num(net.edgeDistanceTo(x, z)),
+                builtEdge: num(net.builtEdgeDistanceTo(x, z)),
+                wear: +net.wearAt(x, z).toFixed(4),
+                litter: +net.litterAt(x, z).toFixed(4),
+              },
       };
     },
     addPath(spec) {
       const net = plan?.network ?? null;
       const reg = plan?.towns ?? null;
       const no = (error: string) => ({
-        id: '', length: 0, samples: 0, note: null,
-        nodes: [], refused: [], crossings: 0, error,
+        id: "",
+        length: 0,
+        samples: 0,
+        note: null,
+        nodes: [],
+        refused: [],
+        crossings: 0,
+        error,
       });
       if (net === null || reg === null || towns === null) {
-        return no('this zone has no path network');
+        return no("this zone has no path network");
       }
-      const profile = PATH_PROFILES[spec.profile ?? 'footpath'];
+      const profile = PATH_PROFILES[spec.profile ?? "footpath"];
       if (profile === undefined) {
-        return no(`unknown profile "${spec.profile}" — try `
-          + Object.keys(PATH_PROFILES).join(', '));
+        return no(
+          `unknown profile "${spec.profile}" — try ` + Object.keys(PATH_PROFILES).join(", "),
+        );
       }
       const [ax, az] = spec.from;
       const [bx, bz] = spec.to;
       if (Math.hypot(bx - ax, bz - az) < 12) {
-        return no('the two ends are under 12 units apart');
+        return no("the two ends are under 12 units apart");
       }
       // Routed and profiled exactly as the planner does — a few hundred height
       // queries — and AGAINST the paths already there, so a new path leaves an
@@ -1034,12 +1226,19 @@ export function createWorld(
       // With `cross`, nothing to avoid: that charge is unpayable on top of
       // another path's gravel, and wrong for one drawn to cross (issue #142 §12d).
       const route = routeRoad(
-        terrain, ax, az, bx, bz, seedFor,
-        spec.cross ? [] : net.roads.map((r) => r.pts), profile,
+        terrain,
+        ax,
+        az,
+        bx,
+        bz,
+        seedFor,
+        spec.cross ? [] : net.roads.map((r) => r.pts),
+        profile,
       );
       const road: Road = {
         id: `path:added-${net.roads.length}`,
-        fromId: 'free', toId: 'free',
+        fromId: "free",
+        toId: "free",
         profile,
         // ANCHORED TO THE GROUND AT BOTH ENDS, which a free-standing path needs
         // and a road out of a town does not: with NaN the limiter's raise leaves
@@ -1051,13 +1250,16 @@ export function createWorld(
         // AT THE ROUTE'S OWN ENDS, not the ones asked for: `routeRoad` lets the
         // tail land up to `SEG_LEN * 0.35` off, which is units of height here.
         pts: profileRoad(
-          terrain, route,
+          terrain,
+          route,
           terrain.getHeight(route[0].x, route[0].z),
           terrain.getHeight(route[route.length - 1].x, route[route.length - 1].z),
         ),
         trim: new Float32Array(8),
       };
-      if (road.pts.length < 2) return no('the route came back empty');
+      if (road.pts.length < 2) {
+        return no("the route came back empty");
+      }
       // A PATH THAT CANNOT BRIDGE MAY NOT END OVER WATER (issue #142 §12f).
       // `bridges` only charges the ROUTER for wet steps; it cannot help when an
       // END is wet, and `profileRoad` then lifts the deck 1.9 over the lake on
@@ -1065,9 +1267,11 @@ export function createWorld(
       if (!profile.bridges) {
         const wet = road.pts.findIndex((q) => q.bridge);
         if (wet >= 0) {
-          return no(`the route crosses water at ${road.pts[wet].x.toFixed(0)}, `
-            + `${road.pts[wet].z.toFixed(0)} and a ${spec.profile ?? 'footpath'} `
-            + 'cannot bridge — move an end, or use profile "road"');
+          return no(
+            `the route crosses water at ${road.pts[wet].x.toFixed(0)}, ` +
+              `${road.pts[wet].z.toFixed(0)} and a ${spec.profile ?? "footpath"} ` +
+              'cannot bridge — move an end, or use profile "road"',
+          );
         }
       }
       // The one place the network is mutated. `build()` re-flattens every path
@@ -1075,9 +1279,7 @@ export function createWorld(
       net.add(road);
       // Crossings BEFORE `build()`: a merge splits both edges, so the index
       // would otherwise be built over polylines about to be replaced.
-      const merge = spec.cross
-        ? mergeCrossings(net, road)
-        : { nodes: [], refused: [] };
+      const merge = spec.cross ? mergeCrossings(net, road) : { nodes: [], refused: [] };
       net.build();
       // EVERY ribbon and apron: a junction reshapes the arms reaching it (§12b).
       towns.rebuildPaths(net.roads, net.junctions);
@@ -1101,17 +1303,18 @@ export function createWorld(
       // leave the network begins ON a road by construction.
       const start = survivor.pts[0];
       const crossings = findCrossings(
-        survivor, net.roads.filter((r) => r.profile.roles.draw && r !== survivor),
-      ).filter((c) => Math.hypot(c.x - start.x, c.z - start.z) > ROAD_PROFILE.deckEdge)
-        .length;
+        survivor,
+        net.roads.filter((r) => r.profile.roles.draw && r !== survivor),
+      ).filter((c) => Math.hypot(c.x - start.x, c.z - start.z) > ROAD_PROFILE.deckEdge).length;
       return {
         crossings,
         id: survivor.id,
         length: +roadLength(survivor).toFixed(1),
         samples: survivor.pts.length,
-        note: profile.furniture === 'road'
-          ? 'no lamps or fingerposts: the furniture pass is frozen at boot'
-          : null,
+        note:
+          profile.furniture === "road"
+            ? "no lamps or fingerposts: the furniture pass is frozen at boot"
+            : null,
         nodes: merge.nodes,
         refused: merge.refused,
       };
@@ -1123,27 +1326,37 @@ export function createWorld(
 
     pathRunCrosses(ax: number, az: number, bx: number, bz: number): boolean {
       const net = plan?.network ?? null;
-      if (net === null) return false;
+      if (net === null) {
+        return false;
+      }
       return runCrossesAny(
-        net.roads.filter((r) => r.profile.roles.draw), ax, az, bx, bz,
+        net.roads.filter((r) => r.profile.roles.draw),
+        ax,
+        az,
+        bx,
+        bz,
       );
     },
 
-    pathRunHitsBuilt(
-      ax: number, az: number, bx: number, bz: number, margin: number,
-    ): boolean {
+    pathRunHitsBuilt(ax: number, az: number, bx: number, bz: number, margin: number): boolean {
       // WHAT IS ALREADY STANDING, unlike `PathRoles.refusesBuilt`, which is
       // prospective: a runtime path arrives after the lamps and cannot retract
       // one, so its author asks this first.
       // The margin is the piece's own TIMBER (`solidR`), not the elbow room it
       // claims for placement — a lamp's 11 units would rule out the roadside.
-      if (towns === null) return false;
+      if (towns === null) {
+        return false;
+      }
       const dx = bx - ax;
       const dz = bz - az;
       const len2 = dx * dx + dz * dz || 1;
       for (const f of towns.furniture) {
         let t = ((f.x - ax) * dx + (f.z - az) * dz) / len2;
-        if (t < 0) t = 0; else if (t > 1) t = 1;
+        if (t < 0) {
+          t = 0;
+        } else if (t > 1) {
+          t = 1;
+        }
         if (Math.hypot(ax + dx * t - f.x, az + dz * t - f.z) < (f.solidR ?? f.r) + margin) {
           return true;
         }
@@ -1159,7 +1372,9 @@ export function createWorld(
     debugStructures(out: number[]): void {
       // Gated on the query's own flag, so the overlay can never disagree with
       // the collision. Every set that blocks is drawn, for the same reason.
-      if (!flags.solids) return;
+      if (!flags.solids) {
+        return;
+      }
       towns?.solids.debugBoxes(out);
       sky?.debugStructures(out);
       shops.solids.debugBoxes(out);
@@ -1169,7 +1384,9 @@ export function createWorld(
     /** Every roof cylinder as [cx, cz, axisYaw, hl, r, y, ry]. Gated like the
      * boxes; nobody but a settlement has a roof. */
     debugRidges(out: number[]): void {
-      if (!flags.solids) return;
+      if (!flags.solids) {
+        return;
+      }
       towns?.solids.debugRidges(out);
       spawned.debugRidges(out);
     },
@@ -1178,20 +1395,28 @@ export function createWorld(
 
     debugFurniture(): Array<{ kind: string; x: number; z: number }> {
       return (towns?.furniture ?? []).map((f) => ({
-        kind: f.kind ?? '?', x: f.x, z: f.z,
+        kind: f.kind ?? "?",
+        x: f.x,
+        z: f.z,
       }));
     },
 
-    debugFences(): ReturnType<World['debugFences']> {
+    debugFences(): ReturnType<World["debugFences"]> {
       return (towns?.fences ?? []).map((f) => ({
         posts: f.posts.map((p) => ({
-          x: +p.x.toFixed(3), z: +p.z.toFixed(3), y: +p.y.toFixed(3),
-          base: +p.base.toFixed(3), kind: p.kind,
+          x: +p.x.toFixed(3),
+          z: +p.z.toFixed(3),
+          y: +p.y.toFixed(3),
+          base: +p.base.toFixed(3),
+          kind: p.kind,
         })),
         closed: f.closed,
         bays: f.bays.map((b) => ({
-          from: b.from, to: b.to, length: +b.length.toFixed(3),
-          y: +b.y.toFixed(3), groundMax: +b.groundMax.toFixed(3),
+          from: b.from,
+          to: b.to,
+          length: +b.length.toFixed(3),
+          y: +b.y.toFixed(3),
+          groundMax: +b.groundMax.toFixed(3),
         })),
       }));
     },
@@ -1206,10 +1431,10 @@ export function createWorld(
 
     applyCelestial(state: Readonly<CelestialState>): void {
       // Here, so composition code need not know which zone owns water or clouds.
-      waterMat.uniforms['uSunDir']?.value.copy(state.keyDirection);
-      waterMat.uniforms['uSunColor']?.value.copy(state.keyColor);
-      if (waterMat.uniforms['uSunStrength']) {
-        waterMat.uniforms['uSunStrength'].value = state.keyIntensity / 3.05;
+      waterMat.uniforms["uSunDir"]?.value.copy(state.keyDirection);
+      waterMat.uniforms["uSunColor"]?.value.copy(state.keyColor);
+      if (waterMat.uniforms["uSunStrength"]) {
+        waterMat.uniforms["uSunStrength"].value = state.keyIntensity / 3.05;
       }
       clouds?.applyCelestial(state);
       sky?.applyCelestial(state);
@@ -1217,30 +1442,36 @@ export function createWorld(
     },
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
-      if (disposed) return;
+      if (disposed) {
+        return;
+      }
       // Per RENDERED FRAME, not per slice: the sim can run several slices in one
       // frame, and a per-slice budget turned a catch-up frame into a 120 ms hitch.
       if (newFrame) {
         buildBudgetLeft = BUILD_BUDGET_MS;
         focusX = focus.x;
         focusZ = focus.z;
-        waterMat.uniforms['uFocus'].value.set(focusX, focusZ);
+        waterMat.uniforms["uFocus"].value.set(focusX, focusZ);
         propLib.updateDistanceFade(focusX, focusZ);
         distant.requestUpdate(focus);
         // Outside the chunk queue, so it never blocks collision-ready streaming.
         distant.buildStep(0.6);
         // Radial fade, but a whole mesh still drops once its nearest edge is
         // outside it, buying back the draw rather than discarding fragments.
-        for (const rec of chunks.values()) applyLayers(rec);
+        for (const rec of chunks.values()) {
+          applyLayers(rec);
+        }
       }
       time += dt;
-      waterMat.uniforms['uTime'].value = time;
+      waterMat.uniforms["uTime"].value = time;
       sway?.update(focus, time, dt);
       // WHERE the island is was decided by `carriers.advance` at the top of the
       // slice; this is only the people standing on it.
       sky?.update(dt, time, focus);
       // ...and the clouds part around it, or a cumulus grows through the square.
-      if (sky) clouds?.setKeepOut(sky.x, sky.y, sky.z, sky.radius, ISLAND_KEEL);
+      if (sky) {
+        clouds?.setKeepOut(sky.x, sky.y, sky.z, sky.radius, ISLAND_KEEL);
+      }
       clouds?.update(focus, dt);
       shops.update(time);
       towns?.update(time, focus);
@@ -1274,23 +1505,30 @@ export function createWorld(
         if (!building) {
           const q = queue.shift()!;
           const rec = startChunk(q.cx, q.cz);
-          if (!rec) continue; // already built or in flight
+          if (!rec) {
+            continue;
+          } // already built or in flight
           building = { rec, stage: 0, terrain: null, props: null, countChunk: true };
         }
         if (building.stage === 0) {
           // Ground is the expensive stage. Nothing is published until the chunk
           // is internally complete; the HLOD underlay is the hill meanwhile.
           building.terrain ??= buildTerrainMeshSteps(
-            building.rec.cx, building.rec.cz, terrain, terrainMat,
+            building.rec.cx,
+            building.rec.cz,
+            terrain,
+            terrainMat,
           );
           let result = building.terrain.next();
           while (!result.done && performance.now() - t0 < buildBudgetLeft) {
             result = building.terrain.next();
           }
           buildBudgetLeft -= performance.now() - t0;
-          if (!result.done) break;
+          if (!result.done) {
+            break;
+          }
           const m = result.value;
-          m.name = 'chunk:terrain';
+          m.name = "chunk:terrain";
           building.rec.meshes.push(m);
           scene.add(m);
           markStaticShadowCaster(m);
@@ -1305,15 +1543,22 @@ export function createWorld(
             building.stage = 3;
           } else {
             building.props ??= buildChunkPropsSteps(
-              building.rec.cx, building.rec.cz, terrain, propLib,
-              exclusions, plan?.network ?? null, site,
+              building.rec.cx,
+              building.rec.cz,
+              terrain,
+              propLib,
+              exclusions,
+              plan?.network ?? null,
+              site,
             );
             let result = building.props.next();
             while (!result.done && performance.now() - t0 < buildBudgetLeft) {
               result = building.props.next();
             }
             buildBudgetLeft -= performance.now() - t0;
-            if (!result.done) break;
+            if (!result.done) {
+              break;
+            }
             commitProps(building.rec, result.value);
             foliageQueued.delete(chunkKey(building.rec.cx, building.rec.cz));
             building.props = null;
@@ -1325,7 +1570,9 @@ export function createWorld(
           buildBudgetLeft -= performance.now() - t0;
         }
         if (building.stage > 2) {
-          if (building.countChunk) perf.count('chunks');
+          if (building.countChunk) {
+            perf.count("chunks");
+          }
           building = null;
         }
       }
@@ -1335,14 +1582,22 @@ export function createWorld(
       hiddenLayers[layer] = !on;
       // The island's fall is water too. Before the clouds branch and without
       // returning: the streamed water chunks below still need handling.
-      if (layer === 'water') sky?.setWaterfallVisible(on);
-      if (layer === 'water') distant.setWaterVisible(on);
-      if (layer === 'clouds') {
-        if (clouds) clouds.group.visible = on;
+      if (layer === "water") {
+        sky?.setWaterfallVisible(on);
+      }
+      if (layer === "water") {
+        distant.setWaterVisible(on);
+      }
+      if (layer === "clouds") {
+        if (clouds) {
+          clouds.group.visible = on;
+        }
         return;
       }
       // Already-streamed chunks now; `applyLayers` covers the ones built later.
-      for (const rec of chunks.values()) applyLayers(rec);
+      for (const rec of chunks.values()) {
+        applyLayers(rec);
+      }
     },
 
     setFoliageDistance(distance: number): void {
@@ -1351,12 +1606,16 @@ export function createWorld(
       propsDistance = Math.min(grassDistance + CHUNK_SIZE, viewRadius * CHUNK_SIZE);
       propLib.setDistanceFade(grassDistance);
       refreshFoliage();
-      for (const rec of chunks.values()) applyLayers(rec);
+      for (const rec of chunks.values()) {
+        applyLayers(rec);
+      }
     },
 
     setTerrainDistance(distance: number): void {
       const nextDistance = distance <= 480 ? 480 : distance >= 900 ? 900 : 600;
-      if (nextDistance === terrainDistance) return;
+      if (nextDistance === terrainDistance) {
+        return;
+      }
       terrainDistance = nextDistance;
       // Low/Medium/High use 4/5/5 detail chunks: High spends on a denser HLOD
       // rather than more cube meshes. `?view=` stays authoritative.
@@ -1370,7 +1629,9 @@ export function createWorld(
       refreshQueue(fcx, fcz);
       unloadFar(fcx, fcz);
       refreshFoliage();
-      for (const rec of chunks.values()) applyLayers(rec);
+      for (const rec of chunks.values()) {
+        applyLayers(rec);
+      }
     },
 
     debugDistantTerrain(): Record<string, unknown> {
@@ -1393,8 +1654,12 @@ export function createWorld(
      * `climbTopAt`. A TUNING path; the hero cannot fall through the result.
      */
     rebuildProps(): void {
-      if (disposed) return;
-      for (const rec of chunks.values()) disposeChunk(rec);
+      if (disposed) {
+        return;
+      }
+      for (const rec of chunks.values()) {
+        disposeChunk(rec);
+      }
       chunks.clear();
       trunks.clear();
       foliageQueue.length = 0;
@@ -1412,17 +1677,25 @@ export function createWorld(
       // SHOWING THE WORLD MEANS SHOWING IT AS CONFIGURED, hence `applyLayers`
       // and not `visible = true`: the ZoneManager's warm-up hide/show otherwise
       // re-showed every layer the F3 panel had switched off.
-      for (const rec of chunks.values()) applyLayers(rec);
+      for (const rec of chunks.values()) {
+        applyLayers(rec);
+      }
       // The den lamps live here, so this also drops four point lights.
       shops.group.visible = v;
       // The towns add no lights; this only keeps a camp out of a warm-up render.
-      if (towns) towns.group.visible = v;
-      if (npcs) npcs.setVisible(v);
+      if (towns) {
+        towns.group.visible = v;
+      }
+      if (npcs) {
+        npcs.setVisible(v);
+      }
       // One flag on its root takes its people and lamps too. Its glow is
       // emissive, so it adds no lights; hidden anyway, being a lot of rock.
       sky?.setVisible(v);
       // A hidden layer stays hidden through a hide/show cycle.
-      if (clouds) clouds.group.visible = v && !hiddenLayers.clouds;
+      if (clouds) {
+        clouds.group.visible = v && !hiddenLayers.clouds;
+      }
       // Once for the whole sweep: the hide branch never reaches `applyLayers`
       // and the camp is hidden by a flag of its own.
       invalidateStaticShadows();
@@ -1431,12 +1704,18 @@ export function createWorld(
     /** A handful of chunks per call, then everything else: 6 per frame empties a
      * walked-in world in under 20 frames. */
     disposeStep(): boolean {
-      if (disposed) return true;
+      if (disposed) {
+        return true;
+      }
       let n = 6;
       for (const [key, rec] of chunks) {
-        if (n <= 0) return false;
+        if (n <= 0) {
+          return false;
+        }
         n--;
-        if (building && building.rec === rec) building = null;
+        if (building && building.rec === rec) {
+          building = null;
+        }
         disposeChunk(rec);
         chunks.delete(key);
       }
@@ -1445,9 +1724,13 @@ export function createWorld(
     },
 
     dispose(): void {
-      if (disposed) return;
+      if (disposed) {
+        return;
+      }
       disposed = true;
-      for (const rec of chunks.values()) disposeChunk(rec);
+      for (const rec of chunks.values()) {
+        disposeChunk(rec);
+      }
       chunks.clear();
       trunks.clear();
       foliageQueue.length = 0;

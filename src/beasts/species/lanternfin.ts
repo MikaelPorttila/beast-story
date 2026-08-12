@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { eyes2x2, rimTop, shadeUnder } from "./voxelshade";
 
 // Lanternfin — anglerfish, drawn for the deep sea (DEEP_WATER_DEPTH in world/terrain.ts).
 // Voxel scale 0.1 (1 cell = 10 cm), faces +Z, root at water level. Fish, not mammal:
@@ -27,8 +27,8 @@ const LURE_GLOW = 0.85;
 const STALK = 0x3a3660;
 
 // Must match buildRig
-const BODY_Y = 0.40;
-const HEAD_Z = 0.30;
+const BODY_Y = 0.4;
+const HEAD_Z = 0.3;
 const ROD_REST = -0.55;
 
 const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -64,8 +64,15 @@ function makeHead(): THREE.Mesh {
   }
   rimTop(m, HIDE_LIT, -3, 3, 2, 6, -3, 3);
   eyes2x2(m, {
-    inner: 1, width: 2, y: 3, faceZ: 3, iris: IRIS, shine: SHINE,
-    lid: HIDE_DARK, bridge: HIDE_LIT, browProud: true,
+    inner: 1,
+    width: 2,
+    y: 3,
+    faceZ: 3,
+    iris: IRIS,
+    shine: SHINE,
+    lid: HIDE_DARK,
+    bridge: HIDE_LIT,
+    browProud: true,
   });
   return m.build(S, true);
 }
@@ -73,7 +80,9 @@ function makeHead(): THREE.Mesh {
 /** The illicium; pivot at the base so it waves from the brow. */
 function makeRod(): THREE.Mesh {
   const m = new VoxelModel();
-  for (let i = 0; i < 4; i++) m.set(0, i, 0, STALK);
+  for (let i = 0; i < 4; i++) {
+    m.set(0, i, 0, STALK);
+  }
   // Region so the glow is one part, not five loose cells.
   m.region(() => {
     m.setEmissive(0, 5, 0, LURE, LURE_GLOW);
@@ -136,7 +145,7 @@ function buildRig(): BeastRig {
 
   // Rod parents to the HEAD: on the torso it swings out from behind the skull on a turn.
   const rod = new THREE.Group();
-  rod.position.set(0, 0.20, 0.10);
+  rod.position.set(0, 0.2, 0.1);
   rod.rotation.x = ROD_REST;
   head.add(rod);
   const rodMesh = makeRod();
@@ -152,7 +161,7 @@ function buildRig(): BeastRig {
 
   const mkPect = (dir: number): THREE.Group => {
     const g = new THREE.Group();
-    g.position.set(dir * 0.32, -0.10, 0.04);
+    g.position.set(dir * 0.32, -0.1, 0.04);
     g.rotation.set(0, dir * -0.4, dir * -0.25);
     body.add(g);
     g.add(makePectoral(dir));
@@ -169,7 +178,7 @@ function buildRig(): BeastRig {
   tailTip.position.set(0, 0, -0.22);
   tailBase.add(tailTip);
   const tailMesh = makeTail();
-  tailMesh.position.set(-0.05, -0.30, 0);
+  tailMesh.position.set(-0.05, -0.3, 0);
   tailTip.add(tailMesh);
 
   return {
@@ -187,19 +196,31 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const ms = clamp01(ctx.moveSpeed);
   const br = Math.sin(t * 1.7);
 
-  let bpx = 0, bpy = BODY_Y + 0.012 * br, bpz = 0;
-  let brx = 0, bry = 0, brz = 0;
+  let bpx = 0,
+    bpy = BODY_Y + 0.012 * br,
+    bpz = 0;
+  let brx = 0,
+    bry = 0,
+    brz = 0;
   let bsy = 1 + 0.014 * br;
-  let hrx = 0, hry = 0, hrz = 0;
-  let tby = 0, tbx = 0, tty = 0;
-  let rodX = 0, rodY = 0, rodZ = 0;
-  let pSweep = 0, pLift = 0;
+  let hrx = 0,
+    hry = 0,
+    hrz = 0;
+  let tby = 0,
+    tbx = 0,
+    tty = 0;
+  let rodX = 0,
+    rodY = 0,
+    rodZ = 0;
+  let pSweep = 0,
+    pLift = 0;
   let dorsalTilt = 0;
   // Kept off every other frequency here so the lamp never nods in time with the tail.
-  let rodAmp = 0.14, rodFreq = 1.3;
+  let rodAmp = 0.14,
+    rodFreq = 1.3;
 
   switch (ctx.action) {
-    case 'idle': {
+    case "idle": {
       const hang = ctx.cycle(GAIT, 1.2);
       bsy = 1 + 0.026 * br;
       brx = 0.04 * Math.sin(hang);
@@ -215,10 +236,10 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       dorsalTilt = 0.05 * Math.sin(t * 0.9);
       break;
     }
-    case 'walk':
-    case 'run': {
+    case "walk":
+    case "run": {
       // Out of water: too head-heavy to flop forward like Finnick, so it thrashes flat.
-      const isRun = ctx.action === 'run';
+      const isRun = ctx.action === "run";
       const f = (isRun ? 5.5 : 4.0) + 2.4 * ms;
       const ph = ctx.cycle(GAIT, f);
       const thrash = Math.sin(ph);
@@ -230,37 +251,37 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       hrz = -0.24 * thrash;
       hry = 0.14 * Math.sin(ph - 0.7);
       tby = 0.55 * Math.sin(ph - 0.6);
-      tty = 0.70 * Math.sin(ph - 1.3);
+      tty = 0.7 * Math.sin(ph - 1.3);
       rodAmp = 0.45;
       rodFreq = f;
-      rodZ = -0.30 * thrash;
+      rodZ = -0.3 * thrash;
       pSweep = 0.5 * Math.abs(thrash);
       pLift = -0.3 * Math.abs(thrash);
       dorsalTilt = 0.2 * thrash;
       break;
     }
-    case 'swim':
-    case 'fly': {
+    case "swim":
+    case "fly": {
       const f = 2.8 + 3.4 * ms;
       const ph = ctx.cycle(GAIT, f);
       tby = (0.34 + 0.24 * ms) * Math.sin(ph);
       tty = (0.48 + 0.32 * ms) * Math.sin(ph - 0.9);
-      bry = 0.10 * Math.sin(ph + 0.4);
+      bry = 0.1 * Math.sin(ph + 0.4);
       brz = 0.09 * Math.sin(ph * 0.4);
       bpy += 0.035 * Math.sin(ph * 0.5);
       brx = -0.03;
       hry = -0.07 * Math.sin(ph + 0.4);
       // Rod holds still while the body moves under it — bait that swings reads as attached.
-      rodAmp = 0.10;
+      rodAmp = 0.1;
       rodFreq = 1.1;
       rodX = 0.06 * Math.sin(ph * 0.25);
       const pw = ctx.cycle(FINS, f * 0.5);
       pSweep = -0.08 + 0.14 * Math.sin(pw);
-      pLift = 0.14 + 0.10 * Math.sin(pw - 0.5);
+      pLift = 0.14 + 0.1 * Math.sin(pw - 0.5);
       dorsalTilt = 0.06 * Math.sin(ph * 0.4);
       break;
     }
-    case 'attack': {
+    case "attack": {
       // Rod snaps back out of the way: an angler does not eat its own lamp.
       const wind = smooth(phase(at, 0, 0.13));
       const lunge = ezOut(phase(at, 0.13, 0.26));
@@ -270,17 +291,17 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bpz = 0.26 * k;
       brx = -0.14 * k;
       bpy += 0.04 * kp;
-      hrx = 0.30 * k;
+      hrx = 0.3 * k;
       rodX = -1.0 * kp - 0.3 * wind * (1 - lunge);
       rodAmp = 0.05;
       tby = -0.45 * k;
-      tty = -0.60 * k;
+      tty = -0.6 * k;
       pSweep = -0.5 * kp + 0.45 * wind * (1 - lunge);
       pLift = 0.35 * kp;
       dorsalTilt = -0.18 * k;
       break;
     }
-    case 'cast': {
+    case "cast": {
       const rise = ezOut(clamp01(at / 0.4));
       const pulse = 0.5 * Math.sin(t * 12) + 0.5 * Math.sin(t * 18.5);
       brx = -0.28 * rise;
@@ -292,24 +313,24 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       tby = 0.12 * Math.sin(t * 3);
       tty = 0.18 * Math.sin(t * 3 - 0.8);
       pSweep = 0.4 * rise;
-      pLift = -0.35 * rise + 0.10 * Math.sin(t * 6) * rise;
+      pLift = -0.35 * rise + 0.1 * Math.sin(t * 6) * rise;
       dorsalTilt = 0.12 * Math.sin(t * 7) * rise;
       break;
     }
-    case 'special': {
+    case "special": {
       // Spin about Y so the lamp traces its ring in the horizontal plane.
       const T = 0.85;
       const k2 = clamp01(at / T);
       const spin = Math.sin(Math.PI * k2);
-      const settle = Math.sin(Math.PI * phase(at, T, T + 0.26))
-        * (1 - smooth(phase(at, T + 0.26, T + 0.62)));
+      const settle =
+        Math.sin(Math.PI * phase(at, T, T + 0.26)) * (1 - smooth(phase(at, T + 0.26, T + 0.62)));
       bry = Math.PI * 4 * smooth(k2);
-      bpy += 0.20 * spin;
+      bpy += 0.2 * spin;
       bsy = 1 - 0.12 * settle;
-      brz = 0.30 * spin;
+      brz = 0.3 * spin;
       rodX = 0.5 * spin;
       rodZ = 0.55 * spin;
-      rodAmp = 0.30;
+      rodAmp = 0.3;
       rodFreq = 11;
       tby = 0.7 * Math.sin(at * 14) * spin;
       tty = 0.9 * Math.sin(at * 14 - 0.8) * spin;
@@ -318,7 +339,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       dorsalTilt = 0.28 * Math.sin(at * 10) * spin;
       break;
     }
-    case 'hurt': {
+    case "hurt": {
       const d = Math.exp(-3.6 * at);
       bpx = 0.04 * Math.sin(at * 42) * d;
       bpz = -0.08 * d;
@@ -334,7 +355,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bsy = 1 - 0.08 * d;
       break;
     }
-    case 'happy': {
+    case "happy": {
       const hf = 4.5;
       const bob = Math.abs(Math.sin(at * hf));
       bpy += 0.14 * bob;
@@ -342,12 +363,12 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bry = 0.32 * Math.sin(at * 2.1);
       brz = 0.14 * Math.sin(at * 2.1 + 1);
       hrz = 0.18 * Math.sin(at * 2.1 + 0.7);
-      rodX = 0.30 + 0.30 * Math.sin(at * hf);
+      rodX = 0.3 + 0.3 * Math.sin(at * hf);
       rodZ = 0.45 * Math.sin(at * hf * 0.5);
       rodAmp = 0.35;
       rodFreq = 9;
       tby = 0.45 * Math.sin(at * 9);
-      tty = 0.60 * Math.sin(at * 9 - 0.8);
+      tty = 0.6 * Math.sin(at * 9 - 0.8);
       pSweep = 0.35 * Math.sin(at * 8);
       pLift = 0.25 + 0.2 * Math.sin(at * 8);
       dorsalTilt = 0.16 * Math.sin(at * 5);
@@ -376,65 +397,65 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
 export const skills: SkillDef[] = [
   {
-    id: 'lanternfin.glimmer-mote',
-    nameKey: 'skill.lanternfin.glimmer-mote.name',
-    descriptionKey: 'skill.lanternfin.glimmer-mote.desc',
-    element: 'light',
-    targeting: 'projectile',
+    id: "lanternfin.glimmer-mote",
+    nameKey: "skill.lanternfin.glimmer-mote.name",
+    descriptionKey: "skill.lanternfin.glimmer-mote.desc",
+    element: "light",
+    targeting: "projectile",
     cost: 5,
     cooldown: 1.5,
     power: 12,
     range: 15,
     learnAtLevel: 1,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'lanternfin.abyss-bite',
-    nameKey: 'skill.lanternfin.abyss-bite.name',
-    descriptionKey: 'skill.lanternfin.abyss-bite.desc',
-    element: 'shadow',
-    targeting: 'melee',
+    id: "lanternfin.abyss-bite",
+    nameKey: "skill.lanternfin.abyss-bite.name",
+    descriptionKey: "skill.lanternfin.abyss-bite.desc",
+    element: "shadow",
+    targeting: "melee",
     cost: 9,
     cooldown: 3.0,
     power: 20,
     range: 3.0,
     learnAtLevel: 4,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'lanternfin.lure-glow',
-    nameKey: 'skill.lanternfin.lure-glow.name',
-    descriptionKey: 'skill.lanternfin.lure-glow.desc',
-    element: 'light',
-    targeting: 'support',
+    id: "lanternfin.lure-glow",
+    nameKey: "skill.lanternfin.lure-glow.name",
+    descriptionKey: "skill.lanternfin.lure-glow.desc",
+    element: "light",
+    targeting: "support",
     cost: 15,
     cooldown: 8.5,
     power: 22,
     range: 7,
     storePrice: 240,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'lanternfin.deep-pulse',
-    nameKey: 'skill.lanternfin.deep-pulse.name',
-    descriptionKey: 'skill.lanternfin.deep-pulse.desc',
-    element: 'light',
-    targeting: 'beam',
+    id: "lanternfin.deep-pulse",
+    nameKey: "skill.lanternfin.deep-pulse.name",
+    descriptionKey: "skill.lanternfin.deep-pulse.desc",
+    element: "light",
+    targeting: "beam",
     cost: 21,
     cooldown: 9,
     power: 33,
     range: 13,
     storePrice: 330,
-    castAnim: 'special',
+    castAnim: "special",
   },
 ];
 
 export const species: BeastSpecies = {
-  id: 'lanternfin',
-  nameKey: 'beast.lanternfin.name',
-  descriptionKey: 'beast.lanternfin.desc',
-  element: 'light',
-  locomotion: 'swimming',
+  id: "lanternfin",
+  nameKey: "beast.lanternfin.name",
+  descriptionKey: "beast.lanternfin.desc",
+  element: "light",
+  locomotion: "swimming",
   // 17.9 u/s in water against Finnick's 21.8, 5.7 on land after LAND_FLOP.
   baseStats: { maxHp: 56, attack: 13, defense: 9, speed: 5.6 },
   skills: skills.map((s) => s.id),

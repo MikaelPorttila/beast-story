@@ -16,24 +16,38 @@
 // comes back as an error rather than a wall of geometry. Reach for a real probe
 // when you need to drive input over time; reach for this when you need a
 // number.
-import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE } from './target.mjs';
+import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { BASE } from "./target.mjs";
 
 const argv = process.argv.slice(2);
 const exprs = [];
-const opt = { wait: 2500, url: '?menu=0&fps=30', width: 900, height: 600, lab: null, raw: false };
+const opt = { wait: 2500, url: "?menu=0&fps=30", width: 900, height: 600, lab: null, raw: false };
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
-  if (a === '--wait') opt.wait = Number(argv[++i]);
-  else if (a === '--url') opt.url = argv[++i];
-  else if (a === '--lab') opt.lab = argv[++i] ?? '';
-  else if (a === '--size') { const [w, h] = argv[++i].split('x').map(Number); opt.width = w; opt.height = h; }
-  else if (a === '--raw') opt.raw = true; // one bare value, unquoted — for shell capture
-  else if (a.startsWith('--')) { console.error(`unknown flag ${a}`); process.exit(2); }
-  else exprs.push(a);
+  if (a === "--wait") {
+    opt.wait = Number(argv[++i]);
+  } else if (a === "--url") {
+    opt.url = argv[++i];
+  } else if (a === "--lab") {
+    opt.lab = argv[++i] ?? "";
+  } else if (a === "--size") {
+    const [w, h] = argv[++i].split("x").map(Number);
+    opt.width = w;
+    opt.height = h;
+  } else if (a === "--raw") {
+    opt.raw = true;
+  } // one bare value, unquoted — for shell capture
+  else if (a.startsWith("--")) {
+    console.error(`unknown flag ${a}`);
+    process.exit(2);
+  } else {
+    exprs.push(a);
+  }
 }
 if (!exprs.length) {
-  console.error('usage: bun tools/q.mjs "<expression>" [more...] [--wait ms] [--url "?..."] [--lab "beast=..."] [--size 900x600] [--raw]');
+  console.error(
+    'usage: bun tools/q.mjs "<expression>" [more...] [--wait ms] [--url "?..."] [--lab "beast=..."] [--size 900x600] [--raw]',
+  );
   process.exit(2);
 }
 
@@ -42,19 +56,23 @@ const browser = await launchBrowser();
 const page = await newPage(browser, { width: opt.width, height: opt.height });
 
 const errors = [];
-page.on('pageerror', (e) => errors.push(e.message));
+page.on("pageerror", (e) => errors.push(e.message));
 
 let out;
 try {
-  await page.goto(`${BASE}/${target.replace(/^\/?/, '')}`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas', { timeout: 30000 });
+  await page.goto(`${BASE}/${target.replace(/^\/?/, "")}`, { waitUntil: "load" });
+  await page.waitForSelector("canvas", { timeout: 30000 });
   await wait(opt.wait);
   // Evaluated one at a time and in order: a later expression is allowed to
   // depend on an earlier one having run (`/mount galebird` then a position).
   out = [];
   for (const e of exprs) {
     // The IIFE lets an expression be a statement sequence too.
-    out.push(await page.evaluate(`(() => { try { return (${e}); } catch (err) { return { __error: String(err) } } })()`));
+    out.push(
+      await page.evaluate(
+        `(() => { try { return (${e}); } catch (err) { return { __error: String(err) } } })()`,
+      ),
+    );
   }
 } catch (err) {
   console.error(String(err.message ?? err));
@@ -64,7 +82,12 @@ try {
 await browser.close();
 
 const value = out.length === 1 ? out[0] : out;
-if (opt.raw && (value === null || typeof value !== 'object')) console.log(String(value));
-else console.log(JSON.stringify(value));
-if (errors.length) console.error(`page errors: ${errors.length}\n  ${errors.slice(0, 3).join('\n  ')}`);
-process.exit(out.some((v) => v && typeof v === 'object' && '__error' in v) ? 1 : 0);
+if (opt.raw && (value === null || typeof value !== "object")) {
+  console.log(String(value));
+} else {
+  console.log(JSON.stringify(value));
+}
+if (errors.length) {
+  console.error(`page errors: ${errors.length}\n  ${errors.slice(0, 3).join("\n  ")}`);
+}
+process.exit(out.some((v) => v && typeof v === "object" && "__error" in v) ? 1 : 0);

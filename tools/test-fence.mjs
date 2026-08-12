@@ -32,10 +32,10 @@
 // through that same function, and counting down-facing triangles needs the
 // scene graph rather than a debug hook. Zero of them is the bug in the issue's
 // first screenshot — you look through the bridge and out the other side.
-import { launchBrowser, newPage } from './browser.mjs';
-import { BASE as HOST, NO_WARMUP } from './target.mjs';
-import { buildFence } from '../src/world/fences.ts';
-import { TownParts } from '../src/world/town-parts.ts';
+import { launchBrowser, newPage } from "./browser.mjs";
+import { BASE as HOST, NO_WARMUP } from "./target.mjs";
+import { buildFence } from "../src/world/fences.ts";
+import { TownParts } from "../src/world/town-parts.ts";
 
 /** `buildFence`'s own defaults. A run outside these chose them itself. */
 const MAX_GAP = 3.2;
@@ -55,13 +55,17 @@ function checkKit(kit, label) {
     return;
   }
   if (kit.railWidth >= kit.postWidth - EPS) {
-    fails.push(`${label}: ${kit.railWidth.toFixed(3)}-wide plank is not recessed inside `
-      + `${kit.postWidth.toFixed(3)}-wide posts`);
+    fails.push(
+      `${label}: ${kit.railWidth.toFixed(3)}-wide plank is not recessed inside ` +
+        `${kit.postWidth.toFixed(3)}-wide posts`,
+    );
   }
   const top = kit.railAt.at(-1) + kit.railHeight;
   if (top >= kit.postH - EPS) {
-    fails.push(`${label}: top plank reaches ${top.toFixed(3)}, leaving no cap below `
-      + `${kit.postH.toFixed(3)}-high posts`);
+    fails.push(
+      `${label}: top plank reaches ${top.toFixed(3)}, leaving no cap below ` +
+        `${kit.postH.toFixed(3)}-high posts`,
+    );
   }
 }
 
@@ -71,7 +75,10 @@ function checkKit(kit, label) {
   const kit = new TownParts().fence;
   const calls = [];
   const stamp = { add: (...args) => calls.push(args) };
-  buildFence(stamp, kit, [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3 }]);
+  buildFence(stamp, kit, [
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 0, z: 3 },
+  ]);
   const rails = calls.filter(([tpl]) => tpl === kit.rail || tpl === kit.railProp);
   const want = kit.railWidth / kit.postWidth;
   if (rails.length !== kit.railAt.length) {
@@ -97,7 +104,9 @@ function checkFence(f, kit, label) {
     where(`a fence with ${f.posts.length} post(s) is not a fence`);
     return;
   }
-  if (f.bays.length < 1) where('no bays');
+  if (f.bays.length < 1) {
+    where("no bays");
+  }
   // A CONTINUOUS chain: one bay per post on a ring, one fewer on an open run.
   // A refused bay does not leave a hole here — it ends the chain and starts
   // another, which is why `buildFence` hands back a list. See its `Fence`.
@@ -110,7 +119,10 @@ function checkFence(f, kit, label) {
     const b = f.bays[i];
     const a = f.posts[b.from];
     const c = f.posts[b.to];
-    if (!a || !c) { where(`bay ${i} names a post that does not exist`); continue; }
+    if (!a || !c) {
+      where(`bay ${i} names a post that does not exist`);
+      continue;
+    }
 
     // THE PLANK IS THE GAP. `length` is what the stamp's length scale divides
     // by, so if it disagrees with the distance between the posts the plank is
@@ -130,12 +142,16 @@ function checkFence(f, kit, label) {
     // in mid-air; under a post's base is a plank in the ground.
     for (const p of [a, c]) {
       if (railTopAt(b.y) > p.y + kit.postH + EPS) {
-        where(`bay ${i}'s top plank (${railTopAt(b.y).toFixed(3)}) clears the post `
-          + `at ${p.x.toFixed(1)},${p.z.toFixed(1)} (top ${(p.y + kit.postH).toFixed(3)})`);
+        where(
+          `bay ${i}'s top plank (${railTopAt(b.y).toFixed(3)}) clears the post ` +
+            `at ${p.x.toFixed(1)},${p.z.toFixed(1)} (top ${(p.y + kit.postH).toFixed(3)})`,
+        );
       }
       if (b.y + kit.railAt[0] < p.base - EPS) {
-        where(`bay ${i}'s lowest plank is under the foot of the post `
-          + `at ${p.x.toFixed(1)},${p.z.toFixed(1)}`);
+        where(
+          `bay ${i}'s lowest plank is under the foot of the post ` +
+            `at ${p.x.toFixed(1)},${p.z.toFixed(1)}`,
+        );
       }
     }
   }
@@ -146,10 +162,14 @@ function checkFence(f, kit, label) {
   // follow-up. `groundMax` is the builder's own sample of that middle.
   for (let i = 0; i < f.bays.length; i++) {
     const b = f.bays[i];
-    if (b.groundMax === undefined) continue;
+    if (b.groundMax === undefined) {
+      continue;
+    }
     if (b.y + kit.railAt[0] < b.groundMax + CLEARANCE - EPS) {
-      where(`bay ${i}'s bottom plank (${(b.y + kit.railAt[0]).toFixed(3)}) is inside `
-        + `the ground (${b.groundMax.toFixed(3)}) somewhere along it`);
+      where(
+        `bay ${i}'s bottom plank (${(b.y + kit.railAt[0]).toFixed(3)}) is inside ` +
+          `the ground (${b.groundMax.toFixed(3)}) somewhere along it`,
+      );
     }
   }
 
@@ -160,9 +180,11 @@ function checkFence(f, kit, label) {
     // Only where the stage told us what the ground is, and never on a railing:
     // a railing stands on a DECK with the river bed below it, which is the
     // whole reason `buildFence` clamps how far a stake follows the ground down.
-    if (p.ground !== undefined && label !== 'lab:bridge' && p.base > p.ground + EPS) {
-      where(`a post at ${p.x.toFixed(1)},${p.z.toFixed(1)} hangs `
-        + `${(p.base - p.ground).toFixed(3)} over the ground`);
+    if (p.ground !== undefined && label !== "lab:bridge" && p.base > p.ground + EPS) {
+      where(
+        `a post at ${p.x.toFixed(1)},${p.z.toFixed(1)} hangs ` +
+          `${(p.base - p.ground).toFixed(3)} over the ground`,
+      );
     }
   }
 }
@@ -172,23 +194,29 @@ const browser = await launchBrowser();
 // ---------- 1. the stage: every shape a fence has to cope with ----------
 {
   const page = await newPage(browser, { width: 1280, height: 800 });
-  await page.goto(`${HOST}/lab.html?fence=all&vol=0&fps=30`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(`${HOST}/lab.html?fence=all&vol=0&fps=30`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await page.waitForFunction(() => !!window.__dbgFence, { timeout: 10000 });
   const stage = await page.evaluate(() => window.__dbgFence());
-  checkKit(stage.kit, 'lab');
+  checkKit(stage.kit, "lab");
 
   const demos = new Set(stage.fences.map((f) => f.label));
-  for (const want of ['slope', 'turn', 'ring', 'gate', 'variants', 'bridge']) {
-    if (!demos.has(want)) fails.push(`the stage built no "${want}" fence`);
+  for (const want of ["slope", "turn", "ring", "gate", "variants", "bridge"]) {
+    if (!demos.has(want)) {
+      fails.push(`the stage built no "${want}" fence`);
+    }
   }
-  for (const f of stage.fences) checkFence(f, stage.kit, `lab:${f.label}`);
+  for (const f of stage.fences) {
+    checkFence(f, stage.kit, `lab:${f.label}`);
+  }
 
   // Every post variant reachable, and lanterns among them: a variant nothing
   // ever stamps is a variant nobody would notice breaking.
   const kinds = new Set(stage.fences.flatMap((f) => f.posts.map((p) => p.kind)));
-  for (const k of ['post', 'tall', 'lantern']) {
-    if (!kinds.has(k)) fails.push(`no "${k}" post was stamped anywhere on the stage`);
+  for (const k of ["post", "tall", "lantern"]) {
+    if (!kinds.has(k)) {
+      fails.push(`no "${k}" post was stamped anywhere on the stage`);
+    }
   }
 
   // THE SAME QUESTION, ASKED OF THE STAGE'S OWN GROUND rather than of the
@@ -218,8 +246,10 @@ const browser = await launchBrowser();
     return bad;
   }, CLEARANCE);
   for (const b of resampled) {
-    fails.push(`lab:${b.fence}: bay ${b.bay}'s plank (${b.plank}) is under the `
-      + `stage's own ground (${b.ground}), re-sampled at 0.15`);
+    fails.push(
+      `lab:${b.fence}: bay ${b.bay}'s plank (${b.plank}) is under the ` +
+        `stage's own ground (${b.ground}), re-sampled at 0.15`,
+    );
   }
   out.resampledBad = resampled.length;
 
@@ -227,18 +257,22 @@ const browser = await launchBrowser();
   // bays over the middle of its run, so it must come back as two continuous
   // fences rather than as one with a hole in it — which is the whole reason
   // `buildFence` returns a list.
-  const gate = stage.fences.filter((f) => f.label === 'gate');
+  const gate = stage.fences.filter((f) => f.label === "gate");
   if (gate.length < 2) {
-    fails.push(`the gated run came back as ${gate.length} chain(s): `
-      + '`accept` did nothing, or the gap was left inside a chain');
+    fails.push(
+      `the gated run came back as ${gate.length} chain(s): ` +
+        "`accept` did nothing, or the gap was left inside a chain",
+    );
   }
 
   // ---- the bridge's underside ----
   const deck = (stage.road ?? []).filter((p) => p.bridge);
   const lowestDeck = Math.min(...deck.map((p) => p.y));
-  if (!deck.length) fails.push('the stage road crosses no water');
+  if (!deck.length) {
+    fails.push("the stage road crosses no water");
+  }
   if (stage.soffit.tris === 0) {
-    fails.push('the bridge deck has no down-facing triangles: you can see through it');
+    fails.push("the bridge deck has no down-facing triangles: you can see through it");
   }
   if (stage.soffit.minY >= lowestDeck) {
     fails.push(`the soffit (${stage.soffit.minY}) is not under the deck (${lowestDeck})`);
@@ -259,8 +293,7 @@ const browser = await launchBrowser();
       railWidth: stage.kit.railWidth,
       faceInset: +((stage.kit.postWidth - stage.kit.railWidth) * 0.5).toFixed(3),
       railHeight: stage.kit.railHeight,
-      topClearance: +(stage.kit.postH - stage.kit.railAt.at(-1)
-        - stage.kit.railHeight).toFixed(3),
+      topClearance: +(stage.kit.postH - stage.kit.railAt.at(-1) - stage.kit.railHeight).toFixed(3),
     },
     bridge: {
       wetSamples: deck.length,
@@ -276,8 +309,8 @@ const browser = await launchBrowser();
 // ---------- 2. the world: the fences a real road network built ----------
 {
   const page = await newPage(browser, { width: 1280, height: 800 });
-  await page.goto(`${HOST}/?menu=0&vol=0&fs=0&${NO_WARMUP}`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(`${HOST}/?menu=0&vol=0&fs=0&${NO_WARMUP}`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await page.waitForFunction(() => window.__dbgBoot?.().playing, { timeout: 30000 });
   const world = await page.evaluate(() => {
     const t = window.__dbgTowns();
@@ -287,13 +320,20 @@ const browser = await launchBrowser();
   // Checked against the kit's OWN metrics, which is the same object the lab
   // stage stamps from — `TownParts.fence`. A number typed in here would be a
   // second copy of the builder's, and it would go stale.
-  if (!world.kit) fails.push('__dbgTowns() reports no fence kit metrics');
-  if (!world.fences.length) fails.push('the world built no fences at all');
+  if (!world.kit) {
+    fails.push("__dbgTowns() reports no fence kit metrics");
+  }
+  if (!world.fences.length) {
+    fails.push("the world built no fences at all");
+  }
   const use = world.kit ?? {
-    postH: 1.68, postWidth: 0.28, railAt: [0.42, 0.98], railWidth: 0.168,
+    postH: 1.68,
+    postWidth: 0.28,
+    railAt: [0.42, 0.98],
+    railWidth: 0.168,
     railHeight: 0.56,
   };
-  checkKit(use, 'world');
+  checkKit(use, "world");
   world.fences.forEach((f, i) => checkFence(f, use, `world:${i}`));
 
   const bays = world.fences.flatMap((f) => f.bays);
@@ -307,14 +347,18 @@ const browser = await launchBrowser();
     /** The tightest a plank comes to the ground under it, over the whole world. */
     tightestClearance: clearances.length ? +Math.min(...clearances).toFixed(3) : null,
     longestBay: bays.length ? +Math.max(...bays.map((b) => b.length)).toFixed(3) : null,
-    lanterns: world.fences
-      .reduce((n, f) => n + f.posts.filter((p) => p.kind === 'lantern').length, 0),
+    lanterns: world.fences.reduce(
+      (n, f) => n + f.posts.filter((p) => p.kind === "lantern").length,
+      0,
+    ),
   };
   await page.close();
 }
 
 out.pass = fails.length === 0;
-if (fails.length) out.failures = fails;
+if (fails.length) {
+  out.failures = fails;
+}
 console.log(JSON.stringify(out, null, 2));
 await browser.close();
 process.exit(fails.length ? 1 : 0);

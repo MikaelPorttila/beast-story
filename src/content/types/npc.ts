@@ -9,7 +9,7 @@ import type {
   ContentTypeDef,
   ParseCtx,
   ValidateCtx,
-} from '../types';
+} from "../types";
 import {
   actions as readActions,
   bool,
@@ -23,12 +23,12 @@ import {
   readerFor,
   str,
   text,
-} from '../schema';
-import type { Reader } from '../schema';
-import { isKnownTextKey } from '../text';
+} from "../schema";
+import type { Reader } from "../schema";
+import { isKnownTextKey } from "../text";
 
 /** The factory kind an NPC's `body` selects. `npc-body/gain`. */
-export const NPC_BODY_KIND = 'npc-body';
+export const NPC_BODY_KIND = "npc-body";
 
 const BODY_RE = /^[a-z][a-z0-9-]*$/;
 
@@ -62,13 +62,18 @@ export function setKnownNpcBodies(names: Iterable<string>): void {
 
 function readTalkLine(value: unknown, ctx: Reader): NpcTalkLine {
   if (!isRecord(value)) {
-    ctx.report('error', 'bad-field', 'expected a talk entry object', 'write { "line": { "key": "…" } }');
-    return { line: text(undefined, ctx.at('line')) };
+    ctx.report(
+      "error",
+      "bad-field",
+      "expected a talk entry object",
+      'write { "line": { "key": "…" } }',
+    );
+    return { line: text(undefined, ctx.at("line")) };
   }
-  const acts = readActions(value.actions, ctx.at('actions'));
+  const acts = readActions(value.actions, ctx.at("actions"));
   return {
-    when: opt(value.when, ctx.at('when'), condition),
-    line: text(value.line, ctx.at('line')),
+    when: opt(value.when, ctx.at("when"), condition),
+    line: text(value.line, ctx.at("line")),
     // Omitted rather than stored empty, so `serialize` never round-trips a field nobody wrote.
     ...(acts.length > 0 ? { actions: acts } : {}),
   };
@@ -78,27 +83,36 @@ function parse(body: unknown, ctx: ParseCtx): NpcData | null {
   const r = readerFor(ctx, { knownTextKey: isKnownTextKey });
   const b = obj(body, r);
   return {
-    town: idOf('town')(b.town, r.at('town')),
-    body: str(b.body, r.at('body'), { min: 1, max: 64, pattern: BODY_RE, what: 'an npc body name' }),
-    homeOffset: opt(b.homeOffset, r.at('homeOffset'), (v, c) =>
-      num(v, c, { min: 0, max: 500, what: 'a distance from the town centre' })) ?? 0,
-    acrossFocus: opt(b.acrossFocus, r.at('acrossFocus'), bool) ?? false,
-    talk: list(readTalkLine, { min: 1, max: 256 })(b.talk, r.at('talk')),
+    town: idOf("town")(b.town, r.at("town")),
+    body: str(b.body, r.at("body"), {
+      min: 1,
+      max: 64,
+      pattern: BODY_RE,
+      what: "an npc body name",
+    }),
+    homeOffset:
+      opt(b.homeOffset, r.at("homeOffset"), (v, c) =>
+        num(v, c, { min: 0, max: 500, what: "a distance from the town centre" }),
+      ) ?? 0,
+    acrossFocus: opt(b.acrossFocus, r.at("acrossFocus"), bool) ?? false,
+    talk: list(readTalkLine, { min: 1, max: 256 })(b.talk, r.at("talk")),
   };
 }
 
 function* refs(data: NpcData): Iterable<ContentId> {
   // '' is `idOf`'s fallback for a malformed id, already reported where it was read.
-  if (data.town !== '') yield data.town;
+  if (data.town !== "") {
+    yield data.town;
+  }
 }
 
 function validate(asset: ContentAsset<NpcData>, ctx: ValidateCtx): void {
   if (knownBodies !== null && !knownBodies.has(asset.data.body)) {
     ctx.report({
-      severity: 'error',
-      code: 'unknown-factory',
+      severity: "error",
+      code: "unknown-factory",
       message: `no "${NPC_BODY_KIND}/${asset.data.body}" is registered`,
-      field: 'data.body',
+      field: "data.body",
       fix: `defineFactory("${NPC_BODY_KIND}", "${asset.data.body}", …), or use one that exists`,
     });
   }
@@ -106,34 +120,36 @@ function validate(asset: ContentAsset<NpcData>, ctx: ValidateCtx): void {
   // An unconditional line makes everything after it dead. Warn: the fix is a reorder.
   const lines = asset.data.talk;
   for (let i = 0; i < lines.length - 1; i++) {
-    if (lines[i].when !== undefined) continue;
+    if (lines[i].when !== undefined) {
+      continue;
+    }
     ctx.report({
-      severity: 'warn',
-      code: 'never-available',
+      severity: "warn",
+      code: "never-available",
       message: `talk[${i}] has no "when", so the ${lines.length - i - 1} entries after it are unreachable`,
       field: `data.talk[${i}]`,
-      fix: 'first match wins — put the unconditional line last',
+      fix: "first match wins — put the unconditional line last",
     });
     break;
   }
 }
 
 export const NPC_TYPE: ContentTypeDef<NpcData> = {
-  name: 'npc',
+  name: "npc",
   schema: 1,
   parse,
   refs,
   validate,
   template: {
-    id: 'npc:new-person',
+    id: "npc:new-person",
     schema: 1,
-    name: { text: { en: 'New Person' } },
+    name: { text: { en: "New Person" } },
     data: {
-      town: 'town:encampment',
-      body: 'gain',
+      town: "town:encampment",
+      body: "gain",
       homeOffset: 4,
       acrossFocus: false,
-      talk: [{ line: { text: { en: '…' } } }],
+      talk: [{ line: { text: { en: "…" } } }],
     },
   },
 };

@@ -26,8 +26,8 @@
 // camp's ground is trampled bare by design — `trodden`, world/props.ts), and
 // Redbriar's yard has been bare since long before this rule existed. What must
 // not happen is every settlement going bare, and that is a total.
-import { launchBrowser, newPage } from './browser.mjs';
-import { BASE as HOST, NO_WARMUP } from './target.mjs';
+import { launchBrowser, newPage } from "./browser.mjs";
+import { BASE as HOST, NO_WARMUP } from "./target.mjs";
 
 /**
  * Foliage vertices that must stand within `GAP` of built timber, world-wide.
@@ -46,18 +46,23 @@ let snug = 0;
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
-await page.goto(`${HOST}/?menu=0&vol=0&fs=0&${NO_WARMUP}`, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(`${HOST}/?menu=0&vol=0&fs=0&${NO_WARMUP}`, { waitUntil: "load" });
+await page.waitForSelector("canvas");
 await page.waitForFunction(() => window.__dbgBoot?.().playing, { timeout: 30000 });
 
 const towns = await page.evaluate(() => window.__dbgTowns().structures.perTown);
-if (!towns.length) fails.push('the world built no settlements to check');
+if (!towns.length) {
+  fails.push("the world built no settlements to check");
+}
 
 for (const town of towns) {
   // A CARRIED town rides a moving piece of world and grows no chunk foliage at
   // all — there is nothing there for it to clip, and teleporting to the ground
   // column under it would measure the wilderness it happens to be flying over.
-  if (town.carried) { out.skipped.push(town.id); continue; }
+  if (town.carried) {
+    out.skipped.push(town.id);
+    continue;
+  }
 
   // Stand in it and let the ring fill: the meshes this reads are the streamed
   // ones, so a reading taken before they arrive is a reading of nothing.
@@ -72,27 +77,38 @@ for (const town of towns) {
     window.__streamSeen = false;
     window.__dbgTp(t.x, t.z);
   }, town);
-  await page.waitForFunction(() => {
-    const busy = window.__dbgZone().streaming;
-    if (busy) window.__streamSeen = true;
-    return window.__streamSeen && !busy;
-  }, { polling: 'raf', timeout: 60000 });
+  await page.waitForFunction(
+    () => {
+      const busy = window.__dbgZone().streaming;
+      if (busy) {
+        window.__streamSeen = true;
+      }
+      return window.__streamSeen && !busy;
+    },
+    { polling: "raf", timeout: 60000 },
+  );
 
   const r = town.radius + 6;
   const clip = await page.evaluate(
-    (t, rr, g) => window.__dbgFoliageClip(t.x, t.z, rr, g), town, town.radius + 6, GAP,
+    (t, rr, g) => window.__dbgFoliageClip(t.x, t.z, rr, g),
+    town,
+    town.radius + 6,
+    GAP,
   );
 
   if (clip.verts === 0) {
-    fails.push(`${town.id}: no foliage streamed within ${clip.radius} units — `
-      + 'nothing was measured');
+    fails.push(
+      `${town.id}: no foliage streamed within ${clip.radius} units — ` + "nothing was measured",
+    );
   }
   if (town.boxes === 0) {
     fails.push(`${town.id}: the settlement grew no colliders — nothing to clip`);
   }
   if (clip.hits > 0) {
-    fails.push(`${town.id}: ${clip.hits} foliage vertices inside a structure, `
-      + `first at ${clip.at.x},${clip.at.y},${clip.at.z}`);
+    fails.push(
+      `${town.id}: ${clip.hits} foliage vertices inside a structure, ` +
+        `first at ${clip.at.x},${clip.at.y},${clip.at.z}`,
+    );
   }
 
   snug += clip.snug;
@@ -107,14 +123,18 @@ for (const town of towns) {
 }
 
 if (snug < MIN_SNUG) {
-  fails.push(`only ${snug} foliage vertices in the world stand within ${GAP} of a `
-    + 'building: the foliage is being held off the structures rather than kept out '
-    + 'of them, which is the clearance-disc failure issue #131 asks not to have');
+  fails.push(
+    `only ${snug} foliage vertices in the world stand within ${GAP} of a ` +
+      "building: the foliage is being held off the structures rather than kept out " +
+      "of them, which is the clearance-disc failure issue #131 asks not to have",
+  );
 }
 out.touchingTotal = snug;
 
 out.pass = fails.length === 0;
-if (fails.length) out.failures = fails;
+if (fails.length) {
+  out.failures = fails;
+}
 console.log(JSON.stringify(out, null, 2));
 await page.close();
 await browser.close();

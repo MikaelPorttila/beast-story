@@ -11,7 +11,7 @@
  * additive material and the shaft's are per-instance, so the destination's arch
  * is one of the things the warm-up sweep has to draw.
  */
-import * as THREE from 'three';
+import * as THREE from "three";
 
 const PILLAR_H = 5.2;
 const HALF_W = 2.3;
@@ -19,14 +19,14 @@ const HALF_W = 2.3;
 /** Stamp a constant vertex colour onto a geometry. See the material below. */
 function paint(geo: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
   const c = new THREE.Color(hex).convertSRGBToLinear();
-  const n = geo.getAttribute('position').count;
+  const n = geo.getAttribute("position").count;
   const col = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     col[i * 3] = c.r;
     col[i * 3 + 1] = c.g;
     col[i * 3 + 2] = c.b;
   }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
   return geo;
 }
 
@@ -41,7 +41,13 @@ export class Gateway {
   private shaftMat: THREE.MeshBasicMaterial;
   private t = 0;
 
-  constructor(private scene: THREE.Scene, x: number, y: number, z: number, hex: number) {
+  constructor(
+    private scene: THREE.Scene,
+    x: number,
+    y: number,
+    z: number,
+    hex: number,
+  ) {
     this.position.set(x, y, z);
     this.group.position.set(x, y, z);
 
@@ -52,7 +58,9 @@ export class Gateway {
     // 121-206 ms of CPU each (measured, RTX 3070 Ti). Matching the terrain's
     // define set costs one buffer attribute and nothing else.
     const stone = new THREE.MeshStandardMaterial({
-      vertexColors: true, roughness: 0.9, metalness: 0,
+      vertexColors: true,
+      roughness: 0.9,
+      metalness: 0,
     });
     const pillarGeo = paint(new THREE.BoxGeometry(0.9, PILLAR_H, 0.9), 0x7d7a86);
     const lintelGeo = paint(new THREE.BoxGeometry(HALF_W * 2 + 1.4, 0.95, 1.1), 0x8a8792);
@@ -77,8 +85,13 @@ export class Gateway {
     const padGeo = new THREE.RingGeometry(1.05, 2.45, 32, 1);
     padGeo.rotateX(-Math.PI / 2);
     this.padMat = new THREE.MeshBasicMaterial({
-      color: hex, transparent: true, opacity: 0.30, side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+      color: hex,
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
     });
     this.pad = new THREE.Mesh(padGeo, this.padMat);
     this.pad.position.y = 0.06;
@@ -89,8 +102,13 @@ export class Gateway {
     // there is something to see from a distance across a room.
     const shaftGeo = new THREE.CylinderGeometry(1.5, 1.9, PILLAR_H, 20, 1, true);
     this.shaftMat = new THREE.MeshBasicMaterial({
-      color: hex, transparent: true, opacity: 0.06, side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+      color: hex,
+      transparent: true,
+      opacity: 0.06,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
     });
     this.shaft = new THREE.Mesh(shaftGeo, this.shaftMat);
     this.shaft.position.y = PILLAR_H / 2;
@@ -122,8 +140,12 @@ export class Gateway {
 
   dispose(): void {
     this.scene.remove(this.group);
-    for (const g of this.geos) g.dispose();
-    for (const m of this.mats) m.dispose();
+    for (const g of this.geos) {
+      g.dispose();
+    }
+    for (const m of this.mats) {
+      m.dispose();
+    }
     this.geos.length = 0;
     this.mats.length = 0;
   }

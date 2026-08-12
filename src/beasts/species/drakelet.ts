@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
-import { makeContactBlob, updateContactBlob } from './contactshadow';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { eyes2x2, rimTop, shadeUnder } from "./voxelshade";
+import { makeContactBlob, updateContactBlob } from "./contactshadow";
 
 // Drakelet — pocket dragon in ember-crimson scale: two-segment bat wings with membrane,
 // a chest that puffs before a breath attack, three-segment whip tail, horns, spikes.
@@ -39,56 +39,56 @@ const HOVER = 1.55;
 
 export const skills: SkillDef[] = [
   {
-    id: 'drakelet.fang-rush',
-    nameKey: 'skill.drakelet.fang-rush.name',
-    descriptionKey: 'skill.drakelet.fang-rush.desc',
-    element: 'dragon',
-    targeting: 'melee',
+    id: "drakelet.fang-rush",
+    nameKey: "skill.drakelet.fang-rush.name",
+    descriptionKey: "skill.drakelet.fang-rush.desc",
+    element: "dragon",
+    targeting: "melee",
     cost: 5,
     cooldown: 1.5,
     power: 13,
     range: 2.5,
     learnAtLevel: 1,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'drakelet.drakefire-breath',
-    nameKey: 'skill.drakelet.drakefire-breath.name',
-    descriptionKey: 'skill.drakelet.drakefire-breath.desc',
-    element: 'dragon',
-    targeting: 'beam',
+    id: "drakelet.drakefire-breath",
+    nameKey: "skill.drakelet.drakefire-breath.name",
+    descriptionKey: "skill.drakelet.drakefire-breath.desc",
+    element: "dragon",
+    targeting: "beam",
     cost: 15,
     cooldown: 6,
     power: 26,
     range: 11,
     learnAtLevel: 5,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'drakelet.tailspin-tempest',
-    nameKey: 'skill.drakelet.tailspin-tempest.name',
-    descriptionKey: 'skill.drakelet.tailspin-tempest.desc',
-    element: 'dragon',
-    targeting: 'aoe',
+    id: "drakelet.tailspin-tempest",
+    nameKey: "skill.drakelet.tailspin-tempest.name",
+    descriptionKey: "skill.drakelet.tailspin-tempest.desc",
+    element: "dragon",
+    targeting: "aoe",
     cost: 18,
     cooldown: 8,
     power: 30,
     range: 5,
     storePrice: 260,
-    castAnim: 'special',
+    castAnim: "special",
   },
   {
-    id: 'drakelet.comet-crash',
-    nameKey: 'skill.drakelet.comet-crash.name',
-    descriptionKey: 'skill.drakelet.comet-crash.desc',
-    element: 'dragon',
-    targeting: 'projectile',
+    id: "drakelet.comet-crash",
+    nameKey: "skill.drakelet.comet-crash.name",
+    descriptionKey: "skill.drakelet.comet-crash.desc",
+    element: "dragon",
+    targeting: "projectile",
     cost: 24,
     cooldown: 11.5,
     power: 44,
     range: 20,
     storePrice: 390,
-    castAnim: 'special',
+    castAnim: "special",
   },
 ];
 
@@ -99,11 +99,15 @@ function buildWingInner(dir: number): THREE.Mesh {
   const cell = (i: number): number => (dir > 0 ? i : -i - 1);
   for (let i = 0; i < 4; i++) {
     v.set(cell(i), 0, 1, C.wingBone);
-    if (i < 2) v.set(cell(i), 1, 1, C.wingBone);
+    if (i < 2) {
+      v.set(cell(i), 1, 1, C.wingBone);
+    }
     v.set(cell(i), 0, 0, C.membraneLt);
     v.set(cell(i), 0, -1, C.membrane);
     v.set(cell(i), 0, -2, i < 3 ? C.membrane : C.membraneDk);
-    if (i < 3) v.set(cell(i), 0, -3, C.membraneDk);
+    if (i < 3) {
+      v.set(cell(i), 0, -3, C.membraneDk);
+    }
     v.set(cell(i), -1, 1, C.membraneDk);
     v.set(cell(i), -1, 0, C.membraneDk);
   }
@@ -120,7 +124,9 @@ function buildWingOuter(dir: number): THREE.Mesh {
   const depth = [4, 5, 6, 6, 5, 3]; // chord per column; shallow at the root left a gap
   for (let i = 0; i < 6; i++) {
     v.set(cell(i), 0, 1, C.wingBone);
-    if (i < 2) v.set(cell(i), 1, 1, C.wingBone);
+    if (i < 2) {
+      v.set(cell(i), 1, 1, C.wingBone);
+    }
     v.set(cell(i), -1, 1, C.membraneDk);
     for (let z = 0; z >= -depth[i]; z--) {
       const trailing = z === -depth[i];
@@ -129,7 +135,9 @@ function buildWingOuter(dir: number): THREE.Mesh {
   }
   // Each finger bone is one CONTINUOUS line down its column; staggered cells read as noise.
   for (const i of [2, 4]) {
-    for (let z = 0; z >= -depth[i]; z--) v.set(cell(i), 0, z, C.scaleDk);
+    for (let z = 0; z >= -depth[i]; z--) {
+      v.set(cell(i), 0, z, C.scaleDk);
+    }
   }
   v.set(cell(5), 1, 1, C.claw);
   const m = v.build(S, false);
@@ -144,7 +152,7 @@ function buildLeg(): THREE.Mesh {
   v.set(-1, 0, 2, C.claw);
   v.set(0, 0, 2, C.claw);
   const m = v.build(S);
-  m.position.y = -0.30;
+  m.position.y = -0.3;
   return m;
 }
 
@@ -183,7 +191,7 @@ function buildRig(): BeastRig {
   torsoVox.set(0, 7, -2, C.spike);
   torsoVox.set(0, 6, -4, C.spike);
   const torso = torsoVox.build(S);
-  torso.position.y = -0.40;
+  torso.position.y = -0.4;
   body.add(torso);
 
   const chest = new THREE.Group();
@@ -202,7 +210,7 @@ function buildRig(): BeastRig {
   chest.add(chestMesh);
 
   const head = new THREE.Group();
-  head.position.set(0, 0.24, 0.30);
+  head.position.set(0, 0.24, 0.3);
   body.add(head);
   parts.head = head;
 
@@ -224,7 +232,7 @@ function buildRig(): BeastRig {
   }
   headVox.set(-1, 2, 5, C.nostril);
   headVox.set(1, 2, 5, C.nostril);
-  headVox.box(-3, 2, 3, 3, 5, 3, C.scale);   // brow plate up to row 5, a face for the eye
+  headVox.box(-3, 2, 3, 3, 5, 3, C.scale); // brow plate up to row 5, a face for the eye
   rimTop(headVox, C.scaleLt, -3, 3, 0, 6, -3, 4);
   shadeUnder(headVox, C.scaleDk, -3, 3, 0, 3, -3, 2);
   // Pale mask across the eye rows before the eyes go in: a dark crimson iris on a crimson
@@ -236,25 +244,41 @@ function buildRig(): BeastRig {
   eyes2x2(headVox, {
     // inner: 1 — at 2 the outer column is the very edge of this wide skull, so the iris
     // hid round the curve and only the pupil showed.
-    inner: 1, y: 3, faceZ: 3, iris: C.iris, shine: C.eyeShine,
-    lid: C.eyeLid, browProud: true, bridge: C.belly,
+    inner: 1,
+    y: 3,
+    faceZ: 3,
+    iris: C.iris,
+    shine: C.eyeShine,
+    lid: C.eyeLid,
+    browProud: true,
+    bridge: C.belly,
   });
   // Horns root INSIDE the cranium and climb aft solidly, or sky shows between horn and crown.
   for (const sx of [1, -1]) {
     for (const w of [2, 3]) {
       const step: Array<[number, number]> = [
-        [3, 1], [3, 0], [4, 0], [4, -1], [5, -1], [5, -2], [6, -2], [6, -3], [7, -3],
+        [3, 1],
+        [3, 0],
+        [4, 0],
+        [4, -1],
+        [5, -1],
+        [5, -2],
+        [6, -2],
+        [6, -3],
+        [7, -3],
       ];
-      for (const [y, z] of step) headVox.set(sx * w, y, z, C.horn);
+      for (const [y, z] of step) {
+        headVox.set(sx * w, y, z, C.horn);
+      }
     }
   }
   const headMesh = headVox.build(S);
   // +0.05z pays for the extra snout step: build() re-centres on the bounding box.
-  headMesh.position.set(0, -0.30, 0.05);
+  headMesh.position.set(0, -0.3, 0.05);
   head.add(headMesh);
 
   const jaw = new THREE.Group();
-  jaw.position.set(0, -0.12, 0.10);
+  jaw.position.set(0, -0.12, 0.1);
   head.add(jaw);
   parts.jaw = jaw;
 
@@ -317,7 +341,7 @@ function buildRig(): BeastRig {
   parts.armR = armR;
 
   const tail1 = new THREE.Group();
-  tail1.position.set(0, -0.10, -0.36);
+  tail1.position.set(0, -0.1, -0.36);
   body.add(tail1);
   parts.tail1 = tail1;
 
@@ -329,7 +353,7 @@ function buildRig(): BeastRig {
   tail1.add(t1Mesh);
 
   const tail2 = new THREE.Group();
-  tail2.position.set(0, 0, -0.40);
+  tail2.position.set(0, 0, -0.4);
   tail1.add(tail2);
   parts.tail2 = tail2;
 
@@ -398,7 +422,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   let wingRX = 0.85;
   let tipFold = 2.0;
   let tipFlap = -0.2;
-  let legRX = 0.10;
+  let legRX = 0.1;
   let legSplit = 0;
   let armRX = 0.15 + Math.sin(t * 2.2) * 0.05;
   let armSplit = Math.sin(t * 2.2 + 1) * 0.03;
@@ -410,10 +434,10 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   let tailRY3 = Math.sin(t * 1.4 - 1.2) * 0.26;
 
   switch (ctx.action) {
-    case 'fly':
-    case 'walk':
-    case 'run':
-    case 'swim': {
+    case "fly":
+    case "walk":
+    case "run":
+    case "swim": {
       const k = 0.5 + 0.5 * ctx.moveSpeed;
       const w = ctx.cycle(BEAT, 7.5 + 3.5 * ctx.moveSpeed);
       const raw = Math.sin(w);
@@ -427,35 +451,35 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       // through the middle of every stroke.
       wingRX = 0.34 + Math.sin(w - 0.4) * 0.14;
       bodyY = BODY_Y + Math.sin(w - 1.1) * 0.07 * k + 0.06;
-      bodyRX = 0.30 * k + Math.sin(w - 1.3) * 0.06;
+      bodyRX = 0.3 * k + Math.sin(w - 1.3) * 0.06;
       bodyRZ = Math.sin(t * 1.6) * 0.08 * k;
       headRX = -0.22 * k + Math.sin(w - 1.5) * 0.04;
-      headRY = Math.sin(t * 0.8) * 0.10;
+      headRY = Math.sin(t * 0.8) * 0.1;
       jawOpen = 0.05;
       chestS = 1 + Math.sin(w) * 0.02;
       legRX = 0.85;
-      armRX = 0.70;
+      armRX = 0.7;
       armSplit = 0;
       tailRX1 = 0.12 + Math.sin(w - 1.6) * 0.08;
-      tailRX2 = 0.08 + Math.sin(w - 2.1) * 0.10;
+      tailRX2 = 0.08 + Math.sin(w - 2.1) * 0.1;
       tailRX3 = 0.04 + Math.sin(w - 2.6) * 0.12;
-      tailRY1 = Math.sin(t * 1.9) * 0.10;
+      tailRY1 = Math.sin(t * 1.9) * 0.1;
       tailRY2 = Math.sin(t * 1.9 - 0.5) * 0.13;
       tailRY3 = Math.sin(t * 1.9 - 1.0) * 0.16;
       break;
     }
-    case 'attack': {
+    case "attack": {
       const wind = easeOutCubic(clamp01(at / 0.16));
       const lunge = easeOutCubic(clamp01((at - 0.16) / 0.14));
       const rec = easeInOutSine(clamp01((at - 0.34) / 0.36));
       const punch = lunge * (1 - rec);
       const coil = wind * (1 - lunge);
       const snap = easeOutCubic(clamp01((at - 0.26) / 0.08));
-      bodyRX = -0.30 * coil + 0.45 * punch;
+      bodyRX = -0.3 * coil + 0.45 * punch;
       bodyZ = -0.08 * coil + 0.22 * punch;
       bodyY = BODY_Y - 0.05 * coil + 0.04 * punch;
       sq = 1 - 0.06 * coil + 0.05 * punch;
-      headRX = -0.35 * coil + 0.30 * punch;
+      headRX = -0.35 * coil + 0.3 * punch;
       jawOpen = 0.7 * Math.max(coil * 0.7, lunge) * (1 - snap);
       flap = 0.6 * coil - 0.35 * punch;
       sweep = 0.35 + 0.5 * punch;
@@ -469,10 +493,10 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       tailRX3 = 0.06 * coil - 0.12 * punch;
       tailRY1 = Math.sin(t * 6) * 0.06;
       tailRY2 = Math.sin(t * 6 - 0.5) * 0.08;
-      tailRY3 = Math.sin(t * 6 - 1.0) * 0.10;
+      tailRY3 = Math.sin(t * 6 - 1.0) * 0.1;
       break;
     }
-    case 'cast': {
+    case "cast": {
       const inhale = easeInOutSine(clamp01(at / 0.45));
       const exhale = easeOutCubic(clamp01((at - 0.45) / 0.25));
       const shiver = Math.sin(t * 24) * 0.05 * inhale;
@@ -482,22 +506,22 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       sq = 1 + 0.05 * inhale * (1 - exhale);
       headRX = -0.45 * inhale * (1 - exhale) + 0.35 * exhale;
       headRY = 0;
-      jawOpen = 0.10 * inhale + 0.85 * exhale;
+      jawOpen = 0.1 * inhale + 0.85 * exhale;
       flap = 0.75 * inhale * (1 - exhale * 0.5) + shiver;
       sweep = 0.35;
       tipFold = 0.25;
       tipFlap = shiver * 2;
       legRX = 0.15 + 0.2 * inhale;
       armRX = 0.3 * inhale - 0.3 * exhale;
-      tailRX1 = 0.20 * inhale;
+      tailRX1 = 0.2 * inhale;
       tailRX2 = 0.14 * inhale;
       tailRX3 = 0.08 * inhale;
       tailRY1 = Math.sin(t * 1.4) * 0.06;
       tailRY2 = Math.sin(t * 1.4 - 0.6) * 0.08;
-      tailRY3 = Math.sin(t * 1.4 - 1.2) * 0.10;
+      tailRY3 = Math.sin(t * 1.4 - 1.2) * 0.1;
       break;
     }
-    case 'special': {
+    case "special": {
       const rise = easeOutCubic(clamp01(at / 0.35));
       const fall = easeInOutSine(clamp01((at - 0.85) / 0.35));
       const amp = rise * (1 - fall);
@@ -505,26 +529,26 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bodyY = BODY_Y + 0.16 * amp + Math.sin(t * 12) * 0.01;
       sq = 1 + 0.06 * amp;
       chestS = 1 + 0.12 * amp;
-      headRX = -0.30 * amp + Math.sin(t * 10) * 0.04 * amp;
+      headRX = -0.3 * amp + Math.sin(t * 10) * 0.04 * amp;
       headRY = 0;
       jawOpen = 0.8 * amp;
       flap = amp * (0.4 + Math.sin(t * 16) * 0.55);
       sweep = 0.15;
-      tipFold = 0.10;
+      tipFold = 0.1;
       tipFlap = Math.sin(t * 16 - 0.8) * 0.5 * amp;
       wingRX = Math.sin(t * 16 - 0.4) * 0.08 * amp;
       legRX = 0.5 * amp;
       legSplit = 0.15 * amp;
       armRX = -0.6 * amp;
       tailRX1 = 0.15 * amp;
-      tailRX2 = 0.10 * amp;
+      tailRX2 = 0.1 * amp;
       tailRX3 = 0.05 * amp;
-      tailRY1 = Math.sin(at * 9) * 0.50 * amp;
-      tailRY2 = Math.sin(at * 9 - 0.7) * 0.60 * amp;
-      tailRY3 = Math.sin(at * 9 - 1.4) * 0.70 * amp;
+      tailRY1 = Math.sin(at * 9) * 0.5 * amp;
+      tailRY2 = Math.sin(at * 9 - 0.7) * 0.6 * amp;
+      tailRY3 = Math.sin(at * 9 - 1.4) * 0.7 * amp;
       break;
     }
-    case 'hurt': {
+    case "hurt": {
       const d = Math.max(0, 1 - at / 0.5);
       bodyX = Math.sin(at * 50) * 0.04 * d;
       bodyRZ = Math.sin(at * 44) * 0.12 * d;
@@ -540,29 +564,29 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       armRX = 0.5 * d;
       legRX = 0.3 * d;
       tailRX1 = -0.15 * d;
-      tailRX2 = -0.10 * d;
+      tailRX2 = -0.1 * d;
       tailRX3 = -0.06 * d;
-      tailRY1 = Math.sin(at * 30) * 0.10 * d;
+      tailRY1 = Math.sin(at * 30) * 0.1 * d;
       tailRY2 = Math.sin(at * 30 - 0.5) * 0.14 * d;
       tailRY3 = Math.sin(at * 30 - 1.0) * 0.18 * d;
       break;
     }
-    case 'happy': {
+    case "happy": {
       const hop = Math.abs(Math.sin(at * 6.5));
       bodyY = BODY_Y + hop * 0.16;
       sq = 1 + Math.sin(at * 13) * 0.07;
-      bodyRY = Math.sin(at * 3.2) * 0.40;
+      bodyRY = Math.sin(at * 3.2) * 0.4;
       bodyRZ = Math.sin(at * 6.5) * 0.08;
-      headRX = -0.10;
+      headRX = -0.1;
       headRZ = Math.sin(at * 6.5) * 0.15;
       headRY = Math.sin(at * 3.2) * 0.15;
-      jawOpen = 0.35 + Math.sin(at * 13) * 0.10;
+      jawOpen = 0.35 + Math.sin(at * 13) * 0.1;
       flap = 0.3 + Math.sin(at * 13) * 0.35;
       sweep = 0.5;
       tipFold = 0.4;
       tipFlap = Math.sin(at * 13 - 0.6) * 0.3;
       chestS = 1 + hop * 0.05;
-      armRX = -0.3 + Math.sin(at * 13) * 0.20;
+      armRX = -0.3 + Math.sin(at * 13) * 0.2;
       armSplit = Math.sin(at * 13) * 0.1;
       legRX = 0.2 + hop * 0.15;
       tailRX1 = 0.1;
@@ -571,7 +595,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       tailRY3 = Math.sin(at * 11 - 1.2) * 0.65;
       break;
     }
-    case 'idle':
+    case "idle":
     default:
       break;
   }
@@ -604,17 +628,17 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 }
 
 export const species: BeastSpecies = {
-  id: 'drakelet',
-  nameKey: 'beast.drakelet.name',
-  element: 'dragon',
-  locomotion: 'flying',
-  descriptionKey: 'beast.drakelet.desc',
+  id: "drakelet",
+  nameKey: "beast.drakelet.name",
+  element: "dragon",
+  locomotion: "flying",
+  descriptionKey: "beast.drakelet.desc",
   baseStats: { maxHp: 46, attack: 13, defense: 9, speed: 5.6 },
   skills: [
-    'drakelet.fang-rush',
-    'drakelet.drakefire-breath',
-    'drakelet.tailspin-tempest',
-    'drakelet.comet-crash',
+    "drakelet.fang-rush",
+    "drakelet.drakefire-breath",
+    "drakelet.tailspin-tempest",
+    "drakelet.comet-crash",
   ],
   buildRig,
   animate,

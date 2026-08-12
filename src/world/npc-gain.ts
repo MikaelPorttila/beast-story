@@ -33,25 +33,25 @@
  * quantised to 28 cm. At 0.1 he measures ~2.0 units to the top of the skull,
  * against the hero's 1.9 — a big old man, not a giant.
  */
-import * as THREE from 'three';
-import { VoxelModel } from '../core/voxel';
-import { relight } from './props';
-import { measureFootprint } from './structures';
-import type { NpcAnimCtx, NpcBody, NpcRig } from './npc';
+import * as THREE from "three";
+import { VoxelModel } from "../core/voxel";
+import { relight } from "./props";
+import { measureFootprint } from "./structures";
+import type { NpcAnimCtx, NpcBody, NpcRig } from "./npc";
 
 /** World units per voxel. See the header. */
 const S = 0.1;
 
 // -- palette ---------------------------------------------------------------
 // sRGB hex like every other builder in the project; VoxelModel converts.
-const ROBE = 0x39406e;      // deep indigo, the Diablo II silhouette
-const ROBE_D = 0x2a3054;    // folds and the shaded side
-const MANTLE = 0x6c78a8;    // the lighter over-shoulder cape
+const ROBE = 0x39406e; // deep indigo, the Diablo II silhouette
+const ROBE_D = 0x2a3054; // folds and the shaded side
+const MANTLE = 0x6c78a8; // the lighter over-shoulder cape
 const MANTLE_D = 0x545f88;
-const SKIN = 0xd8a274;      // weathered
-const SKIN_D = 0xb8814f;    // creases, undersides, the fist
-const SKIN_L = 0xe6b98f;    // the bald pate, catching the sun
-const HAIR = 0xeceadf;      // white, but warm — a pure white blows out under bloom
+const SKIN = 0xd8a274; // weathered
+const SKIN_D = 0xb8814f; // creases, undersides, the fist
+const SKIN_L = 0xe6b98f; // the bald pate, catching the sun
+const HAIR = 0xeceadf; // white, but warm — a pure white blows out under bloom
 const HAIR_D = 0xcdc9ba;
 const LEATHER = 0x6b4a2e;
 const BUCKLE = 0xc9a24f;
@@ -61,9 +61,9 @@ const EYE = 0x2a2530;
 // indigo robe with the plates and the sleeve indistinguishable; at 0x6e7079 the
 // bar is still obviously metal and still obviously heavy, and it reads against
 // both the robe and the camp's ground.
-const IRON = 0x6e7079;      // the dumbbell's plates
+const IRON = 0x6e7079; // the dumbbell's plates
 const IRON_L = 0x9a9ca6;
-const GRIP = 0x3a3128;      // knurled leather on the bar
+const GRIP = 0x3a3128; // knurled leather on the bar
 
 // -- proportions (world units) ---------------------------------------------
 // Every one of these is read by both the rig builder and the animator, so the
@@ -141,8 +141,12 @@ function buildBody(): VoxelModel {
   v.box(-4, 2, -3, 3, 4, 2, ROBE);
   // Vertical folds: alternating darker columns down the outside faces, so the
   // skirt is cloth rather than a painted block.
-  for (const x of [-4, -1, 2]) v.box(x, 0, 2, x, 4, 2, ROBE_D);
-  for (const x of [-3, 0, 3]) v.box(x, 0, -3, x, 4, -3, ROBE_D);
+  for (const x of [-4, -1, 2]) {
+    v.box(x, 0, 2, x, 4, 2, ROBE_D);
+  }
+  for (const x of [-3, 0, 3]) {
+    v.box(x, 0, -3, x, 4, -3, ROBE_D);
+  }
   v.box(-5, 0, -3, -5, 1, 2, ROBE_D);
   v.box(4, 0, -3, 4, 1, 2, ROBE_D);
   // Sandals under the hem, mirrored about the -1 rule (-3..-1 and 0..2).
@@ -171,8 +175,8 @@ function buildBody(): VoxelModel {
   // whichever is in front has to be strictly in front: a face of his chest
   // exactly coplanar with a face of his beard is z-fighting.
   v.box(-2, 8, 3, 1, 9, 3, SKIN);
-  v.box(-1, 8, 3, 0, 9, 3, SKIN_D);  // sternum split
-  v.box(-2, 8, 3, 1, 8, 3, SKIN_D);  // under-pec crease
+  v.box(-1, 8, 3, 0, 9, 3, SKIN_D); // sternum split
+  v.box(-2, 8, 3, 1, 8, 3, SKIN_D); // under-pec crease
   // The robe's lapels, framing the opening so it reads as an open robe rather
   // than as a hole cut in one.
   v.box(-4, 7, 2, -3, 13, 3, ROBE_D);
@@ -207,8 +211,10 @@ function buildBody(): VoxelModel {
   // overhang the head anyway. Mirrored about the -1 rule, so the origin is
   // untouched (see `buildBody`'s header).
   v.box(-5, 13, -4, 4, 14, 2, MANTLE);
-  v.box(-4, 8, -4, 3, 12, -4, MANTLE_D);  // drapes down the back
-  for (const x of [-3, 0, 3]) v.box(x, 8, -4, x, 12, -4, MANTLE); // fold highlights
+  v.box(-4, 8, -4, 3, 12, -4, MANTLE_D); // drapes down the back
+  for (const x of [-3, 0, 3]) {
+    v.box(x, 8, -4, x, 12, -4, MANTLE);
+  } // fold highlights
   // Standing collar behind the neck — ONE voxel deep, at z = -4 and no longer
   // also at -3, and narrowed to x -2..1 from -3..2. Both of those are the same
   // fix. The head's own hair used to be painted at z = -4 as well, so the
@@ -228,7 +234,9 @@ function buildBody(): VoxelModel {
   v.box(-6, 4, -1, -5, 7, 1, LEATHER);
   v.box(-6, 8, -1, -5, 8, 1, 0x54371f);
   v.set(-6, 6, 1, BUCKLE);
-  for (let i = 0; i <= 5; i++) v.set(-5 + i, 8 + i, 2, LEATHER); // strap across the chest
+  for (let i = 0; i <= 5; i++) {
+    v.set(-5 + i, 8 + i, 2, LEATHER);
+  } // strap across the chest
 
   // -- neck ----------------------------------------------------------------
   v.box(-2, 13, -2, 1, 14, 1, SKIN_D);
@@ -248,7 +256,7 @@ function buildHead(): VoxelModel {
   // down afterwards: a big head on a bulked-up body reads as a toy, and the
   // beard already does the work a large head would have done.
   v.box(-3, 0, -3, 2, 5, 2, SKIN);
-  v.box(-3, 5, -3, 2, 5, 2, SKIN_L);   // the bald pate, a value up
+  v.box(-3, 5, -3, 2, 5, 2, SKIN_L); // the bald pate, a value up
   v.box(-2, 6, -2, 1, 6, 1, SKIN_L);
 
   // THE FACE IS A BROW AND TWO EYES UNDER IT, and the relief is doing all of
@@ -263,8 +271,8 @@ function buildHead(): VoxelModel {
   v.set(2, 4, 2, SKIN_D);
   v.set(-2, 3, 2, EYE);
   v.set(1, 3, 2, EYE);
-  v.box(-1, 2, 3, 0, 3, 3, SKIN);      // nose, proud like the brow
-  v.box(-1, 1, 3, 0, 1, 3, SKIN_D);    // and its shadow
+  v.box(-1, 2, 3, 0, 3, 3, SKIN); // nose, proud like the brow
+  v.box(-1, 1, 3, 0, 1, 3, SKIN_D); // and its shadow
 
   // White hair: a ring round the back and sides of a bald crown, falling past
   // the jaw. Painted AFTER the skull so it overwrites the temples.
@@ -281,15 +289,17 @@ function buildHead(): VoxelModel {
   // spare and the silhouette is a centimetre shallower.
   v.box(-3, -2, -3, 2, 5, -3, HAIR);
   v.box(-3, -2, -3, 2, -1, -3, HAIR_D);
-  for (const x of [-4, 3]) for (const y of [0, 2, 4]) v.set(x, y, 1, HAIR_D);
+  for (const x of [-4, 3]) {
+    for (const y of [0, 2, 4]) v.set(x, y, 1, HAIR_D);
+  }
 
   // Beard: full width at the jaw, tapering to a point that stops just above
   // the top of the pectorals — see the note on coplanar faces in `buildBody`.
   v.box(-3, -1, 1, 2, 0, 3, HAIR);
   v.box(-2, -3, 1, 1, -2, 3, HAIR);
-  v.box(-2, -3, 1, 1, -3, 3, HAIR_D);   // the shaded tip
-  v.box(-3, -1, 1, 2, -1, 1, HAIR_D);   // the underside, in its own shadow
-  v.box(-2, 1, 3, 1, 1, 3, HAIR);       // moustache, under the nose
+  v.box(-2, -3, 1, 1, -3, 3, HAIR_D); // the shaded tip
+  v.box(-3, -1, 1, 2, -1, 1, HAIR_D); // the underside, in its own shadow
+  v.box(-2, 1, 3, 1, 1, 3, HAIR); // moustache, under the nose
 
   return v;
 }
@@ -297,11 +307,11 @@ function buildHead(): VoxelModel {
 /** Upper arm: a sleeve cap over a bicep that is the point of the character. */
 function buildUpperArm(): VoxelModel {
   const v = new VoxelModel();
-  v.ellipsoid(-0.5, -0.4, 0, 2.0, 1.5, 2.0, ROBE);      // sleeve, torn off at the shoulder
-  v.ellipsoid(-0.5, -2.6, 0, 2.2, 2.4, 2.0, SKIN);      // bicep belly
-  v.ellipsoid(-0.5, -2.4, 1.2, 1.7, 2.0, 1.4, SKIN);    // ...bulging forward
+  v.ellipsoid(-0.5, -0.4, 0, 2.0, 1.5, 2.0, ROBE); // sleeve, torn off at the shoulder
+  v.ellipsoid(-0.5, -2.6, 0, 2.2, 2.4, 2.0, SKIN); // bicep belly
+  v.ellipsoid(-0.5, -2.4, 1.2, 1.7, 2.0, 1.4, SKIN); // ...bulging forward
   v.ellipsoid(-0.5, -2.8, -1.4, 1.5, 1.9, 1.2, SKIN_D); // triceps, in shade
-  v.ellipsoid(-0.5, -4.6, 0, 1.5, 1.2, 1.5, SKIN_D);    // elbow
+  v.ellipsoid(-0.5, -4.6, 0, 1.5, 1.2, 1.5, SKIN_D); // elbow
   return v;
 }
 
@@ -355,8 +365,8 @@ function mkMesh(model: VoxelModel, out: NpcRig): THREE.Mesh {
   const mesh = model.build(S, true);
   const g = mesh.geometry;
   relight(
-    (g.getAttribute('normal') as THREE.BufferAttribute).array as Float32Array,
-    (g.getAttribute('color') as THREE.BufferAttribute).array as Float32Array,
+    (g.getAttribute("normal") as THREE.BufferAttribute).array as Float32Array,
+    (g.getAttribute("color") as THREE.BufferAttribute).array as Float32Array,
   );
   mesh.position.y = baseY * S;
   // Casts but does not receive, exactly like the hero and the beasts: a rig built
@@ -398,7 +408,10 @@ function build(): NpcRig {
   // standing in front of him, which is what facing a person looks like. (The
   // hero rig names its groups the other way round; his are mirrored.)
   const arms: Record<string, THREE.Group> = {};
-  for (const [side, sx] of [['L', 1], ['R', -1]] as const) {
+  for (const [side, sx] of [
+    ["L", 1],
+    ["R", -1],
+  ] as const) {
     const shoulder = new THREE.Group();
     shoulder.position.set(SHOULDER_X * sx, SHOULDER_Y, -0.02);
     shoulder.add(mkMesh(buildUpperArm(), rig));
@@ -419,7 +432,7 @@ function build(): NpcRig {
   const weight = new THREE.Group();
   weight.position.set(0, -FOREARM, 0.04);
   weight.add(mkMesh(buildDumbbell(), rig));
-  arms['elbowL'].add(weight);
+  arms["elbowL"].add(weight);
 
   rig.parts = { body, head, ...arms, weight };
   return rig;
@@ -438,12 +451,12 @@ function build(): NpcRig {
  * actually looks like — and rests for a second before the next one.
  */
 const REP = 4.6;
-const LIFT_END = 0.30;
+const LIFT_END = 0.3;
 const HOLD_END = 0.38;
 const LOWER_END = 0.78;
 
 /** Elbow angle with the weight down. Never locked out: he is holding iron. */
-const EXT = 0.50;
+const EXT = 0.5;
 /**
  * Elbow angle at the top of the rep, radians.
  *
@@ -470,9 +483,15 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
  * frames before it reads as a teleport rather than a movement.
  */
 function repCurve(u: number): number {
-  if (u < LIFT_END) return smooth(u / LIFT_END);
-  if (u < HOLD_END) return 1;
-  if (u < LOWER_END) return 1 - smooth((u - HOLD_END) / (LOWER_END - HOLD_END));
+  if (u < LIFT_END) {
+    return smooth(u / LIFT_END);
+  }
+  if (u < HOLD_END) {
+    return 1;
+  }
+  if (u < LOWER_END) {
+    return 1 - smooth((u - HOLD_END) / (LOWER_END - HOLD_END));
+  }
   return 0;
 }
 
@@ -490,11 +509,10 @@ function animate(rig: NpcRig, ctx: NpcAnimCtx): void {
   // Whether he is being spoken to, smoothed. The framework's flag is a hard
   // boolean at a range boundary, and posing straight off it would snap his chin
   // up the instant the player crosses 4.2 units away.
-  rig.state.attend += ((ctx.attended ? 1 : 0) - rig.state.attend)
-    * (1 - Math.exp(-6 * ctx.dt));
+  rig.state.attend += ((ctx.attended ? 1 : 0) - rig.state.attend) * (1 - Math.exp(-6 * ctx.dt));
   const attend = rig.state.attend;
 
-  const body = p['body'];
+  const body = p["body"];
   // Breathing, plus a sink under the load: he settles into his hips at the
   // hardest part of the rep and stands back up as it comes down.
   body.position.y = Math.sin(ctx.time * 1.5) * 0.012 - strain * 0.03;
@@ -504,28 +522,28 @@ function animate(rig: NpcRig, ctx: NpcAnimCtx): void {
   body.rotation.x = -c * 0.05;
   body.rotation.y = Math.sin(ctx.time * 0.43) * 0.03;
 
-  const head = p['head'];
+  const head = p["head"];
   // Chin down to watch the weight leave his hip, up as it arrives — and a
   // little further up when there is someone to look at.
-  head.rotation.x = 0.14 - c * 0.20 - attend * 0.08;
+  head.rotation.x = 0.14 - c * 0.2 - attend * 0.08;
   head.rotation.z = -strain * 0.05;
   // A slow scan of the camp that stops when he has company.
   head.rotation.y = Math.sin(ctx.time * 0.55) * 0.12 * (1 - attend);
 
-  const armL = p['armL'];
+  const armL = p["armL"];
   armL.rotation.x = -0.06 - c * 0.24;
   // Abduction: the elbow stays outboard of the ribs through the whole rep,
   // which is both how a dumbbell curl works and what keeps the plates off the
   // robe. Tightens slightly at the top as he squeezes.
   armL.rotation.z = 0.16 - strain * 0.04;
-  p['elbowL'].rotation.x = -(EXT + (FLEX - EXT) * c);
+  p["elbowL"].rotation.x = -(EXT + (FLEX - EXT) * c);
 
   // The idle arm. Bent, thumb hooked near the satchel strap, with the faintest
   // sway so he is not a statue holding one moving limb.
-  const armR = p['armR'];
+  const armR = p["armR"];
   armR.rotation.x = 0.16 + Math.sin(ctx.time * 1.5) * 0.02;
-  armR.rotation.z = -0.10;
-  p['elbowR'].rotation.x = -0.85 - strain * 0.05;
+  armR.rotation.z = -0.1;
+  p["elbowR"].rotation.x = -0.85 - strain * 0.05;
 }
 
 // ---------------------------------------------------------------------------

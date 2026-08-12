@@ -22,11 +22,11 @@
 // `photo=1` freezes the world's clocks, and the island is pinned by the same
 // flag (see `flags.photo` in world/sky-island.ts), so two runs of this against
 // the same build produce the same six pictures.
-import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
+import { writeFileSync, mkdirSync } from "node:fs";
 
-const OUT = process.argv[2] ?? 'shots/sky';
+const OUT = process.argv[2] ?? "shots/sky";
 mkdirSync(OUT, { recursive: true });
 
 const W = 1280;
@@ -34,26 +34,28 @@ const H = 900;
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: W, height: H });
-page.on('pageerror', (e) => console.error('[pageerror]', e.message));
+page.on("pageerror", (e) => console.error("[pageerror]", e.message));
 
 // A first boot, only to find out where the island and the spawn are. `?cam=` and
 // `?look=` are OFFSETS FROM `spawnPoint` (see AGENTS.md), so every framing below
 // has to be expressed relative to it — feeding them world coordinates renders a
 // plausible picture of the wrong place rather than an error.
-await page.goto(`${HOST}/?menu=0&fs=0&fps=30`, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(`${HOST}/?menu=0&fs=0&fps=30`, { waitUntil: "load" });
+await page.waitForSelector("canvas");
 await wait(3000);
 const info = await page.evaluate(() => ({
   sky: window.__dbgCarriers().all[0],
   spawn: window.__dbgTowns().spawn,
 }));
 if (!info.sky) {
-  console.error('no carrier in the world — nothing to photograph');
+  console.error("no carrier in the world — nothing to photograph");
   await browser.close();
   process.exit(1);
 }
 const { sky, spawn } = info;
-console.log(`island at ${sky.x.toFixed(1)}, ${sky.y.toFixed(1)}, ${sky.z.toFixed(1)}  r=${sky.radius}`);
+console.log(
+  `island at ${sky.x.toFixed(1)}, ${sky.y.toFixed(1)}, ${sky.z.toFixed(1)}  r=${sky.radius}`,
+);
 
 /** Island centre as an offset from spawn, which is what `look=` wants. */
 const cx = sky.x - spawn.x;
@@ -90,9 +92,9 @@ const orbit = (a, d, h, lookDrop = 0) => ({
 // flat wall of the top band. The trade is the grass plane, which that shot
 // gives up and shots 1, 3 and 4 all have.
 const SHOTS = [
-  { name: '1-front3q', ...orbit(0.6, 1.8, 32, -26) },
-  { name: '2-side', ...orbit(1.9, 1.75, -10, -44) },
-  { name: '3-rear3q', ...orbit(3.9, 1.8, 32, -26) },
+  { name: "1-front3q", ...orbit(0.6, 1.8, 32, -26) },
+  { name: "2-side", ...orbit(1.9, 1.75, -10, -44) },
+  { name: "3-rear3q", ...orbit(3.9, 1.8, 32, -26) },
   // 4 pulled out to 1.45 radii so the WHOLE disc fits — at 1.05 the near rim ran
   // off the bottom of the frame, which is the one thing a shot captioned
   // "overhead view of the town layout" must not do. A steep camera spreads the
@@ -101,25 +103,25 @@ const SHOTS = [
   // back) is wrong by about a fifth in practice; measured, 1.15 and 1.28 both
   // still cut two edges. It is the one shot where FITTING beats colour and the
   // haze is simply paid — a plan you cannot see the edge of is not a plan.
-  { name: '4-topdown', ...orbit(0.9, 1.45, 162, -18) },
-  { name: '5-underside', ...orbit(2.6, 1.5, -54, -34) },
+  { name: "4-topdown", ...orbit(0.9, 1.45, 162, -18) },
+  { name: "5-underside", ...orbit(2.6, 1.5, -54, -34) },
   // 6 pulled IN from 2.6 to 2.0. Past about two radii the aerial haze has taken
   // the rock's value with it (it fades a surface into the sky over 150..420
   // units, core/engine.ts) and the establishing shot stops being able to answer
   // anything about the island's colour — 225 units came back as a blue ghost.
-  { name: '6-distant', ...orbit(5.2, 2.0, 40, -14) },
+  { name: "6-distant", ...orbit(5.2, 2.0, 40, -14) },
 ];
 
-const n3 = (v) => v.map((k) => k.toFixed(1)).join(',');
+const n3 = (v) => v.map((k) => k.toFixed(1)).join(",");
 
 for (const s of SHOTS) {
   const url = `${HOST}/?photo=1&hud=0&fs=0&fps=30&cam=${n3(s.cam)}&look=${n3(s.look)}`;
-  await page.goto(url, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(url, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   // The island is built at world creation and never streams, so the only thing
   // to wait for is the terrain under it and the shader warm-up.
   await wait(3600);
-  const buf = await page.screenshot({ type: 'png' });
+  const buf = await page.screenshot({ type: "png" });
   const path = `${OUT}/${s.name}.png`;
   writeFileSync(path, buf);
   console.log(`saved ${path}`);

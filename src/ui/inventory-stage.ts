@@ -1,9 +1,9 @@
-import * as THREE from 'three';
-import type { BeastAnimCtx, BeastRig, BeastSpecies } from '../core/types';
-import { BEAST_CYCLE_SLOTS } from '../core/types';
-import { buildHeroRig, setWeaponModel, type HeroRig } from '../player/hero-rig';
-import { WEAPON_MODEL_IDS, type WeaponModelId } from '../player/weapons';
-import { HeroAnimator, type AnimInput } from '../player/animations';
+import * as THREE from "three";
+import type { BeastAnimCtx, BeastRig, BeastSpecies } from "../core/types";
+import { BEAST_CYCLE_SLOTS } from "../core/types";
+import { buildHeroRig, setWeaponModel, type HeroRig } from "../player/hero-rig";
+import { WEAPON_MODEL_IDS, type WeaponModelId } from "../player/weapons";
+import { HeroAnimator, type AnimInput } from "../player/animations";
 
 /**
  * A SECOND WebGLRenderer: one renderer draws to one canvas, so the main one
@@ -75,20 +75,25 @@ export class InventoryStage {
 
   /** Idempotent — reopening re-parents the same canvas, no second context. */
   mount(host: HTMLElement): void {
-    if (!this.renderer) this.build();
-    if (this.canvas) host.appendChild(this.canvas);
+    if (!this.renderer) {
+      this.build();
+    }
+    if (this.canvas) {
+      host.appendChild(this.canvas);
+    }
     this.resize();
   }
 
   private build(): void {
-    const canvas = document.createElement('canvas');
-    canvas.className = 'stage-gl';
+    const canvas = document.createElement("canvas");
+    canvas.className = "stage-gl";
     this.canvas = canvas;
     const renderer = new THREE.WebGLRenderer({
-      canvas, alpha: true,
+      canvas,
+      alpha: true,
       // Voxel edges at a tenth of the pixels; MSAA is cheap at this size.
       antialias: true,
-      powerPreference: 'low-power',
+      powerPreference: "low-power",
     });
     // Matches core/engine.ts's output pass, so a beast is the colour it is in
     // the world. No bloom/AO/aerial — none of them say anything about a model.
@@ -117,18 +122,26 @@ export class InventoryStage {
    * the rig the other slot just placed. One rig cannot stand in two places.
    */
   setCast(primary: BeastSpecies | null, support: BeastSpecies | null): void {
-    if (!this.renderer) this.build();
+    if (!this.renderer) {
+      this.build();
+    }
     const want: (Subject | null)[] = [
       primary ? this.subject(primary) : null,
       support ? this.subject(support) : null,
     ];
-    if (want[0] && want[0] === want[1]) want[1] = null;
+    if (want[0] && want[0] === want[1]) {
+      want[1] = null;
+    }
     for (const prev of this.onStage) {
-      if (prev && !want.includes(prev)) this.scene.remove(prev.rig.root);
+      if (prev && !want.includes(prev)) {
+        this.scene.remove(prev.rig.root);
+      }
     }
     this.onStage = want;
     want.forEach((s, i) => {
-      if (!s) return;
+      if (!s) {
+        return;
+      }
       const side = i === 0 ? -1 : 1;
       s.rig.root.position.set(BEAST_X * side, 0, BEAST_Z);
       s.rig.root.rotation.y = -side * 0.34;
@@ -138,11 +151,16 @@ export class InventoryStage {
 
   /** Guards the raw `ItemDef.model`: core/ may not import player/'s union. */
   setHeroWeapon(model: string | null | undefined): void {
-    if (!this.renderer) this.build();
-    const id = model && (WEAPON_MODEL_IDS as readonly string[]).includes(model)
-      ? model as WeaponModelId
-      : null;
-    if (this.hero) setWeaponModel(this.hero, id);
+    if (!this.renderer) {
+      this.build();
+    }
+    const id =
+      model && (WEAPON_MODEL_IDS as readonly string[]).includes(model)
+        ? (model as WeaponModelId)
+        : null;
+    if (this.hero) {
+      setWeaponModel(this.hero, id);
+    }
   }
 
   /** On stage AND still in the scene — the two can disagree, see `setCast`. */
@@ -152,7 +170,9 @@ export class InventoryStage {
 
   private subject(sp: BeastSpecies): Subject {
     const found = this.rigs.get(sp.id);
-    if (found) return found;
+    if (found) {
+      return found;
+    }
     const made: Subject = { species: sp, rig: sp.buildRig(), cycles: new Cycles(), t: 0 };
     this.rigs.set(sp.id, made);
     return made;
@@ -161,15 +181,21 @@ export class InventoryStage {
   /** Null while queued. Baked one per frame — the roster at once hitches. */
   iconFor(sp: BeastSpecies): string | null {
     const have = this.icons.get(sp.id);
-    if (have) return have;
-    if (!this.bakeQueue.some((q) => q.id === sp.id)) this.bakeQueue.push(sp);
+    if (have) {
+      return have;
+    }
+    if (!this.bakeQueue.some((q) => q.id === sp.id)) {
+      this.bakeQueue.push(sp);
+    }
     return null;
   }
 
   private bakeStep(): void {
     const sp = this.bakeQueue.shift();
     const renderer = this.renderer;
-    if (!sp || !renderer) return;
+    if (!sp || !renderer) {
+      return;
+    }
     if (!this.target) {
       this.target = new THREE.WebGLRenderTarget(ICON, ICON, {
         colorSpace: THREE.SRGBColorSpace,
@@ -180,13 +206,21 @@ export class InventoryStage {
     const root = subject.rig.root;
     // Staged alone, then restored: a queued species may also be on stage.
     const parent = root.parent;
-    const px = root.position.x, py = root.position.y, pz = root.position.z;
+    const px = root.position.x,
+      py = root.position.y,
+      pz = root.position.z;
     const ry = root.rotation.y;
     root.position.set(0, 0, 0);
     root.rotation.y = 0.62;
-    if (parent !== this.scene) this.scene.add(root);
-    for (const o of this.onStage) if (o && o.rig.root !== root) o.rig.root.visible = false;
-    if (this.hero) this.hero.root.visible = false;
+    if (parent !== this.scene) {
+      this.scene.add(root);
+    }
+    for (const o of this.onStage) {
+      if (o && o.rig.root !== root) o.rig.root.visible = false;
+    }
+    if (this.hero) {
+      this.hero.root.visible = false;
+    }
 
     this.framePortrait(subject.rig.height, subject.rig.radius);
     renderer.setRenderTarget(this.target);
@@ -196,8 +230,12 @@ export class InventoryStage {
     renderer.readRenderTargetPixels(this.target, 0, 0, ICON, ICON, px4);
     renderer.setRenderTarget(null);
 
-    for (const o of this.onStage) if (o) o.rig.root.visible = true;
-    if (this.hero) this.hero.root.visible = true;
+    for (const o of this.onStage) {
+      if (o) o.rig.root.visible = true;
+    }
+    if (this.hero) {
+      this.hero.root.visible = true;
+    }
     root.position.set(px, py, pz);
     root.rotation.y = ry;
     if (parent !== this.scene) {
@@ -221,13 +259,17 @@ export class InventoryStage {
   }
 
   start(): void {
-    if (this.raf) return;
+    if (this.raf) {
+      return;
+    }
     this.lastT = 0;
     this.raf = requestAnimationFrame(this.tick);
   }
 
   stop(): void {
-    if (this.raf) cancelAnimationFrame(this.raf);
+    if (this.raf) {
+      cancelAnimationFrame(this.raf);
+    }
     this.raf = 0;
   }
 
@@ -235,7 +277,9 @@ export class InventoryStage {
   resize(): void {
     const c = this.canvas;
     const r = this.renderer;
-    if (!c || !r) return;
+    if (!c || !r) {
+      return;
+    }
     const w = Math.max(1, c.clientWidth);
     const h = Math.max(1, c.clientHeight);
     r.setSize(w, h, false);
@@ -244,10 +288,7 @@ export class InventoryStage {
     cam.aspect = aspect;
     // Whichever distance is FURTHER wins, so both STAGE_W and STAGE_H fit.
     const tanV = Math.tan((cam.fov * Math.PI) / 360);
-    cam.position.set(0, EYE_Y, Math.max(
-      STAGE_W / 2 / (tanV * aspect),
-      STAGE_H / 2 / tanV,
-    ));
+    cam.position.set(0, EYE_Y, Math.max(STAGE_W / 2 / (tanV * aspect), STAGE_H / 2 / tanV));
     cam.lookAt(0, LOOK_Y, 0);
     cam.updateProjectionMatrix();
   }
@@ -257,10 +298,14 @@ export class InventoryStage {
     const dt = this.lastT ? Math.min(0.05, (now - this.lastT) / 1000) : 0.016;
     this.lastT = now;
     const r = this.renderer;
-    if (!r) return;
+    if (!r) {
+      return;
+    }
 
     // Ahead of the live render, so a bake's target juggling is never on screen.
-    if (this.bakeQueue.length) this.bakeStep();
+    if (this.bakeQueue.length) {
+      this.bakeStep();
+    }
 
     this.heroTime += dt;
     if (this.hero) {
@@ -272,7 +317,9 @@ export class InventoryStage {
       this.hero.sword.rotation.y = SHOW_Y;
     }
     for (const s of this.onStage) {
-      if (!s) continue;
+      if (!s) {
+        continue;
+      }
       s.t += dt;
       s.rig.root.visible = true;
     }
@@ -282,7 +329,9 @@ export class InventoryStage {
 
   private animateCast(dt: number): void {
     for (const s of this.onStage) {
-      if (s) s.species.animate(s.rig, beastCtx(s, dt));
+      if (s) {
+        s.species.animate(s.rig, beastCtx(s, dt));
+      }
     }
   }
 
@@ -303,10 +352,21 @@ export class InventoryStage {
 const IDLE_ATTACK = { active: false, combo: 0, t: 0, dur: 0.3 };
 function heroIdle(time: number, dt: number): AnimInput {
   return {
-    time, dt,
-    moveNorm: 0, sprinting: false, onGround: true, swimming: false,
-    climbing: false, climbRate: 0, riding: false, velY: 0,
-    attack: IDLE_ATTACK, dead: false, deadT: 0, landBump: 0, hurtT: 0,
+    time,
+    dt,
+    moveNorm: 0,
+    sprinting: false,
+    onGround: true,
+    swimming: false,
+    climbing: false,
+    climbRate: 0,
+    riding: false,
+    velY: 0,
+    attack: IDLE_ATTACK,
+    dead: false,
+    deadT: 0,
+    landBump: 0,
+    hurtT: 0,
     unarmed: false,
     bow: false,
     stowed: false,
@@ -315,7 +375,7 @@ function heroIdle(time: number, dt: number): AnimInput {
 
 function beastCtx(s: Subject, dt: number): BeastAnimCtx {
   return {
-    action: 'idle',
+    action: "idle",
     actionTime: s.t,
     time: s.t,
     moveSpeed: IDLE_SPEED,
@@ -329,11 +389,13 @@ function beastCtx(s: Subject, dt: number): BeastAnimCtx {
  * mandatory: WebGL's origin is bottom-left, a canvas's is top-left.
  */
 function toDataUrl(px: Uint8Array): string {
-  const c = document.createElement('canvas');
+  const c = document.createElement("canvas");
   c.width = ICON;
   c.height = ICON;
-  const ctx = c.getContext('2d');
-  if (!ctx) return '';
+  const ctx = c.getContext("2d");
+  if (!ctx) {
+    return "";
+  }
   const img = ctx.createImageData(ICON, ICON);
   const row = ICON * 4;
   for (let y = 0; y < ICON; y++) {
@@ -341,5 +403,5 @@ function toDataUrl(px: Uint8Array): string {
     img.data.set(px.subarray(src, src + row), y * row);
   }
   ctx.putImageData(img, 0, 0);
-  return c.toDataURL('image/png');
+  return c.toDataURL("image/png");
 }

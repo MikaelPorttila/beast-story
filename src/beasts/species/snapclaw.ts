@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { rimTop, shadeUnder } from './voxelshade';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { rimTop, shadeUnder } from "./voxelshade";
 
 // Snapclaw — hermit crab, rock-typed amphibian. Voxel scale 0.1 (1 cell = 10 cm),
 // faces +Z, root at ground/water level. Scuttles on a metachronal leg wave, not
@@ -27,7 +27,7 @@ const BODY_Y = 0.26;
 /** Rest crouch of the six legs, front to back along each side. */
 const LEG_REST: readonly number[] = [-0.34, 0, 0.34];
 const LEG_SPLAY = 0.62;
-const BIG_REST = -0.30;
+const BIG_REST = -0.3;
 const SMALL_REST = -0.16;
 
 const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -39,8 +39,8 @@ const phase = (t: number, a: number, b: number): number => clamp01((t - a) / (b 
 const GAIT = 0;
 const STALKW = 1;
 
-const LEG_R = ['legR1', 'legR2', 'legR3'] as const;
-const LEG_L = ['legL1', 'legL2', 'legL3'] as const;
+const LEG_R = ["legR1", "legR2", "legR3"] as const;
+const LEG_L = ["legL1", "legL2", "legL3"] as const;
 
 function makeCarapace(): THREE.Mesh {
   const m = new VoxelModel();
@@ -59,7 +59,10 @@ function makeShell(): THREE.Mesh {
   // Four stacked rings, banded and turned a sixth per ring: a real helix at 1-cell
   // resolution comes out as a lumpy sausage.
   const rings: Array<[number, number, number]> = [
-    [0.0, 4.2, 0], [2.2, 3.4, 1], [4.0, 2.4, 2], [5.4, 1.4, 3],
+    [0.0, 4.2, 0],
+    [2.2, 3.4, 1],
+    [4.0, 2.4, 2],
+    [5.4, 1.4, 3],
   ];
   for (const [y, r, i] of rings) {
     m.ellipsoid(0, y, -i * 0.5, r, 1.5, r, SHELL);
@@ -67,8 +70,12 @@ function makeShell(): THREE.Mesh {
     const bx = Math.round(Math.cos(a) * (r - 0.6));
     const bz = Math.round(Math.sin(a) * (r - 0.6));
     for (let dy = 0; dy <= 1; dy++) {
-      if (m.has(bx, Math.round(y) + dy, bz)) m.set(bx, Math.round(y) + dy, bz, SHELL_BAND);
-      if (m.has(-bx, Math.round(y) + dy, -bz)) m.set(-bx, Math.round(y) + dy, -bz, SHELL_BAND);
+      if (m.has(bx, Math.round(y) + dy, bz)) {
+        m.set(bx, Math.round(y) + dy, bz, SHELL_BAND);
+      }
+      if (m.has(-bx, Math.round(y) + dy, -bz)) {
+        m.set(-bx, Math.round(y) + dy, -bz, SHELL_BAND);
+      }
     }
   }
   m.set(0, 7, -2, SHELL_LIT);
@@ -126,21 +133,21 @@ function buildRig(): BeastRig {
   root.add(body);
 
   const carapace = makeCarapace();
-  carapace.position.set(0, -0.10, 0);
+  carapace.position.set(0, -0.1, 0);
   body.add(carapace);
 
   // Own group, and it lags the body in every gait: a borrowed house, not part of it.
   const shell = new THREE.Group();
-  shell.position.set(0, 0.10, -0.24);
+  shell.position.set(0, 0.1, -0.24);
   shell.rotation.set(-0.34, 0.4, 0);
   body.add(shell);
   const shellMesh = makeShell();
-  shellMesh.position.set(0, 0.06, -0.10);
+  shellMesh.position.set(0, 0.06, -0.1);
   shell.add(shellMesh);
 
   const mkStalk = (x: number): THREE.Group => {
     const g = new THREE.Group();
-    g.position.set(x, 0.22, 0.30);
+    g.position.set(x, 0.22, 0.3);
     body.add(g);
     const mesh = makeEyestalk();
     mesh.position.set(-0.05, 0, -0.05);
@@ -156,7 +163,7 @@ function buildRig(): BeastRig {
     g.rotation.set(big ? BIG_REST : SMALL_REST, x > 0 ? -0.55 : 0.55, 0);
     body.add(g);
     const mesh = makeClaw(big);
-    mesh.position.set(x > 0 ? -0.05 : -0.05, -0.10, -0.05);
+    mesh.position.set(x > 0 ? -0.05 : -0.05, -0.1, -0.05);
     g.add(mesh);
     return g;
   };
@@ -165,7 +172,7 @@ function buildRig(): BeastRig {
 
   const legs: Record<string, THREE.Group> = {};
   for (let i = 0; i < 3; i++) {
-    const z = 0.10 - i * 0.20;
+    const z = 0.1 - i * 0.2;
     for (const side of [1, -1]) {
       const g = new THREE.Group();
       g.position.set(side * 0.24, -0.06, z);
@@ -181,12 +188,21 @@ function buildRig(): BeastRig {
   return {
     root,
     parts: {
-      body, shell, stalkR, stalkL, clawBig, clawSmall,
-      legR1: legs.legR1, legR2: legs.legR2, legR3: legs.legR3,
-      legL1: legs.legL1, legL2: legs.legL2, legL3: legs.legL3,
+      body,
+      shell,
+      stalkR,
+      stalkL,
+      clawBig,
+      clawSmall,
+      legR1: legs.legR1,
+      legR2: legs.legR2,
+      legR3: legs.legR3,
+      legL1: legs.legL1,
+      legL2: legs.legL2,
+      legL3: legs.legL3,
     },
     height: 0.94,
-    radius: 0.50,
+    radius: 0.5,
   };
 }
 
@@ -197,19 +213,33 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const ms = clamp01(ctx.moveSpeed);
   const br = Math.sin(t * 2.6);
 
-  let bpx = 0, bpy = BODY_Y + 0.004 * br, bpz = 0;
-  let brx = 0, bry = 0, brz = 0;
-  let bsy = 1 + 0.010 * br;
-  let shellLag = 0, shellRoll = 0;
-  let bigOpen = 0, bigLift = 0, smallOpen = 0, smallLift = 0;
+  let bpx = 0,
+    bpy = BODY_Y + 0.004 * br,
+    bpz = 0;
+  let brx = 0,
+    bry = 0,
+    brz = 0;
+  let bsy = 1 + 0.01 * br;
+  let shellLag = 0,
+    shellRoll = 0;
+  let bigOpen = 0,
+    bigLift = 0,
+    smallOpen = 0,
+    smallLift = 0;
   let clawSweep = 0;
-  let legAmp = 0, legStep = 1.5, legFreq = 1.0, crouch = 0, legLift = 0;
-  let stalkAmp = 0.28, stalkFreq = 0.6, stalkTuck = 0;
+  let legAmp = 0,
+    legStep = 1.5,
+    legFreq = 1.0,
+    crouch = 0,
+    legLift = 0;
+  let stalkAmp = 0.28,
+    stalkFreq = 0.6,
+    stalkTuck = 0;
 
   switch (ctx.action) {
-    case 'idle': {
+    case "idle": {
       bsy = 1 + 0.02 * br;
-      bigOpen = 0.20 * Math.max(0, Math.sin(t * 1.3)) ** 2;
+      bigOpen = 0.2 * Math.max(0, Math.sin(t * 1.3)) ** 2;
       smallOpen = 0.26 * Math.max(0, Math.sin(t * 1.9 + 1.1)) ** 2;
       bigLift = 0.06 * Math.sin(t * 0.9);
       smallLift = 0.08 * Math.sin(t * 1.2 + 2);
@@ -220,9 +250,9 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       shellLag = 0.05 * Math.sin(t * 0.8);
       break;
     }
-    case 'walk':
-    case 'run': {
-      const isRun = ctx.action === 'run';
+    case "walk":
+    case "run": {
+      const isRun = ctx.action === "run";
       legFreq = (isRun ? 9 : 6.5) + 3.5 * ms;
       legAmp = (isRun ? 0.55 : 0.38) * (0.5 + 0.5 * ms);
       legStep = 1.7;
@@ -233,16 +263,16 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bry = 0.06 * Math.sin(ph * 0.5 - 1.0);
       bsy = 1 + 0.018 * Math.sin(ph * 2);
       shellLag = 0.13 * Math.sin(ph * 0.5 - 1.3);
-      shellRoll = 0.10 * Math.sin(ph * 0.5 - 1.8);
+      shellRoll = 0.1 * Math.sin(ph * 0.5 - 1.8);
       clawSweep = 0.16 * Math.sin(ph * 0.5 - 0.6);
-      bigLift = 0.14 + 0.10 * Math.sin(ph * 0.5);
+      bigLift = 0.14 + 0.1 * Math.sin(ph * 0.5);
       smallLift = 0.12 + 0.12 * Math.sin(ph * 0.5 + 1.4);
       stalkAmp = 0.16;
       stalkFreq = legFreq * 0.25;
       break;
     }
-    case 'swim':
-    case 'fly': {
+    case "swim":
+    case "fly": {
       legFreq = 4.5 + 3.0 * ms;
       legAmp = 0.42;
       legStep = 1.2;
@@ -251,7 +281,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bpy += 0.045 * Math.sin(ph * 0.5 - 0.7);
       brz = 0.12 * Math.sin(ph * 0.33);
       crouch = -0.25;
-      legLift = 0.10;
+      legLift = 0.1;
       shellLag = -0.14 + 0.07 * Math.sin(ph * 0.33);
       shellRoll = 0.09 * Math.sin(ph * 0.33 - 0.9);
       clawSweep = 0.22 * Math.sin(ph * 0.4);
@@ -261,13 +291,13 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       stalkFreq = 1.2;
       break;
     }
-    case 'attack': {
+    case "attack": {
       const wind = smooth(phase(at, 0, 0.16));
       const snap = ezOut(phase(at, 0.16, 0.27));
       const rec = smooth(phase(at, 0.4, 0.8));
       const k = -0.5 * wind * (1 - snap) + snap * (1 - rec);
       const kp = Math.max(0, k);
-      bry = -0.30 * k;
+      bry = -0.3 * k;
       bpz = 0.14 * k;
       bpy += 0.02 * kp;
       bigOpen = 0.9 * wind * (1 - snap);
@@ -276,12 +306,12 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       smallLift = 0.3 * kp;
       smallOpen = 0.3 * wind * (1 - snap);
       crouch = 0.18 * kp;
-      stalkAmp = 0.10;
+      stalkAmp = 0.1;
       stalkTuck = 0.3 * wind * (1 - snap);
       shellLag = 0.16 * k;
       break;
     }
-    case 'cast': {
+    case "cast": {
       const rise = ezOut(clamp01(at / 0.35));
       const hum = 0.5 * Math.sin(t * 11) + 0.5 * Math.sin(t * 17);
       brx = -0.22 * rise;
@@ -291,7 +321,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bigOpen = 0.55 * rise + 0.12 * Math.sin(t * 8) * rise;
       smallOpen = 0.55 * rise + 0.12 * Math.sin(t * 8 + Math.PI) * rise;
       clawSweep = 0.35 * rise;
-      crouch = -0.20 * rise;
+      crouch = -0.2 * rise;
       legAmp = 0.06;
       legFreq = 5;
       stalkAmp = 0.34;
@@ -299,14 +329,14 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       shellLag = -0.18 * rise;
       break;
     }
-    case 'special': {
+    case "special": {
       const T = 0.85;
       const k2 = clamp01(at / T);
       const spin = Math.sin(Math.PI * k2);
-      const land = Math.sin(Math.PI * phase(at, T, T + 0.24))
-        * (1 - smooth(phase(at, T + 0.24, T + 0.6)));
+      const land =
+        Math.sin(Math.PI * phase(at, T, T + 0.24)) * (1 - smooth(phase(at, T + 0.24, T + 0.6)));
       bry = Math.PI * 6 * smooth(k2);
-      bpy += 0.10 * spin;
+      bpy += 0.1 * spin;
       bsy = 1 - 0.12 * land;
       bigLift = 0.9 * spin + 0.2 * land;
       smallLift = 0.85 * spin + 0.2 * land;
@@ -322,7 +352,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       shellRoll = 0.22 * Math.sin(at * 12) * spin;
       break;
     }
-    case 'hurt': {
+    case "hurt": {
       const d = Math.exp(-3.6 * at);
       bpx = 0.035 * Math.sin(at * 42) * d;
       bpz = -0.07 * d;
@@ -338,7 +368,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bsy = 1 - 0.06 * d;
       break;
     }
-    case 'happy': {
+    case "happy": {
       const hf = 6.5;
       const hop = Math.abs(Math.sin(at * hf * 0.5));
       bpy += 0.07 * hop;
@@ -354,7 +384,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       stalkAmp = 0.5;
       stalkFreq = 7;
       shellRoll = 0.14 * Math.sin(at * 4.8);
-      shellLag = 0.10 * Math.sin(at * 4.8 - 0.8);
+      shellLag = 0.1 * Math.sin(at * 4.8 - 0.8);
       break;
     }
   }
@@ -383,73 +413,79 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     const swingR = legAmp * Math.sin(ph);
     const swingL = legAmp * Math.sin(ph + Math.PI);
     p[LEG_R[i]].rotation.set(
-      LEG_REST[i] + swingR + crouch, 0, -LEG_SPLAY - legLift - Math.abs(swingR) * 0.4);
+      LEG_REST[i] + swingR + crouch,
+      0,
+      -LEG_SPLAY - legLift - Math.abs(swingR) * 0.4,
+    );
     p[LEG_L[i]].rotation.set(
-      LEG_REST[i] + swingL + crouch, 0, LEG_SPLAY + legLift + Math.abs(swingL) * 0.4);
+      LEG_REST[i] + swingL + crouch,
+      0,
+      LEG_SPLAY + legLift + Math.abs(swingL) * 0.4,
+    );
   }
 }
 
 export const skills: SkillDef[] = [
   {
-    id: 'snapclaw.pincer-snap',
-    nameKey: 'skill.snapclaw.pincer-snap.name',
-    descriptionKey: 'skill.snapclaw.pincer-snap.desc',
-    element: 'rock',
-    targeting: 'melee',
+    id: "snapclaw.pincer-snap",
+    nameKey: "skill.snapclaw.pincer-snap.name",
+    descriptionKey: "skill.snapclaw.pincer-snap.desc",
+    element: "rock",
+    targeting: "melee",
     cost: 5,
     cooldown: 1.5,
     power: 15,
     range: 3.2,
     learnAtLevel: 1,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'snapclaw.sand-spray',
-    nameKey: 'skill.snapclaw.sand-spray.name',
-    descriptionKey: 'skill.snapclaw.sand-spray.desc',
-    element: 'rock',
-    targeting: 'aoe',
+    id: "snapclaw.sand-spray",
+    nameKey: "skill.snapclaw.sand-spray.name",
+    descriptionKey: "skill.snapclaw.sand-spray.desc",
+    element: "rock",
+    targeting: "aoe",
     cost: 12,
     cooldown: 5,
     power: 18,
     range: 4.0,
     learnAtLevel: 4,
-    castAnim: 'special',
+    castAnim: "special",
   },
   {
-    id: 'snapclaw.shell-up',
-    nameKey: 'skill.snapclaw.shell-up.name',
-    descriptionKey: 'skill.snapclaw.shell-up.desc',
-    element: 'rock',
-    targeting: 'support',
+    id: "snapclaw.shell-up",
+    nameKey: "skill.snapclaw.shell-up.name",
+    descriptionKey: "skill.snapclaw.shell-up.desc",
+    element: "rock",
+    targeting: "support",
     cost: 16,
     cooldown: 9,
     power: 22,
     range: 6,
     storePrice: 230,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'snapclaw.brine-shot',
-    nameKey: 'skill.snapclaw.brine-shot.name',
-    descriptionKey: 'skill.snapclaw.brine-shot.desc',
-    element: 'water',
-    targeting: 'projectile',
+    id: "snapclaw.brine-shot",
+    nameKey: "skill.snapclaw.brine-shot.name",
+    descriptionKey: "skill.snapclaw.brine-shot.desc",
+    element: "water",
+    targeting: "projectile",
     cost: 14,
     cooldown: 4.2,
     power: 26,
     range: 14,
     storePrice: 290,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
 ];
 
 export const species: BeastSpecies = {
-  id: 'snapclaw',
-  nameKey: 'beast.snapclaw.name',
-  descriptionKey: 'beast.snapclaw.desc',
-  element: 'rock',
-  locomotion: 'amphibious',
+  id: "snapclaw",
+  nameKey: "beast.snapclaw.name",
+  descriptionKey: "beast.snapclaw.desc",
+  element: "rock",
+  locomotion: "amphibious",
   // Highest attack of the water five, bought with a 6.7 gallop and 11.5 in water.
   baseStats: { maxHp: 62, attack: 14, defense: 12, speed: 3.6 },
   skills: skills.map((s) => s.id),

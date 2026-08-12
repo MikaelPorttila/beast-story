@@ -23,8 +23,8 @@
 // real mouse click would.
 //
 // Usage: bun tools/test-aim-assist.mjs        (dev server must be up)
-import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait, logPageErrors } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 const BASE = `${HOST}/?fps=30&menu=0&fs=0`;
 const B_RT = 7;
@@ -43,22 +43,30 @@ const OFF_AXIS_DEG = 66;
 const VALID_TURN = [55, 74];
 
 const probe = (page, name) => page.evaluate((n) => window[n]?.(), name);
-const setButton = (page, i, down) => page.evaluate((i, down) => {
-  window.__fakePad.buttons[i] = { pressed: down, touched: down, value: down ? 1 : 0 };
-}, i, down);
+const setButton = (page, i, down) =>
+  page.evaluate(
+    (i, down) => {
+      window.__fakePad.buttons[i] = { pressed: down, touched: down, value: down ? 1 : 0 };
+    },
+    i,
+    down,
+  );
 
 async function installFakePad(page) {
   await page.evaluateOnNewDocument(() => {
     const state = {
-      id: 'Xbox Wireless Controller', index: 0, connected: true, mapping: 'standard',
+      id: "Xbox Wireless Controller",
+      index: 0,
+      connected: true,
+      mapping: "standard",
       axes: [0, 0, 0, 0],
       buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
     };
     window.__fakePad = state;
     navigator.getGamepads = () => [state];
     window.__connectPad = () => {
-      const ev = new Event('gamepadconnected');
-      Object.defineProperty(ev, 'gamepad', { value: state });
+      const ev = new Event("gamepadconnected");
+      Object.defineProperty(ev, "gamepad", { value: state });
       window.dispatchEvent(ev);
     };
   });
@@ -66,8 +74,8 @@ async function installFakePad(page) {
 
 async function boot(page, url) {
   await installFakePad(page);
-  await page.goto(url, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(url, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await wait(4000);
   await page.evaluate(() => window.__connectPad());
   await wait(200);
@@ -75,13 +83,18 @@ async function boot(page, url) {
 
 /** The live enemy nearest the hero, or null. */
 async function nearestEnemy(page) {
-  const b = await probe(page, '__dbgBodies');
+  const b = await probe(page, "__dbgBodies");
   let best = null;
   let bd = Infinity;
   for (const e of b.enemies) {
-    if (e.isDead) continue;
+    if (e.isDead) {
+      continue;
+    }
     const d = Math.hypot(e.x - b.player.x, e.z - b.player.z);
-    if (d < bd) { bd = d; best = e; }
+    if (d < bd) {
+      bd = d;
+      best = e;
+    }
   }
   return best;
 }
@@ -96,9 +109,13 @@ async function nearestEnemy(page) {
  */
 async function stand(page, dist) {
   const enemy = await nearestEnemy(page);
-  if (!enemy) return null;
+  if (!enemy) {
+    return null;
+  }
   await page.evaluate(({ x, z, d }) => window.__dbgTp(x, z - d), {
-    x: enemy.x, z: enemy.z, d: dist,
+    x: enemy.x,
+    z: enemy.z,
+    d: dist,
   });
   await wait(850);
   return enemy;
@@ -128,8 +145,10 @@ const results = {};
   for (const deg of [0, 20, 40, 55, 70, 80, 95, 120, 150, 180, -40, -70, -95, -150]) {
     await stand(page, STAND_OFF);
     await look(page, deg);
-    const a = await probe(page, '__dbgAimAssist');
-    if (!a?.inReach) continue;          // nobody close enough; nothing to assert
+    const a = await probe(page, "__dbgAimAssist");
+    if (!a?.inReach) {
+      continue;
+    } // nobody close enough; nothing to assert
     samples.push({
       aimedDeg: deg,
       angleFromCrosshair: a.inReach.angleFromCrosshair,
@@ -143,7 +162,7 @@ const results = {};
   const picked = samples.filter((s) => s.selected).map((s) => s.angleFromCrosshair);
   const refused = samples.filter((s) => !s.selected).map((s) => s.angleFromCrosshair);
   results.rule = {
-    coneDeg: (await probe(page, '__dbgAimAssist'))?.coneDeg,
+    coneDeg: (await probe(page, "__dbgAimAssist"))?.coneDeg,
     samples: samples.length,
     // The two numbers the cone lives between. They must straddle it, and the
     // gap between them is the resolution this sweep actually proved.
@@ -161,7 +180,7 @@ const results = {};
   await page.evaluate(({ x, z }) => window.__dbgTp(x, z - 7), far);
   await wait(850);
   await look(page, 0);
-  const outOfReach = await probe(page, '__dbgAimAssist');
+  const outOfReach = await probe(page, "__dbgAimAssist");
   results.outOfReach = {
     target: outOfReach.target,
     inReach: outOfReach.inReach,
@@ -187,7 +206,7 @@ async function trial(page) {
     // wherever he was last facing and the control run misses for the wrong
     // reason.
     const enemy = await nearestEnemy(page);
-    const pos = (await probe(page, '__dbgBodies')).player;
+    const pos = (await probe(page, "__dbgBodies")).player;
     const bearing = Math.atan2(enemy.x - pos.x, enemy.z - pos.z) * (180 / Math.PI);
     await look(page, bearing - OFF_AXIS_DEG);
     await setButton(page, B_RT, true);
@@ -196,9 +215,11 @@ async function trial(page) {
     await wait(800);
 
     const before = await nearestEnemy(page);
-    const aim = await probe(page, '__dbgAimAssist');
+    const aim = await probe(page, "__dbgAimAssist");
     const seen = aim?.inReach;
-    if (!seen || seen.turn < VALID_TURN[0] || seen.turn > VALID_TURN[1]) continue;
+    if (!seen || seen.turn < VALID_TURN[0] || seen.turn > VALID_TURN[1]) {
+      continue;
+    }
 
     await setButton(page, B_RT, true);
     await wait(120);
@@ -217,10 +238,13 @@ async function trial(page) {
       hit: before && after ? after.hp < before.hp : null,
     };
   }
-  return { attempts: 6, error: 'no trial landed in the valid band' };
+  return { attempts: 6, error: "no trial landed in the valid band" };
 }
 
-for (const [label, url] of [['assistOn', BASE], ['assistOff', `${BASE}&aim=0`]]) {
+for (const [label, url] of [
+  ["assistOn", BASE],
+  ["assistOff", `${BASE}&aim=0`],
+]) {
   const page = await newPage(browser, { width: 1280, height: 800 });
   logPageErrors(page);
   await boot(page, url);
@@ -242,7 +266,7 @@ for (const [label, url] of [['assistOn', BASE], ['assistOff', `${BASE}&aim=0`]])
   await setButton(page, B_RT, false);
   await wait(800);
   const before = await nearestEnemy(page);
-  const aim = await probe(page, '__dbgAimAssist');
+  const aim = await probe(page, "__dbgAimAssist");
   await setButton(page, B_RT, true);
   await wait(120);
   await setButton(page, B_RT, false);

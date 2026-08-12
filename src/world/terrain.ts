@@ -1,7 +1,7 @@
 /** Terrain height + biome authority. Pure functions of (seed, x, z), so
  * collision queries agree exactly with the rendered voxel columns. */
-import { Noise2D, WaveField } from './noise';
-import type { RimHit } from './roads';
+import { Noise2D, WaveField } from "./noise";
+import type { RimHit } from "./roads";
 
 /** The run a slope is measured over. See `Terrain.steepnessAt`. */
 const SLOPE_RUN = 4;
@@ -18,8 +18,14 @@ export const DEEP_WATER_TOP = WATER_LEVEL - DEEP_WATER_DEPTH;
 /** 'trampled' and 'deepwater' are biomes because `props.ts` dispatches its
  * whole scatter off this enum, so they need no new tests there. */
 export type BiomeId =
-  'plains' | 'forest' | 'beach' | 'desert' | 'snow'
-  | 'underwater' | 'deepwater' | 'trampled';
+  | "plains"
+  | "forest"
+  | "beach"
+  | "desert"
+  | "snow"
+  | "underwater"
+  | "deepwater"
+  | "trampled";
 
 export interface FlattenDisc {
   x: number;
@@ -65,9 +71,7 @@ export interface RoadField {
   /** The DRAWN surface, which reaches past each terminal plane as carve does not. */
   drawnSurfaceAt(x: number, z: number, ground: number): number;
   /** Lowest drawn corridor surface within `r` — for a mesh coarser than a path. */
-  lowestDrawnSurfaceNear(
-    x: number, z: number, r: number, ground: number, rim?: RimHit,
-  ): number;
+  lowestDrawnSurfaceNear(x: number, z: number, r: number, ground: number, rim?: RimHit): number;
   /** How walked the ground is, 0..1. A `columnInfo` query, never a collision one. */
   wearAt(x: number, z: number): number;
 }
@@ -80,8 +84,7 @@ export interface RGB {
 
 /** sRGB -> linear. Vertex colours go into a BufferAttribute, which three.js
  * consumes as LINEAR, so hex must decode as `THREE.Color.setHex` does. */
-const s2l = (c: number): number =>
-  c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+const s2l = (c: number): number => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 
 const rgb = (hex: number): RGB => ({
   r: s2l(((hex >> 16) & 255) / 255),
@@ -140,13 +143,18 @@ export interface ColumnScratch {
 
 export function makeScratch(): ColumnScratch {
   return {
-    h: 0, hc: 0,
-    topR: 0, topG: 0, topB: 0,
-    dirtR: 0, dirtG: 0, dirtB: 0,
+    h: 0,
+    hc: 0,
+    topR: 0,
+    topG: 0,
+    topB: 0,
+    dirtR: 0,
+    dirtG: 0,
+    dirtB: 0,
     stoneWarm: 0,
     grass: 0,
     trample: 0,
-    biome: 'plains',
+    biome: "plains",
   };
 }
 
@@ -235,7 +243,7 @@ export class Terrain {
       this.hillN.sample(z * 0.037 - 12.9, x * 0.037 + 61.1) * 0.16;
     h += fine * (0.25 + 0.75 * smoothstep(WATER_LEVEL - 1, WATER_LEVEL + 3, h));
     // Ridges: wide gate + high mask frequency so most vistas hold a ridgeline.
-    const mk = smoothstep(-0.10, 0.32, this.maskN.fbm(x * 0.0042, z * 0.0042, 3));
+    const mk = smoothstep(-0.1, 0.32, this.maskN.fbm(x * 0.0042, z * 0.0042, 3));
     if (mk > 0) {
       const rd = this.ridgeN.ridged(x * 0.009, z * 0.009, 4);
       // The highland term is ADDITIVE and gated to the top few percent: raising
@@ -247,8 +255,11 @@ export class Terrain {
     const pl = this.plateauN.sample(x * 0.0022, z * 0.0022) * 0.5 + 0.5;
     const mesa = smoothstep(0.55, 0.75, pl) * 14;
     if (mesa > 0) {
-      if (mk > 0.45) h += Math.round(mesa * 0.25) * 4;
-      else h += mesa * 0.6;
+      if (mk > 0.45) {
+        h += Math.round(mesa * 0.25) * 4;
+      } else {
+        h += mesa * 0.6;
+      }
     }
     // Shelves and scarps: macro form for the NEAR ground, which otherwise has
     // only the 1-unit risers a smooth field through `floor()` can make.
@@ -261,8 +272,10 @@ export class Terrain {
       const shf = this.shelfN.sample(x * 0.021, z * 0.021) * 0.5 + 0.5;
       const scf = this.scarpN.sample(x * 0.013, z * 0.013) * 0.5 + 0.5;
       const ramp = this.shelfN.sample(x * 0.038 + 137.4, z * 0.038 - 211.9) * 0.5 + 0.5;
-      h += dry * (smoothstep(0.716, 0.7235, shf) * (1.6 + ramp * 4.0)
-        + smoothstep(0.880, 0.887, scf) * (2.0 + ramp * 4.4));
+      h +=
+        dry *
+        (smoothstep(0.716, 0.7235, shf) * (1.6 + ramp * 4.0) +
+          smoothstep(0.88, 0.887, scf) * (2.0 + ramp * 4.4));
     }
     // The deep sea, the same idea downward: base height left no column more
     // than 1-3 under, so there was no OPEN SEA. Gated on existing depth, so it
@@ -271,7 +284,7 @@ export class Terrain {
     const wet = smoothstep(WATER_LEVEL - 0.4, WATER_LEVEL - 3.0, h);
     if (wet > 0) {
       const basin = this.plateauN.sample(x * 0.0035 + 57.1, z * 0.0035 - 88.3) * 0.5 + 0.5;
-      h -= wet * (0.9 + smoothstep(0.30, 0.74, basin) * 3.5);
+      h -= wet * (0.9 + smoothstep(0.3, 0.74, basin) * 3.5);
     }
     for (let i = 0; i < this.flattens.length; i++) {
       const f = this.flattens[i];
@@ -288,7 +301,9 @@ export class Terrain {
     const rf = this.roads;
     if (rf !== null) {
       const w = rf.carveAt(x, z);
-      if (w > 0) h += (rf.carveTarget - h) * w;
+      if (w > 0) {
+        h += (rf.carveTarget - h) * w;
+      }
     }
     return h < 1.2 ? 1.2 : h > 78 ? 78 : h;
   }
@@ -352,7 +367,9 @@ export class Terrain {
       const dx = x - p.x;
       const dz = z - p.z;
       const d2 = dx * dx + dz * dz;
-      if (d2 >= p.edge * p.edge) continue;
+      if (d2 >= p.edge * p.edge) {
+        continue;
+      }
       // The tracks, from the path network (issue #142). Asked once for the whole
       // settlement: one bucket scan rather than a test per track.
       const track = this.roads === null ? 0 : this.roads.wearAt(x, z);
@@ -396,10 +413,13 @@ export class Terrain {
     // ~30-unit field is one slow wash across a whole hillside.
     const hueDrift = this.hueW.sample(x, z);
     const patchHue = this.patchW.sample(x, z);
-    mix(tA, PLAIN_GRASS, WARM_GRASS, clamp01(warmT + hueDrift * 0.56 + patchHue * 0.30));
-    mix(tA, tA, FOREST_GRASS, clamp01(
-      forestF * 0.85 + Math.max(-hueDrift, 0) * 0.42 + Math.max(-patchHue, 0) * 0.22,
-    ));
+    mix(tA, PLAIN_GRASS, WARM_GRASS, clamp01(warmT + hueDrift * 0.56 + patchHue * 0.3));
+    mix(
+      tA,
+      tA,
+      FOREST_GRASS,
+      clamp01(forestF * 0.85 + Math.max(-hueDrift, 0) * 0.42 + Math.max(-patchHue, 0) * 0.22),
+    );
 
     // Altitude tint, a function of the TERRAIN rather than noise, so a hillside
     // and the valley under it can never come out the same green.
@@ -409,7 +429,7 @@ export class Terrain {
     mix(tA, tA, UPLAND_GRASS, altW * 0.62);
     // Regional richness off the ~250-unit moisture field already sampled for
     // `forestF`: dry country bleaches its sward, wet country deepens it.
-    const rich = 0.905 + smoothstep(-0.28, 0.30, moist) * 0.215;
+    const rich = 0.905 + smoothstep(-0.28, 0.3, moist) * 0.215;
     tA.r *= rich;
     tA.g *= rich;
     tA.b *= rich;
@@ -448,14 +468,16 @@ export class Terrain {
       // 0.75, not 0.95: at 0.95 nine tracks radiating from a camp centre cleared
       // the mud term outright and the whole disc flattened to one brown plate.
       const mud = clamp01(
-        this.trampleDamp + patchHue * 0.85 + hueDrift * 0.40 + churn * 0.55
-        - this.trampleTrack * 0.75,
+        this.trampleDamp +
+          patchHue * 0.85 +
+          hueDrift * 0.4 +
+          churn * 0.55 -
+          this.trampleTrack * 0.75,
       );
       mix(tB, TRAMPLED_EARTH, TRAMPLED_MUD, mud);
       // ±17% churn value. Safe at that amplitude because it is NOT per-cube, and
       // it needs to be: sRGB is a ~1/2.4 power, so this is ~7 code values.
-      const ch = 1 + churn * 0.17 + patchHue * 0.05 + tooth * 0.025
-        + this.trampleTrack * 0.06;
+      const ch = 1 + churn * 0.17 + patchHue * 0.05 + tooth * 0.025 + this.trampleTrack * 0.06;
       tB.r *= ch;
       tB.g *= ch;
       tB.b *= ch;
@@ -472,7 +494,9 @@ export class Terrain {
       // Into the abyss, sharing thresholds with the shader's DEEP_DARK ramp.
       // Ramped, not switched: a hard line reads as a drawn contour.
       const a = smoothstep(0, 1.6, DEEP_WATER_TOP + 0.7 - hc);
-      if (a > 0) mix(tA, tA, UW_ABYSS, a);
+      if (a > 0) {
+        mix(tA, tA, UW_ABYSS, a);
+      }
     }
 
     out.topR = tA.r;
@@ -488,8 +512,7 @@ export class Terrain {
     out.stoneWarm = clamp01(desertW * 1.3 + sandW * 0.3);
     // Folding wear into `grass` switches the mesher off the whole meadow
     // treatment: curvature read, clover litter and saturation link all gate here.
-    out.grass = hc < WATER_LEVEL + 0.3 ? 0
-      : clamp01((1 - sandW) * (1 - snowW) * (1 - wear));
+    out.grass = hc < WATER_LEVEL + 0.3 ? 0 : clamp01((1 - sandW) * (1 - snowW) * (1 - wear));
     out.trample = wear;
     // No clamp against the road surface: every sample sticking through was the
     // RIBBON sagging (fixed in `sectionAt` and distant-terrain.ts).
@@ -500,13 +523,20 @@ export class Terrain {
     out.biome =
       // `h`, not `hc`: `isDeepWater` compares the STEPPED column, and a
       // fraction's disagreement puts swimmable dark water round every basin.
-      h <= DEEP_WATER_TOP ? 'deepwater'
-      : hc < WATER_LEVEL + 0.4 ? 'underwater'
-      : wear > 0.6 ? 'trampled'
-      : snowW > 0.5 ? 'snow'
-      : desertW > 0.5 ? 'desert'
-      : beachW > 0.5 ? 'beach'
-      : forestF > 0.5 ? 'forest'
-      : 'plains';
+      h <= DEEP_WATER_TOP
+        ? "deepwater"
+        : hc < WATER_LEVEL + 0.4
+          ? "underwater"
+          : wear > 0.6
+            ? "trampled"
+            : snowW > 0.5
+              ? "snow"
+              : desertW > 0.5
+                ? "desert"
+                : beachW > 0.5
+                  ? "beach"
+                  : forestF > 0.5
+                    ? "forest"
+                    : "plains";
   }
 }

@@ -38,34 +38,44 @@
  *   bg=RRGGBB              backdrop colour
  *   grid=0                 hide the floor
  */
-import * as THREE from 'three';
-import { Engine } from '../core/engine';
-import { DebugOverlay } from '../core/debug-overlay';
-import { EventBus, type BeastAction, type Damageable } from '../core/types';
-import { BeastActor, registerSkillDefs } from '../beasts/framework';
-import { ALL_SPECIES, SKILLS, getSkill } from '../beasts/registry';
-import { Enemy, type EnemyCtx } from '../combat/enemies';
-import { VFX } from '../combat/vfx';
-import { CombatSystem } from '../combat/index';
-import { tameOrbMesh, ORB_RADIUS } from '../combat/tame-orb';
-import { ITEMS, ORB_IDS } from '../core/items';
-import { buildHeroRig, setHairStyle, setWeaponModel, stowWeapon, type HeroRig } from '../player/hero-rig';
-import { storedHairColour } from '../player/hair';
-import { HeroAnimator, type AnimInput } from '../player/animations';
-import type { WeaponModelId } from '../player/weapons';
-import { StubWorld } from './stub-world';
-import { buildPathsStage, groundAt, stageFraming } from './paths-stage';
-import { buildRoadStage, roadCaseFraming } from './road-stage';
+import * as THREE from "three";
+import { Engine } from "../core/engine";
+import { DebugOverlay } from "../core/debug-overlay";
+import { EventBus, type BeastAction, type Damageable } from "../core/types";
+import { BeastActor, registerSkillDefs } from "../beasts/framework";
+import { ALL_SPECIES, SKILLS, getSkill } from "../beasts/registry";
+import { Enemy, type EnemyCtx } from "../combat/enemies";
+import { VFX } from "../combat/vfx";
+import { CombatSystem } from "../combat/index";
+import { tameOrbMesh, ORB_RADIUS } from "../combat/tame-orb";
+import { ITEMS, ORB_IDS } from "../core/items";
 import {
-  FENCE_POST_H, FENCE_POST_R, FENCE_POST_WIDTH, FENCE_RAIL_AT,
-  FENCE_RAIL_HEIGHT, FENCE_RAIL_WIDTH,
-} from '../world/town-parts';
-import { Waterfall } from '../world/waterfall';
-import { bootstrapContent, content } from '../content';
+  buildHeroRig,
+  setHairStyle,
+  setWeaponModel,
+  stowWeapon,
+  type HeroRig,
+} from "../player/hero-rig";
+import { storedHairColour } from "../player/hair";
+import { HeroAnimator, type AnimInput } from "../player/animations";
+import type { WeaponModelId } from "../player/weapons";
+import { StubWorld } from "./stub-world";
+import { buildPathsStage, groundAt, stageFraming } from "./paths-stage";
+import { buildRoadStage, roadCaseFraming } from "./road-stage";
+import {
+  FENCE_POST_H,
+  FENCE_POST_R,
+  FENCE_POST_WIDTH,
+  FENCE_RAIL_AT,
+  FENCE_RAIL_HEIGHT,
+  FENCE_RAIL_WIDTH,
+} from "../world/town-parts";
+import { Waterfall } from "../world/waterfall";
+import { bootstrapContent, content } from "../content";
 // See the long note at the same import in src/main.ts: the provider is imported
 // STATICALLY from the entry point so the bundler keeps `core.json` in this
 // entry's own chunk rather than splitting it out behind a request.
-import { BundledProvider } from '../content/storage/bundled';
+import { BundledProvider } from "../content/storage/bundled";
 
 // An enemy's stats, palettes and the NAME of its voxel builder are content
 // (issue #60), so `?enemy=` cannot build one until the core package is in.
@@ -82,25 +92,26 @@ const num = (k: string, d: number): number => {
   return Number.isFinite(v) && params.get(k) !== null ? v : d;
 };
 
-const app = document.getElementById('app')!;
+const app = document.getElementById("app")!;
 const engine = new Engine(app);
 const bus = new EventBus();
 registerSkillDefs(SKILLS.values());
 
 // -- stage -------------------------------------------------------------------
-const bg = params.get('bg');
+const bg = params.get("bg");
 if (bg) {
   const c = new THREE.Color(`#${bg}`);
   engine.scene.background = c;
   engine.scene.fog = null;
 }
-const flooded = params.get('water') === '1';
+const flooded = params.get("water") === "1";
 const world = new StubWorld(engine.scene, 0, flooded);
-const labFloor = (): THREE.Object3D | undefined =>
-  engine.scene.getObjectByName('lab:floor');
-if (params.get('grid') === '0') {
+const labFloor = (): THREE.Object3D | undefined => engine.scene.getObjectByName("lab:floor");
+if (params.get("grid") === "0") {
   const floor = labFloor();
-  if (floor) floor.visible = false;
+  if (floor) {
+    floor.visible = false;
+  }
 }
 
 // -- subjects ----------------------------------------------------------------
@@ -114,14 +125,15 @@ const subjectPos = new THREE.Vector3(0, 0, 0);
 let subjectHeight = 1;
 let lineupWidth = 0;
 
-const beastsParam = params.get('beasts');
-const beastParam = params.get('beast');
+const beastsParam = params.get("beasts");
+const beastParam = params.get("beast");
 if (beastsParam) {
-  const ids = beastsParam === 'all'
-    ? ALL_SPECIES.map((s) => s.id)
-    : beastsParam.split(',').map((s) => s.trim());
+  const ids =
+    beastsParam === "all"
+      ? ALL_SPECIES.map((s) => s.id)
+      : beastsParam.split(",").map((s) => s.trim());
   const chosen = ALL_SPECIES.filter((s) => ids.includes(s.id));
-  const spacing = num('spacing', 2.0);
+  const spacing = num("spacing", 2.0);
   chosen.forEach((sp, i) => {
     const actor = new BeastActor(sp, engine.scene, world, bus);
     const x = (i - (chosen.length - 1) / 2) * spacing;
@@ -141,34 +153,43 @@ if (beastsParam) {
     marks.push(new THREE.Vector3(0, 0, 0));
     subjectHeight = 1.0;
   } else {
-    console.error(`[lab] unknown beast "${beastParam}". Known:`, ALL_SPECIES.map((s) => s.id));
+    console.error(
+      `[lab] unknown beast "${beastParam}". Known:`,
+      ALL_SPECIES.map((s) => s.id),
+    );
   }
 }
 
-const enemyParam = params.get('enemy');
+const enemyParam = params.get("enemy");
 const vfx = new VFX(engine.scene);
-if (enemyParam === 'gloopling' || enemyParam === 'snortle' || enemyParam === 'peckit') {
-  enemies.push(new Enemy(enemyParam, num('variant', 0), 0, 0, world));
-  for (const e of enemies) engine.scene.add(e.root);
+if (enemyParam === "gloopling" || enemyParam === "snortle" || enemyParam === "peckit") {
+  enemies.push(new Enemy(enemyParam, num("variant", 0), 0, 0, world));
+  for (const e of enemies) {
+    engine.scene.add(e.root);
+  }
   subjectHeight = 1.2;
 }
 
-if (params.get('hero') === '1') {
+if (params.get("hero") === "1") {
   const rig = buildHeroRig();
   heroRoot = rig.root;
   heroRig = rig;
-  if (params.get('weapon')) setWeaponModel(rig, params.get('weapon') as WeaponModelId);
-  if (params.get('stow') === '1') stowWeapon(rig, true);
+  if (params.get("weapon")) {
+    setWeaponModel(rig, params.get("weapon") as WeaponModelId);
+  }
+  if (params.get("stow") === "1") {
+    stowWeapon(rig, true);
+  }
   // `hair=<id>` and `haircolour=RRGGBB` — the stage a hairstyle is drawn on.
   // Both are one shot and neither is stored: the lab shows what was asked for
   // and the player's own choice (localStorage, see player/hair.ts) is what the
   // rig was built with when neither is given.
-  if (params.get('hair') || params.get('haircolour')) {
-    const picked = params.get('haircolour');
+  if (params.get("hair") || params.get("haircolour")) {
+    const picked = params.get("haircolour");
     setHairStyle(
       rig,
-      params.get('hair') ?? rig.hairStyle,
-      picked ? parseInt(picked.replace('#', ''), 16) : storedHairColour(),
+      params.get("hair") ?? rig.hairStyle,
+      picked ? parseInt(picked.replace("#", ""), 16) : storedHairColour(),
     );
   }
   engine.scene.add(rig.root);
@@ -183,25 +204,29 @@ if (params.get('hero') === '1') {
 // hidden unless `grid=1` asks for it — a plume drops THROUGH the stage.
 let waterfall: Waterfall | null = null;
 let labLean = 0;
-if (params.get('waterfall') === '1') {
-  const fall = num('fall', 48);
+if (params.get("waterfall") === "1") {
+  const fall = num("fall", 48);
   waterfall = new Waterfall({
     // 0 by default, so the base look is the fall alone. `push=` is the knob
     // under test and it should be seen on its own, not mixed into the default.
     length: fall,
-    lateralPush: num('push', 0),
+    lateralPush: num("push", 0),
     // THE LIP IS AT THE TOP AND THE WATER REACHES y=0. The lab's camera frames
     // a subject that STANDS on the origin (`subjectPos` is its feet), so a fall
     // hung from the origin drops straight out of the bottom of every shot.
-    x: 0, y: fall, z: 0,
+    x: 0,
+    y: fall,
+    z: 0,
     bearing: 0,
-    spray: num('spray', 128),
+    spray: num("spray", 128),
   });
   engine.scene.add(waterfall.group);
-  labLean = num('lean', 0);
-  if (params.get('grid') !== '1') {
+  labLean = num("lean", 0);
+  if (params.get("grid") !== "1") {
     const floor = labFloor();
-    if (floor) floor.visible = false;
+    if (floor) {
+      floor.visible = false;
+    }
   }
   subjectPos.set(0, 0, 0);
   subjectHeight = fall;
@@ -223,14 +248,14 @@ if (params.get('waterfall') === '1') {
  * the surface — see the header of src/combat/tame-orb.ts.
  */
 const orbLineup: THREE.Object3D[] = [];
-if (params.get('orbs') === '1') {
-  const scale = num('scale', 2.4);
+if (params.get("orbs") === "1") {
+  const scale = num("scale", 2.4);
   // DERIVED FROM THE MODEL, not typed in: the default gap is one and a half
   // diameters at whatever size they are being drawn, so the four never
   // interpenetrate however `scale=` is set. The first version hard-coded 0.55
   // against a diameter of 0.67 and the capture came back as one fused lump.
   const d = ORB_RADIUS * 2 * scale;
-  const gap = num('gap', d * 1.5);
+  const gap = num("gap", d * 1.5);
   const rise = ORB_RADIUS * scale + 0.05;
   const defs = ORB_IDS.map((id) => ITEMS[id]);
   const span = (defs.length - 1) * gap;
@@ -265,10 +290,12 @@ if (params.get('orbs') === '1') {
  * is where a road case is reproduced in two seconds instead of by loading the
  * world and walking to whichever of three roads happens to contain it.
  */
-const roadParam = params.get('road');
+const roadParam = params.get("road");
 if (roadParam) {
   const floor = labFloor();
-  if (floor) floor.visible = false;
+  if (floor) {
+    floor.visible = false;
+  }
   const stage = buildRoadStage(engine.scene, roadParam);
   const frame = roadCaseFraming(stage.cases, roadParam);
   subjectPos.copy(frame.at);
@@ -287,15 +314,18 @@ if (roadParam) {
   const labRay = new THREE.Raycaster();
   labRay.layers.enableAll();
   const labDown = new THREE.Vector3(0, -1, 0);
-  (window as unknown as {
-    __dbgRoadSurf: (x: number, z: number, above?: number) => unknown;
-  }).__dbgRoadSurf = (x, z, above = 2) => {
+  (
+    window as unknown as {
+      __dbgRoadSurf: (x: number, z: number, above?: number) => unknown;
+    }
+  ).__dbgRoadSurf = (x, z, above = 2) => {
     const ground = stage.getHeight(x, z);
     labRay.set(new THREE.Vector3(x, ground + above, z), labDown);
     labRay.far = above + 40;
-    const hits = labRay.intersectObjects(engine.scene.children, true)
+    const hits = labRay
+      .intersectObjects(engine.scene.children, true)
       .filter((h) => (h.object as THREE.Mesh).isMesh)
-      .map((h) => ({ name: h.object.name || 'Mesh', y: r3(h.point.y) }));
+      .map((h) => ({ name: h.object.name || "Mesh", y: r3(h.point.y) }));
     return {
       hit: hits.length > 0 ? hits[0].name : null,
       surface: hits.length > 0 ? hits[0].y : null,
@@ -303,9 +333,11 @@ if (roadParam) {
       hits,
     };
   };
-  (window as unknown as {
-    __dbgRoadWorld: (x: number, z: number) => unknown;
-  }).__dbgRoadWorld = (x, z) => ({ ground: r3(stage.getHeight(x, z)) });
+  (
+    window as unknown as {
+      __dbgRoadWorld: (x: number, z: number) => unknown;
+    }
+  ).__dbgRoadWorld = (x, z) => ({ ground: r3(stage.getHeight(x, z)) });
 
   // Every case's deck, so a probe can sweep it without knowing how the stage
   // built it — the same contract `__dbgFence` has.
@@ -328,10 +360,12 @@ if (roadParam) {
   });
 }
 
-const fenceParam = params.get('fence');
+const fenceParam = params.get("fence");
 if (fenceParam) {
   const floor = labFloor();
-  if (floor) floor.visible = false;
+  if (floor) {
+    floor.visible = false;
+  }
   const stage = buildPathsStage(engine.scene, fenceParam);
   const frame = stageFraming(fenceParam);
   subjectPos.copy(frame.at);
@@ -339,8 +373,8 @@ if (fenceParam) {
   lineupWidth = frame.dist;
   // The stage's ground field itself, so a probe can re-sample what the builder
   // measured instead of taking the builder's word for it. See test-fence.
-  (window as unknown as { __dbgStageGround: (x: number, z: number) => number })
-    .__dbgStageGround = groundAt;
+  (window as unknown as { __dbgStageGround: (x: number, z: number) => number }).__dbgStageGround =
+    groundAt;
   // Every post and every bay, in world coordinates. The fence invariant is a
   // statement about numbers — a plank's ends inside the posts it joins, at a
   // height both carry — so the probe reads them rather than a picture.
@@ -349,25 +383,41 @@ if (fenceParam) {
     fences: stage.fences.map(({ label, fence: f }) => ({
       label,
       posts: f.posts.map((p) => ({
-        x: r3(p.x), z: r3(p.z), y: r3(p.y), base: r3(p.base), yaw: r3(p.yaw), kind: p.kind,
+        x: r3(p.x),
+        z: r3(p.z),
+        y: r3(p.y),
+        base: r3(p.base),
+        yaw: r3(p.yaw),
+        kind: p.kind,
         // The stage's own ground under the post, so a probe can say "this stake
         // is planted" without a second copy of the height field.
         ground: r3(groundAt(p.x, p.z)),
       })),
       closed: f.closed,
       bays: f.bays.map((b) => ({
-        from: b.from, to: b.to, length: r3(b.length), y: r3(b.y),
+        from: b.from,
+        to: b.to,
+        length: r3(b.length),
+        y: r3(b.y),
         groundMax: r3(b.groundMax),
       })),
     })),
     /** Deck samples, so a probe can find the span without routing a road. */
-    road: stage.road ? stage.road.pts.map((p) => ({
-      x: r3(p.x), z: r3(p.z), y: r3(p.y), bridge: p.bridge,
-    })) : null,
+    road: stage.road
+      ? stage.road.pts.map((p) => ({
+          x: r3(p.x),
+          z: r3(p.z),
+          y: r3(p.y),
+          bridge: p.bridge,
+        }))
+      : null,
     /** The kit's own metrics — what "inside the post" and "under the top" mean. */
     kit: {
-      postH: FENCE_POST_H, postR: FENCE_POST_R, postWidth: FENCE_POST_WIDTH,
-      railAt: [...FENCE_RAIL_AT], railWidth: FENCE_RAIL_WIDTH,
+      postH: FENCE_POST_H,
+      postR: FENCE_POST_R,
+      postWidth: FENCE_POST_WIDTH,
+      railAt: [...FENCE_RAIL_AT],
+      railWidth: FENCE_RAIL_WIDTH,
       railHeight: FENCE_RAIL_HEIGHT,
     },
     /**
@@ -411,18 +461,26 @@ function countSoffit(scene: THREE.Scene): { tris: number; minY: number } {
   let minY = Infinity;
   scene.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (!m.isMesh || !m.name.startsWith('road:')) return;
-    const nrm = m.geometry.getAttribute('normal');
-    const pos = m.geometry.getAttribute('position');
+    if (!m.isMesh || !m.name.startsWith("road:")) {
+      return;
+    }
+    const nrm = m.geometry.getAttribute("normal");
+    const pos = m.geometry.getAttribute("position");
     const idx = m.geometry.getIndex();
-    if (!nrm || !idx) return;
+    if (!nrm || !idx) {
+      return;
+    }
     for (let i = 0; i < idx.count; i += 3) {
       const a = idx.getX(i);
-      if (nrm.getY(a) >= -0.5) continue;
+      if (nrm.getY(a) >= -0.5) {
+        continue;
+      }
       tris++;
       for (let k = 0; k < 3; k++) {
         const y = pos.getY(idx.getX(i + k));
-        if (y < minY) minY = y;
+        if (y < minY) {
+          minY = y;
+        }
       }
     }
   });
@@ -430,14 +488,17 @@ function countSoffit(scene: THREE.Scene): { tris: number; minY: number } {
 }
 
 // Skill firing needs a combat system and a stationary dummy to aim at.
-const skillDef = params.get('skill') ? getSkill(params.get('skill')!) : undefined;
+const skillDef = params.get("skill") ? getSkill(params.get("skill")!) : undefined;
 let combat: CombatSystem | null = null;
 let dummy: Damageable | null = null;
 if (skillDef) {
   combat = new CombatSystem(engine.scene, world, bus);
   dummy = {
     position: new THREE.Vector3(0, 0.6, 6),
-    hp: 9999, maxHp: 9999, isDead: false, faction: 'wild',
+    hp: 9999,
+    maxHp: 9999,
+    isDead: false,
+    faction: "wild",
     // The stage dummy is a target to aim skills at, not a thing that reacts:
     // it soaks every hit and reports it landed, so the caster's own VFX and
     // damage numbers behave exactly as they do in the game.
@@ -450,11 +511,11 @@ if (skillDef) {
 // Frame the whole lineup: fit its width to the horizontal FOV with margin.
 const hFov = 2 * Math.atan(Math.tan((engine.camera.fov * Math.PI) / 360) * engine.camera.aspect);
 const fitDist = lineupWidth > 0 ? (lineupWidth * 0.62) / Math.tan(hFov / 2) : 2.6;
-const dist = num('dist', Math.max(2.6, fitDist));
-const camHeight = num('height', lineupWidth > 0 ? subjectHeight * 0.75 : subjectHeight * 0.7);
+const dist = num("dist", Math.max(2.6, fitDist));
+const camHeight = num("height", lineupWidth > 0 ? subjectHeight * 0.75 : subjectHeight * 0.7);
 // A lineup is shot straight on; a single subject gets a 3/4 view.
-let angle = (num('angle', lineupWidth > 0 ? 0 : 28) * Math.PI) / 180;
-const spin = params.get('spin') === '1';
+let angle = (num("angle", lineupWidth > 0 ? 0 : 28) * Math.PI) / 180;
+const spin = params.get("spin") === "1";
 /**
  * Absolute facing for the subject, in degrees, INDEPENDENT of the camera.
  *
@@ -468,7 +529,7 @@ const spin = params.get('spin') === '1';
  *
  * `face=90` is broadside, `face=180` shows the rump. Absent, nothing changes.
  */
-const faceParam = params.get('face');
+const faceParam = params.get("face");
 const faceAt = faceParam === null ? null : (Number(faceParam) * Math.PI) / 180;
 
 function placeCamera(): void {
@@ -487,7 +548,7 @@ const owner = {
   isSwimming: false,
   deepDiving: false,
 };
-const animParam = params.get('anim') as BeastAction | null;
+const animParam = params.get("anim") as BeastAction | null;
 let simTime = 0;
 let skillTimer = 0;
 
@@ -511,16 +572,18 @@ let skillTimer = 0;
  * movement — a follower that predicted ahead from a stale velocity would be
  * chasing a point the owner was never heading for.
  */
-const chase = params.get('follow') === '1';
-const CHASE_JUMP_S = num('jump', 1.2);
-const CHASE_REACH = num('reach', 14);
+const chase = params.get("follow") === "1";
+const CHASE_JUMP_S = num("jump", 1.2);
+const CHASE_REACH = num("reach", 14);
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 let chaseIn = CHASE_JUMP_S;
 let chaseN = 0;
 
 function moveOwner(dt: number): void {
   chaseIn -= dt;
-  if (chaseIn > 0) return;
+  if (chaseIn > 0) {
+    return;
+  }
   chaseIn = CHASE_JUMP_S;
   const a = GOLDEN_ANGLE * chaseN++;
   owner.position.set(Math.sin(a) * CHASE_REACH, 0, Math.cos(a) * CHASE_REACH);
@@ -528,7 +591,10 @@ function moveOwner(dt: number): void {
 }
 
 const enemyCtx: EnemyCtx = {
-  world, targets: [], vfx, time: 0,
+  world,
+  targets: [],
+  vfx,
+  time: 0,
   hit: () => {},
 };
 
@@ -547,7 +613,7 @@ const HERO_ANIM: Record<string, Partial<AnimInput>> = {
   walk: { moveNorm: 0.45 },
   run: { moveNorm: 1, sprinting: true },
   swim: { swimming: true, moveNorm: 0.7, onGround: false },
-  fly: { onGround: false, velY: -4 },       // the falling flail
+  fly: { onGround: false, velY: -4 }, // the falling flail
   climb: { climbing: true, climbRate: 1, onGround: false },
   ride: { riding: true, moveNorm: 0.6 },
   attack: { attack: { active: true, combo: 0, t: 0.18, dur: 0.42 } },
@@ -557,17 +623,31 @@ const HERO_ANIM: Record<string, Partial<AnimInput>> = {
 };
 
 function poseHero(dt: number): void {
-  if (!heroRig) return;
+  if (!heroRig) {
+    return;
+  }
   // `anim=` is typed as a BeastAction for the beasts; the hero answers to a few
   // names of its own (dead, climb, ride), so read the raw parameter here.
-  const want = params.get('anim') ?? 'idle';
+  const want = params.get("anim") ?? "idle";
   const preset = HERO_ANIM[want] ?? {};
   heroAnim.update(heroRig, {
-    time: simTime, dt, moveNorm: 0, sprinting: false, onGround: true,
-    swimming: false, climbing: false, climbRate: 0, riding: false, velY: 0,
+    time: simTime,
+    dt,
+    moveNorm: 0,
+    sprinting: false,
+    onGround: true,
+    swimming: false,
+    climbing: false,
+    climbRate: 0,
+    riding: false,
+    velY: 0,
     attack: { active: false, combo: 0, t: 0, dur: 0.42 },
-    dead: want === 'dead', deadT: simTime, landBump: 0, hurtT: 0,
-    unarmed: heroRig.weapon === null, bow: heroRig.weapon === 'bow',
+    dead: want === "dead",
+    deadT: simTime,
+    landBump: 0,
+    hurtT: 0,
+    unarmed: heroRig.weapon === null,
+    bow: heroRig.weapon === "bow",
     stowed: heroRig.stowed,
     ...preset,
   });
@@ -581,7 +661,9 @@ function step(dt: number): void {
     moveOwner(dt);
     // No mark, no facing override: the point of this mode is where the steering
     // takes them. The camera rides the owner so the pack stays in frame.
-    for (const p of beasts) p.update(dt, owner, 'primary', beasts);
+    for (const p of beasts) {
+      p.update(dt, owner, "primary", beasts);
+    }
     subjectPos.copy(owner.position);
   } else {
     for (let i = 0; i < beasts.length; i++) {
@@ -593,18 +675,25 @@ function step(dt: number): void {
       // so flyers still hover and swimmers still bob).
       // Single subject turns with the camera so it always presents a 3/4 view;
       // a lineup stays square to the lens.
-      if (faceAt !== null) p.facingOverride = faceAt;
-      else if (beasts.length === 1) p.facingOverride = angle - 0.35;
+      if (faceAt !== null) {
+        p.facingOverride = faceAt;
+      } else if (beasts.length === 1) {
+        p.facingOverride = angle - 0.35;
+      }
       owner.position.copy(p.position);
-      p.update(dt, owner, 'primary', beasts);
-      if (animParam && animParam !== 'idle') p.playAction(animParam, 0.9);
+      p.update(dt, owner, "primary", beasts);
+      if (animParam && animParam !== "idle") {
+        p.playAction(animParam, 0.9);
+      }
       p.position.x = mark.x;
       p.position.z = mark.z;
     }
   }
 
   enemyCtx.time = simTime;
-  for (const e of enemies) e.update(dt, enemyCtx);
+  for (const e of enemies) {
+    e.update(dt, enemyCtx);
+  }
   vfx.update(dt);
   // `lean=` fakes a carrier's per-slice step, which is the only way to drive
   // the trail-behind term on a stage with no carrier in it — and the only way
@@ -612,7 +701,9 @@ function step(dt: number): void {
   waterfall?.update(dt, labLean * dt, 0);
   // Every orb on the same phase, so the four catches line up and a difference
   // between two of them is a difference in the MODEL rather than in the moment.
-  for (const m of orbLineup) m.rotation.set(0, simTime * 1.1, simTime * 0.35);
+  for (const m of orbLineup) {
+    m.rotation.set(0, simTime * 1.1, simTime * 0.35);
+  }
 
   if (combat && skillDef && dummy) {
     skillTimer -= dt;
@@ -623,13 +714,18 @@ function step(dt: number): void {
       combat.cast({
         skill: skillDef,
         caster: { ...(dummy as Damageable), forward: dir } as never,
-        origin, direction: dir, target: dummy, attackStat: 20,
+        origin,
+        direction: dir,
+        target: dummy,
+        attackStat: 20,
       });
     }
     combat.update(dt, dummy, []);
   }
 
-  if (spin) angle += dt * 0.6;
+  if (spin) {
+    angle += dt * 0.6;
+  }
   engine.updateSunFocus(subjectPos);
 }
 
@@ -656,38 +752,49 @@ const SIM_STEP = 1 / 60;
  * Clamped to 300 simulated seconds for the same reason `__dbgAdvance` is: the
  * burst blocks the main thread and a runaway argument must not hang the tab.
  */
-(window as unknown as { __dbgLabAdvance: (seconds: number) => unknown })
-  .__dbgLabAdvance = (seconds) => {
-    const s = Math.min(Math.max(0, Number(seconds) || 0), 300);
-    const slices = Math.round(s / SIM_STEP);
-    const t0 = performance.now();
-    for (let i = 0; i < slices; i++) step(SIM_STEP);
-    return { slices, simSeconds: s, wallMs: +(performance.now() - t0).toFixed(1) };
-  };
+(window as unknown as { __dbgLabAdvance: (seconds: number) => unknown }).__dbgLabAdvance = (
+  seconds,
+) => {
+  const s = Math.min(Math.max(0, Number(seconds) || 0), 300);
+  const slices = Math.round(s / SIM_STEP);
+  const t0 = performance.now();
+  for (let i = 0; i < slices; i++) {
+    step(SIM_STEP);
+  }
+  return { slices, simSeconds: s, wallMs: +(performance.now() - t0).toFixed(1) };
+};
 
 // Deterministic mode: advance a fixed number of steps, render once, stop.
-const freezeAt = params.get('t');
+const freezeAt = params.get("t");
 if (freezeAt !== null) {
   const target = Number(freezeAt) || 0;
   const FIXED = SIM_STEP;
-  for (let t = 0; t < target; t += FIXED) step(FIXED);
+  for (let t = 0; t < target; t += FIXED) {
+    step(FIXED);
+  }
   placeCamera();
   engine.render();
   document.title = `Lab (frozen @ ${target}s)`;
 } else {
-  const cap = num('fps', 0);
+  const cap = num("fps", 0);
   engine.setFpsCap(cap);
   const debug = new DebugOverlay(engine.renderer, cap);
-  if (params.get('debug') === '1') debug.toggle();
-  window.addEventListener('keydown', (e) => {
-    if (e.code !== 'F2') return;
+  if (params.get("debug") === "1") {
+    debug.toggle();
+  }
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "F2") {
+      return;
+    }
     e.preventDefault(); // never let the browser see F2
     debug.toggle();
   });
 
   const loop = (): void => {
     requestAnimationFrame(loop);
-    if (!engine.beginFrame()) return;
+    if (!engine.beginFrame()) {
+      return;
+    }
     step(engine.tick());
     placeCamera();
     engine.render();
@@ -698,7 +805,7 @@ if (freezeAt !== null) {
 
 // Console helper so agents can introspect what is available.
 (window as unknown as { labInfo: () => void }).labInfo = () => {
-  console.log('beasts:', ALL_SPECIES.map((s) => s.id).join(', '));
-  console.log('enemies: gloopling, snortle, peckit');
-  console.log('skills:', [...SKILLS.keys()].join(', '));
+  console.log("beasts:", ALL_SPECIES.map((s) => s.id).join(", "));
+  console.log("enemies: gloopling, snortle, peckit");
+  console.log("skills:", [...SKILLS.keys()].join(", "));
 };

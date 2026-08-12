@@ -55,16 +55,16 @@
  * rebuilt. That is why the language picker lives in the start menu, before the
  * world the player will walk through has been streamed.
  */
-import { en, type StringKey, type Translation } from './en';
-import { sv } from './sv';
-import { loadPrefs, savePrefs } from '../core/prefs';
+import { en, type StringKey, type Translation } from "./en";
+import { sv } from "./sv";
+import { loadPrefs, savePrefs } from "../core/prefs";
 
-export type { StringKey, Translation } from './en';
+export type { StringKey, Translation } from "./en";
 
 /** Values a placeholder may be filled with. */
 export type Vars = Record<string, string | number>;
 
-type PluralForm = 'one' | 'other';
+type PluralForm = "one" | "other";
 
 interface Language {
   table: Translation;
@@ -85,15 +85,17 @@ interface Language {
  * "text appears a frame late" bug that comes with one.
  */
 const LANGUAGES: Record<string, Language> = {
-  en: { table: en, nativeName: 'English' },
-  sv: { table: sv, nativeName: 'Svenska' },
+  en: { table: en, nativeName: "English" },
+  sv: { table: sv, nativeName: "Svenska" },
 };
 
-const DEFAULT_PLURAL = (n: number): PluralForm => (n === 1 ? 'one' : 'other');
+const DEFAULT_PLURAL = (n: number): PluralForm => (n === 1 ? "one" : "other");
 
 /** A request ('sv-SE', 'SV') reduced to a table that exists, or null. */
 function known(requested: string | null | undefined): string | null {
-  if (!requested) return null;
+  if (!requested) {
+    return null;
+  }
   // ISO 639-1 is the file name, so 'sv-SE' and 'sv' are the same table.
   const c = requested.slice(0, 2).toLowerCase();
   return c in LANGUAGES ? c : null;
@@ -102,7 +104,7 @@ function known(requested: string | null | undefined): string | null {
 /** The `?lang=` pin, if there is one. Read on every call — it never changes. */
 function urlPin(): string | null {
   try {
-    return known(new URLSearchParams(window.location.search).get('lang'));
+    return known(new URLSearchParams(window.location.search).get("lang"));
   } catch {
     return null; // no window (tooling)
   }
@@ -110,20 +112,30 @@ function urlPin(): string | null {
 
 function resolveCode(): string {
   const pinned = urlPin();
-  if (pinned) return pinned;
+  if (pinned) {
+    return pinned;
+  }
 
   let stored: string | null = null;
   try {
     stored = known(loadPrefs().lang);
-  } catch { /* no storage: fall through */ }
-  if (stored) return stored;
+  } catch {
+    /* no storage: fall through */
+  }
+  if (stored) {
+    return stored;
+  }
 
   try {
     const browser = known(navigator.language);
-    if (browser) return browser;
-  } catch { /* no navigator: fall through */ }
+    if (browser) {
+      return browser;
+    }
+  } catch {
+    /* no navigator: fall through */
+  }
 
-  return 'en';
+  return "en";
 }
 
 let code = resolveCode();
@@ -155,7 +167,9 @@ const listeners = new Set<LanguageListener>();
  */
 export function onLanguageChange(fn: LanguageListener): () => void {
   listeners.add(fn);
-  return () => { listeners.delete(fn); };
+  return () => {
+    listeners.delete(fn);
+  };
 }
 
 /**
@@ -173,8 +187,12 @@ export function onLanguageChange(fn: LanguageListener): () => void {
  */
 export function setLanguage(next: string): boolean {
   const c = known(next);
-  if (!c) return false;
-  if (c === code) return true;
+  if (!c) {
+    return false;
+  }
+  if (c === code) {
+    return true;
+  }
 
   code = c;
   active = LANGUAGES[c].table;
@@ -185,7 +203,7 @@ export function setLanguage(next: string): boolean {
     try {
       fn();
     } catch (e) {
-      console.error('[i18n] language listener failed', e);
+      console.error("[i18n] language listener failed", e);
     }
   }
   return true;
@@ -198,9 +216,12 @@ const PLACEHOLDER = /\{(\w+)\}/g;
  * run — for the overwhelmingly common case of a string with no placeholders.
  */
 function format(s: string, vars: Vars): string {
-  if (s.indexOf('{') < 0) return s;
+  if (s.indexOf("{") < 0) {
+    return s;
+  }
   return s.replace(PLACEHOLDER, (whole, name: string) =>
-    name in vars ? String(vars[name]) : whole);
+    name in vars ? String(vars[name]) : whole,
+  );
 }
 
 /**
@@ -221,7 +242,7 @@ export function t(key: StringKey, vars?: Vars): string {
  * `tn('hud.hp', 2)` are both compile errors.
  */
 type BaseOf<K, S extends string> = K extends `${infer B}.${S}` ? B : never;
-export type PluralKey = BaseOf<StringKey, 'one'> & BaseOf<StringKey, 'other'>;
+export type PluralKey = BaseOf<StringKey, "one"> & BaseOf<StringKey, "other">;
 
 /**
  * Look up a counted display string: `tn('item.shard', 2)` -> 'Cubloons'.
@@ -234,6 +255,8 @@ export type PluralKey = BaseOf<StringKey, 'one'> & BaseOf<StringKey, 'other'>;
 export function tn(key: PluralKey, count: number, vars?: Vars): string {
   const full = `${key}.${pluralOf(count)}` as StringKey;
   const s = active[full] ?? en[full];
-  if (s.indexOf('{') < 0) return s;
+  if (s.indexOf("{") < 0) {
+    return s;
+  }
   return format(s, vars === undefined ? { n: count } : { n: count, ...vars });
 }

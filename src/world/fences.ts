@@ -8,8 +8,8 @@
  * refused, which ENDS the chain and starts a new one (hence a list): a field gate.
  * Guard: `tools/test-fence.mjs`.
  */
-import { Accum, type Template } from './props';
-import type { SolidStamp } from './structures';
+import { Accum, type Template } from "./props";
+import type { SolidStamp } from "./structures";
 
 /**
  * The kit one fence is built from (`TownParts.fence`, or a second world's own).
@@ -46,7 +46,7 @@ export interface FenceNode {
   readonly y: number;
 }
 
-export type FencePostKind = 'post' | 'tall' | 'lantern';
+export type FencePostKind = "post" | "tall" | "lantern";
 
 export interface FencePost {
   readonly x: number;
@@ -91,9 +91,7 @@ export interface FenceOptions {
   readonly maxRise?: number;
   readonly foot?: number;
   /** Vetoes one bay's planks — see the note on gates at the top. */
-  readonly accept?: (
-    ax: number, az: number, bx: number, bz: number,
-  ) => boolean;
+  readonly accept?: (ax: number, az: number, bx: number, bz: number) => boolean;
   readonly glow?: Accum;
 }
 
@@ -125,7 +123,9 @@ export function buildFence(
   const groundAt = opts.groundAt;
 
   const nodes = opts.closed && path.length > 2 ? [...path, path[0]] : path;
-  if (nodes.length < 2) return [];
+  if (nodes.length < 2) {
+    return [];
+  }
 
   const seg: number[] = [0];
   let total = 0;
@@ -133,17 +133,23 @@ export function buildFence(
     total += Math.hypot(nodes[i].x - nodes[i - 1].x, nodes[i].z - nodes[i - 1].z);
     seg.push(total);
   }
-  if (total < 1e-3) return [];
+  if (total < 1e-3) {
+    return [];
+  }
 
   // A division, not a walk: `ceil(len / maxGap)` EQUAL bays leave no stub, so the
   // end post lands exactly on the end of the path.
   let bays = Math.max(1, Math.ceil(total / maxGap));
-  while (bays > 1 && total / bays < minGap) bays--;
+  while (bays > 1 && total / bays < minGap) {
+    bays--;
+  }
   const gap = total / bays;
 
   const at = (s: number): FenceNode => {
     let i = 1;
-    while (i < seg.length - 1 && seg[i] < s) i++;
+    while (i < seg.length - 1 && seg[i] < s) {
+      i++;
+    }
     const span = seg[i] - seg[i - 1] || 1;
     const t = Math.min(1, Math.max(0, (s - seg[i - 1]) / span));
     const a = nodes[i - 1];
@@ -158,7 +164,9 @@ export function buildFence(
   const ring = opts.closed && path.length > 2;
   const count = ring ? bays : bays + 1;
   const pts: FenceNode[] = [];
-  for (let i = 0; i < count; i++) pts.push(at(i * gap));
+  for (let i = 0; i < count; i++) {
+    pts.push(at(i * gap));
+  }
 
   const posts: Array<{ -readonly [K in keyof FencePost]: FencePost[K] }> = [];
   for (let i = 0; i < count; i++) {
@@ -168,17 +176,21 @@ export function buildFence(
     const next = i < count - 1 ? pts[i + 1] : ring ? pts[0] : null;
     let dx = 0;
     let dz = 0;
-    for (const [a, b] of [[prev, p], [p, next]] as const) {
-      if (!a || !b) continue;
+    for (const [a, b] of [
+      [prev, p],
+      [p, next],
+    ] as const) {
+      if (!a || !b) {
+        continue;
+      }
       const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
       dx += (b.x - a.x) / l;
       dz += (b.z - a.z) / l;
     }
     const yaw = Math.atan2(dx, dz);
     const every = (n: number | undefined): boolean => !!n && n > 0 && i % n === 0;
-    const kind: FencePostKind = every(opts.lanternEvery) && opts.glow
-      ? 'lantern'
-      : every(opts.tallEvery) ? 'tall' : 'post';
+    const kind: FencePostKind =
+      every(opts.lanternEvery) && opts.glow ? "lantern" : every(opts.tallEvery) ? "tall" : "post";
     // `base` is filled in at the end, once the line has stopped moving.
     posts.push({ x: p.x, z: p.z, y: p.y, base: p.y, yaw, kind });
   }
@@ -187,25 +199,31 @@ export function buildFence(
   // unit under a post's column. Lifting only RAISES, so one pass is enough.
   const line0 = posts.map((p) => p.y);
   /** Highest walking surface on the segment a->b, endpoints included. */
-  const ridgeUnder = (
-    ax: number, az: number, bx: number, bz: number,
-  ): number => {
-    if (!groundAt) return -Infinity;
+  const ridgeUnder = (ax: number, az: number, bx: number, bz: number): number => {
+    if (!groundAt) {
+      return -Infinity;
+    }
     const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / RISE_STEP));
     let hi = -Infinity;
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       const g = groundAt(ax + (bx - ax) * t, az + (bz - az) * t);
-      if (g > hi) hi = g;
+      if (g > hi) {
+        hi = g;
+      }
     }
     return hi;
   };
   const lift = (i: number, want: number): void => {
-    if (want <= posts[i].y) return;
+    if (want <= posts[i].y) {
+      return;
+    }
     posts[i].y = Math.min(want, line0[i] + maxRise);
   };
   if (groundAt) {
-    for (let i = 0; i < posts.length; i++) lift(i, groundAt(posts[i].x, posts[i].z));
+    for (let i = 0; i < posts.length; i++) {
+      lift(i, groundAt(posts[i].x, posts[i].z));
+    }
   }
 
   // Planks sit at the LOWER of the two lines, so the UPPER post's foot is pulled
@@ -224,8 +242,12 @@ export function buildFence(
       lift(j, want);
     }
     out.push({
-      from: i, to: j, length: Math.hypot(b.x - a.x, b.z - a.z),
-      y: 0, groundMax: groundMax > -Infinity ? groundMax : 0, planked: false,
+      from: i,
+      to: j,
+      length: Math.hypot(b.x - a.x, b.z - a.z),
+      y: 0,
+      groundMax: groundMax > -Infinity ? groundMax : 0,
+      planked: false,
     });
   }
 
@@ -236,13 +258,20 @@ export function buildFence(
     // The LOWER of the two, so both stakes carry material at every plank height.
     const y = Math.min(a.y, b.y);
     // Lost to the caller's `accept`, or to a bottom plank still in the bank.
-    const planked = (!opts.accept || opts.accept(a.x, a.z, b.x, b.z))
-      && !(groundAt && y + parts.railAt[0] < bay.groundMax + clearance - 1e-6);
+    const planked =
+      (!opts.accept || opts.accept(a.x, a.z, b.x, b.z)) &&
+      !(groundAt && y + parts.railAt[0] < bay.groundMax + clearance - 1e-6);
     out[i] = { ...bay, y, groundMax: groundAt ? bay.groundMax : y, planked };
-    if (!planked) continue;
+    if (!planked) {
+      continue;
+    }
     const under = y + parts.railAt[0] - foot;
-    if (under < a.base) a.base = under;
-    if (under < b.base) b.base = under;
+    if (under < a.base) {
+      a.base = under;
+    }
+    if (under < b.base) {
+      b.base = under;
+    }
   }
 
   // A refused bay splits the run in two, keeping "posts = bays + 1" true. A post
@@ -254,30 +283,45 @@ export function buildFence(
   for (let k = 0; k < out.length; k++) {
     const bay = out[(first + k) % out.length];
     if (!bay.planked) {
-      if (run.length > 0) runs.push(run);
+      if (run.length > 0) {
+        runs.push(run);
+      }
       run = [];
       continue;
     }
     run.push({ bay, from: bay.from, to: bay.to });
   }
-  if (run.length > 0) runs.push(run);
-  if (runs.length === 0) return [];
+  if (run.length > 0) {
+    runs.push(run);
+  }
+  if (runs.length === 0) {
+    return [];
+  }
 
   const fences: Fence[] = [];
   const stampPosts = new Set<number>();
   for (const chain of runs) {
     const idx: number[] = [chain[0].from];
-    for (const link of chain) idx.push(link.to);
+    for (const link of chain) {
+      idx.push(link.to);
+    }
     const closedRun = idx.length > 1 && idx[0] === idx[idx.length - 1];
-    if (closedRun) idx.pop();
-    for (const i of idx) stampPosts.add(i);
+    if (closedRun) {
+      idx.pop();
+    }
+    for (const i of idx) {
+      stampPosts.add(i);
+    }
     const local = new Map(idx.map((g, l) => [g, l]));
     fences.push({
       closed: closedRun,
       posts: idx.map((g) => ({ ...posts[g] })),
       bays: chain.map(({ bay, from, to }) => ({
-        from: local.get(from)!, to: local.get(to)!,
-        length: bay.length, y: bay.y, groundMax: bay.groundMax,
+        from: local.get(from)!,
+        to: local.get(to)!,
+        length: bay.length,
+        y: bay.y,
+        groundMax: bay.groundMax,
       })),
     });
   }
@@ -288,21 +332,23 @@ export function buildFence(
     for (const post of fence.posts) {
       const ground = groundAt ? groundAt(post.x, post.z) : post.y;
       const stand = Math.max(post.y - maxDrop, Math.min(post.y, ground)) - foot;
-      if (stand < post.base) (post as { base: number }).base = stand;
+      if (stand < post.base) {
+        (post as { base: number }).base = stand;
+      }
     }
   }
 
   for (const fence of fences) {
     for (const post of fence.posts) {
-      const tpl = post.kind === 'lantern' ? parts.lantern
-        : post.kind === 'tall' ? parts.tall : parts.post;
+      const tpl =
+        post.kind === "lantern" ? parts.lantern : post.kind === "tall" ? parts.tall : parts.post;
       // Stretched from its foot to the line's post height, girth fixed at 1. A
       // variant taller than `postH` stamps at 1, keeping its painted shape.
-      const ownH = post.kind === 'lantern' ? parts.lanternH
-        : post.kind === 'tall' ? parts.tallH : parts.postH;
+      const ownH =
+        post.kind === "lantern" ? parts.lanternH : post.kind === "tall" ? parts.tallH : parts.postH;
       const sy = Math.max(1, (post.y + parts.postH - post.base) / ownH);
       solid.add(tpl, post.x, post.base, post.z, post.yaw, 1, sy);
-      if (post.kind === 'lantern' && opts.glow) {
+      if (post.kind === "lantern" && opts.glow) {
         opts.glow.add(parts.lanternGlow, post.x, post.base, post.z, post.yaw, 1, 1, 1, 1);
       }
     }
@@ -317,7 +363,9 @@ function stampBays(solid: SolidStamp, parts: FenceParts, fence: Fence): void {
     const a = fence.posts[bay.from];
     const b = fence.posts[bay.to];
     const { length: len, y } = bay;
-    if (len < 1e-3) continue;
+    if (len < 1e-3) {
+      continue;
+    }
     const dx = b.x - a.x;
     const dz = b.z - a.z;
     const yaw = Math.atan2(dx, dz);

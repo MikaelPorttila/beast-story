@@ -5,26 +5,34 @@
  * walkable agree by construction, and the town comes from world/sky-parts.ts.
  * Altitude, not avoidance, keeps it out of peaks — see `steer`.
  */
-import * as THREE from 'three';
-import type { CelestialState, TownInfo, TownRegistry } from '../core/types';
-import { CarrierBody } from './carriers';
-import { Accum, bakeProp, PropLib, type Template } from './props';
-import { SolidStamp, StructureField } from './structures';
-import { Npcs, type NpcFrame, type NpcSite } from './npc';
-import { RoadNetwork, type Road, type RoadClearance } from './roads';
-import { flagstoneProfile } from './path-profile';
-import { VoxelModel } from '../core/voxel';
-import { mulberry32 } from './noise';
-import { flags } from '../core/flags';
-import { Waterfall } from './waterfall';
+import * as THREE from "three";
+import type { CelestialState, TownInfo, TownRegistry } from "../core/types";
+import { CarrierBody } from "./carriers";
+import { Accum, bakeProp, PropLib, type Template } from "./props";
+import { SolidStamp, StructureField } from "./structures";
+import { Npcs, type NpcFrame, type NpcSite } from "./npc";
+import { RoadNetwork, type Road, type RoadClearance } from "./roads";
+import { flagstoneProfile } from "./path-profile";
+import { VoxelModel } from "../core/voxel";
+import { mulberry32 } from "./noise";
+import { flags } from "../core/flags";
+import { Waterfall } from "./waterfall";
 import {
-  skyBush, skyCottage, skyFence, skyGate, skyLamp, skySmoke, skyStall, skyTower, skyWell,
-} from './sky-parts';
-import { CARRIED_LAYOUT_KIND, content, defineFactory, type TownData } from '../content';
-import { displayKey, reportContentIssue } from '../core/content-bridge';
-import type { Terrain } from './terrain';
-import { WATER_LEVEL } from './terrain';
-import { createCarriedWaterMaterial } from './water';
+  skyBush,
+  skyCottage,
+  skyFence,
+  skyGate,
+  skyLamp,
+  skySmoke,
+  skyStall,
+  skyTower,
+  skyWell,
+} from "./sky-parts";
+import { CARRIED_LAYOUT_KIND, content, defineFactory, type TownData } from "../content";
+import { displayKey, reportContentIssue } from "../core/content-bridge";
+import type { Terrain } from "./terrain";
+import { WATER_LEVEL } from "./terrain";
+import { createCarriedWaterMaterial } from "./water";
 
 /** World units per terrain voxel. Twice sky-parts' `SV` (0.6): a cottage wall is
  * two courses to a cliff's one, and column count grows as its square. */
@@ -117,9 +125,9 @@ const SUN_AWAY = 0.86;
  * not a ramp — full strength at `SUN_KNEE`, then back up toward `SUN_BOUNCE`, since
  * past the terminator the direct term is already gone and what is left is bounce.
  */
-const SUN_SHADE_K = 0.80;
+const SUN_SHADE_K = 0.8;
 const SUN_KNEE = 0.45;
-const SUN_BOUNCE = 2.30;
+const SUN_BOUNCE = 2.3;
 /** The hue the two ends walk toward. Warm noon stone, cold sky bounce — a grey, not a tan. */
 const ROCK_WARM = 0xb8a88e;
 const ROCK_COOL = 0x2e4666;
@@ -129,7 +137,7 @@ const ROCK_COOL = 0x2e4666;
  * `SUN_LIT`/`SUN_AWAY`, and a bright one would undo the shaded flank.
  */
 const SUN_WARM_MIX = 0.16;
-const SUN_COOL_MIX = 0.40;
+const SUN_COOL_MIX = 0.4;
 
 /**
  * How much BRIGHTER the albedo gets with depth — it used to get darker. The keel is
@@ -180,7 +188,11 @@ function hash2(x: number, z: number, salt: number): number {
  * paths are flagstones painted INTO the terrain. */
 interface SkyPlan {
   readonly buildings: ReadonlyArray<{
-    t: Template; x: number; z: number; yaw: number; s?: number;
+    t: Template;
+    x: number;
+    z: number;
+    yaw: number;
+    s?: number;
     /** Facade distance and light height for the separate night-only layer. */
     light?: readonly [front: number, height: number];
   }>;
@@ -217,12 +229,16 @@ const FALL_LIP = MAP_BLOCK * 2 * CELL;
  * `FALL_LIP` plus a cell over the last THIRD of the run.
  */
 function streamAt(
-  fallAngle: number, wx: number, wz: number,
+  fallAngle: number,
+  wx: number,
+  wz: number,
 ): { across: number; halfW: number } | null {
   const fx = Math.sin(fallAngle);
   const fz = Math.cos(fallAngle);
   const along = wx * fx + wz * fz;
-  if (along < PLAZA * 0.7) return null;
+  if (along < PLAZA * 0.7) {
+    return null;
+  }
   const t = Math.max(0, Math.min(1, (along - ISLAND_R * 0.66) / (ISLAND_R * 0.34)));
   const flare = t * t * (3 - 2 * t);
   return {
@@ -246,7 +262,7 @@ const SKY_WINDOW: Template = (() => {
 const SKY_LANTERN: Template = (() => {
   const v = new VoxelModel();
   v.box(-1, -1, -1, 1, 1, 1, 0xffb84f);
-  return bakeProp(v, 0.20);
+  return bakeProp(v, 0.2);
 })();
 /** The band the dwellings stand in, as fractions of the island radius. */
 const HOUSE_IN = 0.34;
@@ -266,13 +282,19 @@ const HOUSE_R = 7.2;
  * @param rimAt The rim's world radius at a bearing, so the fence follows the coast.
  */
 function planSkyhaven(
-  seed: number, parts: SkyParts, lib: PropLib,
+  seed: number,
+  parts: SkyParts,
+  lib: PropLib,
   onDeck: (x: number, z: number) => boolean,
   rimAt: (bearing: number) => number,
 ): SkyPlan {
   const rng = mulberry32(seed ^ 0x5c17);
   const buildings: Array<{
-    t: Template; x: number; z: number; yaw: number; s?: number;
+    t: Template;
+    x: number;
+    z: number;
+    yaw: number;
+    s?: number;
     light?: readonly [front: number, height: number];
   }> = [];
   const paths: Array<readonly [number, number, number, number]> = [];
@@ -286,7 +308,9 @@ function planSkyhaven(
   const taken: Array<{ x: number; z: number; r: number }> = [];
   const free = (x: number, z: number, r: number): boolean =>
     !taken.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < (t.r + r) ** 2);
-  const claim = (x: number, z: number, r: number): void => { taken.push({ x, z, r }); };
+  const claim = (x: number, z: number, r: number): void => {
+    taken.push({ x, z, r });
+  };
 
   buildings.push({ t: parts.tower, x: 0, z: 0, yaw: rng() * 6.28, s: 1.25, light: [3.8, 4.5] });
   claim(0, 0, 7);
@@ -321,16 +345,22 @@ function planSkyhaven(
     for (let d = PLAZA * 0.7; d <= ISLAND_R; d += 2.4) {
       const [cx, cz] = at(fallAngle, d);
       const s = streamAt(fallAngle, cx, cz);
-      if (!s) continue;
+      if (!s) {
+        continue;
+      }
       for (const side of [-1, 1]) {
         // On the bank, just outboard of the waterline, so the stone's foot is wet.
         const off = s.halfW + 0.6 + rng() * 0.5;
         const x = cx + bx * off * side;
         const z = cz + bz * off * side;
-        if (!onDeck(x, z) || !free(x, z, 0.9)) continue;
+        if (!onDeck(x, z) || !free(x, z, 0.9)) {
+          continue;
+        }
         rocks.push({
           t: stones[Math.floor(rng() * stones.length)],
-          x, z, yaw: rng() * 6.28,
+          x,
+          z,
+          yaw: rng() * 6.28,
           // Small: at the meadow's own scale these are a wall of erratics.
           s: 0.42 + rng() * 0.26,
         });
@@ -341,7 +371,9 @@ function planSkyhaven(
   for (let d = PLAZA * 0.7; d <= ISLAND_R; d += 2.4) {
     const [cx, cz] = at(fallAngle, d);
     const s = streamAt(fallAngle, cx, cz);
-    if (s) claim(cx, cz, s.halfW + 2.4);
+    if (s) {
+      claim(cx, cz, s.halfW + 2.4);
+    }
   }
 
   let houses = 0;
@@ -356,13 +388,18 @@ function planSkyhaven(
       const along = (k - (count - 1) / 2) * (HOUSE_R * 2.1 + rng() * 4);
       const px = Math.sin(centre) * dist + Math.cos(centre) * along;
       const pz = Math.cos(centre) * dist - Math.sin(centre) * along;
-      if (!free(px, pz, HOUSE_R)) continue;
+      if (!free(px, pz, HOUSE_R)) {
+        continue;
+      }
       const kind = (houses % 3) as 0 | 1 | 2;
       // Alternating slate and shingle makes a knot read as separate buildings.
       buildings.push({
         // Stamped at 1.2: scaling the stamp keeps `SV`'s gauge and takes the collider.
         t: parts.cottages[kind + (houses % 2 === 0 ? 0 : 3)],
-        x: px, z: pz, yaw: axis + (rng() - 0.5) * 0.12, s: 1.2,
+        x: px,
+        z: pz,
+        yaw: axis + (rng() - 0.5) * 0.12,
+        s: 1.2,
         light: [3.7, 2.2],
       });
       claim(px, pz, HOUSE_R);
@@ -379,10 +416,16 @@ function planSkyhaven(
     const [px1, pz1] = at(centre, dist - 6);
     paths.push([px0, pz0, px1, pz1]);
     const [lx, lz] = at(centre + 0.12, (PLAZA + dist) * 0.5);
-    if (free(lx, lz, 2)) { lamps.push({ x: lx, z: lz, yaw: centre }); claim(lx, lz, 2); }
+    if (free(lx, lz, 2)) {
+      lamps.push({ x: lx, z: lz, yaw: centre });
+      claim(lx, lz, 2);
+    }
     // A garden plot in the gap after the knot, so the ground looks used.
     const [gx, gz] = at(centre + Math.PI / CLUSTERS, dist * 0.92);
-    if (free(gx, gz, 6)) { plots.push({ x: gx, z: gz, r: 5.5 }); claim(gx, gz, 6); }
+    if (free(gx, gz, 6)) {
+      plots.push({ x: gx, z: gz, r: 5.5 });
+      claim(gx, gz, 6);
+    }
   }
 
   // A ring road round the square, so the streets meet something.
@@ -408,27 +451,29 @@ function planSkyhaven(
   const streets = streetNetwork(paths);
   /** Room to GROW, clear of every street. Not folded into `free`: lamps, the well and
    * the stalls stand ON a street on purpose. What a street refuses is foliage. */
-  const offStreet = (x: number, z: number, r: number): boolean =>
-    streets.edgeDistanceTo(x, z) >= r;
+  const offStreet = (x: number, z: number, r: number): boolean => streets.edgeDistanceTo(x, z) >= r;
 
   // The world's own oaks, not its pines (the snow variant reads as a bug up here).
   // Clumped and big: evenly spaced saplings made the island look smaller.
   const templates = [lib.oakA, lib.oakB, lib.oakC, lib.oakD];
   const woodAt = a0 + Math.PI * 0.55;
   for (let c = 0; c < 16; c++) {
-    const centre = c < 8
-      ? woodAt + (c - 3.5) * 0.34 + (rng() - 0.5) * 0.3
-      : rng() * Math.PI * 2;
+    const centre = c < 8 ? woodAt + (c - 3.5) * 0.34 + (rng() - 0.5) * 0.3 : rng() * Math.PI * 2;
     const dist = ISLAND_R * TREE_RING + (rng() - 0.5) * ISLAND_R * 0.12;
     const n = 3 + Math.floor(rng() * 4);
     for (let k = 0; k < n; k++) {
       const a = centre + (rng() - 0.5) * 0.36;
       const d = dist + (rng() - 0.5) * 9;
       const [x, z] = at(a, d);
-      if (!free(x, z, 4) || !offStreet(x, z, 4)) continue;
+      if (!free(x, z, 4) || !offStreet(x, z, 4)) {
+        continue;
+      }
       trees.push({
         t: templates[Math.floor(rng() * templates.length)],
-        x, z, yaw: rng() * 6.28, s: 0.85 + rng() * 0.35,
+        x,
+        z,
+        yaw: rng() * 6.28,
+        s: 0.85 + rng() * 0.35,
       });
       claim(x, z, 4);
     }
@@ -436,17 +481,24 @@ function planSkyhaven(
   for (let k = 0; k < 8; k++) {
     const a = rng() * Math.PI * 2;
     const [x, z] = at(a, ISLAND_R * (0.2 + rng() * 0.3));
-    if (!free(x, z, 5) || !offStreet(x, z, 5)) continue;
+    if (!free(x, z, 5) || !offStreet(x, z, 5)) {
+      continue;
+    }
     trees.push({
       t: templates[Math.floor(rng() * templates.length)],
-      x, z, yaw: rng() * 6.28, s: 0.9 + rng() * 0.3,
+      x,
+      z,
+      yaw: rng() * 6.28,
+      s: 0.9 + rng() * 0.3,
     });
     claim(x, z, 5);
   }
   for (let k = 0; k < 110; k++) {
     const a = rng() * Math.PI * 2;
     const [x, z] = at(a, ISLAND_R * (0.16 + rng() * 0.74));
-    if (!free(x, z, 2.2) || !offStreet(x, z, 2.2)) continue;
+    if (!free(x, z, 2.2) || !offStreet(x, z, 2.2)) {
+      continue;
+    }
     buildings.push({ t: parts.bushes[k % 2], x, z, yaw: rng() * 6.28 });
     claim(x, z, 2.2);
   }
@@ -472,7 +524,9 @@ function planSkyhaven(
       const dx = x - lx;
       const dz = z - lz;
       const d = Math.hypot(dx, dz);
-      if (d < SPACING) continue;
+      if (d < SPACING) {
+        continue;
+      }
       const ux = dx / d;
       const uz = dz / d;
       const mx = (x + lx) * 0.5;
@@ -483,8 +537,12 @@ function planSkyhaven(
       // on a tight inside bend its ends reach further out than its centre.
       const hx = ux * SPACING * 0.5;
       const hz = uz * SPACING * 0.5;
-      if (!onDeck(mx - hx, mz - hz) || !onDeck(mx + hx, mz + hz)) continue;
-      if (!free(mx, mz, 1.2)) continue;
+      if (!onDeck(mx - hx, mz - hz) || !onDeck(mx + hx, mz + hz)) {
+        continue;
+      }
+      if (!free(mx, mz, 1.2)) {
+        continue;
+      }
       fences.push({ x: mx, z: mz, yaw: Math.atan2(-uz, ux) });
     }
   }
@@ -493,7 +551,15 @@ function planSkyhaven(
   // `buildStream` lays the water over it, so the plan carries a bearing, not a shape.
   const [fx, fz] = at(fallAngle, PLAZA * 0.9);
   return {
-    buildings, paths, streets, lamps, fences, trees, rocks, plots, fallAngle,
+    buildings,
+    paths,
+    streets,
+    lamps,
+    fences,
+    trees,
+    rocks,
+    plots,
+    fallAngle,
     focus: { x: fx * 0.4, z: fz * 0.4 },
   };
 }
@@ -508,8 +574,12 @@ function outlineAt(theta: number, phase: number): number {
   // `theta` is `atan2(x, z)`, so 0 is +Z, i.e. compass SOUTH (SPEC.md §0); compass
   // bearing B is 180 - theta in degrees.
   let t = theta;
-  while (t > Math.PI) t -= Math.PI * 2;
-  while (t < -Math.PI) t += Math.PI * 2;
+  while (t > Math.PI) {
+    t -= Math.PI * 2;
+  }
+  while (t < -Math.PI) {
+    t += Math.PI * 2;
+  }
   // The southern chord: the map flattens to 0.92-0.95 R at compass 150-220. NOT
   // seeded — a phase term would roll it onto the gate or the fall, both pinned.
   const chord = 0.024 * Math.exp(-(((t + 0.09) / 0.62) ** 2));
@@ -522,13 +592,16 @@ function outlineAt(theta: number, phase: number): number {
   const sector = Math.floor(((t + Math.PI) / (Math.PI * 2)) * 54);
   const lev = hash2(sector, 0, 29);
   const stagger = lev < 0.34 ? 0 : lev < 0.67 ? -0.042 : -0.082;
-  const r = 0.960
-    - chord - scallop + stagger
+  const r =
+    0.96 -
+    chord -
+    scallop +
+    stagger +
     // Three odd harmonics, seeded: the slow bend the staggers sit on. They sum to
     // 0.038, which with the mean of 0.960 pins the PEAK at 0.998.
-    + 0.016 * Math.sin(3 * theta + phase * 1.7)
-    + 0.013 * Math.sin(7 * theta - phase)
-    + 0.009 * Math.sin(11 * theta + phase * 0.6);
+    0.016 * Math.sin(3 * theta + phase * 1.7) +
+    0.013 * Math.sin(7 * theta - phase) +
+    0.009 * Math.sin(11 * theta + phase * 0.6);
   // Both clamps are contracts: 0.998 is the ride volume less a rounding, and 0.885 is
   // SPEC.md §1's "nothing cuts more than 0.10 R", measured off the PEAK.
   return RC * Math.max(0.885, Math.min(0.998, r));
@@ -608,10 +681,13 @@ function streetNetwork(
   paths.forEach(([x0, z0, x1, z1], i) => {
     const road: Road = {
       id: `street:sky-${i}`,
-      fromId: 'town:skyhaven',
-      toId: 'town:skyhaven',
+      fromId: "town:skyhaven",
+      toId: "town:skyhaven",
       profile,
-      pts: [{ x: x0, z: z0, y: 0, bridge: false }, { x: x1, z: z1, y: 0, bridge: false }],
+      pts: [
+        { x: x0, z: z0, y: 0, bridge: false },
+        { x: x1, z: z1, y: 0, bridge: false },
+      ],
       trim: new Float32Array(8),
     };
     net.add(road);
@@ -645,7 +721,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       this.nightGlowMat.emissiveIntensity = 1.65 * state.night * state.night;
     }
     const darkness = state.night * state.night;
-    for (const entry of this.nightLights) entry.light.intensity = entry.peak * darkness;
+    for (const entry of this.nightLights) {
+      entry.light.intensity = entry.peak * darkness;
+    }
   }
   /** The rock mesh, kept only so `debugFall` can report where `buildRock` put it. */
   private rock: THREE.Mesh | null = null;
@@ -689,7 +767,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     this.town = {
       id: data.id,
       nameKey: data.nameKey,
-      kind: 'hamlet',
+      kind: "hamlet",
       x: homeX,
       y: MIN_ALT,
       z: homeZ,
@@ -712,8 +790,12 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       tower: skyTower(),
       // Three plans by two roof materials; the layout picks `kind` or `kind + 3`.
       cottages: [
-        skyCottage(0), skyCottage(1), skyCottage(2),
-        skyCottage(0, true), skyCottage(1, true), skyCottage(2, true),
+        skyCottage(0),
+        skyCottage(1),
+        skyCottage(2),
+        skyCottage(0, true),
+        skyCottage(1, true),
+        skyCottage(2, true),
       ],
       well: skyWell(),
       stall: skyStall(),
@@ -724,14 +806,18 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       smoke: skySmoke(),
     };
     const plan = planSkyhaven(
-      seed, parts, props,
+      seed,
+      parts,
+      props,
       // The deck's own answer, so the plan and the rock cannot disagree about ground.
       (x, z) => this.localDeck(x, z) > -Infinity,
       (a) => outlineAt(a, this.phase) * CELL,
     );
     this.streets = plan.streets;
     this.buildRock(plan);
-    for (const t of plan.trees) this.treeSpots.push(t.x, t.z);
+    for (const t of plan.trees) {
+      this.treeSpots.push(t.x, t.z);
+    }
     this.canalStones = plan.rocks.length;
 
     // Under `flags.water`: turning water off means no water anywhere.
@@ -761,12 +847,20 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
 
     const night = new Accum();
     for (const b of plan.buildings) {
-      if (!b.light) continue;
+      if (!b.light) {
+        continue;
+      }
       const [front, height] = b.light;
       night.add(
         SKY_WINDOW,
-        b.x + Math.sin(b.yaw) * front, height, b.z + Math.cos(b.yaw) * front,
-        b.yaw, 1, 1, 1, 1,
+        b.x + Math.sin(b.yaw) * front,
+        height,
+        b.z + Math.cos(b.yaw) * front,
+        b.yaw,
+        1,
+        1,
+        1,
+        1,
       );
     }
     for (const lamp of plan.lamps) {
@@ -780,19 +874,23 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       emissive: new THREE.Color(0xffa83d),
       emissiveIntensity: 0,
     });
-    this.nightGlowMat.userData.bsNightRole = 'skyhaven-lights';
+    this.nightGlowMat.userData.bsNightRole = "skyhaven-lights";
     this.emit(night, this.nightGlowMat, false, true);
 
     // Emissive voxels identify the fixtures but Three has no GI, so four shadowless,
     // range-limited lights supply the direct light. Not one per lantern: each forward
     // light is another lighting loop on every visible standard material.
     const addNightLight = (
-      x: number, y: number, z: number, peak: number, distance: number,
+      x: number,
+      y: number,
+      z: number,
+      peak: number,
+      distance: number,
     ): void => {
       const light = new THREE.PointLight(0xffb86a, 0, distance, 2);
       light.position.set(x, y, z);
       light.castShadow = false;
-      light.userData.bsNightRole = 'skyhaven-local-light';
+      light.userData.bsNightRole = "skyhaven-local-light";
       this.root.add(light);
       this.nightLights.push({ light, peak });
     };
@@ -813,8 +911,11 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     };
     const crew = new Npcs(site, this);
     this.npcs = crew.all.length > 0 ? crew : null;
-    if (this.npcs) this.root.add(crew.group);
-    else crew.dispose();
+    if (this.npcs) {
+      this.root.add(crew.group);
+    } else {
+      crew.dispose();
+    }
   }
 
   /**
@@ -837,10 +938,14 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    * Taken once here so a rider asks one question — see `CarrierRide.support`. */
   localTop(lx: number, lz: number): number {
     const deck = this.localDeck(lx, lz);
-    if (deck === -Infinity) return -Infinity;
+    if (deck === -Infinity) {
+      return -Infinity;
+    }
     let top = deck;
     const built = this.solids.topAt(lx, lz);
-    if (built > top) top = built;
+    if (built > top) {
+      top = built;
+    }
     // The residents block too, and are a SECOND field because a `StructureField` is
     // frozen by `build()` before the crew standing in the town is placed.
     const who = this.npcs?.solids.topAt(lx, lz) ?? -Infinity;
@@ -853,7 +958,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    * spans [-k * CELL, (-k + 1) * CELL]; `columnDepth` reports 0 for a LIP column.
    */
   localBottom(lx: number, lz: number): number {
-    if (this.localDeck(lx, lz) === -Infinity) return Infinity;
+    if (this.localDeck(lx, lz) === -Infinity) {
+      return Infinity;
+    }
     const depth = this.columnDepth(Math.floor(lx / CELL), Math.floor(lz / CELL));
     return -(depth > 0 ? depth : LIP_COURSES) * CELL;
   }
@@ -863,10 +970,14 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
 
   protected steer(dt: number): void {
     // A staged capture holds it still: two runs must produce the same pictures.
-    if (flags.photo) return;
+    if (flags.photo) {
+      return;
+    }
     const dx = this.tx - this.x;
     const dz = this.tz - this.z;
-    if (dx * dx + dz * dz < ARRIVE * ARRIVE) this.pickDestination();
+    if (dx * dx + dz * dz < ARRIVE * ARRIVE) {
+      this.pickDestination();
+    }
 
     const len = Math.max(1e-4, Math.hypot(dx, dz));
     const wantVX = (dx / len) * CRUISE;
@@ -882,16 +993,18 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     // exponential spends most of the turn in the first half-second.
     const travel = Math.atan2(this.vx, this.vz);
     let turn = travel - this.yaw;
-    while (turn > Math.PI) turn -= Math.PI * 2;
-    while (turn < -Math.PI) turn += Math.PI * 2;
+    while (turn > Math.PI) {
+      turn -= Math.PI * 2;
+    }
+    while (turn < -Math.PI) {
+      turn += Math.PI * 2;
+    }
     const step = YAW_RATE * dt;
     this.yaw += Math.max(-step, Math.min(step, turn));
 
     // THE MOUNTAIN RULE, not avoidance: hold the keel over the worst ground it is about
     // to be above, so no approach angle can put it into a peak.
-    const want = Math.min(
-      MAX_ALT, Math.max(MIN_ALT, this.groundBelow() + KEEL + KEEL_MARGIN),
-    );
+    const want = Math.min(MAX_ALT, Math.max(MIN_ALT, this.groundBelow() + KEEL + KEEL_MARGIN));
     const rise = CLIMB_RATE * dt;
     this.y += Math.max(-rise, Math.min(rise, want - this.y));
     this.town.x = this.x;
@@ -909,7 +1022,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     for (let k = 0; k < 8; k++) {
       const a = (k / 8) * Math.PI * 2;
       const h = this.terrain.getHeight(this.x + Math.sin(a) * ring, this.z + Math.cos(a) * ring);
-      if (h > top) top = h;
+      if (h > top) {
+        top = h;
+      }
     }
     // Ahead along TRAVEL, not the hull's facing: travel decides what it arrives over.
     const len = Math.max(1e-4, Math.hypot(this.vx, this.vz));
@@ -918,7 +1033,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     for (let k = 1; k <= 4; k++) {
       const d = ISLAND_R * (1 + (LOOK_AHEAD - 1) * (k / 4));
       const h = this.terrain.getHeight(this.x + fx * d, this.z + fz * d);
-      if (h > top) top = h;
+      if (h > top) {
+        top = h;
+      }
     }
     return Math.max(top, WATER_LEVEL);
   }
@@ -930,7 +1047,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       const d = Math.sqrt(this.rng()) * ROAM_R;
       const x = this.homeX + Math.sin(a) * d;
       const z = this.homeZ + Math.cos(a) * d;
-      if ((x - this.x) ** 2 + (z - this.z) ** 2 < (ROAM_R * 0.34) ** 2) continue;
+      if ((x - this.x) ** 2 + (z - this.z) ** 2 < (ROAM_R * 0.34) ** 2) {
+        continue;
+      }
       this.tx = x;
       this.tz = z;
       return;
@@ -960,7 +1079,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
    * hidden plume over a running channel pours into a lip with nothing coming off it. */
   setWaterfallVisible(v: boolean): void {
     this.fall?.setVisible(v);
-    if (this.stream) this.stream.visible = v;
+    if (this.stream) {
+      this.stream.visible = v;
+    }
   }
 
   /** Link the fall's two shader programs at boot. See `warmUpSteps` in main.ts. */
@@ -979,11 +1100,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       cell: CELL,
       hasFall: this.fall ? 1 : 0,
       // The channel's own surface as a triangle count. See `buildStream`.
-      streamTris: this.stream
-        ? (this.stream.geometry.getIndex()?.count ?? 0) / 3
-        : 0,
+      streamTris: this.stream ? (this.stream.geometry.getIndex()?.count ?? 0) / 3 : 0,
       canalStones: this.canalStones,
-      ...(this.fall?.stats() ?? {}),
+      ...this.fall?.stats(),
     };
   }
 
@@ -999,7 +1118,10 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     for (let i = 0; i < local.length; i += 6) {
       this.toWorld(local[i], local[i + 1], _dbg);
       out.push(
-        _dbg.x, _dbg.z, local[i + 2], local[i + 3],
+        _dbg.x,
+        _dbg.z,
+        local[i + 2],
+        local[i + 3],
         // A local bearing `a` comes out as `a + yaw`, as in `StructureField.add`.
         local[i + 4] + this.yaw,
         local[i + 5] + this.y,
@@ -1033,8 +1155,12 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   dispose(): void {
     this.npcs?.dispose();
     this.fall?.dispose();
-    for (const g of this.geos) g.dispose();
-    for (const m of this.mats) m.dispose();
+    for (const g of this.geos) {
+      g.dispose();
+    }
+    for (const m of this.mats) {
+      m.dispose();
+    }
     this.geos.length = 0;
     this.mats.length = 0;
   }
@@ -1046,7 +1172,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   private emit(acc: Accum, mat: THREE.Material, shadows: boolean, owned: boolean): void {
     const geo = acc.toGeometry();
     if (!geo) {
-      if (owned) mat.dispose();
+      if (owned) {
+        mat.dispose();
+      }
       return;
     }
     const mesh = new THREE.Mesh(geo, mat);
@@ -1055,7 +1183,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     mesh.matrixAutoUpdate = false;
     this.root.add(mesh);
     this.geos.push(geo);
-    if (owned) this.mats.push(mat);
+    if (owned) {
+      this.mats.push(mat);
+    }
   }
 
   /**
@@ -1080,15 +1210,16 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
 
     /** Is this cell inside a flagged street? Asked of the path network (issue #142), so
      * what is drawn and what a tree is kept out of cannot drift. Zero is the rim. */
-    const onPath = (wx: number, wz: number): boolean =>
-      this.streets.edgeDistanceTo(wx, wz) < 0;
+    const onPath = (wx: number, wz: number): boolean => this.streets.edgeDistanceTo(wx, wz) < 0;
 
     /** THE SQUARE IS PAVED, not worn: everything inside `PLAZA` is flagstone. */
     const onPlaza = (wx: number, wz: number): boolean => wx * wx + wz * wz < PLAZA * PLAZA;
 
     /** Flagstone, and counted so a probe can say the fold-in moved no cell. */
     const paved = (wx: number, wz: number): boolean => {
-      if (!onPlaza(wx, wz) && !onPath(wx, wz)) return false;
+      if (!onPlaza(wx, wz) && !onPath(wx, wz)) {
+        return false;
+      }
       this.pavedCells++;
       return true;
     };
@@ -1102,22 +1233,33 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
         const wz = (gz + 0.5) * CELL;
         const d = Math.hypot(gx + 0.5, gz + 0.5);
         const edge = outlineAt(Math.atan2(wx, wz), this.phase);
-        if (d > edge) continue;
+        if (d > edge) {
+          continue;
+        }
         const depth = depthAt(keelD01(gx, gz, this.phase), gx, gz);
         // THE LIP: turf reaches the outline, stone stops a course short, so the grass
         // overhangs and prints a shadow line. `lipAt` makes the setback ragged.
         const stone = d <= edge - lipAt(gx, gz);
         // THE GREY RIM-STONE COLLAR, ragged inside as `lipAt` is outside. A SALT OF ITS
         // OWN: sharing `lipAt`'s would correlate the two edges into one big notch.
-        const rim = d > edge - RIM_STONE
-          - (hash2(Math.floor(gx / 2), Math.floor(gz / 2), 89) < 0.35 ? 1 : 0);
+        const rim =
+          d > edge - RIM_STONE - (hash2(Math.floor(gx / 2), Math.floor(gz / 2), 89) < 0.35 ? 1 : 0);
         this.paintColumn(
-          v, gx, gz, depth, stone,
+          v,
+          gx,
+          gz,
+          depth,
+          stone,
           // The bed first: the collar reads 0 at the outflow, cut by the stream.
-          onStream(plan.fallAngle, wx, wz) ? 'streambed'
-            : rim ? 'rimstone'
-              : paved(wx, wz) ? 'paved'
-                : onPlot(wx, wz) ? 'tilled' : 'turf',
+          onStream(plan.fallAngle, wx, wz)
+            ? "streambed"
+            : rim
+              ? "rimstone"
+              : paved(wx, wz)
+                ? "paved"
+                : onPlot(wx, wz)
+                  ? "tilled"
+                  : "turf",
         );
       }
     }
@@ -1134,7 +1276,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
-    mesh.name = 'sky:rock';
+    mesh.name = "sky:rock";
     this.rock = mesh;
     this.rockMinY = v.bounds(false).minY;
     this.root.add(mesh);
@@ -1184,8 +1326,12 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
         // The SAME two tests `buildRock` paints the bed with, off the same cell centre.
         const wx = (gx + 0.5) * CELL;
         const wz = (gz + 0.5) * CELL;
-        if (Math.hypot(gx + 0.5, gz + 0.5) > outlineAt(Math.atan2(wx, wz), this.phase)) continue;
-        if (!onStream(plan.fallAngle, wx, wz)) continue;
+        if (Math.hypot(gx + 0.5, gz + 0.5) > outlineAt(Math.atan2(wx, wz), this.phase)) {
+          continue;
+        }
+        if (!onStream(plan.fallAngle, wx, wz)) {
+          continue;
+        }
         const base = pos.length / 3;
         corner(gx, gz);
         corner(gx + 1, gz);
@@ -1194,14 +1340,16 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
         idx.push(base, base + 2, base + 3, base, base + 3, base + 1);
       }
     }
-    if (idx.length === 0) return;
+    if (idx.length === 0) {
+      return;
+    }
 
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-    geo.setAttribute('aDepth', new THREE.Float32BufferAttribute(dep, 1));
-    geo.setAttribute('aShore', new THREE.Float32BufferAttribute(sho, 1));
-    geo.setAttribute('aLand', new THREE.Float32BufferAttribute(lnd, 1));
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+    geo.setAttribute("aDepth", new THREE.Float32BufferAttribute(dep, 1));
+    geo.setAttribute("aShore", new THREE.Float32BufferAttribute(sho, 1));
+    geo.setAttribute("aLand", new THREE.Float32BufferAttribute(lnd, 1));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
     // The world's water minus the chunk-streaming dissolve, which has no far sheet here.
@@ -1214,7 +1362,7 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     mesh.receiveShadow = false;
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
-    mesh.name = 'sky:stream';
+    mesh.name = "sky:stream";
     this.stream = mesh;
     this.root.add(mesh);
     this.geos.push(geo);
@@ -1225,8 +1373,12 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
   /** One column: turf (or flagstone, or streambed), dirt, then stone to `depth` — only
    * cells whose faces show. `stone` is false on the rim ring, so the turf overhangs. */
   private paintColumn(
-    v: VoxelModel, gx: number, gz: number, depth: number, stone: boolean,
-    surface: 'turf' | 'paved' | 'tilled' | 'streambed' | 'rimstone',
+    v: VoxelModel,
+    gx: number,
+    gz: number,
+    depth: number,
+    stone: boolean,
+    surface: "turf" | "paved" | "tilled" | "streambed" | "rimstone",
   ): void {
     const j = hash2(gx, gz, 7);
     // Direction-neutral base: the live key light owns azimuth (issue #87).
@@ -1236,30 +1388,34 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     // ...and the occlusion half: down to `SUN_SHADE_K` across the terminator, then up
     // toward `SUN_BOUNCE`. Not faded with depth — the root has the most bounce.
     const away = Math.max(0, -facing);
-    const sunShade = away <= SUN_KNEE
-      ? 1 - (1 - SUN_SHADE_K) * (away / SUN_KNEE)
-      : SUN_SHADE_K + (SUN_BOUNCE - SUN_SHADE_K) * ((away - SUN_KNEE) / (1 - SUN_KNEE));
+    const sunShade =
+      away <= SUN_KNEE
+        ? 1 - (1 - SUN_SHADE_K) * (away / SUN_KNEE)
+        : SUN_SHADE_K + (SUN_BOUNCE - SUN_SHADE_K) * ((away - SUN_KNEE) / (1 - SUN_KNEE));
     const sunTint = facing >= 0 ? ROCK_WARM : ROCK_COOL;
     // THE COOL TINT PEAKS AT THE TERMINATOR AND IS GONE BY THE BACK: full shade is lit
     // by skylight and the ambient is already sky-coloured, so a cool albedo there
     // double-counts and reads as navy. The warm half needs no such treatment.
-    const coolFall = away <= SUN_KNEE
-      ? away / SUN_KNEE
-      : Math.max(0, 1 - (away - SUN_KNEE) / (1 - SUN_KNEE));
+    const coolFall =
+      away <= SUN_KNEE ? away / SUN_KNEE : Math.max(0, 1 - (away - SUN_KNEE) / (1 - SUN_KNEE));
     const sunMix = facing >= 0 ? facing * SUN_WARM_MIX : coolFall * SUN_COOL_MIX;
     // FOUR GROUND MATERIALS, one per column: flagstone, tilled rows, gravel, turf.
     let topC: number;
     // The bed is SEEN THROUGH the water, so its jitter is wider. See BED.
-    if (surface === 'streambed') topC = shade(j < 0.45 ? BED : BED_D, 0.90 + j * 0.22);
+    if (surface === "streambed") {
+      topC = shade(j < 0.45 ? BED : BED_D, 0.9 + j * 0.22);
+    }
     // THE COLLAR IS THE CLIFF SEEN END-ON, so it takes the cliff's stops — except its
     // top face, which takes only a token 0.15 of the tint. See `RIM_TOP`.
-    else if (surface === 'rimstone') {
+    else if (surface === "rimstone") {
       topC = tintTo(shade(RIM_TOP, 0.92 + j * 0.18), sunTint, sunMix * 0.15);
+    } else if (surface === "paved") {
+      topC = shade(j < 0.5 ? PATH : PATH_D, 0.94 + j * 0.14);
     }
-    else if (surface === 'paved') topC = shade(j < 0.5 ? PATH : PATH_D, 0.94 + j * 0.14);
     // Tilled soil runs in ROWS: one cell of furrow shadow every third.
-    else if (surface === 'tilled') topC = shade(gz % 3 === 0 ? TILL_D : TILL, 0.94 + j * 0.14);
-    else {
+    else if (surface === "tilled") {
+      topC = shade(gz % 3 === 0 ? TILL_D : TILL, 0.94 + j * 0.14);
+    } else {
       // A second salt on a different lattice, or the lawn wears a checkerboard.
       const g = hash2(gx * 3, gz * 7, 17);
       topC = shade(g < 0.18 ? GRASS_L : g < 0.68 ? GRASS : GRASS_D, 0.94 + j * 0.14);
@@ -1267,22 +1423,34 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     v.set(gx, -1, gz, topC);
     // ...EXCEPT UNDER THE COLLAR, where it is stone too: the collar IS the cliff's top,
     // so there is no soil in it. The dirt line still runs where the turf reaches the edge.
-    v.set(gx, -2, gz, surface === 'rimstone'
-      ? tintTo(shade(STONE_D, (0.92 + j * 0.2) * sunBase * sunShade), sunTint, sunMix)
-      : shade(j < 0.5 ? DIRT : DIRT_D, 0.92 + j * 0.2));
+    v.set(
+      gx,
+      -2,
+      gz,
+      surface === "rimstone"
+        ? tintTo(shade(STONE_D, (0.92 + j * 0.2) * sunBase * sunShade), sunTint, sunMix)
+        : shade(j < 0.5 ? DIRT : DIRT_D, 0.92 + j * 0.2),
+    );
     if (!stone) {
       // An overhanging lip is soil all the way down.
-      v.set(gx, -3, gz, surface === 'rimstone'
-        ? tintTo(shade(STONE_D, (0.9 + j * 0.2) * sunBase * sunShade), sunTint, sunMix)
-        : shade(DIRT_D, 0.9 + j * 0.2));
+      v.set(
+        gx,
+        -3,
+        gz,
+        surface === "rimstone"
+          ? tintTo(shade(STONE_D, (0.9 + j * 0.2) * sunBase * sunShade), sunTint, sunMix)
+          : shade(DIRT_D, 0.9 + j * 0.2),
+      );
       return;
     }
 
     // A cell is painted when a face of it can be seen: near the top, at the bottom of
     // its own column, or where a neighbour is shallower.
     const nb = [
-      this.columnDepth(gx + 1, gz), this.columnDepth(gx - 1, gz),
-      this.columnDepth(gx, gz + 1), this.columnDepth(gx, gz - 1),
+      this.columnDepth(gx + 1, gz),
+      this.columnDepth(gx - 1, gz),
+      this.columnDepth(gx, gz + 1),
+      this.columnDepth(gx, gz - 1),
     ];
     // THE STRATA ARE HORIZONTAL: keyed on ABSOLUTE depth, not on a fraction of a
     // column's own depth, which put neighbours of different depth in different bands and
@@ -1296,15 +1464,16 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       // Whether any SIDE face is open — the question the soffit lift turns on.
       const sideOpen = nb.some((n) => n < k);
       const exposed = bottom || k <= 4 || sideOpen;
-      if (!exposed) continue;
+      if (!exposed) {
+        continue;
+      }
       const u = Math.min(1, Math.max(0, (k + bed - 3) / (MAXD - 3)));
       // FOUR STOPS; `CLIFF` is 16 of 74 courses, i.e. u < 0.18, which is why the light
       // stop reaches that far. A cell only ever seen as a soffit gets `STONE_SOFFIT`.
-      const band = u > 0.72 ? STONE_ROOT : u > 0.46 ? STONE_DEEP : u > 0.20 ? STONE_D : STONE;
+      const band = u > 0.72 ? STONE_ROOT : u > 0.46 ? STONE_DEEP : u > 0.2 ? STONE_D : STONE;
       // Every bottom cell is a soffit; only some are nothing else. One with an open side
       // face shows a lit face too, so it goes half way — one voxel, two cameras.
-      const c = !bottom ? band
-        : sideOpen ? tintTo(band, STONE_SOFFIT, 0.45) : STONE_SOFFIT;
+      const c = !bottom ? band : sideOpen ? tintTo(band, STONE_SOFFIT, 0.45) : STONE_SOFFIT;
       const jj = hash2(gx, gz - k * 31, 13);
       // A ledge's TOP face catches the sky. `drop` is how far below the shelf's lip a
       // cell sits: lip, then the course catching its bounce, then wall — three values.
@@ -1319,14 +1488,20 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
       const under = 1;
       // COURSING, in the sheer band only: `ref-hero.png` draws block courses on the part
       // sheer enough to show them. Below it the shelves' own lips do the job.
-      const course = u < 0.30 ? (k % 4 === 0 ? 0.76 : k % 4 === 2 ? 1.18 : 1) : 1;
+      const course = u < 0.3 ? (k % 4 === 0 ? 0.76 : k % 4 === 2 ? 1.18 : 1) : 1;
       // THE DEPTH RAMP RUNS THE OTHER WAY NOW — see `DEPTH_LIFT`.
       // The jitter is the other half of the flat-flank fix: ±0.21 about 0.99 doubles the
       // grain without moving the mean.
-      v.set(gx, -k, gz, tintTo(
-        shade(c, (0.66 + jj * 0.70) * (1 + DEPTH_LIFT * u) * shelf * course * under * dir),
-        sunTint, sunMix,
-      ));
+      v.set(
+        gx,
+        -k,
+        gz,
+        tintTo(
+          shade(c, (0.66 + jj * 0.7) * (1 + DEPTH_LIFT * u) * shelf * course * under * dir),
+          sunTint,
+          sunMix,
+        ),
+      );
     }
 
     // Vines, rim columns only — a strand mid-island would be inside the rock. AN ACCENT,
@@ -1347,7 +1522,9 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
     const wz = (gz + 0.5) * CELL;
     const d = Math.hypot(gx + 0.5, gz + 0.5);
     const edge = outlineAt(Math.atan2(wx, wz), this.phase);
-    if (d > edge - lipAt(gx, gz)) return 0;
+    if (d > edge - lipAt(gx, gz)) {
+      return 0;
+    }
     return depthAt(keelD01(gx, gz, this.phase), gx, gz);
   }
 }
@@ -1357,26 +1534,32 @@ export class SkyIsland extends CarrierBody implements NpcFrame {
  * and the plan. EVERY COORDINATE IS LOCAL. It gets a plan rather than a road network
  * and a height field, because the plan had to exist before the ground did.
  */
-export type CarriedLayout = (
-  solid: SolidStamp,
-  parts: SkyParts,
-  plan: SkyPlan,
-) => void;
+export type CarriedLayout = (solid: SolidStamp, parts: SkyParts, plan: SkyPlan) => void;
 
 /**
  * Skyhaven: a tower on a square, cottages facing it, trees at the rim, a rail that
  * marks the edge without closing it. Where is `planSkyhaven`; this is only stamping.
  */
 const buildSkyhaven: CarriedLayout = (solid, parts, plan) => {
-  for (const b of plan.buildings) solid.add(b.t, b.x, 0, b.z, b.yaw, b.s ?? 1);
-  for (const f of plan.fences) solid.add(parts.fence, f.x, 0, f.z, f.yaw);
-  for (const l of plan.lamps) solid.add(parts.lamp, l.x, 0, l.z, l.yaw);
+  for (const b of plan.buildings) {
+    solid.add(b.t, b.x, 0, b.z, b.yaw, b.s ?? 1);
+  }
+  for (const f of plan.fences) {
+    solid.add(parts.fence, f.x, 0, f.z, f.yaw);
+  }
+  for (const l of plan.lamps) {
+    solid.add(parts.lamp, l.x, 0, l.z, l.yaw);
+  }
   // The trees go through the same stamp, which blocks them: a template carries the
   // `trunk` its bake measured and `StructureField.add` makes a bole (issue #80).
-  for (const t of plan.trees) solid.add(t.t, t.x, 0, t.z, t.yaw, t.s);
+  for (const t of plan.trees) {
+    solid.add(t.t, t.x, 0, t.z, t.yaw, t.s);
+  }
   // The canal stones block like every other boulder: what you stand next to stops you
   // sliding into the current where the rail is deliberately missing.
-  for (const r of plan.rocks) solid.add(r.t, r.x, 0, r.z, r.yaw, r.s);
+  for (const r of plan.rocks) {
+    solid.add(r.t, r.x, 0, r.z, r.yaw, r.s);
+  }
 };
 
 /** The carried layouts this build implements. See `TownData.carried`. */
@@ -1395,7 +1578,7 @@ type SkyTownInfo = {
 
 interface SkyTownData {
   id: string;
-  nameKey: TownInfo['nameKey'];
+  nameKey: TownInfo["nameKey"];
   layout: string;
   radius: number;
   color: number;
@@ -1405,21 +1588,28 @@ interface SkyTownData {
  * since ignoring it is how content gets authored against a feature that is not there. */
 export function readCarriedTown(): SkyTownData | null {
   let found: SkyTownData | null = null;
-  for (const asset of content.all<TownData>('town')) {
-    if (!asset.data.carried) continue;
+  for (const asset of content.all<TownData>("town")) {
+    if (!asset.data.carried) {
+      continue;
+    }
     if (found) {
       reportContentIssue({
-        severity: 'warn',
-        code: 'bad-field',
+        severity: "warn",
+        code: "bad-field",
         message: `"${asset.id}" is a second carried town; this world builds one`,
-        assetId: asset.id, assetType: asset.type, pkg: asset.pkg, source: asset.source,
-        field: 'data.carried',
-        fix: 'one carried settlement per zone, for now',
+        assetId: asset.id,
+        assetType: asset.type,
+        pkg: asset.pkg,
+        source: asset.source,
+        field: "data.carried",
+        fix: "one carried settlement per zone, for now",
       });
       continue;
     }
     const nameKey = displayKey(asset);
-    if (nameKey === null) continue;
+    if (nameKey === null) {
+      continue;
+    }
     found = {
       id: asset.id.slice(asset.type.length + 1),
       nameKey,

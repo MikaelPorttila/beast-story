@@ -10,20 +10,20 @@
 // strictly serially; here the world is built once and the probes' sections run
 // against it back to back, teleporting between sites.
 //
-import { launchBrowser } from './browser.mjs';
-import { bootGamePage, runModules } from './suite/harness.mjs';
+import { launchBrowser } from "./browser.mjs";
+import { bootGamePage, runModules } from "./suite/harness.mjs";
 // The roster — membership AND order — lives in suite/roster.mjs, shared with
 // probe.mjs so the two runners cannot disagree about what is converted.
-import { CONVERTED } from './suite/roster.mjs';
+import { CONVERTED } from "./suite/roster.mjs";
 
 const argv = process.argv.slice(2);
-const json = argv.includes('--json');
-const names = argv.filter((a) => !a.startsWith('--'));
+const json = argv.includes("--json");
+const names = argv.filter((a) => !a.startsWith("--"));
 const picked = names.length ? names : CONVERTED;
 
 const unknown = picked.filter((n) => !CONVERTED.includes(n));
 if (unknown.length) {
-  console.error(`not converted: ${unknown.join(', ')}\n  converted: ${CONVERTED.join(' ')}`);
+  console.error(`not converted: ${unknown.join(", ")}\n  converted: ${CONVERTED.join(" ")}`);
   process.exit(2);
 }
 // Whatever subset was asked for runs in roster order — see the ORDER note above.
@@ -59,14 +59,17 @@ try {
     fails: out.fails,
     pass: out.fails.length === 0,
   };
-  if (json) console.log(JSON.stringify(summary));
-  else {
+  if (json) {
+    console.log(JSON.stringify(summary));
+  } else {
     console.log(JSON.stringify(summary, null, 2));
-    console.log(`\n${run.length} probes, ${out.sections} sections in `
-      + `${(totalMs / 1000).toFixed(1)}s (boot ${(bootMs / 1000).toFixed(1)}s)`);
+    console.log(
+      `\n${run.length} probes, ${out.sections} sections in ` +
+        `${(totalMs / 1000).toFixed(1)}s (boot ${(bootMs / 1000).toFixed(1)}s)`,
+    );
   }
   if (out.fails.length) {
-    console.error(`\n${out.fails.length} failure(s):\n  ${out.fails.join('\n  ')}`);
+    console.error(`\n${out.fails.length} failure(s):\n  ${out.fails.join("\n  ")}`);
     process.exitCode = 1;
   }
 } finally {

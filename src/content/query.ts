@@ -1,9 +1,9 @@
 // Condition eval and text resolution are INJECTED so this layer imports neither
 // the state store nor i18n. `available()` is the only frame path; the rest is tooling.
 
-import { compareIds } from './ids';
-import type { ContentGraph } from './graph';
-import type { ContentRegistry } from './registry';
+import { compareIds } from "./ids";
+import type { ContentGraph } from "./graph";
+import type { ContentRegistry } from "./registry";
 import type {
   Condition,
   ContentAsset,
@@ -11,7 +11,7 @@ import type {
   ContentQuery,
   ContentText,
   ContentTypeName,
-} from './types';
+} from "./types";
 
 const NO_ASSETS: readonly ContentAsset[] = Object.freeze([]);
 
@@ -24,10 +24,10 @@ export type TextResolver = (text: ContentText | undefined) => string;
 // Found by enumeration, never referenced — so excluded from `orphans()` by default.
 // Not frozen: freezing a Set does not stop `add`; `ReadonlySet` is the real guard.
 export const ENUMERATED_TYPES: ReadonlySet<ContentTypeName> = new Set<ContentTypeName>([
-  'town',
-  'biome',
-  'enemy',
-  'quest',
+  "town",
+  "biome",
+  "enemy",
+  "quest",
 ]);
 
 export class Query implements ContentQuery {
@@ -61,7 +61,9 @@ export class Query implements ContentQuery {
 
   /** Assets carrying EVERY tag. Zero tags answers empty, not everything. */
   byTag(...tags: readonly string[]): readonly ContentAsset[] {
-    if (tags.length === 0) return NO_ASSETS;
+    if (tags.length === 0) {
+      return NO_ASSETS;
+    }
     const out: ContentAsset[] = [];
     for (const asset of this.registry.assets()) {
       let ok = true;
@@ -71,7 +73,9 @@ export class Query implements ContentQuery {
           break;
         }
       }
-      if (ok) out.push(asset);
+      if (ok) {
+        out.push(asset);
+      }
     }
     return Object.freeze(out);
   }
@@ -79,7 +83,9 @@ export class Query implements ContentQuery {
   // Substring match over id, tags and resolved name. Sorted by id so tools can diff.
   search(text: string, type?: ContentTypeName): readonly ContentAsset[] {
     const needle = text.trim().toLowerCase();
-    if (needle === '') return NO_ASSETS;
+    if (needle === "") {
+      return NO_ASSETS;
+    }
     const pool = type === undefined ? this.registry.assets() : this.registry.all(type);
     const out: ContentAsset[] = [];
     for (const asset of pool) {
@@ -96,9 +102,11 @@ export class Query implements ContentQuery {
       }
       if (!hit) {
         const name = this.text(asset.name);
-        hit = name !== '' && name.toLowerCase().includes(needle);
+        hit = name !== "" && name.toLowerCase().includes(needle);
       }
-      if (hit) out.push(asset);
+      if (hit) {
+        out.push(asset);
+      }
     }
     out.sort((a, b) => compareIds(a.id, b.id));
     return Object.freeze(out);
@@ -112,7 +120,9 @@ export class Query implements ContentQuery {
     for (let i = 0; i < all.length; i++) {
       const asset = all[i];
       if (asset.when === undefined || this.evaluate(asset.when)) {
-        if (out) out.push(asset);
+        if (out) {
+          out.push(asset);
+        }
       } else if (!out) {
         out = all.slice(0, i);
       }

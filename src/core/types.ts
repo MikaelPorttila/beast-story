@@ -1,18 +1,33 @@
-import * as THREE from 'three';
-import type { PluralKey, StringKey } from '../i18n';
-import type { ContentText } from '../content/types';
+import * as THREE from "three";
+import type { PluralKey, StringKey } from "../i18n";
+import type { ContentText } from "../content/types";
 
 export type ElementType =
-  | 'fire' | 'water' | 'grass' | 'electric' | 'ice'
-  | 'rock' | 'wind' | 'shadow' | 'light' | 'dragon';
+  | "fire"
+  | "water"
+  | "grass"
+  | "electric"
+  | "ice"
+  | "rock"
+  | "wind"
+  | "shadow"
+  | "light"
+  | "dragon";
 
 export const ELEMENT_COLORS: Record<ElementType, number> = {
-  fire: 0xff6b35, water: 0x3fa7f5, grass: 0x6dbf4b, electric: 0xffd23f,
-  ice: 0x9fdcf0, rock: 0xb08e5f, wind: 0xb8e8d0, shadow: 0x7a5fa8,
-  light: 0xfff3c4, dragon: 0xe05580,
+  fire: 0xff6b35,
+  water: 0x3fa7f5,
+  grass: 0x6dbf4b,
+  electric: 0xffd23f,
+  ice: 0x9fdcf0,
+  rock: 0xb08e5f,
+  wind: 0xb8e8d0,
+  shadow: 0x7a5fa8,
+  light: 0xfff3c4,
+  dragon: 0xe05580,
 };
 
-export type SkillTargeting = 'projectile' | 'melee' | 'aoe' | 'self' | 'beam' | 'support';
+export type SkillTargeting = "projectile" | "melee" | "aoe" | "self" | "beam" | "support";
 
 export interface SkillDef {
   /** Stable id, namespaced by species ('emberfox.flame-dart'). Never renamed. */
@@ -23,51 +38,51 @@ export interface SkillDef {
   targeting: SkillTargeting;
   /** Mana/stamina cost */
   cost: number;
-  cooldown: number;           // seconds
-  power: number;              // base damage or heal amount
-  range: number;              // world units
+  cooldown: number; // seconds
+  power: number; // base damage or heal amount
+  range: number; // world units
   /** Level at which a beast learns this naturally; undefined = store-only */
   learnAtLevel?: number;
   /** Price in shards if buyable at a Skill Den; undefined = level-up only */
   storePrice?: number;
-  castAnim: 'cast' | 'attack' | 'special';
+  castAnim: "cast" | "attack" | "special";
 }
 
-export type Locomotion = 'ground' | 'flying' | 'swimming' | 'amphibious';
+export type Locomotion = "ground" | "flying" | "swimming" | "amphibious";
 
 /** DISPLAY keys for the four gaits. 'swimming' shows as 'Aquatic' — the card names a TYPE. */
 export const LOCOMOTION_NAME_KEYS: Record<Locomotion, StringKey> = {
-  ground: 'loco.ground.name',
-  flying: 'loco.flying.name',
-  swimming: 'loco.swimming.name',
-  amphibious: 'loco.amphibious.name',
+  ground: "loco.ground.name",
+  flying: "loco.flying.name",
+  swimming: "loco.swimming.name",
+  amphibious: "loco.amphibious.name",
 };
 
 /** What the STORY unlocks: the two aquatic gaits share one unlock (game-story.md §5). */
-export type MountKind = 'ground' | 'water' | 'flying';
+export type MountKind = "ground" | "water" | "flying";
 
 /** Display and iteration order: the order the acts hand them out. */
-export const MOUNT_KINDS: readonly MountKind[] = ['ground', 'water', 'flying'];
+export const MOUNT_KINDS: readonly MountKind[] = ["ground", "water", "flying"];
 
 /** Which unlock a species answers to. */
 export const MOUNT_KIND_OF: Record<Locomotion, MountKind> = {
-  ground: 'ground',
-  flying: 'flying',
-  swimming: 'water',
-  amphibious: 'water',
+  ground: "ground",
+  flying: "flying",
+  swimming: "water",
+  amphibious: "water",
 };
 
 export const MOUNT_KIND_KEYS: Record<MountKind, { name: StringKey; desc: StringKey }> = {
-  ground: { name: 'mount.kind.ground.name', desc: 'mount.kind.ground.desc' },
-  water: { name: 'mount.kind.water.name', desc: 'mount.kind.water.desc' },
-  flying: { name: 'mount.kind.flying.name', desc: 'mount.kind.flying.desc' },
+  ground: { name: "mount.kind.ground.name", desc: "mount.kind.ground.desc" },
+  water: { name: "mount.kind.water.name", desc: "mount.kind.water.desc" },
+  flying: { name: "mount.kind.flying.name", desc: "mount.kind.flying.desc" },
 };
 
 export interface BeastStats {
   maxHp: number;
   attack: number;
   defense: number;
-  speed: number;      // world units / s while following
+  speed: number; // world units / s while following
 }
 
 /** Voxel body parts. The framework calls the species' animate() every frame. */
@@ -81,8 +96,16 @@ export interface BeastRig {
 }
 
 export type BeastAction =
-  | 'idle' | 'walk' | 'run' | 'swim' | 'fly'
-  | 'attack' | 'cast' | 'special' | 'hurt' | 'happy';
+  | "idle"
+  | "walk"
+  | "run"
+  | "swim"
+  | "fly"
+  | "attack"
+  | "cast"
+  | "special"
+  | "hurt"
+  | "happy";
 
 /** Independent cycle slots per species; four covers the roster. */
 export const BEAST_CYCLE_SLOTS = 4;
@@ -133,12 +156,20 @@ export const MAX_STEP_UP = 0.5;
  * Issue #78 is what a radius alone gives, an infinite vertical column. Squared, no allocation.
  */
 export function inReach(
-  ax: number, ay: number, az: number,
-  bx: number, by: number, bz: number,
-  radius: number, up: number, down = up,
+  ax: number,
+  ay: number,
+  az: number,
+  bx: number,
+  by: number,
+  bz: number,
+  radius: number,
+  up: number,
+  down = up,
 ): boolean {
   const dy = by - ay;
-  if (dy > up || dy < -down) return false;
+  if (dy > up || dy < -down) {
+    return false;
+  }
   const dx = bx - ax;
   const dz = bz - az;
   return dx * dx + dz * dz <= radius * radius;
@@ -169,7 +200,7 @@ export interface TownInfo {
   /** DISPLAY name key; a quest prints this and stores `id`. */
   readonly nameKey: StringKey;
   /** 'camp' is the walled start town; 'hamlet' is an open settlement. */
-  readonly kind: 'camp' | 'hamlet';
+  readonly kind: "camp" | "hamlet";
   readonly x: number;
   /** Levelled ground height at the centre. */
   readonly y: number;
@@ -335,12 +366,12 @@ export interface NpcField {
 }
 
 /** How a body moves: a walker SHOVES what it passes through, a flyer BLOWS from above. */
-export type DisturbKind = 'walk' | 'fly';
+export type DisturbKind = "walk" | "fly";
 
 /** A slice of the world the F3 panel can hide. Named, not a mesh list: chunks streamed later must honour it. */
-export type WorldLayer = 'grass' | 'props' | 'water' | 'clouds';
+export type WorldLayer = "grass" | "props" | "water" | "clouds";
 
-export type TimeOfDaySource = 'auto' | 'quest' | 'debug';
+export type TimeOfDaySource = "auto" | "quest" | "debug";
 
 /** One allocation-free frame of the day/night system. The clock owns these vectors and colours — copy, never retain and mutate. */
 export interface CelestialState {
@@ -478,9 +509,7 @@ export interface World {
   /** Debug/authoring: does the straight run cross a DRAWN path? A heuristic — the router bends. */
   pathRunCrosses(ax: number, az: number, bx: number, bz: number): boolean;
   /** Would a straight run a-b hit something already STANDING (lamp, fingerpost), allowing `margin`? A runtime path arrives after the lamps. */
-  pathRunHitsBuilt(
-    ax: number, az: number, bx: number, bz: number, margin: number,
-  ): boolean;
+  pathRunHitsBuilt(ax: number, az: number, bx: number, bz: number, margin: number): boolean;
   /**
    * AUTHOR A PATH AT RUNTIME, rebuilding everything that assumed there was none (issue #142 §12a).
    * A DEVELOPER path — `/path`, `__dbgAddPath`, never gameplay: every chunk is dropped and rebuilt,
@@ -496,7 +525,10 @@ export interface World {
     /** Called after the rebuild, to re-ground anything standing on it. */
     refit?: () => void;
   }): {
-    id: string; length: number; samples: number; note: string | null;
+    id: string;
+    length: number;
+    samples: number;
+    note: string | null;
     /** Junctions the merge created, and every crossing it refused. */
     nodes: Array<{ x: number; z: number; y: number; arms: number }>;
     refused: string[];
@@ -509,12 +541,24 @@ export interface World {
    * `TownRegistry.roads` this sees beaten tracks — the issue #142 invariant is that a track is
    * visible to what GROWS (`edge`) and not to what is BUILT (`builtEdge`).
    */
-  debugPaths(x?: number, z?: number): {
+  debugPaths(
+    x?: number,
+    z?: number,
+  ): {
     paths: Array<{
-      id: string; profile: string; deckHalf: number; deckEdge: number;
-      wear: number; draw: boolean; surface: boolean; refusesBuilt: boolean;
+      id: string;
+      profile: string;
+      deckHalf: number;
+      deckEdge: number;
+      wear: number;
+      draw: boolean;
+      surface: boolean;
+      refusesBuilt: boolean;
       litter: number;
-      x0: number; z0: number; x1: number; z1: number;
+      x0: number;
+      z0: number;
+      x1: number;
+      z1: number;
     }>;
     at: { edge: number; builtEdge: number; wear: number; litter: number } | null;
   };
@@ -533,7 +577,10 @@ export interface World {
     posts: Array<{ x: number; z: number; y: number; base: number; kind: string }>;
     closed: boolean;
     bays: Array<{
-      from: number; to: number; length: number; y: number;
+      from: number;
+      to: number;
+      length: number;
+      y: number;
       /** The highest walking surface under the bay — see `FenceBay.groundMax`. */
       groundMax: number;
     }>;
@@ -595,10 +642,17 @@ export interface WorldBound {
  * `blueprint` carries a power BUDGET, and an `orb` is readied to a gear slot but spent at a target.
  */
 export type ItemKind =
-  | 'currency' | 'stackable' | 'weapon' | 'blueprint' | 'potion' | 'quest' | 'beast' | 'orb';
+  | "currency"
+  | "stackable"
+  | "weapon"
+  | "blueprint"
+  | "potion"
+  | "quest"
+  | "beast"
+  | "orb";
 
 /** How loudly a slot shouts. Read by the inventory panel's border, and nothing else yet. */
-export type ItemRarity = 'common' | 'rare' | 'legendary';
+export type ItemRarity = "common" | "rare" | "legendary";
 
 /** Potion effect as optional terms, so heal-and-buff needs no new enum. `attack` needs `seconds` — a buff with no duration is permanent. */
 export interface ItemEffect {
@@ -663,7 +717,7 @@ export interface Damageable {
   isDead: boolean;
   /** Apply a hit. Returns whether it LANDED — false when already dead or inside i-frames, because an absorbed hit must produce no feedback. */
   takeDamage(amount: number, from: THREE.Vector3, element?: ElementType): boolean;
-  faction: 'player' | 'wild';
+  faction: "player" | "wild";
 }
 
 export interface CastRequest {
@@ -689,62 +743,62 @@ export interface CastRequest {
  */
 export type GameEvent =
   | {
-    type: 'beastLevelUp';
-    /** Identifier, for anything that has to know WHICH beast. */
-    beastId: string;
-    /** Display name key — `t(nameKey)`. */
-    nameKey: StringKey;
-    level: number;
-    learned?: SkillDef;
-  }
-  | { type: 'skillCast'; skillId: string; casterNameKey: StringKey }
+      type: "beastLevelUp";
+      /** Identifier, for anything that has to know WHICH beast. */
+      beastId: string;
+      /** Display name key — `t(nameKey)`. */
+      nameKey: StringKey;
+      level: number;
+      learned?: SkillDef;
+    }
+  | { type: "skillCast"; skillId: string; casterNameKey: StringKey }
   /** Damage that LANDED, never a hit absorbed by the i-frame window. `dirX`/`dirZ` are the unit knockback heading, attacker toward hero; nothing reads it yet. */
   | {
-    type: 'playerHurt';
-    amount: number;
-    /** `amount` as a share of the whole bar, so feedback scales without every listener carrying maxHp. */
-    amountFrac: number;
-    /** hp AFTER the hit, over maxHp: how close this one came to finishing him. */
-    hpFrac: number;
-    element?: ElementType;
-    dirX: number;
-    dirZ: number;
-    fatal: boolean;
-  }
-  | { type: 'playerDied' }
-  | { type: 'playerRevived' }
+      type: "playerHurt";
+      amount: number;
+      /** `amount` as a share of the whole bar, so feedback scales without every listener carrying maxHp. */
+      amountFrac: number;
+      /** hp AFTER the hit, over maxHp: how close this one came to finishing him. */
+      hpFrac: number;
+      element?: ElementType;
+      dirX: number;
+      dirZ: number;
+      fatal: boolean;
+    }
+  | { type: "playerDied" }
+  | { type: "playerRevived" }
   /** The hero hit the ground hard. `impact` is the landing ramp: 0 at the threshold, 1 at a bone-shaker. */
-  | { type: 'playerLanded'; impact: number }
+  | { type: "playerLanded"; impact: number }
   /** Damage the PLAYER'S side dealt, when it landed. `bySkill` separates sword from beast skill; `superEffective` is the element multiplier above 1. */
   | {
-    type: 'hitDealt';
-    amount: number;
-    crit: boolean;
-    superEffective: boolean;
-    element?: ElementType;
-    bySkill: boolean;
-    x: number;
-    y: number;
-    z: number;
-  }
+      type: "hitDealt";
+      amount: number;
+      crit: boolean;
+      superEffective: boolean;
+      element?: ElementType;
+      bySkill: boolean;
+      x: number;
+      y: number;
+      z: number;
+    }
   /** An orb left the hero's hand. Nothing acts on it: it exists so the throw FEELS like something (src/feedback). */
-  | { type: 'orbThrown'; orbId: string }
+  | { type: "orbThrown"; orbId: string }
   /** An orb landed and a bond WORKED. `beastId` is the SPECIES id; an event rather than a call, because combat must not learn what a `BeastActor` is. */
-  | { type: 'beastTamed'; beastId: string; nameKey: StringKey; orbId: string }
+  | { type: "beastTamed"; beastId: string; nameKey: StringKey; orbId: string }
   /** The orb broke and the animal escaped. Separate from `beastTamed` because a listener wants one or the other. */
-  | { type: 'bondFailed'; beastId: string; nameKey: StringKey; orbId: string }
+  | { type: "bondFailed"; beastId: string; nameKey: StringKey; orbId: string }
   /** One shake of a landed orb, 1-based, answer still unknown. Feel only; `of` lets a listener ramp. */
-  | { type: 'orbWobble'; index: number; of: number }
-  | { type: 'mounted'; beastId: string; flying: boolean }
-  | { type: 'dismounted'; beastId: string }
-  | { type: 'shardsChanged'; total: number }
+  | { type: "orbWobble"; index: number; of: number }
+  | { type: "mounted"; beastId: string; flying: boolean }
+  | { type: "dismounted"; beastId: string }
+  | { type: "shardsChanged"; total: number }
   /** A drop left the ground. `byBeast` is a support beast having fetched it — only the toast differs. */
-  | { type: 'itemPicked'; itemId: string; byBeast: boolean }
+  | { type: "itemPicked"; itemId: string; byBeast: boolean }
   /** `nameKey` is display and nothing renders it yet — main.ts reads only `xp`. */
-  | { type: 'enemyKilled'; nameKey: StringKey; xp: number }
-  | { type: 'shopOpened'; shopIndex: number }
-  | { type: 'shopClosed' }
-  | { type: 'toast'; text: string };
+  | { type: "enemyKilled"; nameKey: StringKey; xp: number }
+  | { type: "shopOpened"; shopIndex: number }
+  | { type: "shopClosed" }
+  | { type: "toast"; text: string };
 
 export type EventListener = (e: GameEvent) => void;
 
@@ -755,7 +809,9 @@ export class EventBus {
     return () => this.listeners.delete(fn);
   }
   emit(e: GameEvent): void {
-    for (const fn of this.listeners) fn(e);
+    for (const fn of this.listeners) {
+      fn(e);
+    }
   }
 }
 

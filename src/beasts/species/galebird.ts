@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
-import { makeContactBlob, updateContactBlob } from './contactshadow';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { eyes2x2, rimTop, shadeUnder } from "./voxelshade";
+import { makeContactBlob, updateContactBlob } from "./contactshadow";
 
 // Galebird — teal swallow, the fastest wings in the valley; forked streamers trail its
 // turns. Voxel scale 0.1 (1 cell = 10 cm), faces +Z, root at ground level.
@@ -33,7 +33,7 @@ const BODY_Y = 0.3;
 // Must match buildRig. The skull steps UP and FORWARD out of the shoulder line: flush,
 // there was no head/body break and the bird read as one teal lozenge with a bill.
 const HEAD_Y = 0.07;
-const HEAD_Z = 0.30;
+const HEAD_Z = 0.3;
 const STREAM_X = -0.55;
 const STREAM_YAW = 0.14;
 const HOVER = 1.55;
@@ -69,7 +69,9 @@ function makeTorso(): THREE.Mesh {
   }
   // Nape band on the THROAT only: run across the shoulders it appeared above the skull
   // head-on as a pale plate floating on the bird.
-  for (let x = -1; x <= 1; x++) m.set(x, 2, 3, COLLAR);
+  for (let x = -1; x <= 1; x++) {
+    m.set(x, 2, 3, COLLAR);
+  }
   return m.build(S, true);
 }
 
@@ -78,16 +80,26 @@ function makeHead(): THREE.Mesh {
   m.ellipsoid(0, 1.9, 0.1, 2.3, 1.8, 1.7, TEAL);
   m.ellipsoid(0, 3.0, -0.3, 2.0, 0.9, 1.4, DEEP);
   m.ellipsoid(0, 0.9, 1.2, 1.3, 0.8, 1.0, RUST);
-  m.box(-2, 1, 2, 2, 4, 2, TEAL);   // face plate; on the bare ellipsoid the outer eye
-                                    // column floated free of the skull
+  m.box(-2, 1, 2, 2, 4, 2, TEAL); // face plate; on the bare ellipsoid the outer eye
+  // column floated free of the skull
   rimTop(m, RIM, -2, 2, 0, 5, -2, 2);
   shadeUnder(m, DUSKTEAL, -2, 2, 0, 1, -2, 0);
   // Pale mask before the eyes go in: on a teal plate in shade a dark teal iris has no
   // boundary. It doubles as the swallow's pale cheek.
-  for (let x = -2; x <= 2; x++) { m.set(x, 2, 2, MIST); m.set(x, 3, 2, MIST); }
+  for (let x = -2; x <= 2; x++) {
+    m.set(x, 2, 2, MIST);
+    m.set(x, 3, 2, MIST);
+  }
   eyes2x2(m, {
-    inner: 1, width: 1, y: 2, faceZ: 2, iris: IRIS, shine: SHINE,
-    lid: DUSKTEAL, browProud: true, bridge: RIM,
+    inner: 1,
+    width: 1,
+    y: 2,
+    faceZ: 2,
+    iris: IRIS,
+    shine: SHINE,
+    lid: DUSKTEAL,
+    browProud: true,
+    bridge: RIM,
   });
   return m.build(S, true);
 }
@@ -127,11 +139,13 @@ function makeWingOuter(dir: 1 | -1): THREE.Mesh {
   const front = [1, 0, -1, -2, -3, -4];
   const back = [-3, -3, -4, -4, -5, -5];
   for (let x = 0; x < 6; x++) {
-    const tip = x >= 4;   // dark primaries, or the taper fades into the sky
+    const tip = x >= 4; // dark primaries, or the taper fades into the sky
     m.box(X(x), 0, back[x], X(x), 0, front[x], tip ? DUSKTEAL : TEAL);
     m.set(X(x), 0, front[x], tip ? DUSKTEAL : RIM);
     m.set(X(x), 0, back[x], DUSKTEAL);
-    if (x < 4) m.box(X(x), -1, back[x], X(x), -1, front[x] - 1, UNDER);
+    if (x < 4) {
+      m.box(X(x), -1, back[x], X(x), -1, front[x] - 1, UNDER);
+    }
   }
   return m.build(S, false);
 }
@@ -151,7 +165,9 @@ function makeStreamer(): THREE.Mesh {
   const colors = [DEEP, DEEP, TEAL, TEAL, STREAM_TIP, STREAM_TIP, STREAM_TIP];
   for (let i = 0; i < colors.length; i++) {
     m.set(0, 0, -i, colors[i]);
-    if (i < 4) m.set(1, 0, -i, colors[i]); // 1x1 was a hairline and the fork vanished
+    if (i < 4) {
+      m.set(1, 0, -i, colors[i]);
+    } // 1x1 was a hairline and the fork vanished
   }
   return m.build(S, false);
 }
@@ -226,7 +242,17 @@ function buildRig(): BeastRig {
   return {
     root,
     parts: {
-      body, head, beak, wingL, wingLOut, wingR, wingROut, tail, streamerL, streamerR, blob,
+      body,
+      head,
+      beak,
+      wingL,
+      wingLOut,
+      wingR,
+      wingROut,
+      tail,
+      streamerL,
+      streamerR,
+      blob,
     },
     height: 0.55,
     radius: 0.35,
@@ -242,18 +268,34 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
   updateContactBlob(p.blob, rig.root, 1 + 0.3 * clamp01(p.wingL.rotation.z), ctx.altitude);
 
-  let bpx = 0, bpy = BODY_Y, bpz = 0;
-  let brx = 0, bry = 0, brz = 0;
-  let bsx = 1, bsy = 1 + 0.01 * br, bsz = 1;
-  let hrx = 0, hry = 0, hrz = 0;
+  let bpx = 0,
+    bpy = BODY_Y,
+    bpz = 0;
+  let brx = 0,
+    bry = 0,
+    brz = 0;
+  let bsx = 1,
+    bsy = 1 + 0.01 * br,
+    bsz = 1;
+  let hrx = 0,
+    hry = 0,
+    hrz = 0;
   let beakX = 0;
-  let flapL = 0.12, flapR = 0.12, outL = 0.1, outR = 0.1;
-  let sweepL = 0.15, sweepR = 0.15;
-  let tfx = 0.1, tfy = 0;
-  let slx = STREAM_X, sly = 0, srx = STREAM_X, sry = 0;
+  let flapL = 0.12,
+    flapR = 0.12,
+    outL = 0.1,
+    outR = 0.1;
+  let sweepL = 0.15,
+    sweepR = 0.15;
+  let tfx = 0.1,
+    tfy = 0;
+  let slx = STREAM_X,
+    sly = 0,
+    srx = STREAM_X,
+    sry = 0;
 
   switch (ctx.action) {
-    case 'idle': {
+    case "idle": {
       const ph = ctx.cycle(BEAT, 4.4);
       // Shallow beat centred just above level: swinging past vertical caught both wings
       // edge-on behind the skull in a head-on hover. Wrist rule as in flight below.
@@ -277,7 +319,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       sry = 0.16 * Math.sin(sw - 1.6);
       break;
     }
-    case 'swim': {
+    case "swim": {
       const ph = ctx.cycle(BEAT, 3.4);
       flapL = 0.1 + 0.34 * Math.sin(ph);
       flapR = 0.1 + 0.34 * Math.sin(ph + Math.PI);
@@ -297,9 +339,9 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       sry = 0.3 * Math.sin(t * 1.6 + 1.1);
       break;
     }
-    case 'walk':
-    case 'run':
-    case 'fly': {
+    case "walk":
+    case "run":
+    case "fly": {
       // Integrated, not `t * f`: at a 35 s clock a moveSpeed catch-up moved the wing 1.86 rad
       // in ONE frame (test-beastanim); integrated, the same run steps 0.28.
       const f = 7.5 + 5 * ms;
@@ -319,7 +361,8 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       brz = bank;
       bry = 0.16 * Math.sin(t * 0.77 - 0.5) * ms;
       brx = -0.04 + 0.16 * ms + 0.35 * dive - 0.08 * g;
-      bpy += 0.035 * Math.sin(ph - 1.1) * (1 - g) * (1 - dive) + 0.025 * Math.sin(t * 1.9) - 0.06 * dive;
+      bpy +=
+        0.035 * Math.sin(ph - 1.1) * (1 - g) * (1 - dive) + 0.025 * Math.sin(t * 1.9) - 0.06 * dive;
       bpz = 0.05 * dive;
       bsz = 1 + 0.05 * dive;
       bsx = 1 - 0.03 * dive;
@@ -334,7 +377,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       sry = -1.1 * bank + 0.18 * Math.sin(t * 2.7 + 0.8);
       break;
     }
-    case 'attack': {
+    case "attack": {
       const wind = smooth(phase(at, 0, 0.14));
       const lunge = ezOut(phase(at, 0.14, 0.3));
       const rec = smooth(phase(at, 0.5, 0.85));
@@ -356,7 +399,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       sry = -sly;
       break;
     }
-    case 'cast': {
+    case "cast": {
       const rise = ezOut(clamp01(at / 0.4));
       const trem = 0.5 * Math.sin(t * 14) + 0.5 * Math.sin(t * 21);
       brx = -0.55 * rise + 0.02 * trem * rise;
@@ -372,14 +415,16 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       sry = -0.35 * rise - 0.05 * Math.sin(t * 9 + 1);
       break;
     }
-    case 'special': {
+    case "special": {
       const T = 0.85;
       const k = clamp01(at / T);
       const arc = Math.sin(Math.PI * k);
-      const flare = Math.sin(Math.PI * phase(at, T, T + 0.3)) * (1 - smooth(phase(at, T + 0.3, T + 0.7)));
+      const flare =
+        Math.sin(Math.PI * phase(at, T, T + 0.3)) * (1 - smooth(phase(at, T + 0.3, T + 0.7)));
       // Damped sink with the wings drooping half a beat behind, so the roll ends on a breath
       // rather than snapping back to the hover pose.
-      const settle = Math.exp(-4.5 * Math.max(0, at - (T + 0.3))) * smooth(phase(at, T + 0.25, T + 0.45));
+      const settle =
+        Math.exp(-4.5 * Math.max(0, at - (T + 0.3))) * smooth(phase(at, T + 0.25, T + 0.45));
       brz = Math.PI * 2 * smooth(k);
       brx = -0.2 * arc - 0.3 * flare + 0.14 * settle;
       bpy += 0.3 * arc + 0.08 * flare - 0.07 * settle;
@@ -397,7 +442,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       sry = 0.9 * Math.sin(at * 16 + 2.1);
       break;
     }
-    case 'hurt': {
+    case "hurt": {
       const d = Math.exp(-3.5 * at);
       bpx = 0.05 * Math.sin(at * 40) * d;
       bpy += -0.07 * d + 0.02 * Math.sin(at * 35) * d;
@@ -416,7 +461,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       sry = -sly;
       break;
     }
-    case 'happy': {
+    case "happy": {
       const hf = 5.4;
       const hop = Math.abs(Math.sin(at * hf));
       const ph = ctx.cycle(BEAT, 13);
@@ -458,65 +503,65 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
 export const skills: SkillDef[] = [
   {
-    id: 'galebird.gust-dart',
-    nameKey: 'skill.galebird.gust-dart.name',
-    descriptionKey: 'skill.galebird.gust-dart.desc',
-    element: 'wind',
-    targeting: 'projectile',
+    id: "galebird.gust-dart",
+    nameKey: "skill.galebird.gust-dart.name",
+    descriptionKey: "skill.galebird.gust-dart.desc",
+    element: "wind",
+    targeting: "projectile",
     cost: 5,
     cooldown: 1.6,
     power: 10,
     range: 16,
     learnAtLevel: 1,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'galebird.skyshear-dive',
-    nameKey: 'skill.galebird.skyshear-dive.name',
-    descriptionKey: 'skill.galebird.skyshear-dive.desc',
-    element: 'wind',
-    targeting: 'melee',
+    id: "galebird.skyshear-dive",
+    nameKey: "skill.galebird.skyshear-dive.name",
+    descriptionKey: "skill.galebird.skyshear-dive.desc",
+    element: "wind",
+    targeting: "melee",
     cost: 11,
     cooldown: 3.6,
     power: 20,
     range: 3,
     learnAtLevel: 5,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'galebird.tailwind',
-    nameKey: 'skill.galebird.tailwind.name',
-    descriptionKey: 'skill.galebird.tailwind.desc',
-    element: 'wind',
-    targeting: 'support',
+    id: "galebird.tailwind",
+    nameKey: "skill.galebird.tailwind.name",
+    descriptionKey: "skill.galebird.tailwind.desc",
+    element: "wind",
+    targeting: "support",
     cost: 12,
     cooldown: 9,
     power: 10,
     range: 7,
     storePrice: 150,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'galebird.cyclone-waltz',
-    nameKey: 'skill.galebird.cyclone-waltz.name',
-    descriptionKey: 'skill.galebird.cyclone-waltz.desc',
-    element: 'wind',
-    targeting: 'aoe',
+    id: "galebird.cyclone-waltz",
+    nameKey: "skill.galebird.cyclone-waltz.name",
+    descriptionKey: "skill.galebird.cyclone-waltz.desc",
+    element: "wind",
+    targeting: "aoe",
     cost: 23,
     cooldown: 11,
     power: 42,
     range: 5,
     storePrice: 380,
-    castAnim: 'special',
+    castAnim: "special",
   },
 ];
 
 export const species: BeastSpecies = {
-  id: 'galebird',
-  nameKey: 'beast.galebird.name',
-  element: 'wind',
-  locomotion: 'flying',
-  descriptionKey: 'beast.galebird.desc',
+  id: "galebird",
+  nameKey: "beast.galebird.name",
+  element: "wind",
+  locomotion: "flying",
+  descriptionKey: "beast.galebird.desc",
   baseStats: { maxHp: 36, attack: 12, defense: 4, speed: 8.0 },
   skills: skills.map((s) => s.id),
   buildRig,

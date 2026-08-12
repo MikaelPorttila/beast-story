@@ -68,9 +68,9 @@
  * high are you over this point". A cylinder on its side answers that with a
  * square root.
  */
-import { MAX_STEP_UP, type SiteClearance } from '../core/types';
-import type { VoxelModel, VoxelRegion } from '../core/voxel';
-import { Accum, bakeProp, type SolidBox, type SolidRidge, type Template } from './props';
+import { MAX_STEP_UP, type SiteClearance } from "../core/types";
+import type { VoxelModel, VoxelRegion } from "../core/voxel";
+import { Accum, bakeProp, type SolidBox, type SolidRidge, type Template } from "./props";
 
 /**
  * How high above a model's base collision material is looked for, in world
@@ -108,18 +108,22 @@ const WALK_UNDER = 2.0;
  * can walk into; the thatch around it is what stops you, and that is the
  * cylinder's job.
  */
-export function bakeSolid(
-  model: VoxelModel, scale: number, ...roofs: VoxelRegion[]
-): Template {
+export function bakeSolid(model: VoxelModel, scale: number, ...roofs: VoxelRegion[]): Template {
   const t = bakeProp(model, scale);
   const solid = measureFootprint(model, scale, roofs);
-  if (solid.length > 0) t.solid = solid;
+  if (solid.length > 0) {
+    t.solid = solid;
+  }
   const ridges: SolidRidge[] = [];
   for (const roof of roofs) {
     const r = measureRidge(model, scale, roof);
-    if (r) ridges.push(r);
+    if (r) {
+      ridges.push(r);
+    }
   }
-  if (ridges.length > 0) t.ridge = ridges;
+  if (ridges.length > 0) {
+    t.ridge = ridges;
+  }
   return t;
 }
 
@@ -219,10 +223,14 @@ function boleBox(trunk: { r: number; top: number }): SolidBox {
  * Runs once per template at boot, so it may allocate freely.
  */
 export function measureFootprint(
-  model: VoxelModel, scale: number, roofs: readonly VoxelRegion[] = [],
+  model: VoxelModel,
+  scale: number,
+  roofs: readonly VoxelRegion[] = [],
 ): SolidBox[] {
   const b = model.bounds(true);
-  if (!Number.isFinite(b.minX)) return [];
+  if (!Number.isFinite(b.minX)) {
+    return [];
+  }
   const w = b.maxX - b.minX + 1;
   const d = b.maxZ - b.minZ + 1;
   /** Tallest voxel top in each column, in units above the model's base. */
@@ -233,44 +241,76 @@ export function measureFootprint(
   let eave = Infinity;
   if (roofs.length > 0) {
     model.forEachCell((x, y, z) => {
-      if (y < eave && roofs.some((r) => r.has(x, y, z))) eave = y;
+      if (y < eave && roofs.some((r) => r.has(x, y, z))) {
+        eave = y;
+      }
     });
   }
 
   model.forEachCell((x, y, z) => {
-    if (y >= eave) return;
-    const i = (x - b.minX) + (z - b.minZ) * w;
+    if (y >= eave) {
+      return;
+    }
+    const i = x - b.minX + (z - b.minZ) * w;
     // The voxel's own faces, in units above the base: `build` puts y = 0 at the
     // lowest cell and a cell spans one `scale` upward from its own index.
     const lo = (y - b.oy) * scale;
     const hi = lo + scale;
-    if (hi > top[i]) top[i] = hi;
-    if (hi > MAX_STEP_UP && lo < WALK_UNDER) blocks[i] = 1;
+    if (hi > top[i]) {
+      top[i] = hi;
+    }
+    if (hi > MAX_STEP_UP && lo < WALK_UNDER) {
+      blocks[i] = 1;
+    }
   });
 
   const boxes: SolidBox[] = [];
   const stack: number[] = [];
   for (let seed = 0; seed < blocks.length; seed++) {
-    if (blocks[seed] === 0) continue;
+    if (blocks[seed] === 0) {
+      continue;
+    }
     // Flood the component, recording its cell bounds and its tallest column.
-    let x0 = w, x1 = -1, z0 = d, z1 = -1, hiTop = -Infinity;
+    let x0 = w,
+      x1 = -1,
+      z0 = d,
+      z1 = -1,
+      hiTop = -Infinity;
     blocks[seed] = 0;
     stack.push(seed);
     while (stack.length > 0) {
       const i = stack.pop()!;
       const cx = i % w;
       const cz = (i - cx) / w;
-      if (cx < x0) x0 = cx; if (cx > x1) x1 = cx;
-      if (cz < z0) z0 = cz; if (cz > z1) z1 = cz;
-      if (top[i] > hiTop) hiTop = top[i];
+      if (cx < x0) {
+        x0 = cx;
+      }
+      if (cx > x1) {
+        x1 = cx;
+      }
+      if (cz < z0) {
+        z0 = cz;
+      }
+      if (cz > z1) {
+        z1 = cz;
+      }
+      if (top[i] > hiTop) {
+        hiTop = top[i];
+      }
       for (let oz = -1; oz <= 1; oz++) {
         const nz = cz + oz;
-        if (nz < 0 || nz >= d) continue;
+        if (nz < 0 || nz >= d) {
+          continue;
+        }
         for (let ox = -1; ox <= 1; ox++) {
           const nx = cx + ox;
-          if (nx < 0 || nx >= w) continue;
+          if (nx < 0 || nx >= w) {
+            continue;
+          }
           const n = nx + nz * w;
-          if (blocks[n] === 0) continue;
+          if (blocks[n] === 0) {
+            continue;
+          }
           blocks[n] = 0;
           stack.push(n);
         }
@@ -279,10 +319,10 @@ export function measureFootprint(
     // Cell range -> the same frame the baked vertices landed in: subtract the
     // origin `build` re-based on, then apply the bake scale.
     boxes.push({
-      cx: ((x0 + b.minX) + (x1 + b.minX + 1)) / 2 * scale - b.ox * scale,
-      cz: ((z0 + b.minZ) + (z1 + b.minZ + 1)) / 2 * scale - b.oz * scale,
-      hx: (x1 - x0 + 1) / 2 * scale,
-      hz: (z1 - z0 + 1) / 2 * scale,
+      cx: ((x0 + b.minX + (x1 + b.minX + 1)) / 2) * scale - b.ox * scale,
+      cz: ((z0 + b.minZ + (z1 + b.minZ + 1)) / 2) * scale - b.oz * scale,
+      hx: ((x1 - x0 + 1) / 2) * scale,
+      hz: ((z1 - z0 + 1) / 2) * scale,
       top: hiTop,
     });
   }
@@ -327,40 +367,84 @@ export function measureFootprint(
  * straight-sided roof is a shape no circle can be.
  */
 export function measureRidge(
-  model: VoxelModel, scale: number, roof: VoxelRegion,
+  model: VoxelModel,
+  scale: number,
+  roof: VoxelRegion,
 ): SolidRidge | null {
-  if (roof.size === 0) return null;
+  if (roof.size === 0) {
+    return null;
+  }
   const b = model.bounds(true);
   const w = b.maxX - b.minX + 1;
   const d = b.maxZ - b.minZ + 1;
   /** Top of the roof over each of its columns, in units above the model base. */
   const top = new Float32Array(w * d).fill(-Infinity);
-  let x0 = w, x1 = -1, z0 = d, z1 = -1, crest = -Infinity, eaveY = Infinity;
+  let x0 = w,
+    x1 = -1,
+    z0 = d,
+    z1 = -1,
+    crest = -Infinity,
+    eaveY = Infinity;
   model.forEachCell((x, y, z) => {
-    if (!roof.has(x, y, z)) return;
+    if (!roof.has(x, y, z)) {
+      return;
+    }
     const cx = x - b.minX;
     const cz = z - b.minZ;
     const i = cx + cz * w;
     const hi = (y - b.oy) * scale + scale;
-    if (hi > top[i]) top[i] = hi;
-    if (hi > crest) crest = hi;
+    if (hi > top[i]) {
+      top[i] = hi;
+    }
+    if (hi > crest) {
+      crest = hi;
+    }
     const lo = hi - scale;
-    if (lo < eaveY) eaveY = lo;
-    if (cx < x0) x0 = cx; if (cx > x1) x1 = cx;
-    if (cz < z0) z0 = cz; if (cz > z1) z1 = cz;
+    if (lo < eaveY) {
+      eaveY = lo;
+    }
+    if (cx < x0) {
+      x0 = cx;
+    }
+    if (cx > x1) {
+      x1 = cx;
+    }
+    if (cz < z0) {
+      z0 = cz;
+    }
+    if (cz > z1) {
+      z1 = cz;
+    }
   });
-  if (x1 < x0) return null;
+  if (x1 < x0) {
+    return null;
+  }
 
   // The crest, and which way it runs.
-  let cx0 = w, cx1 = -1, cz0 = d, cz1 = -1;
+  let cx0 = w,
+    cx1 = -1,
+    cz0 = d,
+    cz1 = -1;
   for (let i = 0; i < top.length; i++) {
-    if (top[i] < crest - scale * 1.5) continue;
+    if (top[i] < crest - scale * 1.5) {
+      continue;
+    }
     const cx = i % w;
     const cz = (i - cx) / w;
-    if (cx < cx0) cx0 = cx; if (cx > cx1) cx1 = cx;
-    if (cz < cz0) cz0 = cz; if (cz > cz1) cz1 = cz;
+    if (cx < cx0) {
+      cx0 = cx;
+    }
+    if (cx > cx1) {
+      cx1 = cx;
+    }
+    if (cz < cz0) {
+      cz0 = cz;
+    }
+    if (cz > cz1) {
+      cz1 = cz;
+    }
   }
-  const alongX = (cx1 - cx0) >= (cz1 - cz0);
+  const alongX = cx1 - cx0 >= cz1 - cz0;
   const along0 = alongX ? x0 : z0;
   const along1 = alongX ? x1 : z1;
   const across0 = alongX ? z0 : x0;
@@ -372,48 +456,64 @@ export function measureRidge(
   const n = across1 - across0 + 1;
   const prof = new Float32Array(n).fill(-Infinity);
   for (let i = 0; i < top.length; i++) {
-    if (top[i] === -Infinity) continue;
+    if (top[i] === -Infinity) {
+      continue;
+    }
     const cx = i % w;
     const cz = (i - cx) / w;
     const k = (alongX ? cz : cx) - across0;
-    if (top[i] > prof[k]) prof[k] = top[i];
+    if (top[i] > prof[k]) {
+      prof[k] = top[i];
+    }
   }
-  const r = n / 2 * scale;
+  const r = (n / 2) * scale;
   /** Offset of each profile step from the middle of the span, in units. */
   const perp = new Float32Array(n);
-  for (let k = 0; k < n; k++) perp[k] = (k + 0.5 - n / 2) * scale;
+  for (let k = 0; k < n; k++) {
+    perp[k] = (k + 0.5 - n / 2) * scale;
+  }
 
   // Minimax fit over (axis height, vertical semi-axis). 64 x 64 on ranges that
   // comfortably contain any sane answer puts the grid step under a hundredth of
   // a unit on a hut, which is finer than the deviation it is minimising.
   const span = crest - eaveY;
-  let bestY = eaveY, bestRy = span, bestErr = Infinity;
+  let bestY = eaveY,
+    bestRy = span,
+    bestErr = Infinity;
   for (let a = 0; a <= 64; a++) {
     const y = eaveY - span + (a / 64) * 2 * span;
     for (let c = 1; c <= 64; c++) {
       const ry = (c / 64) * 2 * span;
       let err = 0;
       for (let k = 0; k < n; k++) {
-        if (prof[k] === -Infinity) continue;
+        if (prof[k] === -Infinity) {
+          continue;
+        }
         const u = perp[k] / r;
         const h = y + ry * Math.sqrt(Math.max(0, 1 - u * u));
         const e = Math.abs(h - prof[k]);
-        if (e > err) err = e;
+        if (e > err) {
+          err = e;
+        }
       }
-      if (err < bestErr) { bestErr = err; bestY = y; bestRy = ry; }
+      if (err < bestErr) {
+        bestErr = err;
+        bestY = y;
+        bestRy = ry;
+      }
     }
   }
 
   // Cell ranges -> the frame the baked vertices landed in, exactly as the boxes
   // above do it.
-  const midX = ((x0 + b.minX) + (x1 + b.minX + 1)) / 2 * scale - b.ox * scale;
-  const midZ = ((z0 + b.minZ) + (z1 + b.minZ + 1)) / 2 * scale - b.oz * scale;
+  const midX = ((x0 + b.minX + (x1 + b.minX + 1)) / 2) * scale - b.ox * scale;
+  const midZ = ((z0 + b.minZ + (z1 + b.minZ + 1)) / 2) * scale - b.oz * scale;
   return {
     cx: midX,
     cz: midZ,
     // Bearing 0 runs along +z, matching every other yaw in the game.
     axis: alongX ? Math.PI / 2 : 0,
-    hl: (along1 - along0 + 1) / 2 * scale,
+    hl: ((along1 - along0 + 1) / 2) * scale,
     r,
     y: bestY,
     ry: bestRy,
@@ -495,9 +595,13 @@ export class StructureField implements SiteClearance {
   private maxZ = -Infinity;
   private built = false;
 
-  get count(): number { return this.box.length / STRIDE; }
+  get count(): number {
+    return this.box.length / STRIDE;
+  }
   /** How many of the stamps are roof cylinders rather than boxes. */
-  get roofCount(): number { return this.roof.length / RSTRIDE; }
+  get roofCount(): number {
+    return this.roof.length / RSTRIDE;
+  }
 
   /**
    * Stamp a template's footprint at the same place, yaw and scale its mesh was
@@ -525,11 +629,18 @@ export class StructureField implements SiteClearance {
       ridge?: readonly SolidRidge[];
       trunk?: { r: number; top: number };
     },
-    x: number, y: number, z: number, yaw: number, s: number, sy: number,
+    x: number,
+    y: number,
+    z: number,
+    yaw: number,
+    s: number,
+    sy: number,
     /** Length scale along the template's own +z. See `Accum.add`. */
     sz: number = s,
   ): void {
-    if (!t.solid && !t.ridge && !t.trunk) return;
+    if (!t.solid && !t.ridge && !t.trunk) {
+      return;
+    }
     const c = Math.cos(yaw);
     const sn = Math.sin(yaw);
     if (t.trunk) {
@@ -543,7 +654,10 @@ export class StructureField implements SiteClearance {
       this.data.push(
         x + lx * c + lz * sn,
         z - lx * sn + lz * c,
-        f.hx * s, f.hz * sz, c, sn,
+        f.hx * s,
+        f.hz * sz,
+        c,
+        sn,
         y + f.top * sy,
       );
     }
@@ -556,9 +670,12 @@ export class StructureField implements SiteClearance {
       this.rdata.push(
         x + lx * c + lz * sn,
         z - lx * sn + lz * c,
-        Math.sin(a), Math.cos(a),
-        f.hl * s, f.r * s,
-        y + f.y * sy, f.ry * sy,
+        Math.sin(a),
+        Math.cos(a),
+        f.hl * s,
+        f.r * s,
+        y + f.y * sy,
+        f.ry * sy,
         f.fitError * sy,
       );
     }
@@ -567,7 +684,9 @@ export class StructureField implements SiteClearance {
 
   /** Freeze the stamps and index them. Call once, after the last `add`. */
   build(): void {
-    if (this.built) return;
+    if (this.built) {
+      return;
+    }
     this.built = true;
     this.box = new Float32Array(this.data);
     this.roof = new Float32Array(this.rdata);
@@ -580,28 +699,41 @@ export class StructureField implements SiteClearance {
     for (let i = 0; i < n; i++) {
       const o = i * STRIDE;
       // World AABB of the rotated rectangle.
-      const ex = Math.abs(this.box[o + 2] * this.box[o + 4])
-        + Math.abs(this.box[o + 3] * this.box[o + 5]);
-      const ez = Math.abs(this.box[o + 2] * this.box[o + 5])
-        + Math.abs(this.box[o + 3] * this.box[o + 4]);
+      const ex =
+        Math.abs(this.box[o + 2] * this.box[o + 4]) + Math.abs(this.box[o + 3] * this.box[o + 5]);
+      const ez =
+        Math.abs(this.box[o + 2] * this.box[o + 5]) + Math.abs(this.box[o + 3] * this.box[o + 4]);
       const x0 = this.box[o] - ex;
       const x1 = this.box[o] + ex;
       const z0 = this.box[o + 1] - ez;
       const z1 = this.box[o + 1] + ez;
-      if (x0 < this.minX) this.minX = x0;
-      if (x1 > this.maxX) this.maxX = x1;
-      if (z0 < this.minZ) this.minZ = z0;
-      if (z1 > this.maxZ) this.maxZ = z1;
+      if (x0 < this.minX) {
+        this.minX = x0;
+      }
+      if (x1 > this.maxX) {
+        this.maxX = x1;
+      }
+      if (z0 < this.minZ) {
+        this.minZ = z0;
+      }
+      if (z1 > this.maxZ) {
+        this.maxZ = z1;
+      }
       for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
         for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
           const key = cellKey(cx, cz);
           let l = lists.get(key);
-          if (l === undefined) { l = []; lists.set(key, l); }
+          if (l === undefined) {
+            l = [];
+            lists.set(key, l);
+          }
           l.push(i);
         }
       }
     }
-    for (const [key, l] of lists) this.grid.set(key, Int32Array.from(l));
+    for (const [key, l] of lists) {
+      this.grid.set(key, Int32Array.from(l));
+    }
 
     // The roofs, into their own buckets. A cylinder's world AABB is the same sum
     // of projected half-extents a rotated rectangle's is, with the length along
@@ -610,28 +742,43 @@ export class StructureField implements SiteClearance {
     const rn = this.roof.length / RSTRIDE;
     for (let i = 0; i < rn; i++) {
       const o = i * RSTRIDE;
-      const ex = Math.abs(this.roof[o + 4] * this.roof[o + 2])
-        + Math.abs(this.roof[o + 5] * this.roof[o + 3]);
-      const ez = Math.abs(this.roof[o + 4] * this.roof[o + 3])
-        + Math.abs(this.roof[o + 5] * this.roof[o + 2]);
+      const ex =
+        Math.abs(this.roof[o + 4] * this.roof[o + 2]) +
+        Math.abs(this.roof[o + 5] * this.roof[o + 3]);
+      const ez =
+        Math.abs(this.roof[o + 4] * this.roof[o + 3]) +
+        Math.abs(this.roof[o + 5] * this.roof[o + 2]);
       const x0 = this.roof[o] - ex;
       const x1 = this.roof[o] + ex;
       const z0 = this.roof[o + 1] - ez;
       const z1 = this.roof[o + 1] + ez;
-      if (x0 < this.minX) this.minX = x0;
-      if (x1 > this.maxX) this.maxX = x1;
-      if (z0 < this.minZ) this.minZ = z0;
-      if (z1 > this.maxZ) this.maxZ = z1;
+      if (x0 < this.minX) {
+        this.minX = x0;
+      }
+      if (x1 > this.maxX) {
+        this.maxX = x1;
+      }
+      if (z0 < this.minZ) {
+        this.minZ = z0;
+      }
+      if (z1 > this.maxZ) {
+        this.maxZ = z1;
+      }
       for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
         for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
           const key = cellKey(cx, cz);
           let l = rlists.get(key);
-          if (l === undefined) { l = []; rlists.set(key, l); }
+          if (l === undefined) {
+            l = [];
+            rlists.set(key, l);
+          }
           l.push(i);
         }
       }
     }
-    for (const [key, l] of rlists) this.rgrid.set(key, Int32Array.from(l));
+    for (const [key, l] of rlists) {
+      this.rgrid.set(key, Int32Array.from(l));
+    }
   }
 
   /**
@@ -648,7 +795,9 @@ export class StructureField implements SiteClearance {
     // scans inline it grew past whatever V8 will inline and the MISS went
     // 7.5 -> 15 ns, for work it never executes. Four compares and a call it
     // hardly ever makes puts it back at 7.5.
-    if (x < this.minX || x > this.maxX || z < this.minZ || z > this.maxZ) return -Infinity;
+    if (x < this.minX || x > this.maxX || z < this.minZ || z > this.maxZ) {
+      return -Infinity;
+    }
     return this.scan(x, z);
   }
 
@@ -663,20 +812,28 @@ export class StructureField implements SiteClearance {
         const o = bucket[k] * STRIDE;
         // Cheapest rejection first: a top already beaten cannot win, and inside
         // a camp most of a bucket is shorter than whatever is nearest.
-        if (b[o + 6] <= best) continue;
+        if (b[o + 6] <= best) {
+          continue;
+        }
         const dx = x - b[o];
         const dz = z - b[o + 1];
         const c = b[o + 4];
         const sn = b[o + 5];
         // Inverse of the stamp's rotation; see `add`.
         const lx = dx * c - dz * sn;
-        if (lx < -b[o + 2] || lx > b[o + 2]) continue;
+        if (lx < -b[o + 2] || lx > b[o + 2]) {
+          continue;
+        }
         const lz = dx * sn + dz * c;
-        if (lz < -b[o + 3] || lz > b[o + 3]) continue;
+        if (lz < -b[o + 3] || lz > b[o + 3]) {
+          continue;
+        }
         best = b[o + 6];
       }
     }
-    if (this.roof.length === 0) return best;
+    if (this.roof.length === 0) {
+      return best;
+    }
     const rbucket = this.rgrid.get(key);
     return rbucket === undefined ? best : this.roofTop(rbucket, x, z, best);
   }
@@ -692,18 +849,26 @@ export class StructureField implements SiteClearance {
     for (let k = 0; k < bucket.length; k++) {
       const o = bucket[k] * RSTRIDE;
       // A crest already beaten cannot win, and the arc is only ever below it.
-      if (r[o + 6] + r[o + 7] <= best) continue;
+      if (r[o + 6] + r[o + 7] <= best) {
+        continue;
+      }
       const dx = x - r[o];
       const dz = z - r[o + 1];
       const sa = r[o + 2];
       const ca = r[o + 3];
       // Along the ridge first: it is the cheap half and a roof is long.
       const along = dx * sa + dz * ca;
-      if (along < -r[o + 4] || along > r[o + 4]) continue;
+      if (along < -r[o + 4] || along > r[o + 4]) {
+        continue;
+      }
       const u = (dx * ca - dz * sa) / r[o + 5];
-      if (u <= -1 || u >= 1) continue;
+      if (u <= -1 || u >= 1) {
+        continue;
+      }
       const h = r[o + 6] + r[o + 7] * Math.sqrt(1 - u * u);
-      if (h > best) best = h;
+      if (h > best) {
+        best = h;
+      }
     }
     return best;
   }
@@ -726,18 +891,25 @@ export class StructureField implements SiteClearance {
    * one that would pass through the timber is refused.
    */
   hits(x: number, z: number, r: number, y0: number, y1: number): boolean {
-    if (x + r < this.minX || x - r > this.maxX
-      || z + r < this.minZ || z - r > this.maxZ) return false;
+    if (x + r < this.minX || x - r > this.maxX || z + r < this.minZ || z - r > this.maxZ) {
+      return false;
+    }
     const roofs = this.roof.length > 0;
     const r2 = r * r;
     for (let cx = Math.floor((x - r) / CELL); cx <= Math.floor((x + r) / CELL); cx++) {
       for (let cz = Math.floor((z - r) / CELL); cz <= Math.floor((z + r) / CELL); cz++) {
         const key = cellKey(cx, cz);
         const bucket = this.grid.get(key);
-        if (bucket !== undefined && this.boxHit(bucket, x, z, r2, y0)) return true;
-        if (!roofs) continue;
+        if (bucket !== undefined && this.boxHit(bucket, x, z, r2, y0)) {
+          return true;
+        }
+        if (!roofs) {
+          continue;
+        }
         const rbucket = this.rgrid.get(key);
-        if (rbucket !== undefined && this.roofHit(rbucket, x, z, r2, y0)) return true;
+        if (rbucket !== undefined && this.roofHit(rbucket, x, z, r2, y0)) {
+          return true;
+        }
       }
     }
     return false;
@@ -757,7 +929,9 @@ export class StructureField implements SiteClearance {
     const b = this.box;
     for (let k = 0; k < bucket.length; k++) {
       const o = bucket[k] * STRIDE;
-      if (b[o + 6] <= y0) continue;
+      if (b[o + 6] <= y0) {
+        continue;
+      }
       const dx = x - b[o];
       const dz = z - b[o + 1];
       const c = b[o + 4];
@@ -767,12 +941,18 @@ export class StructureField implements SiteClearance {
       // clamp the negatives away, and what is left is the gap.
       let lx = Math.abs(dx * c - dz * sn) - b[o + 2];
       let lz = Math.abs(dx * sn + dz * c) - b[o + 3];
-      if (lx < 0) lx = 0;
-      if (lz < 0) lz = 0;
+      if (lx < 0) {
+        lx = 0;
+      }
+      if (lz < 0) {
+        lz = 0;
+      }
       // `<=`, NOT `<`, and it is load-bearing at one radius: a point INSIDE the
       // rectangle clamps to a gap of exactly zero, so a strict compare answers
       // "no" to `r = 0` — the query a probe makes about a single drawn vertex.
-      if (lx * lx + lz * lz <= r2) return true;
+      if (lx * lx + lz * lz <= r2) {
+        return true;
+      }
     }
     return false;
   }
@@ -794,17 +974,25 @@ export class StructureField implements SiteClearance {
     const r = this.roof;
     for (let k = 0; k < bucket.length; k++) {
       const o = bucket[k] * RSTRIDE;
-      if (r[o + 6] + r[o + 7] <= y0) continue;
+      if (r[o + 6] + r[o + 7] <= y0) {
+        continue;
+      }
       const dx = x - r[o];
       const dz = z - r[o + 1];
       const sa = r[o + 2];
       const ca = r[o + 3];
       let along = Math.abs(dx * sa + dz * ca) - r[o + 4];
       let across = Math.abs(dx * ca - dz * sa) - r[o + 5];
-      if (along < 0) along = 0;
-      if (across < 0) across = 0;
+      if (along < 0) {
+        along = 0;
+      }
+      if (across < 0) {
+        across = 0;
+      }
       // `<=` for the reason `boxHit` gives: inside is a gap of zero.
-      if (along * along + across * across <= r2) return true;
+      if (along * along + across * across <= r2) {
+        return true;
+      }
     }
     return false;
   }
@@ -826,8 +1014,14 @@ export class StructureField implements SiteClearance {
     const r = this.roof;
     for (let o = 0; o < r.length; o += RSTRIDE) {
       out.push(
-        r[o], r[o + 1], Math.atan2(r[o + 2], r[o + 3]),
-        r[o + 4], r[o + 5], r[o + 6], r[o + 7], r[o + 8],
+        r[o],
+        r[o + 1],
+        Math.atan2(r[o + 2], r[o + 3]),
+        r[o + 4],
+        r[o + 5],
+        r[o + 6],
+        r[o + 7],
+        r[o + 8],
       );
     }
   }
@@ -851,12 +1045,16 @@ export class SiteFields implements SiteClearance {
   }
 
   anyIn(x0: number, z0: number, x1: number, z1: number): boolean {
-    for (const f of this.fields) if (f.anyIn(x0, z0, x1, z1)) return true;
+    for (const f of this.fields) {
+      if (f.anyIn(x0, z0, x1, z1)) return true;
+    }
     return false;
   }
 
   hits(x: number, z: number, r: number, y0: number, y1: number): boolean {
-    for (const f of this.fields) if (f.hits(x, z, r, y0, y1)) return true;
+    for (const f of this.fields) {
+      if (f.hits(x, z, r, y0, y1)) return true;
+    }
     return false;
   }
 }
@@ -879,8 +1077,14 @@ export class SolidStamp {
   constructor(private field: StructureField) {}
 
   add(
-    t: Template, x: number, y: number, z: number,
-    yaw: number, s = 1, sy: number = s, sz: number = s,
+    t: Template,
+    x: number,
+    y: number,
+    z: number,
+    yaw: number,
+    s = 1,
+    sy: number = s,
+    sz: number = s,
   ): void {
     this.acc.add(t, x, y, z, yaw, s, 1, 1, 1, sy, sz);
     this.field.add(t, x, y, z, yaw, s, sy, sz);

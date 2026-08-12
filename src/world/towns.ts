@@ -5,28 +5,44 @@
  * content; SITING them is this file. The network is a HUB, and each town has ONE
  * road exit, where the route crosses its radius.
  */
-import * as THREE from 'three';
-import type { CelestialState, TownInfo, TownRegistry } from '../core/types';
-import { VoxelModel } from '../core/voxel';
-import { t, type StringKey } from '../i18n';
-import { content, defineFactory, resolveText, TOWN_LAYOUT_KIND, type TownData } from '../content';
-import type { ContentText } from '../content/types';
-import { displayKey, reportContentIssue } from '../core/content-bridge';
-import { Terrain, WATER_LEVEL, type GroundPatch } from './terrain';
+import * as THREE from "three";
+import type { CelestialState, TownInfo, TownRegistry } from "../core/types";
+import { VoxelModel } from "../core/voxel";
+import { t, type StringKey } from "../i18n";
+import { content, defineFactory, resolveText, TOWN_LAYOUT_KIND, type TownData } from "../content";
+import type { ContentText } from "../content/types";
+import { displayKey, reportContentIssue } from "../core/content-bridge";
+import { Terrain, WATER_LEVEL, type GroundPatch } from "./terrain";
 import {
-  RoadNetwork, roadAt, roadLength, routeRoad, profileRoad, straightWetLength,
-  builtDeck, setTrimStart, NECK_MAX, type Junction, type Road, type RoadClearance,
-} from './roads';
-import { ROAD_PROFILE, trackProfile } from './path-profile';
-import { Accum, bakeProp, type PropLib, type Template } from './props';
-import { SolidStamp, StructureField, footprintRadius } from './structures';
+  RoadNetwork,
+  roadAt,
+  roadLength,
+  routeRoad,
+  profileRoad,
+  straightWetLength,
+  builtDeck,
+  setTrimStart,
+  NECK_MAX,
+  type Junction,
+  type Road,
+  type RoadClearance,
+} from "./roads";
+import { ROAD_PROFILE, trackProfile } from "./path-profile";
+import { Accum, bakeProp, type PropLib, type Template } from "./props";
+import { SolidStamp, StructureField, footprintRadius } from "./structures";
 import {
-  TownParts, V, FENCE_POST_R, addBridgeFurniture, buildJunctionApron, buildRoadRibbon,
-  fitPalisadeRun, signArm,
-} from './town-parts';
-import { buildFence, type Fence, type FenceNode, type FenceOptions } from './fences';
-import { mulberry32 } from './noise';
-import { TOWN_NO_SPAWN_MARGIN } from './safe-zones';
+  TownParts,
+  V,
+  FENCE_POST_R,
+  addBridgeFurniture,
+  buildJunctionApron,
+  buildRoadRibbon,
+  fitPalisadeRun,
+  signArm,
+} from "./town-parts";
+import { buildFence, type Fence, type FenceNode, type FenceOptions } from "./fences";
+import { mulberry32 } from "./noise";
+import { TOWN_NO_SPAWN_MARGIN } from "./safe-zones";
 
 /** How much bigger the Encampment's timber is than its template: its logs top out at
  *  4.90, so the wall MEETS the gate arch's 5.04 lintel. */
@@ -39,13 +55,24 @@ const NIGHT_WINDOW: Template = (() => {
 })();
 
 function addNightWindow(
-  acc: Accum, x: number, y: number, z: number, yaw: number,
-  front: number, height: number,
+  acc: Accum,
+  x: number,
+  y: number,
+  z: number,
+  yaw: number,
+  front: number,
+  height: number,
 ): void {
   acc.add(
     NIGHT_WINDOW,
-    x + Math.sin(yaw) * front, y + height, z + Math.cos(yaw) * front,
-    yaw, 1, 1, 1, 1,
+    x + Math.sin(yaw) * front,
+    y + height,
+    z + Math.cos(yaw) * front,
+    yaw,
+    1,
+    1,
+    1,
+    1,
   );
 }
 
@@ -62,7 +89,7 @@ export interface TownSite {
    *  A `ContentText` and not a key, because a carved plank is PRINTED. */
   sign: ContentText;
   /** Which registered `town-layout` builds it; layout NAME and settlement KIND are one. */
-  kind: TownInfo['kind'];
+  kind: TownInfo["kind"];
   radius: number;
   /** How far this settlement's PERIMETER reaches; `radius` is the nominal circle.
    *  SUPPLIED BY THE LAYOUT, because a copy in JSON forks a load-bearing number. */
@@ -81,41 +108,54 @@ export interface TownSite {
 /** A `town-layout` factory: paint a settlement and say where its social focus ended
  *  up. ONE SIGNATURE FOR BOTH, `hearth` included. */
 export type TownLayout = (
-  solid: SolidStamp, glow: Accum, hearth: Accum, night: Accum, parts: TownParts, town: TownInfo,
-  network: RoadNetwork, rng: () => number,
+  solid: SolidStamp,
+  glow: Accum,
+  hearth: Accum,
+  night: Accum,
+  parts: TownParts,
+  town: TownInfo,
+  network: RoadNetwork,
+  rng: () => number,
 ) => { x: number; z: number } | null;
 
-const LAYOUTS: ReadonlySet<string> = new Set<TownInfo['kind']>(['camp', 'hamlet']);
+const LAYOUTS: ReadonlySet<string> = new Set<TownInfo["kind"]>(["camp", "hamlet"]);
 
 /** How far a layout's built perimeter reaches. See `TownSite.outerRadius`. */
-function outerRadiusOf(kind: TownInfo['kind'], radius: number): number {
-  return kind === 'camp' ? CAMP_WALL_HALF * Math.SQRT2 : radius;
+function outerRadiusOf(kind: TownInfo["kind"], radius: number): number {
+  return kind === "camp" ? CAMP_WALL_HALF * Math.SQRT2 : radius;
 }
 
 /** The world's towns, in placement order — by `data.order`, not load order. One the
  *  engine cannot build is REFUSED with a diagnostic. */
 function readSites(): readonly TownSite[] {
-  const assets = content.all<TownData>('town');
+  const assets = content.all<TownData>("town");
   const sites: TownSite[] = [];
   for (const asset of assets) {
     const { data } = asset;
     // A CARRIED SETTLEMENT IS NOT THIS FILE'S: its layout belongs to the carrier.
-    if (data.carried) continue;
+    if (data.carried) {
+      continue;
+    }
     if (!LAYOUTS.has(data.layout)) {
       reportContentIssue({
-        severity: 'error',
-        code: 'unknown-factory',
+        severity: "error",
+        code: "unknown-factory",
         message: `"${asset.id}" wants layout "${data.layout}", which no builder implements`,
-        assetId: asset.id, assetType: asset.type, pkg: asset.pkg, source: asset.source,
-        field: 'data.layout',
-        fix: `one of ${[...LAYOUTS].join(', ')}`,
+        assetId: asset.id,
+        assetType: asset.type,
+        pkg: asset.pkg,
+        source: asset.source,
+        field: "data.layout",
+        fix: `one of ${[...LAYOUTS].join(", ")}`,
       });
       continue;
     }
     const nameKey = displayKey(asset);
-    if (nameKey === null) continue;
+    if (nameKey === null) {
+      continue;
+    }
     // `LAYOUTS.has` is the runtime narrowing; the assertion only tells the compiler.
-    const kind = data.layout as TownInfo['kind'];
+    const kind = data.layout as TownInfo["kind"];
     const outer = data.outerRadius ?? outerRadiusOf(kind, data.radius);
     sites.push({
       // The `name` half of the content id — the same split `parseId` makes.
@@ -155,17 +195,21 @@ const SPUR_MAX = 950;
  *  cannot make the network. EXACTLY THREE ARMS; no towns at all is `towns=0`. */
 function hub(sites: readonly TownSite[]): { start: TownSite; spurs: readonly TownSite[] } | null {
   const start = sites.find((s) => s.start);
-  if (!start) return null;
+  if (!start) {
+    return null;
+  }
   const spurs = sites.filter((s) => s !== start);
-  if (spurs.length < SPUR_COUNT) return null;
+  if (spurs.length < SPUR_COUNT) {
+    return null;
+  }
   for (const extra of spurs.slice(SPUR_COUNT)) {
     reportContentIssue({
-      severity: 'warn',
-      code: 'unsupported',
+      severity: "warn",
+      code: "unsupported",
       message: `"town:${extra.id}" is not sited: the road network has ${SPUR_COUNT} spurs`,
       assetId: `town:${extra.id}`,
-      assetType: 'town',
-      fix: 'the hub in world/towns.ts routes one trunk and two spurs',
+      assetType: "town",
+      fix: "the hub in world/towns.ts routes one trunk and two spurs",
     });
   }
   return { start, spurs: spurs.slice(0, SPUR_COUNT) };
@@ -183,11 +227,11 @@ function makeRibbonMaterial(terrainMat: THREE.Material): THREE.Material {
     shader.uniforms.bsFogGroundLift = { value: RIBBON_FOG_LIFT };
   };
   // Its own program: sharing one with the chunks would share their uniform value.
-  mat.customProgramCacheKey = () => 'bs-road-ribbon-fog-v1';
+  mat.customProgramCacheKey = () => "bs-road-ribbon-fog-v1";
   return mat;
 }
 
-const JUNCTION_SIGN_KEY = 'town.junction.sign' as const;
+const JUNCTION_SIGN_KEY = "town.junction.sign" as const;
 
 /**
  * How far all three decks are held DEAD LEVEL across the fork. `surfaceAt` answers
@@ -217,13 +261,13 @@ interface WearSpec {
 
 const HALF_PI = Math.PI / 2;
 
-const WEAR: Record<TownInfo['kind'], WearSpec> = {
+const WEAR: Record<TownInfo["kind"], WearSpec> = {
   camp: {
     // FLAT 1.0, not 0.92: a trace of grass tints the whole yard olive.
     base: 1.0,
     // At the palisade the rim still holds 0.91, so the ground is bare to the wall.
-    fade: 0.90,
-    edge: 1.30,
+    fade: 0.9,
+    edge: 1.3,
     damp: 0.55,
     tracks: [
       // THE THOROUGHFARE — the cart road, which `buildEncampment` keeps clear.
@@ -242,15 +286,15 @@ const WEAR: Record<TownInfo['kind'], WearSpec> = {
   hamlet: {
     // Half the camp's, and the TRACKS stay narrow: a hamlet shows where its feet go.
     base: 0.52,
-    fade: 0.80,
+    fade: 0.8,
     edge: 1.28,
-    damp: 0.30,
+    damp: 0.3,
     tracks: [
-      [0, 1.20, 3.8, 1.0], // the road in
+      [0, 1.2, 3.8, 1.0], // the road in
       [HALF_PI, 0.36, 3.2, 1.0], // the well, at gateAngle + PI/2 and 4.2 out
-      [Math.PI * 0.55, 0.60, 2.4, 0.95], // the four cottages
-      [Math.PI * 1.0, 0.60, 2.4, 0.95],
-      [Math.PI * 1.45, 0.60, 2.4, 0.95],
+      [Math.PI * 0.55, 0.6, 2.4, 0.95], // the four cottages
+      [Math.PI * 1.0, 0.6, 2.4, 0.95],
+      [Math.PI * 1.45, 0.6, 2.4, 0.95],
       [-0.9, 0.55, 2.2, 0.88], // the tents and the paddock cart
       [-1.8, 0.55, 2.2, 0.88],
     ],
@@ -261,7 +305,8 @@ const WEAR: Record<TownInfo['kind'], WearSpec> = {
 function wearPatch(t: TownInfo): GroundPatch {
   const spec = WEAR[t.kind];
   return {
-    x: t.x, z: t.z,
+    x: t.x,
+    z: t.z,
     fade: spec.fade * t.radius,
     edge: spec.edge * t.radius,
     base: spec.base,
@@ -293,9 +338,7 @@ function wearTracks(t: TownInfo, y: number): Road[] {
 
 /** How level and dry the ground around (x, z) is, lower being better; Infinity
  *  disqualifies. A flatten disc on a hillside is a 40-unit earthwork. */
-function siteCost(
-  terrain: Terrain, x: number, z: number, r: number, waterside = false,
-): number {
+function siteCost(terrain: Terrain, x: number, z: number, r: number, waterside = false): number {
   const h = terrain.heightCont(x, z);
   let worst = 0;
   let wet = 0;
@@ -305,7 +348,9 @@ function siteCost(
     for (const rr of [r * 0.55, r, r * 1.35, r * 2]) {
       const nh = terrain.heightCont(x + Math.cos(ang) * rr, z + Math.sin(ang) * rr);
       worst = Math.max(worst, Math.abs(nh - h));
-      if (nh < WATER_LEVEL + 0.5) wet++;
+      if (nh < WATER_LEVEL + 0.5) {
+        wet++;
+      }
     }
   }
   // FINITE EVERYWHERE: a function whose job is "least bad" must rank bad options.
@@ -316,9 +361,16 @@ function siteCost(
 }
 
 function findSite(
-  terrain: Terrain, ox: number, oz: number,
-  minR: number, maxR: number, baseAngle: number, spread: number,
-  r: number, rng: () => number, waterside = false,
+  terrain: Terrain,
+  ox: number,
+  oz: number,
+  minR: number,
+  maxR: number,
+  baseAngle: number,
+  spread: number,
+  r: number,
+  rng: () => number,
+  waterside = false,
 ): { x: number; z: number } {
   let bestX = ox + Math.sin(baseAngle) * maxR;
   let bestZ = oz + Math.cos(baseAngle) * maxR;
@@ -326,7 +378,7 @@ function findSite(
   for (let ri = 0; ri <= 6; ri++) {
     const dist = minR + ((maxR - minR) * ri) / 6;
     for (let k = 0; k < 13; k++) {
-      const ang = baseAngle + ((k / 12) - 0.5) * 2 * spread + (rng() - 0.5) * 0.08;
+      const ang = baseAngle + (k / 12 - 0.5) * 2 * spread + (rng() - 0.5) * 0.08;
       const x = Math.round(ox + Math.sin(ang) * dist) + 0.5;
       const z = Math.round(oz + Math.cos(ang) * dist) + 0.5;
       let c = siteCost(terrain, x, z, r, waterside);
@@ -336,15 +388,27 @@ function findSite(
         const line = straightWetLength(terrain, ox, oz, x, z);
         c += line < 6 || line > NECK_MAX ? 250 : Math.abs(line - 20) * 2;
       }
-      if (c < best) { best = c; bestX = x; bestZ = z; }
+      if (c < best) {
+        best = c;
+        bestX = x;
+        bestZ = z;
+      }
     }
   }
   return { x: bestX, z: bestZ };
 }
 
 /** Where a road crosses out of a town's footprint — i.e. where its gate goes. */
-function gateOn(road: Road, cx: number, cz: number, radius: number, fromStart: boolean): {
-  x: number; z: number; angle: number;
+function gateOn(
+  road: Road,
+  cx: number,
+  cz: number,
+  radius: number,
+  fromStart: boolean,
+): {
+  x: number;
+  z: number;
+  angle: number;
 } {
   const n = road.pts.length;
   for (let i = 0; i < n; i++) {
@@ -362,7 +426,12 @@ function gateOn(road: Road, cx: number, cz: number, radius: number, fromStart: b
 /** Where a road first crosses the plane `dot(p - c, n) = h` — INTERPOLATED, because
  *  `gateOn`'s samples are 3 units apart and an arch would stand off its wall. */
 function planeHit(
-  road: Road, cx: number, cz: number, nx: number, nz: number, h: number,
+  road: Road,
+  cx: number,
+  cz: number,
+  nx: number,
+  nz: number,
+  h: number,
 ): { x: number; z: number } {
   const pts = road.pts;
   const at = (i: number): number => (pts[i].x - cx) * nx + (pts[i].z - cz) * nz;
@@ -406,7 +475,7 @@ function siteOf(sites: readonly TownSite[], id: string): TownSite | null {
   return sites.find((s) => s.id === id) ?? null;
 }
 
-function roadRecord(r: Road): TownRegistry['roads'][number] {
+function roadRecord(r: Road): TownRegistry["roads"][number] {
   const path = new Float32Array(r.pts.length * 3);
   const bridge = new Uint8Array(r.pts.length);
   for (let i = 0; i < r.pts.length; i++) {
@@ -416,16 +485,24 @@ function roadRecord(r: Road): TownRegistry['roads'][number] {
     bridge[i] = r.pts[i].bridge ? 1 : 0;
   }
   return {
-    id: r.id, from: r.fromId, to: r.toId, path, bridge,
-    profile: r.profile.id, deckEdge: r.profile.deckEdge,
+    id: r.id,
+    from: r.fromId,
+    to: r.toId,
+    path,
+    bridge,
+    profile: r.profile.id,
+    deckEdge: r.profile.deckEdge,
   };
 }
 
 class Registry implements MutableTownRegistry {
-  private readonly mutableRoads: Array<TownRegistry['roads'][number]>;
-  readonly roads: TownRegistry['roads'];
+  private readonly mutableRoads: Array<TownRegistry["roads"][number]>;
+  readonly roads: TownRegistry["roads"];
 
-  constructor(readonly all: readonly TownInfo[], roads: readonly Road[]) {
+  constructor(
+    readonly all: readonly TownInfo[],
+    roads: readonly Road[],
+  ) {
     this.mutableRoads = roads.map(roadRecord);
     this.roads = this.mutableRoads;
   }
@@ -436,7 +513,9 @@ class Registry implements MutableTownRegistry {
 
   setRoads(roads: readonly Road[]): void {
     this.mutableRoads.length = 0;
-    for (const r of roads) this.mutableRoads.push(roadRecord(r));
+    for (const r of roads) {
+      this.mutableRoads.push(roadRecord(r));
+    }
   }
 
   get(id: string): TownInfo | undefined {
@@ -447,7 +526,10 @@ class Registry implements MutableTownRegistry {
     let bd = Infinity;
     for (const t of this.all) {
       const d = Math.hypot(t.x - x, t.z - z);
-      if (d < bd) { bd = d; best = t; }
+      if (d < bd) {
+        bd = d;
+        best = t;
+      }
     }
     return best;
   }
@@ -458,7 +540,9 @@ class Registry implements MutableTownRegistry {
  *  when there is nothing to plan — the `towns=0` state. */
 export function planSettlements(terrain: Terrain, seed: number): SettlementPlan | null {
   const parts = hub(readSites());
-  if (!parts) return null;
+  if (!parts) {
+    return null;
+  }
   // [start, ...spurs] — the order the rest of this function indexes.
   const sites: readonly TownSite[] = [parts.start, ...parts.spurs];
 
@@ -482,11 +566,27 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   const spurA = jAngle + 0.95 + rng() * 0.5;
   const spurB = jAngle - 0.95 - rng() * 0.5;
   const hamletA = findSite(
-    terrain, jRaw.x, jRaw.z, SPUR_MIN, SPUR_MAX, spurA, 0.6, sites[1].radius, rng,
+    terrain,
+    jRaw.x,
+    jRaw.z,
+    SPUR_MIN,
+    SPUR_MAX,
+    spurA,
+    0.6,
+    sites[1].radius,
+    rng,
     sites[1].waterside,
   );
   const hamletB = findSite(
-    terrain, jRaw.x, jRaw.z, SPUR_MIN, SPUR_MAX, spurB, 0.6, sites[2].radius, rng,
+    terrain,
+    jRaw.x,
+    jRaw.z,
+    SPUR_MIN,
+    SPUR_MAX,
+    spurB,
+    0.6,
+    sites[2].radius,
+    rng,
     sites[2].waterside,
   );
   const sitePos = [camp, hamletA, hamletB];
@@ -495,8 +595,11 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   // -- 2. Level the ground under each town BEFORE routing.
   for (let i = 0; i < sites.length; i++) {
     terrain.flattens.push({
-      x: sitePos[i].x, z: sitePos[i].z, h: siteY[i] + 0.55,
-      core: sites[i].outerRadius + 2, blend: sites[i].outerRadius + 15,
+      x: sitePos[i].x,
+      z: sitePos[i].z,
+      h: siteY[i] + 0.55,
+      core: sites[i].outerRadius + 2,
+      blend: sites[i].outerRadius + 15,
     });
   }
 
@@ -505,17 +608,36 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   // A road INSIDE a settlement is level with it; each is routed AGAINST the ones
   // already routed, the trunk first because the hero spawns on it.
   const mkRoad = (
-    id: string, fromId: string, toId: string,
-    ax: number, az: number, ay: number, bx: number, bz: number, by: number, s: number,
-    aHold = 0, bHold = 0,
+    id: string,
+    fromId: string,
+    toId: string,
+    ax: number,
+    az: number,
+    ay: number,
+    bx: number,
+    bz: number,
+    by: number,
+    s: number,
+    aHold = 0,
+    bHold = 0,
     // The three ground roads are cart roads; a second profile is an asset decision.
     profile = ROAD_PROFILE,
   ): Road => {
     const route = routeRoad(
-      terrain, ax, az, bx, bz, s, network.roads.map((r) => r.pts), profile,
+      terrain,
+      ax,
+      az,
+      bx,
+      bz,
+      s,
+      network.roads.map((r) => r.pts),
+      profile,
     );
     const road: Road = {
-      id, fromId, toId, profile,
+      id,
+      fromId,
+      toId,
+      profile,
       pts: profileRoad(terrain, route, ay, by, aHold, bHold),
       // Left at zero; `network.build()` squares both planes to the road's own ends.
       trim: new Float32Array(8),
@@ -526,22 +648,57 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   const hold = (i: number): number => sites[i].outerRadius + 2;
 
   const trunk = mkRoad(
-    'camp-junction', sites[0].id, 'junction',
-    camp.x, camp.z, campY, jRaw.x, jRaw.z, junctionY, seed ^ 0x11,
-    hold(0), JUNCTION_HOLD,
+    "camp-junction",
+    sites[0].id,
+    "junction",
+    camp.x,
+    camp.z,
+    campY,
+    jRaw.x,
+    jRaw.z,
+    junctionY,
+    seed ^ 0x11,
+    hold(0),
+    JUNCTION_HOLD,
   );
   const spurRoads = [
-    mkRoad('junction-' + sites[1].id, 'junction', sites[1].id,
-      jRaw.x, jRaw.z, junctionY, hamletA.x, hamletA.z, siteY[1], seed ^ 0x22,
-      JUNCTION_HOLD, hold(1)),
-    mkRoad('junction-' + sites[2].id, 'junction', sites[2].id,
-      jRaw.x, jRaw.z, junctionY, hamletB.x, hamletB.z, siteY[2], seed ^ 0x33,
-      JUNCTION_HOLD, hold(2)),
+    mkRoad(
+      "junction-" + sites[1].id,
+      "junction",
+      sites[1].id,
+      jRaw.x,
+      jRaw.z,
+      junctionY,
+      hamletA.x,
+      hamletA.z,
+      siteY[1],
+      seed ^ 0x22,
+      JUNCTION_HOLD,
+      hold(1),
+    ),
+    mkRoad(
+      "junction-" + sites[2].id,
+      "junction",
+      sites[2].id,
+      jRaw.x,
+      jRaw.z,
+      junctionY,
+      hamletB.x,
+      hamletB.z,
+      siteY[2],
+      seed ^ 0x33,
+      JUNCTION_HOLD,
+      hold(2),
+    ),
   ];
   // The fork is levelled like a small town, AFTER routing so the field the router
   // searched is untouched.
   terrain.flattens.push({
-    x: jRaw.x, z: jRaw.z, h: junctionY + 0.55, core: 5, blend: 12,
+    x: jRaw.x,
+    z: jRaw.z,
+    h: junctionY + 0.55,
+    core: 5,
+    blend: 12,
   });
   // AND THE FORK IS A PIECE OF CARRIAGEWAY: `junctionY`, the height the arms hold.
   network.addJunction(jRaw.x, jRaw.z, junctionY, trunk.profile);
@@ -568,21 +725,30 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
 
   for (let i = 0; i < sites.length; i++) {
     towns.push({
-      id: sites[i].id, nameKey: sites[i].nameKey, kind: sites[i].kind,
-      x: sitePos[i].x, y: siteY[i], z: sitePos[i].z,
-      radius: sites[i].radius, outerRadius: sites[i].outerRadius,
+      id: sites[i].id,
+      nameKey: sites[i].nameKey,
+      kind: sites[i].kind,
+      x: sitePos[i].x,
+      y: siteY[i],
+      z: sitePos[i].z,
+      radius: sites[i].radius,
+      outerRadius: sites[i].outerRadius,
       // Sited on the height field below, which is what `carried` denies.
       carried: false,
       noSpawnRadius: sites[i].noSpawnRadius,
       color: sites[i].color,
-      gateX: gates[i].x, gateZ: gates[i].z, gateAngle: gates[i].angle,
+      gateX: gates[i].x,
+      gateZ: gates[i].z,
+      gateAngle: gates[i].angle,
     });
   }
 
   // -- 5. The worn ground. AFTER the gates (gate-relative) and before `build()`.
   for (const t of towns) {
     terrain.grounds.push(wearPatch(t));
-    for (const track of wearTracks(t, t.y)) network.add(track);
+    for (const track of wearTracks(t, t.y)) {
+      network.add(track);
+    }
   }
 
   network.build();
@@ -590,7 +756,10 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
 
   return {
     // DRAWN paths only: beaten tracks live on the network, where placers ask.
-    towns: new Registry(towns, network.roads.filter((r) => r.profile.roles.draw)),
+    towns: new Registry(
+      towns,
+      network.roads.filter((r) => r.profile.roles.draw),
+    ),
     network,
     spawn: pickRoadSpawn(trunk, camp.x, camp.z),
     junction: { x: jRaw.x, y: trunk.pts[trunk.pts.length - 1].y, z: jRaw.z },
@@ -612,8 +781,12 @@ function pickRoadSpawn(road: Road, cx: number, cz: number): THREE.Vector3 {
   for (let s = 18; s < len - 8; s += 2) {
     roadAt(road, s, at);
     const fromCamp = Math.hypot(at.x - cx, at.z - cz);
-    if (fromCamp < 34 || fromCamp > 74) continue;
-    if (at.y < WATER_LEVEL + 1.5) continue;
+    if (fromCamp < 34 || fromCamp > 74) {
+      continue;
+    }
+    if (at.y < WATER_LEVEL + 1.5) {
+      continue;
+    }
     // How much this point stands above the road 24 units either side of it.
     let rise = 0;
     for (const ds of [-24, 24]) {
@@ -621,7 +794,12 @@ function pickRoadSpawn(road: Road, cx: number, cz: number): THREE.Vector3 {
       rise += at.y - probe.y;
     }
     const score = rise * 3 + at.y * 0.4 - Math.abs(fromCamp - 52) * 0.55;
-    if (score > best) { best = score; bx = at.x; by = at.y; bz = at.z; }
+    if (score > best) {
+      best = score;
+      bx = at.x;
+      by = at.y;
+      bz = at.z;
+    }
   }
   return new THREE.Vector3(bx, by, bz);
 }
@@ -663,12 +841,22 @@ const POST_CLEAR = 5;
  * the footprint, so a post is set into the bank rather than on a high corner.
  */
 function seatOn(
-  surfaceAt: (x: number, z: number) => number, x: number, z: number, r: number,
+  surfaceAt: (x: number, z: number) => number,
+  x: number,
+  z: number,
+  r: number,
 ): number {
   let y = surfaceAt(x, z);
-  for (const [dx, dz] of [[r, 0], [-r, 0], [0, r], [0, -r]] as const) {
+  for (const [dx, dz] of [
+    [r, 0],
+    [-r, 0],
+    [0, r],
+    [0, -r],
+  ] as const) {
     const h = surfaceAt(x + dx, z + dz);
-    if (h < y) y = h;
+    if (h < y) {
+      y = h;
+    }
   }
   return y;
 }
@@ -676,7 +864,10 @@ function seatOn(
 /** The nearest spot to (x, z) clear of every carriageway: ask the network rather than
  *  guess a bearing that ought to be clear. */
 function vergeNear(
-  network: RoadClearance, x: number, z: number, clear: number,
+  network: RoadClearance,
+  x: number,
+  z: number,
+  clear: number,
 ): { x: number; z: number } {
   for (let ring = 1; ring <= 8; ring++) {
     const d = ring * 3;
@@ -685,7 +876,9 @@ function vergeNear(
       const a = (k / 16) * Math.PI * 2 + ring * 0.2;
       const px = x + Math.sin(a) * d;
       const pz = z + Math.cos(a) * d;
-      if (network.builtEdgeDistanceTo(px, pz) >= clear) return { x: px, z: pz };
+      if (network.builtEdgeDistanceTo(px, pz) >= clear) {
+        return { x: px, z: pz };
+      }
     }
   }
   return { x, z };
@@ -753,13 +946,13 @@ export class Towns {
     const nightGlow = mkGlow();
     nightGlow.emissive.set(0xffb34f);
     nightGlow.emissiveIntensity = 0;
-    nightGlow.userData.bsNightRole = 'town-windows';
+    nightGlow.userData.bsNightRole = "town-windows";
 
-    const emit = (
-      acc: Accum, mat: THREE.Material, parent: THREE.Group, shadows: boolean,
-    ): void => {
+    const emit = (acc: Accum, mat: THREE.Material, parent: THREE.Group, shadows: boolean): void => {
       const geo = acc.toGeometry();
-      if (!geo) return;
+      if (!geo) {
+        return;
+      }
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = shadows;
       mesh.receiveShadow = shadows;
@@ -778,7 +971,9 @@ export class Towns {
       // WHICH BUILDER, BY NAME: the factory registry turns `TownInfo.kind` into a function.
       const layout = content.factory<TownLayout>(TOWN_LAYOUT_KIND, town.kind);
       const fire = layout?.(solid, glow, hearth, night, parts, town, plan.network, rng) ?? null;
-      if (fire) this.fires.set(town.id, fire);
+      if (fire) {
+        this.fires.set(town.id, fire);
+      }
       emit(solid.acc, props.solidMat, g, true);
       emit(glow, fireGlow, g, false);
       emit(hearth, hearthGlow, g, false);
@@ -796,20 +991,27 @@ export class Towns {
       const dests: Array<[string, number]> = [];
       for (const road of plan.network.roads) {
         // A ROAD, AND ONE THAT REACHES THIS NODE: a track's ends are its own town (#142).
-        if (!road.profile.roles.draw) continue;
+        if (!road.profile.roles.draw) {
+          continue;
+        }
         const last = road.pts[road.pts.length - 1];
         const near = Math.min(
           Math.hypot(road.pts[0].x - j.x, road.pts[0].z - j.z),
           Math.hypot(last.x - j.x, last.z - j.z),
         );
-        if (near > 6) continue;
+        if (near > 6) {
+          continue;
+        }
         const first = Math.hypot(road.pts[0].x - j.x, road.pts[0].z - j.z) < 6;
         const a = first ? road.pts[0] : road.pts[road.pts.length - 1];
-        const b = first ? road.pts[Math.min(6, road.pts.length - 1)]
+        const b = first
+          ? road.pts[Math.min(6, road.pts.length - 1)]
           : road.pts[Math.max(0, road.pts.length - 7)];
         const id = first ? road.toId : road.fromId;
         const site = siteOf(plan.sites, id);
-        if (!site) continue;
+        if (!site) {
+          continue;
+        }
         // `resolveText` rather than `t`, because a sign is a `ContentText`.
         dests.push([resolveText(site.sign), Math.atan2(b.x - a.x, b.z - a.z)]);
       }
@@ -821,7 +1023,7 @@ export class Towns {
       dests.forEach(([text, ang], i) => {
         solid.add(signArm(text, SIGN_V), spot.x, armY[i % armY.length], spot.z, ang);
       });
-      postSpots.push({ x: spot.x, z: spot.z, r: POST_CLEAR, kind: 'fork-post' });
+      postSpots.push({ x: spot.x, z: spot.z, r: POST_CLEAR, kind: "fork-post" });
       emit(solid.acc, props.solidMat, g, true);
       this.group.add(g);
       this.sites.push({ g, x: j.x, z: j.z, r: 12 });
@@ -841,7 +1043,9 @@ export class Towns {
     const taken: Spot[] = postSpots;
     for (const road of plan.network.roads) {
       // A painted path emits no geometry and no furniture — see `PathRoles`.
-      if (!road.profile.roles.draw) continue;
+      if (!road.profile.roles.draw) {
+        continue;
+      }
       const g = new THREE.Group();
       const solid = new SolidStamp(this.solids);
       const glow = new Accum();
@@ -849,11 +1053,20 @@ export class Towns {
       const built = { ...road, pts: builtDeck(road) };
       // WHAT THIS PATH CARRIES IS THE PROFILE'S CALL (issue #142, §14): lamps, posts,
       // fences and bridges are a cart road's.
-      if (road.profile.furniture === 'road') {
-        builtFences.push(...buildRoadFurniture(
-          solid, glow, parts, built, plan.network, mulberry32(seed ^ road.pts.length),
-          surfaceAt, taken, plan.sites,
-        ));
+      if (road.profile.furniture === "road") {
+        builtFences.push(
+          ...buildRoadFurniture(
+            solid,
+            glow,
+            parts,
+            built,
+            plan.network,
+            mulberry32(seed ^ road.pts.length),
+            surfaceAt,
+            taken,
+            plan.sites,
+          ),
+        );
         builtFences.push(...addBridgeFurniture(solid, parts, built, surfaceAt));
       }
       emit(solid.acc, props.solidMat, g, true);
@@ -878,14 +1091,14 @@ export class Towns {
    *  frame. 420 is past the useful far range. */
   update(time: number, focus: THREE.Vector3): void {
     // Two beats, an octave and a bit apart, so neither reads as a sine.
-    this.glowMats[0].emissiveIntensity = 2.0 + Math.sin(time * 6.1) * 0.22
-      + Math.sin(time * 2.3) * 0.13;
-    this.glowMats[1].emissiveIntensity = 1.7 + Math.sin(time * 4.3 + 1.9) * 0.16
-      + Math.sin(time * 9.7) * 0.08;
+    this.glowMats[0].emissiveIntensity =
+      2.0 + Math.sin(time * 6.1) * 0.22 + Math.sin(time * 2.3) * 0.13;
+    this.glowMats[1].emissiveIntensity =
+      1.7 + Math.sin(time * 4.3 + 1.9) * 0.16 + Math.sin(time * 9.7) * 0.08;
     // The campfire is DIMMER than the braziers: 2.0 clipped against the tone chain and
     // read as a white hole. Bloom tags on CHROMA, not level.
-    this.glowMats[2].emissiveIntensity = 1.5 + Math.sin(time * 5.3 + 0.7) * 0.14
-      + Math.sin(time * 2.9) * 0.06;
+    this.glowMats[2].emissiveIntensity =
+      1.5 + Math.sin(time * 5.3 + 0.7) * 0.14 + Math.sin(time * 2.9) * 0.06;
     for (const s of this.sites) {
       const d = Math.hypot(s.x - focus.x, s.z - focus.z) - s.r;
       s.g.visible = d < 420;
@@ -914,7 +1127,9 @@ export class Towns {
       const m = child as THREE.Mesh;
       m.geometry.dispose();
       const i = this.geos.indexOf(m.geometry as THREE.BufferGeometry);
-      if (i >= 0) this.geos.splice(i, 1);
+      if (i >= 0) {
+        this.geos.splice(i, 1);
+      }
     }
     this.pathGroup.clear();
 
@@ -924,11 +1139,13 @@ export class Towns {
       part: { pos: number[]; nrm: number[]; col: number[]; idx: number[] },
       name: string,
     ): void => {
-      if (part.idx.length === 0) return;
+      if (part.idx.length === 0) {
+        return;
+      }
       const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(part.pos, 3));
-      geo.setAttribute('normal', new THREE.Float32BufferAttribute(part.nrm, 3));
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(part.col, 3));
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(part.pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(part.nrm, 3));
+      geo.setAttribute("color", new THREE.Float32BufferAttribute(part.col, 3));
       geo.setIndex(part.idx);
       geo.computeBoundingSphere();
       this.ribbonMat ??= makeRibbonMaterial(ctx.terrainMat);
@@ -942,7 +1159,9 @@ export class Towns {
     };
 
     for (const road of roads) {
-      if (!road.profile.roles.draw) continue;
+      if (!road.profile.roles.draw) {
+        continue;
+      }
       add(
         buildRoadRibbon([road], ctx.seed, ctx.surfaceAt, bias++ * 0.003, junctions),
         `road:${road.id}`,
@@ -950,18 +1169,19 @@ export class Towns {
     }
     // AFTER the arms, because a junction is the piece they grow out of.
     for (const j of junctions) {
-      add(
-        buildJunctionApron(j, roads, ctx.seed, ctx.surfaceAt, bias++ * 0.003),
-        'road:junction',
-      );
+      add(buildJunctionApron(j, roads, ctx.seed, ctx.surfaceAt, bias++ * 0.003), "road:junction");
     }
   }
 
   dispose(): void {
     this.ribbonMat?.dispose();
     this.ribbonMat = null;
-    for (const g of this.geos) g.dispose();
-    for (const m of this.glowMats) m.dispose();
+    for (const g of this.geos) {
+      g.dispose();
+    }
+    for (const m of this.glowMats) {
+      m.dispose();
+    }
     this.geos.length = 0;
   }
 }
@@ -982,11 +1202,11 @@ const FENCE_SPOT_STEP = 0.45;
  * road and cannot see a second at a fork; and what is ALREADY STANDING, through the
  * shared `taken` list. A refused bay keeps its two posts.
  */
-function clearRun(
-  network: RoadClearance, taken: readonly Spot[],
-): FenceOptions['accept'] {
+function clearRun(network: RoadClearance, taken: readonly Spot[]): FenceOptions["accept"] {
   return (ax, az, bx, bz) => {
-    if (network.spanBuiltEdgeDistanceTo(ax, az, bx, bz) < FENCE_ROAD_CLEAR) return false;
+    if (network.spanBuiltEdgeDistanceTo(ax, az, bx, bz) < FENCE_ROAD_CLEAR) {
+      return false;
+    }
     const dx = bx - ax;
     const dz = bz - az;
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / FENCE_SPOT_STEP));
@@ -994,7 +1214,9 @@ function clearRun(
       const reach = (t.solidR ?? t.r) + FENCE_POST_R;
       for (let i = 0; i <= steps; i++) {
         const u = i / steps;
-        if (Math.hypot(ax + dx * u - t.x, az + dz * u - t.z) < reach) return false;
+        if (Math.hypot(ax + dx * u - t.x, az + dz * u - t.z) < reach) {
+          return false;
+        }
       }
     }
     return true;
@@ -1007,17 +1229,26 @@ function clearRun(
  * inside a town the road is route, not carriageway.
  */
 function place(
-  taken: Spot[], network: RoadClearance, x: number, z: number, r: number, roadClear: number,
+  taken: Spot[],
+  network: RoadClearance,
+  x: number,
+  z: number,
+  r: number,
+  roadClear: number,
   /** Labels the claim for `__dbgTowns().furniture`; layouts leave it off. */
   kind?: string,
   /** The piece's own timber, where its elbow room is not it. See `Spot.solidR`. */
   solidR?: number,
 ): boolean {
-  if (network.builtEdgeDistanceTo(x, z) < roadClear) return false;
+  if (network.builtEdgeDistanceTo(x, z) < roadClear) {
+    return false;
+  }
   for (const t of taken) {
     const dx = t.x - x;
     const dz = t.z - z;
-    if (dx * dx + dz * dz < (t.r + r) * (t.r + r)) return false;
+    if (dx * dx + dz * dz < (t.r + r) * (t.r + r)) {
+      return false;
+    }
   }
   taken.push({ x, z, r, solidR, kind });
   return true;
@@ -1027,13 +1258,21 @@ function place(
  *  the outside in because each ring constrains the next. Every placement goes through
  *  `place`, which queries the road from the real field. */
 function buildEncampment(
-  solid: SolidStamp, glow: Accum, hearth: Accum, night: Accum, parts: TownParts, town: TownInfo,
-  network: RoadNetwork, rng: () => number,
+  solid: SolidStamp,
+  glow: Accum,
+  hearth: Accum,
+  night: Accum,
+  parts: TownParts,
+  town: TownInfo,
+  network: RoadNetwork,
+  rng: () => number,
 ): { x: number; z: number } {
   const { x: cx, z: cz, y: cy, gateAngle } = town;
   const taken: Spot[] = [];
-  const at = (ang: number, dist: number): [number, number] =>
-    [cx + Math.sin(ang) * dist, cz + Math.cos(ang) * dist];
+  const at = (ang: number, dist: number): [number, number] => [
+    cx + Math.sin(ang) * dist,
+    cz + Math.cos(ang) * dist,
+  ];
   /** Distance from the middle to the WALL on a bearing. */
   const wall = (ang: number): number => {
     const u = ang - gateAngle;
@@ -1041,13 +1280,11 @@ function buildEncampment(
   };
   /** ...and to a line `k` INSIDE it, perpendicular to the nearest side: backing off
    *  along a RADIUS would buy only 0.71k near a corner. */
-  const inset = (ang: number, k: number): number =>
-    wall(ang) * (1 - k / CAMP_WALL_HALF);
+  const inset = (ang: number, k: number): number => wall(ang) * (1 - k / CAMP_WALL_HALF);
 
   // FOUR RUNS AND FOUR CORNERS, squared to the gate: side 0 is the gate's, so the arch
   // sits flush and every gate-relative bearing holds.
-  const gateOff = (town.gateX - cx) * Math.cos(gateAngle)
-    - (town.gateZ - cz) * Math.sin(gateAngle);
+  const gateOff = (town.gateX - cx) * Math.cos(gateAngle) - (town.gateZ - cz) * Math.sin(gateAngle);
   /** Half the gate arch's footprint: 29 voxels at V, stamped unscaled while the wall is 25% bigger. */
   const GATE_HALF = 29 * V * 0.5;
   /**
@@ -1056,18 +1293,30 @@ function buildEncampment(
    * pitch (issue #128). Laid PER SEGMENT, outward FROM the arch's own faces.
    */
   const run = (
-    nx: number, nz: number, tx: number, tz: number, f: number,
-    u0: number, u1: number,
+    nx: number,
+    nz: number,
+    tx: number,
+    tz: number,
+    f: number,
+    u0: number,
+    u1: number,
   ): void => {
     const len = u1 - u0;
-    if (len <= 0.01) return;
+    if (len <= 0.01) {
+      return;
+    }
     const fit = fitPalisadeRun(len, WALL_S);
     for (let j = 0; j < fit.count; j++) {
       const u = u0 + (j + 0.5) * fit.pitch;
       solid.add(
         parts.palisade,
-        cx + nx * CAMP_WALL_HALF + tx * u, cy, cz + nz * CAMP_WALL_HALF + tz * u,
-        f + Math.PI / 2, WALL_S, WALL_S, fit.lengthScale,
+        cx + nx * CAMP_WALL_HALF + tx * u,
+        cy,
+        cz + nz * CAMP_WALL_HALF + tz * u,
+        f + Math.PI / 2,
+        WALL_S,
+        WALL_S,
+        fit.lengthScale,
       );
     }
   };
@@ -1086,8 +1335,12 @@ function buildEncampment(
     // A corner post per side: butt-jointed log ends read as two fences meeting.
     solid.add(
       parts.cornerPost,
-      cx + (nx + tx) * CAMP_WALL_HALF, cy, cz + (nz + tz) * CAMP_WALL_HALF,
-      f + Math.PI / 2, WALL_S, WALL_S,
+      cx + (nx + tx) * CAMP_WALL_HALF,
+      cy,
+      cz + (nz + tz) * CAMP_WALL_HALF,
+      f + Math.PI / 2,
+      WALL_S,
+      WALL_S,
     );
   }
   {
@@ -1099,7 +1352,7 @@ function buildEncampment(
   }
   // Off the road axis: the carriageway runs from the gate to the middle of camp.
   const side = rng() < 0.5 ? 1 : -1;
-  const [fx, fz] = at(gateAngle + Math.PI / 2 * side, 5.4);
+  const [fx, fz] = at(gateAngle + (Math.PI / 2) * side, 5.4);
   solid.add(parts.fire, fx, cy, fz, rng() * 6.28);
   hearth.add(parts.fireGlow, fx, cy, fz, rng() * 6.28, 1, 1, 1, 1);
   taken.push({ x: fx, z: fz, r: 4.2 });
@@ -1115,7 +1368,9 @@ function buildEncampment(
   for (let k = 0; k < 3; k++) {
     const a = gateAngle + Math.PI + (k - 1) * 0.85 + (rng() - 0.5) * 0.2;
     const [x, z] = at(a, inset(a, 7.5));
-    if (!place(taken, network, x, z, 4.4, 2)) continue;
+    if (!place(taken, network, x, z, 4.4, 2)) {
+      continue;
+    }
     const yaw = Math.atan2(fx - x, fz - z);
     solid.add(parts.huts[k], x, cy, z, yaw);
     addNightWindow(night, x, cy, z, yaw, 3.35, 2.0);
@@ -1131,10 +1386,15 @@ function buildEncampment(
   for (let k = 0; k < 9 && tentIdx < 7; k++) {
     const a = gateAngle + 0.7 + (k / 9) * Math.PI * 1.6 + (rng() - 0.5) * 0.25;
     const [x, z] = at(a, inset(a, 5.5 + rng() * 4));
-    if (!place(taken, network, x, z, 3.2, 1)) continue;
+    if (!place(taken, network, x, z, 3.2, 1)) {
+      continue;
+    }
     const yaw = tentIdx % 3 === 2 ? Math.atan2(fx - x, fz - z) : a + Math.PI / 2;
-    if (tentIdx % 3 === 2) solid.add(parts.bell, x, cy, z, yaw);
-    else solid.add(parts.tents[tentIdx % parts.tents.length], x, cy, z, yaw);
+    if (tentIdx % 3 === 2) {
+      solid.add(parts.bell, x, cy, z, yaw);
+    } else {
+      solid.add(parts.tents[tentIdx % parts.tents.length], x, cy, z, yaw);
+    }
     addNightWindow(night, x, cy, z, yaw, 2.7, 1.45);
     tentIdx++;
   }
@@ -1150,20 +1410,28 @@ function buildEncampment(
   }
 
   const clutter: Array<[Template, number, number]> = [
-    [parts.barrel, 1.0, 12], [parts.crateS, 1.0, 8], [parts.crateL, 1.0, 5],
-    [parts.woodpile, 1.1, 3], [parts.rack, 1.0, 2],
+    [parts.barrel, 1.0, 12],
+    [parts.crateS, 1.0, 8],
+    [parts.crateL, 1.0, 5],
+    [parts.woodpile, 1.1, 3],
+    [parts.rack, 1.0, 2],
   ];
   for (const [tpl, scl, count] of clutter) {
     let placed = 0;
     for (let k = 0; k < count * 4 && placed < count; k++) {
       const a = rng() * Math.PI * 2;
       const [x, z] = at(a, inset(a, 2 + rng() * (CAMP_WALL_HALF - 7)));
-      if (!place(taken, network, x, z, 1.4 * scl, -0.8)) continue;
+      if (!place(taken, network, x, z, 1.4 * scl, -0.8)) {
+        continue;
+      }
       solid.add(tpl, x, cy, z, rng() * 6.28, scl);
       placed++;
     }
   }
-  for (const [dside, tpl] of [[1, parts.cartHood], [-1, parts.cartOpen]] as const) {
+  for (const [dside, tpl] of [
+    [1, parts.cartHood],
+    [-1, parts.cartOpen],
+  ] as const) {
     const a = gateAngle + dside * 0.42;
     const [x, z] = at(a, inset(a, 8));
     if (place(taken, network, x, z, 3, -0.4)) {
@@ -1173,8 +1441,8 @@ function buildEncampment(
 
   // Braziers: emissive voxels, not lights — see lampBody in town-parts.ts.
   const brazierSpots: Array<[number, number]> = [
-    [gateAngle + 0.30, inset(gateAngle + 0.30, 3.4)],
-    [gateAngle - 0.30, inset(gateAngle - 0.30, 3.4)],
+    [gateAngle + 0.3, inset(gateAngle + 0.3, 3.4)],
+    [gateAngle - 0.3, inset(gateAngle - 0.3, 3.4)],
   ];
   for (let k = 0; k < 5; k++) {
     const a = gateAngle + 1.1 + (k / 5) * 4.4;
@@ -1182,7 +1450,9 @@ function buildEncampment(
   }
   for (const [a, d] of brazierSpots) {
     const [x, z] = at(a, d);
-    if (!place(taken, network, x, z, 1.6, -1)) continue;
+    if (!place(taken, network, x, z, 1.6, -1)) {
+      continue;
+    }
     solid.add(parts.brazier, x, cy, z, rng() * 6.28);
     glow.add(parts.brazierGlow, x, cy, z, 0, 1, 1, 1, 1);
   }
@@ -1194,13 +1464,21 @@ function buildEncampment(
  *  the start town a stronghold is that the others are not. `_hearth` is the
  *  signature's, and a hamlet has nothing for it. */
 function buildHamlet(
-  solid: SolidStamp, glow: Accum, _hearth: Accum, night: Accum, parts: TownParts, town: TownInfo,
-  network: RoadNetwork, rng: () => number,
+  solid: SolidStamp,
+  glow: Accum,
+  _hearth: Accum,
+  night: Accum,
+  parts: TownParts,
+  town: TownInfo,
+  network: RoadNetwork,
+  rng: () => number,
 ): { x: number; z: number } | null {
   const { x: cx, z: cz, y: cy, radius: R, gateAngle } = town;
   const taken: Spot[] = [];
-  const at = (ang: number, dist: number): [number, number] =>
-    [cx + Math.sin(ang) * dist, cz + Math.cos(ang) * dist];
+  const at = (ang: number, dist: number): [number, number] => [
+    cx + Math.sin(ang) * dist,
+    cz + Math.cos(ang) * dist,
+  ];
 
   const [wx, wz] = at(gateAngle + Math.PI / 2, 4.2);
   solid.add(parts.well, wx, cy, wz, rng() * 6.28);
@@ -1209,7 +1487,9 @@ function buildHamlet(
   for (let k = 0; k < 4; k++) {
     const a = gateAngle + Math.PI * 0.55 + (k / 4) * Math.PI * 0.9 + (rng() - 0.5) * 0.2;
     const [x, z] = at(a, R - 5.5 - rng() * 3);
-    if (!place(taken, network, x, z, 4.4, 2)) continue;
+    if (!place(taken, network, x, z, 4.4, 2)) {
+      continue;
+    }
     const yaw = Math.atan2(wx - x, wz - z);
     solid.add(parts.huts[k % parts.huts.length], x, cy, z, yaw);
     addNightWindow(night, x, cy, z, yaw, 3.35, 2.0);
@@ -1217,7 +1497,9 @@ function buildHamlet(
   for (let k = 0; k < 3; k++) {
     const a = gateAngle - 0.5 - (k / 3) * 1.5;
     const [x, z] = at(a, R - 6 - rng() * 3);
-    if (!place(taken, network, x, z, 3.2, 1)) continue;
+    if (!place(taken, network, x, z, 3.2, 1)) {
+      continue;
+    }
     const yaw = a + Math.PI / 2;
     solid.add(k === 1 ? parts.bell : parts.tents[k % parts.tents.length], x, cy, z, yaw);
     addNightWindow(night, x, cy, z, yaw, 2.7, 1.45);
@@ -1231,13 +1513,17 @@ function buildHamlet(
     arcPath.push({ x, y: cy, z });
   }
   buildFence(solid, parts.fence, arcPath, {
-    accept: clearRun(network, taken), lanternEvery: 4, glow,
+    accept: clearRun(network, taken),
+    lanternEvery: 4,
+    glow,
   });
   for (let k = 0; k < 14; k++) {
     const a = rng() * Math.PI * 2;
     const [x, z] = at(a, 4 + rng() * (R - 6));
     const tpl = k % 3 === 0 ? parts.crateS : k % 3 === 1 ? parts.barrel : parts.woodpile;
-    if (!place(taken, network, x, z, 1.4, -1)) continue;
+    if (!place(taken, network, x, z, 1.4, -1)) {
+      continue;
+    }
     solid.add(tpl, x, cy, z, rng() * 6.28);
   }
   {
@@ -1249,7 +1535,9 @@ function buildHamlet(
   for (let k = 0; k < 3; k++) {
     const a = gateAngle + 0.4 + k * 2.1;
     const [x, z] = at(a, R - 4.5);
-    if (!place(taken, network, x, z, 1.6, -1)) continue;
+    if (!place(taken, network, x, z, 1.6, -1)) {
+      continue;
+    }
     solid.add(parts.brazier, x, cy, z, 0);
     glow.add(parts.brazierGlow, x, cy, z, 0, 1, 1, 1, 1);
   }
@@ -1259,8 +1547,8 @@ function buildHamlet(
 
 /** The two behaviours a town's `layout` field may select. AT MODULE LOAD, before
  *  `bootstrapContent()`, which also PUBLISHES the names to the content type. */
-defineFactory(TOWN_LAYOUT_KIND, 'camp', buildEncampment satisfies TownLayout);
-defineFactory(TOWN_LAYOUT_KIND, 'hamlet', buildHamlet satisfies TownLayout);
+defineFactory(TOWN_LAYOUT_KIND, "camp", buildEncampment satisfies TownLayout);
+defineFactory(TOWN_LAYOUT_KIND, "hamlet", buildHamlet satisfies TownLayout);
 
 /**
  * What lines a road: lamps at intervals, fence on some stretches, and a fingerpost
@@ -1269,8 +1557,12 @@ defineFactory(TOWN_LAYOUT_KIND, 'hamlet', buildHamlet satisfies TownLayout);
  * the deck) and WHETHER THE SPOT IS FREE (`taken`, plus the whole network).
  */
 function buildRoadFurniture(
-  solid: SolidStamp, glow: Accum, parts: TownParts, road: Road,
-  network: RoadClearance, rng: () => number,
+  solid: SolidStamp,
+  glow: Accum,
+  parts: TownParts,
+  road: Road,
+  network: RoadClearance,
+  rng: () => number,
   surfaceAt: (x: number, z: number) => number,
   taken: Spot[],
   /** The sited towns, for "is this end a town" and "what does its plank say". */
@@ -1290,7 +1582,9 @@ function buildRoadFurniture(
     [Math.max(len * 0.6, len - 17), road.toId, road.fromId, -1],
   ];
   for (const [sPos, standsAt, names, dir] of ends) {
-    if (siteOf(sites, standsAt) === null) continue;
+    if (siteOf(sites, standsAt) === null) {
+      continue;
+    }
     // The junction has no asset, so its plank is the one sign left in the string table.
     const named = siteOf(sites, names);
     const sign = named ? resolveText(named.sign) : t(JUNCTION_SIGN_KEY);
@@ -1303,16 +1597,23 @@ function buildRoadFurniture(
       const off = rim + 1.1;
       const x = at.x + px * off;
       const z = at.z + pz * off;
-      if (!place(
-        taken, network, x, z, POST_CLEAR, POST_ROAD_CLEAR, 'post',
-        footprintRadius(parts.post),
-      )) continue;
+      if (
+        !place(
+          taken,
+          network,
+          x,
+          z,
+          POST_CLEAR,
+          POST_ROAD_CLEAR,
+          "post",
+          footprintRadius(parts.post),
+        )
+      ) {
+        continue;
+      }
       const y = seatOn(surfaceAt, x, z, POST_FOOT);
       solid.add(parts.post, x, y, z, 0);
-      solid.add(
-        signArm(sign, SIGN_V), x, y + 3.4, z,
-        Math.atan2(at.dx * dir, at.dz * dir),
-      );
+      solid.add(signArm(sign, SIGN_V), x, y + 3.4, z, Math.atan2(at.dx * dir, at.dz * dir));
       break;
     }
   }
@@ -1323,7 +1624,9 @@ function buildRoadFurniture(
     roadAt(road, s, at);
     // Off the deck: a lamp on a bridge would stand on planks over open water.
     const near = road.pts[Math.min(road.pts.length - 1, Math.round(s / 3))];
-    if (near.bridge) continue;
+    if (near.bridge) {
+      continue;
+    }
     // Alternating sides is the LOOK; which side is free is the network's call.
     for (const side of [lampSide, -lampSide]) {
       const px = -at.dz * side;
@@ -1331,10 +1634,20 @@ function buildRoadFurniture(
       const off = rim + 0.8;
       const x = at.x + px * off;
       const z = at.z + pz * off;
-      if (!place(
-        taken, network, x, z, LAMP_CLEAR, LAMP_ROAD_CLEAR, 'lamp',
-        footprintRadius(parts.lamp),
-      )) continue;
+      if (
+        !place(
+          taken,
+          network,
+          x,
+          z,
+          LAMP_CLEAR,
+          LAMP_ROAD_CLEAR,
+          "lamp",
+          footprintRadius(parts.lamp),
+        )
+      ) {
+        continue;
+      }
       const y = seatOn(surfaceAt, x, z, 0.4);
       const yaw = Math.atan2(-px, -pz); // bracket leans over the road
       solid.add(parts.lamp, x, y, z, yaw);
@@ -1356,7 +1669,9 @@ function buildRoadFurniture(
       roadAt(road, sk, at);
       // A bridge deck has its own railing and no verge, so a run reaching one ENDS.
       const near = road.pts[Math.min(road.pts.length - 1, Math.round(sk / 3))];
-      if (near.bridge) break;
+      if (near.bridge) {
+        break;
+      }
       // Offsets are against THIS road; `accept` checks each bay against the network.
       const off = rim + 1.5;
       const fx = at.x - at.dz * fside * off;
@@ -1366,10 +1681,12 @@ function buildRoadFurniture(
       path.push({ x: fx, y: surfaceAt(fx, fz), z: fz });
     }
     if (path.length > 1) {
-      built.push(...buildFence(solid, parts.fence, path, {
-        accept: clearRun(network, taken),
-        groundAt: (x, z) => surfaceAt(x, z),
-      }));
+      built.push(
+        ...buildFence(solid, parts.fence, path, {
+          accept: clearRun(network, taken),
+          groundAt: (x, z) => surfaceAt(x, z),
+        }),
+      );
     }
     s += runLen + 40 + rng() * 70;
   }

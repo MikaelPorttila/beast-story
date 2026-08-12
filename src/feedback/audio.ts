@@ -26,14 +26,16 @@
  * GENERATED — oscillators and noise bursts shaped in code, like every model,
  * animation and effect in this project — not sample files.
  */
-import type { CueKind } from './cues';
+import type { CueKind } from "./cues";
 
 export class AudioChannel {
   private unlockedFlag = false;
   private calls = 0;
   private lastCue: CueKind | null = null;
 
-  get unlocked(): boolean { return this.unlockedFlag; }
+  get unlocked(): boolean {
+    return this.unlockedFlag;
+  }
 
   /**
    * Note that a real user gesture has happened, so audio may start.

@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { makeGlowSprite } from './glowsprite';
-import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { makeGlowSprite } from "./glowsprite";
+import { eyes2x2, rimTop, shadeUnder } from "./voxelshade";
 
 // Umbrakit — hovering shadow cat: never walks, floats ~0.3 above the ground on a pool
 // of underglow, and its tail dissolves into three orbiting voxels.
@@ -23,7 +23,7 @@ const IRIS = 0x2a1c40;
 const NOSE = 0xc79ae8;
 
 // Must match buildRig
-const BODY_Y = 0.42;       // hover: body underside sits ~0.3 above origin
+const BODY_Y = 0.42; // hover: body underside sits ~0.3 above origin
 const HEAD_Y = 0.07;
 const HEAD_Z = 0.2;
 const EAR_Z = 0.22;
@@ -54,7 +54,7 @@ function makeTorso(): THREE.Mesh {
   m.ellipsoid(0, 0.3, 0.2, 1.7, 0.7, 2.5, GLOW);
   m.ellipsoid(0, 1.3, 1.5, 1.8, 1.35, 1.5, PALE);
   rimTop(m, RIM, -2, 2, 1, 4, -3, 3);
-  m.markEmissive(GLOW, 0.35);  // down from 0.55 now a bloom pass amplifies it
+  m.markEmissive(GLOW, 0.35); // down from 0.55 now a bloom pass amplifies it
   return m.build(S, true);
 }
 
@@ -66,14 +66,21 @@ function makeHead(): THREE.Mesh {
   m.box(-3, 1, 2, 3, 3, 2, INK);
   rimTop(m, RIM, -2, 2, 0, 4, -2, 2);
   shadeUnder(m, DUSK, -3, 3, 0, 1, -2, 3);
-  for (let x = -1; x <= 1; x++) m.set(x, 1, 3, DUSK);
+  for (let x = -1; x <= 1; x++) {
+    m.set(x, 1, 3, DUSK);
+  }
   m.set(0, 1, 4, NOSE);
   eyes2x2(m, {
     // Nothing on the head glows: an emissive catchlight bloomed into a star and ate the
     // iris, which is what eyes2x2 warns about. LAV against IRIS as plain paint is already
     // the strongest contrast on the model.
-    inner: 1, y: 1, faceZ: 2, iris: IRIS, shine: LAV,
-    lid: DUSK, bridge: RIM,
+    inner: 1,
+    y: 1,
+    faceZ: 2,
+    iris: IRIS,
+    shine: LAV,
+    lid: DUSK,
+    bridge: RIM,
   });
   return m.build(S, true);
 }
@@ -120,7 +127,12 @@ function makeTailSeg3(): THREE.Mesh {
   return m.build(S, true);
 }
 
-function glowMaterial(mesh: THREE.Mesh, emissiveHex: number, intensity: number, opacity?: number): void {
+function glowMaterial(
+  mesh: THREE.Mesh,
+  emissiveHex: number,
+  intensity: number,
+  opacity?: number,
+): void {
   const mat = mesh.material as THREE.MeshStandardMaterial;
   mat.emissive = new THREE.Color(emissiveHex);
   mat.emissiveIntensity = intensity;
@@ -251,8 +263,19 @@ function buildRig(): BeastRig {
   return {
     root,
     parts: {
-      body, glow, head, earL, earR, legFL, legFR,
-      tailBase, tailMid, tailTip, wisp1, wisp2, wisp3,
+      body,
+      glow,
+      head,
+      earL,
+      earR,
+      legFL,
+      legFR,
+      tailBase,
+      tailMid,
+      tailTip,
+      wisp1,
+      wisp2,
+      wisp3,
     },
     height: 0.8,
     radius: 0.3,
@@ -267,18 +290,39 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
   const hover = 0.045 * Math.sin(t * 1.5) + 0.02 * Math.sin(t * 2.7 + 1.3);
 
-  let bpx = 0, bpy = BODY_Y + hover, bpz = 0;
-  let brx = 0, bry = 0, brz = 0;
-  let bsx = 1, bsy = 1, bsz = 1;
-  let hrx = 0, hry = 0, hrz = 0;
-  let elx = -0.06, elz = -EAR_Z, erx = -0.06, erz = EAR_Z;
-  let pawL = PAW_X, pawR = PAW_X;
-  let tbx = TAIL_BASE_X, tby = 0, tmx = TAIL_MID_X, tmy = 0, tty = 0;
+  let bpx = 0,
+    bpy = BODY_Y + hover,
+    bpz = 0;
+  let brx = 0,
+    bry = 0,
+    brz = 0;
+  let bsx = 1,
+    bsy = 1,
+    bsz = 1;
+  let hrx = 0,
+    hry = 0,
+    hrz = 0;
+  let elx = -0.06,
+    elz = -EAR_Z,
+    erx = -0.06,
+    erz = EAR_Z;
+  let pawL = PAW_X,
+    pawR = PAW_X;
+  let tbx = TAIL_BASE_X,
+    tby = 0,
+    tmx = TAIL_MID_X,
+    tmy = 0,
+    tty = 0;
   let glowS = 1;
-  let wSpeed = 1.2, wSpread = 0.1, wTrail = 0.1, wRise = 0, wScatter = 0, wRing = 0;
+  let wSpeed = 1.2,
+    wSpread = 0.1,
+    wTrail = 0.1,
+    wRise = 0,
+    wScatter = 0,
+    wRing = 0;
 
   switch (ctx.action) {
-    case 'idle': {
+    case "idle": {
       const b = Math.sin(t * 1.9);
       bsy = 1 + 0.025 * b;
       bsx = bsz = 1 - 0.01 * b;
@@ -300,10 +344,10 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       glowS = 1 + 0.08 * Math.sin(t * 1.5 + 0.5);
       break;
     }
-    case 'walk':
-    case 'run':
-    case 'fly':
-    case 'swim': {
+    case "walk":
+    case "run":
+    case "fly":
+    case "swim": {
       const drift = ctx.cycle(DRIFT, 2.2 + 1.4 * ms);
       brx = 0.06 + 0.12 * ms;
       brz = 0.09 * Math.sin(drift) * (0.35 + 0.65 * ms);
@@ -333,7 +377,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       wSpread = 0.08;
       break;
     }
-    case 'attack': {
+    case "attack": {
       const wind = smooth(phase(at, 0, 0.15));
       const lunge = ezOut(phase(at, 0.15, 0.3));
       const rec = smooth(phase(at, 0.5, 0.85));
@@ -356,7 +400,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       wScatter = 0.3 * kp;
       break;
     }
-    case 'cast': {
+    case "cast": {
       const rise = ezOut(clamp01(at / 0.45));
       const trem = 0.5 * Math.sin(t * 13) + 0.5 * Math.sin(t * 19);
       brx = -0.5 * rise + 0.02 * trem * rise;
@@ -378,11 +422,12 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       wRing = 0.8 * rise;
       break;
     }
-    case 'special': {
+    case "special": {
       const T = 0.9;
       const k = clamp01(at / T);
       const arc = Math.sin(Math.PI * k);
-      const land = Math.sin(Math.PI * phase(at, T, T + 0.25)) * (1 - smooth(phase(at, T + 0.25, T + 0.6)));
+      const land =
+        Math.sin(Math.PI * phase(at, T, T + 0.25)) * (1 - smooth(phase(at, T + 0.25, T + 0.6)));
       bry = Math.PI * 2 * smooth(k);
       bpy += 0.26 * arc - 0.05 * land;
       bsy = 1 + 0.1 * arc - 0.18 * land;
@@ -402,7 +447,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       wRise = 0.1 * arc;
       break;
     }
-    case 'hurt': {
+    case "hurt": {
       const d = Math.exp(-3.5 * at);
       const flick = Math.abs(Math.sin(at * 38));
       bpx = 0.04 * Math.sin(at * 44) * d;
@@ -422,7 +467,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       wSpread = 0.18;
       break;
     }
-    case 'happy': {
+    case "happy": {
       const hop = Math.abs(Math.sin(at * 4.8));
       bpy += 0.12 * hop;
       bry = Math.PI * 2 * smooth(clamp01(((at % 2.4) - 0.3) / 0.8));
@@ -494,65 +539,65 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
 export const skills: SkillDef[] = [
   {
-    id: 'umbrakit.gloom-bolt',
-    nameKey: 'skill.umbrakit.gloom-bolt.name',
-    descriptionKey: 'skill.umbrakit.gloom-bolt.desc',
-    element: 'shadow',
-    targeting: 'projectile',
+    id: "umbrakit.gloom-bolt",
+    nameKey: "skill.umbrakit.gloom-bolt.name",
+    descriptionKey: "skill.umbrakit.gloom-bolt.desc",
+    element: "shadow",
+    targeting: "projectile",
     cost: 6,
     cooldown: 1.7,
     power: 11,
     range: 15,
     learnAtLevel: 1,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'umbrakit.phantom-claw',
-    nameKey: 'skill.umbrakit.phantom-claw.name',
-    descriptionKey: 'skill.umbrakit.phantom-claw.desc',
-    element: 'shadow',
-    targeting: 'melee',
+    id: "umbrakit.phantom-claw",
+    nameKey: "skill.umbrakit.phantom-claw.name",
+    descriptionKey: "skill.umbrakit.phantom-claw.desc",
+    element: "shadow",
+    targeting: "melee",
     cost: 9,
     cooldown: 3,
     power: 18,
     range: 2.4,
     learnAtLevel: 4,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'umbrakit.veil-of-dusk',
-    nameKey: 'skill.umbrakit.veil-of-dusk.name',
-    descriptionKey: 'skill.umbrakit.veil-of-dusk.desc',
-    element: 'shadow',
-    targeting: 'self',
+    id: "umbrakit.veil-of-dusk",
+    nameKey: "skill.umbrakit.veil-of-dusk.name",
+    descriptionKey: "skill.umbrakit.veil-of-dusk.desc",
+    element: "shadow",
+    targeting: "self",
     cost: 12,
     cooldown: 9,
     power: 14,
     range: 1,
     storePrice: 160,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'umbrakit.midnight-bloom',
-    nameKey: 'skill.umbrakit.midnight-bloom.name',
-    descriptionKey: 'skill.umbrakit.midnight-bloom.desc',
-    element: 'shadow',
-    targeting: 'aoe',
+    id: "umbrakit.midnight-bloom",
+    nameKey: "skill.umbrakit.midnight-bloom.name",
+    descriptionKey: "skill.umbrakit.midnight-bloom.desc",
+    element: "shadow",
+    targeting: "aoe",
     cost: 25,
     cooldown: 12,
     power: 44,
     range: 5,
     storePrice: 400,
-    castAnim: 'special',
+    castAnim: "special",
   },
 ];
 
 export const species: BeastSpecies = {
-  id: 'umbrakit',
-  nameKey: 'beast.umbrakit.name',
-  element: 'shadow',
-  locomotion: 'ground',
-  descriptionKey: 'beast.umbrakit.desc',
+  id: "umbrakit",
+  nameKey: "beast.umbrakit.name",
+  element: "shadow",
+  locomotion: "ground",
+  descriptionKey: "beast.umbrakit.desc",
   baseStats: { maxHp: 44, attack: 13, defense: 5, speed: 5.4 },
   skills: skills.map((s) => s.id),
   buildRig,

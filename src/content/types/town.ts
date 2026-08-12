@@ -1,14 +1,21 @@
 /** Towns as content — the `SiteSpec` table from `src/world/towns.ts`, as data. */
 
-import type { ContentAsset, ContentId, ContentText, ContentTypeDef, ParseCtx, ValidateCtx } from '../types';
-import { bool, hexColor, num, obj, opt, readerFor, str, text } from '../schema';
-import { isKnownTextKey } from '../text';
+import type {
+  ContentAsset,
+  ContentId,
+  ContentText,
+  ContentTypeDef,
+  ParseCtx,
+  ValidateCtx,
+} from "../types";
+import { bool, hexColor, num, obj, opt, readerFor, str, text } from "../schema";
+import { isKnownTextKey } from "../text";
 
 /** The factory kind a town's `layout` selects. `town-layout/camp`, `…/hamlet`. */
-export const TOWN_LAYOUT_KIND = 'town-layout';
+export const TOWN_LAYOUT_KIND = "town-layout";
 
 /** The factory kind a CARRIED town's `layout` selects — `carried-layout/skyhaven`. */
-export const CARRIED_LAYOUT_KIND = 'carried-layout';
+export const CARRIED_LAYOUT_KIND = "carried-layout";
 
 /** A layout name: the same narrow alphabet as the `name` half of an id. */
 const LAYOUT_RE = /^[a-z][a-z0-9-]*$/;
@@ -65,61 +72,64 @@ function parse(body: unknown, ctx: ParseCtx): TownData | null {
   const r = readerFor(ctx, { knownTextKey: isKnownTextKey });
   const b = obj(body, r);
   return {
-    sign: text(b.sign, r.at('sign')),
-    layout: str(b.layout, r.at('layout'), {
+    sign: text(b.sign, r.at("sign")),
+    layout: str(b.layout, r.at("layout"), {
       min: 1,
       max: 64,
       pattern: LAYOUT_RE,
-      what: 'a town layout name',
+      what: "a town layout name",
     }),
     // Ranges are a guard against untrusted JSON, not a design opinion.
-    radius: num(b.radius, r.at('radius'), { min: 1, max: 500, what: 'a footprint radius' }),
-    outerRadius: opt(b.outerRadius, r.at('outerRadius'), (v, c) =>
-      num(v, c, { min: 1, max: 1000, what: 'a built perimeter radius' })),
-    noSpawnRadius: opt(b.noSpawnRadius, r.at('noSpawnRadius'), (v, c) =>
-      num(v, c, { min: 0, max: 1000, what: 'a no-spawn radius' })),
-    color: hexColor(b.color, r.at('color')),
-    waterside: opt(b.waterside, r.at('waterside'), bool) ?? false,
-    order: num(b.order, r.at('order'), { min: 0, max: 10000, what: 'a placement order' }),
-    start: opt(b.start, r.at('start'), bool) ?? false,
-    carried: opt(b.carried, r.at('carried'), bool) ?? false,
+    radius: num(b.radius, r.at("radius"), { min: 1, max: 500, what: "a footprint radius" }),
+    outerRadius: opt(b.outerRadius, r.at("outerRadius"), (v, c) =>
+      num(v, c, { min: 1, max: 1000, what: "a built perimeter radius" }),
+    ),
+    noSpawnRadius: opt(b.noSpawnRadius, r.at("noSpawnRadius"), (v, c) =>
+      num(v, c, { min: 0, max: 1000, what: "a no-spawn radius" }),
+    ),
+    color: hexColor(b.color, r.at("color")),
+    waterside: opt(b.waterside, r.at("waterside"), bool) ?? false,
+    order: num(b.order, r.at("order"), { min: 0, max: 10000, what: "a placement order" }),
+    start: opt(b.start, r.at("start"), bool) ?? false,
+    carried: opt(b.carried, r.at("carried"), bool) ?? false,
   };
 }
 
 /** A town points at nothing today; NPCs name their town, not the reverse. */
-function* refs(_data: TownData): Iterable<ContentId> {
-}
+function* refs(_data: TownData): Iterable<ContentId> {}
 
 function validate(asset: ContentAsset<TownData>, ctx: ValidateCtx): void {
   const kind = asset.data.carried ? CARRIED_LAYOUT_KIND : TOWN_LAYOUT_KIND;
   const known = asset.data.carried ? knownCarried : knownLayouts;
   if (known !== null && !known.has(asset.data.layout)) {
     ctx.report({
-      severity: 'error',
-      code: 'unknown-factory',
+      severity: "error",
+      code: "unknown-factory",
       message: `no "${kind}/${asset.data.layout}" is registered`,
-      field: 'data.layout',
+      field: "data.layout",
       fix: `defineFactory("${kind}", "${asset.data.layout}", …), or use one that exists`,
     });
   }
 
   // Whole-table rules run ONCE, from the first town in load order: one finding
   // about the set, not one per member (the sink dedupes on assetId).
-  const towns = ctx.content.all<TownData>('town');
-  if (towns.length === 0 || towns[0].id !== asset.id) return;
+  const towns = ctx.content.all<TownData>("town");
+  if (towns.length === 0 || towns[0].id !== asset.id) {
+    return;
+  }
 
   const starts = towns.filter((tn) => tn.data.start);
   if (starts.length !== 1) {
     ctx.report({
-      severity: 'error',
-      code: 'bad-field',
+      severity: "error",
+      code: "bad-field",
       message:
         starts.length === 0
           ? 'no town declares "start": true'
-          : `${starts.length} towns declare "start": true (${starts.map((tn) => tn.id).join(', ')})`,
-      field: 'data.start',
+          : `${starts.length} towns declare "start": true (${starts.map((tn) => tn.id).join(", ")})`,
+      field: "data.start",
       related: starts.map((tn) => tn.id),
-      fix: 'exactly one town is the one the player spawns on the road out of',
+      fix: "exactly one town is the one the player spawns on the road out of",
     });
   }
 
@@ -128,14 +138,14 @@ function validate(asset: ContentAsset<TownData>, ctx: ValidateCtx): void {
     const first = seen.get(town.data.order);
     if (first !== undefined) {
       ctx.report({
-        severity: 'warn',
-        code: 'bad-field',
+        severity: "warn",
+        code: "bad-field",
         message: `"${town.id}" and "${first}" both claim placement order ${town.data.order}`,
         assetId: town.id,
-        field: 'data.order',
+        field: "data.order",
         related: [first],
         // Warn, not error: the world builds, but siting order falls back to load order.
-        fix: 'give them distinct orders; placement order decides who picks a site first',
+        fix: "give them distinct orders; placement order decides who picks a site first",
       });
       continue;
     }
@@ -144,20 +154,20 @@ function validate(asset: ContentAsset<TownData>, ctx: ValidateCtx): void {
 }
 
 export const TOWN_TYPE: ContentTypeDef<TownData> = {
-  name: 'town',
+  name: "town",
   schema: 1,
   parse,
   refs,
   validate,
   template: {
-    id: 'town:new-town',
+    id: "town:new-town",
     schema: 1,
-    name: { text: { en: 'New Town' } },
+    name: { text: { en: "New Town" } },
     data: {
-      sign: { text: { en: 'NEW TOWN' } },
-      layout: 'hamlet',
+      sign: { text: { en: "NEW TOWN" } },
+      layout: "hamlet",
       radius: 15,
-      color: '#ffffff',
+      color: "#ffffff",
       waterside: false,
       order: 99,
       start: false,

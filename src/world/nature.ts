@@ -3,11 +3,10 @@
  * to 1, so the tuned baseline stays in `props.ts` and shipped values are
  * bit-for-bit what they were. Never persisted — not a player setting.
  */
-import type { BiomeId } from './terrain';
+import type { BiomeId } from "./terrain";
 
 /** Coarser than props.ts's own passes: "grass" covers carpet, tussocks and blades. */
-export type NatureParamId =
-  'trees' | 'grass' | 'flowers' | 'bushes' | 'rocks' | 'reeds';
+export type NatureParamId = "trees" | "grass" | "flowers" | "bushes" | "rocks" | "reeds";
 
 /** An area is a biome today; widen this and the `for()` lookup to add another kind. */
 export type NatureAreaId = BiomeId;
@@ -21,12 +20,22 @@ export interface NatureParamDef {
 }
 
 export const NATURE_PARAMS: readonly NatureParamDef[] = [
-  { id: 'trees', help: 'trees, palms and cacti — the tree pass acceptance rate', def: 1, max: 4 },
-  { id: 'grass', help: 'meadow clumps and everything in one: sprigs, tussocks, blades', def: 1, max: 4 },
-  { id: 'flowers', help: 'the lone blossom in a clump and the per-region bloom drifts', def: 1, max: 4 },
-  { id: 'bushes', help: 'hedges and the bush that anchors a meadow clump', def: 1, max: 4 },
-  { id: 'rocks', help: 'boulder clusters, outcrops and the lone mid-ground rock', def: 1, max: 4 },
-  { id: 'reeds', help: 'reed stands at the waterline', def: 1, max: 4 },
+  { id: "trees", help: "trees, palms and cacti — the tree pass acceptance rate", def: 1, max: 4 },
+  {
+    id: "grass",
+    help: "meadow clumps and everything in one: sprigs, tussocks, blades",
+    def: 1,
+    max: 4,
+  },
+  {
+    id: "flowers",
+    help: "the lone blossom in a clump and the per-region bloom drifts",
+    def: 1,
+    max: 4,
+  },
+  { id: "bushes", help: "hedges and the bush that anchors a meadow clump", def: 1, max: 4 },
+  { id: "rocks", help: "boulder clusters, outcrops and the lone mid-ground rock", def: 1, max: 4 },
+  { id: "reeds", help: "reed stands at the waterline", def: 1, max: 4 },
 ];
 
 const DEFAULTS = Object.freeze(
@@ -36,7 +45,9 @@ const DEFAULTS = Object.freeze(
 const byId = new Map(NATURE_PARAMS.map((p) => [p.id, p]));
 
 function clamp(def: NatureParamDef, v: number): number {
-  if (!Number.isFinite(v)) return def.def;
+  if (!Number.isFinite(v)) {
+    return def.def;
+  }
   return Math.min(def.max, Math.max(0, v));
 }
 
@@ -65,7 +76,9 @@ export class NatureField {
    */
   for(area: NatureAreaId): Readonly<Record<NatureParamId, number>> {
     const hit = this.cache.get(area);
-    if (hit) return hit;
+    if (hit) {
+      return hit;
+    }
     const out = {} as Record<NatureParamId, number>;
     for (const p of NATURE_PARAMS) {
       out[p.id] = clamp(p, this.base(p.id) * this.areaFactor(area, p.id));
@@ -77,11 +90,16 @@ export class NatureField {
 
   setBase(id: NatureParamId, value: number): number {
     const def = byId.get(id);
-    if (!def) return 0;
+    if (!def) {
+      return 0;
+    }
     const v = clamp(def, value);
     // Default = absence of an entry, so `isDefault` can tell "never touched" apart.
-    if (v === def.def) this.bases.delete(id);
-    else this.bases.set(id, v);
+    if (v === def.def) {
+      this.bases.delete(id);
+    } else {
+      this.bases.set(id, v);
+    }
     this.changed();
     return v;
   }
@@ -89,7 +107,9 @@ export class NatureField {
   /** `null` restores the baseline. */
   setArea(area: NatureAreaId, id: NatureParamId, value: number | null): number {
     const def = byId.get(id);
-    if (!def) return 0;
+    if (!def) {
+      return 0;
+    }
     const key = `${area}.${id}`;
     if (value === null) {
       this.areas.delete(key);
@@ -98,8 +118,11 @@ export class NatureField {
     }
     // Same ceiling as the baseline: an area cannot exceed what a base could.
     const v = clamp(def, value);
-    if (v === 1) this.areas.delete(key);
-    else this.areas.set(key, v);
+    if (v === 1) {
+      this.areas.delete(key);
+    } else {
+      this.areas.set(key, v);
+    }
     this.changed();
     return v;
   }
@@ -118,9 +141,11 @@ export class NatureField {
     baseline: Record<string, number>;
     areas: Record<string, number>;
     isDefault: boolean;
-    } {
+  } {
     const baseline: Record<string, number> = {};
-    for (const p of NATURE_PARAMS) baseline[p.id] = this.base(p.id);
+    for (const p of NATURE_PARAMS) {
+      baseline[p.id] = this.base(p.id);
+    }
     return {
       baseline,
       areas: Object.fromEntries(this.areas),
@@ -136,7 +161,9 @@ export class NatureField {
 
   private changed(): void {
     this.cache.clear();
-    for (const fn of this.listeners) fn();
+    for (const fn of this.listeners) {
+      fn();
+    }
   }
 }
 
@@ -147,22 +174,34 @@ export const nature = new NatureField();
  * Runs at module load so the first chunk has it; bad terms are ignored, not thrown.
  */
 function readUrl(): void {
-  if (typeof location === 'undefined') return;
-  const raw = new URLSearchParams(location.search).get('nature');
-  if (!raw) return;
-  for (const term of raw.split(',')) {
-    const [lhs, rhs] = term.split(':');
-    if (rhs === undefined) continue;
+  if (typeof location === "undefined") {
+    return;
+  }
+  const raw = new URLSearchParams(location.search).get("nature");
+  if (!raw) {
+    return;
+  }
+  for (const term of raw.split(",")) {
+    const [lhs, rhs] = term.split(":");
+    if (rhs === undefined) {
+      continue;
+    }
     const v = Number(rhs);
-    if (!Number.isFinite(v)) continue;
-    const dot = lhs.indexOf('.');
+    if (!Number.isFinite(v)) {
+      continue;
+    }
+    const dot = lhs.indexOf(".");
     if (dot < 0) {
-      if (byId.has(lhs.trim() as NatureParamId)) nature.setBase(lhs.trim() as NatureParamId, v);
+      if (byId.has(lhs.trim() as NatureParamId)) {
+        nature.setBase(lhs.trim() as NatureParamId, v);
+      }
       continue;
     }
     const area = lhs.slice(0, dot).trim() as NatureAreaId;
     const id = lhs.slice(dot + 1).trim() as NatureParamId;
-    if (byId.has(id)) nature.setArea(area, id, v);
+    if (byId.has(id)) {
+      nature.setArea(area, id, v);
+    }
   }
 }
 readUrl();

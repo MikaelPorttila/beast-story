@@ -16,11 +16,11 @@ import type {
   ContentTypeName,
   Diagnostic,
   Severity,
-} from './types';
-import { compareIds, parseId } from './ids';
-import { DiagnosticSink, atLeast } from './diagnostics';
-import type { DiagCode } from './diagnostics';
-import { isRecord } from './schema';
+} from "./types";
+import { compareIds, parseId } from "./ids";
+import { DiagnosticSink, atLeast } from "./diagnostics";
+import type { DiagCode } from "./diagnostics";
+import { isRecord } from "./schema";
 
 // Declared here, not imported: a guard tool with only parsed JSON can satisfy it.
 export interface Loaded {
@@ -31,7 +31,7 @@ export interface Loaded {
   typeDef?(type: ContentTypeName): ContentTypeDef | undefined;
 }
 
-export type ValidationLevel = 'dev' | 'check' | 'ship';
+export type ValidationLevel = "dev" | "check" | "ship";
 
 export interface ValidateOptions {
   readonly level?: ValidationLevel;
@@ -57,12 +57,9 @@ const COND_DEPTH = 16;
 
 // Never throws. Two passes, and the order is forced: "does anything set this flag"
 // cannot be answered while still walking the assets that might.
-export function validateContent(
-  loaded: Loaded,
-  opts: ValidateOptions = {},
-): readonly Diagnostic[] {
+export function validateContent(loaded: Loaded, opts: ValidateOptions = {}): readonly Diagnostic[] {
   const sink = opts.sink ?? new DiagnosticSink();
-  const level = opts.level ?? 'dev';
+  const level = opts.level ?? "dev";
 
   const registered = new Set<ContentTypeName>(loaded.types());
   const byId = new Map<ContentId, ContentAsset>();
@@ -79,8 +76,8 @@ export function validateContent(
       if (first !== undefined) {
         // One object under two type buckets is a broken envelope, reported as `bad-id`.
         if (first !== asset) {
-          report(sink, asset, 'error', 'duplicate-id', `also defined by package "${first.pkg}"`, {
-            fix: 'rename one — an id is what a save game stores',
+          report(sink, asset, "error", "duplicate-id", `also defined by package "${first.pkg}"`, {
+            fix: "rename one — an id is what a save game stores",
             related: [first.id],
           });
         }
@@ -102,32 +99,35 @@ export function validateContent(
 
     const def = loaded.typeDef?.(asset.type);
     if (def) {
-      if (typeof asset.schema === 'number' && asset.schema > def.schema) {
+      if (typeof asset.schema === "number" && asset.schema > def.schema) {
         report(
           sink,
           asset,
-          'error',
-          'unsupported-schema',
+          "error",
+          "unsupported-schema",
           `written against schema ${asset.schema}; this build reads ${def.schema}`,
-          { field: 'schema', fix: 'update the game, or author against the older revision' },
+          { field: "schema", fix: "update the game, or author against the older revision" },
         );
       }
       // The type's OWN rules only: reference existence is checked centrally above.
-      def.validate?.(asset, sink.validateCtx(lookupOf(loaded), {
-        assetId: asset.id,
-        assetType: asset.type,
-        pkg: asset.pkg,
-        source: asset.source,
-      }));
+      def.validate?.(
+        asset,
+        sink.validateCtx(lookupOf(loaded), {
+          assetId: asset.id,
+          assetType: asset.type,
+          pkg: asset.pkg,
+          source: asset.source,
+        }),
+      );
     }
   }
 
   if (opts.orphans) {
     for (const id of [...opts.orphans()].sort(compareIds)) {
       const asset = byId.get(id);
-      report(sink, asset, 'warn', 'orphan', 'nothing references this and no system enumerates it', {
+      report(sink, asset, "warn", "orphan", "nothing references this and no system enumerates it", {
         assetId: id,
-        fix: 'reference it, tag it for a system that enumerates by tag, or delete it',
+        fix: "reference it, tag it for a system that enumerates by tag, or delete it",
       });
     }
   }
@@ -143,8 +143,8 @@ function checkEnvelope(
 ): void {
   const parsed = parseId(asset.id);
   if (parsed === null) {
-    report(sink, asset, 'error', 'bad-id', `"${asset.id}" is not a well-formed content id`, {
-      field: 'id',
+    report(sink, asset, "error", "bad-id", `"${asset.id}" is not a well-formed content id`, {
+      field: "id",
       fix: 'ids are "type:name", lower-case a-z 0-9 and -',
     });
     return;
@@ -155,15 +155,15 @@ function checkEnvelope(
     report(
       sink,
       asset,
-      'error',
-      'bad-id',
+      "error",
+      "bad-id",
       `type is "${asset.type}" but the id says "${parsed.type}"`,
-      { field: 'type', fix: 'derive type from the id; never author it' },
+      { field: "type", fix: "derive type from the id; never author it" },
     );
   }
   if (!registered.has(parsed.type) && loaded.typeDef?.(parsed.type) === undefined) {
-    report(sink, asset, 'error', 'unknown-type', `no type "${parsed.type}" is registered`, {
-      field: 'id',
+    report(sink, asset, "error", "unknown-type", `no type "${parsed.type}" is registered`, {
+      field: "id",
       fix: `call defineType({ name: "${parsed.type}", … }) before loading this package`,
     });
   }
@@ -179,8 +179,10 @@ function checkRefs(
   for (let i = 0; i < asset.refs.length; i++) {
     const ref = asset.refs[i];
     // '' is schema.ts's `id()` fallback, already reported at the field it came from.
-    if (ref === '') continue;
-    checkOneRef(sink, asset, ref, `refs[${i}]`, loaded, registered, opts, 'error');
+    if (ref === "") {
+      continue;
+    }
+    checkOneRef(sink, asset, ref, `refs[${i}]`, loaded, registered, opts, "error");
   }
 }
 
@@ -198,7 +200,7 @@ function checkOneRef(
 ): void {
   const parsed = parseId(ref);
   if (parsed === null) {
-    report(sink, asset, severity, 'bad-id', `"${ref}" is not a well-formed content id`, { field });
+    report(sink, asset, severity, "bad-id", `"${ref}" is not a well-formed content id`, { field });
     return;
   }
   if (!registered.has(parsed.type) && loaded.typeDef?.(parsed.type) === undefined) {
@@ -206,9 +208,9 @@ function checkOneRef(
       sink,
       asset,
       severity,
-      'unknown-type',
+      "unknown-type",
       `"${ref}" names the content type "${parsed.type}", which nothing registered`,
-      { field, fix: 'check the spelling of the type half' },
+      { field, fix: "check the spelling of the type half" },
     );
     return;
   }
@@ -218,28 +220,24 @@ function checkOneRef(
     report(
       sink,
       asset,
-      optional ? 'info' : severity,
-      'missing-ref',
-      optional
-        ? `"${ref}" is not loaded (declared optional)`
-        : `nothing defines "${ref}"`,
+      optional ? "info" : severity,
+      "missing-ref",
+      optional ? `"${ref}" is not loaded (declared optional)` : `nothing defines "${ref}"`,
       {
         field,
         related: [ref],
-        fix: optional ? undefined : 'add it, load the package that defines it, or drop the reference',
+        fix: optional
+          ? undefined
+          : "add it, load the package that defines it, or drop the reference",
       },
     );
     return;
   }
   if (target.type !== parsed.type) {
-    report(
-      sink,
-      asset,
-      severity,
-      'wrong-ref-type',
-      `"${ref}" resolves to a "${target.type}"`,
-      { field, related: [ref] },
-    );
+    report(sink, asset, severity, "wrong-ref-type", `"${ref}" resolves to a "${target.type}"`, {
+      field,
+      related: [ref],
+    });
   }
 }
 
@@ -252,41 +250,49 @@ function checkWhen(
   knownTests: ReadonlySet<string> | undefined,
   opts: ValidateOptions,
 ): void {
-  if (asset.when === undefined) return;
+  if (asset.when === undefined) {
+    return;
+  }
   const leaves: Leaf[] = [];
-  walkCondition(asset.when, 'when', 0, leaves);
+  walkCondition(asset.when, "when", 0, leaves);
 
   const declared = new Set(asset.refs);
   for (const leaf of leaves) {
     if (knownTests && !knownTests.has(leaf.test)) {
-      report(sink, asset, 'error', 'unknown-test', `no test "${leaf.test}" is registered`, {
+      report(sink, asset, "error", "unknown-test", `no test "${leaf.test}" is registered`, {
         field: `${leaf.path}.test`,
-        fix: 'check the spelling — an unknown test is false, so this can never pass',
+        fix: "check the spelling — an unknown test is false, so this can never pass",
       });
     }
     // Ids hiding in leaf params: a REGISTERED type half is what keeps a parameter
     // like "time:noon" out of it.
     for (const [key, value] of Object.entries(leaf.params)) {
-      if (typeof value !== 'string' || declared.has(value)) continue;
+      if (typeof value !== "string" || declared.has(value)) {
+        continue;
+      }
       const p = parseId(value);
-      if (p === null || !registered.has(p.type)) continue;
-      checkOneRef(sink, asset, value, `${leaf.path}.${key}`, loaded, registered, opts, 'warn');
+      if (p === null || !registered.has(p.type)) {
+        continue;
+      }
+      checkOneRef(sink, asset, value, `${leaf.path}.${key}`, loaded, registered, opts, "warn");
     }
   }
 
   for (const flag of requiredFlags(asset.when, 0)) {
-    if (setFlags.has(flag)) continue;
+    if (setFlags.has(flag)) {
+      continue;
+    }
     report(
       sink,
       asset,
-      'warn',
-      'never-available',
+      "warn",
+      "never-available",
       `requires the flag "${flag}", which no loaded content sets`,
       {
-        field: 'when',
+        field: "when",
         fix:
           `set it from an action ({ "do": "flag.set", "flag": "${flag}" }), ` +
-          'or list it in the engine-set flags if engine code owns it',
+          "or list it in the engine-set flags if engine code owns it",
       },
     );
   }
@@ -300,11 +306,13 @@ interface Leaf {
 }
 
 function walkCondition(value: unknown, path: string, depth: number, out: Leaf[]): void {
-  if (depth > COND_DEPTH || !isRecord(value)) return;
+  if (depth > COND_DEPTH || !isRecord(value)) {
+    return;
+  }
   const all = value.all;
   const any = value.any;
   if (Array.isArray(all) || Array.isArray(any)) {
-    const key = Array.isArray(all) ? 'all' : 'any';
+    const key = Array.isArray(all) ? "all" : "any";
     const parts: readonly unknown[] = Array.isArray(all) ? all : (any as readonly unknown[]);
     for (let i = 0; i < parts.length; i++) {
       walkCondition(parts[i], `${path}.${key}[${i}]`, depth + 1, out);
@@ -315,9 +323,11 @@ function walkCondition(value: unknown, path: string, depth: number, out: Leaf[])
     walkCondition(value.not, `${path}.not`, depth + 1, out);
     return;
   }
-  if (typeof value.test === 'string') {
+  if (typeof value.test === "string") {
     const params: Record<string, unknown> = {};
-    for (const k of Object.keys(value)) if (k !== 'test') params[k] = value[k];
+    for (const k of Object.keys(value)) {
+      if (k !== "test") params[k] = value[k];
+    }
     out.push({ test: value.test, params, path });
   }
 }
@@ -331,14 +341,20 @@ function requiredFlags(when: Condition | undefined, depth: number): readonly str
 }
 
 function collectRequired(value: unknown, depth: number, out: string[]): void {
-  if (depth > COND_DEPTH || !isRecord(value)) return;
-  if (Array.isArray(value.all)) {
-    for (const part of value.all) collectRequired(part, depth + 1, out);
+  if (depth > COND_DEPTH || !isRecord(value)) {
     return;
   }
-  if (value.any !== undefined || value.not !== undefined) return;
+  if (Array.isArray(value.all)) {
+    for (const part of value.all) {
+      collectRequired(part, depth + 1, out);
+    }
+    return;
+  }
+  if (value.any !== undefined || value.not !== undefined) {
+    return;
+  }
   // Keyed on the PARAMETER, not the test name, so a later `flag-*` test is covered.
-  if (typeof value.test === 'string' && typeof value.flag === 'string' && value.flag !== '') {
+  if (typeof value.test === "string" && typeof value.flag === "string" && value.flag !== "") {
     out.push(value.flag);
   }
 }
@@ -346,12 +362,18 @@ function collectRequired(value: unknown, depth: number, out: string[]): void {
 // A generic walk, not a lookup: actions live wherever a type puts them and this file
 // knows no type's shape. Hence the false positives, hence every finding is a warn.
 function collectSetFlags(asset: ContentAsset, into: Set<string>): void {
-  walkActions(asset.data, 'data', 0, { n: 0 }, (action) => {
-    if (typeof action.do !== 'string') return;
+  walkActions(asset.data, "data", 0, { n: 0 }, (action) => {
+    if (typeof action.do !== "string") {
+      return;
+    }
     // `flag.clear` counts too: it still proves the name is real content, not a typo.
-    if (!action.do.startsWith('flag.')) return;
+    if (!action.do.startsWith("flag.")) {
+      return;
+    }
     const flag = action.flag;
-    if (typeof flag === 'string' && flag !== '') into.add(flag);
+    if (typeof flag === "string" && flag !== "") {
+      into.add(flag);
+    }
   });
 }
 
@@ -360,14 +382,18 @@ function checkActions(
   asset: ContentAsset,
   knownActions: ReadonlySet<string> | undefined,
 ): void {
-  if (!knownActions) return;
-  walkActions(asset.data, 'data', 0, { n: 0 }, (action, path) => {
-    if (typeof action.do !== 'string' || knownActions.has(action.do)) return;
-    report(sink, asset, 'warn', 'unknown-action', `no handler "${action.do}" is registered`, {
+  if (!knownActions) {
+    return;
+  }
+  walkActions(asset.data, "data", 0, { n: 0 }, (action, path) => {
+    if (typeof action.do !== "string" || knownActions.has(action.do)) {
+      return;
+    }
+    report(sink, asset, "warn", "unknown-action", `no handler "${action.do}" is registered`, {
       field: `${path}.do`,
       // A warn: the walk finds ANY object with a `do` key, so a field named `do`
       // lands here too. The runtime's own check is authoritative.
-      fix: 'check the spelling, or defineAction it — an unknown action is skipped',
+      fix: "check the spelling, or defineAction it — an unknown action is skipped",
     });
   });
 }
@@ -379,8 +405,12 @@ function walkActions(
   budget: { n: number },
   visit: (action: Readonly<Record<string, unknown>>, path: string) => void,
 ): void {
-  if (depth > WALK_DEPTH || budget.n >= WALK_NODES) return;
-  if (value === null || typeof value !== 'object') return;
+  if (depth > WALK_DEPTH || budget.n >= WALK_NODES) {
+    return;
+  }
+  if (value === null || typeof value !== "object") {
+    return;
+  }
   budget.n++;
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
@@ -388,8 +418,12 @@ function walkActions(
     }
     return;
   }
-  if (!isRecord(value)) return;
-  if (typeof value.do === 'string') visit(value, path);
+  if (!isRecord(value)) {
+    return;
+  }
+  if (typeof value.do === "string") {
+    visit(value, path);
+  }
   for (const k of Object.keys(value)) {
     walkActions(value[k], `${path}.${k}`, depth + 1, budget, visit);
   }
@@ -399,17 +433,19 @@ function walkActions(
 // rendering bug rather than as missing content.
 function checkText(sink: DiagnosticSink, asset: ContentAsset, opts: ValidateOptions): void {
   const needs = opts.requireName;
-  if (!needs || !needs.includes(asset.type)) return;
+  if (!needs || !needs.includes(asset.type)) {
+    return;
+  }
   if (asset.name === undefined) {
-    report(sink, asset, 'error', 'missing-text', `a ${asset.type} must have a display name`, {
-      field: 'name',
+    report(sink, asset, "error", "missing-text", `a ${asset.type} must have a display name`, {
+      field: "name",
       fix: 'add { "key": "…" } from src/i18n/en.ts, or { "text": { "en": "…" } }',
     });
     return;
   }
-  if ('key' in asset.name && opts.knownTextKey && !opts.knownTextKey(asset.name.key)) {
-    report(sink, asset, 'error', 'missing-text', `"${asset.name.key}" is not in the string table`, {
-      field: 'name.key',
+  if ("key" in asset.name && opts.knownTextKey && !opts.knownTextKey(asset.name.key)) {
+    report(sink, asset, "error", "missing-text", `"${asset.name.key}" is not in the string table`, {
+      field: "name.key",
       fix: 'add it to src/i18n/en.ts, or carry the words inline with "text"',
     });
   }
@@ -417,16 +453,18 @@ function checkText(sink: DiagnosticSink, asset: ContentAsset, opts: ValidateOpti
 
 // `ship` promotes error to fatal. Nothing is ever filtered: two runs must agree.
 function escalate(diags: readonly Diagnostic[], level: ValidationLevel): readonly Diagnostic[] {
-  if (level !== 'ship') return diags;
-  return diags.map((d) => (d.severity === 'error' ? { ...d, severity: 'fatal' as const } : d));
+  if (level !== "ship") {
+    return diags;
+  }
+  return diags.map((d) => (d.severity === "error" ? { ...d, severity: "fatal" as const } : d));
 }
 
 export function failsCheck(
   diags: readonly Diagnostic[] | DiagnosticSink,
-  level: ValidationLevel = 'check',
+  level: ValidationLevel = "check",
 ): boolean {
   const list = diags instanceof DiagnosticSink ? diags.sorted() : diags;
-  const bar: Severity = level === 'dev' ? 'fatal' : 'error';
+  const bar: Severity = level === "dev" ? "fatal" : "error";
   return list.some((d) => atLeast(d.severity, bar));
 }
 
@@ -436,7 +474,7 @@ export class ContentLoadError extends Error {
     readonly diagnostics: readonly Diagnostic[],
   ) {
     super(message);
-    this.name = 'ContentLoadError';
+    this.name = "ContentLoadError";
   }
 }
 
@@ -444,13 +482,15 @@ export class ContentLoadError extends Error {
 // never per asset.
 export function assertLoadable(diags: readonly Diagnostic[] | DiagnosticSink): void {
   const list = diags instanceof DiagnosticSink ? diags.sorted() : diags;
-  const fatal = list.filter((d) => d.severity === 'fatal');
-  if (fatal.length === 0) return;
+  const fatal = list.filter((d) => d.severity === "fatal");
+  if (fatal.length === 0) {
+    return;
+  }
   const lines = fatal.map(
-    (d) => `  ${d.code} ${d.assetId ?? d.pkg ?? ''}${d.field ? ` ${d.field}` : ''}: ${d.message}`,
+    (d) => `  ${d.code} ${d.assetId ?? d.pkg ?? ""}${d.field ? ` ${d.field}` : ""}: ${d.message}`,
   );
   throw new ContentLoadError(
-    `content: ${fatal.length} fatal problem${fatal.length === 1 ? '' : 's'}\n${lines.join('\n')}`,
+    `content: ${fatal.length} fatal problem${fatal.length === 1 ? "" : "s"}\n${lines.join("\n")}`,
     fatal,
   );
 }

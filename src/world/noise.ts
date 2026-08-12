@@ -11,7 +11,11 @@ export function mulberry32(seed: number): () => number {
 
 /** Integer 3D cell -> [0,1). */
 export function hashCell(seed: number, x: number, y: number, z: number): number {
-  let h = (seed | 0) + Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(z | 0, 1440662683);
+  let h =
+    (seed | 0) +
+    Math.imul(x | 0, 374761393) +
+    Math.imul(y | 0, 668265263) +
+    Math.imul(z | 0, 1440662683);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   h ^= h >>> 16;
   return (h >>> 0) / 4294967296;
@@ -54,7 +58,9 @@ export class WaveField {
       freq *= ratio;
       amp *= gain;
     }
-    for (let i = 0; i < waves; i++) this.am[i] /= norm;
+    for (let i = 0; i < waves; i++) {
+      this.am[i] /= norm;
+    }
   }
 
   sample(x: number, z: number): number {

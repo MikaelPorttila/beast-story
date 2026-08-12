@@ -1,13 +1,19 @@
-import * as THREE from 'three';
-import type { Input } from '../core/input';
+import * as THREE from "three";
+import type { Input } from "../core/input";
 import {
-  MOUNT_KIND_KEYS, MOUNT_KIND_OF, MOUNT_KINDS,
-  type CarrierInfo, type EventBus, type Locomotion, type MountKind, type World,
-} from '../core/types';
-import { CarrierRide } from '../world/carriers';
-import { t } from '../i18n';
-import type { BeastActor, BeastRideState } from '../beasts/framework';
-import type { Player } from './index';
+  MOUNT_KIND_KEYS,
+  MOUNT_KIND_OF,
+  MOUNT_KINDS,
+  type CarrierInfo,
+  type EventBus,
+  type Locomotion,
+  type MountKind,
+  type World,
+} from "../core/types";
+import { CarrierRide } from "../world/carriers";
+import { t } from "../i18n";
+import type { BeastActor, BeastRideState } from "../beasts/framework";
+import type { Player } from "./index";
 
 // Runs on a FIXED 60 Hz slice that may tick several times per rendered frame, so
 // nothing here reads an input edge from the input layer: edges are latched off
@@ -90,8 +96,11 @@ const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? 
 
 function angleDelta(a: number, b: number): number {
   let d = (b - a) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  else if (d < -Math.PI) d += Math.PI * 2;
+  if (d > Math.PI) {
+    d -= Math.PI * 2;
+  } else if (d < -Math.PI) {
+    d += Math.PI * 2;
+  }
   return d;
 }
 
@@ -99,7 +108,7 @@ function dampAngle(cur: number, target: number, lambda: number, dt: number): num
   return cur + angleDelta(cur, target) * (1 - Math.exp(-lambda * dt));
 }
 
-export type MountRefusal = 'swimming' | 'climbing' | 'dead' | 'beastDead' | 'locked' | 'none';
+export type MountRefusal = "swimming" | "climbing" | "dead" | "beastDead" | "locked" | "none";
 
 /**
  * Which mounts the story has handed over — session state, empty on a new game.
@@ -110,13 +119,20 @@ export type MountRefusal = 'swimming' | 'climbing' | 'dead' | 'beastDead' | 'loc
 export class MountUnlocks {
   private readonly have = new Set<MountKind>();
 
-  has(kind: MountKind): boolean { return this.have.has(kind); }
+  has(kind: MountKind): boolean {
+    return this.have.has(kind);
+  }
 
-  allows(loco: Locomotion): boolean { return this.have.has(MOUNT_KIND_OF[loco]); }
+  allows(loco: Locomotion): boolean {
+    return this.have.has(MOUNT_KIND_OF[loco]);
+  }
 
   set(kind: MountKind, on: boolean): void {
-    if (on) this.have.add(kind);
-    else this.have.delete(kind);
+    if (on) {
+      this.have.add(kind);
+    } else {
+      this.have.delete(kind);
+    }
   }
 
   /** In `MOUNT_KINDS` order, so a save round-trips to the same document. */
@@ -128,11 +144,15 @@ export class MountUnlocks {
   restore(kinds: readonly string[]): void {
     this.have.clear();
     for (const k of kinds) {
-      if ((MOUNT_KINDS as readonly string[]).includes(k)) this.have.add(k as MountKind);
+      if ((MOUNT_KINDS as readonly string[]).includes(k)) {
+        this.have.add(k as MountKind);
+      }
     }
   }
 
-  reset(): void { this.have.clear(); }
+  reset(): void {
+    this.have.clear();
+  }
 }
 
 export class MountController {
@@ -147,7 +167,9 @@ export class MountController {
   private waterOnly = false;
   private pos = new THREE.Vector3();
   /** Where the ANIMAL is, not the rider. Every clamp here applies to this. */
-  get bodyY(): number { return this.pos.y; }
+  get bodyY(): number {
+    return this.pos.y;
+  }
   private vel = new THREE.Vector3();
   private vy = 0;
   private grounded = true;
@@ -163,11 +185,19 @@ export class MountController {
   /** Same throttle and gap as the hero's own (Player). */
   private deepToastT = 0;
   /** One refusal toast per hold attempt, not one per slice. */
-  private refusedFor: MountRefusal = 'none';
+  private refusedFor: MountRefusal = "none";
   /** Reused every slice; the beast copies out of it and keeps nothing. */
   private ride: BeastRideState = {
-    x: 0, y: 0, z: 0, yaw: 0, pitch: 0, bank: 0, vx: 0, vz: 0,
-    speed01: 0, action: 'idle',
+    x: 0,
+    y: 0,
+    z: 0,
+    yaw: 0,
+    pitch: 0,
+    bank: 0,
+    vx: 0,
+    vz: 0,
+    speed01: 0,
+    action: "idle",
   };
 
   constructor(
@@ -188,35 +218,55 @@ export class MountController {
   /** The moving frame under the mount's feet, if any. See world/carriers.ts. */
   private readonly carrier = new CarrierRide();
 
-  get isMounted(): boolean { return this.beast !== null; }
+  get isMounted(): boolean {
+    return this.beast !== null;
+  }
   /** A water beast over a flooded column; the one question the dive rules turn on. */
   get isSwimming(): boolean {
     return this.beast !== null && this.swimmer && this.afloat(this.pos.x, this.pos.z);
   }
   /** Below the float line, not `waterLevel`, so bobbing at the surface reads 0. */
   get diveDepth(): number {
-    if (!this.isSwimming) return 0;
+    if (!this.isSwimming) {
+      return 0;
+    }
     return Math.max(0, this.world.waterLevel - WADE_DEPTH - this.pos.y);
   }
-  get progress(): number { return clamp(this.hold / MOUNT_HOLD, 0, 1); }
-  get speed(): number { return Math.hypot(this.vel.x, this.vel.z); }
+  get progress(): number {
+    return clamp(this.hold / MOUNT_HOLD, 0, 1);
+  }
+  get speed(): number {
+    return Math.hypot(this.vel.x, this.vel.z);
+  }
 
   /**
    * Swimming and climbing REFUSE rather than interrupt — the hero owns his position
    * against the world there. `locked` is LAST: only once nothing fixable applies.
    */
   refusal(candidate: BeastActor | null): MountRefusal {
-    if (this.player.isDead) return 'dead';
-    if (this.player.isSwimming) return 'swimming';
-    if (this.player.isClimbing) return 'climbing';
-    if (!candidate || candidate.isDead) return 'beastDead';
-    if (!this.unlocks.allows(candidate.species.locomotion)) return 'locked';
-    return 'none';
+    if (this.player.isDead) {
+      return "dead";
+    }
+    if (this.player.isSwimming) {
+      return "swimming";
+    }
+    if (this.player.isClimbing) {
+      return "climbing";
+    }
+    if (!candidate || candidate.isDead) {
+      return "beastDead";
+    }
+    if (!this.unlocks.allows(candidate.species.locomotion)) {
+      return "locked";
+    }
+    return "none";
   }
 
   /** The saddle's half of `Player.carry`, for a modal-frozen controller. */
   carryFrozen(dt: number): void {
-    if (!this.beast) return;
+    if (!this.beast) {
+      return;
+    }
     this.carryFrame();
     // ONLY on the frozen path: `updateRide` poses it on every ordinary slice, and
     // posing twice runs the animation clock at double rate.
@@ -229,13 +279,17 @@ export class MountController {
    * RE-TAKEN, or the old deck's delta applies to the new position next slice.
    */
   teleport(x: number, z: number, y?: number): void {
-    if (!this.beast) return;
+    if (!this.beast) {
+      return;
+    }
     this.pos.set(x, 0, z);
     this.carrier.clear();
     this.carrier.carry(this.world, this.pos);
-    this.pos.y = y ?? (this.flying
-      ? this.floorFor(x, z)
-      : Math.max(this.blockTop(x, z), this.world.waterLevel - WADE_DEPTH));
+    this.pos.y =
+      y ??
+      (this.flying
+        ? this.floorFor(x, z)
+        : Math.max(this.blockTop(x, z), this.world.waterLevel - WADE_DEPTH));
     this.vel.set(0, 0, 0);
     this.vy = 0;
     this.grounded = !this.flying;
@@ -249,7 +303,9 @@ export class MountController {
 
   /** One press, one jump. */
   private consumeJump(): boolean {
-    if (!this.jumpPressed) return false;
+    if (!this.jumpPressed) {
+      return false;
+    }
     this.jumpPressed = false;
     return true;
   }
@@ -259,16 +315,18 @@ export class MountController {
     const input = this.input;
     // `pressed` is OR-ed in because a tap shorter than one 16.7 ms slice never
     // shows up in held state; the latch stops a two-slice frame spending it twice.
-    const fHeld = input.down('KeyF') || input.pressed('KeyF');
+    const fHeld = input.down("KeyF") || input.pressed("KeyF");
     const fEdge = fHeld && !this.fWasHeld;
     this.fWasHeld = fHeld;
 
     // Space, latched the same way. Consumed in updateGround(); a flyer and a
     // swimming water beast read Space as a held RATE and ignore this latch.
-    const jumpHeld = input.down('Space') || input.pressed('Space');
+    const jumpHeld = input.down("Space") || input.pressed("Space");
     this.jumpPressed = jumpHeld && !this.jumpWasHeld;
     this.jumpWasHeld = jumpHeld;
-    if (this.deepToastT > 0) this.deepToastT -= dt;
+    if (this.deepToastT > 0) {
+      this.deepToastT -= dt;
+    }
 
     if (this.beast) {
       // The ground moves FIRST, before the reins are read. The rider needs no
@@ -276,11 +334,16 @@ export class MountController {
       // `Player.update` skips its own frame while mounted.
       this.carryFrame();
       // A tap of F gets off; the mounting F cannot produce an edge (fWasHeld).
-      if (fEdge) { this.dismount(); return; }
+      if (fEdge) {
+        this.dismount();
+        return;
+      }
       if (this.beast.isDead || this.player.isDead) {
-        this.dismount(this.beast.isDead
-          ? t('toast.mount.beastDown', { beast: t(this.beast.species.nameKey) })
-          : undefined);
+        this.dismount(
+          this.beast.isDead
+            ? t("toast.mount.beastDown", { beast: t(this.beast.species.nameKey) })
+            : undefined,
+        );
         return;
       }
       this.updateRide(dt);
@@ -289,33 +352,37 @@ export class MountController {
 
     if (!fHeld) {
       this.hold = Math.max(0, this.hold - RELEASE_DRAIN * MOUNT_HOLD * dt);
-      this.refusedFor = 'none';
+      this.refusedFor = "none";
       return;
     }
 
     const why = this.refusal(candidate);
-    if (why !== 'none') {
+    if (why !== "none") {
       this.hold = 0;
       if (this.refusedFor !== why) {
         this.refusedFor = why;
-        this.bus.emit({ type: 'toast', text: refusalText(why, candidate) });
+        this.bus.emit({ type: "toast", text: refusalText(why, candidate) });
       }
       return;
     }
-    this.refusedFor = 'none';
+    this.refusedFor = "none";
     this.hold += dt;
-    if (this.hold >= MOUNT_HOLD) this.mount(candidate!);
+    if (this.hold >= MOUNT_HOLD) {
+      this.mount(candidate!);
+    }
   }
 
   /** Climb on. The ride starts at the HERO's column, so the beast comes to you. */
   mount(beast: BeastActor): void {
-    if (this.beast) return;
+    if (this.beast) {
+      return;
+    }
     this.beast = beast;
     this.hold = 0;
     const loco = beast.species.locomotion;
-    this.flying = loco === 'flying';
-    this.swimmer = loco === 'swimming' || loco === 'amphibious';
-    this.waterOnly = loco === 'swimming';
+    this.flying = loco === "flying";
+    this.swimmer = loco === "swimming" || loco === "amphibious";
+    this.waterOnly = loco === "swimming";
 
     const p = this.player.position;
     this.topSpeed = this.gaitSpeed(p.x, p.z);
@@ -344,10 +411,10 @@ export class MountController {
     this.player.setMounted(true);
     this.player.setCameraFraming(MOUNT_CAM_SCALE, MOUNT_CAM_DROP);
     this.seatHero();
-    this.bus.emit({ type: 'mounted', beastId: beast.species.id, flying: this.flying });
+    this.bus.emit({ type: "mounted", beastId: beast.species.id, flying: this.flying });
     this.bus.emit({
-      type: 'toast',
-      text: t(this.flying ? 'toast.mount.flying' : 'toast.mount.ground', {
+      type: "toast",
+      text: t(this.flying ? "toast.mount.flying" : "toast.mount.ground", {
         beast: t(beast.species.nameKey),
       }),
     });
@@ -356,7 +423,9 @@ export class MountController {
   /** On the ground he steps down beside the mount; in the air he keeps its momentum. */
   dismount(reason?: string): void {
     const beast = this.beast;
-    if (!beast) return;
+    if (!beast) {
+      return;
+    }
     this.beast = null;
     this.hold = 0;
     beast.setRidden(false);
@@ -382,10 +451,10 @@ export class MountController {
       this.player.onGround = false;
     }
     this.player.velocity.set(this.vel.x, this.flying ? 0 : this.vy, this.vel.z);
-    this.bus.emit({ type: 'dismounted', beastId: beast.species.id });
+    this.bus.emit({ type: "dismounted", beastId: beast.species.id });
     this.bus.emit({
-      type: 'toast',
-      text: reason ?? t('toast.dismounted', { beast: t(beast.species.nameKey) }),
+      type: "toast",
+      text: reason ?? t("toast.dismounted", { beast: t(beast.species.nameKey) }),
     });
   }
 
@@ -402,25 +471,32 @@ export class MountController {
     const trunk = this.world.trunkSolidTopAt(x, z);
     let top = trunk > ground ? trunk : ground;
     const built = this.world.structureTopAt(x, z);
-    if (built > top) top = built;
+    if (built > top) {
+      top = built;
+    }
     // ...and the carrier deck. -Infinity unless attached, which is what makes it
     // safe to ask with (x, z) alone — see `CarrierRide.support`.
     const deck = this.carrier.support(x, z);
-    if (deck > top) top = deck;
+    if (deck > top) {
+      top = deck;
+    }
     return top;
   }
 
   /** The quarter-unit margin matches BeastActor, so a puddle pays no swim boost. */
   private afloat(x: number, z: number): boolean {
-    return this.world.isWater(x, z)
-      && this.world.getHeight(x, z) < this.world.waterLevel - 0.25;
+    return this.world.isWater(x, z) && this.world.getHeight(x, z) < this.world.waterLevel - 0.25;
   }
 
   /** Top speed for the column the mount is over. See SWIM_GALLOP and LAND_FLOP. */
   private gaitSpeed(x: number, z: number): number {
     const base = this.beast!.stats.speed;
-    if (this.flying) return base * FLY_CRUISE;
-    if (this.swimmer && this.afloat(x, z)) return base * SWIM_GALLOP;
+    if (this.flying) {
+      return base * FLY_CRUISE;
+    }
+    if (this.swimmer && this.afloat(x, z)) {
+      return base * SWIM_GALLOP;
+    }
     return base * GALLOP * (this.waterOnly ? LAND_FLOP : 1);
   }
 
@@ -431,11 +507,13 @@ export class MountController {
 
   /** Throttled to DEEP_TOAST_GAP; names the animal, unlike the hero's own line. */
   private refuseDeep(): void {
-    if (this.deepToastT > 0 || !this.beast) return;
+    if (this.deepToastT > 0 || !this.beast) {
+      return;
+    }
     this.deepToastT = DEEP_TOAST_GAP;
     this.bus.emit({
-      type: 'toast',
-      text: t('toast.mount.refuse.deepGround', { beast: t(this.beast.species.nameKey) }),
+      type: "toast",
+      text: t("toast.mount.refuse.deepGround", { beast: t(this.beast.species.nameKey) }),
     });
   }
 
@@ -448,23 +526,31 @@ export class MountController {
     // Steering is camera-relative, exactly as on foot.
     const fwd = input.axisFwd;
     const side = input.axisSide;
-    _wish.set(0, 0, 0)
+    _wish
+      .set(0, 0, 0)
       .addScaledVector(this.player.camForward, fwd)
       .addScaledVector(this.player.camRight, side);
     const tilt = Math.min(1, Math.hypot(fwd, side));
     const moving = _wish.lengthSq() > 1e-6;
-    if (moving) _wish.normalize();
+    if (moving) {
+      _wish.normalize();
+    }
 
     // A half-deflected stick still walks.
     let target = this.topSpeed;
-    if (tilt > 0 && tilt < 0.98) target *= Math.max(0.35, tilt);
+    if (tilt > 0 && tilt < 0.98) {
+      target *= Math.max(0.35, tilt);
+    }
 
     const k = 1 - Math.exp(-ACCEL_LAMBDA * dt);
     this.vel.x += ((moving ? _wish.x * target : 0) - this.vel.x) * k;
     this.vel.z += ((moving ? _wish.z * target : 0) - this.vel.z) * k;
 
-    if (this.flying) this.integrateFlying(dt);
-    else this.integrateGround(dt);
+    if (this.flying) {
+      this.integrateFlying(dt);
+    } else {
+      this.integrateGround(dt);
+    }
 
     const speed = Math.hypot(this.vel.x, this.vel.z);
     const prevYaw = this.yaw;
@@ -485,17 +571,30 @@ export class MountController {
    */
   private poseBeast(dt: number): void {
     const beast = this.beast;
-    if (!beast) return;
+    if (!beast) {
+      return;
+    }
     const s = this.ride;
-    s.x = this.pos.x; s.y = this.pos.y; s.z = this.pos.z;
-    s.yaw = this.yaw; s.pitch = this.pitch; s.bank = this.bank;
-    s.vx = this.vel.x; s.vz = this.vel.z;
+    s.x = this.pos.x;
+    s.y = this.pos.y;
+    s.z = this.pos.z;
+    s.yaw = this.yaw;
+    s.pitch = this.pitch;
+    s.bank = this.bank;
+    s.vx = this.vel.x;
+    s.vz = this.vel.z;
     s.speed01 = this.speed01;
     // 'swim' at any speed, including standing still — 'idle' would stand a
     // floating beast up on the water.
-    s.action = this.flying ? 'fly'
-      : this.isSwimming ? 'swim'
-      : this.speed01 > 0.5 ? 'run' : this.speed01 > 0.06 ? 'walk' : 'idle';
+    s.action = this.flying
+      ? "fly"
+      : this.isSwimming
+        ? "swim"
+        : this.speed01 > 0.5
+          ? "run"
+          : this.speed01 > 0.06
+            ? "walk"
+            : "idle";
     beast.rideUpdate(dt, s);
     this.seatHero();
   }
@@ -513,17 +612,30 @@ export class MountController {
     const px = nx + Math.sign(this.vel.x) * radius;
     if (this.blockTop(px, this.pos.z) <= stepCeil && !this.deepRefused(px, this.pos.z)) {
       this.pos.x = nx;
-    } else { this.vel.x = 0; if (this.deepRefused(px, this.pos.z)) this.refuseDeep(); }
+    } else {
+      this.vel.x = 0;
+      if (this.deepRefused(px, this.pos.z)) {
+        this.refuseDeep();
+      }
+    }
 
     const nz = this.pos.z + this.vel.z * dt;
     const pz = nz + Math.sign(this.vel.z) * radius;
     if (this.blockTop(this.pos.x, pz) <= stepCeil && !this.deepRefused(this.pos.x, pz)) {
       this.pos.z = nz;
-    } else { this.vel.z = 0; if (this.deepRefused(this.pos.x, pz)) this.refuseDeep(); }
+    } else {
+      this.vel.z = 0;
+      if (this.deepRefused(this.pos.x, pz)) {
+        this.refuseDeep();
+      }
+    }
 
     // Asked AFTER the horizontal step, so a mount that swims onto a beach falls
     // on the same slice it stops being afloat.
-    if (this.isSwimming) { this.integrateSwim(dt); return; }
+    if (this.isSwimming) {
+      this.integrateSwim(dt);
+      return;
+    }
 
     // An EDGE, so holding Space does not pogo; gated on `grounded`, so no double jump.
     if (this.grounded && this.consumeJump()) {
@@ -541,7 +653,7 @@ export class MountController {
       this.vy = 0;
       this.grounded = true;
     } else if (this.grounded && this.vy <= 0 && this.pos.y - gh < 0.5) {
-      this.pos.y = gh;          // stay glued running down slopes
+      this.pos.y = gh; // stay glued running down slopes
       this.vy = 0;
     } else {
       this.grounded = false;
@@ -559,14 +671,15 @@ export class MountController {
     this.consumeJump();
 
     const floatY = this.world.waterLevel - WADE_DEPTH;
-    const up = this.input.down('Space') ? 1 : 0;
-    const down = this.input.down('KeyC') ? 1 : 0;
+    const up = this.input.down("Space") ? 1 : 0;
+    const down = this.input.down("KeyC") ? 1 : 0;
     // A commanded RATE like the flyer's climb, not an acceleration against
     // buoyancy the way the hero's dive is: the animal swims down.
-    const want = up || down
-      ? up * SWIM_CLIMB - down * SWIM_DIVE
-      // Nothing held: float back up, capped — see SWIM_RISE_MAX.
-      : Math.min((floatY - this.pos.y) * SWIM_BUOYANCY, SWIM_RISE_MAX);
+    const want =
+      up || down
+        ? up * SWIM_CLIMB - down * SWIM_DIVE
+        : // Nothing held: float back up, capped — see SWIM_RISE_MAX.
+          Math.min((floatY - this.pos.y) * SWIM_BUOYANCY, SWIM_RISE_MAX);
     this.vy += (want - this.vy) * (1 - Math.exp(-FLY_VY_LAMBDA * dt));
     this.pos.y += this.vy * dt;
 
@@ -574,19 +687,22 @@ export class MountController {
     // the float line, and the other order pushes the mount into the ground.
     if (this.pos.y > floatY) {
       this.pos.y = floatY;
-      if (this.vy > 0) this.vy = 0;
+      if (this.vy > 0) {
+        this.vy = 0;
+      }
     }
     const bed = this.blockTop(this.pos.x, this.pos.z);
     if (this.pos.y <= bed) {
       this.pos.y = bed;
-      if (this.vy < 0) this.vy = 0;
+      if (this.vy < 0) {
+        this.vy = 0;
+      }
       this.grounded = true;
     } else {
       this.grounded = false;
     }
     // The flyer's tilt, at the flyer's gain.
-    this.pitch += (clamp(-this.vy * 0.055, -0.35, 0.35) - this.pitch)
-      * (1 - Math.exp(-5 * dt));
+    this.pitch += (clamp(-this.vy * 0.055, -0.35, 0.35) - this.pitch) * (1 - Math.exp(-5 * dt));
   }
 
   /**
@@ -595,7 +711,9 @@ export class MountController {
    */
   private inMass(x: number, z: number, y: number): boolean {
     const body = this.world.carriers.bodyAt(x, z);
-    if (!body) return false;
+    if (!body) {
+      return false;
+    }
     return y > body.bottomAt(x, z) && y < body.deckAt(x, z);
   }
 
@@ -608,11 +726,19 @@ export class MountController {
     let uz = this.pos.z - body.z;
     const d = Math.hypot(ux, uz);
     // Dead centre: any bearing will do, and picking one beats dividing by zero.
-    if (d < 1e-3) { ux = 0; uz = 1; } else { ux /= d; uz /= d; }
+    if (d < 1e-3) {
+      ux = 0;
+      uz = 1;
+    } else {
+      ux /= d;
+      uz /= d;
+    }
     for (let i = 0; i < SHOVE_STEPS; i++) {
       this.pos.x += ux * SHOVE_STEP;
       this.pos.z += uz * SHOVE_STEP;
-      if (!this.inMass(this.pos.x, this.pos.z, this.pos.y)) return;
+      if (!this.inMass(this.pos.x, this.pos.z, this.pos.y)) {
+        return;
+      }
     }
   }
 
@@ -621,11 +747,15 @@ export class MountController {
     // along it. A combined test stops him dead against a wall he is passing.
     const nx = this.pos.x + this.vel.x * dt;
     const nz = this.pos.z + this.vel.z * dt;
-    if (!this.inMass(nx, this.pos.z, this.pos.y)) this.pos.x = nx;
-    if (!this.inMass(this.pos.x, nz, this.pos.y)) this.pos.z = nz;
+    if (!this.inMass(nx, this.pos.z, this.pos.y)) {
+      this.pos.x = nx;
+    }
+    if (!this.inMass(this.pos.x, nz, this.pos.y)) {
+      this.pos.z = nz;
+    }
 
-    const up = this.input.down('Space') ? 1 : 0;
-    const down = this.input.down('KeyC') ? 1 : 0;
+    const up = this.input.down("Space") ? 1 : 0;
+    const down = this.input.down("KeyC") ? 1 : 0;
     const wantVy = up * FLY_CLIMB - down * FLY_DIVE;
     this.vy += (wantVy - this.vy) * (1 - Math.exp(-FLY_VY_LAMBDA * dt));
     this.pos.y += this.vy * dt;
@@ -633,18 +763,22 @@ export class MountController {
     const floor = this.floorFor(this.pos.x, this.pos.z);
     if (this.pos.y < floor) {
       this.pos.y = floor;
-      if (this.vy < 0) this.vy = 0;
+      if (this.vy < 0) {
+        this.vy = 0;
+      }
     }
     // The ceiling is clearance over the ground under you, and a carrier's deck is
     // ground — else the ceiling forbids the only approach to the island.
     // `ceilingAt`, not `ride.support`: the mount is not attached yet.
     const overhead = this.world.carriers.ceilingAt(this.pos.x, this.pos.z);
-    const ceil = Math.max(
-      this.world.getHeight(this.pos.x, this.pos.z), this.world.waterLevel, overhead,
-    ) + FLY_CEILING;
+    const ceil =
+      Math.max(this.world.getHeight(this.pos.x, this.pos.z), this.world.waterLevel, overhead) +
+      FLY_CEILING;
     if (this.pos.y > ceil) {
       this.pos.y = ceil;
-      if (this.vy > 0) this.vy = 0;
+      if (this.vy > 0) {
+        this.vy = 0;
+      }
     }
     // `ride.support` is gated on being attached, so a flyer at the keel used to pass
     // through the rock (issue #80). The keel is a ceiling; the deck is `floorFor`'s
@@ -655,15 +789,16 @@ export class MountController {
       if (this.pos.y < keel && this.pos.y > keel - FLY_CLEARANCE) {
         // The way up is round the rim, not through the middle.
         this.pos.y = keel - FLY_CLEARANCE;
-        if (this.vy > 0) this.vy = 0;
+        if (this.vy > 0) {
+          this.vy = 0;
+        }
       } else if (this.pos.y >= keel && this.pos.y <= body.deckAt(this.pos.x, this.pos.z)) {
         // In the mass, unreachable by flying — so the island flew into HIM.
         this.shoveOut(body);
       }
     }
     this.grounded = false;
-    this.pitch += (clamp(-this.vy * 0.055, -0.35, 0.35) - this.pitch)
-      * (1 - Math.exp(-5 * dt));
+    this.pitch += (clamp(-this.vy * 0.055, -0.35, 0.35) - this.pitch) * (1 - Math.exp(-5 * dt));
   }
 
   private seatHero(): void {
@@ -681,17 +816,22 @@ export class MountController {
 
 function refusalText(why: MountRefusal, candidate: BeastActor | null): string {
   switch (why) {
-    case 'swimming': return t('toast.mount.refuse.swimming');
-    case 'climbing': return t('toast.mount.refuse.climbing');
-    case 'beastDead': return candidate
-      ? t('toast.mount.refuse.beastDead', { beast: t(candidate.species.nameKey) })
-      : t('toast.mount.refuse.noBeast');
+    case "swimming":
+      return t("toast.mount.refuse.swimming");
+    case "climbing":
+      return t("toast.mount.refuse.climbing");
+    case "beastDead":
+      return candidate
+        ? t("toast.mount.refuse.beastDead", { beast: t(candidate.species.nameKey) })
+        : t("toast.mount.refuse.noBeast");
     // Named by KIND, not species: what is missing is the act, not this animal.
-    case 'locked': return candidate
-      ? t('toast.mount.refuse.locked', {
-          kind: t(MOUNT_KIND_KEYS[MOUNT_KIND_OF[candidate.species.locomotion]].name),
-        })
-      : t('toast.mount.refuse.other');
-    default: return t('toast.mount.refuse.other');
+    case "locked":
+      return candidate
+        ? t("toast.mount.refuse.locked", {
+            kind: t(MOUNT_KIND_KEYS[MOUNT_KIND_OF[candidate.species.locomotion]].name),
+          })
+        : t("toast.mount.refuse.other");
+    default:
+      return t("toast.mount.refuse.other");
   }
 }

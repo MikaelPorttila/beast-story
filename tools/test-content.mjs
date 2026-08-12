@@ -52,17 +52,24 @@
 // which is what let this probe be measured onto probe.mjs's PARALLEL list.
 //
 // Exits non-zero.
-import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE as HOST, NO_WARMUP } from './target.mjs';
+import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { BASE as HOST, NO_WARMUP } from "./target.mjs";
 
 const browser = await launchBrowser();
 const results = {};
 const fails = [];
-const check = (ok, msg) => { if (!ok) fails.push(msg); };
+const check = (ok, msg) => {
+  if (!ok) {
+    fails.push(msg);
+  }
+};
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /** Assert deep equality and say what moved. */
-const eq = (got, want, what) => check(same(got, want),
-  `${what}: got ${JSON.stringify(got)}, pre-migration value is ${JSON.stringify(want)}`);
+const eq = (got, want, what) =>
+  check(
+    same(got, want),
+    `${what}: got ${JSON.stringify(got)}, pre-migration value is ${JSON.stringify(want)}`,
+  );
 
 // ---------------------------------------------------------------------------
 // THE PRE-MIGRATION NUMBERS.
@@ -98,22 +105,46 @@ const eq = (got, want, what) => check(same(got, want),
  * `outerRadius` is the one field with no world-side reader — see the note in
  * section 3.
  */
-const CAMP_OUTER = 16.8 * Math.SQRT2;   // CAMP_WALL_HALF * Math.SQRT2 = 23.7588…
+const CAMP_OUTER = 16.8 * Math.SQRT2; // CAMP_WALL_HALF * Math.SQRT2 = 23.7588…
 const TOWNS = [
   {
-    id: 'encampment', kind: 'camp', radius: 19, outerRadius: CAMP_OUTER,
-    color: 0xffb45e, x: 121.5, z: 53.5,
-    name: 'The Encampment', start: true, waterside: false, order: 0,
+    id: "encampment",
+    kind: "camp",
+    radius: 19,
+    outerRadius: CAMP_OUTER,
+    color: 0xffb45e,
+    x: 121.5,
+    z: 53.5,
+    name: "The Encampment",
+    start: true,
+    waterside: false,
+    order: 0,
   },
   {
-    id: 'redbriar', kind: 'hamlet', radius: 15, outerRadius: 15,
-    color: 0x9ad46a, x: -672.5, z: -493.5,
-    name: 'Redbriar Mill', start: false, waterside: true, order: 1,
+    id: "redbriar",
+    kind: "hamlet",
+    radius: 15,
+    outerRadius: 15,
+    color: 0x9ad46a,
+    x: -672.5,
+    z: -493.5,
+    name: "Redbriar Mill",
+    start: false,
+    waterside: true,
+    order: 1,
   },
   {
-    id: 'stonewatch', kind: 'hamlet', radius: 15, outerRadius: 15,
-    color: 0x8fc4e8, x: 987.5, z: -288.5,
-    name: 'Stonewatch', start: false, waterside: false, order: 2,
+    id: "stonewatch",
+    kind: "hamlet",
+    radius: 15,
+    outerRadius: 15,
+    color: 0x8fc4e8,
+    x: 987.5,
+    z: -288.5,
+    name: "Stonewatch",
+    start: false,
+    waterside: false,
+    order: 2,
   },
 ];
 
@@ -132,16 +163,18 @@ const TOWNS = [
  * move — that it exists, that it is carried, and that it is last in placement
  * order so the three ground towns are sited exactly as they were.
  */
-const SKYHAVEN = { id: 'skyhaven', carried: true, order: 3 };
+const SKYHAVEN = { id: "skyhaven", carried: true, order: 3 };
 
 /** The three who live on it, in load order. */
-const SKYFOLK = ['sky-pilot', 'sky-gardener', 'sky-lamplighter'];
+const SKYFOLK = ["sky-pilot", "sky-gardener", "sky-lamplighter"];
 
 const GAIN = {
-  id: 'gain',
-  name: 'Deckard Gains Armstrong',
-  x: 116.9, y: 12, z: 58.1,
-  town: 'encampment',
+  id: "gain",
+  name: "Deckard Gains Armstrong",
+  x: 116.9,
+  y: 12,
+  z: 58.1,
+  town: "encampment",
   fromTownCentre: 6.5,
   // WHAT HE SAYS FIRST, which is no longer his greeting and should not be.
   // Gain's `talk` list branches on quest state (core.json), first match wins,
@@ -149,8 +182,9 @@ const GAIN = {
   // sentence out of him is the offer. The pre-migration greeting is still the
   // last row in that list and is what he says with no story package loaded;
   // tools/test-story-land.mjs is where the branching itself is asserted.
-  line: 'You slept through the interesting part. There is a Sproutle in the pen '
-    + 'and three taming orbs in your hand — throw them at it, and stop flinching.',
+  line:
+    "You slept through the interesting part. There is a Sproutle in the pen " +
+    "and three taming orbs in your hand — throw them at it, and stop flinching.",
 };
 
 /**
@@ -160,13 +194,10 @@ const GAIN = {
  * is a count, so that a package that stopped loading — or one that grew a quest
  * nobody meant to ship — is a failure in the file that pins what the boot holds.
  */
-const ACT1_QUESTS = [
-  'quest:land/first-light',
-  'quest:land/the-first-bond',
-];
+const ACT1_QUESTS = ["quest:land/first-light", "quest:land/the-first-bond"];
 
 /** What a boot holds: the world, then the campaign that is set in it. */
-const BOOT_PACKAGES = ['core', 'story', 'story-land'];
+const BOOT_PACKAGES = ["core", "story", "story-land"];
 
 /**
  * The WILD BEASTS (issue #4) — ids and order only, deliberately.
@@ -195,10 +226,21 @@ const BOOT_PACKAGES = ['core', 'story', 'story-land'];
  * Order is load order, which is `core.json`'s own order.
  */
 const WILD_BEASTS = [
-  'wild-sproutle', 'wild-boulderpup', 'wild-galebird',
-  'wild-emberfox', 'wild-sparkit', 'wild-umbrakit', 'wild-graveborn', 'wild-graveback',
-  'wild-frostwing', 'wild-lumimoth', 'wild-drakelet',
-  'wild-aquaxol', 'wild-rivotter', 'wild-coralback', 'wild-snapclaw',
+  "wild-sproutle",
+  "wild-boulderpup",
+  "wild-galebird",
+  "wild-emberfox",
+  "wild-sparkit",
+  "wild-umbrakit",
+  "wild-graveborn",
+  "wild-graveback",
+  "wild-frostwing",
+  "wild-lumimoth",
+  "wild-drakelet",
+  "wild-aquaxol",
+  "wild-rivotter",
+  "wild-coralback",
+  "wild-snapclaw",
 ];
 
 /**
@@ -211,19 +253,40 @@ const WILD_BEASTS = [
  */
 const ENEMIES = [
   {
-    id: 'gloopling', flying: false,
-    hp: 32, atk: 6, speed: 2.3, xp: 8, radius: 0.5, height: 0.95, aggro: 9,
-    elements: ['grass', 'shadow', 'water'],
+    id: "gloopling",
+    flying: false,
+    hp: 32,
+    atk: 6,
+    speed: 2.3,
+    xp: 8,
+    radius: 0.5,
+    height: 0.95,
+    aggro: 9,
+    elements: ["grass", "shadow", "water"],
   },
   {
-    id: 'snortle', flying: false,
-    hp: 62, atk: 11, speed: 2.9, xp: 16, radius: 0.62, height: 1.15, aggro: 10,
-    elements: ['rock', 'ice', 'fire'],
+    id: "snortle",
+    flying: false,
+    hp: 62,
+    atk: 11,
+    speed: 2.9,
+    xp: 16,
+    radius: 0.62,
+    height: 1.15,
+    aggro: 10,
+    elements: ["rock", "ice", "fire"],
   },
   {
-    id: 'peckit', flying: true,
-    hp: 26, atk: 9, speed: 5.2, xp: 12, radius: 0.45, height: 0.8, aggro: 12,
-    elements: ['wind', 'shadow', 'electric'],
+    id: "peckit",
+    flying: true,
+    hp: 26,
+    atk: 9,
+    speed: 5.2,
+    xp: 12,
+    radius: 0.45,
+    height: 0.8,
+    aggro: 12,
+    elements: ["wind", "shadow", "electric"],
   },
 ];
 
@@ -238,7 +301,14 @@ const ENEMIES = [
  * lake bed.
  */
 const BIOMES = [
-  'plains', 'forest', 'beach', 'desert', 'snow', 'underwater', 'deepwater', 'trampled',
+  "plains",
+  "forest",
+  "beach",
+  "desert",
+  "snow",
+  "underwater",
+  "deepwater",
+  "trampled",
 ];
 
 // ---------------------------------------------------------------------------
@@ -249,12 +319,12 @@ const BIOMES = [
 const requested = [];
 
 const page = await newPage(browser, { width: 1000, height: 640 });
-page.on('pageerror', (e) => console.error('[pageerror]', e.message));
-page.on('request', (r) => requested.push(r.url()));
+page.on("pageerror", (e) => console.error("[pageerror]", e.message));
+page.on("request", (r) => requested.push(r.url()));
 // NO_WARMUP: the registry, the town/npc/enemy tables and the dev console are
 // all read without drawing anything — see the note in tools/target.mjs.
-await page.goto(`${HOST}/?menu=0&fs=0&${NO_WARMUP}`, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(`${HOST}/?menu=0&fs=0&${NO_WARMUP}`, { waitUntil: "load" });
+await page.waitForSelector("canvas");
 
 /**
  * A READINESS GATE, not a sleep.
@@ -266,18 +336,21 @@ await page.waitForSelector('canvas');
  */
 async function ready(tries = 120) {
   for (let i = 0; i < tries; i++) {
-    const ok = await page.evaluate(() => (
-      typeof window.__dbgBoot === 'function'
-      && typeof window.__dbgContent === 'function'
-      && window.__dbgBoot().playing === true
-    ));
-    if (ok) return true;
+    const ok = await page.evaluate(
+      () =>
+        typeof window.__dbgBoot === "function" &&
+        typeof window.__dbgContent === "function" &&
+        window.__dbgBoot().playing === true,
+    );
+    if (ok) {
+      return true;
+    }
     await wait(500);
   }
   return false;
 }
-if (!await ready()) {
-  console.error('the game never reached a playing frame — nothing to measure');
+if (!(await ready())) {
+  console.error("the game never reached a playing frame — nothing to measure");
   await browser.close();
   process.exit(1);
 }
@@ -302,35 +375,49 @@ const dbg = (fn) => page.evaluate(fn);
  */
 async function cmd(line, expect = 1) {
   const before = await page.evaluate(
-    () => document.querySelectorAll('.bs-console-log .bs-console-line').length);
-  await page.keyboard.press('Backquote');
-  await page.waitForSelector('.bs-console-input', { visible: true });
-  await page.type('.bs-console-input', line);
-  await page.keyboard.press('Enter');
+    () => document.querySelectorAll(".bs-console-log .bs-console-line").length,
+  );
+  await page.keyboard.press("Backquote");
+  await page.waitForSelector(".bs-console-input", { visible: true });
+  await page.type(".bs-console-input", line);
+  await page.keyboard.press("Enter");
   let out = [];
   for (let i = 0; i < 40; i++) {
     await wait(150);
-    out = await page.evaluate((n) => [...document.querySelectorAll(
-      '.bs-console-log .bs-console-line')].slice(n).map((el) => el.textContent), before);
-    if (out.length > expect) break;
+    out = await page.evaluate(
+      (n) =>
+        [...document.querySelectorAll(".bs-console-log .bs-console-line")]
+          .slice(n)
+          .map((el) => el.textContent),
+      before,
+    );
+    if (out.length > expect) {
+      break;
+    }
   }
-  await page.keyboard.press('Backquote');
+  await page.keyboard.press("Backquote");
   await consoleClosed();
-  return out.join('\n');
+  return out.join("\n");
 }
 
 /** Poll until the console is really gone, and say so if it never is. */
 async function consoleClosed(tries = 40) {
   for (let i = 0; i < tries; i++) {
     const shut = await page.evaluate(() => {
-      const el = document.querySelector('.bs-console');
-      return !el || getComputedStyle(el).display === 'none';
+      const el = document.querySelector(".bs-console");
+      return !el || getComputedStyle(el).display === "none";
     });
-    if (shut) { await page.focus('canvas').catch(() => {}); return true; }
+    if (shut) {
+      await page.focus("canvas").catch(() => {});
+      return true;
+    }
     await wait(100);
   }
-  check(false, 'the dev console would not close — everything after this point is '
-    + 'typing into it rather than playing the game');
+  check(
+    false,
+    "the dev console would not close — everything after this point is " +
+      "typing into it rather than playing the game",
+  );
   return false;
 }
 
@@ -356,18 +443,20 @@ async function consoleClosed(tries = 40) {
 {
   const c = await dbg(() => window.__dbgContent());
   const dataReqs = requested
-    .filter((u) => u.includes('/src/content/data/'))
-    .map((u) => u.slice(u.indexOf('/src/content/data/')))
+    .filter((u) => u.includes("/src/content/data/"))
+    .map((u) => u.slice(u.indexOf("/src/content/data/")))
     .sort();
 
   // The module-import technique this file leans on, checked before it is used.
   const viaImport = await dbg(async () => {
-    const { content } = await import('/src/content/index.ts');
+    const { content } = await import("/src/content/index.ts");
     return {
       packages: content.packages.map((p) => p.id),
-      biomes: content.all('biome').map((b) => b.id.slice(b.type.length + 1)),
-      startAreas: content.all('biome')
-        .filter((b) => b.data.startArea).map((b) => b.id),
+      biomes: content.all("biome").map((b) => b.id.slice(b.type.length + 1)),
+      startAreas: content
+        .all("biome")
+        .filter((b) => b.data.startArea)
+        .map((b) => b.id),
     };
   });
 
@@ -378,12 +467,20 @@ async function consoleClosed(tries = 40) {
     biomes: viaImport.biomes,
     startAreaBiomes: viaImport.startAreas,
     contentDataRequests: dataReqs,
-    sameSingleton: same(viaImport.packages, c.packages.map((p) => p.id)),
+    sameSingleton: same(
+      viaImport.packages,
+      c.packages.map((p) => p.id),
+    ),
   };
 
-  check(same(viaImport.packages, c.packages.map((p) => p.id)),
-    'the module import did NOT reach the game\'s own runtime — every reading in '
-    + 'this file that goes through it is about a second, empty registry');
+  check(
+    same(
+      viaImport.packages,
+      c.packages.map((p) => p.id),
+    ),
+    "the module import did NOT reach the game's own runtime — every reading in " +
+      "this file that goes through it is about a second, empty registry",
+  );
   // THREE PACKAGES, AND THE SPLIT BETWEEN THEM IS THE CLAIM. `core` is the
   // WORLD — towns, people, biomes, enemies, music — and it is a module import,
   // so a build that shipped is a build whose world shipped. `story` and
@@ -393,16 +490,28 @@ async function consoleClosed(tries = 40) {
   // if either fetch failed the world below would still be there to walk around
   // in with no quests in it. That is the line this section has always drawn:
   // the starting WORLD needs no request; a story is content like any other.
-  eq(c.packages.map((p) => p.id), ['core', 'story', 'story-land'], 'packages loaded at boot');
+  eq(
+    c.packages.map((p) => p.id),
+    ["core", "story", "story-land"],
+    "packages loaded at boot",
+  );
   const core = c.packages[0] ?? {};
-  check(core.source === 'bundled:core',
-    `core came from "${core.source}" — the starting world must not be a fetch`);
-  eq(core.leases, ['boot'], 'core package leases');
-  eq(core.requires, [], 'core package dependencies');
-  eq(c.packages.map((p) => p.requires), [[], ['core'], ['story']],
-    'the campaign\'s dependency chain');
-  eq(c.packages.map((p) => p.leases), [['boot'], ['boot'], ['boot']],
-    'every boot package is held by the boot lease, which is never released');
+  check(
+    core.source === "bundled:core",
+    `core came from "${core.source}" — the starting world must not be a fetch`,
+  );
+  eq(core.leases, ["boot"], "core package leases");
+  eq(core.requires, [], "core package dependencies");
+  eq(
+    c.packages.map((p) => p.requires),
+    [[], ["core"], ["story"]],
+    "the campaign's dependency chain",
+  );
+  eq(
+    c.packages.map((p) => p.leases),
+    [["boot"], ["boot"], ["boot"]],
+    "every boot package is held by the boot lease, which is never released",
+  );
   // RE-BASELINED TWICE, and each time the re-baseline IS the claim.
   //
   // First when music became content: the two `music` assets are the overworld's
@@ -425,34 +534,48 @@ async function consoleClosed(tries = 40) {
   // The campaign adds no towns — game-story.md §1 rule 4, the road planner
   // routes one trunk and two spurs — so a story package that grew a settlement
   // fails here rather than in a world with a fourth town nobody sited.
-  eq(c.assets, {
-    town: 4, npc: 4, biome: 8, enemy: 3 + WILD_BEASTS.length,
-    quest: ACT1_QUESTS.length, music: 2,
-  }, 'assets by type');
+  eq(
+    c.assets,
+    {
+      town: 4,
+      npc: 4,
+      biome: 8,
+      enemy: 3 + WILD_BEASTS.length,
+      quest: ACT1_QUESTS.length,
+      music: 2,
+    },
+    "assets by type",
+  );
   // The ground towns FIRST and unchanged — `order` decides siting and Skyhaven
   // is last — then the carried one. Asserting the whole list rather than a
   // filtered one is deliberate: a carried town that stopped reaching the world
   // is exactly as much a regression as a sited one that did.
-  eq(c.resolved.towns, [...TOWNS.map((t) => t.id), SKYHAVEN.id],
-    'towns that reached the world');
-  eq(c.resolved.npcs, [GAIN.id, ...SKYFOLK], 'npcs that reached the world');
+  eq(c.resolved.towns, [...TOWNS.map((t) => t.id), SKYHAVEN.id], "towns that reached the world");
+  eq(c.resolved.npcs, [GAIN.id, ...SKYFOLK], "npcs that reached the world");
   // The pre-migration three FIRST and in their old order, then the wild beasts.
   // Same argument as the towns above: asserting the whole list rather than a
   // filtered one is what makes "a wild beast stopped reaching the world" as
   // much of a regression as a Gloopling doing so.
-  eq(c.resolved.enemies, [...ENEMIES.map((e) => e.id), ...WILD_BEASTS],
-    'enemy species that reached the world');
-  eq(viaImport.biomes, BIOMES, 'biome ids');
-  eq(viaImport.startAreas, ['biome:plains'], 'biomes flagged as the start area');
+  eq(
+    c.resolved.enemies,
+    [...ENEMIES.map((e) => e.id), ...WILD_BEASTS],
+    "enemy species that reached the world",
+  );
+  eq(viaImport.biomes, BIOMES, "biome ids");
+  eq(viaImport.startAreas, ["biome:plains"], "biomes flagged as the start area");
   // core.json arrives as a MODULE (`?import`) — what a static import looks like
   // on a dev server, and not a request at all in a build. The campaign's two
   // packages are ordinary fetches, and that is the whole difference between the
   // world and the story it is told in.
-  eq(dataReqs, [
-    '/src/content/data/core.json?import',
-    '/src/content/data/story-land.json?import',
-    '/src/content/data/story.json?import',
-  ], 'content data files requested at boot');
+  eq(
+    dataReqs,
+    [
+      "/src/content/data/core.json?import",
+      "/src/content/data/story-land.json?import",
+      "/src/content/data/story.json?import",
+    ],
+    "content data files requested at boot",
+  );
 }
 
 // ===========================================================================
@@ -467,18 +590,21 @@ async function consoleClosed(tries = 40) {
 // ===========================================================================
 {
   const c = await dbg(() => window.__dbgContent());
-  const check2 = await cmd('/content check');
+  const check2 = await cmd("/content check");
   results.cleanBoot = {
     ok: c.ok,
     diagnostics: c.diagnostics,
-    consoleCheck: check2.split('\n').pop(),
+    consoleCheck: check2.split("\n").pop(),
   };
-  check(c.ok === true, 'the content boot reported not-ok');
-  check(c.diagnostics.length === 0,
-    `a clean boot filed ${c.diagnostics.length} diagnostic(s): `
-    + JSON.stringify(c.diagnostics));
-  check(/no findings/.test(check2),
-    `/content check did not report a clean graph: ${JSON.stringify(check2)}`);
+  check(c.ok === true, "the content boot reported not-ok");
+  check(
+    c.diagnostics.length === 0,
+    `a clean boot filed ${c.diagnostics.length} diagnostic(s): ` + JSON.stringify(c.diagnostics),
+  );
+  check(
+    /no findings/.test(check2),
+    `/content check did not report a clean graph: ${JSON.stringify(check2)}`,
+  );
 }
 
 // ===========================================================================
@@ -515,11 +641,15 @@ async function consoleClosed(tries = 40) {
 // ===========================================================================
 {
   const towns = await dbg(() => window.__dbgTowns());
-  const marks = await dbg(() => [...document.querySelectorAll('.bs-compass .mk')]
-    .map((el) => ({ label: el.textContent, mc: el.style.getPropertyValue('--mc') })));
+  const marks = await dbg(() =>
+    [...document.querySelectorAll(".bs-compass .mk")].map((el) => ({
+      label: el.textContent,
+      mc: el.style.getPropertyValue("--mc"),
+    })),
+  );
   const fromContent = await dbg(async () => {
-    const { content } = await import('/src/content/index.ts');
-    return content.all('town').map((a) => ({
+    const { content } = await import("/src/content/index.ts");
+    return content.all("town").map((a) => ({
       id: a.id.slice(a.type.length + 1),
       layout: a.data.layout,
       radius: a.data.radius,
@@ -536,19 +666,26 @@ async function consoleClosed(tries = 40) {
     const got = towns.towns.find((t) => t.id === want.id);
     const data = fromContent.find((t) => t.id === want.id);
     const chip = marks.find((m) => m.label === want.id.slice(0, 4).toUpperCase());
-    const hex = `#${want.color.toString(16).padStart(6, '0')}`;
+    const hex = `#${want.color.toString(16).padStart(6, "0")}`;
     rows.push({
       id: want.id,
-      world: got ? { kind: got.kind, radius: got.radius, x: got.x, z: got.z, name: got.name } : null,
+      world: got
+        ? { kind: got.kind, radius: got.radius, x: got.x, z: got.z, name: got.name }
+        : null,
       content: data ?? null,
       compassChipColor: chip?.mc ?? null,
       expected: {
-        kind: want.kind, radius: want.radius, x: want.x, z: want.z,
-        name: want.name, color: hex, outerRadius: +want.outerRadius.toFixed(4),
+        kind: want.kind,
+        radius: want.radius,
+        x: want.x,
+        z: want.z,
+        name: want.name,
+        color: hex,
+        outerRadius: +want.outerRadius.toFixed(4),
       },
     });
     if (!got || !data) {
-      check(false, `town "${want.id}" is missing from the ${got ? 'content' : 'world'}`);
+      check(false, `town "${want.id}" is missing from the ${got ? "content" : "world"}`);
       continue;
     }
     eq(got.kind, want.kind, `${want.id}.kind`);
@@ -562,28 +699,32 @@ async function consoleClosed(tries = 40) {
     eq(data.order, want.order, `${want.id}.order`);
     eq(data.start, want.start, `${want.id}.start`);
     eq(chip?.mc ?? null, hex, `${want.id} colour as the compass chip drew it`);
-    check(data.outerRadiusOverride === null,
-      `${want.id} now carries an explicit outerRadius (${data.outerRadiusOverride}); `
-      + 'it was the layout\'s answer before the migration and must stay one');
+    check(
+      data.outerRadiusOverride === null,
+      `${want.id} now carries an explicit outerRadius (${data.outerRadiusOverride}); ` +
+        "it was the layout's answer before the migration and must stay one",
+    );
   }
   const startTown = TOWNS.find((t) => t.start).id;
-  check(fromContent.filter((t) => t.start).length === 1
-    && fromContent.find((t) => t.start).id === startTown,
-    `the start town is no longer exactly "${startTown}": `
-    + JSON.stringify(fromContent.filter((t) => t.start).map((t) => t.id)));
+  check(
+    fromContent.filter((t) => t.start).length === 1 &&
+      fromContent.find((t) => t.start).id === startTown,
+    `the start town is no longer exactly "${startTown}": ` +
+      JSON.stringify(fromContent.filter((t) => t.start).map((t) => t.id)),
+  );
 
   // ---- Gain: where he stands, and what he says when you talk to him --------
   const gain = (await dbg(() => window.__dbgNpcs())).all.find((n) => n.id === GAIN.id);
-  check(!!gain, 'the Encampment quest giver is missing from the world');
+  check(!!gain, "the Encampment quest giver is missing from the world");
   let talkLine = null;
   let reachedTalkRange = false;
   if (gain) {
-    eq(gain.name, GAIN.name, 'gain.name');
-    eq(gain.x, GAIN.x, 'gain.x');
-    eq(gain.y, GAIN.y, 'gain.y');
-    eq(gain.z, GAIN.z, 'gain.z');
-    eq(gain.town, GAIN.town, 'gain.town');
-    eq(gain.fromTownCentre, GAIN.fromTownCentre, 'gain.fromTownCentre');
+    eq(gain.name, GAIN.name, "gain.name");
+    eq(gain.x, GAIN.x, "gain.x");
+    eq(gain.y, GAIN.y, "gain.y");
+    eq(gain.z, GAIN.z, "gain.z");
+    eq(gain.town, GAIN.town, "gain.town");
+    eq(gain.fromTownCentre, GAIN.fromTownCentre, "gain.fromTownCentre");
 
     // Stand next to him and press E, exactly as test-npc.mjs does. Polled on
     // the world's OWN range query rather than on a fixed wait, so a slow host
@@ -601,8 +742,10 @@ async function consoleClosed(tries = 40) {
       const row = (await dbg(() => window.__dbgNpcs())).all.find((n) => n.id === GAIN.id);
       reachedTalkRange = !!row?.inTalkRange;
     }
-    check(reachedTalkRange,
-      'the hero never got within talk range of Gain, so nothing below could be asked');
+    check(
+      reachedTalkRange,
+      "the hero never got within talk range of Gain, so nothing below could be asked",
+    );
     // THE ONE THING IN THIS FILE THAT NEEDS A RUNNING FRAME LOOP, and therefore
     // the one reason it is on probe.mjs's SOLO list. A page that is not the
     // browser's front tab reports `visibilityState: 'hidden'` and gets no
@@ -613,41 +756,61 @@ async function consoleClosed(tries = 40) {
     // and the failure surfaces as "he said null". Said here rather than left as
     // a puzzle for whoever batches it next.
     const visible = await dbg(() => document.visibilityState);
-    check(visible === 'visible',
-      `this page is "${visible}" — a backgrounded tab runs no frames, so no key `
-      + 'press can be consumed. Run this probe alone (it is in probe.mjs\'s SOLO list).');
+    check(
+      visible === "visible",
+      `this page is "${visible}" — a backgrounded tab runs no frames, so no key ` +
+        "press can be consumed. Run this probe alone (it is in probe.mjs's SOLO list).",
+    );
     for (let i = 0; i < 20 && talkLine === null; i++) {
-      await page.keyboard.press('KeyE');
+      await page.keyboard.press("KeyE");
       await wait(250);
       talkLine = (await dbg(() => window.__dbgNpcs())).talking?.line ?? null;
     }
-    eq(talkLine, GAIN.line, 'the sentence Gain actually says');
-    await page.keyboard.press('Escape');
+    eq(talkLine, GAIN.line, "the sentence Gain actually says");
+    await page.keyboard.press("Escape");
     for (let i = 0; i < 20; i++) {
       await wait(150);
-      if ((await dbg(() => window.__dbgNpcs())).talking === null) break;
+      if ((await dbg(() => window.__dbgNpcs())).talking === null) {
+        break;
+      }
     }
     const stillTalking = (await dbg(() => window.__dbgNpcs())).talking;
-    check(stillTalking === null, 'the conversation would not close — the console '
-      + 'sections below cannot run behind a modal');
+    check(
+      stillTalking === null,
+      "the conversation would not close — the console " +
+        "sections below cannot run behind a modal",
+    );
   }
 
   // ---- the enemy roster combat spawns from --------------------------------
   const specs = await dbg(async () => {
-    const { enemySpecies } = await import('/src/combat/enemies.ts');
+    const { enemySpecies } = await import("/src/combat/enemies.ts");
     return enemySpecies().map((s) => ({
-      id: s.id, flying: s.flying, hasModel: typeof s.model === 'function',
-      hp: s.data.hp, atk: s.data.atk, speed: s.data.speed, xp: s.data.xp,
-      radius: s.data.radius, height: s.data.height, aggro: s.data.aggro,
+      id: s.id,
+      flying: s.flying,
+      hasModel: typeof s.model === "function",
+      hp: s.data.hp,
+      atk: s.data.atk,
+      speed: s.data.speed,
+      xp: s.data.xp,
+      radius: s.data.radius,
+      height: s.data.height,
+      aggro: s.data.aggro,
       elements: s.data.variants.map((v) => v.element),
     }));
   });
   for (const want of ENEMIES) {
     const got = specs.find((s) => s.id === want.id);
-    if (!got) { check(false, `enemy "${want.id}" never reached the spawner`); continue; }
-    check(got.hasModel, `"${want.id}" resolved no voxel builder — its model factory `
-      + 'name no longer matches a registration');
-    for (const f of ['flying', 'hp', 'atk', 'speed', 'xp', 'radius', 'height', 'aggro']) {
+    if (!got) {
+      check(false, `enemy "${want.id}" never reached the spawner`);
+      continue;
+    }
+    check(
+      got.hasModel,
+      `"${want.id}" resolved no voxel builder — its model factory ` +
+        "name no longer matches a registration",
+    );
+    for (const f of ["flying", "hp", "atk", "speed", "xp", "radius", "height", "aggro"]) {
       eq(got[f], want[f], `${want.id}.${f}`);
     }
     eq(got.elements, want.elements, `${want.id} variant elements`);
@@ -655,22 +818,36 @@ async function consoleClosed(tries = 40) {
 
   // ---- the biomes, proven by the meadow not moving ------------------------
   const nature = await dbg(() => window.__dbgNature());
-  check(nature.isDefault === true,
-    'the biome migration moved the vegetation: every shipped multiplier is 1 and '
-    + `setArea deletes a 1, so the nature table must still be default — ${
-      JSON.stringify({ baseline: nature.baseline, areas: nature.areas })}`);
-  check(Object.keys(nature.areas).length === 0,
-    `a biome wrote an area override: ${JSON.stringify(nature.areas)}`);
+  check(
+    nature.isDefault === true,
+    "the biome migration moved the vegetation: every shipped multiplier is 1 and " +
+      `setArea deletes a 1, so the nature table must still be default — ${JSON.stringify({
+        baseline: nature.baseline,
+        areas: nature.areas,
+      })}`,
+  );
+  check(
+    Object.keys(nature.areas).length === 0,
+    `a biome wrote an area override: ${JSON.stringify(nature.areas)}`,
+  );
 
   results.identity = {
     towns: rows,
-    gain: gain ? {
-      world: { name: gain.name, x: gain.x, y: gain.y, z: gain.z, town: gain.town,
-        fromTownCentre: gain.fromTownCentre },
-      reachedTalkRange,
-      spokenLine: talkLine,
-      expected: GAIN,
-    } : null,
+    gain: gain
+      ? {
+          world: {
+            name: gain.name,
+            x: gain.x,
+            y: gain.y,
+            z: gain.z,
+            town: gain.town,
+            fromTownCentre: gain.fromTownCentre,
+          },
+          reachedTalkRange,
+          spokenLine: talkLine,
+          expected: GAIN,
+        }
+      : null,
     enemies: specs,
     enemiesExpected: ENEMIES,
     biomes: { isDefault: nature.isDefault, areaOverrides: nature.areas },
@@ -696,67 +873,89 @@ async function consoleClosed(tries = 40) {
 // ===========================================================================
 {
   const before = await dbg(() => window.__dbgContent());
-  check(before.assets.quest === ACT1_QUESTS.length,
-    `the boot holds ${before.assets.quest} quests, not the campaign's ${ACT1_QUESTS.length}`);
-  check(!before.packages.some((p) => p.id === 'example-quest'),
-    'example-quest is loaded at boot — it is the package that must not be');
+  check(
+    before.assets.quest === ACT1_QUESTS.length,
+    `the boot holds ${before.assets.quest} quests, not the campaign's ${ACT1_QUESTS.length}`,
+  );
+  check(
+    !before.packages.some((p) => p.id === "example-quest"),
+    "example-quest is loaded at boot — it is the package that must not be",
+  );
 
-  const loadOut = await cmd('/content load example-quest', 2);
+  const loadOut = await cmd("/content load example-quest", 2);
   const after = await dbg(() => window.__dbgContent());
-  const pkg = after.packages.find((p) => p.id === 'example-quest') ?? null;
+  const pkg = after.packages.find((p) => p.id === "example-quest") ?? null;
   const graph = await dbg(async () => {
-    const { content } = await import('/src/content/index.ts');
-    const q = content.get('quest:encampment/first-steps');
-    if (!q) return null;
+    const { content } = await import("/src/content/index.ts");
+    const q = content.get("quest:encampment/first-steps");
+    if (!q) {
+      return null;
+    }
     return {
-      id: q.id, pkg: q.pkg, source: q.source,
+      id: q.id,
+      pkg: q.pkg,
+      source: q.source,
       refs: [...q.refs].sort(),
       unresolved: [...q.refs].filter((r) => !content.has(r)).sort(),
-      giver: q.data.giver, location: q.data.location,
+      giver: q.data.giver,
+      location: q.data.location,
     };
   });
 
-  const releaseOut = await cmd('/content release example-quest');
+  const releaseOut = await cmd("/content release example-quest");
   const end = await dbg(() => window.__dbgContent());
   const gone = await dbg(async () => {
-    const { content } = await import('/src/content/index.ts');
-    return content.get('quest:encampment/first-steps') === undefined;
+    const { content } = await import("/src/content/index.ts");
+    return content.get("quest:encampment/first-steps") === undefined;
   });
 
   results.lazyPath = {
     before: { quest: before.assets.quest, packages: before.packages.map((p) => p.id) },
-    loadReply: loadOut.split('\n').pop(),
+    loadReply: loadOut.split("\n").pop(),
     package: pkg,
     quest: graph,
-    releaseReply: releaseOut.split('\n').pop(),
+    releaseReply: releaseOut.split("\n").pop(),
     after: { quest: end.assets.quest, packages: end.packages.map((p) => p.id) },
   };
 
-  check(/loaded "example-quest": 1 assets/.test(loadOut),
-    `/content load did not report a load: ${JSON.stringify(loadOut)}`);
-  check(pkg !== null, 'example-quest is not in the package list after loading it');
+  check(
+    /loaded "example-quest": 1 assets/.test(loadOut),
+    `/content load did not report a load: ${JSON.stringify(loadOut)}`,
+  );
+  check(pkg !== null, "example-quest is not in the package list after loading it");
   if (pkg) {
-    eq(pkg.leases, ['debug'], 'example-quest leases (a console load is never `boot`)');
-    eq(pkg.requires, ['core'], 'example-quest dependencies');
-    check(pkg.source === 'bundled:example-quest',
-      `example-quest came from "${pkg.source}"`);
+    eq(pkg.leases, ["debug"], "example-quest leases (a console load is never `boot`)");
+    eq(pkg.requires, ["core"], "example-quest dependencies");
+    check(pkg.source === "bundled:example-quest", `example-quest came from "${pkg.source}"`);
   }
-  check(after.assets.quest === ACT1_QUESTS.length + 1,
-    `quest count after the load is ${after.assets.quest}, not ${ACT1_QUESTS.length + 1}`);
-  check(graph !== null, 'quest:encampment/first-steps is not in the registry after the load');
+  check(
+    after.assets.quest === ACT1_QUESTS.length + 1,
+    `quest count after the load is ${after.assets.quest}, not ${ACT1_QUESTS.length + 1}`,
+  );
+  check(graph !== null, "quest:encampment/first-steps is not in the registry after the load");
   if (graph) {
-    eq(graph.refs, ['npc:gain', 'town:encampment'], 'the quest\'s cross-package references');
-    eq(graph.unresolved, [], 'cross-package references the graph could NOT resolve');
-    eq(graph.pkg, 'example-quest', 'the package the quest is attributed to');
+    eq(graph.refs, ["npc:gain", "town:encampment"], "the quest's cross-package references");
+    eq(graph.unresolved, [], "cross-package references the graph could NOT resolve");
+    eq(graph.pkg, "example-quest", "the package the quest is attributed to");
   }
-  check(/released "example-quest"/.test(releaseOut),
-    `/content release did not report a release: ${JSON.stringify(releaseOut)}`);
-  check(gone === true, 'the quest definition survived the release');
-  eq(end.packages.map((p) => p.id), BOOT_PACKAGES, 'packages after the release');
-  check(end.assets.quest === ACT1_QUESTS.length,
-    `quest count after the release is ${end.assets.quest}, not ${ACT1_QUESTS.length}`);
-  check(end.diagnostics.length === 0,
-    `a load/release round trip left findings behind: ${JSON.stringify(end.diagnostics)}`);
+  check(
+    /released "example-quest"/.test(releaseOut),
+    `/content release did not report a release: ${JSON.stringify(releaseOut)}`,
+  );
+  check(gone === true, "the quest definition survived the release");
+  eq(
+    end.packages.map((p) => p.id),
+    BOOT_PACKAGES,
+    "packages after the release",
+  );
+  check(
+    end.assets.quest === ACT1_QUESTS.length,
+    `quest count after the release is ${end.assets.quest}, not ${ACT1_QUESTS.length}`,
+  );
+  check(
+    end.diagnostics.length === 0,
+    `a load/release round trip left findings behind: ${JSON.stringify(end.diagnostics)}`,
+  );
 }
 
 // ===========================================================================
@@ -776,26 +975,28 @@ async function consoleClosed(tries = 40) {
 // probe invented.
 // ===========================================================================
 {
-  await cmd('/content load example-quest', 2);
+  await cmd("/content load example-quest", 2);
   const started = await dbg(async () => {
-    const { content } = await import('/src/content/index.ts');
-    const q = content.get('quest:encampment/first-steps');
-    if (!q) return null;
-    content.run(q.data.onStart);                       // the asset's own actions
-    content.state.setQuestStatus(q.id, 'active');
-    content.state.setProgress(q.id, 'talk-to-gain', 1);
+    const { content } = await import("/src/content/index.ts");
+    const q = content.get("quest:encampment/first-steps");
+    if (!q) {
+      return null;
+    }
+    content.run(q.data.onStart); // the asset's own actions
+    content.state.setQuestStatus(q.id, "active");
+    content.state.setProgress(q.id, "talk-to-gain", 1);
     return { state: content.state.toJSON(), status: content.state.questStatus(q.id) };
   });
-  check(started !== null, 'example-quest did not load for the state test');
+  check(started !== null, "example-quest did not load for the state test");
 
-  const releaseOut = await cmd('/content release example-quest');
+  const releaseOut = await cmd("/content release example-quest");
   const afterState = await dbg(async () => {
-    const { content } = await import('/src/content/index.ts');
-    const id = 'quest:encampment/first-steps';
+    const { content } = await import("/src/content/index.ts");
+    const id = "quest:encampment/first-steps";
     return {
       state: content.state.toJSON(),
       status: content.state.questStatus(id),
-      flag: content.state.flag('first-steps-started'),
+      flag: content.state.flag("first-steps-started"),
       definitionGone: content.get(id) === undefined,
       packages: content.packages.map((p) => p.id),
     };
@@ -808,24 +1009,30 @@ async function consoleClosed(tries = 40) {
     flagAfterRelease: afterState.flag,
     definitionGone: afterState.definitionGone,
     packages: afterState.packages,
-    releaseReply: releaseOut.split('\n').pop(),
+    releaseReply: releaseOut.split("\n").pop(),
   };
 
-  check(afterState.definitionGone,
-    'the DEFINITION survived the release — nothing was actually unloaded');
-  check(afterState.status === 'active',
-    `the quest's status was lost with its definition: "${afterState.status}"`);
-  check(afterState.flag === true,
-    'the flag the quest set was lost with its definition');
-  check(same(started?.state, afterState.state),
-    `unloading a package changed the save payload:\n  before ${
-      JSON.stringify(started?.state)}\n  after  ${JSON.stringify(afterState.state)}`);
-  eq(afterState.packages, BOOT_PACKAGES, 'packages after the state test');
+  check(
+    afterState.definitionGone,
+    "the DEFINITION survived the release — nothing was actually unloaded",
+  );
+  check(
+    afterState.status === "active",
+    `the quest's status was lost with its definition: "${afterState.status}"`,
+  );
+  check(afterState.flag === true, "the flag the quest set was lost with its definition");
+  check(
+    same(started?.state, afterState.state),
+    `unloading a package changed the save payload:\n  before ${JSON.stringify(
+      started?.state,
+    )}\n  after  ${JSON.stringify(afterState.state)}`,
+  );
+  eq(afterState.packages, BOOT_PACKAGES, "packages after the state test");
 
   // Put the runtime back the way section 1 found it, so nothing below inherits
   // a session's worth of facts.
   await dbg(async () => {
-    const { content } = await import('/src/content/index.ts');
+    const { content } = await import("/src/content/index.ts");
     content.state.reset();
   });
 }
@@ -854,40 +1061,55 @@ async function consoleClosed(tries = 40) {
 // ===========================================================================
 {
   const bad = await dbg(async () => {
-    const { createContentRuntime } = await import('/src/content/index.ts');
+    const { createContentRuntime } = await import("/src/content/index.ts");
     const PKG = {
-      id: 'probe-bad',
-      version: '0.0.1',
+      id: "probe-bad",
+      version: "0.0.1",
       assets: [
         {
-          id: 'town:probe-broken', schema: 1, name: { text: { en: 'Broken' } },
+          id: "town:probe-broken",
+          schema: 1,
+          name: { text: { en: "Broken" } },
           data: {
-            sign: { text: { en: 'x' } }, layout: 'camp',
-            radius: 'wide',                       // <- not a number
-            color: '#ffffff', waterside: false, order: 9, start: false,
+            sign: { text: { en: "x" } },
+            layout: "camp",
+            radius: "wide", // <- not a number
+            color: "#ffffff",
+            waterside: false,
+            order: 9,
+            start: false,
           },
         },
         {
-          id: 'npc:probe-orphan', schema: 1, name: { text: { en: 'Orphan' } },
+          id: "npc:probe-orphan",
+          schema: 1,
+          name: { text: { en: "Orphan" } },
           data: {
-            town: 'town:nowhere',                 // <- nothing defines it
-            body: 'gain', homeOffset: 0, acrossFocus: true,
-            talk: [{ line: { text: { en: 'hi' } } }],
+            town: "town:nowhere", // <- nothing defines it
+            body: "gain",
+            homeOffset: 0,
+            acrossFocus: true,
+            talk: [{ line: { text: { en: "hi" } } }],
           },
         },
       ],
     };
     const provider = {
-      name: 'probe', priority: 99, writable: false,
-      list: async () => ['probe-bad'],
-      read: async (pkg) => (pkg === 'probe-bad' ? PKG : null),
+      name: "probe",
+      priority: 99,
+      writable: false,
+      list: async () => ["probe-bad"],
+      read: async (pkg) => (pkg === "probe-bad" ? PKG : null),
     };
     const rt = createContentRuntime({ providers: [provider] });
-    const load = await rt.load('probe-bad', 'editor');
-    const validation = rt.validate('dev', []);
+    const load = await rt.load("probe-bad", "editor");
+    const validation = rt.validate("dev", []);
     const shape = (d) => ({
-      severity: d.severity, code: d.code, assetId: d.assetId ?? null,
-      field: d.field ?? null, message: d.message,
+      severity: d.severity,
+      code: d.code,
+      assetId: d.assetId ?? null,
+      field: d.field ?? null,
+      message: d.message,
     });
     return {
       load: load.diagnostics.map(shape),
@@ -896,10 +1118,14 @@ async function consoleClosed(tries = 40) {
   });
   const host = await dbg(() => window.__dbgContent());
   const found = [...bad.load, ...bad.validation];
-  const has = (code, assetId, field) => found.some(
-    (d) => d.code === code && d.assetId === assetId
-      && (field === undefined || d.field === field)
-      && (d.severity === 'error' || d.severity === 'fatal'));
+  const has = (code, assetId, field) =>
+    found.some(
+      (d) =>
+        d.code === code &&
+        d.assetId === assetId &&
+        (field === undefined || d.field === field) &&
+        (d.severity === "error" || d.severity === "fatal"),
+    );
 
   results.validation = {
     loadDiagnostics: bad.load,
@@ -911,25 +1137,37 @@ async function consoleClosed(tries = 40) {
     },
   };
 
-  check(has('bad-field', 'town:probe-broken', 'data.radius'),
-    'a town with a string radius produced no `bad-field` on data.radius: '
-    + JSON.stringify(found));
-  check(has('missing-ref', 'npc:probe-orphan'),
-    'an npc pointing at a town nothing defines produced no `missing-ref`: '
-    + JSON.stringify(found));
-  eq(host.packages.map((p) => p.id), BOOT_PACKAGES,
-    'the game\'s own runtime after the broken-package test');
-  check(host.diagnostics.length === 0,
-    `the broken package leaked findings into the game's runtime: ${
-      JSON.stringify(host.diagnostics)}`);
-  check(same(host.state, { v: 1 }),
-    `the game's content state did not come back clean: ${JSON.stringify(host.state)}`);
+  check(
+    has("bad-field", "town:probe-broken", "data.radius"),
+    "a town with a string radius produced no `bad-field` on data.radius: " + JSON.stringify(found),
+  );
+  check(
+    has("missing-ref", "npc:probe-orphan"),
+    "an npc pointing at a town nothing defines produced no `missing-ref`: " + JSON.stringify(found),
+  );
+  eq(
+    host.packages.map((p) => p.id),
+    BOOT_PACKAGES,
+    "the game's own runtime after the broken-package test",
+  );
+  check(
+    host.diagnostics.length === 0,
+    `the broken package leaked findings into the game's runtime: ${JSON.stringify(
+      host.diagnostics,
+    )}`,
+  );
+  check(
+    same(host.state, { v: 1 }),
+    `the game's content state did not come back clean: ${JSON.stringify(host.state)}`,
+  );
 }
 
 console.log(JSON.stringify(results, null, 2));
 if (fails.length) {
   console.error(`\nFAIL (${fails.length})`);
-  for (const f of fails) console.error(`  - ${f}`);
+  for (const f of fails) {
+    console.error(`  - ${f}`);
+  }
 }
 await browser.close();
 process.exit(fails.length ? 1 : 0);

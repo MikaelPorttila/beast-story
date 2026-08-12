@@ -12,7 +12,7 @@
  * `installEscapeLock()` re-takes it on every `fullscreenchange`. Missing, the game
  * declines fullscreen entirely (issue #83) — it would die at the first panel close.
  */
-import { isTouchPrimary } from '../core/touch';
+import { isTouchPrimary } from "../core/touch";
 
 /** The prefixed half of the API, as on Safari/older WebKit. */
 type FsElement = HTMLElement & {
@@ -32,11 +32,17 @@ type FsDocument = Document & {
 
 /** Can this browser go fullscreen? `!== false` — the flag may be undefined. */
 export function fullscreenSupported(): boolean {
-  if (typeof document === 'undefined') return false;
+  if (typeof document === "undefined") {
+    return false;
+  }
   const el = document.documentElement as FsElement;
   const doc = document as FsDocument;
-  if (typeof el.requestFullscreen === 'function') return doc.fullscreenEnabled !== false;
-  if (typeof el.webkitRequestFullscreen === 'function') return doc.webkitFullscreenEnabled !== false;
+  if (typeof el.requestFullscreen === "function") {
+    return doc.fullscreenEnabled !== false;
+  }
+  if (typeof el.webkitRequestFullscreen === "function") {
+    return doc.webkitFullscreenEnabled !== false;
+  }
   return false;
 }
 
@@ -48,18 +54,25 @@ export function isFullscreen(): boolean {
 
 /** Intent, NOT cleared when the browser leaves on its own — the menu restores from it. */
 let wanted = false;
-export function fullscreenWanted(): boolean { return wanted; }
+export function fullscreenWanted(): boolean {
+  return wanted;
+}
 
 /** Ask for fullscreen. Call ONLY from inside a user-gesture handler, first. */
 export function enterFullscreen(): boolean {
-  if (!fullscreenSupported()) return false;
+  if (!fullscreenSupported()) {
+    return false;
+  }
   // Recorded before the early return — see `fullscreenWanted`.
   wanted = true;
-  if (isFullscreen()) return false;
+  if (isFullscreen()) {
+    return false;
+  }
   const el = document.documentElement as FsElement;
-  const req = typeof el.requestFullscreen === 'function'
-    ? el.requestFullscreen({ navigationUI: 'hide' })
-    : el.webkitRequestFullscreen?.();
+  const req =
+    typeof el.requestFullscreen === "function"
+      ? el.requestFullscreen({ navigationUI: "hide" })
+      : el.webkitRequestFullscreen?.();
   void Promise.resolve(req).catch(() => {});
   return true;
 }
@@ -67,27 +80,38 @@ export function enterFullscreen(): boolean {
 /** Give the screen back. Under NO gesture deadline, unlike `enterFullscreen`. */
 export function exitFullscreen(): boolean {
   wanted = false;
-  if (!isFullscreen()) return false;
+  if (!isFullscreen()) {
+    return false;
+  }
   const doc = document as FsDocument;
-  const req = typeof document.exitFullscreen === 'function'
-    ? document.exitFullscreen()
-    : doc.webkitExitFullscreen?.();
+  const req =
+    typeof document.exitFullscreen === "function"
+      ? document.exitFullscreen()
+      : doc.webkitExitFullscreen?.();
   void Promise.resolve(req).catch(() => {});
   return true;
 }
 
 /** The lock object, or null where the API is missing or the context forbids it. */
 function keyboard(): KeyboardLock | null {
-  if (typeof navigator === 'undefined') return null;
+  if (typeof navigator === "undefined") {
+    return null;
+  }
   const kb = (navigator as LockNavigator).keyboard;
-  if (!kb || typeof kb.lock !== 'function' || typeof kb.unlock !== 'function') return null;
+  if (!kb || typeof kb.lock !== "function" || typeof kb.unlock !== "function") {
+    return null;
+  }
   // Chromium exposes the object over plain http and rejects the call.
-  if (typeof isSecureContext === 'boolean' && !isSecureContext) return null;
+  if (typeof isSecureContext === "boolean" && !isSecureContext) {
+    return null;
+  }
   return kb;
 }
 
 /** Chromium, secure context. */
-export function keyboardLockSupported(): boolean { return keyboard() !== null; }
+export function keyboardLockSupported(): boolean {
+  return keyboard() !== null;
+}
 
 /**
  * Would a fullscreen survive the player pressing Escape (issue #83)? Yes if the
@@ -99,24 +123,38 @@ export function fullscreenSurvivesEscape(): boolean {
 
 /** Whether the last lock attempt was GRANTED. Probes assert here, not on intent. */
 let escapeLocked = false;
-export function escapeIsLocked(): boolean { return escapeLocked; }
+export function escapeIsLocked(): boolean {
+  return escapeLocked;
+}
 
 /** Take Escape, if this browser lets us. A second `lock()` replaces the first. */
 function lockEscape(): void {
   const kb = keyboard();
-  if (!kb) return;
-  kb.lock(['Escape']).then(
-    () => { escapeLocked = true; },
-    () => { escapeLocked = false; },
+  if (!kb) {
+    return;
+  }
+  kb.lock(["Escape"]).then(
+    () => {
+      escapeLocked = true;
+    },
+    () => {
+      escapeLocked = false;
+    },
   );
 }
 
 /** Give every key back. Idempotent. */
 function unlockKeys(): void {
   const kb = keyboard();
-  if (!kb) return;
+  if (!kb) {
+    return;
+  }
   escapeLocked = false;
-  try { kb.unlock(); } catch { /* nothing holds a lock; not worth an error */ }
+  try {
+    kb.unlock();
+  } catch {
+    /* nothing holds a lock; not worth an error */
+  }
 }
 
 let installed = false;
@@ -126,11 +164,21 @@ let installed = false;
  * needs no user activation, so it can be driven off the change event.
  */
 export function installEscapeLock(): void {
-  if (installed || typeof document === 'undefined') return;
+  if (installed || typeof document === "undefined") {
+    return;
+  }
   installed = true;
-  const sync = () => { if (isFullscreen()) lockEscape(); else unlockKeys(); };
-  document.addEventListener('fullscreenchange', sync);
-  document.addEventListener('webkitfullscreenchange', sync);
+  const sync = () => {
+    if (isFullscreen()) {
+      lockEscape();
+    } else {
+      unlockKeys();
+    }
+  };
+  document.addEventListener("fullscreenchange", sync);
+  document.addEventListener("webkitfullscreenchange", sync);
   // A page can be fullscreen already (a reload keeps it), so do not wait for an edge.
-  if (isFullscreen()) lockEscape();
+  if (isFullscreen()) {
+    lockEscape();
+  }
 }

@@ -14,53 +14,51 @@ import type {
   ParseCtx,
   Severity,
   ValidateCtx,
-} from './types';
-import { compareIds } from './ids';
+} from "./types";
+import { compareIds } from "./ids";
 
 // Keep exhaustive: `DiagCode` is derived from it, so an unlisted code is a build error.
 export const DIAG = {
   // reading the bytes
-  'invalid-json': 'The file could not be parsed as JSON.',
-  'remote-rejected': 'A remote package was rejected before parsing — size, origin or shape.',
-  'missing-package': 'A required package could not be found by any storage provider.',
-  'package-cycle': 'Packages require each other in a cycle.',
+  "invalid-json": "The file could not be parsed as JSON.",
+  "remote-rejected": "A remote package was rejected before parsing — size, origin or shape.",
+  "missing-package": "A required package could not be found by any storage provider.",
+  "package-cycle": "Packages require each other in a cycle.",
 
   // identity
-  'bad-id': 'An identifier is not a well-formed "type:name" content id.',
-  'unknown-type': 'The id names a content type that no `defineType` registered.',
-  'duplicate-id': 'Two loaded assets claim the same id.',
+  "bad-id": 'An identifier is not a well-formed "type:name" content id.',
+  "unknown-type": "The id names a content type that no `defineType` registered.",
+  "duplicate-id": "Two loaded assets claim the same id.",
 
   // the body
-  'bad-field': 'A field is present but has the wrong type, shape or range.',
-  'missing-field': 'A required field is absent.',
-  'unsupported-schema': "The asset's schema revision is not one this build can read.",
-  'too-deep': 'A value is nested deeper than the structural limit allows.',
-  'too-large': 'A string, list or record is larger than the limit allows.',
-  'too-many-diagnostics': 'This asset produced more findings than the report will hold.',
+  "bad-field": "A field is present but has the wrong type, shape or range.",
+  "missing-field": "A required field is absent.",
+  "unsupported-schema": "The asset's schema revision is not one this build can read.",
+  "too-deep": "A value is nested deeper than the structural limit allows.",
+  "too-large": "A string, list or record is larger than the limit allows.",
+  "too-many-diagnostics": "This asset produced more findings than the report will hold.",
 
   // the graph
-  'missing-ref': 'A reference points at an id nothing defines.',
-  'wrong-ref-type': 'A reference resolves to an asset of the wrong content type.',
-  orphan: 'Nothing references this asset and no system enumerates it.',
+  "missing-ref": "A reference points at an id nothing defines.",
+  "wrong-ref-type": "A reference resolves to an asset of the wrong content type.",
+  orphan: "Nothing references this asset and no system enumerates it.",
 
   // the extension points
-  'unknown-test': 'A condition names a test that no `defineTest` registered.',
-  'unknown-action': 'An action names a handler that no `defineAction` registered.',
-  'unknown-factory': 'Content selects an engine behaviour that no `defineFactory` registered.',
+  "unknown-test": "A condition names a test that no `defineTest` registered.",
+  "unknown-action": "An action names a handler that no `defineAction` registered.",
+  "unknown-factory": "Content selects an engine behaviour that no `defineFactory` registered.",
 
   // availability
-  'never-available': 'The availability condition can never pass with the content loaded.',
+  "never-available": "The availability condition can never pass with the content loaded.",
 
   // player-visible text
-  'missing-text': 'A required display string is absent, or names a missing string key.',
+  "missing-text": "A required display string is absent, or names a missing string key.",
 } as const;
 
 export type DiagCode = keyof typeof DIAG;
 
 export function explain(code: string): string | undefined {
-  return Object.prototype.hasOwnProperty.call(DIAG, code)
-    ? DIAG[code as DiagCode]
-    : undefined;
+  return Object.prototype.hasOwnProperty.call(DIAG, code) ? DIAG[code as DiagCode] : undefined;
 }
 
 /** The only place the severity order is written down. */
@@ -81,18 +79,29 @@ export function atLeast(s: Severity, min: Severity): boolean {
 // ONE line, so a report is greppable: severity code assetId field: message [source] -> fix
 export function formatDiagnostic(d: Diagnostic): string {
   let line = `${d.severity} ${d.code}`;
-  if (d.assetId) line += ` ${d.assetId}`;
-  else if (d.pkg) line += ` @${d.pkg}`;
-  if (d.field) line += ` ${d.field}`;
+  if (d.assetId) {
+    line += ` ${d.assetId}`;
+  } else if (d.pkg) {
+    line += ` @${d.pkg}`;
+  }
+  if (d.field) {
+    line += ` ${d.field}`;
+  }
   line += `: ${d.message}`;
-  if (d.related && d.related.length > 0) line += ` (${d.related.join(', ')})`;
-  if (d.source) line += ` [${d.source}]`;
-  if (d.fix) line += ` -> ${d.fix}`;
+  if (d.related && d.related.length > 0) {
+    line += ` (${d.related.join(", ")})`;
+  }
+  if (d.source) {
+    line += ` [${d.source}]`;
+  }
+  if (d.fix) {
+    line += ` -> ${d.fix}`;
+  }
   return line;
 }
 
 export function formatDiagnostics(list: readonly Diagnostic[]): string {
-  return list.map(formatDiagnostic).join('\n');
+  return list.map(formatDiagnostic).join("\n");
 }
 
 export interface SinkOptions {
@@ -121,17 +130,19 @@ export class DiagnosticSink {
 
   /** False when it was a duplicate or the cap was hit. */
   add(d: Diagnostic): boolean {
-    const key = `${d.code}\u0000${d.assetId ?? ''}\u0000${d.field ?? ''}`;
-    if (this.seen.has(key)) return false;
+    const key = `${d.code}\u0000${d.assetId ?? ""}\u0000${d.field ?? ""}`;
+    if (this.seen.has(key)) {
+      return false;
+    }
     if (this.list.length >= this.limit) {
       this.overflow++;
       if (!this.capped) {
         this.capped = true;
         this.list.push({
-          severity: 'warn',
-          code: 'too-many-diagnostics',
+          severity: "warn",
+          code: "too-many-diagnostics",
           message: `stopped after ${this.limit} findings`,
-          fix: 'fix the first ones and run again — they are usually one cause',
+          fix: "fix the first ones and run again — they are usually one cause",
         });
       }
       return false;
@@ -142,26 +153,36 @@ export class DiagnosticSink {
   }
 
   addAll(ds: Iterable<Diagnostic>): void {
-    for (const d of ds) this.add(d);
+    for (const d of ds) {
+      this.add(d);
+    }
   }
 
   worst(): Severity | undefined {
     let out: Severity | undefined;
-    for (const d of this.list) out = out === undefined ? d.severity : worseOf(out, d.severity);
+    for (const d of this.list) {
+      out = out === undefined ? d.severity : worseOf(out, d.severity);
+    }
     return out;
   }
 
   /** One severity, or all when omitted. */
   count(severity?: Severity): number {
-    if (severity === undefined) return this.list.length;
+    if (severity === undefined) {
+      return this.list.length;
+    }
     let n = 0;
-    for (const d of this.list) if (d.severity === severity) n++;
+    for (const d of this.list) {
+      if (d.severity === severity) n++;
+    }
     return n;
   }
 
   /** True when anything at least this bad was reported. */
   has(severity: Severity): boolean {
-    for (const d of this.list) if (atLeast(d.severity, severity)) return true;
+    for (const d of this.list) {
+      if (atLeast(d.severity, severity)) return true;
+    }
     return false;
   }
 
@@ -188,10 +209,10 @@ export class DiagnosticSink {
     return {
       worst: this.worst() ?? null,
       counts: {
-        info: this.count('info'),
-        warn: this.count('warn'),
-        error: this.count('error'),
-        fatal: this.count('fatal'),
+        info: this.count("info"),
+        warn: this.count("warn"),
+        error: this.count("error"),
+        fatal: this.count("fatal"),
       },
       dropped: this.overflow,
       diagnostics: this.sorted().map((d) => ({ ...d })),
@@ -242,12 +263,20 @@ export class DiagnosticSink {
 /** Exported so a caller merging two reports orders them the same way. */
 export function compareDiagnostics(a: Diagnostic, b: Diagnostic): number {
   const s = RANK[b.severity] - RANK[a.severity];
-  if (s !== 0) return s;
-  const ia = compareIds(a.assetId ?? '', b.assetId ?? '');
-  if (ia !== 0) return ia;
-  const fa = a.field ?? '';
-  const fb = b.field ?? '';
-  if (fa !== fb) return fa < fb ? -1 : 1;
-  if (a.code !== b.code) return a.code < b.code ? -1 : 1;
+  if (s !== 0) {
+    return s;
+  }
+  const ia = compareIds(a.assetId ?? "", b.assetId ?? "");
+  if (ia !== 0) {
+    return ia;
+  }
+  const fa = a.field ?? "";
+  const fb = b.field ?? "";
+  if (fa !== fb) {
+    return fa < fb ? -1 : 1;
+  }
+  if (a.code !== b.code) {
+    return a.code < b.code ? -1 : 1;
+  }
   return a.message < b.message ? -1 : a.message > b.message ? 1 : 0;
 }

@@ -1,18 +1,18 @@
-import type { HeroRig } from './hero-rig';
+import type { HeroRig } from "./hero-rig";
 
 /** Live attack state fed in by the Player each frame. */
 export interface AttackState {
   active: boolean;
   combo: number; // 0..2
-  t: number;     // seconds into current swing
-  dur: number;   // swing duration
+  t: number; // seconds into current swing
+  dur: number; // swing duration
 }
 
 /** Everything the animator needs to pose the hero for one frame. */
 export interface AnimInput {
   time: number;
   dt: number;
-  moveNorm: number;   // 0..1
+  moveNorm: number; // 0..1
   sprinting: boolean;
   onGround: boolean;
   swimming: boolean;
@@ -25,8 +25,8 @@ export interface AnimInput {
   attack: AttackState;
   dead: boolean;
   deadT: number;
-  landBump: number;   // 0..1 squash impulse, decays in Player
-  hurtT: number;      // countdown after taking a hit
+  landBump: number; // 0..1 squash impulse, decays in Player
+  hurtT: number; // countdown after taking a hit
   /**
    * Nothing in the hand. Picks the punch table over the sword one — see
    * `PUNCHES`. It is an INPUT rather than something read off the rig because
@@ -62,36 +62,132 @@ const easeInOut = (t: number): number => t * t * (3 - 2 * t);
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 function easeOutBounce(t: number): number {
-  const n1 = 7.5625, d1 = 2.75;
-  if (t < 1 / d1) return n1 * t * t;
-  if (t < 2 / d1) { t -= 1.5 / d1; return n1 * t * t + 0.75; }
-  if (t < 2.5 / d1) { t -= 2.25 / d1; return n1 * t * t + 0.9375; }
-  t -= 2.625 / d1; return n1 * t * t + 0.984375;
+  const n1 = 7.5625,
+    d1 = 2.75;
+  if (t < 1 / d1) {
+    return n1 * t * t;
+  }
+  if (t < 2 / d1) {
+    t -= 1.5 / d1;
+    return n1 * t * t + 0.75;
+  }
+  if (t < 2.5 / d1) {
+    t -= 2.25 / d1;
+    return n1 * t * t + 0.9375;
+  }
+  t -= 2.625 / d1;
+  return n1 * t * t + 0.984375;
 }
 
 // -- attack keyframes ------------------------------------------------------
 interface SwingPose {
-  aRX: number; aRY: number; aRZ: number;
-  aLX: number; aLZ: number;
-  tY: number; swX: number; swZ: number;
-  bRX: number; bY: number;
+  aRX: number;
+  aRY: number;
+  aRZ: number;
+  aLX: number;
+  aLZ: number;
+  tY: number;
+  swX: number;
+  swZ: number;
+  bRX: number;
+  bY: number;
 }
 
-const READY: SwingPose = { aRX: -0.5, aRY: 0, aRZ: 0.3, aLX: -0.35, aLZ: -0.35, tY: 0.12, swX: 2.0, swZ: 0, bRX: 0.06, bY: 0 };
+const READY: SwingPose = {
+  aRX: -0.5,
+  aRY: 0,
+  aRZ: 0.3,
+  aLX: -0.35,
+  aLZ: -0.35,
+  tY: 0.12,
+  swX: 2.0,
+  swZ: 0,
+  bRX: 0.06,
+  bY: 0,
+};
 
 // [windup, strike-end] per combo hit
 const SWINGS: Array<[SwingPose, SwingPose]> = [
-  [ // 1: slash right -> left
-    { aRX: -1.1, aRY: -0.3, aRZ: 1.5, aLX: -0.2, aLZ: -0.5, tY: 0.5, swX: 1.7, swZ: -0.4, bRX: -0.04, bY: 0.02 },
-    { aRX: -1.35, aRY: 0.5, aRZ: -1.1, aLX: 0.45, aLZ: -0.25, tY: -0.55, swX: 1.5, swZ: 0.35, bRX: 0.22, bY: -0.04 },
+  [
+    // 1: slash right -> left
+    {
+      aRX: -1.1,
+      aRY: -0.3,
+      aRZ: 1.5,
+      aLX: -0.2,
+      aLZ: -0.5,
+      tY: 0.5,
+      swX: 1.7,
+      swZ: -0.4,
+      bRX: -0.04,
+      bY: 0.02,
+    },
+    {
+      aRX: -1.35,
+      aRY: 0.5,
+      aRZ: -1.1,
+      aLX: 0.45,
+      aLZ: -0.25,
+      tY: -0.55,
+      swX: 1.5,
+      swZ: 0.35,
+      bRX: 0.22,
+      bY: -0.04,
+    },
   ],
-  [ // 2: backhand left -> right
-    { aRX: -1.35, aRY: 0.4, aRZ: -1.2, aLX: 0.3, aLZ: -0.3, tY: -0.5, swX: 1.55, swZ: 0.4, bRX: 0, bY: 0.02 },
-    { aRX: -1.0, aRY: -0.4, aRZ: 1.45, aLX: -0.4, aLZ: -0.55, tY: 0.55, swX: 1.7, swZ: -0.4, bRX: 0.2, bY: -0.04 },
+  [
+    // 2: backhand left -> right
+    {
+      aRX: -1.35,
+      aRY: 0.4,
+      aRZ: -1.2,
+      aLX: 0.3,
+      aLZ: -0.3,
+      tY: -0.5,
+      swX: 1.55,
+      swZ: 0.4,
+      bRX: 0,
+      bY: 0.02,
+    },
+    {
+      aRX: -1.0,
+      aRY: -0.4,
+      aRZ: 1.45,
+      aLX: -0.4,
+      aLZ: -0.55,
+      tY: 0.55,
+      swX: 1.7,
+      swZ: -0.4,
+      bRX: 0.2,
+      bY: -0.04,
+    },
   ],
-  [ // 3: big overhead chop
-    { aRX: -3.1, aRY: 0, aRZ: 0.25, aLX: -1.2, aLZ: -0.6, tY: 0.15, swX: 3.0, swZ: 0, bRX: -0.14, bY: 0.05 },
-    { aRX: -0.3, aRY: 0, aRZ: 0.1, aLX: 0.5, aLZ: -0.4, tY: 0, swX: 1.35, swZ: 0, bRX: 0.3, bY: -0.1 },
+  [
+    // 3: big overhead chop
+    {
+      aRX: -3.1,
+      aRY: 0,
+      aRZ: 0.25,
+      aLX: -1.2,
+      aLZ: -0.6,
+      tY: 0.15,
+      swX: 3.0,
+      swZ: 0,
+      bRX: -0.14,
+      bY: 0.05,
+    },
+    {
+      aRX: -0.3,
+      aRY: 0,
+      aRZ: 0.1,
+      aLX: 0.5,
+      aLZ: -0.4,
+      tY: 0,
+      swX: 1.35,
+      swZ: 0,
+      bRX: 0.3,
+      bY: -0.1,
+    },
   ],
 ];
 
@@ -111,17 +207,86 @@ const SWINGS: Array<[SwingPose, SwingPose]> = [
  * one without them would fork `evalSwing`.
  */
 const PUNCHES: Array<[SwingPose, SwingPose]> = [
-  [ // 1: right jab — chamber at the hip, drive forward
-    { aRX: -0.35, aRY: 0.15, aRZ: 0.12, aLX: -0.9, aLZ: -0.2, tY: 0.34, swX: 2.4, swZ: 0, bRX: -0.03, bY: 0.01 },
-    { aRX: -1.75, aRY: -0.1, aRZ: 0.05, aLX: -0.2, aLZ: -0.35, tY: -0.34, swX: 2.4, swZ: 0, bRX: 0.16, bY: -0.03 },
+  [
+    // 1: right jab — chamber at the hip, drive forward
+    {
+      aRX: -0.35,
+      aRY: 0.15,
+      aRZ: 0.12,
+      aLX: -0.9,
+      aLZ: -0.2,
+      tY: 0.34,
+      swX: 2.4,
+      swZ: 0,
+      bRX: -0.03,
+      bY: 0.01,
+    },
+    {
+      aRX: -1.75,
+      aRY: -0.1,
+      aRZ: 0.05,
+      aLX: -0.2,
+      aLZ: -0.35,
+      tY: -0.34,
+      swX: 2.4,
+      swZ: 0,
+      bRX: 0.16,
+      bY: -0.03,
+    },
   ],
-  [ // 2: left cross — the other fist, so the torso unwinds the other way
-    { aRX: -1.5, aRY: 0, aRZ: 0.08, aLX: -0.35, aLZ: -0.12, tY: -0.3, swX: 2.4, swZ: 0, bRX: 0, bY: 0.01 },
-    { aRX: -0.25, aRY: 0.1, aRZ: 0.22, aLX: -1.8, aLZ: -0.06, tY: 0.4, swX: 2.4, swZ: 0, bRX: 0.18, bY: -0.03 },
+  [
+    // 2: left cross — the other fist, so the torso unwinds the other way
+    {
+      aRX: -1.5,
+      aRY: 0,
+      aRZ: 0.08,
+      aLX: -0.35,
+      aLZ: -0.12,
+      tY: -0.3,
+      swX: 2.4,
+      swZ: 0,
+      bRX: 0,
+      bY: 0.01,
+    },
+    {
+      aRX: -0.25,
+      aRY: 0.1,
+      aRZ: 0.22,
+      aLX: -1.8,
+      aLZ: -0.06,
+      tY: 0.4,
+      swX: 2.4,
+      swZ: 0,
+      bRX: 0.18,
+      bY: -0.03,
+    },
   ],
-  [ // 3: both hands, a shove that finishes the chain
-    { aRX: -0.4, aRY: 0, aRZ: 0.3, aLX: -0.4, aLZ: -0.3, tY: 0, swX: 2.5, swZ: 0, bRX: -0.16, bY: 0.05 },
-    { aRX: -1.9, aRY: 0, aRZ: 0.1, aLX: -1.9, aLZ: -0.1, tY: 0, swX: 2.5, swZ: 0, bRX: 0.3, bY: -0.09 },
+  [
+    // 3: both hands, a shove that finishes the chain
+    {
+      aRX: -0.4,
+      aRY: 0,
+      aRZ: 0.3,
+      aLX: -0.4,
+      aLZ: -0.3,
+      tY: 0,
+      swX: 2.5,
+      swZ: 0,
+      bRX: -0.16,
+      bY: 0.05,
+    },
+    {
+      aRX: -1.9,
+      aRY: 0,
+      aRZ: 0.1,
+      aLX: -1.9,
+      aLZ: -0.1,
+      tY: 0,
+      swX: 2.5,
+      swZ: 0,
+      bRX: 0.3,
+      bY: -0.09,
+    },
   ],
 ];
 
@@ -156,8 +321,16 @@ const PUNCHES: Array<[SwingPose, SwingPose]> = [
  * rest it is 2.62, hanging down the leg; every swing keyframe is 1.35 or more.)
  */
 const DRAW: SwingPose = {
-  aLX: -1.62, aLZ: -0.06, aRX: -0.3, aRY: -0.25, aRZ: 1.3,
-  tY: -0.22, swX: 0.9, swZ: 0.1, bRX: 0.04, bY: 0,
+  aLX: -1.62,
+  aLZ: -0.06,
+  aRX: -0.3,
+  aRY: -0.25,
+  aRZ: 1.3,
+  tY: -0.22,
+  swX: 0.9,
+  swZ: 0.1,
+  bRX: 0.04,
+  bY: 0,
 };
 /**
  * LOOSED. The bow arm holds its line — an archer does not drop the bow on the
@@ -165,8 +338,16 @@ const DRAW: SwingPose = {
  * the arrow went — while the drawing hand snaps open and back past the ear.
  */
 const LOOSE: SwingPose = {
-  aLX: -1.55, aLZ: -0.04, aRX: -0.05, aRY: -0.35, aRZ: 1.15,
-  tY: -0.14, swX: 0.9, swZ: 0.1, bRX: 0.1, bY: -0.02,
+  aLX: -1.55,
+  aLZ: -0.04,
+  aRX: -0.05,
+  aRY: -0.35,
+  aRZ: 1.15,
+  tY: -0.14,
+  swX: 0.9,
+  swZ: 0.1,
+  bRX: 0.1,
+  bY: -0.02,
 };
 
 const _swing: SwingPose = { ...READY };
@@ -174,7 +355,9 @@ const _swing: SwingPose = { ...READY };
 /** Evaluate the keyframed swing pose at normalized phase p, into _swing. */
 function evalSwing(combo: number, p: number, unarmed: boolean): SwingPose {
   const [wind, hit] = (unarmed ? PUNCHES : SWINGS)[combo];
-  if (p < 0.32) return blend(READY, wind, easeOutCubic(seg(p, 0, 0.32)));
+  if (p < 0.32) {
+    return blend(READY, wind, easeOutCubic(seg(p, 0, 0.32)));
+  }
   return blend(wind, hit, easeInOut(seg(p, 0.32, 0.6)));
 }
 
@@ -190,7 +373,9 @@ function evalSwing(combo: number, p: number, unarmed: boolean): SwingPose {
  * with it, or the string lets go before the hand does.
  */
 function evalDraw(p: number): SwingPose {
-  if (p < 0.55) return blend(READY, DRAW, easeOutCubic(seg(p, 0, 0.55)));
+  if (p < 0.55) {
+    return blend(READY, DRAW, easeOutCubic(seg(p, 0, 0.55)));
+  }
   return blend(DRAW, LOOSE, easeOutCubic(seg(p, 0.55, 0.67)));
 }
 
@@ -221,15 +406,24 @@ export class HeroAnimator {
   private ridePhase = 0;
 
   // damped joint state
-  private bodyY = 0; private bRX = 0; private bRZ = 0;
-  private sclY = 1; private sclXZ = 1;
+  private bodyY = 0;
+  private bRX = 0;
+  private bRZ = 0;
+  private sclY = 1;
+  private sclXZ = 1;
   private tY = 0;
-  private hX = 0; private hY = 0;
-  private aLX = 0; private aLZ = -0.08;
-  private aRX = 0; private aRY = 0; private aRZ = 0.08;
-  private lLX = 0; private lRX = 0;
+  private hX = 0;
+  private hY = 0;
+  private aLX = 0;
+  private aLZ = -0.08;
+  private aRX = 0;
+  private aRY = 0;
+  private aRZ = 0.08;
+  private lLX = 0;
+  private lRX = 0;
   private hipX = 0;
-  private swX = 2.28; private swZ = 0.14;
+  private swX = 2.28;
+  private swZ = 0.14;
 
   update(rig: HeroRig, s: AnimInput): void {
     const t = s.time;
@@ -239,7 +433,9 @@ export class HeroAnimator {
     if (m > 0.02 && (s.onGround || s.swimming)) {
       this.runPhase += dt * (5 + 8.5 * m) * (s.sprinting ? 1.18 : 1);
     }
-    if (s.swimming) this.swimPhase += dt * (3.2 + 3.5 * m);
+    if (s.swimming) {
+      this.swimPhase += dt * (3.2 + 3.5 * m);
+    }
     // The climb cycle is driven by PROGRESS, not by a clock: it advances with
     // the hero's vertical rate and runs backwards when he descends, so the arm
     // that reached last is the one that gives the hold back. A hero simply
@@ -250,7 +446,9 @@ export class HeroAnimator {
     }
     // Saddle bob: a slow sway at rest that quickens with the mount's gait, so a
     // galloping fox jostles its rider and a parked one just breathes.
-    if (s.riding) this.ridePhase += dt * (2.1 + 7.5 * m);
+    if (s.riding) {
+      this.ridePhase += dt * (2.1 + 7.5 * m);
+    }
 
     // ---- base locomotion targets ----
     const breath = Math.sin(t * 1.9);
@@ -339,20 +537,20 @@ export class HeroAnimator {
       bRX = 0.16;
       bRZ = cp * 0.05;
       tY = cp * 0.1;
-      hX = -0.3;          // eyes up the face, looking for the next hold
+      hX = -0.3; // eyes up the face, looking for the next hold
       hY = cp * 0.1;
       // -2.45 rad is a high overhead reach (-PI would be dead vertical); the
       // +-0.45 swing is one arm reaching while the other pulls down past it.
       aRX = -2.45 + cp * 0.45;
       aLX = -2.45 - cp * 0.45;
-      aRZ = 0.3;          // elbows out so the mitts land on the rock, not the ears
+      aRZ = 0.3; // elbows out so the mitts land on the rock, not the ears
       aLZ = -0.3;
       aRY = 0;
       // Knees driven into the wall, alternating opposite the arms.
       lRX = 0.42 + cp * 0.34;
       lLX = 0.42 - cp * 0.34;
-      hipX = 0.3;         // the block follows the boots into the rock
-      swX = 2.45;         // blade stays slung along the back leg, out of the way
+      hipX = 0.3; // the block follows the boots into the rock
+      swX = 2.45; // blade stays slung along the back leg, out of the way
       swZ = 0.2;
     }
 
@@ -385,7 +583,7 @@ export class HeroAnimator {
       // saddle and swinging it as far as they go pushes a corner of it out
       // past the mount's flank.
       hipX = 0.25;
-      swX = 2.5;          // blade slung along the back, clear of the saddle
+      swX = 2.5; // blade slung along the back, clear of the saddle
       swZ = 0.22;
     }
 
@@ -409,7 +607,8 @@ export class HeroAnimator {
       swZ = lerp(swZ, k.swZ, w);
       bRX = lerp(bRX, k.bRX, w);
       bodyY += k.bY * w;
-      if (s.onGround && m < 0.3) { // combat stance feet
+      if (s.onGround && m < 0.3) {
+        // combat stance feet
         lLX = lerp(lLX, -0.28, w);
         lRX = lerp(lRX, 0.34, w);
         hipX = lerp(hipX, 0.04, w);
@@ -433,11 +632,15 @@ export class HeroAnimator {
       // Hands IN, not flung out. Rolled wide they used to read as arms thrown
       // clear of the body; with no arm on them a mitt held out from a corpse
       // lying on its side is a ball hovering over the ground.
-      aLZ = -0.12; aRZ = 0.16;
-      aLX = -0.35; aRX = -0.4;
-      lLX = -0.15; lRX = 0.2;
+      aLZ = -0.12;
+      aRZ = 0.16;
+      aLX = -0.35;
+      aRX = -0.4;
+      lLX = -0.15;
+      lRX = 0.2;
       hipX = 0.1;
-      hX = 0.1; hY = 0.3;
+      hX = 0.1;
+      hY = 0.3;
       swX = 2.5;
     }
 

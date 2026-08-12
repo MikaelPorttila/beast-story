@@ -14,7 +14,7 @@
  * the rule is written down, which is one.
  */
 
-import type { SafeZone, SafeZoneRegistry } from '../core/types';
+import type { SafeZone, SafeZoneRegistry } from "../core/types";
 
 /**
  * How far past a settlement's BUILT perimeter its keep-out reaches.
@@ -56,7 +56,9 @@ export class SafeZoneField implements SafeZoneRegistry {
   }
 
   add(id: string, x: number, z: number, radius: number): void {
-    if (!(radius > 0)) return;
+    if (!(radius > 0)) {
+      return;
+    }
     this.zones.push({ id, x, z, radius });
   }
 
@@ -68,7 +70,9 @@ export class SafeZoneField implements SafeZoneRegistry {
       const zone = this.zones[i];
       const dx = zone.x - x;
       const dz = zone.z - z;
-      if (dx * dx + dz * dz < zone.radius * zone.radius) return true;
+      if (dx * dx + dz * dz < zone.radius * zone.radius) {
+        return true;
+      }
     }
     return false;
   }

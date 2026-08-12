@@ -24,17 +24,17 @@
 // readouts for whoever is building the game, not player-facing UI, and they are
 // deliberately dense: F3 is meant to be read BESIDE F2 without either covering
 // the world. A player never opens them. Everything else is in.
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { launchBrowser, leaveSplash, newContextPage, whenPlaying } from './browser.mjs';
-import { BASE as HOST, NO_WARMUP } from './target.mjs';
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { launchBrowser, leaveSplash, newContextPage, whenPlaying } from "./browser.mjs";
+import { BASE as HOST, NO_WARMUP } from "./target.mjs";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const MIN_PX = 16;
 
 /** Selector prefixes whose type is an instrument's, not the player's. */
-const DEV_ONLY = ['.bs-console', '.bs-perf', '.bs-spawn'];
+const DEV_ONLY = [".bs-console", ".bs-perf", ".bs-spawn"];
 
 // ---- pass 1: the stylesheets -------------------------------------------------
 
@@ -60,29 +60,43 @@ function floorPx(value) {
   const inner = v.match(/^(clamp|min|max)\((.*)\)$/s);
   if (inner) {
     const args = splitArgs(inner[2]).map(floorPx);
-    if (inner[1] === 'clamp') return args[0] ?? null;
-    if (inner[1] === 'max') {
+    if (inner[1] === "clamp") {
+      return args[0] ?? null;
+    }
+    if (inner[1] === "max") {
       const known = args.filter((a) => a !== null);
       return known.length ? Math.max(...known) : null;
     }
     return args.some((a) => a === null) ? null : Math.min(...args);
   }
   const px = v.match(/^(-?[\d.]+)px$/);
-  if (px) return parseFloat(px[1]);
+  if (px) {
+    return parseFloat(px[1]);
+  }
   return null;
 }
 
 /** Split a function's argument list on top-level commas. */
 function splitArgs(s) {
   const out = [];
-  let depth = 0, cur = '';
+  let depth = 0,
+    cur = "";
   for (const ch of s) {
-    if (ch === '(') depth++;
-    else if (ch === ')') depth--;
-    if (ch === ',' && depth === 0) { out.push(cur); cur = ''; continue; }
+    if (ch === "(") {
+      depth++;
+    } else if (ch === ")") {
+      depth--;
+    }
+    if (ch === "," && depth === 0) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
     cur += ch;
   }
-  if (cur.trim()) out.push(cur);
+  if (cur.trim()) {
+    out.push(cur);
+  }
   return out;
 }
 
@@ -93,40 +107,47 @@ function splitArgs(s) {
  * would be a false positive, and there are none.
  */
 function scanSheet(file) {
-  const src = readFileSync(join(ROOT, file), 'utf8');
+  const src = readFileSync(join(ROOT, file), "utf8");
   // Strip /* ... */ so prose about a size is not mistaken for a declaration.
-  const css = src.replace(/\/\*[\s\S]*?\*\//g, '');
+  const css = src.replace(/\/\*[\s\S]*?\*\//g, "");
   const hits = [];
   const blockRe = /([^{};]+)\{([^{}]*)\}/g;
   let m;
   while ((m = blockRe.exec(css))) {
-    const selector = m[1].replace(/\s+/g, ' ').trim();
-    if (!selector || selector.startsWith('@') || selector.startsWith('from')
-      || selector.startsWith('to') || /^\d/.test(selector)) continue;
+    const selector = m[1].replace(/\s+/g, " ").trim();
+    if (
+      !selector ||
+      selector.startsWith("@") ||
+      selector.startsWith("from") ||
+      selector.startsWith("to") ||
+      /^\d/.test(selector)
+    ) {
+      continue;
+    }
     const decls = m[2];
     const sizeRe = /(?:^|[;\s])font-size\s*:\s*([^;}]+)/g;
     let d;
     while ((d = sizeRe.exec(decls))) {
-      const raw = d[1].trim().replace(/!important$/, '').trim();
+      const raw = d[1]
+        .trim()
+        .replace(/!important$/, "")
+        .trim();
       hits.push({ file, selector, value: raw, px: floorPx(raw) });
     }
     // `font:` shorthand — the console and the F3 panel use it.
     const shortRe = /(?:^|[;\s])font\s*:\s*([^;}]+)/g;
     while ((d = shortRe.exec(decls))) {
       const size = d[1].trim().match(/(^|\s)([\d.]+px)(?=[\s/])/);
-      if (size) hits.push({ file, selector, value: size[2], px: floorPx(size[2]) });
+      if (size) {
+        hits.push({ file, selector, value: size[2], px: floorPx(size[2]) });
+      }
     }
   }
   return hits;
 }
 
-const declarations = [
-  ...scanSheet('src/ui/styles.ts'),
-  ...scanSheet('src/core/touch.ts'),
-];
-const playerFacing = declarations.filter(
-  (h) => !DEV_ONLY.some((p) => h.selector.includes(p)),
-);
+const declarations = [...scanSheet("src/ui/styles.ts"), ...scanSheet("src/core/touch.ts")];
+const playerFacing = declarations.filter((h) => !DEV_ONLY.some((p) => h.selector.includes(p)));
 const staticTooSmall = playerFacing
   .filter((h) => h.px !== null && h.px < MIN_PX)
   .map((h) => ({ file: h.file, selector: h.selector, value: h.value, px: h.px }));
@@ -146,19 +167,27 @@ const undecidable = playerFacing
  */
 const SWEEP = (min) => {
   const out = [];
-  for (const el of document.querySelectorAll('body *')) {
-    if (el.closest('.bs-console,.bs-perf,.bs-spawn')) continue;
+  for (const el of document.querySelectorAll("body *")) {
+    if (el.closest(".bs-console,.bs-perf,.bs-spawn")) {
+      continue;
+    }
     const cs = getComputedStyle(el);
-    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+    if (cs.display === "none" || cs.visibility === "hidden") {
+      continue;
+    }
     // Own text only — a wrapper's font-size is judged where the glyphs are.
-    let text = '';
-    for (const n of el.childNodes) if (n.nodeType === 3) text += n.nodeValue;
-    if (!text.trim()) continue;
+    let text = "";
+    for (const n of el.childNodes) {
+      if (n.nodeType === 3) text += n.nodeValue;
+    }
+    if (!text.trim()) {
+      continue;
+    }
     const px = parseFloat(cs.fontSize);
     if (px < min - 0.01) {
       out.push({
         tag: el.tagName.toLowerCase(),
-        cls: typeof el.className === 'string' ? el.className : '',
+        cls: typeof el.className === "string" ? el.className : "",
         text: text.trim().slice(0, 28),
         px: +px.toFixed(2),
       });
@@ -179,29 +208,29 @@ const live = {};
 const STAGE = () => !!(window.__dbgStageHud && window.__dbgStageHud());
 
 for (const [name, viewport, query] of [
-// NO_WARMUP on all seven pages: every reading is a computed font-size out of
-// getComputedStyle — see the note in tools/target.mjs.
-  ['desktop', { width: 1600, height: 900 }, `?fps=30&menu=0&${NO_WARMUP}`],
-  ['desktop-narrow', { width: 1000, height: 700 }, `?fps=30&menu=0&${NO_WARMUP}`],
-  ['phone-portrait', { width: 393, height: 851, phone: true }, `?fps=30&menu=0&${NO_WARMUP}`],
-  ['phone-landscape', { width: 851, height: 393, phone: true }, `?fps=30&menu=0&${NO_WARMUP}`],
-  ['title', { width: 1600, height: 900 }, `?photo=1&menu=1&fs=0&${NO_WARMUP}`],
-  ['title-short', { width: 1000, height: 560 }, `?photo=1&menu=1&fs=0&${NO_WARMUP}`],
-  ['title-phone', { width: 851, height: 393, phone: true }, `?photo=1&menu=1&fs=0&${NO_WARMUP}`],
+  // NO_WARMUP on all seven pages: every reading is a computed font-size out of
+  // getComputedStyle — see the note in tools/target.mjs.
+  ["desktop", { width: 1600, height: 900 }, `?fps=30&menu=0&${NO_WARMUP}`],
+  ["desktop-narrow", { width: 1000, height: 700 }, `?fps=30&menu=0&${NO_WARMUP}`],
+  ["phone-portrait", { width: 393, height: 851, phone: true }, `?fps=30&menu=0&${NO_WARMUP}`],
+  ["phone-landscape", { width: 851, height: 393, phone: true }, `?fps=30&menu=0&${NO_WARMUP}`],
+  ["title", { width: 1600, height: 900 }, `?photo=1&menu=1&fs=0&${NO_WARMUP}`],
+  ["title-short", { width: 1000, height: 560 }, `?photo=1&menu=1&fs=0&${NO_WARMUP}`],
+  ["title-phone", { width: 851, height: 393, phone: true }, `?photo=1&menu=1&fs=0&${NO_WARMUP}`],
 ]) {
   const { ctx, page } = await newContextPage(browser, viewport);
-  await page.goto(`${HOST}/${query}`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas,.bs-menu');
-  let staged = 'n/a';
-  if (query.includes('menu=0')) {
+  await page.goto(`${HOST}/${query}`, { waitUntil: "load" });
+  await page.waitForSelector("canvas,.bs-menu");
+  let staged = "n/a";
+  if (query.includes("menu=0")) {
     // The HUD is staged by a hook, so the gate is the hook answering rather
     // than a guess at how long the boot takes.
     await whenPlaying(page);
     await page.waitForFunction(() => !!window.__dbgStageHud, { timeout: 30000 });
     staged = await page.evaluate(STAGE).catch(() => false);
     // The modal a player opens from the keyboard, over the shop the hook left up.
-    await page.keyboard.press('F1');
-    await page.waitForSelector('.bs-keyswrap', { timeout: 15000 });
+    await page.keyboard.press("F1");
+    await page.waitForSelector(".bs-keyswrap", { timeout: 15000 });
   } else {
     // The title screen's own type only exists past the splash: step one is a
     // wordmark and four words, and every button, row, pill and language chip is
@@ -212,38 +241,50 @@ for (const [name, viewport, query] of [
     // with nothing to retry it (see the note on leaveSplash in browser.mjs).
     await leaveSplash(page);
     const opened = await page.evaluate(() => {
-      const btn = [...document.querySelectorAll('.bs-menu .bs-menu-btn')]
-        .find((b) => /setting/i.test(b.textContent || ''));
-      if (!btn) return false;
+      const btn = [...document.querySelectorAll(".bs-menu .bs-menu-btn")].find((b) =>
+        /setting/i.test(b.textContent || ""),
+      );
+      if (!btn) {
+        return false;
+      }
       btn.click();
       return true;
     });
     // The settings panel is up when its tab strip is: ui/settings.ts builds the
     // rows and the tabs together.
-    if (opened) await page.waitForSelector('.bs-menu [data-tab]', { timeout: 15000 });
-    staged = opened ? 'settings' : 'options-only';
+    if (opened) {
+      await page.waitForSelector(".bs-menu [data-tab]", { timeout: 15000 });
+    }
+    staged = opened ? "settings" : "options-only";
   }
   let tooSmall = await page.evaluate(SWEEP, MIN_PX);
-  if (staged === 'settings') {
+  if (staged === "settings") {
     // EVERY SECTION, not just the one the panel opens on. The settings list is
     // four tabs and only the visible one is in the DOM (ui/settings.ts), so a
     // sweep that stopped here would never look at the graphics rows or the
     // volume strip — which is precisely the half of the panel that is new, and
     // precisely how a floor stops covering the thing it was written for.
-    for (const tab of ['controls', 'graphics', 'sound']) {
+    for (const tab of ["controls", "graphics", "sound"]) {
       const opened = await page.evaluate((t) => {
         const b = document.querySelector(`.bs-menu [data-tab="${t}"]`);
-        if (!b) return false;
+        if (!b) {
+          return false;
+        }
         b.click();
         return true;
       }, tab);
-      if (!opened) continue;
+      if (!opened) {
+        continue;
+      }
       // A tab swap REBUILDS the row list, and only the visible tab is in the
       // DOM — so the gate is that tab reporting itself selected.
       await page.waitForFunction(
-        (t) => document.querySelector(`.bs-menu [data-tab="${t}"]`)
-          ?.getAttribute('aria-selected') === 'true',
-        { timeout: 15000 }, tab);
+        (t) =>
+          document.querySelector(`.bs-menu [data-tab="${t}"]`)?.getAttribute("aria-selected") ===
+          "true",
+        { timeout: 15000 },
+        tab,
+      );
       tooSmall = tooSmall.concat(await page.evaluate(SWEEP, MIN_PX));
     }
     // AND THE ABOUT STEP, which is the densest block of type in the game and so
@@ -258,13 +299,15 @@ for (const [name, viewport, query] of [
       await page.waitForSelector('.bs-menu [data-act="about"]', { timeout: 15000 });
       const opened = await page.evaluate(() => {
         const b = document.querySelector('.bs-menu [data-act="about"]');
-        if (!b) return false;
+        if (!b) {
+          return false;
+        }
         b.click();
         return true;
       });
       if (opened) {
-        await page.waitForSelector('.bs-menu .about', { timeout: 15000 });
-        staged = 'settings+about';
+        await page.waitForSelector(".bs-menu .about", { timeout: 15000 });
+        staged = "settings+about";
         tooSmall = tooSmall.concat(await page.evaluate(SWEEP, MIN_PX));
       }
     }
@@ -294,7 +337,9 @@ const result = {
 console.log(JSON.stringify(result, null, 2));
 
 if (!result.pass) {
-  console.error(`\nFAIL: ${staticTooSmall.length} declaration(s) under ${MIN_PX}px`
-    + `${liveFailures.length ? `, rendered text under the floor at ${liveFailures.join(', ')}` : ''}`);
+  console.error(
+    `\nFAIL: ${staticTooSmall.length} declaration(s) under ${MIN_PX}px` +
+      `${liveFailures.length ? `, rendered text under the floor at ${liveFailures.join(", ")}` : ""}`,
+  );
   process.exit(1);
 }

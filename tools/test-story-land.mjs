@@ -44,25 +44,29 @@
 //      by the turn-in and the counter stops at the one the quest asked for.
 //
 // Exits non-zero on failure.
-import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 // `menu=0` because everything below measures the world, and the title screen
 // gates the frame loop. No `fps=` cap: nothing here is a frame-edge assertion.
 const URL = `${HOST}/?menu=0&vol=0`;
 
-const QUEST = 'quest:land/first-light';
-const QUEST2 = 'quest:land/the-first-bond';
+const QUEST = "quest:land/first-light";
+const QUEST2 = "quest:land/the-first-bond";
 /** What the quest's own asset says, so the probe is not a second copy of it. */
 const PRACTICE_THROWS = 3;
 
 const browser = await launchBrowser();
 const results = {};
 const fails = [];
-const check = (ok, msg) => { if (!ok) fails.push(msg); };
+const check = (ok, msg) => {
+  if (!ok) {
+    fails.push(msg);
+  }
+};
 
 const page = await newPage(browser, { width: 1280, height: 800 });
-await page.goto(URL, { waitUntil: 'domcontentloaded' });
+await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForFunction(
   () => window.__dbgBoot && window.__dbgBoot().playing && window.__dbgJournal,
   { timeout: 60000 },
@@ -71,28 +75,30 @@ await wait(200);
 
 const dbg = (fn, ...args) => page.evaluate(fn, ...args);
 /** The content facts, which is what every claim below is really about. */
-const state = () => dbg(async () => {
-  const { content } = await import('/src/content/index.ts');
-  const id = 'quest:land/first-light';
-  const id2 = 'quest:land/the-first-bond';
-  return {
-    status: content.state.questStatus(id),
-    talk: content.state.progress(id, 'talk-to-gain'),
-    practice: content.state.progress(id, 'bond-practice'),
-    status2: content.state.questStatus(id2),
-    tamed: content.state.progress(id2, 'tame-wild'),
-    flags: content.state.flags.slice(),
-    discovered: content.state.discovered('town:encampment'),
-  };
-});
+const state = () =>
+  dbg(async () => {
+    const { content } = await import("/src/content/index.ts");
+    const id = "quest:land/first-light";
+    const id2 = "quest:land/the-first-bond";
+    return {
+      status: content.state.questStatus(id),
+      talk: content.state.progress(id, "talk-to-gain"),
+      practice: content.state.progress(id, "bond-practice"),
+      status2: content.state.questStatus(id2),
+      tamed: content.state.progress(id2, "tame-wild"),
+      flags: content.state.flags.slice(),
+      discovered: content.state.discovered("town:encampment"),
+    };
+  });
 /** Which shelf the journal puts a quest on right now, or null for hidden. */
 const tabOf = async (id) => (await journal()).find((e) => e.id === id)?.tab ?? null;
 const journal = () => dbg(() => window.__dbgJournal().model);
 const purse = () => dbg(() => window.__dbgZone().shards);
-const orbs = () => dbg(() => {
-  const row = window.__dbgZone().bag.find((b) => b.id === 'orb-tame');
-  return row ? row.count : 0;
-});
+const orbs = () =>
+  dbg(() => {
+    const row = window.__dbgZone().bag.find((b) => b.id === "orb-tame");
+    return row ? row.count : 0;
+  });
 
 /**
  * Talk to a named NPC the way a player does: stand beside him and press E.
@@ -104,21 +110,25 @@ const orbs = () => dbg(() => {
  */
 async function talkTo(id) {
   const who = (await dbg(() => window.__dbgNpcs())).all.find((n) => n.id === id);
-  if (!who) return null;
+  if (!who) {
+    return null;
+  }
   await dbg((n) => window.__dbgTp(n.x + 2, n.z), who);
   await wait(300);
   for (let i = 0; i < 20; i++) {
-    await page.keyboard.press('KeyE');
+    await page.keyboard.press("KeyE");
     await wait(200);
     const talking = (await dbg(() => window.__dbgNpcs())).talking;
-    if (talking?.id === id) return talking.line;
+    if (talking?.id === id) {
+      return talking.line;
+    }
   }
   return null;
 }
 
 /** Dismiss the one-line dialogue panel so the next press opens a new one. */
 async function endTalk() {
-  await page.keyboard.press('Escape');
+  await page.keyboard.press("Escape");
   await wait(250);
 }
 
@@ -140,7 +150,11 @@ async function goToWild(species) {
     const e = (await dbg(() => window.__dbgBodies())).enemies.find((x) => x.species === species);
     if (!e) {
       const a = tries * 1.31;
-      await dbg((x, z) => window.__dbgTp(x, z), home.x + Math.cos(a) * 130, home.z + Math.sin(a) * 130);
+      await dbg(
+        (x, z) => window.__dbgTp(x, z),
+        home.x + Math.cos(a) * 130,
+        home.z + Math.sin(a) * 130,
+      );
       await adv(3);
       continue;
     }
@@ -148,8 +162,12 @@ async function goToWild(species) {
     // throw cannot clip the ground on the way.
     await dbg((x, z) => window.__dbgTp(x, z), e.x + 3, e.z + 3);
     await adv(0.3);
-    const after = (await dbg(() => window.__dbgBodies())).enemies.find((x) => x.species === species);
-    if (after) return after;
+    const after = (await dbg(() => window.__dbgBodies())).enemies.find(
+      (x) => x.species === species,
+    );
+    if (after) {
+      return after;
+    }
   }
   return null;
 }
@@ -157,33 +175,42 @@ async function goToWild(species) {
 // ---------- 1. the campaign has exactly one entry point ---------------------
 {
   const model = await journal();
-  const main = model.filter((e) => e.category === 'main');
-  const offered = main.filter((e) => e.tab === 'available').map((e) => e.id);
+  const main = model.filter((e) => e.category === "main");
+  const offered = main.filter((e) => e.tab === "available").map((e) => e.id);
   results.entryPoint = {
     mainQuests: main.map((e) => ({ id: e.id, tab: e.tab })),
     offered,
     state: await state(),
   };
-  check(offered.includes(QUEST), `${QUEST} is not offered on a fresh character: ${JSON.stringify(offered)}`);
-  check(offered.length === 1,
-    `${offered.length} main quests are offered at boot, not 1: ${JSON.stringify(offered)}`);
-  check(results.entryPoint.state.status === 'unknown',
-    `the opening quest starts at "${results.entryPoint.state.status}", not untouched`);
+  check(
+    offered.includes(QUEST),
+    `${QUEST} is not offered on a fresh character: ${JSON.stringify(offered)}`,
+  );
+  check(
+    offered.length === 1,
+    `${offered.length} main quests are offered at boot, not 1: ${JSON.stringify(offered)}`,
+  );
+  check(
+    results.entryPoint.state.status === "unknown",
+    `the opening quest starts at "${results.entryPoint.state.status}", not untouched`,
+  );
 }
 
 // ---------- 2. talking to Gain starts it ------------------------------------
 {
-  const line = await talkTo('gain');
+  const line = await talkTo("gain");
   await endTalk();
   const s = await state();
   results.offer = { line, ...s, orbs: await orbs() };
-  check(line !== null, 'could not get a word out of Gain');
-  check(s.status === 'active', `the quest is "${s.status}" after talking to its giver`);
+  check(line !== null, "could not get a word out of Gain");
+  check(s.status === "active", `the quest is "${s.status}" after talking to its giver`);
   check(s.talk === 1, `talk-to-gain is ${s.talk} after one conversation, not 1`);
   // `onStart` hands over the practice orbs, which is the lifecycle runner doing
   // its job: nothing but a status change happened, and an action list ran.
-  check(results.offer.orbs >= PRACTICE_THROWS,
-    `only ${results.offer.orbs} taming orbs after the quest started — onStart did not pay out`);
+  check(
+    results.offer.orbs >= PRACTICE_THROWS,
+    `only ${results.offer.orbs} taming orbs after the quest started — onStart did not pay out`,
+  );
 }
 
 // ---------- 3. there is something to practise on ----------------------------
@@ -191,12 +218,14 @@ async function goToWild(species) {
   let target = null;
   for (let i = 0; i < 40 && !target; i++) {
     await wait(250);
-    target = (await dbg(() => window.__dbgTaming('wild-sproutle'))).target;
+    target = (await dbg(() => window.__dbgTaming("wild-sproutle"))).target;
   }
   results.practiceBeast = target;
-  check(target !== null,
-    'no wild Sproutle was staged for the practice — a throw at nothing is refused '
-    + 'before the orb leaves the hand, so the objective could never tick');
+  check(
+    target !== null,
+    "no wild Sproutle was staged for the practice — a throw at nothing is refused " +
+      "before the orb leaves the hand, so the objective could never tick",
+  );
 }
 
 // ---------- 4. three throws, and a fourth that changes nothing --------------
@@ -206,21 +235,27 @@ async function goToWild(species) {
     // A settling orb refuses the next throw (`busy`), so wait out the ceremony
     // rather than guessing at its length.
     for (let w = 0; w < 40; w++) {
-      if (!(await dbg(() => window.__dbgTaming())).bonding) break;
+      if (!(await dbg(() => window.__dbgTaming())).bonding) {
+        break;
+      }
       await wait(250);
     }
     // `false` BREAKS the orb on purpose. The objective counts the throw and not
     // the catch, and a rolled outcome would make this a test that fails one run
     // in however-many.
-    throws.push(await dbg(() => window.__dbgThrowOrb('wild-sproutle', false)));
+    throws.push(await dbg(() => window.__dbgThrowOrb("wild-sproutle", false)));
     await wait(400);
   }
   const s = await state();
   results.practice = { throws: throws.map((t) => t.outcome), progress: s.practice };
-  check(throws.slice(0, PRACTICE_THROWS).every((t) => t.outcome === 'thrown'),
-    `a practice throw was refused: ${JSON.stringify(results.practice.throws)}`);
-  check(s.practice === PRACTICE_THROWS,
-    `bond-practice is ${s.practice} after ${PRACTICE_THROWS + 1} throws, not capped at ${PRACTICE_THROWS}`);
+  check(
+    throws.slice(0, PRACTICE_THROWS).every((t) => t.outcome === "thrown"),
+    `a practice throw was refused: ${JSON.stringify(results.practice.throws)}`,
+  );
+  check(
+    s.practice === PRACTICE_THROWS,
+    `bond-practice is ${s.practice} after ${PRACTICE_THROWS + 1} throws, not capped at ${PRACTICE_THROWS}`,
+  );
 }
 
 // ---------- 5. quest 2 is locked until quest 1 is done ----------------------
@@ -237,28 +272,36 @@ async function goToWild(species) {
 // ---------- 6. the turn-in pays and sets ------------------------------------
 {
   const before = await purse();
-  const line = await talkTo('gain');
+  const line = await talkTo("gain");
   await endTalk();
   const s = await state();
   const after = await purse();
   results.turnIn = {
-    line, status: s.status, flags: s.flags, discovered: s.discovered,
-    shardsBefore: before, shardsAfter: after,
+    line,
+    status: s.status,
+    flags: s.flags,
+    discovered: s.discovered,
+    shardsBefore: before,
+    shardsAfter: after,
   };
-  check(s.status === 'completed', `the quest is "${s.status}" after the turn-in`);
-  check(s.flags.includes('taming-learned'), 'taming-learned was not set');
-  check(s.flags.includes('met-gain'), 'met-gain was not set');
-  check(s.discovered === true, 'town:encampment was not discovered');
-  check(after - before === 10,
-    `the reward paid ${after - before} Cubloons, not the 10 the quest promises`);
+  check(s.status === "completed", `the quest is "${s.status}" after the turn-in`);
+  check(s.flags.includes("taming-learned"), "taming-learned was not set");
+  check(s.flags.includes("met-gain"), "met-gain was not set");
+  check(s.discovered === true, "town:encampment was not discovered");
+  check(
+    after - before === 10,
+    `the reward paid ${after - before} Cubloons, not the 10 the quest promises`,
+  );
 }
 
 // ---------- 7. quest 2 is offered the moment quest 1 completes --------------
 {
   const tab = await tabOf(QUEST2);
   results.gateAfter = { tab };
-  check(tab === 'available',
-    `${QUEST2} is on the "${tab}" shelf after its prerequisite completed, not "available"`);
+  check(
+    tab === "available",
+    `${QUEST2} is on the "${tab}" shelf after its prerequisite completed, not "available"`,
+  );
 }
 
 // ---------- 8. the wild bond ------------------------------------------------
@@ -267,19 +310,19 @@ async function goToWild(species) {
 // and force the catch, because the ODDS are `test-taming`'s business and a
 // rolled outcome here would be a probe that fails one run in eight.
 {
-  const line = await talkTo('gain');
+  const line = await talkTo("gain");
   await endTalk();
   let started = await state();
   results.bondQuest = { offerLine: line, statusAfterOffer: started.status2 };
-  check(started.status2 === 'active', `${QUEST2} is "${started.status2}" after being offered`);
+  check(started.status2 === "active", `${QUEST2} is "${started.status2}" after being offered`);
 
   // A SPROUTLE SPECIFICALLY, because it is the only bondable species a starting
   // orb can hold: `orb-tame` is tier 1 and both other wild beasts ask for tier
   // 2 (`capture.minTier` in core.json). Which is also the quest's own answer to
   // "any ground species" at this point in the game.
-  const found = await goToWild('wild-sproutle');
-  const hurt = await dbg(() => window.__dbgWeaken('wild-sproutle', 0.1));
-  const thrown = await dbg(() => window.__dbgThrowOrb('wild-sproutle', true));
+  const found = await goToWild("wild-sproutle");
+  const hurt = await dbg(() => window.__dbgWeaken("wild-sproutle", 0.1));
+  const thrown = await dbg(() => window.__dbgThrowOrb("wild-sproutle", true));
   // THE ORB HAS TO ARRIVE. "Not bonding" is true the instant after a throw, so
   // the ceremony is waited FOR and then waited OUT — the two halves of "it
   // landed", the same pair tools/test-taming.mjs makes.
@@ -288,22 +331,28 @@ async function goToWild(species) {
     await adv(0.1);
     landed = (await dbg(() => window.__dbgTaming())).bonding;
   }
-  for (let i = 0; i < 60 && (await dbg(() => window.__dbgTaming())).bonding; i++) await adv(0.1);
+  for (let i = 0; i < 60 && (await dbg(() => window.__dbgTaming())).bonding; i++) {
+    await adv(0.1);
+  }
   await adv(0.3);
   const s = await state();
   results.bondQuest.bond = { found, hurt, throw: thrown, landed, progress: s.tamed };
-  check(found !== null, 'no wild Sproutle ever turned up outside the camp to bond');
-  check(thrown?.outcome === 'thrown', `the orb was refused: ${JSON.stringify(thrown)}`);
+  check(found !== null, "no wild Sproutle ever turned up outside the camp to bond");
+  check(thrown?.outcome === "thrown", `the orb was refused: ${JSON.stringify(thrown)}`);
   check(landed, `no orb reached a Sproutle (last ${thrown?.dist} units away)`);
   check(s.tamed === 1, `tame-wild is ${s.tamed} after a wild bond, not 1`);
 
   // The turn-in, and the flag it sets EXACTLY ONCE however many beasts follow.
-  const line2 = await talkTo('gain');
+  const line2 = await talkTo("gain");
   await endTalk();
   const done = await state();
-  results.bondQuest.turnIn = { line: line2, status: done.status2, flag: done.flags.includes('first-bond') };
-  check(done.status2 === 'completed', `${QUEST2} is "${done.status2}" after the turn-in`);
-  check(done.flags.includes('first-bond'), 'first-bond was not set');
+  results.bondQuest.turnIn = {
+    line: line2,
+    status: done.status2,
+    flag: done.flags.includes("first-bond"),
+  };
+  check(done.status2 === "completed", `${QUEST2} is "${done.status2}" after the turn-in`);
+  check(done.flags.includes("first-bond"), "first-bond was not set");
   // The counter did not run past what the objective asked for, which is the
   // other half of "however many beasts you bond, this happens once".
   check(done.tamed === 1, `tame-wild ended at ${done.tamed}, not the 1 the quest asks for`);
@@ -312,7 +361,9 @@ async function goToWild(species) {
 console.log(JSON.stringify(results, null, 2));
 if (fails.length) {
   console.error(`\n${fails.length} failure(s):`);
-  for (const f of fails) console.error(`  ${f}`);
+  for (const f of fails) {
+    console.error(`  ${f}`);
+  }
 }
 await browser.close();
 process.exit(fails.length ? 1 : 0);

@@ -3,8 +3,8 @@
 // A deliberate replacement is `override()`, never a flag on `add`.
 // `all(type)` is a frame path: cached frozen arrays, invalidated per load.
 
-import { parseId } from './ids';
-import { ContentGraph } from './graph';
+import { parseId } from "./ids";
+import { ContentGraph } from "./graph";
 import type {
   ContentAsset,
   ContentId,
@@ -12,7 +12,7 @@ import type {
   ContentTypeName,
   Diagnostic,
   PackageId,
-} from './types';
+} from "./types";
 
 const NO_ASSETS: readonly ContentAsset[] = Object.freeze([]);
 const NO_PACKAGES: readonly PackageId[] = Object.freeze([]);
@@ -45,9 +45,13 @@ export class ContentRegistry implements ContentLookup {
 
   all<T = unknown>(type: ContentTypeName): readonly ContentAsset<T>[] {
     const cached = this.typeViews.get(type);
-    if (cached) return cached as readonly ContentAsset<T>[];
+    if (cached) {
+      return cached as readonly ContentAsset<T>[];
+    }
     const list = this.listsByType.get(type);
-    if (!list || list.length === 0) return NO_ASSETS as readonly ContentAsset<T>[];
+    if (!list || list.length === 0) {
+      return NO_ASSETS as readonly ContentAsset<T>[];
+    }
     const view = Object.freeze(list.slice());
     this.typeViews.set(type, view);
     return view as readonly ContentAsset<T>[];
@@ -55,14 +59,18 @@ export class ContentRegistry implements ContentLookup {
 
   /** Load order, cached and frozen; the query layer scans it. */
   assets(): readonly ContentAsset[] {
-    if (this.allView) return this.allView;
+    if (this.allView) {
+      return this.allView;
+    }
     const view = Object.freeze([...this.assetsById.values()]);
     this.allView = view;
     return view;
   }
 
   types(): readonly ContentTypeName[] {
-    if (this.typeNamesView) return this.typeNamesView;
+    if (this.typeNamesView) {
+      return this.typeNamesView;
+    }
     const view = Object.freeze([...this.listsByType.keys()].sort());
     this.typeNamesView = view;
     return view;
@@ -80,13 +88,15 @@ export class ContentRegistry implements ContentLookup {
   /** Null on success, else the refusal — the rest of the package still loads. */
   add(asset: ContentAsset): Diagnostic | null {
     const bad = this.checkIdentity(asset);
-    if (bad) return bad;
+    if (bad) {
+      return bad;
+    }
 
     const existing = this.assetsById.get(asset.id);
     if (existing) {
       return {
-        severity: 'error',
-        code: 'duplicate-id',
+        severity: "error",
+        code: "duplicate-id",
         message:
           `duplicate content id "${asset.id}": already defined by package ` +
           `"${existing.pkg}" (${existing.source}); the copy from "${asset.pkg}" was ignored`,
@@ -95,8 +105,8 @@ export class ContentRegistry implements ContentLookup {
         pkg: asset.pkg,
         source: asset.source,
         fix:
-          'Rename one of the two, or — if the second is meant to replace the ' +
-          'first — deliver it as a provider override rather than as a definition.',
+          "Rename one of the two, or — if the second is meant to replace the " +
+          "first — deliver it as a provider override rather than as a definition.",
       };
     }
 
@@ -108,22 +118,24 @@ export class ContentRegistry implements ContentLookup {
   // silently reorder the world. Overriding nothing installs anyway, plus a warning.
   override(asset: ContentAsset): Diagnostic | null {
     const bad = this.checkIdentity(asset);
-    if (bad) return bad;
+    if (bad) {
+      return bad;
+    }
 
     const existing = this.assetsById.get(asset.id);
     if (!existing) {
       this.install(asset);
       return {
-        severity: 'warn',
-        code: 'override-missing',
+        severity: "warn",
+        code: "override-missing",
         message:
           `override of "${asset.id}" from package "${asset.pkg}" found nothing ` +
-          'to replace; it was installed as a new definition',
+          "to replace; it was installed as a new definition",
         assetId: asset.id,
         assetType: asset.type,
         pkg: asset.pkg,
         source: asset.source,
-        fix: 'Check the id against the asset you meant to replace.',
+        fix: "Check the id against the asset you meant to replace.",
       };
     }
 
@@ -138,28 +150,37 @@ export class ContentRegistry implements ContentLookup {
     const list = this.listsByType.get(existing.type);
     if (list) {
       const at = list.indexOf(existing);
-      if (at >= 0) list[at] = asset;
-      else list.push(asset);
+      if (at >= 0) {
+        list[at] = asset;
+      } else {
+        list.push(asset);
+      }
     } else {
       this.listsByType.set(asset.type, [asset]);
       this.typeNamesView = null;
     }
     this.graph.link(asset.id, asset.refs);
     this.invalidate(existing.type);
-    if (asset.type !== existing.type) this.invalidate(asset.type);
+    if (asset.type !== existing.type) {
+      this.invalidate(asset.type);
+    }
     return null;
   }
 
   remove(id: ContentId): boolean {
     const existing = this.assetsById.get(id);
-    if (!existing) return false;
+    if (!existing) {
+      return false;
+    }
 
     this.assetsById.delete(id);
     this.shadows.delete(id);
     const list = this.listsByType.get(existing.type);
     if (list) {
       const at = list.indexOf(existing);
-      if (at >= 0) list.splice(at, 1);
+      if (at >= 0) {
+        list.splice(at, 1);
+      }
       if (list.length === 0) {
         // Drop the empty bucket, or `types()` keeps naming an unloaded type.
         this.listsByType.delete(existing.type);
@@ -175,7 +196,9 @@ export class ContentRegistry implements ContentLookup {
   /** Returns how many were present. */
   removeMany(ids: Iterable<ContentId>): number {
     let n = 0;
-    for (const id of ids) if (this.remove(id)) n++;
+    for (const id of ids) {
+      if (this.remove(id)) n++;
+    }
     return n;
   }
 
@@ -195,8 +218,8 @@ export class ContentRegistry implements ContentLookup {
     const parsed = parseId(asset.id);
     if (!parsed) {
       return {
-        severity: 'error',
-        code: 'malformed-id',
+        severity: "error",
+        code: "malformed-id",
         message: `malformed content id ${JSON.stringify(asset.id)}`,
         assetId: asset.id,
         pkg: asset.pkg,
@@ -206,8 +229,8 @@ export class ContentRegistry implements ContentLookup {
     }
     if (parsed.type !== asset.type) {
       return {
-        severity: 'error',
-        code: 'id-type-mismatch',
+        severity: "error",
+        code: "id-type-mismatch",
         message:
           `asset "${asset.id}" declares type "${asset.type}" but its id names ` +
           `"${parsed.type}"`,
@@ -215,7 +238,7 @@ export class ContentRegistry implements ContentLookup {
         assetType: asset.type,
         pkg: asset.pkg,
         source: asset.source,
-        fix: 'The type is derived from the id and is never authored twice.',
+        fix: "The type is derived from the id and is never authored twice.",
       };
     }
     return null;

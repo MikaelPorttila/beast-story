@@ -32,24 +32,28 @@
 // menu=0: this measures the world, so it needs the frame loop running.
 //
 // Exits non-zero.
-import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 900 });
-page.on('pageerror', (e) => console.error('[page]', e.message));
-await page.goto(`${HOST}/?menu=0&vol=0&fs=0`, { waitUntil: 'load' });
-await page.waitForFunction(() => typeof window.__dbgSpawn === 'function', { timeout: 60000 });
+page.on("pageerror", (e) => console.error("[page]", e.message));
+await page.goto(`${HOST}/?menu=0&vol=0&fs=0`, { waitUntil: "load" });
+await page.waitForFunction(() => typeof window.__dbgSpawn === "function", { timeout: 60000 });
 await page.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 60000 });
 
 const results = {};
 const fails = [];
-const check = (ok, msg) => { if (!ok) fails.push(msg); };
+const check = (ok, msg) => {
+  if (!ok) {
+    fails.push(msg);
+  }
+};
 
 const read = () => page.evaluate(() => window.__dbgSpawn());
 const doSpawn = (b, r) => page.evaluate(([x, y]) => window.__dbgSpawn(x, y), [b, r]);
-const bagCount = (id) => page.evaluate(
-  (i) => (window.__dbgInventory().bag.find((e) => e.id === i)?.count ?? 0), id);
+const bagCount = (id) =>
+  page.evaluate((i) => window.__dbgInventory().bag.find((e) => e.id === i)?.count ?? 0, id);
 /**
  * Colliders within 20 m of the hero. A spawn lands under the crosshair, which
  * from the default framing is fifteen-odd metres out (see `spawnSpot` in
@@ -58,10 +62,11 @@ const bagCount = (id) => page.evaluate(
  * The camp's own boxes are inside this radius too, which is exactly why every
  * assertion using it is a CHANGE and never an absolute count.
  */
-const boxesNear = () => page.evaluate(() => {
-  const p = window.__dbgPlayerPos();
-  return window.__dbgStructures(p.x, p.z, 20).length;
-});
+const boxesNear = () =>
+  page.evaluate(() => {
+    const p = window.__dbgPlayerPos();
+    return window.__dbgStructures(p.x, p.z, 20).length;
+  });
 /**
  * Click something in the panel, having first scrolled it into the body's view.
  *
@@ -72,26 +77,35 @@ const boxesNear = () => page.evaluate(() => {
  * first is what a person does too.
  */
 const clickEl = async (sel) => {
-  await page.$eval(sel, (e) => e.scrollIntoView({ block: 'center' }));
+  await page.$eval(sel, (e) => e.scrollIntoView({ block: "center" }));
   try {
     await page.click(sel);
   } catch (err) {
-    const box = await page.$eval(sel, (e) => {
-      const r = e.getBoundingClientRect();
-      return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
-    }).catch(() => null);
-    throw new Error(`click ${sel} failed (box ${JSON.stringify(box)}): ${err.message}`);
+    const box = await page
+      .$eval(sel, (e) => {
+        const r = e.getBoundingClientRect();
+        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+      })
+      .catch(() => null);
+    throw new Error(`click ${sel} failed (box ${JSON.stringify(box)}): ${err.message}`, {
+      cause: err,
+    });
   }
 };
 /** The row ids the panel is actually offering under one branch. */
-const rowIds = (branch) => page.$$eval(`.bs-spawn-row[data-branch="${branch}"]`,
-  (n) => n.map((e) => e.dataset.row));
+const rowIds = (branch) =>
+  page.$$eval(`.bs-spawn-row[data-branch="${branch}"]`, (n) => n.map((e) => e.dataset.row));
 const setSearch = async (text) => {
-  await clickEl('.bs-spawn-search');
-  await page.evaluate(() => { document.querySelector('.bs-spawn-search').value = ''; });
-  if (text) await page.keyboard.type(text);
-  await page.evaluate(() => document.querySelector('.bs-spawn-search')
-    .dispatchEvent(new Event('input', { bubbles: true })));
+  await clickEl(".bs-spawn-search");
+  await page.evaluate(() => {
+    document.querySelector(".bs-spawn-search").value = "";
+  });
+  if (text) {
+    await page.keyboard.type(text);
+  }
+  await page.evaluate(() =>
+    document.querySelector(".bs-spawn-search").dispatchEvent(new Event("input", { bubbles: true })),
+  );
   await wait(60);
 };
 
@@ -100,20 +114,22 @@ const setSearch = async (text) => {
 // English table and forgotten in the panel that reads it, so it is asserted on
 // the rendered title rather than on the key.
 {
-  await page.keyboard.press('F3');
-  await page.waitForSelector('.bs-perf', { visible: true, timeout: 5000 });
-  const title = await page.$eval('.bs-perf-title', (e) => e.textContent.trim());
+  await page.keyboard.press("F3");
+  await page.waitForSelector(".bs-perf", { visible: true, timeout: 5000 });
+  const title = await page.$eval(".bs-perf-title", (e) => e.textContent.trim());
   results.title = title;
-  check(title === 'Debug', `the panel title is "${title}", expected "Debug"`);
-  const hasSearch = await page.$('.bs-spawn-search') !== null;
-  const branches = await page.$$eval('.bs-spawn-branch', (n) => n.map((e) => e.dataset.branch));
+  check(title === "Debug", `the panel title is "${title}", expected "Debug"`);
+  const hasSearch = (await page.$(".bs-spawn-search")) !== null;
+  const branches = await page.$$eval(".bs-spawn-branch", (n) => n.map((e) => e.dataset.branch));
   results.branches = branches;
-  check(hasSearch, 'no search box in the panel');
-  check(['items', 'beasts', 'enemies', 'structures'].every((b) => branches.includes(b)),
-    `the tree is missing a branch: ${JSON.stringify(branches)}`);
+  check(hasSearch, "no search box in the panel");
+  check(
+    ["items", "beasts", "enemies", "structures"].every((b) => branches.includes(b)),
+    `the tree is missing a branch: ${JSON.stringify(branches)}`,
+  );
   // Collapsed by default: with ninety rows open the renderer switches above
   // would be off the top of the panel the moment it opened.
-  const leaves = await page.$$eval('.bs-spawn-row', (n) => n.length);
+  const leaves = await page.$$eval(".bs-spawn-row", (n) => n.length);
   results.leavesCollapsed = leaves;
   check(leaves === 0, `${leaves} rows are showing with every branch collapsed`);
 }
@@ -121,15 +137,19 @@ const setSearch = async (text) => {
 // ---------- 2. a branch expands, and the search narrows it -------------------
 {
   await clickEl('.bs-spawn-branch[data-branch="items"]');
-  const all = (await rowIds('items')).length;
-  await setSearch('potion');
-  const rows = await rowIds('items');
+  const all = (await rowIds("items")).length;
+  await setSearch("potion");
+  const rows = await rowIds("items");
   results.search = { allItems: all, matched: rows };
   check(all > 10, `only ${all} item rows expanded — the catalogue should be far larger`);
-  check(rows.length > 0 && rows.length < all,
-    `"potion" matched ${rows.length} of ${all} rows — it should narrow, not clear or keep everything`);
-  check(rows.every((id) => id.includes('potion')),
-    `"potion" matched something that is not one: ${JSON.stringify(rows)}`);
+  check(
+    rows.length > 0 && rows.length < all,
+    `"potion" matched ${rows.length} of ${all} rows — it should narrow, not clear or keep everything`,
+  );
+  check(
+    rows.every((id) => id.includes("potion")),
+    `"potion" matched something that is not one: ${JSON.stringify(rows)}`,
+  );
 }
 
 // ---------- 3. ...and the hero did not walk while it was typed ---------------
@@ -143,58 +163,74 @@ const setSearch = async (text) => {
   // HELD, not typed: a keystroke that is swallowed leaves nothing down, and a
   // tap of W would move him a few centimetres even in a correct build. The keys
   // go down, a second and a half of simulated time passes, and they come up.
-  for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) await page.keyboard.down(k);
+  for (const k of ["KeyW", "KeyA", "KeyS", "KeyD"]) {
+    await page.keyboard.down(k);
+  }
   await page.evaluate(() => window.__dbgAdvance(1.5));
-  for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) await page.keyboard.up(k);
+  for (const k of ["KeyW", "KeyA", "KeyS", "KeyD"]) {
+    await page.keyboard.up(k);
+  }
   const held = await page.evaluate(() => window.__dbgPlayerPos());
   const typedMove = Math.hypot(held.x - before.x, held.z - before.z);
 
   // Escape leaves the field. Then hold W for the same simulated span with
   // nothing focused: the control, without which this section proves nothing.
-  await page.keyboard.press('Escape');
+  await page.keyboard.press("Escape");
   await wait(60);
-  await page.keyboard.down('KeyW');
+  await page.keyboard.down("KeyW");
   await page.evaluate(() => window.__dbgAdvance(1.5));
-  await page.keyboard.up('KeyW');
+  await page.keyboard.up("KeyW");
   const after = await page.evaluate(() => window.__dbgPlayerPos());
   const freeMove = Math.hypot(after.x - held.x, after.z - held.z);
 
   results.typing = {
-    typed: +typedMove.toFixed(3), free: +freeMove.toFixed(3), typingFlag,
+    typed: +typedMove.toFixed(3),
+    free: +freeMove.toFixed(3),
+    typingFlag,
     blurred: (await read()).typing,
   };
-  check(typingFlag === true, 'the panel did not report itself as typing with the field focused');
-  check(results.typing.blurred === false, 'Escape did not leave the search field');
-  check(typedMove < 0.5, `the hero moved ${typedMove.toFixed(2)} m while WASD was typed into the search box`);
-  check(freeMove > 2, `the control hold moved him only ${freeMove.toFixed(2)} m — this section proves nothing`);
+  check(typingFlag === true, "the panel did not report itself as typing with the field focused");
+  check(results.typing.blurred === false, "Escape did not leave the search field");
+  check(
+    typedMove < 0.5,
+    `the hero moved ${typedMove.toFixed(2)} m while WASD was typed into the search box`,
+  );
+  check(
+    freeMove > 2,
+    `the control hold moved him only ${freeMove.toFixed(2)} m — this section proves nothing`,
+  );
 }
 
 // ---------- 4. items land in the bag -----------------------------------------
 {
-  await setSearch('');
-  const before = await bagCount('potion-mend');
-  const said = await doSpawn('items', 'potion-mend');
-  const after = await bagCount('potion-mend');
+  await setSearch("");
+  const before = await bagCount("potion-mend");
+  const said = await doSpawn("items", "potion-mend");
+  const after = await bagCount("potion-mend");
   results.items = { said, before, after };
   check(after === before + 1, `the bag went ${before} -> ${after} for one spawned potion`);
-  const bad = await doSpawn('items', 'no-such-item');
+  const bad = await doSpawn("items", "no-such-item");
   check(/no such item/.test(bad), `an unknown id answered "${bad}"`);
 }
 
 // ---------- 5. beasts bond ---------------------------------------------------
 {
   const before = await page.evaluate(() => window.__dbgTaming().owned.length);
-  await doSpawn('beasts', 'emberfox');
+  await doSpawn("beasts", "emberfox");
   const owned = await page.evaluate(() => window.__dbgTaming().owned);
   results.beasts = { before, owned };
-  check(owned.includes('emberfox'), `emberfox is not bonded after a spawn: ${JSON.stringify(owned)}`);
+  check(
+    owned.includes("emberfox"),
+    `emberfox is not bonded after a spawn: ${JSON.stringify(owned)}`,
+  );
   // The row is marked, which is what the greyed style is drawn from — and the
   // marking is re-derived per draw, so this also says the tree is not cached.
   await clickEl('.bs-spawn-branch[data-branch="beasts"]');
-  const had = await page.$$eval('.bs-spawn-row[data-branch="beasts"]',
-    (n) => n.filter((e) => e.classList.contains('had')).map((e) => e.dataset.row));
+  const had = await page.$$eval('.bs-spawn-row[data-branch="beasts"]', (n) =>
+    n.filter((e) => e.classList.contains("had")).map((e) => e.dataset.row),
+  );
   results.beastsHad = had;
-  check(had.includes('emberfox'), 'the bonded beast\'s row is not marked as already had');
+  check(had.includes("emberfox"), "the bonded beast's row is not marked as already had");
   await clickEl('.bs-spawn-branch[data-branch="beasts"]');
 }
 
@@ -204,13 +240,16 @@ const setSearch = async (text) => {
 // way a name-keyed catalogue goes wrong.
 {
   await clickEl('.bs-spawn-branch[data-branch="enemies"]');
-  const ids = await rowIds('enemies');
+  const ids = await rowIds("enemies");
   const before = (await read()).enemies;
-  const said = await doSpawn('enemies', ids[0]);
+  const said = await doSpawn("enemies", ids[0]);
   const after = (await read()).enemies;
   results.enemies = { offered: ids, spawned: ids[0], said, before, after };
-  check(ids.length > 0, 'the enemy branch offers nothing');
-  check(after === before + 1, `the wild population went ${before} -> ${after} for one spawned enemy`);
+  check(ids.length > 0, "the enemy branch offers nothing");
+  check(
+    after === before + 1,
+    `the wild population went ${before} -> ${after} for one spawned enemy`,
+  );
   await clickEl('.bs-spawn-branch[data-branch="enemies"]');
 }
 
@@ -219,20 +258,20 @@ const setSearch = async (text) => {
 // and a roof cylinder, so the two debug views are exercised at once.
 {
   const before = await boxesNear();
-  const said = await doSpawn('structures', 'hut-a');
+  const said = await doSpawn("structures", "hut-a");
   const after = await boxesNear();
   const standing = (await read()).structures;
   results.structures = { said, boxesBefore: before, boxesAfter: after, standing };
   check(standing === 1, `${standing} structures standing after one spawn`);
   check(after > before, `no collider appeared where the hut was placed (${before} -> ${after})`);
 
-  const cleared = await doSpawn('structures', '*clear');
+  const cleared = await doSpawn("structures", "*clear");
   const back = await boxesNear();
   results.cleared = { cleared, boxes: back, standing: (await read()).structures };
-  check(results.cleared.standing === 0, 'clearing left structures standing');
+  check(results.cleared.standing === 0, "clearing left structures standing");
   check(back === before, `clearing left ${back - before} collider(s) behind`);
 
-  const bad = await doSpawn('structures', 'no-such-part');
+  const bad = await doSpawn("structures", "no-such-part");
   check(/nothing named/.test(bad), `an unknown part answered "${bad}"`);
 }
 
@@ -249,30 +288,46 @@ const setSearch = async (text) => {
 {
   const marched = await page.evaluate(() => {
     const c = window.__dbgCam();
-    if (c.dir.y >= -0.02) return null;
+    if (c.dir.y >= -0.02) {
+      return null;
+    }
     for (let d = 2; d <= 60; d += 0.25) {
       const x = c.x + c.dir.x * d;
       const z = c.z + c.dir.z * d;
-      if (c.y + c.dir.y * d <= window.__dbgWorld(x, z).ground) return { x, z, d };
+      if (c.y + c.dir.y * d <= window.__dbgWorld(x, z).ground) {
+        return { x, z, d };
+      }
     }
     return null;
   });
   const s = await read();
-  const said = await doSpawn('structures', 'watchpost');
-  const boxes = await page.evaluate(([x, z]) => window.__dbgStructures(x, z, 6), [s.spot.x, s.spot.z]);
+  const said = await doSpawn("structures", "watchpost");
+  const boxes = await page.evaluate(
+    ([x, z]) => window.__dbgStructures(x, z, 6),
+    [s.spot.x, s.spot.z],
+  );
   const nearest = boxes.length
-    ? Math.min(...boxes.map((b) => Math.hypot(b.x - s.spot.x, b.z - s.spot.z))) : null;
+    ? Math.min(...boxes.map((b) => Math.hypot(b.x - s.spot.x, b.z - s.spot.z)))
+    : null;
   const rayGap = marched ? Math.hypot(marched.x - s.spot.x, marched.z - s.spot.z) : null;
   results.crosshair = {
-    said, spot: s.spot, ahead: s.ahead, marched, rayGap: rayGap === null ? null : +rayGap.toFixed(3),
+    said,
+    spot: s.spot,
+    ahead: s.ahead,
+    marched,
+    rayGap: rayGap === null ? null : +rayGap.toFixed(3),
     nearest: nearest === null ? null : +nearest.toFixed(3),
   };
-  check(marched !== null, 'the camera was not pointed at any ground — nothing below can run');
-  check(rayGap !== null && rayGap < 1,
-    `the spot is ${rayGap} m from where the crosshair ray meets the ground`);
-  check(nearest !== null && nearest < 3,
-    `nothing was built within 3 m of the point the panel named (nearest ${nearest})`);
-  await doSpawn('structures', '*clear');
+  check(marched !== null, "the camera was not pointed at any ground — nothing below can run");
+  check(
+    rayGap !== null && rayGap < 1,
+    `the spot is ${rayGap} m from where the crosshair ray meets the ground`,
+  );
+  check(
+    nearest !== null && nearest < 3,
+    `nothing was built within 3 m of the point the panel named (nearest ${nearest})`,
+  );
+  await doSpawn("structures", "*clear");
 }
 
 // ---------- 9. a wheel over the panel does not move the camera ---------------
@@ -280,12 +335,14 @@ const setSearch = async (text) => {
 // gesture over the world must move it, or a game with zoom broken outright
 // would pass the first half.
 {
-  const dist = () => page.evaluate(() => {
-    const c = window.__dbgCam(); const p = window.__dbgPlayerPos();
-    return Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z);
-  });
+  const dist = () =>
+    page.evaluate(() => {
+      const c = window.__dbgCam();
+      const p = window.__dbgPlayerPos();
+      return Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z);
+    });
   await clickEl('.bs-spawn-branch[data-branch="items"]');
-  const box = await page.$eval('.bs-spawn-tree', (e) => {
+  const box = await page.$eval(".bs-spawn-tree", (e) => {
     const r = e.getBoundingClientRect();
     return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 20) };
   });
@@ -313,7 +370,9 @@ const setSearch = async (text) => {
       const now = await dist();
       // A millimetre: far under the 0.05 the assertions below care about, and
       // far over the float noise of recomputing a hypotenuse.
-      if (Math.abs(now - last) < 0.001) return now;
+      if (Math.abs(now - last) < 0.001) {
+        return now;
+      }
       last = now;
       if (Date.now() - t0 > deadlineMs) {
         check(false, `the camera never settled — still moving after ${deadlineMs} ms`);
@@ -323,7 +382,9 @@ const setSearch = async (text) => {
   };
   const scroll = async (x, y, dy) => {
     await page.mouse.move(x, y);
-    for (let i = 0; i < 4; i++) await page.mouse.wheel({ deltaY: dy });
+    for (let i = 0; i < 4; i++) {
+      await page.mouse.wheel({ deltaY: dy });
+    }
     return settled();
   };
   // THE CONTROL RUNS FIRST, and the order is load-bearing: Chrome latches a
@@ -346,32 +407,44 @@ const setSearch = async (text) => {
   const aimMoved = Math.hypot(r1.spot.x - r0.spot.x, r1.spot.z - r0.spot.z);
   const heroMoved = Math.hypot(r1.ahead.x - r0.ahead.x, r1.ahead.z - r0.ahead.z);
   results.aimFollowsLens = {
-    spotBefore: r0.spot, spotAfter: r1.spot,
-    moved: +aimMoved.toFixed(2), heroMoved: +heroMoved.toFixed(2),
+    spotBefore: r0.spot,
+    spotAfter: r1.spot,
+    moved: +aimMoved.toFixed(2),
+    heroMoved: +heroMoved.toFixed(2),
   };
-  check(heroMoved < 0.2,
-    `the hero moved ${heroMoved.toFixed(2)} m during the zoom — the comparison is not clean`);
-  check(aimMoved > 1,
-    `the crosshair spot moved ${aimMoved.toFixed(2)} m when the lens pulled back `
-    + '— it is not following the camera');
+  check(
+    heroMoved < 0.2,
+    `the hero moved ${heroMoved.toFixed(2)} m during the zoom — the comparison is not clean`,
+  );
+  check(
+    aimMoved > 1,
+    `the crosshair spot moved ${aimMoved.toFixed(2)} m when the lens pulled back ` +
+      "— it is not following the camera",
+  );
   // ...then the panel, pulling the OTHER way. A leak would walk the camera back
   // in from wherever the control left it, so the assertion is "did not move"
   // against a gesture that would visibly move it.
   const overPanel = await scroll(box.x, box.y, -200);
 
   results.wheel = {
-    before: +before.toFixed(3), overWorld: +overWorld.toFixed(3), overPanel: +overPanel.toFixed(3),
+    before: +before.toFixed(3),
+    overWorld: +overWorld.toFixed(3),
+    overPanel: +overPanel.toFixed(3),
   };
-  check(Math.abs(overWorld - before) > 0.3,
-    `the control scroll moved the camera only ${(overWorld - before).toFixed(2)} m `
-    + '— this section proves nothing');
-  check(Math.abs(overPanel - overWorld) < 0.05,
-    `scrolling the panel moved the camera ${(overPanel - overWorld).toFixed(2)} m`);
+  check(
+    Math.abs(overWorld - before) > 0.3,
+    `the control scroll moved the camera only ${(overWorld - before).toFixed(2)} m ` +
+      "— this section proves nothing",
+  );
+  check(
+    Math.abs(overPanel - overWorld) < 0.05,
+    `scrolling the panel moved the camera ${(overPanel - overWorld).toFixed(2)} m`,
+  );
 }
 
 console.log(JSON.stringify({ ...results, failures: fails, pass: fails.length === 0 }, null, 2));
 await browser.close();
 if (fails.length) {
-  console.error(`\n${fails.length} failure(s):\n  ${fails.join('\n  ')}`);
+  console.error(`\n${fails.length} failure(s):\n  ${fails.join("\n  ")}`);
   process.exit(1);
 }

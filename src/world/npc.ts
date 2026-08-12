@@ -39,20 +39,24 @@
  * `MAX_STEP_UP` a crate does. There is no second kind of collision here, and no
  * number stating his size that is not his body.
  */
-import * as THREE from 'three';
-import { inRise, type NpcField, type NpcInfo, type NpcTalk, type TownRegistry } from '../core/types';
-import type { StringKey } from '../i18n';
-import { StructureField } from './structures';
-import type { SolidBox } from './props';
-import { type RoadClearance } from './roads';
-import { flags } from '../core/flags';
-import { GAIN_BODY } from './npc-gain';
+import * as THREE from "three";
 import {
-  SKY_GARDENER_BODY, SKY_LAMPLIGHTER_BODY, SKY_PILOT_BODY,
-} from './npc-skyfolk';
-import { content, defineFactory, NPC_BODY_KIND, type NpcData, type NpcTalkLine } from '../content';
-import type { ContentText } from '../content/types';
-import { displayKey, reportContentIssue } from '../core/content-bridge';
+  inRise,
+  type NpcField,
+  type NpcInfo,
+  type NpcTalk,
+  type TownRegistry,
+} from "../core/types";
+import type { StringKey } from "../i18n";
+import { StructureField } from "./structures";
+import type { SolidBox } from "./props";
+import { type RoadClearance } from "./roads";
+import { flags } from "../core/flags";
+import { GAIN_BODY } from "./npc-gain";
+import { SKY_GARDENER_BODY, SKY_LAMPLIGHTER_BODY, SKY_PILOT_BODY } from "./npc-skyfolk";
+import { content, defineFactory, NPC_BODY_KIND, type NpcData, type NpcTalkLine } from "../content";
+import type { ContentText } from "../content/types";
+import { displayKey, reportContentIssue } from "../core/content-bridge";
 
 // ---------------------------------------------------------------------------
 // The contract a character file implements
@@ -146,9 +150,9 @@ export const NPC_BODIES: Readonly<Record<string, NpcBody>> = {
   // The three who live on the flying island (issue #68). One builder, three
   // palettes and three idles — see world/npc-skyfolk.ts for why the variety is
   // in the skin rather than in three copies of a skeleton.
-  'sky-pilot': SKY_PILOT_BODY,
-  'sky-gardener': SKY_GARDENER_BODY,
-  'sky-lamplighter': SKY_LAMPLIGHTER_BODY,
+  "sky-pilot": SKY_PILOT_BODY,
+  "sky-gardener": SKY_GARDENER_BODY,
+  "sky-lamplighter": SKY_LAMPLIGHTER_BODY,
 };
 
 /**
@@ -217,22 +221,27 @@ interface Character {
  */
 function readCharacters(): readonly Character[] {
   const out: Character[] = [];
-  for (const asset of content.all<NpcData>('npc')) {
+  for (const asset of content.all<NpcData>("npc")) {
     const { data } = asset;
     const body = content.factory<NpcBody>(NPC_BODY_KIND, data.body);
     if (!body) {
       reportContentIssue({
-        severity: 'error',
-        code: 'unknown-factory',
+        severity: "error",
+        code: "unknown-factory",
         message: `"${asset.id}" wants body "${data.body}", which no builder implements`,
-        assetId: asset.id, assetType: asset.type, pkg: asset.pkg, source: asset.source,
-        field: 'data.body',
-        fix: `one of ${Object.keys(NPC_BODIES).join(', ')}`,
+        assetId: asset.id,
+        assetType: asset.type,
+        pkg: asset.pkg,
+        source: asset.source,
+        field: "data.body",
+        fix: `one of ${Object.keys(NPC_BODIES).join(", ")}`,
       });
       continue;
     }
     const nameKey = displayKey(asset);
-    if (nameKey === null || asset.name === undefined) continue;
+    if (nameKey === null || asset.name === undefined) {
+      continue;
+    }
     out.push({
       // The `name` half of the content id, the same split world/towns.ts makes.
       id: asset.id.slice(asset.type.length + 1),
@@ -240,7 +249,7 @@ function readCharacters(): readonly Character[] {
       name: asset.name,
       // ...and the town REFERENCE is an id, where `TownRegistry.get` keys on the
       // name half. One split, made in one direction, in both files.
-      townId: data.town.slice(data.town.indexOf(':') + 1),
+      townId: data.town.slice(data.town.indexOf(":") + 1),
       homeOffset: data.homeOffset,
       acrossFocus: data.acrossFocus,
       body,
@@ -434,11 +443,16 @@ export class Npcs implements NpcField {
    *   `NpcFrame`. Every coordinate in `site` is then in that frame, and so is
    *   everything this constructor computes; `update` publishes world positions.
    */
-  constructor(site: NpcSite, private readonly frame: NpcFrame | null = null) {
+  constructor(
+    site: NpcSite,
+    private readonly frame: NpcFrame | null = null,
+  ) {
     const infos: NpcInfo[] = [];
     for (const char of readCharacters()) {
       const town = site.towns.get(char.townId);
-      if (!town) continue; // a zone without his town simply has no him
+      if (!town) {
+        continue;
+      } // a zone without his town simply has no him
       const rig = char.body.build();
       let spot = findSpot(site, town.x, town.z, char.homeOffset, rig.radius);
       // ACROSS THE FIRE from wherever the plain search put him.
@@ -450,12 +464,16 @@ export class Npcs implements NpcField {
       // he cannot end up somewhere the first pass would have refused — if the
       // far side is full, the preference simply loses to crowding and he stays
       // where he was.
-      const focus = char.acrossFocus ? site.focusOf?.(char.townId) ?? null : null;
+      const focus = char.acrossFocus ? (site.focusOf?.(char.townId) ?? null) : null;
       if (focus) {
         const mx = 2 * focus.x - spot.x;
         const mz = 2 * focus.z - spot.z;
         spot = findSpot(
-          site, town.x, town.z, char.homeOffset, rig.radius,
+          site,
+          town.x,
+          town.z,
+          char.homeOffset,
+          rig.radius,
           Math.atan2(mx - town.x, mz - town.z),
         );
       }
@@ -471,12 +489,23 @@ export class Npcs implements NpcField {
       // and nothing reads it in between, because the field is not on the World
       // contract until the world that owns it has been returned.
       const info: LiveNpcInfo = {
-        id: char.id, nameKey: char.nameKey, x: spot.x, y, z: spot.z, restYaw,
+        id: char.id,
+        nameKey: char.nameKey,
+        x: spot.x,
+        y,
+        z: spot.z,
+        restYaw,
       };
       infos.push(info);
       this.placed.push({
-        char, rig, info, restYaw, yaw: restYaw,
-        localX: spot.x, localY: y, localZ: spot.z,
+        char,
+        rig,
+        info,
+        restYaw,
+        yaw: restYaw,
+        localX: spot.x,
+        localY: y,
+        localZ: spot.z,
       });
       // The same call shape `SolidStamp.add` uses, and the same field type —
       // his box is stamped at the pose he was placed in.
@@ -495,11 +524,16 @@ export class Npcs implements NpcField {
       // Height first: it rejects the whole airborne case with one subtraction
       // and an absolute, where the horizontal test cannot tell a hero standing
       // in front of him from one thirty units over his head. See NPC_TALK_RISE.
-      if (!inRise(y, p.info.y, NPC_TALK_RISE)) continue;
+      if (!inRise(y, p.info.y, NPC_TALK_RISE)) {
+        continue;
+      }
       const dx = p.info.x - x;
       const dz = p.info.z - z;
       const d2 = dx * dx + dz * dz;
-      if (d2 < bd2) { bd2 = d2; best = p.info; }
+      if (d2 < bd2) {
+        bd2 = d2;
+        best = p.info;
+      }
     }
     return best;
   }
@@ -523,9 +557,13 @@ export class Npcs implements NpcField {
    */
   talk(id: string): NpcTalk | null {
     const p = this.placed.find((q) => q.char.id === id);
-    if (!p) return null;
+    if (!p) {
+      return null;
+    }
     const entry = p.char.talk.find((line) => content.evaluate(line.when));
-    if (!entry) return null;
+    if (!entry) {
+      return null;
+    }
     content.run(entry.actions);
     this.talkState = { id: p.char.id, name: p.char.name, line: entry.line };
     return this.talkState;
@@ -576,12 +614,14 @@ export class Npcs implements NpcField {
       // way walking away does. Without this the height check would only govern
       // the prompt, and a talk begun on the ground would follow you into the
       // sky and stay open there.
-      const near = d2 < NPC_LEAVE_RANGE * NPC_LEAVE_RANGE
-        && inRise(focus.y, p.info.y, NPC_LEAVE_RISE);
+      const near =
+        d2 < NPC_LEAVE_RANGE * NPC_LEAVE_RANGE && inRise(focus.y, p.info.y, NPC_LEAVE_RISE);
       if (this.talkState?.id === p.char.id && !near) {
         this.talkState = null;
       }
-      if (!visible) continue;
+      if (!visible) {
+        continue;
+      }
       const attended = near;
       // Frame-rate independent, per the convention: an exponential approach to
       // the wanted bearing, never a fixed lerp factor.
@@ -590,8 +630,7 @@ export class Npcs implements NpcField {
       // The bearing to the visitor is a WORLD bearing, so it comes back through
       // `frame.yaw` — and `restYaw` never left the frame, which is why it is
       // used raw here and offset above.
-      const toFocus = Math.atan2(focus.x - p.info.x, focus.z - p.info.z)
-        - (frame ? frame.yaw : 0);
+      const toFocus = Math.atan2(focus.x - p.info.x, focus.z - p.info.z) - (frame ? frame.yaw : 0);
       const want = attended ? toFocus : p.restYaw;
       p.yaw = approachAngle(p.yaw, want, TURN_LAMBDA, dt);
       p.rig.root.rotation.y = p.yaw;
@@ -606,7 +645,9 @@ export class Npcs implements NpcField {
 
   dispose(): void {
     for (const p of this.placed) {
-      for (const d of p.rig.disposables) d.dispose();
+      for (const d of p.rig.disposables) {
+        d.dispose();
+      }
       this.group.remove(p.rig.root);
     }
     this.placed.length = 0;
@@ -622,8 +663,12 @@ const _fw = { x: 0, z: 0 };
 /** Shortest-arc exponential approach; the same helper the player camera uses. */
 function approachAngle(cur: number, target: number, rate: number, dt: number): number {
   let d = target - cur;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
+  while (d > Math.PI) {
+    d -= Math.PI * 2;
+  }
+  while (d < -Math.PI) {
+    d += Math.PI * 2;
+  }
   return cur + d * (1 - Math.exp(-rate * dt));
 }
 
@@ -667,8 +712,12 @@ export function spotIsFree(site: NpcSite, x: number, z: number, radius: number):
   // The BUILT query: a person standing on a settlement's beaten track is
   // standing where people walk, which is the whole reason the track is there.
   // What he may not stand in is a carriageway. See `RoadClearance`.
-  if (site.roads.builtEdgeDistanceTo(x, z) < NPC_ROAD_CLEAR) return false;
-  if (site.structureTopAt(x, z) > -Infinity) return false;
+  if (site.roads.builtEdgeDistanceTo(x, z) < NPC_ROAD_CLEAR) {
+    return false;
+  }
+  if (site.structureTopAt(x, z) > -Infinity) {
+    return false;
+  }
   for (let k = 0; k < 4; k++) {
     const a = (k / 4) * Math.PI * 2;
     if (site.structureTopAt(x + Math.sin(a) * clearOf, z + Math.cos(a) * clearOf) > -Infinity) {
@@ -679,7 +728,11 @@ export function spotIsFree(site: NpcSite, x: number, z: number, radius: number):
 }
 
 function findSpot(
-  site: NpcSite, cx: number, cz: number, offset: number, radius: number,
+  site: NpcSite,
+  cx: number,
+  cz: number,
+  offset: number,
+  radius: number,
   preferBearing: number | null = null,
 ): { x: number; z: number } {
   const free = (x: number, z: number): boolean => spotIsFree(site, x, z, radius);
@@ -689,7 +742,9 @@ function findSpot(
     for (const rr of [1.7, 2.7, 3.7]) {
       for (let k = 0; k < 12; k++) {
         const a = (k / 12) * Math.PI * 2;
-        if (site.structureTopAt(x + Math.sin(a) * rr, z + Math.cos(a) * rr) > -Infinity) n++;
+        if (site.structureTopAt(x + Math.sin(a) * rr, z + Math.cos(a) * rr) > -Infinity) {
+          n++;
+        }
       }
     }
     return n;
@@ -697,7 +752,9 @@ function findSpot(
   for (const ring of SPOT_RINGS) {
     const d = ring + offset;
     if (d === 0) {
-      if (free(cx, cz)) return { x: cx, z: cz };
+      if (free(cx, cz)) {
+        return { x: cx, z: cz };
+      }
       continue;
     }
     let best: { x: number; z: number } | null = null;
@@ -706,7 +763,9 @@ function findSpot(
       const a = (k / SPOT_BEARINGS) * Math.PI * 2;
       const x = cx + Math.sin(a) * d;
       const z = cz + Math.cos(a) * d;
-      if (!free(x, z)) continue;
+      if (!free(x, z)) {
+        continue;
+      }
       // The tie-break LEARNS A SECOND TERM rather than being replaced: the ring
       // order still decides how far out he stands, and every `free` test is
       // untouched. A bearing preference costs the same as three units of
@@ -716,13 +775,22 @@ function findSpot(
       let crowd = crowding(x, z);
       if (preferBearing !== null) {
         let da = a - preferBearing;
-        while (da > Math.PI) da -= Math.PI * 2;
-        while (da < -Math.PI) da += Math.PI * 2;
+        while (da > Math.PI) {
+          da -= Math.PI * 2;
+        }
+        while (da < -Math.PI) {
+          da += Math.PI * 2;
+        }
         crowd += (Math.abs(da) / Math.PI) * 3;
       }
-      if (crowd < bestCrowd) { bestCrowd = crowd; best = { x, z }; }
+      if (crowd < bestCrowd) {
+        bestCrowd = crowd;
+        best = { x, z };
+      }
     }
-    if (best) return best;
+    if (best) {
+      return best;
+    }
   }
   // Nothing was clear anywhere in range — stand him at the offset he asked for,
   // rather than dropping the character entirely. A settlement this crowded is a

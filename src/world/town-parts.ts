@@ -7,14 +7,14 @@
  * keys a program on the visible light count. `bakeSolid` measures the collider
  * off the voxels just painted; `bakeProp` is for what a body passes through.
  */
-import { VoxelModel, shade } from '../core/voxel';
-import { bakeProp, type Template } from './props';
-import { bakeSolid, SolidStamp } from './structures';
-import { buildFence, type Fence, type FenceParts } from './fences';
-import { builtDeck, SEG_LEN, type Junction, type Road, type RoadSample } from './roads';
-import { type PathProfile } from './path-profile';
-import { WATER_LEVEL } from './terrain';
-import { hashCell } from './noise';
+import { VoxelModel, shade } from "../core/voxel";
+import { bakeProp, type Template } from "./props";
+import { bakeSolid, SolidStamp } from "./structures";
+import { buildFence, type Fence, type FenceParts } from "./fences";
+import { builtDeck, SEG_LEN, type Junction, type Road, type RoadSample } from "./roads";
+import { type PathProfile } from "./path-profile";
+import { WATER_LEVEL } from "./terrain";
+import { hashCell } from "./noise";
 
 /** World units per voxel for everything in this file. */
 export const V = 0.28;
@@ -24,7 +24,10 @@ export const PALISADE_SPAN_LEN = 15 * V;
 
 /** Fit whole palisade templates end to end; fitting the LENGTH keeps two runs'
  *  outer faces off one plane (issue #128). */
-export function fitPalisadeRun(length: number, scale: number): {
+export function fitPalisadeRun(
+  length: number,
+  scale: number,
+): {
   count: number;
   pitch: number;
   lengthScale: number;
@@ -57,45 +60,45 @@ const FLAME_PALE = 0xffe9a8;
 
 // A 3x5 bitmap font: voxel letters cost no material and no extra triangles.
 const FONT: Record<string, readonly string[]> = {
-  A: ['.#.', '#.#', '###', '#.#', '#.#'],
-  B: ['##.', '#.#', '##.', '#.#', '##.'],
-  C: ['.##', '#..', '#..', '#..', '.##'],
-  D: ['##.', '#.#', '#.#', '#.#', '##.'],
-  E: ['###', '#..', '##.', '#..', '###'],
-  F: ['###', '#..', '##.', '#..', '#..'],
-  G: ['.##', '#..', '#.#', '#.#', '.##'],
-  H: ['#.#', '#.#', '###', '#.#', '#.#'],
-  I: ['###', '.#.', '.#.', '.#.', '###'],
-  J: ['..#', '..#', '..#', '#.#', '.#.'],
-  K: ['#.#', '#.#', '##.', '#.#', '#.#'],
-  L: ['#..', '#..', '#..', '#..', '###'],
-  M: ['#.#', '###', '###', '#.#', '#.#'],
-  N: ['#.#', '###', '###', '###', '#.#'],
-  O: ['.#.', '#.#', '#.#', '#.#', '.#.'],
-  P: ['##.', '#.#', '##.', '#..', '#..'],
-  Q: ['.#.', '#.#', '#.#', '##.', '.##'],
-  R: ['##.', '#.#', '##.', '#.#', '#.#'],
-  S: ['.##', '#..', '.#.', '..#', '##.'],
-  T: ['###', '.#.', '.#.', '.#.', '.#.'],
-  U: ['#.#', '#.#', '#.#', '#.#', '.#.'],
-  V: ['#.#', '#.#', '#.#', '#.#', '.#.'],
-  W: ['#.#', '#.#', '###', '###', '#.#'],
-  X: ['#.#', '#.#', '.#.', '#.#', '#.#'],
-  Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
-  Z: ['###', '..#', '.#.', '#..', '###'],
-  '0': ['.#.', '#.#', '#.#', '#.#', '.#.'],
-  '1': ['.#.', '##.', '.#.', '.#.', '###'],
-  '2': ['##.', '..#', '.#.', '#..', '###'],
-  '3': ['##.', '..#', '.#.', '..#', '##.'],
-  '4': ['#.#', '#.#', '###', '..#', '..#'],
-  '5': ['###', '#..', '##.', '..#', '##.'],
-  '6': ['.##', '#..', '##.', '#.#', '.#.'],
-  '7': ['###', '..#', '.#.', '.#.', '.#.'],
-  '8': ['.#.', '#.#', '.#.', '#.#', '.#.'],
-  '9': ['.#.', '#.#', '.##', '..#', '##.'],
-  '-': ['...', '...', '###', '...', '...'],
-  "'": ['.#.', '.#.', '...', '...', '...'],
-  ' ': ['...', '...', '...', '...', '...'],
+  A: [".#.", "#.#", "###", "#.#", "#.#"],
+  B: ["##.", "#.#", "##.", "#.#", "##."],
+  C: [".##", "#..", "#..", "#..", ".##"],
+  D: ["##.", "#.#", "#.#", "#.#", "##."],
+  E: ["###", "#..", "##.", "#..", "###"],
+  F: ["###", "#..", "##.", "#..", "#.."],
+  G: [".##", "#..", "#.#", "#.#", ".##"],
+  H: ["#.#", "#.#", "###", "#.#", "#.#"],
+  I: ["###", ".#.", ".#.", ".#.", "###"],
+  J: ["..#", "..#", "..#", "#.#", ".#."],
+  K: ["#.#", "#.#", "##.", "#.#", "#.#"],
+  L: ["#..", "#..", "#..", "#..", "###"],
+  M: ["#.#", "###", "###", "#.#", "#.#"],
+  N: ["#.#", "###", "###", "###", "#.#"],
+  O: [".#.", "#.#", "#.#", "#.#", ".#."],
+  P: ["##.", "#.#", "##.", "#..", "#.."],
+  Q: [".#.", "#.#", "#.#", "##.", ".##"],
+  R: ["##.", "#.#", "##.", "#.#", "#.#"],
+  S: [".##", "#..", ".#.", "..#", "##."],
+  T: ["###", ".#.", ".#.", ".#.", ".#."],
+  U: ["#.#", "#.#", "#.#", "#.#", ".#."],
+  V: ["#.#", "#.#", "#.#", "#.#", ".#."],
+  W: ["#.#", "#.#", "###", "###", "#.#"],
+  X: ["#.#", "#.#", ".#.", "#.#", "#.#"],
+  Y: ["#.#", "#.#", ".#.", ".#.", ".#."],
+  Z: ["###", "..#", ".#.", "#..", "###"],
+  "0": [".#.", "#.#", "#.#", "#.#", ".#."],
+  "1": [".#.", "##.", ".#.", ".#.", "###"],
+  "2": ["##.", "..#", ".#.", "#..", "###"],
+  "3": ["##.", "..#", ".#.", "..#", "##."],
+  "4": ["#.#", "#.#", "###", "..#", "..#"],
+  "5": ["###", "#..", "##.", "..#", "##."],
+  "6": [".##", "#..", "##.", "#.#", ".#."],
+  "7": ["###", "..#", ".#.", ".#.", ".#."],
+  "8": [".#.", "#.#", ".#.", "#.#", ".#."],
+  "9": [".#.", "#.#", ".##", "..#", "##."],
+  "-": ["...", "...", "###", "...", "..."],
+  "'": [".#.", ".#.", "...", "...", "..."],
+  " ": ["...", "...", "...", "...", "..."],
 };
 /** Glyph columns including the one-column gap that follows. */
 const GLYPH_ADV = 4;
@@ -103,9 +106,14 @@ const GLYPH_ADV = 4;
 /** Fold to what FONT can carve. Unknown glyphs are dropped, not blanked — a hole
  *  mid-word reads as a rendering bug. */
 export function signText(text: string): string {
-  let out = '';
-  const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-  for (const ch of folded) if (ch in FONT) out += ch;
+  let out = "";
+  const folded = text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  for (const ch of folded) {
+    if (ch in FONT) out += ch;
+  }
   return out;
 }
 
@@ -116,15 +124,22 @@ export function labelWidth(text: string): number {
 /** Repaint `text` in the y/z plane at x = `face`, top row `y0`, along +z from
  *  `z0`. `mirror` makes the board read from the other side. */
 function letters(
-  v: VoxelModel, text: string, face: number, y0: number, z0: number,
-  color: number, mirror: boolean,
+  v: VoxelModel,
+  text: string,
+  face: number,
+  y0: number,
+  z0: number,
+  color: number,
+  mirror: boolean,
 ): void {
   const w = labelWidth(text);
   for (let ci = 0; ci < text.length; ci++) {
-    const g = FONT[text[ci]] ?? FONT[' '];
+    const g = FONT[text[ci]] ?? FONT[" "];
     for (let row = 0; row < 5; row++) {
       for (let col = 0; col < 3; col++) {
-        if (g[row][col] !== '#') continue;
+        if (g[row][col] !== "#") {
+          continue;
+        }
         const u = ci * GLYPH_ADV + col;
         v.set(face, y0 - row, z0 + (mirror ? w - 1 - u : u), color);
       }
@@ -140,9 +155,7 @@ const GLOW_PART = 0.08;
 /** Bake, then shift by (dx, dy, dz) WORLD units and off the body's face grid.
  *  `bake` re-bases each model on its OWN bounds, so a flame sitting in a bowl
  *  came out with its base at the ground. */
-function bakeAt(
-  model: VoxelModel, scale: number, dx: number, dy: number, dz: number,
-): Template {
+function bakeAt(model: VoxelModel, scale: number, dx: number, dy: number, dz: number): Template {
   const t = bakeProp(model, scale);
   const part = GLOW_PART * scale;
   for (let i = 0; i < t.pos.length; i += 3) {
@@ -169,7 +182,7 @@ function palisadeSpan(): Template {
   const r = rnd(0x51a7);
   for (let z = 0; z < 15; z += 2) {
     const h = 9 + Math.floor(r() * 3);
-    const c = shade(LOG, 0.80 + r() * 0.36);
+    const c = shade(LOG, 0.8 + r() * 0.36);
     v.box(0, 0, z, 1, h, z + 1, c);
     v.set(0, h + 1, z, shade(c, 1.12));
     v.set(1, h + 1, z + 1, shade(c, 0.9));
@@ -178,7 +191,9 @@ function palisadeSpan(): Template {
   // SILL LOG outside so the wall grows out of the ground; geometric, not material.
   v.box(2, 5, 0, 2, 5, 14, shade(PLANK_DARK, 1.05));
   v.box(-1, 0, 0, -1, 1, 14, shade(LOG, 0.72));
-  for (let z = 1; z < 14; z += 5) v.set(2, 6, z, ROPE);
+  for (let z = 1; z < 14; z += 5) {
+    v.set(2, 6, z, ROPE);
+  }
   return bakeSolid(v, V);
 }
 
@@ -198,14 +213,15 @@ function cornerPost(): Template {
   return bakeSolid(v, V);
 }
 
-
 function gateArch(): Template {
   const v = new VoxelModel();
   const r = rnd(0x77c3);
   const H = 17;
   for (const z of [0, 26]) {
     v.box(-2, 0, z, 2, H, z + 3, shade(TIMBER, 0.95));
-    for (let y = 0; y <= H; y += 3) v.box(-2, y, z, 2, y, z + 3, shade(TIMBER, 0.82 + r() * 0.3));
+    for (let y = 0; y <= H; y += 3) {
+      v.box(-2, y, z, 2, y, z + 3, shade(TIMBER, 0.82 + r() * 0.3));
+    }
     v.box(-3, H + 1, z - 1, 3, H + 2, z + 4, shade(LOG, 1.06));
   }
   v.box(-1, H + 1, 3, 1, H + 3, 25, shade(LOG, 0.98));
@@ -217,7 +233,10 @@ function gateArch(): Template {
     }
   }
   v.box(-2, H - 7, 11, -2, H - 7, 17, shade(CANVAS, 1.1));
-  for (const [z0, z1] of [[4, 8], [21, 25]]) {
+  for (const [z0, z1] of [
+    [4, 8],
+    [21, 25],
+  ]) {
     for (let z = z0; z <= z1; z++) {
       v.box(3, 0, z, 4, 13, z, shade(PLANK, 0.84 + r() * 0.3));
     }
@@ -230,7 +249,12 @@ function gateArch(): Template {
 function watchPost(): Template {
   const v = new VoxelModel();
   const H = 16;
-  for (const [x, z] of [[-2, -2], [1, -2], [-2, 1], [1, 1]]) {
+  for (const [x, z] of [
+    [-2, -2],
+    [1, -2],
+    [-2, 1],
+    [1, 1],
+  ]) {
     v.box(x, 0, z, x + 1, H, z + 1, shade(TIMBER, 0.92));
   }
   v.box(-4, H + 1, -4, 3, H + 1, 3, shade(PLANK, 1.0));
@@ -241,7 +265,9 @@ function watchPost(): Template {
     v.set(3, H + 2, k, PLANK_DARK);
   }
   v.box(-4, H + 3, -4, 3, H + 3, -4, shade(LOG, 0.95));
-  for (let y = 1; y < H; y += 2) v.box(-3, y, 2, 0, y, 2, shade(ROPE, 0.9));
+  for (let y = 1; y < H; y += 2) {
+    v.box(-3, y, 2, 0, y, 2, shade(ROPE, 0.9));
+  }
   return bakeSolid(v, V);
 }
 
@@ -252,8 +278,8 @@ function ridgeTent(hue: number, len: number): Template {
   const v = new VoxelModel();
   const r = rnd(0x2f11 + hue * 977);
   const stripe = [CANVAS_RED, CANVAS_BLUE, CANVAS_DARK][hue % 3];
-  const W = 7;   // half-width at the eaves, voxels
-  const A = 9;   // apex height, voxels
+  const W = 7; // half-width at the eaves, voxels
+  const A = 9; // apex height, voxels
   const prof = (k: number): number => Math.round(A * (1 - k / (W + 0.6)));
   // A tent is ALL ROOF: bracketed, so its collider is one cylinder along the pole
   // (see `measureRidge`). Pegs stay outside the bracket or they widen the span.
@@ -273,7 +299,9 @@ function ridgeTent(hue: number, len: number): Template {
     }
     v.box(0, A + 1, -1, 0, A + 1, len + 1, shade(LOG, 0.95));
     for (let k = -3; k <= 3; k++) {
-      for (let y = 0; y <= 4; y++) v.set(k, y, len, shade(SOOT, 1.0));
+      for (let y = 0; y <= 4; y++) {
+        v.set(k, y, len, shade(SOOT, 1.0));
+      }
     }
   });
   for (const z of [0, len]) {
@@ -295,7 +323,9 @@ function bellTent(): Template {
     for (let x = -R; x <= R; x++) {
       for (let z = -R; z <= R; z++) {
         const d2 = x * x + z * z;
-        if (d2 > outer || (y > 0 && d2 < inner)) continue;
+        if (d2 > outer || (y > 0 && d2 < inner)) {
+          continue;
+        }
         const c = (x + z + y) % 9 === 0 ? CANVAS_DARK : CANVAS;
         v.set(x, y, z, shade(c, 0.84 + r() * 0.28));
       }
@@ -303,7 +333,9 @@ function bellTent(): Template {
   }
   v.box(0, H + 1, 0, 0, H + 3, 0, shade(LOG, 1.0));
   v.set(0, H + 4, 0, shade(CANVAS_RED, 1.15));
-  for (let y = 0; y <= 5; y++) for (let x = -2; x <= 2; x++) v.set(x, y, R - 1, SOOT);
+  for (let y = 0; y <= 5; y++) {
+    for (let x = -2; x <= 2; x++) v.set(x, y, R - 1, SOOT);
+  }
   return bakeSolid(v, V);
 }
 
@@ -312,12 +344,14 @@ function bellTent(): Template {
 function hut(kind: 0 | 1 | 2): Template {
   const v = new VoxelModel();
   const r = rnd(0x1d77 + kind * 613);
-  const W = 8;  // half-width
-  const D = 7;  // half-depth
+  const W = 8; // half-width
+  const D = 7; // half-depth
   const H = 9;
   for (let x = -W; x <= W; x++) {
     for (let z = -D; z <= D; z++) {
-      if (x !== -W && x !== W && z !== -D && z !== D) continue;
+      if (x !== -W && x !== W && z !== -D && z !== D) {
+        continue;
+      }
       for (let y = 0; y <= H; y++) {
         const corner = (x === -W || x === W) && (z === -D || z === D);
         const c = corner || y === 0 || y === H ? TIMBER : PLANK;
@@ -325,7 +359,9 @@ function hut(kind: 0 | 1 | 2): Template {
       }
     }
   }
-  for (let x = -2; x <= 2; x++) for (let y = 0; y <= 5; y++) v.set(x, y, D, SOOT);
+  for (let x = -2; x <= 2; x++) {
+    for (let y = 0; y <= 5; y++) v.set(x, y, D, SOOT);
+  }
   v.box(-3, 6, D, 3, 6, D, shade(LOG, 1.05));
   // Thatch bracketed: its collider is a ridge cylinder, not a box (`measureRidge`).
   const thatch = v.region(() => {
@@ -337,7 +373,9 @@ function hut(kind: 0 | 1 | 2): Template {
         v.set(x, y, D + 1 - k, shade(c, 0.86 + r() * 0.28));
       }
     }
-    for (let x = -W - 1; x <= W + 1; x++) v.set(x, H + D + 2, 0, shade(THATCH, 1.12));
+    for (let x = -W - 1; x <= W + 1; x++) {
+      v.set(x, H + D + 2, 0, shade(THATCH, 1.12));
+    }
   });
   if (kind === 0) {
     v.box(-6, 4, -D, -3, 6, -D, shade(PLANK_DARK, 1.0));
@@ -362,7 +400,9 @@ function cart(hooded: boolean): Template {
   const v = new VoxelModel();
   const r = rnd(hooded ? 0x4411 : 0x8ac2);
   v.box(-4, 4, -7, 4, 5, 7, shade(PLANK, 0.92));
-  for (let z = -7; z <= 7; z += 2) v.box(-4, 6, z, 4, 6, z, shade(PLANK_DARK, 1.0));
+  for (let z = -7; z <= 7; z += 2) {
+    v.box(-4, 6, z, 4, 6, z, shade(PLANK_DARK, 1.0));
+  }
   v.box(-5, 4, -7, -5, 8, 7, shade(PLANK_DARK, 0.95));
   v.box(5, 4, -7, 5, 8, 7, shade(PLANK_DARK, 0.95));
   v.box(-4, 4, -8, 4, 9, -8, shade(PLANK, 0.88));
@@ -406,7 +446,9 @@ function barrel(): Template {
     const r2 = (rr + 0.4) * (rr + 0.4);
     for (let x = -3; x <= 3; x++) {
       for (let z = -3; z <= 3; z++) {
-        if (x * x + z * z > r2) continue;
+        if (x * x + z * z > r2) {
+          continue;
+        }
         const band = y === 1 || y === 5;
         v.set(x, y, z, shade(band ? IRON : LOG_PALE, 0.86 + r() * 0.28));
       }
@@ -419,8 +461,15 @@ function crate(tall: boolean): Template {
   const v = new VoxelModel();
   const h = tall ? 7 : 4;
   v.box(-3, 0, -3, 3, h, 3, shade(PLANK, 0.95));
-  for (const y of [0, h]) v.box(-3, y, -3, 3, y, 3, shade(PLANK_DARK, 1.0));
-  for (const [x, z] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) {
+  for (const y of [0, h]) {
+    v.box(-3, y, -3, 3, y, 3, shade(PLANK_DARK, 1.0));
+  }
+  for (const [x, z] of [
+    [-3, -3],
+    [3, -3],
+    [-3, 3],
+    [3, 3],
+  ]) {
     v.box(x, 0, z, x, h, z, TIMBER);
   }
   return bakeSolid(v, V);
@@ -432,11 +481,20 @@ function woodpile(): Template {
   for (let y = 0; y <= 5; y++) {
     const w = 7 - y;
     for (let z = -w; z <= w; z++) {
-      if (r() < 0.12) continue;
+      if (r() < 0.12) {
+        continue;
+      }
       v.box(-2, y, z, 2, y, z, shade(y % 2 === 0 ? LOG : LOG_PALE, 0.82 + r() * 0.36));
     }
   }
-  for (const [x, z] of [[-3, -8], [-3, 8], [3, -8], [3, 8]]) v.box(x, 0, z, x, 7, z, TIMBER);
+  for (const [x, z] of [
+    [-3, -8],
+    [-3, 8],
+    [3, -8],
+    [3, 8],
+  ]) {
+    v.box(x, 0, z, x, 7, z, TIMBER);
+  }
   return bakeSolid(v, V);
 }
 
@@ -446,7 +504,9 @@ function weaponRack(): Template {
   v.box(6, 0, 0, 6, 8, 0, TIMBER);
   v.box(-6, 8, 0, 6, 8, 0, shade(LOG, 1.0));
   for (let x = -5; x <= 5; x += 2) {
-    for (let y = 0; y <= 11; y++) v.set(x, y, 0, shade(LOG_PALE, 0.9));
+    for (let y = 0; y <= 11; y++) {
+      v.set(x, y, 0, shade(LOG_PALE, 0.9));
+    }
     v.set(x, 12, 0, IRON);
   }
   v.box(-4, 1, 2, -1, 5, 2, shade(CANVAS_RED, 0.95));
@@ -461,7 +521,9 @@ function well(): Template {
     for (let x = -4; x <= 4; x++) {
       for (let z = -4; z <= 4; z++) {
         const d2 = x * x + z * z;
-        if (d2 > 20 || d2 < 9) continue;
+        if (d2 > 20 || d2 < 9) {
+          continue;
+        }
         v.set(x, y, z, shade(y === 4 ? ROCK : ROCK_DARK, 0.86 + r() * 0.3));
       }
     }
@@ -486,7 +548,11 @@ function campfireBody(): Template {
     const h = r() < 0.4 ? 1 : 0;
     v.box(x, 0, z, x, h, z, shade(ROCK, 0.82 + r() * 0.36));
   }
-  for (const [dx, dz, y] of [[1, 0, 1], [0, 1, 2], [1, 0, 3]] as const) {
+  for (const [dx, dz, y] of [
+    [1, 0, 1],
+    [0, 1, 2],
+    [1, 0, 3],
+  ] as const) {
     for (let k = -3; k <= 3; k++) {
       v.set(dx * k, y, dz * k, shade(k > 1 || k < -1 ? LOG : SOOT, 0.86 + r() * 0.3));
     }
@@ -505,8 +571,12 @@ function campfireFlame(): Template {
     const rr = Math.max(0, 2.4 - y * 0.42);
     for (let x = -3; x <= 3; x++) {
       for (let z = -3; z <= 3; z++) {
-        if (x * x + z * z > rr * rr) continue;
-        if (r() < 0.16 + y * 0.07) continue;
+        if (x * x + z * z > rr * rr) {
+          continue;
+        }
+        if (r() < 0.16 + y * 0.07) {
+          continue;
+        }
         v.set(x, y + 1, z, y > 3 ? FLAME_PALE : y > 1 ? FLAME : EMBER);
       }
     }
@@ -517,7 +587,11 @@ function campfireFlame(): Template {
 
 function brazierBody(): Template {
   const v = new VoxelModel();
-  for (const [x, z] of [[-2, -2], [2, -2], [0, 3]]) {
+  for (const [x, z] of [
+    [-2, -2],
+    [2, -2],
+    [0, 3],
+  ]) {
     for (let y = 0; y <= 7; y++) {
       v.set(Math.round(x * (1 - y / 12)), y, Math.round(z * (1 - y / 12)), shade(IRON, 0.9));
     }
@@ -525,9 +599,13 @@ function brazierBody(): Template {
   for (let x = -3; x <= 3; x++) {
     for (let z = -3; z <= 3; z++) {
       const d2 = x * x + z * z;
-      if (d2 > 11) continue;
+      if (d2 > 11) {
+        continue;
+      }
       v.set(x, 8, z, shade(IRON, 0.86));
-      if (d2 > 5) v.set(x, 9, z, shade(IRON, 1.05));
+      if (d2 > 5) {
+        v.set(x, 9, z, shade(IRON, 1.05));
+      }
     }
   }
   return bakeSolid(v, V);
@@ -540,7 +618,9 @@ function brazierFlame(): Template {
     const rr = Math.max(0, 2.4 - y * 0.5);
     for (let x = -2; x <= 2; x++) {
       for (let z = -2; z <= 2; z++) {
-        if (x * x + z * z > rr * rr || r() < 0.12 + y * 0.08) continue;
+        if (x * x + z * z > rr * rr || r() < 0.12 + y * 0.08) {
+          continue;
+        }
         v.set(x, y + 9, z, y > 2 ? FLAME_PALE : y > 0 ? FLAME : EMBER);
       }
     }
@@ -561,7 +641,12 @@ function lampBody(): Template {
   }
   v.box(0, LAMP_H, 1, 0, LAMP_H, 3, shade(TIMBER, 1.0));
   v.set(0, LAMP_H - 1, 1, shade(TIMBER, 0.9));
-  for (const [x, z] of [[-1, 2], [1, 2], [-1, 4], [1, 4]]) {
+  for (const [x, z] of [
+    [-1, 2],
+    [1, 2],
+    [-1, 4],
+    [1, 4],
+  ]) {
     v.box(x, LAMP_H - 5, z, x, LAMP_H - 1, z, IRON);
   }
   v.box(-1, LAMP_H - 1, 2, 1, LAMP_H - 1, 4, shade(IRON, 1.1));
@@ -589,7 +674,9 @@ function forgeCoals(): Template {
   for (let x = -2; x <= 2; x++) {
     for (let z = -2; z <= 2; z++) {
       v.set(x, 0, z, r() < 0.4 ? FLAME : EMBER);
-      if (r() < 0.3) v.set(x, 1, z, FLAME_PALE);
+      if (r() < 0.3) {
+        v.set(x, 1, z, FLAME_PALE);
+      }
     }
   }
   return bakeProp(v, V);
@@ -631,7 +718,9 @@ export const FENCE_POST_R = V;
 function fenceStake(vox: number, seed: number): VoxelModel {
   const v = new VoxelModel();
   const r = rnd(seed);
-  for (let y = 0; y < vox; y++) v.set(0, y, 0, shade(LOG, 0.84 + r() * 0.32));
+  for (let y = 0; y < vox; y++) {
+    v.set(0, y, 0, shade(LOG, 0.84 + r() * 0.32));
+  }
   // The fork opens ALONG the run (+/-z), the direction the planks arrive from.
   v.set(0, vox - 1, -1, shade(LOG, 1.1));
   v.set(0, vox - 1, 1, shade(LOG, 0.9));
@@ -652,7 +741,12 @@ function fencePostTall(): Template {
 function fenceLanternPost(): Template {
   const v = fenceStake(FENCE_LAMP_VOX, 0x2ba9);
   v.box(-1, FENCE_LAMP_VOX, -1, 1, FENCE_LAMP_VOX, 1, shade(IRON, 1.1));
-  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+  for (const [x, z] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ]) {
     v.box(x, FENCE_LAMP_VOX + 1, z, x, FENCE_LAMP_VOX + 3, z, IRON);
   }
   v.box(-1, FENCE_LAMP_VOX + 4, -1, 1, FENCE_LAMP_VOX + 4, 1, shade(IRON, 0.85));
@@ -692,10 +786,17 @@ function fenceRailProp(): Template {
 
 function signPost(): Template {
   const v = new VoxelModel();
-  for (let y = 0; y <= 16; y++) v.box(-1, y, -1, 0, y, 0, shade(TIMBER, 0.88 + (y % 3) * 0.08));
+  for (let y = 0; y <= 16; y++) {
+    v.box(-1, y, -1, 0, y, 0, shade(TIMBER, 0.88 + (y % 3) * 0.08));
+  }
   v.box(-2, 17, -2, 1, 17, 1, shade(LOG, 1.05));
   v.box(-2, 18, -2, 1, 18, 1, shade(LOG, 0.9));
-  for (const [x, z] of [[-4, 0], [2, -3], [1, 3], [-3, 2]]) {
+  for (const [x, z] of [
+    [-4, 0],
+    [2, -3],
+    [1, 3],
+    [-3, 2],
+  ]) {
     v.box(x, 0, z, x + 1, 0, z + 1, shade(ROCK, 0.9));
   }
   return bakeSolid(v, V);
@@ -802,7 +903,12 @@ const RING_LEN = 1;
 function sectionAt(
   surfaceAt: (x: number, z: number) => number,
   prof: PathProfile,
-  p: RoadSample, px: number, pz: number, tx: number, tz: number, d: number,
+  p: RoadSample,
+  px: number,
+  pz: number,
+  tx: number,
+  tz: number,
+  d: number,
 ): { x: number; y: number; z: number } {
   const ad = Math.abs(d);
   // A span is flat to its edge with water under it; else read the walking surface.
@@ -814,15 +920,25 @@ function sectionAt(
 }
 
 function sectionColour(
-  seed: number, prof: PathProfile, p: RoadSample, k: number, d: number,
+  seed: number,
+  prof: PathProfile,
+  p: RoadSample,
+  k: number,
+  d: number,
 ): [number, number, number] {
   const ad = Math.abs(d);
   const pal = prof.palette;
-  const base = p.bridge ? pal.plank
-    : ad > prof.deckHalf ? pal.gravel
-      : ad < prof.deckHalf * 0.5 ? pal.rut : pal.earth;
+  const base = p.bridge
+    ? pal.plank
+    : ad > prof.deckHalf
+      ? pal.gravel
+      : ad < prof.deckHalf * 0.5
+        ? pal.rut
+        : pal.earth;
   const m = p.bridge
-    ? (Math.round(p.x * 0.7 + p.z * 0.7) % 2 === 0 ? 1.1 : 0.88)
+    ? Math.round(p.x * 0.7 + p.z * 0.7) % 2 === 0
+      ? 1.1
+      : 0.88
     : 0.86 + hashCell(seed, Math.round(p.x), k, Math.round(p.z)) * 0.3;
   return [base[0] * m, base[1] * m, base[2] * m];
 }
@@ -831,7 +947,9 @@ function sectionColour(
  *  ROUTE, wrong for the DRAWING: the shoulder is `round(deck)` and flips by a
  *  whole unit, which a three-unit chord straddles. */
 function subdivide(pts: RoadSample[]): RoadSample[] {
-  if (pts.length < 2) return pts;
+  if (pts.length < 2) {
+    return pts;
+  }
   const out: RoadSample[] = [pts[0]];
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1];
@@ -855,7 +973,9 @@ function subdivide(pts: RoadSample[]): RoadSample[] {
  *  rim. ONE function for ribbon and apron, so both agree to the last bit where
  *  the arm starts. Only the ENDS are trimmed. */
 function clipToApron(pts: RoadSample[], aprons: readonly Junction[]): RoadSample[] {
-  if (aprons.length === 0 || pts.length < 2) return pts;
+  if (aprons.length === 0 || pts.length < 2) {
+    return pts;
+  }
   const inside = (p: RoadSample): boolean =>
     aprons.some((a) => Math.hypot(p.x - a.x, p.z - a.z) < a.profile.apronR);
   /** Where the segment a->b crosses out of the apron b is outside of. */
@@ -866,8 +986,11 @@ function clipToApron(pts: RoadSample[], aprons: readonly Junction[]): RoadSample
     for (let i = 0; i < 24; i++) {
       const t = (lo + hi) / 2;
       const p = { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
-      if (aprons.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < q.profile.apronR)) lo = t;
-      else hi = t;
+      if (aprons.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < q.profile.apronR)) {
+        lo = t;
+      } else {
+        hi = t;
+      }
     }
     return {
       x: a.x + (b.x - a.x) * hi,
@@ -878,13 +1001,23 @@ function clipToApron(pts: RoadSample[], aprons: readonly Junction[]): RoadSample
     };
   };
   let lead = 0;
-  while (lead < pts.length && inside(pts[lead])) lead++;
+  while (lead < pts.length && inside(pts[lead])) {
+    lead++;
+  }
   let tail = pts.length - 1;
-  while (tail > lead && inside(pts[tail])) tail--;
-  if (tail - lead < 1) return [];
+  while (tail > lead && inside(pts[tail])) {
+    tail--;
+  }
+  if (tail - lead < 1) {
+    return [];
+  }
   const out = pts.slice(lead, tail + 1);
-  if (lead > 0) out.unshift(rim(pts[lead - 1], pts[lead]));
-  if (tail < pts.length - 1) out.push(rim(pts[tail + 1], pts[tail]));
+  if (lead > 0) {
+    out.unshift(rim(pts[lead - 1], pts[lead]));
+  }
+  if (tail < pts.length - 1) {
+    out.push(rim(pts[tail + 1], pts[tail]));
+  }
   return out;
 }
 
@@ -905,7 +1038,10 @@ export function buildRoadRibbon(
   /** Forks this arm must not draw over. See `buildJunctionApron`. */
   aprons: readonly Junction[] = [],
 ): {
-  pos: number[]; nrm: number[]; col: number[]; idx: number[];
+  pos: number[];
+  nrm: number[];
+  col: number[];
+  idx: number[];
 } {
   const pos: number[] = [];
   const nrm: number[] = [];
@@ -916,7 +1052,9 @@ export function buildRoadRibbon(
     // The BUILT deck, not the route (Road.trim), minus anybody else's junction: an
     // arm GROWS FROM THE APRON rim, which is the whole of issue #45.
     const pts = subdivide(clipToApron(builtDeck(road), aprons));
-    if (pts.length < 2) continue;
+    if (pts.length < 2) {
+      continue;
+    }
     const prof = road.profile;
     const XS = prof.xs;
     const RUT = prof.palette.rut;
@@ -934,7 +1072,8 @@ export function buildRoadRibbon(
       let tx = b.x - a.x;
       let tz = b.z - a.z;
       const tl = Math.hypot(tx, tz) || 1;
-      tx /= tl; tz /= tl;
+      tx /= tl;
+      tz /= tl;
       const px = -tz;
       const pz = tx;
       const ring = pos.length / 3;
@@ -955,7 +1094,10 @@ export function buildRoadRibbon(
           idx.push(a0, b0 + 1, b0, a0, a0 + 1, b0 + 1);
         }
         // Skirts on both rims, so a step in the ground cannot open a hole under it.
-        for (const [k, sx] of [[0, -1], [XS.length - 1, 1]] as const) {
+        for (const [k, sx] of [
+          [0, -1],
+          [XS.length - 1, 1],
+        ] as const) {
           const a0 = ring0 + k;
           const b0 = ring + k;
           const base = pos.length / 3;
@@ -967,7 +1109,9 @@ export function buildRoadRibbon(
             const nx = src === a0 ? px0 * sx : px * sx;
             const nz = src === a0 ? pz0 * sx : pz * sx;
             nrm.push(nx, 0, nz, nx, 0, nz);
-            for (let q = 0; q < 2; q++) col.push(RUT[0] * 0.7, RUT[1] * 0.7, RUT[2] * 0.7);
+            for (let q = 0; q < 2; q++) {
+              col.push(RUT[0] * 0.7, RUT[1] * 0.7, RUT[2] * 0.7);
+            }
           }
           // Both windings: a skirt swaps outboard side as the road turns; one is culled.
           idx.push(base, base + 1, base + 3, base, base + 3, base + 2);
@@ -992,7 +1136,11 @@ export function buildRoadRibbon(
           }
         }
       }
-      if (ringFirst < 0) { ringFirst = ring; pxF = px; pzF = pz; }
+      if (ringFirst < 0) {
+        ringFirst = ring;
+        pxF = px;
+        pzF = pz;
+      }
       ring0 = ring;
       px0 = px;
       pz0 = pz;
@@ -1003,7 +1151,9 @@ export function buildRoadRibbon(
      * Outward is the road's own tangent, (pz, -px).
      */
     const endSkirt = (ring: number, pxr: number, pzr: number, sign: number): void => {
-      if (ring < 0) return;
+      if (ring < 0) {
+        return;
+      }
       const nx = pzr * sign;
       const nz = -pxr * sign;
       const base = pos.length / 3;
@@ -1012,7 +1162,9 @@ export function buildRoadRibbon(
         pos.push(pos[src], pos[src + 1], pos[src + 2]);
         pos.push(pos[src], pos[src + 1] - RIBBON_SKIRT, pos[src + 2]);
         nrm.push(nx, 0, nz, nx, 0, nz);
-        for (let q = 0; q < 2; q++) col.push(RUT[0] * 0.7, RUT[1] * 0.7, RUT[2] * 0.7);
+        for (let q = 0; q < 2; q++) {
+          col.push(RUT[0] * 0.7, RUT[1] * 0.7, RUT[2] * 0.7);
+        }
       }
       // Both windings, for the reason the rim skirts give above.
       for (let k = 0; k < XS.length - 1; k++) {
@@ -1050,7 +1202,10 @@ export function buildJunctionApron(
   surfaceAt: (x: number, z: number) => number,
   liftBias = 0,
 ): {
-  pos: number[]; nrm: number[]; col: number[]; idx: number[];
+  pos: number[];
+  nrm: number[];
+  col: number[];
+  idx: number[];
 } {
   const pos: number[] = [];
   const nrm: number[] = [];
@@ -1068,8 +1223,12 @@ export function buildJunctionApron(
   const ang = (x: number, z: number): number => Math.atan2(x - apron.x, z - apron.z);
   const wrap = (a: number): number => {
     let v = a;
-    while (v <= -Math.PI) v += Math.PI * 2;
-    while (v > Math.PI) v -= Math.PI * 2;
+    while (v <= -Math.PI) {
+      v += Math.PI * 2;
+    }
+    while (v > Math.PI) {
+      v -= Math.PI * 2;
+    }
     return v;
   };
   // Purely spatial, on the cell the ribbon's centre vertex hashes, so arm and
@@ -1084,18 +1243,24 @@ export function buildJunctionApron(
 
   for (const road of roads) {
     const pts = clipToApron(builtDeck(road), [apron]);
-    if (pts.length < 2) continue;
+    if (pts.length < 2) {
+      continue;
+    }
     // Which end is ours, if any — a road can pass a junction it does not join.
-    const head = Math.hypot(pts[0].x - apron.x, pts[0].z - apron.z)
-      <= Math.hypot(pts[pts.length - 1].x - apron.x, pts[pts.length - 1].z - apron.z);
+    const head =
+      Math.hypot(pts[0].x - apron.x, pts[0].z - apron.z) <=
+      Math.hypot(pts[pts.length - 1].x - apron.x, pts[pts.length - 1].z - apron.z);
     const p = head ? pts[0] : pts[pts.length - 1];
-    if (Math.abs(Math.hypot(p.x - apron.x, p.z - apron.z) - APRON_R) > 0.05) continue;
+    if (Math.abs(Math.hypot(p.x - apron.x, p.z - apron.z) - APRON_R) > 0.05) {
+      continue;
+    }
     // The tangent the ribbon uses at that ring, or `k` runs the other way round.
     const q = head ? pts[1] : pts[pts.length - 2];
     let tx = head ? q.x - p.x : p.x - q.x;
     let tz = head ? q.z - p.z : p.z - q.z;
     const tl = Math.hypot(tx, tz) || 1;
-    tx /= tl; tz /= tl;
+    tx /= tl;
+    tz /= tl;
     const px = -tz;
     const pz = tx;
     const ends: Edge[] = [];
@@ -1103,15 +1268,23 @@ export function buildJunctionApron(
       const v = sectionAt(surfaceAt, road.profile, p, px, pz, tx, tz, XS[k]);
       const a = ang(v.x, v.z);
       dirs.push({
-        x: v.x, z: v.z, y: v.y, a, c: sectionColour(seed, road.profile, p, k, XS[k]),
+        x: v.x,
+        z: v.z,
+        y: v.y,
+        a,
+        c: sectionColour(seed, road.profile, p, k, XS[k]),
       });
       // Angle runs monotonically along the ring, so its ends are its extremes.
-      if (k === 0 || k === XS.length - 1) ends.push({ x: v.x, z: v.z, tx, tz, a });
+      if (k === 0 || k === XS.length - 1) {
+        ends.push({ x: v.x, z: v.z, tx, tz, a });
+      }
     }
     const rel = wrap(ends[1].a - ends[0].a);
     arms.push(rel >= 0 ? { lo: ends[0], hi: ends[1] } : { lo: ends[1], hi: ends[0] });
   }
-  if (arms.length === 0) return { pos, nrm, col, idx };
+  if (arms.length === 0) {
+    return { pos, nrm, col, idx };
+  }
   arms.sort((u, v) => u.lo.a - v.lo.a);
 
   /** Where the ray at `th` crosses the kerb line through `e`, or 0. */
@@ -1119,7 +1292,9 @@ export function buildJunctionApron(
     const s = Math.sin(th);
     const c = Math.cos(th);
     const den = s * e.tz - c * e.tx;
-    if (Math.abs(den) < 1e-6) return 0;
+    if (Math.abs(den) < 1e-6) {
+      return 0;
+    }
     const r = ((e.x - apron.x) * e.tz - (e.z - apron.z) * e.tx) / den;
     return r > prof.deckHalf ? r : 0;
   };
@@ -1127,7 +1302,9 @@ export function buildJunctionApron(
   for (const a of arms) {
     for (const e of [a.lo, a.hi]) {
       const r = Math.hypot(e.x - apron.x, e.z - apron.z);
-      if (r > cornerR) cornerR = r;
+      if (r > cornerR) {
+        cornerR = r;
+      }
     }
   }
 
@@ -1136,7 +1313,9 @@ export function buildJunctionApron(
     const from = arms[i].hi;
     const to = arms[(i + 1) % arms.length].lo;
     const span = wrap(to.a - from.a);
-    if (span <= 0) continue;   // arms whose rings overlap in angle: no gap
+    if (span <= 0) {
+      continue;
+    } // arms whose rings overlap in angle: no gap
     const steps = Math.max(2, Math.ceil(span / APRON_ARC));
     for (let k = 1; k < steps; k++) {
       const a = from.a + (span * k) / steps;
@@ -1156,11 +1335,16 @@ export function buildJunctionApron(
         [-sz * RIM_GUARD, sx * RIM_GUARD],
       ] as const) {
         const g = surfaceAt(qx + gx, qz + gz);
-        if (g > y) y = g;
+        if (g > y) {
+          y = g;
+        }
       }
       const m = mottle(qx, qz);
       dirs.push({
-        x: apron.x + sx * r, z: apron.z + sz * r, y, a,
+        x: apron.x + sx * r,
+        z: apron.z + sz * r,
+        y,
+        a,
         c: [GRAVEL[0] * m, GRAVEL[1] * m, GRAVEL[2] * m],
       });
     }
@@ -1200,12 +1384,16 @@ export function buildJunctionApron(
       // The rim must reach the ARM's colour or the seam shows; inward it would spoke.
       const own = ground(x, z);
       const w = t <= 0.8 ? 0 : (t - 0.8) / 0.2;
-      for (let c = 0; c < 3; c++) col.push(own[c] + (d.c[c] - own[c]) * w * w);
+      for (let c = 0; c < 3; c++) {
+        col.push(own[c] + (d.c[c] - own[c]) * w * w);
+      }
     }
   }
 
   const ring = (l: number, i: number): number => 1 + l * n + (i % n);
-  for (let i = 0; i < n; i++) idx.push(0, ring(0, i), ring(0, i + 1));
+  for (let i = 0; i < n; i++) {
+    idx.push(0, ring(0, i), ring(0, i + 1));
+  }
   for (let l = 0; l + 1 < APRON_T.length; l++) {
     for (let i = 0; i < n; i++) {
       const a0 = ring(l, i);
@@ -1224,7 +1412,9 @@ export function buildJunctionApron(
     const nx = (d.x - apron.x) / APRON_R;
     const nz = (d.z - apron.z) / APRON_R;
     nrm.push(nx, 0, nz, nx, 0, nz);
-    for (let q = 0; q < 2; q++) col.push(RUT[0] * 0.7, RUT[1] * 0.7, RUT[2] * 0.7);
+    for (let q = 0; q < 2; q++) {
+      col.push(RUT[0] * 0.7, RUT[1] * 0.7, RUT[2] * 0.7);
+    }
   }
   for (let i = 0; i < n; i++) {
     const a0 = skirt + i * 2;
@@ -1244,23 +1434,24 @@ const railOffset = (prof: PathProfile): number => prof.deckHalf + FENCE_POST_R +
  *  `buildFence`, so each plank is measured against the gap it spans (issue #105);
  *  `groundAt` keeps an abutment stake planted in the bank. */
 export function addBridgeFurniture(
-  solid: SolidStamp, parts: TownParts, road: Road,
+  solid: SolidStamp,
+  parts: TownParts,
+  road: Road,
   groundAt: (x: number, z: number) => number,
 ): Fence[] {
   const pts = road.pts;
   const off = railOffset(road.profile);
   for (let i = 0; i < pts.length; i++) {
-    if (!pts[i].bridge || i % 4 !== 0) continue;
+    if (!pts[i].bridge || i % 4 !== 0) {
+      continue;
+    }
     // A pier every fourth sample (12 units), stretched from the bed to the deck.
     const p = pts[i];
     const a = pts[Math.max(0, i - 1)];
     const b = pts[Math.min(pts.length - 1, i + 1)];
     const yaw = Math.atan2(b.x - a.x, b.z - a.z);
     const foot = WATER_LEVEL - 1.6;
-    solid.add(
-      parts.pier, p.x, foot, p.z, yaw, 1.25,
-      Math.max(0.4, (p.y - foot) / (PIER_VOX * V)),
-    );
+    solid.add(parts.pier, p.x, foot, p.z, yaw, 1.25, Math.max(0.4, (p.y - foot) / (PIER_VOX * V)));
   }
 
   // One fence per SPAN and per side: one chain over two channels would railing
@@ -1273,8 +1464,8 @@ export function addBridgeFurniture(
         const a = pts[Math.max(0, k - 1)];
         const b = pts[Math.min(pts.length - 1, k + 1)];
         const tl = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-        const px = -(b.z - a.z) / tl * side * off;
-        const pz = (b.x - a.x) / tl * side * off;
+        const px = (-(b.z - a.z) / tl) * side * off;
+        const pz = ((b.x - a.x) / tl) * side * off;
         return { x: p.x + px, y: p.y, z: p.z + pz };
       });
       built.push(...buildFence(solid, parts.fence, path, { groundAt }));
@@ -1287,10 +1478,17 @@ function bridgeSpans(pts: readonly RoadSample[]): number[][] {
   const spans: number[][] = [];
   let run: number[] = [];
   for (let i = 0; i < pts.length; i++) {
-    if (pts[i].bridge) { run.push(i); continue; }
-    if (run.length > 1) spans.push(run);
+    if (pts[i].bridge) {
+      run.push(i);
+      continue;
+    }
+    if (run.length > 1) {
+      spans.push(run);
+    }
     run = [];
   }
-  if (run.length > 1) spans.push(run);
+  if (run.length > 1) {
+    spans.push(run);
+  }
   return spans;
 }

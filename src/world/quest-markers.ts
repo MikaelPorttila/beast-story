@@ -27,9 +27,9 @@
  * person, and a third colour would be a third thing to learn.
  */
 
-import * as THREE from 'three';
+import * as THREE from "three";
 
-export type QuestMarkerKind = 'offer' | 'turnIn' | 'target';
+export type QuestMarkerKind = "offer" | "turnIn" | "target";
 
 /** One mark, in WORLD coordinates. `y` is where the mark floats, not the feet. */
 export interface QuestMarkerSpot {
@@ -56,26 +56,26 @@ const SIZE = 64;
  * shapes here are a stroke and a couple of arcs.
  */
 function glyphTexture(kind: QuestMarkerKind): THREE.Texture {
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = SIZE;
   canvas.height = SIZE;
-  const ctx = canvas.getContext('2d')!;
-  const gold = '#ffc44d';
-  const ink = kind === 'target' ? '#ffffff' : gold;
+  const ctx = canvas.getContext("2d")!;
+  const gold = "#ffc44d";
+  const ink = kind === "target" ? "#ffffff" : gold;
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
   ctx.fillStyle = ink;
-  ctx.lineJoin = 'round';
+  ctx.lineJoin = "round";
   ctx.lineWidth = 5;
 
-  if (kind === 'target') {
+  if (kind === "target") {
     // A RING, not a filled disc: it sits over an animal that is moving, and a
     // solid dot at this size reads as a hole in the beast rather than a mark on
     // it. Two strokes, dark under bright, so it holds on snow and on grass.
     ctx.beginPath();
     ctx.arc(32, 32, 19, 0, Math.PI * 2);
     ctx.lineWidth = 12;
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
     ctx.stroke();
     ctx.lineWidth = 7;
     ctx.strokeStyle = ink;
@@ -89,15 +89,18 @@ function glyphTexture(kind: QuestMarkerKind): THREE.Texture {
     ctx.beginPath();
     fn();
     ctx.lineWidth = 13;
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
     ctx.stroke();
     ctx.lineWidth = 7;
     ctx.strokeStyle = ink;
     ctx.stroke();
   };
 
-  if (kind === 'offer') {
-    stroke(() => { ctx.moveTo(32, 9); ctx.lineTo(32, 38); });
+  if (kind === "offer") {
+    stroke(() => {
+      ctx.moveTo(32, 9);
+      ctx.lineTo(32, 38);
+    });
   } else {
     stroke(() => {
       ctx.moveTo(21, 19);
@@ -110,7 +113,7 @@ function glyphTexture(kind: QuestMarkerKind): THREE.Texture {
   // The dot, both kinds.
   ctx.beginPath();
   ctx.arc(32, 52, 6.5, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
   ctx.arc(32, 52, 6.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
@@ -145,7 +148,9 @@ export class QuestMarkers {
 
   private material(kind: QuestMarkerKind): THREE.SpriteMaterial {
     const had = this.materials.get(kind);
-    if (had) return had;
+    if (had) {
+      return had;
+    }
     const map = glyphTexture(kind);
     this.textures.push(map);
     const mat = new THREE.SpriteMaterial({
@@ -179,7 +184,9 @@ export class QuestMarkers {
       const spot = spots[i];
       const dx = spot.x - camera.position.x;
       const dz = spot.z - camera.position.z;
-      if (dx * dx + dz * dz > MAX_DIST * MAX_DIST) continue;
+      if (dx * dx + dz * dz > MAX_DIST * MAX_DIST) {
+        continue;
+      }
       let sprite = this.sprites[used];
       if (!sprite) {
         sprite = new THREE.Sprite(this.material(spot.kind));
@@ -193,11 +200,13 @@ export class QuestMarkers {
         spot.y + Math.sin(this.time * BOB_RATE + spot.x * 0.7) * BOB_AMP,
         spot.z,
       );
-      sprite.scale.setScalar(spot.kind === 'target' ? 0.5 : 0.62);
+      sprite.scale.setScalar(spot.kind === "target" ? 0.5 : 0.62);
       sprite.visible = true;
       used++;
     }
-    for (let i = used; i < this.sprites.length; i++) this.sprites[i].visible = false;
+    for (let i = used; i < this.sprites.length; i++) {
+      this.sprites[i].visible = false;
+    }
   }
 
   dispose(): void {
@@ -205,9 +214,13 @@ export class QuestMarkers {
       this.scene.remove(s);
     }
     this.sprites.length = 0;
-    for (const m of this.materials.values()) m.dispose();
+    for (const m of this.materials.values()) {
+      m.dispose();
+    }
     this.materials.clear();
-    for (const t of this.textures) t.dispose();
+    for (const t of this.textures) {
+      t.dispose();
+    }
     this.textures.length = 0;
   }
 }

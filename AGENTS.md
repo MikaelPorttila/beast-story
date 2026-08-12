@@ -16,18 +16,18 @@ Use **Bun** (`>= 1.3.14`) for every JS/TS command: `bun install`, `bun add [-d]`
 `bun remove`, `bun run <script>`, `bunx`, `bun tools/foo.mjs`. `bun.lock` is the
 only lockfile — delete any `package-lock.json` that appears.
 
-| Task | Command |
-| --- | --- |
-| Dev server (game + lab) | `bun run dev` → http://localhost:5187 |
-| Typecheck + build | `bun run build` |
-| Typecheck the COMMIT before pushing | `bun run verify` |
-| Timestamped build to `dist/` | `bun run snapshot [label]` |
-| Serve a build | `bun x vite preview --outDir dist` |
-| Re-export every `.blend` to `.glb` | `bun run glb` (the dev server does it on save) |
-| Run probes | `bun tools/probe.mjs <name...\|all> [--jobs N] [--json]` |
-| Read a debug hook | `bun tools/q.mjs "__dbgTowns().spawn" [--wait ms] [--url "?…"] [--lab "…"] [--raw]` |
-| Screenshot | `bun tools/screenshot.mjs shots/x.png "photo=1" 1920 1080 3500` |
-| Lab shot | `bun tools/lab-shot.mjs shots/x.png "beast=emberfox&t=2"` |
+| Task                                | Command                                                                             |
+| ----------------------------------- | ----------------------------------------------------------------------------------- |
+| Dev server (game + lab)             | `bun run dev` → http://localhost:5187                                               |
+| Typecheck + build                   | `bun run build`                                                                     |
+| Typecheck the COMMIT before pushing | `bun run verify`                                                                    |
+| Timestamped build to `dist/`        | `bun run snapshot [label]`                                                          |
+| Serve a build                       | `bun x vite preview --outDir dist`                                                  |
+| Re-export every `.blend` to `.glb`  | `bun run glb` (the dev server does it on save)                                      |
+| Run probes                          | `bun tools/probe.mjs <name...\|all> [--jobs N] [--json]`                            |
+| Read a debug hook                   | `bun tools/q.mjs "__dbgTowns().spawn" [--wait ms] [--url "?…"] [--lab "…"] [--raw]` |
+| Screenshot                          | `bun tools/screenshot.mjs shots/x.png "photo=1" 1920 1080 3500`                     |
+| Lab shot                            | `bun tools/lab-shot.mjs shots/x.png "beast=emberfox&t=2"`                           |
 
 Tools need `BROWSER_EXECUTABLE` in `.env.local` ([.env.example](.env.example)).
 Browser automation is **`puppeteer-core`** (Playwright does not run under Bun),
@@ -36,16 +36,16 @@ and everything browser-related goes through
 
 ## Debug surface
 
-| Purpose | Flags |
-| --- | --- |
-| Boot | `menu=0` skip title · `menu=1` force it · `photo=1` staged capture (implies `menu=0`) · `warmup=0` skip the shader sweep |
-| Framing | `cam=x,y,z` / `look=x,y,z` **offsets from `world.spawnPoint`** · `beast=<id>` · `anim=` · `a=<deg>` · `hud=0` · `npct=<s>` NPC clock · `colliders=1` draw colliders |
-| Performance | `fps=<n>` cap (default 120, `0` = off) · `simhz=` · `view=<n>` streaming radius · `debug=1` F2 overlay · `perf=1` pin the profiler |
-| A/B switches | `towns=0` · `solids=0` · `sway=0` · `props=0` · `clouds=0` · `water=0` · `enemies=0` · `beasts=0` · `aim=0` · `shadows=0` · `shadowcache=0` (must move no pixel) |
-| Post | `post=0` · `ao=` · `bloom=` · `aa=0` · `grade=0` · `roll=` · `aoview=1` |
-| Preferences (one load, never persisted) | `vol=<0..1>` · `lang=<iso639-1>` · `fs=<0\|1>` fullscreen on start · `haptics=` · `shake=` · `invx=` · `invy=` |
-| World tuning | `nature=<param>:<n>[,<area>.<param>:<n>]` before the first chunk |
-| Progression | `mounts=all` / `mounts=ground,water,flying` start with those mounts unlocked; riding is locked on a new character |
+| Purpose                                 | Flags                                                                                                                                                               |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Boot                                    | `menu=0` skip title · `menu=1` force it · `photo=1` staged capture (implies `menu=0`) · `warmup=0` skip the shader sweep                                            |
+| Framing                                 | `cam=x,y,z` / `look=x,y,z` **offsets from `world.spawnPoint`** · `beast=<id>` · `anim=` · `a=<deg>` · `hud=0` · `npct=<s>` NPC clock · `colliders=1` draw colliders |
+| Performance                             | `fps=<n>` cap (default 120, `0` = off) · `simhz=` · `view=<n>` streaming radius · `debug=1` F2 overlay · `perf=1` pin the profiler                                  |
+| A/B switches                            | `towns=0` · `solids=0` · `sway=0` · `props=0` · `clouds=0` · `water=0` · `enemies=0` · `beasts=0` · `aim=0` · `shadows=0` · `shadowcache=0` (must move no pixel)    |
+| Post                                    | `post=0` · `ao=` · `bloom=` · `aa=0` · `grade=0` · `roll=` · `aoview=1`                                                                                             |
+| Preferences (one load, never persisted) | `vol=<0..1>` · `lang=<iso639-1>` · `fs=<0\|1>` fullscreen on start · `haptics=` · `shake=` · `invx=` · `invy=`                                                      |
+| World tuning                            | `nature=<param>:<n>[,<area>.<param>:<n>]` before the first chunk                                                                                                    |
+| Progression                             | `mounts=all` / `mounts=ground,water,flying` start with those mounts unlocked; riding is locked on a new character                                                   |
 
 Lab flags are in [LAB.md](LAB.md).
 
@@ -78,17 +78,18 @@ both.
 **A new dependency or licensed asset is credited in the same commit**, in
 [src/ui/about.ts](src/ui/about.ts):
 
-| Case | Action |
-| --- | --- |
+| Case                                     | Action                                                               |
+| ---------------------------------------- | -------------------------------------------------------------------- |
 | `dependencies`, fonts, art, sounds, data | `SHIPPED` + the copyright line from the package's own `LICENSE` file |
-| `devDependencies` | `TOOLS` + name and SPDX id |
-| Copyleft (GPL / LGPL / AGPL) | Stop and ask — it is a project-level decision |
+| `devDependencies`                        | `TOOLS` + name and SPDX id                                           |
+| Copyleft (GPL / LGPL / AGPL)             | Stop and ask — it is a project-level decision                        |
 
 Keep those notices verbatim and in English at every display language. Keep
 repository links out of the panel: the repo is private, and
 `bun tools/test-about.mjs` asserts both that and the shipped credits.
 
 ## Code Style
+
 - Keep code and solution simple yet scaleable. Channel "yagni" energy unless told otherwise.
 - Write TypeScript / TS code in a respectable way and don't write code like a Python dev.
 - Avoid one-line functions that are just casting wrappers.
@@ -175,39 +176,39 @@ subsystem lives there. Read the boot note at the top of that file before
 reordering anything in it. [src/lab/index.ts](src/lab/index.ts) is a second,
 smaller loop over the same modules — keep model and VFX code out of it.
 
-| Area | Files | Guard |
-| --- | --- | --- |
-| Renderer, post chain, shadows | `core/engine.ts`, `core/post.ts`, `core/shadow-cache.ts` | `test-gfx`, `test-shadowcache` |
-| Terrain, streaming | `world/terrain.ts`, `world/index.ts`, `world/chunk.ts` | `test-road`, `test-nature` |
-| Water and diving | `world/water.ts`, `world/underwater.ts` | `test-dive` |
-| Towns, roads, buildings | `world/towns.ts`, `world/roads.ts`, `world/town-parts.ts`, `world/structures.ts`, `world/spawned.ts` | `test-road`, `test-structures`, `test-spawn` |
-| What KIND of path a path is | `world/path-profile.ts` | `test-path-profile`, `test-road` |
-| Road cases on real voxel ground | `lab/road-stage.ts` (`?road=<case>`) | `test-road-lab` |
-| How steep the ground is | `Terrain.steepnessAt` — there is no mountain biome | `test-road-lab` |
-| Authoring a path at runtime | `World.addPath` (`world/index.ts`), `Towns.rebuildPaths`, `PathEditControl` in `ui/perf-panel.ts` | `test-path-edit`, `test-gfx` |
-| Beaten tracks and flagged streets | `WEAR`/`wearTracks` in `world/towns.ts`, `streetNetwork` in `world/sky-island.ts` | `test-road`, `test-carrier` |
-| Fences and bridge railings | `world/fences.ts` (the chain), `world/town-parts.ts` (the kit) | `test-fence` |
-| Moving world pieces | `world/carriers.ts`, `world/sky-island.ts` | `test-carrier` |
-| Vegetation, wind | `world/nature.ts`, `world/props.ts`, `world/sway.ts` | `test-nature`, `test-sway` |
-| Foliage vs. buildings | `SiteClearance` in `core/types.ts`, `world/structures.ts` (the field), `Accum.add` in `world/props.ts` (the one refusal) | `test-foliage-clip` |
-| People | `world/npc.ts` + a file per body | `test-npc`, `test-zfight` (carried-frame NPCs have no behavioural guard) |
-| Beasts | `beasts/framework.ts`, `beasts/registry.ts`, `beasts/species/*` | `test-zfight`, `test-beastanim`, `test-companion` |
-| Combat, enemies, drops | `combat/index.ts`, `combat/enemies.ts`, `combat/pickups.ts` | `test-safezone`, `test-aim-assist`, `test-inventory` |
-| "Is the player close?" | `inReach` / `inRise` in `core/types.ts`, and every caller | `test-proximity` |
-| Hero, camera, mount, weapons | `player/*` | `test-dive`, `test-structures`, `test-inventory`, `test-npc` |
-| Which mounts the story has unlocked | `MountUnlocks` in `player/mount.ts`, the badges in `ui/inventory.ts`, the F3 rows in `ui/perf-panel.ts` | `test-mounts`, `test-saves` |
-| Hero hairstyles | `player/hair.ts` (the styles), `player/hero-rig.ts` (the mount) | `test-hair`, `test-zfight` |
-| Input devices | `core/input.ts`, `core/gamepad.ts`, `core/touch.ts` | `test-touch`, `test-gamepad` |
-| HUD, menus, panels | `ui/*` (DOM overlay, `bs-*` class names) | `test-menu`, `test-pause`, `test-textsize`, `test-viewport`, `test-cursor` |
-| F3 Debug panel and its spawner | `ui/perf-panel.ts`, `core/gfx.ts`, `core/spawn.ts` | `test-gfx`, `test-spawn`, `test-hair`, `test-path-edit` |
-| Key bindings | `ui/keybinds.ts` | `test-keybinds` |
-| Items and the bag | `core/items.ts`, `ui/inventory.ts` (rules in `main.ts`) | `test-inventory` |
-| Settings and storage | `ui/settings.ts`, `core/prefs.ts`, `core/gfx.ts` | `test-settings` |
-| Saving and loading a character | `core/saves.ts` (the store), `collectSave` / `applySave` / `resolveSafeGround` / `resolveOnCarrier` in `main.ts`, the restore seams on `Player`/`BeastActor`/`Inventory`/`SlotLayout`/`CombatSystem`/`DayNightCycle` | `test-saves` |
-| Content system | `content/*`, `content/data/core.json` | `test-content` |
-| Strings | `i18n/en.ts` (base table), `i18n/<iso639-1>.ts` | `test-about`, `test-settings` (keys are checked at build time) |
-| Music | `audio/music.ts` | `test-music` |
-| Credits and licences | `ui/about.ts` | `test-about` |
+| Area                                | Files                                                                                                                                                                                                                | Guard                                                                      |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Renderer, post chain, shadows       | `core/engine.ts`, `core/post.ts`, `core/shadow-cache.ts`                                                                                                                                                             | `test-gfx`, `test-shadowcache`                                             |
+| Terrain, streaming                  | `world/terrain.ts`, `world/index.ts`, `world/chunk.ts`                                                                                                                                                               | `test-road`, `test-nature`                                                 |
+| Water and diving                    | `world/water.ts`, `world/underwater.ts`                                                                                                                                                                              | `test-dive`                                                                |
+| Towns, roads, buildings             | `world/towns.ts`, `world/roads.ts`, `world/town-parts.ts`, `world/structures.ts`, `world/spawned.ts`                                                                                                                 | `test-road`, `test-structures`, `test-spawn`                               |
+| What KIND of path a path is         | `world/path-profile.ts`                                                                                                                                                                                              | `test-path-profile`, `test-road`                                           |
+| Road cases on real voxel ground     | `lab/road-stage.ts` (`?road=<case>`)                                                                                                                                                                                 | `test-road-lab`                                                            |
+| How steep the ground is             | `Terrain.steepnessAt` — there is no mountain biome                                                                                                                                                                   | `test-road-lab`                                                            |
+| Authoring a path at runtime         | `World.addPath` (`world/index.ts`), `Towns.rebuildPaths`, `PathEditControl` in `ui/perf-panel.ts`                                                                                                                    | `test-path-edit`, `test-gfx`                                               |
+| Beaten tracks and flagged streets   | `WEAR`/`wearTracks` in `world/towns.ts`, `streetNetwork` in `world/sky-island.ts`                                                                                                                                    | `test-road`, `test-carrier`                                                |
+| Fences and bridge railings          | `world/fences.ts` (the chain), `world/town-parts.ts` (the kit)                                                                                                                                                       | `test-fence`                                                               |
+| Moving world pieces                 | `world/carriers.ts`, `world/sky-island.ts`                                                                                                                                                                           | `test-carrier`                                                             |
+| Vegetation, wind                    | `world/nature.ts`, `world/props.ts`, `world/sway.ts`                                                                                                                                                                 | `test-nature`, `test-sway`                                                 |
+| Foliage vs. buildings               | `SiteClearance` in `core/types.ts`, `world/structures.ts` (the field), `Accum.add` in `world/props.ts` (the one refusal)                                                                                             | `test-foliage-clip`                                                        |
+| People                              | `world/npc.ts` + a file per body                                                                                                                                                                                     | `test-npc`, `test-zfight` (carried-frame NPCs have no behavioural guard)   |
+| Beasts                              | `beasts/framework.ts`, `beasts/registry.ts`, `beasts/species/*`                                                                                                                                                      | `test-zfight`, `test-beastanim`, `test-companion`                          |
+| Combat, enemies, drops              | `combat/index.ts`, `combat/enemies.ts`, `combat/pickups.ts`                                                                                                                                                          | `test-safezone`, `test-aim-assist`, `test-inventory`                       |
+| "Is the player close?"              | `inReach` / `inRise` in `core/types.ts`, and every caller                                                                                                                                                            | `test-proximity`                                                           |
+| Hero, camera, mount, weapons        | `player/*`                                                                                                                                                                                                           | `test-dive`, `test-structures`, `test-inventory`, `test-npc`               |
+| Which mounts the story has unlocked | `MountUnlocks` in `player/mount.ts`, the badges in `ui/inventory.ts`, the F3 rows in `ui/perf-panel.ts`                                                                                                              | `test-mounts`, `test-saves`                                                |
+| Hero hairstyles                     | `player/hair.ts` (the styles), `player/hero-rig.ts` (the mount)                                                                                                                                                      | `test-hair`, `test-zfight`                                                 |
+| Input devices                       | `core/input.ts`, `core/gamepad.ts`, `core/touch.ts`                                                                                                                                                                  | `test-touch`, `test-gamepad`                                               |
+| HUD, menus, panels                  | `ui/*` (DOM overlay, `bs-*` class names)                                                                                                                                                                             | `test-menu`, `test-pause`, `test-textsize`, `test-viewport`, `test-cursor` |
+| F3 Debug panel and its spawner      | `ui/perf-panel.ts`, `core/gfx.ts`, `core/spawn.ts`                                                                                                                                                                   | `test-gfx`, `test-spawn`, `test-hair`, `test-path-edit`                    |
+| Key bindings                        | `ui/keybinds.ts`                                                                                                                                                                                                     | `test-keybinds`                                                            |
+| Items and the bag                   | `core/items.ts`, `ui/inventory.ts` (rules in `main.ts`)                                                                                                                                                              | `test-inventory`                                                           |
+| Settings and storage                | `ui/settings.ts`, `core/prefs.ts`, `core/gfx.ts`                                                                                                                                                                     | `test-settings`                                                            |
+| Saving and loading a character      | `core/saves.ts` (the store), `collectSave` / `applySave` / `resolveSafeGround` / `resolveOnCarrier` in `main.ts`, the restore seams on `Player`/`BeastActor`/`Inventory`/`SlotLayout`/`CombatSystem`/`DayNightCycle` | `test-saves`                                                               |
+| Content system                      | `content/*`, `content/data/core.json`                                                                                                                                                                                | `test-content`                                                             |
+| Strings                             | `i18n/en.ts` (base table), `i18n/<iso639-1>.ts`                                                                                                                                                                      | `test-about`, `test-settings` (keys are checked at build time)             |
+| Music                               | `audio/music.ts`                                                                                                                                                                                                     | `test-music`                                                               |
+| Credits and licences                | `ui/about.ts`                                                                                                                                                                                                        | `test-about`                                                               |
 
 Cross-cutting rules:
 
@@ -262,6 +263,7 @@ Cross-cutting rules:
   and a system that adds a new KIND of world state — a built structure, a
   claimed plot, a placed marker — owes a save both a field and a rule for what
   happens when the thing it points at is gone.
+
 - **Keep `src/content/` free of static imports from `./storage/bundled.ts`** —
   it is the one file using `import.meta.glob`, which `test-zfight.mjs` (plain
   Bun, no Vite) cannot load. For the same reason `NPC_BODIES` stays a plain

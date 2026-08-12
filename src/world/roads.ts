@@ -10,9 +10,9 @@
  * to that over exactly the run the carve raises, and the ribbon is drawn on that
  * same surface out to that same edge.
  */
-import { Terrain, WATER_LEVEL, smoothstep, type RoadField } from './terrain';
-import { mulberry32 } from './noise';
-import { MAX_CARVE_BLEND, ROAD_PROFILE, type PathProfile } from './path-profile';
+import { Terrain, WATER_LEVEL, smoothstep, type RoadField } from "./terrain";
+import { mulberry32 } from "./noise";
+import { MAX_CARVE_BLEND, ROAD_PROFILE, type PathProfile } from "./path-profile";
 
 /** For the lab stage and probes only; every placer uses `edgeDistanceTo`. */
 export const DECK_HALF = ROAD_PROFILE.deckHalf;
@@ -48,7 +48,10 @@ const enum Role {
 /** One spatial grid each. See `grids`. */
 const ROLES = [Role.Surface, Role.Built, Role.Foliage, Role.Wear];
 const ROLE_SLOT: Record<number, number> = {
-  [Role.Surface]: 0, [Role.Built]: 1, [Role.Foliage]: 2, [Role.Wear]: 3,
+  [Role.Surface]: 0,
+  [Role.Built]: 1,
+  [Role.Foliage]: 2,
+  [Role.Wear]: 3,
 };
 
 const cellKey = (cx: number, cz: number): number => cx * 4194304 + cz;
@@ -106,10 +109,16 @@ export interface Road {
 
 /** Setters rather than raw writes, so the slot order lives in one place. */
 export function setTrimStart(r: Road, px: number, pz: number, nx: number, nz: number): void {
-  r.trim[0] = px; r.trim[1] = pz; r.trim[2] = nx; r.trim[3] = nz;
+  r.trim[0] = px;
+  r.trim[1] = pz;
+  r.trim[2] = nx;
+  r.trim[3] = nz;
 }
 export function setTrimEnd(r: Road, px: number, pz: number, nx: number, nz: number): void {
-  r.trim[4] = px; r.trim[5] = pz; r.trim[6] = nx; r.trim[7] = nz;
+  r.trim[4] = px;
+  r.trim[5] = pz;
+  r.trim[6] = nx;
+  r.trim[7] = nz;
 }
 
 /**
@@ -136,14 +145,18 @@ export function builtDeck(r: Road): RoadSample[] {
         const q = r.pts[i - 1];
         const a = inside(q, 0);
         const b = inside(p, 0);
-        if (b !== a) out.push(lerp(q, p, (0 - a) / (b - a)));
+        if (b !== a) {
+          out.push(lerp(q, p, (0 - a) / (b - a)));
+        }
       }
       out.push(p);
     } else if (out.length > 0 && !in1) {
       const q = r.pts[i - 1];
       const a = inside(q, 4);
       const b = inside(p, 4);
-      if (b !== a) out.push(lerp(q, p, (0 - a) / (b - a)));
+      if (b !== a) {
+        out.push(lerp(q, p, (0 - a) / (b - a)));
+      }
       break;
     }
   }
@@ -216,7 +229,9 @@ export class RoadNetwork implements RoadField, RoadClearance {
   private nProfile: PathProfile = ROAD_PROFILE;
 
   add(road: Road): void {
-    if (road.pts.length >= 2) this.roads.push(road);
+    if (road.pts.length >= 2) {
+      this.roads.push(road);
+    }
   }
 
   /**
@@ -225,7 +240,9 @@ export class RoadNetwork implements RoadField, RoadClearance {
    */
   replace(road: Road, halves: readonly Road[]): void {
     const i = this.roads.indexOf(road);
-    if (i < 0) return;
+    if (i < 0) {
+      return;
+    }
     this.roads.splice(i, 1, ...halves);
   }
 
@@ -237,7 +254,9 @@ export class RoadNetwork implements RoadField, RoadClearance {
   /** Flatten every road into segments and index them. Call once, after `add`. */
   build(): void {
     let n = 0;
-    for (const r of this.roads) n += r.pts.length - 1;
+    for (const r of this.roads) {
+      n += r.pts.length - 1;
+    }
     // Per network, not per role: conservative, and costs at most a needless sqrt.
     this.uniformEdge = this.roads.every(
       (r) => r.profile.deckEdge === this.roads[0].profile.deckEdge,
@@ -248,10 +267,11 @@ export class RoadNetwork implements RoadField, RoadClearance {
     this.roadRole = new Uint8Array(this.roads.length);
     for (let i = 0; i < this.roads.length; i++) {
       const q = this.roads[i].profile.roles;
-      this.roadRole[i] = (q.surface ? Role.Surface : 0)
-        | (q.refusesBuilt ? Role.Built : 0)
-        | (q.refusesFoliage ? Role.Foliage : 0)
-        | (q.wears ? Role.Wear : 0);
+      this.roadRole[i] =
+        (q.surface ? Role.Surface : 0) |
+        (q.refusesBuilt ? Role.Built : 0) |
+        (q.refusesFoliage ? Role.Foliage : 0) |
+        (q.wears ? Role.Wear : 0);
     }
     this.clipStamp = new Float64Array(this.roads.length);
     this.clipOut = new Uint8Array(this.roads.length);
@@ -276,8 +296,12 @@ export class RoadNetwork implements RoadField, RoadClearance {
         const a = r.pts[i - 1];
         const b = r.pts[i];
         const o = k * 6;
-        this.seg[o] = a.x; this.seg[o + 1] = a.z; this.seg[o + 2] = a.y;
-        this.seg[o + 3] = b.x; this.seg[o + 4] = b.z; this.seg[o + 5] = b.y;
+        this.seg[o] = a.x;
+        this.seg[o + 1] = a.z;
+        this.seg[o + 2] = a.y;
+        this.seg[o + 3] = b.x;
+        this.seg[o + 4] = b.z;
+        this.seg[o + 5] = b.y;
         // Either end wet spans the whole segment: a half-carved abutment notches.
         this.segBridge[k] = a.bridge || b.bridge ? 1 : 0;
         k++;
@@ -302,28 +326,43 @@ export class RoadNetwork implements RoadField, RoadClearance {
       const role = ROLES[g];
       const lists = new Map<number, number[]>();
       for (let i = 0; i < count; i++) {
-        if ((this.roadRole[this.segRoad[i]] & role) === 0) continue;
+        if ((this.roadRole[this.segRoad[i]] & role) === 0) {
+          continue;
+        }
         const o = i * 6;
         const x0 = Math.min(this.seg[o], this.seg[o + 3]) - REACH;
         const x1 = Math.max(this.seg[o], this.seg[o + 3]) + REACH;
         const z0 = Math.min(this.seg[o + 1], this.seg[o + 4]) - REACH;
         const z1 = Math.max(this.seg[o + 1], this.seg[o + 4]) + REACH;
-        if (x0 < this.bounds[g * 4]) this.bounds[g * 4] = x0;
-        if (x1 > this.bounds[g * 4 + 1]) this.bounds[g * 4 + 1] = x1;
-        if (z0 < this.bounds[g * 4 + 2]) this.bounds[g * 4 + 2] = z0;
-        if (z1 > this.bounds[g * 4 + 3]) this.bounds[g * 4 + 3] = z1;
+        if (x0 < this.bounds[g * 4]) {
+          this.bounds[g * 4] = x0;
+        }
+        if (x1 > this.bounds[g * 4 + 1]) {
+          this.bounds[g * 4 + 1] = x1;
+        }
+        if (z0 < this.bounds[g * 4 + 2]) {
+          this.bounds[g * 4 + 2] = z0;
+        }
+        if (z1 > this.bounds[g * 4 + 3]) {
+          this.bounds[g * 4 + 3] = z1;
+        }
         for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
           for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
             const key = cellKey(cx, cz);
             let l = lists.get(key);
-            if (l === undefined) { l = []; lists.set(key, l); }
+            if (l === undefined) {
+              l = [];
+              lists.set(key, l);
+            }
             l.push(i);
           }
         }
       }
       const grid = this.grids[g];
       grid.clear();
-      for (const [key, l] of lists) grid.set(key, Int32Array.from(l));
+      for (const [key, l] of lists) {
+        grid.set(key, Int32Array.from(l));
+      }
     }
   }
 
@@ -333,15 +372,19 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * #142): a narrow path beside a wide one owns the closest centreline to a column
    * the wide one surfaces, so rank on `d - deckEdge`. See `uniformEdge`.
    */
-  private nearest(
-    x: number, z: number, role: number, built: boolean, insetScale = 0,
-  ): boolean {
+  private nearest(x: number, z: number, role: number, built: boolean, insetScale = 0): boolean {
     const g = ROLE_SLOT[role];
     const b = g * 4;
-    if (x < this.bounds[b] || x > this.bounds[b + 1]) return false;
-    if (z < this.bounds[b + 2] || z > this.bounds[b + 3]) return false;
+    if (x < this.bounds[b] || x > this.bounds[b + 1]) {
+      return false;
+    }
+    if (z < this.bounds[b + 2] || z > this.bounds[b + 3]) {
+      return false;
+    }
     const bucket = this.grids[g].get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
-    if (bucket === undefined) return false;
+    if (bucket === undefined) {
+      return false;
+    }
     const uniform = this.uniformEdge;
     let best = Infinity;
     let bestD2 = Infinity;
@@ -349,7 +392,9 @@ export class RoadNetwork implements RoadField, RoadClearance {
     let bridge = 0;
     let profile: PathProfile | null = null;
     const s = this.seg;
-    if (built) this.queryId++;
+    if (built) {
+      this.queryId++;
+    }
     for (let i = 0; i < bucket.length; i++) {
       // The role IS the index, which keeps a wide painted track out of the field.
       const ri = this.segRoad[bucket[i]];
@@ -364,7 +409,9 @@ export class RoadNetwork implements RoadField, RoadClearance {
           const p1 = (x - t[4]) * t[6] + (z - t[5]) * t[7];
           this.clipOut[ri] = p0 >= inset && p1 >= inset ? 0 : 1;
         }
-        if (this.clipOut[ri] === 1) continue;
+        if (this.clipOut[ri] === 1) {
+          continue;
+        }
       }
       const o = bucket[i] * 6;
       const ax = s[o];
@@ -373,7 +420,11 @@ export class RoadNetwork implements RoadField, RoadClearance {
       const dz = s[o + 4] - az;
       const len2 = dx * dx + dz * dz;
       let t = len2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0;
-      if (t < 0) t = 0; else if (t > 1) t = 1;
+      if (t < 0) {
+        t = 0;
+      } else if (t > 1) {
+        t = 1;
+      }
       const px = ax + dx * t - x;
       const pz = az + dz * t - z;
       const d2 = px * px + pz * pz;
@@ -386,7 +437,9 @@ export class RoadNetwork implements RoadField, RoadClearance {
         profile = rp;
       }
     }
-    if (profile === null || bestD2 > REACH * REACH) return false;
+    if (profile === null || bestD2 > REACH * REACH) {
+      return false;
+    }
     this.nDist = Math.sqrt(bestD2);
     this.nDeck = deck;
     this.nBridge = bridge === 1;
@@ -399,7 +452,9 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * both `surfaceAt` and `carveAt` — they may not be two formulas that agree.
    */
   private static surfaceOf(p: PathProfile, deck: number, d: number): number {
-    if (d <= p.deckHalf) return deck;
+    if (d <= p.deckHalf) {
+      return deck;
+    }
     const t = (d - p.deckHalf) / (p.verge - p.shoulderIn);
     // Reaches the shoulder `shoulderIn` inside the rim, then holds it to the rim.
     return deck + (Math.round(deck) - deck) * (t > 1 ? 1 : t);
@@ -407,13 +462,21 @@ export class RoadNetwork implements RoadField, RoadClearance {
 
   carveAt(x: number, z: number): number {
     // insetScale 1: the earthworks stop short of the surface's terminal plane.
-    if (!this.nearest(x, z, Role.Surface, true, 1)) return 0;
+    if (!this.nearest(x, z, Role.Surface, true, 1)) {
+      return 0;
+    }
     const prof = this.nProfile;
-    if (prof.carve === 'none') return 0;
+    if (prof.carve === "none") {
+      return 0;
+    }
     // A bridge span leaves the ground alone: raising a lake bed would drain it.
-    if (this.nBridge) return 0;
+    if (this.nBridge) {
+      return 0;
+    }
     const d = this.nDist;
-    if (d >= prof.carveBlend) return 0;
+    if (d >= prof.carveBlend) {
+      return 0;
+    }
     // Cut to the SURFACE DRAWN OVER the column, minus a sink: `floor` can only
     // lower (nothing stands through the ribbon) and at the rim the faded target is
     // the integer `round(deck)` that `floor` returns exactly (no invisible step).
@@ -422,8 +485,10 @@ export class RoadNetwork implements RoadField, RoadClearance {
     // blending to 12.999999 for 13. `dCell` reaches inward half a cell diagonal
     // because a column is a CELL whose inner corner sees a lower drawn surface.
     const dCell = d > prof.carveInset ? d - prof.carveInset : 0;
-    this.carveTarget = RoadNetwork.surfaceOf(prof, this.nDeck, dCell) + 0.001
-      - prof.sink * (1 - smoothstep(prof.deckHalf, prof.deckEdge - prof.shoulderIn, dCell));
+    this.carveTarget =
+      RoadNetwork.surfaceOf(prof, this.nDeck, dCell) +
+      0.001 -
+      prof.sink * (1 - smoothstep(prof.deckHalf, prof.deckEdge - prof.shoulderIn, dCell));
     return 1 - smoothstep(prof.carveCore, prof.carveBlend, d);
   }
 
@@ -435,11 +500,17 @@ export class RoadNetwork implements RoadField, RoadClearance {
   drawnSurfaceAt(x: number, z: number, ground: number): number {
     // Unclipped: the ROUTE. Safe because `columnInfo` only lowers a column already
     // within a metre of the corridor surface.
-    if (!this.nearest(x, z, Role.Surface, false)) return ground;
+    if (!this.nearest(x, z, Role.Surface, false)) {
+      return ground;
+    }
     const d = this.nDist;
     const prof = this.nProfile;
-    if (d >= prof.deckEdge) return ground;
-    if (this.nBridge) return this.nDeck;
+    if (d >= prof.deckEdge) {
+      return ground;
+    }
+    if (this.nBridge) {
+      return this.nDeck;
+    }
     return RoadNetwork.surfaceOf(prof, this.nDeck, d);
   }
 
@@ -448,13 +519,19 @@ export class RoadNetwork implements RoadField, RoadClearance {
   }
 
   private surfaceOfAt(x: number, z: number, ground: number, insetScale: number): number {
-    if (!this.nearest(x, z, Role.Surface, true, insetScale)) return ground;
+    if (!this.nearest(x, z, Role.Surface, true, insetScale)) {
+      return ground;
+    }
     const d = this.nDist;
     const prof = this.nProfile;
-    if (d >= prof.deckEdge) return ground;
+    if (d >= prof.deckEdge) {
+      return ground;
+    }
     const deck = this.nDeck;
     // Flat to its edge and then nothing: no handrail collision on a bridge.
-    if (this.nBridge) return deck;
+    if (this.nBridge) {
+      return deck;
+    }
     return RoadNetwork.surfaceOf(prof, deck, d);
   }
 
@@ -469,8 +546,7 @@ export class RoadNetwork implements RoadField, RoadClearance {
 
   /** Outside the nearest path's RIM. THE QUERY EVERY PLACER ASKS; see `RoadClearance`. */
   edgeDistanceTo(x: number, z: number): number {
-    return this.nearest(x, z, Role.Foliage, false)
-      ? this.nDist - this.nProfile.deckEdge : Infinity;
+    return this.nearest(x, z, Role.Foliage, false) ? this.nDist - this.nProfile.deckEdge : Infinity;
   }
 
   /**
@@ -478,8 +554,7 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * `edgeDistanceTo` and not this, being derived from the huts it runs between.
    */
   builtEdgeDistanceTo(x: number, z: number): number {
-    return this.nearest(x, z, Role.Built, false)
-      ? this.nDist - this.nProfile.deckEdge : Infinity;
+    return this.nearest(x, z, Role.Built, false) ? this.nDist - this.nProfile.deckEdge : Infinity;
   }
 
   /**
@@ -487,26 +562,40 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * query, because the clipmap's nine-point stencil (`underPaths`) straddles a path
    * narrower than its gaps: each segment is tested against the cell as a DISC.
    */
-  lowestDrawnSurfaceNear(
-    x: number, z: number, r: number, ground: number, rim?: RimHit,
-  ): number {
-    if (rim !== undefined) rim.found = false;
+  lowestDrawnSurfaceNear(x: number, z: number, r: number, ground: number, rim?: RimHit): number {
+    if (rim !== undefined) {
+      rim.found = false;
+    }
     const g = ROLE_SLOT[Role.Surface];
     const b = g * 4;
-    if (x < this.bounds[b] - r || x > this.bounds[b + 1] + r) return ground;
-    if (z < this.bounds[b + 2] - r || z > this.bounds[b + 3] + r) return ground;
+    if (x < this.bounds[b] - r || x > this.bounds[b + 1] + r) {
+      return ground;
+    }
+    if (z < this.bounds[b + 2] - r || z > this.bounds[b + 3] + r) {
+      return ground;
+    }
     let out = ground;
     // The cell can straddle a bucket boundary, so look up its four corners too.
-    for (const [ox, oz] of [[0, 0], [r, r], [r, -r], [-r, r], [-r, -r]] as const) {
+    for (const [ox, oz] of [
+      [0, 0],
+      [r, r],
+      [r, -r],
+      [-r, r],
+      [-r, -r],
+    ] as const) {
       const bucket = this.grids[g].get(
         cellKey(Math.floor((x + ox) / CELL), Math.floor((z + oz) / CELL)),
       );
-      if (bucket === undefined) continue;
+      if (bucket === undefined) {
+        continue;
+      }
       const s = this.seg;
       for (let i = 0; i < bucket.length; i++) {
         const ri = this.segRoad[bucket[i]];
         const road = this.roads[ri];
-        if (!road.profile.roles.draw) continue;
+        if (!road.profile.roles.draw) {
+          continue;
+        }
         const o = bucket[i] * 6;
         const ax = s[o];
         const az = s[o + 1];
@@ -514,12 +603,20 @@ export class RoadNetwork implements RoadField, RoadClearance {
         const dz = s[o + 4] - az;
         const len2 = dx * dx + dz * dz;
         let t = len2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0;
-        if (t < 0) t = 0; else if (t > 1) t = 1;
+        if (t < 0) {
+          t = 0;
+        } else if (t > 1) {
+          t = 1;
+        }
         const px = ax + dx * t;
         const pz = az + dz * t;
-        if (Math.hypot(px - x, pz - z) > r + road.profile.deckEdge) continue;
+        if (Math.hypot(px - x, pz - z) > r + road.profile.deckEdge) {
+          continue;
+        }
         const deck = s[o + 2] + (s[o + 5] - s[o + 2]) * t;
-        if (deck < out) out = deck;
+        if (deck < out) {
+          out = deck;
+        }
         // The rim, for a caller that samples the walking surface itself: the deck
         // is only the middle of the corridor. See `underPaths`.
         if (rim !== undefined && !rim.found) {
@@ -541,12 +638,20 @@ export class RoadNetwork implements RoadField, RoadClearance {
    * at the VERGE, not a disc: wheels sweep a carriageway clear onto its edge.
    */
   litterAt(x: number, z: number): number {
-    if (!this.nearest(x, z, Role.Foliage, false)) return 0;
+    if (!this.nearest(x, z, Role.Foliage, false)) {
+      return 0;
+    }
     const p = this.nProfile;
-    if (p.litter <= 0) return 0;
+    if (p.litter <= 0) {
+      return 0;
+    }
     const d = this.nDist;
-    if (d <= p.deckHalf) return 0;
-    if (d >= p.deckEdge + LITTER_SKIRT) return 0;
+    if (d <= p.deckHalf) {
+      return 0;
+    }
+    if (d >= p.deckEdge + LITTER_SKIRT) {
+      return 0;
+    }
     // Up over the verge, held across the rim, down over the skirt outside it.
     const up = smoothstep(p.deckHalf, p.deckEdge, d);
     const down = 1 - smoothstep(p.deckEdge, p.deckEdge + LITTER_SKIRT, d);
@@ -560,10 +665,16 @@ export class RoadNetwork implements RoadField, RoadClearance {
   wearAt(x: number, z: number): number {
     const g = ROLE_SLOT[Role.Wear];
     const b = g * 4;
-    if (x < this.bounds[b] || x > this.bounds[b + 1]) return 0;
-    if (z < this.bounds[b + 2] || z > this.bounds[b + 3]) return 0;
+    if (x < this.bounds[b] || x > this.bounds[b + 1]) {
+      return 0;
+    }
+    if (z < this.bounds[b + 2] || z > this.bounds[b + 3]) {
+      return 0;
+    }
     const bucket = this.grids[g].get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
-    if (bucket === undefined) return 0;
+    if (bucket === undefined) {
+      return 0;
+    }
     // The STRONGEST track, not the nearest: overlapping tracks are walked
     // different amounts, and max is what the field this replaces took.
     const s = this.seg;
@@ -576,16 +687,23 @@ export class RoadNetwork implements RoadField, RoadClearance {
       const dz = s[o + 4] - az;
       const len2 = dx * dx + dz * dz;
       let t = len2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0;
-      if (t < 0) t = 0; else if (t > 1) t = 1;
+      if (t < 0) {
+        t = 0;
+      } else if (t > 1) {
+        t = 1;
+      }
       const px = ax + dx * t - x;
       const pz = az + dz * t - z;
       const road = this.roads[this.segRoad[bucket[i]]];
       const p = road.profile;
       const d2 = px * px + pz * pz;
-      if (d2 >= p.deckEdge * p.deckEdge) continue;
-      const w = (road.wear ?? 1)
-        * (1 - smoothstep(p.deckHalf, p.deckEdge, Math.sqrt(d2)));
-      if (w > best) best = w;
+      if (d2 >= p.deckEdge * p.deckEdge) {
+        continue;
+      }
+      const w = (road.wear ?? 1) * (1 - smoothstep(p.deckHalf, p.deckEdge, Math.sqrt(d2)));
+      if (w > best) {
+        best = w;
+      }
     }
     return best;
   }
@@ -604,9 +722,7 @@ export class RoadNetwork implements RoadField, RoadClearance {
     return this.sweep(ax, az, bx, bz, true);
   }
 
-  private sweep(
-    ax: number, az: number, bx: number, bz: number, builtOnly: boolean,
-  ): number {
+  private sweep(ax: number, az: number, bx: number, bz: number, builtOnly: boolean): number {
     const dx = bx - ax;
     const dz = bz - az;
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / SPAN_STEP));
@@ -616,7 +732,9 @@ export class RoadNetwork implements RoadField, RoadClearance {
       const d = builtOnly
         ? this.builtEdgeDistanceTo(ax + dx * t, az + dz * t)
         : this.edgeDistanceTo(ax + dx * t, az + dz * t);
-      if (d < best) best = d;
+      if (d < best) {
+        best = d;
+      }
     }
     return best;
   }
@@ -655,24 +773,33 @@ export function findCrossings(road: Road, others: readonly Road[]): Crossing[] {
     const rx = a1.x - a0.x;
     const rz = a1.z - a0.z;
     for (const other of others) {
-      if (other === road) continue;
+      if (other === road) {
+        continue;
+      }
       for (let k = 1; k < other.pts.length; k++) {
         const b0 = other.pts[k - 1];
         const b1 = other.pts[k];
         const sx = b1.x - b0.x;
         const sz = b1.z - b0.z;
         const den = rx * sz - rz * sx;
-        if (Math.abs(den) < 1e-9) continue;   // parallel, or a degenerate segment
+        if (Math.abs(den) < 1e-9) {
+          continue;
+        } // parallel, or a degenerate segment
         const t = ((b0.x - a0.x) * sz - (b0.z - a0.z) * sx) / den;
         const u = ((b0.x - a0.x) * rz - (b0.z - a0.z) * rx) / den;
-        if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+        if (t < 0 || t > 1 || u < 0 || u > 1) {
+          continue;
+        }
         const rl = Math.hypot(rx, rz) || 1;
         const sl = Math.hypot(sx, sz) || 1;
         // Unsigned: a crossing has no direction, so 175 degrees is 5 apart.
         const dot = Math.abs((rx * sx + rz * sz) / (rl * sl));
         out.push({
-          seg: i, t,
-          other, otherSeg: k, otherT: u,
+          seg: i,
+          t,
+          other,
+          otherSeg: k,
+          otherT: u,
           x: a0.x + rx * t,
           z: a0.z + rz * t,
           y: a0.y + (a1.y - a0.y) * t,
@@ -687,7 +814,11 @@ export function findCrossings(road: Road, others: readonly Road[]): Crossing[] {
 
 /** `findCrossings`' test against a bare line, for deciding where a path STARTS. */
 export function runCrossesAny(
-  roads: readonly Road[], ax: number, az: number, bx: number, bz: number,
+  roads: readonly Road[],
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
 ): boolean {
   const rx = bx - ax;
   const rz = bz - az;
@@ -698,11 +829,15 @@ export function runCrossesAny(
       const sx = b1.x - b0.x;
       const sz = b1.z - b0.z;
       const den = rx * sz - rz * sx;
-      if (Math.abs(den) < 1e-9) continue;
+      if (Math.abs(den) < 1e-9) {
+        continue;
+      }
       const t = ((b0.x - ax) * sz - (b0.z - az) * sx) / den;
       const u = ((b0.x - ax) * rz - (b0.z - az) * rx) / den;
       // The run's start sits ON a road by construction, so skip its first 2%.
-      if (t > 0.02 && t < 1 && u >= 0 && u <= 1) return true;
+      if (t > 0.02 && t < 1 && u >= 0 && u <= 1) {
+        return true;
+      }
     }
   }
   return false;
@@ -757,7 +892,9 @@ function holdAtNode(pts: RoadSample[], fromEnd: boolean, y: number): void {
   const delta = y - pts[idx(joinK)].y;
   for (let k = 0; k < flat + 14; k++) {
     const j = idx(k);
-    if (j < 0 || j >= pts.length) break;
+    if (j < 0 || j >= pts.length) {
+      break;
+    }
     pts[j].y = k < flat ? y : pts[j].y + delta * (1 - (k - flat) / 14);
   }
 }
@@ -783,23 +920,30 @@ export interface MergeReport {
 export function mergeCrossings(net: RoadNetwork, road: Road): MergeReport {
   const report: MergeReport = { nodes: [], refused: [] };
   const hits = findCrossings(road, net.roads);
-  if (hits.length === 0) return report;
+  if (hits.length === 0) {
+    return report;
+  }
 
-  const at = (c: { x: number; z: number }): string =>
-    `${c.x.toFixed(0)}, ${c.z.toFixed(0)}`;
+  const at = (c: { x: number; z: number }): string => `${c.x.toFixed(0)}, ${c.z.toFixed(0)}`;
   let chosen: Crossing | null = null;
   for (const c of hits) {
     // A glancing crossing is not a crossing. See `GLANCE_MIN`.
     if (c.angle < GLANCE_MIN) {
-      report.refused.push(`${at(c)}: the two paths meet at `
-        + `${((c.angle * 180) / Math.PI).toFixed(0)} degrees — under `
-        + `${((GLANCE_MIN * 180) / Math.PI).toFixed(0)} they should share one run, `
-        + 'which is not built');
+      report.refused.push(
+        `${at(c)}: the two paths meet at ` +
+          `${((c.angle * 180) / Math.PI).toFixed(0)} degrees — under ` +
+          `${((GLANCE_MIN * 180) / Math.PI).toFixed(0)} they should share one run, ` +
+          "which is not built",
+      );
       continue;
     }
     // A junction mid-span is a hole in a bridge; `addBridgeFurniture` owns it.
-    if (road.pts[c.seg].bridge || road.pts[c.seg - 1].bridge
-      || c.other.pts[c.otherSeg].bridge || c.other.pts[c.otherSeg - 1].bridge) {
+    if (
+      road.pts[c.seg].bridge ||
+      road.pts[c.seg - 1].bridge ||
+      c.other.pts[c.otherSeg].bridge ||
+      c.other.pts[c.otherSeg - 1].bridge
+    ) {
       report.refused.push(`${at(c)}: the crossing lands on a bridge span`);
       continue;
     }
@@ -808,27 +952,40 @@ export function mergeCrossings(net: RoadNetwork, road: Road): MergeReport {
       (j) => Math.hypot(c.x - j.x, c.z - j.z) < j.profile.apronR + road.profile.apronR,
     );
     if (inApron !== undefined) {
-      report.refused.push(`${at(c)}: inside the apron already at `
-        + `${inApron.x.toFixed(0)}, ${inApron.z.toFixed(0)}`);
+      report.refused.push(
+        `${at(c)}: inside the apron already at ` +
+          `${inApron.x.toFixed(0)}, ${inApron.z.toFixed(0)}`,
+      );
       continue;
     }
     // Two decks at two heights make a step across the node. See MERGE_MAX_DROP.
     if (Math.abs(c.y - c.otherY) > MERGE_MAX_DROP) {
-      report.refused.push(`${at(c)}: the decks are `
-        + `${Math.abs(c.y - c.otherY).toFixed(2)} apart, over the ${MERGE_MAX_DROP} `
-        + 'a node can absorb');
+      report.refused.push(
+        `${at(c)}: the decks are ` +
+          `${Math.abs(c.y - c.otherY).toFixed(2)} apart, over the ${MERGE_MAX_DROP} ` +
+          "a node can absorb",
+      );
       continue;
     }
     // A one-sample half has no segment for its trim plane to square itself to.
-    if (c.seg < 2 || c.seg > road.pts.length - 2
-      || c.otherSeg < 2 || c.otherSeg > c.other.pts.length - 2) {
+    if (
+      c.seg < 2 ||
+      c.seg > road.pts.length - 2 ||
+      c.otherSeg < 2 ||
+      c.otherSeg > c.other.pts.length - 2
+    ) {
       report.refused.push(`${at(c)}: too near the end of one of the two paths`);
       continue;
     }
-    if (chosen === null) chosen = c;
-    else report.refused.push(`${at(c)}: only the first crossing of a path is merged`);
+    if (chosen === null) {
+      chosen = c;
+    } else {
+      report.refused.push(`${at(c)}: only the first crossing of a path is merged`);
+    }
   }
-  if (chosen === null) return report;
+  if (chosen === null) {
+    return report;
+  }
 
   // One height, both decks eased into it: a grade change, not a step at the join.
   const y = (chosen.y + chosen.otherY) / 2;
@@ -842,11 +999,14 @@ export function mergeCrossings(net: RoadNetwork, road: Road): MergeReport {
   net.replace(road, [aHead, aTail]);
   net.replace(chosen.other, [bHead, bTail]);
   // An apron sized to the narrower profile would be drawn under the wider rings.
-  const profile = road.profile.deckEdge >= chosen.other.profile.deckEdge
-    ? road.profile : chosen.other.profile;
+  const profile =
+    road.profile.deckEdge >= chosen.other.profile.deckEdge ? road.profile : chosen.other.profile;
   net.addJunction(chosen.x, chosen.z, y, profile);
   report.nodes.push({
-    x: +chosen.x.toFixed(2), z: +chosen.z.toFixed(2), y: +y.toFixed(2), arms: 4,
+    x: +chosen.x.toFixed(2),
+    z: +chosen.z.toFixed(2),
+    y: +y.toFixed(2),
+    arms: 4,
   });
   return report;
 }
@@ -856,7 +1016,11 @@ export function mergeCrossings(net: RoadNetwork, road: Road): MergeReport {
  * by the router and the town planner so the two cannot disagree about a crossing.
  */
 export function straightWetLength(
-  terrain: Terrain, ax: number, az: number, bx: number, bz: number,
+  terrain: Terrain,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
 ): number {
   const d = Math.hypot(bx - ax, bz - az);
   const steps = Math.max(1, Math.round(d / 2));
@@ -896,7 +1060,12 @@ const AVOID_FREE = 12;
  * contour), turn away from the target, water, and `avoid` for an existing road.
  */
 export function routeRoad(
-  terrain: Terrain, ax: number, az: number, bx: number, bz: number, seed: number,
+  terrain: Terrain,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  seed: number,
   avoid: readonly RoadSample[][] = [],
   profile: PathProfile = ROAD_PROFILE,
 ): Array<{ x: number; z: number }> {
@@ -906,8 +1075,7 @@ export function routeRoad(
   // per-step water charge drove the road into a lake and stayed in it; an
   // expensive one gave the world no bridges at all. A path that cannot bridge is
   // never in neck mode. See `PathProfile.bridges`.
-  const neck = profile.bridges
-    && straightWetLength(terrain, ax, az, bx, bz) <= NECK_MAX;
+  const neck = profile.bridges && straightWetLength(terrain, ax, az, bx, bz) <= NECK_MAX;
   // In neck mode a wet step is free and only depth is charged, so the crossing
   // takes the shallowest line; the walk must not second-guess the `neck` test.
   const waterCost = neck ? 0 : 26;
@@ -920,8 +1088,12 @@ export function routeRoad(
   const others: RoadSample[] = [];
   for (const road of avoid) {
     for (const p of road) {
-      if (Math.hypot(p.x - ax, p.z - az) <= AVOID_FREE) continue;
-      if (Math.hypot(p.x - bx, p.z - bz) <= AVOID_FREE) continue;
+      if (Math.hypot(p.x - ax, p.z - az) <= AVOID_FREE) {
+        continue;
+      }
+      if (Math.hypot(p.x - bx, p.z - bz) <= AVOID_FREE) {
+        continue;
+      }
       others.push(p);
     }
   }
@@ -930,7 +1102,9 @@ export function routeRoad(
     let best = Infinity;
     for (const p of others) {
       const d = (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z);
-      if (d < best) best = d;
+      if (d < best) {
+        best = d;
+      }
     }
     return Math.sqrt(best);
   };
@@ -945,7 +1119,9 @@ export function routeRoad(
   const maxSteps = Math.ceil((Math.hypot(bx - ax, bz - az) / SEG_LEN) * 3) + 12;
   for (let step = 0; step < maxSteps; step++) {
     const toB = Math.hypot(bx - cx, bz - cz);
-    if (toB <= SEG_LEN * 1.5) break;
+    if (toB <= SEG_LEN * 1.5) {
+      break;
+    }
     const base = Math.atan2(bx - cx, bz - cz);
     let bestScore = Infinity;
     let bestX = cx;
@@ -953,7 +1129,7 @@ export function routeRoad(
     let bestH = h;
     for (let k = -4; k <= 4; k++) {
       // The swing narrows near the destination, so no hook at the town gate.
-      const spread = Math.min(0.30, 0.30 * (toB / 40));
+      const spread = Math.min(0.3, 0.3 * (toB / 40));
       const ang = base + k * spread;
       const nx = cx + Math.sin(ang) * SEG_LEN;
       const nz = cz + Math.cos(ang) * SEG_LEN;
@@ -964,12 +1140,16 @@ export function routeRoad(
       const eff = wet ? WATER_LEVEL + 1.9 : nh;
       let score = Math.abs(eff - h) * 3.4 + Math.abs(k) * 0.42;
       // Depth is charged in both regimes, so a crossing takes the shallowest line.
-      if (wet) score += waterCost + (WATER_LEVEL - nh) * depthCost;
+      if (wet) {
+        score += waterCost + (WATER_LEVEL - nh) * depthCost;
+      }
       // Linear in how far inside `avoidR` the step lands: a nudge at the rim,
       // unpayable on the other road's gravel.
       if (others.length > 0) {
         const dOther = nearOther(nx, nz);
-        if (dOther < avoidR) score += AVOID_COST * (1 - dOther / avoidR);
+        if (dOther < avoidR) {
+          score += AVOID_COST * (1 - dOther / avoidR);
+        }
       }
       // A whisper of noise so two roads out of one junction do not lock onto the
       // same contour. A twelfth of one notch of turn — not enough on its own.
@@ -1001,7 +1181,8 @@ export function routeRoad(
 
 /** Re-space a polyline at a fixed arc length, endpoints preserved. */
 function resample(
-  pts: Array<{ x: number; z: number }>, step: number,
+  pts: Array<{ x: number; z: number }>,
+  step: number,
 ): Array<{ x: number; z: number }> {
   const out: Array<{ x: number; z: number }> = [{ x: pts[0].x, z: pts[0].z }];
   let carry = 0;
@@ -1011,7 +1192,9 @@ function resample(
     const dx = pts[i].x - ax;
     const dz = pts[i].z - az;
     const len = Math.hypot(dx, dz);
-    if (len < 1e-6) continue;
+    if (len < 1e-6) {
+      continue;
+    }
     let t = carry;
     while (t + step <= len) {
       t += step;
@@ -1053,7 +1236,9 @@ export function profileRoad(
 ): RoadSample[] {
   const n = route.length;
   const nat = new Float32Array(n);
-  for (let i = 0; i < n; i++) nat[i] = terrain.heightCont(route[i].x, route[i].z);
+  for (let i = 0; i < n; i++) {
+    nat[i] = terrain.heightCont(route[i].x, route[i].z);
+  }
 
   // 1. Wide box smooth. +-6 at SEG_LEN 3 is a 36-unit window, the scale of the
   // shelves and scarps the near ground carries (terrain.ts).
@@ -1064,7 +1249,9 @@ export function profileRoad(
     let cnt = 0;
     for (let k = -R; k <= R; k++) {
       const j = i + k;
-      if (j < 0 || j >= n) continue;
+      if (j < 0 || j >= n) {
+        continue;
+      }
       sum += nat[j];
       cnt++;
     }
@@ -1074,31 +1261,47 @@ export function profileRoad(
   // 2. Wet samples, widened by one either side so the deck is already at bridge
   // height where the abutment piers stand.
   const bridge = new Uint8Array(n);
-  for (let i = 0; i < n; i++) if (nat[i] < WATER_LEVEL + 0.35) bridge[i] = 1;
+  for (let i = 0; i < n; i++) {
+    if (nat[i] < WATER_LEVEL + 0.35) bridge[i] = 1;
+  }
   const wide = Uint8Array.from(bridge);
   for (let i = 0; i < n; i++) {
-    if (!bridge[i]) continue;
-    if (i > 0) wide[i - 1] = 1;
-    if (i < n - 1) wide[i + 1] = 1;
+    if (!bridge[i]) {
+      continue;
+    }
+    if (i > 0) {
+      wide[i - 1] = 1;
+    }
+    if (i < n - 1) {
+      wide[i + 1] = 1;
+    }
   }
 
-  const MAX_GRADE = 0.10;
+  const MAX_GRADE = 0.1;
   const rise = MAX_GRADE * SEG_LEN;
   const ANCHOR = 14;
   // 1.9 of air: reads as a bridge from the bank, keeps the abutment ramps short.
   const floorWater = (): void => {
     for (let i = 0; i < n; i++) {
-      if (wide[i] && y[i] < WATER_LEVEL + 1.9) y[i] = WATER_LEVEL + 1.9;
+      if (wide[i] && y[i] < WATER_LEVEL + 1.9) {
+        y[i] = WATER_LEVEL + 1.9;
+      }
     }
   };
   const slopeLimit = (passes: number): void => {
     for (let pass = 0; pass < passes; pass++) {
-      for (let i = 1; i < n; i++) if (y[i] < y[i - 1] - rise) y[i] = y[i - 1] - rise;
-      for (let i = n - 2; i >= 0; i--) if (y[i] < y[i + 1] - rise) y[i] = y[i + 1] - rise;
+      for (let i = 1; i < n; i++) {
+        if (y[i] < y[i - 1] - rise) y[i] = y[i - 1] - rise;
+      }
+      for (let i = n - 2; i >= 0; i--) {
+        if (y[i] < y[i + 1] - rise) y[i] = y[i + 1] - rise;
+      }
     }
   };
   const anchor = (idx: number, target: number, dir: 1 | -1, hold: number): void => {
-    if (!Number.isFinite(target)) return;
+    if (!Number.isFinite(target)) {
+      return;
+    }
     // `hold` samples pinned flat, then ANCHOR more of linear decay back onto the
     // raw profile — over 42 units a 1-unit correction costs 0.024 of grade.
     //
@@ -1111,7 +1314,9 @@ export function profileRoad(
     const delta = target - (join >= 0 && join < n ? y[join] : y[idx]);
     for (let k = 0; k < flat + ANCHOR; k++) {
       const j = idx + dir * k;
-      if (j < 0 || j >= n) break;
+      if (j < 0 || j >= n) {
+        break;
+      }
       y[j] = k < flat ? target : y[j] + delta * (1 - (k - flat) / ANCHOR);
     }
   };
@@ -1143,7 +1348,8 @@ export function profileRoad(
  * sample fords (issue #142 §11h).
  */
 export function profileTrail(
-  terrain: Terrain, route: Array<{ x: number; z: number }>,
+  terrain: Terrain,
+  route: Array<{ x: number; z: number }>,
 ): RoadSample[] {
   return route.map((p) => ({
     x: p.x,
@@ -1158,7 +1364,9 @@ export function profileTrail(
  * Used by the furniture pass and by the spawn search; never per frame.
  */
 export function roadAt(
-  r: Road, s: number, out: { x: number; y: number; z: number; dx: number; dz: number },
+  r: Road,
+  s: number,
+  out: { x: number; y: number; z: number; dx: number; dz: number },
 ): void {
   let acc = 0;
   for (let i = 1; i < r.pts.length; i++) {

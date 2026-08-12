@@ -2,8 +2,8 @@
 // not depend on load order and `dangling()` can exist at all.
 // Only link/unlink touch `defined`, so it cannot drift from the registry's map.
 
-import { compareIds, typeOf } from './ids';
-import type { ContentId, ContentTypeName } from './types';
+import { compareIds, typeOf } from "./ids";
+import type { ContentId, ContentTypeName } from "./types";
 
 /** Shared, so a miss on a hot read allocates nothing. */
 const NO_IDS: readonly ContentId[] = Object.freeze([]);
@@ -23,7 +23,9 @@ export class ContentGraph {
 
   /** Re-linking is the override path: old edges are dropped first. */
   link(id: ContentId, refs: Iterable<ContentId>): void {
-    if (this.forward.has(id) || this.defined.has(id)) this.unlink(id);
+    if (this.forward.has(id) || this.defined.has(id)) {
+      this.unlink(id);
+    }
 
     this.defined.add(id);
     this.missing.delete(id);
@@ -32,9 +34,13 @@ export class ContentGraph {
     for (const r of refs) {
       // Self-reference dropped: it would make an asset its own referrer and hide
       // it from `orphans()`.
-      if (r === id) continue;
+      if (r === id) {
+        continue;
+      }
       // Linear dedup: refs lists are a handful of ids, cheaper than a Set per asset.
-      if (out.includes(r)) continue;
+      if (out.includes(r)) {
+        continue;
+      }
       out.push(r);
     }
     out.sort(compareIds);
@@ -48,7 +54,9 @@ export class ContentGraph {
       }
       back.add(id);
       this.referrerViews.delete(r);
-      if (!this.defined.has(r)) this.missing.add(r);
+      if (!this.defined.has(r)) {
+        this.missing.add(r);
+      }
     }
   }
 
@@ -60,7 +68,9 @@ export class ContentGraph {
     if (out) {
       for (const r of out) {
         const back = this.reverse.get(r);
-        if (!back) continue;
+        if (!back) {
+          continue;
+        }
         back.delete(id);
         this.referrerViews.delete(r);
         if (back.size === 0) {
@@ -72,8 +82,11 @@ export class ContentGraph {
     }
 
     const inbound = this.reverse.get(id);
-    if (inbound && inbound.size > 0) this.missing.add(id);
-    else this.missing.delete(id);
+    if (inbound && inbound.size > 0) {
+      this.missing.add(id);
+    } else {
+      this.missing.delete(id);
+    }
 
     return had;
   }
@@ -93,9 +106,13 @@ export class ContentGraph {
   /** Sorted, not insertion order — insertion order is load order. */
   referrers(id: ContentId): readonly ContentId[] {
     const cached = this.referrerViews.get(id);
-    if (cached) return cached;
+    if (cached) {
+      return cached;
+    }
     const back = this.reverse.get(id);
-    if (!back || back.size === 0) return NO_IDS;
+    if (!back || back.size === 0) {
+      return NO_IDS;
+    }
     const view = Object.freeze([...back].sort(compareIds));
     this.referrerViews.set(id, view);
     return view;
@@ -137,9 +154,13 @@ export class ContentGraph {
     const out: ContentId[] = [];
     for (const id of this.defined) {
       const back = this.reverse.get(id);
-      if (back && back.size > 0) continue;
+      if (back && back.size > 0) {
+        continue;
+      }
       const type = typeOf(id);
-      if (type !== null && enumeratedTypes.has(type)) continue;
+      if (type !== null && enumeratedTypes.has(type)) {
+        continue;
+      }
       out.push(id);
     }
     return Object.freeze(out.sort(compareIds));

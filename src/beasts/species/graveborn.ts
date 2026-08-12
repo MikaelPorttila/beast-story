@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { eyes2x2, rimTop, shadeUnder } from "./voxelshade";
 
 // Graveborn — issue #119. The roster's first BIPED: a bleached skeleton soldier in salvaged
 // leather with a chipped iron sword; the walk is a human walk with counter-swinging arms.
@@ -14,11 +14,11 @@ const S = 0.06;
 // turns a cool tone olive. The three values are a full stop apart, so a rib separates from
 // the spine behind it — on a lattice, that is the entire job.
 const C = {
-  bone: 0xc4b48c,        // sun-bleached bone, the body value
+  bone: 0xc4b48c, // sun-bleached bone, the body value
   boneLt: 0xf2e8c6,
   boneDk: 0xa89468,
   boneDp: 0x84703f,
-  socket: 0x241f18,      // very dark BROWN, not black: black punches a hole in the silhouette
+  socket: 0x241f18, // very dark BROWN, not black: black punches a hole in the silhouette
   eye: 0x2ec6ee,
   eyeLt: 0x8fdcf2,
   // Desaturated, or it reads as orange plastic; leatherDk stays above ~0x48 or it crushes.
@@ -34,9 +34,9 @@ const C = {
 const EYE_GLOW = 0.45;
 
 // Shared between buildRig() and animate(): a number in both is a pose that drifts.
-const HIP_Y = 0.66;        // hip joints, above the root
+const HIP_Y = 0.66; // hip joints, above the root
 // 0.88 against a belt topping out at 0.86: the lowest rib ring and the belt shared a plane.
-const TORSO_Y = 0.88;      // lumbar pivot: the ribcage twists here
+const TORSO_Y = 0.88; // lumbar pivot: the ribcage twists here
 const PELVIS_Y = 0.62;
 const SHOULDER_Y = 0.44;
 // 0.27, level with the clavicle's tip: at 0.21 the arm sat outboard of the ribs and vanished.
@@ -56,56 +56,56 @@ const JOINT_PART = S * 0.3;
 
 export const skills: SkillDef[] = [
   {
-    id: 'graveborn.rusted-cleave',
-    nameKey: 'skill.graveborn.rusted-cleave.name',
-    descriptionKey: 'skill.graveborn.rusted-cleave.desc',
-    element: 'shadow',
-    targeting: 'melee',
+    id: "graveborn.rusted-cleave",
+    nameKey: "skill.graveborn.rusted-cleave.name",
+    descriptionKey: "skill.graveborn.rusted-cleave.desc",
+    element: "shadow",
+    targeting: "melee",
     cost: 5,
     cooldown: 1.4,
     power: 15,
     range: 2.8,
     learnAtLevel: 1,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'graveborn.bone-shard',
-    nameKey: 'skill.graveborn.bone-shard.name',
-    descriptionKey: 'skill.graveborn.bone-shard.desc',
-    element: 'shadow',
-    targeting: 'projectile',
+    id: "graveborn.bone-shard",
+    nameKey: "skill.graveborn.bone-shard.name",
+    descriptionKey: "skill.graveborn.bone-shard.desc",
+    element: "shadow",
+    targeting: "projectile",
     cost: 13,
     cooldown: 5.5,
     power: 24,
     range: 16,
     learnAtLevel: 5,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'graveborn.grave-ward',
-    nameKey: 'skill.graveborn.grave-ward.name',
-    descriptionKey: 'skill.graveborn.grave-ward.desc',
-    element: 'shadow',
-    targeting: 'aoe',
+    id: "graveborn.grave-ward",
+    nameKey: "skill.graveborn.grave-ward.name",
+    descriptionKey: "skill.graveborn.grave-ward.desc",
+    element: "shadow",
+    targeting: "aoe",
     cost: 17,
     cooldown: 8,
     power: 28,
     range: 5,
     storePrice: 250,
-    castAnim: 'special',
+    castAnim: "special",
   },
   {
-    id: 'graveborn.last-rites',
-    nameKey: 'skill.graveborn.last-rites.name',
-    descriptionKey: 'skill.graveborn.last-rites.desc',
-    element: 'shadow',
-    targeting: 'beam',
+    id: "graveborn.last-rites",
+    nameKey: "skill.graveborn.last-rites.name",
+    descriptionKey: "skill.graveborn.last-rites.desc",
+    element: "shadow",
+    targeting: "beam",
     cost: 25,
     cooldown: 12,
     power: 46,
     range: 13,
     storePrice: 400,
-    castAnim: 'special',
+    castAnim: "special",
   },
 ];
 
@@ -121,10 +121,14 @@ function ribRing(v: VoxelModel, y: number, w: number, d: number): void {
   const inside = (x: number, z: number): boolean => (x / w) ** 2 + (z / d) ** 2 <= 1;
   for (let x = -w; x <= w; x++) {
     for (let z = -d; z <= d; z++) {
-      if (!inside(x, z)) continue;
-      const shell = !inside(x + 1, z) || !inside(x - 1, z)
-        || !inside(x, z + 1) || !inside(x, z - 1);
-      if (!shell) continue;
+      if (!inside(x, z)) {
+        continue;
+      }
+      const shell =
+        !inside(x + 1, z) || !inside(x - 1, z) || !inside(x, z + 1) || !inside(x, z - 1);
+      if (!shell) {
+        continue;
+      }
       // ONE row of drop into the sternum: at one constant y the front view is a radiator, and
       // two rows lands on the ring below and fills in the gap.
       const drop = z === d && Math.abs(x) <= 1 ? 1 : 0;
@@ -141,7 +145,9 @@ function strap(v: VoxelModel, y: number, w: number, d: number, rows = 2): void {
   for (let r = 0; r < rows; r++) {
     for (let x = -w; x <= w; x++) {
       for (let z = -d; z <= d; z++) {
-        if (Math.abs(x) < w && Math.abs(z) < d) continue; // a band, not a block
+        if (Math.abs(x) < w && Math.abs(z) < d) {
+          continue;
+        } // a band, not a block
         v.set(x, y + r, z, r === rows - 1 ? C.leatherLt : C.leather);
       }
     }
@@ -176,11 +182,18 @@ function buildSkull(): THREE.Mesh {
   // No `bridge`: it fills the WHOLE gap and would paint over the dark cell inboard of each
   // socket. `lid` takes the socket tone, since a half-value coat row is for a muzzle.
   eyes2x2(v, {
-    inner: 2, width: 1, y: 4, faceZ: 3,
-    iris: C.eye, glow: EYE_GLOW, shine: C.eyeLt,
+    inner: 2,
+    width: 1,
+    y: 4,
+    faceZ: 3,
+    iris: C.eye,
+    glow: EYE_GLOW,
+    shine: C.eyeLt,
   });
   // THREE cells between the sockets: one cell is sub-pixel and the holes bridge into one band.
-  for (let y = 3; y <= 5; y++) v.box(-1, y, 3, 1, y, 3, C.boneLt);
+  for (let y = 3; y <= 5; y++) {
+    v.box(-1, y, 3, 1, y, 3, C.boneLt);
+  }
   v.set(0, 4, 4, C.boneLt);
   v.set(0, 5, 4, C.boneLt);
   for (let x = -2; x <= 2; x++) {
@@ -196,7 +209,9 @@ function buildSkull(): THREE.Mesh {
   // Teeth hung IN a cut gap: flush on a pale face they were invisible in both directions.
   for (let x = -2; x <= 2; x++) {
     v.set(x, 0, 3, C.socket);
-    if (x % 2 === 0) v.set(x, 0, 4, C.boneLt);
+    if (x % 2 === 0) {
+      v.set(x, 0, 4, C.boneLt);
+    }
   }
   return v.build(S, true);
 }
@@ -208,7 +223,9 @@ function buildSkull(): THREE.Mesh {
 function buildJaw(): THREE.Mesh {
   const v = new VoxelModel();
   v.box(-2, 0, -2, 2, 0, 3, C.bone);
-  for (let x = -2; x <= 2; x++) v.set(x, 0, 3, C.boneDp); // mouth line, front face only
+  for (let x = -2; x <= 2; x++) {
+    v.set(x, 0, 3, C.boneDp);
+  } // mouth line, front face only
   return v.build(S, true);
 }
 
@@ -218,7 +235,9 @@ function buildJaw(): THREE.Mesh {
  */
 function buildRibcage(): THREE.Mesh {
   const v = new VoxelModel();
-  for (let y = 0; y <= 6; y++) v.set(0, y, -2, C.boneDk); // spine, up the back
+  for (let y = 0; y <= 6; y++) {
+    v.set(0, y, -2, C.boneDk);
+  } // spine, up the back
 
   ribRing(v, 6, 3, 2);
   ribRing(v, 4, 3, 2);
@@ -226,7 +245,9 @@ function buildRibcage(): THREE.Mesh {
   ribRing(v, 0, 2, 2);
 
   // Sternum joins the rings' front ends; it stops at row 1, where the chevron drops away.
-  for (let y = 1; y <= 6; y++) v.set(0, y, 2, C.boneLt);
+  for (let y = 1; y <= 6; y++) {
+    v.set(0, y, 2, C.boneLt);
+  }
 
   v.box(-4, 7, 1, 4, 7, 1, C.bone);
   v.box(-1, 7, 0, 1, 7, 0, C.boneLt);
@@ -281,7 +302,9 @@ function buildPelvis(): THREE.Mesh {
   }
   v.set(0, 3, 3, C.steel);
   v.set(0, 2, 3, C.steelLt);
-  for (const x of [-1, 1]) v.set(x, 3, -2, C.steel);
+  for (const x of [-1, 1]) {
+    v.set(x, 3, -2, C.steel);
+  }
 
   const m = v.build(S, true);
   // build() zeroes y on the LOWEST cell, the hem, so the hem's depth is the offset.
@@ -338,7 +361,9 @@ function buildUpperArm(dir: number): THREE.Mesh {
   v.box(-2, 2, -1, 2, 2, 1, C.leather);
   v.box(-1, 3, -1, 1, 3, 1, C.leatherLt);
   shadeUnder(v, C.leatherDk, -2, 2, 2, 2, -1, 1);
-  for (const x of [dir, dir * 2]) v.set(x, 2, 1, C.steel);
+  for (const x of [dir, dir * 2]) {
+    v.set(x, 2, 1, C.steel);
+  }
   v.set(dir * 2, 3, 1, C.steel);
   v.set(dir, 3, 1, C.steelDk);
   const m = v.build(S, true);
@@ -383,7 +408,9 @@ function buildSword(): THREE.Mesh {
   // as a stripe painted on a rectangle.
   for (let y = 2; y <= 9; y++) {
     const h = y <= 8 ? 1 : 0;
-    for (let x = -h; x <= h; x++) v.set(x, y, 0, x === h ? C.steelLt : C.steel);
+    for (let x = -h; x <= h; x++) {
+      v.set(x, y, 0, x === h ? C.steelLt : C.steel);
+    }
     v.set(0, y, 1, C.steelDk);
   }
   v.set(-1, 4, 0, C.steelDk);
@@ -416,8 +443,8 @@ function buildRig(): BeastRig {
     knee.position.set(side * JOINT_PART, KNEE_Y, JOINT_PART);
     knee.add(buildShin());
     hip.add(knee);
-    parts[side > 0 ? 'hipR' : 'hipL'] = hip;
-    parts[side > 0 ? 'kneeR' : 'kneeL'] = knee;
+    parts[side > 0 ? "hipR" : "hipL"] = hip;
+    parts[side > 0 ? "kneeR" : "kneeL"] = knee;
   }
 
   const pelvis = new THREE.Group();
@@ -458,8 +485,8 @@ function buildRig(): BeastRig {
     elbow.position.set(-side * JOINT_PART, ELBOW_Y, JOINT_PART);
     elbow.add(buildForearm(side));
     shoulder.add(elbow);
-    parts[side > 0 ? 'shoulderR' : 'shoulderL'] = shoulder;
-    parts[side > 0 ? 'elbowR' : 'elbowL'] = elbow;
+    parts[side > 0 ? "shoulderR" : "shoulderL"] = shoulder;
+    parts[side > 0 ? "elbowR" : "elbowL"] = elbow;
   }
 
   const hand = new THREE.Group();
@@ -468,12 +495,12 @@ function buildRig(): BeastRig {
   hand.position.set(-JOINT_PART, -6 * S, S * 1.5);
   // The REST pose is stated HERE because test-zfight builds rigs and never animates them: an
   // unrotated sword parked its flats on the forearm's and the pauldron's planes.
-  hand.rotation.set(3.00, 0.55, -0.10);
+  hand.rotation.set(3.0, 0.55, -0.1);
   hand.add(buildSword());
   parts.elbowR.add(hand);
   parts.hand = hand;
 
-  return { root, parts, height: 1.84, radius: 0.30 };
+  return { root, parts, height: 1.84, radius: 0.3 };
 }
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -498,7 +525,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   let torsoRY = Math.sin(t * 0.6) * 0.05;
   let torsoRX = 0;
   let headRX = Math.sin(t * 0.8) * 0.05 + 0.04;
-  let headRY = Math.sin(t * 0.4) * 0.30;
+  let headRY = Math.sin(t * 0.4) * 0.3;
   let headRZ = Math.sin(t * 0.55) * 0.04;
   let jawOpen = 0.06 + Math.sin(t * 1.4) * 0.03;
   // A skeleton does not breathe, so the idle is a slow weight shift; it drives the roll and the
@@ -508,28 +535,28 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   bodyY = -Math.abs(shift) * 0.008;
   let hipRXR = -0.04 + shift * 0.05;
   let hipRXL = -0.04 - shift * 0.05;
-  let kneeRXR = 0.10 - shift * 0.06;
-  let kneeRXL = 0.10 + shift * 0.06;
+  let kneeRXR = 0.1 - shift * 0.06;
+  let kneeRXL = 0.1 + shift * 0.06;
   let hipSplit = 0.05;
   let shRXR = 0.05 + Math.sin(t * 0.7) * 0.03;
   let shRXL = 0.05 - Math.sin(t * 0.7) * 0.03;
   // The sword arm gets its OWN split: the blade hung in the right shin's column and the
   // character read as three-legged. The GRIP has to move outboard, which is the shoulder's job.
-  let shSplitR = 0.20;
+  let shSplitR = 0.2;
   let shSplitL = 0.12;
-  let elRXR = -0.10;
+  let elRXR = -0.1;
   let elRXL = -0.22;
   // Rest: the hand group's +Y is the blade's own axis, so hanging is near pi, not the 2.35 that
   // stood it out like an oar. The yaw keeps the flat off square to the camera.
-  let handRX = 3.00;
+  let handRX = 3.0;
   let handRY = 0.55;
-  let handRZ = -0.10;
+  let handRZ = -0.1;
 
   switch (ctx.action) {
-    case 'walk':
-    case 'run':
-    case 'fly':
-    case 'swim': {
+    case "walk":
+    case "run":
+    case "fly":
+    case "swim": {
       const k = 0.5 + 0.5 * ctx.moveSpeed;
       // 4.4 rad/s at a trudge to 8.4 flat out — a human cadence, marching rather than scurrying.
       const w = ctx.cycle(GAIT, 4.4 + 4.0 * ctx.moveSpeed);
@@ -539,15 +566,15 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       hipRXR = sw * (0.85 * k);
       hipRXL = swB * (0.85 * k);
       // The knee bends only on the RETURN half, or the walk is a pair of scissors.
-      kneeRXR = 0.10 + Math.max(0, -sw) * (0.80 * k);
-      kneeRXL = 0.10 + Math.max(0, -swB) * (0.80 * k);
+      kneeRXR = 0.1 + Math.max(0, -sw) * (0.8 * k);
+      kneeRXL = 0.1 + Math.max(0, -swB) * (0.8 * k);
       hipSplit = 0.04;
       bodyY = -0.02 * k + Math.abs(Math.sin(w)) * 0.05 * k;
       bodyRZ = Math.sin(w) * 0.05 * k;
-      bodyRX = 0.10 * k;
-      torsoRY = -sw * 0.20 * k;
+      bodyRX = 0.1 * k;
+      torsoRY = -sw * 0.2 * k;
       torsoRX = 0.05 * k;
-      headRX = -0.10 * k + Math.sin(w * 2) * 0.03;
+      headRX = -0.1 * k + Math.sin(w * 2) * 0.03;
       headRY = Math.sin(t * 0.9) * 0.08;
       headRZ = sw * 0.05;
       jawOpen = 0.05;
@@ -556,80 +583,80 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       shSplitR = 0.18; // the sword arm stays out, or the blade walks through the shin
       shSplitL = 0.08;
       elRXR = -0.45 - Math.max(0, swB) * 0.25;
-      elRXL = -0.30 - Math.max(0, sw) * 0.50;
+      elRXL = -0.3 - Math.max(0, sw) * 0.5;
       handRX = 2.95;
-      handRY = 0.50;
-      handRZ = -0.10;
+      handRY = 0.5;
+      handRZ = -0.1;
       break;
     }
-    case 'attack': {
+    case "attack": {
       // The wind-up is the frame a cleave is READ from: at 0.20s it existed for a fifth of a
       // second and captures came back showing the sword at the hip. 0.32 up, 0.12 held, 0.10 cut.
       const wind = easeOutCubic(clamp01(at / 0.32));
-      const swing = easeOutCubic(clamp01((at - 0.44) / 0.10));
+      const swing = easeOutCubic(clamp01((at - 0.44) / 0.1));
       const rec = easeInOutSine(clamp01((at - 0.56) / 0.34));
       const cut = swing * (1 - rec);
       const coil = wind * (1 - swing);
       bodyRX = -0.18 * coil + 0.42 * cut;
-      bodyZ = -0.05 * coil + 0.20 * cut;
+      bodyZ = -0.05 * coil + 0.2 * cut;
       bodyY = 0.03 * coil - 0.05 * cut;
-      torsoRY = 0.55 * coil - 0.70 * cut;
-      torsoRX = -0.20 * coil + 0.35 * cut;
-      headRX = -0.20 * coil + 0.32 * cut;
-      headRY = 0.25 * coil - 0.20 * cut;
+      torsoRY = 0.55 * coil - 0.7 * cut;
+      torsoRX = -0.2 * coil + 0.35 * cut;
+      headRX = -0.2 * coil + 0.32 * cut;
+      headRY = 0.25 * coil - 0.2 * cut;
       jawOpen = 0.15 * coil + 0.55 * swing * (1 - rec);
       // -2.05, not -2.70, which puts the blade a body-length BEHIND the beast, out of shot.
-      shRXR = -2.05 * coil - 0.30 + 1.75 * cut;
-      shRXL = 0.40 * coil - 0.55 * cut;
+      shRXR = -2.05 * coil - 0.3 + 1.75 * cut;
+      shRXL = 0.4 * coil - 0.55 * cut;
       // The split is CUT on the wind-up: raised, the arm opens a visible gap at the shoulder.
-      shSplitR = 0.14 + 0.10 * coil;
-      shSplitL = 0.14 + 0.10 * coil;
-      elRXR = -0.75 * coil - 0.20 + 0.85 * cut;
-      elRXL = -0.60;
+      shSplitR = 0.14 + 0.1 * coil;
+      shSplitL = 0.14 + 0.1 * coil;
+      elRXR = -0.75 * coil - 0.2 + 0.85 * cut;
+      elRXL = -0.6;
       // THE WRIST IS SOLVED, not keyframed: shoulder and elbow swing through three radians, so a
       // fixed angle aims the blade differently at every instant. State the BLADE, subtract the arm.
-      const bladeAngle = 3.05 - 2.80 * coil - 5.30 * cut;
+      const bladeAngle = 3.05 - 2.8 * coil - 5.3 * cut;
       handRX = bladeAngle - (shRXR + elRXR);
-      handRY = -0.55 * coil + 0.70 * cut;
+      handRY = -0.55 * coil + 0.7 * cut;
       handRZ = -0.55 * coil + 0.35 * cut;
-      hipRXR = 0.18 * coil - 0.30 * cut;
+      hipRXR = 0.18 * coil - 0.3 * cut;
       hipRXL = -0.22 * coil + 0.34 * cut;
-      kneeRXR = 0.30 * coil + 0.15 * cut;
-      kneeRXL = 0.10 + 0.30 * cut;
+      kneeRXR = 0.3 * coil + 0.15 * cut;
+      kneeRXL = 0.1 + 0.3 * cut;
       hipSplit = 0.16;
       break;
     }
-    case 'cast': {
+    case "cast": {
       const gather = easeInOutSine(clamp01(at / 0.34));
-      const throwT = easeOutCubic(clamp01((at - 0.50) / 0.14));
-      const settle = easeInOutSine(clamp01((at - 0.70) / 0.30));
+      const throwT = easeOutCubic(clamp01((at - 0.5) / 0.14));
+      const settle = easeInOutSine(clamp01((at - 0.7) / 0.3));
       const g = gather * (1 - throwT);
       const f = throwT * (1 - settle);
-      bodyRX = -0.20 * g + 0.24 * f;
+      bodyRX = -0.2 * g + 0.24 * f;
       bodyY = 0.03 * g;
-      torsoRY = -0.35 * g + 0.40 * f;
+      torsoRY = -0.35 * g + 0.4 * f;
       torsoRX = -0.12 * g + 0.18 * f;
       headRX = -0.24 * g + 0.18 * f;
       headRY = -0.18 * g;
-      jawOpen = 0.10 * g + 0.45 * f;
-      shRXL = -1.55 * g - 0.10 - 1.05 * f;
-      elRXL = -1.70 * g - 0.15 + 1.55 * f;
-      shRXR = 0.30 * g + 0.10;
+      jawOpen = 0.1 * g + 0.45 * f;
+      shRXL = -1.55 * g - 0.1 - 1.05 * f;
+      elRXL = -1.7 * g - 0.15 + 1.55 * f;
+      shRXR = 0.3 * g + 0.1;
       elRXR = -0.35;
       shSplitR = 0.18;
       shSplitL = 0.18;
       handRX = 3.08;
-      handRY = 0.50;
+      handRY = 0.5;
       hipRXR = -0.14 * g;
-      hipRXL = 0.10 * g;
+      hipRXL = 0.1 * g;
       kneeRXR = 0.22 + 0.18 * g;
       kneeRXL = 0.22 + 0.18 * g;
       hipSplit = 0.14;
       break;
     }
-    case 'special': {
+    case "special": {
       const rise = easeOutCubic(clamp01(at / 0.32));
-      const fall = easeInOutSine(clamp01((at - 0.90) / 0.36));
+      const fall = easeInOutSine(clamp01((at - 0.9) / 0.36));
       const amp = rise * (1 - fall);
       const tremor = Math.sin(t * 22) * 0.02 * amp;
       bodyRX = -0.26 * amp;
@@ -641,47 +668,47 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       headRZ = tremor * 2;
       jawOpen = 0.85 * amp;
       shRXR = -2.75 * amp + 0.06;
-      elRXR = -0.10 * amp - 0.20;
+      elRXR = -0.1 * amp - 0.2;
       shRXL = -1.15 * amp + 0.06;
-      elRXL = -0.85 * amp - 0.20;
-      shSplitR = 0.10 + 0.35 * amp;
-      shSplitL = 0.10 + 0.35 * amp;
-      handRX = 0.10 * amp;
+      elRXL = -0.85 * amp - 0.2;
+      shSplitR = 0.1 + 0.35 * amp;
+      shSplitL = 0.1 + 0.35 * amp;
+      handRX = 0.1 * amp;
       handRY = 0.15;
       hipRXR = -0.18 * amp;
       hipRXL = -0.18 * amp;
-      kneeRXR = 0.30 * amp + 0.08;
-      kneeRXL = 0.30 * amp + 0.08;
+      kneeRXR = 0.3 * amp + 0.08;
+      kneeRXL = 0.3 * amp + 0.08;
       hipSplit = 0.22 * amp + 0.05;
       break;
     }
-    case 'hurt': {
+    case "hurt": {
       // A skeleton takes a hit by RATTLING: higher frequency, lower amplitude than flesh.
       const d = Math.max(0, 1 - at / 0.5);
       bodyX = Math.sin(at * 58) * 0.03 * d;
-      bodyRZ = Math.sin(at * 50) * 0.10 * d;
+      bodyRZ = Math.sin(at * 50) * 0.1 * d;
       bodyRX = -0.22 * d;
       bodyZ = -0.06 * d;
       torsoRY = Math.sin(at * 46) * 0.16 * d;
       torsoRX = 0.18 * d;
-      headRX = 0.30 * d;
+      headRX = 0.3 * d;
       headRZ = Math.sin(at * 54) * 0.14 * d;
       jawOpen = 0.35 * d + 0.05;
       shRXR = 0.55 * d + 0.06;
-      shRXL = 0.60 * d + 0.06;
-      shSplitR = 0.30 * d + 0.10;
-      shSplitL = 0.30 * d + 0.10;
-      elRXR = -0.75 * d - 0.20;
-      elRXL = -0.75 * d - 0.20;
+      shRXL = 0.6 * d + 0.06;
+      shSplitR = 0.3 * d + 0.1;
+      shSplitL = 0.3 * d + 0.1;
+      elRXR = -0.75 * d - 0.2;
+      elRXL = -0.75 * d - 0.2;
       handRX = 3.05 + 0.3 * d;
       hipRXR = 0.24 * d;
       hipRXL = 0.16 * d;
-      kneeRXR = 0.42 * d + 0.10;
-      kneeRXL = 0.34 * d + 0.10;
+      kneeRXR = 0.42 * d + 0.1;
+      kneeRXL = 0.34 * d + 0.1;
       hipSplit = 0.14 * d + 0.05;
       break;
     }
-    case 'happy': {
+    case "happy": {
       const hop = Math.abs(Math.sin(at * 6.0));
       bodyY = hop * 0.09;
       bodyRY = Math.sin(at * 3.0) * 0.35;
@@ -689,16 +716,16 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       torsoRY = Math.sin(at * 3.0) * 0.18;
       headRX = -0.14;
       headRZ = Math.sin(at * 6.0) * 0.16;
-      headRY = Math.sin(at * 3.0) * 0.20;
-      jawOpen = 0.30 + Math.sin(at * 12) * 0.20;
-      shRXR = -1.10 - Math.sin(at * 6.0) * 0.55;
+      headRY = Math.sin(at * 3.0) * 0.2;
+      jawOpen = 0.3 + Math.sin(at * 12) * 0.2;
+      shRXR = -1.1 - Math.sin(at * 6.0) * 0.55;
       elRXR = -0.55;
       shRXL = -0.35 + Math.sin(at * 6.0) * 0.55;
       elRXL = -0.75;
       shSplitR = 0.28;
       shSplitL = 0.28;
       handRX = 0.35;
-      handRY = 0.20;
+      handRY = 0.2;
       hipRXR = Math.sin(at * 6.0) * 0.34;
       hipRXL = Math.sin(at * 6.0 + Math.PI) * 0.34;
       kneeRXR = 0.15 + Math.max(0, -Math.sin(at * 6.0)) * 0.85;
@@ -706,7 +733,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       hipSplit = 0.08;
       break;
     }
-    case 'idle':
+    case "idle":
     default:
       break;
   }
@@ -726,7 +753,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   p.kneeR.rotation.x = kneeRXR;
   p.kneeL.rotation.x = kneeRXL;
 
-  p.shoulderR.rotation.set(shRXR, 0, shSplitR);  // see the note on hipSplit
+  p.shoulderR.rotation.set(shRXR, 0, shSplitR); // see the note on hipSplit
   p.shoulderL.rotation.set(shRXL, 0, -shSplitL);
   p.elbowR.rotation.x = elRXR;
   p.elbowL.rotation.x = elRXL;
@@ -735,17 +762,17 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 }
 
 export const species: BeastSpecies = {
-  id: 'graveborn',
-  nameKey: 'beast.graveborn.name',
-  element: 'shadow',
-  locomotion: 'ground',
-  descriptionKey: 'beast.graveborn.desc',
+  id: "graveborn",
+  nameKey: "beast.graveborn.name",
+  element: "shadow",
+  locomotion: "ground",
+  descriptionKey: "beast.graveborn.desc",
   baseStats: { maxHp: 52, attack: 16, defense: 11, speed: 5.0 },
   skills: [
-    'graveborn.rusted-cleave',
-    'graveborn.bone-shard',
-    'graveborn.grave-ward',
-    'graveborn.last-rites',
+    "graveborn.rusted-cleave",
+    "graveborn.bone-shard",
+    "graveborn.grave-ward",
+    "graveborn.last-rites",
   ],
   buildRig,
   animate,

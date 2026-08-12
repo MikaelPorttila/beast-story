@@ -7,10 +7,10 @@
  * (arrival starts DISARMED, or the return fires on frame one), DWELL 1.2 s is
  * longer than any pass-through so you must STOP in the arch.
  */
-import * as THREE from 'three';
-import { inRise, type World, type WorldBound } from '../core/types';
-import { t } from '../i18n';
-import { Gateway } from './portal';
+import * as THREE from "three";
+import { inRise, type World, type WorldBound } from "../core/types";
+import { t } from "../i18n";
+import { Gateway } from "./portal";
 
 export interface ZoneDef {
   id: string;
@@ -94,21 +94,33 @@ export class ZoneManager {
 
   constructor(opts: ZoneManagerOpts) {
     this.opts = opts;
-    for (const d of opts.zones) this.defs.set(d.id, d);
+    for (const d of opts.zones) {
+      this.defs.set(d.id, d);
+    }
     this.activeId = opts.start;
     this.states.set(opts.start, this.build(opts.start));
     // Born here, so armed from the outset — unlike an arrival through a portal.
     this.states.get(opts.start)!.armed = true;
   }
 
-  get world(): World { return this.states.get(this.activeId)!.world; }
-  get id(): string { return this.activeId; }
-  get name(): string { return this.states.get(this.activeId)!.def.name; }
-  get zoneIds(): string[] { return [...this.defs.keys()]; }
+  get world(): World {
+    return this.states.get(this.activeId)!.world;
+  }
+  get id(): string {
+    return this.activeId;
+  }
+  get name(): string {
+    return this.states.get(this.activeId)!.def.name;
+  }
+  get zoneIds(): string[] {
+    return [...this.defs.keys()];
+  }
 
   private build(id: string): ZoneState {
     const def = this.defs.get(id);
-    if (!def) throw new Error(`unknown zone "${id}"`);
+    if (!def) {
+      throw new Error(`unknown zone "${id}"`);
+    }
     const world = def.create(this.opts.scene);
     const g = def.gate(world);
     const gateway = new Gateway(this.opts.scene, g.x, world.getHeight(g.x, g.z), g.z, g.hex);
@@ -198,15 +210,18 @@ export class ZoneManager {
       this.opts.onHint(
         !outside && active.armed
           ? active.dwell > 0
-            ? t('hint.zoneEntering', {
-              zone, pct: Math.round((active.dwell / DWELL) * 100),
-            })
-            : t('hint.zoneStand', { zone })
+            ? t("hint.zoneEntering", {
+                zone,
+                pct: Math.round((active.dwell / DWELL) * 100),
+              })
+            : t("hint.zoneStand", { zone })
           : null,
       );
     }
 
-    if (active.dwell >= DWELL && ready) this.commit(active.to);
+    if (active.dwell >= DWELL && ready) {
+      this.commit(active.to);
+    }
   }
 
   /** Swap zones. Everything in `bind` keeps its identity, gains new ground. */
@@ -221,7 +236,9 @@ export class ZoneManager {
     next.world.setVisible(true);
     next.gateway.group.visible = true;
 
-    for (const b of this.opts.bind) b.setWorld(next.world);
+    for (const b of this.opts.bind) {
+      b.setWorld(next.world);
+    }
     this.opts.onArrive(next.world, next.def, prev.def);
 
     // You arrive standing on the far gateway; disarmed until you walk out.
@@ -239,8 +256,12 @@ export class ZoneManager {
 
   /** Dev console: switch now, building synchronously — a very long frame. */
   switchTo(to: string): string {
-    if (to === this.activeId) return `already in ${this.name}`;
-    if (!this.defs.has(to)) return `unknown zone "${to}" — ${this.zoneIds.join(', ')}`;
+    if (to === this.activeId) {
+      return `already in ${this.name}`;
+    }
+    if (!this.defs.has(to)) {
+      return `unknown zone "${to}" — ${this.zoneIds.join(", ")}`;
+    }
     let s = this.states.get(to);
     if (!s) {
       s = this.build(to);
@@ -298,14 +319,21 @@ export class ZoneManager {
       },
       retiring: this.retiring !== null,
       radii: {
-        enter: ENTER_R, exit: EXIT_R, rise: GATE_RISE, exitRise: GATE_EXIT_RISE,
-        dwell: DWELL, preload: PRELOAD_R, release: RELEASE_R,
+        enter: ENTER_R,
+        exit: EXIT_R,
+        rise: GATE_RISE,
+        exitRise: GATE_EXIT_RISE,
+        dwell: DWELL,
+        preload: PRELOAD_R,
+        release: RELEASE_R,
       },
     };
   }
 
   dispose(): void {
-    for (const s of this.states.values()) this.destroy(s);
+    for (const s of this.states.values()) {
+      this.destroy(s);
+    }
     this.states.clear();
     this.retiring?.dispose();
     this.retiring = null;

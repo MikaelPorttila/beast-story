@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import { VoxelModel } from '../core/voxel';
-import { buildWeaponModel, disposeWeapon, type WeaponModelId } from './weapons';
-import { buildHair, hairStyle, storedHairColour, storedHairStyle } from './hair';
+import * as THREE from "three";
+import { VoxelModel } from "../core/voxel";
+import { buildWeaponModel, disposeWeapon, type WeaponModelId } from "./weapons";
+import { buildHair, hairStyle, storedHairColour, storedHairStyle } from "./hair";
 
 /**
  * Voxel hero: a chibi adventurer, 1.71 units tall (measured, not declared).
@@ -78,7 +78,7 @@ const BLUSH = 0xf59f7d;
 const MOUTH = 0xa9603f;
 const EYE = 0x2c2833;
 const GLINT = 0xffffff;
-const STRAP = 0xc9a24f;  // gold-tan backpack straps
+const STRAP = 0xc9a24f; // gold-tan backpack straps
 const TUNIC = 0x3f8fd6;
 const TUNIC_D = 0x3374b3;
 const TRIM = 0xf2d98b;
@@ -113,11 +113,11 @@ const S = 0.1; // voxel scale: 1 voxel = 0.1 m
  * Widths differ for the same reason: the hip block is 0.9 across against the
  * torso's 0.8, so their side faces cannot land on the same plane.
  */
-const HIP_Y = 0.44;      // hip pivot, high in the block like the Blender rig
-const HIPS_DROP = -0.20; // block base, relative to that pivot
+const HIP_Y = 0.44; // hip pivot, high in the block like the Blender rig
+const HIPS_DROP = -0.2; // block base, relative to that pivot
 const BOOT_DROP = -0.44; // boot sole, relative to the same pivot
 const BOOT_X = 0.21;
-const TORSO_Y = 0.50;
+const TORSO_Y = 0.5;
 /**
  * Shoulder height inside the torso. High, at the collar: the hand hangs from it
  * with no arm, and a low pivot put the mitt — and everything it holds — so far
@@ -131,11 +131,11 @@ const SHOULDER_LOCAL_Y = 0.54;
  * attached to it, which is the one thing this silhouette is not.
  */
 const SHOULDER_X = 0.66;
-const MITT_DROP = -0.46;       // hand hangs below the shoulder, so rotation.x swings it
+const MITT_DROP = -0.46; // hand hangs below the shoulder, so rotation.x swings it
 const NECK_LOCAL_Y = 0.46;
 /** Ball size, derived: five cells of 0.1, scaled. */
-const MITT_SCALE = 0.86;            // -> a 0.43 hand on a 1.71 body
-const MITT_D = 5 * S * MITT_SCALE;  // 0.43 across
+const MITT_SCALE = 0.86; // -> a 0.43 hand on a 1.71 body
+const MITT_D = 5 * S * MITT_SCALE; // 0.43 across
 const MITT_R = MITT_D / 2;
 /**
  * The grip sits at the CENTRE OF THE BALL, not at an offset from it. A mount
@@ -199,12 +199,12 @@ const HEAD_DROP = -0.03;
  */
 const ACTOR_RIM_STRENGTH = 0.055;
 function installActorHighlight(material: THREE.MeshStandardMaterial): void {
-  material.userData.bsNightRole = 'hero-highlight';
+  material.userData.bsNightRole = "hero-highlight";
   material.userData.bsDebugIntensity = ACTOR_RIM_STRENGTH;
-  material.customProgramCacheKey = (): string => 'bsActorRim-v1';
+  material.customProgramCacheKey = (): string => "bsActorRim-v1";
   material.onBeforeCompile = (shader): void => {
     shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <opaque_fragment>',
+      "#include <opaque_fragment>",
       `float bsActorRim = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 4.0);
        outgoingLight += vec3(0.22, 0.32, 0.50) * (bsActorRim * ${ACTOR_RIM_STRENGTH.toFixed(3)});
        #include <opaque_fragment>`,
@@ -277,8 +277,12 @@ function buildHead(): THREE.Mesh {
       for (let z = -4; z <= 3; z++) {
         const ax = Math.abs(x + 0.5);
         const az = Math.abs(z + 0.5);
-        if (ax + az > SKULL_PLAN[y]) continue;
-        if (!shell && (ax > 2.5 || az > 2.5)) continue;
+        if (ax + az > SKULL_PLAN[y]) {
+          continue;
+        }
+        if (!shell && (ax > 2.5 || az > 2.5)) {
+          continue;
+        }
         v.set(x, y, z, SKIN);
       }
     }
@@ -343,11 +347,13 @@ function buildTorso(): THREE.Mesh {
   // Satchel strap, diagonal across the chest. It stops one row BELOW the collar
   // now: the last cell of the old run was (-1, 4, 1), and z 1 is no longer part
   // of the collar row, so painting it would have hung a cell of strap in the air.
-  for (let i = 0; i < COLLAR_ROW; i++) v.set(3 - i, i, 1, BELT_D);
+  for (let i = 0; i < COLLAR_ROW; i++) {
+    v.set(3 - i, i, 1, BELT_D);
+  }
   // backpack straps: gold-tan X crossing the tunic back (flush recolor of the
   // z=-2 back layer, so the silhouette is untouched); stops below the collar
   for (let i = 0; i <= 3; i++) {
-    v.set(3 - i, i, -2, STRAP);  // right shoulder -> left hip
+    v.set(3 - i, i, -2, STRAP); // right shoulder -> left hip
     v.set(-4 + i, i, -2, STRAP); // left shoulder -> right hip
   }
   return v.build(S, true);
@@ -363,8 +369,8 @@ function buildTorso(): THREE.Mesh {
  */
 function buildHips(): THREE.Mesh {
   const v = new VoxelModel();
-  v.box(-4, 1, -2, 4, 2, 2, PANTS);   // slab
-  v.box(-4, 0, -2, -1, 0, 2, PANTS);  // stubs, one voxel of daylight between them
+  v.box(-4, 1, -2, 4, 2, 2, PANTS); // slab
+  v.box(-4, 0, -2, -1, 0, 2, PANTS); // stubs, one voxel of daylight between them
   v.box(1, 0, -2, 4, 0, 2, PANTS);
   // shaded outer faces, the same trick the tunic uses
   v.box(-4, 0, -2, -4, 2, 2, BOOT_D);
@@ -381,9 +387,9 @@ function buildHips(): THREE.Mesh {
  */
 function buildBoot(): THREE.Mesh {
   const v = new VoxelModel();
-  v.box(-2, 0, -1, 1, 0, 2, BOOT);    // sole and instep, toes at +z
-  v.box(-1, 0, 3, 0, 0, 3, BOOT);     // toe cap, two voxels narrower
-  v.box(-2, 1, -1, 1, 1, 1, BOOT_D);  // ankle step over the heel half
+  v.box(-2, 0, -1, 1, 0, 2, BOOT); // sole and instep, toes at +z
+  v.box(-1, 0, 3, 0, 0, 3, BOOT); // toe cap, two voxels narrower
+  v.box(-2, 1, -1, 1, 1, 1, BOOT_D); // ankle step over the heel half
   const mesh = v.build(S, true);
   mesh.position.y = BOOT_DROP;
   return mesh;
@@ -423,9 +429,13 @@ function buildMitt(): THREE.Mesh {
   for (let x = -MITT_CELL_R; x <= MITT_CELL_R; x++) {
     for (let y = -MITT_CELL_R; y <= MITT_CELL_R; y++) {
       for (let z = -MITT_CELL_R; z <= MITT_CELL_R; z++) {
-        const rim = +(Math.abs(x) === MITT_CELL_R) + +(Math.abs(y) === MITT_CELL_R)
-          + +(Math.abs(z) === MITT_CELL_R);
-        if (rim <= 1) v.set(x, y, z, SKIN);
+        const rim =
+          +(Math.abs(x) === MITT_CELL_R) +
+          +(Math.abs(y) === MITT_CELL_R) +
+          +(Math.abs(z) === MITT_CELL_R);
+        if (rim <= 1) {
+          v.set(x, y, z, SKIN);
+        }
       }
     }
   }
@@ -434,7 +444,9 @@ function buildMitt(): THREE.Mesh {
   // `ellipsoid` SETS cells rather than tinting the ones already there, so the
   // old radius-2 disc would paint the four edge cells at y = 2 back in and undo
   // the step this shape is made of.
-  for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) v.set(x, 2, z, SKIN_EAR);
+  for (let x = -1; x <= 1; x++) {
+    for (let z = -1; z <= 1; z++) v.set(x, 2, z, SKIN_EAR);
+  }
   const mesh = v.build(S, true);
   mesh.scale.setScalar(MITT_SCALE);
   mesh.position.y = MITT_DROP;
@@ -461,7 +473,7 @@ function buildScabbard(): THREE.Mesh {
   // pivot so the group can angle it from the belt line
   const v = new VoxelModel();
   v.box(0, 0, 0, 0, 4, 0, BELT_D);
-  v.set(0, 4, 0, GOLD);    // throat band at the belt
+  v.set(0, 4, 0, GOLD); // throat band at the belt
   v.set(0, 0, 0, STEEL_D); // chape tip
   const mesh = v.build(S, true);
   mesh.position.y = -0.48;
@@ -567,7 +579,7 @@ export function buildHeroRig(): HeroRig {
   // scabbard behind the left hip, angled tip-back so it reads from behind.
   // Inboard of x -0.43, which is where the mitt's inner face passes.
   const scabbard = new THREE.Group();
-  scabbard.position.set(-0.30, 0.52, -0.30);
+  scabbard.position.set(-0.3, 0.52, -0.3);
   scabbard.rotation.x = 0.3;
   scabbard.rotation.z = -0.15;
   scabbard.add(buildScabbard());
@@ -576,7 +588,9 @@ export function buildHeroRig(): HeroRig {
   const materials: THREE.MeshStandardMaterial[] = [];
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (!mesh.isMesh) return;
+    if (!mesh.isMesh) {
+      return;
+    }
     // The hero CASTS but never RECEIVES. VoxelModel.build() turns both on, and
     // on a rig built from separate parts a few centimetres apart that means the
     // hero shadows himself: the hat brim printed a hard band straight across his
@@ -597,11 +611,26 @@ export function buildHeroRig(): HeroRig {
   });
 
   const rig: HeroRig = {
-    root, body, torso, head, hair, armL, armR, legL, legR, hips, sword, holster,
-    scabbard, materials, weapon: null, stowed: false,
-    hairStyle: '', hairColour: 0,
+    root,
+    body,
+    torso,
+    head,
+    hair,
+    armL,
+    armR,
+    legL,
+    legR,
+    hips,
+    sword,
+    holster,
+    scabbard,
+    materials,
+    weapon: null,
+    stowed: false,
+    hairStyle: "",
+    hairColour: 0,
   };
-  setWeaponModel(rig, 'sword');
+  setWeaponModel(rig, "sword");
   // What the player last chose, or the first style in its own colour. Read here
   // rather than passed in: every caller that builds a hero (the game, the lab,
   // test-zfight) wants the same answer, and the one that wants a different one
@@ -637,7 +666,9 @@ function layOnBack(mount: THREE.Group): void {
   const held = mount.children[0] as THREE.Mesh | undefined;
   mount.position.set(0, 0, 0);
   mount.rotation.set(0, 0, HOLSTER_ANGLE);
-  if (!held) return;
+  if (!held) {
+    return;
+  }
   held.geometry.computeBoundingBox();
   const bb = held.geometry.boundingBox!;
   // the model's reach along its own blade axis, in the mount's space
@@ -657,8 +688,10 @@ function layOnBack(mount: THREE.Group): void {
 
 /** Put the mount back in the hand that holds this weapon. */
 function handWeapon(rig: HeroRig, id: WeaponModelId | null): void {
-  const mount = id === 'bow' ? rig.armL : rig.armR;
-  if (rig.sword.parent === mount) return;
+  const mount = id === "bow" ? rig.armL : rig.armR;
+  if (rig.sword.parent === mount) {
+    return;
+  }
   mount.add(rig.sword);
   rig.sword.position.set(0, GRIP_LOCAL_Y, 0);
   // Yawed off-axis so the flat of the blade never faces the camera square-on,
@@ -680,7 +713,9 @@ function handWeapon(rig: HeroRig, id: WeaponModelId | null): void {
  * carry is one thing to look at rather than two.
  */
 export function stowWeapon(rig: HeroRig, stowed: boolean): void {
-  if (rig.stowed === stowed) return;
+  if (rig.stowed === stowed) {
+    return;
+  }
   rig.stowed = stowed;
   // The hip scabbard is the sheath for a DRAWN weapon — an empty one on the
   // belt is right while he is holding the sword, and one more strap crossing
@@ -695,7 +730,9 @@ export function stowWeapon(rig: HeroRig, stowed: boolean): void {
 }
 
 export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
-  if (rig.weapon === id) return;
+  if (rig.weapon === id) {
+    return;
+  }
   rig.weapon = id;
   // A BOW IS HELD IN THE LEFT HAND — issue #118. The bow arm holds the weapon
   // straight out and the RIGHT hand draws the string, which is the shape an
@@ -711,16 +748,22 @@ export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
   // calf push it into the left one unless x and the yaw change sign.
   // Stowed weapons stay stowed across a swap: what changes here is WHICH model
   // hangs in the mount, never where the mount is.
-  if (!rig.stowed) handWeapon(rig, id);
+  if (!rig.stowed) {
+    handWeapon(rig, id);
+  }
   const held = rig.sword.children[0] as THREE.Mesh | undefined;
   if (held) {
     rig.sword.remove(held);
     const mat = held.material as THREE.MeshStandardMaterial;
     const at = rig.materials.indexOf(mat);
-    if (at >= 0) rig.materials.splice(at, 1);
+    if (at >= 0) {
+      rig.materials.splice(at, 1);
+    }
     disposeWeapon(held);
   }
-  if (!id) return;
+  if (!id) {
+    return;
+  }
   const mesh = buildWeaponModel(id);
   installActorHighlight(mesh.material as THREE.MeshStandardMaterial);
   rig.sword.add(mesh);
@@ -744,7 +787,9 @@ export function setWeaponModel(rig: HeroRig, id: WeaponModelId | null): void {
 export function setHairStyle(rig: HeroRig, styleId: string, colour: number | null): void {
   const style = hairStyle(styleId);
   const hex = colour ?? style.suggested;
-  if (rig.hairStyle === style.id && rig.hairColour === hex) return;
+  if (rig.hairStyle === style.id && rig.hairColour === hex) {
+    return;
+  }
   rig.hairStyle = style.id;
   rig.hairColour = hex;
   const old = rig.hair.children[0] as THREE.Mesh | undefined;
@@ -752,7 +797,9 @@ export function setHairStyle(rig: HeroRig, styleId: string, colour: number | nul
     rig.hair.remove(old);
     const mat = old.material as THREE.MeshStandardMaterial;
     const at = rig.materials.indexOf(mat);
-    if (at >= 0) rig.materials.splice(at, 1);
+    if (at >= 0) {
+      rig.materials.splice(at, 1);
+    }
     old.geometry.dispose();
     mat.dispose();
   }

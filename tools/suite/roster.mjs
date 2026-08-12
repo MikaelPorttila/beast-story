@@ -76,6 +76,11 @@
 //
 //             It keeps every other conversion win; it just gets its own boot.
 export const CONVERTED = [
-  'inventory', 'carrier', 'deepwater', 'gfx',
-  'touch', 'gamepad', 'safezone',
+  "inventory",
+  "carrier",
+  "deepwater",
+  "gfx",
+  "touch",
+  "gamepad",
+  "safezone",
 ];

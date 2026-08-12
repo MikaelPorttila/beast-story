@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 const MAX = 64;
 const _mat4 = new THREE.Matrix4();
@@ -32,7 +32,9 @@ export class DustSystem {
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
     _mat4.makeScale(0, 0, 0);
-    for (let i = 0; i < MAX; i++) this.mesh.setMatrixAt(i, _mat4);
+    for (let i = 0; i < MAX; i++) {
+      this.mesh.setMatrixAt(i, _mat4);
+    }
     scene.add(this.mesh);
   }
 
@@ -53,7 +55,9 @@ export class DustSystem {
   }
 
   burst(pos: THREE.Vector3, count: number): void {
-    for (let i = 0; i < count; i++) this.spawn(pos.x, pos.y, pos.z, 0.3, 1);
+    for (let i = 0; i < count; i++) {
+      this.spawn(pos.x, pos.y, pos.z, 0.3, 1);
+    }
   }
 
   /** rate = particles per second. */
@@ -67,7 +71,9 @@ export class DustSystem {
 
   update(dt: number, time: number): void {
     for (let i = 0; i < MAX; i++) {
-      if (this.life[i] <= 0) continue;
+      if (this.life[i] <= 0) {
+        continue;
+      }
       this.life[i] -= dt;
       if (this.life[i] <= 0) {
         _mat4.makeScale(0, 0, 0);

@@ -3,25 +3,33 @@
  * exactly three, in order — mid, highland (>11 over water), lowland (<2.5).
  */
 
-import type { ContentAsset, ContentId, ContentTypeDef, ParseCtx, ValidateCtx } from '../types';
-import { bool, enumOf, hexColor, isRecord, list, num, obj, opt, readerFor, str } from '../schema';
-import type { Reader } from '../schema';
-import { isKnownTextKey } from '../text';
+import type { ContentAsset, ContentId, ContentTypeDef, ParseCtx, ValidateCtx } from "../types";
+import { bool, enumOf, hexColor, isRecord, list, num, obj, opt, readerFor, str } from "../schema";
+import type { Reader } from "../schema";
+import { isKnownTextKey } from "../text";
 // Type-only, so nothing at runtime imports core/types.ts — which pulls in three.js.
-import type { ElementType } from '../../core/types';
+import type { ElementType } from "../../core/types";
 
 /** The factory kind an enemy's `model` selects. `enemy-model/gloopling`, … */
-export const ENEMY_MODEL_KIND = 'enemy-model';
+export const ENEMY_MODEL_KIND = "enemy-model";
 
 /** `model` prefix meaning "wears a BEAST'S body". Hyphen, not colon: not a content id. */
-export const BEAST_MODEL_PREFIX = 'beast-';
+export const BEAST_MODEL_PREFIX = "beast-";
 
 const MODEL_RE = /^[a-z][a-z0-9-]*$/;
 
 /** Spelled out because `core/types.ts` cannot be imported for a VALUE here (three.js). */
 export const ELEMENT_NAMES = [
-  'fire', 'water', 'grass', 'electric', 'ice',
-  'rock', 'wind', 'shadow', 'light', 'dragon',
+  "fire",
+  "water",
+  "grass",
+  "electric",
+  "ice",
+  "rock",
+  "wind",
+  "shadow",
+  "light",
+  "dragon",
 ] as const;
 
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
@@ -79,36 +87,35 @@ const element = enumOf(ELEMENT_NAMES);
 function readVariant(value: unknown, ctx: Reader): EnemyVariant {
   if (!isRecord(value)) {
     ctx.report(
-      'error',
-      'bad-field',
-      'expected a palette object',
+      "error",
+      "bad-field",
+      "expected a palette object",
       'write { "element": "grass", "main": "#6fd84f", "dark": …, "belly": …, "accent": … }',
     );
   }
   // An annotation, not a cast: the empty record lets each reader name its own field.
   const v: Record<string, unknown> = isRecord(value) ? value : {};
   return {
-    element: element(v.element, ctx.at('element')),
-    main: hexColor(v.main, ctx.at('main')),
-    dark: hexColor(v.dark, ctx.at('dark')),
-    belly: hexColor(v.belly, ctx.at('belly')),
-    accent: hexColor(v.accent, ctx.at('accent')),
+    element: element(v.element, ctx.at("element")),
+    main: hexColor(v.main, ctx.at("main")),
+    dark: hexColor(v.dark, ctx.at("dark")),
+    belly: hexColor(v.belly, ctx.at("belly")),
+    accent: hexColor(v.accent, ctx.at("accent")),
   };
 }
 
 function readCapture(value: unknown, ctx: Reader): EnemyCapture {
   if (!isRecord(value)) {
-    ctx.report(
-      'error',
-      'bad-field',
-      'expected a capture object',
-      'write { "difficulty": 1.4 }',
-    );
+    ctx.report("error", "bad-field", "expected a capture object", 'write { "difficulty": 1.4 }');
   }
   const c: Record<string, unknown> = isRecord(value) ? value : {};
   return {
     // Floored at 1; no floor on the ORB tier any more (issue #110).
-    difficulty: num(c.difficulty, ctx.at('difficulty'), { min: 1, max: 20, what: 'a capture difficulty' }),
+    difficulty: num(c.difficulty, ctx.at("difficulty"), {
+      min: 1,
+      max: 20,
+      what: "a capture difficulty",
+    }),
   };
 }
 
@@ -118,80 +125,89 @@ function parse(body: unknown, ctx: ParseCtx): EnemyData | null {
 
   const variants = list(readVariant, { min: VARIANT_COUNT, max: VARIANT_COUNT })(
     b.variants,
-    r.at('variants'),
+    r.at("variants"),
   );
   if (variants.length !== VARIANT_COUNT) {
     // Unrecoverable: a wrong-length table lands as `undefined.main` inside a spawn.
-    r.at('variants').report(
-      'error',
-      'bad-field',
+    r.at("variants").report(
+      "error",
+      "bad-field",
       `needs exactly ${VARIANT_COUNT} palettes (mid, highland, lowland); got ${variants.length}`,
-      'variantForHeight() indexes this list — it is a lookup table, not a choice',
+      "variantForHeight() indexes this list — it is a lookup table, not a choice",
     );
     return null;
   }
 
   return {
-    model: str(b.model, r.at('model'), { min: 1, max: 64, pattern: MODEL_RE, what: 'an enemy model name' }),
-    flying: opt(b.flying, r.at('flying'), bool) ?? false,
+    model: str(b.model, r.at("model"), {
+      min: 1,
+      max: 64,
+      pattern: MODEL_RE,
+      what: "an enemy model name",
+    }),
+    flying: opt(b.flying, r.at("flying"), bool) ?? false,
     // Caps are guards on untrusted JSON, not balance opinions.
-    hp: num(b.hp, r.at('hp'), { min: 1, max: 1_000_000, what: 'hit points' }),
-    atk: num(b.atk, r.at('atk'), { min: 0, max: 100_000, what: 'an attack stat' }),
-    speed: num(b.speed, r.at('speed'), { min: 0, max: 200, what: 'a movement speed' }),
-    xp: num(b.xp, r.at('xp'), { min: 0, max: 1_000_000, what: 'an xp award' }),
-    radius: num(b.radius, r.at('radius'), { min: 0.05, max: 100, what: 'a collision radius' }),
-    height: num(b.height, r.at('height'), { min: 0.05, max: 100, what: 'a standing height' }),
-    aggro: num(b.aggro, r.at('aggro'), { min: 0, max: 500, what: 'an aggro radius' }),
+    hp: num(b.hp, r.at("hp"), { min: 1, max: 1_000_000, what: "hit points" }),
+    atk: num(b.atk, r.at("atk"), { min: 0, max: 100_000, what: "an attack stat" }),
+    speed: num(b.speed, r.at("speed"), { min: 0, max: 200, what: "a movement speed" }),
+    xp: num(b.xp, r.at("xp"), { min: 0, max: 1_000_000, what: "an xp award" }),
+    radius: num(b.radius, r.at("radius"), { min: 0.05, max: 100, what: "a collision radius" }),
+    height: num(b.height, r.at("height"), { min: 0.05, max: 100, what: "a standing height" }),
+    aggro: num(b.aggro, r.at("aggro"), { min: 0, max: 500, what: "an aggro radius" }),
     variants,
-    capture: opt(b.capture, r.at('capture'), readCapture),
+    capture: opt(b.capture, r.at("capture"), readCapture),
   };
 }
 
 /** `element` and `model` are NOT references — neither has an asset to resolve to. */
-function* refs(_data: EnemyData): Iterable<ContentId> {
-}
+function* refs(_data: EnemyData): Iterable<ContentId> {}
 
 function validate(asset: ContentAsset<EnemyData>, ctx: ValidateCtx): void {
   if (knownModels !== null && !knownModels.has(asset.data.model)) {
     ctx.report({
-      severity: 'error',
-      code: 'unknown-factory',
+      severity: "error",
+      code: "unknown-factory",
       message: `no "${ENEMY_MODEL_KIND}/${asset.data.model}" is registered`,
-      field: 'data.model',
+      field: "data.model",
       fix: `defineFactory("${ENEMY_MODEL_KIND}", "${asset.data.model}", …), or use one that exists`,
     });
   }
   // A capture block on a non-beast body is an orb that succeeds and grants nothing.
   if (asset.data.capture && !asset.data.model.startsWith(BEAST_MODEL_PREFIX)) {
     ctx.report({
-      severity: 'error',
-      code: 'bad-field',
+      severity: "error",
+      code: "bad-field",
       message: `"${asset.id}" can be bonded but wears "${asset.data.model}", which is not a beast's body`,
-      field: 'data.capture',
+      field: "data.capture",
       fix: `give it a "${BEAST_MODEL_PREFIX}<species>" model, or drop the capture block`,
     });
   }
 }
 
 export const ENEMY_TYPE: ContentTypeDef<EnemyData> = {
-  name: 'enemy',
+  name: "enemy",
   schema: 1,
   parse,
   refs,
   validate,
   template: {
-    id: 'enemy:new-beast',
+    id: "enemy:new-beast",
     schema: 1,
-    name: { text: { en: 'New Beast' } },
+    name: { text: { en: "New Beast" } },
     data: {
-      model: 'gloopling',
+      model: "gloopling",
       flying: false,
-      hp: 30, atk: 6, speed: 2.5, xp: 8,
-      radius: 0.5, height: 1, aggro: 9,
+      hp: 30,
+      atk: 6,
+      speed: 2.5,
+      xp: 8,
+      radius: 0.5,
+      height: 1,
+      aggro: 9,
       variants: [
-        { element: 'grass', main: '#ffffff', dark: '#888888', belly: '#cccccc', accent: '#000000' },
-        { element: 'grass', main: '#ffffff', dark: '#888888', belly: '#cccccc', accent: '#000000' },
-        { element: 'grass', main: '#ffffff', dark: '#888888', belly: '#cccccc', accent: '#000000' },
+        { element: "grass", main: "#ffffff", dark: "#888888", belly: "#cccccc", accent: "#000000" },
+        { element: "grass", main: "#ffffff", dark: "#888888", belly: "#cccccc", accent: "#000000" },
+        { element: "grass", main: "#ffffff", dark: "#888888", belly: "#cccccc", accent: "#000000" },
       ],
     },
   },

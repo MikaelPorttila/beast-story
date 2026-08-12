@@ -23,10 +23,15 @@
 //
 //   bun tools/test-settings.mjs
 import {
-  launchBrowser, leaveSplash, logPageErrors, newContextPage, startNewGame, whenPlaying,
-} from './browser.mjs';
+  launchBrowser,
+  leaveSplash,
+  logPageErrors,
+  newContextPage,
+  startNewGame,
+  whenPlaying,
+} from "./browser.mjs";
 
-import { BASE as HOST, NO_WARMUP } from './target.mjs';
+import { BASE as HOST, NO_WARMUP } from "./target.mjs";
 
 /**
  * Click a toggle and settle on the row AGREEING that it flipped.
@@ -43,23 +48,29 @@ import { BASE as HOST, NO_WARMUP } from './target.mjs';
 async function clickToggle(page, sel) {
   const full = `.bs-menu ${sel}`;
   const was = await page.evaluate(
-    (s) => document.querySelector(s)?.getAttribute('aria-pressed') ?? null, full);
+    (s) => document.querySelector(s)?.getAttribute("aria-pressed") ?? null,
+    full,
+  );
   await page.click(full);
   await page.waitForFunction(
-    ([s, prev]) => document.querySelector(s)?.getAttribute('aria-pressed') !== prev,
-    { timeout: 15000 }, [full, was],
+    ([s, prev]) => document.querySelector(s)?.getAttribute("aria-pressed") !== prev,
+    { timeout: 15000 },
+    [full, was],
   );
 }
 
 /** Every settings key in the profile, plus the legacy blob. */
-const stored = (page) => page.evaluate(() => {
-  const out = {};
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (k.startsWith('game.settings.') || k === 'bs:prefs') out[k] = localStorage.getItem(k);
-  }
-  return out;
-});
+const stored = (page) =>
+  page.evaluate(() => {
+    const out = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k.startsWith("game.settings.") || k === "bs:prefs") {
+        out[k] = localStorage.getItem(k);
+      }
+    }
+    return out;
+  });
 
 const feedback = (page) => page.evaluate(() => window.__dbgFeedback?.() ?? null);
 
@@ -71,28 +82,34 @@ const feedback = (page) => page.evaluate(() => window.__dbgFeedback?.() ?? null)
  * and only the one showing is in the DOM, so a click on a row of any other one
  * is a click on nothing — which is what every assertion below would have become.
  */
-async function openSettings(page, tab = 'gameplay') {
+async function openSettings(page, tab = "gameplay") {
   // Every step settles on the element the NEXT step clicks, which is the only
   // thing that makes the step after it a click on something. leaveSplash also
   // re-presses: the splash's key handler goes live after `.bs-menu` does.
-  await leaveSplash(page, { key: 'KeyK' });
+  await leaveSplash(page, { key: "KeyK" });
   await page.click('.bs-menu [data-act="settings"]');
   await page.waitForSelector(`.bs-menu [data-tab="${tab}"]`, { timeout: 15000 });
   await page.click(`.bs-menu [data-tab="${tab}"]`);
   await page.waitForFunction(
-    (t) => document.querySelector(`.bs-menu [data-tab="${t}"]`)
-      ?.getAttribute('aria-selected') === 'true',
-    { timeout: 15000 }, tab);
+    (t) =>
+      document.querySelector(`.bs-menu [data-tab="${t}"]`)?.getAttribute("aria-selected") ===
+      "true",
+    { timeout: 15000 },
+    tab,
+  );
 }
 
-const rowState = (page, key) => page.evaluate((k) => {
-  const b = document.querySelector(`.bs-menu [data-toggle="${k}"]`);
-  return b && {
-    label: b.querySelector('.lbl')?.textContent?.trim() ?? null,
-    pill: b.querySelector('.pill')?.textContent?.trim() ?? null,
-    pressed: b.getAttribute('aria-pressed'),
-  };
-}, key);
+const rowState = (page, key) =>
+  page.evaluate((k) => {
+    const b = document.querySelector(`.bs-menu [data-toggle="${k}"]`);
+    return (
+      b && {
+        label: b.querySelector(".lbl")?.textContent?.trim() ?? null,
+        pill: b.querySelector(".pill")?.textContent?.trim() ?? null,
+        pressed: b.getAttribute("aria-pressed"),
+      }
+    );
+  }, key);
 
 const browser = await launchBrowser();
 const out = {};
@@ -101,11 +118,11 @@ const out = {};
 {
   const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
   logPageErrors(page);
-// NO_WARMUP on all five loads: this file reads rows, keys and the prefs a
-// setting wrote, and its one frame-shaped assertion (the drained feedback cue)
-// is a count, not a cost — see the note in tools/target.mjs.
-  await page.goto(`${HOST}/?fps=30&menu=0&${NO_WARMUP}`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  // NO_WARMUP on all five loads: this file reads rows, keys and the prefs a
+  // setting wrote, and its one frame-shaped assertion (the drained feedback cue)
+  // is a count, not a cost — see the note in tools/target.mjs.
+  await page.goto(`${HOST}/?fps=30&menu=0&${NO_WARMUP}`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await whenPlaying(page);
   out.freshKeys = await stored(page);
   out.freshFeedback = await feedback(page);
@@ -119,27 +136,31 @@ const out = {};
   // Written before any of the game's own script runs, which is the only way to
   // stage the state a returning player actually has.
   await page.evaluateOnNewDocument(() => {
-    localStorage.setItem('bs:prefs', JSON.stringify({
-      hapticIntensity: 0.5,
-      shakeIntensity: 0.25,
-      volume: 0.4,
-      invertLookX: true,
-      invertLookY: false,
-      lang: 'sv',
-    }));
+    localStorage.setItem(
+      "bs:prefs",
+      JSON.stringify({
+        hapticIntensity: 0.5,
+        shakeIntensity: 0.25,
+        volume: 0.4,
+        invertLookX: true,
+        invertLookY: false,
+        lang: "sv",
+      }),
+    );
   });
-  await page.goto(`${HOST}/?fps=30&${NO_WARMUP}`, { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30&${NO_WARMUP}`, { waitUntil: "load" });
   // A TITLE-SCREEN load, so there is no `playing` to wait for — the staged boot
   // hands over on New Game. `.bs-menu` is the gate, and leaveSplash below is
   // what waits for its handler to be live.
-  await page.waitForSelector('.bs-menu');
+  await page.waitForSelector(".bs-menu");
   out.migrated = await stored(page);
   out.migratedFeedback = await feedback(page);
   // End to end: a migrated `lang` is a menu in Swedish. 'Nytt spel' is
   // `menu.newGame` in sv.ts.
-  await leaveSplash(page, { key: 'KeyK' });
+  await leaveSplash(page, { key: "KeyK" });
   out.migratedMenu = await page.evaluate(() =>
-    [...document.querySelectorAll('.bs-menu .panel button')].map((b) => b.textContent.trim()));
+    [...document.querySelectorAll(".bs-menu .panel button")].map((b) => b.textContent.trim()),
+  );
   await ctx.close();
 }
 
@@ -147,17 +168,17 @@ const out = {};
 {
   const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
   logPageErrors(page);
-  await page.goto(`${HOST}/?fps=30&${NO_WARMUP}`, { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30&${NO_WARMUP}`, { waitUntil: "load" });
   // A TITLE-SCREEN load, so there is no `playing` to wait for — the staged boot
   // hands over on New Game. `.bs-menu` is the gate, and leaveSplash below is
   // what waits for its handler to be live.
-  await page.waitForSelector('.bs-menu');
-  await openSettings(page, 'controls');
-  out.vibrationRow = await rowState(page, 'hapticFeedback');
+  await page.waitForSelector(".bs-menu");
+  await openSettings(page, "controls");
+  out.vibrationRow = await rowState(page, "hapticFeedback");
   out.beforeToggle = await feedback(page);
 
   await clickToggle(page, '[data-toggle="hapticFeedback"]');
-  out.afterToggleRow = await rowState(page, 'hapticFeedback');
+  out.afterToggleRow = await rowState(page, "hapticFeedback");
   out.afterToggleKeys = await stored(page);
   // The switch is applied LIVE — the point of it is that a pad stops moving now.
   out.afterToggleFeedback = await feedback(page);
@@ -168,8 +189,8 @@ const out = {};
   out.afterInvertKeys = await stored(page);
 
   // Same profile, fresh load: the choice has to survive.
-  await page.goto(`${HOST}/?fps=30&menu=0&${NO_WARMUP}`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(`${HOST}/?fps=30&menu=0&${NO_WARMUP}`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await whenPlaying(page);
   out.afterReloadKeys = await stored(page);
   out.afterReloadFeedback = await feedback(page);
@@ -197,18 +218,19 @@ const out = {};
 {
   const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
   logPageErrors(page);
-  await page.goto(`${HOST}/?fps=30&fs=0&${NO_WARMUP}`, { waitUntil: 'load' });
+  await page.goto(`${HOST}/?fps=30&fs=0&${NO_WARMUP}`, { waitUntil: "load" });
   // A TITLE-SCREEN load, so there is no `playing` to wait for — the staged boot
   // hands over on New Game. `.bs-menu` is the gate, and leaveSplash below is
   // what waits for its handler to be live.
-  await page.waitForSelector('.bs-menu');
-  await openSettings(page, 'graphics');
+  await page.waitForSelector(".bs-menu");
+  await openSettings(page, "graphics");
   out.gfxRows = await page.evaluate(() =>
-    [...document.querySelectorAll('.bs-menu [data-gfx]')].map((b) => ({
-      id: b.getAttribute('data-gfx'),
-      label: b.querySelector('.lbl')?.textContent?.trim() ?? null,
-      pressed: b.getAttribute('aria-pressed'),
-    })));
+    [...document.querySelectorAll(".bs-menu [data-gfx]")].map((b) => ({
+      id: b.getAttribute("data-gfx"),
+      label: b.querySelector(".lbl")?.textContent?.trim() ?? null,
+      pressed: b.getAttribute("aria-pressed"),
+    })),
+  );
 
   await clickToggle(page, '[data-gfx="ao"]');
   out.gfxAfterOff = await stored(page);

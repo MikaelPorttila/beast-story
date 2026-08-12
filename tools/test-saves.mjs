@@ -23,13 +23,17 @@
 // document and fail every one of these.
 //
 // Exits non-zero.
-import { launchBrowser, leaveSplash, newContextPage, whenPlaying } from './browser.mjs';
-import { BASE as HOST, NO_WARMUP } from './target.mjs';
+import { launchBrowser, leaveSplash, newContextPage, whenPlaying } from "./browser.mjs";
+import { BASE as HOST, NO_WARMUP } from "./target.mjs";
 
 const browser = await launchBrowser();
 const out = {};
 const fails = [];
-const check = (ok, msg) => { if (!ok) fails.push(msg); };
+const check = (ok, msg) => {
+  if (!ok) {
+    fails.push(msg);
+  }
+};
 
 // NO_WARMUP: nothing here times a frame. Every reading is state — a position, a
 // count, a level — and the shader sweep changes none of it.
@@ -37,30 +41,31 @@ const URL = `${HOST}/?menu=0&fs=0&vol=0&${NO_WARMUP}`;
 
 async function boot() {
   const { ctx, page } = await newContextPage(browser, { width: 900, height: 600 });
-  page.on('pageerror', (e) => console.error('[pageerror]', e.message));
-  await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
+  await page.goto(URL, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await whenPlaying(page);
   return { ctx, page };
 }
 
 /** Everything a case compares, in one round trip through the page. */
-const readState = (page) => page.evaluate(() => {
-  const doc = window.__dbgSaves.doc();
-  const pos = window.__dbgPlayerPos();
-  return {
-    pos: { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) },
-    bag: Object.fromEntries(doc.bag),
-    beasts: Object.fromEntries(doc.beasts.map((b) => [b.speciesId, b.level])),
-    party: doc.party,
-    currency: doc.currency,
-    name: doc.name,
-    zoneId: doc.location.zoneId,
-    // Which mounts the story had handed over. A `MountKind[]`, so the order is
-    // the document's own and comparing the arrays compares the whole field.
-    mounts: doc.mounts,
-  };
-});
+const readState = (page) =>
+  page.evaluate(() => {
+    const doc = window.__dbgSaves.doc();
+    const pos = window.__dbgPlayerPos();
+    return {
+      pos: { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) },
+      bag: Object.fromEntries(doc.bag),
+      beasts: Object.fromEntries(doc.beasts.map((b) => [b.speciesId, b.level])),
+      party: doc.party,
+      currency: doc.currency,
+      name: doc.name,
+      zoneId: doc.location.zoneId,
+      // Which mounts the story had handed over. A `MountKind[]`, so the order is
+      // the document's own and comparing the arrays compares the whole field.
+      mounts: doc.mounts,
+    };
+  });
 
 // ---------------------------------------------------------------------------
 // 1. The round trip: change things, save, change them back, load, compare.
@@ -68,54 +73,69 @@ const readState = (page) => page.evaluate(() => {
 {
   const { ctx, page } = await boot();
   const available = await page.evaluate(() => window.__dbgSaves.available());
-  check(available, 'the store reports itself unavailable on a plain boot');
+  check(available, "the store reports itself unavailable on a plain boot");
 
   // Something in every category the document carries, so a field dropped by
   // either half of the trip shows up as a difference rather than as nothing.
   await page.evaluate(() => {
-    window.__dbgGive('sunberry', 7);
-    window.__dbgGrantBeast('emberfox');
-    window.__dbgUnlockMount('water', true);
+    window.__dbgGive("sunberry", 7);
+    window.__dbgGrantBeast("emberfox");
+    window.__dbgUnlockMount("water", true);
     window.__dbgTp(140, -60);
   });
   const saved = await readState(page);
-  const id = await page.evaluate(() => window.__dbgSaves.save('Probe'));
-  check(typeof id === 'number' && id > 0, `save() returned ${JSON.stringify(id)}`);
+  const id = await page.evaluate(() => window.__dbgSaves.save("Probe"));
+  check(typeof id === "number" && id > 0, `save() returned ${JSON.stringify(id)}`);
   out.roundtrip = { id, saved };
 
   // Now make the session deliberately WRONG in every one of those places.
   await page.evaluate(() => {
-    window.__dbgGive('sunberry', 5);
-    window.__dbgUnlockMount('all', true);
+    window.__dbgGive("sunberry", 5);
+    window.__dbgUnlockMount("all", true);
     window.__dbgTp(-300, 400);
-    window.__dbgSaves.save;   // no-op read: the perturbation must not itself save
+    window.__dbgSaves.save; // no-op read: the perturbation must not itself save
   });
   const perturbed = await readState(page);
-  check(perturbed.bag.sunberry !== saved.bag.sunberry, 'the perturbation changed nothing to load over');
+  check(
+    perturbed.bag.sunberry !== saved.bag.sunberry,
+    "the perturbation changed nothing to load over",
+  );
 
   const loaded = await page.evaluate((n) => window.__dbgSaves.load(n), id);
-  check(loaded === true, 'load() refused the id save() had just returned');
+  check(loaded === true, "load() refused the id save() had just returned");
   const back = await readState(page);
   out.roundtrip.back = back;
 
-  check(back.name === 'Probe', `the name did not survive: ${back.name}`);
-  check(back.bag.sunberry === saved.bag.sunberry,
-    `sunberries: saved ${saved.bag.sunberry}, loaded ${back.bag.sunberry}`);
-  check(back.beasts.emberfox === saved.beasts.emberfox,
-    `the emberfox came back at level ${back.beasts.emberfox}, saved at ${saved.beasts.emberfox}`);
-  check(back.party.primary === saved.party.primary,
-    `the party lead changed: ${saved.party.primary} -> ${back.party.primary}`);
-  check(back.currency === saved.currency,
-    `the purse changed: ${saved.currency} -> ${back.currency}`);
+  check(back.name === "Probe", `the name did not survive: ${back.name}`);
+  check(
+    back.bag.sunberry === saved.bag.sunberry,
+    `sunberries: saved ${saved.bag.sunberry}, loaded ${back.bag.sunberry}`,
+  );
+  check(
+    back.beasts.emberfox === saved.beasts.emberfox,
+    `the emberfox came back at level ${back.beasts.emberfox}, saved at ${saved.beasts.emberfox}`,
+  );
+  check(
+    back.party.primary === saved.party.primary,
+    `the party lead changed: ${saved.party.primary} -> ${back.party.primary}`,
+  );
+  check(
+    back.currency === saved.currency,
+    `the purse changed: ${saved.currency} -> ${back.currency}`,
+  );
   // A RESTORE AND NOT A MERGE: the perturbation unlocked all three, so a load
   // that only ever ADDED kinds would come back with three and pass a test that
   // just looked for `water` in the list.
-  check(JSON.stringify(back.mounts) === JSON.stringify(saved.mounts),
-    `the mount unlocks changed: ${JSON.stringify(saved.mounts)} -> ${JSON.stringify(back.mounts)}`);
+  check(
+    JSON.stringify(back.mounts) === JSON.stringify(saved.mounts),
+    `the mount unlocks changed: ${JSON.stringify(saved.mounts)} -> ${JSON.stringify(back.mounts)}`,
+  );
   // Within a unit: the position is re-grounded on the way in, and the ground
   // under a point is the same ground it was.
-  check(Math.abs(back.pos.x - saved.pos.x) <= 1 && Math.abs(back.pos.z - saved.pos.z) <= 1,
-    `the hero came back at ${JSON.stringify(back.pos)}, saved at ${JSON.stringify(saved.pos)}`);
+  check(
+    Math.abs(back.pos.x - saved.pos.x) <= 1 && Math.abs(back.pos.z - saved.pos.z) <= 1,
+    `the hero came back at ${JSON.stringify(back.pos)}, saved at ${JSON.stringify(saved.pos)}`,
+  );
 
   await ctx.close();
 }
@@ -129,40 +149,55 @@ const readState = (page) => page.evaluate(() => {
 {
   const { ctx, page } = await boot();
   await page.evaluate(() => {
-    window.__dbgGive('sunberry', 3);
-    window.__dbgGive('glowpebble', 2);
+    window.__dbgGive("sunberry", 3);
+    window.__dbgGive("glowpebble", 2);
   });
-  const id = await page.evaluate(() => window.__dbgSaves.save('Ghost'));
+  const id = await page.evaluate(() => window.__dbgSaves.save("Ghost"));
 
   // Straight into IndexedDB, past the game: put an item nothing ships into the
   // bag of a document the game wrote.
-  const injected = await page.evaluate((n) => new Promise((resolve, reject) => {
-    const open = indexedDB.open('beast-story-saves');
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-      const db = open.result;
-      const tx = db.transaction('payloads', 'readwrite');
-      const store = tx.objectStore('payloads');
-      const get = store.get(n);
-      get.onsuccess = () => {
-        const row = get.result;
-        row.doc.bag = [['sunberry', 3], ['no-such-item', 9], ['glowpebble', 2]];
-        store.put(row);
-      };
-      tx.oncomplete = () => { db.close(); resolve(true); };
-      tx.onerror = () => reject(tx.error);
-    };
-  }), id);
-  check(injected === true, 'could not stage the doctored document');
+  const injected = await page.evaluate(
+    (n) =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open("beast-story-saves");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction("payloads", "readwrite");
+          const store = tx.objectStore("payloads");
+          const get = store.get(n);
+          get.onsuccess = () => {
+            const row = get.result;
+            row.doc.bag = [
+              ["sunberry", 3],
+              ["no-such-item", 9],
+              ["glowpebble", 2],
+            ];
+            store.put(row);
+          };
+          tx.oncomplete = () => {
+            db.close();
+            resolve(true);
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+    id,
+  );
+  check(injected === true, "could not stage the doctored document");
 
   const loaded = await page.evaluate((n) => window.__dbgSaves.load(n), id);
-  check(loaded === true, 'the doctored save would not load at all');
+  check(loaded === true, "the doctored save would not load at all");
   const state = await readState(page);
   out.unknownItem = { bag: state.bag };
-  check(state.bag['no-such-item'] === undefined,
-    'an item this build does not ship survived the load');
-  check(state.bag.sunberry === 3 && state.bag.glowpebble === 2,
-    `the items beside it did not survive: ${JSON.stringify(state.bag)}`);
+  check(
+    state.bag["no-such-item"] === undefined,
+    "an item this build does not ship survived the load",
+  );
+  check(
+    state.bag.sunberry === 3 && state.bag.glowpebble === 2,
+    `the items beside it did not survive: ${JSON.stringify(state.bag)}`,
+  );
 
   await ctx.close();
 }
@@ -173,31 +208,38 @@ const readState = (page) => page.evaluate(() => {
 // ---------------------------------------------------------------------------
 {
   const { ctx, page } = await boot();
-  const id = await page.evaluate(() => window.__dbgSaves.save('Lost'));
-  const staged = await page.evaluate((n) => new Promise((resolve, reject) => {
-    const open = indexedDB.open('beast-story-saves');
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-      const db = open.result;
-      const tx = db.transaction('payloads', 'readwrite');
-      const store = tx.objectStore('payloads');
-      const get = store.get(n);
-      get.onsuccess = () => {
-        const row = get.result;
-        // A zone that was deleted, and a coordinate that cannot be stood on.
-        // `null` rather than NaN: JSON has no NaN, so null is the shape a
-        // corrupt number actually arrives in.
-        row.doc.location = { zoneId: 'no-such-zone', x: null, y: null, z: null, yaw: 0 };
-        store.put(row);
-      };
-      tx.oncomplete = () => { db.close(); resolve(true); };
-      tx.onerror = () => reject(tx.error);
-    };
-  }), id);
-  check(staged === true, 'could not stage the lost-location document');
+  const id = await page.evaluate(() => window.__dbgSaves.save("Lost"));
+  const staged = await page.evaluate(
+    (n) =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open("beast-story-saves");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction("payloads", "readwrite");
+          const store = tx.objectStore("payloads");
+          const get = store.get(n);
+          get.onsuccess = () => {
+            const row = get.result;
+            // A zone that was deleted, and a coordinate that cannot be stood on.
+            // `null` rather than NaN: JSON has no NaN, so null is the shape a
+            // corrupt number actually arrives in.
+            row.doc.location = { zoneId: "no-such-zone", x: null, y: null, z: null, yaw: 0 };
+            store.put(row);
+          };
+          tx.oncomplete = () => {
+            db.close();
+            resolve(true);
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+    id,
+  );
+  check(staged === true, "could not stage the lost-location document");
 
   const loaded = await page.evaluate((n) => window.__dbgSaves.load(n), id);
-  check(loaded === true, 'a save with no usable location refused to load');
+  check(loaded === true, "a save with no usable location refused to load");
   const state = await page.evaluate(() => {
     const pos = window.__dbgPlayerPos();
     return {
@@ -215,11 +257,15 @@ const readState = (page) => page.evaluate(() => {
     pos: { x: Math.round(state.pos.x), y: Math.round(state.pos.y), z: Math.round(state.pos.z) },
     surface: Math.round(state.surface),
   };
-  check(state.zone === 'overworld', `a deleted zone resolved to ${state.zone}`);
-  check(Number.isFinite(state.pos.x) && Number.isFinite(state.pos.z),
-    `the hero is at ${JSON.stringify(state.pos)}`);
-  check(Math.abs(state.pos.y - state.surface) <= 2,
-    `the hero is ${(state.pos.y - state.surface).toFixed(1)} units off the ground`);
+  check(state.zone === "overworld", `a deleted zone resolved to ${state.zone}`);
+  check(
+    Number.isFinite(state.pos.x) && Number.isFinite(state.pos.z),
+    `the hero is at ${JSON.stringify(state.pos)}`,
+  );
+  check(
+    Math.abs(state.pos.y - state.surface) <= 2,
+    `the hero is ${(state.pos.y - state.surface).toFixed(1)} units off the ground`,
+  );
 
   await ctx.close();
 }
@@ -248,9 +294,14 @@ const readState = (page) => page.evaluate(() => {
     stored: Math.round(air.stored),
     surface: Math.round(air.surface),
   };
-  check(air.lifted - air.surface > 100, `the hero did not actually leave the ground: ${JSON.stringify(out.midAir)}`);
-  check(Math.abs(air.stored - air.surface) <= 2,
-    `a mid-air save stored y=${air.stored.toFixed(1)} with ground at ${air.surface.toFixed(1)}`);
+  check(
+    air.lifted - air.surface > 100,
+    `the hero did not actually leave the ground: ${JSON.stringify(out.midAir)}`,
+  );
+  check(
+    Math.abs(air.stored - air.surface) <= 2,
+    `a mid-air save stored y=${air.stored.toFixed(1)} with ground at ${air.surface.toFixed(1)}`,
+  );
 
   await ctx.close();
 }
@@ -293,27 +344,36 @@ const readState = (page) => page.evaluate(() => {
     }
     return best;
   });
-  check(tree !== null, 'no tree crown found in the woods at (120, 120) to stand on');
+  check(tree !== null, "no tree crown found in the woods at (120, 120) to stand on");
 
   if (tree) {
-    const perched = await page.evaluate(([x, z, top]) => {
-      // Dropped just over the crown and given time to land ON it, rather than
-      // placed at its height: standing there has to be something the physics
-      // agrees with, or the save is recording a pose nobody can hold.
-      window.__dbgTp(x, z, top + 1);
-      window.__dbgAdvance(2.5);
-      const loc = window.__dbgSaves.doc().location;
-      return { y: window.__dbgPlayerPos().y, storedY: loc.y, perchY: loc.perchY ?? null };
-    }, [tree.x, tree.z, tree.top]);
+    const perched = await page.evaluate(
+      ([x, z, top]) => {
+        // Dropped just over the crown and given time to land ON it, rather than
+        // placed at its height: standing there has to be something the physics
+        // agrees with, or the save is recording a pose nobody can hold.
+        window.__dbgTp(x, z, top + 1);
+        window.__dbgAdvance(2.5);
+        const loc = window.__dbgSaves.doc().location;
+        return { y: window.__dbgPlayerPos().y, storedY: loc.y, perchY: loc.perchY ?? null };
+      },
+      [tree.x, tree.z, tree.top],
+    );
     out.onTree = { tree, perched };
-    check(Math.abs(perched.y - tree.top) < 0.5,
-      `the hero did not settle on the crown: ${perched.y} vs ${tree.top}`);
-    check(Math.abs(perched.storedY - tree.ground) <= 1,
-      `the ground under the tree stored as ${perched.storedY}, terrain is ${tree.ground}`);
-    check(perched.perchY !== null && Math.abs(perched.perchY - tree.top) < 0.5,
-      `the crown was stored as ${perched.perchY}, he was standing at ${tree.top}`);
+    check(
+      Math.abs(perched.y - tree.top) < 0.5,
+      `the hero did not settle on the crown: ${perched.y} vs ${tree.top}`,
+    );
+    check(
+      Math.abs(perched.storedY - tree.ground) <= 1,
+      `the ground under the tree stored as ${perched.storedY}, terrain is ${tree.ground}`,
+    );
+    check(
+      perched.perchY !== null && Math.abs(perched.perchY - tree.top) < 0.5,
+      `the crown was stored as ${perched.perchY}, he was standing at ${tree.top}`,
+    );
 
-    const id = await page.evaluate(() => window.__dbgSaves.save('Treeman'));
+    const id = await page.evaluate(() => window.__dbgSaves.save("Treeman"));
     const back = await page.evaluate(async (n) => {
       window.__dbgTp(0, 0);
       await window.__dbgSaves.load(n);
@@ -322,10 +382,14 @@ const readState = (page) => page.evaluate(() => {
       return { at, settled: window.__dbgPlayerPos().y };
     }, id);
     out.onTree.back = back;
-    check(Math.abs(back.at - tree.top) < 0.5,
-      `the load put him at ${back.at}, the crown is at ${tree.top}`);
-    check(Math.abs(back.settled - tree.top) < 0.5,
-      `he did not stay on the crown: ${back.settled} after settling, ${back.at} on arrival`);
+    check(
+      Math.abs(back.at - tree.top) < 0.5,
+      `the load put him at ${back.at}, the crown is at ${tree.top}`,
+    );
+    check(
+      Math.abs(back.settled - tree.top) < 0.5,
+      `he did not stay on the crown: ${back.settled} after settling, ${back.at} on arrival`,
+    );
   }
 
   await ctx.close();
@@ -338,13 +402,13 @@ const readState = (page) => page.evaluate(() => {
 {
   const { ctx, page } = await boot();
   const ids = await page.evaluate(async () => {
-    window.__dbgGive('sunberry', 2);
-    const a = await window.__dbgSaves.save('Ayla');
+    window.__dbgGive("sunberry", 2);
+    const a = await window.__dbgSaves.save("Ayla");
     // A SECOND CHARACTER, not a second save of the first — `save()` writes
     // whoever is being played, so without this the two calls update one record.
     // This is what New Game leaves behind: a name and no record yet.
-    window.__dbgSaves.newCharacter('Bram');
-    window.__dbgGive('sunberry', 40);
+    window.__dbgSaves.newCharacter("Bram");
+    window.__dbgGive("sunberry", 40);
     // The list is ordered by when a character was last played, and `Date.now()`
     // is millisecond-resolution — two writes inside one tick would tie and make
     // the order below a coin toss. Staging a gap is the assertion's setup, not
@@ -358,30 +422,40 @@ const readState = (page) => page.evaluate(() => {
   const list = await page.evaluate(() => window.__dbgSaves.list());
   out.slots = { ids, list: list.map((r) => ({ id: r.id, name: r.name, power: r.powerLevel })) };
   check(list.length === 2, `expected 2 characters, listed ${list.length}`);
-  check(list[0].id === ids.b, 'the list is not most-recently-played first');
-  check(list.some((r) => r.name === 'Ayla') && list.some((r) => r.name === 'Bram'),
-    `the names did not reach the list: ${JSON.stringify(out.slots.list)}`);
+  check(list[0].id === ids.b, "the list is not most-recently-played first");
+  check(
+    list.some((r) => r.name === "Ayla") && list.some((r) => r.name === "Bram"),
+    `the names did not reach the list: ${JSON.stringify(out.slots.list)}`,
+  );
   // The power level is the sum of bonded beast levels, and a new game has one
   // beast at level 1 — so it is 1 rather than 0, which is what says it was
   // derived from the roster and not left at a default.
-  check(list.every((r) => r.powerLevel >= 1),
-    `a character listed a power level of 0: ${JSON.stringify(out.slots.list)}`);
+  check(
+    list.every((r) => r.powerLevel >= 1),
+    `a character listed a power level of 0: ${JSON.stringify(out.slots.list)}`,
+  );
 
   await page.evaluate((n) => window.__dbgSaves.load(n), ids.a);
   const asA = await readState(page);
   await page.evaluate((n) => window.__dbgSaves.load(n), ids.b);
   const asB = await readState(page);
   out.slots.bags = { a: asA.bag.sunberry, b: asB.bag.sunberry };
-  check(asA.name === 'Ayla' && asB.name === 'Bram',
-    `the two characters loaded as ${asA.name} and ${asB.name}`);
-  check(asA.bag.sunberry !== asB.bag.sunberry,
-    `both characters loaded the same bag: ${JSON.stringify(out.slots.bags)}`);
+  check(
+    asA.name === "Ayla" && asB.name === "Bram",
+    `the two characters loaded as ${asA.name} and ${asB.name}`,
+  );
+  check(
+    asA.bag.sunberry !== asB.bag.sunberry,
+    `both characters loaded the same bag: ${JSON.stringify(out.slots.bags)}`,
+  );
 
   await page.evaluate((n) => window.__dbgSaves.del(n), ids.a);
   const after = await page.evaluate(() => window.__dbgSaves.list());
   out.slots.afterDelete = after.map((r) => r.id);
-  check(after.length === 1 && after[0].id === ids.b,
-    `after deleting one: ${JSON.stringify(out.slots.afterDelete)}`);
+  check(
+    after.length === 1 && after[0].id === ids.b,
+    `after deleting one: ${JSON.stringify(out.slots.afterDelete)}`,
+  );
 
   await ctx.close();
 }
@@ -391,22 +465,24 @@ const readState = (page) => page.evaluate(() => {
 // ---------------------------------------------------------------------------
 {
   const { ctx, page } = await newContextPage(browser, { width: 900, height: 600 });
-  await page.goto(`${URL}&nostore=1`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(`${URL}&nostore=1`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await whenPlaying(page);
   const res = await page.evaluate(async () => ({
     available: window.__dbgSaves.available(),
-    saved: await window.__dbgSaves.save('Nobody'),
+    saved: await window.__dbgSaves.save("Nobody"),
     listed: (await window.__dbgSaves.list()).length,
     // The database itself must not have been created. `databases()` is the
     // only way to ask without creating one by opening it.
     dbs: (await indexedDB.databases()).map((d) => d.name),
   }));
   out.noStore = res;
-  check(res.available === false, 'nostore=1 still reports the store available');
+  check(res.available === false, "nostore=1 still reports the store available");
   check(res.listed === 0, `nostore=1 listed ${res.listed} characters`);
-  check(!res.dbs.includes('beast-story-saves'),
-    `nostore=1 created the database anyway: ${JSON.stringify(res.dbs)}`);
+  check(
+    !res.dbs.includes("beast-story-saves"),
+    `nostore=1 created the database anyway: ${JSON.stringify(res.dbs)}`,
+  );
 
   await ctx.close();
 }
@@ -443,7 +519,7 @@ const readState = (page) => page.evaluate(() => {
       spot = { x: sx, z: sz, y: isl.y + 8 };
     }
   }
-  check(!!spot, 'no bare turf column found on the island — is the deck all buildings?');
+  check(!!spot, "no bare turf column found on the island — is the deck all buildings?");
 
   await page.evaluate(([x, z, y]) => window.__dbgTp(x, z, y), [spot.x, spot.z, spot.y]);
   await page.evaluate(() => window.__dbgAdvance(1.6));
@@ -453,17 +529,21 @@ const readState = (page) => page.evaluate(() => {
     doc: window.__dbgSaves.doc().location,
   }));
   check(aboard.riding !== null, `the hero did not attach to the deck (riding: ${aboard.riding})`);
-  check(aboard.doc.carrierId === aboard.riding,
-    `the save stored carrierId ${aboard.doc.carrierId}, riding ${aboard.riding}`);
+  check(
+    aboard.doc.carrierId === aboard.riding,
+    `the save stored carrierId ${aboard.doc.carrierId}, riding ${aboard.riding}`,
+  );
   // The stored offsets are the frame's own coordinates, so they must match what
   // the carrier hook reports for the same hero — that is the number that has to
   // survive, and it is not the world position.
-  check(Math.abs(aboard.doc.localX - aboard.onDeck.x) < 0.5
-    && Math.abs(aboard.doc.localZ - aboard.onDeck.z) < 0.5,
-    `local offsets disagree: saved ${JSON.stringify([aboard.doc.localX, aboard.doc.localZ])},`
-    + ` hook ${JSON.stringify([aboard.onDeck.x, aboard.onDeck.z])}`);
+  check(
+    Math.abs(aboard.doc.localX - aboard.onDeck.x) < 0.5 &&
+      Math.abs(aboard.doc.localZ - aboard.onDeck.z) < 0.5,
+    `local offsets disagree: saved ${JSON.stringify([aboard.doc.localX, aboard.doc.localZ])},` +
+      ` hook ${JSON.stringify([aboard.onDeck.x, aboard.onDeck.z])}`,
+  );
 
-  const id = await page.evaluate(() => window.__dbgSaves.save('Skyfarer'));
+  const id = await page.evaluate(() => window.__dbgSaves.save("Skyfarer"));
   const islandBefore = (await carriers()).all[0];
 
   // MOVE THE ISLAND, and prove it moved. Then put him somewhere else entirely,
@@ -482,12 +562,17 @@ const readState = (page) => page.evaluate(() => {
     onDeck: window.__dbgCarriers().all[0].onDeck,
   }));
   out.onCarrier.back = back;
-  check(back.riding !== null, `loading put the hero at ${JSON.stringify(back.onDeck)}, off the island`);
-  check(Math.abs(back.onDeck.x - aboard.onDeck.x) < 1.5
-    && Math.abs(back.onDeck.z - aboard.onDeck.z) < 1.5,
-    `he came back to a different part of the deck: saved`
-    + ` ${JSON.stringify([aboard.onDeck.x, aboard.onDeck.z])},`
-    + ` loaded ${JSON.stringify([back.onDeck.x, back.onDeck.z])}`);
+  check(
+    back.riding !== null,
+    `loading put the hero at ${JSON.stringify(back.onDeck)}, off the island`,
+  );
+  check(
+    Math.abs(back.onDeck.x - aboard.onDeck.x) < 1.5 &&
+      Math.abs(back.onDeck.z - aboard.onDeck.z) < 1.5,
+    `he came back to a different part of the deck: saved` +
+      ` ${JSON.stringify([aboard.onDeck.x, aboard.onDeck.z])},` +
+      ` loaded ${JSON.stringify([back.onDeck.x, back.onDeck.z])}`,
+  );
 
   await ctx.close();
 }
@@ -503,9 +588,9 @@ const readState = (page) => page.evaluate(() => {
 // ---------------------------------------------------------------------------
 {
   const { ctx, page } = await newContextPage(browser, { width: 900, height: 600 });
-  page.on('pageerror', (e) => console.error('[pageerror]', e.message));
-  await page.goto(`${URL}&autosaveSec=2`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
+  await page.goto(`${URL}&autosaveSec=2`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await whenPlaying(page);
 
   const armed = await page.evaluate(() => window.__dbgSaves.autosave());
@@ -517,20 +602,25 @@ const readState = (page) => page.evaluate(() => {
   check(before.length === 0, `${before.length} characters existed before anything saved`);
 
   // Name the character first, so the record the timer writes is a real one.
-  await page.evaluate(() => window.__dbgSaves.newCharacter('Tick'));
+  await page.evaluate(() => window.__dbgSaves.newCharacter("Tick"));
   await page.evaluate(() => window.__dbgAdvance(3));
   const afterTimer = await page.evaluate(async () => ({
     list: await window.__dbgSaves.list(),
     state: window.__dbgSaves.autosave(),
   }));
   out.autosave.afterTimer = {
-    names: afterTimer.list.map((r) => r.name), since: afterTimer.state.sinceSec,
+    names: afterTimer.list.map((r) => r.name),
+    since: afterTimer.state.sinceSec,
   };
-  check(afterTimer.list.length === 1 && afterTimer.list[0].name === 'Tick',
-    `the timer wrote ${JSON.stringify(out.autosave.afterTimer.names)}`);
+  check(
+    afterTimer.list.length === 1 && afterTimer.list[0].name === "Tick",
+    `the timer wrote ${JSON.stringify(out.autosave.afterTimer.names)}`,
+  );
   // And the clock went back, or it would write every frame from here on.
-  check(afterTimer.state.sinceSec < 2,
-    `the clock was not reset by the write: ${afterTimer.state.sinceSec}`);
+  check(
+    afterTimer.state.sinceSec < 2,
+    `the clock was not reset by the write: ${afterTimer.state.sinceSec}`,
+  );
 
   // THE QUEST TRIGGER. A status change arms a short debounce rather than
   // writing per notification — one action list is several changes.
@@ -556,7 +646,9 @@ const readState = (page) => page.evaluate(() => {
     let after = 0;
     for (let i = 0; i < 40 && after === 0; i++) {
       after = Object.keys((await window.__dbgSaves.read(n))?.content?.quests ?? {}).length;
-      if (after === 0) await new Promise((r) => setTimeout(r, 50));
+      if (after === 0) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
     }
     return {
       armedAt,
@@ -566,9 +658,9 @@ const readState = (page) => page.evaluate(() => {
     };
   }, id);
   out.autosave.afterQuest = quest;
-  check(quest.armedAt > 0, 'a quest changing state armed no save');
+  check(quest.armedAt > 0, "a quest changing state armed no save");
   check(quest.before === 0, `the record already held ${quest.before} quests before staging any`);
-  check(quest.after > 0, 'the quest-triggered save never wrote the new quest state');
+  check(quest.after > 0, "the quest-triggered save never wrote the new quest state");
   check(quest.rows === 1, `the quest trigger made ${quest.rows} records instead of updating one`);
 
   await ctx.close();
@@ -584,34 +676,34 @@ const readState = (page) => page.evaluate(() => {
 // ---------------------------------------------------------------------------
 {
   const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
-  page.on('pageerror', (e) => console.error('[pageerror]', e.message));
-  await page.goto(`${HOST}/?fs=0&vol=0&${NO_WARMUP}`, { waitUntil: 'load' });
-  await page.waitForSelector('.bs-menu');
+  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
+  await page.goto(`${HOST}/?fs=0&vol=0&${NO_WARMUP}`, { waitUntil: "load" });
+  await page.waitForSelector(".bs-menu");
   await leaveSplash(page);
 
   // Load is down before there is anything to load, and the note says why.
   out.menu = await page.evaluate(() => ({
     loadDisabled: document.querySelector('.bs-menu [data-act="load"]')?.disabled ?? null,
-    note: document.querySelector('.bs-menu .note')?.textContent ?? null,
+    note: document.querySelector(".bs-menu .note")?.textContent ?? null,
   }));
-  check(out.menu.loadDisabled === true, 'Load is live on a machine with no characters');
+  check(out.menu.loadDisabled === true, "Load is live on a machine with no characters");
 
   await page.click('.bs-menu [data-act="new"]');
-  await page.waitForSelector('.bs-name-input');
+  await page.waitForSelector(".bs-name-input");
   // Typed, not set: this goes through the capture-phase key handler, and 's' is
   // the key that walks the cursor down everywhere else on this screen.
-  await page.keyboard.type('Wisp');
-  const typed = await page.evaluate(() => document.querySelector('.bs-name-input').value);
-  check(typed === 'Wisp', `the name field holds "${typed}" after typing Wisp`);
+  await page.keyboard.type("Wisp");
+  const typed = await page.evaluate(() => document.querySelector(".bs-name-input").value);
+  check(typed === "Wisp", `the name field holds "${typed}" after typing Wisp`);
 
   await page.click('.bs-menu [data-act="begin"]');
   await whenPlaying(page);
   const named = await page.evaluate(() => window.__dbgSaves.doc().name);
-  check(named === 'Wisp', `the session is playing as "${named}", not Wisp`);
+  check(named === "Wisp", `the session is playing as "${named}", not Wisp`);
 
   // Something to tell this character apart by, then save and go back.
   await page.evaluate(async () => {
-    window.__dbgGive('sunberry', 9);
+    window.__dbgGive("sunberry", 9);
     await window.__dbgSaves.save();
   });
   const savedBag = await page.evaluate(() => window.__dbgSaves.doc().bag.length);
@@ -619,7 +711,7 @@ const readState = (page) => page.evaluate(() => {
   // Exit to title through the pause menu's own button, which is the route a
   // player has — and the one that clears the active character.
   await page.evaluate(() => window.__dbgBoot && null);
-  await page.keyboard.press('F10');
+  await page.keyboard.press("F10");
   await page.waitForSelector('.bs-pause [data-act="exit"]');
   await page.click('.bs-pause [data-act="exit"]');
   await page.waitForSelector('.bs-menu [data-act="load"]:not([disabled])', { timeout: 10000 });
@@ -629,29 +721,31 @@ const readState = (page) => page.evaluate(() => {
     disabled: document.querySelector('.bs-menu [data-act="load"]')?.disabled ?? null,
   }));
   out.menu.afterOneCharacter = listed;
-  check(listed.disabled === false, 'Load is still down after a character was saved');
+  check(listed.disabled === false, "Load is still down after a character was saved");
 
   await page.click('.bs-menu [data-act="load"]');
-  await page.waitForSelector('.bs-save-row');
+  await page.waitForSelector(".bs-save-row");
   const row = await page.evaluate(() => {
-    const el = document.querySelector('.bs-save-row .save');
-    return { name: el?.querySelector('.nm')?.textContent ?? null,
-      meta: el?.querySelector('.meta')?.textContent ?? null };
+    const el = document.querySelector(".bs-save-row .save");
+    return {
+      name: el?.querySelector(".nm")?.textContent ?? null,
+      meta: el?.querySelector(".meta")?.textContent ?? null,
+    };
   });
   out.menu.row = row;
-  check(row.name === 'Wisp', `the list row is named "${row.name}"`);
-  check(/\d/.test(row.meta ?? ''), `the row's power/date line reads "${row.meta}"`);
+  check(row.name === "Wisp", `the list row is named "${row.name}"`);
+  check(/\d/.test(row.meta ?? ""), `the row's power/date line reads "${row.meta}"`);
 
-  await page.click('.bs-save-row .save');
+  await page.click(".bs-save-row .save");
   await whenPlaying(page);
   const back = await page.evaluate(() => {
     const doc = window.__dbgSaves.doc();
     return { name: doc.name, bag: doc.bag.length, active: window.__dbgSaves.active() };
   });
   out.menu.loaded = back;
-  check(back.name === 'Wisp', `loading from the list gave "${back.name}"`);
+  check(back.name === "Wisp", `loading from the list gave "${back.name}"`);
   check(back.bag === savedBag, `the bag came back with ${back.bag} kinds, saved ${savedBag}`);
-  check(typeof back.active === 'number', 'the loaded character is not the active save');
+  check(typeof back.active === "number", "the loaded character is not the active save");
 
   await ctx.close();
 }
@@ -672,27 +766,27 @@ const readState = (page) => page.evaluate(() => {
 // ---------------------------------------------------------------------------
 {
   const { ctx, page } = await newContextPage(browser, { width: 1000, height: 700 });
-  page.on('pageerror', (e) => console.error('[pageerror]', e.message));
-  await page.goto(`${HOST}/?fs=0&vol=0&${NO_WARMUP}`, { waitUntil: 'load' });
-  await page.waitForSelector('.bs-menu');
+  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
+  await page.goto(`${HOST}/?fs=0&vol=0&${NO_WARMUP}`, { waitUntil: "load" });
+  await page.waitForSelector(".bs-menu");
   await leaveSplash(page);
 
   const play = async (name) => {
     await page.click('.bs-menu [data-act="new"]');
-    await page.waitForSelector('.bs-name-input');
+    await page.waitForSelector(".bs-name-input");
     await page.keyboard.type(name);
     await page.click('.bs-menu [data-act="begin"]');
     await whenPlaying(page);
   };
   const exit = async () => {
-    await page.keyboard.press('F10');
+    await page.keyboard.press("F10");
     await page.waitForSelector('.bs-pause [data-act="exit"]');
     await page.click('.bs-pause [data-act="exit"]');
     await page.waitForSelector('.bs-menu [data-act="new"]');
   };
 
-  await play('Ayla');
-  await page.evaluate(() => window.__dbgGive('sunberry', 9));
+  await play("Ayla");
+  await page.evaluate(() => window.__dbgGive("sunberry", 9));
   await exit();
 
   // READ THE SCREEN, not the store. That the record exists was never the bug —
@@ -703,31 +797,37 @@ const readState = (page) => page.evaluate(() => {
     stored: (await window.__dbgSaves.list()).map((r) => r.name),
   }));
   out.secondCharacter = { afterFirst };
-  check(afterFirst.loadDisabled === false,
-    'the character just played is not on the title screen without a page reload');
-  check(afterFirst.active === null,
-    `the title screen still points at character ${afterFirst.active}`);
+  check(
+    afterFirst.loadDisabled === false,
+    "the character just played is not on the title screen without a page reload",
+  );
+  check(
+    afterFirst.active === null,
+    `the title screen still points at character ${afterFirst.active}`,
+  );
 
   // A DIFFERENT NAME, and a save of its own.
-  await play('Bram');
+  await play("Bram");
   const activeOnSecond = await page.evaluate(() => window.__dbgSaves.active());
-  check(activeOnSecond === null,
-    `a new game opened pointing at character ${activeOnSecond}`);
+  check(activeOnSecond === null, `a new game opened pointing at character ${activeOnSecond}`);
   await page.evaluate(async () => {
-    window.__dbgGive('glowpebble', 3);
+    window.__dbgGive("glowpebble", 3);
     await window.__dbgSaves.save();
   });
 
   const both = await page.evaluate(() => window.__dbgSaves.list());
   out.secondCharacter.list = both.map((r) => ({ id: r.id, name: r.name }));
-  check(both.length === 2,
-    `${both.length} character(s) after playing two: ${JSON.stringify(out.secondCharacter.list)}`);
-  check(both.some((r) => r.name === 'Ayla') && both.some((r) => r.name === 'Bram'),
-    `the two characters are ${JSON.stringify(out.secondCharacter.list)}`);
+  check(
+    both.length === 2,
+    `${both.length} character(s) after playing two: ${JSON.stringify(out.secondCharacter.list)}`,
+  );
+  check(
+    both.some((r) => r.name === "Ayla") && both.some((r) => r.name === "Bram"),
+    `the two characters are ${JSON.stringify(out.secondCharacter.list)}`,
+  );
 
   await ctx.close();
 }
-
 
 // ---------------------------------------------------------------------------
 // 10. A MOUNT KIND THIS BUILD DOES NOT HAVE, and a save written before the
@@ -742,77 +842,97 @@ const readState = (page) => page.evaluate(() => {
 // ---------------------------------------------------------------------------
 {
   const { ctx, page } = await boot();
-  await page.evaluate(() => window.__dbgUnlockMount('ground', true));
-  const id = await page.evaluate(() => window.__dbgSaves.save('Rider'));
+  await page.evaluate(() => window.__dbgUnlockMount("ground", true));
+  const id = await page.evaluate(() => window.__dbgSaves.save("Rider"));
 
-  const staged = await page.evaluate((n) => new Promise((resolve, reject) => {
-    const open = indexedDB.open('beast-story-saves');
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-      const db = open.result;
-      const tx = db.transaction('payloads', 'readwrite');
-      const store = tx.objectStore('payloads');
-      const get = store.get(n);
-      get.onsuccess = () => {
-        const row = get.result;
-        row.doc.mounts = ['ground', 'hovercraft', 'flying'];
-        store.put(row);
-      };
-      tx.oncomplete = () => { db.close(); resolve(true); };
-      tx.onerror = () => reject(tx.error);
-    };
-  }), id);
-  check(staged === true, 'could not stage the unknown-kind document');
+  const staged = await page.evaluate(
+    (n) =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open("beast-story-saves");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction("payloads", "readwrite");
+          const store = tx.objectStore("payloads");
+          const get = store.get(n);
+          get.onsuccess = () => {
+            const row = get.result;
+            row.doc.mounts = ["ground", "hovercraft", "flying"];
+            store.put(row);
+          };
+          tx.oncomplete = () => {
+            db.close();
+            resolve(true);
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+    id,
+  );
+  check(staged === true, "could not stage the unknown-kind document");
 
   const loaded = await page.evaluate((n) => window.__dbgSaves.load(n), id);
-  check(loaded === true, 'a save naming an unknown mount kind refused to load');
+  check(loaded === true, "a save naming an unknown mount kind refused to load");
   const withUnknown = await readState(page);
   out.unknownMountKind = { mounts: withUnknown.mounts };
-  check(!withUnknown.mounts.includes('hovercraft'),
-    `a mount kind this build does not have survived: ${JSON.stringify(withUnknown.mounts)}`);
-  check(JSON.stringify(withUnknown.mounts) === JSON.stringify(['ground', 'flying']),
-    `the kinds beside it did not survive in order: ${JSON.stringify(withUnknown.mounts)}`);
+  check(
+    !withUnknown.mounts.includes("hovercraft"),
+    `a mount kind this build does not have survived: ${JSON.stringify(withUnknown.mounts)}`,
+  );
+  check(
+    JSON.stringify(withUnknown.mounts) === JSON.stringify(["ground", "flying"]),
+    `the kinds beside it did not survive in order: ${JSON.stringify(withUnknown.mounts)}`,
+  );
 
   // The other document: no `mounts` at all, which is every save written before
   // this field shipped.
-  const stripped = await page.evaluate((n) => new Promise((resolve, reject) => {
-    const open = indexedDB.open('beast-story-saves');
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-      const db = open.result;
-      const tx = db.transaction('payloads', 'readwrite');
-      const store = tx.objectStore('payloads');
-      const get = store.get(n);
-      get.onsuccess = () => {
-        const row = get.result;
-        delete row.doc.mounts;
-        store.put(row);
-      };
-      tx.oncomplete = () => { db.close(); resolve(true); };
-      tx.onerror = () => reject(tx.error);
-    };
-  }), id);
-  check(stripped === true, 'could not stage the field-less document');
+  const stripped = await page.evaluate(
+    (n) =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open("beast-story-saves");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction("payloads", "readwrite");
+          const store = tx.objectStore("payloads");
+          const get = store.get(n);
+          get.onsuccess = () => {
+            const row = get.result;
+            delete row.doc.mounts;
+            store.put(row);
+          };
+          tx.oncomplete = () => {
+            db.close();
+            resolve(true);
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+    id,
+  );
+  check(stripped === true, "could not stage the field-less document");
 
   const loadedOld = await page.evaluate((n) => window.__dbgSaves.load(n), id);
-  check(loadedOld === true, 'a save written before the field existed refused to load');
+  check(loadedOld === true, "a save written before the field existed refused to load");
   const old = await readState(page);
   out.unknownMountKind.absentField = old.mounts;
-  check(Array.isArray(old.mounts) && old.mounts.length === 0,
-    `a save with no mounts field loaded as ${JSON.stringify(old.mounts)}`);
+  check(
+    Array.isArray(old.mounts) && old.mounts.length === 0,
+    `a save with no mounts field loaded as ${JSON.stringify(old.mounts)}`,
+  );
   // AND THE CHARACTER STILL CAME BACK. A field that degraded by taking the rest
   // of the load with it would satisfy the line above and lose the player their
   // save, which is the failure this whole file exists to catch.
-  check(old.name === 'Rider', `the character did not survive the field-less load: ${old.name}`);
+  check(old.name === "Rider", `the character did not survive the field-less load: ${old.name}`);
 
   await ctx.close();
 }
 
 console.log(JSON.stringify(out, null, 2));
 if (fails.length) {
-  console.error(`\n${fails.length} failure(s):\n  ${fails.join('\n  ')}`);
+  console.error(`\n${fails.length} failure(s):\n  ${fails.join("\n  ")}`);
   await browser.close();
   process.exit(1);
 }
-console.log('\nOK');
+console.log("\nOK");
 await browser.close();

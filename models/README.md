@@ -4,13 +4,13 @@ The drawing the hero is built FROM. **Nothing here is loaded by the game**: the
 renderer generates everything it draws (see AGENTS.md), so these files exist to
 be opened, looked at and argued with — not shipped.
 
-| File | What it is |
-| --- | --- |
+| File               | What it is                                                 |
+| ------------------ | ---------------------------------------------------------- |
 | `chibi-base.blend` | The source. Mesh, 8-bone rig, 13 actions. Blender 5.2 LTS. |
-| `chibi_base.py` | Builds the figure and the rig from scratch |
-| `chibi_anim.py` | Builds the 13 clips on that rig |
-| `export_glb.py` | Exports the OPEN file as it stands — no rebuild |
-| `chibi-base.glb` | What the export writes |
+| `chibi_base.py`    | Builds the figure and the rig from scratch                 |
+| `chibi_anim.py`    | Builds the 13 clips on that rig                            |
+| `export_glb.py`    | Exports the OPEN file as it stands — no rebuild            |
+| `chibi-base.glb`   | What the export writes                                     |
 
 ## Saving is all you do
 

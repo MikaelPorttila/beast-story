@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { makeGlowSprite } from './glowsprite';
-import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { makeGlowSprite } from "./glowsprite";
+import { eyes2x2, rimTop, shadeUnder } from "./voxelshade";
 
 // Sparkit — crackling electric rodent, ~0.6 m tall, always jittery.
 // Chrome yellow stays bright: at 60% luminance it photographed as dull brass in shade.
@@ -52,7 +52,7 @@ function buildRig(): BeastRig {
     return g;
   };
 
-  const body = pivot('body', root);
+  const body = pivot("body", root);
   const bm = new VoxelModel();
   bm.ellipsoid(0, 2.2, 0, 2.8, 2.3, 3.6, YEL);
   bm.ellipsoid(0, 1.3, 1.0, 2.0, 1.5, 2.5, CREAM);
@@ -70,14 +70,16 @@ function buildRig(): BeastRig {
           break;
         }
       }
-      if (xm === 0) break;
+      if (xm === 0) {
+        break;
+      }
     }
   }
   const bodyMesh = bm.build(S);
   bodyMesh.position.y = -0.06;
   body.add(bodyMesh);
 
-  const head = pivot('head', body);
+  const head = pivot("head", body);
   const hm = new VoxelModel();
   hm.ellipsoid(0, 1.9, 0.2, 2.8, 2.1, 2.2, YEL);
   hm.box(-3, 0, 2, 3, 4, 2, YEL);
@@ -85,8 +87,14 @@ function buildRig(): BeastRig {
   shadeUnder(hm, YEL_DARK, -3, 3, 0, 1, -2, 1);
   // lowerLid off: a lid row above AND below grew the eye into a 2x4 dark column.
   eyes2x2(hm, {
-    inner: 1, y: 2, faceZ: 2, iris: IRIS, shine: EYE_GLINT,
-    lid: LID, browProud: true, bridge: YEL_LIGHT,
+    inner: 1,
+    y: 2,
+    faceZ: 2,
+    iris: IRIS,
+    shine: EYE_GLINT,
+    lid: LID,
+    browProud: true,
+    bridge: YEL_LIGHT,
   });
   // Muzzle ONE cell wide: three cells proud at z=3 stood in front of the inner eye
   // column and hid a third of the iris.
@@ -104,8 +112,8 @@ function buildRig(): BeastRig {
     em.set(0, 2, 0, INK);
     g.add(em.build(S));
   };
-  mkEar('earL');
-  mkEar('earR');
+  mkEar("earL");
+  mkEar("earR");
 
   const mkSpark = (name: string): void => {
     const g = pivot(name, head);
@@ -121,10 +129,10 @@ function buildRig(): BeastRig {
     cheekGlow.position.set(0, 0, 0.06);
     g.add(cheekGlow);
   };
-  mkSpark('sparkL');
-  mkSpark('sparkR');
+  mkSpark("sparkL");
+  mkSpark("sparkR");
 
-  const tailG = pivot('tail', body);
+  const tailG = pivot("tail", body);
   // The bolt runs dark at the root and hotter each step: pale-on-pale it vanished
   // against sky, and the dark root also separates the tail from the yellow body.
   const t1 = new VoxelModel();
@@ -135,7 +143,7 @@ function buildRig(): BeastRig {
   m1.position.set(-0.1, 0, -0.05);
   tailG.add(m1);
 
-  const tipG = pivot('tailTip', tailG);
+  const tipG = pivot("tailTip", tailG);
   const t2 = new VoxelModel();
   t2.box(0, 0, 0, 1, 1, 0, YEL);
   t2.box(0, 1, 1, 1, 2, 1, YEL_LIGHT);
@@ -152,7 +160,7 @@ function buildRig(): BeastRig {
   tipG.add(m2);
   // 0.20/0.07: the bloom pass already haloes the emissive tip, and a wider additive
   // disc buried the bolt — which is this species' silhouette read. See glowsprite.ts.
-  const tipGlow = makeGlowSprite(0xffe680, 0.20, 0.07);
+  const tipGlow = makeGlowSprite(0xffe680, 0.2, 0.07);
   tipGlow.position.set(0, 0.47, 0.05);
   tipG.add(tipGlow);
 
@@ -165,10 +173,10 @@ function buildRig(): BeastRig {
     m.position.y = -0.18;
     g.add(m);
   };
-  mkLeg('legFL');
-  mkLeg('legFR');
-  mkLeg('legBL');
-  mkLeg('legBR');
+  mkLeg("legFL");
+  mkLeg("legFR");
+  mkLeg("legBL");
+  mkLeg("legBR");
 
   return { root, parts, height: 0.62, radius: 0.3 };
 }
@@ -205,23 +213,23 @@ function resetPose(parts: Record<string, THREE.Object3D>): void {
 function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const p = rig.parts;
   resetPose(p);
-  const body = p['body'];
-  const head = p['head'];
-  const earL = p['earL'];
-  const earR = p['earR'];
-  const sparkL = p['sparkL'];
-  const sparkR = p['sparkR'];
-  const tail = p['tail'];
-  const tailTip = p['tailTip'];
-  const legFL = p['legFL'];
-  const legFR = p['legFR'];
-  const legBL = p['legBL'];
-  const legBR = p['legBR'];
+  const body = p["body"];
+  const head = p["head"];
+  const earL = p["earL"];
+  const earR = p["earR"];
+  const sparkL = p["sparkL"];
+  const sparkR = p["sparkR"];
+  const tail = p["tail"];
+  const tailTip = p["tailTip"];
+  const legFL = p["legFL"];
+  const legFR = p["legFR"];
+  const legBL = p["legBL"];
+  const legBR = p["legBR"];
   const t = ctx.time;
   const at = ctx.actionTime;
 
   switch (ctx.action) {
-    case 'idle': {
+    case "idle": {
       const breath = Math.sin(t * 3.4);
       body.scale.y += breath * 0.025;
       body.scale.z -= breath * 0.012;
@@ -243,10 +251,10 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
 
-    case 'walk':
-    case 'run':
-    case 'swim':
-    case 'fly': {
+    case "walk":
+    case "run":
+    case "swim":
+    case "fly": {
       const g = ctx.moveSpeed;
       const freq = 9.5 + g * 5.5;
       const ph = ctx.cycle(GAIT, freq);
@@ -280,7 +288,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
 
-    case 'attack': {
+    case "attack": {
       const coilK = smooth(clamp01(at / 0.12));
       const strike = easeOutCubic(clamp01((at - 0.12) / 0.1));
       const rec = smooth(clamp01((at - 0.3) / 0.35));
@@ -305,7 +313,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
 
-    case 'cast': {
+    case "cast": {
       const up = smooth(clamp01(at / 0.22));
       body.rotation.x += -0.5 * up;
       body.position.y += 0.05 * up;
@@ -326,7 +334,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
 
-    case 'special': {
+    case "special": {
       const wind = smooth(clamp01(at / 0.15));
       const spinT = clamp01((at - 0.15) / 0.6);
       const s = easeOutCubic(spinT);
@@ -356,7 +364,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
 
-    case 'hurt': {
+    case "hurt": {
       const d = Math.exp(-at * 6.0);
       body.position.x += Math.sin(at * 50.0) * 0.04 * d;
       body.rotation.z += Math.sin(at * 47.0 + 1.0) * 0.12 * d;
@@ -381,7 +389,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
 
-    case 'happy': {
+    case "happy": {
       const hop = Math.abs(Math.sin(at * 7.5));
       const hu = hop * hop;
       body.position.y += hu * 0.12;
@@ -419,65 +427,65 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
 export const skills: SkillDef[] = [
   {
-    id: 'sparkit.static-zap',
-    nameKey: 'skill.sparkit.static-zap.name',
-    descriptionKey: 'skill.sparkit.static-zap.desc',
-    element: 'electric',
-    targeting: 'projectile',
+    id: "sparkit.static-zap",
+    nameKey: "skill.sparkit.static-zap.name",
+    descriptionKey: "skill.sparkit.static-zap.desc",
+    element: "electric",
+    targeting: "projectile",
     cost: 5,
     cooldown: 1.5,
     power: 9,
     range: 13,
     learnAtLevel: 1,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'sparkit.volt-dash',
-    nameKey: 'skill.sparkit.volt-dash.name',
-    descriptionKey: 'skill.sparkit.volt-dash.desc',
-    element: 'electric',
-    targeting: 'melee',
+    id: "sparkit.volt-dash",
+    nameKey: "skill.sparkit.volt-dash.name",
+    descriptionKey: "skill.sparkit.volt-dash.desc",
+    element: "electric",
+    targeting: "melee",
     cost: 10,
     cooldown: 4,
     power: 17,
     range: 3.5,
     learnAtLevel: 4,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'sparkit.thunder-coil',
-    nameKey: 'skill.sparkit.thunder-coil.name',
-    descriptionKey: 'skill.sparkit.thunder-coil.desc',
-    element: 'electric',
-    targeting: 'aoe',
+    id: "sparkit.thunder-coil",
+    nameKey: "skill.sparkit.thunder-coil.name",
+    descriptionKey: "skill.sparkit.thunder-coil.desc",
+    element: "electric",
+    targeting: "aoe",
     cost: 18,
     cooldown: 8,
     power: 27,
     range: 5.5,
     storePrice: 260,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'sparkit.gigavolt-crash',
-    nameKey: 'skill.sparkit.gigavolt-crash.name',
-    descriptionKey: 'skill.sparkit.gigavolt-crash.desc',
-    element: 'electric',
-    targeting: 'beam',
+    id: "sparkit.gigavolt-crash",
+    nameKey: "skill.sparkit.gigavolt-crash.name",
+    descriptionKey: "skill.sparkit.gigavolt-crash.desc",
+    element: "electric",
+    targeting: "beam",
     cost: 24,
     cooldown: 11,
     power: 42,
     range: 12,
     storePrice: 380,
-    castAnim: 'special',
+    castAnim: "special",
   },
 ];
 
 export const species: BeastSpecies = {
-  id: 'sparkit',
-  nameKey: 'beast.sparkit.name',
-  element: 'electric',
-  locomotion: 'ground',
-  descriptionKey: 'beast.sparkit.desc',
+  id: "sparkit",
+  nameKey: "beast.sparkit.name",
+  element: "electric",
+  locomotion: "ground",
+  descriptionKey: "beast.sparkit.desc",
   baseStats: { maxHp: 42, attack: 13, defense: 7, speed: 5.4 },
   skills: skills.map((s) => s.id),
   buildRig,

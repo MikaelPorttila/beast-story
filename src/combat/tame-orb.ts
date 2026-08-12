@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import { VoxelModel, shade } from '../core/voxel';
+import * as THREE from "three";
+import { VoxelModel, shade } from "../core/voxel";
 
 // Built along +Z like the arrow: the pool aims a slot with `lookAt`, and the
 // seam has to stay square to the direction of travel.
@@ -38,7 +38,9 @@ export function buildTameOrb(color: number): THREE.Mesh {
         v.setEmissive(x, y, 0, BAND, 0.85);
         // Catch one voxel proud at the top: breaks the halo's symmetry so a
         // spinning orb reads as spinning.
-        if (y === r - 1) v.set(x, y, 1, shade(BAND, 0.72));
+        if (y === r - 1) {
+          v.set(x, y, 1, shade(BAND, 0.72));
+        }
       }
     }
   }
@@ -71,16 +73,22 @@ export function disposeTameOrbs(): void {
   for (const mesh of cache.values()) {
     mesh.geometry.dispose();
     const mat = mesh.material;
-    if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-    else mat.dispose();
+    if (Array.isArray(mat)) {
+      mat.forEach((m) => m.dispose());
+    } else {
+      mat.dispose();
+    }
     // Emissive cells ride as child meshes with their own material.
     mesh.traverse((o) => {
       const child = o as THREE.Mesh;
       if (child !== mesh && child.isMesh) {
         child.geometry.dispose();
         const cm = child.material;
-        if (Array.isArray(cm)) cm.forEach((m) => m.dispose());
-        else cm.dispose();
+        if (Array.isArray(cm)) {
+          cm.forEach((m) => m.dispose());
+        } else {
+          cm.dispose();
+        }
       }
     });
   }

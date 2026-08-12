@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 /**
  * Cached shadow map for the static half of the world: a rare STATIC pass into our
@@ -40,10 +40,16 @@ export function invalidateStaticShadowsNear(root: THREE.Object3D): void {
   root.updateWorldMatrix(true, true);
   root.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (!m.isMesh || !m.geometry) return;
-    if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+    if (!m.isMesh || !m.geometry) {
+      return;
+    }
+    if (!m.geometry.boundingSphere) {
+      m.geometry.computeBoundingSphere();
+    }
     const bs = m.geometry.boundingSphere;
-    if (!bs) return;
+    if (!bs) {
+      return;
+    }
     _sphere.copy(bs).applyMatrix4(m.matrixWorld);
     if (!found) {
       found = true;
@@ -52,7 +58,9 @@ export function invalidateStaticShadowsNear(root: THREE.Object3D): void {
       pending[pending.length - 1].union(_sphere);
     }
   });
-  if (!found) globalDirty = true;
+  if (!found) {
+    globalDirty = true;
+  }
 }
 
 /** Unbounded change. Forces one rebuild. */
@@ -64,9 +72,7 @@ const _off = new THREE.Vector3();
 
 /** Clears the list either way. Tested IN LIGHT SPACE on the two BOUNDED ortho
  * axes (`x`/`y` = engine.ts's SHADOW_X/Y); the third is depth, i.e. "anywhere". */
-function takeDirty(
-  center: THREE.Vector3, s: number, x: THREE.Vector3, y: THREE.Vector3,
-): boolean {
+function takeDirty(center: THREE.Vector3, s: number, x: THREE.Vector3, y: THREE.Vector3): boolean {
   let dirty = globalDirty;
   if (!dirty) {
     for (const sp of pending) {
@@ -112,19 +118,28 @@ export function shadowCasterCensus(scene: THREE.Scene): Record<string, unknown> 
   const names: Record<string, number> = {};
   scene.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (!m.isMesh || !m.castShadow) return;
+    if (!m.isMesh || !m.castShadow) {
+      return;
+    }
     // A hidden ancestor hides this too, and three's shadow pass returns on it.
-    for (let p: THREE.Object3D | null = m; p; p = p.parent) if (!p.visible) return;
+    for (let p: THREE.Object3D | null = m; p; p = p.parent) {
+      if (!p.visible) return;
+    }
     if (m.layers.isEnabled(STATIC_SHADOW_LAYER)) {
       staticCasters++;
     } else {
       dynamic++;
       // Nearest named ancestor: an unnamed voxel mesh's group usually is named.
-      let key = '';
+      let key = "";
       for (let p: THREE.Object3D | null = m; p && p !== scene; p = p.parent) {
-        if (p.name) { key = p.name; break; }
+        if (p.name) {
+          key = p.name;
+          break;
+        }
       }
-      if (!key) key = `${m.parent === scene ? 'scene/' : ''}${m.type}`;
+      if (!key) {
+        key = `${m.parent === scene ? "scene/" : ""}${m.type}`;
+      }
       names[key] = (names[key] ?? 0) + 1;
     }
   });
@@ -175,9 +190,10 @@ export class StaticShadowCache {
     });
     // A fullscreen TRIANGLE: no diagonal seam, one primitive instead of two.
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(
-      new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3,
-    ));
+    g.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3),
+    );
     const mesh = new THREE.Mesh(g, this.quadMat);
     mesh.frustumCulled = false;
     this.quadScene.add(mesh);
@@ -246,7 +262,9 @@ export class StaticShadowCache {
 
   private runPasses(): void {
     const { live, renderer, scene, camera, sun, axisX, axisY } = this.passArgs;
-    if (!live) return;
+    if (!live) {
+      return;
+    }
     const sm = renderer.shadowMap;
     const shadow = sun.shadow;
     const box = shadow.camera;
@@ -257,8 +275,7 @@ export class StaticShadowCache {
     const mask = camera.layers.mask;
 
     // `takeDirty` must run unconditionally — it clears the pending list.
-    const moved = this.cachedExtent !== box.right
-      || !this.cachedCenter.equals(sun.target.position);
+    const moved = this.cachedExtent !== box.right || !this.cachedCenter.equals(sun.target.position);
     const changed = takeDirty(sun.target.position, box.right, axisX, axisY);
     if (!this.hasCache || moved || changed) {
       // Point the light at our target for one call, reusing three's own depth
@@ -274,8 +291,12 @@ export class StaticShadowCache {
       this.cachedExtent = box.right;
       this.cachedCenter.copy(sun.target.position);
       this.rebuilds++;
-      if (moved) this.rebuiltMoved++;
-      if (changed) this.rebuiltChanged++;
+      if (moved) {
+        this.rebuiltMoved++;
+      }
+      if (changed) {
+        this.rebuiltChanged++;
+      }
     }
 
     // `disable`, not `set(0)`: other bits must survive or a bloomed mesh stops casting.
@@ -295,7 +316,7 @@ export class StaticShadowCache {
     depth.compareFunction = null;
     depth.minFilter = THREE.NearestFilter;
     depth.magFilter = THREE.NearestFilter;
-    depth.name = 'staticShadowCache';
+    depth.name = "staticShadowCache";
     rt.depthTexture = depth;
     this.rt = rt;
     this.hasCache = false;
@@ -320,7 +341,9 @@ export class StaticShadowCache {
     this.rt = null;
     this.quadMat.dispose();
     for (const o of this.quadScene.children) {
-      if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose();
+      if ((o as THREE.Mesh).geometry) {
+        (o as THREE.Mesh).geometry.dispose();
+      }
     }
     this.hasCache = false;
   }

@@ -2,10 +2,10 @@
  * Sky ambience: drifting chunky voxel cumulus. The deck casts NO shadows — one
  * hill-sized hard-edged slab overhead dumped the whole hillside into near-black.
  */
-import * as THREE from 'three';
-import type { CelestialState } from '../core/types';
-import { VoxelModel } from '../core/voxel';
-import { mulberry32 } from './noise';
+import * as THREE from "three";
+import type { CelestialState } from "../core/types";
+import { VoxelModel } from "../core/voxel";
+import { mulberry32 } from "./noise";
 
 /** Wrap half-extent per band; past ~360 the scene fog (150..420) is pure haze. */
 const BAND_WRAP = [165, 235, 305, 360];
@@ -58,20 +58,24 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
     x >= -LIM && x <= LIM && z >= -LIM && z <= LIM && y >= 0 && y < HGT;
   const at = (x: number, y: number, z: number): number => (y * W + (x + LIM)) * W + (z + LIM);
   const get = (x: number, y: number, z: number): number => (inb(x, y, z) ? vol[at(x, y, z)] : 0);
-  const put = (x: number, y: number, z: number): void => { if (inb(x, y, z)) vol[at(x, y, z)] = 1; };
+  const put = (x: number, y: number, z: number): void => {
+    if (inb(x, y, z)) {
+      vol[at(x, y, z)] = 1;
+    }
+  };
 
   /** Ellipsoid painter that clips below BASE_Y, giving the flat condensation
    *  level; pass 4 bulges it back into a dome. */
-  const lobe = (
-    cx: number, cy: number, cz: number,
-    rx: number, ry: number, rz: number,
-  ): void => {
-    for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++)
+  const lobe = (cx: number, cy: number, cz: number, rx: number, ry: number, rz: number): void => {
+    for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
       for (let y = Math.max(BASE_Y, Math.floor(cy - ry)); y <= Math.ceil(cy + ry); y++)
         for (let z = Math.floor(cz - rz); z <= Math.ceil(cz + rz); z++) {
-          const dx = (x - cx) / rx, dy = (y - cy) / ry, dz = (z - cz) / rz;
+          const dx = (x - cx) / rx,
+            dy = (y - cy) / ry,
+            dz = (z - cz) / rz;
           if (dx * dx + dy * dy + dz * dz <= 1.0) put(x, y, z);
         }
+    }
   };
 
   // Pass 1: wide footprint lobes, then a short vertical stack, then turrets.
@@ -83,7 +87,7 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
   let fatTop = BASE_Y;
   for (let b = 0; b < baseN; b++) {
     const a = (b / baseN) * Math.PI * 2 + rng() * 0.9;
-    const rad = b === 0 ? 0 : rBase * (0.40 + rng() * 0.35);
+    const rad = b === 0 ? 0 : rBase * (0.4 + rng() * 0.35);
     const cx = Math.cos(a) * rad;
     const cz = Math.sin(a) * rad;
     const rx = rBase * (0.82 + rng() * 0.26);
@@ -91,9 +95,14 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
     const rz = Math.max(rx / 1.6, rx * (0.82 + rng() * 0.28));
     const ry = rx * (0.58 + rng() * 0.16);
     // Centre sits above the clip so ~30% of each boll is cut away flat.
-    const cy = BASE_Y + ry * 0.70;
+    const cy = BASE_Y + ry * 0.7;
     lobe(cx, cy, cz, rx, ry, rz);
-    if (rx > fatR) { fatR = rx; fatX = cx; fatZ = cz; fatTop = cy + ry; }
+    if (rx > fatR) {
+      fatR = rx;
+      fatX = cx;
+      fatZ = cz;
+      fatTop = cy + ry;
+    }
   }
   // Tower kept short and fat: 1-2 storeys at 85%, sunk 60% into each other. More
   // or narrower storeys gave spires, and 150-unit columns at horizon scale.
@@ -102,7 +111,7 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
   let sy = fatTop;
   for (let k = 0; k < stackN; k++) {
     const ry = sr * (0.74 + rng() * 0.18);
-    const cy = sy - ry * 0.60 + ry;
+    const cy = sy - ry * 0.6 + ry;
     const cx = fatX + (rng() - 0.5) * sr * 0.45;
     const cz = fatZ + (rng() - 0.5) * sr * 0.45;
     lobe(cx, cy, cz, sr, ry, sr * (0.88 + rng() * 0.2));
@@ -117,9 +126,12 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
     const [bx, by, bz, br] = crowns[Math.floor(rng() * crowns.length)];
     const tr = br * (0.55 + rng() * 0.25);
     lobe(
-      bx + (rng() - 0.5) * br * 0.6, by + tr * (0.2 + t * 0.26),
+      bx + (rng() - 0.5) * br * 0.6,
+      by + tr * (0.2 + t * 0.26),
       bz + (rng() - 0.5) * br * 0.5,
-      tr, tr * (0.75 + rng() * 0.25), tr * (0.88 + rng() * 0.22),
+      tr,
+      tr * (0.75 + rng() * 0.25),
+      tr * (0.88 + rng() * 0.22),
     );
   }
 
@@ -130,44 +142,57 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
   for (let it = 0; it < 3; it++) {
     snap.set(vol);
     const snapGet = (x: number, y: number, z: number): number =>
-      (inb(x, y, z) ? snap[at(x, y, z)] : 0);
-    for (let y = 0; y < HGT; y++)
+      inb(x, y, z) ? snap[at(x, y, z)] : 0;
+    for (let y = 0; y < HGT; y++) {
       for (let x = -LIM; x <= LIM; x++)
         for (let z = -LIM; z <= LIM; z++) {
           if (!snap[at(x, y, z)]) continue;
           const n =
-            snapGet(x + 1, y, z) + snapGet(x - 1, y, z) +
-            snapGet(x, y, z + 1) + snapGet(x, y, z - 1) +
-            snapGet(x, y + 1, z) + (y <= BASE_Y ? 1 : snapGet(x, y - 1, z));
+            snapGet(x + 1, y, z) +
+            snapGet(x - 1, y, z) +
+            snapGet(x, y, z + 1) +
+            snapGet(x, y, z - 1) +
+            snapGet(x, y + 1, z) +
+            (y <= BASE_Y ? 1 : snapGet(x, y - 1, z));
           if (n < 4) vol[at(x, y, z)] = 0;
         }
+    }
     snap.set(vol);
-    for (let y = BASE_Y; y < HGT; y++)
+    for (let y = BASE_Y; y < HGT; y++) {
       for (let x = -LIM; x <= LIM; x++)
         for (let z = -LIM; z <= LIM; z++) {
           if (snap[at(x, y, z)]) continue;
           const n =
-            snapGet(x + 1, y, z) + snapGet(x - 1, y, z) +
-            snapGet(x, y, z + 1) + snapGet(x, y, z - 1) +
-            snapGet(x, y + 1, z) + (y <= BASE_Y ? 1 : snapGet(x, y - 1, z));
+            snapGet(x + 1, y, z) +
+            snapGet(x - 1, y, z) +
+            snapGet(x, y, z + 1) +
+            snapGet(x, y, z - 1) +
+            snapGet(x, y + 1, z) +
+            (y <= BASE_Y ? 1 : snapGet(x, y - 1, z));
           if (n >= 4) vol[at(x, y, z)] = 1;
         }
+    }
   }
 
   // Pass 4: dome the underside by the thickness above each column.
   let topMax = BASE_Y;
   const colTop = new Int8Array(W * W);
-  for (let x = -LIM; x <= LIM; x++)
+  for (let x = -LIM; x <= LIM; x++) {
     for (let z = -LIM; z <= LIM; z++) {
       let hi = -1;
-      for (let y = HGT - 1; y >= BASE_Y; y--) if (vol[at(x, y, z)]) { hi = y; break; }
+      for (let y = HGT - 1; y >= BASE_Y; y--)
+        if (vol[at(x, y, z)]) {
+          hi = y;
+          break;
+        }
       colTop[(x + LIM) * W + (z + LIM)] = hi;
       if (hi > topMax) topMax = hi;
     }
+  }
   const span = Math.max(1, topMax - BASE_Y);
   // Continuous drop depth per column, sqrt so the dome is round not conical.
   const dropF = new Float32Array(W * W);
-  for (let x = -LIM; x <= LIM; x++)
+  for (let x = -LIM; x <= LIM; x++) {
     for (let z = -LIM; z <= LIM; z++) {
       const hi = colTop[(x + LIM) * W + (z + LIM)];
       // Shallow: each extra step shows from below as a bright vertical sliver
@@ -175,45 +200,53 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
       dropF[(x + LIM) * W + (z + LIM)] =
         hi < BASE_Y ? 0 : 1 + 2.1 * Math.sqrt((hi - BASE_Y) / span);
     }
+  }
   // Smooth before rounding, or the rough top corrugates the base with fins.
   const sm = new Float32Array(W * W);
   for (let pass = 0; pass < 3; pass++) {
-    for (let ax = 1; ax < W - 1; ax++)
+    for (let ax = 1; ax < W - 1; ax++) {
       for (let az = 1; az < W - 1; az++) {
         const i = ax * W + az;
         sm[i] = (dropF[i - W] + dropF[i - 1] + dropF[i] * 2 + dropF[i + 1] + dropF[i + W]) / 6;
       }
+    }
     dropF.set(sm);
   }
-  for (let x = -LIM; x <= LIM; x++)
+  for (let x = -LIM; x <= LIM; x++) {
     for (let z = -LIM; z <= LIM; z++) {
       if (colTop[(x + LIM) * W + (z + LIM)] < BASE_Y) continue;
       const drop = Math.max(1, Math.round(dropF[(x + LIM) * W + (z + LIM)]));
       for (let d = 1; d <= drop; d++) put(x, BASE_Y - d, z);
     }
+  }
 
   // Pass 5: paint. The sun/shade split is NOT baked — instances are randomly yawed.
   const v = new VoxelModel();
   // Roughly 2:1 top-to-belly value, or the sky reads as uniform grey popcorn.
   const BODY = 0xfdfbf2;
   const BELLY = [0xc9d6e8, 0xaebfd6, 0x9aadc8, 0x8aa0be, 0x7d94b4];
-  for (let y = 0; y < HGT; y++)
+  for (let y = 0; y < HGT; y++) {
     for (let x = -LIM; x <= LIM; x++)
       for (let z = -LIM; z <= LIM; z++) {
         if (!vol[at(x, y, z)]) continue;
         if (y < BASE_Y) v.set(x, y, z, BELLY[Math.min(BASE_Y - 1 - y, BELLY.length - 1)]);
         else v.set(x, y, z, BODY);
       }
+  }
   // Cap only columns on a horizontal shelf (3 of 4 neighbours within a voxel):
   // ungated, flank caps line up into bright vertical scratches.
   const top = new Int8Array(W * W).fill(-1);
-  for (let x = -LIM; x <= LIM; x++)
+  for (let x = -LIM; x <= LIM; x++) {
     for (let z = -LIM; z <= LIM; z++)
       for (let y = HGT - 1; y >= BASE_Y; y--)
-        if (vol[at(x, y, z)]) { top[(x + LIM) * W + (z + LIM)] = y; break; }
+        if (vol[at(x, y, z)]) {
+          top[(x + LIM) * W + (z + LIM)] = y;
+          break;
+        }
+  }
   const topAt = (x: number, z: number): number =>
-    (x >= -LIM && x <= LIM && z >= -LIM && z <= LIM ? top[(x + LIM) * W + (z + LIM)] : -1);
-  for (let x = -LIM; x <= LIM; x++)
+    x >= -LIM && x <= LIM && z >= -LIM && z <= LIM ? top[(x + LIM) * W + (z + LIM)] : -1;
+  for (let x = -LIM; x <= LIM; x++) {
     for (let z = -LIM; z <= LIM; z++) {
       const hi = topAt(x, z);
       if (hi < BASE_Y + 2) continue;
@@ -226,6 +259,7 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
       v.set(x, hi, z, 0xfffdf6);
       v.set(x, hi - 1, z, 0xfefaee);
     }
+  }
 
   // ~2 units per cloud voxel — nothing in the sky is finer-grained than ground.
   const mesh = v.build(high ? 1.9 : 2.05, true);
@@ -284,9 +318,13 @@ export class Clouds {
       emissiveIntensity: 0.17,
       fog: true,
     });
-    this.mat.userData.bsNightRole = 'cloud-moon-fill';
-    for (let i = 0; i < 4; i++) this.geos.push(cloudGeo(i, seed));
-    for (let i = 0; i < 2; i++) this.geos.push(cloudGeo(i, seed, true));
+    this.mat.userData.bsNightRole = "cloud-moon-fill";
+    for (let i = 0; i < 4; i++) {
+      this.geos.push(cloudGeo(i, seed));
+    }
+    for (let i = 0; i < 2; i++) {
+      this.geos.push(cloudGeo(i, seed, true));
+    }
     const rng = mulberry32(seed ^ 0x5eed);
 
     // Placement is CLUSTER-first: dart-thrown centres per band, 3-5 puffs around
@@ -301,18 +339,25 @@ export class Clouds {
       let cxp = 0;
       let czp = 0;
       // Separation is under the mean spacing so most darts land first try.
-      const sep2 = (wrap * 0.42) * (wrap * 0.42);
+      const sep2 = wrap * 0.42 * (wrap * 0.42);
       for (let attempt = 0; attempt < 8; attempt++) {
         cxp = (rng() - 0.5) * 2 * wrap;
         czp = (rng() - 0.5) * 2 * wrap;
         let ok = true;
         for (const [ox2, oz2, ob] of centres) {
-          if (ob !== band) continue;
+          if (ob !== band) {
+            continue;
+          }
           const dx = ox2 - cxp;
           const dz = oz2 - czp;
-          if (dx * dx + dz * dz < sep2) { ok = false; break; }
+          if (dx * dx + dz * dz < sep2) {
+            ok = false;
+            break;
+          }
         }
-        if (ok) break;
+        if (ok) {
+          break;
+        }
       }
       centres.push([cxp, czp, band]);
 
@@ -331,9 +376,7 @@ export class Clouds {
         const rad = m === 0 ? 0 : spread * (0.4 + rng());
         const sx = BAND_SCALE[band] * (0.78 + rng() * 0.62);
         // Band 2 gets the calmer "high" shapes; the horizon band needs the towers.
-        const gi = band === 2
-          ? 4 + Math.floor(rng() * 1.999)
-          : Math.floor(rng() * 3.999);
+        const gi = band === 2 ? 4 + Math.floor(rng() * 1.999) : Math.floor(rng() * 3.999);
         const it: CloudItem = {
           x: cxp + Math.cos(ang) * rad,
           base: clusterBase + (rng() - 0.5) * 2.4,
@@ -354,7 +397,9 @@ export class Clouds {
     // One InstancedMesh per variant: six batches, not 104 draw calls.
     for (let g = 0; g < this.geos.length; g++) {
       const items = slots[g];
-      if (items.length === 0) continue;
+      if (items.length === 0) {
+        continue;
+      }
       const mesh = new THREE.InstancedMesh(this.geos[g], this.mat, items.length);
       mesh.castShadow = false;
       mesh.receiveShadow = false;
@@ -418,10 +463,16 @@ export class Clouds {
           const dz = it.z - this.koZ;
           // `y` is the puff's UNDERSIDE, so its box is [y, y + its own height].
           const tall = sy * CLOUD_H;
-          if (dx * dx + dz * dz < reach * reach
-            && y < this.koY + KEEP_OUT_GAP && y + tall > this.koY - this.koDeep) {
+          if (
+            dx * dx + dz * dz < reach * reach &&
+            y < this.koY + KEEP_OUT_GAP &&
+            y + tall > this.koY - this.koDeep
+          ) {
             // InstancedMesh: every slot is written every frame, so removal is zero scale.
-            deck.mesh.setMatrixAt(i, tmpMat.compose(tmpPos.set(0, 0, 0), tmpQuat.identity(), tmpScale.set(0, 0, 0)));
+            deck.mesh.setMatrixAt(
+              i,
+              tmpMat.compose(tmpPos.set(0, 0, 0), tmpQuat.identity(), tmpScale.set(0, 0, 0)),
+            );
             continue;
           }
         }
@@ -442,18 +493,28 @@ export class Clouds {
         const w = it.wrap;
         it.x += it.vx * dt;
         it.z += it.vz * dt;
-        if (it.x - focus.x > w) it.x -= w * 2;
-        else if (it.x - focus.x < -w) it.x += w * 2;
-        if (it.z - focus.z > w) it.z -= w * 2;
-        else if (it.z - focus.z < -w) it.z += w * 2;
+        if (it.x - focus.x > w) {
+          it.x -= w * 2;
+        } else if (it.x - focus.x < -w) {
+          it.x += w * 2;
+        }
+        if (it.z - focus.z > w) {
+          it.z -= w * 2;
+        } else if (it.z - focus.z < -w) {
+          it.z += w * 2;
+        }
       }
     }
     this.writeMatrices();
   }
 
   dispose(): void {
-    for (const deck of this.decks) deck.mesh.dispose();
-    for (const g of this.geos) g.dispose();
+    for (const deck of this.decks) {
+      deck.mesh.dispose();
+    }
+    for (const g of this.geos) {
+      g.dispose();
+    }
     this.mat.dispose();
   }
 }

@@ -4,8 +4,8 @@
 // and ids validated before they touch a URL.
 // Nothing throws — a failure is null plus a reason on `lastError`.
 
-import type { PackageId, StorageProvider } from '../types';
-import { isPackageId } from '../ids';
+import type { PackageId, StorageProvider } from "../types";
+import { isPackageId } from "../ids";
 
 const FILE_RE = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*\.json$/;
 
@@ -37,9 +37,11 @@ export interface HttpError {
 }
 
 function isJsonType(header: string | null): boolean {
-  if (header === null) return false;
-  const type = header.split(';', 1)[0].trim().toLowerCase();
-  return type === 'application/json' || type === 'text/json' || type.endsWith('+json');
+  if (header === null) {
+    return false;
+  }
+  const type = header.split(";", 1)[0].trim().toLowerCase();
+  return type === "application/json" || type === "text/json" || type.endsWith("+json");
 }
 
 // Bails at `max`. No cycle set: `JSON.parse` output is a tree.
@@ -47,12 +49,20 @@ function exceedsDepth(root: unknown, max: number): boolean {
   const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 1 }];
   while (stack.length > 0) {
     const { value, depth } = stack.pop()!;
-    if (value === null || typeof value !== 'object') continue;
-    if (depth > max) return true;
+    if (value === null || typeof value !== "object") {
+      continue;
+    }
+    if (depth > max) {
+      return true;
+    }
     if (Array.isArray(value)) {
-      for (const child of value) stack.push({ value: child, depth: depth + 1 });
+      for (const child of value) {
+        stack.push({ value: child, depth: depth + 1 });
+      }
     } else {
-      for (const child of Object.values(value)) stack.push({ value: child, depth: depth + 1 });
+      for (const child of Object.values(value)) {
+        stack.push({ value: child, depth: depth + 1 });
+      }
     }
   }
   return false;
@@ -68,15 +78,21 @@ async function readCapped(res: Response, max: number): Promise<string | null> {
   }
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  let out = '';
+  let out = "";
   let bytes = 0;
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
-      if (value === undefined) continue;
+      if (done) {
+        break;
+      }
+      if (value === undefined) {
+        continue;
+      }
       bytes += value.byteLength;
-      if (bytes > max) return null;
+      if (bytes > max) {
+        return null;
+      }
       out += decoder.decode(value, { stream: true });
     }
   } finally {
@@ -106,7 +122,7 @@ export class HttpProvider implements StorageProvider {
   private error: HttpError | null = null;
 
   constructor(opts: HttpProviderOptions) {
-    this.base = opts.baseUrl.endsWith('/') ? opts.baseUrl : `${opts.baseUrl}/`;
+    this.base = opts.baseUrl.endsWith("/") ? opts.baseUrl : `${opts.baseUrl}/`;
     this.name = opts.name ?? `http(${this.base})`;
     this.priority = opts.priority ?? 10;
     this.known = opts.packages ?? [];
@@ -115,7 +131,7 @@ export class HttpProvider implements StorageProvider {
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.doFetch = opts.fetch ?? ((input, init) => fetch(input, init));
     // `omit` by default: content is public, and a session cookie must not reach a CDN.
-    this.credentials = opts.credentials ?? 'omit';
+    this.credentials = opts.credentials ?? "omit";
   }
 
   get lastError(): HttpError | null {
@@ -135,8 +151,8 @@ export class HttpProvider implements StorageProvider {
     if (url === null) {
       this.error = {
         url: this.base,
-        code: 'bad-id',
-        message: `refused package "${String(pkg)}"${file === undefined ? '' : ` file "${String(file)}"`}`,
+        code: "bad-id",
+        message: `refused package "${String(pkg)}"${file === undefined ? "" : ` file "${String(file)}"`}`,
       };
       return null;
     }
@@ -148,15 +164,21 @@ export class HttpProvider implements StorageProvider {
     }
 
     const value = await this.fetchJson(url);
-    if (value !== null) this.cache.set(url, value);
+    if (value !== null) {
+      this.cache.set(url, value);
+    }
     return value;
   }
 
   // Both halves pass a grammar first: `new URL` is not a security boundary.
   private urlFor(pkg: PackageId, file?: string): string | null {
-    if (!isPackageId(pkg)) return null;
+    if (!isPackageId(pkg)) {
+      return null;
+    }
     const rel = file === undefined ? `${pkg}.json` : file;
-    if (file !== undefined && !FILE_RE.test(file)) return null;
+    if (file !== undefined && !FILE_RE.test(file)) {
+      return null;
+    }
     let url: URL;
     try {
       url = new URL(rel, this.base);
@@ -164,7 +186,9 @@ export class HttpProvider implements StorageProvider {
       return null;
     }
     // Catches an odd base, not a hostile `rel`.
-    if (!url.href.startsWith(this.base)) return null;
+    if (!url.href.startsWith(this.base)) {
+      return null;
+    }
     return url.href;
   }
 
@@ -175,32 +199,32 @@ export class HttpProvider implements StorageProvider {
       const res = await this.doFetch(url, {
         credentials: this.credentials,
         signal: ctl.signal,
-        headers: { accept: 'application/json' },
+        headers: { accept: "application/json" },
       });
       if (!res.ok) {
-        this.error = { url, code: 'status', message: `HTTP ${res.status} ${res.statusText}` };
+        this.error = { url, code: "status", message: `HTTP ${res.status} ${res.statusText}` };
         return null;
       }
-      if (!isJsonType(res.headers.get('content-type'))) {
+      if (!isJsonType(res.headers.get("content-type"))) {
         this.error = {
           url,
-          code: 'content-type',
-          message: `expected JSON, got "${res.headers.get('content-type') ?? 'nothing'}"`,
+          code: "content-type",
+          message: `expected JSON, got "${res.headers.get("content-type") ?? "nothing"}"`,
         };
         return null;
       }
-      const claimed = Number(res.headers.get('content-length'));
+      const claimed = Number(res.headers.get("content-length"));
       if (Number.isFinite(claimed) && claimed > this.maxBytes) {
         this.error = {
           url,
-          code: 'too-large',
+          code: "too-large",
           message: `declared ${claimed} bytes, cap is ${this.maxBytes}`,
         };
         return null;
       }
       const text = await readCapped(res, this.maxBytes);
       if (text === null) {
-        this.error = { url, code: 'too-large', message: `body exceeded ${this.maxBytes} bytes` };
+        this.error = { url, code: "too-large", message: `body exceeded ${this.maxBytes} bytes` };
         return null;
       }
       let value: unknown;
@@ -209,11 +233,15 @@ export class HttpProvider implements StorageProvider {
         // the depth check — one catch, one code.
         value = JSON.parse(text);
       } catch (e) {
-        this.error = { url, code: 'bad-json', message: e instanceof Error ? e.message : 'unparseable' };
+        this.error = {
+          url,
+          code: "bad-json",
+          message: e instanceof Error ? e.message : "unparseable",
+        };
         return null;
       }
       if (exceedsDepth(value, this.maxDepth)) {
-        this.error = { url, code: 'too-deep', message: `nested deeper than ${this.maxDepth}` };
+        this.error = { url, code: "too-deep", message: `nested deeper than ${this.maxDepth}` };
         return null;
       }
       this.error = null;
@@ -222,12 +250,12 @@ export class HttpProvider implements StorageProvider {
       const aborted = ctl.signal.aborted;
       this.error = {
         url,
-        code: 'network',
+        code: "network",
         message: aborted
           ? `timed out after ${this.timeoutMs} ms`
           : e instanceof Error
             ? e.message
-            : 'request failed',
+            : "request failed",
       };
       return null;
     } finally {

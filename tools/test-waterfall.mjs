@@ -27,16 +27,20 @@
 // gateway, which is tools/test-carrier.mjs's kind of job rather than this one's.
 //
 // Exits non-zero.
-import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1000, height: 900 });
-page.on('pageerror', (e) => console.error('[page]', e.message));
+page.on("pageerror", (e) => console.error("[page]", e.message));
 
 const results = {};
 const fails = [];
-const check = (ok, msg) => { if (!ok) fails.push(msg); };
+const check = (ok, msg) => {
+  if (!ok) {
+    fails.push(msg);
+  }
+};
 
 /**
  * Decode the frame in the page and hand back a small summary of one rectangle,
@@ -60,62 +64,84 @@ const check = (ok, msg) => { if (!ok) fails.push(msg); };
  * linear, and that is all the model has to hold for.
  */
 async function box(x0, y0, x1, y1) {
-  const b64 = await page.screenshot({ encoding: 'base64' });
-  return page.evaluate(async (data, f) => {
-    const img = new Image();
-    await new Promise((res, rej) => {
-      img.onload = res; img.onerror = rej; img.src = `data:image/png;base64,${data}`;
-    });
-    const c = document.createElement('canvas');
-    c.width = img.width; c.height = img.height;
-    const ctx = c.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-    const X0 = Math.floor(img.width * f.x0);
-    const X1 = Math.floor(img.width * f.x1);
-    const Y0 = Math.floor(img.height * f.y0);
-    const Y1 = Math.floor(img.height * f.y1);
-    const W = X1 - X0;
-    const H = Y1 - Y0;
-    const d = ctx.getImageData(X0, Y0, W, H).data;
-    const LX = Math.max(0, X0 - 10);
-    const RX = Math.min(img.width - 1, X1 + 10);
-    const refL = ctx.getImageData(LX, Y0, 1, H).data;
-    const refR = ctx.getImageData(RX, Y0, 1, H).data;
-    let r = 0; let g = 0; let b = 0; let n = 0;
-    let lowest = -1; let highest = -1; let sumX = 0; let hits = 0;
-    const raw = new Uint32Array(W * H);
-    const on = new Uint8Array(W * H);
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const i = (y * W + x) * 4;
-        const t = RX > LX ? (X0 + x - LX) / (RX - LX) : 0;
-        const rr = refL[y * 4] + (refR[y * 4] - refL[y * 4]) * t;
-        const rg = refL[y * 4 + 1] + (refR[y * 4 + 1] - refL[y * 4 + 1]) * t;
-        const rb = refL[y * 4 + 2] + (refR[y * 4 + 2] - refL[y * 4 + 2]) * t;
-        r += d[i]; g += d[i + 1]; b += d[i + 2]; n++;
-        raw[y * W + x] = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
-        const off = Math.abs(d[i] - rr) + Math.abs(d[i + 1] - rg) + Math.abs(d[i + 2] - rb);
-        if (off > 26) {
-          on[y * W + x] = 1;
-          lowest = y;
-          if (highest < 0) highest = y;
-          sumX += x; hits++;
+  const b64 = await page.screenshot({ encoding: "base64" });
+  return page.evaluate(
+    async (data, f) => {
+      const img = new Image();
+      await new Promise((res, rej) => {
+        img.onload = res;
+        img.onerror = rej;
+        img.src = `data:image/png;base64,${data}`;
+      });
+      const c = document.createElement("canvas");
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const X0 = Math.floor(img.width * f.x0);
+      const X1 = Math.floor(img.width * f.x1);
+      const Y0 = Math.floor(img.height * f.y0);
+      const Y1 = Math.floor(img.height * f.y1);
+      const W = X1 - X0;
+      const H = Y1 - Y0;
+      const d = ctx.getImageData(X0, Y0, W, H).data;
+      const LX = Math.max(0, X0 - 10);
+      const RX = Math.min(img.width - 1, X1 + 10);
+      const refL = ctx.getImageData(LX, Y0, 1, H).data;
+      const refR = ctx.getImageData(RX, Y0, 1, H).data;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let n = 0;
+      let lowest = -1;
+      let highest = -1;
+      let sumX = 0;
+      let hits = 0;
+      const raw = new Uint32Array(W * H);
+      const on = new Uint8Array(W * H);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = (y * W + x) * 4;
+          const t = RX > LX ? (X0 + x - LX) / (RX - LX) : 0;
+          const rr = refL[y * 4] + (refR[y * 4] - refL[y * 4]) * t;
+          const rg = refL[y * 4 + 1] + (refR[y * 4 + 1] - refL[y * 4 + 1]) * t;
+          const rb = refL[y * 4 + 2] + (refR[y * 4 + 2] - refL[y * 4 + 2]) * t;
+          r += d[i];
+          g += d[i + 1];
+          b += d[i + 2];
+          n++;
+          raw[y * W + x] = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+          const off = Math.abs(d[i] - rr) + Math.abs(d[i + 1] - rg) + Math.abs(d[i + 2] - rb);
+          if (off > 26) {
+            on[y * W + x] = 1;
+            lowest = y;
+            if (highest < 0) {
+              highest = y;
+            }
+            sumX += x;
+            hits++;
+          }
         }
       }
-    }
-    return {
-      r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n),
-      lowest: lowest < 0 ? -1 : +((Y0 + lowest) / img.height).toFixed(4),
-      highest: highest < 0 ? -1 : +((Y0 + highest) / img.height).toFixed(4),
-      /** Vertical extent of the subject in the box, as a fraction of the frame. */
-      extent: lowest < 0 ? 0 : +((lowest - highest) / img.height).toFixed(4),
-      cx: hits ? +((X0 + sumX / hits) / img.width).toFixed(4) : -1,
-      hits,
-      raw: Array.from(raw),
-      on: Array.from(on),
-      w: W, h: H,
-    };
-  }, b64, { x0, y0, x1, y1 });
+      return {
+        r: Math.round(r / n),
+        g: Math.round(g / n),
+        b: Math.round(b / n),
+        lowest: lowest < 0 ? -1 : +((Y0 + lowest) / img.height).toFixed(4),
+        highest: highest < 0 ? -1 : +((Y0 + highest) / img.height).toFixed(4),
+        /** Vertical extent of the subject in the box, as a fraction of the frame. */
+        extent: lowest < 0 ? 0 : +((lowest - highest) / img.height).toFixed(4),
+        cx: hits ? +((X0 + sumX / hits) / img.width).toFixed(4) : -1,
+        hits,
+        raw: Array.from(raw),
+        on: Array.from(on),
+        w: W,
+        h: H,
+      };
+    },
+    b64,
+    { x0, y0, x1, y1 },
+  );
 }
 
 /**
@@ -130,22 +156,31 @@ async function box(x0, y0, x1, y1) {
  * empty-against-empty comparison still reads 0 rather than dividing by nothing.
  */
 function meanAbsDiff(a, b) {
-  if (a.raw.length !== b.raw.length) return Infinity;
-  let s = 0; let n = 0;
+  if (a.raw.length !== b.raw.length) {
+    return Infinity;
+  }
+  let s = 0;
+  let n = 0;
   for (let i = 0; i < a.raw.length; i++) {
-    if (!a.on[i] && !b.on[i]) continue;
-    const p = a.raw[i]; const q = b.raw[i];
-    s += Math.abs(((p >> 16) & 255) - ((q >> 16) & 255))
-      + Math.abs(((p >> 8) & 255) - ((q >> 8) & 255))
-      + Math.abs((p & 255) - (q & 255));
+    if (!a.on[i] && !b.on[i]) {
+      continue;
+    }
+    const p = a.raw[i];
+    const q = b.raw[i];
+    s +=
+      Math.abs(((p >> 16) & 255) - ((q >> 16) & 255)) +
+      Math.abs(((p >> 8) & 255) - ((q >> 8) & 255)) +
+      Math.abs((p & 255) - (q & 255));
     n++;
   }
   if (n === 0) {
     for (let i = 0; i < a.raw.length; i++) {
-      const p = a.raw[i]; const q = b.raw[i];
-      s += Math.abs(((p >> 16) & 255) - ((q >> 16) & 255))
-        + Math.abs(((p >> 8) & 255) - ((q >> 8) & 255))
-        + Math.abs((p & 255) - (q & 255));
+      const p = a.raw[i];
+      const q = b.raw[i];
+      s +=
+        Math.abs(((p >> 16) & 255) - ((q >> 16) & 255)) +
+        Math.abs(((p >> 8) & 255) - ((q >> 8) & 255)) +
+        Math.abs((p & 255) - (q & 255));
       n++;
     }
   }
@@ -154,8 +189,8 @@ function meanAbsDiff(a, b) {
 
 const LAB = (q) => `${HOST}/lab.html?${q}`;
 /** The lab frames the fall in the middle; these two boxes are plume and sky. */
-const PLUME = [0.36, 0.20, 0.64, 0.72];
-const EMPTY = [0.02, 0.20, 0.24, 0.72];
+const PLUME = [0.36, 0.2, 0.64, 0.72];
+const EMPTY = [0.02, 0.2, 0.24, 0.72];
 
 // ---------------------------------------------------------------------------
 // 1. IT MOVES, AND THE STAGE DOES NOT
@@ -165,8 +200,8 @@ const EMPTY = [0.02, 0.20, 0.24, 0.72];
 // over an empty patch of the same backdrop, which is the half that makes the
 // first half mean something (a wobbling camera would pass on its own).
 // ---------------------------------------------------------------------------
-await page.goto(LAB('waterfall=1&bg=8fa8c0&fps=0'), { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(LAB("waterfall=1&bg=8fa8c0&fps=0"), { waitUntil: "load" });
+await page.waitForSelector("canvas");
 await wait(2500);
 const moveA = await box(...PLUME);
 const emptyA = await box(...EMPTY);
@@ -176,8 +211,10 @@ const emptyB = await box(...EMPTY);
 results.plumeDelta = meanAbsDiff(moveA, moveB);
 results.backdropDelta = meanAbsDiff(emptyA, emptyB);
 check(results.plumeDelta > 4, `the fall does not move: plume delta ${results.plumeDelta}`);
-check(results.backdropDelta < 1.5,
-  `the backdrop moves too, so the plume delta proves nothing: ${results.backdropDelta}`);
+check(
+  results.backdropDelta < 1.5,
+  `the backdrop moves too, so the plume delta proves nothing: ${results.backdropDelta}`,
+);
 
 // ---------------------------------------------------------------------------
 // 2. IT IS DETERMINISTIC UNDER `t=`
@@ -187,17 +224,19 @@ check(results.backdropDelta < 1.5,
 // waterfall can be re-shot and compared. This is what catches a `Math.random()`
 // or a `performance.now()` finding its way into the module.
 // ---------------------------------------------------------------------------
-await page.goto(LAB('waterfall=1&bg=8fa8c0&t=2'), { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(LAB("waterfall=1&bg=8fa8c0&t=2"), { waitUntil: "load" });
+await page.waitForSelector("canvas");
 await wait(1400);
 const detA = await box(...PLUME);
-await page.goto(LAB('waterfall=1&bg=8fa8c0&t=2'), { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(LAB("waterfall=1&bg=8fa8c0&t=2"), { waitUntil: "load" });
+await page.waitForSelector("canvas");
 await wait(1400);
 const detB = await box(...PLUME);
 results.frozenDelta = meanAbsDiff(detA, detB);
-check(results.frozenDelta === 0,
-  `?t= is not reproducible: two loads differ by ${results.frozenDelta}`);
+check(
+  results.frozenDelta === 0,
+  `?t= is not reproducible: two loads differ by ${results.frozenDelta}`,
+);
 
 // ---------------------------------------------------------------------------
 // 3. `length` IS A PARAMETER — the first knob the ticket names
@@ -215,9 +254,10 @@ check(results.frozenDelta === 0,
 // and a tight box keeps the backdrop columns either side of it close to it.
 const TALL = [0.42, 0.08, 0.58, 0.94];
 const lenArm = async (fall) => {
-  await page.goto(LAB(`waterfall=1&bg=8fa8c0&t=2&fall=${fall}&dist=120&height=30`),
-    { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(LAB(`waterfall=1&bg=8fa8c0&t=2&fall=${fall}&dist=120&height=30`), {
+    waitUntil: "load",
+  });
+  await page.waitForSelector("canvas");
   await wait(1400);
   return box(...TALL);
 };
@@ -225,12 +265,14 @@ const long = await lenArm(40);
 const short = await lenArm(8);
 results.longExtent = long.extent;
 results.shortExtent = short.extent;
-check(long.hits > 0 && short.hits > 0, 'no plume found in one of the length arms');
+check(long.hits > 0 && short.hits > 0, "no plume found in one of the length arms");
 // Five times the fall, and the projection is not linear in it, so the bar is
 // well under 5 — but a fifth of the length cannot cover half the rows.
-check(long.extent > short.extent * 2.5,
-  `fall= did not change how far the water reaches: extent ${short.extent} at 8 `
-  + `against ${long.extent} at 40`);
+check(
+  long.extent > short.extent * 2.5,
+  `fall= did not change how far the water reaches: extent ${short.extent} at 8 ` +
+    `against ${long.extent} at 40`,
+);
 
 // ---------------------------------------------------------------------------
 // 4. `lateralPush` IS A PARAMETER — the second knob the ticket names
@@ -242,14 +284,14 @@ check(long.extent > short.extent * 2.5,
 // Both bands sit inside the plume's measured vertical run at `fall=40` under
 // this framing (about 0.29 to 0.62 of the frame); BOTTOM is wide because the
 // whole point is that the tail travels sideways out of a narrow one.
-const TOP = [0.30, 0.31, 0.70, 0.37];
+const TOP = [0.3, 0.31, 0.7, 0.37];
 const BOTTOM = [0.15, 0.54, 0.85, 0.61];
 const arm = async (push) => {
   await page.goto(
     LAB(`waterfall=1&bg=8fa8c0&t=2&fall=40&push=${push}&dist=120&height=30&spray=0`),
-    { waitUntil: 'load' },
+    { waitUntil: "load" },
   );
-  await page.waitForSelector('canvas');
+  await page.waitForSelector("canvas");
   await wait(1400);
   return { top: await box(...TOP), bottom: await box(...BOTTOM) };
 };
@@ -257,12 +299,13 @@ const p0 = await arm(0);
 const p12 = await arm(12);
 results.headShift = +(p12.top.cx - p0.top.cx).toFixed(4);
 results.tailShift = +(p12.bottom.cx - p0.bottom.cx).toFixed(4);
-check(p0.bottom.hits > 0 && p12.bottom.hits > 0, 'no plume found in one of the push arms');
-check(results.tailShift > 0.03,
-  `push= did not move the tail: ${results.tailShift} of frame width`);
-check(Math.abs(results.headShift) < results.tailShift * 0.5,
-  `push= moved the whole plume rather than leaning it: head ${results.headShift} `
-  + `against tail ${results.tailShift}`);
+check(p0.bottom.hits > 0 && p12.bottom.hits > 0, "no plume found in one of the push arms");
+check(results.tailShift > 0.03, `push= did not move the tail: ${results.tailShift} of frame width`);
+check(
+  Math.abs(results.headShift) < results.tailShift * 0.5,
+  `push= moved the whole plume rather than leaning it: head ${results.headShift} ` +
+    `against tail ${results.tailShift}`,
+);
 
 // ---------------------------------------------------------------------------
 // 5. THE ISLAND DID NOT MOVE
@@ -280,23 +323,27 @@ check(Math.abs(results.headShift) < results.tailShift * 0.5,
 // island had drifted to in the meantime, and a 7-unit plume is not forgiving
 // about that. (tools/shot-sky.mjs gets away with the two-page split because it
 // orbits the whole island at 1.5 radii.)
-await page.goto(`${HOST}/?photo=1&hud=0&fs=0&fps=30`, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(`${HOST}/?photo=1&hud=0&fs=0&fps=30`, { waitUntil: "load" });
+await page.waitForSelector("canvas");
 await wait(6000);
 const fall = await page.evaluate(() => window.__dbgSkyFall());
-check(!!fall, '__dbgSkyFall reported nothing — is there a carried island?');
+check(!!fall, "__dbgSkyFall reported nothing — is there a carried island?");
 if (fall) {
   results.meshOriginY = fall.meshOriginY;
   results.meshMinY = fall.meshMinY;
   results.sprayAlive = fall.sprayAlive;
   results.tris = fall.tris;
-  check(Math.abs(fall.meshOriginY - fall.meshMinY * fall.cell) < 1e-6,
-    `the rock's rebase is not an identity: origin ${fall.meshOriginY} `
-    + `against minY*cell ${fall.meshMinY * fall.cell}`);
-  check(fall.meshMinY <= -60,
-    `the rock's lowest voxel is ${fall.meshMinY} courses — the keel should set `
-    + 'it (74-79), so something else is now the deepest thing in the model');
-  check(fall.hasFall === 1, 'the island has no waterfall');
+  check(
+    Math.abs(fall.meshOriginY - fall.meshMinY * fall.cell) < 1e-6,
+    `the rock's rebase is not an identity: origin ${fall.meshOriginY} ` +
+      `against minY*cell ${fall.meshMinY * fall.cell}`,
+  );
+  check(
+    fall.meshMinY <= -60,
+    `the rock's lowest voxel is ${fall.meshMinY} courses — the keel should set ` +
+      "it (74-79), so something else is now the deepest thing in the model",
+  );
+  check(fall.hasFall === 1, "the island has no waterfall");
   check(fall.sprayAlive > 8, `the spray field is empty: ${fall.sprayAlive} alive`);
 }
 
@@ -315,33 +362,35 @@ const scene = await page.evaluate(() => ({
 }));
 if (scene.fall && scene.sky) {
   const { fall: f, sky, spawn } = scene;
-  const cs = Math.cos(sky.yaw); const sn = Math.sin(sky.yaw);
+  const cs = Math.cos(sky.yaw);
+  const sn = Math.sin(sky.yaw);
   // The anchor is in the island's frame; `CarrierBody.toWorld` is this map.
   const wx = sky.x + f.anchorX * cs + f.anchorZ * sn;
   const wz = sky.z - f.anchorX * sn + f.anchorZ * cs;
   // Downstream, in world: the group's own +Z after the island's yaw.
   const b = f.bearing + sky.yaw;
-  const dx = Math.sin(b); const dz = Math.cos(b);
+  const dx = Math.sin(b);
+  const dz = Math.cos(b);
   const D = 92;
   // `cam=` / `look=` are OFFSETS FROM spawnPoint. Standing off along the
   // bearing puts the plume dead centre with the cliff behind it.
   const cam = [wx + dx * D - spawn.x, sky.y + 5 - spawn.y, wz + dz * D - spawn.z];
   const look = [wx - spawn.x, sky.y - 24 - spawn.y, wz - spawn.z];
-  const n3 = (v) => v.map((k) => k.toFixed(1)).join(',');
+  const n3 = (v) => v.map((k) => k.toFixed(1)).join(",");
   const frame = `photo=1&hud=0&fs=0&fps=30&cam=${n3(cam)}&look=${n3(look)}`;
   // The plume runs down the middle; the control sits on the cliff to one side
   // of it, on rock the fall never crosses.
   const ON_PLUME = [0.45, 0.34, 0.55, 0.62];
   const ON_ROCK = [0.72, 0.34, 0.84, 0.55];
 
-  await page.goto(`${HOST}/?${frame}`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(`${HOST}/?${frame}`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await wait(4200);
   const wetPlume = await box(...ON_PLUME);
   const wetRock = await box(...ON_ROCK);
 
-  await page.goto(`${HOST}/?${frame}&water=0`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(`${HOST}/?${frame}&water=0`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await wait(4200);
   const dryPlume = await box(...ON_PLUME);
   const dryRock = await box(...ON_ROCK);
@@ -350,15 +399,18 @@ if (scene.fall && scene.sky) {
   results.rockOnOff = meanAbsDiff(wetRock, dryRock);
   results.plumeWet = [wetPlume.r, wetPlume.g, wetPlume.b];
   results.plumeDry = [dryPlume.r, dryPlume.g, dryPlume.b];
-  check(results.plumeOnOff > 10,
-    `no waterfall in the frame: water=1 and water=0 differ by ${results.plumeOnOff}`);
-  check(results.rockOnOff < 3,
-    `water=0 changed the cliff too, so the plume difference is not the fall: `
-    + `${results.rockOnOff}`);
+  check(
+    results.plumeOnOff > 10,
+    `no waterfall in the frame: water=1 and water=0 differ by ${results.plumeOnOff}`,
+  );
+  check(
+    results.rockOnOff < 3,
+    `water=0 changed the cliff too, so the plume difference is not the fall: ` +
+      `${results.rockOnOff}`,
+  );
   // ...and it must be WATER-coloured rather than a white smear: the SPEC teal
   // leads on blue over red by a wide margin.
-  check(wetPlume.b > wetPlume.r + 25,
-    `the plume is not reading as water: rgb ${results.plumeWet}`);
+  check(wetPlume.b > wetPlume.r + 25, `the plume is not reading as water: rgb ${results.plumeWet}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -381,32 +433,35 @@ if (scene.fall && scene.sky) {
 // ---------------------------------------------------------------------------
 if (scene.fall && scene.sky) {
   const { fall: f, sky, spawn } = scene;
-  const cs = Math.cos(sky.yaw); const sn = Math.sin(sky.yaw);
+  const cs = Math.cos(sky.yaw);
+  const sn = Math.sin(sky.yaw);
   // The channel runs from the middle of the island out to the fall's anchor, so
   // the anchor IS its direction and its length. No seed-dependent number here.
   const len = Math.hypot(f.anchorX, f.anchorZ);
-  const ux = f.anchorX / len; const uz = f.anchorZ / len;
+  const ux = f.anchorX / len;
+  const uz = f.anchorZ / len;
   const at = (d, up) => [
     sky.x + ux * d * cs + uz * d * sn - spawn.x,
     sky.y + up - spawn.y,
     sky.z - ux * d * sn + uz * d * cs - spawn.z,
   ];
-  const n3 = (v) => v.map((k) => k.toFixed(1)).join(',');
+  const n3 = (v) => v.map((k) => k.toFixed(1)).join(",");
   // Standing over the head of the channel looking along it at the lip, which
   // puts the water down the middle of the frame and turf either side.
-  const frame = `photo=1&hud=0&fs=0&fps=30&vol=0`
-    + `&cam=${n3(at(len * 0.28, 12))}&look=${n3(at(len * 0.98, -2))}`;
+  const frame =
+    `photo=1&hud=0&fs=0&fps=30&vol=0` +
+    `&cam=${n3(at(len * 0.28, 12))}&look=${n3(at(len * 0.98, -2))}`;
   const ON_WATER = [0.46, 0.62, 0.55, 0.92];
-  const ON_TURF = [0.78, 0.60, 0.90, 0.85];
+  const ON_TURF = [0.78, 0.6, 0.9, 0.85];
 
-  await page.goto(`${HOST}/?${frame}`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(`${HOST}/?${frame}`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await wait(4200);
   const wetCanal = await box(...ON_WATER);
   const wetTurf = await box(...ON_TURF);
 
-  await page.goto(`${HOST}/?${frame}&water=0`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(`${HOST}/?${frame}&water=0`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await wait(4200);
   const dryCanal = await box(...ON_WATER);
   const dryTurf = await box(...ON_TURF);
@@ -417,27 +472,33 @@ if (scene.fall && scene.sky) {
   results.turfOnOff = meanAbsDiff(wetTurf, dryTurf);
   results.canalWet = [wetCanal.r, wetCanal.g, wetCanal.b];
   results.canalDry = [dryCanal.r, dryCanal.g, dryCanal.b];
-  check(fall.streamTris > 100,
-    `the channel has no water surface: ${fall.streamTris} triangles`);
-  check(fall.canalStones > 10,
-    `nothing lines the canal: ${fall.canalStones} stones`);
-  check(results.canalOnOff > 10,
-    `no water in the channel: water=1 and water=0 differ by ${results.canalOnOff}`);
-  check(results.turfOnOff < 3,
-    `water=0 changed the turf too, so the channel difference is not the stream: `
-    + `${results.turfOnOff}`);
-  check(wetCanal.b > wetCanal.r + 12,
-    `the channel is not reading as water: rgb ${results.canalWet}`);
+  check(fall.streamTris > 100, `the channel has no water surface: ${fall.streamTris} triangles`);
+  check(fall.canalStones > 10, `nothing lines the canal: ${fall.canalStones} stones`);
+  check(
+    results.canalOnOff > 10,
+    `no water in the channel: water=1 and water=0 differ by ${results.canalOnOff}`,
+  );
+  check(
+    results.turfOnOff < 3,
+    `water=0 changed the turf too, so the channel difference is not the stream: ` +
+      `${results.turfOnOff}`,
+  );
+  check(
+    wetCanal.b > wetCanal.r + 12,
+    `the channel is not reading as water: rgb ${results.canalWet}`,
+  );
   // ...and the bed under it is NOT blue, which is the whole ticket: a warm
   // gravel that the shader colours, rather than a blue tile that needs no
   // shader. If this ever passes by accident the check above means nothing.
-  check(dryCanal.b < dryCanal.r + 12,
-    `the bed under the water is painted blue: rgb ${results.canalDry}`);
+  check(
+    dryCanal.b < dryCanal.r + 12,
+    `the bed under the water is painted blue: rgb ${results.canalDry}`,
+  );
 }
 
 console.log(JSON.stringify({ ...results, failures: fails, pass: fails.length === 0 }, null, 2));
 await browser.close();
 if (fails.length) {
-  console.error(`\n${fails.length} failure(s):\n  ${fails.join('\n  ')}`);
+  console.error(`\n${fails.length} failure(s):\n  ${fails.join("\n  ")}`);
   process.exit(1);
 }

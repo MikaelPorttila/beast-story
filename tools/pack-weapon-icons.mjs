@@ -22,8 +22,8 @@
 // encodes webp with alpha in three lines. ImageMagick is not installed on this
 // machine and adding a native image dependency to pack one asset once is the
 // wrong trade.
-import { writeFile, readFile } from 'node:fs/promises';
-import { launchBrowser, newPage } from './browser.mjs';
+import { writeFile, readFile } from "node:fs/promises";
+import { launchBrowser, newPage } from "./browser.mjs";
 
 /** Rects in the SOURCE sheet, top-left origin. Verbatim from the issue. */
 const SPRITES = {
@@ -51,53 +51,71 @@ const COLS = 5;
 // asks for more than 64 of them. Measured, the whole atlas is well under the
 // source's 502 KB either way.
 const TILE = 128;
-const PAD = 4;   // keeps the longest blade off its neighbour's edge
+const PAD = 4; // keeps the longest blade off its neighbour's edge
 
 const src = process.argv[2];
-const out = process.argv[3] ?? 'src/ui/weapons.webp';
+const out = process.argv[3] ?? "src/ui/weapons.webp";
 if (!src) {
-  console.error('usage: bun tools/pack-weapon-icons.mjs <source.png> [out.webp]');
+  console.error("usage: bun tools/pack-weapon-icons.mjs <source.png> [out.webp]");
   process.exit(2);
 }
 
-const dataUri = `data:image/png;base64,${(await readFile(src)).toString('base64')}`;
+const dataUri = `data:image/png;base64,${(await readFile(src)).toString("base64")}`;
 
 const browser = await launchBrowser();
 try {
   const page = await newPage(browser, { width: 400, height: 300 });
-  const result = await page.evaluate(async (uri, sprites, order, cols, tile, pad) => {
-    const img = new Image();
-    img.src = uri;
-    await img.decode();
-    const rows = Math.ceil(order.length / cols);
-    const c = document.createElement('canvas');
-    c.width = cols * tile;
-    c.height = rows * tile;
-    const ctx = c.getContext('2d');
-    ctx.imageSmoothingQuality = 'high';
-    const fitted = {};
-    order.forEach((name, i) => {
-      const r = sprites[name];
-      // Fit inside the cell preserving aspect, then centre. Every sprite is
-      // taller than it is wide except the scythe, so this is what stops the
-      // scythe being drawn at a different apparent scale from the swords.
-      const k = Math.min((tile - pad * 2) / r.width, (tile - pad * 2) / r.height);
-      const w = Math.round(r.width * k);
-      const h = Math.round(r.height * k);
-      const dx = (i % cols) * tile + Math.round((tile - w) / 2);
-      const dy = Math.floor(i / cols) * tile + Math.round((tile - h) / 2);
-      ctx.drawImage(img, r.x, r.y, r.width, r.height, dx, dy, w, h);
-      fitted[name] = { w, h };
-    });
-    return { url: c.toDataURL('image/webp', 0.92), fitted, w: c.width, h: c.height };
-  }, dataUri, SPRITES, ORDER, COLS, TILE, PAD);
+  const result = await page.evaluate(
+    async (uri, sprites, order, cols, tile, pad) => {
+      const img = new Image();
+      img.src = uri;
+      await img.decode();
+      const rows = Math.ceil(order.length / cols);
+      const c = document.createElement("canvas");
+      c.width = cols * tile;
+      c.height = rows * tile;
+      const ctx = c.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      const fitted = {};
+      order.forEach((name, i) => {
+        const r = sprites[name];
+        // Fit inside the cell preserving aspect, then centre. Every sprite is
+        // taller than it is wide except the scythe, so this is what stops the
+        // scythe being drawn at a different apparent scale from the swords.
+        const k = Math.min((tile - pad * 2) / r.width, (tile - pad * 2) / r.height);
+        const w = Math.round(r.width * k);
+        const h = Math.round(r.height * k);
+        const dx = (i % cols) * tile + Math.round((tile - w) / 2);
+        const dy = Math.floor(i / cols) * tile + Math.round((tile - h) / 2);
+        ctx.drawImage(img, r.x, r.y, r.width, r.height, dx, dy, w, h);
+        fitted[name] = { w, h };
+      });
+      return { url: c.toDataURL("image/webp", 0.92), fitted, w: c.width, h: c.height };
+    },
+    dataUri,
+    SPRITES,
+    ORDER,
+    COLS,
+    TILE,
+    PAD,
+  );
 
-  const bytes = Buffer.from(result.url.split(',')[1], 'base64');
+  const bytes = Buffer.from(result.url.split(",")[1], "base64");
   await writeFile(out, bytes);
-  console.log(JSON.stringify({
-    out, atlas: `${result.w}x${result.h}`, tile: TILE, cols: COLS,
-    bytes: bytes.length, drawn: result.fitted,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        out,
+        atlas: `${result.w}x${result.h}`,
+        tile: TILE,
+        cols: COLS,
+        bytes: bytes.length,
+        drawn: result.fitted,
+      },
+      null,
+      2,
+    ),
+  );
 } finally {
   await browser.close();
 }

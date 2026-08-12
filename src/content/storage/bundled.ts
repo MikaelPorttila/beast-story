@@ -8,22 +8,22 @@
 // that lands in saves and URLs — so two files cannot share one (first sorted wins,
 // loser lands in `conflicts`) and every json under `data/` appears in `list()`.
 
-import type { PackageId, StorageProvider } from '../types';
-import { isPackageId } from '../ids';
+import type { PackageId, StorageProvider } from "../types";
+import { isPackageId } from "../ids";
 
 // Static, so the bundler inlines it into the main chunk. Needs `resolveJsonModule`.
-import coreJson from '../data/core.json';
+import coreJson from "../data/core.json";
 
 const CORE: unknown = coreJson;
 
 // The negative pattern is load-bearing: without it core.json also gains a dynamic
 // import, which could split it back out of the main bundle.
 const LAZY: Readonly<Record<string, () => Promise<unknown>>> = import.meta.glob(
-  ['../data/**/*.json', '!../data/core.json'],
-  { import: 'default' },
+  ["../data/**/*.json", "!../data/core.json"],
+  { import: "default" },
 );
 
-const CORE_KEY = '../data/core.json';
+const CORE_KEY = "../data/core.json";
 
 // A manifest's sibling file. No dots but the extension, so traversal is impossible
 // by construction rather than by a `..` check.
@@ -31,13 +31,13 @@ const FILE_RE = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*\.json$/;
 
 /** `../data/zones/dungeon.json` -> `dungeon`, or null when it is not a legal id. */
 function packageIdOf(key: string): PackageId | null {
-  const base = key.slice(key.lastIndexOf('/') + 1, -'.json'.length);
+  const base = key.slice(key.lastIndexOf("/") + 1, -".json".length);
   return isPackageId(base) ? base : null;
 }
 
 function dirOf(key: string): string {
-  const cut = key.lastIndexOf('/');
-  return cut < 0 ? '' : key.slice(0, cut);
+  const cut = key.lastIndexOf("/");
+  return cut < 0 ? "" : key.slice(0, cut);
 }
 
 interface Index {
@@ -54,7 +54,9 @@ function buildIndex(): Index {
   const keys = [CORE_KEY, ...Object.keys(LAZY)].sort();
   for (const key of keys) {
     const id = packageIdOf(key);
-    if (id === null) continue;
+    if (id === null) {
+      continue;
+    }
     const held = paths.get(id);
     if (held !== undefined) {
       conflicts.push(`${key} is shadowed by ${held} (both are package "${id}")`);
@@ -80,7 +82,7 @@ export class BundledProvider implements StorageProvider {
   readonly writable = false;
 
   constructor(opts: BundledProviderOptions = {}) {
-    this.name = opts.name ?? 'bundled';
+    this.name = opts.name ?? "bundled";
     this.priority = opts.priority ?? 50;
   }
 
@@ -94,21 +96,31 @@ export class BundledProvider implements StorageProvider {
   }
 
   async read(pkg: PackageId, file?: string): Promise<unknown | null> {
-    if (!isPackageId(pkg)) return null;
+    if (!isPackageId(pkg)) {
+      return null;
+    }
     const own = INDEX.paths.get(pkg);
-    if (own === undefined) return null;
+    if (own === undefined) {
+      return null;
+    }
 
     let key = own;
     if (file !== undefined) {
       // Relative to the PACKAGE's own directory, and cannot escape it.
-      if (!FILE_RE.test(file)) return null;
+      if (!FILE_RE.test(file)) {
+        return null;
+      }
       const dir = dirOf(own);
-      key = dir === '' ? file : `${dir}/${file}`;
+      key = dir === "" ? file : `${dir}/${file}`;
     }
 
-    if (key === CORE_KEY) return CORE === undefined ? null : CORE;
+    if (key === CORE_KEY) {
+      return CORE === undefined ? null : CORE;
+    }
     const load = LAZY[key];
-    if (load === undefined) return null;
+    if (load === undefined) {
+      return null;
+    }
     // A rejected chunk is an ABSENT package, not an exception, so the chain can
     // fall through to the next provider.
     try {

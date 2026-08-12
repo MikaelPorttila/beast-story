@@ -5,12 +5,19 @@
  */
 
 export const PERF_SECTIONS = [
-  'input', 'player', 'beasts', 'world', 'combat', 'hud', 'render', 'overlay',
+  "input",
+  "player",
+  "beasts",
+  "world",
+  "combat",
+  "hud",
+  "render",
+  "overlay",
 ] as const;
 export type PerfSection = (typeof PERF_SECTIONS)[number];
 
 /** `programs` counts WebGL links: a first-ever draw links synchronously, stalling the driver. */
-export const PERF_COUNTERS = ['chunks', 'enemies', 'programs'] as const;
+export const PERF_COUNTERS = ["chunks", "enemies", "programs"] as const;
 export type PerfCounter = (typeof PERF_COUNTERS)[number];
 
 const SECTION_INDEX = new Map<string, number>(PERF_SECTIONS.map((s, i) => [s, i]));
@@ -50,18 +57,26 @@ class Profiler {
     const out = this.meanBuf;
     out.fill(0);
     const n = Math.min(this.frames, CAP, window);
-    if (n === 0) return out;
+    if (n === 0) {
+      return out;
+    }
     for (let k = 1; k <= n; k++) {
       const f = (((this.frames - k) % CAP) + CAP) % CAP;
-      for (let i = 0; i < STRIDE; i++) out[i] += this.buf[f * STRIDE + i];
+      for (let i = 0; i < STRIDE; i++) {
+        out[i] += this.buf[f * STRIDE + i];
+      }
     }
-    for (let i = 0; i < STRIDE; i++) out[i] /= n;
+    for (let i = 0; i < STRIDE; i++) {
+      out[i] /= n;
+    }
     return out;
   }
 
   /** First thing in the frame callback. */
   begin(): void {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      return;
+    }
     const now = performance.now();
     const row = (this.frames % CAP) * STRIDE;
     this.buf.fill(0, row, row + STRIDE);
@@ -74,22 +89,32 @@ class Profiler {
   }
 
   section(name: PerfSection): void {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      return;
+    }
     const now = performance.now();
     const i = SECTION_INDEX.get(name);
-    if (i !== undefined) this.buf[(this.frames % CAP) * STRIDE + i] += now - this.mark;
+    if (i !== undefined) {
+      this.buf[(this.frames % CAP) * STRIDE + i] += now - this.mark;
+    }
     this.mark = now;
   }
 
   count(name: PerfCounter, n = 1): void {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      return;
+    }
     const i = COUNTER_INDEX.get(name);
-    if (i !== undefined) this.cbuf[(this.frames % CAP) * PERF_COUNTERS.length + i] += n;
+    if (i !== undefined) {
+      this.cbuf[(this.frames % CAP) * PERF_COUNTERS.length + i] += n;
+    }
   }
 
   /** Last in the frame callback. */
   end(): void {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      return;
+    }
     const row = (this.frames % CAP) * STRIDE;
     this.buf[row + CPU_SLOT] = performance.now() - this.frameStart;
     this.frames++;
@@ -103,12 +128,16 @@ class Profiler {
     for (let k = 0; k < n; k++) {
       const f = (first + k) % CAP;
       const row: number[] = [];
-      for (let i = 0; i < STRIDE; i++) row.push(+this.buf[f * STRIDE + i].toFixed(3));
-      for (let i = 0; i < PERF_COUNTERS.length; i++) row.push(this.cbuf[f * PERF_COUNTERS.length + i]);
+      for (let i = 0; i < STRIDE; i++) {
+        row.push(+this.buf[f * STRIDE + i].toFixed(3));
+      }
+      for (let i = 0; i < PERF_COUNTERS.length; i++) {
+        row.push(this.cbuf[f * PERF_COUNTERS.length + i]);
+      }
       rows.push(row);
     }
     return {
-      sections: [...PERF_SECTIONS, 'cpu', 'wall'],
+      sections: [...PERF_SECTIONS, "cpu", "wall"],
       counters: [...PERF_COUNTERS],
       rows,
     };

@@ -33,9 +33,9 @@
  * matches by a linear scan over ten tracks — no Map, no allocation, nothing per
  * frame. See the no-per-frame-allocation rule in AGENTS.md.
  */
-import * as THREE from 'three';
-import type { DisturbKind } from '../core/types';
-import { flags } from '../core/flags';
+import * as THREE from "three";
+import type { DisturbKind } from "../core/types";
+import { flags } from "../core/flags";
 
 /**
  * How many bodies can disturb the grass at once.
@@ -62,7 +62,7 @@ export const SWAY_SLOTS = 6;
  */
 export const SWAY_MAX_PUSH = 0.34;
 export const SWAY_MAX_DROOP = 0.22;
-export const SWAY_BOUND_PAD = 0.40;
+export const SWAY_BOUND_PAD = 0.4;
 
 // ---------------------------------------------------------------------------
 // Tuned constants
@@ -303,9 +303,14 @@ interface Track {
   /** First slice for this id — deltas are meaningless until the second. */
   fresh: boolean;
   w: number;
-  lx: number; lz: number;
-  px: number; py: number; pz: number;
-  vx: number; vz: number; climb: number;
+  lx: number;
+  lz: number;
+  px: number;
+  py: number;
+  pz: number;
+  vx: number;
+  vz: number;
+  climb: number;
   radius: number;
   fly: boolean;
   clearance: number;
@@ -322,9 +327,22 @@ export class SwayField {
   };
 
   private readonly tracks: Track[] = Array.from({ length: TRACKS }, (_, i) => ({
-    id: 0, live: false, seen: false, fresh: true, w: 0,
-    lx: 0, lz: 0, px: 0, py: 0, pz: 0, vx: 0, vz: 0, climb: 0,
-    radius: 0.5, fly: false, clearance: 99,
+    id: 0,
+    live: false,
+    seen: false,
+    fresh: true,
+    w: 0,
+    lx: 0,
+    lz: 0,
+    px: 0,
+    py: 0,
+    pz: 0,
+    vx: 0,
+    vz: 0,
+    climb: 0,
+    radius: 0.5,
+    fly: false,
+    clearance: 99,
     // An irrational-ish stride so the phases never coincide, whatever order the
     // tracks get claimed in.
     phase: i * 2.399963,
@@ -354,12 +372,12 @@ export class SwayField {
    * where there is grass — and none afterwards.
    */
   install(mat: THREE.Material): void {
-    mat.customProgramCacheKey = (): string => 'bsSway';
+    mat.customProgramCacheKey = (): string => "bsSway";
     mat.onBeforeCompile = (shader): void => {
       Object.assign(shader.uniforms, this.uniforms);
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', `#include <common>\n${SWAY_PARS}`)
-        .replace('#include <begin_vertex>', `#include <begin_vertex>\n${SWAY_BODY}`);
+        .replace("#include <common>", `#include <common>\n${SWAY_PARS}`)
+        .replace("#include <begin_vertex>", `#include <begin_vertex>\n${SWAY_BODY}`);
     };
   }
 
@@ -370,7 +388,9 @@ export class SwayField {
    * queue would just hand a stale position to the next slice.
    */
   disturb(id: number, x: number, y: number, z: number, radius: number, kind: DisturbKind): void {
-    if (this.repCount >= REPORTS) return;
+    if (this.repCount >= REPORTS) {
+      return;
+    }
     const i = this.repCount++;
     this.repId[i] = id;
     const b = i * 5;
@@ -378,7 +398,7 @@ export class SwayField {
     this.repData[b + 1] = y;
     this.repData[b + 2] = z;
     this.repData[b + 3] = radius;
-    this.repData[b + 4] = kind === 'fly' ? 1 : 0;
+    this.repData[b + 4] = kind === "fly" ? 1 : 0;
   }
 
   /** Resolve this slice's reports into tracks, then tracks into uniforms. */
@@ -386,7 +406,9 @@ export class SwayField {
     this.uniforms.bsSwayTime.value = flags.photo ? PHOTO_CLOCK : time;
 
     const tracks = this.tracks;
-    for (let i = 0; i < TRACKS; i++) tracks[i].seen = false;
+    for (let i = 0; i < TRACKS; i++) {
+      tracks[i].seen = false;
+    }
 
     for (let r = 0; r < this.repCount; r++) {
       const id = this.repId[r];
@@ -394,21 +416,30 @@ export class SwayField {
       let t = this.find(id);
       if (!t) {
         t = this.claim(id);
-        if (!t) continue;   // every track is live and still fading; drop this one
+        if (!t) {
+          continue;
+        } // every track is live and still fading; drop this one
       }
       const x = this.repData[b];
       const y = this.repData[b + 1];
       const z = this.repData[b + 2];
       if (t.fresh) {
-        t.px = x; t.py = y; t.pz = z;
-        t.lx = x; t.lz = z;
-        t.vx = 0; t.vz = 0; t.climb = 0;
+        t.px = x;
+        t.py = y;
+        t.pz = z;
+        t.lx = x;
+        t.lz = z;
+        t.vx = 0;
+        t.vz = 0;
+        t.climb = 0;
         t.fresh = false;
       } else if (dt > 0) {
         t.vx = damp(t.vx, (x - t.px) / dt, VEL_LAMBDA, dt);
         t.vz = damp(t.vz, (z - t.pz) / dt, VEL_LAMBDA, dt);
         t.climb = damp(t.climb, (y - t.py) / dt, VEL_LAMBDA, dt);
-        t.px = x; t.py = y; t.pz = z;
+        t.px = x;
+        t.py = y;
+        t.pz = z;
       }
       t.lx = damp(t.lx, x, LAG_LAMBDA, dt);
       t.lz = damp(t.lz, z, LAG_LAMBDA, dt);
@@ -424,9 +455,14 @@ export class SwayField {
     // which is what a body walking out of range should look like.
     for (let i = 0; i < TRACKS; i++) {
       const t = tracks[i];
-      if (!t.live || t.seen) continue;
+      if (!t.live || t.seen) {
+        continue;
+      }
       t.w = damp(t.w, 0, FADE_OUT_LAMBDA, dt);
-      if (t.w < FADE_DEAD) { t.live = false; t.w = 0; }
+      if (t.w < FADE_DEAD) {
+        t.live = false;
+        t.w = 0;
+      }
     }
 
     this.writeSlots(focus);
@@ -437,7 +473,9 @@ export class SwayField {
     // garbage at this size.
     for (let i = 0; i < TRACKS; i++) {
       const t = this.tracks[i];
-      if (t.live && t.id === id) return t;
+      if (t.live && t.id === id) {
+        return t;
+      }
     }
     return null;
   }
@@ -446,12 +484,19 @@ export class SwayField {
     let coldest: Track | null = null;
     for (let i = 0; i < TRACKS; i++) {
       const t = this.tracks[i];
-      if (!t.live) { coldest = t; break; }
-      if (!coldest || t.w < coldest.w) coldest = t;
+      if (!t.live) {
+        coldest = t;
+        break;
+      }
+      if (!coldest || t.w < coldest.w) {
+        coldest = t;
+      }
     }
     // Never evict a track that is still visibly bending grass — the pool is
     // four deeper than the slot count precisely so this can refuse.
-    if (!coldest || (coldest.live && coldest.w > 0.5)) return null;
+    if (!coldest || (coldest.live && coldest.w > 0.5)) {
+      return null;
+    }
     coldest.id = id;
     coldest.live = true;
     coldest.fresh = true;
@@ -482,15 +527,26 @@ export class SwayField {
       let best = -1;
       let bestScore = 0;
       for (let i = 0; i < TRACKS; i++) {
-        if (used & (1 << i)) continue;
+        if (used & (1 << i)) {
+          continue;
+        }
         const t = this.tracks[i];
-        if (!t.live || t.w <= FADE_DEAD) continue;
+        if (!t.live || t.w <= FADE_DEAD) {
+          continue;
+        }
         const dx = t.lx - focus.x;
         const dz = t.lz - focus.z;
         const score = t.w / (1 + dx * dx + dz * dz);
-        if (score > bestScore) { bestScore = score; best = i; }
+        if (score > bestScore) {
+          bestScore = score;
+          best = i;
+        }
       }
-      if (best < 0) { A[s].set(0, 0, 0, 0); B[s].set(0, 0, 0, 0); continue; }
+      if (best < 0) {
+        A[s].set(0, 0, 0, 0);
+        B[s].set(0, 0, 0, 0);
+        continue;
+      }
       used |= 1 << best;
       const t = this.tracks[best];
 
@@ -532,9 +588,13 @@ export class SwayField {
     cz /= count;
     let reach = 0;
     for (let s = 0; s < SWAY_SLOTS; s++) {
-      if (A[s].z <= 0) continue;
+      if (A[s].z <= 0) {
+        continue;
+      }
       const d = Math.hypot(A[s].x - cx, A[s].y - cz) + A[s].z;
-      if (d > reach) reach = d;
+      if (d > reach) {
+        reach = d;
+      }
     }
     reach += AREA_PAD;
     area.set(cx, cz, reach * reach, count);
@@ -546,17 +606,30 @@ export class SwayField {
     const B = this.uniforms.bsSwayB.value;
     const slots = [];
     for (let s = 0; s < SWAY_SLOTS; s++) {
-      if (A[s].z <= 0) continue;
+      if (A[s].z <= 0) {
+        continue;
+      }
       slots.push({
-        x: A[s].x, z: A[s].y, radius: A[s].z, push: A[s].w,
-        dirX: B[s].x, dirZ: B[s].y, wash: B[s].z,
+        x: A[s].x,
+        z: A[s].y,
+        radius: A[s].z,
+        push: A[s].w,
+        dirX: B[s].x,
+        dirZ: B[s].y,
+        wash: B[s].z,
       });
     }
-    const tracks = this.tracks.filter((t) => t.live).map((t) => ({
-      id: t.id, w: t.w, fly: t.fly, clearance: t.clearance,
-      climb: t.climb, speed: Math.hypot(t.vx, t.vz),
-      lag: Math.hypot(t.px - t.lx, t.pz - t.lz),
-    }));
+    const tracks = this.tracks
+      .filter((t) => t.live)
+      .map((t) => ({
+        id: t.id,
+        w: t.w,
+        fly: t.fly,
+        clearance: t.clearance,
+        climb: t.climb,
+        speed: Math.hypot(t.vx, t.vz),
+        lag: Math.hypot(t.px - t.lx, t.pz - t.lz),
+      }));
     const area = this.uniforms.bsSwayArea.value;
     return {
       time: this.uniforms.bsSwayTime.value,

@@ -13,14 +13,14 @@ build from this file and do not need to re-read the map.
 pixel **(628, 630)** with a radius of **597 px**. The plan is 52 map-blocks
 across, so:
 
-| quantity | value |
-| --- | --- |
-| `MAP_R` | 26 blocks (radius) |
-| 1 map-block on the map | **22.96 px** |
-| 1 map-block in cells | `MAP_BLOCK` = 3 |
-| 1 map-block in world units | 3 x `CELL` = **3.6** |
-| `ISLAND_R` (= 1.00 R) | 26 x 3 x 1.2 = **93.6** world units |
-| 1 block as a fraction of R | **0.03846 R** |
+| quantity                   | value                               |
+| -------------------------- | ----------------------------------- |
+| `MAP_R`                    | 26 blocks (radius)                  |
+| 1 map-block on the map     | **22.96 px**                        |
+| 1 map-block in cells       | `MAP_BLOCK` = 3                     |
+| 1 map-block in world units | 3 x `CELL` = **3.6**                |
+| `ISLAND_R` (= 1.00 R)      | 26 x 3 x 1.2 = **93.6** world units |
+| 1 block as a fraction of R | **0.03846 R**                       |
 
 **Every distance in this spec is a fraction of the island radius R.** Multiply
 by `ISLAND_R` for world units, or by 26 for map-blocks.
@@ -30,8 +30,8 @@ by `ISLAND_R` for world units, or by 26 for map-blocks.
 radius fraction `f`:
 
 ```ts
-const b = B * Math.PI / 180;
-const x =  Math.sin(b) * ISLAND_R * f;
+const b = (B * Math.PI) / 180;
+const x = Math.sin(b) * ISLAND_R * f;
 const z = -Math.cos(b) * ISLAND_R * f;
 ```
 
@@ -71,7 +71,7 @@ Two things stick OUT past 1.00 R and neither is terrain:
 map's edge steps in staggers of **2–3 map-blocks** along the perimeter — never a
 smooth arc, never a single long straight. Building it at `CELL` gives a finer
 notch than the map draws; that is correct and desirable (the plan is drawn at a
-coarser gauge than the world is built at), but the *envelope* must stay inside
+coarser gauge than the world is built at), but the _envelope_ must stay inside
 ±0.05 R.
 
 **There are no inlets and no bays.** Nothing on the map cuts more than 0.10 R
@@ -88,13 +88,13 @@ squares the island off and is wrong.
 The plan has **no paved central plaza**. The middle of the island is grass with
 the street cross running through it. Bands, by radius:
 
-| band | surface |
-| --- | --- |
-| **0.00 – 0.16 R** | Open **grass**, crossed by the two main avenues (§4). Two or three specimen trees, low flower dots. Nothing is built here. |
-| **0.16 – 0.30 R** | **Grass** with hedge rows and flower beds along the street edges. The two inner cottages (B5, B7) stand at its outer limit. |
-| **0.30 – 0.70 R** | **The settled band.** All eight buildings (§5), their lanes, their hedges, their door aprons of paving. Grass between them, never bare. |
-| **0.70 – 0.88 R** | **Outer meadow.** The perimeter fence runs somewhere inside this band (§7) and the tree belt straddles it (§8). Denser rough grass, more flowers, fewer paths. |
-| **0.88 – 0.97 R** | **Rim meadow.** Turf only. No buildings, no paths except the gate causeway. Trees thin out to nothing in the last 2 blocks. |
+| band              | surface                                                                                                                                                                       |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0.00 – 0.16 R** | Open **grass**, crossed by the two main avenues (§4). Two or three specimen trees, low flower dots. Nothing is built here.                                                    |
+| **0.16 – 0.30 R** | **Grass** with hedge rows and flower beds along the street edges. The two inner cottages (B5, B7) stand at its outer limit.                                                   |
+| **0.30 – 0.70 R** | **The settled band.** All eight buildings (§5), their lanes, their hedges, their door aprons of paving. Grass between them, never bare.                                       |
+| **0.70 – 0.88 R** | **Outer meadow.** The perimeter fence runs somewhere inside this band (§7) and the tree belt straddles it (§8). Denser rough grass, more flowers, fewer paths.                |
+| **0.88 – 0.97 R** | **Rim meadow.** Turf only. No buildings, no paths except the gate causeway. Trees thin out to nothing in the last 2 blocks.                                                   |
 | **0.97 – 1.00 R** | **The rim lip.** The outermost 1–2 blocks read from above as a stepped grey **stone** collar under an overhanging green turf edge. This is the top of the cliff, seen end-on. |
 
 Overlaid on those bands, and taking priority over them:
@@ -104,7 +104,7 @@ Overlaid on those bands, and taking priority over them:
 - **Water** along the watercourse and pond (§6).
 - **The raised terrace** north of 0.16 R (§3), which is grass on top like the
   rest but sits one block higher.
-- **Tilled soil**: *the map shows none.* See §8 for what to do about that.
+- **Tilled soil**: _the map shows none._ See §8 for what to do about that.
 
 ---
 
@@ -117,7 +117,7 @@ The map shows exactly **two** ground levels. Everything else is flat.
 - **South edge** (the retaining face): a straight E–W line at **0.16 R north** of
   the centre.
 - **East / west extent**: from **0.18 R west** to **0.18 R east** — about
-  **9.4 map-blocks** wide. It is *not* the full width of the island.
+  **9.4 map-blocks** wide. It is _not_ the full width of the island.
 - **North extent**: it runs north under the great hall and dies out into the
   meadow around **0.75 R north**. Its north end has no wall; the ground rises to
   meet it.
@@ -199,14 +199,14 @@ Six, one to each outer building, 2 map-blocks (0.077 R) wide, same paving but
 with grass encroaching at the edges. Each runs from the nearer of the two
 avenues to its building's door apron and stops there:
 
-| lane | from | to | bearing |
-| --- | --- | --- | --- |
-| NW lane | Avenue at 0.20 R north | B2 | 327 |
-| NE lane | Avenue at 0.20 R north | B3 | 034 |
-| W lane | Cross Street at 0.30 R west | B4 | 283 |
-| E lane | Cross Street at 0.30 R east | B6 | 083 |
-| SW lane | Avenue at 0.28 R south | B8 | 230 |
-| SE lane | Avenue at 0.20 R south | B7 | 134 |
+| lane    | from                        | to  | bearing |
+| ------- | --------------------------- | --- | ------- |
+| NW lane | Avenue at 0.20 R north      | B2  | 327     |
+| NE lane | Avenue at 0.20 R north      | B3  | 034     |
+| W lane  | Cross Street at 0.30 R west | B4  | 283     |
+| E lane  | Cross Street at 0.30 R east | B6  | 083     |
+| SW lane | Avenue at 0.28 R south      | B8  | 230     |
+| SE lane | Avenue at 0.20 R south      | B7  | 134     |
 
 **Every street terminates in something** — a door, a gate, or a fading verge in
 the meadow. None of them run to the rim. There is no ring road at any radius.
@@ -223,16 +223,16 @@ Footprints are given as **width x depth in map-blocks**, width across the
 building's own facing and depth along it. "Faces" is the bearing the front door
 looks along.
 
-| # | name | bearing | r/R | footprint (blocks) | storeys | roof | faces |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| **B1** | **The Great Hall** | **000** | **0.59** | **10 x 16** | 2 + tower | **blue slate**, cruciform | 180 |
-| B2 | North-west cottage | 328 | 0.65 | 4 x 7 | 1 + loft | blue slate | 147 |
-| B3 | The Barn | 033 | 0.68 | 5 x 7 | 1 tall | **brown plank** | 214 |
-| B4 | West longhouse | 285 | 0.62 | 5 x 6 | 1 + loft | **brown plank** | 103 |
-| B5 | West cottage | 269 | 0.35 | 5 x 7 | 1 + loft | blue slate | 087 |
-| B6 | East hall-and-barn | 081 | 0.55 | 5 x 8 | 1 + loft | **brown plank** with a blue-slate core | 263 |
-| B7 | South-east cottage | 131 | 0.29 | 5 x 7 | 1 + loft | blue slate | 314 |
-| B8 | South-west longhouse | 231 | 0.56 | 6 x 8 | 1 + loft | **brown plank** | 050 |
+| #      | name                 | bearing | r/R      | footprint (blocks) | storeys   | roof                                   | faces |
+| ------ | -------------------- | ------- | -------- | ------------------ | --------- | -------------------------------------- | ----- |
+| **B1** | **The Great Hall**   | **000** | **0.59** | **10 x 16**        | 2 + tower | **blue slate**, cruciform              | 180   |
+| B2     | North-west cottage   | 328     | 0.65     | 4 x 7              | 1 + loft  | blue slate                             | 147   |
+| B3     | The Barn             | 033     | 0.68     | 5 x 7              | 1 tall    | **brown plank**                        | 214   |
+| B4     | West longhouse       | 285     | 0.62     | 5 x 6              | 1 + loft  | **brown plank**                        | 103   |
+| B5     | West cottage         | 269     | 0.35     | 5 x 7              | 1 + loft  | blue slate                             | 087   |
+| B6     | East hall-and-barn   | 081     | 0.55     | 5 x 8              | 1 + loft  | **brown plank** with a blue-slate core | 263   |
+| B7     | South-east cottage   | 131     | 0.29     | 5 x 7              | 1 + loft  | blue slate                             | 314   |
+| B8     | South-west longhouse | 231     | 0.56     | 6 x 8              | 1 + loft  | **brown plank**                        | 050   |
 
 ### B1 — The Great Hall (the landmark)
 
@@ -318,14 +318,14 @@ A timber post-and-rail fence, **continuous**, three rails, panels about
 **3 map-blocks long**. It is the settlement's perimeter, **not** the island's
 rim, and its radius therefore varies with bearing:
 
-| bearing | fence r/R |
-| --- | --- |
-| 000 (N) | 0.93 |
-| 045 / 315 (NE, NW) | 0.845 |
-| 090 (E) | 0.70 |
-| 270 (W) | 0.815 |
-| 135 / 225 (SE, SW) | 0.72 |
-| 180 (S) | 0.68 |
+| bearing            | fence r/R |
+| ------------------ | --------- |
+| 000 (N)            | 0.93      |
+| 045 / 315 (NE, NW) | 0.845     |
+| 090 (E)            | 0.70      |
+| 270 (W)            | 0.815     |
+| 135 / 225 (SE, SW) | 0.72      |
+| 180 (S)            | 0.68      |
 
 Interpolate smoothly between those. The effect is that the fence hugs the rim on
 the north and leaves a wide belt of open meadow and trees outside it on the
@@ -412,7 +412,7 @@ meadow and one per 2 blocks in the verges beside streets and around the hall.
 Purple and pink clumps are concentrated along the east, near the watercourse and
 the pond.
 
-**Tilled soil.** *There are no tilled plots on the map.* The brown hatched masses
+**Tilled soil.** _There are no tilled plots on the map._ The brown hatched masses
 that read as fields at thumbnail size are the plank ROOFS of B3, B4, B6 and B8
 seen from above. If a plot is wanted anyway, put **one**, 4 x 6 blocks, at
 bearing 300 / r 0.70 R, at the inboard edge of the orchard — and do not scatter
@@ -425,24 +425,24 @@ nine of them around the island.
 Sampled from `map-top.png` by modal quantised colour over hand-picked regions.
 Where a family has three values they are lit face / body / shadow face.
 
-| material | lit | body | shadow |
-| --- | --- | --- | --- |
-| Sky | `#3FA3F8` | — | — |
-| **Grass** | `#96AE12` | `#8AAE0C` | `#4E7A06` |
-| Grass, deepest (under trees) | — | `#365A06` | `#2A4E06` |
-| **Path / paving** | `#DEC68A` | `#C6AE66` | `#8A661E` (worn kerb) |
-| **Rim & cliff stone** | `#6E6E62` | `#55554A` | `#3A3A34` |
-| **Dressed masonry** (hall, tower, stair, retaining wall) | `#7E724E` | `#66664E` | `#4E4E42` |
-| Plaster (walls) | `#E4DABF` | `#C6BA9C` | — |
-| **Timber** (fence, gate, dock, crane) | `#96721E` | `#4E421E` | `#362A12` |
-| **Water** | `#1E8AA2` | `#1E7E96` | `#127296` |
-| Waterfall foam | `#BCE6F0` | — | — |
-| **Blue roof (slate)** | `#3666AE` | `#2A5A96` | `#1E427E` |
-| **Brown roof (plank)** | `#8A661E` | `#7E5A1E` | `#4E3612` |
-| Hedge | `#7E9606` | `#729606` | `#5A7E06` |
-| Banner blue | — | `#12427E` | — |
-| Banner star | `#E8C24A` | — | — |
-| Tilled soil (derived, not on map) | `#6B4E2A` | — | `#513716` furrow |
+| material                                                 | lit       | body      | shadow                |
+| -------------------------------------------------------- | --------- | --------- | --------------------- |
+| Sky                                                      | `#3FA3F8` | —         | —                     |
+| **Grass**                                                | `#96AE12` | `#8AAE0C` | `#4E7A06`             |
+| Grass, deepest (under trees)                             | —         | `#365A06` | `#2A4E06`             |
+| **Path / paving**                                        | `#DEC68A` | `#C6AE66` | `#8A661E` (worn kerb) |
+| **Rim & cliff stone**                                    | `#6E6E62` | `#55554A` | `#3A3A34`             |
+| **Dressed masonry** (hall, tower, stair, retaining wall) | `#7E724E` | `#66664E` | `#4E4E42`             |
+| Plaster (walls)                                          | `#E4DABF` | `#C6BA9C` | —                     |
+| **Timber** (fence, gate, dock, crane)                    | `#96721E` | `#4E421E` | `#362A12`             |
+| **Water**                                                | `#1E8AA2` | `#1E7E96` | `#127296`             |
+| Waterfall foam                                           | `#BCE6F0` | —         | —                     |
+| **Blue roof (slate)**                                    | `#3666AE` | `#2A5A96` | `#1E427E`             |
+| **Brown roof (plank)**                                   | `#8A661E` | `#7E5A1E` | `#4E3612`             |
+| Hedge                                                    | `#7E9606` | `#729606` | `#5A7E06`             |
+| Banner blue                                              | —         | `#12427E` | —                     |
+| Banner star                                              | `#E8C24A` | —         | —                     |
+| Tilled soil (derived, not on map)                        | `#6B4E2A` | —         | `#513716` furrow      |
 
 Three of these are meaningfully different from what the code ships today and are
 called out in the gap list: the **path is a warm tan, not a cool grey**; the
@@ -455,7 +455,8 @@ pale ice blue**.
 
 Ordered by how much each one costs the picture.
 
-### 1. There is no Great Hall. *(the single biggest gap)*
+### 1. There is no Great Hall. _(the single biggest gap)_
+
 The plan's subject is a **10 x 16 block** cruciform manor at bearing 000 /
 0.59 R with a stone tower rising out of its crossing. The build has
 `skyTower()` alone — a 4-block shaft — stamped **dead centre** at scale 1.25,
@@ -464,6 +465,7 @@ the right mass, and the one landmark it has is in the wrong place: the middle of
 the plan is open grass and a crossroads.
 
 ### 2. The buildings are generated, not authored.
+
 `planSkyhaven` builds `CLUSTERS` = 9 knots of 3–6 cottages, from six templates,
 at seed-derived bearings and radii inside `HOUSE_IN`..`HOUSE_OUT`. That is
 roughly **25–30 near-identical cottages**. The plan has **eight named buildings**
@@ -473,6 +475,7 @@ roof material each. Six of the eight are bigger than any template in
 not exist at all.
 
 ### 3. The street network is a wheel, not a cross.
+
 The code paints a 16-segment **ring road at r = `PLAZA` (19 units = 0.20 R)**
 plus one radial spoke per cluster, all at seed-derived bearings, plus a paved
 disc filling the ring. The plan has: a **3–4 block N–S Avenue on x = 0** from the
@@ -481,6 +484,7 @@ six 2-block lanes to the six outer buildings — and **no ring road and no paved
 plaza anywhere**.
 
 ### 4. There is no raised terrace and no stair.
+
 `deckAt` is a constant and the file's header argues at length that it must be.
 The plan raises the whole north-centre — 0.18 R east/west by 0.16 R north to
 0.75 R north — by one map-block behind a dressed-stone retaining wall, with a
@@ -489,6 +493,7 @@ makes it walkable within `MAX_STEP_UP`; the header's conclusion ("the plateau is
 one level") is the thing that has to change, and the ramp is how.
 
 ### 5. The outline is too small and far too lumpy.
+
 `outlineAt` runs a mean of **0.855 x RC** with four harmonics summing to a
 possible **±0.31** — a rounded square with bites, deliberately. The plan is a
 **circle at 1.00 R with a total wobble under ±0.05 R** and one gentle flattening
@@ -497,6 +502,7 @@ places, and its silhouette from above (angle 4) reads as an amoeba where the
 reference reads as a disc.
 
 ### 6. Water: no pond, wrong bearing, wrong shape.
+
 `onStream` paints a straight radial channel **1.9 cells half-width (3.8 units,
 about 1 block)** on `fallAngle = gateAngle + 0.42π`, from the plaza to the rim,
 and there is **no pond at all**. The plan has a 2-block stream **arcing** down
@@ -506,6 +512,7 @@ the fall leaving at bearing 138. The fall itself is well built; it is in roughly
 the right place by luck of the seed and should be pinned.
 
 ### 7. Palette drift on three materials.
+
 `PATH` is `0xb9b2a2` — a **cool grey**; the map's paving is a warm tan
 `#DEC68A`/`#C6AE66`, and the difference is most of why the streets currently
 read as concrete. `STONE` is `0xada79b`, a pale limestone, against the map's
@@ -514,12 +521,14 @@ silhouette and it is currently too light. `WATER` is `0x8fd8ec`, pale ice blue,
 against a mid teal `#1E7E96`. Grass and the two roofs are close enough to keep.
 
 ### 8. The fence is a constant radius with random gaps.
+
 `fenceR = ISLAND_R * 0.93` for all bearings, with `hash2(...) < 0.26` deleting a
 quarter of the panels. The plan's fence is **continuous** and its radius **varies
 0.68 R (south) to 0.93 R (north)** — it encloses the town, not the island — and
 it breaks in exactly two places, the gate and the stream crossing.
 
 ### 9. No causeway; the gate is in the wrong place.
+
 `skyGate` is stamped at `ISLAND_R * 0.9` on a seed-derived bearing, with nothing
 attached to it. The plan puts it at **bearing 180 / 0.67 R** with a **5-block
 timber-railed causeway** running from it out past the rim to 1.02 R. The
@@ -527,11 +536,13 @@ causeway is the front-3/4 view's focal point and the reason that view has a
 foreground at all.
 
 ### 10. There is no dock and no crane.
+
 Nothing in either file cantilevers off the rim. The plan has a **3.5 x 5 block
 timber platform with a jib crane** at bearing 108, hanging out to 1.03 R. It is
 a named subject of the reference sheet.
 
 ### 11. The tree belt is a necklace; there is no orchard and no hedging.
+
 Trees are placed on `TREE_RING` = 0.74 R ± 0.06 R, with a "wood" of 8 clusters
 on one seed-derived bearing. The plan wants a belt **0.72–0.95 R** that is four
 to six deep from bearing 280 round to 010, a second cluster east at 060–110,
@@ -540,18 +551,21 @@ and **deliberately thin from 150 to 210** so the gate reads. It also wants
 rows** at bearing 300–335 — none of which exists.
 
 ### 12. Invented content: tilled plots, the well, the market stalls.
+
 Up to nine `plots` of tilled soil are scattered by `planSkyhaven`; the map has
 none (the brown masses are plank roofs). `skyWell` and two `skyStall`s stand on
 a plaza the plan does not have. All of it should go, or in the plots' case be
 reduced to the single optional bed at bearing 300 / 0.70 R.
 
 ### 13. `at()` measures angles the wrong way round.
+
 `at(a, d) = [sin(a)*d, cos(a)*d]` puts angle 0 at **+Z = south**, and runs
 anticlockwise in compass terms. Every bearing in this spec is compass
 (0 = north = −Z, clockwise). Whoever wires the authored layout in has to fix
 this once, at the helper, or place the whole town mirrored and half-turned.
 
 ### 14. Cottage models are too small for the plan's footprints.
+
 `skyCottage` is 6–8 cells of half-width at `SV` 0.6, stamped at s = 1.2 — about
 **11 x 8 world units**, i.e. **3 x 2 map-blocks**. The plan's smallest building
 is 4 x 7 blocks (14 x 25 units) and B1 is 10 x 16 (36 x 58 units). Either the

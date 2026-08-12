@@ -31,8 +31,8 @@
 // ceremony really plays, and the roster is read afterwards.
 //
 // Exits non-zero on failure.
-import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 const URL = `${HOST}/?menu=0&fs=0`;
 /**
@@ -42,19 +42,25 @@ const URL = `${HOST}/?menu=0&fs=0`;
  * the AUTO-FILL RULE, not which species ships, and a probe that has to be
  * edited in five places when that changes is measuring the wrong thing.
  */
-const STARTER = 'frostwing';
+const STARTER = "frostwing";
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
-page.on('pageerror', (e) => console.error('[pageerror]', e.message));
+page.on("pageerror", (e) => console.error("[pageerror]", e.message));
 
-await page.goto(URL, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
-await page.waitForFunction(() => window.__dbgBoot?.().playing && window.__dbgAdvance, { timeout: 60000 });
-await page.focus('canvas').catch(() => {});
+await page.goto(URL, { waitUntil: "load" });
+await page.waitForSelector("canvas");
+await page.waitForFunction(() => window.__dbgBoot?.().playing && window.__dbgAdvance, {
+  timeout: 60000,
+});
+await page.focus("canvas").catch(() => {});
 
 const results = {};
 const fails = [];
-const check = (ok, msg) => { if (!ok) fails.push(msg); };
+const check = (ok, msg) => {
+  if (!ok) {
+    fails.push(msg);
+  }
+};
 
 const taming = (species) => page.evaluate((s) => window.__dbgTaming(s), species ?? null);
 const bodies = () => page.evaluate(() => window.__dbgBodies());
@@ -94,7 +100,8 @@ async function goToWild(species) {
       const a = tries * 1.31;
       await page.evaluate(
         (x, z) => window.__dbgTp(x, z),
-        home.x + Math.cos(a) * 130, home.z + Math.sin(a) * 130,
+        home.x + Math.cos(a) * 130,
+        home.z + Math.sin(a) * 130,
       );
       await adv(3);
       continue;
@@ -110,7 +117,9 @@ async function goToWild(species) {
       // necessarily the animal that is there now, and every later step in the
       // section keys on it being there.
       const after = (await bodies()).enemies.find((x) => x.species === species);
-      if (after) return after;
+      if (after) {
+        return after;
+      }
     }
     await adv(2.5);
   }
@@ -130,17 +139,27 @@ async function goToWild(species) {
   const t = await taming();
   const b = await bodies();
   results.start = {
-    owned: t.owned, lead: t.lead, support: t.support,
-    readied: t.readied, held: t.held, partyBodies: b.beasts.length,
+    owned: t.owned,
+    lead: t.lead,
+    support: t.support,
+    readied: t.readied,
+    held: t.held,
+    partyBodies: b.beasts.length,
   };
-  check(t.owned.length === 1 && t.owned[0] === STARTER,
-    `a new game starts bonded to ${JSON.stringify(t.owned)}, want only ["${STARTER}"]`);
-  check(t.lead === STARTER && t.support === null,
-    `a new game has lead=${t.lead} support=${t.support}, want ${STARTER} and an empty slot`);
-  check(b.beasts.length === 1,
-    `${b.beasts.length} companions are in the world at boot, want 1 (the starter)`);
+  check(
+    t.owned.length === 1 && t.owned[0] === STARTER,
+    `a new game starts bonded to ${JSON.stringify(t.owned)}, want only ["${STARTER}"]`,
+  );
+  check(
+    t.lead === STARTER && t.support === null,
+    `a new game has lead=${t.lead} support=${t.support}, want ${STARTER} and an empty slot`,
+  );
+  check(
+    b.beasts.length === 1,
+    `${b.beasts.length} companions are in the world at boot, want 1 (the starter)`,
+  );
   // The other half: the kit that makes the first bond reachable at all.
-  check(t.readied === 'orb-tame', `the starting kit readies "${t.readied}", want "orb-tame"`);
+  check(t.readied === "orb-tame", `the starting kit readies "${t.readied}", want "orb-tame"`);
   check(t.held === 1, `the starting kit holds ${t.held} orbs, want 1`);
 }
 
@@ -158,33 +177,41 @@ async function goToWild(species) {
 // EARNING a bond; who happens to be walking beside the player while it is
 // earned is test-companion's subject, not this one.
 {
-  const said = await page.evaluate(() => window.__dbgGrantBeast('none'));
+  const said = await page.evaluate(() => window.__dbgGrantBeast("none"));
   const t = await taming();
   results.cleared = { said, owned: t.owned, lead: t.lead, support: t.support };
-  check(t.owned.length === 0 && t.lead === null,
-    `releasing every bond left ${JSON.stringify(t.owned)} lead=${t.lead} — the sections `
-    + 'below all assume an empty party');
+  check(
+    t.owned.length === 0 && t.lead === null,
+    `releasing every bond left ${JSON.stringify(t.owned)} lead=${t.lead} — the sections ` +
+      "below all assume an empty party",
+  );
 }
 
 // -- 2. the odds move with health -------------------------------------------
 {
-  const found = await goToWild('wild-sproutle');
-  check(found !== null, 'no wild-sproutle ever spawned — the wild roster may not be loading');
+  const found = await goToWild("wild-sproutle");
+  check(found !== null, "no wild-sproutle ever spawned — the wild roster may not be loading");
   if (found) {
-    const full = await taming('wild-sproutle');
-    await weaken('wild-sproutle', 0.1);
-    const hurt = await taming('wild-sproutle');
+    const full = await taming("wild-sproutle");
+    await weaken("wild-sproutle", 0.1);
+    const hurt = await taming("wild-sproutle");
     results.odds = {
-      fullHp: full.target?.hp, fullChance: full.target?.chance,
-      hurtHp: hurt.target?.hp, hurtChance: hurt.target?.chance,
+      fullHp: full.target?.hp,
+      fullChance: full.target?.chance,
+      hurtHp: hurt.target?.hp,
+      hurtChance: hurt.target?.chance,
     };
-    check(full.target !== null, 'a wild-sproutle four units away is not a target at all');
+    check(full.target !== null, "a wild-sproutle four units away is not a target at all");
     // BOTH HALVES. A build whose odds ignore health passes either one alone.
-    check(full.target && full.target.chance <= 0.2,
-      `a Tame Orb against a full-health Sproutle is ${full.target?.chance}, want a long shot (<= 0.2)`);
-    check(hurt.target && hurt.target.chance >= full.target.chance * 2.5,
+    check(
+      full.target && full.target.chance <= 0.2,
+      `a Tame Orb against a full-health Sproutle is ${full.target?.chance}, want a long shot (<= 0.2)`,
+    );
+    check(
+      hurt.target && hurt.target.chance >= full.target.chance * 2.5,
       `beaten to 10% health the same throw is ${hurt.target?.chance}, ` +
-      `barely up from ${full.target?.chance} — health is not moving the odds`);
+        `barely up from ${full.target?.chance} — health is not moving the odds`,
+    );
   }
 }
 
@@ -200,75 +227,95 @@ async function goToWild(species) {
   // Both halves against the SAME animal at the same health, so nothing but the
   // orb differs.
 
-  const found = await goToWild('wild-boulderpup');
-  check(found !== null, 'no wild-boulderpup ever spawned');
+  const found = await goToWild("wild-boulderpup");
+  check(found !== null, "no wild-boulderpup ever spawned");
   if (found) {
-    await weaken('wild-boulderpup', 0.1);
-    await give('orb-greater', 1);
-    await invAct('orb-tame', 'ready');
+    await weaken("wild-boulderpup", 0.1);
+    await give("orb-greater", 1);
+    await invAct("orb-tame", "ready");
     // BOTH ODDS FIRST, on the same animal at the same health and before either
     // orb leaves the hand. Reading one after a throw compares two different
     // animals — the first attempt at this caught the Boulderpup with the Tame
     // Orb (0.28 at a tenth of its health, which is the mechanic working) and
     // then read the "Greater" number off a fresh full-health one, making a
     // better orb look worse.
-    const tameChance = (await taming('wild-boulderpup')).target?.chance ?? null;
-    await invAct('orb-greater', 'ready');
-    const greaterChance = (await taming('wild-boulderpup')).target?.chance ?? null;
+    const tameChance = (await taming("wild-boulderpup")).target?.chance ?? null;
+    await invAct("orb-greater", "ready");
+    const greaterChance = (await taming("wild-boulderpup")).target?.chance ?? null;
 
     // Now the throws, both BROKEN on purpose (force=false) so neither outcome
     // depends on a roll and neither takes the animal the other one needs.
-    await invAct('orb-tame', 'ready');
+    await invAct("orb-tame", "ready");
     const before = (await taming()).held;
-    const weak = await throwAt('wild-boulderpup', false);
+    const weak = await throwAt("wild-boulderpup", false);
     const afterWeak = (await taming()).held;
-    await page.waitForFunction(() => !window.__dbgTaming().bonding, { timeout: 20000 })
+    await page
+      .waitForFunction(() => !window.__dbgTaming().bonding, { timeout: 20000 })
       .catch(() => {});
-    await invAct('orb-greater', 'ready');
-    const strong = await throwAt('wild-boulderpup', false);
+    await invAct("orb-greater", "ready");
+    const strong = await throwAt("wild-boulderpup", false);
     const afterStrong = (await taming()).held;
     results.tierGate = {
-      tameOutcome: weak.outcome, tameHeldBefore: before, tameHeldAfter: afterWeak,
-      greaterOutcome: strong.outcome, greaterHeldAfter: afterStrong,
-      tameChance, greaterChance,
+      tameOutcome: weak.outcome,
+      tameHeldBefore: before,
+      tameHeldAfter: afterWeak,
+      greaterOutcome: strong.outcome,
+      greaterHeldAfter: afterStrong,
+      tameChance,
+      greaterChance,
     };
-    check(weak.outcome === 'thrown',
-      `a Tame Orb at a Boulderpup returned "${weak.outcome}", want "thrown" — `
-      + 'no orb is refused for being weak any more (issue #110)');
-    check(afterWeak === before - 1,
-      `an accepted throw left the Tame Orbs at ${afterWeak} from ${before} — it must be spent`);
-    check(strong.outcome === 'thrown',
-      `a Greater Orb at the same Boulderpup returned "${strong.outcome}", want "thrown"`);
-    check(afterStrong === 0,
-      `an accepted throw left ${afterStrong} Greater Orbs, want 0 — it must be spent`);
+    check(
+      weak.outcome === "thrown",
+      `a Tame Orb at a Boulderpup returned "${weak.outcome}", want "thrown" — ` +
+        "no orb is refused for being weak any more (issue #110)",
+    );
+    check(
+      afterWeak === before - 1,
+      `an accepted throw left the Tame Orbs at ${afterWeak} from ${before} — it must be spent`,
+    );
+    check(
+      strong.outcome === "thrown",
+      `a Greater Orb at the same Boulderpup returned "${strong.outcome}", want "thrown"`,
+    );
+    check(
+      afterStrong === 0,
+      `an accepted throw left ${afterStrong} Greater Orbs, want 0 — it must be spent`,
+    );
     // THE ODDS ARE THE DIFFERENCE, which is the half that says the tiers still
     // mean something now that neither is refused.
-    check(results.tierGate.tameChance !== null && results.tierGate.greaterChance !== null,
-      'no capture chance was reported for one of the two orbs');
-    check((results.tierGate.greaterChance ?? 0) > (results.tierGate.tameChance ?? 1),
-      `a Greater Orb reads ${results.tierGate.greaterChance} against a Tame Orb's `
-      + `${results.tierGate.tameChance} on the same animal — a better orb has to be better`);
+    check(
+      results.tierGate.tameChance !== null && results.tierGate.greaterChance !== null,
+      "no capture chance was reported for one of the two orbs",
+    );
+    check(
+      (results.tierGate.greaterChance ?? 0) > (results.tierGate.tameChance ?? 1),
+      `a Greater Orb reads ${results.tierGate.greaterChance} against a Tame Orb's ` +
+        `${results.tierGate.tameChance} on the same animal — a better orb has to be better`,
+    );
   }
 }
 
 // -- 4. a broken bond hands the animal back ---------------------------------
 {
   // Section 3 threw with force=false, so this is that same bond settling.
-  await page.waitForFunction(() => !window.__dbgTaming().bonding, { timeout: 20000 })
+  await page
+    .waitForFunction(() => !window.__dbgTaming().bonding, { timeout: 20000 })
     .catch(() => {});
   const t = await taming();
   const b = await bodies();
-  const still = b.enemies.some((e) => e.species === 'wild-boulderpup');
+  const still = b.enemies.some((e) => e.species === "wild-boulderpup");
   results.broke = { owned: t.owned, boulderpupStillWild: still };
-  check(t.owned.length === 0,
-    `a BROKEN bond granted ${JSON.stringify(t.owned)} — it must grant nothing`);
-  check(still, 'a broken bond removed the beast anyway — it has to come back out');
+  check(
+    t.owned.length === 0,
+    `a BROKEN bond granted ${JSON.stringify(t.owned)} — it must grant nothing`,
+  );
+  check(still, "a broken bond removed the beast anyway — it has to come back out");
 }
 
 // -- 5. a bond that works ----------------------------------------------------
 {
-  const found = await goToWild('wild-sproutle');
-  check(found !== null, 'no wild-sproutle left to bond');
+  const found = await goToWild("wild-sproutle");
+  check(found !== null, "no wild-sproutle left to bond");
   if (found) {
     // FOUR ORBS, because the STAGING is allowed to fail and the claim is not.
     //
@@ -279,20 +326,25 @@ async function goToWild(species) {
     // placement, the weakening and the throw are retried together until an orb
     // actually ARRIVES, and only then does the section start asserting. The
     // assertions themselves are untouched and the outcome is still forced.
-    await give('orb-tame', 4);
-    await invAct('orb-tame', 'ready');
-    let hurt = { ok: false, why: 'never staged' };
-    let res = { outcome: 'never thrown', id: null, dist: null };
+    await give("orb-tame", 4);
+    await invAct("orb-tame", "ready");
+    let hurt = { ok: false, why: "never staged" };
+    let res = { outcome: "never thrown", id: null, dist: null };
     let wildBefore = 0;
     let started = false;
     for (let attempt = 0; attempt < 3 && !started; attempt++) {
-      if (attempt > 0 && !(await goToWild('wild-sproutle'))) break;
-      hurt = await weaken('wild-sproutle', 0.1);
-      if (!hurt.ok) continue;
-      wildBefore = (await bodies()).enemies
-        .filter((e) => e.species === 'wild-sproutle').length;
-      res = await throwAt('wild-sproutle', true);
-      if (res.outcome !== 'thrown') continue;
+      if (attempt > 0 && !(await goToWild("wild-sproutle"))) {
+        break;
+      }
+      hurt = await weaken("wild-sproutle", 0.1);
+      if (!hurt.ok) {
+        continue;
+      }
+      wildBefore = (await bodies()).enemies.filter((e) => e.species === "wild-sproutle").length;
+      res = await throwAt("wild-sproutle", true);
+      if (res.outcome !== "thrown") {
+        continue;
+      }
       // THE ORB HAS TO ARRIVE. Waiting only for `bonding` to go false would
       // pass instantly for a throw that never reached anything, so the ceremony
       // is waited FOR here and waited OUT below — the two halves of "it landed".
@@ -303,32 +355,42 @@ async function goToWild(species) {
     }
     const victim = { id: res.id };
     results.bondThrow = { outcome: res.outcome, dist: res.dist, id: res.id, weakened: hurt.id };
-    check(hurt.ok, `nothing to weaken before the bonding throw: ${hurt.why ?? ''}`);
-    check(res.outcome === 'thrown', `the bonding throw returned "${res.outcome}", want "thrown"`);
+    check(hurt.ok, `nothing to weaken before the bonding throw: ${hurt.why ?? ""}`);
+    check(res.outcome === "thrown", `the bonding throw returned "${res.outcome}", want "thrown"`);
     check(started, `no orb ever reached a Sproutle in three tries (last ${res.dist} units away)`);
-    for (let i = 0; i < 60 && (await taming()).bonding; i++) await adv(0.1);
+    for (let i = 0; i < 60 && (await taming()).bonding; i++) {
+      await adv(0.1);
+    }
     await adv(0.3);
     const t = await taming();
     const b = await bodies();
     results.bonded = {
-      owned: t.owned, lead: t.lead, support: t.support,
+      owned: t.owned,
+      lead: t.lead,
+      support: t.support,
       partyBodies: b.beasts.length,
       bondedOneStillWild: victim ? b.enemies.some((e) => e.id === victim.id) : null,
-      wildSproutlesAfter: b.enemies.filter((e) => e.species === 'wild-sproutle').length,
+      wildSproutlesAfter: b.enemies.filter((e) => e.species === "wild-sproutle").length,
     };
-    check(t.owned.includes('sproutle'),
-      `after a caught bond the player owns ${JSON.stringify(t.owned)}, want it to include "sproutle"`);
+    check(
+      t.owned.includes("sproutle"),
+      `after a caught bond the player owns ${JSON.stringify(t.owned)}, want it to include "sproutle"`,
+    );
     // THE FIRST BOND LEADS — the auto-fill rule, which is the difference between
     // walking away with an animal and walking away with a panel entry.
     // THE FIRST BOND LEADS — the auto-fill rule, which is the difference between
     // walking away with an animal and walking away with a panel entry. Read
     // against the EMPTY party section 1b left behind, so this is still "the
     // first bond takes the empty slot" and the empty slot is still the lead.
-    check(t.lead === 'sproutle',
-      `the first bond left lead=${t.lead}, want "sproutle" — it should fill the empty slot`);
-    check(b.beasts.length === 1,
-      `${b.beasts.length} companions are in the world after one bond, want 1`);
-    check(victim.id !== null, 'the throw hook named no target');
+    check(
+      t.lead === "sproutle",
+      `the first bond left lead=${t.lead}, want "sproutle" — it should fill the empty slot`,
+    );
+    check(
+      b.beasts.length === 1,
+      `${b.beasts.length} companions are in the world after one bond, want 1`,
+    );
+    check(victim.id !== null, "the throw hook named no target");
     // ONE FEWER SPROUTLE, not "that exact id is gone". The orb HOMES on the one
     // it was thrown at but lands on whatever it physically reaches first — a
     // second Sproutle that walks into the line takes it instead, which is the
@@ -341,42 +403,47 @@ async function goToWild(species) {
     // and which pinning the id failed on. The count alone is no better: the
     // spawner tops the pack up during the two-second ceremony and can put the
     // number straight back. Together they are solid.
-    check(!results.bonded.bondedOneStillWild
-      || results.bonded.wildSproutlesAfter < wildBefore,
-    `the bonded Sproutle (#${victim.id}) is still wild and the count went `
-      + `${wildBefore} -> ${results.bonded.wildSproutlesAfter} — nothing left the board`);
+    check(
+      !results.bonded.bondedOneStillWild || results.bonded.wildSproutlesAfter < wildBefore,
+      `the bonded Sproutle (#${victim.id}) is still wild and the count went ` +
+        `${wildBefore} -> ${results.bonded.wildSproutlesAfter} — nothing left the board`,
+    );
   }
 }
 
 // -- 6. what cannot be bonded, and what is already yours ---------------------
 {
-  await give('orb-master', 2);
-  await invAct('orb-master', 'ready');
+  await give("orb-master", 2);
+  await invAct("orb-master", "ready");
 
-  const foundG = await goToWild('gloopling');
+  const foundG = await goToWild("gloopling");
   if (foundG) {
     const before = (await taming()).held;
-    const res = await throwAt('gloopling');
+    const res = await throwAt("gloopling");
     const after = (await taming()).held;
     results.gloopling = { outcome: res.outcome, heldBefore: before, heldAfter: after };
-    check(res.outcome === 'notBondable',
-      `a Master Orb at a Gloopling returned "${res.outcome}", want "notBondable"`);
-    check(after === before, 'throwing at a Gloopling spent an orb');
+    check(
+      res.outcome === "notBondable",
+      `a Master Orb at a Gloopling returned "${res.outcome}", want "notBondable"`,
+    );
+    check(after === before, "throwing at a Gloopling spent an orb");
   } else {
-    results.gloopling = 'none spawned';
+    results.gloopling = "none spawned";
   }
 
-  const foundS = await goToWild('wild-sproutle');
+  const foundS = await goToWild("wild-sproutle");
   if (foundS) {
     const before = (await taming()).held;
-    const res = await throwAt('wild-sproutle');
+    const res = await throwAt("wild-sproutle");
     const after = (await taming()).held;
     results.duplicate = { outcome: res.outcome, heldBefore: before, heldAfter: after };
-    check(res.outcome === 'alreadyOwned',
-      `a second Sproutle returned "${res.outcome}", want "alreadyOwned"`);
-    check(after === before, 'throwing at a species you already own spent an orb');
+    check(
+      res.outcome === "alreadyOwned",
+      `a second Sproutle returned "${res.outcome}", want "alreadyOwned"`,
+    );
+    check(after === before, "throwing at a species you already own spent an orb");
   } else {
-    results.duplicate = 'none spawned';
+    results.duplicate = "none spawned";
   }
 }
 
@@ -386,22 +453,24 @@ async function goToWild(species) {
   // — the one thing the whole "an enemy wearing a beast's rig" design is for.
   // Measured as MOTION rather than as a flag: the beast has to have gone
   // somewhere over a second of simulated time.
-  const found = await goToWild('wild-galebird');
-  results.wildMotion = 'no wild-galebird spawned';
+  const found = await goToWild("wild-galebird");
+  results.wildMotion = "no wild-galebird spawned";
   if (found) {
     // BY ID again, and here it is the difference between a measurement and a
     // coincidence: one Galebird despawning while another arrives would read as
     // eighty units of travel in a second.
-    const a = (await bodies()).enemies.find((e) => e.species === 'wild-galebird');
+    const a = (await bodies()).enemies.find((e) => e.species === "wild-galebird");
     await adv(1.2);
     const b2 = a ? (await bodies()).enemies.find((e) => e.id === a.id) : undefined;
-    check(a !== undefined, 'no wild Galebird to measure');
-    check(b2 !== undefined, 'the Galebird being measured despawned mid-measurement');
+    check(a !== undefined, "no wild Galebird to measure");
+    check(b2 !== undefined, "the Galebird being measured despawned mid-measurement");
     if (a && b2) {
       const moved = Math.hypot(b2.x - a.x, b2.z - a.z) + Math.abs(b2.y - a.y);
       results.wildMotion = { id: a.id, moved: +moved.toFixed(2) };
-      check(moved > 0.2,
-        `a wild Galebird travelled ${moved.toFixed(2)} units in 1.2 s — it is not being driven`);
+      check(
+        moved > 0.2,
+        `a wild Galebird travelled ${moved.toFixed(2)} units in 1.2 s — it is not being driven`,
+      );
     }
   }
 }
@@ -421,11 +490,11 @@ async function goToWild(species) {
   // rule working; section 6 is where the refusal itself is asserted.) The
   // Boulderpup broke free in section 3 and is still wild, and a Master Orb
   // clears its minTier.
-  const found = await goToWild('wild-boulderpup');
-  results.assist = found === null ? 'no wild-boulderpup to aim at' : null;
+  const found = await goToWild("wild-boulderpup");
+  results.assist = found === null ? "no wild-boulderpup to aim at" : null;
   if (found) {
-    await give('orb-master', 1);
-    await invAct('orb-master', 'ready');
+    await give("orb-master", 1);
+    await invAct("orb-master", "ready");
 
     // ONE READ PER SAMPLE. `__dbgOrbAim` reports the off-axis angle AND the
     // assist's choice from the same instant and the same camera vector — see
@@ -439,13 +508,15 @@ async function goToWild(species) {
       // clean out of ORB_RANGE. Six units: well inside the 20 it can be thrown
       // from, and far enough out that it does not simply bite him.
       const before = (await bodies()).enemies.find((e) => e.id === found.id);
-      if (!before) continue;
+      if (!before) {
+        continue;
+      }
       await page.evaluate((x, z) => window.__dbgTp(x, z), before.x + 6, before.z);
       await page.evaluate((b) => window.__dbgAim(b), (deg * Math.PI) / 180);
       // The swing arrives over a few hundred ms — settle on simulated time, as
       // the note on `__dbgAim` in main.ts says.
       await adv(1.2);
-      const a = await page.evaluate((sp) => window.__dbgOrbAim(sp), 'wild-boulderpup');
+      const a = await page.evaluate((sp) => window.__dbgOrbAim(sp), "wild-boulderpup");
       // ONLY IF THE STAGING TOOK. The hop above puts the hero six units off; a
       // sample that comes back with the animal nineteen units away is one where
       // it wandered off or the teleport landed somewhere it could not stand, and
@@ -468,9 +539,11 @@ async function goToWild(species) {
     // only the boundary itself, which no sample should be asked about.
     const inside = samples.filter((s) => s.off <= 55);
     const outside = samples.filter((s) => s.off >= 75);
-    check(inside.length >= 2 && outside.length >= 2,
-      `the sweep landed ${inside.length} samples inside the cone and ${outside.length} outside; `
-      + `it needs at least two of each to mean anything: ${JSON.stringify(samples)}`);
+    check(
+      inside.length >= 2 && outside.length >= 2,
+      `the sweep landed ${inside.length} samples inside the cone and ${outside.length} outside; ` +
+        `it needs at least two of each to mean anything: ${JSON.stringify(samples)}`,
+    );
 
     // WHAT IS ASSERTED, AND WHY IT IS NOT `pickedThis` BOTH WAYS.
     //
@@ -484,17 +557,23 @@ async function goToWild(species) {
     // else the assist chooses, it must not choose the animal that is behind him.
     // That is what makes this a pair rather than "it always finds something",
     // which is autoaim and would pass either half alone.
-    check(inside.every((s) => s.picked),
-      `within 55 degrees of a beast the assist offered nothing at `
-      + `${JSON.stringify(inside.filter((s) => !s.picked))} — that is the old weapon cone, `
-      + 'and it is the complaint this widening answers');
-    check(outside.every((s) => !s.hit),
-      `past 75 degrees the assist still chose the animal behind him at `
-      + `${JSON.stringify(outside.filter((s) => s.hit))} — that is not aiming`);
+    check(
+      inside.every((s) => s.picked),
+      `within 55 degrees of a beast the assist offered nothing at ` +
+        `${JSON.stringify(inside.filter((s) => !s.picked))} — that is the old weapon cone, ` +
+        "and it is the complaint this widening answers",
+    );
+    check(
+      outside.every((s) => !s.hit),
+      `past 75 degrees the assist still chose the animal behind him at ` +
+        `${JSON.stringify(outside.filter((s) => s.hit))} — that is not aiming`,
+    );
     // ...and the staged animal really is reachable, or the half above is a
     // statement about some other beast entirely.
-    check(inside.some((s) => s.hit),
-      `the staged Boulderpup was never chosen at any bearing: ${JSON.stringify(inside)}`);
+    check(
+      inside.some((s) => s.hit),
+      `the staged Boulderpup was never chosen at any bearing: ${JSON.stringify(inside)}`,
+    );
   }
 }
 
@@ -513,27 +592,35 @@ async function goToWild(species) {
   // hunting for species, and where he ends up is not guaranteed to have a wild
   // beast in sight — "no wild beast to compare against" is a probe that ran out
   // of world, not a footprint that drifted.
-  await goToWild('wild-sproutle');
+  await goToWild("wild-sproutle");
   const rows = (await bodies()).enemies.filter((e) => e.rigHeight !== null);
   const seen = {};
   for (const e of rows) {
-    if (seen[e.species]) continue;
+    if (seen[e.species]) {
+      continue;
+    }
     seen[e.species] = { authored: [e.radius, e.height], rig: [e.rigRadius, e.rigHeight] };
-    check(Math.abs(e.radius - e.rigRadius) <= TOL,
-      `${e.species} is authored radius ${e.radius} but its rig measures ${e.rigRadius}`);
-    check(Math.abs(e.height - e.rigHeight) <= TOL,
-      `${e.species} is authored height ${e.height} but its rig measures ${e.rigHeight}`);
+    check(
+      Math.abs(e.radius - e.rigRadius) <= TOL,
+      `${e.species} is authored radius ${e.radius} but its rig measures ${e.rigRadius}`,
+    );
+    check(
+      Math.abs(e.height - e.rigHeight) <= TOL,
+      `${e.species} is authored height ${e.height} but its rig measures ${e.rigHeight}`,
+    );
   }
   results.footprints = seen;
   // The other half: a painted enemy has no rig, and must not claim one.
-  const painted = (await bodies()).enemies.filter((e) => e.rigHeight === null).map((e) => e.species);
+  const painted = (await bodies()).enemies
+    .filter((e) => e.rigHeight === null)
+    .map((e) => e.species);
   results.paintedNoRig = [...new Set(painted)];
-  check(rows.length > 0, 'no wild beast was in the world to compare footprints against');
+  check(rows.length > 0, "no wild beast was in the world to compare footprints against");
 }
 
 console.log(JSON.stringify({ ...results, fails }, null, 2));
 await browser.close();
 if (fails.length) {
-  console.error(`\n${fails.length} failure(s):\n  ${fails.join('\n  ')}`);
+  console.error(`\n${fails.length} failure(s):\n  ${fails.join("\n  ")}`);
   process.exit(1);
 }

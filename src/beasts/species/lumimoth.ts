@@ -1,9 +1,9 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { makeGlowSprite } from './glowsprite';
-import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
-import { makeContactBlob, updateContactBlob } from './contactshadow';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { makeGlowSprite } from "./glowsprite";
+import { eyes2x2, rimTop, shadeUnder } from "./voxelshade";
+import { makeContactBlob, updateContactBlob } from "./contactshadow";
 
 // Lumimoth — radiant moth of warm gold and cream, lantern-tipped.
 
@@ -17,10 +17,10 @@ const C = {
   goldHot: 0xf29a3a,
   goldDeep: 0xdc8a26,
   spot: 0xfffbf0,
-  vein: 0xd98f2e,    // wing veins; `under` is a lighting value, not a pattern
+  vein: 0xd98f2e, // wing veins; `under` is a lighting value, not a pattern
   iris: 0x3a2350,
   eyeShine: 0xfffdf6,
-  eyeLid: 0xc9a473,  // cream at ~65%; there is no AO in build(), so paint the recess
+  eyeLid: 0xc9a473, // cream at ~65%; there is no AO in build(), so paint the recess
   tipGlow: 0xfff1b8,
   leg: 0x6d5136,
   glow: 0xffe9a3,
@@ -43,56 +43,56 @@ const LO_SWEEP = 0.42;
 
 export const skills: SkillDef[] = [
   {
-    id: 'lumimoth.glimmer-dart',
-    nameKey: 'skill.lumimoth.glimmer-dart.name',
-    descriptionKey: 'skill.lumimoth.glimmer-dart.desc',
-    element: 'light',
-    targeting: 'projectile',
+    id: "lumimoth.glimmer-dart",
+    nameKey: "skill.lumimoth.glimmer-dart.name",
+    descriptionKey: "skill.lumimoth.glimmer-dart.desc",
+    element: "light",
+    targeting: "projectile",
     cost: 6,
     cooldown: 1.6,
     power: 10,
     range: 18,
     learnAtLevel: 1,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'lumimoth.prismbeam',
-    nameKey: 'skill.lumimoth.prismbeam.name',
-    descriptionKey: 'skill.lumimoth.prismbeam.desc',
-    element: 'light',
-    targeting: 'beam',
+    id: "lumimoth.prismbeam",
+    nameKey: "skill.lumimoth.prismbeam.name",
+    descriptionKey: "skill.lumimoth.prismbeam.desc",
+    element: "light",
+    targeting: "beam",
     cost: 14,
     cooldown: 5.5,
     power: 22,
     range: 15,
     learnAtLevel: 5,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'lumimoth.dust-waltz',
-    nameKey: 'skill.lumimoth.dust-waltz.name',
-    descriptionKey: 'skill.lumimoth.dust-waltz.desc',
-    element: 'light',
-    targeting: 'aoe',
+    id: "lumimoth.dust-waltz",
+    nameKey: "skill.lumimoth.dust-waltz.name",
+    descriptionKey: "skill.lumimoth.dust-waltz.desc",
+    element: "light",
+    targeting: "aoe",
     cost: 16,
     cooldown: 8,
     power: 20,
     range: 6,
     storePrice: 190,
-    castAnim: 'special',
+    castAnim: "special",
   },
   {
-    id: 'lumimoth.lantern-blessing',
-    nameKey: 'skill.lumimoth.lantern-blessing.name',
-    descriptionKey: 'skill.lumimoth.lantern-blessing.desc',
-    element: 'light',
-    targeting: 'support',
+    id: "lumimoth.lantern-blessing",
+    nameKey: "skill.lumimoth.lantern-blessing.name",
+    descriptionKey: "skill.lumimoth.lantern-blessing.desc",
+    element: "light",
+    targeting: "support",
     cost: 20,
     cooldown: 12,
     power: 28,
     range: 8,
     storePrice: 340,
-    castAnim: 'special',
+    castAnim: "special",
   },
 ];
 
@@ -118,24 +118,36 @@ function buildUpperWing(dir: number): THREE.Mesh {
   // thorax depth so the root is BURIED in the body; the trailing edge zigzags -3/-4 for
   // the scallop a moth hindwing has.
   const cols: Array<[number, number]> = [
-    [-3, 3], [-4, 3], [-3, 3], [-4, 2], [-3, 2], [-4, 1], [-2, 1],
+    [-3, 3],
+    [-4, 3],
+    [-3, 3],
+    [-4, 2],
+    [-3, 2],
+    [-4, 1],
+    [-2, 1],
   ];
   cols.forEach(([z0, z1], i) => {
     const panel = i <= 2 ? C.goldDeep : C.gold;
     for (let z = z0; z <= z1; z++) {
       const rim = z === z0 || z === z1 || i === cols.length - 1;
       v.set(cell(i), 0, z, rim ? C.edge : panel);
-      if (i < 6) v.set(cell(i), -1, z, C.under);
+      if (i < 6) {
+        v.set(cell(i), -1, z, C.under);
+      }
     }
   });
   cols.forEach(([z0, z1], i) => {
     for (const z of [-1, 1]) {
-      if (z > z0 && z < z1) v.set(cell(i), 0, z, C.vein);
+      if (z > z0 && z < z1) {
+        v.set(cell(i), 0, z, C.vein);
+      }
     }
   });
   // Outermost column plus the aft half of the next in: a lit rim all round drew a neon
   // border, and two whole columns made a flat white paddle.
-  for (let z = cols[6][0]; z <= cols[6][1]; z++) v.set(cell(6), 0, z, C.tipGlow);
+  for (let z = cols[6][0]; z <= cols[6][1]; z++) {
+    v.set(cell(6), 0, z, C.tipGlow);
+  }
   v.set(cell(5), 0, cols[5][0], C.tipGlow);
   v.set(cell(4), 0, 0, C.spot);
   v.set(cell(5), 0, 0, C.spot);
@@ -155,17 +167,25 @@ function buildLowerWing(dir: number): THREE.Mesh {
   const v = new VoxelModel();
   const cell = (i: number): number => (dir > 0 ? i : -i - 1);
   const cols: Array<[number, number]> = [
-    [-4, 2], [-3, 1], [-4, 0], [-2, 0], [-3, -1],
+    [-4, 2],
+    [-3, 1],
+    [-4, 0],
+    [-2, 0],
+    [-3, -1],
   ];
   cols.forEach(([z0, z1], i) => {
     for (let z = z0; z <= z1; z++) {
       const rim = z === z0 || z === z1 || i === cols.length - 1;
       v.set(cell(i), 0, z, rim ? C.edge : i <= 1 ? C.goldDeep : C.goldHot);
-      if (i < 4) v.set(cell(i), -1, z, C.under);
+      if (i < 4) {
+        v.set(cell(i), -1, z, C.under);
+      }
     }
   });
   cols.forEach(([z0, z1], i) => {
-    if (-1 > z0 && -1 < z1) v.set(cell(i), 0, -1, C.vein);
+    if (-1 > z0 && -1 < z1) {
+      v.set(cell(i), 0, -1, C.vein);
+    }
   });
   v.set(cell(4), 0, cols[4][0], C.tipGlow);
   v.set(cell(4), 0, cols[4][1], C.tipGlow);
@@ -207,11 +227,11 @@ function buildRig(): BeastRig {
   shadeUnder(thoraxVox, C.under, -3, 3, 1, 2, -3, 3); // from y=1, so it spares the legs
   const thorax = thoraxVox.build(S);
   // -0.40: build() anchors y=0 at the lowest voxel and the tucked legs add a row below.
-  thorax.position.y = -0.40;
+  thorax.position.y = -0.4;
   body.add(thorax);
 
   const head = new THREE.Group();
-  head.position.set(0, 0.08, 0.30);
+  head.position.set(0, 0.08, 0.3);
   body.add(head);
   parts.head = head;
 
@@ -222,8 +242,14 @@ function buildRig(): BeastRig {
   rimTop(headVox, C.fuzz, -2, 2, 0, 4, -2, 2);
   shadeUnder(headVox, C.creamDk, -3, 3, 0, 1, -2, 1);
   eyes2x2(headVox, {
-    inner: 1, y: 2, faceZ: 2, iris: C.iris, shine: C.eyeShine,
-    lid: C.eyeLid, browProud: true, bridge: C.fuzz,
+    inner: 1,
+    y: 2,
+    faceZ: 2,
+    iris: C.iris,
+    shine: C.eyeShine,
+    lid: C.eyeLid,
+    browProud: true,
+    bridge: C.fuzz,
   });
   const headMesh = headVox.build(S);
   headMesh.position.y = -0.22;
@@ -333,8 +359,8 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
   // Rate picked BEFORE the phase is integrated — a slot advances exactly once a frame —
   // and outside the switch, so hover and cruise share one continuous phase.
-  const moving = ctx.action === 'fly' || ctx.action === 'walk'
-    || ctx.action === 'run' || ctx.action === 'swim';
+  const moving =
+    ctx.action === "fly" || ctx.action === "walk" || ctx.action === "run" || ctx.action === "swim";
   const w = ctx.cycle(BEAT, moving ? 16 + 8 * ctx.moveSpeed : 9);
 
   let bodyX = 0;
@@ -347,20 +373,20 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   let flap = Math.sin(w) * 0.45 + 0.18;
   let flapLo = Math.sin(w - 0.7) * 0.36 + 0.12;
   let wingTilt = Math.sin(t * 1.6) * 0.14;
-  let headRX = Math.sin(t * 0.7) * 0.10;
+  let headRX = Math.sin(t * 0.7) * 0.1;
   let headRY = Math.sin(t * 0.43) * 0.16;
   let headRZ = Math.sin(t * 0.9 + 2.0) * 0.06;
-  let antSway = Math.sin(t * 2.2) * 0.10;
+  let antSway = Math.sin(t * 2.2) * 0.1;
   let antLift = 0;
   let abdRX = Math.sin(t * 2.0 + 1.0) * 0.09;
   let abdRY = Math.sin(t * 1.4) * 0.06;
-  let glowI = 0.85 + Math.sin(t * 3.2) * 0.30;
+  let glowI = 0.85 + Math.sin(t * 3.2) * 0.3;
 
   switch (ctx.action) {
-    case 'fly':
-    case 'walk':
-    case 'run':
-    case 'swim': {
+    case "fly":
+    case "walk":
+    case "run":
+    case "swim": {
       const k = 0.4 + 0.6 * ctx.moveSpeed;
       const s = Math.sin(w);
       // Beat biased below level: a symmetric stroke stands the wings vertical at both
@@ -370,19 +396,19 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       wingTilt = 0.22 - 0.1 * k + Math.sin(w - 0.5) * 0.08;
       bodyY = BODY_Y + Math.sin(w - 1.2) * 0.045 * k + Math.sin(t * 2.6) * 0.02;
       bodyRX = 0.22 * k + Math.sin(w - 1.4) * 0.05;
-      bodyRZ = Math.sin(t * 1.7) * 0.10 * k;
+      bodyRZ = Math.sin(t * 1.7) * 0.1 * k;
       headRX = -0.18 * k;
       headRY = Math.sin(t * 0.9) * 0.08;
       antLift = 0.5 * k;
-      abdRX = -0.10 * k + Math.sin(w - 1.8) * 0.10;
+      abdRX = -0.1 * k + Math.sin(w - 1.8) * 0.1;
       abdRY = Math.sin(t * 1.7) * 0.05;
       glowI = 1.0 + Math.sin(t * 6) * 0.25;
       break;
     }
-    case 'attack': {
+    case "attack": {
       const wind = easeOutCubic(clamp01(at / 0.14));
       const lunge = easeOutCubic(clamp01((at - 0.14) / 0.16));
-      const settle = easeInOutSine(clamp01((at - 0.30) / 0.30));
+      const settle = easeInOutSine(clamp01((at - 0.3) / 0.3));
       const punch = lunge * (1 - settle);
       const coil = wind * (1 - lunge);
       bodyRX = -0.35 * coil + 0.55 * punch;
@@ -398,22 +424,22 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       glowI = 0.9 + punch * 1.3;
       break;
     }
-    case 'cast': {
+    case "cast": {
       const rise = easeOutCubic(clamp01(at / 0.35));
       const quiver = Math.sin(t * 26) * 0.06 * rise;
       bodyRX = -0.45 * rise;
-      bodyY = BODY_Y + 0.10 * rise + Math.sin(t * 3) * 0.02;
+      bodyY = BODY_Y + 0.1 * rise + Math.sin(t * 3) * 0.02;
       flap = 0.9 * rise + quiver;
       flapLo = 0.6 * rise + quiver;
       wingTilt = 0.25 * rise;
       headRX = -0.25 * rise;
-      antLift = -0.30 * rise;
+      antLift = -0.3 * rise;
       antSway = Math.sin(t * 14) * 0.05;
       abdRX = 0.35 * rise;
       glowI = 0.9 + rise * 2.2 + Math.sin(t * 14) * 0.3 * rise;
       break;
     }
-    case 'special': {
+    case "special": {
       const u = clamp01(at / 1.1);
       const arc = Math.sin(u * Math.PI);
       bodyRY = easeInOutSine(u) * Math.PI * 2;
@@ -429,13 +455,13 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       glowI = 1 + arc * 2.6;
       break;
     }
-    case 'hurt': {
+    case "hurt": {
       const d = Math.max(0, 1 - at / 0.45);
       bodyX = Math.sin(at * 55) * 0.045 * d;
       bodyRZ = Math.sin(at * 48) * 0.14 * d;
       bodyRX = -0.25 * d;
       bodyY = BODY_Y + 0.04 * d;
-      headRX = 0.30 * d;
+      headRX = 0.3 * d;
       antLift = 0.6 * d;
       flap = Math.sin(t * 34) * 0.9 * d + 0.2;
       flapLo = Math.sin(t * 34 - 0.6) * 0.7 * d + 0.15;
@@ -443,7 +469,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       glowI = 0.35;
       break;
     }
-    case 'happy': {
+    case "happy": {
       const hop = Math.abs(Math.sin(at * 7));
       bodyY = BODY_Y + hop * 0.14;
       sq = 1 + Math.sin(at * 14) * 0.06;
@@ -460,7 +486,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       glowI = 1.2 + hop * 1.0;
       break;
     }
-    case 'idle':
+    case "idle":
     default:
       break;
   }
@@ -489,17 +515,17 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 }
 
 export const species: BeastSpecies = {
-  id: 'lumimoth',
-  nameKey: 'beast.lumimoth.name',
-  element: 'light',
-  locomotion: 'flying',
-  descriptionKey: 'beast.lumimoth.desc',
+  id: "lumimoth",
+  nameKey: "beast.lumimoth.name",
+  element: "light",
+  locomotion: "flying",
+  descriptionKey: "beast.lumimoth.desc",
   baseStats: { maxHp: 34, attack: 9, defense: 6, speed: 5.2 },
   skills: [
-    'lumimoth.glimmer-dart',
-    'lumimoth.prismbeam',
-    'lumimoth.dust-waltz',
-    'lumimoth.lantern-blessing',
+    "lumimoth.glimmer-dart",
+    "lumimoth.prismbeam",
+    "lumimoth.dust-waltz",
+    "lumimoth.lantern-blessing",
   ],
   buildRig,
   animate,

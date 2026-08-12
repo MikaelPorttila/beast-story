@@ -1,10 +1,10 @@
-import * as THREE from 'three';
-import { VoxelModel } from '../core/voxel';
+import * as THREE from "three";
+import { VoxelModel } from "../core/voxel";
 
 // Built along +Z (not +Y like every other model): `lookAt` aims the pool's
 // group down +Z, so travel direction must be the model's long axis.
 
-const S = 0.055;   // finer voxel than the hero's 0.1: an arrow is a thin thing
+const S = 0.055; // finer voxel than the hero's 0.1: an arrow is a thin thing
 
 const SHAFT = 0xb08a52;
 const SHAFT_D = 0x8a6a3c;

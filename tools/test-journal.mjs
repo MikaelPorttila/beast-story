@@ -31,39 +31,42 @@
 //      that renders nothing at all.
 //
 // Exits non-zero on failure.
-import { launchBrowser, newPage, wait } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 // No `fps=` cap: nothing here is a frame-edge measurement, and the hold below is
 // simulated rather than clocked.
 const URL = `${HOST}/?menu=0&vol=0`;
 
-const QUEST = 'quest:encampment/first-steps';
+const QUEST = "quest:encampment/first-steps";
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const read = (page) => page.evaluate(() => window.__dbgJournal());
 const pos = (page) => page.evaluate(() => window.__dbgPlayerPos());
-const adv = (page, s) => page.evaluate(async (sec) => {
-  const out = window.__dbgAdvance(sec);
-  await new Promise((resv) => requestAnimationFrame(() => requestAnimationFrame(resv)));
-  return out;
-}, s);
+const adv = (page, s) =>
+  page.evaluate(async (sec) => {
+    const out = window.__dbgAdvance(sec);
+    await new Promise((resv) => requestAnimationFrame(() => requestAnimationFrame(resv)));
+    return out;
+  }, s);
 /** One REAL frame. `J` is read frame-side (takePress), so the press needs one. */
-const frame = (page) => page.evaluate(
-  () => new Promise((resv) => requestAnimationFrame(() => requestAnimationFrame(resv))));
+const frame = (page) =>
+  page.evaluate(
+    () => new Promise((resv) => requestAnimationFrame(() => requestAnimationFrame(resv))),
+  );
 
 async function toggle(page, wantOpen) {
-  await page.keyboard.press('KeyJ');
+  await page.keyboard.press("KeyJ");
   await frame(page);
-  await page.waitForFunction(
-    (want) => window.__dbgJournal().open === want, { timeout: 5000 }, wantOpen,
-  ).catch(() => {});
+  await page
+    .waitForFunction((want) => window.__dbgJournal().open === want, { timeout: 5000 }, wantOpen)
+    .catch(() => {});
 }
 
 const results = {};
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
-await page.goto(URL, { waitUntil: 'domcontentloaded' });
+await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForFunction(
   () => window.__dbgBoot && window.__dbgBoot().playing && window.__dbgAdvance,
   { timeout: 60000 },
@@ -106,20 +109,24 @@ await toggle(page, true);
 // companion — and never on a clock, which is the same rule teleports follow
 // (AGENTS.md). What it buys is a tolerance that means what it says: with the
 // world settled, travel with the panel up is 0.
-await page.waitForFunction(() => {
-  const beasts = window.__dbgCompanions().beasts;
-  return !window.__dbgZone().streaming
-    && beasts.length > 0 && beasts.every((b) => !b.transit);
-}, { timeout: 30000 }).catch(() => {});
+await page
+  .waitForFunction(
+    () => {
+      const beasts = window.__dbgCompanions().beasts;
+      return !window.__dbgZone().streaming && beasts.length > 0 && beasts.every((b) => !b.transit);
+    },
+    { timeout: 30000 },
+  )
+  .catch(() => {});
 // And one settled second on top: `transit` goes false when the flight ENDS, and
 // the last of the approach is the part that does the shoving.
 await adv(page, 1);
 {
   const hold = async (simS) => {
     const a = await pos(page);
-    await page.keyboard.down('KeyW');
+    await page.keyboard.down("KeyW");
     await adv(page, simS);
-    await page.keyboard.up('KeyW');
+    await page.keyboard.up("KeyW");
     await adv(page, 0.12);
     return dist(a, await pos(page));
   };
@@ -166,7 +173,7 @@ await toggle(page, true);
   const on = await page.evaluate((id) => window.__dbgJournalHud(id), QUEST);
   await frame(page);
   const afterOn = await read(page);
-  const still = (j) => (j.model.find((q) => q.id === QUEST)?.tab ?? null);
+  const still = (j) => j.model.find((q) => q.id === QUEST)?.tab ?? null;
   results.hudSwitch = {
     off,
     hudAfterOff: afterOff.hud.quests.length,
@@ -182,8 +189,9 @@ await toggle(page, true);
 // ---------- 5. a tab is a filter -------------------------------------------
 {
   await page.evaluate(() => {
-    const done = [...document.querySelectorAll('.bs-journal .chip.tab')]
-      .find((b) => b.dataset.tab === 'completed');
+    const done = [...document.querySelectorAll(".bs-journal .chip.tab")].find(
+      (b) => b.dataset.tab === "completed",
+    );
     done?.click();
   });
   await frame(page);
@@ -195,8 +203,9 @@ await toggle(page, true);
   };
   // Back to Active, so the Escape check below closes a panel in a known state.
   await page.evaluate(() => {
-    const act = [...document.querySelectorAll('.bs-journal .chip.tab')]
-      .find((b) => b.dataset.tab === 'active');
+    const act = [...document.querySelectorAll(".bs-journal .chip.tab")].find(
+      (b) => b.dataset.tab === "active",
+    );
     act?.click();
   });
   await frame(page);
@@ -206,7 +215,7 @@ await toggle(page, true);
 // The other half of the key contract: `J` toggles, and the cancel branch in
 // main.ts spends one press on the topmost modal.
 {
-  await page.keyboard.press('Escape');
+  await page.keyboard.press("Escape");
   await adv(page, 0.1);
   await page.waitForFunction(() => !window.__dbgJournal().open, { timeout: 5000 }).catch(() => {});
   results.escape = { open: (await read(page)).open };
@@ -219,13 +228,16 @@ await browser.close();
 // What has to be true
 // ---------------------------------------------------------------------------
 const fail = [];
-const check = (ok, what) => { if (!ok) fail.push(what); };
+const check = (ok, what) => {
+  if (!ok) {
+    fail.push(what);
+  }
+};
 
-check(results.empty.open === true, 'J did not open the journal');
+check(results.empty.open === true, "J did not open the journal");
 check(results.empty.tabs === 3, `expected 3 tabs, drew ${results.empty.tabs}`);
-check(results.empty.emptyState === true,
-  'with no quests loaded the panel drew no empty state');
-check(results.empty.hudQuests === 0, 'the HUD tracker had rows before any quest existed');
+check(results.empty.emptyState === true, "with no quests loaded the panel drew no empty state");
+check(results.empty.hudQuests === 0, "the HUD tracker had rows before any quest existed");
 
 // A TOLERANCE, not an exact zero — and the control below is what makes it mean
 // something. A panel takes the INPUT and never the clock (AGENTS.md), so the
@@ -234,61 +246,95 @@ check(results.empty.hudQuests === 0, 'the HUD tracker had rows before any quest 
 // asserting that nothing in the world touched him for 1.2 seconds. That held
 // until issue #4 put more kinds of thing in the start meadow. 0.5 is the figure
 // the same pair already uses in tools/test-inventory.mjs.
-check(results.modal.travelOpen < 0.5,
-  `the hero walked ${results.modal.travelOpen} units with the journal up — it is not a modal`);
-check(results.modal.travelShut > 1,
-  `the control hold moved him only ${results.modal.travelShut} units, `
-  + `so the ${results.modal.travelOpen} above proves nothing`);
+check(
+  results.modal.travelOpen < 0.5,
+  `the hero walked ${results.modal.travelOpen} units with the journal up — it is not a modal`,
+);
+check(
+  results.modal.travelShut > 1,
+  `the control hold moved him only ${results.modal.travelShut} units, ` +
+    `so the ${results.modal.travelOpen} above proves nothing`,
+);
 
-check(results.card.staged?.quests?.includes(QUEST) === true,
-  `staging did not load ${QUEST}: ${JSON.stringify(results.card.staged)}`);
-check(results.card.tab === 'active', `the staged quest is on "${results.card.tab}", not active`);
-check(results.card.category === 'main', `expected a main quest, got "${results.card.category}"`);
-check(!!results.card.name && !results.card.name.startsWith('['),
-  `the quest name did not resolve: ${results.card.name}`);
-check(results.card.objectives.length === 1,
-  `expected 1 objective, model has ${results.card.objectives.length}`);
-check(results.card.rewards.length === 2,
-  `expected 2 rewards, model has ${results.card.rewards.length}`);
+check(
+  results.card.staged?.quests?.includes(QUEST) === true,
+  `staging did not load ${QUEST}: ${JSON.stringify(results.card.staged)}`,
+);
+check(results.card.tab === "active", `the staged quest is on "${results.card.tab}", not active`);
+check(results.card.category === "main", `expected a main quest, got "${results.card.category}"`);
+check(
+  !!results.card.name && !results.card.name.startsWith("["),
+  `the quest name did not resolve: ${results.card.name}`,
+);
+check(
+  results.card.objectives.length === 1,
+  `expected 1 objective, model has ${results.card.objectives.length}`,
+);
+check(
+  results.card.rewards.length === 2,
+  `expected 2 rewards, model has ${results.card.rewards.length}`,
+);
 // The DOM half. A model that is right and a panel that is empty is the failure
 // these three exist to catch.
-check(results.card.drawn.includes(QUEST),
-  `the card never reached the DOM: ${JSON.stringify(results.card.drawn)}`);
+check(
+  results.card.drawn.includes(QUEST),
+  `the card never reached the DOM: ${JSON.stringify(results.card.drawn)}`,
+);
 check(results.card.steps === 1, `the card drew ${results.card.steps} objective lines, expected 1`);
-check(results.card.rewardChips === 2,
-  `the card drew ${results.card.rewardChips} reward chips, expected 2`);
-check(results.card.hudButtons === 1,
-  `an active quest drew ${results.card.hudButtons} HUD switches, expected 1`);
-check(results.card.onHud === true, 'a fresh quest was not on the HUD — the switch is opt-OUT');
-check(results.card.hudQuests.length === 1,
-  `the tracker shows ${results.card.hudQuests.length} quests, expected 1`);
-check(results.card.hudSteps === 1,
-  `the tracker drew ${results.card.hudSteps} step lines, expected 1`);
+check(
+  results.card.rewardChips === 2,
+  `the card drew ${results.card.rewardChips} reward chips, expected 2`,
+);
+check(
+  results.card.hudButtons === 1,
+  `an active quest drew ${results.card.hudButtons} HUD switches, expected 1`,
+);
+check(results.card.onHud === true, "a fresh quest was not on the HUD — the switch is opt-OUT");
+check(
+  results.card.hudQuests.length === 1,
+  `the tracker shows ${results.card.hudQuests.length} quests, expected 1`,
+);
+check(
+  results.card.hudSteps === 1,
+  `the tracker drew ${results.card.hudSteps} step lines, expected 1`,
+);
 
-check(results.hudSwitch.off === false, 'the switch did not report itself off');
-check(results.hudSwitch.hudAfterOff === 0,
-  `the tracker still had ${results.hudSwitch.hudAfterOff} rows after switching off`);
-check(results.hudSwitch.pressedAfterOff === 0,
-  'the button still drew itself as pressed after switching off');
-check(results.hudSwitch.tabAfterOff === 'active',
-  `switching off the HUD moved the quest to "${results.hudSwitch.tabAfterOff}" — it must only `
-  + 'change what is DRAWN');
-check(results.hudSwitch.on === true, 'the switch did not come back on');
-check(results.hudSwitch.hudAfterOn === 1,
-  `the tracker had ${results.hudSwitch.hudAfterOn} rows after switching back on, expected 1`);
-check(results.hudSwitch.pressedAfterOn === 1,
-  'the button did not draw itself as pressed after switching back on');
-check(results.hudSwitch.tabAfterOn === 'active', 'the quest left active after switching back on');
+check(results.hudSwitch.off === false, "the switch did not report itself off");
+check(
+  results.hudSwitch.hudAfterOff === 0,
+  `the tracker still had ${results.hudSwitch.hudAfterOff} rows after switching off`,
+);
+check(
+  results.hudSwitch.pressedAfterOff === 0,
+  "the button still drew itself as pressed after switching off",
+);
+check(
+  results.hudSwitch.tabAfterOff === "active",
+  `switching off the HUD moved the quest to "${results.hudSwitch.tabAfterOff}" — it must only ` +
+    "change what is DRAWN",
+);
+check(results.hudSwitch.on === true, "the switch did not come back on");
+check(
+  results.hudSwitch.hudAfterOn === 1,
+  `the tracker had ${results.hudSwitch.hudAfterOn} rows after switching back on, expected 1`,
+);
+check(
+  results.hudSwitch.pressedAfterOn === 1,
+  "the button did not draw itself as pressed after switching back on",
+);
+check(results.hudSwitch.tabAfterOn === "active", "the quest left active after switching back on");
 
-check(results.tabs.tab === 'completed', `the Done tab did not take: on "${results.tabs.tab}"`);
-check(results.tabs.cards.length === 0,
-  `the Done tab drew ${results.tabs.cards.length} cards for an active quest`);
-check(results.tabs.emptyState === true, 'the Done tab drew no empty state');
+check(results.tabs.tab === "completed", `the Done tab did not take: on "${results.tabs.tab}"`);
+check(
+  results.tabs.cards.length === 0,
+  `the Done tab drew ${results.tabs.cards.length} cards for an active quest`,
+);
+check(results.tabs.emptyState === true, "the Done tab drew no empty state");
 
-check(results.escape.open === false, 'Escape did not close the journal');
+check(results.escape.open === false, "Escape did not close the journal");
 
 if (fail.length) {
-  console.error(`\n${fail.length} failure(s):\n  ${fail.join('\n  ')}`);
+  console.error(`\n${fail.length} failure(s):\n  ${fail.join("\n  ")}`);
   process.exit(1);
 }
-console.log('\nOK');
+console.log("\nOK");

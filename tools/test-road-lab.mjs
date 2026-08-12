@@ -23,11 +23,11 @@
 //            which is exactly what happened before this file existed.
 //
 //   bun tools/test-road-lab.mjs
-import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait, logPageErrors } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 /** Every name the ground is drawn under. See the note in test-road.mjs. */
-const GROUND_SRC = '^(road:|terrain:|chunk:terrain)';
+const GROUND_SRC = "^(road:|terrain:|chunk:terrain)";
 
 /**
  * The budget per case, measured. A case is allowed a few samples at the
@@ -91,8 +91,8 @@ const MAX_BURIED_SAMPLES = 200;
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 900, height: 600 });
 logPageErrors(page);
-await page.goto(`${HOST}/lab.html?road=all&t=1`, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
+await page.goto(`${HOST}/lab.html?road=all&t=1`, { waitUntil: "load" });
+await page.waitForSelector("canvas");
 await wait(2500);
 
 const plan = await page.evaluate(() => window.__dbgRoadLab());
@@ -103,99 +103,118 @@ for (const c of plan.cases) {
   // raycasts, and the whole set in one call exceeds puppeteer's CDP
   // `protocolTimeout` and comes back as a protocol error that reads like a
   // crash rather than a result.
-  const r = await page.evaluate((caseId, groundSrc) => {
-    const GROUND = new RegExp(groundSrc);
-    const lab = window.__dbgRoadLab();
-    const c = lab.cases.find((q) => q.id === caseId);
-    const out = {
-      id: caseId, sampled: 0,
-      poke: 0, worstPoke: 0, pokeAt: null,
-      buried: 0, worstBuried: 0, buriedAt: null,
-      step: 0, stepAt: null,
-    };
-    if (!c) return out;
-    // THE ENDS ARE NOT PART OF THE CASE. A road in the world stops inside a
-    // settlement, on ground that settlement has already levelled to the deck;
-    // one in here stops in open country, so its terminal plane is a cliff by
-    // construction and every reading within a corridor's width of it is about
-    // that cliff rather than about the case. Measured, sweeping the ends put
-    // the `bridge` case's step at 8.9 — the bank at its abutment. Six units in
-    // from each end is a little over one corridor half-width.
-    const SKIP_ENDS = 6;
-    for (const road of c.roads) {
-      const E = road.deckEdge;
-      const p = road.pts;
-      let total = 0;
-      for (let i = 1; i < p.length; i++) {
-        total += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z);
+  const r = await page.evaluate(
+    (caseId, groundSrc) => {
+      const GROUND = new RegExp(groundSrc);
+      const lab = window.__dbgRoadLab();
+      const c = lab.cases.find((q) => q.id === caseId);
+      const out = {
+        id: caseId,
+        sampled: 0,
+        poke: 0,
+        worstPoke: 0,
+        pokeAt: null,
+        buried: 0,
+        worstBuried: 0,
+        buriedAt: null,
+        step: 0,
+        stepAt: null,
+      };
+      if (!c) {
+        return out;
       }
-      let travelled = 0;
-      for (let i = 1; i < p.length; i++) {
-        const a = p[i - 1];
-        const b = p[i];
-        let tx = b.x - a.x;
-        let tz = b.z - a.z;
-        const L = Math.hypot(tx, tz) || 1;
-        tx /= L; tz /= L;
-        const segStart = travelled;
-        travelled += L;
-        if (segStart < SKIP_ENDS || travelled > total - SKIP_ENDS) continue;
-        // CUBE RESOLUTION: a terrain cell is 1x1, and a sweep coarser than that
-        // steps over the single cube corner this whole stage exists to catch.
-        for (let s = 0; s < L; s += 0.5) {
-          for (let d = -(E - 0.05); d <= E - 0.05; d += 0.25) {
-            const x = a.x + tx * s - tz * d;
-            const z = a.z + tz * s + tx * d;
-            const hit = window.__dbgRoadSurf(x, z, 2);
-            const deck = hit.hits.find((q) => /^road:/.test(q.name));
-            if (!deck) continue;
-            out.sampled++;
-            // GROUND OVER THE RIBBON.
-            const top = hit.hit || '';
-            if (GROUND.test(top) && !/^road:/.test(top)) {
-              const by = hit.surface - deck.y;
-              if (by > 0) {
-                out.poke++;
-                if (by > out.worstPoke) {
-                  out.worstPoke = by;
-                  out.pokeAt = { x: +x.toFixed(1), z: +z.toFixed(1), by: +by.toFixed(3) };
+      // THE ENDS ARE NOT PART OF THE CASE. A road in the world stops inside a
+      // settlement, on ground that settlement has already levelled to the deck;
+      // one in here stops in open country, so its terminal plane is a cliff by
+      // construction and every reading within a corridor's width of it is about
+      // that cliff rather than about the case. Measured, sweeping the ends put
+      // the `bridge` case's step at 8.9 — the bank at its abutment. Six units in
+      // from each end is a little over one corridor half-width.
+      const SKIP_ENDS = 6;
+      for (const road of c.roads) {
+        const E = road.deckEdge;
+        const p = road.pts;
+        let total = 0;
+        for (let i = 1; i < p.length; i++) {
+          total += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z);
+        }
+        let travelled = 0;
+        for (let i = 1; i < p.length; i++) {
+          const a = p[i - 1];
+          const b = p[i];
+          let tx = b.x - a.x;
+          let tz = b.z - a.z;
+          const L = Math.hypot(tx, tz) || 1;
+          tx /= L;
+          tz /= L;
+          const segStart = travelled;
+          travelled += L;
+          if (segStart < SKIP_ENDS || travelled > total - SKIP_ENDS) {
+            continue;
+          }
+          // CUBE RESOLUTION: a terrain cell is 1x1, and a sweep coarser than that
+          // steps over the single cube corner this whole stage exists to catch.
+          for (let s = 0; s < L; s += 0.5) {
+            for (let d = -(E - 0.05); d <= E - 0.05; d += 0.25) {
+              const x = a.x + tx * s - tz * d;
+              const z = a.z + tz * s + tx * d;
+              const hit = window.__dbgRoadSurf(x, z, 2);
+              const deck = hit.hits.find((q) => q.name.startsWith("road:"));
+              if (!deck) {
+                continue;
+              }
+              out.sampled++;
+              // GROUND OVER THE RIBBON.
+              const top = hit.hit || "";
+              if (GROUND.test(top) && !top.startsWith("road:")) {
+                const by = hit.surface - deck.y;
+                if (by > 0) {
+                  out.poke++;
+                  if (by > out.worstPoke) {
+                    out.worstPoke = by;
+                    out.pokeAt = { x: +x.toFixed(1), z: +z.toFixed(1), by: +by.toFixed(3) };
+                  }
                 }
               }
-            }
-            // AND THE RIBBON OVER THE HERO. `hit.ground` is `getHeight`, which
-            // the raycast already carries.
-            const sunk = deck.y - hit.ground;
-            if (sunk > 0.2) out.buried++;
-            if (sunk > out.worstBuried) {
-              out.worstBuried = sunk;
-              out.buriedAt = { x: +x.toFixed(1), z: +z.toFixed(1), by: +sunk.toFixed(3) };
+              // AND THE RIBBON OVER THE HERO. `hit.ground` is `getHeight`, which
+              // the raycast already carries.
+              const sunk = deck.y - hit.ground;
+              if (sunk > 0.2) {
+                out.buried++;
+              }
+              if (sunk > out.worstBuried) {
+                out.worstBuried = sunk;
+                out.buriedAt = { x: +x.toFixed(1), z: +z.toFixed(1), by: +sunk.toFixed(3) };
+              }
             }
           }
-        }
-        // ...and can it be walked. Down the flat part only, which is what
-        // `MAX_STEP_UP` is about — the shoulder at the very rim is a kerb.
-        const half = Math.min(2.6, E * 0.52);
-        for (let s = 0; s < L; s += 0.25) {
-          for (let d = -half; d <= half; d += 0.5) {
-            const x = a.x + tx * s - tz * d;
-            const z = a.z + tz * s + tx * d;
-            const g0 = window.__dbgRoadWorld(x, z).ground;
-            const g1 = window.__dbgRoadWorld(x + 0.25, z).ground;
-            const g2 = window.__dbgRoadWorld(x, z + 0.25).ground;
-            const st = Math.max(Math.abs(g1 - g0), Math.abs(g2 - g0));
-            if (st > out.step) {
-              out.step = st;
-              out.stepAt = { x: +x.toFixed(2), z: +z.toFixed(2) };
+          // ...and can it be walked. Down the flat part only, which is what
+          // `MAX_STEP_UP` is about — the shoulder at the very rim is a kerb.
+          const half = Math.min(2.6, E * 0.52);
+          for (let s = 0; s < L; s += 0.25) {
+            for (let d = -half; d <= half; d += 0.5) {
+              const x = a.x + tx * s - tz * d;
+              const z = a.z + tz * s + tx * d;
+              const g0 = window.__dbgRoadWorld(x, z).ground;
+              const g1 = window.__dbgRoadWorld(x + 0.25, z).ground;
+              const g2 = window.__dbgRoadWorld(x, z + 0.25).ground;
+              const st = Math.max(Math.abs(g1 - g0), Math.abs(g2 - g0));
+              if (st > out.step) {
+                out.step = st;
+                out.stepAt = { x: +x.toFixed(2), z: +z.toFixed(2) };
+              }
             }
           }
         }
       }
-    }
-    out.worstPoke = +out.worstPoke.toFixed(3);
-    out.worstBuried = +out.worstBuried.toFixed(3);
-    out.step = +out.step.toFixed(3);
-    return out;
-  }, c.id, GROUND_SRC);
+      out.worstPoke = +out.worstPoke.toFixed(3);
+      out.worstBuried = +out.worstBuried.toFixed(3);
+      out.step = +out.step.toFixed(3);
+      return out;
+    },
+    c.id,
+    GROUND_SRC,
+  );
   results.push(r);
 }
 
@@ -210,8 +229,10 @@ if (results.length !== 9) {
 // refuses for four different good reasons — so the refusal is asserted, not
 // hoped for.
 if (plan.cross.nodes.length !== 1) {
-  fail.push(`the crossing case made ${plan.cross.nodes.length} junctions: `
-    + (plan.cross.refused.join('; ') || 'no reason given'));
+  fail.push(
+    `the crossing case made ${plan.cross.nodes.length} junctions: ` +
+      (plan.cross.refused.join("; ") || "no reason given"),
+  );
 }
 for (const r of results) {
   if (r.sampled === 0) {
@@ -219,22 +240,28 @@ for (const r of results) {
     continue;
   }
   if (r.worstPoke >= MAX_WORST || r.poke > MAX_SAMPLES) {
-    fail.push(`${r.id}: ${r.poke} of ${r.sampled} columns have ground drawn over the `
-      + `ribbon, worst ${r.worstPoke} at ${JSON.stringify(r.pokeAt)}`);
+    fail.push(
+      `${r.id}: ${r.poke} of ${r.sampled} columns have ground drawn over the ` +
+        `ribbon, worst ${r.worstPoke} at ${JSON.stringify(r.pokeAt)}`,
+    );
   }
   if (r.worstBuried >= MAX_BURIED_WORST || r.buried > MAX_BURIED_SAMPLES) {
-    fail.push(`${r.id}: ${r.buried} of ${r.sampled} columns have the ribbon drawn ABOVE `
-      + `the walking surface, worst ${r.worstBuried} at ${JSON.stringify(r.buriedAt)} — `
-      + 'an actor standing there is inside the road');
+    fail.push(
+      `${r.id}: ${r.buried} of ${r.sampled} columns have the ribbon drawn ABOVE ` +
+        `the walking surface, worst ${r.worstBuried} at ${JSON.stringify(r.buriedAt)} — ` +
+        "an actor standing there is inside the road",
+    );
   }
   if (r.step >= 0.5) {
-    fail.push(`${r.id}: the walking surface steps ${r.step} on the carriageway at `
-      + `${JSON.stringify(r.stepAt)}, against MAX_STEP_UP 0.5`);
+    fail.push(
+      `${r.id}: the walking surface steps ${r.step} on the carriageway at ` +
+        `${JSON.stringify(r.stepAt)}, against MAX_STEP_UP 0.5`,
+    );
   }
 }
 
 if (fail.length > 0) {
-  console.error('FAIL\n  ' + fail.join('\n  '));
+  console.error("FAIL\n  " + fail.join("\n  "));
   process.exit(1);
 }
-console.error('PASS');
+console.error("PASS");

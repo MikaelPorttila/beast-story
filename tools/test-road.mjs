@@ -51,8 +51,8 @@
 // Exits non-zero on any of them, so the suite can run it.
 //
 //   bun tools/test-road.mjs
-import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait, logPageErrors } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 // EVERY NAME THE GROUND IS DRAWN UNDER, and the list is a bug fix rather than
 // tidiness. This file matched `/^terrain:/`, which is what `chunk.ts` names a
@@ -65,14 +65,14 @@ import { BASE as HOST } from './target.mjs';
 // `distant:` is in the list for the same reason it turned out to be the biggest
 // offender: the HLOD is a coarse underlay sampled every 8-24 units, so it
 // chords straight over a corridor the near ground has carved.
-const GROUND_SRC = '^(road:|terrain:|chunk:terrain|distant:terrain)';
+const GROUND_SRC = "^(road:|terrain:|chunk:terrain|distant:terrain)";
 
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 900, height: 600 });
 logPageErrors(page);
-await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
-await page.waitForSelector('canvas');
-await wait(5000);   // the corridor has to be streamed before it can be hit
+await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: "load" });
+await page.waitForSelector("canvas");
+await wait(5000); // the corridor has to be streamed before it can be hit
 
 const out = await page.evaluate((groundSrc) => {
   // Built in the PAGE, because that is where this whole function runs — a
@@ -88,8 +88,10 @@ const out = await page.evaluate((groundSrc) => {
     let over = 0;
     let tested = 0;
     for (let i = 1; i < p.length / 3; i++) {
-      const ax = p[(i - 1) * 3], az = p[(i - 1) * 3 + 2];
-      const bx = p[i * 3], bz = p[i * 3 + 2];
+      const ax = p[(i - 1) * 3],
+        az = p[(i - 1) * 3 + 2];
+      const bx = p[i * 3],
+        bz = p[i * 3 + 2];
       const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az)));
       for (let k = 0; k <= steps; k++) {
         const t = k / steps;
@@ -98,12 +100,22 @@ const out = await page.evaluate((groundSrc) => {
         const s = window.__dbgSurfaceY(x, z);
         // Only the ground surfaces answer this question; a bush overhead is not
         // something the hero is buried in. Both are named for exactly this.
-        if (!s.hit || !GROUND.test(s.hit)) continue;
+        if (!s.hit || !GROUND.test(s.hit)) {
+          continue;
+        }
         tested++;
-        if (s.sink > 0.2) over++;
+        if (s.sink > 0.2) {
+          over++;
+        }
         if (s.sink > worst) {
           worst = s.sink;
-          at = { x: +x.toFixed(1), z: +z.toFixed(1), drawn: s.surface, walked: s.ground, by: s.hit };
+          at = {
+            x: +x.toFixed(1),
+            z: +z.toFixed(1),
+            drawn: s.surface,
+            walked: s.ground,
+            by: s.hit,
+          };
         }
       }
     }
@@ -154,20 +166,27 @@ const out = await page.evaluate((groundSrc) => {
       for (let cz = z0; cz <= z1; cz++) {
         const k = cellKey(cx, cz);
         let bucket = grid.get(k);
-        if (!bucket) grid.set(k, bucket = []);
+        if (!bucket) {
+          grid.set(k, (bucket = []));
+        }
         bucket.push(seg);
       }
     }
   }
   const onRoad = (x, z) => {
     const bucket = grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
-    if (!bucket) return false;
+    if (!bucket) {
+      return false;
+    }
     for (const [ax, az, bx, bz, half] of bucket) {
-      const dx = bx - ax, dz = bz - az;
+      const dx = bx - ax,
+        dz = bz - az;
       const L = dx * dx + dz * dz || 1;
       let u = ((x - ax) * dx + (z - az) * dz) / L;
       u = u < 0 ? 0 : u > 1 ? 1 : u;
-      if (Math.hypot(x - (ax + dx * u), z - (az + dz * u)) <= half) return true;
+      if (Math.hypot(x - (ax + dx * u), z - (az + dz * u)) <= half) {
+        return true;
+      }
     }
     return false;
   };
@@ -184,19 +203,30 @@ const out = await page.evaluate((groundSrc) => {
     const p = r.path;
     const half = flatHalf(r);
     for (let i = 1; i < p.length / 3; i++) {
-      const ax = p[(i - 1) * 3], az = p[(i - 1) * 3 + 2];
-      const bx = p[i * 3], bz = p[i * 3 + 2];
-      let tx = bx - ax, tz = bz - az;
+      const ax = p[(i - 1) * 3],
+        az = p[(i - 1) * 3 + 2];
+      const bx = p[i * 3],
+        bz = p[i * 3 + 2];
+      let tx = bx - ax,
+        tz = bz - az;
       const L = Math.hypot(tx, tz) || 1;
-      tx /= L; tz /= L;
+      tx /= L;
+      tz /= L;
       for (let s = 0; s < L; s += S) {
         for (let d = -half; d <= half; d += S) {
           const x = ax + tx * s - tz * d;
           const z = az + tz * s + tx * d;
-          if (!onRoad(x, z)) continue;
+          if (!onRoad(x, z)) {
+            continue;
+          }
           const a = h(x, z);
-          for (const [dx, dz] of [[S, 0], [0, S]]) {
-            if (!onRoad(x + dx, z + dz)) continue;
+          for (const [dx, dz] of [
+            [S, 0],
+            [0, S],
+          ]) {
+            if (!onRoad(x + dx, z + dz)) {
+              continue;
+            }
             stepped++;
             const delta = Math.abs(h(x + dx, z + dz) - a);
             if (delta > step) {
@@ -246,15 +276,22 @@ const out = await page.evaluate((groundSrc) => {
       let tx = p[i + 3] - cx;
       let tz = p[i + 5] - cz;
       const L = Math.hypot(tx, tz) || 1;
-      tx /= L; tz /= L;
+      tx /= L;
+      tz /= L;
       const at = (d) => window.__dbgPaths(cx - tz * d, cz + tx * d).at.litter;
       const middle = at(0);
       const verge = Math.max(at(r.deckEdge * 0.8), at(r.deckEdge * 0.95), at(r.deckEdge));
       const beyond = at(r.deckEdge + 1.2);
       bands.push({ id: r.id, middle, verge, beyond });
-      if (middle !== 0) bad.push(`${r.id}: ${middle} litter down the middle`);
-      if (!(verge > 0)) bad.push(`${r.id}: nothing at the verge`);
-      if (beyond !== 0) bad.push(`${r.id}: ${beyond} litter past the skirt`);
+      if (middle !== 0) {
+        bad.push(`${r.id}: ${middle} litter down the middle`);
+      }
+      if (!(verge > 0)) {
+        bad.push(`${r.id}: nothing at the verge`);
+      }
+      if (beyond !== 0) {
+        bad.push(`${r.id}: ${beyond} litter past the skirt`);
+      }
     }
     return { bands, failures: bad, pass: bad.length === 0 && bands.length > 0 };
   })();
@@ -267,11 +304,12 @@ const out = await page.evaluate((groundSrc) => {
   // inside the road as well and says nothing about the track.
   const tracks = (() => {
     const all = window.__dbgPaths().paths;
-    const worn = all.filter((q) => q.profile === 'path:track');
+    const worn = all.filter((q) => q.profile === "path:track");
     // The DRAWN paths with their full polylines, which `__dbgTowns` has and
     // `__dbgPaths` (which reports a path's ends) does not.
     const drawn = window.__dbgTowns().roads.map((r) => ({
-      path: r.path, deckEdge: r.deckEdge,
+      path: r.path,
+      deckEdge: r.deckEdge,
     }));
     const bad = [];
     let tested = 0;
@@ -303,11 +341,15 @@ const out = await page.evaluate((groundSrc) => {
             const L = dx * dx + dz * dz || 1;
             let u = ((x - ax) * dx + (z - az) * dz) / L;
             u = u < 0 ? 0 : u > 1 ? 1 : u;
-            if (Math.hypot(x - (ax + dx * u), z - (az + dz * u)) < half) return true;
+            if (Math.hypot(x - (ax + dx * u), z - (az + dz * u)) < half) {
+              return true;
+            }
           }
           return false;
         });
-        if (nearRoad) continue;
+        if (nearRoad) {
+          continue;
+        }
         tested++;
         const at = window.__dbgPaths(x, z).at;
         // VISIBLE TO FOLIAGE: on the centreline the column is a full rim inside.
@@ -319,8 +361,11 @@ const out = await page.evaluate((groundSrc) => {
           bad.push(`${q.id} at t=${t}: refuses a built thing (builtEdge ${at.builtEdge})`);
         }
         // AND IT PAINTS. The colour field is the one thing a track does.
-        if (at.wear > 0) wornSamples++;
-        else bad.push(`${q.id} at t=${t}: wears nothing`);
+        if (at.wear > 0) {
+          wornSamples++;
+        } else {
+          bad.push(`${q.id} at t=${t}: wears nothing`);
+        }
       }
     }
     return {
@@ -339,7 +384,9 @@ const out = await page.evaluate((groundSrc) => {
   return {
     ribbon: roads,
     profiles: towns.roads.map((r) => ({
-      id: r.id, profile: r.profile, deckEdge: r.deckEdge,
+      id: r.id,
+      profile: r.profile,
+      deckEdge: r.deckEdge,
     })),
     carriageway: {
       /** Neighbour pairs tested, over every edge - not a window. */
@@ -396,103 +443,137 @@ const out = await page.evaluate((groundSrc) => {
 
 // -- the cross-section, one road per evaluate -------------------------------
 for (const id of out.ribbon.map((r) => r.id)) {
-  const part = await page.evaluate((roadId, groundSrc) => {
-    const GROUND = new RegExp(groundSrc);
-    const r = window.__dbgTowns().roads.find((q) => q.id === roadId);
-    const poke = {
-      sampled: 0, near: 0, over: 0, worst: 0, at: null, far: 0, farWorst: 0,
-      // BURIED: how far the ribbon is drawn ABOVE what the hero stands on, at
-      // the same columns. The `sink` pass at the top of this file measures the
-      // same thing down the CENTRELINE, where the deck and the ribbon agree by
-      // construction — so it read 0.034 while the rim was 1.031 and the hero
-      // was in the road up to his waist. This is the reading that says whether
-      // an actor can walk on the surface it is looking at.
-      sunk: 0, sunkWorst: 0, sunkAt: null,
-    };
-    if (!r) return poke;
-    const DECK_EDGE = r.deckEdge;
-    const p = r.path;
-    for (let i = 1; i < p.length / 3; i++) {
-      const ax = p[(i - 1) * 3];
-      const az = p[(i - 1) * 3 + 2];
-      const bx = p[i * 3];
-      const bz = p[i * 3 + 2];
-      let tx = bx - ax;
-      let tz = bz - az;
-      const L = Math.hypot(tx, tz) || 1;
-      tx /= L; tz /= L;
-      // CUBE RESOLUTION. This swept 1.5 along and 0.6 across, and a terrain
-      // cube is 1x1 — so it stepped clean over single cube corners, which is
-      // exactly the shape of the defect that survived: a road at an angle to
-      // the voxel grid meets it corner-first. 0.5 and 0.25 land inside every
-      // cell. A sweep that cannot see the failure is not cheaper, it is
-      // decorative.
-      for (let s = 0; s < L; s += 0.5) {
-        const cx = ax + tx * s;
-        const cz = az + tz * s;
-        for (let d = -(DECK_EDGE - 0.05); d <= DECK_EDGE - 0.05; d += 0.25) {
-          const x = cx - tz * d;
-          const z = cz + tx * d;
-          const hit = window.__dbgSurfaceY(x, z, 2);
-          if (!hit.hits.some((q) => /^road:/.test(q.name))) continue;
-          poke.sampled++;
-          // ONLY WHERE THE NEAR GROUND IS ACTUALLY IN THE SCENE.
-          //
-          // The streamer keeps a radius around the hero, and a road is 72 to
-          // 174 units long — so most of the network has no 1 m chunk under it
-          // while this runs, only the coarse clipmap. Counting those columns
-          // reports a clean road that simply has not been built yet: measured,
-          // the same sweep found 4 defects with a 5 s settle and 36 with a
-          // longer one, and the difference was entirely chunks arriving. So
-          // `sampled` is every column with a ribbon and `near` is the subset
-          // this can actually answer for, and the budget is set against `near`.
-          if (!hit.hits.some((q) => /^chunk:terrain/.test(q.name))) {
-            // THE FAR GROUND, counted separately rather than skipped. The HLOD
-            // samples every 8-24 units and used to chord straight over a
-            // corridor — 168 samples of clipmap drawn above the ribbon, and the
-            // flat green wedges in the report. It is clamped under every path
-            // now (`underPaths`, distant-terrain.ts) and this is what keeps it
-            // that way, on exactly the columns the near sweep cannot judge.
-            const far = hit.hits.find((q) => /^distant:terrain/.test(q.name));
-            const nearest = hit.hits.find((q) => /^road:/.test(q.name));
-            if (far && nearest && far.y > nearest.y) {
-              poke.far++;
-              if (far.y - nearest.y > poke.farWorst) poke.farWorst = far.y - nearest.y;
+  const part = await page.evaluate(
+    (roadId, groundSrc) => {
+      const GROUND = new RegExp(groundSrc);
+      const r = window.__dbgTowns().roads.find((q) => q.id === roadId);
+      const poke = {
+        sampled: 0,
+        near: 0,
+        over: 0,
+        worst: 0,
+        at: null,
+        far: 0,
+        farWorst: 0,
+        // BURIED: how far the ribbon is drawn ABOVE what the hero stands on, at
+        // the same columns. The `sink` pass at the top of this file measures the
+        // same thing down the CENTRELINE, where the deck and the ribbon agree by
+        // construction — so it read 0.034 while the rim was 1.031 and the hero
+        // was in the road up to his waist. This is the reading that says whether
+        // an actor can walk on the surface it is looking at.
+        sunk: 0,
+        sunkWorst: 0,
+        sunkAt: null,
+      };
+      if (!r) {
+        return poke;
+      }
+      const DECK_EDGE = r.deckEdge;
+      const p = r.path;
+      for (let i = 1; i < p.length / 3; i++) {
+        const ax = p[(i - 1) * 3];
+        const az = p[(i - 1) * 3 + 2];
+        const bx = p[i * 3];
+        const bz = p[i * 3 + 2];
+        let tx = bx - ax;
+        let tz = bz - az;
+        const L = Math.hypot(tx, tz) || 1;
+        tx /= L;
+        tz /= L;
+        // CUBE RESOLUTION. This swept 1.5 along and 0.6 across, and a terrain
+        // cube is 1x1 — so it stepped clean over single cube corners, which is
+        // exactly the shape of the defect that survived: a road at an angle to
+        // the voxel grid meets it corner-first. 0.5 and 0.25 land inside every
+        // cell. A sweep that cannot see the failure is not cheaper, it is
+        // decorative.
+        for (let s = 0; s < L; s += 0.5) {
+          const cx = ax + tx * s;
+          const cz = az + tz * s;
+          for (let d = -(DECK_EDGE - 0.05); d <= DECK_EDGE - 0.05; d += 0.25) {
+            const x = cx - tz * d;
+            const z = cz + tx * d;
+            const hit = window.__dbgSurfaceY(x, z, 2);
+            if (!hit.hits.some((q) => q.name.startsWith("road:"))) {
+              continue;
             }
-            continue;
-          }
-          poke.near++;
-          // `hit.ground` is `getHeight` and the raycast already carries it —
-          // a second `__dbgWorld` per sample pushed this evaluate past
-          // puppeteer's protocol timeout.
-          const deck = hit.hits.find((q) => /^road:/.test(q.name));
-          const walk = hit.ground;
-          const buried = deck.y - walk;
-          if (buried > 0.2) poke.sunk++;
-          if (buried > poke.sunkWorst) {
-            poke.sunkWorst = buried;
-            poke.sunkAt = {
-              x: +x.toFixed(1), z: +z.toFixed(1), fromCentre: +d.toFixed(1),
-              ribbon: deck.y, walk, by: +buried.toFixed(3),
-            };
-          }
-          if (!GROUND.test(hit.hit || '') || /^road:/.test(hit.hit || '')) continue;
-          const road = hit.hits.find((q) => /^road:/.test(q.name));
-          const by = hit.surface - road.y;
-          if (by <= 0) continue;
-          poke.over++;
-          if (by > poke.worst) {
-            poke.worst = by;
-            poke.at = {
-              x: +x.toFixed(1), z: +z.toFixed(1), fromCentre: +d.toFixed(1),
-              ground: hit.surface, ribbon: road.y, road: roadId, by: +by.toFixed(3),
-            };
+            poke.sampled++;
+            // ONLY WHERE THE NEAR GROUND IS ACTUALLY IN THE SCENE.
+            //
+            // The streamer keeps a radius around the hero, and a road is 72 to
+            // 174 units long — so most of the network has no 1 m chunk under it
+            // while this runs, only the coarse clipmap. Counting those columns
+            // reports a clean road that simply has not been built yet: measured,
+            // the same sweep found 4 defects with a 5 s settle and 36 with a
+            // longer one, and the difference was entirely chunks arriving. So
+            // `sampled` is every column with a ribbon and `near` is the subset
+            // this can actually answer for, and the budget is set against `near`.
+            if (!hit.hits.some((q) => q.name.startsWith("chunk:terrain"))) {
+              // THE FAR GROUND, counted separately rather than skipped. The HLOD
+              // samples every 8-24 units and used to chord straight over a
+              // corridor — 168 samples of clipmap drawn above the ribbon, and the
+              // flat green wedges in the report. It is clamped under every path
+              // now (`underPaths`, distant-terrain.ts) and this is what keeps it
+              // that way, on exactly the columns the near sweep cannot judge.
+              const far = hit.hits.find((q) => q.name.startsWith("distant:terrain"));
+              const nearest = hit.hits.find((q) => q.name.startsWith("road:"));
+              if (far && nearest && far.y > nearest.y) {
+                poke.far++;
+                if (far.y - nearest.y > poke.farWorst) {
+                  poke.farWorst = far.y - nearest.y;
+                }
+              }
+              continue;
+            }
+            poke.near++;
+            // `hit.ground` is `getHeight` and the raycast already carries it —
+            // a second `__dbgWorld` per sample pushed this evaluate past
+            // puppeteer's protocol timeout.
+            const deck = hit.hits.find((q) => q.name.startsWith("road:"));
+            const walk = hit.ground;
+            const buried = deck.y - walk;
+            if (buried > 0.2) {
+              poke.sunk++;
+            }
+            if (buried > poke.sunkWorst) {
+              poke.sunkWorst = buried;
+              poke.sunkAt = {
+                x: +x.toFixed(1),
+                z: +z.toFixed(1),
+                fromCentre: +d.toFixed(1),
+                ribbon: deck.y,
+                walk,
+                by: +buried.toFixed(3),
+              };
+            }
+            if (!GROUND.test(hit.hit || "") || /^road:/.test(hit.hit || "")) {
+              continue;
+            }
+            const road = hit.hits.find((q) => q.name.startsWith("road:"));
+            const by = hit.surface - road.y;
+            if (by <= 0) {
+              continue;
+            }
+            poke.over++;
+            if (by > poke.worst) {
+              poke.worst = by;
+              poke.at = {
+                x: +x.toFixed(1),
+                z: +z.toFixed(1),
+                fromCentre: +d.toFixed(1),
+                ground: hit.surface,
+                ribbon: road.y,
+                road: roadId,
+                by: +by.toFixed(3),
+              };
+            }
           }
         }
       }
-    }
-    return poke;
-  }, id, GROUND_SRC);
+      return poke;
+    },
+    id,
+    GROUND_SRC,
+  );
   out.crossSection.sampled += part.sampled;
   out.crossSection.nearGround += part.near;
   out.crossSection.terrainOverRibbon += part.over;
@@ -500,7 +581,9 @@ for (const id of out.ribbon.map((r) => r.id)) {
   // WHICH ROAD, not just how many. The clipmap total is one number over the
   // whole network and a regression in it says nothing about where to look;
   // this is the line that named the trail.
-  if (part.far > 0) out.crossSection.farByRoad[id] = { n: part.far, worst: +part.farWorst.toFixed(3) };
+  if (part.far > 0) {
+    out.crossSection.farByRoad[id] = { n: part.far, worst: +part.farWorst.toFixed(3) };
+  }
   out.crossSection.ribbonOverWalk += part.sunk;
   if (part.sunkWorst > out.crossSection.worstBuried) {
     out.crossSection.worstBuried = +part.sunkWorst.toFixed(3);
@@ -544,9 +627,12 @@ for (const id of out.ribbon.map((r) => r.id)) {
 // of the deck, so anything approaching a whole cube is a step rather than a
 // rounding.
 out.crossSection.clean =
-  out.crossSection.worstPoke < 1.0 && out.crossSection.terrainOverRibbon <= 140
-  && out.crossSection.worstBuried < 0.75 && out.crossSection.ribbonOverWalk <= 150
-  && out.crossSection.worstFarPoke < 0.5 && out.crossSection.farOverRibbon <= 10;
+  out.crossSection.worstPoke < 1.0 &&
+  out.crossSection.terrainOverRibbon <= 140 &&
+  out.crossSection.worstBuried < 0.75 &&
+  out.crossSection.ribbonOverWalk <= 150 &&
+  out.crossSection.worstFarPoke < 0.5 &&
+  out.crossSection.farOverRibbon <= 10;
 
 console.log(JSON.stringify(out, null, 2));
 await browser.close();
@@ -562,39 +648,51 @@ for (const r of out.ribbon) {
   // 0.2 is the threshold the sink pass already counts against: on a figure 1.8
   // units tall, a fifth of a unit of float is visible.
   if (r.over20cm > 0) {
-    fail.push(`${r.id}: ${r.over20cm} samples with the ribbon over 0.2 off the `
-      + `walking surface (worst ${r.worstSink})`);
+    fail.push(
+      `${r.id}: ${r.over20cm} samples with the ribbon over 0.2 off the ` +
+        `walking surface (worst ${r.worstSink})`,
+    );
   }
 }
-if (out.carriageway.sampled === 0) fail.push('the step sweep tested nothing');
-if (!out.carriageway.walkable) {
-  fail.push(`walking surface steps ${out.carriageway.worstStepOver025} on the `
-    + 'carriageway, against MAX_STEP_UP 0.5');
+if (out.carriageway.sampled === 0) {
+  fail.push("the step sweep tested nothing");
 }
-if (out.crossSection.sampled === 0) fail.push('the cross-section sweep tested nothing');
+if (!out.carriageway.walkable) {
+  fail.push(
+    `walking surface steps ${out.carriageway.worstStepOver025} on the ` +
+      "carriageway, against MAX_STEP_UP 0.5",
+  );
+}
+if (out.crossSection.sampled === 0) {
+  fail.push("the cross-section sweep tested nothing");
+}
 if (!out.crossSection.clean) {
-  fail.push(`${out.crossSection.terrainOverRibbon} of ${out.crossSection.sampled} `
-    + 'cross-section samples have ground drawn over the ribbon (issue #15), '
-    + `worst ${out.crossSection.worstPoke}; ${out.crossSection.ribbonOverWalk} with the `
-    + `ribbon ABOVE the walking surface at worst ${out.crossSection.worstBuried} `
-    + '(the hero standing IN the road); '
-    + `${out.crossSection.farOverRibbon} of clipmap at worst ${out.crossSection.worstFarPoke}. `
-    + `Of ${out.crossSection.nearGround} near-ground columns. `
-    + 'Budgets: 140 pokes and 150 buried under 0.75/1.0, 10 of clipmap under 0.5');
+  fail.push(
+    `${out.crossSection.terrainOverRibbon} of ${out.crossSection.sampled} ` +
+      "cross-section samples have ground drawn over the ribbon (issue #15), " +
+      `worst ${out.crossSection.worstPoke}; ${out.crossSection.ribbonOverWalk} with the ` +
+      `ribbon ABOVE the walking surface at worst ${out.crossSection.worstBuried} ` +
+      "(the hero standing IN the road); " +
+      `${out.crossSection.farOverRibbon} of clipmap at worst ${out.crossSection.worstFarPoke}. ` +
+      `Of ${out.crossSection.nearGround} near-ground columns. ` +
+      "Budgets: 140 pokes and 150 buried under 0.75/1.0, 10 of clipmap under 0.5",
+  );
 }
 if (!out.litter.pass) {
-  fail.push(`path litter: ${out.litter.failures.join('; ') || 'no path answered at all'}`);
+  fail.push(`path litter: ${out.litter.failures.join("; ") || "no path answered at all"}`);
 }
 if (!out.tracks.pass) {
-  fail.push(`beaten tracks: ${out.tracks.failures.join('; ') || 'none on the network'}`);
+  fail.push(`beaten tracks: ${out.tracks.failures.join("; ") || "none on the network"}`);
 }
 if (out.furniture.onCarriageway > 0) {
-  fail.push(`${out.furniture.onCarriageway} pieces of road furniture stand on a `
-    + 'carriageway (issue #15)');
+  fail.push(
+    `${out.furniture.onCarriageway} pieces of road furniture stand on a ` +
+      "carriageway (issue #15)",
+  );
 }
 
 if (fail.length > 0) {
-  console.error('FAIL\n  ' + fail.join('\n  '));
+  console.error("FAIL\n  " + fail.join("\n  "));
   process.exit(1);
 }
-console.error('PASS');
+console.error("PASS");

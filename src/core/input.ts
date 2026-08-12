@@ -9,7 +9,7 @@
  * stick fifty times a second. Tagging the source lets `axisFwd`/`axisSide`
  * arbitrate instead of racing.
  */
-export type StickSource = 'touch' | 'gamepad';
+export type StickSource = "touch" | "gamepad";
 
 /**
  * Which physical device the player last actually used.
@@ -24,7 +24,7 @@ export type StickSource = 'touch' | 'gamepad';
  * last owns the labels, and the rumble. `'kbm'` to start, which is what the HUD
  * prints before anyone has touched anything.
  */
-export type InputSource = 'kbm' | 'touch' | 'gamepad';
+export type InputSource = "kbm" | "touch" | "gamepad";
 
 /**
  * Where `Input.takeLook` writes. The caller owns one and passes it in, so a read
@@ -102,7 +102,7 @@ export class Input {
    *
    * Seeded from `hasFocus()` because a page can boot in a background tab.
    */
-  private focused = typeof document === 'undefined' || document.hasFocus();
+  private focused = typeof document === "undefined" || document.hasFocus();
   /**
    * The browser took the pointer while the game still wanted it.
    *
@@ -158,9 +158,13 @@ export class Input {
   private attackDown = false;
   private attackEdge = false;
   /** True while the attack button is held. Suppressed by `suspended`. */
-  get attackHeld(): boolean { return !this.suspended && this.attackDown; }
+  get attackHeld(): boolean {
+    return !this.suspended && this.attackDown;
+  }
   /** True on the frame the attack button went down. Suppressed by `suspended`. */
-  get attackPressed(): boolean { return !this.suspended && this.attackEdge; }
+  get attackPressed(): boolean {
+    return !this.suspended && this.attackEdge;
+  }
   /**
    * `performance.now()` when the browser took the pointer while the game still
    * wanted it, or 0 when there is nothing to recover. See `armRelock`.
@@ -187,7 +191,12 @@ export class Input {
    * in the world and wants the mouse to turn the camera again.
    */
   private static readonly RESUME_KEYS = new Set([
-    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft',
+    "KeyW",
+    "KeyA",
+    "KeyS",
+    "KeyD",
+    "Space",
+    "ShiftLeft",
   ]);
 
   /** Analog sticks per source, -1..1. See `StickSource` and `axisFwd`. */
@@ -209,13 +218,27 @@ export class Input {
    */
   padActive = false;
   /** See `InputSource`. Written only through `noteSource`. */
-  private source: InputSource = 'kbm';
+  private source: InputSource = "kbm";
 
   /** Keys the game owns — the browser must never act on these (Tab focus, Space scroll, quick-find, etc.) */
   private static readonly CAPTURED = new Set([
-    'Tab', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ',
-    'Digit1', 'Digit2', 'Digit3', 'Digit4', 'BracketLeft', 'BracketRight',
-    'ShiftLeft', 'Slash', 'Quote',
+    "Tab",
+    "Space",
+    "KeyW",
+    "KeyA",
+    "KeyS",
+    "KeyD",
+    "KeyE",
+    "KeyQ",
+    "Digit1",
+    "Digit2",
+    "Digit3",
+    "Digit4",
+    "BracketLeft",
+    "BracketRight",
+    "ShiftLeft",
+    "Slash",
+    "Quote",
     // FUNCTION KEYS AND ARROWS. Every one of these does something in a browser
     // — F1 opens its help in a new tab over the game, F3 opens quick-find, the
     // arrows scroll — so all of them have to be swallowed here.
@@ -238,12 +261,19 @@ export class Input {
     // away from the game — and unlike Escape this preventDefault is the WHOLE
     // fix, because a menu bar is ordinary page-level default behaviour rather
     // than a user-agent action taken over the page's head.
-    'F1', 'F2', 'F3', 'F10',
-    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    "F1",
+    "F2",
+    "F3",
+    "F10",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
     // ALT focuses the browser's own menu bar in Firefox and Edge, which steals
     // the keyboard from the game and cannot be got back without a click. It is
     // the cursor toggle (see setCursorFree in main.ts), so it is pressed often.
-    'AltLeft', 'AltRight',
+    "AltLeft",
+    "AltRight",
     // ESCAPE CLOSES THE TOPMOST PANEL — it no longer opens the menu, which is
     // F10's job now — and it is also the browser's key for leaving fullscreen
     // and for dropping pointer lock. This line alone does NOT stop either of
@@ -255,7 +285,7 @@ export class Input {
     // preventDefault is what keeps the browser out of it. Where there is no lock
     // — Firefox, Safari, an iframe, plain http — the call is harmless, the
     // browser drops the pointer, and `armRelock` is what puts it back.
-    'Escape',
+    "Escape",
   ]);
 
   /** The capture list, for tools/test-keybinds.mjs. Read-only by convention. */
@@ -264,20 +294,28 @@ export class Input {
   }
 
   constructor(private el: HTMLElement) {
-    window.addEventListener('keydown', (e) => {
-      if (Input.CAPTURED.has(e.code)) e.preventDefault();
-      if (e.repeat) return;
-      this.noteSource('kbm');
+    window.addEventListener("keydown", (e) => {
+      if (Input.CAPTURED.has(e.code)) {
+        e.preventDefault();
+      }
+      if (e.repeat) {
+        return;
+      }
+      this.noteSource("kbm");
       this.keys.add(e.code);
       this.press(e.code);
       // A KEYDOWN IS A USER ACTIVATION, which is what makes this the recovery
       // that actually works — see `armRelock`. It runs after `press` so the
       // frame the pointer comes back is also the frame the hero starts walking.
-      if (Input.RESUME_KEYS.has(e.code)) this.armRelock();
+      if (Input.RESUME_KEYS.has(e.code)) {
+        this.armRelock();
+      }
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('focus', () => { this.focused = true; });
-    window.addEventListener('blur', () => {
+    window.addEventListener("keyup", (e) => this.keys.delete(e.code));
+    window.addEventListener("focus", () => {
+      this.focused = true;
+    });
+    window.addEventListener("blur", () => {
       this.focused = false;
       this.keys.clear();
       this.virtualHeld.clear();
@@ -289,27 +327,37 @@ export class Input {
       this.padLooking = false;
     });
 
-    el.addEventListener('mousedown', (e) => {
-      this.noteSource('kbm');
+    el.addEventListener("mousedown", (e) => {
+      this.noteSource("kbm");
       // Through `requestLock` rather than straight to the DOM, so this way in
       // records the same intent the explicit callers do — it carries the touch
       // guard and the already-locked guard that used to be written out here.
       this.requestLock();
-      if (e.button === 0) { this.attackDown = true; this.attackEdge = true; }
+      if (e.button === 0) {
+        this.attackDown = true;
+        this.attackEdge = true;
+      }
     });
-    window.addEventListener('mouseup', (e) => {
-      if (e.button === 0) this.attackDown = false;
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 0) {
+        this.attackDown = false;
+      }
     });
-    document.addEventListener('pointerlockchange', () => {
+    document.addEventListener("pointerlockchange", () => {
       const had = this.pointerLocked;
       this.pointerLocked = document.pointerLockElement === el;
       // Back in hand: there is nothing left to recover, whoever asked.
-      if (this.pointerLocked) this.lockTakenAt = 0;
+      if (this.pointerLocked) {
+        this.lockTakenAt = 0;
+      }
       // THE LATE ARRIVAL. A lock granted after someone asked for it back is
       // handed straight back here, which is what makes `releaseLock` final
       // regardless of how long the browser took to answer the request it is
       // cancelling. See `lockWanted`.
-      if (this.pointerLocked && !this.lockWanted) { document.exitPointerLock(); return; }
+      if (this.pointerLocked && !this.lockWanted) {
+        document.exitPointerLock();
+        return;
+      }
       // TAKEN, rather than given up. Every deliberate release goes through
       // `releaseLock`, which clears the intent first — so a lock that vanishes
       // while `lockWanted` still stands was taken by the BROWSER, and Escape is
@@ -331,28 +379,37 @@ export class Input {
         }
       }
     });
-    window.addEventListener('mousemove', (e) => {
+    window.addEventListener("mousemove", (e) => {
       // A MOUSE MOVED OVER A GAME NOBODY IS CLICKING is the other half of the
       // signal, and the weaker one: it is not a user activation, so a browser
       // may well refuse. Asking costs a rejected promise nobody sees, and where
       // it is honoured the pointer comes back without the player pressing
       // anything at all. See `armRelock`.
-      if (!this.pointerLocked) { this.armRelock(); return; }
+      if (!this.pointerLocked) {
+        this.armRelock();
+        return;
+      }
       {
         // Gated on a NON-ZERO delta, not merely on the event. A locked pointer
         // still reports the odd 0/0 move, and the pad's own look goes through
         // `addLook` rather than this listener — so without the test a controller
         // player turning the camera could have the labels stolen back by a mouse
         // that never moved.
-        if (e.movementX !== 0 || e.movementY !== 0) this.noteSource('kbm');
+        if (e.movementX !== 0 || e.movementY !== 0) {
+          this.noteSource("kbm");
+        }
         this.mouseDX += e.movementX;
         this.mouseDY += e.movementY;
       }
     });
-    window.addEventListener('wheel', (e) => {
-      this.noteSource('kbm');
-      this.wheelDelta += e.deltaY;
-    }, { passive: true });
+    window.addEventListener(
+      "wheel",
+      (e) => {
+        this.noteSource("kbm");
+        this.wheelDelta += e.deltaY;
+      },
+      { passive: true },
+    );
   }
 
   /**
@@ -362,10 +419,14 @@ export class Input {
    * a gesture, and from `GamepadControls.poll` on every frame the pad is being
    * used. Cheap on purpose — it is on the pad's per-frame path.
    */
-  noteSource(s: InputSource): void { this.source = s; }
+  noteSource(s: InputSource): void {
+    this.source = s;
+  }
 
   /** The device the player last actually used. See `InputSource`. */
-  get lastSource(): InputSource { return this.source; }
+  get lastSource(): InputSource {
+    return this.source;
+  }
 
   /**
    * True while the device that last produced input is one the player is
@@ -376,7 +437,9 @@ export class Input {
    * plugged in beside the keyboard must sit still, and a phone must keep
    * buzzing because a finger IS the device there.
    */
-  get tactile(): boolean { return this.source !== 'kbm'; }
+  get tactile(): boolean {
+    return this.source !== "kbm";
+  }
 
   private press(code: string): void {
     this.pressedThisFrame.add(code);
@@ -384,7 +447,9 @@ export class Input {
   }
 
   down(code: string): boolean {
-    if (this.suspended) return false;
+    if (this.suspended) {
+      return false;
+    }
     return this.keys.has(code) || this.virtualHeld.has(code);
   }
 
@@ -440,7 +505,9 @@ export class Input {
   private stick(): { side: number; fwd: number } | null {
     const t = this.touchSide * this.touchSide + this.touchFwd * this.touchFwd;
     const p = this.padSide * this.padSide + this.padFwd * this.padFwd;
-    if (t <= 0 && p <= 0) return null;
+    if (t <= 0 && p <= 0) {
+      return null;
+    }
     return t >= p
       ? { side: this.touchSide, fwd: this.touchFwd }
       : { side: this.padSide, fwd: this.padFwd };
@@ -448,15 +515,19 @@ export class Input {
 
   /** Forward axis, -1..1: analog stick if deflected, else W/S. */
   get axisFwd(): number {
-    if (this.suspended) return 0;
-    const kb = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0);
+    if (this.suspended) {
+      return 0;
+    }
+    const kb = (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
     return kb !== 0 ? kb : (this.stick()?.fwd ?? 0);
   }
 
   /** Strafe axis, -1..1: analog stick if deflected, else D/A. */
   get axisSide(): number {
-    if (this.suspended) return 0;
-    const kb = (this.keys.has('KeyD') ? 1 : 0) - (this.keys.has('KeyA') ? 1 : 0);
+    if (this.suspended) {
+      return 0;
+    }
+    const kb = (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);
     return kb !== 0 ? kb : (this.stick()?.side ?? 0);
   }
 
@@ -470,10 +541,13 @@ export class Input {
    * for free, which is what keeps the touch overlay's release-to-zero contract
    * intact now that it is no longer the only writer.
    */
-  setStick(side: number, fwd: number, source: StickSource = 'touch'): void {
+  setStick(side: number, fwd: number, source: StickSource = "touch"): void {
     const len = Math.hypot(side, fwd);
-    if (len > 1) { side /= len; fwd /= len; }
-    if (source === 'gamepad') {
+    if (len > 1) {
+      side /= len;
+      fwd /= len;
+    }
+    if (source === "gamepad") {
       this.padSide = side;
       this.padFwd = fwd;
     } else {
@@ -489,7 +563,9 @@ export class Input {
   }
 
   /** Feed a zoom step (in the same units as a wheel notch). */
-  addWheel(delta: number): void { this.wheelDelta += delta; }
+  addWheel(delta: number): void {
+    this.wheelDelta += delta;
+  }
 
   /**
    * Hand the accumulated look and zoom to the camera — and CONSUME them, so a
@@ -546,15 +622,21 @@ export class Input {
    * the way it always did.
    */
   requestLock(): void {
-    if (this.touchActive) return;
+    if (this.touchActive) {
+      return;
+    }
     // Recorded even when the lock is already held, so that a `releaseLock`
     // arriving later has something to clear. The flag is the intent; the
     // browser's answer is `pointerLocked`.
     this.lockWanted = true;
-    if (this.pointerLocked) return;
+    if (this.pointerLocked) {
+      return;
+    }
     // Older DOM lib types this `void`, newer ones a Promise. Both ship.
     const pending = this.el.requestPointerLock() as unknown;
-    if (pending instanceof Promise) pending.catch(() => {});
+    if (pending instanceof Promise) {
+      pending.catch(() => {});
+    }
   }
 
   /**
@@ -585,16 +667,24 @@ export class Input {
    * not a request for a menu, it is a pointer to put back.
    */
   armRelock(): void {
-    if (!this.autoRelock || this.lockTakenAt === 0) return;
-    if (this.pointerLocked || this.touchActive) return;
+    if (!this.autoRelock || this.lockTakenAt === 0) {
+      return;
+    }
+    if (this.pointerLocked || this.touchActive) {
+      return;
+    }
     const now = performance.now();
-    if (now - this.lockTakenAt < Input.RELOCK_WAIT_MS) return;
+    if (now - this.lockTakenAt < Input.RELOCK_WAIT_MS) {
+      return;
+    }
     this.lockTakenAt = now;
     this.requestLock();
   }
 
   /** Whether a pointer taken by the browser is still waiting to be recovered. */
-  get relockPending(): boolean { return this.lockTakenAt !== 0; }
+  get relockPending(): boolean {
+    return this.lockTakenAt !== 0;
+  }
 
   /**
    * Give the pointer back, if this page holds it.
@@ -616,7 +706,9 @@ export class Input {
     // and the next panel opening are two events a few ms apart, and without
     // this the second one would be undone by a recovery armed by the first.
     this.lockTakenAt = 0;
-    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
   }
 
   /**
@@ -641,13 +733,19 @@ export class Input {
     this.wheelDelta = 0;
   }
 
-  setTouchLooking(v: boolean): void { this.touchLooking = v; }
-  setPadLooking(v: boolean): void { this.padLooking = v; }
+  setTouchLooking(v: boolean): void {
+    this.touchLooking = v;
+  }
+  setPadLooking(v: boolean): void {
+    this.padLooking = v;
+  }
 
   /** Hold/release a virtual button using its keyboard-equivalent code. */
   setVirtualButton(code: string, held: boolean): void {
     if (held) {
-      if (!this.virtualHeld.has(code)) this.press(code);
+      if (!this.virtualHeld.has(code)) {
+        this.press(code);
+      }
       this.virtualHeld.add(code);
     } else {
       this.virtualHeld.delete(code);
@@ -655,10 +753,14 @@ export class Input {
   }
 
   /** Fire a one-frame virtual press (buttons that aren't held, e.g. skills). */
-  tapVirtual(code: string): void { this.press(code); }
+  tapVirtual(code: string): void {
+    this.press(code);
+  }
 
   setVirtualAttack(held: boolean): void {
-    if (held && !this.attackDown) this.attackEdge = true;
+    if (held && !this.attackDown) {
+      this.attackEdge = true;
+    }
     this.attackDown = held;
   }
 
@@ -690,9 +792,21 @@ export class Input {
   debugState(): unknown {
     const held: Record<string, boolean> = {};
     for (const code of [
-      'Space', 'ShiftLeft', 'KeyF', 'KeyC', 'KeyE', 'Tab',
-      'BracketLeft', 'BracketRight', 'Digit1', 'Digit2', 'Digit3', 'Digit4',
-    ]) held[code] = this.down(code);
+      "Space",
+      "ShiftLeft",
+      "KeyF",
+      "KeyC",
+      "KeyE",
+      "Tab",
+      "BracketLeft",
+      "BracketRight",
+      "Digit1",
+      "Digit2",
+      "Digit3",
+      "Digit4",
+    ]) {
+      held[code] = this.down(code);
+    }
     const pressedSince = [...this.pressedLatch];
     this.pressedLatch.clear();
     return {

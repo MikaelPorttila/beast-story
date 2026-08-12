@@ -67,7 +67,7 @@ These are engine facts. Each one changed something in the design above it.
    [src/i18n/en.ts](src/i18n/en.ts). The inline `{ "text": { "en": … } }` form is for
    content that arrives after a build; the story packages ship with the game, so they
    use keys and every line below implies an `en.ts` entry.
-8. **A quest's `rewards` are counts only** (`xp`, `shard`). Anything a reward *does* —
+8. **A quest's `rewards` are counts only** (`xp`, `shard`). Anything a reward _does_ —
    unlock a mount, open a region, set a flag — is an `onComplete` action naming a
    registered handler. Actions that do not exist yet are marked ⚙ below.
 9. **The example package stays an example.** `src/content/data/example-quest.json` and
@@ -89,13 +89,13 @@ it is what `body` being a factory name is for, and it keeps "which Gain is stand
 here" a content question. Ids carry the placement: `npc:gain` (the Encampment, already
 shipped), `npc:gain/saltrest`, `npc:gain/skyhaven`.
 
-| Character | Id family | Role | Appears |
-| --- | --- | --- | --- |
-| **Deckard Gains Armstrong** ("Gain") | `npc:gain`, `npc:gain/saltrest`, `npc:gain/skyhaven` | The trainer. Teaches taming, then each mount in turn. Goes ahead of the player each act and is always already there when they arrive, which is his joke and, by Act 4, the thing that worries them. | Acts 1–4 |
-| **Warden Sela Coil** | `npc:coil/stonewatch`, `npc:coil/kelphold`, `npc:coil/orrery` | The Bridle order. A cameo in Act 1, the rival in Act 2, an uneasy ally in Act 3, and one of the three voices in the Act 4 choice. She is not wrong, which is the point of her. | Acts 1–4 |
-| **Corwin Vane** | `npc:sky-pilot` (shipped), `npc:sky-pilot/gullspire` | The balloonist. Found wrecked on a sea-stack in Act 2 — the first proof anything lives above the weather — and the ferry up in Act 3. | Acts 2–4 |
-| **Mother Pell** | `npc:sky-gardener` (shipped) | Keeps the sky city's bond-garden and remembers what the cities did. The only character who can name the First Bond. | Acts 3–4 |
-| **Tobin Ashgrove** | `npc:sky-lamplighter` (shipped), `npc:sky-lamplighter/lanternfall` | Lamplighter. His sister Mera runs Redbriar Mill in Act 1 and neither of them knows the other is alive; the player is who tells them. | Acts 1, 3 |
+| Character                            | Id family                                                          | Role                                                                                                                                                                                                | Appears   |
+| ------------------------------------ | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| **Deckard Gains Armstrong** ("Gain") | `npc:gain`, `npc:gain/saltrest`, `npc:gain/skyhaven`               | The trainer. Teaches taming, then each mount in turn. Goes ahead of the player each act and is always already there when they arrive, which is his joke and, by Act 4, the thing that worries them. | Acts 1–4  |
+| **Warden Sela Coil**                 | `npc:coil/stonewatch`, `npc:coil/kelphold`, `npc:coil/orrery`      | The Bridle order. A cameo in Act 1, the rival in Act 2, an uneasy ally in Act 3, and one of the three voices in the Act 4 choice. She is not wrong, which is the point of her.                      | Acts 1–4  |
+| **Corwin Vane**                      | `npc:sky-pilot` (shipped), `npc:sky-pilot/gullspire`               | The balloonist. Found wrecked on a sea-stack in Act 2 — the first proof anything lives above the weather — and the ferry up in Act 3.                                                               | Acts 2–4  |
+| **Mother Pell**                      | `npc:sky-gardener` (shipped)                                       | Keeps the sky city's bond-garden and remembers what the cities did. The only character who can name the First Bond.                                                                                 | Acts 3–4  |
+| **Tobin Ashgrove**                   | `npc:sky-lamplighter` (shipped), `npc:sky-lamplighter/lanternfall` | Lamplighter. His sister Mera runs Redbriar Mill in Act 1 and neither of them knows the other is alive; the player is who tells them.                                                                | Acts 1, 3 |
 
 Local colour, one or two per act, not recurring: **Mera Ashgrove** (`npc:mera`, Redbriar
 Mill), **Brack Tulley** (`npc:brack`, Saltrest boatwright), **Archivist Marran Vess**
@@ -103,7 +103,7 @@ Mill), **Brack Tulley** (`npc:brack`, Saltrest boatwright), **Archivist Marran V
 
 **Kettle** is the one thread this document asks for and cannot specify as an asset: a
 Sproutle the player frees in `quest:land/the-red-thread` who rejoins the party and is
-present at every later story beat. A beast that is a *character* — with a fixed name,
+present at every later story beat. A beast that is a _character_ — with a fixed name,
 a fixed slot and dialogue reacting to it — needs engine support that does not exist
 (`BeastActor` has no identity beyond its species). It is listed in
 [§7](#7-what-the-engine-still-needs) and every quest below works without it.
@@ -115,15 +115,15 @@ a fixed slot and dialogue reacting to it — needs engine support that does not 
 Seven shapes, chosen so that no act is five of the same thing. ✓ means the engine can
 already produce the trigger; ⚙ means [§7](#7-what-the-engine-still-needs) has an entry.
 
-| Type | What the player does | Objective counted by |
-| --- | --- | --- |
-| **talk** | Reach a person and hear them out | `NpcTalk` action ✓ |
-| **travel** | Cross to a place that is far, or gated on a mount | `discover` on arrival ⚙ |
-| **tame** | Bond a named species in the wild | taming trigger ⚙ |
-| **collect** | Bring back N of a thing (drops, salvage, components) | `progress.add` on pickup ⚙ |
-| **cull** | Put down N corrupted beasts of a species | `progress.add` on enemy death ⚙ |
-| **dungeon** | Enter a zone, reach its floor, come back out | zone arrival ⚙ + `discover` |
-| **boss** | One named enemy, one arena, usually mount-gated | enemy death ⚙ |
+| Type        | What the player does                                 | Objective counted by            |
+| ----------- | ---------------------------------------------------- | ------------------------------- |
+| **talk**    | Reach a person and hear them out                     | `NpcTalk` action ✓              |
+| **travel**  | Cross to a place that is far, or gated on a mount    | `discover` on arrival ⚙         |
+| **tame**    | Bond a named species in the wild                     | taming trigger ⚙                |
+| **collect** | Bring back N of a thing (drops, salvage, components) | `progress.add` on pickup ⚙      |
+| **cull**    | Put down N corrupted beasts of a species             | `progress.add` on enemy death ⚙ |
+| **dungeon** | Enter a zone, reach its floor, come back out         | zone arrival ⚙ + `discover`     |
+| **boss**    | One named enemy, one arena, usually mount-gated      | enemy death ⚙                   |
 
 Two rules about the mix, both learned from what this world is good at. **A travel quest
 is only interesting the moment before a mount is unlocked** — it is what makes the
@@ -140,12 +140,12 @@ Each act is a **zone** ([src/world/zones.ts](src/world/zones.ts)), which is what
 its own, and the player crosses between them at a gateway. `overworld` and `hold` ship
 today; `brine`, `cirrus` and `seam` are new.
 
-| Act | Zone id | Zone name | Theme | Mount unlocked | Towns |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `overworld` | Embervale | Pastoral frontier | Ground | 3 (all shipped) |
-| 2 | `brine` | The Brine Reach | Tide-worn archipelago | Water | 3 + 2 landmarks |
-| 3 | `cirrus` | The Cirran Shelf | Cloud-borne cities | Flying | 4 (all carried) |
-| 4 | `seam` | The Seam | The three horizons stitched | — (all three) | 0 |
+| Act | Zone id     | Zone name        | Theme                       | Mount unlocked | Towns           |
+| --- | ----------- | ---------------- | --------------------------- | -------------- | --------------- |
+| 1   | `overworld` | Embervale        | Pastoral frontier           | Ground         | 3 (all shipped) |
+| 2   | `brine`     | The Brine Reach  | Tide-worn archipelago       | Water          | 3 + 2 landmarks |
+| 3   | `cirrus`    | The Cirran Shelf | Cloud-borne cities          | Flying         | 4 (all carried) |
+| 4   | `seam`      | The Seam         | The three horizons stitched | — (all three)  | 0               |
 
 ---
 
@@ -161,21 +161,21 @@ is used as-is.
 
 **Towns.** All three already exist and none is added, per rule 4.
 
-| Town | Id | Sign | Layout | Role |
-| --- | --- | --- | --- | --- |
-| The Encampment | `town:encampment` | `ENCAMPMENT` | `camp` | Start. Gain's forge-fire; the act's hub and Act 4's staging ground. |
-| Redbriar Mill | `town:redbriar` | `REDBRIAR` | `hamlet` | Waterside. Mera Ashgrove's mill; where the red thread is first *seen*. |
-| Stonewatch | `town:stonewatch` | `STONEWATCH` | `hamlet` | The drove-road watchtower. Warden Coil's cameo and the act's boss. |
+| Town           | Id                | Sign         | Layout   | Role                                                                   |
+| -------------- | ----------------- | ------------ | -------- | ---------------------------------------------------------------------- |
+| The Encampment | `town:encampment` | `ENCAMPMENT` | `camp`   | Start. Gain's forge-fire; the act's hub and Act 4's staging ground.    |
+| Redbriar Mill  | `town:redbriar`   | `REDBRIAR`   | `hamlet` | Waterside. Mera Ashgrove's mill; where the red thread is first _seen_. |
+| Stonewatch     | `town:stonewatch` | `STONEWATCH` | `hamlet` | The drove-road watchtower. Warden Coil's cameo and the act's boss.     |
 
 **Quests.** Arc `land`.
 
-| # | Id | Type | Giver | Location | Prerequisites |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `quest:land/first-light` | talk | `npc:gain` | `town:encampment` | — |
-| 2 | `quest:land/the-first-bond` | tame | `npc:gain` | `town:encampment` | 1 |
-| 3 | `quest:land/the-mill-road` | travel + cull | `npc:gain` | `town:redbriar` | 2 |
-| 4 | `quest:land/the-red-thread` | dungeon | `npc:mera` | `town:redbriar` | 3 |
-| 5 | `quest:land/the-bellwether` | boss | `npc:coil/stonewatch` | `town:stonewatch` | 4 |
+| #   | Id                          | Type          | Giver                 | Location          | Prerequisites |
+| --- | --------------------------- | ------------- | --------------------- | ----------------- | ------------- |
+| 1   | `quest:land/first-light`    | talk          | `npc:gain`            | `town:encampment` | —             |
+| 2   | `quest:land/the-first-bond` | tame          | `npc:gain`            | `town:encampment` | 1             |
+| 3   | `quest:land/the-mill-road`  | travel + cull | `npc:gain`            | `town:redbriar`   | 2             |
+| 4   | `quest:land/the-red-thread` | dungeon       | `npc:mera`            | `town:redbriar`   | 3             |
+| 5   | `quest:land/the-bellwether` | boss          | `npc:coil/stonewatch` | `town:stonewatch` | 4             |
 
 **1 · First Light.** Gain has been waiting at the fire since before the player woke up
 beside it. Objectives: `talk-to-gain`, then `bond-practice` (three casts on a docile
@@ -200,7 +200,7 @@ Hold, entered through the existing gateway; at its floor a penned Sproutle with 
 thread wound through its bond, and a shard of something manufactured. Objectives:
 `enter-the-hold`, `free-the-sproutle`, `recover-shard` ×1. `onComplete`:
 `flag.set red-thread-seen`, `discover zone:hold`. Rewards 200 xp, 60 shard.
-*(If Kettle ships, this is where Kettle joins.)*
+_(If Kettle ships, this is where Kettle joins.)_
 
 **5 · The Bellwether.** Stonewatch's drove herd has one animal leading it and the rest
 of the valley is following that one. Warden Sela Coil is already at the tower, already
@@ -225,7 +225,7 @@ first. Gain leaves second and does not say why.
 sheds, lantern buoys, and market floors that flood twice a day. It is a **voyage**
 structure — a chain of islands, one component each, a rival crew always one tide ahead
 — told with ordinary maritime craft rather than adventure-fantasy piracy. Deep water is
-rendered dark and reads as *unswimmable*, which is what makes the water mount feel like
+rendered dark and reads as _unswimmable_, which is what makes the water mount feel like
 a key rather than an upgrade.
 
 **Zone.** `brine`, "The Brine Reach". Entered from Embervale's coast; the return
@@ -234,23 +234,23 @@ gateway lands on `spawnPoint`, as `hold`'s does.
 **Towns.** Three settlements — the planner's limit — plus two landmark islands with no
 settlement on them.
 
-| Place | Id | Sign | Layout | Role |
-| --- | --- | --- | --- | --- |
-| Saltrest | `town:saltrest` | `SALTREST` | `harbour` ⚙ | Hub. Waterside. Brack Tulley's yard, Gain's second appearance, the boat. |
-| Kelphold | `town:kelphold` | `KELPHOLD` | `hamlet` | The drowned market — a town whose ground floor is under water at every high tide. Component 1. Coil's crew are already in it. |
-| Gullspire | `town:gullspire` | `GULLSPIRE` | `hamlet` | A lighthouse and a rookery on one stack. Component 2. Corwin Vane's wreck. |
-| Maw's Rest | `landmark:maws-rest` | — | — | No settlement. A reef ring with something sleeping in it. Component 3 and the act's boss. |
-| The Dark Water | `landmark:the-dark-water` | — | — | No settlement. The deep trench between the islands, and the reason for the water mount. |
+| Place          | Id                        | Sign        | Layout      | Role                                                                                                                          |
+| -------------- | ------------------------- | ----------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Saltrest       | `town:saltrest`           | `SALTREST`  | `harbour` ⚙ | Hub. Waterside. Brack Tulley's yard, Gain's second appearance, the boat.                                                      |
+| Kelphold       | `town:kelphold`           | `KELPHOLD`  | `hamlet`    | The drowned market — a town whose ground floor is under water at every high tide. Component 1. Coil's crew are already in it. |
+| Gullspire      | `town:gullspire`          | `GULLSPIRE` | `hamlet`    | A lighthouse and a rookery on one stack. Component 2. Corwin Vane's wreck.                                                    |
+| Maw's Rest     | `landmark:maws-rest`      | —           | —           | No settlement. A reef ring with something sleeping in it. Component 3 and the act's boss.                                     |
+| The Dark Water | `landmark:the-dark-water` | —           | —           | No settlement. The deep trench between the islands, and the reason for the water mount.                                       |
 
 **Quests.** Arc `sea`.
 
-| # | Id | Type | Giver | Location | Prerequisites |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `quest:sea/salt-and-rope` | travel + talk | `npc:gain/saltrest` | `town:saltrest` | `quest:land/the-bellwether` |
-| 2 | `quest:sea/dark-water` | tame | `npc:gain/saltrest` | `town:saltrest` | 1 |
-| 3 | `quest:sea/the-drowned-market` | collect + dungeon | `npc:brack` | `town:kelphold` | 2 |
-| 4 | `quest:sea/the-rookery` | tame + escort | `npc:sky-pilot/gullspire` | `town:gullspire` | 2 |
-| 5 | `quest:sea/what-the-tide-kept` | boss | `npc:coil/kelphold` | `landmark:maws-rest` | 3, 4 |
+| #   | Id                             | Type              | Giver                     | Location             | Prerequisites               |
+| --- | ------------------------------ | ----------------- | ------------------------- | -------------------- | --------------------------- |
+| 1   | `quest:sea/salt-and-rope`      | travel + talk     | `npc:gain/saltrest`       | `town:saltrest`      | `quest:land/the-bellwether` |
+| 2   | `quest:sea/dark-water`         | tame              | `npc:gain/saltrest`       | `town:saltrest`      | 1                           |
+| 3   | `quest:sea/the-drowned-market` | collect + dungeon | `npc:brack`               | `town:kelphold`      | 2                           |
+| 4   | `quest:sea/the-rookery`        | tame + escort     | `npc:sky-pilot/gullspire` | `town:gullspire`     | 2                           |
+| 5   | `quest:sea/what-the-tide-kept` | boss              | `npc:coil/kelphold`       | `landmark:maws-rest` | 3, 4                        |
 
 Note quests 3 and 4 both hang off 2 and neither requires the other: two islands, two
 components, either order. That is the archipelago's whole structure expressed as
@@ -290,7 +290,7 @@ whole act has been teaching. Objectives: `reach-maws-rest`, `defeat-brineholder`
 `assemble-the-device`. `onComplete`: `flag.set device-built`, `flag.set sky-revealed`,
 `flag.set act-2-complete`. Rewards 700 xp, 200 shard.
 
-**Act closes on:** the assembled instrument points, steadily and stupidly, *up*. Corwin
+**Act closes on:** the assembled instrument points, steadily and stupidly, _up_. Corwin
 Vane says he can get them there and that they will not like it. Coil says she is coming
 whether they like it or not.
 
@@ -316,22 +316,22 @@ between two balloon models rather than a flight (the player's craft is not simul
 (rule 4), which is why the sky can afford more settlements than the sea. Skyhaven and
 its three residents already ship.
 
-| Town | Id | Sign | Layout | Role |
-| --- | --- | --- | --- | --- |
-| Skyhaven | `town:skyhaven` | `SKYHAVEN` | `skyhaven` | Hub. Shipped. Gain, Corwin Vane, Mother Pell, Tobin Ashgrove. |
-| Lanternfall | `town:lanternfall` | `LANTERNS` | `gallery` ⚙ | A shelf of lamp galleries whose light is what keeps the Bond Engine's overflow dim. The lamps are failing. |
-| Cinderhelm | `town:cinderhelm` | `CINDERHELM` | `gallery` ⚙ | A shelf that already burned. Half a town, evacuated, with the engine's exhaust vented under it. |
-| The Orrery | `town:orrery` | `ORRERY` | `orrery` ⚙ | The Bond Engine itself, kept by Archivist Marran Vess. Act 3's finale. |
+| Town        | Id                 | Sign         | Layout      | Role                                                                                                       |
+| ----------- | ------------------ | ------------ | ----------- | ---------------------------------------------------------------------------------------------------------- |
+| Skyhaven    | `town:skyhaven`    | `SKYHAVEN`   | `skyhaven`  | Hub. Shipped. Gain, Corwin Vane, Mother Pell, Tobin Ashgrove.                                              |
+| Lanternfall | `town:lanternfall` | `LANTERNS`   | `gallery` ⚙ | A shelf of lamp galleries whose light is what keeps the Bond Engine's overflow dim. The lamps are failing. |
+| Cinderhelm  | `town:cinderhelm`  | `CINDERHELM` | `gallery` ⚙ | A shelf that already burned. Half a town, evacuated, with the engine's exhaust vented under it.            |
+| The Orrery  | `town:orrery`      | `ORRERY`     | `orrery` ⚙  | The Bond Engine itself, kept by Archivist Marran Vess. Act 3's finale.                                     |
 
 **Quests.** Arc `sky`.
 
-| # | Id | Type | Giver | Location | Prerequisites |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `quest:sky/the-long-ascent` | travel | `npc:sky-pilot` | `town:skyhaven` | `quest:sea/what-the-tide-kept` |
-| 2 | `quest:sky/wingbroken` | tame | `npc:gain/skyhaven` | `town:skyhaven` | 1 |
-| 3 | `quest:sky/lanternfall` | collect | `npc:sky-lamplighter/lanternfall` | `town:lanternfall` | 2 |
-| 4 | `quest:sky/cinderhelm` | dungeon + boss | `npc:sky-gardener` | `town:cinderhelm` | 2 |
-| 5 | `quest:sky/the-orrery` | boss + reveal | `npc:vess` | `town:orrery` | 3, 4 |
+| #   | Id                          | Type           | Giver                             | Location           | Prerequisites                  |
+| --- | --------------------------- | -------------- | --------------------------------- | ------------------ | ------------------------------ |
+| 1   | `quest:sky/the-long-ascent` | travel         | `npc:sky-pilot`                   | `town:skyhaven`    | `quest:sea/what-the-tide-kept` |
+| 2   | `quest:sky/wingbroken`      | tame           | `npc:gain/skyhaven`               | `town:skyhaven`    | 1                              |
+| 3   | `quest:sky/lanternfall`     | collect        | `npc:sky-lamplighter/lanternfall` | `town:lanternfall` | 2                              |
+| 4   | `quest:sky/cinderhelm`      | dungeon + boss | `npc:sky-gardener`                | `town:cinderhelm`  | 2                              |
+| 5   | `quest:sky/the-orrery`      | boss + reveal  | `npc:vess`                        | `town:orrery`      | 3, 4                           |
 
 Same fork as Act 2: two islands off one prerequisite, either order, both required for
 the finale.
@@ -345,7 +345,7 @@ time the player asks him how. `onComplete`: `discover town:skyhaven`,
 Pell will not let anyone near it and the player is the first person she allows.
 Objectives: `free-the-galebird`, `tame-galebird` ×1. `onComplete`:
 `mount.unlock flying` ⚙, `flag.set mount-flying`. Rewards 450 xp, 120 shard.
-*(A flying mount reaches every remaining island, so from here Act 3 is open.)*
+_(A flying mount reaches every remaining island, so from here Act 3 is open.)_
 
 **3 · Lanternfall.** The gallery lamps are the only thing dimming the engine's
 overflow, and they are going out one shelf at a time because nobody has flown oil up
@@ -358,8 +358,8 @@ Rewards 500 xp, 140 shard.
 **4 · Cinderhelm.** What happens when a gallery goes dark: the shelf below is a burnt
 half-town with the engine's exhaust vented under it, and something down there has been
 in the red for a century. A dungeon dive into the rock, ending at
-`enemy:cinderguard` — a guardian beast that is not hostile so much as *unable to
-stop*. Objectives: `descend-the-vent`, `defeat-cinderguard`, `recover-the-record` ×1.
+`enemy:cinderguard` — a guardian beast that is not hostile so much as _unable to
+stop_. Objectives: `descend-the-vent`, `defeat-cinderguard`, `recover-the-record` ×1.
 The record is the cities' own minutes: they built it, it worked, and then it did not.
 `onComplete`: `flag.set knows-the-cities-built-it`, `discover town:cinderhelm`.
 Rewards 550 xp, 160 shard.
@@ -368,14 +368,14 @@ Rewards 550 xp, 160 shard.
 sealed Cinderhelm, she stopped the oil flights, she has been hoarding the record. The
 fight happens — `enemy:choirguard`, the engine's own defence, which she does not call
 off — and when it is over she explains what she is actually doing, which is holding the
-Red Bond *in*. It has a source and the source is not the engine, and every hand she has
+Red Bond _in_. It has a source and the source is not the engine, and every hand she has
 taken off it in a hundred years has cost a region below. Objectives:
 `reach-the-orrery`, `defeat-choirguard`, `hear-vess-out`. `onComplete`:
 `flag.set vess-truth`, `flag.set act-3-complete`, `discover town:orrery`. Rewards
 900 xp, 250 shard.
 
 **Act closes on:** the instrument, the record and the engine agree. The source is not
-above and it is not below. It is *between* — and Mother Pell knows what it is, because
+above and it is not below. It is _between_ — and Mother Pell knows what it is, because
 her garden was grown from a cutting of it.
 
 **New content:** zone `cirrus`; carried layouts `gallery` ⚙, `orrery` ⚙; towns
@@ -403,13 +403,13 @@ worth more than a fourth hub and costs no geometry. The finale is one arena:
 
 **Quests.** Arc `seam`.
 
-| # | Id | Type | Giver | Location | Prerequisites |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `quest:seam/three-roads` | talk | `npc:gain` | `town:encampment` | `quest:sky/the-orrery` |
-| 2 | `quest:seam/guardian-land` | boss | `npc:gain` | `town:stonewatch` | 1 |
-| 3 | `quest:seam/guardian-sea` | boss | `npc:coil/kelphold` | `landmark:maws-rest` | 1 |
-| 4 | `quest:seam/guardian-sky` | boss | `npc:sky-gardener` | `town:orrery` | 1 |
-| 5 | `quest:seam/the-first-bond` | boss + choice | `npc:sky-gardener` | `landmark:the-seam` | 2, 3, 4 |
+| #   | Id                          | Type          | Giver               | Location             | Prerequisites          |
+| --- | --------------------------- | ------------- | ------------------- | -------------------- | ---------------------- |
+| 1   | `quest:seam/three-roads`    | talk          | `npc:gain`          | `town:encampment`    | `quest:sky/the-orrery` |
+| 2   | `quest:seam/guardian-land`  | boss          | `npc:gain`          | `town:stonewatch`    | 1                      |
+| 3   | `quest:seam/guardian-sea`   | boss          | `npc:coil/kelphold` | `landmark:maws-rest` | 1                      |
+| 4   | `quest:seam/guardian-sky`   | boss          | `npc:sky-gardener`  | `town:orrery`        | 1                      |
+| 5   | `quest:seam/the-first-bond` | boss + choice | `npc:sky-gardener`  | `landmark:the-seam`  | 2, 3, 4                |
 
 Three parallel prerequisites converging on one — the whole cast reassembles at the
 Encampment and the player picks their own order. Each guardian quest is **gated on the
@@ -458,14 +458,14 @@ Objectives: `open-the-seam`, `defeat-rhune`, `decide` ×1. `onComplete`:
 One package per act, plus a small always-resident one. Load order is the `requires`
 chain; nothing here loads at boot except `core`.
 
-| Package | File | Requires | Loaded when |
-| --- | --- | --- | --- |
-| `core` | `data/core.json` | — | Imported. Ships in the main chunk. |
-| `story` | `data/story.json` | `core` | At boot, after `core`. The hub every act's package requires. Small — see the two corrections below. |
-| `story-land` | `data/story-land.json` | `story` | At boot, after `story` — see the correction below |
-| `story-sea` | `data/story-sea.json` | `story` | On entering `brine` |
-| `story-sky` | `data/story-sky.json` | `story` | On entering `cirrus` |
-| `story-seam` | `data/story-seam.json` | `story` | On entering `seam` |
+| Package      | File                   | Requires | Loaded when                                                                                         |
+| ------------ | ---------------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| `core`       | `data/core.json`       | —        | Imported. Ships in the main chunk.                                                                  |
+| `story`      | `data/story.json`      | `core`   | At boot, after `core`. The hub every act's package requires. Small — see the two corrections below. |
+| `story-land` | `data/story-land.json` | `story`  | At boot, after `story` — see the correction below                                                   |
+| `story-sea`  | `data/story-sea.json`  | `story`  | On entering `brine`                                                                                 |
+| `story-sky`  | `data/story-sky.json`  | `story`  | On entering `cirrus`                                                                                |
+| `story-seam` | `data/story-seam.json` | `story`  | On entering `seam`                                                                                  |
 
 **Act 1's towns stay in `core`** — they are the shipped world and moving them would
 make the starting world depend on a package. `story-land` adds only quests and the two
@@ -509,37 +509,37 @@ Every flag the story sets, in the order it can first be set. Flags are the story
 public API: a side quest, a shop, a piece of dialogue or a later act may test any of
 them.
 
-| Flag | Set by | Means |
-| --- | --- | --- |
-| `met-gain` | `quest:land/first-light` | Has spoken to Gain |
-| `taming-learned` | `quest:land/first-light` | Taming is unlocked |
-| `first-bond` | `quest:land/the-first-bond` | Has bonded a wild beast |
-| `mount-ground` | `quest:land/the-mill-road` | Ground mount unlocked |
-| `red-thread-seen` | `quest:land/the-red-thread` | Knows the corruption is manufactured |
-| `sea-revealed` | `quest:land/the-bellwether` | Act 2 may begin |
-| `act-1-complete` | `quest:land/the-bellwether` | — |
-| `has-boat` | `quest:sea/salt-and-rope` | Island travel available |
-| `mount-water` | `quest:sea/dark-water` | Water mount + dark-water auto-mount |
-| `dark-water-open` | `quest:sea/dark-water` | The trench is passable |
-| `component-lens` | `quest:sea/the-drowned-market` | Device part 1 |
-| `component-vane` | `quest:sea/the-rookery` | Device part 2 |
-| `knows-the-sky` | `quest:sea/the-rookery` | Has met someone from above |
-| `device-built` | `quest:sea/what-the-tide-kept` | The instrument works |
-| `sky-revealed` | `quest:sea/what-the-tide-kept` | Act 3 may begin |
-| `act-2-complete` | `quest:sea/what-the-tide-kept` | — |
-| `act-3-open` | `quest:sky/the-long-ascent` | Reached the Shelf |
-| `mount-flying` | `quest:sky/wingbroken` | Flying mount unlocked |
-| `component-lantern` | `quest:sky/lanternfall` | — |
-| `ashgrove-reunited` | `quest:sky/lanternfall` | Tobin knows Mera is alive |
-| `knows-the-cities-built-it` | `quest:sky/cinderhelm` | The reveal |
-| `vess-truth` | `quest:sky/the-orrery` | The villain was holding it back |
-| `act-3-complete` | `quest:sky/the-orrery` | — |
-| `seam-known` | `quest:seam/three-roads` | Act 4 open |
-| `guardian-land-freed` | `quest:seam/guardian-land` | — |
-| `guardian-sea-freed` | `quest:seam/guardian-sea` | — |
-| `guardian-sky-freed` | `quest:seam/guardian-sky` | — |
-| `act-4-complete` | `quest:seam/the-first-bond` | — |
-| `ending-severed` / `ending-held` / `ending-shared` | `quest:seam/the-first-bond` | Exactly one is set |
+| Flag                                               | Set by                         | Means                                |
+| -------------------------------------------------- | ------------------------------ | ------------------------------------ |
+| `met-gain`                                         | `quest:land/first-light`       | Has spoken to Gain                   |
+| `taming-learned`                                   | `quest:land/first-light`       | Taming is unlocked                   |
+| `first-bond`                                       | `quest:land/the-first-bond`    | Has bonded a wild beast              |
+| `mount-ground`                                     | `quest:land/the-mill-road`     | Ground mount unlocked                |
+| `red-thread-seen`                                  | `quest:land/the-red-thread`    | Knows the corruption is manufactured |
+| `sea-revealed`                                     | `quest:land/the-bellwether`    | Act 2 may begin                      |
+| `act-1-complete`                                   | `quest:land/the-bellwether`    | —                                    |
+| `has-boat`                                         | `quest:sea/salt-and-rope`      | Island travel available              |
+| `mount-water`                                      | `quest:sea/dark-water`         | Water mount + dark-water auto-mount  |
+| `dark-water-open`                                  | `quest:sea/dark-water`         | The trench is passable               |
+| `component-lens`                                   | `quest:sea/the-drowned-market` | Device part 1                        |
+| `component-vane`                                   | `quest:sea/the-rookery`        | Device part 2                        |
+| `knows-the-sky`                                    | `quest:sea/the-rookery`        | Has met someone from above           |
+| `device-built`                                     | `quest:sea/what-the-tide-kept` | The instrument works                 |
+| `sky-revealed`                                     | `quest:sea/what-the-tide-kept` | Act 3 may begin                      |
+| `act-2-complete`                                   | `quest:sea/what-the-tide-kept` | —                                    |
+| `act-3-open`                                       | `quest:sky/the-long-ascent`    | Reached the Shelf                    |
+| `mount-flying`                                     | `quest:sky/wingbroken`         | Flying mount unlocked                |
+| `component-lantern`                                | `quest:sky/lanternfall`        | —                                    |
+| `ashgrove-reunited`                                | `quest:sky/lanternfall`        | Tobin knows Mera is alive            |
+| `knows-the-cities-built-it`                        | `quest:sky/cinderhelm`         | The reveal                           |
+| `vess-truth`                                       | `quest:sky/the-orrery`         | The villain was holding it back      |
+| `act-3-complete`                                   | `quest:sky/the-orrery`         | —                                    |
+| `seam-known`                                       | `quest:seam/three-roads`       | Act 4 open                           |
+| `guardian-land-freed`                              | `quest:seam/guardian-land`     | —                                    |
+| `guardian-sea-freed`                               | `quest:seam/guardian-sea`      | —                                    |
+| `guardian-sky-freed`                               | `quest:seam/guardian-sky`      | —                                    |
+| `act-4-complete`                                   | `quest:seam/the-first-bond`    | —                                    |
+| `ending-severed` / `ending-held` / `ending-shared` | `quest:seam/the-first-bond`    | Exactly one is set                   |
 
 **Mount flags are set alongside the `mount.unlock` action, not instead of it.** The
 action changes what the player can do; the flag is what content is allowed to test.
@@ -575,6 +575,7 @@ as much as the list: the top group blocks every quest, the bottom group blocks o
   into a town — with #149.
 
 **Traversal** — blocks Act 2 and Act 3.
+
 - **Water mounting**, and **auto-mount on contact with deep water**. Diving exists
   (`KeyC`, `src/world/underwater.ts`); the mount does not.
 - **Deep water rendered dark and refused on foot** — the visual grammar the act
@@ -585,12 +586,14 @@ as much as the list: the top group blocks every quest, the bottom group blocks o
   cut, the quest becomes a plain collect.
 
 **World builders** — one per act.
+
 - Town layouts: `harbour` (Act 2), `gallery` and `orrery` as **carried** layouts (Act 3).
   Note carried layouts come from a different factory kind than ground ones.
 - Zones `brine`, `cirrus`, `seam`, each with a terrain/water/sky character of its own.
 - `biome:reef`.
 
 **Bodies and models.**
+
 - NPC bodies: `coil`, `vess`, `miller` (Mera), `boatwright` (Brack).
 - Enemy models: `bellwether`, `bridle-hound`, `brineholder`, `cinderguard`,
   `choirguard`, `guardian-land`, `guardian-sea`, `guardian-sky`, `rhune`.
@@ -598,8 +601,8 @@ as much as the list: the top group blocks every quest, the bottom group blocks o
   reasoned about** — see the z-fighting note in [AGENTS.md](AGENTS.md).
 
 **Music.** `music:brine`, `music:cirrus`, `music:seam` — three composed tracks, and
-three `SHIPPED` credits entries in [src/ui/about.ts](src/ui/about.ts) *in the same
-commit*, per the licence rule in [AGENTS.md](AGENTS.md).
+three `SHIPPED` credits entries in [src/ui/about.ts](src/ui/about.ts) _in the same
+commit_, per the licence rule in [AGENTS.md](AGENTS.md).
 
 **Nice to have, specified nowhere else.** **Kettle**, the named companion beast
 (§2): needs a `BeastActor` that can carry an identity — a stable id, a fixed party

@@ -36,21 +36,38 @@
  * `__dbgRoadLab()` reports each case's deck so a probe can sweep it without
  * knowing how the stage was built. `tools/test-road-lab.mjs` is that probe.
  */
-import * as THREE from 'three';
-import { Terrain, WATER_LEVEL } from '../world/terrain';
-import { buildTerrainMesh } from '../world/chunk';
+import * as THREE from "three";
+import { Terrain, WATER_LEVEL } from "../world/terrain";
+import { buildTerrainMesh } from "../world/chunk";
 import {
-  RoadNetwork, mergeCrossings, profileRoad, profileTrail, setTrimEnd, setTrimStart,
-  type Junction, type Road,
-} from '../world/roads';
+  RoadNetwork,
+  mergeCrossings,
+  profileRoad,
+  profileTrail,
+  setTrimEnd,
+  setTrimStart,
+  type Junction,
+  type Road,
+} from "../world/roads";
 import {
-  FOOTPATH_PROFILE, ROAD_PROFILE, TRAIL_PROFILE, type PathProfile,
-} from '../world/path-profile';
-import { buildJunctionApron, buildRoadRibbon } from '../world/town-parts';
+  FOOTPATH_PROFILE,
+  ROAD_PROFILE,
+  TRAIL_PROFILE,
+  type PathProfile,
+} from "../world/path-profile";
+import { buildJunctionApron, buildRoadRibbon } from "../world/town-parts";
 
 /** The cases this stage knows. `?road=` picks one; `all` builds every one. */
 export const ROAD_CASES = [
-  'axis', 'angle', 'slope', 'bend', 'bridge', 'fork', 'cross', 'foot', 'trail',
+  "axis",
+  "angle",
+  "slope",
+  "bend",
+  "bridge",
+  "fork",
+  "cross",
+  "foot",
+  "trail",
 ] as const;
 
 /** The seed the sandbox builds on. Fixed, so a case is the same every run. */
@@ -77,18 +94,26 @@ interface Built {
 
 /** A straight deck from a to b, profiled against the real height field. */
 function straight(
-  terrain: Terrain, id: string, profile: PathProfile,
-  ax: number, az: number, bx: number, bz: number,
+  terrain: Terrain,
+  id: string,
+  profile: PathProfile,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
 ): Road {
-  const step = profile.carve === 'none' ? 1 : 3;
+  const step = profile.carve === "none" ? 1 : 3;
   const n = Math.max(2, Math.round(Math.hypot(bx - ax, bz - az) / step));
   const route = Array.from({ length: n + 1 }, (_, i) => ({
     x: ax + ((bx - ax) * i) / n,
     z: az + ((bz - az) * i) / n,
   }));
-  if (profile.carve === 'none') {
+  if (profile.carve === "none") {
     return {
-      id, fromId: `${id}:a`, toId: `${id}:b`, profile,
+      id,
+      fromId: `${id}:a`,
+      toId: `${id}:b`,
+      profile,
       pts: profileTrail(terrain, route),
       trim: new Float32Array(8),
     };
@@ -102,17 +127,21 @@ function straight(
     // thing `World.addPath` does for a free-standing path — otherwise the
     // raise-only limiter leaves the deck wherever the smoothing put it and the
     // case begins with a cliff that has nothing to do with what it is testing.
-    pts: profileRoad(
-      terrain, route, terrain.getHeight(ax, az), terrain.getHeight(bx, bz),
-    ),
+    pts: profileRoad(terrain, route, terrain.getHeight(ax, az), terrain.getHeight(bx, bz)),
     trim: new Float32Array(8),
   };
 }
 
 /** An arc, for the case where consecutive rings face different ways. */
 function arc(
-  terrain: Terrain, id: string, profile: PathProfile,
-  cx: number, cz: number, r: number, a0: number, a1: number,
+  terrain: Terrain,
+  id: string,
+  profile: PathProfile,
+  cx: number,
+  cz: number,
+  r: number,
+  a0: number,
+  a1: number,
 ): Road {
   const n = Math.max(4, Math.round((Math.abs(a1 - a0) * r) / 3));
   const route = Array.from({ length: n + 1 }, (_, i) => {
@@ -127,8 +156,10 @@ function arc(
     toId: `${id}:b`,
     profile,
     pts: profileRoad(
-      terrain, route,
-      terrain.getHeight(first.x, first.z), terrain.getHeight(last.x, last.z),
+      terrain,
+      route,
+      terrain.getHeight(first.x, first.z),
+      terrain.getHeight(last.x, last.z),
     ),
     trim: new Float32Array(8),
   };
@@ -139,10 +170,8 @@ function arc(
  * than assumed, because the height field is noise and a hand-picked coordinate
  * is a coordinate that stops being right the day the noise is touched.
  */
-function findGround(
-  terrain: Terrain, want: 'slope' | 'water' | 'trail',
-): { x: number; z: number } {
-  let best = want === 'water' ? Infinity : -Infinity;
+function findGround(terrain: Terrain, want: "slope" | "water" | "trail"): { x: number; z: number } {
+  let best = want === "water" ? Infinity : -Infinity;
   let at = { x: 0, z: 0 };
   // CLEAR OF THE SLOT GRID. The cases that are PLACED sit within ~150 of the
   // origin, and a found one that landed among them would carve into a
@@ -150,8 +179,10 @@ function findGround(
   // through the middle of the fork.
   for (let x = -900; x <= 900; x += 40) {
     for (let z = -900; z <= 900; z += 40) {
-      if (Math.hypot(x, z) < 300) continue;
-      if (want === 'trail') {
+      if (Math.hypot(x, z) < 300) {
+        continue;
+      }
+      if (want === "trail") {
         // THE STEEPEST GROUND A TRAIL COULD ACTUALLY BE ON, which is not the
         // steepest ground. `slope` below picks the sharpest place on the seed
         // and that is a CLIFF — measured, a trail laid straight across it read
@@ -169,7 +200,7 @@ function findGround(
           best = g;
           at = { x, z };
         }
-      } else if (want === 'slope') {
+      } else if (want === "slope") {
         const rise = Math.abs(terrain.heightCont(x + 30, z) - terrain.heightCont(x - 30, z));
         if (rise > best && terrain.heightCont(x, z) > WATER_LEVEL + 3) {
           best = rise;
@@ -177,7 +208,10 @@ function findGround(
         }
       } else {
         const h = terrain.heightCont(x, z);
-        if (h < WATER_LEVEL - 1 && h < best) { best = h; at = { x, z }; }
+        if (h < WATER_LEVEL - 1 && h < best) {
+          best = h;
+          at = { x, z };
+        }
       }
     }
   }
@@ -196,17 +230,19 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
   const terrain = new Terrain(LAB_SEED);
   const net = new RoadNetwork();
   const mat = new THREE.MeshStandardMaterial({
-    vertexColors: true, roughness: 0.95, metalness: 0,
+    vertexColors: true,
+    roughness: 0.95,
+    metalness: 0,
   });
   const cases: RoadLabCase[] = [];
   /** What the crossing merge did, so the stage cannot fail quietly. */
   let crossReport: { nodes: unknown[]; refused: string[] } = { nodes: [], refused: [] };
   const geos: THREE.BufferGeometry[] = [];
-  const want = (id: string): boolean => which === 'all' || which === id;
+  const want = (id: string): boolean => which === "all" || which === id;
 
-  const slope = findGround(terrain, 'slope');
-  const water = findGround(terrain, 'water');
-  const trailAt = findGround(terrain, 'trail');
+  const slope = findGround(terrain, "slope");
+  const water = findGround(terrain, "water");
+  const trailAt = findGround(terrain, "trail");
   let slot = 0;
   /** Each case gets its own patch of world, clear of every other one's carve. */
   const origin = (): { x: number; z: number } => {
@@ -221,68 +257,114 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
       const k = slot++;
       const x = (k % 3) * SPACING - SPACING;
       const z = Math.floor(k / 3) * SPACING - SPACING;
-      if (terrain.heightCont(x, z) > WATER_LEVEL + 3) return { x, z };
+      if (terrain.heightCont(x, z) > WATER_LEVEL + 3) {
+        return { x, z };
+      }
     }
     return { x: 0, z: 0 };
   };
 
   const add = (id: string, roads: Road[], junctions: Junction[], at: THREE.Vector3): void => {
-    for (const r of roads) net.add(r);
+    for (const r of roads) {
+      net.add(r);
+    }
     cases.push({ id, roads, junctions, at });
   };
 
-  if (want('axis')) {
+  if (want("axis")) {
     const o = origin();
-    add('axis', [straight(terrain, 'axis', ROAD_PROFILE, o.x - 30, o.z, o.x + 30, o.z)], [],
-      new THREE.Vector3(o.x, 0, o.z));
+    add(
+      "axis",
+      [straight(terrain, "axis", ROAD_PROFILE, o.x - 30, o.z, o.x + 30, o.z)],
+      [],
+      new THREE.Vector3(o.x, 0, o.z),
+    );
   }
-  if (want('angle')) {
+  if (want("angle")) {
     const o = origin();
     // 45 DEGREES EXACTLY, which is the worst case rather than a nice number:
     // the corridor's rim crosses every cell corner-first, so the amount of a
     // cell that reaches inside the rim is maximal.
-    add('angle', [straight(terrain, 'angle', ROAD_PROFILE,
-      o.x - 22, o.z - 22, o.x + 22, o.z + 22)], [], new THREE.Vector3(o.x, 0, o.z));
+    add(
+      "angle",
+      [straight(terrain, "angle", ROAD_PROFILE, o.x - 22, o.z - 22, o.x + 22, o.z + 22)],
+      [],
+      new THREE.Vector3(o.x, 0, o.z),
+    );
   }
-  if (want('slope')) {
-    add('slope', [straight(terrain, 'slope', ROAD_PROFILE,
-      slope.x - 34, slope.z, slope.x + 34, slope.z)], [],
-    new THREE.Vector3(slope.x, 0, slope.z));
+  if (want("slope")) {
+    add(
+      "slope",
+      [straight(terrain, "slope", ROAD_PROFILE, slope.x - 34, slope.z, slope.x + 34, slope.z)],
+      [],
+      new THREE.Vector3(slope.x, 0, slope.z),
+    );
   }
-  if (want('bend')) {
+  if (want("bend")) {
     const o = origin();
-    add('bend', [arc(terrain, 'bend', ROAD_PROFILE, o.x, o.z, 26, -0.9, 0.9)], [],
-      new THREE.Vector3(o.x, 0, o.z));
+    add(
+      "bend",
+      [arc(terrain, "bend", ROAD_PROFILE, o.x, o.z, 26, -0.9, 0.9)],
+      [],
+      new THREE.Vector3(o.x, 0, o.z),
+    );
   }
-  if (want('bridge')) {
-    add('bridge', [straight(terrain, 'bridge', ROAD_PROFILE,
-      water.x - 40, water.z, water.x + 40, water.z)], [],
-    new THREE.Vector3(water.x, 0, water.z));
+  if (want("bridge")) {
+    add(
+      "bridge",
+      [straight(terrain, "bridge", ROAD_PROFILE, water.x - 40, water.z, water.x + 40, water.z)],
+      [],
+      new THREE.Vector3(water.x, 0, water.z),
+    );
   }
-  if (want('foot')) {
+  if (want("foot")) {
     const o = origin();
-    add('foot', [straight(terrain, 'foot', FOOTPATH_PROFILE,
-      o.x - 20, o.z - 20, o.x + 20, o.z + 20)], [], new THREE.Vector3(o.x, 0, o.z));
+    add(
+      "foot",
+      [straight(terrain, "foot", FOOTPATH_PROFILE, o.x - 20, o.z - 20, o.x + 20, o.z + 20)],
+      [],
+      new THREE.Vector3(o.x, 0, o.z),
+    );
   }
-  if (want('trail')) {
+  if (want("trail")) {
     // ON THE HILLSIDE, because a trail that carves nothing is only interesting
     // where the ground is not flat — that is the whole of what §11 says makes
     // it a second machine. It shares the `slope` case's ground and runs across
     // it rather than along, so the two do not carve into each other (a trail
     // carves nothing, but the road beside it does).
-    add('trail', [straight(terrain, 'trail', TRAIL_PROFILE,
-      trailAt.x - 24, trailAt.z - 24, trailAt.x + 24, trailAt.z + 24)], [],
-    new THREE.Vector3(trailAt.x, 0, trailAt.z));
+    add(
+      "trail",
+      [
+        straight(
+          terrain,
+          "trail",
+          TRAIL_PROFILE,
+          trailAt.x - 24,
+          trailAt.z - 24,
+          trailAt.x + 24,
+          trailAt.z + 24,
+        ),
+      ],
+      [],
+      new THREE.Vector3(trailAt.x, 0, trailAt.z),
+    );
   }
-  if (want('fork') || want('cross')) {
+  if (want("fork") || want("cross")) {
     const o = origin();
     // A FORK IS THREE ARMS ON ONE NODE, and they have to be anchored to one
     // height or the apron is drawn at a height one of them disagrees with —
     // the same thing `JUNCTION_HOLD` buys the world's own fork.
     const y = terrain.getHeight(o.x, o.z);
     const arms = [0.4, 2.3, 4.2].map((a, i) => {
-      const r = straight(terrain, `fork-${i}`, ROAD_PROFILE,
-        o.x, o.z, o.x + Math.sin(a) * 34, o.z + Math.cos(a) * 34);
+      const r = straight(
+        terrain,
+        `fork-${i}`,
+        ROAD_PROFILE,
+        o.x,
+        o.z,
+        o.x + Math.sin(a) * 34,
+        o.z + Math.cos(a) * 34,
+      );
       r.pts[0].y = y;
       for (let k = 1; k < Math.min(7, r.pts.length); k++) {
         r.pts[k].y += (y - r.pts[0].y) * (1 - k / 7);
@@ -290,8 +372,12 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
       setTrimStart(r, o.x, o.z, Math.sin(a), Math.cos(a));
       return r;
     });
-    add('fork', arms, [{ x: o.x, z: o.z, y, profile: ROAD_PROFILE }],
-      new THREE.Vector3(o.x, 0, o.z));
+    add(
+      "fork",
+      arms,
+      [{ x: o.x, z: o.z, y, profile: ROAD_PROFILE }],
+      new THREE.Vector3(o.x, 0, o.z),
+    );
   }
 
   net.build();
@@ -299,10 +385,10 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
 
   // A CROSSING IS MADE THE WAY THE EDITOR MAKES ONE, through `mergeCrossings`,
   // so the sandbox exercises the merge rather than a hand-built four-arm node.
-  if (want('cross')) {
+  if (want("cross")) {
     const o = origin();
-    const a = straight(terrain, 'cross-a', ROAD_PROFILE, o.x - 34, o.z, o.x + 34, o.z);
-    const b = straight(terrain, 'cross-b', ROAD_PROFILE, o.x, o.z - 34, o.x, o.z + 34);
+    const a = straight(terrain, "cross-a", ROAD_PROFILE, o.x - 34, o.z, o.x + 34, o.z);
+    const b = straight(terrain, "cross-b", ROAD_PROFILE, o.x, o.z - 34, o.x, o.z + 34);
     // ONE HEIGHT AT THE CROSSING BEFORE THE MERGE IS ASKED. `mergeCrossings`
     // refuses two decks more than `MERGE_MAX_DROP` apart, and two roads
     // profiled independently against noise disagree by more than that as often
@@ -321,8 +407,8 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
     crossReport = mergeCrossings(net, b);
     net.build();
     cases.push({
-      id: 'cross',
-      roads: net.roads.filter((r) => r.id.startsWith('cross-')),
+      id: "cross",
+      roads: net.roads.filter((r) => r.id.startsWith("cross-")),
       junctions: net.junctions.filter((j) => Math.hypot(j.x - o.x, j.z - o.z) < 20),
       at: new THREE.Vector3(o.x, 0, o.z),
     });
@@ -343,12 +429,14 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
     for (let cx = cx0; cx <= cx1; cx++) {
       for (let cz = cz0; cz <= cz1; cz++) {
         const key = `${cx},${cz}`;
-        if (built.has(key)) continue;
+        if (built.has(key)) {
+          continue;
+        }
         built.add(key);
         const m = buildTerrainMesh(cx, cz, terrain, mat);
         // The same name the streamer gives it, so a probe's "is the top hit
         // ground" test reads the same here as in the world.
-        m.name = 'chunk:terrain';
+        m.name = "chunk:terrain";
         m.receiveShadow = true;
         scene.add(m);
         geos.push(m.geometry as THREE.BufferGeometry);
@@ -360,13 +448,16 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
   let bias = 0;
   const surfaceAt = (x: number, z: number): number => terrain.getHeight(x, z);
   const emit = (
-    part: { pos: number[]; nrm: number[]; col: number[]; idx: number[] }, name: string,
+    part: { pos: number[]; nrm: number[]; col: number[]; idx: number[] },
+    name: string,
   ): void => {
-    if (part.idx.length === 0) return;
+    if (part.idx.length === 0) {
+      return;
+    }
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(part.pos, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(part.nrm, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(part.col, 3));
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(part.pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(part.nrm, 3));
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(part.col, 3));
     geo.setIndex(part.idx);
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, mat);
@@ -376,14 +467,16 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
     geos.push(geo);
   };
   for (const road of net.roads) {
-    if (!road.profile.roles.draw) continue;
+    if (!road.profile.roles.draw) {
+      continue;
+    }
     emit(
       buildRoadRibbon([road], LAB_SEED, surfaceAt, bias++ * 0.003, net.junctions),
       `road:${road.id}`,
     );
   }
   for (const j of net.junctions) {
-    emit(buildJunctionApron(j, net.roads, LAB_SEED, surfaceAt, bias++ * 0.003), 'road:junction');
+    emit(buildJunctionApron(j, net.roads, LAB_SEED, surfaceAt, bias++ * 0.003), "road:junction");
   }
 
   return {
@@ -391,7 +484,9 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
     crossReport,
     getHeight: (x: number, z: number) => terrain.getHeight(x, z),
     dispose(): void {
-      for (const g of geos) g.dispose();
+      for (const g of geos) {
+        g.dispose();
+      }
       geos.length = 0;
       mat.dispose();
     },
@@ -400,9 +495,12 @@ export function buildRoadStage(scene: THREE.Scene, which: string): Built {
 
 /** Where a case wants the camera. */
 export function roadCaseFraming(
-  cases: readonly RoadLabCase[], which: string,
+  cases: readonly RoadLabCase[],
+  which: string,
 ): { at: THREE.Vector3; dist: number } {
   const c = cases.find((q) => q.id === which) ?? cases[0];
-  if (!c) return { at: new THREE.Vector3(), dist: 60 };
-  return { at: c.at.clone(), dist: which === 'all' ? 200 : 46 };
+  if (!c) {
+    return { at: new THREE.Vector3(), dist: 60 };
+  }
+  return { at: c.at.clone(), dist: which === "all" ? 200 : 46 };
 }

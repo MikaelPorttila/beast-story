@@ -1,4 +1,4 @@
-import type { Translation } from './en';
+import type { Translation } from "./en";
 
 /**
  * Swedish — a PARTIAL override, and deliberately left partial.
@@ -19,20 +19,20 @@ import type { Translation } from './en';
 export const sv: Translation = {
   // The currency, which is the whole point of the exercise: rename it once in
   // en.ts and once here, and every place it is displayed follows.
-  'item.shard.one': 'Kubloon',
-  'item.shard.other': 'Kubloner',
+  "item.shard.one": "Kubloon",
+  "item.shard.other": "Kubloner",
 
   // A DELIBERATE SUBSET of the new names, so a single frame shows both halves
   // of the fallback: Emberfox and Sproutle are translated, the other eight beasts
   // are not and render their English names from `en.ts`. Same for the skills —
   // Flame Dart moved, Ember Pounce did not.
-  'beast.emberfox.name': 'Glödräv',
-  'beast.emberfox.desc':
-    'En ivrig liten räv vars överdimensionerade svans pyr när den är upprymd — vilket är jämt.',
-  'beast.sproutle.name': 'Grodd',
-  'skill.emberfox.flame-dart.name': 'Eldpil',
-  'skill.emberfox.flame-dart.desc':
-    'Spottar en snabb rävelds-blixt som brister i ett regn av gnistor.',
+  "beast.emberfox.name": "Glödräv",
+  "beast.emberfox.desc":
+    "En ivrig liten räv vars överdimensionerade svans pyr när den är upprymd — vilket är jämt.",
+  "beast.sproutle.name": "Grodd",
+  "skill.emberfox.flame-dart.name": "Eldpil",
+  "skill.emberfox.flame-dart.desc":
+    "Spottar en snabb rävelds-blixt som brister i ett regn av gnistor.",
 
   // Both halves of a town: the pretty name, and the SIGN.
   //
@@ -43,21 +43,21 @@ export const sv: Translation = {
   // because `letters()` draws an unknown glyph as empty space. A translator
   // writes the word; they do not have to know what the carver can cut.
   // Stonewatch and the Encampment are left in English on purpose.
-  'town.redbriar.name': 'Rödbriars Kvarn',
-  'town.redbriar.sign': 'RÖDBRIAR',
+  "town.redbriar.name": "Rödbriars Kvarn",
+  "town.redbriar.sign": "RÖDBRIAR",
 
   // The gateway hints, which are the concatenation this pass removed. Swedish
   // puts the destination after the preposition and the percentage last, and the
   // second line reverses the clause order outright — neither is expressible in
   // "Entering " + name + "… " + pct + "%".
-  'hint.zoneEntering': 'På väg in i {zone}… {pct}%',
-  'hint.zoneStand': 'Ställ dig i porten för att resa till {zone}',
+  "hint.zoneEntering": "På väg in i {zone}… {pct}%",
+  "hint.zoneStand": "Ställ dig i porten för att resa till {zone}",
   // `{key}` arrives already wrapped in <kbd>, so it can land mid-sentence here
   // where English puts it second. This is what replaced the `Press (\S+)` regex.
-  'hint.skillDen': 'Tryck {key} för Färdighetslyan',
+  "hint.skillDen": "Tryck {key} för Färdighetslyan",
   // {name} is the NPC's display name, and it lands after the verb here where
   // English puts it at the end of the clause.
-  'hint.npcTalk': 'Tryck {key} för att prata med {name}',
+  "hint.npcTalk": "Tryck {key} för att prata med {name}",
 
   // GAIN. His name is left in English (a name is not translated) but his LINE
   // is, and it is the best argument in this file for one key per sentence: the
@@ -66,7 +66,7 @@ export const sv: Translation = {
   // fragments. Swedish gets the same joke with a different word: "lyssna"
   // (listen) breaks at "ly…" and lands on Gain. Note the ellipsis and the
   // trailing full stop are part of the line, in both languages.
-  'npc.gain.greeting': 'Stanna en stund, och ly... Gain lär dig något klokt.',
+  "npc.gain.greeting": "Stanna en stund, och ly... Gain lär dig något klokt.",
   // 'npc.dialogue.close' is deliberately NOT translated: it puts an English
   // footer under a Swedish line in the same panel, which is the fallback rule
   // visible in one screenshot.
@@ -76,34 +76,34 @@ export const sv: Translation = {
   // shore are left to fall back, so this block carries its own proof the same
   // way the beasts and the skills above do. See the note at the top of the file
   // before filling the hole in.
-  'biome.plains.name': 'Slätter',
-  'biome.forest.name': 'Skog',
-  'biome.desert.name': 'Öken',
-  'biome.snow.name': 'Snöfält',
+  "biome.plains.name": "Slätter",
+  "biome.forest.name": "Skog",
+  "biome.desert.name": "Öken",
+  "biome.snow.name": "Snöfält",
 
-  'toast.fainted': 'Du svimmade!',
-  'toast.revived': 'På benen igen!',
+  "toast.fainted": "Du svimmade!",
+  "toast.revived": "På benen igen!",
 
-  'hud.hp': 'HP',
-  'hud.level': 'Nivå {n}',
-  'hud.levelUp': 'NY NIVÅ',
-  'hud.levelUpReached': '{beast} nådde nivå {level}!',
-  'hud.levelUpLearned': '{beast} nådde nivå {level} — lärde sig {skill}!',
-  'hud.mountHold': 'HÅLL {key} FÖR ATT RIDA',
+  "hud.hp": "HP",
+  "hud.level": "Nivå {n}",
+  "hud.levelUp": "NY NIVÅ",
+  "hud.levelUpReached": "{beast} nådde nivå {level}!",
+  "hud.levelUpLearned": "{beast} nådde nivå {level} — lärde sig {skill}!",
+  "hud.mountHold": "HÅLL {key} FÖR ATT RIDA",
   // Hamburgerknappen uppe till vänster i HUD:en. Visas aldrig — det är knappens
   // verktygstips och det en skärmläsare läser upp, alltså ett namn.
-  'hud.menu': 'Meny',
+  "hud.menu": "Meny",
 
-  'shop.buy': 'KÖP',
-  'shop.learned': 'Inlärd',
-  'shop.forBeast': 'till {beast}',
+  "shop.buy": "KÖP",
+  "shop.learned": "Inlärd",
+  "shop.forBeast": "till {beast}",
 
   // Word order differs from English here — "hämtade" takes the item before the
   // count, and the zone name lands after the verb. Exactly why these are single
   // keys with placeholders rather than concatenated fragments.
-  'toast.fetched': '{beast} hämtade {item} ({n})',
-  'toast.enteredZone': 'Du kom fram till {zone}',
-  'toast.beastTakesLead': '{beast} tar ledningen!',
+  "toast.fetched": "{beast} hämtade {item} ({n})",
+  "toast.enteredZone": "Du kom fram till {zone}",
+  "toast.beastTakesLead": "{beast} tar ledningen!",
 
   // The start menu is translated in FULL, and that is a deliberate exception to
   // this file's "leave a hole" rule. The menu is where the language picker
@@ -115,85 +115,85 @@ export const sv: Translation = {
   // The game's NAME is not here because it is not a string: the logo is
   // artwork. `menu.title` is its alt text, and it is translated because a
   // screen reader is the one place the name IS a string.
-  'menu.title': 'Beast Story: Bonds of Red',
-  'menu.pressStart': 'Tryck på start...',
-  'menu.newGame': 'Nytt spel',
-  'menu.load': 'Ladda',
-  'menu.load.unavailable': 'Inget sparat spel',
-  'menu.settings': 'Inställningar',
-  'menu.back': 'Tillbaka',
-  'menu.settings.title': 'Inställningar',
+  "menu.title": "Beast Story: Bonds of Red",
+  "menu.pressStart": "Tryck på start...",
+  "menu.newGame": "Nytt spel",
+  "menu.load": "Ladda",
+  "menu.load.unavailable": "Inget sparat spel",
+  "menu.settings": "Inställningar",
+  "menu.back": "Tillbaka",
+  "menu.settings.title": "Inställningar",
 
   // Sparade karaktärer (issue #171). En karaktär har ett namn, inte ett
   // platsnummer — därför finns ingen "Plats 1" här.
-  'saves.namePrompt': 'Vad heter du?',
-  'saves.nameDefault': 'Hjälte',
-  'saves.begin': 'Börja',
-  'saves.power': 'Styrka {n}',
-  'saves.delete': 'Radera',
+  "saves.namePrompt": "Vad heter du?",
+  "saves.nameDefault": "Hjälte",
+  "saves.begin": "Börja",
+  "saves.power": "Styrka {n}",
+  "saves.delete": "Radera",
   // Samma knapp efter en tryckning. Två tryck raderar.
-  'saves.deleteConfirm': 'Bekräfta?',
-  'saves.empty': 'Inga karaktärer än',
-  'saves.loadFailed': 'Karaktären kunde inte laddas',
+  "saves.deleteConfirm": "Bekräfta?",
+  "saves.empty": "Inga karaktärer än",
+  "saves.loadFailed": "Karaktären kunde inte laddas",
 
   // Om spelet (src/ui/about.ts). Meningarna hålls korta och fristående, precis
   // som i en.ts — en rad är en sak, och den första raden ska räcka på egen hand.
   // Licenstexten översätts inte och finns inte här: den är ett juridiskt
   // meddelande vi är skyldiga att återge ordagrant.
-  'menu.about': 'Om spelet',
-  'about.lead':
-    'Beast Story: Bonds of Red är ett litet öppet äventyrsspel. Du utforskar, du ' +
-    'möter bestar, och de slåss vid din sida.',
+  "menu.about": "Om spelet",
+  "about.lead":
+    "Beast Story: Bonds of Red är ett litet öppet äventyrsspel. Du utforskar, du " +
+    "möter bestar, och de slåss vid din sida.",
   // Ett ord per rad, precis som i en.ts.
-  'about.what': 'Vad du gör',
-  'about.what.1': 'Utforska',
-  'about.what.2': 'Tämj bestar',
-  'about.what.3': 'Strid',
-  'about.what.4': 'Bli starkare',
-  'about.ai': 'AI-information',
-  'about.ai.body':
-    'Det här projektet är byggt med omfattande hjälp av generativ AI. Kod, bild, ' +
-    'musik och text är framtagna med AI-verktyg och sedan granskade och ' +
-    'redigerade av en människa. Betrakta allt här som AI-assisterat arbete.',
-  'about.credits': 'Medverkande',
-  'about.credits.body': 'Gjort av Mikael Porttila.',
-  'about.licenses': 'Licenser',
-  'about.licenses.shipped': 'Ingår i spelet:',
-  'about.licenses.tools': 'Används för att bygga och testa, ingår inte:',
+  "about.what": "Vad du gör",
+  "about.what.1": "Utforska",
+  "about.what.2": "Tämj bestar",
+  "about.what.3": "Strid",
+  "about.what.4": "Bli starkare",
+  "about.ai": "AI-information",
+  "about.ai.body":
+    "Det här projektet är byggt med omfattande hjälp av generativ AI. Kod, bild, " +
+    "musik och text är framtagna med AI-verktyg och sedan granskade och " +
+    "redigerade av en människa. Betrakta allt här som AI-assisterat arbete.",
+  "about.credits": "Medverkande",
+  "about.credits.body": "Gjort av Mikael Porttila.",
+  "about.licenses": "Licenser",
+  "about.licenses.shipped": "Ingår i spelet:",
+  "about.licenses.tools": "Används för att bygga och testa, ingår inte:",
   // Flikarna över inställningarna. 'Spel' och inte 'Spelupplevelse': fliken står
   // bredvid tre andra i en spalt som är 400 px bred, och ordet ska rymmas.
-  'menu.settings.tab.gameplay': 'Spel',
-  'menu.settings.tab.controls': 'Kontroller',
-  'menu.settings.tab.graphics': 'Grafik',
-  'menu.settings.tab.sound': 'Ljud',
+  "menu.settings.tab.gameplay": "Spel",
+  "menu.settings.tab.controls": "Kontroller",
+  "menu.settings.tab.graphics": "Grafik",
+  "menu.settings.tab.sound": "Ljud",
   // Grafikfliken. Samma reglage som F3-panelen, men med spelarens ord —
   // 'Växtlighet' täcker gräs, blommor och markens småväxter tillsammans.
-  'menu.settings.ao': 'Omgivningsskuggning',
-  'menu.settings.bloom': 'Ljussken',
-  'menu.settings.aa': 'Kantutjämning',
-  'menu.settings.shadows': 'Skuggor',
-  'menu.settings.terrainDistance': 'Siktavstånd',
-  'menu.settings.foliage': 'Växtlighet',
-  'menu.settings.foliageDistance': 'Räckvidd för växtlighet',
-  'menu.settings.hapticFeedback': 'Aktivera vibration i handkontrollen',
-  'menu.settings.invertX': 'Invertera sikte X',
-  'menu.settings.invertY': 'Invertera sikte Y',
-  'menu.settings.controllerNote': 'Gäller bara handkontroll — musen inverteras aldrig.',
-  'menu.settings.autoFullscreen': 'Helskärm vid start',
+  "menu.settings.ao": "Omgivningsskuggning",
+  "menu.settings.bloom": "Ljussken",
+  "menu.settings.aa": "Kantutjämning",
+  "menu.settings.shadows": "Skuggor",
+  "menu.settings.terrainDistance": "Siktavstånd",
+  "menu.settings.foliage": "Växtlighet",
+  "menu.settings.foliageDistance": "Räckvidd för växtlighet",
+  "menu.settings.hapticFeedback": "Aktivera vibration i handkontrollen",
+  "menu.settings.invertX": "Invertera sikte X",
+  "menu.settings.invertY": "Invertera sikte Y",
+  "menu.settings.controllerNote": "Gäller bara handkontroll — musen inverteras aldrig.",
+  "menu.settings.autoFullscreen": "Helskärm vid start",
   // Under helskärmsraden, och bara när den visas avstängd: en webbläsare som
   // inte lämnar ifrån sig Escape-tangenten. Säger vad webbläsaren gör, inte att
   // funktionen saknas.
-  'menu.settings.fullscreenEscape':
-    'Den här webbläsaren lämnar helskärm när du trycker Escape, så spelet startar i fönster.',
-  'menu.settings.music': 'Musik',
+  "menu.settings.fullscreenEscape":
+    "Den här webbläsaren lämnar helskärm när du trycker Escape, så spelet startar i fönster.",
+  "menu.settings.music": "Musik",
   // Enheten står i själva knappen: "5" bredvid raden Autosparning kan läsas
   // som sekunder.
-  'menu.settings.autosave': 'Autosparning',
-  'menu.settings.autosave.minutes': '{n} min',
-  'menu.settings.language': 'Språk',
+  "menu.settings.autosave": "Autosparning",
+  "menu.settings.autosave.minutes": "{n} min",
+  "menu.settings.language": "Språk",
   // Under språkväljaren, och bara när inställningarna öppnats inifrån ett spel
   // där den är avstängd. Säger var inställningen finns, inte att den saknas.
-  'menu.settings.languageInGame': 'Byt språk från startskärmen.',
+  "menu.settings.languageInGame": "Byt språk från startskärmen.",
 
   // Menyn i spelet (src/ui/pause.ts) — Escape, Start på handkontrollen eller
   // MENY-knappen på pekskärmen.
@@ -201,27 +201,26 @@ export const sv: Translation = {
   // 'Meny' och inte 'Pausad': hjälten står stilla medan menyn är uppe, men
   // världen bakom honom gör inte det — bestar följer, vilda varelser rör sig
   // och klockan går. Samma resonemang som i en.ts.
-  'pause.title': 'Meny',
-  'pause.continue': 'Fortsätt',
-  'pause.settings': 'Inställningar',
-  'pause.exit': 'Avsluta till startskärmen',
+  "pause.title": "Meny",
+  "pause.continue": "Fortsätt",
+  "pause.settings": "Inställningar",
+  "pause.exit": "Avsluta till startskärmen",
   // MENY-knappen uppe till vänster på pekskärmen. En knappetikett, så den är
   // lika kort som den engelska — knappen växer inte med ordet.
-  'touch.menu': 'MENY',
+  "touch.menu": "MENY",
   // Menyraden i F1-arket. F10 och inte Escape: webbläsaren tar Escape till att
   // lämna helskärm och släppa muspekaren, så menyn flyttade.
-  'keys.menu': 'Spelmeny',
+  "keys.menu": "Spelmeny",
   // Raden för Escape. Samma ordning som originalet — den stänger det som är
   // uppe. Den öppnar inte längre menyn.
-  'keys.cancel': 'Stäng · avbryt',
+  "keys.cancel": "Stäng · avbryt",
 
   // Uppstartsförloppet (src/ui/loading.ts).
-  'load.world': 'Bygger världen',
-  'load.actors': 'Väcker bestarna',
-  'load.shaders': 'Kompilerar shaders',
-  'load.terrain': 'Låter skogen växa',
-  'load.ready': 'Klar',
-  'menu.on': 'PÅ',
-  'menu.off': 'AV',
-
+  "load.world": "Bygger världen",
+  "load.actors": "Väcker bestarna",
+  "load.shaders": "Kompilerar shaders",
+  "load.terrain": "Låter skogen växa",
+  "load.ready": "Klar",
+  "menu.on": "PÅ",
+  "menu.off": "AV",
 };

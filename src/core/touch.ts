@@ -1,7 +1,7 @@
-import type { Input } from './input';
+import type { Input } from "./input";
 // Type-only, so no import edge: the look axes are one setting shared with the pad.
-import type { LookAxes } from './gamepad';
-import { t, type StringKey } from '../i18n';
+import type { LookAxes } from "./gamepad";
+import { t, type StringKey } from "../i18n";
 
 /**
  * Touch controls. Buttons sit on arcs centred on each stick; angles run counter-clockwise
@@ -14,9 +14,11 @@ import { t, type StringKey } from '../i18n';
  * exposes touch events regardless of hardware. Hybrids activate lazily in `attach`.
  */
 export function isTouchPrimary(): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === "undefined") {
+    return false;
+  }
   const points = navigator.maxTouchPoints ?? 0;
-  const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false;
   return points > 0 && coarse;
 }
 
@@ -138,42 +140,47 @@ class Stick {
   y = 0;
 
   /** `pad` makes this a FLOATING stick: the pad hears the touch, the ring only follows. */
-  constructor(kind: 'move' | 'look', tag: string, onChange: () => void, pad?: HTMLElement) {
-    this.el = document.createElement('div');
+  constructor(kind: "move" | "look", tag: string, onChange: () => void, pad?: HTMLElement) {
+    this.el = document.createElement("div");
     this.el.className = `bs-stick ${kind}`;
-    this.knob = document.createElement('div');
-    this.knob.className = 'knob';
+    this.knob = document.createElement("div");
+    this.knob.className = "knob";
     this.el.appendChild(this.knob);
-    const label = document.createElement('div');
-    label.className = 'tag';
+    const label = document.createElement("div");
+    label.className = "tag";
     label.textContent = tag;
     this.el.appendChild(label);
 
     const host = pad ?? this.el;
-    host.addEventListener('touchstart', (e) => {
-      if (this.active) return;
-      const t = e.changedTouches[0];
-      // Home the ring first: the deflection radius comes from its rect.
-      this.el.style.transform = '';
-      const r = this.el.getBoundingClientRect();
-      let cx = r.left + r.width / 2;
-      let cy = r.top + r.height / 2;
-      if (pad) {
-        // Origin is the finger, clamped so the ring stays inside the pad.
-        const h = pad.getBoundingClientRect();
-        const half = r.width / 2;
-        cx = Math.min(Math.max(t.clientX, h.left + half), h.right - half);
-        cy = Math.min(Math.max(t.clientY, h.top + half), h.bottom - half);
-        this.el.style.transform =
-          `translate(${(cx - (r.left + half)).toFixed(1)}px,${(cy - (r.top + half)).toFixed(1)}px)`;
-      }
-      this.active = { id: t.identifier, cx, cy, radius: r.width * 0.42 };
-      this.el.classList.add('active');
-      this.move(t.clientX, t.clientY);
-      onChange();
-      e.preventDefault();
-      e.stopPropagation();
-    }, { passive: false });
+    host.addEventListener(
+      "touchstart",
+      (e) => {
+        if (this.active) {
+          return;
+        }
+        const t = e.changedTouches[0];
+        // Home the ring first: the deflection radius comes from its rect.
+        this.el.style.transform = "";
+        const r = this.el.getBoundingClientRect();
+        let cx = r.left + r.width / 2;
+        let cy = r.top + r.height / 2;
+        if (pad) {
+          // Origin is the finger, clamped so the ring stays inside the pad.
+          const h = pad.getBoundingClientRect();
+          const half = r.width / 2;
+          cx = Math.min(Math.max(t.clientX, h.left + half), h.right - half);
+          cy = Math.min(Math.max(t.clientY, h.top + half), h.bottom - half);
+          this.el.style.transform = `translate(${(cx - (r.left + half)).toFixed(1)}px,${(cy - (r.top + half)).toFixed(1)}px)`;
+        }
+        this.active = { id: t.identifier, cx, cy, radius: r.width * 0.42 };
+        this.el.classList.add("active");
+        this.move(t.clientX, t.clientY);
+        onChange();
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      { passive: false },
+    );
   }
 
   owns(id: number): boolean {
@@ -185,7 +192,9 @@ class Stick {
   }
 
   move(px: number, py: number): void {
-    if (!this.active) return;
+    if (!this.active) {
+      return;
+    }
     const dx = px - this.active.cx;
     const dy = py - this.active.cy;
     const len = Math.hypot(dx, dy) || 1;
@@ -201,9 +210,9 @@ class Stick {
     this.active = null;
     this.x = 0;
     this.y = 0;
-    this.el.classList.remove('active');
-    this.knob.style.transform = 'translate(-50%,-50%)';
-    this.el.style.transform = ''; // floating ring snaps back to its home corner
+    this.el.classList.remove("active");
+    this.knob.style.transform = "translate(-50%,-50%)";
+    this.el.style.transform = ""; // floating ring snaps back to its home corner
   }
 }
 
@@ -220,7 +229,9 @@ export class TouchControls {
 
   /** Null on pure mouse hardware. A hybrid gets a hidden instance that still ticks. */
   static attach(input: Input, onSkill?: (index: number) => void): TouchControls | null {
-    if (!hasTouchCapability() && !isTouchPrimary()) return null;
+    if (!hasTouchCapability() && !isTouchPrimary()) {
+      return null;
+    }
     return new TouchControls(input, onSkill, !isTouchPrimary());
   }
 
@@ -229,118 +240,158 @@ export class TouchControls {
     onSkill?: (index: number) => void,
     deferred = false,
   ) {
-    const style = document.createElement('style');
+    const style = document.createElement("style");
     style.textContent = CSS;
     document.head.appendChild(style);
 
-    this.root = document.createElement('div');
-    this.root.className = 'bs-touch';
+    this.root = document.createElement("div");
+    this.root.className = "bs-touch";
 
     // The look pad goes in FIRST so every button added below hit-tests above it.
-    const lookPad = document.createElement('div');
-    lookPad.className = 'bs-look';
+    const lookPad = document.createElement("div");
+    lookPad.className = "bs-look";
     this.root.appendChild(lookPad);
 
-    this.moveStick = new Stick('move', t('touch.move'), () => {
+    this.moveStick = new Stick("move", t("touch.move"), () => {
       this.input.setStick(this.moveStick.x, this.moveStick.y);
     });
-    this.lookStick = new Stick('look', t('touch.look'), () => {
-      this.input.setTouchLooking(true);
-    }, lookPad);
+    this.lookStick = new Stick(
+      "look",
+      t("touch.look"),
+      () => {
+        this.input.setTouchLooking(true);
+      },
+      lookPad,
+    );
     this.root.appendChild(this.moveStick.el);
     lookPad.appendChild(this.lookStick.el);
 
     const place = (el: HTMLElement, angle: number): void => {
-      el.style.setProperty('--a', `${angle}deg`);
+      el.style.setProperty("--a", `${angle}deg`);
     };
 
-    const skills = document.createElement('div');
-    skills.className = 'bs-skills';
+    const skills = document.createElement("div");
+    skills.className = "bs-skills";
     const SKILL_ANGLES = [97, 123, 149, 175];
     for (let i = 0; i < 4; i++) {
-      const b = document.createElement('button');
-      b.className = 'bs-skill';
+      const b = document.createElement("button");
+      b.className = "bs-skill";
       b.textContent = String(i + 1);
       place(b, SKILL_ANGLES[i]);
-      b.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.input.tapVirtual(`Digit${i + 1}`);
-        onSkill?.(i);
-      }, { passive: false });
+      b.addEventListener(
+        "touchstart",
+        (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.input.tapVirtual(`Digit${i + 1}`);
+          onSkill?.(i);
+        },
+        { passive: false },
+      );
       skills.appendChild(b);
     }
     this.root.appendChild(skills);
 
-    const btns = document.createElement('div');
-    btns.className = 'bs-btns';
-    const nearBtns = document.createElement('div');
-    nearBtns.className = 'bs-btns near';
+    const btns = document.createElement("div");
+    btns.className = "bs-btns";
+    const nearBtns = document.createElement("div");
+    nearBtns.className = "bs-btns near";
     const mkButton = (
-      into: HTMLDivElement, angle: number, cls: string, label: string,
-      onDown: () => void, onUp?: () => void,
+      into: HTMLDivElement,
+      angle: number,
+      cls: string,
+      label: string,
+      onDown: () => void,
+      onUp?: () => void,
     ): void => {
-      const b = document.createElement('button');
+      const b = document.createElement("button");
       b.className = `bs-btn ${cls}`;
       b.textContent = label;
       place(b, angle);
-      b.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        b.classList.add('on');
-        onDown();
-      }, { passive: false });
-      const release = (): void => { b.classList.remove('on'); onUp?.(); };
-      b.addEventListener('touchend', release);
-      b.addEventListener('touchcancel', release);
+      b.addEventListener(
+        "touchstart",
+        (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          b.classList.add("on");
+          onDown();
+        },
+        { passive: false },
+      );
+      const release = (): void => {
+        b.classList.remove("on");
+        onUp?.();
+      };
+      b.addEventListener("touchend", release);
+      b.addEventListener("touchcancel", release);
       into.appendChild(b);
     };
 
     // The CSS class is the identifier; the cap is display. Nothing keys on the word.
-    mkButton(btns, 68, 'attack', t('touch.attack'),
+    mkButton(
+      btns,
+      68,
+      "attack",
+      t("touch.attack"),
       () => this.input.setVirtualAttack(true),
-      () => this.input.setVirtualAttack(false));
-    mkButton(btns, 202, 'jump', t('touch.jump'),
-      () => this.input.setVirtualButton('Space', true),
-      () => this.input.setVirtualButton('Space', false));
-    mkButton(nearBtns, 55, 'interact', t('touch.interact'), () => this.input.tapVirtual('KeyE'));
-    mkButton(nearBtns, 105, 'swap', t('touch.swap'), () => this.input.tapVirtual('Tab'));
+      () => this.input.setVirtualAttack(false),
+    );
+    mkButton(
+      btns,
+      202,
+      "jump",
+      t("touch.jump"),
+      () => this.input.setVirtualButton("Space", true),
+      () => this.input.setVirtualButton("Space", false),
+    );
+    mkButton(nearBtns, 55, "interact", t("touch.interact"), () => this.input.tapVirtual("KeyE"));
+    mkButton(nearBtns, 105, "swap", t("touch.swap"), () => this.input.tapVirtual("Tab"));
     this.root.appendChild(btns);
     this.root.appendChild(nearBtns);
 
     // MENU taps the virtual F10 main.ts already routes — one key edge, one entry point.
-    const menuBtn = document.createElement('button');
-    menuBtn.className = 'bs-pausebtn';
-    menuBtn.textContent = t('touch.menu');
-    menuBtn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      menuBtn.classList.add('on');
-      this.input.tapVirtual('F10');
-    }, { passive: false });
-    const menuUp = (): void => menuBtn.classList.remove('on');
-    menuBtn.addEventListener('touchend', menuUp);
-    menuBtn.addEventListener('touchcancel', menuUp);
+    const menuBtn = document.createElement("button");
+    menuBtn.className = "bs-pausebtn";
+    menuBtn.textContent = t("touch.menu");
+    menuBtn.addEventListener(
+      "touchstart",
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        menuBtn.classList.add("on");
+        this.input.tapVirtual("F10");
+      },
+      { passive: false },
+    );
+    const menuUp = (): void => menuBtn.classList.remove("on");
+    menuBtn.addEventListener("touchend", menuUp);
+    menuBtn.addEventListener("touchcancel", menuUp);
     this.root.appendChild(menuBtn);
 
     // Hybrids stay hidden until a real touch; the instance still ticks.
     this.revealed = !deferred;
-    if (deferred) this.root.classList.add('hidden');
+    if (deferred) {
+      this.root.classList.add("hidden");
+    }
     document.body.appendChild(this.root);
 
     // Global move/end handling so a finger that slides off its stick keeps working.
-    window.addEventListener('touchmove', (e) => {
-      for (const t of Array.from(e.changedTouches)) {
-        if (this.moveStick.owns(t.identifier)) {
-          this.moveStick.move(t.clientX, t.clientY);
-          this.input.setStick(this.moveStick.x, this.moveStick.y);
-          e.preventDefault();
-        } else if (this.lookStick.owns(t.identifier)) {
-          this.lookStick.move(t.clientX, t.clientY);
-          e.preventDefault();
+    window.addEventListener(
+      "touchmove",
+      (e) => {
+        for (const t of Array.from(e.changedTouches)) {
+          if (this.moveStick.owns(t.identifier)) {
+            this.moveStick.move(t.clientX, t.clientY);
+            this.input.setStick(this.moveStick.x, this.moveStick.y);
+            e.preventDefault();
+          } else if (this.lookStick.owns(t.identifier)) {
+            this.lookStick.move(t.clientX, t.clientY);
+            e.preventDefault();
+          }
         }
-      }
-    }, { passive: false });
+      },
+      { passive: false },
+    );
 
     const endTouch = (e: TouchEvent): void => {
       for (const t of Array.from(e.changedTouches)) {
@@ -353,28 +404,33 @@ export class TouchControls {
         }
       }
     };
-    window.addEventListener('touchend', endTouch);
-    window.addEventListener('touchcancel', endTouch);
+    window.addEventListener("touchend", endTouch);
+    window.addEventListener("touchcancel", endTouch);
 
     // First real touch marks the session touch-driven (no pointer lock) and reveals.
-    window.addEventListener('touchstart', () => {
-      this.input.touchActive = true;
-      this.revealed = true;
-      this.root.classList.remove('hidden');
-    }, { passive: true });
+    window.addEventListener(
+      "touchstart",
+      () => {
+        this.input.touchActive = true;
+        this.revealed = true;
+        this.root.classList.remove("hidden");
+      },
+      { passive: true },
+    );
 
     // Which device is LIVE, stamped per gesture. CAPTURE PHASE is required: every stick
     // and button calls stopPropagation(), so a bubble listener never sees them.
-    window.addEventListener(
-      'touchstart',
-      () => this.input.noteSource('touch'),
-      { passive: true, capture: true },
-    );
+    window.addEventListener("touchstart", () => this.input.noteSource("touch"), {
+      passive: true,
+      capture: true,
+    });
   }
 
   /** Per frame: the look stick is a RATE control, so held deflection must keep feeding. */
   update(dt: number): void {
-    if (!this.lookStick.engaged) return;
+    if (!this.lookStick.engaged) {
+      return;
+    }
     const k = TouchControls.LOOK_PX_PER_SEC * Math.min(dt, 0.05);
     // Stick y is screen-up-positive; negate into the down-positive axis `lookSignY` uses.
     this.input.addLook(
@@ -386,26 +442,32 @@ export class TouchControls {
 
   /** Same contract as `GamepadControls.setLookAxes` — a virtual stick is a stick. */
   setLookAxes(a: Partial<LookAxes>): void {
-    if (a.invertX !== undefined) this.lookSignX = a.invertX ? -1 : 1;
-    if (a.invertY !== undefined) this.lookSignY = a.invertY ? -1 : 1;
+    if (a.invertX !== undefined) {
+      this.lookSignX = a.invertX ? -1 : 1;
+    }
+    if (a.invertY !== undefined) {
+      this.lookSignY = a.invertY ? -1 : 1;
+    }
   }
 
   get lookAxes(): LookAxes {
     return { invertX: this.lookSignX < 0, invertY: this.lookSignY < 0 };
   }
 
-  get isRevealed(): boolean { return this.revealed; }
+  get isRevealed(): boolean {
+    return this.revealed;
+  }
 
   /** Called every frame. Never reveals a deferred overlay. */
   setVisible(v: boolean): void {
-    this.root.classList.toggle('hidden', !v || !this.revealed);
+    this.root.classList.toggle("hidden", !v || !this.revealed);
     if (!v) {
       this.moveStick.release();
       this.lookStick.release();
       this.input.setStick(0, 0);
       this.input.setTouchLooking(false);
       this.input.setVirtualAttack(false);
-      this.input.setVirtualButton('Space', false);
+      this.input.setVirtualButton("Space", false);
     }
   }
 
@@ -413,15 +475,17 @@ export class TouchControls {
   relabel(): void {
     const cap = (sel: string, key: StringKey): void => {
       const el = this.root.querySelector(sel);
-      if (el) el.textContent = t(key);
+      if (el) {
+        el.textContent = t(key);
+      }
     };
-    cap('.bs-stick.move .tag', 'touch.move');
-    cap('.bs-stick.look .tag', 'touch.look');
-    cap('.bs-btn.attack', 'touch.attack');
-    cap('.bs-btn.jump', 'touch.jump');
-    cap('.bs-btn.interact', 'touch.interact');
-    cap('.bs-btn.swap', 'touch.swap');
-    cap('.bs-pausebtn', 'touch.menu');
+    cap(".bs-stick.move .tag", "touch.move");
+    cap(".bs-stick.look .tag", "touch.look");
+    cap(".bs-btn.attack", "touch.attack");
+    cap(".bs-btn.jump", "touch.jump");
+    cap(".bs-btn.interact", "touch.interact");
+    cap(".bs-btn.swap", "touch.swap");
+    cap(".bs-pausebtn", "touch.menu");
   }
 
   dispose(): void {

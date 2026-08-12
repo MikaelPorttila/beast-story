@@ -2,9 +2,9 @@
  * Terrain chunk mesher. Emits only exposed faces of the column heightfield, with
  * hue jitter, face shading and per-VERTEX corner AO baked into vertex colours.
  */
-import * as THREE from 'three';
-import { hashCell } from './noise';
-import { CHUNK_SIZE, STONE, STONE_WARM, Terrain, WATER_LEVEL, makeScratch } from './terrain';
+import * as THREE from "three";
+import { hashCell } from "./noise";
+import { CHUNK_SIZE, STONE, STONE_WARM, Terrain, WATER_LEVEL, makeScratch } from "./terrain";
 
 const S_TOP = 1.0;
 
@@ -19,7 +19,7 @@ const SIDE_BOUNCE = [0.45, 0.45, 0.45, 0.45];
  * Corner-AO per occlusion level (3 = open, 0 = boxed in). Steep, because the
  * crevice darkening IS the texture. Floor 0.42 — 0.30 bottomed out to black.
  */
-const AO = [0.42, 0.60, 0.80, 1.0];
+const AO = [0.42, 0.6, 0.8, 1.0];
 
 /** Classic voxel corner AO: two edge neighbours plus the diagonal. */
 const aoLevel = (s1: boolean, s2: boolean, c: boolean): number =>
@@ -95,22 +95,45 @@ export function* buildTerrainMeshSteps(
    * bilinear gradient and the diagonal shows as a crease.
    */
   const quad = (
-    ax: number, ay: number, az: number,
-    bx: number, by: number, bz: number,
-    qcx: number, qcy: number, qcz: number,
-    dx: number, dy: number, dz: number,
-    nx: number, ny: number, nz: number,
-    r: number, g: number, b: number,
-    a0: number, a1: number, a2: number, a3: number,
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
+    qcx: number,
+    qcy: number,
+    qcz: number,
+    dx: number,
+    dy: number,
+    dz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    r: number,
+    g: number,
+    b: number,
+    a0: number,
+    a1: number,
+    a2: number,
+    a3: number,
   ): void => {
     const base = pos.length / 3;
     pos.push(ax, ay, az, bx, by, bz, qcx, qcy, qcz, dx, dy, dz);
     nrm.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
     col.push(
-      r * a0, g * a0, b * a0,
-      r * a1, g * a1, b * a1,
-      r * a2, g * a2, b * a2,
-      r * a3, g * a3, b * a3,
+      r * a0,
+      g * a0,
+      b * a0,
+      r * a1,
+      g * a1,
+      b * a1,
+      r * a2,
+      g * a2,
+      b * a2,
+      r * a3,
+      g * a3,
+      b * a3,
     );
     if (a0 === a1 && a1 === a2 && a2 === a3) {
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -121,12 +144,7 @@ export function* buildTerrainMeshSteps(
     nrm.push(nx, ny, nz);
     col.push(r * am, g * am, b * am);
     const m = base + 4;
-    idx.push(
-      base, base + 1, m,
-      base + 1, base + 2, m,
-      base + 2, base + 3, m,
-      base + 3, base, m,
-    );
+    idx.push(base, base + 1, m, base + 1, base + 2, m, base + 2, base + 3, m, base + 3, base, m);
   };
 
   // strata color for deep cliff cells (horizontal sedimentary bands)
@@ -154,7 +172,10 @@ export function* buildTerrainMeshSteps(
       const hN = hA[i - G];
 
       const steep = Math.max(
-        Math.abs(H - hE), Math.abs(H - hW), Math.abs(H - hS), Math.abs(H - hN),
+        Math.abs(H - hE),
+        Math.abs(H - hW),
+        Math.abs(H - hS),
+        Math.abs(H - hN),
       );
       const gx = (hcA[i + 1] - hcA[i - 1]) * 0.5;
       const gz = (hcA[i + G] - hcA[i - G]) * 0.5;
@@ -181,7 +202,7 @@ export function* buildTerrainMeshSteps(
       // Hollows: -14% value and pushed toward blue-green (deep moss).
       // Crowns: +9% value and pushed toward yellow (bleached, dusty).
       const hm = 1 - hollow * 0.14;
-      r *= hm * (1 - hollow * 0.10);
+      r *= hm * (1 - hollow * 0.1);
       g *= hm;
       b *= hm * (1 + hollow * 0.16);
       const cm = 1 + crown * 0.09;
@@ -202,26 +223,40 @@ export function* buildTerrainMeshSteps(
       const sp = hashCell(seed, wx, H + 7, wz);
       if (gw > 0.35) {
         if (sp > 0.94) {
-          r *= 0.72; g *= 0.88; b *= 0.82; // clover: deeper, bluer green
+          r *= 0.72;
+          g *= 0.88;
+          b *= 0.82; // clover: deeper, bluer green
         } else if (sp > 0.895) {
-          r *= 1.18; g *= 1.05; b *= 0.84; // dry straw tuft
+          r *= 1.18;
+          g *= 1.05;
+          b *= 0.84; // dry straw tuft
         } else if (sp > 0.855) {
-          r *= 0.80; g *= 1.06; b *= 0.72; // deep lush blade clump
-        } else if (sp < 0.020) {
+          r *= 0.8;
+          g *= 1.06;
+          b *= 0.72; // deep lush blade clump
+        } else if (sp < 0.02) {
           // MOSSY, not pale: mid grey on grass read as a missing texture.
           const pw = 0.55;
-          r += (0.105 - r) * pw; g += (0.115 - g) * pw; b += (0.090 - b) * pw;
+          r += (0.105 - r) * pw;
+          g += (0.115 - g) * pw;
+          b += (0.09 - b) * pw;
         }
       } else {
         // Sand/snow/bed. Bright sand sits high on the tone curve where the
         // multiplicative jitter fades, so grains carry the texture instead.
         if (sp > 0.945) {
-          r *= 1.09; g *= 1.07; b *= 1.02; // sun-bleached grain
-        } else if (sp < 0.110) {
-          r *= 0.87; g *= 0.90; b *= 0.96; // damp / shaded grain, cooler
+          r *= 1.09;
+          g *= 1.07;
+          b *= 1.02; // sun-bleached grain
+        } else if (sp < 0.11) {
+          r *= 0.87;
+          g *= 0.9;
+          b *= 0.96; // damp / shaded grain, cooler
         } else if (sp > 0.905 && sp < 0.938) {
           const pw = 0.5; // shell grit / a dark pebble
-          r += (0.20 - r) * pw; g += (0.19 - g) * pw; b += (0.17 - b) * pw;
+          r += (0.2 - r) * pw;
+          g += (0.19 - g) * pw;
+          b += (0.17 - b) * pw;
         }
       }
 
@@ -232,14 +267,20 @@ export function* buildTerrainMeshSteps(
       if (gw > 0) {
         // ASYMMETRIC: pushing chroma OUT past ~0.20 drove grass red to zero
         // (clamped below), leaving a surface that cannot take the warm sun key.
-        const sat = jt >= 0 ? 1 - jt * 0.28 * gw : 1 - jt * 0.20 * gw;
+        const sat = jt >= 0 ? 1 - jt * 0.28 * gw : 1 - jt * 0.2 * gw;
         const lum = (r + g + b) * 0.3333;
         r = lum + (r - lum) * sat;
         g = lum + (g - lum) * sat;
         b = lum + (b - lum) * sat;
-        if (r < 0) r = 0;
-        if (g < 0) g = 0;
-        if (b < 0) b = 0;
+        if (r < 0) {
+          r = 0;
+        }
+        if (g < 0) {
+          g = 0;
+        }
+        if (b < 0) {
+          b = 0;
+        }
       }
       if (steep >= 3) {
         // steep crowns read as bare stone
@@ -251,13 +292,34 @@ export function* buildTerrainMeshSteps(
       }
 
       // Top-face corner AO: each of the eight neighbours occludes when above H.
-      const oE = hE > H, oW = hW > H, oS = hS > H, oN = hN > H;
-      const oSE = hA[i + 1 + G] > H, oSW = hA[i - 1 + G] > H;
-      const oNE = hA[i + 1 - G] > H, oNW = hA[i - 1 - G] > H;
+      const oE = hE > H,
+        oW = hW > H,
+        oS = hS > H,
+        oN = hN > H;
+      const oSE = hA[i + 1 + G] > H,
+        oSW = hA[i - 1 + G] > H;
+      const oNE = hA[i + 1 - G] > H,
+        oNW = hA[i - 1 - G] > H;
       const subT = submerged(H) * 0.94;
       quad(
-        lx, H, lz, lx, H, lz + 1, lx + 1, H, lz + 1, lx + 1, H, lz,
-        0, 1, 0, r, g, b,
+        lx,
+        H,
+        lz,
+        lx,
+        H,
+        lz + 1,
+        lx + 1,
+        H,
+        lz + 1,
+        lx + 1,
+        H,
+        lz,
+        0,
+        1,
+        0,
+        r,
+        g,
+        b,
         flatten(AO[aoLevel(oW, oN, oNW)], subT),
         flatten(AO[aoLevel(oW, oS, oSW)], subT),
         flatten(AO[aoLevel(oE, oS, oSE)], subT),
@@ -270,10 +332,19 @@ export function* buildTerrainMeshSteps(
         // vertex order v0=lowA, v1=highA, v2=highB, v3=lowB used below.
         let hTA: number;
         let hTB: number;
-        if (dir === 0) { hTA = hA[i + 1 - G]; hTB = hA[i + 1 + G]; }
-        else if (dir === 1) { hTA = hA[i - 1 + G]; hTB = hA[i - 1 - G]; }
-        else if (dir === 2) { hTA = hA[i + G + 1]; hTB = hA[i + G - 1]; }
-        else { hTA = hA[i - G - 1]; hTB = hA[i - G + 1]; }
+        if (dir === 0) {
+          hTA = hA[i + 1 - G];
+          hTB = hA[i + 1 + G];
+        } else if (dir === 1) {
+          hTA = hA[i - 1 + G];
+          hTB = hA[i - 1 - G];
+        } else if (dir === 2) {
+          hTA = hA[i + G + 1];
+          hTB = hA[i + G - 1];
+        } else {
+          hTA = hA[i - G - 1];
+          hTB = hA[i - G + 1];
+        }
 
         for (let y = nH + 1; y <= H; y++) {
           const depth = H - y;
@@ -321,23 +392,103 @@ export function* buildTerrainMeshSteps(
           const nv = ny * nl;
           if (dir === 0) {
             quad(
-              lx + 1, y0, lz, lx + 1, y, lz, lx + 1, y, lz + 1, lx + 1, y0, lz + 1,
-              nh, nv, 0, br, bg, bb, loA, upA, upB, loB,
+              lx + 1,
+              y0,
+              lz,
+              lx + 1,
+              y,
+              lz,
+              lx + 1,
+              y,
+              lz + 1,
+              lx + 1,
+              y0,
+              lz + 1,
+              nh,
+              nv,
+              0,
+              br,
+              bg,
+              bb,
+              loA,
+              upA,
+              upB,
+              loB,
             );
           } else if (dir === 1) {
             quad(
-              lx, y0, lz + 1, lx, y, lz + 1, lx, y, lz, lx, y0, lz,
-              -nh, nv, 0, br, bg, bb, loA, upA, upB, loB,
+              lx,
+              y0,
+              lz + 1,
+              lx,
+              y,
+              lz + 1,
+              lx,
+              y,
+              lz,
+              lx,
+              y0,
+              lz,
+              -nh,
+              nv,
+              0,
+              br,
+              bg,
+              bb,
+              loA,
+              upA,
+              upB,
+              loB,
             );
           } else if (dir === 2) {
             quad(
-              lx + 1, y0, lz + 1, lx + 1, y, lz + 1, lx, y, lz + 1, lx, y0, lz + 1,
-              0, nv, nh, br, bg, bb, loA, upA, upB, loB,
+              lx + 1,
+              y0,
+              lz + 1,
+              lx + 1,
+              y,
+              lz + 1,
+              lx,
+              y,
+              lz + 1,
+              lx,
+              y0,
+              lz + 1,
+              0,
+              nv,
+              nh,
+              br,
+              bg,
+              bb,
+              loA,
+              upA,
+              upB,
+              loB,
             );
           } else {
             quad(
-              lx, y0, lz, lx, y, lz, lx + 1, y, lz, lx + 1, y0, lz,
-              0, nv, -nh, br, bg, bb, loA, upA, upB, loB,
+              lx,
+              y0,
+              lz,
+              lx,
+              y,
+              lz,
+              lx + 1,
+              y,
+              lz,
+              lx + 1,
+              y0,
+              lz,
+              0,
+              nv,
+              -nh,
+              br,
+              bg,
+              bb,
+              loA,
+              upA,
+              upB,
+              loB,
             );
           }
         }
@@ -347,9 +498,9 @@ export function* buildTerrainMeshSteps(
   }
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   geo.computeBoundingSphere();
 
@@ -373,6 +524,8 @@ export function buildTerrainMesh(
 ): THREE.Mesh {
   const steps = buildTerrainMeshSteps(cx, cz, terrain, material);
   let result = steps.next();
-  while (!result.done) result = steps.next();
+  while (!result.done) {
+    result = steps.next();
+  }
   return result.value;
 }

@@ -42,8 +42,8 @@
 // Timing discipline: `wait(N)` does not exist here, on purpose. A section
 // settles on STATE (waitFn) or advances SIMULATED time (adv) — the twenty-first
 // probe copies whichever it sees, so the harness only offers the right two.
-import { frame, launchBrowser, newPage, whenPlaying } from '../browser.mjs';
-import { BASE as HOST } from '../target.mjs';
+import { frame, launchBrowser, newPage, whenPlaying } from "../browser.mjs";
+import { BASE as HOST } from "../target.mjs";
 
 /**
  * Default boot query: muted, no menu, no fullscreen resize under a probe, and
@@ -56,17 +56,20 @@ import { BASE as HOST } from '../target.mjs';
  * transaction — inside a frame somebody is timing. tools/test-saves.mjs is the
  * one probe that leaves it off, because the store is what it is testing.
  */
-const BOOT_QUERY = 'menu=0&fs=0&nostore=1';
+const BOOT_QUERY = "menu=0&fs=0&nostore=1";
 
 /**
  * Boot the game once and wait on STATE — `playing` is the last thing the
  * staged boot sets, so it is the boot's own definition of done.
  */
-export async function bootGamePage(browser, { query = BOOT_QUERY, width = 1280, height = 800 } = {}) {
+export async function bootGamePage(
+  browser,
+  { query = BOOT_QUERY, width = 1280, height = 800 } = {},
+) {
   const page = await newPage(browser, { width, height });
-  page.on('pageerror', (e) => console.error('[pageerror]', e.message));
-  await page.goto(`${HOST}/?${query}`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
+  await page.goto(`${HOST}/?${query}`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await whenPlaying(page);
   return page;
 }
@@ -92,7 +95,11 @@ function makeCtx(page, res, fails) {
   const ctx = {
     page,
     res,
-    check: (ok, msg) => { if (!ok) fails.push(msg); },
+    check: (ok, msg) => {
+      if (!ok) {
+        fails.push(msg);
+      }
+    },
     ev: (fn, ...args) => page.evaluate(fn, ...args),
     tp: (x, z, y) => page.evaluate(([a, b, c]) => window.__dbgTp(a, b, c), [x, z, y]),
     adv: async (s) => {
@@ -154,9 +161,9 @@ function makeCtx(page, res, fails) {
  * inherit them from whoever ran before it and pass for the wrong reason.
  */
 async function resetBetween(page) {
-  await page.evaluate(() => window.__dbgRide && window.__dbgRide('off'));
-  await page.evaluate(() => window.__dbgUnlockMount && window.__dbgUnlockMount('all', false));
-  for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC']) {
+  await page.evaluate(() => window.__dbgRide && window.__dbgRide("off"));
+  await page.evaluate(() => window.__dbgUnlockMount && window.__dbgUnlockMount("all", false));
+  for (const k of ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "KeyC"]) {
     await page.keyboard.up(k).catch(() => {});
   }
 }
@@ -180,7 +187,7 @@ async function resetBetween(page) {
  * have to know which two some other module happened to leave in the slots.
  */
 export async function bondAll(ctx) {
-  await ctx.ev(() => window.__dbgGrantBeast && window.__dbgGrantBeast('all'));
+  await ctx.ev(() => window.__dbgGrantBeast && window.__dbgGrantBeast("all"));
   // CHECKED, not assumed. Everything the calling module goes on to do depends
   // on there being a beast to mount, and the failure of a silent grant is a
   // section three screens later reporting that a held button never mounted —
@@ -190,8 +197,10 @@ export async function bondAll(ctx) {
     return t ? { owned: t.owned.length, lead: t.lead, support: t.support } : null;
   });
   ctx.res.party = party;
-  ctx.check(!!party && party.owned > 0 && party.lead !== null,
-    `bondAll left the party as ${JSON.stringify(party)} — nothing below can mount`);
+  ctx.check(
+    !!party && party.owned > 0 && party.lead !== null,
+    `bondAll left the party as ${JSON.stringify(party)} — nothing below can mount`,
+  );
   return party;
 }
 
@@ -211,12 +220,14 @@ export async function bondAll(ctx) {
  * is testing.
  */
 export async function unlockMounts(ctx) {
-  await ctx.ev(() => window.__dbgUnlockMount && window.__dbgUnlockMount('all', true));
+  await ctx.ev(() => window.__dbgUnlockMount && window.__dbgUnlockMount("all", true));
   // CHECKED, not assumed — same argument bondAll makes about a silent grant.
   const unlocked = await ctx.ev(() => window.__dbgMount?.().unlocked ?? null);
   ctx.res.mountUnlocks = unlocked;
-  ctx.check(Array.isArray(unlocked) && unlocked.length === 3,
-    `unlockMounts left the unlocks as ${JSON.stringify(unlocked)} — nothing below can mount`);
+  ctx.check(
+    Array.isArray(unlocked) && unlocked.length === 3,
+    `unlockMounts left the unlocks as ${JSON.stringify(unlocked)} — nothing below can mount`,
+  );
   return unlocked;
 }
 
@@ -243,7 +254,7 @@ export async function runModules(modules, page, { log = console.error } = {}) {
       const ms = Date.now() - t0;
       out.ms[`${mod.name}.${s.id}`] = ms;
       out.sections++;
-      log(`  ${fails.length ? '..' : 'ok'} ${mod.name}.${s.id}  ${(ms / 1000).toFixed(1)}s`);
+      log(`  ${fails.length ? ".." : "ok"} ${mod.name}.${s.id}  ${(ms / 1000).toFixed(1)}s`);
     }
     res.advance = ctx.advanceStats();
     out.modules[mod.name] = res;
@@ -264,12 +275,15 @@ export async function soloRun(mod, opts = {}) {
   try {
     const page = await bootGamePage(browser, opts);
     const out = await runModules([mod], page);
-    console.log(JSON.stringify(
-      { ...out.modules[mod.name], fails: out.fails, pass: out.fails.length === 0 },
-      null, 2,
-    ));
+    console.log(
+      JSON.stringify(
+        { ...out.modules[mod.name], fails: out.fails, pass: out.fails.length === 0 },
+        null,
+        2,
+      ),
+    );
     if (out.fails.length) {
-      console.error(`\n${out.fails.length} failure(s):\n  ${out.fails.join('\n  ')}`);
+      console.error(`\n${out.fails.length} failure(s):\n  ${out.fails.join("\n  ")}`);
       process.exitCode = 1;
     }
   } finally {

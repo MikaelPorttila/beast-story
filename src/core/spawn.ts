@@ -1,7 +1,7 @@
 /** The debug spawner's model. main.ts supplies the branches and the spawn function. */
-import type { StringKey } from '../i18n';
+import type { StringKey } from "../i18n";
 
-export type SpawnTarget = 'bag' | 'party' | 'world';
+export type SpawnTarget = "bag" | "party" | "world";
 
 export interface SpawnRow {
   /** Stable id, passed straight back to `spawn`. */
@@ -32,7 +32,9 @@ export interface SpawnCatalogue {
 /** Case-folded AND-substring over label, id and hint. Not fuzzy, by design. */
 export function spawnMatches(row: SpawnRow, query: string): boolean {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return true;
-  const hay = `${row.label} ${row.id} ${row.hint ?? ''}`.toLowerCase();
+  if (terms.length === 0) {
+    return true;
+  }
+  const hay = `${row.label} ${row.id} ${row.hint ?? ""}`.toLowerCase();
   return terms.every((term) => hay.includes(term));
 }

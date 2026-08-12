@@ -1,19 +1,29 @@
-import * as THREE from 'three';
-import { VoxelModel, shade } from '../core/voxel';
-import { MAX_STEP_UP, inRise } from '../core/types';
-import { CarrierRide } from '../world/carriers';
-import { BeastAnimClock } from '../beasts/framework';
-import { ALL_SPECIES } from '../beasts/registry';
+import * as THREE from "three";
+import { VoxelModel, shade } from "../core/voxel";
+import { MAX_STEP_UP, inRise } from "../core/types";
+import { CarrierRide } from "../world/carriers";
+import { BeastAnimClock } from "../beasts/framework";
+import { ALL_SPECIES } from "../beasts/registry";
 import type {
-  BeastAction, BeastRig, BeastSpecies, Damageable, ElementType, World,
-} from '../core/types';
-import type { StringKey } from '../i18n';
+  BeastAction,
+  BeastRig,
+  BeastSpecies,
+  Damageable,
+  ElementType,
+  World,
+} from "../core/types";
+import type { StringKey } from "../i18n";
 import {
-  content, defineFactory, BEAST_MODEL_PREFIX, ENEMY_MODEL_KIND,
-  type EnemyCapture, type EnemyData, type EnemyVariant,
-} from '../content';
-import { displayKey, reportContentIssue } from '../core/content-bridge';
-import type { VFX } from './vfx';
+  content,
+  defineFactory,
+  BEAST_MODEL_PREFIX,
+  ENEMY_MODEL_KIND,
+  type EnemyCapture,
+  type EnemyData,
+  type EnemyVariant,
+} from "../content";
+import { displayKey, reportContentIssue } from "../core/content-bridge";
+import type { VFX } from "./vfx";
 
 // Wild enemies. A species is an `enemy:` asset (issue #60); only the VOXEL
 // BUILDER is code, registered on the `enemy-model` kind at the bottom of this
@@ -28,12 +38,23 @@ export interface EnemyCtx {
   targets: readonly Damageable[];
   vfx: VFX;
   time: number;
-  hit(target: Damageable, amount: number, element: ElementType, fromX: number, fromY: number, fromZ: number): void;
+  hit(
+    target: Damageable,
+    amount: number,
+    element: ElementType,
+    fromX: number,
+    fromY: number,
+    fromZ: number,
+  ): void;
 }
 
 export function variantForHeight(dh: number): number {
-  if (dh < 2.5) return 2;
-  if (dh > 11) return 1;
+  if (dh < 2.5) {
+    return 2;
+  }
+  if (dh > 11) {
+    return 1;
+  }
   return 0;
 }
 
@@ -66,24 +87,31 @@ let cachedSpecs: readonly EnemySpec[] = [];
 let cachedById: ReadonlyMap<EnemySpeciesId, EnemySpec> = new Map();
 
 export function enemySpecies(): readonly EnemySpec[] {
-  const assets = content.all<EnemyData>('enemy');
-  if (assets === cachedFrom) return cachedSpecs;
+  const assets = content.all<EnemyData>("enemy");
+  if (assets === cachedFrom) {
+    return cachedSpecs;
+  }
   const specs: EnemySpec[] = [];
   for (const asset of assets) {
     const model = content.factory<EnemyModel>(ENEMY_MODEL_KIND, asset.data.model);
     if (!model) {
       reportContentIssue({
-        severity: 'error',
-        code: 'unknown-factory',
+        severity: "error",
+        code: "unknown-factory",
         message: `"${asset.id}" wants model "${asset.data.model}", which no builder implements`,
-        assetId: asset.id, assetType: asset.type, pkg: asset.pkg, source: asset.source,
-        field: 'data.model',
-        fix: `one of ${[...MODELS.keys()].join(', ')}`,
+        assetId: asset.id,
+        assetType: asset.type,
+        pkg: asset.pkg,
+        source: asset.source,
+        field: "data.model",
+        fix: `one of ${[...MODELS.keys()].join(", ")}`,
       });
       continue;
     }
     const nameKey = displayKey(asset);
-    if (nameKey === null) continue;
+    if (nameKey === null) {
+      continue;
+    }
     specs.push({
       id: asset.id.slice(asset.type.length + 1),
       nameKey,
@@ -109,13 +137,19 @@ function buildGloopling(root: THREE.Group, v: Variant): EnemyBody {
   m.ellipsoid(0, 3.4, 0, 5.2, 3.4, 4.8, v.dark);
   m.ellipsoid(0, 4.5, 0, 4.7, 3.4, 4.3, v.main);
   m.ellipsoid(0, 3.0, 2.7, 2.8, 2.0, 2.3, v.belly);
-  m.set(0, 8, 0, v.main); m.set(0, 9, 0, v.main); m.set(1, 9, 0, v.main);
+  m.set(0, 8, 0, v.main);
+  m.set(0, 9, 0, v.main);
+  m.set(1, 9, 0, v.main);
   for (const sx of [-2, 2]) {
-    m.set(sx, 4, 4, v.accent); m.set(sx, 5, 4, v.accent);
+    m.set(sx, 4, 4, v.accent);
+    m.set(sx, 5, 4, v.accent);
     m.set(sx, 6, 4, 0xf4fbff);
   }
-  m.set(-1, 3, 4, v.accent); m.set(0, 2, 4, v.accent); m.set(1, 3, 4, v.accent);
-  m.set(-4, 4, 3, 0xff9aa4); m.set(4, 4, 3, 0xff9aa4);
+  m.set(-1, 3, 4, v.accent);
+  m.set(0, 2, 4, v.accent);
+  m.set(1, 3, 4, v.accent);
+  m.set(-4, 4, 3, 0xff9aa4);
+  m.set(4, 4, 3, 0xff9aa4);
   const mesh = m.build(0.1);
   const body = new THREE.Group();
   body.add(mesh);
@@ -127,12 +161,18 @@ function buildSnortle(root: THREE.Group, v: Variant): EnemyBody {
   const bm = new VoxelModel();
   bm.ellipsoid(0, 4.2, -0.5, 3.8, 3.4, 5.4, v.main);
   bm.ellipsoid(0, 2.8, -0.5, 3.2, 2.2, 4.6, v.belly);
-  for (let z = -4; z <= 3; z++) bm.set(0, 8, z, v.dark);
-  for (let z = -2; z <= 1; z++) bm.set(0, 9, z, v.dark);
-  bm.set(0, 5, -7, v.dark); bm.set(0, 6, -7, v.dark); bm.set(0, 7, -6, v.dark);
+  for (let z = -4; z <= 3; z++) {
+    bm.set(0, 8, z, v.dark);
+  }
+  for (let z = -2; z <= 1; z++) {
+    bm.set(0, 9, z, v.dark);
+  }
+  bm.set(0, 5, -7, v.dark);
+  bm.set(0, 6, -7, v.dark);
+  bm.set(0, 7, -6, v.dark);
   const bodyMesh = bm.build(0.1);
   const body = new THREE.Group();
-  body.position.y = 0.30;
+  body.position.y = 0.3;
   body.add(bodyMesh);
   root.add(body);
 
@@ -141,7 +181,9 @@ function buildSnortle(root: THREE.Group, v: Variant): EnemyBody {
   hm.box(0, -2, 3, 1, 0, 5, v.accent);
   hm.set(1, -1, 5, shade(v.accent, 0.55));
   hm.set(0, -1, 5, shade(v.accent, 0.55));
-  hm.set(2, -1, 3, 0xf5efe0); hm.set(2, 0, 4, 0xf5efe0); hm.set(2, 1, 4, 0xf5efe0);
+  hm.set(2, -1, 3, 0xf5efe0);
+  hm.set(2, 0, 4, 0xf5efe0);
+  hm.set(2, 1, 4, 0xf5efe0);
   hm.box(2, 2, 0, 2, 4, 1, v.dark);
   hm.set(2, 1, 2, 0x14161c);
   hm.mirrorX();
@@ -154,8 +196,10 @@ function buildSnortle(root: THREE.Group, v: Variant): EnemyBody {
 
   const parts: Record<string, THREE.Object3D> = { body, head };
   const legPositions: Array<[string, number, number]> = [
-    ['legFL', -0.20, 0.30], ['legFR', 0.20, 0.30],
-    ['legBL', -0.20, -0.34], ['legBR', 0.20, -0.34],
+    ["legFL", -0.2, 0.3],
+    ["legFR", 0.2, 0.3],
+    ["legBL", -0.2, -0.34],
+    ["legBR", 0.2, -0.34],
   ];
   for (const [key, lx, lz] of legPositions) {
     const lm = new VoxelModel();
@@ -178,7 +222,9 @@ function buildPeckitWing(v: Variant, sign: number): THREE.Mesh {
     const z0 = x <= 3 ? -1 : -1;
     const z1 = x <= 3 ? 2 : 1;
     const col = x <= 3 ? v.main : v.dark;
-    for (let z = z0; z <= z1; z++) wm.set(x * sign, 0, z, col);
+    for (let z = z0; z <= z1; z++) {
+      wm.set(x * sign, 0, z, col);
+    }
   }
   wm.set(7 * sign, 0, 0, v.dark);
   wm.set(7 * sign, 0, -1, v.dark);
@@ -190,20 +236,25 @@ function buildPeckit(root: THREE.Group, v: Variant): EnemyBody {
   bm.ellipsoid(0, 3, -0.5, 2.4, 2.4, 3.6, v.main);
   bm.ellipsoid(0, 2.2, 1.4, 1.7, 1.5, 1.7, v.belly);
   bm.box(-1, 3, -6, 1, 3, -4, v.main);
-  bm.set(-2, 3, -6, v.dark); bm.set(2, 3, -6, v.dark);
-  bm.set(-1, 0, 0, v.accent); bm.set(1, 0, 0, v.accent);
+  bm.set(-2, 3, -6, v.dark);
+  bm.set(2, 3, -6, v.dark);
+  bm.set(-1, 0, 0, v.accent);
+  bm.set(1, 0, 0, v.accent);
   const bodyMesh = bm.build(0.1);
   const body = new THREE.Group();
-  body.position.y = 0.30;
+  body.position.y = 0.3;
   body.add(bodyMesh);
   root.add(body);
 
   const hm = new VoxelModel();
   hm.ellipsoid(0, 2, 0, 2.1, 2.0, 2.1, v.main);
   hm.box(0, 2, 2, 0, 2, 4, v.accent);
-  hm.set(2, 2, 1, 0xf3efe2); hm.set(-2, 2, 1, 0xf3efe2);
-  hm.set(2, 2, 2, 0x14141c); hm.set(-2, 2, 2, 0x14141c);
-  hm.set(0, 4, 0, v.dark); hm.set(0, 5, -1, v.dark);
+  hm.set(2, 2, 1, 0xf3efe2);
+  hm.set(-2, 2, 1, 0xf3efe2);
+  hm.set(2, 2, 2, 0x14141c);
+  hm.set(-2, 2, 2, 0x14141c);
+  hm.set(0, 4, 0, v.dark);
+  hm.set(0, 5, -1, v.dark);
   const headMesh = hm.build(0.1);
   headMesh.position.y = -0.18;
   const head = new THREE.Group();
@@ -212,11 +263,11 @@ function buildPeckit(root: THREE.Group, v: Variant): EnemyBody {
   body.add(head);
 
   const wingL = new THREE.Group();
-  wingL.position.set(-0.20, 0.34, 0.05);
+  wingL.position.set(-0.2, 0.34, 0.05);
   wingL.add(buildPeckitWing(v, -1));
   body.add(wingL);
   const wingR = new THREE.Group();
-  wingR.position.set(0.20, 0.34, 0.05);
+  wingR.position.set(0.2, 0.34, 0.05);
   wingR.add(buildPeckitWing(v, 1));
   body.add(wingR);
 
@@ -268,7 +319,7 @@ export class Enemy implements Damageable {
   hp: number;
   maxHp: number;
   isDead = false;
-  readonly faction = 'wild' as const;
+  readonly faction = "wild" as const;
 
   readonly root = new THREE.Group();
   readonly parts: Record<string, THREE.Object3D>;
@@ -288,7 +339,7 @@ export class Enemy implements Damageable {
   readonly rigRadius: number | null;
   readonly rigHeight: number | null;
   private readonly beastClock: BeastAnimClock | null;
-  private beastAction: BeastAction = 'idle';
+  private beastAction: BeastAction = "idle";
   private beastActionT = 0;
 
   private mats: THREE.MeshStandardMaterial[] = [];
@@ -321,13 +372,13 @@ export class Enemy implements Damageable {
   private gHopY = 0;
   private gRest = 0.4;
   private gSquash = 0;
-  private state: 'roam' | 'windup' | 'charge' | 'recover' = 'roam';
+  private state: "roam" | "windup" | "charge" | "recover" = "roam";
   private stateT = 0;
   private phase = 0;
   private chargeCd = 2;
   private chargeDir = new THREE.Vector3();
   private dustT = 0;
-  private pMode: 'cruise' | 'dive' | 'climb' = 'cruise';
+  private pMode: "cruise" | "dive" | "climb" = "cruise";
   private orbitAngle = Math.random() * Math.PI * 2;
   private diveCd = 2 + Math.random() * 2;
   private divePoint = new THREE.Vector3();
@@ -345,7 +396,9 @@ export class Enemy implements Damageable {
   constructor(species: EnemySpeciesId, variantIdx: number, x: number, z: number, world: World) {
     this.species = species;
     const spec = speciesOf(species);
-    if (!spec) throw new Error(`no enemy content for "${species}"`);
+    if (!spec) {
+      throw new Error(`no enemy content for "${species}"`);
+    }
     const stats = spec.data;
     // The content type refuses any other count, so this index cannot be a hole.
     const variants = stats.variants;
@@ -353,7 +406,8 @@ export class Enemy implements Damageable {
     this.element = v.element;
     this.nameKey = spec.nameKey;
     this.xp = stats.xp;
-    this.hp = stats.hp; this.maxHp = stats.hp;
+    this.hp = stats.hp;
+    this.maxHp = stats.hp;
     this.atk = stats.atk;
     this.speed = stats.speed;
     this.radius = stats.radius;
@@ -391,13 +445,17 @@ export class Enemy implements Damageable {
     this.goal.copy(this.home);
     this.root.rotation.y = Math.random() * Math.PI * 2;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = 72; canvas.height = 10;
-    this.barCtx = canvas.getContext('2d')!;
+    const canvas = document.createElement("canvas");
+    canvas.width = 72;
+    canvas.height = 10;
+    this.barCtx = canvas.getContext("2d")!;
     this.barTex = new THREE.CanvasTexture(canvas);
     this.barTex.colorSpace = THREE.SRGBColorSpace;
     this.barMat = new THREE.SpriteMaterial({
-      map: this.barTex, transparent: true, depthWrite: false, toneMapped: false,
+      map: this.barTex,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
     });
     this.barSprite = new THREE.Sprite(this.barMat);
     this.barSprite.scale.set(0.85, 0.13, 1);
@@ -419,7 +477,9 @@ export class Enemy implements Damageable {
   }
 
   setHeld(on: boolean): void {
-    if (this.held === on) return;
+    if (this.held === on) {
+      return;
+    }
     this.held = on;
     this.root.visible = !on;
     // The bar has its own `visible` and would otherwise hang over empty grass.
@@ -432,12 +492,14 @@ export class Enemy implements Damageable {
   }
 
   takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): boolean {
-    if (this.isDead || this.held) return false;
+    if (this.isDead || this.held) {
+      return false;
+    }
     this.hp -= amount;
     this.hpDirty = true;
     this.flashT = 0.14;
     this.provoked = true;
-    const knockMul = this.species === 'snortle' ? 1.4 : 3.4;
+    const knockMul = this.species === "snortle" ? 1.4 : 3.4;
     _dir.set(this.position.x - from.x, 0, this.position.z - from.z);
     if (_dir.lengthSq() > 0.001) {
       _dir.normalize().multiplyScalar(knockMul);
@@ -453,7 +515,7 @@ export class Enemy implements Damageable {
   private drawBar(): void {
     const ctx = this.barCtx;
     ctx.clearRect(0, 0, 72, 10);
-    ctx.fillStyle = 'rgba(8,10,16,0.82)';
+    ctx.fillStyle = "rgba(8,10,16,0.82)";
     ctx.fillRect(0, 0, 72, 10);
     const p = Math.max(0, this.hp / this.maxHp);
     const hue = 6 + 108 * p;
@@ -467,17 +529,24 @@ export class Enemy implements Damageable {
   // under a climber waits and only walking away drops a target.
   private retarget(ctx: EnemyCtx): void {
     this.retargetT -= 0.0166;
-    if (this.retargetT > 0) return;
+    if (this.retargetT > 0) {
+      return;
+    }
     this.retargetT = 0.22;
     const range = this.provoked ? 26 : this.aggro;
     let best: Damageable | null = null;
     let bd = range * range;
     for (const t of ctx.targets) {
-      if (t.isDead) continue;
+      if (t.isDead) {
+        continue;
+      }
       const dx = t.position.x - this.position.x;
       const dz = t.position.z - this.position.z;
       const d2 = dx * dx + dz * dz;
-      if (d2 < bd) { bd = d2; best = t; }
+      if (d2 < bd) {
+        bd = d2;
+        best = t;
+      }
     }
     if (best) {
       this.target = best;
@@ -486,7 +555,8 @@ export class Enemy implements Damageable {
       const dz = this.target.position.z - this.position.z;
       const leash = this.aggro * 2.2;
       if (this.target.isDead || dx * dx + dz * dz > leash * leash) {
-        this.target = null; this.provoked = false;
+        this.target = null;
+        this.provoked = false;
       }
     }
   }
@@ -499,8 +569,12 @@ export class Enemy implements Damageable {
   private faceToward(x: number, z: number, dt: number, rate: number): void {
     const want = Math.atan2(x - this.position.x, z - this.position.z);
     let d = want - this.root.rotation.y;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
+    while (d > Math.PI) {
+      d -= Math.PI * 2;
+    }
+    while (d < -Math.PI) {
+      d += Math.PI * 2;
+    }
     this.root.rotation.y += d * Math.min(1, rate * dt);
   }
 
@@ -512,7 +586,7 @@ export class Enemy implements Damageable {
     const r = 2 + Math.random() * 6;
     const gx = this.home.x + Math.cos(a) * r;
     const gz = this.home.z + Math.sin(a) * r;
-    if (this.species !== 'peckit' && ctx.world.isWater(gx, gz)) {
+    if (this.species !== "peckit" && ctx.world.isWater(gx, gz)) {
       this.goal.copy(this.home);
     } else if (ctx.world.safeZones.blocksSpawn(gx, gz)) {
       this.goal.copy(this.home);
@@ -522,20 +596,29 @@ export class Enemy implements Damageable {
   }
 
   update(dt: number, ctx: EnemyCtx): void {
-    if (this.isDead || this.held) return;
+    if (this.isDead || this.held) {
+      return;
+    }
     // THE GROUND MOVES FIRST. `home` is deliberately NOT carried: it stays in
     // world space, so a thing that followed onto an island wants to go back.
     this.ride.carry(ctx.world, this.position);
-    if (this.ride.dyaw !== 0) this.root.rotation.y += this.ride.dyaw;
+    if (this.ride.dyaw !== 0) {
+      this.root.rotation.y += this.ride.dyaw;
+    }
     this.retarget(ctx);
     this.atkCd -= dt;
 
     // A BEAST BODY FIRST: the tests below are on a species ID, so the `else`
     // would send a wild Sproutle into Peckit's dive.
-    if (this.beastSpecies) this.updateWildBeast(dt, ctx);
-    else if (this.species === 'gloopling') this.updateGloopling(dt, ctx);
-    else if (this.species === 'snortle') this.updateSnortle(dt, ctx);
-    else this.updatePeckit(dt, ctx);
+    if (this.beastSpecies) {
+      this.updateWildBeast(dt, ctx);
+    } else if (this.species === "gloopling") {
+      this.updateGloopling(dt, ctx);
+    } else if (this.species === "snortle") {
+      this.updateSnortle(dt, ctx);
+    } else {
+      this.updatePeckit(dt, ctx);
+    }
 
     if (this.knock.lengthSq() > 0.001) {
       this.position.x += this.knock.x * dt;
@@ -574,8 +657,12 @@ export class Enemy implements Damageable {
   private moveGround(dt: number, dirX: number, dirZ: number, spd: number, ctx: EnemyCtx): void {
     const nx = this.position.x + dirX * spd * dt;
     const nz = this.position.z + dirZ * spd * dt;
-    if (ctx.world.isWater(nx, nz)) return;
-    if (ctx.world.structureTopAt(nx, nz) > this.position.y + MAX_STEP_UP) return;
+    if (ctx.world.isWater(nx, nz)) {
+      return;
+    }
+    if (ctx.world.structureTopAt(nx, nz) > this.position.y + MAX_STEP_UP) {
+      return;
+    }
     this.position.x = nx;
     this.position.z = nz;
   }
@@ -585,7 +672,9 @@ export class Enemy implements Damageable {
     this.wCircling = !this.wCircling;
     const [base, spread] = this.wCircling ? WILD_CIRCLE_SECONDS : WILD_PRESS_SECONDS;
     this.wPhaseT = base + Math.random() * spread;
-    if (this.wCircling && Math.random() < WILD_SPIN_FLIP) this.wSpin = -this.wSpin as 1 | -1;
+    if (this.wCircling && Math.random() < WILD_SPIN_FLIP) {
+      this.wSpin = -this.wSpin as 1 | -1;
+    }
   }
 
   /**
@@ -598,7 +687,7 @@ export class Enemy implements Damageable {
     const species = this.beastSpecies!;
     const rig = this.beastRig!;
     const clock = this.beastClock!;
-    const flying = species.locomotion === 'flying';
+    const flying = species.locomotion === "flying";
 
     // Bite radius plus a body, so it rests at arm's length, not inside you.
     const stopAt = this.radius + 0.9;
@@ -607,14 +696,17 @@ export class Enemy implements Damageable {
 
     if (this.target) {
       this.wPhaseT -= dt;
-      if (this.wPhaseT <= 0) this.nextWildPhase();
+      if (this.wPhaseT <= 0) {
+        this.nextWildPhase();
+      }
       const t = this.target.position;
       // TWO AXES, NOT A POINT ON A RING: a leaned spot is nearly all tangent, so
       // a break-off gains no distance. Blending keeps the radius controlled.
       let ox = this.position.x - t.x;
       let oz = this.position.z - t.z;
       const cur = Math.hypot(ox, oz) || 1e-4;
-      ox /= cur; oz /= cur;
+      ox /= cur;
+      oz /= cur;
       const ring = stopAt + (this.wCircling ? WILD_RING_OUT : 0);
       // Eases to nothing at the ring, so it settles instead of oscillating.
       const radial = Math.max(-1, Math.min(1, (ring - cur) / 1.5));
@@ -624,10 +716,7 @@ export class Enemy implements Damageable {
       // A goal two units along the steer: everything below reads a POINT.
       const gl = Math.hypot(gx, gz) || 1e-4;
       urge = Math.min(1, gl);
-      this.goal.set(
-        this.position.x + (gx / gl) * 2, 0,
-        this.position.z + (gz / gl) * 2,
-      );
+      this.goal.set(this.position.x + (gx / gl) * 2, 0, this.position.z + (gz / gl) * 2);
     } else {
       this.wanderT -= dt;
       if (this.wanderT <= 0) {
@@ -638,7 +727,9 @@ export class Enemy implements Damageable {
 
     _dir.set(this.goal.x - this.position.x, 0, this.goal.z - this.position.z);
     const dist = _dir.length();
-    if (dist > 0.01) _dir.divideScalar(dist);
+    if (dist > 0.01) {
+      _dir.divideScalar(dist);
+    }
 
     // A chaser's goal IS the standoff point, so only a wanderer stops short.
     const stopShort = chasing ? 0.35 : stopAt;
@@ -656,15 +747,18 @@ export class Enemy implements Damageable {
       moved = wantSpeed;
     }
     // FACE THE QUARRY, NEVER THE GOAL — the goal is off to one side.
-    if (chasing) this.faceToward(this.target!.position.x, this.target!.position.z, dt, 8);
-    else if (moved > 0) this.faceToward(this.goal.x, this.goal.z, dt, 7);
+    if (chasing) {
+      this.faceToward(this.target!.position.x, this.target!.position.z, dt, 8);
+    } else if (moved > 0) {
+      this.faceToward(this.goal.x, this.goal.z, dt, 7);
+    }
 
     // A hunting flyer drops toward its quarry, or the melee band never reaches.
     const groundY = this.groundAt(ctx, this.position.x, this.position.z);
     const wantY = flying
-      ? (chasing
+      ? chasing
         ? Math.max(groundY + 0.6, this.target!.position.y + 0.9)
-        : Math.max(groundY, ctx.world.waterLevel) + WILD_FLY_RISE)
+        : Math.max(groundY, ctx.world.waterLevel) + WILD_FLY_RISE
       : groundY;
     this.position.y += (wantY - this.position.y) * Math.min(1, (flying ? 3.5 : 14) * dt);
 
@@ -673,13 +767,20 @@ export class Enemy implements Damageable {
       const dx = this.target.position.x - this.position.x;
       const dz = this.target.position.z - this.position.z;
       if (dx * dx + dz * dz < (this.radius + 1.0) ** 2 && this.inMeleeHeight(this.target)) {
-        ctx.hit(this.target, this.atk, this.element, this.position.x, this.position.y + this.height * 0.5, this.position.z);
+        ctx.hit(
+          this.target,
+          this.atk,
+          this.element,
+          this.position.x,
+          this.position.y + this.height * 0.5,
+          this.position.z,
+        );
         this.atkCd = WILD_BITE_CD[0] + Math.random() * WILD_BITE_CD[1];
-        this.beastAction = 'attack';
+        this.beastAction = "attack";
         this.beastActionT = 0;
         // Break off on a landed bite, rather than waiting out the cooldown in
         // the player's face (issue #111).
-        this.wCircling = false;   // so nextWildPhase() turns it on
+        this.wCircling = false; // so nextWildPhase() turns it on
         this.nextWildPhase();
       }
     }
@@ -687,25 +788,23 @@ export class Enemy implements Damageable {
     // `moveSpeed` normalises against the beast's OWN base speed, which is what a
     // species' gait blend is authored against — not the content `speed`.
     this.beastActionT += dt;
-    const attacking = this.beastAction === 'attack' && this.beastActionT < WILD_ATTACK_SECONDS;
-    if (!attacking) this.beastAction = 'idle';
+    const attacking = this.beastAction === "attack" && this.beastActionT < WILD_ATTACK_SECONDS;
+    if (!attacking) {
+      this.beastAction = "idle";
+    }
     const base = species.baseStats.speed;
     const speed01 = base > 0 ? Math.min(1, moved / base) : 0;
-    const gait: BeastAction = flying ? 'fly'
-      : moved <= 0.01 ? 'idle'
-      : chasing ? 'run' : 'walk';
+    const gait: BeastAction = flying ? "fly" : moved <= 0.01 ? "idle" : chasing ? "run" : "walk";
     const c = clock.ctx;
     // `time` free-runs every slice (breathing, ear flicks); `actionTime` is how
     // long the CURRENT action has run, which a transient pose reads.
     c.time += dt;
-    c.action = attacking ? 'attack' : gait;
+    c.action = attacking ? "attack" : gait;
     c.actionTime = attacking ? this.beastActionT : c.time;
     c.moveSpeed = speed01;
     c.dt = dt;
     // A flyer's contact blob belongs on the ground, not below its belly.
-    c.altitude = Math.max(
-      0, this.position.y - Math.max(groundY, ctx.world.waterLevel),
-    );
+    c.altitude = Math.max(0, this.position.y - Math.max(groundY, ctx.world.waterLevel));
     species.animate(rig, c);
   }
 
@@ -718,10 +817,14 @@ export class Enemy implements Damageable {
       this.gRest -= dt;
       this.gSquash *= Math.exp(-8 * dt);
       if (this.gRest <= 0) {
-        if (this.target) this.goal.copy(this.target.position);
-        else {
+        if (this.target) {
+          this.goal.copy(this.target.position);
+        } else {
           this.wanderT -= dt + 0.3;
-          if (this.wanderT <= 0) { this.wanderT = 1 + Math.random() * 2; this.pickWanderGoal(ctx); }
+          if (this.wanderT <= 0) {
+            this.wanderT = 1 + Math.random() * 2;
+            this.pickWanderGoal(ctx);
+          }
         }
         _dir.set(this.goal.x - this.position.x, 0, this.goal.z - this.position.z);
         const dist = _dir.length();
@@ -760,7 +863,14 @@ export class Enemy implements Damageable {
       const dx = this.target.position.x - this.position.x;
       const dz = this.target.position.z - this.position.z;
       if (dx * dx + dz * dz < (this.radius + 0.8) ** 2 && this.inMeleeHeight(this.target)) {
-        ctx.hit(this.target, this.atk, this.element, this.position.x, this.position.y + 0.4, this.position.z);
+        ctx.hit(
+          this.target,
+          this.atk,
+          this.element,
+          this.position.x,
+          this.position.y + 0.4,
+          this.position.z,
+        );
         this.atkCd = 1.3;
         this.knock.set(-dx, 0, -dz).normalize().multiplyScalar(2.2);
       }
@@ -776,13 +886,19 @@ export class Enemy implements Damageable {
 
     let moveAmt = 0;
     switch (this.state) {
-      case 'roam': {
+      case "roam": {
         if (this.target) {
-          _dir.set(this.target.position.x - this.position.x, 0, this.target.position.z - this.position.z);
+          _dir.set(
+            this.target.position.x - this.position.x,
+            0,
+            this.target.position.z - this.position.z,
+          );
           const dist = _dir.length();
-          if (dist > 0.01) _dir.divideScalar(dist);
+          if (dist > 0.01) {
+            _dir.divideScalar(dist);
+          }
           if (this.chargeCd <= 0 && dist > 2.6 && dist < 8.5) {
-            this.state = 'windup';
+            this.state = "windup";
             this.stateT = 0.55;
             break;
           }
@@ -791,13 +907,23 @@ export class Enemy implements Damageable {
             this.moveGround(dt, _dir.x, _dir.z, this.speed, ctx);
             moveAmt = this.speed;
           } else if (this.atkCd <= 0 && !this.target.isDead && this.inMeleeHeight(this.target)) {
-            ctx.hit(this.target, this.atk * 0.6, this.element, this.position.x, this.position.y + 0.6, this.position.z);
+            ctx.hit(
+              this.target,
+              this.atk * 0.6,
+              this.element,
+              this.position.x,
+              this.position.y + 0.6,
+              this.position.z,
+            );
             this.atkCd = 1.1;
           }
           this.faceToward(this.target.position.x, this.target.position.z, dt, 9);
         } else {
           this.wanderT -= dt;
-          if (this.wanderT <= 0) { this.wanderT = 2.5 + Math.random() * 3; this.pickWanderGoal(ctx); }
+          if (this.wanderT <= 0) {
+            this.wanderT = 2.5 + Math.random() * 3;
+            this.pickWanderGoal(ctx);
+          }
           _dir.set(this.goal.x - this.position.x, 0, this.goal.z - this.position.z);
           const dist = _dir.length();
           if (dist > 0.8) {
@@ -811,9 +937,11 @@ export class Enemy implements Damageable {
         head.rotation.z = 0;
         break;
       }
-      case 'windup': {
+      case "windup": {
         this.stateT -= dt;
-        if (this.target) this.faceToward(this.target.position.x, this.target.position.z, dt, 10);
+        if (this.target) {
+          this.faceToward(this.target.position.x, this.target.position.z, dt, 10);
+        }
         head.rotation.z = Math.sin(ctx.time * 42) * 0.16;
         head.rotation.x = 0.3;
         this.dustT -= dt;
@@ -825,32 +953,46 @@ export class Enemy implements Damageable {
         }
         if (this.stateT <= 0) {
           if (this.target) {
-            this.chargeDir.set(
-              this.target.position.x - this.position.x, 0,
-              this.target.position.z - this.position.z).normalize();
+            this.chargeDir
+              .set(
+                this.target.position.x - this.position.x,
+                0,
+                this.target.position.z - this.position.z,
+              )
+              .normalize();
           } else {
             this.chargeDir.set(Math.sin(this.root.rotation.y), 0, Math.cos(this.root.rotation.y));
           }
-          this.state = 'charge';
+          this.state = "charge";
           this.stateT = 1.0;
         }
         break;
       }
-      case 'charge': {
+      case "charge": {
         this.stateT -= dt;
         head.rotation.x = 0.42;
         head.rotation.z = 0;
         const nx = this.position.x + this.chargeDir.x * 8.5 * dt;
         const nz = this.position.z + this.chargeDir.z * 8.5 * dt;
         // A charge bypasses `moveGround`, so it repeats both of its refusals.
-        if (ctx.world.isWater(nx, nz)
-          || ctx.world.structureTopAt(nx, nz) > this.position.y + MAX_STEP_UP) {
-          this.state = 'recover'; this.stateT = 0.8; this.chargeCd = 3.5;
+        if (
+          ctx.world.isWater(nx, nz) ||
+          ctx.world.structureTopAt(nx, nz) > this.position.y + MAX_STEP_UP
+        ) {
+          this.state = "recover";
+          this.stateT = 0.8;
+          this.chargeCd = 3.5;
           break;
         }
-        this.position.x = nx; this.position.z = nz;
+        this.position.x = nx;
+        this.position.z = nz;
         moveAmt = 8.5;
-        this.faceToward(this.position.x + this.chargeDir.x, this.position.z + this.chargeDir.z, dt, 30);
+        this.faceToward(
+          this.position.x + this.chargeDir.x,
+          this.position.z + this.chargeDir.z,
+          dt,
+          30,
+        );
         this.dustT -= dt;
         if (this.dustT <= 0) {
           this.dustT = 0.05;
@@ -858,24 +1000,39 @@ export class Enemy implements Damageable {
         }
         // "In the way" means at this animal's own altitude: a charge is a lunge.
         for (const t of ctx.targets) {
-          if (t.isDead) continue;
+          if (t.isDead) {
+            continue;
+          }
           const dx = t.position.x - this.position.x;
           const dz = t.position.z - this.position.z;
           if (dx * dx + dz * dz < (this.radius + 0.85) ** 2 && this.inMeleeHeight(t)) {
-            ctx.hit(t, this.atk * 1.5, this.element, this.position.x, this.position.y + 0.6, this.position.z);
-            this.state = 'recover'; this.stateT = 0.9; this.chargeCd = 3.5;
+            ctx.hit(
+              t,
+              this.atk * 1.5,
+              this.element,
+              this.position.x,
+              this.position.y + 0.6,
+              this.position.z,
+            );
+            this.state = "recover";
+            this.stateT = 0.9;
+            this.chargeCd = 3.5;
             break;
           }
         }
-        if (this.state === 'charge' && this.stateT <= 0) {
-          this.state = 'recover'; this.stateT = 0.7; this.chargeCd = 3.2;
+        if (this.state === "charge" && this.stateT <= 0) {
+          this.state = "recover";
+          this.stateT = 0.7;
+          this.chargeCd = 3.2;
         }
         break;
       }
-      case 'recover': {
+      case "recover": {
         this.stateT -= dt;
         head.rotation.x = -0.12;
-        if (this.stateT <= 0) this.state = 'roam';
+        if (this.stateT <= 0) {
+          this.state = "roam";
+        }
         break;
       }
     }
@@ -887,7 +1044,7 @@ export class Enemy implements Damageable {
     (this.parts.legBR as THREE.Group).rotation.x = swing;
     (this.parts.legFR as THREE.Group).rotation.x = -swing;
     (this.parts.legBL as THREE.Group).rotation.x = -swing;
-    body.position.y = 0.30 + Math.abs(Math.sin(this.phase)) * 0.035 * gait;
+    body.position.y = 0.3 + Math.abs(Math.sin(this.phase)) * 0.035 * gait;
     body.rotation.z = Math.sin(this.phase) * 0.04 * gait;
   }
 
@@ -897,12 +1054,13 @@ export class Enemy implements Damageable {
     const wingL = this.parts.wingL;
     const wingR = this.parts.wingR;
     const groundY = Math.max(
-      this.groundAt(ctx, this.position.x, this.position.z), ctx.world.waterLevel,
+      this.groundAt(ctx, this.position.x, this.position.z),
+      ctx.world.waterLevel,
     );
     const cruiseY = groundY + 3.3 + Math.sin(ctx.time * 0.9 + this.seed) * 0.35;
     this.diveCd -= dt;
 
-    if (this.pMode === 'cruise') {
+    if (this.pMode === "cruise") {
       const center = this.target ? this.target.position : this.home;
       this.orbitAngle += dt * (this.target ? 1.5 : 0.75);
       const orbitR = this.target ? 4.5 : 5.5;
@@ -913,59 +1071,84 @@ export class Enemy implements Damageable {
       );
       _dir.copy(_tmp).sub(this.position);
       const dist = _dir.length();
-      if (dist > 0.01) _dir.divideScalar(dist);
+      if (dist > 0.01) {
+        _dir.divideScalar(dist);
+      }
       _dir.multiplyScalar(Math.min(this.speed, dist * 3));
       this.vel.lerp(_dir, Math.min(1, 3.5 * dt));
       if (this.target && this.diveCd <= 0 && !this.target.isDead) {
         const dx = this.target.position.x - this.position.x;
         const dz = this.target.position.z - this.position.z;
         if (dx * dx + dz * dz < 144) {
-          this.pMode = 'dive';
+          this.pMode = "dive";
           this.divePoint.copy(this.target.position);
           this.divePoint.y += 0.8;
           this.stateT = 1.6;
           this.diveHit = false;
         }
       }
-    } else if (this.pMode === 'dive') {
+    } else if (this.pMode === "dive") {
       this.stateT -= dt;
       _dir.copy(this.divePoint).sub(this.position);
       const dist = _dir.length();
-      if (dist > 0.01) _dir.divideScalar(dist);
+      if (dist > 0.01) {
+        _dir.divideScalar(dist);
+      }
       this.vel.lerp(_tmp.copy(_dir).multiplyScalar(11), Math.min(1, 8 * dt));
       ctx.vfx.trail(this.position.x, this.position.y + 0.35, this.position.z, 0xd8ecff, 0.11);
       // NOT gated by MELEE_UP_REACH: already a true 3D test, and a dive's whole
       // point is arriving from a different altitude.
       if (this.target && !this.diveHit && !this.target.isDead) {
-        const d2 = _tmp.copy(this.target.position).setY(this.target.position.y + 0.8).distanceToSquared(this.position);
+        const d2 = _tmp
+          .copy(this.target.position)
+          .setY(this.target.position.y + 0.8)
+          .distanceToSquared(this.position);
         if (d2 < 1.9) {
-          ctx.hit(this.target, this.atk, this.element, this.position.x, this.position.y, this.position.z);
+          ctx.hit(
+            this.target,
+            this.atk,
+            this.element,
+            this.position.x,
+            this.position.y,
+            this.position.z,
+          );
           this.diveHit = true;
         }
       }
       if (dist < 1.0 || this.stateT <= 0 || this.diveHit) {
-        this.pMode = 'climb';
+        this.pMode = "climb";
         this.stateT = 1.2;
         this.diveCd = 3.2 + Math.random() * 1.6;
       }
     } else {
       this.stateT -= dt;
       _dir.set(this.vel.x, 0, this.vel.z);
-      if (_dir.lengthSq() < 0.5) _dir.set(Math.sin(this.root.rotation.y), 0, Math.cos(this.root.rotation.y));
+      if (_dir.lengthSq() < 0.5) {
+        _dir.set(Math.sin(this.root.rotation.y), 0, Math.cos(this.root.rotation.y));
+      }
       _dir.normalize();
       _tmp.set(_dir.x * 4, 5, _dir.z * 4);
       this.vel.lerp(_tmp, Math.min(1, 4 * dt));
-      if (this.position.y >= cruiseY - 0.3 || this.stateT <= 0) this.pMode = 'cruise';
+      if (this.position.y >= cruiseY - 0.3 || this.stateT <= 0) {
+        this.pMode = "cruise";
+      }
     }
 
     this.position.addScaledVector(this.vel, dt);
-    if (this.position.y < groundY + 0.7) this.position.y = groundY + 0.7;
+    if (this.position.y < groundY + 0.7) {
+      this.position.y = groundY + 0.7;
+    }
 
     const hspd = Math.sqrt(this.vel.x * this.vel.x + this.vel.z * this.vel.z);
-    if (hspd > 0.4) this.faceToward(this.position.x + this.vel.x, this.position.z + this.vel.z, dt, 8);
-    body.rotation.x = Math.max(-0.8, Math.min(0.8, Math.atan2(-this.vel.y, Math.max(1.5, hspd)) * 0.8));
-    this.flap += dt * (this.pMode === 'climb' ? 17 : this.pMode === 'dive' ? 4 : 11);
-    const flapAng = this.pMode === 'dive' ? 0.32 : Math.sin(this.flap) * 0.85 - 0.1;
+    if (hspd > 0.4) {
+      this.faceToward(this.position.x + this.vel.x, this.position.z + this.vel.z, dt, 8);
+    }
+    body.rotation.x = Math.max(
+      -0.8,
+      Math.min(0.8, Math.atan2(-this.vel.y, Math.max(1.5, hspd)) * 0.8),
+    );
+    this.flap += dt * (this.pMode === "climb" ? 17 : this.pMode === "dive" ? 4 : 11);
+    const flapAng = this.pMode === "dive" ? 0.32 : Math.sin(this.flap) * 0.85 - 0.1;
     wingL.rotation.z = -flapAng;
     wingR.rotation.z = flapAng;
     head.rotation.x = Math.sin(ctx.time * 2.4 + this.seed) * 0.08 - body.rotation.x * 0.5;
@@ -977,8 +1160,11 @@ export class Enemy implements Damageable {
       if (mesh.isMesh) {
         mesh.geometry.dispose();
         const m = mesh.material;
-        if (Array.isArray(m)) m.forEach((mm) => mm.dispose());
-        else m.dispose();
+        if (Array.isArray(m)) {
+          m.forEach((mm) => mm.dispose());
+        } else {
+          m.dispose();
+        }
       }
     });
     this.barTex.dispose();
@@ -988,14 +1174,16 @@ export class Enemy implements Damageable {
 
 // ONE place a builder is named — the registration loop reads this map.
 const MODELS: ReadonlyMap<string, EnemyModel> = new Map<string, EnemyModel>([
-  ['gloopling', buildGloopling],
-  ['snortle', buildSnortle],
-  ['peckit', buildPeckit],
+  ["gloopling", buildGloopling],
+  ["snortle", buildSnortle],
+  ["peckit", buildPeckit],
 ]);
 
 // Published at module load, before `bootstrapContent()`, so a bad `model` name
 // is an `unknown-factory` finding rather than an undefined lookup at spawn.
-for (const [name, model] of MODELS) defineFactory(ENEMY_MODEL_KIND, name, model);
+for (const [name, model] of MODELS) {
+  defineFactory(ENEMY_MODEL_KIND, name, model);
+}
 
 // One builder per companion species: `beast-<id>` builds the same rig
 // `BeastActor` wears, so bonding needs no mapping table. DERIVED from

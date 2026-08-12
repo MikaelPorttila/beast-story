@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { makeGlowSprite } from './glowsprite';
-import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { makeGlowSprite } from "./glowsprite";
+import { eyes2x2, rimTop, shadeUnder } from "./voxelshade";
 
 // Emberfox — small fire fox with a flame-tipped tail. Voxel scale 0.1 (1 cell = 10 cm),
 // faces +Z, root at ground level.
@@ -74,7 +74,7 @@ function makeHead(): THREE.Mesh {
   m.set(0, 1, 5, NOSE);
   m.box(-3, 1, 2, 3, 4, 2, ORANGE);
   rimTop(m, ORANGE_LIT, -2, 2, 0, 4, -2, 2);
-  shadeUnder(m, RUSSET, -3, 3, 0, 1, -2, 2);   // z stops at 2, or the pass repaints the nose
+  shadeUnder(m, RUSSET, -3, 3, 0, 1, -2, 2); // z stops at 2, or the pass repaints the nose
   // Cream mask over the eye rows, painted after shadeUnder so the underside pass cannot
   // repaint it: in shade an orange plate and a dark iris had nothing separating them.
   for (let x = -3; x <= 3; x++) {
@@ -85,8 +85,14 @@ function makeHead(): THREE.Mesh {
   eyes2x2(m, {
     // inner: 1, not 2 — at 2 the eyes sit hard against the plate edge and wrap round the
     // silhouette; one cell of coat outboard keeps both presented at 3/4 bearings.
-    inner: 1, y: 2, faceZ: 2, iris: IRIS, shine: EYE_SHINE,
-    lid: LID, browProud: true, bridge: BRIDGE,
+    inner: 1,
+    y: 2,
+    faceZ: 2,
+    iris: IRIS,
+    shine: EYE_SHINE,
+    lid: LID,
+    browProud: true,
+    bridge: BRIDGE,
   });
   return m.build(S, true);
 }
@@ -138,7 +144,7 @@ function makeTailTip(): THREE.Mesh {
   m.set(0, 1, -4, FLAME_CORE);
   m.set(0, 2, -4, FLAME_HOT);
   // 0.30-0.55: at the old 1.2-1.8 the bloom pass left one white star with no flame shape.
-  m.markEmissive(FLAME_OUT, 0.30);
+  m.markEmissive(FLAME_OUT, 0.3);
   m.markEmissive(FLAME_MID, 0.38);
   m.markEmissive(FLAME_CORE, 0.46);
   m.markEmissive(FLAME_HOT, 0.55);
@@ -251,7 +257,7 @@ function buildRig(): BeastRig {
 
   // Parented to tailTip, not flame, so the flicker's non-uniform scale cannot distort the
   // billboard. 0.20/0.06 because the bloom pass already blooms the flame voxels.
-  const flameGlow = makeGlowSprite(0xffb347, 0.20, 0.06);
+  const flameGlow = makeGlowSprite(0xffb347, 0.2, 0.06);
   flameGlow.position.set(0, 0.1, -0.28);
   tailTip.add(flameGlow);
 
@@ -268,8 +274,20 @@ function buildRig(): BeastRig {
   return {
     root,
     parts: {
-      body, head, earL, earR, legFL, legFR, legBL, legBR,
-      tailBase, tailMid, tailTip, flame, ember1, ember2,
+      body,
+      head,
+      earL,
+      earR,
+      legFL,
+      legFR,
+      legBL,
+      legBR,
+      tailBase,
+      tailMid,
+      tailTip,
+      flame,
+      ember1,
+      ember2,
     },
     height: 1.0,
     radius: 0.35,
@@ -283,17 +301,38 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const ms = clamp01(ctx.moveSpeed);
   const br = Math.sin(t * 2.4);
 
-  let bpx = 0, bpy = BODY_Y + 0.004 * br, bpz = 0;
-  let brx = 0, bry = 0, brz = 0;
-  let bsx = 1, bsy = 1 + 0.012 * br, bsz = 1;
-  let hrx = 0, hry = 0, hrz = 0, hpy = HEAD_Y, hpz = HEAD_Z;
-  let elx = -0.05, elz = -EAR_Z, erx = -0.05, erz = EAR_Z;
-  let flrx = 0, frrx = 0, blrx = 0, brrx = 0;
-  let tbx = TAIL_BASE_X, tby = 0, tmx = TAIL_MID_X, tmy = 0, ttx = TAIL_TIP_X, tty = 0;
+  let bpx = 0,
+    bpy = BODY_Y + 0.004 * br,
+    bpz = 0;
+  let brx = 0,
+    bry = 0,
+    brz = 0;
+  let bsx = 1,
+    bsy = 1 + 0.012 * br,
+    bsz = 1;
+  let hrx = 0,
+    hry = 0,
+    hrz = 0,
+    hpy = HEAD_Y,
+    hpz = HEAD_Z;
+  let elx = -0.05,
+    elz = -EAR_Z,
+    erx = -0.05,
+    erz = EAR_Z;
+  let flrx = 0,
+    frrx = 0,
+    blrx = 0,
+    brrx = 0;
+  let tbx = TAIL_BASE_X,
+    tby = 0,
+    tmx = TAIL_MID_X,
+    tmy = 0,
+    ttx = TAIL_TIP_X,
+    tty = 0;
   let flameBoost = 0;
 
   switch (ctx.action) {
-    case 'idle': {
+    case "idle": {
       bsy = 1 + 0.03 * br;
       bsx = bsz = 1 - 0.012 * br;
       bpy += 0.004 * br;
@@ -311,10 +350,10 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       tty = 0.4 * Math.sin(wave - 1.6);
       break;
     }
-    case 'walk':
-    case 'run':
-    case 'fly': {
-      const isRun = ctx.action !== 'walk';
+    case "walk":
+    case "run":
+    case "fly": {
+      const isRun = ctx.action !== "walk";
       // Integrated: both moveSpeed and the walk/run step change this rate, and off the
       // session clock a 42 s run moved 1.72 rad of leg in one frame (test-beastanim).
       const f = isRun ? 8.5 + 3.5 * ms : 5.5 + 2.5 * ms;
@@ -350,7 +389,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       tty = 0.45 * Math.sin(wave - 1.8);
       break;
     }
-    case 'swim': {
+    case "swim": {
       const ph = ctx.cycle(GAIT, 7);
       brx = -0.22;
       bpy += 0.02 * Math.sin(t * 2.3);
@@ -367,7 +406,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       flameBoost = -0.4;
       break;
     }
-    case 'attack': {
+    case "attack": {
       const wind = smooth(phase(at, 0, 0.12));
       const lunge = ezOut(phase(at, 0.12, 0.26));
       const rec = smooth(phase(at, 0.42, 0.75));
@@ -388,7 +427,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       flameBoost = 0.4 * kp;
       break;
     }
-    case 'cast': {
+    case "cast": {
       const rise = ezOut(clamp01(at / 0.4));
       const tremor = 0.5 * Math.sin(t * 13) + 0.5 * Math.sin(t * 19);
       brx = -0.55 * rise + 0.02 * tremor * rise;
@@ -408,11 +447,12 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       flameBoost = 0.8 * rise;
       break;
     }
-    case 'special': {
+    case "special": {
       const T = 0.75;
       const k2 = clamp01(at / T);
       const tuck = Math.sin(Math.PI * k2);
-      const land = Math.sin(Math.PI * phase(at, T, T + 0.22)) * (1 - smooth(phase(at, T + 0.22, T + 0.55)));
+      const land =
+        Math.sin(Math.PI * phase(at, T, T + 0.22)) * (1 - smooth(phase(at, T + 0.22, T + 0.55)));
       bry = Math.PI * 2 * smooth(k2);
       bpy += 0.28 * tuck;
       bsy = 1 - 0.22 * land;
@@ -429,7 +469,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       flameBoost = 1.2 * tuck + 0.3 * land;
       break;
     }
-    case 'hurt': {
+    case "hurt": {
       const d = Math.exp(-3.5 * at);
       bpx = 0.04 * Math.sin(at * 42) * d;
       bpz = -0.1 * d;
@@ -445,7 +485,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       flameBoost = -0.5 * d;
       break;
     }
-    case 'happy': {
+    case "happy": {
       const hf = 5.2;
       const hop = Math.abs(Math.sin(at * hf));
       bpy += 0.14 * hop;
@@ -505,65 +545,65 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
 export const skills: SkillDef[] = [
   {
-    id: 'emberfox.flame-dart',
-    nameKey: 'skill.emberfox.flame-dart.name',
-    descriptionKey: 'skill.emberfox.flame-dart.desc',
-    element: 'fire',
-    targeting: 'projectile',
+    id: "emberfox.flame-dart",
+    nameKey: "skill.emberfox.flame-dart.name",
+    descriptionKey: "skill.emberfox.flame-dart.desc",
+    element: "fire",
+    targeting: "projectile",
     cost: 6,
     cooldown: 1.8,
     power: 12,
     range: 18,
     learnAtLevel: 1,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'emberfox.ember-pounce',
-    nameKey: 'skill.emberfox.ember-pounce.name',
-    descriptionKey: 'skill.emberfox.ember-pounce.desc',
-    element: 'fire',
-    targeting: 'melee',
+    id: "emberfox.ember-pounce",
+    nameKey: "skill.emberfox.ember-pounce.name",
+    descriptionKey: "skill.emberfox.ember-pounce.desc",
+    element: "fire",
+    targeting: "melee",
     cost: 10,
     cooldown: 3.5,
     power: 19,
     range: 2.6,
     learnAtLevel: 5,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'emberfox.tail-flare',
-    nameKey: 'skill.emberfox.tail-flare.name',
-    descriptionKey: 'skill.emberfox.tail-flare.desc',
-    element: 'fire',
-    targeting: 'aoe',
+    id: "emberfox.tail-flare",
+    nameKey: "skill.emberfox.tail-flare.name",
+    descriptionKey: "skill.emberfox.tail-flare.desc",
+    element: "fire",
+    targeting: "aoe",
     cost: 15,
     cooldown: 7,
     power: 26,
     range: 4.5,
     storePrice: 190,
-    castAnim: 'special',
+    castAnim: "special",
   },
   {
-    id: 'emberfox.foxfire-beam',
-    nameKey: 'skill.emberfox.foxfire-beam.name',
-    descriptionKey: 'skill.emberfox.foxfire-beam.desc',
-    element: 'fire',
-    targeting: 'beam',
+    id: "emberfox.foxfire-beam",
+    nameKey: "skill.emberfox.foxfire-beam.name",
+    descriptionKey: "skill.emberfox.foxfire-beam.desc",
+    element: "fire",
+    targeting: "beam",
     cost: 22,
     cooldown: 10,
     power: 36,
     range: 14,
     storePrice: 360,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
 ];
 
 export const species: BeastSpecies = {
-  id: 'emberfox',
-  nameKey: 'beast.emberfox.name',
-  element: 'fire',
-  locomotion: 'ground',
-  descriptionKey: 'beast.emberfox.desc',
+  id: "emberfox",
+  nameKey: "beast.emberfox.name",
+  element: "fire",
+  locomotion: "ground",
+  descriptionKey: "beast.emberfox.desc",
   baseStats: { maxHp: 46, attack: 12, defense: 6, speed: 5.2 },
   skills: skills.map((s) => s.id),
   buildRig,

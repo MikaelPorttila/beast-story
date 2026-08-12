@@ -1839,9 +1839,11 @@ body.bs-cursor * { cursor: inherit !important; }
 
 /** Inject the HUD stylesheet once. Safe to call repeatedly. */
 export function injectStyles(): void {
-  if (document.getElementById('bs-hud-styles')) return;
-  const style = document.createElement('style');
-  style.id = 'bs-hud-styles';
+  if (document.getElementById("bs-hud-styles")) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = "bs-hud-styles";
   style.textContent = CSS;
   document.head.appendChild(style);
 }

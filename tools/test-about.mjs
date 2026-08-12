@@ -31,14 +31,14 @@
 //      a legal notice rather than prose, must NOT move.
 //
 //   bun tools/test-about.mjs
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { launchBrowser, leaveSplash, newContextPage, logPageErrors } from './browser.mjs';
-import { BASE as HOST, NO_WARMUP } from './target.mjs';
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { launchBrowser, leaveSplash, newContextPage, logPageErrors } from "./browser.mjs";
+import { BASE as HOST, NO_WARMUP } from "./target.mjs";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 /** What actually ships. Dev dependencies are a credit, not a notice. */
 const RUNTIME_DEPS = Object.keys(pkg.dependencies ?? {});
 
@@ -72,17 +72,17 @@ const BOOT = `${HOST}/?fps=30&fs=0&${NO_WARMUP}`;
  * is open when the panel is in the DOM.
  */
 async function openAbout(page) {
-  await leaveSplash(page, { key: 'KeyK' });
+  await leaveSplash(page, { key: "KeyK" });
   await page.click('.bs-menu [data-act="about"]');
   await panelUp(page);
 }
 
 /** The About panel is up. */
-const panelUp = (page) => page.waitForSelector('.bs-menu .about', { timeout: 15000 });
+const panelUp = (page) => page.waitForSelector(".bs-menu .about", { timeout: 15000 });
 
 /** ...and it is gone again, which is what every way BACK has to produce. */
-const panelGone = (page) => page.waitForFunction(
-  () => !document.querySelector('.bs-menu .about'), { timeout: 15000 });
+const panelGone = (page) =>
+  page.waitForFunction(() => !document.querySelector(".bs-menu .about"), { timeout: 15000 });
 
 /**
  * The box has moved off `from`.
@@ -93,44 +93,54 @@ const panelGone = (page) => page.waitForFunction(
  * scrollTops the reader can see rather than as a stack trace five seconds in.
  * Five seconds because the alternative outcome is a pass in milliseconds.
  */
-const scrolledFrom = (page, from) => page.waitForFunction(
-  (was) => (document.querySelector('.bs-menu .about')?.scrollTop ?? was) !== was,
-  { timeout: 5000 },
-  from,
-).catch(() => {});
+const scrolledFrom = (page, from) =>
+  page
+    .waitForFunction(
+      (was) => (document.querySelector(".bs-menu .about")?.scrollTop ?? was) !== was,
+      { timeout: 5000 },
+      from,
+    )
+    .catch(() => {});
 
-const panel = (page) => page.evaluate(() => {
-  const box = document.querySelector('.bs-menu .about');
-  if (!box) return null;
-  const r = box.getBoundingClientRect();
-  const back = document.querySelector('.bs-menu [data-act="back"]');
-  return {
-    heading: document.querySelector('.bs-menu .bs-opts h2')?.textContent?.trim() ?? null,
-    lead: box.querySelector('.lead')?.textContent?.trim() ?? null,
-    headings: [...box.querySelectorAll('h3')].map((h) => h.textContent.trim()),
-    credits: [...box.querySelectorAll('ul.credits li')].map((li) => ({
-      name: li.querySelector('.nm')?.textContent?.trim() ?? null,
-      license: li.querySelector('.lic')?.textContent?.trim() ?? null,
-    })),
-    text: box.textContent.replace(/\s+/g, ' ').trim(),
-    scrollTop: box.scrollTop,
-    scrollHeight: box.scrollHeight,
-    clientHeight: box.clientHeight,
-    // Both of these have to be inside the frame, and the button is the one that
-    // goes first: it sits UNDER the box, so a box sized off the wrong height
-    // pushes it off the bottom rather than clipping itself.
-    boxBottom: Math.round(r.bottom),
-    backBottom: back ? Math.round(back.getBoundingClientRect().bottom) : null,
-    viewportH: window.innerHeight,
-  };
-});
+const panel = (page) =>
+  page.evaluate(() => {
+    const box = document.querySelector(".bs-menu .about");
+    if (!box) {
+      return null;
+    }
+    const r = box.getBoundingClientRect();
+    const back = document.querySelector('.bs-menu [data-act="back"]');
+    return {
+      heading: document.querySelector(".bs-menu .bs-opts h2")?.textContent?.trim() ?? null,
+      lead: box.querySelector(".lead")?.textContent?.trim() ?? null,
+      headings: [...box.querySelectorAll("h3")].map((h) => h.textContent.trim()),
+      credits: [...box.querySelectorAll("ul.credits li")].map((li) => ({
+        name: li.querySelector(".nm")?.textContent?.trim() ?? null,
+        license: li.querySelector(".lic")?.textContent?.trim() ?? null,
+      })),
+      text: box.textContent.replace(/\s+/g, " ").trim(),
+      scrollTop: box.scrollTop,
+      scrollHeight: box.scrollHeight,
+      clientHeight: box.clientHeight,
+      // Both of these have to be inside the frame, and the button is the one that
+      // goes first: it sits UNDER the box, so a box sized off the wrong height
+      // pushes it off the bottom rather than clipping itself.
+      boxBottom: Math.round(r.bottom),
+      backBottom: back ? Math.round(back.getBoundingClientRect().bottom) : null,
+      viewportH: window.innerHeight,
+    };
+  });
 
-const step = (page) => page.evaluate(() =>
-  document.querySelector('.bs-menu')?.getAttribute('data-step') ?? null);
+const step = (page) =>
+  page.evaluate(() => document.querySelector(".bs-menu")?.getAttribute("data-step") ?? null);
 
-const focused = (page) => page.evaluate(() =>
-  document.activeElement?.getAttribute?.('data-act')
-  ?? document.activeElement?.className ?? null);
+const focused = (page) =>
+  page.evaluate(
+    () =>
+      document.activeElement?.getAttribute?.("data-act") ??
+      document.activeElement?.className ??
+      null,
+  );
 
 const browser = await launchBrowser();
 const out = { runtimeDeps: RUNTIME_DEPS };
@@ -139,11 +149,13 @@ const out = { runtimeDeps: RUNTIME_DEPS };
 {
   const { ctx, page } = await newContextPage(browser, { width: 1280, height: 900 });
   logPageErrors(page);
-  await page.goto(BOOT, { waitUntil: 'load' });
-  await leaveSplash(page, { key: 'KeyK' });
+  await page.goto(BOOT, { waitUntil: "load" });
+  await leaveSplash(page, { key: "KeyK" });
   out.optionButtons = await page.evaluate(() =>
-    [...document.querySelectorAll('.bs-menu .bs-opts .bs-menu-btn')]
-      .map((b) => b.getAttribute('data-act')));
+    [...document.querySelectorAll(".bs-menu .bs-opts .bs-menu-btn")].map((b) =>
+      b.getAttribute("data-act"),
+    ),
+  );
 
   await page.click('.bs-menu [data-act="about"]');
   await panelUp(page);
@@ -158,7 +170,7 @@ const out = { runtimeDeps: RUNTIME_DEPS };
   // Escape.
   await page.click('.bs-menu [data-act="about"]');
   await panelUp(page);
-  await page.keyboard.press('Escape');
+  await page.keyboard.press("Escape");
   await panelGone(page);
   out.backEscape = { step: await step(page), focus: await focused(page) };
 
@@ -169,18 +181,18 @@ const out = { runtimeDeps: RUNTIME_DEPS };
 {
   const { ctx, page } = await newContextPage(browser, { width: 1280, height: 900 });
   logPageErrors(page);
-  await page.goto(BOOT, { waitUntil: 'load' });
+  await page.goto(BOOT, { waitUntil: "load" });
   await openAbout(page);
 
   const at0 = await panel(page);
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
   // Settle on the box having MOVED, which is the assertion below anyway. The
   // catch matters: a panel that never scrolls is the bug this section is for,
   // and it must be reported as three scrollTops rather than as a timeout.
   await scrolledFrom(page, at0.scrollTop);
   const at1 = await panel(page);
-  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press("ArrowUp");
   await scrolledFrom(page, at1.scrollTop);
   const at2 = await panel(page);
 
@@ -192,17 +204,21 @@ const out = { runtimeDeps: RUNTIME_DEPS };
     overflows: at0.scrollHeight > at0.clientHeight,
     scrollTops: [at0.scrollTop, at1.scrollTop, at2.scrollTop],
     inFrame: at0.boxBottom <= at0.viewportH && at0.backBottom <= at0.viewportH,
-    boxBottom: at0.boxBottom, backBottom: at0.backBottom, viewportH: at0.viewportH,
+    boxBottom: at0.boxBottom,
+    backBottom: at0.backBottom,
+    viewportH: at0.viewportH,
   };
 
   const text = at0.text;
-  out.credited = Object.fromEntries(RUNTIME_DEPS.map((d) => {
-    // three.js is listed by its own name, which is how it names itself; the
-    // package is `three`. Match on the stem so neither spelling is required.
-    const stem = d.replace(/^@[^/]+\//, '');
-    const row = at0.credits.find((c) => c.name?.toLowerCase().startsWith(stem.toLowerCase()));
-    return [d, row ? { listed: true, license: row.license } : { listed: false }];
-  }));
+  out.credited = Object.fromEntries(
+    RUNTIME_DEPS.map((d) => {
+      // three.js is listed by its own name, which is how it names itself; the
+      // package is `three`. Match on the stem so neither spelling is required.
+      const stem = d.replace(/^@[^/]+\//, "");
+      const row = at0.credits.find((c) => c.name?.toLowerCase().startsWith(stem.toLowerCase()));
+      return [d, row ? { listed: true, license: row.license } : { listed: false }];
+    }),
+  );
   out.copyright = SHIPPED_COPYRIGHT.test(text);
   out.aiDisclaimer = /\bAI\b/.test(text) && /generative AI/i.test(text);
   // The repository is private. A link to it is an invitation to a 404, so the
@@ -216,13 +232,13 @@ const out = { runtimeDeps: RUNTIME_DEPS };
 {
   const { ctx, page } = await newContextPage(browser, { width: 851, height: 393, phone: true });
   logPageErrors(page);
-  await page.goto(BOOT, { waitUntil: 'load' });
-  await page.waitForSelector('.bs-menu');
+  await page.goto(BOOT, { waitUntil: "load" });
+  await page.waitForSelector(".bs-menu");
   // No keyboard on a phone: the splash takes any tap, and the option list is
   // buttons. Same retry as leaveSplash and for the same reason — the handler
   // goes live after the element does — with a tap instead of a key.
-  for (let i = 0; i < 20 && !(await page.$('.bs-menu [data-act]')); i++) {
-    await page.click('.bs-menu');
+  for (let i = 0; i < 20 && !(await page.$(".bs-menu [data-act]")); i++) {
+    await page.click(".bs-menu");
   }
   await page.click('.bs-menu [data-act="about"]');
   await panelUp(page);
@@ -230,7 +246,9 @@ const out = { runtimeDeps: RUNTIME_DEPS };
   out.phone = p && {
     overflows: p.scrollHeight > p.clientHeight,
     inFrame: p.boxBottom <= p.viewportH && p.backBottom <= p.viewportH,
-    boxBottom: p.boxBottom, backBottom: p.backBottom, viewportH: p.viewportH,
+    boxBottom: p.boxBottom,
+    backBottom: p.backBottom,
+    viewportH: p.viewportH,
   };
   await ctx.close();
 }
@@ -239,7 +257,7 @@ const out = { runtimeDeps: RUNTIME_DEPS };
 {
   const { ctx, page } = await newContextPage(browser, { width: 1280, height: 900 });
   logPageErrors(page);
-  await page.goto(`${BOOT}&lang=sv`, { waitUntil: 'load' });
+  await page.goto(`${BOOT}&lang=sv`, { waitUntil: "load" });
   await openAbout(page);
   const p = await panel(page);
   out.swedish = {
@@ -258,32 +276,59 @@ await browser.close();
 
 // ---- verdict ---------------------------------------------------------------
 const fails = [];
-if (!out.optionButtons?.includes('about')) fails.push('no About button on the option list');
-if (out.stepAfterOpen !== 'about') fails.push(`step after open: ${out.stepAfterOpen}`);
-if (out.backButton?.step !== 'options' || out.backButton?.focus !== 'about') {
+if (!out.optionButtons?.includes("about")) {
+  fails.push("no About button on the option list");
+}
+if (out.stepAfterOpen !== "about") {
+  fails.push(`step after open: ${out.stepAfterOpen}`);
+}
+if (out.backButton?.step !== "options" || out.backButton?.focus !== "about") {
   fails.push(`Back: ${JSON.stringify(out.backButton)} (want options / about)`);
 }
-if (out.backEscape?.step !== 'options' || out.backEscape?.focus !== 'about') {
+if (out.backEscape?.step !== "options" || out.backEscape?.focus !== "about") {
   fails.push(`Escape: ${JSON.stringify(out.backEscape)} (want options / about)`);
 }
-if (!out.desktop?.overflows) fails.push('the About box does not scroll');
-const [s0, s1, s2] = out.desktop?.scrollTops ?? [];
-if (!(s1 > s0)) fails.push(`ArrowDown did not scroll: ${s0} -> ${s1}`);
-if (!(s2 < s1)) fails.push(`ArrowUp did not scroll back: ${s1} -> ${s2}`);
-if (!out.desktop?.inFrame) fails.push(`overflows the frame: ${JSON.stringify(out.desktop)}`);
-if (!out.phone?.inFrame) fails.push(`overflows a phone: ${JSON.stringify(out.phone)}`);
-for (const [dep, v] of Object.entries(out.credited ?? {})) {
-  if (!v.listed) fails.push(`runtime dependency "${dep}" is not credited in the About panel`);
-  else if (!v.license) fails.push(`"${dep}" is listed with no licence`);
+if (!out.desktop?.overflows) {
+  fails.push("the About box does not scroll");
 }
-if (!out.copyright) fails.push('the three.js copyright line is missing');
-if (!out.aiDisclaimer) fails.push('no AI disclaimer');
-if (!out.noRepoLink) fails.push('the panel links the repository, which is private');
-if (out.swedish?.lead === out.desktop?.lead) fails.push('the prose did not follow ?lang=sv');
-if (!out.swedish?.copyright) fails.push('the copyright notice moved with the language');
+const [s0, s1, s2] = out.desktop?.scrollTops ?? [];
+if (!(s1 > s0)) {
+  fails.push(`ArrowDown did not scroll: ${s0} -> ${s1}`);
+}
+if (!(s2 < s1)) {
+  fails.push(`ArrowUp did not scroll back: ${s1} -> ${s2}`);
+}
+if (!out.desktop?.inFrame) {
+  fails.push(`overflows the frame: ${JSON.stringify(out.desktop)}`);
+}
+if (!out.phone?.inFrame) {
+  fails.push(`overflows a phone: ${JSON.stringify(out.phone)}`);
+}
+for (const [dep, v] of Object.entries(out.credited ?? {})) {
+  if (!v.listed) {
+    fails.push(`runtime dependency "${dep}" is not credited in the About panel`);
+  } else if (!v.license) {
+    fails.push(`"${dep}" is listed with no licence`);
+  }
+}
+if (!out.copyright) {
+  fails.push("the three.js copyright line is missing");
+}
+if (!out.aiDisclaimer) {
+  fails.push("no AI disclaimer");
+}
+if (!out.noRepoLink) {
+  fails.push("the panel links the repository, which is private");
+}
+if (out.swedish?.lead === out.desktop?.lead) {
+  fails.push("the prose did not follow ?lang=sv");
+}
+if (!out.swedish?.copyright) {
+  fails.push("the copyright notice moved with the language");
+}
 
 if (fails.length) {
-  console.error(`\nFAIL:\n  ${fails.join('\n  ')}`);
+  console.error(`\nFAIL:\n  ${fails.join("\n  ")}`);
   process.exit(1);
 }
-console.error('\nOK');
+console.error("\nOK");

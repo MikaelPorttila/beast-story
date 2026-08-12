@@ -22,12 +22,12 @@
  * the preload band in zones.ts: the destination is built while the player is
  * still walking toward the gateway, in a place he cannot see.
  */
-import * as THREE from 'three';
-import { NO_CARRIERS, NO_SITE, type CelestialState, type World } from '../core/types';
-import { CHUNK_SIZE } from './terrain';
-import { NO_SAFE_ZONES } from './safe-zones';
-import { hashCell, mulberry32 } from './noise';
-import { perf } from '../core/profiler';
+import * as THREE from "three";
+import { NO_CARRIERS, NO_SITE, type CelestialState, type World } from "../core/types";
+import { CHUNK_SIZE } from "./terrain";
+import { NO_SAFE_ZONES } from "./safe-zones";
+import { hashCell, mulberry32 } from "./noise";
+import { perf } from "../core/profiler";
 
 /**
  * Where the hold lives in world coordinates.
@@ -77,20 +77,22 @@ const BUILD_BUDGET_MS = 3;
 // ---------------------------------------------------------------------------
 const s2l = (c: number): number => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 const lin = (hex: number): [number, number, number] => [
-  s2l(((hex >> 16) & 255) / 255), s2l(((hex >> 8) & 255) / 255), s2l((hex & 255) / 255),
+  s2l(((hex >> 16) & 255) / 255),
+  s2l(((hex >> 8) & 255) / 255),
+  s2l((hex & 255) / 255),
 ];
-const FLOOR_RGB = lin(0x9a8f80);  // warm flagstone
+const FLOOR_RGB = lin(0x9a8f80); // warm flagstone
 // The walls are WARM, and that is a correction, not a preference. At a first
 // pass they were a cool 0x6f6b73, and a captured corridor shot was 80% one flat
 // blue-grey slab: a wall facing away from the sun receives nothing but the
 // (deliberately cool) hemisphere fill, so a cool albedo on top of it has no hue
 // left at all. Warm stone under a cool fill still reads as stone in shade.
 const WALL_RGB = lin(0x8a7d6d);
-const RIM_RGB = lin(0x5f584f);    // the outer mass, darker still
-const MOSS_RGB = lin(0x5e6f4a);   // damp patches on the floor
+const RIM_RGB = lin(0x5f584f); // the outer mass, darker still
+const MOSS_RGB = lin(0x5e6f4a); // damp patches on the floor
 
 /** Corner-AO ramp, same idea and same reasoning as world/chunk.ts. */
-const AO = [0.42, 0.60, 0.80, 1.0];
+const AO = [0.42, 0.6, 0.8, 1.0];
 const aoLevel = (s1: boolean, s2: boolean, c: boolean): number =>
   s1 && s2 ? 0 : 3 - ((s1 ? 1 : 0) + (s2 ? 1 : 0) + (c ? 1 : 0));
 /**
@@ -98,7 +100,7 @@ const aoLevel = (s1: boolean, s2: boolean, c: boolean): number =>
  * the sun's azimuth — see the long note in world/chunk.ts. Re-derive if
  * SUN_OFFSET moves.
  */
-const SIDE_SHADE = [0.82, 1.22, 0.90, 1.18];
+const SIDE_SHADE = [0.82, 1.22, 0.9, 1.18];
 /**
  * Warm bounce added to each side direction, same index as SIDE_SHADE — and it
  * matters far more down here than it does on a hillside, because a dungeon is
@@ -113,7 +115,12 @@ const SIDE_BOUNCE = [0, 1, 0.4, 0.9];
 // Floorplan
 // ---------------------------------------------------------------------------
 
-interface Room { x: number; z: number; hw: number; hh: number; }
+interface Room {
+  x: number;
+  z: number;
+  hw: number;
+  hh: number;
+}
 
 export interface HoldPlan {
   seed: number;
@@ -133,7 +140,9 @@ const carve = (mask: Uint8Array, x0: number, z0: number, x1: number, z1: number)
   const bz = Math.min(GRID - RIM - 1, Math.max(z0, z1));
   for (let z = az; z <= bz; z++) {
     const row = z * GRID;
-    for (let x = ax; x <= bx; x++) mask[row + x] = 1;
+    for (let x = ax; x <= bx; x++) {
+      mask[row + x] = 1;
+    }
   }
 };
 
@@ -198,7 +207,9 @@ function makePlan(seed: number): HoldPlan {
 
 /** Column top in LOCAL coordinates. The whole height authority of the zone. */
 function localHeight(plan: HoldPlan, lx: number, lz: number): number {
-  if (lx < RIM || lz < RIM || lx >= GRID - RIM || lz >= GRID - RIM) return RIM_Y;
+  if (lx < RIM || lz < RIM || lx >= GRID - RIM || lz >= GRID - RIM) {
+    return RIM_Y;
+  }
   return plan.mask[lz * GRID + lx] === 1 ? FLOOR_Y : WALL_Y;
 }
 
@@ -209,7 +220,10 @@ function localHeight(plan: HoldPlan, lx: number, lz: number): number {
 // and no water down here.
 // ---------------------------------------------------------------------------
 function buildHoldChunk(
-  cx: number, cz: number, plan: HoldPlan, material: THREE.Material,
+  cx: number,
+  cz: number,
+  plan: HoldPlan,
+  material: THREE.Material,
 ): THREE.Mesh {
   const G = CHUNK_SIZE + 2;
   const hA = new Int16Array(G * G);
@@ -232,17 +246,45 @@ function buildHoldChunk(
     hashCell(seed, x, y, z) + hashCell(seed, x + 8191, y, z + 5077) - 1;
 
   const quad = (
-    ax: number, ay: number, az: number, bx: number, by: number, bz: number,
-    qx: number, qy: number, qz: number, dx: number, dy: number, dz: number,
-    nx: number, ny: number, nz: number, r: number, g: number, b: number,
-    a0: number, a1: number, a2: number, a3: number,
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
+    qx: number,
+    qy: number,
+    qz: number,
+    dx: number,
+    dy: number,
+    dz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    r: number,
+    g: number,
+    b: number,
+    a0: number,
+    a1: number,
+    a2: number,
+    a3: number,
   ): void => {
     const base = pos.length / 3;
     pos.push(ax, ay, az, bx, by, bz, qx, qy, qz, dx, dy, dz);
     nrm.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
     col.push(
-      r * a0, g * a0, b * a0, r * a1, g * a1, b * a1,
-      r * a2, g * a2, b * a2, r * a3, g * a3, b * a3,
+      r * a0,
+      g * a0,
+      b * a0,
+      r * a1,
+      g * a1,
+      b * a1,
+      r * a2,
+      g * a2,
+      b * a2,
+      r * a3,
+      g * a3,
+      b * a3,
     );
     if (a0 === a1 && a1 === a2 && a2 === a3) {
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -265,10 +307,15 @@ function buildHoldChunk(
       const H = hA[i];
       const wx = ox + lx;
       const wz = oz + lz;
-      const hE = hA[i + 1], hW = hA[i - 1], hS = hA[i + G], hN = hA[i - G];
+      const hE = hA[i + 1],
+        hW = hA[i - 1],
+        hS = hA[i + G],
+        hN = hA[i - G];
 
       const body = H === FLOOR_Y ? FLOOR_RGB : H === WALL_Y ? WALL_RGB : RIM_RGB;
-      let r = body[0], g = body[1], b = body[2];
+      let r = body[0],
+        g = body[1],
+        b = body[2];
 
       if (H === FLOOR_Y) {
         // Damp patches: a rare per-cube hash pick, so the moss scatters with no
@@ -276,8 +323,8 @@ function buildHoldChunk(
         // most time on and one flat grey is what makes a room read as a texture
         // sample rather than a place.
         const sp = hashCell(seed, wx, 7, wz);
-        if (sp > 0.90) {
-          const w = 0.35 + (sp - 0.90) * 2;
+        if (sp > 0.9) {
+          const w = 0.35 + (sp - 0.9) * 2;
           r += (MOSS_RGB[0] - r) * w;
           g += (MOSS_RGB[1] - g) * w;
           b += (MOSS_RGB[2] - b) * w;
@@ -286,26 +333,60 @@ function buildHoldChunk(
       const jt = jitter(wx, H, wz);
       const hw = jitter(wx, H + 31, wz) * 0.05;
       const mt = 1 + jt * 0.05;
-      r *= mt * (1 + hw); g *= mt; b *= mt * (1 - hw);
+      r *= mt * (1 + hw);
+      g *= mt;
+      b *= mt * (1 - hw);
 
-      const oE = hE > H, oW = hW > H, oS = hS > H, oN = hN > H;
-      const oSE = hA[i + 1 + G] > H, oSW = hA[i - 1 + G] > H;
-      const oNE = hA[i + 1 - G] > H, oNW = hA[i - 1 - G] > H;
+      const oE = hE > H,
+        oW = hW > H,
+        oS = hS > H,
+        oN = hN > H;
+      const oSE = hA[i + 1 + G] > H,
+        oSW = hA[i - 1 + G] > H;
+      const oNE = hA[i + 1 - G] > H,
+        oNW = hA[i - 1 - G] > H;
       quad(
-        lx, H, lz, lx, H, lz + 1, lx + 1, H, lz + 1, lx + 1, H, lz,
-        0, 1, 0, r, g, b,
-        AO[aoLevel(oW, oN, oNW)], AO[aoLevel(oW, oS, oSW)],
-        AO[aoLevel(oE, oS, oSE)], AO[aoLevel(oE, oN, oNE)],
+        lx,
+        H,
+        lz,
+        lx,
+        H,
+        lz + 1,
+        lx + 1,
+        H,
+        lz + 1,
+        lx + 1,
+        H,
+        lz,
+        0,
+        1,
+        0,
+        r,
+        g,
+        b,
+        AO[aoLevel(oW, oN, oNW)],
+        AO[aoLevel(oW, oS, oSW)],
+        AO[aoLevel(oE, oS, oSE)],
+        AO[aoLevel(oE, oN, oNE)],
       );
 
       for (let dir = 0; dir < 4; dir++) {
         const nH = dir === 0 ? hE : dir === 1 ? hW : dir === 2 ? hS : hN;
         let hTA: number;
         let hTB: number;
-        if (dir === 0) { hTA = hA[i + 1 - G]; hTB = hA[i + 1 + G]; }
-        else if (dir === 1) { hTA = hA[i - 1 + G]; hTB = hA[i - 1 - G]; }
-        else if (dir === 2) { hTA = hA[i + G + 1]; hTB = hA[i + G - 1]; }
-        else { hTA = hA[i - G - 1]; hTB = hA[i - G + 1]; }
+        if (dir === 0) {
+          hTA = hA[i + 1 - G];
+          hTB = hA[i + 1 + G];
+        } else if (dir === 1) {
+          hTA = hA[i - 1 + G];
+          hTB = hA[i - 1 - G];
+        } else if (dir === 2) {
+          hTA = hA[i + G + 1];
+          hTB = hA[i + G - 1];
+        } else {
+          hTA = hA[i - G - 1];
+          hTB = hA[i - G + 1];
+        }
 
         for (let y = nH + 1; y <= H; y++) {
           // Strata: horizontal bands every 3 units, so a tall face reads as
@@ -327,17 +408,105 @@ function buildHoldChunk(
           const loB = AO[aoLevel(hTB >= y, nH >= y - 1, hTB >= y - 1)];
           const y0 = y - 1;
           if (dir === 0) {
-            quad(lx + 1, y0, lz, lx + 1, y, lz, lx + 1, y, lz + 1, lx + 1, y0, lz + 1,
-              1, 0, 0, br, bg, bb, loA, upA, upB, loB);
+            quad(
+              lx + 1,
+              y0,
+              lz,
+              lx + 1,
+              y,
+              lz,
+              lx + 1,
+              y,
+              lz + 1,
+              lx + 1,
+              y0,
+              lz + 1,
+              1,
+              0,
+              0,
+              br,
+              bg,
+              bb,
+              loA,
+              upA,
+              upB,
+              loB,
+            );
           } else if (dir === 1) {
-            quad(lx, y0, lz + 1, lx, y, lz + 1, lx, y, lz, lx, y0, lz,
-              -1, 0, 0, br, bg, bb, loA, upA, upB, loB);
+            quad(
+              lx,
+              y0,
+              lz + 1,
+              lx,
+              y,
+              lz + 1,
+              lx,
+              y,
+              lz,
+              lx,
+              y0,
+              lz,
+              -1,
+              0,
+              0,
+              br,
+              bg,
+              bb,
+              loA,
+              upA,
+              upB,
+              loB,
+            );
           } else if (dir === 2) {
-            quad(lx + 1, y0, lz + 1, lx + 1, y, lz + 1, lx, y, lz + 1, lx, y0, lz + 1,
-              0, 0, 1, br, bg, bb, loA, upA, upB, loB);
+            quad(
+              lx + 1,
+              y0,
+              lz + 1,
+              lx + 1,
+              y,
+              lz + 1,
+              lx,
+              y,
+              lz + 1,
+              lx,
+              y0,
+              lz + 1,
+              0,
+              0,
+              1,
+              br,
+              bg,
+              bb,
+              loA,
+              upA,
+              upB,
+              loB,
+            );
           } else {
-            quad(lx, y0, lz, lx, y, lz, lx + 1, y, lz, lx + 1, y0, lz,
-              0, 0, -1, br, bg, bb, loA, upA, upB, loB);
+            quad(
+              lx,
+              y0,
+              lz,
+              lx,
+              y,
+              lz,
+              lx + 1,
+              y,
+              lz,
+              lx + 1,
+              y0,
+              lz,
+              0,
+              0,
+              -1,
+              br,
+              bg,
+              bb,
+              loA,
+              upA,
+              upB,
+              loB,
+            );
           }
         }
       }
@@ -345,9 +514,9 @@ function buildHoldChunk(
   }
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   geo.computeBoundingSphere();
 
@@ -362,7 +531,11 @@ function buildHoldChunk(
 
 // ---------------------------------------------------------------------------
 
-interface HoldChunk { cx: number; cz: number; mesh: THREE.Mesh | null; }
+interface HoldChunk {
+  cx: number;
+  cz: number;
+  mesh: THREE.Mesh | null;
+}
 
 const key = (cx: number, cz: number): number => cx * 64 + cz;
 
@@ -387,8 +560,8 @@ const key = (cx: number, cz: number): number => cx * 64 + cz;
 function buildCrystals(plan: HoldPlan): { mesh: THREE.Mesh; dispose(): void } {
   const base = new THREE.OctahedronGeometry(0.42, 0).toNonIndexed();
   base.scale(1, 2.1, 1);
-  const bp = base.getAttribute('position');
-  const bn = base.getAttribute('normal');
+  const bp = base.getAttribute("position");
+  const bn = base.getAttribute("normal");
   const vcount = bp.count;
 
   const rng = mulberry32(plan.seed ^ 0x7c3a);
@@ -434,9 +607,9 @@ function buildCrystals(plan: HoldPlan): { mesh: THREE.Mesh; dispose(): void } {
   base.dispose();
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   geo.computeBoundingSphere();
 
   // `vertexColors` + `emissive` is deliberately the same DEFINE SET as the
@@ -445,13 +618,22 @@ function buildCrystals(plan: HoldPlan): { mesh: THREE.Mesh; dispose(): void } {
   // and emissive strength are uniforms and cost nothing; the define set is what
   // decides whether this material needs a program of its own.
   const mat = new THREE.MeshStandardMaterial({
-    vertexColors: true, emissive: 0x49d7ff, emissiveIntensity: 1.5,
-    roughness: 0.25, metalness: 0,
+    vertexColors: true,
+    emissive: 0x49d7ff,
+    emissiveIntensity: 1.5,
+    roughness: 0.25,
+    metalness: 0,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
   mesh.matrixAutoUpdate = false;
-  return { mesh, dispose: () => { geo.dispose(); mat.dispose(); } };
+  return {
+    mesh,
+    dispose: () => {
+      geo.dispose();
+      mat.dispose();
+    },
+  };
 }
 
 /**
@@ -464,7 +646,9 @@ function buildCrystals(plan: HoldPlan): { mesh: THREE.Mesh; dispose(): void } {
 export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
   const plan = makePlan(seed);
   const stoneMat = new THREE.MeshStandardMaterial({
-    vertexColors: true, roughness: 0.92, metalness: 0,
+    vertexColors: true,
+    roughness: 0.92,
+    metalness: 0,
   });
   const crystals = buildCrystals(plan);
   const fixtures = new THREE.Group();
@@ -517,7 +701,9 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
   let disposed = false;
 
   const spawnPoint = new THREE.Vector3(
-    HOLD_ORIGIN_X + plan.gate.x + 0.5, FLOOR_Y, HOLD_ORIGIN_Z + plan.gate.z + 0.5,
+    HOLD_ORIGIN_X + plan.gate.x + 0.5,
+    FLOOR_Y,
+    HOLD_ORIGIN_Z + plan.gate.z + 0.5,
   );
   /**
    * The hold has nobody living in it, so where a session would begin here is
@@ -531,11 +717,13 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
   const buildChunk = (rec: HoldChunk): void => {
     rec.mesh = buildHoldChunk(rec.cx, rec.cz, plan, stoneMat);
     scene.add(rec.mesh);
-    perf.count('chunks');
+    perf.count("chunks");
   };
 
   const disposeChunk = (rec: HoldChunk): void => {
-    if (!rec.mesh) return;
+    if (!rec.mesh) {
+      return;
+    }
     scene.remove(rec.mesh);
     rec.mesh.geometry.dispose();
     rec.mesh = null;
@@ -547,13 +735,19 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) {
       for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++) {
         const d = dx * dx + dz * dz;
-        if (d > lim) continue;
+        if (d > lim) {
+          continue;
+        }
         const cx = fcx + dx;
         const cz = fcz + dz;
         // The footprint is finite: outside it there is nothing to build, and
         // nowhere to stand either (localHeight returns the rim).
-        if (cx < 0 || cz < 0 || cx >= SPAN || cz >= SPAN) continue;
-        if (!chunks.has(key(cx, cz))) queue.push({ cx, cz, d });
+        if (cx < 0 || cz < 0 || cx >= SPAN || cz >= SPAN) {
+          continue;
+        }
+        if (!chunks.has(key(cx, cz))) {
+          queue.push({ cx, cz, d });
+        }
       }
     }
     queue.sort((a, b) => a.d - b.d);
@@ -565,7 +759,9 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
       const dx = rec.cx - fcx;
       const dz = rec.cz - fcz;
       if (dx * dx + dz * dz > lim) {
-        if (building === rec) building = null;
+        if (building === rec) {
+          building = null;
+        }
         disposeChunk(rec);
         chunks.delete(k);
       }
@@ -607,9 +803,15 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      * spawner's structure branch reads this null and says so. See DebugSpawner.
      */
     debugSpawn: null,
-    get chunksLoaded(): number { return chunks.size; },
-    get streaming(): boolean { return building !== null || queue.length > 0; },
-    get pendingChunks(): number { return queue.length + (building !== null ? 1 : 0); },
+    get chunksLoaded(): number {
+      return chunks.size;
+    },
+    get streaming(): boolean {
+      return building !== null || queue.length > 0;
+    },
+    get pendingChunks(): number {
+      return queue.length + (building !== null ? 1 : 0);
+    },
 
     getHeight(x: number, z: number): number {
       return localHeight(plan, Math.floor(x - HOLD_ORIGIN_X), Math.floor(z - HOLD_ORIGIN_Z));
@@ -630,25 +832,43 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
       return localHeight(plan, Math.floor(x - HOLD_ORIGIN_X), Math.floor(z - HOLD_ORIGIN_Z));
     },
     /** No trees underground. Walls are terrain, and terrain blocks already. */
-    trunkSolidTopAt(): number { return -Infinity; },
+    trunkSolidTopAt(): number {
+      return -Infinity;
+    },
     /**
      * No settlements either. The hold is cut out of rock, so everything solid
      * in it is already in the height field.
      */
-    structureTopAt(): number { return -Infinity; },
+    structureTopAt(): number {
+      return -Infinity;
+    },
     foliageSite: NO_SITE,
     /** No canopy either, so nothing here is ever brushed for leaves. */
-    crownContactAt(): boolean { return false; },
-    isWater(): boolean { return false; },
+    crownContactAt(): boolean {
+      return false;
+    },
+    isWater(): boolean {
+      return false;
+    },
     /** ...so there is no deep sea in it either. See World.isDeepWater. */
-    isDeepWater(): boolean { return false; },
+    isDeepWater(): boolean {
+      return false;
+    },
     /** It does not snow in a hold cut out of rock. */
-    snowCoverAt(): number { return 0; },
+    snowCoverAt(): number {
+      return 0;
+    },
     /** Nothing grows in a hold cut out of rock, so there is nothing to part. */
-    disturb(): void { /* no vegetation underground */ },
+    disturb(): void {
+      /* no vegetation underground */
+    },
     /** Nothing but terrain here, and debugColliders deliberately excludes it. */
-    debugColliders(): void { /* no discrete colliders in the hold */ },
-    debugStructures(): void { /* nor any structure boxes */ },
+    debugColliders(): void {
+      /* no discrete colliders in the hold */
+    },
+    debugStructures(): void {
+      /* nor any structure boxes */
+    },
     // Stone floors, not turf: nothing down here is worn by feet.
     debugWear: () => 0,
     debugColumn: () => 0,
@@ -657,23 +877,43 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     debugPaths: () => ({ paths: [], at: null }),
     debugCarriedStreets: () => ({ count: 0, paved: 0, clear: [] }),
     addPath: () => ({
-      id: '', length: 0, samples: 0, note: null, nodes: [], refused: [], crossings: 0,
-      error: 'this zone has no path network',
+      id: "",
+      length: 0,
+      samples: 0,
+      note: null,
+      nodes: [],
+      refused: [],
+      crossings: 0,
+      error: "this zone has no path network",
     }),
-    debugRidges(): void { /* nor any roofs */ },
+    debugRidges(): void {
+      /* nor any roofs */
+    },
     /** Nor any road furniture: the hold has no roads. */
-    debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; },
+    debugFurniture(): Array<{ kind: string; x: number; z: number }> {
+      return [];
+    },
     /** ...and no fences either. See World.debugFences. */
-    debugFences(): ReturnType<World['debugFences']> { return []; },
-    debugCarriedTrees(): Array<{ x: number; z: number }> { return []; },
+    debugFences(): ReturnType<World["debugFences"]> {
+      return [];
+    },
+    debugCarriedTrees(): Array<{ x: number; z: number }> {
+      return [];
+    },
 
     /** The enclosed hold has no sky, water, clouds or waterfall to retint. */
-    applyCelestial(_state: Readonly<CelestialState>): void { /* intentionally enclosed */ },
+    applyCelestial(_state: Readonly<CelestialState>): void {
+      /* intentionally enclosed */
+    },
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
-      if (disposed) return;
+      if (disposed) {
+        return;
+      }
       void dt;
-      if (newFrame) buildBudgetLeft = BUILD_BUDGET_MS;
+      if (newFrame) {
+        buildBudgetLeft = BUILD_BUDGET_MS;
+      }
       const fcx = Math.floor((focus.x - HOLD_ORIGIN_X) / CHUNK_SIZE);
       const fcz = Math.floor((focus.z - HOLD_ORIGIN_Z) / CHUNK_SIZE);
       if (fcx !== lastCX || fcz !== lastCZ) {
@@ -689,7 +929,9 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
         const t0 = performance.now();
         const q = queue.shift()!;
         const k = key(q.cx, q.cz);
-        if (chunks.has(k)) continue;
+        if (chunks.has(k)) {
+          continue;
+        }
         const rec: HoldChunk = { cx: q.cx, cz: q.cz, mesh: null };
         chunks.set(k, rec);
         building = rec;
@@ -705,22 +947,38 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
      * and the panel's settings are re-applied on the way back out (`onArrive`
      * in main.ts), so nothing is left in the wrong state.
      */
-    setLayerVisible(): void { /* no streamed layers in the hold */ },
-    setFoliageDistance(): void { /* no vegetation in the hold */ },
-    setTerrainDistance(): void { /* an enclosed zone has no far landscape */ },
-    debugDistantTerrain(): null { return null; },
-    warmUpEffects(): void { /* the hold owns no visual effects of its own */ },
-    debugSkyFall(): null { return null; }, // nothing flies in the hold
+    setLayerVisible(): void {
+      /* no streamed layers in the hold */
+    },
+    setFoliageDistance(): void {
+      /* no vegetation in the hold */
+    },
+    setTerrainDistance(): void {
+      /* an enclosed zone has no far landscape */
+    },
+    debugDistantTerrain(): null {
+      return null;
+    },
+    warmUpEffects(): void {
+      /* the hold owns no visual effects of its own */
+    },
+    debugSkyFall(): null {
+      return null;
+    }, // nothing flies in the hold
 
     /**
      * No-op: nothing grows in the hold, so there is no nature density that
      * could have changed under it. The overworld rebuilds itself on the way
      * back out only if something asked it to — see World.rebuildProps.
      */
-    rebuildProps(): void { /* nothing grows down here */ },
+    rebuildProps(): void {
+      /* nothing grows down here */
+    },
 
     setVisible(v: boolean): void {
-      for (const rec of chunks.values()) if (rec.mesh) rec.mesh.visible = v;
+      for (const rec of chunks.values()) {
+        if (rec.mesh) rec.mesh.visible = v;
+      }
       // The crystal lamps live under `fixtures`, so this is also what takes the
       // hold's four point lights out of the scene's light count. See World.
       fixtures.visible = v;
@@ -728,12 +986,18 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
 
     /** Six chunks a frame, then the rest. See World.disposeStep. */
     disposeStep(): boolean {
-      if (disposed) return true;
+      if (disposed) {
+        return true;
+      }
       let n = 6;
       for (const [k, rec] of chunks) {
-        if (n <= 0) return false;
+        if (n <= 0) {
+          return false;
+        }
         n--;
-        if (building === rec) building = null;
+        if (building === rec) {
+          building = null;
+        }
         disposeChunk(rec);
         chunks.delete(k);
       }
@@ -742,9 +1006,13 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     },
 
     dispose(): void {
-      if (disposed) return;
+      if (disposed) {
+        return;
+      }
       disposed = true;
-      for (const rec of chunks.values()) disposeChunk(rec);
+      for (const rec of chunks.values()) {
+        disposeChunk(rec);
+      }
       chunks.clear();
       queue.length = 0;
       scene.remove(fixtures);

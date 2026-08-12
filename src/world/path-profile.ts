@@ -8,11 +8,12 @@
  * width: the ground is a 1-unit grid whatever runs over it.
  */
 
-const s2l = (c: number): number =>
-  c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+const s2l = (c: number): number => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 /** sRGB hex -> the linear triple the terrain material's vertex colours are in. */
 export const lin = (hex: number): [number, number, number] => [
-  s2l(((hex >> 16) & 255) / 255), s2l(((hex >> 8) & 255) / 255), s2l((hex & 255) / 255),
+  s2l(((hex >> 16) & 255) / 255),
+  s2l(((hex >> 8) & 255) / 255),
+  s2l((hex & 255) / 255),
 ];
 
 /**
@@ -68,9 +69,9 @@ export interface PathRoles {
 
 export type PathCarve =
   /** Cut and fill: the corridor is levelled into the height field. */
-  | 'full'
+  | "full"
   /** Nothing — the path follows the ground it is drawn on. */
-  | 'none';
+  | "none";
 
 export interface PathProfile {
   /** `path:<name>` per the id rule. */
@@ -100,7 +101,7 @@ export interface PathProfile {
   /** How far two paths of this profile must run apart to read as two paths. */
   readonly avoidR: number;
   /** `road` is lamps, fingerposts and fence runs (issue #142). */
-  readonly furniture: 'road' | 'none';
+  readonly furniture: "road" | "none";
   /**
    * May BRIDGE open water, or must route round it. Bridges are hardcoded to the
    * cart road's geometry (`addBridgeFurniture`); fords are not built yet.
@@ -113,15 +114,27 @@ export interface PathProfile {
 }
 
 const BUILT_ROLES: PathRoles = {
-  surface: true, refusesBuilt: true, refusesFoliage: true, draw: true, wears: false,
+  surface: true,
+  refusesBuilt: true,
+  refusesFoliage: true,
+  draw: true,
+  wears: false,
 };
 /** A beaten track must NOT refuse what is built beside it: it was derived from it. */
 const WORN_ROLES: PathRoles = {
-  surface: false, refusesBuilt: false, refusesFoliage: true, draw: false, wears: true,
+  surface: false,
+  refusesBuilt: false,
+  refusesFoliage: true,
+  draw: false,
+  wears: true,
 };
 /** A paved street: a track's roles minus wearing — flagstones are laid, not worn. */
 const PAVED_ROLES: PathRoles = {
-  surface: false, refusesBuilt: false, refusesFoliage: true, draw: false, wears: false,
+  surface: false,
+  refusesBuilt: false,
+  refusesFoliage: true,
+  draw: false,
+  wears: false,
 };
 
 /** Bounds every profile: `RoadNetwork`'s spatial index sizes its catchment to it. */
@@ -136,7 +149,7 @@ export function pathProfile(opts: {
   halfWidth: number;
   verge?: number;
   carve?: PathCarve;
-  furniture?: 'road' | 'none';
+  furniture?: "road" | "none";
   bridges?: boolean;
   roles?: PathRoles;
   litter?: number;
@@ -149,7 +162,7 @@ export function pathProfile(opts: {
   // 0.8 is the road's, cell-scale — must fit INSIDE the verge or `surfaceOf`'s
   // ramp divides by a negative.
   const shoulderIn = Math.min(0.8, verge * 0.5);
-  const carve = opts.carve ?? 'full';
+  const carve = opts.carve ?? "full";
   const shoulderAt = deckEdge - shoulderIn;
   const carveBlend = Math.min(MAX_CARVE_BLEND, deckEdge + 8);
   return {
@@ -168,14 +181,20 @@ export function pathProfile(opts: {
     // Nine offsets at the router's ring spacing; the pair at `shoulderAt` is the
     // corner the section has — issue #15 was the ribbon passing under it.
     xs: [
-      -deckEdge, -shoulderAt, -deckHalf, -deckHalf * 0.45,
+      -deckEdge,
+      -shoulderAt,
+      -deckHalf,
+      -deckHalf * 0.45,
       0,
-      deckHalf * 0.45, deckHalf, shoulderAt, deckEdge,
+      deckHalf * 0.45,
+      deckHalf,
+      shoulderAt,
+      deckEdge,
     ],
     apronR: deckEdge + 6,
     // 18 on the road: two corridors plus 8 units for verges, a lamp and grass.
     avoidR: deckEdge * 2 + 8,
-    furniture: opts.furniture ?? 'road',
+    furniture: opts.furniture ?? "road",
     bridges: opts.bridges ?? true,
     roles: opts.roles ?? BUILT_ROLES,
     litter: opts.litter ?? 0,
@@ -185,7 +204,7 @@ export function pathProfile(opts: {
 
 /** The cart road — the profile every number above was derived from. */
 export const ROAD_PROFILE = pathProfile({
-  id: 'path:road',
+  id: "path:road",
   halfWidth: 2.8,
   litter: 0.35,
 });
@@ -195,9 +214,9 @@ export const ROAD_PROFILE = pathProfile({
  * carve/surface ramp is steeper than the step it exists to hide.
  */
 export const FOOTPATH_PROFILE = pathProfile({
-  id: 'path:footpath',
+  id: "path:footpath",
   halfWidth: 1.4,
-  furniture: 'none',
+  furniture: "none",
   bridges: false,
   litter: 0.6,
   palette: FOOT_PALETTE,
@@ -210,22 +229,22 @@ export const FOOTPATH_PROFILE = pathProfile({
 export function flagstoneProfile(halfWidth: number): PathProfile {
   const kerb = 0.4;
   return pathProfile({
-    id: 'path:flagstone',
+    id: "path:flagstone",
     halfWidth: halfWidth - kerb,
     verge: kerb,
-    carve: 'none',
-    furniture: 'none',
+    carve: "none",
+    furniture: "none",
     bridges: false,
     roles: PAVED_ROLES,
   });
 }
 
 export const TRAIL_PROFILE = pathProfile({
-  id: 'path:trail',
+  id: "path:trail",
   halfWidth: 1.0,
   // It carves: ground is 1-unit cubes against MAX_STEP_UP 0.5, so a no-carve
   // trail is a staircase. Stairs are the real answer (issue #142 §11); not built.
-  furniture: 'none',
+  furniture: "none",
   bridges: false,
   litter: 0.75,
   palette: TRAIL_PALETTE,
@@ -235,11 +254,11 @@ export const TRAIL_PROFILE = pathProfile({
 export function trackProfile(halfWidth: number): PathProfile {
   // 0.45 / 0.55 is `Terrain.trampleAt`'s soft edge: full over the middle 45%.
   return pathProfile({
-    id: 'path:track',
+    id: "path:track",
     halfWidth: halfWidth * 0.45,
     verge: halfWidth * 0.55,
-    carve: 'none',
-    furniture: 'none',
+    carve: "none",
+    furniture: "none",
     bridges: false,
     roles: WORN_ROLES,
   });

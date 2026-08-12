@@ -1,6 +1,6 @@
-import * as THREE from 'three';
-import { shade, VoxelModel } from '../core/voxel';
-import type { StringKey } from '../i18n';
+import * as THREE from "three";
+import { shade, VoxelModel } from "../core/voxel";
+import type { StringKey } from "../i18n";
 
 /**
  * THE HERO'S HAIR — its own model at TWICE the body's resolution: eight cells across
@@ -43,12 +43,13 @@ const CHUNK = 3;
 const chunkOf = (n: number): number => Math.floor((n + 60) / CHUNK);
 
 // Every SHAPE test goes through this, not the cell: outlines are walls of blocks.
-const chunkCentre = (n: number): number =>
-  chunkOf(n) * CHUNK - 60 + (CHUNK - 1) / 2 + 0.5;
+const chunkCentre = (n: number): number => chunkOf(n) * CHUNK - 60 + (CHUNK - 1) / 2 + 0.5;
 
 /** Tone for one cell, keyed on the CHUNK. `tip` darkens the lowest row of a fall. */
 function strand(p: Palette, x: number, z: number, tip = false): number {
-  if (tip) return p.dark;
+  if (tip) {
+    return p.dark;
+  }
   const h = hash(chunkOf(x), 0, chunkOf(z));
   return h < 0.3 ? p.dark : h > 0.74 ? p.light : p.base;
 }
@@ -66,12 +67,20 @@ function inOutline(x: number, z: number, grow: number, chamfer: number, free: bo
   const ax = Math.abs(x + 0.5);
   const az = Math.abs(z + 0.5);
   const lim = SIDE - 0.5 + grow;
-  if (ax > lim || az > lim) return false;
-  if (ax + az <= 2 * lim - chamfer) return true;
+  if (ax > lim || az > lim) {
+    return false;
+  }
+  if (ax + az <= 2 * lim - chamfer) {
+    return true;
+  }
   // In the cut. Above the crown nothing is under this row, so the cut stands.
-  if (free) return false;
+  if (free) {
+    return false;
+  }
   // Never bare the crown — that is scalp through the top of the hair.
-  if (ax <= SIDE - 0.5 && az <= SIDE - 0.5) return true;
+  if (ax <= SIDE - 0.5 && az <= SIDE - 0.5) {
+    return true;
+  }
   // Never end ON a skull plane; `flush` catches the cell just outside one.
   const flush = (a: number, b: number): boolean => a === SIDE + 0.5 && b < SIDE + 0.5;
   return flush(ax, az) || flush(az, ax);
@@ -82,16 +91,24 @@ function inOutline(x: number, z: number, grow: number, chamfer: number, free: bo
  * at the very plane the layer stands on. Stubble is a COLOUR (`tone`).
  */
 function cap(
-  v: VoxelModel, p: Palette, y0: number, y1: number,
-  grow = 1, chamfer = 5,
+  v: VoxelModel,
+  p: Palette,
+  y0: number,
+  y1: number,
+  grow = 1,
+  chamfer = 5,
   tone?: (x: number, y: number, z: number) => number,
 ): void {
   // A row above the crown has no skull under it, so its outline is free.
   const free = y0 > CROWN;
   for (let x = -SIDE - grow; x <= SIDE - 1 + grow; x++) {
     for (let z = -SIDE - grow; z <= SIDE - 1 + grow; z++) {
-      if (!inOutline(x, z, grow, chamfer, free)) continue;
-      for (let y = y0; y <= y1; y++) v.set(x, y, z, tone ? tone(x, y, z) : strand(p, x, z));
+      if (!inOutline(x, z, grow, chamfer, free)) {
+        continue;
+      }
+      for (let y = y0; y <= y1; y++) {
+        v.set(x, y, z, tone ? tone(x, y, z) : strand(p, x, z));
+      }
     }
   }
 }
@@ -103,10 +120,16 @@ function cap(
  * hang below the outer onto the skull's or the ear's plane.
  */
 function fall(
-  v: VoxelModel, p: Palette,
+  v: VoxelModel,
+  p: Palette,
   opts: {
-    x0: number; x1: number; z0: number; z1: number;
-    top: number; bottom: number; jag?: number;
+    x0: number;
+    x1: number;
+    z0: number;
+    z1: number;
+    top: number;
+    bottom: number;
+    jag?: number;
     sweep?: number;
   },
 ): void {
@@ -128,7 +151,9 @@ function fall(
       const block = chunkOf(run);
       const step = Math.floor(hash(block, 7, chunkOf(alongX ? z0 : x0)) * (jag + 1)) * 2;
       const end = Math.round(bottom - sweep * t + round + step);
-      for (let y = end; y <= top; y++) v.set(x, y, z, strand(p, x, z, y === end));
+      for (let y = end; y <= top; y++) {
+        v.set(x, y, z, strand(p, x, z, y === end));
+      }
     }
   }
 }
@@ -139,10 +164,15 @@ function fall(
  * DEEPEST point; `frontHem` the same in front of the ears, clear of the eyes.
  */
 function mass(
-  v: VoxelModel, p: Palette,
+  v: VoxelModel,
+  p: Palette,
   o: {
-    rx: number; rz: number; top: number; hem: number;
-    frontHem?: number; jag?: number;
+    rx: number;
+    rz: number;
+    top: number;
+    hem: number;
+    frontHem?: number;
+    jag?: number;
     /** Lowest x it may paint — the sidecut, or the mass buries its own shaved side. */
     from?: number;
   },
@@ -152,25 +182,36 @@ function mass(
   const from = o.from ?? -Infinity;
   for (let x = -Math.ceil(o.rx) - 1; x <= Math.ceil(o.rx); x++) {
     for (let z = -Math.ceil(o.rz) - 1; z <= Math.ceil(o.rz); z++) {
-      if (x < from) continue;
+      if (x < from) {
+        continue;
+      }
       const ax = Math.abs(x + 0.5);
       const az = Math.abs(z + 0.5);
       // Over the skull the cap owns the shape, which makes this safe by
       // construction: every face left is outside the skull or pointing at it.
-      if (ax <= SIDE + 0.5 && az <= SIDE + 0.5) continue;
+      if (ax <= SIDE + 0.5 && az <= SIDE + 0.5) {
+        continue;
+      }
       // THE EARS COUNT TOO: a face landing on x = ±10 is the same seam, so in the
       // ears' band of z the mass starts a cell further out.
-      if (az <= 1.5 && ax <= 9.5) continue;
+      if (az <= 1.5 && ax <= 9.5) {
+        continue;
+      }
       // Outline AND hem per CHUNK, not per cell, or the rim staircases.
       const cx = chunkCentre(x);
       const cz = chunkCentre(z);
       const qc = (Math.abs(cx) / o.rx) ** 2 + (Math.abs(cz) / o.rz) ** 2;
-      if (qc > 1) continue;
+      if (qc > 1) {
+        continue;
+      }
       const reach = Math.sqrt(Math.max(0, 1 - qc));
       const floor = cz > 0 ? frontHem : o.hem;
-      const end = Math.round(o.top - (o.top - floor) * reach)
-        + Math.floor(hash(chunkOf(x), 5, chunkOf(z)) * (jag + 1)) * 2;
-      for (let y = end; y <= o.top; y++) v.set(x, y, z, strand(p, x, z, y === end));
+      const end =
+        Math.round(o.top - (o.top - floor) * reach) +
+        Math.floor(hash(chunkOf(x), 5, chunkOf(z)) * (jag + 1)) * 2;
+      for (let y = end; y <= o.top; y++) {
+        v.set(x, y, z, strand(p, x, z, y === end));
+      }
     }
   }
 }
@@ -182,14 +223,22 @@ function mass(
  * along the axis it mostly runs down and it can never leave a gap there.
  */
 function spike(
-  v: VoxelModel, p: Palette,
-  x: number, y: number, z: number,
-  dx: number, dy: number, dz: number,
-  len: number, thick = 5,
+  v: VoxelModel,
+  p: Palette,
+  x: number,
+  y: number,
+  z: number,
+  dx: number,
+  dy: number,
+  dz: number,
+  len: number,
+  thick = 5,
 ): void {
   const m = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) || 1;
-  const ux = dx / m, uy = dy / m, uz = dz / m;
-  const axis = Math.abs(uy) === 1 ? 'y' : Math.abs(ux) === 1 ? 'x' : 'z';
+  const ux = dx / m,
+    uy = dy / m,
+    uz = dz / m;
+  const axis = Math.abs(uy) === 1 ? "y" : Math.abs(ux) === 1 ? "x" : "z";
   for (let t = 0; t <= len; t++) {
     const w = Math.max(1, Math.round(thick * Math.sqrt(1 - t / len)));
     const lo = -Math.floor((w - 1) / 2);
@@ -201,9 +250,13 @@ function spike(
     const tone = k > 0.72 ? p.light : k < 0.3 ? p.dark : p.base;
     for (let a = lo; a <= hi; a++) {
       for (let b = lo; b <= hi; b++) {
-        if (axis === 'y') v.set(px + a, py, pz + b, tone);
-        else if (axis === 'x') v.set(px, py + a, pz + b, tone);
-        else v.set(px + a, py + b, pz, tone);
+        if (axis === "y") {
+          v.set(px + a, py, pz + b, tone);
+        } else if (axis === "x") {
+          v.set(px, py + a, pz + b, tone);
+        } else {
+          v.set(px + a, py + b, pz, tone);
+        }
       }
     }
   }
@@ -215,17 +268,18 @@ function spike(
  * OUT before it turns in: bouffant rather than conical.
  */
 function crown(
-  v: VoxelModel, p: Palette,
+  v: VoxelModel,
+  p: Palette,
   o: { from: number; height: number; grow?: number; lift?: number },
 ): void {
   const grow = o.grow ?? FULL;
-  const base = SIDE - 0.5 + grow;          // the plan radius the cap ends on
-  const lift = o.lift ?? 1;                // >1 bulges the sides before it turns in
+  const base = SIDE - 0.5 + grow; // the plan radius the cap ends on
+  const lift = o.lift ?? 1; // >1 bulges the sides before it turns in
   for (let i = 0; i < o.height; i++) {
     const y = o.from + i;
     // Sampled in bands of two rows, so the dome terraces rather than shrinking.
     const band = Math.floor(i / 2) * 2 + 1;
-    const t = band / o.height;                             // 0 at the base, 1 at the apex
+    const t = band / o.height; // 0 at the base, 1 at the apex
     const r = base * Math.pow(Math.max(0, 1 - t * t), 0.5 / lift);
     const lim = Math.ceil(r);
     for (let x = -lim - 1; x <= lim; x++) {
@@ -233,7 +287,9 @@ function crown(
         // An ELLIPSE sampled at the CHUNK's centre: whole blocks, no staircase.
         const ax = Math.abs(chunkCentre(x));
         const az = Math.abs(chunkCentre(z));
-        if ((ax / r) ** 2 + (az / (r * 1.05)) ** 2 > 1) continue;
+        if ((ax / r) ** 2 + (az / (r * 1.05)) ** 2 > 1) {
+          continue;
+        }
         v.set(x, y, z, strand(p, x, z));
       }
     }
@@ -268,9 +324,13 @@ function paintBuzz(v: VoxelModel, p: Palette): void {
   mass(v, p, { rx: 10, rz: 11, top: 9, hem: 3, frontHem: 6, jag: 1 });
   // z 7..8 straddles the face plane; a layer at 6..7 would be INSIDE the skull.
   fall(v, p, { x0: -8, x1: 7, z0: 7, z1: 8, top: 10, bottom: BROW, jag: 2 });
-  for (const x of [-2, -1, 0]) v.set(x, BROW, 8, p.dark);
+  for (const x of [-2, -1, 0]) {
+    v.set(x, BROW, 8, p.dark);
+  }
   // sideburns, clear of the ear (y 4..5)
-  for (const x of [-8, -7, 6, 7]) for (const y of [6, 7]) v.set(x, y, 8, p.dark);
+  for (const x of [-8, -7, 6, 7]) {
+    for (const y of [6, 7]) v.set(x, y, 8, p.dark);
+  }
 }
 
 function paintBowl(v: VoxelModel, p: Palette): void {
@@ -293,14 +353,20 @@ function paintEmo(v: VoxelModel, p: Palette): void {
   crown(v, p, { from: 13, height: 8, lift: 1.6 });
   for (let x = PART; x <= 10; x++) {
     for (let z = -11; z <= 10; z++) {
-      if (!inOutline(x, z, FULL, 7, false)) continue;
-      for (let y = BROW; y < 9; y++) v.set(x, y, z, strand(p, x, z));
+      if (!inOutline(x, z, FULL, 7, false)) {
+        continue;
+      }
+      for (let y = BROW; y < 9; y++) {
+        v.set(x, y, z, strand(p, x, z));
+      }
     }
   }
   // THE SHAVED SIDE IS BARE — a shell over the head is a hat whatever value it is
   // painted. One cell of fade under the clipper line at 9, so it is not a decal.
   for (let z = -6; z <= 5; z++) {
-    if ((z + 12) % 3 === 0) continue;
+    if ((z + 12) % 3 === 0) {
+      continue;
+    }
     v.set(-9, 8, z, shade(p.dark, 0.8));
   }
   // `sweep` POSITIVE gets longer along the run: a parting, not a full curtain.
@@ -308,7 +374,10 @@ function paintEmo(v: VoxelModel, p: Palette): void {
   fall(v, p, { x0: 9, x1: 11, z0: 3, z1: 6, top: 10, bottom: -3, jag: 2 });
   // The long side ONLY — symmetric, it wraps the shaved side back in (`from`).
   mass(v, p, { rx: 12, rz: 13, top: 10, hem: -4, frontHem: 4, jag: 3, from: PART });
-  for (let y = 2; y <= 13; y++) { v.set(5, y, 9, p.light); v.set(6, y, 9, p.light); }
+  for (let y = 2; y <= 13; y++) {
+    v.set(5, y, 9, p.light);
+    v.set(6, y, 9, p.light);
+  }
 }
 
 /** Swept-back spikes. The mass is at the BACK, or a spiky head reads as startled. */
@@ -327,10 +396,16 @@ function paintCloud(v: VoxelModel, p: Palette): void {
     [2, 7, 0.25, 13, 7],
     [6, 4, 0.5, 9, 6],
   ];
-  for (const [x, z, lean, len, w] of fan) spike(v, p, x, 12, z, lean, 1, -0.8, len, w);
-  for (const x of [-6, 2]) spike(v, p, x, 12, -1, 0, 1, -1, 8, 6);
+  for (const [x, z, lean, len, w] of fan) {
+    spike(v, p, x, 12, z, lean, 1, -0.8, len, w);
+  }
+  for (const x of [-6, 2]) {
+    spike(v, p, x, 12, -1, 0, 1, -1, 8, 6);
+  }
   // The lean stays under 1, so the run steps down in y and clears the face.
-  for (const x of [-7, -2, 4]) spike(v, p, x, 12, 8, 0, -1, 0.2, 6, 4);
+  for (const x of [-7, -2, 4]) {
+    spike(v, p, x, 12, 8, 0, -1, 0.2, 6, 4);
+  }
 }
 
 /** The battle flare: a flame narrowing to a crest, two bangs left over the face. */
@@ -349,7 +424,9 @@ function paintSaiyan(v: VoxelModel, p: Palette): void {
     [3, 3, 0.55, 0.3, 10, 6],
     [3, -5, 0.55, -0.3, 12, 6],
   ];
-  for (const [x, z, lx, lz, len, w] of ring) spike(v, p, x, 12, z, lx, 1, lz, len, w);
+  for (const [x, z, lx, lz, len, w] of ring) {
+    spike(v, p, x, 12, z, lx, 1, lz, len, w);
+  }
   spike(v, p, -2, 14, -1, 0, 1, -0.15, 15, 7);
   spike(v, p, -6, 15, -1, -0.2, 1, -0.2, 11, 5);
   spike(v, p, 2, 15, -1, 0.2, 1, -0.2, 11, 5);
@@ -383,13 +460,19 @@ function paintPonytail(v: VoxelModel, p: Palette): void {
   fall(v, p, { x0: -11, x1: 10, z0: 7, z1: 8, top: 12, bottom: BROW + 1, jag: 1 });
   mass(v, p, { rx: 11, rz: 12, top: 10, hem: 0, frontHem: 5, jag: 1 });
   fall(v, p, { x0: -8, x1: 7, z0: -12, z1: -9, top: 9, bottom: 4, jag: 1 });
-  for (let x = -5; x <= 4; x++) for (let y = 5; y <= 8; y++) v.set(x, y, -10, p.dark);
+  for (let x = -5; x <= 4; x++) {
+    for (let y = 5; y <= 8; y++) v.set(x, y, -10, p.dark);
+  }
   // The band is a value change, not geometry — the only way a tie reads at this size.
-  for (let x = -5; x <= 4; x++) for (const z of [-11, -10]) v.set(x, 4, z, shade(p.dark, 0.55));
+  for (let x = -5; x <= 4; x++) {
+    for (const z of [-11, -10]) v.set(x, 4, z, shade(p.dark, 0.55));
+  }
   // Mostly DOWN: a long axis in z foreshortens into a blob from behind. Rooted at
   // z -12, or its base reaches the skull's inset back plane (SKULL_SHELL).
   spike(v, p, -1, 3, -12, 0, -1, -0.45, 12, 6);
-  for (const x of [-7, 6]) for (let y = 6; y <= 8; y++) v.set(x, y, 8, p.dark);
+  for (const x of [-7, 6]) {
+    for (let y = 6; y <= 8; y++) v.set(x, y, 8, p.dark);
+  }
 }
 
 /**
@@ -399,18 +482,20 @@ function paintPonytail(v: VoxelModel, p: Palette): void {
 function paintMohawk(v: VoxelModel, p: Palette): void {
   const stubble = shade(p.dark, 0.35);
   for (let z = -9; z <= 8; z++) {
-    for (const x of [-5, -4, 1, 2]) v.set(x, 12, z, stubble);
+    for (const x of [-5, -4, 1, 2]) {
+      v.set(x, 12, z, stubble);
+    }
   }
   // A WALL, NOT A ROW OF PRONGS: one arch narrowing with HEIGHT, not position. Every
   // cell is at y 12 or above, or the taper lands a top face on the crown plane.
   for (let z = -11; z <= 8; z++) {
-    const t = (z + 11) / 19;                      // 0 at the nape, 1 at the brow
+    const t = (z + 11) / 19; // 0 at the nape, 1 at the brow
     // sqrt(sin) rises fast and holds: a fin. A plain sine peaks once — a cone.
-    const ridge = 12 + Math.round(5 + 10 * Math.sqrt(Math.sin(t * Math.PI)))
-      - Math.floor(hash(0, 0, z) * 2);
+    const ridge =
+      12 + Math.round(5 + 10 * Math.sqrt(Math.sin(t * Math.PI))) - Math.floor(hash(0, 0, z) * 2);
     for (let y = 12; y <= ridge; y++) {
       const k = (y - 12) / Math.max(1, ridge - 12);
-      const half = k > 0.86 ? 0 : k > 0.55 ? 1 : 2;   // five cells wide at the root
+      const half = k > 0.86 ? 0 : k > 0.55 ? 1 : 2; // five cells wide at the root
       for (let x = -1 - half; x <= -1 + half; x++) {
         v.set(x, y, z, k > 0.7 ? p.light : k < 0.25 ? p.dark : strand(p, x, z));
       }
@@ -428,20 +513,20 @@ export interface HairStyle {
 }
 
 export const HAIR_STYLES: readonly HairStyle[] = [
-  { id: 'classic', labelKey: 'hair.classic', suggested: 0xa5622a, paint: paintClassic },
-  { id: 'buzz', labelKey: 'hair.buzz', suggested: 0x4a3524, paint: paintBuzz },
-  { id: 'bowl', labelKey: 'hair.bowl', suggested: 0x6f4a24, paint: paintBowl },
-  { id: 'curtain', labelKey: 'hair.curtain', suggested: 0x6a4a32, paint: paintCurtain },
-  { id: 'ponytail', labelKey: 'hair.ponytail', suggested: 0x2f2b33, paint: paintPonytail },
-  { id: 'emo', labelKey: 'hair.emo', suggested: 0x241f28, paint: paintEmo },
-  { id: 'cloud', labelKey: 'hair.cloud', suggested: 0xe8c66a, paint: paintCloud },
-  { id: 'mohawk', labelKey: 'hair.mohawk', suggested: 0xc4453a, paint: paintMohawk },
-  { id: 'saiyan', labelKey: 'hair.saiyan', suggested: 0xf5d548, paint: paintSaiyan },
+  { id: "classic", labelKey: "hair.classic", suggested: 0xa5622a, paint: paintClassic },
+  { id: "buzz", labelKey: "hair.buzz", suggested: 0x4a3524, paint: paintBuzz },
+  { id: "bowl", labelKey: "hair.bowl", suggested: 0x6f4a24, paint: paintBowl },
+  { id: "curtain", labelKey: "hair.curtain", suggested: 0x6a4a32, paint: paintCurtain },
+  { id: "ponytail", labelKey: "hair.ponytail", suggested: 0x2f2b33, paint: paintPonytail },
+  { id: "emo", labelKey: "hair.emo", suggested: 0x241f28, paint: paintEmo },
+  { id: "cloud", labelKey: "hair.cloud", suggested: 0xe8c66a, paint: paintCloud },
+  { id: "mohawk", labelKey: "hair.mohawk", suggested: 0xc4453a, paint: paintMohawk },
+  { id: "saiyan", labelKey: "hair.saiyan", suggested: 0xf5d548, paint: paintSaiyan },
 ];
 
 export const HAIR_SWATCHES: readonly number[] = [
-  0x2b2620, 0x4a3524, 0x6f4a24, 0xa5622a, 0xc98f4a, 0xe8c66a, 0xf0e0b8, 0xb0b6bd,
-  0x8e2f2f, 0xc4453a, 0x3f6fb0, 0x6d4f9c, 0x2f8f6a, 0xd06fa8,
+  0x2b2620, 0x4a3524, 0x6f4a24, 0xa5622a, 0xc98f4a, 0xe8c66a, 0xf0e0b8, 0xb0b6bd, 0x8e2f2f,
+  0xc4453a, 0x3f6fb0, 0x6d4f9c, 0x2f8f6a, 0xd06fa8,
 ];
 
 export function hairStyle(id: string): HairStyle {
@@ -468,8 +553,8 @@ export function buildHair(styleId: string, colour: number): THREE.Mesh {
  * what lets a style carry a `suggested` colour with no extra state. NOT in `Prefs`:
  * that is the fixed row set ui/settings.ts renders; this is a debug control today.
  */
-const STYLE_KEY = 'game.settings.appearance.hairStyle';
-const COLOUR_KEY = 'game.settings.appearance.hairColour';
+const STYLE_KEY = "game.settings.appearance.hairStyle";
+const COLOUR_KEY = "game.settings.appearance.hairColour";
 
 function read(key: string): string | null {
   try {
@@ -481,14 +566,19 @@ function read(key: string): string | null {
 
 function write(key: string, value: string | null): void {
   try {
-    if (value === null) window.localStorage.removeItem(key);
-    else window.localStorage.setItem(key, value);
-  } catch { /* storage denied — the session still honours the choice */ }
+    if (value === null) {
+      window.localStorage.removeItem(key);
+    } else {
+      window.localStorage.setItem(key, value);
+    }
+  } catch {
+    /* storage denied — the session still honours the choice */
+  }
 }
 
 export function storedHairStyle(): string {
   const raw = read(STYLE_KEY);
-  return HAIR_STYLES.some((s) => s.id === raw) ? raw as string : HAIR_STYLES[0].id;
+  return HAIR_STYLES.some((s) => s.id === raw) ? (raw as string) : HAIR_STYLES[0].id;
 }
 
 export function storeHairStyle(id: string): void {
@@ -498,12 +588,14 @@ export function storeHairStyle(id: string): void {
 /** null when the style's own suggestion should stand. */
 export function storedHairColour(): number | null {
   const raw = read(COLOUR_KEY);
-  if (raw === null || !/^[0-9a-fA-F]{6}$/.test(raw)) return null;
+  if (raw === null || !/^[0-9a-fA-F]{6}$/.test(raw)) {
+    return null;
+  }
   return parseInt(raw, 16);
 }
 
 export function storeHairColour(hex: number | null): void {
-  write(COLOUR_KEY, hex === null ? null : hex.toString(16).padStart(6, '0'));
+  write(COLOUR_KEY, hex === null ? null : hex.toString(16).padStart(6, "0"));
 }
 
 export function hairColourFor(styleId: string): number {

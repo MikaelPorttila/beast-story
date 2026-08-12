@@ -6,8 +6,8 @@
  * IndexedDB can be denied outright, so every entry point degrades to "no saves".
  */
 
-import Dexie, { type Table } from 'dexie';
-import { flags } from './flags';
+import Dexie, { type Table } from "dexie";
+import { flags } from "./flags";
 
 /** Payload revision, separate from the database version. Bump it, branch in `migrateSaveDoc`. */
 export const SAVE_DOC_VERSION = 1;
@@ -85,11 +85,11 @@ class SaveDb extends Dexie {
   payloads!: Table<PayloadRow, number>;
 
   constructor() {
-    super('beast-story-saves');
+    super("beast-story-saves");
     // Only what is QUERIED is indexed — an unused index costs every autosave a write.
     this.version(1).stores({
-      saves: '++id, updatedAt',
-      payloads: 'id',
+      saves: "++id, updatedAt",
+      payloads: "id",
     });
   }
 }
@@ -99,76 +99,102 @@ let openFailed = false;
 
 /** Lazy, so `nostore=1` never touches IndexedDB. A failure is remembered, never retried. */
 function open(): SaveDb | null {
-  if (flags.noStore || openFailed) return null;
-  if (db) return db;
+  if (flags.noStore || openFailed) {
+    return null;
+  }
+  if (db) {
+    return db;
+  }
   try {
-    if (typeof indexedDB === 'undefined') throw new Error('no IndexedDB');
+    if (typeof indexedDB === "undefined") {
+      throw new Error("no IndexedDB");
+    }
     db = new SaveDb();
     return db;
   } catch (err) {
     openFailed = true;
     db = null;
-    console.warn('[saves] storage unavailable; this session will not persist', err);
+    console.warn("[saves] storage unavailable; this session will not persist", err);
     return null;
   }
 }
 
 /** Synchronous, for the menu to draw with. Best effort — every other function also degrades. */
 export function savesAvailable(): boolean {
-  return !flags.noStore && !openFailed && typeof indexedDB !== 'undefined';
+  return !flags.noStore && !openFailed && typeof indexedDB !== "undefined";
 }
 
 /** Mark the store unusable after a failed operation, once, with one warning. */
 function fail(what: string, err: unknown): void {
-  if (!openFailed) console.warn(`[saves] ${what} failed; this session will not persist`, err);
+  if (!openFailed) {
+    console.warn(`[saves] ${what} failed; this session will not persist`, err);
+  }
   openFailed = true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** A finite number, or the fallback. A NaN survives every operation downstream. */
 function num(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function str(value: unknown, fallback: string): string {
-  return typeof value === 'string' && value.length > 0 ? value : fallback;
+  return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
 function strOrNull(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 /** Names are player-typed, so they are also length-capped on the way in. */
 const MAX_NAME_LEN = 24;
 
 function name(value: unknown): string {
-  const s = typeof value === 'string' ? value.trim() : '';
-  return s.length > 0 ? s.slice(0, MAX_NAME_LEN) : '';
+  const s = typeof value === "string" ? value.trim() : "";
+  return s.length > 0 ? s.slice(0, MAX_NAME_LEN) : "";
 }
 
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
-  'v', 'name', 'player', 'location', 'currency', 'bag', 'slots',
-  'equippedWeapon', 'readiedOrb', 'beasts', 'party', 'appearance',
-  'content', 'dayPhase', 'mounts',
+  "v",
+  "name",
+  "player",
+  "location",
+  "currency",
+  "bag",
+  "slots",
+  "equippedWeapon",
+  "readiedOrb",
+  "beasts",
+  "party",
+  "appearance",
+  "content",
+  "dayPhase",
+  "mounts",
 ]);
 
 /** Runs ONCE on the way in, so the rest of the file sees today's shape. Newer passes through. */
 function migrateSaveDoc(raw: Record<string, unknown>, from: number): Record<string, unknown> {
-  if (from >= SAVE_DOC_VERSION) return raw;
+  if (from >= SAVE_DOC_VERSION) {
+    return raw;
+  }
   // A future v1 -> v2 branch goes here; nothing ever wrote a v0.
   return raw;
 }
 
 function parseBeast(value: unknown): SavedBeast | null {
-  if (!isRecord(value)) return null;
+  if (!isRecord(value)) {
+    return null;
+  }
   const speciesId = strOrNull(value.speciesId);
-  if (!speciesId) return null;   // a beast with no species is not a beast
+  if (!speciesId) {
+    return null;
+  } // a beast with no species is not a beast
   const level = Math.max(1, Math.round(num(value.level, 1)));
   const skills = Array.isArray(value.knownSkillIds)
-    ? value.knownSkillIds.filter((s): s is string => typeof s === 'string' && s.length > 0)
+    ? value.knownSkillIds.filter((s): s is string => typeof s === "string" && s.length > 0)
     : [];
   return {
     speciesId,
@@ -183,7 +209,9 @@ function parseBeast(value: unknown): SavedBeast | null {
 
 /** A whole document or null, never half-populated. Whether the ids MEAN anything is main.ts's. */
 function parseDoc(value: unknown): SaveDocument | null {
-  if (!isRecord(value)) return null;
+  if (!isRecord(value)) {
+    return null;
+  }
   const version = num(value.v, 0);
   const raw = migrateSaveDoc(value, version);
 
@@ -195,10 +223,14 @@ function parseDoc(value: unknown): SaveDocument | null {
   const bag: Array<[string, number]> = [];
   if (Array.isArray(raw.bag)) {
     for (const entry of raw.bag) {
-      if (!Array.isArray(entry) || entry.length < 2) continue;
+      if (!Array.isArray(entry) || entry.length < 2) {
+        continue;
+      }
       const id = strOrNull(entry[0]);
       const count = Math.floor(num(entry[1], 0));
-      if (id && count > 0) bag.push([id, count]);
+      if (id && count > 0) {
+        bag.push([id, count]);
+      }
     }
   }
 
@@ -206,7 +238,9 @@ function parseDoc(value: unknown): SaveDocument | null {
   if (isRecord(raw.slots)) {
     for (const key of Object.keys(raw.slots)) {
       const cell = num(raw.slots[key], -1);
-      if (key.length > 0 && Number.isInteger(cell) && cell >= 0) slots[key] = cell;
+      if (key.length > 0 && Number.isInteger(cell) && cell >= 0) {
+        slots[key] = cell;
+      }
     }
   }
 
@@ -214,20 +248,24 @@ function parseDoc(value: unknown): SaveDocument | null {
   if (Array.isArray(raw.beasts)) {
     for (const b of raw.beasts) {
       const parsed = parseBeast(b);
-      if (parsed) beasts.push(parsed);
+      if (parsed) {
+        beasts.push(parsed);
+      }
     }
   }
 
   const maxHp = Math.max(1, num(player.maxHp, 100));
   const extra: Record<string, unknown> = {};
-  for (const key of Object.keys(raw)) if (!KNOWN_FIELDS.has(key)) extra[key] = raw[key];
+  for (const key of Object.keys(raw)) {
+    if (!KNOWN_FIELDS.has(key)) extra[key] = raw[key];
+  }
 
   return {
     v: SAVE_DOC_VERSION,
     name: name(raw.name),
     player: { hp: Math.max(0, Math.min(maxHp, num(player.hp, maxHp))), maxHp },
     location: {
-      zoneId: str(loc.zoneId, ''),
+      zoneId: str(loc.zoneId, ""),
       x: num(loc.x, NaN),
       y: num(loc.y, NaN),
       z: num(loc.z, NaN),
@@ -235,13 +273,14 @@ function parseDoc(value: unknown): SaveDocument | null {
       // Absent stays absent — a 0 here would be a place rather than a silence.
       ...(Number.isFinite(num(loc.perchY, NaN)) ? { perchY: num(loc.perchY, 0) } : {}),
       // All three or none: a half-pair is not a place, and drops to the world coordinates.
-      ...(strOrNull(loc.carrierId) !== null
-        && Number.isFinite(num(loc.localX, NaN)) && Number.isFinite(num(loc.localZ, NaN))
+      ...(strOrNull(loc.carrierId) !== null &&
+      Number.isFinite(num(loc.localX, NaN)) &&
+      Number.isFinite(num(loc.localZ, NaN))
         ? {
-          carrierId: loc.carrierId as string,
-          localX: num(loc.localX, 0),
-          localZ: num(loc.localZ, 0),
-        }
+            carrierId: loc.carrierId as string,
+            localX: num(loc.localX, 0),
+            localZ: num(loc.localZ, 0),
+          }
         : {}),
     },
     currency: Math.max(0, Math.floor(num(raw.currency, 0))),
@@ -251,7 +290,7 @@ function parseDoc(value: unknown): SaveDocument | null {
     readiedOrb: strOrNull(raw.readiedOrb),
     beasts,
     party: { primary: strOrNull(party.primary), support: strOrNull(party.support) },
-    appearance: { hairStyle: str(look.hairStyle, ''), hairColour: str(look.hairColour, '') },
+    appearance: { hairStyle: str(look.hairStyle, ""), hairColour: str(look.hairColour, "") },
     mounts: Array.isArray(raw.mounts)
       ? raw.mounts.map((k) => strOrNull(k)).filter((k): k is string => k !== null)
       : [],
@@ -283,12 +322,14 @@ function serialize(doc: SaveDocument): Record<string, unknown> {
     dayPhase: doc.dayPhase,
   };
   for (const key of Object.keys(doc.extra ?? {})) {
-    if (!KNOWN_FIELDS.has(key)) out[key] = (doc.extra as Record<string, unknown>)[key];
+    if (!KNOWN_FIELDS.has(key)) {
+      out[key] = (doc.extra as Record<string, unknown>)[key];
+    }
   }
   return out;
 }
 
-function metaOf(doc: SaveDocument): Pick<SaveMeta, 'name' | 'powerLevel' | 'zoneId'> {
+function metaOf(doc: SaveDocument): Pick<SaveMeta, "name" | "powerLevel" | "zoneId"> {
   return {
     name: doc.name,
     powerLevel: doc.beasts.reduce((n, b) => n + b.level, 0),
@@ -299,24 +340,28 @@ function metaOf(doc: SaveDocument): Pick<SaveMeta, 'name' | 'powerLevel' | 'zone
 /** Most recently played first, metadata only. An unavailable database also returns empty. */
 export async function listSaves(): Promise<SaveMeta[]> {
   const store = open();
-  if (!store) return [];
+  if (!store) {
+    return [];
+  }
   try {
-    const rows = await store.saves.orderBy('updatedAt').reverse().toArray();
-    return rows.filter((r) => typeof r.id === 'number');
+    const rows = await store.saves.orderBy("updatedAt").reverse().toArray();
+    return rows.filter((r) => typeof r.id === "number");
   } catch (err) {
-    fail('listing saves', err);
+    fail("listing saves", err);
     return [];
   }
 }
 
 export async function readSave(id: number): Promise<SaveDocument | null> {
   const store = open();
-  if (!store) return null;
+  if (!store) {
+    return null;
+  }
   try {
     const row = await store.payloads.get(id);
     return row ? parseDoc(row.doc) : null;
   } catch (err) {
-    fail('reading a save', err);
+    fail("reading a save", err);
     return null;
   }
 }
@@ -330,7 +375,7 @@ async function drain(store: SaveDb): Promise<void> {
     const [id, doc] = pending.entries().next().value as [number, SaveDocument];
     pending.delete(id);
     try {
-      await store.transaction('rw', store.saves, store.payloads, async () => {
+      await store.transaction("rw", store.saves, store.payloads, async () => {
         const prev = await store.saves.get(id);
         const now = Date.now();
         await store.saves.put({
@@ -342,8 +387,8 @@ async function drain(store: SaveDb): Promise<void> {
         await store.payloads.put({ id, doc: serialize(doc) });
       });
     } catch (err) {
-      fail('writing a save', err);
-      pending.clear();   // the store is down; the queue behind it is not going anywhere
+      fail("writing a save", err);
+      pending.clear(); // the store is down; the queue behind it is not going anywhere
     }
   }
   pump = null;
@@ -355,11 +400,13 @@ async function drain(store: SaveDb): Promise<void> {
  */
 export async function writeSave(id: number | null, doc: SaveDocument): Promise<number> {
   const store = open();
-  if (!store) return id ?? 0;
+  if (!store) {
+    return id ?? 0;
+  }
   if (id === null) {
     try {
       const now = Date.now();
-      return await store.transaction('rw', store.saves, store.payloads, async () => {
+      return await store.transaction("rw", store.saves, store.payloads, async () => {
         const fresh = await store.saves.add({
           ...metaOf(doc),
           createdAt: now,
@@ -369,7 +416,7 @@ export async function writeSave(id: number | null, doc: SaveDocument): Promise<n
         return fresh;
       });
     } catch (err) {
-      fail('creating a save', err);
+      fail("creating a save", err);
       return 0;
     }
   }
@@ -381,14 +428,16 @@ export async function writeSave(id: number | null, doc: SaveDocument): Promise<n
 
 export async function deleteSave(id: number): Promise<void> {
   const store = open();
-  if (!store) return;
-  pending.delete(id);   // whatever was queued for it is now moot
+  if (!store) {
+    return;
+  }
+  pending.delete(id); // whatever was queued for it is now moot
   try {
-    await store.transaction('rw', store.saves, store.payloads, async () => {
+    await store.transaction("rw", store.saves, store.payloads, async () => {
       await store.saves.delete(id);
       await store.payloads.delete(id);
     });
   } catch (err) {
-    fail('deleting a save', err);
+    fail("deleting a save", err);
   }
 }

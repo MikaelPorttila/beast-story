@@ -1,7 +1,7 @@
 // Grammar is narrow on purpose: ids land in saves, file names, URLs and logs.
 // Lower-case only (not folded), so no two ids collide on a case-insensitive FS.
 
-import type { ContentId, ContentTypeName, PackageId } from './types';
+import type { ContentId, ContentTypeName, PackageId } from "./types";
 
 const ID_RE = /^([a-z][a-z0-9-]*):([a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*)$/;
 
@@ -14,7 +14,9 @@ export interface ParsedId {
 
 /** Never throws — callers report. */
 export function parseId(value: unknown): ParsedId | null {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== "string") {
+    return null;
+  }
   const m = ID_RE.exec(value);
   return m ? { type: m[1], name: m[2] } : null;
 }
@@ -39,12 +41,14 @@ export function nameOf(id: ContentId): string | null {
 /** Throws: only our own code calls this. */
 export function makeId(type: ContentTypeName, name: string): ContentId {
   const id = `${type}:${name}`;
-  if (!isId(id)) throw new Error(`content: malformed id "${id}"`);
+  if (!isId(id)) {
+    throw new Error(`content: malformed id "${id}"`);
+  }
   return id;
 }
 
 export function isPackageId(value: unknown): value is PackageId {
-  return typeof value === 'string' && PKG_RE.test(value);
+  return typeof value === "string" && PKG_RE.test(value);
 }
 
 // Listings sort through this: Map insertion order is load order, so it is not stable.

@@ -8,12 +8,12 @@
  * fallback for first paint.
  */
 
-import { isTouchPrimary } from './touch';
-import { isFullscreen } from '../ui/fullscreen';
+import { isTouchPrimary } from "./touch";
+import { isFullscreen } from "../ui/fullscreen";
 
-const VAR_W = '--bs-vw';
-const VAR_H = '--bs-vh';
-const VAR_MIN = '--bs-vmin';
+const VAR_W = "--bs-vw";
+const VAR_H = "--bs-vh";
+const VAR_MIN = "--bs-vmin";
 
 /** Re-measure delays (ms): Chrome and WebKit report pre-transition metrics for some frames. */
 const SETTLE_MS = [60, 180, 400, 900];
@@ -59,13 +59,17 @@ export function measureViewport(): ViewportSize {
 /** Smallest candidate that reported anything at all. */
 function smallest(...candidates: number[]): number {
   let best = Infinity;
-  for (const c of candidates) if (c > 0 && c < best) best = c;
+  for (const c of candidates) {
+    if (c > 0 && c < best) best = c;
+  }
   return Number.isFinite(best) ? best : 1;
 }
 
 function apply(): void {
   const v = measureViewport();
-  if (v.w === current.w && v.h === current.h) return;
+  if (v.w === current.w && v.h === current.h) {
+    return;
+  }
   current = v;
   const style = document.documentElement.style;
   style.setProperty(VAR_W, `${v.w}px`);
@@ -75,24 +79,30 @@ function apply(): void {
 
 function applyAndSettle(): void {
   apply();
-  while (timers.length) clearTimeout(timers.pop()!);
-  for (const ms of SETTLE_MS) timers.push(setTimeout(apply, ms));
+  while (timers.length) {
+    clearTimeout(timers.pop()!);
+  }
+  for (const ms of SETTLE_MS) {
+    timers.push(setTimeout(apply, ms));
+  }
 }
 
 /** Idempotent. Call BEFORE the engine: `#app` is sized from these properties. */
 export function installViewport(): void {
-  if (installed || typeof window === 'undefined') return;
+  if (installed || typeof window === "undefined") {
+    return;
+  }
   installed = true;
 
   apply();
-  window.addEventListener('resize', applyAndSettle);
-  window.addEventListener('orientationchange', applyAndSettle);
-  document.addEventListener('fullscreenchange', applyAndSettle);
+  window.addEventListener("resize", applyAndSettle);
+  window.addEventListener("orientationchange", applyAndSettle);
+  document.addEventListener("fullscreenchange", applyAndSettle);
   // Prefixed spelling, for WebKit.
-  document.addEventListener('webkitfullscreenchange', applyAndSettle);
+  document.addEventListener("webkitfullscreenchange", applyAndSettle);
   const vv = window.visualViewport;
-  vv?.addEventListener('resize', applyAndSettle);
-  vv?.addEventListener('scroll', apply);
+  vv?.addEventListener("resize", applyAndSettle);
+  vv?.addEventListener("scroll", apply);
 
   // Registered here, not main.ts: these layers are up before the world is.
   (window as unknown as { __dbgViewport: () => unknown }).__dbgViewport = () => ({

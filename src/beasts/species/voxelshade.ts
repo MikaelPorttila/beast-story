@@ -1,4 +1,4 @@
-import type { VoxelModel } from '../../core/voxel';
+import type { VoxelModel } from "../../core/voxel";
 
 // Shared voxel painting for the species. build() bakes a fixed per-face shade
 // (top 1.0, sides 0.88, front/back 0.8, bottom 0.62) and no AO at all, so anything
@@ -6,13 +6,22 @@ import type { VoxelModel } from '../../core/voxel';
 
 /** One-cell sunlit crest: recolours the topmost filled voxel of each column. */
 export function rimTop(
-  m: VoxelModel, color: number,
-  x0: number, x1: number, y0: number, y1: number, z0: number, z1: number,
+  m: VoxelModel,
+  color: number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  z0: number,
+  z1: number,
 ): void {
   for (let x = x0; x <= x1; x++) {
     for (let z = z0; z <= z1; z++) {
       for (let y = y1; y >= y0; y--) {
-        if (m.has(x, y, z)) { m.set(x, y, z, color); break; }
+        if (m.has(x, y, z)) {
+          m.set(x, y, z, color);
+          break;
+        }
       }
     }
   }
@@ -20,13 +29,22 @@ export function rimTop(
 
 /** The creature's own contact shadow: recolours the lowest filled voxel of each column. */
 export function shadeUnder(
-  m: VoxelModel, color: number,
-  x0: number, x1: number, y0: number, y1: number, z0: number, z1: number,
+  m: VoxelModel,
+  color: number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  z0: number,
+  z1: number,
 ): void {
   for (let x = x0; x <= x1; x++) {
     for (let z = z0; z <= z1; z++) {
       for (let y = y0; y <= y1; y++) {
-        if (m.has(x, y, z)) { m.set(x, y, z, color); break; }
+        if (m.has(x, y, z)) {
+          m.set(x, y, z, color);
+          break;
+        }
       }
     }
   }
@@ -68,8 +86,11 @@ export function eyes2x2(m: VoxelModel, s: EyeSpec): void {
   const z = s.faceZ;
   const w = s.width ?? 2;
   const paint = (x: number, y: number, zz: number, c: number): void => {
-    if (s.glow !== undefined && c === s.iris) m.setEmissive(x, y, zz, c, s.glow);
-    else m.set(x, y, zz, c);
+    if (s.glow !== undefined && c === s.iris) {
+      m.setEmissive(x, y, zz, c, s.glow);
+    } else {
+      m.set(x, y, zz, c);
+    }
   };
   // Bridge first, so a lid row stamped later can overwrite its top.
   if (s.bridge !== undefined) {
@@ -82,7 +103,9 @@ export function eyes2x2(m: VoxelModel, s: EyeSpec): void {
   }
   for (const sx of [1, -1]) {
     const cols: number[] = [];
-    for (let d = 0; d < w; d++) cols.push(sx * (s.inner + d));
+    for (let d = 0; d < w; d++) {
+      cols.push(sx * (s.inner + d));
+    }
     for (const x of cols) {
       paint(x, s.y, z, s.iris);
       paint(x, s.y + 1, z, s.iris);
@@ -92,10 +115,16 @@ export function eyes2x2(m: VoxelModel, s: EyeSpec): void {
     if (s.lid !== undefined) {
       for (const x of cols) {
         m.set(x, s.y + 2, z, s.lid);
-        if (s.browProud) m.set(x, s.y + 2, z + 1, s.lid);
-        if (s.lowerLid) m.set(x, s.y - 1, z, s.lid);
+        if (s.browProud) {
+          m.set(x, s.y + 2, z + 1, s.lid);
+        }
+        if (s.lowerLid) {
+          m.set(x, s.y - 1, z, s.lid);
+        }
       }
     }
-    if (s.cheek !== undefined) m.set(cols[cols.length - 1], s.y - 1, z, s.cheek);
+    if (s.cheek !== undefined) {
+      m.set(cols[cols.length - 1], s.y - 1, z, s.cheek);
+    }
   }
 }

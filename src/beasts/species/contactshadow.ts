@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 // Ground contact blob for the flyers: the low sun throws a hovering rig's real
 // shadow out of frame, so a soft ellipse directly beneath gives the vertical cue.
@@ -6,18 +6,20 @@ import * as THREE from 'three';
 let blobTexture: THREE.CanvasTexture | null = null;
 
 function getBlobTexture(): THREE.CanvasTexture {
-  if (blobTexture) return blobTexture;
+  if (blobTexture) {
+    return blobTexture;
+  }
   const size = 64;
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext("2d");
   if (ctx) {
     const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    g.addColorStop(0.0, 'rgba(0,0,0,1)');
-    g.addColorStop(0.45, 'rgba(0,0,0,0.85)');
-    g.addColorStop(0.75, 'rgba(0,0,0,0.32)');
-    g.addColorStop(1.0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.0, "rgba(0,0,0,1)");
+    g.addColorStop(0.45, "rgba(0,0,0,0.85)");
+    g.addColorStop(0.75, "rgba(0,0,0,0.32)");
+    g.addColorStop(1.0, "rgba(0,0,0,0)");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, size, size);
   }
@@ -31,7 +33,7 @@ export function makeContactBlob(radius: number, drop: number, opacity = 0.34): T
   geo.rotateX(-Math.PI / 2); // baked flat so the quaternion work below is pure cancel
   const mat = new THREE.MeshBasicMaterial({
     map: getBlobTexture(),
-    color: 0x1a1d16,     // terrain's shadow tint, not pure black
+    color: 0x1a1d16, // terrain's shadow tint, not pure black
     transparent: true,
     opacity,
     depthWrite: false,
@@ -55,14 +57,22 @@ const FADE_TO = 9.0;
 // that mount form rescales), the quaternion cancels root bank, and castShadow is
 // cleared because BeastActor set it on every mesh. Omit altitude on a world-less stage.
 export function updateContactBlob(
-  blob: THREE.Object3D, root: THREE.Object3D, spread: number, altitude?: number,
+  blob: THREE.Object3D,
+  root: THREE.Object3D,
+  spread: number,
+  altitude?: number,
 ): void {
   if (altitude !== undefined) {
-    const k = altitude <= FADE_FROM ? 1
-      : altitude >= FADE_TO ? 0
-      : 1 - (altitude - FADE_FROM) / (FADE_TO - FADE_FROM);
+    const k =
+      altitude <= FADE_FROM
+        ? 1
+        : altitude >= FADE_TO
+          ? 0
+          : 1 - (altitude - FADE_FROM) / (FADE_TO - FADE_FROM);
     blob.visible = k > 0;
-    if (!blob.visible) return;
+    if (!blob.visible) {
+      return;
+    }
     const sy = root.scale.y || 1;
     blob.position.y = -altitude / sy;
     const mat = (blob as THREE.Mesh).material as THREE.MeshBasicMaterial;

@@ -27,19 +27,19 @@
 // frame — and `coreLoad`, which is cpu/wall: the fraction of a core the game
 // burns at this machine's refresh rate. fps is reported but is NOT a regression
 // signal here; pinned to the display, it barely moves until things are dire.
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { launchBrowser, newPage, wait, glRenderer } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { launchBrowser, newPage, wait, glRenderer } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
-const FILE = new URL('../.perf-baseline.json', import.meta.url);
+const FILE = new URL("../.perf-baseline.json", import.meta.url);
 const W = 1280;
 const H = 800;
 /** Frames of steady-state walking to average over, after the warm-up. */
 const SAMPLE_MS = 12000;
 
-const args = process.argv.slice(2);
-const recording = args.includes('record');
-const asJson = args.includes('--json');
+const args = new Set(process.argv.slice(2));
+const recording = args.has("record");
+const asJson = args.has("--json");
 
 /**
  * One scripted run: boot, let the streamer settle, then walk in a straight line
@@ -55,15 +55,15 @@ async function measure() {
   // the header. AGENTS.md says the same thing about captures for the same reason.
   const browser = await launchBrowser();
   const page = await newPage(browser, { width: W, height: H });
-  page.on('pageerror', (e) => console.error('[page]', e.message));
-  await page.goto(`${HOST}/?menu=0&fs=0&perf=1&debug=1`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  page.on("pageerror", (e) => console.error("[page]", e.message));
+  await page.goto(`${HOST}/?menu=0&fs=0&perf=1&debug=1`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await wait(8000);
-  await page.focus('canvas').catch(() => {});
+  await page.focus("canvas").catch(() => {});
 
   const gl = await glRenderer(page);
 
-  await page.keyboard.down('KeyW');
+  await page.keyboard.down("KeyW");
   // Discard the first seconds: the streamer is still catching up and the first
   // draw of each material is still linking programs.
   await wait(4000);
@@ -72,14 +72,17 @@ async function measure() {
   const dump = await page.evaluate(() => window.__dbgPerf());
   const overlay = await page.evaluate(() => {
     const el = [...document.body.children].find(
-      (c) => c instanceof HTMLDivElement && (c.textContent || '').startsWith('FPS'));
-    return el ? el.textContent : '';
+      (c) => c instanceof HTMLDivElement && (c.textContent || "").startsWith("FPS"),
+    );
+    return el ? el.textContent : "";
   });
-  await page.keyboard.up('KeyW');
+  await page.keyboard.up("KeyW");
   await browser.close();
 
   const rows = dump.rows.slice(from);
-  if (rows.length < 60) throw new Error(`only ${rows.length} frames sampled — is the game running?`);
+  if (rows.length < 60) {
+    throw new Error(`only ${rows.length} frames sampled — is the game running?`);
+  }
   const idx = Object.fromEntries(dump.sections.map((s, i) => [s, i]));
   const mean = (c) => rows.reduce((a, r) => a + r[c], 0) / rows.length;
   const p99 = (c) => {
@@ -88,7 +91,9 @@ async function measure() {
   };
 
   const sections = {};
-  for (const s of dump.sections) sections[s] = +mean(idx[s]).toFixed(3);
+  for (const s of dump.sections) {
+    sections[s] = +mean(idx[s]).toFixed(3);
+  }
   const draws = /draws\s+(\d+)/.exec(overlay);
   const scene = /scene\s+(\d+)\s+\+(\d+) post/.exec(overlay);
 
@@ -121,46 +126,55 @@ if (recording) {
 }
 
 if (!existsSync(FILE)) {
-  console.error('No .perf-baseline.json on this machine.\n');
-  console.error('Record one first, on a quiet machine and on a commit you trust:\n');
-  console.error('  bun tools/perf-baseline.mjs record\n');
-  console.error('It is per-machine and gitignored — never commit it.');
+  console.error("No .perf-baseline.json on this machine.\n");
+  console.error("Record one first, on a quiet machine and on a commit you trust:\n");
+  console.error("  bun tools/perf-baseline.mjs record\n");
+  console.error("It is per-machine and gitignored — never commit it.");
   process.exit(2);
 }
 
-const base = JSON.parse(readFileSync(FILE, 'utf8'));
+const base = JSON.parse(readFileSync(FILE, "utf8"));
 
 if (asJson) {
   console.log(JSON.stringify({ baseline: base, now }, null, 2));
 } else {
   const warn = [];
-  if (base.gl !== now.gl) warn.push(`GPU changed: "${base.gl}" -> "${now.gl}"`);
-  if (base.viewport !== now.viewport) warn.push(`viewport changed: ${base.viewport} -> ${now.viewport}`);
+  if (base.gl !== now.gl) {
+    warn.push(`GPU changed: "${base.gl}" -> "${now.gl}"`);
+  }
+  if (base.viewport !== now.viewport) {
+    warn.push(`viewport changed: ${base.viewport} -> ${now.viewport}`);
+  }
 
   const pct = (a, b) => (a === 0 ? 0 : ((b - a) / a) * 100);
-  const row = (name, a, b, unit = 'ms') => {
+  const row = (name, a, b, unit = "ms") => {
     const d = pct(a, b);
-    const mark = Math.abs(d) < 3 ? '  ' : d > 0 ? '↑↑' : '↓↓';
-    return `${name.padEnd(10)}${String(a).padStart(8)} ${String(b).padStart(8)} ${unit.padEnd(3)}`
-      + `${(d >= 0 ? '+' : '') + d.toFixed(1)}%`.padStart(9) + `  ${mark}`;
+    const mark = Math.abs(d) < 3 ? "  " : d > 0 ? "↑↑" : "↓↓";
+    return (
+      `${name.padEnd(10)}${String(a).padStart(8)} ${String(b).padStart(8)} ${unit.padEnd(3)}` +
+      `${(d >= 0 ? "+" : "") + d.toFixed(1)}%`.padStart(9) +
+      `  ${mark}`
+    );
   };
 
   console.log(`baseline recorded ${base.recorded}`);
   console.log(`gpu ${now.gl}\n`);
-  console.log(`${''.padEnd(10)}${'base'.padStart(8)} ${'now'.padStart(8)}`);
-  console.log(row('cpu', base.sections.cpu, now.sections.cpu));
-  console.log(row('  render', base.sections.render, now.sections.render));
-  console.log(row('  world', base.sections.world, now.sections.world));
-  console.log(row('  beasts', base.sections.beasts, now.sections.beasts));
-  console.log(row('  combat', base.sections.combat, now.sections.combat));
-  console.log(row('  hud', base.sections.hud, now.sections.hud));
-  console.log(row('  player', base.sections.player, now.sections.player));
-  console.log(row('cpu p99', base.cpuP99, now.cpuP99));
-  console.log(row('wall', base.sections.wall, now.sections.wall));
-  console.log(row('coreLoad', base.coreLoad, now.coreLoad, ''));
-  console.log(row('draws', base.draws, now.draws, ''));
+  console.log(`${"".padEnd(10)}${"base".padStart(8)} ${"now".padStart(8)}`);
+  console.log(row("cpu", base.sections.cpu, now.sections.cpu));
+  console.log(row("  render", base.sections.render, now.sections.render));
+  console.log(row("  world", base.sections.world, now.sections.world));
+  console.log(row("  beasts", base.sections.beasts, now.sections.beasts));
+  console.log(row("  combat", base.sections.combat, now.sections.combat));
+  console.log(row("  hud", base.sections.hud, now.sections.hud));
+  console.log(row("  player", base.sections.player, now.sections.player));
+  console.log(row("cpu p99", base.cpuP99, now.cpuP99));
+  console.log(row("wall", base.sections.wall, now.sections.wall));
+  console.log(row("coreLoad", base.coreLoad, now.coreLoad, ""));
+  console.log(row("draws", base.draws, now.draws, ""));
   console.log(`\nfps ${base.fps} -> ${now.fps}  (pinned to the display; not a regression signal)`);
-  for (const w of warn) console.log(`\nWARNING: ${w} — the comparison is not meaningful.`);
+  for (const w of warn) {
+    console.log(`\nWARNING: ${w} — the comparison is not meaningful.`);
+  }
 }
 
 // `cpu` is the signal: it is the main-thread cost of one frame, and with the

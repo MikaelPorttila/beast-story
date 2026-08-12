@@ -3,7 +3,7 @@
 // remote pack can only ADD to shipped content, never replace it.
 // Null falls through; who answered is recorded for `ContentAsset.source`.
 
-import type { PackageId, StorageProvider } from '../types';
+import type { PackageId, StorageProvider } from "../types";
 
 export interface ChainRead {
   readonly value: unknown;
@@ -20,7 +20,9 @@ export class ProviderChain {
   private readonly items: StorageProvider[] = [];
 
   constructor(providers: readonly StorageProvider[] = []) {
-    for (const p of providers) this.add(p);
+    for (const p of providers) {
+      this.add(p);
+    }
   }
 
   /** Highest priority first. */
@@ -36,7 +38,9 @@ export class ProviderChain {
 
   remove(provider: StorageProvider): boolean {
     const i = this.items.indexOf(provider);
-    if (i < 0) return false;
+    if (i < 0) {
+      return false;
+    }
     this.items.splice(i, 1);
     return true;
   }
@@ -50,7 +54,9 @@ export class ProviderChain {
       } catch {
         continue;
       }
-      if (value === null || value === undefined) continue;
+      if (value === null || value === undefined) {
+        continue;
+      }
       return { value, provider, source: sourceOf(provider, pkg, file) };
     }
     return null;
@@ -69,12 +75,14 @@ export class ProviderChain {
         }
       }),
     );
-    for (const ids of lists) for (const id of ids) seen.add(id);
+    for (const ids of lists) {
+      for (const id of ids) seen.add(id);
+    }
     return [...seen].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }
 
   writer(): StorageProvider | undefined {
-    return this.items.find((p) => p.writable && typeof p.write === 'function');
+    return this.items.find((p) => p.writable && typeof p.write === "function");
   }
 
   /** Throws with no writable provider: a save that went nowhere must fail loudly. */

@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import { PostFX, readPostOptions } from './post';
-import { flags } from './flags';
-import { StaticShadowCache, STATIC_SHADOW_LAYER, shadowCasterCensus } from './shadow-cache';
-import type { CelestialState } from './types';
+import * as THREE from "three";
+import { PostFX, readPostOptions } from "./post";
+import { flags } from "./flags";
+import { StaticShadowCache, STATIC_SHADOW_LAYER, shadowCasterCensus } from "./shadow-cache";
+import type { CelestialState } from "./types";
 
 /**
  * Renderer, scene, camera, sky, lighting, fog and the post chain (post.ts).
@@ -33,8 +33,7 @@ const SHADOW_RECENTER = 8;
 // `updateSunFocus` snap the box centre to the SHADOW TEXEL GRID, which is what
 // stops edges crawling — rounding in world space does not.
 const SHADOW_Z = new THREE.Vector3().copy(SUN_OFFSET).normalize();
-const SHADOW_X = new THREE.Vector3()
-  .crossVectors(new THREE.Vector3(0, 1, 0), SHADOW_Z).normalize();
+const SHADOW_X = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), SHADOW_Z).normalize();
 const SHADOW_Y = new THREE.Vector3().crossVectors(SHADOW_Z, SHADOW_X);
 
 const SKY_VERT = /* glsl */ `
@@ -69,7 +68,9 @@ vec3 bsSkyRadiance(float h) {
 }
 `;
 
-const SKY_FRAG = SKY_LIB + /* glsl */ `
+const SKY_FRAG =
+  SKY_LIB +
+  /* glsl */ `
 uniform vec3 uSunDir;
 uniform vec3 uSkyFilter;
 uniform float uDaylight;
@@ -99,7 +100,9 @@ void main() {
  */
 function installAerialPerspective(): void {
   const C = THREE.ShaderChunk;
-  if (C.fog_vertex.includes('vFogElev')) return;
+  if (C.fog_vertex.includes("vFogElev")) {
+    return;
+  }
 
   C.fog_pars_vertex = /* glsl */ `
 #ifdef USE_FOG
@@ -119,7 +122,8 @@ function installAerialPerspective(): void {
 #endif
 `;
 
-  C.fog_pars_fragment = /* glsl */ `
+  C.fog_pars_fragment =
+    /* glsl */ `
 #ifdef USE_FOG
   uniform vec3 fogColor;
   varying float vFogDepth;
@@ -133,7 +137,9 @@ function installAerialPerspective(): void {
   // Treated height above ground. An unuploaded uniform reads as zero, so only the
   // road ribbon sets it — see RIBBON_FOG_LIFT in world/towns.ts.
   uniform float bsFogGroundLift;
-` + SKY_LIB + `
+` +
+    SKY_LIB +
+    `
 #endif
 `;
 
@@ -251,8 +257,8 @@ function makeStars(): THREE.Points {
     sizes[i] = 1.2 + random() * 2.2;
   }
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
   const mat = new THREE.ShaderMaterial({
     vertexShader: STAR_VERT,
     fragmentShader: STAR_FRAG,
@@ -269,7 +275,7 @@ function makeStars(): THREE.Points {
 }
 
 /** post.ts's grade was solved against this, so it is the BASE dimming scales. */
-const DAYLIGHT_EXPOSURE = 1.20;
+const DAYLIGHT_EXPOSURE = 1.2;
 
 export class Engine {
   readonly renderer: THREE.WebGLRenderer;
@@ -315,7 +321,10 @@ export class Engine {
   constructor(container: HTMLElement) {
     // MSAA on the default framebuffer only, so it does nothing under the post
     // chain (SMAAPass does that). It stays for `?post=0`.
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: "high-performance",
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.shadowMap.enabled = flags.shadows;
@@ -398,7 +407,10 @@ export class Engine {
     this.scene.add(this.stars);
 
     this.camera = new THREE.PerspectiveCamera(
-      55, container.clientWidth / container.clientHeight, 0.1, 600,
+      55,
+      container.clientWidth / container.clientHeight,
+      0.1,
+      600,
     );
     this.camera.position.set(0, 12, 18);
     // A REAL layer, and world geometry lives on it alone: a camera that does not
@@ -442,27 +454,31 @@ export class Engine {
 
     // The mobile URL bar collapsing fires on visualViewport, not window.
     const resize = (): void => this.onResize(container);
-    window.addEventListener('resize', resize);
-    window.addEventListener('orientationchange', () => {
+    window.addEventListener("resize", resize);
+    window.addEventListener("orientationchange", () => {
       // iOS reports stale metrics during the flip; settle first.
       setTimeout(resize, 120);
     });
-    window.visualViewport?.addEventListener('resize', resize);
-    if (typeof ResizeObserver !== 'undefined') {
+    window.visualViewport?.addEventListener("resize", resize);
+    if (typeof ResizeObserver !== "undefined") {
       new ResizeObserver(resize).observe(container);
     }
 
     // World matrices are updated ONCE in render(): the shadow work runs before the
     // post chain and reads matrixWorld, and only one render() call can need it.
     this.scene.matrixWorldAutoUpdate = false;
-    if (flags.shadows && flags.shadowCache) this.shadowCache = new StaticShadowCache();
+    if (flags.shadows && flags.shadowCache) {
+      this.shadowCache = new StaticShadowCache();
+    }
 
     // Built last: RenderPass needs the finished camera and GTAOPass the drawing buffer.
     const opts = readPostOptions(location.search);
     if (opts.enabled) {
       this.post = new PostFX(this.renderer, this.scene, this.camera, opts);
       this.post.setSize(
-        container.clientWidth, container.clientHeight, this.renderer.getPixelRatio(),
+        container.clientWidth,
+        container.clientHeight,
+        this.renderer.getPixelRatio(),
       );
     }
   }
@@ -486,20 +502,27 @@ export class Engine {
     this.ambient.groundColor.copy(state.ambientGround);
     this.ambient.intensity = state.ambientIntensity;
     this.celestialExposure = state.exposureScale;
-    this.renderer.toneMappingExposure = DAYLIGHT_EXPOSURE
-      * this.celestialExposure * this.localExposure;
+    this.renderer.toneMappingExposure =
+      DAYLIGHT_EXPOSURE * this.celestialExposure * this.localExposure;
     this.atmosphereFilter.copy(state.atmosphereFilter);
-    if (this.scene.fog) this.scene.fog.color.copy(this.atmosphereFilter);
+    if (this.scene.fog) {
+      this.scene.fog.color.copy(this.atmosphereFilter);
+    }
 
     this.lightCadence += Math.max(0, dt);
-    if (this.celestialUpdates > 0 && this.lightCadence < 0.5) return;
+    if (this.celestialUpdates > 0 && this.lightCadence < 0.5) {
+      return;
+    }
     this.lightCadence = 0;
     this.celestialUpdates++;
     this.shadowZ.copy(state.keyDirection).normalize();
     this.shadowX.crossVectors(THREE.Object3D.DEFAULT_UP, this.shadowZ);
     // At zenith any horizontal basis is valid; retain a stable axis there.
-    if (this.shadowX.lengthSq() < 1e-6) this.shadowX.set(1, 0, 0);
-    else this.shadowX.normalize();
+    if (this.shadowX.lengthSq() < 1e-6) {
+      this.shadowX.set(1, 0, 0);
+    } else {
+      this.shadowX.normalize();
+    }
     this.shadowY.crossVectors(this.shadowZ, this.shadowX).normalize();
     this.sunOffset.copy(this.shadowZ).multiplyScalar(SUN_OFFSET.length());
     this.bounce.position.copy(this.shadowZ).multiplyScalar(-200);
@@ -530,18 +553,23 @@ export class Engine {
     // Plus SHADOW_RECENTER, so the box may LAG the focus without losing radius.
     const s = Math.round(Math.min(152, Math.max(64, want)) / 8) * 8 + SHADOW_RECENTER;
     const resized = s !== this.shadowExtent;
-    if (resized) this.setShadowExtent(s);
+    if (resized) {
+      this.setShadowExtent(s);
+    }
 
     // Moves RARELY (the cache is only valid while its light matrix is) and in whole
     // TEXELS along the shadow camera's axes, which is what stops edges crawling.
     const texel = (2 * s) / this.sun.shadow.mapSize.x;
     const drift = this.shadowBoxCenter.distanceToSquared(focus);
-    if (!resized && Number.isFinite(drift) && drift <= SHADOW_RECENTER * SHADOW_RECENTER) return;
+    if (!resized && Number.isFinite(drift) && drift <= SHADOW_RECENTER * SHADOW_RECENTER) {
+      return;
+    }
     const u = Math.round(focus.dot(this.shadowX) / texel) * texel;
     const v = Math.round(focus.dot(this.shadowY) / texel) * texel;
     const w = focus.dot(this.shadowZ);
     this.shadowBoxCenter
-      .copy(this.shadowX).multiplyScalar(u)
+      .copy(this.shadowX)
+      .multiplyScalar(u)
       .addScaledVector(this.shadowY, v)
       .addScaledVector(this.shadowZ, w);
     const c = this.shadowBoxCenter;
@@ -577,7 +605,9 @@ export class Engine {
     const metres = distance <= 480 ? 480 : distance >= 900 ? 900 : 600;
     this.camera.far = metres;
     this.camera.updateProjectionMatrix();
-    if (!(this.scene.fog instanceof THREE.Fog)) return;
+    if (!(this.scene.fog instanceof THREE.Fog)) {
+      return;
+    }
     // Keep colour in the HLOD beyond the detailed ring, or aerial views read as
     // trees over a sky-coloured square. distant-terrain owns the final dissolve.
     if (metres === 480) {
@@ -599,11 +629,17 @@ export class Engine {
    * to one period so a backgrounded tab does not run unthrottled.
    */
   beginFrame(): boolean {
-    if (this.minFrameMs <= 0) return true;
+    if (this.minFrameMs <= 0) {
+      return true;
+    }
     const now = performance.now();
-    if (now < this.nextDeadline) return false;
+    if (now < this.nextDeadline) {
+      return false;
+    }
     this.nextDeadline += this.minFrameMs;
-    if (this.nextDeadline < now) this.nextDeadline = now;
+    if (this.nextDeadline < now) {
+      this.nextDeadline = now;
+    }
     return true;
   }
 
@@ -626,12 +662,14 @@ export class Engine {
    */
   setExposureScale(k: number): void {
     this.localExposure = k;
-    this.renderer.toneMappingExposure = DAYLIGHT_EXPOSURE
-      * this.celestialExposure * this.localExposure;
+    this.renderer.toneMappingExposure =
+      DAYLIGHT_EXPOSURE * this.celestialExposure * this.localExposure;
   }
 
   setFogAbsorption(absorption: Readonly<THREE.Color>): void {
-    if (this.scene.fog) this.scene.fog.color.copy(this.atmosphereFilter).multiply(absorption);
+    if (this.scene.fog) {
+      this.scene.fog.color.copy(this.atmosphereFilter).multiply(absorption);
+    }
   }
 
   /** A no-op under `?post=0`, which is therefore the pre-water isolation view. */
@@ -639,7 +677,7 @@ export class Engine {
     this.post?.setUnderwater(amount, depth, time);
   }
 
-  setPassEnabled(which: 'ao' | 'bloom' | 'aa', on: boolean): void {
+  setPassEnabled(which: "ao" | "bloom" | "aa", on: boolean): void {
     this.post?.setPassEnabled(which, on);
   }
 
@@ -649,16 +687,23 @@ export class Engine {
    * return. `?shadows=0` at construction cannot be undone here.
    */
   setShadowsEnabled(on: boolean): void {
-    if (!flags.shadows || this.renderer.shadowMap.enabled === on) return;
+    if (!flags.shadows || this.renderer.shadowMap.enabled === on) {
+      return;
+    }
     this.renderer.shadowMap.enabled = on;
     this.renderer.shadowMap.needsUpdate = true;
     // Stale by construction after a spell with the map off.
     this.shadowCache?.invalidate();
     this.scene.traverse((o) => {
       const m = (o as THREE.Mesh).material;
-      if (!m) return;
-      if (Array.isArray(m)) for (const x of m) x.needsUpdate = true;
-      else m.needsUpdate = true;
+      if (!m) {
+        return;
+      }
+      if (Array.isArray(m)) {
+        for (const x of m) x.needsUpdate = true;
+      } else {
+        m.needsUpdate = true;
+      }
     });
   }
 
@@ -667,7 +712,9 @@ export class Engine {
    * needs: desktop frame cost drifts more than the effect over two loads.
    */
   setShadowCacheEnabled(on: boolean): void {
-    if (!this.shadowCache) return;
+    if (!this.shadowCache) {
+      return;
+    }
     this.shadowCacheOn = on;
     this.shadowCache.invalidate();
   }
@@ -681,7 +728,7 @@ export class Engine {
       keyDirection: this.shadowZ.toArray(),
       keyIntensity: this.sun.intensity,
       bounceIntensity: this.bounce.intensity,
-      ...(this.shadowCache?.debug() ?? {}),
+      ...this.shadowCache?.debug(),
       ...shadowCasterCensus(this.scene),
     };
   }
@@ -700,8 +747,9 @@ export class Engine {
     // The lab's ?bg= replaces scene.background; the dome must stand down for it.
     const plainBackdrop = this.scene.background !== this.ownBackground;
     this.skyDome.visible = !plainBackdrop;
-    this.sunDisk.visible = !plainBackdrop
-      && (this.sunDisk.material as THREE.ShaderMaterial).uniforms.uOpacity.value > 0.01;
+    this.sunDisk.visible =
+      !plainBackdrop &&
+      (this.sunDisk.material as THREE.ShaderMaterial).uniforms.uOpacity.value > 0.01;
     this.moonDisk.visible = !plainBackdrop;
     this.stars.visible = !plainBackdrop;
 
@@ -713,13 +761,21 @@ export class Engine {
     this.renderer.info.reset();
     if (this.shadowCache && this.shadowCacheOn && this.renderer.shadowMap.enabled) {
       this.shadowCache.update(
-        this.renderer, this.scene, this.camera, this.sun, this.shadowX, this.shadowY,
+        this.renderer,
+        this.scene,
+        this.camera,
+        this.sun,
+        this.shadowX,
+        this.shadowY,
       );
     } else {
       this.renderer.shadowMap.needsUpdate = true;
     }
 
-    if (this.post) this.post.render();
-    else this.renderer.render(this.scene, this.camera);
+    if (this.post) {
+      this.post.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 }

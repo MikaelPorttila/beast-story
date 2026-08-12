@@ -19,20 +19,24 @@
 // during test runs. Do not reintroduce those flags as a default; a host without a
 // usable GPU sets SOFTWARE_GL=1 to fall back to CPU rendering deliberately.
 // glRenderer() below reports which path a run actually got.
-import puppeteer, { KnownDevices } from 'puppeteer-core';
+import puppeteer, { KnownDevices } from "puppeteer-core";
 
 // --ignore-gpu-blocklist is a no-op on a healthy driver (measured: identical
 // renderer and timing with and without it) but rescues the GPU path on hosts
 // where headless Chromium blocklists the adapter.
-const GPU_ARGS = ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
-const SOFTWARE_GL_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox'];
-const GL_ARGS = process.env.SOFTWARE_GL === '1' ? SOFTWARE_GL_ARGS : GPU_ARGS;
+const GPU_ARGS = ["--ignore-gpu-blocklist", "--enable-gpu-rasterization"];
+const SOFTWARE_GL_ARGS = [
+  "--use-angle=swiftshader",
+  "--enable-unsafe-swiftshader",
+  "--disable-gpu-sandbox",
+];
+const GL_ARGS = process.env.SOFTWARE_GL === "1" ? SOFTWARE_GL_ARGS : GPU_ARGS;
 
 // Brave-specific noise suppression: a fresh profile otherwise pulls its
 // component updates and Rewards machinery into the run we are timing.
-const BRAVE_ARGS = ['--disable-brave-update', '--disable-sync', '--disable-component-update'];
+const BRAVE_ARGS = ["--disable-brave-update", "--disable-sync", "--disable-component-update"];
 
-const PHONE = KnownDevices['Pixel 5'];
+const PHONE = KnownDevices["Pixel 5"];
 
 /**
  * How long ONE `page.evaluate` may run before puppeteer gives up on it.
@@ -61,15 +65,18 @@ export async function launchBrowser({ args = [] } = {}) {
   // per-probe `solo` list rather than hoping.
   const ws = process.env.BS_BROWSER_WS?.trim();
   if (ws) {
-    const shared = await puppeteer.connect({ browserWSEndpoint: ws, protocolTimeout: PROTOCOL_TIMEOUT });
+    const shared = await puppeteer.connect({
+      browserWSEndpoint: ws,
+      protocolTimeout: PROTOCOL_TIMEOUT,
+    });
     shared.close = shared.disconnect.bind(shared);
     return shared;
   }
   const executablePath = process.env.BROWSER_EXECUTABLE?.trim();
   if (!executablePath) {
     throw new Error(
-      'BROWSER_EXECUTABLE is not set. Copy .env.example to .env.local and point it at ' +
-      'your Chromium-family browser (Brave/Chrome/Edge) — Bun loads .env.local automatically.',
+      "BROWSER_EXECUTABLE is not set. Copy .env.example to .env.local and point it at " +
+        "your Chromium-family browser (Brave/Chrome/Edge) — Bun loads .env.local automatically.",
     );
   }
   const isBrave = /brave/i.test(executablePath);
@@ -85,12 +92,21 @@ export async function launchBrowser({ args = [] } = {}) {
 // `target` is a Browser or a BrowserContext — both expose newPage().
 // `phone: true` emulates the Pixel 5 (touch + mobile UA) at the given size,
 // which is what the touch/layout tools need.
-export async function newPage(target, { width, height, deviceScaleFactor = 1, phone = false } = {}) {
+export async function newPage(
+  target,
+  { width, height, deviceScaleFactor = 1, phone = false } = {},
+) {
   const page = await target.newPage();
-  if (phone) await page.setUserAgent(PHONE.userAgent);
+  if (phone) {
+    await page.setUserAgent(PHONE.userAgent);
+  }
   await page.setViewport({
-    width, height, deviceScaleFactor,
-    isMobile: phone, hasTouch: phone, isLandscape: phone && width > height,
+    width,
+    height,
+    deviceScaleFactor,
+    isMobile: phone,
+    hasTouch: phone,
+    isLandscape: phone && width > height,
   });
   return page;
 }
@@ -152,14 +168,15 @@ export const wait = (ms) => new Promise((r) => setTimeout(r, ms));
  * calling this on a title-screen load hangs until the timeout. There the gate
  * is `waitForSelector('.bs-menu')`, and `leaveSplash` below for the step after.
  */
-export const whenPlaying = (page, timeout = 60000) => page.waitForFunction(
-  () => !!(window.__dbgBoot && window.__dbgBoot().playing && window.__dbgAdvance),
-  { timeout },
-);
+export const whenPlaying = (page, timeout = 60000) =>
+  page.waitForFunction(
+    () => !!(window.__dbgBoot && window.__dbgBoot().playing && window.__dbgAdvance),
+    { timeout },
+  );
 
 /** Let one REAL frame present. Two rAFs: the first may be a frame in flight. */
-export const frame = (page) => page.evaluate(
-  () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+export const frame = (page) =>
+  page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
 export const count = async (page, sel) => (await page.$$(sel)).length;
 
@@ -187,11 +204,13 @@ export const count = async (page, sel) => (await page.$$(sel)).length;
  * what every caller actually wants next, and it cannot appear until the menu
  * has genuinely advanced.
  */
-export async function leaveSplash(page, { timeout = 20000, key = 'Enter' } = {}) {
-  await page.waitForSelector('.bs-menu', { timeout });
+export async function leaveSplash(page, { timeout = 20000, key = "Enter" } = {}) {
+  await page.waitForSelector(".bs-menu", { timeout });
   const deadline = Date.now() + timeout;
   for (let presses = 1; ; presses++) {
-    if (await page.$('.bs-menu [data-act]')) return presses - 1;
+    if (await page.$(".bs-menu [data-act]")) {
+      return presses - 1;
+    }
     if (Date.now() > deadline) {
       throw new Error(
         `the title screen never left its splash step after ${presses} presses of ${key}`,
@@ -221,35 +240,53 @@ export async function leaveSplash(page, { timeout = 20000, key = 'Enter' } = {})
  * Waits for the button rather than assuming the step arrived, for the reason
  * `leaveSplash` gives about the panel being rebuilt underneath a press.
  */
-export async function startNewGame(page, { name = '', timeout = 20000 } = {}) {
-  const newBtn = await page.waitForSelector('.bs-menu [data-act="new"]', { visible: true, timeout });
+export async function startNewGame(page, { name = "", timeout = 20000 } = {}) {
+  const newBtn = await page.waitForSelector('.bs-menu [data-act="new"]', {
+    visible: true,
+    timeout,
+  });
   await newBtn.click();
-  await page.waitForSelector('.bs-name-input', { timeout });
-  if (name) await page.keyboard.type(name);
-  const begin = await page.waitForSelector('.bs-menu [data-act="begin"]', { visible: true, timeout });
+  await page.waitForSelector(".bs-name-input", { timeout });
+  if (name) {
+    await page.keyboard.type(name);
+  }
+  const begin = await page.waitForSelector('.bs-menu [data-act="begin"]', {
+    visible: true,
+    timeout,
+  });
   await begin.click();
 }
 
 // Which GL path did we actually get? Use this in perf-sensitive tools so a
 // silent fall back to CPU rasterisation is visible in the output.
-export const glRenderer = (page) => page.evaluate(() => {
-  const g = document.createElement('canvas').getContext('webgl2');
-  const d = g?.getExtension('WEBGL_debug_renderer_info');
-  return d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : '(unknown)';
-});
+export const glRenderer = (page) =>
+  page.evaluate(() => {
+    const g = document.createElement("canvas").getContext("webgl2");
+    const d = g?.getExtension("WEBGL_debug_renderer_info");
+    return d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : "(unknown)";
+  });
 
-export const isVisible = (page, sel) => page.evaluate((s) => {
-  const el = document.querySelector(s);
-  if (!el) return false;
-  const st = getComputedStyle(el);
-  if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) === 0) return false;
-  const r = el.getBoundingClientRect();
-  return r.width > 0 && r.height > 0;
-}, sel);
+export const isVisible = (page, sel) =>
+  page.evaluate((s) => {
+    const el = document.querySelector(s);
+    if (!el) {
+      return false;
+    }
+    const st = getComputedStyle(el);
+    if (st.display === "none" || st.visibility === "hidden" || Number(st.opacity) === 0) {
+      return false;
+    }
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }, sel);
 
 export const logPageErrors = (page) => {
-  page.on('console', (m) => { if (m.type() === 'error') console.error('[page]', m.text()); });
-  page.on('pageerror', (e) => console.error('[pageerror]', e.message));
+  page.on("console", (m) => {
+    if (m.type() === "error") {
+      console.error("[page]", m.text());
+    }
+  });
+  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
 };
 
 /**
@@ -270,55 +307,77 @@ export const logPageErrors = (page) => {
  */
 /** Install the fake pad. `id` decides which glyph set the HUD should choose. */
 export async function installFakePad(page, id, { rumble = false } = {}) {
-  await page.evaluateOnNewDocument((id, rumble) => {
-    const state = {
-      id,
-      index: 0,
-      connected: true,
-      mapping: 'standard',
-      axes: [0, 0, 0, 0],
-      buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
-    };
-    if (rumble) {
-      // Records calls so the mixer's re-issue cadence can be counted rather
-      // than assumed. `effects` is the current spec spelling.
-      window.__rumble = { calls: 0, last: null };
-      state.vibrationActuator = {
-        effects: ['dual-rumble'],
-        playEffect: (type, params) => {
-          window.__rumble.calls++;
-          window.__rumble.last = { type, ...params };
-          return Promise.resolve('complete');
-        },
+  await page.evaluateOnNewDocument(
+    (id, rumble) => {
+      const state = {
+        id,
+        index: 0,
+        connected: true,
+        mapping: "standard",
+        axes: [0, 0, 0, 0],
+        buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
       };
-    }
-    window.__fakePad = state;
-    navigator.getGamepads = () => [state];
-    // Dispatched EXPLICITLY by the test once the game has booted, rather than
-    // off `load`. main.ts is a module and the module graph is served over many
-    // dev-server round-trips, so `load` is not a reliable "the game's listener
-    // exists now" signal — firing there raced the listener and the pad silently
-    // never connected. Chrome would fire this on the pad's first real press.
-    // NOT `new GamepadEvent(...)`: its constructor performs a real conversion to
-    // the platform Gamepad interface and rejects a plain object outright, and
-    // there is no way to mint a genuine Gamepad from script. A plain Event with
-    // the property defined on it delivers the exact shape the listener reads
-    // (`e.gamepad.index`, `e.gamepad.id`), which is what is under test.
-    window.__connectPad = () => {
-      const ev = new Event('gamepadconnected');
-      Object.defineProperty(ev, 'gamepad', { value: state });
-      window.dispatchEvent(ev);
-    };
-  }, id, rumble);
+      if (rumble) {
+        // Records calls so the mixer's re-issue cadence can be counted rather
+        // than assumed. `effects` is the current spec spelling.
+        window.__rumble = { calls: 0, last: null };
+        state.vibrationActuator = {
+          effects: ["dual-rumble"],
+          playEffect: (type, params) => {
+            window.__rumble.calls++;
+            window.__rumble.last = { type, ...params };
+            return Promise.resolve("complete");
+          },
+        };
+      }
+      window.__fakePad = state;
+      navigator.getGamepads = () => [state];
+      // Dispatched EXPLICITLY by the test once the game has booted, rather than
+      // off `load`. main.ts is a module and the module graph is served over many
+      // dev-server round-trips, so `load` is not a reliable "the game's listener
+      // exists now" signal — firing there raced the listener and the pad silently
+      // never connected. Chrome would fire this on the pad's first real press.
+      // NOT `new GamepadEvent(...)`: its constructor performs a real conversion to
+      // the platform Gamepad interface and rejects a plain object outright, and
+      // there is no way to mint a genuine Gamepad from script. A plain Event with
+      // the property defined on it delivers the exact shape the listener reads
+      // (`e.gamepad.index`, `e.gamepad.id`), which is what is under test.
+      window.__connectPad = () => {
+        const ev = new Event("gamepadconnected");
+        Object.defineProperty(ev, "gamepad", { value: state });
+        window.dispatchEvent(ev);
+      };
+    },
+    id,
+    rumble,
+  );
 }
 
 /** Standard-mapping button indices, mirrored from core/gamepad.ts. */
 export const PAD_BUTTON = {
-  A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7,
-  START: 9, L3: 10, R3: 11, DUP: 12, DDOWN: 13, DLEFT: 14, DRIGHT: 15,
+  A: 0,
+  B: 1,
+  X: 2,
+  Y: 3,
+  LB: 4,
+  RB: 5,
+  LT: 6,
+  RT: 7,
+  START: 9,
+  L3: 10,
+  R3: 11,
+  DUP: 12,
+  DDOWN: 13,
+  DLEFT: 14,
+  DRIGHT: 15,
 };
 
 /** Press or release one button on the fake pad. */
-export const setPadButton = (page, i, down) => page.evaluate((i, down) => {
-  window.__fakePad.buttons[i] = { pressed: down, touched: down, value: down ? 1 : 0 };
-}, i, down);
+export const setPadButton = (page, i, down) =>
+  page.evaluate(
+    (i, down) => {
+      window.__fakePad.buttons[i] = { pressed: down, touched: down, value: down ? 1 : 0 };
+    },
+    i,
+    down,
+  );

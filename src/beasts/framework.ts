@@ -1,16 +1,26 @@
-import * as THREE from 'three';
-import { ELEMENT_COLORS, MAX_STEP_UP, BEAST_CYCLE_SLOTS } from '../core/types';
-import { CarrierRide } from '../world/carriers';
+import * as THREE from "three";
+import { ELEMENT_COLORS, MAX_STEP_UP, BEAST_CYCLE_SLOTS } from "../core/types";
+import { CarrierRide } from "../world/carriers";
 import type {
-  ElementType, EventBus, FetchJob, BeastAction, BeastAnimCtx, BeastRig, BeastSpecies,
-  BeastStats, SkillDef, World,
-} from '../core/types';
+  ElementType,
+  EventBus,
+  FetchJob,
+  BeastAction,
+  BeastAnimCtx,
+  BeastRig,
+  BeastSpecies,
+  BeastStats,
+  SkillDef,
+  World,
+} from "../core/types";
 
 // Skills register here at boot; a missing def falls back to an index schedule.
 const skillRegistry = new Map<string, SkillDef>();
 
 export function registerSkillDefs(defs: Iterable<SkillDef>): void {
-  for (const d of defs) skillRegistry.set(d.id, d);
+  for (const d of defs) {
+    skillRegistry.set(d.id, d);
+  }
 }
 
 export function getSkillDef(id: string): SkillDef | undefined {
@@ -22,8 +32,11 @@ const TWO_PI = Math.PI * 2;
 
 function angleDelta(a: number, b: number): number {
   let d = (b - a) % TWO_PI;
-  if (d > Math.PI) d -= TWO_PI;
-  else if (d < -Math.PI) d += TWO_PI;
+  if (d > Math.PI) {
+    d -= TWO_PI;
+  } else if (d < -Math.PI) {
+    d += TWO_PI;
+  }
   return d;
 }
 
@@ -36,7 +49,8 @@ function damp(cur: number, target: number, lambda: number, dt: number): number {
 }
 
 function easeOutBack(t: number): number {
-  const c1 = 1.70158, c3 = c1 + 1;
+  const c1 = 1.70158,
+    c3 = c1 + 1;
   const u = t - 1;
   return 1 + c3 * u * u * u + c1 * u * u;
 }
@@ -59,7 +73,11 @@ export class BeastAnimClock {
   private readonly cycles = new Float64Array(BEAST_CYCLE_SLOTS);
 
   readonly ctx: BeastAnimCtx = {
-    action: 'idle', actionTime: 0, time: 0, moveSpeed: 0, dt: 0,
+    action: "idle",
+    actionTime: 0,
+    time: 0,
+    moveSpeed: 0,
+    dt: 0,
     cycle: (slot: number, freq: number): number => {
       const w = freq > MAX_CYCLE_RATE ? MAX_CYCLE_RATE : freq > 0 ? freq : 0;
       this.cycles[slot] += w * this.ctx.dt;
@@ -82,18 +100,25 @@ const RIDE_SCALE_LAMBDA = 9;
 const SEAT_FRACTION = 0.72;
 
 export interface BeastRideState {
-  x: number; y: number; z: number;
+  x: number;
+  y: number;
+  z: number;
   yaw: number;
   pitch: number;
   bank: number;
-  vx: number; vz: number;
+  vx: number;
+  vz: number;
   /** 0..1 gait blend, normalised against the mount's own top speed. */
   speed01: number;
   action: BeastAction;
 }
 
 const TRANSIENT_DURATIONS: Partial<Record<BeastAction, number>> = {
-  attack: 0.5, cast: 0.7, special: 0.95, hurt: 0.45, happy: 1.35,
+  attack: 0.5,
+  cast: 0.7,
+  special: 0.95,
+  hurt: 0.45,
+  happy: 1.35,
 };
 
 // Fetch errands. main.ts offers the job; the abort rules stop a bad offer stranding
@@ -113,8 +138,8 @@ let puffMat: THREE.MeshStandardMaterial | null = null;
 
 class PoofPuff {
   private mesh: THREE.InstancedMesh;
-  private dirs: Float32Array;   // per-instance unit dir xyz
-  private seeds: Float32Array;  // per-instance speed + size
+  private dirs: Float32Array; // per-instance unit dir xyz
+  private seeds: Float32Array; // per-instance speed + size
   private life = 0;
   private center = new THREE.Vector3();
   private baseRadius = 0.5;
@@ -122,7 +147,10 @@ class PoofPuff {
   constructor(private scene: THREE.Scene) {
     puffGeo ??= new THREE.BoxGeometry(1, 1, 1);
     puffMat ??= new THREE.MeshStandardMaterial({
-      color: 0xf4faff, emissive: 0x9fd8ff, emissiveIntensity: 0.55, roughness: 1,
+      color: 0xf4faff,
+      emissive: 0x9fd8ff,
+      emissiveIntensity: 0.55,
+      roughness: 1,
     });
     this.mesh = new THREE.InstancedMesh(puffGeo, puffMat, PUFF_COUNT);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -139,7 +167,7 @@ class PoofPuff {
       this.dirs[i * 3] = Math.cos(theta) * r;
       this.dirs[i * 3 + 1] = y;
       this.dirs[i * 3 + 2] = Math.sin(theta) * r;
-      this.seeds[i * 2] = 0.7 + Math.random() * 0.9;      // speed
+      this.seeds[i * 2] = 0.7 + Math.random() * 0.9; // speed
       this.seeds[i * 2 + 1] = 0.55 + Math.random() * 0.8; // size
     }
     scene.add(this.mesh);
@@ -158,13 +186,19 @@ class PoofPuff {
   }
 
   update(dt: number): void {
-    if (this.life <= 0) return;
+    if (this.life <= 0) {
+      return;
+    }
     this.life -= dt;
-    if (this.life <= 0) { this.mesh.visible = false; return; }
+    if (this.life <= 0) {
+      this.mesh.visible = false;
+      return;
+    }
     const t = 1 - this.life / 0.55;
     const spread = this.baseRadius + (1 - (1 - t) * (1 - t)) * 1.5;
     for (let i = 0; i < PUFF_COUNT; i++) {
-      const sp = this.seeds[i * 2], sz = this.seeds[i * 2 + 1];
+      const sp = this.seeds[i * 2],
+        sz = this.seeds[i * 2 + 1];
       _dummy.position.set(
         this.center.x + this.dirs[i * 3] * spread * sp,
         this.center.y + this.dirs[i * 3 + 1] * spread * sp,
@@ -204,7 +238,9 @@ function parkInstances(mesh: THREE.InstancedMesh, y: number): void {
   _dummy.rotation.set(0, 0, 0);
   _dummy.scale.setScalar(0.0001);
   _dummy.updateMatrix();
-  for (let i = 0; i < mesh.count; i++) mesh.setMatrixAt(i, _dummy.matrix);
+  for (let i = 0; i < mesh.count; i++) {
+    mesh.setMatrixAt(i, _dummy.matrix);
+  }
   mesh.instanceMatrix.needsUpdate = true;
 }
 
@@ -223,8 +259,10 @@ class SwipeArc {
     const c = ELEMENT_COLORS[element];
     // Near-white blade, coloured glow: separates from ANY species' own paint.
     this.mat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(c).lerp(_white, 0.40).getHex(),
-      emissive: c, emissiveIntensity: 0.8, roughness: 1,
+      color: new THREE.Color(c).lerp(_white, 0.4).getHex(),
+      emissive: c,
+      emissiveIntensity: 0.8,
+      roughness: 1,
     });
     this.mesh = new THREE.InstancedMesh(puffGeo, this.mat, ARC_SEGS);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -232,7 +270,7 @@ class SwipeArc {
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
     this.mesh.frustumCulled = false;
-    parkInstances(this.mesh, 0);   // see FX_WARM_FRAMES
+    parkInstances(this.mesh, 0); // see FX_WARM_FRAMES
     parent.add(this.mesh);
   }
 
@@ -253,10 +291,17 @@ class SwipeArc {
   }
 
   update(dt: number): void {
-    if (this.warm > 0 && --this.warm === 0 && this.life <= 0) this.mesh.visible = false;
-    if (this.life <= 0) return;
+    if (this.warm > 0 && --this.warm === 0 && this.life <= 0) {
+      this.mesh.visible = false;
+    }
+    if (this.life <= 0) {
+      return;
+    }
     this.life -= dt;
-    if (this.life <= 0) { this.mesh.visible = this.warm > 0; return; }
+    if (this.life <= 0) {
+      this.mesh.visible = this.warm > 0;
+      return;
+    }
     const u = 1 - this.life / ARC_TIME;
     const head = (1 - (1 - u) * (1 - u)) * (1 + ARC_TRAIL);
     const R = this.reach;
@@ -274,9 +319,7 @@ class SwipeArc {
         // 109-degree rake about the rig's Y; `a` also drives height, so the blade
         // comes DOWN as it crosses. Wider puts the ends off-screen.
         const a = this.dir * (0.95 - 1.9 * fi);
-        _dummy.position.set(
-          Math.sin(a) * R, this.cy + a * this.rise, this.cz + Math.cos(a) * R,
-        );
+        _dummy.position.set(Math.sin(a) * R, this.cy + a * this.rise, this.cz + Math.cos(a) * R);
         // rotation.y = a puts local +X on the arc TANGENT; the z-roll rakes the blade.
         _dummy.rotation.set(0, a, -a * 0.5);
         _dummy.scale.set(0.26 * R * w, 0.22 * R * w, 0.09 * R * w);
@@ -311,22 +354,25 @@ class DustPuff {
     puffGeo ??= new THREE.BoxGeometry(1, 1, 1);
     // Warm pale grit; the emissive must fall UNDER both bloom thresholds.
     dustMat ??= new THREE.MeshStandardMaterial({
-      color: 0xd6cbb4, emissive: 0x6b6152, emissiveIntensity: 0.25, roughness: 1,
+      color: 0xd6cbb4,
+      emissive: 0x6b6152,
+      emissiveIntensity: 0.25,
+      roughness: 1,
     });
     this.mesh = new THREE.InstancedMesh(puffGeo, dustMat, DUST_COUNT);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
     this.mesh.frustumCulled = false;
-    parkInstances(this.mesh, 0);   // see FX_WARM_FRAMES
+    parkInstances(this.mesh, 0); // see FX_WARM_FRAMES
     this.dirs = new Float32Array(DUST_COUNT * 3);
     this.seeds = new Float32Array(DUST_COUNT * 2);
     for (let i = 0; i < DUST_COUNT; i++) {
       const theta = Math.random() * TWO_PI;
       this.dirs[i * 3] = Math.cos(theta);
-      this.dirs[i * 3 + 1] = 0.10 + Math.random() * 0.35;
+      this.dirs[i * 3 + 1] = 0.1 + Math.random() * 0.35;
       this.dirs[i * 3 + 2] = Math.sin(theta);
-      this.seeds[i * 2] = 0.6 + Math.random() * 0.8;      // speed
+      this.seeds[i * 2] = 0.6 + Math.random() * 0.8; // speed
       this.seeds[i * 2 + 1] = 0.5 + Math.random() * 0.85; // size
     }
     scene.add(this.mesh);
@@ -349,14 +395,22 @@ class DustPuff {
   }
 
   update(dt: number): void {
-    if (this.warm > 0 && --this.warm === 0 && this.life <= 0) this.mesh.visible = false;
-    if (this.life <= 0) return;
+    if (this.warm > 0 && --this.warm === 0 && this.life <= 0) {
+      this.mesh.visible = false;
+    }
+    if (this.life <= 0) {
+      return;
+    }
     this.life -= dt;
-    if (this.life <= 0) { this.mesh.visible = this.warm > 0; return; }
+    if (this.life <= 0) {
+      this.mesh.visible = this.warm > 0;
+      return;
+    }
     const t = 1 - this.life / DUST_LIFE;
     const out = this.spread * (0.35 + (1 - (1 - t) * (1 - t)) * 1.35 * this.power);
     for (let i = 0; i < DUST_COUNT; i++) {
-      const sp = this.seeds[i * 2], sz = this.seeds[i * 2 + 1];
+      const sp = this.seeds[i * 2],
+        sz = this.seeds[i * 2 + 1];
       _dummy.position.set(
         this.center.x + this.dirs[i * 3] * out * sp,
         this.center.y + this.dirs[i * 3 + 1] * out * sp * 0.75,
@@ -364,7 +418,7 @@ class DustPuff {
       );
       // Shrink rather than fade: no transparency, no new program. A grain under a
       // body voxel reads as noise, not debris.
-      const s = Math.max(0.0001, (1 - t) * 0.30 * sz * this.spread * (0.55 + 0.45 * this.power));
+      const s = Math.max(0.0001, (1 - t) * 0.3 * sz * this.spread * (0.55 + 0.45 * this.power));
       _dummy.scale.setScalar(s);
       _dummy.rotation.set(t * 2.2 * sp, t * 3.1 * sz, 0);
       _dummy.updateMatrix();
@@ -413,23 +467,28 @@ class LightBeam {
   private seeds: Float32Array;
   private clock = 0;
 
-  constructor(private scene: THREE.Scene, element: ElementType) {
+  constructor(
+    private scene: THREE.Scene,
+    element: ElementType,
+  ) {
     puffGeo ??= new THREE.BoxGeometry(1, 1, 1);
     const c = ELEMENT_COLORS[element];
     this.mat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(c).lerp(_white, 0.62).getHex(),
-      emissive: c, emissiveIntensity: 1.4, roughness: 1,
+      emissive: c,
+      emissiveIntensity: 1.4,
+      roughness: 1,
     });
     this.mesh = new THREE.InstancedMesh(puffGeo, this.mat, BEAM_SEGS);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
     this.mesh.frustumCulled = false;
-    parkInstances(this.mesh, 0);   // see FX_WARM_FRAMES
+    parkInstances(this.mesh, 0); // see FX_WARM_FRAMES
     this.seeds = new Float32Array(BEAM_SEGS * 2);
     for (let i = 0; i < BEAM_SEGS; i++) {
-      this.seeds[i * 2] = 0.55 + Math.random() * 0.9;      // speed
-      this.seeds[i * 2 + 1] = 0.6 + Math.random() * 0.75;  // size
+      this.seeds[i * 2] = 0.55 + Math.random() * 0.9; // speed
+      this.seeds[i * 2 + 1] = 0.6 + Math.random() * 0.75; // size
     }
     scene.add(this.mesh);
   }
@@ -460,7 +519,9 @@ class LightBeam {
   /** Largest cube drawn, 0 when hidden. A mesh parked by FX_WARM_FRAMES is
    *  `visible` yet draws nothing, so only the matrices know. Probes only. */
   get drawnSize(): number {
-    if (!this.mesh.visible) return 0;
+    if (!this.mesh.visible) {
+      return 0;
+    }
     let max = 0;
     for (let i = 0; i < this.mesh.count; i++) {
       this.mesh.getMatrixAt(i, _dummy.matrix);
@@ -476,9 +537,17 @@ class LightBeam {
     }
     if (this.life > 0) {
       this.life -= dt;
-      if (this.life > 0) { this.drawColumn(); this.wispOn = false; return; }
+      if (this.life > 0) {
+        this.drawColumn();
+        this.wispOn = false;
+        return;
+      }
     }
-    if (this.wispOn) { this.drawWisp(); this.wispOn = false; return; }
+    if (this.wispOn) {
+      this.drawWisp();
+      this.wispOn = false;
+      return;
+    }
     this.mesh.visible = this.warm > 0;
   }
 
@@ -486,15 +555,16 @@ class LightBeam {
     this.mesh.visible = true;
     const t = 1 - this.life / BEAM_FLASH;
     for (let i = 0; i < BEAM_SEGS; i++) {
-      const sp = this.seeds[i * 2], sz = this.seeds[i * 2 + 1];
+      const sp = this.seeds[i * 2],
+        sz = this.seeds[i * 2 + 1];
       const along = (i / BEAM_SEGS + t * 0.75 * sp) % 1;
       _dummy.position.set(
-        this.origin.x + Math.sin(i * 2.4 + this.clock) * 0.10,
+        this.origin.x + Math.sin(i * 2.4 + this.clock) * 0.1,
         this.origin.y + (this.dir > 0 ? along : 1 - along) * BEAM_HEIGHT,
-        this.origin.z + Math.cos(i * 1.7 + this.clock) * 0.10,
+        this.origin.z + Math.cos(i * 1.7 + this.clock) * 0.1,
       );
       const taper = 1 - Math.abs(along - 0.15) * 0.55;
-      _dummy.scale.setScalar(Math.max(0.0001, (1 - t) * 0.30 * sz * taper));
+      _dummy.scale.setScalar(Math.max(0.0001, (1 - t) * 0.3 * sz * taper));
       _dummy.rotation.set(t * 3 * sp, t * 4 * sz, 0);
       _dummy.updateMatrix();
       this.mesh.setMatrixAt(i, _dummy.matrix);
@@ -510,7 +580,7 @@ class LightBeam {
         const a = this.clock * 2.2 + (i / WISP_SEGS) * TWO_PI;
         _dummy.position.set(
           this.wispAt.x + Math.sin(a) * 0.34,
-          this.wispAt.y + Math.sin(this.clock * 3.1 + i) * 0.20 + i * 0.11,
+          this.wispAt.y + Math.sin(this.clock * 3.1 + i) * 0.2 + i * 0.11,
           this.wispAt.z + Math.cos(a) * 0.34,
         );
         _dummy.scale.setScalar(0.17 * sz);
@@ -544,10 +614,12 @@ export interface BeastOwner {
 // Animation probe. Deregistered in dispose(), so a walked-out zone leaves nothing.
 const LIVE_ACTORS = new Set<BeastActor>();
 
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   (window as unknown as { __dbgBeastAnim: () => unknown }).__dbgBeastAnim = () => {
     const out: unknown[] = [];
-    for (const a of LIVE_ACTORS) out.push(a.animProbe());
+    for (const a of LIVE_ACTORS) {
+      out.push(a.animProbe());
+    }
     return out;
   };
 }
@@ -566,7 +638,7 @@ export class BeastActor {
   hp: number;
   maxHp: number;
   isDead = false;
-  faction: 'player' = 'player';
+  faction = "player" as const;
   knownSkillIds: string[] = [];
   /** World yaw to face while idle/slow, overriding the follow heading (photo mode). */
   facingOverride: number | null = null;
@@ -597,7 +669,7 @@ export class BeastActor {
   private transient: BeastAction | null = null;
   private transientTime = 0;
   private transientDur = 0;
-  private baseAction: BeastAction = 'idle';
+  private baseAction: BeastAction = "idle";
   private baseTime = 0;
   private time = 0;
   private phase = Math.random() * TWO_PI;
@@ -641,7 +713,7 @@ export class BeastActor {
     this.radius = this.rig.radius;
     // Before the root is placed, so this is a local-space measurement.
     this.silhouetteTop = Math.max(0.2, new THREE.Box3().setFromObject(this.rig.root).max.y);
-    this.rig.root.rotation.order = 'YXZ';
+    this.rig.root.rotation.order = "YXZ";
     this.rig.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
         const m = o as THREE.Mesh;
@@ -671,7 +743,9 @@ export class BeastActor {
 
     this.species.skills.forEach((id, i) => {
       const lv = this.learnLevelOf(id, i);
-      if (lv !== undefined && lv <= this.level) this.knownSkillIds.push(id);
+      if (lv !== undefined && lv <= this.level) {
+        this.knownSkillIds.push(id);
+      }
     });
   }
 
@@ -700,13 +774,17 @@ export class BeastActor {
     if (this.flashDirty || this.hurtFlash > 0) {
       this.hurtFlash = 0;
       this.flashDirty = false;
-      for (const m of this.materials) m.emissive.setRGB(0, 0, 0);
+      for (const m of this.materials) {
+        m.emissive.setRGB(0, 0, 0);
+      }
     }
     // Rebuilt, not trimmed: a skill bought at a den is in here too.
     this.knownSkillIds.length = 0;
     this.species.skills.forEach((id, i) => {
       const lv = this.learnLevelOf(id, i);
-      if (lv !== undefined && lv <= this.level) this.knownSkillIds.push(id);
+      if (lv !== undefined && lv <= this.level) {
+        this.knownSkillIds.push(id);
+      }
     });
   }
 
@@ -716,7 +794,11 @@ export class BeastActor {
    * it is filtered to what the species still knows. HP floors at 1, never a corpse.
    */
   restore(state: {
-    level: number; xp: number; xpToNext: number; hp: number; knownSkillIds: readonly string[];
+    level: number;
+    xp: number;
+    xpToNext: number;
+    hp: number;
+    knownSkillIds: readonly string[];
   }): void {
     this.reset();
     this.level = Math.max(1, Math.round(state.level));
@@ -729,10 +811,14 @@ export class BeastActor {
     this.knownSkillIds.length = 0;
     this.species.skills.forEach((id, i) => {
       const lv = this.learnLevelOf(id, i);
-      if (lv !== undefined && lv <= this.level) this.knownSkillIds.push(id);
+      if (lv !== undefined && lv <= this.level) {
+        this.knownSkillIds.push(id);
+      }
     });
     for (const id of state.knownSkillIds) {
-      if (canKnow.has(id) && !this.knownSkillIds.includes(id)) this.knownSkillIds.push(id);
+      if (canKnow.has(id) && !this.knownSkillIds.includes(id)) {
+        this.knownSkillIds.push(id);
+      }
     }
   }
 
@@ -750,16 +836,22 @@ export class BeastActor {
 
   private learnLevelOf(id: string, index: number): number | undefined {
     const def = skillRegistry.get(id);
-    if (def) return def.learnAtLevel; // undefined => store-only
+    if (def) {
+      return def.learnAtLevel;
+    } // undefined => store-only
     return index === 0 ? 1 : 1 + index * 4; // fallback schedule
   }
 
   learnSkill(id: string): void {
-    if (!this.knownSkillIds.includes(id)) this.knownSkillIds.push(id);
+    if (!this.knownSkillIds.includes(id)) {
+      this.knownSkillIds.push(id);
+    }
   }
 
   gainXp(n: number): void {
-    if (n <= 0 || this.isDead) return;
+    if (n <= 0 || this.isDead) {
+      return;
+    }
     this.xp += n;
     while (this.xp >= this.xpToNext) {
       this.xp -= this.xpToNext;
@@ -770,7 +862,9 @@ export class BeastActor {
       this.hp = this.maxHp;
       let learned: SkillDef | undefined;
       this.species.skills.forEach((id, i) => {
-        if (this.knownSkillIds.includes(id)) return;
+        if (this.knownSkillIds.includes(id)) {
+          return;
+        }
         const lv = this.learnLevelOf(id, i);
         if (lv !== undefined && lv <= this.level) {
           this.knownSkillIds.push(id);
@@ -778,20 +872,22 @@ export class BeastActor {
         }
       });
       this.bus.emit({
-        type: 'beastLevelUp',
+        type: "beastLevelUp",
         beastId: this.species.id,
         nameKey: this.species.nameKey,
         level: this.level,
         learned,
       });
-      this.playAction('happy', 1.5);
+      this.playAction("happy", 1.5);
     }
   }
 
   takeDamage(amount: number, from: THREE.Vector3, _element?: ElementType): boolean {
     // A beast in transit is light. Backstop only: a projectile already in flight
     // must not connect with an absent body.
-    if (this.isDead || this.poofT > 0 || this.beaming) return false;
+    if (this.isDead || this.poofT > 0 || this.beaming) {
+      return false;
+    }
     const mitigated = amount * (100 / (100 + this.stats.defense));
     this.hp = Math.max(0, this.hp - mitigated);
     this.hurtFlash = 0.22;
@@ -801,11 +897,12 @@ export class BeastActor {
       this.deadTimer = REVIVE_SECONDS;
       this.dieT = 0;
       this.transient = null;
-      this.abortFetch();   // put the drop back in play for whoever revives
+      this.abortFetch(); // put the drop back in play for whoever revives
       this.carryTime = 0;
     } else {
-      this.playAction('hurt');
-      const dx = this.position.x - from.x, dz = this.position.z - from.z;
+      this.playAction("hurt");
+      const dx = this.position.x - from.x,
+        dz = this.position.z - from.z;
       const d = Math.hypot(dx, dz);
       if (d > 1e-4) {
         this.vel.x += (dx / d) * 3.5;
@@ -823,7 +920,7 @@ export class BeastActor {
 
   beginCast(skill: SkillDef): { origin: THREE.Vector3; direction: THREE.Vector3 } {
     this.playAction(skill.castAnim);
-    this.bus.emit({ type: 'skillCast', skillId: skill.id, casterNameKey: this.species.nameKey });
+    this.bus.emit({ type: "skillCast", skillId: skill.id, casterNameKey: this.species.nameKey });
     const origin = new THREE.Vector3(
       this.position.x + this.forward.x * this.rig.radius * 0.7,
       this.position.y + this.rig.height * 0.62,
@@ -835,20 +932,37 @@ export class BeastActor {
   wantsSupportCast(): boolean {
     // The timer is a CADENCE, not a reason to attack (issue #124): no skill is
     // spent until `supportNeeded` says there is a fight to join.
-    if (!this.supportNeeded || this.isDead || this.poofT > 0
-      || this.beaming || this.supportTimer > 0) return false;
+    if (
+      !this.supportNeeded ||
+      this.isDead ||
+      this.poofT > 0 ||
+      this.beaming ||
+      this.supportTimer > 0
+    ) {
+      return false;
+    }
     this.supportTimer = 6 + Math.random() * 4;
     return true;
   }
 
-  get isFetching(): boolean { return this.fetchJob !== null; }
-  get isCarrying(): boolean { return this.carryTime > 0; }
-  get fetchItemId(): string | null { return this.fetchJob ? this.fetchJob.itemId : null; }
+  get isFetching(): boolean {
+    return this.fetchJob !== null;
+  }
+  get isCarrying(): boolean {
+    return this.carryTime > 0;
+  }
+  get fetchItemId(): string | null {
+    return this.fetchJob ? this.fetchJob.itemId : null;
+  }
 
   /** Claims the job; false leaves the drop for someone else. */
   beginFetch(job: FetchJob): boolean {
-    if (this.fetchJob || this.isDead || this.poofT > 0 || this.beaming) return false;
-    if (!job.claim()) return false;
+    if (this.fetchJob || this.isDead || this.poofT > 0 || this.beaming) {
+      return false;
+    }
+    if (!job.claim()) {
+      return false;
+    }
     this.fetchJob = job;
     this.fetchTime = 0;
     return true;
@@ -861,15 +975,22 @@ export class BeastActor {
   }
 
   private updateFetch(dt: number, owner: BeastOwner): FetchJob | null {
-    if (this.carryTime > 0) this.carryTime -= dt;
+    if (this.carryTime > 0) {
+      this.carryTime -= dt;
+    }
     const job = this.fetchJob;
-    if (!job) return null;
+    if (!job) {
+      return null;
+    }
     this.fetchTime += dt;
 
     const lx = job.position.x - owner.position.x;
     const lz = job.position.z - owner.position.z;
-    if (!job.valid || this.fetchTime > FETCH_TIMEOUT
-      || lx * lx + lz * lz > FETCH_LEASH * FETCH_LEASH) {
+    if (
+      !job.valid ||
+      this.fetchTime > FETCH_TIMEOUT ||
+      lx * lx + lz * lz > FETCH_LEASH * FETCH_LEASH
+    ) {
       this.abortFetch();
       return null;
     }
@@ -882,7 +1003,7 @@ export class BeastActor {
       this.fetchJob = null;
       this.fetchTime = 0;
       this.carryTime = FETCH_CARRY;
-      this.playAction('happy', 0.9);
+      this.playAction("happy", 0.9);
       job.collect();
       return null;
     }
@@ -895,7 +1016,11 @@ export class BeastActor {
     // A HIDDEN BEAST STOPS BEING SLICED, so a running effect would freeze mid-air
     // (issue #136); this is the one line every swap goes through. The arc is a rig
     // child. `beaming` is LEFT set, so a swapped-back beast resumes travelling.
-    if (!v) { this.beam.clear(); this.puff.clear(); this.dust.clear(); }
+    if (!v) {
+      this.beam.clear();
+      this.puff.clear();
+      this.dust.clear();
+    }
   }
 
   get mountScale(): number {
@@ -903,14 +1028,22 @@ export class BeastActor {
   }
 
   /** LIVE saddle height, growth included, so a rider rises with it. See SEAT_FRACTION. */
-  get saddleY(): number { return this.silhouetteTop * this.rideScale * SEAT_FRACTION; }
+  get saddleY(): number {
+    return this.silhouetteTop * this.rideScale * SEAT_FRACTION;
+  }
 
-  get scaledRadius(): number { return this.rig.radius * this.rideScale; }
+  get scaledRadius(): number {
+    return this.rig.radius * this.rideScale;
+  }
 
-  get isRidden(): boolean { return this.ridden; }
+  get isRidden(): boolean {
+    return this.ridden;
+  }
 
   setRidden(on: boolean): void {
-    if (this.ridden === on) return;
+    if (this.ridden === on) {
+      return;
+    }
     this.ridden = on;
     this.rideScaleTarget = on ? this.mountScale : 1;
     // Does NOT reset poofT — that scales the rig from nothing and fights the growth.
@@ -924,7 +1057,7 @@ export class BeastActor {
       this.abortFetch();
       this.carryTime = 0;
       this.transient = null;
-      this.playAction('happy', 0.7);
+      this.playAction("happy", 0.7);
     }
   }
 
@@ -940,7 +1073,7 @@ export class BeastActor {
     this.position.set(s.x, s.y, s.z);
     this.vel.set(s.vx, 0, s.vz);
     this.vy = 0;
-    this.grounded = s.action !== 'fly';
+    this.grounded = s.action !== "fly";
     // No damping: the hero's rig takes the SAME angle, and a second filter would
     // let rider and saddle disagree in every turn.
     this.yaw = s.yaw;
@@ -951,7 +1084,7 @@ export class BeastActor {
     this.finishFrame(dt, s.action);
   }
 
-  update(dt: number, owner: BeastOwner, role: 'primary' | 'support', others: BeastActor[]): void {
+  update(dt: number, owner: BeastOwner, role: "primary" | "support", others: BeastActor[]): void {
     this.time += dt;
 
     // THE GROUND MOVES FIRST, before steering, and above the dead branch: a corpse
@@ -968,18 +1101,23 @@ export class BeastActor {
       return;
     }
 
-    if (role === 'support') this.supportTimer -= dt;
+    if (role === "support") {
+      this.supportTimer -= dt;
+    }
 
-    const ovx = owner.velocity.x, ovz = owner.velocity.z;
+    const ovx = owner.velocity.x,
+      ovz = owner.velocity.z;
     const ownerSpeed = Math.hypot(ovx, ovz);
     if (ownerSpeed > 0.8) {
       this.ownerHeading = dampAngle(this.ownerHeading, Math.atan2(ovx, ovz), 6, dt);
     }
 
     // Station point: right-rear for primary, left-rear for support.
-    const side = role === 'primary' ? 1 : -1;
-    const cos = Math.cos(this.ownerHeading), sin = Math.sin(this.ownerHeading);
-    const ox = side * 1.5, oz = -1.4;
+    const side = role === "primary" ? 1 : -1;
+    const cos = Math.cos(this.ownerHeading),
+      sin = Math.sin(this.ownerHeading);
+    const ox = side * 1.5,
+      oz = -1.4;
     let tx = owner.position.x + ox * cos + oz * sin;
     let tz = owner.position.z + oz * cos - ox * sin;
 
@@ -993,7 +1131,7 @@ export class BeastActor {
     // The VERTICAL leash, above the horizontal one, re-using the station point so a
     // beast that beams in lands where it would have walked to.
     const reach = owner.position.y - this.landingY(tx, tz, owner);
-    const flying = this.species.locomotion === 'flying';
+    const flying = this.species.locomotion === "flying";
     if (this.beaming) {
       this.updateBeaming(dt, tx, tz, owner, reach);
       return;
@@ -1008,45 +1146,60 @@ export class BeastActor {
     // Order matters: the teleport check above measures the OWNER, so a beast left
     // behind snaps to the party, not to the loot.
     const errand = this.updateFetch(dt, owner);
-    if (errand) { tx = errand.position.x; tz = errand.position.z; }
+    if (errand) {
+      tx = errand.position.x;
+      tz = errand.position.z;
+    }
 
-    const dx = tx - this.position.x, dz = tz - this.position.z;
+    const dx = tx - this.position.x,
+      dz = tz - this.position.z;
     const dist = Math.hypot(dx, dz);
 
     const loco = this.species.locomotion;
     const groundY = this.groundAt(this.position.x, this.position.z);
-    const deepWater = this.world.isWater(this.position.x, this.position.z)
-      && groundY < this.world.waterLevel - 0.25;
-    const swimming = loco !== 'flying' && deepWater;
+    const deepWater =
+      this.world.isWater(this.position.x, this.position.z) &&
+      groundY < this.world.waterLevel - 0.25;
+    const swimming = loco !== "flying" && deepWater;
 
     let mediumMult = 1;
-    if (swimming) mediumMult = loco === 'swimming' ? 1.35 : loco === 'amphibious' ? 1.2 : 0.8;
-    else if (loco === 'swimming') mediumMult = 0.55;      // waddling on land
-    else if (loco === 'amphibious') mediumMult = 0.8;
-    else if (loco === 'flying') mediumMult = 1.1;
+    if (swimming) {
+      mediumMult = loco === "swimming" ? 1.35 : loco === "amphibious" ? 1.2 : 0.8;
+    } else if (loco === "swimming") {
+      mediumMult = 0.55;
+    } // waddling on land
+    else if (loco === "amphibious") {
+      mediumMult = 0.8;
+    } else if (loco === "flying") {
+      mediumMult = 1.1;
+    }
 
     const baseSpeed = this.stats.speed * mediumMult;
     const catchup = dist > 7 ? Math.min(1.7, 1 + (dist - 7) * 0.12) : 1;
     // An errand target is stood ON, so the ramp only reaches zero at the drop.
-    const slowR = errand ? 1.0 : 3.0, stopR = errand ? 0 : 0.3;
+    const slowR = errand ? 1.0 : 3.0,
+      stopR = errand ? 0 : 0.3;
     const arrive = smoothstep01((dist - stopR) / (slowR - stopR));
     const hustle = errand || this.carryTime > 0 ? FETCH_HUSTLE : 1;
     const desiredSpeed = baseSpeed * catchup * arrive * hustle;
 
-    let desX = 0, desZ = 0;
+    let desX = 0,
+      desZ = 0;
     if (dist > 1e-4) {
       desX = (dx / dist) * desiredSpeed;
       desZ = (dz / dist) * desiredSpeed;
     }
 
     for (const other of others) {
-      if (other === this || other.isDead) continue;
+      if (other === this || other.isDead) {
+        continue;
+      }
       const sx = this.position.x - other.position.x;
       const sz = this.position.z - other.position.z;
       const sd = Math.hypot(sx, sz);
       const minD = this.rig.radius + other.rig.radius + 0.5;
       if (sd < minD && sd > 1e-4) {
-        const push = (minD - sd) / minD * 5;
+        const push = ((minD - sd) / minD) * 5;
         desX += (sx / sd) * push;
         desZ += (sz / sd) * push;
       }
@@ -1059,7 +1212,7 @@ export class BeastActor {
     // Refuse a destination whose structure top is over MAX_STEP_UP above the feet,
     // probed a body radius ahead, per-axis so a blocked diagonal slides. Fliers and
     // swimmers are exempt — nothing is built in deep water.
-    if (loco === 'flying' || swimming) {
+    if (loco === "flying" || swimming) {
       this.position.x += this.vel.x * dt;
       this.position.z += this.vel.z * dt;
     } else {
@@ -1082,11 +1235,11 @@ export class BeastActor {
     const horizSpeed = Math.hypot(this.vel.x, this.vel.z);
 
     let base: BeastAction;
-    if (loco === 'flying') {
-      base = 'fly';
+    if (loco === "flying") {
+      base = "fly";
       this.updateFlying(dt, groundY, owner);
     } else if (swimming) {
-      base = 'swim';
+      base = "swim";
       const bob = Math.sin(this.time * 2.2 + this.phase) * 0.07;
       const targetY = this.world.waterLevel - this.rig.height * 0.32 + bob;
       this.position.y = damp(this.position.y, targetY, 5, dt);
@@ -1096,31 +1249,31 @@ export class BeastActor {
     } else {
       // Resample height post-integration so snapping/hops use the true ground
       this.updateGrounded(dt, horizSpeed, this.groundAt(this.position.x, this.position.z));
-      base = 'idle'; // refined below once speed01 is smoothed
+      base = "idle"; // refined below once speed01 is smoothed
     }
 
     const targetSpeed01 = Math.min(1, horizSpeed / Math.max(0.001, this.stats.speed * mediumMult));
     this.speed01 = damp(this.speed01, targetSpeed01, 8, dt);
-    if (loco !== 'flying' && !swimming) {
-      base = this.speed01 > 0.5 ? 'run' : this.speed01 > 0.06 ? 'walk' : 'idle';
+    if (loco !== "flying" && !swimming) {
+      base = this.speed01 > 0.5 ? "run" : this.speed01 > 0.06 ? "walk" : "idle";
     }
 
     const prevYaw = this.yaw;
     // A staged facing wins outright: flyers keep enough residual speed to trip the
     // movement branch, which left photo subjects facing away.
-    const targetYaw = this.facingOverride ?? (horizSpeed > 0.4
-      ? Math.atan2(this.vel.x, this.vel.z)
-      : this.ownerHeading);
+    const targetYaw =
+      this.facingOverride ??
+      (horizSpeed > 0.4 ? Math.atan2(this.vel.x, this.vel.z) : this.ownerHeading);
     this.yaw = dampAngle(this.yaw, targetYaw, horizSpeed > 0.4 ? 8 : 3.5, dt);
     const turnVel = dt > 0 ? angleDelta(prevYaw, this.yaw) / dt : 0;
 
-    if (loco === 'flying') {
+    if (loco === "flying") {
       const targetBank = Math.max(-0.55, Math.min(0.55, -turnVel * 0.28));
       this.bank = damp(this.bank, targetBank, 5, dt);
     } else {
       // Lean into a turn, far less than a bird, scaled by gait so a beast pivoting
       // on the spot does not list like a ship.
-      const turnLean = Math.max(-0.20, Math.min(0.20, -turnVel * 0.11));
+      const turnLean = Math.max(-0.2, Math.min(0.2, -turnVel * 0.11));
       // ...and a standing beast sways 2 degrees. `phase` is per-actor.
       const sway = 0.035 * Math.sin(this.time * 1.15 + this.phase);
       const targetBank = turnLean * this.speed01 + sway * (1 - this.speed01);
@@ -1129,7 +1282,7 @@ export class BeastActor {
     this.forward.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
 
     // Distance-driven, so puffs stay locked to the ground covered. Only at a real run.
-    if (this.grounded && !swimming && loco !== 'flying') {
+    if (this.grounded && !swimming && loco !== "flying") {
       if (this.speed01 > 0.62) {
         this.scuffAccum += horizSpeed * dt;
         if (this.scuffAccum > 1.6) {
@@ -1138,10 +1291,13 @@ export class BeastActor {
             this.position.x - this.forward.x * this.rig.radius * 0.5,
             this.position.y + 0.03,
             this.position.z - this.forward.z * this.rig.radius * 0.5,
-            this.rig.radius * this.rideScale, 0.28,
+            this.rig.radius * this.rideScale,
+            0.28,
           );
         }
-      } else this.scuffAccum = 1.4; // primed, so the first stride of a sprint puffs
+      } else {
+        this.scuffAccum = 1.4;
+      } // primed, so the first stride of a sprint puffs
     }
 
     this.finishFrame(dt, base);
@@ -1151,13 +1307,18 @@ export class BeastActor {
   private finishFrame(dt: number, base: BeastAction): void {
     if (this.transient) {
       this.transientTime += dt;
-      if (this.transientTime >= this.transientDur) { this.transient = null; this.struckFor = null; }
-    } else this.struckFor = null;
+      if (this.transientTime >= this.transientDur) {
+        this.transient = null;
+        this.struckFor = null;
+      }
+    } else {
+      this.struckFor = null;
+    }
 
     // Fires INTO the lunge, not on the starting frame: every species coils first.
     if (this.transient && this.transient !== this.struckFor) {
-      const strikeAt = this.transient === 'special' ? 0.34
-        : this.transient === 'attack' ? 0.13 : -1;
+      const strikeAt =
+        this.transient === "special" ? 0.34 : this.transient === "attack" ? 0.13 : -1;
       if (strikeAt >= 0 && this.transientTime >= strikeAt) {
         this.struckFor = this.transient;
         this.arc.swing();
@@ -1167,37 +1328,48 @@ export class BeastActor {
             this.position.x + this.forward.x * this.rig.radius * 0.6,
             this.position.y + 0.04,
             this.position.z + this.forward.z * this.rig.radius * 0.6,
-            this.rig.radius * this.rideScale, 0.75,
+            this.rig.radius * this.rideScale,
+            0.75,
           );
         }
       }
     }
     this.arc.update(dt);
     this.dust.update(dt);
-    if (base !== this.baseAction) { this.baseAction = base; this.baseTime = 0; }
-    else this.baseTime += dt;
+    if (base !== this.baseAction) {
+      this.baseAction = base;
+      this.baseTime = 0;
+    } else {
+      this.baseTime += dt;
+    }
 
     if (this.facingOverride !== null) {
       // Suppress only the beast's OWN flourish; clearing every transient here
       // killed the `anim=` staging parameter.
       this.idleTimer = 30;
-      if (this.transient === 'happy') this.transient = null;
-    } else if (!this.transient && this.baseAction === 'idle') {
+      if (this.transient === "happy") {
+        this.transient = null;
+      }
+    } else if (!this.transient && this.baseAction === "idle") {
       this.idleTimer -= dt;
       if (this.idleTimer <= 0) {
-        this.playAction('happy', 1.2 + Math.random() * 0.5);
+        this.playAction("happy", 1.2 + Math.random() * 0.5);
         this.idleTimer = 8 + Math.random() * 7;
       }
-    } else if (this.baseAction !== 'idle') {
+    } else if (this.baseAction !== "idle") {
       this.idleTimer = Math.max(this.idleTimer, 2.5);
     }
 
     if (this.hurtFlash > 0) {
       this.hurtFlash -= dt;
       const k = Math.max(0, this.hurtFlash / 0.22);
-      for (const m of this.materials) m.emissive.setRGB(k * 0.95, k * 0.12, k * 0.08);
+      for (const m of this.materials) {
+        m.emissive.setRGB(k * 0.95, k * 0.12, k * 0.08);
+      }
     } else if (this.flashDirty) {
-      for (const m of this.materials) m.emissive.setRGB(0, 0, 0);
+      for (const m of this.materials) {
+        m.emissive.setRGB(0, 0, 0);
+      }
       this.flashDirty = false;
     }
 
@@ -1207,7 +1379,9 @@ export class BeastActor {
       s = easeOutBack(Math.min(1, 1 - this.poofT / POOF_SECONDS));
       s = Math.max(0.001, s);
     }
-    if (this.landSquash > 0) this.landSquash -= dt * 3.2;
+    if (this.landSquash > 0) {
+      this.landSquash -= dt * 3.2;
+    }
     const sq = Math.max(0, this.landSquash);
     this.rideScale = damp(this.rideScale, this.rideScaleTarget, RIDE_SCALE_LAMBDA, dt);
     const ms = s * this.rideScale;
@@ -1225,9 +1399,8 @@ export class BeastActor {
     // computes a ground height itself.
     this.ctx.altitude = Math.max(
       0,
-      this.position.y - Math.max(
-        this.groundAt(this.position.x, this.position.z), this.world.waterLevel,
-      ),
+      this.position.y -
+        Math.max(this.groundAt(this.position.x, this.position.z), this.world.waterLevel),
     );
     this.species.animate(this.rig, this.ctx);
 
@@ -1245,8 +1418,8 @@ export class BeastActor {
     const floor = Math.max(surf, aheadY, this.world.waterLevel) + hover;
     // A flyer follows the owner's altitude too, ground still a lower bound, so a
     // skyfall has a mountable body rather than a wisp (issue #91).
-    const target = Math.max(floor, owner.position.y + hover)
-      + Math.sin(this.time * 1.6 + this.phase) * 0.22;
+    const target =
+      Math.max(floor, owner.position.y + hover) + Math.sin(this.time * 1.6 + this.phase) * 0.22;
     const prevY = this.position.y;
     this.position.y = damp(this.position.y, target, 2.6, dt);
     const vyNow = dt > 0 ? (this.position.y - prevY) / dt : 0;
@@ -1295,8 +1468,11 @@ export class BeastActor {
           // The squash happens INSIDE the silhouette; the dust is what the eye catches.
           const impact = Math.min(1, (-this.vy - 5.5) / 7);
           this.dust.burst(
-            this.position.x, groundY + 0.04, this.position.z,
-            this.rig.radius * this.rideScale, 0.35 + 0.65 * impact,
+            this.position.x,
+            groundY + 0.04,
+            this.position.z,
+            this.rig.radius * this.rideScale,
+            0.35 + 0.65 * impact,
           );
         }
         this.position.y = groundY;
@@ -1311,7 +1487,7 @@ export class BeastActor {
     }
   }
 
-  private updateDead(dt: number, owner: BeastOwner, role: 'primary' | 'support'): void {
+  private updateDead(dt: number, owner: BeastOwner, role: "primary" | "support"): void {
     this.deadTimer -= dt;
     if (this.dieT < 1) {
       this.dieT = Math.min(1, this.dieT + dt / 0.55);
@@ -1323,18 +1499,21 @@ export class BeastActor {
         if (this.flashDirty || this.hurtFlash > 0) {
           this.hurtFlash = 0;
           this.flashDirty = false;
-          for (const m of this.materials) m.emissive.setRGB(0, 0, 0);
+          for (const m of this.materials) {
+            m.emissive.setRGB(0, 0, 0);
+          }
         }
       }
     }
     if (this.deadTimer <= 0) {
       this.isDead = false;
       this.hp = Math.ceil(this.maxHp * 0.5);
-      const side = role === 'primary' ? 1 : -1;
-      const cos = Math.cos(this.ownerHeading), sin = Math.sin(this.ownerHeading);
+      const side = role === "primary" ? 1 : -1;
+      const cos = Math.cos(this.ownerHeading),
+        sin = Math.sin(this.ownerHeading);
       this.teleportTo(
-        owner.position.x + (side * 1.5) * cos + (-1.4) * sin,
-        owner.position.z + (-1.4) * cos - (side * 1.5) * sin,
+        owner.position.x + side * 1.5 * cos + -1.4 * sin,
+        owner.position.z + -1.4 * cos - side * 1.5 * sin,
         false,
       );
       this.rig.root.visible = this.visibleFlag;
@@ -1358,12 +1537,18 @@ export class BeastActor {
     this.vy = 0;
   }
 
-  get inTransit(): boolean { return this.beaming; }
+  get inTransit(): boolean {
+    return this.beaming;
+  }
 
-  get isDrawn(): boolean { return this.rig.root.visible; }
+  get isDrawn(): boolean {
+    return this.rig.root.visible;
+  }
 
   /** Light-travel streak size on screen, 0 for none. The reading issue #136 wants. */
-  get beamSize(): number { return this.beam.drawnSize; }
+  get beamSize(): number {
+    return this.beam.drawnSize;
+  }
 
   /**
    * The surface a beast lands on at (x, z) — THE SAME ANSWER `teleportTo` PRODUCES.
@@ -1373,20 +1558,21 @@ export class BeastActor {
     const g = this.world.getHeight(x, z);
     const c = this.world.carriers.at(owner.position.x, owner.position.y, owner.position.z);
     const deck = c ? c.topAt(x, z) : -Infinity;
-    if (deck > g) return deck;
-    return this.world.isWater(x, z) && g < this.world.waterLevel - 0.25
-      ? this.world.waterLevel : g;
+    if (deck > g) {
+      return deck;
+    }
+    return this.world.isWater(x, z) && g < this.world.waterLevel - 0.25 ? this.world.waterLevel : g;
   }
 
   private beginBeam(): void {
     this.beaming = true;
-    this.abortFetch();          // the drop belongs to ground the beast is leaving
+    this.abortFetch(); // the drop belongs to ground the beast is leaving
     this.transient = null;
-    this.baseAction = 'idle';
+    this.baseAction = "idle";
     this.speed01 = 0;
     this.vel.set(0, 0, 0);
     this.vy = 0;
-    this.ride.clear();          // it is riding nothing while it is light
+    this.ride.clear(); // it is riding nothing while it is light
     this.rig.root.visible = false;
     this.beam.column(this.position.x, this.position.y, this.position.z, 1);
   }
@@ -1395,10 +1581,16 @@ export class BeastActor {
    * In transit: no steering, gravity, collision or hitbox. The position is pinned
    * ABOVE the owner, so every "where is my companion" answers "with you" (#70).
    */
-  private updateBeaming(dt: number, tx: number, tz: number, owner: BeastOwner, reach: number): void {
+  private updateBeaming(
+    dt: number,
+    tx: number,
+    tz: number,
+    owner: BeastOwner,
+    reach: number,
+  ): void {
     this.position.set(tx, owner.position.y + BEAM_WISP_RISE, tz);
     const gate = this.supportNeeded ? BEAM_LAND_FIGHT : BEAM_LAND;
-    const canLand = this.species.locomotion === 'flying' ? !owner.deepDiving : reach <= gate;
+    const canLand = this.species.locomotion === "flying" ? !owner.deepDiving : reach <= gate;
     if (canLand) {
       this.beaming = false;
       this.rig.root.visible = this.visibleFlag;
@@ -1422,7 +1614,7 @@ export class BeastActor {
     this.ride.carry(this.world, this.position);
     const groundY = this.groundAt(x, z);
     const deepWater = this.world.isWater(x, z) && groundY < this.world.waterLevel - 0.25;
-    if (this.species.locomotion === 'flying') {
+    if (this.species.locomotion === "flying") {
       this.position.y = Math.max(groundY, this.world.waterLevel) + 1.55;
     } else if (deepWater) {
       this.position.y = this.world.waterLevel - this.rig.height * 0.32;
@@ -1456,9 +1648,15 @@ export class BeastActor {
       blob = { y: p.y, visible: blobPart.visible, opacity: mat.opacity };
     }
     return {
-      id: this.species.id, action: this.ctx.action,
-      moveSpeed: this.ctx.moveSpeed, time: this.time, ridden: this.ridden,
-      altitude: this.ctx.altitude ?? null, y: this.position.y, blob, parts,
+      id: this.species.id,
+      action: this.ctx.action,
+      moveSpeed: this.ctx.moveSpeed,
+      time: this.time,
+      ridden: this.ridden,
+      altitude: this.ctx.altitude ?? null,
+      y: this.position.y,
+      blob,
+      parts,
     };
   }
 
@@ -1475,8 +1673,11 @@ export class BeastActor {
         const m = o as THREE.Mesh;
         m.geometry.dispose();
         const mat = m.material;
-        if (Array.isArray(mat)) for (const mm of mat) mm.dispose();
-        else mat.dispose();
+        if (Array.isArray(mat)) {
+          for (const mm of mat) mm.dispose();
+        } else {
+          mat.dispose();
+        }
       }
     });
     this.puff.dispose();

@@ -32,10 +32,10 @@
 // a menu that is technically present and visually empty.
 //
 //   bun tools/test-menu.mjs
-import { launchBrowser, newPage, newContextPage, wait, logPageErrors } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, newContextPage, wait, logPageErrors } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
-const HOLD = 1200;   // long enough that a walking hero clears the noise floor
+const HOLD = 1200; // long enough that a walking hero clears the noise floor
 /**
  * How long to let the boot sequence run before giving up on it, in ms.
  *
@@ -47,22 +47,31 @@ const HOLD = 1200;   // long enough that a walking hero clears the noise floor
  */
 const PREP_TIMEOUT = 60000;
 
-const state = (page) => page.evaluate(() => {
-  const m = document.querySelector('.bs-menu');
-  const art = document.querySelector('.bs-menu .art');
-  const logo = document.querySelector('.bs-menu .logo');
-  const vis = m ? Number(getComputedStyle(m).opacity) : 0;
-  return {
-    present: !!m,
-    visible: vis > 0.5,
-    step: m?.getAttribute('data-step') ?? null,
-    art: art?.naturalWidth ?? 0,
-    logo: logo?.naturalWidth ?? 0,
-    buttons: [...document.querySelectorAll('.bs-menu .panel button')]
-      .map((b) => b.dataset.act ?? b.dataset.toggle ?? b.dataset.gfx ?? b.dataset.lang ?? b.dataset.vol ?? b.dataset.tab ?? '?'),
-    fullscreen: !!(document.fullscreenElement ?? document.webkitFullscreenElement),
-  };
-});
+const state = (page) =>
+  page.evaluate(() => {
+    const m = document.querySelector(".bs-menu");
+    const art = document.querySelector(".bs-menu .art");
+    const logo = document.querySelector(".bs-menu .logo");
+    const vis = m ? Number(getComputedStyle(m).opacity) : 0;
+    return {
+      present: !!m,
+      visible: vis > 0.5,
+      step: m?.getAttribute("data-step") ?? null,
+      art: art?.naturalWidth ?? 0,
+      logo: logo?.naturalWidth ?? 0,
+      buttons: [...document.querySelectorAll(".bs-menu .panel button")].map(
+        (b) =>
+          b.dataset.act ??
+          b.dataset.toggle ??
+          b.dataset.gfx ??
+          b.dataset.lang ??
+          b.dataset.vol ??
+          b.dataset.tab ??
+          "?",
+      ),
+      fullscreen: !!(document.fullscreenElement ?? document.webkitFullscreenElement),
+    };
+  });
 
 const pos = (page) => page.evaluate(() => window.__dbgPlayerPos());
 
@@ -70,17 +79,20 @@ const pos = (page) => page.evaluate(() => window.__dbgPlayerPos());
 const boot = (page) => page.evaluate(() => window.__dbgBoot?.() ?? null);
 
 /** The progress indicator: which face it is wearing, and what it says. */
-const loader = (page) => page.evaluate(() => {
-  const el = document.querySelector('.bs-load');
-  if (!el) return null;
-  return {
-    chip: el.classList.contains('chip'),
-    cover: el.classList.contains('cover'),
-    label: el.querySelector('.lbl')?.textContent ?? null,
-    pct: el.querySelector('.pct')?.textContent ?? null,
-    opacity: Number(getComputedStyle(el).opacity).toFixed(2),
-  };
-});
+const loader = (page) =>
+  page.evaluate(() => {
+    const el = document.querySelector(".bs-load");
+    if (!el) {
+      return null;
+    }
+    return {
+      chip: el.classList.contains("chip"),
+      cover: el.classList.contains("cover"),
+      label: el.querySelector(".lbl")?.textContent ?? null,
+      pct: el.querySelector(".pct")?.textContent ?? null,
+      opacity: Number(getComputedStyle(el).opacity).toFixed(2),
+    };
+  });
 
 /**
  * Rendered frames per second, read off the F2 overlay â€” the same readout
@@ -95,13 +107,14 @@ const loader = (page) => page.evaluate(() => {
  * so the overlay has nothing to average. `playingBehindMenu` is the assertion
  * that replaced that pair â€” see the header.
  */
-const renderedFps = (page) => page.evaluate(() => {
-  const el = [...document.body.children].find(
-    (c) => c instanceof HTMLDivElement && (c.textContent || '').startsWith('FPS'),
-  );
-  const m = el && /([\d.]+)/.exec(el.textContent || '');
-  return m ? Number(m[1]) : null;
-});
+const renderedFps = (page) =>
+  page.evaluate(() => {
+    const el = [...document.body.children].find(
+      (c) => c instanceof HTMLDivElement && (c.textContent || "").startsWith("FPS"),
+    );
+    const m = el && /([\d.]+)/.exec(el.textContent || "");
+    return m ? Number(m[1]) : null;
+  });
 const moved = (a, b) => +Math.hypot(b.x - a.x, b.z - a.z).toFixed(2);
 
 /**
@@ -118,17 +131,27 @@ const moved = (a, b) => +Math.hypot(b.x - a.x, b.z - a.z).toFixed(2);
  * non-zero fourth length is the ring and cannot be anything else â€” which also
  * means this keeps working if the ring is restyled, as long as it stays a ring.
  */
-const focusRing = (page) => page.evaluate(() => {
-  const a = document.activeElement;
-  if (!a || !a.classList.contains('bs-menu-btn')) return null;
-  const shadow = getComputedStyle(a).boxShadow;
-  return {
-    on: a.dataset.act ?? a.dataset.toggle ?? a.dataset.gfx ?? a.dataset.lang ?? a.dataset.vol ?? a.dataset.tab ?? '?',
-    variant: a.className.replace('bs-menu-btn', '').trim() || 'plain',
-    ring: /\b0px 0px 0px [1-9]\d*px/.test(shadow),
-    shadow,
-  };
-});
+const focusRing = (page) =>
+  page.evaluate(() => {
+    const a = document.activeElement;
+    if (!a || !a.classList.contains("bs-menu-btn")) {
+      return null;
+    }
+    const shadow = getComputedStyle(a).boxShadow;
+    return {
+      on:
+        a.dataset.act ??
+        a.dataset.toggle ??
+        a.dataset.gfx ??
+        a.dataset.lang ??
+        a.dataset.vol ??
+        a.dataset.tab ??
+        "?",
+      variant: a.className.replace("bs-menu-btn", "").trim() || "plain",
+      ring: /\b0px 0px 0px [1-9]\d*px/.test(shadow),
+      shadow,
+    };
+  });
 
 /** Poll until the boot sequence says everything is built. Returns how long. */
 async function waitForPrep(page) {
@@ -137,7 +160,9 @@ async function waitForPrep(page) {
     // page.evaluate queues behind whatever phase is holding the main thread, so
     // this polls far more slowly than the interval suggests. That is fine: the
     // answer is still the first one available after the work finishes.
-    if ((await boot(page))?.prepDone) return Date.now() - t0;
+    if ((await boot(page))?.prepDone) {
+      return Date.now() - t0;
+    }
     await wait(250);
   }
   return -1;
@@ -146,9 +171,9 @@ async function waitForPrep(page) {
 /** Hold W for `ms` and report how far the hero travelled. */
 async function walk(page, ms) {
   const before = await pos(page);
-  await page.keyboard.down('KeyW');
+  await page.keyboard.down("KeyW");
   await wait(ms);
-  await page.keyboard.up('KeyW');
+  await page.keyboard.up("KeyW");
   await wait(120);
   return moved(before, await pos(page));
 }
@@ -175,14 +200,14 @@ const out = {};
   await page.evaluateOnNewDocument(() => {
     window.__menuAt = null;
     const iv = setInterval(() => {
-      if (document.querySelector('.bs-menu.show')) {
+      if (document.querySelector(".bs-menu.show")) {
         window.__menuAt = Math.round(performance.now());
         clearInterval(iv);
       }
     }, 8);
   });
-  await page.goto(`${HOST}/?debug=1&fs=0`, { waitUntil: 'load' });
-  await page.waitForSelector('.bs-menu');
+  await page.goto(`${HOST}/?debug=1&fs=0`, { waitUntil: "load" });
+  await page.waitForSelector(".bs-menu");
   out.menuShownAtMs = await page.evaluate(() => window.__menuAt);
   // The chip is up and counting while the world is still being cut.
   out.loaderWhileBuilding = await loader(page);
@@ -198,7 +223,7 @@ const out = {};
   out.walkedBehindMenu = await walk(page, HOLD);
 
   // "Press start" takes any key â€” this one is neither Enter nor Space.
-  await page.keyboard.press('KeyK');
+  await page.keyboard.press("KeyK");
   await wait(400);
   out.afterAnyKey = await state(page);
   // The cursor is on New Game the moment the options appear, and it is the ONE
@@ -208,20 +233,19 @@ const out = {};
   // There is NO fullscreen step any more: any key goes straight to the options,
   // and the game takes fullscreen itself when New Game is pressed. Nothing
   // should have been left behind on the way.
-  out.noPillLeftBehind = await page.evaluate(() =>
-    document.querySelector('.bs-fsprompt') === null);
+  out.noPillLeftBehind = await page.evaluate(() => document.querySelector(".bs-fsprompt") === null);
 
   // Into Settings and back out, which is also the language picker's home.
   // ONE ArrowDown, not two: Load is disabled, and a disabled button is not in
   // the focus ring â€” so the list the arrows walk is [New Game, Settings]. Two
   // presses would wrap back to New Game and start the game instead, which is
   // exactly what this probe caught the first time it ran.
-  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press("ArrowDown");
   // The comparison the issue was reported as: the wooden button beside the gold
   // one, on the same screen, one keypress apart. Settings was always right, and
   // that is what made New Game look like the bug it was.
   out.ringOnSettings = await focusRing(page);
-  await page.keyboard.press('Enter');
+  await page.keyboard.press("Enter");
   await wait(400);
   out.settings = await state(page);
   // Three more button shapes, and the cursor has to be visible on all of them.
@@ -234,37 +258,48 @@ const out = {};
   // used to be four stops, so a pad player walked past every section they did not
   // want on the way to the settings.
   out.ringOnSettingsTab = await focusRing(page);
-  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press("ArrowDown");
   await wait(200);
   out.ringOnSettingsRow = await focusRing(page);
-  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press("ArrowDown");
   await wait(200);
   out.ringOnLangChip = await focusRing(page);
   // The four sections, which one a fresh panel opens on, and the cursor list the
   // arrows above walk — the strip is ONE of its entries, not four.
   out.settingsTabs = await page.evaluate(() => ({
-    tabs: [...document.querySelectorAll('.bs-menu [data-tab]')].map((b) => b.textContent.trim()),
-    open: document.querySelector('.bs-menu [data-tab].on')?.getAttribute('data-tab') ?? null,
-    stops: [...document.querySelectorAll(
-      '.bs-menu .panel button:not([disabled]):not([tabindex="-1"]):not(.sec.off *)')]
-      .map((b) => b.dataset.act ?? b.dataset.toggle ?? b.dataset.gfx
-        ?? b.dataset.lang ?? b.dataset.vol ?? b.dataset.tab ?? '?'),
+    tabs: [...document.querySelectorAll(".bs-menu [data-tab]")].map((b) => b.textContent.trim()),
+    open: document.querySelector(".bs-menu [data-tab].on")?.getAttribute("data-tab") ?? null,
+    stops: [
+      ...document.querySelectorAll(
+        '.bs-menu .panel button:not([disabled]):not([tabindex="-1"]):not(.sec.off *)',
+      ),
+    ].map(
+      (b) =>
+        b.dataset.act ??
+        b.dataset.toggle ??
+        b.dataset.gfx ??
+        b.dataset.lang ??
+        b.dataset.vol ??
+        b.dataset.tab ??
+        "?",
+    ),
   }));
   // Left/right on the strip changes the SECTION rather than nudging the cursor,
   // and the panel keeps the same height while it does — the two halves of the
   // feedback, from the screen a player actually sees them on.
   {
-    const box = () => page.evaluate(() => {
-      const r = document.querySelector('.bs-menu .rows');
-      return {
-        lit: document.querySelector('.bs-menu [data-tab].on')?.getAttribute('data-tab') ?? null,
-        h: r ? +r.getBoundingClientRect().height.toFixed(1) : 0,
-      };
-    });
+    const box = () =>
+      page.evaluate(() => {
+        const r = document.querySelector(".bs-menu .rows");
+        return {
+          lit: document.querySelector(".bs-menu [data-tab].on")?.getAttribute("data-tab") ?? null,
+          h: r ? +r.getBoundingClientRect().height.toFixed(1) : 0,
+        };
+      });
     await page.evaluate(() => document.querySelector('.bs-menu [data-tab="gameplay"]')?.focus());
     const seen = [await box()];
     for (let i = 0; i < 3; i++) {
-      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press("ArrowRight");
       await wait(200);
       seen.push(await box());
     }
@@ -275,18 +310,20 @@ const out = {};
   // The switch that replaced the question: present, and ON by default.
   out.autoFullscreenRow = await page.evaluate(() => {
     const b = document.querySelector('.bs-menu [data-toggle="autoFullscreen"]');
-    return b ? b.getAttribute('aria-pressed') : null;
+    return b ? b.getAttribute("aria-pressed") : null;
   });
   // The language picker, live: switching to Swedish has to re-caption the menu
   // under the player without reloading. `menu.newGame` is 'Nytt spel' in sv.ts.
   out.langButtons = await page.evaluate(() =>
-    [...document.querySelectorAll('.bs-menu [data-lang]')].map((b) => b.dataset.lang));
+    [...document.querySelectorAll(".bs-menu [data-lang]")].map((b) => b.dataset.lang),
+  );
   await page.click('.bs-menu [data-lang="sv"]');
   await wait(300);
   await page.click('.bs-menu [data-act="back"]');
   await wait(400);
   out.optionsInSwedish = await page.evaluate(() =>
-    [...document.querySelectorAll('.bs-menu .panel button')].map((b) => b.textContent.trim()));
+    [...document.querySelectorAll(".bs-menu .panel button")].map((b) => b.textContent.trim()),
+  );
   await page.click('.bs-menu [data-act="settings"]');
   await wait(300);
   await page.click('.bs-menu [data-lang="en"]');
@@ -294,11 +331,10 @@ const out = {};
 
   // Escape backs out of Settings, and has to land the cursor on the entry that
   // opened it rather than at the top of the list.
-  await page.keyboard.press('Escape');
+  await page.keyboard.press("Escape");
   await wait(400);
   out.afterEscape = await state(page);
-  out.focusAfterEscape = await page.evaluate(() =>
-    document.activeElement?.dataset?.act ?? null);
+  out.focusAfterEscape = await page.evaluate(() => document.activeElement?.dataset?.act ?? null);
 
   // The handover, sampled from INSIDE the page at 25 ms. It has to be: a probe
   // that asks from outside pays a round trip per sample and lands well after the
@@ -307,15 +343,17 @@ const out = {};
   await page.evaluate(() => {
     window.__hand = [];
     const iv = setInterval(() => {
-      const menu = document.querySelector('.bs-menu');
-      const el = document.querySelector('.bs-load');
+      const menu = document.querySelector(".bs-menu");
+      const el = document.querySelector(".bs-load");
       window.__hand.push({
         t: Math.round(performance.now()),
         menu: menu ? Number(getComputedStyle(menu).opacity).toFixed(2) : null,
-        face: el ? (el.classList.contains('cover') ? 'cover' : 'chip') : null,
+        face: el ? (el.classList.contains("cover") ? "cover" : "chip") : null,
         load: el ? Number(getComputedStyle(el).opacity).toFixed(2) : null,
       });
-      if (window.__hand.length > 120) clearInterval(iv);
+      if (window.__hand.length > 120) {
+        clearInterval(iv);
+      }
     }, 25);
   });
   // New Game, clicked rather than Entered: this assertion is about the poster
@@ -329,13 +367,14 @@ const out = {};
   await page.click('.bs-menu [data-act="new"]');
   await wait(300);
   out.nameStep = await page.evaluate(() => ({
-    step: document.querySelector('.bs-menu')?.getAttribute('data-step') ?? null,
+    step: document.querySelector(".bs-menu")?.getAttribute("data-step") ?? null,
     focused: document.activeElement?.className ?? null,
-    acts: [...document.querySelectorAll('.bs-menu .panel button')].map((b) => b.dataset.act),
+    acts: [...document.querySelectorAll(".bs-menu .panel button")].map((b) => b.dataset.act),
   }));
-  await page.keyboard.type('Wisp');
-  out.typedName = await page.evaluate(() =>
-    document.querySelector('.bs-name-input')?.value ?? null);
+  await page.keyboard.type("Wisp");
+  out.typedName = await page.evaluate(
+    () => document.querySelector(".bs-name-input")?.value ?? null,
+  );
   await page.click('.bs-menu [data-act="begin"]');
   await wait(2000);
   // What the poster dissolved INTO. `coverFullyUpWhileMenuVisible` is the claim:
@@ -349,11 +388,14 @@ const out = {};
     const fadeStart = h.find((s) => s.menu !== null && Number(s.menu) < 0.99);
     const lastMenu = [...h].reverse().find((s) => s.menu !== null);
     return {
-      coverFullyUpWhileMenuVisible:
-        h.some((s) => s.menu !== null && s.face === 'cover' && Number(s.load) > 0.95),
+      coverFullyUpWhileMenuVisible: h.some(
+        (s) => s.menu !== null && s.face === "cover" && Number(s.load) > 0.95,
+      ),
       menuFadeMs: fadeStart && lastMenu ? lastMenu.t - fadeStart.t : -1,
-      trace: h.filter((s) => s.menu !== null || s.face !== null)
-        .map((s) => `${s.t} menu=${s.menu} ${s.face}=${s.load}`).slice(0, 40),
+      trace: h
+        .filter((s) => s.menu !== null || s.face !== null)
+        .map((s) => `${s.t} menu=${s.menu} ${s.face}=${s.load}`)
+        .slice(0, 40),
     };
   });
   await wait(200);
@@ -364,13 +406,14 @@ const out = {};
   // poster would have expired before the player ever saw the game, so it is
   // fired from the menu's onStart instead. Read straight after starting,
   // before its ~4 s life runs out.
-  out.welcomeToast = await page.evaluate(() =>
-    document.querySelector('.bs-toasts')?.textContent?.trim() || null);
+  out.welcomeToast = await page.evaluate(
+    () => document.querySelector(".bs-toasts")?.textContent?.trim() || null,
+  );
   // The renderer is now running at whatever rate this load asked for â€” no cap
   // was ever imposed, so there is nothing to have failed to restore. The number
   // is still reported because it is the only proof the loop is alive at all,
   // and it must be paired with `playingBehindMenu: false` above.
-  await wait(1500);   // the readout averages over ~120 frames
+  await wait(1500); // the readout averages over ~120 frames
   out.fpsAfterStart = await renderedFps(page);
   out.playingAfterStart = (await boot(page))?.playing ?? null;
   out.walkedAfterStart = await walk(page, HOLD);
@@ -380,15 +423,17 @@ const out = {};
 // ---- phone: the poster, and the chip that fits beside the notch -------------
 {
   const { ctx, page } = await newContextPage(browser, {
-    width: 844, height: 390, phone: true,
+    width: 844,
+    height: 390,
+    phone: true,
   });
   logPageErrors(page);
-  await page.goto(`${HOST}/?fps=30`, { waitUntil: 'load' });
-  await page.waitForSelector('.bs-menu');
+  await page.goto(`${HOST}/?fps=30`, { waitUntil: "load" });
+  await page.waitForSelector(".bs-menu");
   out.phoneAtBoot = await state(page);
   out.phoneLoader = await loader(page);
   await waitForPrep(page);
-  await page.tap('.bs-menu');
+  await page.tap(".bs-menu");
   await wait(500);
   out.phoneAfterTap = await state(page);
   await ctx.close();
@@ -401,8 +446,8 @@ const out = {};
 {
   const page = await newPage(browser, { width: 900, height: 600 });
   logPageErrors(page);
-  await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   out.loaderOff = await loader(page);
   out.playingWithMenuOff = (await boot(page))?.playing ?? null;
   out.menuOff = await state(page);
@@ -430,20 +475,27 @@ const out = {};
 {
   const { ctx, page } = await newContextPage(browser, { width: 1000, height: 640 });
   logPageErrors(page);
-  await page.goto(`${HOST}/?fs=0`, { waitUntil: 'load' });
-  await page.waitForSelector('.bs-menu.intro', { timeout: 15000 });
+  await page.goto(`${HOST}/?fs=0`, { waitUntil: "load" });
+  await page.waitForSelector(".bs-menu.intro", { timeout: 15000 });
   const layers = await page.evaluate(() => {
-    window.__intro = document.getAnimations().filter(
-      (a) => a.animationName === 'bsIntroIn' || a.animationName === 'bsPressPulse');
+    window.__intro = document
+      .getAnimations()
+      .filter((a) => a.animationName === "bsIntroIn" || a.animationName === "bsPressPulse");
     window.__intro.forEach((a) => a.pause());
     return window.__intro.map((a) => `${a.effect.target.className}:${a.animationName}`);
   });
   const at = async (ms) => {
-    await page.evaluate((t) => window.__intro.forEach((a) => { a.currentTime = t; }), ms);
+    await page.evaluate(
+      (t) =>
+        window.__intro.forEach((a) => {
+          a.currentTime = t;
+        }),
+      ms,
+    );
     return page.evaluate(() => {
-      const m = document.querySelector('.bs-menu');
+      const m = document.querySelector(".bs-menu");
       const o = (s) => Number(getComputedStyle(m.querySelector(s)).opacity).toFixed(2);
-      return { logo: o('.logo'), art: o('.stage'), press: o('.press') };
+      return { logo: o(".logo"), art: o(".stage"), press: o(".press") };
     });
   };
   out.intro = {
@@ -460,14 +512,19 @@ const out = {};
 {
   const page = await newPage(browser, { width: 1000, height: 640 });
   logPageErrors(page);
-  await page.goto(`${HOST}/?photo=1&menu=1`, { waitUntil: 'load' });
-  await page.waitForSelector('.bs-menu');
+  await page.goto(`${HOST}/?photo=1&menu=1`, { waitUntil: "load" });
+  await page.waitForSelector(".bs-menu");
   await wait(600);
   out.photoIsLit = await page.evaluate(() => {
-    const m = document.querySelector('.bs-menu');
+    const m = document.querySelector(".bs-menu");
     const o = (s) => Number(getComputedStyle(m.querySelector(s)).opacity).toFixed(2);
-    return { lit: m.classList.contains('lit'), intro: m.classList.contains('intro'),
-      logo: o('.logo'), art: o('.stage'), press: o('.press') };
+    return {
+      lit: m.classList.contains("lit"),
+      intro: m.classList.contains("intro"),
+      logo: o(".logo"),
+      art: o(".stage"),
+      press: o(".press"),
+    };
   });
 }
 

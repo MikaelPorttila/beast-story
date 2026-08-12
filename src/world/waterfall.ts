@@ -6,10 +6,10 @@
  * cubes do. BROWSER ONLY — the mask is a canvas, so tools/test-zfight.mjs must never
  * import it. Under `flags.photo` the clock pins and the spray pre-rolls.
  */
-import * as THREE from 'three';
-import type { CelestialState } from '../core/types';
-import { flags } from '../core/flags';
-import { mulberry32 } from './noise';
+import * as THREE from "three";
+import type { CelestialState } from "../core/types";
+import { flags } from "../core/flags";
+import { mulberry32 } from "./noise";
 
 /** Everything a fall needs to be THIS fall. The frame is the OWNER'S: +Y up, anchor
  *  on the lip, `bearing` from +Z toward +X applied to the group, so local +Z is
@@ -77,8 +77,8 @@ const UV_EASE = 0.72;
 
 /** Scroll rates in tiles per second for the two panner layers; irrational with the
  *  UV scales, so the layers never beat back into phase. */
-const SCROLL_A = 0.90;
-const SCROLL_B = 2.60;
+const SCROLL_A = 0.9;
+const SCROLL_B = 2.6;
 
 /** Stylised gravity for the spray, units/s². Sets the plume's time of flight. */
 const GRAV = 22;
@@ -96,10 +96,10 @@ const _col = new THREE.Color();
 
 /** ONE 256² texture, three fields. Every term is PERIODIC IN BOTH AXES so it wraps. */
 function makeFallMask(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
+  const c = document.createElement("canvas");
   c.width = MASK;
   c.height = MASK;
-  const ctx = c.getContext('2d')!;
+  const ctx = c.getContext("2d")!;
   const img = ctx.createImageData(MASK, MASK);
   const d = img.data;
   const TAU = Math.PI * 2;
@@ -109,25 +109,24 @@ function makeFallMask(): THREE.CanvasTexture {
       const u = x / MASK;
 
       // R — FLOW STRIATION: fast across u, slow along v, or it is directionless speckle.
-      const fib = 0.5 + 0.5 * Math.sin(
-        TAU * 3 * u + 1.1 * Math.sin(TAU * 1 * v) + 0.6 * Math.sin(TAU * 2 * v),
-      );
-      const along = 0.70 + 0.30 * (0.5 + 0.5 * Math.sin(TAU * 2 * v + TAU * u));
+      const fib =
+        0.5 +
+        0.5 * Math.sin(TAU * 3 * u + 1.1 * Math.sin(TAU * 1 * v) + 0.6 * Math.sin(TAU * 2 * v));
+      const along = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(TAU * 2 * v + TAU * u));
       const r = (0.34 + 0.66 * fib) * along;
 
       // G — FOAM CLUMPS: oblique waves squared into blobs with real gaps.
-      const cl = (
-        Math.sin(TAU * (4 * u + 1 * v))
-        + Math.sin(TAU * (3 * u - 1 * v))
-        + Math.sin(TAU * (6 * u + 2 * v))
-      ) / 3;
+      const cl =
+        (Math.sin(TAU * (4 * u + 1 * v)) +
+          Math.sin(TAU * (3 * u - 1 * v)) +
+          Math.sin(TAU * (6 * u + 2 * v))) /
+        3;
       const g = Math.pow(0.5 + 0.5 * cl, 2.2);
 
       // B — EROSION, the tail's dissolve threshold. Low frequency, or the tail noises.
-      const b = 0.5 + 0.5 * (
-        Math.sin(TAU * (1 * u + 1 * v)) * 0.62
-        + Math.sin(TAU * (2 * u - 1 * v)) * 0.38
-      );
+      const b =
+        0.5 +
+        0.5 * (Math.sin(TAU * (1 * u + 1 * v)) * 0.62 + Math.sin(TAU * (2 * u - 1 * v)) * 0.38);
 
       const i = (y * MASK + x) * 4;
       d[i] = Math.round(255 * r);
@@ -352,7 +351,7 @@ export class Waterfall {
     const lipWidth = spec.lipWidth ?? 7.2;
     const spreadWidth = spec.spreadWidth ?? 10.8;
     const tailWidth = spec.tailWidth ?? 6.0;
-    const spreadAt = spec.spreadAt ?? 0.10;
+    const spreadAt = spec.spreadAt ?? 0.1;
     const sheets = spec.sheets ?? 3;
     const segments = spec.segments ?? 26;
     const cross = spec.cross ?? 0.55;
@@ -361,9 +360,7 @@ export class Waterfall {
     // A BASIN CLAMPS THE FALL: the drop wins over the authored length; it must arrive.
     this.basinY = basin ? basin.y : null;
     this.basinR = basin ? basin.radius : 0;
-    this.fallLength = basin
-      ? Math.max(0.5, Math.min(spec.length, spec.y - basin.y))
-      : spec.length;
+    this.fallLength = basin ? Math.max(0.5, Math.min(spec.length, spec.y - basin.y)) : spec.length;
     const fadeStart = spec.fadeStart ?? (basin ? 0.88 : 0.62);
 
     this.lateralPush = spec.lateralPush;
@@ -387,7 +384,7 @@ export class Waterfall {
 
     this.sheetMat = new THREE.ShaderMaterial({
       uniforms: THREE.UniformsUtils.merge([
-        THREE.UniformsLib['fog'],
+        THREE.UniformsLib["fog"],
         {
           uMask: { value: null },
           uTime: { value: 0 },
@@ -419,7 +416,7 @@ export class Waterfall {
 
     this.sheet = new THREE.Mesh(this.sheetGeo, this.sheetMat);
     // Deliberately NOT chunk:water — tools/test-gfx.mjs counts meshes by that name.
-    this.sheet.name = 'vfx:waterfall';
+    this.sheet.name = "vfx:waterfall";
     // Between world/water.ts (2) and the gateway (5).
     this.sheet.renderOrder = 3;
     this.sheet.castShadow = false;
@@ -447,9 +444,10 @@ export class Waterfall {
     if (this.n > 0) {
       const geo = new THREE.InstancedBufferGeometry();
       geo.instanceCount = this.n;
-      geo.setAttribute('aCorner', new THREE.BufferAttribute(
-        new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]), 2,
-      ));
+      geo.setAttribute(
+        "aCorner",
+        new THREE.BufferAttribute(new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]), 2),
+      );
       geo.setIndex([0, 1, 2, 0, 2, 3]);
       this.centreAttr = new THREE.InstancedBufferAttribute(this.centre, 3);
       this.centreAttr.setUsage(THREE.DynamicDrawUsage);
@@ -457,13 +455,13 @@ export class Waterfall {
       this.fadeAttr.setUsage(THREE.DynamicDrawUsage);
       this.sizeAttr = new THREE.InstancedBufferAttribute(this.size, 1);
       this.sizeAttr.setUsage(THREE.DynamicDrawUsage);
-      geo.setAttribute('aCentre', this.centreAttr);
-      geo.setAttribute('aFade', this.fadeAttr);
-      geo.setAttribute('aSize', this.sizeAttr);
+      geo.setAttribute("aCentre", this.centreAttr);
+      geo.setAttribute("aFade", this.fadeAttr);
+      geo.setAttribute("aSize", this.sizeAttr);
 
       const mat = new THREE.ShaderMaterial({
         uniforms: THREE.UniformsUtils.merge([
-          THREE.UniformsLib['fog'],
+          THREE.UniformsLib["fog"],
           {
             uFoam: { value: linear(spec.foam ?? 0xbce6f0) },
             uOpacity: { value: 1 },
@@ -477,7 +475,7 @@ export class Waterfall {
         fog: true,
       });
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.name = 'vfx:waterfall-spray';
+      mesh.name = "vfx:waterfall-spray";
       mesh.renderOrder = 4;
       mesh.castShadow = false;
       // Centres are rewritten every slice, so any bounding volume computed once lies.
@@ -510,9 +508,7 @@ export class Waterfall {
   }
 
   /** `sheets` quad strips, splayed about local Y — the strips are the plume. */
-  private buildSheet(
-    sheets: number, segments: number, cross: number,
-  ): THREE.BufferGeometry {
+  private buildSheet(sheets: number, segments: number, cross: number): THREE.BufferGeometry {
     const rows = segments + 1;
     const pos: number[] = [];
     const nrm: number[] = [];
@@ -524,17 +520,14 @@ export class Waterfall {
 
     for (let b = 0; b < sheets; b++) {
       // Splayed, not fanned through a half-turn: a fall has a FRONT, a beam does not.
-      const a = sheets > 1
-        ? (b / (sheets - 1) - 0.5) * 2 * cross
-        : 0;
+      const a = sheets > 1 ? (b / (sheets - 1) - 0.5) * 2 * cross : 0;
       const ax = Math.cos(a);
       const az = Math.sin(a);
       const base = pos.length / 3;
       for (let i = 0; i < rows; i++) {
         const v = i / segments;
         const halfW = this.widthAt(v) * 0.5;
-        const drift = this.lateralPush * Math.pow(v, PUSH_EXP)
-          + wander(v);
+        const drift = this.lateralPush * Math.pow(v, PUSH_EXP) + wander(v);
         const along = this.outwardPush * Math.pow(v, PUSH_EXP);
         const cy = -this.fallLength * v;
         const uvY = Math.pow(v, UV_EASE) * tiles;
@@ -557,11 +550,11 @@ export class Waterfall {
     // horizontal quad is whited by the head term into a paving stone on the grass.
 
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nrm), 3));
-    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
-    g.setAttribute('aLife', new THREE.BufferAttribute(new Float32Array(life), 1));
-    g.setAttribute('aAcross', new THREE.BufferAttribute(new Float32Array(across), 1));
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+    g.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(nrm), 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(uvs), 2));
+    g.setAttribute("aLife", new THREE.BufferAttribute(new Float32Array(life), 1));
+    g.setAttribute("aAcross", new THREE.BufferAttribute(new Float32Array(across), 1));
     g.setIndex(idx);
     return g;
   }
@@ -578,36 +571,39 @@ export class Waterfall {
     const halfW = this.widthAt(v0) * 0.5;
 
     this.py[i] = -this.fallLength * v0;
-    this.px[i] = this.lateralPush * Math.pow(v0, PUSH_EXP)
-      + wander(v0)
-      + (r() * 2 - 1) * halfW * 1.15;
+    this.px[i] =
+      this.lateralPush * Math.pow(v0, PUSH_EXP) + wander(v0) + (r() * 2 - 1) * halfW * 1.15;
     this.pz[i] = this.outwardPush * Math.pow(v0, PUSH_EXP) + (r() * 2 - 1) * 1.1;
 
     // Launch speed climbs with the zone: lip mist drifts, sheet spray runs with it.
     const drive = z === Z_LIP ? 0.25 : z === Z_SHEET ? 1.0 : 0.75;
     this.vx[i] = (this.lateralPush / tof) * drive + (r() * 2 - 1) * 0.8;
     this.vz[i] = (this.outwardPush / tof) * drive + (r() * 2 - 1) * 0.5;
-    this.vy[i] = z === Z_LIP
-      ? 0.4 + r() * 0.8          // thrown up off the lip before it falls
-      : -(2 + r() * 5) - GRAV * tof * v0 * 0.35;
+    this.vy[i] =
+      z === Z_LIP
+        ? 0.4 + r() * 0.8 // thrown up off the lip before it falls
+        : -(2 + r() * 5) - GRAV * tof * v0 * 0.35;
 
     this.span[i] = z === Z_LIP ? 0.7 + r() * 0.8 : 0.9 + r() * 1.5;
     this.life[i] = this.span[i] * (1 - start * 0.6);
     // Lip mist is biggest and softest; sheet spray is water that has not broken up.
-    this.size[i] = z === Z_LIP
-      ? 0.42 + r() * 0.44
-      : z === Z_SHEET ? 0.14 + r() * 0.18 : 0.24 + r() * 0.32;
+    this.size[i] =
+      z === Z_LIP ? 0.42 + r() * 0.44 : z === Z_SHEET ? 0.14 + r() * 0.18 : 0.24 + r() * 0.32;
   }
 
   /** One slice of the pool, INTEGRATED IN THE FALL'S OWN FRAME — exact because
    *  CarrierBody only writes rotation.y. A carrier that PITCHED would need rotating. */
   private stepSpray(dt: number): void {
-    if (this.n === 0) return;
+    if (this.n === 0) {
+      return;
+    }
     const c = this.centre;
     const f = this.fade;
     for (let i = 0; i < this.n; i++) {
       this.life[i] -= dt;
-      if (this.life[i] <= 0) this.seedDrop(i, 0);
+      if (this.life[i] <= 0) {
+        this.seedDrop(i, 0);
+      }
       this.vy[i] -= GRAV * 0.42 * dt;
       // Air drag in the house exp(-k*dt) form, so slicing cannot change the path.
       const d = Math.exp(-0.9 * dt);
@@ -632,7 +628,7 @@ export class Waterfall {
           this.vy[i] = 1.4 + this.rand() * 2.2;
           this.span[i] = 0.8 + this.rand() * 0.9;
           this.life[i] = this.span[i];
-          this.size[i] = 0.34 + this.rand() * 0.40;
+          this.size[i] = 0.34 + this.rand() * 0.4;
         }
       } else if (this.py[i] < -this.fallLength) {
         this.seedDrop(i, 0);
@@ -645,22 +641,32 @@ export class Waterfall {
       const t = 1 - this.life[i] / this.span[i];
       f[i] = Math.min(1, t / 0.2) * Math.min(1, (1 - t) / 0.33);
     }
-    if (this.centreAttr) this.centreAttr.needsUpdate = true;
-    if (this.fadeAttr) this.fadeAttr.needsUpdate = true;
-    if (this.sizeAttr) this.sizeAttr.needsUpdate = true;
+    if (this.centreAttr) {
+      this.centreAttr.needsUpdate = true;
+    }
+    if (this.fadeAttr) {
+      this.fadeAttr.needsUpdate = true;
+    }
+    if (this.sizeAttr) {
+      this.sizeAttr.needsUpdate = true;
+    }
   }
 
   /** One simulation slice. carrierDX/DZ are the owner's step IN THE FALL'S OWN FRAME.
    *  Under photo=1 the clock pins and the pool pre-rolls exactly once. */
   update(dt: number, carrierDX = 0, carrierDZ = 0): void {
     if (flags.photo) {
-      if (this.frozen) return;
+      if (this.frozen) {
+        return;
+      }
       this.frozen = true;
       this.time = PHOTO_CLOCK;
       this.sheetMat.uniforms.uTime.value = PHOTO_CLOCK;
       // Fixed steps, so the pre-roll is identical on software GL and on a 165 Hz host.
       const STEP = 1 / 60;
-      for (let t = 0; t < PHOTO_PREROLL; t += STEP) this.stepSpray(STEP);
+      for (let t = 0; t < PHOTO_PREROLL; t += STEP) {
+        this.stepSpray(STEP);
+      }
       // Lean is zero by construction: SkyIsland.steer returns early under photo.
       this.sheetMat.uniforms.uLean.value.set(0, 0);
       return;
@@ -688,23 +694,31 @@ export class Waterfall {
     const wasVisible = this.visible;
     this.setVisible(true);
     this.sheetMat.uniforms.uOpacity.value = 0.002;
-    if (this.sprayMat) this.sprayMat.uniforms.uOpacity.value = 0.002;
+    if (this.sprayMat) {
+      this.sprayMat.uniforms.uOpacity.value = 0.002;
+    }
     render();
     this.sheetMat.uniforms.uOpacity.value = 1;
-    if (this.sprayMat) this.sprayMat.uniforms.uOpacity.value = 1;
+    if (this.sprayMat) {
+      this.sprayMat.uniforms.uOpacity.value = 1;
+    }
     this.setVisible(wasVisible);
   }
 
   setVisible(on: boolean): void {
     this.visible = on;
     this.sheet.visible = on;
-    if (this.sprayMesh) this.sprayMesh.visible = on;
+    if (this.sprayMesh) {
+      this.sprayMesh.visible = on;
+    }
   }
 
   /** Counts, not prose — the probe surface, like TouchParticles.stats(). */
   stats(): Record<string, number> {
     let alive = 0;
-    for (let i = 0; i < this.n; i++) if (this.fade[i] > 0.01) alive++;
+    for (let i = 0; i < this.n; i++) {
+      if (this.fade[i] > 0.01) alive++;
+    }
     return {
       length: +this.fallLength.toFixed(3),
       push: +this.lateralPush.toFixed(3),
@@ -714,7 +728,7 @@ export class Waterfall {
       bearing: +this.group.rotation.y.toFixed(4),
       spray: this.n,
       sprayAlive: alive,
-      verts: this.sheetGeo.getAttribute('position').count,
+      verts: this.sheetGeo.getAttribute("position").count,
       tris: (this.sheetGeo.getIndex()?.count ?? 0) / 3,
       leanX: +this.leanX.toFixed(3),
       leanZ: +this.leanZ.toFixed(3),

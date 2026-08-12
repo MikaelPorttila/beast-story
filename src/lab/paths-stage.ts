@@ -28,17 +28,20 @@
  * find a bridge in the real world first would be a probe that is mostly world
  * streaming.
  */
-import * as THREE from 'three';
-import { Accum, PropLib } from '../world/props';
-import { SolidStamp, StructureField } from '../world/structures';
+import * as THREE from "three";
+import { Accum, PropLib } from "../world/props";
+import { SolidStamp, StructureField } from "../world/structures";
 import {
-  TownParts, addBridgeFurniture, buildJunctionApron, buildRoadRibbon,
-} from '../world/town-parts';
-import { buildFence, type Fence, type FenceNode } from '../world/fences';
-import type { Junction, Road, RoadSample } from '../world/roads';
-import { WATER_LEVEL } from '../world/terrain';
-import { DECK_EDGE } from '../world/roads';
-import { FOOTPATH_PROFILE, ROAD_PROFILE, type PathProfile } from '../world/path-profile';
+  TownParts,
+  addBridgeFurniture,
+  buildJunctionApron,
+  buildRoadRibbon,
+} from "../world/town-parts";
+import { buildFence, type Fence, type FenceNode } from "../world/fences";
+import type { Junction, Road, RoadSample } from "../world/roads";
+import { WATER_LEVEL } from "../world/terrain";
+import { DECK_EDGE } from "../world/roads";
+import { FOOTPATH_PROFILE, ROAD_PROFILE, type PathProfile } from "../world/path-profile";
 
 /**
  * The stage's waterline IS the game's.
@@ -86,15 +89,15 @@ export function groundAt(x: number, z: number): number {
   const ridge = Math.sin(x * 0.11) * 2.4 + Math.sin(x * 0.31 + 1.3) * 0.6;
   const channel = -7.2 * Math.exp(-(z * z) / (2 * 9 * 9));
   const nat = STAGE_WATER + 2.6 + ridge + channel;
-  if (z <= BENCH_FROM) return nat;
+  if (z <= BENCH_FROM) {
+    return nat;
+  }
   const t = Math.min(1, (z - BENCH_FROM) / (BENCH_TO - BENCH_FROM));
   return nat + (BENCH_Y - nat) * (t * t * (3 - 2 * t));
 }
 
 /** The demos this stage knows. `?fence=` picks one; `all` builds every one. */
-export const DEMOS = [
-  'slope', 'turn', 'ring', 'gate', 'variants', 'bridge', 'transition',
-] as const;
+export const DEMOS = ["slope", "turn", "ring", "gate", "variants", "bridge", "transition"] as const;
 
 /** One demo's fence, labelled with the demo that asked for it. */
 export interface LabelledFence {
@@ -116,9 +119,7 @@ interface Built {
  * same pair the town builder makes, so a fence drawn here is a fence you could
  * walk into if the stage had a hero on it.
  */
-export function buildPathsStage(
-  scene: THREE.Scene, demo: string,
-): Built & { dispose(): void } {
+export function buildPathsStage(scene: THREE.Scene, demo: string): Built & { dispose(): void } {
   const lib = new PropLib();
   const parts = new TownParts();
   const field = new StructureField();
@@ -130,15 +131,15 @@ export function buildPathsStage(
   let ribbonIdx = 0;
 
   /** Emit one ribbon on the stage ground, named the way the world names it. */
-  const addRibbon = (
-    of: readonly Road[], aprons: readonly Junction[], name: string,
-  ): void => {
+  const addRibbon = (of: readonly Road[], aprons: readonly Junction[], name: string): void => {
     const rib = buildRoadRibbon(of, 7, groundAt, ribbonIdx++ * 0.003, aprons);
-    if (rib.idx.length === 0) return;
+    if (rib.idx.length === 0) {
+      return;
+    }
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(rib.pos, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(rib.nrm, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(rib.col, 3));
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(rib.pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(rib.nrm, 3));
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(rib.col, 3));
     geo.setIndex(rib.idx);
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, lib.solidMat);
@@ -146,10 +147,12 @@ export function buildPathsStage(
     scene.add(mesh);
   };
 
-  const want = (name: string): boolean => demo === 'all' || demo === name;
+  const want = (name: string): boolean => demo === "all" || demo === name;
   /** Label every chain a demo produced — a gated run comes back as two. */
   const push = (label: string, built: readonly Fence[]): void => {
-    for (const fence of built) fences.push({ label, fence });
+    for (const fence of built) {
+      fences.push({ label, fence });
+    }
   };
 
   // -- the ground ------------------------------------------------------------
@@ -164,11 +167,11 @@ export function buildPathsStage(
       return { x, y: groundAt(x, z), z };
     });
 
-  if (want('slope')) {
+  if (want("slope")) {
     // Straight over the ridge: the case where the LINE moves under the fence.
-    push('slope', buildFence(solid, parts.fence, alongX(-26, 40, 20), { groundAt }));
+    push("slope", buildFence(solid, parts.fence, alongX(-26, 40, 20), { groundAt }));
   }
-  if (want('turn')) {
+  if (want("turn")) {
     // A right angle with two long legs, so a corner post's fork has to bisect
     // it and both bays have to reach it.
     const corner: FenceNode[] = [];
@@ -180,9 +183,9 @@ export function buildPathsStage(
       const z = -18 + i * 2.5;
       corner.push({ x: 0, y: groundAt(0, z), z });
     }
-    push('turn', buildFence(solid, parts.fence, corner, { groundAt }));
+    push("turn", buildFence(solid, parts.fence, corner, { groundAt }));
   }
-  if (want('ring')) {
+  if (want("ring")) {
     // A closed ring: the last bay joins the last post to the first, with no
     // seam and no double post.
     const ring: FenceNode[] = [];
@@ -192,21 +195,30 @@ export function buildPathsStage(
       const z = -18 + Math.cos(a) * 8;
       ring.push({ x, y: groundAt(x, z), z });
     }
-    push('ring', buildFence(solid, parts.fence, ring, { closed: true, groundAt }));
+    push("ring", buildFence(solid, parts.fence, ring, { closed: true, groundAt }));
   }
-  if (want('gate')) {
+  if (want("gate")) {
     // A refused bay in the middle: both posts stand, the planks do not. This is
     // what a run meeting a road looks like.
-    push('gate', buildFence(solid, parts.fence, alongX(-32, 36, 18), {
-      groundAt,
-      accept: (ax, _az, bx) => !(ax > -6 && bx < 6),
-    }));
+    push(
+      "gate",
+      buildFence(solid, parts.fence, alongX(-32, 36, 18), {
+        groundAt,
+        accept: (ax, _az, bx) => !(ax > -6 && bx < 6),
+      }),
+    );
   }
-  if (want('variants')) {
+  if (want("variants")) {
     // Every post variant on one run, lanterns included.
-    push('variants', buildFence(solid, parts.fence, alongX(24, 30, 15), {
-      groundAt, lanternEvery: 4, tallEvery: 2, glow,
-    }));
+    push(
+      "variants",
+      buildFence(solid, parts.fence, alongX(24, 30, 15), {
+        groundAt,
+        lanternEvery: 4,
+        tallEvery: 2,
+        glow,
+      }),
+    );
   }
 
   // -- a cart road meeting a footpath, at a TWO-arm node ---------------------
@@ -219,34 +231,34 @@ export function buildPathsStage(
   // that has to still work before N=4 (a crossroads) is worth attempting. Its
   // rim in each direction is THAT arm's own first ring, which is what draws the
   // taper from a ten-unit carriageway down to a five-unit path.
-  if (want('transition')) {
+  if (want("transition")) {
     const { roads, junction } = stageTransition();
     paths.push(...roads);
-    addRibbon(roads, [junction], 'road:lab-transition');
+    addRibbon(roads, [junction], "road:lab-transition");
     const ap = buildJunctionApron(junction, roads, 7, groundAt, ribbonIdx++ * 0.003);
     if (ap.idx.length > 0) {
       const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(ap.pos, 3));
-      geo.setAttribute('normal', new THREE.Float32BufferAttribute(ap.nrm, 3));
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(ap.col, 3));
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(ap.pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(ap.nrm, 3));
+      geo.setAttribute("color", new THREE.Float32BufferAttribute(ap.col, 3));
       geo.setIndex(ap.idx);
       geo.computeBoundingSphere();
       const mesh = new THREE.Mesh(geo, lib.solidMat);
-      mesh.name = 'road:lab-transition-apron';
+      mesh.name = "road:lab-transition-apron";
       scene.add(mesh);
     }
   }
 
   // -- the road, and the bridge over the channel -----------------------------
-  if (want('bridge')) {
+  if (want("bridge")) {
     road = stageRoad();
     paths.push(road);
-    addRibbon([road], [], 'road:lab');
+    addRibbon([road], [], "road:lab");
     // LABELLED as a railing, because a railing is the one fence whose posts
     // stand on a DECK: the ground under them is the river bed, so the "no post
     // hangs over its own ground" check that every other demo must pass is not
     // a statement about this one. See `buildFence`'s `maxDrop`.
-    push('bridge', addBridgeFurniture(solid, parts, road, groundAt));
+    push("bridge", addBridgeFurniture(solid, parts, road, groundAt));
     scene.add(waterMesh());
   }
 
@@ -254,7 +266,7 @@ export function buildPathsStage(
   const solidGeo = solid.acc.toGeometry();
   if (solidGeo) {
     const mesh = new THREE.Mesh(solidGeo, lib.solidMat);
-    mesh.name = 'lab:fences';
+    mesh.name = "lab:fences";
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
@@ -263,7 +275,10 @@ export function buildPathsStage(
   let glowMat: THREE.MeshStandardMaterial | null = null;
   if (glowGeo) {
     glowMat = new THREE.MeshStandardMaterial({
-      vertexColors: true, emissive: 0xffffff, emissiveIntensity: 1.8, roughness: 1,
+      vertexColors: true,
+      emissive: 0xffffff,
+      emissiveIntensity: 1.8,
+      roughness: 1,
     });
     scene.add(new THREE.Mesh(glowGeo, glowMat));
   }
@@ -307,19 +322,31 @@ function stageRoad(): Road {
       raw[i] = (raw[i - 1] + raw[i] * 2 + raw[i + 1]) / 4;
     }
   }
-  for (let i = 0; i < pts.length; i++) pts[i].y = raw[i];
+  for (let i = 0; i < pts.length; i++) {
+    pts[i].y = raw[i];
+  }
   // The span is WIDENED by one sample either side, as `profileRoad` widens it,
   // so the abutment is deck rather than a half-carved notch in the bank.
   const wide = pts.map((p) => p.bridge);
   for (let i = 0; i < pts.length; i++) {
-    if (!wide[i]) continue;
-    if (i > 0) pts[i - 1].bridge = true;
-    if (i < pts.length - 1) pts[i + 1].bridge = true;
+    if (!wide[i]) {
+      continue;
+    }
+    if (i > 0) {
+      pts[i - 1].bridge = true;
+    }
+    if (i < pts.length - 1) {
+      pts[i + 1].bridge = true;
+    }
   }
   const a = pts[0];
   const b = pts[pts.length - 1];
   return {
-    id: 'lab', fromId: 'lab:a', toId: 'lab:b', profile: ROAD_PROFILE, pts,
+    id: "lab",
+    fromId: "lab:a",
+    toId: "lab:b",
+    profile: ROAD_PROFILE,
+    pts,
     trim: new Float32Array([a.x, a.z, 0, 1, b.x, b.z, 0, -1]),
   };
 }
@@ -352,16 +379,24 @@ function stageTransition(): { roads: Road[]; junction: Junction } {
     // rather than as the ground with a colour on it.
     const y = pts.map((q) => q.y);
     for (let pass = 0; pass < 4; pass++) {
-      for (let i = 1; i < y.length - 1; i++) y[i] = (y[i - 1] + y[i] * 2 + y[i + 1]) / 4;
+      for (let i = 1; i < y.length - 1; i++) {
+        y[i] = (y[i - 1] + y[i] * 2 + y[i + 1]) / 4;
+      }
     }
-    for (let i = 0; i < pts.length; i++) pts[i].y = y[i];
+    for (let i = 0; i < pts.length; i++) {
+      pts[i].y = y[i];
+    }
     return {
-      id, fromId: 'lab:t0', toId: 'lab:t1', profile, pts,
+      id,
+      fromId: "lab:t0",
+      toId: "lab:t1",
+      profile,
+      pts,
       trim: new Float32Array(8),
     };
   };
-  const road = arm(-26, 0, ROAD_PROFILE, 'lab-cart');
-  const foot = arm(26, 0, FOOTPATH_PROFILE, 'lab-foot');
+  const road = arm(-26, 0, ROAD_PROFILE, "lab-cart");
+  const foot = arm(26, 0, FOOTPATH_PROFILE, "lab-foot");
   // ONE HEIGHT AT THE NODE. Each arm was smoothed on its own, so their last
   // samples differ by a few hundredths; the apron is drawn at one of them and
   // an arm that disagrees would show the difference as a lip at its own rim.
@@ -383,7 +418,7 @@ function groundMesh(): THREE.Mesh {
   const seg = 112;
   const geo = new THREE.PlaneGeometry(size, size, seg, seg);
   geo.rotateX(-Math.PI / 2);
-  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
   const col: number[] = [];
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
@@ -392,13 +427,13 @@ function groundMesh(): THREE.Mesh {
     const shade = 0.82 + ((Math.floor(x) + Math.floor(z)) % 2) * 0.06;
     col.push(0.36 * shade, 0.44 * shade, 0.24 * shade);
   }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(
     geo,
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
   );
-  mesh.name = 'lab:ground';
+  mesh.name = "lab:ground";
   mesh.receiveShadow = true;
   return mesh;
 }
@@ -410,25 +445,36 @@ function waterMesh(): THREE.Mesh {
   const mesh = new THREE.Mesh(
     geo,
     new THREE.MeshStandardMaterial({
-      color: 0x2f6d86, roughness: 0.3, transparent: true, opacity: 0.75,
+      color: 0x2f6d86,
+      roughness: 0.3,
+      transparent: true,
+      opacity: 0.75,
     }),
   );
   mesh.position.y = STAGE_WATER;
-  mesh.name = 'lab:water';
+  mesh.name = "lab:water";
   return mesh;
 }
 
 /** Where a demo wants the camera, so `?fence=` frames itself. */
 export function stageFraming(demo: string): { at: THREE.Vector3; dist: number } {
   switch (demo) {
-    case 'bridge': return { at: new THREE.Vector3(0, STAGE_WATER + 2, 0), dist: 34 };
-    case 'ring': return { at: new THREE.Vector3(22, STAGE_WATER + 3, -18), dist: 26 };
-    case 'turn': return { at: new THREE.Vector3(-8, STAGE_WATER + 3, -10), dist: 30 };
-    case 'variants': return { at: new THREE.Vector3(0, STAGE_WATER + 3, 24), dist: 26 };
-    case 'gate': return { at: new THREE.Vector3(0, STAGE_WATER + 3, -32), dist: 30 };
-    case 'transition': return { at: new THREE.Vector3(0, BENCH_Y, 44), dist: 32 };
-    case 'all': return { at: new THREE.Vector3(0, STAGE_WATER + 2, 0), dist: 64 };
-    default: return { at: new THREE.Vector3(0, STAGE_WATER + 3, -26), dist: 30 };
+    case "bridge":
+      return { at: new THREE.Vector3(0, STAGE_WATER + 2, 0), dist: 34 };
+    case "ring":
+      return { at: new THREE.Vector3(22, STAGE_WATER + 3, -18), dist: 26 };
+    case "turn":
+      return { at: new THREE.Vector3(-8, STAGE_WATER + 3, -10), dist: 30 };
+    case "variants":
+      return { at: new THREE.Vector3(0, STAGE_WATER + 3, 24), dist: 26 };
+    case "gate":
+      return { at: new THREE.Vector3(0, STAGE_WATER + 3, -32), dist: 30 };
+    case "transition":
+      return { at: new THREE.Vector3(0, BENCH_Y, 44), dist: 32 };
+    case "all":
+      return { at: new THREE.Vector3(0, STAGE_WATER + 2, 0), dist: 64 };
+    default:
+      return { at: new THREE.Vector3(0, STAGE_WATER + 3, -26), dist: 30 };
   }
 }
 

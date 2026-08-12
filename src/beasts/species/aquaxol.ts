@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { eyes2x2, rimTop, shadeUnder } from "./voxelshade";
 
 // Aquaxol — smiling amphibious axolotl with streamer gills. Voxel scale 0.1
 // (1 cell = 10 cm), faces +Z, root at ground/water level. Undulates to swim,
@@ -30,8 +30,8 @@ const HEAD_Z = 0.26;
 // Gill frond fan: base lift (rotZ) and back-sweep (rotY) per frond, front to back.
 const GZ: readonly number[] = [0.55, 0.38, 0.2];
 const GY: readonly number[] = [0.25, 0.5, 0.75];
-const GR = ['gillR1', 'gillR2', 'gillR3'] as const;
-const GL = ['gillL1', 'gillL2', 'gillL3'] as const;
+const GR = ["gillR1", "gillR2", "gillR3"] as const;
+const GL = ["gillL1", "gillL2", "gillL3"] as const;
 const LEG_SPLAY = 0.3;
 
 const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -63,18 +63,29 @@ function makeHead(): THREE.Mesh {
   const m = new VoxelModel();
   m.ellipsoid(0, 2, 1, 2.4, 1.9, 2.0, AQUA);
   m.ellipsoid(0, 0.4, 1.6, 2.0, 1.0, 1.5, BELLY);
-  m.box(-2, 1, 3, 2, 4, 3, AQUA);   // plate after the chin, so the chin shows only underneath
+  m.box(-2, 1, 3, 2, 4, 3, AQUA); // plate after the chin, so the chin shows only underneath
   rimTop(m, AQUA_LIT, -2, 2, 0, 5, -2, 3);
   // Pale field first, smile on top: the other order erased the smile's centre cell.
-  for (let x = -2; x <= 2; x++) { m.set(x, 0, 3, BELLY); m.set(x, 1, 3, BELLY); }
+  for (let x = -2; x <= 2; x++) {
+    m.set(x, 0, 3, BELLY);
+    m.set(x, 1, 3, BELLY);
+  }
   m.set(0, 0, 3, MOUTH);
-  m.set(1, 1, 3, MOUTH); m.set(-1, 1, 3, MOUTH);
+  m.set(1, 1, 3, MOUTH);
+  m.set(-1, 1, 3, MOUTH);
   eyes2x2(m, {
     // inner: 1, not 2 — at 2 the single column sits on the plate's outer edge and the
     // near eye is swallowed by the skull's own silhouette. lid in mid AQUA, not
     // AQUA_DEEP, which merged with the dark iris into one band in shade.
-    inner: 1, width: 1, y: 2, faceZ: 3, iris: IRIS, shine: SHINE,
-    lid: AQUA, bridge: BELLY, cheek: BLUSH,
+    inner: 1,
+    width: 1,
+    y: 2,
+    faceZ: 3,
+    iris: IRIS,
+    shine: SHINE,
+    lid: AQUA,
+    bridge: BELLY,
+    cheek: BLUSH,
   });
   return m.build(S, true);
 }
@@ -184,9 +195,20 @@ function buildRig(): BeastRig {
   return {
     root,
     parts: {
-      body, head, legFL, legFR, legBL, legBR, tailBase, tailTip,
-      gillR1: gills.gillR1, gillR2: gills.gillR2, gillR3: gills.gillR3,
-      gillL1: gills.gillL1, gillL2: gills.gillL2, gillL3: gills.gillL3,
+      body,
+      head,
+      legFL,
+      legFR,
+      legBL,
+      legBR,
+      tailBase,
+      tailTip,
+      gillR1: gills.gillR1,
+      gillR2: gills.gillR2,
+      gillR3: gills.gillR3,
+      gillL1: gills.gillL1,
+      gillL2: gills.gillL2,
+      gillL3: gills.gillL3,
     },
     height: 0.76,
     radius: 0.48,
@@ -200,16 +222,38 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const ms = clamp01(ctx.moveSpeed);
   const br = Math.sin(t * 2.1);
 
-  let bpx = 0, bpy = BODY_Y + 0.004 * br, bpz = 0;
-  let brx = 0, bry = 0, brz = 0;
-  let bsx = 1, bsy = 1 + 0.012 * br, bsz = 1;
-  let hrx = 0, hry = 0, hrz = 0, hpy = HEAD_Y, hpz = HEAD_Z;
-  let flrx = 0, frrx = 0, blrx = 0, brrx = 0, legSplayMul = 1;
-  let tbx = 0, tby = 0, ttx = 0, tty = 0;
-  let gillFlare = 0, gillBack = 0, gillWaveAmp = 0.1, gillFreq = 1.8, gillSweepAmp = 0.06, gillPhase = 0;
+  let bpx = 0,
+    bpy = BODY_Y + 0.004 * br,
+    bpz = 0;
+  let brx = 0,
+    bry = 0,
+    brz = 0;
+  let bsx = 1,
+    bsy = 1 + 0.012 * br,
+    bsz = 1;
+  let hrx = 0,
+    hry = 0,
+    hrz = 0,
+    hpy = HEAD_Y,
+    hpz = HEAD_Z;
+  let flrx = 0,
+    frrx = 0,
+    blrx = 0,
+    brrx = 0,
+    legSplayMul = 1;
+  let tbx = 0,
+    tby = 0,
+    ttx = 0,
+    tty = 0;
+  let gillFlare = 0,
+    gillBack = 0,
+    gillWaveAmp = 0.1,
+    gillFreq = 1.8,
+    gillSweepAmp = 0.06,
+    gillPhase = 0;
 
   switch (ctx.action) {
-    case 'idle': {
+    case "idle": {
       bsy = 1 + 0.028 * br;
       bsx = bsz = 1 - 0.012 * br;
       hrx = 0.05 * Math.sin(t * 1.5 + 0.4);
@@ -223,9 +267,9 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       brrx = 0.08 * Math.sin(t * 1.9 + 2);
       break;
     }
-    case 'walk':
-    case 'run': {
-      const isRun = ctx.action === 'run';
+    case "walk":
+    case "run": {
+      const isRun = ctx.action === "run";
       // Integrated: as `t * f` the spin-up put 1.69 rad of leg swing in one frame
       // (tools/test-beastanim.mjs); the integrated cycle peaks at 0.29.
       const f = (isRun ? 8 : 5.5) + 3 * ms;
@@ -248,8 +292,8 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       gillSweepAmp = 0.1;
       break;
     }
-    case 'swim':
-    case 'fly': {
+    case "swim":
+    case "fly": {
       const f = 4.5 + 3.5 * ms;
       const ph = ctx.cycle(GAIT, f);
       bry = 0.1 * Math.sin(ph);
@@ -271,7 +315,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       gillSweepAmp = 0.16;
       break;
     }
-    case 'attack': {
+    case "attack": {
       const wind = smooth(phase(at, 0, 0.14));
       const lunge = ezOut(phase(at, 0.14, 0.3));
       const rec = smooth(phase(at, 0.45, 0.8));
@@ -292,7 +336,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       tty = -0.45 * k;
       break;
     }
-    case 'cast': {
+    case "cast": {
       const rise = ezOut(clamp01(at / 0.4));
       const tremor = 0.5 * Math.sin(t * 12) + 0.5 * Math.sin(t * 17);
       brx = -0.45 * rise + 0.02 * tremor * rise;
@@ -308,11 +352,12 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       gillFreq = 9;
       break;
     }
-    case 'special': {
+    case "special": {
       const T = 0.8;
       const k2 = clamp01(at / T);
       const tuck = Math.sin(Math.PI * k2);
-      const land = Math.sin(Math.PI * phase(at, T, T + 0.22)) * (1 - smooth(phase(at, T + 0.22, T + 0.55)));
+      const land =
+        Math.sin(Math.PI * phase(at, T, T + 0.22)) * (1 - smooth(phase(at, T + 0.22, T + 0.55)));
       brz = Math.PI * 2 * smooth(k2);
       bpy += 0.22 * tuck;
       bsy = 1 - 0.2 * land;
@@ -327,7 +372,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       gillFreq = 10;
       break;
     }
-    case 'hurt': {
+    case "hurt": {
       const d = Math.exp(-3.5 * at);
       bpx = 0.035 * Math.sin(at * 42) * d;
       bpy -= 0.04 * d;
@@ -344,7 +389,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bsx = bsz = 1 + 0.04 * d;
       break;
     }
-    case 'happy': {
+    case "happy": {
       const hf = 5;
       const hop = Math.abs(Math.sin(at * hf));
       bpy += 0.1 * hop;
@@ -391,65 +436,65 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
 export const skills: SkillDef[] = [
   {
-    id: 'aquaxol.bubble-pop',
-    nameKey: 'skill.aquaxol.bubble-pop.name',
-    descriptionKey: 'skill.aquaxol.bubble-pop.desc',
-    element: 'water',
-    targeting: 'projectile',
+    id: "aquaxol.bubble-pop",
+    nameKey: "skill.aquaxol.bubble-pop.name",
+    descriptionKey: "skill.aquaxol.bubble-pop.desc",
+    element: "water",
+    targeting: "projectile",
     cost: 5,
     cooldown: 1.6,
     power: 10,
     range: 14,
     learnAtLevel: 1,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'aquaxol.tide-swirl',
-    nameKey: 'skill.aquaxol.tide-swirl.name',
-    descriptionKey: 'skill.aquaxol.tide-swirl.desc',
-    element: 'water',
-    targeting: 'aoe',
+    id: "aquaxol.tide-swirl",
+    nameKey: "skill.aquaxol.tide-swirl.name",
+    descriptionKey: "skill.aquaxol.tide-swirl.desc",
+    element: "water",
+    targeting: "aoe",
     cost: 12,
     cooldown: 5,
     power: 17,
     range: 3.8,
     learnAtLevel: 4,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'aquaxol.soothing-slime',
-    nameKey: 'skill.aquaxol.soothing-slime.name',
-    descriptionKey: 'skill.aquaxol.soothing-slime.desc',
-    element: 'water',
-    targeting: 'support',
+    id: "aquaxol.soothing-slime",
+    nameKey: "skill.aquaxol.soothing-slime.name",
+    descriptionKey: "skill.aquaxol.soothing-slime.desc",
+    element: "water",
+    targeting: "support",
     cost: 16,
     cooldown: 8,
     power: 22,
     range: 6,
     storePrice: 220,
-    castAnim: 'special',
+    castAnim: "special",
   },
   {
-    id: 'aquaxol.hydro-jet',
-    nameKey: 'skill.aquaxol.hydro-jet.name',
-    descriptionKey: 'skill.aquaxol.hydro-jet.desc',
-    element: 'water',
-    targeting: 'beam',
+    id: "aquaxol.hydro-jet",
+    nameKey: "skill.aquaxol.hydro-jet.name",
+    descriptionKey: "skill.aquaxol.hydro-jet.desc",
+    element: "water",
+    targeting: "beam",
     cost: 20,
     cooldown: 9,
     power: 32,
     range: 12,
     storePrice: 320,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
 ];
 
 export const species: BeastSpecies = {
-  id: 'aquaxol',
-  nameKey: 'beast.aquaxol.name',
-  element: 'water',
-  locomotion: 'amphibious',
-  descriptionKey: 'beast.aquaxol.desc',
+  id: "aquaxol",
+  nameKey: "beast.aquaxol.name",
+  element: "water",
+  locomotion: "amphibious",
+  descriptionKey: "beast.aquaxol.desc",
   baseStats: { maxHp: 54, attack: 9, defense: 8, speed: 3.6 },
   skills: skills.map((s) => s.id),
   buildRig,

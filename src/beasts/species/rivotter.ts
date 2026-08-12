@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/types';
-import { VoxelModel } from '../../core/voxel';
-import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
+import * as THREE from "three";
+import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from "../../core/types";
+import { VoxelModel } from "../../core/voxel";
+import { eyes2x2, rimTop, shadeUnder } from "./voxelshade";
 
 // Rivotter — river otter, amphibious: bounds on land, torpedoes in water.
 // Voxel scale 0.1 (1 cell = 10 cm), faces +Z, root at ground/water level.
@@ -20,11 +20,11 @@ const NOSE = 0x2b2119;
 const WHISKER = 0xe8ddcb;
 
 // Must match buildRig
-const BODY_Y = 0.30;
+const BODY_Y = 0.3;
 const NECK_Z = 0.34;
-const HEAD_Y = 0.10;
+const HEAD_Y = 0.1;
 const LEG_SPLAY = 0.16;
-const FORE_REST = -0.10;
+const FORE_REST = -0.1;
 const HIND_REST = 0.12;
 
 const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -63,8 +63,15 @@ function makeHead(): THREE.Mesh {
   m.set(2, 1, 4, WHISKER);
   rimTop(m, COAT_LIT, -2, 2, 0, 5, -2, 4);
   eyes2x2(m, {
-    inner: 1, width: 1, y: 3, faceZ: 3, iris: IRIS, shine: SHINE,
-    lid: COAT_DARK, bridge: COAT_LIT, browProud: true,
+    inner: 1,
+    width: 1,
+    y: 3,
+    faceZ: 3,
+    iris: IRIS,
+    shine: SHINE,
+    lid: COAT_DARK,
+    bridge: COAT_LIT,
+    browProud: true,
   });
   // Ears last, so nothing above repaints them.
   m.set(-2, 5, 0, COAT_DARK);
@@ -115,11 +122,11 @@ function buildRig(): BeastRig {
   body.add(torso);
 
   const neck = new THREE.Group();
-  neck.position.set(0, 0.10, NECK_Z);
+  neck.position.set(0, 0.1, NECK_Z);
   chest.add(neck);
 
   const head = new THREE.Group();
-  head.position.set(0, HEAD_Y, 0.10);
+  head.position.set(0, HEAD_Y, 0.1);
   neck.add(head);
   const headMesh = makeHead();
   headMesh.position.set(0, -0.12, 0);
@@ -127,18 +134,18 @@ function buildRig(): BeastRig {
 
   const mkLeg = (x: number, z: number, parent: THREE.Group, rest: number): THREE.Group => {
     const g = new THREE.Group();
-    g.position.set(x, -0.10, z);
+    g.position.set(x, -0.1, z);
     g.rotation.set(rest, 0, x > 0 ? LEG_SPLAY : -LEG_SPLAY);
     parent.add(g);
     const mesh = makeLeg();
-    mesh.position.set(x > 0 ? -0.05 : -0.05, -0.30, -0.05);
+    mesh.position.set(x > 0 ? -0.05 : -0.05, -0.3, -0.05);
     g.add(mesh);
     return g;
   };
-  const legFL = mkLeg(0.20, 0.12, chest, FORE_REST);
-  const legFR = mkLeg(-0.20, 0.12, chest, FORE_REST);
-  const legBL = mkLeg(0.20, -0.30, body, HIND_REST);
-  const legBR = mkLeg(-0.20, -0.30, body, HIND_REST);
+  const legFL = mkLeg(0.2, 0.12, chest, FORE_REST);
+  const legFR = mkLeg(-0.2, 0.12, chest, FORE_REST);
+  const legBL = mkLeg(0.2, -0.3, body, HIND_REST);
+  const legBR = mkLeg(-0.2, -0.3, body, HIND_REST);
 
   const tailBase = new THREE.Group();
   tailBase.position.set(0, 0.04, -0.62);
@@ -151,7 +158,7 @@ function buildRig(): BeastRig {
   tailTip.position.set(0, 0, -0.34);
   tailBase.add(tailTip);
   const tt = makeTailTip();
-  tt.position.set(0, -0.12, -0.20);
+  tt.position.set(0, -0.12, -0.2);
   tailTip.add(tt);
 
   return {
@@ -169,18 +176,33 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const ms = clamp01(ctx.moveSpeed);
   const br = Math.sin(t * 2.3);
 
-  let bpx = 0, bpy = BODY_Y + 0.005 * br, bpz = 0;
-  let brx = 0, bry = 0, brz = 0;
+  let bpx = 0,
+    bpy = BODY_Y + 0.005 * br,
+    bpz = 0;
+  let brx = 0,
+    bry = 0,
+    brz = 0;
   let bsy = 1 + 0.012 * br;
-  let crx = 0, cry = 0, crz = 0;
-  let nrx = 0, nry = 0;
-  let hrx = 0, hry = 0, hrz = 0;
-  let flrx = FORE_REST, frrx = FORE_REST, blrx = HIND_REST, brrx = HIND_REST;
+  let crx = 0,
+    cry = 0,
+    crz = 0;
+  let nrx = 0,
+    nry = 0;
+  let hrx = 0,
+    hry = 0,
+    hrz = 0;
+  let flrx = FORE_REST,
+    frrx = FORE_REST,
+    blrx = HIND_REST,
+    brrx = HIND_REST;
   let splayMul = 1;
-  let tbx = 0, tby = 0, ttx = 0, tty = 0;
+  let tbx = 0,
+    tby = 0,
+    ttx = 0,
+    tty = 0;
 
   switch (ctx.action) {
-    case 'idle': {
+    case "idle": {
       // Phase -1.9, not +1.4: at clock zero sin(1.4)**8 had the periscope 89% up
       // against the rest pose buildRig just wrote (0.490 rad step in test-beastanim).
       const rise = 0.55 * Math.max(0, Math.sin(t * 0.27 - 1.9)) ** 8;
@@ -197,9 +219,9 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       tty = 0.18 * Math.sin(t * 1.1 - 0.7);
       break;
     }
-    case 'walk':
-    case 'run': {
-      const isRun = ctx.action === 'run';
+    case "walk":
+    case "run": {
+      const isRun = ctx.action === "run";
       const f = (isRun ? 7.5 : 5.0) + 3.2 * ms;
       const ph = ctx.cycle(GAIT, f);
       const amp = (isRun ? 1.05 : 0.7) * (0.45 + 0.55 * ms);
@@ -212,7 +234,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       // Split the pairs by a hair; a perfectly mirrored bound reads as a toy.
       frrx += 0.12 * Math.sin(ph + 0.9);
       brrx += 0.12 * Math.sin(ph + Math.PI + 0.9);
-      nrx = -0.12 - 0.10 * fold;
+      nrx = -0.12 - 0.1 * fold;
       hrx = 0.08 * Math.sin(ph * 2);
       const tw = ctx.cycle(TAIL, f);
       tbx = 0.18 * Math.sin(tw - 0.8);
@@ -220,8 +242,8 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       ttx = 0.26 * Math.sin(tw - 1.5);
       break;
     }
-    case 'swim':
-    case 'fly': {
+    case "swim":
+    case "fly": {
       const f = 5.0 + 4.5 * ms;
       const ph = ctx.cycle(GAIT, f);
       const wave = Math.sin(ph);
@@ -231,8 +253,8 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bry = 0.05 * Math.sin(ph * 0.5);
       brz = 0.09 * Math.sin(ph * 0.5 - 0.6);
       splayMul = 0.35;
-      flrx = FORE_REST + 1.05 + 0.10 * Math.sin(ph);
-      frrx = FORE_REST + 1.05 + 0.10 * Math.sin(ph + 1.2);
+      flrx = FORE_REST + 1.05 + 0.1 * Math.sin(ph);
+      frrx = FORE_REST + 1.05 + 0.1 * Math.sin(ph + 1.2);
       blrx = HIND_REST + 0.75 + 0.22 * Math.sin(ph + 0.6);
       brrx = HIND_REST + 0.75 + 0.22 * Math.sin(ph + 1.8);
       nrx = -0.18;
@@ -241,17 +263,17 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       tbx = 0.34 * Math.sin(tw - 1.0);
       tby = 0.16 * Math.sin(tw * 0.5 - 0.4);
       ttx = 0.46 * Math.sin(tw - 1.8);
-      tty = 0.20 * Math.sin(tw * 0.5 - 1.1);
+      tty = 0.2 * Math.sin(tw * 0.5 - 1.1);
       break;
     }
-    case 'attack': {
+    case "attack": {
       const wind = smooth(phase(at, 0, 0.13));
       const strike = ezOut(phase(at, 0.13, 0.28));
       const rec = smooth(phase(at, 0.42, 0.78));
       const k = -0.55 * wind * (1 - strike) + strike * (1 - rec);
       const kp = Math.max(0, k);
       bpz = 0.22 * k;
-      crx = -0.30 * k;
+      crx = -0.3 * k;
       nrx = 0.34 * k;
       hrx = 0.22 * k;
       bpy += 0.03 * kp;
@@ -262,27 +284,27 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       ttx = -0.5 * k;
       break;
     }
-    case 'cast': {
+    case "cast": {
       const rise = ezOut(clamp01(at / 0.35));
       const work = Math.sin(t * 13) * 0.5 + Math.sin(t * 19) * 0.5;
       crx = -0.85 * rise;
       bpy += 0.12 * rise;
-      nrx = -0.30 * rise;
-      hrx = 0.30 * rise + 0.03 * work * rise;
+      nrx = -0.3 * rise;
+      hrx = 0.3 * rise + 0.03 * work * rise;
       flrx = FORE_REST - 1.5 * rise + 0.22 * Math.sin(t * 9) * rise;
       frrx = FORE_REST - 1.5 * rise + 0.22 * Math.sin(t * 9 + Math.PI) * rise;
       blrx = brrx = HIND_REST + 0.35 * rise;
       tbx = -0.55 * rise;
-      ttx = -0.30 * rise;
-      tty = 0.10 * Math.sin(t * 7);
+      ttx = -0.3 * rise;
+      tty = 0.1 * Math.sin(t * 7);
       break;
     }
-    case 'special': {
+    case "special": {
       const T = 0.75;
       const k2 = clamp01(at / T);
       const spin = Math.sin(Math.PI * k2);
-      const land = Math.sin(Math.PI * phase(at, T, T + 0.24))
-        * (1 - smooth(phase(at, T + 0.24, T + 0.6)));
+      const land =
+        Math.sin(Math.PI * phase(at, T, T + 0.24)) * (1 - smooth(phase(at, T + 0.24, T + 0.6)));
       brz = Math.PI * 2 * smooth(k2);
       bpy += 0.26 * spin;
       bsy = 1 - 0.18 * land;
@@ -294,7 +316,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       ttx = 0.7 * Math.sin(at * 15) * spin;
       break;
     }
-    case 'hurt': {
+    case "hurt": {
       const d = Math.exp(-3.6 * at);
       bpx = 0.04 * Math.sin(at * 40) * d;
       bpz = -0.09 * d;
@@ -311,7 +333,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bsy = 1 - 0.07 * d;
       break;
     }
-    case 'happy': {
+    case "happy": {
       const hf = 5.5;
       const hop = Math.abs(Math.sin(at * hf));
       bpy += 0.13 * hop;
@@ -346,65 +368,65 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
 export const skills: SkillDef[] = [
   {
-    id: 'rivotter.river-dart',
-    nameKey: 'skill.rivotter.river-dart.name',
-    descriptionKey: 'skill.rivotter.river-dart.desc',
-    element: 'water',
-    targeting: 'projectile',
+    id: "rivotter.river-dart",
+    nameKey: "skill.rivotter.river-dart.name",
+    descriptionKey: "skill.rivotter.river-dart.desc",
+    element: "water",
+    targeting: "projectile",
     cost: 5,
     cooldown: 1.4,
     power: 11,
     range: 15,
     learnAtLevel: 1,
-    castAnim: 'attack',
+    castAnim: "attack",
   },
   {
-    id: 'rivotter.otter-roll',
-    nameKey: 'skill.rivotter.otter-roll.name',
-    descriptionKey: 'skill.rivotter.otter-roll.desc',
-    element: 'water',
-    targeting: 'aoe',
+    id: "rivotter.otter-roll",
+    nameKey: "skill.rivotter.otter-roll.name",
+    descriptionKey: "skill.rivotter.otter-roll.desc",
+    element: "water",
+    targeting: "aoe",
     cost: 11,
     cooldown: 4.5,
     power: 16,
     range: 4.0,
     learnAtLevel: 4,
-    castAnim: 'special',
+    castAnim: "special",
   },
   {
-    id: 'rivotter.slick-coat',
-    nameKey: 'skill.rivotter.slick-coat.name',
-    descriptionKey: 'skill.rivotter.slick-coat.desc',
-    element: 'water',
-    targeting: 'support',
+    id: "rivotter.slick-coat",
+    nameKey: "skill.rivotter.slick-coat.name",
+    descriptionKey: "skill.rivotter.slick-coat.desc",
+    element: "water",
+    targeting: "support",
     cost: 15,
     cooldown: 8,
     power: 20,
     range: 6,
     storePrice: 210,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
   {
-    id: 'rivotter.torrent-slide',
-    nameKey: 'skill.rivotter.torrent-slide.name',
-    descriptionKey: 'skill.rivotter.torrent-slide.desc',
-    element: 'water',
-    targeting: 'beam',
+    id: "rivotter.torrent-slide",
+    nameKey: "skill.rivotter.torrent-slide.name",
+    descriptionKey: "skill.rivotter.torrent-slide.desc",
+    element: "water",
+    targeting: "beam",
     cost: 19,
     cooldown: 8.5,
     power: 30,
     range: 13,
     storePrice: 300,
-    castAnim: 'cast',
+    castAnim: "cast",
   },
 ];
 
 export const species: BeastSpecies = {
-  id: 'rivotter',
-  nameKey: 'beast.rivotter.name',
-  descriptionKey: 'beast.rivotter.desc',
-  element: 'water',
-  locomotion: 'amphibious',
+  id: "rivotter",
+  nameKey: "beast.rivotter.name",
+  descriptionKey: "beast.rivotter.desc",
+  element: "water",
+  locomotion: "amphibious",
   // 9.6 u/s galloping, 16.6 swimming — mid-pack at both. See SWIM_GALLOP in mount.ts.
   baseStats: { maxHp: 52, attack: 11, defense: 8, speed: 5.2 },
   skills: skills.map((s) => s.id),

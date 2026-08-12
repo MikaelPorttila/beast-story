@@ -1,11 +1,11 @@
-import * as THREE from 'three';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
-import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
-import { isExcludedFromAO } from './types';
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
+import { Pass, FullScreenQuad } from "three/examples/jsm/postprocessing/Pass.js";
+import { isExcludedFromAO } from "./types";
 
 /**
  * Post-processing stack. Owned by Engine; nothing else needs to know it exists.
@@ -261,7 +261,7 @@ class EmissiveBloomPass extends Pass {
     strength = 0.85,
     radius = 0.72,
     depthTexture: THREE.DepthTexture | null = null,
-    threshold = 0.80,
+    threshold = 0.8,
     sceneAmount = 1.2,
     /**
      * Resolution divisor. Must match the AO pass's when its depth texture is
@@ -289,10 +289,11 @@ class EmissiveBloomPass extends Pass {
       type: THREE.HalfFloatType,
       ...(depthTexture ? { depthTexture } : {}),
     });
-    this.src.texture.name = 'EmissiveBloom.src';
+    this.src.texture.name = "EmissiveBloom.src";
     // No depth on prep: it is a pure fullscreen transform of src.
     this.prep = new THREE.WebGLRenderTarget(w, h, {
-      type: THREE.HalfFloatType, depthBuffer: false,
+      type: THREE.HalfFloatType,
+      depthBuffer: false,
     });
     for (let i = 0; i < this.mips; i++) {
       const o = { type: THREE.HalfFloatType, depthBuffer: false };
@@ -343,11 +344,17 @@ class EmissiveBloomPass extends Pass {
       depthWrite: false,
     });
 
-    const tap = (i: number): { value: THREE.Texture } =>
-      ({ value: this.vert[Math.min(i, this.mips - 1)].texture });
+    const tap = (i: number): { value: THREE.Texture } => ({
+      value: this.vert[Math.min(i, this.mips - 1)].texture,
+    });
     this.compMat = new THREE.ShaderMaterial({
       uniforms: {
-        t0: tap(0), t1: tap(1), t2: tap(2), t3: tap(3), t4: tap(4), t5: tap(5),
+        t0: tap(0),
+        t1: tap(1),
+        t2: tap(2),
+        t3: tap(3),
+        t4: tap(4),
+        t5: tap(5),
         uStrength: { value: strength },
         uRadius: { value: radius },
         uCount: { value: this.mips },
@@ -398,26 +405,33 @@ class EmissiveBloomPass extends Pass {
     let n = 0;
     this.frustum.setFromProjectionMatrix(
       this.frustumMat.multiplyMatrices(
-        this.camera.projectionMatrix, this.camera.matrixWorldInverse,
+        this.camera.projectionMatrix,
+        this.camera.matrixWorldInverse,
       ),
     );
     this.scene.traverse((obj) => {
       const mat = (obj as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
-      if (!mat) return;
+      if (!mat) {
+        return;
+      }
       const m = Array.isArray(mat) ? mat[0] : mat;
-      if (!m) return;
+      if (!m) {
+        return;
+      }
 
       // Opt-out for additive things whose halo is authored by hand rather than
       // blurred (the sun disk — see engine.ts).
       if (obj.userData.bsNoBloom === true) {
-        if (obj.layers.isEnabled(BLOOM_LAYER)) obj.layers.disable(BLOOM_LAYER);
+        if (obj.layers.isEnabled(BLOOM_LAYER)) {
+          obj.layers.disable(BLOOM_LAYER);
+        }
         return;
       }
 
       let glows = m.blending === THREE.AdditiveBlending;
       if (!glows) {
         const std = m as THREE.MeshStandardMaterial;
-        if (std.emissive !== undefined && (std.emissiveIntensity ?? 0) >= 0.30) {
+        if (std.emissive !== undefined && (std.emissiveIntensity ?? 0) >= 0.3) {
           const e = std.emissive;
           glows = Math.max(e.r, e.g, e.b) - Math.min(e.r, e.g, e.b) > 0.12;
         }
@@ -429,11 +443,15 @@ class EmissiveBloomPass extends Pass {
       if (glows && obj.visible) {
         const geo = (obj as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
         if (geo && obj.frustumCulled) {
-          if (geo.boundingSphere === null) geo.computeBoundingSphere();
+          if (geo.boundingSphere === null) {
+            geo.computeBoundingSphere();
+          }
           const bs = geo.boundingSphere;
           if (bs) {
             this.sphere.copy(bs).applyMatrix4(obj.matrixWorld);
-            if (!this.frustum.intersectsSphere(this.sphere)) glows = false;
+            if (!this.frustum.intersectsSphere(this.sphere)) {
+              glows = false;
+            }
           }
         }
       }
@@ -472,7 +490,9 @@ class EmissiveBloomPass extends Pass {
     // draw. The rest of the chain still runs, because the scene-highlight term in
     // the prep pass must not switch itself off when the last lantern leaves the
     // frame — that would pop the daylight bloom on and off as the player walks.
-    if (this.tagged > 0) renderer.render(this.scene, this.camera);
+    if (this.tagged > 0) {
+      renderer.render(this.scene, this.camera);
+    }
 
     this.camera.layers.mask = mask;
     this.scene.background = bg;
@@ -714,14 +734,18 @@ class OpaqueGTAOPass extends GTAOPass {
     (GTAOPass.prototype as unknown as GTAOVisibilityHook)._overrideVisibility.call(this);
     const cache = (this as unknown as GTAOVisibilityHook)._visibilityCache;
     this.scene.traverse((obj) => {
-      if (obj.visible === false) return;
+      if (obj.visible === false) {
+        return;
+      }
       if (isExcludedFromAO(obj)) {
         obj.visible = false;
         cache.push(obj);
         return;
       }
       const mat = (obj as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
-      if (!mat) return;
+      if (!mat) {
+        return;
+      }
       const m = Array.isArray(mat) ? mat[0] : mat;
       if (m && (m.transparent || (obj as THREE.Sprite).isSprite)) {
         obj.visible = false;
@@ -749,11 +773,11 @@ class OpaqueGTAOPass extends GTAOPass {
  * bright, clean and saturated, not a teal-and-orange blockbuster.
  */
 const TonemapGradeShader = {
-  name: 'BeastStoryOutput',
+  name: "BeastStoryOutput",
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
     /** Mirrors renderer.toneMappingExposure; PostFX.render() keeps it in sync. */
-    uExposure: { value: 1.20 },
+    uExposure: { value: 1.2 },
     /**
      * Highlight rolloff knee, in linear radiance. THE FIX FOR WHITE EMISSIVE
      * PLATEAUX. ACES desaturates as it saturates: emberfox's flame core renders
@@ -818,7 +842,7 @@ const TonemapGradeShader = {
     // one thing Cube World never does. Moving the crossover up puts sunlit grass
     // back on the dark side of it (modelled: sat 0.78 -> 0.82) and leaves sand and
     // sky, which are genuinely near-neutral, where they were.
-    uSatLit: { value: 1.10 },
+    uSatLit: { value: 1.1 },
     // 0.042. The cheapest part of "shadows must read cooler, never hue-rotated":
     // it is a gain, so it cannot shift a neutral, but it pulls the shaded midtones
     // toward blue and the sunlit ones toward amber. Above ~0.06 it starts to look
@@ -896,7 +920,7 @@ const TonemapGradeShader = {
     uCamFar: { value: 1000 },
     /** Near and far water colour, display-referred sRGB this time, not linear. */
     uWaterNear: { value: new THREE.Vector3(0.16, 0.52, 0.62) },
-    uWaterFar: { value: new THREE.Vector3(0.04, 0.20, 0.38) },
+    uWaterFar: { value: new THREE.Vector3(0.04, 0.2, 0.38) },
   },
   vertexShader: QUAD_VERT,
   fragmentShader: /* glsl */ `
@@ -1177,10 +1201,19 @@ export class PostFX {
     scene: THREE.Scene,
     camera: THREE.PerspectiveCamera,
     opts: {
-      ao: number; aoRadius: number; aoScale: number; aoThickness: number;
-      aoScreenSpace: boolean; aoDiv: number; aoView: boolean;
-      bloom: number; sceneBloom: number; sceneBloomThreshold: number;
-      roll: number; grade: boolean; aa: boolean;
+      ao: number;
+      aoRadius: number;
+      aoScale: number;
+      aoThickness: number;
+      aoScreenSpace: boolean;
+      aoDiv: number;
+      aoView: boolean;
+      bloom: number;
+      sceneBloom: number;
+      sceneBloomThreshold: number;
+      roll: number;
+      grade: boolean;
+      aa: boolean;
     },
   ) {
     this.renderer = renderer;
@@ -1234,11 +1267,20 @@ export class PostFX {
       // nature and wants more smoothing than the old crevice term did (3), but
       // three's default of 8 (16 effective) smeared occlusion a visible distance
       // off silhouettes — worst on a beast against the sky.
-      ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, rings: 2, samples: 16 });
+      ao.updatePdMaterial({
+        lumaPhi: 10,
+        depthPhi: 2,
+        normalPhi: 3,
+        radius: 4,
+        rings: 2,
+        samples: 16,
+      });
       ao.blendIntensity = opts.ao;
       // ?aoview=1 renders the denoised AO buffer straight to screen. The only
       // practical way to tell "the AO is noisy" from "the art is noisy".
-      if (opts.aoView) ao.output = GTAOPass.OUTPUT.Denoise;
+      if (opts.aoView) {
+        ao.output = GTAOPass.OUTPUT.Denoise;
+      }
       this.composer.addPass(ao);
       this.ao = ao;
     } else {
@@ -1256,8 +1298,15 @@ export class PostFX {
       // this.ao is created above and runs earlier in the chain, so by the time the
       // bloom pass runs its depth texture already holds this frame's opaque scene.
       const bloom = new EmissiveBloomPass(
-        scene, camera, size.x, size.y, opts.bloom, 0.38,
-        this.ao?.depthTexture ?? null, opts.sceneBloomThreshold, opts.sceneBloom,
+        scene,
+        camera,
+        size.x,
+        size.y,
+        opts.bloom,
+        0.38,
+        this.ao?.depthTexture ?? null,
+        opts.sceneBloomThreshold,
+        opts.sceneBloom,
         this.ao ? opts.aoDiv : 2,
       );
       this.composer.addPass(bloom);
@@ -1325,7 +1374,9 @@ export class PostFX {
     u.uWaterAmt.value = amount;
     u.uWaterDepth.value = depth;
     u.uWaterTime.value = time;
-    if (this.bloom) this.bloom.strength = this.bloomStrength * (1 - 0.78 * amount);
+    if (this.bloom) {
+      this.bloom.strength = this.bloomStrength * (1 - 0.78 * amount);
+    }
   }
 
   /**
@@ -1338,9 +1389,11 @@ export class PostFX {
    * `?ao=0` / `?bloom=0` construction flags) stays absent and the call is a
    * no-op — the URL flag is a stronger statement than the panel and outranks it.
    */
-  setPassEnabled(which: 'ao' | 'bloom' | 'aa', on: boolean): void {
-    const pass = which === 'ao' ? this.ao : which === 'bloom' ? this.bloom : this.aa;
-    if (pass) pass.enabled = on;
+  setPassEnabled(which: "ao" | "bloom" | "aa", on: boolean): void {
+    const pass = which === "ao" ? this.ao : which === "bloom" ? this.bloom : this.aa;
+    if (pass) {
+      pass.enabled = on;
+    }
   }
 
   render(): void {
@@ -1364,7 +1417,9 @@ export class PostFX {
   dispose(): void {
     // EffectComposer.dispose() only releases its own two buffers, so the passes
     // (which own most of the render targets here) have to be walked explicitly.
-    for (const pass of this.composer.passes) pass.dispose();
+    for (const pass of this.composer.passes) {
+      pass.dispose();
+    }
     this.composer.dispose();
   }
 }
@@ -1389,12 +1444,14 @@ export function readPostOptions(search: string): {
   const p = new URLSearchParams(search);
   const num = (k: string, d: number): number => {
     const v = p.get(k);
-    if (v === null) return d;
+    if (v === null) {
+      return d;
+    }
     const n = Number(v);
     return Number.isFinite(n) ? n : d;
   };
   return {
-    enabled: p.get('post') !== '0',
+    enabled: p.get("post") !== "0",
     // 1.15. GTAOPass's blend lerps white toward the AO buffer by this factor, so
     // above 1.0 it darkens harder than the geometry says. Swept at 1.0/1.2/1.35/
     // 1.6 on the hero+beast framing: 1.0 grounded the characters but you had to look
@@ -1411,15 +1468,15 @@ export function readPostOptions(search: string): {
     // Y 0.0139 with ?ao=0 to Y 0.0051 with the pass at 1.35, i.e. AO alone took
     // 63% of what little light was there. 1.15 still overshoots enough to plant a
     // foot and costs that region ~20% instead of 63%.
-    ao: num('ao', 1.15),
+    ao: num("ao", 1.15),
     // World units (see the pass). 1.8 — a shade over a beast's height and nearly
     // twice a terrain cube, i.e. the reach over which a foot, a rock's base or a
     // shop's stilt darkens the ground it stands on. 2.5+ wraps a whole creature
     // and reads as dirt rather than as contact.
-    aoRadius: num('aor', 1.8),
+    aoRadius: num("aor", 1.8),
     // 1.1 (exponent on the occlusion). Nearly linear: see the pass for why a
     // steep exponent belongs to a crevice term and ruins a contact one.
-    aoScale: num('aos', 1.1),
+    aoScale: num("aos", 1.1),
     // World units. GTAOShader rejects a sample whose view-space depth delta
     // exceeds this, so it is the "how thick do I assume an occluder is" knob.
     // It is also the range over which a FOREGROUND object may darken the surface
@@ -1428,23 +1485,23 @@ export function readPostOptions(search: string): {
     // aura all round its silhouette. 1.0 is matched to the contact radius, so the
     // worst case is a soft shadow a single cube deep behind a silhouette — which
     // is what a contact term is supposed to look like.
-    aoThickness: num('aot', 1.3),
+    aoThickness: num("aot", 1.3),
     // Off by default: world-space radius. ?aoss=1 switches back to the
     // screen-space interpretation of aor (hundreds of AO-buffer pixels).
-    aoScreenSpace: p.get('aoss') === '1',
+    aoScreenSpace: p.get("aoss") === "1",
     // Half res. A 1.5-unit contact blob has no detail finer than a couple of
     // pixels, the bilinear upsample smooths GTAO's per-pixel noise rotation away
     // for free, and it quarters the fill for both this chain and the bloom source
     // that borrows this pass's depth texture. Full res (?aoq=1) only mattered when
     // the pass was chasing 1-unit crevices, which the mesher now bakes.
-    aoDiv: Math.max(1, num('aoq', 2)),
+    aoDiv: Math.max(1, num("aoq", 2)),
     // 0.40, not an Unreal-ish 0.85: every glow here is a solid block of emissive
     // voxels rather than a point source, and at 0.85 the emberfox's flame tail
     // became a white blob that swallowed the beast's whole silhouette. Paired with
     // the tight bloom radius below, 0.40 buys back the punch a shop crystal needs
     // without the blob coming back.
-    bloom: num('bloom', 0.40),
-    sceneBloom: num('sbloom', 1.2),
+    bloom: num("bloom", 0.4),
+    sceneBloom: num("sbloom", 1.2),
     // 0.80 -> 0.95. This is a LINEAR-RADIANCE threshold, so it has to move with
     // the key: engine.ts took the sun 2.45 -> 3.05, which lifts sunlit sand's max
     // channel from 0.495 to 0.535 and a white sunward face from 0.725 to 0.828.
@@ -1464,13 +1521,13 @@ export function readPostOptions(search: string): {
     // that belongs to the cloud material's albedo/emissive in world/clouds.ts, not
     // here. 0.95 is kept because it is the safe end of an interval that costs
     // nothing to sit at.
-    sceneBloomThreshold: num('sbt', 0.95),
+    sceneBloomThreshold: num("sbt", 0.95),
     // Highlight rolloff knee in linear radiance; see TonemapGradeShader. 0
     // disables it, which is the fastest way to see the white-plateau failure it
     // exists to fix.
-    roll: num('roll', 1.55),
-    grade: p.get('grade') !== '0',
-    aa: p.get('aa') !== '0',
-    aoView: p.get('aoview') === '1',
+    roll: num("roll", 1.55),
+    grade: p.get("grade") !== "0",
+    aa: p.get("aa") !== "0",
+    aoView: p.get("aoview") === "1",
   };
 }

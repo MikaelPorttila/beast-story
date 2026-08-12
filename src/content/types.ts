@@ -5,7 +5,7 @@
  * module import so the starting world needs no fetch.
  */
 
-import type { StringKey } from '../i18n';
+import type { StringKey } from "../i18n";
 
 /**
  * `"<type>:<name>"`, never a path or position (spec §4.2). Saves store these, so a
@@ -41,15 +41,9 @@ export interface EvalCtx {
 }
 
 /** Pure: may read state, never write it. */
-export type ConditionTest = (
-  params: Readonly<Record<string, unknown>>,
-  ctx: EvalCtx,
-) => boolean;
+export type ConditionTest = (params: Readonly<Record<string, unknown>>, ctx: EvalCtx) => boolean;
 
-export type ActionHandler = (
-  params: Readonly<Record<string, unknown>>,
-  ctx: EvalCtx,
-) => void;
+export type ActionHandler = (params: Readonly<Record<string, unknown>>, ctx: EvalCtx) => void;
 
 /** Spec §6. This record and `data` are FROZEN by the loader; per-session state
  * belongs in `ContentState`. */
@@ -87,7 +81,7 @@ export interface ParseCtx {
   readonly assetId: ContentId;
   readonly source: string;
   /** `field` is a dotted path inside the asset body. */
-  report(d: Omit<Diagnostic, 'assetId' | 'source'> & { field?: string }): void;
+  report(d: Omit<Diagnostic, "assetId" | "source"> & { field?: string }): void;
 }
 
 /** Spec §6.3: a new type is a registration, not a loader change. */
@@ -109,11 +103,11 @@ export interface ContentTypeDef<T = unknown> {
 
 export interface ValidateCtx {
   readonly content: ContentLookup;
-  report(d: Omit<Diagnostic, 'assetId'> & { assetId?: ContentId }): void;
+  report(d: Omit<Diagnostic, "assetId"> & { assetId?: ContentId }): void;
 }
 
 /** `error` is survivable content, `fatal` is not; a build check fails on errors. */
-export type Severity = 'info' | 'warn' | 'error' | 'fatal';
+export type Severity = "info" | "warn" | "error" | "fatal";
 
 export interface Diagnostic {
   readonly severity: Severity;
@@ -155,7 +149,7 @@ export interface StorageProvider {
 }
 
 /** Who holds a package open (spec §12.4) — named so a leak is attributable. `boot` is never released. */
-export type Lease = 'boot' | 'zone' | 'quest' | 'dialogue' | 'event' | 'editor' | 'debug';
+export type Lease = "boot" | "zone" | "quest" | "dialogue" | "event" | "editor" | "debug";
 
 export interface LoadResult {
   readonly pkg: PackageId;
@@ -203,10 +197,10 @@ export interface ContentState {
   reset(): void;
 }
 
-export type QuestStatus = 'unknown' | 'available' | 'active' | 'completed' | 'failed';
+export type QuestStatus = "unknown" | "available" | "active" | "completed" | "failed";
 
 export interface StateChange {
-  readonly kind: 'flag' | 'quest' | 'progress' | 'discovery' | 'reset';
+  readonly kind: "flag" | "quest" | "progress" | "discovery" | "reset";
   readonly name: string;
 }
 

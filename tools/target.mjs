@@ -19,15 +19,15 @@
 //
 // Neither is a behaviour change for a tool run on its own from the main
 // checkout, which is the point — the contract stays "bun tools/test-x.mjs".
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function launchJsonPort() {
   try {
-    const cfg = JSON.parse(readFileSync(join(ROOT, '.claude', 'launch.json'), 'utf8'));
+    const cfg = JSON.parse(readFileSync(join(ROOT, ".claude", "launch.json"), "utf8"));
     const port = cfg?.configurations?.find((c) => Number.isFinite(c?.port))?.port;
     return Number.isFinite(port) ? port : null;
   } catch {
@@ -36,14 +36,12 @@ function launchJsonPort() {
 }
 
 const envPort = Number(process.env.BS_PORT);
-export const PORT = Number.isFinite(envPort) && envPort > 0
-  ? envPort
-  : launchJsonPort() ?? 5187;
+export const PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : (launchJsonPort() ?? 5187);
 
 export const BASE = `http://localhost:${PORT}`;
 
 /** Game entry. Query may start with `?` or not; `menu=0` is the caller's job. */
-export const gameUrl = (query = '') => `${BASE}/${query.replace(/^\/?/, '')}`;
+export const gameUrl = (query = "") => `${BASE}/${query.replace(/^\/?/, "")}`;
 
 /**
  * THE FLAG A PROBE THAT NEVER LOOKS AT A RENDERED FRAME SHOULD CARRY, and the
@@ -84,4 +82,4 @@ export const gameUrl = (query = '') => `${BASE}/${query.replace(/^\/?/, '')}`;
  * `grep -rn NO_WARMUP tools/` lists everything that has opted out, which is the
  * point of a named constant rather than four more characters in a URL.
  */
-export const NO_WARMUP = 'warmup=0';
+export const NO_WARMUP = "warmup=0";

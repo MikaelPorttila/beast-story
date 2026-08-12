@@ -25,16 +25,16 @@
 // and are never run beside anything, whatever --jobs says. A probe that is
 // wrong about which list it belongs in is a flaky test, so the default for a
 // new one is SOLO.
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { launchBrowser } from './browser.mjs';
-import { CONVERTED } from './suite/roster.mjs';
-import { PORT } from './target.mjs';
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { launchBrowser } from "./browser.mjs";
+import { CONVERTED } from "./suite/roster.mjs";
+import { PORT } from "./target.mjs";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Probes that assert on frame rate, elapsed motion or CPU cost. Never batched.
 // Four of these are here because a batch was RUN and the output moved, which
@@ -70,61 +70,61 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 //   bun tools/perf-baseline.mjs            compare the working tree
 //
 const SOLO = new Set([
-  'gamepad',       // section 7 compares look rate across fps caps
-  'touch',         // sums yaw deltas over a stick hold
-  'beastanim',     // per-frame rotation deltas
-  'dive',          // ascent speed in units/second
+  "gamepad", // section 7 compares look rate across fps caps
+  "touch", // sums yaw deltas over a stick hold
+  "beastanim", // per-frame rotation deltas
+  "dive", // ascent speed in units/second
   // Teleports the hero to a wild beast, throws a projectile that has to FLY to
   // it, and measures whether a wild body travelled over a second. The last of
   // those is elapsed motion; the middle one needs frames to happen in at all.
-  'taming',
+  "taming",
   // Drives four different bodies at a coastline and measures how far each got,
   // plus a mounted top speed on either side of a waterline. Every one of those
   // is elapsed motion, and it mounts through __dbgRide, which drives state.
-  'deepwater',
-  'menu',          // menuShownAtMs, and a held W measured against another hold
-  'keybinds',      // one section runs UNCAPPED on purpose
-  'pause',         // held-W distances either side of the menu
+  "deepwater",
+  "menu", // menuShownAtMs, and a held W measured against another hold
+  "keybinds", // one section runs UNCAPPED on purpose
+  "pause", // held-W distances either side of the menu
   // Held-W distances either side of the journal, and it stages a quest whose
   // `timeOfDay` pins the world clock — see the header of tools/test-journal.mjs
   // for why that keeps it off a shared page as well as out of PARALLEL.
-  'journal',
+  "journal",
   // The campaign walked end to end (issue #143): it presses E to talk, throws
   // orbs at a staged beast and reads the counters that follow. Every one of
   // those is a frame-loop edge, so a background tab consumes none of them.
-  'story-land',
+  "story-land",
   // Presses E to take a quest and throws orbs to finish it, then reads what the
   // frame drew — every one of those needs a frame loop the tab is not given in
   // the background.
-  'quest-marks',
-  'structures',    // walk distances into colliders
-  'npc',           // walks to a talk range
-  'road',          // drives the hero along a carriageway
-  'gfx',           // draw-call counts under a live frame cap
+  "quest-marks",
+  "structures", // walk distances into colliders
+  "npc", // walks to a talk range
+  "road", // drives the hero along a carriageway
+  "gfx", // draw-call counts under a live frame cap
   // Opens the F3 panel with a key press and clicks one of its rows — a key edge
   // is consumed by the frame loop, and a batched page is a background tab with
   // no frames at all. See the note under PARALLEL.
-  'hair',
-  'sway',          // measured: mover count and area radius move under load
-  'aim-assist',    // measured: selection angles collapse under load
-  'f2',            // measured: reads null under load, and asserts nothing
-  'settings',      // measured: drained cue count 2 -> 1, lastKind changed
+  "hair",
+  "sway", // measured: mover count and area radius move under load
+  "aim-assist", // measured: selection angles collapse under load
+  "f2", // measured: reads null under load, and asserts nothing
+  "settings", // measured: drained cue count 2 -> 1, lastKind changed
   // The only probe that boots WITHOUT `nostore=1`, so it is the only one whose
   // pages write to IndexedDB. It also replaces the running session repeatedly —
   // every case loads a character over the one before it — which is the shape
   // the shared roster explicitly excludes. SOLO is the default anyway.
-  'saves',
-  'nature',        // rebuilds ~90 chunks per section and counts their vertices
-  'view-distance', // teleports the hero and waits for the far clipmap to recenter
+  "saves",
+  "nature", // rebuilds ~90 chunks per section and counts their vertices
+  "view-distance", // teleports the hero and waits for the far clipmap to recenter
   // Teleports to every settlement in turn and waits for the streaming ring to
   // fill at each, then walks a few hundred thousand streamed vertices.
-  'foliage-clip',
-  'streaming-stutter', // forces a fresh view disk and measures per-frame world CPU
+  "foliage-clip",
+  "streaming-stutter", // forces a fresh view disk and measures per-frame world CPU
   // Its fade assertions are a wall-clock envelope read a fixed time after a
   // track starts, and it walks the staged boot to New Game — both of the things
   // that go wrong when three games share a GPU. SOLO is also the default.
-  'music',
-  'textsize',      // stages the HUD through __dbgStageHud after a fixed wait
+  "music",
+  "textsize", // stages the HUD through __dbgStageHud after a fixed wait
   // Nothing in it measures a frame, a distance or a CPU figure — it reads the
   // content registry, the town/npc/enemy tables and the dev console — and it is
   // gated on `__dbgBoot().playing` rather than on a settle, so on the face of it
@@ -140,65 +140,65 @@ const SOLO = new Set([
   // assertions green, which is the most misleading failure a batch can produce.
   // `bringToFront()` is not the fix: four probes cannot all be the front tab.
   // Drop the talk drive and it may move up.
-  'content',
+  "content",
   // Drives the hero with a pad button, holds him in the air on a 16 ms interval
   // and asserts on an enemy's hp either side of a swing. Every one of those is a
   // frame the loop has to run.
-  'proximity',
+  "proximity",
   // Was on NEITHER list, so `all` skipped the flying town entirely — which is
   // how issue #80 (fly straight through the island, walk through its wood)
   // reached a release with a probe for carriers already in the tree. It belongs
   // here on its own merits now: section 7 mounts a flyer through __dbgRide and
   // holds Space for twelve seconds, measuring where the climb stopped.
-  'carrier',
+  "carrier",
   // Measures MOTION — two frames half a second apart over the plume, against a
   // control patch of the same backdrop — which is the one thing a background tab
   // cannot deliver: no requestAnimationFrame means no animation and the delta
   // reads 0 for the right reason and the wrong result. It also takes eleven page
   // loads, half of them screenshots.
-  'waterfall',
-  'daynight',      // waits on a live clock and measures the 0.5 s light cadence
+  "waterfall",
+  "daynight", // waits on a live clock and measures the 0.5 s light cadence
   // Reads two pages and drives nothing, so on the face of it it belongs below —
   // but one of them is the GAME booted to `playing`, and SOLO is the default
   // until an A/B says otherwise. See the note under PARALLEL.
-  'fence',
+  "fence",
   // Holds WASD with the F3 search box focused and measures that the hero did
   // NOT move, against a control hold that says he otherwise would. Both halves
   // are held keys the frame loop has to consume — see the note above.
-  'spawn',
+  "spawn",
   // Presses the attack button and counts what reaches the sky. It drives the
   // hero, which is the whole of the rule above — and its clock is
   // `__dbgAdvance`, so a background tab with no rAF steps no slices at all.
-  'bow',
+  "bow",
   // Stages a fight between a stationary hero and one wild beast and measures
   // the path the beast walks — distances and swept bearing over 140 simulated
   // samples. Elapsed motion, and it drives state (spawn, two teleports).
-  'beastaggro',
+  "beastaggro",
   // Advances an enemy-free party past the support skill timer, then stages a
   // fight and proves the same AI casts. It drives state through __dbgAdvance and
   // __dbgSpawn, so SOLO is the default even though the run is deterministic.
-  'beastcast',
+  "beastcast",
   // Holds F for 1.4 simulated seconds beside the lead beast and reads whether
   // the hold mounted anything, on both sides of the unlock. A held key the frame
   // loop has to consume, and its clock is __dbgAdvance — see the note above.
-  'mounts',
+  "mounts",
   // Rides a ground beast, teleports it thirty units up and reads where getting
   // on and getting off put the pair of them. It drives state (grant, ride,
   // teleport) and its clock is __dbgAdvance, which steps nothing in a
   // background tab.
-  'saddle',
+  "saddle",
   // Rides a FLYER, reads where its ground contact blob sits, then lifts the pair
   // thirty units and reads it again. Grant, ride and teleport are all state, and
   // its clock is __dbgAdvance.
-  'flyshadow',
+  "flyshadow",
   // Authors a path into a running world: it mutates the network, drops every
   // chunk and rebuilds them, which is about as much state as a probe can drive.
   // It also re-grounds the hero, so nothing about it is read-only.
-  'path-edit',
+  "path-edit",
   // Builds real voxel terrain and meshes it in the LAB, which is a different
   // world from the game's — it opens its own page and drives no hero, but it
   // raycasts a scene it built itself and SOLO is the default.
-  'road-lab',
+  "road-lab",
 ]);
 
 // Verified safe to overlap: each was run alone and then batched, and its output
@@ -225,24 +225,30 @@ const SOLO = new Set([
 // a key edge, a held key, anything the frame loop has to consume — belongs in
 // SOLO however patient its polling is. That is the same root cause as `f2`
 // reading null under load, named.
-const PARALLEL = [
-  'zfight', 'path-profile', 'water-shore', 'crosshair', 'viewport', 'cursor',
-];
+const PARALLEL = ["zfight", "path-profile", "water-shore", "crosshair", "viewport", "cursor"];
 const ALL = [...PARALLEL, ...SOLO];
 
 const argv = process.argv.slice(2);
 const names = [];
-let jobs = 1, json = false;
+let jobs = 1,
+  json = false;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
-  if (a === '--jobs') jobs = Math.max(1, Number(argv[++i]) || 1);
-  else if (a === '--json') json = true;
-  else if (a === 'all') names.push(...ALL);
-  else if (a.startsWith('--')) { console.error(`unknown flag ${a}`); process.exit(2); }
-  else names.push(a.replace(/^test-/, '').replace(/\.mjs$/, ''));
+  if (a === "--jobs") {
+    jobs = Math.max(1, Number(argv[++i]) || 1);
+  } else if (a === "--json") {
+    json = true;
+  } else if (a === "all") {
+    names.push(...ALL);
+  } else if (a.startsWith("--")) {
+    console.error(`unknown flag ${a}`);
+    process.exit(2);
+  } else {
+    names.push(a.replace(/^test-/, "").replace(/\.mjs$/, ""));
+  }
 }
 if (!names.length) {
-  console.error(`usage: bun tools/probe.mjs <name...|all> [--jobs N] [--json]\n  ${ALL.join(' ')}`);
+  console.error(`usage: bun tools/probe.mjs <name...|all> [--jobs N] [--json]\n  ${ALL.join(" ")}`);
   process.exit(2);
 }
 
@@ -251,36 +257,43 @@ if (!names.length) {
 // `perf-baseline` hid on the roster above for so long: the failure it produced
 // looked exactly like a probe that had run and broken, so it read as somebody
 // else's red rather than as an entry pointing at nothing.
-const missing = names.filter((n) => !existsSync(join(ROOT, 'tools', `test-${n}.mjs`)));
+const missing = names.filter((n) => !existsSync(join(ROOT, "tools", `test-${n}.mjs`)));
 if (missing.length) {
-  console.error(`no such probe: ${missing.join(', ')}
-  known: ${ALL.join(' ')}`);
+  console.error(`no such probe: ${missing.join(", ")}
+  known: ${ALL.join(" ")}`);
   process.exit(2);
 }
 
-const logDir = join(tmpdir(), 'bs-probe');
+const logDir = join(tmpdir(), "bs-probe");
 mkdirSync(logDir, { recursive: true });
 
 // These probes open no browser at all, so they need neither the shared browser
 // nor the dev server. Everything else does.
-const HEADLESS = new Set(['zfight', 'path-profile', 'water-shore']);
+const HEADLESS = new Set(["zfight", "path-profile", "water-shore"]);
 const needsBrowser = names.some((n) => !HEADLESS.has(n));
 const browser = needsBrowser ? await launchBrowser() : null;
 const env = { ...process.env, BS_PORT: String(PORT) };
-if (browser) env.BS_BROWSER_WS = browser.wsEndpoint();
+if (browser) {
+  env.BS_BROWSER_WS = browser.wsEndpoint();
+}
 
-const runOne = (name) => new Promise((resolve) => {
-  const started = Date.now();
-  const child = spawn('bun', [`tools/test-${name}.mjs`], { env, shell: true });
-  let out = '';
-  child.stdout.on('data', (d) => { out += d; });
-  child.stderr.on('data', (d) => { out += d; });
-  child.on('close', (code) => {
-    const log = join(logDir, `${name}.log`);
-    writeFileSync(log, out);
-    resolve({ name, code: code ?? 1, ms: Date.now() - started, log, out });
+const runOne = (name) =>
+  new Promise((resolve) => {
+    const started = Date.now();
+    const child = spawn("bun", [`tools/test-${name}.mjs`], { env, shell: true });
+    let out = "";
+    child.stdout.on("data", (d) => {
+      out += d;
+    });
+    child.stderr.on("data", (d) => {
+      out += d;
+    });
+    child.on("close", (code) => {
+      const log = join(logDir, `${name}.log`);
+      writeFileSync(log, out);
+      resolve({ name, code: code ?? 1, ms: Date.now() - started, log, out });
+    });
   });
-});
 
 /**
  * Close every page the finished probes left behind. MEMORY HYGIENE, and it is
@@ -308,15 +321,20 @@ const runOne = (name) => new Promise((resolve) => {
  * of the batch.
  */
 async function reapPages() {
-  if (!browser) return 0;
+  if (!browser) {
+    return 0;
+  }
   const pages = await browser.pages().catch(() => []);
   const doomed = pages.slice(1);
-  for (const pg of doomed) await pg.close().catch(() => {});
+  for (const pg of doomed) {
+    await pg.close().catch(() => {});
+  }
   return doomed.length;
 }
 
 const results = [];
-const line = (r) => `${r.code === 0 ? 'ok  ' : 'FAIL'} ${r.name.padEnd(13)} ${(r.ms / 1000).toFixed(1)}s`;
+const line = (r) =>
+  `${r.code === 0 ? "ok  " : "FAIL"} ${r.name.padEnd(13)} ${(r.ms / 1000).toFixed(1)}s`;
 
 // CONVERTED NAMES GO THROUGH THE SUITE, as one child sharing one booted world
 // (tools/suite.mjs; the roster and its order live in tools/suite/roster.mjs).
@@ -332,41 +350,53 @@ const solo = names.filter((n) => !CONVERTED.includes(n) && SOLO.has(n));
 if (converted.length) {
   const started = Date.now();
   const r = await new Promise((resolve) => {
-    const child = spawn('bun', ['tools/suite.mjs', '--json', ...converted], { env, shell: true });
-    let out = '';
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { out += d; });
-    child.on('close', (code) => resolve({ code: code ?? 1, out }));
+    const child = spawn("bun", ["tools/suite.mjs", "--json", ...converted], { env, shell: true });
+    let out = "";
+    child.stdout.on("data", (d) => {
+      out += d;
+    });
+    child.stderr.on("data", (d) => {
+      out += d;
+    });
+    child.on("close", (code) => resolve({ code: code ?? 1, out }));
   });
   const ms = Date.now() - started;
   // One log for the run plus a per-probe verdict line each, parsed out of the
   // summary. A suite that died before printing JSON is reported as one failed
   // entry per requested name rather than silently dropped.
-  const log = join(logDir, 'suite.log');
+  const log = join(logDir, "suite.log");
   writeFileSync(log, r.out);
   let summary = null;
-  try { summary = JSON.parse(r.out.slice(r.out.indexOf('{'))); } catch { /* died early */ }
+  try {
+    summary = JSON.parse(r.out.slice(r.out.indexOf("{")));
+  } catch {
+    /* died early */
+  }
   for (const n of converted) {
     const fails = summary
       ? summary.fails.filter((f) => f.startsWith(`[${n}]`))
       : [`the suite child did not report (exit ${r.code}) — see ${log}`];
     const secMs = summary
       ? Object.entries(summary.sectionMs)
-        .filter(([k]) => k.startsWith(`${n}.`))
-        .reduce((a, [, v]) => a + v, 0)
+          .filter(([k]) => k.startsWith(`${n}.`))
+          .reduce((a, [, v]) => a + v, 0)
       : ms;
     results.push({
       name: n,
       code: fails.length ? 1 : 0,
       ms: secMs,
       log,
-      out: fails.join('\n'),
+      out: fails.join("\n"),
     });
-    if (!json) console.log(line(results[results.length - 1]));
+    if (!json) {
+      console.log(line(results[results.length - 1]));
+    }
   }
   if (summary && !json) {
-    console.log(`     suite: ${converted.length} probes on one boot `
-      + `(${(summary.bootMs / 1000).toFixed(1)}s boot, ${(ms / 1000).toFixed(1)}s total)`);
+    console.log(
+      `     suite: ${converted.length} probes on one boot ` +
+        `(${(summary.bootMs / 1000).toFixed(1)}s boot, ${(ms / 1000).toFixed(1)}s total)`,
+    );
   }
   await reapPages();
 }
@@ -376,7 +406,9 @@ const workers = Array.from({ length: Math.min(jobs, queue.length) }, async () =>
   while (queue.length) {
     const r = await runOne(queue.shift());
     results.push(r);
-    if (!json) console.log(line(r));
+    if (!json) {
+      console.log(line(r));
+    }
   }
 });
 await Promise.all(workers);
@@ -389,7 +421,9 @@ await reapPages();
 for (const n of solo) {
   const r = await runOne(n);
   results.push(r);
-  if (!json) console.log(line(r));
+  if (!json) {
+    console.log(line(r));
+  }
   // Solo is strictly one at a time — that is what the list MEANS — so there is
   // never another probe whose pages this could take out from under it. This is
   // the sweep that matters: the solo chain is twenty probes long and it is
@@ -405,18 +439,20 @@ await browser?.close();
 
 const failed = results.filter((r) => r.code !== 0);
 if (json) {
-  console.log(JSON.stringify({
-    pass: results.length - failed.length,
-    fail: failed.length,
-    probes: results.map((r) => ({ name: r.name, ok: r.code === 0, ms: r.ms, log: r.log })),
-  }));
+  console.log(
+    JSON.stringify({
+      pass: results.length - failed.length,
+      fail: failed.length,
+      probes: results.map((r) => ({ name: r.name, ok: r.code === 0, ms: r.ms, log: r.log })),
+    }),
+  );
 } else {
   console.log(`\n${results.length - failed.length}/${results.length} ok  ·  logs in ${logDir}`);
   // A failure prints its tail here rather than making the reader open the log:
   // the last lines are where every probe in this directory puts its verdict.
   for (const r of failed) {
     console.log(`\n--- ${r.name} (exit ${r.code}) ---`);
-    console.log(r.out.trim().split('\n').slice(-14).join('\n'));
+    console.log(r.out.trim().split("\n").slice(-14).join("\n"));
   }
 }
 process.exit(failed.length ? 1 : 0);

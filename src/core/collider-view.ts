@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import type { World } from './types';
+import * as THREE from "three";
+import type { World } from "./types";
 
 /**
  * Collider visualiser for the console's /show-colliders. Trees are cylinders
@@ -31,7 +31,10 @@ export class ColliderView {
   private carried = 0;
   private tallSpot: { x: number; z: number; base: number; top: number } | null = null;
 
-  constructor(private scene: THREE.Scene, private world: World) {
+  constructor(
+    private scene: THREE.Scene,
+    private world: World,
+  ) {
     this.group.visible = false;
     // Fog-free so it stays legible through the haze at chunk range.
     this.solidMat = new THREE.LineBasicMaterial({ color: 0x46ff7a, fog: false, depthTest: true });
@@ -41,15 +44,21 @@ export class ColliderView {
 
   setWorld(world: World): void {
     this.world = world;
-    if (this.visible) this.rebuild();
+    if (this.visible) {
+      this.rebuild();
+    }
   }
 
-  get isVisible(): boolean { return this.visible; }
+  get isVisible(): boolean {
+    return this.visible;
+  }
 
   setVisible(v: boolean): void {
     this.visible = v;
     this.group.visible = v;
-    if (v) this.rebuild();
+    if (v) {
+      this.rebuild();
+    }
   }
 
   toggle(): boolean {
@@ -58,21 +67,32 @@ export class ColliderView {
   }
 
   get count(): number {
-    return this.scratch.length / 5 + this.boxScratch.length / 6
-      + this.ridgeScratch.length / RIDGE_STRIDE;
+    return (
+      this.scratch.length / 5 + this.boxScratch.length / 6 + this.ridgeScratch.length / RIDGE_STRIDE
+    );
   }
-  get boxCount(): number { return this.boxScratch.length / 6; }
-  get ridgeCount(): number { return this.ridgeScratch.length / RIDGE_STRIDE; }
+  get boxCount(): number {
+    return this.boxScratch.length / 6;
+  }
+  get ridgeCount(): number {
+    return this.ridgeScratch.length / RIDGE_STRIDE;
+  }
   /** Base-to-top span of the tallest cage: a deck-to-ground cage is only visible here (issue #112). */
-  get tallestCage(): number { return this.tallest; }
+  get tallestCage(): number {
+    return this.tallest;
+  }
   get tallestAt(): { x: number; z: number; base: number; top: number } | null {
     return this.tallSpot;
   }
   /** Boxes floored on a carrier DECK rather than terrain — pairs with `tallestCage`. */
-  get carriedCount(): number { return this.carried; }
+  get carriedCount(): number {
+    return this.carried;
+  }
 
   update(dt: number): void {
-    if (!this.visible) return;
+    if (!this.visible) {
+      return;
+    }
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = this.world.carriers.all.length > 0 ? REFRESH_MOVING : REFRESH_SECONDS;
@@ -106,8 +126,10 @@ export class ColliderView {
       const top = this.boxScratch[i + 5];
       this.cage(
         solidPts,
-        this.boxScratch[i], this.boxScratch[i + 1],
-        this.boxScratch[i + 2], this.boxScratch[i + 3],
+        this.boxScratch[i],
+        this.boxScratch[i + 1],
+        this.boxScratch[i + 2],
+        this.boxScratch[i + 3],
         this.boxScratch[i + 4],
         this.baseUnder(this.boxScratch[i], this.boxScratch[i + 1], top),
         top,
@@ -119,18 +141,24 @@ export class ColliderView {
     for (let i = 0; i < this.ridgeScratch.length; i += RIDGE_STRIDE) {
       this.arch(
         solidPts,
-        this.ridgeScratch[i], this.ridgeScratch[i + 1], this.ridgeScratch[i + 2],
-        this.ridgeScratch[i + 3], this.ridgeScratch[i + 4],
-        this.ridgeScratch[i + 5], this.ridgeScratch[i + 6],
+        this.ridgeScratch[i],
+        this.ridgeScratch[i + 1],
+        this.ridgeScratch[i + 2],
+        this.ridgeScratch[i + 3],
+        this.ridgeScratch[i + 4],
+        this.ridgeScratch[i + 5],
+        this.ridgeScratch[i + 6],
       );
     }
-    this.replace('solid', solidPts);
-    this.replace('climb', climbPts);
+    this.replace("solid", solidPts);
+    this.replace("climb", climbPts);
   }
 
   private note(x: number, z: number, base: number, top: number): void {
     const span = top - base;
-    if (span <= this.tallest) return;
+    if (span <= this.tallest) {
+      return;
+    }
     this.tallest = span;
     this.tallSpot = { x, z, base, top };
   }
@@ -154,8 +182,14 @@ export class ColliderView {
 
   /** An oriented box as line-segment pairs: base rect, top rect, four uprights. */
   private cage(
-    out: number[], x: number, z: number, hx: number, hz: number,
-    yaw: number, base: number, top: number,
+    out: number[],
+    x: number,
+    z: number,
+    hx: number,
+    hz: number,
+    yaw: number,
+    base: number,
+    top: number,
   ): void {
     this.note(x, z, base, top);
     const c = Math.cos(yaw);
@@ -163,7 +197,12 @@ export class ColliderView {
     // Same mapping `Accum.add` stamps with: (lx, lz) -> (lx*c + lz*s, -lx*s + lz*c).
     const cornerX: number[] = [];
     const cornerZ: number[] = [];
-    for (const [lx, lz] of [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]] as const) {
+    for (const [lx, lz] of [
+      [-hx, -hz],
+      [hx, -hz],
+      [hx, hz],
+      [-hx, hz],
+    ] as const) {
       cornerX.push(x + lx * c + lz * s);
       cornerZ.push(z - lx * s + lz * c);
     }
@@ -181,8 +220,14 @@ export class ColliderView {
    * field, so the collider has no underside to draw.
    */
   private arch(
-    out: number[], x: number, z: number, yaw: number,
-    hl: number, r: number, y: number, ry: number,
+    out: number[],
+    x: number,
+    z: number,
+    yaw: number,
+    hl: number,
+    r: number,
+    y: number,
+    ry: number,
   ): void {
     // Axis and horizontal normal; bearing 0 runs along +z, as everywhere else.
     const ax = Math.sin(yaw);
@@ -194,11 +239,7 @@ export class ColliderView {
     const SECTIONS = 5;
     const px = (t: number, u: number): [number, number, number] => {
       const s = Math.sqrt(Math.max(0, 1 - u * u));
-      return [
-        x + ax * t * hl + nx * u * r,
-        y + ry * s,
-        z + az * t * hl + nz * u * r,
-      ];
+      return [x + ax * t * hl + nx * u * r, y + ry * s, z + az * t * hl + nz * u * r];
     };
     for (let sec = 0; sec < SECTIONS; sec++) {
       const t = -1 + (2 * sec) / (SECTIONS - 1);
@@ -216,9 +257,7 @@ export class ColliderView {
     }
   }
 
-  private ring(
-    out: number[], x: number, z: number, r: number, base: number, top: number,
-  ): void {
+  private ring(out: number[], x: number, z: number, r: number, base: number, top: number): void {
     const span = Math.max(0.01, top - base);
     this.note(x, z, base, top);
     for (let k = 0; k < RINGS; k++) {
@@ -227,8 +266,12 @@ export class ColliderView {
         const a0 = (s / RING_SEGMENTS) * Math.PI * 2;
         const a1 = ((s + 1) / RING_SEGMENTS) * Math.PI * 2;
         out.push(
-          x + Math.cos(a0) * r, y, z + Math.sin(a0) * r,
-          x + Math.cos(a1) * r, y, z + Math.sin(a1) * r,
+          x + Math.cos(a0) * r,
+          y,
+          z + Math.sin(a0) * r,
+          x + Math.cos(a1) * r,
+          y,
+          z + Math.sin(a1) * r,
         );
       }
     }
@@ -240,19 +283,22 @@ export class ColliderView {
     }
   }
 
-  private replace(which: 'solid' | 'climb', pts: number[]): void {
-    const existing = which === 'solid' ? this.solid : this.climb;
+  private replace(which: "solid" | "climb", pts: number[]): void {
+    const existing = which === "solid" ? this.solid : this.climb;
     if (existing) {
       this.group.remove(existing);
       existing.geometry.dispose();
     }
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    const seg = new THREE.LineSegments(geo, which === 'solid' ? this.solidMat : this.climbMat);
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    const seg = new THREE.LineSegments(geo, which === "solid" ? this.solidMat : this.climbMat);
     seg.frustumCulled = false;
     this.group.add(seg);
-    if (which === 'solid') this.solid = seg;
-    else this.climb = seg;
+    if (which === "solid") {
+      this.solid = seg;
+    } else {
+      this.climb = seg;
+    }
   }
 
   dispose(): void {

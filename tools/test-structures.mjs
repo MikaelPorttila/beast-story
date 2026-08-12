@@ -24,8 +24,8 @@
 // aim at. Asking the world with the walls off returned an empty list and the
 // second arm died on `boxes[0]`. Both arms now walk at the same coordinates,
 // which is what makes them comparable anyway.
-import { launchBrowser, newPage, wait, logPageErrors } from './browser.mjs';
-import { BASE as HOST } from './target.mjs';
+import { launchBrowser, newPage, wait, logPageErrors } from "./browser.mjs";
+import { BASE as HOST } from "./target.mjs";
 
 const SETTLE = 5000;
 /** How long a movement key is held per case. At 6 m/s that is ~15 units. */
@@ -78,16 +78,25 @@ async function walk(page, startX, startZ, yaw, holdMs = HOLD_MS) {
   // reports. The re-teleport stays inside the loop because it was always doing
   // two jobs: re-aiming, and putting the hero back where gravity has been
   // pulling him out of since the last one.
-  const place = () => page.evaluate(([x, z, y]) => {
-    window.__dbgTp(x, z);
-    window.__dbgAim(y);
-  }, [startX, startZ, yaw]);
-  const aimError = () => page.evaluate((want) => {
-    let d = (window.__dbgCamYaw() + Math.PI - want) * 180 / Math.PI;
-    while (d > 180) d -= 360;
-    while (d < -180) d += 360;
-    return Math.abs(d);
-  }, yaw);
+  const place = () =>
+    page.evaluate(
+      ([x, z, y]) => {
+        window.__dbgTp(x, z);
+        window.__dbgAim(y);
+      },
+      [startX, startZ, yaw],
+    );
+  const aimError = () =>
+    page.evaluate((want) => {
+      let d = ((window.__dbgCamYaw() + Math.PI - want) * 180) / Math.PI;
+      while (d > 180) {
+        d -= 360;
+      }
+      while (d < -180) {
+        d += 360;
+      }
+      return Math.abs(d);
+    }, yaw);
 
   await place();
   const deadline = Date.now() + AIM_TIMEOUT;
@@ -100,12 +109,10 @@ async function walk(page, startX, startZ, yaw, holdMs = HOLD_MS) {
   const before = await page.evaluate(() => window.__dbgPlayerPos());
   // Was the hero dropped INSIDE something? A teleport can do that where walking
   // cannot, and it would make a short walk look like a block when it is a stuck.
-  const startAt = await page.evaluate(
-    ([x, z]) => window.__dbgWorld(x, z), [before.x, before.z],
-  );
-  await page.keyboard.down('KeyW');
+  const startAt = await page.evaluate(([x, z]) => window.__dbgWorld(x, z), [before.x, before.z]);
+  await page.keyboard.down("KeyW");
   await wait(holdMs);
-  await page.keyboard.up('KeyW');
+  await page.keyboard.up("KeyW");
   await wait(200);
   const after = await page.evaluate(() => window.__dbgPlayerPos());
   const at = await page.evaluate(([x, z]) => window.__dbgWorld(x, z), [after.x, after.z]);
@@ -117,8 +124,8 @@ async function walk(page, startX, startZ, yaw, holdMs = HOLD_MS) {
     end: { x: round(after.x), y: round(after.y), z: round(after.z) },
     travelled: round(Math.hypot(after.x - before.x, after.z - before.z)),
     /** Non-null means the hero ENDED UP standing in a column a structure covers. */
-    structureTopHere: at.structureTop === null || at.structureTop === -Infinity
-      ? null : round(at.structureTop),
+    structureTopHere:
+      at.structureTop === null || at.structureTop === -Infinity ? null : round(at.structureTop),
     groundHere: round(at.ground),
   };
 }
@@ -126,11 +133,8 @@ async function walk(page, startX, startZ, yaw, holdMs = HOLD_MS) {
 async function run(solids, geom = null) {
   const page = await newPage(browser, { width: 1000, height: 640 });
   logPageErrors(page);
-  await page.goto(
-    `${HOST}/?fps=30&menu=0${solids ? '' : '&solids=0'}`,
-    { waitUntil: 'load' },
-  );
-  await page.waitForSelector('canvas');
+  await page.goto(`${HOST}/?fps=30&menu=0${solids ? "" : "&solids=0"}`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await wait(SETTLE);
 
   const towns = await page.evaluate(() => window.__dbgTowns());
@@ -154,8 +158,10 @@ async function run(solids, geom = null) {
   // builders emit. The other settlements are still covered by the collider
   // BUDGET below, which counts their boxes and roofs without walking anywhere —
   // that is the check that catches a builder regressing, and it is free.
-  const walked = sited.filter((tn) => tn.kind === 'camp').slice(0, 1);
-  if (!walked.length) walked.push(sited[0]);
+  const walked = sited.filter((tn) => tn.kind === "camp").slice(0, 1);
+  if (!walked.length) {
+    walked.push(sited[0]);
+  }
   /** Boxes per town id, measured on the solid arm and handed to the other. */
   const measured = {};
   let campBoxes = null;
@@ -174,13 +180,17 @@ async function run(solids, geom = null) {
   };
 
   for (const town of walked) {
-    const boxes = geom ? geom.towns[town.id] : await page.evaluate(
-      ([x, z, r]) => window.__dbgStructures(x, z, r),
-      [town.x, town.z, town.radius + 2],
-    );
+    const boxes = geom
+      ? geom.towns[town.id]
+      : await page.evaluate(
+          ([x, z, r]) => window.__dbgStructures(x, z, r),
+          [town.x, town.z, town.radius + 2],
+        );
     measured[town.id] = boxes;
-    if (!boxes.length) throw new Error(`no structure boxes reported for ${town.id}`);
-    const gAng = town.gateBearingDeg * Math.PI / 180;
+    if (!boxes.length) {
+      throw new Error(`no structure boxes reported for ${town.id}`);
+    }
+    const gAng = (town.gateBearingDeg * Math.PI) / 180;
     const pt = (ang, d) => [town.x + Math.sin(ang) * d, town.z + Math.cos(ang) * d];
 
     // ---- the biggest box in town: a hut ----------------------------------
@@ -198,10 +208,12 @@ async function run(solids, geom = null) {
     // The apex of a jump is 1.61 units (see MAX_STEP_UP), so a box under that is
     // one the hero can stand on top of — which is the other half of the step
     // rule and the only way to show that a box top really is a floor.
-    const crate = boxes.filter((b) => {
-      const h = b.top - b.ground;
-      return h > 0.6 && h < 1.55 && b.area > 0.8 && b.area < 6;
-    }).sort((p, q) => q.area - p.area)[0];
+    const crate = boxes
+      .filter((b) => {
+        const h = b.top - b.ground;
+        return h > 0.6 && h < 1.55 && b.area > 0.8 && b.area < 6;
+      })
+      .sort((p, q) => q.area - p.area)[0];
     if (crate) {
       const a = bearing(town.x, town.z, crate.x, crate.z);
       const [sx, sz] = [crate.x + Math.sin(a) * 4.5, crate.z + Math.cos(a) * 4.5];
@@ -212,18 +224,21 @@ async function run(solids, geom = null) {
       // What is being shown is that a box top HOLDS HIM UP, so the measurement
       // is the highest his feet ever were while the game considered him grounded.
       let peak = -Infinity;
-      await page.keyboard.down('KeyW');
+      await page.keyboard.down("KeyW");
       for (let k = 0; k < 3; k++) {
-        await page.keyboard.press('Space');
+        await page.keyboard.press("Space");
         for (let s = 0; s < 8; s++) {
           await wait(70);
           const g = await page.evaluate(() => ({
-            y: window.__dbgPlayerPos().y, onGround: window.__dbgInput().onGround,
+            y: window.__dbgPlayerPos().y,
+            onGround: window.__dbgInput().onGround,
           }));
-          if (g.onGround && g.y > peak) peak = g.y;
+          if (g.onGround && g.y > peak) {
+            peak = g.y;
+          }
         }
       }
-      await page.keyboard.up('KeyW');
+      await page.keyboard.up("KeyW");
       c.afterJump = {
         highestGroundedFeetY: peak === -Infinity ? null : round(peak),
         boxTop: crate.top,
@@ -325,8 +340,8 @@ async function run(solids, geom = null) {
       out.dens.push({
         i,
         den: d,
-        back: await approach('back', d.facing + Math.PI),
-        front: await approach('front', d.facing),
+        back: await approach("back", d.facing + Math.PI),
+        front: await approach("front", d.facing),
       });
     }
   }
@@ -337,10 +352,13 @@ async function run(solids, geom = null) {
   // against a wall deep inside the camp, let his followers pile in behind him
   // and the wild spawns come to him, then read where every body actually is.
   {
-    const camp = sited.find((c) => c.kind === 'camp');
-    const boxes = geom ? geom.camp : await page.evaluate(
-      ([x, z, r]) => window.__dbgStructures(x, z, r), [camp.x, camp.z, camp.radius],
-    );
+    const camp = sited.find((c) => c.kind === "camp");
+    const boxes = geom
+      ? geom.camp
+      : await page.evaluate(
+          ([x, z, r]) => window.__dbgStructures(x, z, r),
+          [camp.x, camp.z, camp.radius],
+        );
     campBoxes = boxes;
     const hut = boxes[0];
     // From the CAMP SIDE, so the approach stays inside the palisade — coming at
@@ -366,9 +384,10 @@ async function run(solids, geom = null) {
       enemiesInsideAWall: b.enemies.filter(inWall).length,
       // The nearest one to the hut, which is the interesting one: an enemy that
       // chased the hero up to a wall and stopped at it.
-      nearestEnemyToHut: b.enemies
-        .map((e) => ({ ...e, d: round(Math.hypot(e.x - hut.x, e.z - hut.z)) }))
-        .sort((p, q) => p.d - q.d)[0] ?? null,
+      nearestEnemyToHut:
+        b.enemies
+          .map((e) => ({ ...e, d: round(Math.hypot(e.x - hut.x, e.z - hut.z)) }))
+          .sort((p, q) => p.d - q.d)[0] ?? null,
     };
   }
 
@@ -378,12 +397,13 @@ async function run(solids, geom = null) {
   // test and a failed lookup), because those are the two cases the frame loop
   // actually hits.
   {
-    const camp = sited.find((c) => c.kind === 'camp');
+    const camp = sited.find((c) => c.kind === "camp");
     out.cost = {
-      inCamp: await page.evaluate(([x, z]) => window.__dbgBenchStructures(x, z),
-        [camp.x, camp.z]),
-      wilderness: await page.evaluate(([x, z]) => window.__dbgBenchStructures(x, z),
-        [camp.x + 900, camp.z + 900]),
+      inCamp: await page.evaluate(([x, z]) => window.__dbgBenchStructures(x, z), [camp.x, camp.z]),
+      wilderness: await page.evaluate(
+        ([x, z]) => window.__dbgBenchStructures(x, z),
+        [camp.x + 900, camp.z + 900],
+      ),
     };
   }
 
@@ -403,22 +423,27 @@ async function run(solids, geom = null) {
       // which reads as "the builder produced nothing" and is really "you are
       // not there". Wait on the world rather than on a clock, per AGENTS.md.
       await page.evaluate(([x, z]) => window.__dbgTp(x, z), [town.x, town.z]);
-      await page.waitForFunction(() => !window.__dbgZone().streaming, { timeout: 60000 })
+      await page
+        .waitForFunction(() => !window.__dbgZone().streaming, { timeout: 60000 })
         .catch(() => {});
       const [boxes, roofs] = await page.evaluate(
-        ([x, z, rad]) => [
-          window.__dbgStructures(x, z, rad).length,
-          window.__dbgRidges(x, z, rad),
-        ], [town.x, town.z, r],
+        ([x, z, rad]) => [window.__dbgStructures(x, z, rad).length, window.__dbgRidges(x, z, rad)],
+        [town.x, town.z, r],
       );
       out.colliders.perTown.push({
-        id: town.id, boxes, roofs: roofs.length, total: boxes + roofs.length,
+        id: town.id,
+        boxes,
+        roofs: roofs.length,
+        total: boxes + roofs.length,
         worstRoofFit: roofs.reduce((m, o) => Math.max(m, o.fit), 0),
       });
     }
     const all = await page.evaluate(() => window.__dbgRidges(0, 0, 1e6));
     out.colliders.roofs = all.length;
-    out.colliders.worstRoofFit = round(all.reduce((m, o) => Math.max(m, o.fit), 0), 3);
+    out.colliders.worstRoofFit = round(
+      all.reduce((m, o) => Math.max(m, o.fit), 0),
+      3,
+    );
   }
 
   await page.close();
@@ -478,15 +503,15 @@ async function run(solids, geom = null) {
 //
 const BUDGET = {
   //           colliders   of which roofs
-  encampment: { total: 64, roofs: 5 },   // 3 huts, 2 ridge tents, 59 boxes
+  encampment: { total: 64, roofs: 5 }, // 3 huts, 2 ridge tents, 59 boxes
   // The hamlet counts were 38 -> 40 and 25 -> 27 boxes when the paddock arc
   // became a fence CHAIN (world/fences.ts, issue #105) instead of seven fixed
   // panels: a chain's collider is one box per bay — the top plank, which spans
   // its bay end to end. The posts and the lower plank carry no collider at all,
   // so the count is the number of BAYS and nothing else, which is why re-siting
   // a town moves it.
-  redbriar: { total: 36, roofs: 1 },     // 1 hut
-  stonewatch: { total: 39, roofs: 1 },   // 1 hut
+  redbriar: { total: 36, roofs: 1 }, // 1 hut
+  stonewatch: { total: 39, roofs: 1 }, // 1 hut
 };
 /**
  * How far a roof cylinder may stand off its own thatch, world units.
@@ -523,41 +548,48 @@ const ROOF_FIT_LIMIT = 0.6;
 async function rideOnFurniture() {
   const page = await newPage(browser, { width: 1280, height: 800 });
   logPageErrors(page);
-  await page.goto(`${HOST}/?menu=0&fs=0`, { waitUntil: 'load' });
-  await page.waitForSelector('canvas');
+  await page.goto(`${HOST}/?menu=0&fs=0`, { waitUntil: "load" });
+  await page.waitForSelector("canvas");
   await wait(SETTLE);
 
   // Somewhere in camp with real furniture under it. The band is deliberate:
   // below 0.6 there is nothing to fall through, and above ~2.4 it is a roof
   // rather than something a player would ever be standing on.
   const spot = await page.evaluate(() => {
-    const t = window.__dbgTowns().towns.find((n) => n.id === 'encampment');
+    const t = window.__dbgTowns().towns.find((n) => n.id === "encampment");
     const hits = [];
     for (let dx = -26; dx <= 26; dx += 0.5) {
       for (let dz = -26; dz <= 26; dz += 0.5) {
         const x = t.x + dx;
         const z = t.z + dz;
         const w = window.__dbgWorld(x, z);
-        if (!Number.isFinite(w.structureTop)) continue;
+        if (!Number.isFinite(w.structureTop)) {
+          continue;
+        }
         const rise = w.structureTop - w.ground;
-        if (rise > 0.6 && rise < 2.4) hits.push({ x, z, ground: w.ground, top: w.structureTop, rise });
+        if (rise > 0.6 && rise < 2.4) {
+          hits.push({ x, z, ground: w.ground, top: w.structureTop, rise });
+        }
       }
     }
     // The middle of the list rather than the first, which is always a rim.
     return hits.length ? hits[Math.floor(hits.length / 2)] : null;
   });
-  if (!spot) { await page.close(); return { found: false }; }
+  if (!spot) {
+    await page.close();
+    return { found: false };
+  }
 
   await page.evaluate((s) => window.__dbgTp(s.x, s.z), spot);
   await wait(900);
   const onFootY = (await page.evaluate(() => window.__dbgPlayerPos())).y;
 
-  await page.keyboard.press('Backquote');
-  await page.waitForSelector('.bs-console-input', { visible: true });
-  await page.type('.bs-console-input', '/mount emberfox');
-  await page.keyboard.press('Enter');
+  await page.keyboard.press("Backquote");
+  await page.waitForSelector(".bs-console-input", { visible: true });
+  await page.type(".bs-console-input", "/mount emberfox");
+  await page.keyboard.press("Enter");
   await wait(300);
-  await page.keyboard.press('Backquote');
+  await page.keyboard.press("Backquote");
   await wait(1200);
   const m = await page.evaluate(() => window.__dbgMount());
   await page.close();
@@ -590,18 +622,23 @@ const overBudget = [];
 const unbudgeted = [];
 for (const t of withCollision.colliders.perTown) {
   const b = BUDGET[t.id];
-  if (!b) { unbudgeted.push(t.id); continue; }
+  if (!b) {
+    unbudgeted.push(t.id);
+    continue;
+  }
   if (t.total > b.total) {
-    overBudget.push({ id: t.id, what: 'colliders', is: t.total, budget: b.total });
+    overBudget.push({ id: t.id, what: "colliders", is: t.total, budget: b.total });
   }
   if (t.roofs > b.roofs) {
-    overBudget.push({ id: t.id, what: 'roofs', is: t.roofs, budget: b.roofs });
+    overBudget.push({ id: t.id, what: "roofs", is: t.roofs, budget: b.roofs });
   }
 }
 if (withCollision.colliders.worstRoofFit > ROOF_FIT_LIMIT) {
   overBudget.push({
-    id: 'world', what: 'roofFit',
-    is: withCollision.colliders.worstRoofFit, budget: ROOF_FIT_LIMIT,
+    id: "world",
+    what: "roofFit",
+    is: withCollision.colliders.worstRoofFit,
+    budget: ROOF_FIT_LIMIT,
   });
 }
 
@@ -619,7 +656,7 @@ const denFail = [];
 const denInconclusive = [];
 let denMeasured = 0;
 if (!withCollision.dens?.length) {
-  denFail.push('no skill dens reported by __dbgShops');
+  denFail.push("no skill dens reported by __dbgShops");
 } else {
   for (const d of withCollision.dens) {
     const control = withoutCollision.dens.find((o) => o.i === d.i);
@@ -631,13 +668,15 @@ if (!withCollision.dens?.length) {
     if (!control || control.back.passedCentreBy <= 0) {
       denInconclusive.push(
         `den${d.i}/back: the solids=0 control stopped ${control?.back.endCentreDist} units out ` +
-        `too, so terrain and not the shop is what ends this walk`);
+          `too, so terrain and not the shop is what ends this walk`,
+      );
     } else {
       denMeasured++;
       if (d.back.passedCentreBy > 0) {
         denFail.push(
           `den${d.i}: walked THROUGH the back wall — ended ${d.back.passedCentreBy} units out ` +
-          `the far side, against ${control.back.passedCentreBy} with the blocking removed`);
+            `the far side, against ${control.back.passedCentreBy} with the blocking removed`,
+        );
       }
     }
     // FRONT — the shopfront, and the opposite claim. Same gate: a hero the
@@ -652,15 +691,17 @@ if (!withCollision.dens?.length) {
     if (!control || control.front.passedCentreBy < -DEN_SHOP_RANGE) {
       denInconclusive.push(
         `den${d.i}/front: the control walk never got within ${DEN_SHOP_RANGE} of the middle ` +
-        `either, so the shop's reach cannot be judged from it`);
+          `either, so the shop's reach cannot be judged from it`,
+      );
     } else if (d.front.endCentreDist > DEN_SHOP_RANGE) {
       denFail.push(
         `den${d.i}: walking up to the front stops ${d.front.endCentreDist} units out, past the ` +
-        `${DEN_SHOP_RANGE} the shop opens within — solid, but unshoppable`);
+          `${DEN_SHOP_RANGE} the shop opens within — solid, but unshoppable`,
+      );
     }
   }
   if (denMeasured === 0) {
-    denFail.push('no den could be walked into from behind in the control arm — nothing was tested');
+    denFail.push("no den could be walked into from behind in the control arm — nothing was tested");
   }
 }
 
@@ -669,41 +710,49 @@ if (!withCollision.dens?.length) {
 // nothing is solid at all would pass.
 const mountFail = [];
 if (!mounted.found) {
-  mountFail.push('no standable furniture found in the Encampment to test against');
+  mountFail.push("no standable furniture found in the Encampment to test against");
 } else {
   if (Math.abs(mounted.onFootY - mounted.structureTop) > 0.05) {
     mountFail.push(
-      `on foot the hero does not rest on the furniture (y ${mounted.onFootY}, top ${mounted.structureTop})`);
+      `on foot the hero does not rest on the furniture (y ${mounted.onFootY}, top ${mounted.structureTop})`,
+    );
   }
   if (mounted.riderY < mounted.structureTop) {
     mountFail.push(
       `a ground mount sinks through it: rider ${mounted.riderY} is ${mounted.riderSink} below the ` +
-      `${mounted.structureTop} it should be sitting on`);
+        `${mounted.structureTop} it should be sitting on`,
+    );
   }
 }
 
-console.log(JSON.stringify({
-  dens: {
-    shopRange: DEN_SHOP_RANGE,
-    solid: withCollision.dens,
-    control: withoutCollision.dens,
-    measuredFromBehind: denMeasured,
-    inconclusive: denInconclusive,
-    failures: denFail,
-    pass: denFail.length === 0,
-  },
-  mounted: { ...mounted, failures: mountFail, pass: mountFail.length === 0 },
-  budget: {
-    roofFitLimit: ROOF_FIT_LIMIT,
-    perTown: withCollision.colliders.perTown,
-    worstRoofFit: withCollision.colliders.worstRoofFit,
-    overBudget,
-    unbudgeted,
-    pass: overBudget.length === 0 && unbudgeted.length === 0,
-  },
-  withCollision,
-  withoutCollision,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      dens: {
+        shopRange: DEN_SHOP_RANGE,
+        solid: withCollision.dens,
+        control: withoutCollision.dens,
+        measuredFromBehind: denMeasured,
+        inconclusive: denInconclusive,
+        failures: denFail,
+        pass: denFail.length === 0,
+      },
+      mounted: { ...mounted, failures: mountFail, pass: mountFail.length === 0 },
+      budget: {
+        roofFitLimit: ROOF_FIT_LIMIT,
+        perTown: withCollision.colliders.perTown,
+        worstRoofFit: withCollision.colliders.worstRoofFit,
+        overBudget,
+        unbudgeted,
+        pass: overBudget.length === 0 && unbudgeted.length === 0,
+      },
+      withCollision,
+      withoutCollision,
+    },
+    null,
+    2,
+  ),
+);
 if (overBudget.length || unbudgeted.length || mountFail.length || denFail.length) {
   process.exitCode = 1;
 }

@@ -1,6 +1,6 @@
-import { t, type StringKey } from '../i18n';
-import { injectStyles } from './styles';
-import { CHECK_ICON, CLOSE_ICON } from './icons';
+import { t, type StringKey } from "../i18n";
+import { injectStyles } from "./styles";
+import { CHECK_ICON, CLOSE_ICON } from "./icons";
 
 /**
  * Quest journal (issue #98). A modal right-hand dock: main.ts freezes the hero
@@ -9,14 +9,14 @@ import { CHECK_ICON, CLOSE_ICON } from './icons';
  */
 
 /** See `InvCloseBy` in ui/inventory.ts — same three values. */
-export type JournalCloseBy = 'escape' | 'hotkey' | 'click';
+export type JournalCloseBy = "escape" | "hotkey" | "click";
 
-export type JournalTab = 'active' | 'available' | 'completed';
+export type JournalTab = "active" | "available" | "completed";
 
 const TABS: readonly { id: JournalTab; key: StringKey }[] = [
-  { id: 'active', key: 'journal.tab.active' },
-  { id: 'available', key: 'journal.tab.available' },
-  { id: 'completed', key: 'journal.tab.completed' },
+  { id: "active", key: "journal.tab.active" },
+  { id: "available", key: "journal.tab.available" },
+  { id: "completed", key: "journal.tab.completed" },
 ];
 
 /** `need` is 1 for a boolean objective. */
@@ -35,7 +35,7 @@ export interface JournalEntry {
   id: string;
   name: string;
   description?: string;
-  category: 'main' | 'side';
+  category: "main" | "side";
   tab: JournalTab;
   /** A label, not an id — see content/types/quest.ts. */
   arc?: string;
@@ -61,11 +61,14 @@ export interface JournalHooks {
 const FOCUSABLE = 'button:not([disabled]):not([tabindex="-1"])';
 
 const escapeHtml = (s: string): string =>
-  s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+  s.replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string,
+  );
 
 export class JournalPanel {
   private el: HTMLDivElement | null = null;
-  private tab: JournalTab = 'active';
+  private tab: JournalTab = "active";
   private focusables: HTMLButtonElement[] = [];
   private focusIdx = 0;
   private pendingFocus: string | null = null;
@@ -79,33 +82,41 @@ export class JournalPanel {
     injectStyles();
   }
 
-  get isOpen(): boolean { return this.el !== null; }
+  get isOpen(): boolean {
+    return this.el !== null;
+  }
 
   /** For the probe. */
-  get activeTab(): JournalTab { return this.tab; }
+  get activeTab(): JournalTab {
+    return this.tab;
+  }
 
   open(): void {
-    if (this.el) return;
-    const el = document.createElement('div');
-    el.className = 'bs-journal';
-    el.innerHTML =
-      '<div class="bs-scrim"></div>' +
-      '<aside class="pane bs-glass"></aside>';
+    if (this.el) {
+      return;
+    }
+    const el = document.createElement("div");
+    el.className = "bs-journal";
+    el.innerHTML = '<div class="bs-scrim"></div>' + '<aside class="pane bs-glass"></aside>';
     this.el = el;
     document.body.appendChild(el);
-    el.addEventListener('click', this.onClick);
-    window.addEventListener('keydown', this.onKeyDown, true);
+    el.addEventListener("click", this.onClick);
+    window.addEventListener("keydown", this.onKeyDown, true);
     this.render();
     this.pollPad();
-    requestAnimationFrame(() => el.classList.add('open'));
+    requestAnimationFrame(() => el.classList.add("open"));
     this.hooks.onOpen?.();
   }
 
-  close(by: JournalCloseBy = 'click'): void {
-    if (!this.el) return;
-    if (this.padRaf) cancelAnimationFrame(this.padRaf);
+  close(by: JournalCloseBy = "click"): void {
+    if (!this.el) {
+      return;
+    }
+    if (this.padRaf) {
+      cancelAnimationFrame(this.padRaf);
+    }
     this.padRaf = 0;
-    window.removeEventListener('keydown', this.onKeyDown, true);
+    window.removeEventListener("keydown", this.onKeyDown, true);
     this.padDown.fill(0);
     this.el.remove();
     this.el = null;
@@ -114,19 +125,26 @@ export class JournalPanel {
   }
 
   toggle(): void {
-    if (this.el) this.close('hotkey');
-    else this.open();
+    if (this.el) {
+      this.close("hotkey");
+    } else {
+      this.open();
+    }
   }
 
   /** Required, not a courtesy: a quest can advance while the panel is up. */
   refresh(): void {
-    if (this.el) this.render();
+    if (this.el) {
+      this.render();
+    }
   }
 
   /** Returns whether this panel SPENT the press. */
   onEscape(): boolean {
-    if (!this.el) return false;
-    this.close('escape');
+    if (!this.el) {
+      return false;
+    }
+    this.close("escape");
     return true;
   }
 
@@ -136,26 +154,28 @@ export class JournalPanel {
 
   private render(): void {
     const el = this.el;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const model = this.hooks.model();
-    const pane = el.querySelector('.pane') as HTMLElement;
+    const pane = el.querySelector(".pane") as HTMLElement;
     const list = model.entries.filter((e) => e.tab === this.tab);
 
     pane.innerHTML =
-      `<div class="head"><h2>${escapeHtml(t('journal.title'))}</h2></div>` +
+      `<div class="head"><h2>${escapeHtml(t("journal.title"))}</h2></div>` +
       this.tabsHtml(model) +
       `<div class="list">${
         list.length
-          ? list.map((e) => this.cardHtml(e)).join('')
+          ? list.map((e) => this.cardHtml(e)).join("")
           : `<p class="none">${escapeHtml(t(EMPTY_KEYS[this.tab]))}</p>`
       }</div>`;
 
-    const head = pane.querySelector('.head') as HTMLElement;
-    head.insertAdjacentHTML('beforeend', `<span class="cap">${kbd('J')}${kbd('Esc')}</span>`);
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'bs-shop-x';
-    closeBtn.type = 'button';
-    closeBtn.dataset.act = 'close';
+    const head = pane.querySelector(".head") as HTMLElement;
+    head.insertAdjacentHTML("beforeend", `<span class="cap">${kbd("J")}${kbd("Esc")}</span>`);
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "bs-shop-x";
+    closeBtn.type = "button";
+    closeBtn.dataset.act = "close";
     closeBtn.innerHTML = CLOSE_ICON;
     head.appendChild(closeBtn);
 
@@ -171,48 +191,58 @@ export class JournalPanel {
     return `<div class="tabs strip" role="tablist" data-group="tab">${TABS.map((tb) => {
       const on = tb.id === this.tab;
       const n = model.entries.reduce((sum, e) => sum + (e.tab === tb.id ? 1 : 0), 0);
-      return `<button class="chip tab${on ? ' on' : ''}" type="button" role="tab"` +
-        ` data-tab="${tb.id}" aria-selected="${on}"${on ? '' : ' tabindex="-1"'}>` +
-        `${escapeHtml(t(tb.key))}<b>${n}</b></button>`;
-    }).join('')}</div>`;
+      return (
+        `<button class="chip tab${on ? " on" : ""}" type="button" role="tab"` +
+        ` data-tab="${tb.id}" aria-selected="${on}"${on ? "" : ' tabindex="-1"'}>` +
+        `${escapeHtml(t(tb.key))}<b>${n}</b></button>`
+      );
+    }).join("")}</div>`;
   }
 
   /** HUD toggle only on the active shelf — `hudRows` in main.ts filters the same way. */
   private cardHtml(e: JournalEntry): string {
     const done = e.objectives.every((o) => o.have >= o.need);
     const meta = [e.arc, e.giver, e.location].filter((s): s is string => !!s);
-    return `<article class="q c-${e.category}${done ? ' done' : ''}" data-quest="${escapeHtml(e.id)}">` +
+    return (
+      `<article class="q c-${e.category}${done ? " done" : ""}" data-quest="${escapeHtml(e.id)}">` +
       '<div class="q-h">' +
-        `<span class="badge">${escapeHtml(t(e.category === 'main' ? 'journal.main' : 'journal.side'))}</span>` +
-        `<h3>${escapeHtml(e.name)}</h3>` +
-      '</div>' +
-      (meta.length ? `<p class="q-m">${meta.map(escapeHtml).join(' · ')}</p>` : '') +
-      (e.description ? `<p class="q-d">${escapeHtml(e.description)}</p>` : '') +
+      `<span class="badge">${escapeHtml(t(e.category === "main" ? "journal.main" : "journal.side"))}</span>` +
+      `<h3>${escapeHtml(e.name)}</h3>` +
+      "</div>" +
+      (meta.length ? `<p class="q-m">${meta.map(escapeHtml).join(" · ")}</p>` : "") +
+      (e.description ? `<p class="q-d">${escapeHtml(e.description)}</p>` : "") +
       (e.objectives.length
-        ? `<ul class="steps">${e.objectives.map((o) => this.stepHtml(o)).join('')}</ul>`
-        : '') +
+        ? `<ul class="steps">${e.objectives.map((o) => this.stepHtml(o)).join("")}</ul>`
+        : "") +
       (e.rewards.length
-        ? `<div class="bs-chips">${e.rewards.map((r) =>
-            `<span class="bs-chip">${escapeHtml(r.label)} <b>${escapeHtml(r.value)}</b></span>`).join('')}</div>`
-        : '') +
-      (e.tab === 'active'
+        ? `<div class="bs-chips">${e.rewards
+            .map(
+              (r) =>
+                `<span class="bs-chip">${escapeHtml(r.label)} <b>${escapeHtml(r.value)}</b></span>`,
+            )
+            .join("")}</div>`
+        : "") +
+      (e.tab === "active"
         ? '<div class="q-f">' +
-          `<button class="bs-buy ghost${e.onHud ? ' on' : ''}" type="button"` +
+          `<button class="bs-buy ghost${e.onHud ? " on" : ""}" type="button"` +
           ` data-hud="${escapeHtml(e.id)}" aria-pressed="${e.onHud}">` +
-          `<span>${escapeHtml(t(e.onHud ? 'journal.hud.on' : 'journal.hud.off'))}</span></button>` +
-          '</div>'
-        : '') +
-      '</article>';
+          `<span>${escapeHtml(t(e.onHud ? "journal.hud.on" : "journal.hud.off"))}</span></button>` +
+          "</div>"
+        : "") +
+      "</article>"
+    );
   }
 
   /** Count only printed when need > 1 — the tick already says 0/1. */
   private stepHtml(o: JournalObjective): string {
     const done = o.have >= o.need;
-    return `<li class="${done ? 'ok' : ''}">` +
-      `<i class="tk">${done ? CHECK_ICON : ''}</i>` +
+    return (
+      `<li class="${done ? "ok" : ""}">` +
+      `<i class="tk">${done ? CHECK_ICON : ""}</i>` +
       `<span>${escapeHtml(o.text)}</span>` +
-      (o.need > 1 ? `<b>${o.have}/${o.need}</b>` : '') +
-      '</li>';
+      (o.need > 1 ? `<b>${o.have}/${o.need}</b>` : "") +
+      "</li>"
+    );
   }
 
   private showTab(tab: JournalTab): void {
@@ -223,20 +253,35 @@ export class JournalPanel {
 
   private onClick = (ev: MouseEvent): void => {
     const target = ev.target as HTMLElement | null;
-    if (!target || !this.el) return;
-    if (target.classList.contains('bs-scrim')) { this.close('click'); return; }
-    const btn = target.closest('button') as HTMLButtonElement | null;
-    if (!btn) return;
+    if (!target || !this.el) {
+      return;
+    }
+    if (target.classList.contains("bs-scrim")) {
+      this.close("click");
+      return;
+    }
+    const btn = target.closest("button") as HTMLButtonElement | null;
+    if (!btn) {
+      return;
+    }
 
-    if (btn.dataset.act === 'close') { this.close('click'); return; }
+    if (btn.dataset.act === "close") {
+      this.close("click");
+      return;
+    }
 
     const tab = btn.dataset.tab as JournalTab | undefined;
-    if (tab !== undefined) { this.showTab(tab); return; }
+    if (tab !== undefined) {
+      this.showTab(tab);
+      return;
+    }
 
     const hud = btn.dataset.hud;
     if (hud !== undefined) {
       this.hooks.onToggleHud(hud);
-      if (!this.el) return;   // the host may have closed us from inside the hook
+      if (!this.el) {
+        return;
+      } // the host may have closed us from inside the hook
       this.pendingFocus = `[data-hud="${CSS.escape(hud)}"]`;
       this.render();
     }
@@ -244,28 +289,53 @@ export class JournalPanel {
 
   /** Escape and `KeyJ` are NOT read here — the host owns those edges for all devices. */
   private onKeyDown = (ev: KeyboardEvent): void => {
-    if (!this.el) return;
-    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (!this.el) {
+      return;
+    }
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) {
+      return;
+    }
     switch (ev.key) {
-      case 'ArrowRight': if (!this.stepStrip(1)) this.moveFocus(1); ev.preventDefault(); break;
-      case 'ArrowLeft': if (!this.stepStrip(-1)) this.moveFocus(-1); ev.preventDefault(); break;
-      case 'ArrowDown': ev.preventDefault(); this.moveFocus(1); break;
-      case 'ArrowUp': ev.preventDefault(); this.moveFocus(-1); break;
+      case "ArrowRight":
+        if (!this.stepStrip(1)) {
+          this.moveFocus(1);
+        }
+        ev.preventDefault();
+        break;
+      case "ArrowLeft":
+        if (!this.stepStrip(-1)) {
+          this.moveFocus(-1);
+        }
+        ev.preventDefault();
+        break;
+      case "ArrowDown":
+        ev.preventDefault();
+        this.moveFocus(1);
+        break;
+      case "ArrowUp":
+        ev.preventDefault();
+        this.moveFocus(-1);
+        break;
       // Enter left to the platform — every control is a real button.
-      default: break;
+      default:
+        break;
     }
   };
 
   private stepStrip(dir: -1 | 1): boolean {
-    const strip = (document.activeElement as HTMLElement | null)?.closest?.('.strip');
-    if (!strip) return false;
+    const strip = (document.activeElement as HTMLElement | null)?.closest?.(".strip");
+    if (!strip) {
+      return false;
+    }
     const i = TABS.findIndex((tb) => tb.id === this.tab);
     this.showTab(TABS[(i + dir + TABS.length) % TABS.length].id);
     return true;
   }
 
   moveFocus(d: number): void {
-    if (!this.focusables.length) return;
+    if (!this.focusables.length) {
+      return;
+    }
     const here = this.focusables.indexOf(document.activeElement as HTMLButtonElement);
     const from = here >= 0 ? here : this.focusIdx;
     const n = this.focusables.length;
@@ -280,18 +350,26 @@ export class JournalPanel {
 
   /** See `InventoryPanel.pollPad`. */
   private pollPad = (): void => {
-    if (!this.el) return;
+    if (!this.el) {
+      return;
+    }
     this.padRaf = requestAnimationFrame(this.pollPad);
 
     let pad: Gamepad | null = null;
     try {
       for (const p of navigator.getGamepads?.() ?? []) {
-        if (p?.connected) { pad = p; break; }
+        if (p?.connected) {
+          pad = p;
+          break;
+        }
       }
     } catch {
       return;
     }
-    if (!pad) { this.padDown.fill(0); return; }
+    if (!pad) {
+      this.padDown.fill(0);
+      return;
+    }
 
     const n = Math.min(pad.buttons.length, this.padDown.length);
     for (let i = 0; i < n; i++) {
@@ -302,32 +380,52 @@ export class JournalPanel {
 
     const stickY = pad.axes[1] ?? 0;
     const dirY = stickY < -0.5 ? -1 : stickY > 0.5 ? 1 : 0;
-    if (dirY === 0) this.padLatchY = false;
+    if (dirY === 0) {
+      this.padLatchY = false;
+    }
     const stickX = pad.axes[0] ?? 0;
     const dirX = stickX < -0.5 ? -1 : stickX > 0.5 ? 1 : 0;
-    if (dirX === 0) this.padLatchX = false;
+    if (dirX === 0) {
+      this.padLatchX = false;
+    }
 
     let moveY = 0;
-    if (this.padEdge[12]) moveY = -1;
-    else if (this.padEdge[13]) moveY = 1;
-    else if (dirY !== 0 && !this.padLatchY) { moveY = dirY; this.padLatchY = true; }
-    if (moveY) this.moveFocus(moveY);
+    if (this.padEdge[12]) {
+      moveY = -1;
+    } else if (this.padEdge[13]) {
+      moveY = 1;
+    } else if (dirY !== 0 && !this.padLatchY) {
+      moveY = dirY;
+      this.padLatchY = true;
+    }
+    if (moveY) {
+      this.moveFocus(moveY);
+    }
 
     let moveX = 0;
-    if (this.padEdge[14]) moveX = -1;
-    else if (this.padEdge[15]) moveX = 1;
-    else if (dirX !== 0 && !this.padLatchX) { moveX = dirX; this.padLatchX = true; }
-    if (moveX && !this.stepStrip(moveX as -1 | 1)) this.moveFocus(moveX);
+    if (this.padEdge[14]) {
+      moveX = -1;
+    } else if (this.padEdge[15]) {
+      moveX = 1;
+    } else if (dirX !== 0 && !this.padLatchX) {
+      moveX = dirX;
+      this.padLatchX = true;
+    }
+    if (moveX && !this.stepStrip(moveX as -1 | 1)) {
+      this.moveFocus(moveX);
+    }
 
     // B is NOT read — GamepadControls taps a virtual Escape, routed to `onEscape`.
-    if (this.padEdge[0]) this.activate();
+    if (this.padEdge[0]) {
+      this.activate();
+    }
   };
 }
 
 const EMPTY_KEYS: Record<JournalTab, StringKey> = {
-  active: 'journal.empty.active',
-  available: 'journal.empty.available',
-  completed: 'journal.empty.completed',
+  active: "journal.empty.active",
+  available: "journal.empty.available",
+  completed: "journal.empty.completed",
 };
 
 function kbd(s: string): string {

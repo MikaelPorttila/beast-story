@@ -1,6 +1,12 @@
-import * as THREE from 'three';
-import { NO_CARRIERS, NO_SITE, type CelestialState, type TownRegistry, type World } from '../core/types';
-import { NO_SAFE_ZONES } from '../world/safe-zones';
+import * as THREE from "three";
+import {
+  NO_CARRIERS,
+  NO_SITE,
+  type CelestialState,
+  type TownRegistry,
+  type World,
+} from "../core/types";
+import { NO_SAFE_ZONES } from "../world/safe-zones";
 
 /**
  * Minimal World implementation for the lab: a flat (optionally water-filled)
@@ -14,47 +20,91 @@ export class StubWorld implements World {
    * getHeight, so the stage also has no one-way platforms — the player's canopy
    * support only engages where this stands clear of the ground.
    */
-  climbTopAt(): number { return this.getHeight(); }
+  climbTopAt(): number {
+    return this.getHeight();
+  }
 
   /** The stage has no props, so nothing on it reacts to being walked through. */
-  disturb(): void { /* no vegetation on the lab stage */ }
+  disturb(): void {
+    /* no vegetation on the lab stage */
+  }
   /** Nothing to draw: the stage has no colliders but its floor. */
-  debugColliders(): void { /* no colliders on the lab stage */ }
-  debugStructures(): void { /* nor any structure boxes */ }
+  debugColliders(): void {
+    /* no colliders on the lab stage */
+  }
+  debugStructures(): void {
+    /* nor any structure boxes */
+  }
   /** The stage has no settlements, so nothing has worn its ground. */
-  debugWear(): number { return 0; }
-  debugColumn(): number { return 0; }
-  pathRunCrosses(): boolean { return false; }
-  pathRunHitsBuilt(): boolean { return false; }
-  debugPaths(): { paths: []; at: null } { return { paths: [], at: null }; }
+  debugWear(): number {
+    return 0;
+  }
+  debugColumn(): number {
+    return 0;
+  }
+  pathRunCrosses(): boolean {
+    return false;
+  }
+  pathRunHitsBuilt(): boolean {
+    return false;
+  }
+  debugPaths(): { paths: []; at: null } {
+    return { paths: [], at: null };
+  }
   /** The stage has no network to add to. See `World.addPath`. */
   addPath(): {
-    id: string; length: number; samples: number; note: null;
-    nodes: never[]; refused: never[]; crossings: number; error: string;
+    id: string;
+    length: number;
+    samples: number;
+    note: null;
+    nodes: never[];
+    refused: never[];
+    crossings: number;
+    error: string;
   } {
     return {
-      id: '', length: 0, samples: 0, note: null, nodes: [], refused: [], crossings: 0,
-      error: 'this zone has no path network',
+      id: "",
+      length: 0,
+      samples: 0,
+      note: null,
+      nodes: [],
+      refused: [],
+      crossings: 0,
+      error: "this zone has no path network",
     };
   }
   debugCarriedStreets(): { count: number; paved: number; clear: number[] } {
     return { count: 0, paved: 0, clear: [] };
   }
-  debugRidges(): void { /* nor any roofs */ }
+  debugRidges(): void {
+    /* nor any roofs */
+  }
   /** Nor any road furniture: the stage has no roads. */
-  debugFurniture(): Array<{ kind: string; x: number; z: number }> { return []; }
+  debugFurniture(): Array<{ kind: string; x: number; z: number }> {
+    return [];
+  }
   /** ...nor any fences: the stage has no roads to line. See World.debugFences. */
-  debugFences(): ReturnType<World['debugFences']> { return []; }
-  debugCarriedTrees(): Array<{ x: number; z: number }> { return []; }
+  debugFences(): ReturnType<World["debugFences"]> {
+    return [];
+  }
+  debugCarriedTrees(): Array<{ x: number; z: number }> {
+    return [];
+  }
   /** No props on the stage, so there is never a trunk in the way. */
-  trunkSolidTopAt(): number { return -Infinity; }
+  trunkSolidTopAt(): number {
+    return -Infinity;
+  }
   /** The stage grows nothing, so there is nothing to keep out of anything. */
   readonly foliageSite = NO_SITE;
 
   /** The stage is bare floor: nothing is built on it to walk into. */
-  structureTopAt(): number { return -Infinity; }
+  structureTopAt(): number {
+    return -Infinity;
+  }
   /** No canopy on the stage either: nothing to brush leaves out of. */
-  crownContactAt(): boolean { return false; }
+  crownContactAt(): boolean {
+    return false;
+  }
 
   readonly waterLevel: number;
   readonly shopPositions: THREE.Vector3[] = [];
@@ -87,7 +137,11 @@ export class StubWorld implements World {
    * @param groundY  height of the flat floor
    * @param flooded  when true the floor sits below water level (swim testing)
    */
-  constructor(scene: THREE.Scene, private groundY = 0, flooded = false) {
+  constructor(
+    scene: THREE.Scene,
+    private groundY = 0,
+    flooded = false,
+  ) {
     this.waterLevel = flooded ? groundY + 1.6 : groundY - 50;
     this.spawnPoint.set(0, groundY, 0);
 
@@ -96,7 +150,7 @@ export class StubWorld implements World {
     const geo = new THREE.PlaneGeometry(size, size, size, size);
     geo.rotateX(-Math.PI / 2);
     const colors: number[] = [];
-    const pos = geo.getAttribute('position');
+    const pos = geo.getAttribute("position");
     const a = new THREE.Color(0x8fa87f);
     const b = new THREE.Color(0x84a074);
     for (let i = 0; i < pos.count; i++) {
@@ -105,13 +159,13 @@ export class StubWorld implements World {
       const c = (cx + cz) % 2 === 0 ? a : b;
       colors.push(c.r, c.g, c.b);
     }
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
     const floor = new THREE.Mesh(geo, mat);
     // Named so `grid=0` can find THIS mesh rather than whichever one happens to
     // be first in the scene — the engine puts its own sky and sun geometry in
     // before the stage is built.
-    floor.name = 'lab:floor';
+    floor.name = "lab:floor";
     floor.position.y = groundY;
     floor.receiveShadow = true;
     scene.add(floor);
@@ -122,7 +176,10 @@ export class StubWorld implements World {
       const wgeo = new THREE.PlaneGeometry(size, size);
       wgeo.rotateX(-Math.PI / 2);
       const wmat = new THREE.MeshStandardMaterial({
-        color: 0x3fa7f5, transparent: true, opacity: 0.62, roughness: 0.25,
+        color: 0x3fa7f5,
+        transparent: true,
+        opacity: 0.62,
+        roughness: 0.25,
       });
       const water = new THREE.Mesh(wgeo, wmat);
       water.position.y = this.waterLevel;
@@ -144,17 +201,23 @@ export class StubWorld implements World {
    * The stage's puddle is one flat plane a hand under the floor, so nothing on
    * it is ever four units down. See World.isDeepWater.
    */
-  isDeepWater(): boolean { return false; }
+  isDeepWater(): boolean {
+    return false;
+  }
 
   /** The stage has no weather: nothing on it is ever under snow. */
-  snowCoverAt(): number { return 0; }
+  snowCoverAt(): number {
+    return 0;
+  }
 
   update(): void {
     /* nothing streams in the lab */
   }
 
   /** The lab uses the engine's celestial rig; its bare stage has no consumers. */
-  applyCelestial(_state: Readonly<CelestialState>): void { /* nothing local to tint */ }
+  applyCelestial(_state: Readonly<CelestialState>): void {
+    /* nothing local to tint */
+  }
 
   /** The stage has no lights of its own, so this is just the floor. */
   /**
@@ -162,20 +225,36 @@ export class StubWorld implements World {
    * mesh and no water surface for the F3 panel to hide. It is on the `World`
    * contract because anything taking a World may call it.
    */
-  setLayerVisible(): void { /* nothing streamed here */ }
-  setFoliageDistance(): void { /* nothing grows on the lab stage */ }
-  setTerrainDistance(): void { /* the lab has no streamed terrain */ }
-  debugDistantTerrain(): null { return null; }
+  setLayerVisible(): void {
+    /* nothing streamed here */
+  }
+  setFoliageDistance(): void {
+    /* nothing grows on the lab stage */
+  }
+  setTerrainDistance(): void {
+    /* the lab has no streamed terrain */
+  }
+  debugDistantTerrain(): null {
+    return null;
+  }
   /** The stage owns no effects: the lab adds its subject to the scene itself. */
-  warmUpEffects(): void { /* nothing to link */ }
+  warmUpEffects(): void {
+    /* nothing to link */
+  }
   /** The stage has no carriers, so no carried waterfall either. */
-  debugSkyFall(): null { return null; }
+  debugSkyFall(): null {
+    return null;
+  }
 
   /** No-op for the same reason: the stage grows nothing to re-grow. */
-  rebuildProps(): void { /* nothing streamed here */ }
+  rebuildProps(): void {
+    /* nothing streamed here */
+  }
 
   setVisible(v: boolean): void {
-    for (const m of this.meshes) m.visible = v;
+    for (const m of this.meshes) {
+      m.visible = v;
+    }
   }
 
   /** One floor mesh: there is nothing here worth spreading over frames. */
@@ -185,7 +264,9 @@ export class StubWorld implements World {
   }
 
   dispose(): void {
-    for (const d of this.disposables) d.dispose();
+    for (const d of this.disposables) {
+      d.dispose();
+    }
     this.disposables = [];
   }
 }

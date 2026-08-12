@@ -54,25 +54,25 @@
 // sufficient; look at it.
 //
 // Usage:  bun tools/test-zfight.mjs [--verbose]
-import * as THREE from 'three';
-import { buildHeroRig, setHairStyle } from '../src/player/hero-rig.ts';
-import { HAIR_STYLES } from '../src/player/hair.ts';
-import { HeroAnimator } from '../src/player/animations.ts';
-import { ALL_SPECIES } from '../src/beasts/registry.ts';
-import { BEAST_CYCLE_SLOTS } from '../src/core/types.ts';
+import * as THREE from "three";
+import { buildHeroRig, setHairStyle } from "../src/player/hero-rig.ts";
+import { HAIR_STYLES } from "../src/player/hair.ts";
+import { HeroAnimator } from "../src/player/animations.ts";
+import { ALL_SPECIES } from "../src/beasts/registry.ts";
+import { BEAST_CYCLE_SLOTS } from "../src/core/types.ts";
 // NPC_BODIES and not a character roster: since issue #60 a person's identity,
 // placement and dialogue are content and there is no content runtime in this
 // process — but a BODY is code, it is what this tool looks at, and the record is
 // still the one place a body is named. See the note on it in src/world/npc.ts.
-import { NPC_BODIES } from '../src/world/npc.ts';
+import { NPC_BODIES } from "../src/world/npc.ts";
 // The taming orbs (issue #4). A projectile is a model like any other, and
 // `ITEMS` is where the four colours are written down — the same single source
 // the thrown mesh and the bag glyph are both tinted from.
-import { buildTameOrb } from '../src/combat/tame-orb.ts';
-import { ITEMS } from '../src/core/items.ts';
+import { buildTameOrb } from "../src/combat/tame-orb.ts";
+import { ITEMS } from "../src/core/items.ts";
 // The settlement's pieces. A town part is a baked `Template` rather than a rig,
 // so it reaches this tool through `templateMesh` below — see the town section.
-import { fitPalisadeRun, TownParts } from '../src/world/town-parts.ts';
+import { fitPalisadeRun, TownParts } from "../src/world/town-parts.ts";
 
 // A 2D canvas, and nothing else, is the whole of the DOM a rig builder touches:
 // the glow billboards and the flyers' contact shadows bake a radial ramp into a
@@ -84,20 +84,28 @@ import { fitPalisadeRun, TownParts } from '../src/world/town-parts.ts';
 // stubbed, which is the right way round.
 globalThis.document ??= {
   createElement: (tag) => {
-    if (tag !== 'canvas') throw new Error(`test-zfight: no DOM here (createElement ${tag})`);
+    if (tag !== "canvas") {
+      throw new Error(`test-zfight: no DOM here (createElement ${tag})`);
+    }
     return {
-      width: 0, height: 0,
+      width: 0,
+      height: 0,
       getContext: () => ({
         createRadialGradient: () => ({ addColorStop() {} }),
         createLinearGradient: () => ({ addColorStop() {} }),
-        fillRect() {}, clearRect() {}, fillText() {}, beginPath() {}, arc() {}, fill() {},
+        fillRect() {},
+        clearRect() {},
+        fillText() {},
+        beginPath() {},
+        arc() {},
+        fill() {},
         measureText: () => ({ width: 0 }),
       }),
     };
   },
 };
 
-const VERBOSE = process.argv.includes('--verbose');
+const VERBOSE = process.argv.includes("--verbose");
 
 /**
  * How close two parallel faces have to be before the depth buffer can no longer
@@ -153,26 +161,42 @@ const CONTRAST = 0.05;
  */
 function localQuads(mesh) {
   const g = mesh.geometry;
-  const pos = g.getAttribute('position');
-  const nor = g.getAttribute('normal');
-  if (!pos || !nor || pos.count % 4 !== 0) return [];
+  const pos = g.getAttribute("position");
+  const nor = g.getAttribute("normal");
+  if (!pos || !nor || pos.count % 4 !== 0) {
+    return [];
+  }
   // ...and prove it IS one, rather than assuming. A flyer's contact shadow is a
   // PlaneGeometry — four vertices, and read as a ring they cross into a bow
   // tie, which would hand the clipper a nonsense polygon. The index pattern
   // `build()` writes is the signature, so check it on the first face and walk
   // away from any geometry that was made some other way.
   const idx = g.getIndex();
-  if (!idx || idx.count !== (pos.count / 4) * 6) return [];
-  if (idx.getX(0) !== 0 || idx.getX(1) !== 1 || idx.getX(2) !== 2
-    || idx.getX(3) !== 0 || idx.getX(4) !== 2 || idx.getX(5) !== 3) return [];
+  if (!idx || idx.count !== (pos.count / 4) * 6) {
+    return [];
+  }
+  if (
+    idx.getX(0) !== 0 ||
+    idx.getX(1) !== 1 ||
+    idx.getX(2) !== 2 ||
+    idx.getX(3) !== 0 ||
+    idx.getX(4) !== 2 ||
+    idx.getX(5) !== 3
+  ) {
+    return [];
+  }
   // A surface that does not write depth cannot fight for it.
   const mat = mesh.material;
-  if (mat && (mat.depthWrite === false || mat.transparent === true)) return [];
-  const col = g.getAttribute('color');
+  if (mat && (mat.depthWrite === false || mat.transparent === true)) {
+    return [];
+  }
+  const col = g.getAttribute("color");
   const out = [];
   for (let i = 0; i < pos.count; i += 4) {
     const c = [];
-    for (let k = 0; k < 4; k++) c.push(new THREE.Vector3().fromBufferAttribute(pos, i + k));
+    for (let k = 0; k < 4; k++) {
+      c.push(new THREE.Vector3().fromBufferAttribute(pos, i + k));
+    }
     out.push({
       c,
       n: new THREE.Vector3().fromBufferAttribute(nor, i),
@@ -192,9 +216,9 @@ function localQuads(mesh) {
  */
 function templateMesh(t) {
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(t.pos, 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(t.nrm, 3));
-  g.setAttribute('color', new THREE.BufferAttribute(t.col, 3));
+  g.setAttribute("position", new THREE.BufferAttribute(t.pos, 3));
+  g.setAttribute("normal", new THREE.BufferAttribute(t.nrm, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(t.col, 3));
   g.setIndex(Array.from(t.idx));
   return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true }));
 }
@@ -202,21 +226,32 @@ function templateMesh(t) {
 /** Every mesh under a rig root, labelled by the named part it hangs from. */
 function collectParts(root, named) {
   const label = new Map();
-  for (const [name, obj] of Object.entries(named ?? {})) if (obj) label.set(obj, name);
+  for (const [name, obj] of Object.entries(named ?? {})) {
+    if (obj) label.set(obj, name);
+  }
   const parts = [];
   root.traverse((o) => {
-    if (!o.isMesh) return;
-    let name = 'root';
+    if (!o.isMesh) {
+      return;
+    }
+    let name = "root";
     for (let p = o; p; p = p.parent) {
-      if (label.has(p)) { name = label.get(p); break; }
+      if (label.has(p)) {
+        name = label.get(p);
+        break;
+      }
     }
     const quads = localQuads(o);
-    if (!quads.length) return;
+    if (!quads.length) {
+      return;
+    }
     // The occlusion ray leaves a body through the INSIDE of its outer shell,
     // which a front-side-only raycast does not see. Nothing here renders, so
     // widening the material is free and is the difference between "buried" and
     // "the ray sailed straight out of him".
-    if (o.material) o.material.side = THREE.DoubleSide;
+    if (o.material) {
+      o.material.side = THREE.DoubleSide;
+    }
     parts.push({ name, mesh: o, quads });
   });
   return parts;
@@ -233,12 +268,31 @@ function worldFaces(part) {
   for (const q of part.quads) {
     const c = q.c.map((v) => v.clone().applyMatrix4(m));
     const n = q.n.clone().applyMatrix3(_nm).normalize();
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      minZ = Infinity;
+    let maxX = -Infinity,
+      maxY = -Infinity,
+      maxZ = -Infinity;
     for (const p of c) {
-      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-      if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+      if (p.x < minX) {
+        minX = p.x;
+      }
+      if (p.x > maxX) {
+        maxX = p.x;
+      }
+      if (p.y < minY) {
+        minY = p.y;
+      }
+      if (p.y > maxY) {
+        maxY = p.y;
+      }
+      if (p.z < minZ) {
+        minZ = p.z;
+      }
+      if (p.z > maxZ) {
+        maxZ = p.z;
+      }
     }
     faces.push({ c, n, col: q.col, d: n.dot(c[0]), minX, minY, minZ, maxX, maxY, maxZ });
   }
@@ -249,15 +303,21 @@ function worldFaces(part) {
 function clipPoly(subject, clip) {
   let out = subject;
   for (let i = 0; i < clip.length && out.length; i++) {
-    const a = clip[i], b = clip[(i + 1) % clip.length];
-    const ex = b[0] - a[0], ey = b[1] - a[1];
+    const a = clip[i],
+      b = clip[(i + 1) % clip.length];
+    const ex = b[0] - a[0],
+      ey = b[1] - a[1];
     const side = (p) => ex * (p[1] - a[1]) - ey * (p[0] - a[0]);
     const next = [];
     for (let j = 0; j < out.length; j++) {
-      const p = out[j], q = out[(j + 1) % out.length];
-      const sp = side(p), sq = side(q);
-      if (sp >= 0) next.push(p);
-      if ((sp >= 0) !== (sq >= 0)) {
+      const p = out[j],
+        q = out[(j + 1) % out.length];
+      const sp = side(p),
+        sq = side(q);
+      if (sp >= 0) {
+        next.push(p);
+      }
+      if (sp >= 0 !== sq >= 0) {
         const t = sp / (sp - sq);
         next.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
       }
@@ -270,13 +330,15 @@ function clipPoly(subject, clip) {
 function polyArea(poly) {
   let a2 = 0;
   for (let i = 0; i < poly.length; i++) {
-    const p = poly[i], q = poly[(i + 1) % poly.length];
+    const p = poly[i],
+      q = poly[(i + 1) % poly.length];
     a2 += p[0] * q[1] - q[0] * p[1];
   }
   return Math.abs(a2) * 0.5;
 }
 
-const _u = new THREE.Vector3(), _v = new THREE.Vector3();
+const _u = new THREE.Vector3(),
+  _v = new THREE.Vector3();
 
 /** Project a face's corners onto its own plane's tangent axes. */
 function flatten(face, u, v) {
@@ -318,12 +380,18 @@ function exposedFraction(poly, u, v, n, d, meshes) {
   // Centroid, then each vertex pulled 55% of the way in, then the edge
   // midpoints likewise: interior points that still reach into the corners of a
   // patch whose middle happens to be covered.
-  let cx = 0, cy = 0;
-  for (const p of poly) { cx += p[0]; cy += p[1]; }
-  cx /= poly.length; cy /= poly.length;
+  let cx = 0,
+    cy = 0;
+  for (const p of poly) {
+    cx += p[0];
+    cy += p[1];
+  }
+  cx /= poly.length;
+  cy /= poly.length;
   const samples = [[cx, cy]];
   for (let i = 0; i < poly.length; i++) {
-    const p = poly[i], q = poly[(i + 1) % poly.length];
+    const p = poly[i],
+      q = poly[(i + 1) % poly.length];
     for (const s of [p, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]]) {
       samples.push([cx + (s[0] - cx) * 0.55, cy + (s[1] - cy) * 0.55]);
     }
@@ -332,9 +400,14 @@ function exposedFraction(poly, u, v, n, d, meshes) {
   for (const [sx, sy] of samples) {
     // Rebuild the 3D point on the plane, then lift it clear of BOTH fighting
     // faces — they are within GAP of each other by definition.
-    _o.copy(u).multiplyScalar(sx).addScaledVector(v, sy).addScaledVector(n, d + GAP * 2);
+    _o.copy(u)
+      .multiplyScalar(sx)
+      .addScaledVector(v, sy)
+      .addScaledVector(n, d + GAP * 2);
     _ray.set(_o, n);
-    if (_ray.intersectObjects(meshes, false).length === 0) open++;
+    if (_ray.intersectObjects(meshes, false).length === 0) {
+      open++;
+    }
   }
   return open / samples.length;
 }
@@ -350,35 +423,65 @@ function exposedFraction(poly, u, v, n, d, meshes) {
  */
 function overlaps(a, b, hits) {
   const box = {
-    minX: Math.max(a.box.minX, b.box.minX) - GAP, maxX: Math.min(a.box.maxX, b.box.maxX) + GAP,
-    minY: Math.max(a.box.minY, b.box.minY) - GAP, maxY: Math.min(a.box.maxY, b.box.maxY) + GAP,
-    minZ: Math.max(a.box.minZ, b.box.minZ) - GAP, maxZ: Math.min(a.box.maxZ, b.box.maxZ) + GAP,
+    minX: Math.max(a.box.minX, b.box.minX) - GAP,
+    maxX: Math.min(a.box.maxX, b.box.maxX) + GAP,
+    minY: Math.max(a.box.minY, b.box.minY) - GAP,
+    maxY: Math.min(a.box.maxY, b.box.maxY) + GAP,
+    minZ: Math.max(a.box.minZ, b.box.minZ) - GAP,
+    maxZ: Math.min(a.box.maxZ, b.box.maxZ) + GAP,
   };
-  if (box.minX > box.maxX || box.minY > box.maxY || box.minZ > box.maxZ) return;
-  const inBox = (f) => f.maxX >= box.minX && f.minX <= box.maxX
-    && f.maxY >= box.minY && f.minY <= box.maxY
-    && f.maxZ >= box.minZ && f.minZ <= box.maxZ;
+  if (box.minX > box.maxX || box.minY > box.maxY || box.minZ > box.maxZ) {
+    return;
+  }
+  const inBox = (f) =>
+    f.maxX >= box.minX &&
+    f.minX <= box.maxX &&
+    f.maxY >= box.minY &&
+    f.minY <= box.maxY &&
+    f.maxZ >= box.minZ &&
+    f.minZ <= box.maxZ;
   const fa = a.faces.filter(inBox);
-  if (!fa.length) return;
+  if (!fa.length) {
+    return;
+  }
   const fb = b.faces.filter(inBox);
   for (const x of fa) {
     for (const y of fb) {
-      if (x.n.dot(y.n) < PARALLEL) continue;
-      if (Math.abs(x.d - y.d) > GAP) continue;
-      if (x.maxX + GAP < y.minX || y.maxX + GAP < x.minX) continue;
-      if (x.maxY + GAP < y.minY || y.maxY + GAP < x.minY) continue;
-      if (x.maxZ + GAP < y.minZ || y.maxZ + GAP < x.minZ) continue;
+      if (x.n.dot(y.n) < PARALLEL) {
+        continue;
+      }
+      if (Math.abs(x.d - y.d) > GAP) {
+        continue;
+      }
+      if (x.maxX + GAP < y.minX || y.maxX + GAP < x.minX) {
+        continue;
+      }
+      if (x.maxY + GAP < y.minY || y.maxY + GAP < x.minY) {
+        continue;
+      }
+      if (x.maxZ + GAP < y.minZ || y.maxZ + GAP < x.minZ) {
+        continue;
+      }
       // Tangent frame on the shared plane: any axis not parallel to the normal.
       _u.set(1, 0, 0);
-      if (Math.abs(x.n.x) > 0.9) _u.set(0, 1, 0);
+      if (Math.abs(x.n.x) > 0.9) {
+        _u.set(0, 1, 0);
+      }
       _u.crossVectors(_u, x.n).normalize();
       _v.crossVectors(x.n, _u);
       const poly = clipPoly(flatten(x, _u, _v), flatten(y, _u, _v));
-      if (poly.length < 3) continue;
+      if (poly.length < 3) {
+        continue;
+      }
       const area = polyArea(poly);
-      if (area < MIN_AREA) continue;
+      if (area < MIN_AREA) {
+        continue;
+      }
       hits.push({
-        a: a.name, b: b.name, area, gap: Math.abs(x.d - y.d),
+        a: a.name,
+        b: b.name,
+        area,
+        gap: Math.abs(x.d - y.d),
         // Same colour, same normal, same plane: the two faces resolve to the
         // SAME pixels, and whichever wins the depth test the player sees no
         // seam. See CONTRAST.
@@ -393,7 +496,11 @@ function overlaps(a, b, hits) {
         order: `${a.name}|${b.name}`,
         // Kept so exposure can be measured LATER, and only for the pair-worst
         // hit — a raycast per candidate would dominate the run.
-        poly, u: _u.clone(), v: _v.clone(), n: x.n, d: x.d,
+        poly,
+        u: _u.clone(),
+        v: _v.clone(),
+        n: x.n,
+        d: x.d,
       });
     }
   }
@@ -404,13 +511,32 @@ function checkPose(parts, acc) {
   const live = parts.map((p) => {
     const faces = worldFaces(p);
     const box = {
-      minX: Infinity, minY: Infinity, minZ: Infinity,
-      maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity,
+      minX: Infinity,
+      minY: Infinity,
+      minZ: Infinity,
+      maxX: -Infinity,
+      maxY: -Infinity,
+      maxZ: -Infinity,
     };
     for (const f of faces) {
-      if (f.minX < box.minX) box.minX = f.minX; if (f.maxX > box.maxX) box.maxX = f.maxX;
-      if (f.minY < box.minY) box.minY = f.minY; if (f.maxY > box.maxY) box.maxY = f.maxY;
-      if (f.minZ < box.minZ) box.minZ = f.minZ; if (f.maxZ > box.maxZ) box.maxZ = f.maxZ;
+      if (f.minX < box.minX) {
+        box.minX = f.minX;
+      }
+      if (f.maxX > box.maxX) {
+        box.maxX = f.maxX;
+      }
+      if (f.minY < box.minY) {
+        box.minY = f.minY;
+      }
+      if (f.maxY > box.maxY) {
+        box.maxY = f.maxY;
+      }
+      if (f.minZ < box.minZ) {
+        box.minZ = f.minZ;
+      }
+      if (f.maxZ > box.maxZ) {
+        box.maxZ = f.maxZ;
+      }
     }
     return { name: p.name, faces, box };
   });
@@ -421,8 +547,12 @@ function checkPose(parts, acc) {
       // share a face: `build` culls against every cell regardless of batch. Skip
       // the pair anyway so a glowing eye can never be reported against the skull
       // it was cut out of.
-      if (live[i].name === live[j].name && (parts[i].mesh.parent === parts[j].mesh
-        || parts[j].mesh.parent === parts[i].mesh)) continue;
+      if (
+        live[i].name === live[j].name &&
+        (parts[i].mesh.parent === parts[j].mesh || parts[j].mesh.parent === parts[i].mesh)
+      ) {
+        continue;
+      }
       overlaps(live[i], live[j], hits);
     }
   }
@@ -435,16 +565,26 @@ function checkPose(parts, acc) {
   for (const h of hits) {
     const key = h.a < h.b ? `${h.a} / ${h.b}` : `${h.b} / ${h.a}`;
     const cur = acc.get(key);
-    if (cur && h.area <= cur.area) continue;
+    if (cur && h.area <= cur.area) {
+      continue;
+    }
     const exposure = exposedFraction(h.poly, h.u, h.v, h.n, h.d, meshes);
     const seen = h.area * exposure;
-    if (cur && seen <= cur.area) continue;
+    if (cur && seen <= cur.area) {
+      continue;
+    }
     acc.set(key, {
-      pair: key, area: seen, buriedArea: h.area, exposure, gap: h.gap, contrast: h.contrast,
+      pair: key,
+      area: seen,
+      buriedArea: h.area,
+      exposure,
+      gap: h.gap,
+      contrast: h.contrast,
       at: [+h.at.x.toFixed(3), +h.at.y.toFixed(3), +h.at.z.toFixed(3)],
       facing: [+h.facing.x.toFixed(2), +h.facing.y.toFixed(2), +h.facing.z.toFixed(2)],
       order: h.order,
-      boxA: h.boxA.map((n) => +n.toFixed(3)), boxB: h.boxB.map((n) => +n.toFixed(3)),
+      boxA: h.boxA.map((n) => +n.toFixed(3)),
+      boxB: h.boxB.map((n) => +n.toFixed(3)),
     });
   }
 }
@@ -460,7 +600,7 @@ const DT = 1 / 30;
 function checkRig(name, root, named, poseAt) {
   const parts = collectParts(root, named);
   const acc = new Map();
-  checkPose(parts, acc);              // bind pose — where authoring mistakes live
+  checkPose(parts, acc); // bind pose — where authoring mistakes live
   for (let i = 0; i < SAMPLES; i++) {
     poseAt?.(i * (4.9 / SAMPLES), i);
     checkPose(parts, acc);
@@ -468,10 +608,16 @@ function checkRig(name, root, named, poseAt) {
   const all = [...acc.values()]
     .map((v) => ({
       pair: v.pair,
-      area: +v.area.toFixed(5), buriedArea: +v.buriedArea.toFixed(5),
-      exposure: +v.exposure.toFixed(2), gap: +v.gap.toFixed(4),
-      contrast: +v.contrast.toFixed(3), at: v.at, facing: v.facing,
-      order: v.order, boxA: v.boxA, boxB: v.boxB,
+      area: +v.area.toFixed(5),
+      buriedArea: +v.buriedArea.toFixed(5),
+      exposure: +v.exposure.toFixed(2),
+      gap: +v.gap.toFixed(4),
+      contrast: +v.contrast.toFixed(3),
+      at: v.at,
+      facing: v.facing,
+      order: v.order,
+      boxA: v.boxA,
+      boxB: v.boxB,
     }))
     .sort((x, y) => y.area - x.area);
   // A SEAM is the whole conjunction: coincident, exposed to the camera, and a
@@ -499,15 +645,29 @@ const results = [];
   const anim = new HeroAnimator();
   const attack = { active: false, combo: 0, t: 0, dur: 0.42 };
   const base = {
-    time: 0, dt: DT, moveNorm: 0, sprinting: false, onGround: true, swimming: false,
-    climbing: false, climbRate: 0, riding: false, velY: 0, attack,
-    dead: false, deadT: 0, landBump: 0, hurtT: 0,
+    time: 0,
+    dt: DT,
+    moveNorm: 0,
+    sprinting: false,
+    onGround: true,
+    swimming: false,
+    climbing: false,
+    climbRate: 0,
+    riding: false,
+    velY: 0,
+    attack,
+    dead: false,
+    deadT: 0,
+    landBump: 0,
+    hurtT: 0,
   };
   // Idle, running, sprinting, swimming, climbing, riding and mid-swing: the
   // states that move the arms across the torso, which is where a hero rig would
   // ever bring two parts flush.
   const MODES = [
-    {}, { moveNorm: 1 }, { moveNorm: 1, sprinting: true },
+    {},
+    { moveNorm: 1 },
+    { moveNorm: 1, sprinting: true },
     { swimming: true, moveNorm: 0.7, onGround: false },
     { climbing: true, climbRate: 1, onGround: false },
     { riding: true, moveNorm: 0.6 },
@@ -517,7 +677,7 @@ const results = [];
   delete named.root;
   const acc = [];
   for (const mode of MODES) {
-    const r = checkRig('hero', rig.root, named, (t) => {
+    const r = checkRig("hero", rig.root, named, (t) => {
       anim.update(rig, { ...base, ...mode, time: t });
     });
     acc.push(r);
@@ -537,7 +697,7 @@ const results = [];
   const merged = acc.reduce((best, r) => (r.worstSeamArea > best.worstSeamArea ? r : best), acc[0]);
   // One row for the hero, but say WHICH pose or hairstyle it came from — with
   // eight heads in the sweep, "hero: 1 seam" alone is not a place to look.
-  results.push({ ...merged, rig: 'hero', worstIn: merged.rig });
+  results.push({ ...merged, rig: "hero", worstIn: merged.rig });
 }
 
 // -- beasts -----------------------------------------------------------------
@@ -545,21 +705,38 @@ for (const sp of ALL_SPECIES) {
   const rig = sp.buildRig();
   const phases = new Array(BEAST_CYCLE_SLOTS).fill(0);
   const ctx = {
-    action: 'idle', actionTime: 0, time: 0, moveSpeed: 0, dt: DT,
-    cycle(slot, freq) { phases[slot] += freq * DT; return phases[slot]; },
+    action: "idle",
+    actionTime: 0,
+    time: 0,
+    moveSpeed: 0,
+    dt: DT,
+    cycle(slot, freq) {
+      phases[slot] += freq * DT;
+      return phases[slot];
+    },
   };
-  const ACTIONS = ['idle', sp.locomotion === 'fly' ? 'fly' : sp.locomotion === 'swim' ? 'swim' : 'walk',
-    'run', 'attack', 'cast', 'special', 'hurt', 'happy'];
+  const ACTIONS = [
+    "idle",
+    sp.locomotion === "fly" ? "fly" : sp.locomotion === "swim" ? "swim" : "walk",
+    "run",
+    "attack",
+    "cast",
+    "special",
+    "hurt",
+    "happy",
+  ];
   let worst = null;
   for (const action of ACTIONS) {
     const r = checkRig(sp.id, rig.root, rig.parts, (t, i) => {
       ctx.action = action;
       ctx.actionTime = i * DT * 4;
       ctx.time = t;
-      ctx.moveSpeed = action === 'run' ? 1 : action === 'idle' ? 0 : 0.6;
+      ctx.moveSpeed = action === "run" ? 1 : action === "idle" ? 0 : 0.6;
       sp.animate(rig, ctx);
     });
-    if (!worst || r.worstSeamArea > worst.worstSeamArea) worst = r;
+    if (!worst || r.worstSeamArea > worst.worstSeamArea) {
+      worst = r;
+    }
   }
   results.push(worst);
 }
@@ -571,10 +748,13 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
   let worst = null;
   for (const attended of [false, true]) {
     const r = checkRig(id, rig.root, rig.parts, (t) => {
-      ctx.time = t; ctx.attended = attended;
+      ctx.time = t;
+      ctx.attended = attended;
       body.animate(rig, ctx);
     });
-    if (!worst || r.worstSeamArea > worst.worstSeamArea) worst = r;
+    if (!worst || r.worstSeamArea > worst.worstSeamArea) {
+      worst = r;
+    }
   }
   results.push(worst);
 }
@@ -603,9 +783,9 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
   const parts = new TownParts();
   /** [name, body, glow] — every pair towns.ts stamps at one point. */
   const PAIRS = [
-    ['campfire', parts.fire, parts.fireGlow],
-    ['brazier', parts.brazier, parts.brazierGlow],
-    ['lamp', parts.lamp, parts.lampGlow],
+    ["campfire", parts.fire, parts.fireGlow],
+    ["brazier", parts.brazier, parts.brazierGlow],
+    ["lamp", parts.lamp, parts.lampGlow],
   ];
   /** Relative yaws swept, radians. Coarse and deliberately not aligned to pi/2. */
   const YAWS = 12;
@@ -617,7 +797,7 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
     glowPivot.add(glowMesh);
     root.add(bodyMesh, glowPivot);
     const r = checkRig(name, root, { body: bodyMesh, glow: glowPivot }, (_t, i) => {
-      glowPivot.rotation.y = (i % YAWS) * (Math.PI * 2 / YAWS);
+      glowPivot.rotation.y = (i % YAWS) * ((Math.PI * 2) / YAWS);
     });
     results.push(r);
   }
@@ -639,7 +819,7 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
     root.add(mesh);
     named[`span-${i}`] = mesh;
   }
-  results.push(checkRig('palisade-run', root, named, () => {}));
+  results.push(checkRig("palisade-run", root, named, () => {}));
 }
 
 // -- taming orbs ------------------------------------------------------------
@@ -654,12 +834,16 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
 // `VoxelModel.build`), so the shell and the core genuinely are two parts to
 // compare rather than one.
 for (const def of Object.values(ITEMS)) {
-  if (def.kind !== 'orb') continue;
+  if (def.kind !== "orb") {
+    continue;
+  }
   const mesh = buildTameOrb(def.color);
   const root = new THREE.Group();
   root.add(mesh);
   const named = { shell: mesh };
-  mesh.children.forEach((c, i) => { named[`glow${i}`] = c; });
+  mesh.children.forEach((c, i) => {
+    named[`glow${i}`] = c;
+  });
   results.push(checkRig(`orb:${def.id}`, root, named, () => {}));
 }
 
@@ -697,16 +881,16 @@ const BUDGET = {
   // with the skull or an ear; the rule that keeps it off them is written at the
   // top of src/player/hair.ts.
   hero: 0,
-  emberfox: 8,    // worst 0.00775
-  aquaxol: 1,     // worst 0.00909
-  sproutle: 3,    // worst 0.00836
-  sparkit: 4,     // worst 0.01089
-  frostwing: 4,   // worst 0.00750
-  boulderpup: 1,  // worst 0.00798
-  galebird: 5,    // worst 0.00886
-  umbrakit: 4,    // worst 0.00593
-  lumimoth: 3,    // worst 0.00757
-  drakelet: 2,    // worst 0.01022
+  emberfox: 8, // worst 0.00775
+  aquaxol: 1, // worst 0.00909
+  sproutle: 3, // worst 0.00836
+  sparkit: 4, // worst 0.01089
+  frostwing: 4, // worst 0.00750
+  boulderpup: 1, // worst 0.00798
+  galebird: 5, // worst 0.00886
+  umbrakit: 4, // worst 0.00593
+  lumimoth: 3, // worst 0.00757
+  drakelet: 2, // worst 0.01022
   // The water roster (issue #76). Three of the five are CLEAN, and they are the
   // first species to ship that way — every seam they started with was a joint
   // where two masses agreed on a face plane, and all of them were fixed by
@@ -717,8 +901,8 @@ const BUDGET = {
   // The two that are not clean are debt, and both are the same shape of
   // problem the older entries above have — a tapering mass whose last cell
   // column lands on the same x as the part hanging off it:
-  rivotter: 1,    // worst 0.00509 — the tail root against the hips
-  coralback: 2,   // worst 0.00603 — the head and neck against the shell rim
+  rivotter: 1, // worst 0.00509 — the tail root against the hips
+  coralback: 2, // worst 0.00603 — the head and neck against the shell rim
   finnick: 0,
   snapclaw: 0,
   lanternfin: 0,
@@ -732,14 +916,14 @@ const BUDGET = {
   // painted into the pelvis's own grid instead of hung beside it as a second
   // mesh — which is the "move the paint where you cannot part the grid" case.
   graveborn: 0,
-  gain: 0,        // clean
+  gain: 0, // clean
   // The three who live on the flying island (issue #68). Clean, and clean the
   // same way Gain is: they are one parameterised body (world/npc-skyfolk.ts),
   // so the three joints that shared a grid — the shoulder in x, the forearm in
   // x, the prop on the fist — were parted once and all three inherited it.
-  'sky-pilot': 0,
-  'sky-gardener': 0,
-  'sky-lamplighter': 0,
+  "sky-pilot": 0,
+  "sky-gardener": 0,
+  "sky-lamplighter": 0,
   // The settlement's glow pairs, and they are a different kind of entry: these
   // are not debt, they are a defect that was found and fixed. All three were
   // seams the day this section was written — 0.0784 m2 on the campfire and the
@@ -750,16 +934,16 @@ const BUDGET = {
   lamp: 0,
   // Issue #128: adjacent Encampment spans meet at their ends; no outward faces
   // overlap for the depth buffer to arbitrate.
-  'palisade-run': 0,
+  "palisade-run": 0,
   // The taming orbs (issue #4), and the same kind of entry as the three above:
   // 0 from the first run and 0 is the requirement. The shell and the lit seam
   // are painted into ONE `VoxelModel`, which is what makes `GLOW_PART`
   // unnecessary for them — see the header of src/combat/tame-orb.ts. Anything
   // above 0 here means that stopped being true.
-  'orb:orb-tame': 0,
-  'orb:orb-greater': 0,
-  'orb:orb-ultra': 0,
-  'orb:orb-master': 0,
+  "orb:orb-tame": 0,
+  "orb:orb-greater": 0,
+  "orb:orb-ultra": 0,
+  "orb:orb-master": 0,
 };
 
 const over = results
@@ -769,17 +953,25 @@ const over = results
 // species, or one renamed. Budget 0, so it has to be looked at.
 const unbudgeted = results.filter((r) => !(r.rig in BUDGET)).map((r) => r.rig);
 
-console.log(JSON.stringify({
-  gapThreshold: GAP,
-  minAreaM2: MIN_AREA,
-  contrastThreshold: CONTRAST,
-  rigs: results.length,
-  totalSeams: results.reduce((n, r) => n + r.seams, 0),
-  hiddenPairs: results.reduce((n, r) => n + r.hiddenPairs, 0),
-  cleanRigs: results.filter((r) => r.seams === 0).map((r) => r.rig),
-  overBudget: over,
-  unbudgeted,
-  pass: over.length === 0,
-  results,
-}, null, 2));
-if (over.length) process.exitCode = 1;
+console.log(
+  JSON.stringify(
+    {
+      gapThreshold: GAP,
+      minAreaM2: MIN_AREA,
+      contrastThreshold: CONTRAST,
+      rigs: results.length,
+      totalSeams: results.reduce((n, r) => n + r.seams, 0),
+      hiddenPairs: results.reduce((n, r) => n + r.hiddenPairs, 0),
+      cleanRigs: results.filter((r) => r.seams === 0).map((r) => r.rig),
+      overBudget: over,
+      unbudgeted,
+      pass: over.length === 0,
+      results,
+    },
+    null,
+    2,
+  ),
+);
+if (over.length) {
+  process.exitCode = 1;
+}
