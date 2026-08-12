@@ -1,49 +1,10 @@
-/**
- * A structural checker for authored bodies — small, composable, dependency-free.
- *
- * NO VALIDATION LIBRARY, and that is this project's oldest rule rather than a
- * preference about zod: `package.json` carries three runtime lines and the
- * architecture note in AGENTS.md says every model, animation and effect is
- * generated in code. The shapes here are a dozen fields wide. A schema library
- * would be the largest dependency in the tree, bought to describe records that
- * fit on a screen, and it would own the one thing this file exists to control —
- * the DIAGNOSTIC. What comes out the other side of a reader is not a thrown
- * `ZodError` with a machine path, it is a `Diagnostic` with a code a tool
- * matches, a field path an author can find and a sentence saying what to do.
- *
- * A READER NEVER THROWS AND NEVER RETURNS `undefined` BY ACCIDENT. It reports
- * and returns a documented FALLBACK, because the loader's contract (types.ts,
- * `ParseCtx`) is that one bad field costs one diagnostic and the rest of the
- * package still loads. `opt()` is how a field says it is genuinely optional; a
- * bare reader always produces a value, and every fallback below is chosen so a
- * player or a designer can SEE it rather than wonder:
- *
- *   - text  -> `{{data.name}}`, the path itself, which reads as a placeholder
- *              on screen and names the field to fix;
- *   - color -> magenta, the missing-texture convention, for the same reason;
- *   - when  -> `NEVER`, and that one is not cosmetic — see below;
- *   - list, actions -> empty, i.e. the thing simply does not happen.
- *
- * A MALFORMED CONDITION FAILS CLOSED. `when: undefined` means "always" in the
- * envelope, so returning undefined for a broken `when` would make a typo publish
- * content instead of hiding it. types.ts already argues this for an unknown
- * test — hidden content is a missing quest, visible content is a spoiler or a
- * soft-lock — and the asymmetry is the same here, so `condition()` falls back to
- * `NEVER` rather than to absence.
- *
- * EVERY READER TAKES A PATH, because "a field is the wrong type" is not a
- * diagnostic anybody can act on. `Reader.at()` threads it: `ctx.at('data')
- * .at('spawns').at(2).at('id')` prints `data.spawns[2].id`, and the child is a
- * new object rather than a mutated cursor, so a reader that recurses cannot
- * corrupt its caller's path on the way back out.
- *
- * CAPS THROUGHOUT, because remote JSON is untrusted (spec §22): nesting depth,
- * list length, record width, string length, and the number of complaints one
- * body may generate. A hostile package is not the interesting case — a
- * generated one is. Every cap reports `too-deep` or `too-large` and stops
- * descending, so the cost of refusing a bad document is bounded by the cap and
- * not by the document.
- */
+// Structural checker for authored bodies. No validation library: the point of this
+// file is the DIAGNOSTIC — a code a tool matches, a field path, and a fix.
+// A reader never throws: it reports and returns a deliberately VISIBLE fallback, and
+// `opt()` is the only way to say a field may be absent. A malformed `when` fails
+// CLOSED to `NEVER`, since absent `when` means "always". `at()` returns a NEW child
+// reader, so recursion cannot corrupt a caller's path. Caps everywhere, so refusing a
+// bad document costs the cap and not the document.
 
 import type {
   Action,
@@ -58,30 +19,16 @@ import type {
 import { isId, parseId } from './ids';
 import type { DiagCode } from './diagnostics';
 
-// ---------------------------------------------------------------------------
-// Limits
-// ---------------------------------------------------------------------------
-
 export interface Limits {
   /** How deep `at()` may descend before a container reader refuses. */
   readonly maxDepth: number;
-  /** Items in one list. */
   readonly maxItems: number;
-  /** Keys in one record, and params on one condition leaf or action. */
   readonly maxKeys: number;
-  /** Characters in one authored string. */
   readonly maxStringLen: number;
-  /** Nesting of a condition tree specifically — cheaper to blow than `maxDepth`. */
   readonly maxConditionDepth: number;
-  /** Findings one body may produce before the rest are dropped. */
   readonly maxReports: number;
 }
 
-/**
- * The shipped caps. Every one is far above anything hand-authored and far below
- * anything that costs a frame: the deepest real body in the migrated content is
- * a dialogue tree about six levels down, and a town carries a dozen fields.
- */
 export const LIMITS: Limits = {
   maxDepth: 24,
   maxItems: 4096,
@@ -91,58 +38,37 @@ export const LIMITS: Limits = {
   maxReports: 200,
 };
 
-/** The fallback colour: magenta, the missing-texture convention. */
 export const MISSING_COLOR = 0xff00ff;
 
-/**
- * A condition that can never pass — what a malformed `when` becomes.
- *
- * `any` of nothing is false by the same vacuous-quantifier rule that makes `all`
- * of nothing true, so this needs no registered test and no special case in the
- * evaluator. If an evaluator ever disagreed about the empty `any`, this constant
- * is the single place to change, which is why the fallback is a named export and
- * not an object literal at each site.
- */
+// An empty `any` is false, so this needs no registered test. Named, so there is one
+// place to change if an evaluator ever disagreed about the empty case.
 export const NEVER: Condition = Object.freeze({ any: Object.freeze([]) as readonly Condition[] });
 
-// ---------------------------------------------------------------------------
-// The reader context
-// ---------------------------------------------------------------------------
-
-/** What every reader is given: where it is, and how to complain about it. */
 export interface Reader {
   /** Dotted path from the asset root — `data.spawns[2].id`. */
   readonly path: string;
-  /** How many `at()` calls deep. */
   readonly depth: number;
   /** True once `maxDepth` is reached; container readers bail on it. */
   readonly tooDeep: boolean;
   readonly limits: Limits;
-  /** A child reader for one field or index. */
   at(field: string | number): Reader;
-  /** Report about THIS path. */
   report(severity: Severity, code: DiagCode, message: string, fix?: string): void;
-  /**
-   * Is this a key the shipped string table has? Supplied by a caller that can
-   * see `src/i18n/en.ts`; absent everywhere else, and a `text` reader that is
-   * not given one simply does not make the claim. See `text()`.
-   */
+  /** Supplied by a caller that can see `src/i18n/en.ts`; absent elsewhere. */
   readonly knownTextKey?: (key: string) => boolean;
 }
 
-/** How a reader's complaints reach a sink. Matches `ParseCtx.report` exactly. */
 export type ReportFn = (
   d: Omit<Diagnostic, 'assetId' | 'source'> & { field?: string },
 ) => void;
 
 export interface ReaderOptions {
-  /** Root path. `''` for an asset root, `'data'` when a parser is handed a body. */
+  /** `''` for an asset root, `'data'` when a parser is handed a body. */
   readonly path?: string;
   readonly limits?: Partial<Limits>;
   readonly knownTextKey?: (key: string) => boolean;
 }
 
-/** Shared across every child of one root, so the caps are per BODY and not per field. */
+/** Shared by every child of one root, so caps are per BODY and not per field. */
 interface Budget {
   reports: number;
   capped: boolean;
@@ -185,9 +111,7 @@ class FieldReader implements Reader {
 
   report(severity: Severity, code: DiagCode, message: string, fix?: string): void {
     if (this.budget.reports >= this.limits.maxReports) {
-      // One line saying we stopped, then silence. A body that produced two
-      // hundred complaints has one cause, and printing the other nine hundred
-      // buries it.
+      // One line saying we stopped, then silence: they are usually one cause.
       if (!this.budget.capped) {
         this.budget.capped = true;
         this.emit({
@@ -204,7 +128,6 @@ class FieldReader implements Reader {
   }
 }
 
-/** Build a root reader over any report function. */
 export function createReader(emit: ReportFn, opts: ReaderOptions = {}): Reader {
   return new FieldReader(
     opts.path ?? '',
@@ -216,21 +139,16 @@ export function createReader(emit: ReportFn, opts: ReaderOptions = {}): Reader {
   );
 }
 
-/** Build a root reader over a `ParseCtx` — what a type's `parse()` does first. */
 export function readerFor(ctx: ParseCtx, opts: ReaderOptions = {}): Reader {
   return createReader((d) => ctx.report(d), { path: 'data', ...opts });
 }
 
-// ---------------------------------------------------------------------------
-// Shared shape tests
-// ---------------------------------------------------------------------------
-
-/** A plain object — not null, not an array. The one narrowing every reader starts from. */
+/** Not null, not an array. */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** True when the field is there at all. `null` counts as absent — JSON's "no value". */
+/** `null` counts as absent — JSON's "no value". */
 function present(value: unknown, ctx: Reader, what: string): boolean {
   if (value === undefined || value === null) {
     ctx.report('error', 'missing-field', `${what} is required`, `add "${lastKey(ctx.path)}"`);
@@ -250,17 +168,7 @@ function typeName(value: unknown): string {
   return `a ${typeof value}`;
 }
 
-// ---------------------------------------------------------------------------
-// Readers
-// ---------------------------------------------------------------------------
-
-/**
- * A reader: value in, narrowed value (or fallback) out.
- *
- * The scalar readers below take an extra options argument, which keeps them
- * usable as a bare `ReadFn` — `list(str)` is exactly the composition it looks
- * like, because the extra parameter is optional.
- */
+// The scalar readers' options argument is optional, which keeps `list(str)` valid.
 export type ReadFn<T> = (value: unknown, ctx: Reader) => T;
 
 export interface StrOptions {
@@ -306,16 +214,8 @@ export interface NumOptions {
   readonly what?: string;
 }
 
-/**
- * A finite number.
- *
- * OUT OF RANGE CLAMPS rather than falling back, and that is the one place a
- * reader keeps the author's value instead of replacing it: a radius of 10000
- * where the cap is 200 says "as big as it goes", and answering it with the
- * DEFAULT of 19 is a smaller number than the author asked for in a direction
- * they did not ask for. A wrong TYPE has no intent to preserve, so it does not
- * get the same treatment.
- */
+// Out of range CLAMPS rather than falling back: the author's intent is preserved.
+// A wrong type has no intent to keep, so it does not get the same treatment.
 export function num(value: unknown, ctx: Reader, o: NumOptions = {}): number {
   const fallback = o.fallback ?? 0;
   if (!present(value, ctx, o.what ?? 'a number')) return fallback;
@@ -334,7 +234,6 @@ export function num(value: unknown, ctx: Reader, o: NumOptions = {}): number {
   return value;
 }
 
-/** A whole number. A fractional one is reported and rounded, for the reason `num` clamps. */
 export function int(value: unknown, ctx: Reader, o: NumOptions = {}): number {
   const n = num(value, ctx, o);
   if (!Number.isInteger(n)) {
@@ -349,14 +248,8 @@ export interface BoolOptions {
   readonly what?: string;
 }
 
-/**
- * A boolean, and only a boolean.
- *
- * `"true"` is NOT accepted. JSON has real booleans, so a quoted one is a
- * mistake somewhere upstream, and quietly accepting it means the day someone
- * writes `"false"` the field reads as true in every language that treats a
- * non-empty string as truthy.
- */
+// `"true"` is NOT accepted: JSON has real booleans, and accepting quoted ones makes
+// `"false"` read as true.
 export function bool(value: unknown, ctx: Reader, o: BoolOptions = {}): boolean {
   const fallback = o.fallback ?? false;
   if (!present(value, ctx, o.what ?? 'a true/false value')) return fallback;
@@ -372,14 +265,8 @@ export function bool(value: unknown, ctx: Reader, o: BoolOptions = {}): boolean 
   return value;
 }
 
-/**
- * A content id.
- *
- * The fallback is the empty string, which `parseId` can never accept — so a
- * downstream reference check sees an id that resolves to nothing rather than an
- * id that resolves to the wrong thing, and the author gets one diagnostic here
- * instead of two.
- */
+// Falls back to '', which `parseId` never accepts, so a downstream check cannot
+// resolve it to the WRONG asset.
 export function id(value: unknown, ctx: Reader): ContentId {
   if (!present(value, ctx, 'a content id')) return '';
   if (typeof value !== 'string') {
@@ -398,14 +285,8 @@ export function id(value: unknown, ctx: Reader): ContentId {
   return value;
 }
 
-/**
- * A content id of exactly one type.
- *
- * This is the check that catches a typo pointing at a REAL asset of the wrong
- * kind — `spawns: ["npc:gloopling"]` — which is the whole reason the type lives
- * inside the id (types.ts, `ContentId`). It costs no lookup, so it works before
- * the target package is loaded.
- */
+// Catches a typo pointing at a REAL asset of the wrong kind, with no lookup — so it
+// works before the target package loads.
 export function idOf(type: ContentTypeName): ReadFn<ContentId> {
   return (value, ctx) => {
     const raw = id(value, ctx);
@@ -424,7 +305,7 @@ export function idOf(type: ContentTypeName): ReadFn<ContentId> {
   };
 }
 
-/** One of a fixed set of strings. Falls back to the first, which is therefore the default. */
+/** Falls back to the first value, which is therefore the default. */
 export function enumOf<const V extends readonly string[]>(
   values: V,
   o: { readonly fallback?: V[number] } = {},
@@ -432,9 +313,7 @@ export function enumOf<const V extends readonly string[]>(
   return (value, ctx) => {
     const fallback = o.fallback ?? values[0];
     if (!present(value, ctx, `one of ${values.join(', ')}`)) return fallback;
-    // `find` rather than `includes` because it is the version that NARROWS: it
-    // hands back the member of `values`, so the return type is the union and no
-    // assertion is needed to say what the check already proved.
+    // `find`, not `includes`: it NARROWS, so the union needs no assertion.
     const found = values.find((v) => v === value);
     if (found === undefined) {
       ctx.report(
@@ -453,19 +332,8 @@ export interface ListOptions {
   readonly max?: number;
 }
 
-/**
- * A list of anything a reader can read.
- *
- * A BAD ITEM DOES NOT KILL THE LIST: three good spawns and one typo yield four
- * entries — the three, plus the item reader's fallback — and one diagnostic
- * naming `spawns[1]`, because the child reader is `ctx.at(i)`.
- *
- * REPLACED RATHER THAN DROPPED, so that the index in the diagnostic still names
- * the item the author wrote. Dropping renumbers everything after the bad one,
- * and "spawns[1] is wrong" then points at a spawn that is fine. For `id` and
- * `idOf` the fallback is the empty string, which can never parse and so can
- * never resolve to the WRONG asset — see `id()`.
- */
+// A bad item is REPLACED by its reader's fallback, never dropped: dropping renumbers
+// the list and the index in the diagnostic would name a different item.
 export function list<T>(of: ReadFn<T>, o: ListOptions = {}): ReadFn<T[]> {
   return (value, ctx) => {
     if (value === undefined || value === null) {
@@ -500,7 +368,6 @@ export interface RecordOptions {
   readonly key?: RegExp;
 }
 
-/** A string-keyed map of anything a reader can read. */
 export function record<T>(of: ReadFn<T>, o: RecordOptions = {}): ReadFn<Record<string, T>> {
   return (value, ctx) => {
     const out: Record<string, T> = {};
@@ -533,20 +400,12 @@ export function record<T>(of: ReadFn<T>, o: RecordOptions = {}): ReadFn<Record<s
   };
 }
 
-/**
- * An optional field: absent stays absent, present is read.
- *
- * The one way to say "this may be missing" — every other reader in this file is
- * total, so a field that is genuinely optional is visible at the call site
- * (`opt(body.name, ctx.at('name'), text)`) rather than hidden in a reader's
- * options. That matters because "required" is the common case and the one a
- * reviewer should not have to look up.
- */
+// The only way to say a field may be missing, and it is visible at the CALL SITE
+// rather than hidden in a reader's options.
 export function opt<T>(value: unknown, ctx: Reader, read: ReadFn<T>): T | undefined {
   return value === undefined || value === null ? undefined : read(value, ctx);
 }
 
-/** A plain object, unread. For a body a parser will pick apart itself. */
 export function obj(value: unknown, ctx: Reader): Record<string, unknown> {
   if (!present(value, ctx, 'an object')) return {};
   if (!isRecord(value)) {
@@ -556,32 +415,13 @@ export function obj(value: unknown, ctx: Reader): Record<string, unknown> {
   return value;
 }
 
-// ---------------------------------------------------------------------------
-// Localised text
-// ---------------------------------------------------------------------------
-
-/** What a missing or malformed `ContentText` becomes: the path, visibly. */
+/** A missing or malformed `ContentText` becomes the path, visibly. */
 export function placeholderText(path: string): ContentText {
   return { text: { en: `{{${path}}}` } };
 }
 
-/**
- * A `ContentText`: exactly one of `key` or `text`.
- *
- * EXACTLY ONE, not "prefer key". Both present means two authors disagreed about
- * where the string lives, and picking one silently is how a translation gets
- * quietly ignored for a release.
- *
- * THE KEY FORM CARRIES ONE UNVERIFIABLE CLAIM, and it is the reason
- * `ContentText` has two shapes at all (types.ts): `StringKey` is `keyof typeof
- * en`, a BUILD-time guarantee, and data authored outside the repo cannot have
- * been checked against the table this build shipped. So the assertion below is
- * the boundary where that guarantee stops — the shape is fully checked at
- * runtime and only the key's MEMBERSHIP is asserted. `Reader.knownTextKey` is
- * the runtime stand-in a caller who can see `src/i18n/en.ts` supplies; without
- * it this reader does not make the claim, and `resolveText` falls back the way
- * `t()` does rather than rendering a blank.
- */
+// Exactly ONE of `key` or `text`: both present means two authors disagreed, and
+// picking silently drops a translation. A key's MEMBERSHIP needs `knownTextKey`.
 export function text(value: unknown, ctx: Reader): ContentText {
   if (!present(value, ctx, 'a display string')) return placeholderText(ctx.path);
   if (!isRecord(value)) {
@@ -621,8 +461,7 @@ export function text(value: unknown, ctx: Reader): ContentText {
       );
       return placeholderText(ctx.path);
     }
-    // The one assertion in this file. See the note above: the shape is checked,
-    // the membership is not checkable here without importing the table.
+    // The one assertion in this file: shape checked, membership not.
     return { key } as Extract<ContentText, { key: unknown }>;
   }
 
@@ -630,9 +469,7 @@ export function text(value: unknown, ctx: Reader): ContentText {
     (v, c) => str(v, c, { what: 'a translation' }),
     { key: /^[a-z]{2}(-[a-z0-9]+)*$/i, max: 64 },
   )(value.text, ctx.at('text'));
-  // At least one language with actual words in it. An inline text of `{}` or of
-  // `{ "en": "" }` renders as nothing at all, which on screen is indistinguishable
-  // from a HUD bug — the whole class of defect issue #17 was about.
+  // At least one language with words in it: a blank renders as a HUD bug (issue #17).
   const filled = Object.values(langs).some((s) => s.trim() !== '');
   if (!filled) {
     ctx.at('text').report(
@@ -646,18 +483,8 @@ export function text(value: unknown, ctx: Reader): ContentText {
   return { text: langs };
 }
 
-// ---------------------------------------------------------------------------
-// Conditions and actions
-// ---------------------------------------------------------------------------
-
-/**
- * Carry an unread parameter across, bounded.
- *
- * A condition leaf's and an action's parameters belong to the test or the
- * handler, not to us, so they are copied VERBATIM — but a value from a remote
- * package is still untrusted, so the copy is depth- and width-capped. Anything
- * over the cap is dropped with a diagnostic rather than truncated silently.
- */
+// A leaf's or action's params belong to its handler, so they are copied VERBATIM —
+// but capped, since the value is untrusted. Over the cap is dropped, not truncated.
 function guarded(value: unknown, ctx: Reader): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (ctx.tooDeep) {
@@ -682,7 +509,6 @@ function guarded(value: unknown, ctx: Reader): unknown {
   return out;
 }
 
-/** Every key of a leaf except the discriminator, carried across. */
 function params(
   value: Record<string, unknown>,
   ctx: Reader,
@@ -696,17 +522,8 @@ function params(
   return out;
 }
 
-/**
- * An availability condition — structure only.
- *
- * STRUCTURE ONLY is the split that keeps this file free of the registry: whether
- * `test: "flag"` names something registered is a question about the RUNTIME, so
- * it is asked in validate.ts where the registered set is a parameter. Here the
- * question is only whether the shape is one of the four (types.ts, `Condition`)
- * and whether exactly one of them is claimed — `{ all: [...], not: {...} }` is
- * two conditions in a trench coat and there is no defensible way to guess which
- * the author meant.
- */
+// STRUCTURE ONLY, which is what keeps this file free of the registry: whether a test
+// is registered is validate.ts's question. Exactly one of the four keys may be claimed.
 export function condition(value: unknown, ctx: Reader): Condition {
   return readCondition(value, ctx, 0);
 }
@@ -775,20 +592,12 @@ function readCondition(value: unknown, ctx: Reader, depth: number): Condition {
 
   const name = str(value.test, ctx.at('test'), { min: 1, what: 'a test name' });
   if (name === '') return NEVER;
-  // The discriminator goes LAST in the literal, so neither the type nor the
-  // runtime can lose it to a parameter — `params` already drops a duplicate,
-  // and this is the belt to that pair of braces.
+  // Discriminator LAST, so a parameter cannot overwrite it.
   return { ...params(value, ctx, 'test'), test: name };
 }
 
-/**
- * A list of actions.
- *
- * The empty list is the fallback, i.e. NOTHING HAPPENS — the safe failure for
- * the one thing in content that writes to a save. A half-applied action list is
- * worse than none: a quest that took the reward and did not advance is a support
- * ticket, where a button that did nothing is a bug report.
- */
+// Falls back to empty — NOTHING HAPPENS, the safe failure for the one thing in
+// content that writes to a save. A half-applied list is worse than none.
 export function actions(value: unknown, ctx: Reader): Action[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) {
@@ -819,30 +628,11 @@ export function actions(value: unknown, ctx: Reader): Action[] {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Colour
-// ---------------------------------------------------------------------------
-
 const HEX_RE = /^(?:#|0x)?([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
-/**
- * A colour, as a number — THE MIGRATION SEAM, and it needs saying.
- *
- * Every colour in this codebase is authored as a TypeScript hex literal today
- * (`color: 0xffb45e`, world/towns.ts, and a hundred `new THREE.Color(0x…)`
- * beside it) and JSON has no hex literal. Writing 16757342 in a data file is
- * technically the same colour and is unreadable and unreviewable — nobody spots
- * that a digit moved. So content authors `"#ffb45e"` and this reader hands the
- * engine back the number it already wanted, which means moving a colour out of
- * TypeScript is a copy of the digits and not a conversion anyone has to trust.
- *
- * A NUMBER IS STILL ACCEPTED, because a migration tool that dumps the existing
- * literals straight out produces numbers, and a reader that refused them would
- * make the first step of the migration fail on content that is not wrong.
- *
- * Three-digit shorthand expands the way CSS does (`#f80` -> `0xff8800`), since
- * that is what anyone typing a colour into a JSON file expects.
- */
+// The migration seam: the engine wants the number a TS hex literal gives and JSON has
+// none, so authors write "#ffb45e". A plain number is still accepted (dump tools emit
+// those); three-digit shorthand expands as CSS does.
 export function hexColor(value: unknown, ctx: Reader): number {
   if (!present(value, ctx, 'a colour')) return MISSING_COLOR;
   if (typeof value === 'number') {

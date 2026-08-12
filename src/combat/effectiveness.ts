@@ -1,11 +1,6 @@
 import type { ElementType } from '../core/types';
 
-/**
- * 10-type effectiveness chart. STRONG = 2x damage, WEAK = 0.5x, otherwise 1x.
- * Pairings follow elemental intuition: fire burns plants and melts ice, water
- * douses fire and erodes rock, storms rule the sky, and the mystic trio
- * (shadow / light / dragon) prey on one another.
- */
+// 10-type chart: STRONG = 2x, WEAK = 0.5x, otherwise 1x.
 const STRONG: Record<ElementType, readonly ElementType[]> = {
   fire: ['grass', 'ice'],
   water: ['fire', 'rock'],
@@ -32,7 +27,6 @@ const WEAK: Record<ElementType, readonly ElementType[]> = {
   dragon: ['ice', 'light'],
 };
 
-/** Damage multiplier for attacker element vs defender element. */
 export function elementMultiplier(attacker?: ElementType, defender?: ElementType): number {
   if (!attacker || !defender) return 1;
   if (STRONG[attacker].includes(defender)) return 2;

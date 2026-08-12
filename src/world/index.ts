@@ -42,11 +42,7 @@ import {
 } from '../core/shadow-cache';
 
 const DEFAULT_VIEW_RADIUS = 5;
-/**
- * Wall-clock budget per rendered frame for chunk building, in ms. At the ~7.8 ms
- * frames this game runs at, 3 ms leaves the rest of the frame intact while still
- * draining the queue in a couple of seconds of walking.
- */
+/** Chunk-build wall-clock budget per RENDERED frame, ms. */
 const BUILD_BUDGET_MS = 3;
 
 interface ChunkRec {
@@ -59,46 +55,24 @@ interface ChunkRec {
 const chunkKey = (cx: number, cz: number): string => `${cx},${cz}`;
 
 /**
- * NUMERIC chunk key, for the trunk registry only.
- *
- * `chunkKey` builds a string, and climbTopAt runs inside the player's per-frame
- * update — one template literal per lookup is exactly the kind of per-frame
- * garbage this codebase does not produce. Multiplying keeps the key injective
- * for |cz| < 2^21 chunks (67 million units out) and stays a safe integer for
- * any cx a session can reach.
+ * NUMERIC chunk key for the trunk registry: `climbTopAt` runs per frame and must
+ * allocate no template literal. Injective for |cz| < 2^21 chunks.
  */
 const trunkKey = (cx: number, cz: number): number => cx * 4194304 + cz;
 
 /**
- * How far outside a chunk a trunk's disc can reach, in world units.
- *
- * A tree is registered in the bucket of the chunk that PLACED it, so one
- * standing near a chunk seam has to be findable from the neighbouring chunk
- * too. The fattest bole in the game is the broad oak's, measured at 0.90 units
- * of template radius; the girth roll tops out at 1.22 and the climbable disc
- * adds TRUNK_GRAB, so the widest either query can ask about is ~1.44. 2 units
- * of margin covers that with room for a fatter tree later.
+ * How far outside its chunk a trunk's disc can reach. A tree lives in the bucket
+ * of the chunk that PLACED it, so a seam tree must be findable from next door;
+ * the widest either query asks about is ~1.44 (broad oak at max girth).
  */
 const TRUNK_MARGIN = 2;
 
-/**
- * The same idea for the CROWN, which reaches far further: the widest canopy in
- * the set (again the broad oak) measures 4.32 units of template radius, times
- * the same 1.22 girth roll is 5.28. Used by climbTopAt, which has to find a
- * tree rooted in the next chunk whose branches are over this column.
- */
+/** The same for the CROWN, whose widest reach is 5.28 (broad oak at max girth). */
 const CROWN_MARGIN = 6;
 
-// ---------------------------------------------------------------------------
-// Spawn search: scenic flat grass, above water, with water in walking range.
-//
-// SUPERSEDED for the overworld, and kept because it is the fallback and because
-// it is the only thing that answers "somewhere sane to stand" without a road
-// network. The hero now starts on the ROAD to the Encampment (see
-// `pickRoadSpawn` in towns.ts) — a town does not own the spawn point, and the
-// spawn point is not in the town. This runs only if the settlement planner
-// somehow hands back a spot in the water, which its own scoring already refuses.
-// ---------------------------------------------------------------------------
+// Spawn search: scenic flat grass, above water, water in walking range.
+// SUPERSEDED by `pickRoadSpawn` (towns.ts); kept as the fallback for a zone with
+// no road network, or a planner spot somehow in the water.
 function findSpawn(terrain: Terrain): THREE.Vector3 {
   const sc = makeScratch();
 
@@ -168,16 +142,11 @@ function findSpawn(terrain: Terrain): THREE.Vector3 {
   return new THREE.Vector3(bestX + 0.5, terrain.getHeight(bestX, bestZ), bestZ + 0.5);
 }
 
-// ---------------------------------------------------------------------------
 // Skill Den placement: 4 flattened plateaus on widening rings around spawn.
-// ---------------------------------------------------------------------------
 
 /**
- * Per-den ring radius. All four dens used to sit 13-20 units out, so every
- * pagoda was in frame at once and the world read as a diorama on a lawn rather
- * than a landscape with settlements in it. The first ring stays a short walk
- * from spawn (there must always be a reachable shop); the rest step out so
- * finding the next one is travel.
+ * Per-den ring radius. The first stays a short walk from spawn (there must
+ * always be a reachable shop); the rest step out so finding one is travel.
  */
 const DEN_RINGS = [18, 34, 50, 66];
 /** Squared minimum spacing between two dens, and between a den and spawn. */
@@ -211,9 +180,8 @@ function placeShops(
     const baseAng = (k / 4) * Math.PI * 2 + 0.62;
     const ring = DEN_RINGS[k];
     let placed = false;
-    // Wider angular window + more attempts than before: the outer rings have
-    // far more water/cliff to dodge, and a den that fails to place snaps back
-    // onto its ring anyway (see the fallback), so searching harder is cheap.
+    // Outer rings have more water and cliff to dodge, and failure snaps back
+    // onto the ring anyway, so searching hard is cheap.
     for (let attempt = 0; attempt < 44 && !placed; attempt++) {
       const ang = baseAng + (rng() - 0.5) * 1.1;
       const dist = ring + (rng() - 0.5) * 9 + attempt * 0.5;
@@ -246,51 +214,26 @@ function placeShops(
 }
 
 /**
- * How far to one side of the greeter the hero wakes up, in world units.
- *
- * 3.2 is "a few paces", and the number is picked against `NPC_TALK_RANGE` (2.8)
- * rather than by eye — JUST outside it, deliberately, and both halves of that
- * matter. Inside it, Gain turns to attend the hero on the very first frame, so
- * the two of them face each other and the composition the pose exists for —
- * two men side by side looking the same way across a fire — is gone before
- * anybody sees it, with an interact pill over it. A single step closes it, so
- * the conversation is still the obvious first thing to do.
+ * How far beside the greeter the hero wakes up. JUST outside `NPC_TALK_RANGE`
+ * (2.8): inside it the greeter turns to attend on frame one and the side-by-side
+ * composition is gone before anybody sees it.
  */
 const START_BESIDE = 3.2;
 
 /**
- * The hero's body radius, for the clearance test only.
- *
- * `Player.radius` is 0.32 and is not importable here — `world/` may not depend
- * on `player/`, which is the same one-way edge that keeps `core/types.ts` the
- * contract hub. It is rounded UP rather than copied, so the number is a stated
- * margin ("about a body's width, and a little more") rather than a load-bearing
- * value written down twice: a hero half a decimetre thicker still stands here,
- * and nothing about the pose changes if `BODY_RADIUS` is retuned.
+ * The hero's body radius for the clearance test. `Player.radius` (0.32) is not
+ * importable — `world/` may not depend on `player/` — so this is rounded UP as a
+ * stated margin rather than a load-bearing value written down twice.
  */
 const START_CLEARANCE = 0.5;
 
 /**
  * Where the hero wakes up: beside the start town's greeter, facing his way.
  *
- * THE OFFSET IS PERPENDICULAR TO HIS FACING, which is what makes it "beside"
- * rather than "in front of" or "behind". Both are tried and the more open one
- * wins; behind-and-to-the-side are the fallbacks, and only then the road. Two
- * things fall out of the perpendicular that are worth stating, because they are
- * the reason it is not simply "three metres from him in any free direction":
- * the hero lands the same distance from the fire that the greeter is, so he is
- * AT the fire rather than three metres further out into the dark, and he never
- * lands between the greeter and the thing the greeter is looking at.
- *
- * `spotIsFree` is the NPC placement search's own test, imported rather than
- * re-stated (world/npc.ts): a spot the hero may stand on and a spot a character
- * may stand on are the same spot, and the camp's cart road ends in the middle
- * of camp, so this is not a formality.
- *
- * THE FALLBACK IS THE ROAD, i.e. exactly what the game did before — a zone with
- * no settlement (the dungeon), no people in it, or a camp so crowded that none
- * of the four candidates is clear. Facing the town in that case, because the
- * point of the road spawn was always that the camp is a destination you can see.
+ * THE OFFSET IS PERPENDICULAR TO HIS FACING, which puts the hero the same
+ * distance from the fire the greeter is and never between him and what he is
+ * looking at. `spotIsFree` is the NPC placer's own test, imported rather than
+ * restated. The fallback is the road, for a zone with no settlement or people.
  */
 function pickPlayerStart(
   site: NpcSite | null,
@@ -353,41 +296,23 @@ function pickPlayerStart(
 // ---------------------------------------------------------------------------
 
 /**
- * Where the flying town wanders, relative to `spawnPoint`.
- *
- * Far enough that it is somewhere to GO — 170 units is past the outermost skill
- * den and a good way beyond the start town — and near enough that it is in the
- * sky over the part of the map the rest of the game is in. It roams `ROAM_R`
- * (world/sky-island.ts) around this, so on any given day it can be anywhere
- * from over the Encampment to a long flight out.
- *
- * A bearing that is not one of the four the dens sit on, so the island is not
- * habitually over one.
+ * Where the flying town wanders, relative to `spawnPoint`. Past the outermost
+ * den but still over the played part of the map; it roams `ROAM_R` around this.
+ * A bearing that is not one of the four the dens sit on.
  */
 const SKY_HOME_DIST = 170;
 const SKY_HOME_ANGLE = 2.1;
 
 /**
- * Two NPC fields behind one, for a world that has people on the ground AND
- * people on something that moves.
- *
- * A COMPOSITE RATHER THAN A WIDER `Npcs`, because the two crews genuinely
- * differ in the one thing `Npcs` is built around: the frame their coordinates
- * are in. Merging them into one instance would mean a per-character frame and a
- * branch in every loop; composing two instances costs one `for` in three small
- * methods, and each half goes on being exactly the thing it already was.
- *
- * `talking` is asked of both because a conversation belongs to the field that
- * owns the character, and only one of them can have one open — `talk(id)`
- * returns null from the field that does not know the id.
+ * Two NPC fields behind one, for people on the ground AND people on something
+ * that moves. A COMPOSITE rather than a wider `Npcs` because the two crews
+ * differ in the one thing `Npcs` is built around: their coordinate frame.
  */
 class NpcFields implements NpcField {
   constructor(private readonly parts: readonly NpcField[]) {}
 
   get all(): readonly NpcInfo[] {
-    // Allocates, and is not on a frame path: this is the enumeration a map
-    // screen or a quest walks. `nearest` below is the per-slice question and
-    // allocates nothing.
+    // Allocates; not a frame path. `nearest` is the per-slice question.
     return this.parts.flatMap((p) => p.all as NpcInfo[]);
   }
 
@@ -422,14 +347,9 @@ class NpcFields implements NpcField {
 }
 
 /**
- * The ground towns plus whatever a carrier is holding up.
- *
- * The flying town is on the registry for the same reason a walled one is: it
- * has an id, a name, a colour and a place, which is the whole of what
- * `TownRegistry` promises, and a quest or a compass that had to ask a second
- * question to find out about a fourth settlement would be a contract with a
- * hole in it. Its `x`/`z` are LIVE — read them every frame, never cache them —
- * which is a property the interface always allowed and nothing had exercised.
+ * The ground towns plus whatever a carrier holds up. A flying town belongs on
+ * the registry like any other: it has an id, name, colour and place. Its `x`/`z`
+ * are LIVE — read them every frame, never cache them.
  */
 function withCarriedTowns(ground: TownRegistry, extra: readonly TownInfo[]): TownRegistry {
   if (extra.length === 0) return ground;
@@ -459,49 +379,25 @@ export interface LandmarkProbe {
   readonly spawnPoint: THREE.Vector3;
   readonly waterLevel: number;
   readonly shopPositions: THREE.Vector3[];
-  /**
-   * The towns, so a landmark chooser can keep out of one. The zone gateway is
-   * placed 31-42 units from spawn and spawn is now a point on the road ~52 units
-   * from the Encampment, so without this the arch had a real chance of standing
-   * in the middle of the camp.
-   */
+  /** The towns, so a landmark chooser can keep out of one. */
   readonly towns: TownRegistry;
   getHeight(x: number, z: number): number;
-  /**
-   * How steep the ground is, for a landmark that wants to stand AGAINST
-   * something. See `Terrain.steepnessAt` — there is no mountain biome, so a
-   * hillside is a slope reading and nothing else.
-   */
+  /** Slope, for a landmark that wants to stand against something. */
   steepnessAt(x: number, z: number): number;
   /** What grows here, so a landmark can prefer to be found in a wood. */
   biomeAt(x: number, z: number): string;
 }
 
 /**
- * @param landmarks Optional: claim CLEARINGS before anything is built. Each one
- *   gets the den treatment — the terrain is flattened under it and props are
- *   kept off it — which is the only way to guarantee level, tree-free ground for
- *   something that is about to be placed there. It has to run here, not after
- *   the world is returned, because a chunk's props are baked into its mesh when
- *   the chunk is built and the 3x3 around spawn is built below. The zone
- *   gateway (main.ts) is the one user: captured without it, the arch stood in a
- *   thicket with a trunk through the middle of it.
- *
- *   A landmark is this world's OPEN-WORLD POINT OF INTEREST, so it is where a
- *   designer states a `noSpawnRadius` if the place needs one. Absent means none,
- *   which is the requirement rather than a default nobody got round to setting:
- *   a keep-out thins the population of the meadow around it, and that is a
- *   gameplay decision rather than a property of having been built. `id` is
- *   likewise optional and only names the zone in `__dbgSafeZones()`.
+ * @param landmarks Optional: claim CLEARINGS before anything is built — flatten
+ *   plus prop exclusion. Must run HERE, because a chunk's props bake into its
+ *   mesh and the 3x3 around spawn is built below. `noSpawnRadius` absent means
+ *   none, which is a gameplay decision rather than an unset default.
  */
 /**
- * The profiles `World.addPath` will build to, by the name a console types.
- *
- * A NAME AND NOT A CONSTRUCTOR, per the project's content rule: an author
- * selects a behaviour by name and a name nothing implements is a diagnostic.
- * The beaten track and the flagstone are absent on purpose — they carve
- * nothing and draw nothing, so authoring one at runtime would produce an
- * invisible clearance rule and look like a no-op.
+ * Profiles `World.addPath` builds to, by name (the content rule: an author picks
+ * a behaviour by name). The beaten track and flagstone are absent on purpose —
+ * they carve and draw nothing, so authoring one would look like a no-op.
  */
 /** For the landmark probe's `biomeAt` — see the probe literal. */
 const landmarkScratch = makeScratch();
@@ -527,29 +423,21 @@ export function createWorld(
   const terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   const waterMat = createWaterMaterial();
   const propLib = new PropLib();
-  // Grass that notices what walks and flies through it. Null when either toggle
-  // is off, and then `softMat` is never patched at all, so `?sway=0` really is
-  // the meadow as static geometry rather than the same shader with the numbers
-  // zeroed — which is what makes it an honest A/B.
+  // Null when either toggle is off, so `softMat` is never patched and `?sway=0`
+  // is honestly static geometry rather than the same shader zeroed.
   const sway = flags.sway && flags.props ? new SwayField((x, z) => terrain.getHeight(x, z)) : null;
   sway?.install(propLib.softMat);
-  // Installed AFTER sway so its vertex edit sees the final bent position. The
-  // two hooks compose inside PropLib rather than one silently replacing the
-  // other, which would make the distance row disable wind on grass.
+  // AFTER sway, so its vertex edit sees the final bent position.
   propLib.installDistanceFade();
 
-  // TOWNS AND ROADS FIRST, and the order inside `planSettlements` is load
-  // bearing: it routes against the NATURAL height field, then installs the
-  // corridor on the terrain. Everything after this line — the spawn, the dens,
-  // the gateway, every chunk — sees a world that already has roads cut into it.
+  // TOWNS AND ROADS FIRST: `planSettlements` routes against the NATURAL height
+  // field, then installs the corridor. Everything after this sees the roads.
   const plan = flags.towns ? planSettlements(terrain, seed) : null;
   const townReg: TownRegistry = plan
     ? plan.towns
     : { all: [], roads: [], get: () => undefined, nearest: () => null };
   const spawnPoint = plan ? plan.spawn : findSpawn(terrain);
-  // The planner scores its candidates dry, so this is a guard rather than a
-  // path: if a seed ever produced no usable stretch of road, fall back to the
-  // old scenic-clearing search rather than starting the player in a lake.
+  // A guard, not a path: the planner scores its candidates dry.
   if (terrain.getHeight(spawnPoint.x, spawnPoint.z) < WATER_LEVEL) {
     spawnPoint.copy(findSpawn(terrain));
   }
@@ -559,9 +447,8 @@ export function createWorld(
   const shops = new Shops(spots, spawnPoint);
   scene.add(shops.group);
 
-  // The debug spawner's stage. Built empty and cheap — its part library is not
-  // baked until something is actually spawned (see SpawnedSolids) — so a
-  // session that never opens F3 pays for a `Group` and nothing else.
+  // The debug spawner's stage. Its part library is not baked until something is
+  // spawned, so a session that never opens F3 pays for a `Group`.
   const spawned = new SpawnedSolids(propLib, (x, z) => terrain.getHeight(x, z));
   scene.add(spawned.group);
 
@@ -570,19 +457,13 @@ export function createWorld(
     : null;
   if (towns) {
     scene.add(towns.group);
-    // The settlements are built ONCE at world creation and never stream, so
-    // they are the other half of the static shadow set beside the chunks —
-    // and the denser half: a camp is a wall, a gate and a dozen huts standing
-    // where the shadow box spends most of its life. The shops (their crystals
-    // bob and spin) and the people (Gain curls a dumbbell) are deliberately NOT
-    // marked; see markStaticShadowCaster.
+    // Built ONCE and never streamed, so they are the other half of the static
+    // shadow set. The shops and the people MOVE and are deliberately not marked.
     markStaticShadowCaster(towns.group);
   }
 
-  // THE PEOPLE, after the settlement and never before it: the placement search
-  // asks where the road is and what the camp already built, and both of those
-  // answers only exist once `Towns` has stamped its last box. Like the towns
-  // themselves they are made once and not streamed.
+  // THE PEOPLE, never before the settlement: the placement search asks where the
+  // road is and what the camp built. Made once, not streamed.
   const npcSite: NpcSite | null = plan && towns
     ? {
       towns: plan.towns,
@@ -596,37 +477,20 @@ export function createWorld(
   if (npcs) scene.add(npcs.group);
 
   /**
-   * WHERE THE PLAYER WAKES UP: beside the start town's greeter, at his fire,
-   * looking the way he looks.
-   *
-   * This used to be `spawnPoint` — fifty units out on the road, with the camp a
-   * destination you could see and walk to — and that point still exists and is
-   * still what everything else in the world is measured from (see
-   * `World.spawnPoint` in core/types.ts). What moved is only the HERO, because
-   * an opening shot of a man beside a fire with somebody to talk to is a
-   * different first five seconds from an opening shot of an empty road.
-   *
-   * IT IS DERIVED, NOT AUTHORED, and from the two facts the world already has:
-   * the start town, and the first resident placed in it. Nothing here names
-   * Gain or the Encampment — a package that moves the start elsewhere moves the
-   * player with it, and a settlement with nobody in it falls back to the road
-   * rather than inventing a spot in a camp nobody lives in.
+   * Where the PLAYER wakes up — not `spawnPoint`, which everything else in the
+   * world is still measured from. DERIVED from the start town and its first
+   * resident; nothing here names a character or a settlement.
    */
   const playerStart = pickPlayerStart(npcSite, npcs, plan, spawnPoint, terrain);
 
   /**
-   * Top of any BUILT thing over this column — settlement boxes, the skill dens
-   * and the people standing among them — or -Infinity where the column is clear.
-   *
-   * Hoisted out of the World literal because TWO queries need it and they must
-   * not be able to disagree: `structureTopAt` (what stops you) and `climbTopAt`
-   * (what you can grab). Those were separate sets once, and the gap between
-   * them was the bug — see climbTopAt.
+   * Top of any BUILT thing over this column, or -Infinity. Hoisted out of the
+   * World literal because `structureTopAt` (what stops you) and `climbTopAt`
+   * (what you can grab) must not be able to disagree.
    */
   const structureTop = (x: number, z: number): number => {
     if (!flags.solids) return -Infinity;
-    // The dens first: they are the one set that exists in every world, towns
-    // being removable with `towns=0`.
+    // The dens first: the one set that exists in every world.
     let top = shops.solids.topAt(x, z);
     if (towns) {
       const t = towns.solids.topAt(x, z);
@@ -636,23 +500,15 @@ export function createWorld(
       const n = npcs.solids.topAt(x, z);
       if (n > top) top = n;
     }
-    // ...and whatever the F3 Debug panel has stood on the ground. Empty in
-    // every session that never opened it, and `topAt` on an empty field is one
-    // failed bounds test — the same price the wilderness already pays for the
-    // three sets above.
+    // ...and whatever F3 stood on the ground; an empty field is one bounds test.
     const s = spawned.topAt(x, z);
     if (s > top) top = s;
     return top;
   };
 
-  // THE TOWN THAT FLIES. After the ground settlement and the people in it,
-  // because it borrows both of their tools — `TownParts` for its timber and
-  // `Npcs` for its residents — and before the clouds, which have to be told to
-  // keep out of it. Gated on `flags.towns` like every other settlement: a world
-  // built with `towns=0` has no towns, wherever they are.
-  //
-  // It is a CARRIER and not a landmark, so it claims no clearing, no flatten
-  // and no exclusion: nothing it stands on is the terrain.
+  // THE TOWN THAT FLIES. After the ground settlement and its people, whose tools
+  // it borrows, and before the clouds, which must keep out of it. A CARRIER, not
+  // a landmark: it claims no clearing, flatten or exclusion.
   const carriers = new CarrierField();
   const skyData = flags.towns ? readCarriedTown() : null;
   const sky = skyData
@@ -661,8 +517,7 @@ export function createWorld(
       spawnPoint.x + Math.sin(SKY_HOME_ANGLE) * SKY_HOME_DIST,
       spawnPoint.z + Math.cos(SKY_HOME_ANGLE) * SKY_HOME_DIST,
       seed,
-      // The lakes' own shader, for the stream in the island's channel: one
-      // water in this world, lit and clocked once. See `SkyIsland.buildStream`.
+      // The lakes' own shader: one water in this world, lit and clocked once.
       waterMat,
     )
     : null;
@@ -672,15 +527,12 @@ export function createWorld(
   }
 
   const clouds = flags.clouds ? new Clouds(seed) : null;
-  // A cumulus is a volume of droplets, not a thing anything rests against — and
-  // at 80-142 units up the only feature a 1.8-unit contact radius can find on
-  // one is the seam where two puffs merge, which is issue #39's second
-  // screenshot: dotted black dashes down every vertical crease.
+  // A cumulus is a volume of droplets: AO found only the seams between puffs and
+  // drew dotted black dashes down every crease (issue #39).
   if (clouds) scene.add(excludeFromAO(clouds.group));
 
-  // 'solid' — these discs hold trees, boulders, hedges and logs off the spawn
-  // clearing and the den decks, but grass, flowers and shells still carpet
-  // them. A blanket exclusion left a ~20m bare plane right under the camera.
+  // 'solid' — holds trees and boulders off, but grass still carpets: a blanket
+  // exclusion left a ~20m bare plane under the camera.
   const sites = landmarks?.({
     spawnPoint,
     waterLevel: WATER_LEVEL,
@@ -694,30 +546,21 @@ export function createWorld(
     },
   }) ?? [];
   for (const s of sites) {
-    // Narrower than a den's 4.5/9 — a gateway is one arch, not a building, and
-    // a wide flatten this far from spawn plants a visible pancake on a hillside.
+    // Narrower than a den's 4.5/9: a wide flatten plants a visible pancake.
     const h = Math.max(Math.floor(terrain.heightCont(s.x, s.z)), WATER_LEVEL + 1);
     terrain.flattens.push({ x: s.x, z: s.z, h: h + 0.55, core: 3.5, blend: 7 });
   }
 
   // WHERE NOTHING HOSTILE MAY APPEAR — one registry fed by everything that
-  // claimed ground above, so the spawn path asks one question. See SafeZone in
-  // core/types.ts for why this is a spawn rule and not a wall, and
-  // world/safe-zones.ts for the two radii.
-  //
-  // Note what is NOT here: the player's own spawn point. That one is a 20-unit
-  // disc in combat/index.ts and stays there, because it is a rule about where a
-  // SESSION begins rather than about a place in the world — it holds in a zone
-  // with no towns at all, and it would be wrong for it to move if a settlement
-  // were ever sited on top of it.
+  // claimed ground above, so the spawn path asks one question.
+  // NOT here: the player's own spawn disc, which lives in combat/index.ts
+  // because it is a rule about where a SESSION begins, not about a place.
   const safeZones = new SafeZoneField();
   for (const t of townReg.all) safeZones.add(`town:${t.id}`, t.x, t.z, t.noSpawnRadius);
   for (let i = 0; i < spots.length; i++) {
     safeZones.add(`den:${i}`, spots[i].x, spots[i].z, DEN_NO_SPAWN_RADIUS);
   }
   for (let i = 0; i < sites.length; i++) {
-    // A landmark's is whatever the chooser asked for, and absent is 0 — see the
-    // `noSpawnRadius` note on the landmarks argument.
     safeZones.add(sites[i].id ?? `landmark:${i}`, sites[i].x, sites[i].z, sites[i].noSpawnRadius ?? 0);
   }
 
@@ -725,43 +568,27 @@ export function createWorld(
     { x: spawnPoint.x, z: spawnPoint.z, kind: 'solid' },
     ...spots.map((s): Exclusion => ({ x: s.x, z: s.z, kind: 'solid' })),
     ...sites.map((s): Exclusion => ({ x: s.x, z: s.z, kind: 'solid' })),
-    // A town gets its whole footprint, plus a couple of metres of yard. Grass
-    // and flowers still grow inside the palisade — only the occluders are held
-    // off — which is what stops the camp floor reading as a bald disc.
+    // A town's whole footprint plus a little yard; grass still grows inside.
     ...townReg.all.map((t): Exclusion => ({
-      // outerRadius, not radius: the Encampment's wall is a square and its
-      // corners stand 41% further out than its sides. Keyed on the footprint
-      // circle, trees grew INSIDE the corners of the camp.
+      // outerRadius, not radius: a square wall's corners stand 41% further out,
+      // and on the footprint circle trees grew inside them.
       x: t.x, z: t.z, kind: 'solid', r: t.outerRadius + 2.5,
     })),
   ];
 
   /**
-   * WHAT THE FOLIAGE MAY NOT GROW THROUGH — the settlements' own timber and the
-   * skill dens, as the volumes they actually are.
+   * WHAT THE FOLIAGE MAY NOT GROW THROUGH — timber volumes, exactly. The
+   * exclusion discs above are the other half: a disc is about the SKYLINE and is
+   * generous, this is about one plank and is exact (issue #131).
    *
-   * The exclusions above are the other half of the same story and neither
-   * replaces the other. A disc says "no oaks in the camp", which is a statement
-   * about the SKYLINE and is why it is generous; this says "no blade of grass
-   * inside that plank", which is a statement about a single stamp and is why it
-   * is exact. Issue #131 is what having only the first one looked like: grass
-   * standing in the Encampment's palisade, because widening the disc until the
-   * wall was clear would have taken the yard's sward with it.
-   *
-   * NPCs are deliberately absent though they carry footprints of their own:
-   * a person walks, and a chunk's grass is baked once. The dens and the towns
-   * are both finished before the first chunk streams — see the note on `npcs`
-   * above for the ordering — so this field is complete the moment it is built.
+   * NPCs are absent on purpose: a person walks, and a chunk's grass bakes once.
    */
   const site = new SiteFields([shops.solids, towns?.solids]);
 
-  // One coarse camera-following landscape under the streamed voxel ring. It is
-  // created only after roads, towns and landmarks have altered the height field,
-  // so its silhouette is sampled from the same terrain authority as near ground.
-  // View distance is not voxel distance. High extends and densifies the HLOD,
-  // while keeping Medium's 89 detailed chunks: adding another 88 synchronous
-  // cube-meshing jobs caused the repeated ground-streaming stutter reported in
-  // issue #97. Foliage remains independently adjustable.
+  // Created only after roads, towns and landmarks altered the height field, so
+  // its silhouette samples the same authority as near ground. View distance is
+  // not voxel distance: High extends the HLOD but keeps Medium's chunk count,
+  // because another 88 cube-meshing jobs stuttered (issue #97).
   let terrainDistance = initialViewDistance;
   let viewRadius = flags.viewRadius
     ?? (initialViewDistance <= 480 ? 4 : DEFAULT_VIEW_RADIUS);
@@ -774,14 +601,9 @@ export function createWorld(
 
   const chunks = new Map<string, ChunkRec>();
   /**
-   * Trees, bucketed by chunk: trunkKey -> the flat record buildChunkProps
-   * emitted, `[x, z, solidR^2, climbR^2, trunkTopY, crownR^2, crownCy, crownRy]`
-   * per tree (see ChunkProps.trunks / TREE_STRIDE).
-   *
-   * Per chunk rather than one world list because these are per-frame queries and
-   * the loaded world is ~90 chunks holding ~1000 trees: scanning all of them
-   * would be a thousand distance tests a frame, where one bucket is a dozen.
-   * Buckets appear when the props stage of a chunk runs and vanish with it.
+   * Trees by chunk: trunkKey -> `[x, z, solidR^2, climbR^2, trunkTopY, crownR^2,
+   * crownCy, crownRy]` per tree (ChunkProps.trunks / TREE_STRIDE). Bucketed
+   * because these are per-frame queries over ~1000 loaded trees.
    */
   const trunks = new Map<number, number[]>();
   const queue: Array<{ cx: number; cz: number; d: number }> = [];
@@ -808,26 +630,9 @@ export function createWorld(
   let buildBudgetLeft = 0;
 
   /**
-   * A chunk is built in THREE STAGES. Terrain and props yield within their
-   * stages; water is small enough to remain indivisible.
-   *
-   * Measured on an RTX 3070 Ti: a whole chunk is ~15 ms and the old budget did
-   * two of them in a frame, so streaming cost 30-51 ms spikes — the sawtooth you
-   * feel walking in a straight line. Props are ~78% of that (world's worst frame
-   * drops from 30 ms to 6.6 ms with `props=0`), which is why they are last: the
-   * ground and its water appear first and the scenery fills in a frame or two
-   * later, rather than the whole chunk popping in at the cost of a dropped frame.
-   *
-   * The record is registered in `chunks` at stage 0, so a half-built chunk is
-   * never re-queued by refreshQueue, and unloadFar can dispose it mid-build.
-   */
-  /**
-   * Layers the F3 panel has switched off, by mesh name.
-   *
-   * Kept HERE rather than read from the panel because the streamer outlives any
-   * one decision: a chunk built two seconds after the player hid the grass must
-   * arrive hidden. `applyLayers` is called on every finished stage for exactly
-   * that, and `setLayerVisible` sweeps the chunks that already exist.
+   * Layers the F3 panel has switched off, by mesh name. Kept HERE because the
+   * streamer outlives any one decision: a chunk built after the player hid the
+   * grass must arrive hidden. `applyLayers` runs on every finished stage.
    */
   const hiddenLayers: Record<WorldLayer, boolean> = {
     grass: false, props: false, water: false, clouds: false,
@@ -845,19 +650,9 @@ export function createWorld(
   };
 
   /**
-   * Every mesh in a chunk gets a visibility, and ANYTHING NOT A TOGGLEABLE
-   * LAYER IS SHOWN. That default is the whole correctness of this function.
-   *
-   * The first version only ASSIGNED to the three named layers and left every
-   * other mesh alone, which reads as harmless and is not: `setVisible(false)`
-   * hides the lot, and if the matching show only re-shows what it recognises,
-   * the terrain never comes back. A player who walked near a gateway with grass
-   * switched off got a world with no ground and no water in it — the layer
-   * logic was right and the DEFAULT was missing.
-   *
-   * So this is exhaustive by construction: named layer -> its own flag,
-   * anything else -> visible. A mesh added to a chunk in future is shown unless
-   * somebody deliberately makes it a layer.
+   * Every mesh gets a visibility, and ANYTHING NOT A TOGGLEABLE LAYER IS SHOWN.
+   * That default is the whole correctness here: `setVisible(false)` hides the
+   * lot, so a show that only re-shows named layers loses the ground forever.
    */
   const applyLayers = (rec: ChunkRec): void => {
     const d2 = chunkDistanceSq(rec);
@@ -870,18 +665,11 @@ export function createWorld(
         : true);
       if (m.visible === visible) continue;
       m.visible = visible;
-      // Only a real transition changes the cached caster set. This function is
-      // now also the sub-chunk distance cull and runs each rendered frame; an
-      // unconditional invalidation here would erase the shadow cache 120 times
-      // a second while every mesh stayed exactly as it was.
+      // Only a REAL transition changes the caster set: this also runs as the
+      // per-frame distance cull, so an unconditional invalidation would erase
+      // the shadow cache 120 times a second. Bounded to the chunk.
       invalidateStaticShadowsNear(m);
     }
-    // A hidden caster is a changed caster set. Every path that shows or hides
-    // chunk geometry goes through here — the streamer, the F3 grass/trees rows
-    // and the zone handover's hide/show — so this is the one line that keeps
-    // the cached shadow map honest about all three. Bounded by the chunk,
-    // because the streamer calls this on every stage of every build and an
-    // unbounded invalidation there is the whole cost of the cache.
   };
 
   const startChunk = (cx: number, cz: number): ChunkRec | null => {
@@ -892,11 +680,8 @@ export function createWorld(
     return rec;
   };
 
-  /**
-   * Keep one complete chunk beyond the solid fade. Its geometry is already
-   * invisible there, but the reserve prevents a bare edge while a newly-near
-   * prop stage drains through the frame budget.
-   */
+  /** One chunk of reserve beyond the fade, so a newly-near prop stage draining
+   * through the frame budget shows no bare edge. */
   const wantsProps = (rec: ChunkRec): boolean => {
     const reserve = propsDistance + CHUNK_SIZE;
     return chunkDistanceSq(rec) < reserve * reserve;
@@ -955,10 +740,8 @@ export function createWorld(
     const { cx, cz } = rec;
     if (stage === 0) {
       const m = buildTerrainMesh(cx, cz, terrain, terrainMat);
-      // NAMED even though it is not a layer and never will be — the ground is
-      // not optional. It is named so a probe can count it: the regression that
-      // made this necessary was terrain going invisible, and a test that only
-      // knows the names of the things it can hide cannot see that.
+      // NAMED though it is not a layer, so a probe can count it — the regression
+      // was terrain going invisible.
       m.name = 'chunk:terrain';
       rec.meshes.push(m);
       scene.add(m);
@@ -974,20 +757,12 @@ export function createWorld(
       buildProps(rec);
       return;
     }
-    // A CHUNK IS THE DEFINITION OF STATIC SHADOW GEOMETRY. Terrain, water,
-    // trees and grass are pure functions of the seed and never move again, so
-    // their shadow is drawn into the cache once and composited every frame
-    // afterwards (core/shadow-cache.ts). This is the same place and for the
-    // same reason as `applyLayers` below: the one function that adds a mesh to
-    // a chunk, rather than either of the two call sites that reach it.
+    // A CHUNK IS THE DEFINITION OF STATIC SHADOW GEOMETRY: pure functions of the
+    // seed that never move, so the cache draws them once.
     for (const m of rec.meshes) markStaticShadowCaster(m);
-    // HERE, at the bottom of the one function that adds meshes to a chunk, and
-    // not at the call sites. There are two of those — the streamer's staged
-    // path and `buildChunk`'s build-it-all-now path — and putting this in the
-    // streamer only was a real bug: with grass switched off in the F3 panel it
-    // stayed off while you stood still and came back in patches as you walked,
-    // because the chunks that arrived through the other path never heard about
-    // the setting. A third caller would have made the same mistake again.
+    // Both of these belong HERE, in the one function that adds meshes to a
+    // chunk, not at its two call sites — in the streamer alone, chunks from
+    // `buildChunk` never heard that the F3 panel had hidden the grass.
     applyLayers(rec);
   };
 
@@ -1000,7 +775,7 @@ export function createWorld(
   };
 
   const disposeChunk = (rec: ChunkRec): void => {
-    // BEFORE the geometry goes: the invalidation measures its bounds off it.
+    // BEFORE the geometry goes: the invalidation measures bounds off it.
     for (const m of rec.meshes) invalidateStaticShadowsNear(m);
     for (const m of rec.meshes) {
       scene.remove(m);
@@ -1032,8 +807,8 @@ export function createWorld(
       const dx = rec.cx - fcx;
       const dz = rec.cz - fcz;
       if (dx * dx + dz * dz > lim) {
-        // The part-built chunk can be the one walking out of range; drop it or
-        // the next stage would add meshes to a record already disposed.
+        // The part-built chunk can be the one leaving range; drop it or the next
+        // stage adds meshes to a disposed record.
         if (building && building.rec === rec) building = null;
         disposeChunk(rec);
         chunks.delete(key);
@@ -1048,10 +823,7 @@ export function createWorld(
     for (let dx = -1; dx <= 1; dx++) buildChunk(scx + dx, scz + dz);
   }
 
-  // NAMED rather than returned inline, because one method now calls another:
-  // `addPath` mutates the network and then has to drop every chunk that was
-  // baked against the old one, which is exactly `rebuildProps`. A second copy
-  // of that teardown is a second thing to forget a field in.
+  // NAMED, not returned inline: `addPath` calls `rebuildProps`.
   const api: World = {
     waterLevel: WATER_LEVEL,
     spawnPoint,
@@ -1062,35 +834,23 @@ export function createWorld(
     carriers,
     debugSpawn: spawned,
     get chunksLoaded(): number { return chunks.size; },
-    // A part-built chunk counts: its props stage has not run, so its trees are
-    // not in the trunk registry yet and walking in would find no colliders.
+    // A part-built chunk counts: its trees are not in the registry yet.
     get streaming(): boolean {
       return distant.building || building !== null || queue.length > 0 || foliageQueue.length > 0;
     },
-    // The part-built one counts as pending for the same reason it counts as
-    // streaming: it is not finished, so the bar must not have spent it yet.
     get pendingChunks(): number {
       return queue.length + foliageQueue.length + (building !== null ? 1 : 0)
         + (distant.building ? 1 : 0);
     },
     getHeight: (x: number, z: number): number => terrain.getHeight(x, z),
     /**
-     * Terrain, the top of a trunk, or the surface of a canopy — whichever is
-     * highest over this column. The whole tree holds weight: a player who
-     * mantles off a bole onto the leaves has to find something under him.
-     *
-     * The crown is modelled as a dome rather than a lid (see Template.trunk),
-     * so the surface falls away toward the rim the way the foliage does.
-     *
-     * Called from the player's per-frame update, so: no allocation, no string
-     * keys, and no scan of anything bigger than the chunk buckets that can hold
-     * a tree reaching this point. Two buckets is the common worst case (a point
-     * within CROWN_MARGIN of one seam); four only near a corner.
+     * Highest of terrain, trunk top and canopy surface. The whole tree holds
+     * weight, and the crown is a DOME not a lid, so it falls away at the rim.
+     * Per-frame: no allocation, no string keys, at most four buckets.
      */
     climbTopAt: (x: number, z: number): number => {
       let top = terrain.getHeight(x, z);
-      // EVERYTHING SOLID IS CLIMBABLE. A hut wall, a palisade span, a crate,
-      // a cart — if it stops you, you can get on top of it. See the contract.
+      // EVERYTHING SOLID IS CLIMBABLE: if it stops you, you can get on top.
       const s = structureTop(x, z);
       if (s > top) top = s;
       const c0x = Math.floor((x - CROWN_MARGIN) / CHUNK_SIZE);
@@ -1118,17 +878,11 @@ export function createWorld(
     },
 
     /**
-     * Top of the solid bole at this column, or -Infinity where there is none.
-     *
-     * Only the trunk is here — the crown fields are not consulted at all. A
-     * canopy that blocked movement would fence off every tree in the world at
-     * ground level; walking under one has to keep working.
+     * Top of the solid bole, or -Infinity. TRUNK ONLY: a canopy that blocked
+     * movement would fence off every tree at ground level.
      */
     trunkSolidTopAt: (x: number, z: number): number => {
       let top = -Infinity;
-      // The solid disc is the bark itself, so it never reaches as far out of
-      // its chunk as a crown does — but the seam handling is the same shape and
-      // one shared margin is cheaper to reason about than two.
       const c0x = Math.floor((x - TRUNK_MARGIN) / CHUNK_SIZE);
       const c1x = Math.floor((x + TRUNK_MARGIN) / CHUNK_SIZE);
       const c0z = Math.floor((z - TRUNK_MARGIN) / CHUNK_SIZE);
@@ -1148,49 +902,22 @@ export function createWorld(
       return top;
     },
     /**
-     * The settlements' solid boxes — huts, palisades, crates, carts, road
-     * furniture. See world/structures.ts.
-     *
-     * Not bucketed by chunk like the trees, because towns are not streamed:
-     * they are built once at world creation and stay resident, so their
-     * colliders are one flat grid that exists from boot. `towns=0` removes both
-     * the meshes and this, which is the point of the flag.
-     */
-    /**
-     * THREE FIELDS, one query. The settlement's boxes, the skill dens and the
-     * people standing in the camp are the same primitive (world/structures.ts)
-     * built at the same moment, but they belong to different owners — a
-     * `StructureField` is frozen by its builder at the end of its own
-     * constructor, and reaching into the town's to add a body afterwards would
-     * break the invariant that makes it safe to index once. So each owns its
-     * own and the max is taken here, which is exactly what `blockTop` already
-     * does with terrain and trunks.
+     * THREE FIELDS, one query. Towns, dens and people share the primitive but
+     * not the owner: a `StructureField` is frozen at the end of its builder's
+     * constructor, so each owns its own and the max is taken here. Not bucketed
+     * by chunk — none of the three streams.
      */
     structureTopAt: structureTop,
-    // Everyone in the zone, wherever they are standing. One field when the
-    // world has only ground people, which is every world but this one.
+    // Everyone in the zone. One field when there are only ground people.
     npcs: sky?.npcs ? new NpcFields(npcs ? [npcs, sky.npcs] : [sky.npcs]) : npcs,
     /**
-     * Is this sphere inside a canopy? The third query over the same buckets,
-     * and the only one that treats the crown as a VOLUME — see World.
+     * Is this sphere inside a canopy? The only query that treats the crown as a
+     * VOLUME. The three tests are ordered to reject early — vertical band, then
+     * horizontal disc, then the ellipsoid — because this runs per slice.
      *
-     * Same shape as trunkSolidTopAt on purpose: one margin, two nested bucket
-     * loops, no allocation, no string keys. It runs once per simulation slice
-     * from the contact-particle system, so the ordering of the three tests
-     * inside the tree loop is chosen to reject a tree as early as possible:
-     *
-     *   1. the VERTICAL band, which is one subtraction and one compare and
-     *      throws out essentially every tree in the bucket — the hero is under
-     *      the canopy line almost always, and a bucket holds a dozen trees;
-     *   2. the horizontal disc, which costs the one sqrt in here;
-     *   3. the ellipsoid itself, for the trees that survived both.
-     *
-     * The sphere is folded into the dome by inflating both semi-axes, which is
-     * a slightly generous test near the rim (a Minkowski sum of an ellipsoid and
-     * a sphere is not an ellipsoid). That errs the right way: `bake` already
-     * pulls crownR in to 0.84 of the measured foliage reach because the
-     * outermost canopy voxels are mostly air, so the painted leaves stand ~19%
-     * further out than this dome and the generous rim still lands inside them.
+     * The sphere folds into the dome by inflating both semi-axes, which is
+     * generous at the rim; that errs right, since `bake` already pulls crownR in
+     * to 0.84 of the measured foliage reach.
      */
     crownContactAt(x: number, y: number, z: number, radius: number, out: CrownContact): boolean {
       const c0x = Math.floor((x - CROWN_MARGIN) / CHUNK_SIZE);
@@ -1203,8 +930,7 @@ export function createWorld(
           if (b === undefined) continue;
           for (let i = 0; i < b.length; i += TREE_STRIDE) {
             const cr2 = b[i + 5];
-            // A tree with no foliage worth the name — a cactus, or a snag whose
-            // bare branches measured almost nothing. Nothing to knock off it.
+            // A cactus or bare snag: nothing to knock off it.
             if (cr2 < 0.25) continue;
             const ry = b[i + 7] + radius;
             const dy = y - b[i + 6];
@@ -1227,22 +953,13 @@ export function createWorld(
       return false;
     },
     isWater: (x: number, z: number): boolean => terrain.getHeight(x, z) < WATER_LEVEL,
-    // The STEPPED column, like `isWater` and for the same reason: this is what
-    // a mover's feet resolve against, and a rule read off the continuous field
-    // would disagree with the voxel the player can see under the water by up to
-    // a unit. See DEEP_WATER_DEPTH.
+    // The STEPPED column, like `isWater`: what a mover's feet resolve against.
     isDeepWater: (x: number, z: number): boolean => terrain.getHeight(x, z) <= DEEP_WATER_TOP,
-    // Straight through to the terrain field, like getHeight: snow cover is a
-    // pure function of the column and owes nothing to what is loaded, so a
-    // caller can ask about a tree at the edge of the streamed radius.
+    // Straight through, like getHeight: it owes nothing to what is loaded.
     snowCoverAt: (x: number, z: number): number => terrain.snowCoverAt(x, z),
 
-    /**
-     * Every loaded trunk collider, appended to `out` as
-     * [x, z, solidRadius, climbRadius, boleTopY]. For the console's
-     * /show-colliders; allocates nothing per collider and is never called from
-     * the frame loop.
-     */
+    /** Every loaded trunk collider as [x, z, solidR, climbR, boleTopY], for
+     * /show-colliders. Allocates nothing per collider. */
     disturb(id, x, y, z, radius, kind): void {
       sway?.disturb(id, x, y, z, radius, kind);
     },
@@ -1259,11 +976,8 @@ export function createWorld(
       }
     },
 
-    /**
-     * Every built collider as [cx, cz, hx, hz, yaw, topY], for the console's
-     * /show-colliders. The whole set, not the loaded part: neither the towns nor
-     * the dens stream.
-     */
+    /** Every built collider as [cx, cz, hx, hz, yaw, topY]. The whole set —
+     * neither the towns nor the dens stream. */
     debugPaths(x?: number, z?: number) {
       const net = plan?.network ?? null;
       const num = (v: number): number => (Number.isFinite(v) ? +v.toFixed(3) : Infinity);
@@ -1313,23 +1027,12 @@ export function createWorld(
       if (Math.hypot(bx - ax, bz - az) < 12) {
         return no('the two ends are under 12 units apart');
       }
-      // ROUTED AND PROFILED EXACTLY AS THE PLANNER DOES IT, which is nearly
-      // free — a few hundred height queries, about the cost of one chunk of
-      // terrain — and already parameterised: `profileRoad` takes NaN for "let
-      // the profile decide the height at this end", which is what a free
-      // endpoint is.
-      //
-      // AGAINST THE PATHS ALREADY THERE, so a new one leaves an existing node
-      // as its own path rather than running as a double line. That charge is
-      // `AVOID_COST` 50, tuned to keep two arms of a fork apart, and it means a
-      // path drawn to CROSS another will swerve — issue #142 §12d, and the
-      // reason a forced-waypoint crossing is its own piece of work.
+      // Routed and profiled exactly as the planner does — a few hundred height
+      // queries — and AGAINST the paths already there, so a new path leaves an
+      // existing node rather than doubling its line (`AVOID_COST` 50).
       const seedFor = Math.floor(Math.abs(ax * 7919 + bz * 104729)) ^ seed;
-      // WITH `cross`, NOTHING TO AVOID. The charge for running near an
-      // existing centreline is 50 and it is unpayable on top of another path's
-      // gravel — which is right for a road leaving a fork and exactly wrong for
-      // one drawn to cross (§12d). Handing the router an empty list is the
-      // whole of "suppress the avoid charge".
+      // With `cross`, nothing to avoid: that charge is unpayable on top of
+      // another path's gravel, and wrong for one drawn to cross (issue #142 §12d).
       const route = routeRoad(
         terrain, ax, az, bx, bz, seedFor,
         spec.cross ? [] : net.roads.map((r) => r.pts), profile,
@@ -1338,31 +1041,15 @@ export function createWorld(
         id: `path:added-${net.roads.length}`,
         fromId: 'free', toId: 'free',
         profile,
-        // ANCHORED TO THE GROUND AT BOTH ENDS, which a road out of a town does
-        // not have to be and a free-standing path does.
+        // ANCHORED TO THE GROUND AT BOTH ENDS, which a free-standing path needs
+        // and a road out of a town does not: with NaN the limiter's raise leaves
+        // the deck wherever smoothing put it and the corridor ends in a cliff.
         //
-        // `profileRoad` takes NaN for "whatever the profile says", and that is
-        // right for the FIRST road out of a settlement — it is what lets the
-        // road decide what height the town sits at. A path that simply stops in
-        // open country has nothing to decide with: the limiter fills dips by
-        // raising, so its deck arrives wherever the smoothing left it and the
-        // corridor ends in a cliff at the trim plane. Measured on the first one
-        // authored this way, the walking surface stepped 3.305 at the terminus
-        // against a MAX_STEP_UP of 0.5.
+        // `getHeight`, not `heightCont` — the deck must meet the floored column
+        // the hero walks on — and read BEFORE the road joins the network.
         //
-        // `getHeight` and not `heightCont`: the deck has to meet the column the
-        // hero actually walks on, and outside a corridor that column is floored.
-        // It is read BEFORE the road joins the network, so it is the surface
-        // the path has to marry into rather than one it has already changed.
-        //
-        // AT THE ROUTE'S OWN ENDS, NOT THE ONES THAT WERE ASKED FOR, and the
-        // difference is the whole of the first bug this produced. `routeRoad`
-        // resamples its walk at `SEG_LEN` and lets the tail land up to
-        // `SEG_LEN * 0.35` from where it was aiming; on ground that steps in
-        // whole units, a unit of horizontal slop is easily two units of height.
-        // Measured on the first path authored this way: the deck ended at 9.9
-        // with the natural column beside it at 8.0, a 1.9 cliff across the
-        // terminus against a MAX_STEP_UP of 0.5.
+        // AT THE ROUTE'S OWN ENDS, not the ones asked for: `routeRoad` lets the
+        // tail land up to `SEG_LEN * 0.35` off, which is units of height here.
         pts: profileRoad(
           terrain, route,
           terrain.getHeight(route[0].x, route[0].z),
@@ -1371,22 +1058,10 @@ export function createWorld(
         trim: new Float32Array(8),
       };
       if (road.pts.length < 2) return no('the route came back empty');
-      // A PATH THAT CANNOT BRIDGE MAY NOT END UP OVER WATER, and this refusal
-      // is the first thing the feature needed (issue #142 §12f, §14).
-      //
-      // `PathProfile.bridges` tells the ROUTER to pay a lake's price for every
-      // wet step, which keeps a footpath out of water it could go round — but
-      // it cannot help when an END is in the water, because the walk has to
-      // arrive. `profileRoad` then floors every wet sample to
-      // `WATER_LEVEL + 1.9` and flags it a span, so what came back was a
-      // footpath standing 1.9 units over a lake on nothing at all, with the
-      // carve switched off under it and no piers to put there: measured on the
-      // first one authored, a 1.9 cliff across the terminus against a
-      // MAX_STEP_UP of 0.5.
-      //
-      // A FORD is the third answer — follow the bed, no lift, no furniture —
-      // and it is not built. Until it is, say so rather than build the thing
-      // with no piers under it.
+      // A PATH THAT CANNOT BRIDGE MAY NOT END OVER WATER (issue #142 §12f).
+      // `bridges` only charges the ROUTER for wet steps; it cannot help when an
+      // END is wet, and `profileRoad` then lifts the deck 1.9 over the lake on
+      // nothing at all. A FORD is the third answer and is not built yet.
       if (!profile.bridges) {
         const wet = road.pts.findIndex((q) => q.bridge);
         if (wet >= 0) {
@@ -1395,57 +1070,35 @@ export function createWorld(
             + 'cannot bridge — move an end, or use profile "road"');
         }
       }
-      // THE NETWORK IS IMMUTABLE BY CONSTRUCTION and this is where that stops
-      // being true. `build()` re-flattens every path into segments and re-buckets
-      // the spatial index; nothing caches a segment outside it.
+      // The one place the network is mutated. `build()` re-flattens every path
+      // and re-buckets the index; nothing caches a segment outside it.
       net.add(road);
-      // AND THEN THE CROSSINGS, before `build()` — a merge splits both edges,
-      // so the index would otherwise be built over polylines that are about to
-      // be replaced. See `mergeCrossings` for what it refuses and why.
+      // Crossings BEFORE `build()`: a merge splits both edges, so the index
+      // would otherwise be built over polylines about to be replaced.
       const merge = spec.cross
         ? mergeCrossings(net, road)
         : { nodes: [], refused: [] };
       net.build();
-      // EVERY RIBBON AND EVERY APRON, not just the new one: a junction reshapes
-      // the arms that reach it, so the paths that were already drawn are not
-      // the same geometry any more (§12b).
+      // EVERY ribbon and apron: a junction reshapes the arms reaching it (§12b).
       towns.rebuildPaths(net.roads, net.junctions);
-      // The registry too, or `__dbgTowns().roads` — and everything that reads
-      // it — describes a world the merge has already changed underneath it.
+      // The registry too, or `__dbgTowns().roads` describes the pre-merge world.
       reg.setRoads(net.roads.filter((r) => r.profile.roles.draw));
-      // Every chunk, because `carveAt` now answers differently along the new
-      // corridor and a chunk is a baked mesh of what `heightCont` said when it
-      // was built. This is `rebuildProps`'s documented TUNING cost — about what
-      // walking into fresh ground costs — and it also takes the static shadows.
+      // Every chunk: `carveAt` answers differently now and a chunk is a baked
+      // mesh of what `heightCont` said when it was built.
       api.rebuildProps();
-      // AND THE FAR MESH, which `rebuildProps` does not touch: the HLOD only
-      // resamples when its anchor moves, so a path authored out at the horizon
-      // left the clipmap chording over its own ribbon.
+      // AND THE FAR MESH, which only resamples when its anchor moves.
       distant.invalidate();
-      // AND THE GROUND UNDER THE HERO MOVED.
-      //
-      // `world/index.ts` says of `rebuildProps` that "the hero cannot fall
-      // through the result — `getHeight` is a pure function of the seed and
-      // never consults a loaded chunk". THAT SENTENCE IS NO LONGER TRUE HERE:
-      // `getHeight` consults `terrain.roads`, which this function just mutated,
-      // and `carveAt` sinks a column by up to 1.62. Carve a path under someone
-      // standing still and they are suddenly inside the ground.
-      //
-      // So the caller re-grounds. It is not done here because this module does
-      // not own the player — main.ts does, and while mounted his position is
-      // written from the saddle every slice (see `__dbgTp`).
+      // THE GROUND UNDER THE HERO MOVED. `rebuildProps`'s promise that he cannot
+      // fall through does not hold here: `getHeight` consults `terrain.roads`,
+      // which this just mutated, and `carveAt` sinks a column up to 1.62. The
+      // CALLER re-grounds, because this module does not own the player.
       spec.refit?.();
-      // The id of the path as it ENDED UP. A merge splits it, so what the
-      // caller gets back is the half nearest the start — asking for the
-      // original id afterwards would find nothing.
+      // The id as it ENDED UP: a merge splits the path, so the caller gets the
+      // half nearest the start and the original id would find nothing.
       const survivor = net.roads.find((r) => r.id.startsWith(road.id)) ?? road;
-      // Counted against the DRAWN paths only: a settlement's beaten tracks are
-      // on the network too and a trail crossing one of those is a trail
-      // crossing a colour field, which is nothing at all.
-      // NOT THE ONE AT ITS OWN START. A path authored to leave the network
-      // begins ON a road — that is the point of picking its head off one — so
-      // its first segment meets that road by construction and is not a
-      // crossing. Anything within a corridor's width of the head is the join.
+      // DRAWN paths only: crossing a beaten track is crossing a colour field.
+      // And not the one at its own START, which is the join — a path authored to
+      // leave the network begins ON a road by construction.
       const start = survivor.pts[0];
       const crossings = findCrossings(
         survivor, net.roads.filter((r) => r.profile.roles.draw && r !== survivor),
@@ -1479,18 +1132,11 @@ export function createWorld(
     pathRunHitsBuilt(
       ax: number, az: number, bx: number, bz: number, margin: number,
     ): boolean {
-      // WHAT IS ALREADY STANDING, which is a different question from what a
-      // path refuses. `PathRoles.refusesBuilt` is prospective: it keeps the
-      // PLANNER from putting a lamp on a carriageway. A path authored at
-      // runtime (`addPath`) arrives after the lamps and cannot retract one, so
-      // a caller choosing where to put a path asks this first. Measured: the
-      // trail to the gateway left the road 1.65 from a Stonewatch fingerpost
-      // and laid its carriageway under it.
-      //
-      // The margin is the piece's own TIMBER (`solidR`) and not the elbow room
-      // it claims for placement, which for a lamp is 11 units and would rule
-      // out the entire roadside. The caller adds its own half-width — see
-      // `RoadClearance` for the same split.
+      // WHAT IS ALREADY STANDING, unlike `PathRoles.refusesBuilt`, which is
+      // prospective: a runtime path arrives after the lamps and cannot retract
+      // one, so its author asks this first.
+      // The margin is the piece's own TIMBER (`solidR`), not the elbow room it
+      // claims for placement — a lamp's 11 units would rule out the roadside.
       if (towns === null) return false;
       const dx = bx - ax;
       const dz = bz - az;
@@ -1506,40 +1152,25 @@ export function createWorld(
     },
 
     debugColumn(x: number, z: number): number {
-      // Its own scratch: `columnInfo` writes through the one it is handed, and
-      // borrowing the streamer's would corrupt a chunk mid-build.
+      // Its own scratch: borrowing the streamer's corrupts a chunk mid-build.
       terrain.columnInfo(Math.floor(x), Math.floor(z), dbgColumnScratch);
       return dbgColumnScratch.h;
     },
     debugStructures(out: number[]): void {
-      // Gated on the same flag as the query, so the overlay can never draw a
-      // cage around something that is not actually stopping anyone: under
-      // `solids=0` there is nothing to show, and a picture that disagreed with
-      // the collision would be worse than no picture.
+      // Gated on the query's own flag, so the overlay can never disagree with
+      // the collision. Every set that blocks is drawn, for the same reason.
       if (!flags.solids) return;
       towns?.solids.debugBoxes(out);
-      // ...and whatever is being carried, transformed into world space by the
-      // carrier itself. See `SkyIsland.debugStructures`.
       sky?.debugStructures(out);
-      // The dens and the people too: all three block by the same primitive, so
-      // /show-colliders has to draw them or the overlay would disagree with the
-      // collision.
       shops.solids.debugBoxes(out);
       npcs?.solids.debugBoxes(out);
-      // A spawned hut blocks like a built one, so it has to draw like one too:
-      // an overlay that showed no cage around something you cannot walk through
-      // would make /show-colliders a liar about the one set you just placed.
       spawned.debugBoxes(out);
     },
-    /**
-     * Every roof cylinder as [cx, cz, axisYaw, hl, r, y, ry]. Gated on the same
-     * flag and for the same reason as the boxes above; nobody but a settlement
-     * has a roof, so the NPC field never contributes one.
-     */
+    /** Every roof cylinder as [cx, cz, axisYaw, hl, r, y, ry]. Gated like the
+     * boxes; nobody but a settlement has a roof. */
     debugRidges(out: number[]): void {
       if (!flags.solids) return;
       towns?.solids.debugRidges(out);
-      // Spawned huts and tents have roofs, and they are the same cylinders.
       spawned.debugRidges(out);
     },
     /** See `World.foliageSite` — the field the chunk builder above consults. */
@@ -1574,8 +1205,7 @@ export function createWorld(
     },
 
     applyCelestial(state: Readonly<CelestialState>): void {
-      // World-local consumers are updated here so composition code never has
-      // to know which zone happens to own water, clouds, or a carried fall.
+      // Here, so composition code need not know which zone owns water or clouds.
       waterMat.uniforms['uSunDir']?.value.copy(state.keyDirection);
       waterMat.uniforms['uSunColor']?.value.copy(state.keyColor);
       if (waterMat.uniforms['uSunStrength']) {
@@ -1588,10 +1218,8 @@ export function createWorld(
 
     update(focus: THREE.Vector3, dt: number, newFrame = true): void {
       if (disposed) return;
-      // The build budget is per RENDERED FRAME, not per simulation slice. The
-      // sim can run several slices in one frame (main.ts), and a per-slice
-      // budget multiplied by those slices is what turned a catch-up frame into
-      // six chunk stages and a 120 ms hitch.
+      // Per RENDERED FRAME, not per slice: the sim can run several slices in one
+      // frame, and a per-slice budget turned a catch-up frame into a 120 ms hitch.
       if (newFrame) {
         buildBudgetLeft = BUILD_BUDGET_MS;
         focusX = focus.x;
@@ -1599,28 +1227,19 @@ export function createWorld(
         waterMat.uniforms['uFocus'].value.set(focusX, focusZ);
         propLib.updateDistanceFade(focusX, focusZ);
         distant.requestUpdate(focus);
-        // Far-landscape noise is deliberately outside the terrain chunk queue:
-        // it never blocks collision-ready streaming. A sub-millisecond slice
-        // avoids the combat/input hitch a whole 6,561-sample rebuild caused.
+        // Outside the chunk queue, so it never blocks collision-ready streaming.
         distant.buildStep(0.6);
-        // The fade is radial rather than chunk-stepped. A whole mesh can still
-        // be rejected once its nearest edge is outside the fade, buying back
-        // its draw and vertex work instead of merely discarding fragments.
+        // Radial fade, but a whole mesh still drops once its nearest edge is
+        // outside it, buying back the draw rather than discarding fragments.
         for (const rec of chunks.values()) applyLayers(rec);
       }
       time += dt;
       waterMat.uniforms['uTime'].value = time;
-      // Nothing to dispose on the far side of this: the field owns no GPU
-      // resource of its own, and the material it patched is `propLib`'s.
       sway?.update(focus, time, dt);
-      // WHERE the island is was decided at the top of this slice, by
-      // `carriers.advance` (see CarrierRegistry) — this is only the people
-      // standing on it, which is the same call the ground crew gets below.
+      // WHERE the island is was decided by `carriers.advance` at the top of the
+      // slice; this is only the people standing on it.
       sky?.update(dt, time, focus);
-      // ...and the clouds are told where it ended up, so the deck parts around
-      // it instead of a cumulus growing through the town square. One disc, set
-      // per frame, because the island is the only thing in the sky that moves
-      // and has a footprint.
+      // ...and the clouds part around it, or a cumulus grows through the square.
       if (sky) clouds?.setKeepOut(sky.x, sky.y, sky.z, sky.radius, ISLAND_KEEL);
       clouds?.update(focus, dt);
       shops.update(time);
@@ -1636,19 +1255,16 @@ export function createWorld(
         unloadFar(fcx, fcz);
         refreshFoliage();
       }
-      // Spend the frame's budget one terrain row or prop batch at a time. Water
-      // and each mesh's final typed-array conversion are the only indivisible
-      // pieces, so the budget is a close target rather than a hard deadline.
-      // That is deliberate — the alternative is leaving the queue stalled while
-      // the player walks into unbuilt ground.
+      // One terrain row or prop batch at a time. Water and each mesh's final
+      // typed-array conversion are indivisible, so the budget is a target rather
+      // than a deadline — the alternative stalls the queue under the player.
       while (buildBudgetLeft > 0 && (building || queue.length > 0 || foliageQueue.length > 0)) {
         const t0 = performance.now();
         if (!building && queue.length === 0) {
           const rec = foliageQueue.shift()!;
           const key = chunkKey(rec.cx, rec.cz);
-          // A distance reduction or terrain unload can stale an entry that was
-          // already queued. It is cheaper to reject it here than splice the
-          // middle of a sorted queue on every settings change.
+          // A distance change or unload can stale a queued entry; rejecting it
+          // here is cheaper than splicing a sorted queue.
           if (chunks.get(key) !== rec || rec.propsBuilt || !wantsProps(rec)) {
             foliageQueued.delete(key);
             continue;
@@ -1662,10 +1278,8 @@ export function createWorld(
           building = { rec, stage: 0, terrain: null, props: null, countChunk: true };
         }
         if (building.stage === 0) {
-          // Ground is the expensive stage the player feels. The row-yielding
-          // mesher keeps its CPU work inside this frame's remaining budget,
-          // and publishes nothing until the whole chunk is internally complete;
-          // the HLOD underlay remains the hill while these rows are built.
+          // Ground is the expensive stage. Nothing is published until the chunk
+          // is internally complete; the HLOD underlay is the hill meanwhile.
           building.terrain ??= buildTerrainMeshSteps(
             building.rec.cx, building.rec.cz, terrain, terrainMat,
           );
@@ -1719,26 +1333,20 @@ export function createWorld(
 
     setLayerVisible(layer: WorldLayer, on: boolean): void {
       hiddenLayers[layer] = !on;
-      // The sky island's fall rides this switch: it is water, and a player who
-      // turns water off expects no water anywhere. Deliberately BEFORE the
-      // clouds branch and without returning — the streamed water chunks below
-      // still have to be dealt with.
+      // The island's fall is water too. Before the clouds branch and without
+      // returning: the streamed water chunks below still need handling.
       if (layer === 'water') sky?.setWaterfallVisible(on);
       if (layer === 'water') distant.setWaterVisible(on);
       if (layer === 'clouds') {
         if (clouds) clouds.group.visible = on;
         return;
       }
-      // Already-streamed chunks now, `applyLayers` for the ones built later —
-      // a chunk that arrives after the switch was thrown has to arrive hidden,
-      // or walking forward quietly turns the setting back on.
+      // Already-streamed chunks now; `applyLayers` covers the ones built later.
       for (const rec of chunks.values()) applyLayers(rec);
     },
 
     setFoliageDistance(distance: number): void {
-      // Gfx validates the three shipped choices before this sink is reached;
-      // clamp again because World is a public contract and debug code may call
-      // it directly. 64/96/128m are two, three and four terrain chunks.
+      // Clamped again here because World is a public contract debug code calls.
       grassDistance = Math.max(64, Math.min(128, distance));
       propsDistance = Math.min(grassDistance + CHUNK_SIZE, viewRadius * CHUNK_SIZE);
       propLib.setDistanceFade(grassDistance);
@@ -1750,9 +1358,8 @@ export function createWorld(
       const nextDistance = distance <= 480 ? 480 : distance >= 900 ? 900 : 600;
       if (nextDistance === terrainDistance) return;
       terrainDistance = nextDistance;
-      // Low / Medium / High deliberately use 4 / 5 / 5 voxel-detail chunks.
-      // High spends on a denser, longer HLOD instead of doubling the number of
-      // expensive cube meshes. A ?view= developer override stays authoritative.
+      // Low/Medium/High use 4/5/5 detail chunks: High spends on a denser HLOD
+      // rather than more cube meshes. `?view=` stays authoritative.
       viewRadius = flags.viewRadius ?? (nextDistance <= 480 ? 4 : DEFAULT_VIEW_RADIUS);
       setWaterDetailDistance(waterMat, viewRadius * CHUNK_SIZE);
       propsDistance = Math.min(grassDistance + CHUNK_SIZE, viewRadius * CHUNK_SIZE);
@@ -1779,23 +1386,11 @@ export function createWorld(
     },
 
     /**
-     * Throw away every streamed chunk and build them again.
-     *
-     * The one thing a NATURE PARAMETER change needs (world/nature.ts): the
-     * densities are read inside `buildChunkProps`, so a chunk that is already
-     * standing holds the old world and nothing short of rebuilding it can say
-     * otherwise. Deliberately the whole set rather than the props meshes alone —
-     * a chunk's three stages share one `ChunkRec` and one entry in the trunk
-     * registry, and half-rebuilding it would leave trees in `climbTopAt` that
-     * are no longer drawn.
-     *
-     * It is a TUNING path, not a frame path: dropping ~90 chunks and streaming
-     * them back costs the same as walking into fresh ground and takes about as
-     * long. Nothing calls it in play.
-     *
-     * The hero cannot fall through the result — `getHeight` is a pure function
-     * of the seed (world/terrain.ts) and never consults a loaded chunk — so the
-     * rebuild can be left entirely to the streamer's own budget.
+     * Throw away every streamed chunk and build it again — what a NATURE
+     * parameter change needs, since densities are read inside `buildChunkProps`.
+     * The WHOLE set, not the props meshes: a chunk's stages share one `ChunkRec`
+     * and one trunk-registry entry, so a half-rebuild leaves undrawn trees in
+     * `climbTopAt`. A TUNING path; the hero cannot fall through the result.
      */
     rebuildProps(): void {
       if (disposed) return;
@@ -1804,11 +1399,9 @@ export function createWorld(
       trunks.clear();
       foliageQueue.length = 0;
       foliageQueued.clear();
-      // The part-built chunk's record is gone; a further stage on it would add
-      // meshes to a record nothing owns. Same reason `unloadFar` drops it.
+      // Its record is gone; a further stage would add meshes to nothing.
       building = null;
-      // Force `update` to re-queue: it only refreshes when the focus crosses a
-      // chunk boundary, and standing still is the normal case while tuning.
+      // Force a re-queue: `update` only refreshes on a chunk-boundary crossing.
       lastCX = Infinity;
       invalidateStaticShadows();
     },
@@ -1816,49 +1409,27 @@ export function createWorld(
     setVisible(v: boolean): void {
       worldShown = v;
       distant.setVisible(v);
-      // SHOWING THE WORLD MEANS SHOWING IT AS CONFIGURED, which is why this
-      // goes through `applyLayers` rather than setting every mesh true.
-      //
-      // This was the reported bug and it is a good one. The ZoneManager hides
-      // the active world for a moment to warm the DESTINATION zone's shaders
-      // against its own light population (zones.ts), then turns it back on —
-      // and a blanket `visible = true` there re-showed every layer the F3 panel
-      // had switched off. The symptom was exactly what you would expect and
-      // nothing like what you would guess: grass stayed off while you stood
-      // still, then came back in a lump the moment you wandered near a gateway
-      // and the preload started. Measured, 80 of 89 grass meshes lit up again.
+      // SHOWING THE WORLD MEANS SHOWING IT AS CONFIGURED, hence `applyLayers`
+      // and not `visible = true`: the ZoneManager's warm-up hide/show otherwise
+      // re-showed every layer the F3 panel had switched off.
       for (const rec of chunks.values()) applyLayers(rec);
-      // The den lamps live under shops.group, so this is also what takes the
-      // world's four point lights out of the scene's light count. See World.
+      // The den lamps live here, so this also drops four point lights.
       shops.group.visible = v;
-      // The towns add no lights at all (see town-parts.ts), so this is purely
-      // about not drawing an overworld camp into a dungeon's warm-up render.
+      // The towns add no lights; this only keeps a camp out of a warm-up render.
       if (towns) towns.group.visible = v;
       if (npcs) npcs.setVisible(v);
-      // The island carries its own people and its own lamps, so one flag on its
-      // root takes the lot — including, importantly, nothing: it adds no lights
-      // to the scene (its glow is emissive, like every fire in the game), so a
-      // zone warm-up rendered with it visible would still compile at the right
-      // light counts. Hidden anyway, because it is a hundred units of rock.
+      // One flag on its root takes its people and lamps too. Its glow is
+      // emissive, so it adds no lights; hidden anyway, being a lot of rock.
       sky?.setVisible(v);
-      // Same rule for the sky ambience: a hidden layer stays hidden through a
-      // hide/show cycle, so `&& !hiddenLayers.clouds` rather than a bare `v`.
+      // A hidden layer stays hidden through a hide/show cycle.
       if (clouds) clouds.group.visible = v && !hiddenLayers.clouds;
-      // Once, at the bottom, for the whole sweep. `applyLayers` says it too on
-      // the way up, but the hide branch never calls it and the camp is hidden
-      // by a flag of its own — so the cached shadow map would otherwise have
-      // kept a whole settlement's shadows through a zone handover.
+      // Once for the whole sweep: the hide branch never reaches `applyLayers`
+      // and the camp is hidden by a flag of its own.
       invalidateStaticShadows();
     },
 
-    /**
-     * A handful of chunks per call, then everything else. See World for the
-     * measurement that made this necessary.
-     *
-     * 6 per frame empties the 90-110 chunks a walked-in world holds in under
-     * 20 frames — a third of a second, all of it while the hero is somewhere
-     * else entirely.
-     */
+    /** A handful of chunks per call, then everything else: 6 per frame empties a
+     * walked-in world in under 20 frames. */
     disposeStep(): boolean {
       if (disposed) return true;
       let n = 6;

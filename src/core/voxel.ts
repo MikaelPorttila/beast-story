@@ -1,29 +1,16 @@
 import * as THREE from 'three';
 
-/**
- * A named part of a model — the cells one bracketed loop painted.
- *
- * Opaque on purpose: the caller gets a membership test and a count, not the key
- * format, so `VoxelModel` stays free to store its grid however it likes. See
- * `VoxelModel.region`.
- */
+/** The cells one bracketed loop painted. See `VoxelModel.region`. */
 export interface VoxelRegion {
   has(x: number, y: number, z: number): boolean;
   readonly size: number;
 }
 
-/**
- * Voxel model builder: paint voxels into a sparse grid, then bake a single
- * merged BufferGeometry containing only exterior faces, with per-vertex colors
- * and slight per-face shading for that chunky hand-lit Cube World look.
- *
- * Coordinates are integer voxel cells. One cell = `scale` world units.
- */
+/** Sparse voxel grid baked to one merged geometry. One cell = `scale` world units. */
 export class VoxelModel {
-  private cells = new Map<string, number>(); // key "x,y,z" -> color hex
-  private emissiveCells = new Map<string, number>(); // key "x,y,z" -> intensity
+  private cells = new Map<string, number>(); // "x,y,z" -> color hex
+  private emissiveCells = new Map<string, number>(); // "x,y,z" -> intensity
   private emissiveColors = new Map<number, number>(); // color hex -> intensity
-  /** Cells painted inside the current `region` call, or null outside one. */
   private recording: Set<string> | null = null;
 
   set(x: number, y: number, z: number, color: number): void {
@@ -32,23 +19,8 @@ export class VoxelModel {
     this.recording?.add(key);
   }
 
-  /**
-   * Run `paint` and hand back exactly the cells it painted.
-   *
-   * A collider is MEASURED off the model, never restated beside it (see
-   * `forEachCell`), and that leaves one thing a measurement cannot recover: which
-   * part of a model is which. A hut's collider is a box for the timber and a
-   * cylinder lying along the thatch, and no rule over the finished voxel grid
-   * separates those two as well as the loop that painted them already does —
-   * "everything above the eaves" also catches the chimney, and a shape test
-   * catches every gable in the world including the cart's hood.
-   *
-   * So the builder BRACKETS its roof rather than describing it, and the numbers
-   * are still all measured: `measureRidge` reads the ridge line, the span and
-   * the pitch off these cells. There is no size written down twice — wrapping
-   * the wrong loop makes the wrong shape, which is visible, where a stale
-   * constant is not.
-   */
+  /** Hands back the cells `paint` painted, so a builder can BRACKET a part
+   * (a roof) that no rule over the finished grid could separate. */
   region(paint: () => void): VoxelRegion {
     const outer = this.recording;
     const own = new Set<string>();
@@ -57,25 +29,21 @@ export class VoxelModel {
       paint();
     } finally {
       this.recording = outer;
-      // A nested region belongs to its parent too, so bracketing a roof inside a
-      // bracketed building does not silently take those cells out of the outer set.
+      // A nested region belongs to its parent too.
       if (outer) for (const k of own) outer.add(k);
     }
     return { has: (x, y, z) => own.has(`${x},${y},${z}`), size: own.size };
   }
 
-  /** Paint a voxel and flag it emissive (glows with its own color). */
   setEmissive(x: number, y: number, z: number, color: number, intensity = 1.5): void {
     this.set(x, y, z, color);
     this.emissiveCells.set(`${x},${y},${z}`, intensity);
   }
 
-  /** Flag every voxel painted with `colorHex` as emissive at `intensity`. */
   markEmissive(colorHex: number, intensity = 1.5): void {
     this.emissiveColors.set(colorHex, intensity);
   }
 
-  /** Fill an inclusive box */
   box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: number): void {
     for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
       for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++)
@@ -83,7 +51,6 @@ export class VoxelModel {
           this.set(x, y, z, color);
   }
 
-  /** Filled ellipsoid centered at (cx,cy,cz) with radii (rx,ry,rz) */
   ellipsoid(cx: number, cy: number, cz: number, rx: number, ry: number, rz: number, color: number): void {
     for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++)
       for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
@@ -93,7 +60,7 @@ export class VoxelModel {
         }
   }
 
-  /** Mirror all cells across x → adds mirrored copies (for symmetric bodies) */
+  /** Adds mirrored copies; originals stay. */
   mirrorX(): void {
     const entries = [...this.cells.entries()];
     for (const [key, color] of entries) {
@@ -106,17 +73,8 @@ export class VoxelModel {
     return this.cells.has(`${x},${y},${z}`);
   }
 
-  /**
-   * Every painted voxel, in the model's own integer cell coordinates.
-   *
-   * Exists so a COLLISION footprint can be measured off the same cells the mesh
-   * is built from (see `measureFootprint` in world/structures.ts) instead of
-   * being restated by hand beside each builder. `bake` already measures a tree's
-   * bole and crown off the baked vertices for exactly that reason; this is the
-   * same argument one step earlier, where the voxel grid still exists and the
-   * gap under a gate's lintel is still visible as an empty cell rather than as
-   * an absence of triangles.
-   */
+  /** Cell coordinates, so a collider is MEASURED off the mesh's own cells
+   * (`measureFootprint`, world/structures.ts). */
   forEachCell(fn: (x: number, y: number, z: number) => void): void {
     for (const key of this.cells.keys()) {
       const c = key.split(',');
@@ -124,16 +82,8 @@ export class VoxelModel {
     }
   }
 
-  /**
-   * Cell bounds, and the ORIGIN `build` re-bases the mesh on.
-   *
-   * `ox`/`oz`/`oy` are the whole of that rule — x/z centred on the bounding box
-   * when `center`, y zeroed at the lowest voxel always — and it is a method
-   * rather than three lines inside `build` so that anything reasoning about
-   * where a baked model's voxels ENDED UP subtracts the same numbers `build`
-   * did. A second copy of `(min + max + 1) / 2` elsewhere is a collider that
-   * drifts half a voxel off its mesh the day the rule changes.
-   */
+  /** Bounds plus the ORIGIN `build` re-bases on. Never recompute `ox`/`oy`/`oz`
+   * elsewhere — a second copy drifts half a voxel off the mesh. */
   bounds(center = true): {
     minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number;
     ox: number; oy: number; oz: number;
@@ -154,11 +104,7 @@ export class VoxelModel {
     };
   }
 
-  /**
-   * Bake to a mesh. Origin: x/z centered if center=true; y=0 at the lowest voxel.
-   * Faces get subtle directional shade baked into vertex colors so models read
-   * as chunky even under flat lighting.
-   */
+  /** Bake to a mesh. Directional shade is baked into vertex colors. */
   build(scale = 0.1, center = true): THREE.Mesh {
     const positions: number[] = [];
     const normals: number[] = [];
@@ -170,7 +116,6 @@ export class VoxelModel {
     const cz = b.oz;
     const cy = b.oy;
 
-    // face: [normal, 4 corners]
     const FACES: Array<{ n: [number, number, number]; c: number[][]; shade: number }> = [
       { n: [1, 0, 0], c: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]], shade: 0.88 },
       { n: [-1, 0, 0], c: [[0, 0, 1], [0, 1, 1], [0, 1, 0], [0, 0, 0]], shade: 0.88 },
@@ -180,8 +125,7 @@ export class VoxelModel {
       { n: [0, 0, -1], c: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], shade: 0.8 },
     ];
 
-    // Base (lit) faces go into the arrays declared above; emissive voxels are
-    // batched per (color, intensity) so each batch gets its own glow material.
+    // Emissive voxels batch per (color, intensity): one glow material each.
     interface EmissiveBatch {
       hex: number;
       intensity: number;
@@ -210,7 +154,7 @@ export class VoxelModel {
       }
       for (const face of FACES) {
         const [nx, ny, nz] = face.n;
-        if (this.has(x + nx, y + ny, z + nz)) continue; // occluded
+        if (this.has(x + nx, y + ny, z + nz)) continue;
         const base = pos.length / 3;
         color.setHex(hex).multiplyScalar(face.shade * shadeMul);
         for (const [ox, oy, oz] of face.c) {
@@ -242,7 +186,6 @@ export class VoxelModel {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
 
-    // Emissive voxels ride along as child meshes so callers still get one Mesh.
     for (const batch of emissiveBatches.values()) {
       const emMat = new THREE.MeshStandardMaterial({
         vertexColors: true,
@@ -263,7 +206,6 @@ export class VoxelModel {
   }
 }
 
-/** Convenience: darken/lighten a hex color */
 export function shade(hex: number, mul: number): number {
   const c = new THREE.Color(hex).multiplyScalar(mul);
   return c.getHex();

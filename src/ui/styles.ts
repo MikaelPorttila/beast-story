@@ -4,54 +4,18 @@
  */
 
 const CSS = `
-/* ---- THE 16px FLOOR ------------------------------------------------------
-   Issue #17: "No text should be below 16px." The report is a TV — a player far
-   enough back that this HUD's smallest labels, which were 8.5px, are not small
-   type but absent type — and the three it names are the mount prompt (10.5), the
-   hotbar's key numbers (10) and the NPC interact pill (13.5).
+/* THE 16px FLOOR (issue #17): no player-facing text below 16px. The scale is
+   COMPRESSED, not multiplied — weight, colour and letter-spacing carry the
+   hierarchy so the type range is 16–22 and boxes grow by about a third. The
+   developer instruments (§ console, F3, F2) are exempt; tools/test-textsize.mjs
+   holds everything else to the floor. */
 
-   THE SCALE IS COMPRESSED, NOT MULTIPLIED, and that is the whole design of this
-   change. Scaling the sheet by 16/8.5 to lift the floor would have taken the
-   party panel to 540px and the hotbar to 109px slots — a HUD that eats the frame
-   in order to be readable, which trades one accessibility problem for another.
-   What the old sheet spent on SIZE this one spends on the axes it was already
-   using: weight (600 to 900), colour, letter-spacing and the glass itself carry
-   the hierarchy, so the type range closes from 8.5–19 to 16–22 and the
-   containers grow by about a third rather than by double.
-
-   16 IS A FLOOR, NOT A SIZE. A quiet label sits exactly on it; the thing beside
-   it that used to be 3px larger is now 17, not 19. Read any pair of rules below
-   as "these two are still different" — at this range one point is a real
-   difference and three is a shout.
-
-   EXEMPT: the developer instruments at the bottom of this file — the § console
-   and the F3 panel — plus the F2 overlay. They are monospace readouts for
-   whoever is building the game, deliberately dense so F3 can be read beside F2
-   without either covering the world, and no player opens them.
-   tools/test-textsize.mjs holds everything else to the floor, in the stylesheet
-   AND on screen. */
-
-/* inset:0 is the layout viewport, which on a phone is not the same box as what
-   is on screen — it excludes nothing the browser's chrome is covering, and on an
-   Android device in fullscreen it was measured at 110 px taller than the display
-   (issue #16, see src/core/viewport.ts). Everything bottom-anchored here — the
-   hotbar, the interact pill, the dialogue panel — hangs off the same edge the
-   touch sticks fell through, so the HUD is sized from the same measurement, with
-   inset:0 left underneath as the fallback. */
-/* ON :root, NOT ON .bs-root, and that is a bug fix rather than tidying. The
-   bag, the journal and the pause menu are appended to document.body — they are
-   SIBLINGS of the HUD root, not children of it (see ui/journal.ts) — so a custom
-   property declared on .bs-root never reached the one class that most wanted it:
-   .bs-glass on a panel resolved --glass to nothing, the background declaration
-   was dropped as invalid, and the panel was transparent. Nobody saw it because
-   the scrim behind it was doing the darkening. Take the scrim's paint away and
-   the world shows through the journal, which is how this was found.
-
-   --pane is THE SAME TWO COLOURS AT FULL ALPHA. A panel is opaque and a chip is
-   not: a shard pill or a hint floats over the world and wants to show it
-   through, a drawer you opened to read has replaced the world for as long as it
-   is up. Keeping the hues identical is what stops the two reading as two
-   themes. */
+/* --bs-vw/--bs-vh, not inset:0: on Android in fullscreen the layout viewport
+   measured 110px taller than the display (issue #16, core/viewport.ts).
+   Declared on :root because the bag, journal and pause menu are SIBLINGS of the
+   HUD root, so a property on .bs-root never reached them.
+   --pane is the same two colours at full alpha — a panel is opaque, a chip is
+   not, and identical hues stop the two reading as two themes. */
 :root{
   --glass:linear-gradient(165deg,rgba(30,38,54,.72),rgba(14,18,28,.82));
   --pane:linear-gradient(165deg,#1e2636,#0e121c);
@@ -62,46 +26,30 @@ const CSS = `
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   color:#eef2f8;user-select:none;-webkit-user-select:none;
 }
-/* .bs-journal is on this one because it is a SIBLING of the HUD root (see
-   ui/journal.ts) and it is the one panel here built out of real document
-   elements — a <ul> of objectives, <h3>, <p>. Without the reset the browser's
-   own 40px list indent walks every objective line in off the left margin, which
-   is exactly what it did. .bs-inv gets by without it only because it has no
-   list and states a margin on each of its three paragraphs. */
+/* .bs-journal is here because it is a SIBLING of the HUD root and the one panel
+   built from real document elements — without the reset the browser's 40px list
+   indent walks every objective line in off the left margin. */
 .bs-root *,.bs-journal *{box-sizing:border-box;margin:0;padding:0}
 .bs-root svg{display:block}
-/* .bs-inv and .bs-journal are on the selector because those panels are SIBLINGS
-   of the HUD root rather than children of it (see ui/inventory.ts) and both
-   print the same caps in their headers. One rule with three hosts rather than
-   three copies of the arithmetic below — a keycap that is 16px in one panel and
-   13.75px in another is exactly the drift issue #17 is about. */
+/* Three hosts on one rule: .bs-inv and .bs-journal are SIBLINGS of the HUD root
+   and print the same caps, and three copies of this drift (issue #17). */
 .bs-root kbd,.bs-inv kbd,.bs-journal kbd{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
   border-bottom-width:2px;border-radius:5px;padding:0 6px;font:inherit;font-weight:700;
-  /* A cap is a QUIET fraction of the sentence it sits in — .86em — right up
-     until the sentence is itself at the floor, at which point the fraction is
-     under it. max() keeps both readings: the cap shrinks relative to a large
-     line and stops at 16 (issue #17). Written this way rather than as a flat
-     16px because a <kbd> in the 19px dialogue line should still read as a cap
-     inside a sentence rather than as the same size as it. */
+  /* A cap is .86em of its sentence, floored at 16 (issue #17) — max() keeps both
+     readings rather than flattening it to 16px everywhere. */
   font-size:max(16px,.86em);
   line-height:1.5;vertical-align:baseline}
-/* Controller faces are round, and the shape alone tells the player which device
-   the HUD is describing. The flat bottom border goes with it: a keycap has depth
-   because a key travels, and a pad face reads as a printed circle. */
+/* Controller faces are round, so the shape alone names the device. */
 .bs-root kbd.pad{border-radius:50%;border-bottom-width:1px;padding:0;min-width:1.5em;
   text-align:center;margin:0 1px}
-/* A face that is a WORD — Start, Options. See padKey in ui/index.ts: a circle
-   sized for one character clips them, so those get a pill. */
+/* A face that is a WORD (Start, Options) — a one-character circle clips it. */
 .bs-root kbd.pad.wide{border-radius:999px;padding:0 7px}
 .bs-glass{background:var(--glass);border:1px solid var(--stroke);border-radius:14px;
   box-shadow:0 8px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
-/* A PANEL IS NOT A CHIP. The four surfaces you open — the bag, the journal, the
-   shop, the controls sheet — wear .bs-glass for its border and shadow and then
-   take the glass back out of it: opaque, unblurred, square. Chips keep it. The
-   rule is one selector list rather than an edit to .bs-glass because that class
-   is worn by ten HUD readouts as well, and the world showing through a hint pill
-   is the point of the pill. */
+/* A PANEL IS NOT A CHIP: the four surfaces you open keep .bs-glass's border and
+   shadow but take the glass out. Chips keep it — .bs-glass is worn by ten HUD
+   readouts too, so this is a selector list rather than an edit to that class. */
 .bs-inv .pane,.bs-journal .pane,.bs-shop,.bs-keys{background:var(--pane);
   backdrop-filter:none;-webkit-backdrop-filter:none}
 
@@ -114,20 +62,9 @@ const CSS = `
 .bs-title span{font-size:16px;font-weight:600;color:rgba(238,242,248,.5);letter-spacing:.05em}
 
 /* ---- menu button -------------------------------------------------------- */
-/* TOP-LEFT, which is where a burger lives in everything else a player uses, and
-   the one corner of this HUD that was empty in a normal run (the title chip
-   above it is debug-only, and shifts this down when it is there).
-
-   IT IS A REAL BUTTON in a layer that is otherwise pointer-events:none, so it
-   opts itself back in. That is the only element in .bs-root that does — every
-   other clickable thing here lives inside a panel which turns the whole layer
-   on while it is up.
-
-   The cap beside the icon is the binding, printed rather than hidden in the F1
-   sheet: F10 is a key nobody presses by accident, which also makes it a key
-   nobody finds by accident. It is hidden on a phone (the touch overlay has its
-   own MENU button, and there is no key to name) by the same query that hides the
-   hotbar — see the responsive section. */
+/* The only element in .bs-root that opts back into pointer events — every other
+   clickable thing lives inside a panel that turns the layer on. Hidden on a
+   phone, where the touch overlay draws its own MENU. */
 .bs-menubtn{position:absolute;top:14px;left:16px;display:flex;align-items:center;gap:8px;
   padding:7px 12px;border-radius:12px;cursor:pointer;pointer-events:auto;
   color:rgba(238,242,248,.9);font:inherit;
@@ -136,14 +73,10 @@ const CSS = `
 .bs-menubtn .cap{display:flex;gap:4px}
 .bs-menubtn:hover{filter:brightness(1.22)}
 .bs-menubtn:active{transform:translateY(1px)}
-/* The debug title chip owns this corner when it is up, so the button steps
-   below it rather than under it. Debug runs only — see the HUD constructor. */
+/* The debug title chip owns this corner when it is up. */
 .bs-root:has(.bs-title) .bs-menubtn{top:58px}
 
 /* ---- currency counter --------------------------------------------------- */
-/* The pill names the money as well as counting it (see src/i18n): the number is
-   the loud part, the name a quieter chip-sized label beside it — same weight
-   relationship the bag chips below already use for name vs count. */
 .bs-shards{position:absolute;top:14px;right:16px;display:flex;align-items:center;gap:8px;
   padding:8px 14px;border-radius:999px}
 .bs-shards .ic{width:21px;height:21px;color:#69d9ff;filter:drop-shadow(0 0 5px rgba(105,217,255,.55))}
@@ -153,8 +86,6 @@ const CSS = `
 .bs-shards .lbl{margin-left:-2px;font-size:16px;font-weight:700;letter-spacing:.04em;
   color:rgba(223,245,255,.72);text-shadow:0 1px 2px rgba(0,0,0,.5)}
 /* ---- bag (stackable items) --------------------------------------------- */
-/* Sits directly under the shard pill: money on top, stuff below it, both in
-   the same corner. Empty until the first pickup, so a fresh save shows nothing. */
 .bs-bag{position:absolute;top:64px;right:16px;display:flex;flex-direction:column;
   align-items:flex-end;gap:6px;transform-origin:100% 0}
 .bs-bag .chip{display:flex;align-items:center;gap:8px;padding:5px 12px;border-radius:999px}
@@ -163,9 +94,7 @@ const CSS = `
 .bs-bag .n{font-variant-numeric:tabular-nums;font-weight:800;font-size:17px;color:#fff;
   text-shadow:0 1px 2px rgba(0,0,0,.5)}
 /* ---- readied taming orb -------------------------------------------------- */
-/* BOTTOM RIGHT, and not under the bag chips with the rest of what you own: the
-   bag is a readout you glance at between fights, and this is a control you use
-   during one. Down here it is in the same corner of the eye as the hotbar. */
+/* Bottom right, near the hotbar: a control used during a fight, not a readout. */
 .bs-orb{position:absolute;right:16px;bottom:104px;display:flex;justify-content:flex-end;
   transform-origin:100% 100%}
 .bs-orb .chip{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 8px;
@@ -183,33 +112,11 @@ const CSS = `
 @keyframes bsPop{0%{transform:scale(1)}45%{transform:scale(1.28)}100%{transform:scale(1)}}
 
 /* ---- tracked quests ------------------------------------------------------ */
-/* src/ui/journal.ts fills this through HUD.setQuests. THE RIGHT EDGE, IN THE
-   VERTICAL MIDDLE, and the vertical part is the load-bearing half.
-
-   The right column is already money (.bs-shards, top 14), the bag under it
-   (.bs-bag, top 64, GROWS DOWNWARD as you pick things up) and the readied orb
-   (.bs-orb, bottom 104). A tracker docked under the bag would have to guess how
-   tall the bag is today, and a guess that is wrong once is two readouts on top
-   of each other. Anchored at 38% of the height it clears all three whatever
-   they are holding, and it stays clear of the crosshair because it is a
-   right-aligned column 320px wide at most.
-
-   RIGHT-ALIGNED TEXT, which is the other half of the move: a left-aligned block
-   hanging off the right edge reads as something that failed to lay out. The
-   objective indent flips with it.
-
-   NO PANEL AROUND IT. Every other cluster on the HUD wears .bs-glass because
-   each is a readout with edges — a bar, a count, a row of cards. This is prose,
-   it is only on screen while the player asked for it to be, and a box around it
-   would make the quietest thing here the loudest. The text-shadow is what keeps
-   it legible over snow instead.
-
-   IT IS OPT-OUT, PER QUEST, from the journal — see hudFlag in main.ts. A
-   player running six quests at once is not being helped by six of them here.
-
-   NOTHING STACKS ON IT ANY MORE. It used to step down under the menu button and
-   the debug title plate, which is why those two :has() rules existed; on this
-   edge it is alone, so the offsets are gone rather than mirrored. */
+/* Filled by src/ui/journal.ts through HUD.setQuests. Anchored at 38% of the
+   height because the right column already holds the shard pill, the bag (which
+   GROWS DOWNWARD) and the readied orb — a tracker docked under the bag would have
+   to guess its height. No panel around it: this is prose, so the text-shadow
+   carries legibility instead. Opt-out per quest — see hudFlag in main.ts. */
 .bs-quests{position:absolute;top:38%;right:16px;left:auto;max-width:min(320px,42vw);
   display:flex;flex-direction:column;align-items:flex-end;text-align:right;gap:9px;
   transition:opacity .2s ease;
@@ -226,61 +133,27 @@ const CSS = `
   color:rgba(238,242,248,.82)}
 .bs-quests .qt-s span.ok{color:rgba(238,242,248,.45);text-decoration:line-through}
 .bs-quests .qt-s b{font-weight:800;font-variant-numeric:tabular-nums}
-/* The tracker is a distraction while a panel is up, and it is in the one corner
-   the pause menu does not cover. Same idiom the compass already uses. */
+/* Hidden while a panel is up — the pause menu does not cover this corner. */
 .bs-root.shop-open .bs-quests,.bs-root.keys-open .bs-quests{opacity:0}
 
 /* ---- compass ------------------------------------------------------------ */
-/* Horizontal heading tape across the top centre, the Skyrim/Far Cry idiom: the
-   direction the CAMERA looks sits under the amber pointer and the letters slide
-   past as you turn.
-
-   Styled against the rest of the HUD on purpose. Everything else here is soft
-   rounded glass, which a critic filed as sharing no visual language with the
-   chunky voxel world, so the compass is the opposite: zero border-radius, no
-   blur, flat fills, 2px rules, and letters carried by a hard 1px black outline
-   in four directions rather than a soft shadow. That outline is also what keeps
-   it readable over both bright sand and dark canopy — the same failure mode the
-   crosshair was filed for.
-
-   Geometry, top down: pointer 0..10, band 10..46. The riding badge, level-up
-   banner and toast stack below it were each pushed down by 34px to make room
-   (they used to start at 18/58/96), and by a further 11 when the band grew for
-   the 16px floor.
-
-   THE BAND IS SIZED BY ITS LETTERS, which is why the floor (issue #17) moved
-   every number in this block. Cardinals were 12px and ordinals 8.5 in a 26px
-   window; at 17 and 16 the same row of type plus the tick band under it wants a
-   36px window, which is where the widget's own 46 comes from. The WIDTH follows
-   too — the tape is letters at fixed bearings, so wider letters over the same
-   span means fewer of them legible at once, and min(420px,44vw) had room for
-   barely three cardinals.
-
-   WHAT THE FLOOR COSTS HERE, stated because it is real and was measured rather
-   than guessed: a marker chip sized for a four-character tag at 16px is 60px
-   wide where it was about 34, and markers are drawn OVER the tape by design (see
-   .mk), so more of the strip is covered by a badge at any moment. Captured, a
-   560px window shows four labels and a two-marker zone hides one of them. The
-   alternatives are worse — shrinking the tag is the thing the issue forbids, and
-   moving the chips out of the band costs the widget another 20px of height for a
-   readout that already spans the top of the screen. */
+/* Heading tape across the top centre. Deliberately unlike the rest of the HUD:
+   no radius, no blur, flat fills, and letters carried by a hard four-way 1px
+   outline, which is what keeps them readable over bright sand and dark canopy.
+   Geometry top down: pointer 0..10, band 10..46 — the band is sized by its
+   letters, so the 16px floor (issue #17) set every number in this block and
+   pushed the badge, banner and toast stack below it down. */
 .bs-compass{position:absolute;left:50%;top:10px;transform:translateX(-50%);
   width:min(560px,52vw);height:46px;transition:opacity .2s ease}
 .bs-root.shop-open .bs-compass,.bs-root.keys-open .bs-compass{opacity:0}
-/* The window clips the tape. The 16px mask fade at each end is the one soft
-   edge in the widget and it earns its place: without it letters pop in and out
-   at full opacity mid-glyph, which reads as a rendering fault.
-   Fill alpha .6, up from a first pass at .52: captured facing south over open
-   water the band read fine, but facing north into the canopy it disappeared
-   into the dark green and only the two white rules were left holding the shape.
-   Much past .6 and it starts to read as an opaque letterbox bar. */
+/* The mask fade stops letters popping in mid-glyph. Fill alpha .6: less and the
+   band vanishes into dark canopy, more and it reads as a letterbox bar. */
 .bs-compass .win{position:absolute;left:0;right:0;top:10px;height:36px;overflow:hidden;
   background:rgba(6,10,17,.6);
   border-top:2px solid rgba(238,242,248,.9);border-bottom:2px solid rgba(238,242,248,.9);
   -webkit-mask:linear-gradient(90deg,transparent 0,#000 16px,#000 calc(100% - 16px),transparent 100%);
   mask:linear-gradient(90deg,transparent 0,#000 16px,#000 calc(100% - 16px),transparent 100%)}
-/* Centre rule, drawn last so it sits over tape AND markers: the pointer has to
-   be unambiguous about which pixel column it is reading. */
+/* Centre rule, drawn last so it sits over tape AND markers. */
 .bs-compass .win::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;
   margin-left:-1px;background:rgba(255,210,63,.5)}
 .bs-compass .tape{position:absolute;left:0;top:0;height:100%;will-change:transform}
@@ -291,27 +164,19 @@ const CSS = `
   color:#fff;white-space:nowrap;
   text-shadow:1px 1px 0 #05070c,-1px 1px 0 #05070c,1px -1px 0 #05070c,-1px -1px 0 #05070c}
 .bs-compass .lb.card{font-size:17px;top:2px;letter-spacing:.06em}
-/* One point off the floor and not two: an ordinal is a two-letter word beside a
-   one-letter one, so it is already the wider mark, and the tape reads as one row
-   of type with a quiet half rather than as two sizes. The colour and the offset
-   carry the difference the size used to. */
+/* One point off the floor, not two: an ordinal is already the wider mark, so
+   colour and offset carry the difference the size used to. */
 .bs-compass .lb.ord{font-size:16px;top:3px;letter-spacing:.06em;color:rgba(238,242,248,.7)}
-/* Markers ride OVER the tape — a marker occluding the letter behind it is the
-   correct priority, and it is what keeps the widget one band tall. */
+/* Markers ride OVER the tape, which keeps the widget one band tall. */
 .bs-compass .marks{position:absolute;inset:0}
 .bs-compass .mk{position:absolute;left:50%;top:0;height:22px;min-width:20px;
   display:flex;align-items:center;justify-content:center;padding:0 5px;
   background:var(--mc);border:2px solid #05070c;
   font-size:16px;font-weight:900;letter-spacing:.04em;color:#05070c;
   will-change:transform}
-/* A LABEL-LESS MARKER IS A PLAIN SQUARE (see CompassMarker.label in ui/index.ts)
-   and must not inherit the box a four-character tag needs. Sized for 16px text
-   the chip is 20x22, and captured at that size an unlabelled one read as a
-   yellow slab across the tape rather than as a pin — so it keeps roughly the
-   11x13 it had, centred on the labelled chips' band. */
+/* A label-less marker is a pin, not the 20x22 box a four-character tag needs. */
 .bs-compass .mk:empty{min-width:0;width:12px;height:14px;padding:0;top:4px}
-/* Behind you: the chip parks at the end of the strip and turns into an arrow
-   pointing the short way round to it. */
+/* Behind you: the chip parks at the strip's end as an arrow pointing the short way. */
 .bs-compass .mk.edge{padding:0;min-width:0;width:0;height:0;border:0;
   border-top:9px solid transparent;border-bottom:9px solid transparent;
   background:transparent;overflow:hidden;color:transparent;
@@ -323,13 +188,8 @@ const CSS = `
   border-top:10px solid #ffd23f;filter:drop-shadow(0 1px 0 rgba(0,0,0,.85))}
 
 /* ---- crosshair --------------------------------------------------------- */
-/* Pure white voxel-style reticle: a centre pip plus four ticks.
-   Centring is done with a transform on a zero-size box, NOT negative margins
-   plus box-shadow offsets — the shadow construction made true centre depend on
-   the element's own width, which is exactly the kind of thing that drifts a
-   pixel or two off axis. With width/height 0 the element IS the centre point
-   and every tick is a symmetric shadow around it, so it cannot be off-axis.
-   A subtle drop-shadow keeps it legible on bright terrain without tinting it. */
+/* A ZERO-SIZE box centred by transform, so the element IS the centre point and
+   every tick is a symmetric shadow around it — it cannot drift off axis. */
 .bs-cross{position:absolute;left:50%;top:50%;width:0;height:0;margin:0;
   transform:translate(-50%,-50%);border-radius:50%;
   background:#fff;
@@ -342,14 +202,9 @@ const CSS = `
 .bs-root.shop-open .bs-cross,.bs-root.keys-open .bs-cross{opacity:0}
 
 /* ---- hold-to-mount ring ------------------------------------------------ */
-/* An annulus around the reticle, filled by a conic-gradient sweep — the same
-   construction as the hotbar's cooldown, read the other way round (filling, not
-   draining). The hole is punched with a radial mask rather than an opaque inner
-   disc, because the HUD is a transparent overlay and there is no background
-   colour to fake a hole with. Inner radius 19px clears the crosshair's 8px
-   ticks with room to spare. */
-/* Zero-size box AT the reticle, children hung off it — the same trick the
-   crosshair uses, so the ring cannot drift off axis as the label changes width. */
+/* Conic-gradient annulus at the reticle. The hole is a radial MASK, not an opaque
+   inner disc — the HUD is transparent and there is no background to fake one with.
+   Zero-size box, like the crosshair, so it cannot drift as the label changes. */
 .bs-mounthold{position:absolute;left:50%;top:50%;width:0;height:0;
   opacity:0;transition:opacity .18s ease}
 .bs-mounthold.show{opacity:1}
@@ -358,23 +213,15 @@ const CSS = `
   filter:drop-shadow(0 0 6px rgba(142,240,255,.45));
   -webkit-mask:radial-gradient(circle,transparent 19px,#000 20px);
   mask:radial-gradient(circle,transparent 19px,#000 20px)}
-/* "HOLD F TO MOUNT", named in issue #17 and the worst case of the three: it is
-   printed at the RETICLE, i.e. over whatever the player is aiming at, so it had
-   the least contrast of any label in the HUD as well as the second-smallest
-   size. Letter-spacing drops from .22em to .12em with the size — at 16px the old
-   tracking pushed the phrase past the ring on both sides. */
+/* "HOLD F TO MOUNT" (issue #17). Tracking drops to .12em with the size — at 16px
+   the old .22em pushed the phrase past the ring on both sides. */
 .bs-mounthold .lbl{position:absolute;top:40px;left:50%;transform:translateX(-50%);
   font-size:16px;font-weight:900;letter-spacing:.12em;white-space:nowrap;
   color:rgba(238,242,248,.92);text-shadow:0 1px 3px rgba(0,0,0,.85)}
 
 /* ---- riding badge ------------------------------------------------------ */
-/* Top centre, NOT bottom centre. While the fill ring is a thing you are DOING
-   at the reticle, this is a state you are in — and the bottom middle of the
-   frame is exactly where the mount itself is drawn, so a badge there printed a
-   label across the animal it was labelling (captured; that is why it moved).
-   Above the toast stack and clear of the shard pill on the right.
-   top was 18px before the compass took the top band, then 52px; see
-   .bs-compass, whose band grew again for the 16px floor. */
+/* Top centre, NOT bottom: down there it printed a label across the mount it was
+   labelling. Its top offset follows .bs-compass's band. */
 .bs-riding{position:absolute;left:50%;top:64px;transform:translateX(-50%) translateY(-8px);
   padding:7px 16px;border-radius:999px;font-size:17px;font-weight:800;letter-spacing:.04em;
   color:#dff5ff;white-space:nowrap;opacity:0;
@@ -384,11 +231,9 @@ const CSS = `
 .bs-riding.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 /* ---- left cluster: one party panel (beasts + player hp) ----------------- */
-/* Single continuous glass slab. The beast rows and the player HP block are
-   sections inside it, not free-floating cards with a gap between them. */
-/* 288px before the 16px floor (issue #17). A beast row is a name, a level chip
-   and two bars, and the name is the part that ellipses — at 17px "Emberfox" and
-   a "Lv 12" chip want 340 to sit on one line without the name being cut. */
+/* One glass slab; the beast rows and the HP block are sections inside it.
+   340px, up from 288 for the 16px floor (issue #17) — a name plus a level chip
+   needs it to sit on one line without ellipsing. */
 .bs-left{position:absolute;left:16px;bottom:16px;display:flex;flex-direction:column;width:340px;
   padding:7px;border-radius:16px;background:var(--glass);border:1px solid var(--stroke);
   box-shadow:0 10px 28px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.09);
@@ -414,12 +259,9 @@ const CSS = `
   color:rgba(255,255,255,.96);
   box-shadow:inset 0 -4px 8px rgba(0,0,0,.28),0 2px 8px rgba(0,0,0,.35)}
 .bs-beast .badge svg{width:21px;height:21px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.4))}
-/* The LOCOMOTION pip: where a beast can go, hung on the corner of what it
-   hits with. A pip on the badge rather than a second badge in the row, because
-   the row is already name / level / two bars in a 38px band and a second full
-   badge pushed the name into an ellipsis on a phone. Dark disc under a light
-   glyph, so it separates from the element colour behind it whatever that
-   colour is — the badge fill is var(--el) and runs from #fff3c4 to #7a5fa8. */
+/* The LOCOMOTION pip, on the badge rather than as a second badge — that pushed the
+   name into an ellipsis on a phone. Dark disc under a light glyph so it separates
+   from var(--el), which runs from #fff3c4 to #7a5fa8. */
 .bs-beast .badge .loco{position:absolute;right:-3px;bottom:-3px;width:17px;height:17px;
   border-radius:50%;display:grid;place-items:center;
   background:rgba(10,14,22,.92);border:1.5px solid rgba(255,255,255,.42);
@@ -438,12 +280,10 @@ const CSS = `
 .bs-micro+.bs-micro{margin-top:3px}
 .bs-micro>i{display:block;height:100%;border-radius:3px;transition:width .3s cubic-bezier(.22,1,.36,1)}
 .bs-micro.hp>i{background:linear-gradient(90deg,#4fb548,#7ed465)}
-/* The XP track keeps a faint amber wash of its own so a near-empty bar still
-   reads as "no progress yet" instead of a widget that failed to render. */
+/* A faint amber wash, so a near-empty bar reads as "no progress" not "no render". */
 .bs-micro.xp{background:linear-gradient(90deg,rgba(245,166,35,.2),rgba(255,210,63,.09)),rgba(0,0,0,.42)}
 .bs-micro.xp>i{background:linear-gradient(90deg,#f5a623,#ffd23f)}
 
-/* player hp: bottom section of the party panel, hairline divider instead of a gap */
 .bs-hp{padding:9px 10px 4px;margin-top:5px;border-top:1px solid rgba(255,255,255,.1)}
 .bs-hp .row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
 .bs-hp .lbl{font-size:16px;font-weight:900;letter-spacing:.18em;color:rgba(238,242,248,.72)}
@@ -459,20 +299,15 @@ const CSS = `
 
 /* ---- hotbar ------------------------------------------------------------ */
 .bs-hotbar{position:absolute;left:50%;bottom:38px;transform:translateX(-50%);display:flex;gap:11px}
-/* 58px before the 16px floor (issue #17). The slot holds three things at once —
-   a corner key cap, a centred icon and a cooldown numeral over both — and the
-   key cap is the one the issue names. At 16px in a 58px box it touched the
-   icon; 66 puts it back in its own corner without the row growing past what the
-   dialogue panel above it already spans. */
+/* 66px, up from 58 for the 16px floor (issue #17): at 16px the corner key cap
+   touched the centred icon in a 58px box. */
 .bs-slot{width:66px;height:66px;border-radius:15px;position:relative;display:grid;place-items:center;
   background:var(--glass);border:1px solid var(--stroke);
   box-shadow:0 6px 16px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.08);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   transition:transform .16s ease,box-shadow .25s ease;pointer-events:auto}
 .bs-slot:hover{transform:translateY(-3px)}
-/* Unearned slot: a solid-bordered slab with a padlock. The old dashed box with
-   a big grey numeral read as an unimplemented placeholder rather than content
-   the player has yet to unlock. */
+/* Unearned: a solid slab with a padlock. A dashed box read as unimplemented. */
 .bs-slot.empty{border-style:solid;border-color:rgba(255,255,255,.13);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.05);opacity:.72}
 .bs-slot.empty .key{color:rgba(255,255,255,.4)}
@@ -480,10 +315,7 @@ const CSS = `
 .bs-slot.empty .lock svg{width:100%;height:100%}
 .bs-slot.filled{border-color:transparent;
   box-shadow:inset 0 0 0 1.5px var(--el2),0 6px 16px rgba(0,0,0,.32)}
-/* THE NUMBER ON THE SLOT — issue #17's second named case. It was 10px at 62%
-   white, which is a watermark rather than a label: the one thing the row exists
-   to tell you is which key fires which skill. At the floor, and brighter, since
-   the size is no longer doing the work of pushing it into the background. */
+/* The slot's key number — issue #17's second named case; was a 10px watermark. */
 .bs-slot .key{position:absolute;top:3px;left:8px;font-size:16px;font-weight:800;
   color:rgba(255,255,255,.78);text-shadow:0 1px 2px rgba(0,0,0,.75)}
 .bs-slot .ic{width:28px;height:28px;color:var(--el);transition:opacity .2s ease,filter .3s ease;
@@ -505,19 +337,16 @@ const CSS = `
   100%{box-shadow:inset 0 0 0 1.5px var(--el2),0 6px 16px rgba(0,0,0,.32);transform:scale(1)}}
 
 /* ---- hint pill --------------------------------------------------------- */
-/* "Press E — Talk to …", issue #17's third named case, and the one a player
-   meets first: it is how the game says an NPC or a den can be used at all.
-   118px before the hotbar's slots grew for the floor. */
+/* "Press E — Talk to …", issue #17's third named case. 128px, up from 118 when
+   the hotbar's slots grew for the floor. */
 .bs-hint{position:absolute;left:50%;bottom:128px;transform:translateX(-50%) translateY(8px);
   padding:9px 20px;border-radius:999px;font-size:18px;font-weight:700;letter-spacing:.02em;
   opacity:0;transition:opacity .28s ease,transform .28s cubic-bezier(.34,1.56,.64,1);white-space:nowrap}
 .bs-hint.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 /* ---- dialogue panel ---------------------------------------------------- */
-/* Above the hint pill's 118px rather than in place of it: talking is not a
-   modal, so a gateway countdown can still be running underneath while someone
-   is mid-sentence. The accent bar is the toast's, in the amber this HUD already
-   uses for "something wants your attention". */
+/* Above the hint pill rather than in place of it: talking is not a modal, so a
+   countdown can still be running underneath. */
 .bs-dialogue{position:absolute;left:50%;bottom:174px;transform:translateX(-50%) translateY(10px);
   width:min(620px,86vw);padding:12px 18px 13px;border-radius:14px;text-align:left;
   box-shadow:0 14px 34px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.09),
@@ -532,8 +361,7 @@ const CSS = `
   color:rgba(230,236,245,.55)}
 
 /* ---- level-up banner --------------------------------------------------- */
-/* top was 58px before the compass took the top band, then 92px; see
-   .bs-compass, whose band grew again for the 16px floor. */
+/* top follows .bs-compass's band. */
 .bs-banner{position:absolute;top:104px;left:50%;transform:translateX(-50%) translateY(-26px) scale(.94);
   opacity:0;padding:11px 30px 13px;border-radius:16px;text-align:center;
   transition:transform .45s cubic-bezier(.34,1.56,.64,1),opacity .35s ease}
@@ -544,19 +372,10 @@ const CSS = `
 .bs-banner .txt em{font-style:normal;color:var(--el,#ffd23f);filter:saturate(1.3) brightness(1.35)}
 
 /* ---- toasts ------------------------------------------------------------ */
-/* top was 96px before the compass took the top band, then 130px; see
-   .bs-compass, whose band grew again for the 16px floor.
-
-   184 CLEARS THE LEVEL-UP BANNER, which 130 did not: the banner is 57px tall and
-   started at 92, so a toast arriving while one was up was printed across its
-   bottom edge — captured, and it is the only place two panels in this HUD were
-   ever drawn over each other. The floor made the banner 71px, which turned a
-   19px overlap into a 41px one, so the stack is now placed BELOW the banner's
-   full height rather than at a number that predates it. */
+/* 184 clears the level-up banner's FULL height — at 130 a toast arriving while one
+   was up printed across its bottom edge. */
 .bs-toasts{position:absolute;top:184px;left:50%;transform:translateX(-50%);display:flex;
   flex-direction:column;gap:8px;align-items:center}
-/* Same glass slab + accent-bar treatment as the party panel, so a toast never
-   reads as an unstyled browser box dropped on top of a custom UI. */
 .bs-toast{padding:9px 15px 10px;border-radius:12px;font-size:17px;font-weight:700;letter-spacing:.01em;
   max-width:410px;text-align:left;color:#eef2f8;text-shadow:0 1px 2px rgba(0,0,0,.5);
   background:var(--glass);border:1px solid var(--stroke);
@@ -569,14 +388,10 @@ const CSS = `
 
 /* ---- shop -------------------------------------------------------------- */
 .bs-shopwrap{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
-/* THE SCRIM IS INVISIBLE AND STILL THERE, and both halves are deliberate.
-   It no longer dims or blurs anything: a panel is opaque now, so darkening the
-   half of the screen it does not cover was dimming the GAME to make a panel
-   that needs no help stand out. But the element is load-bearing — it is the
-   click-to-close target for the bag, the journal, the shop and the controls
-   sheet, and it is the drop target that throws an item into the world
-   (dropTarget in ui/inventory.ts). An opacity:0 element still takes
-   clicks, so the reveal rules below go on animating nothing, harmlessly. */
+/* THE SCRIM IS INVISIBLE AND STILL LOAD-BEARING: it dims nothing (panels are
+   opaque now) but it is the click-to-close target for four panels and the
+   throw-into-the-world drop target (dropTarget in ui/inventory.ts). An opacity:0
+   element still takes clicks. */
 .bs-scrim{position:absolute;inset:0;background:transparent;opacity:0;
   transition:opacity .28s ease}
 .bs-shop{position:relative;width:min(1000px,94vw);max-height:84vh;display:flex;flex-direction:column;
@@ -600,9 +415,7 @@ const CSS = `
   cursor:pointer;transition:background .15s,transform .15s;pointer-events:auto}
 .bs-shop-x:hover{background:rgba(255,90,80,.28);transform:scale(1.06);color:#fff}
 .bs-shop-x svg{width:15px;height:15px}
-/* 244px before the 16px floor: an offer card is a title, a two-line description
-   and a row of stat chips, and at 16px the chips wrapped to three rows in a
-   244px column. 296 holds the same card in two rows again. */
+/* 296px, up from 244: at the 16px floor the stat chips wrapped to three rows. */
 .bs-offers{display:grid;grid-template-columns:repeat(auto-fill,minmax(296px,1fr));gap:12px;
   padding:16px 20px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
 .bs-offer{position:relative;border-radius:14px;padding:15px 14px 13px;overflow:hidden;
@@ -619,10 +432,8 @@ const CSS = `
 .bs-offer .oic svg{width:19px;height:19px}
 .bs-offer h3{font-size:17px;font-weight:800;letter-spacing:.01em}
 .bs-offer .beast{font-size:16px;font-weight:600;color:rgba(238,242,248,.55);margin-top:1px}
-/* min-height is THREE lines of the new size, not two. It exists so every card in
-   a row ends its buy button on the same baseline, and the longest description in
-   the game went from two lines to three at 16px — captured, Tailwind's card sat
-   24px taller than the two beside it. */
+/* min-height is THREE lines, so every card in a row ends its buy button on the
+   same baseline — the longest description went to three lines at 16px. */
 .bs-offer p{font-size:16px;line-height:1.45;color:rgba(238,242,248,.78);min-height:70px;margin-bottom:8px}
 .bs-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
 .bs-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 9px 3px;border-radius:999px;
@@ -652,24 +463,12 @@ const CSS = `
 .bs-shop-foot span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 
 /* ---- controls sheet (F1) ------------------------------------------------ */
-/* Same wrapper/scrim/panel construction as the shop above, and deliberately so:
-   it is the second modal in the game and a player who has opened one has
-   already learned how this one dismisses. It reuses .bs-scrim and .bs-shop-x
-   outright for that reason.
-
-   The BODY is auto-fit columns rather than one long list. Twenty rows in a
-   single column is 900px of panel, which at 1080 needs the sheet to scroll
-   before the player has read the first section; in two columns of ~360px the
-   whole thing fits on screen at once and the sections reflow to one column on a
-   narrow window without a breakpoint. Each section is its own grid, so a wider
-   heading in one cannot push another's key columns out of line.
-
-   The key columns are FIXED widths, not auto: they are the same handful of caps
-   in every row, and letting them size to content made the ']' row's columns
-   half the width of the WASD row's, which reads as a broken table. 118/104 is
-   measured off the widest cell each has to hold: the Space cap in the keyboard
-   column, and the four D-pad arrows in the controller one. (96/86 before the
-   16px floor took the caps from 10.75 to 16 — see the .bs-root kbd rule.) */
+/* Same wrapper/scrim/panel construction as the shop, reusing .bs-scrim and
+   .bs-shop-x outright. The body is auto-fit columns so the sheet fits on screen
+   without scrolling and reflows to one column with no breakpoint; each section is
+   its own grid, so a wide heading cannot push another's columns out of line.
+   The key columns are FIXED (118/104, measured off the Space cap and the four
+   D-pad arrows) — sized to content the ']' row read as a broken table. */
 .bs-keyswrap{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
 .bs-keys{position:relative;width:min(1120px,96vw);max-height:88vh;display:flex;flex-direction:column;
   border-radius:0;opacity:0;transform:translateY(16px) scale(.96);
@@ -686,29 +485,21 @@ const CSS = `
   gap:4px 28px;padding:12px 20px 2px;overflow-y:auto;
   scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
 .bs-keys-sec{align-content:start;padding-bottom:5px}
-/* Row padding 3px, where it was 5. The sheet is meant to be read WITHOUT
-   scrolling at 1080 (see the note above), and thirty rows at the 16px floor are
-   about 120px taller than they were — so the space comes back out of the gaps
-   between rows rather than out of the rows themselves. */
+/* Row padding 3px, down from 5: the sheet has to fit at 1080 and thirty rows at
+   the 16px floor are ~120px taller, so the space comes out of the gaps. */
 .bs-keyrow{display:grid;grid-template-columns:minmax(0,1fr) 118px 104px 68px;align-items:center;
   gap:8px;padding:3px 8px;border-radius:9px;font-size:17px}
 .bs-keyrow:not(.head):nth-child(even){background:rgba(255,255,255,.04)}
 .bs-keyrow .nm{display:flex;flex-direction:column;gap:1px;font-weight:700;
   color:rgba(238,242,248,.92)}
-/* The caveat under a row — the climb note, the combo note. Quiet on purpose:
-   it is the second thing the row says, and a player scanning for a key should
-   scan past it. */
+/* The caveat under a row. Quiet, so a player scanning for a key scans past it. */
 .bs-keyrow .nm em{font-style:normal;font-size:16px;font-weight:600;line-height:1.35;
   color:rgba(238,242,248,.5)}
 .bs-keyrow .kbm,.bs-keyrow .pad{text-align:right;white-space:nowrap;
   color:rgba(238,242,248,.9)}
 .bs-keyrow .pad .none{color:rgba(238,242,248,.32);font-weight:700}
-/* HOLD vs PRESS, and the whole reason the sheet is a table rather than a list.
-   HOLD is the loud one — amber fill, dark text, the hotbar's own "this is
-   ready" colour — because tapping a key that wants to be leaned on is the
-   mistake a player blames the game for. PRESS is deliberately almost invisible:
-   it is the default, and printing it as quietly as possible is what makes the
-   handful of HOLD rows jump off the page. */
+/* HOLD is the loud one; PRESS is the default and near-invisible on purpose, which
+   is what makes the handful of HOLD rows jump off the page. */
 .bs-keyrow .mode{justify-self:end;padding:2px 8px 3px;border-radius:999px;
   font-size:16px;font-weight:800;letter-spacing:.04em}
 .bs-keyrow .mode.hold{background:linear-gradient(180deg,#ffd94f,#f5a623);color:#3a2703;
@@ -724,39 +515,20 @@ const CSS = `
   font-size:16px;font-weight:600;color:rgba(238,242,248,.7)}
 
 /* ---- inventory (I) ------------------------------------------------------ */
-/* src/ui/inventory.ts. It wears the HUD's glass rather than the pause menu's
-   wood, because it is a view of things you own in the world rather than of the
-   session — the same line ui/pause.ts's header draws — so it reuses .bs-scrim,
-   .bs-glass, .bs-shop-x, .bs-chip and .bs-buy outright.
-
-   A RIGHT-HAND DOCK, FULL HEIGHT, and the reason is the stage at the top of it.
-   Three figures standing over their own gear slots only reads as a party if
-   there is height to stand in, and a centred box tall and wide enough for that
-   covers the world it is a view of. Docked, half the frame is still the place
-   you are standing in — and the panel gets the one axis it actually needs,
-   since a slot wall grows downward and a description does not exist any more.
-
-   z-index 40, alongside .bs-pause: over the HUD (20) and the touch overlay
-   (30), under the title screen (50).
-
-   MEASURED IN --bs-vh, NOT dvh, for issue #16's reason: on a phone in
-   fullscreen those disagreed by 110 px, and here that lands as a footer below
-   the bottom of the screen. See core/viewport.ts.
-
-   IT SLIDES IN FROM THE EDGE IT IS ATTACHED TO. A dock that fades in place
-   reads as a dialog that happened to be over there; one that comes in from the
-   right reads as a drawer, which is what it is. */
+/* src/ui/inventory.ts. Wears the HUD's glass, not the pause menu's wood, and
+   reuses .bs-scrim, .bs-glass, .bs-shop-x, .bs-chip and .bs-buy outright.
+   A right-hand dock at full height: the stage needs height for three figures to
+   stand in, and docked it leaves half the frame as the world.
+   z-index 40, alongside .bs-pause: over the HUD (20) and touch overlay (30),
+   under the title screen (50). Measured in --bs-vh, not dvh — on a phone in
+   fullscreen those disagree by 110px and the footer falls off (issue #16). */
 .bs-inv{position:fixed;inset:0;z-index:40;display:flex;justify-content:flex-end;
   pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   color:#eef2f8;user-select:none;-webkit-user-select:none}
 .bs-inv .bs-scrim{opacity:0}
 .bs-inv.open .bs-scrim{opacity:1}
-/* ELEVEN COLUMNS WIDE, which is what sets this number rather than a taste: at
-   a 52px slot and a 9px gap the wall alone is 662px, and the dock is that plus
-   its own padding. It is still a dock and not a full-screen sheet — the world
-   is meant to stay visible beside it — so on anything narrower than about
-   1100px it is simply most of the window, which is the honest outcome. */
+/* Sized by the wall: eleven 52px slots with 9px gaps is 662px plus padding. */
 .bs-inv .pane{position:relative;width:min(710px,100vw);height:var(--bs-vh,100dvh);
   display:flex;flex-direction:column;min-height:0;
   border-radius:0;border-right:none;
@@ -768,33 +540,21 @@ const CSS = `
   border-bottom:1px solid rgba(255,255,255,.1)}
 .bs-inv .head h2{font-size:22px;font-weight:900;letter-spacing:.04em;flex:1;
   text-shadow:0 1px 3px rgba(0,0,0,.5)}
-/* The keys that close it, printed beside the X instead of spelled out along the
-   bottom of the panel. .cap is the class every "this control is bound to
-   that" glyph in here wears, so the phone rule can hide all of them at once. */
+/* .cap is worn by every "bound to this control" glyph here, so the phone rule can
+   hide all of them at once. */
 .bs-inv .head .cap{display:flex;gap:5px;opacity:.62}
 
-/* THE STAGE. A live WebGL canvas (ui/inventory-stage.ts) showing the hero with
-   his two beasts, each standing over the gear slot that holds it.
-
-   It is given a FIXED share of the panel's height rather than an aspect ratio:
-   the slot wall below it is what has to grow when the window does, and a stage
-   sized off its own width would eat the wall on a tall narrow dock. 210px is
-   two heads and a wingspan at this width; below 620px of viewport height the
-   media query at the bottom of this file takes it down to 150.
-
-   pointer-events:none on the canvas — there is nothing to click on it, and
-   leaving it live meant a drag that crossed it lost the drop. */
+/* THE STAGE: a live WebGL canvas (ui/inventory-stage.ts). A FIXED height rather
+   than an aspect ratio — the slot wall is what should grow with the window.
+   pointer-events:none, or a drag crossing the canvas loses its drop. */
 .bs-inv .stage{position:relative;height:230px;flex:none;
   background:radial-gradient(120% 90% at 50% 12%,rgba(120,170,255,.14),transparent 70%)}
 .bs-inv .stage-gl{position:absolute;inset:0;width:100%;height:100%;
   display:block;pointer-events:none}
 
-/* THE THREE GEAR SLOTS, in the wireframe's order: lead beast, weapon, support
-   beast — the order the three figures stand in on the stage directly above.
-   Equal thirds, so the middle one lines up with the hero. */
-/* Four now: lead beast, weapon, support beast, taming orb. Still one equal
-   track each rather than a narrower fourth — a slot you drag onto has to be the
-   same size as the ones beside it, or it reads as a status pip. */
+/* FOUR GEAR SLOTS — lead beast, weapon, support beast, taming orb — in the order
+   the figures stand on the stage above. Equal tracks: a slot you drag onto has to
+   be the same size as its neighbours or it reads as a status pip. */
 .bs-inv .gear{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;
   padding:0 18px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
 .bs-inv .gs{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;
@@ -805,16 +565,14 @@ const CSS = `
 .bs-inv .gs.full:hover{transform:translateY(-2px);box-shadow:0 0 22px -6px var(--el)}
 .bs-inv .gs.full:active{cursor:grabbing}
 .bs-inv .gs:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
-/* The same ring the wall's selected cell wears, and it means the same thing:
-   the footer's buttons are pointed at this. A gear slot is now the ONLY place
-   an equipped row can be selected from — it is no longer on the wall as well. */
+/* The wall's selection ring, meaning the same thing: the footer points here. A gear
+   slot is the ONLY place an equipped row can be selected from. */
 .bs-inv .gs.sel{outline:2px solid #69d9ff;outline-offset:-2px}
 .bs-inv .gs.r-rare{border-color:rgba(105,217,255,.5)}
 .bs-inv .gs.r-legendary{border-color:rgba(255,190,80,.62)}
 .bs-inv .gs-ic{width:52px;height:52px;display:block}
-/* The slot's ROLE only — see the note in gearHtml. There is no element for the
-   item's NAME here on purpose, which is also what keeps the three slots the
-   same width whatever is standing in them. */
+/* The slot's ROLE only — no element for the item's NAME, which is what keeps the
+   slots the same width whatever is in them. See gearHtml. */
 .bs-inv .gs-l{font-size:16px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
   color:rgba(238,242,248,.42);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   max-width:100%}
@@ -822,27 +580,20 @@ const CSS = `
 .bs-inv .drop-ok{border-color:#8fe06b;box-shadow:0 0 0 2px rgba(143,224,107,.35) inset,
   0 0 22px -6px rgba(143,224,107,.9)}
 
-/* THE THREE MOUNT BADGES — ground, water, flying, in the order the story hands
-   them out. A ROW OF PIPS AND NOT FOUR MORE GEAR SLOTS, deliberately: a slot in
-   the strip above is something you drag onto, and these take no gesture at all
-   (see mountsHtml). Small, centred and unlabelled is what says "a readout" —
-   the words are in the tooltip and in aria-label, which is also why nothing here
-   needs the 16px type floor. */
+/* THE THREE MOUNT BADGES, in the order the story hands them out. Pips rather than
+   gear slots: these take no gesture (see mountsHtml). The words live in the tooltip
+   and aria-label, which is why nothing here needs the 16px floor. */
 .bs-inv .mounts{display:flex;justify-content:center;gap:10px;padding:10px 18px;
   border-bottom:1px solid rgba(255,255,255,.08)}
 .bs-inv .mt{width:38px;height:32px;display:flex;align-items:center;justify-content:center;
   border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);
   color:var(--el);opacity:.4;cursor:help;transition:opacity .18s ease,border-color .18s ease,
   box-shadow .2s ease}
-/* UNLOCKED IS THE LIT ONE. The locked state is the same badge at 40% rather than
-   a padlock over it: the glyph is the thing worth recognising, and a second
-   symbol on top of it would be the panel shouting about what you cannot do. */
+/* Unlocked is the lit one; locked is the same badge at 40%, not a padlock. */
 .bs-inv .mt.on{opacity:1;border-color:var(--el);box-shadow:0 0 18px -8px var(--el)}
 .bs-inv .mt:hover{opacity:1}
-/* Square and fixed, overriding the 70%-of-the-box .ic.glyph sizing further
-   down: that rule is written for a gear slot, whose box is already square, and
-   70% of a 38x32 pip is an oblong the SVG then letterboxes itself inside. Four
-   classes so it wins on specificity rather than on being later in the file. */
+/* Square and fixed, overriding .ic.glyph's 70%-of-the-box below, which is written
+   for a square gear slot. Four classes, so it wins on specificity not on order. */
 .bs-inv .mt .ic.glyph{width:20px;height:20px;margin:0}
 
 .bs-inv .tabs{display:flex;gap:6px;flex-wrap:wrap;padding:11px 18px 0}
@@ -852,15 +603,11 @@ const CSS = `
 .bs-inv .chip:hover{background:rgba(255,255,255,.12);color:#fff}
 .bs-inv .chip.on{background:rgba(105,217,255,.16);border-color:rgba(105,217,255,.5);color:#dff5ff}
 
-/* THE WALL. INV_COLS in ui/inventory.ts is the same 5 the keyboard's up/down
-   steps by, handed here through --cols; auto-fill would let the two disagree
-   about what "the row below" means, and a media query that narrowed one without
-   the other would leave arrow-down skipping slots with nothing failing.
-   minmax(0,1fr) and not 1fr — a grid item's automatic minimum size is its
-   CONTENT, so a plain 1fr refuses to shrink and the wall overflows its column.
-   THE WALL SCROLLS AND THE PANEL DOES NOT: it is the one part with no natural
-   length, and a panel that scrolled as a whole would move the footer's Salvage
-   button every time the player picked up a flower. */
+/* THE WALL. --cols carries INV_COLS from ui/inventory.ts, which is what the
+   keyboard's up/down steps by — auto-fill would let the two disagree about what
+   "the row below" means. minmax(0,1fr), not 1fr: a grid item's automatic minimum
+   is its CONTENT, so 1fr refuses to shrink and the wall overflows.
+   THE WALL SCROLLS AND THE PANEL DOES NOT, so the footer never moves. */
 .bs-inv .grid{display:grid;grid-template-columns:repeat(var(--cols,5),minmax(0,1fr));
   gap:9px;align-content:start;overflow-y:auto;min-height:0;min-width:0;flex:1;
   padding:12px 18px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
@@ -871,78 +618,61 @@ const CSS = `
 .bs-inv .slot:hover{transform:translateY(-2px);border-color:var(--el);
   box-shadow:0 8px 20px rgba(0,0,0,.35),0 0 16px -6px var(--el)}
 .bs-inv .slot:active{cursor:grabbing}
-/* The selection ring is an OUTLINE rather than a border so it cannot change the
-   slot's box and reflow the wall as the cursor walks it. */
-/* AN EMPTY CELL IS A REAL CELL — see INV_COLS in ui/inventory.ts. Quieter than
-   a filled one, and a <div> rather than a <button> so a keyboard walks the
-   things you own rather than the holes between them. It IS in the drag
-   machinery, which is the change issue #116 made: an empty cell is where a
-   dragged box lands, so it has to be something elementFromPoint can see —
-   which rules out pointer-events:none. It still lifts for nothing on hover.
-   A .held cell is one whose row the tab filter is hiding: no landing, because
-   a swap with a box that is not on screen is a move nobody made. */
+/* The selection ring is an OUTLINE, not a border, so it cannot reflow the wall.
+   AN EMPTY CELL IS A REAL CELL: a <div> not a <button>, so a keyboard walks what
+   you own — but it IS a drop target (issue #116), so no pointer-events:none.
+   A .held cell's row is hidden by the tab filter, so nothing may land on it. */
 .bs-inv .slot.empty{background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.09);
   cursor:default}
 .bs-inv .slot.empty:hover{transform:none;border-color:rgba(255,255,255,.09);box-shadow:none}
 .bs-inv .slot.empty.held{background:rgba(255,255,255,.02);border-style:dashed}
 .bs-inv .slot.sel{outline:2px solid #69d9ff;outline-offset:-2px;background:rgba(105,217,255,.1)}
 .bs-inv .slot:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
-/* Rarity is the slot's EDGE, not its fill: a legendary item still has to read
-   as the same kind of box as the one beside it. */
+/* Rarity is the slot's EDGE, not its fill. */
 .bs-inv .slot.r-rare{border-color:rgba(105,217,255,.45)}
 .bs-inv .slot.r-legendary{border-color:rgba(255,190,80,.6);
   box-shadow:inset 0 0 22px -10px rgba(255,190,80,.9)}
-/* Equipped: a corner dot, which survives every rarity border above it because
-   it is a separate corner. */
+/* Equipped: a corner dot, which survives every rarity border above. */
 .bs-inv .slot.on::after{content:'';position:absolute;top:5px;right:5px;width:8px;height:8px;
   border-radius:50%;background:#8fe06b;box-shadow:0 0 8px rgba(143,224,107,.9)}
-/* Every picture in the panel is one element with a background: an atlas tile
-   (weapon-icons.ts), a baked 3D portrait (inventory-stage.ts), or the lozenge
-   below when there is neither. */
+/* One element with a background: an atlas tile, a baked portrait, or the lozenge. */
 .bs-inv .ic{width:100%;height:100%;display:block;background-repeat:no-repeat;
   background-position:center;background-size:contain}
 .bs-inv .ic.blob{background-image:none;
   background:radial-gradient(circle at 38% 32%,#fff2,transparent 60%),var(--el);
   border-radius:26% 26% 30% 30%/30%;box-shadow:0 0 14px -4px var(--el);
   width:62%;height:62%;margin:auto}
-/* A fourth picture: an INLINE SVG glyph, tinted by the item's own colour through
-   currentColor (ui/icons.ts). The drop shadow is what keeps a Master Orb —
-   near-black on a dark panel — from vanishing into its slot. */
+/* An inline SVG glyph, tinted through currentColor. The drop shadow keeps a
+   near-black Master Orb from vanishing into its slot. */
 .bs-inv .ic.glyph{background:none;width:70%;height:70%;margin:auto;color:var(--el);
   filter:drop-shadow(0 0 6px rgba(255,255,255,.28))}
 .bs-inv .ic.glyph svg{width:100%;height:100%;display:block}
 .bs-inv .slot .n{position:absolute;top:4px;left:7px;font-size:16px;font-weight:800;
   font-variant-numeric:tabular-nums;color:#fff;text-shadow:0 1px 3px #000,0 0 6px #000}
-/* Everything else fades while a drag is in flight, so the legal targets are the
-   only lit things on the panel. */
+/* Everything else fades mid-drag, so only the legal targets are lit. */
 .bs-inv.dragging .slot,.bs-inv.dragging .gs{opacity:.55}
 .bs-inv.dragging .drop-ok{opacity:1}
-/* THE BOX IN THE AIR (issue #116). The panel drives its own drag off pointer
-   events, so it draws its own cursor freight: one cell-sized tile carrying the
-   row's picture, parked under the pointer by a transform. It must not be a
-   drop target of its own — the drag reads the wall through
-   document.elementFromPoint, which would otherwise find nothing but this. */
+/* THE BOX IN THE AIR (issue #116): the panel's own cursor freight, parked under
+   the pointer by a transform. pointer-events:none is required — the drag reads the
+   wall through document.elementFromPoint, which would otherwise find only this. */
 .bs-inv .drag-ghost{position:fixed;top:0;left:0;z-index:2;width:56px;height:56px;
   margin:-28px 0 0 -28px;padding:5px;border-radius:13px;pointer-events:none;
   display:grid;place-items:center;
   border:1px solid var(--el);background:rgba(10,14,22,.85);
   box-shadow:0 10px 26px rgba(0,0,0,.5),0 0 20px -6px var(--el)}
 
-/* THE FOOTER STRIP: what is selected, and the two things that destroy it. The
-   constructive action is a right-click and is only NAMED here — see the header
-   of ui/inventory.ts for why nothing destructive is one click from anything. */
+/* THE FOOTER STRIP. The constructive action is a right-click and is only NAMED
+   here — see ui/inventory.ts's header. */
 .bs-inv .sel{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:26px;
   padding:10px 18px;border-top:1px solid rgba(255,255,255,.1)}
 .bs-inv .sel .nm{font-size:17px;font-weight:800;flex:1;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bs-inv .sel .bs-buy{flex:none;display:inline-flex;align-items:center;gap:7px;
   padding:5px 12px 6px;font-size:16px}
-/* The BINDING, as a picture on the button it belongs to. See footHtml: an
-   action with no bound control simply has no icon, which is the rule working. */
+/* The binding, as a picture on its button. An unbound action has no icon (footHtml). */
 .bs-inv .sel .cap{display:block;width:17px;height:17px;opacity:.85}
 .bs-inv .sel .cap svg{width:100%;height:100%}
-/* The primary action, shown as a button only where there is no pointer to
-   right-click with — see footHtml. Quieter than the danger pair beside it. */
+/* The primary action, a button only where there is no pointer to right-click with. */
 .bs-inv .sel .bs-buy.ghost{background:rgba(255,255,255,.1);color:#eef2f8;
   border:1px solid rgba(255,255,255,.18);box-shadow:none}
 .bs-inv .sel .bs-buy.ghost:hover{background:rgba(255,255,255,.18)}
@@ -950,10 +680,8 @@ const CSS = `
   border:1px solid rgba(255,90,80,.34);box-shadow:none}
 .bs-inv .sel .bs-buy.danger:hover{background:rgba(255,90,80,.24);color:#fff}
 
-/* THE TOOLTIP. Positioned by transform against the VIEWPORT rather than by
-   top/left inside the panel, because it has to be able to leave the panel: the
-   dock is against the right edge, so a tooltip beside a slot is nearly always
-   to the LEFT of it and over the world. See moveTip for the clamping. */
+/* THE TOOLTIP, positioned against the VIEWPORT rather than inside the panel,
+   because it has to be able to leave it. See moveTip for the clamping. */
 .bs-inv .tip{position:fixed;top:0;left:0;z-index:1;max-width:290px;
   padding:11px 13px 12px;border-radius:13px;pointer-events:none;
   background:linear-gradient(165deg,rgba(24,31,45,.97),rgba(12,16,25,.98));
@@ -973,10 +701,8 @@ const CSS = `
 @media (prefers-reduced-motion:reduce){
   .bs-inv .bs-scrim,.bs-inv .pane,.bs-inv .slot,.bs-inv .tip{transition:none}
 }
-/* A SHORT WINDOW pays for the wall out of the stage rather than out of the type
-   (issue #17's rule for this whole stylesheet). At 620px the stage still holds
-   three whole figures; below 520 it goes entirely, because two rows of slots
-   and a footer is what the panel is FOR and a 90px stage is a smear. */
+/* A short window pays for the wall out of the STAGE, never out of the type
+   (issue #17). Below 520 the stage goes entirely — a 90px stage is a smear. */
 @media (max-height:620px){
   .bs-inv .stage{height:150px}
   .bs-inv .gs-ic{width:36px;height:36px}
@@ -986,22 +712,11 @@ const CSS = `
 }
 
 /* ---- quest journal (J) --------------------------------------------------- */
-/* src/ui/journal.ts. THE SAME DOCK THE INVENTORY IS, deliberately: these are the
-   two panels a player opens with one key while standing in the world, and a
-   journal that slid in from a different edge with a different corner would read
-   as a different program. Same z-index 40, same --bs-vh measurement, same
-   .bs-glass / .bs-scrim / .bs-shop-x / .bs-chip / .bs-buy borrowings.
-
-   NARROWER THAN THE INVENTORY — 520px against 710 — because what sets that
-   panel's width is a wall eleven slots across and what sets this one's is a line
-   of prose. Past about 60 characters a measure gets harder to read rather than
-   easier, so the extra 190px would be spent making the panel worse.
-
-   FULL SCREEN BELOW 720px, which the inventory does not do. A dock is a dock
-   because there is a world worth leaving visible beside it; on a phone there is
-   not, and a 520px drawer on a 390px screen is a full-screen sheet already —
-   this only stops it pretending otherwise with a corner radius and a scrim
-   stripe nobody can tap. */
+/* src/ui/journal.ts. The same dock the inventory is — same z-index 40, same
+   --bs-vh, same .bs-glass / .bs-scrim / .bs-shop-x / .bs-chip / .bs-buy.
+   Narrower (520 against 710) because a line of prose sets this width and a measure
+   past ~60 characters gets harder to read. Full screen below 720px, which the
+   inventory does not do: a 520px drawer on a 390px screen is a sheet already. */
 .bs-journal{position:fixed;inset:0;z-index:40;display:flex;justify-content:flex-end;
   pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -1020,8 +735,8 @@ const CSS = `
 .bs-journal .head h2{font-size:22px;font-weight:900;letter-spacing:.04em;flex:1;
   text-shadow:0 1px 3px rgba(0,0,0,.5)}
 .bs-journal .head .cap{display:flex;gap:5px;opacity:.62}
-/* The shelves, each carrying its count — see tabsHtml. The <b> is the number and
-   is deliberately not a badge: a pill on a pill is two borders saying one thing. */
+/* The shelves, each carrying its count (tabsHtml). The <b> is not a badge — a pill
+   on a pill is two borders saying one thing. */
 .bs-journal .tabs{display:flex;gap:6px;flex-wrap:wrap;padding:11px 18px 0}
 .bs-journal .chip{display:inline-flex;align-items:baseline;gap:6px;
   padding:5px 12px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.14);
@@ -1032,16 +747,14 @@ const CSS = `
 .bs-journal .chip b{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;
   opacity:.7}
 .bs-journal .chip:focus-visible{outline:2px solid #ffd23f;outline-offset:-2px}
-/* THE COLUMN SCROLLS AND THE PANEL DOES NOT — the inventory's rule, and here it
-   is what keeps the tabs on screen with a hundred completed quests behind them. */
+/* The column scrolls and the panel does not, so the tabs stay on screen. */
 .bs-journal .list{flex:1;min-height:0;overflow-y:auto;padding:12px 18px 18px;
   display:flex;flex-direction:column;gap:11px;
   scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
 .bs-journal .none{font-size:16px;line-height:1.5;color:rgba(238,242,248,.55);
   padding:26px 4px;text-align:center}
-/* A CARD, with its category as a left EDGE rather than a fill: a main quest and
-   a side quest have to read as the same kind of object, or a player learns to
-   skip one of them. */
+/* Category as a left EDGE, not a fill: main and side quests must read as the same
+   kind of object, or a player learns to skip one. */
 .bs-journal .q{position:relative;padding:12px 14px 13px 16px;border-radius:14px;
   border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05)}
 .bs-journal .q::before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:3px;
@@ -1052,8 +765,7 @@ const CSS = `
 .bs-journal .badge{font-size:16px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
   color:rgba(238,242,248,.5)}
 .bs-journal .q.c-main .badge{color:#ffc44d}
-/* Arc, giver and place, on one quiet line. Three separate labelled rows was the
-   first shape and it made the metadata louder than the objectives. */
+/* Arc, giver and place on one quiet line — labelled rows outshouted the objectives. */
 .bs-journal .q-m{margin-top:3px;font-size:16px;font-weight:600;color:rgba(238,242,248,.5)}
 .bs-journal .q-d{margin-top:7px;font-size:16px;line-height:1.45;color:rgba(238,242,248,.8)}
 .bs-journal .steps{list-style:none;margin-top:9px;display:flex;flex-direction:column;gap:5px}
@@ -1062,8 +774,7 @@ const CSS = `
 .bs-journal .steps li.ok{color:rgba(238,242,248,.5);text-decoration:line-through}
 .bs-journal .steps li b{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums;
   color:rgba(238,242,248,.7)}
-/* The tick box is drawn whether or not the step is done, so a list does not
-   shift sideways one line at a time as the player works through it. */
+/* Drawn done or not, so the list does not shift sideways line by line. */
 .bs-journal .tk{flex:none;width:17px;height:17px;margin-top:2px;border-radius:5px;
   border:1px solid rgba(255,255,255,.22);color:#8fe06b}
 .bs-journal .steps li.ok .tk{border-color:rgba(143,224,107,.55);background:rgba(143,224,107,.14)}
@@ -1074,9 +785,7 @@ const CSS = `
   font-size:16px;background:rgba(255,255,255,.1);color:rgba(238,242,248,.72);
   border:1px solid rgba(255,255,255,.18);box-shadow:none}
 .bs-journal .q-f .bs-buy:hover{background:rgba(255,255,255,.18);color:#fff}
-/* PRESSED, and it says so with a colour rather than only with its label: the
-   button is a switch, and the state of a switch should survive being read at a
-   glance in a language the player half knows. */
+/* Pressed says so with a colour, not only a label — it is a switch. */
 .bs-journal .q-f .bs-buy.on{background:rgba(105,217,255,.16);color:#dff5ff;
   border-color:rgba(105,217,255,.5)}
 .bs-journal .q-f .bs-buy:focus-visible{outline:2px solid #ffd23f;outline-offset:2px}
@@ -1089,19 +798,12 @@ const CSS = `
 
 
 /* ---- in-game menu (Escape / Start / the touch overlay's MENU) ------------ */
-/* src/ui/pause.ts. It borrows the TITLE SCREEN's controls rather than the HUD's
-   panels — .bs-menu-btn for the rows, .bs-opts for the column — because it does
-   the title screen's job (settings, and ending the session) and a player
-   arriving here should recognise where they are. What it borrows from the HUD is
-   only .bs-scrim and .bs-glass, i.e. the way a modal sits over the world.
-
-   z-index 40 is the load-bearing number: over the HUD (20) and the touch overlay
-   (30), so nothing behind it can be tapped, and UNDER the title screen (50), so
-   that Exit's new poster covers this one during the frame between them.
-
-   The pane is WIDTH-CAPPED rather than sized to the viewport. A settings list is
-   the same list on a phone and on a 32-inch monitor, and letting it stretch put
-   an ON pill a third of a metre from the label it belongs to. */
+/* src/ui/pause.ts. Borrows the TITLE SCREEN's controls (.bs-menu-btn, .bs-opts)
+   because it does the title screen's job, and only .bs-scrim / .bs-glass from the
+   HUD. z-index 40 is load-bearing: over the HUD (20) and touch overlay (30) so
+   nothing behind is tappable, UNDER the title screen (50) so Exit's poster covers
+   it. The pane is width-capped — stretched, an ON pill ends up a third of a metre
+   from its label. */
 .bs-pause{position:fixed;inset:0;z-index:40;display:grid;place-items:center;
   pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -1111,8 +813,7 @@ const CSS = `
 .bs-pause.open .bs-scrim{opacity:1}
 .bs-pause .pane{position:relative;width:min(420px,90vw);max-height:88vh;overflow-y:auto;
   padding:22px 20px;border-radius:0;
-  /* Warm, so the wooden buttons sit on something related to them rather than on
-     the HUD's blue-grey. Same construction as .bs-glass, a different tint. */
+  /* Warm, so the wooden buttons do not sit on the HUD's blue-grey. */
   background:linear-gradient(180deg,#261a0f,#140e08);
   border:1px solid rgba(255,214,140,.22);
   box-shadow:0 24px 64px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,226,170,.14);
@@ -1120,24 +821,16 @@ const CSS = `
   transition:opacity .24s ease,transform .28s cubic-bezier(.34,1.45,.64,1);
   scrollbar-width:thin;scrollbar-color:rgba(255,214,140,.3) transparent}
 .bs-pause.open .pane{opacity:1;transform:translateY(0) scale(1)}
-/* The disabled language row, and the note under it. Greyed as a whole rather
-   than only its chips, so it reads as "this row is not available here" instead
-   of as three broken buttons beside a live label. */
+/* Greyed as a whole row, so it does not read as three broken buttons. */
 .bs-opts .row.lang.off{opacity:.45}
 @media (prefers-reduced-motion:reduce){
   .bs-pause .bs-scrim,.bs-pause .pane{transition:none}
 }
 
-/* ---- fullscreen offer (touch devices only) ------------------------------- */
 /* ---- start menu ---------------------------------------------------------- */
-/* The title screen. Two images and CSS — see src/ui/menu.ts for what the layers
-   are and why the art sits inside an explicitly sized plate.
-
-   z-index 50 puts it over the HUD (20) and the touch overlay (30) but under the
-   fullscreen pill's in-menu perch (60), which it raises itself. Unlike the rest
-   of this sheet it OPTS IN to pointer events wholesale: while the title screen
-   is up, nothing behind it should be clickable, and step one accepts a click
-   anywhere on the poster. */
+/* The title screen — see src/ui/menu.ts for the layers. z-index 50: over the HUD
+   (20) and touch overlay (30). Unlike the rest of this sheet it OPTS IN to pointer
+   events wholesale, and step one accepts a click anywhere on the poster. */
 .bs-menu{position:fixed;inset:0;z-index:50;overflow:hidden;pointer-events:auto;
   touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -1146,56 +839,32 @@ const CSS = `
 .bs-menu.show{opacity:1}
 .bs-menu.leaving{opacity:0;transition:opacity .5s ease}
 .bs-menu *{box-sizing:border-box;margin:0;padding:0}
-/* photo=1&menu=1 — a staged capture of the title screen. Every animation on
-   it stops, so two runs produce identical pixels; the same reason world/sway.ts
-   freezes the wind clock. Also honoured for anyone who asked their OS for less
-   motion, which wants exactly the same thing for a different reason. */
+/* photo=1&menu=1 — every animation stops, so two runs produce identical pixels. */
 .bs-menu.photo *{animation-play-state:paused!important}
-/* Reduced motion takes away MOVEMENT, not light.
-   This used to pause every animation on the screen, which is the blunt reading
-   and the wrong one: it left the fairies frozen mid-air, the lanterns stuck at
-   62% and a title screen that looked broken rather than calm. What actually
-   troubles someone who asks for less motion is travel — things flying across
-   the frame, things sliding, things scaling. So the crossing and the bob stop
-   and the logo's slide becomes a cut, while the two things that only change
-   BRIGHTNESS keep going. Note the fairies hold the positions their negative
-   delays put them in, so they stay scattered rather than stacking at one edge. */
+/* Reduced motion takes away MOVEMENT, not light: travel and scaling stop, the two
+   things that only change BRIGHTNESS keep going. Pausing everything left the
+   fairies frozen mid-air and the screen looking broken rather than calm. */
 @media (prefers-reduced-motion:reduce){
   .bs-menu .fly{animation-play-state:paused}
   .bs-menu .fly b{animation:bsFlyTwinkle calc(var(--bob) * .45) ease-in-out infinite alternate}
   .bs-menu .lamp{animation-name:bsLampGlow}
-  /* The entrance below is deliberately NOT paused here. It is three fades, and a
-     fade is light rather than travel — the same split the lanterns get. */
+  /* The entrance is NOT paused here: three fades are light, not travel. */
   .bs-menu .logo,.bs-menu .panel{transition:none}
 }
 
 /* ---- the entrance: logo, then painting, then "press start" --------------- */
-/* Issue #49. The long note at INTRO in src/ui/menu.ts is the why; this is the
-   whole of the WHEN. Three layers start at 0 and the sequence is three animation
-   delays adding up — .55 logo, then .7 painting, then .45 for the words — so
-   once menu.ts has added .intro nothing in JavaScript is involved again.
-
-   THAT IS THE POINT OF DOING IT HERE. The boot runs behind this poster in long
-   tasks, and a setTimeout(550) for the second beat was measured firing at
-   4066 ms: the painting turned up four seconds after the wordmark. A compositor
-   opacity animation goes on running through the same block.
-
-   .lit is the same three layers with no sequence — the end state, the skip, and
-   what photo=1 and Exit to title get instead of a run. It sits AFTER .intro so
-   it wins on order at equal specificity, and it restates the press pulse because
-   animation:none would otherwise take it away with the fades.
-
-   Note what is NOT gated: .bs-menu itself still fades up on .show at the frame it
-   always did, and the dark plate under all this is the element's own background.
-   The poster is on screen exactly as early as it was; what these rules stage is
-   what is PAINTED on it. */
+/* Issue #49; see INTRO in src/ui/menu.ts for the why. The sequence is three
+   animation delays adding up, so once .intro is added no JavaScript is involved —
+   which is the point: the boot blocks the main thread in long tasks, and a
+   setTimeout(550) for the second beat was measured firing at 4066 ms.
+   .lit is the same layers with no sequence (the skip, photo=1, Exit to title). It
+   sits AFTER .intro to win at equal specificity, and restates the press pulse
+   because animation:none would otherwise take it away with the fades. */
 .bs-menu .stage,.bs-menu .logo,.bs-menu .press{opacity:0}
 .bs-menu.intro .logo{animation:bsIntroIn .55s ease both}
 .bs-menu.intro .stage{animation:bsIntroIn .7s ease .55s both}
-/* TWO animations on one property, which is how the words fade in and then keep
-   breathing. The pulse's delay puts it past the fade with no fill of its own, so
-   until 1.7 s only the first rule applies; after it, the later name in the list
-   wins. Both start from full opacity, so the handover is invisible. */
+/* Two animations on one property: the pulse's delay puts it past the fade with no
+   fill of its own, and both start from full opacity so the handover is invisible. */
 .bs-menu.intro .press{animation:bsIntroIn .45s ease 1.25s both,
   bsPressPulse 1.9s ease-in-out 1.7s infinite}
 .bs-menu.lit .stage,.bs-menu.lit .logo,.bs-menu.lit .press{opacity:1;animation:none}
@@ -1203,19 +872,13 @@ const CSS = `
 @keyframes bsIntroIn{from{opacity:0}to{opacity:1}}
 
 .bs-menu .stage{position:absolute;inset:0;overflow:hidden}
-/* background-size:cover, written out, so the glows below can be positioned in
-   PER CENT OF THE PICTURE and stay on their lanterns at every aspect ratio.
-   1672/941 is the source art's own ratio; both axes are max()'d against the
-   viewport so whichever dimension binds, the other overflows and is clipped. */
+/* cover, written out, so the glows can be positioned in PER CENT OF THE PICTURE and
+   stay on their lanterns at every aspect ratio. 1672/941 is the source art's ratio. */
 .bs-menu .plate{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
   width:max(100vw,calc(100dvh * 1672 / 941));height:max(100dvh,calc(100vw * 941 / 1672))}
 .bs-menu .art{width:100%;height:100%;object-fit:fill;display:block}
-/* One lantern. plus-lighter adds light rather than painting a pale disc over
-   the glass — a normal-blended white circle reads as a smudge on the lens.
-   The pulse is opacity AND scale together: a flame that brightens without
-   growing reads as a UI fade, and one that grows without brightening reads as a
-   zoom. Peak 1.0 is only ~18% above the trough, which is a lantern breathing
-   rather than a light switch. */
+/* plus-lighter ADDS light; a normal-blended white circle reads as a lens smudge.
+   The pulse is opacity AND scale together, ~18% above the trough. */
 .bs-menu .lamp{position:absolute;left:var(--x);top:var(--y);width:var(--r);aspect-ratio:1;
   transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;
   mix-blend-mode:plus-lighter;
@@ -1226,33 +889,26 @@ const CSS = `
 @keyframes bsLamp{
   from{opacity:.62;transform:translate(-50%,-50%) scale(.9)}
   to{opacity:1;transform:translate(-50%,-50%) scale(1.06)}}
-/* The same breath with the swell taken out, for prefers-reduced-motion. The
-   flame still lives; it just stops growing. */
+/* The same breath with the swell taken out, for prefers-reduced-motion. */
 @keyframes bsLampGlow{from{opacity:.62}to{opacity:1}}
 
-/* Fairies. Two nested elements so the crossing and the bobbing keep independent
-   periods without any JS: the outer travels, the inner wobbles and twinkles.
-   Sized off --sz with the glow scaled to match, so one number sets a sprite. */
+/* Fairies. Two nested elements so crossing and bobbing keep independent periods
+   without JS: the outer travels, the inner wobbles. --sz alone sizes a sprite. */
 .bs-menu .flies{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 .bs-menu .fly{position:absolute;top:var(--top);left:0;width:var(--sz);height:var(--sz);
   will-change:transform;animation:bsFlyX var(--dur) linear var(--delay) infinite}
 .bs-menu .fly.rev{animation-name:bsFlyXrev}
-/* White CORE, coloured halo. A fairy that is amber all the way through washes
-   out against a sunlit cloud; a white centre keeps a hard highlight the sky
-   cannot match, and the halo does the colouring around it. */
+/* White CORE, coloured halo: amber all the way through washes out against a
+   sunlit cloud. */
 .bs-menu .fly b{display:block;width:100%;height:100%;border-radius:50%;
   background:radial-gradient(circle,#fff 0%,#fff6d2 28%,rgba(255,214,120,.75) 52%,rgba(255,190,90,0) 76%);
   box-shadow:0 0 calc(var(--sz) * 2.6) calc(var(--sz) * .8) rgba(255,208,120,.65),
              0 0 calc(var(--sz) * .9) rgba(255,255,255,.9);
-  /* The twinkle runs on its own clock at .45 of the bob — a prime-ish fraction,
-     so a fairy's brightest moment lands somewhere different on every pass
-     rather than always at the top of its arc. Down to 0.22 rather than the
-     first pass's 0.45: at a 9px dot over a sunlit sky, halving the opacity was
-     not a pulse anyone noticed, it was just a slightly dimmer dot. */
+  /* The twinkle runs at .45 of the bob, so the brightest moment lands somewhere
+     different every pass rather than at the top of the arc. */
   animation:bsFlyY var(--bob) ease-in-out infinite alternate,
             bsFlyTwinkle calc(var(--bob) * .45) ease-in-out infinite alternate}
-/* A minority are cool-toned, which is what stops seven identical amber dots
-   reading as dust on the screen. Matches the blue beast in the artwork. */
+/* A cool-toned minority, so seven identical amber dots do not read as dust. */
 .bs-menu .fly.cool b{
   background:radial-gradient(circle,#fff 0%,#e6fbff 28%,rgba(150,225,255,.75) 52%,rgba(110,205,255,0) 76%);
   box-shadow:0 0 calc(var(--sz) * 2.6) calc(var(--sz) * .8) rgba(150,222,255,.65),
@@ -1260,59 +916,29 @@ const CSS = `
 @keyframes bsFlyX{from{transform:translate3d(-6vw,0,0)}to{transform:translate3d(106vw,0,0)}}
 @keyframes bsFlyXrev{from{transform:translate3d(106vw,0,0)}to{transform:translate3d(-6vw,0,0)}}
 @keyframes bsFlyY{from{transform:translateY(calc(var(--bobY) * -1))}to{transform:translateY(var(--bobY))}}
-/* Bright end FIRST, for the same reason the press pulse runs that way: paused at
-   0% under photo=1, a dim-first keyframe froze all seven fairies at 35% opacity
-   and the staged still came out with none of them visible. */
+/* Bright end FIRST: paused at 0% under photo=1, a dim-first keyframe froze all
+   seven fairies invisible. Same reason the press pulse runs that way. */
 @keyframes bsFlyTwinkle{from{opacity:1}to{opacity:.22}}
 
-/* The art is bright noon daylight and the type on top of it is white. This is
-   what makes the words legible without dimming the painting into mud: darkened
-   at top and bottom where the logo and the buttons live, untouched across the
-   middle band where the castle and the characters are. */
+/* White type over bright noon art: darkened top and bottom where the logo and
+   buttons live, untouched across the middle band. */
 .bs-menu .vign{position:absolute;inset:0;pointer-events:none;
   background:
     linear-gradient(180deg,rgba(6,10,18,.55) 0%,rgba(6,10,18,.12) 26%,
       rgba(6,10,18,0) 46%,rgba(6,10,18,.28) 72%,rgba(6,10,18,.72) 100%),
     radial-gradient(120% 90% at 50% 40%,rgba(6,10,18,0) 40%,rgba(6,10,18,.45) 100%)}
 
-/* TWO ROWS MEETING AT A DIVIDER, which is what makes the gap a constant.
-
-   The logo sits in the top row aligned to its BOTTOM, the panel in the bottom
-   row aligned to its TOP, so the two edges that face each other both land on
-   the line between the rows. The distance between them is then exactly --gap,
-   at every window size, and they cannot overlap however tall the panel gets —
-   the divider is between them.
-
-   The previous arrangement had both boxes in ONE centred cell, each translated
-   away by a percentage of viewport HEIGHT while the panel's own height was a
-   fixed number of pixels. Those two do not scale together: values tuned to give
-   a tight gap at 1080 put the New Game button through the middle of the logo at
-   540. Shared --slide moves the pair without ever changing the distance between
-   them, so the "logo slides up to make room" transition survives intact. */
-/* FOUR ROWS: flexible, logo, panel, flexible. The two content rows size
-   themselves and the two fr rows split whatever is left equally, so the pair is
-   centred AS A GROUP and the divider between them is wherever the logo's own
-   height puts it — the gap is still exactly --gap, and the panel can grow
-   downward without the logo's row caring.
-
-   It was 1fr 1fr, a divider pinned to the middle, which is right only while the
-   list fits in half a screen. Adding a fourth settings row took the panel to
-   397px and the Back button fell off the bottom at 720 and at 540. Sizing the
-   second row minmax(auto,50%) did not fix it either — measured, the row took
-   the 50% and let its content overflow, because a panel of wrappable rows has a
-   min-content height well under its natural one. Rows that are simply auto
-   cannot do that. */
+/* FOUR ROWS: flexible, logo, panel, flexible. The logo aligns to its row's BOTTOM
+   and the panel to its TOP, so the gap between them is exactly --gap at every
+   window size and they cannot overlap however tall the panel grows; --slide moves
+   the pair without changing that distance. The two fr rows split the rest, so the
+   pair is centred AS A GROUP. Rows must be auto — minmax(auto,50%) let a panel
+   of wrappable rows take the 50% and overflow it. */
 .bs-menu .fore{position:absolute;inset:0;display:grid;
   grid-template-rows:1fr auto auto 1fr;justify-items:center;
   padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom))}
-/* Sized against BOTH dimensions, and the max-height is the load-bearing half.
-   Width alone (min(560px,74vw)) gave a 960x540 window the same 560px logo a
-   1920x1080 one gets while every offset around it halved.
-
-   It does NOT change size between steps. An earlier pass shrank it to 72% once
-   the options appeared, on the theory that it had to get out of their way; it
-   does not, now that the gap is a constant, and the wordmark is the one thing
-   on this screen that should never look like it is retreating. */
+/* Sized against BOTH dimensions — the max-height is load-bearing: width alone gave a
+   960x540 window the same 560px logo as 1920x1080. It does NOT change between steps. */
 .bs-menu .logo{grid-row:2;align-self:end;margin-bottom:var(--gap,13vh);
   width:min(560px,74vw);height:auto;max-height:34vh;
   filter:drop-shadow(0 14px 34px rgba(0,0,0,.55));

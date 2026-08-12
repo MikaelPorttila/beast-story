@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type { CelestialState, TimeOfDaySource } from './types';
 
-/** One complete game day in active-play seconds. */
+/** One game day in active-play seconds. */
 export const DAY_SECONDS = 30 * 60;
-/** Noon is defined to reproduce the fixed daylight rig issue #87 replaces. */
+/** Noon reproduces the fixed daylight rig issue #87 replaces. */
 export const INITIAL_DAY_PHASE = 0.5;
 
 const TAU = Math.PI * 2;
@@ -37,13 +37,6 @@ const circularDelta = (from: number, to: number): number => {
   return d;
 };
 
-/**
- * Session clock and the single environmental answer derived from it.
- *
- * The object itself is the stable CelestialState passed through the composition
- * root. All vectors and colours are mutated in place, so one visual update costs
- * no garbage however many consumers read it.
- */
 export class DayNightCycle implements CelestialState {
   phase = INITIAL_DAY_PHASE;
   source: TimeOfDaySource = 'auto';
@@ -78,7 +71,6 @@ export class DayNightCycle implements CelestialState {
     this.derive();
   }
 
-  /** Advance once per rendered frame. Pins pause rather than hiding the clock. */
   update(dt: number): void {
     const target = this.pinTarget();
     if (target !== null) {
@@ -116,16 +108,7 @@ export class DayNightCycle implements CelestialState {
   get debugOverride(): number | null { return this.debugPhase; }
   get questOverride(): number | null { return this.questPhase; }
 
-  /**
-   * Put the clock where a save left it (issue #171).
-   *
-   * The FREE-RUNNING phase, and no transition: a load is not a pin arriving
-   * mid-scene, it is the world being stood up at a time of day, so the sky is
-   * simply that colour on the first frame. Any quest override the loaded
-   * content facts imply is applied after this by `refreshQuestTime`, and wins
-   * through `pinTarget` the way it always does — which is why this writes only
-   * the running clock and clears nothing.
-   */
+  /** Restore from a save (issue #171): writes the running clock, clears no override. */
   setPhase(phase: number): void {
     if (!Number.isFinite(phase)) return;
     this.runningPhase = wrap(phase);
@@ -177,10 +160,7 @@ export class DayNightCycle implements CelestialState {
     ).normalize();
     this.moonDirection.copy(this.sunDirection).multiplyScalar(-1);
 
-    // A broad shoulder through the horizon prevents a dead interval where the
-    // sun has stopped lighting the world but the moon has not taken over yet.
-    // At the exact dawn/dusk preset this is 0.43: clearly twilight, still
-    // playable, and far below noon's full daylight.
+    // Broad shoulders overlap so there is no unlit interval between sun and moon.
     const sunUp = smoothstep(-0.10, 0.12, this.sunDirection.y);
     const moonUp = smoothstep(-0.04, 0.18, this.moonDirection.y);
     this.daylight = sunUp;
@@ -198,10 +178,7 @@ export class DayNightCycle implements CelestialState {
       : 0.12 + 0.68 * moonUp;
 
     this.bounceColor.copy(NIGHT_BOUNCE).lerp(DAY_BOUNCE, sunUp);
-    // 0.36 at midnight is the face fill measured against the issue #87 rear-key
-    // capture: 0.10 let the moon-facing side read, and 0.24 still left the skin
-    // nearly black in the supplied worst-case angle. Keep it below half of the
-    // 0.8 moon key so night retains a clear direction.
+    // 0.36 midnight fill (issue #87); keep under half the 0.8 moon key so night keeps a direction.
     this.bounceIntensity = 0.36 + 0.02 * sunUp;
     this.ambientSky.copy(NIGHT_SKY).lerp(DAY_SKY, sunUp);
     this.ambientGround.copy(NIGHT_GROUND).lerp(DAY_GROUND, sunUp);

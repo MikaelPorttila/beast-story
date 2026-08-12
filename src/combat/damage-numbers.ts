@@ -1,10 +1,5 @@
 import * as THREE from 'three';
 
-/**
- * Floating combat text: pooled canvas-sprite numbers that pop with an
- * ease-out-back scale, drift upward and fade. Crits render bigger and gold.
- */
-
 interface Num {
   sprite: THREE.Sprite;
   mat: THREE.SpriteMaterial;
@@ -55,10 +50,7 @@ export class DamageNumbers {
     return n;
   }
 
-  /**
-   * Show a floating number/text at a world position.
-   * hex tints the fill; big = crit styling.
-   */
+  /** World-space float; hex tints the fill, big = crit styling. */
   spawn(x: number, y: number, z: number, text: string, hex: number, big: boolean): void {
     const n = this.slot();
     if (!n) return;

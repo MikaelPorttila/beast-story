@@ -1,49 +1,11 @@
-/**
- * TURNING A PACKAGE INTO LOADED CONTENT (spec §12, §14, §15).
- *
- * This is the only async part of the content runtime. Everything the frame loop
- * asks — `get`, `all`, `evaluate` — is synchronous against what this file has
- * already put in the registry, because a promise per NPC prompt is a frame
- * hitch. So a load happens at a boot phase or a zone edge and never anywhere
- * else, and nothing in here may be called per frame.
- *
- * WHAT A LOAD IS, in order, and every step of the order is load-bearing:
- *
- *   1. `requires` FIRST, depth-first. A package's assets may reference a
- *      dependency's, so the dependency has to be in the registry before the
- *      reference is extracted — otherwise every cross-package ref would look
- *      dangling at the moment it was made and the graph would be a function of
- *      load order rather than of the content.
- *   2. `optional` next. A missing one is a WARNING: that is the entire
- *      difference between the two lists, and it is what lets a build ship
- *      without a quest pack that a later build adds.
- *   3. The package's own inline `assets`, then each of its `files`. Inline
- *      first so a manifest reads top to bottom the way it was written.
- *
- * A CYCLE IS A DIAGNOSTIC, NOT A STACK OVERFLOW. Two packages that require each
- * other are an authoring mistake, and an authoring mistake must produce a
- * sentence naming both packages — not a `RangeError` with a thousand identical
- * frames, and not a hang. There are TWO ways a cycle can appear and both are
- * closed here: within one depth-first walk (the `chain` argument), and ACROSS
- * two concurrent `load()` calls that are each waiting on the other's in-flight
- * promise (`blockedOn`). The second is the one that would not throw at all — it
- * would simply never settle, which is the worst failure of the three.
- *
- * IDEMPOTENT, AND SHARED WHILE IN FLIGHT. Loading a package that is loaded adds
- * a lease and returns `loaded: false`. Two `load()` calls that overlap share one
- * promise rather than fetching twice — a zone edge and a quest trigger firing in
- * the same frame is not exotic, and two parses of one file would race to insert
- * the same ids and produce a `duplicate-id` for content that is merely popular.
- *
- * UNLOADING DROPS DEFINITIONS AND NEVER TOUCHES PLAYER STATE (spec §12.3). When
- * the last lease on a package goes its assets leave the registry — and the
- * flags, quest statuses, progress counters and discoveries that were set while
- * it was loaded stay exactly where they are. That asymmetry is the design: state
- * is keyed by ID (spec §9.3), so a quest that is completed stays completed while
- * its definition is unloaded, and reloading the package makes the same facts
- * mean the same thing again. A loader that "cleaned up" a player's progress with
- * the definitions would turn a zone change into save corruption.
- */
+// The only async part of the content runtime; never called per frame.
+// Load order is load-bearing: `requires` depth-first FIRST (so a cross-package ref is
+// not dangling when it is extracted), then `optional` (absent is only a warning), then
+// inline `assets`, then `files`.
+// A cycle is a DIAGNOSTIC: within one walk via `chain`, across concurrent loads via
+// `blockedOn` — the second would otherwise never settle. Overlapping loads share one
+// promise, or two parses would race and report `duplicate-id`.
+// UNLOADING DROPS DEFINITIONS AND NEVER TOUCHES PLAYER STATE: state is keyed by id.
 
 import type {
   ContentAsset,
@@ -62,29 +24,14 @@ import type {
 import { isId, isPackageId, typeOf } from './ids';
 import type { ProviderChain } from './storage/chain';
 
-// ---------------------------------------------------------------------------
-// What the loader needs from its neighbours
-// ---------------------------------------------------------------------------
-
-/**
- * The slice of the registry this file uses.
- *
- * Declared here, narrowly, rather than imported from `registry.ts`, for the
- * reason `src/core/types.ts` exists at all: a module should depend on a contract
- * and not on an implementation. It also means this file compiles, and can be
- * tested, against a three-method stub.
- *
- * `has` rather than an `add` that reports: the loader owns the DIAGNOSTIC for a
- * duplicate id (it is the only one holding the package, source and index that
- * make the message actionable), so the sink stays a dumb store.
- */
+// A contract, not an import of registry.ts, so this file tests against a stub. `has`
+// rather than a reporting `add`: only the loader knows the package, source and index.
 export interface AssetSink {
   add(asset: ContentAsset): void;
   remove(id: ContentId): void;
   has(id: ContentId): boolean;
 }
 
-/** The type table, as the loader reads it. */
 export interface TypeSource {
   type(name: ContentTypeName): ContentTypeDef | undefined;
 }
@@ -95,40 +42,15 @@ export interface PackageLoaderDeps {
   readonly types: TypeSource;
 }
 
-// ---------------------------------------------------------------------------
-// Small helpers over untrusted JSON
-// ---------------------------------------------------------------------------
-
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/**
- * A `when` that can never pass.
- *
- * Substituted for a MALFORMED `when`, and the choice of value is the whole
- * point. types.ts states the asymmetry: content that stays hidden because a test
- * was misspelled is a missing quest, and content that appears because a test was
- * misspelled is a spoiler or a soft-lock. So a `when` we could not understand
- * must mean NEVER, and dropping the field — which would mean "always" — is the
- * one thing that must not happen.
- *
- * Written as an unknown test rather than as `{ not: { all: [] } }` because the
- * contract guarantees this one: "an unknown `test` is a VALIDATION ERROR and
- * evaluates to false". The empty-`all` spelling would instead depend on the
- * evaluator agreeing that all-of-nothing is true, which is a convention and not
- * a promise. The colon makes it a name no author could register by accident, and
- * it reads as itself in the validator's diagnostic.
- */
+// Substituted for a MALFORMED `when`, since dropping the field would mean "always".
+// An unknown test is CONTRACTUALLY false; an empty `all` is only a convention.
 const NEVER: Condition = { test: 'content:malformed-when' };
 
-/**
- * The top-level keys the ENVELOPE owns. Everything else belongs under `data`.
- *
- * `pkg`, `source` and `refs` are deliberately absent: the loader sets those
- * three, they are never authored (types.ts says so of each), and an authored one
- * is a misunderstanding worth naming rather than silently overwriting.
- */
+/** Everything else belongs under `data`. The loader sets `pkg`/`source`/`refs`. */
 const ENVELOPE: ReadonlySet<string> = new Set([
   'id',
   'type',
@@ -142,19 +64,8 @@ const ENVELOPE: ReadonlySet<string> = new Set([
   'data',
 ]);
 
-/**
- * Freeze a parsed body all the way down.
- *
- * Content definitions are immutable (spec §12.3) and gameplay holds references
- * to them for the life of a session, so "the engine mutated a definition" is a
- * bug that survives a save and reappears as a corrupted world. Freezing makes it
- * a `TypeError` in strict mode at the moment it happens instead.
- *
- * THIS RUNS ONCE PER ASSET AT LOAD AND NEVER PER FRAME — the walk is O(the
- * body), which is nothing at a zone edge and would be unacceptable in `update`.
- * The `seen` set is not paranoia: a parser may legitimately return a body whose
- * nodes point back at their parent, and a naive recursion into that never ends.
- */
+// Definitions are immutable, so a mutation is a TypeError where it happens. Once per
+// asset. `seen` is required: a parsed body may point back at its parent.
 function deepFreeze(value: unknown, seen: WeakSet<object>): void {
   if (typeof value !== 'object' || value === null) return;
   if (seen.has(value)) return;
@@ -167,15 +78,7 @@ function deepFreeze(value: unknown, seen: WeakSet<object>): void {
   for (const child of Object.values(value)) deepFreeze(child, seen);
 }
 
-/**
- * A structural check on a `Condition` — shape only, never test NAMES.
- *
- * Whether `flag` is a registered test is conditions.ts's question and is asked
- * against a table this file does not own; whether the thing is an object with
- * one of four recognised shapes is a question about the JSON, and the JSON is
- * what arrives here. The depth guard is the same defence as the HTTP provider's:
- * this is a recursive walk, so it must not be the overflow it exists to prevent.
- */
+/** Shape only, never test NAMES. Depth-guarded: this walk is recursive. */
 function isConditionShape(v: unknown, depth = 0): v is Condition {
   if (depth > 64 || !isRecord(v)) return false;
   if (Array.isArray(v.all)) return v.all.every((c) => isConditionShape(c, depth + 1));
@@ -184,16 +87,7 @@ function isConditionShape(v: unknown, depth = 0): v is Condition {
   return typeof v.test === 'string' && v.test !== '';
 }
 
-/**
- * Read a `ContentText`, or null when the field is absent or unusable.
- *
- * The `key` form carries ONE cast in the whole content runtime, and it is here
- * on purpose. `StringKey` is `keyof typeof en`, so the only way to check a key
- * at runtime is against the base table — which is validate.ts's job, because it
- * is the module that may import the table and because a missing key is a
- * cross-cutting finding rather than a reason to refuse an asset. What this can
- * check is the SHAPE, and it does.
- */
+/** SHAPE only: a key's membership needs the string table, which validate.ts owns. */
 function readText(v: unknown): ContentText | null {
   if (!isRecord(v)) return null;
   if (typeof v.key === 'string' && v.key !== '') return { key: v.key } as ContentText;
@@ -205,40 +99,20 @@ function readText(v: unknown): ContentText | null {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Bookkeeping
-// ---------------------------------------------------------------------------
-
 interface LoadedPackage {
   readonly id: PackageId;
   readonly version?: string;
   readonly source: string;
   readonly assets: ContentId[];
-  /** What the manifest DECLARED, as it loaded. This is what `PackageInfo` shows. */
   readonly requires: PackageId[];
-  /**
-   * What we placed a dependent-hold on — the declared `requires` AND the
-   * `optional` ones that turned out to be there.
-   *
-   * Two fields rather than one because they answer different questions, and
-   * conflating them leaks: releasing only the declared `requires` would leave a
-   * loaded optional package held by a dependent that no longer exists, i.e. a
-   * package that can never unload. `requires` is what an author wrote; this is
-   * what the loader owes a release to.
-   */
+  /** `requires` PLUS resolved `optional`, or a loaded optional never gets released. */
   readonly holds: PackageId[];
-  /** Named holders (spec §12.4) — a leak reads as "zone still holds this". */
+  /** Named holders — a leak reads as "zone still holds this". */
   readonly leases: Set<Lease>;
-  /** Packages that hold this one open because they depend on it. */
   readonly dependents: Set<PackageId>;
 }
 
-/** How a load was asked for: a named lease, or another package's dependency. */
 type Hold = { readonly lease: Lease } | { readonly dependent: PackageId };
-
-// ---------------------------------------------------------------------------
-// The loader
-// ---------------------------------------------------------------------------
 
 export class PackageLoader {
   private readonly chain: ProviderChain;
@@ -247,15 +121,7 @@ export class PackageLoader {
 
   private readonly loaded = new Map<PackageId, LoadedPackage>();
   private readonly inflight = new Map<PackageId, Promise<LoadResult>>();
-  /**
-   * pkg -> the ONE package its depth-first walk is currently waiting on.
-   *
-   * Single-valued because `requires` are resolved sequentially, and they are
-   * resolved sequentially because registry insertion order is load order and
-   * `ContentLookup.all` promises "in load order" — parallelising the dependency
-   * fan-out would make that order a race. This map is what turns a cross-call
-   * cycle from a hang into a sentence.
-   */
+  /** Single-valued: `requires` resolve sequentially, since `all()` promises load order. */
   private readonly blockedOn = new Map<PackageId, PackageId>();
   private readonly log: Diagnostic[] = [];
 
@@ -265,7 +131,6 @@ export class PackageLoader {
     this.types = deps.types;
   }
 
-  /** Everything found so far, in the order it was found. */
   get diagnostics(): readonly Diagnostic[] {
     return this.log;
   }
@@ -285,26 +150,17 @@ export class PackageLoader {
     return this.loaded.has(pkg);
   }
 
-  /** Load a package and its dependencies under a lease. Idempotent. */
   load(pkg: PackageId, lease: Lease = 'boot'): Promise<LoadResult> {
     return this.resolve(pkg, { lease }, []);
   }
 
-  /**
-   * Drop a lease. The package unloads when its last HOLD goes — which is its
-   * last lease AND its last dependent, since a package another package requires
-   * is still needed however few leases name it directly.
-   */
+  /** Unloads on the last HOLD — last lease AND last dependent. */
   release(pkg: PackageId, lease: Lease = 'boot'): void {
     const entry = this.loaded.get(pkg);
     if (entry === undefined) return;
     entry.leases.delete(lease);
     this.collect(pkg);
   }
-
-  // -------------------------------------------------------------------------
-  // Resolution
-  // -------------------------------------------------------------------------
 
   private async resolve(
     pkg: PackageId,
@@ -321,8 +177,7 @@ export class PackageLoader {
       });
     }
 
-    // (a) A cycle inside THIS walk. Checked before anything can await, so the
-    //     answer is a diagnostic naming both ends rather than a recursion.
+    // (a) A cycle inside THIS walk, checked before anything can await.
     const back = chain[chain.length - 1];
     if (chain.includes(pkg)) {
       return this.refuse(pkg, {
@@ -342,10 +197,8 @@ export class PackageLoader {
 
     const pending = this.inflight.get(pkg);
     if (pending !== undefined) {
-      // (b) A cycle ACROSS two concurrent loads: the package we are about to
-      //     wait for is itself (transitively) waiting for one of ours. Awaiting
-      //     would deadlock — no throw, no stack, just a promise that never
-      //     settles, which is why this check cannot be left to (a).
+      // (b) A cycle ACROSS concurrent loads: awaiting would never settle, which is
+      //     why (a) cannot catch it.
       const at = this.deadlock(pkg, chain);
       if (at !== null) {
         return this.refuse(pkg, {
@@ -359,8 +212,7 @@ export class PackageLoader {
       const shared = await pending;
       const entry = this.loaded.get(pkg);
       if (entry !== undefined) this.hold(entry, hold);
-      // `loaded: false` for a joiner: exactly one caller may claim to have
-      // loaded a package, and it is the one that started the work.
+      // `loaded: false` for a joiner: only the caller that started may claim it.
       return { ...shared, loaded: false };
     }
 
@@ -374,7 +226,6 @@ export class PackageLoader {
     }
   }
 
-  /** Walk the wait graph from `target`; return the chain member it reaches, if any. */
   private deadlock(target: PackageId, chain: readonly PackageId[]): PackageId | null {
     const seen = new Set<PackageId>();
     let at: PackageId | undefined = target;
@@ -395,13 +246,7 @@ export class PackageLoader {
     const diagnostics: Diagnostic[] = [];
     const read = await this.chain.read(pkg);
     if (read === null) {
-      // ONE diagnostic for one problem, and its severity is the whole
-      // difference between `requires` and `optional`. Reported HERE rather than
-      // by the caller because the caller would be adding a second finding on top
-      // of this one — and because an absent optional package logged as an
-      // `error` would fail a build check for content that is legitimately not
-      // shipped yet. The requester's name comes from the hold, which is the only
-      // reason `perform` is given it.
+      // Severity is the whole difference between `requires` and `optional`.
       const by = 'dependent' in hold ? ` (needed by "${hold.dependent}")` : '';
       return this.refuse(pkg, {
         severity: isOptional ? 'warn' : 'error',
@@ -416,9 +261,7 @@ export class PackageLoader {
 
     const raw = read.value;
     if (!isRecord(raw)) {
-      // FATAL rather than error: there is no partial answer to give. The
-      // difference matters for the core package, which the game cannot run
-      // without (types.ts, on Severity).
+      // FATAL: there is no partial answer, and the core package must run.
       return this.refuse(pkg, {
         severity: 'fatal',
         code: 'bad-package',
@@ -445,9 +288,7 @@ export class PackageLoader {
     const requires = this.idList(raw.requires);
     const optional = this.idList(raw.optional);
 
-    // 1. Hard dependencies, then 2. soft ones — depth-first and IN ORDER, see
-    //    the header. The only difference between the two lists is the `optional`
-    //    flag, which decides the severity of an absence and nothing else.
+    // Hard dependencies, then soft ones — depth-first and IN ORDER.
     for (const [dep, soft] of [
       ...requires.map((d) => [d, false] as const),
       ...optional.map((d) => [d, true] as const),
@@ -469,7 +310,6 @@ export class PackageLoader {
       dependents: new Set<PackageId>(),
     };
 
-    // 3. Inline assets, then each named file.
     if (raw.assets !== undefined) {
       if (Array.isArray(raw.assets)) {
         raw.assets.forEach((body, i) => {
@@ -505,8 +345,7 @@ export class PackageLoader {
         );
         continue;
       }
-      // A file is either a bare array of assets or `{ "assets": [...] }` — the
-      // second so a file can grow a header later without every reader changing.
+      // Either a bare array or `{ "assets": [...] }`, so a file can grow a header.
       const bodies = Array.isArray(sub.value)
         ? sub.value
         : isRecord(sub.value) && Array.isArray(sub.value.assets)
@@ -535,10 +374,7 @@ export class PackageLoader {
     return { pkg, loaded: true, assets: [...entry.assets], diagnostics };
   }
 
-  // -------------------------------------------------------------------------
-  // One authored body -> one frozen ContentAsset
-  // -------------------------------------------------------------------------
-
+  /** One authored body -> one frozen ContentAsset. */
   private ingest(
     body: unknown,
     pkg: PackageId,
@@ -563,14 +399,12 @@ export class PackageLoader {
         fix: 'ids are "<type>:<name>", lower-case [a-z0-9-]',
       });
     }
-    // The type is INSIDE the id and is therefore never authored twice — see the
-    // note on `ContentId` in types.ts. `typeOf` cannot fail after `isId`.
+    // `typeOf` cannot fail after `isId`.
     const type = typeOf(id) as ContentTypeName;
 
     const def = this.types.type(type);
     if (def === undefined) {
-      // Skipped, not thrown: an unregistered type is one broken asset, and the
-      // rest of the package is still worth having (spec §21, fail predictably).
+      // Skipped, not thrown: the rest of the package is still worth having.
       return fail({
         severity: 'error',
         code: 'unknown-type',
@@ -593,25 +427,14 @@ export class PackageLoader {
       });
     }
 
-    // SCHEMA. An absent revision means CURRENT, not 1: content authored inside
-    // this repo ships with the build that defines the type, and replaying a
-    // migration chain over already-current data is a worse failure than skipping
-    // migrations that were never needed. Content from outside the build states
-    // its revision, which is what `schema` is for.
+    // An absent revision means CURRENT, not 1: in-repo content ships with the build
+    // that defines its type, so replaying migrations over it would be the worse bug.
     const authored = typeof body.schema === 'number' && Number.isFinite(body.schema)
       ? body.schema
       : def.schema;
 
-    // THE TYPE BODY LIVES UNDER `data`, and that is forced by the contract
-    // rather than chosen: `ContentTypeDef.serialize(data)` is given only the
-    // parsed body and must round-trip `parse`, so `parse` can only ever have
-    // been handed that same body — a shape with the envelope and the body
-    // flattened together could not be rebuilt from `data` alone.
-    //
-    // So authoring it flat is NAMED rather than half-accepted. Parsing `{}` in
-    // its place would succeed for any type whose fields are optional and produce
-    // an asset with none of the author's work in it, which is the failure that
-    // gets found weeks later in a world with a nameless town in it.
+    // The body MUST live under `data`: `serialize(data)` has to round-trip `parse`.
+    // A flat body is NAMED, not half-accepted — parsing `{}` would drop the author's work.
     const strays = Object.keys(body).filter((k) => !ENVELOPE.has(k));
     if (body.data === undefined && strays.length > 0) {
       return fail({
@@ -641,9 +464,7 @@ export class PackageLoader {
     let raw: unknown = body.data === undefined ? {} : body.data;
 
     if (authored > def.schema) {
-      // Skipped rather than guessed. A body written against a LATER revision may
-      // use fields with meanings this build does not have, and half-understanding
-      // it is how a save ends up holding a state nothing can interpret.
+      // Skipped, not guessed: a later revision's fields may mean something else here.
       return fail({
         severity: 'error',
         code: 'schema-too-new',
@@ -681,9 +502,8 @@ export class PackageLoader {
       }
     }
 
-    // PARSE. The type reports recoverable problems through `ctx.report` and
-    // returns null only when the body cannot make a usable asset at all; a throw
-    // is treated as that same answer rather than allowed to abort the package.
+    // A type returns null only when the body is unusable; a throw means the same,
+    // rather than aborting the package.
     const ctx: ParseCtx = {
       assetId: id,
       source,
@@ -720,9 +540,7 @@ export class PackageLoader {
       });
     }
 
-    // REFS ARE EXTRACTED, NEVER AUTHORED (types.ts, spec §4.3) — a hand-kept
-    // list is a list somebody forgets, and the reverse-reference graph is only
-    // complete if this one is.
+    // Refs are EXTRACTED, never authored, or the reverse graph would be incomplete.
     const refs: ContentId[] = [];
     if (def.refs !== undefined) {
       try {
@@ -804,10 +622,8 @@ export class PackageLoader {
     const custom: Record<string, unknown> = {};
     if (isRecord(body.custom)) {
       for (const [key, value] of Object.entries(body.custom)) {
-        // Keys are `<namespace>.<field>` (spec §6.2). An un-namespaced key is
-        // kept — the point of this bag is that nothing it holds is silently
-        // deleted — but it is named, because the namespace is what stops two
-        // tools claiming one field.
+        // An un-namespaced key is KEPT — nothing in this bag is silently dropped —
+        // but named, since the namespace is what stops two tools claiming one field.
         if (!key.includes('.')) {
           out.push(
             this.note({
@@ -858,23 +674,13 @@ export class PackageLoader {
     return id;
   }
 
-  // -------------------------------------------------------------------------
-  // Unloading
-  // -------------------------------------------------------------------------
-
   private hold(entry: LoadedPackage, hold: Hold): void {
     if ('lease' in hold) entry.leases.add(hold.lease);
     else entry.dependents.add(hold.dependent);
   }
 
-  /**
-   * Unload if nothing holds it, then reconsider everything it held.
-   *
-   * DEFINITIONS UNLOAD; STATE PERSISTS. Nothing in here touches `ContentState` —
-   * see the header. The registry loses the assets, the flags and quest statuses
-   * keyed by those ids do not move, and loading the package again makes the same
-   * facts mean the same thing.
-   */
+  // Unload if nothing holds it, then reconsider what it held. DEFINITIONS UNLOAD,
+  // STATE PERSISTS: nothing here touches `ContentState`.
   private collect(pkg: PackageId): void {
     const entry = this.loaded.get(pkg);
     if (entry === undefined) return;
@@ -883,8 +689,7 @@ export class PackageLoader {
     for (const id of entry.assets) this.registry.remove(id);
     this.loaded.delete(pkg);
 
-    // Recursion depth is the depth of the dependency graph — a handful, and
-    // bounded by the cycle check that made it a DAG in the first place.
+    // Recursion is bounded by the cycle check that made this a DAG.
     for (const dep of entry.holds) {
       const held = this.loaded.get(dep);
       if (held === undefined) continue;
@@ -893,11 +698,7 @@ export class PackageLoader {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Diagnostics
-  // -------------------------------------------------------------------------
-
-  /** Record and return, so a caller can push the same object into its result. */
+  /** Records and returns, so a caller can push the same object. */
   private note(d: Diagnostic): Diagnostic {
     this.log.push(d);
     return d;

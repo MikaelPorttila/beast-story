@@ -3,27 +3,13 @@ import type { BeastSpecies, SkillDef, BeastRig, BeastAnimCtx } from '../../core/
 import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 
-// ---------------------------------------------------------------------------
-// Sproutle — round leafy turtle-dino. Moss body, leaf-plate shell dome,
-// springy two-leaf head sprout, stubby plodding legs. ~0.85m tall.
-// ---------------------------------------------------------------------------
-
-// Terrain grass is a bright yellow-green (~0x54c832), so the coat is pushed to
-// a cooler moss and given a cream belly: value + hue separation from any lawn it
-// stands on. Round 6 raised every green a full step — standing in tree shade the
-// old set was one flat dark green mass, and the beast disappeared into the lawn it
-// was supposed to contrast with. Hue separation, not darkness, does that job.
-// Round 6 rotated every green about 20 degrees toward TEAL. Value alone was never
-// going to separate this beast from the lawn: the terrain grass is a yellow-green
-// (~0x54c832) and the coat was 0x74bd57, i.e. the same hue a little lighter, so in the
-// shade of a terrace the beast and the ground behind it were literally the same colour
-// and a critic could not find the creature in its own portrait. A cooler green stays
-// unmistakably plant, and the yellow-green now belongs only to the LEAF sprout — which
-// gives the beast an internal hue contrast it did not have either.
+// Sproutle — round leafy turtle-dino, ~0.85 m tall.
+// The greens sit cool/teal: terrain grass is a yellow-green (~0x54c832) and a coat
+// of the same hue vanished into any lawn. Yellow-green is the LEAF sprout's alone.
 const MOSS = 0x63c07e;
-const MOSS_LIGHT = 0x9ae8ab; // sunlit leaf-green highlights
+const MOSS_LIGHT = 0x9ae8ab;
 const MOSS_DARK = 0x3d8657;
-const BELLY = 0xf0e2bf;      // cream belly / chin patch
+const BELLY = 0xf0e2bf;
 const SHELL = 0x43a86d;
 const SHELL_LIGHT = 0x69cd8c;
 const SHELL_DARK = 0x2c7550;
@@ -31,17 +17,9 @@ const STEM = 0x5aa340;
 const LEAF = 0x7cdc60;
 const LEAF_LIGHT = 0xaaf08c;
 const FOOT = 0xd8c88c;
-// Dark iris, bright catchlight. The cream 2x3 iris that was here sat within a few
-// percent of the cream chin right below it, so at portrait distance the whole lower
-// face was one pale field with two dark pupils in it — a critic saw exactly that and
-// called it dead eyes.
-const IRIS = 0x14301f;       // dark forest green — the coat hue at a fifth of value
-const SHINE = 0xf8fff0;      // single catchlight cell
-const BROW = 0x2f6b4a;       // socket rim / lid row
-// No cheek mark. The old salmon BLUSH cell sat one row under the OUTER eye column,
-// i.e. right on the silhouette edge of the face plate, and in shade a saturated
-// salmon goes red-brown: two dark red bars under the eyes that read as wounds or
-// rust streaks. A blush that only works in direct sun is not a blush.
+const IRIS = 0x14301f;
+const SHINE = 0xf8fff0;
+const BROW = 0x2f6b4a;
 
 const S = 0.1; // voxel scale
 
@@ -50,11 +28,8 @@ const BASE: Record<string, readonly [number, number, number, number, number, num
   body: [0, 0.16, 0, 0, 0, 0],
   shell: [0, 0.26, -0.04, 0, 0, 0],
   head: [0, 0.28, 0.3, 0, 0, 0],
-  // 0.30, not 0.40. The crown's top face is at ~0.42 and the old two-cell stem began
-  // at 0.40 — a 2 cm overlap, which the sprout's springy rotation immediately opened
-  // into daylight: a critic saw the leaf pair "hovering above the head with a clear
-  // gap". Dropped 10 cm and grown to three cells, the stem's base is buried a full
-  // cell inside the skull at every phase of the bounce.
+  // 0.30, not 0.40: the stem's base must stay buried a cell inside the skull
+  // through the whole springy bounce, or the leaf pair floats above the head.
   sprout: [0, 0.30, -0.02, 0, 0, 0],
   leafL: [0, 0.26, 0, 0, 0.5, 0.45],
   leafR: [0, 0.26, 0, 0, Math.PI - 0.5, 0.45],
@@ -79,19 +54,17 @@ function buildRig(): BeastRig {
     return g;
   };
 
-  // -- torso ----------------------------------------------------------------
   const body = pivot('body', root);
   const torso = new VoxelModel();
   torso.ellipsoid(0, 2.6, 0, 3.6, 2.7, 4.2, MOSS);
-  torso.ellipsoid(0, 2.6, 2.2, 3.2, 1.5, 2.2, MOSS_LIGHT); // sunlit shoulders
-  torso.ellipsoid(0, 1.4, 1.0, 2.8, 1.8, 3.2, BELLY); // cream belly patch
+  torso.ellipsoid(0, 2.6, 2.2, 3.2, 1.5, 2.2, MOSS_LIGHT);
+  torso.ellipsoid(0, 1.4, 1.0, 2.8, 1.8, 3.2, BELLY);
   rimTop(torso, MOSS_LIGHT, -3, 3, 0, 5, -4, 4);
   shadeUnder(torso, MOSS_DARK, -3, 3, 0, 4, -4, 4);
   const torsoMesh = torso.build(S);
   torsoMesh.position.y = -0.02;
   body.add(torsoMesh);
 
-  // -- leaf-plate shell dome (pivots at its base for wobble) ---------------
   const shell = pivot('shell', body);
   const dome = new VoxelModel();
   for (let x = -4; x <= 4; x++) {
@@ -104,25 +77,21 @@ function buildRig(): BeastRig {
         const seam = ((x % 3) + 3) % 3 === 0 || ((z % 3) + 3) % 3 === 0;
         const check = (Math.floor((x + 9) / 3) + Math.floor((z + 9) / 3)) % 2 === 0;
         let c = seam ? SHELL_DARK : check ? SHELL : SHELL_LIGHT;
-        if (y === 0) c = SHELL_DARK; // dark leaf-tip rim
+        if (y === 0) c = SHELL_DARK;
         dome.set(x, y, z, c);
       }
     }
   }
-  dome.set(0, 4, 0, SHELL_DARK); // topmost leaf nub
+  dome.set(0, 4, 0, SHELL_DARK);
   shell.add(dome.build(S));
 
-  // -- head -----------------------------------------------------------------
   const head = pivot('head', body);
   const hm = new VoxelModel();
-  // Skull widened from 2.6 to 3.0 so the eye pair can sit three cells apart with
-  // plain moss between them instead of touching over a pale bridge.
   hm.ellipsoid(0, 2.2, 0.1, 3.0, 2.2, 2.3, MOSS);
-  hm.ellipsoid(0, 3.4, -0.3, 2.5, 1.0, 2.0, MOSS_LIGHT); // lit crown
-  hm.box(-3, 1, 2, 3, 4, 2, MOSS); // flat friendly face plate, all coat colour
-  hm.ellipsoid(0, 0.7, 1.5, 2.2, 0.9, 1.5, BELLY); // cream chin, dropped clear of
-  // the eye line: level with the eyes it merged with the sclera into one band
-  hm.box(-1, 1, 3, 1, 1, 3, BELLY); // little snout
+  hm.ellipsoid(0, 3.4, -0.3, 2.5, 1.0, 2.0, MOSS_LIGHT);
+  hm.box(-3, 1, 2, 3, 4, 2, MOSS);
+  hm.ellipsoid(0, 0.7, 1.5, 2.2, 0.9, 1.5, BELLY);
+  hm.box(-1, 1, 3, 1, 1, 3, BELLY);
   rimTop(hm, MOSS_LIGHT, -3, 3, 0, 5, -3, 3);
   shadeUnder(hm, MOSS_DARK, -3, 3, 0, 1, -3, 1);
   eyes2x2(hm, {
@@ -133,10 +102,9 @@ function buildRig(): BeastRig {
   headMesh.position.set(0, -0.08, 0.02);
   head.add(headMesh);
 
-  // -- springy head sprout with two leaves ---------------------------------
   const sprout = pivot('sprout', head);
   const stem = new VoxelModel();
-  stem.box(0, 0, 0, 0, 2, 0, STEM); // three cells: the lowest one lives in the skull
+  stem.box(0, 0, 0, 0, 2, 0, STEM);
   sprout.add(stem.build(S));
 
   const mkLeaf = (name: string): void => {
@@ -146,16 +114,15 @@ function buildRig(): BeastRig {
     leaf.box(1, 0, -1, 3, 0, 1, LEAF);
     leaf.set(3, 0, -1, LEAF_LIGHT);
     leaf.set(3, 0, 1, LEAF_LIGHT);
-    leaf.set(4, 0, 0, LEAF_LIGHT); // pale tip
-    leaf.box(1, 0, 0, 3, 0, 0, STEM); // midrib
-    const m = leaf.build(S, false); // pivot stays at leaf base
+    leaf.set(4, 0, 0, LEAF_LIGHT);
+    leaf.box(1, 0, 0, 3, 0, 0, STEM);
+    const m = leaf.build(S, false);
     m.position.set(0, 0, -0.05);
     g.add(m);
   };
   mkLeaf('leafL');
   mkLeaf('leafR');
 
-  // -- tail nub -------------------------------------------------------------
   const tailG = pivot('tail', body);
   const tv = new VoxelModel();
   tv.ellipsoid(0, 1.2, -1.4, 1.4, 1.2, 1.8, MOSS);
@@ -163,13 +130,12 @@ function buildRig(): BeastRig {
   tailMesh.position.set(0, -0.1, -0.12);
   tailG.add(tailMesh);
 
-  // -- stubby legs (pivot at hip/shoulder) ---------------------------------
   const mkLeg = (name: string): void => {
     const g = pivot(name, body);
     const lv = new VoxelModel();
     lv.box(0, 1, 0, 1, 2, 1, MOSS_DARK);
     lv.box(0, 0, 0, 1, 0, 1, FOOT);
-    lv.set(0, 0, 2, FOOT); // toes
+    lv.set(0, 0, 2, FOOT);
     lv.set(1, 0, 2, FOOT);
     const m = lv.build(S);
     m.position.y = -0.26;
@@ -183,10 +149,6 @@ function buildRig(): BeastRig {
   return { root, parts, height: 0.85, radius: 0.42 };
 }
 
-// ---------------------------------------------------------------------------
-// Animation
-// ---------------------------------------------------------------------------
-
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
@@ -197,18 +159,13 @@ function easeOutCubic(v: number): number {
   const u = 1 - v;
   return 1 - u * u * u;
 }
-/** Periodic sharp pulse in 0..1 (for twitches / blinks / paw taps) */
 function pulse(x: number, sharp: number): number {
   const s = Math.sin(x);
   return s > 0 ? Math.pow(s, sharp) : 0;
 }
 
-/**
- * The plod, on an integrated phase — see BeastAnimCtx.cycle(). 5 rad/s to 8
- * (0.8-1.3 Hz), scaled by the gait blend; as `t * freq` a change of pace
- * rewrote the whole phase history and jump-cut legs, shell, sprout and tail
- * together.
- */
+// Plod phase, integrated — see BeastAnimCtx.cycle(); as `t * freq` a change of
+// pace rewrote the phase history and jump-cut legs, shell, sprout and tail.
 const GAIT = 0;
 
 function resetPose(parts: Record<string, THREE.Object3D>): void {
@@ -240,21 +197,21 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
 
   switch (ctx.action) {
     case 'idle': {
-      const br = Math.sin(t * 1.7); // slow contented breathing
+      const br = Math.sin(t * 1.7);
       body.scale.y += br * 0.02;
       body.scale.x -= br * 0.01;
       body.scale.z -= br * 0.01;
       shell.position.y += br * 0.004;
-      head.rotation.z += Math.sin(t * 0.6) * 0.08; // lazy head tilt
+      head.rotation.z += Math.sin(t * 0.6) * 0.08;
       head.rotation.x += Math.sin(t * 0.85 + 1.0) * 0.05;
-      const peek = pulse(t * 0.5 + 1.0, 24); // occasional curious head cock
+      const peek = pulse(t * 0.5 + 1.0, 24);
       head.rotation.z += peek * 0.22;
       sprout.rotation.x += Math.sin(t * 2.2) * 0.1 + peek * 0.25;
       leafL.rotation.z += Math.sin(t * 1.9) * 0.09;
       leafR.rotation.z += Math.sin(t * 1.9 + 1.4) * 0.09;
       tail.rotation.y += Math.sin(t * 1.4) * 0.18;
-      body.rotation.z += Math.sin(t * 0.5) * 0.02; // weight shift
-      legFL.rotation.x += pulse(t * 0.4 + 3.0, 20) * 0.25; // idle paw scuff
+      body.rotation.z += Math.sin(t * 0.5) * 0.02;
+      legFL.rotation.x += pulse(t * 0.4 + 3.0, 20) * 0.25;
       break;
     }
 
@@ -264,7 +221,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     case 'fly': {
       const g = ctx.moveSpeed;
       const spd = 0.4 + g * 0.6;
-      const freq = 5.0 + g * 3.0; // determined little plod
+      const freq = 5.0 + g * 3.0;
       const ph = ctx.cycle(GAIT, freq);
       const amp = 0.42 + g * 0.33;
       legFL.rotation.x += Math.sin(ph) * amp;
@@ -273,14 +230,14 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       legBL.rotation.x += Math.sin(ph + Math.PI + 0.25) * amp;
       const bob = Math.abs(Math.sin(ph));
       body.position.y += bob * bob * 0.035 * spd;
-      body.scale.y += (bob - 0.5) * 0.05 * spd; // squash on contact, stretch on rise
-      body.rotation.z += Math.sin(ph) * 0.06 * spd; // waddle roll
+      body.scale.y += (bob - 0.5) * 0.05 * spd;
+      body.rotation.z += Math.sin(ph) * 0.06 * spd;
       body.rotation.x += Math.sin(ph * 2 + 0.6) * 0.02 * spd;
-      shell.rotation.z += Math.sin(ph - 0.7) * 0.1 * spd; // shell wobbles a beat behind
+      shell.rotation.z += Math.sin(ph - 0.7) * 0.1 * spd;
       shell.rotation.x += Math.sin(ph * 2 - 0.9) * 0.04 * spd;
       head.rotation.x += Math.sin(ph * 2 + 0.4) * 0.05 * spd - 0.03;
       head.rotation.z += Math.sin(ph) * 0.04 * spd;
-      sprout.rotation.x += Math.sin(ph - 1.3) * 0.3 * spd; // springy lag
+      sprout.rotation.x += Math.sin(ph - 1.3) * 0.3 * spd;
       sprout.rotation.z += Math.sin(ph * 0.5) * 0.06;
       leafL.rotation.z += Math.sin(ph - 1.7) * 0.14 * spd;
       leafR.rotation.z += Math.sin(ph - 0.7) * 0.14 * spd;
@@ -290,9 +247,9 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     }
 
     case 'attack': {
-      const coilK = smooth(clamp01(at / 0.22)); // anticipation: rock back
-      const strike = easeOutCubic(clamp01((at - 0.22) / 0.16)); // headbutt lunge
-      const rec = smooth(clamp01((at - 0.46) / 0.42)); // settle
+      const coilK = smooth(clamp01(at / 0.22));
+      const strike = easeOutCubic(clamp01((at - 0.22) / 0.16));
+      const rec = smooth(clamp01((at - 0.46) / 0.42));
       const lunge = strike * (1 - rec);
       const coil = coilK * (1 - strike);
       body.rotation.x += -coil * 0.22 + lunge * 0.2;
@@ -301,7 +258,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       body.scale.z += -coil * 0.06 + lunge * 0.08;
       body.scale.y += coil * 0.04 - lunge * 0.05;
       head.rotation.x += -coil * 0.3 + lunge * 0.45;
-      sprout.rotation.x += -coil * 0.55 + lunge * 1.05; // sprout whips through
+      sprout.rotation.x += -coil * 0.55 + lunge * 1.05;
       leafL.rotation.z += -lunge * 0.25;
       leafR.rotation.z += -lunge * 0.25;
       legFL.rotation.x += coil * 0.35 - lunge * 0.55;
@@ -314,18 +271,18 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     }
 
     case 'cast': {
-      const up = smooth(clamp01(at / 0.35)); // rear up on hind legs
+      const up = smooth(clamp01(at / 0.35));
       const trem = Math.sin(t * 11.0) * up;
       body.rotation.x += -0.38 * up;
       body.position.y += 0.045 * up;
-      legFL.rotation.x += -1.05 * up + trem * 0.07; // front paws raised, trembling
+      legFL.rotation.x += -1.05 * up + trem * 0.07;
       legFR.rotation.x += -1.05 * up - trem * 0.07;
       legBL.rotation.x += 0.4 * up;
       legBR.rotation.x += 0.4 * up;
       head.rotation.x += 0.3 * up + Math.sin(t * 13.0) * 0.03 * up;
-      sprout.rotation.y += at * 8.0 * up; // sprout spins up like a propeller
+      sprout.rotation.y += at * 8.0 * up;
       sprout.rotation.x += -0.08 * up;
-      leafL.rotation.z += -0.3 * up; // leaves flatten into rotor blades
+      leafL.rotation.z += -0.3 * up;
       leafR.rotation.z += -0.3 * up;
       shell.rotation.y += Math.sin(t * 9.0) * 0.05 * up;
       tail.rotation.x += -0.45 * up;
@@ -333,8 +290,8 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     }
 
     case 'special': {
-      const wind = smooth(clamp01(at / 0.18)); // crouch
-      const spinT = clamp01((at - 0.18) / 0.75); // launch into a leafy top-spin
+      const wind = smooth(clamp01(at / 0.18));
+      const spinT = clamp01((at - 0.18) / 0.75);
       const s = easeOutCubic(spinT);
       const air = Math.sin(spinT * Math.PI);
       body.rotation.y += s * Math.PI * 4;
@@ -342,20 +299,20 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       body.scale.y += -wind * 0.16 + air * 0.1;
       body.scale.x += wind * 0.08 - air * 0.04;
       body.scale.z += wind * 0.08 - air * 0.04;
-      legFL.rotation.x += wind * 0.5 + air * 0.6; // legs tuck in
+      legFL.rotation.x += wind * 0.5 + air * 0.6;
       legFR.rotation.x += wind * 0.5 + air * 0.6;
       legBL.rotation.x += -wind * 0.5 - air * 0.6;
       legBR.rotation.x += -wind * 0.5 - air * 0.6;
       head.rotation.x += 0.18 * air;
-      head.position.z += -0.05 * wind; // tucks toward shell
-      sprout.rotation.x += -0.45 * air; // sprout streams from the spin
+      head.position.z += -0.05 * wind;
+      sprout.rotation.x += -0.45 * air;
       sprout.rotation.z += Math.sin(at * 22.0) * 0.08 * air;
       leafL.rotation.z += -0.3 * air;
       leafR.rotation.z += -0.3 * air;
       tail.rotation.x += 0.5 * air;
-      shell.rotation.y += -air * 0.35; // shell lags the spin
+      shell.rotation.y += -air * 0.35;
       if (at > 0.93) {
-        const w = at - 0.93; // landing: shell rattle + squash
+        const w = at - 0.93;
         const d = Math.exp(-w * 5.0);
         shell.rotation.z += Math.sin(w * 30.0) * 0.15 * d;
         body.scale.y += -Math.exp(-w * 9.0) * 0.06;
@@ -371,7 +328,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       body.scale.y += -0.12 * d;
       body.scale.x += 0.07 * d;
       body.scale.z += 0.07 * d;
-      head.position.z += -0.09 * d; // flinches back toward the shell
+      head.position.z += -0.09 * d;
       head.rotation.x += 0.22 * d;
       shell.rotation.z += Math.sin(at * 35.0) * 0.13 * d;
       sprout.rotation.x += Math.sin(at * 30.0) * 0.4 * d;
@@ -386,14 +343,14 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     case 'happy': {
       const hop = Math.abs(Math.sin(at * 6.0));
       const hu = hop * hop;
-      body.position.y += hu * 0.1; // joyful little bounces
-      body.scale.y += -0.07 + hu * 0.15; // squash at ground, stretch in air
+      body.position.y += hu * 0.1;
+      body.scale.y += -0.07 + hu * 0.15;
       body.scale.x += 0.05 - hu * 0.07;
       body.scale.z += 0.05 - hu * 0.07;
-      body.rotation.y += Math.sin(at * 3.0) * 0.55; // happy swivel
+      body.rotation.y += Math.sin(at * 3.0) * 0.55;
       head.rotation.z += Math.sin(at * 6.0 + 0.8) * 0.16;
       head.rotation.x += -0.1;
-      sprout.rotation.x += Math.sin(at * 12.0 - 1.2) * 0.45; // sprout wags hard
+      sprout.rotation.x += Math.sin(at * 12.0 - 1.2) * 0.45;
       leafL.rotation.z += Math.sin(at * 13.0) * 0.28;
       leafR.rotation.z += Math.sin(at * 13.0 + 1.2) * 0.28;
       tail.rotation.y += Math.sin(at * 9.0) * 0.5;
@@ -406,17 +363,13 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     }
   }
 
-  // Ambient life layer: sprout/leaves/tail never sit perfectly still
+  // Ambient layer: sprout, leaves and tail never sit perfectly still.
   sprout.rotation.z += Math.sin(t * 2.4 + 1.3) * 0.04;
   leafL.rotation.z += Math.sin(t * 3.1) * 0.04;
   leafR.rotation.z += Math.sin(t * 3.1 + 2.1) * 0.04;
   tail.rotation.y += Math.sin(t * 1.8 + 0.7) * 0.05;
   shell.rotation.y += Math.sin(t * 0.9) * 0.015;
 }
-
-// ---------------------------------------------------------------------------
-// Skills
-// ---------------------------------------------------------------------------
 
 export const skills: SkillDef[] = [
   {
@@ -472,10 +425,6 @@ export const skills: SkillDef[] = [
     castAnim: 'special',
   },
 ];
-
-// ---------------------------------------------------------------------------
-// Species
-// ---------------------------------------------------------------------------
 
 export const species: BeastSpecies = {
   id: 'sproutle',

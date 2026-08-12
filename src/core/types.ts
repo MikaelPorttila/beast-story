@@ -1,14 +1,7 @@
 import * as THREE from 'three';
-// Type-only, so it is erased at build time and adds no import edge at runtime.
 import type { PluralKey, StringKey } from '../i18n';
-// Likewise type-only, and content/types.ts itself imports nothing but the i18n
-// key type — so the contract hub can name a `ContentText` (see `NpcTalk`)
-// without the game growing a runtime dependency on the content layer.
 import type { ContentText } from '../content/types';
 
-// ---------------------------------------------------------------------------
-// Elements / typing (Pokemon-style)
-// ---------------------------------------------------------------------------
 export type ElementType =
   | 'fire' | 'water' | 'grass' | 'electric' | 'ice'
   | 'rock' | 'wind' | 'shadow' | 'light' | 'dragon';
@@ -19,22 +12,12 @@ export const ELEMENT_COLORS: Record<ElementType, number> = {
   light: 0xfff3c4, dragon: 0xe05580,
 };
 
-// ---------------------------------------------------------------------------
-// Skills
-// ---------------------------------------------------------------------------
 export type SkillTargeting = 'projectile' | 'melee' | 'aoe' | 'self' | 'beam' | 'support';
 
 export interface SkillDef {
-  /**
-   * The stable IDENTIFIER, namespaced by species ('emberfox.flame-dart'). The
-   * hotbar, the cooldown map, `knownSkillIds` and the shop's already-learned
-   * test all key on it, so it never changes when the skill is renamed — see
-   * ItemDef.id for the same argument about the currency.
-   */
+  /** Stable id, namespaced by species ('emberfox.flame-dart'). Never renamed. */
   id: string;
-  /** DISPLAY name, as a string-table key. Read it with `t(def.nameKey)`. */
   nameKey: StringKey;
-  /** DISPLAY blurb, as a string-table key. The shop card's paragraph. */
   descriptionKey: StringKey;
   element: ElementType;
   targeting: SkillTargeting;
@@ -47,25 +30,12 @@ export interface SkillDef {
   learnAtLevel?: number;
   /** Price in shards if buyable at a Skill Den; undefined = level-up only */
   storePrice?: number;
-  /** Animation the casting beast should play (key into its rig animations) */
   castAnim: 'cast' | 'attack' | 'special';
 }
 
-// ---------------------------------------------------------------------------
-// Beast species
-// ---------------------------------------------------------------------------
 export type Locomotion = 'ground' | 'flying' | 'swimming' | 'amphibious';
 
-/**
- * DISPLAY names for the four gaits, as string-table keys — the same
- * id-versus-name split `BeastSpecies.nameKey` makes, applied to the enum.
- *
- * Here rather than in the UI because two surfaces already read it (the HUD
- * card's corner pip has a glyph, the inventory row spells the word out) and a
- * third would have copied whichever it saw first. 'swimming' displays as
- * "Aquatic": the word on the card is a TYPE, like Water or Dragon, and
- * "Swimming" reads as something the animal is doing right now.
- */
+/** DISPLAY keys for the four gaits. 'swimming' shows as 'Aquatic' — the card names a TYPE. */
 export const LOCOMOTION_NAME_KEYS: Record<Locomotion, StringKey> = {
   ground: 'loco.ground.name',
   flying: 'loco.flying.name',
@@ -73,23 +43,13 @@ export const LOCOMOTION_NAME_KEYS: Record<Locomotion, StringKey> = {
   amphibious: 'loco.amphibious.name',
 };
 
-/**
- * WHAT THE PLAYER UNLOCKS — three, against the four gaits above, and the
- * difference between the two lists is the whole reason this type exists.
- *
- * `Locomotion` is a fact about an ANIMAL and it is four because a Rivotter is
- * not a Finnick. This is a fact about the STORY: game-story.md §5 hands out one
- * mount per act — ground on The Mill Road, water on Dark Water, flying on
- * Wingbroken — and the water act's unlock is what makes the trench passable
- * whether you cross it on a swimmer or an amphibian. Folding the two aquatic
- * gaits together here is therefore not a shortcut; it is what the acts say.
- */
+/** What the STORY unlocks: the two aquatic gaits share one unlock (game-story.md §5). */
 export type MountKind = 'ground' | 'water' | 'flying';
 
 /** Display and iteration order: the order the acts hand them out. */
 export const MOUNT_KINDS: readonly MountKind[] = ['ground', 'water', 'flying'];
 
-/** Which unlock a species answers to. See `MountKind` on why four map to three. */
+/** Which unlock a species answers to. */
 export const MOUNT_KIND_OF: Record<Locomotion, MountKind> = {
   ground: 'ground',
   flying: 'flying',
@@ -97,13 +57,6 @@ export const MOUNT_KIND_OF: Record<Locomotion, MountKind> = {
   amphibious: 'water',
 };
 
-/**
- * The two strings a mount kind shows: its NAME and what riding it is FOR.
- *
- * One table rather than a `_NAME_KEYS`/`_DESC_KEYS` pair, because both are read
- * by the same two surfaces (the inventory badge's tooltip and the refusal
- * toast) and a split would be two tables to keep in step for one concept.
- */
 export const MOUNT_KIND_KEYS: Record<MountKind, { name: StringKey; desc: StringKey }> = {
   ground: { name: 'mount.kind.ground.name', desc: 'mount.kind.ground.desc' },
   water: { name: 'mount.kind.water.name', desc: 'mount.kind.water.desc' },
@@ -117,18 +70,13 @@ export interface BeastStats {
   speed: number;      // world units / s while following
 }
 
-/**
- * A rig is a hierarchy of voxel-built body parts. The framework animates it by
- * calling the species' animate() every frame with the current action state.
- */
+/** Voxel body parts. The framework calls the species' animate() every frame. */
 export interface BeastRig {
-  /** Root object added to the scene (position/rotation controlled by framework) */
   root: THREE.Group;
-  /** Named parts the species' animate() manipulates (head, tail, wingL, ...) */
+  /** Named parts animate() poses (head, tail, wingL, ...). */
   parts: Record<string, THREE.Object3D>;
-  /** Approximate body height (root origin sits at ground/water level) */
+  /** Body height; the root origin sits at ground/water level. */
   height: number;
-  /** Approximate radius for spacing/collision */
   radius: number;
 }
 
@@ -136,81 +84,31 @@ export type BeastAction =
   | 'idle' | 'walk' | 'run' | 'swim' | 'fly'
   | 'attack' | 'cast' | 'special' | 'hurt' | 'happy';
 
-/**
- * How many independent cycles one species may integrate through
- * `BeastAnimCtx.cycle()`. Four covers the roster: a gait/wingbeat, a tail wave
- * that runs at its own rate, a secondary flutter, and Umbrakit's orbiting
- * wisps. Raise it here if a species genuinely needs a fifth — the cost is four
- * more bytes per beast.
- */
+/** Independent cycle slots per species; four covers the roster. */
 export const BEAST_CYCLE_SLOTS = 4;
 
 export interface BeastAnimCtx {
   action: BeastAction;
   /** Seconds since this action started */
   actionTime: number;
-  /**
-   * Free-running global clock in seconds.
-   *
-   * Fine for cycles whose frequency is a CONSTANT — breathing, ear flicks, the
-   * slow head-scan — because `time * k` then advances at a fixed rate forever.
-   * It is the wrong tool the moment the frequency can change; use cycle().
-   */
+  /** Free-running clock, seconds. Only for CONSTANT frequencies — else use cycle(). */
   time: number;
   /** 0..1 normalized speed (for gait blending) */
   moveSpeed: number;
   dt: number;
-  /**
-   * How far the rig ROOT is above the surface under it — terrain, a carrier's
-   * deck, or the water — in world units, never negative.
-   *
-   * It exists for the flyers' ground contact blob (beasts/species/contactshadow.ts),
-   * which has to sit on the ground the beast is over rather than at a fixed drop
-   * under its belly, and has to fade out once that ground is far away. Anything
-   * else that needs "how high am I" may read it.
-   *
-   * OPTIONAL because a caller that has no world cannot answer honestly: the
-   * inventory portrait stage poses a subject on no ground at all, and leaving it
-   * undefined there keeps the blob at the drop the rig was built with instead of
-   * pinning it to a surface that does not exist.
-   */
+  /** Rig root height above the surface under it, world units. Undefined where the caller has no world. */
   altitude?: number;
   /**
-   * Phase (radians) of a cycle running at `freq` rad/s, INTEGRATED rather than
-   * multiplied out of the clock. Use it for every gait, wingbeat and tail wave.
-   *
-   * `Math.sin(ctx.time * freq)` is discontinuous whenever `freq` moves: the
-   * phase is `time * freq`, so a change of `df` retroactively rewrites the
-   * whole history and teleports the phase by `time * df`. With `time` being
-   * accumulated session seconds that is enormous — a wing frequency scaled by
-   * moveSpeed jumps several whole cycles per frame while a beast accelerates,
-   * which is what the "wings flapping at impossible speed, like a flicker"
-   * report was. Integration only ever changes the RATE from this instant on,
-   * so the pose is continuous no matter how the frequency moves.
-   *
-   * `slot` names which cycle this is, 0..BEAST_CYCLE_SLOTS-1, and is per-beast
-   * state — call a given slot at most once per frame, and use the SAME slot for
-   * the same body motion across every action branch so that walk->run->fly
-   * changes the beat rate instead of jump-cutting the pose. Constant multiples
-   * of the returned phase (`ph * 2`, `ph * 0.9`) stay continuous and are the
-   * right way to derive a harmonic or a trailing wave.
-   *
-   * `freq` is clamped to a sane maximum by the framework, so no speed spike,
-   * teleport or zone switch can produce a physically absurd beat.
+   * Phase (radians) of a cycle at `freq` rad/s, INTEGRATED — `time * freq` teleports the phase
+   * whenever freq moves. `slot` is per-beast state: one call per slot per frame, same slot per motion.
    */
   cycle(slot: number, freq: number): number;
 }
 
 export interface BeastSpecies {
-  /**
-   * The stable IDENTIFIER ('emberfox'). The roster, `?beast=`, `/mount <id>`, the
-   * lab's beast list and any future save key on it; renaming the beast is an edit to
-   * src/i18n/en.ts and nothing else.
-   */
+  /** Stable id ('emberfox'). Renaming the beast is an edit to src/i18n/en.ts only. */
   id: string;
-  /** DISPLAY name, as a string-table key. Read it with `t(species.nameKey)`. */
   nameKey: StringKey;
-  /** DISPLAY blurb, as a string-table key. */
   descriptionKey: StringKey;
   element: ElementType;
   locomotion: Locomotion;
@@ -219,70 +117,20 @@ export interface BeastSpecies {
   skills: string[];
   /** Build a fresh rig (voxel body). Must be self-contained, no async. */
   buildRig(): BeastRig;
-  /**
-   * Procedurally animate the rig for the current frame.
-   * Must be cheap; called once per beast per frame.
-   */
+  /** Pose the rig for this frame. Cheap: once per beast per frame. */
   animate(rig: BeastRig, ctx: BeastAnimCtx): void;
 }
 
-// ---------------------------------------------------------------------------
-// Collision
-// ---------------------------------------------------------------------------
 /**
- * Highest ledge a body can walk onto. Above it, the move is refused and the
- * player has to jump.
- *
- * Lived in src/player/index.ts until settlements grew colliders, and moved here
- * because it is now the ONE rule four separate movers resolve against — the hero
- * (Player.blockTop), the saddle (MountController.blockTop), a following beast
- * (BeastActor) and a wild enemy (Enemy.moveGround) — and because the town builders
- * measure their footprints with it (see `measureFootprint` in
- * world/structures.ts): a stack of voxels no taller than this is something you
- * step onto, so it is not part of any wall. A second copy of the number is a
- * crate the hero walks over and a beast walks through.
- *
- * Terrain collision is integer-stepped — Terrain.getHeight floors the continuous
- * height — so every ledge in the natural world is a whole unit or more. Any value
- * below 1.0 therefore means the same thing there: hills must be jumped. 0.5 is
- * the middle of that range, which leaves room for a half-height PROP to be
- * walkable without ever letting a full cube through.
- *
- * The hero's JUMP_VEL/GRAVITY put his apex at 8.8^2 / (2*24) = 1.61 units, so a
- * single block is always clearable with a jump and a 2-unit face never is — that
- * gap is the point, and moving either constant changes what the world is
- * climbable.
+ * Highest ledge a body may step onto; above it the move is refused and you jump. Also what
+ * `measureFootprint` treats as not-wall. Under 1.0 means every terrain ledge must be jumped
+ * (heights are integer-stepped); the hero's jump apex is 1.61, so a 2-unit face never clears.
  */
 export const MAX_STEP_UP = 0.5;
 
-// ---------------------------------------------------------------------------
-// Proximity
-// ---------------------------------------------------------------------------
 /**
- * "Is B close enough to A" — the ONE answer, for every feature that asks.
- *
- * A CYLINDER: a horizontal radius plus a vertical band. Issue #78 is what
- * happens without the band — every check in the game measured `dx² + dz²` and
- * nothing else, which is not a sphere flattened for speed, it is an INFINITE
- * VERTICAL COLUMN. A hero sixty units up on a galebird was still "standing on"
- * the zone gateway, so the portal armed, counted its dwell out and pulled him
- * through the floor of the sky. The same column let his sword reach a Gloopling
- * at the foot of the cliff he was standing on.
- *
- * A cylinder rather than a sphere because the two questions are genuinely
- * different — "did you come over to it" and "are you at its level" — and folding
- * them into one radius would quietly shorten every reach on every slope, for a
- * defect nobody reported. That is the argument NPC_TALK_RISE (world/npc.ts) made
- * first, in the one place that already had a height gate; this is that rule
- * lifted out to where the rest of the game can reach it.
- *
- * `up` and `down` are separate because the world is not symmetric about the
- * hero: a jump, a hover and a step already lift bodies APART on level ground,
- * while being reached from a ledge above reads as fair where being bitten from
- * eight units below does not. Callers that have no reason to distinguish pass
- * one number and get a symmetric band.
- *
- * Squared internally, no allocation, safe on an update path.
+ * Is B close to A: a CYLINDER — horizontal radius plus a vertical band, `up` and `down` separate.
+ * Issue #78 is what a radius alone gives, an infinite vertical column. Squared, no allocation.
  */
 export function inReach(
   ax: number, ay: number, az: number,
@@ -296,28 +144,13 @@ export function inReach(
   return dx * dx + dz * dz <= radius * radius;
 }
 
-/**
- * The vertical half of `inReach` alone, for a caller that already has the
- * horizontal answer in hand (a radius that varies per target, or a band it
- * measures once and reuses across several radii).
- */
+/** The vertical half of `inReach`, for a caller that already has the horizontal answer. */
 export function inRise(ay: number, by: number, up: number, down = up): boolean {
   const dy = by - ay;
   return dy <= up && dy >= -down;
 }
 
-// ---------------------------------------------------------------------------
-// World
-// ---------------------------------------------------------------------------
-/**
- * The tree whose canopy a body is standing inside — see `World.crownContactAt`.
- *
- * Deliberately the raw dome the tree registry already holds rather than a
- * contact point: the caller knows where its own body is, and what it cannot get
- * anywhere else is WHICH tree and how big that tree's crown is. `treeX`/`treeZ`
- * are the trunk's axis, which is also a stable per-tree identity — the leaf
- * system hashes it for a tint, so leaves off one tree always match.
- */
+/** The canopy dome a body stands in. `treeX`/`treeZ` are the trunk axis and double as tree identity. */
 export interface CrownContact {
   treeX: number;
   treeZ: number;
@@ -328,26 +161,12 @@ export interface CrownContact {
   crownRy: number;
 }
 
-/**
- * A named place on the map — the whole of what anything outside world/towns.ts
- * is allowed to know about a settlement.
- *
- * This is the QUEST-FACING contract and it is deliberately geometry-free: an
- * objective that wants to send the player to Stonewatch needs an id to key on, a
- * name to print, a point to aim a marker at and a radius to test arrival
- * against, and none of those require it to know that a town is a merged voxel
- * mesh or that its ground is a flatten disc. `gateX`/`gateZ` are here for the
- * same reason — "arrive at the gate" is a better objective than "arrive at the
- * centroid", and computing it from the road network is not something a quest
- * should be doing.
- */
+/** The quest-facing view of a settlement: deliberately geometry-free apart from point, radius and gate. */
 export interface TownInfo {
   /** Stable across sessions and seeds; what a quest stores. */
   readonly id: string;
   /**
-   * DISPLAY name as a string-table key — `t(town.nameKey)` gives "The
-   * Encampment". A quest prints this; it stores `id`.
-   */
+  /** DISPLAY name key; a quest prints this and stores `id`. */
   readonly nameKey: StringKey;
   /** 'camp' is the walled start town; 'hamlet' is an open settlement. */
   readonly kind: 'camp' | 'hamlet';
@@ -357,15 +176,7 @@ export interface TownInfo {
   readonly z: number;
   /** Footprint: inside this radius of (x, z) you are in the town. */
   readonly radius: number;
-  /**
-   * How far the town's built PERIMETER reaches from (x, z).
-   *
-   * `radius` is the nominal footprint and stays a circle — arrival tests,
-   * culling and keep-outs all use it. This is the circle that contains the
-   * actual wall, which for a SQUARE one is its corners, 41% further out than
-   * its sides. Anything levelling or clearing ground for the structures to
-   * stand on wants this; anything asking "am I in the town" wants `radius`.
-   */
+  /** Radius containing the built wall — a square town's corners are 41% past its sides. `radius` stays the footprint. */
   readonly outerRadius: number;
   /** The one road entrance, and the bearing atan2(dx, dz) it lies on. */
   readonly gateX: number;
@@ -373,117 +184,39 @@ export interface TownInfo {
   readonly gateAngle: number;
   /** Map/compass chip colour, 0xRRGGBB. */
   readonly color: number;
-  /**
-   * This settlement is CARRIED rather than sited: something that moves is
-   * holding it up, so `x`/`y`/`z` are a reading and not a placement.
-   *
-   * On the quest-facing contract because it changes what a consumer may DO with
-   * the position rather than merely what the position is: a marker has to be
-   * re-read every frame (see `_townChips` in main.ts), an objective cannot cache
-   * a distance, and anything reasoning about the ground under the town has to
-   * ask the carrier instead of the height field. `TownData.carried` is where it
-   * is authored; `World.carriers` is what is doing the carrying.
-   */
+  /** CARRIED, not sited: x/y/z are a live reading, so re-read every frame and cache no distance. */
   readonly carried: boolean;
-  /**
-   * How far from (x, z) the wild population is kept from APPEARING. 0 means the
-   * settlement has no such zone — see SafeZone, and `TownData.noSpawnRadius` for
-   * the default this is derived from and how content overrides it.
-   *
-   * Here beside `radius` and `outerRadius` because it is the third circle a town
-   * carries and the three answer three different questions: `radius` is "am I in
-   * the town", `outerRadius` is "where does the built wall reach", and this is
-   * "where may nothing hostile spawn". It is the widest of the three by default,
-   * because a monster that materialises ten units outside the gate is, from the
-   * player standing at the fire, a monster that materialised in the town.
-   */
+  /** How far from (x, z) the wild population may not APPEAR; 0 = no such zone. See SafeZone. */
   readonly noSpawnRadius: number;
 }
 
-/**
- * Every town in a world. Empty in zones that have none.
- *
- * Three methods and no more, because those are the three questions asked of it:
- * enumerate them (a map screen, a fast-travel list), resolve one by id (a quest
- * objective), and find the one you are standing in or nearest to (an arrival
- * test, a "you have discovered..." toast).
- */
+/** Every town in a world. Empty in zones that have none. */
 export interface TownRegistry {
   readonly all: readonly TownInfo[];
   get(id: string): TownInfo | undefined;
   nearest(x: number, z: number): TownInfo | null;
-  /**
-   * The roads BETWEEN those towns, each as its deck polyline flattened to
-   * [x0, y0, z0, x1, y1, z1, ...].
-   *
-   * Here rather than buried in the world implementation because a road is a
-   * gameplay object in the same way a town is: an escort that has to follow one,
-   * a patrol that spawns along one, a "meet me at the crossway" objective, and —
-   * today — the road tests, which walk the polyline asserting that the surface
-   * under it never steps more than the hero can walk up. Flat numbers rather
-   * than points because the consumer is usually iterating, and this is the same
-   * layout the chunk trunk registry uses for the same reason.
-   *
-   * `from`/`to` are town ids, or 'junction' for the fork the network hangs off.
-   */
+  /** Roads between towns, each a deck polyline flattened to [x0,y0,z0,...]. `from`/`to` are town ids or 'junction'. */
   readonly roads: ReadonlyArray<{
     readonly id: string;
     readonly from: string;
     readonly to: string;
     readonly path: Float32Array;
-    /**
-     * 1 where the matching `path` sample is a BRIDGE — the deck stands over open
-     * water and the ground under it was left as lake bed. Parallel to `path`
-     * rather than a list of spans because every consumer walks the polyline
-     * anyway, and "is this bit of road a bridge" is the question they ask.
-     */
+    /** 1 where the matching `path` sample is a BRIDGE: deck over water, ground left as lake bed. */
     readonly bridge: Uint8Array;
     /** The profile this path was built to — `path:<name>`. */
     readonly profile: string;
-    /**
-     * Outer rim of the drawn and walked surface, world units.
-     *
-     * On the record rather than looked up from a table, because a probe that
-     * sweeps the cross-section has to know how wide the path it is sweeping is
-     * — `tools/test-road.mjs` had 5.0 written into it, which was correct for
-     * exactly as long as there was one profile (issue #142, §4).
-     */
+    /** Outer rim of the drawn and walked surface, world units — per profile, not a constant (issue #142 §4). */
     readonly deckEdge: number;
   }>;
 }
 
-// ---------------------------------------------------------------------------
-// Safe zones
-// ---------------------------------------------------------------------------
-
 /**
- * A disc the wild population may not APPEAR inside.
- *
- * IT IS A SPAWN RULE AND NOT A WALL, which is the whole of the design. A monster
- * that is hunting you follows you across it — being chased through the gate and
- * along the high street is the fantasy, and a leash that stopped at a line would
- * turn every settlement into a place the game visibly gives up at. What a zone
- * forbids is the two ways a hostile arrives WITHOUT the player's involvement:
- * materialising inside it (combat/index.ts's `trySpawn`), and idly ambling in
- * off the meadow (`pickWanderGoal` in combat/enemies.ts). Both are refusals of a
- * candidate POSITION, so both are one distance test and neither can strand
- * anything: a wanderer already inside a zone walks home, and a hunter ignores it.
- *
- * A TOWN HAS ONE BY DEFAULT AND A POINT OF INTEREST DOES NOT, and that asymmetry
- * is the requirement rather than an omission. A settlement is somewhere the
- * player is meant to be able to stand still — shop, talk, read a sign — so the
- * default is derived from the town's own geometry and content need say nothing.
- * A landmark in the open world is scenery until a designer decides otherwise:
- * an arch with a keep-out around it thins the population of the meadow it stands
- * in, which is a gameplay decision and not a property of having been built.
+ * A disc the wild population may not APPEAR inside. A SPAWN RULE, NOT A WALL: a hunter follows
+ * you across it; only a spawn position and a wander goal are refused. A town gets one by
+ * default, a point of interest only when a designer asks.
  */
 export interface SafeZone {
-  /**
-   * Who claimed it — `town:encampment`, `den:2`, `landmark:gateway`. Namespaced
-   * because a zone is DIAGNOSED far more often than it is queried: the failure
-   * mode of this feature is a world nothing spawns in, and "which discs are up,
-   * and who put them there" is the only question worth asking about that.
-   */
+  /** Who claimed it — `town:encampment`, `den:2`. Namespaced because zones are diagnosed. */
   readonly id: string;
   readonly x: number;
   readonly z: number;
@@ -491,60 +224,21 @@ export interface SafeZone {
   readonly radius: number;
 }
 
-/**
- * Every safe zone in a zone-world. Empty where there are none.
- *
- * `blocksSpawn` is on a spawn path and a wander path, so it takes loose
- * coordinates rather than a point, compares SQUARED distances and allocates
- * nothing. The list is a handful of entries (three towns and four dens today),
- * which is why it is a linear scan and not a grid: a spatial index over seven
- * discs costs more to build than it can ever save.
- */
+/** Every safe zone in a zone-world. Loose coords, squared distances, no allocation; linear scan. */
 export interface SafeZoneRegistry {
   readonly all: readonly SafeZone[];
-  /** True when (x, z) lies inside any zone. */
   blocksSpawn(x: number, z: number): boolean;
-  /**
-   * Claim one. A radius of 0 or less is a NO-OP rather than a degenerate zone,
-   * which is what lets every caller pass its configured radius unconditionally
-   * and lets "this point of interest has no keep-out" be the number 0 instead of
-   * a branch at each call site.
-   */
+  /** Claim one. radius <= 0 is a NO-OP, so a caller passes its configured radius unconditionally. */
   add(id: string, x: number, z: number, radius: number): void;
 }
 
-// ---------------------------------------------------------------------------
-// Carriers — things the world moves that other things stand on
-// ---------------------------------------------------------------------------
-
 /**
- * A MOVING REFERENCE FRAME: a piece of the world that travels, carrying
- * whatever is standing on it.
+ * A MOVING REFERENCE FRAME: a piece of world that travels, carrying what stands on it.
  *
- * A flying island is the first one. A boat, a raft, a lift, and a monster big
- * enough to climb are the same problem, which is why this is a contract in the
- * hub rather than a method on the island — the island is one implementation of
- * a rule the rest of the game reads, exactly as a settlement is one producer of
- * `structureTopAt`.
- *
- * IT IS NOT A REPARENTING. Every mover in this codebase resolves its feet
- * against a column-top query and integrates in WORLD SPACE — the hero, the
- * saddle, a following beast, a wild enemy, four separate physics loops with
- * four separate step tests. Hanging any of them off a `THREE.Object3D` would
- * mean rewriting all four in local space and would fork every one of the
- * measured constants in them (`MAX_STEP_UP`, the probe radii, the climb slack).
- * So a carrier does two much smaller things instead:
- *
- *   1. it publishes the motion it performed THIS SLICE (`dx/dy/dz/dyaw`), which
- *      a rider adds to its own world position before running its ordinary
- *      physics — the frame moves under a body that knows nothing about frames;
- *   2. it answers `topAt`, so its deck is a floor by the same mechanism a hut
- *      roof is, and no mover grows a second kind of collision.
- *
- * JUMPING OFF RETURNS YOU TO THE WORLD, and it does so by construction rather
- * than by a rule anyone wrote: a rider is attached exactly while it is inside
- * `contains`, so the frame stops being applied on the first slice the body is
- * outside it. There is no detach event to miss and nothing to reset.
+ * NOT A REPARENTING — every mover integrates in world space. A carrier publishes the motion it
+ * performed this slice (`dx/dy/dz/dyaw`), which a rider adds before its own physics, and answers
+ * `topAt` so its deck is a floor by the same mechanism a hut roof is. A rider is attached exactly
+ * while inside `contains`, so stepping off needs no detach event.
  */
 export interface CarrierInfo {
   /** Stable for the life of the frame. A rider stores this, not the object. */
@@ -557,134 +251,34 @@ export interface CarrierInfo {
   readonly yaw: number;
   /** How far the ride volume reaches from (x, z). A broad-phase bound. */
   readonly radius: number;
-  /**
-   * What the frame moved THIS SIMULATION SLICE: translation in world units,
-   * `dyaw` in radians about (x, z).
-   *
-   * A delta rather than a velocity because a rider has to apply exactly what
-   * the frame did, and a velocity times the rider's own dt is only the same
-   * number while both are integrating at the same rate — which stops being true
-   * the moment anything is smoothed, clamped or catches up. See
-   * `CarrierRegistry.advance`.
-   */
+  /** What the frame moved THIS SLICE: world units, `dyaw` radians about (x, z). A delta, not a velocity. */
   readonly dx: number;
   readonly dy: number;
   readonly dz: number;
   readonly dyaw: number;
-  /**
-   * Top of the surface a body stands on at this world column — the deck, and
-   * anything built on it — or -Infinity where the frame has nothing here.
-   *
-   * Deliberately the same shape as `getHeight` and `structureTopAt`, so a mover
-   * folds it into the max it already takes and its step test is unchanged.
-   */
+  /** Top of what a body stands on here — deck plus what is built on it — or -Infinity. Shaped like `getHeight`. */
   topAt(x: number, z: number): number;
-  /**
-   * The frame's own SURFACE at this world column — the turf, without whatever
-   * is built on it — or -Infinity past its edge.
-   *
-   * A DIFFERENT QUESTION FROM `topAt`, and the difference is the whole of
-   * "what is the island and what is merely on it". A flyer beside a cottage is
-   * under `topAt` and over this one: he is above the lawn looking at a wall he
-   * is allowed to climb over, and treating that as being inside the island is
-   * what makes a mount hovering by a house get shoved off the deck.
-   */
+  /** The frame's own SURFACE without what is built on it, or -Infinity past the edge — a flyer beside a cottage is over the lawn, not on it. */
   deckAt(x: number, z: number): number;
-  /**
-   * Underside of the frame's body at this world column — the keel — or
-   * +Infinity where the frame has nothing here.
-   *
-   * `deckAt` AND THIS ARE A PAIR, and the pair is the point: a frame is a MASS
-   * between them, not a surface with air under it. Without the second half the
-   * only thing a carrier could do to a body was hold it up, so a flyer steered
-   * at the underside of a flying island went into the rock and kept going
-   * (issue #80). A body cannot BE in there: it is refused on the way in and
-   * shoved out through the flank if the frame moves onto it. See
-   * `integrateFlying` in player/mount.ts.
-   */
+  /** Underside (keel), or +Infinity where nothing is here. Paired with `deckAt`: a frame is a MASS, so a flyer is refused entry (issue #80). */
   bottomAt(x: number, z: number): number;
-  /**
-   * World (x, z) -> the frame's own coordinates, and back.
-   *
-   * ON THE CONTRACT RATHER THAN ONLY ON THE BODY because a SAVE needs them
-   * (issue #171). A flying island wanders from its home every session, so a
-   * position on its deck stored in world space describes a place the island has
-   * left and will not return to — the hero comes back to open sea under where
-   * it used to be. Stored in the frame's own coordinates and converted back
-   * against wherever it is now, the same spot on the deck is the same spot on
-   * the deck, which is what the note on `id` above is for.
-   *
-   * `out` is written rather than returned: these run per mover per slice on the
-   * collision path, and the update rules forbid allocating there.
-   */
+  /** World (x, z) <-> frame-local. A save stores deck positions frame-local, since a carrier leaves home each session (issue #171). `out` is written, never allocated. */
   toLocal(x: number, z: number, out: { x: number; z: number }): void;
   toWorld(lx: number, lz: number, out: { x: number; z: number }): void;
-  /**
-   * Is this point inside the ride volume?
-   *
-   * TAKES `y`, and that is the whole safety of the feature. A flying island's
-   * deck is ninety units over a meadow somebody is walking across; a query that
-   * could only see the column would teleport that walker onto the island the
-   * moment it drifted overhead. The volume is therefore the airspace ABOVE the
-   * deck and never below it — walking, swimming or flying UNDER a carrier is
-   * unaffected by it, which is also what makes stepping off the rim a fall.
-   */
+  /** Inside the ride volume? TAKES `y`: the volume is the airspace ABOVE the deck only, so passing under a flying island is unaffected. */
   contains(x: number, y: number, z: number): boolean;
 }
 
-/**
- * Every moving frame in a zone. Empty in worlds that have none, which is all of
- * them but the overworld today.
- *
- * `at` runs once per mover per simulation slice, so it is a linear scan over a
- * list with one entry in it and allocates nothing. A spatial index over one
- * disc costs more to build than it can ever save — the same argument
- * `SafeZoneRegistry` makes.
- */
+/** Every moving frame in a zone. A linear scan over a one-entry list; allocates nothing. */
 export interface CarrierRegistry {
   readonly all: readonly CarrierInfo[];
   get(id: string): CarrierInfo | undefined;
-  /** The frame whose volume holds this point, or null. */
   at(x: number, y: number, z: number): CarrierInfo | null;
-  /**
-   * The frame whose BODY stands in this column, or null — whoever is asking and
-   * wherever they are vertically.
-   *
-   * The companion to `at`, and the difference is what each is safe for. `at`
-   * answers "am I riding this", which needs a `y` and is what may move a body;
-   * this answers "is there a frame in the way of this column", which cannot
-   * move anything by itself — the caller still has to compare against `topAt`
-   * and `bottomAt` to know which side of the slab it is on. That is what makes
-   * it safe to ask without a `y` and useless as a surface.
-   */
+  /** The frame whose BODY stands in this column, ignoring `y`. Unlike `at` it moves nothing — the caller compares `topAt`/`bottomAt`, so it is no surface. */
   bodyAt(x: number, z: number): CarrierInfo | null;
-  /**
-   * The highest deck over this column, WHOEVER is asking and wherever they are,
-   * or -Infinity where there is none.
-   *
-   * THE ONE QUERY THAT IGNORES THE VOLUME, and it exists for exactly one
-   * question: how high a flying mount is allowed to climb. Its ceiling is
-   * "clearance over the ground under you" (`FLY_CEILING` in player/mount.ts),
-   * and with an island overhead the ground under you is 80 units up — without
-   * this, the one place in the world you can only reach by air is the one place
-   * the flight ceiling forbids.
-   *
-   * IT MUST NOT BE USED AS A SURFACE. Everything a body stands on goes through
-   * `CarrierRide.support`, which is gated on actually riding; this answers for a
-   * deck a hundred units over your head, which is the correct answer to "how
-   * high may I go" and a teleport to anything else.
-   */
+  /** Highest deck over this column, IGNORING the ride volume — only for a flying mount's ceiling (`FLY_CEILING`). NEVER a support surface. */
   ceilingAt(x: number, z: number): number;
-  /**
-   * Move every frame one simulation slice, and publish the deltas.
-   *
-   * CALLED AT THE TOP OF THE SLICE, before any mover runs — see `simulate()` in
-   * main.ts. It is not part of `World.update`, and the ordering is the reason:
-   * `update` streams chunks and runs at the END of a slice, so a delta computed
-   * there is one the riders can only spend on the NEXT slice, and a hero
-   * standing still on a deck would visibly lag it by a slice's worth of travel
-   * every time the island changed speed.
-   */
+  /** Move every frame one slice and publish the deltas. Called at the TOP of the slice, before any mover — `World.update` runs at the end and would lag riders. */
   advance(dt: number): void;
 }
 
@@ -698,43 +292,18 @@ export const NO_CARRIERS: CarrierRegistry = {
   advance: () => {},
 };
 
-// ---------------------------------------------------------------------------
-// NPCs
-// ---------------------------------------------------------------------------
-
-/**
- * Someone standing in the world, as far as anything outside world/npc.ts is
- * concerned: an id, a name to print, and where they are.
- *
- * `id` is the IDENTIFIER ('gain') — what a quest stores, what `talk` takes and
- * what a hint cache keys on — and `nameKey` is DISPLAY, resolved with
- * `t(nameKey)`. Same split as TownInfo and BeastSpecies.
- */
+/** Someone standing in the world, from outside world/npc.ts. `id` is stored, `nameKey` displayed. */
 export interface NpcInfo {
   readonly id: string;
   readonly nameKey: StringKey;
   readonly x: number;
   readonly y: number;
   readonly z: number;
-  /**
-   * The bearing he faces with nobody in front of him — toward his town's gate,
-   * so a visitor walking in off the road meets his face.
-   *
-   * His LIVE yaw is not here and deliberately so: he turns to attend whoever
-   * walks up to him, so a live angle is a per-frame value and this contract is
-   * read by placement code that runs once. What a caller wants from the outside
-   * is "which way does this character STAND", which is a fact about the world
-   * rather than about the current moment — it is how `playerStart` puts the
-   * hero shoulder to shoulder with him without world/index.ts knowing anything
-   * about gates.
-   */
+  /** Bearing he faces with nobody in front of him — toward his town's gate. His LIVE yaw is deliberately absent. */
   readonly restYaw: number;
 }
 
-/**
- * A place to stand and a way to look, which is what an opening shot needs and a
- * bare point cannot express. See `World.playerStart`.
- */
+/** A place to stand and a way to look, which a bare point cannot express. See `World.playerStart`. */
 export interface PlayerStart {
   readonly position: THREE.Vector3;
   /** The hero's heading, `atan2(dx, dz)`. */
@@ -742,32 +311,10 @@ export interface PlayerStart {
 }
 
 /**
- * WHAT A TALK RETURNS — and the seam a quest system drops into.
- *
- * The NPC module hands back a PAYLOAD rather than a fixed sentence, so the
- * thing that decides what someone says can change without the HUD, the interact
- * test or the frame loop changing shape. Today the payload is one line out of
- * the table; a quest offer is another field on this interface (`offer?:
- * QuestOffer`) plus a branch where main.ts renders it, and `NpcDef.talk()` in
- * world/npc.ts is the one function that has to start consulting quest state to
- * choose between them.
- *
- * UNRESOLVED TEXT AND NOT A FORMATTED STRING, because a caller may want the name
- * and the line in one composed sentence, and because the frame loop must be able
- * to ask for this without allocating — `resolveText` on the key form returns the
- * table's own string and builds nothing.
- *
- * IT IS A `ContentText` RATHER THAN A `StringKey`, and that is the one widening
- * issue #60 asked of this file. A talk line is CONTENT (src/content/types/npc.ts)
- * and content may carry its words inline — a remote pack, a quest written by a
- * tool, neither of which can have been checked against the string table this
- * build shipped. Resolving it HERE rather than in world/npc.ts is what keeps the
- * live language switch working: i18n's rule is that a string looked up on its
- * way to the DOM is free and one captured at construction owes a re-derive, and
- * a conversation begun before the player changes language must re-read, not
- * remember. Nothing else in `core/types.ts` moves: `NpcInfo.nameKey` is still a
- * `StringKey`, because the interact prompt is typed against the shipped table
- * and the engine requires the key form for a name (core/content-bridge.ts).
+ * What a talk returns: a PAYLOAD, not a fixed sentence, so a quest offer becomes another field
+ * here without the HUD or the frame loop changing shape. `ContentText` rather than `StringKey`
+ * (issue #60) because content may carry words inline; resolve it on the way to the DOM so a live
+ * language change is picked up.
  */
 export interface NpcTalk {
   readonly id: string;
@@ -777,64 +324,25 @@ export interface NpcTalk {
   readonly line: ContentText;
 }
 
-/**
- * The NPCs of one zone, behind the three questions asked of them: who is within
- * arm's reach, start talking to one, stop talking.
- *
- * Deliberately the same shape as TownRegistry — a query interface on the World
- * contract, with the placement, the meshes and the animation on the far side of
- * it. `nearest` runs every simulation slice from main.ts, so it allocates
- * nothing and returns the module's own record.
- */
+/** The NPCs of one zone. `nearest` runs every slice, so it allocates nothing and returns its own record. */
 export interface NpcField {
   readonly all: readonly NpcInfo[];
-  /**
-   * The closest NPC within `range` of (x, z) AND at roughly the caller's own
-   * height, or null. Allocates nothing.
-   *
-   * `y` is the caller's FEET, matching `NpcInfo.y`, and the test it feeds is a
-   * cylinder rather than a sphere — see NPC_TALK_RISE in world/npc.ts for the
-   * measurements and for why the two axes are two numbers. It is not optional:
-   * the query took (x, z) alone until issue #25, which is why a hero flying
-   * over a settlement was offered a conversation with everyone in it.
-   */
+  /** Closest NPC within `range` of (x, z) AND near the caller's own height (`y` is FEET). A cylinder, not a column — issue #25. */
   nearest(x: number, y: number, z: number, range: number): NpcInfo | null;
-  /** Begin (or restart) a conversation. Returns what to show, or null. */
   talk(id: string): NpcTalk | null;
-  /** The conversation in progress, or null. */
   readonly talking: NpcTalk | null;
   endTalk(): void;
 }
 
-/**
- * How a body moves, as far as anything reacting to it is concerned.
- *
- * Two cases and not more, because they are physically different events rather
- * than two settings of one: a walker SHOVES what it passes through with its
- * body, a flyer BLOWS it from above and does not touch it at all.
- */
+/** How a body moves: a walker SHOVES what it passes through, a flyer BLOWS from above. */
 export type DisturbKind = 'walk' | 'fly';
 
-/**
- * A slice of the world the F3 performance panel can hide.
- *
- * Named rather than a mesh list because the streamer keeps building: the world
- * remembers which layers are off and applies it to chunks that arrive later.
- * See `World.setLayerVisible` and `hiddenLayers` in world/index.ts.
- */
+/** A slice of the world the F3 panel can hide. Named, not a mesh list: chunks streamed later must honour it. */
 export type WorldLayer = 'grass' | 'props' | 'water' | 'clouds';
 
-/** Why the visible clock is at the phase reported by {@link CelestialState}. */
 export type TimeOfDaySource = 'auto' | 'quest' | 'debug';
 
-/**
- * One allocation-free frame of the day/night system.
- *
- * The clock owns these mutable vectors and colours for its whole lifetime. A
- * consumer may read or copy them, never retain and mutate them. Keeping the
- * whole environmental answer together is what prevents the water glint, fog,
- * shadow map and sky discs from each inventing a slightly different sun.
- */
+/** One allocation-free frame of the day/night system. The clock owns these vectors and colours — copy, never retain and mutate. */
 export interface CelestialState {
   /** Normalised day, [0, 1): midnight 0, dawn .25, noon .5, dusk .75. */
   readonly phase: number;
@@ -861,21 +369,7 @@ export interface CelestialState {
   readonly moon: number;
 }
 
-/**
- * Say that a thing is DRAWN but is not an ambient-occlusion occluder.
- *
- * The AO pass curates its own G-buffer rather than re-rendering everything (see
- * `OpaqueGTAOPass._overrideVisibility` in core/post.ts), and this is the second
- * question it asks after "did you write depth in the beauty pass". It lives here
- * rather than in either file because it is a statement the WORLD makes about its
- * own geometry and the POST STACK reads — neither imports the other.
- *
- * It is not a performance knob and must not be reached for as one. The bar is
- * that the AO the surface produces is WRONG, not that it is expensive: a grass
- * carpet is the ground rather than a thing standing on it, and a cumulus is a
- * volume of droplets with no contact shadow to cast. See issue #39, and the
- * comment at the exclusion in post.ts for the measurements.
- */
+/** Mark a DRAWN object as not an AO occluder. Not a performance knob: the bar is that its AO would be WRONG (issue #39). */
 export function excludeFromAO<T extends THREE.Object3D>(obj: T): T {
   obj.userData.noAO = true;
   return obj;
@@ -886,15 +380,7 @@ export function isExcludedFromAO(obj: THREE.Object3D): boolean {
   return obj.userData.noAO === true;
 }
 
-/**
- * Putting a building somewhere at runtime — the F3 Debug panel's structure
- * branch, and nothing else in the game.
- *
- * The contract is here rather than in world/spawned.ts because `World` carries
- * it, and because the panel's host in main.ts is the caller: main.ts already
- * knows where the hero is standing and which way he faces, which is the whole
- * of what a spawn needs. The implementation is `SpawnedSolids`.
- */
+/** Putting a building somewhere at runtime — the F3 Debug panel only. See `SpawnedSolids`. */
 export interface DebugSpawner {
   /** Every part that can be stamped, by name, in the order a tree should list them. */
   names(): readonly string[];
@@ -907,39 +393,18 @@ export interface DebugSpawner {
 }
 
 /**
- * "IS THERE BUILT MATERIAL HERE?" — the PLACEMENT side of the same footprints
- * `structureTopAt` is the collision side of. Implemented by `StructureField`
- * and `SiteFields` (world/structures.ts).
- *
- * `structureTopAt` answers a mover's question, "how high is the thing in my
- * way", and a height is all a mover needs. A PLACER asks a different one:
- * "would the thing I am about to stamp end up INSIDE that", which is a volume
- * test over the stamped thing's own extent rather than over a point. Issue #131
- * is what the absence of it looked like — grass growing through the
- * Encampment's palisade, because the only thing between the meadow and the camp
- * was a disc around the town centre, and a disc big enough to clear a wall is a
- * disc that strips the yard bare.
- *
- * TWO METHODS, because the cost story needs both. `hits` is asked once per
- * stamp — about a thousand times per chunk — and `anyIn` once per chunk, so a
- * chunk with no settlement near it skips the per-stamp test entirely rather
- * than pay a bounds test a thousand times over.
+ * 'Is there built material here?' — the PLACEMENT side of the footprints `structureTopAt` is the
+ * collision side of: a volume test over what is about to be stamped (issue #131). `hits` runs per
+ * stamp (~1000 a chunk), `anyIn` once a chunk, so a chunk with no settlement skips the rest.
  */
 export interface SiteClearance {
   /** Is anything at all stamped inside this world-space rectangle? */
   anyIn(x0: number, z0: number, x1: number, z1: number): boolean;
-  /**
-   * Does built material intersect the upright cylinder of radius `r` about
-   * (x, z), standing from `y0` to `y1`?
-   */
+  /** Does built material intersect the upright cylinder of radius `r` at (x, z), from `y0` to `y1`? */
   hits(x: number, z: number, r: number, y0: number, y1: number): boolean;
 }
 
-/**
- * A world with nothing built in it — the dungeon, the lab's stub. Shared rather
- * than re-written at each stub, so widening `SiteClearance` does not have to be
- * done three times.
- */
+/** A world with nothing built in it — the dungeon, the lab's stub. Shared. */
 export const NO_SITE: SiteClearance = {
   anyIn: (): boolean => false,
   hits: (): boolean => false,
@@ -948,325 +413,85 @@ export const NO_SITE: SiteClearance = {
 export interface World {
   /** Apply the current celestial lighting to world-owned shader materials. */
   applyCelestial(state: Readonly<CelestialState>): void;
-  /**
-   * Show or hide one layer, now and for everything streamed in afterwards.
-   *
-   * Distinct from `setVisible`, which takes the WHOLE world off screen for a
-   * zone switch. This is the player turning the grass off to get a frame back,
-   * and it has to survive walking forward into unbuilt chunks.
-   */
+  /** Show or hide one layer, now and for everything streamed afterwards. `setVisible` is the whole-world switch. */
   setLayerVisible(layer: WorldLayer, on: boolean): void;
-  /**
-   * Set the ground-cover fade distance in world units. Trees and rocks retain
-   * one further chunk so the horizon keeps its silhouette after nearby grass
-   * has faded. The overworld applies it live; zones with no vegetation ignore
-   * it.
-   */
+  /** Ground-cover fade distance, world units. Trees and rocks keep one further chunk for the horizon silhouette. */
   setFoliageDistance(distance: number): void;
   /** Set camera-scale terrain streaming and the far clipmap/HLOD budget. */
   setTerrainDistance(distance: number): void;
   /** One consolidated far-landscape census, for the view-distance guard. */
   debugDistantTerrain(): Record<string, unknown> | null;
-  /**
-   * Link the shader programs of any world-owned VISUAL EFFECT, by drawing it
-   * once during the boot sweep. The caller renders; the world's job is to make
-   * sure the thing is actually rasterised while it does.
-   *
-   * Needed because the sweep in `warmUpSteps` stages the camera at places a
-   * PLAYER goes — spawn, the towns, the roads — and a world effect can sit
-   * somewhere no staged frame looks. The sky island's waterfall is the case
-   * that added this: the island cruises 190 units up and 170 out, so nothing in
-   * the sweep ever drew it and its two programs linked on the frame the hero
-   * first looked up, which is a measured half-second stall.
-   *
-   * Not the same as staging a frame at the effect: this guarantees the DRAW
-   * rather than hoping the framing catches it.
-   */
+  /** Draw every world-owned VFX once during the boot sweep — the sweep only stages where a PLAYER goes, and the sky island's waterfall is not. */
   warmUpEffects(render: () => void): void;
-  /**
-   * The carried island's waterfall, and the rock it hangs off — counters only,
-   * or null in a world that has neither. See `__dbgSkyFall` in main.ts and
-   * tools/test-waterfall.mjs.
-   */
+  /** The carried island's waterfall counters, or null where there is neither. */
   debugSkyFall(): Record<string, number> | null;
-  /**
-   * Drop every streamed chunk and build it again.
-   *
-   * A TUNING path, not a play path: the nature densities (world/nature.ts) are
-   * read while a chunk's props are being built, so a value changed at `/nature`
-   * only reaches the ground already under your feet by rebuilding it. Nothing in
-   * the frame loop calls this.
-   */
+  /** Drop and rebuild every streamed chunk. A TUNING path: nature densities are read while a chunk is built. */
   rebuildProps(): void;
   /** Terrain height at world xz (top surface, in world units) */
   getHeight(x: number, z: number): number;
   /**
-   * Top of anything CLIMBABLE at world xz — terrain, tree trunks and crowns,
-   * and EVERY SOLID THING IN THE WORLD.
+   * Top of anything CLIMBABLE here — terrain, trunks, crowns and every solid thing.
    *
-   * THE RULE: if it stops you, you can climb it. There is no such thing as a
-   * collider that blocks movement but refuses to be grabbed, and adding one is
-   * the mistake this comment exists to prevent. Settlements shipped that way
-   * for exactly one commit — the boxes under `structureTopAt` were declared
-   * "not climbable" on the theory that a palisade you can grab is a palisade
-   * you step over, and the gate should be the only way in. That reasoning is
-   * about a single wall and it silently applied to every hut, crate, cart and
-   * fence in three settlements: a player who can climb a tree walks up to a
-   * waist-high box in his own start town and bounces off it. A rule the world
-   * follows everywhere is worth more than a locked front door, and if a
-   * particular wall must not be scaled it should be TALL, not exempt.
-   *
-   * So this is a SUPERSET of the solid surfaces, never a different set. It is
-   * still a separate query from getHeight because the reverse containment does
-   * not hold — a tree crown and a bole are climbable over a footprint far wider
-   * than the sliver of them that blocks movement (see trunkSolidTopAt), so
-   * climbable is the bigger set in both directions it can be.
-   *
-   * This is deliberately the same shape as getHeight, so climbing code asks one
-   * question and does not care what it is holding onto.
-   *
-   * It is also the SUPPORT surface: standing on a tree is the same query as
-   * grabbing one, so the player resolves his feet against it too (see
-   * Player.canopyTop). Where it rises clear of getHeight it is a ONE-WAY
-   * PLATFORM — it holds a body that was already above it and is coming down,
-   * and is not there at all for a body approaching from underneath. That
-   * asymmetry is not a refinement, it is the only way a canopy can be stood on
-   * without also being an invisible wall at ground level and a ceiling over
-   * anyone jumping beneath it; see trunkSolidTopAt for the same argument about
-   * horizontal blocking.
-   *
-   * Nothing but the player does this. Beasts and enemies keep their footing on
-   * getHeight, so widening this query never puts a wild pack on a treetop.
-   *
-   * Never below getHeight(x, z) — ground is always climbable-from.
+   * THE RULE: if it stops you, you can climb it, so this is a SUPERSET of the solid surfaces,
+   * never a different set; a wall that must not be scaled should be TALL, not exempt. It is also
+   * the player's SUPPORT surface, and a ONE-WAY platform where it rises clear of getHeight —
+   * otherwise a canopy is a wall at ground level and a ceiling under anyone jumping beneath it.
+   * Nothing but the player reads it. Never below getHeight(x, z).
    */
   climbTopAt(x: number, z: number): number;
-  /**
-   * Top of the SOLID part of a tree trunk at world xz, or -Infinity where the
-   * column holds no trunk.
-   *
-   * Separate from climbTopAt because a tree is climbable over its whole
-   * footprint and solid over almost none of it. A crown is 7-10 units across
-   * and sits several units up; making that column solid would ring every trunk
-   * with an invisible wall, because the player's step test compares a column's
-   * top against his feet and cannot tell "canopy overhead" from "cliff". So
-   * only the bole blocks movement — a cylinder from the ground to the height
-   * the crown starts — while the leaves above it merely hold weight.
-   *
-   * -Infinity rather than the ground height so a caller can tell "no trunk
-   * here" from "a trunk that happens to be short" without a second query.
-   */
+  /** Top of the SOLID bole of a trunk, or -Infinity where there is none — a crown is climbable over a footprint that must not block movement. */
   trunkSolidTopAt(x: number, z: number): number;
   /**
-   * Top of any BUILT structure standing over this column — a hut wall, a
-   * palisade span, a crate, a cart — or -Infinity where the column is clear.
-   *
-   * The third "what is over this column" query, and the same shape as the other
-   * two on purpose: every mover in the game already resolves a column top
-   * against MAX_STEP_UP, so a settlement becomes solid by being answered here
-   * rather than by anyone growing a second kind of collision.
-   *
-   * SOLID BOTH WAYS, unlike a canopy. A tree crown had to be a one-way platform
-   * because it is a lid several units above ground that would otherwise fence
-   * off the trunk it belongs to; a hut wall is material standing ON the ground
-   * over its whole footprint, so blocking it from every side is not a
-   * compromise, it is the answer. That is also why this is a plain top rather
-   * than a volume: the boxes are authored to reach from the ground up, so
-   * "highest thing here" and "what stops me" are the same number.
-   *
-   * CLIMBABLE, like everything else that blocks. `climbTopAt` consults this,
-   * so a hut roof, a crate and a palisade span can all be scaled with Shift.
-   * The gate is still where you WALK in; it is no longer the only way over.
-   *
-   * The colliders are ORIENTED BOXES, because a hut is a rectangle: a disc
-   * around one either admits the player to the corners or stops him a metre
-   * short of the wall. See world/structures.ts.
+   * Top of any BUILT structure over this column, or -Infinity. Shaped like the other column
+   * queries, so a settlement is solid without a second kind of collision. SOLID BOTH WAYS unlike
+   * a canopy, and climbable. Colliders are ORIENTED BOXES, because a hut is a rectangle.
    */
   structureTopAt(x: number, z: number): number;
-  /**
-   * Is the sphere (x, y, z, radius) inside a tree's CANOPY? Fills `out` with
-   * the tree it hit and returns true; returns false and leaves `out` alone
-   * otherwise.
-   *
-   * The third query over the same per-chunk tree registry, and the first that is
-   * about the leaves rather than about standing on them: `climbTopAt` asks how
-   * HIGH the canopy is over a column, this asks whether a body is INSIDE it. A
-   * contact test needs the volume, not the surface — brushing through foliage
-   * happens from the side, where the dome's top is nowhere near you.
-   *
-   * `out` is a caller-owned scratch, so a per-frame contact test allocates
-   * nothing. Overlapping crowns resolve to the first tree found rather than the
-   * deepest: the bucket scan would have to run to completion to know which is
-   * deepest, and where two canopies interpenetrate either one is a defensible
-   * answer to "what did I just walk into".
-   */
+  /** Is the sphere inside a tree's CANOPY? A volume, not a surface — foliage is brushed from the side. `out` is caller scratch; overlapping crowns give the first tree found. */
   crownContactAt(x: number, y: number, z: number, radius: number, out: CrownContact): boolean;
-  /**
-   * How SNOW-COVERED this column is, 0..1. 0 in a zone that has no weather at
-   * all (the dungeon, the lab stage).
-   *
-   * A CONTINUUM, not a biome flag, and that is the whole reason it is on the
-   * interface: the overworld's snow line is a smoothstep several units tall
-   * around an altitude that itself wanders with temperature, so "under snow" is
-   * a weight, and anything reacting to it — the contact particles mix snow into
-   * whatever an element sheds in proportion to this — gets to fade in over the
-   * treeline instead of snapping on at a threshold. A caller that genuinely
-   * wants the boolean can compare against 0.5, which is where `BiomeId` cuts.
-   *
-   * Deliberately narrow. The alternative was exposing the whole column record,
-   * which would have put the mesher's colour scratch in the cross-module
-   * contract to serve one number.
-   */
+  /** Snow cover 0..1; 0 where a zone has no weather. A CONTINUUM, not a flag — `BiomeId` cuts at 0.5. */
   snowCoverAt(x: number, z: number): number;
   /** Water surface level (constant) */
   readonly waterLevel: number;
   isWater(x: number, z: number): boolean;
-  /**
-   * Is this column DEEP SEA — the dark water a swimmer is turned back from?
-   *
-   * A strict subset of `isWater`, and a separate query rather than a depth
-   * number for the same reason `isWater` is not `getHeight(x, z) < waterLevel`
-   * at every call site: the threshold is a world's own business (see
-   * DEEP_WATER_DEPTH in world/terrain.ts), and three movers resolve against it
-   * — the hero's swim step (Player.update), a mount's ground step
-   * (MountController.integrateGround) and the probe that measures both.
-   *
-   * FALSE EVERYWHERE IN A ZONE THAT HAS NO SEA. The dungeon and the lab stage
-   * answer false to `isWater` already; answering false here keeps the rule
-   * "deep implies wet" true by construction rather than by agreement.
-   */
+  /** DEEP SEA a swimmer is turned back from — a strict subset of `isWater` (DEEP_WATER_DEPTH). False where there is no sea. */
   isDeepWater(x: number, z: number): boolean;
-  /**
-   * Stream chunks around a focus point; call every simulation slice.
-   * `newFrame` marks the first slice of a rendered frame and resets the
-   * per-frame chunk-building time budget — pass false on catch-up slices, or
-   * a frame that runs several will do several frames' worth of building.
-   */
+  /** Stream chunks around a focus; call every slice. `newFrame` resets the per-frame chunk-build budget — false on catch-up slices. */
   update(focus: THREE.Vector3, dt: number, newFrame?: boolean): void;
   /**
-   * Tell the world that a body is moving through it. Call once per simulation
-   * slice per mover, BEFORE `update`.
-   *
-   * The argument is a BODY, not a bend, and that is the whole point of the
-   * shape: the caller says what is where, and the world decides what, if
-   * anything, reacts to it. Today that is grass — it parts around a walker and
-   * shakes under a low flyer's downwash, see world/sway.ts — and tomorrow the
-   * same report is what dust, ripples and snow tracks would want. A world with
-   * nothing to disturb implements it as a no-op.
-   *
-   * `id` must be STABLE for the life of the mover. The world keeps a lagged
-   * track per id so the parted patch trails a runner and closes behind him
-   * rather than snapping to his feet, and an id that changes from slice to
-   * slice would show up as a body that keeps teleporting. Reserved: -1 for the
-   * hero (or his mount, which reports in his place), -2 for the primary beast, -3
-   * for the support beast. Anything else uses its own `Object3D.id`, which is
-   * three's monotonic counter and never negative — hence the reserved ids being
-   * the ones that are.
-   *
-   * `y` is the body's FOOT height and `radius` its horizontal half-width, so
-   * the world can work out clearance over its own ground without the caller
-   * having to ask.
+   * Tell the world a BODY is moving through it; once per slice per mover, BEFORE `update`. The
+   * world decides what reacts (grass today). `id` must be STABLE — a lagged track per id is what
+   * trails a parted patch behind a runner. Reserved: -1 hero or his mount, -2 primary beast,
+   * -3 support beast; anything else uses its `Object3D.id`, never negative. `y` is FOOT height.
    */
   disturb(id: number, x: number, y: number, z: number, radius: number, kind: DisturbKind): void;
-  /**
-   * Debug: append every loaded collider as [x, z, solidRadius, climbRadius,
-   * topY]. Ground is deliberately excluded — it is the whole terrain and
-   * drawing it would cost more than the diagnostic is worth.
-   */
+  /** Debug: colliders as [x, z, solidRadius, climbRadius, topY]. Ground excluded — it is the whole terrain. */
   debugColliders(out: number[]): void;
   /** Debug: the sway field's slots and tracks, or null. Allocates. */
   swayDebug?(): unknown;
-  /**
-   * Debug: append every structure collider as [cx, cz, hx, hz, yaw, topY].
-   *
-   * A SECOND method with its own stride rather than a widening of
-   * `debugColliders`, because these are a different primitive: a tree is a
-   * cylinder and a building is an oriented box, and squeezing a box into the
-   * cylinder's five numbers is exactly the mismatch /show-colliders exists to
-   * expose. See ColliderView, which draws these green like the solid discs —
-   * they block the same movement.
-   */
+  /** Debug: structure colliders as [cx, cz, hx, hz, yaw, topY]. Its own stride: a building is an oriented box, a tree a cylinder. */
   debugStructures(out: number[]): void;
-  /**
-   * Debug: how walked the ground at (x, z) is, 0..1 — the number that decides
-   * whether a column is painted grass or packed dirt.
-   *
-   * Here because a settlement's beaten tracks stopped being a private array
-   * inside terrain.ts and became paths on the network (issue #142), and the way
-   * to prove that fold-in moved no pixel is to read the field itself rather
-   * than to photograph it: a capture of the Encampment is not deterministic
-   * (the fire, the lamps and the people all move), so two shots of identical
-   * code already differ in 17.6% of their bytes.
-   */
+  /** Debug: how walked the ground at (x, z) is, 0..1 — what decides grass versus packed dirt. */
   debugWear(x: number, z: number): number;
-  /**
-   * Debug: the top the MESHER draws this column at, which is not `getHeight`.
-   *
-   * The two differ on purpose — collision on a carriageway is the smooth deck
-   * while the drawn box is a floored column clipped under it — and when they
-   * differ the WRONG way you get ground standing up through the gravel. There
-   * was no way to read the drawn one, so the only evidence was a raycast that
-   * could not say whether the mesher or the clip was at fault.
-   */
+  /** Debug: the top the MESHER draws this column at, not `getHeight` — collision is the smooth deck, the drawn box a floored column under it. */
   debugColumn(x: number, z: number): number;
-  /**
-   * Debug/authoring: does the straight run (ax,az)-(bx,bz) cross a DRAWN path?
-   *
-   * For a caller choosing where to start a new path. A route that has to get
-   * past the network to reach its destination will cross it, and a crossing
-   * with nothing at the meeting is two ribbons stacked on one piece of ground
-   * — so the honest fix is to start on the correct side rather than to notice
-   * afterwards. Straight-line, which is a heuristic: the router bends. It is
-   * enough to reject a head that is obviously on the wrong side of a road.
-   */
+  /** Debug/authoring: does the straight run cross a DRAWN path? A heuristic — the router bends. */
   pathRunCrosses(ax: number, az: number, bx: number, bz: number): boolean;
-  /**
-   * Would a path laid straight from a to b pass through something ALREADY
-   * STANDING — a lamp, a fingerpost, a milestone — allowing `margin` for its
-   * own half-width?
-   *
-   * The companion to `pathRunCrosses`, and the reason it is a separate question
-   * is timing: `PathRoles.refusesBuilt` keeps the planner from standing a lamp
-   * on a carriageway, but a path authored at runtime arrives after the lamps
-   * and cannot retract one. See the implementation for the margin's rationale.
-   */
+  /** Would a straight run a-b hit something already STANDING (lamp, fingerpost), allowing `margin`? A runtime path arrives after the lamps. */
   pathRunHitsBuilt(
     ax: number, az: number, bx: number, bz: number, margin: number,
   ): boolean;
   /**
-   * AUTHOR A PATH AT RUNTIME, and rebuild everything that depended on there
-   * not being one.
-   *
-   * Issue #142 §12a, and the step the issue itself flags as carrying the risk.
-   * Everything about the world is planned before the first chunk exists,
-   * deliberately: `planSettlements` routes and carves BEFORE `terrain.roads` is
-   * set, so no chunk carrying a corridor is ever built while roads are being
-   * planned. This is the one hole in that, and it is a DEVELOPER path — the
-   * console's `/path` and `__dbgAddPath`, never gameplay.
-   *
-   * It costs about what walking into fresh ground costs, because it is the same
-   * work: every chunk is dropped and rebuilt. `refit` is the caller's chance to
-   * put the hero back on the ground — see the note in the implementation, which
-   * is the whole safety argument.
-   *
-   * Returns what was built, or `error` and nothing else. A refusal is REPORTED
-   * (§12f): an editor whose first user thinks it is broken is worse than one
-   * that says why.
+   * AUTHOR A PATH AT RUNTIME, rebuilding everything that assumed there was none (issue #142 §12a).
+   * A DEVELOPER path — `/path`, `__dbgAddPath`, never gameplay: every chunk is dropped and rebuilt,
+   * and `refit` is the caller's chance to re-ground the hero. Returns what was built, or `error`.
    */
   addPath(spec: {
     from: readonly [number, number];
     to: readonly [number, number];
     /** A profile name — `road`, `footpath`. Unknown names are reported. */
     profile?: string;
-    /**
-     * Route THROUGH the network rather than around it, and turn the first
-     * crossing into a junction.
-     *
-     * Off by default because the router is tuned the other way: `AVOID_COST` is
-     * 50, deliberately huge, so two arms leave a fork as separate roads — and a
-     * path drawn to cross another will otherwise watch it swerve (issue #142
-     * §12d). This suppresses that charge for this one route.
-     */
+    /** Route THROUGH the network, junctioning the first crossing. Off by default: `AVOID_COST` is 50 so arms leave a fork separately (issue #142 §12d). */
     cross?: boolean;
     /** Called after the rebuild, to re-ground anything standing on it. */
     refit?: () => void;
@@ -1275,27 +500,14 @@ export interface World {
     /** Junctions the merge created, and every crossing it refused. */
     nodes: Array<{ x: number; z: number; y: number; arms: number }>;
     refused: string[];
-    /**
-     * How many DRAWN paths the finished route still crosses without a junction.
-     *
-     * Always counted, merge or no merge. A path that runs over another one with
-     * nothing at the meeting is two ribbons stacked on the same ground — issue
-     * #45 — and it is the sort of thing that looks fine from the air and wrong
-     * from the ground, so the caller is told rather than left to notice.
-     */
+    /** DRAWN paths the finished route still crosses with no junction — stacked ribbons, issue #45. Always counted. */
     crossings: number;
     error?: string;
   };
   /**
-   * Debug: every path on the network, and what the clearance queries answer at
-   * a column.
-   *
-   * `TownRegistry.roads` is the DRAWN paths — what a compass and a signpost
-   * mean — so it cannot see a settlement's beaten tracks, which is exactly what
-   * needs asserting after issue #142 folded them in. The two `edge` numbers are
-   * the whole invariant: a track is visible to what GROWS (`edge` goes
-   * negative on it) and invisible to what is BUILT (`builtEdge` does not),
-   * because the tracks were derived from where the buildings are.
+   * Debug: every path on the network and what the clearance queries answer at a column. Unlike
+   * `TownRegistry.roads` this sees beaten tracks — the issue #142 invariant is that a track is
+   * visible to what GROWS (`edge`) and not to what is BUILT (`builtEdge`).
    */
   debugPaths(x?: number, z?: number): {
     paths: Array<{
@@ -1306,55 +518,16 @@ export interface World {
     }>;
     at: { edge: number; builtEdge: number; wear: number; litter: number } | null;
   };
-  /**
-   * Debug: append every ROOF as [cx, cz, axisYaw, hl, r, yAxis, ry, fit] — a
-   * cylinder lying on its side along a ridge, see `SolidRidge` in
-   * world/props.ts. `fit` is how far it stands off the thatch at its worst.
-   *
-   * A THIRD list with a third stride, by the same argument the second one makes:
-   * a roof is neither a tree's upright cylinder nor a building's box, and the
-   * mismatch between a collider and the shape it is drawn as is the one thing
-   * /show-colliders exists to expose.
-   */
+  /** Debug: every ROOF as [cx, cz, axisYaw, hl, r, yAxis, ry, fit] — a cylinder along a ridge; `fit` is its worst standoff from the thatch. */
   debugRidges(out: number[]): void;
-  /**
-   * What the streamed foliage is not allowed to grow through — the settlements'
-   * own timber and the skill dens, as the volumes they are. See `SiteClearance`
-   * in world/structures.ts, and issue #131.
-   *
-   * Exposed rather than kept private to the chunk builder so a probe can ask the
-   * SAME question of the drawn vertices that the placer asked of the stamps. A
-   * check written against `debugStructures` instead would be measuring a
-   * different set — that one merges in the people and whatever is flying
-   * overhead, neither of which chunk grass has any business avoiding — and a
-   * guard that measures a different set from the rule is a guard that reports
-   * the rule broken every time something else moves.
-   */
+  /** What streamed foliage may not grow through, as volumes (issue #131). Exposed so a probe asks the same question the placer did. */
   foliageSite: SiteClearance;
-  /**
-   * Debug: every lamp and fingerpost the road pass stood up, as
-   * `{ kind, x, z }`, or an empty list where a zone has no roads.
-   *
-   * Here so a probe can measure what "lamps are too close to each other"
-   * (issue #15) actually means — the smallest gap on the network, in units —
-   * rather than argue it from a screenshot. Allocates; never called per frame.
-   */
+  /** Debug: every lamp and fingerpost the road pass stood up — lets a probe measure the smallest gap in units (issue #15). Allocates. */
   debugFurniture(): Array<{ kind: string; x: number; z: number }>;
   /**
-   * Debug: every fence the road pass built, as its posts and its bays.
-   *
-   * A FENCE IS A CHAIN AND ITS BUG IS A GAP, so the readout is the chain rather
-   * than a list of pieces: `posts` in order and `bays` joining adjacent pairs,
-   * one entry per CONTINUOUS run — a gate splits a road-side run into two of
-   * them (see world/fences.ts). `tools/test-fence.mjs` asserts issue #105's
-   * invariant off
-   * exactly this — every plank inside the two posts it joins, at a height both
-   * of them reach — and it runs the same check over the lab stage's fences and
-   * over these, so the world is asserted rather than only the demo.
-   *
-   * Road fences and bridge railings only: a layout's own fences (a hamlet's
-   * paddock arc) are built inside a `TownLayout`, which returns a site and not a
-   * report. Allocates; never called per frame.
+   * Debug: every fence the road pass built. A FENCE IS A CHAIN AND ITS BUG IS A GAP, so this is
+   * `posts` in order plus `bays` joining adjacent pairs, one entry per CONTINUOUS run (issue #105).
+   * Road fences and bridge railings only; a layout's own fences return a site. Allocates.
    */
   debugFences(): Array<{
     posts: Array<{ x: number; z: number; y: number; base: number; kind: string }>;
@@ -1365,29 +538,9 @@ export interface World {
       groundMax: number;
     }>;
   }>;
-  /**
-   * Debug: every tree a CARRIED settlement planted, in WORLD space and as of
-   * this instant — empty where nothing is being carried.
-   *
-   * Here for the same reason `debugFurniture` is: "the trees on the sky island
-   * have no colliders" (issue #80) is a statement about specific columns, and a
-   * probe cannot ask about a column it cannot name. The ground's own woods need
-   * no equivalent — a chunk tree is in the trunk registry, which
-   * `trunkSolidTopAt` answers from at any coordinate a probe likes.
-   *
-   * Allocates, and goes stale the moment the carrier moves: read it and query
-   * in the same evaluation.
-   */
+  /** Debug: a CARRIED settlement's trees in WORLD space (issue #80). Goes stale as soon as the carrier moves — read and query in one evaluation. */
   debugCarriedTrees(): Array<{ x: number; z: number }>;
-  /**
-   * Debug: the carried settlement's flagged streets, and how far outside their
-   * rim each of its trees and bushes stands — LOCAL to the carrier's frame.
-   *
-   * The whole point of folding the streets onto the path network (issue #142)
-   * is that a placer can see them; the way to assert that is to read the same
-   * clearance query the planter used. Negative is a tree standing on
-   * flagstones, which is what the island shipped with.
-   */
+  /** Debug: the carried settlement's flagged streets and each tree's clearance outside their rim, LOCAL to the carrier. Negative = a tree on flagstones. */
   debugCarriedStreets(): {
     count: number;
     paved: number;
@@ -1396,176 +549,58 @@ export interface World {
   };
   /** Positions of interest (skill dens / shops) */
   readonly shopPositions: THREE.Vector3[];
-  /**
-   * The named settlements in this zone, and the only sanctioned way to ask
-   * where one is. See TownRegistry.
-   */
+  /** The named settlements in this zone, and the only sanctioned way to ask where one is. */
   readonly towns: TownRegistry;
-  /**
-   * Where the wild population may not appear. Every settlement contributes one;
-   * a point of interest contributes one when a designer asked for it. See
-   * SafeZone for why this is a spawn rule and not a wall.
-   */
+  /** Where the wild population may not appear. See SafeZone: a spawn rule, not a wall. */
   readonly safeZones: SafeZoneRegistry;
-  /**
-   * The people standing in this zone, or null where there are none (the
-   * dungeon, the lab stage). See NpcField.
-   */
+  /** The people standing in this zone, or null where there are none. */
   readonly npcs: NpcField | null;
-  /**
-   * The parts of this zone that MOVE, and carry what stands on them. See
-   * CarrierInfo — `NO_CARRIERS` is what a world with none of them returns.
-   */
+  /** The parts of this zone that MOVE and carry what stands on them; `NO_CARRIERS` if none. */
   readonly carriers: CarrierRegistry;
-  /**
-   * Where the F3 Debug panel puts a building, or null in a zone that has no
-   * part library to build one from (the dungeon, the lab stage). See
-   * DebugSpawner — the world is its only owner because a spawned structure has
-   * to reach `structureTopAt` and /show-colliders like any other.
-   */
+  /** Where the F3 Debug panel puts a building, or null in a zone with no part library. */
   readonly debugSpawn: DebugSpawner | null;
   /**
-   * The world's REFERENCE POINT: a scenic stretch of the start town's road,
-   * high, dry and about fifty units out (`pickRoadSpawn` in world/towns.ts).
-   *
-   * IT IS NO LONGER WHERE THE PLAYER BEGINS — see `playerStart` below — and the
-   * name is kept because everything else that reads it wants exactly the thing
-   * it always was and would be wrong to follow the hero into a camp: the skill
-   * dens are sited on rings around it (`placeShops`), the streaming ring is
-   * warmed from it, `?cam=`/`?look=` are OFFSETS FROM IT so every capture in
-   * `shots/` is framed against it, and a zone's return gateway lands on it.
+   * The world's REFERENCE POINT and NOT where the player begins (see `playerStart`): a scenic
+   * stretch of the start town's road. Dens ring it, the streaming ring warms from it, `?cam=` and
+   * `?look=` are offsets from it, and a zone's return gateway lands on it.
    */
   readonly spawnPoint: THREE.Vector3;
-  /**
-   * WHERE A NEW SESSION BEGINS, and which way the hero is looking when it does.
-   *
-   * A POSE rather than a point, which is the whole reason it is not just another
-   * `Vector3` beside `spawnPoint`: an opening shot is a composition, and half of
-   * a composition is the facing. `yaw` is the hero's own heading, an
-   * `atan2(dx, dz)` bearing like every other angle in this codebase.
-   */
+  /** Where a new session begins, and the hero's `atan2(dx, dz)` heading when it does. */
   readonly playerStart: PlayerStart;
-  /**
-   * Chunks this world currently holds meshes for. A diagnostic, and the number
-   * that proves a zone really was unloaded rather than merely hidden.
-   */
+  /** Chunks this world holds meshes for — proves a zone unloaded rather than merely hid. */
   readonly chunksLoaded: number;
-  /**
-   * True while anything is queued or part-built around the last focus.
-   *
-   * This is the ZoneManager's readiness test, not decoration: a destination is
-   * only walked into once it has stopped streaming, which is what moves the
-   * building work into the approach (the preload band) instead of into the
-   * frame the player crosses the threshold on.
-   */
+  /** True while anything is queued or part-built. The ZoneManager's readiness test. */
   readonly streaming: boolean;
-  /**
-   * How many chunks are queued or part-built right now.
-   *
-   * `streaming` answers "is there anything left", which is all the ZoneManager
-   * ever needed. This answers "how much", which is what a progress bar needs:
-   * `loaded / (loaded + pending)` is a real fraction of real work, where
-   * `chunksLoaded` on its own has no denominator — the ring's size falls out of
-   * VIEW_RADIUS and a distance test inside the streamer, and guessing it from
-   * outside would be a percentage that lies the day the radius changes. See
-   * the terrain stage of the boot sequence in main.ts.
-   */
+  /** Chunks queued or part-built — the denominator a progress bar needs and `chunksLoaded` has not. */
   readonly pendingChunks: number;
   /**
-   * Show or hide everything this world has put in the scene — meshes AND
-   * lights.
-   *
-   * It exists for the zone warm-up, and the LIGHTS are why. three keys a shader
-   * program on the number of visible lights in the whole scene, not on what is
-   * in frame, so warming a destination while the zone you are leaving is still
-   * resident compiles it at the WRONG counts: measured, the overworld's four
-   * skill-den lamps put a floor of 4 under every count, and walking into a
-   * dungeon that has no lamps of its own then linked 25 programs at counts 0 and
-   * 1 on arrival — the exact stall the warm-up is supposed to prevent. Standing
-   * the source zone down for the duration of one warm-up render fixes it, and
-   * costs nothing else: the render happens before the real one in the same
-   * frame, and visibility is restored immediately after.
+   * Show or hide everything this world put in the scene, meshes AND lights. three keys a shader
+   * program on the scene's VISIBLE light count, so warming a destination while the old zone is
+   * still lit compiles at the wrong counts — stand it down for the warm-up render.
    */
   setVisible(v: boolean): void;
-  /**
-   * Give this world's GPU resources back A FEW AT A TIME. Returns true once
-   * there is nothing left; call again on the next frame until it does.
-   *
-   * `dispose()` is the same work done all at once, which is right at shutdown
-   * and wrong at a zone change: a walked-in overworld holds ~100 chunks and
-   * ~300 buffer geometries, and handing the driver all of those deletions in
-   * the single frame the hero crosses a threshold is the kind of spike every
-   * other budget in this codebase exists to avoid.
-   *
-   * Honesty about what this did NOT fix: there is a ~330 ms non-CPU stall a few
-   * frames after a transition in long sessions, and it is not this. It is
-   * unchanged whether the old zone is disposed at 6 chunks a frame, at 1, or
-   * not at all. See the note in warmUpFrame() in main.ts for what was ruled out
-   * and what is left.
-   */
+  /** Give GPU resources back A FEW AT A TIME; true once nothing is left. `dispose()` does it all at once, which spikes a zone change. */
   disposeStep(): boolean;
   dispose(): void;
 }
 
-/**
- * A subsystem that captured the active zone's `World` at construction and can
- * be handed a different one.
- *
- * Every one of these holds state that must SURVIVE a zone change — the hero's
- * hp, a beast's level and known skills, the shard total — so rebuilding them on
- * the far side of a portal is not an option. Rebinding is: the object stays,
- * the ground under it changes.
- */
+/** A subsystem holding state that must SURVIVE a zone change: rebind its `World` rather than rebuild it. */
 export interface WorldBound {
   setWorld(world: World): void;
 }
 
-// ---------------------------------------------------------------------------
-// Items
-// ---------------------------------------------------------------------------
 /**
- * WHAT AN ITEM IS FOR, and each kind is here because something BEHAVES
- * differently on it — that was the rule when there were two, and it is why
- * there are now eight rather than a taxonomy:
- *
- *   currency   — the shard economy. One running total, always worth picking up,
- *                never in the bag (see `Inventory`).
- *   stackable  — raw stuff you keep a count of. The support beast's fetch rule
- *                is written entirely in terms of this one.
- *   weapon     — goes in the gear slot and moves `Player.attackStat`.
- *   blueprint  — the forge's input. Carries a power BUDGET rather than a power.
- *   potion     — has a `use` effect and is consumed by using it.
- *   quest      — cannot be dropped and cannot be salvaged, which is the whole
- *                of what makes it a kind: it is the one thing the panel must
- *                refuse to destroy.
- *   beast      — a companion, shown in the panel and equipped to a beast slot.
- *                NOT stored in the bag; see `Inventory`'s note on why.
- *   orb        — a taming orb. The one item that is THROWN AT SOMETHING, which
- *                is why it is neither of the two kinds it looks like: a potion
- *                is spent from the panel with the world standing still in front
- *                of you and needs no target, and a stackable is what the support
- *                beast's fetch rule is written in terms of. An orb is READIED
- *                into a gear slot like a weapon and spent from the world.
+ * WHAT AN ITEM IS FOR. A kind exists only where something BEHAVES differently on it: `currency`
+ * and `beast` are never in the bag, `quest` is the one thing the panel must refuse to destroy,
+ * `blueprint` carries a power BUDGET, and an `orb` is readied to a gear slot but spent at a target.
  */
 export type ItemKind =
   | 'currency' | 'stackable' | 'weapon' | 'blueprint' | 'potion' | 'quest' | 'beast' | 'orb';
 
-/**
- * How loudly a slot shouts. Read by the inventory panel for the slot's border
- * and by nothing else yet — the issue's "legendary attributes add a small bloom
- * to the weapon" is the renderer's half of the same field, and lands with the
- * forge.
- */
+/** How loudly a slot shouts. Read by the inventory panel's border, and nothing else yet. */
 export type ItemRarity = 'common' | 'rare' | 'legendary';
 
-/**
- * What using a potion does, as a bag of optional terms rather than a named
- * effect, because both shipped potions are one term each and a second potion
- * that heals AND buffs should not need a third enum member.
- *
- * `attack`/`seconds` go together: a buff with no duration would be permanent,
- * which is a different feature.
- */
+/** Potion effect as optional terms, so heal-and-buff needs no new enum. `attack` needs `seconds` — a buff with no duration is permanent. */
 export interface ItemEffect {
   /** Hit points restored at once. */
   heal?: number;
@@ -1575,17 +610,9 @@ export interface ItemEffect {
 }
 
 export interface ItemDef {
-  /**
-   * The stable IDENTIFIER. Saves, the drop table, the fetch rule and every
-   * `itemDef(id)` lookup key on this, so it never changes when the item is
-   * renamed — the currency is 'shard' and displays as "Cubloons".
-   */
+  /** Stable IDENTIFIER; saves, drops and every `itemDef(id)` key on it. The currency is 'shard' and displays as 'Cubloons'. */
   id: string;
-  /**
-   * The DISPLAY name, as a string-table key rather than a string: see
-   * src/i18n/en.ts, and `itemName()` in core/items.ts for reading it. It is a
-   * plural base, so the table holds `<key>.one` and `<key>.other`.
-   */
+  /** DISPLAY name key. A plural base, so the table holds `<key>.one` and `<key>.other`. */
   nameKey: PluralKey;
   kind: ItemKind;
   /** Tint for the dropped mote, its collect burst and the bag chip. */
@@ -1593,50 +620,27 @@ export interface ItemDef {
   /** One paragraph in the panel's detail pane. Absent = no paragraph. */
   descriptionKey?: StringKey;
   rarity?: ItemRarity;
-  /**
-   * A tile in the weapon atlas (see ui/weapon-icons.ts), by name. A STRING
-   * rather than the `WeaponIcon` union on purpose: core/ must not import ui/,
-   * and the panel type-guards it on the way to the DOM.
-   */
+  /** Weapon-atlas tile name (ui/weapon-icons.ts). A string, not the union: core/ must not import ui/. */
   icon?: string;
   /** Cubloons a salvage returns. Absent or 0 = the panel offers no salvage. */
   salvage?: number;
   /** Added to `Player.attackStat` while this is in the weapon slot. */
   power?: number;
-  /**
-   * Which voxel model the hero holds while this is equipped — a `WeaponModelId`
-   * (player/weapons.ts), by name. A STRING rather than that union for the same
-   * reason `icon` is one: core/ must not import player/, and both the rig and
-   * the inventory's 3D stage type-guard it on the way in.
-   */
+  /** Which voxel model the hero holds — a `WeaponModelId` by name; core/ must not import player/. */
   model?: string;
   /** A blueprint's ceiling: how much power the forge may spend filling it in. */
   maxPower?: number;
   /** What `use` does. Only a potion has one. */
   effect?: ItemEffect;
-  /**
-   * How good a taming orb this is: 1 Tame, 2 Greater, 3 Ultra, 4 Master. Only an
-   * `orb` has one.
-   *
-   * A SMALL INTEGER RATHER THAN A NAMED TIER, because two things compare it and
-   * both want the ordering: `EnemyCapture.minTier` is a floor it must clear, and
-   * `ORB_BASE` in src/combat/taming.ts indexes the odds by it. A union of four
-   * names would have made both of those a lookup table keyed on a string, for no
-   * gain — the tiers ARE ranked, and the rank is the whole of what is read.
-   */
+  /** Orb quality: 1 Tame .. 4 Master. An integer because both readers want the ordering (`EnemyCapture.minTier`, `ORB_BASE`). */
   orbTier?: number;
   /** Price in Cubloons at a den. Absent = not sold. */
   storePrice?: number;
 }
 
 /**
- * A dropped item offered to a beast as an errand. Implemented by the drop pool in
- * src/combat/pickups.ts and consumed by BeastActor, so that beasts can run a fetch
- * without importing combat (and combat never learns what a beast is).
- *
- * Instances are POOLED — one per drop slot, reused. `claim()` stamps the slot's
- * generation onto the job, and every other member is dead once the slot is
- * recycled, so a job held past the end of its errand is inert rather than wrong.
+ * A dropped item offered to a beast as an errand, so beasts fetch without importing combat.
+ * Instances are POOLED: `claim()` stamps the slot's generation, so a job held too long is inert.
  */
 export interface FetchJob {
   readonly itemId: string;
@@ -1652,29 +656,13 @@ export interface FetchJob {
   release(): void;
 }
 
-// ---------------------------------------------------------------------------
-// Combat interfaces (implemented in src/combat)
-// ---------------------------------------------------------------------------
 export interface Damageable {
   position: THREE.Vector3;
   hp: number;
   maxHp: number;
   isDead: boolean;
-  /**
-   * Apply a hit. Returns whether it actually LANDED — false when the target was
-   * already dead or was inside its invulnerability window.
-   *
-   * The return value exists because a hit that does not land must not produce
-   * feedback. `Player.takeDamage` has always had an i-frame gate (`invulnT`), but
-   * `CombatSystem.onEnemyHit` could not see it: it called this and then spawned a
-   * damage number, a hit burst and a red screen flash unconditionally, so an
-   * absorbed hit still read on screen as a hit taken. That was survivable while
-   * the feedback was cosmetic; it is not once a controller rumbles in your hands
-   * for damage you did not take. Callers that genuinely do not care may still
-   * ignore the result.
-   */
+  /** Apply a hit. Returns whether it LANDED — false when already dead or inside i-frames, because an absorbed hit must produce no feedback. */
   takeDamage(amount: number, from: THREE.Vector3, element?: ElementType): boolean;
-  /** faction: 'player' side or 'wild' side */
   faction: 'player' | 'wild';
 }
 
@@ -1687,43 +675,17 @@ export interface CastRequest {
   target?: Damageable | null;
   /** Attack stat of the caster for damage scaling */
   attackStat: number;
-  /**
-   * How hard a projectile is allowed to steer onto `target`, 0..1, default 1.
-   * Below 1 the shot keeps the heading it was fired on and only leans toward
-   * the target — which is what an aimed-by-hand shot wants: help, not autoaim.
-   */
+  /** How hard a projectile may steer onto `target`, 0..1, default 1. Below 1 it only leans — aim help, not autoaim. */
   homingScale?: number;
 }
 
-// ---------------------------------------------------------------------------
-// Events (simple global bus)
-// ---------------------------------------------------------------------------
 /**
  * Events carry IDS and STRING-TABLE KEYS, never rendered names.
  *
- * `beastLevelUp` used to hand the HUD only `beastId`, which left the banner
- * title-casing 'emberfox' into "Emberfox" — deriving a display name from an
- * identifier, which is the exact thing the string table exists to stop, and
- * which produces "Boulderpup" in every language forever. Widening the event was
- * the fix rather than letting the HUD import the beast registry: a subsystem
- * contract belongs in this file, not in a new import edge from ui to beasts.
- *
- * PAYLOADS ARE SCALARS, and a listener MUST NOT RETAIN THE EVENT OBJECT.
- *
- * `emit` runs its listeners synchronously, so an emitter is free to hand out a
- * module-level scratch vector — several already do the equivalent, reusing
- * `_from` across every hit in a frame. That is fine for a listener that reads
- * and returns, and wrong for one that DEFERS: src/feedback drains its cues once
- * per rendered frame, by which point a retained `THREE.Vector3` has been
- * rewritten by the next hit and a retained event has aliased. Hence the position
- * on `hitDealt` is three numbers rather than a Vector3, and the old `damage`
- * variant — declared here for a long time and never once emitted — was replaced
- * by it rather than revived.
- *
- * Re-entrant emission during dispatch is already normal (`enemyKilled` grants XP
- * which emits `beastLevelUp`) and is safe: a `Set` iterated while ADDED to is
- * fine. Removing a listener mid-dispatch is not — do not unsubscribe from inside
- * a handler.
+ * PAYLOADS ARE SCALARS AND A LISTENER MUST NOT RETAIN THE EVENT. `emit` is synchronous, so
+ * emitters hand out module-level scratch; a consumer that DEFERS (src/feedback drains once per
+ * frame) would read a rewritten vector — hence three numbers on `hitDealt`, not a Vector3.
+ * Re-entrant emission is safe; unsubscribing from inside a handler is not.
  */
 export type GameEvent =
   | {
@@ -1736,27 +698,11 @@ export type GameEvent =
     learned?: SkillDef;
   }
   | { type: 'skillCast'; skillId: string; casterNameKey: StringKey }
-  /**
-   * The hero took damage that actually LANDED. Never emitted for a hit absorbed
-   * by the invulnerability window — see `Damageable.takeDamage`.
-   *
-   * `dirX`/`dirZ` are the unit knockback heading, pointing from the attacker
-   * toward the hero, which `takeDamage` has already computed to shove him with.
-   * Nothing consumes the direction yet; it is carried because a directional
-   * camera kick is the obvious next thing to want and re-deriving it later would
-   * mean widening this event again.
-   */
+  /** Damage that LANDED, never a hit absorbed by the i-frame window. `dirX`/`dirZ` are the unit knockback heading, attacker toward hero; nothing reads it yet. */
   | {
     type: 'playerHurt';
     amount: number;
-    /**
-     * `amount` as a share of the whole health bar.
-     *
-     * Carried rather than left to the consumer because feedback strength should
-     * scale on how big the bite was, and a raw hp number cannot say that without
-     * also knowing maxHp — which would mean every listener growing a second
-     * field it does not otherwise want.
-     */
+    /** `amount` as a share of the whole bar, so feedback scales without every listener carrying maxHp. */
     amountFrac: number;
     /** hp AFTER the hit, over maxHp: how close this one came to finishing him. */
     hpFrac: number;
@@ -1767,19 +713,9 @@ export type GameEvent =
   }
   | { type: 'playerDied' }
   | { type: 'playerRevived' }
-  /**
-   * The hero hit the ground hard. `impact` is the existing landing ramp, 0 at
-   * the threshold where a landing starts to register and 1 at a bone-shaker.
-   */
+  /** The hero hit the ground hard. `impact` is the landing ramp: 0 at the threshold, 1 at a bone-shaker. */
   | { type: 'playerLanded'; impact: number }
-  /**
-   * Damage the PLAYER'S side dealt, and again only when it landed.
-   *
-   * `bySkill` separates the hero's own sword from a beast's skill, because they
-   * want different feedback: the sword is in your hands and the skill is across
-   * the field. `superEffective` is the element multiplier having come out above
-   * 1 — the pop that already gets its own glow.
-   */
+  /** Damage the PLAYER'S side dealt, when it landed. `bySkill` separates sword from beast skill; `superEffective` is the element multiplier above 1. */
   | {
     type: 'hitDealt';
     amount: number;
@@ -1791,58 +727,20 @@ export type GameEvent =
     y: number;
     z: number;
   }
-  /**
-   * An orb left the hero's hand. `orbId` is the item spent.
-   *
-   * Nothing acts on it — it exists so the throw FEELS like something in the
-   * hands, which is src/feedback's job and not the thrower's. Emitted rather
-   * than called directly for the reason every other cue is: main.ts must not
-   * reach into the feedback system to make a controller buzz.
-   */
+  /** An orb left the hero's hand. Nothing acts on it: it exists so the throw FEELS like something (src/feedback). */
   | { type: 'orbThrown'; orbId: string }
-  /**
-   * An orb landed and a bond WORKED — the player now owns this species.
-   *
-   * The objective trigger game-story.md §7 asks for, and the reason it is an
-   * event rather than a direct call from combat into the roster: combat does not
-   * know what a `BeastActor` is and must not learn. main.ts owns the roster and
-   * is already the one listener that turns bus traffic into ownership.
-   *
-   * `beastId` is the SPECIES identifier ('sproutle'), which is what the roster,
-   * `/mount` and any future save key on; `nameKey` is display, for the banner.
-   */
+  /** An orb landed and a bond WORKED. `beastId` is the SPECIES id; an event rather than a call, because combat must not learn what a `BeastActor` is. */
   | { type: 'beastTamed'; beastId: string; nameKey: StringKey; orbId: string }
-  /**
-   * The orb broke and the animal came back out. `beastId` is what got away.
-   *
-   * Carried separately from `beastTamed` rather than as a boolean on it, because
-   * every listener so far wants exactly one of the two and a shared event would
-   * have made each of them open with the same `if`.
-   */
+  /** The orb broke and the animal escaped. Separate from `beastTamed` because a listener wants one or the other. */
   | { type: 'bondFailed'; beastId: string; nameKey: StringKey; orbId: string }
-  /**
-   * One shake of a landed orb, 1-based, while the answer is still unknown.
-   *
-   * It exists for FEEL and nothing reads it for logic: src/feedback turns it
-   * into a controller bump so the three wobbles are felt as well as watched.
-   * `of` is carried so a listener can ramp — the last shake before the answer
-   * should not be the same size as the first.
-   */
+  /** One shake of a landed orb, 1-based, answer still unknown. Feel only; `of` lets a listener ramp. */
   | { type: 'orbWobble'; index: number; of: number }
   | { type: 'mounted'; beastId: string; flying: boolean }
   | { type: 'dismounted'; beastId: string }
   | { type: 'shardsChanged'; total: number }
-  /**
-   * A drop left the ground. `byBeast` is true when a support beast fetched it
-   * rather than the player walking over it — the bag in main.ts credits both
-   * the same way, only the toast differs.
-   */
+  /** A drop left the ground. `byBeast` is a support beast having fetched it — only the toast differs. */
   | { type: 'itemPicked'; itemId: string; byBeast: boolean }
-  /**
-   * `nameKey` is display, and nothing renders it yet — main.ts reads only `xp`.
-   * It is a key rather than a name so that the first kill feed, quest counter or
-   * damage log to show it is translated on the day it is written.
-   */
+  /** `nameKey` is display and nothing renders it yet — main.ts reads only `xp`. */
   | { type: 'enemyKilled'; nameKey: StringKey; xp: number }
   | { type: 'shopOpened'; shopIndex: number }
   | { type: 'shopClosed' }
@@ -1861,9 +759,6 @@ export class EventBus {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Voxel building helper contract (implemented in src/core/voxel.ts)
-// ---------------------------------------------------------------------------
 export interface VoxelBuildOptions {
   /** Size of one voxel cube in world units */
   scale?: number;

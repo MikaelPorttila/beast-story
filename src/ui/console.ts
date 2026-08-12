@@ -1,33 +1,19 @@
 /**
- * Developer console — toggled with the § key.
- *
- * A command REGISTRY rather than a switch: `/help` prints whatever is
- * registered, so a command added later shows up in the listing for free and
- * cannot drift out of sync with the help text. main.ts registers the commands
- * it can service; this module knows nothing about the game.
- *
- * While the console is open it swallows keyboard input in the CAPTURE phase, so
- * typing "show" does not also make the hero strafe — core/input.ts listens on
- * window in the bubble phase and never sees the event.
+ * Developer console — toggled with §. main.ts registers the commands. While open
+ * it swallows keys in the CAPTURE phase, so typing does not also drive the hero
+ * (core/input.ts listens on window in the bubble phase).
  */
 
 export interface ConsoleCommand {
   /** Name without the leading slash, e.g. 'show-colliders'. */
   name: string;
-  /** One line, shown by /help. */
   help: string;
-  /** Optional argument sketch for the help listing, e.g. '<on|off>'. */
+  /** Argument sketch, e.g. '<on|off>'. */
   args?: string;
-  /** Returns a line to print, or nothing. */
   run(args: string[]): string | void;
 }
 
-/**
- * Keys that open the console. `§` sits left of 1 on a Nordic layout, where the
- * physical key reports as Backquote on some layouts and IntlBackslash on
- * others, so match the produced CHARACTER as well as both codes — the character
- * is the thing the user actually pressed.
- */
+/** `§` reports as Backquote or IntlBackslash, so match the character too. */
 const TOGGLE_CODES = new Set(['Backquote', 'IntlBackslash']);
 const TOGGLE_CHARS = new Set(['§', '½', '`']);
 
@@ -58,8 +44,7 @@ export class DevConsole {
     document.body.appendChild(this.root);
     this.root.style.display = 'none';
 
-    // Capture phase: this runs before the game's own window listener, so an
-    // open console eats the keystroke instead of sharing it with the hero.
+    // Capture: runs before the game's own window listener.
     window.addEventListener('keydown', (e) => this.onKeyDown(e), true);
 
     this.register({
@@ -76,7 +61,7 @@ export class DevConsole {
     this.print('Beast Story console. § closes it, /help lists commands.');
   }
 
-  /** Add a command. Later registrations of the same name replace earlier ones. */
+  /** Later registrations of the same name replace earlier ones. */
   register(cmd: ConsoleCommand): void {
     this.commands.set(cmd.name, cmd);
   }
@@ -104,7 +89,6 @@ export class DevConsole {
   }
 
   private helpText(): string {
-    // Sorted, and built from the registry so a new command needs no edit here.
     const names = [...this.commands.values()].sort((a, b) => a.name.localeCompare(b.name));
     const width = Math.max(...names.map((c) => c.name.length + (c.args ? c.args.length + 1 : 0)));
     return names
@@ -117,7 +101,6 @@ export class DevConsole {
 
   private onKeyDown(e: KeyboardEvent): void {
     if (TOGGLE_CHARS.has(e.key) || (TOGGLE_CODES.has(e.code) && !this.open)) {
-      // Never let the toggle key reach the page or type itself into the field.
       e.preventDefault();
       e.stopPropagation();
       this.toggle();
@@ -125,7 +108,6 @@ export class DevConsole {
     }
     if (!this.open) return;
 
-    // Console owns the keyboard while it is open.
     e.stopPropagation();
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -151,7 +133,6 @@ export class DevConsole {
     this.historyIdx = this.history.length;
     this.print(`> ${line}`);
 
-    // A leading slash is optional — typing `help` is the same as `/help`.
     const parts = line.replace(/^\//, '').split(/\s+/);
     const cmd = this.commands.get(parts[0]);
     if (!cmd) {

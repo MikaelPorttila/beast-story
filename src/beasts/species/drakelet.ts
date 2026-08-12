@@ -4,55 +4,39 @@ import { VoxelModel } from '../../core/voxel';
 import { eyes2x2, rimTop, shadeUnder } from './voxelshade';
 import { makeContactBlob, updateContactBlob } from './contactshadow';
 
-// ---------------------------------------------------------------------------
-// Drakelet — a proud pocket dragon in ember-crimson scale mail. The showpiece:
-// two-segment bat wings with membrane, chest that puffs before a breath attack,
-// three-segment whip tail with an arrow tip, horns, spikes, the works.
-// ---------------------------------------------------------------------------
+// Drakelet — pocket dragon in ember-crimson scale: two-segment bat wings with membrane,
+// a chest that puffs before a breath attack, three-segment whip tail, horns, spikes.
 
 const S = 0.1; // voxel scale
 
-// Palette warmed off raspberry. The old 0xe04f68 / 0xa32f4a / 0xff8496 set was a
-// cool magenta-red: under this game's warm 0xfff2d9 sun it read as a cool pink
-// against every other warm-lit thing in frame, and next to the fox's orange and the
-// pup's basalt it looked like it came from a different game. Rotating the hue about
-// 12 degrees toward orange keeps it unmistakably crimson and puts it back in the
-// roster's palette.
 const C = {
-  scale: 0xd94a44,      // ember-crimson
+  scale: 0xd94a44,
   scaleDk: 0x9a2c2c,
-  scaleLt: 0xff8168,    // sunlit crest along back, skull and haunches
+  scaleLt: 0xff8168,
   belly: 0xf9e6c6,
   bellyDk: 0xdcb589,
   horn: 0xfff3e0,
   claw: 0xfff3e0,
   spike: 0x7d2422,
-  // Membrane lifted two full steps. The old 0x7a1f2e / 0x5c1723 pair sat at ~15%
-  // luminance, so in every portrait the wings were black slivers and the pale
-  // arm bone read as a loose stick floating beside the dragon.
+  // Membrane sits two steps above where it started: at ~15% luminance the wings were
+  // black slivers and the pale arm bone read as a stick floating beside the dragon.
   membrane: 0xb8443c,
-  membraneDk: 0x8a2f2b, // trailing edge, one step down for chord definition
-  membraneLt: 0xd06052, // sunlit inner panel
-  wingBone: 0xe3c288,   // bone leading-edge strip. Pulled down from 0xf6dcae:
-  // as the palest thing on the model, run across the full span at two rows tall,
-  // it became a bright bar that out-read the membrane it was supposed to support.
-  // Dark iris, bright catchlight — the polarity every species in the roster now
-  // shares. A pale gold 2x3 iris on this cream face plate merged straight into it and
-  // left only the pupil column reading, which a critic saw as "wide black eye slots".
-  iris: 0x38131a,       // dark ember-crimson: the coat hue at a fifth of its value
-  eyeShine: 0xfff6dd,   // catchlight, matching the dragon's fire
-  eyeLid: 0x8a2320,     // socket rim: scale at half value
+  membraneDk: 0x8a2f2b,
+  membraneLt: 0xd06052,
+  wingBone: 0xe3c288,
+  // Dark iris, bright catchlight, as everywhere in the roster: a pale iris merged into
+  // this cream face plate and left only the pupil, which read as a black eye slot.
+  iris: 0x38131a,
+  eyeShine: 0xfff6dd,
+  eyeLid: 0x8a2320,
   nostril: 0x6b1f1c,
 } as const;
 
-// Base pose constants shared between buildRig() and animate()
+// Shared between buildRig() and animate()
 const BODY_Y = 0.52;
 /** Hover height BeastActor holds a flyer at; the contact blob has to match it. */
 const HOVER = 1.55;
 
-// ---------------------------------------------------------------------------
-// Skills
-// ---------------------------------------------------------------------------
 export const skills: SkillDef[] = [
   {
     id: 'drakelet.fang-rush',
@@ -108,68 +92,46 @@ export const skills: SkillDef[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Rig construction
-// ---------------------------------------------------------------------------
-
-/**
- * Inner wing segment: shoulder-to-elbow arm bone with the membrane hung off it.
- *
- * The old version put the bone at y=1 and the membrane at y=0 — diagonally
- * adjacent, so the two masses shared no face and the wing photographed as two
- * unrelated sticks. Everything now lives on one plane at y=0 and is fully
- * face-connected, with a second bone row at y=1 purely so the leading edge has
- * thickness and the wing does not disappear when seen edge-on.
- */
+// Inner wing, all on one plane at y=0 and face-connected: diagonally adjacent masses share
+// no face. The y=1 and y=-1 rows are thickness, so the wing survives edge-on.
 function buildWingInner(dir: number): THREE.Mesh {
   const v = new VoxelModel();
   const cell = (i: number): number => (dir > 0 ? i : -i - 1);
   for (let i = 0; i < 4; i++) {
-    v.set(cell(i), 0, 1, C.wingBone); // arm bone, in-plane with the membrane
-    if (i < 2) v.set(cell(i), 1, 1, C.wingBone); // thickness at the shoulder only
+    v.set(cell(i), 0, 1, C.wingBone);
+    if (i < 2) v.set(cell(i), 1, 1, C.wingBone);
     v.set(cell(i), 0, 0, C.membraneLt);
     v.set(cell(i), 0, -1, C.membrane);
     v.set(cell(i), 0, -2, i < 3 ? C.membrane : C.membraneDk);
-    if (i < 3) v.set(cell(i), 0, -3, C.membraneDk); // trailing edge
-    // A shaded row UNDER the forward half of the panel. Without it the inner wing is
-    // a one-cell sheet, so whichever wing happens to face the camera edge-on shows
-    // nothing but the pale bone strip — which is precisely why a critic saw one big
-    // red wing on the right and "a mismatched tan sliver" on the left.
+    if (i < 3) v.set(cell(i), 0, -3, C.membraneDk);
     v.set(cell(i), -1, 1, C.membraneDk);
     v.set(cell(i), -1, 0, C.membraneDk);
   }
-  v.set(cell(3), 2, 1, C.wingBone); // elbow knuckle
+  v.set(cell(3), 2, 1, C.wingBone);
   const m = v.build(S, false);
   m.position.set(0, -0.15, -0.02);
   return m;
 }
 
-/** Outer wing segment: hand, radiating finger ribs, scalloped membrane fan. */
+/** Outer wing: hand, finger ribs, scalloped membrane fan. */
 function buildWingOuter(dir: number): THREE.Mesh {
   const v = new VoxelModel();
   const cell = (i: number): number => (dir > 0 ? i : -i - 1);
-  const depth = [4, 5, 6, 6, 5, 3]; // membrane chord per column, scalloped tip.
-  // Deepened from [2,3,4,5,4,3]: a hand-wing barely two cells deep at the root
-  // left a gap between the inner panel and the fan, which is what turned the
-  // whole wing into confetti at portrait range.
+  const depth = [4, 5, 6, 6, 5, 3]; // chord per column; shallow at the root left a gap
   for (let i = 0; i < 6; i++) {
-    v.set(cell(i), 0, 1, C.wingBone); // pale leading-edge strip
-    if (i < 2) v.set(cell(i), 1, 1, C.wingBone); // thickened at the wrist only
-    v.set(cell(i), -1, 1, C.membraneDk); // leading-edge underside: see buildWingInner
+    v.set(cell(i), 0, 1, C.wingBone);
+    if (i < 2) v.set(cell(i), 1, 1, C.wingBone);
+    v.set(cell(i), -1, 1, C.membraneDk);
     for (let z = 0; z >= -depth[i]; z--) {
       const trailing = z === -depth[i];
       v.set(cell(i), 0, z, trailing ? C.membraneDk : z > -2 ? C.membraneLt : C.membrane);
     }
   }
-  // Two finger bones, each a CONTINUOUS dark line running root-to-tip down its own
-  // column. The previous version dropped two dark cells per column at positions
-  // derived from round(i * 0.7) and round(i * 1.3), which staggered them into a
-  // pink-on-red chequerboard — it photographed as a missing-texture checker, not as
-  // membrane structure. A rib has to follow the bone or it is just noise.
+  // Each finger bone is one CONTINUOUS line down its column; staggered cells read as noise.
   for (const i of [2, 4]) {
     for (let z = 0; z >= -depth[i]; z--) v.set(cell(i), 0, z, C.scaleDk);
   }
-  v.set(cell(5), 1, 1, C.claw); // little wing thumb-claw
+  v.set(cell(5), 1, 1, C.claw);
   const m = v.build(S, false);
   m.position.y = -0.05;
   return m;
@@ -177,9 +139,9 @@ function buildWingOuter(dir: number): THREE.Mesh {
 
 function buildLeg(): THREE.Mesh {
   const v = new VoxelModel();
-  v.ellipsoid(0, 1.6, -0.2, 1.5, 1.5, 1.6, C.scale); // haunch
-  v.box(-1, 0, -1, 0, 0, 1, C.scale); // foot
-  v.set(-1, 0, 2, C.claw); // toe claws
+  v.ellipsoid(0, 1.6, -0.2, 1.5, 1.5, 1.6, C.scale);
+  v.box(-1, 0, -1, 0, 0, 1, C.scale);
+  v.set(-1, 0, 2, C.claw);
   v.set(0, 0, 2, C.claw);
   const m = v.build(S);
   m.position.y = -0.30;
@@ -188,8 +150,8 @@ function buildLeg(): THREE.Mesh {
 
 function buildArm(): THREE.Mesh {
   const v = new VoxelModel();
-  v.box(-1, 1, -1, 0, 2, 0, C.scale); // stubby upper arm
-  v.box(-1, 0, 0, 0, 0, 1, C.scale); // paw reaching forward
+  v.box(-1, 1, -1, 0, 2, 0, C.scale);
+  v.box(-1, 0, 0, 0, 0, 1, C.scale);
   v.set(-1, 0, 2, C.claw);
   v.set(0, 0, 2, C.claw);
   const m = v.build(S);
@@ -206,16 +168,12 @@ function buildRig(): BeastRig {
   root.add(body);
   parts.body = body;
 
-  // -- torso: plump scaled barrel with a spiked spine and haunches --
   const torsoVox = new VoxelModel();
   torsoVox.ellipsoid(0, 3.6, -0.5, 3.2, 3.6, 4.4, C.scale);
-  torsoVox.ellipsoid(2.5, 2.4, -2.2, 1.5, 1.9, 1.9, C.scale);   // haunches
+  torsoVox.ellipsoid(2.5, 2.4, -2.2, 1.5, 1.9, 1.9, C.scale);
   torsoVox.ellipsoid(-2.5, 2.4, -2.2, 1.5, 1.9, 1.9, C.scale);
-  torsoVox.ellipsoid(0, 5.4, -0.5, 2.4, 1.8, 3.6, C.scaleLt);   // sunlit back sheen
-  // Underside in shadow. The old torso was one flat rose from crown to belly, so
-  // the barrel had no volume and the haunches vanished into it.
+  torsoVox.ellipsoid(0, 5.4, -0.5, 2.4, 1.8, 3.6, C.scaleLt);
   shadeUnder(torsoVox, C.scaleDk, -4, 4, 0, 5, -5, 5);
-  // dorsal spike ridge
   torsoVox.set(0, 6, 2, C.spike);
   torsoVox.set(0, 7, 2, C.spike);
   torsoVox.set(0, 6, 0, C.spike);
@@ -228,17 +186,14 @@ function buildRig(): BeastRig {
   torso.position.y = -0.40;
   body.add(torso);
 
-  // -- chest: cream belly plates on their own pivot so it can puff --
   const chest = new THREE.Group();
   chest.position.set(0, -0.06, 0.16);
   body.add(chest);
   parts.chest = chest;
 
   const chestVox = new VoxelModel();
-  // Narrowed from 2.4 x 3.0: a full-width cream barrel swallowed the rose scale
-  // entirely, so the dragon read as a cream blob wearing red patches.
   chestVox.ellipsoid(0, 2.8, 1.4, 1.9, 2.5, 2.3, C.belly);
-  chestVox.ellipsoid(0, 4.0, 1.5, 1.95, 0.5, 2.35, C.bellyDk); // plate seams
+  chestVox.ellipsoid(0, 4.0, 1.5, 1.95, 0.5, 2.35, C.bellyDk);
   chestVox.ellipsoid(0, 2.5, 1.5, 1.95, 0.5, 2.35, C.bellyDk);
   chestVox.ellipsoid(0, 1.2, 1.5, 1.8, 0.5, 2.2, C.bellyDk);
   shadeUnder(chestVox, C.bellyDk, -2, 2, 0, 3, -1, 4);
@@ -246,30 +201,16 @@ function buildRig(): BeastRig {
   chestMesh.position.set(0, -0.32, 0.02);
   chest.add(chestMesh);
 
-  // -- head: big cranium, cream muzzle, horns, brows, gold-lit eyes --
   const head = new THREE.Group();
   head.position.set(0, 0.24, 0.30);
   body.add(head);
   parts.head = head;
 
-  // Strictly three materials on the skull — scale, cream horn and one dark.
-  // The old red mask + gold iris + sheen bridge + brow ridge collided into
-  // mush at portrait range.
   const headVox = new VoxelModel();
-  headVox.ellipsoid(0, 2.8, -0.2, 3.4, 2.7, 3.0, C.scale);      // cranium
-  // Muzzle: a STEPPED wedge, not a cantilevered brick. Three z steps, each one
-  // narrower and shorter than the last, and the value falls as it goes down —
-  // cream only on the top and front rows, mid cream in the middle, and the jaw line
-  // underneath in dark scale so the pale block visibly sits on something. The old
-  // muzzle was a single pale ellipsoid poking straight out of the face with nothing
-  // beneath it, which is the classic bar-of-soap read.
-  // Starts at z=4, clear of the brow plate at z=3 — the plate is painted after this
-  // and would otherwise erase the snout's whole first step. It also tops out at y=2,
-  // two rows BELOW the eye line: a taller snout stands proud of the face plate
-  // directly in front of the eyes and hides them completely, which is exactly what a
-  // first attempt at this did.
+  headVox.ellipsoid(0, 2.8, -0.2, 3.4, 2.7, 3.0, C.scale);
+  // Stepped snout, darkening downward so the pale block sits on a jaw. Starts at z=4, clear
+  // of the brow plate painted after it, and tops out at y=2 or it hides the eyes.
   const snout: Array<[number, number, number, number]> = [
-    // [z, half-width, y0, y1]
     [4, 1, 0, 2],
     [5, 1, 1, 2],
     [6, 0, 2, 2],
@@ -281,34 +222,24 @@ function buildRig(): BeastRig {
       }
     }
   }
-  headVox.set(-1, 2, 5, C.nostril);                              // nostrils, on top
-  headVox.set(1, 2, 5, C.nostril);                               // of the snout
-  // Brow plate runs up to row 5 so the three-row eye has a face to sit in.
-  headVox.box(-3, 2, 3, 3, 5, 3, C.scale);
+  headVox.set(-1, 2, 5, C.nostril);
+  headVox.set(1, 2, 5, C.nostril);
+  headVox.box(-3, 2, 3, 3, 5, 3, C.scale);   // brow plate up to row 5, a face for the eye
   rimTop(headVox, C.scaleLt, -3, 3, 0, 6, -3, 4);
   shadeUnder(headVox, C.scaleDk, -3, 3, 0, 3, -3, 2);
-  // inner: 1, not 2. On this wide skull the outer eye column at |x| = 3 is the very
-  // edge of the head, so the gold iris was half-hidden round the curve and only the
-  // two-cell pupil showed: two black vertical voids with nothing to explain them.
-  // Brought inboard, iris and pupil are both fully presented to the camera.
-  // A pale MASK across the eye rows before the eyes go in. A dark crimson iris on a
-  // crimson brow plate has no boundary once the face is in shade — the real-game
-  // portrait came back with only the catchlights visible, two pale squares floating on
-  // red. Cream around the socket is what makes the dark iris an eye. It also ties the
-  // brow to the cream snout below it, so the head reads as one shape.
+  // Pale mask across the eye rows before the eyes go in: a dark crimson iris on a crimson
+  // brow has no boundary in shade, and only the catchlights survived.
   for (let x = -3; x <= 3; x++) {
     headVox.set(x, 3, 3, C.bellyDk);
     headVox.set(x, 4, 3, C.belly);
   }
   eyes2x2(headVox, {
+    // inner: 1 — at 2 the outer column is the very edge of this wide skull, so the iris
+    // hid round the curve and only the pupil showed.
     inner: 1, y: 3, faceZ: 3, iris: C.iris, shine: C.eyeShine,
     lid: C.eyeLid, browProud: true, bridge: C.belly,
   });
-  // Horns: two columns per side, swept back and stepped. The base course now starts
-  // at y = 3 / z = +1 — INSIDE the cranium — and climbs aft in a solid staircase with
-  // no diagonal-only joins. The previous version rooted at y = 4 / z = -1, whose
-  // lower cells were only just inside the skull's curve; from a three-quarter bearing
-  // sky showed between horn and crown and a critic logged them as hovering.
+  // Horns root INSIDE the cranium and climb aft solidly, or sky shows between horn and crown.
   for (const sx of [1, -1]) {
     for (const w of [2, 3]) {
       const step: Array<[number, number]> = [
@@ -318,42 +249,33 @@ function buildRig(): BeastRig {
     }
   }
   const headMesh = headVox.build(S);
-  // +0.05z compensates the extra snout step: build() re-centres on the bounding box,
-  // so growing the model forward slides the cranium back into the chest.
+  // +0.05z pays for the extra snout step: build() re-centres on the bounding box.
   headMesh.position.set(0, -0.30, 0.05);
   head.add(headMesh);
 
-  // -- lower jaw on a hinge --
   const jaw = new THREE.Group();
   jaw.position.set(0, -0.12, 0.10);
   head.add(jaw);
   parts.jaw = jaw;
 
   const jawVox = new VoxelModel();
-  // Dark scale, not cream. This is the volume UNDER the pale muzzle; painting it
-  // cream too made the whole lower face one pale slab with no chin line in it.
+  // Dark scale, not cream: this is the volume UNDER the pale muzzle and needs a chin line.
   jawVox.box(-1, 0, 0, 1, 0, 3, C.scaleDk);
-  jawVox.set(0, 0, 3, C.bellyDk); // one lit cell at the chin point
-  // (fang voxels removed — they collided with the muzzle and muddied the face)
+  jawVox.set(0, 0, 3, C.bellyDk);
   const jawMesh = jawVox.build(S, false);
   jawMesh.position.set(-0.05, -0.05, 0);
   jaw.add(jawMesh);
 
-  // -- wings: shoulder pivot + elbow pivot per side --
-  // Shoulders sit low and behind the skull: at y=0.18 the spread wings crossed
-  // the horns in every portrait and the head lost its outline.
   const wingR = new THREE.Group();
-  // |x| = 0.14 against a torso half-width of 0.32 buries the root column two cells
-  // inside the barrel. At the old 0.22 the root sat right on the silhouette edge, and
-  // with the shoulder rotated the membrane's first column swung clear of the body —
-  // a critic measured a ~40px air gap between wing root and torso in a 1200px shot.
+  // |x| = 0.14 against a 0.32 half-width buries the root two cells inside the barrel; on the
+  // edge, a rotated shoulder swung the first membrane column clear of the body.
   wingR.position.set(0.14, 0.06, -0.08);
   body.add(wingR);
   parts.wingR = wingR;
   wingR.add(buildWingInner(1));
   const wingTipR = new THREE.Group();
-  // 0.34, not 0.38: the inner section ends at 0.40 from its own pivot, so the hand
-  // now overlaps the forearm by a cell and the elbow cannot open a seam.
+  // 0.34: the inner section ends at 0.40 from its own pivot, so the hand overlaps the
+  // forearm by a cell and the elbow cannot open a seam.
   wingTipR.position.set(0.34, 0.05, 0);
   wingR.add(wingTipR);
   parts.wingTipR = wingTipR;
@@ -370,7 +292,6 @@ function buildRig(): BeastRig {
   parts.wingTipL = wingTipL;
   wingTipL.add(buildWingOuter(-1));
 
-  // -- legs and stubby arms --
   const legL = new THREE.Group();
   legL.position.set(-0.13, -0.22, -0.06);
   legL.add(buildLeg());
@@ -395,7 +316,6 @@ function buildRig(): BeastRig {
   body.add(armR);
   parts.armR = armR;
 
-  // -- three-segment tail ending in an arrowhead --
   const tail1 = new THREE.Group();
   tail1.position.set(0, -0.10, -0.36);
   body.add(tail1);
@@ -403,7 +323,7 @@ function buildRig(): BeastRig {
 
   const t1Vox = new VoxelModel();
   t1Vox.ellipsoid(0, 0, -2, 1.6, 1.6, 2.4, C.scale);
-  t1Vox.set(0, 2, -2, C.spike); // tail spike
+  t1Vox.set(0, 2, -2, C.spike);
   const t1Mesh = t1Vox.build(S, false);
   t1Mesh.position.set(-0.05, -0.17, 0);
   tail1.add(t1Mesh);
@@ -426,21 +346,20 @@ function buildRig(): BeastRig {
   parts.tail3 = tail3;
 
   const t3Vox = new VoxelModel();
-  t3Vox.set(0, 0, -1, C.scaleDk); // thin whip
+  t3Vox.set(0, 0, -1, C.scaleDk);
   t3Vox.set(0, 0, -2, C.scaleDk);
-  t3Vox.set(0, 0, -3, C.spike);   // arrowhead diamond
+  t3Vox.set(0, 0, -3, C.spike);
   t3Vox.set(0, 0, -4, C.spike);
   t3Vox.set(-1, 0, -3, C.spike);
   t3Vox.set(1, 0, -3, C.spike);
   t3Vox.set(0, 1, -3, C.spike);
   t3Vox.set(0, -1, -3, C.spike);
-  t3Vox.set(0, 0, -5, C.spike);   // point
+  t3Vox.set(0, 0, -5, C.spike);
   const t3Mesh = t3Vox.build(S, false);
   t3Mesh.position.set(-0.05, -0.05, 0);
   tail3.add(t3Mesh);
 
-  // Ground contact blob — see contactshadow.ts. A hovering dragon with no shadow
-  // beneath it is pasted onto the scenery rather than flying over it.
+  // Ground contact blob — see contactshadow.ts.
   const blob = makeContactBlob(0.7, HOVER);
   root.add(blob);
   parts.blob = blob;
@@ -448,19 +367,12 @@ function buildRig(): BeastRig {
   return { root, parts, height: 1.15, radius: 0.45 };
 }
 
-// ---------------------------------------------------------------------------
-// Animation
-// ---------------------------------------------------------------------------
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const easeOutCubic = (v: number): number => 1 - (1 - v) ** 3;
 const easeInOutSine = (v: number): number => 0.5 - 0.5 * Math.cos(Math.PI * v);
 
-/**
- * The wingbeat, on an integrated phase — see BeastAnimCtx.cycle(). Its rate is
- * scaled by moveSpeed, so as `t * (7.5 + 3.5 * ms)` the phase was rewritten
- * retroactively every time the dragon changed pace, several whole beats at a
- * time once the session clock was a minute old.
- */
+// Wingbeat phase, integrated — see BeastAnimCtx.cycle(). moveSpeed scales the rate, so
+// off the session clock a change of pace rewrote the phase by whole beats.
 const BEAT = 0;
 
 function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
@@ -468,7 +380,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   const t = ctx.time;
   const at = ctx.actionTime;
 
-  // ---- default idle pose: perched, wings folded, breathing ----
   let bodyX = 0;
   let bodyZ = 0;
   let bodyY = BODY_Y + Math.sin(t * 2.2) * 0.02;
@@ -476,18 +387,16 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   let bodyRY = 0;
   let bodyRZ = Math.sin(t * 1.1) * 0.02;
   let sq = 1;
-  let chestS = 1 + Math.sin(t * 2.2) * 0.035; // breathing
+  let chestS = 1 + Math.sin(t * 2.2) * 0.035;
   let headRX = Math.sin(t * 0.9) * 0.06 - 0.05;
-  let headRY = Math.sin(t * 0.5) * 0.22; // slow proud look-around
+  let headRY = Math.sin(t * 0.5) * 0.22;
   let headRZ = Math.sin(t * 0.7 + 1) * 0.05;
   let jawOpen = 0.06 + Math.sin(t * 2.2) * 0.02;
-  // Perched wings furl UP over the shoulders like an umbrella, membrane rolled
-  // vertical. The old pose (flap 0.45, wingRX 0) left both membranes horizontal
-  // and edge-on, so a perched drakelet grew two pale planks out of its ribs.
-  let flap = 1.15 + Math.sin(t * 2.2) * 0.03; // folded, riding the breath
-  let sweep = 0.55; // laid back along the flank
-  let wingRX = 0.85; // membrane rolled up on edge, the way a bat furls
-  let tipFold = 2.0; // hand folded back hard against the arm
+  // Perched wings furl UP, membrane rolled vertical like a bat's; flat they read as planks.
+  let flap = 1.15 + Math.sin(t * 2.2) * 0.03;
+  let sweep = 0.55;
+  let wingRX = 0.85;
+  let tipFold = 2.0;
   let tipFlap = -0.2;
   let legRX = 0.10;
   let legSplit = 0;
@@ -506,32 +415,26 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     case 'run':
     case 'swim': {
       const k = 0.5 + 0.5 * ctx.moveSpeed;
-      // 7.5 rad/s hovering to 11 at full chat — 1.2 to 1.75 Hz.
       const w = ctx.cycle(BEAT, 7.5 + 3.5 * ctx.moveSpeed);
       const raw = Math.sin(w);
-      const beat = Math.sign(raw) * Math.abs(raw) ** 0.75; // snappy downstroke
-      // Peak flap trimmed from 0.75-1.00 rad to 0.52-0.70. At a full radian the wing
-      // plane swung past vertical twice a beat, so a still caught it edge-on as often
-      // as broadside — which is how a critic ended up describing one wing as a big red
-      // slab and the other as a tan sliver. A shallower beat keeps the membrane
-      // presenting its pattern for most of the cycle.
+      const beat = Math.sign(raw) * Math.abs(raw) ** 0.75;
+      // Peak flap 0.52-0.70: past vertical the wing plane is edge-on half the stroke.
       flap = beat * (0.52 + 0.18 * k);
       sweep = 0.18;
       tipFold = 0.12;
-      tipFlap = Math.sin(w - 0.85) * 0.55; // membrane lag / follow-through
-      // Standing 0.34 rad of roll on top of the beat's own wobble: with a purely
-      // horizontal membrane the wings passed edge-on through the middle of every
-      // stroke, and every second frame caught them as two bare leading edges.
+      tipFlap = Math.sin(w - 0.85) * 0.55;
+      // Standing roll on top of the beat: a purely horizontal membrane passed edge-on
+      // through the middle of every stroke.
       wingRX = 0.34 + Math.sin(w - 0.4) * 0.14;
       bodyY = BODY_Y + Math.sin(w - 1.1) * 0.07 * k + 0.06;
-      bodyRX = 0.30 * k + Math.sin(w - 1.3) * 0.06; // pitched into the flight
-      bodyRZ = Math.sin(t * 1.6) * 0.08 * k;        // banking drift
-      headRX = -0.22 * k + Math.sin(w - 1.5) * 0.04; // gaze stays level
+      bodyRX = 0.30 * k + Math.sin(w - 1.3) * 0.06;
+      bodyRZ = Math.sin(t * 1.6) * 0.08 * k;
+      headRX = -0.22 * k + Math.sin(w - 1.5) * 0.04;
       headRY = Math.sin(t * 0.8) * 0.10;
       jawOpen = 0.05;
       chestS = 1 + Math.sin(w) * 0.02;
-      legRX = 0.85; // tucked
-      armRX = 0.70; // tucked
+      legRX = 0.85;
+      armRX = 0.70;
       armSplit = 0;
       tailRX1 = 0.12 + Math.sin(w - 1.6) * 0.08;
       tailRX2 = 0.08 + Math.sin(w - 2.1) * 0.10;
@@ -553,15 +456,15 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       bodyY = BODY_Y - 0.05 * coil + 0.04 * punch;
       sq = 1 - 0.06 * coil + 0.05 * punch;
       headRX = -0.35 * coil + 0.30 * punch;
-      jawOpen = 0.7 * Math.max(coil * 0.7, lunge) * (1 - snap); // bite snaps shut
-      flap = 0.6 * coil - 0.35 * punch; // flare, then rake back
+      jawOpen = 0.7 * Math.max(coil * 0.7, lunge) * (1 - snap);
+      flap = 0.6 * coil - 0.35 * punch;
       sweep = 0.35 + 0.5 * punch;
       tipFold = 0.25 + 0.4 * punch;
       tipFlap = -0.2 * punch;
       chestS = 1 + 0.05 * coil;
       legRX = 0.3 * punch;
-      armRX = -0.4 * punch; // claws thrown forward
-      tailRX1 = 0.2 * coil - 0.25 * punch; // counterbalance
+      armRX = -0.4 * punch;
+      tailRX1 = 0.2 * coil - 0.25 * punch;
       tailRX2 = 0.12 * coil - 0.18 * punch;
       tailRX3 = 0.06 * coil - 0.12 * punch;
       tailRY1 = Math.sin(t * 6) * 0.06;
@@ -570,7 +473,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'cast': {
-      // The signature move: deep inhale, chest puffs, then the exhale thrust.
       const inhale = easeInOutSine(clamp01(at / 0.45));
       const exhale = easeOutCubic(clamp01((at - 0.45) / 0.25));
       const shiver = Math.sin(t * 24) * 0.05 * inhale;
@@ -596,7 +498,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
     }
     case 'special': {
-      // Rear-up roar: wings blasting, tail whipping, full drama.
       const rise = easeOutCubic(clamp01(at / 0.35));
       const fall = easeInOutSine(clamp01((at - 0.85) / 0.35));
       const amp = rise * (1 - fall);
@@ -606,7 +507,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       chestS = 1 + 0.12 * amp;
       headRX = -0.30 * amp + Math.sin(t * 10) * 0.04 * amp;
       headRY = 0;
-      jawOpen = 0.8 * amp; // ROAR
+      jawOpen = 0.8 * amp;
       flap = amp * (0.4 + Math.sin(t * 16) * 0.55);
       sweep = 0.15;
       tipFold = 0.10;
@@ -614,7 +515,7 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       wingRX = Math.sin(t * 16 - 0.4) * 0.08 * amp;
       legRX = 0.5 * amp;
       legSplit = 0.15 * amp;
-      armRX = -0.6 * amp; // claws raised skyward
+      armRX = -0.6 * amp;
       tailRX1 = 0.15 * amp;
       tailRX2 = 0.10 * amp;
       tailRX3 = 0.05 * amp;
@@ -627,18 +528,18 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       const d = Math.max(0, 1 - at / 0.5);
       bodyX = Math.sin(at * 50) * 0.04 * d;
       bodyRZ = Math.sin(at * 44) * 0.12 * d;
-      bodyRX = -0.18 * d; // knocked back
+      bodyRX = -0.18 * d;
       bodyY = BODY_Y + 0.03 * d;
-      headRX = 0.25 * d; // head ducks
+      headRX = 0.25 * d;
       headRZ = Math.sin(at * 40) * 0.08 * d;
-      jawOpen = 0.4 * d; // yelp
-      flap = 0.7 * d + Math.sin(t * 26) * 0.4 * d; // flailing
+      jawOpen = 0.4 * d;
+      flap = 0.7 * d + Math.sin(t * 26) * 0.4 * d;
       sweep = 0.3 + 0.5 * (1 - d);
       tipFold = 0.3 + 0.8 * (1 - d);
       chestS = 1 - 0.05 * d;
-      armRX = 0.5 * d; // curls up
+      armRX = 0.5 * d;
       legRX = 0.3 * d;
-      tailRX1 = -0.15 * d; // tail clamps
+      tailRX1 = -0.15 * d;
       tailRX2 = -0.10 * d;
       tailRX3 = -0.06 * d;
       tailRY1 = Math.sin(at * 30) * 0.10 * d;
@@ -649,23 +550,23 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
     case 'happy': {
       const hop = Math.abs(Math.sin(at * 6.5));
       bodyY = BODY_Y + hop * 0.16;
-      sq = 1 + Math.sin(at * 13) * 0.07; // squash-and-stretch bounce
+      sq = 1 + Math.sin(at * 13) * 0.07;
       bodyRY = Math.sin(at * 3.2) * 0.40;
       bodyRZ = Math.sin(at * 6.5) * 0.08;
       headRX = -0.10;
       headRZ = Math.sin(at * 6.5) * 0.15;
       headRY = Math.sin(at * 3.2) * 0.15;
-      jawOpen = 0.35 + Math.sin(at * 13) * 0.10; // delighted panting
-      flap = 0.3 + Math.sin(at * 13) * 0.35; // excited flutter
+      jawOpen = 0.35 + Math.sin(at * 13) * 0.10;
+      flap = 0.3 + Math.sin(at * 13) * 0.35;
       sweep = 0.5;
       tipFold = 0.4;
       tipFlap = Math.sin(at * 13 - 0.6) * 0.3;
       chestS = 1 + hop * 0.05;
-      armRX = -0.3 + Math.sin(at * 13) * 0.20; // paddling paws
+      armRX = -0.3 + Math.sin(at * 13) * 0.20;
       armSplit = Math.sin(at * 13) * 0.1;
       legRX = 0.2 + hop * 0.15;
       tailRX1 = 0.1;
-      tailRY1 = Math.sin(at * 11) * 0.45; // furious wag
+      tailRY1 = Math.sin(at * 11) * 0.45;
       tailRY2 = Math.sin(at * 11 - 0.6) * 0.55;
       tailRY3 = Math.sin(at * 11 - 1.2) * 0.65;
       break;
@@ -675,8 +576,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
       break;
   }
 
-  // ---- apply ----
-  // Contact blob stays flat on the ground and widens a little with the wingspan.
   updateContactBlob(p.blob, rig.root, 1 + 0.25 * clamp01(1 - Math.abs(sweep)), ctx.altitude);
 
   const body = p.body;
@@ -704,9 +603,6 @@ function animate(rig: BeastRig, ctx: BeastAnimCtx): void {
   p.tail3.rotation.set(tailRX3, tailRY3, 0);
 }
 
-// ---------------------------------------------------------------------------
-// Species
-// ---------------------------------------------------------------------------
 export const species: BeastSpecies = {
   id: 'drakelet',
   nameKey: 'beast.drakelet.name',

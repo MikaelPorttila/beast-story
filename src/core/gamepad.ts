@@ -1,56 +1,21 @@
 /**
- * Gamepad support, injected into the same virtual layer the touch overlay uses.
- *
- * Nothing in the game knows a controller exists. `Input` already had everything
- * a third device needs — an analog pair, a look accumulator shared with the
- * mouse, and buttons addressed by their keyboard-equivalent codes — so this
- * module's whole job is to poll the pad and translate. `MountController` still
- * reads `down('KeyF')`; it is simply Y that holds it down now.
- *
- * WHERE THIS IS POLLED MATTERS, and main.ts calls it once per RENDERED frame,
- * before the fixed-step accumulator loop, for two reasons:
- *
- *   - Look delta then behaves exactly like accumulated mouse movement:
- *     integrated over wall-clock, consumed by whichever sim slice runs, and held
- *     across a frame that ran no slices at all (`endFrame` only fires when one
- *     did). Polling per slice instead would multiply the look rate by the slice
- *     count, so the camera would whip on a hitching machine.
- *   - Button edges land before slice 0, which is the slice `first` is true for —
- *     and the hotbar, Tab, the beast cycles and the shop key are ALL gated on
- *     `first`. Poll after it and every discrete action on the pad silently does
- *     nothing.
- *
- * ALLOCATION: `navigator.getGamepads()` allocates a fresh array, and in Chrome a
- * fresh snapshot with fresh `axes`/`buttons` arrays with it. There is no
- * non-allocating form of the API — it is a snapshot API by design. Two things
- * keep it inside the house rule: `poll` returns on its first line until a pad
- * has actually connected, so a keyboard-and-mouse machine never calls it at
- * all, and it is one call per rendered frame rather than up to four.
+ * Gamepad support, injected into the virtual layer the touch overlay uses. POLL ONCE PER
+ * RENDERED FRAME, before the fixed-step loop: per slice would multiply the look rate, and
+ * after it would land button edges past the slice `first` is true for.
+ * `navigator.getGamepads()` allocates by design; the early-out in `poll` is the guard.
  */
 import type { Input } from './input';
 
 export type PadGlyphs = 'xbox' | 'playstation';
 
-/** Everything the HUD may need to print a button for. */
 export type PadAction =
   | 'move' | 'look' | 'jump' | 'attack' | 'interact' | 'mount' | 'dismount'
   | 'swap' | 'altUp' | 'altDown' | 'cyclePrimary' | 'cycleSupport'
-  // `cancel` is the B face while a MODAL is up, where it taps a virtual Escape.
-  // It shares a button with `altDown` and is a separate action anyway, because
-  // the two are never printed in the same place: one names what B does flying a
-  // mount, the other what it does in a panel.
+  // `cancel` shares B with `altDown` but is never printed in the same place.
   | 'sprint' | 'menu' | 'cancel' | 'inventory' | 'zoom'
   | 'skill1' | 'skill2' | 'skill3' | 'skill4';
 
-/**
- * Button faces, per vendor.
- *
- * These are DEVICE LABELS, not translations, which is why they live here and
- * not in the string table: the button on an Xbox pad is stamped "A" in every
- * language, and a Swedish player looking down at their hands sees "A". i18n
- * supplies the sentence around them through the existing `{key}` placeholder,
- * exactly as it already does for `kbd('F')`.
- */
+/** DEVICE LABELS, not translations — an Xbox A is stamped "A" in every language. */
 export const PAD_GLYPHS: Readonly<Record<PadGlyphs, Readonly<Record<PadAction, string>>>> = {
   xbox: {
     move: 'L', look: 'R', jump: 'A', attack: 'RT', interact: 'X',
@@ -68,96 +33,42 @@ export const PAD_GLYPHS: Readonly<Record<PadGlyphs, Readonly<Record<PadAction, s
   },
 };
 
-// ---- W3C "standard" mapping indices ---------------------------------------
+// W3C "standard" mapping indices.
 const B_A = 0, B_B = 1, B_X = 2, B_Y = 3;
 const B_LB = 4, B_RB = 5, B_LT = 6, B_RT = 7;
-/**
- * 8 is the pad's OTHER middle button — View on an Xbox pad, Create/Share on a
- * PlayStation one — and it was the only unclaimed face left. It is also the one
- * every console game already puts a map or an inventory on, so it is where a
- * controller player looks first rather than merely where there was room.
- */
+/** View / Create-Share — where a console player already looks for an inventory. */
 const B_SELECT = 8;
 const B_START = 9, B_L3 = 10, B_R3 = 11;
 const B_DUP = 12, B_DDOWN = 13, B_DLEFT = 14, B_DRIGHT = 15;
 const BUTTON_COUNT = 17;
 
-/**
- * Analog triggers read as buttons past this.
- *
- * Well above a resting trigger's noise and well below the point a player would
- * call "pulled". Sprint and attack are both held actions, so the exact figure
- * only decides how far the finger travels before the action starts, not whether
- * it starts.
- */
+/** Analog triggers read as buttons past this — above resting noise, below "pulled". */
 const TRIGGER_ON = 0.35;
 
-/**
- * Radial deadzones.
- *
- * 0.22 on the move stick is drift tolerance, not taste: a used controller with a
- * worn potentiometer rests as far out as ~0.18, and anything under that has the
- * hero walking on his own while the pad sits on the table. The look stick can be
- * tighter because a slow drift there reads as a camera easing rather than as the
- * character leaving.
- */
+/** Drift tolerance: a worn potentiometer rests as far out as ~0.18. */
 const DZ_MOVE = 0.22;
 const DZ_LOOK = 0.15;
 
-/**
- * Response curves past the deadzone.
- *
- * Movement stays LINEAR (1.0) on purpose. The hero's own speed curve already
- * shapes the low end — `Player.update` scales its target speed by the stick
- * magnitude below 0.98 — so squaring here would compound two curves and make a
- * slow walk practically unreachable. The look stick gets the standard console
- * curve instead: fine aim near centre, fast whip at the rim.
- */
+/** Movement stays LINEAR — `Player.update` already shapes the low end from the magnitude. */
 const EXPO_MOVE = 1.0;
 const EXPO_LOOK = 2.2;
 
 /**
- * Look rate, in the pixels-per-second `Input.addLook` expects.
- *
- * The camera turns `mouseDX * 0.0028` rad of yaw and `mouseDY * 0.0026` of
- * pitch, so these convert to 3.22 rad/s (~184 deg/s) of yaw and 2.03 rad/s of
- * pitch at full deflection. The pitch figure is set from the clamp rather than
- * picked: `ThirdPersonCamera` allows 1.73 rad end to end, so this crosses the
- * whole range in 0.85 s — quick enough to feel connected, slow enough that a
- * full push does not just slam into the stop.
- *
- * Deliberately NOT the touch overlay's 620 px/s. That is a thumb dragging across
- * glass, which is a different gesture with a different natural speed; reusing it
- * here felt like steering through treacle.
- *
- * Both figures are pending a pass on real hardware — the headless probe can
- * assert the rate lands in a band, not that it feels right.
+ * Look rate in the pixels-per-second `Input.addLook` expects: 3.22 rad/s yaw and 2.03 rad/s
+ * pitch at full deflection, the latter set to cross the camera's 1.73 rad clamp in 0.85 s.
  */
 const LOOK_PX_PER_SEC_X = 1150;
 const LOOK_PX_PER_SEC_Y = 780;
 
-/**
- * Camera arm presets cycled by R3, spanning the camera's own clamp.
- *
- * Zoom is the one thing with no analog axis left to give it — both sticks and
- * both triggers are committed to things a player uses far more often — so it
- * steps instead of sliding. Index 1 matches `ThirdPersonCamera`'s starting arm,
- * so the first press is a real change either way.
- */
+/** Camera arm presets cycled by R3. Index 1 matches `ThirdPersonCamera`'s starting arm. */
 const ZOOM_PRESETS = [3.5, 7.4, 11];
 /** `wheelDelta` units per world unit of arm; the camera applies `* 0.01`. */
 const WHEEL_PER_UNIT = 100;
 
-/** Scratch for the stick shaper — module level, so polling allocates nothing. */
+/** Module-level scratch, so polling allocates nothing. */
 const _stick = { x: 0, y: 0, mag: 0 };
 
-/**
- * Apply a radial deadzone and response curve to a stick pair.
- *
- * Radial rather than per-axis: a per-axis deadzone squares off the diagonals,
- * so a stick pushed to a corner reports full deflection on both axes and the
- * hero moves faster diagonally than he does straight ahead.
- */
+/** RADIAL deadzone: a per-axis one squares off the diagonals and speeds up corner pushes. */
 function shape(x: number, y: number, dz: number, expo: number): boolean {
   const mag = Math.hypot(x, y);
   if (mag < dz) { _stick.x = 0; _stick.y = 0; _stick.mag = 0; return false; }
@@ -168,12 +79,7 @@ function shape(x: number, y: number, dz: number, expo: number): boolean {
   return true;
 }
 
-/**
- * Which way each look axis runs. See `GamepadControls.setLookAxes`.
- *
- * A partial of this is what a settings screen will hand over; the stored
- * defaults live in core/prefs.ts and the per-load override in core/flags.ts.
- */
+/** Which way each look axis runs. Defaults in core/prefs.ts, per-load override in flags.ts. */
 export interface LookAxes {
   invertX: boolean;
   invertY: boolean;
@@ -188,13 +94,7 @@ export class GamepadControls {
   private prev = new Uint8Array(BUTTON_COUNT);
   private zoomStep = 1;
   private modal = false;
-  /**
-   * A modal just closed: re-assert the held mappings on the next poll.
-   *
-   * One flag rather than doing it inside `setModal`, because what a button is
-   * doing is only knowable from a fresh `getGamepads()` snapshot, and `setModal`
-   * is called from the frame loop before the poll. See `setModal`.
-   */
+  /** A modal just closed: re-assert holds on the next poll, which is the next snapshot. */
   private resyncHolds = false;
   private active = false;
   private glyphSet: PadGlyphs = 'xbox';
@@ -206,9 +106,7 @@ export class GamepadControls {
     private onSkill?: (index: number) => void,
   ) {
     this.onConnect = (e: GamepadEvent) => {
-      // First pad wins and keeps the slot until it goes away. Chrome only
-      // surfaces a pad here after its first button press, which is exactly the
-      // gesture we want to treat as "a controller is in use" anyway.
+      // First pad wins and keeps the slot. Chrome only fires this after a button press.
       if (this.padIndex < 0) {
         this.padIndex = e.gamepad.index;
         this.glyphSet = detectGlyphs(e.gamepad.id);
@@ -224,14 +122,7 @@ export class GamepadControls {
     window.addEventListener('gamepaddisconnected', this.onDisconnect);
   }
 
-  /**
-   * Wire up gamepad support, or return null where the API does not exist.
-   *
-   * Returns an instance even with nothing plugged in — a pad can arrive at any
-   * point in a session and the connect listener has to be live to catch it. The
-   * API is missing entirely on a non-secure origin, which is worth knowing when
-   * testing over a LAN IP: everything degrades to keyboard and touch.
-   */
+  /** Null only where the API is missing (a non-secure origin); otherwise always an instance. */
   static attach(
     input: Input,
     opts?: { onSkill?: (i: number) => void; look?: Partial<LookAxes> },
@@ -242,14 +133,7 @@ export class GamepadControls {
     return g;
   }
 
-  /**
-   * Flip either look axis, at any time.
-   *
-   * A setter rather than a constructor argument because this is destined for a
-   * settings toggle: a player changing it mid-session must not have to reload,
-   * and nothing here caches a derived value that a later change would miss.
-   * Partial, so a caller may set one axis without asserting the other.
-   */
+  /** Live, so a settings change needs no reload. Partial: one axis without the other. */
   setLookAxes(a: Partial<LookAxes>): void {
     if (a.invertX !== undefined) this.lookSignX = a.invertX ? -1 : 1;
     if (a.invertY !== undefined) this.lookSignY = a.invertY ? -1 : 1;
@@ -265,44 +149,18 @@ export class GamepadControls {
   get glyphs(): PadGlyphs { return this.glyphSet; }
 
   /**
-   * Modal UI (the shop, the dev console, the in-game menu) is open: stand the
-   * pad down.
-   *
-   * Mirrors `TouchControls.setVisible(false)`. Everything held is released so a
-   * button that happened to be down when the shop opened cannot stay down
-   * behind it, and only cancel and confirm keep working — enough to get back
-   * out. Choosing an offer is still mouse or touch; see the plan's follow-ups.
-   *
-   * `prev` IS NOT TOUCHED, and that is a fix rather than an omission. It used to
-   * be zeroed here along with the held mappings, and the two are different
-   * things: the mappings are OUTPUT the game is still acting on, where `prev` is
-   * the edge history — "was this button down at the last poll". Zeroing it tells
-   * the next poll that every button the player is still holding has just gone
-   * down, which manufactures a second edge out of one press.
-   *
-   * That is invisible for a button that only ever opens a modal, and fatal for
-   * one that toggles it. START opens the in-game menu and closes it, so a single
-   * press was read twice: the first edge opened the menu, `setModal(true)` wiped
-   * the history, and the very next poll saw Start still held against a zero and
-   * fired again — closing what it had just opened, one frame later. From the
-   * hand that is a Start button that "sometimes does nothing", and it is the
-   * same shape as the F1 double-toggle (see `takePress` in core/input.ts): one
-   * press, counted twice, by bookkeeping that was reset under it.
+   * A modal is open: stand the pad down, leaving cancel and confirm. `prev` MUST NOT be
+   * touched — zeroing the edge history makes a still-held button look newly pressed.
    */
   setModal(v: boolean): void {
     if (v === this.modal) return;
     this.modal = v;
     if (v) this.release();
-    // Coming OUT, the held mappings above have to be re-asserted: a player who
-    // held the sprint trigger through a shop still has it down, and `hold()`
-    // only writes on a CHANGE against `prev` — which correctly says "still
-    // held", so nothing would be written and the game would think it was up.
-    // This is what `prev.fill(0)` used to achieve as a side effect, now said
-    // once and without inventing edges to do it.
+    // Coming out, holds must be re-asserted: `hold()` only writes on a CHANGE, and a
+    // trigger held through the modal has not changed.
     else this.resyncHolds = true;
   }
 
-  /** Drop every held mapping and zero the analog state. Edge history survives. */
   private release(): void {
     this.input.setStick(0, 0, 'gamepad');
     this.input.setPadLooking(false);
@@ -313,8 +171,7 @@ export class GamepadControls {
   }
 
   poll(dt: number): void {
-    // The early-out that keeps a pad-less machine allocation-free. See the
-    // header: this is the only guard against getGamepads() every frame.
+    // The only guard against getGamepads() every frame on a pad-less machine.
     if (this.padIndex < 0) return;
 
     const pad = navigator.getGamepads()[this.padIndex];
@@ -328,51 +185,27 @@ export class GamepadControls {
     const held = (i: number): boolean =>
       i < b.length && (b[i].pressed || b[i].value > TRIGGER_ON);
 
-    // Buttons are read for "the pad is the live device" BEFORE the modal branch,
-    // because a player working the shop with B and X is on the controller and the
-    // footer's hints have to say so. The sticks are stood down while a modal owns
-    // the screen, so they are checked on the other side of it.
-    //
-    // `anyPressed` used to be short-circuited by the one-shot latch and now runs
-    // every poll: a bounded scan of 17 buttons with an early exit, next to the
-    // `getGamepads()` array this line already allocated.
+    // Read BEFORE the modal branch: a player working a panel with B and X is on the pad.
     if (anyPressed(b)) this.noteUse();
 
     if (this.modal) {
-      // B and Start cancel, X confirms — the codes main.ts accepts to close the
-      // shop. Nothing else reaches the game while a modal owns the screen.
-      //
-      // START SENDS ITS OWN KEY, and it is still a cancel: main.ts folds F10
-      // into the modal branch's cancel so the button that opened the menu is the
-      // button that closes it. B keeps Escape, which is the back/cancel the
-      // panels themselves answer for.
+      // B and Start cancel, X confirms. Start sends its own key so the button that opened
+      // the menu closes it; B keeps Escape, the back the panels answer for.
       this.edge(B_B, () => this.input.tapVirtual('Escape'), held);
       this.edge(B_START, () => this.input.tapVirtual('F10'), held);
       this.edge(B_X, () => this.input.tapVirtual('KeyE'), held);
-      // View/Create reaches the game even under a modal, and only this one does:
-      // it is the key that CLOSES the inventory as well as opening it, so a pad
-      // player who opened the panel with it and expected the same button to
-      // shut it would otherwise be stuck with B. main.ts's gate is what stops it
-      // opening a second panel under the pause menu.
+      // View/Create is the only other key through a modal: it closes the inventory too.
       this.edge(B_SELECT, () => this.input.tapVirtual('KeyI'), held);
       this.markPrev(held);
       return;
     }
 
-    // ---- sticks ------------------------------------------------------------
     // Axis 1 is +down, and forward is -y.
     const moving = shape(pad.axes[0], -pad.axes[1], DZ_MOVE, EXPO_MOVE);
     this.input.setStick(_stick.x, _stick.y, 'gamepad');
 
-    // Look inversion, per axis, as a SIGN — never a branch. Both axes go through
-    // the same multiply whichever way they are set, so there is no second code
-    // path that only one setting exercises and only one setting can regress.
-    //
-    // Y defaults to inverted (see `setLookAxes`), which is the flight-stick
-    // convention a pad wants and nobody wants on a mouse. That the two devices
-    // disagree here is correct: the mouse does not pass through this at all.
-    // Also not the same question as the touch overlay's flip, which merely
-    // cancels its own stick reporting +y as screen-up.
+    // Inversion is a SIGN, never a branch, so no setting gets its own code path.
+    // Y defaults inverted: the flight-stick convention, and the mouse never comes here.
     const looking = shape(
       pad.axes[2] * this.lookSignX, pad.axes[3] * this.lookSignY, DZ_LOOK, EXPO_LOOK,
     );
@@ -381,15 +214,8 @@ export class GamepadControls {
     }
     this.input.setPadLooking(looking);
 
-    // ---- held buttons ------------------------------------------------------
-    // Written only on a CHANGE, never every frame. A pad resting at zero must
-    // not keep clearing a virtual button, or on a phone with a controller
-    // attached it would stamp out the touch overlay's held Space fifty times a
-    // second.
-    //
-    // The exception is the first poll after a modal closed, where `release()`
-    // cleared the mappings without changing what the player is holding — so
-    // there is no CHANGE to notice and the write has to be forced. See setModal.
+    // Held buttons are written only on a CHANGE: a pad resting at zero must not keep
+    // clearing the touch overlay's own virtual buttons. `force` covers a modal closing.
     const force = this.resyncHolds;
     this.resyncHolds = false;
     this.hold(B_A, 'Space', held, force);
@@ -398,17 +224,10 @@ export class GamepadControls {
     this.hold(B_LT, 'ShiftLeft', held, force);
     if (force || held(B_RT) !== !!this.prev[B_RT]) this.input.setVirtualAttack(held(B_RT));
 
-    // ---- tapped buttons ----------------------------------------------------
     this.edge(B_X, () => this.input.tapVirtual('KeyE'), held);
-    // START IS THE MENU, and F10 is what the menu answers to now — the same
-    // virtual key the touch overlay's MENU button and the HUD's own button tap.
-    // Escape has stopped meaning "menu" for every device at once, because the
-    // browser spends that key on fullscreen and pointer lock over the page's
-    // head (see core/input.ts's CAPTURED note).
+    // The menu answers to F10, not Escape — the browser spends Escape on fullscreen and
+    // pointer lock over the page's head (see core/input.ts).
     this.edge(B_START, () => this.input.tapVirtual('F10'), held);
-    // The inventory, as the same virtual key `I` sends — main.ts reads the code
-    // in one place for both devices, which is the rule Start and the touch
-    // overlay's MENU button already follow for F10.
     this.edge(B_SELECT, () => this.input.tapVirtual('KeyI'), held);
     this.edge(B_L3, () => this.input.tapVirtual('Tab'), held);
     this.edge(B_LB, () => this.input.tapVirtual('BracketLeft'), held);
@@ -419,23 +238,12 @@ export class GamepadControls {
     this.edge(B_DDOWN, () => this.skill(2), held);
     this.edge(B_DLEFT, () => this.skill(3), held);
 
-    // ---- "a controller is in use" -----------------------------------------
     if (moving || looking) this.noteUse();
 
     this.markPrev(held);
   }
 
-  /**
-   * The pad produced input this frame.
-   *
-   * Two different lifetimes come out of one moment, and conflating them is the
-   * bug this split fixes. `input.padActive` is a LATCH — it answers "is there a
-   * controller player here", which the start gate and the welcome toast ask once
-   * and which must never un-set. `noteSource` is a STAMP — it answers "what is
-   * in the player's hands right now", which the HUD's key caps and the rumble
-   * gate ask every frame, and which has to hand back to the keyboard the moment
-   * the keyboard is touched.
-   */
+  /** `padActive` is a LATCH that never un-sets; `noteSource` a stamp the keyboard takes back. */
   private noteUse(): void {
     this.input.noteSource('gamepad');
     if (!this.active) {
@@ -462,14 +270,7 @@ export class GamepadControls {
     this.onSkill?.(index);
   }
 
-  /**
-   * Step the camera arm to the next preset.
-   *
-   * Expressed as the wheel delta that would have got there, because the arm
-   * lives in `ThirdPersonCamera` and `Input` has no window onto it. A player
-   * who mixes a mouse wheel and R3 in the same session will find the first R3
-   * press jumps rather than steps; a pad player has no wheel to mix.
-   */
+  /** Sent as the wheel delta that would get there — the arm lives in `ThirdPersonCamera`. */
   private stepZoom(): void {
     const from = ZOOM_PRESETS[this.zoomStep];
     this.zoomStep = (this.zoomStep + 1) % ZOOM_PRESETS.length;
@@ -509,15 +310,7 @@ function anyPressed(b: readonly GamepadButton[]): boolean {
   return false;
 }
 
-/**
- * Which button faces to print, from the pad's own id string.
- *
- * The id is free-form vendor text, so this matches on the two things that are
- * actually stable: Sony's USB vendor id (054c), which appears in Chrome's
- * "Vendor: 054c Product: ..." form, and the product names. Anything
- * unrecognised gets the Xbox faces, which is both the commoner pad and the
- * layout the W3C standard mapping is named after.
- */
+/** The pad id is free-form, so match Sony's vendor id (054c) and product names; else Xbox. */
 function detectGlyphs(id: string): PadGlyphs {
   return /054c|dualsense|dualshock|playstation|sony/i.test(id) ? 'playstation' : 'xbox';
 }

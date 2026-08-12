@@ -1,18 +1,9 @@
 import * as THREE from 'three';
 
-/**
- * Central VFX manager: one additive GPU point cloud for all particles, an
- * instanced cube field for voxel debris, plus small pools of rings, beams,
- * slash arcs, scorch decals, glow sprites and point lights. Everything is
- * procedural (canvas textures only) and allocation-free per frame.
- */
-
 const _v = new THREE.Vector3();
 const _c = new THREE.Color();
 const _c2 = new THREE.Color();
 const _hsl = { h: 0, s: 0, l: 0 };
-// Endpoints for the warm-up beam; module temps like the rest, even though the
-// warm-up runs once, so nothing here allocates.
 const _warmA = new THREE.Vector3();
 const _warmB = new THREE.Vector3();
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
@@ -64,19 +55,8 @@ function makeScorchTexture(): THREE.CanvasTexture {
   });
 }
 
-/**
- * Sweep-trail mask for the melee arc. White RGB — the whole shape lives in the
- * alpha channel — with `u` running along the arc and `v` across the ribbon.
- *
- * The cross-section is deliberately ASYMMETRIC: a thin hard core at v=0.60 with
- * a wide soft wake behind it. The arc used to be two untextured RingGeometry
- * segments, which gave a uniform band with a hard cut at both radii — captured,
- * that read as a flat white croissant with no direction to it (see
- * shots/_vfx-b-slash.png). A blade edge dragging a wake reads as a swing.
- *
- * The fibrous `streak` term keeps the wake from being a clean gaussian gradient;
- * without it the ribbon looks like an airbrushed neon tube.
- */
+// Melee arc mask: white RGB, shape in alpha, `u` along the arc, `v` across the
+// ribbon. Asymmetric — hard core at v=0.60, soft wake behind it.
 function makeSwipeTexture(): THREE.CanvasTexture {
   const W = 128, H = 64;
   const c = document.createElement('canvas');
@@ -92,8 +72,7 @@ function makeSwipeTexture(): THREE.CanvasTexture {
     const across = Math.min(1, core + wake * streak);
     for (let x = 0; x < W; x++) {
       const u = x / (W - 1);
-      // Zero at both tips so the ribbon comes to a point, weighted bright
-      // toward the LEADING tip (u=1) — the end of the blade, not the hilt.
+      // Zero at both tips, brighter toward the LEADING tip (u=1).
       const along = Math.pow(Math.sin(Math.PI * u), 0.55) * (0.46 + 0.54 * u);
       const i = (y * W + x) * 4;
       d[i] = 255; d[i + 1] = 255; d[i + 2] = 255;
@@ -106,20 +85,8 @@ function makeSwipeTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/**
- * Flowing ribbon mask for the beam blades. `u` runs ACROSS the ribbon, `v`
- * along it, and the whole shape is in the alpha channel.
- *
- * Captured (shots/_vfx2-beam-0.08.png) the beam was a `CylinderGeometry` with a
- * flat untextured colour: a uniform orange drainpipe with a hard silhouette and
- * a visible open end where the far cap should be. Nothing about it read as
- * energy. Two things fix that: a soft gaussian across the ribbon so the edge
- * feathers out instead of ending in a line, and a periodic striation along it
- * that we SCROLL, so the discharge visibly flows toward the target.
- *
- * `v` is periodic (both sine terms complete whole cycles over 0..1) so the
- * texture tiles seamlessly under RepeatWrapping — the scroll never seams.
- */
+// Beam ribbon mask: `u` ACROSS, `v` along. `v` is periodic (whole sine cycles
+// over 0..1), so it tiles under RepeatWrapping and the scroll never seams.
 function makeBeamTexture(): THREE.CanvasTexture {
   const W = 64, H = 128;
   const c = document.createElement('canvas');
@@ -147,17 +114,8 @@ function makeBeamTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/**
- * Shockwave ring mask. The ring used to be an untextured `RingGeometry(0.84, 1)`
- * annulus at uniform alpha — captured over an AoE (shots/_vfx2-aoe-0.35.png)
- * that is a hard-edged flat hoop lying on the grass, closer to a selection decal
- * than to a blast front. Feathering the crest and adding a faint interior wash
- * gives the wave a body and a leading edge.
- *
- * three's RingGeometry lays UVs over the OUTER-radius bounding box, so uv is
- * radial about (0.5, 0.5) with the outer rim at uv-radius 0.5. The crest sits at
- * 0.88 of the outer radius, matching the old annulus's centre line.
- */
+// Shockwave ring mask. RingGeometry lays UVs over the OUTER-radius bounding box,
+// so uv is radial about (0.5, 0.5) and the crest sits at 0.88 of the rim.
 function makeRingTexture(): THREE.CanvasTexture {
   const S = 128;
   const c = document.createElement('canvas');
@@ -172,13 +130,7 @@ function makeRingTexture(): THREE.CanvasTexture {
       const r = Math.sqrt(dx * dx + dy * dy);
       let a = 0;
       if (r <= 1) {
-        // Asymmetric crest: tight on the leading (outer) side, longer wash
-        // trailing inward, so the wave has a direction.
-        // First pass used 0.075/0.20 sigmas and a 0.13 fill: captured
-        // (shots/_vfx2-B-aoe-0.35.png) the wave lost its edge entirely and read
-        // as a fuzzy orange puddle — worse than the hard hoop it replaced.
-        // Halving the sigmas and the fill keeps the feathering but puts a
-        // definite line back at the front.
+        // Tight outward, longer wash inward, so the wave has a direction.
         const s = r > 0.88 ? 0.040 : 0.115;
         const crest = Math.exp(-Math.pow((r - 0.88) / s, 2));
         const fill = Math.max(0, 0.06 * (1 - r * 0.7));
@@ -196,19 +148,8 @@ function makeRingTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/**
- * `blades` flat ribbons evenly rotated about +Y, each running from y=0 to y=1
- * with a tapered half-width. UVs: `u` across the ribbon, `v` along it.
- *
- * A tube cannot both flare and come to a point; three crossed ribbons can, and
- * they feather at the silhouette because their edges are texture alpha rather
- * than geometry. The thin core cylinder is kept alongside precisely because
- * these blades collapse when viewed straight down the beam axis.
- *
- * The profile flares from the muzzle to 72% of the length, then falls to almost
- * nothing, so the far end tapers off instead of stopping at the flat open cap
- * that was visible in shots/_vfx2-beam-0.08.png.
- */
+// `blades` flat ribbons about +Y, y=0..1, tapered. The core cylinder stays
+// alongside because these collapse seen straight down the beam axis.
 function makeBeamRibbonGeo(blades = 3, segs = 10): THREE.BufferGeometry {
   const n = segs + 1;
   const pos = new Float32Array(blades * n * 2 * 3);
@@ -243,21 +184,9 @@ function makeBeamRibbonGeo(blades = 3, segs = 10): THREE.BufferGeometry {
 }
 
 /**
- * A crescent ribbon in the XY plane — a partial ring around the +Z axis, with
- * its centre at 12 o'clock. `span` radians of arc at `radius`, whose half-width
- * tapers to zero at both tips and peaks at `peakAt`. UVs feed makeSwipeTexture().
- *
- * The PLANE is the load-bearing decision. The original arc lay in the XZ plane,
- * i.e. a plane containing the caster's forward axis — and the game's camera sits
- * behind the caster looking down that same axis, so the ribbon was always close
- * to edge-on. Tilting it about forward does not help; captured that way
- * (shots/_vfx-a4-3.53.png) the swing rendered as a straight diagonal streak with
- * no arc in it at all. Building the ring PERPENDICULAR to forward puts the whole
- * crescent broadside to the lens, and sweeping it is then a roll about that same
- * forward axis — which is also what a real swing does.
- *
- * `peakAt` under 0.5 puts the fat part of the crescent EARLY, so the arc looks
- * like it is being dragged rather than pushed.
+ * A crescent ribbon in the XY plane — a partial ring around +Z, centred at 12
+ * o'clock. PERPENDICULAR to the caster's forward axis, so it stays broadside to
+ * a camera behind him and the sweep is a roll about that axis.
  */
 function makeSweepGeo(span: number, radius: number, halfWidth: number, peakAt: number, segs = 30): THREE.BufferGeometry {
   const n = segs + 1;
@@ -289,9 +218,6 @@ function makeSweepGeo(span: number, radius: number, halfWidth: number, peakAt: n
   return g;
 }
 
-// ---------------------------------------------------------------------------
-// GPU particle cloud
-// ---------------------------------------------------------------------------
 const P_CAP = 3072;
 
 class Particles {
@@ -426,9 +352,6 @@ class Particles {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Instanced voxel debris (death bursts)
-// ---------------------------------------------------------------------------
 const D_CAP = 320;
 
 class Debris {
@@ -535,9 +458,6 @@ class Debris {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Small pooled effect records
-// ---------------------------------------------------------------------------
 interface LightSlot { light: THREE.PointLight; mode: 0 | 1 | 2; life: number; maxLife: number; peak: number; }
 interface GlowSlot { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; mode: 0 | 1 | 2; life: number; maxLife: number; s0: number; }
 interface RingSlot { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; maxLife: number; maxR: number; }
@@ -549,67 +469,22 @@ interface SlashSlot {
 }
 interface ScorchSlot { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; maxLife: number; }
 
-// --- melee arc tuning -------------------------------------------------------
-// Measured against shots/_vfx-b-slash*.png (the old flat crescent):
-//   LIFE 0.20 -> 0.23 with an INSTANT attack. The old opacity curve was
-//     sin(p*PI), which peaks at half-life and is invisible on the frame the
-//     swing actually lands — the hit had no on-frame confirmation at all.
-//   TILT 0 -> 0.78 rad. The arc used to lie flat in the XZ plane, so from the
-//     third-person camera it read as a decal on the ground rather than a swing.
-//     Tilting the sweep plane about the forward axis makes it a diagonal
-//     shoulder-to-hip cut, and alternating the sign per swing turns a repeated
-//     button press into a visible combo.
-//   The sweep is now a ROLL about the caster's forward axis (see makeSweepGeo),
-//     so FROM/TO are where the crescent's centre starts and ends measured off
-//     vertical. 1.20 -> -0.50 is 97 degrees of travel that carries the blade
-//     down across the target and stops just past centre; TILT biases the whole
-//     swing to one shoulder, and both flip sign per swing so a held attack reads
-//     as alternating cuts rather than the same stamp twice.
-//   PITCH leans the ring away from a camera that sits above and behind, so the
-//     ring reads as an ellipse rather than a flat circle.
-//   ROUND 2, measured off shots/_vfx2-mb-0.04.png / -0.10.png (the arc shot
-//     from behind the caster, which is the gameplay angle): the sweep was
-//     easeOutQuint over the first HALF of a 0.23 s life, so it reached 88% of
-//     its travel by t=0.04 — under three frames at 60 fps, and identical in
-//     every later frame. Two captures 60 ms apart were pixel-for-pixel the same
-//     crescent in the same place: a stamp, not a swing. SWEEP_WINDOW 0.5 -> 0.66
-//     and easeOutQuint -> easeOutCubic spread the same travel over ~5 frames at
-//     60 fps and ~13 at 164, which is where the motion becomes readable; LIFE
-//     0.23 -> 0.30 keeps the wake hanging afterwards, which is the part that
-//     sells speed.
-//   The travel itself widened from 97 to 124 degrees (FROM 1.20 -> 1.45,
-//     TO -0.50 -> -0.72) so the blade enters above the shoulder and exits below
-//     the hip rather than starting already halfway down.
+// Melee arc tuning. The sweep is a ROLL about the caster's forward axis, so
+// FROM/TO are the crescent centre's start and end off vertical; both flip sign
+// per swing. Keep the travel over ~5 frames at 60 fps or it reads as a stamp.
 const SLASH_LIFE = 0.30;
 const SLASH_SWEEP_WINDOW = 0.66;
 const SLASH_TILT = 0.40;
 const SLASH_PITCH = -0.30;
-// -0.55 put the ring low enough that the crescent swept THROUGH the hero's own
-// body (shots/_vfx-g8-sw10.png: a white blowout with the hero inside it).
-// -0.32 leaves it at chest-to-shoulder height, crossing the target, not the
-// caster.
+// Lower than this and the crescent sweeps through the hero's own body.
 const SLASH_DROP = -0.32;
-// The callers' scales (1.6 for the sword, 1.9 for a beast's melee skill) were
-// authored against a flat ground crescent whose apparent size collapsed with the
-// camera pitch. A ring facing the lens keeps its full size, so the same numbers
-// read about 20% too large; scaling here rather than asking every caller to
-// retune keeps `scale` meaning what it meant.
+// Callers' scales were authored against a flat ground crescent.
 const SLASH_SCALE = 0.85;
 const SLASH_SWEEP_FROM = 1.45;
 const SLASH_SWEEP_TO = -0.72;
 
-// --- projectile trail stitching ---------------------------------------------
-// Combat emits one trail() every 0.022 s and a bolt flies at 16 u/s, so the
-// call sites are 0.35 units apart in world space no matter what this file does
-// — and at low frame rates the catch-up `while` loop fires two calls at the
-// SAME position, which clumps instead of spacing. Captured
-// (shots/_vfx2-b-dart-0.42.png) the trail was a visible string of separate
-// beads with grass showing between them.
-//
-// So VFX remembers where each emitter was last seen and fills the gap: a call
-// that lands within CONTINUE_DIST of a recent same-coloured emitter draws motes
-// along the SEGMENT at a fixed world-space spacing. Density then depends on the
-// bolt's speed alone, and is identical at 30 fps and 165 fps.
+// Trail stitching: each emitter's last position is remembered and motes are laid
+// along the SEGMENT at fixed world spacing, so density is fps-independent.
 const TRAIL_EMITTERS = 8;
 const TRAIL_SPACING = 0.13;
 const TRAIL_MAX_STEPS = 8;
@@ -640,7 +515,6 @@ export class VFX {
   private flashOpacity = 0;
   /** Flips every swing so a combo alternates its sweep direction. */
   private slashFlip = 1;
-  /** x, y, z of the last trail() call per emitter — see TRAIL_EMITTERS. */
   private trailPos = new Float32Array(TRAIL_EMITTERS * 3);
   private trailHex = new Int32Array(TRAIL_EMITTERS).fill(-1);
   private trailAge = new Float32Array(TRAIL_EMITTERS).fill(1e9);
@@ -654,19 +528,14 @@ export class VFX {
     this.particles = new Particles(scene);
     this.debrisField = new Debris(scene);
 
-    // 0.84 -> 0.40 inner radius: the crest now lives in the texture, and the
-    // geometry only has to be wide enough to carry the feathered falloff and
-    // the faint interior wash. 48 -> 64 segments because a 2-unit-radius ring
-    // showed visible facets on its outer edge in shots/_vfx2-aoe-0.35.png.
+    // Wide annulus: the crest is in the texture, not the geometry.
     this.ringGeo = new THREE.RingGeometry(0.40, 1.0, 64);
     this.ringGeo.rotateX(-Math.PI / 2);
-    // Core tapers 1.0 -> 0.28 toward the target so the far end narrows to a
-    // point instead of showing the open cylinder mouth.
+    // Tapers toward the target, so the far end is a point, not an open mouth.
     this.beamGeo = new THREE.CylinderGeometry(0.28, 1.0, 1, 8, 1, true);
     this.beamGeo.translate(0, 0.5, 0);
     this.beamRibbonGeo = makeBeamRibbonGeo(3, 10);
-    // Outer wake is wide and spans most of the swing; the core is a shorter,
-    // much narrower blade edge riding inside it. Both come to points.
+    // Wide outer wake, narrow core blade edge riding inside it.
     this.slashOuterGeo = makeSweepGeo(1.95, 0.72, 0.40, 0.38, 30);
     this.slashInnerGeo = makeSweepGeo(1.62, 0.74, 0.12, 0.34, 24);
     this.scorchGeo = new THREE.CircleGeometry(1, 22);
@@ -683,24 +552,8 @@ export class VFX {
     document.body.appendChild(this.flashEl);
   }
 
-  // ---------------------------------------------------- particle emitters
-
-  /**
-   * Radial explosion burst — TWO populations from one call.
-   *
-   * The old version was a single uniform cloud: every particle drew from the
-   * same speed range with drag 1.7, so it decelerated together and the whole
-   * thing read as one soft puff (captured at shots/_vfx-b-dart-hit.png — a hit
-   * looked like a small orange smudge, with no evidence anything was struck).
-   *
-   * Splitting it costs nothing and buys the silhouette an explosion needs:
-   *   SPARKS (40%) leave at ~2.2x speed with very little drag and heavy gravity,
-   *     so they punch out past the flame front and arc down as discrete streaks;
-   *     they run hot toward white because sparks are hotter than the fireball.
-   *   FLAME (60%) is the old cloud with more drag (2.4), so it stalls close to
-   *     the impact point and reads as the body of the blast rather than smearing
-   *     into the sparks.
-   */
+  // TWO populations: sparks (40%) punch past the flame front on low drag and
+  // heavy gravity; flame (60%) stalls near the impact as the blast body.
   burst(x: number, y: number, z: number, hex: number, count: number, speed: number, life: number, size: number, gravity = -5, upBias = 0.5): void {
     _c.setHex(hex);
     const sparks = Math.max(2, Math.round(count * 0.4));
@@ -710,14 +563,7 @@ export class VFX {
       const len = Math.max(0.001, Math.sqrt(dx * dx + dy * dy + dz * dz));
       const v = speed * (isSpark ? 1.5 + Math.random() * 1.4 : 0.28 + Math.random() * 0.6);
       dx = dx / len * v; dy = dy / len * v + upBias * speed * 0.5; dz = dz / len * v;
-      // ROUND 2: every spark used to take the same +0.18 white lift, and with a
-      // fire orange of linear (1.00, 0.14, 0.03) that lands at (1.00, 0.35,
-      // 0.21) — which after ACES is a pale pink dot. Zoomed into a real impact
-      // (shots/_vfx2-crop-impact.png) the whole spark population read as white
-      // specks with no element in them; you could not tell fire from ice.
-      // Only a THIRD of the sparks are white-hot now (the glints), the rest
-      // keep the element hue at full saturation, and the fireball body keeps
-      // its own hue as before.
+      // Only a THIRD get the white lift, or ACES makes every element look alike.
       const white = isSpark && i % 3 === 0;
       const m = isSpark ? 1.25 + Math.random() * 0.35 : 0.62 + Math.random() * 0.55;
       const w = white ? 0.30 : 0;
@@ -732,7 +578,6 @@ export class VFX {
     }
   }
 
-  /** Rising (optionally swirling) column from a disc — heals, AoE pillars. */
   rise(x: number, y: number, z: number, hex: number, count: number, radius: number, vy: number, life: number, size: number, swirlSpeed = 0): void {
     _c.setHex(hex);
     for (let i = 0; i < count; i++) {
@@ -749,38 +594,14 @@ export class VFX {
     }
   }
 
-  /**
-   * One step of a projectile trail: a hot core mote plus a dim smoke mote.
-   *
-   * Trail coherence was the worst thing about the projectiles. The caller emits
-   * one of these every 0.022 s and a bolt moves at 16 u/s, i.e. one mote every
-   * 0.35 units — and the old single mote was spawned with +-0.12 of position
-   * jitter and +-0.6 of random velocity, which pushed neighbouring motes apart
-   * faster than the gap between them. Captured (shots/_vfx-b-dart-fly.png) the
-   * result was a dotted line of separate beads, not a streak.
-   *
-   * Two changes fix it without touching the emission rate, which combat owns:
-   *   - the CORE mote gets almost no jitter (0.05) and no lateral velocity, and
-   *     starts 1.5x wider than it was, so consecutive motes OVERLAP into a
-   *     continuous line;
-   *   - a second, much dimmer and wider mote with a slow upward drift gives the
-   *     streak volume and a little smoke behind the head.
-   * Two spawns per call, ~30 alive per bolt at 16 u/s — 1% of the 3072 cap.
-   */
+  // One trail step. The core takes almost no jitter and no lateral velocity, so
+  // consecutive motes OVERLAP into a line rather than a string of beads.
   trail(x: number, y: number, z: number, hex: number, size: number): void {
     _c.setHex(hex);
-    // Core colour is DERIVED, not lifted. The old core was `channel * ~1.3 +
-    // 0.16` on every channel, which is fine for a saturated fire orange and
-    // catastrophic for a pale element: frostwing's ice (0x9fdcf0) came out of
-    // that formula at (1, 1, 1) and the whole bolt rendered as a plain white
-    // streak with no ice in it (shots/_vfx2-D-ice.png). Rebuilding the colour
-    // in HSL with a saturation FLOOR and a fixed high lightness keeps every
-    // element's hue at the same brightness, so a bolt is identifiable from its
-    // trail alone — which is the whole point of an element colour.
+    // HSL with a saturation FLOOR: a per-channel lift washes ice out to white.
     _c.getHSL(_hsl, THREE.SRGBColorSpace);
     _c2.setHSL(_hsl.h, Math.max(0.62, _hsl.s), 0.70, THREE.SRGBColorSpace);
 
-    // --- find (or claim) the emitter this call continues -------------------
     let slot = -1, best = TRAIL_CONTINUE_DIST * TRAIL_CONTINUE_DIST, free = -1;
     for (let i = 0; i < TRAIL_EMITTERS; i++) {
       if (this.trailAge[i] > TRAIL_EMITTER_TTL) { if (free < 0) free = i; continue; }
@@ -805,17 +626,11 @@ export class VFX {
       this.trailAge[slot] = 0;
     }
 
-    // --- core motes, stitched along the segment ----------------------------
-    // One mote every TRAIL_SPACING world units, laid down from where the bolt
-    // WAS to where it IS. size*1.9 (was 2.4) because the motes now overlap by
-    // construction and no longer have to be fat enough to bridge a 0.35-unit
-    // gap on their own — a thinner, denser line reads as a streak, a fatter one
-    // as a sausage.
+    // One core mote per TRAIL_SPACING from where the bolt WAS to where it IS.
     for (let i = 1; i <= steps; i++) {
       const f = i / steps;
       const px = ax + (x - ax) * f, py = ay + (y - ay) * f, pz = az + (z - az) * f;
-      // 1.5x on a lightness-0.70 colour puts the brightest channel just over 1
-      // and the others proportionally below it: hot, blooming, still hued.
+      // Pushes the brightest channel just over 1: hot, blooming, still hued.
       const m = 1.35 + Math.random() * 0.3;
       this.particles.spawn(
         px + (Math.random() - 0.5) * 0.04, py + (Math.random() - 0.5) * 0.04, pz + (Math.random() - 0.5) * 0.04,
@@ -826,8 +641,7 @@ export class VFX {
       );
     }
 
-    // One smoke mote per CALL, not per step — the wake wants volume behind the
-    // head, not a second solid line.
+    // One smoke mote per CALL, not per step: volume, not a second line.
     const s = 0.42 + Math.random() * 0.24;
     this.particles.spawn(
       x + (Math.random() - 0.5) * 0.16, y + (Math.random() - 0.5) * 0.16, z + (Math.random() - 0.5) * 0.16,
@@ -838,7 +652,6 @@ export class VFX {
     );
   }
 
-  /** Low outward dust poof at ground level. */
   dust(x: number, y: number, z: number, count: number, hex = 0xcdb894): void {
     _c.setHex(hex);
     for (let i = 0; i < count; i++) {
@@ -854,8 +667,6 @@ export class VFX {
       );
     }
   }
-
-  // ------------------------------------------------------------- lights
 
   private lightSlot(): LightSlot | null {
     for (const s of this.lights) if (s.mode === 0) return s;
@@ -898,8 +709,6 @@ export class VFX {
     s.light.position.set(x, y, z);
     s.light.visible = true;
   }
-
-  // -------------------------------------------------------- glow sprites
 
   private glowSlot(): GlowSlot | null {
     for (const s of this.glows) if (s.mode === 0) return s;
@@ -948,8 +757,6 @@ export class VFX {
     s.sprite.visible = true;
   }
 
-  // ------------------------------------------------------ rings / beams
-
   ring(x: number, y: number, z: number, hex: number, maxRadius: number, life: number): void {
     let slot: RingSlot | null = null;
     for (const s of this.rings) if (s.life <= 0) { slot = s; break; }
@@ -974,17 +781,7 @@ export class VFX {
     slot.mesh.visible = true;
   }
 
-  /**
-   * Beam discharge: a thin tapered core down the axis, three feathered ribbons
-   * of flowing energy around it, a muzzle flare, and sparks shed along the ray.
-   *
-   * The old version was one `CylinderGeometry` drawn twice at two widths with a
-   * flat colour and no map. Captured (shots/_vfx2-beam-0.08.png) that is an
-   * orange drainpipe: constant width from muzzle to target, a hard silhouette
-   * on both flanks, and the open far end reading as a cut-off tube. Nothing in
-   * it moved except a width scale, so a 0.3 s discharge looked like a static
-   * prop that blinked on.
-   */
+  // Tapered core down the axis, three feathered ribbons, a muzzle flare, sparks.
   beam(from: THREE.Vector3, to: THREE.Vector3, hex: number): void {
     let slot: BeamSlot | null = null;
     for (const s of this.beams) if (s.life <= 0) { slot = s; break; }
@@ -992,9 +789,7 @@ export class VFX {
       const coreMat = new THREE.MeshBasicMaterial({
         blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false,
       });
-      // Shares its program with the slash ribbons: map + additive + transparent
-      // + DoubleSide + toneMapped:false is the same permutation, and warmUp()
-      // draws a beam and a slash at boot either way.
+      // Same material permutation as the slash ribbons, so they share a program.
       const haloMat = new THREE.MeshBasicMaterial({
         map: this.beamTexture,
         blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false,
@@ -1014,37 +809,27 @@ export class VFX {
     if (!slot) return;
     const len = _v.copy(to).sub(from).length();
     _v.normalize();
-    // 0.18 s was under three frames of visible beam at 60 fps for a skill
-    // described as a "roaring ribbon" — you could miss it entirely between two
-    // screenshots. 0.3 s reads as a discharge and still never overlaps its own
-    // cooldown. 0.3 -> 0.42 in round 2: the flow scroll needs long enough to
-    // travel a couple of striation periods or the motion never registers.
+    // Long enough for the flow scroll to travel a couple of striation periods.
     slot.life = 0.42; slot.maxLife = 0.42;
     slot.group.position.copy(from);
     slot.group.quaternion.setFromUnitVectors(Y_AXIS, _v);
     slot.len = len;
     slot.core.scale.set(0.05, 0.001, 0.05);
     slot.halo.scale.set(0.30, 0.001, 0.30);
-    // Repeat the striation once every ~2.2 world units of beam so a long shot
-    // gets more flow detail than a short one instead of stretching four bands
-    // over 18 units.
+    // One striation period per ~2.2 world units, so detail scales with length.
     this.beamTexture.repeat.y = Math.max(1, Math.round(len / 2.2));
     _c.setHex(hex);
     slot.coreMat.color.setRGB(
       Math.min(1, _c.r * 0.4 + 0.75), Math.min(1, _c.g * 0.4 + 0.75), Math.min(1, _c.b * 0.4 + 0.75));
-    // 1.55x on the halo: it is texture-masked now, so most of its area is under
-    // half alpha and the old flat 0.75 opacity left the ribbon dimmer than the
-    // untextured tube it replaced.
+    // Halo is gained up: most of its area is under half alpha from the mask.
     slot.haloMat.color.copy(_c).multiplyScalar(1.55);
     slot.coreMat.opacity = 1; slot.haloMat.opacity = 0.9;
     slot.group.visible = true;
 
     // Muzzle flare — a beam that simply exists between two points has no source.
     this.glowPulse(from.x, from.y, from.z, hex, 1.5, 0.24);
-    // Sparks shed along the ray. Emitted with a strong OUTWARD component so
-    // they leave the beam rather than riding inside it, where they would be
-    // invisible against the core.
-    // Orthonormal basis about the ray: u = normalize(d x Y), w = d x u.
+    // Sparks shed along the ray, thrown OUTWARD so they leave the core instead
+    // of riding invisibly inside it. Basis: u = normalize(d x Y), w = d x u.
     let ux = _v.z, uz = -_v.x;
     const rl = Math.hypot(ux, uz);
     if (rl < 1e-4) { ux = 1; uz = 0; } else { ux /= rl; uz /= rl; }
@@ -1068,17 +853,8 @@ export class VFX {
     }
   }
 
-  /**
-   * Melee sweep: a tilted crescent that snaps through its arc in the first half
-   * of its life, plus a handful of sparks flung off the blade edge.
-   *
-   * The colour is derived rather than used raw. Callers pass an ELEMENT colour
-   * (or 0xdfe9ff for the hero's sword), and the old code put that on the outer
-   * ring and pure white on the inner one, both additive at full opacity — every
-   * captured swing clipped to a flat 255 with no hue left in it. Here the hue is
-   * kept, saturation is floored at 0.55 so even a near-white input yields a
-   * coloured fringe, and only the thin core is allowed near white.
-   */
+  // The caller's ELEMENT colour is re-derived — hue kept, saturation floored at
+  // 0.55 — and only the thin core is allowed near white.
   slash(x: number, y: number, z: number, dirX: number, dirZ: number, hex: number, scale = 1.6): void {
     let slot: SlashSlot | null = null;
     for (const s of this.slashes) if (s.life <= 0) { slot = s; break; }
@@ -1119,10 +895,7 @@ export class VFX {
     slot.root.position.set(x, y, z);
     slot.root.rotation.set(0, Math.atan2(dirX, dirZ), 0);
     slot.plane.rotation.x = SLASH_PITCH;
-    // Drop the ring so the crescent rides at the caller's own height instead of
-    // one ring-radius above it. Callers aim at the chest (the hero's sword uses
-    // position.y + 1.25); without this the arc swept over the target's head —
-    // see shots/_vfx-g7-sw12.png, where the blade is above the crosshair.
+    // Rides at the caller's own height, not one ring-radius above it.
     slot.plane.position.y = SLASH_DROP;
     slot.spin.rotation.z = dir * (SLASH_TILT + SLASH_SWEEP_FROM);
     slot.root.scale.setScalar(scale);
@@ -1130,38 +903,17 @@ export class VFX {
     _c.setHex(hex);
     _c.getHSL(_hsl, THREE.SRGBColorSpace);
     const sat = Math.max(0.55, _hsl.s);
-    // The gains matter as much as the hues. These materials write LINEAR
-    // radiance that the output pass then tone-maps, so an sRGB lightness of
-    // 0.54 lands at ~0.25 linear — captured in daylight (shots/_vfx-g3-sw01.png)
-    // that was a barely visible smear against sunlit grass at ~0.35. 2.6x puts
-    // the wake clearly above the ground it crosses; 3.2x on the thin core takes
-    // it past 1.0, where it blooms and rolls off to white ONLY on the few pixels
-    // of the blade edge instead of across the whole arc.
+    // These write LINEAR radiance the output pass tone-maps, so an sRGB 0.54
+    // lands near 0.25 and vanishes on sunlit grass — hence the gains.
     slot.oMat.color.setHSL(_hsl.h, Math.min(1, sat * 1.05), 0.54, THREE.SRGBColorSpace)
       .multiplyScalar(1.35);
-    // 0.87/2.0 -> 0.82/1.7: with the sweep now spread over five frames instead
-    // of two, the core is on screen long enough that a full blowout to white
-    // was throwing away the element hue for most of the swing.
     slot.iMat.color.setHSL(_hsl.h, sat * 0.40, 0.82, THREE.SRGBColorSpace)
       .multiplyScalar(1.7);
     slot.oMat.opacity = 0; slot.iMat.opacity = 0;
     slot.root.visible = true;
 
-    // Sparks flung off the blade edge, laid out on the same ring the ribbon
-    // rides. Without these the arc is a decal that passes through a body and
-    // leaves nothing behind — this is the "it connected" cue, and it is the only
-    // part of a melee hit that survives past the 0.23 s the ribbon lives.
-    // `right` is the horizontal perpendicular to the strike; with world up it
-    // spans the ring's plane.
-    // ROUND 2: these were 10 sparks on a stratified `(i + rand)/10` sweep of the
-    // arc, at one size, all moving radially outward at 2.6-5.8 u/s. Captured
-    // (shots/_vfx2-mb-0.04.png) that is a string of evenly spaced identical
-    // pearls sitting ON the arc — the layout is legible as a formula. Three
-    // changes break it: `u` is fully random rather than stratified, the radius
-    // spread widens to +-25% so they are not all on one circle, and most of the
-    // speed is now TANGENTIAL (along the swing) rather than radial, so within
-    // two frames they have smeared into a fan following the blade instead of
-    // ringing it.
+    // Sparks on the ribbon's own ring — the cue that outlives it. `u` random and
+    // the speed TANGENTIAL, or they read as pearls threaded on the arc.
     const rx = dirZ, rz = -dirX;
     const roll = dir * (SLASH_TILT + 0.35);
     const rad = scale * 0.72;
@@ -1171,7 +923,6 @@ export class VFX {
       const ang = roll + (u - 0.5) * 2.3 * dir;
       const sa = Math.sin(ang), ca = Math.cos(ang);
       const ox = rx * sa, oy = ca, oz = rz * sa;
-      // Tangent to the ring at `ang`, in the swing's direction of travel.
       const tx = rx * ca * -dir, ty = sa * dir, tz = rz * ca * -dir;
       const rr = rad * (0.78 + Math.random() * 0.5);
       const vt = 5.0 + Math.random() * 6.5;
@@ -1179,10 +930,7 @@ export class VFX {
       this.particles.spawn(
         x + ox * rr, cy + oy * rr, z + oz * rr,
         tx * vt + ox * vr, ty * vt + oy * vr * 0.5 + 0.7, tz * vt + oz * vr,
-        // 0.045-0.115, not 0.07-0.18: at 6 units a point sprite of 0.12 draws a
-        // ~10 px soft disc, and sixteen of those on one arc read as a string of
-        // pearls (shots/_vfx2-B-mb-0.04.png). Halving the size and raising the
-        // count to 22 turns the same energy into grit.
+        // Small and many: fat sprites on one arc read as pearls, not grit.
         0.13 + Math.random() * 0.24, 0.045 + Math.random() * 0.07, 0.01,
         Math.min(1, _c.r * 1.35 + 0.24), Math.min(1, _c.g * 1.35 + 0.24), Math.min(1, _c.b * 1.35 + 0.24),
         -11, 2.4,
@@ -1215,8 +963,6 @@ export class VFX {
     slot.mesh.visible = true;
   }
 
-  // ---------------------------------------------------------- debris etc
-
   debrisBurst(x: number, y: number, z: number, palette: readonly number[], count: number, speed: number, size: number, floorY: number): void {
     for (let i = 0; i < count; i++) {
       const hex = palette[(Math.random() * palette.length) | 0];
@@ -1229,39 +975,19 @@ export class VFX {
     }
   }
 
-  /**
-   * Full-screen hit flash — a VIGNETTE, not a flat wash.
-   *
-   * This used to set a solid backgroundColor, so taking a hit painted an even
-   * sheet of red over the whole frame: it hid the thing that just hit you, and a
-   * uniform screen tint is the one screen effect that always reads as a bug
-   * rather than as damage. A radial gradient that is clear through the middle
-   * two thirds and ramps to full at the corners puts the same energy on screen
-   * while leaving the fight visible.
-   *
-   * Called on damage and on AoE casts — a handful of times a second at worst, so
-   * building the gradient string here is not on any per-frame path.
-   */
+  // A VIGNETTE, not a flat wash: clear through the middle two thirds, so it
+  // never hides the thing that just hit you. Never on a per-frame path.
   screenFlash(hex: number, strength: number): void {
     _c.setHex(hex);
     const rgb = `${Math.round(_c.r * 255)},${Math.round(_c.g * 255)},${Math.round(_c.b * 255)}`;
     this.flashEl.style.background =
       `radial-gradient(ellipse at center, rgba(${rgb},0) 34%, rgba(${rgb},0.45) 72%, rgba(${rgb},1) 100%)`;
-    // 1.6x compensates for the vignette: the callers' strengths (0.14 for a hit,
-    // 0.06 for an AoE cast) were chosen against a flat sheet, and the gradient
-    // now clears the middle third entirely. Same peak alpha at the corners as
-    // the old wash had everywhere, so the effect is no louder in total.
+    // Gain compensates for the vignette; callers tuned against a flat sheet.
     this.flashOpacity = Math.max(this.flashOpacity, Math.min(0.85, strength * 1.6));
   }
 
-  // ----------------------------------------------------------- warm-up
-
-  /**
-   * Shader warm-up: put one of every effect on screen so its program is linked
-   * and takes its first draw NOW, at boot, instead of the first time a beast
-   * casts. Measured, that first cast linked 14 programs and the GPU process
-   * then stalled a frame for ~500 ms. See warmUpShaders() in main.ts.
-   */
+  // Draws one of every effect so its program links at boot, not on the first
+  // cast, which otherwise stalls a frame. See warmUpShaders() in main.ts.
   warmUp(x: number, y: number, z: number): void {
     const hex = 0xffffff;
     this.burst(x, y, z, hex, 6, 2, 0.3, 0.2);
@@ -1278,21 +1004,11 @@ export class VFX {
     this.scorch(x, y, z, hex, 1);
   }
 
-  /**
-   * Make `n` more pool lights visible.
-   *
-   * This is the half that matters most and is the least obvious: three keys a
-   * program on the NUMBER OF LIGHTS in the scene, so every lit material gets a
-   * fresh program the first time one light is up, another the first time two
-   * are up, and so on. A firefight lighting three projectiles at once therefore
-   * recompiles the world at three separate moments. Warming the whole range
-   * costs one render per step at boot and buys all of them.
-   */
+  // three keys a program on the NUMBER OF LIGHTS in the scene, so every light
+  // count needs its own warm render.
   warmUpLights(x: number, y: number, z: number, n: number): void {
     for (let i = 0; i < n; i++) this.flashLight(x, y, z, 0xffffff, 0.001, 4, 0.02);
   }
-
-  // -------------------------------------------------------------- update
 
   update(dt: number): void {
     this.particles.update(dt);
@@ -1300,8 +1016,7 @@ export class VFX {
     for (let i = 0; i < TRAIL_EMITTERS; i++) {
       if (this.trailAge[i] <= TRAIL_EMITTER_TTL) this.trailAge[i] += dt;
     }
-    // Flow scroll for every live beam. One shared texture, so all beams flow
-    // together; negative so the striations run muzzle -> target.
+    // Negative runs the striations muzzle -> target.
     this.beamTexture.offset.y = (this.beamTexture.offset.y - dt * 2.6) % 1;
 
     for (const s of this.lights) {
@@ -1318,11 +1033,7 @@ export class VFX {
       if (s.life <= 0) { s.mode = 0; s.sprite.visible = false; continue; }
       const t = s.life / s.maxLife;
       const p = 1 - t;
-      // A flash, not a fade. Opacity was linear in t and the sprite grew
-      // linearly from its full size — the muzzle and impact pops read as slow
-      // blooming clouds. t^1.6 dumps most of the brightness in the first three
-      // frames; the scale now SNAPS from 0.6x to 1.45x on an ease-out, so the
-      // pop expands instead of arriving already large.
+      // A flash, not a fade: brightness front-loaded, scale snaps outward.
       s.mat.opacity = t * t * Math.sqrt(t) * 0.98;
       s.sprite.scale.setScalar(s.s0 * (0.6 + 0.85 * easeOutCubic(p)));
     }
@@ -1332,10 +1043,7 @@ export class VFX {
       s.life -= dt;
       if (s.life <= 0) { s.mesh.visible = false; continue; }
       const p = 1 - s.life / s.maxLife;
-      // Quartic expansion (was cubic) so the leading edge outruns the fireball
-      // for the first two frames, which is what makes it read as a shockwave;
-      // the sharper opacity falloff (2.2, was 1.5) keeps it from lingering as a
-      // decal after the blast is gone.
+      // Quartic, so the leading edge outruns the fireball.
       const r = Math.max(0.01, s.maxR * (1 - Math.pow(1 - p, 4)));
       s.mesh.scale.set(r, 1, r);
       s.mat.opacity = Math.pow(1 - p, 2.2) * 1.15;
@@ -1347,15 +1055,11 @@ export class VFX {
       if (s.life <= 0) { s.group.visible = false; continue; }
       const t = s.life / s.maxLife;
       const p = 1 - t;
-      // The discharge PUNCHES OUT: length ramps from nothing to full over the
-      // first 13% of life (~55 ms). It used to appear at full length on frame
-      // one, which is why it read as a static prop blinking on rather than as
-      // something leaving the caster's mouth.
+      // Punches out over the first 13% of life, or it reads as a prop blinking on.
       const grow = easeOutQuint(Math.min(1, p / 0.13));
       s.core.scale.y = Math.max(0.001, s.len * grow);
       s.halo.scale.y = Math.max(0.001, s.len * grow);
-      // Flicker on the halo only: a clean cylinder holding a constant width for
-      // its whole life looks like a placeholder cylinder, which is what it was.
+      // Flicker on the halo only; a constant width reads as a placeholder tube.
       const w = 0.42 + t * 0.58;
       const f = 0.86 + 0.14 * Math.sin(t * 71);
       s.core.scale.x = 0.05 * w; s.core.scale.z = 0.05 * w;
@@ -1369,16 +1073,12 @@ export class VFX {
       s.life -= dt;
       if (s.life <= 0) { s.root.visible = false; continue; }
       const p = 1 - s.life / s.maxLife;
-      // The blade covers its arc in the first two thirds; the rest of the life
-      // is the wake hanging in the air, which is what makes the swing feel fast.
-      // easeOutCubic, not Quint: quint put 88% of the travel in the first 40 ms,
-      // so consecutive captured frames were the same crescent in the same place.
+      // Cubic, not quint: quint puts 88% of the travel in the first 40 ms.
       const sw = easeOutCubic(Math.min(1, p / SLASH_SWEEP_WINDOW));
       s.spin.rotation.z = s.dir
         * (SLASH_TILT + SLASH_SWEEP_FROM + (SLASH_SWEEP_TO - SLASH_SWEEP_FROM) * sw);
-      // `attack` reaches 1 within ~1.5 frames at 60 fps: full brightness on the
-      // frame the hit lands, then a decay. The core outruns the wake (2.7 vs
-      // 1.35) so what lingers is coloured, not white.
+      // Full brightness on the frame the hit lands; the core fades faster than
+      // the wake, so what lingers is coloured, not white.
       const attack = Math.min(1, p * 11);
       s.oMat.opacity = attack * Math.pow(1 - p, 1.35) * 0.95;
       s.iMat.opacity = attack * Math.pow(1 - p, 2.7);
@@ -1402,15 +1102,6 @@ export class VFX {
     }
   }
 
-  /**
-   * Release everything this manager put in the scene or on the GPU.
-   *
-   * Nothing calls this today — CombatSystem outlives its scene and REBINDS
-   * across zones rather than rebuilding, precisely so the warmed shader programs
-   * survive (see CombatSystem.setWorld). It exists so that the rule "everything
-   * that adds to the scene has a matching dispose() path" is not quietly false
-   * for the one module that adds the most.
-   */
   dispose(): void {
     const drop = (o: THREE.Object3D, geo?: THREE.BufferGeometry, ...mats: THREE.Material[]): void => {
       this.scene.remove(o);

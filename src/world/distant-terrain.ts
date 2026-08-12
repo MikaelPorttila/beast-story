@@ -1,17 +1,4 @@
-/**
- * Camera-following distant landscape.
- *
- * The playable world remains the 1 m voxel chunks built by chunk.ts. This is a
- * single coarse grid underneath and beyond them: one terrain draw and one water
- * draw carrying only the silhouette, broad biome colour and coastline. It is
- * the useful overlap of a terrain clipmap and HLOD for this generated world —
- * far geometry gets a player-selected 8-24 m sample step instead of the nearby
- * ground's 1 m columns, and no props, colliders, shadows, foam or waves.
- *
- * The grid is rebuilt in-place only after the focus crosses a 64 m cell. That
- * keeps an effectively unbounded procedural world centred without allocating
- * on the frame path or rebuilding every time the player moves.
- */
+/** Camera-following coarse terrain + water under and beyond the 1 m chunks. */
 import * as THREE from 'three';
 import { excludeFromAO } from '../core/types';
 import { Terrain, WATER_LEVEL, makeScratch, smoothstep } from './terrain';
@@ -21,12 +8,6 @@ import type { RimHit } from './roads';
 /** Shipped medium setting. Live choices replace these through configure(). */
 const DEFAULT_VIEW_DISTANCE = 600;
 const DEFAULT_DETAIL_DISTANCE = 160;
-/**
- * Near water does not write depth (its own shader blends while staying in the
- * opaque AO list), so the far sheet cannot overlap it as freely as ground can.
- * Start outside the guaranteed detailed ring and dissolve across the fogged
- * rim; radial distance avoids revealing the streamer's chunk-square outline.
- */
 /** Re-sample after four far-grid cells, not for every nearby chunk crossing. */
 const SNAP = 64;
 
@@ -42,16 +23,7 @@ interface FadeUniforms {
   end: { value: number };
 }
 
-/**
- * Make the far underlay converge to the exact sky radiance before projection
- * clips it. The global fog uses view depth, which is right for aerial
- * perspective but shorter than true camera distance at the sides of a wide
- * frame; without this final radial dissolve, off-axis ground can reach the far
- * plane while still visibly green and draw a hard arc against the sky.
- *
- * This adds only two varyings/uniforms and a smoothstep to the two existing far
- * draws. No geometry, chunks, textures, allocations, or frame-loop work.
- */
+/** Radial dissolve to sky: fog's view depth is short off-axis, drawing an arc. */
 function installHorizonFade(material: THREE.MeshBasicMaterial, fade: FadeUniforms): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.bsHorizonFadeStart = fade.start;
@@ -88,15 +60,7 @@ uniform float bsHorizonFadeEnd;`)
 }
 
 function layoutFor(viewDistance: number): Layout {
-  // Each outer radius is an exact multiple of its step. High spends roughly
-  // nine times Medium's far vertices to keep the longer horizon from turning
-  // into visibly large triangles; Low deliberately does the reverse.
-  // One snap cell of reserve keeps the camera-following square beyond the
-  // projection sphere even when its 64 m anchor is at the far side of a snap.
-  // Medium's 12 m cells are the measured compromise for aerial coastlines: the
-  // old 16 m wet/dry triangles exposed lakebed as large beige wedges once the
-  // detailed water correctly dissolved, while 12 m costs ~12.8k vertices total
-  // and still stays far below High's ~60k. Draw count remains unchanged.
+  // Radius is a multiple of step, plus a snap cell of reserve for any anchor.
   const [outerRadius, step] = viewDistance <= 480 ? [552, 24]
     : viewDistance >= 900 ? [976, 8] : [672, 12];
   const side = outerRadius * 2 / step + 1;
@@ -160,16 +124,13 @@ export class DistantTerrain {
   private terrainColor: Float32Array;
   private waterPosition: Float32Array;
   private waterColor: Float32Array;
-  // Double-buffered CPU attributes: the visible mesh stays internally
-  // consistent while a new far field is sampled over several frames.
+  // Double-buffered: the visible mesh stays consistent while the next samples.
   private nextTerrainPosition: Float32Array;
   private nextTerrainColor: Float32Array;
   private nextWaterPosition: Float32Array;
   private nextWaterColor: Float32Array;
   private readonly scratch = makeScratch();
-  /** Second column reading, for the path rims in `underPaths`. */
   private readonly rimScratch = makeScratch();
-  /** Where `underPaths` last found a corridor. Reused, never retained. */
   private readonly rim: RimHit = { found: false, x: 0, z: 0, nx: 0, nz: 0, half: 0 };
   private anchorX = Infinity;
   private anchorZ = Infinity;
@@ -193,9 +154,7 @@ export class DistantTerrain {
   ) {
     this.viewDistance = viewDistance;
     this.detailDistance = detailDistance;
-    // Preserve most of the selected range for silhouettes, then match the sky
-    // by 86%. That leaves a real guard band for snap lag, camera height and the
-    // projection plane instead of asking the last few pixels to do all the work.
+    // Match the sky by 86% of range, leaving guard band for snap lag.
     this.horizonFade = {
       start: { value: viewDistance * 0.66 },
       end: { value: viewDistance * 0.86 },
@@ -215,8 +174,7 @@ export class DistantTerrain {
     const waterGeo = geometry(this.layout, this.waterPosition, this.waterColor);
     const terrainMat = new THREE.MeshBasicMaterial({
       vertexColors: true,
-      // A depthless opaque underlay: far ground first, far water second, then
-      // detailed terrain and water overwrite both in the same opaque list.
+      // Depthless opaque underlay; detailed chunks overwrite it in the same list.
       transparent: false,
       depthWrite: false,
       fog: true,
@@ -224,17 +182,10 @@ export class DistantTerrain {
     const waterMat = new THREE.MeshBasicMaterial({
       vertexColors: true,
       color: 0xffffff,
-      // Far wetness used to be blended across each coarse triangle. That made
-      // the lake bed show through as enormous grey wedges (issue #97). Alpha
-      // test keeps the coastline mask but makes every surviving water pixel a
-      // solid surface; near chunk water still supplies the transparent shore,
-      // waves and foam over the top of it.
+      // Alpha test, not blending: blending showed lakebed as grey wedges (#97).
       transparent: false,
       alphaTest: 0.02,
-      // This is an UNDERLAY, not an occluder. Near terrain is drawn afterwards
-      // and must overwrite it, including the lakebed that detailed translucent
-      // water blends over. Writing depth here made the coarse wet/dry mask win
-      // that test and appear as huge dark pools and blue islands (issue #97).
+      // Underlay: depth writes let the coarse mask beat near terrain (#97).
       depthWrite: false,
       side: THREE.DoubleSide,
       polygonOffset: true,
@@ -253,10 +204,7 @@ export class DistantTerrain {
     this.water.name = 'distant:water';
     this.water.renderOrder = -1;
     this.water.matrixAutoUpdate = false;
-    // Sampling even Medium synchronously was a visible load hitch; High is nine
-    // times that geometry. Keep both meshes hidden until buildStep has produced
-    // one internally consistent field, and let World.streaming hold the loading
-    // or zone handoff until then.
+    // Hidden until buildStep has one consistent field; World.streaming waits.
     this.terrain.visible = false;
     this.water.visible = false;
     this.requestUpdate(focus);
@@ -278,28 +226,13 @@ export class DistantTerrain {
     this.nextTerrainColor = new Float32Array(count * 4);
     this.nextWaterPosition = new Float32Array(count * 3);
     this.nextWaterColor = new Float32Array(count * 4);
-    // Keep the complete old HLOD visible while the replacement is sampled.
-    // Swapping to empty High buffers here was both a synchronous setting hitch
-    // and a frame of missing hills. commitPending replaces both meshes atomically.
     this.nextAnchorX = Math.floor(focus.x / SNAP) * SNAP;
     this.nextAnchorZ = Math.floor(focus.z / SNAP) * SNAP;
     this.nextVertex = 0;
     this.nextWetWaterVertices = 0;
   }
 
-  /**
-   * THE GROUND CHANGED UNDER A CENTRE THAT DID NOT MOVE. Resample where we are.
-   *
-   * `requestUpdate` is keyed on the anchor and early-returns when it has not
-   * moved, which is right for a hero walking and wrong for a path AUTHORED at
-   * runtime (`World.addPath`): the corridor appears a hundred units away, the
-   * anchor never budges, and the far mesh keeps chording over ground that has
-   * since been carved. Measured on the trail to the gateway: 340 columns of
-   * clipmap drawn above the ribbon, worst 1.274.
-   *
-   * Costs one full resample, paid by `buildStep` over later frames like any
-   * other — the old mesh stays up until the new one commits.
-   */
+  /** Resample without the anchor moving — for ground carved at runtime. */
   invalidate(): void {
     this.nextAnchorX = this.anchorX;
     this.nextAnchorZ = this.anchorZ;
@@ -307,7 +240,6 @@ export class DistantTerrain {
     this.nextWetWaterVertices = 0;
   }
 
-  /** Queue a new snapped centre. Sampling is paid by buildStep over later frames. */
   requestUpdate(focus: Readonly<THREE.Vector3>): void {
     const ax = Math.floor(focus.x / SNAP) * SNAP;
     const az = Math.floor(focus.z / SNAP) * SNAP;
@@ -319,12 +251,10 @@ export class DistantTerrain {
     this.nextWetWaterVertices = 0;
   }
 
-  /** Spend at most this frame's small wall-clock slice on the pending centre. */
   buildStep(budgetMs: number): boolean {
     if (this.nextVertex < 0) return false;
     const end = performance.now() + budgetMs;
     const count = this.nextLayout.xz.length / 2;
-    // Check the clock once per cache-friendly batch, not once per noise sample.
     do {
       const stop = Math.min(this.nextVertex + 32, count);
       while (this.nextVertex < stop) this.writeVertex(this.nextVertex++);
@@ -336,59 +266,17 @@ export class DistantTerrain {
 
   get building(): boolean { return this.nextVertex >= 0; }
 
-  /**
-   * Keep the far ground under any path that runs through this vertex's cell.
-   *
-   * THE HLOD CHORDS OVER A CORRIDOR. Near ground is a 1 m column and knows
-   * exactly where a road is; this grid samples every 8-24 m, so one edge can
-   * span a whole carriageway — and a straight line between two vertices on the
-   * banks passes clean over the trench that was cut between them. Measured on
-   * seed 1337 the day `test-road`'s own pattern was corrected so it could see
-   * the far mesh at all: 168 of its samples had the clipmap drawn ABOVE the
-   * ribbon, worst 0.313. It is the flat green wedge lying across the road in
-   * the report, and it had never shown up in a number because the guard was
-   * matching a mesh name nothing is called.
-   *
-   * A MINIMUM OVER THE CELL, not at the vertex. Clamping the vertex alone fixes
-   * nothing: its neighbour is still high and the chord between them still
-   * crosses. Taking the lowest corridor surface within half a step of BOTH ends
-   * puts the whole edge under the deck by construction.
-   *
-   * Lowering is always safe here, which is what makes this cheap rather than
-   * delicate: the HLOD is a permanent underlay and the near chunks are drawn
-   * over it. Nothing walks on it and nothing collides with it.
-   */
+  /** Keep far ground under any path in the cell; the coarse grid chords over a
+   * carved corridor. Lowering is safe — nothing walks on the underlay. */
   private underPaths(wx: number, wz: number, y: number): number {
     const rf = this.field.roads;
     if (rf === null) return y;
-    // A FULL STEP, not half of one. A vertex is only useful here if it is
-    // clamped BEFORE the triangle it belongs to crosses the corridor, and the
-    // triangle reaches a whole step out — clamping at half a step left the far
-    // vertex of every straddling edge high and the chord still crossed: 191
-    // columns of clipmap over the trail, down from 340 but not down to nothing.
-    // The cost is a band one step wide sitting low around each path, on a mesh
-    // that nothing walks on and that near chunks are drawn over anyway.
+    // A FULL step: the triangle reaches that far, so half left edges high.
     const h = this.nextLayout.step;
-    // ASKED OF THE SEGMENTS, not sampled on a stencil. A nine-point stencil is
-    // only as fine as its gaps, and a TRAIL is 3.6 units across against a step
-    // of 8 to 24 — so it fell straight between the samples and 340 columns of
-    // clipmap came back drawn over its ribbon at worst 1.274.
-    // `lowestDrawnSurfaceNear` tests each segment against the cell as a disc,
-    // which finds a path of any width.
     let out = rf.lowestDrawnSurfaceNear(wx, wz, h, y, this.rim);
     if (!this.rim.found) return out;
-    // AND UNDER ITS RIM, which is the half of this a deck clamp misses.
-    //
-    // A ribbon is not flat: the deck runs down the middle and the rim vertices
-    // sit on the WALKING SURFACE, sampled per vertex at a resolution no coarse
-    // mesh has. On a cart road that never showed, because the carve sinks the
-    // whole corridor about 1.6 and the rim is still far below anything the
-    // clipmap chords. A TRAIL carves shallowly and its rim is very nearly the
-    // natural ground, so the clipmap's own interpolation error — up to half a
-    // step of hill — came out on top of it: 340 columns, worst 1.274.
-    //
-    // So both rims are read off the same fine surface the ribbon used. Two
-    // extra column samples, and only on vertices with a corridor in their cell.
+    // Rims too — a shallow trail's rim is near natural ground, so the
+    // clipmap's own interpolation error rides over it.
     for (const side of [1, -1] as const) {
       const rx = this.rim.x + this.rim.nx * this.rim.half * side;
       const rz = this.rim.z + this.rim.nz * this.rim.half * side;
@@ -419,17 +307,13 @@ export class DistantTerrain {
       this.nextTerrainColor[c] = this.scratch.topR;
       this.nextTerrainColor[c + 1] = this.scratch.topG;
       this.nextTerrainColor[c + 2] = this.scratch.topB;
-      // The HLOD is a permanent underlay. Near chunks are drawn later and
-      // overwrite it; until those chunks finish, it fills the exact same hill
-      // instead of exposing sky through a radius-based alpha hole.
+      // Opaque, so an unfinished near chunk shows no sky hole.
       this.nextTerrainColor[c + 3] = 1;
 
       this.nextWaterPosition[p] = lx;
       this.nextWaterPosition[p + 1] = SURFACE_Y - 0.04;
       this.nextWaterPosition[p + 2] = lz;
-      // Broad mid-distance blue only. The old navy fallback was far darker than
-      // the reflective chunk shader and exposed the handoff as a huge circular
-      // ink pool. Near chunks retain their depth ramp, foam and waves.
+      // Blue matched to the chunk shader; darker exposed the handoff as a pool.
       this.nextWaterColor[c] = 0.035;
       this.nextWaterColor[c + 1] = 0.300;
       this.nextWaterColor[c + 2] = 0.560;
@@ -477,9 +361,7 @@ export class DistantTerrain {
     terrainCol.needsUpdate = true;
     waterPos.needsUpdate = true;
     waterCol.needsUpdate = true;
-    // MeshBasic deliberately needs no normals. Recomputing them over High's
-    // camera-following grid every 64 m caused a recenter hitch and shaded each
-    // coarse triangle as a separate sliced face on distant mountains.
+    // No normals: MeshBasic needs none, and recomputing them every 64 m hitched.
     this.terrain.geometry.computeBoundingSphere();
     this.water.geometry.computeBoundingSphere();
     this.ready = true;

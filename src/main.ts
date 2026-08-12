@@ -38,15 +38,8 @@ import {
   type BiomeData, type MusicData, type ObjectiveTriggerKind, type QuestData, type QuestRewards,
 } from './content';
 import type { ContentAsset, ContentId } from './content/types';
-// THE ONE STATIC IMPORT OF A CONTENT PROVIDER, and it is in an entry point
-// rather than inside `src/content/` on purpose — see the header of
-// src/content/index.ts for the whole argument. In short: nothing under
-// `src/content/` may statically reach `storage/bundled.ts`, because it uses
-// Vite's `import.meta.glob` and tools/test-zfight.mjs imports game modules
-// straight into plain Bun; but leaving `bootstrapContent`'s dynamic fallback as
-// the ONLY route puts a chunk fetch on the boot path, measured at 15.8 ms
-// against 2.4 ms for the linked form. This file and src/lab/index.ts are the two
-// Vite entries, so they are the two places that may link it.
+// Only the Vite entries may link a content provider: src/content/ must not statically reach
+// storage/bundled.ts (import.meta.glob breaks test-zfight under Bun), and this keeps boot off a fetch.
 import { BundledProvider } from './content/storage/bundled';
 import { contentIssues, reportContentIssue } from './core/content-bridge';
 import { ColliderView } from './core/collider-view';
@@ -93,97 +86,23 @@ import { MusicDirector, MUSIC_TRACKS } from './audio/music';
 import { ALL_SPECIES, SKILLS, getSkill } from './beasts/registry';
 
 const app = document.getElementById('app')!;
-// BEFORE the engine, and before anything else measures itself: #app is sized
-// from the custom properties this publishes, and the renderer takes its first
-// size from #app. See src/core/viewport.ts for why the viewport is measured
-// rather than asked for in dvh.
+// Before the engine: #app and the renderer take their first size from this.
 installViewport();
-// Escape is the game's key, not the browser's: this arms the keyboard lock that
-// makes that true for as long as the page is fullscreen. Installed here rather
-// than beside the `requestFullscreen` call in ui/menu.ts because it is driven by
-// the change EVENT and is under no gesture deadline — see ui/fullscreen.ts.
+// Arms the keyboard lock that keeps Escape ours while fullscreen.
 installEscapeLock();
 const engine = new Engine(app);
 const dayNight = new DayNightCycle();
 const input = new Input(engine.renderer.domElement);
 const bus = new EventBus();
 
-// ---------------------------------------------------------------------------
-// BOOT ORDER, and why this module now has `await` in it.
-//
-// Everything below used to run in ONE unbroken task. Measured on the dev server
-// at 1280x800 with a long-task observer installed ahead of this module: a single
-// 14702 ms task starting at 140 ms, and first contentful paint at 15312 ms. For
-// fifteen seconds there was nothing on screen at all — no title screen, no
-// canvas, no spinner — because `createWorld` cut two towns and their roads, ten
-// beast rigs were built, and the whole shader warm-up sweep ran, all before the
-// browser was handed a single frame. Then the game LOOP started, and went on
-// simulating and drawing the world behind the poster, capped to 20 fps, for as
-// long as the player left the title screen up.
-//
-// The same load now has the title screen up at 221 ms (`menuShownAtMs` in
-// tools/test-menu.mjs), and reports the rest — 602 ms of world, 85 ms of actors,
-// 13477 ms of shader warm-up, 1193 ms of streaming — on a progress chip in the
-// corner of it. Nothing got faster; the player simply stopped being made to wait
-// in the dark for it.
-//
-// So the boot is now three named things instead of one:
-//
-//   1. THE POSTER GOES UP FIRST. The title screen and the progress chip are
-//      built here, out of nothing but the DOM, and the module then yields. They
-//      are on screen within a frame of the module being evaluated.
-//   2. THE GAME IS BUILT IN PHASES, each announced on the chip and each
-//      separated from the next by a real paint (see LoadingScreen.stage). The
-//      world, the actors, the shaders and the streaming ring, in that order.
-//      This is the only work happening while the menu is up.
-//   3. NOTHING RENDERS UNTIL THERE IS A PLAYER. `frame()` is called by
-//      `beginPlay()` and by nothing else. Preparation drives its own renders —
-//      the warm-up sweep IS a render, that is what compiles a shader — and once
-//      it is done the main thread goes quiet until New Game is pressed. The old
-//      MENU_FPS cap that made a 96.9% main thread into a 27% one is gone with
-//      it: the honest figure for an idle title screen is now neither, it is the
-//      CSS on the poster.
-//
-// The menu is LIVE throughout phase 2, which is the one thing this arrangement
-// costs. Its hooks can therefore fire before the systems they talk to exist —
-// hence the two `let`s below rather than the `const`s further down, and hence
-// `beginPlay()` being gated on `prepDone` rather than trusting the timing.
-// ---------------------------------------------------------------------------
+// BOOT ORDER: the poster goes up first, then world/actors/shaders/streaming in phases with real
+// paints between, and frame() only starts from beginPlay(). The menu is LIVE during the build.
 
-/**
- * The pad, the touch overlay and the feedback mixer, ASSIGNED further down
- * where their dependencies exist.
- *
- * `let ... = null` rather than the `const`s they used to be, and the reason is
- * the boot order above: the title screen's Settings panel is usable while the
- * game is still being built, so `onLookAxes` and `onHapticFeedback` can be
- * called before any of these has been constructed. A `const` declared later
- * in the module would be in its temporal dead zone at that moment and the hook
- * would THROW rather than harmlessly do nothing. Null is the right answer for
- * "not built yet": the menu has already persisted the choice, and all three are
- * constructed from `loadPrefs()` below, so the switch is honoured either way.
- *
- * `touch` is here for exactly that reason and no other — it was a `const` down
- * beside the world until the look-inversion setting reached it, at which point
- * a phone player flipping the switch on the title screen would have thrown a
- * ReferenceError instead of turning their camera round.
- */
 let pad: GamepadControls | null = null;
 let touch: TouchControls | null = null;
 let feedback: FeedbackSystem | null = null;
 
-/**
- * Whether `gfx` — a `const` several hundred lines below — has been constructed.
- *
- * The same hazard as the two `let`s above and a different shape, because that
- * one cannot be a `let ... = null`: eight call sites read it and every one of
- * them runs long after it exists. A flag lets the settings hook GUARD the
- * reference instead, which is all that is needed — a temporal dead zone is
- * about evaluating the name, so an arrow that never reaches it is safe.
- *
- * Nothing is lost by doing nothing in that window: the panel has already
- * persisted the choice, and `new Gfx()` reads storage.
- */
+// Guards reads of `gfx` (a const far below) while it is still in its dead zone.
 let gfxLive = false;
 
 /** True once every boot phase has finished; nothing may start playing before. */
@@ -193,78 +112,28 @@ let handedOver = false;
 /** True once `frame()` is running. */
 let playing = false;
 
-/**
- * What a settings panel does to the running game, wherever it is shown from.
- *
- * ONE object for both screens, because there is one settings list (ui/settings.ts)
- * and these are what it does — a second copy for the in-game menu would be two
- * places to remember when a switch grows a third effect.
- *
- * Straight through to the pad and the feedback mixer, both of which take a change
- * at any time by design. The preference itself is saved by the panel, so a change
- * thrown before either exists — which the title screen's can be, see the boot
- * order above — is picked up when it is built.
- */
+// One settings object for both screens — there is one settings list (ui/settings.ts).
 const settingsHooks = {
-  // BOTH STICK DEVICES, and that is the whole of the setting: a pad's right
-  // stick and the overlay's look pad are the same control on different
-  // hardware, so one switch moves both. The mouse is deliberately not here —
-  // see core/prefs.ts.
+  // One switch moves both stick devices; the mouse is deliberately not here.
   onLookAxes: (a: Partial<LookAxes>) => {
     pad?.setLookAxes(a);
     touch?.setLookAxes(a);
   },
   onHapticFeedback: (on: boolean) => feedback?.setOptions({ hapticFeedback: on }),
-  // Live, and unlike the two above it there is no null to guard: the music is
-  // built BEFORE the menu, because the poster is the first thing it plays under.
+  // No null guard: music is built before the menu.
   onVolume: (v: number) => music.setVolume(v),
-  // The Graphics tab flips the SAME switches the F3 panel does — one model, one
-  // set of keys (core/gfx.ts). The panel has already stored the value; this is
-  // the apply half, and it is guarded because the sinks below drive an engine
-  // and a world that do not exist while the title screen is still booting. A
-  // change made in that window is read back by the constructor.
+  // Apply half only (the panel stored it); guarded, the sinks need engine and world.
   onGraphics: (id: keyof GfxSinks, value: GfxValue) => { if (gfxLive) gfx.set(id, value); },
-  // Live, and the re-arm is the point: the accumulator is already running, so a
-  // player who shortens the interval means "sooner", not "next session". The
-  // clock is NOT reset with it — sixty seconds already served count towards a
-  // five-minute setting the same as a ten-minute one.
+  // Live re-arm; the elapsed clock is NOT reset with it.
   onAutosaveInterval: (minutes: number) => { autosaveMinutes = minutes; },
 };
 
-/**
- * The write `saveNow` asked for most recently, resolved when it has landed.
- *
- * DECLARED UP HERE, hundreds of lines above the save section it belongs to, and
- * the reason is the boot note at the top of this file: the title screen is
- * constructed during module evaluation and lists characters from its own
- * constructor, so a binding it reads has to be initialised by then or the
- * poster opens on a temporal-dead-zone throw.
- *
- * What it is FOR is the one moment the list and a write are the same event:
- * `exitToTitle` saves the character and raises the poster in the same
- * statement, and the poster asks for the list immediately. Without this the
- * read overtakes the write and the player is looking at a screen that has never
- * heard of the character they just played — Load greyed out, their first
- * character seemingly gone until they reloaded the page.
- */
+// Declared this early because the title screen lists characters during module evaluation, and a list read must queue behind an in-flight write.
 let lastWrite: Promise<unknown> = Promise.resolve();
 
-/**
- * What the title screen needs from the save store (issue #171).
- *
- * Spread into BOTH `StartMenu.offer` calls, which is why it is a const rather
- * than four properties written out twice: the second menu — the one Exit to
- * title raises — is a different instance of the same screen, and a hook added
- * to one and forgotten on the other is a Load button that works until you have
- * played once.
- *
- * `onLoad` READS AND STASHES, `onBegin` STARTS. The split is the menu's, and
- * the reason is that only one of the two can fail: the read happens while the
- * poster is still up so a failure can be shown on it, and the handshake below
- * runs after the fade, on a clear screen. See `StartMenuHooks.onLoad`.
- */
+// Issue #171. Spread into BOTH StartMenu.offer calls so a hook cannot be added to one only.
 const saveMenuHooks = {
-  // AFTER THE WRITE IN FLIGHT, never beside it — see `lastWrite`.
+  // After the write in flight — see `lastWrite`.
   listSaves: async (): Promise<SaveMeta[]> => {
     await lastWrite;
     return listSaves();
@@ -277,66 +146,19 @@ const saveMenuHooks = {
     setActiveSave(id);
     return true;
   },
-  // The same two lines New Game runs, and the same handshake: a Load pressed
-  // while the shader sweep is still going sets `handedOver` and waits on
-  // `prepDone`, exactly as New Game has always done.
+  // Same handshake as New Game: sets handedOver and waits on prepDone.
   onBegin: () => { handedOver = true; beginPlay(); },
 };
 
-/**
- * THE MUSIC, built before anything else it might play under.
- *
- * Ahead of the title screen because the splash track is the title screen's, and
- * a director constructed after the poster would start it a phase late. It is
- * the one system in this file with nothing behind it — no engine, no world, no
- * DOM of its own — so there is nothing to be early FOR it.
- *
- * The volume resolves the same way every other overridable preference in this
- * file does, `flag ?? pref` — with one addition that is not in the others:
- * `flags.silentBoot`. A run under `menu=0` or `photo=1` is a probe or a staged
- * capture, and neither has anyone listening to it; muting those by default is
- * what makes "debug sessions are muted" a property of the build rather than a
- * parameter twenty tools have to remember (see core/flags.ts, and the note in
- * AGENTS.md). `?vol=0.01` is how a change that needs to hear something turns it
- * back on for one load.
- */
+// Built before the title screen because the splash track is the title screen's.
 const music = new MusicDirector(
   flags.volume ?? (flags.silentBoot ? 0 : loadPrefs().volume),
   (scene) => musicPlaylist(scene),
 );
 
-/**
- * WHAT AN AREA PLAYS — the one place the content registry and the audio element
- * meet, and the resolver `MusicDirector` calls on every scene change.
- *
- * A function declaration rather than a const, deliberately: it is referenced by
- * the director constructed immediately above and is not CALLED until
- * `setScene`, so hoisting is what lets the two read in the order a reader wants
- * them (the director first, the policy after) instead of the order the temporal
- * dead zone would insist on.
- *
- * THE TITLE SCREEN SHORT-CIRCUITS, and that is the whole reason it is not
- * content. `music.setScene('title')` runs about forty lines below this and
- * `bootstrapContent()` runs three hundred lines further on — measured, the
- * poster is up at ~221 ms and content boots inside the `world` phase — so a
- * poster asking the registry anything would be asking an empty one. It would
- * then take the FALLBACK, which is the overworld's song, and the player would
- * hear half a second of the wrong track before the right one swapped in. The
- * splash is not an area; see the header of src/content/types/music.ts.
- *
- * A TRACK NAME NOTHING REGISTERED IS DROPPED IN SILENCE HERE, which is the one
- * place in this function that looks like a swallowed error and is not: the
- * `music-track` factories are registered before `bootstrapContent()`, so the
- * cross-asset pass has already filed an `unknown-factory` diagnostic naming the
- * asset AND the index inside its `tracks` list (content/types/music.ts). Filing
- * a second one per scene change would print the same finding every time the
- * player walks through a gateway.
- */
 function musicPlaylist(scene: string): readonly string[] {
   if (scene === 'title') return [MUSIC_TRACKS.title];
-  // The area's own playlist, or the one asset that volunteered to cover the
-  // areas nobody scored. `undefined` for both means content is not loaded yet
-  // (or a package with no music at all), and silence is the honest answer.
+  // The area's playlist, else the one asset volunteering as fallback.
   const asset = content.get<MusicData>(`music:${scene}`)
     ?? content.all<MusicData>('music').find((m) => m.data.fallback);
   if (asset === undefined) return [];
@@ -348,168 +170,63 @@ function musicPlaylist(scene: string): readonly string[] {
   return out;
 }
 
-/**
- * The title screen. Reassignable, because Exit raises a NEW one — the poster is
- * built, faded in and taken off the DOM by its own lifecycle, and the way back
- * to it is another instance rather than a hidden one kept around all session.
- */
+// Reassignable: Exit raises a NEW poster, the old one takes itself off the DOM.
 let startMenu = StartMenu.offer({
   ...settingsHooks,
-  // The poster has begun dissolving, which is the moment what is behind it
-  // starts being seen. Behind it is the loading screen, raised here so the
-  // menu's own half-second fade is the transition INTO it — see
-  // LoadingScreen.cover for why that needs no cross-fade of its own.
+  // The poster's own fade is the transition into the loading screen behind it.
   onLeave: () => loading?.cover(),
   onStart: (name) => { playerName = name; handedOver = true; beginPlay(); },
   ...saveMenuHooks,
 });
 
-/**
- * True when the boot is STAGED behind a title screen — the only case that wants
- * a progress indicator, real paints between phases, and a game that waits.
- *
- * False for the two cases that must keep booting exactly as they did:
- *   - `menu=0`, which every probe in `tools/` passes. They drive the hero within
- *     a second of `load` and several read `__dbgPlayerPos` immediately; a boot
- *     that spent ten frames yielding, or that held the frame loop back until the
- *     streaming ring was full, would change what every one of them measures.
- *   - `photo=1`, including `photo=1&menu=1` where the menu IS the subject of the
- *     capture. A progress chip in the corner of a staged still is a bug.
- */
 const staged = startMenu !== null && !flags.photo;
 const loading = staged ? new LoadingScreen() : null;
 if (!staged) handedOver = true;
 
-// The splash track, from the frame the poster goes up. Nothing starts when
-// there is no poster: the unstaged paths go straight to `beginPlay`, which asks
-// for the overworld's, and a photo run has `silentBoot` set anyway.
+// Splash track from the frame the poster goes up; unstaged paths go straight to play.
 if (startMenu) music.setScene('title');
 
-/**
- * Start the game, once BOTH halves are true: everything is built, and the
- * player has asked for it.
- *
- * Two callers — the end of the boot sequence and the menu's `onStart` — and
- * whichever is last wins. That is the whole handshake, and it is a handshake
- * rather than a sequence because the two events genuinely race: a player who
- * clicks New Game while the shader sweep is still running has asked first, and
- * a player who reads the title screen for a minute has asked last.
- *
- * The `prepDone` guard is also what makes the body safe to write against
- * consts declared hundreds of lines below — `fpsCap`, `staged`, `hud`'s bus
- * listener. `prepDone` is set on the last line of the boot sequence, so by the
- * time any of this runs the whole module has been evaluated. Reorder that and
- * the first thing you get is a temporal-dead-zone throw inside a click handler.
- */
-/**
- * THE BEAST THE PLAYER STARTS WITH.
- *
- * The reset in `exitToTitle` records that this used to be TWO — an Emberfox and
- * a Galebird — and that they were taken out so a new game began with nobody.
- * One is back, deliberately and singly: a player who starts with an empty party
- * has no way to see what a bond IS until they have already tamed something, and
- * the Frostwing is a FLYER, so the first thing they can do with it is get off
- * the ground and look at the world they are standing in.
- *
- * Granted in `beginPlay` rather than at boot, because `beginPlay` is the one
- * place both callers meet — the end of the boot sequence and the menu's New
- * Game — and `exitToTitle` empties the party on the way out, so a second New
- * Game in one session has to grant it again.
- */
+// Start the game once everything is built AND the player has asked; two callers, last one wins.
 const STARTER_BEAST = 'frostwing';
 
 function beginPlay(): void {
   if (playing || !prepDone || !handedOver) return;
   playing = true;
-  // A LOAD REPLACES THE NEW GAME, it does not follow it. `applySave` restores
-  // the party the save records, and granting the starter first would bond a
-  // Frostwing to every loaded character that had let one go — `grantBeast` is
-  // idempotent per species, so the two would not even conflict visibly. The
-  // save's own repair path grants the starter when a character has no
-  // resolvable beast left, which is the one case that still needs it.
+  // A LOAD REPLACES THE NEW GAME.
   if (pendingSave) {
     const doc = pendingSave;
     pendingSave = null;
     applySave(doc);
   } else {
-    // `grantBeast` is a no-op when the species is already bonded, so this is
-    // safe on the boot path AND on a New Game after an exit to title.
+    // No-op when already bonded, so this is safe after an exit to title too.
     grantBeast(STARTER_BEAST);
   }
-  // Every key pressed at the title screen is still latched in `Input` — nothing
-  // has drained it, because `endFrame()` only runs inside `frame()` and
-  // `frame()` has not run yet. Unread, the first simulation slice would see the
-  // whole menu session at once: the Enter that started the game, the arrow keys
-  // that walked the list, the `E` somebody idly pressed. Drain it here, and the
-  // hero wakes up to an empty keyboard.
+  // Drain keys latched while the title screen was up — endFrame() only runs inside frame(), so the first slice would otherwise see the whole menu session at once.
   input.endFrame();
   loading?.finish();
-  // SCENE CHANGE: the splash track is faded out and unloaded, the overworld's
-  // starts. New Game is also the gesture that makes noise legal at all on a
-  // page nobody had touched — a title track the autoplay policy refused is
-  // dropped rather than faded, so what the player hears is the overworld
-  // starting and never a second of the poster's music behind them.
+  // New Game is also the gesture that makes audio legal at all: a title track the autoplay policy refused is dropped rather than faded.
   music.setScene('overworld');
-  // Everything the F3 panel owns, pushed at the freshly built world — the frame
-  // cap among it, which is why this replaced a bare `engine.setFpsCap(fpsCap)`
-  // here. That line re-applied the URL/default cap on every New Game and would
-  // have quietly undone a player's stored choice a moment after loading it.
+  // Pushes the STORED gfx values (fps cap among them), not the URL/default cap.
   gfx.applyAll();
   if (staged) {
-    // TAKE THE POINTER HERE, not on the player's first click in the world. New
-    // Game is a click on a BUTTON — the canvas never sees a mousedown — so
-    // without this the game opens with a cursor sitting over it and mouse look
-    // dead until you click, which is the same "why is it deaf?" the controls
-    // sheet used to cause on the way out. Touch is left alone: there is no
-    // pointer to lock and the overlay is the control scheme.
-    //
-    // Best-effort by construction (see `Input.requestLock`). A browser only
-    // grants this off a recent user activation, and while the New Game click is
-    // one, a machine slow enough to spend more than a few seconds on the boot
-    // after it will have let that expire — those players click once, as they
-    // always did. The unstaged path never asks at all.
+    // New Game is a click on a BUTTON, so the canvas sees no mousedown and mouse look would stay dead. Best-effort: needs a recent user activation.
     if (!isTouchPrimary()) input.requestLock();
-    // Deferred to here rather than emitted when the menu closed: a toast lives
-    // about four seconds, and this is the first moment the player is looking at
-    // the game rather than at a poster or a loading bar.
+    // Deferred: the first moment the player is looking at the game, not a poster.
     bus.emit({
       type: 'toast',
-      // A touchscreen laptop driven by mouse gets the desktop hint: `touch` is
-      // non-null there (it ticks the camera stick) but stays hidden until a touch.
+      // A touchscreen laptop driven by mouse gets the desktop hint.
       text: t(isTouchPrimary() ? 'toast.welcome.touch' : 'toast.welcome.desktop'),
     });
   }
   frame();
 }
 
-/**
- * The in-game menu: F10, the HUD's menu button, the pad's Start, and the touch
- * overlay's MENU.
- *
- * Built here rather than lazily on the first press, because it is the composition
- * root's job to say what a settings switch does and this is the second screen
- * that shows one. It costs nothing until it is opened — `open()` is what puts
- * anything on the DOM.
- */
+// The in-game menu: F10, the HUD button, pad Start, touch MENU. open() builds the DOM.
 const pauseMenu = new PauseMenu({
   ...settingsHooks,
-  // Mouse look is given BACK on the way in and taken again on the way out. This
-  // is the shop's bargain, not the controls sheet's, and the difference is what
-  // the player does with each: a sheet is READ and closed with the key that
-  // opened it (so keeping the lock saves a click), where this is CLICKED — three
-  // buttons and a settings list, with a cursor that has to be able to reach
-  // Exit. See the F1 note further down for the other half of the argument.
+  // This menu is CLICKED, not read: the cursor has to be able to reach Exit.
   onOpen: () => input.releaseLock(),
-  // TAKING THE POINTER BACK IS SAFE AFTER A CLICK AND IS NOT AFTER A KEY, and
-  // the difference is what the BROWSER is still doing with that key. Where
-  // Escape is ours (the keyboard lock is held) the browser is spending nothing
-  // and this is the same call it always was. Where it is not, the Escape that
-  // closed this menu is at that moment also leaving fullscreen — which releases
-  // the pointer lock 8 ms later, measured — so a lock taken here is one the
-  // browser knocks straight back out, and that loss reads as a fresh Escape.
-  // The menu closed and reopened on its own. There is nothing to take back
-  // after a key: the next click does it, as it always has (see
-  // `Input`'s mousedown listener).
+  // After a key only when Escape is ours: otherwise leaving fullscreen drops the lock 8 ms later, which reads as a fresh Escape.
   onClose: (by) => {
     if (isTouchPrimary()) return;
     if (by === 'click' || escapeIsLocked()) input.requestLock();
@@ -517,117 +234,36 @@ const pauseMenu = new PauseMenu({
   onExit: () => exitToTitle(),
 });
 
-/**
- * THE POINTER A BROWSER TOOK — nothing to do here any more, and that is the
- * change worth reading.
- *
- * This used to tap a virtual Escape. The reasoning was sound while Escape was
- * the menu key: a page holding pointer lock is never GIVEN that key (the
- * browser spends it on the lock), so the loss was the only evidence the press
- * happened, and without it the menu opened every other time. The menu is F10
- * now, which arrives as an ordinary key on every browser, so there is no
- * missing edge left to reconstruct — and reconstructing one anyway is how a
- * player who pressed Escape to close a panel got a menu they never asked for.
- *
- * The loss is handled where it belongs instead: `Input.armRelock` puts the
- * pointer back when the player starts moving again. That is a separate
- * mechanism with its own gate (`autoRelock`, set in `frame()`), and it is armed
- * from the same event this hook reads.
- */
-
-/**
- * END THE SESSION and put the title screen back, in the same page.
- *
- * WHAT IS THROWN AWAY AND WHAT IS KEPT, which is the whole design.
- *
- * Thrown away: everything that is a PLAY SESSION. The hero's health and where he
- * is standing, ten beasts' levels, xp and learned skills, the purse, the bag, the
- * wild population, every drop on the ground, the roster picks, the cooldowns, the
- * zone. Each of those is reset by the object that owns it — `Player.reset`,
- * `BeastActor.reset`, `CombatSystem.reset` — rather than by this function
- * reaching into them, so a field added to one of those is reset by the file that
- * added it.
- *
- * CONTENT SPLITS DOWN THAT SAME LINE, and the split is the whole of the content
- * design's §12.3. The STATE — every flag set, every quest started, every point
- * of interest discovered — is a play session and is thrown away with the rest.
- * The DEFINITIONS are not: which towns exist, who Gain is and what a Gloopling
- * is worth are pure functions of the build, exactly as the terrain is a pure
- * function of the seed, and nothing about them is per-session. So the packages
- * stay LOADED and the `boot` lease is never released — releasing it would drop
- * the graph the world standing behind this poster was cut from and make the next
- * New Game rebuild it for no gain at all.
- *
- * Kept: the engine, the world and the rigs. That is a deliberate departure from
- * "dispose everything", and the reason is the boot timings at the top of this
- * file. Rebuilding the world costs 602 ms and re-linking the shader programs that
- * come with it costs 13477 ms — so a New Game after an Exit would sit behind the
- * loading screen for the better part of fifteen seconds, which is the exact cost
- * an in-process return was chosen to avoid. Nothing in a world or a rig is
- * per-session anyway: the terrain, the towns and the roads are pure functions of
- * the seed and identical every game (see world/terrain.ts), and a beast's rig is
- * geometry while its LEVEL is the save game.
- *
- * The seam is here if that trade ever needs revisiting: everything that would
- * have to be disposed is reached from this one function.
- *
- * THIS LIST IS ALSO THE SAVE'S CHECKLIST. It is the authoritative statement of
- * what a play session IS, so anything added below is something `collectSave`
- * owes a field and `applySave` owes a restore — see the save section further
- * down, and the rule in AGENTS.md. A field reset here and never serialised
- * breaks no test; it costs a player their progress, quietly, months later.
- */
+// End the session and put the title screen back, in the same page. Everything that is a PLAY SESSION
+// is thrown away, each by the object that owns it; the engine, world and rigs are KEPT, because
+// rebuilding costs ~600 ms of world and ~13.5 s of shader relink. THIS LIST IS THE SAVE'S CHECKLIST.
 function exitToTitle(): void {
   if (!playing) return;
-  // WRITE THE CHARACTER DOWN FIRST, before a single line below throws the
-  // session away (issue #171). Not awaited, and that is deliberate rather than
-  // careless: `collectSave` is synchronous, so the document is a complete
-  // snapshot of this session taken before the resets, and only the write to
-  // IndexedDB outlives this function. Awaiting it would hold the title screen
-  // behind a database for no gain — there is nothing left that can change what
-  // was collected.
-  //
-  // Ahead of `playing = false` because `saveNow` refuses when the session is
-  // already over, which is the right rule everywhere except here.
+  // Write the character down FIRST (issue #171); `collectSave` is sync, so the snapshot predates the resets. Ahead of `playing = false`, which `saveNow` refuses on.
   void saveNow();
-  // Stops the loop at the top of `frame()`. Nothing is torn down under a frame
-  // that is halfway through drawing it.
+  // Stops the loop at the top of frame(); nothing is torn down mid-draw.
   playing = false;
-  // Fullscreen was TAKEN on New Game (ui/menu.ts), so it is given back here:
-  // going to the title screen means going back to what you had before you
-  // started, and no browser undoes it on its own.
+  // Fullscreen was TAKEN on New Game (ui/menu.ts); no browser undoes it on its own.
   exitFullscreen();
   input.releaseLock();
-  // Back to the splash track. The zone's is faded and UNLOADED on the way — a
-  // session that ended is a track nothing is going to play again, and leaving it
-  // paused-but-loaded is a buffer and a decoder held for the rest of the page's
-  // life. See src/audio/music.ts.
+  // Back to the splash track; the zone's is faded and UNLOADED, not left decoding.
   music.setScene('title');
 
-  // Back to the overworld first, because the reset below places the hero at
-  // `world.spawnPoint` and a player who quit inside the dungeon would otherwise
-  // spawn a new game in it. The switch rebinds every `bound` subsystem, which is
-  // what makes the following three lines resolve against the right heightfield.
+  // Overworld first: the reset below places the hero at `world.spawnPoint`, and the switch rebinds every `bound` subsystem against the right heightfield.
   if (zones.id !== 'overworld') zones.switchTo('overworld');
 
   player.reset();
   mount.dismount();
-  // WHICH MOUNTS THE STORY HAD HANDED OVER goes with the story. A new game is a
-  // hero who has not ridden anything, and `collectSave` above already wrote this
-  // character's three answers down.
+  // Mount unlocks are story state; `collectSave` above already wrote them down.
   seedMountUnlocks();
   combat.reset();
-  // Anything the F3 Debug panel built is session state like everything else
-  // here — a new game should not open on a hut somebody stood in the road.
-  // After the zone switch above, so it clears the overworld's spawner.
+  // F3-spawned props are session state. After the zone switch, to clear the overworld's.
   world.debugSpawn?.clear();
-  // The facts, not the definitions — see the note above.
+  // The facts, not the definitions.
   content.state.reset();
   dayNight.reset();
   for (const b of roster) b.reset();
-  // WHO YOU HAD BONDED IS SESSION STATE, and the emptiest possible one: a new
-  // game starts with no beasts, so the two slots go back to nobody rather than
-  // to the Emberfox and Galebird they used to be seeded with.
+  // Who you had bonded is session state: a new game starts with nobody.
   owned.clear();
   primaryIdx = -1;
   supportIdx = -1;
@@ -643,10 +279,7 @@ function exitToTitle(): void {
   refreshOrbHud();
   inventory.close();
   journal.close();
-  // The loadout is session state like everything above it, and `attackStat` is
-  // the one field of it that lives on an object whose own `reset()` deliberately
-  // does not touch it — see BASE_ATTACK. `giveStartingKit` re-equips and calls
-  // `applyLoadout`, so the next game starts on the same numbers the first did.
+  // `attackStat` is the one loadout field Player.reset deliberately leaves alone (see BASE_ATTACK); giveStartingKit re-equips and calls applyLoadout.
   equippedWeapon = null;
   attackBuff = 0;
   attackBuffT = 0;
@@ -659,18 +292,9 @@ function exitToTitle(): void {
   hud.closeControls();
   hud.reset();
   touch?.setVisible(true);
-  // The frame loop is the only writer while a game is running, and it has just
-  // stopped: left true, the title screen would answer a mouse moved across the
-  // poster by grabbing the pointer back off the New Game button.
+  // Left true, the title screen would grab the pointer back off the New Game button.
   input.autoRelock = false;
-  // WHICH CHARACTER WAS BEING PLAYED IS SESSION STATE TOO (issue #171). Left
-  // set, the next New Game would autosave itself over the character the player
-  // just left — the record is keyed by id, and a fresh session has not earned
-  // one yet. `pendingSave` is cleared for the same reason a step further on:
-  // a document read but never applied (Load pressed, then Escape) must not
-  // ambush the next New Game. THROUGH `setActiveSave`, because the save fired
-  // at the top of this function is still in flight and would otherwise hand the
-  // pointer straight back — see `saveEpoch`.
+  // Session state too (issue #171): left set, the next New Game would autosave over it.
   setActiveSave(null);
   playerName = '';
   pendingSave = null;
@@ -678,10 +302,7 @@ function exitToTitle(): void {
   sinceSave = 0;
   questSaveIn = 0;
 
-  // The poster is a NEW instance, because the old one took itself off the DOM
-  // when the game started (see StartMenu.close). `handedOver` and `playing` go
-  // back to what they were before New Game was first pressed, so `beginPlay`'s
-  // handshake works a second time exactly as it did the first.
+  // A NEW instance: the old poster left the DOM when the game started.
   handedOver = false;
   startMenu = StartMenu.offer({
     ...settingsHooks,
@@ -689,157 +310,42 @@ function exitToTitle(): void {
     onStart: (name) => { playerName = name; handedOver = true; beginPlay(); },
     ...saveMenuHooks,
   }, { skipSplash: true });
-  // `menu=0` and photo mode suppress the menu outright (see StartMenu.offer),
-  // and in those runs Exit cannot be reached — there is no menu to press it in.
-  // The guard is here so that stays true rather than becoming a black screen if
-  // one ever grows a way to.
+  // Exit cannot be reached under menu=0/photo; the guard keeps that from being a black screen.
   if (!startMenu) { handedOver = true; beginPlay(); }
 }
 
-// ---------------------------------------------------------------------------
-// SAVING AND LOADING A CHARACTER — issue #171.
-//
-// THE INVERSE OF `exitToTitle` ABOVE, and it is written next to it because a
-// reader who has found one wants the other: that function is the authoritative
-// list of what a play session IS, so a field added to it is a field this pair
-// owes an answer for. Loading is reset-then-hydrate — every restore below runs
-// against state that has just been returned to a new game's — which is what
-// keeps the two from drifting into different ideas of what a session contains.
-//
-// WHAT LIVES HERE AND WHAT LIVES IN core/saves.ts. That file validates SHAPE
-// and has never heard of the game; this one validates MEANING. Is `sword-iron`
-// still an item, is `overworld` still a zone, is `emberfox` still a species,
-// is there any ground at these coordinates — every one of those questions
-// changes with a content edit, and every one of them is answered here, by
-// dropping what no longer resolves rather than by refusing the save. A player
-// whose rare weapon was renamed out of the build loses the weapon, not the
-// character.
-// ---------------------------------------------------------------------------
+// SAVING AND LOADING A CHARACTER — issue #171, the inverse of `exitToTitle`.
 
-/**
- * The character being played, or null for a session that is not being saved
- * (a probe, `nostore=1`, a New Game whose first write has not landed yet).
- */
+// The character being played, or null for a session that is not saved (probe, first write pending).
 let activeSaveId: number | null = null;
-/**
- * WHICH CHARACTER, counted — bumped every time the answer above changes for a
- * reason other than a write completing.
- *
- * A WRITE OUTLIVES THE SESSION THAT ASKED FOR IT, and that is the bug this
- * exists for. `saveNow` awaits IndexedDB and then records the id it was given,
- * so a save fired on the way OUT of a game lands after `exitToTitle` has
- * cleared the pointer — and put the record of the character the player just
- * left back into a session that is now the title screen. The next New Game then
- * autosaved a brand new character straight over the old one: two names, one
- * row, and a player who watched their first character disappear the moment they
- * made a second. Cheap and total to fix: the write remembers which character it
- * was for, and declines to name an active save that is no longer the one it was
- * writing.
- */
+// Bumped on every change of character: a write OUTLIVES the session that asked for it, so it must not name a save it is no longer writing.
 let saveEpoch = 0;
 
-/**
- * Point the save pointer at a character, or at nobody.
- *
- * Every change of IDENTITY goes through here — a load, a new character, an exit
- * — and none of them may be a bare assignment, or the guard in `saveNow` has
- * nothing to compare against. A write completing is the one case that is NOT an
- * identity change and assigns directly.
- */
+// Every change of IDENTITY goes through here, or `saveNow`'s guard has nothing to compare against.
 function setActiveSave(id: number | null): void {
   activeSaveId = id;
   saveEpoch++;
 }
 /** What the player typed on New Game. Display only — the id is the key. */
 let playerName = '';
-/**
- * A document read at the title screen, waiting for `beginPlay` to apply it.
- *
- * The read happens at CLICK time rather than inside `beginPlay`, so that
- * function stays synchronous and its handshake keeps working unchanged: a Load
- * pressed while the shader sweep is still running sets this and hands over, and
- * whichever of the two callers is last starts the game — exactly as New Game
- * has always behaved.
- */
+// Read at CLICK time, so `beginPlay` stays synchronous and its handshake is unchanged.
 let pendingSave: SaveDocument | null = null;
-/**
- * Top-level document fields written by a NEWER build than this one, carried
- * from the load that produced them to the next write of the same character.
- * Without this the first autosave after a downgrade deletes whatever the newer
- * build was recording. See the note on `SaveDocument.extra`.
- */
+// Fields written by a NEWER build, carried from the load to the next write of the same character, so a downgrade's first autosave does not delete them.
 let carriedExtra: Record<string, unknown> | undefined;
-/**
- * True while `applySave` is running. Restoring the content facts fires the same
- * change notifications a quest completing does, and increment 4 hangs an
- * autosave off those — this is what stops a load from immediately writing back
- * what it just read.
- */
+// True while `applySave` runs: restoring the facts fires the same notifications a quest completing does, which would autosave back what was just read.
 let applyingSave = false;
 
-/**
- * How far below the waterline still counts as ground a hero can stand on.
- *
- * 1.5 units is a WADE: the hero is 1.8 tall, so this is water to about his
- * waist — somewhere he can walk out of in any direction. Deeper than that and
- * he is swimming, and a character resumed treading water in open sea is a
- * player who has been put somewhere they cannot act, which is the thing this
- * whole helper exists to prevent.
- */
+// How far below the waterline still counts as standable ground: 1.5 is waist-deep on a 1.8 hero — a wade he can walk out of, not a resume treading open water.
 const SAFE_WADE_DEPTH = 1.5;
 
-/**
- * How far above the ground a saved PERCH is still believed, and how far above
- * it one is worth recording at all.
- *
- * The ceiling is a sanity bound rather than a measurement of any one thing: the
- * tallest crown in the start forest tops out about 17 units over its own
- * column and a hut roof is under 10, so 30 clears everything a hero can be
- * standing on while leaving a flight, a fall and a doctored document outside
- * it. Past that the ground is the better answer, and the cost of being wrong
- * either way is the same one — a drop of at most this much, with no fall damage
- * in this game (see the landing branch in Player.update).
- *
- * The floor is a step: below it the perch and the ground put his feet in the
- * same place, and the ground is the more robust of two identical answers.
- */
+// 30 clears the tallest crown (~17) and any roof while leaving a flight or a fall outside it; below 0.5 the perch and the ground are the same place.
 const MAX_PERCH_RISE = 30;
 const PERCH_MIN_RISE = 0.5;
 
-/**
- * The closest ground a hero can stand on at (x, z), or a town when there is
- * none.
- *
- * WHY THE SAVED HEIGHT IS NOT STORED AND NOT TRUSTED. A save can be taken while
- * flying a Frostwing, mid-jump, halfway down a fall, or standing on the deck of
- * a sky island that has moved on since — and in every one of those cases the
- * literal height is a place the hero cannot be put back. Loading into open air
- * drops him; loading onto a deck that is elsewhere drops him further. So the
- * height is RESOLVED rather than remembered, at capture and again on the way
- * in: the second pass is not redundant, because the world can change between
- * the two — a hill that was flattened, a zone whose terrain was reseeded.
- *
- * The x/z are kept, which is the half that matters to a player: you come back
- * where you were, on the ground under it. When even that is unusable — a
- * coordinate that is NaN, or open water — the answer is the nearest settlement,
- * because a town is the one place in this world guaranteed to be somewhere you
- * can walk out of. That is also where a waypoint would slot in when there is a
- * waypoint system to ask; the fallback is written as a chain for that reason.
- *
- * `perchY` IS THE OTHER HALF OF THE SAME ARGUMENT, pointed the other way. A
- * hero can be standing on something that is not the ground — a tree crown, a
- * hut roof, a crate — and dropping him to the terrain there is the same kind of
- * wrong as loading him into open air: he comes back seventeen units below the
- * tree he stopped playing in, which reads as falling through it. So the surface
- * is remembered and honoured, but as a RISE ABOVE THE GROUND THAT IS THERE NOW
- * rather than as an altitude: re-measured against a heightfield that may have
- * been reseeded, and bounded, so nothing can ask for a hero in the sky. It is
- * deliberately NOT confirmed against `climbTopAt` — the trunk registry is
- * populated per streamed chunk, and a load lands before the chunk under it
- * arrives, so "is the tree still there?" is unanswerable at exactly the moment
- * it would be asked. If it is gone he falls the rise and lands, which is what
- * the world does to anything standing on something that stops existing.
- */
+// The closest ground a hero can stand on at (x, z), or a town gate. The saved height is never trusted
+// — a save can be taken flying or on a deck that has moved — so it is resolved at capture AND at load.
+// `perchY` comes back as a bounded RISE above the ground that is there NOW, and is deliberately not
+// checked against `climbTopAt`: the trunk registry arrives with the chunk, after the load.
 function resolveSafeGround(
   x: number, z: number, perchY = NaN,
 ): { x: number; y: number; z: number } {
@@ -852,8 +358,7 @@ function resolveSafeGround(
       return { x, y: floor, z };
     }
   }
-  // The gate rather than the centre: a settlement's middle is where its huts
-  // are, and the gate is the point its own layout treats as "the way in".
+  // The gate rather than the centre: the point a layout treats as "the way in".
   const town = Number.isFinite(x) && Number.isFinite(z)
     ? world.towns.nearest(x, z)
     : world.towns.all[0];
@@ -862,22 +367,6 @@ function resolveSafeGround(
   return { x: ax, y: Math.max(world.getHeight(ax, az), world.waterLevel), z: az };
 }
 
-/**
- * Put a saved deck position back onto the frame it was taken on, or null when
- * there is no frame to put it on.
- *
- * THE ISLAND IS SOMEWHERE ELSE NOW, and that is the entire point: it starts
- * each session at its home and wanders live, so the world coordinates in the
- * save name open sea under where it used to be. The frame's own coordinates
- * are the thing that survives — the same spot on the deck is the same spot on
- * the deck — and this converts them back against wherever it has drifted to.
- *
- * Null for every reason the answer might not exist: no carrier was stored, the
- * build no longer has that frame, or the stored spot is past the edge of a deck
- * that has been reshaped since. Each falls through to the ordinary ground
- * resolution, which is the same "nothing refuses a save" rule the rest of the
- * load path follows.
- */
 function resolveOnCarrier(
   loc: SaveDocument['location'],
 ): { x: number; y: number; z: number; yaw: number } | null {
@@ -888,39 +377,19 @@ function resolveOnCarrier(
   if (!frame) return null;
   const out = { x: 0, z: 0 };
   frame.toWorld(loc.localX, loc.localZ, out);
-  // The DECK at that column, asked of the frame itself rather than reconstructed
-  // from a stored height: a deck that was rebuilt taller or shorter still puts
-  // him on its surface, and `topAt` is the same question a mover asks every
-  // slice. -Infinity means the frame has nothing at that column any more.
+  // Asked of the frame rather than reconstructed from a stored height; -Infinity means it has nothing at that column any more.
   const top = frame.topAt(out.x, out.z);
   if (!Number.isFinite(top)) return null;
   return { x: out.x, y: top, z: out.z, yaw: loc.yaw + frame.yaw };
 }
 
-/**
- * Everything about this character, right now.
- *
- * Synchronous and allocation-cheap — it reads fields and builds one object, so
- * it is safe to call from the frame loop's autosave tick. Nothing here decides
- * WHEN to save; that is increment 4's business.
- */
 function collectSave(): SaveDocument {
   const here = resolveSafeGround(player.position.x, player.position.z);
-  // RIDING SOMETHING? Then where he is on IT is the durable answer, and the
-  // world coordinates beside it are only the fallback. See `SaveLocation`.
+  // Riding something? Then the spot on IT is durable and the world coords are the fallback.
   const frame = player.carrier;
   const local = frame ? { x: 0, z: 0 } : null;
   if (frame && local) frame.toLocal(player.position.x, player.position.z, local);
-  // STANDING ON SOMETHING THAT IS NOT THE GROUND. `onGround` is most of the
-  // test and it is what makes this a perch rather than an altitude: the hero's
-  // y is the surface holding him up whenever it is true, so a crown, a roof and
-  // a crate all arrive here, and a jump, a fall and a Frostwing at cruising
-  // height do not. See `resolveSafeGround` for what a load does with it.
-  //
-  // NOT FROM THE SADDLE, though: a mount reports the RIDER grounded while it
-  // walks (`setRidePose`), and the rider sits a body's height over the ground
-  // it is walking on. Nothing restores a mount — `applySave` dismounts — so
-  // that height describes a beast that will not be under him.
+  // Standing on something that is not the ground: `onGround` makes this a perch rather than an altitude.
   const perchY = player.onGround && !player.isMounted
     && player.position.y > here.y + PERCH_MIN_RISE
     ? player.position.y
@@ -934,17 +403,14 @@ function collectSave(): SaveDocument {
       x: here.x,
       y: here.y,
       z: here.z,
-      // Relative to the frame when there is one: a deck that turns takes the
-      // street he was standing in with it, and a world heading would have him
-      // facing across it instead of along it.
+      // Relative to the frame: a deck that turns takes the street he stood in with it.
       yaw: frame ? player.facing - frame.yaw : player.facing,
       ...(perchY !== null ? { perchY } : {}),
       ...(frame && local
         ? { carrierId: frame.id, localX: local.x, localZ: local.z }
         : {}),
     },
-    // The NET purse. `pickupTotal` and `spent` are an accounting detail of how
-    // this number is arrived at, and neither is meaningful on its own.
+    // The NET purse; `pickupTotal` and `spent` mean nothing on their own.
     currency: shards(),
     bag: bag.toJSON(),
     slots: slots.toJSON(),
@@ -974,46 +440,25 @@ function collectSave(): SaveDocument {
   return saved;
 }
 
-/**
- * Put a character back, over a session that has just been reset.
- *
- * ORDER IS LOAD-BEARING, and it is the order `exitToTitle` tears down in, run
- * backwards. The zone goes first for the reason that function gives: switching
- * rebinds every world-bound subsystem, so everything after it resolves against
- * the right heightfield — and the switch parks the hero at the new zone's spawn
- * point, which is why placing him is last.
- */
 function applySave(doc: SaveDocument): void {
   applyingSave = true;
   try {
     playerName = doc.name;
     carriedExtra = doc.extra;
 
-    // 1. THE ZONE. A save from a zone this build no longer has is not a broken
-    // save — it is a character standing somewhere that was removed — so it
-    // resolves to the overworld and the placement below finds him ground in it.
+    // 1. THE ZONE. One this build no longer has resolves to the overworld.
     const target = zones.zoneIds.includes(doc.location.zoneId) ? doc.location.zoneId : 'overworld';
     if (zones.id !== target) zones.switchTo(target);
 
-    // 2. THE FACTS. Already tolerant of ids it cannot resolve (see
-    // content/state.ts), and its change notification is what re-derives the
-    // journal, the tracker and any quest time-of-day pin.
+    // 2. THE FACTS. Tolerant of ids it cannot resolve, and its change notification is what re-derives the journal, the tracker and any quest time-of-day pin.
     content.state.fromJSON(doc.content);
 
-    // 3. The clock, after the facts, so a quest's own time-of-day override
-    // still outranks it the way it does in play.
+    // 3. The clock, after the facts, so a quest's time-of-day override still outranks it.
     dayNight.setPhase(doc.dayPhase);
 
-    // 3b. WHAT THE STORY HAS HANDED OVER, beside the facts it is derived from.
-    // `restore` drops a kind this build does not have, so an older or newer
-    // document loads as the kinds that exist rather than refusing — and a save
-    // written before the field existed arrives as `[]`, which is the truth about
-    // a character nobody had unlocked anything for.
     mountUnlocks.restore(doc.mounts);
 
-    // 4. THE PARTY. Reset first: the roster holds every species whether bonded
-    // or not, and a beast the save does not mention must be back at level 1
-    // rather than left carrying the last session's.
+    // 4. THE PARTY. Reset first: the roster holds every species, bonded or not.
     for (const b of roster) b.reset();
     owned.clear();
     primaryIdx = -1;
@@ -1024,44 +469,31 @@ function applySave(doc: SaveDocument): void {
       roster[idx].restore(s);
       owned.add(s.speciesId);
     }
-    // Party slots by SPECIES ID, so adding a species to the registry cannot
-    // repoint an old save at a different companion.
+    // By SPECIES ID, so adding a species cannot repoint an old save at another companion.
     const slotOf = (id: string | null): number =>
       id !== null && owned.has(id) ? roster.findIndex((b) => b.species.id === id) : -1;
     primaryIdx = slotOf(doc.party.primary);
     supportIdx = slotOf(doc.party.support);
-    // REPAIRS, in the order a player would notice them. A character with no
-    // resolvable beast at all is unplayable in the way the starting kit exists
-    // to prevent, so it is granted the starter — the same one a new game gets.
+    // Repairs: a character with no resolvable beast at all is granted the starter.
     if (owned.size === 0) grantBeast(STARTER_BEAST);
     else if (primaryIdx < 0) primaryIdx = roster.findIndex(isOwned);
     if (supportIdx === primaryIdx) supportIdx = -1;
     refreshVisibility();
     cooldowns.clear();
 
-    // 5. The purse, through its owner, which emits and so updates the HUD and
-    // this file's mirror of the total. `spent` goes to zero because the stored
-    // number is already net of it.
+    // 5. The purse through its owner, which emits and so updates the HUD.
     spent = 0;
     combat.setShards(doc.currency);
 
-    // 6. THE WALL BEFORE THE BAG. `reconcile` hands an unplaced row the first
-    // free cell, so a bag restored into an empty layout would lay itself out
-    // left-to-right in pickup order and throw away where the player had put
-    // things. Restoring the layout first means every row it names is already
-    // placed by the time the model is built.
+    // 6. THE WALL BEFORE THE BAG: `reconcile` hands an unplaced row the first free cell, so a bag restored into
+    // an empty layout would discard where the player had put things.
     slots.fromJSON(doc.slots);
     bag.clear();
-    // In saved order, because that order is what the wall assigns from for any
-    // row the layout above did not already place.
     for (const [id, count] of doc.bag) {
       if (isKnownItem(id) && count > 0) bag.add(id, count);
     }
 
-    // 7. The loadout. Only what is still both a real item and actually in the
-    // bag — a weapon removed from the build, or one the save says is equipped
-    // while the bag says it is gone, resolves to bare hands rather than to a
-    // gear slot pointing at nothing.
+    // 7. The loadout: only what is still a real item AND actually in the bag.
     equippedWeapon = doc.equippedWeapon !== null && isKnownItem(doc.equippedWeapon)
       && bag.count(doc.equippedWeapon) > 0 ? doc.equippedWeapon : null;
     readiedOrb = doc.readiedOrb !== null && isKnownItem(doc.readiedOrb)
@@ -1072,16 +504,10 @@ function applySave(doc: SaveDocument): void {
     refreshBagChips();
     refreshOrbHud();
 
-    // 8. Appearance. A style this build dropped falls back to the default
-    // inside `hairStyle()`, so the colour is the only thing worth checking.
     const hex = parseInt(doc.appearance.hairColour, 16);
     player.setHair(doc.appearance.hairStyle, Number.isFinite(hex) ? hex : null);
 
-    // 9. PLACEMENT LAST, over the spawn point the zone switch left him on. The
-    // saddle goes first for the reason `__dbgTp` gives — while mounted the
-    // mount writes the hero's position every slice — except that here he is
-    // dismounted outright: what he was riding is not restored, so leaving the
-    // controller holding a beast would seat him on one he no longer has.
+    // 9. PLACEMENT LAST, over the spawn point the zone switch left him on.
     mount.dismount();
     const at = resolveOnCarrier(doc.location) ?? {
       ...resolveSafeGround(doc.location.x, doc.location.z, doc.location.perchY),
@@ -1092,20 +518,11 @@ function applySave(doc: SaveDocument): void {
 
     inventory.refresh();
   } finally {
-    // A throw out of a load must not leave the flag set: with it stuck true
-    // every autosave for the rest of the session would be silently skipped.
+    // A throw must not leave this set, or every autosave for the session is skipped.
     applyingSave = false;
   }
 }
 
-/**
- * Write the character being played, creating a record on the first call.
- *
- * Fire-and-forget by design — nothing in the game waits on a save, and a
- * failure is one console warning inside core/saves.ts rather than an
- * interruption. Returns the promise anyway so the debug hook and, later, the
- * exit path can await it when they want to.
- */
 async function saveNow(): Promise<number | null> {
   if (!playing || !savesAvailable()) return null;
   const epoch = saveEpoch;
@@ -1117,51 +534,23 @@ async function saveNow(): Promise<number | null> {
   return id;
 }
 
-// ---------------------------------------------------------------------------
-// WHEN IT SAVES — three answers, and the interval is the least important of
-// them (issue #171).
-//
-// A CLOCK ALONE LOSES THE THING WORTH KEEPING. The moment a player would mind
-// losing is the one they just earned — a quest finished, a bond taken — and a
-// five-minute timer is by definition up to five minutes away from it. So the
-// timer is the BACKSTOP for a session that is doing nothing in particular, and
-// the two event-driven writes are what actually protect progress: one on a
-// quest changing state, one on the way out to the title screen. That is also
-// what makes "every 10 minutes" a safe thing to offer a player, and why turning
-// the timer OFF does not turn saving off.
-// ---------------------------------------------------------------------------
+// WHEN IT SAVES (issue #171): the event writes — a quest changing state, the exit to title — protect
+// progress, and the interval is the backstop. Turning the timer off does not turn saving off.
 
 /** Seconds since the last write. Reset by every save, whatever triggered it. */
 let sinceSave = 0;
-/**
- * Seconds left on the debounce after a quest changed, or 0 when nothing is
- * pending.
- *
- * ONE ACTION LIST IS SEVERAL CHANGES — `quest.complete` alongside the flags and
- * counters its `onComplete` sets — and each one notifies. Writing per
- * notification would write the same character four times in a frame; waiting a
- * moment collapses them into the one write that has all of it.
- */
+// Seconds left on the debounce after a quest changed, 0 when nothing is pending.
 let questSaveIn = 0;
 const QUEST_SAVE_DEBOUNCE = 2;
 
-/**
- * `?autosaveSec=<n>` — run the interval in SECONDS for a probe.
- *
- * A test of a timer whose shortest setting is a minute is a test that takes a
- * minute, or one that reaches in and pokes the accumulator and proves nothing
- * about the path a player is on. This drives the same accumulator through the
- * same comparison; only the unit changes.
- */
+// ?autosaveSec=<n> — the same accumulator and comparison in SECONDS, so testing the timer does not cost a minute or reach past the path a player is on.
 const autosaveOverrideSec = (() => {
   const raw = new URLSearchParams(window.location.search).get('autosaveSec');
   const v = raw === null ? NaN : Number(raw);
   return Number.isFinite(v) && v > 0 ? v : null;
 })();
 
-// Its own read rather than the `prefs` const, which is declared thousands of
-// lines below this and would be in its temporal dead zone here. `loadPrefs` is
-// a handful of localStorage gets and the settings hook keeps this current.
+// Its own read: the `prefs` const is thousands of lines below and would be in its dead zone.
 let autosaveMinutes = loadPrefs().autosaveMinutes;
 
 /** The interval in seconds, or 0 for "no timer". */
@@ -1170,14 +559,7 @@ function autosavePeriod(): number {
   return autosaveMinutes > 0 ? autosaveMinutes * 60 : 0;
 }
 
-/**
- * Ask for a write, unless one would be pointless or unwelcome right now.
- *
- * Fire-and-forget: nothing waits on it, and a failure is one warning inside
- * core/saves.ts. The refusals are the interesting part — `applyingSave` stops a
- * load writing back what it has just read, and a DEAD hero is not a state to
- * come back to, so a save is held until he is on his feet again.
- */
+// Ask for a write. The refusals are the point: `applyingSave` stops a load writing back what it just read, and a DEAD hero is not a state to come back to.
 function autosave(): void {
   sinceSave = 0;
   questSaveIn = 0;
@@ -1198,18 +580,13 @@ function tickAutosave(dt: number): void {
   if (sinceSave >= period) autosave();
 }
 
-// A quest changed state, which is the only "real progress" signal the engine
-// has — there are no quest events on the bus (see the note on `onBeastTamed`),
-// and `ContentState.onChange` is what the journal itself listens to.
-// `'reset'` is skipped: that is a load or an exit, and both do their own saving.
+// A quest changing state is the only real-progress signal the engine has — there are no quest events on the bus.
 content.state.onChange((what) => {
   if (what.kind !== 'quest' || !playing || applyingSave) return;
   questSaveIn = QUEST_SAVE_DEBOUNCE;
 });
 
-// Hooks: readers for the list and the document, drivers for the round trip.
-// The same argument `__dbgTp` makes — a probe cannot click a menu that has not
-// been built yet, and every one of these is reachable from the UI once it has.
+// Readers for the list and the document, drivers for the round trip. Same argument as __dbgTp.
 (window as unknown as {
   __dbgSaves: {
     list: () => Promise<SaveMeta[]>;
@@ -1227,26 +604,18 @@ content.state.onChange((what) => {
   list: () => listSaves(),
   read: (id) => readSave(id),
   doc: () => collectSave(),
-  // Writes THE CHARACTER BEING PLAYED, renaming them when a name is given —
-  // the same thing an autosave does, which is why calling it twice updates one
-  // record rather than making two. Starting a second character is
-  // `newCharacter` below.
+  // Writes THE CHARACTER BEING PLAYED, renaming when a name is given, so calling it twice updates one record.
   save: async (name) => {
     if (name !== undefined) playerName = name;
     return saveNow();
   },
-  // What New Game does to the save pointer, without the title screen: a name,
-  // and no record yet, so the next write creates one. Exit to title does the
-  // same thing (see `exitToTitle`) — this is the half of it a probe can reach
-  // from inside a running session.
+  // What New Game does to the save pointer, without the title screen.
   newCharacter: (name) => {
     playerName = name;
     setActiveSave(null);
     carriedExtra = undefined;
   },
-  // Applies INTO THE RUNNING SESSION rather than through the title screen, so
-  // a probe can prove the round trip without walking the menu. The menu path
-  // is the same `applySave` behind a `beginPlay` handshake.
+  // Applies INTO the running session; the menu path is the same `applySave` behind beginPlay.
   load: async (id) => {
     const doc = await readSave(id);
     if (!doc) return false;
@@ -1260,8 +629,7 @@ content.state.onChange((what) => {
   },
   active: () => activeSaveId,
   available: () => savesAvailable(),
-  // What the timer thinks, so a probe can assert on the STATE that drives a
-  // write rather than on the write having happened by some wall-clock moment.
+  // What the timer thinks, so a probe asserts on state rather than on a wall-clock moment.
   autosave: () => ({
     minutes: autosaveMinutes,
     periodSec: autosavePeriod(),
@@ -1270,68 +638,20 @@ content.state.onChange((what) => {
   }),
 };
 
-// Phase 1 ends here: the poster and the chip are on screen before the first
-// chunk exists. Everything past this point is phase 2.
+// Phase 1 ends here; everything past this point is phase 2.
 await loading?.stage('world');
 
-// ---------------------------------------------------------------------------
-// CONTENT, and it is the first thing in the world phase rather than a phase of
-// its own.
-//
-// It has to be BEFORE `createWorld`, because `planSettlements` reads
-// `content.all('town')` to know what to site and the whole of world creation
-// runs off that. It is INSIDE the world stage rather than beside it because it
-// costs nothing worth a chip: measured on the dev server at 1280x800 it is
-// 2.4 / 2.5 / 2.3 ms (`__dbgContent().bootMs`) against a `world` stage of
-// ~390 ms and a shader sweep of ~10 s, so it disappears into the noise of
-// cutting three towns and their roads. A progress step a player cannot see the
-// needle move on is a step that makes the boot look slower than it is.
-//
-// It does not throw. `ok === false` means something in the package is broken and
-// the world will come up short of a town or an enemy; `__dbgContent()` and
-// `/content check` are where the findings are read, which is the same bargain
-// every other diagnostic in this project strikes — degrade with a placeholder
-// and say so, rather than refuse to start.
-//
-// `engineFlags` names the flags ENGINE code sets that no content ever writes,
-// because the reachability check cannot see a `setFlag` in this file and would
-// otherwise report each one as a quest that can never start. There are none yet;
-// the argument is here so the first one has somewhere to go.
+// CONTENT, first in the world phase: it must precede `createWorld`, because `planSettlements` reads
+// `content.all('town')`, and at ~2.4 ms against a ~390 ms world it deserves no chip of its own.
+// It does not throw — `ok === false` means a broken package; findings via __dbgContent / /content check.
 const contentBootStart = performance.now();
 content.addProvider(new BundledProvider());
-// THE TRACK FACTORIES, AND THEY HAVE TO BE ABOVE THE BOOT. Registering one also
-// publishes its name to the content type that validates against it (see
-// `FACTORY_PUBLISHERS` in content/index.ts), and the cross-asset pass runs
-// inside `bootstrapContent` — so a registration after this line is a set of
-// names the validator never saw, and `"tracks": ["overwrold"]` would load
-// clean and play nothing. Same rule and the same ordering as the town layouts,
-// npc bodies and enemy models, which register in their own modules at import.
-// A URL rather than a builder is the whole value here: content names a song and
-// never a path, so a package can never choose what the page fetches.
+// ABOVE THE BOOT: registering a factory publishes its name to the validator, and the cross-asset pass
+// runs inside `bootstrapContent`. A URL rather than a builder, so content names a song and not a path.
 for (const [name, url] of Object.entries(MUSIC_TRACKS)) {
   content.defineFactory(MUSIC_TRACK_KIND, name, url);
 }
-/**
- * THE SEAM A QUEST TURN-IN LANDS ON: content may put an item in the bag.
- *
- * `{ "do": "item.give", "item": "gain-token", "count": 1 }`, in any action list
- * — a dialogue entry's, a quest's `onComplete`. It is the only way a QUEST item
- * is reachable in ordinary play, which is deliberate: a quest item that fell off
- * a gloopling is a quest item nobody designed (see the drop table in
- * combat/index.ts), so the catalogue holds one and the shipped content hands out
- * none yet.
- *
- * ABOVE `bootstrapContent`, for the reason the factory loop above gives: the
- * cross-asset pass runs inside it and reports an action no `defineAction`
- * registered, so a registration after this line is a handler the validator never
- * saw. It VALIDATES ITS OWN PARAMS AND REPORTS rather than throwing, which is
- * content/actions.ts's rule for every handler — a malformed action in a package
- * must be one thing that did not happen, not a dead UI.
- *
- * `bag` and `refreshBagChips` are further down the file and are reached through
- * a hoisted declaration; nothing calls this until content is running, which is
- * long after both exist.
- */
+// The seam a quest turn-in lands on, and the only way a QUEST item is reachable in play.
 content.defineAction('item.give', (params) => {
   const id = params.item;
   if (typeof id !== 'string' || !isKnownItem(id)) return;
@@ -1339,25 +659,8 @@ content.defineAction('item.give', (params) => {
   const n = typeof raw === 'number' && Number.isFinite(raw) ? Math.max(1, Math.floor(raw)) : 1;
   giveItemFromContent(id, n);
 });
-/**
- * THE CAMPAIGN LOADS AT BOOT, and the reason is the zone it is set in.
- *
- * game-story.md §5 describes `story-land` as arriving when the player enters
- * `overworld` — but `overworld` is the zone the game BOOTS into, and
- * `ZoneManager` builds its starting zone directly rather than through the
- * arrival path (`onArrive` fires on a gateway transition and never for the
- * start). A "load it on arrival" hook would therefore never fire on a fresh
- * game, which is the only time it matters. The dungeon makes the same point
- * from the other side: quest 4 runs inside `hold`, and the router reads the
- * ACTIVE quest's objectives to know what to count, so the definitions have to
- * be resident there too.
- *
- * So both packages ride the boot, under the `boot` lease, and inside
- * `bootstrapContent` so the cross-asset pass checks them — a package loaded
- * after that call is a set of assets whose references and text keys nobody
- * validated. A package that genuinely arrives at a zone edge (Act 2's `brine`)
- * gets `ZoneDef.packages` and a `zone` lease when there is one to load.
- */
+// THE CAMPAIGN LOADS AT BOOT: ZoneManager builds its starting zone directly, so an "on arrival in
+// overworld" hook never fires on a fresh game, and quest 4's definitions must be resident in `hold`.
 const contentBoot = await bootstrapContent({
   engineFlags: [],
   packages: ['story', 'story-land'],
@@ -1365,8 +668,7 @@ const contentBoot = await bootstrapContent({
 /** What the phase above cost. Reported by `__dbgContent`; see the note there. */
 const contentBootMs = performance.now() - contentBootStart;
 
-// Active quest locks are derived from content facts, never pushed by quest
-// actions, so loading or releasing a quest package recomputes the same answer.
+// Derived from content facts, never pushed by quest actions, so a load recomputes the same answer.
 let reportedTimeConflict = '';
 const refreshQuestTime = (): void => {
   const locks = content.state.activeQuests.flatMap((id) => {
@@ -1404,27 +706,7 @@ content.state.onChange((change) => {
 content.onDefinitionsChange(refreshQuestTime);
 refreshQuestTime();
 
-/**
- * The biomes' vegetation multipliers, applied before the first chunk is built.
- *
- * EVERY SHIPPED VALUE IS EXACTLY 1, AND `setArea` DELETES AN ENTRY SET TO 1 —
- * so this loop leaves `nature`'s tables empty, `isDefault()` true, and
- * `tools/test-nature.mjs`'s identity control reading a drift of 0. The migration
- * cannot move a blade of grass, and it cannot by CONSTRUCTION rather than
- * because the numbers happen to match (src/content/types/biome.ts says the same
- * from the other end). Verified by running the probe.
- *
- * Here rather than in world/index.ts because this is where `nature` is already
- * wired to the streamer, and BEFORE that wiring: `setArea` fires the change
- * listener, and there is no world to rebuild yet — which is the point, since the
- * densities have to be in place before the first chunk rather than pushed into
- * one that already exists.
- *
- * The area key is the biome id's name half. Unvalidated against `BiomeId`, for
- * the same reason `/nature` and `?nature=` leave it unvalidated (world/nature.ts,
- * `readUrl`): the set of named areas widens as the world grows, and an override
- * that changes nothing is a better failure than a refusal that hides one.
- */
+// Applied before the first chunk: `setArea` fires the change listener and there is no world to rebuild.
 for (const biome of content.all<BiomeData>('biome')) {
   const area = biome.id.slice(biome.type.length + 1) as NatureAreaId;
   for (const [param, value] of Object.entries(biome.data.nature)) {
@@ -1432,53 +714,16 @@ for (const biome of content.all<BiomeData>('biome')) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Zones. There are two: the streamed overworld and one dungeon instance. The
-// ZoneManager owns both, preloads the destination while the hero walks toward a
-// gateway, and rebinds every subsystem in `bound` on a switch — see
-// world/zones.ts for the enter/exit/dwell numbers and why each is what it is.
-// Gameplay policy on arrival (where the hero lands, dismounting, the toast) is
-// this file's business, so it lives in `onArrive` below.
-// ---------------------------------------------------------------------------
-
 /** Offsets probed for level ground under the gateway. */
 const GATE_PROBES: ReadonlyArray<readonly [number, number]> =
   [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2]];
 
-/**
- * HOW FAR OUT THE GATEWAY STANDS, in preference order.
- *
- * It used to be 31-42, and the lower bound was the load-bearing part: the
- * preload band is 30 units wide, so anything closer put the hero inside it at
- * spawn and the dungeon was built during boot whether or not he walked that
- * way. That argument still holds and these are all far outside it.
- *
- * The upper bound has gone the other way. A dungeon mouth forty units from
- * where you wake up is a thing you trip over; at 150-210 it is somewhere you
- * SET OUT FOR, which is what the trail leading to it is for. Nothing else in
- * the placement changes: it is still scored for level, dry ground clear of the
- * dens and the towns, and now also for a wood around it and a hillside behind.
- *
- * The far distance also buys the trail its own country. See `TRAIL_MAX_CROSS`.
- */
+// In preference order. The lower bound is load-bearing — the preload band is 30 wide, so anything
+// closer builds the dungeon at boot — and 150+ makes the arch somewhere you SET OUT for.
 const GATE_RADII = [170, 195, 150, 210] as const;
 
-/**
- * Where the overworld's gateway stands.
- *
- * 34-42 units from spawn, and the lower bound is the load-bearing part: the
- * preload band is 30 units wide, so anything closer would put the hero INSIDE
- * it at spawn and the dungeon would be built during boot whether or not he ever
- * walks that way. Measured at a first-pass 20 units, that is exactly what
- * happened — `__dbgZone().pending` came back fully built and warmed before the
- * player had moved. At 34 the band is entered by walking toward the arch, which
- * is what it is for. The upper bound is just "still a landmark you find by
- * looking around", the first skill den being 18 units out for comparison.
- *
- * Scored on level, dry ground clear of the dens: the arch is 5 units tall with
- * pillars 4.6 apart, and half of it buried in a hillside or clipping a pagoda
- * reads as a bug rather than as a landmark.
- */
+// Where the overworld's gateway stands: scored on level, dry ground clear of the dens and towns — half an arch
+// buried in a hillside reads as a bug rather than a landmark.
 function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
   const base = w.spawnPoint;
   let best = { x: base.x + GATE_RADII[0] + 0.5, z: base.z + 0.5 };
@@ -1499,52 +744,20 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
         const d = Math.hypot(s.x - x, s.z - z);
         if (d < 12) shopPenalty += 12 - d;
       }
-      // A town is a far bigger object than a den, so its penalty is its own
-      // footprint plus the arch's clearance rather than a fixed 12.
+      // A town is far bigger than a den, so its penalty is its own footprint plus clearance.
       for (const t of w.towns.all) {
         const keep = t.radius + 10;
         const d = Math.hypot(t.x - x, t.z - z);
         if (d < keep) shopPenalty += (keep - d) * 3;
       }
-      // A GATEWAY IN A WOOD, WITH ITS BACK TO A HILL — the two terms that make
-      // this a place rather than a coordinate, and both are preferences rather
-      // than filters so the level-footing requirement above still wins.
-      //
-      // A dungeon mouth on an open beach is what the unbiased search kept
-      // finding, and it reads as an arch someone left on the sand. What a
-      // player expects at the end of a trail is trees around it and rock behind
-      // it, and neither is expressible as a biome: there is no MOUNTAIN in
-      // `BiomeId` (issue #142 §11e), so a hillside is a SLOPE reading — which
-      // is what `steepnessAt` was added for.
-      //
-      // BEHIND, not underneath. The arch needs level ground to stand on, so the
-      // slope is sampled on the far side from spawn: the hero walks up to a
-      // flat apron with the ground rising past it, which is what a cave mouth
-      // looks like.
+      // A wood around it and a hill BEHIND it, sampled on the far side so the arch still gets level ground.
+      // Preferences, not filters. There is no MOUNTAIN biome (issue #142 §11e), so a hill is a steepness reading.
       const away = Math.atan2(z - base.z, x - base.x);
       const backX = x + Math.cos(away) * 9;
       const backZ = z + Math.sin(away) * 9;
       const backing = Math.min(1, w.steepnessAt(backX, backZ) / 0.45);
       const wooded = w.biomeAt(x, z) === 'forest' ? 1 : 0;
-      // A TRAIL CANNOT BRIDGE, so a site across water is a site with no way to
-      // it. Everything above scores the GROUND the arch stands on; this scores
-      // whether the walk to it exists at all, which nothing did until the towns
-      // moved a kilometre apart (issue #184) and the search started finding
-      // handsome wooded sites on the far side of a lake. The path system was
-      // already saying so — `gateway-trail-refused`, the one warning a clean
-      // boot filed — but it says it after the arch is built, and an arch is not
-      // cheap to move by then.
-      //
-      // THE LINE FROM SPAWN IS THE PROXY, not the trail's own route: the trail
-      // leaves the road at the point nearest the gate (see the note where it is
-      // laid), and the spawn is ON the trunk road, so a dry spawn-to-gate line
-      // is the conservative version of the question. Sampled every 2 units,
-      // which is finer than the narrowest neck a trail could sneak through.
-      //
-      // A PENALTY AND NOT A FILTER, for the reason `siteCost` in world/towns.ts
-      // spells out at length: a scoring function whose job is "least bad" has to
-      // be able to rank bad options, and a seed that puts water across every
-      // bearing must still produce an arch somewhere.
+      // A TRAIL CANNOT BRIDGE, so a site across water has no way to it (issue #184).
       let wet = 0;
       {
         const dx = x - base.x;
@@ -1555,10 +768,7 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
           if (w.getHeight(base.x + dx * t, base.z + dz * t) < w.waterLevel + 0.5) wet++;
         }
       }
-      // Weighted under `worst * 3`: a candidate that is 1 unit less level loses
-      // 3, and the whole of both preferences is 4.5. Level footing still wins.
-      // The crossing term is above all of them: two wet samples outweigh the
-      // prettiest wooded hillside in the world, because you cannot get to it.
+      // Weighted under `worst * 3` so level footing still wins; the crossing term outweighs both preferences, because you cannot get to a site you cannot walk to.
       const score = worst * 3 + shopPenalty - backing * 2.5 - wooded * 2 + wet * 6;
       if (score < bestScore) { bestScore = score; best = { x, z }; }
       if (score === 0) return best;
@@ -1567,38 +777,16 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
   return best;
 }
 
-/**
- * Chosen inside createWorld (so the terrain can be flattened and the props kept
- * off it) and read back by `gate` a moment later. A module-level handoff rather
- * than running the search twice: it is a scan over a few hundred columns, and
- * two runs of it would be two chances to disagree.
- */
+// Chosen inside createWorld (so the terrain can be flattened and props kept off) and read back by `gate`; a handoff rather than two scans that could disagree.
 let gateSite: { x: number; z: number } | null = null;
 
-// The zone ID is the identifier — 'overworld' is what ZoneManager, the gate
-// targets and `/zone <id>` all key on, and it does not change. Only `name` is
-// display, so it comes out of the string table.
-//
-// A GETTER, not a stored string, and that is the point: the start menu can
-// change the language after these objects are built, and a name captured at
-// load would put "Embervale" in a Swedish arrival toast forever. `name` is read
-// when a zone is entered — twice a session, not per frame — so looking it up at
-// each read costs nothing and cannot go stale. The zones are the only load-time
-// strings that get this treatment rather than the `onLanguageChange` re-derive
-// below, because they are the only ones behind an interface someone else owns.
+// The zone id is the identity; only `name` is display, and a GETTER because the language can change after these are built.
 const OVERWORLD: ZoneDef = {
   id: 'overworld',
   get name() { return t('zone.overworld.name'); },
   create: (scene) => createWorld(scene, 1337, (probe) => {
     gateSite = findGateSpot(probe);
-    // THE ONE POINT OF INTEREST THAT ASKS FOR A KEEP-OUT, and it is a designer's
-    // call rather than something a landmark gets for being one — see the
-    // `landmarks` argument of createWorld and `SafeZone` in core/types.ts. The
-    // arch is a THRESHOLD: a player walks up to it, waits out a preload and
-    // crosses, and an animal that materialised beside them while they were being
-    // held there is an ambush the game arranged, not one they walked into. 12
-    // covers the arch and the pace or two either side of it; anything hunting
-    // them still follows them right up to it and through.
+    // The one landmark asking for a keep-out: an animal spawning beside a player held at the threshold by a preload is an ambush the game arranged.
     return [{ ...gateSite, id: 'landmark:gateway', noSpawnRadius: 12 }];
   }, Number(storedGfx('terrainDistance'))),
   gate: () => ({ to: 'hold', x: gateSite!.x, z: gateSite!.z, hex: 0x8be3ff }),
@@ -1608,8 +796,7 @@ const HOLD: ZoneDef = {
   id: 'hold',
   get name() { return t('zone.hold.name'); },
   create: (scene) => createDungeon(scene, 0x5ea1ed),
-  // The way out stands on the way in: you arrive on the return gateway, which
-  // is exactly why it starts disarmed (see EXIT_R in world/zones.ts).
+  // You arrive ON the return gateway, which is why it starts disarmed (see EXIT_R).
   gate: (w) => ({ to: 'overworld', x: w.spawnPoint.x, z: w.spawnPoint.z, hex: 0xffc46b }),
 };
 
@@ -1618,23 +805,7 @@ const bound: WorldBound[] = [];
 /** Set by the zone manager each slice; consumed by the HUD hint below. */
 let portalHint: string | null = null;
 
-/**
- * The interact prompt, composed at load and again whenever the language or the
- * input device moves under it. Empty until `composeKeyHints()` runs — it needs
- * the HUD, which is built below.
- *
- * The hint pill is HTML and the key cap arrives inside the `{key}` placeholder
- * (see HUD.showHint and `kbd`), so this is a `t(key, vars)` call — which
- * allocates. It is hoisted out of the frame loop for exactly that reason: the
- * loop below runs it every frame the hero is stood near a den. Same argument as
- * SHOP_FOOT_HINTS in src/ui/index.ts.
- *
- * A `let` rather than a `const` because two things can move it: the start menu
- * changing the language, and the player changing device — the cap inside it is
- * `E` on a keyboard and a controller face on a pad. `composeKeyHints()` below is
- * the ONE place that writes it, on both edges. It is still composed a handful of
- * times per session, never per frame.
- */
+// Hoisted: `t(key, vars)` allocates and the loop shows this every frame near a den. `composeKeyHints()` is the one writer.
 let skillDenHint = '';
 
 const zones = new ZoneManager({
@@ -1646,128 +817,55 @@ const zones = new ZoneManager({
   onArrive: (w, def) => {
     world = w;
     world.applyCelestial(dayNight);
-    // The other scene change, and the only one that is not the session starting
-    // or ending. A ZONE ID IS A SCENE NAME now — `musicPlaylist` looks for
-    // `music:<id>` and takes the fallback playlist when no package scored this
-    // area — so a zone added later brings its music with it and this line never
-    // grows a branch. It used to be a ternary mapping everything that was not
-    // the overworld onto `hold`, which is a two-zone game written down.
+    // A ZONE ID IS A SCENE NAME: `musicPlaylist` looks for `music:<id>` and takes the fallback
+    // otherwise, so a zone added later brings its music and this line never grows a branch.
     music.setScene(def.id);
-    // A saddle pose is computed against one world's heightfield; applying it in
-    // another is precisely the teleport-into-rock this rebinding exists to stop.
+    // A saddle pose is computed against one world's heightfield — the teleport-into-rock case.
     if (mount.isMounted) mount.dismount();
     player.position.copy(w.spawnPoint);
     player.position.y = Math.max(
       w.getHeight(w.spawnPoint.x, w.spawnPoint.z), w.waterLevel,
     );
     player.velocity.set(0, 0, 0);
-    // The beasts need no placement: their follow update teleports any beast whose
-    // owner is further than TELEPORT_DIST away, and a zone is by construction
-    // further than that, so they poof in beside him on the next slice using the
-    // new world's ground height.
+    // No placement needed: follow-update teleports any beast further than TELEPORT_DIST away.
     bus.emit({ type: 'toast', text: t('toast.enteredZone', { zone: def.name }) });
-    // The compass markers are per-zone landmarks, so the set is rebuilt here
-    // and nowhere else. `gate` is the ZoneDef's own answer, not a second search.
+    // Markers are per-zone; `gate` is the ZoneDef's own answer, not a second search.
     const g = def.gate(w);
     syncCompassMarkers(w, g.x, g.z, g.hex);
-    // A new zone is new meshes, and a visibility flag set on the old world's
-    // chunks went with them. Everything else in gfx is renderer state and
-    // survives a switch, but pushing the lot is one call and cannot go stale.
+    // A new zone is new meshes, and a visibility flag went with the old world's chunks.
     gfx.applyAll();
   },
   onHint: (t) => { portalHint = t; },
 });
 
-// The world is cut. Next the things that stand on it: the hero, the camera, the
-// combat pools, the HUD and ten beast rigs.
 await loading?.stage('actors');
 
 let world: World = zones.world;
-// Submerged-camera treatment. Scene-level and zone-agnostic (it takes the world
-// only as a per-frame "is there water under the lens" answer), so it survives a
-// zone switch without being in `bound`.
+// Zone-agnostic — the world is only a per-frame "is there water under the lens" answer — so it survives a switch without being in `bound`.
 const underwater = new Underwater(engine.scene, engine.camera, engine.renderer.domElement);
 const player = new Player(engine, world, input, bus);
 const combat = new CombatSystem(engine.scene, world, bus);
 const hud = new HUD(bus);
-// The HUD's menu button TAPS THE KEY, exactly as the pad's Start and the touch
-// overlay's MENU do — see the note where the button is built. The one reader in
-// `frame()` still decides what it means, so the button toggles the menu and
-// closes the topmost panel without knowing that either is a rule.
+// TAPS THE KEY, as the pad's Start and the touch MENU do; the one reader in `frame()` still decides what it means.
 hud.onMenu = () => input.tapVirtual('F10');
 
-// THE OPENING SHOT: beside the start town's greeter, at his fire, facing the
-// way he faces, with the camera on the hero's face. It is a POSE and not a
-// point (see `World.playerStart` in core/types.ts), which is why this is one
-// call rather than a `position.copy` — the facing is half the composition, and
-// `Player.reset()` goes through the same method so a second New Game in one
-// session opens on the same shot.
 player.takeStartPose();
-/**
- * THE SWING, OR THE SHOT — decided by what is in his hand, here rather than in
- * `Player`.
- *
- * Which weapon is equipped is gear-slot policy and lives in this file with the
- * rest of it (see `applyLoadout`); the hero controller knows only that he
- * attacked, and combat knows only how to do each. `player.weapon` is read off
- * the RIG, so this can never disagree with the model on screen.
- *
- * A bow's arrow goes where the swing would have gone: `dir` is the hero's aim,
- * already resolved by the player controller, and the aim assist above steers it
- * exactly as it steers a sword — the difference is reach and a projectile,
- * which is `arrowStrike`'s business.
- */
+// Which weapon is equipped is gear-slot policy and lives in this file; `player.weapon` is read off the RIG, so it cannot disagree with the model.
 player.onAttack = (origin, dir) => {
   if (player.weapon === 'bow') combat.arrowStrike(origin, dir, player.attackStat);
   else combat.meleeStrike(origin, dir, player.attackStat, player.position.y);
 };
 
-/**
- * Melee aim assist: how far off the CROSSHAIR'S BEARING an enemy may sit, as
- * seen from the hero, and still be the one the swing is meant for. cos of the
- * half-angle, so ~75 degrees each side.
- *
- * Chosen against the arc rather than picked for feel. `SWORD_ARC_COS` is ~50
- * degrees each side, so a cone at 50 would be almost inert — an enemy the assist
- * could reach for is one the un-steered swing was about to hit anyway. The
- * interesting band is the ~25 degrees OUTSIDE the arc, where a controller player
- * is plainly aiming at something and plainly missing it, and 75 covers that with
- * a little margin for the hero's heading lagging the camera (`TURN_RATE`) — the
- * body-relative turn can exceed 75 by exactly that lag, which is correct: the
- * assist aims where you are LOOKING, not where the shoulders have caught up to.
- *
- * Wider is wrong in a way worth recording, because the arc is a wedge and not a
- * ray: steering it far enough sweeps the far edge OFF enemies it already
- * covered. Past ~90 the assist starts costing hits in a crowd to buy one.
- */
+// Cos of the half-angle, ~75 degrees each side.
 const AIM_ASSIST_CONE_COS = Math.cos((75 * Math.PI) / 180);
 /** Scratch for the crosshair ray below. The strike path allocates nothing. */
 const _aimDir = new THREE.Vector3();
 
-/**
- * Steer the sword onto the enemy nearest the crosshair, if one is in reach.
- *
- * Gameplay policy, so it lives in the composition root: the query belongs to
- * combat (it owns the enemies) and the body belongs to the player (it owns the
- * heading), and neither of them should be deciding how generous the game is.
- *
- * Deliberately NOT gated on the input device, though a controller is what asked
- * for it. Aim assist that only exists on one device is a rule players cannot
- * learn — and on a mouse it is close to inert anyway, because a mouse player is
- * already pointing at the thing they mean and `bestMeleeTarget` will just hand
- * back what the arc was going to hit. `?aim=0` turns it off for measurement.
- */
+// Gameplay policy, so it lives in the composition root. Not gated on device — an assist on one device is a rule players cannot learn. `?aim=0` turns it off.
 player.aimAssist = (origin, dir) => {
   if (!flags.aimAssist) return false;
-  // NOT FOR THE BOW. The assist is a MELEE rule end to end: it searches inside
-  // `SWORD_REACH`, and on a hit it snaps the hero's heading onto the target so
-  // the arc comes out of his shoulders. Neither belongs to a shot — an arrow is
-  // aimed by the crosshair (see `arrowStrike`, which deliberately does not
-  // home), and steering it 2.2 units from the muzzle would take the aiming away
-  // from the player at exactly the range where they can already see what they
-  // are pointing at. The weapon is read here rather than in the Player for the
-  // same reason `onAttack` reads it here: which weapon is equipped is gear-slot
-  // policy and this file owns it.
+  // NOT FOR THE BOW: the assist searches inside `SWORD_REACH` and snaps the hero's heading so
+  // the arc leaves his shoulders, and neither belongs to a shot the crosshair already aimed.
   if (player.weapon === 'bow') return false;
   engine.camera.getWorldDirection(_aimDir);
   const target = combat.bestMeleeTarget(
@@ -1777,46 +875,18 @@ player.aimAssist = (origin, dir) => {
   const dx = target.position.x - origin.x;
   const dz = target.position.z - origin.z;
   const d = Math.hypot(dx, dz);
-  // Standing inside the target: there is no bearing to steer onto, and the arc
-  // hits it from wherever it swings.
+  // Standing inside the target: no bearing to steer onto.
   if (d < 1e-4) return false;
-  // Re-point the HORIZONTAL bearing and leave the vertical component alone. In
-  // the saddle `dir` is the pitched crosshair ray and its `y` is what lifts the
-  // strike origin over the mount's bulk (see MOUNTED_REACH); flattening it here
-  // would quietly drop the swing back into the animal's back.
+  // Horizontal bearing only: in the saddle `dir.y` is what lifts the strike over the mount's bulk (see MOUNTED_REACH).
   const horiz = Math.hypot(dir.x, dir.z);
   dir.x = (dx / d) * horiz;
   dir.z = (dz / d) * horiz;
   return true;
 };
 
-// ---------------------------------------------------------------------------
-// Compass markers. Which landmarks are worth a chip is gameplay policy, so the
-// list lives here rather than in the HUD or the world.
-//
-// Today that is the four skill dens and the zone gateway. Adding one more is a
-// single hud.addCompassMarker({ id, x, z, color, label? }) call from wherever
-// the thing is created — a town, a quest objective, a downed beast. The id is the
-// identity: call it again with the same id to move or recolour the chip, and
-// hud.removeCompassMarker(id) when the objective is done.
-// ---------------------------------------------------------------------------
-/**
- * The town chips that have to be re-read every frame, paired with the town.
- *
- * A TOWN THAT MOVES IS THE CASE `CompassMarker` ALWAYS ALLOWED AND NOTHING HAD
- * EXERCISED. The chip is anchored to a world position, and the HUD reads that
- * position off the marker OBJECT every frame — so keeping the object and
- * writing two numbers into it is the whole of "the compass is aware of the
- * town's updated location" (issue #68). It costs two assignments per town per
- * frame and no DOM work at all: `setCompass` already guards every write on a
- * tenth of a pixel of movement, so a settlement that is standing still touches
- * nothing.
- *
- * Every town rather than only the flying one, because "which of these moves" is
- * not on `TownInfo` and should not be: a registry entry's position is live by
- * contract, and a list that had to be told which members meant it would be the
- * next thing to go stale.
- */
+// Which landmarks earn a chip is gameplay policy; add one with `hud.addCompassMarker`, the id being
+// the identity. Town chips are re-read per frame off the marker OBJECT, so a moving town is two
+// assignments and no DOM work (issue #68) — every town, since `TownInfo` does not say which move.
 const _townChips: Array<{ chip: CompassMarker; town: TownInfo }> = [];
 
 function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: number): void {
@@ -1824,11 +894,6 @@ function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: num
   hud.setCompassMarkers([
     // Dens in the shard-shop amber the hint pill and price tags already use.
     ...w.shopPositions.map((s, i) => ({ id: `den${i}`, x: s.x, z: s.z, color: 0xffd23f })),
-    // TOWNS, straight off the registry — one line, and it is the same list a
-    // quest would enumerate. The chip points at the GATE rather than the centre
-    // because that is where you actually have to arrive, and it carries the
-    // town's own colour so the strip distinguishes them. The label is the first
-    // four characters of the id, which is all a chip has room for.
     ...w.towns.all.map((t) => {
       const chip: CompassMarker = {
         id: `town:${t.id}`,
@@ -1840,8 +905,7 @@ function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: num
       _townChips.push({ chip, town: t });
       return chip;
     }),
-    // The gateway takes the colour of its own arch, so the chip and the thing
-    // it points at are the same object on screen.
+    // The gateway takes the colour of its own arch.
     { id: 'gate', x: gateX, z: gateZ, color: gateHex, label: 'GATE' },
   ]);
 }
@@ -1850,24 +914,9 @@ function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: num
   syncCompassMarkers(world, g.x, g.z, g.hex);
 }
 
-/**
- * WHICH MOUNTS THIS CHARACTER HAS EARNED. Empty on a new game — riding is three
- * story unlocks (game-story.md §5), and no shipped quest grants one yet.
- *
- * `mounts=` is applied HERE and nowhere else, which is what keeps a diagnostic
- * flag a construction-time argument rather than something gameplay branches on.
- * `all` is expanded against the roster of kinds because core/flags.ts has no
- * imports and deliberately does not know what a kind is.
- */
+// Empty on a new game — riding is three story unlocks (game-story.md §5). `mounts=` is applied here and nowhere else.
 const mountUnlocks = new MountUnlocks();
-/**
- * Back to what this LOAD starts with — nothing, or what `mounts=` asked for.
- *
- * Called at boot and again from `exitToTitle`, so a probe that took the flag and
- * then went back to the title screen starts its next game the same way it
- * started its first. A plain `reset()` there would make the flag mean "the first
- * game of this page load", which is a rule nobody could guess.
- */
+// Called at boot and again from `exitToTitle`, so `mounts=` means every game of this page load rather than only the first.
 function seedMountUnlocks(): void {
   mountUnlocks.reset();
   if (flags.mounts) {
@@ -1876,74 +925,25 @@ function seedMountUnlocks(): void {
 }
 seedMountUnlocks();
 
-// Hold F to ride your beast. The controller owns the hold timer, the refusal
-// rules and a mounted beast's locomotion; which beast is offered (the primary, see
-// simulate) and where a mounted skill aims (below) are policy, so they live here.
 const mount = new MountController(player, world, input, bus, mountUnlocks);
 
-// Contact particles: the world sheds when you brush it. One element today —
-// leaves knocked out of a tree crown — behind a fixed pool and one draw call.
-// Constructed HERE, above the frame loop and above warmUpShaders(), because its
-// mesh has to be in the scene for the boot warm-up to link its program; a pool
-// that first appears when the hero walks into a tree links a shader mid-game,
-// which is a several-hundred-millisecond stall (see warmUpShaders).
+// Contact particles, constructed above the frame loop so its mesh is in the scene for the boot warm-up: a pool
+// first appearing mid-game links a shader and stalls hundreds of ms.
 const touchFx = new TouchParticles(engine.scene, world);
 
-// ---------------------------------------------------------------------------
-// Beast roster: every species BUILT, none of them OWNED, two active at a time.
-//
-// EVERY ACTOR IS STILL CONSTRUCTED AT BOOT even though the player starts with
-// nothing, and that is the whole design of ownership here. `BeastActor.reset`'s
-// own note (src/beasts/framework.ts) is why: a rig is geometry and materials,
-// and building one costs a shader link — thirteen seconds of the boot go into
-// linking the roster's. Creating an actor at the moment a bond succeeds would
-// move that cost into the frame the player is watching the orb settle on, which
-// is the single worst frame in the game to stall. So the bodies exist from the
-// start and OWNERSHIP is a set of species ids beside them; a bond adds an id.
-//
-// The price is that fifteen invisible rigs sit in the scene from boot, which is
-// exactly what shipped before this change — `refreshVisibility` has always kept
-// thirteen of them hidden.
-// ---------------------------------------------------------------------------
+// Every species BUILT, none OWNED, two active.
 registerSkillDefs(SKILLS.values());
 const roster: BeastActor[] = ALL_SPECIES.map(
   (sp) => new BeastActor(sp, engine.scene, world, bus),
 );
-// The rebind list. Order does not matter — every setWorld is independent — but
-// the roster is the reason the list exists at all: a beast's level, xp and known
-// skills are the save game, and rebuilding one to change zones would delete it.
+// The rebind list. A beast's level, xp and known skills are the save game, so rebuilding one to change zones would delete it.
 bound.push(player, mount, combat, touchFx, ...roster);
 
-/**
- * WHICH BEASTS THE PLAYER HAS BONDED — species ids, and the whole of ownership.
- *
- * A SET OF IDS rather than a flag on the actor, for the same reason the bag is
- * a map of counts and not a field on every `ItemDef`: the catalogue is what the
- * game HAS and this is what the player has, and the day a save file lands it is
- * this that gets written. `BeastActor` stays a body with a level on it.
- *
- * Empty at boot. It is filled by `grantBeast`, which the `beastTamed` event is
- * the only gameplay route to.
- */
 const owned = new Set<string>();
 
-/**
- * The two party slots, as indices into `roster` — or -1 for "nobody".
- *
- * -1 IS A REAL STATE NOW and not a guard against a bug: a new game has no
- * beasts at all, so `primary()` and `support()` return null and every caller
- * has to say what it does about that. The alternative — keeping the indices
- * valid and pointing at an unowned Emberfox — would have made "do I have a
- * beast" a question with two answers.
- */
 let primaryIdx = -1;
 let supportIdx = -1;
-/**
- * How near the hero something hostile has to be before his companions count as
- * NEEDED (see `supportNeeded`). 22 units: the support beast already casts at
- * `Math.max(skill.range, 12)` and an enemy walks that in a couple of seconds, so
- * this is "a fight is happening here" rather than "something is on the horizon".
- */
+// How near something hostile counts as companions being NEEDED: 22 is "a fight is happening here" rather than "something is on the horizon".
 const SUPPORT_CALL_RANGE = 22;
 /** Scratch list of live companions handed to combat each slice — never resized. */
 const _friendlies: BeastActor[] = [];
@@ -1955,42 +955,16 @@ function support(): BeastActor | null { return supportIdx >= 0 ? roster[supportI
 /** Has the player bonded this one? The one question `owned` is asked. */
 function isOwned(b: BeastActor): boolean { return owned.has(b.species.id); }
 
-/**
- * The bonded beasts, in roster order — which is also the order Tab cycles and
- * the order the inventory lists.
- *
- * ALLOCATES, so it is for the panel, the shop and the console and never for a
- * frame. The frame loop reads `primary()`/`support()`, which are two index
- * lookups and no array at all.
- */
+// The bonded beasts in roster order — also Tab's order and the panel's.
 function ownedBeasts(): BeastActor[] { return roster.filter(isOwned); }
 
-// `beasts=0` hides the party and skips its per-frame update, so a measurement run
-// can price what the two active beasts cost to animate and draw. It does NOT skip
-// building the rigs — see the note on the roster above for why every body exists
-// from boot whether or not it is owned. Rig construction is a boot cost; read it
-// off the boot phase of a profile instead. See core/flags.ts.
-//
-// An UNOWNED beast is hidden by the same line, and by construction rather than
-// by a second test: it can never be in a slot, because nothing puts it in one.
+// `beasts=0` hides the party and skips its update; it does NOT skip building the rigs, which is a boot cost.
 function refreshVisibility(): void {
   roster.forEach((p, i) => p.setVisible(flags.beasts && (i === primaryIdx || i === supportIdx)));
 }
 refreshVisibility();
 
-/**
- * Put a newly bonded beast into the party, filling the empty slots first.
- *
- * YOUR FIRST BOND LEADS AND YOUR SECOND SUPPORTS, and after that a new one is
- * benched rather than displacing anyone. Auto-filling is what makes the first
- * bond a moment instead of a homework assignment — a player who has just spent
- * an orb should be walking away with the animal beside them, not opening a panel
- * to find out where it went. Displacing a beast they had chosen would be the
- * opposite mistake.
- *
- * Returns false when this species was already bonded, which is what `/give`-like
- * paths and the debug hook need to be able to say.
- */
+// Empty slots first: the first bond leads, the second supports, later ones are benched rather than displacing a chosen beast.
 function grantBeast(speciesId: string): boolean {
   const idx = roster.findIndex((b) => b.species.id === speciesId);
   if (idx < 0 || owned.has(speciesId)) return false;
@@ -2001,21 +975,7 @@ function grantBeast(speciesId: string): boolean {
   return true;
 }
 
-/**
- * A bond took. Take ownership, say so, and tell the content layer.
- *
- * COMPOSITION-ROOT POLICY, which is why it is here: combat knows an orb settled
- * on a beast, the roster knows what a `BeastActor` is, the content state knows
- * what a quest is counting, and this is the only file that knows all three.
- *
- * IT DOES NOT ADVANCE A QUEST, and that is a scope line rather than an
- * oversight. game-story.md §7 lists objective TRIGGERS — enemy death, item
- * pickup, taming, zone arrival — as engine work still to do, and none of them
- * exists: `enemyKilled` has been on the bus for as long as quests have, and
- * nothing routes it to a `progress.add` either. Building that router for taming
- * alone would be building it for one of the five. The `beastTamed` event IS the
- * seam it will read, which is why it carries the species id.
- */
+// Composition-root policy: only this file knows combat, the roster and the content state.
 function onBeastTamed(speciesId: string, nameKey: StringKey): void {
   const first = owned.size === 0;
   if (!grantBeast(speciesId)) return;
@@ -2023,22 +983,10 @@ function onBeastTamed(speciesId: string, nameKey: StringKey): void {
     type: 'toast',
     text: t(first ? 'toast.bondedFirst' : 'toast.bonded', { beast: t(nameKey) }),
   });
-  // The panel is rebuilt from the roster every time it opens, but it may be
-  // OPEN — a bond cannot happen with a modal up, though a toast-driven refresh
-  // costs nothing and is what keeps that true if the rule ever changes.
   inventory.refresh();
 }
 
-/**
- * Step a party slot to the next OWNED beast, skipping the one in the other slot.
- *
- * A no-op below two bonded beasts, and silently: pressing Tab with one animal
- * is not an error, there is simply nowhere to go, and a toast saying so on every
- * press would be the game nagging about its own emptiness. `guard` is a plain
- * trip count rather than a `while` over ownership, because the old loop's exit
- * condition — "until it is not the other slot" — cannot terminate when there is
- * only one legal index.
- */
+// A silent no-op below two bonded beasts, and `guard` is a trip count because "until it is not the other slot" cannot terminate with one legal index.
 function cycleBeast(which: 'primary' | 'support', dirn: 1 | -1): void {
   const n = roster.length;
   if (owned.size < 2) return;
@@ -2061,42 +1009,19 @@ function cycleBeast(which: 'primary' | 'support', dirn: 1 | -1): void {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Currency (pickups tracked by combat; purchases tracked here)
-//
-// The item id is 'shard' and the event is `shardsChanged`; the DISPLAY name is
-// "Cubloons" and lives in src/i18n/en.ts. The identifiers were left alone on
-// purpose — renaming them would rename a save key to change a label.
-// ---------------------------------------------------------------------------
+// Currency: the item id is 'shard' and the event `shardsChanged`; the display name is in i18n.
 let pickupTotal = 50;
 let spent = 0;
 const shards = () => pickupTotal - spent;
 
-// The bag holds everything with a COUNT — currency stays the running total
-// above and beasts stay in the roster (see core/items.ts for why neither is in
-// here). Combat reports every drop that leaves the ground; what to do with it is
-// policy, so it is decided here.
+// The bag holds everything with a COUNT — currency is the total above and beasts are the roster (core/items.ts).
 const bag = new Inventory();
 
-/**
- * WHERE THE PLAYER PUT EACH ROW on the inventory wall (issue #116). Keyed by the
- * same ids the panel round-trips, so it holds `beast:` rows as well as items —
- * see `SlotLayout`. Nothing outside `inventoryModel` and the panel's move hook
- * touches it, and it is session state like the bag beside it.
- */
+// Where the player put each row on the inventory wall (issue #116).
 const slots = new SlotLayout();
 
-/**
- * The HUD's chip row is the STACKABLES only, and it is a narrower thing than the
- * bag now that the bag holds weapons and blueprints too.
- *
- * The row is not a summary of what you own — the inventory panel is that. It is
- * the readout for the support beast's fetch rule, and the invariant that makes
- * it worth having is "a chip is up exactly when the beast will fetch more of
- * that thing" (see `worthFetching`, which only ever runs an errand for a
- * stackable). Showing a greatsword there would break that and fill the top of
- * the screen with things the beast is never going to bring you.
- */
+// The HUD's chip row is STACKABLES only: it is the readout for the support beast's fetch rule, and the invariant
+// is "a chip is up exactly when the beast will fetch more of that".
 function refreshBagChips(): void {
   hud.setBag(bag.entriesOfKind('stackable'));
 }
@@ -2112,11 +1037,7 @@ bus.on((e) => {
       const n = bag.add(e.itemId, 1);
       refreshBagChips();
       if (e.byBeast) {
-        // The fetcher is whichever beast is carrying right now — normally the
-        // support beast, but a Tab swap mid-errand must not misattribute it.
-        // Only a bonded beast can have been on the errand at all, so the fallback
-        // cannot be null in practice; the branch is what makes that true rather
-        // than assumed.
+        // Whichever beast is carrying right now: a Tab swap mid-errand must not misattribute it.
         const fetcher = roster.find((p) => p.isCarrying) ?? support();
         if (fetcher) {
           bus.emit({
@@ -2130,9 +1051,7 @@ bus.on((e) => {
     }
   }
   if (e.type === 'enemyKilled') {
-    // XP goes to whoever is actually out there. With no beasts bonded it goes
-    // nowhere — which is correct and not a loss: the hero has no level, so
-    // there is nothing for a kill to feed until the first bond.
+    // XP goes to whoever is out there; with no beasts bonded it goes nowhere, correctly.
     primary()?.gainXp(e.xp);
     support()?.gainXp(Math.round(e.xp * 0.6));
   }
@@ -2145,86 +1064,30 @@ bus.on((e) => {
 });
 hud.setShards(shards());
 
-// ---------------------------------------------------------------------------
-// Fetch errands (support-beast AI, so it lives here)
-// ---------------------------------------------------------------------------
-// The rule, in one predicate:
-//   currency   — always worth a trip. Money is money.
-//   stackable  — only if the player ALREADY holds at least one. The beast tops up
-//                stacks you have chosen to carry and leaves everything else on
-//                the ground, so a fetcher never fills your bag with things you
-//                have never picked up yourself. Walking over an item is how you
-//                opt in to it, and from then on the beast collects that kind.
-// It is the SUPPORT beast that runs these: the primary stays at the player's
-// shoulder where its skills are aimed from.
 const FETCH_RADIUS = 16;      // how far from the player a drop may be to be offered
 const FETCH_SCAN = 0.4;       // seconds between scans; the pool is small but this is a poll
 let fetchScanT = 0;
 
 function worthFetching(itemId: string): boolean {
   const def = itemDef(itemId);
-  // STACKABLE, not "anything you already hold". The rule was written when those
-  // were the same set; issue #74 made them different, and a beast that fetched
-  // the blueprint you just dropped — or the second potion out of a pair you are
-  // holding — is running an errand nobody asked for. Every rare drop is now
-  // something the player walked over themselves, which is also what makes the
-  // 1-in-25 in `killEnemy` mean something.
+  // STACKABLE, not "anything you already hold" — issue #74 split those, and a beast that fetched back the blueprint you just dropped is an errand nobody asked for.
   return def.kind === 'currency' || (def.kind === 'stackable' && bag.count(itemId) > 0);
 }
 
-// ---------------------------------------------------------------------------
-// INVENTORY, GEAR AND THE THINGS YOU CAN DO TO A THING YOU OWN
-//
-// Issue #74. The PANEL (ui/inventory.ts) knows no game rules at all — it is
-// handed rows with a list of actions and reports which button was pressed — so
-// every rule is here, beside the state it governs. That is the same split
-// ui/settings.ts draws and the same one this file already makes for the shop:
-// the composition root owns policy that is no subsystem's own business.
-//
-// WHAT IS AND IS NOT STORED. The bag holds counts. The WEAPON slot is one id
-// here, because it is a fact about the session rather than about any item. The
-// two BEAST slots are `primaryIdx`/`supportIdx`, which already existed and which
-// Tab and the beast-cycle keys already move — the panel drives those same two
-// numbers rather than keeping a third, so equipping a beast from the panel and
-// swapping with Tab can never disagree. The issue asks for exactly that ("these
-// can be swapped when running around in the world without going into the
-// inventory (that feature is already implemented)"), and the way to keep a
-// feature working is to not build a second one beside it.
-// ---------------------------------------------------------------------------
+// INVENTORY, GEAR AND ITEM ACTIONS — issue #74. The panel knows no game rules: it is handed rows and
+// reports a button, so every rule is here. The two BEAST slots ARE `primaryIdx`/`supportIdx`, the
+// numbers Tab moves, so the panel and the world keys can never disagree.
 
-/**
- * The hero's own strength, before anything he is holding.
- *
- * Read off `Player` rather than written down, so the two cannot drift, and read
- * ONCE at boot because everything below writes `attackStat`. `Player.reset()`
- * deliberately does not touch that field — a stat is not session state from the
- * player controller's point of view — so `applyLoadout()` is what puts it back
- * on Exit to title.
- */
+// Read off `Player` once at boot so the two cannot drift; `Player.reset()` leaves `attackStat` alone, so `applyLoadout()` restores it.
 const BASE_ATTACK = player.attackStat;
 
 /** The weapon in the gear slot, by item id, or null for bare hands. */
 let equippedWeapon: string | null = null;
 
-/**
- * The taming orb `Q` would throw, by item id, or null for none readied.
- *
- * A GEAR SLOT AND NOT A HOTBAR, which is the choice this field is: an orb is
- * chosen once and thrown many times, where a hotbar is for things chosen in the
- * moment. The consequence is that a player who runs out of the readied tier
- * keeps it selected and gets told the bag is empty — deliberately, because
- * silently falling through to a Master Orb would spend the most expensive thing
- * they own without being asked.
- */
+// The taming orb `Q` would throw.
 let readiedOrb: string | null = null;
 
-/**
- * Show the readied orb and how many are left, or nothing.
- *
- * Called where the pair CHANGES — readied, unreadied, thrown, reset — and never
- * per frame, which is the same contract `refreshBagChips` has and for the same
- * reason: the HUD holds the rendered chip and only redraws on change.
- */
+// Called where the pair CHANGES — readied, unreadied, thrown, reset — and never per frame: the HUD holds the rendered chip and only redraws on change.
 function refreshOrbHud(): void {
   const def = readiedOrb ? itemDef(readiedOrb) : null;
   const n = readiedOrb ? bag.count(readiedOrb) : 0;
@@ -2234,32 +1097,16 @@ function refreshOrbHud(): void {
 let attackBuff = 0;
 let attackBuffT = 0;
 
-/**
- * Recompute everything a loadout decides. ONE function rather than an edit at
- * each of the five sites that can change the answer (equip, unequip, use, the
- * buff expiring, and the reset on Exit), because a derived value written in five
- * places is a derived value that is wrong in one of them.
- */
 function applyLoadout(): void {
   const w = equippedWeapon ? itemDef(equippedWeapon) : null;
   player.attackStat = BASE_ATTACK + (w?.power ?? 0) + attackBuff;
-  // ...and what he is HOLDING, which is the same decision seen from the other
-  // side: `ItemDef.model` names a voxel model in player/weapons.ts, and null is
-  // bare hands, which switches the animator to the punch table. The rig is the
-  // storage, so there is no second field here to fall out of step with it.
+  // What he is HOLDING: `ItemDef.model` names a voxel model, and null is bare hands, which
+  // switches the animator to the punch table. The rig is the storage, so there is no second field.
   player.setWeapon(weaponModelOf(w));
-  // The inventory's 3D stage holds its own hero rig and has to be told too. It
-  // may be shut, in which case this is a field it will draw with next time.
+  // The panel's own hero rig has to be told too; it may be shut and will draw with this next time.
   inventory.setHeroWeapon(w?.model ?? null);
 }
 
-/**
- * `ItemDef.model` narrowed to the union the rig understands, or null.
- *
- * The guard lives on this side because the field is a plain STRING: core/ may
- * not import player/ (see the note on `ItemDef.model`), so every reader checks
- * it. There is exactly one reader that matters and this is it.
- */
 function weaponModelOf(def: ItemDef | null): WeaponModelId | null {
   const m = def?.model;
   return m && (WEAPON_MODEL_IDS as readonly string[]).includes(m)
@@ -2267,26 +1114,9 @@ function weaponModelOf(def: ItemDef | null): WeaponModelId | null {
     : null;
 }
 
-/**
- * What a new game starts with.
- *
- * A starting kit rather than an empty bag, and the reason is not generosity: an
- * inventory whose every screen is empty until a 1-in-25 drop lands is a feature
- * nobody can see working, and the gear slot in particular has nothing to say
- * about itself while there is nothing to put in it. One weapon (equipped, so the
- * slot is filled and the stat it feeds is non-zero), a potion to drink and a
- * blueprint to look at is the smallest set that shows every kind of row the
- * panel can draw except the quest one — and that one is deliberately reachable
- * only through content (`item.give`) or the console.
- *
- * ONE TAME ORB, READIED. It is here for a harder reason than the rest of the
- * kit: the player now starts with no beasts at all, and the only way to get one
- * is to throw an orb. Without this the opening loop is "kill things with a sword
- * until you can afford sixty Cubloons", and the mechanic the whole game is about
- * does not appear until then. One orb is enough to bond one Sproutle and not
- * enough to be a supply — it will very likely break, and the den is the answer
- * to that.
- */
+// The smallest kit that shows every kind of row the panel draws except the content-only quest one.
+// ONE TAME ORB, READIED, because the player starts with no beasts and the only way to get one is a
+// throw — enough for one Sproutle and not enough to be a supply.
 function giveStartingKit(): void {
   bag.add('sword-iron', 1);
   bag.add('potion-mend', 2);
@@ -2299,15 +1129,7 @@ function giveStartingKit(): void {
   refreshOrbHud();
 }
 
-/**
- * What `item.give` does once the parameters have been checked. A `function`
- * declaration rather than a const, so the registration three hundred lines above
- * can name it — see the note there.
- *
- * Currency is folded into the pickup total rather than refused, for the reason
- * `/give` gives: it is not a bag entry, and a handler that silently ignored
- * `{"item":"shard"}` would be the least useful possible answer.
- */
+// A `function` so the registration hundreds of lines above can name it. Currency folds into the pickup total rather than being refused.
 function giveItemFromContent(id: string, n: number): void {
   const def = itemDef(id);
   if (def.kind === 'currency') {
@@ -2318,8 +1140,7 @@ function giveItemFromContent(id: string, n: number): void {
     refreshBagChips();
   }
   bus.emit({ type: 'toast', text: t('toast.gotItem', { item: itemName(def, n) }) });
-  // The panel is a modal so almost nothing can reach here while it is up — but
-  // the dev console can, and so could a piece of content firing on a timer.
+  // The panel is a modal, but the dev console can reach here, and so could timed content.
   inventory.refresh();
 }
 
@@ -2330,23 +1151,10 @@ const beastItemId = (b: BeastActor): string => BEAST_ID_PREFIX + b.species.id;
 const invStat = (label: StringKey, value: string | number): InvStat =>
   ({ label: t(label), value: String(value) });
 
-/**
- * Build the rows the panel draws, from the bag and the roster.
- *
- * DERIVED EVERY TIME rather than kept — this runs on open and after each action,
- * which is a handful of times a session and never inside a frame — because the
- * two sources it reads are the truth and a cached view of them is a second
- * answer that can be stale.
- */
+// Derived every time — on open and after each action, never inside a frame — because the bag and the roster are the truth and a cached view of them is a second answer.
 function inventoryModel(): InventoryModel {
   const entries: InvEntry[] = [];
 
-  // Beasts first: they are the rows a player is most likely to have come for,
-  // and this is the same roster order Tab cycles through.
-  //
-  // OWNED ONLY. The panel is what the player HAS, not a bestiary of what exists
-  // — a grid of fifteen greyed-out animals would be a checklist, and the game
-  // does not tell you what you have not met yet.
   for (const b of ownedBeasts()) {
     const lead = b === primary();
     const supporting = b === support();
@@ -2356,10 +1164,7 @@ function inventoryModel(): InventoryModel {
       name: t(b.species.nameKey),
       count: 1,
       color: ELEMENT_COLORS[b.species.element],
-      // The SPECIES, not a copy of anything off it. The panel's stage builds a
-      // rig of its own from this and bakes the portrait the slot wears, which
-      // is why a beast row shows the animal rather than a coloured lozenge —
-      // see ui/inventory-stage.ts on why it may not borrow the roster's rig.
+      // The SPECIES, not a copy off it: the panel's stage builds its own rig and bakes the slot portrait from this (see ui/inventory-stage.ts).
       species: b.species,
       rarity: 'rare',
       description: t(b.species.descriptionKey),
@@ -2372,15 +1177,7 @@ function inventoryModel(): InventoryModel {
           value: t(lead ? 'inv.beast.lead' : supporting ? 'inv.beast.support' : 'inv.beast.benched'),
         },
       ],
-      // A beast is never dropped or salvaged. Its actions are the slots it can
-      // be moved into, and the one it is already in is not offered —
-      // `cycleBeast` refuses to put one beast in both slots, and a button that
-      // silently does nothing is worse than a button that is not there.
-      //
-      // A BEAST IN A SLOT CAN COME OUT OF IT (issue #116), from either slot and
-      // by the same `unequip` a sword uses: the party was a two-of-three choice
-      // with no way back to walking alone, which is a state the game otherwise
-      // starts in and one `Tab` cannot reach.
+      // A beast is never dropped or salvaged; its actions are the slots it can move into, and it can come OUT of one (issue #116).
       actions: lead ? ['setSupport', 'unequip']
         : supporting ? ['setLead', 'unequip']
         : ['setLead', 'setSupport'],
@@ -2410,9 +1207,7 @@ function inventoryModel(): InventoryModel {
     if (d.kind === 'orb') actions.push(equipped ? 'unready' : 'ready');
     if (d.kind === 'potion') actions.push('use');
     if (d.kind === 'blueprint') actions.push('forge');
-    // An EQUIPPED weapon offers neither destructive action. Unequip is one click
-    // away, and stating that order is better than a Drop that quietly takes the
-    // sword out of the hero's hand and leaves the gear slot empty behind it.
+    // An EQUIPPED weapon offers neither destructive action; unequip is one click away.
     if (worth > 0 && !equipped) actions.push('salvage');
     if (isDestructible(d) && !equipped) actions.push('drop');
 
@@ -2448,17 +1243,7 @@ function inventoryModel(): InventoryModel {
     { slot: 'orb', entry: byId(readiedOrb) },
   ];
 
-  /**
-   * A GEAR SLOT IS A REAL SLOT: what is in it is not also on the wall.
-   *
-   * The sword in the hero's hand used to be drawn twice — once in the weapon
-   * slot and once in the bag, with a green dot to say so — which reads as two
-   * swords and makes the wall's count a lie. A slot holds ONE UNIT, so what
-   * comes off the wall is one unit: a beast (there is only ever one) leaves it
-   * entirely, and a stack of four orbs with one readied shows THREE, because
-   * three is how many are still in the bag. The row keeps its id, its actions
-   * and its equipped mark, so the spares are still what you unready through.
-   */
+  // A GEAR SLOT IS A REAL SLOT: what is in it is not also on the wall, or the count lies.
   const claimed = new Set(gear.map((g) => g.entry?.id).filter((id): id is string => !!id));
   const wall: InvEntry[] = [];
   for (const e of entries) {
@@ -2468,49 +1253,25 @@ function inventoryModel(): InventoryModel {
     wall.push({ ...e, count: left, name: itemName(itemDef(e.id), left) });
   }
 
-  // WHERE EACH ROW SITS, and the end of the sort this function used to be
-  // (issue #116). The order above is now only the order a row is handed its
-  // first free cell in — after that the layout answers, and the player is the
-  // only thing that moves anything. Sorted on the answer so the panel's own
-  // fallbacks (first row selected, keyboard order) read down the wall.
-  //
-  // OFF THE WALL IS OFF THE LAYOUT: equipping something frees the cell it was
-  // in for anything else, and unequipping takes the first free cell rather than
-  // the old one. Holding the cell would mean a hole in the wall for as long as
-  // the sword is drawn, which is the duplicate's other face.
+  // Where each row sits (issue #116): the order above only picks which free cell a new row gets, then the layout answers.
   slots.reconcile(wall.map((e) => e.id));
   for (const e of wall) e.slot = slots.slotOf(e.id);
   wall.sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
 
-  // ALL THREE, ALWAYS, unlocked or not — which is the one place this panel
-  // shows something the player does not have. It is not the bestiary rule
-  // broken: a locked mount is not a beast you have never met, it is a VERB the
-  // game has and you cannot use yet, and a strip that only appeared once you
-  // could ride would never answer the question it exists to answer.
+  // All three, always, unlocked or not — the one thing this panel shows that the player does not have.
   const mounts = MOUNT_KINDS.map((kind) => ({ kind, unlocked: mountUnlocks.has(kind) }));
 
   return { gear, entries: wall, mounts };
 }
 
-/**
- * A button on a row. Every rule the panel does not know lives in this switch.
- *
- * It moves state and says something about it, and nothing else: the panel calls
- * `model()` straight afterwards, so there is no view to update from here.
- */
+// A button on a row; every rule the panel does not know lives in this switch.
 function inventoryAction(id: string, action: InvAction): void {
   if (id.startsWith(BEAST_ID_PREFIX)) {
     const speciesId = id.slice(BEAST_ID_PREFIX.length);
     const idx = roster.findIndex((b) => b.species.id === speciesId);
-    // An UNOWNED beast is refused here as well as being absent from the model.
-    // The panel round-trips whatever id it was given, and `__dbgInvAction`
-    // deliberately bypasses the panel — so the rule has to live where the rule
-    // is applied, not only where the buttons are drawn.
+    // Refused here as well as being absent from the model: `__dbgInvAction` bypasses the panel.
     if (idx < 0 || !owned.has(speciesId)) return;
-    // Straight onto the same two indices Tab moves, through the same
-    // `refreshVisibility` — and the swap-out rule falls out for free: putting a
-    // beast into one slot pushes whoever was there into the other rather than
-    // benching them, which is what a player pressing Tab already expects.
+    // Straight onto the two indices Tab moves: putting a beast into one slot pushes whoever was there into the other rather than benching them.
     if (action === 'setLead') {
       if (supportIdx === idx) supportIdx = primaryIdx;
       primaryIdx = idx;
@@ -2518,10 +1279,7 @@ function inventoryAction(id: string, action: InvAction): void {
       if (primaryIdx === idx) primaryIdx = supportIdx;
       supportIdx = idx;
     } else if (action === 'unequip') {
-      // OUT OF WHICHEVER SLOT IT IS IN, and nothing slides up to fill it: the
-      // lead slot emptying does not promote the support beast, because the
-      // player who took the lead out asked for that beast to stop walking with
-      // them and not for the other one to change job.
+      // Out of whichever slot it is in, and nothing slides up: emptying the lead slot must not change the support beast's job.
       if (primaryIdx === idx) primaryIdx = -1;
       else if (supportIdx === idx) supportIdx = -1;
       else return;
@@ -2559,9 +1317,7 @@ function inventoryAction(id: string, action: InvAction): void {
       bus.emit({ type: 'toast', text: t('toast.unequipped', { item: itemName(def) }) });
       break;
 
-    // READYING IS NOT EQUIPPING, and the difference is that nothing is held: the
-    // hero's hands still have the sword in them, and `applyLoadout` is not called
-    // because no stat moved. All this does is decide which orb `Q` spends.
+    // READYING IS NOT EQUIPPING: nothing is held and no stat moved, so `applyLoadout` is not called.
     case 'ready':
       if (def.kind !== 'orb') return;
       readiedOrb = def.id;
@@ -2581,10 +1337,7 @@ function inventoryAction(id: string, action: InvAction): void {
       if (!fx || bag.remove(def.id, 1) !== 1) return;
       if (fx.heal) player.heal(fx.heal);
       if (fx.attack) {
-        // A second draught REPLACES the timer rather than stacking onto it. Two
-        // buffs adding up is a balance decision and this is not the ticket that
-        // makes it; refreshing is what a player expects from drinking the same
-        // thing twice, and it cannot compound into a stat nobody has tuned.
+        // A second draught REPLACES the timer rather than stacking onto it — stacking is a balance decision, and this cannot compound into a stat nobody has tuned.
         attackBuff = fx.attack;
         attackBuffT = fx.seconds ?? 0;
       }
@@ -2596,11 +1349,7 @@ function inventoryAction(id: string, action: InvAction): void {
 
     case 'salvage': {
       const worth = salvageValue(def);
-      // `remove` reports what actually LEFT, and the payout is off that number
-      // rather than off the request — a stack that was already gone must not be
-      // paid for. The proceeds go through `spent`, negatively: there is ONE
-      // running total for the purse in this file (see `shards`), and adding a
-      // second source of currency beside it is how the two stop agreeing.
+      // Paid off what actually LEFT the bag, not off the request.
       if (worth <= 0 || bag.remove(def.id, 1) !== 1) return;
       spent -= worth;
       hud.setShards(shards());
@@ -2616,8 +1365,7 @@ function inventoryAction(id: string, action: InvAction): void {
 
     case 'drop': {
       if (!isDestructible(def) || bag.remove(def.id, 1) !== 1) return;
-      // UNARMED (see Pickups.spawn): it lands at the hero's feet, and armed it
-      // would magnet straight back into the bag it just left.
+      // UNARMED (see Pickups.spawn): armed it would magnet straight back into the bag it just left.
       combat.spawnDrop(
         def.id, player.position.x, player.position.y + 0.6, player.position.z, false,
       );
@@ -2626,10 +1374,6 @@ function inventoryAction(id: string, action: InvAction): void {
       break;
     }
 
-    // The forge is issue #74's other half and is not built. The button is here
-    // because a blueprint's own row is where a player will look for it, and the
-    // note under it says what it is waiting for — a better answer than an item
-    // with nothing to do at all.
     case 'forge':
       bus.emit({ type: 'toast', text: t('inv.forge.soon') });
       break;
@@ -2639,11 +1383,6 @@ function inventoryAction(id: string, action: InvAction): void {
   }
 }
 
-/**
- * Tick the potion buff. Called from a SIMULATION slice, so it runs on the same
- * clock the hero does and stops while a modal is up — a buff must not be
- * burning down behind the inventory screen the player drank it on.
- */
 function updateBuffs(dt: number): void {
   if (attackBuffT <= 0) return;
   attackBuffT -= dt;
@@ -2657,27 +1396,12 @@ function updateBuffs(dt: number): void {
 const inventory = new InventoryPanel({
   model: inventoryModel,
   onAction: inventoryAction,
-  // A MOVED BOX IS NOT A GAME RULE — the layout is the whole of the state it
-  // touches, there is nothing to refuse and nothing to say about it, which is
-  // why it is not an `InvAction` (see `InventoryHooks.onMove`).
+  // A MOVED BOX IS NOT A GAME RULE — the layout is the whole of the state it touches, which is why it is not an `InvAction`.
   onMove: (id, slot) => slots.move(id, slot),
-  // Same bargain the shop and the in-game menu make, and for the same reason:
-  // this is a panel you CLICK, so the cursor has to be able to reach it. The F1
-  // sheet is the other case — read, not clicked — and keeps its lock.
+  // A panel you CLICK, so the cursor has to reach it. The F1 sheet is read, and keeps its lock.
   onOpen: () => input.releaseLock(),
-  // TAKING THE POINTER BACK IS SAFE AFTER A CLICK OR AFTER `I`, AND IS NOT
-  // AFTER ESCAPE — the pause menu's rule, and this panel needed it too. An
-  // earlier version of this comment claimed the rule did not apply because the
-  // panel is usually closed with `I`; it is closed with Escape just as often,
-  // and that is the key the browser is spending. Where there is no keyboard
-  // lock (Brave nulls `navigator.keyboard`) that same press is also leaving
-  // fullscreen, which drops the pointer lock ~8 ms later — so a lock re-taken
-  // here is one the browser knocks straight back out, and `Input.onLockLost`
-  // reads the loss as a fresh Escape. The symptom is exactly what was reported:
-  // one press closed the inventory and opened the in-game menu behind it.
-  //
-  // Nothing needs to be taken back after an Escape anyway: the next click does
-  // it, as it always has. See `InvCloseBy`.
+  // Safe after a click or `I`, not after Escape: with no keyboard lock that press also leaves fullscreen,
+  // dropping the pointer lock ~8 ms later, which read as a fresh Escape and opened the menu behind it.
   onClose: (by) => {
     if (isTouchPrimary()) return;
     if (by !== 'escape' || escapeIsLocked()) input.requestLock();
@@ -2686,34 +1410,10 @@ const inventory = new InventoryPanel({
 
 giveStartingKit();
 
-// ---------------------------------------------------------------------------
-// The quest journal (issue #98)
-// ---------------------------------------------------------------------------
-/**
- * WHETHER A QUEST IS ON THE HUD IS A CONTENT FLAG, and that is the whole of its
- * storage. It rides along in the content save the way a story flag does, it
- * survives a package being released and loaded again (the flag outlives the
- * definitions — spec §12.3), and `content.state.reset()` clears it with
- * everything else. A `Set` in this file would have needed all three written by
- * hand, and a `Prefs` entry would have made "which quests am I watching" a
- * machine setting rather than a fact about the save.
- *
- * IT IS OPT-**OUT**: absence means shown. A player who has just been given their
- * first quest has not been to the journal yet, and a tracker that stays empty
- * until they find the switch is a feature that ships turned off. The flag
- * therefore records the unusual answer, which is also what keeps a save that
- * never touched it empty.
- */
+// The quest journal — issue #98.
 const hudFlag = (id: ContentId): string => `journal.hidden/${id}`;
 const questOnHud = (id: ContentId): boolean => !content.state.flag(hudFlag(id));
 
-/**
- * A quest's rewards as display lines. `xp` has a string of its own; everything
- * else is an item id and is named from the item table, which is what makes
- * `{ "shard": 10 }` read as "Cubloons 10" in the player's language rather than
- * as a key out of a JSON file. An id nothing knows is printed raw — a content
- * diagnostic already named it, and inventing a label would hide that.
- */
 function rewardLines(rewards: QuestRewards | undefined): { label: string; value: string }[] {
   if (!rewards) return [];
   return Object.entries(rewards).map(([key, n]) => ({
@@ -2722,20 +1422,7 @@ function rewardLines(rewards: QuestRewards | undefined): { label: string; value:
   }));
 }
 
-/**
- * Which shelf a quest is on, or null for one the player has no business seeing.
- *
- * `active`, `completed` and `failed` are stored answers. `available` is
- * DERIVED and is the interesting one: a quest is offered when nothing has
- * happened to it yet, every prerequisite is completed, and its own `available`
- * condition passes. Storing that would be a fourth copy of a fact the content
- * system already computes from the facts — see the header of
- * content/types/quest.ts on why nothing here counts positions in a line.
- *
- * A FAILED QUEST IS SHOWN UNDER "DONE" rather than given a shelf of its own: it
- * is over, the player cannot act on it, and one card in a tab that is empty the
- * rest of the game is a tab that teaches nothing.
- */
+// `available` is DERIVED — untouched, prerequisites done, own condition passes — rather than a fourth stored copy. A failed quest shows under "done".
 function questTab(asset: ContentAsset<QuestData>): JournalTab | null {
   switch (content.state.questStatus(asset.id)) {
     case 'active': return 'active';
@@ -2750,13 +1437,8 @@ function questTab(asset: ContentAsset<QuestData>): JournalTab | null {
   return ready && content.evaluate(asset.data.available) ? 'available' : null;
 }
 
-/**
- * Every quest the player may look at, resolved to display strings.
- *
- * `query.available` rather than `all` — the asset envelope's `when` is the gate
- * content uses to hide something entirely, and a journal that listed what the
- * world is not offering would be the one place in the game that leaked it.
- */
+// `query.available` rather than `all`: the asset envelope's `when` is how content hides something entirely, and
+// a journal listing it would be the one place that leaked it.
 function journalModel(): JournalModel {
   const entries: JournalEntry[] = [];
   for (const asset of content.query.available<QuestData>('quest')) {
@@ -2782,9 +1464,7 @@ function journalModel(): JournalModel {
       onHud: questOnHud(asset.id),
     });
   }
-  // MAIN BEFORE SIDE, then by id — the same total order every read, so a card
-  // does not move out from under the cursor when a counter ticks. Id and not
-  // name, because a language change must not reorder the list.
+  // Main before side, then by id — the same total order every read, so a card does not move when a counter ticks.
   entries.sort((a, b) =>
     (a.category === b.category ? 0 : a.category === 'main' ? -1 : 1) || a.id.localeCompare(b.id));
   return { entries };
@@ -2806,12 +1486,8 @@ const journal = new JournalPanel({
   model: journalModel,
   onToggleHud: (id) => {
     content.state.setFlag(hudFlag(id), questOnHud(id));
-    // The tracker follows from the state change below, so nothing is pushed
-    // here — one path writes the HUD whoever moved the switch.
   },
-  // The inventory's bargain, for the inventory's reasons: this is a panel with
-  // buttons in it, so the cursor has to be able to reach them, and taking the
-  // lock back after Escape is what makes one press close two things.
+  // The inventory's bargain: a panel with buttons needs a cursor, and re-taking the lock after Escape is what makes one press close two things.
   onOpen: () => input.releaseLock(),
   onClose: (by) => {
     if (isTouchPrimary()) return;
@@ -2819,23 +1495,9 @@ const journal = new JournalPanel({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Quest marks over the world (PR feedback on #181)
-// ---------------------------------------------------------------------------
-/**
- * WHO IS MARKED, recomputed from quest facts rather than pushed by a quest.
- *
- * Derived and not stored, for the reason `questTab` gives one function up: what
- * a mark means is "this person has work" and "this beast is what you are
- * counting", and both are questions about the CURRENT state of every loaded
- * quest. A set that a quest wrote into would be a second copy of that state,
- * and the first thing to go stale when a package is released.
- *
- * Keyed the way the world keys, not the way content does: an `NpcInfo.id` is
- * `gain` where a `ContentId` is `npc:gain`, and an `Enemy.species` is
- * `wild-sproutle` where a taming objective names the BEAST it becomes,
- * `sproutle`. Both maps are filled here so the per-frame loop is two lookups.
- */
+// Quest marks over the world (PR feedback on #181), recomputed from quest facts rather than pushed.
+// Keyed the way the WORLD keys — `gain` not `npc:gain`, `sproutle` not `wild-sproutle` — so the frame
+// loop is two lookups.
 const markedNpcs = new Map<string, QuestMarkerKind>();
 const markedEnemies = new Set<string>();
 const markedBeasts = new Set<string>();
@@ -2855,8 +1517,7 @@ function refreshQuestMarks(): void {
     const tab = questTab(asset);
     if (tab !== 'available' && tab !== 'active') continue;
     const giver = asset.data.giver;
-    // TURN-IN BEATS OFFER when one person holds both, because the quest in your
-    // hand is the one you are being asked about.
+    // TURN-IN BEATS OFFER when one person holds both: the quest in your hand is the live one.
     if (giver !== undefined && giver !== '') {
       const who = giver.slice('npc:'.length);
       if (tab === 'available') {
@@ -2895,13 +1556,7 @@ function markSpot(x: number, y: number, z: number, kind: QuestMarkerKind): void 
   questMarkCount++;
 }
 
-/**
- * Put this frame's marks where the things they are about currently are.
- *
- * Per FRAME rather than per slice, and beside the compass for its reason: a
- * mark is presentation, it is culled against the camera this frame placed, and
- * an NPC's published position is already this frame's.
- */
+// Per FRAME rather than per slice: a mark is presentation, culled against the camera this frame placed, and an NPC's published position is already this frame's.
 function syncQuestMarks(dt: number): void {
   questMarkCount = 0;
   if (markedNpcs.size > 0) {
@@ -2922,20 +1577,11 @@ function syncQuestMarks(dt: number): void {
   questMarkers.set(questMarkSpots, questMarkCount, engine.camera);
 }
 
-/**
- * Redraw both readers of quest state.
- *
- * Subscribed to CONTENT rather than called from the places that change a quest:
- * a quest advances from an action, from the dev console, from a package
- * arriving, and one day from a timer, and a push at each of those is a list that
- * is one entry short the first time somebody adds a fifth. `onChange` already
- * fires for every one of them.
- */
+// Subscribed to CONTENT rather than pushed from each place a quest changes: `onChange` already fires for all of them.
 const refreshQuests = (): void => {
   hud.setQuests(questTrackRows());
   journal.refresh();
-  // The marks are the same fact drawn in the world instead of in a list, so
-  // they are recomputed by the same subscriber rather than by a second one.
+  // The marks are the same fact drawn in the world, so the same subscriber recomputes them.
   refreshQuestMarks();
 };
 content.state.onChange((change) => {
@@ -2945,40 +1591,15 @@ content.state.onChange((change) => {
 content.onDefinitionsChange(refreshQuests);
 refreshQuests();
 
-// ---------------------------------------------------------------------------
-// What makes a quest MOVE (game-story.md §7, issue #143)
-// ---------------------------------------------------------------------------
-/**
- * A thing that happened in the world, in the vocabulary an objective can name.
- *
- * `id` is whatever the kind identifies — a species, an `enemy:` id, an item id,
- * a `town:` id, a zone id — and is absent for a kind that identifies nothing
- * (an orb leaving the hand is just an orb leaving the hand).
- */
+// What makes a quest MOVE — game-story.md §7, issue #143. `id` is whatever the kind identifies, absent for a kind that identifies nothing.
 interface QuestFact {
   readonly kind: ObjectiveTriggerKind;
   readonly id?: string;
 }
 
-/**
- * ONE ROUTER, NOT A HOOK PER QUEST — the whole reason `ObjectiveTrigger` exists.
- *
- * Every objective that counts something declares WHICH fact it counts, so this
- * function is the entire join between the engine's events and the campaign's
- * twenty quests: the taming trigger Act 1 needs is the same one Act 2 and Act 3
- * need, and neither of them will edit this file. Adding a KIND is engine work
- * (something has to observe the fact); adding a quest that uses one is data.
- *
- * ACTIVE QUESTS ONLY, and by construction rather than by a check at each call
- * site: a kill before the cull quest was taken counts for nothing, which is what
- * "go and do this" means. A quest whose package is not loaded is skipped rather
- * than guessed at — the progress it already has is untouched (spec §12.3), and
- * it resumes counting when the definitions come back.
- *
- * It never runs `quest.complete`. Reaching every objective's count makes a quest
- * TURN-INNABLE, not turned in — the giver's dialogue row is what closes it, so
- * the last beat of a quest is a person rather than a counter.
- */
+// ONE ROUTER, NOT A HOOK PER QUEST: an objective declares WHICH fact it counts, so adding a KIND is
+// engine work and a quest that uses one is data. ACTIVE quests only. It never runs `quest.complete` —
+// meeting the counts makes a quest turn-INNABLE, and the giver's dialogue closes it.
 function advanceObjectives(fact: QuestFact): void {
   for (const questId of content.state.activeQuests) {
     const asset = content.get<QuestData>(questId);
@@ -2986,12 +1607,7 @@ function advanceObjectives(fact: QuestFact): void {
     for (const objective of asset.data.objectives) {
       const trigger = objective.trigger;
       if (!trigger || trigger.kind !== fact.kind) continue;
-      // EACH FILTER CONSTRAINS ITS OWN KIND AND NOTHING ELSE — see the note on
-      // ObjectiveTrigger. On another kind the field says what the objective is
-      // ABOUT, which is what the world mark points at, and constrains nothing:
-      // an orb-thrown objective that names a Sproutle still counts every throw.
-      // Absent is "any"; present and unmatched refuses, so a widened event that
-      // forgets to carry its id under-counts rather than over-counts.
+      // Each filter constrains its own kind only; absent is "any", and present-and-unmatched refuses, so a widened event that forgets its id under-counts.
       if (fact.kind === 'enemy-killed' && trigger.enemies
         && !trigger.enemies.includes(fact.id ?? '')) continue;
       if (fact.kind === 'tamed' && trigger.species
@@ -3011,30 +1627,14 @@ function advanceObjectives(fact: QuestFact): void {
 }
 
 bus.on((e) => {
-  // A THROW, not a bond: the practice objective in `quest:land/first-light` is
-  // about learning the motion, so a broken orb counts the same as a caught one.
+  // A THROW, not a bond: the practice objective is about the motion, so a broken orb counts.
   if (e.type === 'orbThrown') advanceObjectives({ kind: 'orb-thrown' });
-  // GENERIC OVER SPECIES, which is the whole point of it being here and not in
-  // `onBeastTamed`: `quest:land/the-first-bond` filters to the ground beasts,
-  // and `quest:sea/dark-water` and `quest:sky/wingbroken` will filter to their
-  // own. One fact, three quests, no per-quest hook.
+  // GENERIC OVER SPECIES, which is why it is here and not in `onBeastTamed`: three quests filter the one fact to their own beasts.
   if (e.type === 'beastTamed') advanceObjectives({ kind: 'tamed', id: e.beastId });
 });
 
-/**
- * A quest changed status: run what the content said should happen.
- *
- * THE ACTIONS ARE NOT RUN BY THE ACTION THAT CHANGED THE STATUS, and that is
- * the point of hanging this off `onChange`: `quest.start` from a dialogue row,
- * `/quest` from the dev console and a future timer all set the same status
- * through the same store, so all three get the same `onStart`. `setQuestStatus`
- * no-ops when the status already matches (state.ts), so this fires exactly once
- * per real transition.
- *
- * `applyingSave` IS THE ONE REFUSAL. Restoring a character replays every status
- * it recorded, and a load that re-ran `onComplete` would hand out the rewards
- * again — the same guard the autosave debounce takes, for the same reason.
- */
+// Hung off `onChange` so a dialogue row, `/quest` and a future timer all get the same `onStart`, once
+// per real transition. `applyingSave` is the one refusal: a load would hand out the rewards again.
 content.state.onChange((change) => {
   if (change.kind !== 'quest' || applyingSave) return;
   const asset = content.get<QuestData>(change.name);
@@ -3047,16 +1647,7 @@ content.state.onChange((change) => {
   }
 });
 
-/**
- * Pay out `rewards` — counts only, by the same split the rest of the game uses.
- *
- * `xp` goes to the beasts that are out there, exactly as a kill does (there is
- * no hero level), and everything else is an ITEM id handed to the same function
- * `item.give` uses, so `{ "shard": 10 }` becomes Cubloons and a potion becomes a
- * potion with no second table to keep in step. An id nothing knows is reported
- * rather than dropped: content/types/quest.ts says rewards are amounts, so a key
- * that is not an item is a typo somebody needs to see.
- */
+// `xp` goes to the beasts that are out there (there is no hero level); everything else is an item id, and an unknown key is reported as the typo it is.
 function grantQuestRewards(asset: ContentAsset<QuestData>): void {
   for (const [key, amount] of Object.entries(asset.data.rewards ?? {})) {
     const n = Math.round(amount);
@@ -3084,37 +1675,10 @@ function grantQuestRewards(asset: ContentAsset<QuestData>): void {
   }
 }
 
-/**
- * THE PRACTICE BEAST — a PLACEHOLDER for the Encampment's pen, and it says so.
- *
- * `quest:land/first-light` asks the player to throw three orbs at a penned
- * Sproutle, and a throw is refused before it leaves the hand when there is
- * nothing bondable in aim (`throwReadiedOrb`) — so the objective cannot count
- * without an animal to aim at. Until the camp has a real pen with a docile
- * occupant (a fence, a no-wander behaviour and a quest-gated presence — filed as
- * its own issue), the quest stages its own: one wild beast, put on the ground
- * near the hero's start, replaced if it is bonded or killed, and left alone the
- * moment the practice is done.
- *
- * WHY IT IS TWELVE UNITS OUT. `wild-sproutle` has an aggro radius of 8 and an
- * orb reaches 20 (`ORB_RANGE`), so this is the band where the player can throw
- * at it from where they are standing without being charged by the tutorial. It
- * is the closest this gets to "penned" without a pen.
- *
- * A LUCKY CATCH ENDS THE PRACTICE. A throw at a species already bonded is
- * refused (`alreadyOwned`) and emits no `orbThrown`, so a catch on throw one
- * would otherwise strand the counter at 1/3 with a target it can never use. The
- * practice is filled instead: the player caught it, which is the lesson.
- *
- * IT USED TO BE A SOFT-LOCK ARGUMENT AS WELL, and it is worth recording that it
- * is not one any more. When this was written `orb-tame` was tier 1 and
- * `wild-sproutle` was the only tier-1 bondable animal in the game, so spending
- * it on the tutorial left `quest:land/the-first-bond` with nothing a starting
- * orb could hold. Issue #110 took both halves of that away: there is no tier
- * gate, and fifteen species are wild instead of three. The rule stays because
- * stranding the counter is still a bad frame to hand a player, but it is now
- * politeness rather than rescue.
- */
+// THE PRACTICE BEAST — a PLACEHOLDER for the Encampment's pen. `quest:land/first-light` needs something
+// bondable in aim or the throw is refused before it leaves the hand, so the quest stages one wild beast
+// near the hero's start. Twelve units: outside `wild-sproutle`'s aggro radius of 8, well inside
+// `ORB_RANGE`. A lucky catch FILLS the practice, since a throw at a bonded species emits no `orbThrown`.
 const PRACTICE_SPECIES = { enemy: 'wild-sproutle', beast: 'sproutle' } as const;
 const PRACTICE_DIST = 12;
 /** Seconds between checks. A stage prop, not a frame-loop concern. */
@@ -3142,48 +1706,25 @@ function tickPracticeBeast(dt: number): void {
     if (e.targetable && e.species === species.enemy) return;   // one is already out there
   }
 
-  // Around the hero's own start rather than the town centre: that is where the
-  // player is when the quest is given, and it is a clear seat by construction
-  // (`pickPlayerStart` in world/index.ts already chose it).
+  // Around the hero's own start rather than the town centre: that is where the player is when the quest is given, and `pickPlayerStart` already chose it as a clear seat.
   const from = world.spawnPoint;
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     const x = from.x + Math.sin(a) * PRACTICE_DIST;
     const z = from.z + Math.cos(a) * PRACTICE_DIST;
     if (world.isWater(x, z)) continue;
-    // Nothing BUILT in this column — a beast inside a hut is a beast the player
-    // cannot see, and `spawnOne` obeys no placement rule of its own.
+    // Nothing BUILT in this column — `spawnOne` obeys no placement rule of its own.
     if (world.structureTopAt(x, z) > world.getHeight(x, z) + 0.5) continue;
     if (combat.spawnOne(species.enemy, x, z)) return;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Casting
-// ---------------------------------------------------------------------------
-/**
- * Aim for a mounted cast: the camera's own view direction.
- *
- * The crosshair is a DOM element pinned to the centre of the viewport and the
- * camera looks THROUGH that point, so the camera's forward vector IS the
- * crosshair ray — there is nothing to unproject. Kept as a module scratch
- * because casting must not allocate any more than the rest of the frame does;
- * combat copies out of `direction` and retains nothing.
- */
+// The camera looks through the pinned crosshair, so its forward vector IS the crosshair ray. A module scratch because casting must not allocate.
 const _aim = new THREE.Vector3();
-/** Last cast's aim, for the automated tests. See __dbgMount. */
-/**
- * Steer strength for a shot fired down the crosshair, as a fraction of the full
- * lock-on the auto-targeted cast uses. 0.35 closes a small aiming error over a
- * projectile's flight without ever dragging a shot onto something you did not
- * point at — turn it up and the crosshair stops being what decides the hit.
- */
+// Steer strength for a shot fired down the crosshair, as a fraction of full lock-on: 0.35 closes a small aiming
+// error without dragging a shot onto something you did not point at.
 const MOUNTED_HOMING = 0.35;
-/**
- * Half-angle of the aim cone, as a cosine. 0.94 is ~20 degrees: wide enough
- * that a moving enemy under the reticle qualifies, narrow enough that one off
- * to the side never does.
- */
+// Half-angle of the aim cone as a cosine. 0.94 is ~20 degrees.
 const AIM_CONE_COS = 0.94;
 
 /** The enemy the crosshair is on, or null. Not the nearest — the one aimed at. */
@@ -3191,9 +1732,7 @@ function enemyInAim(from: THREE.Vector3, aim: THREE.Vector3, range: number): Dam
   let best: Damageable | null = null;
   let bestDot = AIM_CONE_COS;
   for (const e of combat.enemies) {
-    // `targetable` and not `isDead`: a beast inside a taming orb is invisible
-    // and refuses damage, and the crosshair must not lock onto the patch of
-    // grass it used to be standing on. See `Enemy.targetable`.
+    // `targetable` and not `isDead`: a beast inside a taming orb is invisible and refuses damage, and the crosshair must not lock onto the grass it stood on.
     if (!e.targetable) continue;
     const dx = e.position.x - from.x;
     const dy = e.position.y + 0.55 - from.y;
@@ -3206,62 +1745,17 @@ function enemyInAim(from: THREE.Vector3, aim: THREE.Vector3, range: number): Dam
   return best;
 }
 
-/**
- * Half-angle of the ORB's aim cone, as a cosine. 0.4 is ~66 degrees each side.
- *
- * THREE TIMES THE WEAPON CONE, and deliberately: `AIM_CONE_COS` decides where a
- * SHOT goes and a tight cone is what keeps the crosshair in charge of it. A
- * throw is the opposite problem. The player has already fought the animal down,
- * has paid Cubloons for the orb, and is looking at a thing that moves; asking
- * them to also hold a twenty-degree reticle on it is asking for the throw to be
- * lost to the aiming rather than to the odds. The odds are the mechanic.
- */
+// Half-angle of the ORB's aim cone as a cosine; 0.4 is ~66 degrees each side.
 const ORB_AIM_CONE_COS = 0.4;
 
-/**
- * How far above or below the hero a bond target may be, in world units.
- *
- * The vertical half of the cylinder the cone makes — see `bondTargetInAim`. 8 is
- * loose on purpose: a Galebird cruises 3.2 up, the hero is often on a slope, and
- * the point of this feature is that aiming does not lose you the throw. What it
- * refuses is the animal on the cliff above or in the ravine below, which is not
- * what he is looking at however good the bearing is.
- */
+// Vertical half-band of the cylinder the orb's cone makes.
 const ORB_AIM_RISE = 8;
 
-/**
- * WHAT AN ORB WOULD BE THROWN AT — the nearest bondable beast you are roughly
- * facing.
- *
- * NEAREST, not most-centred, which is the other half of making this easy. The
- * weapon cone picks whatever is closest to the crosshair's LINE, so two animals
- * at different distances are separated by a wobble of the mouse; this picks the
- * one you are standing in front of, which is the one a player means.
- *
- * BONDABLE FIRST. A Gloopling two units away and a wild Sproutle four units
- * away are both in the cone, and only one of them is what the orb is for — so a
- * candidate this orb could actually bond outranks a nearer one it could not,
- * whatever the distance. Only if there is nothing bondable at all does the
- * nearest anything win, and that is on purpose too: it is what makes the
- * refusals ("that one cannot be bonded", "a stronger orb than that is needed")
- * reachable instead of the throw silently reporting an empty sky.
- *
- * IT DOES NOT DECIDE THE HIT. This picks what the orb STEERS at; whatever the
- * orb physically reaches first is what it lands on (see the enemy sweep in
- * `updateProjectiles`). A beast that walks into the line mid-flight takes it,
- * which is the behaviour a thrown object should have and is why the homing is a
- * steer rather than a teleport.
- */
+// The NEAREST bondable beast you are roughly facing — nearest, not most-centred, so a wobble does not
+// switch between two animals. Bondable outranks nearer, keeping the refusals reachable. It picks what
+// the orb STEERS at; whatever it physically reaches first is what it hits.
 function bondTargetInAim(def: ItemDef, from: THREE.Vector3, aim: THREE.Vector3): Damageable | null {
-  // The look direction FLATTENED. A third-person camera is always pitched a
-  // little, and the cone was measured in 3D — so standing right beside an animal
-  // and glancing up or down swung the full angle past the cone while the bearing
-  // never moved. Measured: at 2.5 units the assist dropped a Sproutle the hero
-  // was walking into. Horizontal is also what the player is steering; pitch is
-  // the camera's, and it must not be able to refuse a throw.
-  //
-  // Same shape as `inReach` in core/types.ts and for the same reason: a cylinder,
-  // not a sphere. The vertical band below is the other half of it.
+  // The look direction FLATTENED: a camera is always pitched, and a 3D cone dropped a Sproutle the hero was walking into at 2.5 units. A cylinder, like `inReach`.
   const ax = aim.x;
   const az = aim.z;
   const aLen = Math.hypot(ax, az);
@@ -3278,17 +1772,11 @@ function bondTargetInAim(def: ItemDef, from: THREE.Vector3, aim: THREE.Vector3):
     const dz = e.position.z - from.z;
     const d = Math.hypot(dx, dy, dz);
     if (d > ORB_RANGE || d < 1e-3) continue;
-    // The band. A flyer cruises about three units up and the hero can be on a
-    // slope, so this is loose — what it refuses is the thing on the cliff above
-    // or in the ravine below, which is not what he is looking at whatever the
-    // bearing says.
+    // The band, loose: what it refuses is the thing on the cliff above or in the ravine below.
     if (dy > ORB_AIM_RISE || dy < -ORB_AIM_RISE) continue;
     const hd = Math.hypot(dx, dz);
     if (hd < 1e-4) continue;
     if ((dx * fx + dz * fz) / hd < ORB_AIM_CONE_COS) continue;
-    // "Bondable" means this throw would actually be attempted: a species you
-    // already have is not a candidate to prefer, because the throw at it is
-    // refused.
     const species = e.beastSpecies?.id ?? null;
     const bondable = combat.bondRefusal(def, e as unknown as Damageable) === 'ok'
       && !(species !== null && owned.has(species));
@@ -3301,38 +1789,12 @@ function bondTargetInAim(def: ItemDef, from: THREE.Vector3, aim: THREE.Vector3):
   return best as unknown as Damageable | null;
 }
 
-/**
- * How far a taming orb may be thrown, in world units.
- *
- * Shorter than a bow's ~26 and longer than a skill's 12-16: bonding is meant to
- * be done in the fight you have just won, close enough that the animal is a
- * silhouette rather than a dot, and far enough that you are not standing inside
- * its bite. It is also the range the aim cone is searched over, so a beast the
- * crosshair is on but which is further than this is simply not a target and the
- * throw is refused before the orb is spent.
- */
+// Shorter than a bow's ~26, longer than a skill's 12-16, and also the cone's search range, so an out-of-range beast is refused before the orb is spent.
 const ORB_RANGE = 20;
 
-/**
- * Throw the readied orb at whatever the crosshair is on.
- *
- * EVERY REFUSAL HAPPENS BEFORE THE ORB LEAVES THE HAND, which is the whole shape
- * of this function: no orb readied, none left, nothing aimed at, not a bondable
- * creature, an orb too weak for it, or a species already bonded. Each says why.
- * That is a deliberate contrast with the bow — an arrow fired at nothing is
- * free, and an orb is sixty Cubloons.
- *
- * The one thing NOT checked here is the odds. A throw with a two percent chance
- * is a decision the player is allowed to make, and refusing it would be the game
- * playing for them.
- */
-/**
- * What a throw did, as a machine word.
- *
- * RETURNED as well as toasted because `__dbgThrowOrb` needs the reason without
- * having to scrape a translated sentence off the HUD — the same id-versus-name
- * split every other surface in this file makes.
- */
+// EVERY REFUSAL HAPPENS BEFORE THE ORB LEAVES THE HAND, and each says why — an arrow at nothing is
+// free, an orb is sixty Cubloons. The odds are deliberately not checked. The outcome is returned as
+// well as toasted, so `__dbgThrowOrb` need not scrape a translated sentence.
 type ThrowOutcome =
   | 'thrown' | 'noOrb' | 'noTarget' | 'notBondable'
   | 'alreadyOwned' | 'busy';
@@ -3358,22 +1820,15 @@ function throwReadiedOrb(explicitTarget?: Damageable | null, force?: boolean): T
   const beastId = combat.bondSpeciesOf(target);
   const nameKey = combat.bondNameKeyOf(target);
   if (refusal === 'busy') return 'busy';
-  // ALREADY YOURS. Refused rather than allowed-and-wasted: a duplicate bond has
-  // nothing to grant (the roster holds one actor per species, carrying the level
-  // and skills you have taught it), so the orb would buy nothing. Souls are what
-  // a second one of something is for, and they come from a station.
+  // ALREADY YOURS, refused rather than allowed-and-wasted: a duplicate bond has nothing to grant, so the orb would buy nothing.
   if (beastId && owned.has(beastId)) {
     bus.emit({ type: 'toast', text: t('toast.orbAlreadyOwned', { beast: nameKey ? t(nameKey) : '' }) });
     return 'alreadyOwned';
   }
 
   if (bag.remove(def.id, 1) !== 1) return 'noOrb';
-  // From the HERO's chest rather than his feet, and down the camera ray: the
-  // throw has to start where the player is looking from or a close target is
-  // missed by the width of his own body. With an explicit target the direction
-  // is AT it, so a probe's throw does not depend on where the camera happens to
-  // be pointing — the homing would get there anyway, but not before the orb had
-  // flown into a wall.
+  // From the chest down the camera ray, or a close target is missed by his own body. With an explicit target the
+  // direction is AT it, so a probe does not depend on the camera.
   _orbFrom.copy(player.position);
   _orbFrom.y += ORB_THROW_RISE;
   if (explicitTarget) {
@@ -3399,24 +1854,16 @@ function castFromBeast(beast: BeastActor, skill: SkillDef): void {
   const cd = cooldowns.get(skill.id) ?? 0;
   if (cd > 0) return;
 
-  // Riding it changes where its skills go: from the saddle you are the one
-  // aiming, so the crosshair wins outright and the auto-target is not even
-  // consulted. Nothing else about the cast changes — the beast still plays the
-  // cast animation and the shot still leaves from its muzzle.
+  // Riding it changes where its skills go: from the saddle you are aiming, so the crosshair wins outright and the auto-target is not consulted.
   const aimed = mount.isMounted && beast === mount.beast;
   let target: Damageable | null = null;
   if (aimed) {
     engine.camera.getWorldDirection(_aim);
-    // Face the mount along the shot so the muzzle offset in beginCast points
-    // the right way; the vertical component stays on the projectile only.
+    // Face the mount along the shot so `beginCast`'s muzzle offset points the right way.
     if (Math.abs(_aim.x) + Math.abs(_aim.z) > 1e-4) {
       beast.forward.set(_aim.x, 0, _aim.z).normalize();
     }
-    // A LITTLE homing from the saddle: the shot leaves down the crosshair and
-    // then leans toward whatever the crosshair was actually on. The target is
-    // picked from the aim CONE, never "nearest enemy" — an enemy off to the
-    // side is not what you pointed at, and curving onto it would be the autoaim
-    // this deliberately is not.
+    // A LITTLE homing from the saddle, and the target comes from the aim CONE rather than "nearest enemy" — curving onto something off to the side would be autoaim.
     target = enemyInAim(beast.position, _aim, Math.max(skill.range, 12));
   } else {
     target = combat.findNearestEnemy(beast.position, Math.max(skill.range, 12));
@@ -3437,9 +1884,7 @@ function castFromBeast(beast: BeastActor, skill: SkillDef): void {
     origin,
     direction: dir,
     target,
-    // Aimed shots steer at a fraction of full lock-on, so the crosshair stays
-    // the thing that decides where a shot goes and the assist only closes the
-    // last little error. Full strength would quietly undo the aim you took.
+    // A fraction of full lock-on, so the crosshair stays the thing that decides where a shot goes.
     homingScale: aimed ? MOUNTED_HOMING : 1,
     attackStat: beast.stats.attack,
   });
@@ -3460,17 +1905,7 @@ function hotbarSkills(): SkillDef[] {
     .slice(0, 4);
 }
 
-// ---------------------------------------------------------------------------
-// Shops
-// ---------------------------------------------------------------------------
-/**
- * What the den has on the shelf: skills for the beasts you brought, and orbs.
- *
- * THE ORBS ARE FIRST AND ALWAYS THERE, which is what keeps a den worth the walk
- * before the first bond. A player with no beasts has no skills to buy — the
- * loop below yields nothing for two empty party slots — and a shop that opened
- * empty would read as broken rather than as unearned.
- */
+// THE ORBS ARE FIRST AND ALWAYS THERE, so a den is worth the walk before the first bond: a shop that opened empty would read as broken.
 function buildOffers(): ShopOffer[] {
   const offers: ShopOffer[] = [];
   for (const id of ORB_IDS) {
@@ -3509,30 +1944,18 @@ function buildOffers(): ShopOffer[] {
 
 function tryOpenShop(): void {
   if (hud.isShopOpen()) return;
-  // THROUGH `Input`, NEVER STRAIGHT TO THE DOM. This was
-  // `document.exitPointerLock()`, and the difference is not style: `releaseLock`
-  // clears the INTENT first, and that intent is the whole of how
-  // `Input.onLockLost` tells "the player pressed Escape and the browser took the
-  // pointer" from "we gave it up on purpose". Released raw, the lock vanished
-  // while `lockWanted` still stood, `onLockLost` tapped a virtual Escape, and
-  // the very next simulation slice closed the den that had just opened — so on
-  // any machine actually holding a lock, `E` at a skill den opened a shop that
-  // shut itself before the player saw it.
+  // THROUGH `Input`, never straight to the DOM: `releaseLock` clears the INTENT, which is how `onLockLost` tells a player's Escape from a deliberate release.
   input.releaseLock();
   hud.openShop(t('shop.skillDen.title'), buildOffers(), (i) => {
-    // REBUILT rather than captured: the list the player clicked was rendered
-    // before this purchase, and a second click on a stale record would spend
-    // Cubloons the first one already spent.
+    // REBUILT rather than captured: the list the player clicked was rendered before this purchase,
+    // and a second click on a stale record would spend Cubloons the first one already spent.
     const offer = buildOffers()[i];
     if (!offer || !offer.affordable) return;
     if (offer.kind === 'item') {
       spent += offer.price;
       bag.add(offer.itemId, 1);
       refreshBagChips();
-      // FIRST ORB BOUGHT IS READIED. A player who has just bought their first
-      // orb wants to throw it, and making them open the bag to arm it is a step
-      // between the purchase and the point of it. A later purchase leaves the
-      // choice alone — by then they have made one.
+      // FIRST ORB BOUGHT IS READIED — opening the bag to arm it is a step between the purchase and the point of it.
       if (!readiedOrb) readiedOrb = offer.itemId;
       refreshOrbHud();
       inventory.refresh();
@@ -3540,9 +1963,8 @@ function tryOpenShop(): void {
     } else {
       if (offer.owned) return;
       spent += offer.price;
-      // By ID, not by name. This matched on the display name until the species
-      // names moved into the string table, at which point a translated build would
-      // have failed the lookup and charged for a skill nobody learned.
+      // By ID, not by name: this matched on the display name until species names moved into the string table, at
+      // which point a translated build charged for a skill nobody learned.
       const beast = [primary(), support()].find((p) => p !== null && p.species.id === offer.beastId);
       beast?.learnSkill(offer.skill.id);
       bus.emit({
@@ -3557,13 +1979,9 @@ function tryOpenShop(): void {
   }, () => hud.closeShop());
 }
 
-// ---------------------------------------------------------------------------
-// Main loop
-// ---------------------------------------------------------------------------
 const beastHud = (p: BeastActor | null): BeastHudInfo | null => (p === null ? null : {
-  // Resolved here, not in the HUD: `BeastHudInfo` is a snapshot of what to DRAW.
-  // `t(key)` with no vars hands back the table's own string, so this allocates
-  // nothing even though it runs every frame.
+  // Resolved here, not in the HUD: `BeastHudInfo` is a snapshot of what to DRAW, and `t(key)` with no vars hands
+  // back the table's own string, so this allocates nothing per frame.
   name: t(p.species.nameKey),
   element: p.species.element,
   locomotion: p.species.locomotion,
@@ -3574,15 +1992,9 @@ const beastHud = (p: BeastActor | null): BeastHudInfo | null => (p === null ? nu
   maxHp: p.maxHp,
 });
 
-// ---------------------------------------------------------------------------
-// Photo mode (for the visual critic pipeline):
-//   ?photo=1&cam=x,y,z&look=x,y,z&beast=<speciesId>&anim=<action>
-// cam/look are offsets relative to the spawn point.
-// ---------------------------------------------------------------------------
+// Photo mode (for the visual critic pipeline):   ?photo=1&cam=x,y,z&look=x,y,z&beast=<speciesId>&anim=<action>  — cam/look offset the spawn point.
 const params = new URLSearchParams(location.search);
-// Read from flags rather than from `params` here, because world/sway.ts needs
-// the same answer to freeze its wind clock and two independent parses of the
-// same URL is one too many.
+// From flags rather than `params`: world/sway.ts needs the same answer, and two parses is one too many.
 const photoMode = flags.photo;
 const parseVec = (s: string | null, fallback: THREE.Vector3): THREE.Vector3 => {
   if (!s) return fallback;
@@ -3597,10 +2009,7 @@ if (photoMode) {
   }
   const beastId = params.get('beast');
   if (beastId || params.get('poff')) {
-    // Portraits happen on open, FLAT ground so the camera never ends up buried
-    // in a hillside. Each species starts from its own bearing on a ring (so ten
-    // portraits aren't ten copies of the same postcard) then walks outward
-    // until it finds a level, dry patch.
+    // Portraits happen on FLAT ground so the camera is never buried in a hillside.
     const idx = Math.max(0, roster.findIndex((p) => p.species.id === beastId));
     const ring = (idx / roster.length) * Math.PI * 2;
     const base = world.spawnPoint;
@@ -3615,11 +2024,7 @@ if (photoMode) {
       return worst;
     };
 
-    /**
-     * Penalty for standing near a shop: buildings became the backdrop of three
-     * portraits, putting the subject in hard building shadow against a black
-     * wall. Anything within 14 units is heavily penalised.
-     */
+    // Buildings became the backdrop of three portraits, putting the subject in hard building shadow against a black wall.
     const backdropPenalty = (x: number, z: number): number => {
       let worst = 0;
       for (const s of world.shopPositions) {
@@ -3655,15 +2060,9 @@ if (photoMode) {
   if (beastId) {
     const idx = roster.findIndex((p) => p.species.id === beastId);
     if (idx >= 0) primaryIdx = idx;
-    // PHOTO MODE IGNORES OWNERSHIP, and it must: `?photo=1&beast=drakelet` is
-    // how every portrait in shots/ was taken, and a staged capture that first
-    // had to bond the subject would be a capture of a different thing. This is
-    // the one door into a party slot that does not go through `grantBeast` —
-    // and it is only reachable from a URL flag that also hides the hero and
-    // stands the whole game down (see `photoMode`).
+    // PHOTO MODE IGNORES OWNERSHIP — how every portrait in shots/ was taken, and the one door into a party slot that skips `grantBeast`.
     if (idx >= 0) owned.add(beastId);
-    // Staged portraits show ONE subject: hide the hero and every other beast so
-    // the party stops intruding into the corner of every frame.
+    // Staged portraits show ONE subject: hide the hero and every other beast.
     roster.forEach((p, i) => p.setVisible(i === primaryIdx));
     player.root.visible = false;
   }
@@ -3673,59 +2072,24 @@ const photoLook = parseVec(params.get('look'), new THREE.Vector3(0, 1, 0)).add(w
 const photoAnim = params.get('anim');
 let photoAnimTimer = 0;
 
-// Touch overlay: only exists on devices with a touch screen (null otherwise,
-// so nothing is added to the DOM and there is no per-frame cost).
+// Null without a touch screen, so nothing is added to the DOM and there is no per-frame cost.
 touch = photoMode ? null : TouchControls.attach(input);
 
-// ---------------------------------------------------------------------------
-// The display language can change while the game is running — the start menu's
-// Settings picker calls `setLanguage`. Almost nothing needs to hear about it,
-// because almost every string in this file is looked up on its way to the HUD
-// each slice and arrives translated on its own. What is listed here is the
-// exhaustive set of places that CAPTURED a string earlier and would otherwise
-// hold yesterday's language:
-//
-//   - the two composed hint pills and the dialogue footer above, which are
-//     hoisted out of the frame loop precisely because they allocate;
-//   - the per-NPC prompt cache, which is keyed by person, not by language;
-//   - the HUD's and the touch overlay's own baked-in captions, each of which
-//     knows its own list (see `relabel` in both).
-//
-// The zone names are absent on purpose: they are getters now, so they cannot go
-// stale. Nothing here runs per frame; this fires when a player picks a language.
-// ---------------------------------------------------------------------------
+// The language can change while the game runs, and almost nothing needs to hear: strings are looked up
+// on their way to the HUD each slice. Below is the exhaustive set that CAPTURED one earlier. Zone names
+// are getters and cannot go stale.
 onLanguageChange(() => {
   composeKeyHints();
   hud.relabel();
   touch?.relabel();
-  // The F3 panel too. It was written with a `relabel` and nothing ever called
-  // it, so a language switch with the panel open left it in the old one until
-  // some unrelated event happened to redraw it — and now that it carries the
-  // spawner's headings and every row's display name, that is most of it.
+  // The F3 panel too: it was written with a `relabel` nothing ever called, and it now carries the spawner's headings and every row's display name.
   perfPanel.relabel();
-  // The tracker's rows are resolved by THIS file (quest words live in content,
-  // not in the string table), so `relabel` can only invalidate the guard — the
-  // redraw is this push. See `HUD.setQuests`.
+  // The tracker's rows are resolved by THIS file (quest words live in content), so `relabel` can only invalidate the guard — the redraw is this push.
   refreshQuests();
 });
 
-// Gamepad: non-null wherever the API exists, whether or not anything is plugged
-// in yet — a pad can arrive mid-session and the connect listener has to be live
-// to catch it. It stays free until one does; see core/gamepad.ts.
-// Stored player choices, read once. URL beats preference and never writes back
-// — see core/flags.ts.
-//
-// Both this and the feedback mixer below are ASSIGNMENTS, not declarations —
-// they are declared at the top of the file, above the title screen, because the
-// menu's Settings panel can throw either of their switches before this line has
-// run. See the boot-order note there. `loadPrefs()` is read HERE rather than at
-// the top for the same reason: a switch thrown while the world was being built
-// has already been persisted, and reading late is what picks it up.
+// Non-null wherever the API exists, so a pad arriving mid-session is caught.
 const prefs = loadPrefs();
-// ONE resolved answer for both stick devices, rather than the same two `??`
-// chains written twice: the overlay is attached above (it has to exist before
-// the first frame that might tick it) and is told the axes here, where the
-// preferences are finally read.
 const lookAxes: LookAxes = {
   invertX: flags.invertLookX ?? prefs.invertLookX,
   invertY: flags.invertLookY ?? prefs.invertLookY,
@@ -3733,30 +2097,17 @@ const lookAxes: LookAxes = {
 pad = photoMode ? null : GamepadControls.attach(input, { look: lookAxes });
 touch?.setLookAxes(lookAxes);
 
-// Rumble and camera shake, driven off the bus. Null in photo mode for the same
-// reason the touch overlay is: a staged capture must not have the camera kicked
-// out from under it by whatever happened to be hitting the hero.
-//
 feedback = photoMode ? null : new FeedbackSystem({
   bus,
   camera: player.cam,
   pad: () => pad?.current ?? null,
-  // Live, per frame: rumble belongs to the device in the player's hands, so a
-  // controller left plugged in beside the keyboard stops buzzing the moment the
-  // keyboard is touched, and starts again the moment the pad is. See
-  // `FeedbackDeps.tactileInput` and `Input.tactile`.
+  // Live, per frame: rumble belongs to the device in the player's hands, so a pad left plugged in stops buzzing the moment the keyboard is touched.
   tactileInput: () => input.tactile,
   hapticFeedback: prefs.hapticFeedback,
   hapticIntensity: flags.haptics ?? prefs.hapticIntensity,
   shakeIntensity: flags.shake ?? prefs.shakeIntensity,
 });
 
-// The title screen itself is built at the TOP of this file, before a single
-// chunk exists — see the boot-order note there. It is the first thing on screen
-// and the game does not begin until it says so, and it is now a gate in the
-// strongest sense available: `frame()` is not running behind it at all.
-
-// Probes for the automated input tests (tools/test-touch.mjs). Read-only.
 interface DebugProbes {
   __dbgPlayerPos: () => { x: number; y: number; z: number };
   __dbgCam: () => {
@@ -3768,10 +2119,6 @@ interface DebugProbes {
 (window as unknown as DebugProbes).__dbgPlayerPos = () => ({
   x: player.position.x, y: player.position.y, z: player.position.z,
 });
-// Camera position AND view pitch, for measuring follow behaviour over terraced
-// ground. Pitch is the one that matters: the terrain steps a whole unit at a
-// time, and an unsmoothed look target turns that into a several-degree snap of
-// the whole frame in a single frame (see ThirdPersonCamera's step smoothing).
 const _dbgDir = new THREE.Vector3();
 /** Scratch for the compass's per-frame camera forward. Never allocate in frame(). */
 const _compassFwd = new THREE.Vector3();
@@ -3782,27 +2129,13 @@ const _hurtFrom = new THREE.Vector3();
   return {
     x: engine.camera.position.x, y: engine.camera.position.y, z: engine.camera.position.z,
     pitch: (Math.asin(Math.max(-1, Math.min(1, _dbgDir.y))) * 180) / Math.PI,
-    // The camera looks THROUGH the centre of the viewport, and the crosshair is
-    // pinned there (proved pixel-wise by tools/test-crosshair.mjs), so this
-    // vector IS the crosshair ray. It is what a mounted cast aims along.
+    // The camera looks THROUGH the pinned crosshair, so this vector IS the crosshair ray.
     dir: { x: _dbgDir.x, y: _dbgDir.y, z: _dbgDir.z },
   };
 };
-/**
- * THE OPENING POSE, and everything needed to judge it in one read.
- *
- * `start` is what the world decided (World.playerStart); `player` is where the
- * hero actually is now, which is the same thing on frame one and drifts the
- * moment anybody presses a key. `greeter` is the character the pose was
- * composed against, so `beside` and `faceGap` can be checked without the probe
- * knowing a name or a seed's coordinates — the whole reason the derivation
- * takes the nearest resident rather than `npc:gain`.
- *
- * `camFromFace` is the assertion the shot exists for, in degrees: the angle
- * between where the camera SITS relative to the hero and the way the hero is
- * LOOKING. Near 0 means the lens is in front of his face, near 180 means it is
- * behind his shoulder, which is every other moment in the game. Read-only.
- */
+// THE OPENING POSE in one read. `greeter` is the nearest resident the pose was composed against, so
+// `beside`/`faceGap` need no name or seed. `camFromFace` is the assertion, in degrees: ~0 is his face,
+// ~180 is over his shoulder, which is every other moment in the game.
 (window as unknown as { __dbgStart: () => unknown }).__dbgStart = () => {
   const s = world.playerStart;
   const g = world.npcs?.all[0] ?? null;
@@ -3829,14 +2162,7 @@ const _hurtFrom = new THREE.Vector3();
     beside: g ? +Math.hypot(s.position.x - g.x, s.position.z - g.z).toFixed(2) : null,
     /** How far the hero's facing differs from the greeter's, degrees. */
     faceGap: g ? deg(s.yaw - g.restYaw) : null,
-    /**
-     * Angle between the camera arm and the hero's facing, degrees. 0 = his face.
-     *
-     * Measured off the camera's REAL position, exactly as `__dbgCamYaw` is,
-     * rather than read back off the field the pose wrote. The arm is smoothed
-     * and terrain can push the lens up and in, so the field says what was asked
-     * for and this says what the player is looking through.
-     */
+    // Angle between the camera arm and the hero's facing, degrees; 0 is his face.
     camFromFace: deg(Math.atan2(
       engine.camera.position.x - player.position.x,
       engine.camera.position.z - player.position.z,
@@ -3848,10 +2174,7 @@ const _hurtFrom = new THREE.Vector3();
   };
 };
 
-// Compass state: the heading under the pointer and where every marker landed
-// on the strip. `rel` is the signed shortest-arc bearing to the marker in
-// degrees, `clamped` says it fell off the end of the strip and is parked at the
-// edge. Read-only.
+// Compass state. `rel` is the signed shortest-arc bearing to the marker in degrees, `clamped` says it fell off the end of the strip and is parked at the edge.
 (window as unknown as { __dbgCompass: () => unknown }).__dbgCompass = () => hud.compassDebug();
 (window as unknown as DebugProbes).__dbgCamYaw = () => Math.atan2(
   engine.camera.position.x - player.position.x,
@@ -3862,45 +2185,29 @@ const _hurtFrom = new THREE.Vector3();
   axisSide: input.axisSide,
   lookActive: input.lookActive,
   touchActive: input.touchActive,
-  // The pointer-lock recovery, as two answers rather than one: `autoRelock` is
-  // the host's permission (see frame()), `relockPending` is whether there is a
-  // pointer to recover at all. A probe reading only the first would pass in
-  // exactly the case the feature is dead — permission granted, nothing armed.
+  // Two answers, not one: `autoRelock` is the host's permission, `relockPending` whether there is a pointer to recover at all.
   autoRelock: input.autoRelock,
   relockPending: input.relockPending,
   touchOverlay: !!document.querySelector('.bs-touch'),
-  // Which way the OVERLAY's look pad runs, which is a different object from the
-  // pad's answer in `__dbgPad` and has to be readable on its own — a phone run
-  // has no gamepad to ask. Null where there is no overlay at all.
+  // The OVERLAY's look pad — a different object from `__dbgPad`'s, and null with no overlay.
   touchLookAxes: touch?.lookAxes ?? null,
-  // Buttons, edges and per-source sticks. ADDITIVE — tools/test-touch.mjs dumps
-  // this object wholesale, so keys may be added here but never renamed.
+  // ADDITIVE: tools/test-touch.mjs dumps this wholesale, so keys may be added but never renamed.
   ...(input.debugState() as object),
   vel: { x: +player.velocity.x.toFixed(2), y: +player.velocity.y.toFixed(2), z: +player.velocity.z.toFixed(2) },
   onGround: player.onGround,
-  // Which SURFACE is holding him up: false is the terrain, true is a tree crown
-  // (the one-way platform — see World.climbTopAt). The pair is what tells a
-  // treetop apart from a hilltop in a trace.
+  // Which SURFACE holds him up: false is the terrain, true a tree crown (see World.climbTopAt).
   onCanopy: player.onCanopy,
   isClimbing: player.isClimbing,
   attacking: player.isAttacking,
   isSwimming: player.isSwimming,
   isMounted: player.isMounted,
   isDead: player.isDead,
-  // The keys the game swallows before the browser can act on them. Reported so
-  // tools/test-keybinds.mjs can cross-check it against the bindings table
-  // rather than trusting that whoever added a key remembered — see the note on
-  // Input.CAPTURED, which has now been forgotten once per function key.
+  // The keys the game swallows before the browser can act on them, so tools/test-keybinds.mjs can cross-check
+  // the bindings table rather than trust that somebody remembered.
   captured: Input.capturedCodes(),
 });
 
-// Fullscreen and the Escape key. `keyboardLock` is whether this browser CAN be
-// asked for Escape, `escapeLocked` is whether it granted it — two answers,
-// because they disagree in exactly the cases the feature is broken in (an
-// iframe, plain http, a policy), and a probe reading only the first would pass
-// through all of them. `survivesEscape` is the third: whether New Game will take
-// fullscreen at all (issue #83), which on a phone is true with no lock in sight.
-// Read-only; see ui/fullscreen.ts.
+// `keyboardLock` is whether the browser CAN be asked for Escape and `escapeLocked` whether it granted it — they disagree exactly where the feature is broken.
 (window as unknown as { __dbgFullscreen: () => unknown }).__dbgFullscreen = () => ({
   supported: fullscreenSupported(),
   active: isFullscreen(),
@@ -3909,52 +2216,31 @@ const _hurtFrom = new THREE.Vector3();
   survivesEscape: fullscreenSurvivesEscape(),
 });
 
-// Controller state: what is plugged in, which faces the HUD is printing, and the
-// raw axes/pressed set. Read-only. `connected` stays false until the pad's first
-// button press on Chrome, which is the browser's rule, not ours.
+// `connected` stays false until the pad's first button press on Chrome — the browser's rule.
 (window as unknown as { __dbgPad: () => unknown }).__dbgPad = () => pad?.debugState() ?? null;
 
-// The feedback layer: how many cues drained, the rumble mixer's mode and level,
-// and the silent audio channel's call count. Read-only. `haptics.issues` is the
-// number of actual playEffect calls, which is what proves the 12 Hz cadence is
-// doing its job rather than the mixer re-issuing every frame.
+// `haptics.issues` is the number of real playEffect calls, which is what proves the 12 Hz cadence rather than the mixer re-issuing every frame.
 (window as unknown as { __dbgFeedback: () => unknown }).__dbgFeedback =
   () => feedback?.debugState() ?? null;
 
-// The music: which scene it thinks it is in, which file is loaded, whether the
-// element is playing, and what volume the envelope has it at right now. Read
-// only. `output` is the number to watch a fade on — `volume` is the master and
-// does not move during one. `blocked` true means the browser refused to play a
-// page nobody has touched yet, which is a normal state and not a failure.
-// See src/audio/music.ts, and tools/test-music.mjs for what it is asserted on.
+// `output` is the number to watch a fade on — `volume` is the master and does not move during one.
 (window as unknown as { __dbgMusic: () => unknown }).__dbgMusic = () => music.debugState();
-// TEST HOOK, like `__dbgHurt`: move the playhead. The loop seam the fades exist
-// for is 85 seconds into the shortest track, which is not a thing a probe can
-// wait for — see `MusicDirector.seek`.
+// TEST HOOK: the loop seam is 85 s into the shortest track, which no probe can wait for.
 (window as unknown as { __dbgMusicSeek: (t: number) => void }).__dbgMusicSeek =
   (t: number) => music.seek(t);
-// TEST HOOK, and the same argument `__dbgMusicSeek` makes one line up: the only
-// other way to ask what an AREA plays is to walk to the gateway, stand out a
-// preload and cross, which is a minute of driving to read one field — and it
-// can only ever reach the two zones this build happens to ship. Naming a scene
-// directly is how a probe asks the question the fallback exists to answer,
-// which is what an area NOBODY scored plays.
+// TEST HOOK: naming a scene directly is the only way to ask what an area NOBODY scored plays —
+// walking to a gateway is a minute of driving and reaches the two zones this build ships.
 (window as unknown as { __dbgMusicScene: (s: string | null) => void }).__dbgMusicScene =
   (s: string | null) => music.setScene(s);
 
-// TEST HOOK, like `__dbgTp`: hurt the hero for a fixed amount from a fixed
-// direction. Waiting for a real enemy to connect is not deterministic enough to
-// assert feedback timing — or the invulnerability window — against.
+// TEST HOOK: waiting for a real enemy to connect is not deterministic enough to assert feedback timing, or the invulnerability window, against.
 (window as unknown as { __dbgHurt: (n: number) => void }).__dbgHurt = (n: number) => {
   _hurtFrom.set(player.position.x, player.position.y, player.position.z - 1);
   player.takeDamage(n, _hurtFrom);
 };
 
-// Submerged-camera state. Read-only, and the only way to assert on an effect
-// that is otherwise a screen-space colour: `amount` is the smoothed 0..1 ramp
-// the tint, the murk and the bubbles all key off, `depth` is how far the LENS is
-// under the surface (which is not how deep the hero is — see world/underwater.ts)
-// and `fogNear` shows the murk actually reached the scene.
+// Submerged camera. `amount` is the smoothed 0..1 ramp the tint, murk and bubbles key off,
+// `depth` is how far the LENS is under (not the hero), `fogNear` proves the murk reached the scene.
 (window as unknown as { __dbgUnder: () => unknown }).__dbgUnder = () => ({
   amount: +underwater.amount.toFixed(3),
   depth: +underwater.depth.toFixed(2),
@@ -3962,20 +2248,14 @@ const _hurtFrom = new THREE.Vector3();
   overWater: world.isWater(engine.camera.position.x, engine.camera.position.z),
   fogNear: +((engine.scene.fog as THREE.Fog | null)?.near ?? -1).toFixed(1),
   fogFar: +((engine.scene.fog as THREE.Fog | null)?.far ?? -1).toFixed(1),
-  // The per-channel absorption the distance is filtered by — 1,1,1 above water.
-  // See installAerialPerspective in core/engine.ts and WATER_ABSORB in
-  // world/underwater.ts; this is the number that says whether the murk is
-  // fading toward daylight or toward water.
+  // Per-channel absorption the distance is filtered by — 1,1,1 above water.
   fogAbsorb: ((): number[] => {
     const f = engine.scene.fog as THREE.Fog | null;
     return f ? [+f.color.r.toFixed(3), +f.color.g.toFixed(3), +f.color.b.toFixed(3)] : [];
   })(),
 });
 
-// Mount state. Read-only, and the one probe the mount tests need: the hold
-// fill, which beast is under you and what it is, the rider's height and speed,
-// and the direction the last cast actually left in — `aimed` says whether that
-// direction came from the crosshair or from the auto-target.
+// Mount state. `aimed` says whether the last cast's direction came from the crosshair or from the auto-target.
 (window as unknown as { __dbgMount: () => unknown }).__dbgMount = () => ({
   mounted: mount.isMounted,
   beast: mount.beast?.species.id ?? null,
@@ -3991,47 +2271,19 @@ const _hurtFrom = new THREE.Vector3();
   y: +player.position.y.toFixed(2),
   /** The ANIMAL's altitude — what the flight and dive clamps act on. See `bodyY`. */
   bodyY: mount.isMounted ? +mount.bodyY.toFixed(2) : null,
-  /**
-   * The dive (issue #103), as the two numbers that cannot be inferred from
-   * `bodyY` alone: whether the mount is in the swim gait at all, and how far
-   * under the float line it has taken itself. A probe reading `bodyY` against
-   * `waterLevel` would have to know WADE_DEPTH to tell "floating" from "an inch
-   * down", which is exactly the constant a test must not restate.
-   */
+  // The dive (issue #103): the two things `bodyY` cannot give — the swim gait, and depth under the float line without a probe restating WADE_DEPTH.
   swimming: mount.isSwimming,
   diveDepth: +mount.diveDepth.toFixed(2),
-  /**
-   * WHAT THE STORY HAS HANDED OVER, and the refusal the CURRENT candidate would
-   * get. Both, because "nothing is unlocked" and "this hold is being refused"
-   * are different claims and a probe that inferred one from the other would pass
-   * while the gate was wired to nothing.
-   */
+  // Both, because "nothing is unlocked" and "this hold is being refused" are different claims and inferring one from the other would pass with the gate wired to nothing.
   unlocked: mountUnlocks.list(),
   refusal: mount.refusal(primary()),
   ground: +world.getHeight(player.position.x, player.position.z).toFixed(2),
   lastCast: { ...lastCast },
 });
 
-// Fetch-errand probes. `__dbgFetch` is read-only, the same contract as the
-// probes above; `__dbgDrop` is a TEST HOOK — the only way to stage a specific
-// item on the ground without farming enemies until the loot table obliges, and
-// what tools use to prove the fetch rule (currency always, stackables only when
-// already held) case by case.
-/**
- * THE TAMING SURFACE — everything tools/test-taming.mjs asserts on.
- *
- * READ-ONLY, like `__dbgFetch` beside it. The two things a probe needs that it
- * cannot see any other way are the ODDS a throw would have, which are a formula
- * and not a picture, and whether a ceremony is still playing — a probe that
- * advanced time by a fixed guess and then read the roster would be timing the
- * wobble rather than testing the bond.
- *
- * `chance` is computed with the orb currently readied against the crosshair's
- * own target — exactly what a throw would use, so a probe asserting "full health
- * is a long shot, low health is not" reads the same number the game is about to
- * roll against. Passing a `species` aims at the nearest one of those instead,
- * which is what makes the assertion possible without steering a camera.
- */
+// `__dbgFetch` is read-only; `__dbgDrop` is a TEST HOOK, the only way to stage a given item without
+// farming the loot table. THE TAMING SURFACE below is what test-taming asserts on: the ODDS a throw
+// would have and whether a ceremony is playing. Passing a `species` aims without steering a camera.
 (window as unknown as { __dbgTaming: (species?: string) => unknown }).__dbgTaming = (species) => {
   const def = readiedOrb ? itemDef(readiedOrb) : null;
   engine.camera.getWorldDirection(_aim);
@@ -4056,33 +2308,16 @@ const _hurtFrom = new THREE.Vector3();
   };
 };
 
-/**
- * TEST HOOKS for bonding — the same argument `__dbgDrop` makes for the loot
- * table, applied to a mechanic with a coin flip in the middle of it.
- *
- * `__dbgWeaken(species, hpFrac)` sets the nearest wild thing of that species to
- * a share of its health. There is no other way to reach "a beast at 10% health":
- * the alternative is swinging a sword at it until the number is roughly right,
- * which is neither exact nor quick, and the whole claim under test is that the
- * odds MOVE with health.
- *
- * `__dbgThrowOrb(species, force)` throws the readied orb at the nearest one of
- * that species, and `force` decides the outcome outright — `true` catches,
- * `false` breaks, absent rolls. Forcing is what lets a probe assert both settle
- * paths without being a test that fails one run in twenty; the ODDS are asserted
- * separately off `__dbgTaming().target.chance`, which is a formula. It returns
- * the same `ThrowOutcome` the key press produces, so every refusal a player can
- * hit is a refusal a probe can name.
- */
+// TEST HOOKS for bonding. `__dbgWeaken` is the only way to reach "a beast at 10% health", and the claim
+// under test is that the odds MOVE with health. `__dbgThrowOrb` forces the outcome so both settle paths
+// are assertable; the odds are asserted off `__dbgTaming().target.chance`.
 (window as unknown as {
   __dbgWeaken: (species: string, hpFrac: number) => unknown;
 }).__dbgWeaken = (species, hpFrac) => {
   const e = nearestEnemyOfSpecies(species);
   if (!e) return { ok: false, why: `no live "${species}" nearby` };
   e.hp = Math.max(1, Math.round(e.maxHp * Math.max(0, Math.min(1, hpFrac))));
-  // The ID, so a probe can keep measuring THIS animal. `nearestEnemyOfSpecies`
-  // is a scan and the nearest one can change between two calls — which is
-  // exactly the ambiguity a probe asserting "it was removed" must not have.
+  // The ID, so a probe can keep measuring THIS animal: the nearest one can change between two calls, which is the ambiguity an "it was removed" assertion must not have.
   return { ok: true, id: e.root.id, species, hp: e.hp, maxHp: e.maxHp };
 };
 
@@ -4098,14 +2333,6 @@ const _hurtFrom = new THREE.Vector3();
   return { outcome, species: species ?? null, id: target?.root.id ?? null, dist };
 };
 
-/**
- * The closest live enemy of this content species, or null.
- *
- * By SPECIES ID and not by index, because the population is rebuilt constantly
- * — a probe that grabbed `enemies[0]` would be holding a different animal two
- * seconds later. `combat.enemies` is public and already iterated from here (see
- * `enemyInAim`), so this is a scan and not a new contract.
- */
 function nearestEnemyOfSpecies(species: string) {
   let best = null;
   let bd = Infinity;
@@ -4117,25 +2344,8 @@ function nearestEnemyOfSpecies(species: string) {
   return best;
 }
 
-/**
- * THE AIM ASSIST, MEASURED IN ONE READ — the off-axis angle to a named species
- * and whether the assist is currently choosing it.
- *
- * ATOMIC, and that is the entire reason it exists rather than the probe doing
- * this arithmetic itself. Reading the bodies, then the camera, then the target
- * is three round-trips with the game running in real time between them, and the
- * animal walks the whole while: the first version of that measurement reported
- * a beast lost inside the cone perhaps one run in three, which was the beast
- * having moved between the angle and the answer, not the cone. Both numbers here
- * come from the same instant and the same camera vector.
- *
- * `offDeg` is the HORIZONTAL angle between where the hero is looking and where
- * the animal is, in degrees — the exact quantity `ORB_AIM_CONE_COS` is a cosine
- * of. Horizontal, because the cone is (see `bondTargetInAim`); reporting the
- * full 3D angle here would have the probe measuring one thing and the game
- * deciding on another, which is how the first version of this disagreed with
- * itself at close range.
- */
+// ATOMIC on purpose: reading bodies, camera and target separately let the animal walk between them and
+// lost a beast inside the cone one run in three. `offDeg` is the HORIZONTAL angle the cone is a cosine of.
 (window as unknown as { __dbgOrbAim: (species: string) => unknown }).__dbgOrbAim = (species) => {
   const e = nearestEnemyOfSpecies(species);
   const def = readiedOrb ? itemDef(readiedOrb) : null;
@@ -4161,10 +2371,8 @@ function nearestEnemyOfSpecies(species: string) {
 };
 
 (window as unknown as { __dbgFetch: () => unknown }).__dbgFetch = () => {
-  // NULL WHERE THERE IS NO BEAST, rather than an object of nulls: a probe
-  // asserting on `support.id` should fail loudly on an empty party, because
-  // "the support beast did not fetch it" and "there is no support beast" are
-  // different results and only one of them is a bug in the fetch rule.
+  // NULL WHERE THERE IS NO BEAST rather than an object of nulls: "it did not fetch" and "there is no support
+  // beast" are different results and only one is a bug in the fetch rule.
   const sup = support();
   const lead = primary();
   return {
@@ -4173,8 +2381,7 @@ function nearestEnemyOfSpecies(species: string) {
     drops: combat.dropSnapshot(),
     owned: [...owned],
     support: sup ? {
-      // Probes report the IDENTIFIER, not the display name: a tool asserting on
-      // `__dbgFetch().support.id` must not start failing under `?lang=sv`.
+      // Probes report the IDENTIFIER, not the display name: a tool must not fail under `?lang=sv`.
       id: sup.species.id,
       fetching: sup.isFetching,
       carrying: sup.isCarrying,
@@ -4184,24 +2391,14 @@ function nearestEnemyOfSpecies(species: string) {
     primary: lead ? { id: lead.species.id, fetching: lead.isFetching } : null,
   };
 };
-/**
- * Where your companions actually are, and whether they are travelling as light.
- *
- * `dy` and `reach` are the pair issue #70 is about and neither says it alone: a
- * beast can be nine units from the hero horizontally and ninety below him, which
- * is precisely the case the old x/z-only leash could not see. `needed` is the
- * combat gate the beam's landing rule reads.
- */
+// `dy` and `reach` are the pair issue #70 is about — nine units away horizontally and ninety below — and `needed` is the gate the beam's landing rule reads.
 (window as unknown as { __dbgCompanions: () => unknown }).__dbgCompanions = () => {
   const p = player.position;
   const one = (b: BeastActor, role: string) => ({
     role, id: b.species.id, transit: b.inTransit, drawn: b.isDrawn, dead: b.isDead,
-    // Size of its light-travel streak on screen. Both halves of issue #136 are
-    // read off this one number: a companion in transit is drawing one, and the
-    // same companion benched is drawing nothing.
+    // Screen size of its light-travel streak; both halves of issue #136 read off this one number.
     beam: +b.beamSize.toFixed(3),
-    // The ridden beast is placed by the saddle and never runs follow steering,
-    // so it is the one row in here light travel says nothing about.
+    // The ridden beast is placed by the saddle and never runs follow steering.
     ridden: mount.beast === b,
     d: +Math.hypot(b.position.x - p.x, b.position.z - p.z).toFixed(2),
     dy: +(p.y - b.position.y).toFixed(2),
@@ -4213,48 +2410,23 @@ function nearestEnemyOfSpecies(species: string) {
     player: { x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2) },
     ground: +world.getHeight(p.x, p.z).toFixed(2),
     needed: lead?.supportNeeded ?? false,
-    // An EMPTY LIST with nothing bonded, and one entry with one beast: the
-    // party is as long as it is, and a probe counting rows is reading the truth
-    // rather than two placeholder objects.
+    // An EMPTY LIST with nothing bonded, so a probe counting rows reads the truth.
     beasts: [
       ...(lead ? [one(lead, 'primary')] : []),
       ...(sup ? [one(sup, 'support')] : []),
     ],
-    // BONDED BUT NOT IN A SLOT — the beasts nothing updates. They are outside
-    // `beasts` on purpose (every assertion in test-companion.mjs walks that list
-    // and means "a companion following the hero"), but they need reporting of
-    // their own: what a benched beast left running is exactly issue #136.
+    // Bonded but not in a slot: outside `beasts`, because every test-companion assertion there means "following
+    // the hero" — but issue #136 is what a benched beast left running.
     bench: ownedBeasts().filter((b) => b !== lead && b !== sup)
       .map((b) => ({ id: b.species.id, drawn: b.isDrawn, beam: +b.beamSize.toFixed(3) })),
   };
 };
-// TEST HOOK, like __dbgDrop below: put the hero at an absolute column in the
-// ACTIVE zone. The zone tools need to place him at an exact distance from a
-// gateway and hold him there — "walk for 1.4 s and hope" cannot demonstrate
-// that a 3.0-unit enter radius and a 5.0-unit exit radius behave differently,
-// and the oscillation test needs to cross a boundary at a known rate.
-//
-// `y` is OPTIONAL and, when given, is taken literally rather than resolved
-// against the height field — which is the only way to put the hero on a flying
-// island. There is no column query that could work it out for him: a carrier's
-// deck is deliberately invisible to anything that has not already attached to
-// it (see `CarrierRide.support`, and `CarrierRegistry.ceilingAt` for the one
-// exception and why it is not a surface). Landing him inside the ride volume is
-// what attaches him, on the next slice, through exactly the path a player
-// flying in on a galebird takes.
-/**
- * PUT THE HERO BACK ON THE GROUND, wherever he is standing.
- *
- * Issue #142 §12a. Carving a path is the first thing in this game that moves
- * the height field under someone: `getHeight` used to be a pure function of the
- * seed, and `world/index.ts` still says so about `rebuildProps` — which is true
- * of everything EXCEPT this. `carveAt` sinks a column by up to 1.62, so a path
- * authored under a hero standing still leaves him inside the ground.
- *
- * Only ever UP: a hero in the air when a path is carved beneath him should
- * fall, which is what the sim is for. This is the same clamp `__dbgTp` applies
- * and it goes through the saddle for the same reason.
- */
+// TEST HOOK: put the hero at an absolute column in the ACTIVE zone; "walk 1.4 s and hope" cannot
+// separate a 3.0-unit enter radius from a 5.0-unit exit radius. `y` is taken literally, which is the
+// only way onto a flying island — a deck is invisible to anything not attached — and landing inside the
+// ride volume attaches him next slice. `refitHero` is the other half (issue #142 §12a): `carveAt` sinks
+// a column by up to 1.62, so a path authored under a standing hero leaves him inside the ground, and
+// only ever UP, because a hero in the air should fall.
 const refitHero = (): void => {
   const floor = Math.max(
     world.getHeight(player.position.x, player.position.z), world.waterLevel,
@@ -4265,53 +2437,16 @@ const refitHero = (): void => {
   player.velocity.set(0, 0, 0);
 };
 
-/**
- * THE TRAIL TO THE GATEWAY — the first path in this world that is neither a
- * cart road nor a settlement's own track.
- *
- * The arch stands on level ground 34-42 units from the spawn (`findGateSpot`)
- * and until now nothing led to it: you found it by looking around. A trail is
- * what a place people keep walking to actually gets, and this is issue #142's
- * third profile earning its place in the world rather than only in the lab —
- * narrow, no lamps, no bridging, twice the litter of a road and a woodland
- * palette.
- *
- * LAID THROUGH `World.addPath`, which is the runtime editor built for §12 doing
- * real work. It is the honest way to build this: the gateway's spot is chosen
- * from the FINISHED world — it needs the towns, the dens and the height field —
- * so it cannot be known inside `planSettlements`, where every other path is
- * routed before the first chunk exists. The rebuild it triggers is nine chunks
- * at boot rather than a hundred in play.
- *
- * It starts at the SPAWN, which is on the trunk road, so the first thing a
- * player sees is a road with a path leaving it.
- */
+// THE TRAIL TO THE GATEWAY — issue #142's third profile doing real work: narrow, no lamps, no bridging.
+// Laid through `World.addPath` because the gate's spot is chosen from the FINISHED world and cannot be
+// known inside `planSettlements`; the rebuild is nine chunks at boot.
 {
-  // READ THROUGH A CALL, and not because a cast would be shorter. `gateSite` is
-  // a module `let` assigned inside the zone's `landmarks` hook, which the
-  // ZoneManager runs while building the world — so it IS set by the time this
-  // statement runs, but TypeScript's flow analysis sees no assignment on the
-  // straight line between the declaration and here and narrows it to `null`.
-  // A function call is the honest way to say "this is written elsewhere";
-  // `as` would say "trust me" about the one thing worth checking.
+  // Read through a call: `gateSite` IS set by now, but flow analysis narrows it to null. `as` would say "trust me" about the one thing worth checking.
   const gate = ((): { x: number; z: number } | null => gateSite)();
   if (gate !== null) {
-    // IT LEAVES THE ROAD AT THE NEAREST POINT TO THE GATE, not at the spawn.
-    //
-    // A trail from the spawn to a gateway two hundred units out has to get past
-    // the road network to reach it, and it crosses whatever is in the way — two
-    // carriageways with nothing at either meeting, which is two ribbons stacked
-    // on one piece of ground (issue #45). Starting from the point on the
-    // network CLOSEST to the gate means the trail begins on the correct side
-    // and never has a road between it and where it is going.
-    //
-    // It is also the better read: a path leaves the road where the road comes
-    // nearest the thing it leads to, which is where a real one would.
-    // AND NOT FROM INSIDE A TOWN. The nearest road point to the gate is the end
-    // of a spur, which is a settlement's own centre — so the trail set off from
-    // the middle of Stonewatch and crossed the carriageway on its way out
-    // (measured: 1 crossing, reported by the check below). A trail leaves the
-    // network in open country, at the last bit of road before the town.
+    // IT LEAVES THE ROAD AT THE NEAREST POINT TO THE GATE: from the spawn it would cross whatever
+    // carriageway is in the way (issue #45), and this reads better besides. And not from INSIDE a town —
+    // the nearest road point is the end of a spur, so the trail set off through the middle of Stonewatch.
     let head = { x: world.spawnPoint.x, z: world.spawnPoint.z };
     let headD = Infinity;
     for (const r of world.towns.roads) {
@@ -4321,21 +2456,11 @@ const refitHero = (): void => {
         if (world.towns.all.some(
           (t) => Math.hypot(t.x - x, t.z - z) < t.outerRadius + 8,
         )) continue;
-        // AND WITH A CLEAR RUN TO THE GATE. Nearest is not enough: the spur
-        // curves, so the point closest to the gate can still have a
-        // carriageway between it and where the trail is going — measured, it
-        // did, and the trail crossed one road with nothing at the meeting.
+        // AND WITH A CLEAR RUN TO THE GATE: the spur curves, so the point closest to the gate can still
+        // have a carriageway between it and where the trail is going. Measured — it did.
         if (world.pathRunCrosses(x, z, gate.x, gate.z)) continue;
-        // AND CLEAR OF WHAT IS ALREADY STANDING. A trail profile refuses what
-        // is BUILT, but only prospectively — the lamps and fingerposts were
-        // stamped when the network was planned and this path is authored after.
-        // Measured: the best head by the two tests above ran 1.65 from a
-        // Stonewatch fingerpost and laid its carriageway under it.
-        //
-        // The margin is the piece's own timber plus the trail's half-width,
-        // which is the literal question ("would the carriageway pass through
-        // it") rather than its 11-unit elbow room, which would rule out the
-        // whole roadside.
+        // And clear of what is already standing: a trail refuses BUILT things only prospectively, and the lamps
+        // were stamped when the network was planned. The margin is timber plus half-width.
         if (world.pathRunHitsBuilt(x, z, gate.x, gate.z, TRAIL_PROFILE.deckEdge)) continue;
         const d = Math.hypot(x - gate.x, z - gate.z);
         if (d < headD) { headD = d; head = { x, z }; }
@@ -4346,10 +2471,7 @@ const refitHero = (): void => {
       to: [gate.x, gate.z],
       profile: 'trail',
     });
-    // REPORTED, NOT SWALLOWED. `addPath` refuses for good reasons — the two ends
-    // too close, a route that would have to bridge — and a world quietly short
-    // of the path to its own dungeon is exactly the silent failure the refusal
-    // machinery exists to prevent.
+    // REPORTED, NOT SWALLOWED: a world quietly short of the path to its own dungeon is the silent failure the refusal machinery exists to prevent.
     if (laid.error) {
       reportContentIssue({
         severity: 'warn',
@@ -4358,9 +2480,7 @@ const refitHero = (): void => {
         fix: 'move the gateway, or give the trail a profile that can bridge',
       });
     } else if (laid.crossings > 0) {
-      // NOT SILENT. Starting from the nearest road point is what should make
-      // this zero; if it is not, the trail is running over a carriageway with
-      // nothing at the meeting and somebody should see the number.
+      // Starting from the nearest road point is what should make this zero; if it is not, the trail runs over a carriageway with nothing at the meeting.
       reportContentIssue({
         severity: 'warn',
         code: 'gateway-trail-crosses',
@@ -4373,50 +2493,21 @@ const refitHero = (): void => {
 }
 
 (window as unknown as { __dbgTp: (x: number, z: number, y?: number) => void }).__dbgTp = (x, z, y) => {
-  // THE SADDLE FIRST, and it is not optional: while mounted the hero's position
-  // is written from the mount's every slice (`seatHero`), so setting the fields
-  // below and stopping there moved him for a fraction of a frame and then put
-  // him back — a teleport that silently did nothing. See
-  // `MountController.teleport`, which moves the pair of them and re-seats him.
+  // THE SADDLE FIRST: while mounted the hero's position is rewritten from the mount every slice, so setting these fields alone was a teleport that did nothing.
   mount.teleport(x, z, y);
   player.position.x = x;
   player.position.z = z;
   player.position.y = y ?? Math.max(world.getHeight(x, z), world.waterLevel);
   player.velocity.set(0, 0, 0);
 };
-// The steering half of the same hook: swing the camera so that a held W means
-// "walk along THAT bearing". Movement is camera-relative, so a collision test
-// that cannot turn the camera can only ever drive the hero in one direction.
-// Takes a walk bearing, NOT the camera's own yaw — see Player.aimCamera — and
-// the swing arrives over a few hundred ms, so wait for __dbgCamYaw to agree.
+// Swing the camera so a held W walks along that bearing — movement is camera-relative. A WALK bearing, and the swing takes a few hundred ms.
 (window as unknown as { __dbgAim: (bearing: number) => void }).__dbgAim = (bearing) => {
   player.aimCamera(bearing);
 };
-// TEST HOOK — FAST-FORWARD. Drain N seconds of simulation NOW, synchronously,
-// instead of waiting N wall-clock seconds for the frame loop to drain them.
-//
-// This is the lab's `?t=` pattern brought to the game, and it is the difference
-// between a probe suite that sleeps for minutes and one that computes for
-// seconds: tools/ held keys for twelve real seconds and polled real clocks,
-// when everything those waits were waiting FOR is a fixed-step function of the
-// slice count (see the accumulator note above `SIM_HZ`).
-//
-// Each iteration emulates one PERFECT 60 Hz FRAME — poll the pad, one slice
-// with `first` true, drain the cues, clear the input edges — which is exactly
-// what the real loop does on a frame that drains exactly one slice. So a key
-// or fake-pad button held via CDP stays held (endFrame clears EDGES, not held
-// state), a press pending when the burst starts fires exactly once, and the
-// chunk streamer gets its full per-frame build budget every slice, which is
-// what makes a teleport-then-advance settle in simulated time too.
-//
-// What it deliberately does NOT do is render or touch the frame-side half
-// (HUD sync, underwater lens, photo camera): the next real rAF presents the
-// advanced state, and a probe that reads pixels is already waiting a frame for
-// the screenshot round-trip. The world simply IS twelve seconds older.
-//
-// Clamped to 300 simulated seconds — the burst blocks the main thread while it
-// runs, and a runaway argument must not hang the tab. Returns the measurement,
-// so a probe can report its own speedup.
+// TEST HOOK — FAST-FORWARD: drain N seconds of simulation synchronously, because everything the old
+// wall-clock waits waited for is a fixed-step function of the slice count. Each iteration emulates one
+// perfect 60 Hz frame, so a held key stays held and the streamer gets its full per-frame budget. It
+// does not render. Clamped to 300 s so a runaway argument cannot hang the tab.
 (window as unknown as { __dbgAdvance: (seconds: number) => unknown }).__dbgAdvance = (seconds) => {
   if (!playing) return { playing: false, slices: 0 };
   const s = Math.min(Math.max(0, Number(seconds) || 0), 300);
@@ -4435,23 +2526,11 @@ const refitHero = (): void => {
     wallMs: +(performance.now() - t0).toFixed(1),
   };
 };
-// Melee aim assist, as the game would answer it RIGHT NOW: who the next swing
-// would be steered onto, how far off the crosshair they are, and how far the
-// swing would have to turn to reach them. Read-only, and it runs the shipped
-// query rather than a copy of it, so a change to the rule shows up here.
-//
-// `angleFromCrosshair` is the SELECTION criterion — the enemy's bearing from the
-// hero against the bearing the camera is pointing — and `turn` is what the swing
-// actually does, from the hero's current facing. They differ by however far his
-// heading is lagging the camera, which is the one thing that lets a turn come
-// out wider than the cone. See CombatSystem.bestMeleeTarget.
-// `inReach` beside it is what makes a REFUSAL checkable. It is the same shipped
-// query with the cone opened to 180 degrees — one argument apart, not a second
-// copy of the rule — so it answers "who was standing close enough to be steered
-// at, whatever the crosshair was doing". A null `target` next to a non-null
-// `inReach` is the cone doing its job; both null is nobody in range. Without the
-// pair, a tool can only ever prove the assist FIRED, never that it correctly
-// declined, and "declined" is half of what the issue asked for.
+// Melee aim assist as the game would answer it now, running the shipped query rather than a copy.
+// `angleFromCrosshair` is the SELECTION criterion and `turn` is what the swing does from his current
+// facing; they differ by his heading lag, which is what lets a turn exceed the cone. `inReach` is the
+// same query with the cone opened to 180, so a REFUSAL is checkable — null target beside non-null
+// inReach is the cone working, both null is nobody in range.
 (window as unknown as { __dbgAimAssist: () => unknown }).__dbgAimAssist = () => {
   engine.camera.getWorldDirection(_aimDir);
   _dbgStrike.copy(player.position);
@@ -4459,8 +2538,7 @@ const refitHero = (): void => {
   const target = combat.bestMeleeTarget(
     _dbgStrike, _aimDir, SWORD_REACH, AIM_ASSIST_CONE_COS, player.position.y,
   );
-  // Named `reachable` because `inReach` is the shared proximity rule imported at
-  // the top of this file; the REPORTED field keeps the name tools already read.
+  // Named `reachable` because `inReach` is the imported proximity rule; the REPORTED field keeps the name tools already read.
   const reachable = combat.bestMeleeTarget(
     _dbgStrike, _aimDir, SWORD_REACH, -1, player.position.y,
   );
@@ -4479,8 +2557,7 @@ const refitHero = (): void => {
     return {
       x: +e.position.x.toFixed(2), z: +e.position.z.toFixed(2),
       distance: +Math.hypot(dx, dz).toFixed(2),
-      // Feet to feet, the axis the selection is now gated on — a target the
-      // probe can see at `distance` 1.5 and `rise` 6 is the bug in issue #78.
+      // Feet to feet, the axis the selection is gated on — `distance` 1.5 with `rise` 6 is issue #78.
       rise: +(e.position.y - player.position.y).toFixed(2),
       angleFromCrosshair: deg(Math.abs(shortest(bearing(dx, dz) - aim))),
       turn: deg(Math.abs(shortest(
@@ -4502,20 +2579,14 @@ const refitHero = (): void => {
 const _dbgStrike = new THREE.Vector3();
 /** Scratch for the crown probe below; the query never allocates. */
 const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, crownRy: 0 };
-// Contact-particle pool. Read-only, and the only way to state the recycling
-// rule as a number rather than as a claim: `recycledAirborne` must be 0 for the
-// life of the process, `retired` counts settled particles shrunk out early to
-// make room, and `dropped` counts bursts refused because everything was in the
-// air. `ms` is the pool's own update cost (populated under ?perf=1 only).
+// `recycledAirborne` must stay 0 for the process, `retired` counts settled particles shrunk early, `dropped` bursts refused with everything airborne.
 (window as unknown as { __dbgTouchFx: () => unknown }).__dbgTouchFx = () => ({
   ...touchFx.stats(),
   crown: world.crownContactAt(
     player.position.x, player.position.y + 1, player.position.z, 0.65, _dbgCrown,
   ) ? { ..._dbgCrown } : null,
 });
-// TEST HOOK, like __dbgDrop. Force a burst without finding a tree first, which
-// is the only practical way to drive the pool to exhaustion on demand and show
-// what the policy does there. Returns how many of `n` were actually placed.
+// TEST HOOK: force a burst without finding a tree, the only practical way to drive the pool to exhaustion on demand.
 (window as unknown as { __dbgTouchBurst: (n: number) => number }).__dbgTouchBurst =
   (n) => touchFx.forceBurst(player, n);
 (window as unknown as { __dbgDrop: (id: string, dx: number, dz: number) => void })
@@ -4523,15 +2594,9 @@ const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, cro
     const x = player.position.x + dx, z = player.position.z + dz;
     combat.spawnDrop(id, x, world.getHeight(x, z) + 0.5, z);
   };
-// TEST HOOK, like __dbgDrop above, and the only way `tools/test-textsize.mjs`
-// can see MOST of the HUD at once. Half the panels the 16px floor applies to are
-// transient — the interact pill, the dialogue, the mount ring, the riding badge,
-// a toast, the level-up banner — and three of those are exactly what issue #17
-// named. Driving the game to produce all six for one screenshot means finding an
-// NPC, a den, a mount and a level-up in one run; this raises them directly, with
-// the same calls and the same markup a player gets. It is deliberately a HOOK
-// rather than the probe reaching into `hud`: the shop needs the real skill
-// registry and the real prices, which live here.
+// TEST HOOK, and the only way test-textsize sees MOST of the HUD at once: half the panels the 16px
+// floor covers are transient (issue #17 named three). A hook rather than the probe reaching into `hud`,
+// because the shop needs the real skill registry and prices.
 (window as unknown as { __dbgStageHud: () => boolean }).__dbgStageHud = () => {
   hud.showHint(t('hint.npcTalk', { key: hud.interactPrompt, name: t('npc.gain.name') }));
   hud.showDialogue(
@@ -4548,51 +2613,18 @@ const _dbgCrown: CrownContact = { treeX: 0, treeZ: 0, crownR: 0, crownCy: 0, cro
 };
 
 let started = false;
-// The welcome toast lives in `beginPlay()` at the top of this file — it is the
-// first thing the player is told, and it has to be said when they are looking
-// at the game rather than at a poster or a loading bar. Photo mode and `menu=0`
-// never fire it, and neither wants a toast in shot.
 
-/**
- * Frame-rate cap, in fps. `?fps=<n>` overrides it and `?fps=0` removes it.
- *
- * 120 BY DEFAULT, where this used to be uncapped. A browser already pins
- * requestAnimationFrame to the display, so "uncapped" never meant unbounded —
- * it meant "however fast this particular monitor happens to be", which on a
- * 165 Hz panel is 165 frames of a scene whose cost is 4.97 ms of MAIN THREAD
- * each. Measured there, walking: 80.5% of a core spent on frames, and `render`
- * — draw submission, 549 calls and 3.1M triangles — is 67% of every one of
- * them. The frame count is the only term in that product the game controls.
- *
- * 120 rather than 60 because this is an action game and the difference between
- * 60 and 120 is something a player feels on a high-refresh panel, where the
- * difference between 120 and 165 is not. On a 60 Hz display the cap never
- * binds and nothing changes at all.
- *
- * It is a DEADLINE, not a sleep, and `Engine.beginFrame` explains why: rAF only
- * offers times on the refresh grid, so an interval-based cap always undershoots
- * (a 30 fps cap measured 26.7). Skipped frames roll their elapsed time into the
- * next one, so the simulation is unaffected — see `Engine.tick`.
- */
+// Frame cap in fps; `?fps=<n>` overrides, `?fps=0` removes. 120 by default: rAF is already pinned to
+// the display, so uncapped meant 165 frames of a 4.97 ms main-thread scene (80.5% of a core walking).
+// 120 rather than 60 because a player feels that difference and not 120 to 165. A DEADLINE, not a sleep
+// — an interval cap undershoots — and skipped time rolls into the next frame.
 const DEFAULT_FPS_CAP = 120;
 const fpsCap = Number(params.get('fps') ?? DEFAULT_FPS_CAP);
 engine.setFpsCap(fpsCap);
 const debug = new DebugOverlay(engine.renderer, fpsCap);
 if (params.get('debug') === '1') debug.toggle();
 
-/**
- * The F3 panel's model, and the eleven functions that make its options real.
- *
- * COMPOSITION-ROOT POLICY, which is why the sinks live here and not in gfx.ts:
- * that file knows "bloom is a boolean that defaults on"; this one is the only
- * place that knows what a bloom pass, a chunk mesh and a frame cap are. Same
- * shape as `FeedbackDeps` above.
- *
- * The world layers go through `world`, which is a `let` that the zone manager
- * rebinds on a switch — so this reads it at call time rather than capturing it,
- * and `gfx.applyAll()` runs again after a switch (see `bindZone`) because the
- * new zone's meshes are new objects that never saw the setting.
- */
+// Composition-root policy: gfx.ts knows bloom is a boolean, this file knows what a bloom pass and a chunk mesh are.
 const gfx = new Gfx({
   grass: (on) => world.setLayerVisible('grass', on),
   terrainDistance: (metres) => {
@@ -4607,9 +2639,7 @@ const gfx = new Gfx({
   ao: (on) => engine.setPassEnabled('ao', on),
   bloom: (on) => engine.setPassEnabled('bloom', on),
   aa: (on) => engine.setPassEnabled('aa', on),
-  // `?fps=` beats the stored preference for this load and never writes it back,
-  // the same resolution the look-axis and shake overrides use — a measurement
-  // run can pin a value and cannot corrupt one.
+  // `?fps=` beats the stored preference for this load and never writes it back, the same resolution the look-axis and shake overrides use.
   fpsCap: (n) => {
     const v = params.get('fps') !== null ? fpsCap : n;
     engine.setFpsCap(v);
@@ -4625,57 +2655,22 @@ const timePresets = [
   { phase: 0.75, labelKey: 'gfx.time.dusk' },
   { phase: 0, labelKey: 'gfx.time.midnight' },
 ] as const;
-/**
- * WHERE A SPAWN LANDS: eight metres along the way the hero is looking.
- *
- * Far enough that a hut does not appear inside him and near enough that it is
- * already on screen when it arrives — the whole value of the panel over `/give`
- * and `/grant` is that you SEE the result without hunting for it. Eight is
- * a little past the sword's reach, so an enemy spawned here has a moment before
- * it is in range, and a shade under the camera's near framing of the hero.
- *
- * `forward` is (sin yaw, cos yaw), the same basis `Player.forward` uses.
- */
+// Eight metres along his facing: far enough not to appear inside him, near enough to be on screen, a little past sword reach. `forward` is (sin yaw, cos yaw).
 const SPAWN_AHEAD = 8;
-/**
- * How far along the crosshair ray to look for ground, and how coarsely.
- *
- * NEAR is a body's width, so a hut cannot be dropped on top of the hero when
- * the camera is pointed at his own feet. FAR is about where a voxel building
- * stops reading as placed and starts reading as lost; past it the fallback is
- * better than a wild hit. The march is a fixed 0.5 m step to first crossing
- * followed by six bisections, which lands within a centimetre of the surface —
- * the ground is a heightfield, not a mesh, so `getHeight` IS the intersection
- * test and there is nothing to raycast against.
- */
+// NEAR is a body's width, so a hut cannot land on the hero; FAR is where a building stops reading as placed.
 const AIM_NEAR = 2;
 const AIM_FAR = 60;
 const AIM_STEP = 0.5;
 /** Scratch for the crosshair ray. A spawn is a click, but the rule is the rule. */
 const _spawnRay = new THREE.Vector3();
 
-/**
- * WHERE A SPAWN LANDS: on the ground under the crosshair.
- *
- * The crosshair is pinned to the centre of the viewport and the camera looks
- * through it (see `__dbgCam`), so the camera's forward IS the ray the player is
- * pointing with — which is the whole reason this beats the hero's own facing:
- * you place a hut by looking at the spot, and you can put one on the far side of
- * a road without walking there.
- *
- * FALLING BACK TO EIGHT METRES AHEAD is not a failure case, it is the answer for
- * a ray that never meets the ground: looking at the sky, or out over a valley
- * past `AIM_FAR`. Refusing there would make the panel feel broken from any
- * camera pitched above the horizon, which is most of them.
- */
+// On the ground under the crosshair, so a hut can go across a road without walking there.
 function spawnSpot(): { x: number; z: number; yaw: number } {
   const cam = engine.camera.position;
   engine.camera.getWorldDirection(_spawnRay);
   let hitX = player.position.x + Math.sin(player.facing) * SPAWN_AHEAD;
   let hitZ = player.position.z + Math.cos(player.facing) * SPAWN_AHEAD;
-  // Only a ray that is going DOWN can meet a heightfield within a useful
-  // distance; one pointed at the horizon would march the whole way and find the
-  // first hill on the far side of the map.
+  // Only a ray going DOWN can meet a heightfield within a useful distance; one at the horizon would march the whole way and find the first hill across the map.
   if (_spawnRay.y < -0.02) {
     let lo = AIM_NEAR;
     let hi = 0;
@@ -4697,33 +2692,18 @@ function spawnSpot(): { x: number; z: number; yaw: number } {
       hitZ = cam.z + _spawnRay.z * hi;
     }
   }
-  // A structure FACES THE HERO. `Accum.add` maps a template's local +z to
-  // (sin yaw, cos yaw), so the bearing from the spot back to him is the yaw
-  // that turns a hut's front wall toward the person who placed it — and the
-  // first thing you do after placing a building is look at it.
+  // A structure FACES THE HERO: `Accum.add` maps a template's local +z to (sin yaw, cos yaw), so
+  // the bearing from the spot back to him turns the front wall toward whoever placed it.
   const dx = player.position.x - hitX;
   const dz = player.position.z - hitZ;
   const yaw = dx === 0 && dz === 0 ? player.facing + Math.PI : Math.atan2(dx, dz);
   return { x: hitX, z: hitZ, yaw };
 }
 
-/**
- * THE F3 SPAWNER'S CATALOGUE — composition-root policy, exactly like `GfxSinks`
- * above it. core/spawn.ts knows a branch has rows and a row has an id; this is
- * the only place that knows what a bag, a bonded beast, an `Enemy` and a
- * settlement part are.
- *
- * Every branch is re-derived on each draw and every label goes through `t()` on
- * its way in, which is what makes the tree follow `/content load`, a bond made
- * from the world, and a language switch without any of the three telling it.
- * See the note at the top of core/spawn.ts.
- *
- * THE STRUCTURE ROWS ARE THE ONE SET WITH NO STRING KEYS, and that is deliberate
- * rather than an omission: `hut-a` and `bridge-pier` are the names of pieces of
- * the town builder's part library, they are never shown to a player, and
- * inventing twenty-six display strings for a developer instrument would be
- * twenty-six keys every translator has to be told to skip.
- */
+// Composition-root policy, like `GfxSinks`: core/spawn.ts knows a branch has rows, this knows what a
+// bag, a beast, an `Enemy` and a settlement part are. Every branch is re-derived per draw and labels go
+// through `t()`, so the tree follows `/content load`, a bond and a language switch. The structure rows
+// have no string keys deliberately: `hut-a` is a part name, never shown to a player.
 const spawnCatalogue: SpawnCatalogue = {
   branches: () => [
     {
@@ -4746,10 +2726,8 @@ const spawnCatalogue: SpawnCatalogue = {
     },
     {
       id: 'structures', labelKey: 'spawn.structures', noteKey: 'spawn.structures.note', target: 'world',
-      // The take-it-all-down row leads, because the branch is the one that
-      // leaves something behind: an item is in the bag and a beast walks off,
-      // but a hut stands where you put it until somebody removes it. Its id is
-      // starred so it can never collide with a part's name.
+      // The take-it-all-down row leads, because this is the branch that leaves something behind: a hut
+      // stands where you put it. Its id is starred so it can never collide with a part's name.
       rows: world.debugSpawn
         ? [
           { id: '*clear', label: t('spawn.clear'), hint: 'reset' },
@@ -4761,9 +2739,8 @@ const spawnCatalogue: SpawnCatalogue = {
   spawn: (branchId, rowId) => {
     const at = spawnSpot();
     if (branchId === 'items') {
-      // Straight through the console command's own body rather than a second
-      // copy of it: currency is not a bag entry, a count has a plural form, and
-      // two surfaces with two opinions about either is the bug this avoids.
+      // Straight through the console command's own body: currency is not a bag entry and a count has a
+      // plural form, and two surfaces with two opinions about either is the bug this avoids.
       return giveItem(rowId, 1);
     }
     if (branchId === 'beasts') return devGrant(rowId);
@@ -4785,19 +2762,8 @@ const spawnCatalogue: SpawnCatalogue = {
   },
 };
 
-/**
- * The hero's hair, for the F3 panel.
- *
- * The PANEL owns the rows and this owns what a change means, which is the split
- * every panel in this game has (see the note at the top of ui/settings.ts's
- * host). "What it means" here is three things in one place: store the choice,
- * rebuild the mesh on the rig standing in the world, and resolve "no colour
- * picked yet" into the colour the chosen style was drawn in — `setHairStyle`
- * takes the null and answers it, so the rule lives once, in player/hair.ts.
- *
- * The rig is READ EVERY TIME rather than captured: `exitToTitle` builds a new
- * hero, and a captured one would leave the panel styling a discarded head.
- */
+// The PANEL owns the rows; this owns what a change means — store it, rebuild the mesh, and let
+// `setHairStyle` resolve "no colour yet". The rig is read every time: `exitToTitle` builds a new hero.
 const appearance: AppearanceControl = {
   styles: HAIR_STYLES,
   swatches: HAIR_SWATCHES,
@@ -4818,17 +2784,7 @@ const appearance: AppearanceControl = {
   },
 };
 
-/**
- * THE PATH EDITOR'S POLICY, which the panel deliberately does not have.
- *
- * Issue #142 §12. `ui/perf-panel.ts` owns four rows and knows nothing about
- * routing, profiles or where the hero is looking; this decides what "lay it"
- * means, exactly as the appearance block above decides what a hairstyle means.
- *
- * The bearing is the hero's own facing rather than the crosshair: `AIM_FAR` is
- * 60 units and the roads in this world are 72 to 174 long, so the endpoint of
- * anything worth drawing is past where a crosshair can reach.
- */
+// The path editor's policy (issue #142 §12), which the panel does not have.
 let pathProfileId = 'footpath';
 let pathLength = 60;
 let pathCrossing = false;
@@ -4845,8 +2801,7 @@ const pathEdit: PathEditControl = {
   crossing: () => pathCrossing,
   setCrossing: (v: boolean) => { pathCrossing = v; },
   lay: () => {
-    // `facing` and not the camera's yaw: `cam.yaw` is the bearing FROM the hero
-    // TO the camera, so using it lays the path out behind him.
+    // `facing` and not the camera's yaw: `cam.yaw` is the bearing FROM the hero TO the camera, so it would lay the path out behind him.
     const a = player.facing;
     const r = world.addPath({
       from: [player.position.x, player.position.z],
@@ -4859,9 +2814,7 @@ const pathEdit: PathEditControl = {
       refit: refitHero,
     });
     if (r.error) return `refused: ${r.error}`;
-    // EVERY REFUSAL REACHES THE SCREEN (§12f). The status bar is one line, so
-    // the count goes there and the reasons go to the console — which is where
-    // somebody driving this already is.
+    // EVERY REFUSAL REACHES THE SCREEN (§12f).
     for (const why of r.refused) devConsole?.print(`path: no merge — ${why}`);
     const nodes = r.nodes.length > 0
       ? `, ${r.nodes.length} junction(s)` : (r.refused.length > 0 ? ', no merge' : '');
@@ -4869,14 +2822,8 @@ const pathEdit: PathEditControl = {
   },
 };
 
-/**
- * WHICH QUEST IS MEANT TO GRANT EACH MOUNT — the F3 rows' last column.
- *
- * Here and not in core/types.ts because it is a fact about the CAMPAIGN rather
- * than about the type: game-story.md §5 hands out one mount per act, and when
- * those quests exist the row that stands in for them will say so beside the
- * switch that does it by hand.
- */
+// Which quest is meant to grant each mount — the F3 rows' last column. Here rather than in
+// core/types.ts because it is a fact about the CAMPAIGN (game-story.md §5), not about the type.
 const MOUNT_QUEST_KEYS: Record<MountKind, StringKey> = {
   ground: 'mount.ground.quest',
   water: 'mount.water.quest',
@@ -4888,31 +2835,18 @@ const perfPanel = new PerfPanel(gfx, {
   get: () => dayNight.debugOverride,
   set: (phase) => dayNight.setDebugOverride(phase),
 }, spawnCatalogue, appearance, pathEdit, {
-  // The order the acts hand them out, and the quest that is meant to do it —
-  // see game-story.md §5. `MOUNT_KIND_KEYS` already names each kind, so the row
-  // label and the inventory badge cannot drift apart.
   kinds: MOUNT_KINDS.map((id) => ({
     id,
     labelKey: MOUNT_KIND_KEYS[id].name,
     noteKey: MOUNT_QUEST_KEYS[id],
   })),
   has: (id) => mountUnlocks.has(id as MountKind),
-  // Through the same door the console uses, so the badges in the bag follow a
-  // flip made from either surface.
+  // Through the same door the console uses, so the bag's badges follow a flip from either surface.
   set: (id, on) => { devUnlockMounts(on ? 'unlock' : 'lock', id); },
 });
 
-/**
- * The custom cursor, and the one question the world has to answer for it.
- *
- * `at()` is called only while the pointer is free and only for points over the
- * canvas, so it runs on mouse movement in a menu-ish mode rather than per frame
- * — which is what makes a screen-space scan of every enemy affordable. It is a
- * PROJECTION, not a raycast: projecting a few dozen positions into screen space
- * costs a matrix multiply each, where a raycast against the streamed world would
- * walk hundreds of chunk meshes for an answer no more true. Nearest wins, so a
- * hostile standing in front of a friendly reads as the hostile.
- */
+// `at()` runs only while the pointer is free and only over the canvas — on movement, not per frame —
+// which makes a screen-space scan affordable. A PROJECTION, not a raycast. Nearest wins.
 const cursors = new Cursors();
 const _curProj = new THREE.Vector3();
 /** Second scratch, so the NPC scan never clones. See the loop below. */
@@ -4929,14 +2863,10 @@ const cursorDirector = new CursorDirector(cursors, {
       const sy = rect.top + (-_curProj.y * 0.5 + 0.5) * rect.height;
       return Math.hypot(sx - px, sy - py);
     };
-    // Generous, because these are small figures at gameplay distance and a
-    // pixel-exact hit test on a 2-metre creature 40 units away is unusable.
+    // Generous: a pixel-exact hit test on a 2-metre creature 40 units away is unusable.
     const REACH = 46;
-    // An OBJECT rather than two locals, and not for tidiness: TypeScript's
-    // control-flow analysis does not follow assignments made inside a closure,
-    // so a `let best = null` written only by `offer` narrows to `never` by the
-    // return and the property read fails to compile. A property on an object is
-    // not narrowed that way.
+    // An OBJECT rather than two locals: flow analysis does not follow assignments made inside a
+    // closure, so a `let best = null` written only by `offer` narrows to `never` by the return.
     const best = { gap: Infinity, state: null as CursorState | null };
     const offer = (gap: number, state: CursorState): void => {
       if (gap < REACH && gap < best.gap) { best.gap = gap; best.state = state; }
@@ -4944,42 +2874,22 @@ const cursorDirector = new CursorDirector(cursors, {
     for (const e of combat.enemies) {
       if (e.hp > 0) offer(screenGap(e.position, 0.9), 'attack-target');
     }
-    // `_curNpc` rather than a clone per NPC: this runs on every mouse move, and
-    // the no-per-frame-allocation rule covers anything on a movement path.
+    // `_curNpc` rather than a clone per NPC: this runs on every mouse move.
     for (const n of world.npcs?.all ?? []) {
       _curNpc.set(n.x, n.y, n.z);
       offer(screenGap(_curNpc, 1.2), 'inspect');
     }
-    // A skill den is a building you can walk into and read — the same
-    // "there is more to see here" the magnifier means.
+    // A skill den is a building you can walk into and read — the magnifier's meaning.
     for (const s of world.shopPositions) offer(screenGap(s, 1.5), 'inspect');
     return best.state;
   },
 });
 void cursors.load();
 
-/**
- * WHEN THE MOUSE CURSOR IS SHOWING, and there are two quite different reasons.
- *
- * ALT IS A HOLD. Keep it down and the pointer is yours; let go and the game
- * takes it back. This started as a toggle on the reasoning that flipping
- * several F3 rows in a row would be easier — that was the wrong trade. A hold
- * has no state to get out of step with what the player believes, cannot strand
- * anyone with the pointer released and no idea why, and matches the muscle
- * memory every other engine's editor camera uses. Note it does mean Alt+click,
- * which some window managers claim for dragging windows.
- *
- * A MENU IS THE OTHER REASON, and it is not a special case so much as the
- * ordinary one: the title screen, the Escape menu, the shop and the controls
- * sheet are all things you CLICK, they have all already released the pointer,
- * and a player looking at buttons should see something to click them with. It
- * is gated on `lastSource` rather than on a latch — a pad player driving the
- * same menu with the stick gets no cursor, and touching the mouse brings it
- * back on the next event.
- *
- * Neither is a modal in the F3 sense: Alt leaves the hero taking input, because
- * the whole point is to change something while the world carries on working.
- */
+// WHEN THE MOUSE CURSOR IS SHOWING, for two reasons. ALT IS A HOLD: no state to get out of step with
+// what the player believes, and it matches every editor camera (it does mean Alt+click, which some
+// window managers claim). A MENU is the other — menus are clicked and have already released the pointer
+// — gated on `lastSource`, so a pad player driving one gets no cursor. Neither is a modal.
 let cursorFree = false;
 /** Alt at the previous call, so this can tell a RELEASE from a menu closing. */
 let altWasHeld = false;
@@ -4989,9 +2899,6 @@ function updateCursorMode(): void {
   altWasHeld = altHeld;
   const menuUp = (startMenu?.isOpen ?? false) || pauseMenu.isOpen
     || hud.isShopOpen() || hud.isControlsOpen() || inventory.isOpen || journal.isOpen;
-  // A controller player is not pointing at anything, and a phone has no pointer
-  // to draw. `lastSource` is the STAMP, rewritten on every real input — the
-  // per-frame question, not the latch. See the HUD note in AGENTS.md.
   const want = altHeld || (menuUp && input.lastSource === 'kbm');
   if (want === cursorFree) return;
   cursorFree = want;
@@ -4999,89 +2906,38 @@ function updateCursorMode(): void {
   if (altHeld) {
     input.releaseLock();
   } else if (altJustReleased && !menuUp && !isTouchPrimary()) {
-    // ONLY AN ALT RELEASE, which is what the line above this always claimed and
-    // what it did not do. `cursorFree` goes false for two different reasons —
-    // Alt let go, and a menu closing — and this branch took the pointer back for
-    // BOTH, one keyup ahead of the menu's own `onClose`. That is the second
-    // caller behind the menu reopening itself: closing with Escape re-took a
-    // lock here, the fullscreen exit from that same key released it 8 ms later,
-    // and the loss read as a fresh Escape. A menu released the pointer on the
-    // way in and is the only thing that may decide about it on the way out.
+    // ONLY an Alt release: `cursorFree` also goes false when a menu closes, and taking the lock back there
+    // ran a keyup ahead of the menu's own `onClose`, whose Escape then dropped it 8 ms later.
     input.requestLock();
   }
 }
 
-/**
- * EVENT-DRIVEN, because the title screen has no frame loop to poll from.
- *
- * `frame()` does not run until New Game (see the boot note at the top of this
- * file), so a cursor that only updated per frame would never appear on the
- * poster — which is one of the two places it is explicitly wanted. Every input
- * that can change the answer is a DOM event anyway: Alt up or down, the mouse
- * moving, a key deciding the player is on the keyboard again.
- */
+// EVENT-DRIVEN, because `frame()` does not run until New Game and the poster is one of the two places the cursor is wanted.
 for (const ev of ['keydown', 'keyup', 'mousemove', 'mousedown', 'pointerlockchange']) {
   (ev === 'pointerlockchange' ? document : window)
     .addEventListener(ev, () => updateCursorMode(), true);
 }
-// A click anywhere reaches the panel first; it returns false unless the click
-// landed on one of its rows, so the world still gets every other click.
+// The panel sees a click first and returns false unless it landed on one of its rows.
 window.addEventListener('mousedown', (e) => {
   if (perfPanel.handleClick(e.target, e)) { e.preventDefault(); e.stopPropagation(); }
 }, true);
-// A drag owns the cursor until it ends — the pointer leaves the handle within a
-// few pixels, and without this the picture would snap back mid-resize. The
-// panel does not know what a CursorState is; it says "dragging" and this
-// decides which one, which keeps ui/cursor.ts out of ui/perf-panel.ts.
+// A drag owns the cursor until it ends — the pointer leaves the handle within a few pixels.
 perfPanel.onDragCursor = (state, dragging) => {
   if (!dragging) { cursorDirector.lock(null); return; }
   cursorDirector.lock((state as CursorState | null)
     ?? (cursors.debug().state ?? 'move'));
 };
 
-// There USED to be a `MENU_FPS = 20` cap here, and the history is worth keeping
-// because it is what the current arrangement replaced.
-//
-// The game's loop ran behind the poster. Uncapped it drew at the display's
-// refresh rate — 165 fps on the machine this was measured on — and every one of
-// those frames was a full pass of the world plus GTAO, bloom and SMAA behind an
-// opaque picture. Measured over a 6 s window at 1920x1080: 96.9% of the main
-// thread with the menu up, of which 93.4% was the game; capped to 20 it was 27%.
-//
-// The cap was a good answer to the wrong question. What was wanted was for the
-// world to keep STREAMING behind the poster, and rendering it was only ever the
-// means: the streamer's budget is spent per rendered frame. The boot sequence
-// now drains that queue itself, on purpose and to completion, and then stops —
-// so there is no loop left to cap, an idle title screen costs the poster's CSS
-// and nothing else, and `beginPlay()` hands the renderer straight to the rate
-// this load actually asked for. See the boot-order note at the top of the file.
-
-// PINNED rather than just enabled: the F2 overlay also turns sampling on while
-// it is open (see DebugOverlay.toggle), and closing it must not silence a run
-// the harness in tools/ asked for.
+// PINNED rather than just enabled: the F2 overlay also turns sampling on, and closing it must not silence a run the harness in tools/ asked for.
 if (params.get('perf') === '1') perf.pin();
 let lastPrograms = 0;
 
-// ---------------------------------------------------------------------------
-// Developer console (§) and its commands. The console owns no game knowledge —
-// commands are registered here, where the systems they poke actually live, and
-// /help builds its listing from the registry so a new command lists itself.
-// ---------------------------------------------------------------------------
 const devConsole = photoMode ? null : new DevConsole();
 const colliderView = new ColliderView(engine.scene, world);
 bound.push(colliderView);
-// `colliders=1` starts them visible, which is how a staged capture can show the
-// cage against the mesh — photo mode has no console to type into.
+// `colliders=1` starts them visible for a staged capture; photo mode has no console to type into.
 if (params.get('colliders') === '1') colliderView.setVisible(true);
-/**
- * Put `count` of an item in the bag and say what happened.
- *
- * TWO SURFACES, ONE BODY. `/give` types an id and the F3 spawner clicks a row,
- * and both have to know the same three things: that an unknown id is a refusal,
- * that currency is not a bag entry at all, and that the answer carries the
- * plural form of the name. Two copies of that is two places to fix the day a
- * fourth item kind arrives.
- */
+// TWO SURFACES, ONE BODY: `/give` and the F3 spawner row both need an unknown id refused, currency kept out of the bag, and the plural form in the answer.
 function giveItem(id: string, count: number): string {
   if (!isKnownItem(id)) {
     return `no such item "${id}" — /give with no arguments lists them`;
@@ -5089,9 +2945,7 @@ function giveItem(id: string, count: number): string {
   const n = Math.max(1, count);
   const def = itemDef(id);
   if (def.kind === 'currency') {
-    // Currency is not in the bag (see core/items.ts), so it is added to the
-    // pickup total rather than refused: a console that answered "no" here
-    // would be technically right and useless.
+    // Currency is not in the bag (core/items.ts), so it joins the pickup total rather than being refused — a console answering "no" here would be right and useless.
     pickupTotal += n;
     hud.setShards(shards());
     return `${shards()} ${itemName(CURRENCY, shards())}`;
@@ -5107,8 +2961,7 @@ devConsole?.register({
   help: 'Put items in the bag. No arguments lists the catalogue.',
   run: (args) => {
     const [id, raw] = args;
-    // No argument lists what there is, which is what makes the ids discoverable
-    // — the same shape `/gfx` and `/nature` use, and the same reason.
+    // No argument lists what there is, which makes the ids discoverable — as `/gfx` and `/nature` do.
     if (!id) {
       return Object.values(ITEMS)
         .map((d) => `${d.id.padEnd(17)} ${d.kind}`)
@@ -5137,8 +2990,7 @@ devConsole?.register({
   help: 'Read or set the F3 performance toggles. No arguments lists them.',
   run: (args) => {
     const [id, raw] = args;
-    // No argument: the whole table, which is also what makes the command
-    // discoverable — the ids are the same strings the panel and __dbgGfx use.
+    // No argument: the whole table. The ids are the same strings the panel and __dbgGfx use.
     if (!id) {
       const snap = gfx.snapshot();
       return GFX_OPTIONS.map((o) => `${o.id.padEnd(9)} ${String(snap[o.id])}`).join('\n')
@@ -5147,21 +2999,14 @@ devConsole?.register({
     const opt = GFX_OPTIONS.find((o) => o.id === id);
     if (!opt) return `no such setting "${id}" — ${GFX_OPTIONS.map((o) => o.id).join(', ')}`;
     if (raw === undefined) return `${opt.id} ${String(gfx.get(opt.id))}`;
-    // `on`/`off` for the switches and a bare number for the choice rows; the
-    // registry validates and answers with what it actually stored, so a value
-    // outside the list reports the default rather than silently doing nothing.
+    // `on`/`off` for switches, a bare number for choice rows; the registry validates and answers with what it stored, so a value outside the list reports the default.
     const value = opt.choices ? Number(raw) : raw !== 'off' && raw !== 'false' && raw !== '0';
     const now = gfx.set(opt.id, value);
     perfPanel.refresh();
     return `${opt.id} ${String(now)}`;
   },
 });
-// A CHANGED DENSITY REACHES THE GROUND YOU ARE STANDING ON, which is the whole
-// point of tuning from the console rather than from the URL. The listener is
-// wired here — the composition root — for the same reason `GfxSinks` is: the
-// parameter table knows what a number means and nothing about a streamer.
-// `world` is a `let` and is reassigned on a zone switch, so this always rebuilds
-// whichever world is current.
+// A changed density reaches the ground you are standing on. `world` is a `let` reassigned on a zone switch, so this rebuilds whichever is current.
 nature.onChange(() => world.rebuildProps());
 devConsole?.register({
   name: 'nature',
@@ -5197,9 +3042,8 @@ devConsole?.register({
       if (raw === undefined) return `${id} ${nature.base(id).toFixed(2)}`;
       return `${id} ${nature.setBase(id, Number(raw)).toFixed(2)} — rebuilding`;
     }
-    // An AREA is a biome id today (world/nature.ts). Unvalidated on purpose:
-    // the set widens as the world grows named regions, and a typo shows up as
-    // an override that changes nothing rather than as a refusal that hides one.
+    // An AREA is a biome id today, unvalidated on purpose: the set widens as the world grows named
+    // regions, and a typo shows up as an override that changes nothing rather than a refusal.
     const area = lhs.slice(0, dot) as NatureAreaId;
     if (raw === undefined) return `${area}.${id} x${nature.areaFactor(area, id).toFixed(2)}`;
     if (raw === 'reset') {
@@ -5211,27 +3055,9 @@ devConsole?.register({
   },
 });
 
-/**
- * `/content` — read the content graph, and drive the lazy half of it by hand.
- *
- * THE LOAD AND RELEASE ARMS ARE THE POINT. Everything else here `__dbgContent()`
- * already reports; what a console can do that a probe cannot is TRY IT. Measured
- * by typing it: `/content` lists `core 14 assets [boot]`, `/content load
- * example-quest` fetches that package's own chunk and answers `loaded
- * "example-quest": 1 assets`, `/content` then shows it under a `[debug]` lease
- * with `quest 1`, and `/content release example-quest` takes the definitions
- * away again and `quest` is back to 0. That is the whole of the lazy design made
- * demonstrable in two lines, and a feature nobody can operate by hand is a
- * feature nobody believes.
- *
- * UNDER THE `debug` LEASE, never `boot`. A package a developer opened is held by
- * a named holder that lets go, so it cannot be mistaken for core content and
- * cannot be released out from under the world by a stray command (spec §12.4).
- *
- * `load` is async and the console is not, so the result is PRINTED WHEN IT
- * ARRIVES rather than returned — a fetch has to be allowed to take a moment, and
- * a command that blocked on one would freeze the frame it was typed in.
- */
+// `/content` — read the graph and drive its lazy half by hand. The load and release arms are the point:
+// __dbgContent reports the rest, and what a console can do is TRY IT. Under the `debug` lease, never
+// `boot` (spec §12.4), and `load` prints when it arrives rather than blocking the frame.
 devConsole?.register({
   name: 'content',
   args: '[load <pkg> | release <pkg> | check]',
@@ -5284,42 +3110,16 @@ devConsole?.register({
     return `unknown — /content [load <pkg> | release <pkg> | check]`;
   },
 });
-/**
- * Put the hero on a named beast, or take him off — the body of `/mount`, and
- * the body of the `__dbgRide` test hook below.
- *
- * EXTRACTED SO THE TWO CANNOT DRIFT. A probe that wants to measure what riding
- * a swimmer does has to be able to pick the swimmer, and the only other way in
- * is to type `/mount finnick` into the dev console one keystroke at a time —
- * which is a key edge per character, i.e. the exact thing that makes a probe
- * SOLO-only and flaky (see the note on `content` in tools/probe.mjs).
- *
- * The console is a DEVELOPER surface: it stays in English and it answers in
- * SPECIES IDS, which is also what its own argument takes. A localised name here
- * would mean `/mount` printing something you cannot type back at it.
- */
-/**
- * `/mount unlock|lock [<kind>|all]` — hand the story's three unlocks out by
- * hand, or take them back.
- *
- * THE SAME ARGUMENT `/grant` MAKES, one gate along. `devRide` below deliberately
- * refuses an unbonded beast because a console that skipped ownership would be
- * measuring a different game; the mount unlocks are the same kind of gate, so
- * `/mount <species>` refuses them too and this is their separate door. It is
- * also the body of `__dbgUnlockMount`, extracted for the reason the ride is.
- *
- * Bare `/mount unlock` means `all`: the common case at a console is "let me ride
- * anything", and spelling three words for it is a tax on the thing you do most.
- */
+// The body of `/mount` and of `__dbgRide`, extracted so the two cannot drift — typing `/mount finnick`
+// is a key edge per character. The console answers in SPECIES IDS. Below it, `/mount unlock|lock` is the
+// separate door for the story's three unlocks (and `__dbgUnlockMount`'s body); bare `unlock` means all.
 function devUnlockMounts(verb: 'unlock' | 'lock', arg: string | undefined): string {
   const want = arg === undefined || arg === 'all'
     ? MOUNT_KINDS
     : MOUNT_KINDS.filter((k) => k === arg);
   if (want.length === 0) return `no such mount kind "${arg}" — ${MOUNT_KINDS.join(', ')}, all`;
   for (const k of want) mountUnlocks.set(k, verb === 'unlock');
-  // The badges in the bag are the player-facing readout of this, so a panel left
-  // open while somebody types at the console must not go on showing the old
-  // answer. A no-op when it is closed.
+  // The badges in the bag are the player-facing readout, so a panel left open must not go on showing the old answer.
   inventory.refresh();
   const have = mountUnlocks.list();
   return `${verb === 'unlock' ? 'unlocked' : 'locked'} ${want.join(', ')} — `
@@ -5338,11 +3138,7 @@ function devRide(arg: string | undefined, kind?: string): string {
   if (arg) {
     const idx = roster.findIndex((p) => p.species.id === arg);
     if (idx < 0) return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
-    // BONDED ONLY, and it says which are. A developer surface may skip the two
-    // seconds of orb wobble, but it must not skip OWNERSHIP — /mount handing you
-    // an animal you never bonded would make the console a different game from
-    // the one the probes measure. `/grant` is the door for that, deliberately a
-    // separate word.
+    // BONDED ONLY: a developer surface may skip the orb wobble but not OWNERSHIP, or the console is a different game from the one probes measure. `/grant` is that door.
     if (!owned.has(arg)) {
       const have = [...owned];
       return `"${arg}" is not bonded — ${have.length ? have.join(', ') : 'you have bonded nothing yet'}`;
@@ -5359,18 +3155,7 @@ function devRide(arg: string | undefined, kind?: string): string {
   return `riding ${lead.species.id} (${lead.species.locomotion})`;
 }
 
-/**
- * `/grant <speciesId>` — bond a beast outright, with no orb and no roll.
- *
- * A DEVELOPER SURFACE AND A TEST HOOK, and it exists because the alternative for
- * every probe that needs a party is to farm Cubloons, buy an orb, find the right
- * wild beast, beat it down and then lose a coin flip. `tools/test-companion.mjs`
- * is about following and beaming, not about bonding, and a test that has to play
- * the whole game to reach its subject is a test that measures the whole game.
- *
- * It is NOT how a player gets a beast, which is why it is a separate word from
- * `/mount` rather than a flag on it — see the refusal there.
- */
+// Bond outright, no orb and no roll — the alternative for a probe is farming Cubloons and losing a coin flip. NOT how a player gets a beast, hence a separate word.
 /** How many beasts the developer door has seated. See `devGrant`. */
 let devSeated = 0;
 
@@ -5379,16 +3164,9 @@ function devGrant(arg: string | undefined): string {
     const have = [...owned];
     return `bonded: ${have.length ? have.join(', ') : 'nothing'} — of ${roster.map((p) => p.species.id).join(', ')}`;
   }
-  // `all` is for the probe suite, where several modules each need a DIFFERENT
-  // mount to say anything (a flyer under the island, a swimmer in the basin) and
-  // the one that runs first should not have to know which. See the note in
-  // tools/test-inventory.mjs's cleanup section.
-  // A DOOR THAT ONLY OPENS IS HALF A DOOR. `none` releases every bond and
-  // empties both slots, which is the state a new game had before
-  // `STARTER_BEAST` and the state a probe about EARNING a bond needs: a
-  // companion standing beside the hero fights the wild animals a taming test
-  // stages next to him, and test-taming lost its subject about two runs in five.
-  // The same reset `exitToTitle` runs, without leaving the world.
+  // `all` is for the probe suite, where modules each need a DIFFERENT mount. `none` releases every bond,
+  // which is what a probe about EARNING one needs: a companion fights the animals a taming test stages,
+  // and test-taming lost its subject two runs in five.
   if (arg === 'none') {
     const had = owned.size;
     owned.clear();
@@ -5409,17 +3187,9 @@ function devGrant(arg: string | undefined): string {
     return `no such beast "${arg}" — ${roster.map((p) => p.species.id).join(', ')}`;
   }
   if (!grantBeast(arg)) return `"${arg}" is already bonded`;
-  // AND SEAT IT. `grantBeast` only fills a slot that is EMPTY, which is the
-  // right rule for earning a bond in play — a third beast does not shove one of
-  // yours aside. It is the wrong rule for this door, whose entire purpose is
-  // composing a party to measure: with a starter beast holding the primary slot
-  // (`STARTER_BEAST`) the second beast granted here landed nowhere, and
-  // test-companion's flyer was bonded but not present.
-  //
-  // Grants arrive in the order the caller wants them SEATED, so the first takes
-  // the lead and the second the support slot, evicting the starter. After that
-  // the lead is left alone and support rotates — a probe that wants a specific
-  // pair names it in a specific order, which every one of them already does.
+  // AND SEAT IT: `grantBeast` only fills an EMPTY slot, which is right in play and wrong for this door —
+  // with the starter in the primary slot the second grant landed nowhere. Grants arrive in the order the
+  // caller wants them SEATED: first the lead, then support.
   const idx = roster.findIndex((b) => b.species.id === arg);
   if (idx !== primaryIdx && idx !== supportIdx) {
     if (devSeated === 0) primaryIdx = idx; else supportIdx = idx;
@@ -5443,30 +3213,15 @@ devConsole?.register({
     + 'bare /grant lists what you have.',
   run: (args) => devGrant(args[0]),
 });
-// TEST HOOK, and the same argument `__dbgTp` makes: it DRIVES STATE, which is a
-// probe's job. `/mount` is the player-facing door and this is the same room.
+// TEST HOOK, and the same argument `__dbgTp` makes: it DRIVES STATE, which is a probe's job.
 (window as unknown as { __dbgRide: (id?: string) => string }).__dbgRide =
   (id) => devRide(id);
-/**
- * Hand a mount unlock over, or take it back — `/mount unlock`'s hook.
- *
- * A DRIVER and not a reader, like `__dbgTp` and `__dbgGfx`. What it exists for
- * is the pair of assertions tools/test-mounts.mjs makes: a probe has to see the
- * lock refuse and then see the same hold succeed, and only a live flip can show
- * both in one page. Everything that merely wants to RIDE passes `mounts=all` in
- * its URL instead, which costs no round trip.
- */
+// A DRIVER, not a reader: test-mounts must see the lock refuse and then the same hold succeed, and only a live flip shows both in one page.
 (window as unknown as { __dbgUnlockMount: (kind?: string, on?: boolean) => string })
   .__dbgUnlockMount = (kind, on = true) => devUnlockMounts(on ? 'unlock' : 'lock', kind);
 (window as unknown as { __dbgGrantBeast: (id?: string) => string }).__dbgGrantBeast =
   (id) => devGrant(id);
-/**
- * Read or write one feedback preference, honouring the URL override.
- *
- * A pinned flag is reported and NOT written through: a measurement run may
- * shadow what the player chose for the length of that load, and must not
- * quietly become what they chose.
- */
+// A pinned flag is reported and NOT written through: a measurement run may shadow the player's choice for one load, never become it.
 function setFeedbackPref(
   key: 'hapticIntensity' | 'shakeIntensity', raw: string | undefined, pinned: number | null,
 ): string {
@@ -5482,12 +3237,7 @@ function setFeedbackPref(
   return `${key} = ${v}`;
 }
 
-// Feedback tuning. The title screen's Settings panel is the PLAYER's surface
-// now, and it deliberately shows switches rather than dials — on/off is a
-// choice, 0.62 rumble is a tuning session. These commands are the dial half,
-// for that session and for a bug report, and they write the same keys the panel
-// does (core/prefs.ts) so the two never disagree. `?haptics=` / `?shake=` pin a
-// value for one load without writing anything.
+// The dial half of the panel's switches, writing the same keys (core/prefs.ts); `?haptics=` / `?shake=` pin a value for one load.
 devConsole?.register({
   name: 'haptics',
   args: '[<0..1>]',
@@ -5503,20 +3253,11 @@ devConsole?.register({
     if (args[0] !== '0' && args[0] !== '1') return 'usage: 0 or 1';
     const on = args[0] === '1';
     savePrefs({ hapticFeedback: on });
-    // Live, like the menu's row: turning it off silences whatever is ringing.
     feedback?.setOptions({ hapticFeedback: on });
     return `hapticFeedback = ${on}`;
   },
 });
-/**
- * The dial half of the music row, in the same shape as `/haptics` and `/shake`
- * and writing the same key the panel does (`game.settings.gameplay.volume`).
- *
- * It is not redundant with the strip of chips in Settings: the panel offers six
- * steps because a player choosing a level wants a level, and this takes any
- * value in between — which is the one thing worth having while balancing a track
- * against a scene. `?vol=` pins a value for one load without writing it.
- */
+// The dial half of the music row: the panel offers six steps, this takes anything between. `?vol=` pins for one load.
 devConsole?.register({
   name: 'volume',
   args: '[<0..1>]',
@@ -5560,8 +3301,7 @@ devConsole?.register({
     const on = args[1] === '1';
     savePrefs({ [key]: on });
     if (pinned !== null) return `saved ${key} = ${on}, but this load is pinned to ${pinned}`;
-    // Applied live rather than at the next load: this is the one setting whose
-    // effect you can only judge with the stick in your hand — either stick.
+    // Applied live: this is the one setting you can only judge with the stick in your hand.
     const a: Partial<LookAxes> = axis === 'x' ? { invertX: on } : { invertY: on };
     pad?.setLookAxes(a);
     touch?.setLookAxes(a);
@@ -5577,9 +3317,7 @@ devConsole?.register({
       return `${zones.id} (${zones.name}) — ${zones.world.chunksLoaded} chunks, `
         + `${zones.transitions} transition(s). Zones: ${zones.zoneIds.join(', ')}`;
     }
-    // A forced switch builds and warms the destination synchronously, which is
-    // one long frame. That is the frame the preload band exists to avoid, and
-    // seeing the difference is half of what this command is for.
+    // A forced switch builds and warms the destination synchronously — one long frame, which is the frame the preload band exists to avoid.
     return zones.switchTo(args[0]);
   },
 });
@@ -5597,8 +3335,7 @@ devConsole?.register({
       from: [player.position.x, player.position.z],
       to: [player.position.x + dx, player.position.z + dz],
       profile: args[2],
-      // `cross` routes THROUGH the network and merges at the first crossing,
-      // rather than giving way to what is already there. See World.addPath.
+      // `cross` routes THROUGH the network and merges at the first crossing (see World.addPath).
       cross: args[3] === 'cross',
       refit: refitHero,
     });
@@ -5606,8 +3343,7 @@ devConsole?.register({
     const lines = [`${r.id}: ${r.length} units over ${r.samples} samples`
       + (r.note ? ` (${r.note})` : '')];
     for (const n of r.nodes) lines.push(`  junction at ${n.x}, ${n.z} — ${n.arms} arms`);
-    // EVERY REFUSAL IS PRINTED. A merge that quietly did nothing is the thing
-    // issue #142 §12f says an editor must never do.
+    // EVERY REFUSAL IS PRINTED: a merge that quietly did nothing is what issue #142 §12f forbids.
     for (const why of r.refused) lines.push(`  no merge: ${why}`);
     return lines.join('\n');
   },
@@ -5630,128 +3366,44 @@ devConsole?.register({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Fixed-timestep simulation, decoupled from the render cadence.
-//
-// The world advances in SIM_DT slices regardless of how often we draw, and the
-// leftover time is carried to the next frame. Two things this buys:
-//
-//   - The simulation no longer changes shape with the display. On a 144 Hz panel
-//     it used to run 144 tiny steps a second, on a slow frame one 50 ms step
-//     (that being the clamp in Engine.tick, which is itself a symptom of a
-//     variable-dt sim), and steering, damping and gravity all behaved slightly
-//     differently in each case.
-//   - After a long stall the backlog is replayed in bounded steps instead of
-//     arriving as one enormous dt, so nothing tunnels through the ground.
-//
-// MAX_STEPS bounds the catch-up. Without it, a frame that takes longer than the
-// steps it queues makes the next frame queue even more — the classic spiral
-// where a hitch becomes a hang. When the cap is hit the backlog is DROPPED, not
-// carried: the world loses that time, which is the correct trade (a stalled
-// tab should not fast-forward when it returns).
-//
-// What this does NOT do is fix a hitch: measured, the freezes in this game are
-// first-use shader compilation in the GPU process, and JavaScript has one thread
-// for simulation and drawing either way. Decoupling makes the sim behave the
-// same on every machine; it cannot make a blocked GPU return sooner.
-//
-// `simhz=<n>` overrides the rate for experiments.
+// Fixed-timestep simulation, decoupled from the render cadence: SIM_DT slices however often we draw,
+// leftover carried. The sim no longer changes shape with the display, and a backlog is replayed in
+// bounded steps so nothing tunnels. At MAX_STEPS the backlog is DROPPED — a stalled tab must not
+// fast-forward. It does not fix hitches (those are first-use shader compiles). `simhz=<n>` overrides.
 const SIM_HZ = Math.max(20, Number(params.get('simhz') ?? 60));
 const SIM_DT = 1 / SIM_HZ;
 const MAX_STEPS = 4;
 let simAccumulator = 0;
 
-/**
- * One simulation slice. Called with a fixed dt, possibly several times per
- * rendered frame, possibly none.
- *
- * `first` is true only on the slice that owns this frame's input edges.
- * input.pressed() stays true for the whole frame, so a discrete action read on
- * every slice would fire twice whenever two slices land in one frame — a Tab
- * swap would swap and swap back, and a shop would toggle open and shut. Held
- * state (movement axes, attack-held) is intentionally NOT gated: reading it
- * every slice is exactly right.
- */
-/**
- * Shader warm-up.
- *
- * THIS IS THE FIX FOR THE FREEZES, and it is worth saying why it looks so odd.
- * A material's GPU program is compiled the first time it is actually drawn, and
- * on ANGLE/D3D the driver defers that work until the draw call — so the cost
- * lands in the GPU process a frame or two after three links the program, as a
- * stall with no CPU time in it at all. Measured on an RTX 3070 Ti: a burst of
- * 14 links when the support beast first cast a skill at 7.2 s was followed at
- * 7.7 s by a 499 ms frame, 476 ms of which was outside our own callback.
- *
- * So: draw one of everything now, while the player is still looking at an empty
- * canvas, and pay the whole bill up front. The camera is parked on a staging
- * spot far under the world for the duration — these frames are rendered before
- * the first gameplay frame is presented, and nothing is on screen to disturb.
- *
- * The light sweep is the non-obvious half. Program keys include the number of
- * visible lights, so the count has to be walked from 1 to the pool's maximum,
- * one render each; otherwise the second and third simultaneous projectile each
- * trigger their own recompile mid-fight.
- */
+// One simulation slice. `first` is true only on the slice that owns this frame's input edges, since
+// `pressed()` stays true all frame and a discrete action read every slice would fire twice; held state
+// is deliberately not gated.
+//
+// Shader warm-up is THE FIX FOR THE FREEZES: a program compiles on its first DRAW, and on ANGLE/D3D the
+// driver defers to the draw call, so the stall lands in the GPU process with no CPU time in it
+// (measured: 14 links at 7.2 s, then a 499 ms frame). So draw one of everything now, camera parked far
+// under the world. Program keys include the visible light count, so the count is walked 1..pool max.
 const _warmPos = new THREE.Vector3();
 const _warmQuat = new THREE.Quaternion();
 const _warmStage = new THREE.Vector3();
 
-/**
- * ONE warm-up render: park the camera on `stage`, add `lights` pool lights,
- * draw, put the camera back.
- *
- * Split out of warmUpShaders() because a ZONE TRANSITION needs exactly the same
- * work done against a different world, and it cannot afford to do it all in one
- * frame the way boot can. ZoneManager calls this once every third frame while
- * the destination is preloaded and the hero is still walking, so the whole sweep
- * costs one extra scene render on ~11 frames instead of a 400 ms stall on the
- * frame he crosses the threshold.
- *
- * `lights` is how many to ADD, not a target count: at boot nothing expires
- * between calls so the counts accumulate 1..10, and during a transition the
- * previous step's lights have expired by the time the next one runs (see
- * WARM_STRIDE), so k added is k visible. Both give the sweep every count.
- *
- * The sun focus moves with the camera and back again. It is not cosmetic: the
- * shadow frustum is what decides which casters get a depth pass, so warming a
- * world outside it would link its colour programs and leave every depth program
- * to be linked on arrival — the same stall, one pass later.
- */
+// ONE warm-up render: park the camera on `stage`, add `lights` pool lights, draw, put it back. Split
+// out because a ZONE TRANSITION needs the same work against another world and cannot afford one frame
+// — ZoneManager calls this every third frame while the destination preloads. `lights` is how many to
+// ADD, not a target: at boot counts accumulate 1..10, during a transition the last step's have expired.
+// The sun focus moves with the camera, because the shadow frustum decides which casters get a depth pass.
 function warmUpFrame(stage: THREE.Vector3, lights: number, effects = false): void {
   _warmPos.copy(engine.camera.position);
   _warmQuat.copy(engine.camera.quaternion);
-  // A HIGH, WIDE view rather than a ground-level one.
-  //
-  // Programs do not care where the camera is, but BUFFER UPLOADS do: three
-  // uploads a geometry's vertex data on its first DRAW, and a draw only happens
-  // if the object survives frustum culling. Warming a zone from eye level at its
-  // spawn uploads the six or seven chunks in that 55-degree cone and leaves the
-  // rest to arrive on the frame the hero walks in. 250 up and 40 back frames the
-  // hold's whole 160x160 footprint (spawn is in a corner room) well inside the
-  // 600-unit far plane, so every chunk is drawn at least once during the
-  // approach.
-  //
-  // Honest note: this did NOT remove the one residual stall after a transition
-  // — a ~320 ms frame a few frames past arrival, with under 10 ms of CPU in it.
-  // That one survived every suspect tried (shadows off, enemies off, disposal
-  // at 1 chunk per frame instead of 6, disposal skipped altogether, this wide
-  // view), only appears in long sessions, and has a smaller twin (~107 ms) in
-  // sessions with no zone change at all. What is left that fits is a major GC:
-  // both chunk meshers build their vertex data in plain `number[]`, and a zone
-  // built in one burst is megabytes of it. Fixing that means preallocating the
-  // meshers, which is a separate job.
+  // A HIGH, WIDE view: programs do not care where the camera is, but BUFFER UPLOADS do — a geometry
+  // uploads on its first DRAW, and a draw needs it inside the frustum. 250 up and 40 back frames the
+  // hold's whole footprint. Honest note: this did not remove a residual ~320 ms frame past arrival, which
+  // has under 10 ms of CPU in it; what fits is a major GC from the meshers' plain `number[]`.
   engine.camera.position.set(stage.x, stage.y + 250, stage.z + 40);
   engine.camera.lookAt(stage.x, stage.y, stage.z);
   engine.updateSunFocus(stage);
   if (effects) combat.warmUp(stage, 0);
-  // A dropped shard and the effect set on every step, so their materials are
-  // drawn at every light count too — a zone entered without them is a zone that
-  // links their programs the first time something dies in it. The drop is
-  // retired again immediately below (a warm-up that runs mid-game must not
-  // disturb loot lying on the ground elsewhere) and the effects are staged
-  // inside the floor. `effects` on top of that is the BOOT path, which
-  // additionally wants the projectile and its light.
+  // A dropped shard and the effect set on every step, so their materials are drawn at every light count.
   if (!effects) combat.warmUpEffects(stage);
   combat.warmUpDrop(stage);
   for (let i = 0; i < lights; i++) combat.warmUpLight(stage);
@@ -5765,70 +3417,30 @@ function warmUpFrame(stage: THREE.Vector3, lights: number, effects = false): voi
 /** VFX light pool cap. The sweep below has to cover every count up to it. */
 const WARM_POOL = 10;
 
-/**
- * How many staged renders `warmUpSteps` will yield, known before it runs.
- *
- * The boot progress bar needs a denominator, and counting the sweep's own terms
- * is the only honest one: it grows with the settlement plan, so a seed that
- * sites three towns must not silently make the bar stop at two thirds.
- */
+// How many staged renders `warmUpSteps` will yield, known before it runs: the boot bar needs a denominator, and the sweep grows with the settlement plan.
 function warmUpStepCount(): number {
   return WARM_POOL + world.towns.all.length + world.towns.roads.length + 1;
 }
 
-/**
- * The warm-up sweep, one staged render per `yield`.
- *
- * A GENERATOR rather than a plain function because the same sweep is now driven
- * two ways and must stay ONE sequence: the staged boot drains it a few steps at
- * a time so the progress bar keeps moving and the page keeps painting, and
- * `menu=0` / photo mode drain it in a single loop exactly as before. Splitting
- * it into two implementations is how the two would drift, and this one is the
- * expensive, carefully ordered part of boot — see `warmUpShaders`.
- */
+// A GENERATOR because the same sweep is driven two ways and must stay ONE sequence: the staged boot drains a few steps at a time, `menu=0`/photo in one loop.
 function* warmUpSteps(): Generator<void> {
-  // The camera has to be looking at the REAL WORLD, not at an empty staging
-  // area. The light sweep below only recompiles materials that are actually
-  // drawn, and the materials that matter — terrain, props, water, beasts, the
-  // shop — are the world's. An earlier version staged this 400 units under the
-  // map, which warmed the effects beautifully and left every lit surface in the
-  // game to recompile later; the 12-program burst simply moved.
+  // The camera must look at the REAL WORLD: only materials actually drawn are recompiled. Staged 400 units under the map, the 12-program burst simply moved.
   _warmStage.copy(world.spawnPoint);
   _warmStage.y += 1;
 
-  // One of everything, drawn once. This also takes the first pool light (the
-  // projectile's), so the sweep below starts from a count of 1.
+  // One of everything, drawn once. This also takes the first pool light, so the sweep starts at 1.
   warmUpFrame(_warmStage, 0, true);
   yield;
 
-  // Then one light at a time, one render each, to the pool's cap. EXACTLY one:
-  // adding two per pass leaves every odd count uncompiled, which is a real bug
-  // this code already had — three projectiles in flight at once then hit an
-  // unseen count mid-fight and recompiled twelve materials in one frame.
-  //
-  // The `yield` between counts is free here and NOT the same lever as the zone
-  // warm-up's WARM_STRIDE: nothing is expiring between these steps at boot (see
-  // warmUpFrame's note on `lights` accumulating), so a step may follow the last
-  // one immediately or a frame later and the count it renders at is identical.
+  // EXACTLY one light per pass: adding two leaves every odd count uncompiled, which recompiled twelve materials mid-fight. Nothing expires between boot steps.
   for (let i = 1; i < WARM_POOL; i++) {
     warmUpFrame(_warmStage, 1);
     yield;
   }
 
-  // THE TOWNS AND THE ROADS. They are built at world creation and stand
-  // hundreds of units from spawn, so the staged render above — a 250-unit-high
-  // view framing roughly a 130-unit radius — never draws them.
-  //
-  // Two costs would otherwise land on the frame the player first sees the camp.
-  // The obvious one is the GLOW material (the only new program this whole
-  // feature adds): campfire, braziers, lamps and the forge share it, and it is
-  // linked the first time any of them is drawn. The bigger one is BUFFER
-  // UPLOAD — three uploads a geometry's vertex data on its first draw, and the
-  // Encampment alone is ~100k vertices — which is the same reason warmUpFrame
-  // stages a zone from high and wide rather than from eye level (see its note).
-  //
-  // One frame per site is enough: an upload is per GEOMETRY, not per triangle in
-  // frustum, so a mesh drawn at all is a mesh fully resident.
+  // THE TOWNS AND THE ROADS: built at world creation, hundreds of units out, so the staged render never
+  // draws them. Otherwise the shared GLOW program and ~100k vertices of buffer upload land on the frame
+  // the player first sees the camp. One frame per site is enough: an upload is per GEOMETRY.
   for (const t of world.towns.all) {
     _warmStage.set(t.x, world.getHeight(t.x, t.z) + 1, t.z);
     warmUpFrame(_warmStage, 0);
@@ -5843,33 +3455,17 @@ function* warmUpSteps(): Generator<void> {
   _warmStage.copy(world.spawnPoint);
   _warmStage.y += 1;
 
-  // The two underwater programs (screen tint, bubbles). They are drawn by
-  // nothing above — the camera is in the air at boot, so the sweep never touches
-  // them — and the frame they would otherwise link on is the frame the hero's
-  // head goes under, which is a stall in the middle of a swim.
+  // The two underwater programs (tint, bubbles): nothing above draws them, and the frame they would otherwise link on is the frame the hero's head goes under.
   underwater.warmUp(() => engine.render());
   yield;
 
-  // World-owned effects, for the same reason: the sky island's waterfall hangs
-  // 190 units up and 170 out, so no staged frame above ever drew it and its two
-  // programs would link on the frame the hero first looks up at the island.
+  // World-owned effects, same reason: the sky island's waterfall hangs 190 up and 170 out, so no staged frame above ever drew it.
   world.warmUpEffects(() => engine.render());
   yield;
 
-  // NOT renderer.compile(scene, camera). It was tried and measured: it linked
-  // 117 programs in one go and made boot dramatically WORSE (593 ms, 429 ms and
-  // 287 ms stalls in the first 1.5 s, against ~110 ms without it), because it
-  // links every permutation in the graph whether or not it will ever be drawn,
-  // and the driver then compiles the lot. Drawing one of each thing, as above,
-  // is both cheaper and closer to what the GPU actually needs.
+  // NOT renderer.compile(scene, camera): measured, it linked 117 programs and made boot far worse (593/429/287 ms stalls against ~110 ms), permutations and all.
 
-  // Expire everything the warm-up spawned: every effect above was given a life
-  // measured in hundredths of a second, so one long update clears the lot.
-  //
-  // AFTER the last yield on purpose. Whatever the sweep left burning has to be
-  // cleaned up by the same pass that lit it, not left to a caller that might
-  // stop draining early — and no caller does, which is what makes putting it
-  // here safe rather than merely tidy.
+  // Expire everything the warm-up spawned — each effect was given a life in hundredths of a second.
   combat.update(5, player as unknown as Damageable, []);
 }
 
@@ -5878,19 +3474,9 @@ function warmUpShaders(): void {
   for (const _ of warmUpSteps()) { /* every step, one task */ }
 }
 
-/**
- * How close to a skill den's marker you have to be for its prompt, and how far
- * above or below it that still counts.
- *
- * 3.5 is unchanged and is the number NPC_TALK_RANGE was tuned against — a den is
- * a building you stand in front of. The RISE is issue #78's half: the test was a
- * true `distanceTo`, so it was already the only proximity check in the game that
- * could not be fooled from the air, but a sphere shortens the horizontal reach
- * on sloping ground for no reason anyone asked for. Same cylinder as everything
- * else now, and the height is NPC_TALK_RISE's 2.5 because it is the same
- * question about the same hero — a hop and a hovering mount are in, a climb is
- * out.
- */
+// How close to a den's marker its prompt shows, and the height band. 3.5 is what NPC_TALK_RANGE was
+// tuned against; the RISE is issue #78's half, a cylinder rather than a sphere that shortened the reach
+// on slopes, at NPC_TALK_RISE's 2.5 — a hop and a hovering mount are in, a climb is out.
 const SHOP_RANGE = 3.5;
 const SHOP_RISE = 2.5;
 /** Set by the shop-proximity test, read by the hint decision after the zone update. */
@@ -5898,16 +3484,7 @@ let nearShop = false;
 /** The NPC in talk range this slice, or null. Same contract as `nearShop`. */
 let nearNpc: NpcInfo | null = null;
 
-/**
- * One composed talk prompt per NPC, built the first time he is walked up to and
- * kept.
- *
- * The same argument as SKILL_DEN_HINT above — the pill is HTML and the key cap
- * arrives inside `{key}`, so composing it is a `t(key, vars)` call that
- * allocates — but it cannot be one hoisted constant, because the sentence names
- * the person. One entry per NPC in the game is the whole cache; it is written
- * once each and read on every slice the player is stood in front of somebody.
- */
+// Kept per NPC because the pill is HTML with the cap inside `{key}`, so composing allocates — and it cannot be one constant, the sentence names the person.
 const npcHints = new Map<string, string>();
 function npcHint(npc: NpcInfo): string {
   let html = npcHints.get(npc.id);
@@ -5920,20 +3497,9 @@ function npcHint(npc: NpcInfo): string {
 /** The dialogue panel's footer. Composed like the hints above. */
 let dialogueFoot = '';
 
-/**
- * Re-compose every prompt this file hoisted out of the frame loop.
- *
- * The exhaustive list, and the only writer of all three. Two things invalidate
- * them and neither is per-frame: the display language, and the DEVICE — each of
- * these sentences has a key cap baked into it, and that cap is `E` on a keyboard
- * and a controller face on a pad. `kbd('E')` is gone from the call sites for
- * that reason; `hud.interactPrompt` is whichever the HUD is currently printing,
- * so all four surfaces (hotbar, mount ring, shop footer, these pills) name one
- * device at a time.
- *
- * The per-NPC cache goes with them: it is keyed by person, so nothing in it
- * notices either change on its own.
- */
+// Re-compose every prompt hoisted out of the frame loop — the exhaustive list and the only writer. Two
+// things invalidate them, neither per-frame: the language and the DEVICE, since each has a key cap baked
+// in. The per-NPC cache goes with them: it is keyed by person.
 function composeKeyHints(): void {
   const key = hud.interactPrompt;
   skillDenHint = t('hint.skillDen', { key });
@@ -5942,35 +3508,19 @@ function composeKeyHints(): void {
 }
 composeKeyHints();
 
-/**
- * How far a wild beast can be and still be worth reporting to the world.
- *
- * Past 24 units it cannot win one of the sway field's six slots against the
- * party standing on top of the camera, so reporting it is pure cost. One
- * squared distance per enemy per slice buys the whole cull.
- */
+// How far a wild beast can be and still be worth reporting: past 24 units it cannot win one of the
+// sway field's six slots against the party on top of the camera, so reporting it is pure cost.
 const DISTURB_RANGE2 = 24 * 24;
 
-/**
- * Tell the world what is moving through it this slice — see `World.disturb`.
- *
- * Composition-root policy, which is why it is here and not in any subsystem:
- * the world does not know what a beast is, combat does not know what the hero is,
- * and this is the one place that knows all of them. Called after the beasts have
- * moved so their positions are the current ones, and before `zones.update`, so
- * the cost lands in the `world` profiler section next to the field it feeds.
- * The wild pack is a slice stale by construction — `combat.update` runs at the
- * end of the slice — which at 60 Hz is 16 ms of lag on an effect whose own
- * smoothing is measured in hundreds of milliseconds.
- */
+// Tell the world what is moving through it this slice. Composition-root policy, after the beasts have
+// moved and before `zones.update` so the cost lands in the `world` section. The wild pack is one slice
+// stale by construction — 16 ms against smoothing measured in hundreds.
 function reportMovers(): void {
   if (!flags.props) return;
   const ridden = mount.beast;
   if (ridden) {
-    // The saddle, not the rider. A mounted hero's own position is a metre above
-    // his mount's feet, and reporting THAT would read to the clearance test as a
-    // body hovering — a galloping boarhound would blow the grass instead of
-    // trampling it. The ridden beast is deliberately not reported again below.
+    // The saddle, not the rider: a mounted hero sits a metre up, which the clearance test reads as a hovering
+    // body — a galloping boarhound blowing grass instead of trampling it.
     world.disturb(-1, ridden.position.x, ridden.position.y, ridden.position.z,
       ridden.scaledRadius, ridden.species.locomotion === 'flying' ? 'fly' : 'walk');
   } else {
@@ -5980,10 +3530,7 @@ function reportMovers(): void {
   if (flags.beasts) {
     const p0 = primary();
     const p1 = support();
-    // `inTransit` for the same reason as `isDead`: a beast travelling as light
-    // has no feet on the ground to part the grass with, and its position is
-    // pinned above the hero, where a `walk` report would blow a hole in the
-    // meadow he is flying over. A null slot is a party that is not full yet.
+    // `inTransit` like `isDead`: a beast travelling as light has no feet down and is pinned above the hero, where a `walk` report blows a hole in the meadow.
     if (p0 && p0 !== ridden && !p0.isDead && !p0.inTransit) {
       world.disturb(-2, p0.position.x, p0.position.y, p0.position.z, p0.radius,
         p0.species.locomotion === 'flying' ? 'fly' : 'walk');
@@ -5993,14 +3540,6 @@ function reportMovers(): void {
         p1.species.locomotion === 'flying' ? 'fly' : 'walk');
     }
   }
-  // Wild beasts part the grass too. Their id is their root Object3D's, three's own
-  // monotonic counter and the only handle an Enemy has that survives a respawn
-  // of the one beside it; the party's reserved ids are negative precisely so
-  // they cannot collide with it.
-  //
-  // `targetable` and not `isDead`: one inside a taming orb is not standing
-  // anywhere, and reporting it would hold a parted patch of grass open around a
-  // body that is not there.
   for (const e of combat.enemies) {
     if (!e.targetable) continue;
     const dx = e.position.x - player.position.x;
@@ -6012,134 +3551,73 @@ function reportMovers(): void {
 }
 
 function simulate(dt: number, first: boolean, interactive: boolean): void {
-  // An open console is a modal: it has the keyboard, so the hero must not also
-  // act on it. Same treatment the shop already gets — and the F1 controls sheet,
-  // which is the same bargain read the other way round: a player who stopped to
-  // find out what a key does must not have walked off a cliff while reading.
-  // The F3 panel is NOT a modal (see the note at the top of ui/perf-panel.ts) —
-  // but its search box is, for as long as it holds focus, and for the console's
-  // exact reason: `WASD` are letters. It claims the keyboard and nothing else,
-  // so the hero goes on falling and landing behind it.
+  // An open console is a modal: it has the keyboard.
   const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
     || inventory.isOpen || journal.isOpen || !!devConsole?.isOpen
     || perfPanel.isTyping;
   nearShop = false;
   nearNpc = null;
 
-  // THE SAVE CLOCK IS GAME TIME, so it is here rather than in `frame()` — above
-  // the modal branch, because "a panel takes the input, never the clock" cuts
-  // this way too: a player who stopped to read the controls sheet has not
-  // stopped playing, and an autosave that paused with them would be a save
-  // they did not get. Being on the simulation slice also makes it independent
-  // of frame rate and drivable by `__dbgAdvance`, which is what lets its guard
-  // test the interval without waiting on a wall clock.
+  // THE SAVE CLOCK IS GAME TIME, and above the modal branch: a player reading the controls sheet has not stopped playing. On the slice, so `__dbgAdvance` drives it.
   tickAutosave(dt);
-  // On the simulation slice for the clock's reason above: a quest's stage
-  // dressing is part of the world, so it keeps its promise with a panel up.
+  // On the slice for the clock's reason: a quest's stage dressing is part of the world.
   tickPracticeBeast(dt);
 
-  // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them
-  // is updated. It is not inside `zones.update` below and that is the ordering
-  // decision rather than an oversight: the world update runs at the END of a
-  // slice, so a per-slice delta published there could only be spent by the
-  // riders on the NEXT slice, and a hero standing still on a deck would lag it
-  // by a slice's travel every time it changed speed. See CarrierRegistry.
-  //
-  // Above the `interactive` branch, so a staged capture and a photo-mode frame
-  // get the same moving world a played one does.
+  // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them. Not inside `zones.update`
+  // deliberately: that runs at the END of a slice, so riders would spend the delta a slice late. Above the
+  // `interactive` branch, so a staged capture gets the same moving world.
   world.carriers.advance(dt);
-  // Whose contact the particle system tests this slice, or null. It integrates
-  // on EVERY slice either way — a modal overlay freezes the hero, not the leaves
-  // already falling behind it — so only the contact test needs someone to test.
+  // Whose contact the particle system tests this slice, or null: it integrates on every slice either way, so only the contact test needs someone.
   let toucher: Player | null = null;
 
-  // The camera stick is a rate control, so it must inject its look delta BEFORE
-  // the player/camera update takes it this slice — ticking it later in the frame
-  // meant endFrame() wiped the delta before the camera ever saw it. It is per
-  // SLICE rather than per frame, unlike the pad's poll below, and that is right
-  // either way round now: each slice injects its own SIM_DT of turn and takes
-  // exactly that back out again.
+  // A rate control, so the look delta must be injected BEFORE the camera update takes it — later, endFrame() wiped it. Per SLICE: each injects its own SIM_DT of turn.
   if (interactive && !modal) touch?.update(dt);
 
-  // A HERO NOBODY IS DRIVING IS STILL STANDING ON SOMETHING. Photo mode is the
-  // one branch left that skips the player controller, and it still has to move
-  // him with whatever is carrying him, or a staged capture on the flying island
-  // watches the deck slide out from under his feet.
-  //
-  // The mount answers for the pair of them when one is being ridden (it writes
-  // the hero's position), and is a no-op otherwise — so exactly one of these
-  // two moves him, which is the same split `Player.update` makes.
-  //
-  // A MODAL USED TO BE THE SECOND BRANCH HERE and is not any more — see the
-  // `input.suspended` note below. That is issue #101.
+  // A hero nobody is driving is still standing on something: photo mode skips the player controller and
+  // must still move him with whatever carries him. The mount answers for the pair when one is ridden, so
+  // exactly one of these moves him. A modal used to be the second branch here — issue #101.
   if (!interactive) {
     mount.carryFrozen(dt);
     if (!mount.isMounted) player.carry();
   }
 
-  // Photo mode drives the camera and the subject itself and must not have the
-  // player controller or the HUD fighting it, but it DOES need the world to
-  // stream and the beasts to animate — everything below the branch.
+  // Photo mode drives the camera and the subject itself and must not have the player controller or the
+  // HUD fighting it, but it DOES need the world to stream and the beasts to animate.
   if (!interactive) {
     // fall through to the world update
   } else {
-    // A PANEL TAKES THE INPUT, NOT THE CLOCK (issue #101). This block used to be
-    // gated on `!modal`, so opening the bag, the shop, the F1 sheet, the menu or
-    // the console froze the hero outright: jump, open a panel, and he hung in
-    // the air until it was closed — while the enemies below this branch, which
-    // were never frozen, went on swinging at him. THE GAME NEVER STOPS; a modal
-    // only claims the keyboard.
-    //
-    // `input.suspended` is that claim and the whole of it (core/input.ts): every
-    // gameplay read answers "nothing pressed", so the hotbar, Tab, E and the
-    // sword below cannot fire, and `player.update` runs a slice with the sticks
-    // at rest — gravity, friction, the landing and a swing already in flight all
-    // resolve. It is set for THIS BLOCK ONLY and cleared at the end of it,
-    // because the modal's own keys (Escape, F10, the panel navigation) are read
-    // after it and are exactly what the panel is up to receive.
+    // A PANEL TAKES THE INPUT, NOT THE CLOCK (issue #101). Gated on `!modal`, opening any panel froze the
+    // hero mid-air while the enemies below this branch went on swinging. `input.suspended` is the whole
+    // claim: every gameplay read answers "nothing pressed", so a slice runs with the sticks at rest and
+    // gravity, friction and a swing in flight resolve. Set for THIS BLOCK ONLY — the modal's keys follow.
     input.suspended = modal;
     perf.section('input');
-    // Mounting runs BEFORE the player: while a beast is being ridden it writes
-    // the hero's position, velocity and saddle pose for this slice, and
-    // player.update() then animates and frames him from those. It is safe on
-    // every slice — the F edge is latched inside the controller, not read from
-    // input.pressed(). `flags.beasts` gates it because a hidden party has nothing
-    // to climb on.
+    // Mounting runs BEFORE the player: while ridden it writes his position, velocity and saddle pose for the slice. Safe every slice; the F edge is latched inside.
     mount.update(dt, flags.beasts ? primary() : null);
     player.update(dt);
-    // The hero is the only thing that brushes the world today. A mount's gallop
-    // dust would pass `mount.beast` here instead — same interface, same pool.
+    // The hero is the only thing that brushes the world today; a mount's dust would pass `mount.beast`.
     toucher = player;
     perf.section('player');
 
     if (first) {
-      // Hotbar. With no lead beast there are no skills either — `hotbarSkills`
-      // answers empty — so the guard is belt and braces around one null.
       const skills = hotbarSkills();
       const lead = primary();
       (['Digit1', 'Digit2', 'Digit3', 'Digit4'] as const).forEach((code, i) => {
         if (input.pressed(code) && lead && skills[i]) castFromBeast(lead, skills[i]);
       });
 
-      // THE TAMING THROW. A press, consumed here like every other frame-loop
-      // edge, and gated on nothing else: an orb can be thrown from the saddle,
-      // mid-air or mid-fight, and every reason it might not work is a message
-      // `throwReadiedOrb` gives rather than a key that silently does nothing.
+      // THE TAMING THROW, gated on nothing else: an orb can be thrown from the saddle, mid-air or
+      // mid-fight, and every reason it might not work is a message `throwReadiedOrb` gives.
       if (input.pressed('KeyQ')) throwReadiedOrb();
 
-      // Beast management. Swapping is locked out in the saddle: every mounted
-      // path here keys off primary() being the ridden beast — the hotbar aims
-      // from it, the follow update skips it — and a Tab mid-ride would make
-      // "the beast you are riding" and "the beast you are commanding" two different
-      // animals for no gain.
+      // Swapping is locked out in the saddle: every mounted path keys off primary() being the ridden beast,
+      // so a Tab mid-ride would make "riding" and "commanding" two different animals.
       if (mount.isMounted) {
         if (input.pressed('Tab') || input.pressed('BracketLeft') || input.pressed('BracketRight')) {
           bus.emit({ type: 'toast', text: t('toast.dismountFirst') });
         }
       } else {
-        // Tab SWAPS the two slots, so it needs both of them filled — with one
-        // beast bonded there is nothing to swap with, and swapping a real beast
-        // into an empty slot would bench it.
+        // Tab SWAPS the two slots, so both must be filled or a real beast would be benched into an empty one.
         if (input.pressed('Tab') && primaryIdx >= 0 && supportIdx >= 0) {
           const wasPrimary = primaryIdx; primaryIdx = supportIdx; supportIdx = wasPrimary;
           const lead2 = primary();
@@ -6155,8 +3633,6 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       }
     }
 
-    // Support beast errands + auto-cast. Both are skipped outright with no
-    // support beast bonded — there is nobody to run an errand or cast.
     const sup = support();
 
     fetchScanT -= dt;
@@ -6178,23 +3654,14 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       if (pick) castFromBeast(sup, pick);
     }
 
-    // Shop proximity. The prompt itself is decided after the zone update below,
-    // because a gateway prompt has to win: both are "you are standing on
-    // something", and the gateway is the one with a countdown running.
+    // Shop proximity. The prompt is decided after the zone update, because a gateway prompt has to win: it is the one with a countdown running.
     nearShop = world.shopPositions.some((s) => inReach(
       s.x, s.y, s.z,
       player.position.x, player.position.y, player.position.z,
       SHOP_RANGE, SHOP_RISE,
     ));
 
-    // People. `E` talks, exactly like `E` opens a den, and the two can never
-    // both be in range — a den is never sited inside a town (see placeShops) —
-    // but the NPC is tested first anyway so that the day one is, the person
-    // wins over the building he is standing next to.
-    //
-    // The talk STATE lives in the world's NPC field, not here: it is what
-    // decides that walking away ends a conversation, and it has the distances.
-    // This is only the keyboard edge and the rendering.
+    // `E` talks as `E` opens a den, and the two can never both be in range, but the NPC is tested first.
     const npcField = world.npcs;
     nearNpc = npcField && !npcField.talking
       ? npcField.nearest(
@@ -6206,66 +3673,33 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
       else if (nearNpc) npcField?.talk(nearNpc.id);
       else if (nearShop) tryOpenShop();
     }
-    // TWO KEYS NOW, AND THE SPLIT IS THE POINT (issue #83 follow-up). Escape
-    // CANCELS — it backs out of a conversation and closes the topmost panel —
-    // and F10 OPENS THE MENU. They used to be one key, and the browser owns half
-    // of what Escape does: it leaves fullscreen and it drops pointer lock, over
-    // the page's head, on the press the player meant for the game. A menu key
-    // the browser cannot touch is the fix; Escape keeps the meaning every other
-    // application on the machine gives it.
-    //
-    // Every device arrives here and not just the keyboard: the pad's Start and
-    // the touch overlay's MENU button tap a virtual F10, its B face taps a
-    // virtual Escape, and the HUD's menu button taps F10 as well — so each edge
-    // is read in ONE place for every way of pressing it.
-    //
-    // `pressed`, not `takePress`, because this is a SIMULATION slice — see the
-    // note on takePress in core/input.ts and the F1 read further down, which is
-    // the other half of that rule.
+    // TWO KEYS, AND THE SPLIT IS THE POINT (issue #83 follow-up): Escape CANCELS, F10 opens the menu. The
+    // browser owns half of what Escape does, so a menu key it cannot touch is the fix. Every device arrives
+    // here — pad Start and touch MENU tap F10, B taps Escape. `pressed`, because this is a SIMULATION slice.
     if (first && input.pressed('Escape') && npcField?.talking) npcField.endTalk();
     if (first && input.pressed('F10')) pauseMenu.open();
 
-    // THE GAMEPLAY BLOCK ENDS HERE, and so does the suspension. Everything below
-    // is the modal's own keyboard: it must read the presses this block was told
-    // to ignore. See `input.suspended` at the top of the branch.
+    // THE GAMEPLAY BLOCK ENDS HERE, and so does the suspension: everything below is the modal's own keyboard and must read the presses this block was told to ignore.
     input.suspended = false;
 
     if (modal && first
       && (input.pressed('Escape') || input.pressed('F10') || input.pressed('KeyE'))) {
-      // Cancel closes the TOPMOST modal, which is the only reason this is an
-      // if/else rather than two calls: F1 can be pressed with a den open, the
-      // sheet draws over it (see the wrapper order in ui/index.ts), and one press
-      // of Escape must dismiss one thing. The pad reaches this too — B and Start
-      // tap Escape while a modal is up, which is how a controller player closes a
-      // sheet they have no button to open.
-      //
-      // The in-game menu goes FIRST and answers for itself: inside its settings
-      // step Escape means "back to the list" rather than "close", so it is the one
-      // modal here that can decline to be dismissed. `onEscape` returns whether it
-      // spent the press. `KeyE` is the pad's X — confirm — so it activates the
-      // focused row instead of cancelling, which is what makes a controller able
-      // to work this menu with no other buttons.
-      //
-      // F10 IS A CANCEL IN HERE, which is what makes it a TOGGLE: the key that
-      // opened the menu closes it, the way Start does on a console and the way F1
-      // already works for the controls sheet. It is folded into the same branch as
-      // Escape rather than given one of its own, so "one press dismisses one
-      // thing" stays true however the press arrived.
+      // Cancel closes the TOPMOST modal, which is why this is an if/else: one press must dismiss one thing.
+      // The in-game menu goes FIRST and answers for itself — inside its settings step Escape means "back" —
+      // so `onEscape` reports whether it spent the press, and `KeyE` is the pad's X, which confirms a row.
+      // F10 is a cancel in here, which is what makes it a toggle.
       const cancel = input.pressed('Escape') || input.pressed('F10');
       if (pauseMenu.isOpen) {
         if (cancel) pauseMenu.onEscape();
         else pauseMenu.activate();
       } else if (inventory.isOpen) {
-        // Same shape as the menu above: cancel asks the panel to spend the press
-        // and X (KeyE on the pad) confirms the focused control, which is what
-        // makes the inventory workable from a controller with no other buttons.
+        // Same shape as the menu: cancel asks the panel to spend the press, X (KeyE on the pad) confirms the
+        // focused control, which is what makes the inventory workable from a controller.
         if (cancel) inventory.onEscape();
         else inventory.activate();
       } else if (journal.isOpen) {
-        // Below the inventory in the chain rather than above it because the
-        // inventory is the panel that can be opened over this one — `I` is gated
-        // on the other modals, and the journal is one of them, so the two can
-        // never both be up. The order is what it would be if they could.
+        // Below the inventory because `I` is gated on the other modals — the journal is one of them — so the two
+        // can never both be up. The order is what it would be if they could.
         if (cancel) journal.onEscape();
         else journal.activate();
       } else if (hud.isControlsOpen()) hud.closeControls();
@@ -6273,22 +3707,15 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     }
   }
 
-  // Contact particles. Sits between the `player` and `beasts` profiler markers, so
-  // its cost is measured in the `beasts` slot — its own timing is on
-  // `__dbgTouchFx().ms`, which is finer grained than a section anyway.
+  // Contact particles, measured in the `beasts` profiler slot; their own timing is on `__dbgTouchFx().ms`, which is finer grained than a section anyway.
   touchFx.update(dt, toucher);
 
-  // Cooldowns
   for (const [id, t] of cooldowns) cooldowns.set(id, Math.max(0, t - dt));
-  // ...and the potion buff, on the same clock and for the same reason: both are
-  // durations the player is watching, and a panel does not stop the game — see
-  // `input.suspended` above.
+  // ...and the potion buff, on the same clock: both are durations the player is watching.
   updateBuffs(dt);
 
-  // Beasts follow
-  // The swim line is 1.15 below the surface (Player.update). Another 1.25 is a
-  // deliberate dive rather than the normal float bob, and is where a flying
-  // companion changes to light instead of pretending its wings work underwater.
+  // Beasts follow. The swim line is 1.15 below the surface; another 1.25 is a deliberate dive, and is
+  // where a flying companion changes to light rather than pretending its wings work underwater.
   const deepDiving = player.isSwimming && player.position.y < world.waterLevel - 2.4;
   const owner = {
     position: player.position,
@@ -6297,15 +3724,11 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     deepDiving,
   };
   if (flags.beasts) {
-    // The ridden beast has already been placed and animated by mount.update();
-    // running follow steering on top of that would fight the reins.
+    // The ridden beast is already placed and animated by mount.update(); follow steering would fight it.
     const ridden = mount.beast;
-    // Is a companion WANTED this slice — see BEAM_LAND_FIGHT in beasts/framework.
-    // A beast travelling as light re-forms from three times as high while this
-    // stands, which is the "flies next to ground and gets attacked" half of
-    // issue #70. Asked once and given to both, because "there is something on
-    // the hero" is a fact about the hero, not about either beast. The radius is
-    // the wild leash's own aggro neighbourhood rather than a new number.
+    // Is a companion WANTED this slice (see BEAM_LAND_FIGHT): a beast in transit re-forms from three times
+    // as high while this stands — issue #70's "flies next to ground and gets attacked" half. One answer for
+    // both, since it is a fact about the hero.
     const needed = combat.findNearestEnemy(player.position, SUPPORT_CALL_RANGE) !== null;
     const lead = primary();
     const sup = support();
@@ -6322,38 +3745,22 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
 
   reportMovers();
 
-  // Streams the active zone, runs the gateway's arm/dwell rules, and builds and
-  // warms whatever is being preloaded. It can swap `world` out from under this
-  // slice (see onArrive), which is safe here: everything above has finished
-  // with it, and combat below is rebound by the same call.
+  // Streams the zone, runs the gateway rules, builds the preload. It can swap `world` out from under this slice; everything above has finished with it.
   zones.update(player.position, dt, first);
   perf.section('world');
 
-  // `t()` with no placeholders returns the table's own string — one lookup, no
-  // allocation — so calling it on the hint path every slice is free. Do NOT
-  // put an interpolated `t(key, vars)` here; that builds a string per slice.
-  // A person you can talk to outranks a building you can shop in, and both
-  // yield to a gateway with a countdown running. `npcHint` is a map lookup
-  // after the first sighting, so this stays allocation-free like the rest.
+  // `t()` with no placeholders is one lookup and no allocation, so hinting per slice is free — never an
+  // interpolated `t(key, vars)` here. A gateway countdown outranks both.
   const hint = portalHint ?? (nearNpc ? npcHint(nearNpc) : nearShop ? skillDenHint : null);
   if (hint) hud.showHint(hint);
   else hud.hideHint();
 
-  // The conversation. `resolveText` on the key form is `t()` with no
-  // placeholders — one map lookup and no allocation — and the HUD compares each
-  // field before writing it, so rendering this every slice costs nothing while a
-  // talk is open. Resolved HERE rather than where the payload was built, which
-  // is what keeps a talk that is already open following a live language switch.
+  // Free per slice (a key lookup, and the HUD compares before writing), and resolved HERE so an open talk follows a live language switch.
   const talk = world.npcs?.talking ?? null;
   if (talk) hud.showDialogue(resolveText(talk.name), resolveText(talk.line), dialogueFoot);
   else hud.hideDialogue();
 
-  // A companion in transit is not on the friendlies list: it is light, it has no
-  // position an enemy could walk to, and a wolf that picked it as a target would
-  // stand under the hero swiping at nothing until he landed. `_friendlies` is
-  // reused rather than rebuilt so this stays allocation-free per slice.
-  // An unbonded slot contributes nothing, by the same rule and for a simpler
-  // reason: there is no beast to be a friendly.
+  // A companion in transit is not a friendly: it is light, with no position an enemy could walk to. `_friendlies` is reused to stay allocation-free.
   _friendlies.length = 0;
   const fLead = primary();
   const fSup = support();
@@ -6364,10 +3771,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
 }
 
 function frame(): void {
-  // The loop OWNS ITS OWN SHUTDOWN, and this is the only way out of it. Exit
-  // clears `playing` (see exitToTitle) and the next frame simply does not
-  // schedule another — nothing is torn down under a frame halfway through
-  // drawing it, and `beginPlay` starting the loop again is what restarts it.
+  // The loop OWNS ITS OWN SHUTDOWN: `exitToTitle` clears `playing` and the next frame schedules no other, so
+  // nothing is torn down under a frame halfway through drawing it.
   if (!playing) return;
   requestAnimationFrame(frame);
   if (!engine.beginFrame()) return;
@@ -6376,65 +3781,37 @@ function frame(): void {
   dayNight.update(dt);
   engine.applyCelestial(dayNight, dt);
   world.applyCelestial(dayNight);
-  // Everything that owns the screen: the shop, the F1 controls sheet and the
-  // in-game menu. All three stand the pad down and hide the touch overlay, for
-  // the same reason — a button held when the panel opened must not stay held
-  // behind it.
   const modal = hud.isShopOpen() || hud.isControlsOpen() || pauseMenu.isOpen
     || inventory.isOpen || journal.isOpen || perfPanel.isTyping;
-  // A modal does not turn the camera, and the controls sheet is the one that has
-  // to say so out loud: it keeps pointer lock (see the F1 read below), so unlike
-  // the shop it goes on collecting mouse delta that no slice will spend. See
-  // Input.clearLook for what that costs if it is left to pile up.
+  // A modal does not turn the camera, and the controls sheet keeps pointer lock, so unlike the shop it
+  // goes on collecting mouse delta that no slice will spend. See Input.clearLook.
   if (modal) input.clearLook();
-  // MAY A POINTER THE BROWSER TOOK BE TAKEN BACK? Escape drops pointer lock on
-  // every browser — the keyboard lock only covers a FULLSCREEN document — so a
-  // player who closes a panel with it is left in the world with mouse look
-  // dead. `Input.armRelock` puts it back when they start moving again, and this
-  // is the host's half of that: not while anything is being clicked, and not
-  // while Alt is deliberately holding the cursor out (see `updateCursorMode`).
+  // Escape drops pointer lock on every browser — the keyboard lock only covers a FULLSCREEN document — so
+  // `armRelock` puts it back when the player moves. Not while clicking, and not while Alt holds the cursor out.
   input.autoRelock = !modal && !input.down('AltLeft') && !input.down('AltRight');
 
-  // Poll the pad ONCE PER RENDERED FRAME, and before the slices below.
-  //
-  // Both halves matter. Look delta accumulated here behaves exactly like mouse
-  // movement — integrated over wall-clock, consumed by whichever slice runs —
-  // whereas polling per slice would multiply the turn rate by the slice count.
-  // And the edges land before slice 0, the one `first` is true for, which is
-  // what the hotbar, Tab, the beast cycles and the shop key are all gated on.
+  // ONCE PER RENDERED FRAME and before the slices: look delta must integrate over wall-clock like mouse
+  // movement, and the edges must land before slice 0, the one `first` is true for.
   pad?.setModal(modal || !!devConsole?.isOpen);
   pad?.poll(dt);
 
-  // Drain the accumulator in fixed slices; carry the remainder to next frame.
   simAccumulator += dt;
   let steps = 0;
   while (simAccumulator >= SIM_DT && steps < MAX_STEPS) {
-    // `interactive` is what decides whether the hero reads the input device this
-    // slice, and photo mode is the only thing that turns it off now. The title
-    // screen used to be the other one — the loop ran behind the poster and the
-    // hero had to be stood down every slice — and it no longer needs to be:
-    // `frame()` is not called until `beginPlay()` says the player is playing, so
-    // there is no slice to stand down. See the boot-order note at the top.
+    // `interactive` decides whether the hero reads the input device, and photo mode is the only thing that turns it off: `frame()` waits for `beginPlay()`.
     simulate(SIM_DT, steps === 0, !photoMode);
     simAccumulator -= SIM_DT;
     steps++;
   }
-  // Hit the cap: drop the backlog rather than compound it into the next frame.
   if (steps === MAX_STEPS) simAccumulator = 0;
 
   if (photoMode) {
-    // `primary()` cannot be null here: the `?beast=` branch at boot put the
-    // subject in the lead slot itself. The check is what makes that a stated
-    // fact rather than an assumed one.
+    // `primary()` cannot be null here — the `?beast=` branch at boot put the subject in the lead slot.
     const photoBeast = params.get('beast') ? primary() : null;
     if (photoBeast) {
-      // Auto-frame the primary beast: 3/4 portrait tracking its live position.
       const beast = photoBeast;
       const ang = (Number(params.get('a') ?? 35) * Math.PI) / 180;
-      // Frame the subject at ~40% of frame height. Sized from the rig's own
-      // extents (a small beast's ears/tail push well past its nominal height, and
-      // wingspan dominates for flyers) with a hard minimum distance: at 55° FOV
-      // anything closer than ~2.6 units distorts badly on a wide-angle lens.
+      // ~40% of frame height, sized from the rig's own extents (ears, tail, wingspan), with a hard minimum: at 55° FOV anything closer than ~2.6 units distorts.
       const subject = Math.max(0.5, beast.height, beast.radius * 2.2);
       const vFov = (engine.camera.fov * Math.PI) / 180;
       const fitDist = subject / (0.4 * 2 * Math.tan(vFov / 2));
@@ -6456,11 +3833,7 @@ function frame(): void {
         return need;
       };
 
-      // Eye level with the subject's mid-height, and never more than a little
-      // above it: an unbounded lift turned blocked shots into aerial specimen
-      // photos looking down on the subject's back. When the sight line is
-      // blocked, step CLOSER first, then swing the bearing — only accept a
-      // higher camera as a last resort.
+      // Eye level with the subject and never far above: an unbounded lift turned blocked shots into aerial specimen photos. Step closer first, then swing the bearing.
       const ceiling = midY + subject * 1.15;
       let cx = 0, cz = 0, camY = 0;
       let bestOver = Infinity, bx = 0, bz = 0, by = 0;
@@ -6478,16 +3851,12 @@ function frame(): void {
         }
       }
       if (camY === 0) {
-        // Nothing was fully clear — take the least-elevated candidate and cap it.
         cx = bx; cz = bz; camY = Math.min(by, ceiling);
       }
       engine.camera.position.set(cx, camY, cz);
       // Aim slightly low so the subject sits at ~0.45 frame height.
       engine.camera.lookAt(beast.position.x, aimY, beast.position.z);
-      // Turn the subject to face the camera, off by 20° for a 3/4 view. This
-      // must use the FINAL bearing, not the requested `ang` — the occlusion
-      // search above may have swung the camera, which is how subjects ended up
-      // photographed from the flank.
+      // Turn the subject to face the camera, off by 20° for a 3/4 view — off the FINAL bearing, because the occlusion search above may have swung the camera.
       beast.facingOverride = Math.atan2(cx - beast.position.x, cz - beast.position.z) - 0.35;
     } else {
       engine.camera.position.copy(photoCam);
@@ -6503,22 +3872,14 @@ function frame(): void {
     }
   }
 
-  // HUD sync
   hud.setPlayerHp(player.hp, player.maxHp);
-  // `setBeasts` has always taken null on either side — a card is simply absent —
-  // so an empty party needs nothing from the HUD but this.
   hud.setBeasts(beastHud(primary()), beastHud(support()));
   const slots: SkillSlot[] = hotbarSkills().map((def) => {
     const remaining = cooldowns.get(def.id) ?? 0;
     return { def, cooldownRemaining: remaining, ready: remaining <= 0 };
   });
   hud.setSkills(slots);
-  // Compass. Presentation, so it belongs here and not in simulate(): the strip
-  // shows where the LENS points, and the lens is placed by this frame's camera
-  // update, not by the fixed-rate sim (which may have run 0..n times above).
-  // North is world -Z, the direction three's default camera looks down.
-  // A town that moves moves its own chip. Two writes each, no DOM. See
-  // `_townChips`, and `World.towns` for why a registry position is live.
+  // Presentation, so not in simulate(): the strip shows where the LENS points, placed by this frame's camera. North is world -Z. A moving town moves its own chip.
   for (let i = 0; i < _townChips.length; i++) {
     const c = _townChips[i];
     c.chip.x = c.town.gateX;
@@ -6530,41 +3891,27 @@ function frame(): void {
     Math.atan2(_compassFwd.x, -_compassFwd.z) * (180 / Math.PI),
     player.position.x, player.position.z,
   );
-  // Key caps or controller faces, following whatever the player LAST touched
-  // rather than whether a pad has ever been used — put the controller down,
-  // reach for the keyboard, and the labels come back. Cheap: returns on the
-  // first line unless the device actually changed.
-  //
-  // The composed hint pills have a cap baked in and are not redrawn from
-  // `this.prompts`, so they ride the same edge. See `composeKeyHints`.
+  // Caps follow whatever the player LAST touched; returns on the first line unless the device changed. The hint pills have a cap baked in, so they ride the same edge.
   if (hud.setPadPrompts(input.lastSource === 'gamepad' && pad ? pad.glyphs : null)) {
     composeKeyHints();
   }
   hud.setMountHold(mount.progress);
   hud.setMounted(
     mount.beast ? t(mount.beast.species.nameKey) : null,
-    // The MODE, re-read every frame, because a water beast changes it by
-    // swimming off a beach and not by being mounted — see Hud.setMounted. The
-    // badge early-returns on an unchanged pair, so asking every frame costs a
-    // comparison.
+    // The MODE, re-read every frame, because a water beast changes it by swimming off a beach and not by being mounted.
     mount.beast?.species.locomotion === 'flying' ? 'flying'
       : mount.isSwimming ? 'swimming'
       : 'ground',
   );
   hud.update(dt);
 
-  // Hide the touch overlay while a modal is open so it can't be tapped
-  // through, and release any held virtual buttons.
+  // Hidden while a modal is open so it cannot be tapped through; held virtual buttons are released.
   touch?.setVisible(!modal);
 
-  // `padActive` is part of the gate, not decoration: a player on a controller
-  // never clicks and never taps, so without it they would be the one player who
-  // is never told what the controls are.
+  // `padActive` is part of the gate, not decoration: a player on a controller never clicks and never taps, so without it they would never be told what the controls are.
   if (!started && (input.pointerLocked || input.touchActive || input.padActive)) {
     started = true;
-    // Whichever of those three it was, it was a real user gesture — which is
-    // exactly what a browser requires before a page may make noise or buzz a
-    // phone. See src/feedback/audio.ts.
+    // Whichever of the three it was, it was a real user gesture — what a browser requires before a page may make noise or buzz a phone.
     feedback?.unlock();
     bus.emit({
       type: 'toast',
@@ -6574,67 +3921,32 @@ function frame(): void {
     });
   }
 
-  // F1 is the player's controls sheet, F2 the developer's frame readout, and
-  // both are read HERE rather than in a simulation slice because neither is a
-  // gameplay action — a frame that drained no slice must still answer them.
-  //
-  // `takePress`, NOT `pressed`. That is the whole difference between a toggle
-  // that works and one that works about half the time: an unconsumed edge
-  // survives every frame until a slice drains, and uncapped that is two or three
-  // frames, each of which toggles. See the note on takePress in core/input.ts.
-  //
-  // F1 carries the same gate `interactive` carries above, and for what is now
-  // the same single reason: photo mode must render the same picture twice. The
-  // title screen used to be the other half of this test and no longer needs to
-  // be — `frame()` does not run until `beginPlay()`, so there is no frame in
-  // which the poster is up and this line executes. (`beginPlay` also drains the
-  // key latch, so an F1 pressed AT the menu cannot arrive here late either.)
-  // F2 is deliberately outside the gate — measuring a capture's frame rate is
-  // the one thing you want to do DURING a capture.
+  // F1 is the controls sheet and F2 the frame readout, both read HERE rather than in a slice because
+  // neither is a gameplay action: a frame that drained no slice must still answer them. `takePress`, NOT
+  // `pressed` — an unconsumed edge survives until a slice drains, which uncapped is two or three toggles.
+  // F1 carries the `interactive` gate so photo mode renders the same picture twice; F2 is outside it,
+  // because measuring a capture's frame rate is the point.
   if (!photoMode && input.takePress('F1')) {
-    // POINTER LOCK IS KEPT, and that is the difference between this and the
-    // shop. `tryOpenShop` hands the pointer back because a shop is a thing you
-    // CLICK — there are buy buttons and nothing else presses them. A controls
-    // sheet is a thing you READ, closed by the same key that opened it, and
-    // releasing the lock for it made a one-key glance cost a click to undo:
-    // press F1, read a line, press F1, then find the game deaf until you click
-    // it again. The X and the scrim are still there for a player who has no
-    // lock to lose (a pad player, or anyone who has not clicked yet).
+    // POINTER LOCK IS KEPT, unlike the shop's: a sheet is READ and closed by the key that opened it, and releasing the lock made a one-key glance cost a click to undo.
     hud.toggleControls();
   }
-  // `I` is the inventory, and it is read HERE beside F1 for the same reason:
-  // it is not a gameplay action, so a frame that drained no simulation slice
-  // must still answer it, and `takePress` is what stops one press toggling the
-  // panel two or three times at 165 Hz (see core/input.ts).
-  //
-  // GATED ON THE OTHER MODALS rather than only on itself: with the pause menu
-  // up, `I` would otherwise build a second panel underneath it. Its own open
-  // state is the exception, because that press is how it closes.
+  // Read here beside F1 for the same reason, and `takePress` stops one press toggling twice at 165 Hz.
   if (!photoMode && input.takePress('KeyI')
     && (inventory.isOpen || !(modal || devConsole?.isOpen))) {
     inventory.toggle();
   }
-  // `J` is the quest journal, read here beside `I` and gated the same way, for
-  // the same two reasons: it is not a gameplay action, so a frame that drained
-  // no simulation slice must still answer it, and `takePress` is what stops one
-  // press toggling the panel two or three times at 165 Hz.
   if (!photoMode && input.takePress('KeyJ')
     && (journal.isOpen || !(modal || devConsole?.isOpen))) {
     journal.toggle();
   }
   if (input.takePress('F2')) debug.toggle();
-  // F3 is the panel F2's numbers are FOR. Deliberately not gated on photo mode
-  // and deliberately not a modal — see the note at the top of ui/perf-panel.ts:
-  // the whole point is to watch a working frame get cheaper, and a frozen world
-  // streams nothing and animates nothing.
+  // F3 is the panel F2's numbers are FOR: deliberately not gated on photo mode and deliberately not a
+  // modal — the point is watching a working frame get cheaper, and a frozen world streams nothing.
   if (input.takePress('F3')) perfPanel.toggle();
-  // Re-evaluated per frame as well as on input events: opening the shop or the
-  // controls sheet changes the answer and neither is a DOM event this file sees.
+  // Per frame as well as on input events: opening the shop changes the answer and is no DOM event here.
   updateCursorMode();
-  // Not while the spawner's search box has focus: in a text field an arrow key
-  // is a caret move, Enter submits and R is a letter. The field swallows them
-  // in the capture phase anyway (ui/perf-panel.ts), so this is the second half
-  // of the same statement rather than a second mechanism.
+  // Not while the spawner's search box has focus: in a text field an arrow is a caret move, Enter submits and R
+  // is a letter. The field swallows them in the capture phase anyway.
   if (perfPanel.isOpen && !perfPanel.isTyping) {
     for (const code of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'KeyR']) {
       if (input.takePress(code)) perfPanel.onKey(code);
@@ -6643,26 +3955,15 @@ function frame(): void {
   colliderView.update(dt);
   perf.section('hud');
 
-  // AFTER every camera decision this frame (the player controller's, or photo
-  // mode's above) and before the render: the effect keys off where the lens
-  // actually ends up, and a frame late is a frame of clear water at the surface.
+  // AFTER every camera decision this frame and before the render: the effect keys off where the lens ends up, and a frame late is a frame of clear water at the surface.
   underwater.update(dt, world.isWater(engine.camera.position.x, engine.camera.position.z));
   engine.setFogAbsorption(underwater.fogAbsorption);
-  // And how bright to grade the result. There is genuinely less light down
-  // there, and this is the only knob that can say so before the tone curve —
-  // see UNDER_EXPOSURE in world/underwater.ts. 1.0 in the air, so it is a no-op
-  // everywhere except under the surface.
+  // And how bright to grade the result — the only knob that can say so before the tone curve (see UNDER_EXPOSURE).
   engine.setExposureScale(underwater.exposureScale);
-  // The view itself — colour, murk, refraction, caustics — is a block in the
-  // output pass rather than anything in the scene, because it has to run AFTER
-  // the tone curve to be able to darken a sunlit lake bed at all. Same three
-  // numbers the scene half uses, so the two can never disagree about how wet
-  // the lens is.
+  // A block in the output pass, because it has to run AFTER the tone curve to darken a sunlit lake bed. Same three numbers as the scene half.
   engine.setUnderwater(underwater.amount, underwater.depth, underwater.clock);
 
-  // Every cue this frame produced, played together, once. The sim slices above
-  // only QUEUED them — see src/feedback for why dispatching per slice is
-  // actively wrong for rumble rather than merely untidy.
+  // Every cue this frame produced, played together, once: the slices only QUEUED them, and dispatching per slice is actively wrong for rumble.
   feedback?.drain(dt);
 
   engine.render();
@@ -6676,55 +3977,24 @@ function frame(): void {
   }
   debug.update();
 
-  // Input edges belong to the SIMULATION, not to the frame.
-  //
-  // endFrame() clears the one-shot state — pressed-this-frame keys, the attack
-  // edge, accumulated mouse/wheel delta — and only a simulation slice ever reads
-  // any of it. Once the sim runs at a fixed 60 Hz and the renderer runs as fast
-  // as it likes, most frames drain no slice at all: at an uncapped 165 fps a
-  // slice lands on barely a third of them. Clearing regardless threw the other
-  // two thirds of every press away, measured at a 30% jump hit rate — you press
-  // space, nothing happens.
-  //
-  // So hold the edges until a slice has had the chance to consume them. Mouse
-  // delta wants half of that treatment and the opposite of the other half: it is
-  // a quantity to integrate, so dropping it on a slice-less frame silently
-  // scaled look sensitivity DOWN — but leaving it here for the whole slice loop
-  // scaled it UP, once per slice, which is issue #37. The camera takes it on the
-  // first slice that runs (Input.takeLook) and this is now only the backstop for
-  // a frame that ran no camera update at all.
+  // Input edges belong to the SIMULATION, not to the frame. `endFrame()` clears one-shot state only a
+  // slice reads, and at 165 fps a slice lands on barely a third of frames — clearing regardless threw two
+  // thirds of every press away (measured: a 30% jump hit rate). Mouse delta is a quantity to integrate:
+  // dropping it scaled look sensitivity DOWN, holding it for the whole loop scaled it UP once per slice
+  // (issue #37), so the camera takes it on the first slice and this is the backstop.
   if (steps > 0) input.endFrame();
   perf.section('overlay');
   perf.end();
 }
 
-/**
- * How long a staged boot phase may hold the main thread before handing a frame
- * back, in ms.
- *
- * Nothing else is running — no simulation, no render loop, just this — so the
- * only thing this protects is the page's ability to PAINT: the progress bar, the
- * poster's CSS animations, and the menu answering a click. 10 ms keeps a 60 Hz
- * display inside its frame while still spending most of that frame on the work.
- *
- * It is a FLOOR on responsiveness, not a ceiling on the slice. The steps are
- * indivisible — one warm-up render, one chunk stage — so a step that overruns
- * simply overruns, and on this machine the light sweep's steps are a second
- * each. What the budget buys is the streaming phase, where the steps are small:
- * measured at 1193 ms with this budget against 1409 ms yielding after every
- * single `zones.update`. That gap looks small only because headless Brave runs
- * rAF unthrottled; on a vsync-limited display the one-call-per-frame form is
- * bounded by 60 calls a second against ~267 chunk stages, which is four and a
- * half seconds of doing almost nothing per frame.
- */
+// How long a staged boot phase may hold the main thread. Nothing else runs, so this only protects the
+// page's ability to PAINT; 10 ms keeps a 60 Hz display inside its frame. A FLOOR on responsiveness, not
+// a ceiling on the slice — the steps are indivisible. What it buys is the streaming phase: 1193 ms
+// against 1409 ms yielding after every `zones.update`, which on a vsync display is 60 calls a second
+// against ~267 stages.
 const BOOT_SLICE_MS = 10;
 
-// Pay for every shader before the first gameplay frame. `warmup=0` skips it,
-// which is how the freeze it prevents can be reproduced on demand.
-//
-// One simulation slice runs FIRST so there is something to warm: it primes the
-// enemy population and teleports the beasts to the player, both of which are
-// still at the origin (and so out of frame, and so uncompiled) before it.
+// `warmup=0` skips it, which is how the freeze it prevents is reproduced. One slice runs FIRST so there is something to warm: enemies primed, beasts off the origin.
 if (params.get('warmup') !== '0') {
   simulate(SIM_DT, true, !photoMode);
   if (loading) {
@@ -6744,36 +4014,16 @@ if (params.get('warmup') !== '0') {
   }
 }
 
-/**
- * The streaming ring around spawn, drained to EMPTY before the game is handed
- * over — the last phase, and the one the issue behind all of this asked for.
- *
- * This is what the old `MENU_FPS` cap was really buying, and buying badly: the
- * chunk streamer spends its budget per rendered frame, so "keep rendering the
- * world behind the poster" was the only way it had of filling the ring, and it
- * paid for that with a full pass of GTAO, bloom and SMAA on every one of those
- * frames. Draining it here instead costs the chunk work and nothing else, and
- * it CONVERGES: the loop ends when there is nothing left, so the player walks
- * into a world that is finished rather than into one still popping in.
- *
- * The bound is a backstop, not a budget. `refreshQueue` fills the queue once
- * from a fixed disc around the focus and nothing moves the focus while this
- * runs, so the honest number of iterations is "however many the ring holds";
- * 4096 is far past that and is here so a future streamer that re-queues can
- * never hang the boot on a black screen.
- *
- * ONLY on the staged path. Under `menu=0` the game must start the instant it
- * can — every probe in `tools/` reads `__dbgPlayerPos` within a second of load
- * — and it streams as it plays exactly as it always has.
- */
+// The streaming ring around spawn, drained to EMPTY before hand-over. This is what the old `MENU_FPS`
+// cap was buying badly: the streamer spends its budget per rendered frame, so rendering behind the
+// poster was its only way to fill the ring, at a full pass of GTAO, bloom and SMAA each time. Draining
+// here costs the chunk work alone and CONVERGES. The 4096 bound is a backstop against a future streamer
+// that re-queues. Only on the staged path: under `menu=0` the game must start the instant it can.
 if (loading) {
   await loading.stage('terrain');
   let mark = performance.now();
   for (let i = 0; i < 4096 && world.streaming; i++) {
-    // dt 0, the same argument `ZoneManager.switchTo` drains with: this is
-    // building, not simulating. A real dt here would run the world's wind and
-    // water clocks forward through a loading screen nobody is watching, and
-    // accumulate dwell on a gateway 34 units from a hero who has not moved.
+    // dt 0, as `switchTo` drains with: this is building, not simulating. A real dt would run the wind and water clocks and accumulate gateway dwell.
     zones.update(player.position, 0, true);
     const loaded = world.chunksLoaded;
     loading.step(loaded / Math.max(1, loaded + world.pendingChunks));
@@ -6784,18 +4034,12 @@ if (loading) {
   }
 }
 
-// Phase 2 is over. Whether that means "play now" or "wait for New Game" is
-// `beginPlay`'s to decide — see the handshake at the top of the file.
+// Phase 2 is over; whether that means "play now" or "wait for New Game" is `beginPlay`'s handshake.
 prepDone = true;
 loading?.complete();
 beginPlay();
 
-/**
- * What the boot actually cost, phase by phase. Read-only, and the reason the
- * numbers in `STAGES` (src/ui/loading.ts) can be re-measured on any machine
- * instead of taken on trust. `playing` is the assertion tools/test-menu.mjs
- * cares about: the frame loop must NOT be running while the poster is up.
- */
+// So the numbers in `STAGES` (ui/loading.ts) can be re-measured. `playing` is test-menu's assertion: the frame loop must NOT run while the poster is up.
 (window as unknown as { __dbgBoot: () => unknown }).__dbgBoot = () => ({
   staged,
   prepDone,
@@ -6809,31 +4053,11 @@ beginPlay();
 // Profiler dump for the perf harness; null unless ?perf=1 recorded anything.
 (window as unknown as { __dbgPerf: () => unknown }).__dbgPerf = () => perf.dump();
 
-/**
- * WHAT CONTENT IS LOADED, WHAT IT SAYS, AND WHAT IS WRONG WITH IT.
- *
- * Read-only like every other probe here, and structuredClone-safe by
- * construction: everything below is a string, a number or a plain array of them,
- * so `tools/q.mjs` can read it. It exists for `tools/` — a probe that wants to
- * know whether the world it is measuring was cut from the content it thinks it
- * was, and a run that wants to see a package's findings without opening a
- * console.
- *
- * FOUR QUESTIONS, and they are four because a content bug can be at any of four
- * depths. `packages` is what LOADED and who is holding it open — a lease list
- * rather than a count, so a leak reads as "`zone` still holds this three zones
- * later" (src/content/types.ts). `assets` is what came out of it, by type.
- * `diagnostics` is everything the load, the cross-asset pass and the engine's
- * own placers found, worst first — the content runtime's own findings and
- * core/content-bridge.ts's merged, because a town that is missing from the world
- * is one question however far down it failed. `resolved` is the answer to that
- * question from the OTHER end: the ids that actually reached the world. An id in
- * `assets` and not in `resolved` is a piece of content the engine refused, and
- * the reason is in `diagnostics`.
- *
- * `state` is the save payload — the player's facts, not the definitions. It is
- * what `Exit to title` clears and the definitions are what it keeps.
- */
+// WHAT CONTENT IS LOADED, WHAT IT SAYS, AND WHAT IS WRONG WITH IT — read-only and structuredClone-safe
+// so tools/q.mjs can read it. Four questions, because a content bug can be at four depths: `packages`
+// is what loaded and who holds it open (a lease list, so a leak reads as "`zone` still holds this"),
+// `assets` is what came out, `diagnostics` every finding worst first, and `resolved` the same question
+// from the world's end — an id in `assets` and not in `resolved` was refused. `state` is the save payload.
 (window as unknown as { __dbgContent: () => unknown }).__dbgContent = () => {
   const byType: Record<string, number> = {};
   for (const type of ['town', 'npc', 'biome', 'enemy', 'quest', 'music']) {
@@ -6841,18 +4065,8 @@ beginPlay();
   }
   return {
     ok: contentBoot.ok,
-    /**
-     * What loading and validating the core package cost, milliseconds.
-     *
-     * Reported rather than asserted, and it is the number that decides the
-     * question "does this deserve a progress chip of its own": measured on the
-     * dev server at 1280x800 it is 2.4 / 2.5 / 2.3 ms against a `world` stage of
-     * ~390 ms and a shader sweep of ~10 s, so it does not, and it lives inside
-     * the world stage instead. It is also the number that caught the provider
-     * being reached through a chunk fetch — 15.8 ms, all of it a round trip. See
-     * the import of `BundledProvider` at the top of this file. Re-measure here if
-     * the core package ever grows.
-     */
+    // What loading and validating the core package cost, ms: 2.4 / 2.5 / 2.3 against a ~390 ms world stage,
+    // which is why it has no chip. It also caught the provider reached through a chunk fetch (15.8 ms).
     bootMs: +contentBootMs.toFixed(2),
     packages: content.packages.map((p) => ({
       id: p.id,
@@ -6870,9 +4084,8 @@ beginPlay();
       field: d.field ?? null,
       message: d.message,
     })),
-    // What reached the WORLD, from the world's own objects rather than from the
-    // registry — which is the only way this can disagree with `assets`, and
-    // disagreeing is exactly what it is for.
+    // What reached the WORLD, from the world's own objects rather than the registry — which is the only way this
+    // can disagree with `assets`, and disagreeing is what it is for.
     resolved: {
       towns: world.towns.all.map((tn) => tn.id),
       npcs: (world.npcs?.all ?? []).map((n) => n.id),
@@ -6882,31 +4095,14 @@ beginPlay();
   };
 };
 
-/**
- * What the cached static shadow map is doing — whether it is on at all, how big
- * the box is, and the number the whole feature is about: FRAMES PER REBUILD.
- * See core/shadow-cache.ts, and tools/test-shadowcache.mjs for the guard.
- */
+// What the cached static shadow map is doing — whether it is on, how big the box is, and the number the whole
+// feature is about: FRAMES PER REBUILD. See core/shadow-cache.ts.
 (window as unknown as { __dbgShadows: () => unknown }).__dbgShadows =
   () => engine.shadowDebug();
 
-/**
- * The world's nature densities, and a WRITER for them.
- *
- * The read half is the usual read-only probe: the baseline, the area overrides
- * and whether anything has been touched at all. The write half is a TEST HOOK
- * like `__dbgTp` — a probe cannot type at the developer console, and the whole
- * assertion worth making about this feature is a before/after of the same
- * chunks under two different densities. It rebuilds the streamed chunks through
- * the same listener `/nature` does, so a probe drives exactly the player-facing
- * path. See world/nature.ts and tools/test-nature.mjs.
- */
+// The write half is a TEST HOOK like `__dbgTp`: a probe cannot type at the console, and the assertion is a before/after of the same chunks. Same listener `/nature` uses.
 (window as unknown as { __dbgNature: () => unknown }).__dbgNature = () => {
-  // THE CENSUS IS THE ASSERTION. A snapshot of the settings only proves the
-  // table stored what it was given; what the feature claims is that the WORLD
-  // changed, so the vertex counts of the two prop meshes are reported beside
-  // it. Read off the scene rather than off the streamer, for the same reason
-  // tools/test-gfx.mjs reads draw calls: it is the frame's own answer.
+  // THE CENSUS IS THE ASSERTION: a snapshot proves only that the table stored it, so the prop meshes' vertex counts are reported beside it, read off the scene.
   let chunks = 0;
   let props = 0;
   let grass = 0;
@@ -6935,18 +4131,8 @@ beginPlay();
 (window as unknown as { __dbgShadowCache: (on: boolean) => void }).__dbgShadowCache =
   (on) => engine.setShadowCacheEnabled(on);
 
-/**
- * Who is standing in this zone, where, and whether anyone is mid-conversation.
- *
- * Read-only, like every other probe here: it reports the world's own answers
- * (`World.npcs`) and cannot start or end a talk. Driving the interaction is the
- * keyboard's job — walk up and press E — and a probe that could do it instead
- * would be a test of a code path the player never takes.
- *
- * `ground` and `feet` are the check that he stands ON the trampled camp floor
- * rather than in it: they are the terrain height under him and the height his
- * root was placed at, and they must agree.
- */
+// Read-only: driving the interaction is the keyboard's job, and a probe that could start a talk would
+// test a path the player never takes. `ground` and `feet` check he stands ON the camp floor, not in it.
 (window as unknown as { __dbgNpcs: () => unknown }).__dbgNpcs = () => ({
   talking: world.npcs?.talking
     ? {
@@ -6966,51 +4152,20 @@ beginPlay();
       const t0 = world.towns.nearest(n.x, n.z);
       return t0 ? +Math.hypot(t0.x - n.x, t0.z - n.z).toFixed(2) : -1;
     })(),
-    // HORIZONTAL, and its companion below is the height — reported as the two
-    // numbers the talk test actually asks about rather than as one slant
-    // distance, because a single figure cannot show which of the two refused.
-    // `abovePlayer` is negative when the hero is over him, which is issue #25's
-    // whole case (measured at -36.92 on a climbing galebird).
+    // HORIZONTAL, with the height beside it, because one slant distance cannot show which refused. `abovePlayer` is negative over him — issue #25, measured at -36.92.
     fromPlayer: +Math.hypot(n.x - player.position.x, n.z - player.position.z).toFixed(2),
     abovePlayer: +(n.y - player.position.y).toFixed(2),
-    // What the shipped query answers RIGHT NOW, run rather than re-derived, so
-    // a change to the rule shows up here instead of being asserted twice.
+    // What the shipped query answers RIGHT NOW, run rather than re-derived, so a rule change shows here.
     inTalkRange: world.npcs?.nearest(
       player.position.x, player.position.y, player.position.z, NPC_TALK_RANGE,
     )?.id === n.id,
   })),
 });
 
-/**
- * The settled world, exactly as a quest system would see it: the registry, plus
- * the road polylines with the SURFACE height sampled under every deck sample.
- *
- * That last part is the whole assertion behind "a carved road is walkable". A
- * road's deck is a continuous surface where the rest of the world is floored to
- * whole units (see Terrain.getHeight), so what has to be shown is that walking
- * one never meets a rise the hero cannot step over: `maxStep` is the largest
- * upward change in `world.getHeight` between two points 0.25 units apart along
- * the deck, and MAX_STEP_UP is 0.5. Read-only, allocates, never called from the
- * frame loop.
- */
-/**
- * THE MOVING PARTS OF THE WORLD, and who is standing on them.
- *
- * Everything `tools/test-carrier.mjs` asserts on comes from here, and the shape
- * is chosen for what a probe cannot otherwise see: a carrier's pose is easy to
- * read off the scene and its ATTACHMENT is not — "the hero is at the same place
- * on the deck he was ten seconds ago" is the whole feature, and no screenshot
- * and no position alone can say it.
- *
- * `onDeck` is therefore the interesting field: the hero's position expressed in
- * the frame's OWN coordinates, which stays put while he stands still however far
- * the island has travelled, and moves only when he walks. `dyaw` is what the
- * turn publishes; `ceiling` is what the flight ceiling is allowed to reach over
- * this column, which is the number that decides whether the island is reachable
- * at all (see MountController's ceiling clamp).
- *
- * Read-only; allocates, so never called from the frame loop.
- */
+// THE MOVING PARTS OF THE WORLD, and who is standing on them — what test-carrier asserts on. A pose is
+// easy to read off the scene and ATTACHMENT is not, and "the hero is where he was on the deck" is the
+// feature. So `onDeck` is the hero in the frame's OWN coordinates; `dyaw` is what the turn publishes;
+// `ceiling` decides whether the island is reachable at all. Allocates, so never from the frame loop.
 (window as unknown as { __dbgCarriers: () => unknown }).__dbgCarriers = () => ({
   ceiling: (() => {
     const c = world.carriers.ceilingAt(player.position.x, player.position.z);
@@ -7018,11 +4173,8 @@ beginPlay();
   })(),
   riding: world.carriers.at(player.position.x, player.position.y, player.position.z)?.id ?? null,
   all: world.carriers.all.map((c) => {
-    // World -> the frame's own axes, THROUGH THE CONTRACT. This used to restate
-    // the trigonometry with a note saying a debug hook was the only caller that
-    // had ever wanted it from outside; the save now wants it too (issue #171),
-    // so `toLocal` is on `CarrierInfo` and the copy that could drift from it is
-    // gone.
+    // World -> the frame's own axes, THROUGH THE CONTRACT: `toLocal` is on `CarrierInfo` because the save wants
+    // it too (issue #171), so the copy that could drift from it is gone.
     const onDeck = { x: 0, z: 0 };
     c.toLocal(player.position.x, player.position.z, onDeck);
     return {
@@ -7039,12 +4191,7 @@ beginPlay();
         const t = c.topAt(player.position.x, player.position.z);
         return Number.isFinite(t) ? +t.toFixed(2) : null;
       })(),
-      /**
-       * The MASS in this column: the turf, and the keel under it — or null off
-       * the footprint. `surface` is not `deckTop`, which is the top of whatever
-       * is standing here; the pair a probe has to assert on is this one, because
-       * it is the pair a body cannot be between (issue #80, tools/test-carrier).
-       */
+      // The MASS in this column: turf and keel, null off the footprint. `surface` is not `deckTop`; this is the pair a body cannot be between (issue #80).
       surface: (() => {
         const d = c.deckAt(player.position.x, player.position.z);
         return Number.isFinite(d) ? +d.toFixed(2) : null;
@@ -7062,34 +4209,15 @@ beginPlay();
   }),
 });
 
-/**
- * THE CARRIED ISLAND'S WATERFALL. For tools/test-waterfall.mjs.
- *
- * Two things in one reading, because they are two halves of one change. The
- * `length` / `push` / `sprayAlive` / `frozen` counters are the effect's own; the
- * `meshOriginY` / `meshMinY` pair is the ROCK's, and it is there to prove the
- * island did not move when forty courses of voxel waterfall came out of it.
- * `meshOriginY` must equal `meshMinY * cell` (the rebase identity `buildRock`
- * documents) and `meshMinY` must still be the keel's own depth.
- *
- * Null in a world with no carried island — the hold, and the lab's stage.
- */
+// The carried island's waterfall. The counters are the effect's; `meshOriginY` / `meshMinY` are the
+// ROCK's, and prove it did not move when forty courses of waterfall came out of it — the first must
+// equal `meshMinY * cell` and the second still be the keel's depth. Null with no carried island.
 (window as unknown as { __dbgSkyFall: () => unknown }).__dbgSkyFall =
   () => world.debugSkyFall();
 
-/**
- * THE WOOD ON A CARRIED DECK, AND WHETHER IT BLOCKS. For tools/test-carrier.mjs.
- *
- * Every tree the carried settlement planted, with the collision query's own
- * answer at its column — and a control sweep of the whole deck beside it,
- * because "there is something solid here" only means something next to "and not
- * everywhere". A carrier moves about a unit a second, so BOTH are read in one
- * evaluation: a probe that fetched the positions and then asked about them
- * would be asking about where the tree was.
- *
- * `rise` is measured off the deck plane (the frame's own origin), so it is the
- * height of the bole and not an altitude that changes as the island climbs.
- */
+// The wood on a carried deck, and whether it blocks: every planted tree with the collision query's
+// answer, plus a control sweep, because "something solid here" needs "and not everywhere". Both in ONE
+// evaluation, since a carrier moves a unit a second. `rise` is off the deck plane, not an altitude.
 (window as unknown as { __dbgCarriedWood: () => unknown }).__dbgCarriedWood = () => {
   const c = world.carriers.all[0];
   if (!c) return { deck: null, trees: [], sampled: 0, raised: 0 };
@@ -7106,32 +4234,16 @@ beginPlay();
       const t = c.topAt(c.x + i * step, c.z + j * step);
       if (t === -Infinity) continue;
       sampled++;
-      // A whole unit over the turf: above `MAX_STEP_UP` by a wide margin, so
-      // this counts obstacles rather than the odd doorstep.
+      // A whole unit over the turf, well above `MAX_STEP_UP`, so this counts obstacles not doorsteps.
       if (t > c.y + 1) raised++;
     }
   }
   return { deck: +c.y.toFixed(2), trees, sampled, raised, streets: world.debugCarriedStreets() };
 };
 
-/**
- * THE QUEST JOURNAL AND ITS HUD TRACKER, FOR tools/test-journal.mjs.
- *
- * `model` is what the panel was handed and `panel` is what reached the DOM, so
- * "the model is right and the screen is empty" is a distinguishable outcome —
- * the inventory hook's rule. `hud` is the tracker, read off the DOM for the same
- * reason: the whole feature is a switch in one place changing what is drawn in
- * another, and a reading taken from the model at both ends would prove neither.
- */
-/**
- * THE QUEST MARKS, as the frame last drew them — for tools/test-quest-marks.mjs.
- *
- * Two readings and not one, because they answer different questions. `marked`
- * is the POLICY — who the campaign says has work — and is the half a probe can
- * assert without standing anywhere in particular. `drawn` is what actually
- * reached the scene after the distance cull, which is the half that catches a
- * mark computed correctly and never rendered.
- */
+// The journal, its tracker and the quest marks, for test-journal and test-quest-marks. `model` is what
+// the panel was handed and `panel` what reached the DOM, so "model right, screen empty" is
+// distinguishable; `marked` is the POLICY and `drawn` what survived the distance cull.
 (window as unknown as { __dbgQuestMarks: () => unknown }).__dbgQuestMarks = () => ({
   marked: {
     npcs: [...markedNpcs].map(([id, kind]) => ({ id, kind })).sort((a, b) => a.id < b.id ? -1 : 1),
@@ -7172,27 +4284,14 @@ beginPlay();
   },
 });
 
-/**
- * STAGE A QUEST, so the probe has something to read.
- *
- * `core` ships no quests — `data/example-quest.json` is a separate package that
- * nothing loads at boot (see its `meta.note`), which is exactly the arrangement
- * this hook has to work with. It takes the `debug` lease the dev console's
- * `/content load` takes, for that command's reason: a package a tool opened must
- * be releasable and must never be mistaken for core content.
- *
- * A DRIVER, not a reader, and deliberately so — see the note on the `__dbg*`
- * hooks in AGENTS.md. It does what a player would have done by talking to the
- * quest giver, which is the only way a probe can reach the screen under test.
- */
+// Stage a quest so the probe has something to read: `core` ships none, and this takes the `debug` lease
+// `/content load` takes. A DRIVER, not a reader — it does what talking to the giver would.
 (window as unknown as {
   __dbgQuestStage: (pkg?: string) => Promise<unknown>;
 }).__dbgQuestStage = async (pkg = 'example-quest') => {
   const r = await content.load(pkg, 'debug');
-  // THE PACKAGE'S OWN QUESTS AND NOT EVERY LOADED ONE. It used to be every one,
-  // which was the same set back when `core` shipped none — and stopped being it
-  // the day the campaign started loading at boot (issue #143): a probe asking
-  // for one quest was handed Act 1 as well, and counted its cards.
+  // THE PACKAGE'S OWN QUESTS AND NOT EVERY LOADED ONE. That was the same set until the campaign began
+  // loading at boot (issue #143), after which a probe asking for one quest was handed Act 1 as well.
   const ids = r.assets.filter((id) => content.get<QuestData>(id)?.type === 'quest');
   for (const id of ids) content.state.setQuestStatus(id, 'active');
   return { loaded: r.loaded, assets: r.assets, quests: ids };
@@ -7206,15 +4305,8 @@ beginPlay();
   return questOnHud(id);
 };
 
-/**
- * THE INVENTORY, FOR tools/test-inventory.mjs.
- *
- * Everything a probe cannot see any other way. `attackStat` is the one that
- * makes the gear slot testable at all: a weapon icon in a slot looks identical
- * whether or not equipping it did anything, and this is the number that says.
- * `panel` reports what is actually on the DOM, so a model that is right and a
- * screen that is empty are distinguishable.
- */
+// `attackStat` is what makes the gear slot testable at all — an icon looks identical whether or not
+// equipping did anything — and `panel` reports the DOM, so a right model and an empty screen differ.
 (window as unknown as { __dbgInventory: () => unknown }).__dbgInventory = () => {
   const m = inventoryModel();
   return {
@@ -7225,9 +4317,8 @@ beginPlay();
     buff: { attack: attackBuff, seconds: +attackBuffT.toFixed(2) },
     weapon: equippedWeapon,
     hp: +player.hp.toFixed(1),
-    // A gear slot carries its ROW now, actions and all: what is in one is no
-    // longer on the wall as well (issue #116), so `entries` is not where a
-    // probe can find what an equipped thing offers.
+    // A gear slot carries its ROW now, actions and all: what is in one is no longer on the wall as well
+    // (issue #116), so `entries` is not where a probe finds what an equipped thing offers.
     gear: m.gear.map((g) => ({
       slot: g.slot,
       id: g.entry?.id ?? null,
@@ -7236,55 +4327,34 @@ beginPlay();
       actions: g.entry?.actions ?? [],
     })),
     bag: bag.entries().map((e) => ({ id: e.def.id, kind: e.def.kind, count: e.count })),
-    // What the host believes about the three unlocks. The DOM's own answer is
-    // `panel.mountBadges` below; the pair is what tells "the model is wrong"
-    // from "the model is right and the badge is not drawing it".
+    // What the host believes about the three unlocks; `panel.mountBadges` is the DOM's answer, and the pair separates a wrong model from a badge that is not drawing it.
     mounts: m.mounts,
     entries: m.entries.map((e) => ({
       id: e.id, kind: e.kind, count: e.count,
       equipped: !!e.equipped, actions: e.actions ?? [],
-      // WHICH CELL, so a probe can assert a drag moved a box and not merely
-      // that the panel redrew — see `SlotLayout` and issue #116.
+      // WHICH CELL, so a probe can assert a drag moved a box and not merely that the panel redrew (#116).
       slot: e.slot ?? -1,
     })),
-    // What the DOM holds, or nulls when the panel is shut.
-    //
-    // `portraits` is the one worth explaining: a beast slot's picture is BAKED
-    // by the panel's 3D stage a frame at a time (see ui/inventory-stage.ts), so
-    // it is the count of beast slots that have stopped being a placeholder
-    // lozenge — which is the only thing that can tell "the stage rendered ten
-    // models" from "the stage never came up and every slot is a coloured blob".
+    // Nulls when the panel is shut. `portraits` counts slots whose picture the 3D stage has BAKED, the only way to tell ten models from ten coloured blobs.
     panel: inventory.isOpen ? {
       slots: document.querySelectorAll('.bs-inv .slot').length,
-      // The wall is a FIXED 11x3 of real cells, so "how many rows does the
-      // player own" and "how many boxes are drawn" are two different numbers
-      // now and the probe needs both — see INV_COLS in ui/inventory.ts.
+      // The wall is a FIXED 11x3 of real cells, so "rows the player owns" and "boxes drawn" are two different numbers (see INV_COLS).
       filled: document.querySelectorAll('.bs-inv .slot:not(.empty)').length,
       gearSlots: document.querySelectorAll('.bs-inv .gs').length,
       tabs: document.querySelectorAll('.bs-inv .chip.tab').length,
-      // THE WHOLE PANEL and not just the wall: a gear slot draws the same
-      // pictures, and since issue #116 it is the only place an equipped weapon
-      // or a beast walking with you is drawn at all.
+      // THE WHOLE PANEL and not just the wall: since issue #116 a gear slot is the only place an equipped weapon or a beast walking with you is drawn at all.
       icons: document.querySelectorAll('.bs-inv .ic:not(.blob)').length,
       portraits: document.querySelectorAll('.bs-inv .ic.beast:not(.blob)').length,
       stageGl: !!document.querySelector('.bs-inv canvas.stage-gl'),
-      // A ROW IS IN HAND. Read off the ghost tile the panel draws under the
-      // cursor, which is the same thing the player is looking at — a click that
-      // picked something up and a click that did nothing are otherwise the same
-      // screen with the same model behind it.
+      // A ROW IS IN HAND, read off the ghost tile the panel draws under the cursor — the same thing the player sees.
       carrying: !!document.querySelector('.bs-inv .drag-ghost'),
-      // WHO IS ACTUALLY IN THE STAGE'S SCENE — not who was asked for. The two
-      // disagreed when the beasts swapped slots, which is the bug: the second
-      // slot's turn removed the rig the first slot had just placed. See
-      // `InventoryStage.setCast`.
+      // WHO IS ACTUALLY IN THE STAGE'S SCENE, not who was asked for.
       stageCast: inventory.stageCast(),
       footActions: [...document.querySelectorAll('.bs-inv .sel button')]
         .map((b) => (b as HTMLElement).dataset.do ?? ''),
       tip: document.querySelector('.bs-inv .tip.on')?.textContent ?? null,
-      // THE MOUNT BADGES, as the DOM has them rather than as the model does —
-      // `mounts` above already reports what the host believes, and reading the
-      // same answer twice would prove nothing. What this catches is a badge
-      // drawn without its lit state, which is the whole of what it says.
+      // THE MOUNT BADGES as the DOM has them — `mounts` above is what the host believes, and reading the
+      // same answer twice would prove nothing. What this catches is a badge drawn without its lit state.
       mountBadges: [...document.querySelectorAll('.bs-inv .mt')].map((b) => ({
         kind: (b as HTMLElement).dataset.tip ?? '',
         on: b.classList.contains('on'),
@@ -7295,32 +4365,14 @@ beginPlay();
   };
 };
 
-/**
- * WHAT THE HERO IS HOLDING AND WHAT HE HAS FIRED.
- *
- * `weapon` is read off the RIG (see `Player.weapon`), which is the only copy —
- * so this cannot report a sword while a bow is drawn. `shots` is the live
- * projectile census, and the `arrow` flag on it is the whole of "the bow fires
- * an arrow": the pool is shared with every skill in the game, so a shot that
- * came out as a fireball would be indistinguishable from a working bow in any
- * other reading.
- */
+// `weapon` is read off the RIG, the only copy, so it cannot report a sword while a bow is drawn. The projectile pool is shared, so the `arrow` flag is the whole claim.
 (window as unknown as { __dbgShots: () => unknown }).__dbgShots = () => ({
   weapon: player.weapon,
   attackStat: player.attackStat,
   shots: combat.projectileSnapshot(),
 });
 
-/**
- * TEST HOOKS, the same class as `__dbgDrop` and `__dbgHurt`: stage a bag state
- * and press a button, without farming a 1-in-25 drop to get there or driving a
- * cursor onto a slot to press it.
- *
- * `__dbgInvAction` deliberately goes through `inventoryAction` rather than
- * through the panel, which is what makes the quest-item control in
- * tools/test-inventory.mjs mean anything: the refusal has to live in the
- * handler, not only in which buttons the panel chose to draw.
- */
+// TEST HOOKS: stage a bag state and press a button without farming a 1-in-25 drop.
 (window as unknown as { __dbgGive: (id: string, n?: number) => void })
   .__dbgGive = (id, n = 1) => { if (isKnownItem(id)) giveItemFromContent(id, n); };
 
@@ -7328,10 +4380,8 @@ beginPlay();
 (window as unknown as { __dbgInvAction: (id: string, action: string) => void })
   .__dbgInvAction = (id, action) => {
     inventoryAction(id, action as InvAction);
-    // The panel re-reads after a button it pressed itself; this hook goes
-    // straight to the handler, so it owes the screen the same refresh — without
-    // it a probe reads a panel one action behind the state it is asserting on,
-    // which is a failure in the test and not in the game.
+    // The panel re-reads after a button it pressed itself; this hook goes straight to the handler, so it
+    // owes the screen the same refresh or a probe reads a panel one action behind the state.
     inventory.refresh();
   };
 
@@ -7341,21 +4391,12 @@ beginPlay();
     y: +world.spawnPoint.y.toFixed(2),
     z: +world.spawnPoint.z.toFixed(2),
   },
-  /**
-   * What the settlements BLOCK — the same boxes /show-colliders draws, counted.
-   *
-   * Here and not in a probe of its own because the assertion is about the
-   * registry: every entry in it, camp and hamlet alike, has to have grown
-   * colliders, and a town that reports zero is one whose builder was missed.
-   */
+  // The boxes /show-colliders draws, counted. The assertion is about the registry: a town reporting zero is one whose builder was missed.
   structures: ((): unknown => {
     const b: number[] = [];
     world.debugStructures(b);
-    // BANDED IN HEIGHT, for the reason `__dbgStructures` states at length: a
-    // carried settlement flying over a ground one lands inside its radius and
-    // is counted as its colliders. `y` is the town's own level, so a CARRIED
-    // town bands around its own deck and gets its own boxes rather than the
-    // ground's.
+    // BANDED IN HEIGHT: a carried settlement flying over a ground one lands inside its radius and would
+    // be counted as its colliders. `y` is the town's own level, so a carried town bands around its deck.
     const within = (x: number, y: number, z: number, r: number): number => {
       let n = 0;
       for (let i = 0; i < b.length; i += 6) {
@@ -7366,43 +4407,26 @@ beginPlay();
     };
     return {
       boxes: b.length / 6,
-      // The CENTRE travels with the count so a probe can aim at a settlement
-      // without pinning a seed's coordinates — the same argument
-      // `__dbgStructures` makes for existing at all.
+      // The CENTRE travels with the count so a probe can aim at a settlement without pinning a seed's coordinates.
       perTown: world.towns.all.map((town) => ({
         id: town.id,
         x: +town.x.toFixed(2),
         y: +town.y.toFixed(2),
         z: +town.z.toFixed(2),
         radius: +town.outerRadius.toFixed(2),
-        // A carried town rides a moving piece of world and has no chunk foliage
-        // under it at all — see TownRecord.carried.
+        // A carried town rides moving world and has no chunk foliage under it — see TownRecord.carried.
         carried: town.carried,
         boxes: within(town.x, town.y, town.z, town.radius + 4),
       })),
     };
   })(),
-  /**
-   * THE ROAD FURNITURE, AS A MEASUREMENT.
-   *
-   * "The lamps are too close to each other" and "the signposts are standing in
-   * the road" (issue #15) are both statements about numbers, and these are the
-   * numbers: the smallest gap between any two pieces, and how far INSIDE the
-   * nearest carriageway any of them stands. A lamp interval is 26, so the
-   * closest pair should be a good fraction of that.
-   *
-   * MEASURED FROM THE RIM, PER ROAD. This asked "is it within 5 of a
-   * centreline", 5 being the cart road's `deckEdge` written out as a constant —
-   * so the day a 3.6-unit trail joined the network the reader called a
-   * fingerpost standing 3.43 away, comfortably off the trail's gravel, a piece
-   * of furniture in the road. A path's numbers come from its profile.
-   */
+  // THE ROAD FURNITURE AS A MEASUREMENT (issue #15): the smallest gap between two pieces, and how far
+  // INSIDE the nearest carriageway any stands. A lamp interval is 26, so the closest pair should be a good
+  // fraction of it. From the RIM, PER ROAD — "within 5 of a centreline" called a fingerpost 3.43 from a
+  // 3.6-unit trail furniture in the road.
   furniture: ((): unknown => {
     const f = world.debugFurniture();
-    /**
-     * How far inside the nearest carriageway (x, z) stands: positive when the
-     * point is ON the gravel, negative by its clearance when it is beside it.
-     */
+    // How far inside the nearest carriageway (x, z) stands: positive on the gravel, negative by its clearance when beside it.
     const roadDist = (x: number, z: number): number => {
       let best = -Infinity;
       for (const r of world.towns.roads) {
@@ -7449,19 +4473,10 @@ beginPlay();
       onCarriageway: onRoad,
     };
   })(),
-  /**
-   * EVERY FENCE THE ROAD PASS BUILT, chain by chain — see `World.debugFences`.
-   *
-   * In the same hook as the furniture because it answers the same class of
-   * question about the same pass, and because issue #105's invariant is a
-   * statement about numbers a screenshot cannot settle: `tools/test-fence.mjs`
-   * runs the identical check over this and over the lab stage's demos.
-   */
+  // In this hook because it answers the same class of question about the same pass, and issue #105's invariant
+  // is numbers; test-fence runs the identical check on the lab demos.
   fences: world.debugFences(),
-  /**
-   * The fence kit's own metrics, so a probe checks a chain against what the
-   * BUILDER painted rather than against a copy of those numbers in a test.
-   */
+  // The fence kit's own metrics, so a probe checks a chain against what the BUILDER painted rather than a copy of those numbers in a test.
   fenceKit: {
     postH: FENCE_POST_H, postR: FENCE_POST_R, postWidth: FENCE_POST_WIDTH,
     railAt: [...FENCE_RAIL_AT], railWidth: FENCE_RAIL_WIDTH,
@@ -7469,14 +4484,10 @@ beginPlay();
   },
   towns: world.towns.all.map((town) => ({
     id: town.id,
-    // The looked-up name, so `?lang=sv` shows what the fingerpost shows. The
-    // probe's own field names, and every other string it prints, stay English.
+    // The looked-up name, so `?lang=sv` shows what the fingerpost shows; field names stay English.
     name: t(town.nameKey),
     kind: town.kind,
-    // Whether something is carrying it — see TownInfo.carried. A probe that
-    // reasons about the ground a settlement stands on has to be able to tell,
-    // because a carried town's colliders are in its carrier's frame and its
-    // position is a reading rather than a placement.
+    // Whether something is carrying it: a carried town's colliders are in its carrier's frame and its position is a reading rather than a placement.
     carried: town.carried,
     x: +town.x.toFixed(1), y: town.y, z: +town.z.toFixed(1),
     radius: town.radius,
@@ -7499,8 +4510,7 @@ beginPlay();
       const bz = r.path[i * 3 + 2];
       const seg = Math.hypot(bx - ax, bz - az);
       len += seg;
-      // Sample the walking surface finely, not just at the deck samples: a step
-      // is a property of the surface between them.
+      // Sample the walking surface finely: a step is a property of the surface between the deck samples.
       const steps = Math.max(1, Math.ceil(seg / 0.25));
       for (let k = 1; k <= steps; k++) {
         const t = k / steps;
@@ -7538,16 +4548,7 @@ beginPlay();
   }),
 });
 
-/**
- * Where the skill dens are, and which way each faces.
- *
- * The dens are the one class of building that is not in the town registry, so
- * `__dbgTowns` cannot find them and a probe aiming at one had nothing to aim
- * with — which is the same reason `__dbgStructures` exists rather than tests
- * pinning a seed's coordinates. `facing` is the bearing of the OPEN front (the
- * counter, between the banners): a den is turned to look at the spawn, so this
- * is where a player walks up from. Read-only, allocates.
- */
+// The dens are the one class of building not in the town registry, so `__dbgTowns` cannot find them.
 (window as unknown as {
   __dbgShops: () => Array<Record<string, number>>;
 }).__dbgShops = () => world.shopPositions.map((p) => ({
@@ -7556,16 +4557,7 @@ beginPlay();
   distToSpawn: +p.distanceTo(world.spawnPoint).toFixed(2),
 }));
 
-/**
- * Every disc the wild population may not appear in, and who claimed it.
- *
- * The failure mode of a keep-out is INVISIBLE — a monster that did not spawn
- * leaves nothing behind — so the only way to tell "the zones are working" from
- * "the spawner is broken" is to read the discs and then ask `blocks` about a
- * point. Both are here, which is why this takes an optional column: with no
- * arguments it is the census, with (x, z) it is the same question `trySpawn`
- * asks. Read-only, allocates; the world's own answer, not a recomputation of it.
- */
+// A keep-out fails INVISIBLY, so telling working zones from a broken spawner means reading the discs and then asking `blocks` about a point — hence the optional column.
 (window as unknown as {
   __dbgSafeZones: (x?: number, z?: number) => unknown;
 }).__dbgSafeZones = (x, z) => ({
@@ -7579,27 +4571,14 @@ beginPlay();
   blocks: x === undefined || z === undefined ? null : world.safeZones.blocksSpawn(x, z),
 });
 
-/**
- * THE PATH NETWORK, and what it answers at a column.
- *
- * `__dbgTowns().roads` is the DRAWN paths only, which is what everything else
- * means by "the roads" — so after issue #142 folded a settlement's beaten
- * tracks onto the same network there was no way to see them at all. This is it,
- * and the pair of `edge` numbers at a column is the invariant that fold-in
- * rests on: see `World.debugPaths`.
- */
+// `__dbgTowns().roads` is the DRAWN paths only, so beaten tracks were invisible after issue #142 folded them
+// onto the same network; the `edge` pair is that fold's invariant.
 (window as unknown as {
   __dbgPaths: (x?: number, z?: number) => unknown;
 }).__dbgPaths = (x, z) => world.debugPaths(x, z);
 
-/**
- * AUTHOR A PATH AT RUNTIME. The scriptable half of `/path`, and the reason the
- * editor work in issue #142 §12 is testable before a pixel of panel exists.
- *
- * The hook and the command share `World.addPath` and `refit` below, which is
- * the project's own rule about a driver hook: a probe must not be able to pass
- * a test the UI would fail, so both go through one function.
- */
+// The scriptable half of `/path`, which is why issue #142 §12 is testable before a panel exists. Both share
+// `World.addPath` and `refit`, so a probe cannot pass what the UI fails.
 (window as unknown as {
   __dbgAddPath: (
     ax: number, az: number, bx: number, bz: number, profile?: string, cross?: boolean,
@@ -7608,22 +4587,15 @@ beginPlay();
   from: [ax, az], to: [bx, bz], profile, cross, refit: refitHero,
 });
 
-// World surface queries at an arbitrary column, for the climbing/collision
-// tests: `ground` is what blocks and supports, `trunkSolidTop` is the bole a
-// tree adds to that, `structureTop` is what a settlement built there, and
-// `climbTop` is what can be grabbed (bole or canopy — deliberately NOT a
-// building; a palisade you can grab is a palisade you climb over).
-// Read-only, and the whole point of the four being separate — see World.
+// `ground` blocks and supports, `trunkSolidTop` is the bole a tree adds, `structureTop` what a
+// settlement built, `climbTop` what can be grabbed — deliberately not a building, which you would climb over.
 (window as unknown as { __dbgWorld: (x: number, z: number) => unknown }).__dbgWorld = (x, z) => ({
   ground: world.getHeight(x, z),
   climbTop: world.climbTopAt(x, z),
   trunkSolidTop: world.trunkSolidTopAt(x, z),
   structureTop: world.structureTopAt(x, z),
-  // The two WET queries, added with the deep sea (issue #76). They belong
-  // beside the four above for the same reason those four are separate: each is
-  // a different question a mover asks about the same column, and a probe that
-  // had to derive "is this deep" from `ground` would be hard-coding a threshold
-  // the world owns (see DEEP_WATER_DEPTH in world/terrain.ts).
+  // The two WET queries, added with the deep sea (issue #76), separate for the same reason: deriving
+  // "is this deep" from `ground` would hard-code a threshold the world owns (DEEP_WATER_DEPTH).
   water: world.isWater(x, z),
   deep: world.isDeepWater(x, z),
   /** How walked this column is, 0..1 — see `World.debugWear`. */
@@ -7632,31 +4604,13 @@ beginPlay();
   column: +world.debugColumn(x, z).toFixed(3),
 });
 
-/**
- * What you SEE at a column, as opposed to what you STAND ON.
- *
- * `__dbgWorld().ground` is the walking surface — the number the player, the
- * beasts and the camera all resolve against. This raycasts the actual scene
- * straight down and reports the geometry that was actually built there. The
- * two answering differently is a specific and nasty class of bug: the hero is
- * exactly where the physics says he should be, and he looks buried, because the
- * mesh in front of him was drawn above his feet. Nothing else in the probe set
- * could see it — every existing test compares the world against itself.
- *
- * The ray starts `above` units over the WALKING surface rather than in the sky,
- * and that is the whole trick: dropped from 400 it reports the cloud deck, the
- * canopy and every eave it passes through on the way down, none of which is the
- * ground. Starting just overhead asks the only question worth asking — what is
- * drawn right where the feet are. Returns `sink` = surface - ground, how deep a
- * figure standing there appears to be buried. Allocates and walks the whole
- * scene graph; call it from a tool, never from a frame.
- */
+// What you SEE at a column, as opposed to what you STAND ON: this raycasts the scene straight down,
+// where `ground` is the walking surface. The two disagreeing is a nasty bug — the hero is where physics
+// says and looks buried — and no other test can see it, since they compare the world with itself. The
+// ray starts just over the walking surface: from 400 it would report the cloud deck and every eave.
 const _surfRay = new THREE.Raycaster();
-// EVERY LAYER, and this is not optional since core/shadow-cache.ts moved the
-// world's static geometry onto a layer of its own. A Raycaster starts on layer
-// 0 alone, so a default one now fires straight through the terrain, the trees
-// and the towns and reports whatever glow sprite it meets on the way — i.e.
-// exactly the surface question this exists to answer, answered about nothing.
+// EVERY LAYER, and not optional since core/shadow-cache.ts moved the world's static geometry onto a
+// layer of its own: a Raycaster starts on layer 0 alone and would fire straight through the terrain.
 _surfRay.layers.enableAll();
 const _surfFrom = new THREE.Vector3();
 const _surfDown = new THREE.Vector3(0, -1, 0);
@@ -7667,13 +4621,9 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   _surfFrom.set(x, ground + above, z);
   _surfRay.set(_surfFrom, _surfDown);
   _surfRay.far = above + 40;
-  // Sprite.raycast reads `raycaster.camera.matrixWorld` and throws on a null
-  // one, and the world is full of glow sprites — so the camera has to be handed
-  // over even though nothing here cares what it sees.
+  // Sprite.raycast reads `raycaster.camera.matrixWorld` and throws on a null one, and the world is full of glow sprites.
   _surfRay.camera = engine.camera;
-  // MESHES ONLY. A ray fired through this world also collects glow sprites and
-  // the drifting mote Points, and neither is something a hero can stand on or
-  // be hidden behind — left in, they were all this reported.
+  // MESHES ONLY: a ray fired through this world also collects glow sprites and drifting mote Points, and left in, they were all this reported.
   const hits = _surfRay.intersectObject(engine.scene, true)
     .filter((h) => h.object.visible && (h.object as THREE.Mesh).isMesh);
   const top = hits[0] ?? null;
@@ -7689,41 +4639,17 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   };
 };
 
-// The grass-disturbance field: the six uniform slots the shader is reading this
-// frame, and the tracks behind them. `slots[].push` and `.wash` are the two
-// numbers the effect is made of, and `tracks[].lag` is the distance between a
-// body and its own wake — the "spreads" this exists for, as a measurement
-// rather than as a claim. Null with `?sway=0` or `?props=0`.
+// The six uniform slots the shader reads this frame. `slots[].push`/`.wash` are the effect; `tracks[].lag` is the gap between a body and its own wake. Null with ?sway=0.
 (window as unknown as { __dbgSway: () => unknown }).__dbgSway = () => world.swayDebug?.() ?? null;
 
-/**
- * The settlement colliders near a point, biggest first — the same boxes
- * /show-colliders draws, as numbers.
- *
- * The picture and the numbers answer different halves of the same question. A
- * capture shows whether the cages line up with the walls; this is what lets a
- * test AIM: "walk into the largest box within 20 units of the camp centre" finds
- * a hut without anything having to remember where the layout put one, and
- * without the test hard-coding a seed's coordinates. Read-only, allocates,
- * never called from the frame loop.
- */
 (window as unknown as {
   __dbgStructures: (x: number, z: number, r?: number) => unknown[];
 }).__dbgStructures = (x, z, r = 30) => {
   const b: number[] = [];
   world.debugStructures(b);
   const out: Array<Record<string, number>> = [];
-  // A COLUMN, NOT A DISC. This asked a purely horizontal question, which was
-  // exact for as long as everything built in the world stood on the ground —
-  // and stopped being exact the day a settlement started flying over it. With
-  // the island overhead, its two hundred-odd boxes fall inside the radius of
-  // whatever ground town it happens to be above and are reported as that
-  // town's: measured, the Encampment came back with 73 colliders against its
-  // budget of 64, and nothing had been built in it.
-  //
-  // So the query is banded. `CEILING` is generous — a tower is 24 units and a
-  // roof ridge a few more — and the island cruises at 190, so there is no
-  // ambiguity to resolve, only a line to draw.
+  // A COLUMN, NOT A DISC: with the island overhead its boxes fall inside whatever ground town it is above
+  // — the Encampment came back with 73 against a budget of 64. A tower is 24 and the island cruises at 190.
   const CEILING = 60;
   const ground = world.getHeight(x, z);
   for (let i = 0; i < b.length; i += 6) {
@@ -7743,20 +4669,9 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   return out;
 };
 
-/**
- * THE OVERLAY ITSELF, as numbers — what /show-colliders is drawing right now.
- *
- * `__dbgStructures` reads the collision data; this reads the PICTURE of it, and
- * the two can disagree. A cage is a base and a top, and only the top comes from
- * the field — the base is inferred, which is how every collider on the flying
- * settlement came to be drawn as a two-hundred-unit shaft down to the meadow
- * (issue #112) while the numbers behind them were correct all along. `tallest`
- * is the whole of that defect in one reading.
- *
- * Pass `true`/`false` to switch the overlay on or off first; with no argument it
- * only reads. Rebuilds on its own timer, so a probe that has just turned it on
- * gets this frame's build (`setVisible` rebuilds).
- */
+// The overlay as numbers. `__dbgStructures` reads the collision data, this reads the PICTURE, and they
+// can disagree: only a cage's top comes from the field and its base is inferred, which drew every
+// collider on the flying settlement as a 200-unit shaft to the meadow (issue #112).
 (window as unknown as {
   __dbgColliderView: (on?: boolean) => unknown;
 }).__dbgColliderView = (on) => {
@@ -7779,17 +4694,7 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   };
 };
 
-/**
- * The ROOF cylinders near a point, biggest first — the arches /show-colliders
- * draws, as numbers.
- *
- * `fit` is the one worth reading and the reason this exists rather than being
- * folded into `__dbgStructures`: it is how far the cylinder stands off the
- * thatch it was fitted to at its worst point, which is the entire question about
- * whether a cylinder was the right shape for a given roof. A box could not
- * report such a thing — it does not claim to follow anything. See `measureRidge`
- * in world/structures.ts. Read-only, allocates, never called from the frame loop.
- */
+// `fit` is why this is not folded into `__dbgStructures`: how far the cylinder stands off the thatch at its worst point, which a box could never report.
 (window as unknown as {
   __dbgRidges: (x: number, z: number, r?: number) => unknown[];
 }).__dbgRidges = (x, z, r = 30) => {
@@ -7814,37 +4719,15 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   return out;
 };
 
-/**
- * The two numbers issue #131 is about, taken off the streamed foliage's own
- * VERTICES: how many stand inside a building, and how many stand right up
- * against one without being inside it.
- *
- * BOTH, because the issue asks for both. "No grass in the wall" is trivially
- * satisfied by emptying a disc around every settlement, and the issue says in
- * so many words that it does not want that — grass may grow around a fence post
- * and against a wall, it may only not clip. So `hits` is the bug and `snug` is
- * the thing the fix must not have thrown away; a run with `hits` at 0 and
- * `snug` at 0 as well is a bald camp, and passes the first half by failing the
- * point.
- *
- * VERTICES AND NOT PLACEMENTS, deliberately. The placer's rule
- * (`SiteClearance`, core/types.ts) reasons about a prop as a disc of its
- * measured extent, so asking the placer whether it obeyed its own disc proves
- * only that the arithmetic ran. What a player sees is a blade of grass standing
- * in a plank, so what is counted here is a blade of grass standing in a plank,
- * tested at zero radius against the same field the placer consulted.
- *
- * THE SAME FIELD, and that is the whole reason `World.foliageSite` is exposed.
- * `debugStructures` would have been the easy set to reach for and it is the
- * wrong one: it merges in the people (who walk, while a chunk's grass is baked
- * once) and whatever is flying overhead, so it reported a quarter of a million
- * "clips" under the sky island and a few hundred through an NPC's boots.
- *
- * `verts` is reported alongside so a probe can tell "nothing is clipping" from
- * "nothing has streamed yet" — the same zero, and not the same result.
- *
- * Read-only, allocates freely, never called from the frame loop.
- */
+// The two numbers issue #131 is about, off the streamed foliage's own VERTICES: how many stand inside a
+// building, and how many right up against one. BOTH, because emptying a disc round every settlement
+// satisfies the first and is explicitly not wanted — `hits` is the bug, `snug` is what the fix must not
+// throw away, and 0 with 0 is a bald camp.
+//
+// VERTICES AND NOT PLACEMENTS: asking the placer whether it obeyed its own disc proves only that the
+// arithmetic ran. THE SAME FIELD (`World.foliageSite`), because `debugStructures` merges in the people
+// and whatever flies overhead — it reported a quarter of a million clips under the sky island. `verts`
+// separates "nothing is clipping" from "nothing has streamed".
 (window as unknown as {
   __dbgFoliageClip: (x: number, z: number, r?: number, gap?: number) => unknown;
 }).__dbgFoliageClip = (x, z, r = 40, gap = 0.5) => {
@@ -7866,13 +4749,10 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       if (dx * dx + dz * dz > r2) continue;
       verts++;
       const vy = a[i + 1] + o.position.y;
-      // `gap` first: it is the wider question, and a vertex it rejects cannot
-      // be inside anything either, so most of the meadow costs one query.
+      // `gap` first: it is the wider question, and a vertex it rejects cannot be inside anything either.
       if (!site.hits(vx, vz, gap, vy, vy)) continue;
-      // A POINT, i.e. radius zero and no height band: this vertex, exactly
-      // where it is drawn. That is a strictly harder question than the one the
-      // placer answered about the whole prop, so anything it finds is a real
-      // clip rather than a disagreement between two approximations.
+      // A POINT — radius zero, no height band: this vertex exactly where it is drawn, which is a strictly harder
+      // question than the one the placer answered about the whole prop.
       if (site.hits(vx, vz, 0, vy, vy)) {
         hits++;
         if (hits === 1) { at.x = vx; at.y = vy; at.z = vz; }
@@ -7882,24 +4762,13 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   return { x, z, radius: r, gap, verts, hits, snug, at: hits > 0 ? at : null };
 };
 
-/**
- * Nanoseconds per `structureTopAt` at a column — the price of settlement
- * collision, measured rather than assumed.
- *
- * It exists because "do not linear-scan every collider in the world, but do not
- * build a heavyweight index for sixty boxes either" is only answerable with a
- * number. Call it in the middle of the Encampment (the worst case: a bucket with
- * something in it) and out in open country (the common case: a bounds test and a
- * failed Map.get), and the two answers together say whether the grid in
- * world/structures.ts is earning its fifteen lines.
- *
- * Read-only, allocates once, never called from the frame loop.
- */
+// The price of settlement collision, measured: "do not linear-scan every collider, do not index sixty
+// boxes either" is only answerable with a number. Call it inside the Encampment and out in open
+// country; the two say whether the grid in world/structures.ts earns its fifteen lines.
 (window as unknown as {
   __dbgBenchStructures: (x: number, z: number, n?: number) => unknown;
 }).__dbgBenchStructures = (x, z, n = 200000) => {
-  // Wander the sample point over a few units so the loop is not one branch
-  // predicted perfectly, and so a warm cache line is not doing all the work.
+  // Wander the sample point over a few units so the loop is not one perfectly predicted branch on a warm cache line.
   let sink = 0;
   const run = (): number => {
     const t0 = performance.now();
@@ -7914,31 +4783,14 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   return { x, z, calls: n, nsPerCall: +ns.toFixed(1), sink };
 };
 
-/**
- * Every shader program three currently holds, as `type|cacheKey`.
- *
- * This is the instrument the zone warm-up was built with, and it earns its
- * place: `perf.count('programs')` says a program was linked, this says WHICH,
- * and a cacheKey is a comma-joined dump of the parameters three keys on — the
- * define set, then the light counts. Snapshot it either side of an event and
- * diff, and a stall stops being a mystery. Doing exactly that is what showed
- * that walking into the dungeon linked 25 programs at point-light counts 0 and
- * 1, because the overworld's four den lamps put a floor of 4 under every count
- * it had ever compiled. Read-only, allocates, never called from the loop.
- */
+// Every program three holds, as `type|cacheKey` — the instrument the zone warm-up was built with.
+// `perf.count('programs')` says one was linked, this says WHICH: diffing either side of an event showed
+// the dungeon linking 25 at light counts 0 and 1, because four den lamps had floored every count at 4.
 (window as unknown as { __dbgProgKeys: () => string[] }).__dbgProgKeys = () =>
   (engine.renderer.info.programs ?? []).map(
     (p) => `${(p as unknown as { type: string }).type}|${(p as unknown as { cacheKey: string }).cacheKey}`,
   );
 
-// Zone state, and — in the same call — everything a transition is supposed to
-// leave untouched. The two belong together: the only way to show that a switch
-// preserved the hero's hp and a beast's level is to read them either side of the
-// same event, and a probe that needs three calls to do it invites a race.
-// Read-only, allocates, never called from the frame loop.
-// The F3 panel's state, and a way to drive it. `set` is a TEST HOOK in the same
-// sense as __dbgTp: a probe has to be able to flip a toggle and re-read the
-// draw count without simulating six arrow presses to reach the right row.
 (window as unknown as {
   __dbgTime: (value?: number | null | 'clear' | 'dawn' | 'noon' | 'dusk' | 'midnight') => unknown;
 }).__dbgTime = (value) => {
@@ -7993,18 +4845,10 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   __dbgGfx: (id?: string, value?: unknown) => unknown;
 }).__dbgGfx = (id, value) => {
   if (id === undefined) {
-    // COUNTED OFF THE SCENE, not off the setting — which is the only way to see
-    // the failure this exists for. Grass switched off stayed off while standing
-    // still and came back in patches while walking, because chunks built
-    // through the immediate path never heard about the setting. A draw-call
-    // delta could not see it (walking changes the chunk set anyway); a count of
-    // VISIBLE grass meshes says it in one number.
-    // TERRAIN IS IN HERE AND IS NOT A LAYER, deliberately. The ground cannot be
-    // switched off, which is exactly why it has to be counted: the first version
-    // of the layer logic assigned visibility only to the layers it recognised
-    // and left everything else at whatever the last `setVisible(false)` had
-    // done, so a player near a gateway got a world with no ground in it. A probe
-    // that only knows the names of things it can hide cannot see that.
+    // COUNTED OFF THE SCENE, not off the setting: grass switched off came back in patches while walking,
+    // because chunks built through the immediate path never heard about it, and a draw-call delta could not
+    // see that. TERRAIN is in here and is not a layer, deliberately — the first version left unrecognised
+    // layers at whatever the last setVisible(false) did, so a player near a gateway had no ground.
     const layers: Record<string, { shown: number; hidden: number }> = {
       terrain: { shown: 0, hidden: 0 },
       grass: { shown: 0, hidden: 0 },
@@ -8026,20 +4870,10 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   return gfx.get(opt.id);
 };
 
-/**
- * The hero's hair: read what he is wearing, or change it.
- *
- * A READER with no arguments — the style, the resolved colour, the roster, and
- * the VERTEX COUNT of the hair mesh, which is the number a probe can assert a
- * style swap on. Two meshes with the same geometry are the same head, and
- * counting them is the only way to tell a rebuild that happened from one that
- * was skipped without reading pixels.
- *
- * A DRIVER with arguments, going through the same `appearance` control the
- * panel's own rows do — so a probe cannot pass a test a click would fail. The
- * colour is a hex string or number; `null` clears the pick, which is how the
- * "each style in its own colour" default is reached from a tool.
- */
+// The hero's hair: read it, or change it. The VERTEX COUNT is what a probe asserts a style swap on —
+// two meshes with the same geometry are the same head. A DRIVER with arguments, through the same
+// `appearance` control the panel uses, so a probe cannot pass a test a click would fail; `null` colour
+// clears the pick.
 (window as unknown as {
   __dbgHair: (style?: string, colour?: string | number | null) => unknown;
 }).__dbgHair = (style, colour) => {
@@ -8053,9 +4887,7 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   }
   const mesh = player.rigHairMesh;
   const colours = mesh?.geometry.getAttribute('color');
-  // The MEAN VERTEX COLOUR of the hair, which is where a hair colour actually
-  // lives: `VoxelModel` bakes it into the attribute and there is no material to
-  // read it off. A probe asserting a recolour has to see this move.
+  // The MEAN VERTEX COLOUR of the hair, which is where a hair colour actually lives: `VoxelModel` bakes it into the attribute and there is no material to read it off.
   const tint = [0, 0, 0];
   if (colours) {
     for (let i = 0; i < colours.count; i++) {
@@ -8073,15 +4905,7 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   };
 };
 
-/**
- * The F3 spawner: read the catalogue, or drive it.
- *
- * A READER with no arguments — branch ids and row counts, plus how many
- * structures are standing — and a DRIVER with two, which is a probe's job and
- * the same argument `__dbgTp` and `__dbgGfx` make. It goes through the same
- * `spawnCatalogue.spawn` a click does, so a probe cannot pass a test the panel
- * would fail.
- */
+// A READER with no arguments and a DRIVER with two, through the same `spawnCatalogue.spawn` a click uses, so a probe cannot pass a test the panel would fail.
 (window as unknown as {
   __dbgSpawn: (branch?: string, row?: string) => unknown;
 }).__dbgSpawn = (branch, row) => {
@@ -8090,15 +4914,10 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       open: perfPanel.isOpen,
       typing: perfPanel.isTyping,
       structures: world.debugSpawn?.count ?? null,
-      // The wild population, so the enemy branch can be asserted on a COUNT
-      // rather than on the sentence the panel printed. A string is what the
-      // click returned; this is what the world did with it.
+      // The wild population, so the enemy branch can be asserted on a COUNT rather than on the sentence the panel printed.
       enemies: combat.enemies.length,
-      // WHERE A SPAWN WOULD LAND RIGHT NOW, beside where the old blind offset
-      // would have put it. Two points rather than one because that difference
-      // IS the feature: a probe comparing them proves the crosshair is driving
-      // the placement and not the hero's facing, which are the same point only
-      // when the camera is level with the ground and pointed the way he is.
+      // WHERE A SPAWN WOULD LAND RIGHT NOW, beside where the old blind offset would have put it: that
+      // difference IS the feature, and the two points coincide only with a level camera pointed his way.
       spot: (() => {
         const s = spawnSpot();
         return {
@@ -8116,36 +4935,25 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   return spawnCatalogue.spawn(branch, row);
 };
 
-// The cursor: what is showing, whether the sheet decoded, and — as a TEST HOOK
-// — a way to ask what a screen point would resolve to without moving a real
-// mouse there. `states` is the count that proves all sixteen tiles were cut.
+// The cursor: what is showing, whether the sheet decoded, and — as a TEST HOOK — a way to ask what a
+// screen point would resolve to without moving a real mouse. `states` proves all sixteen tiles were cut.
 (window as unknown as {
   __dbgCursor: (x?: number, y?: number) => unknown;
 }).__dbgCursor = (x, y) => {
   if (x !== undefined && y !== undefined) {
-    // Drive the real listener rather than a copy of it, so this reports what a
-    // player's mouse would get and cannot drift from it.
+    // Drive the real listener rather than a copy, so this reports what a player's mouse would get.
     window.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y }));
   }
   return { ...cursors.debug(), free: cursorFree, known: CURSOR_STATES.length };
 };
 
-// Draw calls of the last completed frame, straight off three's own counter —
-// the same number the F2 overlay prints. A hook rather than the overlay text
-// because the overlay refreshes its READOUT at most 4x a second (see
-// debug-overlay.ts), so a probe scraping it within 250 ms of a toggle reads the
-// count from BEFORE the toggle — which is exactly what tools/test-gfx.mjs was
-// doing under its old fixed sleeps, and what this makes impossible. `info`
-// resets at the start of each render, so read between frames it holds the
-// frame that just presented.
 (window as unknown as { __dbgDraws: () => number }).__dbgDraws =
   () => engine.renderer.info.render.calls;
 
 (window as unknown as { __dbgZone: () => unknown }).__dbgZone = () => ({
   ...(zones.debug() as Record<string, unknown>),
-  // Live GPU-side totals, which is how "the overworld really did unload" is
-  // shown rather than asserted: geometries is three's own count of live buffer
-  // geometries, and it drops by the whole chunk set on a switch.
+  // Live GPU-side totals, which is how "the overworld really did unload" is shown rather than asserted:
+  // `geometries` is three's own count of live buffer geometries and drops by the whole chunk set.
   geometries: engine.renderer.info.memory.geometries,
   programs: engine.renderer.info.programs?.length ?? 0,
   sceneObjects: engine.scene.children.length,
@@ -8168,20 +4976,9 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   })),
 });
 
-/**
- * Every body in the world that steers itself, and WHAT IT IS STANDING IN.
- *
- * "A beast walks through the hut its owner is leaning on" is the one way
- * settlement collision can come out looking worse than no collision at all, and
- * the only honest way to check it is to read where the other movers actually
- * ended up rather than to trust that they share a code path. `structureTop`
- * above a body's own feet means it is inside a wall.
- *
- * Fliers are listed with their locomotion because they are SUPPOSED to be over
- * the roof — a frostwing cruising above a hut is not a bug, and a probe that
- * cannot tell those apart would report one. Read-only, allocates, never called
- * from the frame loop.
- */
+// Every body that steers itself, and WHAT IT IS STANDING IN. "A beast walks through the hut its owner
+// leans on" is the one way settlement collision looks worse than none, and `structureTop` above a body's
+// feet means it is inside a wall. Fliers carry their locomotion: they are SUPPOSED to be over the roof.
 (window as unknown as { __dbgBodies: () => unknown }).__dbgBodies = () => {
   const at = (p: THREE.Vector3, feet: number): number | null => {
     const t = world.structureTopAt(p.x, p.z);
@@ -8193,9 +4990,8 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       z: +player.position.z.toFixed(2),
       overFeet: at(player.position, player.position.y),
     },
-    // The two ACTIVE followers only: the rest of the roster is benched and
-    // parked at the origin, where "is it inside a wall" means nothing. An empty
-    // list is an empty party, which is what a new game is.
+    // The two ACTIVE followers only: the rest of the roster is benched at the origin, where "is it inside
+    // a wall" means nothing. An empty list is an empty party, which is what a new game is.
     beasts: [primary(), support()].filter((p): p is BeastActor => p !== null).map((p) => ({
       id: p.species.id,
       locomotion: p.species.locomotion,
@@ -8205,27 +5001,17 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
       overFeet: at(p.position, p.position.y),
     })),
     enemies: combat.enemies.map((e) => ({
-      // Stable for this actor's lifetime. Movement probes must keep measuring
-      // the same enemy after it crosses paths with another one.
+      // Stable for this actor's lifetime: a movement probe must keep measuring the same enemy.
       id: e.root.id,
       species: e.species,
       x: +e.position.x.toFixed(2), y: +e.position.y.toFixed(2),
       z: +e.position.z.toFixed(2),
-      // ADDITIVE. Health is here so a tool can assert a swing LANDED without a
-      // second probe — tools/test-aim-assist.mjs reads it either side of an
-      // attack, which is the only statement about aim assist that is about the
-      // game rather than about the maths.
+      // ADDITIVE. Health is here so a tool can assert a swing LANDED without a second probe — tools/test-aim-assist.mjs reads it either side of an attack.
       hp: +e.hp.toFixed(2),
       maxHp: e.maxHp,
       isDead: e.isDead,
       overFeet: at(e.position, e.position.y),
-      /**
-       * The AUTHORED footprint and, for a wild beast, the one its rig measured
-       * for itself. The pair is what tools/test-taming.mjs compares: they drift
-       * silently — nothing crashes, the hp bar just floats in the wrong place
-       * and the thing is reached from the wrong distance. Null on the three
-       * painted enemies, which have no rig to disagree with.
-       */
+      // The AUTHORED footprint and, for a wild beast, the one its rig measured. They drift silently: the hp bar floats and the thing is reached from the wrong distance.
       radius: +e.radius.toFixed(2),
       height: +e.height.toFixed(2),
       rigRadius: e.rigRadius === null ? null : +e.rigRadius.toFixed(2),
