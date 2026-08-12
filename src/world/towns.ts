@@ -373,6 +373,48 @@ function hub(sites: readonly TownSite[]): { start: TownSite; spurs: readonly Tow
   return { start, spurs: spurs.slice(0, SPUR_COUNT) };
 }
 
+/**
+ * HOW HIGH THE HAZE IS TOLD A ROAD SITS, in the units `vFogElev` is measured in
+ * — the sine of the elevation of the camera-to-fragment ray. Nothing else in
+ * the game sets it (issue #190).
+ *
+ * The engine models haze as a GROUND LAYER that thins with altitude
+ * (core/engine.ts): a ridge seen high in frame keeps up to 86% of its own
+ * colour, and a fragment on the ground plane at the horizon keeps none of it.
+ * That is right for terrain and wrong for a road, because a road is the one
+ * flat thing a player is trying to READ at distance rather than to look past.
+ * Measured on the Medium preset (fog 160..430) at 400 units out: the plain
+ * keeps about 9% of its own colour, a hillside about 52%, and a road — flat, so
+ * at the plain's rate — merges into the haze while the hills it runs between
+ * are still legible. That is the report this constant answers.
+ *
+ * 0.28 is not a taste, it is PARITY: it puts the ribbon's attenuation at
+ * smoothstep(0.10, 0.46, 0.28) = 0.5, which lands it within a few percent of
+ * what a hillside at the same distance keeps. A road you can follow to the
+ * horizon exactly as well as you can read the hills, and no better — the haze
+ * still takes it, it simply takes it at the rate of the things around it.
+ */
+const RIBBON_FOG_LIFT = 0.28;
+
+/**
+ * The terrain material, told that a road is not quite the ground it lies on.
+ *
+ * A CLONE rather than a tweak to the shared one: `terrainMat` is worn by every
+ * streamed chunk in the world, and lifting all of them out of the ground layer
+ * would be lifting the ground out of its own haze. One extra material and one
+ * extra program; the ribbon is a handful of draw calls.
+ */
+function makeRibbonMaterial(terrainMat: THREE.Material): THREE.Material {
+  const mat = terrainMat.clone();
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.bsFogGroundLift = { value: RIBBON_FOG_LIFT };
+  };
+  // Its own program, because it is the only material in the game that uploads
+  // this uniform — sharing one with the chunks would share their value too.
+  mat.customProgramCacheKey = () => 'bs-road-ribbon-fog-v1';
+  return mat;
+}
+
 /** Where the fingerpost at the fork stands, as far as a signpost is concerned. */
 const JUNCTION_SIGN_KEY = 'town.junction.sign' as const;
 
@@ -1294,6 +1336,8 @@ export class Towns {
    * hunt individual meshes out of the settlement groups they were mixed into.
    */
   private readonly pathGroup = new THREE.Group();
+  /** The ribbon's own material — see makeRibbonMaterial. Built once, disposed with the rest. */
+  private ribbonMat: THREE.Material | null = null;
   /** Per-site groups and their centres, for the distance cull in `update`. */
   private readonly sites: Array<{ g: THREE.Group; x: number; z: number; r: number }> = [];
   /**
@@ -1637,7 +1681,8 @@ export class Towns {
       geo.setAttribute('color', new THREE.Float32BufferAttribute(part.col, 3));
       geo.setIndex(part.idx);
       geo.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geo, ctx.terrainMat);
+      this.ribbonMat ??= makeRibbonMaterial(ctx.terrainMat);
+      const mesh = new THREE.Mesh(geo, this.ribbonMat);
       // Named so a raycast can say WHICH surface it hit. `__dbgSurfaceY` in
       // main.ts compares what is drawn at a column against what you walk on,
       // and "Mesh" for every hit made its answers useless — a hero buried by
@@ -1667,6 +1712,8 @@ export class Towns {
   }
 
   dispose(): void {
+    this.ribbonMat?.dispose();
+    this.ribbonMat = null;
     for (const g of this.geos) g.dispose();
     for (const m of this.glowMats) m.dispose();
     this.geos.length = 0;

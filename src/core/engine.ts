@@ -306,6 +306,12 @@ function installAerialPerspective(): void {
     uniform float fogNear;
     uniform float fogFar;
   #endif
+  // How far ABOVE the ground plane this surface should be treated as being, for
+  // the haze thinning below. Zero everywhere — a uniform that nothing uploads
+  // reads as zero in GL, so every material in the game keeps the behaviour it
+  // had — and non-zero on exactly one thing, the road ribbon. See
+  // RIBBON_FOG_LIFT in world/towns.ts for why a road needs it.
+  uniform float bsFogGroundLift;
 ` + SKY_LIB + `
 #endif
 `;
@@ -330,7 +336,7 @@ function installAerialPerspective(): void {
   // them look translucent, and worse, the ones near the sun went a saturated blue
   // because the fog samples the sky gradient WITHOUT the sun's corona while the
   // dome behind them has it. Attenuated, they stay white and opaque.
-  fogFactor *= 1.0 - smoothstep(0.10, 0.46, vFogElev) * 0.86;
+  fogFactor *= 1.0 - smoothstep(0.10, 0.46, vFogElev + bsFogGroundLift) * 0.86;
   // Distance drops local contrast and lifts value before it takes hue: 28% toward
   // the fragment's own luma, 10% brighter, both scaled by the same factor.
   float bsFogL = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
