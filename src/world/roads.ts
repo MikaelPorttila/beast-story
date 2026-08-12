@@ -121,6 +121,15 @@ export function setTrimEnd(r: Road, px: number, pz: number, nx: number, nz: numb
   r.trim[7] = nz;
 }
 
+/** A sample between two samples. A cut end inherits the span flag: half a bridge
+ *  is not a thing. */
+const lerpSample = (a: RoadSample, b: RoadSample, t: number): RoadSample => ({
+  x: a.x + (b.x - a.x) * t,
+  z: a.z + (b.z - a.z) * t,
+  y: a.y + (b.y - a.y) * t,
+  bridge: a.bridge || b.bridge,
+});
+
 /**
  * The samples carrying a BUILT carriageway, ends interpolated onto the trim planes.
  * Here, not in the ribbon builder, so drawing and carving cannot disagree.
@@ -129,13 +138,6 @@ export function builtDeck(r: Road): RoadSample[] {
   const out: RoadSample[] = [];
   const inside = (p: RoadSample, o: number): number =>
     (p.x - r.trim[o]) * r.trim[o + 2] + (p.z - r.trim[o + 1]) * r.trim[o + 3];
-  const lerp = (a: RoadSample, b: RoadSample, t: number): RoadSample => ({
-    x: a.x + (b.x - a.x) * t,
-    z: a.z + (b.z - a.z) * t,
-    y: a.y + (b.y - a.y) * t,
-    // A cut end inherits the span flag: half a bridge is not a thing.
-    bridge: a.bridge || b.bridge,
-  });
   for (let i = 0; i < r.pts.length; i++) {
     const p = r.pts[i];
     const in0 = inside(p, 0) >= 0;
@@ -146,7 +148,7 @@ export function builtDeck(r: Road): RoadSample[] {
         const a = inside(q, 0);
         const b = inside(p, 0);
         if (b !== a) {
-          out.push(lerp(q, p, (0 - a) / (b - a)));
+          out.push(lerpSample(q, p, (0 - a) / (b - a)));
         }
       }
       out.push(p);
@@ -155,7 +157,7 @@ export function builtDeck(r: Road): RoadSample[] {
       const a = inside(q, 4);
       const b = inside(p, 4);
       if (b !== a) {
-        out.push(lerp(q, p, (0 - a) / (b - a)));
+        out.push(lerpSample(q, p, (0 - a) / (b - a)));
       }
       break;
     }
@@ -912,6 +914,9 @@ export interface MergeReport {
   refused: string[];
 }
 
+/** A crossing as a report label. */
+const crossingAt = (c: { x: number; z: number }): string => `${c.x.toFixed(0)}, ${c.z.toFixed(0)}`;
+
 /**
  * Turn the place `road` crosses the network into a junction (issue #142 §12e). ONE
  * CROSSING PER CALL: a split changes both polylines, so later crossings are indexed
@@ -924,13 +929,12 @@ export function mergeCrossings(net: RoadNetwork, road: Road): MergeReport {
     return report;
   }
 
-  const at = (c: { x: number; z: number }): string => `${c.x.toFixed(0)}, ${c.z.toFixed(0)}`;
   let chosen: Crossing | null = null;
   for (const c of hits) {
     // A glancing crossing is not a crossing. See `GLANCE_MIN`.
     if (c.angle < GLANCE_MIN) {
       report.refused.push(
-        `${at(c)}: the two paths meet at ` +
+        `${crossingAt(c)}: the two paths meet at ` +
           `${((c.angle * 180) / Math.PI).toFixed(0)} degrees — under ` +
           `${((GLANCE_MIN * 180) / Math.PI).toFixed(0)} they should share one run, ` +
           "which is not built",
@@ -944,7 +948,7 @@ export function mergeCrossings(net: RoadNetwork, road: Road): MergeReport {
       c.other.pts[c.otherSeg].bridge ||
       c.other.pts[c.otherSeg - 1].bridge
     ) {
-      report.refused.push(`${at(c)}: the crossing lands on a bridge span`);
+      report.refused.push(`${crossingAt(c)}: the crossing lands on a bridge span`);
       continue;
     }
     // Inside another apron there is no arm to grow: the ribbon is already clipped.
@@ -953,7 +957,7 @@ export function mergeCrossings(net: RoadNetwork, road: Road): MergeReport {
     );
     if (inApron !== undefined) {
       report.refused.push(
-        `${at(c)}: inside the apron already at ` +
+        `${crossingAt(c)}: inside the apron already at ` +
           `${inApron.x.toFixed(0)}, ${inApron.z.toFixed(0)}`,
       );
       continue;
@@ -961,7 +965,7 @@ export function mergeCrossings(net: RoadNetwork, road: Road): MergeReport {
     // Two decks at two heights make a step across the node. See MERGE_MAX_DROP.
     if (Math.abs(c.y - c.otherY) > MERGE_MAX_DROP) {
       report.refused.push(
-        `${at(c)}: the decks are ` +
+        `${crossingAt(c)}: the decks are ` +
           `${Math.abs(c.y - c.otherY).toFixed(2)} apart, over the ${MERGE_MAX_DROP} ` +
           "a node can absorb",
       );
@@ -974,13 +978,13 @@ export function mergeCrossings(net: RoadNetwork, road: Road): MergeReport {
       c.otherSeg < 2 ||
       c.otherSeg > c.other.pts.length - 2
     ) {
-      report.refused.push(`${at(c)}: too near the end of one of the two paths`);
+      report.refused.push(`${crossingAt(c)}: too near the end of one of the two paths`);
       continue;
     }
     if (chosen === null) {
       chosen = c;
     } else {
-      report.refused.push(`${at(c)}: only the first crossing of a path is merged`);
+      report.refused.push(`${crossingAt(c)}: only the first crossing of a path is merged`);
     }
   }
   if (chosen === null) {
@@ -1262,7 +1266,9 @@ export function profileRoad(
   // height where the abutment piers stand.
   const bridge = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    if (nat[i] < WATER_LEVEL + 0.35) bridge[i] = 1;
+    if (nat[i] < WATER_LEVEL + 0.35) {
+      bridge[i] = 1;
+    }
   }
   const wide = Uint8Array.from(bridge);
   for (let i = 0; i < n; i++) {
@@ -1291,10 +1297,14 @@ export function profileRoad(
   const slopeLimit = (passes: number): void => {
     for (let pass = 0; pass < passes; pass++) {
       for (let i = 1; i < n; i++) {
-        if (y[i] < y[i - 1] - rise) y[i] = y[i - 1] - rise;
+        if (y[i] < y[i - 1] - rise) {
+          y[i] = y[i - 1] - rise;
+        }
       }
       for (let i = n - 2; i >= 0; i--) {
-        if (y[i] < y[i + 1] - rise) y[i] = y[i + 1] - rise;
+        if (y[i] < y[i + 1] - rise) {
+          y[i] = y[i + 1] - rise;
+        }
       }
     }
   };
@@ -1332,7 +1342,7 @@ export function profileRoad(
   }
   floorWater();
 
-  const out: RoadSample[] = new Array(n);
+  const out: RoadSample[] = Array.from({ length: n });
   for (let i = 0; i < n; i++) {
     out[i] = { x: route[i].x, z: route[i].z, y: y[i], bridge: wide[i] === 1 };
   }

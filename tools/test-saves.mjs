@@ -93,7 +93,7 @@ const readState = (page) =>
     window.__dbgGive("sunberry", 5);
     window.__dbgUnlockMount("all", true);
     window.__dbgTp(-300, 400);
-    window.__dbgSaves.save; // no-op read: the perturbation must not itself save
+    void window.__dbgSaves.save; // no-op read: the perturbation must not itself save
   });
   const perturbed = await readState(page);
   check(
@@ -160,13 +160,13 @@ const readState = (page) =>
     (n) =>
       new Promise((resolve, reject) => {
         const open = indexedDB.open("beast-story-saves");
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
+        open.addEventListener("error", () => reject(open.error));
+        open.addEventListener("success", () => {
           const db = open.result;
           const tx = db.transaction("payloads", "readwrite");
           const store = tx.objectStore("payloads");
           const get = store.get(n);
-          get.onsuccess = () => {
+          get.addEventListener("success", () => {
             const row = get.result;
             row.doc.bag = [
               ["sunberry", 3],
@@ -174,13 +174,13 @@ const readState = (page) =>
               ["glowpebble", 2],
             ];
             store.put(row);
-          };
-          tx.oncomplete = () => {
+          });
+          tx.addEventListener("complete", () => {
             db.close();
             resolve(true);
-          };
-          tx.onerror = () => reject(tx.error);
-        };
+          });
+          tx.addEventListener("error", () => reject(tx.error));
+        });
       }),
     id,
   );
@@ -213,26 +213,26 @@ const readState = (page) =>
     (n) =>
       new Promise((resolve, reject) => {
         const open = indexedDB.open("beast-story-saves");
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
+        open.addEventListener("error", () => reject(open.error));
+        open.addEventListener("success", () => {
           const db = open.result;
           const tx = db.transaction("payloads", "readwrite");
           const store = tx.objectStore("payloads");
           const get = store.get(n);
-          get.onsuccess = () => {
+          get.addEventListener("success", () => {
             const row = get.result;
             // A zone that was deleted, and a coordinate that cannot be stood on.
             // `null` rather than NaN: JSON has no NaN, so null is the shape a
             // corrupt number actually arrives in.
             row.doc.location = { zoneId: "no-such-zone", x: null, y: null, z: null, yaw: 0 };
             store.put(row);
-          };
-          tx.oncomplete = () => {
+          });
+          tx.addEventListener("complete", () => {
             db.close();
             resolve(true);
-          };
-          tx.onerror = () => reject(tx.error);
-        };
+          });
+          tx.addEventListener("error", () => reject(tx.error));
+        });
       }),
     id,
   );
@@ -633,7 +633,9 @@ const readState = (page) =>
   // what this reads back.
   const id = afterTimer.list[0].id;
   const quest = await page.evaluate(async (n) => {
-    const before = Object.keys((await window.__dbgSaves.read(n))?.content?.quests ?? {}).length;
+    const questsBefore = Object.keys(
+      (await window.__dbgSaves.read(n))?.content?.quests ?? {},
+    ).length;
     // The same driver the journal probe uses: it loads the example-quest
     // package and sets every quest in it active, which is a real status change
     // through the store the content actions write through.
@@ -652,7 +654,7 @@ const readState = (page) =>
     }
     return {
       armedAt,
-      before,
+      before: questsBefore,
       after,
       rows: (await window.__dbgSaves.list()).length,
     };
@@ -849,23 +851,23 @@ const readState = (page) =>
     (n) =>
       new Promise((resolve, reject) => {
         const open = indexedDB.open("beast-story-saves");
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
+        open.addEventListener("error", () => reject(open.error));
+        open.addEventListener("success", () => {
           const db = open.result;
           const tx = db.transaction("payloads", "readwrite");
           const store = tx.objectStore("payloads");
           const get = store.get(n);
-          get.onsuccess = () => {
+          get.addEventListener("success", () => {
             const row = get.result;
             row.doc.mounts = ["ground", "hovercraft", "flying"];
             store.put(row);
-          };
-          tx.oncomplete = () => {
+          });
+          tx.addEventListener("complete", () => {
             db.close();
             resolve(true);
-          };
-          tx.onerror = () => reject(tx.error);
-        };
+          });
+          tx.addEventListener("error", () => reject(tx.error));
+        });
       }),
     id,
   );
@@ -890,23 +892,23 @@ const readState = (page) =>
     (n) =>
       new Promise((resolve, reject) => {
         const open = indexedDB.open("beast-story-saves");
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
+        open.addEventListener("error", () => reject(open.error));
+        open.addEventListener("success", () => {
           const db = open.result;
           const tx = db.transaction("payloads", "readwrite");
           const store = tx.objectStore("payloads");
           const get = store.get(n);
-          get.onsuccess = () => {
+          get.addEventListener("success", () => {
             const row = get.result;
             delete row.doc.mounts;
             store.put(row);
-          };
-          tx.oncomplete = () => {
+          });
+          tx.addEventListener("complete", () => {
             db.close();
             resolve(true);
-          };
-          tx.onerror = () => reject(tx.error);
-        };
+          });
+          tx.addEventListener("error", () => reject(tx.error));
+        });
       }),
     id,
   );

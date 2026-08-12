@@ -104,7 +104,7 @@ export class ContentStateStore implements ContentState {
 
   /** Fresh array each read; not a frame path — conditions use `flag(name)`. */
   get flags(): readonly string[] {
-    return [...this._flags].sort();
+    return [...this._flags].toSorted();
   }
 
   questStatus(id: ContentId): QuestStatus {
@@ -138,9 +138,11 @@ export class ContentStateStore implements ContentState {
   private questsWith(status: QuestStatus): ContentId[] {
     const out: ContentId[] = [];
     for (const [id, s] of this._quests) {
-      if (s === status) out.push(id);
+      if (s === status) {
+        out.push(id);
+      }
     }
-    return out.sort();
+    return out.toSorted();
   }
 
   progress(quest: ContentId, objective: string): number {
@@ -215,23 +217,23 @@ export class ContentStateStore implements ContentState {
     }
     if (this._quests.size > 0) {
       const quests: Record<string, string> = {};
-      for (const id of [...this._quests.keys()].sort()) {
+      for (const id of [...this._quests.keys()].toSorted()) {
         quests[id] = this._quests.get(id) as string;
       }
       out.quests = quests;
     }
     if (this._progress.size > 0) {
       const progress: Record<string, number> = {};
-      for (const key of [...this._progress.keys()].sort()) {
+      for (const key of [...this._progress.keys()].toSorted()) {
         progress[key] = this._progress.get(key) as number;
       }
       out.progress = progress;
     }
     if (this._discovered.size > 0) {
-      out.discovered = [...this._discovered].sort();
+      out.discovered = [...this._discovered].toSorted();
     }
     // Newer build's fields, last so they cannot shadow ours.
-    for (const key of Object.keys(this._extra).sort()) {
+    for (const key of Object.keys(this._extra).toSorted()) {
       out[key] = this._extra[key];
     }
     return out;
@@ -249,7 +251,9 @@ export class ContentStateStore implements ContentState {
       const flags = raw.flags;
       if (Array.isArray(flags)) {
         for (const f of flags) {
-          if (isFlagName(f)) this._flags.add(f);
+          if (isFlagName(f)) {
+            this._flags.add(f);
+          }
         }
       }
 
@@ -285,7 +289,9 @@ export class ContentStateStore implements ContentState {
       const discovered = raw.discovered;
       if (Array.isArray(discovered)) {
         for (const id of discovered) {
-          if (isId(id)) this._discovered.add(id);
+          if (isId(id)) {
+            this._discovered.add(id);
+          }
         }
       }
 

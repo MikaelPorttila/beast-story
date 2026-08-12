@@ -236,7 +236,9 @@ function buildTorso(): THREE.Mesh {
   for (let x = -5; x <= 5; x++) {
     for (let z = -3; z >= -4; z--) {
       for (let y = 1; y <= 6; y++) {
-        if (v.has(x, y, z)) v.set(x, y, z, y >= 5 ? C.clothLt : C.cloth);
+        if (v.has(x, y, z)) {
+          v.set(x, y, z, y >= 5 ? C.clothLt : C.cloth);
+        }
       }
     }
   }

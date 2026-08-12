@@ -197,7 +197,9 @@ export class Taming {
 
   private slot(): Ceremony {
     for (const s of this.slots) {
-      if (!s.active) return s;
+      if (!s.active) {
+        return s;
+      }
     }
     const s: Ceremony = {
       active: false,

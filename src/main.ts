@@ -478,27 +478,27 @@ function resolveOnCarrier(
   if (loc.carrierId === undefined || loc.localX === undefined || loc.localZ === undefined) {
     return null;
   }
-  const frame = world.carriers.get(loc.carrierId);
-  if (!frame) {
+  const carrier = world.carriers.get(loc.carrierId);
+  if (!carrier) {
     return null;
   }
   const out = { x: 0, z: 0 };
-  frame.toWorld(loc.localX, loc.localZ, out);
-  // Asked of the frame rather than reconstructed from a stored height; -Infinity means it has nothing at that column any more.
-  const top = frame.topAt(out.x, out.z);
+  carrier.toWorld(loc.localX, loc.localZ, out);
+  // Asked of the carrier rather than reconstructed from a stored height; -Infinity means it has nothing at that column any more.
+  const top = carrier.topAt(out.x, out.z);
   if (!Number.isFinite(top)) {
     return null;
   }
-  return { x: out.x, y: top, z: out.z, yaw: loc.yaw + frame.yaw };
+  return { x: out.x, y: top, z: out.z, yaw: loc.yaw + carrier.yaw };
 }
 
 function collectSave(): SaveDocument {
   const here = resolveSafeGround(player.position.x, player.position.z);
   // Riding something? Then the spot on IT is durable and the world coords are the fallback.
-  const frame = player.carrier;
-  const local = frame ? { x: 0, z: 0 } : null;
-  if (frame && local) {
-    frame.toLocal(player.position.x, player.position.z, local);
+  const carrier = player.carrier;
+  const local = carrier ? { x: 0, z: 0 } : null;
+  if (carrier && local) {
+    carrier.toLocal(player.position.x, player.position.z, local);
   }
   // Standing on something that is not the ground: `onGround` makes this a perch rather than an altitude.
   const perchY =
@@ -514,10 +514,10 @@ function collectSave(): SaveDocument {
       x: here.x,
       y: here.y,
       z: here.z,
-      // Relative to the frame: a deck that turns takes the street he stood in with it.
-      yaw: frame ? player.facing - frame.yaw : player.facing,
+      // Relative to the carrier: a deck that turns takes the street he stood in with it.
+      yaw: carrier ? player.facing - carrier.yaw : player.facing,
       ...(perchY !== null ? { perchY } : {}),
-      ...(frame && local ? { carrierId: frame.id, localX: local.x, localZ: local.z } : {}),
+      ...(carrier && local ? { carrierId: carrier.id, localX: local.x, localZ: local.z } : {}),
     },
     // The NET purse; `pickupTotal` and `spent` mean nothing on their own.
     currency: shards(),
@@ -918,9 +918,9 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
         }
       }
       // A town is far bigger than a den, so its penalty is its own footprint plus clearance.
-      for (const t of w.towns.all) {
-        const keep = t.radius + 10;
-        const d = Math.hypot(t.x - x, t.z - z);
+      for (const town of w.towns.all) {
+        const keep = town.radius + 10;
+        const d = Math.hypot(town.x - x, town.z - z);
         if (d < keep) {
           shopPenalty += (keep - d) * 3;
         }
@@ -939,8 +939,8 @@ function findGateSpot(w: LandmarkProbe): { x: number; z: number } {
         const dz = z - base.z;
         const steps = Math.max(1, Math.round(Math.hypot(dx, dz) / 2));
         for (let i = 1; i < steps; i++) {
-          const t = i / steps;
-          if (w.getHeight(base.x + dx * t, base.z + dz * t) < w.waterLevel + 0.5) {
+          const frac = i / steps;
+          if (w.getHeight(base.x + dx * frac, base.z + dz * frac) < w.waterLevel + 0.5) {
             wet++;
           }
         }
@@ -1027,8 +1027,8 @@ const zones = new ZoneManager({
     // A new zone is new meshes, and a visibility flag went with the old world's chunks.
     gfx.applyAll();
   },
-  onHint: (t) => {
-    portalHint = t;
+  onHint: (hint) => {
+    portalHint = hint;
   },
 });
 
@@ -1103,15 +1103,15 @@ function syncCompassMarkers(w: World, gateX: number, gateZ: number, gateHex: num
   hud.setCompassMarkers([
     // Dens in the shard-shop amber the hint pill and price tags already use.
     ...w.shopPositions.map((s, i) => ({ id: `den${i}`, x: s.x, z: s.z, color: 0xffd23f })),
-    ...w.towns.all.map((t) => {
+    ...w.towns.all.map((town) => {
       const chip: CompassMarker = {
-        id: `town:${t.id}`,
-        x: t.gateX,
-        z: t.gateZ,
-        color: t.color,
-        label: t.id.slice(0, 4).toUpperCase(),
+        id: `town:${town.id}`,
+        x: town.gateX,
+        z: town.gateZ,
+        color: town.color,
+        label: town.id.slice(0, 4).toUpperCase(),
       };
-      _townChips.push({ chip, town: t });
+      _townChips.push({ chip, town: town });
       return chip;
     }),
     // The gateway takes the colour of its own arch.
@@ -2637,22 +2637,29 @@ const _hurtFrom = new THREE.Vector3();
     dir: { x: _dbgDir.x, y: _dbgDir.y, z: _dbgDir.z },
   };
 };
+// -- debug-hook maths. Shared by the reporting hooks below; degrees are rounded to
+// two places because a probe compares text.
+const deg = (r: number): number => +((r * 180) / Math.PI).toFixed(2);
+const bearingOf = (dx: number, dz: number): number => Math.atan2(dx, dz);
+/** Shortest signed arc, so a probe reads -179 rather than 181. */
+const shortest = (a: number): number => {
+  let v = a;
+  while (v > Math.PI) {
+    v -= Math.PI * 2;
+  }
+  while (v < -Math.PI) {
+    v += Math.PI * 2;
+  }
+  return v;
+};
+const degShortest = (r: number): number => deg(shortest(r));
+
 // THE OPENING POSE in one read. `greeter` is the nearest resident the pose was composed against, so
 // `beside`/`faceGap` need no name or seed. `camFromFace` is the assertion, in degrees: ~0 is his face,
 // ~180 is over his shoulder, which is every other moment in the game.
 (window as unknown as { __dbgStart: () => unknown }).__dbgStart = () => {
   const s = world.playerStart;
   const g = world.npcs?.all[0] ?? null;
-  const deg = (r: number): number => {
-    let d = r;
-    while (d > Math.PI) {
-      d -= Math.PI * 2;
-    }
-    while (d < -Math.PI) {
-      d += Math.PI * 2;
-    }
-    return +((d * 180) / Math.PI).toFixed(2);
-  };
   return {
     start: {
       x: +s.position.x.toFixed(2),
@@ -2675,9 +2682,9 @@ const _hurtFrom = new THREE.Vector3();
     /** Distance from the hero's start to the greeter, in world units. */
     beside: g ? +Math.hypot(s.position.x - g.x, s.position.z - g.z).toFixed(2) : null,
     /** How far the hero's facing differs from the greeter's, degrees. */
-    faceGap: g ? deg(s.yaw - g.restYaw) : null,
+    faceGap: g ? degShortest(s.yaw - g.restYaw) : null,
     // Angle between the camera arm and the hero's facing, degrees; 0 is his face.
-    camFromFace: deg(
+    camFromFace: degShortest(
       Math.atan2(
         engine.camera.position.x - player.position.x,
         engine.camera.position.z - player.position.z,
@@ -2748,8 +2755,9 @@ const _hurtFrom = new THREE.Vector3();
 // `output` is the number to watch a fade on — `volume` is the master and does not move during one.
 (window as unknown as { __dbgMusic: () => unknown }).__dbgMusic = () => music.debugState();
 // TEST HOOK: the loop seam is 85 s into the shortest track, which no probe can wait for.
-(window as unknown as { __dbgMusicSeek: (t: number) => void }).__dbgMusicSeek = (t: number) =>
-  music.seek(t);
+(window as unknown as { __dbgMusicSeek: (seconds: number) => void }).__dbgMusicSeek = (
+  seconds: number,
+) => music.seek(seconds);
 // TEST HOOK: naming a scene directly is the only way to ask what an area NOBODY scored plays —
 // walking to a gateway is a minute of driving and reaches the two zones this build ships.
 (window as unknown as { __dbgMusicScene: (s: string | null) => void }).__dbgMusicScene = (
@@ -3000,7 +3008,9 @@ const refitHero = (): void => {
       for (let i = 0; i < r.path.length; i += 3) {
         const x = r.path[i];
         const z = r.path[i + 2];
-        if (world.towns.all.some((t) => Math.hypot(t.x - x, t.z - z) < t.outerRadius + 8)) {
+        if (
+          world.towns.all.some((town) => Math.hypot(town.x - x, town.z - z) < town.outerRadius + 8)
+        ) {
           continue;
         }
         // AND WITH A CLEAR RUN TO THE GATE: the spur curves, so the point closest to the gate can still
@@ -3105,18 +3115,7 @@ const refitHero = (): void => {
   );
   // Named `reachable` because `inReach` is the imported proximity rule; the REPORTED field keeps the name tools already read.
   const reachable = combat.bestMeleeTarget(_dbgStrike, _aimDir, SWORD_REACH, -1, player.position.y);
-  const deg = (r: number): number => +((r * 180) / Math.PI).toFixed(2);
-  const bearing = (dx: number, dz: number): number => Math.atan2(dx, dz);
-  const aim = bearing(_aimDir.x, _aimDir.z);
-  const shortest = (a: number): number => {
-    while (a > Math.PI) {
-      a -= 2 * Math.PI;
-    }
-    while (a < -Math.PI) {
-      a += 2 * Math.PI;
-    }
-    return a;
-  };
+  const aim = bearingOf(_aimDir.x, _aimDir.z);
   const describe = (e: Damageable | null): unknown => {
     if (!e) {
       return null;
@@ -3129,8 +3128,10 @@ const refitHero = (): void => {
       distance: +Math.hypot(dx, dz).toFixed(2),
       // Feet to feet, the axis the selection is gated on — `distance` 1.5 with `rise` 6 is issue #78.
       rise: +(e.position.y - player.position.y).toFixed(2),
-      angleFromCrosshair: deg(Math.abs(shortest(bearing(dx, dz) - aim))),
-      turn: deg(Math.abs(shortest(bearing(dx, dz) - bearing(player.forward.x, player.forward.z)))),
+      angleFromCrosshair: deg(Math.abs(shortest(bearingOf(dx, dz) - aim))),
+      turn: deg(
+        Math.abs(shortest(bearingOf(dx, dz) - bearingOf(player.forward.x, player.forward.z))),
+      ),
     };
   };
   return {
@@ -3895,7 +3896,9 @@ function devGrant(arg: string | undefined): string {
   if (arg === "all") {
     let n = 0;
     for (const b of roster) {
-      if (grantBeast(b.species.id)) n++;
+      if (grantBeast(b.species.id)) {
+        n++;
+      }
     }
     inventory.refresh();
     return `bonded ${n} more (${owned.size} total)`;
@@ -4207,8 +4210,8 @@ function* warmUpSteps(): Generator<void> {
   // THE TOWNS AND THE ROADS: built at world creation, hundreds of units out, so the staged render never
   // draws them. Otherwise the shared GLOW program and ~100k vertices of buffer upload land on the frame
   // the player first sees the camp. One frame per site is enough: an upload is per GEOMETRY.
-  for (const t of world.towns.all) {
-    _warmStage.set(t.x, world.getHeight(t.x, t.z) + 1, t.z);
+  for (const town of world.towns.all) {
+    _warmStage.set(town.x, world.getHeight(town.x, town.z) + 1, town.z);
     warmUpFrame(_warmStage, 0);
     yield;
   }
@@ -4569,8 +4572,8 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // Contact particles, measured in the `beasts` profiler slot; their own timing is on `__dbgTouchFx().ms`, which is finer grained than a section anyway.
   touchFx.update(dt, toucher);
 
-  for (const [id, t] of cooldowns) {
-    cooldowns.set(id, Math.max(0, t - dt));
+  for (const [id, remaining] of cooldowns) {
+    cooldowns.set(id, Math.max(0, remaining - dt));
   }
   // ...and the potion buff, on the same clock: both are durations the player is watching.
   updateBuffs(dt);
@@ -4708,14 +4711,14 @@ function frame(): void {
       const aimY = beast.position.y + subject * 0.42;
 
       /** Highest camera lift needed to clear terrain along the sight line. */
-      const requiredLift = (px: number, pz: number, d: number): number => {
+      const requiredLift = (px: number, pz: number, _d: number): number => {
         let need = world.getHeight(px, pz) + 0.9;
         for (let s = 1; s <= 6; s++) {
-          const t = s / 7;
-          const gx = px + (beast.position.x - px) * t;
-          const gz = pz + (beast.position.z - pz) * t;
+          const frac = s / 7;
+          const gx = px + (beast.position.x - px) * frac;
+          const gz = pz + (beast.position.z - pz) * frac;
           const clearance = world.getHeight(gx, gz) + 0.35;
-          const y = aimY + (clearance - aimY) / Math.max(0.28, 1 - t);
+          const y = aimY + (clearance - aimY) / Math.max(0.28, 1 - frac);
           if (y > need) {
             need = y;
           }
@@ -4781,11 +4784,11 @@ function frame(): void {
 
   hud.setPlayerHp(player.hp, player.maxHp);
   hud.setBeasts(beastHud(primary()), beastHud(support()));
-  const slots: SkillSlot[] = hotbarSkills().map((def) => {
+  const skillSlots: SkillSlot[] = hotbarSkills().map((def) => {
     const remaining = cooldowns.get(def.id) ?? 0;
     return { def, cooldownRemaining: remaining, ready: remaining <= 0 };
   });
-  hud.setSkills(slots);
+  hud.setSkills(skillSlots);
   // Presentation, so not in simulate(): the strip shows where the LENS points, placed by this frame's camera. North is world -Z. A moving town moves its own chip.
   for (let i = 0; i < _townChips.length; i++) {
     const c = _townChips[i];
@@ -5126,8 +5129,8 @@ beginPlay();
       /** Units of translation published for the slice just simulated. */
       step: +Math.hypot(c.dx, c.dz).toFixed(4),
       deckTop: (() => {
-        const t = c.topAt(player.position.x, player.position.z);
-        return Number.isFinite(t) ? +t.toFixed(2) : null;
+        const top = c.topAt(player.position.x, player.position.z);
+        return Number.isFinite(top) ? +top.toFixed(2) : null;
       })(),
       // The MASS in this column: turf and keel, null off the footprint. `surface` is not `deckTop`; this is the pair a body cannot be between (issue #80).
       surface: (() => {
@@ -5160,23 +5163,23 @@ beginPlay();
   if (!c) {
     return { deck: null, trees: [], sampled: 0, raised: 0 };
   }
-  const trees = world.debugCarriedTrees().map((t) => ({
-    x: +t.x.toFixed(2),
-    z: +t.z.toFixed(2),
-    rise: +(c.topAt(t.x, t.z) - c.y).toFixed(2),
+  const trees = world.debugCarriedTrees().map((tree) => ({
+    x: +tree.x.toFixed(2),
+    z: +tree.z.toFixed(2),
+    rise: +(c.topAt(tree.x, tree.z) - c.y).toFixed(2),
   }));
   let sampled = 0;
   let raised = 0;
   const step = c.radius / 12;
   for (let i = -12; i <= 12; i++) {
     for (let j = -12; j <= 12; j++) {
-      const t = c.topAt(c.x + i * step, c.z + j * step);
-      if (t === -Infinity) {
+      const top = c.topAt(c.x + i * step, c.z + j * step);
+      if (top === -Infinity) {
         continue;
       }
       sampled++;
       // A whole unit over the turf, well above `MAX_STEP_UP`, so this counts obstacles not doorsteps.
-      if (t > c.y + 1) {
+      if (top > c.y + 1) {
         raised++;
       }
     }
@@ -5191,9 +5194,9 @@ beginPlay();
   marked: {
     npcs: [...markedNpcs]
       .map(([id, kind]) => ({ id, kind }))
-      .sort((a, b) => (a.id < b.id ? -1 : 1)),
-    enemies: [...markedEnemies].sort(),
-    beasts: [...markedBeasts].sort(),
+      .toSorted((a, b) => (a.id < b.id ? -1 : 1)),
+    enemies: [...markedEnemies].toSorted(),
+    beasts: [...markedBeasts].toSorted(),
   },
   drawn: questMarkSpots.slice(0, questMarkCount).map((s) => ({
     kind: s.kind,
@@ -5505,9 +5508,9 @@ beginPlay();
       // Sample the walking surface finely: a step is a property of the surface between the deck samples.
       const steps = Math.max(1, Math.ceil(seg / 0.25));
       for (let k = 1; k <= steps; k++) {
-        const t = k / steps;
-        const x = ax + (bx - ax) * t;
-        const z = az + (bz - az) * t;
+        const frac = k / steps;
+        const x = ax + (bx - ax) * frac;
+        const z = az + (bz - az) * frac;
         const h = world.getHeight(x, z);
         const rise = h - prevH;
         if (rise > maxStep) {
@@ -5573,11 +5576,11 @@ beginPlay();
     z: +s.z.toFixed(2),
     radius: +s.radius.toFixed(2),
   })),
-  towns: world.towns.all.map((t) => ({
-    id: t.id,
-    radius: t.radius,
-    outerRadius: +t.outerRadius.toFixed(2),
-    noSpawnRadius: +t.noSpawnRadius.toFixed(2),
+  towns: world.towns.all.map((town) => ({
+    id: town.id,
+    radius: town.radius,
+    outerRadius: +town.outerRadius.toFixed(2),
+    noSpawnRadius: +town.noSpawnRadius.toFixed(2),
   })),
   blocks: x === undefined || z === undefined ? null : world.safeZones.blocksSpawn(x, z),
 });
@@ -5842,9 +5845,9 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   const run = (): number => {
     const t0 = performance.now();
     for (let i = 0; i < n; i++) {
-      const t = world.structureTopAt(x + (i % 97) * 0.05, z + (i % 89) * 0.05);
-      if (t > sink) {
-        sink = t;
+      const top = world.structureTopAt(x + (i % 97) * 0.05, z + (i % 89) * 0.05);
+      if (top > sink) {
+        sink = top;
       }
     }
     return ((performance.now() - t0) * 1e6) / n;
@@ -6081,8 +6084,8 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
 // feet means it is inside a wall. Fliers carry their locomotion: they are SUPPOSED to be over the roof.
 (window as unknown as { __dbgBodies: () => unknown }).__dbgBodies = () => {
   const at = (p: THREE.Vector3, feet: number): number | null => {
-    const t = world.structureTopAt(p.x, p.z);
-    return t === -Infinity ? null : +(t - feet).toFixed(2);
+    const top = world.structureTopAt(p.x, p.z);
+    return top === -Infinity ? null : +(top - feet).toFixed(2);
   };
   return {
     player: {

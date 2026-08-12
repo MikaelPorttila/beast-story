@@ -38,6 +38,18 @@ import { newPage } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
 import { advance } from "./suite/harness.mjs";
 
+/** Mean absolute luminance difference between two captures. */
+const meanAbsDiff = (a, b) => {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) {
+    s += Math.abs(a[i] - b[i]);
+  }
+  return +(s / a.length).toFixed(3);
+};
+
+/** Everything in a foliage layer, drawn or culled. */
+const total = (x, layer) => x.layers[layer].shown + x.layers[layer].hidden;
+
 /** Sleep for REAL milliseconds. Only the realtime sections below may use it. */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -377,7 +389,6 @@ export const sections = [
       await settleToggle(ctx);
       const restored = await gfxAll(ctx);
 
-      const total = (x, layer) => x.layers[layer].shown + x.layers[layer].hidden;
       ctx.res.foliageDistance = {
         high: { draws: highDraws, grass: high.layers.grass, props: high.layers.props },
         low: { draws: lowDraws, grass: low.layers.grass, props: low.layers.props },
@@ -628,6 +639,7 @@ export const sections = [
         const x = (l + r) / 2,
           y = (t + b) / 2;
         const hit = r > l && b > t ? document.elementFromPoint(x, y) : null;
+        // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
         const z = (el) => Number(getComputedStyle(el).zIndex);
         return {
           overlap: +Math.max(0, (r - l) * (b - t)).toFixed(0),
@@ -898,13 +910,6 @@ export const sections = [
           }
           return l;
         };
-        const meanAbsDiff = (a, b) => {
-          let s = 0;
-          for (let i = 0; i < a.length; i++) {
-            s += Math.abs(a[i] - b[i]);
-          }
-          return +(s / a.length).toFixed(3);
-        };
         const AOVIEW = "menu=0&fs=0&photo=1&hud=0&aoview=1&aa=0&bloom=0&fps=30";
         /** Boot a capture framing and settle it in simulated time. */
         const frameUp = async (camLook) => {
@@ -949,7 +954,9 @@ export const sections = [
         const sky = await decode();
         let dark = 0;
         for (const v of sky) {
-          if (v < 245) dark++;
+          if (v < 245) {
+            dark++;
+          }
         }
 
         const ao = {

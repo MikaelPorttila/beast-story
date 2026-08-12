@@ -97,7 +97,7 @@ export class JournalPanel {
     }
     const el = document.createElement("div");
     el.className = "bs-journal";
-    el.innerHTML = '<div class="bs-scrim"></div>' + '<aside class="pane bs-glass"></aside>';
+    el.innerHTML = '<div class="bs-scrim"></div><aside class="pane bs-glass"></aside>';
     this.el = el;
     document.body.appendChild(el);
     el.addEventListener("click", this.onClick);

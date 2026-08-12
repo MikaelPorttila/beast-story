@@ -15,11 +15,13 @@ const shader = material.fragmentShader;
 const landStart = shader.indexOf("if (vLand > 0.5)");
 const landEnd = shader.indexOf("// Three ramps over four stops.", landStart);
 const land = new Set(shader.slice(landStart, landEnd));
-const water = shader.slice(landEnd);
+const water = new Set(shader.slice(landEnd));
 
 const failures = [];
 const check = (ok, message) => {
-  if (!ok) failures.push(message);
+  if (!ok) {
+    failures.push(message);
+  }
 };
 
 check(landStart >= 0 && landEnd > landStart, "could not isolate the wet-sand apron branch");
@@ -29,7 +31,7 @@ check(
   "the elevated terrace lost its dark wet-sand tint",
 );
 check(
-  water.includes("col = mix(col, FOAM, surf)"),
+  water.has("col = mix(col, FOAM, surf)"),
   "the water-level surf line was removed with the elevated foam",
 );
 
@@ -38,7 +40,7 @@ console.log(
     {
       apronHasFoam: land.has("FOAM"),
       apronHasWetSand: land.has("damp * 0.70"),
-      waterHasSurf: water.includes("col = mix(col, FOAM, surf)"),
+      waterHasSurf: water.has("col = mix(col, FOAM, surf)"),
       failures,
     },
     null,

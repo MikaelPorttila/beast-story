@@ -12,6 +12,8 @@
 import { launchBrowser, newPage, wait } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
 
+const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+
 const URL = `${HOST}/?fps=30&menu=0`;
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1280, height: 800 });
@@ -76,7 +78,6 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
   }
   await page.keyboard.up("KeyW");
 
-  const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
   results.walking = {
     samples: lags.length,
     // 0.4-1.1 units: LAG_LAMBDA 9 puts the wake 0.66 behind a walk (6 u/s) and
@@ -133,7 +134,9 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
       }
       let wash = 0;
       for (const sl of s.slots) {
-        if (sl.wash > wash) wash = sl.wash;
+        if (sl.wash > wash) {
+          wash = sl.wash;
+        }
       }
       samples.push({ clearance: t.clearance, climb: t.climb, wash });
     }
@@ -156,7 +159,7 @@ const pos = () => page.evaluate(() => window.__dbgPlayerPos?.());
   const CLIMB_REF = 3.0,
     CLIMB_EXTRA = 1.35; // must match sway.ts
   const gainOf = (s) => 1 + Math.min(1, Math.max(0, s.climb / CLIMB_REF)) * CLIMB_EXTRA;
-  const byClear = [...washed].sort((a, b) => a.clearance - b.clearance);
+  const byClear = [...washed].toSorted((a, b) => a.clearance - b.clearance);
   const half = Math.floor(byClear.length / 2);
   const meanWash = (a) => (a.length ? a.reduce((x, y) => x + y.wash / gainOf(y), 0) / a.length : 0);
   const low = meanWash(byClear.slice(0, half));

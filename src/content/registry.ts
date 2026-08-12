@@ -71,7 +71,7 @@ export class ContentRegistry implements ContentLookup {
     if (this.typeNamesView) {
       return this.typeNamesView;
     }
-    const view = Object.freeze([...this.listsByType.keys()].sort());
+    const view = Object.freeze([...this.listsByType.keys()].toSorted());
     this.typeNamesView = view;
     return view;
   }
@@ -197,7 +197,9 @@ export class ContentRegistry implements ContentLookup {
   removeMany(ids: Iterable<ContentId>): number {
     let n = 0;
     for (const id of ids) {
-      if (this.remove(id)) n++;
+      if (this.remove(id)) {
+        n++;
+      }
     }
     return n;
   }

@@ -360,7 +360,9 @@ export class InventoryPanel {
       this.rows.set(e.id, e);
     }
     for (const g of model.gear) {
-      if (g.entry) this.rows.set(g.entry.id, g.entry);
+      if (g.entry) {
+        this.rows.set(g.entry.id, g.entry);
+      }
     }
     this.tips.clear();
     for (const m of model.mounts) {
@@ -536,9 +538,13 @@ export class InventoryPanel {
   private wall(entries: readonly InvEntry[]): (InvEntry | null)[] {
     let span = INV_COLS * INV_ROWS;
     for (const e of entries) {
-      if (e.slot !== undefined && e.slot + 1 > span) span = e.slot + 1;
+      if (e.slot !== undefined && e.slot + 1 > span) {
+        span = e.slot + 1;
+      }
     }
-    const cells: (InvEntry | null)[] = new Array(Math.ceil(span / INV_COLS) * INV_COLS).fill(null);
+    const cells: (InvEntry | null)[] = Array.from<InvEntry | null>({
+      length: Math.ceil(span / INV_COLS) * INV_COLS,
+    }).fill(null);
     const spare: InvEntry[] = [];
     for (const e of entries) {
       if (e.slot !== undefined && e.slot >= 0 && cells[e.slot] === null) {

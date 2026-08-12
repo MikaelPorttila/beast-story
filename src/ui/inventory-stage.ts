@@ -216,7 +216,9 @@ export class InventoryStage {
       this.scene.add(root);
     }
     for (const o of this.onStage) {
-      if (o && o.rig.root !== root) o.rig.root.visible = false;
+      if (o && o.rig.root !== root) {
+        o.rig.root.visible = false;
+      }
     }
     if (this.hero) {
       this.hero.root.visible = false;
@@ -231,7 +233,9 @@ export class InventoryStage {
     renderer.setRenderTarget(null);
 
     for (const o of this.onStage) {
-      if (o) o.rig.root.visible = true;
+      if (o) {
+        o.rig.root.visible = true;
+      }
     }
     if (this.hero) {
       this.hero.root.visible = true;

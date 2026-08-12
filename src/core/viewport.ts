@@ -60,7 +60,9 @@ export function measureViewport(): ViewportSize {
 function smallest(...candidates: number[]): number {
   let best = Infinity;
   for (const c of candidates) {
-    if (c > 0 && c < best) best = c;
+    if (c > 0 && c < best) {
+      best = c;
+    }
   }
   return Number.isFinite(best) ? best : 1;
 }

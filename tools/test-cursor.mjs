@@ -117,8 +117,8 @@ const lock = () => page.evaluate(() => document.pointerLockElement?.tagName ?? n
  * the state not changing IS one of the outcomes under test, and it has to be
  * reported as a reading rather than thrown as a harness error.
  */
-const lockChangedFrom = (page, from) =>
-  page
+const lockChangedFrom = (pg, from) =>
+  pg
     .waitForFunction(
       (was) => (document.pointerLockElement?.tagName ?? null) !== was,
       { timeout: 5000 },

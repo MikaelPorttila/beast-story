@@ -11,7 +11,7 @@ import { CarrierBody } from "./carriers";
 import { Accum, bakeProp, PropLib, type Template } from "./props";
 import { SolidStamp, StructureField } from "./structures";
 import { Npcs, type NpcFrame, type NpcSite } from "./npc";
-import { RoadNetwork, type Road, type RoadClearance } from "./roads";
+import { RoadNetwork, type Road } from "./roads";
 import { flagstoneProfile } from "./path-profile";
 import { VoxelModel } from "../core/voxel";
 import { mulberry32 } from "./noise";
@@ -281,6 +281,9 @@ const HOUSE_R = 7.2;
  *   on a constant fraction of the radius hangs over the void.
  * @param rimAt The rim's world radius at a bearing, so the fence follows the coast.
  */
+/** A point at a bearing and distance from the island's centre. */
+const at = (a: number, d: number): [number, number] => [Math.sin(a) * d, Math.cos(a) * d];
+
 function planSkyhaven(
   seed: number,
   parts: SkyParts,
@@ -303,7 +306,6 @@ function planSkyhaven(
   const trees: Array<{ t: Template; x: number; z: number; yaw: number; s: number }> = [];
   const rocks: Array<{ t: Template; x: number; z: number; yaw: number; s: number }> = [];
   const plots: Array<{ x: number; z: number; r: number }> = [];
-  const at = (a: number, d: number): [number, number] => [Math.sin(a) * d, Math.cos(a) * d];
   /** Everything already standing, so nothing is planted inside a wall. */
   const taken: Array<{ x: number; z: number; r: number }> = [];
   const free = (x: number, z: number, r: number): boolean =>

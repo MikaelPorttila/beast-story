@@ -673,7 +673,9 @@ export class TouchParticles implements WorldBound {
     _point.color.lerp(NEEDLE_COL, cover);
     let placed = 0;
     for (let i = 0; i < n; i++) {
-      if (this.spawn(this.pickKind(s, _point), _point)) placed++;
+      if (this.spawn(this.pickKind(s, _point), _point)) {
+        placed++;
+      }
     }
     return placed;
   }

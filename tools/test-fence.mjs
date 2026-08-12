@@ -287,7 +287,7 @@ const browser = await launchBrowser();
       longestBay: +Math.max(...f.bays.map((b) => b.length)).toFixed(3),
       shortestBay: +Math.min(...f.bays.map((b) => b.length)).toFixed(3),
     })),
-    postKinds: [...kinds].sort(),
+    postKinds: [...kinds].toSorted(),
     railProfile: {
       postWidth: stage.kit.postWidth,
       railWidth: stage.kit.railWidth,

@@ -11,7 +11,7 @@ import { VoxelModel, shade } from "../core/voxel";
 import { bakeProp, type Template } from "./props";
 import { bakeSolid, SolidStamp } from "./structures";
 import { buildFence, type Fence, type FenceParts } from "./fences";
-import { builtDeck, SEG_LEN, type Junction, type Road, type RoadSample } from "./roads";
+import { builtDeck, type Junction, type Road, type RoadSample } from "./roads";
 import { type PathProfile } from "./path-profile";
 import { WATER_LEVEL } from "./terrain";
 import { hashCell } from "./noise";
@@ -112,7 +112,9 @@ export function signText(text: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase();
   for (const ch of folded) {
-    if (ch in FONT) out += ch;
+    if (ch in FONT) {
+      out += ch;
+    }
   }
   return out;
 }
@@ -334,7 +336,9 @@ function bellTent(): Template {
   v.box(0, H + 1, 0, 0, H + 3, 0, shade(LOG, 1.0));
   v.set(0, H + 4, 0, shade(CANVAS_RED, 1.15));
   for (let y = 0; y <= 5; y++) {
-    for (let x = -2; x <= 2; x++) v.set(x, y, R - 1, SOOT);
+    for (let x = -2; x <= 2; x++) {
+      v.set(x, y, R - 1, SOOT);
+    }
   }
   return bakeSolid(v, V);
 }
@@ -360,7 +364,9 @@ function hut(kind: 0 | 1 | 2): Template {
     }
   }
   for (let x = -2; x <= 2; x++) {
-    for (let y = 0; y <= 5; y++) v.set(x, y, D, SOOT);
+    for (let y = 0; y <= 5; y++) {
+      v.set(x, y, D, SOOT);
+    }
   }
   v.box(-3, 6, D, 3, 6, D, shade(LOG, 1.05));
   // Thatch bracketed: its collider is a ridge cylinder, not a box (`measureRidge`).
@@ -1186,6 +1192,18 @@ const APRON_T = [0.12, 0.24, 0.36, 0.48, 0.6, 0.71, 0.8, 0.875, 0.935, 0.975, 1]
 /** Rim pitch between two arms. ~5.7 degrees, so the arc reads as an arc. */
 const APRON_ARC = 0.1;
 
+/** Shortest signed arc, so an arm's bearing compares across the -pi seam. */
+const wrap = (a: number): number => {
+  let v = a;
+  while (v <= -Math.PI) {
+    v += Math.PI * 2;
+  }
+  while (v > Math.PI) {
+    v -= Math.PI * 2;
+  }
+  return v;
+};
+
 /**
  * THE FORK, DRAWN AS ONE PIECE, arms growing out of its rim (issue #45): three
  * ribbons drawn to one node stacked square ends across a bend.
@@ -1221,16 +1239,6 @@ export function buildJunctionApron(
   const RIM_GUARD = prof.rimGuard;
 
   const ang = (x: number, z: number): number => Math.atan2(x - apron.x, z - apron.z);
-  const wrap = (a: number): number => {
-    let v = a;
-    while (v <= -Math.PI) {
-      v += Math.PI * 2;
-    }
-    while (v > Math.PI) {
-      v -= Math.PI * 2;
-    }
-    return v;
-  };
   // Purely spatial, on the cell the ribbon's centre vertex hashes, so arm and
   // apron are the same dirt. A per-ring or per-direction term reads as a starburst.
   const mottle = (x: number, z: number): number =>

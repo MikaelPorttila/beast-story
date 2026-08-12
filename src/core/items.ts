@@ -239,7 +239,7 @@ export const RARE_DROP_IDS: readonly string[] = Object.values(ITEMS)
 /** Every taming orb, weakest first: the shop's order and the readied-orb cycle's. */
 export const ORB_IDS: readonly string[] = Object.values(ITEMS)
   .filter((i) => i.kind === "orb")
-  .sort((a, b) => (a.orbTier ?? 0) - (b.orbTier ?? 0))
+  .toSorted((a, b) => (a.orbTier ?? 0) - (b.orbTier ?? 0))
   .map((i) => i.id);
 
 /** Unknown ids fall back to the shard so a bad id can never crash a drop. */
@@ -326,7 +326,9 @@ export class Inventory {
   toJSON(): Array<[string, number]> {
     const out: Array<[string, number]> = [];
     for (const [id, count] of this.stacks) {
-      if (count > 0) out.push([id, count]);
+      if (count > 0) {
+        out.push([id, count]);
+      }
     }
     return out;
   }
@@ -347,7 +349,9 @@ export class SlotLayout {
   span(): number {
     let max = -1;
     for (const slot of this.atSlot.keys()) {
-      if (slot > max) max = slot;
+      if (slot > max) {
+        max = slot;
+      }
     }
     return max;
   }
@@ -355,11 +359,15 @@ export class SlotLayout {
   /** Forget rows that are gone, give new ones the first free cell. Per model build. */
   reconcile(ids: readonly string[]): void {
     const live = new Set(ids);
-    for (const id of [...this.byId.keys()]) {
-      if (!live.has(id)) this.release(id);
+    for (const id of Array.from(this.byId.keys())) {
+      if (!live.has(id)) {
+        this.release(id);
+      }
     }
     for (const id of ids) {
-      if (!this.byId.has(id)) this.put(id, this.firstFree());
+      if (!this.byId.has(id)) {
+        this.put(id, this.firstFree());
+      }
     }
   }
 

@@ -104,7 +104,7 @@ async function settle(file, quiet = 350, budget = 10000) {
  * failed export is a message in the dev-server log and the next save trying
  * again, not a crashed watcher.
  */
-export async function exportBlend(blend, { exe = blenderExe(), log = console } = {}) {
+export async function exportBlend(blend, { exe = blenderExe() } = {}) {
   if (!exe) {
     return { ok: false, ms: 0, output: "no Blender executable" };
   }
@@ -176,7 +176,7 @@ export function blendGlb() {
             const blend = [...queue][0];
             queue.delete(blend);
             log.info(`[blend] exporting ${blend.replace(ROOT, ".")}`);
-            const r = await exportBlend(blend, { exe, log });
+            const r = await exportBlend(blend, { exe });
             if (r.ok) {
               log.info(
                 `[blend] wrote ${blend.replace(/\.blend$/, ".glb").replace(ROOT, ".")} in ${r.ms} ms`,

@@ -232,7 +232,9 @@ function* refs(data: QuestData): Iterable<ContentId> {
     yield data.location;
   }
   for (const id of data.prerequisites) {
-    if (id !== "") yield id;
+    if (id !== "") {
+      yield id;
+    }
   }
   for (const o of data.objectives) {
     const trigger = o.trigger;
@@ -243,7 +245,9 @@ function* refs(data: QuestData): Iterable<ContentId> {
       yield trigger.town;
     }
     for (const id of trigger.enemies ?? []) {
-      if (id !== "") yield id;
+      if (id !== "") {
+        yield id;
+      }
     }
   }
 }

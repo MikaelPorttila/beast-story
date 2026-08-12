@@ -113,7 +113,7 @@ export class ContentGraph {
     if (!back || back.size === 0) {
       return NO_IDS;
     }
-    const view = Object.freeze([...back].sort(compareIds));
+    const view = Object.freeze([...back].toSorted(compareIds));
     this.referrerViews.set(id, view);
     return view;
   }
@@ -141,11 +141,11 @@ export class ContentGraph {
         }
       }
     }
-    return Object.freeze([...out].sort(compareIds));
+    return Object.freeze([...out].toSorted(compareIds));
   }
 
   dangling(): readonly ContentId[] {
-    return Object.freeze([...this.missing].sort(compareIds));
+    return Object.freeze([...this.missing].toSorted(compareIds));
   }
 
   // Loaded but unreachable. `enumeratedTypes` excludes the types the engine finds
@@ -163,6 +163,6 @@ export class ContentGraph {
       }
       out.push(id);
     }
-    return Object.freeze(out.sort(compareIds));
+    return Object.freeze(out.toSorted(compareIds));
   }
 }

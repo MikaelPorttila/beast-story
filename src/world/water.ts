@@ -336,15 +336,18 @@ export function buildWaterMesh(
   // boundary puts its beach in the next chunk, and interior-only chopped it off.
   let anyWet = false;
   for (let iz = 0; iz < CHUNK_SIZE && !anyWet; iz++) {
-    for (let ix = 0; ix < CHUNK_SIZE; ix++)
+    for (let ix = 0; ix < CHUNK_SIZE; ix++) {
       if (!dry[(iz + PAD) * GG + (ix + PAD)]) {
         anyWet = true;
         break;
       }
+    }
   }
   let anyNear = anyWet;
   for (let i = 0; i < GG * GG && !anyNear; i++) {
-    if (!dry[i]) anyNear = true;
+    if (!dry[i]) {
+      anyNear = true;
+    }
   }
   if (!anyNear) {
     return null;
@@ -459,7 +462,8 @@ export function buildWaterMesh(
   // A flat +Y normal this shader never reads, present for the GTAO normal override:
   // a missing attribute reads (0,0,0) and GTAO reports the lake fully occluded.
   const normals = new Float32Array((NG + AP) * 3);
-  for (let iz = 0; iz < G && anyWet; iz++) {
+  const wetRows = anyWet ? G : 0;
+  for (let iz = 0; iz < wetRows; iz++) {
     for (let ix = 0; ix < G; ix++) {
       const i = iz * G + ix;
       const p = (iz + PAD) * GG + (ix + PAD);

@@ -293,7 +293,7 @@ class Runtime implements ContentRuntime {
       get: (id) => this.registry.get(id),
       // Every REGISTERED type, not only those with assets, or a reference into a
       // package that failed to load reads as `unknown-type` on top of the real problem.
-      types: () => [...new Set([...this.registry.types(), ...this.typeDefs.keys()])].sort(),
+      types: () => [...new Set([...this.registry.types(), ...this.typeDefs.keys()])].toSorted(),
       typeDef: (type) => this.typeDefs.get(type),
     };
   }

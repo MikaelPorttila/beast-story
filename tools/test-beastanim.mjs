@@ -115,7 +115,9 @@ const installChecker = (page, slowFrameMs) =>
         // reserve never updates, so its `time` sits at 0 and reading it would
         // report a session that never started.
         for (const b of now) {
-          if (b.time > window.__anim.clock) window.__anim.clock = b.time;
+          if (b.time > window.__anim.clock) {
+            window.__anim.clock = b.time;
+          }
         }
         if (prev && dtMs > slowMs) {
           window.__anim.skipped++;
@@ -166,7 +168,7 @@ const installChecker = (page, slowFrameMs) =>
       read() {
         const rows = [...worst.entries()]
           .map(([k, v]) => ({ joint: k, d: v.d, action: v.action, ms: v.ms, t: v.t }))
-          .sort((a, b) => b.d - a.d);
+          .toSorted((a, b) => b.d - a.d);
         const perBeast = new Map();
         for (const r of rows) {
           const id = r.joint.split(".")[0];
@@ -293,6 +295,7 @@ const world = await (async () => {
     // guarantees the whole roster is seen; this is here so the world half is
     // not permanently measuring the same two.
     await page.focus("canvas").catch(() => {});
+    // oxlint-disable-next-line no-unmodified-loop-condition -- the page-load listener sets it
     for (let i = 0; i < Math.floor(SAMPLE_MS / 1600) && !reloaded; i++) {
       await wait(1600);
       await page.keyboard.press(i % 2 === 0 ? "BracketRight" : "BracketLeft");

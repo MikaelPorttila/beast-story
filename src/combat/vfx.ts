@@ -919,7 +919,9 @@ export class VFX {
 
   private lightSlot(): LightSlot | null {
     for (const s of this.lights) {
-      if (s.mode === 0) return s;
+      if (s.mode === 0) {
+        return s;
+      }
     }
     if (this.lights.length < 10) {
       const light = new THREE.PointLight(0xffffff, 0, 12, 2);
@@ -981,7 +983,9 @@ export class VFX {
 
   private glowSlot(): GlowSlot | null {
     for (const s of this.glows) {
-      if (s.mode === 0) return s;
+      if (s.mode === 0) {
+        return s;
+      }
     }
     if (this.glows.length < 28) {
       const mat = new THREE.SpriteMaterial({

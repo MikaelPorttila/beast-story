@@ -257,7 +257,9 @@ function parseDoc(value: unknown): SaveDocument | null {
   const maxHp = Math.max(1, num(player.maxHp, 100));
   const extra: Record<string, unknown> = {};
   for (const key of Object.keys(raw)) {
-    if (!KNOWN_FIELDS.has(key)) extra[key] = raw[key];
+    if (!KNOWN_FIELDS.has(key)) {
+      extra[key] = raw[key];
+    }
   }
 
   return {
@@ -344,6 +346,7 @@ export async function listSaves(): Promise<SaveMeta[]> {
     return [];
   }
   try {
+    // oxlint-disable-next-line unicorn/no-array-reverse -- Dexie's Collection.reverse, not Array's
     const rows = await store.saves.orderBy("updatedAt").reverse().toArray();
     return rows.filter((r) => typeof r.id === "number");
   } catch (err) {

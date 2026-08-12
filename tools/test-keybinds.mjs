@@ -28,6 +28,38 @@ import path from "node:path";
 import { launchBrowser, newPage, startNewGame, wait } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
 
+/** Walk the poster to the options list, then click one of its buttons. */
+const toOptions = async (pg) => {
+  await pg.waitForSelector(".bs-menu");
+  await wait(600);
+  for (let i = 0; i < 4; i++) {
+    if (await pg.evaluate(() => !!document.querySelector('.bs-menu [data-act="new"]'))) {
+      break;
+    }
+    await pg.keyboard.press("Enter");
+    await wait(500);
+  }
+};
+/** Start a game the way a player does — a real click, so the activation is real. */
+const newGame = async (pg) => {
+  await startNewGame(pg);
+  await pg.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 30000 });
+  await wait(800);
+  return pg.evaluate(() => window.__dbgFullscreen());
+};
+
+/** Shortest arc between two yaws, so a reading across the -pi seam is small. */
+const arc = (a, b) => {
+  let d = b - a;
+  while (d > Math.PI) {
+    d -= 2 * Math.PI;
+  }
+  while (d < -Math.PI) {
+    d += 2 * Math.PI;
+  }
+  return +Math.abs(d).toFixed(4);
+};
+
 const URL = `${HOST}/?fps=30&menu=0`;
 const SRC = "src";
 
@@ -101,10 +133,10 @@ const BROWSER_OWNS = /^(F\d+|Arrow|Tab$|Space$|Escape$)/;
 
 const results = {
   table: {
-    codesReadInSource: [...scanned].sort(),
-    codesInSheet: [...listed].sort(),
-    unlisted: [...scanned].filter((c) => !listed.has(c)).sort(),
-    listedNotScanned: [...listed].filter((c) => !scanned.has(c)).sort(),
+    codesReadInSource: [...scanned].toSorted(),
+    codesInSheet: [...listed].toSorted(),
+    unlisted: [...scanned].filter((c) => !listed.has(c)).toSorted(),
+    listedNotScanned: [...listed].filter((c) => !scanned.has(c)).toSorted(),
   },
 };
 
@@ -121,9 +153,9 @@ await wait(3500);
 {
   const captured = new Set((await page.evaluate(() => window.__dbgInput())).captured);
   const owed = [...scanned].filter((c) => BROWSER_OWNS.test(c));
-  results.table.browserOwned = owed.sort();
-  results.table.captured = [...captured].sort();
-  results.table.uncaptured = owed.filter((c) => !captured.has(c)).sort();
+  results.table.browserOwned = owed.toSorted();
+  results.table.captured = [...captured].toSorted();
+  results.table.uncaptured = owed.filter((c) => !captured.has(c)).toSorted();
 }
 
 // The state of both halves on an ordinary windowed page, for the record: no
@@ -205,16 +237,6 @@ results.escape = { openedAgain, closedByEscape: !(await sheet()).open };
   await wait(400);
   const locked = () => page.evaluate(() => document.pointerLockElement !== null);
   const yaw = () => page.evaluate(() => window.__dbgCamYaw());
-  const arc = (a, b) => {
-    let d = b - a;
-    while (d > Math.PI) {
-      d -= 2 * Math.PI;
-    }
-    while (d < -Math.PI) {
-      d += 2 * Math.PI;
-    }
-    return +Math.abs(d).toFixed(4);
-  };
 
   const lockedBefore = await locked();
   await page.keyboard.press("F1");
@@ -472,8 +494,8 @@ await page.close();
 // an API this browser does not have, and it needs a headful Chromium, a display
 // and a hand. Everything up to the request is here.
 {
-  const fs = await newPage(browser, { width: 1024, height: 768 });
-  await fs.evaluateOnNewDocument(() => {
+  const lockPage = await newPage(browser, { width: 1024, height: 768 });
+  await lockPage.evaluateOnNewDocument(() => {
     window.__kbCalls = [];
     // `configurable` because the real accessor is on Navigator.prototype and
     // answers null; this shadows it on the instance for the life of the page.
@@ -490,27 +512,27 @@ await page.close();
       },
     });
   });
-  await fs.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: "load" });
-  await fs.waitForSelector("canvas");
+  await lockPage.goto(`${HOST}/?fps=30&menu=0`, { waitUntil: "load" });
+  await lockPage.waitForSelector("canvas");
   await wait(3000);
 
-  const windowed = await fs.evaluate(() => window.__dbgFullscreen());
+  const windowed = await lockPage.evaluate(() => window.__dbgFullscreen());
   // A real click first: `requestFullscreen` is refused without a user
   // activation, exactly as it is for a player pressing New Game.
-  await fs.mouse.click(512, 384);
-  await fs.evaluate(() =>
+  await lockPage.mouse.click(512, 384);
+  await lockPage.evaluate(() =>
     document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => {}),
   );
   await wait(800);
-  const full = await fs.evaluate(() => window.__dbgFullscreen());
-  const callsWhileFull = await fs.evaluate(() => window.__kbCalls.slice());
+  const full = await lockPage.evaluate(() => window.__dbgFullscreen());
+  const callsWhileFull = await lockPage.evaluate(() => window.__kbCalls.slice());
 
   // The preventDefault half, read off a REAL Escape rather than off the capture
   // list: `Input`'s own window listener runs first (it was added first), so a
   // listener added here sees what it decided.
   // NOT awaited here: the evaluate resolves with the promise's value, so awaiting
   // it would sit out the whole timeout before the key is ever pressed.
-  const prevented = fs.evaluate(
+  const prevented = lockPage.evaluate(
     () =>
       new Promise((resolve) => {
         const on = (e) => {
@@ -521,13 +543,13 @@ await page.close();
         setTimeout(() => resolve(null), 2000);
       }),
   );
-  await fs.keyboard.press("Escape");
+  await lockPage.keyboard.press("Escape");
   const escapePrevented = await prevented;
 
-  await fs.evaluate(() => document.exitFullscreen?.());
+  await lockPage.evaluate(() => document.exitFullscreen?.());
   await wait(600);
-  const afterExit = await fs.evaluate(() => window.__dbgFullscreen());
-  const calls = await fs.evaluate(() => window.__kbCalls.slice());
+  const afterExit = await lockPage.evaluate(() => window.__dbgFullscreen());
+  const calls = await lockPage.evaluate(() => window.__kbCalls.slice());
 
   results.escapeLock = {
     lockedWhileWindowed: windowed.escapeLocked,
@@ -535,12 +557,12 @@ await page.close();
     lockedWhileFullscreen: full.escapeLocked,
     // The exact request, because "some lock" is not the point — a lock over the
     // wrong code list would take keys the player still needs.
-    lockedCodes: callsWhileFull.filter((c) => c.startsWith("lock:")).at(-1) ?? null,
+    lockedCodes: callsWhileFull.findLast((c) => c.startsWith("lock:")) ?? null,
     escapePrevented,
     releasedOnExit: afterExit.escapeLocked === false && calls.at(-1) === "unlock",
     calls,
   };
-  await fs.close();
+  await lockPage.close();
 }
 
 // ---------- 7. NEW GAME ONLY TAKES A FULLSCREEN IT CAN KEEP (issue #83) -----
@@ -558,26 +580,6 @@ await page.close();
 // Chrome. Neither passes `fs=`, because that flag is the override that skips
 // the gate — a run with it would assert on nothing.
 {
-  /** Walk the poster to the options list, then click one of its buttons. */
-  const toOptions = async (page) => {
-    await page.waitForSelector(".bs-menu");
-    await wait(600);
-    for (let i = 0; i < 4; i++) {
-      if (await page.evaluate(() => !!document.querySelector('.bs-menu [data-act="new"]'))) {
-        break;
-      }
-      await page.keyboard.press("Enter");
-      await wait(500);
-    }
-  };
-  /** Start a game the way a player does — a real click, so the activation is real. */
-  const newGame = async (page) => {
-    await startNewGame(page);
-    await page.waitForFunction(() => window.__dbgBoot?.().playing === true, { timeout: 30000 });
-    await wait(800);
-    return page.evaluate(() => window.__dbgFullscreen());
-  };
-
   // --- no keyboard lock: windowed, and the row says why ---------------------
   const plain = await newPage(browser, { width: 1280, height: 800 });
   await plain.goto(`${HOST}/`, { waitUntil: "load" });

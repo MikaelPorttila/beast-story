@@ -174,7 +174,7 @@ function readSites(): readonly TownSite[] {
     });
   }
   // `sort` is stable in ES2019+, so towns that tie on `order` keep load order.
-  return sites.sort((a, b) => a.order - b.order);
+  return sites.toSorted((a, b) => a.order - b.order);
 }
 
 /** How many settlements hang off the fork. See `planSettlements`'s hub note. */
@@ -302,13 +302,13 @@ const WEAR: Record<TownInfo["kind"], WearSpec> = {
 };
 
 /** The `GroundPatch` a town wears — its YARD. The tracks are `wearTracks`. */
-function wearPatch(t: TownInfo): GroundPatch {
-  const spec = WEAR[t.kind];
+function wearPatch(town: TownInfo): GroundPatch {
+  const spec = WEAR[town.kind];
   return {
-    x: t.x,
-    z: t.z,
-    fade: spec.fade * t.radius,
-    edge: spec.edge * t.radius,
+    x: town.x,
+    z: town.z,
+    fade: spec.fade * town.radius,
+    edge: spec.edge * town.radius,
     base: spec.base,
     damp: spec.damp,
   };
@@ -316,20 +316,20 @@ function wearPatch(t: TownInfo): GroundPatch {
 
 /** A settlement's beaten tracks, as PATHS on the network (issue #142). A track may
  *  NOT refuse what is built beside it: these lines were derived FROM the layout. */
-function wearTracks(t: TownInfo, y: number): Road[] {
-  const spec = WEAR[t.kind];
+function wearTracks(town: TownInfo, y: number): Road[] {
+  const spec = WEAR[town.kind];
   return spec.tracks.map(([rel, len, hw, s], i) => {
-    const a = t.gateAngle + rel;
-    const d = len * t.radius;
+    const a = town.gateAngle + rel;
+    const d = len * town.radius;
     return {
-      id: `track:${t.id}-${i}`,
-      fromId: t.id,
-      toId: t.id,
+      id: `track:${town.id}-${i}`,
+      fromId: town.id,
+      toId: town.id,
       profile: trackProfile(hw),
       wear: s,
       pts: [
-        { x: t.x, z: t.z, y, bridge: false },
-        { x: t.x + Math.sin(a) * d, z: t.z + Math.cos(a) * d, y, bridge: false },
+        { x: town.x, z: town.z, y, bridge: false },
+        { x: town.x + Math.sin(a) * d, z: town.z + Math.cos(a) * d, y, bridge: false },
       ],
       trim: new Float32Array(8),
     };
@@ -439,10 +439,10 @@ function planeHit(
     const a = at(i - 1);
     const b = at(i);
     if (b >= h && a < h) {
-      const t = (h - a) / (b - a);
+      const frac = (h - a) / (b - a);
       return {
-        x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * t,
-        z: pts[i - 1].z + (pts[i].z - pts[i - 1].z) * t,
+        x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * frac,
+        z: pts[i - 1].z + (pts[i].z - pts[i - 1].z) * frac,
       };
     }
   }
@@ -519,16 +519,16 @@ class Registry implements MutableTownRegistry {
   }
 
   get(id: string): TownInfo | undefined {
-    return this.all.find((t) => t.id === id);
+    return this.all.find((town) => town.id === id);
   }
   nearest(x: number, z: number): TownInfo | null {
     let best: TownInfo | null = null;
     let bd = Infinity;
-    for (const t of this.all) {
-      const d = Math.hypot(t.x - x, t.z - z);
+    for (const town of this.all) {
+      const d = Math.hypot(town.x - x, town.z - z);
       if (d < bd) {
         bd = d;
-        best = t;
+        best = town;
       }
     }
     return best;
@@ -744,9 +744,9 @@ export function planSettlements(terrain: Terrain, seed: number): SettlementPlan 
   }
 
   // -- 5. The worn ground. AFTER the gates (gate-relative) and before `build()`.
-  for (const t of towns) {
-    terrain.grounds.push(wearPatch(t));
-    for (const track of wearTracks(t, t.y)) {
+  for (const town of towns) {
+    terrain.grounds.push(wearPatch(town));
+    for (const track of wearTracks(town, town.y)) {
       network.add(track);
     }
   }
@@ -1210,11 +1210,11 @@ function clearRun(network: RoadClearance, taken: readonly Spot[]): FenceOptions[
     const dx = bx - ax;
     const dz = bz - az;
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / FENCE_SPOT_STEP));
-    for (const t of taken) {
-      const reach = (t.solidR ?? t.r) + FENCE_POST_R;
+    for (const spot of taken) {
+      const reach = (spot.solidR ?? spot.r) + FENCE_POST_R;
       for (let i = 0; i <= steps; i++) {
         const u = i / steps;
-        if (Math.hypot(ax + dx * u - t.x, az + dz * u - t.z) < reach) {
+        if (Math.hypot(ax + dx * u - spot.x, az + dz * u - spot.z) < reach) {
           return false;
         }
       }
@@ -1243,10 +1243,10 @@ function place(
   if (network.builtEdgeDistanceTo(x, z) < roadClear) {
     return false;
   }
-  for (const t of taken) {
-    const dx = t.x - x;
-    const dz = t.z - z;
-    if (dx * dx + dz * dz < (t.r + r) * (t.r + r)) {
+  for (const spot of taken) {
+    const dx = spot.x - x;
+    const dz = spot.z - z;
+    if (dx * dx + dz * dz < (spot.r + r) * (spot.r + r)) {
       return false;
     }
   }

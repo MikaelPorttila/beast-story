@@ -66,6 +66,19 @@
 const GRANTED = ["emberfox", "galebird", "sproutle"];
 const ROSTER = GRANTED.length;
 
+// Readers over an inventory snapshot, shared by the sections below.
+/** The item id sitting in a gear slot. */
+const gearIn = (snap, slot) => snap.gear.find((g) => g.slot === slot)?.id ?? null;
+/** The gear slot an item sits in, by item id. */
+const slotOfItem = (snap, id) => snap.entries.find((e) => e.id === id)?.slot ?? null;
+/** The whole gear row for an item id. */
+const gearRow = (snap, id) => snap.gear.find((g) => g.id === id);
+/** How many of one item the bag holds. */
+const bagCount = (snap, id) => snap.bag.find((e) => e.id === id)?.count ?? 0;
+const beastIdOf = (s) => s.replace("beast:", "");
+/** A pair whose two entries are both present. */
+const bothFilled = (c) => Array.isArray(c) && c.length === 2 && c.every((x) => !!x);
+
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
 const inv = (ctx) => ctx.ev(() => window.__dbgInventory());
@@ -377,7 +390,7 @@ export const sections = [
       ctx.check(open.panel?.stageGl === true, "no stage canvas in the panel");
       ctx.check(
         (baked.panel?.portraits ?? 0) === ROSTER,
-        `${baked.panel?.portraits} beast portraits baked, ` + `expected the roster's ${ROSTER}`,
+        `${baked.panel?.portraits} beast portraits baked, expected the roster's ${ROSTER}`,
       );
     },
   },
@@ -394,7 +407,14 @@ export const sections = [
       // the version of this section that used one read a null tooltip against a
       // panel that was working perfectly in the hand.
       await ctx.page.hover('.bs-inv .slot[data-sel="potion-mend"]');
-      await ctx.waitFn(() => window.__dbgInventory().panel?.tip != null, 5000).catch(() => {});
+      await ctx
+        .waitFn(
+          () =>
+            window.__dbgInventory().panel?.tip !== null &&
+            window.__dbgInventory().panel?.tip !== undefined,
+          5000,
+        )
+        .catch(() => {});
       const hovered = await inv(ctx);
       const tipBox = await ctx.ev(() => {
         const t = document.querySelector(".bs-inv .tip");
@@ -415,7 +435,14 @@ export const sections = [
       // Off any row, and onto something that is still inside the panel — the
       // tooltip hides on leaving a slot, not on leaving the panel.
       await ctx.page.hover(".bs-inv .head h2");
-      await ctx.waitFn(() => window.__dbgInventory().panel?.tip == null, 5000).catch(() => {});
+      await ctx
+        .waitFn(
+          () =>
+            window.__dbgInventory().panel?.tip === null ||
+            window.__dbgInventory().panel?.tip === undefined,
+          5000,
+        )
+        .catch(() => {});
       const away = await inv(ctx);
 
       ctx.res.tooltip = {
@@ -587,11 +614,10 @@ export const sections = [
       dropSites.push(await pos(ctx));
       const dropped = await inv(ctx);
 
-      const slotOf = (snap, s) => snap.gear.find((g) => g.slot === s)?.id ?? null;
       ctx.res.drag = {
         ontoWeapon: equipped.weapon,
         potionRefused: stillArmed.weapon,
-        ontoLead: slotOf(led, "primary"),
+        ontoLead: gearIn(led, "primary"),
         wanted: benched.id,
         sunberriesBefore: heldBefore + 2,
         sunberriesAfter: dropped.bag.find((e) => e.id === "sunberry")?.count ?? 0,
@@ -606,8 +632,8 @@ export const sections = [
           "the slot must refuse what the host never offered",
       );
       ctx.check(
-        slotOf(led, "primary") === benched.id,
-        `dragging ${benched.id} onto the lead slot left ${slotOf(led, "primary")}`,
+        gearIn(led, "primary") === benched.id,
+        `dragging ${benched.id} onto the lead slot left ${gearIn(led, "primary")}`,
       );
       ctx.check(
         ctx.res.drag.sunberriesAfter === ctx.res.drag.sunberriesBefore - 1,
@@ -639,7 +665,6 @@ export const sections = [
     id: "arrange",
     run: async (ctx) => {
       await openPanel(ctx);
-      const slotOf = (snap, id) => snap.entries.find((e) => e.id === id)?.slot ?? null;
       const cellOf = (id) =>
         ctx.ev((i) => {
           const el = document.querySelector(`.bs-inv .slot[data-sel="${i}"]`);
@@ -647,7 +672,7 @@ export const sections = [
         }, id);
 
       const before = await inv(ctx);
-      const homeSlot = slotOf(before, "potion-mend");
+      const homeSlot = slotOfItem(before, "potion-mend");
       // The LAST free cell, which is nowhere near where anything was placed —
       // a move to the cell next door could be an off-by-one in the layout.
       const free = await ctx.ev(() => {
@@ -672,7 +697,7 @@ export const sections = [
       // wall now, so which items are there depends on the sections above.
       const neighbour = moved.entries.find((e) => e.id !== "potion-mend")?.id;
       ctx.check(!!neighbour, "nothing else on the wall to swap the potion with");
-      const neighbourHome = slotOf(moved, neighbour);
+      const neighbourHome = slotOfItem(moved, neighbour);
       await drag(
         ctx,
         '.bs-inv .slot[data-sel="potion-mend"]',
@@ -682,7 +707,7 @@ export const sections = [
 
       // ...and the bag changing does not put anything back. A gift lands in a FREE
       // cell; it does not renumber the wall.
-      const parked = slotOf(swapped, "potion-mend");
+      const parked = slotOfItem(swapped, "potion-mend");
       await give(ctx, "glowpebble", 1);
       await ctx.waitFn(
         () => !!document.querySelector('.bs-inv .slot[data-sel="glowpebble"]'),
@@ -693,33 +718,33 @@ export const sections = [
       ctx.res.arrange = {
         home: homeSlot,
         free,
-        afterMove: slotOf(moved, "potion-mend"),
+        afterMove: slotOfItem(moved, "potion-mend"),
         drawnAt: movedCell,
         neighbourHome,
-        afterSwap: { potion: parked, sword: slotOf(swapped, neighbour) },
-        afterGift: slotOf(after, "potion-mend"),
-        giftAt: slotOf(after, "glowpebble"),
+        afterSwap: { potion: parked, sword: slotOfItem(swapped, neighbour) },
+        afterGift: slotOfItem(after, "potion-mend"),
+        giftAt: gearIn(after, "glowpebble"),
       };
       ctx.check(
-        slotOf(moved, "potion-mend") === free,
-        `the potion sits in cell ${slotOf(moved, "potion-mend")} after a drag to ${free}`,
+        slotOfItem(moved, "potion-mend") === free,
+        `the potion sits in cell ${slotOfItem(moved, "potion-mend")} after a drag to ${free}`,
       );
       ctx.check(
         movedCell === free,
         `the model says cell ${free} and the DOM drew the potion in ${movedCell}`,
       );
       ctx.check(
-        moved.entries.every((e) => e.id === "potion-mend" || e.slot === slotOf(before, e.id)),
+        moved.entries.every((e) => e.id === "potion-mend" || e.slot === slotOfItem(before, e.id)),
         "moving one box moved another — the wall is still sorting itself",
       );
       ctx.check(
-        parked === neighbourHome && slotOf(swapped, neighbour) === free,
-        `a drop on an occupied cell left potion ${parked} / sword ${slotOf(swapped, neighbour)}, ` +
+        parked === neighbourHome && slotOfItem(swapped, neighbour) === free,
+        `a drop on an occupied cell left potion ${parked} / sword ${slotOfItem(swapped, neighbour)}, ` +
           `expected them swapped to ${neighbourHome} / ${free}`,
       );
       ctx.check(
-        slotOf(after, "potion-mend") === parked,
-        `a new item in the bag moved the potion ${parked} -> ${slotOf(after, "potion-mend")} — ` +
+        slotOfItem(after, "potion-mend") === parked,
+        `a new item in the bag moved the potion ${parked} -> ${slotOfItem(after, "potion-mend")} — ` +
           "the wall must not re-sort when the bag changes",
       );
       ctx.check(
@@ -737,23 +762,21 @@ export const sections = [
     id: "bench",
     run: async (ctx) => {
       await openPanel(ctx);
-      const slotOf = (snap, s) => snap.gear.find((g) => g.slot === s)?.id ?? null;
       const before = await inv(ctx);
-      const lead = slotOf(before, "primary");
-      const support = slotOf(before, "support");
+      const lead = gearIn(before, "primary");
+      const support = gearIn(before, "support");
       ctx.check(!!lead && !!support, "section 3e needs both beast slots filled");
 
       // The BUTTON, which is the only way a phone reaches this — and it is in the
       // footer because the row offers it, not because the panel knows about
       // beasts. Read off the GEAR SLOT: a beast walking with you is not on the
       // wall as well, so the slot carries the only copy of its row.
-      const rowOf = (snap, id) => snap.gear.find((g) => g.id === id);
       ctx.check(
-        (rowOf(before, lead)?.actions ?? []).includes("unequip"),
-        `the lead beast offers ${JSON.stringify(rowOf(before, lead)?.actions)} — no way out of the slot`,
+        (gearRow(before, lead)?.actions ?? []).includes("unequip"),
+        `the lead beast offers ${JSON.stringify(gearRow(before, lead)?.actions)} — no way out of the slot`,
       );
       ctx.check(
-        (rowOf(before, support)?.actions ?? []).includes("unequip"),
+        (gearRow(before, support)?.actions ?? []).includes("unequip"),
         "the support beast offers no way out of its slot",
       );
 
@@ -769,22 +792,22 @@ export const sections = [
       ctx.res.bench = {
         lead,
         support,
-        afterLeadOut: { lead: slotOf(noLead, "primary"), support: slotOf(noLead, "support") },
-        afterBothOut: { lead: slotOf(alone, "primary"), support: slotOf(alone, "support") },
-        restored: { lead: slotOf(restored, "primary"), support: slotOf(restored, "support") },
+        afterLeadOut: { lead: gearIn(noLead, "primary"), support: gearIn(noLead, "support") },
+        afterBothOut: { lead: gearIn(alone, "primary"), support: gearIn(alone, "support") },
+        restored: { lead: gearIn(restored, "primary"), support: gearIn(restored, "support") },
       };
       ctx.check(
-        slotOf(noLead, "primary") === null,
-        `the lead slot still holds ${slotOf(noLead, "primary")} after unequip`,
+        gearIn(noLead, "primary") === null,
+        `the lead slot still holds ${gearIn(noLead, "primary")} after unequip`,
       );
       // NOTHING SLID UP. The support beast is where it was — see `inventoryAction`.
       ctx.check(
-        slotOf(noLead, "support") === support,
-        `taking the lead out moved the support beast to ${slotOf(noLead, "support")}`,
+        gearIn(noLead, "support") === support,
+        `taking the lead out moved the support beast to ${gearIn(noLead, "support")}`,
       );
       ctx.check(
-        slotOf(alone, "support") === null,
-        `the support slot still holds ${slotOf(alone, "support")} after unequip`,
+        gearIn(alone, "support") === null,
+        `the support slot still holds ${gearIn(alone, "support")} after unequip`,
       );
       ctx.check(
         alone.entries.filter((e) => e.kind === "beast" && e.equipped).length === 0,
@@ -799,7 +822,7 @@ export const sections = [
           `with both slots empty, expected all ${ROSTER}`,
       );
       ctx.check(
-        slotOf(restored, "primary") === lead && slotOf(restored, "support") === support,
+        gearIn(restored, "primary") === lead && gearIn(restored, "support") === support,
         `putting the party back left ${JSON.stringify(ctx.res.bench.restored)}`,
       );
     },
@@ -819,7 +842,6 @@ export const sections = [
     id: "clickDrag",
     run: async (ctx) => {
       await openPanel(ctx);
-      const slotOf = (snap, id) => snap.entries.find((e) => e.id === id)?.slot ?? null;
       const click = async (sel) => {
         const p = await centre(ctx, sel);
         if (!p) {
@@ -833,7 +855,7 @@ export const sections = [
 
       const before = await inv(ctx);
       const id = before.entries[0]?.id;
-      const home = slotOf(before, id);
+      const home = slotOfItem(before, id);
       const free = await ctx.ev(() => {
         const empties = [...document.querySelectorAll(".bs-inv .slot.empty[data-slot]")];
         return empties.length ? Number(empties[empties.length - 1].dataset.slot) : null;
@@ -861,11 +883,11 @@ export const sections = [
         free,
         carryingAfterOneClick: held.panel?.carrying,
         selectedWhileHeld: held.panel?.selected,
-        placedAt: slotOf(placed, id),
+        placedAt: slotOfItem(placed, id),
         carryingAfterPlace: placed.panel?.carrying,
         carryingAfterEscape: cancelled.panel?.carrying,
         panelAfterEscape: cancelled.open,
-        slotAfterEscape: slotOf(cancelled, id),
+        slotAfterEscape: slotOfItem(cancelled, id),
       };
       ctx.check(
         held.panel?.carrying === true,
@@ -874,8 +896,8 @@ export const sections = [
       // The press used to be what selected, and it still is.
       ctx.check(held.panel?.selected === id, `picking ${id} up selected ${held.panel?.selected}`);
       ctx.check(
-        slotOf(placed, id) === free,
-        `the second click left it in cell ${slotOf(placed, id)}, not the ${free} it was clicked on`,
+        slotOfItem(placed, id) === free,
+        `the second click left it in cell ${slotOfItem(placed, id)}, not the ${free} it was clicked on`,
       );
       ctx.check(
         placed.panel?.carrying === false,
@@ -888,8 +910,8 @@ export const sections = [
         "Escape closed the panel with a row in hand — it must spend itself on the row first",
       );
       ctx.check(
-        slotOf(cancelled, id) === free,
-        `cancelling moved the row to ${slotOf(cancelled, id)}, it should not have moved at all`,
+        slotOfItem(cancelled, id) === free,
+        `cancelling moved the row to ${slotOfItem(cancelled, id)}, it should not have moved at all`,
       );
     },
   },
@@ -908,8 +930,6 @@ export const sections = [
     id: "gearDrag",
     run: async (ctx) => {
       await openPanel(ctx);
-      const gearOf = (snap, s) => snap.gear.find((g) => g.slot === s)?.id ?? null;
-      const slotOf = (snap, id) => snap.entries.find((e) => e.id === id)?.slot ?? null;
       const freeCell = () =>
         ctx.ev(() => {
           const empty = document.querySelector(".bs-inv .slot.empty[data-slot]");
@@ -919,7 +939,7 @@ export const sections = [
       const out = {};
       for (const slot of ["weapon", "primary", "support", "orb"]) {
         const before = await inv(ctx);
-        const id = gearOf(before, slot);
+        const id = gearIn(before, slot);
         ctx.check(!!id, `the ${slot} slot is empty — section 3f has nothing to drag out of it`);
         if (!id) {
           continue;
@@ -937,14 +957,14 @@ export const sections = [
         out[slot] = {
           id,
           cell,
-          afterOut: gearOf(emptied, slot),
-          landedAt: slotOf(emptied, id),
+          afterOut: gearIn(emptied, slot),
+          landedAt: slotOfItem(emptied, id),
           onWall: emptied.entries.some((e) => e.id === id),
-          afterIn: gearOf(refilled, slot),
+          afterIn: gearIn(refilled, slot),
         };
         ctx.check(
-          gearOf(emptied, slot) === null,
-          `dragging ${id} out of the ${slot} slot left ${gearOf(emptied, slot)} in it`,
+          gearIn(emptied, slot) === null,
+          `dragging ${id} out of the ${slot} slot left ${gearIn(emptied, slot)} in it`,
         );
         ctx.check(
           out[slot].onWall,
@@ -955,8 +975,8 @@ export const sections = [
           `${id} landed in cell ${out[slot].landedAt}, not the ${cell} it was dropped on`,
         );
         ctx.check(
-          gearOf(refilled, slot) === id,
-          `dragging ${id} back onto the ${slot} slot left ${gearOf(refilled, slot)}`,
+          gearIn(refilled, slot) === id,
+          `dragging ${id} back onto the ${slot} slot left ${gearIn(refilled, slot)}`,
         );
       }
       ctx.res.gearDrag = out;
@@ -981,13 +1001,12 @@ export const sections = [
       await ctx.adv(0.1);
       const furious = await inv(ctx);
 
-      const countOf = (snap, id) => snap.bag.find((e) => e.id === id)?.count ?? 0;
       ctx.res.use = {
         hpBefore: hurt.hp,
         hpAfter: healed.hp,
-        potionsBefore: countOf(hurt, "potion-mend"),
-        potionsAfter: countOf(healed, "potion-mend"),
-        furyGiven: countOf(gotFury, "potion-fury"),
+        potionsBefore: bagCount(hurt, "potion-mend"),
+        potionsAfter: bagCount(healed, "potion-mend"),
+        furyGiven: bagCount(gotFury, "potion-fury"),
         buff: furious.buff,
         attackWithBuff: furious.attackStat,
       };
@@ -1048,25 +1067,24 @@ export const sections = [
       await ctx.adv(1.6);
       const after = await inv(ctx);
 
-      const countOf = (snap) => snap.bag.find((e) => e.id === "glowpebble")?.count ?? 0;
       ctx.res.drop = {
-        held: countOf(held),
-        afterDrop: countOf(dropped),
+        held: bagCount(held, "glowpebble"),
+        afterDrop: bagCount(dropped, "glowpebble"),
         onGround: onGround.length,
-        stillOutAfter1p6s: countOf(after),
+        stillOutAfter1p6s: bagCount(after, "glowpebble"),
         heroMoved: +dist(where, await pos(ctx)).toFixed(2),
       };
       ctx.check(
-        countOf(dropped) === countOf(held) - 1,
-        `the stack went ${countOf(held)} -> ${countOf(dropped)}, expected one fewer`,
+        bagCount(dropped, "glowpebble") === bagCount(held, "glowpebble") - 1,
+        `the stack went ${bagCount(held, "glowpebble")} -> ${bagCount(dropped, "glowpebble")}, expected one fewer`,
       );
       ctx.check(
         onGround.length >= 1,
         "nothing is on the ground after the drop — Drop must not be Delete",
       );
       ctx.check(
-        countOf(after) === countOf(dropped),
-        `the drop came back on its own (${countOf(dropped)} -> ${countOf(after)}) — ` +
+        bagCount(after, "glowpebble") === bagCount(dropped, "glowpebble"),
+        `the drop came back on its own (${bagCount(dropped, "glowpebble")} -> ${bagCount(after, "glowpebble")}) — ` +
           "a fresh drop is unarmed until the player walks away from it",
       );
     },
@@ -1127,23 +1145,22 @@ export const sections = [
       await ctx.page.keyboard.press("Tab");
       await ctx.adv(0.3);
       const swapped = await inv(ctx);
-      const slotOf = (snap, s) => snap.gear.find((g) => g.slot === s)?.id ?? null;
       ctx.res.beastSlots = {
         picked: benched.id,
-        afterSetLead: { lead: slotOf(led, "primary"), support: slotOf(led, "support") },
-        afterTab: { lead: slotOf(swapped, "primary"), support: slotOf(swapped, "support") },
+        afterSetLead: { lead: gearIn(led, "primary"), support: gearIn(led, "support") },
+        afterTab: { lead: gearIn(swapped, "primary"), support: gearIn(swapped, "support") },
       };
       ctx.check(
-        slotOf(led, "primary") === benched.id,
-        `setLead put ${slotOf(led, "primary")} in front, not ${benched.id}`,
+        gearIn(led, "primary") === benched.id,
+        `setLead put ${gearIn(led, "primary")} in front, not ${benched.id}`,
       );
       ctx.check(
-        slotOf(swapped, "support") === benched.id,
+        gearIn(swapped, "support") === benched.id,
         "Tab did not move the beast the panel had just equipped — the panel is keeping " +
           "its own copy of the roster picks",
       );
       ctx.check(
-        slotOf(swapped, "primary") === slotOf(led, "support"),
+        gearIn(swapped, "primary") === gearIn(led, "support"),
         "Tab did not bring the support beast to the front",
       );
     },
@@ -1162,7 +1179,6 @@ export const sections = [
     id: "stageSwap",
     run: async (ctx) => {
       await openPanel(ctx);
-      const idOf = (s) => s.replace("beast:", "");
       const before = await inv(ctx);
       const lead = before.gear.find((g) => g.slot === "primary").id;
       const support = before.gear.find((g) => g.slot === "support").id;
@@ -1185,25 +1201,26 @@ export const sections = [
         afterSwapBack: back.panel?.stageCast,
         gearAfterSwap: swapped.gear.map((g) => g.id),
       };
-      const full = (c) => Array.isArray(c) && c.length === 2 && c.every((x) => !!x);
       ctx.check(
-        full(before.panel?.stageCast),
+        bothFilled(before.panel?.stageCast),
         `the stage started with ${JSON.stringify(before.panel?.stageCast)}, expected two beasts`,
       );
       ctx.check(
-        full(swapped.panel?.stageCast),
+        bothFilled(swapped.panel?.stageCast),
         `after a swap the stage holds ${JSON.stringify(swapped.panel?.stageCast)} — ` +
           "one of the two models was removed from the scene",
       );
       ctx.check(
-        full(back.panel?.stageCast),
+        bothFilled(back.panel?.stageCast),
         `after swapping back the stage holds ${JSON.stringify(back.panel?.stageCast)}`,
       );
       // ...and it is drawing the beasts the GEAR SLOTS name, in that order, rather
       // than merely two of something.
       ctx.check(
-        swapped.panel.stageCast[0] === idOf(swapped.gear.find((g) => g.slot === "primary").id) &&
-          swapped.panel.stageCast[1] === idOf(swapped.gear.find((g) => g.slot === "support").id),
+        swapped.panel.stageCast[0] ===
+          beastIdOf(swapped.gear.find((g) => g.slot === "primary").id) &&
+          swapped.panel.stageCast[1] ===
+            beastIdOf(swapped.gear.find((g) => g.slot === "support").id),
         "the stage is drawing beasts the gear slots do not name",
       );
     },
@@ -1296,7 +1313,7 @@ export const sections = [
       await act(ctx, "bow-ash", "equip");
       await ctx.adv(0.2);
       const fired = await swing();
-      const arrows = fired.shots.filter((s) => s.arrow);
+      const arrow = fired.shots.find((s) => s.arrow);
 
       // ...and a MELEE weapon does not. The pair: "an arrow appeared" is equally
       // true of a bow and of a build where every swing spawns one.
@@ -1316,7 +1333,7 @@ export const sections = [
       ctx.res.weapons = {
         equipped: seen,
         bowShots: fired.fired,
-        bowShotSpeed: arrows[0]?.speed ?? null,
+        bowShotSpeed: arrow?.speed ?? null,
         swordShots: swung.fired,
         bareWeapon: bare.weapon,
         bareAttack: bare.attackStat,
@@ -1324,8 +1341,8 @@ export const sections = [
       };
       ctx.check(fired.fired >= 1, "the bow fired nothing");
       ctx.check(
-        (arrows[0]?.speed ?? 0) > 8,
-        `the arrow is travelling at ${arrows[0]?.speed} — it should be in flight, not parked`,
+        (arrow?.speed ?? 0) > 8,
+        `the arrow is travelling at ${arrow?.speed} — it should be in flight, not parked`,
       );
       ctx.check(
         ctx.res.weapons.swordShots === 0,

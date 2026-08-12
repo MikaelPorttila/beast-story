@@ -107,7 +107,7 @@ for (const c of plan.cases) {
     (caseId, groundSrc) => {
       const GROUND = new RegExp(groundSrc);
       const lab = window.__dbgRoadLab();
-      const c = lab.cases.find((q) => q.id === caseId);
+      const roadCase = lab.cases.find((q) => q.id === caseId);
       const out = {
         id: caseId,
         sampled: 0,
@@ -120,7 +120,7 @@ for (const c of plan.cases) {
         step: 0,
         stepAt: null,
       };
-      if (!c) {
+      if (!roadCase) {
         return out;
       }
       // THE ENDS ARE NOT PART OF THE CASE. A road in the world stops inside a
@@ -131,7 +131,7 @@ for (const c of plan.cases) {
       // the `bridge` case's step at 8.9 — the bank at its abutment. Six units in
       // from each end is a little over one corridor half-width.
       const SKIP_ENDS = 6;
-      for (const road of c.roads) {
+      for (const road of roadCase.roads) {
         const E = road.deckEdge;
         const p = road.pts;
         let total = 0;

@@ -392,7 +392,9 @@ export class CombatSystem {
       this.targets.push(player);
     }
     for (const f of friendlies) {
-      if (!f.isDead) this.targets.push(f);
+      if (!f.isDead) {
+        this.targets.push(f);
+      }
     }
 
     // `enemies=0` suppresses the whole population, priming included.
@@ -544,7 +546,9 @@ export class CombatSystem {
 
   private projSlot(): Projectile | null {
     for (const p of this.projectiles) {
-      if (!p.active) return p;
+      if (!p.active) {
+        return p;
+      }
     }
     if (this.projectiles.length >= PROJ_CAP) {
       return null;

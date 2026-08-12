@@ -54,6 +54,10 @@
 import { launchBrowser, newPage, wait, logPageErrors } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
 
+/** Half the FLAT part of a path — what "on the carriageway" means. */
+const flatHalf = (r) => Math.min(2.6, r.deckEdge * 0.52);
+const cellKey = (cx, cz) => `${cx},${cz}`;
+
 // EVERY NAME THE GROUND IS DRAWN UNDER, and the list is a bug fix rather than
 // tidiness. This file matched `/^terrain:/`, which is what `chunk.ts` names a
 // terrain mesh — and `world/index.ts` RENAMES it to `chunk:terrain` on the way
@@ -126,7 +130,6 @@ const out = await page.evaluate((groundSrc) => {
   // Half the FLAT part of each path, which is what "on the carriageway" means:
   // 2.6 on the cart road, i.e. the number that used to be written in here once
   // for the whole world.
-  const flatHalf = (r) => Math.min(2.6, r.deckEdge * 0.52);
   const segs = [];
   for (const r of towns.roads) {
     const p = r.path;
@@ -154,7 +157,6 @@ const out = await page.evaluate((groundSrc) => {
   // wrong one: the defects here are single columns, and a stride that halves the
   // cost halves the chance of standing on one.
   const CELL = 16;
-  const cellKey = (cx, cz) => `${cx},${cz}`;
   const grid = new Map();
   for (const seg of segs) {
     const [ax, az, bx, bz, half] = seg;
@@ -190,6 +192,7 @@ const out = await page.evaluate((groundSrc) => {
     }
     return false;
   };
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
   const h = (x, z) => window.__dbgWorld(x, z).ground;
   const S = 0.25;
   let step = 0;
@@ -545,7 +548,7 @@ for (const id of out.ribbon.map((r) => r.id)) {
                 by: +buried.toFixed(3),
               };
             }
-            if (!GROUND.test(hit.hit || "") || /^road:/.test(hit.hit || "")) {
+            if (!GROUND.test(hit.hit || "") || (hit.hit || "").startsWith("road:")) {
               continue;
             }
             const road = hit.hits.find((q) => q.name.startsWith("road:"));

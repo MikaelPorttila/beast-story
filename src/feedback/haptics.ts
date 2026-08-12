@@ -211,7 +211,9 @@ export class Haptics {
 
   private free(): Envelope | null {
     for (const e of this.env) {
-      if (!e.active) return e;
+      if (!e.active) {
+        return e;
+      }
     }
     return null;
   }

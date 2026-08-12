@@ -1,4 +1,3 @@
-import { isTouchPrimary } from "../core/touch";
 import { loadPrefs, type Prefs } from "../core/prefs";
 import type { SaveMeta } from "../core/saves";
 import { flags } from "../core/flags";

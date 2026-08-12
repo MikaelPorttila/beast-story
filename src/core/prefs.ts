@@ -92,7 +92,9 @@ function autosaveMinutes(raw: string | null, fallback: number): number {
   }
   let best = AUTOSAVE_STEPS[0];
   for (const s of AUTOSAVE_STEPS) {
-    if (Math.abs(s - v) < Math.abs(best - v)) best = s;
+    if (Math.abs(s - v) < Math.abs(best - v)) {
+      best = s;
+    }
   }
   return best;
 }

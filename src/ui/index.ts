@@ -1235,7 +1235,7 @@ export class HUD {
       const card = div(`bs-offer${bought ? "" : offer.affordable ? "" : " locked"}`);
       card.style.setProperty("--el", hexColor(el));
       card.style.setProperty("--el2", rgba(el, 0.4));
-      const head =
+      const offerHead =
         offer.kind === "skill"
           ? `<div class="top"><span class="oic" style="--el2:${rgba(el, 0.18)}">` +
             `${elementIcon(offer.skill.element)}</span>` +
@@ -1257,7 +1257,7 @@ export class HUD {
             `</div>`;
       card.innerHTML =
         `<div class="accent" style="background:linear-gradient(90deg,${hexColor(el)},${rgba(el, 0.25)})"></div>` +
-        head +
+        offerHead +
         `<div class="foot"></div>`;
       const foot = card.querySelector(".foot") as HTMLElement;
 

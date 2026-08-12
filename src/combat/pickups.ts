@@ -99,7 +99,9 @@ export class Pickups {
 
   private slot(): Drop | null {
     for (const s of this.pool) {
-      if (!s.active) return s;
+      if (!s.active) {
+        return s;
+      }
     }
     if (this.pool.length >= 48) {
       return null;
@@ -285,7 +287,9 @@ export class Pickups {
   // what makes a FetchJob a beast still holds go inert rather than wrong.
   clear(): void {
     for (const s of this.pool) {
-      if (s.active) this.retire(s);
+      if (s.active) {
+        this.retire(s);
+      }
     }
   }
 

@@ -173,7 +173,9 @@ export class DiagnosticSink {
     }
     let n = 0;
     for (const d of this.list) {
-      if (d.severity === severity) n++;
+      if (d.severity === severity) {
+        n++;
+      }
     }
     return n;
   }
@@ -181,14 +183,16 @@ export class DiagnosticSink {
   /** True when anything at least this bad was reported. */
   has(severity: Severity): boolean {
     for (const d of this.list) {
-      if (atLeast(d.severity, severity)) return true;
+      if (atLeast(d.severity, severity)) {
+        return true;
+      }
     }
     return false;
   }
 
   /** Worst first, every tie broken, so two runs are byte-identical. */
   sorted(): readonly Diagnostic[] {
-    return [...this.list].sort(compareDiagnostics);
+    return this.list.toSorted(compareDiagnostics);
   }
 
   format(d: Diagnostic): string {

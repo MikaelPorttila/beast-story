@@ -95,7 +95,7 @@ export class DevConsole {
   }
 
   private helpText(): string {
-    const names = [...this.commands.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const names = [...this.commands.values()].toSorted((a, b) => a.name.localeCompare(b.name));
     const width = Math.max(...names.map((c) => c.name.length + (c.args ? c.args.length + 1 : 0)));
     return names
       .map((c) => {

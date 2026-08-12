@@ -101,6 +101,7 @@ const out = await page.evaluate((made) => {
     const p = edge.path;
     const DECK_EDGE = edge.deckEdge;
     const half = Math.min(2.6, DECK_EDGE * 0.52);
+    // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
     const h = (x, z) => window.__dbgWorld(x, z).ground;
     for (let i = 1; i < p.length / 3; i++) {
       const ax = p[(i - 1) * 3];
@@ -123,7 +124,7 @@ const out = await page.evaluate((made) => {
             continue;
           }
           poke.sampled++;
-          if (!/^terrain:/.test(hit.hit || "")) {
+          if (!(hit.hit || "").startsWith("terrain:")) {
             continue;
           }
           const road = hit.hits.find((q) => q.name.startsWith("road:"));
@@ -243,7 +244,7 @@ const merged = await page.evaluate((made) => {
               continue;
             }
             poke.sampled++;
-            if (!/^terrain:/.test(hit.hit || "")) {
+            if (!(hit.hit || "").startsWith("terrain:")) {
               continue;
             }
             const road = hit.hits.find((q) => q.name.startsWith("road:"));
@@ -272,6 +273,7 @@ const merged = await page.evaluate((made) => {
     // without this, the worst "junction step" was 1.000 at 10.8 units from the
     // node, in a wedge with no carriageway in it. What the hero can walk over
     // is the flat part of an arm, or the middle of the disc.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
     const h = (x, z) => window.__dbgWorld(x, z).ground;
     const S = 0.25;
     const R = 11;
@@ -359,6 +361,7 @@ const panel = await page.evaluate(() => {
 await page.keyboard.press("F3");
 await wait(400);
 const clicked = await page.evaluate(() => {
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
   const pick = (key) => document.querySelector(`.bs-perf-row[data-path="${key}"]`);
   const seen = [...document.querySelectorAll(".bs-perf-row[data-path]")].map((r) =>
     r.getAttribute("data-path"),
@@ -441,7 +444,7 @@ if (built.result.error) {
   }
   if (!out.carriageway.walkable) {
     fail.push(
-      `the authored deck steps ${out.carriageway.worstStepOver025}, ` + "against MAX_STEP_UP 0.5",
+      `the authored deck steps ${out.carriageway.worstStepOver025}, against MAX_STEP_UP 0.5`,
     );
   }
 }

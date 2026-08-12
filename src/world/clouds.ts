@@ -57,7 +57,6 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
   const inb = (x: number, y: number, z: number): boolean =>
     x >= -LIM && x <= LIM && z >= -LIM && z <= LIM && y >= 0 && y < HGT;
   const at = (x: number, y: number, z: number): number => (y * W + (x + LIM)) * W + (z + LIM);
-  const get = (x: number, y: number, z: number): number => (inb(x, y, z) ? vol[at(x, y, z)] : 0);
   const put = (x: number, y: number, z: number): void => {
     if (inb(x, y, z)) {
       vol[at(x, y, z)] = 1;
@@ -68,13 +67,16 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
    *  level; pass 4 bulges it back into a dome. */
   const lobe = (cx: number, cy: number, cz: number, rx: number, ry: number, rz: number): void => {
     for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
-      for (let y = Math.max(BASE_Y, Math.floor(cy - ry)); y <= Math.ceil(cy + ry); y++)
+      for (let y = Math.max(BASE_Y, Math.floor(cy - ry)); y <= Math.ceil(cy + ry); y++) {
         for (let z = Math.floor(cz - rz); z <= Math.ceil(cz + rz); z++) {
           const dx = (x - cx) / rx,
             dy = (y - cy) / ry,
             dz = (z - cz) / rz;
-          if (dx * dx + dy * dy + dz * dz <= 1.0) put(x, y, z);
+          if (dx * dx + dy * dy + dz * dz <= 1.0) {
+            put(x, y, z);
+          }
         }
+      }
     }
   };
 
@@ -144,9 +146,11 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
     const snapGet = (x: number, y: number, z: number): number =>
       inb(x, y, z) ? snap[at(x, y, z)] : 0;
     for (let y = 0; y < HGT; y++) {
-      for (let x = -LIM; x <= LIM; x++)
+      for (let x = -LIM; x <= LIM; x++) {
         for (let z = -LIM; z <= LIM; z++) {
-          if (!snap[at(x, y, z)]) continue;
+          if (!snap[at(x, y, z)]) {
+            continue;
+          }
           const n =
             snapGet(x + 1, y, z) +
             snapGet(x - 1, y, z) +
@@ -154,14 +158,19 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
             snapGet(x, y, z - 1) +
             snapGet(x, y + 1, z) +
             (y <= BASE_Y ? 1 : snapGet(x, y - 1, z));
-          if (n < 4) vol[at(x, y, z)] = 0;
+          if (n < 4) {
+            vol[at(x, y, z)] = 0;
+          }
         }
+      }
     }
     snap.set(vol);
     for (let y = BASE_Y; y < HGT; y++) {
-      for (let x = -LIM; x <= LIM; x++)
+      for (let x = -LIM; x <= LIM; x++) {
         for (let z = -LIM; z <= LIM; z++) {
-          if (snap[at(x, y, z)]) continue;
+          if (snap[at(x, y, z)]) {
+            continue;
+          }
           const n =
             snapGet(x + 1, y, z) +
             snapGet(x - 1, y, z) +
@@ -169,8 +178,11 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
             snapGet(x, y, z - 1) +
             snapGet(x, y + 1, z) +
             (y <= BASE_Y ? 1 : snapGet(x, y - 1, z));
-          if (n >= 4) vol[at(x, y, z)] = 1;
+          if (n >= 4) {
+            vol[at(x, y, z)] = 1;
+          }
         }
+      }
     }
   }
 
@@ -180,13 +192,16 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
   for (let x = -LIM; x <= LIM; x++) {
     for (let z = -LIM; z <= LIM; z++) {
       let hi = -1;
-      for (let y = HGT - 1; y >= BASE_Y; y--)
+      for (let y = HGT - 1; y >= BASE_Y; y--) {
         if (vol[at(x, y, z)]) {
           hi = y;
           break;
         }
+      }
       colTop[(x + LIM) * W + (z + LIM)] = hi;
-      if (hi > topMax) topMax = hi;
+      if (hi > topMax) {
+        topMax = hi;
+      }
     }
   }
   const span = Math.max(1, topMax - BASE_Y);
@@ -214,9 +229,13 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
   }
   for (let x = -LIM; x <= LIM; x++) {
     for (let z = -LIM; z <= LIM; z++) {
-      if (colTop[(x + LIM) * W + (z + LIM)] < BASE_Y) continue;
+      if (colTop[(x + LIM) * W + (z + LIM)] < BASE_Y) {
+        continue;
+      }
       const drop = Math.max(1, Math.round(dropF[(x + LIM) * W + (z + LIM)]));
-      for (let d = 1; d <= drop; d++) put(x, BASE_Y - d, z);
+      for (let d = 1; d <= drop; d++) {
+        put(x, BASE_Y - d, z);
+      }
     }
   }
 
@@ -226,36 +245,56 @@ function cloudGeo(variant: number, seed: number, high = false): THREE.BufferGeom
   const BODY = 0xfdfbf2;
   const BELLY = [0xc9d6e8, 0xaebfd6, 0x9aadc8, 0x8aa0be, 0x7d94b4];
   for (let y = 0; y < HGT; y++) {
-    for (let x = -LIM; x <= LIM; x++)
+    for (let x = -LIM; x <= LIM; x++) {
       for (let z = -LIM; z <= LIM; z++) {
-        if (!vol[at(x, y, z)]) continue;
-        if (y < BASE_Y) v.set(x, y, z, BELLY[Math.min(BASE_Y - 1 - y, BELLY.length - 1)]);
-        else v.set(x, y, z, BODY);
+        if (!vol[at(x, y, z)]) {
+          continue;
+        }
+        if (y < BASE_Y) {
+          v.set(x, y, z, BELLY[Math.min(BASE_Y - 1 - y, BELLY.length - 1)]);
+        } else {
+          v.set(x, y, z, BODY);
+        }
       }
+    }
   }
   // Cap only columns on a horizontal shelf (3 of 4 neighbours within a voxel):
   // ungated, flank caps line up into bright vertical scratches.
   const top = new Int8Array(W * W).fill(-1);
   for (let x = -LIM; x <= LIM; x++) {
-    for (let z = -LIM; z <= LIM; z++)
-      for (let y = HGT - 1; y >= BASE_Y; y--)
+    for (let z = -LIM; z <= LIM; z++) {
+      for (let y = HGT - 1; y >= BASE_Y; y--) {
         if (vol[at(x, y, z)]) {
           top[(x + LIM) * W + (z + LIM)] = y;
           break;
         }
+      }
+    }
   }
   const topAt = (x: number, z: number): number =>
     x >= -LIM && x <= LIM && z >= -LIM && z <= LIM ? top[(x + LIM) * W + (z + LIM)] : -1;
   for (let x = -LIM; x <= LIM; x++) {
     for (let z = -LIM; z <= LIM; z++) {
       const hi = topAt(x, z);
-      if (hi < BASE_Y + 2) continue;
+      if (hi < BASE_Y + 2) {
+        continue;
+      }
       let level = 0;
-      if (Math.abs(topAt(x + 1, z) - hi) <= 1) level++;
-      if (Math.abs(topAt(x - 1, z) - hi) <= 1) level++;
-      if (Math.abs(topAt(x, z + 1) - hi) <= 1) level++;
-      if (Math.abs(topAt(x, z - 1) - hi) <= 1) level++;
-      if (level < 3) continue;
+      if (Math.abs(topAt(x + 1, z) - hi) <= 1) {
+        level++;
+      }
+      if (Math.abs(topAt(x - 1, z) - hi) <= 1) {
+        level++;
+      }
+      if (Math.abs(topAt(x, z + 1) - hi) <= 1) {
+        level++;
+      }
+      if (Math.abs(topAt(x, z - 1) - hi) <= 1) {
+        level++;
+      }
+      if (level < 3) {
+        continue;
+      }
       v.set(x, hi, z, 0xfffdf6);
       v.set(x, hi - 1, z, 0xfefaee);
     }

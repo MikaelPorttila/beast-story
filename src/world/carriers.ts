@@ -161,21 +161,27 @@ export class CarrierField implements CarrierRegistry {
 
   get(id: string): CarrierInfo | undefined {
     for (const c of this.all) {
-      if (c.id === id) return c;
+      if (c.id === id) {
+        return c;
+      }
     }
     return undefined;
   }
 
   at(x: number, y: number, z: number): CarrierInfo | null {
     for (const c of this.all) {
-      if (c.contains(x, y, z)) return c;
+      if (c.contains(x, y, z)) {
+        return c;
+      }
     }
     return null;
   }
 
   bodyAt(x: number, z: number): CarrierInfo | null {
     for (const c of this.all) {
-      if (c.topAt(x, z) > -Infinity) return c;
+      if (c.topAt(x, z) > -Infinity) {
+        return c;
+      }
     }
     return null;
   }

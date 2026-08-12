@@ -27,6 +27,10 @@
 import { launchBrowser, newPage, wait, logPageErrors } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
 
+/** `overFeet` is the structure top minus the body's own feet; above the step
+ *  height the body is standing in a wall, and null is open ground. */
+const inWall = (o) => o.overFeet !== null && o.overFeet > 0.5;
+
 const SETTLE = 5000;
 /** How long a movement key is held per case. At 6 m/s that is ~15 units. */
 const HOLD_MS = 2500;
@@ -213,7 +217,7 @@ async function run(solids, geom = null) {
         const h = b.top - b.ground;
         return h > 0.6 && h < 1.55 && b.area > 0.8 && b.area < 6;
       })
-      .sort((p, q) => q.area - p.area)[0];
+      .toSorted((p, q) => q.area - p.area)[0];
     if (crate) {
       const a = bearing(town.x, town.z, crate.x, crate.z);
       const [sx, sz] = [crate.x + Math.sin(a) * 4.5, crate.z + Math.cos(a) * 4.5];
@@ -371,7 +375,6 @@ async function run(solids, geom = null) {
     const b = await page.evaluate(() => window.__dbgBodies());
     // `overFeet` is the structure top minus the body's own feet. Above the step
     // height it is standing in a wall; null is open ground.
-    const inWall = (o) => o.overFeet !== null && o.overFeet > 0.5;
     out.bodies = {
       hut,
       hero: { ...b.player, insideAWall: inWall(b.player) },
@@ -387,7 +390,7 @@ async function run(solids, geom = null) {
       nearestEnemyToHut:
         b.enemies
           .map((e) => ({ ...e, d: round(Math.hypot(e.x - hut.x, e.z - hut.z)) }))
-          .sort((p, q) => p.d - q.d)[0] ?? null,
+          .toSorted((p, q) => p.d - q.d)[0] ?? null,
     };
   }
 

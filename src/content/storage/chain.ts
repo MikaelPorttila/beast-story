@@ -76,9 +76,11 @@ export class ProviderChain {
       }),
     );
     for (const ids of lists) {
-      for (const id of ids) seen.add(id);
+      for (const id of ids) {
+        seen.add(id);
+      }
     }
-    return [...seen].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    return [...seen].toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }
 
   writer(): StorageProvider | undefined {

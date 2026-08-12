@@ -99,7 +99,7 @@ export const sections = [
         await page.touchscreen.tap(cx, cy); // wake
         // manual multi-step drag via CDP-free touch events
         await page.evaluate(
-          ({ cx, cy }) => {
+          ({ cx: ox, cy: oy }) => {
             const el = document.querySelector(".bs-stick.move");
             const mk = (type, x, y) => {
               const t = new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
@@ -113,9 +113,9 @@ export const sections = [
                 }),
               );
             };
-            mk("touchstart", cx, cy);
+            mk("touchstart", ox, oy);
             for (let i = 1; i <= 8; i++) {
-              mk("touchmove", cx, cy - i * 8);
+              mk("touchmove", ox, oy - i * 8);
             }
           },
           { cx, cy },
@@ -178,8 +178,8 @@ export const sections = [
         await page.evaluate(() => {
           const el = document.querySelector(".bs-stick.look");
           const r = el.getBoundingClientRect();
-          const cx = r.left + r.width / 2,
-            cy = r.top + r.height / 2;
+          const lx = r.left + r.width / 2,
+            ly = r.top + r.height / 2;
           const mk = (type, x, y) => {
             const t = new Touch({ identifier: 2, target: el, clientX: x, clientY: y });
             el.dispatchEvent(
@@ -192,8 +192,8 @@ export const sections = [
               }),
             );
           };
-          mk("touchstart", cx, cy);
-          mk("touchmove", cx + r.width * 0.4, cy); // hold right = pan right
+          mk("touchstart", lx, ly);
+          mk("touchmove", lx + r.width * 0.4, ly); // hold right = pan right
         });
         await holdAndAccumulate(0.4);
         ctx.res.lookState = await page.evaluate(() => window.__dbgInput?.());

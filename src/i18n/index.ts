@@ -199,7 +199,7 @@ export function setLanguage(next: string): boolean {
   pluralOf = LANGUAGES[c].plural ?? DEFAULT_PLURAL;
   savePrefs({ lang: c });
 
-  for (const fn of [...listeners]) {
+  for (const fn of Array.from(listeners)) {
     try {
       fn();
     } catch (e) {

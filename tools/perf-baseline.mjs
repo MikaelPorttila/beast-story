@@ -31,6 +31,9 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { launchBrowser, newPage, wait, glRenderer } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
 
+/** Percent change from a to b; a zero baseline reports no change. */
+const pct = (a, b) => (a === 0 ? 0 : ((b - a) / a) * 100);
+
 const FILE = new URL("../.perf-baseline.json", import.meta.url);
 const W = 1280;
 const H = 800;
@@ -86,7 +89,7 @@ async function measure() {
   const idx = Object.fromEntries(dump.sections.map((s, i) => [s, i]));
   const mean = (c) => rows.reduce((a, r) => a + r[c], 0) / rows.length;
   const p99 = (c) => {
-    const v = rows.map((r) => r[c]).sort((a, b) => a - b);
+    const v = rows.map((r) => r[c]).toSorted((a, b) => a - b);
     return v[Math.floor(v.length * 0.99)];
   };
 
@@ -146,7 +149,6 @@ if (asJson) {
     warn.push(`viewport changed: ${base.viewport} -> ${now.viewport}`);
   }
 
-  const pct = (a, b) => (a === 0 ? 0 : ((b - a) / a) * 100);
   const row = (name, a, b, unit = "ms") => {
     const d = pct(a, b);
     const mark = Math.abs(d) < 3 ? "  " : d > 0 ? "↑↑" : "↓↓";
