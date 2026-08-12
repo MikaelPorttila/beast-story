@@ -331,6 +331,7 @@ export const sections = [
         await ctx.ev((t) => document.querySelector(`.bs-pause [data-tab="${t}"]`)?.click(), tab);
         await ctx.frame();
         return ctx.ev(() => {
+          // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
           const shown = (attr) =>
             [...document.querySelectorAll(`.bs-pause .sec:not(.off) [${attr}]`)].map((b) =>
               b.getAttribute(attr),

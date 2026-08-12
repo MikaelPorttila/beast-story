@@ -159,7 +159,7 @@ check(
   );
   check(
     lifted.census.grassVerts > half.census.grassVerts,
-    "plains x2 on a 0.5 baseline grew nothing back — the area is not layered on " + "the baseline",
+    "plains x2 on a 0.5 baseline grew nothing back — the area is not layered on the baseline",
   );
   check(
     lifted.census.grassVerts <= base.census.grassVerts * 1.05,

@@ -14,7 +14,23 @@
     "curly": ["error", "all"],
     "eqeqeq": "error",
     "no-debugger": "error",
-    "no-console": "warn"
+    // `warn`/`error` are how a degraded subsystem reports itself; `log` stays flagged.
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    // `__dbg*` is the contractual probe surface and `_scratch` the allocation-free
+    // convention; both are named in AGENTS.md and asserted on by tools/.
+    "no-underscore-dangle": "off",
+    // Dependency resolution, stream reads and frame-yielding boot loops are
+    // sequential by construction; parallel awaits would change what they mean.
+    "no-await-in-loop": "off"
   },
+  "overrides": [
+    {
+      "files": ["tools/**", "src/lab/**"],
+      "rules": {
+        // A probe's stdout IS its result.
+        "no-console": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["dist/**", "coverage/**"]
 }

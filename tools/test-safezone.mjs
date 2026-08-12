@@ -261,7 +261,7 @@ export const sections = [
       // one to acquire it and then walked into the town in hops short enough to
       // stay inside the leash. What that leaves is a genuine chase, which is the
       // thing being asserted.
-      const start = (await census2(ctx)).sort((a, b) => a.d - b.d)[0] ?? null;
+      const start = (await census2(ctx)).toSorted((a, b) => a.d - b.d)[0] ?? null;
       let best = Infinity;
       let arrived = null;
       const hops = [];

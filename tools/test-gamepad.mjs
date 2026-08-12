@@ -64,8 +64,8 @@ const setAxes = (page, ax) =>
   }, ax);
 const setButton = (page, i, down) =>
   page.evaluate(
-    (i, down) => {
-      window.__fakePad.buttons[i] = { pressed: down, touched: down, value: down ? 1 : 0 };
+    (index, pressed) => {
+      window.__fakePad.buttons[index] = { pressed, touched: pressed, value: pressed ? 1 : 0 };
     },
     i,
     down,
@@ -82,16 +82,16 @@ const probe = (page, name) => page.evaluate((n) => window[n]?.(), name);
  */
 const installLivePad = (page, id, { rumble = false } = {}) =>
   page.evaluate(
-    (id, rumble) => {
+    (padId, withRumble) => {
       const state = {
-        id,
+        id: padId,
         index: 0,
         connected: true,
         mapping: "standard",
         axes: [0, 0, 0, 0],
         buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
       };
-      if (rumble) {
+      if (withRumble) {
         // Records calls so the mixer's re-issue cadence can be counted rather than
         // assumed. `effects` is the current spec spelling.
         window.__rumble = { calls: 0, last: null };
@@ -503,8 +503,11 @@ export const sections = [
         // opposite of the truth. `__dbgAdvance` between the hits has no jitter at
         // all: no real frame can run inside one evaluate.
         const hurts = await page.evaluate(() => {
+          // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
           const adv = (s) => window.__dbgAdvance(s);
+          // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
           const drained = () => window.__dbgFeedback().drained;
+          // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
           const rumble = () => window.__rumble?.calls ?? 0;
 
           const a = drained();

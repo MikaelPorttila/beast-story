@@ -235,7 +235,9 @@ export function bakeProp(model: VoxelModel, scale: number): Template {
 function withSway(t: Template): Template {
   let top = 0;
   for (let i = 1; i < t.pos.length; i += 3) {
-    if (t.pos[i] > top) top = t.pos[i];
+    if (t.pos[i] > top) {
+      top = t.pos[i];
+    }
   }
   if (top > 0) {
     t.swayHeight = top;
@@ -430,16 +432,20 @@ class Canopy {
     ragged = 0.2,
   ): void {
     for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
-      for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
+      for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
         for (let z = Math.floor(cz - rz); z <= Math.ceil(cz + rz); z++) {
           const dx = (x - cx) / rx,
             dy = (y - cy) / ry,
             dz = (z - cz) / rz;
           const d = dx * dx + dy * dy + dz * dz;
-          if (d > 1.0) continue;
+          if (d > 1.0) {
+            continue;
+          }
           // Graded by depth, not a flat roll: chews the rim into lobes rather than
           // thinning evenly. The 0.80 floor is shallow enough that nothing detaches.
-          if (d > 0.8 && this.rnd() < ragged * ((d - 0.8) / 0.2) * 1.9) continue;
+          if (d > 0.8 && this.rnd() < ragged * ((d - 0.8) / 0.2) * 1.9) {
+            continue;
+          }
           // TWO frequencies: white noise alone averages out at a few metres, so the
           // coarse term is correlated over 2x2x2 blocks and the fine one breaks it up.
           const cell =
@@ -447,6 +453,7 @@ class Canopy {
           const coarse = 0.88 + (((cell >>> 7) & 0xff) / 255) * 0.26;
           this.put(x, y, z, shade(color, coarse * (0.945 + this.rnd() * 0.11)));
         }
+      }
     }
   }
 
@@ -464,12 +471,13 @@ class Canopy {
     color: number,
   ): void {
     for (let x = x0; x <= x1; x++) {
-      for (let y = y0; y <= y1; y++)
+      for (let y = y0; y <= y1; y++) {
         for (let z = z0; z <= z1; z++) {
           const cell =
             (((x >> 1) * 73856093) ^ ((y >> 1) * 19349663) ^ ((z >> 1) * 83492791)) >>> 0;
           this.put(x, y, z, shade(color, 0.9 + (((cell >>> 7) & 0xff) / 255) * 0.2));
         }
+      }
     }
   }
 
@@ -483,11 +491,17 @@ class Canopy {
       for (let z = this.minZ; z <= this.maxZ; z++) {
         let hi = -Infinity;
         for (let y = this.minY; y <= this.maxY; y++) {
-          if (this.cells.has(`${x},${y},${z}`)) hi = y;
+          if (this.cells.has(`${x},${y},${z}`)) {
+            hi = y;
+          }
         }
-        if (hi === -Infinity) continue;
+        if (hi === -Infinity) {
+          continue;
+        }
         const h = (((x >> 1) * 374761393) ^ ((z >> 1) * 668265263) ^ seed) >>> 0;
-        if (((h >>> 11) & 0xff) / 255 > prob) continue;
+        if (((h >>> 11) & 0xff) / 255 > prob) {
+          continue;
+        }
         this.v.set(x, hi, z, shade(color, 0.86 + (((h >>> 3) & 0x3f) / 63) * 0.28));
       }
     }
@@ -698,7 +712,9 @@ function pineTree(tall: boolean): Template {
     for (let x = -r; x <= r; x++) {
       for (let z = -r; z <= r; z++) {
         const d2 = x * x + z * z;
-        if (d2 > r2) continue;
+        if (d2 > r2) {
+          continue;
+        }
         for (let y = y0; y <= y1; y++) {
           n = (n * 1664525 + 1013904223) >>> 0;
           const j = 0.9 + (((n >>> 12) & 0xff) / 255) * 0.2;
@@ -741,7 +757,9 @@ function pineIrregular(): Template {
     for (let x = -r; x <= r; x++) {
       for (let z = -r; z <= r; z++) {
         const d2 = x * x + z * z;
-        if (d2 > r2) continue;
+        if (d2 > r2) {
+          continue;
+        }
         for (let y = bare + y0; y <= bare + y1; y++) {
           n = (n * 1664525 + 1013904223) >>> 0;
           const j = 0.9 + (((n >>> 12) & 0xff) / 255) * 0.2;
@@ -1062,10 +1080,13 @@ function bloomMat(petal: number, rim: number, leaf: number): Template {
  * sRGB hex -> linear triple: three.js reads a raw BufferAttribute as linear, and
  * terrain.ts uses the same conversion, so blades share the ground's convention.
  */
-const lin = (hex: number): [number, number, number] => {
-  const f = (c: number): number => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-  return [f(((hex >> 16) & 255) / 255), f(((hex >> 8) & 255) / 255), f((hex & 255) / 255)];
-};
+const srgbToLinear = (c: number): number =>
+  c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+const lin = (hex: number): [number, number, number] => [
+  srgbToLinear(((hex >> 16) & 255) / 255),
+  srgbToLinear(((hex >> 8) & 255) / 255),
+  srgbToLinear((hex & 255) / 255),
+];
 
 /**
  * A tuft of crossed grass planes. Blades stay around a third of a terrain step,
@@ -2608,7 +2629,6 @@ export function* buildChunkPropsSteps(
     const noSolid = exSolid(ox + x, oz + z);
 
     const t = 0.9 + pick * 0.2;
-    const ft = 0.9 + pick * 0.18; // subtle per-instance flower tint variety
     const grass = grasses[Math.floor(pick * 2.999)];
     // Every branch below is a band on one shared `roll` ladder, so a density THINS a
     // band by hash rather than moving it. The bodies are BRACED for the same reason:

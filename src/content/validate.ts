@@ -7,7 +7,6 @@
 // hence `engineFlags`.
 
 import type {
-  Action,
   Condition,
   ContentAsset,
   ContentId,
@@ -123,7 +122,7 @@ export function validateContent(loaded: Loaded, opts: ValidateOptions = {}): rea
   }
 
   if (opts.orphans) {
-    for (const id of [...opts.orphans()].sort(compareIds)) {
+    for (const id of [...opts.orphans()].toSorted(compareIds)) {
       const asset = byId.get(id);
       report(sink, asset, "warn", "orphan", "nothing references this and no system enumerates it", {
         assetId: id,
@@ -326,7 +325,9 @@ function walkCondition(value: unknown, path: string, depth: number, out: Leaf[])
   if (typeof value.test === "string") {
     const params: Record<string, unknown> = {};
     for (const k of Object.keys(value)) {
-      if (k !== "test") params[k] = value[k];
+      if (k !== "test") {
+        params[k] = value[k];
+      }
     }
     out.push({ test: value.test, params, path });
   }

@@ -123,7 +123,9 @@ export function shadowCasterCensus(scene: THREE.Scene): Record<string, unknown> 
     }
     // A hidden ancestor hides this too, and three's shadow pass returns on it.
     for (let p: THREE.Object3D | null = m; p; p = p.parent) {
-      if (!p.visible) return;
+      if (!p.visible) {
+        return;
+      }
     }
     if (m.layers.isEnabled(STATIC_SHADOW_LAYER)) {
       staticCasters++;
@@ -280,12 +282,12 @@ export class StaticShadowCache {
     if (!this.hasCache || moved || changed) {
       // Point the light at our target for one call, reusing three's own depth
       // materials, culling and alpha-test permutations.
-      const live = shadow.map;
+      const prevMap = shadow.map;
       camera.layers.set(STATIC_SHADOW_LAYER);
       shadow.map = rt;
       sm.needsUpdate = true;
       sm.render(_lights, scene, camera);
-      shadow.map = live;
+      shadow.map = prevMap;
       camera.layers.mask = mask;
       this.hasCache = true;
       this.cachedExtent = box.right;

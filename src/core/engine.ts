@@ -700,7 +700,9 @@ export class Engine {
         return;
       }
       if (Array.isArray(m)) {
-        for (const x of m) x.needsUpdate = true;
+        for (const x of m) {
+          x.needsUpdate = true;
+        }
       } else {
         m.needsUpdate = true;
       }

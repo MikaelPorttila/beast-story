@@ -329,7 +329,9 @@ function paintBuzz(v: VoxelModel, p: Palette): void {
   }
   // sideburns, clear of the ear (y 4..5)
   for (const x of [-8, -7, 6, 7]) {
-    for (const y of [6, 7]) v.set(x, y, 8, p.dark);
+    for (const y of [6, 7]) {
+      v.set(x, y, 8, p.dark);
+    }
   }
 }
 
@@ -461,17 +463,23 @@ function paintPonytail(v: VoxelModel, p: Palette): void {
   mass(v, p, { rx: 11, rz: 12, top: 10, hem: 0, frontHem: 5, jag: 1 });
   fall(v, p, { x0: -8, x1: 7, z0: -12, z1: -9, top: 9, bottom: 4, jag: 1 });
   for (let x = -5; x <= 4; x++) {
-    for (let y = 5; y <= 8; y++) v.set(x, y, -10, p.dark);
+    for (let y = 5; y <= 8; y++) {
+      v.set(x, y, -10, p.dark);
+    }
   }
   // The band is a value change, not geometry — the only way a tie reads at this size.
   for (let x = -5; x <= 4; x++) {
-    for (const z of [-11, -10]) v.set(x, 4, z, shade(p.dark, 0.55));
+    for (const z of [-11, -10]) {
+      v.set(x, 4, z, shade(p.dark, 0.55));
+    }
   }
   // Mostly DOWN: a long axis in z foreshortens into a blob from behind. Rooted at
   // z -12, or its base reaches the skull's inset back plane (SKULL_SHELL).
   spike(v, p, -1, 3, -12, 0, -1, -0.45, 12, 6);
   for (const x of [-7, 6]) {
-    for (let y = 6; y <= 8; y++) v.set(x, y, 8, p.dark);
+    for (let y = 6; y <= 8; y++) {
+      v.set(x, y, 8, p.dark);
+    }
   }
 }
 

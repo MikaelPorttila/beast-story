@@ -38,7 +38,7 @@ export class ConditionEvaluator {
   }
 
   get testNames(): readonly string[] {
-    return [...this.tests.keys()].sort();
+    return [...this.tests.keys()].toSorted();
   }
 
   /** No `when` means always available — the common case. */

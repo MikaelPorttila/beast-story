@@ -139,7 +139,9 @@ export class SettingsPanel {
     const pc = this.prefs.volume * 100;
     let best = VOLUME_STEPS[0];
     for (const s of VOLUME_STEPS) {
-      if (Math.abs(s - pc) < Math.abs(best - pc)) best = s;
+      if (Math.abs(s - pc) < Math.abs(best - pc)) {
+        best = s;
+      }
     }
     return best;
   }

@@ -290,7 +290,9 @@ function buildHead(): VoxelModel {
   v.box(-3, -2, -3, 2, 5, -3, HAIR);
   v.box(-3, -2, -3, 2, -1, -3, HAIR_D);
   for (const x of [-4, 3]) {
-    for (const y of [0, 2, 4]) v.set(x, y, 1, HAIR_D);
+    for (const y of [0, 2, 4]) {
+      v.set(x, y, 1, HAIR_D);
+    }
   }
 
   // Beard: full width at the jaw, tapering to a point that stops just above

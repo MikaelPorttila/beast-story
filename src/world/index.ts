@@ -58,6 +58,21 @@ import {
   markStaticShadowCaster,
 } from "../core/shadow-cache";
 
+/** Rounded for a probe to compare as text; a non-finite reading stays Infinity. */
+const num = (v: number): number => (Number.isFinite(v) ? +v.toFixed(3) : Infinity);
+
+/** The refusal shape `addPath` answers with — an empty path plus the reason. */
+const no = (error: string) => ({
+  id: "",
+  length: 0,
+  samples: 0,
+  note: null,
+  nodes: [],
+  refused: [],
+  crossings: 0,
+  error,
+});
+
 const DEFAULT_VIEW_RADIUS = 5;
 /** Chunk-build wall-clock budget per RENDERED frame, ms. */
 const BUILD_BUDGET_MS = 3;
@@ -398,7 +413,9 @@ class NpcFields implements NpcField {
 
   get talking(): NpcTalk | null {
     for (const p of this.parts) {
-      if (p.talking) return p.talking;
+      if (p.talking) {
+        return p.talking;
+      }
     }
     return null;
   }
@@ -1160,7 +1177,6 @@ export function createWorld(
      * neither the towns nor the dens stream. */
     debugPaths(x?: number, z?: number) {
       const net = plan?.network ?? null;
-      const num = (v: number): number => (Number.isFinite(v) ? +v.toFixed(3) : Infinity);
       return {
         paths: (net?.roads ?? []).map((r) => {
           const a = r.pts[0];
@@ -1195,16 +1211,6 @@ export function createWorld(
     addPath(spec) {
       const net = plan?.network ?? null;
       const reg = plan?.towns ?? null;
-      const no = (error: string) => ({
-        id: "",
-        length: 0,
-        samples: 0,
-        note: null,
-        nodes: [],
-        refused: [],
-        crossings: 0,
-        error,
-      });
       if (net === null || reg === null || towns === null) {
         return no("this zone has no path network");
       }

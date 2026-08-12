@@ -890,7 +890,7 @@ export class StructureField implements SiteClearance {
    * tussock may grow against a palisade and around a fence post, and only the
    * one that would pass through the timber is refused.
    */
-  hits(x: number, z: number, r: number, y0: number, y1: number): boolean {
+  hits(x: number, z: number, r: number, y0: number, _y1: number): boolean {
     if (x + r < this.minX || x - r > this.maxX || z + r < this.minZ || z - r > this.maxZ) {
       return false;
     }
@@ -1041,19 +1041,23 @@ export class SiteFields implements SiteClearance {
   private readonly fields: readonly SiteClearance[];
 
   constructor(fields: readonly (SiteClearance | null | undefined)[]) {
-    this.fields = fields.filter((f): f is SiteClearance => f != null);
+    this.fields = fields.filter((f): f is SiteClearance => f !== null && f !== undefined);
   }
 
   anyIn(x0: number, z0: number, x1: number, z1: number): boolean {
     for (const f of this.fields) {
-      if (f.anyIn(x0, z0, x1, z1)) return true;
+      if (f.anyIn(x0, z0, x1, z1)) {
+        return true;
+      }
     }
     return false;
   }
 
   hits(x: number, z: number, r: number, y0: number, y1: number): boolean {
     for (const f of this.fields) {
-      if (f.hits(x, z, r, y0, y1)) return true;
+      if (f.hits(x, z, r, y0, y1)) {
+        return true;
+      }
     }
     return false;
   }

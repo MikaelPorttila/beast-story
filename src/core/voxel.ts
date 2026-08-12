@@ -1,5 +1,21 @@
 import * as THREE from "three";
 
+/** One baked buffer from the flat attribute arrays; an empty batch still needs a
+ *  bounding sphere or three culls it as NaN. */
+const mkGeo = (p: number[], n: number[], c: number[], i: number[]): THREE.BufferGeometry => {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(n, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(c, 3));
+  geo.setIndex(i);
+  if (p.length > 0) {
+    geo.computeBoundingSphere();
+  } else {
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 0);
+  }
+  return geo;
+};
+
 /** The cells one bracketed loop painted. See `VoxelModel.region`. */
 export interface VoxelRegion {
   has(x: number, y: number, z: number): boolean;
@@ -31,7 +47,9 @@ export class VoxelModel {
       this.recording = outer;
       // A nested region belongs to its parent too.
       if (outer) {
-        for (const k of own) outer.add(k);
+        for (const k of own) {
+          outer.add(k);
+        }
       }
     }
     return { has: (x, y, z) => own.has(`${x},${y},${z}`), size: own.size };
@@ -48,8 +66,11 @@ export class VoxelModel {
 
   box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: number): void {
     for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
-      for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++)
-        for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++) this.set(x, y, z, color);
+      for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
+        for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++) {
+          this.set(x, y, z, color);
+        }
+      }
     }
   }
 
@@ -63,13 +84,16 @@ export class VoxelModel {
     color: number,
   ): void {
     for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
-      for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
+      for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
         for (let z = Math.floor(cz - rz); z <= Math.ceil(cz + rz); z++) {
           const dx = (x - cx) / rx,
             dy = (y - cy) / ry,
             dz = (z - cz) / rz;
-          if (dx * dx + dy * dy + dz * dz <= 1.0) this.set(x, y, z, color);
+          if (dx * dx + dy * dy + dz * dz <= 1.0) {
+            this.set(x, y, z, color);
+          }
         }
+      }
     }
   }
 
@@ -271,20 +295,6 @@ export class VoxelModel {
         idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
       }
     }
-
-    const mkGeo = (p: number[], n: number[], c: number[], i: number[]): THREE.BufferGeometry => {
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
-      geo.setAttribute("normal", new THREE.Float32BufferAttribute(n, 3));
-      geo.setAttribute("color", new THREE.Float32BufferAttribute(c, 3));
-      geo.setIndex(i);
-      if (p.length > 0) {
-        geo.computeBoundingSphere();
-      } else {
-        geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 0);
-      }
-      return geo;
-    };
 
     const mat = new THREE.MeshStandardMaterial({
       vertexColors: true,

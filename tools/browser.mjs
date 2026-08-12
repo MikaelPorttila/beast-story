@@ -19,7 +19,7 @@
 // during test runs. Do not reintroduce those flags as a default; a host without a
 // usable GPU sets SOFTWARE_GL=1 to fall back to CPU rendering deliberately.
 // glRenderer() below reports which path a run actually got.
-import puppeteer, { KnownDevices } from "puppeteer-core";
+import { connect, KnownDevices, launch } from "puppeteer-core";
 
 // --ignore-gpu-blocklist is a no-op on a healthy driver (measured: identical
 // renderer and timing with and without it) but rescues the GPU path on hosts
@@ -65,7 +65,7 @@ export async function launchBrowser({ args = [] } = {}) {
   // per-probe `solo` list rather than hoping.
   const ws = process.env.BS_BROWSER_WS?.trim();
   if (ws) {
-    const shared = await puppeteer.connect({
+    const shared = await connect({
       browserWSEndpoint: ws,
       protocolTimeout: PROTOCOL_TIMEOUT,
     });
@@ -80,7 +80,7 @@ export async function launchBrowser({ args = [] } = {}) {
     );
   }
   const isBrave = /brave/i.test(executablePath);
-  return puppeteer.launch({
+  return launch({
     executablePath,
     headless: true,
     args: [...GL_ARGS, ...(isBrave ? BRAVE_ARGS : []), ...args],
@@ -308,16 +308,16 @@ export const logPageErrors = (page) => {
 /** Install the fake pad. `id` decides which glyph set the HUD should choose. */
 export async function installFakePad(page, id, { rumble = false } = {}) {
   await page.evaluateOnNewDocument(
-    (id, rumble) => {
+    (padId, withRumble) => {
       const state = {
-        id,
+        id: padId,
         index: 0,
         connected: true,
         mapping: "standard",
         axes: [0, 0, 0, 0],
         buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
       };
-      if (rumble) {
+      if (withRumble) {
         // Records calls so the mixer's re-issue cadence can be counted rather
         // than assumed. `effects` is the current spec spelling.
         window.__rumble = { calls: 0, last: null };
@@ -375,8 +375,8 @@ export const PAD_BUTTON = {
 /** Press or release one button on the fake pad. */
 export const setPadButton = (page, i, down) =>
   page.evaluate(
-    (i, down) => {
-      window.__fakePad.buttons[i] = { pressed: down, touched: down, value: down ? 1 : 0 };
+    (index, pressed) => {
+      window.__fakePad.buttons[index] = { pressed, touched: pressed, value: pressed ? 1 : 0 };
     },
     i,
     down,

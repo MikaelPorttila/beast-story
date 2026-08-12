@@ -35,7 +35,9 @@ export class DamageNumbers {
 
   private slot(): Num | null {
     for (const n of this.pool) {
-      if (!n.active) return n;
+      if (!n.active) {
+        return n;
+      }
     }
     if (this.pool.length >= 40) {
       return null;

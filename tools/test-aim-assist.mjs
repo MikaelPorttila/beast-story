@@ -45,8 +45,8 @@ const VALID_TURN = [55, 74];
 const probe = (page, name) => page.evaluate((n) => window[n]?.(), name);
 const setButton = (page, i, down) =>
   page.evaluate(
-    (i, down) => {
-      window.__fakePad.buttons[i] = { pressed: down, touched: down, value: down ? 1 : 0 };
+    (index, pressed) => {
+      window.__fakePad.buttons[index] = { pressed, touched: pressed, value: pressed ? 1 : 0 };
     },
     i,
     down,

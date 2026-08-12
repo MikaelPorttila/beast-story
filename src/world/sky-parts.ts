@@ -14,7 +14,6 @@ const STONE = 0x93938f;
 const STONE_D = 0x6f6f6c;
 const STONE_L = 0xaeaea8;
 const PLASTER = 0xe4dabf;
-const PLASTER_D = 0xc6ba9c;
 const TIMBER = 0x7a5330;
 const TIMBER_D = 0x593b21;
 const WOOD = 0x9a7043;
@@ -79,7 +78,9 @@ export function skyCottage(kind: 0 | 1 | 2, shingle = false): Template {
     }
   }
   for (let x = -1; x <= 1; x++) {
-    for (let y = 1; y <= 4; y++) v.set(x, y, D, shade(WOOD_D, 0.8));
+    for (let y = 1; y <= 4; y++) {
+      v.set(x, y, D, shade(WOOD_D, 0.8));
+    }
   }
   for (let x = -2; x <= 2; x++) {
     v.set(x, 5, D, shade(TIMBER, 1.05));
@@ -193,7 +194,9 @@ export function skyTower(): Template {
     }
   }
   for (let x = -1; x <= 1; x++) {
-    for (let y = 1; y <= 4; y++) v.set(x, y, W, shade(WOOD_D, 0.8));
+    for (let y = 1; y <= 4; y++) {
+      v.set(x, y, W, shade(WOOD_D, 0.8));
+    }
   }
   for (let y = 6; y < SHAFT; y += 5) {
     v.setEmissive(0, y, W, LAMP, 1.1);

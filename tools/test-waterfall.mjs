@@ -30,6 +30,9 @@
 import { launchBrowser, newPage, wait } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
 
+/** A camera triple as a URL argument. */
+const n3 = (v) => v.map((k) => k.toFixed(1)).join(",");
+
 const browser = await launchBrowser();
 const page = await newPage(browser, { width: 1000, height: 900 });
 page.on("pageerror", (e) => console.error("[page]", e.message));
@@ -69,8 +72,8 @@ async function box(x0, y0, x1, y1) {
     async (data, f) => {
       const img = new Image();
       await new Promise((res, rej) => {
-        img.onload = res;
-        img.onerror = rej;
+        img.addEventListener("load", res);
+        img.addEventListener("error", rej);
         img.src = `data:image/png;base64,${data}`;
       });
       const c = document.createElement("canvas");
@@ -376,7 +379,6 @@ if (scene.fall && scene.sky) {
   // bearing puts the plume dead centre with the cliff behind it.
   const cam = [wx + dx * D - spawn.x, sky.y + 5 - spawn.y, wz + dz * D - spawn.z];
   const look = [wx - spawn.x, sky.y - 24 - spawn.y, wz - spawn.z];
-  const n3 = (v) => v.map((k) => k.toFixed(1)).join(",");
   const frame = `photo=1&hud=0&fs=0&fps=30&cam=${n3(cam)}&look=${n3(look)}`;
   // The plume runs down the middle; the control sits on the cliff to one side
   // of it, on rock the fall never crosses.
@@ -445,7 +447,6 @@ if (scene.fall && scene.sky) {
     sky.y + up - spawn.y,
     sky.z - ux * d * sn + uz * d * cs - spawn.z,
   ];
-  const n3 = (v) => v.map((k) => k.toFixed(1)).join(",");
   // Standing over the head of the channel looking along it at the lip, which
   // puts the water down the middle of the frame and turf either side.
   const frame =

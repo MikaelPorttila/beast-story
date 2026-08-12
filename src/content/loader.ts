@@ -114,7 +114,9 @@ function readText(v: unknown): ContentText | null {
   if (isRecord(v.text)) {
     const out: Record<string, string> = {};
     for (const [lang, s] of Object.entries(v.text)) {
-      if (typeof s === "string") out[lang] = s;
+      if (typeof s === "string") {
+        out[lang] = s;
+      }
     }
     if (Object.keys(out).length > 0) {
       return { text: out };
@@ -639,7 +641,9 @@ export class PackageLoader {
     const tags: string[] = [];
     if (Array.isArray(body.tags)) {
       for (const tag of body.tags) {
-        if (typeof tag === "string" && tag !== "") tags.push(tag);
+        if (typeof tag === "string" && tag !== "") {
+          tags.push(tag);
+        }
       }
     } else if (body.tags !== undefined) {
       out.push(

@@ -16,6 +16,7 @@ for (const [name, viewport] of [
   await page.waitForSelector("canvas");
   await wait(4000);
   out[name] = await page.evaluate(() => {
+    // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
     const rect = (sel) => {
       const el = document.querySelector(sel);
       if (!el) {
@@ -94,7 +95,7 @@ for (const [name, viewport] of [
       party: rect(".bs-left"),
       overflowsRight: (() => {
         const bad = [];
-        const off = (r, name) => {
+        const off = (r, label) => {
           if (
             r &&
             (r.x < -0.5 ||
@@ -102,7 +103,7 @@ for (const [name, viewport] of [
               r.x + r.w > innerWidth + 0.5 ||
               r.y + r.h > innerHeight + 0.5)
           ) {
-            bad.push(name);
+            bad.push(label);
           }
         };
         for (const sel of [".bs-stick", ".bs-look", ".bs-left"]) {

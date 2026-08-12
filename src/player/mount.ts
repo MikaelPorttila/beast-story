@@ -518,7 +518,6 @@ export class MountController {
   }
 
   private updateRide(dt: number): void {
-    const beast = this.beast!;
     const input = this.input;
     // Re-read EVERY SLICE: the speed changes when the ground turns to water.
     this.topSpeed = this.gaitSpeed(this.pos.x, this.pos.z);

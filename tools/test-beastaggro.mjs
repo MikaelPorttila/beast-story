@@ -161,7 +161,9 @@ const far = Math.max(...engaged.map((s) => s.d));
 // regen is far too slow to be mistaken for one in either direction.
 let bites = 0;
 for (let i = 1; i < samples.length; i++) {
-  if (samples[i - 1].hp - samples[i].hp > 3) bites++;
+  if (samples[i - 1].hp - samples[i].hp > 3) {
+    bites++;
+  }
 }
 
 results.fight = {

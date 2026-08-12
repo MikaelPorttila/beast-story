@@ -412,7 +412,9 @@ export class GamepadControls {
 
 function anyPressed(b: readonly GamepadButton[]): boolean {
   for (let i = 0; i < b.length; i++) {
-    if (b[i].pressed || b[i].value > TRIGGER_ON) return true;
+    if (b[i].pressed || b[i].value > TRIGGER_ON) {
+      return true;
+    }
   }
   return false;
 }

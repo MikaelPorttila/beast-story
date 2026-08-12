@@ -55,6 +55,15 @@
 import { launchBrowser, newPage, wait } from "./browser.mjs";
 import { BASE as HOST, NO_WARMUP } from "./target.mjs";
 
+/** One diagnostic, flattened to the fields the assertions read. */
+const shape = (d) => ({
+  severity: d.severity,
+  code: d.code,
+  assetId: d.assetId ?? null,
+  field: d.field ?? null,
+  message: d.message,
+});
+
 const browser = await launchBrowser();
 const results = {};
 const fails = [];
@@ -445,7 +454,7 @@ async function consoleClosed(tries = 40) {
   const dataReqs = requested
     .filter((u) => u.includes("/src/content/data/"))
     .map((u) => u.slice(u.indexOf("/src/content/data/")))
-    .sort();
+    .toSorted();
 
   // The module-import technique this file leans on, checked before it is used.
   const viaImport = await dbg(async () => {
@@ -895,8 +904,8 @@ async function consoleClosed(tries = 40) {
       id: q.id,
       pkg: q.pkg,
       source: q.source,
-      refs: [...q.refs].sort(),
-      unresolved: [...q.refs].filter((r) => !content.has(r)).sort(),
+      refs: [...q.refs].toSorted(),
+      unresolved: [...q.refs].filter((r) => !content.has(r)).toSorted(),
       giver: q.data.giver,
       location: q.data.location,
     };
@@ -1104,13 +1113,6 @@ async function consoleClosed(tries = 40) {
     const rt = createContentRuntime({ providers: [provider] });
     const load = await rt.load("probe-bad", "editor");
     const validation = rt.validate("dev", []);
-    const shape = (d) => ({
-      severity: d.severity,
-      code: d.code,
-      assetId: d.assetId ?? null,
-      field: d.field ?? null,
-      message: d.message,
-    });
     return {
       load: load.diagnostics.map(shape),
       validation: validation.map(shape),

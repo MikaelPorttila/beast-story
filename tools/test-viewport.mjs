@@ -37,7 +37,7 @@ const results = {};
  */
 const probeLayer = (page, w, h) =>
   page.evaluate(
-    ({ w, h }) => {
+    ({ w: boxW, h: boxH }) => {
       const sel = ".bs-stick,.bs-btn,.bs-skill";
       const items = [...document.querySelectorAll(sel)].map((el) => {
         const r = el.getBoundingClientRect();
@@ -47,14 +47,14 @@ const probeLayer = (page, w, h) =>
             .join(".") || el.textContent;
         return {
           name: cls,
-          over: Math.max(0, r.right - w, r.bottom - h, -r.left, -r.top),
+          over: Math.max(0, r.right - boxW, r.bottom - boxH, -r.left, -r.top),
           bottom: +r.bottom.toFixed(1),
         };
       });
       const worst = items.reduce((a, b) => (b.over > a.over ? b : a), { over: 0, name: null });
       const layer = document.querySelector(".bs-touch")?.getBoundingClientRect();
       return {
-        box: { w, h },
+        box: { w: boxW, h: boxH },
         layer: layer ? { w: +layer.width.toFixed(1), h: +layer.height.toFixed(1) } : null,
         hud: (() => {
           const r = document.querySelector(".bs-root")?.getBoundingClientRect();
@@ -185,7 +185,7 @@ const sized = (page, w, h) =>
       height: "40px",
       zIndex: "99999",
     });
-    b.onclick = () => document.documentElement.requestFullscreen?.();
+    b.addEventListener("click", () => document.documentElement.requestFullscreen?.());
     document.body.appendChild(b);
   });
   await page.mouse.click(30, 20);

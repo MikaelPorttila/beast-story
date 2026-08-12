@@ -44,7 +44,6 @@ import {
   logPageErrors,
   whenPlaying,
   installFakePad,
-  setPadButton,
   PAD_BUTTON,
 } from "./browser.mjs";
 import { BASE as HOST, NO_WARMUP } from "./target.mjs";
@@ -84,11 +83,12 @@ async function equip(page, itemId) {
  */
 const fire = (page, { presses = 1, gapS = 0, steps = 60, step = 0.05 } = {}) =>
   page.evaluate(
-    ({ presses, gapS, steps, step, btn }) => {
+    ({ presses: count, gapS: gap, steps: stepCount, step: stepS, btn }) => {
       const pad = window.__fakePad;
       const set = (down) => {
         pad.buttons[btn] = { pressed: down, touched: down, value: down ? 1 : 0 };
       };
+      // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
       const arrows = () => {
         const h = window.__dbgPlayerPos();
         return window
@@ -108,7 +108,7 @@ const fire = (page, { presses = 1, gapS = 0, steps = 60, step = 0.05 } = {}) =>
       let riseMax = -Infinity;
       let riseMin = Infinity;
       const table = [];
-      // One sample: step the sim, then read what is in the air. `prevMin` only
+      // One sample: stepS the sim, then read what is in the air. `prevMin` only
       // ever rises for a given arrow, so a drop is a new one.
       const sample = (t) => {
         const d = arrows();
@@ -136,25 +136,25 @@ const fire = (page, { presses = 1, gapS = 0, steps = 60, step = 0.05 } = {}) =>
       };
 
       let t = 0;
-      for (let i = 0; i < presses; i++) {
+      for (let i = 0; i < count; i++) {
         set(true);
-        window.__dbgAdvance(step); // the press edge lands on slice one
-        t += step;
+        window.__dbgAdvance(stepS); // the press edge lands on slice one
+        t += stepS;
         sample(t);
         set(false);
-        if (i < presses - 1) {
+        if (i < count - 1) {
           // Hold the gap in the same sampled steps, so an arrow released during
           // a mash is seen rather than skipped over.
-          for (let k = 0; k < Math.max(1, Math.round(gapS / step)); k++) {
-            window.__dbgAdvance(step);
-            t += step;
+          for (let k = 0; k < Math.max(1, Math.round(gap / stepS)); k++) {
+            window.__dbgAdvance(stepS);
+            t += stepS;
             sample(t);
           }
         }
       }
-      for (let i = 0; i < steps; i++) {
-        window.__dbgAdvance(step);
-        t += step;
+      for (let i = 0; i < stepCount; i++) {
+        window.__dbgAdvance(stepS);
+        t += stepS;
         sample(t);
       }
       return {
@@ -261,13 +261,13 @@ try {
   // clamp. Pushing until the reading arrives is the same instrument the
   // assertions use.
   const aimTo = (goal) =>
-    page.evaluate((goal) => {
+    page.evaluate((want) => {
       for (let i = 0; i < 120; i++) {
         const y = window.__dbgCam().dir.y;
-        if (Math.abs(y - goal) < 0.04) {
+        if (Math.abs(y - want) < 0.04) {
           break;
         }
-        window.__fakePad.axes[3] = y < goal ? 1 : -1;
+        window.__fakePad.axes[3] = y < want ? 1 : -1;
         window.__dbgAdvance(0.05);
       }
       window.__fakePad.axes[3] = 0;

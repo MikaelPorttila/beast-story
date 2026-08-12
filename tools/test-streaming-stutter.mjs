@@ -30,8 +30,8 @@ const worldAt = dump.sections.indexOf("world");
 const wallAt = dump.sections.indexOf("wall");
 const chunkAt = dump.sections.length + dump.counters.indexOf("chunks");
 const rows = dump.rows.slice(first);
-const worlds = rows.map((r) => r[worldAt]).sort((a, b) => a - b);
-const walls = rows.map((r) => r[wallAt]).sort((a, b) => b - a);
+const worlds = rows.map((r) => r[worldAt]).toSorted((a, b) => a - b);
+const walls = rows.map((r) => r[wallAt]).toSorted((a, b) => b - a);
 // At an uncapped render rate some rAF callbacks do not contain a fixed world
 // tick and correctly record zero. Compare build slices with ordinary world
 // ticks, not with those render-only frames.

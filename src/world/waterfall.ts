@@ -717,7 +717,9 @@ export class Waterfall {
   stats(): Record<string, number> {
     let alive = 0;
     for (let i = 0; i < this.n; i++) {
-      if (this.fade[i] > 0.01) alive++;
+      if (this.fade[i] > 0.01) {
+        alive++;
+      }
     }
     return {
       length: +this.fallLength.toFixed(3),

@@ -253,7 +253,9 @@ export function disposeWeapon(mesh: THREE.Mesh): void {
   mesh.geometry.dispose();
   const m = mesh.material;
   if (Array.isArray(m)) {
-    for (const one of m) one.dispose();
+    for (const one of m) {
+      one.dispose();
+    }
   } else {
     m.dispose();
   }

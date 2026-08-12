@@ -8,7 +8,7 @@
 // folder (or the whole dist/) over http and open index.html. `file://` will not
 // work — the game loads ES modules, which browsers refuse over that scheme.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { writeFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const label = process.argv[2]?.replace(/[^a-zA-Z0-9._-]/g, "-") ?? "";
@@ -59,8 +59,8 @@ writeFileSync(
 // Index every snapshot so dist/ itself is browsable.
 const snaps = readdirSync("dist")
   .filter((n) => /^\d{4}-\d{2}-\d{2}_\d{4}/.test(n) && statSync(join("dist", n)).isDirectory())
-  .sort()
-  .reverse();
+  .toSorted()
+  .toReversed();
 writeFileSync(
   join("dist", "builds.html"),
   `<!doctype html><meta charset="utf-8"><title>Beast Story builds</title>

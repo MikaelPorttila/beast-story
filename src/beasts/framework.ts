@@ -1674,7 +1674,9 @@ export class BeastActor {
         m.geometry.dispose();
         const mat = m.material;
         if (Array.isArray(mat)) {
-          for (const mm of mat) mm.dispose();
+          for (const mm of mat) {
+            mm.dispose();
+          }
         } else {
           mat.dispose();
         }

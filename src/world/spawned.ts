@@ -24,7 +24,7 @@
  * measuring on a frame nobody is profiling.
  */
 import * as THREE from "three";
-import { Accum, type PropLib, type Template } from "./props";
+import { type PropLib, type Template } from "./props";
 import { SolidStamp, StructureField } from "./structures";
 import { TownParts } from "./town-parts";
 

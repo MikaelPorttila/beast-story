@@ -227,7 +227,9 @@ function templateMesh(t) {
 function collectParts(root, named) {
   const label = new Map();
   for (const [name, obj] of Object.entries(named ?? {})) {
-    if (obj) label.set(obj, name);
+    if (obj) {
+      label.set(obj, name);
+    }
   }
   const parts = [];
   root.traverse((o) => {
@@ -619,7 +621,7 @@ function checkRig(name, root, named, poseAt) {
       boxA: v.boxA,
       boxB: v.boxB,
     }))
-    .sort((x, y) => y.area - x.area);
+    .toSorted((x, y) => y.area - x.area);
   // A SEAM is the whole conjunction: coincident, exposed to the camera, and a
   // different colour on each side. Anything short of all three is a coincidence
   // the player cannot see.
@@ -703,7 +705,7 @@ const results = [];
 // -- beasts -----------------------------------------------------------------
 for (const sp of ALL_SPECIES) {
   const rig = sp.buildRig();
-  const phases = new Array(BEAST_CYCLE_SLOTS).fill(0);
+  const phases = Array.from({ length: BEAST_CYCLE_SLOTS }).fill(0);
   const ctx = {
     action: "idle",
     actionTime: 0,

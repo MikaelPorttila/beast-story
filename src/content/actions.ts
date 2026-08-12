@@ -28,7 +28,7 @@ export class ActionDispatcher {
   }
 
   get actionNames(): readonly string[] {
-    return [...this.handlers.keys()].sort();
+    return [...this.handlers.keys()].toSorted();
   }
 
   /** `undefined` and empty are both "nothing to do" — the common case. */

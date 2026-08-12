@@ -118,7 +118,6 @@ if (params.get("grid") === "0") {
 const beasts: BeastActor[] = [];
 const marks: THREE.Vector3[] = [];
 const enemies: Enemy[] = [];
-let heroRoot: THREE.Group | null = null;
 let heroRig: HeroRig | null = null;
 const heroAnim = new HeroAnimator();
 const subjectPos = new THREE.Vector3(0, 0, 0);
@@ -172,7 +171,6 @@ if (enemyParam === "gloopling" || enemyParam === "snortle" || enemyParam === "pe
 
 if (params.get("hero") === "1") {
   const rig = buildHeroRig();
-  heroRoot = rig.root;
   heroRig = rig;
   if (params.get("weapon")) {
     setWeaponModel(rig, params.get("weapon") as WeaponModelId);

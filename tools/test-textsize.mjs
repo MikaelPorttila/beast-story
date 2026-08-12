@@ -178,7 +178,9 @@ const SWEEP = (min) => {
     // Own text only — a wrapper's font-size is judged where the glyphs are.
     let text = "";
     for (const n of el.childNodes) {
-      if (n.nodeType === 3) text += n.nodeValue;
+      if (n.nodeType === 3) {
+        text += n.nodeValue;
+      }
     }
     if (!text.trim()) {
       continue;

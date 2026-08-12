@@ -31,7 +31,7 @@
 // ceremony really plays, and the roster is read afterwards.
 //
 // Exits non-zero on failure.
-import { launchBrowser, newPage, wait } from "./browser.mjs";
+import { launchBrowser, newPage } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
 
 const URL = `${HOST}/?menu=0&fs=0`;

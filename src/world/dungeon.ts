@@ -977,7 +977,9 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
 
     setVisible(v: boolean): void {
       for (const rec of chunks.values()) {
-        if (rec.mesh) rec.mesh.visible = v;
+        if (rec.mesh) {
+          rec.mesh.visible = v;
+        }
       }
       // The crystal lamps live under `fixtures`, so this is also what takes the
       // hold's four point lights out of the scene's light count. See World.

@@ -386,7 +386,7 @@ const out = {};
   out.handover = await page.evaluate(() => {
     const h = window.__hand;
     const fadeStart = h.find((s) => s.menu !== null && Number(s.menu) < 0.99);
-    const lastMenu = [...h].reverse().find((s) => s.menu !== null);
+    const lastMenu = [...h].findLast((s) => s.menu !== null);
     return {
       coverFullyUpWhileMenuVisible: h.some(
         (s) => s.menu !== null && s.face === "cover" && Number(s.load) > 0.95,

@@ -88,7 +88,6 @@ for (const town of towns) {
     { polling: "raf", timeout: 60000 },
   );
 
-  const r = town.radius + 6;
   const clip = await page.evaluate(
     (t, rr, g) => window.__dbgFoliageClip(t.x, t.z, rr, g),
     town,
@@ -98,7 +97,7 @@ for (const town of towns) {
 
   if (clip.verts === 0) {
     fails.push(
-      `${town.id}: no foliage streamed within ${clip.radius} units — ` + "nothing was measured",
+      `${town.id}: no foliage streamed within ${clip.radius} units — nothing was measured`,
     );
   }
   if (town.boxes === 0) {

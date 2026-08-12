@@ -89,12 +89,8 @@ const BOOT = 0x7d5433;
 const BOOT_D = 0x654325;
 // Steel reads a full stop darker than the sky dome (0xcfe8f4) so the blade is a
 // silhouette against it instead of vanishing into the same value.
-const STEEL = 0xa9b8c6;
-const STEEL_L = 0xeef4f9;
 const STEEL_D = 0x76858f;
 const GOLD = 0xe6a93c;
-const GRIP = 0x5b3f26;
-const WOOD = 0xa06f41;
 const POUCH = 0x8a6238;
 
 const S = 0.1; // voxel scale: 1 voxel = 0.1 m
@@ -445,7 +441,9 @@ function buildMitt(): THREE.Mesh {
   // old radius-2 disc would paint the four edge cells at y = 2 back in and undo
   // the step this shape is made of.
   for (let x = -1; x <= 1; x++) {
-    for (let z = -1; z <= 1; z++) v.set(x, 2, z, SKIN_EAR);
+    for (let z = -1; z <= 1; z++) {
+      v.set(x, 2, z, SKIN_EAR);
+    }
   }
   const mesh = v.build(S, true);
   mesh.scale.setScalar(MITT_SCALE);

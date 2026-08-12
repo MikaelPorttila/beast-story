@@ -1,4 +1,9 @@
 import type { Input } from "./input";
+
+/** Places a thumb control on the ring by angle. */
+const place = (el: HTMLElement, angle: number): void => {
+  el.style.setProperty("--a", `${angle}deg`);
+};
 // Type-only, so no import edge: the look axes are one setting shared with the pad.
 import type { LookAxes } from "./gamepad";
 import { t, type StringKey } from "../i18n";
@@ -158,7 +163,7 @@ class Stick {
         if (this.active) {
           return;
         }
-        const t = e.changedTouches[0];
+        const touch = e.changedTouches[0];
         // Home the ring first: the deflection radius comes from its rect.
         this.el.style.transform = "";
         const r = this.el.getBoundingClientRect();
@@ -168,13 +173,13 @@ class Stick {
           // Origin is the finger, clamped so the ring stays inside the pad.
           const h = pad.getBoundingClientRect();
           const half = r.width / 2;
-          cx = Math.min(Math.max(t.clientX, h.left + half), h.right - half);
-          cy = Math.min(Math.max(t.clientY, h.top + half), h.bottom - half);
+          cx = Math.min(Math.max(touch.clientX, h.left + half), h.right - half);
+          cy = Math.min(Math.max(touch.clientY, h.top + half), h.bottom - half);
           this.el.style.transform = `translate(${(cx - (r.left + half)).toFixed(1)}px,${(cy - (r.top + half)).toFixed(1)}px)`;
         }
-        this.active = { id: t.identifier, cx, cy, radius: r.width * 0.42 };
+        this.active = { id: touch.identifier, cx, cy, radius: r.width * 0.42 };
         this.el.classList.add("active");
-        this.move(t.clientX, t.clientY);
+        this.move(touch.clientX, touch.clientY);
         onChange();
         e.preventDefault();
         e.stopPropagation();
@@ -265,10 +270,6 @@ export class TouchControls {
     );
     this.root.appendChild(this.moveStick.el);
     lookPad.appendChild(this.lookStick.el);
-
-    const place = (el: HTMLElement, angle: number): void => {
-      el.style.setProperty("--a", `${angle}deg`);
-    };
 
     const skills = document.createElement("div");
     skills.className = "bs-skills";
@@ -379,13 +380,13 @@ export class TouchControls {
     window.addEventListener(
       "touchmove",
       (e) => {
-        for (const t of Array.from(e.changedTouches)) {
-          if (this.moveStick.owns(t.identifier)) {
-            this.moveStick.move(t.clientX, t.clientY);
+        for (const touch of Array.from(e.changedTouches)) {
+          if (this.moveStick.owns(touch.identifier)) {
+            this.moveStick.move(touch.clientX, touch.clientY);
             this.input.setStick(this.moveStick.x, this.moveStick.y);
             e.preventDefault();
-          } else if (this.lookStick.owns(t.identifier)) {
-            this.lookStick.move(t.clientX, t.clientY);
+          } else if (this.lookStick.owns(touch.identifier)) {
+            this.lookStick.move(touch.clientX, touch.clientY);
             e.preventDefault();
           }
         }
@@ -394,11 +395,11 @@ export class TouchControls {
     );
 
     const endTouch = (e: TouchEvent): void => {
-      for (const t of Array.from(e.changedTouches)) {
-        if (this.moveStick.owns(t.identifier)) {
+      for (const touch of Array.from(e.changedTouches)) {
+        if (this.moveStick.owns(touch.identifier)) {
           this.moveStick.release();
           this.input.setStick(0, 0);
-        } else if (this.lookStick.owns(t.identifier)) {
+        } else if (this.lookStick.owns(touch.identifier)) {
           this.lookStick.release();
           this.input.setTouchLooking(false);
         }

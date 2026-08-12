@@ -92,8 +92,8 @@ async function frame(page, box, dim) {
     async (data, b, cut) => {
       const img = new Image();
       await new Promise((res, rej) => {
-        img.onload = res;
-        img.onerror = rej;
+        img.addEventListener("load", res);
+        img.addEventListener("error", rej);
         img.src = `data:image/png;base64,${data}`;
       });
       const c = document.createElement("canvas");

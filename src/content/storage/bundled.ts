@@ -51,7 +51,7 @@ interface Index {
 function buildIndex(): Index {
   const paths = new Map<PackageId, string>();
   const conflicts: string[] = [];
-  const keys = [CORE_KEY, ...Object.keys(LAZY)].sort();
+  const keys = [CORE_KEY, ...Object.keys(LAZY)].toSorted();
   for (const key of keys) {
     const id = packageIdOf(key);
     if (id === null) {
@@ -92,7 +92,7 @@ export class BundledProvider implements StorageProvider {
   }
 
   async list(): Promise<readonly PackageId[]> {
-    return [...INDEX.paths.keys()].sort();
+    return [...INDEX.paths.keys()].toSorted();
   }
 
   async read(pkg: PackageId, file?: string): Promise<unknown | null> {
