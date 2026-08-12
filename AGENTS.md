@@ -94,9 +94,10 @@ repository links out of the panel: the repo is private, and
 - Avoid one-line functions that are just casting wrappers.
 - `any` creates harm, Inferred types create value.
 - Tests are good! Enless smoke tests, "regression tests" for feature deletions and etc are much less good. Tests should be focused, not slop. Tests must ran fast.
-- Comments are a great way to clarify functionality and how code is used. Don't comment every line, but feel free to describe (concisely) how functions are used above function definitions, classes, ect.
-- Comments MUST be kept short and ADHD friendly.
-- Keep comments up to date! When making changes, it's important to keep things in sync.
+- Comments: max 2 lines, one per symbol, only the non-obvious WHY (units,
+  invariants, magic numbers, `issue #NNN`). Never restate a name, never narrate
+  steps, no banner dividers. Tuning history and measurements go in the commit
+  message, not the source. Keep comments in sync with the code they describe.
 
 ## Testing
 
