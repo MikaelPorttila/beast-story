@@ -188,34 +188,66 @@ async function goToWild(species) {
   }
 }
 
-// -- 3. the tier gate, and that a refusal is free ----------------------------
+// -- 3. EVERY ORB MAY BE THROWN AT EVERYTHING, and the tier moves the odds ---
+//
+// This section used to assert the opposite: a Tame Orb at a Boulderpup was
+// REFUSED as too weak, and the refusal was free. Issue #110 removed that gate —
+// "the player may use any Taming orb, but the % chance will differ, so no text
+// saying that it's not possible" — so the pair here is now the other way round.
+// Both throws are accepted and both are spent; what separates them is the
+// number the player is shown before they commit.
 {
-  // A Boulderpup needs a Greater Orb (minTier 2). Both halves against the SAME
-  // animal, so nothing but the orb differs.
+  // Both halves against the SAME animal at the same health, so nothing but the
+  // orb differs.
+
   const found = await goToWild('wild-boulderpup');
   check(found !== null, 'no wild-boulderpup ever spawned');
   if (found) {
     await weaken('wild-boulderpup', 0.1);
     await give('orb-greater', 1);
     await invAct('orb-tame', 'ready');
+    // BOTH ODDS FIRST, on the same animal at the same health and before either
+    // orb leaves the hand. Reading one after a throw compares two different
+    // animals — the first attempt at this caught the Boulderpup with the Tame
+    // Orb (0.28 at a tenth of its health, which is the mechanic working) and
+    // then read the "Greater" number off a fresh full-health one, making a
+    // better orb look worse.
+    const tameChance = (await taming('wild-boulderpup')).target?.chance ?? null;
+    await invAct('orb-greater', 'ready');
+    const greaterChance = (await taming('wild-boulderpup')).target?.chance ?? null;
+
+    // Now the throws, both BROKEN on purpose (force=false) so neither outcome
+    // depends on a roll and neither takes the animal the other one needs.
+    await invAct('orb-tame', 'ready');
     const before = (await taming()).held;
-    const weak = await throwAt('wild-boulderpup');
+    const weak = await throwAt('wild-boulderpup', false);
     const afterWeak = (await taming()).held;
+    await page.waitForFunction(() => !window.__dbgTaming().bonding, { timeout: 20000 })
+      .catch(() => {});
     await invAct('orb-greater', 'ready');
     const strong = await throwAt('wild-boulderpup', false);
     const afterStrong = (await taming()).held;
     results.tierGate = {
       tameOutcome: weak.outcome, tameHeldBefore: before, tameHeldAfter: afterWeak,
       greaterOutcome: strong.outcome, greaterHeldAfter: afterStrong,
+      tameChance, greaterChance,
     };
-    check(weak.outcome === 'orbTooWeak',
-      `a Tame Orb at a Boulderpup returned "${weak.outcome}", want "orbTooWeak"`);
-    check(afterWeak === before,
-      `a refused throw spent an orb (${before} -> ${afterWeak}) — a refusal must be free`);
+    check(weak.outcome === 'thrown',
+      `a Tame Orb at a Boulderpup returned "${weak.outcome}", want "thrown" — `
+      + 'no orb is refused for being weak any more (issue #110)');
+    check(afterWeak === before - 1,
+      `an accepted throw left the Tame Orbs at ${afterWeak} from ${before} — it must be spent`);
     check(strong.outcome === 'thrown',
       `a Greater Orb at the same Boulderpup returned "${strong.outcome}", want "thrown"`);
     check(afterStrong === 0,
       `an accepted throw left ${afterStrong} Greater Orbs, want 0 — it must be spent`);
+    // THE ODDS ARE THE DIFFERENCE, which is the half that says the tiers still
+    // mean something now that neither is refused.
+    check(results.tierGate.tameChance !== null && results.tierGate.greaterChance !== null,
+      'no capture chance was reported for one of the two orbs');
+    check((results.tierGate.greaterChance ?? 0) > (results.tierGate.tameChance ?? 1),
+      `a Greater Orb reads ${results.tierGate.greaterChance} against a Tame Orb's `
+      + `${results.tierGate.tameChance} on the same animal — a better orb has to be better`);
   }
 }
 

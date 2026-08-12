@@ -54,7 +54,16 @@ const ORB_BASE = [0, 0.12, 0.23, 0.42, 0.72];
  */
 const WEAKEN_MAX = 4;
 
-/** Nothing is ever certain, and nothing is ever impossible above the tier gate. */
+/**
+ * Nothing is ever certain and nothing is ever impossible.
+ *
+ * THERE IS NO TIER GATE ANY MORE (issue #110). A Tame Orb thrown at the hardest
+ * animal in the game is a long shot and not a refusal — `MIN_CHANCE` is what
+ * "long shot" means, and the player is told the number before they throw. The
+ * gate it replaces answered the same design question with a message instead of
+ * odds, and a message that says "not possible" ends the interaction where a 3%
+ * chance invites the player to weaken the animal first.
+ */
 const MIN_CHANCE = 0.03;
 const MAX_CHANCE = 0.95;
 
@@ -71,7 +80,6 @@ export function captureChance(orb: ItemDef, target: Enemy): number {
   const rule = target.capture;
   if (!rule) return 0;
   const tier = orb.orbTier ?? 0;
-  if (tier < rule.minTier) return 0;
   const hpFrac = target.maxHp > 0 ? Math.max(0, Math.min(1, target.hp / target.maxHp)) : 1;
   const weaken = 1 + (WEAKEN_MAX - 1) * (1 - hpFrac);
   const p = (ORB_BASE[tier] ?? 0) * weaken / rule.difficulty;
@@ -79,7 +87,7 @@ export function captureChance(orb: ItemDef, target: Enemy): number {
 }
 
 /** Why a throw was refused, or `ok` when it will actually be attempted. */
-export type ThrowRefusal = 'ok' | 'notBondable' | 'orbTooWeak' | 'busy';
+export type ThrowRefusal = 'ok' | 'notBondable' | 'busy';
 
 /**
  * Can this orb be thrown at this beast at all?
@@ -91,9 +99,8 @@ export type ThrowRefusal = 'ok' | 'notBondable' | 'orbTooWeak' | 'busy';
  * would have been the same test, but not the same MESSAGE, and the message is
  * the whole value of doing it early.
  */
-export function refuseThrow(orb: ItemDef, target: Enemy | null): ThrowRefusal {
+export function refuseThrow(_orb: ItemDef, target: Enemy | null): ThrowRefusal {
   if (!target || !target.capture) return 'notBondable';
-  if ((orb.orbTier ?? 0) < target.capture.minTier) return 'orbTooWeak';
   if (target.held) return 'busy';
   return 'ok';
 }

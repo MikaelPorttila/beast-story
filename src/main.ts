@@ -3319,7 +3319,7 @@ const ORB_RANGE = 20;
  * split every other surface in this file makes.
  */
 type ThrowOutcome =
-  | 'thrown' | 'noOrb' | 'noTarget' | 'notBondable' | 'orbTooWeak'
+  | 'thrown' | 'noOrb' | 'noTarget' | 'notBondable'
   | 'alreadyOwned' | 'busy';
 
 function throwReadiedOrb(explicitTarget?: Damageable | null, force?: boolean): ThrowOutcome {
@@ -3342,10 +3342,6 @@ function throwReadiedOrb(explicitTarget?: Damageable | null, force?: boolean): T
   }
   const beastId = combat.bondSpeciesOf(target);
   const nameKey = combat.bondNameKeyOf(target);
-  if (refusal === 'orbTooWeak') {
-    bus.emit({ type: 'toast', text: t('toast.orbTooWeak', { beast: nameKey ? t(nameKey) : '' }) });
-    return 'orbTooWeak';
-  }
   if (refusal === 'busy') return 'busy';
   // ALREADY YOURS. Refused rather than allowed-and-wasted: a duplicate bond has
   // nothing to grant (the roster holds one actor per species, carrying the level
