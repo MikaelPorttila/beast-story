@@ -51,6 +51,9 @@ export class StubWorld implements World {
   debugPaths(): { paths: []; at: null } {
     return { paths: [], at: null };
   }
+  debugPathRibbons(): boolean {
+    return false;
+  }
   /** The stage has no network to add to. See `World.addPath`. */
   addPath(): {
     id: string;

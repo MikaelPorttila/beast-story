@@ -902,6 +902,7 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     pathRunCrosses: () => false,
     pathRunHitsBuilt: () => false,
     debugPaths: () => ({ paths: [], at: null }),
+    debugPathRibbons: () => false,
     debugCarriedStreets: () => ({ count: 0, paved: 0, clear: [] }),
     addPath: () => ({
       id: "",

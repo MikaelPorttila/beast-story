@@ -42,6 +42,7 @@ import {
   signArm,
 } from "./town-parts";
 import { buildFence, type Fence, type FenceNode, type FenceOptions } from "./fences";
+import { installHorizonFade, type HorizonFade } from "./distant-terrain";
 import { mulberry32 } from "./noise";
 import { TOWN_NO_SPAWN_MARGIN } from "./safe-zones";
 
@@ -233,13 +234,16 @@ const RIBBON_FOG_LIFT = 0.28;
 
 /** The terrain material, told a road is not quite the ground it lies on. A CLONE:
  *  lifting the shared one would lift the ground out of its own haze. */
-function makeRibbonMaterial(terrainMat: THREE.Material): THREE.Material {
+function makeRibbonMaterial(terrainMat: THREE.Material, horizonFade: HorizonFade): THREE.Material {
   const mat = terrainMat.clone();
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.bsFogGroundLift = { value: RIBBON_FOG_LIFT };
   };
   // Its own program: sharing one with the chunks would share their uniform value.
   mat.customProgramCacheKey = () => "bs-road-ribbon-fog-v1";
+  // A ribbon is one mesh spanning its whole road, so unlike every chunked thing it
+  // reaches past where the ground stops rendering. Same dissolve as the far clipmap.
+  installHorizonFade(mat, horizonFade);
   return mat;
 }
 
@@ -922,6 +926,7 @@ export class Towns {
     surfaceAt: (x: number, z: number) => number;
     columnTop: (x: number, z: number) => number;
     seed: number;
+    horizonFade: HorizonFade;
   };
   /** One group holding every ribbon and apron, so an edit can drop the lot and re-emit. */
   private readonly pathGroup = new THREE.Group();
@@ -943,6 +948,8 @@ export class Towns {
     /** The height field: the ribbon and the furniture both draw on `getHeight`, the
      *  walking surface, not the deck profile. Needs `terrain.roads` set. */
     terrain: Terrain,
+    /** The far clipmap's dissolve radius, shared so roads stop where ground does. */
+    horizonFade: HorizonFade,
   ) {
     const surfaceAt = (x: number, z: number): number => terrain.getHeight(x, z);
     // Two glow materials, not one: same program, but they must not pulse in lockstep.
@@ -960,6 +967,9 @@ export class Towns {
     };
     const fireGlow = mkGlow();
     const lampGlow = mkGlow();
+    // Road lamps stand along the whole network; their glow heads must dissolve with
+    // the ground under them, or they float in the sky past the horizon fade.
+    installHorizonFade(lampGlow, horizonFade);
     // A THIRD glow material for the campfire: `fireGlow` is shared with the braziers.
     const hearthGlow = mkGlow();
     const nightGlow = mkGlow();
@@ -1058,6 +1068,7 @@ export class Towns {
       // THE DRAWN COLUMN, which on a carriageway is not `getHeight` — see `sectionAt`.
       columnTop: (x, z) => terrain.columnHeight(Math.floor(x), Math.floor(z)),
       seed,
+      horizonFade,
     };
     this.group.add(this.pathGroup);
     /** See `fences` above: the readout `tools/test-fence.mjs` asserts over. */
@@ -1142,6 +1153,12 @@ export class Towns {
     return this.pens.get(townId) ?? null;
   }
 
+  /** A/B every ribbon and apron inside one page load — `test-road-fade` proves the
+   *  horizon dissolve by what hiding them changes, near and far. Debug only. */
+  setPathsVisible(on: boolean): void {
+    this.pathGroup.visible = on;
+  }
+
   /**
    * EVERY RIBBON AND EVERY APRON IN THE WORLD, RE-EMITTED. An arm's ribbon is clipped
    * by every apron and an apron's rim IS that arm's first ring, so adding a junction
@@ -1175,7 +1192,7 @@ export class Towns {
       geo.setAttribute("color", new THREE.Float32BufferAttribute(part.col, 3));
       geo.setIndex(part.idx);
       geo.computeBoundingSphere();
-      this.ribbonMat ??= makeRibbonMaterial(ctx.terrainMat);
+      this.ribbonMat ??= makeRibbonMaterial(ctx.terrainMat, ctx.horizonFade);
       const mesh = new THREE.Mesh(geo, this.ribbonMat);
       // Named so a raycast can say WHICH surface it hit — see `__dbgSurfaceY`.
       mesh.name = name;

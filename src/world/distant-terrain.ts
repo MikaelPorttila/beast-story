@@ -19,31 +19,54 @@ interface Layout {
   step: number;
 }
 
-interface FadeUniforms {
+/** ONE dissolve radius for everything that reaches the horizon — the far clipmap,
+ *  the road ribbons and the road lamps share these objects, so a view-distance
+ *  change moves them together. `DistantTerrain.configure` is the only setter. */
+export interface HorizonFade {
   start: { value: number };
   end: { value: number };
 }
 
-/** Radial dissolve to sky: fog's view depth is short off-axis, drawing an arc. */
-function installHorizonFade(material: THREE.MeshBasicMaterial, fade: FadeUniforms): void {
-  material.onBeforeCompile = (shader) => {
+/** Match the sky by 86% of range, leaving guard band for snap lag. */
+export function makeHorizonFade(viewDistance: number): HorizonFade {
+  return { start: { value: viewDistance * 0.66 }, end: { value: viewDistance * 0.86 } };
+}
+
+function setHorizonFade(fade: HorizonFade, viewDistance: number): void {
+  fade.start.value = viewDistance * 0.66;
+  fade.end.value = viewDistance * 0.86;
+}
+
+/**
+ * Radial dissolve to sky: fog's view depth is short off-axis, drawing an arc.
+ * Composes with the material's existing compile hook, so the road ribbon keeps
+ * its fog lift. The DISCARD is outside USE_FOG on purpose: the bloom source pass
+ * renders glow with `scene.fog = null`, and a lamp faded from the beauty pass
+ * must not keep blooming as a halo in the empty sky.
+ */
+export function installHorizonFade(material: THREE.Material, fade: HorizonFade): void {
+  const previousCompile = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey.bind(material);
+  material.customProgramCacheKey = () => `${previousKey()}|bs-horizon-fade-v2`;
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile.call(material, shader, renderer);
     shader.uniforms.bsHorizonFadeStart = fade.start;
     shader.uniforms.bsHorizonFadeEnd = fade.end;
     shader.vertexShader = shader.vertexShader
       .replace(
-        "#include <fog_pars_vertex>",
-        `#include <fog_pars_vertex>
+        "#include <common>",
+        `#include <common>
 varying float vBsCameraDistance;`,
       )
       .replace(
-        "#include <fog_vertex>",
-        `#include <fog_vertex>
+        "#include <project_vertex>",
+        `#include <project_vertex>
 vBsCameraDistance = length(mvPosition.xyz);`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
-        "#include <fog_pars_fragment>",
-        `#include <fog_pars_fragment>
+        "#include <common>",
+        `#include <common>
 varying float vBsCameraDistance;
 uniform float bsHorizonFadeStart;
 uniform float bsHorizonFadeEnd;`,
@@ -51,7 +74,7 @@ uniform float bsHorizonFadeEnd;`,
       .replace(
         "#include <fog_fragment>",
         `#include <fog_fragment>
-#ifdef USE_FOG
+{
   float bsHorizonFade = smoothstep(
     bsHorizonFadeStart, bsHorizonFadeEnd, vBsCameraDistance
   );
@@ -63,13 +86,14 @@ uniform float bsHorizonFadeEnd;`,
     floor(gl_FragCoord.xy), vec2(0.06711056, 0.00583715)
   )));
   if (bsHorizonFade >= bsHorizonDither) discard;
+#ifdef USE_FOG
   gl_FragColor.rgb = mix(
     gl_FragColor.rgb, bsSkyRadiance(vFogElev) * fogColor, bsHorizonFade * 0.65
   );
-#endif`,
+#endif
+}`,
       );
   };
-  material.customProgramCacheKey = () => "bs-distant-horizon-fade-v1";
 }
 
 function layoutFor(viewDistance: number): Layout {
@@ -129,6 +153,9 @@ export interface DistantTerrainDebug extends Record<string, unknown> {
   viewDistance: number;
   waterFadeStart: number;
   waterFadeEnd: number;
+  /** Where the world dissolves to sky — shared with the road ribbons and lamps. */
+  horizonFadeStart: number;
+  horizonFadeEnd: number;
   building: boolean;
   ready: boolean;
 }
@@ -163,21 +190,19 @@ export class DistantTerrain {
   private ready = false;
   private viewDistance: number;
   private detailDistance: number;
-  private readonly horizonFade: FadeUniforms;
+  private readonly horizonFade: HorizonFade;
 
   constructor(
     private readonly field: Terrain,
     focus: Readonly<THREE.Vector3>,
     viewDistance = DEFAULT_VIEW_DISTANCE,
     detailDistance = DEFAULT_DETAIL_DISTANCE,
+    horizonFade = makeHorizonFade(viewDistance),
   ) {
     this.viewDistance = viewDistance;
     this.detailDistance = detailDistance;
-    // Match the sky by 86% of range, leaving guard band for snap lag.
-    this.horizonFade = {
-      start: { value: viewDistance * 0.66 },
-      end: { value: viewDistance * 0.86 },
-    };
+    this.horizonFade = horizonFade;
+    setHorizonFade(this.horizonFade, viewDistance);
     this.layout = layoutFor(this.viewDistance);
     this.nextLayout = this.layout;
     const count = this.layout.xz.length / 2;
@@ -236,8 +261,7 @@ export class DistantTerrain {
     }
     this.viewDistance = viewDistance;
     this.detailDistance = detailDistance;
-    this.horizonFade.start.value = viewDistance * 0.66;
-    this.horizonFade.end.value = viewDistance * 0.86;
+    setHorizonFade(this.horizonFade, viewDistance);
     const next = layoutFor(viewDistance);
     const count = next.xz.length / 2;
     this.nextLayout = next;
@@ -434,6 +458,8 @@ export class DistantTerrain {
       viewDistance: this.viewDistance,
       waterFadeStart: Math.max(0, this.detailDistance - WATER_DETAIL_FADE_WIDTH),
       waterFadeEnd: this.detailDistance,
+      horizonFadeStart: this.horizonFade.start.value,
+      horizonFadeEnd: this.horizonFade.end.value,
       building: this.building,
       ready: this.ready,
     };

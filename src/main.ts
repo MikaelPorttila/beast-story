@@ -6096,6 +6096,14 @@ beginPlay();
   }
 ).__dbgPaths = (x, z) => world.debugPaths(x, z);
 
+// Show/hide every drawn ribbon inside one page load: `test-road-fade` proves the
+// horizon dissolve by what this toggle changes near against far.
+(
+  window as unknown as {
+    __dbgPathRibbons: (on: boolean) => boolean;
+  }
+).__dbgPathRibbons = (on) => world.debugPathRibbons(on);
+
 // The scriptable half of `/path`, which is why issue #142 §12 is testable before a panel exists. Both share
 // `World.addPath` and `refit`, so a probe cannot pass what the UI fails.
 (
