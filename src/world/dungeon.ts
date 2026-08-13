@@ -858,6 +858,14 @@ export function createDungeon(scene: THREE.Scene, seed = 0x5ea1ed): World {
     snowCoverAt(): number {
       return 0;
     },
+    /**
+     * NO BIOME, and therefore no wild population (issue #204): what is down here
+     * is what a quest staged, and nothing else wanders in. A hold that wants its
+     * own creatures gets a `biome:` asset and answers with its name.
+     */
+    biomeAt(): string {
+      return "";
+    },
     /** Nothing grows in a hold cut out of rock, so there is nothing to part. */
     disturb(): void {
       /* no vegetation underground */

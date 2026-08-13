@@ -5,7 +5,8 @@
  */
 
 import type { ContentAsset, ContentId, ContentTypeDef, ParseCtx, ValidateCtx } from "../types";
-import { bool, num, obj, opt, readerFor, record } from "../schema";
+import { bool, idOf, isRecord, list, num, obj, opt, readerFor, record } from "../schema";
+import type { Reader } from "../schema";
 import { isKnownTextKey } from "../text";
 // TYPE-ONLY and load-bearing: `world/nature.ts` reads `window.location` at module
 // load, and the content runtime must not depend on the world.
@@ -36,11 +37,45 @@ const KNOWN_PARAMS: ReadonlySet<string> = new Set<string>(NATURE_PARAM_NAMES);
 /** Mirrors `NatureParamDef.max` so an out-of-range value names its own field. The downstream clamp is still the authority. */
 const NATURE_MAX = 4;
 
+/** One entry in a biome's spawn table: which enemy, and how often against the rest. */
+export interface BiomeSpawn {
+  readonly enemy: ContentId;
+  /** Relative, not a probability — the roll is over the sum. Absent is 1. */
+  readonly weight: number;
+}
+
 export interface BiomeData {
   /** The area the player's first steps are in. Exactly one, checked below. */
   readonly startArea: boolean;
   /** Multipliers on top of the tuned baseline; 1 (or absent) is "the world as tuned". */
   readonly nature: Readonly<Partial<Record<NatureParamName, number>>>;
+  /**
+   * WHAT LIVES HERE (issue #204). A biome already says what GROWS on it; this is
+   * the other half, and it is the only thing that decides which wild population
+   * an area has. EMPTY MEANS EMPTY: an area with no table spawns nothing, so a
+   * country nobody has populated is quiet on purpose rather than filled with a
+   * roll over every enemy the game has loaded.
+   */
+  readonly spawns: readonly BiomeSpawn[];
+}
+
+function readSpawn(value: unknown, ctx: Reader): BiomeSpawn {
+  const v: Record<string, unknown> = isRecord(value) ? value : {};
+  if (!isRecord(value)) {
+    ctx.report(
+      "error",
+      "bad-field",
+      "expected a spawn entry object",
+      'write { "enemy": "enemy:gloopling", "weight": 3 }',
+    );
+  }
+  return {
+    enemy: idOf("enemy")(v.enemy, ctx.at("enemy")),
+    weight:
+      opt(v.weight, ctx.at("weight"), (n, c) =>
+        num(n, c, { min: 0, max: 1000, what: "a spawn weight" }),
+      ) ?? 1,
+  };
 }
 
 function parse(body: unknown, ctx: ParseCtx): BiomeData | null {
@@ -77,11 +112,18 @@ function parse(body: unknown, ctx: ParseCtx): BiomeData | null {
   return {
     startArea: opt(b.startArea, r.at("startArea"), bool) ?? false,
     nature,
+    spawns: opt(b.spawns, r.at("spawns"), list(readSpawn, { max: 64 })) ?? [],
   };
 }
 
-/** A biome points at nothing. Implemented for the reason town.ts's is. */
-function* refs(_data: BiomeData): Iterable<ContentId> {}
+/** Its spawn table names enemies, and a table naming one nothing defines is reported. */
+function* refs(data: BiomeData): Iterable<ContentId> {
+  for (const entry of data.spawns) {
+    if (entry.enemy !== "") {
+      yield entry.enemy;
+    }
+  }
+}
 
 function validate(asset: ContentAsset<BiomeData>, ctx: ValidateCtx): void {
   // Once, from the first biome in load order — see the same note in town.ts.
@@ -117,6 +159,6 @@ export const BIOME_TYPE: ContentTypeDef<BiomeData> = {
     id: "biome:new-area",
     schema: 1,
     name: { text: { en: "New Area" } },
-    data: { startArea: false, nature: { trees: 1, grass: 1 } },
+    data: { startArea: false, nature: { trees: 1, grass: 1 }, spawns: [] },
   },
 };

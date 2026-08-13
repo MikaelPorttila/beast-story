@@ -93,6 +93,9 @@ const SOLO = new Set([
   // orbs at a staged beast and reads the counters that follow. Every one of
   // those is a frame-loop edge, so a background tab consumes none of them.
   "story-land",
+  // Drives the hero 150 units at a time and counts what SPAWNED around him, so a
+  // shared page would be measuring another probe's teleports (issue #204).
+  "spawn-tables",
   // Presses E to take a quest and throws orbs to finish it, then reads what the
   // frame drew — every one of those needs a frame loop the tab is not given in
   // the background.

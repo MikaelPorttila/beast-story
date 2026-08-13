@@ -205,6 +205,11 @@ export class StubWorld implements World {
     return false;
   }
 
+  /** The stage is no country, so nothing wild belongs on it. See World.biomeAt. */
+  biomeAt(): string {
+    return "";
+  }
+
   /** The stage has no weather: nothing on it is ever under snow. */
   snowCoverAt(): number {
     return 0;

@@ -264,7 +264,14 @@
       "tags": ["climate", "start"],
       "data": {
         "startArea": true,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 },
+        "spawns": [
+          { "enemy": "enemy:gloopling", "weight": 4 },
+          { "enemy": "enemy:snortle", "weight": 2 },
+          { "enemy": "enemy:wild-sproutle", "weight": 4 },
+          { "enemy": "enemy:wild-boulderpup", "weight": 2 },
+          { "enemy": "enemy:wild-emberfox", "weight": 1 }
+        ]
       }
     },
     {
@@ -274,7 +281,14 @@
       "tags": ["climate"],
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 },
+        "spawns": [
+          { "enemy": "enemy:gloopling", "weight": 3 },
+          { "enemy": "enemy:wild-sproutle", "weight": 4 },
+          { "enemy": "enemy:wild-umbrakit", "weight": 2 },
+          { "enemy": "enemy:wild-emberfox", "weight": 2 },
+          { "enemy": "enemy:snortle", "weight": 1 }
+        ]
       }
     },
     {
@@ -284,7 +298,13 @@
       "tags": ["climate"],
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 },
+        "spawns": [
+          { "enemy": "enemy:snortle", "weight": 3 },
+          { "enemy": "enemy:wild-rivotter", "weight": 3 },
+          { "enemy": "enemy:wild-snapclaw", "weight": 2 },
+          { "enemy": "enemy:wild-coralback", "weight": 1 }
+        ]
       }
     },
     {
@@ -294,7 +314,13 @@
       "tags": ["climate"],
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 },
+        "spawns": [
+          { "enemy": "enemy:snortle", "weight": 4 },
+          { "enemy": "enemy:wild-sparkit", "weight": 3 },
+          { "enemy": "enemy:wild-emberfox", "weight": 2 },
+          { "enemy": "enemy:gloopling", "weight": 1 }
+        ]
       }
     },
     {
@@ -304,7 +330,13 @@
       "tags": ["climate"],
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 },
+        "spawns": [
+          { "enemy": "enemy:gloopling", "weight": 2 },
+          { "enemy": "enemy:wild-boulderpup", "weight": 3 },
+          { "enemy": "enemy:wild-graveback", "weight": 2 },
+          { "enemy": "enemy:wild-graveborn", "weight": 1 }
+        ]
       }
     },
     {
@@ -319,7 +351,12 @@
       },
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 },
+        "spawns": [
+          { "enemy": "enemy:wild-aquaxol", "weight": 4 },
+          { "enemy": "enemy:wild-rivotter", "weight": 3 },
+          { "enemy": "enemy:wild-coralback", "weight": 2 }
+        ]
       }
     },
     {
@@ -334,7 +371,11 @@
       },
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 },
+        "spawns": [
+          { "enemy": "enemy:wild-aquaxol", "weight": 3 },
+          { "enemy": "enemy:wild-snapclaw", "weight": 2 }
+        ]
       }
     },
     {
@@ -349,7 +390,11 @@
       },
       "data": {
         "startArea": false,
-        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 }
+        "nature": { "trees": 1, "grass": 1, "flowers": 1, "bushes": 1, "rocks": 1, "reeds": 1 },
+        "spawns": [
+          { "enemy": "enemy:gloopling", "weight": 5 },
+          { "enemy": "enemy:snortle", "weight": 3 }
+        ]
       }
     },
 

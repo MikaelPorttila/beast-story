@@ -482,6 +482,15 @@ export interface World {
   crownContactAt(x: number, y: number, z: number, radius: number, out: CrownContact): boolean;
   /** Snow cover 0..1; 0 where a zone has no weather. A CONTINUUM, not a flag — `BiomeId` cuts at 0.5. */
   snowCoverAt(x: number, z: number): number;
+  /**
+   * Which country this column is — the `biome:` asset's own name (`plains`), or
+   * '' for a zone that has none.
+   *
+   * On the contract because it is what decides the WILD POPULATION (issue #204):
+   * a biome's asset carries the spawn table, and '' means nothing spawns, which
+   * is how a dungeon holds only what a quest stages there.
+   */
+  biomeAt(x: number, z: number): string;
   /** Water surface level (constant) */
   readonly waterLevel: number;
   isWater(x: number, z: number): boolean;
