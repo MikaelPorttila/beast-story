@@ -193,6 +193,24 @@ export interface CrownContact {
 }
 
 /** The quest-facing view of a settlement: deliberately geometry-free apart from point, radius and gate. */
+/** What a host needs of the standing stones: where they are, and who is near one. */
+export interface WaypointField {
+  readonly all: readonly WaypointSpot[];
+  /** The stone whose touch radius holds this point, or null. */
+  touching(x: number, z: number): WaypointSpot | null;
+  /** Nearest stone this character has lit, or null when none is. */
+  nearestLit(x: number, z: number, isLit: (id: string) => boolean): WaypointSpot | null;
+  /** Redraw them against what the character has found; idempotent. */
+  setLit(isLit: (id: string) => boolean): void;
+}
+
+export interface WaypointSpot {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
 export interface TownInfo {
   /** Stable across sessions and seeds; what a quest stores. */
   readonly id: string;
@@ -482,6 +500,14 @@ export interface World {
   crownContactAt(x: number, y: number, z: number, radius: number, out: CrownContact): boolean;
   /** Snow cover 0..1; 0 where a zone has no weather. A CONTINUUM, not a flag — `BiomeId` cuts at 0.5. */
   snowCoverAt(x: number, z: number): number;
+  /**
+   * The standing stones this world grew, or an empty list where it grew none.
+   *
+   * A zone SITES them (they are derived from its roads); which ones are LIT is
+   * the character's, and lives in `ContentState` — so the world is asked where
+   * they are and never who has found them.
+   */
+  readonly waypoints: WaypointField | null;
   /**
    * Which country this column is — the `biome:` asset's own name (`plains`), or
    * '' for a zone that has none.

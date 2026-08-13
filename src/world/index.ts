@@ -31,6 +31,7 @@ import {
   type Exclusion,
 } from "./props";
 import { Shops, type DenSpot } from "./shops";
+import { Waypoints, waypointSites } from "./waypoints";
 import { SiteFields } from "./structures";
 import { Towns, planSettlements, type SettlementPlan } from "./towns";
 import {
@@ -547,6 +548,22 @@ export function createWorld(
   const spawned = new SpawnedSolids(propLib, (x, z) => terrain.getHeight(x, z));
   scene.add(spawned.group);
 
+  // THE STANDING STONES, sited off the road network the planner just cut: at the
+  // gates, at the fork, and every 220 units of carriageway between them. Before
+  // `Towns`, so their colliders are in the site field the settlement's own
+  // foliage pass asks (a stone is BUILT, and nothing may grow through it).
+  const waypoints = plan
+    ? new Waypoints(
+        waypointSites(plan.network.roads, plan.towns.all, plan.junction, (x, z) =>
+          terrain.getHeight(x, z),
+        ),
+      )
+    : null;
+  if (waypoints) {
+    scene.add(waypoints.group);
+    markStaticShadowCaster(waypoints.group);
+  }
+
   const towns = plan ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain) : null;
   if (towns) {
     scene.add(towns.group);
@@ -590,6 +607,8 @@ export function createWorld(
     }
     // The dens first: the one set that exists in every world.
     let top = shops.solids.topAt(x, z);
+    // A standing stone is solid the way a hut is; `topAt` is -Infinity off it.
+    top = Math.max(top, waypoints?.solids.topAt(x, z) ?? -Infinity);
     if (towns) {
       const t = towns.solids.topAt(x, z);
       if (t > top) {
@@ -702,7 +721,7 @@ export function createWorld(
    *
    * NPCs are absent on purpose: a person walks, and a chunk's grass bakes once.
    */
-  const site = new SiteFields([shops.solids, towns?.solids]);
+  const site = new SiteFields([shops.solids, towns?.solids, waypoints?.solids]);
 
   // Created only after roads, towns and landmarks altered the height field, so
   // its silhouette samples the same authority as near ground. View distance is
@@ -996,6 +1015,8 @@ export function createWorld(
     waterLevel: WATER_LEVEL,
     spawnPoint,
     playerStart,
+    // Null when `towns=0` switched the road network off: no roads, no stones.
+    waypoints,
     shopPositions: shops.positions,
     towns: withCarriedTowns(townReg, sky ? [sky.town] : []),
     safeZones,

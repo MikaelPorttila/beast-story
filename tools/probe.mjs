@@ -96,6 +96,8 @@ const SOLO = new Set([
   // Drives the hero 150 units at a time and counts what SPAWNED around him, so a
   // shared page would be measuring another probe's teleports (issue #204).
   "spawn-tables",
+  // Kills the hero to see where he wakes up, which no shared page survives.
+  "waypoints",
   // Crosses zones for real, which tears down a world and builds another: nothing
   // may share a page with it, and it is the one probe that measures a crossing's
   // wall clock (issue #211).

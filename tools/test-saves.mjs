@@ -64,6 +64,10 @@ const readState = (page) =>
       // Which mounts the story had handed over. A `MountKind[]`, so the order is
       // the document's own and comparing the arrays compares the whole field.
       mounts: doc.mounts,
+      // The standing stones this character has lit — a content DISCOVERY, so it
+      // rides in the same document every quest fact does, and a stone lit and
+      // then forgotten is a player sent back across the valley on his next faint.
+      lit: (window.__dbgWaypoints().all ?? []).filter((w) => w.lit).map((w) => w.id),
     };
   });
 
@@ -83,6 +87,13 @@ const readState = (page) =>
     window.__dbgUnlockMount("water", true);
     window.__dbgTp(140, -60);
   });
+  // Light one, by standing at it the way a player does — the stone nearest the
+  // camp, so the walk is short and the trip below has something to carry.
+  await page.evaluate(() => {
+    const w = window.__dbgWaypoints().all[0];
+    window.__dbgTp(w.x, w.z);
+  });
+  await page.evaluate(() => window.__dbgAdvance(2));
   const saved = await readState(page);
   const id = await page.evaluate(() => window.__dbgSaves.save("Probe"));
   check(typeof id === "number" && id > 0, `save() returned ${JSON.stringify(id)}`);
@@ -129,6 +140,13 @@ const readState = (page) =>
   check(
     JSON.stringify(back.mounts) === JSON.stringify(saved.mounts),
     `the mount unlocks changed: ${JSON.stringify(saved.mounts)} -> ${JSON.stringify(back.mounts)}`,
+  );
+  // Both halves, as with the mounts: the stone was lit before the save, and the
+  // list that comes back is the one that went in — not a longer one.
+  check(saved.lit.length === 1, `the perturbation lit ${saved.lit.length} stones, not the one`);
+  check(
+    JSON.stringify(back.lit) === JSON.stringify(saved.lit),
+    `the lit waystones changed: ${JSON.stringify(saved.lit)} -> ${JSON.stringify(back.lit)}`,
   );
   // Within a unit: the position is re-grounded on the way in, and the ground
   // under a point is the same ground it was.

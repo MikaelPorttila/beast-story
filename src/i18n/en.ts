@@ -819,6 +819,10 @@ export const en = {
   "toast.dismountFirst": "Dismount first (tap F).",
   "toast.fetched": "{beast} fetched {item} ({n})",
   "toast.learnedSkill": "{beast} learned {skill}!",
+  // The standing stones. "Lit" rather than "unlocked": the stone lights when you
+  // reach it, and what that buys you is said in the second line, once, the first
+  // time it happens — a player who has never fainted has no idea what it is for.
+  "toast.waypointLit": "The waystone lights — you will wake here",
   "toast.fainted": "You fainted!",
   "toast.revived": "Back on your feet!",
   // The deep sea, and it names the FIX rather than the refusal. The water going
