@@ -487,6 +487,8 @@ export interface LandmarkProbe {
  */
 /** For the landmark probe's `biomeAt` — see the probe literal. */
 const landmarkScratch = makeScratch();
+/** Its own, because `biomeAt` is asked from a spawn roll while a landmark pass may be walking the other. */
+const biomeScratch = makeScratch();
 
 /** For `World.debugColumn` alone — see there. */
 const dbgColumnScratch = makeScratch();
@@ -1154,6 +1156,11 @@ export function createWorld(
     isDeepWater: (x: number, z: number): boolean => terrain.getHeight(x, z) <= DEEP_WATER_TOP,
     // Straight through, like getHeight: it owes nothing to what is loaded.
     snowCoverAt: (x: number, z: number): number => terrain.snowCoverAt(x, z),
+    // The column's own answer, which is what a spawn table is keyed on (issue #204).
+    biomeAt: (x: number, z: number): string => {
+      terrain.columnInfo(Math.floor(x), Math.floor(z), biomeScratch);
+      return biomeScratch.biome;
+    },
 
     /** Every loaded trunk collider as [x, z, solidR, climbR, boleTopY], for
      * /show-colliders. Allocates nothing per collider. */

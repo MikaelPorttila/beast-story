@@ -103,7 +103,13 @@ import { Player } from "./player/index";
 import { MountController, MountUnlocks } from "./player/mount";
 import { BeastActor, registerSkillDefs } from "./beasts/framework";
 import { CombatSystem, SWORD_REACH } from "./combat/index";
-import { enemySpecies, MELEE_UP_REACH, MELEE_DOWN_REACH, type Enemy } from "./combat/enemies";
+import {
+  enemySpecies,
+  spawnTableReport,
+  MELEE_UP_REACH,
+  MELEE_DOWN_REACH,
+  type Enemy,
+} from "./combat/enemies";
 import {
   HUD,
   kbd,
@@ -6472,6 +6478,24 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
   }
   return { ...cursors.debug(), free: cursorFree, known: CURSOR_STATES.length };
 };
+
+// WHAT LIVES WHERE (issue #204): each biome's resolved table as percentages, plus what the population
+// standing in the world right now actually is — the pair, because a table nothing rolls from and a
+// population that ignores its table are different bugs.
+(window as unknown as { __dbgSpawnTables: () => unknown }).__dbgSpawnTables = () => ({
+  zone: zones.id,
+  biome: world.biomeAt(player.position.x, player.position.z),
+  tables: spawnTableReport(),
+  // Which species CAN fly, so a probe can say "no flyer is in an Act 1 table" against the roster
+  // rather than against four ids written into the test.
+  flying: enemySpecies()
+    .filter((e) => e.flying)
+    .map((e) => e.id),
+  live: combat.enemies.map((e) => ({
+    species: e.species,
+    biome: world.biomeAt(e.position.x, e.position.z),
+  })),
+});
 
 (window as unknown as { __dbgDraws: () => number }).__dbgDraws = () =>
   engine.renderer.info.render.calls;

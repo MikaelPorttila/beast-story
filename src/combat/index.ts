@@ -19,6 +19,7 @@ import { elementMultiplier } from "./effectiveness";
 import {
   Enemy,
   enemySpecies,
+  rollSpawn,
   speciesOf,
   variantForHeight,
   MELEE_UP_REACH,
@@ -1157,13 +1158,14 @@ export class CombatSystem {
   }
 
   private trySpawn(center: THREE.Vector3, silent: boolean): void {
-    // Uniform over whatever content loaded. `enemySpecies()` is a cached frozen
-    // view, so this is a read: a spawn path may not allocate a table.
+    // THE PLACE IS PICKED FIRST, then what lives there (issue #204): a biome's own
+    // table is what decides the population, so the column has to be known before
+    // the species is. `enemySpecies()` is a cached frozen view — a spawn path may
+    // not allocate a table.
     const defs = enemySpecies();
     if (defs.length === 0) {
       return;
     }
-    const def = defs[(Math.random() * defs.length) | 0];
     const a = Math.random() * Math.PI * 2;
     const r = SPAWN_RING_MIN + Math.random() * (SPAWN_RING_MAX - SPAWN_RING_MIN);
     const x = center.x + Math.cos(a) * r;
@@ -1177,6 +1179,13 @@ export class CombatSystem {
     // A refusal, not a re-roll: a keep-out must THIN the population near a
     // settlement, not queue it along the boundary as a visible wall.
     if (this.world.safeZones.blocksSpawn(x, z)) {
+      return;
+    }
+    // WHAT LIVES HERE. No table is a REFUSAL and not a fallback: an area nobody
+    // has populated is quiet on purpose, which is how the Hold holds only what a
+    // quest staged in it.
+    const def = rollSpawn(this.world.biomeAt(x, z));
+    if (!def) {
       return;
     }
     if (!def.flying && this.world.isWater(x, z)) {

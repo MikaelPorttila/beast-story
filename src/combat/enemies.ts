@@ -18,6 +18,7 @@ import {
   defineFactory,
   BEAST_MODEL_PREFIX,
   ENEMY_MODEL_KIND,
+  type BiomeData,
   type EnemyCapture,
   type EnemyData,
   type EnemyVariant,
@@ -125,6 +126,84 @@ export function enemySpecies(): readonly EnemySpec[] {
   cachedSpecs = specs;
   cachedById = new Map(specs.map((s) => [s.id, s]));
   return cachedSpecs;
+}
+
+/**
+ * WHICH BIOME'S POPULATION IS WHICH — one resolved table per biome id, rebuilt
+ * only when content changes (issue #204).
+ *
+ * Keyed on the frozen asset view exactly as `enemySpecies` is, so a package load
+ * invalidates it by itself and a spawn roll stays a read: `trySpawn` runs from
+ * the combat update and may not allocate.
+ */
+interface SpawnTable {
+  readonly specs: readonly EnemySpec[];
+  /** Running sums, so a roll is one random and a scan of a handful of entries. */
+  readonly cumulative: readonly number[];
+  readonly total: number;
+}
+
+let tablesFrom: readonly unknown[] | null = null;
+let tables: ReadonlyMap<string, SpawnTable> = new Map();
+
+function spawnTables(): ReadonlyMap<string, SpawnTable> {
+  const assets = content.all<BiomeData>("biome");
+  if (assets === tablesFrom) {
+    return tables;
+  }
+  const out = new Map<string, SpawnTable>();
+  for (const asset of assets) {
+    const specs: EnemySpec[] = [];
+    const cumulative: number[] = [];
+    let total = 0;
+    for (const entry of asset.data.spawns) {
+      // An id nothing defines, or a weight of 0, is simply not in the table: the
+      // asset that named it has already been reported by the cross-asset pass.
+      const spec = speciesOf(entry.enemy.slice("enemy:".length));
+      if (!spec || entry.weight <= 0) {
+        continue;
+      }
+      total += entry.weight;
+      specs.push(spec);
+      cumulative.push(total);
+    }
+    if (total > 0) {
+      out.set(asset.id.slice("biome:".length), { specs, cumulative, total });
+    }
+  }
+  tablesFrom = assets;
+  tables = out;
+  return tables;
+}
+
+/** One species for this biome, or null where nothing lives — see `World.biomeAt`. */
+export function rollSpawn(biome: string): EnemySpec | null {
+  const table = spawnTables().get(biome);
+  if (!table) {
+    return null;
+  }
+  const roll = Math.random() * table.total;
+  for (let i = 0; i < table.cumulative.length; i++) {
+    if (roll < table.cumulative[i]) {
+      return table.specs[i];
+    }
+  }
+  return table.specs[table.specs.length - 1];
+}
+
+/** What each biome would roll, for `__dbgSpawnTables` and test-spawn-tables. */
+export function spawnTableReport(): Record<string, { enemy: string; chance: number }[]> {
+  const out: Record<string, { enemy: string; chance: number }[]> = {};
+  for (const [biome, table] of spawnTables()) {
+    out[biome] = table.specs.map((spec, i) => ({
+      enemy: spec.id,
+      chance: +(
+        ((table.cumulative[i] - (i > 0 ? table.cumulative[i - 1] : 0)) / table.total) *
+        100
+      ).toFixed(1),
+    }));
+  }
+  return out;
 }
 
 export function speciesOf(id: EnemySpeciesId): EnemySpec | undefined {
