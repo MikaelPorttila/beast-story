@@ -5675,6 +5675,184 @@ const _surfDown = new THREE.Vector3(0, -1, 0);
   };
 };
 
+/**
+ * WHAT IS DRAWN AT A COLUMN, for tens of thousands of columns.
+ *
+ * `__dbgSurfaceY` above answers this for ONE column and costs 4.2 ms, because
+ * it walks the whole scene graph and then brute-forces the triangles of every
+ * terrain mesh it did not reject. The road guard wants ~35,000 columns, which
+ * is four minutes of raycasting for a question that has a much cheaper shape:
+ * THE RAY IS ALWAYS STRAIGHT DOWN. A vertical ray through a triangle is a
+ * point-in-triangle test in 2D plus one barycentric lift, so the whole sweep
+ * needs a flat index rather than a raycaster.
+ *
+ * So: bucket every triangle of the matching meshes into a 2D grid ONCE, then
+ * answer each column from the handful of triangles over it. Build is linear in
+ * the world's triangles and is amortised across the sweep that follows.
+ *
+ * It is NOT a general replacement for `__dbgSurfaceY` — it only knows meshes
+ * whose name matches, and it only fires downward. That is exactly the road
+ * guard's question and deliberately not a raycaster.
+ */
+interface SurfaceIndex {
+  pattern: string;
+  cell: number;
+  /** Cell key -> triangle ordinals (index into `tri` / `owner`). */
+  grid: Map<number, number[]>;
+  /** 9 world-space floats per triangle. */
+  tri: Float64Array;
+  owner: Int32Array;
+  names: string[];
+  triangles: number;
+}
+let _surfIndex: SurfaceIndex | null = null;
+const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19349663;
+
+(
+  window as unknown as {
+    __dbgSurfaceIndex: (namePattern: string, cell?: number) => unknown;
+  }
+).__dbgSurfaceIndex = (namePattern, cell = 2) => {
+  const want = new RegExp(namePattern);
+  const names: string[] = [];
+  const pos: number[] = [];
+  const owner: number[] = [];
+  const v = new THREE.Vector3();
+  engine.scene.updateMatrixWorld(true);
+  engine.scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !o.visible || !want.test(o.name)) {
+      return;
+    }
+    const nameId = names.push(o.name || o.type) - 1;
+    const g = m.geometry;
+    const p = g.attributes.position;
+    const idx = g.index;
+    const n = idx ? idx.count : p.count;
+    for (let i = 0; i < n; i += 3) {
+      for (let k = 0; k < 3; k++) {
+        const vi = idx ? idx.getX(i + k) : i + k;
+        v.fromBufferAttribute(p, vi).applyMatrix4(o.matrixWorld);
+        pos.push(v.x, v.y, v.z);
+      }
+      owner.push(nameId);
+    }
+  });
+  const tri = new Float64Array(pos);
+  const grid = new Map<number, number[]>();
+  for (let ti = 0; ti < owner.length; ti++) {
+    const o = ti * 9;
+    const minX = Math.min(tri[o], tri[o + 3], tri[o + 6]);
+    const maxX = Math.max(tri[o], tri[o + 3], tri[o + 6]);
+    const minZ = Math.min(tri[o + 2], tri[o + 5], tri[o + 8]);
+    const maxZ = Math.max(tri[o + 2], tri[o + 5], tri[o + 8]);
+    for (let cx = Math.floor(minX / cell); cx <= Math.floor(maxX / cell); cx++) {
+      for (let cz = Math.floor(minZ / cell); cz <= Math.floor(maxZ / cell); cz++) {
+        const k = _surfCellKey(cx, cz);
+        let b = grid.get(k);
+        if (!b) {
+          grid.set(k, (b = []));
+        }
+        b.push(ti);
+      }
+    }
+  }
+  _surfIndex = {
+    pattern: namePattern,
+    cell,
+    grid,
+    tri,
+    owner: new Int32Array(owner),
+    names,
+    triangles: owner.length,
+  };
+  return { meshes: names.length, triangles: owner.length, cells: grid.size, cell };
+};
+
+/**
+ * A ROW of columns answered from the index, topmost `k` surfaces each — the
+ * same stack `__dbgSurfaceY` returns in `hits`, which is what the cross-section
+ * pass reads to tell a ribbon, the near ground and the clipmap apart at one
+ * column. Flat parallel arrays because the caller reduces them in the page.
+ *
+ * `ground` is still `world.getHeight`, so "drawn against walked" is unchanged.
+ */
+(
+  window as unknown as {
+    __dbgSurfaceRow: (
+      x0: number,
+      z0: number,
+      dx: number,
+      dz: number,
+      n: number,
+      k?: number,
+    ) => unknown;
+  }
+).__dbgSurfaceRow = (x0, z0, dx, dz, n, k = 4) => {
+  const ix = _surfIndex;
+  if (!ix) {
+    throw new Error("__dbgSurfaceRow: call __dbgSurfaceIndex(pattern) first");
+  }
+  const ground = new Float64Array(n);
+  const hitY = new Float64Array(n * k).fill(Number.NaN);
+  const hitName = new Int32Array(n * k).fill(-1);
+  const count = new Int32Array(n);
+  const ys: number[] = [];
+  const os: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const x = x0 + dx * i;
+    const z = z0 + dz * i;
+    ground[i] = world.getHeight(x, z);
+    const bucket = ix.grid.get(_surfCellKey(Math.floor(x / ix.cell), Math.floor(z / ix.cell)));
+    if (!bucket) {
+      continue;
+    }
+    ys.length = 0;
+    os.length = 0;
+    for (const ti of bucket) {
+      const o = ti * 9;
+      const ax = ix.tri[o];
+      const ay = ix.tri[o + 1];
+      const az = ix.tri[o + 2];
+      const bx = ix.tri[o + 3];
+      const by = ix.tri[o + 4];
+      const bz = ix.tri[o + 5];
+      const cx = ix.tri[o + 6];
+      const cy = ix.tri[o + 7];
+      const cz = ix.tri[o + 8];
+      // Barycentric in the XZ plane; a degenerate triangle (seen edge-on from
+      // above) has zero area there and cannot be under the column at all.
+      const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+      if (d === 0) {
+        continue;
+      }
+      const wa = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d;
+      if (wa < 0 || wa > 1) {
+        continue;
+      }
+      const wb = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d;
+      if (wb < 0 || wb > 1) {
+        continue;
+      }
+      const wc = 1 - wa - wb;
+      if (wc < 0 || wc > 1) {
+        continue;
+      }
+      ys.push(wa * ay + wb * by + wc * cy);
+      os.push(ix.owner[ti]);
+    }
+    // Topmost first, like `intersectObject` sorted by distance from above.
+    const order = ys.map((_, j) => j).toSorted((p, q) => ys[q] - ys[p]);
+    const take = Math.min(k, order.length);
+    count[i] = take;
+    for (let j = 0; j < take; j++) {
+      hitY[i * k + j] = ys[order[j]];
+      hitName[i * k + j] = os[order[j]];
+    }
+  }
+  return { ground, hitY, hitName, count, k, names: ix.names };
+};
+
 // The six uniform slots the shader reads this frame. `slots[].push`/`.wash` are the effect; `tracks[].lag` is the gap between a body and its own wake. Null with ?sway=0.
 (window as unknown as { __dbgSway: () => unknown }).__dbgSway = () => world.swayDebug?.() ?? null;
 

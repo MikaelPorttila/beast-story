@@ -84,10 +84,54 @@ const out = await page.evaluate((groundSrc) => {
   // regex closed over from the tool's own scope is not defined here. The same
   // goes for every helper this body calls, which is why these two are here.
   const GROUND = new RegExp(groundSrc);
+  // THE RULE BELOW IS WRONG HERE, AND FOLLOWING IT IS WHAT BROKE THIS FILE.
+  // `unicorn/consistent-function-scoping` sees a helper that captures nothing
+  // and asks for it to be hoisted; hoisting it out of an evaluate body moves it
+  // into a scope THE PAGE CANNOT SEE, and every run then died on
+  // `ReferenceError: flatHalf is not defined` before one assertion ran. Same
+  // reason the regex above is built here. Do not move these.
   /** Half the FLAT part of a path — what "on the carriageway" means. */
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
   const flatHalf = (r) => Math.min(2.6, r.deckEdge * 0.52);
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
   const cellKey = (cx, cz) => `${cx},${cz}`;
   const towns = window.__dbgTowns();
+
+  // ONE INDEX, THEN THE WHOLE SWEEP. `__dbgSurfaceY` raycasts the scene per
+  // column at 4.2 ms, which is four minutes for the ~35000 columns below and is
+  // why this file stopped being runnable. The ray is always straight down, so
+  // `__dbgSurfaceIndex` buckets the ground triangles once (~18 ms) and answers
+  // a column in ~1.25 us — verified identical to the raycaster over 231 columns
+  // spread across every road and its full width: same top surface, same mesh
+  // name, worst disagreement 0.0005, which is `__dbgSurfaceY`'s own toFixed(3).
+  //
+  // NOTHING IS SAMPLED MORE COARSELY as a result, and that is the point: the
+  // defects here are single columns, so the budget had to come out of the cost
+  // per column rather than out of the number of them.
+  const surfaceIndex = window.__dbgSurfaceIndex(groundSrc);
+
+  /**
+   * `__dbgSurfaceY`'s shape, rebuilt from one row entry, so the passes below
+   * read exactly as they did. `hits` is the same topmost-first stack.
+   */
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
+  const asHit = (row, i) => {
+    const hits = [];
+    for (let j = 0; j < row.count[i]; j++) {
+      hits.push({
+        y: +row.hitY[i * row.k + j].toFixed(3),
+        name: row.names[row.hitName[i * row.k + j]],
+      });
+    }
+    const top = hits[0] ?? null;
+    return {
+      ground: +row.ground[i].toFixed(3),
+      surface: top ? top.y : null,
+      hit: top ? top.name : null,
+      sink: top ? +(top.y - row.ground[i]).toFixed(3) : null,
+      hits,
+    };
+  };
 
   // -- what is drawn, against what is walked on ----------------------------
   const roads = towns.roads.map((r) => {
@@ -102,11 +146,13 @@ const out = await page.evaluate((groundSrc) => {
       const bx = p[i * 3],
         bz = p[i * 3 + 2];
       const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az)));
+      // One row per segment: the samples are already a straight line.
+      const row = window.__dbgSurfaceRow(ax, az, (bx - ax) / steps, (bz - az) / steps, steps + 1);
       for (let k = 0; k <= steps; k++) {
         const t = k / steps;
         const x = ax + (bx - ax) * t;
         const z = az + (bz - az) * t;
-        const s = window.__dbgSurfaceY(x, z);
+        const s = asHit(row, k);
         // Only the ground surfaces answer this question; a bush overhead is not
         // something the hero is buried in. Both are named for exactly this.
         if (!s.hit || !GROUND.test(s.hit)) {
@@ -197,6 +243,14 @@ const out = await page.evaluate((groundSrc) => {
     }
     return false;
   };
+  // NOT MEMOISED, and the attempt is worth recording. The sweep looks like it
+  // asks for every column three times — once as itself, twice as a neighbour —
+  // but a sample sits at `ax + tx*s - tz*d`, on the ROAD's rotated axes, while
+  // its neighbours are offset along the WORLD's. The two lattices coincide only
+  // by accident, so there is nothing to reuse; a cache keyed on the column
+  // rounded to the sweep's own 0.25 merely hands back a DIFFERENT column's
+  // height, which invents steps where the ground is fine and hides them where
+  // it is not. Measured with one in: a phantom 0.7 against MAX_STEP_UP 0.5.
   // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
   const h = (x, z) => window.__dbgWorld(x, z).ground;
   const S = 0.25;
@@ -390,6 +444,8 @@ const out = await page.evaluate((groundSrc) => {
   const f = window.__dbgTowns().furniture;
 
   return {
+    /** What the sweep was answered from. `triangles` is the world it indexed. */
+    surfaceIndex,
     ribbon: roads,
     profiles: towns.roads.map((r) => ({
       id: r.id,
@@ -454,6 +510,26 @@ for (const id of out.ribbon.map((r) => r.id)) {
   const part = await page.evaluate(
     (roadId, groundSrc) => {
       const GROUND = new RegExp(groundSrc);
+      // Same instrument as the main evaluate. The index lives in the page, so
+      // it is already built; rebuilding here would only re-walk the triangles.
+      // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs in the page, not this module
+      const asHit = (row, i) => {
+        const hits = [];
+        for (let j = 0; j < row.count[i]; j++) {
+          hits.push({
+            y: +row.hitY[i * row.k + j].toFixed(3),
+            name: row.names[row.hitName[i * row.k + j]],
+          });
+        }
+        const top = hits[0] ?? null;
+        return {
+          ground: +row.ground[i].toFixed(3),
+          surface: top ? top.y : null,
+          hit: top ? top.name : null,
+          sink: top ? +(top.y - row.ground[i]).toFixed(3) : null,
+          hits,
+        };
+      };
       const r = window.__dbgTowns().roads.find((q) => q.id === roadId);
       const poke = {
         sampled: 0,
@@ -497,10 +573,25 @@ for (const id of out.ribbon.map((r) => r.id)) {
         for (let s = 0; s < L; s += 0.5) {
           const cx = ax + tx * s;
           const cz = az + tz * s;
-          for (let d = -(DECK_EDGE - 0.05); d <= DECK_EDGE - 0.05; d += 0.25) {
+          // The across sweep at a fixed `s` is a straight line, so it is one row.
+          const d0 = -(DECK_EDGE - 0.05);
+          const across = Math.floor((DECK_EDGE - 0.05 - d0) / 0.25) + 1;
+          const row = window.__dbgSurfaceRow(
+            cx - tz * d0,
+            cz + tx * d0,
+            -tz * 0.25,
+            tx * 0.25,
+            across,
+          );
+          let col = -1;
+          for (let d = d0; d <= DECK_EDGE - 0.05; d += 0.25) {
             const x = cx - tz * d;
             const z = cz + tx * d;
-            const hit = window.__dbgSurfaceY(x, z, 2);
+            col++;
+            if (col >= across) {
+              break;
+            }
+            const hit = asHit(row, col);
             if (!hit.hits.some((q) => q.name.startsWith("road:"))) {
               continue;
             }
