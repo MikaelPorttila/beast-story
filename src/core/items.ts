@@ -215,6 +215,18 @@ export const ITEMS: Record<string, ItemDef> = {
     salvage: 320,
   },
 
+  // What was in the millrace under Redbriar (issue #150) — the first piece of
+  // the instrument, and the first evidence that the corruption was MADE. A
+  // `quest` item, so the bag will not let it be salvaged or dropped.
+  "red-shard": {
+    id: "red-shard",
+    nameKey: "item.redShard",
+    kind: "quest",
+    color: 0xc4423c,
+    descriptionKey: "item.redShard.desc",
+    rarity: "rare",
+  },
+
   // Handed out via the `item.give` action; reachable today through `/give`.
   "gain-token": {
     id: "gain-token",

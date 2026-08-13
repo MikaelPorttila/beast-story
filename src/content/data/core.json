@@ -210,6 +210,49 @@
             "when": { "test": "quest", "quest": "quest:land/the-mill-road", "status": "active" },
             "line": { "key": "npc.mera.q3.busy" }
           },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:land/the-red-thread", "status": "active" },
+                {
+                  "test": "progress",
+                  "quest": "quest:land/the-red-thread",
+                  "objective": "enter-the-hold"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:land/the-red-thread",
+                  "objective": "free-the-sproutle"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:land/the-red-thread",
+                  "objective": "recover-shard"
+                }
+              ]
+            },
+            "line": { "key": "npc.mera.q4.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:land/the-red-thread" }]
+          },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:land/the-mill-road", "status": "completed" },
+                {
+                  "any": [
+                    { "test": "quest", "quest": "quest:land/the-red-thread", "status": "unknown" },
+                    { "test": "quest", "quest": "quest:land/the-red-thread", "status": "available" }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.mera.q4.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:land/the-red-thread" }]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:land/the-red-thread", "status": "active" },
+            "line": { "key": "npc.mera.q4.busy" }
+          },
           { "line": { "key": "npc.mera.greeting" } }
         ]
       }

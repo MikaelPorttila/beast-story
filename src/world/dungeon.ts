@@ -205,6 +205,20 @@ function makePlan(seed: number): HoldPlan {
   return { seed, mask, rooms, crystals, gate: { x: rooms[0].x, z: rooms[0].z } };
 }
 
+/**
+ * THE FLOOR OF THE HOLD in world coordinates — the room diagonally opposite the
+ * gate, which is the furthest one in from where you come down (issue #150).
+ *
+ * A quest stages its props here and must not carry a copy of the layout to do
+ * it: the plan is deterministic in the seed, so this re-derives it rather than
+ * exporting the live `createDungeon` closure or hanging a field on `World`.
+ * `makePlan` is nine rooms of arithmetic — cheap enough to ask on a poll.
+ */
+export function holdFloorSpot(seed = 0x5ea1ed): { x: number; y: number; z: number } {
+  const room = makePlan(seed).rooms[8];
+  return { x: HOLD_ORIGIN_X + room.x + 0.5, y: FLOOR_Y, z: HOLD_ORIGIN_Z + room.z + 0.5 };
+}
+
 /** Column top in LOCAL coordinates. The whole height authority of the zone. */
 function localHeight(plan: HoldPlan, lx: number, lz: number): number {
   if (lx < RIM || lz < RIM || lx >= GRID - RIM || lz >= GRID - RIM) {
