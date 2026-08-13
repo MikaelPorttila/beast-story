@@ -513,7 +513,12 @@ const BUDGET = {
   // its bay end to end. The posts and the lower plank carry no collider at all,
   // so the count is the number of BAYS and nothing else, which is why re-siting
   // a town moves it.
-  redbriar: { total: 36, roofs: 1 }, // 1 hut
+  // 36 -> 37 WHEN MERA MOVED IN (issue #149). A character is solid by the same
+  // primitive a crate is — the footprint is measured off the voxel model the
+  // builder painted (`measureFootprint`) and stamped into the settlement's own
+  // field — so a resident is one collider, and a hamlet that gains a person
+  // gains one. Gain has always been the Encampment's 64th.
+  redbriar: { total: 37, roofs: 1 }, // 1 hut, 1 miller
   stonewatch: { total: 39, roofs: 1 }, // 1 hut
 };
 /**
