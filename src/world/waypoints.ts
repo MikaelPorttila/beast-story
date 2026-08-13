@@ -21,6 +21,7 @@ import * as THREE from "three";
 import { VoxelModel } from "../core/voxel";
 import { relight, type SolidBox } from "./props";
 import { measureFootprint, StructureField } from "./structures";
+import { nearRoadFurniture, roadIntrusion } from "./placement";
 import type { Road } from "./roads";
 
 /** World units of road between two stones. A minute's walk at a hero's 6/s. */
@@ -70,6 +71,15 @@ const CRYSTAL_LIT = 0x8be3ff;
 const CLEAR_R = 6;
 /** How clear of any carriageway's rim a plate must stand. See `clear`. */
 const ROAD_MARGIN = 1.5;
+/** How clear of a fingerpost or a lamp, so a trail never leaves the road at one. */
+const FURNITURE_CLEAR = 12;
+/** The plate's own footprint, sampled on a cross — see `highestUnder`. */
+const PLATE_SAMPLES: readonly (readonly [number, number])[] = [
+  [WAYPOINT_PLATE_R, 0],
+  [-WAYPOINT_PLATE_R, 0],
+  [0, WAYPOINT_PLATE_R],
+  [0, -WAYPOINT_PLATE_R],
+];
 /** How far past a town's built perimeter a gate stone stands. Outside the wall, always. */
 const TOWN_MARGIN = 4;
 /** Steeper than this and the dais would stand on air at one edge. */
@@ -222,6 +232,8 @@ export interface WaypointGround {
   waterLevel: number;
   /** True where something BUILT stands — a hut, a palisade, a den. */
   built(x: number, z: number, r: number): boolean;
+  /** Lamps, fingerposts and posts the road pass stood up. Absent where there are none. */
+  furniture?: readonly { x: number; z: number }[];
 }
 
 /** A sited stone, plus the point on the road its trail leaves from. */
@@ -271,29 +283,39 @@ export function waypointSites(
    * point: the middle of a candidate can be flat and dry with a hut's corner or
    * a lake inside the platform's own footprint.
    */
-  /**
-   * How far INSIDE the nearest carriageway a point is; negative is clear of it.
-   *
-   * EVERY road, not the one being walked: near the fork two roads run within a
-   * few units of each other, and an offset that clears the arm a stone was sited
-   * from can land in the middle of the other one. Measured from the rim, which
-   * is what `deckEdge` is.
-   */
-  const insideRoad = (x: number, z: number): number => {
-    let worst = -Infinity;
-    for (const road of roads) {
-      for (let i = 1; i < road.pts.length; i++) {
-        const a = road.pts[i - 1];
-        const b = road.pts[i];
-        const dx = b.x - a.x;
-        const dz = b.z - a.z;
-        const l2 = dx * dx + dz * dz;
-        const u = l2 > 1e-9 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2)) : 0;
-        const d = Math.hypot(x - (a.x + dx * u), z - (a.z + dz * u));
-        worst = Math.max(worst, road.profile.deckEdge - d);
-      }
+  /** The tallest ground the plate would cover — its own footprint, on a cross. */
+  const highestUnder = (x: number, z: number): number => {
+    let top = ground.heightAt(x, z);
+    for (const [dx, dz] of PLATE_SAMPLES) {
+      top = Math.max(top, ground.heightAt(x + dx, z + dz));
     }
-    return worst;
+    return top;
+  };
+
+  /**
+   * Can the trail actually GET there?
+   *
+   * A stone can stand on a flat shelf with a cliff between it and the road, and
+   * the spur then runs up the cliff — `test-road` measured 6.4 units of step in
+   * a carriageway, which is a path a player cannot walk. The site test looks at
+   * the plate's own footprint; this looks at the LINE, which is the other half
+   * of the same question and the one that was missing.
+   */
+  const walkableRun = (ax: number, az: number, bx: number, bz: number): boolean => {
+    const span = Math.hypot(bx - ax, bz - az);
+    const steps = Math.max(2, Math.round(span / 2));
+    let prev = ground.heightAt(ax, az);
+    for (let i = 1; i <= steps; i++) {
+      const u = i / steps;
+      const h = ground.heightAt(ax + (bx - ax) * u, az + (bz - az) * u);
+      // A step a hero can take, per sample. `MAX_STEP_UP` is 0.5 and the samples
+      // are two units apart, so this is a slope bound and not a stair test.
+      if (Math.abs(h - prev) > 0.9) {
+        return false;
+      }
+      prev = h;
+    }
+    return true;
   };
 
   const clear = (x: number, z: number): boolean => {
@@ -304,7 +326,12 @@ export function waypointSites(
     // 1.5 and not the full offset: near the fork the arms run close together and
     // asking for a stone's whole approach to be clear of BOTH leaves a town with
     // no site at all.
-    if (insideRoad(x, z) > -ROAD_MARGIN) {
+    if (roadIntrusion(roads, x, z) > -ROAD_MARGIN) {
+      return false;
+    }
+    // AND CLEAR OF WHAT THE ROAD ALREADY STOOD THERE. A fingerpost is as much in
+    // the way as a hut, and a trail that leaves the road at one starts under it.
+    if (ground.furniture && nearRoadFurniture(ground.furniture, x, z, FURNITURE_CLEAR)) {
       return false;
     }
     const centre = ground.heightAt(x, z);
@@ -353,13 +380,18 @@ export function waypointSites(
       for (const hand of [1, -1]) {
         const sx = x + nx * off * hand;
         const sz = z + nz * off * hand;
-        if (!clear(sx, sz)) {
+        if (!clear(sx, sz) || !walkableRun(x, z, sx, sz)) {
           continue;
         }
         out.push({
           id: `waypoint:${id}`,
           x: sx,
-          y: ground.heightAt(sx, sz),
+          // THE HIGHEST GROUND UNDER THE PLATE, never the middle's: a plate set
+          // at the centre height is BURIED wherever the ground rises inside its
+          // own footprint, which is what "partially under ground" looks like.
+          // Set at the highest, it can only stand proud, and the skirt fills in
+          // what is under the proud side.
+          y: highestUnder(sx, sz),
           z: sz,
           // THE SPUR LEAVES THE ROAD'S OWN CENTRELINE, not its rim, because it
           // is MERGED into the network as a crossing (world/index.ts): a junction

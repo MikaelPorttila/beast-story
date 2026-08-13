@@ -6652,8 +6652,12 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
     all: (field?.all ?? []).map((w) => ({
       id: w.id,
       x: +w.x.toFixed(2),
+      y: +w.y.toFixed(2),
       z: +w.z.toFixed(2),
       lit: waypointLit(w.id),
+      // Where its trail leaves the road, so a probe can walk the line the game
+      // cut rather than a line of its own.
+      from: w.from,
     })),
     touching: field?.touching(player.position.x, player.position.z)?.id ?? null,
     respawnAt: player.respawnAt?.(player.position.x, player.position.z) ?? null,

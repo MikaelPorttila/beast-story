@@ -209,6 +209,8 @@ export interface WaypointSpot {
   readonly x: number;
   readonly y: number;
   readonly z: number;
+  /** Where its trail leaves the carriageway, or null where it needed none. */
+  readonly from?: { readonly x: number; readonly y: number; readonly z: number } | null;
 }
 
 export interface TownInfo {

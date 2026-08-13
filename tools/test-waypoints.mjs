@@ -165,7 +165,42 @@ async function faint() {
     }
   }
   const trails = paths.filter((id) => id.startsWith("path:waystone-"));
-  results.clearance = { inside, trails: trails.length, stones: w.all.length };
+
+  // AND THE TRAIL IS WALKABLE. A stone can stand on a flat shelf with a cliff
+  // between it and the road, and then the spur runs up the cliff — the probe
+  // that caught it is `test-road` (6.4 units of step in a carriageway), and this
+  // is the same claim asked here so a bad site fails in the file that sites it.
+  const steps = await dbg(async () => {
+    const out = [];
+    for (const s of window.__dbgWaypoints().all) {
+      if (!s.from) {
+        continue;
+      }
+      const span = Math.hypot(s.x - s.from.x, s.z - s.from.z);
+      const n = Math.max(2, Math.round(span / 2));
+      let prev = null;
+      let worst = 0;
+      for (let i = 0; i <= n; i++) {
+        const u = i / n;
+        const h = window.__dbgSurfaceY(
+          s.from.x + (s.x - s.from.x) * u,
+          s.from.z + (s.z - s.from.z) * u,
+        ).ground;
+        if (prev !== null) {
+          worst = Math.max(worst, Math.abs(h - prev));
+        }
+        prev = h;
+      }
+      out.push({ id: s.id, worst: +worst.toFixed(2) });
+    }
+    return out;
+  });
+  const cliffs = steps.filter((s) => s.worst > 1.2);
+  results.clearance = { inside, trails: trails.length, stones: w.all.length, steps, cliffs };
+  check(
+    cliffs.length === 0,
+    `a trail runs up a cliff: ${JSON.stringify(cliffs)} — the site is reachable only on paper`,
+  );
   check(inside.length === 0, `stones inside a settlement: ${JSON.stringify(inside)}`);
   // One trail per stone that needed one. Not every stone does — a site that
   // lands at the rim is already on the road — so this is a floor, not an equals.

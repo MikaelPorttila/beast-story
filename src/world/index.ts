@@ -33,6 +33,7 @@ import {
 import { Shops, type DenSpot } from "./shops";
 import { Waypoints, waypointSites, WAYPOINT_PLATE_R, type WaypointSite } from "./waypoints";
 import { SPUR_PROFILE } from "./path-profile";
+import { levelPad, roadIntrusion } from "./placement";
 import { SiteFields } from "./structures";
 import { Towns, planSettlements, type SettlementPlan } from "./towns";
 import {
@@ -192,6 +193,19 @@ function findSpawn(terrain: Terrain): THREE.Vector3 {
  * always be a reachable shop); the rest step out so finding one is travel.
  */
 const DEN_RINGS = [18, 34, 50, 66];
+/** A den's pad: levelled core, and the ramp out to natural ground. */
+const DEN_PAD_CORE = 4.5;
+const DEN_PAD_BLEND = 9;
+/**
+ * How clear of a carriageway's RIM a den must stand.
+ *
+ * THE WHOLE PAD, not the building: a flatten ramps the ground out to `blend`,
+ * and a ramp that reaches a carriageway lifts the road with it — which the road
+ * probe reads as a step in the walking surface, because that is what it is. So
+ * the clearance is the pad's own reach plus a pace, and any placement that
+ * levels ground owes the same sum.
+ */
+const DEN_ROAD_CLEAR = DEN_PAD_BLEND + 2;
 /** Squared minimum spacing between two dens, and between a den and spawn. */
 const DEN_SEP2 = 27 * 27;
 const DEN_SPAWN_SEP2 = 15 * 15;
@@ -201,6 +215,7 @@ function placeShops(
   spawn: THREE.Vector3,
   seed: number,
   towns: TownRegistry,
+  roads: readonly Road[],
 ): DenSpot[] {
   const rng = mulberry32(seed ^ 0x5158);
   const spots: DenSpot[] = [];
@@ -218,11 +233,23 @@ function placeShops(
     return false;
   };
 
+  /**
+   * A den's own pad. Through `levelPad`, which is where the +0.55 convention is
+   * written down: a den is placed at `h` and the ground under it reports `h`.
+   */
   const commit = (x: number, z: number): void => {
-    const h = Math.max(Math.floor(terrain.heightCont(x, z)), WATER_LEVEL + 1);
-    spots.push({ x, z, h });
-    terrain.flattens.push({ x, z, h: h + 0.55, core: 4.5, blend: 9 });
+    spots.push({ x, z, h: levelPad(terrain, x, z, DEN_PAD_CORE, DEN_PAD_BLEND, WATER_LEVEL) });
   };
+
+  /**
+   * The rule that was missing: a den may not stand in a road.
+   *
+   * The dens are sited AFTER the road network is cut, so the roads are right
+   * there to ask — and until this line the pass never did, which is how a cart
+   * road came to run through one. `DEN_ROAD_CLEAR` is measured from the rim and
+   * is the den's own footprint plus a pace to walk round it.
+   */
+  const inRoad = (x: number, z: number): boolean => roadIntrusion(roads, x, z) > -DEN_ROAD_CLEAR;
 
   for (let k = 0; k < 4; k++) {
     const baseAng = (k / 4) * Math.PI * 2 + 0.62;
@@ -239,7 +266,7 @@ function placeShops(
       if (hc < WATER_LEVEL + 0.8) {
         continue;
       }
-      if (inTown(x, z)) {
+      if (inTown(x, z) || inRoad(x, z)) {
         continue;
       }
       const sx = x - spawn.x;
@@ -263,10 +290,25 @@ function placeShops(
       placed = true;
     }
     if (!placed) {
-      commit(
-        Math.round(spawn.x + Math.sin(baseAng) * ring) + 0.5,
-        Math.round(spawn.z + Math.cos(baseAng) * ring) + 0.5,
-      );
+      // THE LAST RESORT STILL STEPS OUT OF THE ROAD: walk the ring until the
+      // bearing is clear of one, rather than dropping a den on the gravel
+      // because the search ran out.
+      for (let k2 = 0; k2 < 24; k2++) {
+        const ang = baseAng + (k2 / 24) * Math.PI * 2;
+        const x = Math.round(spawn.x + Math.sin(ang) * ring) + 0.5;
+        const z = Math.round(spawn.z + Math.cos(ang) * ring) + 0.5;
+        if (!inRoad(x, z)) {
+          commit(x, z);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        commit(
+          Math.round(spawn.x + Math.sin(baseAng) * ring) + 0.5,
+          Math.round(spawn.z + Math.cos(baseAng) * ring) + 0.5,
+        );
+      }
     }
   }
   return spots;
@@ -623,7 +665,7 @@ export function createWorld(
   }
   spawnPoint.y = terrain.getHeight(spawnPoint.x, spawnPoint.z);
 
-  const spots = placeShops(terrain, spawnPoint, seed, townReg);
+  const spots = placeShops(terrain, spawnPoint, seed, townReg, plan?.network.roads ?? []);
   const shops = new Shops(spots, spawnPoint);
   scene.add(shops.group);
 
@@ -650,19 +692,25 @@ export function createWorld(
           built: (x, z, r) =>
             (towns?.solids.hits(x, z, r, -Infinity, Infinity) ?? false) ||
             shops.solids.hits(x, z, r, -Infinity, Infinity),
+          // What the ROAD stood up along itself — signposts and lamps.
+          furniture: towns?.furniture ?? [],
         }),
       )
     : null;
   if (waypoints && plan) {
     scene.add(waypoints.group);
     markStaticShadowCaster(waypoints.group);
-    // NO FLATTEN UNDER THE PAD, deliberately, and it was tried: a disc levels
-    // the middle and leaves a lip at the blend's edge that the trail's deck then
-    // has to climb — `test-road` read 6.7 units of step on a carriageway. The
-    // SKIRT is the answer instead (world/waypoints.ts): twelve courses of stone
-    // straight down, buried on the high side, so the plate meets natural ground
-    // that the trail was profiled against. The siting pass keeps the site level
-    // enough for that to be a burial rather than a cliff.
+    // NO FLATTEN UNDER A WAYSTONE, and it is the one placed thing in the world
+    // that does not get one — twice tried, twice measured. A pad levels its core
+    // and ramps its blend, and the TRAIL has to cross that ramp: `test-road`
+    // read 6.4 units of step on the carriageway with the pad in, against 1.0
+    // without it. What a den can afford (nothing walks onto a den from a path) a
+    // waystone cannot.
+    //
+    // The stone answers the same rule a different way: it is sited at the
+    // HIGHEST ground under its own footprint (`waypointSites`), so it can only
+    // ever stand proud, and its skirt fills what is under the proud side. See
+    // `levelPad` for the pad rule this is the exception to.
     cutWaypointTrails(terrain, plan, towns, waypoints.all);
   }
 
