@@ -195,6 +195,13 @@ export const en = {
   "quest.land.theFirstBond.desc":
     "A penned animal has already agreed. Gain wants you to go past the wall and ask one that has not.",
   "quest.land.theFirstBond.obj.tameWild": "Bond a wild beast beyond the camp wall",
+  "quest.land.theMillRoad.name": "The Mill Road",
+  "quest.land.theMillRoad.desc":
+    "Mera Ashgrove's oxen have turned and the drove road is not safe. Walk it anyway — Gain says you will understand the valley better on your feet than you ever will from a saddle.",
+  "quest.land.theMillRoad.obj.reachRedbriar": "Follow the drove road to Redbriar Mill",
+  // "Corrupted" is the valley's word for it, and nobody in Act 1 has a better
+  // one — which is the point of the beat, so the objective does not explain it.
+  "quest.land.theMillRoad.obj.cullCorrupted": "Put down corrupted beasts on the road",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -215,6 +222,11 @@ export const en = {
   "toast.orbNoTarget": "Aim at a wild beast before you throw",
   "toast.orbNotBondable": "That one cannot be bonded",
   "toast.orbAlreadyOwned": "{beast} is already bonded to you",
+  // One per mount kind, because what the story hands over is the RIDING of a
+  // kind of animal and each act hands over a different one (game-story.md §5).
+  "toast.mountUnlocked.ground": "You may ride a ground beast — hold F beside your lead beast",
+  "toast.mountUnlocked.water": "You may ride a swimming beast — hold F beside your lead beast",
+  "toast.mountUnlocked.flying": "You may ride a flying beast — hold F beside your lead beast",
 
   // ---- zones -------------------------------------------------------------
   // Keyed by the ZoneDef id in main.ts ('overworld', 'hold').
@@ -278,6 +290,21 @@ export const en = {
   "npc.gain.q2.busy": "Out there. Not in here. It has to be one that chose you.",
   "npc.gain.q2.done":
     "Then you have a partner and I have my morning back. Keep it fed and it will keep you upright.",
+  "npc.gain.q3.offer":
+    "Word came up the road from Redbriar: Mera's oxen have turned on her. Walk it — the whole way, on your own feet. Whatever is doing this, you will pass six of it before the mill, and I want it dead behind you.",
+  "npc.gain.q3.busy":
+    "The road, not the shortcut. Six of them down, and Mera at the other end of it.",
+
+  // Redbriar's miller. She closes The Mill Road (issue #149) — the quest Gain
+  // offers and she ends, which is what `turnIn` on the asset says. Her own
+  // quest, The Red Thread, is issue #150 and adds its rows beside these.
+  "npc.mera.name": "Mera Ashgrove",
+  "npc.mera.greeting":
+    "Mind the race when you pass it. The water has been running wrong since spring and I have stopped pretending I know why.",
+  "npc.mera.q3.busy":
+    "You made it. Good. There are more of them out on the drove ground, and I am not sleeping until there are fewer.",
+  "npc.mera.q3.done":
+    "Six of them, and you walked every step of it. Then stop walking — that beast of yours has been keeping your pace all day and it never once had to. Get up on it. You will want the speed before this is finished.",
 
   // The three who live on Skyhaven. Their lines are the one place the game
   // explains what the island IS, so each of them says a different part of it:

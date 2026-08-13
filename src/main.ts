@@ -393,6 +393,10 @@ function exitToTitle(): void {
   carriedExtra = undefined;
   sinceSave = 0;
   questSaveIn = 0;
+  // Which town the hero is standing in is DERIVED, not progress: what it fires on is an EDGE, and a
+  // stale one would swallow the next character's first arrival. The discoveries themselves live in
+  // `ContentState`, which was just reset, so there is nothing here for a save to carry.
+  inTown = null;
 
   // A NEW instance: the old poster left the DOM when the game started.
   handedOver = false;
@@ -817,6 +821,22 @@ content.defineAction("item.give", (params) => {
   const raw = params.count;
   const n = typeof raw === "number" && Number.isFinite(raw) ? Math.max(1, Math.floor(raw)) : 1;
   giveItemFromContent(id, n);
+});
+// THE STORY HANDING OVER A MOUNT (game-story.md §6). The ACTION changes what the player can do and
+// the quest's own `flag.set mount-ground` is what other content may test — a quest emits both, and
+// this handler deliberately sets no flag, so the two never disagree about which one is authoritative.
+const MOUNT_UNLOCK_KEYS: Record<MountKind, StringKey> = {
+  ground: "toast.mountUnlocked.ground",
+  water: "toast.mountUnlocked.water",
+  flying: "toast.mountUnlocked.flying",
+};
+content.defineAction("mount.unlock", (params) => {
+  const kind = MOUNT_KINDS.find((k) => k === params.kind);
+  if (kind === undefined || mountUnlocks.has(kind)) {
+    return;
+  }
+  mountUnlocks.set(kind, true);
+  bus.emit({ type: "toast", text: t(MOUNT_UNLOCK_KEYS[kind]) });
 });
 // THE CAMPAIGN LOADS AT BOOT: ZoneManager builds its starting zone directly, so an "on arrival in
 // overworld" hook never fires on a fresh game, and quest 4's definitions must be resident in `hold`.
@@ -1855,10 +1875,12 @@ function refreshQuestMarks(): void {
     if (tab !== "available" && tab !== "active") {
       continue;
     }
-    const giver = asset.data.giver;
+    // Who to walk to, and it is two people when a quest ends where it sent you: the offer mark is the
+    // giver's, the turn-in mark the closer's, and `turnIn` absent means the one person holds both.
+    const walkTo = tab === "available" ? asset.data.giver : (asset.data.turnIn ?? asset.data.giver);
     // TURN-IN BEATS OFFER when one person holds both: the quest in your hand is the live one.
-    if (giver !== undefined && giver !== "") {
-      const who = giver.slice("npc:".length);
+    if (walkTo !== undefined && walkTo !== "") {
+      const who = walkTo.slice("npc:".length);
       if (tab === "available") {
         if (!markedNpcs.has(who)) {
           markedNpcs.set(who, "offer");
@@ -2010,7 +2032,48 @@ bus.on((e) => {
   if (e.type === "beastTamed") {
     advanceObjectives({ kind: "tamed", id: e.beastId });
   }
+  // The event carries the bare species (`gloopling`); a cull objective names the CONTENT id it culls,
+  // so the `enemy:` is put back on here rather than the filter being loosened to accept either.
+  if (e.type === "enemyKilled") {
+    advanceObjectives({ kind: "enemy-killed", id: `enemy:${e.species}` });
+  }
 });
+
+// ARRIVAL IS A PLACE, NOT A DOOR: a town has no gate to trip, so the fact is derived from where the
+// hero is standing. `null` means open country, and the edge — not the state — is what fires, so
+// standing in Redbriar does not re-discover it every slice.
+let inTown: string | null = null;
+function syncTownArrival(): void {
+  const t0 = world.towns.nearest(player.position.x, player.position.z);
+  // `radius` is the town's own footprint — the registry's answer to "are you in it". The height band
+  // is what keeps a flying hero from arriving in a town he is passing over; generous downward,
+  // because the ground under a hamlet on a slope is not the levelled height at its middle.
+  const now =
+    t0 &&
+    inReach(
+      t0.x,
+      t0.y,
+      t0.z,
+      player.position.x,
+      player.position.y,
+      player.position.z,
+      t0.radius,
+      12,
+      24,
+    )
+      ? t0.id
+      : null;
+  if (now === inTown) {
+    return;
+  }
+  inTown = now;
+  if (now === null) {
+    return;
+  }
+  const id: ContentId = `town:${now}`;
+  content.state.discover(id);
+  advanceObjectives({ kind: "town-arrival", id });
+}
 
 // Hung off `onChange` so a dialogue row, `/quest` and a future timer all get the same `onStart`, once
 // per real transition. `applyingSave` is the one refusal: a load would hand out the rewards again.
@@ -2858,6 +2921,23 @@ const degShortest = (r: number): number => deg(shortest(r));
   e.hp = Math.max(1, Math.round(e.maxHp * Math.max(0, Math.min(1, hpFrac))));
   // The ID, so a probe can keep measuring THIS animal: the nearest one can change between two calls, which is the ambiguity an "it was removed" assertion must not have.
   return { ok: true, id: e.root.id, species, hp: e.hp, maxHp: e.maxHp };
+};
+
+// TEST HOOK for a cull objective: put one animal down through the SAME `takeDamage` a swing lands, so
+// the death sweep, the drops and the `enemyKilled` fact all run. It fires nothing itself — the kill is
+// counted next slice, which is what a probe must advance for.
+(
+  window as unknown as {
+    __dbgKillEnemy: (species: string) => unknown;
+  }
+).__dbgKillEnemy = (species) => {
+  const e = nearestEnemyOfSpecies(species);
+  if (!e) {
+    return { ok: false, why: `no live "${species}" nearby` };
+  }
+  _hurtFrom.set(e.position.x, e.position.y, e.position.z - 1);
+  e.takeDamage(e.maxHp * 4, _hurtFrom);
+  return { ok: true, id: e.root.id, species, hp: e.hp, dead: e.isDead };
 };
 
 (
@@ -4413,6 +4493,9 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
     player.update(dt);
     // The hero is the only thing that brushes the world today; a mount's dust would pass `mount.beast`.
     toucher = player;
+    // Straight after he moves, so "walked into Redbriar" is answered from the position that put him
+    // there. Two distance tests against a list of four; it needs no rate of its own.
+    syncTownArrival();
     perf.section("player");
 
     if (first) {

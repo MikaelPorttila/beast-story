@@ -1,16 +1,18 @@
 /**
- * THE SKYFOLK — the three people who live on the flying island. Issue #68.
+ * THE VILLAGERS — every character in the game who is a working person rather
+ * than a silhouette. The three who live on the flying island (issue #68) and
+ * Mera Ashgrove at Redbriar Mill (issue #149).
  *
- * ONE BODY BUILDER, THREE CHARACTERS, and that is a decision about where the
+ * ONE BODY BUILDER, FOUR CHARACTERS, and that is a decision about where the
  * variety should live rather than a shortcut. Gain (world/npc-gain.ts) is a
  * silhouette: a robe, a bald pate, a beard and a dumbbell, and every one of
- * those is a fact about HIM. These three are villagers, and what distinguishes
+ * those is a fact about HIM. These four are villagers, and what distinguishes
  * one villager from another at conversation distance is their colour, what they
  * are holding and what they are DOING with it — not their skeleton. So the
- * skeleton is written once and parameterised, and the three of them differ in a
+ * skeleton is written once and parameterised, and each of them differs in a
  * palette, a prop and an idle.
  *
- * The alternative was three copies of the same 200 lines diverging over time,
+ * The alternative was four copies of the same 200 lines diverging over time,
  * which is the thing this project says about forked constants everywhere else.
  * A character who genuinely needs a different body plan gets a file of his own,
  * exactly as Gain has one.
@@ -21,7 +23,7 @@
  * parts share a face grid in an axis exactly when the joint between them is a
  * whole number of voxels in that axis. `NECK_Z` and the forearms' outboard
  * nudge are that, stated. `bun tools/test-zfight.mjs` is what says whether it
- * is still true — it walks `NPC_BODIES`, so all three are covered the moment
+ * is still true — it walks `NPC_BODIES`, so all of them are covered the moment
  * they are in the roster.
  */
 import * as THREE from "three";
@@ -81,6 +83,9 @@ const GLASS = 0xbfe4ef;
 const FLAME = 0xffc247;
 const WATER = 0x5fa8d8;
 const LEAF = 0x6fae4a;
+const SACK = 0xbda878; // undyed hessian
+const SACK_D = 0x9a8659;
+const FLOUR = 0xece4d2;
 
 /** Everything one of these three differs by. */
 interface Skin {
@@ -214,6 +219,16 @@ function buildCan(): VoxelModel {
   v.box(1, -3, 1, 2, -2, 3, IRON_L);
   v.set(2, -3, 4, WATER);
   v.set(-1, 1, -1, LEAF);
+  return v;
+}
+
+/** A grain sack, tied at the neck and slumped the way a full one does. */
+function buildSack(): VoxelModel {
+  const v = new VoxelModel();
+  v.ellipsoid(-0.5, -2.4, 0, 2.0, 2.2, 1.8, SACK);
+  v.ellipsoid(-0.5, -3.4, 0.2, 1.8, 1.4, 1.6, SACK_D);
+  v.box(-1, -0.5, -1, 0, 0, 0, BELT); // the tie
+  v.set(-1, -1, 2, FLOUR); // what has got out of it
   return v;
 }
 
@@ -376,7 +391,7 @@ function animateWith(s: Skin, rig: NpcRig, ctx: NpcAnimCtx): void {
 }
 
 // ---------------------------------------------------------------------------
-// The three of them
+// The people
 // ---------------------------------------------------------------------------
 
 function bodyFor(s: Skin): NpcBody {
@@ -431,4 +446,25 @@ export const SKY_LAMPLIGHTER_BODY = bodyFor({
   reach: 0.75,
   scan: 0.24,
   gaze: -0.04,
+});
+
+/**
+ * MERA ASHGROVE — Redbriar's miller (issue #149). Flour-pale apron over a dark
+ * working dress, a sack of grain on the hip, and the shortest reach of the four:
+ * she is shifting a weight from the floor to a hopper, not sweeping a horizon.
+ * Her eyes are on the sack until somebody walks up, which `gaze` says.
+ */
+export const MERA_BODY = bodyFor({
+  cloth: 0xd8cdb4,
+  clothD: 0xb3a68a,
+  legs: 0x4d3f4f,
+  hair: 0x6b4526,
+  hairD: 0x4c2f18,
+  prop: buildSack,
+  propZ: 0.13,
+  propX: 0.09,
+  period: 4.2,
+  reach: 0.42,
+  scan: 0.14,
+  gaze: 0.2,
 });

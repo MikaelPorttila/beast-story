@@ -794,8 +794,8 @@ export type GameEvent =
   | { type: "shardsChanged"; total: number }
   /** A drop left the ground. `byBeast` is a support beast having fetched it — only the toast differs. */
   | { type: "itemPicked"; itemId: string; byBeast: boolean }
-  /** `nameKey` is display and nothing renders it yet — main.ts reads only `xp`. */
-  | { type: "enemyKilled"; nameKey: StringKey; xp: number }
+  /** `species` is the IDENTITY a cull objective filters on; `nameKey` is display. */
+  | { type: "enemyKilled"; species: string; nameKey: StringKey; xp: number }
   | { type: "shopOpened"; shopIndex: number }
   | { type: "shopClosed" }
   | { type: "toast"; text: string };

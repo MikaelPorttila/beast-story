@@ -919,13 +919,15 @@ const BUDGET = {
   // mesh — which is the "move the paint where you cannot part the grid" case.
   graveborn: 0,
   gain: 0, // clean
-  // The three who live on the flying island (issue #68). Clean, and clean the
-  // same way Gain is: they are one parameterised body (world/npc-skyfolk.ts),
-  // so the three joints that shared a grid — the shoulder in x, the forearm in
-  // x, the prop on the fist — were parted once and all three inherited it.
+  // The villagers: three on the flying island (issue #68) and Redbriar's miller
+  // (issue #149). Clean, and clean the same way Gain is: they are one
+  // parameterised body (world/npc-villagers.ts), so the three joints that shared
+  // a grid — the shoulder in x, the forearm in x, the prop on the fist — were
+  // parted once and every one of them inherited it.
   "sky-pilot": 0,
   "sky-gardener": 0,
   "sky-lamplighter": 0,
+  mera: 0,
   // The settlement's glow pairs, and they are a different kind of entry: these
   // are not debt, they are a defect that was found and fixed. All three were
   // seams the day this section was written — 0.0784 m2 on the campfire and the

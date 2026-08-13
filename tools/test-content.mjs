@@ -174,6 +174,9 @@ const TOWNS = [
  */
 const SKYHAVEN = { id: "skyhaven", carried: true, order: 3 };
 
+/** Redbriar's miller, who closes The Mill Road (issue #149). */
+const MERA = "mera";
+
 /** The three who live on it, in load order. */
 const SKYFOLK = ["sky-pilot", "sky-gardener", "sky-lamplighter"];
 
@@ -203,7 +206,11 @@ const GAIN = {
  * is a count, so that a package that stopped loading — or one that grew a quest
  * nobody meant to ship — is a failure in the file that pins what the boot holds.
  */
-const ACT1_QUESTS = ["quest:land/first-light", "quest:land/the-first-bond"];
+const ACT1_QUESTS = [
+  "quest:land/first-light",
+  "quest:land/the-first-bond",
+  "quest:land/the-mill-road",
+];
 
 /** What a boot holds: the world, then the campaign that is set in it. */
 const BOOT_PACKAGES = ["core", "story", "story-land"];
@@ -547,7 +554,7 @@ async function consoleClosed(tries = 40) {
     c.assets,
     {
       town: 4,
-      npc: 4,
+      npc: 5,
       biome: 8,
       enemy: 3 + WILD_BEASTS.length,
       quest: ACT1_QUESTS.length,
@@ -560,7 +567,7 @@ async function consoleClosed(tries = 40) {
   // filtered one is deliberate: a carried town that stopped reaching the world
   // is exactly as much a regression as a sited one that did.
   eq(c.resolved.towns, [...TOWNS.map((t) => t.id), SKYHAVEN.id], "towns that reached the world");
-  eq(c.resolved.npcs, [GAIN.id, ...SKYFOLK], "npcs that reached the world");
+  eq(c.resolved.npcs, [GAIN.id, MERA, ...SKYFOLK], "npcs that reached the world");
   // The pre-migration three FIRST and in their old order, then the wild beasts.
   // Same argument as the towns above: asserting the whole list rather than a
   // filtered one is what makes "a wild beast stopped reaching the world" as
@@ -1113,11 +1120,13 @@ async function consoleClosed(tries = 40) {
     const rt = createContentRuntime({ providers: [provider] });
     const load = await rt.load("probe-bad", "editor");
     const validation = rt.validate("dev", []);
-    return {
-      load: load.diagnostics.map(shape),
-      validation: validation.map(shape),
-    };
+    // The RAW diagnostics: `shape` lives in this file's module scope and a
+    // page.evaluate body is compiled in the page, where it does not exist. The
+    // crash this fixes had been hiding 15 stale assertions — issue #197.
+    return { load: load.diagnostics, validation };
   });
+  bad.load = bad.load.map(shape);
+  bad.validation = bad.validation.map(shape);
   const host = await dbg(() => window.__dbgContent());
   const found = [...bad.load, ...bad.validation];
   const has = (code, assetId, field) =>

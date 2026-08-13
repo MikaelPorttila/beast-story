@@ -43,6 +43,20 @@
 //      Acts 2 and 3 inherit, filtered to their own species. `first-bond` is set
 //      by the turn-in and the counter stops at the one the quest asked for.
 //
+// SECTION 9 — QUEST 3, `quest:land/the-mill-road`, the act's travel quest and
+// the one that hands over the ground mount. Four more claims, the first of them
+// a pair for the same reason the others are:
+//
+//   9.  THE WALK IS ON FOOT AND THE MOUNT IS ITS REWARD. Nothing is unlocked
+//       while the quest is active; `ground` is unlocked the moment it closes.
+//   10. THE CULL COUNTS THE CORRUPTED AND ONLY THEM — six Glooplings tick it,
+//       a wild Sproutle does not.
+//   11. ARRIVAL IS A PLACE, NOT A DOOR: standing in Redbriar advances the
+//       travel objective and discovers the town.
+//   12. THE QUEST ENDS WHERE IT SENT YOU. Gain offers it, Mera closes it, and
+//       the close sets `mount-ground` — the flag Act 4 gates on — as well as
+//       running the unlock.
+//
 // Exits non-zero on failure.
 import { launchBrowser, newPage, wait } from "./browser.mjs";
 import { BASE as HOST } from "./target.mjs";
@@ -53,8 +67,12 @@ const URL = `${HOST}/?menu=0&vol=0`;
 
 const QUEST = "quest:land/first-light";
 const QUEST2 = "quest:land/the-first-bond";
+const QUEST3 = "quest:land/the-mill-road";
 /** What the quest's own asset says, so the probe is not a second copy of it. */
 const PRACTICE_THROWS = 3;
+const CULL_COUNT = 6;
+/** The three enemies with no `capture` block — see `what-corrupted-means` in the package. */
+const CORRUPTED = "gloopling";
 
 const browser = await launchBrowser();
 const results = {};
@@ -74,22 +92,37 @@ await page.waitForFunction(
 await wait(200);
 
 const dbg = (fn, ...args) => page.evaluate(fn, ...args);
-/** The content facts, which is what every claim below is really about. */
-const state = () =>
-  dbg(async () => {
-    const { content } = await import("/src/content/index.ts");
-    const id = "quest:land/first-light";
-    const id2 = "quest:land/the-first-bond";
-    return {
-      status: content.state.questStatus(id),
-      talk: content.state.progress(id, "talk-to-gain"),
-      practice: content.state.progress(id, "bond-practice"),
-      status2: content.state.questStatus(id2),
-      tamed: content.state.progress(id2, "tame-wild"),
-      flags: content.state.flags.slice(),
-      discovered: content.state.discovered("town:encampment"),
-    };
-  });
+/**
+ * The content facts, which is what every claim below is really about.
+ *
+ * READ THROUGH `__dbgContent`, and that is not a style choice: a dynamic
+ * `import("/src/content/index.ts")` from a page.evaluate is served its own
+ * module instance whenever Vite has invalidated the graph, and the runtime it
+ * hands back is then a second, EMPTY registry — every quest reads "unknown"
+ * against a game that is playing perfectly. The hook reads the game's own.
+ */
+const state = async () => {
+  const doc = (await dbg(() => window.__dbgContent())).state ?? {};
+  const id = "quest:land/first-light";
+  const id2 = "quest:land/the-first-bond";
+  const id3 = "quest:land/the-mill-road";
+  // The serialised document omits empty collections and untouched counters.
+  const status = (q) => doc.quests?.[q] ?? "unknown";
+  const at = (q, o) => doc.progress?.[`${q}/${o}`] ?? 0;
+  return {
+    status: status(id),
+    talk: at(id, "talk-to-gain"),
+    practice: at(id, "bond-practice"),
+    status2: status(id2),
+    tamed: at(id2, "tame-wild"),
+    status3: status(id3),
+    reached: at(id3, "reach-redbriar"),
+    culled: at(id3, "cull-corrupted"),
+    flags: doc.flags ?? [],
+    discovered: (doc.discovered ?? []).includes("town:encampment"),
+    discoveredRedbriar: (doc.discovered ?? []).includes("town:redbriar"),
+  };
+};
 /** Which shelf the journal puts a quest on right now, or null for hidden. */
 const tabOf = async (id) => (await journal()).find((e) => e.id === id)?.tab ?? null;
 const journal = () => dbg(() => window.__dbgJournal().model);
@@ -143,11 +176,18 @@ const adv = (s) => dbg((n) => window.__dbgAdvance(n), s);
  * demanded a Sproutle on the first look would fail on the run where the pack is
  * full of Glooplings. Hopping 130 units puts every live enemy past the despawn
  * distance, so each hop is a fresh roll.
+ *
+ * A HELD ANIMAL IS NOT A CANDIDATE. `held` is one already inside an orb — the
+ * practice beast section 4 threw at is the common one — and every hook that
+ * takes a species (`__dbgWeaken`, `__dbgThrowOrb`) looks for a TARGETABLE one,
+ * so walking to a held Sproutle produced "no live wild-sproutle nearby" from
+ * two calls in a row and read as a taming bug rather than the wrong animal.
  */
 async function goToWild(species) {
   const home = await dbg(() => window.__dbgTowns().spawn);
+  const pick = (list) => list.find((x) => x.species === species && !x.held);
   for (let tries = 0; tries < 24; tries++) {
-    const e = (await dbg(() => window.__dbgBodies())).enemies.find((x) => x.species === species);
+    const e = pick((await dbg(() => window.__dbgBodies())).enemies);
     if (!e) {
       const a = tries * 1.31;
       await dbg(
@@ -162,9 +202,7 @@ async function goToWild(species) {
     // throw cannot clip the ground on the way.
     await dbg((x, z) => window.__dbgTp(x, z), e.x + 3, e.z + 3);
     await adv(0.3);
-    const after = (await dbg(() => window.__dbgBodies())).enemies.find(
-      (x) => x.species === species,
-    );
+    const after = pick((await dbg(() => window.__dbgBodies())).enemies);
     if (after) {
       return after;
     }
@@ -320,16 +358,32 @@ async function goToWild(species) {
   // orb can hold: `orb-tame` is tier 1 and both other wild beasts ask for tier
   // 2 (`capture.minTier` in core.json). Which is also the quest's own answer to
   // "any ground species" at this point in the game.
-  const found = await goToWild("wild-sproutle");
-  const hurt = await dbg(() => window.__dbgWeaken("wild-sproutle", 0.1));
-  const thrown = await dbg(() => window.__dbgThrowOrb("wild-sproutle", true));
-  // THE ORB HAS TO ARRIVE. "Not bonding" is true the instant after a throw, so
-  // the ceremony is waited FOR and then waited OUT — the two halves of "it
-  // landed", the same pair tools/test-taming.mjs makes.
+  // AN ORB MAY MISS, AND A MISS IS NOT THE FAILURE UNDER TEST. The claim here is
+  // that a wild bond TICKS THE OBJECTIVE; whether a given throw clears the
+  // ground between two points is `test-taming`'s subject and the loft's. So the
+  // throw is retried, and the bag is topped up first so an empty one can never
+  // be mistaken for a bad flight. SIX attempts, because the miss rate against a
+  // live wild Sproutle at 3-4 units measured about one throw in three (issue
+  // #198) — three attempts still lost one run in three.
+  await dbg(() => window.__dbgGive("orb-tame", 8));
+  let found = null;
+  let hurt = null;
+  let thrown = null;
   let landed = false;
-  for (let i = 0; i < 24 && !landed; i++) {
-    await adv(0.1);
-    landed = (await dbg(() => window.__dbgTaming())).bonding;
+  for (let attempt = 0; attempt < 6 && !landed; attempt++) {
+    found = await goToWild("wild-sproutle");
+    if (!found) {
+      break;
+    }
+    hurt = await dbg(() => window.__dbgWeaken("wild-sproutle", 0.1));
+    thrown = await dbg(() => window.__dbgThrowOrb("wild-sproutle", true));
+    // THE ORB HAS TO ARRIVE. "Not bonding" is true the instant after a throw, so
+    // the ceremony is waited FOR and then waited OUT — the two halves of "it
+    // landed", the same pair tools/test-taming.mjs makes.
+    for (let i = 0; i < 24 && !landed; i++) {
+      await adv(0.1);
+      landed = (await dbg(() => window.__dbgTaming())).bonding;
+    }
   }
   for (let i = 0; i < 60 && (await dbg(() => window.__dbgTaming())).bonding; i++) {
     await adv(0.1);
@@ -356,6 +410,115 @@ async function goToWild(species) {
   // The counter did not run past what the objective asked for, which is the
   // other half of "however many beasts you bond, this happens once".
   check(done.tamed === 1, `tame-wild ended at ${done.tamed}, not the 1 the quest asks for`);
+}
+
+// ---------- 9. the mill road --------------------------------------------
+// QUEST 3, and the act's one travel quest. Four claims:
+//
+//   9.  THE WALK IS ON FOOT, both halves. Nothing is unlocked while the quest
+//       is active, and `ground` is unlocked the moment it is handed in — one
+//       arm alone passes against a build that unlocks nothing and against one
+//       that unlocked everything at boot.
+//   10. THE CULL COUNTS THE CORRUPTED AND ONLY THEM. Six Glooplings tick it to
+//       six; a wild Sproutle, which is a beast the game just taught you to
+//       BOND, ticks it not at all.
+//   11. ARRIVAL IS A PLACE. Walking into Redbriar advances `reach-redbriar`
+//       and discovers the town, off the hero's position and no gate.
+//   12. THE TURN-IN IS SOMEBODY ELSE. Gain offers it at the camp and Mera
+//       closes it at the mill (`turnIn` on the asset), and what it sets is the
+//       flag Act 4 reads — `mount-ground` — beside the unlock itself.
+{
+  const line = await talkTo("gain");
+  await endTalk();
+  let s = await state();
+  results.millRoad = { offerLine: line, status: s.status3 };
+  check(s.status3 === "active", `${QUEST3} is "${s.status3}" after being offered`);
+
+  // 9a. ON FOOT. The mount gate reads the unlock set, so this is the whole claim.
+  const beforeMount = await dbg(() => window.__dbgMount().unlocked);
+  results.millRoad.unlockedWhileWalking = beforeMount;
+  check(
+    Array.isArray(beforeMount) && beforeMount.length === 0,
+    `a mount was already unlocked during the walk: ${JSON.stringify(beforeMount)}`,
+  );
+
+  // 10. THE CULL. Spawned rather than hunted: the population is what `trySpawn`
+  // last topped up to, and this measures the TRIGGER, not the spawner's odds.
+  const kills = [];
+  for (let i = 0; i < CULL_COUNT; i++) {
+    await dbg((sp) => window.__dbgSpawn("enemies", sp), CORRUPTED);
+    await adv(0.2);
+    kills.push(await dbg((sp) => window.__dbgKillEnemy(sp), CORRUPTED));
+    // The death is swept on the next slice, and the fact goes out from there.
+    await adv(0.3);
+  }
+  s = await state();
+  results.millRoad.cull = { kills: kills.map((k) => k.ok), culled: s.culled };
+  check(
+    kills.every((k) => k.ok),
+    `a corrupted beast could not be put down: ${JSON.stringify(results.millRoad.cull.kills)}`,
+  );
+  check(s.culled === CULL_COUNT, `cull-corrupted is ${s.culled} after ${CULL_COUNT} kills`);
+
+  // 10b. AND ONLY THE CORRUPTED. A wild Sproutle is a beast you are meant to
+  // bond, so a cull that counted one would be the quest asking for the opposite
+  // of what quest 2 just taught. The counter is already AT its cap, so this is
+  // measured on the way up instead — six is six after a seventh, wilder, death.
+  await dbg(() => window.__dbgSpawn("enemies", "wild-sproutle"));
+  await adv(0.2);
+  const wildKill = await dbg(() => window.__dbgKillEnemy("wild-sproutle"));
+  await adv(0.3);
+  s = await state();
+  results.millRoad.wildKill = { kill: wildKill.ok, culled: s.culled };
+  check(wildKill.ok, "no wild Sproutle could be spawned to prove the filter");
+  check(
+    s.culled === CULL_COUNT,
+    `killing a wild Sproutle moved cull-corrupted to ${s.culled} — the filter is not filtering`,
+  );
+
+  // 11. ARRIVAL. Teleported rather than walked: the road to Redbriar is minutes
+  // of driving and what is under test is the arrival, not the pathing.
+  check(s.reached === 0, `reach-redbriar was already ${s.reached} before reaching the town`);
+  const town = await dbg(() => window.__dbgTowns().towns.find((t) => t.id === "redbriar"));
+  await dbg((t) => window.__dbgTp(t.x, t.z), town);
+  await adv(0.5);
+  s = await state();
+  results.millRoad.arrival = {
+    town: town && { x: town.x, z: town.z },
+    reached: s.reached,
+    discovered: s.discoveredRedbriar,
+  };
+  check(town !== undefined, "the world planned no Redbriar to walk into");
+  check(s.reached === 1, `reach-redbriar is ${s.reached} standing in Redbriar, not 1`);
+  check(s.discoveredRedbriar === true, "walking into Redbriar did not discover it");
+
+  // 12. THE TURN-IN, at the mill and not at the fire.
+  const beforeShards = await purse();
+  const meraLine = await talkTo("mera");
+  await endTalk();
+  s = await state();
+  const unlocked = await dbg(() => window.__dbgMount().unlocked);
+  results.millRoad.turnIn = {
+    line: meraLine,
+    status: s.status3,
+    flags: s.flags,
+    unlocked,
+    paid: (await purse()) - beforeShards,
+  };
+  check(meraLine !== null, "Mera is not standing in Redbriar to take the quest in");
+  check(s.status3 === "completed", `${QUEST3} is "${s.status3}" after the turn-in`);
+  // BOTH, always: the action changes what the player can do, the flag is what
+  // Act 4 is allowed to test, and emitting one without the other is the bug
+  // this pair exists to catch (issue #149).
+  check(s.flags.includes("mount-ground"), "mount-ground was not set");
+  check(
+    Array.isArray(unlocked) && unlocked.includes("ground"),
+    `the ground mount is still locked after the quest that grants it: ${JSON.stringify(unlocked)}`,
+  );
+  check(
+    results.millRoad.turnIn.paid === 40,
+    `the reward paid ${results.millRoad.turnIn.paid} Cubloons, not the 40 the quest promises`,
+  );
 }
 
 console.log(JSON.stringify(results, null, 2));

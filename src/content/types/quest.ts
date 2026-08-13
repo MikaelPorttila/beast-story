@@ -87,6 +87,8 @@ export interface QuestData {
   /** A journal heading. A LABEL, never an order — nothing derives "next" from it. */
   readonly arc?: string;
   readonly giver?: ContentId;
+  /** Who CLOSES it, when that is not who offered it — a quest can end where it sent you. */
+  readonly turnIn?: ContentId;
   readonly location?: ContentId;
   readonly prerequisites: readonly ContentId[];
   /** Absent means always; a MALFORMED one is NEVER — revealed content is a spoiler. */
@@ -203,6 +205,7 @@ function parse(body: unknown, ctx: ParseCtx): QuestData | null {
     category: category(b.category, r.at("category")),
     arc: opt(b.arc, r.at("arc"), (v, c) => str(v, c, { min: 1, max: 64, what: "an arc name" })),
     giver: opt(b.giver, r.at("giver"), idOf("npc")),
+    turnIn: opt(b.turnIn, r.at("turnIn"), idOf("npc")),
     location: opt(b.location, r.at("location"), idOf("town")),
     prerequisites:
       opt(b.prerequisites, r.at("prerequisites"), list(idOf("quest"), { max: 64 })) ?? [],
@@ -227,6 +230,9 @@ function* refs(data: QuestData): Iterable<ContentId> {
   // '' is `idOf`'s fallback, already reported at the field it came from.
   if (data.giver !== undefined && data.giver !== "") {
     yield data.giver;
+  }
+  if (data.turnIn !== undefined && data.turnIn !== "") {
+    yield data.turnIn;
   }
   if (data.location !== undefined && data.location !== "") {
     yield data.location;
