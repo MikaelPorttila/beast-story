@@ -53,7 +53,12 @@ import type { SolidBox } from "./props";
 import { type RoadClearance } from "./roads";
 import { flags } from "../core/flags";
 import { GAIN_BODY } from "./npc-gain";
-import { SKY_GARDENER_BODY, SKY_LAMPLIGHTER_BODY, SKY_PILOT_BODY } from "./npc-skyfolk";
+import {
+  MERA_BODY,
+  SKY_GARDENER_BODY,
+  SKY_LAMPLIGHTER_BODY,
+  SKY_PILOT_BODY,
+} from "./npc-villagers";
 import { content, defineFactory, NPC_BODY_KIND, type NpcData, type NpcTalkLine } from "../content";
 import type { ContentText } from "../content/types";
 import { displayKey, reportContentIssue } from "../core/content-bridge";
@@ -147,12 +152,14 @@ export interface NpcBody {
  */
 export const NPC_BODIES: Readonly<Record<string, NpcBody>> = {
   gain: GAIN_BODY,
-  // The three who live on the flying island (issue #68). One builder, three
-  // palettes and three idles — see world/npc-skyfolk.ts for why the variety is
-  // in the skin rather than in three copies of a skeleton.
+  // The working people: three on the flying island (issue #68) and Redbriar's
+  // miller (issue #149). One builder, one palette and one idle each — see
+  // world/npc-villagers.ts for why the variety is in the skin rather than in
+  // four copies of a skeleton.
   "sky-pilot": SKY_PILOT_BODY,
   "sky-gardener": SKY_GARDENER_BODY,
   "sky-lamplighter": SKY_LAMPLIGHTER_BODY,
+  mera: MERA_BODY,
 };
 
 /**

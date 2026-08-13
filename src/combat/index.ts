@@ -1228,7 +1228,7 @@ export class CombatSystem {
     this.vfx.glowPulse(px, py + e.height * 0.5, pz, hex, 2.4, 0.32);
     this.vfx.flashLight(px, py + 0.8, pz, hex, 5, 9, 0.3);
     const xp = e.xp + ((Math.random() * 5) | 0);
-    this.bus.emit({ type: "enemyKilled", nameKey: e.nameKey, xp });
+    this.bus.emit({ type: "enemyKilled", species: e.species, nameKey: e.nameKey, xp });
     const drops = 1 + ((Math.random() * 3) | 0);
     for (let k = 0; k < drops; k++) {
       this.pickups.spawn(px, py + 0.6, pz, SHARD_ID);

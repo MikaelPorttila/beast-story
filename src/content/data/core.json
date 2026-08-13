@@ -151,7 +151,66 @@
             "when": { "test": "quest", "quest": "quest:land/the-first-bond", "status": "active" },
             "line": { "key": "npc.gain.q2.busy" }
           },
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:land/the-first-bond", "status": "completed" },
+                {
+                  "any": [
+                    { "test": "quest", "quest": "quest:land/the-mill-road", "status": "unknown" },
+                    { "test": "quest", "quest": "quest:land/the-mill-road", "status": "available" }
+                  ]
+                }
+              ]
+            },
+            "line": { "key": "npc.gain.q3.offer" },
+            "actions": [{ "do": "quest.start", "quest": "quest:land/the-mill-road" }]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:land/the-mill-road", "status": "active" },
+            "line": { "key": "npc.gain.q3.busy" }
+          },
           { "line": { "key": "npc.gain.greeting" } }
+        ]
+      }
+    },
+
+    {
+      "id": "npc:mera",
+      "schema": 1,
+      "name": { "key": "npc.mera.name" },
+      "tags": ["resident", "quest-giver"],
+      "data": {
+        "town": "town:redbriar",
+        "body": "mera",
+        "homeOffset": 9,
+        "acrossFocus": false,
+        "talk": [
+          {
+            "when": {
+              "all": [
+                { "test": "quest", "quest": "quest:land/the-mill-road", "status": "active" },
+                {
+                  "test": "progress",
+                  "quest": "quest:land/the-mill-road",
+                  "objective": "reach-redbriar"
+                },
+                {
+                  "test": "progress",
+                  "quest": "quest:land/the-mill-road",
+                  "objective": "cull-corrupted",
+                  "atLeast": 6
+                }
+              ]
+            },
+            "line": { "key": "npc.mera.q3.done" },
+            "actions": [{ "do": "quest.complete", "quest": "quest:land/the-mill-road" }]
+          },
+          {
+            "when": { "test": "quest", "quest": "quest:land/the-mill-road", "status": "active" },
+            "line": { "key": "npc.mera.q3.busy" }
+          },
+          { "line": { "key": "npc.mera.greeting" } }
         ]
       }
     },
