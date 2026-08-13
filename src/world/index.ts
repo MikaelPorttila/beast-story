@@ -1166,6 +1166,13 @@ export function createWorld(
     playerStart,
     // Null when `towns=0` switched the road network off: no roads, no stones.
     waypoints,
+    // The start town's pen — the camp layout's own answer, never rederived
+    // (issue #178). `y` is read here so the caller stands things ON the ground.
+    tamingPen: ((): { x: number; y: number; z: number; r: number } | null => {
+      const start = plan?.sites.find((ts) => ts.start);
+      const pen = start ? (towns?.penOf(start.id) ?? null) : null;
+      return pen ? { x: pen.x, y: terrain.getHeight(pen.x, pen.z), z: pen.z, r: pen.r } : null;
+    })(),
     shopPositions: shops.positions,
     towns: withCarriedTowns(townReg, sky ? [sky.town] : []),
     safeZones,

@@ -350,18 +350,32 @@ async function goToWild(species) {
   );
 }
 
-// ---------- 3. there is something to practise on ----------------------------
+// ---------- 3. there is something to practise on, and it is PENNED ----------
+// Since issue #178 the practice animal is `penned-sproutle`, standing inside
+// the Encampment's own fence ring: docile by data (aggro 0), staged while the
+// quest is live, and INSIDE the pen — the containment is asserted against the
+// pen the camp layout built, never a copy of its arithmetic.
 {
   let target = null;
   for (let i = 0; i < 40 && !target; i++) {
     await wait(250);
-    target = (await dbg(() => window.__dbgTaming("wild-sproutle"))).target;
+    target = (await dbg(() => window.__dbgTaming("penned-sproutle"))).target;
   }
-  results.practiceBeast = target;
+  const pen = await dbg(() => window.__dbgQuestSites().pen);
+  // The position comes off the BODY — `__dbgTaming`'s target is odds, not a place.
+  const body = (await dbg(() => window.__dbgBodies())).enemies.find(
+    (e) => e.species === "penned-sproutle",
+  );
+  results.practiceBeast = { target, pen, body };
   check(
     target !== null,
-    "no wild Sproutle was staged for the practice — a throw at nothing is refused " +
+    "no penned Sproutle was staged for the practice — a throw at nothing is refused " +
       "before the orb leaves the hand, so the objective could never tick",
+  );
+  check(pen !== null, "the Encampment built no taming pen");
+  check(
+    body !== undefined && pen !== null && Math.hypot(body.x - pen.x, body.z - pen.z) <= pen.r + 0.5,
+    "the practice animal stands outside the pen it is supposed to be penned in",
   );
 }
 
@@ -380,7 +394,7 @@ async function goToWild(species) {
     // `false` BREAKS the orb on purpose. The objective counts the throw and not
     // the catch, and a rolled outcome would make this a test that fails one run
     // in however-many.
-    throws.push(await dbg(() => window.__dbgThrowOrb("wild-sproutle", false)));
+    throws.push(await dbg(() => window.__dbgThrowOrb("penned-sproutle", false)));
     await wait(400);
   }
   const s = await state();
@@ -453,10 +467,26 @@ async function goToWild(species) {
   results.bondQuest = { offerLine: line, statusAfterOffer: started.status2 };
   check(started.status2 === "active", `${QUEST2} is "${started.status2}" after being offered`);
 
-  // A SPROUTLE SPECIFICALLY, because it is the only bondable species a starting
-  // orb can hold: `orb-tame` is tier 1 and both other wild beasts ask for tier
-  // 2 (`capture.minTier` in core.json). Which is also the quest's own answer to
-  // "any ground species" at this point in the game.
+  // THE PEN IS EMPTY NOW — quest 1 closed, so its dressing left with it. The
+  // other half of "present while the quest is": a penned animal still standing
+  // here would be a bondable Sproutle inside the camp, and quest 2 is the quest
+  // about leaving it (issue #178). THREE SIM SECONDS FIRST, because emptying is
+  // prompt rather than instant by design: an animal inside a settling orb is
+  // held until the ceremony resolves (~2 s), and the retire poll runs on a
+  // one-second cadence after that.
+  await adv(3);
+  const stillPenned = (await dbg(() => window.__dbgBodies())).enemies.filter(
+    (e) => e.species === "penned-sproutle",
+  );
+  results.bondQuest.penEmptied = stillPenned.length === 0;
+  check(
+    stillPenned.length === 0,
+    `${stillPenned.length} penned Sproutle(s) still stand in the camp with quest 1 closed`,
+  );
+
+  // A WILD SPROUTLE SPECIFICALLY, twice over: it is the only bondable species a
+  // starting orb can hold (`orb-tame` is tier 1), and quest 2's trigger names
+  // the wild INSTANCE — `wild-sproutle`, never the penned one (issue #178).
   const bond = await bondAWild("wild-sproutle", "sproutle");
   const s = await state();
   results.bondQuest.bond = { ...bond, progress: s.tamed };

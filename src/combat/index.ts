@@ -987,7 +987,13 @@ export class CombatSystem {
     if (i >= 0) {
       this.removeEnemy(i);
     }
-    this.bus.emit({ type: "beastTamed", beastId, nameKey: target.nameKey, orbId: orb.id });
+    this.bus.emit({
+      type: "beastTamed",
+      beastId,
+      species: target.species,
+      nameKey: target.nameKey,
+      orbId: orb.id,
+    });
   }
 
   // Forwarded, because main.ts holds an `Enemy` only as a `Damageable` and
@@ -1203,6 +1209,21 @@ export class CombatSystem {
       this.vfx.ring(x, gy, z, hex, 1.5, 0.5);
       this.vfx.glowPulse(x, gy + 0.6, z, hex, 1.6, 0.3);
     }
+  }
+
+  /**
+   * Remove one live enemy of this species WITHOUT killing it: no drops, no xp,
+   * no fact. The seam a quest's stage dressing exits through (issue #178) — the
+   * penned practice animal is let out, not put down.
+   */
+  despawnOne(species: string): boolean {
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      if (this.enemies[i].species === species && this.enemies[i].targetable) {
+        this.removeEnemy(i);
+        return true;
+      }
+    }
+    return false;
   }
 
   // F3 Debug panel only. Obeys none of `trySpawn`'s rules, which shape a

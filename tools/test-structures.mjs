@@ -506,7 +506,11 @@ async function run(solids, geom = null) {
 //
 const BUDGET = {
   //           colliders   of which roofs
-  encampment: { total: 64, roofs: 5 }, // 3 huts, 2 ridge tents, 59 boxes
+  // 64 -> 77 WHEN THE TAMING PEN WENT IN (issue #178): a fence chain's collider
+  // is one box per BAY — the top plank — and the pen is a ten-bay ring, plus the
+  // fire-side reshuffle its claim forced on the clutter. Measured, not derived:
+  // the count is a reading of what the seed's ground let the ring keep.
+  encampment: { total: 77, roofs: 5 }, // 3 huts, 2 ridge tents, the pen ring, 59 boxes
   // The hamlet counts were 38 -> 40 and 25 -> 27 boxes when the paddock arc
   // became a fence CHAIN (world/fences.ts, issue #105) instead of seven fixed
   // panels: a chain's collider is one box per bay — the top plank, which spans
