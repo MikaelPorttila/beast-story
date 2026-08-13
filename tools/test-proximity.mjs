@@ -19,7 +19,7 @@
 // gravity then reclaims him at 24 u/s². Two techniques, both here:
 //   - for a QUERY, teleport and read inside ONE page.evaluate, so not a single
 //     frame passes between them and the reading is exact;
-//   - for anything that has to LAST (a 1.2 s portal dwell, a 0.9 s swing), an
+//   - for anything that has to LAST (a held prompt, a 0.9 s swing), an
 //     in-page interval re-teleports him every 16 ms. See `hover`.
 //
 // Usage: bun tools/test-proximity.mjs        (dev server must be up)
@@ -137,9 +137,10 @@ const gate = zone0.gate;
 
 // ---------- 1. the zone gateway, from the air ------------------------------
 //
-// The case in the report. Hold the hero SKY units over the arch for twice the
-// dwell it needs: the pad must never arm a countdown, the prompt must never
-// appear, and the zone must not change under him.
+// The case in the report. Hold the hero SKY units over the arch: the pad must
+// never claim him, the prompt must never appear, and a press must not be taken
+// — a gateway takes a Use press now, so "would it accept one" is the question
+// the height gate really answers.
 {
   await hover(page, gate.x, gate.y + SKY, gate.z, 2800);
   const above = await probe(page, "__dbgZone");
@@ -151,7 +152,7 @@ const gate = zone0.gate;
     dist: above.gate.dist,
     rise: above.gate.rise,
     inside: above.gate.inside,
-    dwell: above.gate.dwell,
+    requested: above.gate.requested,
     transitions: above.transitions,
     hint: aboveHint,
     zone: above.id,
@@ -163,7 +164,7 @@ const gate = zone0.gate;
     `hero was ${above.gate.dist} out horizontally — not over the pad, so nothing here is proven`,
   );
   check(above.gate.inside === false, `the pad accepted a hero ${above.gate.rise} units above it`);
-  check(above.gate.dwell === 0, `the gateway counted ${above.gate.dwell}s of dwell from the sky`);
+  check(above.gate.requested === false, "the gateway was asked to cross by a hero flying over it");
   check(
     above.transitions === zone0.transitions,
     "the hero was pulled through a portal he flew over",
@@ -176,9 +177,10 @@ const gate = zone0.gate;
 
 // ---------- 2. ...and on foot, where it must still work --------------------
 //
-// The other half. Same arch, same hero, feet on the pad: the prompt appears and
-// the dwell runs. Left as a DWELL rather than a completed transition on purpose
-// — committing would swap the world out from under sections 3 and 4.
+// The other half. Same arch, same hero, feet on the pad: the pad claims him and
+// the prompt offers the crossing. NOT PRESSED, on purpose — committing would
+// swap the world out from under sections 3 and 4, and what is under test here is
+// proximity, not the crossing.
 {
   await hover(page, gate.x, gate.y, gate.z, 900);
   const on = await probe(page, "__dbgZone");
@@ -192,11 +194,13 @@ const gate = zone0.gate;
     dist: on.gate.dist,
     rise: on.gate.rise,
     inside: on.gate.inside,
-    dwell: on.gate.dwell,
+    armed: on.gate.armed,
     hint: onHint,
   };
   check(on.gate.inside === true, "the pad refused a hero standing on it");
-  check(on.gate.dwell > 0, "standing in the arch counted no dwell at all");
+  // AND IT WOULD TAKE THE PRESS: armed is the other half of "this arch is live",
+  // and without it the prompt below would be an offer nothing honours.
+  check(on.gate.armed === true, "the pad claimed the hero but was not armed to take a press");
   check(onHint !== null, "no prompt for a hero standing in the gateway");
 }
 

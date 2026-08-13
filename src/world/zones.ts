@@ -2,10 +2,18 @@
  * Zone lifecycle: one active World, optionally one preloaded, plus the gateway
  * rules. The only caller of `createWorld` / `createDungeon` / `World.dispose`.
  *
+ * A GATEWAY TAKES A PRESS, NOT A WAIT. It used to commit on a 1.2 s dwell, and
+ * the dwell had a failure mode you cannot argue with: the counter is the ratio
+ * of time stood to time needed, but the crossing ALSO waits on the destination
+ * being built and warm, so a slow build showed "Entering Embervale… 278%" and a
+ * player standing in an arch that never fired. A press cannot run away — it is
+ * asked once, and what it waits for it says it is waiting for.
+ *
  * Gateway numbers are hysteresis pairs against hero speeds (walk 6, sprint
- * 9.6): ENTER_R 3.0 is the arch's own geometry, EXIT_R 5.0 where inside stops
- * (arrival starts DISARMED, or the return fires on frame one), DWELL 1.2 s is
- * longer than any pass-through so you must STOP in the arch.
+ * 9.6): ENTER_R 3.0 is the arch's own geometry, EXIT_R 5.0 where inside stops.
+ * Arrival starts DISARMED, so a player set down on the far pad has to step out
+ * of it before it will take a press — otherwise the way back is one key away
+ * from the moment you land, and a mashed key bounces you straight back.
  */
 import type * as THREE from "three";
 import { inRise, type World, type WorldBound } from "../core/types";
@@ -32,7 +40,6 @@ const EXIT_R = 5.0;
 const GATE_RISE = 2.5;
 /** 1.5x, as NPC_LEAVE_RISE: an equal bound disarms on a hover's down-beat. */
 const GATE_EXIT_RISE = GATE_RISE * 1.5;
-const DWELL = 1.2;
 const PRELOAD_R = 30;
 const RELEASE_R = 48;
 
@@ -55,7 +62,8 @@ interface ZoneState {
   gateway: Gateway;
   to: string;
   /** Seconds inside ENTER_R. Reset only by leaving EXIT_R. */
-  dwell: number;
+  /** Asked for, and waiting on the far side to be built. Cleared by leaving the pad. */
+  requested: boolean;
   /** False until the hero has left EXIT_R at least once. */
   armed: boolean;
   warm: number;
@@ -74,6 +82,13 @@ export interface ZoneManagerOpts {
   onArrive(world: World, def: ZoneDef, from: ZoneDef | null): void;
   /** Gateway prompt, null to clear. HTML, already localised. */
   onHint?(html: string | null): void;
+  /**
+   * The Use key as the HUD spells it — already wrapped in `<kbd>`, and different
+   * on a pad. Asked per hint rather than captured, because the device can change
+   * mid-session and a captured cap goes stale (the same reason `composeKeyHints`
+   * exists in main.ts).
+   */
+  interactKey?(): string;
 }
 
 export class ZoneManager {
@@ -130,7 +145,7 @@ export class ZoneManager {
     const world = def.create(this.opts.scene);
     const g = def.gate(world);
     const gateway = new Gateway(this.opts.scene, g.x, world.getHeight(g.x, g.z), g.z, g.hex);
-    return { def, world, gateway, to: g.to, dwell: 0, armed: false, warm: 0, warmWait: 0 };
+    return { def, world, gateway, to: g.to, requested: false, armed: false, warm: 0, warmWait: 0 };
   }
 
   private destroy(s: ZoneState): void {
@@ -203,29 +218,27 @@ export class ZoneManager {
       ready = !p.world.streaming && p.warm >= WARM_STEPS;
     }
 
+    // WALKING OUT ARMS IT AND TAKES BACK THE ASK: a request is about the arch you
+    // are standing in, so leaving cancels it rather than firing behind you.
     if (outside) {
       active.armed = true;
-      active.dwell = 0;
-    } else if (active.armed && inside) {
-      active.dwell += dt;
+      active.requested = false;
     }
-    // Between ENTER_R and EXIT_R the dwell HOLDS — neither grows nor resets.
 
     if (this.opts.onHint) {
       const zone = this.defs.get(active.to)?.name ?? active.to;
       this.opts.onHint(
         !outside && active.armed
-          ? active.dwell > 0
-            ? t("hint.zoneEntering", {
-                zone,
-                pct: Math.round((active.dwell / DWELL) * 100),
-              })
-            : t("hint.zoneStand", { zone })
+          ? active.requested
+            ? t("hint.zoneEntering", { zone })
+            : t("hint.zoneUse", { zone, key: this.opts.interactKey?.() ?? "E" })
           : null,
       );
     }
 
-    if (active.dwell >= DWELL && ready) {
+    // The press is remembered until the far side is ready, so a player who asked
+    // once while it was still building is not asked to press again.
+    if (active.requested && ready) {
       this.commit(active.to);
     }
   }
@@ -249,7 +262,7 @@ export class ZoneManager {
 
     // You arrive standing on the far gateway; disarmed until you walk out.
     next.armed = false;
-    next.dwell = 0;
+    next.requested = false;
 
     // Retired, not destroyed: arch now, chunks a few per frame from update().
     this.states.delete(prev.def.id);
@@ -258,6 +271,23 @@ export class ZoneManager {
     this.retiring?.dispose();
     this.retiring = prev.world;
     this.opts.onHint?.(null);
+  }
+
+  /**
+   * THE PLAYER ASKED TO CROSS. Refused unless he is standing in an ARMED arch,
+   * so a press meant for something else cannot move him and a press on the pad
+   * he just landed on does nothing until he steps off it.
+   *
+   * Returns whether the press was SPENT, because the host's Use key has other
+   * readers and two of them must not both answer it.
+   */
+  requestCrossing(): boolean {
+    const active = this.states.get(this.activeId)!;
+    if (!this.gateInside || !active.armed || active.requested) {
+      return false;
+    }
+    active.requested = true;
+    return true;
   }
 
   /** Dev console: switch now, building synchronously — a very long frame. */
@@ -309,8 +339,7 @@ export class ZoneManager {
         z: +a.gateway.position.z.toFixed(2),
         dist: +this.gateDist.toFixed(2),
         rise: +this.gateRise.toFixed(2),
-        dwell: +a.dwell.toFixed(2),
-        need: DWELL,
+        requested: a.requested,
         armed: a.armed,
         // `dist` inside ENTER_R with `inside` false is issue #78's height gate.
         inside: this.gateInside,
@@ -329,7 +358,6 @@ export class ZoneManager {
         exit: EXIT_R,
         rise: GATE_RISE,
         exitRise: GATE_EXIT_RISE,
-        dwell: DWELL,
         preload: PRELOAD_R,
         release: RELEASE_R,
       },

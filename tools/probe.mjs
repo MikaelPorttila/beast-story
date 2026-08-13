@@ -96,6 +96,10 @@ const SOLO = new Set([
   // Drives the hero 150 units at a time and counts what SPAWNED around him, so a
   // shared page would be measuring another probe's teleports (issue #204).
   "spawn-tables",
+  // Crosses zones for real, which tears down a world and builds another: nothing
+  // may share a page with it, and it is the one probe that measures a crossing's
+  // wall clock (issue #211).
+  "gateway",
   // Presses E to take a quest and throws orbs to finish it, then reads what the
   // frame drew — every one of those needs a frame loop the tab is not given in
   // the background.

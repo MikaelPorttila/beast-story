@@ -46,12 +46,11 @@ export const sv: Translation = {
   "town.redbriar.name": "Rödbriars Kvarn",
   "town.redbriar.sign": "RÖDBRIAR",
 
-  // The gateway hints, which are the concatenation this pass removed. Swedish
-  // puts the destination after the preposition and the percentage last, and the
-  // second line reverses the clause order outright — neither is expressible in
-  // "Entering " + name + "… " + pct + "%".
-  "hint.zoneEntering": "På väg in i {zone}… {pct}%",
-  "hint.zoneStand": "Ställ dig i porten för att resa till {zone}",
+  // The gateway hints, which are the concatenation this pass removed: Swedish
+  // puts the destination after the preposition, and the offer reverses the
+  // clause order outright — neither is expressible in "Entering " + name.
+  "hint.zoneUse": "Tryck {key} för att resa till {zone}",
+  "hint.zoneEntering": "På väg in i {zone}…",
   // `{key}` arrives already wrapped in <kbd>, so it can land mid-sentence here
   // where English puts it second. This is what replaced the `Press (\S+)` regex.
   "hint.skillDen": "Tryck {key} för Färdighetslyan",

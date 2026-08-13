@@ -690,8 +690,13 @@ export const en = {
   // The gateway countdown. ONE key each rather than "Entering " + name + "… " +
   // pct + "%": Swedish wants the verb and the destination in the other order,
   // and there is nowhere in a concatenation for a translator to stand.
-  "hint.zoneEntering": "Entering {zone}… {pct}%",
-  "hint.zoneStand": "Stand in the gateway — {zone}",
+  // A GATEWAY TAKES A PRESS. The first line is the offer and names the key the
+  // way every other prompt does; the second is what the game is doing after it
+  // has been asked, and it carries NO number — the old one was a share of the
+  // dwell, and the crossing also waits on the far side being built, so it read
+  // past 100% while a player stood in an arch that had not fired.
+  "hint.zoneUse": "Press {key} to enter {zone}",
+  "hint.zoneEntering": "Entering {zone}…",
 
   // ---- dialogue ------------------------------------------------------------
   // The talk panel's footer. `{key}` arrives already wrapped in <kbd>, like
@@ -743,7 +748,7 @@ export const en = {
   "keys.cycleSupport": "Next support beast",
   "keys.throwOrb": "Throw taming orb",
   "keys.throwOrb.note": "Ready an orb in the inventory first. Weaken the beast, then throw.",
-  "keys.interact": "Talk · open a skill den",
+  "keys.interact": "Talk · open a skill den · enter a gateway",
   "keys.inventory": "Inventory",
   "keys.journal": "Quest journal",
   /**

@@ -1065,6 +1065,8 @@ const zones = new ZoneManager({
   onHint: (hint) => {
     portalHint = hint;
   },
+  // The same cap the den and the NPC prompts carry, so one rebind moves all three.
+  interactKey: () => hud.interactPrompt,
 });
 
 await loading?.stage("actors");
@@ -4859,6 +4861,11 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
         npcField?.talk(nearNpc.id);
       } else if (nearShop) {
         tryOpenShop();
+      } else {
+        // LAST, and it refuses the press itself when the hero is not in an armed arch — a gateway is
+        // the only one of the three that stands in open country, so it must never take a press meant
+        // for a person or a den.
+        zones.requestCrossing();
       }
     }
     // TWO KEYS, AND THE SPLIT IS THE POINT (issue #83 follow-up): Escape CANCELS, F10 opens the menu. The
