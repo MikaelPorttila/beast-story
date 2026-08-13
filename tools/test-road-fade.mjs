@@ -14,9 +14,10 @@
 // pair are asserted:
 //
 //   FAR  — the camera aims at a road point past `horizonFadeEnd`. Hiding every
-//          ribbon must change nothing beyond the noise floor: a road that is
-//          being dissolved was not drawing there in the first place.
-//   NEAR — the same toggle aimed at a road point inside `horizonFadeStart`
+//          ribbon must change nothing beyond the noise floor: a road ends
+//          BEFORE the ground around it starts thinning (`roadFadeEnd` closes
+//          where `horizonFadeStart` opens — asserted from the same readout).
+//   NEAR — the same toggle aimed at a road point inside `roadFadeStart`
 //          must visibly remove the road. This is the control that proves the
 //          statistic can see a ribbon at all (and that the fade did not
 //          over-reach and erase roads off the still-rendered ground).
@@ -124,6 +125,7 @@ async function toggleAB(page) {
 let spawn;
 let farPt;
 let nearPt;
+let bandPt;
 let fade;
 {
   const page = await newPage(browser, { width: W, height: H });
@@ -141,10 +143,18 @@ let fade;
   fade = {
     start: scout.distant?.horizonFadeStart,
     end: scout.distant?.horizonFadeEnd,
+    roadStart: scout.distant?.roadFadeStart,
+    roadEnd: scout.distant?.roadFadeEnd,
   };
   check(
     typeof fade.start === "number" && typeof fade.end === "number" && fade.end > fade.start,
     `distant terrain reports no horizon fade band: ${JSON.stringify(scout.distant)}`,
+  );
+  // The single render-distance authority: roads must be DONE before the ground
+  // starts thinning, so a road is never drawn over dissolving or absent ground.
+  check(
+    typeof fade.roadEnd === "number" && fade.roadEnd <= fade.start && fade.roadStart < fade.roadEnd,
+    `the road band does not close before the ground band opens: ${JSON.stringify(fade)}`,
   );
   spawn = scout.spawn;
   const pts = (scout.paths ?? [])
@@ -176,12 +186,17 @@ let fade;
     `the network ends ${Math.round(maxOut)} out — too short to frame past the fade`,
   );
   const far = nearest(farTarget);
-  const near = nearest(Math.min(250, fade.start - 80));
+  const near = nearest(Math.min(250, fade.roadStart - 80));
+  // The reported frame: road drawn over ground that is itself dissolving. The
+  // band lens brackets slants in [groundStart..groundEnd], past the road band.
+  const band = nearest(fade.start + 104);
   check(far.err < 60, `no drawn road near ${Math.round(farTarget)} units out (${far.err})`);
   check(near.err < 40, `no drawn road near the 250-unit ring (${near.err})`);
+  check(band.err < 60, `no drawn road near the ground dissolve band (${band.err})`);
   farPt = far.best;
   nearPt = near.best;
-  results.scout = { fade, farPt, nearPt };
+  bandPt = band.best;
+  results.scout = { fade, farPt, nearPt, bandPt };
 }
 
 if (fails.length === 0) {
@@ -190,7 +205,7 @@ if (fails.length === 0) {
   // even the box's lowest rows on slant distances past fadeEnd. The near lens
   // stays low for the opposite reason — from 400 up the slant to the 250-unit
   // ring would itself be inside the dissolve band.
-  const shoot = async (pt, camUp, proveAt900) => {
+  const shoot = async (pt, camUp) => {
     const look = `${(pt[0] - spawn.x).toFixed(1)},${(pt[1] - spawn.y).toFixed(1)},${(pt[2] - spawn.z).toFixed(1)}`;
     const url =
       `${HOST}/?photo=1&hud=0&vol=0&beasts=0&enemies=0&clouds=0&${NO_WARMUP}` +
@@ -201,37 +216,28 @@ if (fails.length === 0) {
     await whenPlaying(page);
     await settled(page);
     const ab = await toggleAB(page);
-    if (proveAt900) {
-      // The blindness control for a delta that reads zero, and the alignment
-      // claim in one move: extend the horizon and the SAME framing must show
-      // road again — the ribbon's band sits wherever the ground's band sits.
-      await page.evaluate(() => window.__dbgGfx?.("terrainDistance", 900));
-      await settled(page);
-      ab.at900 = await toggleAB(page);
-      await page.evaluate(() => localStorage.removeItem("game.settings.graphics.terrainDistance"));
-    }
     await page.close();
     return ab;
   };
 
-  results.far = await shoot(farPt, 400, true);
-  results.near = await shoot(nearPt, 56, false);
+  results.far = await shoot(farPt, 400);
+  // 300 up puts the whole box on slants past roadFadeEnd while the ground under
+  // them is mid-dissolve — the exact frame of the report this probe exists for.
+  results.band = await shoot(bandPt, 300);
+  results.near = await shoot(nearPt, 56);
 
-  const { far, near } = results;
+  const { far, band, near } = results;
   check(
     far.delta.mean <= far.noise.mean + 0.15 && far.delta.changed <= far.noise.changed + 0.002,
     `hiding the ribbons changed the frame past horizonFadeEnd ` +
       `(delta ${JSON.stringify(far.delta)} vs noise ${JSON.stringify(far.noise)}) — ` +
       `the road is rendering beyond where the ground dissolves`,
   );
-  // The re-exposed stretch is a thin sliver of the box (measured 0.43% of its
-  // pixels, mean 0.12, against a 0/0 noise floor), so both statistics are asked.
   check(
-    far.at900 &&
-      far.at900.delta.changed > far.at900.noise.changed + 0.002 &&
-      far.at900.delta.mean > far.at900.noise.mean + 0.05,
-    `extending the horizon to 900 exposed no road in the same framing ` +
-      `(${JSON.stringify(far.at900)}) — the far agreement above proves nothing`,
+    band.delta.mean <= band.noise.mean + 0.15 && band.delta.changed <= band.noise.changed + 0.002,
+    `hiding the ribbons changed the frame over the ground's dissolve band ` +
+      `(delta ${JSON.stringify(band.delta)} vs noise ${JSON.stringify(band.noise)}) — ` +
+      `a road is drawn on ground that is itself dissolving`,
   );
   check(
     near.delta.changed > near.noise.changed + 0.01,

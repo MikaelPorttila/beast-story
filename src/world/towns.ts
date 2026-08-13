@@ -242,8 +242,9 @@ function makeRibbonMaterial(terrainMat: THREE.Material, horizonFade: HorizonFade
   // Its own program: sharing one with the chunks would share their uniform value.
   mat.customProgramCacheKey = () => "bs-road-ribbon-fog-v1";
   // A ribbon is one mesh spanning its whole road, so unlike every chunked thing it
-  // reaches past where the ground stops rendering. Same dissolve as the far clipmap.
-  installHorizonFade(mat, horizonFade);
+  // reaches past where the ground stops rendering. It takes the ROAD band of the
+  // one render-distance authority: fully gone before the ground starts thinning.
+  installHorizonFade(mat, { start: horizonFade.roadStart, end: horizonFade.roadEnd }, false);
   return mat;
 }
 
@@ -967,9 +968,9 @@ export class Towns {
     };
     const fireGlow = mkGlow();
     const lampGlow = mkGlow();
-    // Road lamps stand along the whole network; their glow heads must dissolve with
-    // the ground under them, or they float in the sky past the horizon fade.
-    installHorizonFade(lampGlow, horizonFade);
+    // Road lamps stand along the whole network; their glow heads die on the same
+    // road band as the deck under them, or they float in the sky past the ground.
+    installHorizonFade(lampGlow, { start: horizonFade.roadStart, end: horizonFade.roadEnd }, false);
     // A THIRD glow material for the campfire: `fireGlow` is shared with the braziers.
     const hearthGlow = mkGlow();
     const nightGlow = mkGlow();

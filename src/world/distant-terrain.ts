@@ -19,22 +19,44 @@ interface Layout {
   step: number;
 }
 
-/** ONE dissolve radius for everything that reaches the horizon — the far clipmap,
- *  the road ribbons and the road lamps share these objects, so a view-distance
- *  change moves them together. `DistantTerrain.configure` is the only setter. */
+/** ONE dissolve authority for everything that reaches the horizon, so a
+ *  view-distance change moves it all together. `start`/`end` are the GROUND's
+ *  band; `roadStart`/`roadEnd` are the road ribbons' and lamps', which must be
+ *  DONE before the ground's begins — a dark deck at half-dither reads as a road
+ *  hanging in the sky long after pale half-dithered ground reads as gone
+ *  (reported twice). `DistantTerrain.configure` is the only setter. */
 export interface HorizonFade {
+  start: { value: number };
+  end: { value: number };
+  roadStart: { value: number };
+  roadEnd: { value: number };
+}
+
+/** One camera-distance band as its two shader uniforms. */
+export interface FadeBand {
   start: { value: number };
   end: { value: number };
 }
 
-/** Match the sky by 86% of range, leaving guard band for snap lag. */
 export function makeHorizonFade(viewDistance: number): HorizonFade {
-  return { start: { value: viewDistance * 0.66 }, end: { value: viewDistance * 0.86 } };
+  const fade = {
+    start: { value: 0 },
+    end: { value: 0 },
+    roadStart: { value: 0 },
+    roadEnd: { value: 0 },
+  };
+  setHorizonFade(fade, viewDistance);
+  return fade;
 }
 
 function setHorizonFade(fade: HorizonFade, viewDistance: number): void {
+  // Ground matches the sky by 86% of range, leaving guard band for snap lag.
   fade.start.value = viewDistance * 0.66;
   fade.end.value = viewDistance * 0.86;
+  // Roads hand over to the clipmap's carved corridor tint and are GONE at the
+  // exact radius the ground starts thinning — never drawn over dissolving ground.
+  fade.roadStart.value = viewDistance * 0.55;
+  fade.roadEnd.value = viewDistance * 0.66;
 }
 
 /**
@@ -44,10 +66,11 @@ function setHorizonFade(fade: HorizonFade, viewDistance: number): void {
  * renders glow with `scene.fog = null`, and a lamp faded from the beauty pass
  * must not keep blooming as a halo in the empty sky.
  */
-export function installHorizonFade(material: THREE.Material, fade: HorizonFade): void {
+export function installHorizonFade(material: THREE.Material, fade: FadeBand, skyMix = true): void {
   const previousCompile = material.onBeforeCompile;
   const previousKey = material.customProgramCacheKey.bind(material);
-  material.customProgramCacheKey = () => `${previousKey()}|bs-horizon-fade-v2`;
+  material.customProgramCacheKey = () =>
+    `${previousKey()}|bs-horizon-fade-v3:${skyMix ? "sky" : "cut"}`;
   material.onBeforeCompile = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
     shader.uniforms.bsHorizonFadeStart = fade.start;
@@ -78,7 +101,7 @@ uniform float bsHorizonFadeEnd;`,
   float bsHorizonFade = smoothstep(
     bsHorizonFadeStart, bsHorizonFadeEnd, vBsCameraDistance
   );
-  // Opaque screen-door dissolve: reveal the real sky rather than trusting a
+  // Opaque screen-door dissolve: reveal what is behind rather than trusting a
   // colour mix to survive tone mapping identically to the sky dome. Keeping the
   // material opaque preserves its underlay ordering beneath detailed chunks;
   // transparent terrain would move to three's late pass and wash over them.
@@ -86,11 +109,17 @@ uniform float bsHorizonFadeEnd;`,
     floor(gl_FragCoord.xy), vec2(0.06711056, 0.00583715)
   )));
   if (bsHorizonFade >= bsHorizonDither) discard;
-#ifdef USE_FOG
+${
+  // The mix belongs to a band that ends IN SKY. A road's band ends over solid
+  // ground, where a sky push would frost the deck against the ground behind it.
+  skyMix
+    ? `#ifdef USE_FOG
   gl_FragColor.rgb = mix(
     gl_FragColor.rgb, bsSkyRadiance(vFogElev) * fogColor, bsHorizonFade * 0.65
   );
-#endif
+#endif`
+    : ""
+}
 }`,
       );
   };
@@ -153,9 +182,12 @@ export interface DistantTerrainDebug extends Record<string, unknown> {
   viewDistance: number;
   waterFadeStart: number;
   waterFadeEnd: number;
-  /** Where the world dissolves to sky — shared with the road ribbons and lamps. */
+  /** Where the world dissolves to sky, and where roads must already be gone —
+   *  both bands of the one render-distance authority. */
   horizonFadeStart: number;
   horizonFadeEnd: number;
+  roadFadeStart: number;
+  roadFadeEnd: number;
   building: boolean;
   ready: boolean;
 }
@@ -460,6 +492,8 @@ export class DistantTerrain {
       waterFadeEnd: this.detailDistance,
       horizonFadeStart: this.horizonFade.start.value,
       horizonFadeEnd: this.horizonFade.end.value,
+      roadFadeStart: this.horizonFade.roadStart.value,
+      roadFadeEnd: this.horizonFade.roadEnd.value,
       building: this.building,
       ready: this.ready,
     };
