@@ -115,12 +115,31 @@ const CSS = `
 /* Filled by src/ui/journal.ts through HUD.setQuests. Anchored at 38% of the
    height because the right column already holds the shard pill, the bag (which
    GROWS DOWNWARD) and the readied orb — a tracker docked under the bag would have
-   to guess its height. No panel around it: this is prose, so the text-shadow
-   carries legibility instead. Opt-out per quest — see hudFlag in main.ts. */
+   to guess its height. No PANEL around it — no border, no blur, nothing with an
+   edge — because this is prose; legibility comes from the text-shadow and the
+   soft wash on ::before below. Opt-out per quest — see hudFlag in main.ts. */
 .bs-quests{position:absolute;top:38%;right:16px;left:auto;max-width:min(320px,42vw);
   display:flex;flex-direction:column;align-items:flex-end;text-align:right;gap:9px;
   transition:opacity .2s ease;
+  /* Own stacking context, so the wash below is BEHIND this text and nothing
+     else: a bare z-index:-1 would sink through to whatever the HUD sits on. */
+  isolation:isolate;
   text-shadow:0 1px 3px rgba(0,0,0,.75),0 0 10px rgba(0,0,0,.55)}
+/* The wash the text sits on. RADIAL and anchored at the screen edge, not a
+   linear band: darkest where the tracker meets the edge and falling off in
+   every inward direction, so it has no side to show a seam on. The text-shadow
+   above still does the close-in work — this is for the case the shadow cannot
+   answer, which is bright ground (sand, snow, water glare) directly behind
+   white text. Never opaque: it is a HUD over a game, and .55 is where the
+   letters hold without the world going grey behind them.
+   Insets: to the screen edge on the right, wide on the left to give the fade
+   the room it needs to be invisible. */
+.bs-quests::before{content:"";position:absolute;inset:-14px -16px -16px -44px;
+  z-index:-1;pointer-events:none;
+  background:radial-gradient(115% 105% at 100% 50%,
+    rgba(4,8,14,.55) 0%,rgba(4,8,14,.42) 32%,rgba(4,8,14,.20) 60%,rgba(4,8,14,0) 82%)}
+/* Nothing to wash when there is no quest, or the empty corner darkens. */
+.bs-quests:empty::before{content:none}
 .bs-quests .q{display:flex;flex-direction:column;align-items:flex-end}
 .bs-quests .qt-n{display:flex;align-items:baseline;flex-direction:row-reverse;gap:7px;
   font-size:16px;font-weight:800;letter-spacing:.02em;color:#fff}
