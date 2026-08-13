@@ -8,7 +8,7 @@ export default defineConfig({
   base: "./",
   plugins: [blendGlb()],
   build: {
-    target: "es2022",
+    target: "es2025",
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       input: {

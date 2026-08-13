@@ -500,8 +500,16 @@ export function* buildTerrainMeshSteps(
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
-  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  // Half precision — see the same pair in core/voxel.ts for the range argument and
+  // the cast. Terrain is the largest resident buffer set, so the halving is worth most here.
+  geo.setAttribute(
+    "normal",
+    new THREE.BufferAttribute(new Float16Array(nrm) as unknown as THREE.TypedArray, 3),
+  );
+  geo.setAttribute(
+    "color",
+    new THREE.BufferAttribute(new Float16Array(col) as unknown as THREE.TypedArray, 3),
+  );
   geo.setIndex(idx);
   geo.computeBoundingSphere();
 
