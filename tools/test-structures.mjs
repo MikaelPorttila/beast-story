@@ -519,7 +519,10 @@ const BUDGET = {
   // field — so a resident is one collider, and a hamlet that gains a person
   // gains one. Gain has always been the Encampment's 64th.
   redbriar: { total: 37, roofs: 1 }, // 1 hut, 1 miller
-  stonewatch: { total: 39, roofs: 1 }, // 1 hut
+  // 39 -> 40 WHEN COIL TOOK THE TOWER (issue #151), by the same arithmetic as
+  // Redbriar above: a resident is one collider, measured off the voxel model her
+  // builder painted.
+  stonewatch: { total: 40, roofs: 1 }, // 1 hut, 1 warden
 };
 /**
  * How far a roof cylinder may stand off its own thatch, world units.

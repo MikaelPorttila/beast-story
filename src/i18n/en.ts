@@ -214,6 +214,11 @@ export const en = {
   // that something is what you fight. The animal itself is never touched.
   "quest.land.theRedThread.obj.freeTheSproutle": "Cut the Sproutle loose from what is holding it",
   "quest.land.theRedThread.obj.recoverShard": "Recover the shard beside it",
+  "quest.land.theBellwether.name": "The Bellwether",
+  "quest.land.theBellwether.desc":
+    "Stonewatch's drove herd has one animal leading it, and the rest of the valley is following that one. Warden Coil is at the tower, and she already knows more about your shard than you do.",
+  "quest.land.theBellwether.obj.meetTheWarden": "Hear Warden Coil out at Stonewatch",
+  "quest.land.theBellwether.obj.defeatBellwether": "Put down the Bellwether on the drove ground",
   "toast.equipped": "{item} equipped",
   "toast.unequipped": "{item} put away",
   // `{currency}` rather than the word: the currency's name is one entry in this
@@ -323,6 +328,23 @@ export const en = {
     "That is not a stone. Look at the edge — somebody CUT that, and the thread is still warm. This was never a sickness. Take it to Stonewatch; Warden Coil has been asking after things exactly like it.",
   "npc.mera.q3.done":
     "Six of them, and you walked every step of it. Then stop walking — that beast of yours has been keeping your pace all day and it never once had to. Get up on it. You will want the speed before this is finished.",
+
+  // Warden Sela Coil, Stonewatch (issue #151). She is the first person in the
+  // story who is not surprised — she has three shards of her own and has been
+  // waiting for somebody to turn up with a fourth. Her lines carry the act's
+  // close: the shards were made, they are not from this valley, and the salt on
+  // them says where they came from.
+  "npc.coil.name": "Warden Sela Coil",
+  "npc.coil.greeting":
+    "Watch the herd from up here long enough and you stop asking what is wrong with them and start asking who wants them that way.",
+  "npc.coil.q5.offer":
+    "One animal leads that herd and the rest of the valley follows it. I have three pieces like the one in your bag and no fourth, so I will trade you straight: put the Bellwether down out on the drove ground, and I will tell you what they are.",
+  "npc.coil.q5.busy":
+    "Out on the open ground, and do not try to outrun it on foot. That is what the beast under you is for.",
+  "npc.coil.q5.done":
+    "Salt. Look at the seam — every one of the four is cut the same and every one of them tastes of the sea, and there is no sea in Embervale. Whatever is doing this to my herd was made somewhere with a tide. I am going to the coast.",
+  "npc.coil.after":
+    "The coast, then. Gain will follow, and he will not tell you why — he never does until it is too late to argue.",
 
   // The three who live on Skyhaven. Their lines are the one place the game
   // explains what the island IS, so each of them says a different part of it:
@@ -610,6 +632,10 @@ export const en = {
   // onto at the Hold's floor (issue #150), and the first thing in the game that
   // was PUT somewhere by somebody.
   "enemy.threadAnchor.name": "Thread Anchor",
+  // The lead animal of a flock is the one wearing the bell, and the rest follow
+  // it wherever it goes — which is the whole of what has gone wrong in the
+  // valley, said in one word (issue #151).
+  "enemy.bellwether.name": "The Bellwether",
 
   // ---- biomes --------------------------------------------------------------
   // Keyed by the BiomeId in src/world/terrain.ts, which is also the AREA key

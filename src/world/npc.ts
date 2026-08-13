@@ -54,6 +54,7 @@ import { type RoadClearance } from "./roads";
 import { flags } from "../core/flags";
 import { GAIN_BODY } from "./npc-gain";
 import {
+  COIL_BODY,
   MERA_BODY,
   SKY_GARDENER_BODY,
   SKY_LAMPLIGHTER_BODY,
@@ -152,14 +153,15 @@ export interface NpcBody {
  */
 export const NPC_BODIES: Readonly<Record<string, NpcBody>> = {
   gain: GAIN_BODY,
-  // The working people: three on the flying island (issue #68) and Redbriar's
-  // miller (issue #149). One builder, one palette and one idle each — see
+  // The working people: three on the flying island (issue #68), Redbriar's
+  // miller (issue #149) and Stonewatch's warden (issue #151). One builder, one palette and one idle each — see
   // world/npc-villagers.ts for why the variety is in the skin rather than in
   // four copies of a skeleton.
   "sky-pilot": SKY_PILOT_BODY,
   "sky-gardener": SKY_GARDENER_BODY,
   "sky-lamplighter": SKY_LAMPLIGHTER_BODY,
   mera: MERA_BODY,
+  coil: COIL_BODY,
 };
 
 /**

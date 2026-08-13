@@ -67,6 +67,9 @@ import { BEAST_CYCLE_SLOTS } from "../src/core/types.ts";
 // The standing stones: three models stamped at one point, like a town's glow pairs.
 import { buildWaypointRig } from "../src/world/waypoints.ts";
 import { NPC_BODIES } from "../src/world/npc.ts";
+// The enemy SHAPES, split out of combat/enemies.ts so this process can build them
+// without a content runtime — see that file's header (issue #151).
+import { ENEMY_MODELS } from "../src/combat/enemy-models.ts";
 // The taming orbs (issue #4). A projectile is a model like any other, and
 // `ITEMS` is where the four colours are written down — the same single source
 // the thrown mesh and the bag glyph are both tinted from.
@@ -763,12 +766,44 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
   results.push(worst);
 }
 
+// -- enemies ----------------------------------------------------------------
+//
+// THE SHAPES A WILD THING WEARS, and until issue #151 they were the only bodies
+// in the game nothing here looked at — not because they were exempt but because
+// they lived beside the content runtime, which this process cannot boot.
+// `src/combat/enemy-models.ts` is the split that fixes it: the builders, the
+// voxel painter and one type.
+//
+// NO POSE SWEEP, deliberately. An enemy's animator is a method on `Enemy`, and
+// `Enemy` needs content, a world and a scene — so what is checked is the BIND
+// pose, which is where an authoring mistake lives, plus the three variants,
+// because a variant is a palette and a palette can hide or expose a seam by
+// making two coincident faces the same colour. The rigs whose animators can be
+// driven (the hero, the beasts, the NPCs) get their sweeps above.
+for (const [id, build] of ENEMY_MODELS) {
+  let worst = null;
+  for (let vi = 0; vi < 3; vi++) {
+    const root = new THREE.Group();
+    const body = build(root, {
+      element: "grass",
+      main: [0x6fd84f, 0xa06ce0, 0x3fb2f2][vi],
+      dark: [0x47a833, 0x7245b0, 0x2a84c6][vi],
+      belly: [0xbdf29c, 0xd9b8ff, 0xa8e8ff][vi],
+      accent: [0x1c3a14, 0x2c1450, 0x0d2c48][vi],
+    });
+    const r = checkRig(id, root, body.parts, null);
+    if (!worst || r.worstSeamArea > worst.worstSeamArea) {
+      worst = r;
+    }
+  }
+  results.push(worst);
+}
+
 // -- the waystones ----------------------------------------------------------
 //
-// Three models stacked on one spot — a dais, a ring of pillars and the column of
-// light between them — which is the exact shape this tool exists for: they are
-// separate `VoxelModel`s, so the face culling inside `build()` cannot see across
-// the pair, and the column stands in the middle of the ring at the same scale.
+// Two models stamped on one spot — the plate and the column of light standing on
+// it — which is the shape this tool exists for: they are separate `VoxelModel`s,
+// so the face culling inside `build()` cannot see across the pair.
 {
   const rig = buildWaypointRig();
   results.push(checkRig("waystone", rig.group, {}, null));
@@ -941,6 +976,15 @@ const BUDGET = {
   "sky-gardener": 0,
   "sky-lamplighter": 0,
   mera: 0,
+  coil: 0,
+  // The four enemy shapes, guarded since issue #151 split them out of the file
+  // that holds their behaviour. Clean at the bind pose in all three variants.
+  gloopling: 0,
+  snortle: 0,
+  peckit: 0,
+  bellwether: 0,
+  // The waystone's two models, clean since they landed.
+  waystone: 0,
   // The settlement's glow pairs, and they are a different kind of entry: these
   // are not debt, they are a defect that was found and fixed. All three were
   // seams the day this section was written — 0.0784 m2 on the campfire and the
