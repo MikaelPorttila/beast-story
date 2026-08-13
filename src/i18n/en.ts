@@ -812,9 +812,8 @@ export const en = {
   "menu.title": "Beast Story: Bonds of Red",
   "menu.pressStart": "Press start...",
   "menu.newGame": "New Game",
-  "menu.load": "Load",
-  /** Sits under Load, and goes away with the reason — see renderPanel. */
-  "menu.load.unavailable": "No saved game",
+  /** The key is the STEP; the label is what a returning player calls it. */
+  "menu.load": "Continue",
   "menu.settings": "Settings",
   "menu.back": "Back",
   "menu.settings.title": "Settings",

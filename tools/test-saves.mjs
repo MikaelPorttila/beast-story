@@ -683,12 +683,24 @@ const readState = (page) =>
   await page.waitForSelector(".bs-menu");
   await leaveSplash(page);
 
-  // Load is down before there is anything to load, and the note says why.
-  out.menu = await page.evaluate(() => ({
-    loadDisabled: document.querySelector('.bs-menu [data-act="load"]')?.disabled ?? null,
-    note: document.querySelector(".bs-menu .note")?.textContent ?? null,
-  }));
-  check(out.menu.loadDisabled === true, "Load is live on a machine with no characters");
+  // Continue is ABSENT before there is anything to continue - not disabled, and
+  // with no note under it either. Both halves are asserted: the button is gone
+  // AND New Game has taken the primary, or a first run has no obvious move on it.
+  out.menu = await page.evaluate(() => {
+    const opts = [...document.querySelectorAll(".bs-menu .bs-opts [data-act]")];
+    return {
+      loadPresent: !!document.querySelector('.bs-menu [data-act="load"]'),
+      note: document.querySelector(".bs-menu .note")?.textContent ?? null,
+      order: opts.map((b) => b.getAttribute("data-act")),
+      primary: opts.find((b) => b.classList.contains("primary"))?.getAttribute("data-act") ?? null,
+    };
+  });
+  check(out.menu.loadPresent === false, "Continue is on the title screen with nothing to continue");
+  check(out.menu.note === null, `a note still sits under the options: ${out.menu.note}`);
+  check(
+    out.menu.primary === "new",
+    `New Game is not the primary on a fresh machine (${out.menu.primary} is)`,
+  );
 
   await page.click('.bs-menu [data-act="new"]');
   await page.waitForSelector(".bs-name-input");
@@ -793,15 +805,30 @@ const readState = (page) =>
 
   // READ THE SCREEN, not the store. That the record exists was never the bug —
   // the bug is a poster that has not heard of it, so the button is the reading.
-  const afterFirst = await page.evaluate(async () => ({
-    loadDisabled: document.querySelector('.bs-menu [data-act="load"]')?.disabled ?? null,
-    active: window.__dbgSaves.active(),
-    stored: (await window.__dbgSaves.list()).map((r) => r.name),
-  }));
+  const afterFirst = await page.evaluate(async () => {
+    const opts = [...document.querySelectorAll(".bs-menu .bs-opts [data-act]")];
+    return {
+      loadPresent: !!document.querySelector('.bs-menu [data-act="load"]'),
+      order: opts.map((b) => b.getAttribute("data-act")),
+      primary: opts.find((b) => b.classList.contains("primary"))?.getAttribute("data-act") ?? null,
+      active: window.__dbgSaves.active(),
+      stored: (await window.__dbgSaves.list()).map((r) => r.name),
+    };
+  });
   out.secondCharacter = { afterFirst };
   check(
-    afterFirst.loadDisabled === false,
+    afterFirst.loadPresent === true,
     "the character just played is not on the title screen without a page reload",
+  );
+  // The OTHER half of the pair above: once it appears it appears FIRST, and
+  // takes the primary with it.
+  check(
+    afterFirst.order[0] === "load",
+    `Continue is not the first option once a character exists (${afterFirst.order.join(", ")})`,
+  );
+  check(
+    afterFirst.primary === "load",
+    `Continue is not the primary once a character exists (${afterFirst.primary} is)`,
   );
   check(
     afterFirst.active === null,

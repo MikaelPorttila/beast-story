@@ -289,12 +289,15 @@ export class StartMenu {
     if (this.step === "press") {
       panel.innerHTML = `<div class="press">${escapeHtml(t("menu.pressStart"))}</div>`;
     } else if (this.step === "options") {
+      // Continue leads, and is ABSENT rather than disabled with nothing to
+      // continue: a dead button and a note explaining it is a first-run player
+      // reading about a feature they cannot have. The primary follows the same
+      // rule — whichever of the two is the returning player's obvious move.
       const canLoad = this.saves.length > 0;
       panel.innerHTML =
         '<div class="bs-opts">' +
-        this.btn("new", t("menu.newGame"), "primary") +
-        this.btn("load", t("menu.load"), canLoad ? "" : "disabled") +
-        (canLoad ? "" : `<div class="note">${escapeHtml(t("menu.load.unavailable"))}</div>`) +
+        (canLoad ? this.btn("load", t("menu.load"), "primary") : "") +
+        this.btn("new", t("menu.newGame"), canLoad ? "" : "primary") +
         this.btn("settings", t("menu.settings")) +
         this.btn("about", t("menu.about")) +
         "</div>";
