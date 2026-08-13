@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import { VoxelModel, shade } from "../core/voxel";
 import { hashCell, mulberry32 } from "./noise";
-import type { Terrain} from "./terrain";
+import type { Terrain } from "./terrain";
 import { CHUNK_SIZE, WATER_LEVEL, makeScratch, type ColumnScratch } from "./terrain";
 import { type RoadClearance } from "./roads";
 import { SWAY_BOUND_PAD } from "./sway";

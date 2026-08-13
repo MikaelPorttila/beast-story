@@ -10,7 +10,7 @@
  * to that over exactly the run the carve raises, and the ribbon is drawn on that
  * same surface out to that same edge.
  */
-import type { Terrain} from "./terrain";
+import type { Terrain } from "./terrain";
 import { WATER_LEVEL, smoothstep, type RoadField } from "./terrain";
 import { mulberry32 } from "./noise";
 import { MAX_CARVE_BLEND, ROAD_PROFILE, type PathProfile } from "./path-profile";

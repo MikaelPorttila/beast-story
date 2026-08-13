@@ -5220,9 +5220,9 @@ beginPlay();
   })),
   panel: journal.isOpen
     ? {
-        cards: [...document.querySelectorAll(".bs-journal .q")].map(
-          (q) => (q as HTMLElement).dataset.quest ?? "",
-        ),
+        cards: Iterator.from(document.querySelectorAll(".bs-journal .q"))
+          .map((q) => (q as HTMLElement).dataset.quest ?? "")
+          .toArray(),
         tabs: document.querySelectorAll(".bs-journal .chip.tab").length,
         steps: document.querySelectorAll(".bs-journal .steps li").length,
         stepsDone: document.querySelectorAll(".bs-journal .steps li.ok").length,
@@ -5233,7 +5233,9 @@ beginPlay();
       }
     : null,
   hud: {
-    quests: [...document.querySelectorAll(".bs-quests .qt-n")].map((n) => n.textContent ?? ""),
+    quests: Iterator.from(document.querySelectorAll(".bs-quests .qt-n"))
+      .map((n) => n.textContent ?? "")
+      .toArray(),
     steps: document.querySelectorAll(".bs-quests .qt-s span").length,
   },
 });
@@ -5314,16 +5316,18 @@ beginPlay();
           carrying: !!document.querySelector(".bs-inv .drag-ghost"),
           // WHO IS ACTUALLY IN THE STAGE'S SCENE, not who was asked for.
           stageCast: inventory.stageCast(),
-          footActions: [...document.querySelectorAll(".bs-inv .sel button")].map(
-            (b) => (b as HTMLElement).dataset.do ?? "",
-          ),
+          footActions: Iterator.from(document.querySelectorAll(".bs-inv .sel button"))
+            .map((b) => (b as HTMLElement).dataset.do ?? "")
+            .toArray(),
           tip: document.querySelector(".bs-inv .tip.on")?.textContent ?? null,
           // THE MOUNT BADGES as the DOM has them — `mounts` above is what the host believes, and reading the
           // same answer twice would prove nothing. What this catches is a badge drawn without its lit state.
-          mountBadges: [...document.querySelectorAll(".bs-inv .mt")].map((b) => ({
-            kind: (b as HTMLElement).dataset.tip ?? "",
-            on: b.classList.contains("on"),
-          })),
+          mountBadges: Iterator.from(document.querySelectorAll(".bs-inv .mt"))
+            .map((b) => ({
+              kind: (b as HTMLElement).dataset.tip ?? "",
+              on: b.classList.contains("on"),
+            }))
+            .toArray(),
           selected:
             (document.querySelector(".bs-inv .slot.sel") as HTMLElement | null)?.dataset.sel ??
             null,

@@ -12,7 +12,7 @@ import { t, type StringKey } from "../i18n";
 import { content, defineFactory, resolveText, TOWN_LAYOUT_KIND, type TownData } from "../content";
 import type { ContentText } from "../content/types";
 import { displayKey, reportContentIssue } from "../core/content-bridge";
-import type { Terrain} from "./terrain";
+import type { Terrain } from "./terrain";
 import { WATER_LEVEL, type GroundPatch } from "./terrain";
 import {
   RoadNetwork,
@@ -31,8 +31,7 @@ import {
 import { ROAD_PROFILE, trackProfile } from "./path-profile";
 import { Accum, bakeProp, type PropLib, type Template } from "./props";
 import { SolidStamp, StructureField, footprintRadius } from "./structures";
-import type {
-  TownParts} from "./town-parts";
+import type { TownParts } from "./town-parts";
 import {
   V,
   FENCE_POST_R,

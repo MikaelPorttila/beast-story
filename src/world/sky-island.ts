@@ -8,7 +8,7 @@
 import * as THREE from "three";
 import type { CelestialState, TownInfo, TownRegistry } from "../core/types";
 import { CarrierBody } from "./carriers";
-import type { PropLib} from "./props";
+import type { PropLib } from "./props";
 import { Accum, bakeProp, type Template } from "./props";
 import { SolidStamp, StructureField } from "./structures";
 import { Npcs, type NpcFrame, type NpcSite } from "./npc";

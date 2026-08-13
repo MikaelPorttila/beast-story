@@ -162,14 +162,17 @@ export class PackageLoader {
   }
 
   get packages(): readonly PackageInfo[] {
-    return [...this.loaded.values()].map((p) => ({
-      id: p.id,
-      version: p.version,
-      source: p.source,
-      assets: [...p.assets],
-      requires: [...p.requires],
-      leases: [...p.leases],
-    }));
+    return this.loaded
+      .values()
+      .map((p) => ({
+        id: p.id,
+        version: p.version,
+        source: p.source,
+        assets: [...p.assets],
+        requires: [...p.requires],
+        leases: [...p.leases],
+      }))
+      .toArray();
   }
 
   isLoaded(pkg: PackageId): boolean {

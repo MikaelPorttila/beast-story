@@ -4,7 +4,7 @@
  * driving Fresnel sky reflection and a sun glint, plus coast-following foam.
  */
 import * as THREE from "three";
-import type { Terrain} from "./terrain";
+import type { Terrain } from "./terrain";
 import { CHUNK_SIZE, WATER_LEVEL } from "./terrain";
 
 /** Width of the radial handoff from detailed water to the far landscape sheet. */
