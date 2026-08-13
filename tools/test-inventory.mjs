@@ -1633,6 +1633,70 @@ export const sections = [
       };
     },
   },
+
+  // ---------- marking an item does not resize its picture ----------
+  //
+  // `sel` names TWO things in this panel: the footer strip that describes the
+  // marked item, and the mark on the slot itself. The footer's own block was
+  // written as a descendant selector, so it also matched `.slot.sel` — a slot
+  // is declared as a centring grid and was being turned into a flex row with
+  // the strip's padding, gap and border-top. The icon inside it collapsed from
+  // 25.5px square to 9.3x19.3, so clicking an item shrank its picture.
+  //
+  // ASSERTED AS "THE SAME SIZE IT WAS", not against a literal: the wall's
+  // slot size follows the panel width and the icon kinds have their own scales
+  // (an atlas tile fills the cell, a blob is 62% of it, a glyph 70%). What must
+  // hold is that marking changes NEITHER, so the reading is the same element
+  // measured either side of one click.
+  {
+    id: "markKeepsIconSize",
+    run: async (ctx) => {
+      await openPanel(ctx);
+      const pick = () =>
+        ctx.ev(() => {
+          const slots = [...document.querySelectorAll(".bs-inv .grid .slot")];
+          const s = slots.find((x) => !x.classList.contains("empty") && x.querySelector(".ic"));
+          if (!s) {
+            return null;
+          }
+          const r = s.querySelector(".ic").getBoundingClientRect();
+          return {
+            marked: s.classList.contains("sel"),
+            display: getComputedStyle(s).display,
+            icon: [+r.width.toFixed(2), +r.height.toFixed(2)],
+          };
+        });
+      // Mark a DIFFERENT slot first, so the one measured starts unmarked
+      // whatever the panel selected for itself on open.
+      await ctx.ev(() => {
+        const slots = [...document.querySelectorAll(".bs-inv .grid .slot")];
+        const other = slots.filter((x) => !x.classList.contains("empty"))[1];
+        other?.click();
+      });
+      await ctx.frame();
+      const before = await pick();
+      if (!before) {
+        throw new Error("no filled slot with an icon to measure");
+      }
+      await ctx.ev(() => {
+        const slots = [...document.querySelectorAll(".bs-inv .grid .slot")];
+        slots.find((x) => !x.classList.contains("empty") && x.querySelector(".ic"))?.click();
+      });
+      await ctx.frame();
+      const after = await pick();
+      ctx.res.markKeepsIconSize = { before, after };
+      ctx.check(after.marked, "clicking a filled slot did not mark it - nothing was proven");
+      ctx.check(
+        after.icon[0] === before.icon[0] && after.icon[1] === before.icon[1],
+        `marking resized the icon: ${before.icon.join("x")} -> ${after.icon.join("x")}`,
+      );
+      // The cause, named, so a future collision is reported as itself.
+      ctx.check(
+        after.display === before.display,
+        `marking changed the slot's own layout: ${before.display} -> ${after.display}`,
+      );
+    },
+  },
 ];
 
 if (import.meta.main) {

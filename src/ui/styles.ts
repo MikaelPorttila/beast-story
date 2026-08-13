@@ -681,23 +681,32 @@ const CSS = `
   box-shadow:0 10px 26px rgba(0,0,0,.5),0 0 20px -6px var(--el)}
 
 /* THE FOOTER STRIP. The constructive action is a right-click and is only NAMED
-   here — see ui/inventory.ts's header. */
-.bs-inv .sel{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:26px;
+   here — see ui/inventory.ts's header.
+
+   The ".pane>" IS LOAD-BEARING, not tidiness. "sel" means two things in this
+   panel: the footer element, and the mark on whichever slot the footer is
+   describing. Written as a descendant selector this block also caught
+   ".slot.sel" and ".gs.sel" — turning a slot from the centring grid it is
+   declared as into a flex row with this strip's padding, gap and border-top,
+   which collapsed the icon inside it from 25.5px to 9.3x19.3. Marking an item
+   made its picture shrink. Keep this scoped to the child of .pane it describes.
+   (No backticks in here: this stylesheet is a template literal.) */
+.bs-inv .pane>.sel{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:26px;
   padding:10px 18px;border-top:1px solid rgba(255,255,255,.1)}
-.bs-inv .sel .nm{font-size:17px;font-weight:800;flex:1;min-width:0;
+.bs-inv .pane>.sel .nm{font-size:17px;font-weight:800;flex:1;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bs-inv .sel .bs-buy{flex:none;display:inline-flex;align-items:center;gap:7px;
+.bs-inv .pane>.sel .bs-buy{flex:none;display:inline-flex;align-items:center;gap:7px;
   padding:5px 12px 6px;font-size:16px}
 /* The binding, as a picture on its button. An unbound action has no icon (footHtml). */
-.bs-inv .sel .cap{display:block;width:17px;height:17px;opacity:.85}
-.bs-inv .sel .cap svg{width:100%;height:100%}
+.bs-inv .pane>.sel .cap{display:block;width:17px;height:17px;opacity:.85}
+.bs-inv .pane>.sel .cap svg{width:100%;height:100%}
 /* The primary action, a button only where there is no pointer to right-click with. */
-.bs-inv .sel .bs-buy.ghost{background:rgba(255,255,255,.1);color:#eef2f8;
+.bs-inv .pane>.sel .bs-buy.ghost{background:rgba(255,255,255,.1);color:#eef2f8;
   border:1px solid rgba(255,255,255,.18);box-shadow:none}
-.bs-inv .sel .bs-buy.ghost:hover{background:rgba(255,255,255,.18)}
-.bs-inv .sel .bs-buy.danger{background:rgba(255,90,80,.12);color:#ff9d95;
+.bs-inv .pane>.sel .bs-buy.ghost:hover{background:rgba(255,255,255,.18)}
+.bs-inv .pane>.sel .bs-buy.danger{background:rgba(255,90,80,.12);color:#ff9d95;
   border:1px solid rgba(255,90,80,.34);box-shadow:none}
-.bs-inv .sel .bs-buy.danger:hover{background:rgba(255,90,80,.24);color:#fff}
+.bs-inv .pane>.sel .bs-buy.danger:hover{background:rgba(255,90,80,.24);color:#fff}
 
 /* THE TOOLTIP, positioned against the VIEWPORT rather than inside the panel,
    because it has to be able to leave it. See moveTip for the clamping. */
@@ -1639,7 +1648,7 @@ const CSS = `
   .bs-inv .grid{gap:4px;padding:9px 10px}
   .bs-inv .slot{border-radius:7px;padding:2px}
   .bs-inv .slot .n{top:1px;left:3px}
-  .bs-inv .sel{padding:9px 14px}
+  .bs-inv .pane>.sel{padding:9px 14px}
   /* Toasts: one at a time (see HUD.addToast), clear of the control clusters,
      and clamped to two short lines so a long instruction string can never grow
      into a screen-eating panel. */
