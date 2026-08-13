@@ -364,7 +364,7 @@ async function goToWild(species) {
   // throw is retried, and the bag is topped up first so an empty one can never
   // be mistaken for a bad flight. SIX attempts, because the miss rate against a
   // live wild Sproutle at 3-4 units measured about one throw in three (issue
-  // #197) — three attempts still lost one run in three.
+  // #198) — three attempts still lost one run in three.
   await dbg(() => window.__dbgGive("orb-tame", 8));
   let found = null;
   let hurt = null;

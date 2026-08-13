@@ -1121,7 +1121,8 @@ async function consoleClosed(tries = 40) {
     const load = await rt.load("probe-bad", "editor");
     const validation = rt.validate("dev", []);
     // The RAW diagnostics: `shape` lives in this file's module scope and a
-    // page.evaluate body is compiled in the page, where it does not exist.
+    // page.evaluate body is compiled in the page, where it does not exist. The
+    // crash this fixes had been hiding 15 stale assertions — issue #197.
     return { load: load.diagnostics, validation };
   });
   bad.load = bad.load.map(shape);
