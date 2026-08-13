@@ -3497,11 +3497,11 @@ const spawnCatalogue: SpawnCatalogue = {
       })),
     },
     /**
-     * THE QUEST YOU ARE PLAYING, FINISHED. A row per quest the journal would
-     * offer or is tracking, and clicking one hands it in from here: every
-     * objective filled to its count, then the status set — which is the ONE
-     * seam a real turn-in goes through, so `onComplete` runs, the rewards are
-     * paid and whatever the quest unlocks unlocks. There is no second path.
+     * THE QUEST YOU ARE PLAYING, DRIVEN. A row per quest the journal would offer
+     * or is tracking, and clicking one takes the next step the quest itself is
+     * up to: an offered quest is ACCEPTED, an accepted one is HANDED IN. Two
+     * presses cross a quest, which is the shape a tester needs — the state in
+     * between is the one a real acceptance produces.
      *
      * It exists because the alternative is playing an act to reach the quest
      * after it, and a story of twenty quests cannot be tested from the front
@@ -3522,7 +3522,9 @@ const spawnCatalogue: SpawnCatalogue = {
           id: asset.id,
           label: resolveText(asset.name, `[${asset.id}]`),
           // The id carries the arc, so a search for "land" finds the act.
-          hint: content.state.questStatus(asset.id) === "active" ? "active" : "available",
+          // What the CLICK will do, which is the row's whole affordance: an offered
+          // quest is accepted, an accepted one is handed in.
+          hint: content.state.questStatus(asset.id) === "active" ? "hand in" : "accept",
         })),
     },
     {
@@ -3555,7 +3557,7 @@ const spawnCatalogue: SpawnCatalogue = {
       return e ? `${t("spawn.placed")} ${rowId}` : t("spawn.unknown");
     }
     if (branchId === "quests") {
-      return devFinishQuest(rowId);
+      return devDriveQuest(rowId);
     }
     if (branchId === "structures") {
       const spawner = world.debugSpawn;
@@ -3650,30 +3652,43 @@ const pathEdit: PathEditControl = {
 };
 
 /**
- * Hand a quest in from the Debug panel: fill it, then complete it.
+ * Drive a quest one step from the Debug panel: ACCEPT it, or hand it in.
  *
- * FILLED FIRST, and not merely marked done, because progress is a fact other
- * content reads — a dialogue row testing an objective's count is how a giver
- * decides what to say, and a quest completed with its counters at zero leaves
- * the world disagreeing with the journal about what happened. An unknown or
- * already-finished id is reported rather than acted on: a panel row is user
- * input, which is the same rule `spawnOne` follows.
+ * WHICH STEP IS THE QUEST'S OWN STATE, not a second row: an offered quest is
+ * accepted, an accepted one is filled and completed. That is the order a player
+ * walks and it is the order a tester needs — the row is pressed twice to cross a
+ * quest, and the journal in between is the one a real acceptance produces.
+ *
+ * Both steps go through the ONE seam a real quest goes through, `setQuestStatus`
+ * — the lifecycle runner is what pays `onStart` and `onComplete`, so nothing
+ * here hands out anything itself and there is no second path through a quest.
+ *
+ * FILLED BEFORE COMPLETED, and not merely marked done, because progress is a
+ * fact other content reads: a giver's dialogue tests an objective's count to
+ * decide what to say, so a finished quest with its counters at zero leaves the
+ * world disagreeing with the journal. An unknown or already-finished id is
+ * reported rather than acted on — a panel row is user input, the same rule
+ * `spawnOne` follows.
  */
-function devFinishQuest(id: string): string {
+function devDriveQuest(id: string): string {
   const asset = content.get<QuestData>(id);
   if (!asset) {
     return t("spawn.unknown");
   }
-  if (content.state.questStatus(id) === "completed") {
-    return `${t("spawn.questDone")} ${resolveText(asset.name, `[${asset.id}]`)}`;
+  const name = resolveText(asset.name, `[${asset.id}]`);
+  const status = content.state.questStatus(id);
+  if (status === "completed") {
+    return `${t("spawn.questDone")} ${name}`;
+  }
+  if (status !== "active") {
+    content.state.setQuestStatus(id, "active");
+    return `${t("spawn.questTaken")} ${name}`;
   }
   for (const objective of asset.data.objectives) {
     content.state.setProgress(id, objective.key, objective.count ?? 1);
   }
-  // The one seam: `onComplete` and the rewards hang off this status change (see the lifecycle runner
-  // above), so nothing here pays anything out itself.
   content.state.setQuestStatus(id, "completed");
-  return `${t("spawn.questDone")} ${resolveText(asset.name, `[${asset.id}]`)}`;
+  return `${t("spawn.questDone")} ${name}`;
 }
 
 // Which quest is meant to grant each mount — the F3 rows' last column. Here rather than in

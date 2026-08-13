@@ -330,13 +330,12 @@ const setSearch = async (text) => {
   await doSpawn("structures", "*clear");
 }
 
-// ---------- 9. a quest is handed in from the panel ---------------------------
-// THE ROW IS A TURN-IN, not a status flip, and both halves are asserted: the
-// quest completes AND is paid for, because a row that only marked it done would
-// leave a tester with a journal that says one thing and a world that says
-// another. The counters are the third half — content reads them (a giver's
-// dialogue tests an objective's count), so a finished quest with zeroes in it is
-// a state no play can produce.
+// ---------- 9. a quest is accepted, then handed in, from the panel -----------
+// TWO PRESSES CROSS A QUEST, and the state in between is the assertion: the
+// first click leaves it ACTIVE with its `onStart` run and nothing paid, the
+// second fills it, completes it and pays. A row that jumped straight to done
+// would pass a test that only looked at the end, and a tester would have no way
+// to see a quest's own middle.
 {
   await setSearch("");
   const factsOf = (id) =>
@@ -350,25 +349,34 @@ const setSearch = async (text) => {
     }, id);
   const shards = () => page.evaluate(() => window.__dbgZone().shards);
 
-  // Whatever the campaign is offering right now, off the PANEL — so this cannot
-  // pass against a tree offering ids the handler does not take, and it does not
-  // go stale when Act 1 grows a quest.
+  // Off the PANEL, so this cannot pass against a tree offering ids the handler
+  // does not take, and it does not go stale when Act 1 grows a quest.
   const row = await page.evaluate(() =>
     window.__dbgSpawn().branches.find((b) => b.id === "quests"),
   );
   const first = "quest:land/first-light";
   const before = { ...(await factsOf(first)), shards: await shards() };
+  const took = await doSpawn("quests", first);
+  const mid = { ...(await factsOf(first)), shards: await shards() };
   const said = await doSpawn("quests", first);
   const after = { ...(await factsOf(first)), shards: await shards() };
-  results.quests = { rows: row?.rows ?? 0, said, before, after };
-  check((row?.rows ?? 0) > 0, "the panel offers no quest to hand in");
+  results.quests = { rows: row?.rows ?? 0, took, said, before, mid, after };
+
+  check((row?.rows ?? 0) > 0, "the panel offers no quest to drive");
   check(before.status !== "completed", `${first} was already completed before the row was clicked`);
-  check(after.status === "completed", `${first} is "${after.status}" after the row was clicked`);
+  // THE ACCEPTANCE. Active, and paid nothing — the reward belongs to the turn-in.
+  check(mid.status === "active", `${first} is "${mid.status}" after one click, not accepted`);
+  check(
+    mid.shards === before.shards,
+    `accepting a quest paid ${mid.shards - before.shards} Cubloons — the reward is the turn-in's`,
+  );
+  // THE TURN-IN.
+  check(after.status === "completed", `${first} is "${after.status}" after the second click`);
   // ITS OWN `onComplete` RAN: the flags are the quest's, not the panel's.
   check(after.flags.includes("taming-learned"), "the quest's own onComplete did not run");
   check(
-    after.shards > before.shards,
-    `the turn-in paid ${after.shards - before.shards} Cubloons — the row marked it done and nothing else`,
+    after.shards > mid.shards,
+    `the turn-in paid ${after.shards - mid.shards} Cubloons — the row marked it done and nothing else`,
   );
   check(
     after.progress.length > 0 && after.progress.every(([, n]) => n > 0),

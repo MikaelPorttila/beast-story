@@ -1136,7 +1136,8 @@ export const en = {
   // The quest rows are a DEVELOPER instrument and say so: this hands a quest in
   // from the panel, rewards and all, so an act can be tested from its middle.
   "spawn.quests": "Quests",
-  "spawn.quests.note": "handed in from here — objectives filled, rewards paid",
+  "spawn.quests.note": "driven from here — click to accept, click again to hand in",
+  "spawn.questTaken": "accepted",
   "spawn.questDone": "handed in",
   "spawn.structures": "Structures",
   "spawn.structures.note": "built on the ground, where the crosshair points",
