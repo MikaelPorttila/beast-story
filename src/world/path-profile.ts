@@ -250,6 +250,28 @@ export const TRAIL_PROFILE = pathProfile({
   palette: TRAIL_PALETTE,
 });
 
+/**
+ * A waystone's spur: a trail with NO LITTER.
+ *
+ * The trail profile scatters pebbles along its verge, which is right for a
+ * footpath through open country and wrong for eight units of approach: one
+ * pebble in eight units lands on the carriageway and `test-road` is right to
+ * call it furniture standing in the road (issue #15). Everything else is the
+ * trail's — it draws, it carves, and it is a metre wide.
+ */
+export const SPUR_PROFILE = pathProfile({
+  id: "path:spur",
+  // WIDER THAN A TRAIL'S METRE, and the reason is the carve rather than the
+  // look: the ground is 1-unit cubes, and a carve band this narrow leaves a
+  // whole cube standing at its edge — `test-road` reads that as a 1.1 step in
+  // the walking surface, which is exactly what it is.
+  halfWidth: 1.5,
+  furniture: "none",
+  bridges: false,
+  litter: 0,
+  palette: TRAIL_PALETTE,
+});
+
 /** A settlement's beaten track: paints and keeps foliage off, nothing else. */
 export function trackProfile(halfWidth: number): PathProfile {
   // 0.45 / 0.55 is `Terrain.trampleAt`'s soft edge: full over the middle 45%.

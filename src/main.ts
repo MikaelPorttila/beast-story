@@ -76,6 +76,7 @@ import {
   type QuestData,
   type QuestRewards,
 } from "./content";
+import { isId } from "./content/ids";
 import type { ContentAsset, ContentId } from "./content/types";
 // Only the Vite entries may link a content provider: src/content/ must not statically reach
 // storage/bundled.ts (import.meta.glob breaks test-zfight under Bun), and this keeps boot off a fetch.
@@ -1047,6 +1048,8 @@ const zones = new ZoneManager({
     player.velocity.set(0, 0, 0);
     // No placement needed: follow-update teleports any beast further than TELEPORT_DIST away.
     bus.emit({ type: "toast", text: t("toast.enteredZone", { zone: def.name }) });
+    // The stones are the zone's, and a new zone's are dark until they are asked.
+    w.waypoints?.setLit(waypointLit);
     // ARRIVAL, for a quest that sent you here. Below the placement, so anything reading the fact sees
     // the hero already standing in the zone; `discover` is the zone's own id and not a town's.
     content.state.discover(`zone:${def.id}`);
@@ -1075,6 +1078,10 @@ let world: World = zones.world;
 // Zone-agnostic — the world is only a per-frame "is there water under the lens" answer — so it survives a switch without being in `bound`.
 const underwater = new Underwater(engine.scene, engine.camera, engine.renderer.domElement);
 const player = new Player(engine, world, input, bus);
+// WHERE A FAINT PUTS HIM BACK: the nearest stone this character has lit, or the world's own spawn when
+// he has lit none — which is what it always was. The policy is here and not in Player because "lit" is
+// a content fact and the player may not read one.
+player.respawnAt = (x, z) => world.waypoints?.nearestLit(x, z, waypointLit) ?? null;
 const combat = new CombatSystem(engine.scene, world, bus);
 const hud = new HUD(bus);
 // TAPS THE KEY, as the pad's Start and the touch MENU do; the one reader in `frame()` still decides what it means.
@@ -2081,6 +2088,11 @@ content.state.onChange((change) => {
   if (change.kind !== "discovery") {
     refreshQuests();
   }
+  // A DISCOVERY IS WHAT LIGHTS A STONE, so a load, a reset and a walk up to one
+  // all reach the same redraw. `setLit` is idempotent and compares before it writes.
+  if (change.kind === "discovery" || change.kind === "reset") {
+    world.waypoints?.setLit(waypointLit);
+  }
 });
 content.onDefinitionsChange(refreshQuests);
 refreshQuests();
@@ -2304,6 +2316,34 @@ function tickPracticeBeast(dt: number): void {
       return;
     }
   }
+}
+
+// THE STANDING STONES (world/waypoints.ts). Two rules, and both live here because both are about what
+// the CHARACTER has done: a stone is lit by walking up to it, and a faint puts him back at the nearest
+// one he has lit. The world sites them and draws them; which are lit is a content fact, and therefore
+// saved, loaded and reset with every other fact he owns.
+const waypointLit = (id: string): boolean => isId(id) && content.state.discovered(id);
+
+/** Polled rather than evented: a stone is a PLACE, and being at one is a distance. */
+let waypointPollIn = 0;
+
+function tickWaypoints(dt: number): void {
+  waypointPollIn -= dt;
+  if (waypointPollIn > 0) {
+    return;
+  }
+  waypointPollIn = PRACTICE_POLL;
+  const field = world.waypoints;
+  if (!field) {
+    return;
+  }
+  const at = field.touching(player.position.x, player.position.z);
+  if (!at || !isId(at.id) || waypointLit(at.id)) {
+    return;
+  }
+  content.state.discover(at.id);
+  field.setLit(waypointLit);
+  bus.emit({ type: "toast", text: t("toast.waypointLit") });
 }
 
 // THE HOLD'S FLOOR — the other end of the same idea, for `quest:land/the-red-thread` (issue #150).
@@ -4718,6 +4758,7 @@ function simulate(dt: number, first: boolean, interactive: boolean): void {
   // On the slice for the clock's reason: a quest's stage dressing is part of the world.
   tickPracticeBeast(dt);
   tickHoldStage(dt);
+  tickWaypoints(dt);
 
   // THE MOVING PARTS OF THE WORLD MOVE FIRST, before anything standing on them. Not inside `zones.update`
   // deliberately: that runs at the END of a slice, so riders would spend the delta a slice late. Above the
@@ -6601,6 +6642,27 @@ const _surfCellKey = (cx: number, cz: number): number => cx * 73856093 + cz * 19
     biome: world.biomeAt(e.position.x, e.position.z),
   })),
 });
+
+// THE STANDING STONES: where they are, which are lit, and which one a faint would use from here — the
+// three readings a probe needs, and the third is the POLICY rather than a copy of it.
+(window as unknown as { __dbgWaypoints: () => unknown }).__dbgWaypoints = () => {
+  const field = world.waypoints;
+  return {
+    zone: zones.id,
+    all: (field?.all ?? []).map((w) => ({
+      id: w.id,
+      x: +w.x.toFixed(2),
+      y: +w.y.toFixed(2),
+      z: +w.z.toFixed(2),
+      lit: waypointLit(w.id),
+      // Where its trail leaves the road, so a probe can walk the line the game
+      // cut rather than a line of its own.
+      from: w.from,
+    })),
+    touching: field?.touching(player.position.x, player.position.z)?.id ?? null,
+    respawnAt: player.respawnAt?.(player.position.x, player.position.z) ?? null,
+  };
+};
 
 (window as unknown as { __dbgDraws: () => number }).__dbgDraws = () =>
   engine.renderer.info.render.calls;

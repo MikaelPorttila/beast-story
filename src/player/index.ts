@@ -131,6 +131,8 @@ export class Player {
   hp = 100;
   maxHp = 100;
   isDead = false;
+  /** Set by the composition root: where a faint puts him back. See `respawn`. */
+  respawnAt: ((x: number, z: number) => { x: number; z: number } | null) | null = null;
   readonly faction = "player" as const;
   attackStat = 14;
   /** The ONE writer is `applyLoadout`; the rig is the storage, so nothing can disagree. */
@@ -392,7 +394,12 @@ export class Player {
     this.onCanopy = false;
     this.climbLockout = 0;
     this.velocity.set(0, 0, 0);
-    this.position.copy(this.world.spawnPoint);
+    // WHERE HE WAKES UP IS THE HOST'S, not this file's: which standing stones a
+    // character has lit is content state, and the player must not read it. Null
+    // — no resolver, or nothing lit — is the world's own spawn, which is where
+    // this always sent him.
+    const at = this.respawnAt?.(this.position.x, this.position.z) ?? null;
+    this.position.set(at?.x ?? this.world.spawnPoint.x, 0, at?.z ?? this.world.spawnPoint.z);
     this.position.y = this.world.getHeight(this.position.x, this.position.z);
     this.bus.emit({ type: "playerRevived" });
     this.bus.emit({ type: "toast", text: t("toast.revived") });

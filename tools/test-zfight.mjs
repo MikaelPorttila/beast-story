@@ -64,6 +64,8 @@ import { BEAST_CYCLE_SLOTS } from "../src/core/types.ts";
 // placement and dialogue are content and there is no content runtime in this
 // process — but a BODY is code, it is what this tool looks at, and the record is
 // still the one place a body is named. See the note on it in src/world/npc.ts.
+// The standing stones: three models stamped at one point, like a town's glow pairs.
+import { buildWaypointRig } from "../src/world/waypoints.ts";
 import { NPC_BODIES } from "../src/world/npc.ts";
 // The taming orbs (issue #4). A projectile is a model like any other, and
 // `ITEMS` is where the four colours are written down — the same single source
@@ -759,6 +761,17 @@ for (const [id, body] of Object.entries(NPC_BODIES)) {
     }
   }
   results.push(worst);
+}
+
+// -- the waystones ----------------------------------------------------------
+//
+// Three models stacked on one spot — a dais, a ring of pillars and the column of
+// light between them — which is the exact shape this tool exists for: they are
+// separate `VoxelModel`s, so the face culling inside `build()` cannot see across
+// the pair, and the column stands in the middle of the ring at the same scale.
+{
+  const rig = buildWaypointRig();
+  results.push(checkRig("waystone", rig.group, {}, null));
 }
 
 // -- town parts -------------------------------------------------------------

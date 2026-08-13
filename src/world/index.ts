@@ -31,6 +31,9 @@ import {
   type Exclusion,
 } from "./props";
 import { Shops, type DenSpot } from "./shops";
+import { Waypoints, waypointSites, WAYPOINT_PLATE_R, type WaypointSite } from "./waypoints";
+import { SPUR_PROFILE } from "./path-profile";
+import { levelPad, roadIntrusion } from "./placement";
 import { SiteFields } from "./structures";
 import { Towns, planSettlements, type SettlementPlan } from "./towns";
 import {
@@ -190,6 +193,19 @@ function findSpawn(terrain: Terrain): THREE.Vector3 {
  * always be a reachable shop); the rest step out so finding one is travel.
  */
 const DEN_RINGS = [18, 34, 50, 66];
+/** A den's pad: levelled core, and the ramp out to natural ground. */
+const DEN_PAD_CORE = 4.5;
+const DEN_PAD_BLEND = 9;
+/**
+ * How clear of a carriageway's RIM a den must stand.
+ *
+ * THE WHOLE PAD, not the building: a flatten ramps the ground out to `blend`,
+ * and a ramp that reaches a carriageway lifts the road with it — which the road
+ * probe reads as a step in the walking surface, because that is what it is. So
+ * the clearance is the pad's own reach plus a pace, and any placement that
+ * levels ground owes the same sum.
+ */
+const DEN_ROAD_CLEAR = DEN_PAD_BLEND + 2;
 /** Squared minimum spacing between two dens, and between a den and spawn. */
 const DEN_SEP2 = 27 * 27;
 const DEN_SPAWN_SEP2 = 15 * 15;
@@ -199,6 +215,7 @@ function placeShops(
   spawn: THREE.Vector3,
   seed: number,
   towns: TownRegistry,
+  roads: readonly Road[],
 ): DenSpot[] {
   const rng = mulberry32(seed ^ 0x5158);
   const spots: DenSpot[] = [];
@@ -216,11 +233,23 @@ function placeShops(
     return false;
   };
 
+  /**
+   * A den's own pad. Through `levelPad`, which is where the +0.55 convention is
+   * written down: a den is placed at `h` and the ground under it reports `h`.
+   */
   const commit = (x: number, z: number): void => {
-    const h = Math.max(Math.floor(terrain.heightCont(x, z)), WATER_LEVEL + 1);
-    spots.push({ x, z, h });
-    terrain.flattens.push({ x, z, h: h + 0.55, core: 4.5, blend: 9 });
+    spots.push({ x, z, h: levelPad(terrain, x, z, DEN_PAD_CORE, DEN_PAD_BLEND, WATER_LEVEL) });
   };
+
+  /**
+   * The rule that was missing: a den may not stand in a road.
+   *
+   * The dens are sited AFTER the road network is cut, so the roads are right
+   * there to ask — and until this line the pass never did, which is how a cart
+   * road came to run through one. `DEN_ROAD_CLEAR` is measured from the rim and
+   * is the den's own footprint plus a pace to walk round it.
+   */
+  const inRoad = (x: number, z: number): boolean => roadIntrusion(roads, x, z) > -DEN_ROAD_CLEAR;
 
   for (let k = 0; k < 4; k++) {
     const baseAng = (k / 4) * Math.PI * 2 + 0.62;
@@ -237,7 +266,7 @@ function placeShops(
       if (hc < WATER_LEVEL + 0.8) {
         continue;
       }
-      if (inTown(x, z)) {
+      if (inTown(x, z) || inRoad(x, z)) {
         continue;
       }
       const sx = x - spawn.x;
@@ -261,10 +290,25 @@ function placeShops(
       placed = true;
     }
     if (!placed) {
-      commit(
-        Math.round(spawn.x + Math.sin(baseAng) * ring) + 0.5,
-        Math.round(spawn.z + Math.cos(baseAng) * ring) + 0.5,
-      );
+      // THE LAST RESORT STILL STEPS OUT OF THE ROAD: walk the ring until the
+      // bearing is clear of one, rather than dropping a den on the gravel
+      // because the search ran out.
+      for (let k2 = 0; k2 < 24; k2++) {
+        const ang = baseAng + (k2 / 24) * Math.PI * 2;
+        const x = Math.round(spawn.x + Math.sin(ang) * ring) + 0.5;
+        const z = Math.round(spawn.z + Math.cos(ang) * ring) + 0.5;
+        if (!inRoad(x, z)) {
+          commit(x, z);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        commit(
+          Math.round(spawn.x + Math.sin(baseAng) * ring) + 0.5,
+          Math.round(spawn.z + Math.cos(baseAng) * ring) + 0.5,
+        );
+      }
     }
   }
   return spots;
@@ -490,6 +534,89 @@ const landmarkScratch = makeScratch();
 /** Its own, because `biomeAt` is asked from a spawn roll while a landmark pass may be walking the other. */
 const biomeScratch = makeScratch();
 
+/**
+ * A short trail from the carriageway to each waystone.
+ *
+ * ONE PATH SYSTEM (issue #142): a spur to a stone is a `Road` on the same
+ * network with the SPUR profile — a trail without its litter — so it is drawn,
+ * carved and walkable. A beaten `track` was the first cut and it is the wrong
+ * role here: a track only wears the grass, which reads as nothing at all across
+ * open ground, and the ask was for a small road you can see. It is
+ * STRAIGHT and unrouted, unlike `World.addPath`: eight to twenty units across
+ * ground the siting pass has already proved flat, dry and unbuilt, so there is
+ * nothing to route around and a router would only bend it for no reason.
+ *
+ * Added before any chunk exists, so nothing needs rebuilding — the network is
+ * built once at the end and every later query sees the spurs.
+ */
+function cutWaypointTrails(
+  terrain: Terrain,
+  plan: SettlementPlan,
+  towns: Towns | null,
+  stones: readonly WaypointSite[],
+): void {
+  const profile = SPUR_PROFILE;
+  let added = 0;
+  for (const stone of stones) {
+    if (!stone.from) {
+      continue;
+    }
+    const ax = stone.from.x;
+    const az = stone.from.z;
+    const full = Math.hypot(stone.x - ax, stone.z - az);
+    // STOP AT THE PLATE'S RIM. A carriageway that runs UNDER the plate reports a
+    // five-unit step where its deck meets the stone's own top — the trail leads
+    // TO the waystone, and the last pace onto it is the plate itself.
+    const span = full - WAYPOINT_PLATE_R;
+    // Under two paces there is nothing to draw: the plate is at the rim already.
+    if (span < 2) {
+      continue;
+    }
+    const steps = Math.max(2, Math.round(span / 2));
+    const route: { x: number; z: number }[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const u = (i / steps) * (span / full);
+      route.push({ x: ax + (stone.x - ax) * u, z: az + (stone.z - az) * u });
+    }
+    const pts = profileRoad(
+      terrain,
+      route,
+      // THE DECK'S height where it leaves the road, and the GROUND's where it
+      // arrives: a spur anchored to natural ground under a carved carriageway
+      // starts with a step in it (`test-road` measured 1.0).
+      stone.from.y,
+      terrain.getHeight(stone.x, stone.z),
+    );
+    if (pts.length < 2) {
+      continue;
+    }
+    const spur: Road = {
+      id: `path:waystone-${added}`,
+      fromId: "free",
+      toId: stone.id,
+      profile,
+      pts,
+      trim: new Float32Array(8),
+    };
+    // ADDED, NOT MERGED. A crossing splits both edges into a junction, which is
+    // right for two roads that MEET and wrong for a spur that leaves one at its
+    // rim: merging pulled the spur's start onto the centreline, and it laid its
+    // own gravel down the inside of the cart road (reported from play).
+    plan.network.add(spur);
+    added++;
+  }
+  if (added === 0) {
+    return;
+  }
+  plan.network.build();
+  // THE SAME THREE STEPS `World.addPath` TAKES, and for its reasons: the ribbons
+  // are re-fitted because a new arm reshapes the ones it meets, and the REGISTRY
+  // is re-set because it holds the drawn subset — a spur left out of it is a path
+  // the world carves and never paints, which is what the first cut shipped.
+  towns?.rebuildPaths(plan.network.roads, plan.network.junctions);
+  plan.towns.setRoads(plan.network.roads.filter((r) => r.profile.roles.draw));
+}
+
 /** For `World.debugColumn` alone — see there. */
 const dbgColumnScratch = makeScratch();
 
@@ -538,7 +665,7 @@ export function createWorld(
   }
   spawnPoint.y = terrain.getHeight(spawnPoint.x, spawnPoint.z);
 
-  const spots = placeShops(terrain, spawnPoint, seed, townReg);
+  const spots = placeShops(terrain, spawnPoint, seed, townReg, plan?.network.roads ?? []);
   const shops = new Shops(spots, spawnPoint);
   scene.add(shops.group);
 
@@ -548,6 +675,45 @@ export function createWorld(
   scene.add(spawned.group);
 
   const towns = plan ? new Towns(plan, new TownParts(), propLib, terrainMat, seed, terrain) : null;
+
+  // THE STANDING STONES, and they are sited AFTER the settlement is built for the
+  // reason the first cut of them got wrong: a site has to be tested against what
+  // is THERE, and a town's huts and palisade do not exist until `Towns` has run.
+  // One ended up inside Redbriar's wall. Each stone also gets a short trail from
+  // the carriageway, added to the network the same way any other path is —
+  // there is one path system, and a spur to a waystone is not an exception.
+  const waypoints = plan
+    ? new Waypoints(
+        waypointSites(plan.network.roads, plan.towns.all, plan.junction, {
+          heightAt: (x, z) => terrain.getHeight(x, z),
+          steepnessAt: (x, z) => terrain.steepnessAt(x, z),
+          waterLevel: WATER_LEVEL,
+          // What is BUILT, which at this point is the settlement and the dens.
+          built: (x, z, r) =>
+            (towns?.solids.hits(x, z, r, -Infinity, Infinity) ?? false) ||
+            shops.solids.hits(x, z, r, -Infinity, Infinity),
+          // What the ROAD stood up along itself — signposts and lamps.
+          furniture: towns?.furniture ?? [],
+        }),
+      )
+    : null;
+  if (waypoints && plan) {
+    scene.add(waypoints.group);
+    markStaticShadowCaster(waypoints.group);
+    // NO FLATTEN UNDER A WAYSTONE, and it is the one placed thing in the world
+    // that does not get one — twice tried, twice measured. A pad levels its core
+    // and ramps its blend, and the TRAIL has to cross that ramp: `test-road`
+    // read 6.4 units of step on the carriageway with the pad in, against 1.0
+    // without it. What a den can afford (nothing walks onto a den from a path) a
+    // waystone cannot.
+    //
+    // The stone answers the same rule a different way: it is sited at the
+    // HIGHEST ground under its own footprint (`waypointSites`), so it can only
+    // ever stand proud, and its skirt fills what is under the proud side. See
+    // `levelPad` for the pad rule this is the exception to.
+    cutWaypointTrails(terrain, plan, towns, waypoints.all);
+  }
+
   if (towns) {
     scene.add(towns.group);
     // Built ONCE and never streamed, so they are the other half of the static
@@ -590,6 +756,8 @@ export function createWorld(
     }
     // The dens first: the one set that exists in every world.
     let top = shops.solids.topAt(x, z);
+    // A standing stone is solid the way a hut is; `topAt` is -Infinity off it.
+    top = Math.max(top, waypoints?.solids.topAt(x, z) ?? -Infinity);
     if (towns) {
       const t = towns.solids.topAt(x, z);
       if (t > top) {
@@ -702,7 +870,7 @@ export function createWorld(
    *
    * NPCs are absent on purpose: a person walks, and a chunk's grass bakes once.
    */
-  const site = new SiteFields([shops.solids, towns?.solids]);
+  const site = new SiteFields([shops.solids, towns?.solids, waypoints?.solids]);
 
   // Created only after roads, towns and landmarks altered the height field, so
   // its silhouette samples the same authority as near ground. View distance is
@@ -996,6 +1164,8 @@ export function createWorld(
     waterLevel: WATER_LEVEL,
     spawnPoint,
     playerStart,
+    // Null when `towns=0` switched the road network off: no roads, no stones.
+    waypoints,
     shopPositions: shops.positions,
     towns: withCarriedTowns(townReg, sky ? [sky.town] : []),
     safeZones,
